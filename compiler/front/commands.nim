@@ -52,7 +52,8 @@ import
   compiler/utils/[
     nversion,
     pathutils,
-    platform
+    platform,
+    idioms,
   ]
 
 from compiler/front/in_options import MsgFormatKind
@@ -71,6 +72,136 @@ from compiler/ast/report_enums import ReportKind,
   repWarningGroups
 
 bootSwitch(usedTinyC, hasTinyCBackend, "-d:tinyc")
+
+type
+  # TODO:
+  # - rename to `Cmd` to `Cfg`, as only the CLI/cmd has version, help,
+  #   fullhelp, advanced and perhaps others
+  # - separate flags/switches and commands
+  CmdSwitchKind* = enum
+    cmdSwitchFromcmd
+    cmdSwitchPath
+    cmdSwitchNimblepath
+    cmdSwitchNonimblepath
+    cmdSwitchClearnimblepath
+    cmdSwitchExcludepath
+    cmdSwitchNimcache
+    cmdSwitchOut
+    cmdSwitchOutdir
+    cmdSwitchDepfile
+    cmdSwitchUsenimcache
+    cmdSwitchDocseesrcurl
+    cmdSwitchDocroot
+    cmdSwitchBackend
+    cmdSwitchDoccmd
+    cmdSwitchDefine
+    cmdSwitchUndef
+    cmdSwitchCompile
+    cmdSwitchLink
+    cmdSwitchDebuginfo
+    cmdSwitchEmbedsrc
+    cmdSwitchCompileonly
+    cmdSwitchNolinking
+    cmdSwitchNomain
+    cmdSwitchForcebuild
+    cmdSwitchProject
+    cmdSwitchGc
+    cmdSwitchWarnings
+    cmdSwitchWarning
+    cmdSwitchHint
+    cmdSwitchWarningaserror
+    cmdSwitchHintaserror
+    cmdSwitchHints
+    cmdSwitchThreadanalysis
+    cmdSwitchStacktrace
+    cmdSwitchStacktracemsgs
+    cmdSwitchExcessivestacktrace
+    cmdSwitchLinetrace
+    cmdSwitchDebugger
+    cmdSwitchProfiler
+    cmdSwitchMemtracker
+    cmdSwitchChecks
+    cmdSwitchFloatchecks
+    cmdSwitchInfchecks
+    cmdSwitchNanchecks
+    cmdSwitchObjchecks
+    cmdSwitchFieldchecks
+    cmdSwitchRangechecks
+    cmdSwitchBoundchecks
+    cmdSwitchOverflowchecks
+    cmdSwitchStaticboundchecks
+    cmdSwitchStylechecks
+    cmdSwitchLinedir
+    cmdSwitchAssertions
+    cmdSwitchThreads
+    cmdSwitchTlsemulation
+    cmdSwitchImplicitstatic
+    cmdSwitchTrmacros
+    cmdSwitchOpt
+    cmdSwitchApp
+    cmdSwitchPassc
+    cmdSwitchPassl
+    cmdSwitchCincludes
+    cmdSwitchClibdir
+    cmdSwitchClib
+    cmdSwitchHeader
+    cmdSwitchIndex
+    cmdSwitchImport
+    cmdSwitchInclude
+    cmdSwitchListcmd
+    cmdSwitchAsm
+    cmdSwitchGenmapping
+    cmdSwitchOs
+    cmdSwitchCpu
+    cmdSwitchRun
+    cmdSwitchMaxloopiterationsvm
+    cmdSwitchErrormax
+    cmdSwitchVerbosity
+    cmdSwitchParallelbuild
+    # cmdSwitchVersion      # CLI only, forces a quit
+    # cmdSwitchAdvanced     # CLI only, forces a quit
+    # cmdSwitchFullhelp     # CLI only, forces a quit
+    # cmdSwitchHelp         # CLI only, forces a quit
+    cmdSwitchIncremental
+    cmdSwitchSkipcfg
+    cmdSwitchSkipprojcfg
+    cmdSwitchSkipusercfg
+    cmdSwitchSkipparentcfg
+    cmdSwitchGenscript
+    cmdSwitchColors
+    cmdSwitchLib
+    cmdSwitchPutenv
+    cmdSwitchCc
+    cmdSwitchStdout
+    cmdSwitchFilenames
+    # cmdSwitchMsgformat    # CLI only
+    cmdSwitchProcessing
+    cmdSwitchUnitsep
+    cmdSwitchListfullpaths
+    cmdSwitchSpellsuggest
+    cmdSwitchDeclaredlocs
+    cmdSwitchDynliboverride
+    cmdSwitchDynliboverrideall
+    cmdSwitchExperimental
+    cmdSwitchExceptions
+    cmdSwitchCppdefine
+    cmdSwitchSeqsv2
+    cmdSwitchStylecheck
+    cmdSwitchShowallmismatches
+    cmdSwitchDocinternal
+    cmdSwitchMultimethods
+    cmdSwitchExpandmacro
+    cmdSwitchExpandarc
+    cmdSwitchBenchmarkvm
+    cmdSwitchProfilevm
+    cmdSwitchSinkinference
+    cmdSwitchCursorinference
+    cmdSwitchPanics
+    cmdSwitchSourcemap
+    cmdSwitchDeepcopy
+    cmdSwitchProjStdin
+    cmdSwitchCmdexitgcstats
+    cmdSwitchConfigVar
 
 type
   TCmdLinePass* = enum
@@ -322,110 +453,137 @@ const cmdNames = @[
   "secret", "nop", "help", "jsonscript",
 ]
 
+type
+  CompileOptArgCheckResult* = enum
+    compileOptArgCheckSuccessTrue
+    compileOptArgCheckSuccessFalse
+    compileOptArgCheckWarnFalseDeprecated
+    compileOptArgCheckFailedWithInvalidOption
+    compileOptArgCheckFailedWithUnexpectedValue
 
-proc testCompileOptionArg*(conf: ConfigRef; switch, arg: string, info: TLineInfo): bool =
+func allowedCompileOptionsArgs*(switch: CmdSwitchKind): seq[string] =
+  # xxx: make this exhaustive somehow
+  case switch
+  of cmdSwitchBackend     : validBackends.toSeq.mapIt($it)
+  of cmdSwitchGc          : gcNames
+  of cmdSwitchDebugger    : @["native", "gdb", "on", "off"]
+  of cmdSwitchOpt         : @["speed", "size", "none"]
+  of cmdSwitchApp         : @["gui", "console", "lib", "staticlib"]
+  of cmdSwitchOs          : platform.listOSnames()
+  of cmdSwitchCpu         : platform.listCPUnames()
+  of cmdSwitchVerbosity   : @["0", "1", "2", "3"]
+  of cmdSwitchIncremental : @["on", "off", "writeonly", "readonly", "v2", "stress"]
+  of cmdSwitchCc          : listCCnames()
+  of cmdSwitchFilenames   : @["abs", "canonical", "legacyRelProj"]
+  of cmdSwitchProcessing  : @["dots", "filenames", "off"]
+  of cmdSwitchExperimental: experimentalFeatures.toSeq.mapIt($it)
+  of cmdSwitchExceptions  : @["native", "goto"]
+  of cmdSwitchStylecheck  : @["off", "hint", "error", "usages"]
+  else: unreachable("this is a compiler bug")
+
+func allowedCompileOptionArgs*(switch: string): seq[string] =
+  let s =
+    try:
+      parseEnum[CmdSwitchKind](switch.normalize)
+    except ValueError:
+      unreachable("not really, this is a compiler bug")
+  allowedCompileOptionsArgs(s)
+
+func testCompileOptionArg*(conf: ConfigRef; switch, arg: string): CompileOptArgCheckResult =
+  template asResult(exp: bool): CompileOptArgCheckResult =
+    {.line.}:
+      if exp: compileOptArgCheckSuccessTrue
+      else:   compileOptArgCheckSuccessFalse
+
   case switch.normalize
   of "gc":
     case arg.normalize
-    of "boehm": result = conf.selectedGC == gcBoehm
-    of "refc": result = conf.selectedGC == gcRefc
-    of "markandsweep": result = conf.selectedGC == gcMarkAndSweep
-    of "destructors", "arc": result = conf.selectedGC == gcArc
-    of "orc": result = conf.selectedGC == gcOrc
-    of "hooks": result = conf.selectedGC == gcHooks
-    of "go": result = conf.selectedGC == gcGo
-    of "none": result = conf.selectedGC == gcNone
-    of "stack", "regions": result = conf.selectedGC == gcRegions
-    else:
-      conf.localReport(info, ExternalReport(
-        kind: rextUnexpectedValue,
-        cmdlineProvided: arg,
-        cmdlineSwitch: "gc",
-        cmdlineAllowed: gcNames))
-
+    of "boehm": asResult conf.selectedGC == gcBoehm
+    of "refc": asResult conf.selectedGC == gcRefc
+    of "markandsweep": asResult conf.selectedGC == gcMarkAndSweep
+    of "destructors", "arc": asResult conf.selectedGC == gcArc
+    of "orc": asResult conf.selectedGC == gcOrc
+    of "hooks": asResult conf.selectedGC == gcHooks
+    of "go": asResult conf.selectedGC == gcGo
+    of "none": asResult conf.selectedGC == gcNone
+    of "stack", "regions": asResult conf.selectedGC == gcRegions
+    else: compileOptArgCheckFailedWithUnexpectedValue
   of "opt":
     case arg.normalize
-    of "speed": result = contains(conf.options, optOptimizeSpeed)
-    of "size": result = contains(conf.options, optOptimizeSize)
-    of "none": result = conf.options * {optOptimizeSpeed, optOptimizeSize} == {}
-    else:
-      conf.localReport(info, ExternalReport(
-        kind: rextUnexpectedValue,
-        cmdlineSwitch: "opt",
-        cmdlineProvided: arg,
-        cmdlineAllowed: @["speed", "size", "none"]))
-
-  of "verbosity": result = $conf.verbosity == arg
+    of "speed": asResult optOptimizeSpeed in conf.options
+    of "size": asResult optOptimizeSize in conf.options
+    of "none": asResult conf.options * {optOptimizeSpeed,optOptimizeSize} == {}
+    else: compileOptArgCheckFailedWithUnexpectedValue
+  of "verbosity": asResult $conf.verbosity == arg
   of "app":
     case arg.normalize
-    of "gui": result = contains(conf.globalOptions, optGenGuiApp)
-    of "console": result = not contains(conf.globalOptions, optGenGuiApp)
-    of "lib": result = contains(conf.globalOptions, optGenDynLib) and
-                      not contains(conf.globalOptions, optGenGuiApp)
-    of "staticlib": result = contains(conf.globalOptions, optGenStaticLib) and
-                      not contains(conf.globalOptions, optGenGuiApp)
-    else:
-      conf.localReport(info, ExternalReport(
-        kind: rextUnexpectedValue,
-        cmdlineSwitch: "app",
-        cmdlineProvided: arg,
-        cmdlineAllowed: @["gui", "console", "lib", "staticlib"]))
-
-  of "dynliboverride":
-    result = isDynlibOverride(conf, arg)
+    of "gui": asResult optGenGuiApp in conf.globalOptions
+    of "console": asResult optGenGuiApp notin conf.globalOptions
+    of "lib": asResult optGenDynLib in conf.globalOptions and
+                      optGenGuiApp notin conf.globalOptions
+    of "staticlib": asResult optGenStaticLib in conf.globalOptions and
+                      optGenGuiApp notin conf.globalOptions
+    else: compileOptArgCheckFailedWithUnexpectedValue
+  of "dynliboverride": asResult isDynlibOverride(conf, arg)
   of "exceptions":
     case arg.normalize
-    of "native": result = conf.exc == excNative
-    of "goto": result = conf.exc == excGoto
-    else:
-      conf.localReport(info, ExternalReport(
-        kind: rextUnexpectedValue,
-        cmdlineSwitch: "exceptions",
-        cmdlineProvided: arg,
-        cmdlineAllowed: @["native", "goto"]))
+    of "native": asResult conf.exc == excNative
+    of "goto": asResult conf.exc == excGoto
+    else: compileOptArgCheckFailedWithUnexpectedValue
+  else: compileOptArgCheckFailedWithInvalidOption
 
-  else: invalidCmdLineOption(conf, passCmd1, switch, info)
+type
+  CompileOptCheckResult* = enum
+    compileOptCheckSuccessTrue
+    compileOptCheckSuccessFalse
+    compileOptCheckWarnFalseDeprecated
+    compileOptCheckFailedWithInvalidOption
 
-proc testCompileOption*(conf: ConfigRef; switch: string, info: TLineInfo): bool =
+func testCompileOption*(conf: ConfigRef; switch: string): CompileOptCheckResult =
+  template asResult(exp: bool): CompileOptCheckResult =
+    {.line.}:
+      if exp: compileOptCheckSuccessTrue
+      else:   compileOptCheckSuccessFalse
+
   case switch.normalize
-  of "debuginfo": result = contains(conf.globalOptions, optCDebug)
-  of "compileonly", "c": result = contains(conf.globalOptions, optCompileOnly)
-  of "nolinking": result = contains(conf.globalOptions, optNoLinking)
-  of "nomain": result = contains(conf.globalOptions, optNoMain)
-  of "forcebuild", "f": result = contains(conf.globalOptions, optForceFullMake)
-  of "warnings", "w": result = contains(conf.options, optWarns)
-  of "hints": result = contains(conf.options, optHints)
-  of "threadanalysis": result = contains(conf.globalOptions, optThreadAnalysis)
-  of "stacktrace": result = contains(conf.options, optStackTrace)
-  of "stacktracemsgs": result = contains(conf.options, optStackTraceMsgs)
-  of "linetrace": result = contains(conf.options, optLineTrace)
-  of "debugger": result = contains(conf.globalOptions, optCDebug)
-  of "profiler": result = contains(conf.options, optProfiler)
-  of "memtracker": result = contains(conf.options, optMemTracker)
-  of "checks", "x": result = conf.options * ChecksOptions == ChecksOptions
+  of "debuginfo": asResult optCDebug in conf.globalOptions
+  of "compileonly", "c": asResult optCompileOnly in conf.globalOptions
+  of "nolinking": asResult optNoLinking in conf.globalOptions
+  of "nomain": asResult optNoMain in conf.globalOptions
+  of "forcebuild", "f": asResult optForceFullMake in conf.globalOptions
+  of "warnings", "w": asResult optWarns in conf.options
+  of "hints": asResult optHints in conf.options
+  of "threadanalysis": asResult optThreadAnalysis in conf.globalOptions
+  of "stacktrace": asResult optStackTrace in conf.options
+  of "stacktracemsgs": asResult optStackTraceMsgs in conf.options
+  of "linetrace": asResult optLineTrace in conf.options
+  of "debugger": asResult optCDebug in conf.globalOptions
+  of "profiler": asResult optProfiler in conf.options
+  of "memtracker": asResult optMemTracker in conf.options
+  of "checks", "x": asResult conf.options * ChecksOptions == ChecksOptions
   of "floatchecks":
-    result = conf.options * {optNaNCheck, optInfCheck} == {optNaNCheck, optInfCheck}
-  of "infchecks": result = contains(conf.options, optInfCheck)
-  of "nanchecks": result = contains(conf.options, optNaNCheck)
-  of "objchecks": result = contains(conf.options, optObjCheck)
-  of "fieldchecks": result = contains(conf.options, optFieldCheck)
-  of "rangechecks": result = contains(conf.options, optRangeCheck)
-  of "boundchecks": result = contains(conf.options, optBoundsCheck)
-  of "overflowchecks": result = contains(conf.options, optOverflowCheck)
-  of "staticboundchecks": result = contains(conf.options, optStaticBoundsCheck)
-  of "stylechecks": result = contains(conf.options, optStyleCheck)
-  of "linedir": result = contains(conf.options, optLineDir)
-  of "assertions", "a": result = contains(conf.options, optAssert)
-  of "run", "r": result = contains(conf.globalOptions, optRun)
-  of "incremental": result = conf.symbolFiles != disabledSf
-  of "genscript": result = contains(conf.globalOptions, optGenScript)
-  of "threads": result = contains(conf.globalOptions, optThreads)
-  of "tlsemulation": result = contains(conf.globalOptions, optTlsEmulation)
-  of "implicitstatic": result = contains(conf.options, optImplicitStatic)
-  of "trmacros": result = contains(conf.options, optTrMacros)
-  of "excessivestacktrace": result = contains(conf.globalOptions, optExcessiveStackTrace)
-  of "cmdexitgcstats": result = contains(conf.globalOptions, optCmdExitGcStats)
-  else: invalidCmdLineOption(conf, passCmd1, switch, info)
+    asResult conf.options * {optNaNCheck, optInfCheck} == {optNaNCheck, optInfCheck}
+  of "infchecks": asResult optInfCheck in conf.options
+  of "nanchecks": asResult optNaNCheck in conf.options
+  of "objchecks": asResult optObjCheck in conf.options
+  of "fieldchecks": asResult optFieldCheck in conf.options
+  of "rangechecks": asResult optRangeCheck in conf.options
+  of "boundchecks": asResult optBoundsCheck in conf.options
+  of "overflowchecks": asResult optOverflowCheck in conf.options
+  of "staticboundchecks": asResult optStaticBoundsCheck in conf.options
+  of "stylechecks": asResult optStyleCheck in conf.options
+  of "linedir": asResult optLineDir in conf.options
+  of "assertions", "a": asResult optAssert in conf.options
+  of "run", "r": asResult optRun in conf.globalOptions
+  of "incremental": asResult conf.symbolFiles != disabledSf
+  of "genscript": asResult optGenScript in conf.globalOptions
+  of "threads": asResult optThreads in conf.globalOptions
+  of "tlsemulation": asResult optTlsEmulation in conf.globalOptions
+  of "implicitstatic": asResult optImplicitStatic in conf.options
+  of "trmacros": asResult optTrMacros in conf.options
+  of "excessivestacktrace": asResult optExcessiveStackTrace in conf.globalOptions
+  of "cmdexitgcstats": asResult optCmdExitGcStats in conf.globalOptions
+  else: compileOptCheckFailedWithInvalidOption
 
 proc processPath(conf: ConfigRef; path: string, info: TLineInfo, switch: string,
                  notRelativeToProj = false): AbsoluteDir =

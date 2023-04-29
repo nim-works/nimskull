@@ -38,8 +38,11 @@ import
     idioms,
   ]
 
-from compiler/front/msgs import internalError # xxx: legacy reports cruft is
-                                              #      hiding in here
+# xxx: legacy reports cruft
+from compiler/ast/report_enums import ReportKind
+from compiler/ast/reports_sem import SemReport
+from compiler/front/msgs import internalError,
+                                localReport
 
 from system/memory import nimCStrLen
 
@@ -337,10 +340,51 @@ proc evalOp(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): P
     result = copyTree(a)
     result.typ = n.typ
   of mCompileOption:
-    result = newIntNodeT(toInt128(ord(commands.testCompileOption(g.config, a.getStr, n.info))), n, idgen, g)
+    result =
+      case commands.testCompileOption(g.config, a.getStr)
+      of compileOptCheckSuccessTrue:
+        newIntNodeT(toInt128(ord(true)), n, idgen, g)
+      of compileOptCheckSuccessFalse:
+        newIntNodeT(toInt128(ord(false)), n, idgen, g)
+      of compileOptCheckWarnFalseDeprecated:
+        # xxx: there must be a nicer way to handle warnings, either inline as
+        #      error or side-channel into diagnostics somewhere?
+        if rsemDeprecatedCompilerOpt in g.config.warningAsErrors:
+          g.config.newError(n, PAstDiag(kind: adSemDeprecatedCompilerOpt,
+                                        badCompilerOpt: a))
+        else:
+          # TODO: remove legacy reports cruft
+          g.config.localReport(n.info,
+            SemReport(kind: rsemDeprecatedCompilerOpt, str: a.getStr))
+          newIntNodeT(toInt128(ord(false)), n, idgen, g)
+      of compileOptCheckFailedWithInvalidOption:
+        g.config.newError(n, PAstDiag(kind: adSemCompilerOptionInvalid,
+                                      badCompilerOpt: a))
   of mCompileOptionArg:
-    result = newIntNodeT(toInt128(ord(
-      testCompileOptionArg(g.config, getStr(a), getStr(b), n.info))), n, idgen, g)
+    result =
+      case commands.testCompileOptionArg(g.config, a.getStr, b.getStr)
+      of compileOptArgCheckSuccessTrue:
+        newIntNodeT(toInt128(ord(true)), n, idgen, g)
+      of compileOptArgCheckSuccessFalse:
+        newIntNodeT(toInt128(ord(false)), n, idgen, g)
+      of compileOptArgCheckWarnFalseDeprecated:
+        if rsemDeprecatedCompilerOptArg in g.config.warningAsErrors:
+          g.config.newError(n, PAstDiag(kind: adSemDeprecatedCompilerOptArg,
+                                        compilerOpt: a,
+                                        compilerOptArg: b))
+        else:
+          # TODO: remove legacy reports cruft
+          g.config.localReport(n.info,
+            SemReport(kind: rsemDeprecatedCompilerOptArg, str: a.getStr,
+                      compilerOptArg: b.getStr))
+          newIntNodeT(toInt128(ord(false)), n, idgen, g)
+      of compileOptArgCheckFailedWithUnexpectedValue:
+        g.config.newError(n, PAstDiag(kind: adSemCompilerOptionArgInvalid,
+                                      forCompilerOpt: a,
+                                      badCompilerOptArg: b))
+      of compileOptArgCheckFailedWithInvalidOption:
+        g.config.newError(n, PAstDiag(kind: adSemCompilerOptionInvalid,
+                                      badCompilerOpt: a))
   of mEqProc:
     result = newIntNodeT(toInt128(ord(
         exprStructuralEquivalent(a, b, strictSymEquality=true))), n, idgen, g)

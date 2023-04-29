@@ -20,7 +20,6 @@ import
   ],
   compiler/front/[
     options,
-    msgs,
   ],
   compiler/utils/[
     pathutils

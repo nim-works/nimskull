@@ -763,6 +763,9 @@ type
     rsemLinePragmaExpectsTuple
     rsemRaisesPragmaExpectsObject
 
+    rsemCompilerOptionInvalid
+    rsemCompilerOptionArgInvalid
+
     # -- locking
     rsemLocksPragmaExpectsList
     rsemLocksPragmaBadLevel
@@ -786,12 +789,14 @@ type
     # END !! add reports BEFORE the last enum !!
 
     # Semantic warnings begin
-    rsemUserWarning            = "User" ## `{.warning: }`
-    rsemUnknownMagic           = "UnknownMagic"
-    rsemUnusedImport           = "UnusedImport"
-    rsemDeprecated             = "Deprecated"
-    rsemLockLevelMismatch      = "LockLevel"
-    rsemTypelessParam          = "TypelessParam"
+    rsemUserWarning              = "User" ## `{.warning: }`
+    rsemUnknownMagic             = "UnknownMagic"
+    rsemUnusedImport             = "UnusedImport"
+    rsemDeprecated               = "Deprecated"
+    rsemDeprecatedCompilerOpt    = "Deprecated"
+    rsemDeprecatedCompilerOptArg = "Deprecated"
+    rsemLockLevelMismatch        = "LockLevel"
+    rsemTypelessParam            = "TypelessParam"
     rsemOwnedTypeDeprecated
 
     rsemWarnUnlistedRaises = "Effect" ## `sempass2.checkRaisesSpec` had

@@ -62,7 +62,7 @@ import
 
 import compiler/front/options as compiler_options
 from compiler/ast/reports_base_sem import ReportContext, ReportContextKind
-
+from compiler/front/commands import allowedCompileOptionArgs
 
 func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
 
@@ -93,7 +93,7 @@ func wrap*(
     color: ForegroundColor,
     style: set[Style] = {}
   ): string =
-  ## Optionally wrap text in ansi color formatting, of `conf` has coloring
+  ## Optionally wrap text in ansi color formatting, if `conf` has coloring
   ## enabled
   if conf.useColor:
     wrap(str, color, style)
@@ -419,7 +419,6 @@ const defaultRenderFlags: set[TRenderFlag] = {
     renderWithoutErrorPrefix
   }
 
-
 proc reportBody*(conf: ConfigRef, r: SemReport): string =
   proc render(n: PNode, rf = defaultRenderFlags): string = renderTree(n, rf)
   proc render(t: PType): string = typeToString(t)
@@ -486,7 +485,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           result.add(
             "; another read is done here: ",
             conf.toStr(r.missingTypeBoundElaboration.anotherRead.get()))
-
         elif r.missingTypeBoundElaboration.tryMakeSinkParam:
           result.add("; try to make", r.ast.render, "a 'sink' parameter")
 
@@ -613,8 +611,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           else:
             result.add(s.name.s, " is deprecated")
 
-
-
     of rsemThisPragmaRequires01Args:
       # FIXME remove this report kind, reuse "wrong number of arguments"
       result = "'this' pragma is allowed to have zero or one arguments"
@@ -640,10 +636,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
         if kind in {skVar, skLet, skConst} and
            taIsTemplateOrMacro in r.allowedType.allowedFlags:
-
           result &= ". Did you mean to call the $1 with '()'?" % [
             toHumanStr(typ.owner.kind)]
-
       else:
         result = "invalid type: '$1' in this context: '$2' for $3" % [
           typeToString(t), typeToString(typ), toHumanStr(kind)]
@@ -717,8 +711,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           args.add(", ")
         args.add(typeToString(r.ast[i].typ))
       args.add(")")
-
-
       result = "ambiguous call; both $1 and $2 match for: $3" % [
         getProcHeader(conf, r.symbols[0]),
         getProcHeader(conf, r.symbols[1]),
@@ -776,10 +768,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemTypeExpected:
       if r.sym.isNil:
         result = "type expected, but expression has no type"
-
       elif r.sym.typ.isNil:
         result = "type expected, but symbol '$1' has no type." % r.symstr
-
       else:
         result = "type expected, but got symbol '$1' of kind '$2'" %
           [r.sym.name.s, r.sym.kind.toHumanStr]
@@ -791,16 +781,13 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       if r.typ.isNil:
         if r.sym.isNil:
           result = "cannot instantiate: '$1'" % r.ast.render
-
         else:
           result = "cannot instantiate: '$1'" % r.symstr
-
       elif r.ownerSym.isNil:
         result.addf(
           "cannot instantiate: '$1'; Maybe generic arguments are missing?",
           typeToString(r.typ, preferDesc)
         )
-
       else:
         result.addf(
           "cannot instantiate '$1' inside of type definition: '$2'; " &
@@ -1079,7 +1066,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
       if conf.isDefined("nimLegacyTypeMismatch"):
         result.add  " got <$1>" % actualStr
-
       else:
         result.add  " got '$1' for '$2'" % [actualStr, r.ast.renderTree]
 
@@ -1818,7 +1804,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           r.symbols[0].name.s,
           conf.toStr(r.symbols[1].info)
         )
-
       else:
         result = "attempt to redefine: '" & r.symstr & "'"
 
@@ -2127,13 +2112,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemHoleEnumConvert:
       result = "conversion to enum with holes is unsafe: $1" % r.ast.render
 
-
     of rsemAnyEnumConvert:
       result = "enum conversion: $1" % r.ast.render
 
     of rsemUseOfGc:
       result = "'$1' uses GC'ed memory" % r.ast.render
-
 
     of rsemPattern:
       result = r.ast.render
@@ -2243,6 +2226,20 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemDiagnostics:
       result.add presentDiagnostics(conf, r.diag, startWithNewLine = false)
+
+    of rsemCompilerOptionInvalid:
+      result = "Invalid compiler option - " % r.str
+
+    of rsemDeprecatedCompilerOpt:
+      result = "'$#' is deprecated, now a noop" % r.str
+
+    of rsemCompilerOptionArgInvalid:
+      result = "Unexpected value for option '$#'. Expected one of $#, but got '$#'" %
+                [r.str, r.allowedOptArgs.join(", "), r.badCompilerOptArg]
+
+    of rsemDeprecatedCompilerOptArg:
+      result = "'$#' is deprecated for option '$#', now a noop" %
+                [r.str, r.compilerOptArg]
 
 
 const standalone = {
@@ -4264,6 +4261,31 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       return astDiagToLegacyReport(conf, diag.defNameSymData.identGenErr.diag)
     of adSemDefNameSymExistingError:
       return astDiagToLegacyReport(conf, diag.wrongNode.diag)
+  of adSemCompilerOptionInvalid,
+      adSemDeprecatedCompilerOpt:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      str: diag.badCompilerOpt.getStr)
+  of adSemCompilerOptionArgInvalid:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCompilerOptionArgInvalid,
+      ast: diag.wrongNode,
+      str: diag.forCompilerOpt.getStr,
+      badCompilerOptArg: diag.badCompilerOptArg.getStr,
+      allowedOptArgs: allowedCompileOptionArgs(diag.forCompilerOpt.getStr))
+  of adSemDeprecatedCompilerOptArg:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemDeprecatedCompilerOptArg,
+      ast: diag.wrongNode,
+      str: diag.compilerOpt.getStr,
+      compilerOptArg: diag.compilerOptArg.getStr)
   of adVmError:
     let
       kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()
