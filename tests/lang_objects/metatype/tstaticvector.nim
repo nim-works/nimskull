@@ -3,7 +3,6 @@ discard """
 0
 2
 100
-30.0 [data = [2.0]]
 '''
 """
 
@@ -71,5 +70,5 @@ proc mul*(a: TMat4f; b: TMat4f): TMat4f =
 
 var test = TVec4f(data: [1.0'f32, 2.0'f32, 3.0'f32, 4.0'f32])
 
-echo dot(test,test), " ", repr(col(test, 2))
-
+doAssert dot(test,test) == 30.0'f32
+doAssert col(test, 2) == TVec[1, float32](data: [2.0'f32])

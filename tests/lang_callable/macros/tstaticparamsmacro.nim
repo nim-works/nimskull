@@ -6,11 +6,6 @@ bb
 numbers
 11
 22
-AST a
-[(c: 11, d: 22), (c: 33, d: 44)]
-AST b
-(e: [55, 66], f: [77, 88])
-55
 10
 20Test
 20
@@ -45,11 +40,10 @@ const
   b : Tb = (@[55,66], @[77, 88])
 
 macro mA(data: static[Ta]): untyped =
-  echo "AST a\n", repr(data)
+  doAssert data == @[(11, 22), (33, 44)]
 
 macro mB(data: static[Tb]): untyped =
-  echo "AST b\n", repr(data)
-  echo data.e[0]
+  doAssert data == (@[55, 66], @[77, 88])
 
 mA(a)
 mB(b)

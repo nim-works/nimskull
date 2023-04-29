@@ -60,14 +60,14 @@ discard $(x1,)
 let n: csize = 1 # xxx should that be csize_t or is that essential here?
 doAssert $n.int32 == "1"
 
-# bug #14616
+# bug https://github.com/nim-lang/nim/issues/14616
 
 let limit = 1'u64
 
 let rangeVar = 0'u64 ..< limit
 
-doAssert repr(rangeVar) == """[a = 0,
-b = 0]"""
+doAssert rangeVar.a == 0'u64
+doAssert rangeVar.b == 0'u64
 
 # bug #15210
 

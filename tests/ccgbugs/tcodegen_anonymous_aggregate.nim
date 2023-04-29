@@ -28,4 +28,4 @@ type
     fulfilled: Atomic[bool]
 
 var x: Pledge
-doAssert x.repr == "[p = nil]"
+doAssert x.p == nil
