@@ -1411,9 +1411,9 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
   var s = n.sym
   case s.kind
   of skVar, skLet, skParam, skTemp, skResult, skForVar:
-    p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
     if sfCompileTime in s.flags:
       genVarInit(p, s, if s.ast != nil: s.ast else: newNodeI(nkEmpty, s.info))
+    p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
     let k = mapType(p, s.typ)
     if k == etyBaseIndex:
       r.typ = etyBaseIndex
@@ -1844,11 +1844,7 @@ proc genVarStmt(p: PProc, n: PNode) =
         var v = a[0].sym
         if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
           genLineDir(p, a)
-          if sfCompileTime notin v.flags:
-            genVarInit(p, v, a[2])
-          else:
-            # lazy emit, done when it's actually used.
-            if v.ast == nil: v.ast = a[2]
+          genVarInit(p, v, a[2])
 
 proc genConstant(p: PProc, c: PSym) =
   if lfNoDecl notin c.loc.flags and not p.g.generatedSyms.containsOrIncl(c.id):

@@ -1309,6 +1309,14 @@ proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
 
   assert sym.kind in {skVar, skLet, skTemp, skForVar}
 
+  if sfCompileTime in sym.flags and goIsNimvm notin c.options:
+    # XXX: ``.compileTime`` variables are currently lazily generated/emitted
+    #      (that is, only when they're actually used in alive code). This
+    #      approach has issues and needs to eventually be revisited, but for
+    #      now, we omit their definitions in non-compile-time contexts in order
+    #      to make the lazy-generation approach work
+    return
+
   # if there's an initial value and the destination is non-owning, we pass the
   # value directly to the def
   if hasInitExpr and not wantsOwnership:

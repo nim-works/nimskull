@@ -1,6 +1,7 @@
 # Bug #2022
 
 discard """
+  matrix: "--gc:refc; --gc:orc"
   output: '''@[97, 45]
 @[true, false]
 @[false, false]'''
