@@ -916,7 +916,7 @@ const
 
 proc initConfigRefCommon(conf: ConfigRef) =
   conf.symbols = newStringTable(modeStyleInsensitive)
-  conf.selectedGC = gcRefc
+  conf.selectedGC = gcUnselected
   conf.verbosity = compVerbosityDefault
   conf.hintProcessingDots = true
   conf.options = DefaultOptions
