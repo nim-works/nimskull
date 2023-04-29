@@ -9,7 +9,6 @@ deallocating
 deallocating
 deallocating
 allocating
-deallocating
 '''
 joinable: false
 """
@@ -28,7 +27,7 @@ template decRef(x): untyped =
 
 proc makeShared*[T](x: sink T): SharedPtr[T] =
   # XXX could benefit from a macro that generates it.
-  result = cast[SharedPtr[T]](allocShared(sizeof(x)))
+  result = SharedPtr[T](x: cast[ptr T](allocShared0(sizeof(x))))
   result.x[] = x
   echo "allocating"
 
