@@ -598,7 +598,8 @@ proc handleSpecialConv(c: ConfigRef, n: PNode, info: TLineInfo,
     assert source.kind == dest.kind
 
     if source.base.kind == tyObject:
-      if n.kind in {nkObjUpConv, nkObjDownConv} and sameType(dest, n[0].typ):
+      if n.kind in {nkObjUpConv, nkObjDownConv} and
+         sameType(dest, n[0].typ.skipTypes(abstractInst)):
         # this one and the previous conversion cancel each other out. Both
         # ``nkObjUpConv`` and ``nkObjDownConv`` are not treated as lvalue
         # conversions when the source/dest operands are pointer/reference-like,
