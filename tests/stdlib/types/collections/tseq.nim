@@ -11,8 +11,6 @@ FilterIt: [1, 3, 7]
 Concat: [1, 3, 5, 7, 2, 4, 6]
 Deduplicate: [1, 2, 3, 4, 5, 7]
 @[()]
-@[1, 42, 3]
-@[1, 42, 3]
 2345623456
 '''
 """
@@ -162,11 +160,10 @@ block tsequtils:
 block tshallowseq:
   proc xxx() =
     var x: seq[int] = @[1, 2, 3]
-    var y: seq[int]
-    system.shallowCopy(y, x)
+    var y {.cursor.} = x
     y[1] = 42
-    echo y
-    echo x
+    doAssert x == [1, 42, 3]
+    doAssert y == [1, 42, 3]
   xxx()
 
 
