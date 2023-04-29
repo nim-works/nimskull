@@ -22,25 +22,24 @@ import
     options,
     msgs,
   ],
-  compiler/ast/[
-    lineinfos,
-    reports
-  ],
   compiler/utils/[
     pathutils
   ]
 
-# TODO: implement this modules own diag/event/telemetry types
-from compiler/ast/reports_external import ExternalReport
-from compiler/ast/report_enums import ReportKind
-
-proc addPath*(conf: ConfigRef; path: AbsoluteDir, info: TLineInfo) =
+proc addPath*(conf: ConfigRef; path: AbsoluteDir) =
   if not conf.searchPaths.contains(path):
     conf.active.searchPaths.insert(path, 0)
 
 type
   Version* = distinct string
+  NimblePkgAddResult* = enum
+    nimblePkgInvalid
+    nimblePkgAdded
+    nimblePkgUpdated
+    nimblePkgOlder
   PackageInfo = Table[string, tuple[version, checksum: string]]
+  # xxx: `PackageInfo` should probably be improved to contain all the necessary
+  #      information and then be treated as the overall result.
 
 proc `$`*(ver: Version): string {.borrow.}
 
@@ -49,12 +48,11 @@ proc newVersion*(ver: string): Version =
            "Wrong version: " & ver)
   return Version(ver)
 
-proc isSpecial(ver: Version): bool =
-  return ($ver).len > 0 and ($ver)[0] == '#'
+func isSpecial(ver: Version): bool =
+  ($ver).len > 0 and ($ver)[0] == '#'
 
-proc isValidVersion(v: string): bool =
-  if v.len > 0:
-    if v[0] in {'#'} + Digits: return true
+func isValidVersion(v: string): bool =
+  v.len > 0 and v[0] in {'#'} + Digits
 
 proc `<`*(ver: Version, ver2: Version): bool =
   ## This is synced from Nimble's version module.
@@ -120,20 +118,22 @@ proc getPathVersionChecksum*(p: string): tuple[name, version, checksum: string] 
 
   result.name = p[0..<versionSeparatorIndex]
 
-proc addPackage*(conf: ConfigRef; packages: var PackageInfo, p: string;
-                 info: TLineInfo) =
+proc addPackage(packages: var PackageInfo, p: string): NimblePkgAddResult =
+  ## parses a package description string `p`, if valid adds it to `packages`
+  ## and returns true, otherwise returns false, as `p` is invalid.
   let (name, ver, checksum) = getPathVersionChecksum(p)
   if isValidVersion(ver):
-    let version = newVersion(ver)
-    if packages.getOrDefault(name).version.newVersion < version or
-      (not packages.hasKey(name)):
-      if checksum.isValidSha1Hash():
-        packages[name] = ($version, checksum)
-      else:
-        packages[name] = ($version, "")
+    let
+      version = newVersion(ver)
+      exists = packages.hasKey(name)
+    if not exists or packages.getOrDefault(name).version.newVersion < version:
+      packages[name] = if checksum.isValidSha1Hash(): ($version, checksum)
+                       else:                          ($version, "")
+      if exists: nimblePkgUpdated else: nimblePkgAdded
+    else:
+      nimblePkgOlder
   else:
-    conf.localReport ExternalReport(
-      kind: rextInvalidPackageName, packageName: p)
+    nimblePkgInvalid
 
 iterator chosen(packages: PackageInfo): string =
   for key, val in pairs(packages):
@@ -146,8 +146,12 @@ iterator chosen(packages: PackageInfo): string =
       res &= val.checksum
     yield res
 
-proc addNimblePath(conf: ConfigRef; p: string, info: TLineInfo) =
-  ## Add paths from the
+when defined(tnimblecmd): # unit test
+  export PackageInfo, chosen, addPackage
+
+proc addNimblePath(conf: ConfigRef; p: string) =
+  ## takes the nimble package path `p`, resolves a `nimble-link` if it exists,
+  ## then adds that to `conf`'s `lazyPaths`.
   var path = p
   let nimbleLinks = toSeq(walkPattern(p / "*.nimble-link"))
   if nimbleLinks.len > 0:
@@ -159,23 +163,46 @@ proc addNimblePath(conf: ConfigRef; p: string, info: TLineInfo) =
     if not path.isAbsolute():
       path = p / path
 
-  if not contains(conf.searchPaths, AbsoluteDir path):
-    conf.localReport ExternalReport(kind: rextPath, packagePath: path)
+  if not conf.searchPaths.contains(AbsoluteDir path):
     conf.active.lazyPaths.insert(AbsoluteDir path, 0)
 
-proc addPathRec(conf: ConfigRef; dir: string, info: TLineInfo) =
-  var packages: PackageInfo
-  var pos = dir.len-1
-  if dir[pos] in {DirSep, AltSep}: inc(pos)
-  for k,p in os.walkDir(dir):
-    if k == pcDir and p[pos] != '.':
-      addPackage(conf, packages, p, info)
-  for p in packages.chosen:
-    addNimblePath(conf, p, info)
+type
+  NimbleDirAdd = seq[tuple[path: string, status: NimblePkgAddResult]]
 
-proc nimblePath*(conf: ConfigRef; path: AbsoluteDir, info: TLineInfo) =
-  addPathRec(conf, path.string, info)
-  addNimblePath(conf, path.string, info)
+proc addPathRec(conf: ConfigRef; dir: string): NimbleDirAdd =
+  var
+    packages: PackageInfo
+    pos = dir.len-1
+  if dir[pos] in {DirSep, AltSep}: inc(pos)
+  for k, p in os.walkDir(dir):
+    if k == pcDir and p[pos] != '.':
+      let status = addPackage(packages, p)
+      case status
+      of nimblePkgInvalid, nimblePkgAdded, nimblePkgUpdated:
+        result.add (path: p, status: status)
+      of nimblePkgOlder:
+        discard "we ignore these"
+  for p in packages.chosen:
+    addNimblePath(conf, p)
+
+type
+  NimblePathResult* = object
+    pkgs*: NimbleDirAdd
+    addedPaths*: seq[AbsoluteDir]
+
+proc nimblePath*(conf: ConfigRef; path: AbsoluteDir): NimblePathResult =
+  let initialPathCount = conf.active.lazyPaths.len
+  result.pkgs = addPathRec(conf, path.string)
+  addNimblePath(conf, path.string)
+  let currentPathCount = conf.active.lazyPaths.len
+
+  if initialPathCount < currentPathCount:
+    let totalAddedPaths = currentPathCount - initialPathCount
+    result.addedPaths = newSeqOfCap[AbsoluteDir](totalAddedPaths)
+    for i in 0..<totalAddedPaths:
+      let idx = totalAddedPaths - 1 - i
+      # add them in insertion order
+      result.addedPaths.add conf.active.lazyPaths[idx]
   let i = conf.nimblePaths.find(path)
   if i != -1:
     conf.active.nimblePaths.delete(i)
