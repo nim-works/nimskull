@@ -4,7 +4,7 @@ discard """
     defined inside a procedure's body are properly destroyed
   '''
   targets: "c"
-  knownIssue: "the `injectdestructors` pass is not for the initializer"
+  knownIssue: "the `injectdestructors` pass is not invoked for the initializer"
 """
 
 var wasDestroyed: bool
