@@ -1,6 +1,9 @@
 discard """
   output: '''@[5, 5, 5, 5, 5]'''
+  matrix: "--gc:refc; --gc:orc"
 """
+
+# TODO: the test applies to all code-generators -- move it somewhere else
 
 # bug #1832
 
