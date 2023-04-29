@@ -565,7 +565,10 @@ proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
   of "lib":
     testStdlib(r, "lib/pure/", options, cat)
   of "ic":
-    icTests(r, testsDir / cat2, cat, options)
+    # XXX: using ``--gc:refc`` for the IC tests only shifts the problem
+    #      around. Eventually, the tests or the implementation need to be
+    #      removed, or IC made to work with ORC
+    icTests(r, testsDir / cat2, cat, options & " --gc:refc")
   of "untestable":
     # These require special treatment e.g. because they depend on a third party
     # dependency; see `trunner_special` which runs some of those.
