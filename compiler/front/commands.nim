@@ -559,15 +559,26 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     expectArg(conf, switch, arg, pass, info)
     for path in nimbleSubs(conf, arg):
       addPath(conf, if pass == passPP: processCfgPath(conf, path, info, switch)
-                    else: processPath(conf, path, info, switch), info)
+                    else: processPath(conf, path, info, switch))
   of "nimblepath":
     if pass in {passCmd2, passPP} and optNoNimblePath notin conf.globalOptions:
       expectArg(conf, switch, arg, pass, info)
       var path = processPath(conf, arg, info, switch, notRelativeToProj=true)
+      # TODO: move up nimble stuff, then set path once
       let nimbleDir = AbsoluteDir getEnv("NIMBLE_DIR")
       if not nimbleDir.isEmpty and pass == passPP:
         path = nimbleDir / RelativeDir"pkgs"
-      nimblePath(conf, path, info)
+      let res = nimblePath(conf, path)
+      for it in res.pkgs.items:
+        case it.status
+        of nimblePkgInvalid:
+          conf.localReport(info, ExternalReport(kind: rextInvalidPackageName,
+                                                packageName: it.path))
+        else:
+          discard
+      for p in res.addedPaths.items:
+        conf.localReport(info, ExternalReport(kind: rextPath,
+                                              packagePath: p.string))
   of "nonimblepath":
     expectNoArg(conf, switch, arg, pass, info)
     disableNimblePath(conf)
