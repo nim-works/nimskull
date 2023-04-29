@@ -230,7 +230,7 @@ proc loadAny(p: var JsonParser, a: Any, t: var Table[BiggestInt, pointer]) =
   of akString:
     case p.kind
     of jsonNull:
-      setPointer(a, nil)
+      setString(a, "")
       next(p)
     of jsonString:
       setString(a, p.str)
