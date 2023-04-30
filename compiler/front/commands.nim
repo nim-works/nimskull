@@ -345,61 +345,90 @@ proc expectNoArg(conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, info:
     conf.localReport ExternalReport(
       kind: rextExpectedNoCmdArgument, cmdlineProvided: arg, cmdlineSwitch: switch)
 
+type
+  ProcessNoteResultKind* = enum
+    procNoteSuccess
+    procNoteInvalidOption
+    procNoteInvalidHint
+    procNoteInvalidWarning
+    procNoteExpectedOnOrOff
+    procNoteOnlyAllOffSupported
+
+  ProcessNoteResult* = object
+    case kind*: ProcessNoteResultKind
+      of procNoteSuccess:
+        discard
+      of procNoteInvalidOption,
+          procNoteExpectedOnOrOff,
+          procNoteOnlyAllOffSupported:
+        switch*: string
+        argVal*: string # not used for `procNoteInvalidOption`
+      of procNoteInvalidHint, procNoteInvalidWarning:
+        invalidHintOrWarning*: string
+
 proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
-                         info: TLineInfo; orig: string; conf: ConfigRef) =
+                          orig: string; conf: ConfigRef): ProcessNoteResult =
+  # TODO: updated to specify hint vs warn, etc in the return value
   var
     id = ""  # arg = key or [key] or key:val or [key]:val;  with val=on|off
     i = 0
     notes: ReportKinds
     isBracket = false
-  
+
   if i < arg.len and arg[i] == '[':
     isBracket = true
     inc(i)
-  
+
   while i < arg.len and (arg[i] notin {':', '=', ']'}):
     id.add(arg[i])
     inc(i)
-  
+
   if isBracket:
     if i < arg.len and arg[i] == ']': inc(i)
-    else: invalidCmdLineOption(conf, pass, orig, info)
+    else: return ProcessNoteResult(kind: procNoteInvalidOption, switch: orig)
 
   if i == arg.len: discard
   elif i < arg.len and (arg[i] in {':', '='}): inc(i)
-  else: invalidCmdLineOption(conf, pass, orig, info)
+  else: return ProcessNoteResult(kind: procNoteInvalidOption, switch: orig)
 
   # TODO: `ReportKinds` being used for notes/groups/etc is just wrong, it
   #        defines far more elements than one can actually control. A purpose
   #        built enum is required.
 
-  proc findNote(noteSet: ReportKinds, onFail: ReportKind, groups: seq[(string, ReportKinds)]) =
+  proc findNote(noteSet: ReportKinds, groups: seq[(string, ReportKinds)]): ReportKinds =
     # Check groups like `--hint/warning[all]` or `--hint[Performance]` (very
     # vague term that maps onto multiple report kinds, such as "copies to
     # sink") first, because report groups have the same string values:
     # (`rlexLinterReport = "Name"`, `rsemLinterReport = "Name"`)
     for (groupName, flags) in groups:
       if cmpIgnoreStyle(groupName, id) == 0:
-        notes = flags
-        return
+        return flags
 
-    # unfortunately, hintUser and warningUser clash, otherwise
-    # implementation would simplify a bit
-    let x = findStr(noteSet, id, onFail)
-    if x != onFail:
-      notes = {x}
+    # report enums can have the same string value, indicating that they should
+    # be grouped, this is why we iterate through the set and comparing by name
+    for rk in items(noteSet - {repNone}):
+      if cmpIgnoreStyle($rk, id) == 0:
+        result.incl rk
+
+    if result == {}:
+      result = {repNone}
+
+  # unfortunately, hintUser and warningUser clash, otherwise
+  # implementation would simplify a bit
+  notes =
+    if state in {wHint, wHintAsError}:
+      findNote(repHintKinds, repHintGroups)
     else:
-      var r = ExternalReport(kind: onFail)
-      r.cmdlineProvided = id
-      for kind in noteSet:
-        r.cmdlineAllowed.add $kind
+      findNote(repWarningKinds, repWarningGroups)
 
-      conf.localReport r
-
-  if state in {wHint, wHintAsError}:
-    findNote(repHintKinds, rextInvalidHint, repHintGroups)
-  else:
-    findNote(repWarningKinds, rextInvalidWarning, repWarningGroups)
+  if notes == {repNone}:
+    return
+      if state in {wHint, wHintAsError}:
+        ProcessNoteResult(kind: procNoteInvalidHint,
+                          invalidHintOrWarning: id)
+      else:
+        ProcessNoteResult(kind: procNoteInvalidWarning,
+                          invalidHintOrWarning: id)
 
   var val = substr(arg, i).normalize
   if val == "":
@@ -409,12 +438,11 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
     # xxx in future work we should also allow users to have control over
     # `foreignPackageNotes` so that they can enable
     # `hints|warnings|warningAsErrors` for all the code they depend on.
-    conf.localReport ExternalReport(
-      kind: rextExpectedOnOrOff, cmdlineProvided: arg)
+    return ProcessNoteResult(kind: procNoteExpectedOnOrOff, switch: arg, argVal: val)
   else:
     let isOn = val == "on"
     if isOn and id.normalize == "all":
-      conf.localReport ExternalReport(kind: rextOnlyAllOffSupported)
+      return ProcessNoteResult(kind: procNoteOnlyAllOffSupported, switch: arg, argVal: val)
 
     for n in notes:
       if n notin conf.cmdlineNotes or pass == passCmd1:
@@ -431,6 +459,8 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
 
         if not isOn:
           conf.excl(cnForeign, n)
+
+  result = ProcessNoteResult(kind: procNoteSuccess)
 
 proc processCompile(conf: ConfigRef; filename: string) =
   var found = findFile(conf, filename)
@@ -699,15 +729,41 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
                     conf: ConfigRef) =
   var
     key, val: string
-  proc invalidSwitchValue(
-    wanted: seq[string], cmdlineError: string = ""): ExternalReport =
 
-    ExternalReport(
-      kind: rextInvalidValue,
-      cmdlineProvided: arg,
-      cmdlineAllowed: wanted,
-      cmdlineError: cmdlineError,
-      cmdlineSwitch: switch)
+  proc invalidSwitchValue(wanted: seq[string],
+                          cmdlineError: string = ""): ExternalReport =
+    ExternalReport(kind: rextInvalidValue,
+                   cmdlineProvided: arg,
+                   cmdlineAllowed: wanted,
+                   cmdlineError: cmdlineError,
+                   cmdlineSwitch: switch)
+
+  template processSpecificNoteAndLog(arg: string, state: TSpecialWord,
+                                     pass: TCmdLinePass, orig: string,
+                                     conf: ConfigRef) =
+    let r = processSpecificNote(arg, state, pass, orig, conf)
+    # need to map this to the legacy reports trash fire
+    case r.kind
+    of procNoteInvalidOption:
+      invalidCmdLineOption(conf, pass, orig, info)
+    of procNoteInvalidHint:
+      conf.localReport(info):
+        ExternalReport(kind: rextInvalidHint,
+                      cmdlineProvided: r.invalidHintOrWarning,
+                      cmdlineAllowed: repHintKinds.mapIt($it))
+    of procNoteInvalidWarning:
+      conf.localReport(info):
+        ExternalReport(kind: rextInvalidWarning,
+                      cmdlineProvided: r.invalidHintOrWarning,
+                      cmdlineAllowed: repWarningKinds.mapIt($it))
+    of procNoteExpectedOnOrOff:
+      conf.localReport(info):
+        ExternalReport(kind: rextExpectedOnOrOff, cmdlineProvided: arg)
+    of procNoteOnlyAllOffSupported:
+      conf.localReport(info):
+        ExternalReport(kind: rextOnlyAllOffSupported)
+    of procNoteSuccess:
+      discard "TODO: log a trace for success?"
 
   case switch.normalize
   of "fromcmd":
@@ -871,12 +927,12 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "warnings", "w":
     if processOnOffSwitchOrList(conf, {optWarns}, arg, pass, info, switch):
       listWarnings(conf)
-  of "warning": processSpecificNote(arg, wWarning, pass, info, switch, conf)
-  of "hint": processSpecificNote(arg, wHint, pass, info, switch, conf)
+  of "warning": processSpecificNoteAndLog(arg, wWarning, pass, switch, conf)
+  of "hint": processSpecificNoteAndLog(arg, wHint, pass, switch, conf)
   of "warningaserror":
-    processSpecificNote(arg, wWarningAsError, pass, info, switch, conf)
+    processSpecificNoteAndLog(arg, wWarningAsError, pass, switch, conf)
   of "hintaserror":
-    processSpecificNote(arg, wHintAsError, pass, info, switch, conf)
+    processSpecificNoteAndLog(arg, wHintAsError, pass, switch, conf)
   of "hints":
     if processOnOffSwitchOrList(conf, {optHints}, arg, pass, info, switch):
       listHints(conf)
@@ -1356,13 +1412,6 @@ proc processArgument*(pass: TCmdLinePass; p: OptParser;
       result = true
   inc argsCount
 
-proc addCmdPrefix*(result: var string, kind: CmdLineKind) =
-  # consider moving this to std/parseopt
-  case kind
-  of cmdLongOption: result.add "--"
-  of cmdShortOption: result.add "-"
-  of cmdArgument, cmdEnd: discard
-
 type
   CliData = object
     ## Information used to construct messages for CLI reports - `--help`,
@@ -1462,8 +1511,11 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
     case p.kind
     of cmdEnd: break
     of cmdLongOption, cmdShortOption:
-      config.commandLine.add " "
-      config.commandLine.addCmdPrefix p.kind
+      config.commandLine.add:
+        case p.kind
+        of cmdShortOption: " -"
+        of cmdLongOption:  " --"
+        else: unreachable()
       config.commandLine.add p.key.quoteShell # quoteShell to be future proof
       if p.val.len > 0:
         config.commandLine.add ':'
