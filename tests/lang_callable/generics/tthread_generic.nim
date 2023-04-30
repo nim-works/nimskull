@@ -1,6 +1,6 @@
 discard """
   target: "!vm !js"
-  matrix: "--threads:on"
+  matrix: "--threads:on --gc:refc; --threads:on --gc:orc"
   action: compile
 """
 
