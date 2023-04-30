@@ -519,7 +519,7 @@ proc writelnHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
   conf.writelnHook(conf, msg, flags)
 
 proc writeHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
-  ## Write string usign write hook
+  ## Write string using write hook
   conf.writeHook(conf, msg, flags)
 
 proc writeln*(conf: ConfigRef, args: varargs[string, `$`]) =

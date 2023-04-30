@@ -46,6 +46,7 @@ template toStdOrrKind(stdOrr): untyped =
 
 proc flushDot*(conf: ConfigRef) =
   ## safe to call multiple times
+  # xxx: this proc is a bad idea, no need to have all sorts of callers to it
   let stdOrr = if optStdout in conf.globalOptions: stdout else: stderr
   let stdOrrKind = toStdOrrKind(stdOrr)
   if stdOrrKind in conf.lastMsgWasDot:
@@ -242,15 +243,28 @@ proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
   ##
   ## This procedure is used as a default implementation of the
   ## `ConfigRef.writeHook`.
-  let sep = if msgNoUnitSep notin flags: conf.unitSep else: ""
+  let
+    sep = if msgNoUnitSep notin flags: conf.unitSep else: ""
+    isDot = s == "."
+
+  template newLineIfRequired(stdOrr: untyped) =
+    let stdOrrKind = toStdOrrKind(stdOrr)
+    if stdOrrKind in conf.lastMsgWasDot and not isDot:
+      write(stdOrr, "\n")
+    if isDot:
+      conf.lastMsgWasDot.incl stdOrrKind
+    else:
+      conf.lastMsgWasDot.excl stdOrrKind
 
   if optStdout in conf.globalOptions or msgStdout in flags:
     if eStdOut in conf.m.errorOutputs:
+      newLineIfRequired(stdout)
       write(stdout, s)
       write(stdout, sep)
       flushFile(stdout)
   else:
     if eStdErr in conf.m.errorOutputs:
+      newLineIfRequired(stderr)
       write(stderr, s)
       write(stderr, sep)
 

@@ -3556,7 +3556,6 @@ const
   traceDir = "nimCompilerDebugTraceDir"
 
 var
-  lastDot: bool = false
   traceFile: File
   fileIndex: int = 0
 
@@ -4470,16 +4469,10 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       #      infrastructure is overwrought. seriously, they're not hints, they're
       #      progress indicators.
       conf.write(".")
-      lastDot = true
     else:
       var msg: seq[string]
-      if lastDot:
-        msg.add("")
-        lastDot = false
-
       if conf.hack.reportInTrace:
         var indent {.global.}: int
-
         case r.kind:
         of rdbgTracerKinds:
           if r.kind == rdbgTraceStep:
@@ -4496,7 +4489,11 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       else:
         msg.add(conf.reportFull(r))
 
-      if conf.hack.bypassWriteHookForTrace:
+      if conf.hack.reportInTrace and conf.hack.bypassWriteHookForTrace:
+        # leverage `msgs` output once it's free of legacy reports
+        if stdOrrStdout in conf.lastMsgWasDot:
+          conf.lastMsgWasDot.excl stdOrrStdout
+          echo ""
         for item in msg:
           echo item
       else:
