@@ -1756,6 +1756,9 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
   of tyStatic:
     p.config.internalAssert(t.n != nil, "createVar: " & $t.kind)
     result = createVar(p, lastSon t, indirect)
+  of tyUserTypeClasses:
+    p.config.internalAssert(t.isResolvedUserTypeClass)
+    result = createVar(p, lastSon t, indirect)
   else:
     internalError(p.config, "createVar: " & $t.kind)
     result = ""

@@ -1187,7 +1187,7 @@ proc injectTemporaries(tree: MirTree, c: var Changeset) =
     let isMangedRValue =
       case n.kind
       of mnkCall, mnkMagic:
-        hasDestructor(n.typ.skipTypes(skipAliases))
+        hasDestructor(n.typ)
       of mnkObjConstr:
         # there's no need to skip ``tyDistinct`` here - a ``distinct ref``
         # can't be constructed. We also don't need to consider non-ref
