@@ -33,6 +33,7 @@ import
   ],
   compiler/front/[
     options,
+    optionsprocessor,
     commands,
     msgs,
     cmdlinehelper,
@@ -668,7 +669,10 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
         conf.suggestMaxResults = parseInt(p.val)
       of "find":
         findProject = true
-      else: processSwitch(pass, p, conf)
+      else:
+        let res = processSwitch(pass, p, conf)
+        for e in procSwitchResultToEvents(conf, pass, p.key, p.val, res):
+          conf.cliEventLogger(e)
     of cmdArgument:
       let a = unixToNativePath(p.key)
       if dirExists(a) and not fileExists(a.addFileExt("nim")):

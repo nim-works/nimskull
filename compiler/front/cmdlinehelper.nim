@@ -16,7 +16,8 @@ import
   std/options as std_options,
   compiler/ast/[
     idents,
-    lineinfos
+    lineinfos,
+    lexer,
   ],
   compiler/modules/[
     modulegraphs
@@ -26,29 +27,24 @@ import
     commands,
     msgs,
     options,
+    optionsprocessor,
     condsyms,
     cli_reporter,
     sexp_reporter,
   ],
   compiler/utils/[
     pathutils,
-    idioms
   ],
   compiler/backend/[
     extccomp
   ]
 
+from experimental/colortext import ForegroundColor, toString
+
 from std/strutils import endsWith, `%`
 
 # xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_lexer import LexerReport
-from compiler/ast/reports_parser import ParserReport
-from compiler/ast/reports_internal import InternalReport
-from compiler/ast/reports_external import ExternalReport
 from compiler/ast/report_enums import ReportKind
-from compiler/ast/reports import Report,
-  ReportCategory,
-  toReportLineInfo
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
   when defined(unix):
@@ -63,88 +59,136 @@ type
     supportsStdinFile*: bool
     processCmdLine*: proc(pass: TCmdLinePass, cmd: string; config: ConfigRef)
 
-proc handleConfigEvent(
-    conf: ConfigRef,
-    evt: ConfigFileEvent,
-    reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing
-  ) =
-  # REFACTOR: this is a temporary bridge into existing reporting
+type
+  ConfDiagSeverity = enum
+    configDiagSevFatal = "Fatal:"
+    configDiagSevError = "Error:"
+    configDiagSevWarn  = "Warning:"
+    configDiagSevInfo  = "Hint:"
 
-  let kind =
-    case evt.kind
-    of cekParseExpectedX, cekParseExpectedCloseX:
-      # xxx: rlexExpectedToken is not a "lexer" error, but a misguided
-      #      attempt at code reuse -- fix after reporting is untangled.
-      rlexExpectedToken
-    of cekParseExpectedIdent:
-      rparIdentExpected
-    of cekInvalidDirective:
-      rlexCfgInvalidDirective
-    of cekWriteConfig:
-      rintNimconfWrite
-    of cekInternalError:
-      rintIce
-    of cekLexerErrorDiag, cekLexerWarningDiag, cekLexerHintDiag:
-      evt.lexerDiag.kind.lexDiagToLegacyReportKind
-    of cekProgressConfStart:
-      rextConf
+proc writeConfigEvent(conf: ConfigRef,
+                       evt: ConfigFileEvent,
+                       writeFrom: InstantiationInfo) =
+  case evt.kind
+  of cekProgressConfStart:
+    if not conf.isEnabled(rextConf): return
+  of cekProgressPathAdded:
+    if not conf.isEnabled(rextPath): return
+  else:
+    discard "continue processing"
 
-  let rep =
-    case evt.kind
-    of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag,
-        cekLexerHintDiag:
-      evt.lexerDiag.lexerDiagToLegacyReport
-    else:
-      case kind
-      of rlexExpectedToken:
-        let msgTempl =
-          case evt.kind
-          of cekParseExpectedCloseX: "closing '$1'"
-          of cekParseExpectedX:      "'$1'"
-          else: unreachable()
-        Report(
-          category: repLexer,
-          lexReport: LexerReport(
-            location: std_options.some evt.location,
-            reportInst: evt.instLoc.toReportLineInfo,
-            msg: msgTempl % evt.msg,
-            kind: kind))
-      of rlexCfgInvalidDirective:
-        Report(
-          category: repLexer,
-          lexReport: LexerReport(
-            location: std_options.some evt.location,
-            reportInst: evt.instLoc.toReportLineInfo,
-            msg: evt.msg,
-            kind: kind))
-      of rparIdentExpected:
-        Report(
-          category: repParser,
-          parserReport: ParserReport(
-            location: std_options.some evt.location,
-            reportInst: evt.instLoc.toReportLineInfo,
-            msg: evt.msg,
-            kind: kind))
-      of rintNimconfWrite:
-        Report(
-          category: repInternal,
-          internalReport: InternalReport(
-            location: std_options.some evt.location,
-            reportInst: evt.instLoc.toReportLineInfo,
-            msg: evt.msg,
-            kind: kind))
-      of rextConf:
-        Report(
-          category: repExternal,
-          externalReport: ExternalReport(
-            reportInst: evt.instLoc.toReportLineInfo,
-            kind: kind,
-            msg: evt.msg))
+  let
+    showKindSuffix = conf.hasHint(rintErrKind)
+    pathInfo =
+      case evt.kind
+      of cekParseExpectedX, cekParseExpectedCloseX, cekParseExpectedIdent,
+           cekInvalidDirective, cekWriteConfig, cekProgressPathAdded:
+        evt.location
+      of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag:
+        evt.lexerDiag.location
+      of cekFlagError:
+        evt.flagInfo
+      of cekProgressConfStart:
+        unknownLineInfo
+    useColor = if conf.cmd == cmdIdeTools: false else: conf.useColor()
+    msgKindTxt =
+      case evt.kind
+      of cekParseExpectedX, cekParseExpectedCloseX, cekParseExpectedIdent,
+          cekInvalidDirective, cekWriteConfig, cekInternalError,
+          cekLexerErrorDiag, cekFlagError:
+        ""
+      of cekLexerWarningDiag:
+        case evt.lexerDiag.kind
+        of lexDiagDeprecatedOctalPrefix: "[$1]" % $lexDiagDeprecatedOctalPrefix
+        else:                            ""
+      of cekProgressPathAdded:           "[$1]" % $cekProgressPathAdded
+      of cekProgressConfStart:           "[$1]" % $cekProgressConfStart
+    msgKindSuffix =
+      if msgKindTxt == "": ""
       else:
-        unreachable("handleConfigEvent unexpected kind: " & $kind)
-  
-  handleReport(conf, rep, reportFrom, eh)
+        if useColor: stylize(msgKindTxt, fgCyan)
+        else:        msgKindTxt
+    msgOrigin =
+      if conf.hasHint(rintMsgOrigin):
+        cliFmtMsgOrigin(evt.instLoc, showKindSuffix, useColor)
+      else:
+        ""
+    path =
+      case evt.kind
+      of cekParseExpectedX, cekParseExpectedCloseX, cekParseExpectedIdent,
+           cekInvalidDirective, cekWriteConfig, cekProgressPathAdded:
+        conf.cliFmt(evt.location, useColor)
+      of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag:
+        conf.cliFmt(evt.lexerDiag.location, useColor)
+      of cekFlagError:
+        conf.cliFmt(evt.flagInfo, useColor)
+      of cekProgressConfStart:
+        ""
+  const severityColors: array[ConfDiagSeverity, ForegroundColor] = [
+    fgRed, fgRed, fgYellow, fgGreen
+  ]
+
+  template styleSeverity(sev: ConfDiagSeverity): string =
+    if useColor:
+      stylize($sev, severityColors[sev])
+    else:
+      $sev
+
+  let
+    severity =
+      case evt.kind
+      of cekInternalError:
+        styleSeverity configDiagSevFatal
+      of cekLexerErrorDiag..cekFlagError:
+        styleSeverity configDiagSevError
+      of cekLexerWarningDiag:
+        styleSeverity configDiagSevWarn
+      of cekProgressConfStart, cekProgressPathAdded:
+        styleSeverity configDiagSevInfo # xxx: not really a hint
+      of cekWriteConfig:
+        "" # not a log/diagnostic like the rest; has none
+
+  conf.writeln:
+    case evt.kind
+    of cekParseExpectedX:
+      # path severity msg [kindsuffix] [msgOrigin]
+      let msg = "expected '$1'" % evt.msg
+      "$# $# $#$#" % [path, severity, msg, msgOrigin]
+    of cekParseExpectedCloseX:
+      let msg = "expected closing '$1'" % evt.msg
+      "$# $# $#$#" % [path, severity, msg, msgOrigin]
+    of cekParseExpectedIdent:
+      let msg = "identifier expected, but found '$1'" % evt.msg
+      "$# $# $#$#" % [path, severity, msg, msgOrigin]
+    of cekInvalidDirective:
+      let msg = "invalid directive: '$1'" % evt.msg
+      "$# $# $#$#" % [path, severity, msg, msgOrigin]
+    of cekInternalError, cekLexerErrorDiag:
+      let msg = diagToHumanStr(evt.lexerDiag)
+      "$# $# $#$#" % [path, severity, msg, msgOrigin]
+    of cekLexerWarningDiag:
+      let msg = diagToHumanStr(evt.lexerDiag)
+      "$# $# $#$#$#$#" % [path, severity, msg,
+                          if msgKindSuffix == "": "" else: " ", # spacing
+                          msgKindSuffix,
+                          msgOrigin]
+    of cekFlagError:
+      let msg = procResultToHumanStr(evt.flagResult)
+      "$# $# $#$#" % [path, severity, msg, msgOrigin]
+    of cekProgressPathAdded:
+      let msg = "added path: '$1'" % evt.msg
+      "$# $# $#$#$#$#" % [path, severity, msg,
+                          if msgKindSuffix == "": "" else: " ", # spacing
+                          msgKindSuffix,
+                          msgOrigin]
+    of cekProgressConfStart:
+      let msg = "used config file '$1'" % evt.msg
+      "$# $#$#$#$#" % [severity, msg,
+                       if msgKindSuffix == "": "" else: " ", # spacing
+                       msgKindSuffix,
+                       msgOrigin]
+    of cekWriteConfig:
+      evt.msg # TODO: use the lineinfo as msgorigin
 
 proc legacyReportsMsgFmtSetter(conf: ConfigRef, fmt: MsgFormatKind) =
   ## this actually sets the report hook, but the intention is formatter only,
@@ -181,9 +225,9 @@ proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef, cmd: string =
 
 proc loadConfigs*(
   cfg: RelativeFile, cache: IdentCache,
-  conf: ConfigRef) {.inline.} =
+  conf: ConfigRef, stopOnError = true): bool {.inline.} =
   ## wrapper around `nimconf.loadConfigs` to connect to legacy reporting
-  loadConfigs(cfg, cache, conf, handleConfigEvent)
+  loadConfigs(cfg, cache, conf, writeConfigEvent, stopOnError)
 
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph): bool =
@@ -195,22 +239,26 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
     incl(conf, optWasNimscript)
 
   # load all config files
-  loadConfigs(DefaultConfig, cache, conf)
-
+  if loadConfigs(DefaultConfig, cache, conf, stopOnError = not self.suggestMode):
   # `nim foo.nims` means execute the nimscript
-  if not self.suggestMode and conf.cmd == cmdNone and
-      conf.projectFull.string.endsWith ".nims":
-    conf.setCmd cmdNimscript
+    if not self.suggestMode and conf.cmd == cmdNone and
+        conf.projectFull.string.endsWith ".nims":
+      conf.setCmd cmdNimscript
 
-  # now process command line arguments again, because some options in the
-  # command line can overwrite the config file's settings
-  extccomp.initVars(conf)
-  self.processCmdLine(passCmd2, "", conf)
-  if conf.cmd == cmdNone:
-    localReport(conf, ExternalReport(kind: rextCommandMissing))
-
-  graph.suggestMode = self.suggestMode
-  return true
+    # now process command line arguments again, because some options in the
+    # command line can overwrite the config file's settings
+    extccomp.initVars(conf)
+    self.processCmdLine(passCmd2, "", conf)
+    graph.suggestMode = self.suggestMode
+    if conf.cmd == cmdNone:
+      conf.logError(CliEvent(kind: cliEvtErrCmdMissing,
+                              srcCodeOrigin: instLoc(),
+                              pass: passCmd2))
+      result = false
+    else:
+      result = true
+  else:
+    result = false
 
 proc loadConfigsAndRunMainCommand*(
     self: NimProg, cache: IdentCache; conf: ConfigRef; graph: ModuleGraph): bool =
@@ -227,9 +275,12 @@ proc selectDefaultGC*(conf: ConfigRef) =
   if conf.selectedGC == gcUnselected:
     # XXX: until both the VM and JS backend support ARC/ORC, it might make
     #      sense to add a ``native`` gc option
-    case conf.backend
-    of backendC:
-      processSwitch("gc", "orc", passCmd2, unknownLineInfo, conf)
-    of backendJs, backendNimVm, backendInvalid:
-      # JS and the VM don't really use ``refc``...
-      processSwitch("gc", "refc", passCmd2, unknownLineInfo, conf)
+    let r =
+      case conf.backend
+      of backendC:
+        processSwitch("gc", "orc", passCmd2, conf)
+      of backendJs, backendNimVm, backendInvalid:
+        # JS and the VM don't really use ``refc``...
+        processSwitch("gc", "refc", passCmd2, conf)
+    doAssert r.kind == procSwitchSuccess, "set default gc failed: " & $r.kind
+    
