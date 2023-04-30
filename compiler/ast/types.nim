@@ -1388,7 +1388,8 @@ proc isDefectException*(t: PType): bool =
   return false
 
 proc isSinkTypeForParam*(t: PType): bool =
-  ## Returns whether the using `t` as the type of a parameter makes it a sink-like
+  ## Returns whether `t` is considered to be a sink-like type when used in a
+  ## parameter context.
   result = t.skipTypes({tyGenericInst, tyAlias}).kind == tySink
   when false:
     if isSinkType(t):
