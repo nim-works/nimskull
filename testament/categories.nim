@@ -177,12 +177,12 @@ proc jsTests(r: var TResults, cat: Category, options: string) =
 
   for t in os.walkFiles("tests/js/t*.nim"):
     test(t)
+
   for testfile in ["exception/texceptions", "exception/texcpt1",
                    "exception/texcsub", "exception/tfinally",
                    "exception/tfinally2", "exception/tfinally3",
-                   "actiontable/tactiontable", "method/tmultimjs",
-                   "varres/tvarres0", "varres/tvarres3", "varres/tvarres4",
-                   "varres/tvartup", "misc/tints", "misc/tunsignedinc",
+                   "stdlib/types/tactiontable",
+                   "misc/tints", "misc/tunsignedinc",
                    "js/tjsasync"]:
     test "tests/" & testfile & ".nim"
 
@@ -548,7 +548,7 @@ proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
   of "js":
     # only run the JS tests on Windows or Linux because some CI and other OSes
     # like Haiku might hijack/lack nodejs:
-    if not defined(linux) or not defined(windows):
+    if not defined(linux) and not defined(windows):
       discard
     else:
       jsTests(r, cat, options)

@@ -49,7 +49,7 @@ proc bar(s: var seq[int], a: int) =
 s.bar(5)
 doAssert(s == @[123, 1])
 
-import tables
+import std/tables
 block: # Test get addr of byvar return value
   var t = initTable[string, int]()
   t["hi"] = 5
@@ -106,7 +106,6 @@ f[2] /= 5
 echo f
 
 # regression for #5608
-import tables
 
 type
   SomeObj = ref object
@@ -116,8 +115,8 @@ var a = initTable[cstring, Table[cstring, SomeObj]]()
 
 var b = initTable[cstring, SomeObj]()
 
-b.add(cstring"b", SomeObj(s: cstring"asd"))
+b[cstring"b"] = SomeObj(s: cstring"asd")
 
-a.add(cstring"a", b)
+a[cstring"a"] = b
 
 echo a[cstring"a"][cstring"b"].s
