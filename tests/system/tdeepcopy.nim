@@ -1,6 +1,6 @@
 discard """
   output: "ok"
-  matrix: "--deepcopy:on
+  matrix: "--deepcopy:on"
 """
 
 import tables, lists
