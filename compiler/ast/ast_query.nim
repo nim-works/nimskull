@@ -560,12 +560,7 @@ when false:
 func hasDestructor*(t: PType): bool {.inline.} =
   ## Returns whether the underlying concrete type of `t` has attached lifetime
   ## tracking hooks (that is, is resource-like).
-  # skip all wrapper-like types that cannot have type-bound operations attached
-  # themeselves operations attached. Also skip user-type-classes here, as they
-  # should be resolved at this point
-  let t = t.skipTypes({tyGenericInst, tyOrdinal, tyAlias, tyInferred, tySink} +
-                       tyUserTypeClasses)
-  result = tfHasAsgn in t.flags
+  result = tfHasAsgn in t.skipTypes(skipForHooks).flags
 
 template incompleteType*(t: PType): bool =
   t.sym != nil and {sfForward, sfNoForward} * t.sym.flags == {sfForward}

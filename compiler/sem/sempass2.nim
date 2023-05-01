@@ -145,15 +145,12 @@ proc `==`(a, b: TLockLevel): bool {.borrow.}
 proc max(a, b: TLockLevel): TLockLevel {.borrow.}
 
 proc createTypeBoundOps(tracked: PEffects, typ: PType; info: TLineInfo) =
-  if typ == nil: return
-  when false:
-    let realType = typ.skipTypes(abstractInst)
-    if realType.kind == tyRef and
-        optSeqDestructors in tracked.config.globalOptions:
-      createTypeBoundOps(tracked.graph, tracked.c, realType.lastSon, info)
-
-  createTypeBoundOps(tracked.graph, tracked.c, typ, info, tracked.c.idgen)
-  if (tfHasAsgn in typ.flags) or
+  if typ == nil or tfHasMeta in typ.flags: return
+  # lift the type-bound operations for the underlying concrete type, not for
+  # the wrapper type
+  let realType = typ.skipTypes(skipForHooks)
+  createTypeBoundOps(tracked.graph, tracked.c, realType, info, tracked.c.idgen)
+  if (tfHasAsgn in realType.flags) or
       optSeqDestructors in tracked.config.globalOptions:
     tracked.owner.flags.incl sfInjectDestructors
 
@@ -1007,7 +1004,7 @@ proc trackCall(tracked: PEffects; n: PNode) =
     if a.sym.name.s == "=": opKind = attachedAsgn.int
     if opKind != -1:
       # rebind type bounds operations after createTypeBoundOps call
-      let t = n[1].typ.skipTypes({tyAlias, tyVar})
+      let t = n[1].typ.skipTypes(skipForHooks + {tyVar})
       if a.sym != getAttachedOp(tracked.graph, t, TTypeAttachedOp(opKind)):
         createTypeBoundOps(tracked, t, n.info)
         let op = getAttachedOp(tracked.graph, t, TTypeAttachedOp(opKind))

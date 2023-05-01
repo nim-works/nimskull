@@ -300,6 +300,7 @@ proc getVoidType(g: ModuleGraph): PType {.inline.} =
   g.getSysType(unknownLineInfo, tyVoid)
 
 proc getOp(g: ModuleGraph, t: PType, kind: TTypeAttachedOp): PSym =
+  let t = t.skipTypes(skipForHooks)
   result = getAttachedOp(g, t, kind)
   if result == nil or result.ast.isGenericRoutine:
     # give up and find the canonical type instead:
@@ -697,7 +698,7 @@ proc genInjectedSink(buf: var MirNodeSeq, graph: ModuleGraph, t: PType) =
   ## Generates either a call to the ``=sink`` hook, or (if none exists), a
   ## sink emulated via a destructor-call + bitwise-copy. The output is meant
   ## to be placed inside a region.
-  let op = getAttachedOp(graph, t, attachedSink)
+  let op = getOp(graph, t, attachedSink)
   if op != nil:
     argBlock(buf):
       buf.add MirNode(kind: mnkProc, sym: op)
@@ -723,8 +724,8 @@ proc genInjectedSink(buf: var MirNodeSeq, graph: ModuleGraph, t: PType) =
 proc genSinkFromTemporary(buf: var MirNodeSeq, graph: ModuleGraph, t: PType,
                           tmp: TempId) =
   ## Similar to ``genInjectedSink`` but generates code for destructively
-  ## moving a the source operand into a temporary first
-  let op = getAttachedOp(graph, t, attachedSink)
+  ## moving the source operand into a temporary first
+  let op = getOp(graph, t, attachedSink)
 
   buf.add MirNode(kind: mnkOpParam, param: 1)
   buf.genDefTemp(tmp, t)

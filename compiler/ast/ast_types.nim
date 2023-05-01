@@ -565,6 +565,11 @@ const
   typedescPtrs* = abstractPtrs + {tyTypeDesc}
   typedescInst* = abstractInst + {tyTypeDesc, tyUserTypeClass}
 
+  skipForHooks* = {tyGenericInst, tyOrdinal, tyAlias, tySink, tyInferred} +
+                  tyUserTypeClasses
+    ## the types to skip in order to reach the type that instantiated
+    ## type-bound operations are attached to. User type-classes are also
+    ## unconditionally included in this set
 
 type
   TTypeKinds* = set[TTypeKind]

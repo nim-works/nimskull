@@ -368,6 +368,8 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   ## ``n`` the ast like it would be passed to a real macro
   ## ``flags`` Some flags for more contextual information on how the
   ## "macro" is calld.
+  addInNimDebugUtils(c.config, "magicsAfterOverloadResolution", n, result,
+                     flags)
 
   if n.isError:
     result = n
@@ -423,18 +425,11 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
       result = n
     else:
       result = plugin(c, n)
-  of mDestroy:
+  of mDestroy, mTrace:
+    # these are explicit calls to hooks for which overload resolution picked
+    # the generic magic from system. Leave them be; ``sempass2`` will patch
+    # these calls with the correct procedure
     result = n
-    let t = n[1].typ.skipTypes(abstractVar)
-    let op = getAttachedOp(c.graph, t, attachedDestructor)
-    if op != nil:
-      result[0] = newSymNode(op)
-  of mTrace:
-    result = n
-    let t = n[1].typ.skipTypes(abstractVar)
-    let op = getAttachedOp(c.graph, t, attachedTrace)
-    if op != nil:
-      result[0] = newSymNode(op)
 
   of mSetLengthSeq:
     result = n
