@@ -90,18 +90,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
       conf.errorCounter != 0:
     return
 
-  # if no GC was selected by either the command line or the config files,
-  # select the default one
-  if conf.selectedGC == gcUnselected:
-    # XXX: until both the VM and JS backend support ARC/ORC, it might make
-    #      sense to add the ``native`` gc option
-    case conf.backend
-    of backendC:
-      processSwitch("gc", "orc", passCmd2, unknownLineInfo, conf)
-    of backendJs, backendNimVm, backendInvalid:
-      # JS and the VM don't really use ``refc``...
-      processSwitch("gc", "refc", passCmd2, unknownLineInfo, conf)
-
+  selectDefaultGC(conf)
   mainCommand(graph)
   if optCmdExitGcStats in conf.globalOptions:
     conf.logGcStats(GC_getStatistics())

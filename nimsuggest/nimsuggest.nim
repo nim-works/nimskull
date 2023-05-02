@@ -725,6 +725,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
     suggestSym(g, info, s, usageSym, isDecl)
   graph.onSymImport = graph.onMarkUsed # same callback
   if self.loadConfigsAndProcessCmdLine(cache, conf, graph):
+    selectDefaultGC(conf)
     mainCommand(graph)
 
 when isMainModule:
