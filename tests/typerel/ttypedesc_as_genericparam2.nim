@@ -1,9 +1,9 @@
 discard """
-  errormsg: "'repr' doesn't support 'void' type"
+  errormsg: "type mismatch: got <void>"
   line: 9
 """
 
-# bug #2879
+# bug https://github.com/nim-lang/nim/issues/2879
 
 var s: seq[int]
 echo repr(s.new_seq(3))

@@ -34,7 +34,8 @@ import
     pathutils
   ],
   compiler/ast/[
-    idents
+    idents,
+    lineinfos
   ]
 
 from std/osproc import execCmd
@@ -89,6 +90,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
       conf.errorCounter != 0:
     return
 
+  selectDefaultGC(conf)
   mainCommand(graph)
   if optCmdExitGcStats in conf.globalOptions:
     conf.logGcStats(GC_getStatistics())

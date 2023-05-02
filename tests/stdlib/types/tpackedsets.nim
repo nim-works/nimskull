@@ -235,15 +235,15 @@ block legacyMainModuleTests:
 
       proc bug12366 =
         var
-          x = initPackedSet[A]()
+          a = initPackedSet[A]()
           y = initPackedSet[A]()
           n = 3584
 
         for i in 0..n:
-          x.incl(A(i))
+          a.incl(A(i))
           y.incl(A(i))
 
-        let z = symmetricDifference(x, y)
+        let z = symmetricDifference(a, y)
         doAssert z.len == 0
         doAssert $z == "{}"
 

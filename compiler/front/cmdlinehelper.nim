@@ -16,6 +16,7 @@ import
   std/options as std_options,
   compiler/ast/[
     idents,
+    lineinfos
   ],
   compiler/modules/[
     modulegraphs
@@ -216,3 +217,19 @@ proc loadConfigsAndRunMainCommand*(
 
   ## Alias for loadConfigsAndProcessCmdLine, here for backwards compatibility
   loadConfigsAndProcessCmdLine(self, cache, conf, graph)
+
+proc selectDefaultGC*(conf: ConfigRef) =
+  ## If the `config` has no GC selected yet, selects the default one for the
+  ## enabled backend.
+  # XXX: this procedure doesn't belong here. It should be merged into a more
+  #      general ``customizeForBackend`` procedure (one already exists in
+  #      ``main``) that's defined elsewhere.
+  if conf.selectedGC == gcUnselected:
+    # XXX: until both the VM and JS backend support ARC/ORC, it might make
+    #      sense to add a ``native`` gc option
+    case conf.backend
+    of backendC:
+      processSwitch("gc", "orc", passCmd2, unknownLineInfo, conf)
+    of backendJs, backendNimVm, backendInvalid:
+      # JS and the VM don't really use ``refc``...
+      processSwitch("gc", "refc", passCmd2, unknownLineInfo, conf)

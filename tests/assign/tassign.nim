@@ -1,5 +1,5 @@
 discard """
-  matrix: "; --gc:arc"
+  matrix: "--gc:refc; --gc:arc"
   output:
 '''
 TEMP=C:\Programs\xyz\bin

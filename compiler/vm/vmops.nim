@@ -155,6 +155,9 @@ proc setCurrentExceptionWrapper(a: VmArgs) {.nimcall.} =
   asgnRef(a.currentException, deref(a.getHandle(0)).refVal,
           a.mem[], reset=true)
 
+proc prepareMutationWrapper(a: VmArgs) {.nimcall.} =
+  discard "no-op"
+
 template wrapIteratorInner(a: VmArgs, iter: untyped) =
   let rh = a.getResultHandle()
   assert rh.typ.kind == akSeq
@@ -236,6 +239,7 @@ proc registerBasicOps*(c: var TCtx) =
   # system operations
   systemop(getCurrentExceptionMsg)
   systemop(getCurrentException)
+  systemop(prepareMutation)
   registerCallback(c, "stdlib.system.closureIterSetupExc",
                    setCurrentExceptionWrapper)
 

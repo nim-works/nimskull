@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c -d:useGcAssert $file"
+  matrix: "-d:useGcAssert --gc:refc"
   joinable: false
   description: '''
     . From https://github.com/nim-lang/Nim/issues/10307

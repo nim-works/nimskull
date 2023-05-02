@@ -1,7 +1,7 @@
 discard """
   matrix: "--threads:on -d:release -d:useRealtimeGC"
   joinable:false
-  knownIssue: "the test dependens on the GC not running at the wrong time"
+  knownIssue: "the test depends on the GC not running at the wrong time"
 """
 
 #[

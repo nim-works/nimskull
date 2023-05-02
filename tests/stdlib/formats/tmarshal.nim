@@ -1,3 +1,9 @@
+discard """
+  targets: "c"
+  matrix: "--gc:refc; --gc:orc"
+  description: "Tests for the `marshal` module"
+"""
+
 import std/marshal
 
 # TODO: add static tests
