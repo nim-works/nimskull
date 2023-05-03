@@ -36,7 +36,6 @@ import
     vmops
   ],
   compiler/front/[
-    msgs,
     condsyms,
     options,
   ],

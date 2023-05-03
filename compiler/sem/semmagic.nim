@@ -10,7 +10,9 @@
 # This include file implements the semantic checking for magics.
 # included from sem.nim
 
-import compiler/ast/typesrenderer
+import
+  compiler/ast/typesrenderer,
+  compiler/front/optionsprocessor
 
 proc semAddrArg(c: PContext; n: PNode): PNode =
   let n = semExprWithType(c, n)
@@ -367,7 +369,7 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   ## ``c`` the current module, a symbol table to a very good approximation
   ## ``n`` the ast like it would be passed to a real macro
   ## ``flags`` Some flags for more contextual information on how the
-  ## "macro" is calld.
+  ## "macro" is called.
   addInNimDebugUtils(c.config, "magicsAfterOverloadResolution", n, result,
                      flags)
 
@@ -421,7 +423,6 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
     if plugin.isNil:
       localReport(c.config, n.info, reportSym(
         rsemCannotFindPlugin, sym = n[0].sym))
-
       result = n
     else:
       result = plugin(c, n)
@@ -430,7 +431,6 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
     # the generic magic from system. Leave them be; ``sempass2`` will patch
     # these calls with the correct procedure
     result = n
-
   of mSetLengthSeq:
     result = n
     let seqType = result[1].typ.skipTypes({tyPtr, tyRef, # in case we had auto-dereferencing
@@ -439,7 +439,6 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
     if seqType.kind == tySequence and seqType.base.requiresInit:
       localReport(c.config, n.info, reportTyp(
         rsemUnsafeSetLen, seqType.base))
-
   of mDefault:
     result = n
     c.config.internalAssert result[1].typ.kind == tyTypeDesc
@@ -447,11 +446,9 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
     if constructed.requiresInit:
       localReport(c.config, n.info, reportTyp(
         rsemUnsafeDefault, constructed))
-
   of mIsolate:
     if not checkIsolate(n[1]):
       localReport(c.config, n.info, reportAst(rsemCannotIsolate, n[1]))
-
     result = n
   of mPred:
     if n[1].typ.skipTypes(abstractInst).kind in {tyUInt..tyUInt64}:
@@ -459,5 +456,67 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
     result = n
   of mPrivateAccess:
     result = semPrivateAccess(c, n)
+  of mCompileOption:
+    let a = evalConstExpr(c, n[1])
+    case a.kind
+    of nkError:
+      result = copyTreeWithoutNode(n, n[1])
+      result[1] = a
+      result = c.config.wrapError(result)
+    else:
+      result =
+        case optionsprocessor.testCompileOption(c.config, a.getStr)
+        of compileOptCheckSuccessTrue:
+          newIntNodeT(toInt128(ord(true)), n, c.idgen, c.graph)
+        of compileOptCheckSuccessFalse:
+          newIntNodeT(toInt128(ord(false)), n, c.idgen, c.graph)
+        of compileOptCheckWarnFalseDeprecated:
+          # xxx: there must be a nicer way to handle warnings, either inline as
+          #      error or side-channel into diagnostics somewhere?
+          if rsemDeprecatedCompilerOpt in c.config.warningAsErrors:
+            c.config.newError(n, PAstDiag(kind: adSemDeprecatedCompilerOpt,
+                                          badCompilerOpt: a))
+          else:
+            # TODO: remove legacy reports cruft
+            c.config.localReport(n.info,
+              SemReport(kind: rsemDeprecatedCompilerOpt, str: a.getStr))
+            newIntNodeT(toInt128(ord(false)), n, c.idgen, c.graph)
+        of compileOptCheckFailedWithInvalidOption:
+          c.config.newError(n, PAstDiag(kind: adSemCompilerOptionInvalid,
+                                        badCompilerOpt: a))
+  of mCompileOptionArg:
+    let
+      a = evalConstExpr(c, n[1])
+      b = evalConstExpr(c, n[2])
+    if nkError in {a.kind, b.kind}:
+      result = copyTreeWithoutNodes(n, n[1], n[2])
+      result[1] = a
+      result[2] = b
+      result = c.config.wrapError(result)
+    else:
+      result =
+        case optionsprocessor.testCompileOptionArg(c.config, a.getStr, b.getStr)
+        of compileOptArgCheckSuccessTrue:
+          newIntNodeT(toInt128(ord(true)), n, c.idgen, c.graph)
+        of compileOptArgCheckSuccessFalse:
+          newIntNodeT(toInt128(ord(false)), n, c.idgen, c.graph)
+        of compileOptArgCheckWarnFalseDeprecated:
+          if rsemDeprecatedCompilerOptArg in c.config.warningAsErrors:
+            c.config.newError(n, PAstDiag(kind: adSemDeprecatedCompilerOptArg,
+                                          compilerOpt: a,
+                                          compilerOptArg: b))
+          else:
+            # TODO: remove legacy reports cruft
+            c.config.localReport(n.info,
+              SemReport(kind: rsemDeprecatedCompilerOptArg, str: a.getStr,
+                        compilerOptArg: b.getStr))
+            newIntNodeT(toInt128(ord(false)), n, c.idgen, c.graph)
+        of compileOptArgCheckFailedWithUnexpectedValue:
+          c.config.newError(n, PAstDiag(kind: adSemCompilerOptionArgInvalid,
+                                        forCompilerOpt: a,
+                                        badCompilerOptArg: b))
+        of compileOptArgCheckFailedWithInvalidOption:
+          c.config.newError(n, PAstDiag(kind: adSemCompilerOptionInvalid,
+                                        badCompilerOpt: a))
   else:
     result = n

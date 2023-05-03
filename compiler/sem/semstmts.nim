@@ -15,6 +15,9 @@ proc semDiscard(c: PContext, n: PNode): PNode =
   checkSonsLen(n, 1, c.config)
   if n[0].kind != nkEmpty:
     n[0] = semExprWithType(c, n[0])
+    if n[0].kind == nkError:
+      result = c.config.wrapError(n)
+      return
     let sonType = n[0].typ
     let sonKind = n[0].kind
     if isEmptyType(sonType) or sonType.kind in {tyNone, tyTypeDesc} or sonKind == nkTypeOfExpr:
