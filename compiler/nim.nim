@@ -44,7 +44,6 @@ from std/osproc import execCmd
 from compiler/ast/reports_external import ExternalReport
 from compiler/ast/report_enums import ReportKind
 
-
 from std/browsers import openDefaultBrowser
 from compiler/utils/nodejs import findNodeJs
 

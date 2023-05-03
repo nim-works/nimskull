@@ -170,6 +170,57 @@ const
   tokKeywordLow* = succ(tkSymbol)
   tokKeywordHigh* = pred(tkIntLit)
 
+func diagToHumanStr*(d: LexerDiag): string =
+  ## creates a human readable string message for a diagnostic, does not include
+  ## any extra information such as line info, severity, and so on.
+  case d.kind
+  of lexDiagMalformedTrailingUnderscre:
+    "invalid token: trailing underscore"
+  of lexDiagMalformedUnderscores:
+    "only single underscores may occur in a token and token may not " &
+      "end with an underscore: e.g. '1__1' and '1_' are invalid"
+  of lexDiagInvalidToken:
+    "invalid token: $1 (\\$2)" % [d.msg, $ord(d.msg[0])]
+  of lexDiagInvalidTokenSpaceBetweenNumAndIdent:
+    "invalid token: no blankspace between number and identifier"
+  of lexDiagNoTabs:
+    "tabs are not allowed, use spaces instead"
+  of lexDiagInvalidIntegerLiteralOctalPrefix:
+    "$1 is an invalid int literal; For octal literals use the '0o' prefix" % d.msg
+  of lexDiagInvalidIntegerSuffix:
+    "invalid number suffix: '$1'" % d.msg
+  of lexDiagNumberNotInRange:
+    "number out of range: '$1'" % d.msg
+  of lexDiagExpectedHex:
+    "expected a hex digit, but found: '$1'; maybe prefix with 0" % d.msg
+  of lexDiagInvalidIntegerLiteral, lexDiagInvalidNumericLiteral:
+    "invalid number: '$1'" % d.msg
+  of lexDiagInvalidCharLiteral:
+    "invalid character literal"
+  of lexDiagInvalidCharLiteralConstant:
+    "invalid character constant"
+  of lexDiagInvalidCharLiteralPlatformNewline:
+    "\\p not allowed in character literal"
+  of lexDiagInvalidCharLiteralUnicodeCodepoint:
+    "\\u not allowed in character literal"
+  of lexDiagMissingClosingApostrophe:
+    "missing closing ' for character literal"
+  of lexDiagInvalidUnicodeCodepointEmpty:
+    "Unicode codepoint cannot be empty"
+  of lexDiagInvalidUnicodeCodepointGreaterThan0x10FFFF:
+    "Unicode codepoint must be 0x10FFFF or lower, but was: $1" & d.msg
+  of lexDiagUnclosedTripleString:
+    "closing \"\"\" expected, but end of file reached"
+  of lexDiagUnclosedSingleString:
+    "closing \" expected"
+  of lexDiagUnclosedComment:
+    "end of multiline comment expected"
+  of lexDiagDeprecatedOctalPrefix:
+    "octal escape sequences do not exist; leading zero is ignored"
+  of lexDiagLineTooLong:
+    "line too long"
+  of lexDiagNameXShouldBeY:
+    "'$1' should be: '$2'" % [d.got, d.msg]
 
 type
   Token* = object             ## a Nim token

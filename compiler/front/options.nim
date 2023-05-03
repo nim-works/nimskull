@@ -98,6 +98,11 @@ type
     ## (For full list see `TFileInfo`)
     systemFileIdx*: FileIndex
 
+  TCmdLinePass* = enum
+    passCmd1,                 # first pass over the command line
+    passCmd2,                 # second pass over the command line
+    passPP                    # preprocessor called processCommand()
+
 proc initMsgConfig*(): MsgConfig =
   result.msgContext = @[]
   result.lastError = unknownLineInfo
@@ -255,6 +260,10 @@ type
     lastMsgWasDot*: set[StdOrrKind] ## the last compiler message was a single '.'
     projectMainIdx*: FileIndex      ## the canonical path id of the main module
     projectMainIdx2*: FileIndex     ## consider merging with projectMainIdx
+    commandLineSrcIdx*: FileIndex   ## used by `commands` to base paths off for
+                                    ## path, lib, and other additions; default
+                                    ## to `lineinfos.commandLineIdx` and
+                                    ## altered by `nimconf` as needed
     command*: string                ## the main command (e.g. cc, check, scan, etc)
     commandArgs*: seq[string]       ## any arguments after the main command
     commandLine*: string
@@ -945,6 +954,7 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
     command: "", # the main command (e.g. cc, check, scan, etc)
     commandArgs: @[], # any arguments after the main command
     commandLine: "",
+    commandLineSrcIdx: commandLineIdx, # set the command line as the source
     keepComments: true, # whether the parser needs to keep comments
     docSeeSrcUrl: "",
     active: CurrentConf(

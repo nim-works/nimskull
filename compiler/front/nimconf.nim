@@ -7,7 +7,13 @@
 #    distribution, for details about the copyright.
 #
 
-# This module handles the reading of the config file.
+## This module handles the reading of config file(s).
+## 
+## ..note:: Even though this module is very effectful in its processing of a
+##          config file and updating a `ConfigRef`, it must not assume that
+##          it's handling a 'canonical' `ConfigRef` for the current program and
+##          is not at liberty to output error messages and the like. That must
+##          be handled by the caller.
 
 import
   std/[
@@ -16,8 +22,8 @@ import
     strtabs,
   ],
   compiler/front/[
-    commands,
     options,
+    optionsprocessor,
   ],
   compiler/ast/[
     lexer,
@@ -31,15 +37,15 @@ import
   ]
 
 type
-  ConfigEventKind* = enum
+  ConfigFileEventKind* = enum
     ## events/errors arising from parsing and processing a compiler config file
+    # xxx: this is modelled too closely after legacy reports
 
     # fatal errors begin
     cekInternalError
     # fatal errors end
 
-    # users errors begin
-
+    # parsing errors begin
     # lexer generated
     cekLexerErrorDiag        ## lexer error being forwarded
 
@@ -47,84 +53,113 @@ type
     cekParseExpectedX        ## expected some token
     cekParseExpectedCloseX   ## expected closing ')', ']', etc
     cekParseExpectedIdent    ## expected an identifier
+    # parsing errors end
 
+    # users errors begin
     # invalid input
     cekInvalidDirective
+
+    # flag parsing/processing error
+    cekFlagError             ## error from flag processing
     # user errors end
 
     # warning begin
     cekLexerWarningDiag      ## warning from the lexer
     # warning end
 
-    # hint begin
-    cekLexerHintDiag         ## hint from the lexer
-    # hint end
-
     # user output start
     cekWriteConfig           ## write out the config
     # user output end
 
     # progress begin
-    cekProgressConfStart
+    cekProgressConfStart = "Conf"
+    cekProgressPathAdded = "Path"
     # progress end
 
   ConfigFileEvent* = object
-    case kind*: ConfigEventKind:
+    case kind*: ConfigFileEventKind:
       of cekParseExpectedX, cekParseExpectedCloseX, cekParseExpectedIdent,
-         cekInvalidDirective, cekWriteConfig:
+         cekInvalidDirective, cekWriteConfig, cekProgressPathAdded:
         location*: TLineInfo         ## diagnostic location
-      of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag,
-         cekLexerHintDiag:
+      of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag:
         lexerDiag*: LexerDiag
+      of cekFlagError:
+        flagResult*: ProcSwitchResult
+        flagInfo*: TLineInfo
       of cekProgressConfStart:
         discard
-    instLoc*: InstantiationInfo ## instantiation in lexer's source
+    instLoc*: InstantiationInfo ## instantiation in this module's source
     msg*: string
   
-  NimConfEvtHandler* = proc(config: ConfigRef,
-                            evt: ConfigFileEvent,
-                            reportFrom: InstantiationInfo,
-                            eh: TErrorHandling = doNothing): void
+  NimConfEvtWriter* = proc(config: ConfigRef,
+                           evt: ConfigFileEvent,
+                           writeFrom: InstantiationInfo): void
+
   NimConfParser = object
     lexer: Lexer
     condStack: seq[bool]
     config: ConfigRef
-    cfgEvtHandler: NimConfEvtHandler
+    cfgEvtWriter: NimConfEvtWriter ## do not call, use `callEvtWriter`
+    stopOnError: bool              ## whether to continue if an error occurs
+    stopProcessing: bool           ## set if `stopOnError` and an error
+                                   ## occurred, or if there is a fatal error
+
+  CancelConfigProcessing = object of CatchableError
+    ## internal error used to halt processing
 
 
 # ---------------- configuration file parser -----------------------------
 # we use Nim's lexer here to save space and work
 
-proc handleError(N: NimConfParser,
+proc callEvtWriter(N: var NimConfParser, e: ConfigFileEvent,
+                   loc: InstantiationInfo) =
+  let stopProcessing =
+    case e.kind
+    of cekInternalError:
+      true
+    of cekLexerErrorDiag..cekFlagError:
+      N.stopOnError
+    of cekLexerWarningDiag..cekProgressPathAdded:
+      false
+
+  N.cfgEvtWriter(N.config, e, loc)
+
+  if stopProcessing:
+    N.stopProcessing = stopProcessing
+    raise (ref CancelConfigProcessing)()
+
+proc handleError(N: var NimConfParser,
                  ev: range[cekParseExpectedX..cekInvalidDirective],
                  errMsg: string, 
                  instLoc = instLoc(-1)) =
-    let e = ConfigFileEvent(kind: ev,
-                            location: N.lexer.getLineInfo,
-                            instLoc: instLoc,
-                            msg: errMsg)
-    N.cfgEvtHandler(N.lexer.config, e, instLoc)
+  let e = ConfigFileEvent(kind: ev,
+                          location: N.lexer.getLineInfo,
+                          instLoc: instLoc,
+                          msg: errMsg)
+  N.callEvtWriter(e, instLoc)
 
-proc handleExpectedX(N: NimConfParser, missing: string, instLoc = instLoc(-1)) =
-    let e = ConfigFileEvent(kind: cekParseExpectedX, 
-                            location: N.lexer.getLineInfo, 
-                            instLoc: instLoc, 
-                            msg: missing)
-    N.cfgEvtHandler(N.lexer.config, e, instLoc)
+proc handleExpectedX(N: var NimConfParser, missing: string,
+                    instLoc = instLoc(-1)) =
+  let e = ConfigFileEvent(kind: cekParseExpectedX, 
+                          location: N.lexer.getLineInfo, 
+                          instLoc: instLoc, 
+                          msg: missing)
+  N.callEvtWriter(e, instLoc)
 
-proc handleWriteConf(N: NimConfParser, cfg: string, instLoc = instLoc(-1)) =
-    let e = ConfigFileEvent(kind: cekWriteConfig,
-                            instLoc: instLoc,
-                            msg: cfg)
-    N.cfgEvtHandler(N.lexer.config, e, instLoc)
+proc handleWriteConf(N: var NimConfParser, cfg: string,
+                     instLoc = instLoc(-1)) =
+  let e = ConfigFileEvent(kind: cekWriteConfig,
+                          instLoc: instLoc,
+                          msg: cfg)
+  N.callEvtWriter(e, instLoc)
 
-proc handleRead(N: NimConfParser,
+proc handleRead(N: var NimConfParser,
                 filename: string,
                 instLoc = instLoc(-1)) =
-    let e = ConfigFileEvent(kind: cekProgressConfStart,
-                            instLoc: instLoc,
-                            msg: filename)
-    N.cfgEvtHandler(N.config, e, instLoc)
+  let e = ConfigFileEvent(kind: cekProgressConfStart,
+                          instLoc: instLoc,
+                          msg: filename)
+  N.callEvtWriter(e, instLoc)
 
 proc ppGetTok(N: var NimConfParser, tok: var Token) =
   var firstLine = true
@@ -140,18 +175,20 @@ proc ppGetTok(N: var NimConfParser, tok: var Token) =
       let e = ConfigFileEvent(kind: cekInternalError,
                               lexerDiag: tok.error,
                               instLoc: tok.error.instLoc)
-      N.cfgEvtHandler(N.lexer.config, e, instLoc(-1), doAbort)
-    
+      N.callEvtWriter(e, instLoc(-1))
+
     for d in N.lexer.errorsHintsAndWarnings():
-      {.cast(uncheckedAssign).}:
-        let e = ConfigFileEvent(kind: (case d.kind
-                                      of LexDiagsError:   cekLexerErrorDiag
-                                      of LexDiagsWarning: cekLexerWarningDiag
-                                      of LexDiagsHint:    cekLexerHintDiag
-                                      ),
-                                lexerDiag: d,
-                                instLoc: d.instLoc)
-      N.cfgEvtHandler(N.lexer.config, e, instLoc(-1), doNothing)
+      let e =
+        case d.kind
+        of LexDiagsError:
+          ConfigFileEvent(kind: cekLexerErrorDiag, lexerDiag: d,
+                          instLoc: d.instLoc)
+        of LexDiagsWarning:
+          ConfigFileEvent(kind: cekLexerWarningDiag, lexerDiag: d,
+                          instLoc: d.instLoc)
+        of LexDiagsHint:
+          continue # we don't generate these
+      N.callEvtWriter(e, instLoc(-1))
 
 proc parseExpr(N: var NimConfParser, tok: var Token): bool
 proc parseAtom(N: var NimConfParser, tok: var Token): bool =
@@ -297,7 +334,7 @@ proc confTok(N: var NimConfParser, tok: var Token) =
   while tok.ident != nil and tok.ident.s == "@":
     parseDirective(N, tok)    # else: give the token to the parser
 
-proc checkSymbol(N: NimConfParser, tok: Token) =
+proc checkSymbol(N: var NimConfParser, tok: Token) =
   if tok.tokType notin {tkSymbol..tkInt64Lit, tkStrLit..tkTripleStrLit}:
     handleError(N, cekParseExpectedIdent, $tok)
 
@@ -346,16 +383,35 @@ proc parseAssignment(N: var NimConfParser, tok: var Token) =
       checkSymbol(N, tok)
       val.add($tok)
       confTok(N, tok)
-  if percent:
-    processSwitch(s, strtabs.`%`(val, N.config.configVars,
-                                {useEnvironment, useEmpty}), passPP, info,
-                                N.config)
+  let
+    v =
+      if percent:
+        strtabs.`%`(val, N.config.configVars, {useEnvironment, useEmpty})
+      else:
+        val
+    r = processSwitch(s, v, passPP, N.config)
+  case r.kind
+  of procSwitchSuccess: discard # ignore
+  of procSwitchResultErrorKinds:
+    let evt = ConfigFileEvent(kind: cekFlagError, flagResult: r,
+                              flagInfo: info)
+    N.callEvtWriter(evt, instLoc())
+
+  case r.switch
+  of cmdSwitchNimblepath:
+    if r.processedNimblePath.didProcess:
+      for res in r.processedNimblePath.nimblePathResult.addedPaths:
+        N.callEvtWriter(ConfigFileEvent(kind: cekProgressPathAdded,
+                                        msg: res.string,
+                                        location: info,
+                                        instLoc: instLoc()),
+                        instLoc())
   else:
-    processSwitch(s, val, passPP, info, N.config)
+    discard
 
 proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
                     cache: IdentCache): bool =
-  ## assumes `cfgEvtHandler` has already been set, do not export
+  ## assumes `cfgEvtWriter` has already been set, do not export
   var
     tok: Token
     stream: PLLStream
@@ -364,25 +420,29 @@ proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
   if stream != nil:
     initToken(tok)
     openLexer(N.lexer, filename, stream, cache, N.config)
-    tok.tokType = tkEof       # to avoid a pointless warning
-    confTok(N, tok)           # read in the first token
 
-    while tok.tokType != tkEof:
-      parseAssignment(N, tok)
+    # save the existing source of command parameters and use the config file
+    let oldCmdLineSrcIdx = N.config.commandLineSrcIdx
+    N.config.commandLineSrcIdx = N.lexer.fileIdx
 
-    if N.condStack.len > 0:
-      handleError(N, cekParseExpectedX, "@end")
+    try:
+      tok.tokType = tkEof       # to avoid a pointless warning
+      confTok(N, tok)           # read in the first token
 
-    closeLexer(N.lexer)
+      while tok.tokType != tkEof:
+        parseAssignment(N, tok)
 
-    return true
+      if N.condStack.len > 0:
+        handleError(N, cekParseExpectedX, "@end")
 
-proc readConfigFile*(filename: AbsoluteFile, cache: IdentCache,
-                     config: ConfigRef, evtHandler: NimConfEvtHandler
-): bool {.inline.} =
-  # set the event handler so we can report
-  var parser = NimConfParser(config: config, cfgEvtHandler: evtHandler)
-  readConfigFile(parser, filename, cache)
+      result = true
+    except CancelConfigProcessing:
+      discard
+    finally:
+      # restore to the previous source of command parameters
+      N.config.commandLineSrcIdx = oldCmdLineSrcIdx
+
+      closeLexer(N.lexer)
 
 proc getUserConfigPath*(filename: RelativeFile): AbsoluteFile =
   result = getConfigDir().AbsoluteDir / RelativeDir"nim" / filename
@@ -420,7 +480,7 @@ iterator configFiles(N: NimConfParser, cfg: RelativeFile): AbsoluteFile =
 
 proc loadConfigs(
     N: var NimConfParser, cfg: RelativeFile, cache: IdentCache
-  ) =
+  ): bool =
   setDefaultLibpath(N.config)
 
   for cfgFile in configFiles(N, cfg):
@@ -431,11 +491,15 @@ proc loadConfigs(
     # delayed to here so that `hintConf` is honored
     N.handleRead(filename.string)
 
+  result = not N.stopProcessing # an unset stopProcessing means no errors
+
 proc loadConfigs*(
     cfg: RelativeFile; cache: IdentCache;
-    conf: ConfigRef, evtHandler: NimConfEvtHandler
-  ) {.inline.} =
-  var parser = NimConfParser(config: conf, cfgEvtHandler: evtHandler)
+    conf: ConfigRef, evtHandler: NimConfEvtWriter,
+    stopOnError: bool = true
+  ): bool {.inline.} =
+  var parser = NimConfParser(config: conf, cfgEvtWriter: evtHandler,
+                             stopOnError: stopOnError)
   parser.loadConfigs(cfg, cache)
 
   

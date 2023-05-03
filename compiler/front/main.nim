@@ -471,9 +471,9 @@ proc mainCommand*(graph: ModuleGraph) =
     else:
       wantMainModule(conf)
       let docConf = if conf.cmd == cmdDoc2tex: DocTexConfig else: DocConfig
-      loadConfigs(docConf, cache, conf)
-      defineSymbol(conf, "nimdoc")
-      body
+      if loadConfigs(docConf, cache, conf):
+        defineSymbol(conf, "nimdoc")
+        body
 
   ## command prepass
   if conf.cmd == cmdCrun: conf.incl {optRun, optUseNimcache}
@@ -522,8 +522,8 @@ proc mainCommand*(graph: ModuleGraph) =
     when defined(leanCompiler):
       conf.quitOrRaise "compiler built without documentation generator"
     else:
-      loadConfigs(DocConfig, cache, conf)
-      commandRst2Html(cache, conf)
+      if loadConfigs(DocConfig, cache, conf):
+        commandRst2Html(cache, conf)
   of cmdRst2tex, cmdDoc2tex:
     for warn in rstWarnings:
       conf.setNoteDefaults(warn, true)
@@ -531,8 +531,8 @@ proc mainCommand*(graph: ModuleGraph) =
       conf.quitOrRaise "compiler built without documentation generator"
     else:
       if conf.cmd == cmdRst2tex:
-        loadConfigs(DocTexConfig, cache, conf)
-        commandRst2TeX(cache, conf)
+        if loadConfigs(DocTexConfig, cache, conf):
+          commandRst2TeX(cache, conf)
       else:
         docLikeCmd commandDoc2(graph, TexExt)
   of cmdJsondoc: docLikeCmd commandDoc2(graph, JsonExt)

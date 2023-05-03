@@ -30,40 +30,30 @@ import
     strutils,
     parseopt,
     sequtils,
-    strtabs,
   ],
   compiler/modules/[
     nimblecmd,
   ],
   compiler/ast/[
     lineinfos,
-    wordrecg,
   ],
   compiler/front/[
     options,
+    optionsprocessor,
     msgs,
-  ],
-  compiler/backend/[
-    extccomp
   ],
   experimental/[
     colortext,    # required for pretty output; TODO: factor out
   ],
   compiler/utils/[
     nversion,
-    pathutils,
     platform,
     idioms,
   ]
 
 from compiler/front/in_options import MsgFormatKind
 
-from compiler/ast/ast import setUseIc
-
-# TODO: all this to output help/error messages and internal state... smh. Also,
-#       why doesn't this module or a real module own the data format?! At least
-#       the `reports_internal` module is small.
-from compiler/ast/reports_external import ExternalReport
+# xxx: legacy reports cruft
 from compiler/ast/report_enums import ReportKind,
   ReportKinds,
   repHintKinds,
@@ -72,142 +62,6 @@ from compiler/ast/report_enums import ReportKind,
   repWarningGroups
 
 bootSwitch(usedTinyC, hasTinyCBackend, "-d:tinyc")
-
-type
-  # TODO:
-  # - rename to `Cmd` to `Cfg`, as only the CLI/cmd has version, help,
-  #   fullhelp, advanced and perhaps others
-  # - separate flags/switches and commands
-  CmdSwitchKind* = enum
-    cmdSwitchFromcmd
-    cmdSwitchPath
-    cmdSwitchNimblepath
-    cmdSwitchNonimblepath
-    cmdSwitchClearnimblepath
-    cmdSwitchExcludepath
-    cmdSwitchNimcache
-    cmdSwitchOut
-    cmdSwitchOutdir
-    cmdSwitchDepfile
-    cmdSwitchUsenimcache
-    cmdSwitchDocseesrcurl
-    cmdSwitchDocroot
-    cmdSwitchBackend
-    cmdSwitchDoccmd
-    cmdSwitchDefine
-    cmdSwitchUndef
-    cmdSwitchCompile
-    cmdSwitchLink
-    cmdSwitchDebuginfo
-    cmdSwitchEmbedsrc
-    cmdSwitchCompileonly
-    cmdSwitchNolinking
-    cmdSwitchNomain
-    cmdSwitchForcebuild
-    cmdSwitchProject
-    cmdSwitchGc
-    cmdSwitchWarnings
-    cmdSwitchWarning
-    cmdSwitchHint
-    cmdSwitchWarningaserror
-    cmdSwitchHintaserror
-    cmdSwitchHints
-    cmdSwitchThreadanalysis
-    cmdSwitchStacktrace
-    cmdSwitchStacktracemsgs
-    cmdSwitchExcessivestacktrace
-    cmdSwitchLinetrace
-    cmdSwitchDebugger
-    cmdSwitchProfiler
-    cmdSwitchMemtracker
-    cmdSwitchChecks
-    cmdSwitchFloatchecks
-    cmdSwitchInfchecks
-    cmdSwitchNanchecks
-    cmdSwitchObjchecks
-    cmdSwitchFieldchecks
-    cmdSwitchRangechecks
-    cmdSwitchBoundchecks
-    cmdSwitchOverflowchecks
-    cmdSwitchStaticboundchecks
-    cmdSwitchStylechecks
-    cmdSwitchLinedir
-    cmdSwitchAssertions
-    cmdSwitchThreads
-    cmdSwitchTlsemulation
-    cmdSwitchImplicitstatic
-    cmdSwitchTrmacros
-    cmdSwitchOpt
-    cmdSwitchApp
-    cmdSwitchPassc
-    cmdSwitchPassl
-    cmdSwitchCincludes
-    cmdSwitchClibdir
-    cmdSwitchClib
-    cmdSwitchHeader
-    cmdSwitchIndex
-    cmdSwitchImport
-    cmdSwitchInclude
-    cmdSwitchListcmd
-    cmdSwitchAsm
-    cmdSwitchGenmapping
-    cmdSwitchOs
-    cmdSwitchCpu
-    cmdSwitchRun
-    cmdSwitchMaxloopiterationsvm
-    cmdSwitchErrormax
-    cmdSwitchVerbosity
-    cmdSwitchParallelbuild
-    # cmdSwitchVersion      # CLI only, forces a quit
-    # cmdSwitchAdvanced     # CLI only, forces a quit
-    # cmdSwitchFullhelp     # CLI only, forces a quit
-    # cmdSwitchHelp         # CLI only, forces a quit
-    cmdSwitchIncremental
-    cmdSwitchSkipcfg
-    cmdSwitchSkipprojcfg
-    cmdSwitchSkipusercfg
-    cmdSwitchSkipparentcfg
-    cmdSwitchGenscript
-    cmdSwitchColors
-    cmdSwitchLib
-    cmdSwitchPutenv
-    cmdSwitchCc
-    cmdSwitchStdout
-    cmdSwitchFilenames
-    # cmdSwitchMsgformat    # CLI only
-    cmdSwitchProcessing
-    cmdSwitchUnitsep
-    cmdSwitchListfullpaths
-    cmdSwitchSpellsuggest
-    cmdSwitchDeclaredlocs
-    cmdSwitchDynliboverride
-    cmdSwitchDynliboverrideall
-    cmdSwitchExperimental
-    cmdSwitchExceptions
-    cmdSwitchCppdefine
-    cmdSwitchSeqsv2
-    cmdSwitchStylecheck
-    cmdSwitchShowallmismatches
-    cmdSwitchDocinternal
-    cmdSwitchMultimethods
-    cmdSwitchExpandmacro
-    cmdSwitchExpandarc
-    cmdSwitchBenchmarkvm
-    cmdSwitchProfilevm
-    cmdSwitchSinkinference
-    cmdSwitchCursorinference
-    cmdSwitchPanics
-    cmdSwitchSourcemap
-    cmdSwitchDeepcopy
-    cmdSwitchProjStdin
-    cmdSwitchCmdexitgcstats
-    cmdSwitchConfigVar
-
-type
-  TCmdLinePass* = enum
-    passCmd1,                 # first pass over the command line
-    passCmd2,                 # second pass over the command line
-    passPP                    # preprocessor called processCommand()
 
 # TODO: temporary, move into `msgs` or `commands`
 type
@@ -230,1089 +84,6 @@ proc write*(conf: ConfigRef, dest: static[CmdOutputKind], msg: string) =
 
 proc writeln*(conf: ConfigRef, dest: static[CmdOutputKind], msg: string) =
   write(conf, dest, msg & "\n")
-
-proc addPrefix(switch: string): string =
-  if switch.len <= 1: result = "-" & switch
-  else: result = "--" & switch
-
-# Full list of all the command line options. Necessary to provide "invalid
-# command line options - did you mean ...?". In theory generation of this
-# list could be automated by maintaining a `{.compiletime.}` variable that
-# is populated by macro which scans every `case` used, but for the time
-# being it is easier to manually keep this list up-to-date.
-const optNames = @[
-  # processSwitch
-  "fromcmd", "path", "p", "nimblepath", "nonimblepath",
-  "clearnimblepath", "excludepath", "nimcache", "out", "o",
-  "outdir", "depfile", "usenimcache", "docseesrcurl", "docroot", "backend", "b",
-  "doccmd", "define", "d", "undef", "u", "compile", "link", "debuginfo",
-  "embedsrc", "compileonly", "c", "nolinking", "nomain", "forcebuild", "f",
-  "project", "warnings", "w", "warning", "hint", "warningaserror",
-  "hintaserror", "hints", "threadanalysis", "stacktrace",
-  "stacktracemsgs", "excessivestacktrace", "linetrace",
-  "debugger", "profiler", "memtracker", "checks",
-  "floatchecks", "infchecks", "nanchecks", "objchecks", "fieldchecks",
-  "rangechecks", "boundchecks", "overflowchecks",
-  "staticboundchecks", "stylechecks", "linedir", "assertions", "threads",
-  "tlsemulation", "implicitstatic", "trmacros", "opt", "app", "passc",
-  "passl", "cincludes", "clibdir", "clib", "header", "index", "import",
-  "include", "listcmd", "asm", "genmapping", "os", "cpu", "run",
-  "maxloopiterationsvm", "errormax", "verbosity", "parallelbuild", "skipcfg",
-  "skipprojcfg", "skipusercfg", "skipparentcfg", "genscript", "colors",
-  "lib", "putenv", "cc", "stdout", "filenames", "processing",
-  "unitsep", "listfullpaths", "spellsuggest", "declaredlocs",
-  "dynliboverride", "dynliboverrideall", "experimental",
-  "exceptions", "cppdefine", "seqsv2", "stylecheck", "showallmismatches",
-  "docinternal", "multimethods", "expandmacro", "expandarc",
-  "benchmarkvm", "profilevm", "sinkinference", "cursorinference", "panics",
-  "sourcemap", "deepcopy",
-]
-
-proc invalidCmdLineOption(conf: ConfigRef; pass: TCmdLinePass, switch: string, info: TLineInfo) =
-  conf.localReport(info, ExternalReport(
-    kind: rextInvalidCommandLineOption,
-    cmdlineProvided: switch,
-    cmdlineAllowed: optNames
-  ))
-
-proc splitSwitch(conf: ConfigRef; switch: string, cmd, arg: var string, pass: TCmdLinePass,
-                 info: TLineInfo) =
-  cmd = ""
-  var i = 0
-  if i < switch.len and switch[i] == '-': inc(i)
-  if i < switch.len and switch[i] == '-': inc(i)
-  while i < switch.len:
-    case switch[i]
-    of 'a'..'z', 'A'..'Z', '0'..'9', '_', '.': cmd.add(switch[i])
-    else: break
-    inc(i)
-  if i >= switch.len: arg = ""
-  # cmd:arg => (cmd,arg)
-  elif switch[i] in {':', '='}: arg = substr(switch, i + 1)
-  # cmd[sub]:rest => (cmd,[sub]:rest)
-  elif switch[i] == '[': arg = substr(switch, i)
-  else: invalidCmdLineOption(conf, pass, switch, info)
-
-template switchOn(arg: string): bool =
-  # xxx use `switchOn` wherever appropriate
-  case arg.normalize
-  of "", "on": true
-  of "off": false
-  else:
-    conf.localReport ExternalReport(
-      kind: rextExpectedOnOrOff, cmdlineProvided: arg)
-
-    false
-
-proc processOnOffSwitch(
-    conf: ConfigRef; op: TOptions, arg: string, pass: TCmdLinePass,
-    info: TLineInfo, switch: string
-  ) =
-  case arg.normalize
-  of "", "on": conf.incl op
-  of "off": conf.excl op
-  else:
-    conf.localReport(info, ExternalReport(
-      kind: rextExpectedOnOrOff, cmdlineProvided: arg))
-
-proc processOnOffSwitchOrList(conf: ConfigRef; op: TOptions, arg: string, pass: TCmdLinePass,
-                              info: TLineInfo, switch: string): bool =
-  result = false
-  case arg.normalize
-  of "on": conf.incl op
-  of "off": conf.excl op
-  of "list": result = true
-  else:
-    conf.localReport ExternalReport(
-      kind: rextExpectedOnOrOffOrList, cmdlineProvided: arg, cmdlineSwitch: switch)
-
-proc processOnOffSwitchG(conf: ConfigRef; op: TGlobalOptions, arg: string, pass: TCmdLinePass,
-                         info: TLineInfo, switch: string) =
-  case arg.normalize
-  of "", "on": conf.incl op
-  of "off": conf.excl op
-  else:
-    conf.localReport ExternalReport(
-      kind: rextExpectedOnOrOff, cmdlineProvided: arg, cmdlineSwitch: switch)
-
-proc expectArg(conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, info: TLineInfo) =
-  if arg == "":
-    conf.localReport ExternalReport(
-      kind: rextExpectedCmdArgument, cmdlineSwitch: switch)
-
-proc expectNoArg(conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, info: TLineInfo) =
-  if arg != "":
-    conf.localReport ExternalReport(
-      kind: rextExpectedNoCmdArgument, cmdlineProvided: arg, cmdlineSwitch: switch)
-
-type
-  ProcessNoteResultKind* = enum
-    procNoteSuccess
-    procNoteInvalidOption
-    procNoteInvalidHint
-    procNoteInvalidWarning
-    procNoteExpectedOnOrOff
-    procNoteOnlyAllOffSupported
-
-  ProcessNoteResult* = object
-    case kind*: ProcessNoteResultKind
-      of procNoteSuccess:
-        discard
-      of procNoteInvalidOption,
-          procNoteExpectedOnOrOff,
-          procNoteOnlyAllOffSupported:
-        switch*: string
-        argVal*: string # not used for `procNoteInvalidOption`
-      of procNoteInvalidHint, procNoteInvalidWarning:
-        invalidHintOrWarning*: string
-
-proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
-                          orig: string; conf: ConfigRef): ProcessNoteResult =
-  # TODO: updated to specify hint vs warn, etc in the return value
-  var
-    id = ""  # arg = key or [key] or key:val or [key]:val;  with val=on|off
-    i = 0
-    notes: ReportKinds
-    isBracket = false
-
-  if i < arg.len and arg[i] == '[':
-    isBracket = true
-    inc(i)
-
-  while i < arg.len and (arg[i] notin {':', '=', ']'}):
-    id.add(arg[i])
-    inc(i)
-
-  if isBracket:
-    if i < arg.len and arg[i] == ']': inc(i)
-    else: return ProcessNoteResult(kind: procNoteInvalidOption, switch: orig)
-
-  if i == arg.len: discard
-  elif i < arg.len and (arg[i] in {':', '='}): inc(i)
-  else: return ProcessNoteResult(kind: procNoteInvalidOption, switch: orig)
-
-  # TODO: `ReportKinds` being used for notes/groups/etc is just wrong, it
-  #        defines far more elements than one can actually control. A purpose
-  #        built enum is required.
-
-  proc findNote(noteSet: ReportKinds, groups: seq[(string, ReportKinds)]): ReportKinds =
-    # Check groups like `--hint/warning[all]` or `--hint[Performance]` (very
-    # vague term that maps onto multiple report kinds, such as "copies to
-    # sink") first, because report groups have the same string values:
-    # (`rlexLinterReport = "Name"`, `rsemLinterReport = "Name"`)
-    for (groupName, flags) in groups:
-      if cmpIgnoreStyle(groupName, id) == 0:
-        return flags
-
-    # report enums can have the same string value, indicating that they should
-    # be grouped, this is why we iterate through the set and comparing by name
-    for rk in items(noteSet - {repNone}):
-      if cmpIgnoreStyle($rk, id) == 0:
-        result.incl rk
-
-    if result == {}:
-      result = {repNone}
-
-  # unfortunately, hintUser and warningUser clash, otherwise
-  # implementation would simplify a bit
-  notes =
-    if state in {wHint, wHintAsError}:
-      findNote(repHintKinds, repHintGroups)
-    else:
-      findNote(repWarningKinds, repWarningGroups)
-
-  if notes == {repNone}:
-    return
-      if state in {wHint, wHintAsError}:
-        ProcessNoteResult(kind: procNoteInvalidHint,
-                          invalidHintOrWarning: id)
-      else:
-        ProcessNoteResult(kind: procNoteInvalidWarning,
-                          invalidHintOrWarning: id)
-
-  var val = substr(arg, i).normalize
-  if val == "":
-    val = "on"
-
-  if val notin ["on", "off"]:
-    # xxx in future work we should also allow users to have control over
-    # `foreignPackageNotes` so that they can enable
-    # `hints|warnings|warningAsErrors` for all the code they depend on.
-    return ProcessNoteResult(kind: procNoteExpectedOnOrOff, switch: arg, argVal: val)
-  else:
-    let isOn = val == "on"
-    if isOn and id.normalize == "all":
-      return ProcessNoteResult(kind: procNoteOnlyAllOffSupported, switch: arg, argVal: val)
-
-    for n in notes:
-      if n notin conf.cmdlineNotes or pass == passCmd1:
-        if pass == passCmd1:
-          conf.incl(cnCmdline, n)
-
-        conf.incl(cnModifiedy, n)
-
-        if state in {wWarningAsError, wHintAsError}:
-          conf.flip(cnWarnAsError, n, isOn)
-        else:
-          conf.flip(cnCurrent, n, isOn)
-          conf.flip(cnMainPackage, n, isOn)
-
-        if not isOn:
-          conf.excl(cnForeign, n)
-
-  result = ProcessNoteResult(kind: procNoteSuccess)
-
-proc processCompile(conf: ConfigRef; filename: string) =
-  var found = findFile(conf, filename)
-  if found.isEmpty: found = AbsoluteFile filename
-  extccomp.addExternalFileToCompile(conf, found)
-
-# List of GC names for the error generation. It cannot be created
-# from enum set using `getEnumNames` because nim cmdline has
-# multiple names for the same garbage collector.
-const gcNames = @[
-  "boehm", "refc", "markandsweep", "destructors", "arc", "orc",
-  "hooks", "go", "none", "stack", "regions"]
-
-
-const cmdNames = @[
-  "c", "cc", "compile", "compiletoc",
-  "compiletooc", "js", "compiletojs", "r", "run", "check", "e",
-  "doc2", "doc", "doc2tex", "rst2html", "rst2tex", "jsondoc2",
-  "jsondoc", "ctags", "buildindex", "gendepend", "dump", "parse", "rod",
-  "secret", "nop", "help", "jsonscript",
-]
-
-type
-  CompileOptArgCheckResult* = enum
-    compileOptArgCheckSuccessTrue
-    compileOptArgCheckSuccessFalse
-    compileOptArgCheckWarnFalseDeprecated
-    compileOptArgCheckFailedWithInvalidOption
-    compileOptArgCheckFailedWithUnexpectedValue
-
-func allowedCompileOptionsArgs*(switch: CmdSwitchKind): seq[string] =
-  # xxx: make this exhaustive somehow
-  case switch
-  of cmdSwitchBackend     : validBackends.toSeq.mapIt($it)
-  of cmdSwitchGc          : gcNames
-  of cmdSwitchDebugger    : @["native", "gdb", "on", "off"]
-  of cmdSwitchOpt         : @["speed", "size", "none"]
-  of cmdSwitchApp         : @["gui", "console", "lib", "staticlib"]
-  of cmdSwitchOs          : platform.listOSnames()
-  of cmdSwitchCpu         : platform.listCPUnames()
-  of cmdSwitchVerbosity   : @["0", "1", "2", "3"]
-  of cmdSwitchIncremental : @["on", "off", "writeonly", "readonly", "v2", "stress"]
-  of cmdSwitchCc          : listCCnames()
-  of cmdSwitchFilenames   : @["abs", "canonical", "legacyRelProj"]
-  of cmdSwitchProcessing  : @["dots", "filenames", "off"]
-  of cmdSwitchExperimental: experimentalFeatures.toSeq.mapIt($it)
-  of cmdSwitchExceptions  : @["native", "goto"]
-  of cmdSwitchStylecheck  : @["off", "hint", "error", "usages"]
-  else: unreachable("this is a compiler bug")
-
-func allowedCompileOptionArgs*(switch: string): seq[string] =
-  let s =
-    try:
-      parseEnum[CmdSwitchKind](switch.normalize)
-    except ValueError:
-      unreachable("not really, this is a compiler bug")
-  allowedCompileOptionsArgs(s)
-
-func testCompileOptionArg*(conf: ConfigRef; switch, arg: string): CompileOptArgCheckResult =
-  template asResult(exp: bool): CompileOptArgCheckResult =
-    {.line.}:
-      if exp: compileOptArgCheckSuccessTrue
-      else:   compileOptArgCheckSuccessFalse
-
-  case switch.normalize
-  of "gc":
-    case arg.normalize
-    of "boehm": asResult conf.selectedGC == gcBoehm
-    of "refc": asResult conf.selectedGC == gcRefc
-    of "markandsweep": asResult conf.selectedGC == gcMarkAndSweep
-    of "destructors", "arc": asResult conf.selectedGC == gcArc
-    of "orc": asResult conf.selectedGC == gcOrc
-    of "hooks": asResult conf.selectedGC == gcHooks
-    of "go": asResult conf.selectedGC == gcGo
-    of "none": asResult conf.selectedGC == gcNone
-    of "stack", "regions": asResult conf.selectedGC == gcRegions
-    else: compileOptArgCheckFailedWithUnexpectedValue
-  of "opt":
-    case arg.normalize
-    of "speed": asResult optOptimizeSpeed in conf.options
-    of "size": asResult optOptimizeSize in conf.options
-    of "none": asResult conf.options * {optOptimizeSpeed,optOptimizeSize} == {}
-    else: compileOptArgCheckFailedWithUnexpectedValue
-  of "verbosity": asResult $conf.verbosity == arg
-  of "app":
-    case arg.normalize
-    of "gui": asResult optGenGuiApp in conf.globalOptions
-    of "console": asResult optGenGuiApp notin conf.globalOptions
-    of "lib": asResult optGenDynLib in conf.globalOptions and
-                      optGenGuiApp notin conf.globalOptions
-    of "staticlib": asResult optGenStaticLib in conf.globalOptions and
-                      optGenGuiApp notin conf.globalOptions
-    else: compileOptArgCheckFailedWithUnexpectedValue
-  of "dynliboverride": asResult isDynlibOverride(conf, arg)
-  of "exceptions":
-    case arg.normalize
-    of "native": asResult conf.exc == excNative
-    of "goto": asResult conf.exc == excGoto
-    else: compileOptArgCheckFailedWithUnexpectedValue
-  else: compileOptArgCheckFailedWithInvalidOption
-
-type
-  CompileOptCheckResult* = enum
-    compileOptCheckSuccessTrue
-    compileOptCheckSuccessFalse
-    compileOptCheckWarnFalseDeprecated
-    compileOptCheckFailedWithInvalidOption
-
-func testCompileOption*(conf: ConfigRef; switch: string): CompileOptCheckResult =
-  template asResult(exp: bool): CompileOptCheckResult =
-    {.line.}:
-      if exp: compileOptCheckSuccessTrue
-      else:   compileOptCheckSuccessFalse
-
-  case switch.normalize
-  of "debuginfo": asResult optCDebug in conf.globalOptions
-  of "compileonly", "c": asResult optCompileOnly in conf.globalOptions
-  of "nolinking": asResult optNoLinking in conf.globalOptions
-  of "nomain": asResult optNoMain in conf.globalOptions
-  of "forcebuild", "f": asResult optForceFullMake in conf.globalOptions
-  of "warnings", "w": asResult optWarns in conf.options
-  of "hints": asResult optHints in conf.options
-  of "threadanalysis": asResult optThreadAnalysis in conf.globalOptions
-  of "stacktrace": asResult optStackTrace in conf.options
-  of "stacktracemsgs": asResult optStackTraceMsgs in conf.options
-  of "linetrace": asResult optLineTrace in conf.options
-  of "debugger": asResult optCDebug in conf.globalOptions
-  of "profiler": asResult optProfiler in conf.options
-  of "memtracker": asResult optMemTracker in conf.options
-  of "checks", "x": asResult conf.options * ChecksOptions == ChecksOptions
-  of "floatchecks":
-    asResult conf.options * {optNaNCheck, optInfCheck} == {optNaNCheck, optInfCheck}
-  of "infchecks": asResult optInfCheck in conf.options
-  of "nanchecks": asResult optNaNCheck in conf.options
-  of "objchecks": asResult optObjCheck in conf.options
-  of "fieldchecks": asResult optFieldCheck in conf.options
-  of "rangechecks": asResult optRangeCheck in conf.options
-  of "boundchecks": asResult optBoundsCheck in conf.options
-  of "overflowchecks": asResult optOverflowCheck in conf.options
-  of "staticboundchecks": asResult optStaticBoundsCheck in conf.options
-  of "stylechecks": asResult optStyleCheck in conf.options
-  of "linedir": asResult optLineDir in conf.options
-  of "assertions", "a": asResult optAssert in conf.options
-  of "run", "r": asResult optRun in conf.globalOptions
-  of "incremental": asResult conf.symbolFiles != disabledSf
-  of "genscript": asResult optGenScript in conf.globalOptions
-  of "threads": asResult optThreads in conf.globalOptions
-  of "tlsemulation": asResult optTlsEmulation in conf.globalOptions
-  of "implicitstatic": asResult optImplicitStatic in conf.options
-  of "trmacros": asResult optTrMacros in conf.options
-  of "excessivestacktrace": asResult optExcessiveStackTrace in conf.globalOptions
-  of "cmdexitgcstats": asResult optCmdExitGcStats in conf.globalOptions
-  else: compileOptCheckFailedWithInvalidOption
-
-proc processPath(conf: ConfigRef; path: string, info: TLineInfo, switch: string,
-                 notRelativeToProj = false): AbsoluteDir =
-  let p = if os.isAbsolute(path) or '$' in path:
-            path
-          elif notRelativeToProj:
-            getCurrentDir() / path
-          else:
-            conf.projectPath.string / path
-  try:
-    result = AbsoluteDir pathSubs(conf, p, toFullPath(conf, info).splitFile().dir)
-  except ValueError:
-    conf.localReport(info, ExternalReport(
-      kind: rextInvalidPath, cmdlineProvided: p, cmdlineSwitch: switch))
-    result = AbsoluteDir p
-
-proc processCfgPath(conf: ConfigRef; path: string, info: TLineInfo, switch: string): AbsoluteDir =
-  let path = if path.len > 0 and path[0] == '"': strutils.unescape(path)
-             else: path
-  let basedir = toFullPath(conf, info).splitFile().dir
-  let p = if os.isAbsolute(path) or '$' in path:
-            path
-          else:
-            basedir / path
-  try:
-    result = AbsoluteDir pathSubs(conf, p, basedir)
-  except ValueError:
-    conf.localReport(info, ExternalReport(
-      kind: rextInvalidPath, cmdlineProvided: p, cmdlineSwitch: switch))
-    result = AbsoluteDir p
-
-proc dynlibOverride(conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, info: TLineInfo) =
-  if pass in {passCmd2, passPP}:
-    expectArg(conf, switch, arg, pass, info)
-    options.inclDynlibOverride(conf, arg)
-
-proc handleStdinOrCmdInput(conf: ConfigRef) =
-  conf.projectFull = conf.projectName.AbsoluteFile
-  conf.projectPath = AbsoluteDir getCurrentDir()
-  if conf.outDir.isEmpty:
-    conf.outDir = getNimcacheDir(conf)
-
-proc handleStdinInput*(conf: ConfigRef) =
-  conf.projectName = "stdinfile"
-  handleStdinOrCmdInput(conf)
-
-proc handleCmdInput*(conf: ConfigRef) =
-  conf.projectName = "cmdfile"
-  handleStdinOrCmdInput(conf)
-
-proc parseCommand*(command: string): Command =
-  # NOTE when adding elements to this list, sync with `cmdNames` const
-  case command.normalize
-  of "c", "cc", "compile", "compiletoc": cmdCompileToC
-  of "js", "compiletojs": cmdCompileToJS
-  of "vm", "compiletovm": cmdCompileToVM
-  of "r": cmdCrun
-  of "run": cmdTcc
-  of "check": cmdCheck
-  of "e": cmdNimscript
-  of "doc2", "doc": cmdDoc
-  of "doc2tex": cmdDoc2tex
-  of "rst2html": cmdRst2html
-  of "rst2tex": cmdRst2tex
-  of "jsondoc2", "jsondoc": cmdJsondoc
-  of "ctags": cmdCtags
-  of "buildindex": cmdBuildindex
-  of "gendepend": cmdGendepend
-  of "dump": cmdDump
-  of "parse": cmdParse
-  of "scan": cmdScan
-  of "rod": cmdRod
-  of "secret": cmdInteractive
-  of "nop", "help": cmdNop
-  of "jsonscript": cmdJsonscript
-  else: cmdUnknown
-
-proc setCmd*(conf: ConfigRef, cmd: Command) =
-  ## sets cmd, backend so subsequent flags can query it (e.g. so --gc:arc can be ignored for backendJs)
-  # Note that `--backend` can override the backend, so the logic here must remain reversible.
-  conf.cmd = cmd
-  case cmd
-  of cmdCompileToC, cmdCrun, cmdTcc: conf.backend = backendC
-  of cmdCompileToJS: conf.backend = backendJs
-  of cmdCompileToVM: conf.backend = backendNimVm
-  else: discard
-
-proc setCommandEarly*(conf: ConfigRef, command: string) =
-  conf.command = command
-  setCmd(conf, command.parseCommand)
-  # command early customizations
-  # must be handled here to honor subsequent `--hint:x:on|off`
-  case conf.cmd
-  of cmdRst2html, cmdRst2tex: # xxx see whether to add others: cmdGendepend, etc.
-    conf.foreignPackageNotes = NotesVerbosity.base + {rintSuccessX}
-  else:
-    conf.foreignPackageNotes = NotesVerbosity.foreign
-
-proc specialDefine(conf: ConfigRef, key: string; pass: TCmdLinePass) =
-  # Keep this syncronized with the default config/nim.cfg!
-  if cmpIgnoreStyle(key, "release") == 0 or cmpIgnoreStyle(key, "danger") == 0:
-    if pass in {passCmd1, passPP}:
-      conf.excl {optStackTrace, optLineTrace, optLineDir, optOptimizeSize}
-      conf.excl {optExcessiveStackTrace, optCDebug}
-      conf.incl optOptimizeSpeed
-  if cmpIgnoreStyle(key, "danger") == 0 or cmpIgnoreStyle(key, "quick") == 0:
-    if pass in {passCmd1, passPP}:
-      conf.excl {optObjCheck, optFieldCheck, optRangeCheck, optBoundsCheck,
-        optOverflowCheck, optAssert, optStackTrace, optLineTrace, optLineDir}
-      conf.excl {optCDebug}
-
-proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
-                    conf: ConfigRef) =
-  var
-    key, val: string
-
-  proc invalidSwitchValue(wanted: seq[string],
-                          cmdlineError: string = ""): ExternalReport =
-    ExternalReport(kind: rextInvalidValue,
-                   cmdlineProvided: arg,
-                   cmdlineAllowed: wanted,
-                   cmdlineError: cmdlineError,
-                   cmdlineSwitch: switch)
-
-  template processSpecificNoteAndLog(arg: string, state: TSpecialWord,
-                                     pass: TCmdLinePass, orig: string,
-                                     conf: ConfigRef) =
-    let r = processSpecificNote(arg, state, pass, orig, conf)
-    # need to map this to the legacy reports trash fire
-    case r.kind
-    of procNoteInvalidOption:
-      invalidCmdLineOption(conf, pass, orig, info)
-    of procNoteInvalidHint:
-      conf.localReport(info):
-        ExternalReport(kind: rextInvalidHint,
-                      cmdlineProvided: r.invalidHintOrWarning,
-                      cmdlineAllowed: repHintKinds.mapIt($it))
-    of procNoteInvalidWarning:
-      conf.localReport(info):
-        ExternalReport(kind: rextInvalidWarning,
-                      cmdlineProvided: r.invalidHintOrWarning,
-                      cmdlineAllowed: repWarningKinds.mapIt($it))
-    of procNoteExpectedOnOrOff:
-      conf.localReport(info):
-        ExternalReport(kind: rextExpectedOnOrOff, cmdlineProvided: arg)
-    of procNoteOnlyAllOffSupported:
-      conf.localReport(info):
-        ExternalReport(kind: rextOnlyAllOffSupported)
-    of procNoteSuccess:
-      discard "TODO: log a trace for success?"
-
-  case switch.normalize
-  of "fromcmd":
-    expectNoArg(conf, switch, arg, pass, info)
-    conf.inputMode = pimCmd
-  of "path", "p":
-    expectArg(conf, switch, arg, pass, info)
-    for path in nimbleSubs(conf, arg):
-      addPath(conf, if pass == passPP: processCfgPath(conf, path, info, switch)
-                    else: processPath(conf, path, info, switch))
-  of "nimblepath":
-    if pass in {passCmd2, passPP} and optNoNimblePath notin conf.globalOptions:
-      expectArg(conf, switch, arg, pass, info)
-      var path = processPath(conf, arg, info, switch, notRelativeToProj=true)
-      # TODO: move up nimble stuff, then set path once
-      let nimbleDir = AbsoluteDir getEnv("NIMBLE_DIR")
-      if not nimbleDir.isEmpty and pass == passPP:
-        path = nimbleDir / RelativeDir"pkgs"
-      let res = nimblePath(conf, path)
-      for it in res.pkgs.items:
-        case it.status
-        of nimblePkgInvalid:
-          conf.localReport(info, ExternalReport(kind: rextInvalidPackageName,
-                                                packageName: it.path))
-        else:
-          discard
-      for p in res.addedPaths.items:
-        conf.localReport(info, ExternalReport(kind: rextPath,
-                                              packagePath: p.string))
-  of "nonimblepath":
-    expectNoArg(conf, switch, arg, pass, info)
-    disableNimblePath(conf)
-  of "clearnimblepath":
-    expectNoArg(conf, switch, arg, pass, info)
-    clearNimblePath(conf)
-  of "excludepath":
-    expectArg(conf, switch, arg, pass, info)
-    let path = processPath(conf, arg, info, switch)
-    conf.searchPaths = conf.searchPaths.filterIt(it != path)
-    conf.lazyPaths = conf.lazyPaths.filterIt(it != path)
-  of "nimcache":
-    expectArg(conf, switch, arg, pass, info)
-    var arg = arg
-    # refs bug #18674, otherwise `--os:windows` messes up with `--nimcache` set
-    # in config nims files, e.g. via: `import os; switch("nimcache", "/tmp/somedir")`
-    if conf.target.targetOS == osWindows and DirSep == '/': arg = arg.replace('\\', '/')
-    conf.nimcacheDir = processPath(conf, arg, info, switch, notRelativeToProj=true)
-  of "out", "o":
-    expectArg(conf, switch, arg, pass, info)
-    let f = splitFile(processPath(conf, arg, info, switch, notRelativeToProj=true).string)
-    conf.outFile = RelativeFile f.name & f.ext
-    conf.outDir = toAbsoluteDir f.dir
-  of "outdir":
-    expectArg(conf, switch, arg, pass, info)
-    conf.outDir = processPath(conf, arg, info, switch, notRelativeToProj=true)
-  of "depfile":
-    expectArg(conf, switch, arg, pass, info)
-    conf.depfile = processPath(conf, arg, info, switch, notRelativeToProj=true).AbsoluteFile
-  of "usenimcache":
-    processOnOffSwitchG(conf, {optUseNimcache}, arg, pass, info, switch)
-  of "docseesrcurl":
-    expectArg(conf, switch, arg, pass, info)
-    conf.docSeeSrcUrl = arg
-  of "docroot":
-    conf.docRoot = if arg.len == 0: docRootDefault else: arg
-  of "backend", "b":
-    let backend = parseEnum(arg.normalize, TBackend.default)
-    if backend == TBackend.default:
-      conf.localReport(info, invalidSwitchValue @["c", "js", "vm"])
-    conf.backend = backend
-  of "doccmd": conf.docCmd = arg
-  of "define", "d":
-    expectArg(conf, switch, arg, pass, info)
-    if {':', '='} in arg:
-      splitSwitch(conf, arg, key, val, pass, info)
-      specialDefine(conf, key, pass)
-      defineSymbol(conf, key, val)
-    else:
-      specialDefine(conf, arg, pass)
-      defineSymbol(conf, arg)
-  of "undef", "u":
-    expectArg(conf, switch, arg, pass, info)
-    undefSymbol(conf, arg)
-  of "compile":
-    expectArg(conf, switch, arg, pass, info)
-    if pass in {passCmd2, passPP}: processCompile(conf, arg)
-  of "link":
-    expectArg(conf, switch, arg, pass, info)
-    if pass in {passCmd2, passPP}:
-      addExternalFileToLink(conf, AbsoluteFile arg)
-  of "debuginfo":
-    processOnOffSwitchG(conf, {optCDebug}, arg, pass, info, switch)
-  of "embedsrc":
-    processOnOffSwitchG(conf, {optEmbedOrigSrc}, arg, pass, info, switch)
-  of "compileonly", "c":
-    processOnOffSwitchG(conf, {optCompileOnly}, arg, pass, info, switch)
-  of "nolinking":
-    processOnOffSwitchG(conf, {optNoLinking}, arg, pass, info, switch)
-  of "nomain":
-    processOnOffSwitchG(conf, {optNoMain}, arg, pass, info, switch)
-  of "forcebuild", "f":
-    processOnOffSwitchG(conf, {optForceFullMake}, arg, pass, info, switch)
-  of "project":
-    processOnOffSwitchG(
-      conf, {optWholeProject, optGenIndex}, arg, pass, info, switch)
-  of "gc":
-    if conf.backend in {backendJs, backendNimVm}: return # for: bug #16033
-    expectArg(conf, switch, arg, pass, info)
-    if pass in {passCmd2, passPP}:
-      case arg.normalize
-      of "boehm":
-        conf.selectedGC = gcBoehm
-        defineSymbol(conf, "boehmgc")
-        conf.incl optTlsEmulation # Boehm GC doesn't scan the real TLS
-      of "refc":
-        conf.selectedGC = gcRefc
-      of "markandsweep":
-        conf.selectedGC = gcMarkAndSweep
-        defineSymbol(conf, "gcmarkandsweep")
-      of "destructors", "arc":
-        conf.selectedGC = gcArc
-        defineSymbol(conf, "gcdestructors")
-        defineSymbol(conf, "gcarc")
-        conf.incl optSeqDestructors
-        conf.incl optTinyRtti
-        if pass in {passCmd2, passPP}:
-          defineSymbol(conf, "nimSeqsV2")
-          defineSymbol(conf, "nimV2")
-        if conf.exc in {excNone, excNative}:
-          conf.exc = excGoto
-      of "orc":
-        conf.selectedGC = gcOrc
-        defineSymbol(conf, "gcdestructors")
-        defineSymbol(conf, "gcorc")
-        conf.incl optSeqDestructors
-        conf.incl optTinyRtti
-        if pass in {passCmd2, passPP}:
-          defineSymbol(conf, "nimSeqsV2")
-          defineSymbol(conf, "nimV2")
-        if conf.exc in {excNone, excNative}:
-          conf.exc = excGoto
-      of "hooks":
-        conf.selectedGC = gcHooks
-        defineSymbol(conf, "gchooks")
-        conf.incl optSeqDestructors
-        processOnOffSwitchG(conf, {optSeqDestructors}, arg, pass, info, switch)
-        if pass in {passCmd2, passPP}:
-          defineSymbol(conf, "nimSeqsV2")
-      of "go":
-        conf.selectedGC = gcGo
-        defineSymbol(conf, "gogc")
-      of "none":
-        conf.selectedGC = gcNone
-        defineSymbol(conf, "nogc")
-      of "stack", "regions":
-        conf.selectedGC = gcRegions
-        defineSymbol(conf, "gcregions")
-      else:
-        conf.localReport(
-          info, invalidSwitchValue gcNames)
-  of "warnings", "w":
-    if processOnOffSwitchOrList(conf, {optWarns}, arg, pass, info, switch):
-      listWarnings(conf)
-  of "warning": processSpecificNoteAndLog(arg, wWarning, pass, switch, conf)
-  of "hint": processSpecificNoteAndLog(arg, wHint, pass, switch, conf)
-  of "warningaserror":
-    processSpecificNoteAndLog(arg, wWarningAsError, pass, switch, conf)
-  of "hintaserror":
-    processSpecificNoteAndLog(arg, wHintAsError, pass, switch, conf)
-  of "hints":
-    if processOnOffSwitchOrList(conf, {optHints}, arg, pass, info, switch):
-      listHints(conf)
-  of "threadanalysis":
-    if conf.backend == backendJs: discard
-    else:
-      processOnOffSwitchG(conf, {optThreadAnalysis}, arg, pass, info, switch)
-  of "stacktrace":
-    processOnOffSwitch(conf, {optStackTrace}, arg, pass, info, switch)
-  of "stacktracemsgs":
-    processOnOffSwitch(conf, {optStackTraceMsgs}, arg, pass, info, switch)
-  of "excessivestacktrace":
-    processOnOffSwitchG(conf, {optExcessiveStackTrace}, arg, pass, info, switch)
-  of "linetrace":
-    processOnOffSwitch(conf, {optLineTrace}, arg, pass, info, switch)
-  of "debugger":
-    case arg.normalize
-    of "on", "native", "gdb":
-      conf.incl optCDebug
-      conf.incl optLineDir
-      #defineSymbol(conf.symbols, "nimTypeNames") # type names are used in gdb pretty printing
-    of "off":
-      conf.excl optCDebug
-    else:
-      conf.localReport(
-        info, invalidSwitchValue @["native", "gdb", "on", "off"])
-  of "profiler":
-    processOnOffSwitch(conf, {optProfiler}, arg, pass, info, switch)
-    if optProfiler in conf.options:
-      defineSymbol(conf, "profiler")
-    else:
-      undefSymbol(conf, "profiler")
-  of "memtracker":
-    processOnOffSwitch(conf, {optMemTracker}, arg, pass, info, switch)
-    if optMemTracker in conf.options:
-      defineSymbol(conf, "memtracker")
-    else:
-      undefSymbol(conf, "memtracker")
-  of "checks", "x":
-    processOnOffSwitch(conf, ChecksOptions, arg, pass, info, switch)
-  of "floatchecks":
-    processOnOffSwitch(
-      conf, {optNaNCheck, optInfCheck}, arg, pass, info, switch)
-  of "infchecks":
-    processOnOffSwitch(conf, {optInfCheck}, arg, pass, info, switch)
-  of "nanchecks":
-    processOnOffSwitch(conf, {optNaNCheck}, arg, pass, info, switch)
-  of "objchecks":
-    processOnOffSwitch(conf, {optObjCheck}, arg, pass, info, switch)
-  of "fieldchecks":
-    processOnOffSwitch(conf, {optFieldCheck}, arg, pass, info, switch)
-  of "rangechecks":
-    processOnOffSwitch(conf, {optRangeCheck}, arg, pass, info, switch)
-  of "boundchecks":
-    processOnOffSwitch(conf, {optBoundsCheck}, arg, pass, info, switch)
-  of "overflowchecks":
-    processOnOffSwitch(conf, {optOverflowCheck}, arg, pass, info, switch)
-  of "staticboundchecks":
-    processOnOffSwitch(conf, {optStaticBoundsCheck}, arg, pass, info, switch)
-  of "stylechecks":
-    processOnOffSwitch(conf, {optStyleCheck}, arg, pass, info, switch)
-  of "linedir":
-    processOnOffSwitch(conf, {optLineDir}, arg, pass, info, switch)
-  of "assertions", "a":
-    processOnOffSwitch(conf, {optAssert}, arg, pass, info, switch)
-  of "threads":
-    if conf.backend == backendJs:
-      discard
-    else:
-      processOnOffSwitchG(conf, {optThreads}, arg, pass, info, switch)
-    #if optThreads in conf.globalOptions: conf.setNote(warnGcUnsafe)
-  of "tlsemulation":
-    processOnOffSwitchG(conf, {optTlsEmulation}, arg, pass, info, switch)
-  of "implicitstatic":
-    processOnOffSwitch(conf, {optImplicitStatic}, arg, pass, info, switch)
-  of "trmacros":
-    processOnOffSwitch(conf, {optTrMacros}, arg, pass, info, switch)
-  of "opt":
-    expectArg(conf, switch, arg, pass, info)
-    case arg.normalize
-    of "speed":
-      incl(conf, optOptimizeSpeed)
-      excl(conf, optOptimizeSize)
-    of "size":
-      excl(conf, optOptimizeSpeed)
-      incl(conf, optOptimizeSize)
-    of "none":
-      excl(conf, optOptimizeSpeed)
-      excl(conf, optOptimizeSize)
-    else:
-      conf.localReport(info, ExternalReport(
-        kind: rextInvalidValue,
-        cmdlineProvided: arg,
-        cmdlineAllowed: @["speed", "size", "none"],
-        cmdlineSwitch: switch))
-  of "app":
-    expectArg(conf, switch, arg, pass, info)
-    case arg.normalize
-    of "gui":
-      conf.incl optGenGuiApp
-      defineSymbol(conf, "executable")
-      defineSymbol(conf, "guiapp")
-    of "console":
-      conf.excl optGenGuiApp
-      defineSymbol(conf, "executable")
-      defineSymbol(conf, "consoleapp")
-    of "lib":
-      incl(conf, optGenDynLib)
-      excl(conf, optGenGuiApp)
-      defineSymbol(conf, "library")
-      defineSymbol(conf, "dll")
-    of "staticlib":
-      incl(conf, optGenStaticLib)
-      excl(conf, optGenGuiApp)
-      defineSymbol(conf, "library")
-      defineSymbol(conf, "staticlib")
-    else:
-      conf.localReport(
-        info, invalidSwitchValue  @["gui", "console", "lib", "staticlib"])
-  of "passc", "t":
-    expectArg(conf, switch, arg, pass, info)
-    if pass in {passCmd2, passPP}: extccomp.addCompileOptionCmd(conf, arg)
-  of "passl", "l":
-    expectArg(conf, switch, arg, pass, info)
-    if pass in {passCmd2, passPP}: extccomp.addLinkOptionCmd(conf, arg)
-  of "cincludes":
-    expectArg(conf, switch, arg, pass, info)
-    if pass in {passCmd2, passPP}:
-      conf.cIncludesAdd processPath(conf, arg, info, switch)
-  of "clibdir":
-    expectArg(conf, switch, arg, pass, info)
-    if pass in {passCmd2, passPP}:
-      conf.cLibsAdd processPath(conf, arg, info, switch)
-  of "clib":
-    expectArg(conf, switch, arg, pass, info)
-    if pass in {passCmd2, passPP}:
-      conf.cLinkedLibsAdd processPath(conf, arg, info, switch).string
-  of "header":
-    if conf != nil: conf.headerFile = arg
-    incl(conf, optGenIndex)
-  of "index":
-    processOnOffSwitchG(conf, {optGenIndex}, arg, pass, info, switch)
-  of "import":
-    expectArg(conf, switch, arg, pass, info)
-    if pass in {passCmd2, passPP}:
-      conf.implicitImportsAdd findModule(
-        conf, arg, toFullPath(conf, info)).string
-  of "include":
-    expectArg(conf, switch, arg, pass, info)
-    if pass in {passCmd2, passPP}:
-      conf.implicitIncludesAdd findModule(
-        conf, arg, toFullPath(conf, info)).string
-  of "listcmd":
-    processOnOffSwitchG(conf, {optListCmd}, arg, pass, info, switch)
-  of "asm":
-    processOnOffSwitchG(conf, {optProduceAsm}, arg, pass, info, switch)
-  of "genmapping":
-    processOnOffSwitchG(conf, {optGenMapping}, arg, pass, info, switch)
-  of "os":
-    expectArg(conf, switch, arg, pass, info)
-    let theOS = platform.nameToOS(arg)
-    if theOS == osNone:
-      conf.localReport(
-        info, invalidSwitchValue platform.listOSnames())
-    else:
-      conf.target =
-        block:
-          var t = conf.target
-          setTarget(t, theOS, conf.target.targetCPU)
-          t
-  of "cpu":
-    expectArg(conf, switch, arg, pass, info)
-    let cpu = platform.nameToCPU(arg)
-    if cpu == cpuNone:
-      conf.localReport(
-        info, invalidSwitchValue platform.listCPUnames())
-    else:
-      conf.target =
-        block:
-          var t = conf.target
-          setTarget(t, conf.target.targetOS, cpu)
-          t
-  of "run", "r":
-    processOnOffSwitchG(conf, {optRun}, arg, pass, info, switch)
-  of "maxloopiterationsvm":
-    expectArg(conf, switch, arg, pass, info)
-    conf.maxLoopIterationsVM = parseInt(arg)
-  of "errormax":
-    expectArg(conf, switch, arg, pass, info)
-    # Note: `nim check` (etc) can overwrite this.
-    # `0` is meaningless, give it a useful meaning as in clang's -ferror-limit
-    # If user doesn't set this flag and the code doesn't either, it'd
-    # have the same effect as errorMax = 1
-    let ret = parseInt(arg)
-    conf.errorMax = if ret == 0: high(int) else: ret
-  of "verbosity":
-    expectArg(conf, switch, arg, pass, info)
-    let verbosity = parseInt(arg)
-    if verbosity notin {0 .. 3}:
-      conf.localReport(
-        info, invalidSwitchValue @["0", "1", "2", "3"])
-    conf.verbosity = CompilerVerbosity(verbosity)
-    var verb = NotesVerbosity.main[conf.verbosity]
-    ## We override the default `verb` by explicitly modified (set/unset) notes.
-    conf.notes = (conf.modifiedyNotes * conf.notes + verb) -
-      (conf.modifiedyNotes * verb - conf.notes)
-    conf.mainPackageNotes = conf.notes
-  of "parallelbuild":
-    expectArg(conf, switch, arg, pass, info)
-    conf.numberOfProcessors = parseInt(arg)
-  of "incremental", "ic":
-    if pass in {passCmd2, passPP}:
-      case arg.normalize
-      of "on": conf.symbolFiles = v2Sf
-      of "off": conf.symbolFiles = disabledSf
-      of "writeonly": conf.symbolFiles = writeOnlySf
-      of "readonly": conf.symbolFiles = readOnlySf
-      of "v2": conf.symbolFiles = v2Sf
-      of "stress": conf.symbolFiles = stressTest
-      else:
-        conf.localReport(
-          info, invalidSwitchValue @["on", "off", "writeonly", "readonly", "v2", "stress"])
-    setUseIc(conf.symbolFiles != disabledSf)
-  of "skipcfg":
-    processOnOffSwitchG(conf, {optSkipSystemConfigFile}, arg, pass, info, switch)
-  of "skipprojcfg":
-    processOnOffSwitchG(conf, {optSkipProjConfigFile}, arg, pass, info, switch)
-  of "skipusercfg":
-    processOnOffSwitchG(conf, {optSkipUserConfigFile}, arg, pass, info, switch)
-  of "skipparentcfg":
-    processOnOffSwitchG(conf, {optSkipParentConfigFiles}, arg, pass, info, switch)
-  of "genscript":
-    processOnOffSwitchG(conf, {optGenScript}, arg, pass, info, switch)
-    processOnOffSwitchG(conf, {optCompileOnly}, arg, pass, info, switch)
-  of "colors": processOnOffSwitchG(conf, {optUseColors}, arg, pass, info, switch)
-  of "lib":
-    expectArg(conf, switch, arg, pass, info)
-    conf.libpath = processPath(conf, arg, info, switch, notRelativeToProj=true)
-  of "putenv":
-    expectArg(conf, switch, arg, pass, info)
-    splitSwitch(conf, arg, key, val, pass, info)
-    os.putEnv(key, val)
-  of "cc":
-    expectArg(conf, switch, arg, pass, info)
-    case setCC(conf, arg)
-    of ccNone:
-      # xxx: temporarily using legacy reports
-      conf.localReport(ExternalReport(
-                        kind: rextUnknownCCompiler,
-                        knownCompilers: listCCnames(),
-                        passedCompiler: arg))
-    else:
-      discard "valid compiler set"
-  of "stdout":
-    processOnOffSwitchG(conf, {optStdout}, arg, pass, info, switch)
-  of "filenames":
-    case arg.normalize
-    of "abs": conf.filenameOption = foAbs
-    of "canonical": conf.filenameOption = foCanonical
-    of "legacyrelproj": conf.filenameOption = foLegacyRelProj
-    else:
-      conf.localReport(info, invalidSwitchValue @["abs", "canonical", "legacyRelProj"])
-  of "processing":
-    incl(conf, cnCurrent, rsemProcessing)
-    incl(conf, cnMainPackage, rsemProcessing)
-    case arg.normalize
-    of "dots": conf.hintProcessingDots = true
-    of "filenames": conf.hintProcessingDots = false
-    of "off":
-      excl(conf, cnCurrent, rsemProcessing)
-      excl(conf, cnMainPackage, rsemProcessing)
-    else:
-      conf.localReport(info, invalidSwitchValue @["dots", "filenames", "off"])
-  of "unitsep":
-    conf.unitSep = if switchOn(arg): "\31" else: ""
-  of "listfullpaths":
-    # xxx: this should probably get subsubed with filenames
-    conf.filenameOption = if switchOn(arg): foAbs else: foCanonical
-  of "spellsuggest":
-    if arg.len == 0: conf.spellSuggestMax = spellSuggestSecretSauce
-    elif arg == "auto": conf.spellSuggestMax = spellSuggestSecretSauce
-    else: conf.spellSuggestMax = parseInt(arg)
-  of "declaredlocs":
-    processOnOffSwitchG(conf, {optDeclaredLocs}, arg, pass, info, switch)
-  of "dynliboverride":
-    dynlibOverride(conf, switch, arg, pass, info)
-  of "dynliboverrideall":
-    processOnOffSwitchG(conf, {optDynlibOverrideAll}, arg, pass, info, switch)
-  of "experimental":
-    if arg.len == 0:
-      conf.incl oldExperimentalFeatures
-    else:
-      try:
-        conf.incl parseEnum[Feature](arg)
-      except ValueError:
-        conf.localReport(
-          info, invalidSwitchValue(
-            getEnumNames({low(Feature) .. high(Feature)}),
-            "unknown experimental feature"))
-  of "exceptions":
-    case arg.normalize
-    of "native": conf.exc = excNative
-    of "goto": conf.exc = excGoto
-    else:
-      conf.localReport(info, invalidSwitchValue @["native", "goto"])
-  of "cppdefine":
-    expectArg(conf, switch, arg, pass, info)
-    if conf != nil:
-      conf.cppDefine(arg)
-  of "seqsv2":
-    processOnOffSwitchG(conf, {optSeqDestructors}, arg, pass, info, switch)
-    if pass in {passCmd2, passPP}:
-      defineSymbol(conf, "nimSeqsV2")
-  of "stylecheck":
-    case arg.normalize
-    of "off":
-      conf.globalOptions = conf.globalOptions - {optStyleHint, optStyleError}
-    of "hint":
-      conf.globalOptions = conf.globalOptions + {optStyleHint} - {optStyleError}
-    of "error":
-      conf.globalOptions = conf.globalOptions + {optStyleError}
-    of "usages":
-      conf.incl optStyleUsages
-    else:
-      conf.localReport(
-        info, invalidSwitchValue @["off", "hint", "error", "usages"])
-  of "showallmismatches":
-    processOnOffSwitchG(conf, {optShowAllMismatches}, arg, pass, info, switch)
-  of "docinternal":
-    processOnOffSwitchG(conf, {optDocInternal}, arg, pass, info, switch)
-  of "multimethods":
-    processOnOffSwitchG(conf, {optMultiMethods}, arg, pass, info, switch)
-  of "expandmacro":
-    expectArg(conf, switch, arg, pass, info)
-    conf.macrosToExpand[arg] = "T"
-  of "expandarc":
-    expectArg(conf, switch, arg, pass, info)
-    conf.arcToExpand[arg] = "T"
-  of "benchmarkvm":
-    processOnOffSwitchG(conf, {optBenchmarkVM}, arg, pass, info, switch)
-  of "profilevm":
-    processOnOffSwitchG(conf, {optProfileVM}, arg, pass, info, switch)
-  of "sinkinference":
-    processOnOffSwitch(conf, {optSinkInference}, arg, pass, info, switch)
-  of "cursorinference":
-    # undocumented, for debugging purposes only:
-    processOnOffSwitch(conf, {optCursorInference}, arg, pass, info, switch)
-  of "panics":
-    processOnOffSwitchG(conf, {optPanics}, arg, pass, info, switch)
-    if optPanics in conf.globalOptions:
-      defineSymbol(conf, "nimPanics")
-  of "sourcemap": # xxx document in --fullhelp
-    conf.incl optSourcemap
-    conf.incl optLineDir
-  of "deepcopy":
-    processOnOffSwitchG(conf, {optEnableDeepCopy}, arg, pass, info, switch)
-  of "": # comes from "-" in for example: `nim c -r -` (gets stripped from -)
-    conf.inputMode = pimStdin
-  of "cmdexitgcstats":
-    expectNoArg(conf, switch, arg, pass, info)
-    processOnOffSwitchG(conf, {optCmdExitGcStats}, arg, pass, info, switch)
-  else:
-    if strutils.find(switch, '.') >= 0: options.setConfigVar(conf, switch, arg)
-    else: invalidCmdLineOption(conf, pass, switch, info)
-
-proc processCommand*(switch: string, pass: TCmdLinePass; config: ConfigRef) =
-  var cmd, arg: string
-  splitSwitch(config, switch, cmd, arg, pass, gCmdLineInfo)
-  processSwitch(cmd, arg, pass, gCmdLineInfo, config)
-
-proc processSwitch*(pass: TCmdLinePass; p: OptParser; config: ConfigRef) =
-  # hint[X]:off is parsed as (p.key = "hint[X]", p.val = "off")
-  # we transform it to (key = hint, val = [X]:off)
-  var bracketLe = strutils.find(p.key, '[')
-  if bracketLe >= 0:
-    var key = substr(p.key, 0, bracketLe - 1)
-    var val = substr(p.key, bracketLe) & ':' & p.val
-    processSwitch(key, val, pass, gCmdLineInfo, config)
-  else:
-    processSwitch(p.key, p.val, pass, gCmdLineInfo, config)
 
 # temporary home for formatting output during early cli/config phase; this
 # should move to a better suited module.
@@ -1413,6 +184,185 @@ proc processArgument*(pass: TCmdLinePass; p: OptParser;
   inc argsCount
 
 type
+  CliFlagKind* = enum
+    ## list of cli only flags
+    cliFlagVersion
+    cliFlagHelp
+    cliFlagHelpFull
+    cliFlagHelpAdvanced
+    cliFlagMsgFormat
+
+type
+  CliEventKind* = enum
+    # errors - cli command
+    cliEvtErrInvalidCommand # main.nim
+    cliEvtErrCmdMissing # cmdlinehelper.nim
+    cliEvtErrCmdExpectedNoAdditionalArgs # nim.nim
+      ## flag disallows additional args
+    cliEvtErrFlagArgExpectedFromList # commands.nim
+      ## flag expected arg from an allow/valid list, but got none
+    cliEvtErrFlagArgNotFromValidList # commands.nim
+      ## flag expects arg from an allow/valid list
+    cliEvtErrRunCmdFailed  # commands.nim and nim.nim
+    cliEvtErrGenDependFailed # main.nim
+    # errors - general flag/option/switches (TODO: standardize on "flag")
+    cliEvtErrUnexpectedRunOpt # commands.nim and nim.nim
+    cliEvtErrFlagArgForbidden # help/version/fullhelp/etc disallow args
+    cliEvtErrFlagProcessing # commands.nim
+    # errors - specific flag/option/switch
+    cliEvtErrNoCliParamsProvided # commands.nim and nim.nim
+    # warnings - general flags/options/switches
+    cliEvtWarnSwitchValDeprecatedNoop
+    # hints - general flag/options/switches and/or processing
+    cliEvtHintPathAdded
+      ## currently only triggered if nimble adds a path
+      # xxx: this doesn't feel like a hint, more like "info" or "trace"
+
+  CliEvent* = object
+    # these are not kept as 'flat' log events in order to keep clear the
+    # subset-of relationships between switch processing and CLI errors, while
+    # also allowing for reuse of `ProcSwitchResult` rendering facilities.
+    srcCodeOrigin*: InstantiationInfo
+    pass*: TCmdLinePass
+    case kind*: CliEventKind
+      of cliEvtErrInvalidCommand,
+          cliEvtErrCmdExpectedNoAdditionalArgs,
+          cliEvtErrUnexpectedRunOpt:
+        cmd*: string
+        unexpectedArgs*: string
+      of cliEvtErrFlagArgForbidden,
+          cliEvtErrFlagArgExpectedFromList,
+          cliEvtErrFlagArgNotFromValidList:
+        flag*: CliFlagKind  # TODO: create a restricted range this type
+        givenFlg*: string
+        givenArg*: string
+      of cliEvtErrRunCmdFailed,
+          cliEvtErrGenDependFailed:
+        shellCmd*: string
+        exitCode*: int
+      of cliEvtErrFlagProcessing,
+          cliEvtWarnSwitchValDeprecatedNoop:
+        origParseOptKey*, origParseOptVal*: string
+        procResult*: ProcSwitchResult
+      of cliEvtHintPathAdded:
+        pathAdded*: string
+      of cliEvtErrNoCliParamsProvided,
+          cliEvtErrCmdMissing:
+        discard
+
+const
+  cliLogAllKinds = {low(CliEventKind) .. high(CliEventKind)}
+  cliEvtErrors   = {cliEvtErrInvalidCommand .. cliEvtErrNoCliParamsProvided}
+  cliEvtWarnings = {cliEvtWarnSwitchValDeprecatedNoop}
+  cliEvtHints    = {cliEvtHintPathAdded}
+
+static:
+  const unaccountedForEvtKinds =
+    cliLogAllKinds - cliEvtErrors - cliEvtWarnings - cliEvtHints
+  doAssert unaccountedForEvtKinds == {}, "Uncategorized event kinds: " &
+                                            $unaccountedForEvtKinds
+
+iterator procSwitchResultToEvents*(conf: ConfigRef, pass: TCmdLinePass,
+                               origParseOptKey, origParseOptVal: string,
+                               r: ProcSwitchResult): CliEvent =
+  # Note: the order in which this generates events is the order in which
+  #       they're output, rearrange code carefully.
+  case r.kind
+  of procSwitchSuccess: discard
+  else:
+    yield CliEvent(kind: cliEvtErrFlagProcessing,
+                   pass: pass,
+                   origParseOptKey: origParseOptKey,
+                   origParseOptVal: origParseOptVal,
+                   procResult: r,
+                   srcCodeOrigin: instLoc())
+  case r.switch
+  of cmdSwitchNimblepath:
+    if conf.hasHint(rextPath) and r.processedNimblePath.didProcess:
+      for res in r.processedNimblePath.nimblePathResult.addedPaths:
+        yield CliEvent(kind: cliEvtHintPathAdded, pathAdded: res.string)
+  else:
+    discard
+
+proc writeLog(conf: ConfigRef, msg: string, evt: CliEvent) {.inline.} =
+  conf.writeLog(msg, evt.srcCodeOrigin)
+
+proc logError*(conf: ConfigRef, evt: CliEvent) =
+  # TODO: consolidate log event rendering, between this and "reports", but with
+  #       less of the reports baggage
+  func allowedCliOptionsArgs(flg: range[cliFlagMsgFormat..cliFlagMsgFormat]
+        ): seq[string] =
+    case flg
+    of cliFlagMsgFormat: @["text", "sexp"]
+
+  let msg =
+    case evt.kind
+    of cliEvtErrInvalidCommand:
+      "Invalid command - $1" % evt.cmd
+    of cliEvtErrCmdMissing:
+      "Command missing"
+    of cliEvtErrUnexpectedRunOpt:
+      "'$1' cannot handle --run" % evt.cmd
+    of cliEvtErrCmdExpectedNoAdditionalArgs:
+      "$1 command does not support additional arguments: '$2'" %
+        [evt.cmd, evt.unexpectedArgs]
+    of cliEvtErrRunCmdFailed,
+        cliEvtErrGenDependFailed: # make a better message for gen depend
+      "execution of an external program '$1' failed with exit code '$2'" %
+        [evt.shellCmd, $evt.exitCode]
+    of cliEvtErrNoCliParamsProvided:
+      "no command-line parameters provided"
+    of cliEvtErrFlagArgForbidden:
+      "$1 expects no arguments, but '$2' found" %
+        [evt.givenFlg, evt.givenArg]
+    of cliEvtErrFlagArgExpectedFromList:
+      "expected value for switch '$1'. Expected one of $2, but got nothing" %
+        [evt.givenFlg, allowedCliOptionsArgs(evt.flag).join(", ")]
+    of cliEvtErrFlagArgNotFromValidList:
+      "expected value for switch '$1'. Expected one of $2, but got nothing" %
+        [evt.givenFlg, allowedCliOptionsArgs(evt.flag).join(", ")]
+    of cliEvtErrFlagProcessing:
+      procResultToHumanStr(evt.procResult)
+    of cliEvtWarnings, cliEvtHints:
+      unreachable(evt.kind)
+  inc conf.errorCounter
+  conf.writeLog(msg, evt)
+
+proc logWarn(conf: ConfigRef, evt: CliEvent) =
+  # TODO: see items under `logError`
+  let msg =
+    case evt.kind
+    of cliEvtWarnSwitchValDeprecatedNoop:
+      "'$#' is deprecated for flag '$#', now a noop" %
+        [evt.procResult.givenArg, evt.procResult.givenSwitch]
+    of cliEvtErrors, cliEvtHints:
+      unreachable($evt.kind)
+
+  inc conf.warnCounter
+  conf.writeLog(msg, evt)
+
+proc logHint(conf: ConfigRef, evt: CliEvent) =
+  # TODO: see items under `logError`
+  let msg =
+    case evt.kind
+    of cliEvtHintPathAdded:
+      "added path: '$1'" % evt.pathAdded
+    of cliEvtErrors, cliEvtWarnings:
+      unreachable($evt.kind)
+
+  inc conf.hintCounter
+  if conf.verbosity > compVerbosityDefault:
+    conf.writeLog(msg, evt)
+
+proc cliEventLogger*(conf: ConfigRef, evt: CliEvent) =
+  ## a basic event logger that will write to standard err/out as appropriate
+  ## and follow `conf` settings.
+  case evt.kind
+  of cliEvtErrors:   conf.logError(evt)
+  of cliEvtWarnings: conf.logWarn(evt)
+  of cliEvtHints:    conf.logHint(evt)
+
+type
   CliData = object
     ## Information used to construct messages for CLI reports - `--help`,
     ## `--fullhelp`
@@ -1506,6 +456,16 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
   config.commandLine.setLen 0
     # bugfix: otherwise, config.commandLine ends up duplicated
 
+  template expectNoArg(f: CliFlagKind, flg, arg: string) =
+    if arg != "":
+      config.cliEventLogger:
+        CliEvent(kind: cliEvtErrFlagArgForbidden,
+                flag: f,
+                givenFlg: flg,
+                givenArg: arg,
+                pass: pass,
+                srcCodeOrigin: instLoc())
+
   while true:
     parseopt.next(p)
     case p.kind
@@ -1525,31 +485,36 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
       case p.key.normalize
       of "version", "v":
         # only kept because of user expectations
-        expectNoArg(config, p.key, p.val, passCmd1, gCmdLineInfo)
+        expectNoArg(cliFlagVersion, p.key, p.val)
         writeVersionInfo(config)
       of "help", "h":
         # only kept because of user expectations
-        expectNoArg(config, p.key, p.val, passCmd1, gCmdLineInfo)
+        expectNoArg(cliFlagHelp, p.key, p.val)
         writeHelp(config)
       of "advanced":
         # deprecate/make it a switch for the help sub-command
-        expectNoArg(config, p.key, p.val, passCmd1, gCmdLineInfo)
+        expectNoArg(cliFlagHelpAdvanced, p.key, p.val)
         writeAdvancedUsage(config)
       of "fullhelp":
         # deprecate/make it a switch for the help sub-command
-        expectNoArg(config, p.key, p.val, passCmd1, gCmdLineInfo)
+        expectNoArg(cliFlagHelpFull, p.key, p.val)
         writeFullhelp(config)
       of "msgformat":
-        expectArg(config, p.key, p.val, passCmd1, gCmdLineInfo)
         case p.val.normalize
         of "text": config.setMsgFormat(config, msgFormatText)
         of "sexp": config.setMsgFormat(config, msgFormatSexp)
-        else: config.localReport(gCmdLineInfo):
-                ExternalReport(
-                  kind: rextInvalidValue,
-                  cmdlineProvided: p.val,
-                  cmdlineAllowed: @["text", "sexp"],
-                  cmdlineSwitch: p.key)
+        of "":
+          config.cliEventLogger:
+            CliEvent(kind: cliEvtErrFlagArgExpectedFromList,
+                    flag: cliFlagMsgFormat, givenFlg: p.key,
+                    givenArg: p.val, pass: pass,
+                    srcCodeOrigin: instLoc())
+        else:
+          config.cliEventLogger:
+            CliEvent(kind: cliEvtErrFlagArgNotFromValidList,
+                    flag: cliFlagMsgFormat, givenFlg: p.key,
+                    givenArg: p.val, pass: pass,
+                    srcCodeOrigin: instLoc())
       else:
         if p.key == "": # `-` was passed to indicate main project is stdin
           p.key = "-"
@@ -1559,7 +524,9 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
           # Main part of the configuration processing -
           # `commands.processSwitch` processes input switches a second time
           # and puts them in necessary configuration fields.
-          processSwitch(pass, p, config)
+          let res = processSwitch(pass, p, config)
+          for e in procSwitchResultToEvents(config, pass, p.key, p.val, res):
+            config.cliEventLogger(e)
     of cmdArgument:
       config.commandLine.add " "
       config.commandLine.add p.key.quoteShell
@@ -1570,4 +537,8 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
     if {optRun, optWasNimscript} * config.globalOptions == {} and
         config.arguments.len > 0 and config.cmd notin {
           cmdTcc, cmdNimscript, cmdCrun}:
-      localReport(config, ExternalReport(kind: rextExpectedRunOptForArgs))
+      config.cliEventLogger:
+        CliEvent(kind: cliEvtErrUnexpectedRunOpt,
+                  cmd: config.command,
+                  pass: pass,
+                  srcCodeOrigin: instLoc())

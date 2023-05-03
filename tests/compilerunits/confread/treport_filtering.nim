@@ -55,25 +55,9 @@ proc firstPass*(args: seq[string]): ConfigRef =
   result.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   processCmdLine(passCmd1, args.join(" "), result)
 
-proc cfgPass*(file: string, args: seq[string]): ConfigRef =
-  doAssert fileExists(file), $file
-
-  let prog = NimProg(
-    supportsStdinFile: true,
-    processCmdLine: processCmdLine
-  )
-
-  result = newConfigRef(hook)
-  result.astDiagToLegacyReport = cli_reporter.legacyReportBridge
-  prog.processCmdLineAndProjectPath(
-    result, join(args & @[file], " "))
-
-  var cache = newIdentCache()
-  var graph = newModuleGraph(cache, result)
-  loadConfigs(DefaultConfig, cache, result)
-
 proc assertInter[T](inters: set[T], want: set[T] = {}) =
   doAssert inters == want, $want
+
 block fist_pass_tests:
   block:
     let conf = firstPass(@["compile", "--hint=all:off"])

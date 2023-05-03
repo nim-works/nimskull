@@ -62,7 +62,7 @@ import
 
 import compiler/front/options as compiler_options
 from compiler/ast/reports_base_sem import ReportContext, ReportContextKind
-from compiler/front/commands import allowedCompileOptionArgs
+from compiler/front/optionsprocessor import allowedCompileOptionArgs
 
 func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
 
@@ -2228,7 +2228,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result.add presentDiagnostics(conf, r.diag, startWithNewLine = false)
 
     of rsemCompilerOptionInvalid:
-      result = "Invalid compiler option - " % r.str
+      result = "Invalid compiler option - '$#'" % r.str
 
     of rsemDeprecatedCompilerOpt:
       result = "'$#' is deprecated, now a noop" % r.str
@@ -2825,7 +2825,7 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
        result.add("Invalid command - ", r.cmdlineProvided)
 
     of rextInvalidCommandLineOption:
-      result.add("Invalid command line option - ", r.cmdlineProvided)
+      result = "Invalid command line option - $1" % r.cmdlineProvided
 
     of rextUnknownCCompiler:
       result = "unknown C compiler: '$1'. Available options are: $2" %
