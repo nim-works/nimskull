@@ -304,6 +304,12 @@ proc ithSon*(tree: PackedTree; n: NodePos; i: int): NodePos =
       inc count
   assert false, "node has no i-th child"
 
+proc lastSon*(tree: PackedTree, n: NodePos): NodePos =
+  assert(not isAtom(tree, n.int))
+  let len = tree.nodes[n.int].operand
+  assert len > 0, "node has no children"
+  result = NodePos(n.int + len)
+
 when false:
   proc `@`*(tree: PackedTree; lit: LitId): lent string {.inline.} =
     tree.sh.strings[lit]

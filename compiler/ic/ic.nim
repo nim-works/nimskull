@@ -827,7 +827,7 @@ proc loadProcBody(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: in
       result = loadNodes(c, g, thisModule, tree, n0)
     inc i
 
-proc moduleIndex*(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int;
+proc moduleIndex*(c: var PackedDecoder; g: PackedModuleGraph; thisModule: int;
                   s: PackedItemId): int32 {.inline.} =
   result = if s.module == LitId(0): thisModule.int32
            else: toFileIndexCached(c, g, thisModule, s.module).int32
