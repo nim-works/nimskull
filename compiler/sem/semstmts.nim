@@ -159,7 +159,6 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
 
   if hasError:
     result = c.config.wrapError(result)
-
   elif isEmptyType(typ) or typ.kind in {tyNil, tyUntyped} or
       (not hasElse and efInTypeof notin flags):
     for it in n:
@@ -203,15 +202,16 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
   n[0] = semExprBranchScope(c, n[0])
   typ = commonType(c, typ, n[0].typ)
 
-  var last = n.len - 1
-  var catchAllExcepts = 0
+  var
+    last = n.len - 1
+    catchAllExcepts = 0
 
   for i in 1..last:
     let a = n[i]
     checkMinSonsLen(a, 1, c.config)
     openScope(c)
-    if a.kind == nkExceptBranch:
-
+    case a.kind
+    of nkExceptBranch:
       if a.len == 2 and a[0].kind == nkBracket:
         # rewrite ``except [a, b, c]: body`` -> ```except a, b, c: body```
         let x = move a[0]
@@ -226,11 +226,9 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
         addDecl(c, symbol)
         # Overwrite symbol in AST with the symbol in the symbol table.
         a[0][2] = newSymNode(symbol, a[0][2].info)
-
       elif a.len == 1:
         # count number of ``except: body`` blocks
         inc catchAllExcepts
-
       else:
         # support ``except KeyError, ValueError, ... : body``
         if catchAllExcepts > 0:
@@ -246,11 +244,9 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
         if isNative and isImported:
           localReport(c.config, a[0].info, reportAst(
             rsemCannotExceptNativeAndImported, a))
-
-    elif a.kind == nkFinally:
+    of nkFinally:
       if i != n.len - 1:
         localReport(c.config, a, reportSem rsemExpectedSingleFinally)
-
     else:
       semReportIllformedAst(c.config, n, "?")
 

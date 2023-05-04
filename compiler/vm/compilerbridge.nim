@@ -52,6 +52,9 @@ import
     results
   ]
 
+when defined(nimVMDebugGenerate):
+  import compiler/vm/vmutils
+
 import std/options as std_options
 
 from std/strutils import join
@@ -315,7 +318,14 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
     case r.kind
     of yrkDone:
       # execution is finished
-      result.initSuccess cb(c, c.sframes[0].slots[r.reg.get])
+      doAssert r.reg.isSome() or c.mode in {emStaticStmt, emRepl},
+        "non-static stmt evaluation must produce a value, mode: " & $c.mode
+      let reg =
+        if r.reg.isSome:
+          c.sframes[0].slots[r.reg.get]
+        else:
+          TFullReg(kind: rkNone)
+      result.initSuccess cb(c, reg)
       break
     of yrkError:
       result.initFailure buildError(c, thread, r.error)

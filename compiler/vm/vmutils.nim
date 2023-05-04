@@ -10,11 +10,15 @@ import
   ],
   compiler/ast/[
     ast,
-    reports
+    lineinfos,
   ],
   compiler/vm/[
     vmdef
   ]
+
+# TODO: remove legacy reports cruft
+import compiler/ast/reports
+import compiler/ast/reports_debug
 
 type
   VmGenCodeListing* = tuple[

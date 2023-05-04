@@ -3258,20 +3258,14 @@ proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
     c.gen(n, d)
 
   if d < 0:
-    c.config.internalAssert(not requiresValue, n.info, "VM problem: dest register is not set")
-
+    c.config.internalAssert(not requiresValue, n.info):
+      "VM problem: dest register is not set"
     d = 0
 
-  c.gABC(n, opcEof, d)
-  # TODO: use `opcRet` for expressions that yield something, instead of
-  #       overloading opcEof with this behaviour
-  #[
   if requiresValue:
-    assert d == 0
-    c.gABC(n, opcRet)
-
-  c.gABC(n, opcEof)
-  ]#
+    c.gABC(n, opcRet, d)
+  else:
+    c.gABC(n, opcEof)
 
   result = VmGenResult.ok:
     (start: start, regCount: c.prc.regInfo.len)

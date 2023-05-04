@@ -528,7 +528,7 @@ type
       ## instantiation and prior to this it has the potential to
       ## be any type.
 
-    tyVoid ## now different from tyEmpty, hurray!
+    tyVoid ## void type, lack of a value or unit
 
 static:
   # remind us when TTypeKind stops to fit in a single 64-bit word
