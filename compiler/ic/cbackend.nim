@@ -54,8 +54,6 @@ proc unpackTree(g: ModuleGraph; thisModule: int;
   result = loadNodes(decoder, g.packed, thisModule, tree, n)
 
 proc setupBackendModule(g: ModuleGraph; m: var LoadedModule) =
-  if g.backend == nil:
-    g.backend = cgendata.newModuleList(g)
   assert g.backend != nil
   var bmod = cgen.newModule(BModuleList(g.backend), m.module, g.config)
   bmod.idgen = idgenFromLoadedModule(m)
@@ -149,8 +147,6 @@ proc genPackedModule(g: ModuleGraph, i: int; alive: var AliveSyms) =
       addFileToLink(g.config, g.packed[i].module)
       replayTypeInfo(g, g.packed[i], FileIndex(i))
 
-      if g.backend == nil:
-        g.backend = cgendata.newModuleList(g)
       registerInitProcs(BModuleList(g.backend), g.packed[i].module, g.packed[i].fromDisk.backendFlags)
 
 proc generateCode*(g: ModuleGraph) =
@@ -162,6 +158,11 @@ proc generateCode*(g: ModuleGraph) =
   when false:
     for i in 0..high(g.packed):
       echo i, " is of status ", g.packed[i].status, " ", toFullPath(g.config, FileIndex(i))
+
+  # setup the module list and allocate space for all existing modules.
+  # The slots for unchanged modules stay uninitialized.
+  g.backend = cgendata.newModuleList(g)
+  BModuleList(g.backend).modules.setLen(g.packed.len)
 
   # First pass: Setup all the backend modules for all the modules that have
   # changed:
