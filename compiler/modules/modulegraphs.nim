@@ -93,7 +93,7 @@ type
 
     typeInstCache*: Table[ItemId, seq[LazyType]] # A symbol's ItemId.
     procInstCache*: Table[ItemId, seq[LazyInstantiation]] # A symbol's ItemId.
-    attachedOps*: array[TTypeAttachedOp, Table[ItemId, PSym]] # Type ID, destructors, etc.
+    attachedOps*: array[TTypeAttachedOp, Table[ItemId, LazySym]] # Type ID, destructors, etc.
     methodsPerType*: Table[ItemId, seq[(int, LazySym)]] # Type ID, attached methods
     enumToStringProcs*: Table[ItemId, LazySym]
     emittedTypeInfo*: Table[string, FileIndex]
@@ -330,25 +330,45 @@ iterator procInstCacheItems*(g: ModuleGraph; s: PSym): PInstantiation =
     for t in mitems(x[]):
       yield resolveInst(g, t)
 
+proc resolveBackendSym(g: ModuleGraph, t: var LazySym): PSym =
+  ## Returns the concrete symbol for `t`, loading it from the packed
+  ## module-graph first if necessary. `t` is updated with the loaded symbol.
+  ##
+  ## Compared to ``resolveSym``, this procedure also support being called from
+  ## the backend.
+  result = t.sym
+  if result == nil:
+    # XXX: ``storing``, ``stored``, and ``outdated`` are also valid here, as
+    #      the backend currently throws away and reloads all type-bound
+    #      operator attachment information
+    assert g.packed[t.id.module].status in {loaded, storing, stored, outdated}
+    result = loadSymFromId(g.config, g.cache, g.packed,
+                           t.id.module, t.id.packed)
+    t.sym = result
+
+  assert result != nil
+
 proc getAttachedOp*(g: ModuleGraph; t: PType; op: TTypeAttachedOp): PSym =
   ## returns the requested attached operation for type `t`. Can return nil
   ## if no such operation exists.
-  result = g.attachedOps[op].getOrDefault(t.itemId)
+  withValue(g.attachedOps[op], t.itemId, value):
+    result = resolveBackendSym(g, value[])
 
 proc setAttachedOp*(g: ModuleGraph; module: int; t: PType; op: TTypeAttachedOp; value: PSym) =
-  ## we also need to record this to the packed module.
-  g.attachedOps[op][t.itemId] = value
+  g.attachedOps[op][t.itemId] = LazySym(sym: value)
+  if g.config.symbolFiles != disabledSf:
+    storeAttachedOp(g.encoders[module], g.packed[module].fromDisk, op, t, value)
 
 proc setAttachedOpPartial*(g: ModuleGraph; module: int; t: PType; op: TTypeAttachedOp; value: PSym) =
-  ## we also need to record this to the packed module.
-  g.attachedOps[op][t.itemId] = value
-  # XXX Also add to the packed module!
+  g.attachedOps[op][t.itemId] = LazySym(sym: value)
+  # the effect is recored once the op is completed
 
 proc completePartialOp*(g: ModuleGraph; module: int; t: PType; op: TTypeAttachedOp; value: PSym) =
   if g.config.symbolFiles != disabledSf:
     assert module < g.encoders.len
     assert isActive(g.encoders[module])
     toPackedGeneratedProcDef(value, g.encoders[module], g.packed[module].fromDisk)
+    storeAttachedOp(g.encoders[module], g.packed[module].fromDisk, op, t, value)
 
 proc getToStringProc*(g: ModuleGraph; t: PType): PSym =
   result = resolveSym(g, g.enumToStringProcs[t.itemId])
