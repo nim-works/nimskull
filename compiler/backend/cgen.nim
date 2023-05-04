@@ -103,6 +103,10 @@ when not declared(dynlib.libCandidates):
 when options.hasTinyCBackend:
   import backend/tccgen
 
+const NonMagics* = {mNone, mIsolate, mNewSeq, mSetLengthSeq, mAppendSeqElem}
+  ## magics that are treated like normal procedures by the code generator.
+  ## This set only applies when using the new runtime.
+
 proc addForwardedProc(m: BModule, prc: PSym) =
   m.g.forwardedProcs.add(prc)
 
