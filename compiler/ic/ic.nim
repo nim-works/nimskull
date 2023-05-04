@@ -1071,32 +1071,24 @@ proc loadProcBody*(config: ConfigRef, cache: IdentCache;
 
 proc loadTypeFromId*(config: ConfigRef, cache: IdentCache;
                      g: var PackedModuleGraph; module: int; id: PackedItemId): PType =
-  if id.item < g[module].types.len:
+  if id.module == LitId(0) and g[module].typesInit:
+    # it's a type from `module`, but it doesn't have to be cached yet
     result = g[module].types[id.item]
-  else:
-    result = nil
+
   if result == nil:
-    var decoder = PackedDecoder(
-      lastModule: int32(-1),
-      lastLit: LitId(0),
-      lastFile: FileIndex(-1),
-      config: config,
-      cache: cache)
+    setupDecoder()
     result = loadType(decoder, g, module, id)
 
 proc loadSymFromId*(config: ConfigRef, cache: IdentCache;
                     g: var PackedModuleGraph; module: int; id: PackedItemId): PSym =
-  if id.item < g[module].syms.len:
+  ## Loads the symbol with `id` from the context of the module `module`. The
+  ## resulting symbol is cached if it wasn't already.
+  if id.module == LitId(0) and g[module].symsInit:
+    # it's a symbol from `module`, but it doesn't have to be cached yet
     result = g[module].syms[id.item]
-  else:
-    result = nil
+
   if result == nil:
-    var decoder = PackedDecoder(
-      lastModule: int32(-1),
-      lastLit: LitId(0),
-      lastFile: FileIndex(-1),
-      config: config,
-      cache: cache)
+    setupDecoder()
     result = loadSym(decoder, g, module, id)
 
 proc translateId*(id: PackedItemId; g: PackedModuleGraph; thisModule: int; config: ConfigRef): ItemId =
