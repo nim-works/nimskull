@@ -918,15 +918,15 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
     case instr.opcode
     of opcEof:
       # XXX: eof shouldn't be used to return a register
-      return YieldReason(kind: yrkDone, reg: some(ra))
+      return YieldReason(kind: yrkDone, reg: none[TRegister]())
     of opcRet:
       let newPc = c.cleanUpOnReturn(c.sframes[tos])
       # Perform any cleanup action before returning
       if newPc < 0:
         pc = c.sframes[tos].comesFrom
         if tos == 0:
-          # opcRet always returns its value in register '0'
-          return YieldReason(kind: yrkDone, reg: some(TRegister 0))
+          # opcRet returns its value as indicated in the first operand
+          return YieldReason(kind: yrkDone, reg: some(instr.regA))
 
         assert c.code[pc].opcode in {opcIndCall, opcIndCallAsgn}
         if c.code[pc].opcode == opcIndCallAsgn:
@@ -2218,7 +2218,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       c.currentExceptionA = raisedRef
       c.activeException = raisedRef
 
-      # gather the stack-tace for the exception:
+      # gather the stack-trace for the exception:
       block:
         var pc = pc
         c.activeExceptionTrace.setLen(c.sframes.len)

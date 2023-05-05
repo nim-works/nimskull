@@ -153,9 +153,9 @@ type
     # -------------------------------------------------------------------------
     enforceVoidContext*: PType
       ## for `if cond: stmt else: foo`, `foo` will be evaluated under
-      ## enforceVoidContext != nil; meaning we infered if to contain a a `stmt`
-      ## (void) and so `foo` must result in an expression that can be `void`.
-      ## Which plays into discard checks.
+      ## enforceVoidContext != nil; meaning we infered the `if` to contain a
+      ## `stmt` (void) and so `foo` must result in an expression that can be
+      ## `void`. Which plays into discard checks.
       ##
       ## It's used as a sentinel value, setting a node's typ field to this can
       ## then be compared with later to raise errors or to see if something is
