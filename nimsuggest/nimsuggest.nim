@@ -61,6 +61,8 @@ from compiler/ast/reports import Report,
   kind,
   location
 
+from compiler/front/main import customizeForBackend
+
 from compiler/tools/suggest import isTracked, listUsages, suggestSym, `$`
 
 when defined(windows):
@@ -729,7 +731,9 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
     suggestSym(g, info, s, usageSym, isDecl)
   graph.onSymImport = graph.onMarkUsed # same callback
   if self.loadConfigsAndProcessCmdLine(cache, conf, graph):
-    selectDefaultGC(conf)
+    # defaulting to customizing for the C backend matches what
+    # 'nim check' does
+    customizeForBackend(graph, conf, backendC)
     mainCommand(graph)
 
 when isMainModule:
