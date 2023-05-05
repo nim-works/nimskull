@@ -401,6 +401,14 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
       result = semAsgnOpr(c, n)
     else:
       result = semShallowCopy(c, n, flags)
+  of mEnumToStr:
+    # overload resolution picked the generic enum-to-string magic.
+    # Replace the symbol with that of the auto-generated procedure.
+    let
+      info = n[0].info
+      prc = getToStringProc(c.graph, n[1].typ.skipTypes(abstractRange))
+    result = n
+    result[0] = newSymNode(prc, info)
   of mIsPartOf: result = semIsPartOf(c, n, flags)
   of mTypeTrait: result = semTypeTraits(c, n)
   of mAstToStr:
