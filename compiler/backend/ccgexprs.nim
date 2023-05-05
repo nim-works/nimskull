@@ -2348,14 +2348,6 @@ proc genSlice(p: BProc; e: PNode; d: var TLoc) =
     localReport(p.config, e.info, "invalid context for 'toOpenArray'; " &
       "'toOpenArray' is only valid within a call expression")
 
-proc genEnumToStr(p: BProc, e: PNode, d: var TLoc) =
-  let t = e[1].typ.skipTypes(abstractInst+{tyRange})
-  let toStrProc = getToStringProc(p.module.g.graph, t)
-  # XXX need to modify this logic for IC.
-  var n = copyTree(e)
-  n[0] = newSymNode(toStrProc)
-  expr(p, n, d)
-
 proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
   case op
   of mOr, mAnd: genAndOr(p, e, d, op)
@@ -2427,7 +2419,7 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
   of mFinished: genBreakState(p, e, d)
   of mEnumToStr:
     if optTinyRtti in p.config.globalOptions:
-      genEnumToStr(p, e, d)
+      genCall(p, e, d)
     else:
       genRepr(p, e, d)
   of mOf: genOf(p, e, d)
