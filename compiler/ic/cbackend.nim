@@ -45,6 +45,7 @@ import
     packed_ast,
     ic,
     dce,
+    replayer,
     rodfiles
   ]
 
@@ -153,7 +154,15 @@ proc generateCode*(g: ModuleGraph) =
   ## The single entry point, generate C(++) code for the entire
   ## Nim program aka `ModuleGraph`.
   resetForBackend(g)
-  var alive = computeAliveSyms(g.packed, g.config)
+
+  # First pass: replay the module-graph state changes that the backend needs to
+  # know about (the alive analysis does too)
+  # XXX: these state changes were already applied during semantic analysis,
+  #      but ``resetForBackend`` (unnecessarily) throws them away again
+  for i in 0..high(g.packed):
+    replayBackendRoutines(g, i)
+
+  var alive = computeAliveSyms(g.packed, g, g.config)
 
   when false:
     for i in 0..high(g.packed):
@@ -164,7 +173,7 @@ proc generateCode*(g: ModuleGraph) =
   g.backend = cgendata.newModuleList(g)
   BModuleList(g.backend).modules.setLen(g.packed.len)
 
-  # First pass: Setup all the backend modules for all the modules that have
+  # Second pass: Setup all the backend modules for all the modules that have
   # changed:
   for i in 0..high(g.packed):
     # case statement here to enforce exhaustive checks.
@@ -184,7 +193,7 @@ proc generateCode*(g: ModuleGraph) =
         g.packed[i].loadedButAliveSetChanged = true
         setupBackendModule(g, g.packed[i])
 
-  # Second pass: Code generation.
+  # Third pass: Code generation.
   let mainModuleIdx = g.config.projectMainIdx2.int
   # We need to generate the main module last, because only then
   # all init procs have been registered:

@@ -114,6 +114,21 @@ proc replayStateChanges*(module: PSym; g: ModuleGraph) =
       else:
         internalAssert g.config, false
 
+proc replayBackendRoutines*(g: ModuleGraph, module: int) =
+  ## Applies changes to whole-program (``ModuleGraph``) state the module
+  ## `module` has. Only changes relevant to the backend part of the compiler
+  ## are included here.
+  for it in mitems(g.packed[module].fromDisk.enumToStringProcs):
+    let key = translateId(it[0], g.packed, module, g.config)
+    g.enumToStringProcs[key] =
+      LazySym(id: FullId(module: module, packed: it[1]), sym: nil)
+
+  for it in mitems(g.packed[module].fromDisk.attachedOps):
+    let
+      key = translateId(it[1], g.packed, module, g.config)
+      symId = FullId(module: module, packed: it[2])
+    g.attachedOps[it[0]][key] = LazySym(id: symId, sym: nil)
+
 proc replayGenericCacheInformation*(g: ModuleGraph; module: int) =
   ## We remember the generic instantiations a module performed
   ## in order to to avoid the code bloat that generic code tends
@@ -146,6 +161,8 @@ proc replayGenericCacheInformation*(g: ModuleGraph; module: int) =
     let key = translateId(it[0], g.packed, module, g.config)
     g.enumToStringProcs[key] =
       LazySym(id: FullId(module: module, packed: it[1]), sym: nil)
+
+  replayBackendRoutines(g, module)
 
   for it in mitems(g.packed[module].fromDisk.methods):
     let sym = loadSymFromId(g.config, g.cache, g.packed, module,

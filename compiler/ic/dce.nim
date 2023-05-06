@@ -8,6 +8,17 @@
 #
 
 ## Dead code elimination (=DCE) for IC.
+##
+## For the lifetime-tracking hooks there exists a phase-ordering problem: we
+## only know the set of used hooks after the MIR transformations are applied,
+## but those are part of the code generation process and DCE is required to
+## have happened prior.
+##
+## The problem is currently solved by conservatively marking the types of all
+## alive location definitions (locals, globals, constants, etc.) plus the
+## parameter and return types of alive routines as alive (and with them, their
+## attached operators). This tries to catch all types of which
+## ``injectdestructors`` could inject hooks.
 
 import
   std/[
@@ -17,6 +28,9 @@ import
   compiler/ast/[
     ast,
     lineinfos
+  ],
+  compiler/modules/[
+    modulegraphs
   ],
   compiler/front/[
     options
@@ -33,6 +47,8 @@ type
     alive: AliveSyms ## The final result of our computation.
     options: TOptions
     compilerProcs: Table[string, (int, int32)]
+
+    graph: ModuleGraph ## only used for lookup of type-bound operators
 
 proc isExportedToC(c: var AliveContext; g: PackedModuleGraph; symId: int32): bool =
   ## "Exported to C" procs are special (these are marked with '.exportc') because these
@@ -53,6 +69,34 @@ proc isExportedToC(c: var AliveContext; g: PackedModuleGraph; symId: int32): boo
 
 template isNotGeneric(n: NodePos): bool = ithSon(tree, n, genericParamsPos).kind == nkEmpty
 
+proc aliveType(c: var AliveContext, g: PackedModuleGraph, module: int, typ: PackedItemId)
+
+proc aliveRoutine(c: var AliveContext, g: PackedModuleGraph, module: int, item: int32) =
+  ## Marks all types referenced directly in the routine's header as alive, which
+  ## marks all type-bound operators attached to them as alive.
+  let m = unsafeAddr g[module].fromDisk
+
+  # don't scan magics that have non-concrete parameters:
+  if m.syms[item].magic in {mEcho}:
+    # XXX: no hooks should be lifted for these parameters in the first
+    #      place...
+    return
+
+  # check the parameter types and the return type for lifetime hooks:
+  let
+    id = translateId(m.syms[item].typ, g, module, c.decoder.config)
+    typ = unsafeAddr g[id.module].fromDisk.types[id.item]
+
+  for it in typ.types.items:
+    aliveType(c, g, module, it)
+
+  if typ.callConv == ccClosure:
+    # we also need to check the hidden parameter (if one exists):
+    let
+      body = m.syms[item].ast
+      params = ithSon(m.bodies, NodePos body, paramsPos)
+    aliveType(c, g, module, m.bodies[lastSon(m.bodies, params).int].typeId)
+
 proc followLater(c: var AliveContext; g: PackedModuleGraph; module: int; item: int32) =
   ## Marks a symbol 'item' as used and later in 'followNow' the symbol's body will
   ## be analysed.
@@ -61,8 +105,13 @@ proc followLater(c: var AliveContext; g: PackedModuleGraph; module: int; item: i
     if body != emptyNodeId:
       let opt = g[module].fromDisk.syms[item].options
       if g[module].fromDisk.syms[item].kind in routineKinds:
+        aliveRoutine(c, g, module, item)
         body = NodeId ithSon(g[module].fromDisk.bodies, NodePos body, bodyPos)
       c.stack.add((module, opt, NodePos(body)))
+
+    # XXX: only perform this for *definitions*
+    if g[module].fromDisk.syms[item].kind in {skLet, skVar, skConst, skForVar}:
+      aliveType(c, g, module, g[module].fromDisk.syms[item].typ)
 
     when false:
       let nid = g[module].fromDisk.syms[item].name
@@ -71,18 +120,57 @@ proc followLater(c: var AliveContext; g: PackedModuleGraph; module: int; item: i
         if name in ["nimFrame", "callDepthLimitReached"]:
           echo "I was called! ", name, " body exists: ", body != emptyNodeId, " ", module, " ", item
 
+proc loadSkippedType(t: PackedItemId; c: AliveContext; g: PackedModuleGraph;
+                     toSkip: set[TTypeKind]): (TTypeKind, ItemId) =
+  ## Returns the item ID and kind of `t` after skipping all types in the
+  ## `toSkip` set.
+  template kind(t: ItemId): TTypeKind =
+    g[t.module].fromDisk.types[t.item].kind
+
+  var
+    t2 = translateId(t, g, c.thisModule, c.decoder.config)
+    k = t2.kind
+
+  while k in toSkip:
+    t2 = translateId(g[t2.module].fromDisk.types[t2.item].types[^1], g,
+                     t2.module, c.decoder.config)
+    k = t2.kind
+
+  result = (k, t2)
+
+proc aliveType(c: var AliveContext, g: PackedModuleGraph, module: int, typ: PackedItemId) =
+  ## Marks the type as alive, which currently means marking all non-trivial
+  ## attached operators as alive.
+  if typ == nilItemId:
+    return
+
+  let orig = c.thisModule
+  c.thisModule = module
+  # get the underlying concrete type:
+  let (_, itemId) = loadSkippedType(typ, c, g, skipForHooks)
+  c.thisModule = orig
+
+  template load(op: TTypeAttachedOp) =
+    c.graph.attachedOps[op].withValue(itemId, value):
+      let m = moduleIndex(c.decoder, g, value.id.module, value.id.packed)
+      followLater(c, g, m, value.id.packed.item)
+
+  if tfHasAsgn in g[itemId.module].fromDisk.types[itemId.item].flags:
+    # the type has a non-trivial destructor; mark the lifetime hooks as
+    # alive
+    for op in attachedDestructor..attachedTrace:
+      load(op)
+
+  # deepcopy can be present and non-trivial when the ``tfHasAsgn`` flag is not
+  # present
+  load(attachedDeepCopy)
+
 proc requestCompilerProc(c: var AliveContext; g: PackedModuleGraph; name: string) =
   let (module, item) = c.compilerProcs[name]
   followLater(c, g, module, item)
 
 proc loadTypeKind(t: PackedItemId; c: AliveContext; g: PackedModuleGraph; toSkip: set[TTypeKind]): TTypeKind =
-  template kind(t: ItemId): TTypeKind = g[t.module].fromDisk.types[t.item].kind
-
-  var t2 = translateId(t, g, c.thisModule, c.decoder.config)
-  result = t2.kind
-  while result in toSkip:
-    t2 = translateId(g[t2.module].fromDisk.types[t2.item].types[^1], g, t2.module, c.decoder.config)
-    result = t2.kind
+  result = loadSkippedType(t, c, g, toSkip)[0]
 
 proc rangeCheckAnalysis(c: var AliveContext; g: PackedModuleGraph; tree: PackedTree; n: NodePos) =
   ## Replicates the logic of `ccgexprs.genRangeChck`.
@@ -150,11 +238,12 @@ proc followNow(c: var AliveContext; g: PackedModuleGraph) =
     c.options = opt
     aliveCode(c, g, g[modId].fromDisk.bodies, ast)
 
-proc computeAliveSyms*(g: PackedModuleGraph; conf: ConfigRef): AliveSyms =
+proc computeAliveSyms*(g: PackedModuleGraph; graph: ModuleGraph,
+                       conf: ConfigRef): AliveSyms =
   ## Entry point for our DCE algorithm.
   var c = AliveContext(stack: @[], decoder: PackedDecoder(config: conf),
                        thisModule: -1, alive: newSeq[IntSet](g.len),
-                       options: conf.options)
+                       options: conf.options, graph: graph)
   for i in countdown(high(g), 0):
     if g[i].status != undefined:
       c.thisModule = i

@@ -121,6 +121,12 @@ proc checkModule(c: var CheckedContext; m: PackedModule) =
   checkLocalSymIds c, m, m.methods
   checkLocalSymIds c, m, m.trmacros
   checkLocalSymIds c, m, m.pureEnums
+
+  # check the type-attached operators:
+  for (kind, typ, sym) in m.attachedOps.items:
+    checkType(c, typ)
+    checkForeignSym(c, sym)
+
   #[
     To do: Check all these fields:
 

@@ -990,9 +990,6 @@ proc inst(g: ModuleGraph; c: PContext; t: PType; kind: TTypeAttachedOp; idgen: I
     else:
       localReport(g.config, info, reportSem(rsemUnresolvedGenericParameter))
 
-proc isTrival(s: PSym): bool {.inline.} =
-  s == nil or (s.ast != nil and s.ast[bodyPos].len == 0)
-
 proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInfo;
                         idgen: IdGenerator) =
   ## In the semantic pass this is called in strategic places
@@ -1041,7 +1038,8 @@ proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInf
     if canon != orig:
       setAttachedOp(g, idgen.module, orig, k, getAttachedOp(g, canon, k))
 
-  if not isTrival(getAttachedOp(g, orig, attachedDestructor)):
+  let op = getAttachedOp(g, orig, attachedDestructor)
+  if op != nil and getBody(g, op).len != 0:
     #or not isTrival(orig.assignment) or
     # not isTrival(orig.sink):
     orig.flags.incl tfHasAsgn

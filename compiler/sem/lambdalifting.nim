@@ -254,6 +254,10 @@ template isIterator*(owner: PSym): bool =
 
 proc createTypeBoundOpsLL(g: ModuleGraph; refType: PType; info: TLineInfo; idgen: IdGenerator; owner: PSym) =
   if owner.kind != skMacro:
+    # XXX: this breaks the IC implementation. Lambda-lifting happens as part
+    #      of the backend processing, at which point the packed modules are
+    #      effectively sealed and no more content must be written to them (which
+    #      is what happens here).
     createTypeBoundOps(g, nil, refType.lastSon, info, idgen)
     createTypeBoundOps(g, nil, refType, info, idgen)
     if tfHasAsgn in refType.flags or optSeqDestructors in g.config.globalOptions:

@@ -554,6 +554,10 @@ proc storeInstantiation*(c: var PackedEncoder; m: var PackedModule; s: PSym; i: 
 proc storeExpansion*(c: var PackedEncoder; m: var PackedModule; info: TLineInfo; s: PSym) =
   toPackedNode(newSymNode(s, info), m.bodies, c, m)
 
+proc storeAttachedOp*(c: var PackedEncoder; m: var PackedModule, kind: TTypeAttachedOp, t: PType, s: PSym) =
+  ## Records a type-bound operator attachment action to module `m`.
+  m.attachedOps.add((kind, storeTypeLater(t, c, m), storeSymLater(s, c, m)))
+
 proc loadError(err: RodFileError; filename: AbsoluteFile; config: ConfigRef;) =
   case err
   of cannotOpen:
@@ -823,7 +827,7 @@ proc loadProcBody(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: in
       result = loadNodes(c, g, thisModule, tree, n0)
     inc i
 
-proc moduleIndex*(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int;
+proc moduleIndex*(c: var PackedDecoder; g: PackedModuleGraph; thisModule: int;
                   s: PackedItemId): int32 {.inline.} =
   result = if s.module == LitId(0): thisModule.int32
            else: toFileIndexCached(c, g, thisModule, s.module).int32
