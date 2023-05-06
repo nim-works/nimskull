@@ -5,7 +5,7 @@
 # When debugging, to run a single test, use for e.g.:
 # `nim r nimsuggest/tester.nim nimsuggest/tests/tsug_accquote.nim`
 
-import std/[os, osproc, strutils, streams, re, net]
+import std/[os, osproc, strutils, streams, re, net, strformat]
 import experimental/sexp
 from sequtils import toSeq
 
@@ -41,7 +41,7 @@ proc parseTest(filename: string; epcMode=false): Test =
     let marker = x.find(cursorMarker)
     if marker >= 0:
       if epcMode:
-        markers.add "(\"" & filename & "\" " & $i & " " & $marker & " \"" & result.dest & "\")"
+        markers.add fmt"({escapeJson(filename)} {i} {marker} {escapeJson(result.dest)})"
       else:
         markers.add "\"" & filename & "\";\"" & result.dest & "\":" & $i & ":" & $marker
       tmp.writeLine x.replace(cursorMarker, "")
