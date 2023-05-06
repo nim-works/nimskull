@@ -14,29 +14,9 @@ type
     ## Report about external environment reads, passed configuration
     ## options etc.
     msg*: string
-
-    case kind*: ReportKind
-      of rextInvalidHint .. rextInvalidPath:
-        cmdlineSwitch*: string ## Switch in processing
-        cmdlineProvided*: string ## Value passed to the command-line
-        cmdlineAllowed*: seq[string] ## Allowed command-line values
-        cmdlineError*: string ## Textual description of the cmdline failure
-
-      of rextUnknownCCompiler:
-        knownCompilers*: seq[string]
-        passedCompiler*: string
-
-      of rextInvalidPackageName:
-        packageName*: string
-
-      of rextPath:
-        packagePath*: string
-
-      else:
-        discard
+    kind*: ReportKind
 
 func severity*(report: ExternalReport): ReportSeverity =
   case ExternalReportKind(report.kind):
     of rextErrorKinds: rsevError
-    of rextWarningKinds: rsevWarning
     of rextHintKinds: rsevHint

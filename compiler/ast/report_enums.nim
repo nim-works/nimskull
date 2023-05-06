@@ -116,7 +116,6 @@ type
     # hints END !! add reports BEFORE the last enum !!
 
     rintStackTrace = "StackTrace" ## Stack trace during internal
-    rintNimconfWrite
     rintListWarnings
     rintListHints
 
@@ -127,51 +126,12 @@ type
     #--------------------------  External reports  ---------------------------#
     # External reports
     # errors begin
-    rextUnknownCCompiler
-
     rextCmdRequiresFile ## fatal error, user failed to provide a file
-
-    # malformed cmdline parameters begin
-    rextInvalidHint
-    rextInvalidWarning
-    rextInvalidCommandLineOption ## Invalid command-line option passed to
-                                 ## the compiler
-    rextOnlyAllOffSupported ## Only `all:off` is supported for mass
-    ## hint/warning modification. Separate diagnostics must be enabled on
-    ## one-by-one basis.
-    rextExpectedOnOrOff ## Command-line option expected 'on' or 'off' value
-    rextExpectedOnOrOffOrList ## Command-line option expected 'on', 'off'
-    ## or 'list' value.
-    rextExpectedCmdArgument ## Command-line option expected argument
-    rextExpectedNoCmdArgument ## Command-line option expected no arguments
-    rextCmdDisallowsAdditionalArguments ## command disallows additional args
-    rextInvalidNumber ## Command-line switch expected a number
-    rextInvalidValue
-    rextUnexpectedValue ## Command-line argument had value, but it did not
-    ## match with any expected.
-
-    rextExpectedCbackendForRun
-    rextExpectedTinyCForRun
-    rextInvalidCommand
-    rextCommandMissing
-    rextExpectedRunOptForArgs
-    rextUnexpectedRunOpt
-    rextInvalidPath ## Invalid path for a command-line argument
-
-    rextInvalidPackageName ## When adding packages from the `--nimbleDir`
-    ## (or it's default value), names are validated. This error is
-    ## generated if package name is not correct.
     # errors END !! add reports BEFORE the last enum !!
 
-    # warnings begin
-    rextDeprecated ## Report about use of the deprecated feature that is
-    ## not in the semantic pass. Things like deprecated flags, compiler
-    ## commands and so on.
-    # warnings end
-
     # hints start
-    rextConf = "Conf" ## Processing user configutation file
-    rextPath = "Path" ## Add nimble path
+    rextConf = "Conf" ## Processed user configutation file; not a "report"
+    rextPath = "Path" ## Add nimble path; xxx: this isn't a "report"
     # hints END !! add reports BEFORE the last enum !!
 
     # external reports END !! add reports BEFORE the last enum !!
@@ -205,11 +165,6 @@ type
     # string
     rlexUnclosedTripleString
     rlexUnclosedSingleString
-
-    # xxx: expected token and invalid direct are not really "lexer" errors, it
-    #      is `nimconf` module abusing error reporting facilities
-    rlexExpectedToken
-    rlexCfgInvalidDirective
 
     # comments
     rlexUnclosedComment
@@ -977,7 +932,7 @@ type
 
   BackendReportKind* = range[rbackCannotWriteScript .. rbackLinking]
 
-  ExternalReportKind* = range[rextUnknownCCompiler .. rextPath]
+  ExternalReportKind* = range[rextCmdRequiresFile .. rextPath]
 
   InternalReportKind* = range[rintUnknown .. rintEchoMessage]
 
@@ -1037,8 +992,7 @@ const
 
   #------------------------------  external  -------------------------------#
   repExternalKinds* = {low(ExternalReportKind) .. high(ExternalReportKind)}
-  rextErrorKinds* = {rextUnknownCCompiler .. rextInvalidPackageName}
-  rextWarningKinds* = {rextDeprecated}
+  rextErrorKinds* = {rextCmdRequiresFile .. rextCmdRequiresFile}
   rextHintKinds* = {rextConf .. rextPath}
 
 
@@ -1060,7 +1014,6 @@ const
       rlexWarningKinds +
       rparWarningKinds +
       rbackWarningKinds +
-      rextWarningKinds +
       rvmWarningKinds +
       rcmdWarningKinds +
       rintWarningKinds

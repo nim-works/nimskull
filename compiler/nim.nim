@@ -40,10 +40,6 @@ import
 
 from std/osproc import execCmd
 
-# xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_external import ExternalReport
-from compiler/ast/report_enums import ReportKind
-
 from std/browsers import openDefaultBrowser
 from compiler/utils/nodejs import findNodeJs
 
@@ -127,15 +123,17 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
     of cmdDocLike, cmdRst2html, cmdRst2tex: # bugfix(cmdRst2tex was missing)
       if conf.arguments.len > 0:
         # reserved for future use
-        localReport(conf, ExternalReport(
-          kind: rextCmdDisallowsAdditionalArguments,
-          cmdlineSwitch: $conf.command,
-          cmdlineProvided: conf.arguments))
+        conf.logError:
+          CliEvent(kind: cliEvtErrCmdExpectedNoAdditionalArgs,
+                   cmd: $conf.command,
+                   unexpectedArgs: conf.arguments,
+                   srcCodeOrigin: instLoc())
       openDefaultBrowser($output)
     else:
       # support as needed
-      localReport(conf, ExternalReport(
-        kind: rextUnexpectedRunOpt, cmdlineSwitch: $conf.command))
+      conf.logError(CliEvent(kind: cliEvtErrUnexpectedRunOpt,
+                             cmd: $conf.command,
+                             srcCodeOrigin: instLoc()))
 
 when declared(GC_setMaxPause):
   GC_setMaxPause 2_000

@@ -2686,8 +2686,6 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
     of rintMsgOrigin, rintErrKind:
       assert false, "is a configuration hint, should not be reported manually"
 
-    of rintNimconfWrite:
-      result = r.msg
 
 proc reportFull*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
@@ -2770,12 +2768,6 @@ proc reportBody*(conf: ConfigRef, r: LexerReport): string =
     of rlexUnclosedSingleString:
       result.add "closing \" expected"
 
-    of rlexExpectedToken:
-      result.add "expected $1" % r.msg
-
-    of rlexCfgInvalidDirective:
-      result.addf("invalid directive: '$1'", r.msg)
-
     of rlexUnclosedComment:
       result.add "end of multiline comment expected"
 
@@ -2807,89 +2799,13 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
   assertKind r
   case ExternalReportKind(r.kind):
     of rextConf:
-      result.add("used config file '$1'" % r.msg, conf.suffix(r))
+      unreachable("this should never be reported")
 
     of rextCmdRequiresFile:
       result = "command requires a filename"
 
-    of rextCommandMissing:
-      result.add("Command missing")
-
-    of rextInvalidHint:
-      result.add("Invalid hint - ", r.cmdlineProvided)
-
-    of rextInvalidWarning:
-      result.add("Invalid warning - ", r.cmdlineProvided)
-
-    of rextInvalidCommand:
-       result.add("Invalid command - ", r.cmdlineProvided)
-
-    of rextInvalidCommandLineOption:
-      result = "Invalid command line option - $1" % r.cmdlineProvided
-
-    of rextUnknownCCompiler:
-      result = "unknown C compiler: '$1'. Available options are: $2" %
-                [r.passedCompiler, r.knownCompilers.join(", ")]
-
-    of rextOnlyAllOffSupported:
-      result = "only 'all:off' is supported"
-
-    of rextExpectedOnOrOff:
-      result = "'on' or 'off' expected, but '$1' found" % r.cmdlineProvided
-
-    of rextExpectedOnOrOffOrList:
-      result = "'on', 'off' or 'list' expected, but '$1' found" % r.cmdlineProvided
-
-    of rextExpectedCmdArgument:
-      result = "argument for command line option expected: '$1'" % r.cmdlineSwitch
-
-    of rextExpectedNoCmdArgument:
-      result = "invalid argument ('$1') for command line option: '$2'" %
-                  [r.cmdlineProvided, r.cmdlineSwitch]
-
-    of rextCmdDisallowsAdditionalArguments:
-      result = "$1 command does not support additional arguments: '$2'" %
-                  [r.cmdlineSwitch, r.cmdlineProvided]
-
-    of rextInvalidNumber:
-      result = "$1 is not a valid number" % r.cmdlineProvided
-
-    of rextInvalidValue:
-      result = ("Unexpected value for " &
-        "the $1. Expected one of $2, but got '$3'") % [
-          r.cmdlineSwitch,
-          r.cmdlineAllowed.mapIt("'" & it & "'").join(", "),
-          r.cmdlineProvided
-      ]
-
-    of rextUnexpectedValue:
-      result = "Unexpected value for $1. Expected one of $2" % [
-        r.cmdlineSwitch, r.cmdlineAllowed.join(", ")
-      ]
-
-    of rextExpectedTinyCForRun:
-      result = "'run' command not available; rebuild with -d:tinyc"
-
-    of rextExpectedCbackendForRun:
-      result = "'run' requires c backend, got: '$1'" % $conf.backend
-
-    of rextExpectedRunOptForArgs:
-      result = "arguments can only be given if the '--run' option is selected"
-
-    of rextUnexpectedRunOpt:
-      result = "'$1 cannot handle --run" % r.cmdlineProvided
-
-    of rextInvalidPath:
-      result = "invalid path: " & r.cmdlineProvided
-
-    of rextInvalidPackageName:
-      result = "invalid package name: " & r.packageName
-
-    of rextDeprecated:
-      result = r.msg
-
     of rextPath:
-      result = "added path: '$1'" % r.packagePath
+      unreachable("this should never be reported")
 
 proc reportFull*(conf: ConfigRef, r: ExternalReport): string =
   assertKind r

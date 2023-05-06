@@ -68,7 +68,6 @@ from std/osproc import execCmd
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_internal import InternalReport
-from compiler/ast/reports_external import ExternalReport
 from compiler/ast/report_enums import ReportKind,
   repHintKinds,
   repWarningKinds,
@@ -652,8 +651,8 @@ proc mainCommand*(graph: ModuleGraph) =
     setOutFile(graph.config)
     commandJsonScript(graph)
   of cmdUnknown, cmdNone, cmdIdeTools, cmdNimfix:
-    localReport(conf, ExternalReport(
-      msg: conf.command, kind: rextInvalidCommand))
+    conf.logError(CliEvent(kind: cliEvtErrInvalidCommand, cmd: conf.command,
+                           srcCodeOrigin: instLoc()))
 
   if optProfileVM in conf.globalOptions:
     conf.writeln cmdOutUserProf, conf.dump(conf.vmProfileData)
