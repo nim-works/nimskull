@@ -873,27 +873,51 @@ proc genFieldCheck(p: BProc, e: PNode, obj: Rope, field: PSym) =
     template fun(code) = linefmt(p, cpsStmts, code, [rdLoc(test)])
     if op.magic == mNot: fun("if ($1) ") else: fun("if (!($1)) ")
 
-    ## call raiseFieldError2 on failure
-    let discIndex = rdSetElemLoc(p.config, v, u.t)
-    if optTinyRtti in p.config.globalOptions:
-      # not sure how to use `genEnumToStr` here
-      if p.config.getStdlibVersion < (1,5,1):
-        const code = "{ #raiseFieldError($1); $2} $n"
-        linefmt(p, cpsStmts, code, [strLit, raiseInstr(p)])
+    let base = disc.typ.skipTypes(abstractRange)
+    var raiseProc, toStr: string
+    # generate and emit the code for the failure case:
+    case base.kind
+    of tyEnum:
+      if optTinyRtti notin p.config.globalOptions:
+        # use the rtti-based repr
+        let desc = genTypeInfoV1(p.module, base, e.info)
+        toStr = ropecg(p.module, "#reprEnum($1, $2)", [rdLoc(v), desc])
+        raiseProc = "raiseFieldErrorStr"
+      elif useAliveDataFromDce in p.module.flags:
+        # DCE doesn't scan the ``nkCheckedFieldExpr`` nodes yet, meaning that
+        # the compiler-generated enum-to-string procedures aren't reliably
+        # available. Fallback to rendering the enum as it's integer value
+        toStr = "(NI)" & rdLoc(v)
+        raiseProc = "raiseFieldErrorInt"
       else:
-        const code = "{ #raiseFieldError2($1, (NI)$3); $2} $n"
-        linefmt(p, cpsStmts, code, [strLit, raiseInstr(p), discIndex])
+        # use the compiler-generated enum-to-string procedure
+        let prc = p.module.g.graph.getToStringProc(disc.typ)
+        var tmp: TLoc
+        expr(p, newSymNode(prc), tmp)
+        toStr = "$1($2)" % [rdLoc(tmp), rdLoc(v)]
+        raiseProc = "raiseFieldErrorStr"
+
+    of tyChar:
+      # XXX: rendering as a character is supported by the runtime
+      #raiseProc = "raiseFieldErrorChar"
+      toStr = rdCharLoc(v)
+      raiseProc = "raiseFieldErrorUInt"
+    of tyBool:
+      raiseProc = "raiseFieldErrorBool"
+    of tyInt..tyInt64:
+      raiseProc = "raiseFieldErrorInt"
+    of tyUInt..tyUInt64:
+      raiseProc = "raiseFieldErrorUInt"
     else:
-      # complication needed for signed types
-      let first = p.config.firstOrd(disc.sym.typ)
-      let firstLit = int64Literal(cast[int](first))
-      let discName = genTypeInfo(p.config, p.module, disc.sym.typ, e.info)
-      if p.config.getStdlibVersion < (1,5,1):
-        const code = "{ #raiseFieldError($1); $2} $n"
-        linefmt(p, cpsStmts, code, [strLit, raiseInstr(p)])
-      else:
-        const code = "{ #raiseFieldError2($1, #reprDiscriminant(((NI)$3) + (NI)$4, $5)); $2} $n"
-        linefmt(p, cpsStmts, code, [strLit, raiseInstr(p), discIndex, firstLit, discName])
+      discard
+      # unreachable()
+
+    if toStr == "":
+      toStr = rdLoc(v)
+
+    discard cgsym(p.module, raiseProc) # make sure the compilerproc is generated
+    linefmt(p, cpsStmts, "{ $1($3, $4); $2} $n",
+            [raiseProc, raiseInstr(p), strLit, toStr])
 
 proc genCheckedRecordField(p: BProc, e: PNode, d: var TLoc) =
   assert e[0].kind == nkDotExpr
