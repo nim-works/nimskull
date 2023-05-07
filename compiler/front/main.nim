@@ -441,7 +441,7 @@ proc customizeForBackend*(graph: ModuleGraph, conf: ConfigRef,
     of excNone, excNative: conf.exc = excGoto
     of excGoto:            discard
 
-    if conf.selectedGC == gcUnselected:
+    if conf.selectedGC in {gcUnselected, gcNative}:
       # the default gc for the C backend is ORC. We can't just set it to
       # ``gcOrc`` directly, however, as additional defines, etc. are required
       # XXX: the dependency on ``optionsprocessor`` hints that a different
@@ -452,7 +452,7 @@ proc customizeForBackend*(graph: ModuleGraph, conf: ConfigRef,
     # force the exception mode to 'native', and the selected gc to 'refc'.
     # Note that both targets don't really use 'refc'.
     conf.exc = excNative
-    conf.selectedGC = gcRefc
+    conf.selectedGC = gcNative
   of backendInvalid:
     unreachable()
 
