@@ -51,7 +51,7 @@ proc instFieldLoopBody(c: TFieldInstCtx, n: PNode, forLoop: PNode): PNode =
           result.add(newSymNode(c.field, n.info))
         break
   of nkSymChoices:
-    result = instFieldLoopBody(c, newSymNode(n.choices[0], n.info), forLoop)
+    result = copyNode(n)
   else:
     if n.kind == nkContinueStmt:
       localReport(c.c.config, n, reportSem rsemFieldsIteratorCannotContinue)
