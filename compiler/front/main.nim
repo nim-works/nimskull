@@ -73,6 +73,8 @@ from compiler/ast/report_enums import ReportKind,
   repWarningKinds,
   rstWarnings
 
+from compiler/front/optionsprocessor import processSwitch,
+  procSwitchSuccess
 from compiler/front/scripting import runNimScript
 
 when not defined(leanCompiler):
@@ -226,7 +228,6 @@ proc commandCompileToJS(graph: ModuleGraph) =
       kind: rintUsingLeanCompiler,
       msg: "Compiler was not build with js support"))
   else:
-    conf.exc = excNative
     conf.target =
       block:
         var t = conf.target
@@ -243,9 +244,6 @@ proc commandCompileToJS(graph: ModuleGraph) =
       writeDepsFile(graph)
 
 proc commandCompileToVM(graph: ModuleGraph) =
-  let conf = graph.config
-  conf.exc = excNative
-
   semanticPasses(graph)
   registerPass(graph, vmgenPass)
   compileProject(graph)
@@ -427,6 +425,37 @@ proc `$`(params: UsedBuildParams): string =
       #[9]# suffix
     ]
 
+proc customizeForBackend*(graph: ModuleGraph, conf: ConfigRef,
+                          backend: TBackend) =
+  ## Sets backend specific options. This must be called by all commands.
+  ## `backend` is the backend to choose when no backend has been selected
+  ## so far.
+  if conf.backend == backendInvalid:
+    # only set if wasn't already set, to allow override via `nim c -b:js`
+    conf.backend = backend
+
+  defineSymbol(graph.config, $conf.backend)
+  case conf.backend
+  of backendC:
+    case conf.exc
+    of excNone, excNative: conf.exc = excGoto
+    of excGoto:            discard
+
+    if conf.selectedGC == gcUnselected:
+      # the default gc for the C backend is ORC. We can't just set it to
+      # ``gcOrc`` directly, however, as additional defines, etc. are required
+      # XXX: the dependency on ``optionsprocessor`` hints that a different
+      #      approach for setting up the GC related settings is needed
+      let r = processSwitch("gc", "orc", passCmd2, conf)
+      doAssert r.kind == procSwitchSuccess, "set default gc failed: " & $r.kind
+  of backendJs, backendNimVm:
+    # force the exception mode to 'native', and the selected gc to 'refc'.
+    # Note that both targets don't really use 'refc'.
+    conf.exc = excNative
+    conf.selectedGC = gcRefc
+  of backendInvalid:
+    unreachable()
+
 proc mainCommand*(graph: ModuleGraph) =
   ## Execute main compiler command
   let
@@ -438,25 +467,8 @@ proc mainCommand*(graph: ModuleGraph) =
   conf.lastCmdTime = epochTime()
   conf.searchPathsAdd(conf.libpath)
 
-  proc customizeForBackend(backend: TBackend) =
-    ## Sets backend specific options but don't compile to backend yet in
-    ## case command doesn't require it. This must be called by all commands.
-    if conf.backend == backendInvalid:
-      # only set if wasn't already set, to allow override via `nim c -b:js`
-      conf.backend = backend
-
-    defineSymbol(graph.config, $conf.backend)
-    case conf.backend
-    of backendC:
-      case conf.exc
-      of excNone, excNative: conf.exc = excGoto
-      of excGoto:            discard
-    of backendJs, backendNimVm:
-      discard
-    of backendInvalid: unreachable()
-
   proc compileToBackend() =
-    customizeForBackend(conf.backend)
+    customizeForBackend(graph, conf, conf.backend)
     setOutFile(conf)
     case conf.backend
     of backendC: commandCompileToC(graph)
@@ -476,7 +488,8 @@ proc mainCommand*(graph: ModuleGraph) =
 
   ## command prepass
   if conf.cmd == cmdCrun: conf.incl {optRun, optUseNimcache}
-  if conf.cmd notin cmdBackends + {cmdTcc}: customizeForBackend(backendC)
+  if conf.cmd notin cmdBackends + {cmdTcc, cmdNimscript}:
+    customizeForBackend(graph, conf, backendC)
   if conf.outDir.isEmpty:
     # doc like commands can generate a lot of files (especially with --project)
     # so by default should not end up in $PWD nor in $projectPath.
