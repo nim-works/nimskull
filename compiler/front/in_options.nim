@@ -69,6 +69,7 @@ type
   TGCMode* = enum             # the selected GC
     gcUnselected = "unselected"
     gcNone = "none"
+    gcNative = "native" ## use the memory management native to the backend
     gcBoehm = "boehm"
     gcRegions = "regions"
     gcArc = "arc"
