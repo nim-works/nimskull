@@ -201,14 +201,14 @@ proc prepareNode*(cl: var TReplTypeVars, n: PNode): PNode =
       # call would traverse into types not depending on any of the type
       # variables we're replacing here
       result = n
-  of nkWithoutSons - {nkSym}:
+  of nkWithoutSons - {nkSym} - nkSymChoices:
     resolveStatic()
     result = copyNode(n)
     result.typ = t
   of nkSymChoices:
     # a symbol choice is itself similiar to a symbol
     result = n
-  of nkWithSons - nkSymChoices:
+  of nkWithSons:
     resolveStatic()
 
     result = shallowCopy(n)

@@ -184,18 +184,16 @@ proc `$`*(s: PSym): string =
   else:
     result = "<nil>"
 
-
 proc getnimblePkgId*(a: PSym): int =
   let b = a.getnimblePkg
   result = if b == nil: -1 else: b.id
-
 
 proc isCallExpr*(n: PNode): bool =
   result = n.kind in nkCallKinds
 
 proc safeLen*(n: PNode): int {.inline.} =
   ## works even for leaves.
-  if n.kind in {nkNone..nkNilLit}: result = 0
+  if n.kind in {nkNone..nkNilLit} + nkSymChoices: result = 0
   else: result = n.len
 
 proc getDeclPragma*(n: PNode): PNode =
@@ -309,8 +307,8 @@ proc hasNilSon*(n: PNode): bool =
 proc containsNode*(n: PNode, kinds: TNodeKinds): bool =
   if n == nil: return
   case n.kind
-  of nkEmpty..nkNilLit: result = n.kind in kinds
-  else:
+  of nkWithoutSons: result = n.kind in kinds
+  of nkWithSons:
     for i in 0..<n.len:
       if n.kind in kinds or containsNode(n[i], kinds): return true
 

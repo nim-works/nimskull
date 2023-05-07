@@ -473,12 +473,13 @@ template copyNodeImpl(dst, src, processSonsStmt) =
   of nkCharLit..nkUInt64Lit: dst.intVal = src.intVal
   of nkFloatLiterals: dst.floatVal = src.floatVal
   of nkSym: dst.sym = src.sym
+  of nkSymChoices: dst.choices = src.choices
   of nkIdent: dst.ident = src.ident
   of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
   of nkEmpty, nkNone: discard # no children, nothing to do
   of nkError:
     dst.diag = src.diag       # do cheap copies
-  else: processSonsStmt
+  of nkWithSons: processSonsStmt
 
 proc copyNode*(src: PNode): PNode =
   # does not copy its sons!
@@ -494,6 +495,14 @@ template transitionNodeKindCommon(k: TNodeKind) =
   n[] = TNode(id: obj.id, kind: k, typ: obj.typ, info: obj.info,
               flags: obj.flags)
   # n.comment = obj.comment # shouldn't be needed, the address doesnt' change
+
+proc transitionOpenToClosed*(n: PNode) =
+  ## transitions an `nkOpenSymChoice` to `nkClosedSymChoice`, if it's already
+  ## closed then nothing happens.
+  assert n.kind in nkSymChoices
+  if n.kind == nkOpenSymChoice:
+    transitionNodeKindCommon(nkClosedSymChoice)
+    n.choices = obj.choices
 
 proc transitionSonsKind*(n: PNode, kind: range[nkDotCall..nkTupleConstr]) =
   transitionNodeKindCommon(kind)
