@@ -589,7 +589,7 @@ proc processCompile(conf: ConfigRef; filename: string) =
 # multiple names for the same garbage collector.
 const
   gcNames = @[
-    "native", "boehm", "refc", "markandsweep", "destructors", "arc", "orc",
+    "default", "boehm", "refc", "markandsweep", "destructors", "arc", "orc",
     "hooks", "go", "none", "stack", "regions",]
 
   cmdNames = @[
@@ -644,6 +644,13 @@ func testCompileOptionArg*(conf: ConfigRef; switch, arg: string): CompileOptArgC
   case switch.normalize
   of "gc":
     case arg.normalize
+    of "default": 
+      let default =
+        case conf.backend
+        of backendC:                gcOrc
+        of backendJs, backendNimVm: gcNative
+        of backendInvalid:          unreachable()
+      asResult conf.selectedGC == default
     of "native": asResult conf.selectedGC == gcNative
     of "boehm": asResult conf.selectedGC == gcBoehm
     of "refc": asResult conf.selectedGC == gcRefc
@@ -1154,8 +1161,8 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
       case arg.normalize
-      of "native":
-        conf.selectedGC = gcNative
+      of "default":
+        conf.selectedGC = gcUnselected
       of "boehm":
         conf.selectedGC = gcBoehm
         defineSymbol(conf, "boehmgc")

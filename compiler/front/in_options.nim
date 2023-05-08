@@ -69,6 +69,8 @@ type
   TGCMode* = enum             # the selected GC
     gcUnselected = "unselected"
     gcNone = "none"
+    gcDefault = "default" ## use the default memory management for the backend. 
+                          ## orc for the C backend and native for JS and VM
     gcNative = "native" ## use the memory management native to the backend
     gcBoehm = "boehm"
     gcRegions = "regions"

@@ -34,8 +34,8 @@ Multi-paradigm Memory Management Strategies
 
 To choose the memory management strategy use the `--gc:` switch.
 
---gc:native   The native GC for the selected backend. Redirects to `--gc:orc`
-  for the C backend.
+--gc:default   The default GC for the selected backend. Uses `--gc:orc`
+  for the C backend and the native gc for JavaScript and the VM.
 --gc:refc    This is the default GC. It's a
   deferred reference counting based garbage collector
   with a simple Mark&Sweep backup GC in order to collect cycles. Heaps are thread-local.
