@@ -792,6 +792,12 @@ func cmpNodeCnst(a, b: PNode): bool {.inline.} =
     of nkStrKinds:      result = a.strVal == b.strVal
     of nkIntKinds:      result = a.intVal == b.intVal
     of nkFloatLiterals: result = cmpFloatRep(a.floatVal, b.floatVal)
+    of nkSymChoices:
+      result = a.choices.len == b.choices.len
+      var i = 0
+      while result and i < a.choices.len:
+        result = a.choices[i] == b.choices[i]
+        inc i
     else:
       if a.len == b.len:
         for i in 0..<a.len:

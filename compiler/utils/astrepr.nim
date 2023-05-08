@@ -1219,7 +1219,9 @@ template debug*(it: PNode) =
                 {
                   trfShowNodeFlags
                 } -
-                {}
+                {
+                  trfShowNodeTypes
+                }
   debugAux(implicitDebugConfRef, it, conf, instLoc())
 
 template debug*(it: PSym) =
