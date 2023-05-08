@@ -147,7 +147,6 @@ proc transformSymAux(c: PTransf, n: PNode): PNode =
         break
     b = getBody(c.graph, s)
     c.graph.config.internalAssert(b.kind == nkSym, n.info, "wrong AST for borrowed symbol")
-
     b = newSymNode(b.sym, n.info)
   elif c.inlining > 0:
     # see bug #13596: we use ref-based equality in the DFA for destruction
@@ -228,21 +227,21 @@ proc transformVarSection(c: PTransf, v: PNode): PNode =
       if it[0].kind == nkSym:
         internalAssert(c.graph.config, it.len == 3,
                        "var section must have three subnodes, got: " & $it.len)
-        
+
         let x = freshVar(c, it[0].sym)
-        
+
         idNodeTablePut(c.transCon.mapping, it[0].sym, x)
-        
+
         var defs = newTreeI(nkIdentDefs, it.info):
           [x, it[1], transform(c, it[2])]
-        
+
         if importantComments(c.graph.config):
           # keep documentation information:
           defs.comment = it.comment
-        
+
         if x.kind == nkSym:
           x.sym.ast = defs[2]
-        
+
         result[i] = defs
       else:
         # has been transformed into 'param.x' for closure iterators, so just
@@ -259,12 +258,12 @@ proc transformVarSection(c: PTransf, v: PNode): PNode =
             x
           else:
             transform(c, it[j])
-      
+
       assert(it[^2].kind == nkEmpty)
-      
+
       defs[^2] = newNodeI(nkEmpty, it.info)
       defs[^1] = transform(c, it[^1])
-      
+
       result[i] = defs
     else:
       c.graph.config.internalError(it.info):
@@ -287,7 +286,7 @@ proc transformConstSection(c: PTransf, v: PNode): PNode =
 
 proc hasContinue(n: PNode): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkForStmt, nkWhileStmt: discard
+  of nkEmpty..nkNilLit, nkForStmt, nkWhileStmt, nkSymChoices: discard
   of nkContinueStmt: result = true
   else:
     for i in 0..<n.len:
@@ -369,6 +368,10 @@ proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
     if a.kind == nkSym:
       n[1] = transformSymAux(c, a)
     return n
+  of nkSymChoices:
+    # TODO: ensure nkSymChoices never make it to `transf`
+    doAssert n.choices.len == 1, "choices must be reduced to one"
+    result = transformSym(c, newSymNode(n.choices[0], n.info))
   else:
     result = shallowCopy(n)
     for i in 0..<n.len:

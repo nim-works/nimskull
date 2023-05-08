@@ -273,10 +273,12 @@ proc semGenericStmt(c: PContext, n: PNode,
       let whichChoice = if s.id in ctx.toBind: scClosed
                         elif s.isMixedIn: scForceOpen
                         else: scOpen
-      let sc = symChoice(c, fn, s, whichChoice)
+      let
+        sc = symChoice(c, fn, s, whichChoice)
+        totalChoices = if sc.kind in nkSymChoices: sc.choices.len else: 1
       case s.kind
       of skMacro:
-        if macroToExpand(s) and sc.safeLen <= 1:
+        if macroToExpand(s) and totalChoices <= 1:
           result = semMacroExpr(c, n, s, {efNoSemCheck})
           result = semGenericStmt(c, result, flags, ctx)
           if result.isError: return
@@ -285,7 +287,7 @@ proc semGenericStmt(c: PContext, n: PNode,
           result = n
         mixinContext = true
       of skTemplate:
-        if macroToExpand(s) and sc.safeLen <= 1:
+        if macroToExpand(s) and totalChoices <= 1:
           result = semTemplateExpr(c, n, s, {efNoSemCheck})
           result = semGenericStmt(c, result, flags, ctx)
           if result.isError: return

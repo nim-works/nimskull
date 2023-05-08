@@ -3383,14 +3383,17 @@ proc shouldBeBracketExpr(n: PNode): bool =
   let a = n[0]
   if a.kind in nkCallKinds:
     let b = a[0]
-    if b.kind in nkSymChoices:
-      for i in 0..<b.len:
-        if b[i].kind == nkSym and b[i].sym.magic == mArrGet:
-          result = true
+    case b.kind
+    of nkSymChoices:
+      for i in 0..<b.choices.len:
+        result = b.choices[i].magic == mArrGet
+        if result:
           break
-    elif b.kind == nkSym and b.sym.magic == mArrGet:
+    of nkSym:
       # can happen in rare cases
-      result = true
+      result = b.sym.magic == mArrGet
+    else:
+      result = false
 
     if result:
       let be = newNodeI(nkBracketExpr, n.info)

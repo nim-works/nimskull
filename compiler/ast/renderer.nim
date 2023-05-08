@@ -394,6 +394,7 @@ proc lsub(g: TSrcGen; n: PNode): int =
     if containsNL(n.strVal): result = MaxLineLen + 1
     else: result = atom(g, n).len
   of succ(nkEmpty)..pred(nkTripleStrLit), succ(nkTripleStrLit)..nkNilLit:
+    # xxx: _never_ write a condition like the above, ffs
     result = atom(g, n).len
   of nkCall, nkBracketExpr, nkCurlyExpr, nkConv, nkPattern, nkObjConstr:
     result = lsub(g, n[0]) + lcomma(g, n, 1) + 2
@@ -412,7 +413,7 @@ proc lsub(g: TSrcGen; n: PNode): int =
   of nkTableConstr:
     result = if n.len > 0: lcomma(g, n) + 2 else: len("{:}")
   of nkClosedSymChoice, nkOpenSymChoice:
-    if n.len > 0: result += lsub(g, n[0])
+    if n.choices.len > 0: result = n.choices[0].name.s.len
   of nkTupleTy: result = lcomma(g, n) + len("tuple[]")
   of nkTupleClassTy: result = len("tuple")
   of nkDotExpr: result = lsons(g, n) + 1
@@ -898,7 +899,8 @@ proc bracketKind*(g: TSrcGen, n: PNode): BracketKind =
   if renderIds notin g.flags:
     case n.kind
     of nkClosedSymChoice, nkOpenSymChoice:
-      if n.len > 0: result = bracketKind(g, n[0])
+      if n.choices.len > 0:
+        result = bracketKind(g, newSymNode(n.choices[0], n.info))
     of nkSym:
       result = case n.sym.name.s
         of "[]": bkBracket
@@ -1143,19 +1145,16 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
   of nkClosedSymChoice, nkOpenSymChoice:
     if renderIds in g.flags:
       put(g, tkParLe, "(")
-      for i in 0..<n.len:
+      for i in 0..<n.choices.len:
         if i > 0: put(g, tkOpr, "|")
-        if n[i].kind == nkSym:
-          let s = n[i].sym
-          if s.owner != nil:
-            put g, tkSymbol, n[i].sym.owner.name.s
-            put g, tkOpr, "."
-          put g, tkSymbol, n[i].sym.name.s
-        else:
-          gsub(g, n[i], c)
+        let s = n.choices[i]
+        if s.owner != nil:
+          put g, tkSymbol, n.choices[i].owner.name.s
+          put g, tkOpr, "."
+        put g, tkSymbol, n.choices[i].name.s
       put(g, tkParRi, if n.kind == nkOpenSymChoice: "|...)" else: ")")
     else:
-      gsub(g, n, 0)
+      put(g, tkSymbol, n.choices[0].name.s)
   of nkPar, nkClosure:
     put(g, tkParLe, "(")
     gcomma(g, n, c)
@@ -1249,9 +1248,10 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
   of nkPrefix:
     gsub(g, n, 0)
     if n.len > 1:
-      let opr = if n[0].kind == nkIdent: n[0].ident
-                elif n[0].kind == nkSym: n[0].sym.name
-                elif n[0].kind in {nkOpenSymChoice, nkClosedSymChoice}: n[0][0].sym.name
+      let opr = case n[0].kind
+                of nkIdent: n[0].ident
+                of nkSym: n[0].sym.name
+                of nkSymChoices: n[0].choices[0].name
                 else: nil
       let nNext = skipHiddenNodes(n[1])
       if nNext.kind == nkPrefix or (opr != nil and lexer.isKeyword(opr)):

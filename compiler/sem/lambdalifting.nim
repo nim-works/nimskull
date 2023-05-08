@@ -414,6 +414,9 @@ proc addClosureParam(c: var DetectionPass; fn: PSym; info: TLineInfo) =
 
 proc detectCapturedVars(n: PNode; owner: PSym; c: var DetectionPass) =
   case n.kind
+  of nkSymChoices:
+    doAssert n.choices.len == 1, "choices: " & $n.choices.len
+    # TODO: figure out why we're ending up with 8 choices here during bootstrap
   of nkSym:
     let
       s = n.sym

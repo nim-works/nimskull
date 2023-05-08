@@ -1760,13 +1760,13 @@ type
 
 const
   nkWithoutSons* =
+    {nkNone, nkEmpty} +
+    {nkIdent} +
+    {nkSym} +
     {nkCharLit..nkUInt64Lit} +
     {nkFloatLit..nkFloat128Lit} +
     {nkStrLit..nkTripleStrLit} +
-    {nkSym} +
-    {nkIdent} +
     {nkError} +
-    {nkEmpty, nkNone} +
     {nkClosedSymChoice, nkOpenSymChoice}
 
   nkWithSons* = {low(TNodeKind) .. high(TNodeKind)} - nkWithoutSons

@@ -314,7 +314,7 @@ proc containsNode*(n: PNode, kinds: TNodeKinds): bool =
 
 proc hasSubnodeWith*(n: PNode, kind: TNodeKind): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkFormalParams:
+  of nkEmpty..nkNilLit, nkFormalParams, nkSymChoices:
     result = n.kind == kind
   of nkError:
     result = hasSubnodeWith(n.diag.wrongNode, kind)
