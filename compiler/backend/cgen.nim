@@ -1371,28 +1371,9 @@ proc genMainProc(m: BModule) =
         MainProcs &
       "}$N$N"
 
-    GenodeNimMain =
-      "extern Genode::Env *nim_runtime_env;$N" &
-      "extern \"C\" void nim_component_construct(Genode::Env*);$N$N" &
-      NimMainBody
-
-    ComponentConstruct =
-      "void Libc::Component::construct(Libc::Env &env) {$N" &
-      "\t// Set Env used during runtime initialization$N" &
-      "\tnim_runtime_env = &env;$N" &
-      "\tLibc::with_libc([&] () {$N\t" &
-      "\t// Initialize runtime and globals$N" &
-      MainProcs &
-      "\t// Call application construct$N" &
-      "\t\tnim_component_construct(&env);$N" &
-      "\t});$N" &
-      "}$N$N"
-
   if m.config.target.targetOS == osWindows and
       m.config.globalOptions * {optGenGuiApp, optGenDynLib} != {}:
     m.includeHeader("<windows.h>")
-  elif m.config.target.targetOS == osGenode:
-    m.includeHeader("<libc/component.h>")
 
   let initStackBottomCall =
     if m.config.target.targetOS == osStandalone or m.config.selectedGC == gcNone: "".rope
@@ -1409,10 +1390,6 @@ proc genMainProc(m: BModule) =
     else:
       const nimMain = WinNimDllMain
       appcg(m, m.s[cfsProcs], nimMain,
-        [m.g.mainModInit, initStackBottomCall, m.labels, preMainCode])
-  elif m.config.target.targetOS == osGenode:
-    const nimMain = GenodeNimMain
-    appcg(m, m.s[cfsProcs], nimMain,
         [m.g.mainModInit, initStackBottomCall, m.labels, preMainCode])
   elif optGenDynLib in m.config.globalOptions:
     const nimMain = PosixNimDllMain
@@ -1436,9 +1413,6 @@ proc genMainProc(m: BModule) =
       else:
         const otherMain = WinCDllMain
         appcg(m, m.s[cfsProcs], otherMain, [])
-    elif m.config.target.targetOS == osGenode:
-      const otherMain = ComponentConstruct
-      appcg(m, m.s[cfsProcs], otherMain, [])
     elif optGenDynLib in m.config.globalOptions:
       const otherMain = PosixCDllMain
       appcg(m, m.s[cfsProcs], otherMain, [])
