@@ -207,7 +207,8 @@ proc prepareNode*(cl: var TReplTypeVars, n: PNode): PNode =
     result.typ = t
   of nkSymChoices:
     # a symbol choice is itself similiar to a symbol
-    result = n
+    resolveStatic()
+    result = if n.choices.len == 1: newSymNode(n.choices[0], n.info) else: n
   of nkWithSons:
     resolveStatic()
 
