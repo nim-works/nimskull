@@ -605,6 +605,9 @@ func storeNode(enc: var TypeInfoEncoder, ps: var PackedEnv, n: PNode): NodeId =
     of nkIntKinds:   ps.getLitId(n.intVal).int32
     of nkFloatKinds: ps.getLitId(n.floatVal).int32
     of nkStrKinds:   ps.getLitId(n.strVal).int32
+    of nkSymChoices:
+      hasSons = true
+      n.choices.len.int32
     of nkWithSons:
       hasSons = true
       n.sons.len.int32
@@ -617,8 +620,18 @@ func storeNode(enc: var TypeInfoEncoder, ps: var PackedEnv, n: PNode): NodeId =
                                  typeId: storeTypeLater(enc, ps, n.typ)))
 
   if hasSons:
-    for s in n.sons.items:
-      discard storeNode(enc, ps, s)
+    case n.kind
+    of nkSymChoices:
+      for s in n.choices:
+        let itemId = enc.storeSymLater(ps, n.sym).int32
+        ps.nimNodes.add(PackedNodeLite(kind: n.kind, flags: n.flags,
+                                       operand: itemId,
+                                       typeId: storeTypeLater(enc, ps, n.typ)))
+    of nkWithSons:
+      for s in n.sons.items:
+        discard storeNode(enc, ps, s)
+    else:
+      unreachable("no other nodes have children")
 
 func storeSymAt(enc: var TypeInfoEncoder, ps: var PackedEnv, s: PSym, id: SymId) =
   let p = PackedSymLite(kind: s.kind, magic: s.magic,
@@ -685,6 +698,14 @@ proc loadNode(dec: var TypeInfoDecoder, ps: PackedEnv, id: NodeId): (PNode, int3
     r.sym = dec.loadSym(ps, n.operand.SymId)
   of nkIdent:
     r.ident = PIdent(s: ps.strings[n.operand.LitId])
+  of nkSymChoices:
+    r.choices.newSeq(n.operand)
+    for i in 1..n.operand:
+      let
+        nextId = id.int32 + i
+        (node, skip) = loadNode(dec, ps, nextId.NodeId)
+      assert skip == 1, "should be all consequtive sym nodes"
+      r.choices[i] = node.sym
   of nkWithSons:
     r.sons.newSeq(n.operand)
     var nextId = id.int32 + 1

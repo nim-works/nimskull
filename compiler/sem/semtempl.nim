@@ -128,7 +128,7 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
       if a.kind != skModule and not(isField and sfGenSym in s.flags):
         incl(a.flags, sfUsed)
         markOwnerModuleAsUsed(c, a)
-        result.add newSymNode(a, info)
+        result.add a
       elif a.isError:
         localReport(c.config, a.ast)
       a = nextOverloadIter(o, c, n)
@@ -183,7 +183,7 @@ proc semMixinStmt(c: PContext, n: PNode, toMixin: var IntSet): PNode =
     if err.isNil:
       toMixin.incl(ident.id)
       let x = symChoice(c, it, nil, scForceOpen)
-      inc count, x.len
+      inc count, x.choices.len
       result.add x
     else:
       result.add err
@@ -599,6 +599,8 @@ proc semTemplBodySons(c: var TemplCtx, n: PNode): PNode =
   case n.kind
   of nkError:
     discard   # return the error in result
+  of nkSymChoices:
+    discard
   else:
     for i in 0..<n.len:
       result[i] = semTemplBody(c, n[i])

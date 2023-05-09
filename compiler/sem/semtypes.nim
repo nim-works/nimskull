@@ -1914,7 +1914,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     let ident = case x.kind
                 of nkIdent: x.ident
                 of nkSym: x.sym.name
-                of nkClosedSymChoice, nkOpenSymChoice: x[0].sym.name
+                of nkClosedSymChoice, nkOpenSymChoice: x.choices[0].name
                 else: nil
     if ident != nil and ident.s == "[]":
       let b = newNodeI(nkBracketExpr, n.info)
@@ -1930,7 +1930,6 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
           result.flags.excl(tfNotNil)
       else:
         localReport(c.config, n, reportSem rsemTypeInvalid)
-
     elif n[0].kind notin nkIdentKinds:
       result = semTypeExpr(c, n, prev)
     else:

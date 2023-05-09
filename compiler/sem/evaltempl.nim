@@ -24,7 +24,8 @@ import
     msgs
   ],
   compiler/utils/[
-    debugutils
+    debugutils,
+    astrepr,
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
@@ -84,6 +85,8 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
           result.add newSymNode(x, if c.instLines: actual.info else: templ.info)
     else:
       result.add copyNode(c, templ, actual)
+  of nkSymChoices:
+    result.add copyNode(c, templ, actual)
   of nkNone..nkIdent, nkType..nkNilLit: # atom
     result.add copyNode(c, templ, actual)
   of nkCommentStmt:

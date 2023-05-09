@@ -791,7 +791,7 @@ proc treeRepr*(
 
     let hasComment = trfShowNodeComments in rconf and n.comment.len > 0
 
-    proc addComment(sep: bool = true) =
+    proc addComment(indent: int, sep: bool = true) =
       if hasComment:
         var nl = false
         for line in split(n.comment.strip(leading = false), '\n'):
@@ -805,7 +805,7 @@ proc treeRepr*(
       elif sep:
         add " "
 
-    proc addFlags() =
+    proc addFlags(indent: int) =
       if rconf.extraNodeInfo != nil:
         let text = rconf.extraNodeInfo(n)
         if len(text) > 0:
@@ -842,33 +842,33 @@ proc treeRepr*(
             add "\n"
             add conf.treeRepr(n.typ, tmp, indent = indent + 2)
 
-    proc postLiteral() =
-      addFlags()
+    proc postLiteral(indent: int) =
+      addFlags(indent)
       if hasComment: add "\n"
-      addComment()
+      addComment(indent)
 
     case n.kind:
       of nkStrKinds:
         add " "
         add "\"" & n.strVal + style.strLit & "\""
-        postLiteral()
+        postLiteral(indent)
 
       of nkCharLit .. nkUInt64Lit:
         add " "
         add $n.intVal + style.number
-        postLiteral()
+        postLiteral(indent)
 
       of nkFloatLit .. nkFloat128Lit:
         add " "
         add $n.floatVal + style.floatLit
-        postLiteral()
+        postLiteral(indent)
 
       of nkIdent:
         add " \""
         add n.ident.s + style.identLit
         add "\""
         hfield("ident.id", trfShowNodeIds, $n.ident.id + style.number)
-        postLiteral()
+        postLiteral(indent)
 
       of nkSym:
         add " \""
@@ -879,14 +879,27 @@ proc treeRepr*(
         var rconf = rconf
         rconf.excl trfShowSymName
         add symFields(conf, n.sym, rconf, indent, inNode = true)
-        addFlags()
-        addComment()
+        addFlags(indent)
+        addComment(indent)
+
+      of nkSymChoices:
+        add " \""
+        add n.choices[0].name.s + style.identLit
+        add "\""
+
+        if trfShowFullSymChoice in rconf:
+          var rconf = rconf
+          rconf.excl trfShowSymName
+          for s in n.choices.items:
+            add symFields(conf, s, rconf, indent + 2, inNode = true)
+            addFlags(indent + 2)
+            addComment(indent + 2)
 
       of nkCommentStmt:
-        addFlags()
+        addFlags(indent)
         add "\n"
         if hasComment: add "\n"
-        addComment()
+        addComment(indent)
 
       of nkError:
         let
@@ -903,19 +916,19 @@ proc treeRepr*(
         add ")"
 
       of nkType:
-        postLiteral()
+        postLiteral(indent)
 
       else:
         discard
 
-    if n.kind notin {nkNone .. nkNilLit, nkCommentStmt}:
-      addFlags()
+    if n.kind notin {nkNone .. nkNilLit, nkCommentStmt} + nkSymChoices:
+      addFlags(indent)
       if (n.kind == nkError and trfSkipAuxError notin rconf) or
           (n.kind != nkError and n.len > 0):
         add "\n"
 
       if hasComment:
-        addComment(false)
+        addComment(indent, false)
         if n.len == 0:
           add "\n"
 
@@ -929,11 +942,6 @@ proc treeRepr*(
       for newIdx, subn in sons:
         if trfSkipAuxError in rconf and n.kind == nkError:
           continue
-
-        if trfShowFullSymChoice notin rconf and
-           n.kind in {nkClosedSymChoice, nkOpenSymChoice} and
-           newIdx > 0:
-          break
 
         if n.kind in {nkOpenSymChoice} and newIdx > 0:
           assert false, $rconf.flags
@@ -1211,7 +1219,9 @@ template debug*(it: PNode) =
                 {
                   trfShowNodeFlags
                 } -
-                {}
+                {
+                  trfShowNodeTypes
+                }
   debugAux(implicitDebugConfRef, it, conf, instLoc())
 
 template debug*(it: PSym) =

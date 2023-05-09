@@ -165,7 +165,7 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
   ## creates a list (`errs` seq) from most specific to least specific
   ## by traversing the the error tree in a depth-first-search.
   case n.kind
-  of nkEmpty .. nkNilLit:
+  of nkEmpty..nkNilLit, nkSymChoices:
     discard
   of nkError:
     buildErrorList(config, n.diag.wrongNode, errs)

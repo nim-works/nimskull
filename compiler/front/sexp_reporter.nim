@@ -116,17 +116,18 @@ proc sexp*(node: PNode): SexpNode =
 
   result = newSList()
   result.add newSSymbol(($node.kind)[2 ..^ 1])
-  case node.kind:
-    of nkNone, nkEmpty:           discard
-    of nkCharLit..nkUInt64Lit:    result.add sexp(node.intVal)
-    of nkFloatLit..nkFloat128Lit: result.add sexp(node.floatVal)
-    of nkStrLit..nkTripleStrLit:  result.add sexp(node.strVal)
-    of nkSym:                     result.add newSSymbol(node.sym.name.s)
-    of nkIdent:                   result.add newSSymbol(node.ident.s)
-    of nkError:                   result.add sexp(node.diag.wrongNode)
-    of nkWithSons:
-      for node in node.sons:
-        result.add sexp(node)
+  case node.kind
+  of nkNone, nkEmpty:           discard
+  of nkCharLit..nkUInt64Lit:    result.add sexp(node.intVal)
+  of nkFloatLit..nkFloat128Lit: result.add sexp(node.floatVal)
+  of nkStrLit..nkTripleStrLit:  result.add sexp(node.strVal)
+  of nkSym:                     result.add newSSymbol(node.sym.name.s)
+  of nkIdent:                   result.add newSSymbol(node.ident.s)
+  of nkError:                   result.add sexp(node.diag.wrongNode)
+  of nkSymChoices:              result.add newSSymbol(node.choices[0].name.s)
+  of nkWithSons:
+    for node in node.sons:
+      result.add sexp(node)
 
 proc sexp*(t: PSym): SexpNode =
   convertSexp([

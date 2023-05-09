@@ -183,7 +183,7 @@ proc fuzzyLookup(c: PContext, n: PNode, flags: TSemGenericFlags,
         let syms = semGenericStmtSymbol(c, n, s, ctx, flags, fromDotExpr=true)
         if syms.kind == nkSym:
           let choice = symChoice(c, n, s, scForceOpen)
-          choice.transitionSonsKind(nkClosedSymChoice)
+          transitionOpenToClosed(choice)
           result = newDot(result, choice)
         else:
           result = newDot(result, syms)
@@ -273,10 +273,12 @@ proc semGenericStmt(c: PContext, n: PNode,
       let whichChoice = if s.id in ctx.toBind: scClosed
                         elif s.isMixedIn: scForceOpen
                         else: scOpen
-      let sc = symChoice(c, fn, s, whichChoice)
+      let
+        sc = symChoice(c, fn, s, whichChoice)
+        totalChoices = if sc.kind in nkSymChoices: sc.choices.len else: 1
       case s.kind
       of skMacro:
-        if macroToExpand(s) and sc.safeLen <= 1:
+        if macroToExpand(s) and totalChoices <= 1:
           result = semMacroExpr(c, n, s, {efNoSemCheck})
           result = semGenericStmt(c, result, flags, ctx)
           if result.isError: return
@@ -285,7 +287,7 @@ proc semGenericStmt(c: PContext, n: PNode,
           result = n
         mixinContext = true
       of skTemplate:
-        if macroToExpand(s) and sc.safeLen <= 1:
+        if macroToExpand(s) and totalChoices <= 1:
           result = semTemplateExpr(c, n, s, {efNoSemCheck})
           result = semGenericStmt(c, result, flags, ctx)
           if result.isError: return
@@ -570,6 +572,11 @@ proc semGenericStmt(c: PContext, n: PNode,
     result[1] = semGenericStmt(c, n[1], flags, ctx)
     if result[1].isError:
       result = c.config.wrapError(result)
+  of nkSymChoices:
+    for i, s in n.choices.pairs:
+      let b = getGenSym(c, s)
+      if s != b:
+        result.choices[i] = b
   else:
     captureError c.config, result:
       for i in 0..<n.len:

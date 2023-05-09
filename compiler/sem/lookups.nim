@@ -211,8 +211,8 @@ proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
   of nkIdent, nkSym:
     ident = extractAtomicIdent(currN)
   of nkOpenSymChoice, nkClosedSymChoice:
-    assert currN.len > 0 and currN[0].kind == nkSym
-    currN = currN[0]
+    assert currN.choices.len > 0
+    currN = newSymNode(currN.choices[0], currN.info)
   of nkAccQuoted:
     case currN.len
     of 0: ident = notFoundIdent
@@ -1037,10 +1037,11 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
                     c.config.wrapError(errDotExpr))
 
   of nkClosedSymChoice, nkOpenSymChoice:
-    case n[0].kind
-    of nkSym:
+    # xxx: this code doesn't really make sense, likely some caller specific
+    #      quirks are being accommodated here.
+    if n.choices.len > 0:
       o.mode = oimSymChoice
-      result = n[0].sym
+      result = n.choices[0]
 
       o.currentScope = c.currentScope # already remember the start scope
       o.symChoiceIndex = 1
@@ -1129,8 +1130,8 @@ proc nextOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
   of oimOtherModule:
     result = nextModuleIter(o.mit, c.graph)
   of oimSymChoice:
-    if o.symChoiceIndex < n.len:
-      result = n[o.symChoiceIndex].sym
+    if o.symChoiceIndex < n.choices.len:
+      result = n.choices[o.symChoiceIndex]
       incl(o.marked, result.id)
       inc o.symChoiceIndex
     elif n.kind == nkOpenSymChoice:
@@ -1138,12 +1139,12 @@ proc nextOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
       o.mode = oimSymChoiceLocalLookup
       # the `currentScope` was already initialized by ``initOverloadIter``
       result = firstIdentExcluding(o.it, o.currentScope.symbols,
-                                   n[0].sym.name, o.marked)
+                                   n.choices[0].name, o.marked)
       while result == nil:
         o.currentScope = o.currentScope.parent
         if o.currentScope != nil:
           result = firstIdentExcluding(o.it, o.currentScope.symbols,
-                                      n[0].sym.name, o.marked)
+                                      n.choices[0].name, o.marked)
         else:
           o.importIdx = 0
           result = symChoiceExtension(o, c, n)
@@ -1157,7 +1158,7 @@ proc nextOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
         o.currentScope = o.currentScope.parent
         if o.currentScope != nil:
           result = firstIdentExcluding(o.it, o.currentScope.symbols,
-                                      n[0].sym.name, o.marked)
+                                      n.choices[0].name, o.marked)
         else:
           o.importIdx = 0
           result = symChoiceExtension(o, c, n)

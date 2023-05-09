@@ -34,7 +34,8 @@ import
     liftdestructors,
     transf,
     lowerings
-  ]
+  ],
+  compiler/utils/astrepr
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_sem import SemReport,
@@ -309,6 +310,7 @@ type
     somethingToDo: bool
     graph: ModuleGraph
     idgen: IdGenerator
+    poop: bool
 
 proc initDetectionPass(g: ModuleGraph; fn: PSym; idgen: IdGenerator): DetectionPass =
   result.processed = initIntSet()
@@ -418,6 +420,19 @@ proc addClosureParam(c: var DetectionPass; fn: PSym; info: TLineInfo) =
 
 proc detectCapturedVars(n: PNode; owner: PSym; c: var DetectionPass) =
   case n.kind
+  of nkSymChoices:
+    c.poop = n.choices.len > 1
+    if n.choices.len == 1:
+      detectCapturedVars(newSymNode(n.choices[0], n.info), owner, c)
+    if c.poop:
+      for i, c in n.choices.pairs:
+        if n.typ == c.typ:
+          echo "found matching type"
+          break
+      echo c.graph.config.`$`(n.info), " n:"
+      debug n
+    # doAssert n.choices.len == 1, "choices: " & $n.choices.len
+    # TODO: figure out why we're ending up with 8 choices here during bootstrap
   of nkSym:
     let
       s = n.sym
@@ -494,6 +509,8 @@ proc detectCapturedVars(n: PNode; owner: PSym; c: var DetectionPass) =
       detectCapturedVars(n[namePos], owner, c)
   of nkReturnStmt:
     detectCapturedVars(n[0], owner, c)
+  of nkNimNodeLit:
+    discard "skip nim node literals as they're data not code"
   else:
     for i in 0..<n.len:
       detectCapturedVars(n[i], owner, c)
@@ -799,6 +816,10 @@ proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode; tooEarly: var bool;
   else:
     var d = initDetectionPass(g, fn, idgen)
     detectCapturedVars(body, fn, d)
+    if d.poop:
+      echo "the body:"
+      debug body
+      doAssert false, "we dun pooped"
     if not d.somethingToDo and fn.isIterator:
       # the "lift captures" pass needs to always run either directly or
       # indirectly for closure iterators, as it's also responsible for

@@ -1530,6 +1530,8 @@ type
       discard
     of nkError:
       diag*: PAstDiag
+    of nkClosedSymChoice, nkOpenSymChoice:
+      choices*: seq[PSym]
     else:
       sons*: TNodeSeq
 
@@ -1758,13 +1760,14 @@ type
 
 const
   nkWithoutSons* =
+    {nkNone, nkEmpty} +
+    {nkIdent} +
+    {nkSym} +
     {nkCharLit..nkUInt64Lit} +
     {nkFloatLit..nkFloat128Lit} +
     {nkStrLit..nkTripleStrLit} +
-    {nkSym} +
-    {nkIdent} +
     {nkError} +
-    {nkEmpty, nkNone}
+    {nkClosedSymChoice, nkOpenSymChoice}
 
   nkWithSons* = {low(TNodeKind) .. high(TNodeKind)} - nkWithoutSons
 
@@ -1834,6 +1837,11 @@ func len*(n: Indexable): int {.inline.} =
 proc add*(father, son: Indexable) =
   assert son != nil
   father.sons.add(son)
+
+proc add*(choice: PNode, sym: PSym) =
+  ## add a symbol to a sym choice node
+  assert choice.kind in {nkClosedSymChoice, nkOpenSymChoice}
+  choice.choices.add sym
 
 template `[]`*(n: Indexable, i: int): Indexable = n.sons[i]
 template `[]=`*(n: Indexable, i: int; x: Indexable) = n.sons[i] = x

@@ -17,7 +17,7 @@ proc cyclicTreeAux(n: PNode, visited: var seq[PNode]): bool =
   for v in visited:
     if v == n: return true
   case n.kind
-  of nkEmpty..nkNilLit:
+  of nkEmpty..nkNilLit, nkSymChoices:
     discard
   of nkError:
     visited.add(n)
@@ -131,8 +131,8 @@ proc isRange*(n: PNode): bool {.inline.} =
     let callee = n[0]
     if (callee.kind == nkIdent and callee.ident.id == ord(wDotDot)) or
        (callee.kind == nkSym and callee.sym.name.id == ord(wDotDot)) or
-       (callee.kind in {nkClosedSymChoice, nkOpenSymChoice} and
-        callee[1].sym.name.id == ord(wDotDot)):
+       (callee.kind in nkSymChoices and
+        callee.choices[1].name.id == ord(wDotDot)):
       result = true
 
 proc whichPragma*(n: PNode): TSpecialWord =
@@ -141,8 +141,7 @@ proc whichPragma*(n: PNode): TSpecialWord =
   of nkIdent: result = whichKeyword(key.ident)
   of nkSym: result = whichKeyword(key.sym.name)
   of nkCast: result = wCast
-  of nkClosedSymChoice, nkOpenSymChoice:
-    result = whichPragma(key[0])
+  of nkSymChoices: result = whichKeyword(key.choices[0].name)
   else: result = wInvalid
 
 proc isNoSideEffectPragma*(n: PNode): bool =
