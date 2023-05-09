@@ -441,7 +441,7 @@ proc customizeForBackend*(graph: ModuleGraph, conf: ConfigRef,
     of excNone, excNative: conf.exc = excGoto
     of excGoto:            discard
 
-    if conf.selectedGC in {gcUnselected, gcNative}:
+    if conf.selectedGC == gcUnselected:
       # the default gc for the C backend is ORC. We can't just set it to
       # ``gcOrc`` directly, however, as additional defines, etc. are required
       # XXX: the dependency on ``optionsprocessor`` hints that a different
