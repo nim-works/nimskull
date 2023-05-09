@@ -34,8 +34,6 @@ Multi-paradigm Memory Management Strategies
 
 To choose the memory management strategy use the `--gc:` switch.
 
---gc:native   The native GC for the selected backend. Redirects to `--gc:orc`
-  for the C backend.
 --gc:refc    This is the default GC. It's a
   deferred reference counting based garbage collector
   with a simple Mark&Sweep backup GC in order to collect cycles. Heaps are thread-local.
@@ -67,7 +65,6 @@ ORC                Shared   Cycle Collector   No             `--gc:orc`
 Boehm              Shared   Cycle Collector   Yes            `--gc:boehm`
 Go                 Shared   Cycle Collector   Yes            `--gc:go`
 None               Manual   Manual            Manual         `--gc:none`
-Native             Depends  Depends           Depends        `--gc:native`
 ================== ======== ================= ============== ===================
 
 .. default-role:: code
