@@ -1145,37 +1145,13 @@ proc genEcho(p: BProc, n: PNode) =
   # this unusual way of implementing it ensures that e.g. ``echo("hallo", 45)``
   # is threadsafe.
   internalAssert p.config, n.kind == nkBracket
-  if p.config.target.targetOS == osGenode:
-    # echo directly to the Genode LOG session
-    var args = ""
-    var a: TLoc
-    for i, it in n.sons:
-      if it.skipConv.kind == nkNilLit:
-        args.add(", \"\"")
-      elif n.len != 0:
-        initLocExpr(p, it, a)
-        if i > 0:
-          args.add(", ")
-        case detectStrVersion(p.module)
-        of 2:
-          args.add(ropecg(p.module, "Genode::Cstring($1.p->data, $1.len)", [a.rdLoc]))
-        else:
-          args.add(ropecg(p.module, "Genode::Cstring($1->data, $1->len)", [a.rdLoc]))
-    p.module.includeHeader("<base/log.h>")
-    p.module.includeHeader("<util/string.h>")
-    linefmt(p, cpsStmts, """Genode::log($1);$n""", [args])
-  else:
+  block:
     if n.len == 0:
       linefmt(p, cpsStmts, "#echoBinSafe(NIM_NIL, $1);$n", [n.len])
     else:
       var a: TLoc
       initLocExpr(p, n, a)
       linefmt(p, cpsStmts, "#echoBinSafe($1, $2);$n", [a.rdLoc, n.len])
-    when false:
-      p.module.includeHeader("<stdio.h>")
-      linefmt(p, cpsStmts, "printf($1$2);$n",
-              makeCString(repeat("%s", n.len) & "\L"), [args])
-      linefmt(p, cpsStmts, "fflush(stdout);$n", [])
 
 proc gcUsage(conf: ConfigRef; n: PNode) =
   if conf.selectedGC == gcNone:
