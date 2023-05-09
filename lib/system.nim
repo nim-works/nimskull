@@ -3056,7 +3056,7 @@ export widestrs
 import system/io
 export io
 
-when notJSnotNims and not defined(nimSeqsV2):
+when not defined(nimSeqsV2):
   proc prepareMutation*(s: var string) {.inline.} =
     ## String literals (e.g. "abc", etc) in the ARC/ORC mode are "copy on write",
     ## therefore you should call `prepareMutation` before modifying the strings

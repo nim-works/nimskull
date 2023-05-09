@@ -100,13 +100,6 @@ proc newEIO(msg: string): owned(ref IOError) =
   new(result)
   result.msg = msg
 
-template prepareStrMutation(x: var string) =
-  ## A compatibility template that is meant to be used until the
-  ## old runtime is removed.
-  when defined(nimV2):
-    # support copy-on-write strings:
-    prepareMutation(x)
-
 type
   Stream* = ref StreamObj
     ## All procedures of this module use this type.
@@ -247,7 +240,7 @@ proc readDataStr*(s: Stream, buffer: var string, slice: Slice[int]): int =
     result = s.readDataStrImpl(s, buffer, slice)
   else:
     # fallback
-    prepareStrMutation(buffer)
+    prepareMutation(buffer)
     result = s.readData(addr buffer[slice.a], slice.b + 1 - slice.a)
 
 template jsOrVmBlock(caseJsOrVm, caseElse: untyped): untyped =
@@ -932,7 +925,7 @@ proc readStrPrivate(s: Stream, length: int, str: var string) =
   when defined(js):
     let L = readData(s, addr(str), length)
   else:
-    prepareStrMutation(str)
+    prepareMutation(str)
     let L = readData(s, cstring(str), length)
   if L != len(str): setLen(str, L)
 
@@ -959,7 +952,7 @@ proc peekStrPrivate(s: Stream, length: int, str: var string) =
   when defined(js):
     let L = peekData(s, addr(str), length)
   else:
-    prepareStrMutation(str)
+    prepareMutation(str)
     let L = peekData(s, cstring(str), length)
   if L != len(str): setLen(str, L)
 
@@ -1206,7 +1199,7 @@ else: # after 1.3 or JS not defined
       jsOrVmBlock:
         buffer[slice.a..<slice.a+result] = s.data[s.pos..<s.pos+result]
       do:
-        prepareStrMutation(buffer)
+        prepareMutation(buffer)
         copyMem(unsafeAddr buffer[slice.a], addr s.data[s.pos], result)
       inc(s.pos, result)
     else:
@@ -1256,7 +1249,7 @@ else: # after 1.3 or JS not defined
         raise newException(Defect, "could not write to string stream, " &
           "did you use a non-string buffer pointer?", getCurrentException())
     elif not defined(nimscript):
-      prepareStrMutation(s.data)
+      prepareMutation(s.data)
       copyMem(addr(s.data[s.pos]), buffer, bufLen)
     inc(s.pos, bufLen)
 

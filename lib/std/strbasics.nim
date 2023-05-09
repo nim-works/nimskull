@@ -80,8 +80,7 @@ func setSlice*(s: var string, slice: Slice[int]) =
       when not declared(moveMem):
         impl()
       else:
-        when defined(nimSeqsV2):
-          prepareMutation(s)
+        prepareMutation(s)
         moveMem(addr s[0], addr s[first], last - first + 1)
   s.setLen(last - first + 1)
 

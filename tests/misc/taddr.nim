@@ -41,8 +41,7 @@ doAssert objDeref.x == 42
 
 # String tests
 obj.s = "lorem ipsum dolor sit amet"
-when defined(nimV2):
-  prepareMutation(obj.s)
+prepareMutation(obj.s)
 var indexAddr = addr(obj.s[2])
 
 doAssert indexAddr[] == 'r'
@@ -249,7 +248,7 @@ block: # bug #15939
 
 proc test15939() = # bug #15939 (v2)
   template fn(a) =
-    when defined(nimV2) and typeof(a) is string:
+    when typeof(a) is string:
       prepareMutation(a)
 
     let pa = a[0].addr
@@ -271,8 +270,7 @@ proc test15939() = # bug #15939 (v2)
   # mycstring[ind].addr
   template cstringTest =
     var a2 = "abc"
-    when defined(nimV2):
-      prepareMutation(a2)
+    prepareMutation(a2)
     var b2 = a2.cstring
     fn(b2)
   when nimvm: cstringTest()
