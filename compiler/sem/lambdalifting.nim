@@ -418,10 +418,15 @@ proc detectCapturedVars(n: PNode; owner: PSym; c: var DetectionPass) =
   case n.kind
   of nkSymChoices:
     c.poop = n.choices.len > 1
-    echo c.graph.config.`$`(n.info), " choice count: ", n.choices.len, " n:"
-    debug n
-    for s in n.choices.items:
-      debug s
+    if n.choices.len == 1:
+      detectCapturedVars(newSymNode(n.choices[0], n.info), owner, c)
+    if c.poop:
+      for i, c in n.choices.pairs:
+        if n.typ == c.typ:
+          echo "found matching type"
+          break
+      echo c.graph.config.`$`(n.info), " n:"
+      debug n
     # doAssert n.choices.len == 1, "choices: " & $n.choices.len
     # TODO: figure out why we're ending up with 8 choices here during bootstrap
   of nkSym:
@@ -808,9 +813,9 @@ proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode; tooEarly: var bool;
     var d = initDetectionPass(g, fn, idgen)
     detectCapturedVars(body, fn, d)
     if d.poop:
-      echo "body: "
+      echo "the body:"
       debug body
-      assert false
+      doAssert false, "we dun pooped"
     if not d.somethingToDo and fn.isIterator:
       # the "lift captures" pass needs to always run either directly or
       # indirectly for closure iterators, as it's also responsible for
