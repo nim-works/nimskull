@@ -109,7 +109,6 @@ proc main()=
 image: freebsd/latest
 packages:
 - databases/sqlite3
-- devel/boehm-gc-threaded
 - devel/pcre
 - devel/sdl20
 - devel/sfml
@@ -123,7 +122,6 @@ packages:
 - gmake
 - sqlite3
 - node
-- boehm-gc
 - pcre
 - sfml
 - sdl2

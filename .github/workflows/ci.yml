@@ -165,9 +165,6 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           deps=(
-            # Needed by boehm gc tests
-            libgc-dev
-
             # Required by ARC/ORC memory leak tests (only enabled on linux x64)
             libc6-dbg
             valgrind
@@ -179,13 +176,7 @@ jobs:
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          deps=(
-            # Needed by boehm gc tests
-            bdw-gc
-          )
-
           brew update
-          brew install "${deps[@]}"
 
       - name: Run tester
         run: ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' all
