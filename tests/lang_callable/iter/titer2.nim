@@ -8,8 +8,12 @@ discard """
 2
 3
 4'''
-  cmd: "nim $target --gc:none --hints:on --warnings:off $options $file"
+  #cmd: "nim $target --gc:none --hints:on --warnings:off $options $file"
 """
+
+# XXX: this test used to be built with ``--gc:none``, although it is not
+#      exactly clear why. Once ``-gc:none`` is supported again, consider using
+#      it here again
 
 import hashes
 
