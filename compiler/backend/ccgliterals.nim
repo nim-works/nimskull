@@ -15,39 +15,6 @@
 ## The price is that seqs and strings are not purely a library
 ## implementation.
 
-template detectVersion(field, corename) =
-  if m.g.field == 0:
-    let core = getCompilerProc(m.g.graph, corename)
-    if core == nil or core.kind != skConst:
-      m.g.field = 1
-    else:
-      m.g.field = toInt(ast.getInt(core.ast))
-  result = m.g.field
-
-proc detectStrVersion(m: BModule): int =
-  detectVersion(strVersion, "nimStrVersion")
-
-# ----- Version 1: GC'ed strings and seqs --------------------------------
-
-proc genStringLiteralDataOnlyV1(m: BModule, s: string): Rope =
-  discard cgsym(m, "TGenericSeq")
-  result = getTempName(m)
-  m.s[cfsData].addf("STRING_LITERAL($1, $2, $3);$n",
-       [result, makeCString(s), rope(s.len)])
-
-proc genStringLiteralV1(m: BModule; n: PNode): Rope =
-  if s.isNil:
-    result = ropecg(m, "((#NimStringDesc*) NIM_NIL)", [])
-  else:
-    let id = nodeTableTestOrSet(m.dataCache, n, m.labels)
-    if id == m.labels:
-      # string literal not found in the cache:
-      result = ropecg(m, "((#NimStringDesc*) &$1)",
-                      [genStringLiteralDataOnlyV1(m, n.strVal)])
-    else:
-      result = ropecg(m, "((#NimStringDesc*) &$1$2)",
-                      [m.tmpBase, id])
-
 # ------ Version 2: destructor based strings and seqs -----------------------
 
 proc genStringLiteralDataOnlyV2(m: BModule, s: string; result: Rope; isConst: bool) =
@@ -93,9 +60,4 @@ proc genNilStringLiteral(m: BModule; info: TLineInfo): Rope =
   result = ropecg(m, "((#NimStringDesc*) NIM_NIL)", [])
 
 proc genStringLiteral(m: BModule; n: PNode): Rope =
-  case detectStrVersion(m)
-  of 0, 1: result = genStringLiteralV1(m, n)
-  of 2: result = genStringLiteralV2(m, n, isConst = true)
-  else:
-    internalError(
-      m.config, n.info, "cannot determine how to produce code for string literal")
+  result = genStringLiteralV2(m, n, isConst = true)

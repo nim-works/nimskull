@@ -183,8 +183,7 @@ proc genOpenArraySlice(p: BProc; q: PNode; formalType, destType: PType): (Rope, 
               lengthExpr)
   of tyString, tySequence:
     let atyp = skipTypes(a.t, abstractInst)
-    if formalType.skipTypes(abstractInst).kind in {tyVar} and atyp.kind == tyString and
-        optSeqDestructors in p.config.globalOptions:
+    if formalType.skipTypes(abstractInst).kind in {tyVar} and atyp.kind == tyString:
       linefmt(p, cpsStmts, "#nimPrepareStrMutationV2($1);$n", [byRefLoc(p, a)])
     if atyp.kind in {tyVar}:
       result = ("($4*)(*$1)$3+($2)" % [rdLoc(a), rdLoc(b), dataField(p), dest],
@@ -225,8 +224,7 @@ proc openArrayLoc(p: BProc, formalType: PType, n: PNode): Rope =
         result = "$1, $1Len_0" % [rdLoc(a)]
     of tyString, tySequence:
       let ntyp = skipTypes(n.typ, abstractInst)
-      if formalType.skipTypes(abstractInst).kind in {tyVar} and ntyp.kind == tyString and
-          optSeqDestructors in p.config.globalOptions:
+      if formalType.skipTypes(abstractInst).kind in {tyVar} and ntyp.kind == tyString:
         linefmt(p, cpsStmts, "#nimPrepareStrMutationV2($1);$n", [byRefLoc(p, a)])
       if ntyp.kind in {tyVar}:
         var t: TLoc

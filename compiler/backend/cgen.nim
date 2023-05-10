@@ -333,20 +333,11 @@ proc rdLoc(a: TLoc): Rope =
   result = a.r
   if lfIndirect in a.flags: result = "(*$1)" % [result]
 
-proc lenField(p: BProc): Rope =
-  result = rope("Sup.len")
-
 proc lenExpr(p: BProc; a: TLoc): Rope =
-  if optSeqDestructors in p.config.globalOptions:
-    result = rdLoc(a) & ".len"
-  else:
-    result = "($1 ? $1->$2 : 0)" % [rdLoc(a), lenField(p)]
+  result = rdLoc(a) & ".len"
 
 proc dataField(p: BProc): Rope =
-  if optSeqDestructors in p.config.globalOptions:
-    result = rope".p->data"
-  else:
-    result = rope"->data"
+  result = rope".p->data"
 
 include ccgliterals
 include ccgtypes
@@ -442,9 +433,8 @@ proc isComplexValueType(t: PType): bool {.inline.} =
 include ccgreset
 
 proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  let containsGcRef = optSeqDestructors notin p.config.globalOptions and containsGarbageCollectedRef(loc.t)
   let typ = skipTypes(loc.t, abstractVarRange)
-  if optSeqDestructors in p.config.globalOptions and typ.kind in {tyString, tySequence}:
+  if typ.kind in {tyString, tySequence}:
     assert rdLoc(loc) != ""
 
     let atyp = skipTypes(loc.t, abstractInst)
@@ -453,24 +443,8 @@ proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
     else:
       linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
   elif not isComplexValueType(typ):
-    if containsGcRef:
-      var nilLoc: TLoc
-      initLoc(nilLoc, locTemp, loc.lode, OnStack)
-      nilLoc.r = rope("NIM_NIL")
-      genRefAssign(p, loc, nilLoc)
-    else:
-      linefmt(p, cpsStmts, "$1 = 0;$n", [rdLoc(loc)])
+    linefmt(p, cpsStmts, "$1 = 0;$n", [rdLoc(loc)])
   else:
-    if loc.storage != OnStack and containsGcRef:
-      specializeReset(p, loc)
-      when false:
-        linefmt(p, cpsStmts, "#genericReset((void*)$1, $2);$n",
-                [addrLoc(p.config, loc), genTypeInfoV1(p.module, loc.t, loc.lode.info)])
-      # XXX: generated reset procs should not touch the m_type
-      # field, so disabling this should be safe:
-      if doInitObj:
-        genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
-    else:
       # array passed as argument decayed into pointer, bug #7332
       # so we use getTypeDesc here rather than rdLoc(loc)
       linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
@@ -483,7 +457,7 @@ proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
 
 proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
   let typ = loc.t
-  if optSeqDestructors in p.config.globalOptions and skipTypes(typ, abstractInst + {tyStatic}).kind in {tyString, tySequence}:
+  if skipTypes(typ, abstractInst + {tyStatic}).kind in {tyString, tySequence}:
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
   elif not isComplexValueType(typ):
     linefmt(p, cpsStmts, "$1 = ($2)0;$n", [rdLoc(loc),
