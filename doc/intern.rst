@@ -241,9 +241,12 @@ you don't need a debug version of the compiler (which runs slower), you can repl
 Runtimes
 ========
 
-|NimSkull| has two different runtimes, the "old runtime" and the "new runtime". The old
-runtime supports the old GCs (markAndSweep, refc, Boehm), the new runtime supports
-ARC/ORC. The new runtime is active `when defined(nimV2)`.
+|NimSkull| had two different runtimes at one point, but support for the old one
+was removed from the compiler. Some documentation might still use the terms
+"old runtime" and "new runtime".
+
+In order to continue bootstrapping, the code for the implementation of the
+"old runtime" still exists. The new runtime is active `when defined(nimV2)`.
 
 
 Coding Guidelines
@@ -267,13 +270,6 @@ POSIX-compliant systems on conventional hardware are usually pretty easy to
 port: Add the platform to `platform` (if it is not already listed there),
 check that the OS, System modules work and recompile |NimSkull|.
 
-The only case where things aren't as easy is when old runtime's garbage
-collectors need some assembler tweaking to work. The default
-implementation uses C's `setjmp`:c: function to store all registers
-on the hardware stack. It may be necessary that the new platform needs to
-replace this generic code by some assembler code.
-
-
 Runtime type information
 ========================
 
@@ -282,15 +278,11 @@ Runtime type information
 *Runtime type information* (RTTI) is needed for several aspects of the |NimSkull|
 programming language:
 
-Garbage collection
-  The old GCs use the RTTI for traversing abitrary |NimSkull| types, but usually
-  only the `marker` field which contains a proc that does the traversal.
-
-Complex assignments
-  Sequences and strings are implemented as
-  pointers to resizeable buffers, but |NimSkull| requires copying for
-  assignments. Apart from RTTI the compiler also generates copy procedures
-  as a specialization.
+Deep copying
+  Compared to a normal copy, a *deep* copy also creates copies of cells referenced
+  by `ref`s, instead of just copying the pointers. The type of the `ref` can be
+  different from the type of the cell, so an approach only taking static types
+  into account wouldn't work.
 
 We already know the type information as a graph in the compiler.
 Thus we need to serialize this graph as RTTI for C code generation.

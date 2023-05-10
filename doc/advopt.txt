@@ -117,7 +117,7 @@ Advanced options:
   --skipUserCfg:on|off      do not read the user's configuration file
   --skipParentCfg:on|off    do not read the parent dirs' configuration files
   --skipProjCfg:on|off      do not read the project's configuration file
-  --gc:refc|arc|orc|markAndSweep|boehm|go|none|regions
+  --gc:arc|orc
                             select the GC to use; default depends on the selected
                             backend ('orc' for C, the native GC for Javascript and the VM)
   --exceptions:native|goto
