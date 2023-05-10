@@ -35,7 +35,6 @@ import
     transf,
     lowerings
   ]
-  , compiler/utils/astrepr
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_sem import SemReport,
