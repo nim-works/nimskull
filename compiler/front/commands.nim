@@ -9,21 +9,6 @@
 
 # This module handles the parsing of command line arguments.
 
-# We do this here before the 'import' statement so 'defined' does not get
-# confused with 'TGCMode.gcMarkAndSweep' etc.
-template bootSwitch(name, expr, userString) =
-  # Helper to build boot constants, for debugging you can 'echo' the else part.
-  const name = if expr: " " & userString else: ""
-
-bootSwitch(usedRelease, defined(release), "-d:release")
-bootSwitch(usedDanger, defined(danger), "-d:danger")
-# `useLinenoise` deprecated in favor of `nimUseLinenoise`, kept for backward compatibility
-bootSwitch(useLinenoise, defined(nimUseLinenoise) or defined(useLinenoise), "-d:nimUseLinenoise")
-bootSwitch(usedBoehm, defined(boehmgc), "--gc:boehm")
-bootSwitch(usedMarkAndSweep, defined(gcmarkandsweep), "--gc:markAndSweep")
-bootSwitch(usedGoGC, defined(gogc), "--gc:go")
-bootSwitch(usedNoGC, defined(nogc), "--gc:none")
-
 import
   std/[
     os,
@@ -61,6 +46,14 @@ from compiler/ast/report_enums import ReportKind,
   repWarningKinds,
   repWarningGroups
 
+template bootSwitch(name, expr, userString) =
+  # Helper to build boot constants, for debugging you can 'echo' the else part.
+  const name = if expr: " " & userString else: ""
+
+bootSwitch(usedRelease, defined(release), "-d:release")
+bootSwitch(usedDanger, defined(danger), "-d:danger")
+# `useLinenoise` deprecated in favor of `nimUseLinenoise`, kept for backward compatibility
+bootSwitch(useLinenoise, defined(nimUseLinenoise) or defined(useLinenoise), "-d:nimUseLinenoise")
 bootSwitch(usedTinyC, hasTinyCBackend, "-d:tinyc")
 
 # TODO: temporary, move into `msgs` or `commands`
@@ -382,11 +375,7 @@ const
                     boot: @[usedRelease,
                             usedDanger,
                             usedTinyC,
-                            useLinenoise,
-                            usedBoehm,
-                            usedMarkAndSweep,
-                            usedGoGC,
-                            usedNoGC],
+                            useLinenoise],
                     os: nameToOS(system.hostOS),
                     cpu: nameToCPU(system.hostCPU))
   HelpMessage = "Nimskull Compiler Version $1 [$2: $3]\n"

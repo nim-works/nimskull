@@ -2331,10 +2331,11 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       regs[ra].setHandle(c.complexConsts[rbx])
 
     of opcRepr:
-      # Depending on whether or not arc/orc is used for the active compilation.
-      # opcRepr is:
-      # - arc/orc: used only for `repr(NimNode)` (see `system/repr_v2`)
-      # - refc: used for every non user-supplied `repr` call
+      # Turn the provided value into its string representation. Used for:
+      # - implementing the general ``repr`` when not using the ``repr`` v2
+      # - rendering an AST to its text representation (``repr`` for
+      #   ``NimNode``)
+      # - rendering the discriminant value for a ``FieldDefect``'s message
 
       # HACK: We need type information to deserialize. But this is very
       #       inefficient. Not only is opcRepr a two-instruction-word opcode
