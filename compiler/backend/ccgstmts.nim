@@ -120,11 +120,6 @@ proc endBlock(p: BProc) =
     blockEnd.addf("}$n", [])
   endBlock(p, blockEnd)
 
-proc genSimpleBlock(p: BProc, stmts: PNode) {.inline.} =
-  startBlock(p)
-  genStmts(p, stmts)
-  endBlock(p)
-
 proc exprBlock(p: BProc, n: PNode, d: var TLoc) =
   startBlock(p)
   expr(p, n, d)
@@ -754,14 +749,6 @@ proc genCase(p: BProc, t: PNode, d: var TLoc) =
       genGotoForCase(p, t)
     else:
       genOrdinalCase(p, t, d)
-
-proc genRestoreFrameAfterException(p: BProc) =
-  if optStackTrace in p.module.config.options:
-    if hasCurFramePointer notin p.flags:
-      p.flags.incl hasCurFramePointer
-      p.procSec(cpsLocals).add(ropecg(p.module, "\tTFrame* _nimCurFrame;$n", []))
-      p.procSec(cpsInit).add(ropecg(p.module, "\t_nimCurFrame = #getFrame();$n", []))
-    linefmt(p, cpsStmts, "#setFrame(_nimCurFrame);$n", [])
 
 proc bodyCanRaise(p: BProc; n: PNode): bool =
   case n.kind
