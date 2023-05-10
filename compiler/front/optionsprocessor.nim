@@ -1573,11 +1573,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     expectArg(switch, arg)
     if conf != nil:
       conf.cppDefine(arg)
-  of "seqsv2":
-    setSwitchAndSrc cmdSwitchSeqsv2
-    processOnOffSwitchG(conf, {optSeqDestructors}, arg, switch)
-    if pass in {passCmd2, passPP}:
-      defineSymbol(conf, "nimSeqsV2")
   of "stylecheck":
     setSwitchAndSrc cmdSwitchStylecheck
     case arg.normalize
