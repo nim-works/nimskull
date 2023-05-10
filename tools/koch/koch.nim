@@ -332,9 +332,11 @@ proc boot(args: string) =
       if version.startsWith "Nim Compiler Version 0.20.0":
         extraOption.add " --lib:lib" # see https://github.com/nim-lang/Nim/pull/14291
 
-      # the csource compiler is not able to build the compiler with ORC
-      # enabled yet, so refc is explicitly used
-      extraOption.add " --gc:refc"
+      if not version.startsWith("Nimskull Compiler"):
+        # the current csource compiler (which can be identified by it still
+        # calling itself "Nim Compiler") is not able to build the compiler with
+        # ORC enabled, so refc is explicitly used
+        extraOption.add " --gc:refc"
       # the csource compiler still uses setjmp-exceptions by default, but the
       # runtime library doesn't support them anymore
       extraOption.add " --exceptions:goto"
