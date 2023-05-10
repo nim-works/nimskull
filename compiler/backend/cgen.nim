@@ -389,12 +389,8 @@ proc genObjectInitHeader(p: BProc, section: TCProcSection, t: PType, r: Rope,
     r.add(".Sup")
     s = skipTypes(s[0], skipPtrs)
 
-  if optTinyRtti in p.config.globalOptions:
-    linefmt(p, section, "$1.m_type = $2;$n",
-            [r, genTypeInfoV2(p.module, t, info)])
-  else:
-    linefmt(p, section, "$1.m_type = $2;$n",
-            [r, genTypeInfoV1(p.module, t, info)])
+  linefmt(p, section, "$1.m_type = $2;$n",
+          [r, genTypeInfoV2(p.module, t, info)])
 
 proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
                    mode: ObjConstrMode) =
@@ -407,7 +403,6 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
     if mode == constructRefObj: r = "(*$1)" % [r]
     genObjectInitHeader(p, section, t, r, a.lode.info)
   of frEmbedded:
-    if optTinyRtti in p.config.globalOptions:
       var tmp: TLoc
       if mode == constructRefObj:
         let objType = t.skipTypes(abstractInst+{tyRef})
@@ -418,10 +413,6 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
       else:
         rawConstExpr(p, newNodeIT(nkType, a.lode.info, t), tmp)
         genAssignment(p, a, tmp, {})
-    else:
-      # worst case for performance:
-      var r = if mode == constructObj: addrLoc(p.config, a) else: rdLoc(a)
-      linefmt(p, section, "#objectInit($1, $2);$n", [r, genTypeInfoV1(p.module, t, a.lode.info)])
 
 proc isComplexValueType(t: PType): bool {.inline.} =
   let t = t.skipTypes(abstractInst + tyUserTypeClasses)

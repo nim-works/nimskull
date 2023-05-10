@@ -535,10 +535,7 @@ proc getRecordDesc(m: BModule, typ: PType, name: Rope,
       if lacksMTypeField(typ):
         appcg(m, result, " {$n", [])
       else:
-        if optTinyRtti in m.config.globalOptions:
-          appcg(m, result, " {$n#TNimTypeV2* m_type;$n", [])
-        else:
-          appcg(m, result, " {$n#TNimType* m_type;$n", [])
+        appcg(m, result, " {$n#TNimTypeV2* m_type;$n", [])
         hasField = true
     else:
       appcg(m, result, " {$n  $1 Sup;$n",
@@ -857,11 +854,6 @@ proc discriminatorTableName(m: BModule, objtype: PType, d: PSym): Rope =
   result = "NimDT_$1_$2" % [rope($hashType(objtype)), rope(d.name.s.mangle)]
 
 proc rope(arg: Int128): Rope = rope($arg)
-
-proc discriminatorTableDecl(m: BModule, objtype: PType, d: PSym): Rope =
-  discard cgsym(m, "TNimNode")
-  var tmp = discriminatorTableName(m, objtype, d)
-  result = "TNimNode* $1[$2];$n" % [tmp, rope(lengthOrd(m.config, d.typ)+1)]
 
 proc genTNimNodeArray(m: BModule, name: Rope, size: Rope) =
   m.s[cfsTypeInit1].addf("static TNimNode* $1[$2];$n", [name, size])
@@ -1276,7 +1268,7 @@ proc genTypeInfoV1(m: BModule, t: PType; info: TLineInfo): Rope =
   if op != nil:
     genDeepCopyProc(m, op, result)
 
-  if optTinyRtti in m.config.globalOptions and t.kind == tyObject and sfImportc notin t.sym.flags:
+  if t.kind == tyObject and sfImportc notin t.sym.flags:
     let v2info = genTypeInfoV2(m, origType, info)
     addf(m.s[cfsTypeInit3], "$1->typeInfoV1 = (void*)&$2; $2.typeInfoV2 = (void*)$1;$n", [
       v2info, result])
@@ -1287,7 +1279,4 @@ proc genTypeSection(m: BModule, n: PNode) =
   discard
 
 proc genTypeInfo*(config: ConfigRef, m: BModule, t: PType; info: TLineInfo): Rope =
-  if optTinyRtti in config.globalOptions:
-    result = genTypeInfoV2(m, t, info)
-  else:
-    result = genTypeInfoV1(m, t, info)
+  result = genTypeInfoV2(m, t, info)

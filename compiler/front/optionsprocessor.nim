@@ -1154,7 +1154,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
         defineSymbol(conf, "gcdestructors")
         defineSymbol(conf, "gcarc")
         conf.incl optSeqDestructors
-        conf.incl optTinyRtti
         if pass in {passCmd2, passPP}:
           defineSymbol(conf, "nimSeqsV2")
           defineSymbol(conf, "nimV2")
@@ -1165,7 +1164,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
         defineSymbol(conf, "gcdestructors")
         defineSymbol(conf, "gcorc")
         conf.incl optSeqDestructors
-        conf.incl optTinyRtti
         if pass in {passCmd2, passPP}:
           defineSymbol(conf, "nimSeqsV2")
           defineSymbol(conf, "nimV2")

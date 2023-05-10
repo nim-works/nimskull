@@ -833,10 +833,7 @@ proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
       for j in 0..<t[i].len - 1:
         assert(t[i][j].kind == nkType)
         if orExpr != "": orExpr.add("||")
-        let checkFor = if optTinyRtti in p.config.globalOptions:
-          genTypeInfo2Name(p.module, t[i][j].typ)
-        else:
-          genTypeInfoV1(p.module, t[i][j].typ, t[i][j].info)
+        let checkFor = genTypeInfo2Name(p.module, t[i][j].typ)
         let memberName = "Sup.m_type"
         appcg(p.module, orExpr, "#isObj(#nimBorrowCurrentException()->$1, $2)", [memberName, checkFor])
 
@@ -969,20 +966,6 @@ proc genPragma(p: BProc, n: PNode) =
     of wEmit: genEmit(p, it)
     else: discard
 
-
-proc genDiscriminantCheck(p: BProc, a, tmp: TLoc, objtype: PType,
-                          field: PSym) =
-  var t = skipTypes(objtype, abstractVar)
-  assert t.kind == tyObject
-  discard genTypeInfoV1(p.module, t, a.lode.info)
-  if not containsOrIncl(p.module.declaredThings, field.id):
-    appcg(p.module, cfsVars, "extern $1",
-          [discriminatorTableDecl(p.module, t, field)])
-  lineCg(p, cpsStmts,
-        "#FieldDiscriminantCheck((NI)(NU)($1), (NI)(NU)($2), $3, $4);$n",
-        [rdLoc(a), rdLoc(tmp), discriminatorTableName(p.module, t, field),
-         intLiteral(toInt64(lengthOrd(p.config, field.typ))+1)])
-
 when false:
   proc genCaseObjDiscMapping(p: BProc, e: PNode, t: PType, field: PSym; d: var TLoc) =
     const ObjDiscMappingProcSlot = -5
@@ -1006,10 +989,6 @@ proc asgnFieldDiscriminant(p: BProc, e: PNode) =
   initLocExpr(p, e[0], a)
   getTemp(p, a.t, tmp)
   expr(p, e[1], tmp)
-  if optTinyRtti notin p.config.globalOptions:
-    let field = dotExpr[1].sym
-    genDiscriminantCheck(p, a, tmp, dotExpr[0].typ, field)
-    localReport(p.config, e, reportSem rsemCaseTransition)
   genAssignment(p, a, tmp, {})
 
 proc genAsgn(p: BProc, e: PNode, fastAsgn: bool) =

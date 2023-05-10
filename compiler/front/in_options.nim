@@ -52,8 +52,6 @@ type
     optDynlibOverrideAll
     optSeqDestructors         ## active if the implementation uses the new
                               ## string/seq implementation based on destructors
-    optTinyRtti               ## active if we use the new "tiny RTTI"
-                              ## implementation
     optMultiMethods
     optBenchmarkVM            ## Enables cpuTime() in the VM
     optProduceAsm             ## produce assembler code

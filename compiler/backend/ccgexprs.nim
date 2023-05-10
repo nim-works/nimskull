@@ -232,14 +232,9 @@ proc genDeepCopy(p: BProc; dest, src: TLoc) =
             [addrLoc(p.config, dest), addrLocOrTemp(src),
             genTypeInfoV1(p.module, dest.t, dest.lode.info)])
   of tySequence, tyString:
-    if optTinyRtti in p.config.globalOptions:
-      linefmt(p, cpsStmts, "#genericDeepCopy((void*)$1, (void*)$2, $3);$n",
-              [addrLoc(p.config, dest), addrLocOrTemp(src),
-              genTypeInfoV1(p.module, dest.t, dest.lode.info)])
-    else:
-      linefmt(p, cpsStmts, "#genericSeqDeepCopy($1, $2, $3);$n",
-              [addrLoc(p.config, dest), rdLoc(src),
-              genTypeInfoV1(p.module, dest.t, dest.lode.info)])
+    linefmt(p, cpsStmts, "#genericDeepCopy((void*)$1, (void*)$2, $3);$n",
+            [addrLoc(p.config, dest), addrLocOrTemp(src),
+            genTypeInfoV1(p.module, dest.t, dest.lode.info)])
   of tyOpenArray, tyVarargs:
     linefmt(p, cpsStmts,
          "#genericDeepCopyOpenArray((void*)$1, (void*)$2, $1Len_0, $3);$n",
@@ -678,12 +673,7 @@ proc genFieldCheck(p: BProc, e: PNode, obj: Rope, field: PSym) =
     # generate and emit the code for the failure case:
     case base.kind
     of tyEnum:
-      if optTinyRtti notin p.config.globalOptions:
-        # use the rtti-based repr
-        let desc = genTypeInfoV1(p.module, base, e.info)
-        toStr = ropecg(p.module, "#reprEnum($1, $2)", [rdLoc(v), desc])
-        raiseProc = "raiseFieldErrorStr"
-      elif useAliveDataFromDce in p.module.flags:
+      if useAliveDataFromDce in p.module.flags:
         # DCE doesn't scan the ``nkCheckedFieldExpr`` nodes yet, meaning that
         # the compiler-generated enum-to-string procedures aren't reliably
         # available. Fallback to rendering the enum as it's integer value
@@ -1059,7 +1049,7 @@ proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool; doInitObj
   if sizeExpr == "":
     sizeExpr = "sizeof($1)" % [getTypeDesc(p.module, bt)]
 
-  if optTinyRtti in p.config.globalOptions:
+  block:
     if needsInit:
       b.r = ropecg(p.module, "($1) #nimNewObj($2, NIM_ALIGNOF($3))",
           [getTypeDesc(p.module, typ), sizeExpr, getTypeDesc(p.module, bt)])
@@ -1067,37 +1057,6 @@ proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool; doInitObj
       b.r = ropecg(p.module, "($1) #nimNewObjUninit($2, NIM_ALIGNOF($3))",
           [getTypeDesc(p.module, typ), sizeExpr, getTypeDesc(p.module, bt)])
     genAssignment(p, a, b, {})
-  else:
-    let ti = genTypeInfoV1(p.module, typ, a.lode.info)
-    let op = getAttachedOp(p.module.g.graph, bt, attachedDestructor)
-    if op != nil and not isTrivialProc(p.module.g.graph, op):
-      # the prototype of a destructor is ``=destroy(x: var T)`` and that of a
-      # finalizer is: ``proc (x: ref T) {.nimcall.}``. We need to check the calling
-      # convention at least:
-      if op.typ == nil or op.typ.callConv != ccNimCall:
-        localReport(p.module.config, a.lode, reportSem rsemExpectedNimcallProc)
-      var f: TLoc
-      initLocExpr(p, newSymNode(op), f)
-      p.module.s[cfsTypeInit3].addf("$1->finalizer = (void*)$2;$n", [ti, rdLoc(f)])
-
-    if a.storage == OnHeap and usesWriteBarrier(p.config):
-      if canFormAcycle(a.t):
-        linefmt(p, cpsStmts, "if ($1) { #nimGCunrefRC1($1); $1 = NIM_NIL; }$n", [a.rdLoc])
-      else:
-        linefmt(p, cpsStmts, "if ($1) { #nimGCunrefNoCycle($1); $1 = NIM_NIL; }$n", [a.rdLoc])
-      if p.config.selectedGC == gcGo:
-        # newObjRC1() would clash with unsureAsgnRef() - which is used by gcGo to
-        # implement the write barrier
-        b.r = ropecg(p.module, "($1) #newObj($2, $3)", [getTypeDesc(p.module, typ), ti, sizeExpr])
-        linefmt(p, cpsStmts, "#unsureAsgnRef((void**) $1, $2);$n",
-                [addrLoc(p.config, a), b.rdLoc])
-      else:
-        # use newObjRC1 as an optimization
-        b.r = ropecg(p.module, "($1) #newObjRC1($2, $3)", [getTypeDesc(p.module, typ), ti, sizeExpr])
-        linefmt(p, cpsStmts, "$1 = $2;$n", [a.rdLoc, b.rdLoc])
-    else:
-      b.r = ropecg(p.module, "($1) #newObj($2, $3)", [getTypeDesc(p.module, typ), ti, sizeExpr])
-      genAssignment(p, a, b, {})
 
   if doInitObj:
     # set the object type:
@@ -1418,26 +1377,8 @@ proc genArrToSeq(p: BProc, n: PNode, d: var TLoc) =
     lineF(p, cpsStmts, "}$n", [])
 
 proc genOfHelper(p: BProc; dest: PType; a: Rope; info: TLineInfo): Rope =
-  if optTinyRtti in p.config.globalOptions:
-    result = ropecg(p.module, "#isObj($1.m_type, $2)",
-      [a, genTypeInfo2Name(p.module, dest)])
-  else:
-    # unfortunately 'genTypeInfoV1' sets tfObjHasKids as a side effect, so we
-    # have to call it here first:
-    let ti = genTypeInfoV1(p.module, dest, info)
-    if tfFinal in dest.flags or (objHasKidsValid in p.module.flags and
-                                tfObjHasKids notin dest.flags):
-      result = "$1.m_type == $2" % [a, ti]
-    else:
-      discard cgsym(p.module, "TNimType")
-      inc p.module.labels
-      let cache = "Nim_OfCheck_CACHE" & p.module.labels.rope
-      p.module.s[cfsVars].addf("static TNimType* $#[2];$n", [cache])
-      result = ropecg(p.module, "#isObjWithCache($#.m_type, $#, $#)", [a, ti, cache])
-    when false:
-      # former version:
-      result = ropecg(p.module, "#isObj($1.m_type, $2)",
-                    [a, genTypeInfoV1(p.module, dest, info)])
+  result = ropecg(p.module, "#isObj($1.m_type, $2)",
+    [a, genTypeInfo2Name(p.module, dest)])
 
 proc genOf(p: BProc, x: PNode, typ: PType, d: var TLoc) =
   var a: TLoc
@@ -1533,7 +1474,7 @@ proc rdMType(p: BProc; a: TLoc; nilCheck: var Rope; enforceV1 = false): Rope =
     result.add(".Sup")
     t = skipTypes(t[0], skipPtrs)
   result.add ".m_type"
-  if optTinyRtti in p.config.globalOptions and enforceV1:
+  if enforceV1:
     result.add "->typeInfoV1"
 
 proc genGetTypeInfo(p: BProc, e: PNode, d: var TLoc) =
@@ -2073,11 +2014,7 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
   of mStrToStr: expr(p, e[1], d)
   of mIsolate: genCall(p, e, d)
   of mFinished: genBreakState(p, e, d)
-  of mEnumToStr:
-    if optTinyRtti in p.config.globalOptions:
-      genCall(p, e, d)
-    else:
-      genRepr(p, e, d)
+  of mEnumToStr: genCall(p, e, d)
   of mOf: genOf(p, e, d)
   of mNew: genNew(p, e)
   of mNewSeqOfCap: genNewSeqOfCap(p, e, d)
@@ -2282,16 +2219,12 @@ proc upConv(p: BProc, n: PNode, d: var TLoc) =
   if optObjCheck in p.options and not isObjLackingTypeField(dest):
     var nilCheck = ""
     let r = rdMType(p, a, nilCheck)
-    let checkFor = if optTinyRtti in p.config.globalOptions:
-                     genTypeInfo2Name(p.module, dest)
-                   else:
-                     genTypeInfoV1(p.module, dest, n.info)
     if nilCheck != "":
       # We only need to do a conversion check if it's a ref object.
       # Since with non refs either a copy is done or a ptr to the element is passed,
       # there is nothing dynamic with them and the compiler knows the error happens at semantic analysis.
       linefmt(p, cpsStmts, "if ($1 && !#isObj($2, $3)){ #raiseObjectConversionError(); $4}$n",
-              [nilCheck, r, checkFor, raiseInstr(p)])
+              [nilCheck, r, genTypeInfo2Name(p.module, dest), raiseInstr(p)])
 
   if n[0].typ.kind != tyObject:
     if n.isLValue:
@@ -2734,10 +2667,7 @@ proc getNullValueAuxT(p: BProc; orig, t: PType; obj, constOrNil: PNode,
     getNullValueAuxT(p, orig, base, base.n, constOrNil, result, count, isConst, info)
     result.add "}"
   elif not isObjLackingTypeField(t):
-    if optTinyRtti in p.config.globalOptions:
-      result.add genTypeInfoV2(p.module, orig, obj.info)
-    else:
-      result.add genTypeInfoV1(p.module, orig, obj.info)
+    result.add genTypeInfoV2(p.module, orig, obj.info)
     inc count
   getNullValueAux(p, t, obj, constOrNil, result, count, isConst, info)
   # do not emit '{}' as that is not valid C:
