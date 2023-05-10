@@ -1886,9 +1886,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemHintLibDependency:
       result = r.str
 
-    of rsemCaseTransition:
-      result = "Potential object case transition, instantiate new object instead"
-
     of rsemObservableStores:
       result = "observable stores to '$1'" % r.ast.render
 
@@ -1964,9 +1961,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemUnexpectedPragma:
       result = "unexpected pragma"
-
-    of rsemDisallowedReprForNewruntime:
-      result = "'repr' is not available for --gc:arc|orc"
 
     of rsemDisallowedOfForPureObjects:
       result = "no 'of' operator available for pure objects"
