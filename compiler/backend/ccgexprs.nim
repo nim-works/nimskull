@@ -1409,58 +1409,6 @@ proc genOf(p: BProc, x: PNode, typ: PType, d: var TLoc) =
 proc genOf(p: BProc, n: PNode, d: var TLoc) =
   genOf(p, n[1], n[2].typ, d)
 
-proc genRepr(p: BProc, e: PNode, d: var TLoc) =
-  if optTinyRtti in p.config.globalOptions:
-    localReport(p.config, e, reportSem rsemDisallowedReprForNewruntime)
-  var a: TLoc
-  initLocExpr(p, e[1], a)
-  var t = skipTypes(e[1].typ, abstractVarRange)
-  case t.kind
-  of tyInt..tyInt64, tyUInt..tyUInt64:
-    putIntoDest(p, d, e,
-                ropecg(p.module, "#reprInt((NI64)$1)", [rdLoc(a)]), a.storage)
-  of tyFloat..tyFloat128:
-    putIntoDest(p, d, e, ropecg(p.module, "#reprFloat($1)", [rdLoc(a)]), a.storage)
-  of tyBool:
-    putIntoDest(p, d, e, ropecg(p.module, "#reprBool($1)", [rdLoc(a)]), a.storage)
-  of tyChar:
-    putIntoDest(p, d, e, ropecg(p.module, "#reprChar($1)", [rdLoc(a)]), a.storage)
-  of tyEnum, tyOrdinal:
-    putIntoDest(p, d, e,
-                ropecg(p.module, "#reprEnum((NI)$1, $2)", [
-                rdLoc(a), genTypeInfoV1(p.module, t, e.info)]), a.storage)
-  of tyString:
-    putIntoDest(p, d, e, ropecg(p.module, "#reprStr($1)", [rdLoc(a)]), a.storage)
-  of tySet:
-    putIntoDest(p, d, e, ropecg(p.module, "#reprSet($1, $2)", [
-                addrLoc(p.config, a), genTypeInfoV1(p.module, t, e.info)]), a.storage)
-  of tyOpenArray, tyVarargs:
-    var b: TLoc
-    case skipTypes(a.t, abstractVarRange).kind
-    of tyOpenArray, tyVarargs:
-      putIntoDest(p, b, e, "$1, $1Len_0" % [rdLoc(a)], a.storage)
-    of tyString, tySequence:
-      putIntoDest(p, b, e,
-                  "$1$3, $2" % [rdLoc(a), lenExpr(p, a), dataField(p)], a.storage)
-    of tyArray:
-      putIntoDest(p, b, e,
-                  "$1, $2" % [rdLoc(a), rope(lengthOrd(p.config, a.t))], a.storage)
-    else: internalError(p.config, e[0].info, "genRepr()")
-    putIntoDest(p, d, e,
-        ropecg(p.module, "#reprOpenArray($1, $2)", [rdLoc(b),
-        genTypeInfoV1(p.module, elemType(t), e.info)]), a.storage)
-  of tyCstring, tyArray, tyRef, tyPtr, tyPointer, tyNil, tySequence:
-    putIntoDest(p, d, e,
-                ropecg(p.module, "#reprAny($1, $2)", [
-                rdLoc(a), genTypeInfoV1(p.module, t, e.info)]), a.storage)
-  of tyEmpty, tyVoid:
-    localReport(p.config, e, reportSem rsemUnexpectedVoidType)
-  else:
-    putIntoDest(p, d, e, ropecg(p.module, "#reprAny($1, $2)",
-                              [addrLoc(p.config, a), genTypeInfoV1(p.module, t, e.info)]),
-                               a.storage)
-  gcUsage(p.config, e)
-
 proc rdMType(p: BProc; a: TLoc; nilCheck: var Rope; enforceV1 = false): Rope =
   result = rdLoc(a)
   var t = skipTypes(a.t, abstractInst)
@@ -1965,7 +1913,6 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
   of mShrI..mXor: binaryArith(p, e, d, op)
   of mEqProc: genEqProc(p, e, d)
   of mAddI..mPred: binaryArithOverflow(p, e, d, op)
-  of mRepr: genRepr(p, e, d)
   of mGetTypeInfo: genGetTypeInfo(p, e, d)
   of mGetTypeInfoV2: genGetTypeInfoV2(p, e, d)
   of mSwap: genSwap(p, e, d)
