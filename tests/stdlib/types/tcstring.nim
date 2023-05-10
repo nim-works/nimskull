@@ -8,6 +8,7 @@ from stdtest/testutils import whenRuntimeJs, whenVMorJs
 template testMitems() =
   block:
     var a = "abc"
+    prepareMutation(a)
     var b = a.cstring
     let s = collect:
       for bi in mitems(b):
@@ -20,6 +21,7 @@ template testMitems() =
 
   block:
     var a = "abc\0def"
+    prepareMutation(a)
     var b = a.cstring
     let s = collect:
       for bi in mitems(b):
@@ -71,10 +73,7 @@ template main() =
         doAssert s == @['a', 'b', 'c']
 
   block:
-    when defined(gcArc): # xxx SIGBUS
-      discard
-    else:
-      mainProc()
+    mainProc()
     when false: # xxx bug vm: Error: unhandled exception: 'node' is not accessible using discriminant 'kind' of type 'TFullReg' [FieldDefect]
       testMitems()
 
