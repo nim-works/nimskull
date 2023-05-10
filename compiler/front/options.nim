@@ -1061,7 +1061,6 @@ template quitOrRaise*(conf: ConfigRef, msg = "") =
     quit(msg) # quits with QuitFailure
 
 proc importantComments*(conf: ConfigRef): bool {.inline.} = conf.cmd in cmdDocLike + {cmdIdeTools}
-proc usesWriteBarrier*(conf: ConfigRef): bool {.inline.} = conf.selectedGC >= gcRefc
 
 template compilationCachePresent*(conf: ConfigRef): untyped =
   false

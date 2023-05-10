@@ -142,118 +142,6 @@ proc genSetNode(p: BProc, n: PNode): Rope =
   else:
     result = genRawSetData(cs, size)
 
-proc getStorageLoc(n: PNode): TStorageLoc =
-  ## deadcode
-  case n.kind
-  of nkSym:
-    case n.sym.kind
-    of skParam, skTemp:
-      result = OnStack
-    of skVar, skForVar, skResult, skLet:
-      if sfGlobal in n.sym.flags: result = OnHeap
-      else: result = OnStack
-    of skConst:
-      if sfGlobal in n.sym.flags: result = OnHeap
-      else: result = OnUnknown
-    else: result = OnUnknown
-  of nkDerefExpr, nkHiddenDeref:
-    case n[0].typ.kind
-    of tyVar, tyLent: result = OnUnknown
-    of tyPtr: result = OnStack
-    of tyRef: result = OnHeap
-    else: doAssert(false, "getStorageLoc")
-  of nkBracketExpr, nkDotExpr, nkObjDownConv, nkObjUpConv:
-    result = getStorageLoc(n[0])
-  else: result = OnUnknown
-
-proc canMove(p: BProc, n: PNode; dest: TLoc): bool =
-  # for now we're conservative here:
-  if n.kind == nkBracket:
-    # This needs to be kept consistent with 'const' seq code
-    # generation!
-    if not isDeepConstExpr(n) or n.len == 0:
-      if skipTypes(n.typ, abstractVarRange).kind == tySequence:
-        return true
-  elif n.kind in nkStrKinds and n.strVal.len == 0:
-    # Empty strings are codegen'd as NIM_NIL so it's just a pointer copy
-    return true
-  result = n.kind in nkCallKinds
-  #if not result and dest.k == locTemp:
-  #  return true
-
-  #if result:
-  #  echo n.info, " optimized ", n
-  #  result = false
-
-proc genRefAssign(p: BProc, dest, src: TLoc) =
-  if (dest.storage == OnStack and p.config.selectedGC != gcGo) or not usesWriteBarrier(p.config):
-    linefmt(p, cpsStmts, "$1 = $2;$n", [rdLoc(dest), rdLoc(src)])
-  elif dest.storage == OnHeap:
-    linefmt(p, cpsStmts, "#asgnRef((void**) $1, $2);$n",
-            [addrLoc(p.config, dest), rdLoc(src)])
-  else:
-    linefmt(p, cpsStmts, "#unsureAsgnRef((void**) $1, $2);$n",
-            [addrLoc(p.config, dest), rdLoc(src)])
-
-proc asgnComplexity(n: PNode): int =
-  if n != nil:
-    case n.kind
-    of nkSym: result = 1
-    of nkRecCase:
-      # 'case objects' are too difficult to inline their assignment operation:
-      result = 100
-    of nkRecList:
-      for t in items(n):
-        result += asgnComplexity(t)
-    else: discard
-
-proc optAsgnLoc(a: TLoc, t: PType, field: Rope): TLoc =
-  assert field != ""
-  result.k = locField
-  result.storage = a.storage
-  result.lode = lodeTyp t
-  result.r = rdLoc(a) & "." & field
-
-proc genOptAsgnTuple(p: BProc, dest, src: TLoc, flags: TAssignmentFlags) =
-  let newflags =
-    if src.storage == OnStatic:
-      flags + {needToCopy}
-    elif tfShallow in dest.t.flags:
-      flags - {needToCopy}
-    else:
-      flags
-  let t = skipTypes(dest.t, abstractInst).getUniqueType()
-  for i in 0..<t.len:
-    let t = t[i]
-    let field = "Field$1" % [i.rope]
-    genAssignment(p, optAsgnLoc(dest, t, field),
-                     optAsgnLoc(src, t, field), newflags)
-
-proc genOptAsgnObject(p: BProc, dest, src: TLoc, flags: TAssignmentFlags,
-                      t: PNode, typ: PType) =
-  if t == nil: return
-  let newflags =
-    if src.storage == OnStatic:
-      flags + {needToCopy}
-    elif tfShallow in dest.t.flags:
-      flags - {needToCopy}
-    else:
-      flags
-  case t.kind
-  of nkSym:
-    let field = t.sym
-    if field.loc.r == "": fillObjectFields(p.module, typ)
-    genAssignment(p, optAsgnLoc(dest, field.typ, field.loc.r),
-                     optAsgnLoc(src, field.typ, field.loc.r), newflags)
-  of nkRecList:
-    for child in items(t): genOptAsgnObject(p, dest, src, newflags, child, typ)
-  else: discard
-
-proc genGenericAsgn(p: BProc, dest, src: TLoc, flags: TAssignmentFlags) =
-  linefmt(p, cpsStmts,
-      "$1 = $2;$n",
-      [rdLoc(dest), rdLoc(src)])
-
 proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
   assert d.k != locNone
   #  getTemp(p, d.t, d)
@@ -290,42 +178,9 @@ proc genAssignment(p: BProc, dest, src: TLoc, flags: TAssignmentFlags) =
     return
   let ty = skipTypes(dest.t, abstractRange + tyUserTypeClasses + {tyStatic})
   case ty.kind
-  of tyRef:
-    genRefAssign(p, dest, src)
-  of tySequence, tyString:
-    genGenericAsgn(p, dest, src, flags)
-  of tyProc:
-    if containsGarbageCollectedRef(dest.t):
-      # optimize closure assignment:
-      let a = optAsgnLoc(dest, dest.t, "ClE_0".rope)
-      let b = optAsgnLoc(src, dest.t, "ClE_0".rope)
-      genRefAssign(p, a, b)
-      linefmt(p, cpsStmts, "$1.ClP_0 = $2.ClP_0;$n", [rdLoc(dest), rdLoc(src)])
-    else:
-      linefmt(p, cpsStmts, "$1 = $2;$n", [rdLoc(dest), rdLoc(src)])
-  of tyTuple:
-    if containsGarbageCollectedRef(dest.t):
-      if dest.t.len <= 4: genOptAsgnTuple(p, dest, src, flags)
-      else: genGenericAsgn(p, dest, src, flags)
-    else:
-      linefmt(p, cpsStmts, "$1 = $2;$n", [rdLoc(dest), rdLoc(src)])
-  of tyObject:
-    # XXX: check for subtyping?
-    if not isObjLackingTypeField(ty):
-      genGenericAsgn(p, dest, src, flags)
-    elif containsGarbageCollectedRef(ty):
-      if ty[0].isNil and asgnComplexity(ty.n) <= 4:
-        discard getTypeDesc(p.module, ty)
-        internalAssert p.config, ty.n != nil
-        genOptAsgnObject(p, dest, src, flags, ty.n, ty)
-      else:
-        genGenericAsgn(p, dest, src, flags)
-    else:
-      linefmt(p, cpsStmts, "$1 = $2;$n", [rdLoc(dest), rdLoc(src)])
+  of tyRef, tySequence, tyString, tyProc, tyTuple, tyObject:
+    linefmt(p, cpsStmts, "$1 = $2;$n", [rdLoc(dest), rdLoc(src)])
   of tyArray:
-    if containsGarbageCollectedRef(dest.t) and p.config.selectedGC notin {gcArc, gcOrc, gcHooks}:
-      genGenericAsgn(p, dest, src, flags)
-    else:
       linefmt(p, cpsStmts,
            "#nimCopyMem((void*)$1, (NIM_CONST void*)$2, sizeof($3));$n",
            [rdLoc(dest), rdLoc(src), getTypeDesc(p.module, dest.t)])
@@ -334,11 +189,6 @@ proc genAssignment(p: BProc, dest, src: TLoc, flags: TAssignmentFlags) =
     # passed to an open array?
     if reifiedOpenArray(dest.lode):
       genOpenArrayConv(p, dest, src)
-    elif containsGarbageCollectedRef(dest.t):
-      linefmt(p, cpsStmts,     # XXX: is this correct for arrays?
-           "#genericAssignOpenArray((void*)$1, (void*)$2, $1Len_0, $3);$n",
-           [addrLoc(p.config, dest), addrLoc(p.config, src),
-           genTypeInfoV1(p.module, dest.t, dest.lode.info)])
     else:
       linefmt(p, cpsStmts,
            # bug #4799, keep the nimCopyMem for a while
@@ -1102,10 +952,6 @@ proc genEcho(p: BProc, n: PNode) =
       initLocExpr(p, n, a)
       linefmt(p, cpsStmts, "#echoBinSafe($1, $2);$n", [a.rdLoc, n.len])
 
-proc gcUsage(conf: ConfigRef; n: PNode) =
-  if conf.selectedGC == gcNone:
-    localReport(conf, n, reportSem rsemUseOfGc)
-
 proc strLoc(p: BProc; d: TLoc): Rope =
   result = byRefLoc(p, d)
 
@@ -1150,7 +996,6 @@ proc genStrConcat(p: BProc, e: PNode, d: var TLoc) =
     d = tmp
   else:
     genAssignment(p, d, tmp, {}) # no need for deep copying
-  gcUsage(p.config, e)
 
 proc genStrAppend(p: BProc, e: PNode, d: var TLoc) =
   #  <Nim code>
@@ -1165,7 +1010,7 @@ proc genStrAppend(p: BProc, e: PNode, d: var TLoc) =
   #    appendChar(s, 'z');
   #  }
   var
-    a, dest, call: TLoc
+    a, dest: TLoc
     appends, lens: Rope
   assert(d.k == locNone)
   var L = 0
@@ -1268,7 +1113,6 @@ proc genNew(p: BProc, e: PNode) =
     rawGenNew(p, a, se.rdLoc, needsInit = true)
   else:
     rawGenNew(p, a, "", needsInit = true)
-  gcUsage(p.config, e)
 
 proc genNewSeqOfCap(p: BProc; e: PNode; d: var TLoc) =
   let seqtype = skipTypes(e.typ, abstractVarRange)
@@ -1397,7 +1241,7 @@ proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
       if t.n != nil and searchTypeNodeFor(t.n, pred):
         specializeInitObjectN(p, a, t.n, t)
 
-      a = a.parentObj(p.module)
+      a = parentObj(a)
       t = t.base
 
     # type header:
@@ -1459,7 +1303,6 @@ proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
                 doInitObj = not hasCase)
       t = t.lastSon.skipTypes(abstractInst)
       r = "(*$1)" % [r]
-      gcUsage(p.config, e)
     else:
       constructLoc(p, tmp, doInitObj = not hasCase)
   else:
@@ -1530,7 +1373,6 @@ proc genSeqConstr(p: BProc, n: PNode, d: var TLoc) =
     arr.r = ropecg(p.module, "$1$3[$2]", [rdLoc(dest[]), intLiteral(i), dataField(p)])
     arr.storage = OnHeap            # we know that sequences are on the heap
     expr(p, n[i], arr)
-  gcUsage(p.config, n)
   if doesAlias:
     if d.k == locNone:
       d = tmp
@@ -1726,7 +1568,6 @@ template genDollar(p: BProc, n: PNode, d: var TLoc, frmt: string) =
   a.flags.excl lfIndirect # this flag should not be propagated here (not just for HCR)
   if d.k == locNone: getTemp(p, n.typ, d)
   genAssignment(p, d, a, {})
-  gcUsage(p.config, n)
 
 proc genArrayLen(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
   var a = e[1]
@@ -2079,7 +1920,6 @@ proc convCStrToStr(p: BProc, n: PNode, d: var TLoc) =
   putIntoDest(p, d, n,
               ropecg(p.module, "#cstrToNimstr($1)", [rdLoc(a)]),
               a.storage)
-  gcUsage(p.config, n)
 
 proc genStrEquals(p: BProc, e: PNode, d: var TLoc) =
   var x: TLoc

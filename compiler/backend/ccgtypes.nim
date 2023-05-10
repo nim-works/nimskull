@@ -190,8 +190,7 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKin
 proc isInvalidReturnType(conf: ConfigRef; rettype: PType): bool =
   # Arrays and sets cannot be returned by a C procedure, because C is
   # such a poor programming language.
-  # We exclude records with refs too. This enhances efficiency and
-  # is necessary for proper code generation of assignments.
+  # We exclude records with refs too. This enhances efficiency.
   if rettype == nil: result = true
   else:
     case mapType(conf, rettype, skResult)
@@ -1035,8 +1034,6 @@ proc fakeClosureType(m: BModule; owner: PSym): PType =
   r.rawAddSon(obj)
   result.rawAddSon(r)
 
-include ccgtrav
-
 proc genDeepCopyProc(m: BModule; s: PSym; result: Rope) =
   genProc(m, s)
   m.s[cfsTypeInit3].addf("$1.deepcopy =(void* (N_RAW_NIMCALL*)(void*))$2;$n",
@@ -1254,13 +1251,8 @@ proc genTypeInfoV1(m: BModule, t: PType; info: TLineInfo): Rope =
     else:
       let x = fakeClosureType(m, t.owner)
       genTupleInfo(m, x, x, result, info)
-  of tySequence:
+  of tySequence, tyRef:
     genTypeInfoAux(m, t, t, result, info)
-  of tyRef:
-    genTypeInfoAux(m, t, t, result, info)
-    if m.config.selectedGC in {gcMarkAndSweep, gcRefc, gcV2, gcGo}:
-      let markerProc = genTraverseProc(m, origType, sig)
-      m.s[cfsTypeInit3].addf("$1.marker = $2;$n", [result, markerProc])
   of tyPtr, tyRange, tyUncheckedArray: genTypeInfoAux(m, t, t, result, info)
   of tyArray: genArrayInfo(m, t, result, info)
   of tySet: genSetInfo(m, t, result, info)

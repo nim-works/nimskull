@@ -166,7 +166,7 @@ proc fillBodyObj(c: var TLiftCtx; n, body, x, y: PNode; enforceDefaultOp: bool) 
     let f = n.sym
     let b = if c.kind == attachedTrace: y else: y.dotField(f)
     if (sfCursor in f.flags and f.typ.skipTypes(abstractInst).kind in {tyRef, tyProc} and
-        c.g.config.selectedGC in {gcArc, gcOrc, gcHooks}) or
+        c.g.config.selectedGC in {gcArc, gcOrc}) or
         enforceDefaultOp:
       defaultOp(c, f.typ, body, x.dotField(f), b)
     else:
@@ -911,7 +911,7 @@ proc produceSym(g: ModuleGraph; c: PContext; typ: PType; kind: TTypeAttachedOp;
     result.ast[bodyPos].add newAsgnStmt(d, src)
   else:
     var tk: TTypeKind
-    if g.config.selectedGC in {gcArc, gcOrc, gcHooks}:
+    if g.config.selectedGC in {gcArc, gcOrc}:
       tk = skipTypes(typ, {tyOrdinal, tyRange, tyInferred, tyGenericInst, tyStatic, tyAlias, tySink}).kind
     else:
       tk = tyNone # no special casing for strings and seqs

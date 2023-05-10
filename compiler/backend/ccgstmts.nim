@@ -15,21 +15,6 @@ const
   stringCaseThreshold = 8
     # above X strings a hash-switch for strings is generated
 
-proc getTraverseProc(p: BProc, v: PSym): Rope =
-  if p.config.selectedGC in {gcMarkAndSweep, gcHooks, gcV2, gcRefc} and
-      containsGarbageCollectedRef(v.loc.t):
-    # we register a specialized marked proc here; this has the advantage
-    # that it works out of the box for thread local storage then :-)
-    result = genTraverseProcForGlobal(p.module, v, v.info)
-
-proc registerTraverseProc(p: BProc, v: PSym, traverseProc: Rope) =
-  if sfThread in v.flags:
-    appcg(p.module, p.module.preInitProc.procSec(cpsInit),
-      "$n\t#nimRegisterThreadLocalMarker($1);$n$n", [traverseProc])
-  else:
-    appcg(p.module, p.module.preInitProc.procSec(cpsInit),
-      "$n\t#nimRegisterGlobalMarker($1);$n$n", [traverseProc])
-
 proc isAssignedImmediately(conf: ConfigRef; n: PNode): bool {.inline.} =
   if n.kind == nkEmpty: return false
   if isInvalidReturnType(conf, n.typ):
@@ -74,13 +59,9 @@ proc genVarTuple(p: BProc, n: PNode) =
   for i in 0..<n.len-2:
     let vn = n[i]
     let v = vn.sym
-    var traverseProc: Rope
     if sfGlobal in v.flags:
       assignGlobalVar(p, vn, "")
       genObjectInit(p, cpsInit, v.typ, v.loc, constructObj)
-      traverseProc = getTraverseProc(p, v)
-      if traverseProc != "":
-        registerTraverseProc(p, v, traverseProc)
     else:
       assignLocalVar(p, vn)
       initLocalVar(p, v, immediateAsgn=isAssignedImmediately(p.config, n[^1]))
@@ -257,9 +238,6 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
     # if sfImportc notin v.flags: constructLoc(p.module.preInitProc, v.loc)
     if sfExportc in v.flags and p.module.g.generatedHeader != nil:
       genVarPrototype(p.module.g.generatedHeader, vn)
-    traverseProc = getTraverseProc(p, v)
-    if traverseProc != "":
-      registerTraverseProc(p, v, traverseProc)
   else:
     let imm = isAssignedImmediately(p.config, value)
     assignLocalVar(p, vn)

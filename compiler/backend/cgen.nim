@@ -423,8 +423,6 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
       var r = if mode == constructObj: addrLoc(p.config, a) else: rdLoc(a)
       linefmt(p, section, "#objectInit($1, $2);$n", [r, genTypeInfoV1(p.module, t, a.lode.info)])
 
-proc genRefAssign(p: BProc, dest, src: TLoc)
-
 proc isComplexValueType(t: PType): bool {.inline.} =
   let t = t.skipTypes(abstractInst + tyUserTypeClasses)
   result = t.kind in {tyArray, tySet, tyTuple, tyObject, tyOpenArray} or
@@ -463,7 +461,7 @@ proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
     linefmt(p, cpsStmts, "$1 = ($2)0;$n", [rdLoc(loc),
       getTypeDesc(p.module, typ, mapTypeChooser(loc))])
   else:
-    if not isTemp or containsGarbageCollectedRef(loc.t):
+    if not isTemp:
       # don't use nimZeroMem for temporary values for performance if we can
       # avoid it
       linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
@@ -820,12 +818,8 @@ proc closureSetup(p: BProc, prc: PSym) =
   #echo "created environment: ", env.id, " for ", prc.name.s
   assignLocalVar(p, ls)
   # generate cast assignment:
-  if p.config.selectedGC == gcGo:
-    linefmt(p, cpsStmts, "#unsureAsgnRef((void**) $1, ($2) ClE_0);$n",
-            [addrLoc(p.config, env.loc), getTypeDesc(p.module, env.typ)])
-  else:
-    linefmt(p, cpsStmts, "$1 = ($2) ClE_0;$n",
-            [rdLoc(env.loc), getTypeDesc(p.module, env.typ)])
+  linefmt(p, cpsStmts, "$1 = ($2) ClE_0;$n",
+          [rdLoc(env.loc), getTypeDesc(p.module, env.typ)])
 
 proc containsResult(n: PNode): bool =
   result = false
@@ -1273,19 +1267,11 @@ proc genMainProc(m: BModule) =
       "N_LIB_PRIVATE char** cmdLine;$N" &
       "N_LIB_PRIVATE char** gEnv;$N"
 
-    # The use of a volatile function pointer to call Pre/NimMainInner
-    # prevents inlining of the NimMainInner function and dependent
-    # functions, which might otherwise merge their stack frames.
     PreMainBody = "$N" &
-      "N_LIB_PRIVATE void PreMainInner(void) {$N" &
-      "$2" &
-      "}$N$N" &
       PosixCmdLine &
       "N_LIB_PRIVATE void PreMain(void) {$N" &
-      "\tvoid (*volatile inner)(void);$N" &
-      "\tinner = PreMainInner;$N" &
       "$1" &
-      "\t(*inner)();$N" &
+      "$2" &
       "}$N$N"
 
     MainProcs =
@@ -1300,11 +1286,8 @@ proc genMainProc(m: BModule) =
 
     NimMainProc =
       "N_CDECL(void, NimMain)(void) {$N" &
-        "\tvoid (*volatile inner)(void);$N" &
         "$4" &
-        "\tinner = NimMainInner;$N" &
-        "$2" &
-        "\t(*inner)();$N" &
+        "\tNimMainInner();$N" &
       "}$N$N"
 
     NimMainBody = NimMainInner & NimMainProc
@@ -1349,9 +1332,7 @@ proc genMainProc(m: BModule) =
       m.config.globalOptions * {optGenGuiApp, optGenDynLib} != {}:
     m.includeHeader("<windows.h>")
 
-  let initStackBottomCall =
-    if m.config.target.targetOS == osStandalone or m.config.selectedGC == gcNone: "".rope
-    else: ropecg(m, "\t#initStackBottomWith((void *)&inner);$N", [])
+  let initStackBottomCall = ""
   inc(m.labels)
   appcg(m, m.s[cfsProcs], PreMainBody, [m.g.mainDatInit, m.g.otherModsInit])
 
@@ -1434,13 +1415,11 @@ proc registerModuleToMain(g: BModuleList; m: BModule) =
     g.mainModProcs.addf("N_LIB_PRIVATE N_NIMCALL(void, $1)(void);$N", [datInit])
     g.mainDatInit.addf("\t$1();$N", [datInit])
 
-  # Initialization of TLS and GC should be done in between
+  # Initialization of TLS should be done in between
   # systemDatInit and systemInit calls if any
   if sfSystemModule in m.module.flags:
     if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
       g.mainDatInit.add(ropecg(m, "\t#initThreadVarsEmulation();$N", []))
-    if m.config.target.targetOS != osStandalone and m.config.selectedGC notin {gcNone, gcArc, gcOrc}:
-      g.mainDatInit.add(ropecg(m, "\t#initStackBottomWith((void *)&inner);$N", []))
 
   if m.s[cfsInitProc].len > 0:
     g.mainModProcs.addf("N_LIB_PRIVATE N_NIMCALL(void, $1)(void);$N", [init])
@@ -1797,8 +1776,6 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
 
     if sfMainModule in m.module.flags:
       # raise dependencies on behalf of genMainProc
-      if m.config.target.targetOS != osStandalone and m.config.selectedGC != gcNone:
-        discard cgsym(m, "initStackBottomWith")
       if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
         discard cgsym(m, "initThreadVarsEmulation")
 
