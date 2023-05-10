@@ -576,7 +576,7 @@ suite "RST inline markup":
     check(dedent"""
         .. default-role:: option
 
-        `--gc:refc`""".toAst ==
+        `--gc:orc`""".toAst ==
       dedent"""
         rnInner
           rnDefaultRole
@@ -590,7 +590,7 @@ suite "RST inline markup":
                 rnLeaf  '--'
                 rnLeaf  'gc'
                 rnLeaf  ':'
-                rnLeaf  'refc'
+                rnLeaf  'orc'
               rnLeaf  'option'
         """)
 

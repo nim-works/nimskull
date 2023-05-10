@@ -3,7 +3,6 @@ discard """
     Regression test for assigning to an uninitialized `seq` slot that
     has a type header
   '''
-  matrix: "--gc:refc;--gc:orc"
 """
 
 # bug https://github.com/nim-lang/nim/issues/16706

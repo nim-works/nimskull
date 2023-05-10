@@ -1,5 +1,5 @@
 discard """
-  matrix: "--gc:refc; --gc:arc"
+  matrix: "--gc:arc"
   description: '''
   . From https://github.com/nim-lang/Nim/issues/5342
     Enable manual destructor invocation for implicitly generated destructors

@@ -1,8 +1,7 @@
 discard """
-  target: c
-  matrix: "--gc:boehm"
-  disabled: "windows"
-  output: '''meep'''
+  target: "c !js !vm"
+  matrix: "--deepcopy:on"
+  output: "meep"
 """
 
 proc callit(it: proc ()) =

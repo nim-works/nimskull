@@ -1,6 +1,6 @@
 discard """
   description: "Test the initialization of type fields in parent objects"
-  matrix: "--gc:arc; --gc:refc"
+  matrix: "--gc:arc"
   targets: c js
 """
 

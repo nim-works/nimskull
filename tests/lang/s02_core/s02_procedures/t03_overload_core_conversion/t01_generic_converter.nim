@@ -3,7 +3,6 @@ description: '''
 Converters can be used with generic types without specifying explicit
 parameters
 '''
-matrix: "--gc:refc; --gc:orc"
 joinable: false
 """
 

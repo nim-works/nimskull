@@ -1,7 +1,7 @@
 discard """
   description: '''Tests variant object initialization with non-pure object
                   fields in the record-case'''
-  matrix: "--gc:arc; --gc:refc"
+  matrix: "--gc:arc"
   targets: c js
 """
 

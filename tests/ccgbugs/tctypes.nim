@@ -1,6 +1,6 @@
 discard """
   targets: "c"
-  matrix: "--gc:refc; --gc:arc"
+  matrix: "--gc:arc"
 """
 
 # bug #7308

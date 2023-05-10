@@ -1,6 +1,6 @@
 discard """
-  targets: "c js"
-  matrix: "--gc:refc; --gc:arc"
+  targets: "c js !vm"
+  matrix: "--gc:arc"
   description: '''
     . From https://github.com/nim-lang/Nim/issues/17812
       repr fails to compile with ARC/ORC on DateTime object field

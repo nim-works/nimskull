@@ -28,7 +28,6 @@ H:1:0.1
 (foo: some(@[(a: "world", bar: none(Bar))]), s: "hello,")
 @[(a: "hey", bar: none(Bar))]
 '''
-matrix: "--gc:refc; --gc:orc"
 joinable: false
 """
 

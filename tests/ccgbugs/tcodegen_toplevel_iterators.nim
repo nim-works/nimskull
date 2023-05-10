@@ -1,5 +1,4 @@
 discard """
-matrix: "--gc:refc; --gc:orc"
 labels: "error_compile iterators table top_level"
 description: '''
   . From https://github.com/nim-lang/Nim/pull/16374

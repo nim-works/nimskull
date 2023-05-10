@@ -1,5 +1,5 @@
 discard """
-  matrix: "--gc:refc; --gc:arc"
+  matrix: "--gc:arc"
   output: "abc: @[(kind: A, x: 0)]"
   description: '''
     . From https://github.com/nim-lang/Nim/issues/14581
