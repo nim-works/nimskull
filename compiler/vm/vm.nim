@@ -256,10 +256,6 @@ proc reportException(c: TCtx; trace: VmRawStackTrace, raised: LocHandle) =
                     newStrNode(nkStrLit, msg))
   raiseVmError(VmEvent(kind: vmEvtUnhandledException, exc: ast, trace: trace))
 
-when not defined(nimComputedGoto):
-  {.pragma: computedGoto.}
-
-
 func cleanUpReg(r: var TFullReg, mm: var VmMemoryManager) =
   ## Cleans up and frees a location register's location. If `r` is not a
   ## location register, nothing is done.

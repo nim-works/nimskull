@@ -16,8 +16,6 @@
 #    -> defined(useNimRtl) or appType == "lib" and not defined(createNimRtl)
 # 3) Exported into nimrtl.
 #    -> appType == "lib" and defined(createNimRtl)
-when not defined(nimNewShared):
-  {.pragma: gcsafe.}
 
 when defined(createNimRtl):
   when defined(useNimRtl):
