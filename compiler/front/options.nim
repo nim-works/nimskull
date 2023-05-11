@@ -1201,7 +1201,7 @@ proc canonicalCase(path: var string) =
   ## the idea is to only use this for checking whether a path is already in
   ## the table but otherwise keep the original case
   when FileSystemCaseSensitive: discard
-  else: path = toLowerAscii(path)
+  else: toLowerAscii(path)
 
 proc fileInfoKnown*(conf: ConfigRef; filename: AbsoluteFile): bool =
   var
