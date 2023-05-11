@@ -1602,6 +1602,8 @@ proc detectCapture(owner, top: PSym, n: PNode, marker: var IntSet): PNode =
     result = detectCapture(owner, top, n[1], marker)
   of nkLambdaKinds:
     result = detectCapture(owner, top, n[namePos], marker)
+  of nkNimNodeLit:
+    discard "ignore node literals as they're data not code"
   else:
     for it in n.items:
       result = detectCapture(owner, top, it, marker)
