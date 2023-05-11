@@ -8,7 +8,7 @@ discard """
 2
 3
 4'''
-  #cmd: "nim $target --gc:none --hints:on --warnings:off $options $file"
+  #matrix: "--gc:none --hints:on --warnings:off"
 """
 
 # XXX: this test used to be built with ``--gc:none``, although it is not

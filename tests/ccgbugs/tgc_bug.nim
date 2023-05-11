@@ -1,4 +1,5 @@
 discard """
+matrix: "-d:fulldebug -d:smokeCycles"
 output: '''@["a"]'''
 labels: "codegen gc seq"
 description: '''
