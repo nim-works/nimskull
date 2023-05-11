@@ -16,7 +16,8 @@ import
 import compiler/front/in_options
 export in_options
 
-from compiler/utils/strutils2 import toLowerAscii
+when not FileSystemCaseSensitive:
+  from compiler/utils/strutils2 import toLowerAscii
 from terminal import isatty
 from times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
@@ -1200,7 +1201,7 @@ proc canonicalCase(path: var string) =
   ## the idea is to only use this for checking whether a path is already in
   ## the table but otherwise keep the original case
   when FileSystemCaseSensitive: discard
-  else: toLowerAscii(path)
+  else: path = toLowerAscii(path)
 
 proc fileInfoKnown*(conf: ConfigRef; filename: AbsoluteFile): bool =
   var
