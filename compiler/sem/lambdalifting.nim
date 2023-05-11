@@ -494,6 +494,8 @@ proc detectCapturedVars(n: PNode; owner: PSym; c: var DetectionPass) =
       detectCapturedVars(n[namePos], owner, c)
   of nkReturnStmt:
     detectCapturedVars(n[0], owner, c)
+  of nkNimNodeLit:
+    discard "skip node literals as they're data not code"
   else:
     for i in 0..<n.len:
       detectCapturedVars(n[i], owner, c)
