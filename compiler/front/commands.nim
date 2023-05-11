@@ -9,6 +9,18 @@
 
 # This module handles the parsing of command line arguments.
 
+# We do this here before the ``import`` statement so that defines from
+# inside the imported modules do not affect the boot switches. It's unlikely
+# to happen, but not impossible.
+template bootSwitch(name, expr, userString) =
+  # Helper to build boot constants, for debugging you can 'echo' the else part.
+  const name = if expr: " " & userString else: ""
+
+bootSwitch(usedRelease, defined(release), "-d:release")
+bootSwitch(usedDanger, defined(danger), "-d:danger")
+# `useLinenoise` deprecated in favor of `nimUseLinenoise`, kept for backward compatibility
+bootSwitch(useLinenoise, defined(nimUseLinenoise) or defined(useLinenoise), "-d:nimUseLinenoise")
+
 import
   std/[
     os,
@@ -46,14 +58,6 @@ from compiler/ast/report_enums import ReportKind,
   repWarningKinds,
   repWarningGroups
 
-template bootSwitch(name, expr, userString) =
-  # Helper to build boot constants, for debugging you can 'echo' the else part.
-  const name = if expr: " " & userString else: ""
-
-bootSwitch(usedRelease, defined(release), "-d:release")
-bootSwitch(usedDanger, defined(danger), "-d:danger")
-# `useLinenoise` deprecated in favor of `nimUseLinenoise`, kept for backward compatibility
-bootSwitch(useLinenoise, defined(nimUseLinenoise) or defined(useLinenoise), "-d:nimUseLinenoise")
 bootSwitch(usedTinyC, hasTinyCBackend, "-d:tinyc")
 
 # TODO: temporary, move into `msgs` or `commands`
