@@ -16,7 +16,8 @@ import
 import compiler/front/in_options
 export in_options
 
-from compiler/utils/strutils2 import toLowerAscii
+when not FileSystemCaseSensitive:
+  from compiler/utils/strutils2 import toLowerAscii
 from terminal import isatty
 from times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
