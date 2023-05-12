@@ -2323,6 +2323,7 @@ proc semGenericConstraints(c: PContext, x: PType): PType =
   result = newTypeWithSons(c, tyGenericParam, @[x])
 
 proc semGenericParamList(c: PContext, n: PNode, father: PType = nil): PNode =
+  # TODO: replace with a node return variant that can in band errors
 
   template addSym(result: PNode, s: PSym): untyped =
     if father != nil: addSonSkipIntLit(father, s.typ, c.idgen)
@@ -2330,11 +2331,12 @@ proc semGenericParamList(c: PContext, n: PNode, father: PType = nil): PNode =
     result.add newSymNode(s)
 
   result = copyNode(n)
+
   if n.kind != nkGenericParams:
     semReportIllformedAst(
       c.config, n, "Expected generic parameter list")
-
     return
+
   for i in 0..<n.len:
     var a = n[i]
     case a.kind
@@ -2396,10 +2398,17 @@ proc semGenericParamList(c: PContext, n: PNode, father: PType = nil): PNode =
           if father != nil: father.flags.incl tfCovariant
           paramName = paramName[1]
 
-        var s = if finalType.kind == tyStatic or tfWildcard in typ.flags:
-            newSymG(skGenericParam, paramName, c).linkTo(finalType)
-          else:
-            newSymG(skType, paramName, c).linkTo(finalType)
+        let
+          sKind =
+            if finalType.kind == tyStatic or tfWildcard in typ.flags:
+              skGenericParam
+            else:
+              skType
+          sNode = newSymGNode(sKind, paramName, c)
+          s = getDefNameSymOrRecover(sNode).linkTo(finalType)
+
+        if sNode.kind == nkError:
+          c.config.localReport(sNode)
 
         if covarianceFlag != tfUnresolved: s.typ.flags.incl(covarianceFlag)
         if def.kind != nkEmpty: s.ast = def
