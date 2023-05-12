@@ -468,7 +468,7 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
     else:
       unreachable("only produces `nkSym` or `nkError`")
 
-proc newSymG*(kind: TSymKind, n: PNode, c: PContext): PSym =
+proc newSymG*(kind: TSymKind, n: PNode, c: PContext): PSym {.deprecated: "replace with newSymGNode".} =
   # like newSymS, but considers gensym'ed symbols
   case n.kind
   of nkSym:
