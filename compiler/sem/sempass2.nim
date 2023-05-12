@@ -1595,7 +1595,7 @@ proc detectCapture(owner, top: PSym, n: PNode, marker: var IntSet): PNode =
           result = detect(s)
     else:
       discard "not relevant"
-  of nkWithoutSons - {nkSym}:
+  of nkWithoutSons - {nkSym, nkCommentStmt}:
     discard "not relevant"
   of nkConv, nkHiddenStdConv, nkHiddenSubConv:
     # only analyse the imperative part:
@@ -1605,6 +1605,7 @@ proc detectCapture(owner, top: PSym, n: PNode, marker: var IntSet): PNode =
   of nkNimNodeLit:
     discard "ignore node literals as they're data not code"
   else:
+    # TODO: make exhaustive
     for it in n.items:
       result = detectCapture(owner, top, it, marker)
       if result != nil:

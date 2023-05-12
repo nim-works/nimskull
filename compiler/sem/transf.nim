@@ -1284,7 +1284,7 @@ proc extractGlobals*(body: PNode, output: var seq[PNode], isNimVm: bool) =
      nkStaticStmt, nkMixinStmt, nkBindStmt, nkLambdaKinds, routineDefs,
      nkNimNodeLit:
     discard "ignore declarative contexts"
-  of nkWithoutSons:
+  of nkWithoutSons - nkCommentStmt:
     discard "not relevant"
   of nkConv, nkHiddenStdConv, nkHiddenSubConv:
     # only analyse the imperative part:

@@ -249,6 +249,18 @@ type
   TNodeKinds* = set[TNodeKind]
 
 const
+  nkWithoutSons* =
+    {nkEmpty, nkNone} +
+    {nkIdent, nkSym} +
+    {nkType} +
+    {nkCharLit..nkUInt64Lit} +
+    {nkFloatLit..nkFloat128Lit} +
+    {nkStrLit..nkTripleStrLit} +
+    {nkNilLit} +
+    {nkError}
+
+  nkWithSons* = {low(TNodeKind) .. high(TNodeKind)} - nkWithoutSons
+
   nodeKindsProducedByParse* = {
     nkError, nkEmpty,
     nkIdent,
@@ -1526,11 +1538,11 @@ type
       sym*: PSym
     of nkIdent:
       ident*: PIdent
-    of nkEmpty, nkNone:
+    of nkEmpty, nkNone, nkType, nkNilLit:
       discard
     of nkError:
       diag*: PAstDiag
-    else:
+    of nkWithSons:
       sons*: TNodeSeq
 
   TStrTable* = object         ## a table[PIdent] of PSym
@@ -1755,18 +1767,6 @@ type
 
   TImplication* = enum
     impUnknown, impNo, impYes
-
-const
-  nkWithoutSons* =
-    {nkCharLit..nkUInt64Lit} +
-    {nkFloatLit..nkFloat128Lit} +
-    {nkStrLit..nkTripleStrLit} +
-    {nkSym} +
-    {nkIdent} +
-    {nkError} +
-    {nkEmpty, nkNone}
-
-  nkWithSons* = {low(TNodeKind) .. high(TNodeKind)} - nkWithoutSons
 
 type
   EffectsCompat* = enum
