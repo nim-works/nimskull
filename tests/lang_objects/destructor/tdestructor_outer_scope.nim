@@ -1,5 +1,5 @@
 discard """
-  matrix: "--gc:refc; --gc:orc; --gc:arc"
+  matrix: "--gc:orc; --gc:arc"
   output: '''
 ()
 Destroyed

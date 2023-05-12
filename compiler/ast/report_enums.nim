@@ -656,7 +656,6 @@ type
     rsemExpectedLiteralForGoto
     rsemRequiresDeepCopyEnabled
     rsemDisallowedOfForPureObjects
-    rsemDisallowedReprForNewruntime
     rsemCannotCodegenCompiletimeProc
 
     # Pragma
@@ -789,7 +788,6 @@ type
     rsemUnsafeDefault          = "UnsafeDefault"
     rsemBindDeprecated
     rsemObservableStores       = "ObservableStores"
-    rsemCaseTransition         = "CaseTransition"
     rsemUseOfGc                = "GcMem" # last !
     # END !! add reports BEFORE the last enum !!
 

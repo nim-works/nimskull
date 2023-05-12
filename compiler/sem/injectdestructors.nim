@@ -1471,7 +1471,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
 
     # only inject destructors for calls to ``new`` if destructor-based
     # ref-counting is used
-    if g.config.selectedGC in {gcHooks, gcArc, gcOrc}:
+    if g.config.selectedGC in {gcArc, gcOrc}:
       lowerNew(tree, g, changes)
 
     rewriteAssignments(

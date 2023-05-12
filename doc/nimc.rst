@@ -550,11 +550,8 @@ Define                   Effect
 `useMalloc`              Makes Nim use C's `malloc`:idx: instead of Nim's
                          own memory manager, albeit prefixing each allocation with
                          its size to support clearing memory on reallocation.
-                         This only works with `--gc:none`:option:,
-                         `--gc:arc`:option: and `--gc:orc`:option:.
-`useRealtimeGC`          Enables support of Nim's GC for *soft* realtime
-                         systems. See the documentation of the `gc <gc.html>`_
-                         for further information.
+                         This only works with `--gc:arc`:option: and
+                         `--gc:orc`:option:.
 `logGC`                  Enable GC logging to stdout.
 `nodejs`                 The JS target is actually ``node.js``.
 `ssl`                    Enables OpenSSL support for the sockets module.

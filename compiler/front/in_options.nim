@@ -52,8 +52,6 @@ type
     optDynlibOverrideAll
     optSeqDestructors         ## active if the implementation uses the new
                               ## string/seq implementation based on destructors
-    optTinyRtti               ## active if we use the new "tiny RTTI"
-                              ## implementation
     optMultiMethods
     optBenchmarkVM            ## Enables cpuTime() in the VM
     optProduceAsm             ## produce assembler code
@@ -68,19 +66,9 @@ type
 
   TGCMode* = enum             # the selected GC
     gcUnselected = "unselected"
-    gcNone = "none"
     gcNative = "native" ## use the memory management native to the backend
-    gcBoehm = "boehm"
-    gcRegions = "regions"
     gcArc = "arc"
     gcOrc = "orc"
-    gcMarkAndSweep = "markAndSweep"
-    gcHooks = "hooks"
-    gcRefc = "refc"
-    gcV2 = "v2"
-    gcGo = "go"
-    # gcRefc and the GCs that follow it use a write barrier, as far as
-    # usesWriteBarrier() is concerned
 
   TOption* = enum
     ##

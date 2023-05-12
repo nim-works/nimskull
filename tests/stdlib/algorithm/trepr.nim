@@ -1,6 +1,5 @@
 discard """
   targets: "c js"
-  matrix: "--gc:refc;--gc:arc"
 """
 
 from strutils import endsWith, contains, strip

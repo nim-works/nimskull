@@ -449,8 +449,7 @@ proc customizeForBackend*(graph: ModuleGraph, conf: ConfigRef,
       let r = processSwitch("gc", "orc", passCmd2, conf)
       doAssert r.kind == procSwitchSuccess, "set default gc failed: " & $r.kind
   of backendJs, backendNimVm:
-    # force the exception mode to 'native', and the selected gc to 'refc'.
-    # Note that both targets don't really use 'refc'.
+    # force the exception and GC mode to 'native'
     conf.exc = excNative
     conf.selectedGC = gcNative
   of backendInvalid:

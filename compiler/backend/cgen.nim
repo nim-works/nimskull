@@ -333,20 +333,11 @@ proc rdLoc(a: TLoc): Rope =
   result = a.r
   if lfIndirect in a.flags: result = "(*$1)" % [result]
 
-proc lenField(p: BProc): Rope =
-  result = rope("Sup.len")
-
 proc lenExpr(p: BProc; a: TLoc): Rope =
-  if optSeqDestructors in p.config.globalOptions:
-    result = rdLoc(a) & ".len"
-  else:
-    result = "($1 ? $1->$2 : 0)" % [rdLoc(a), lenField(p)]
+  result = rdLoc(a) & ".len"
 
 proc dataField(p: BProc): Rope =
-  if optSeqDestructors in p.config.globalOptions:
-    result = rope".p->data"
-  else:
-    result = rope"->data"
+  result = rope".p->data"
 
 include ccgliterals
 include ccgtypes
@@ -398,12 +389,8 @@ proc genObjectInitHeader(p: BProc, section: TCProcSection, t: PType, r: Rope,
     r.add(".Sup")
     s = skipTypes(s[0], skipPtrs)
 
-  if optTinyRtti in p.config.globalOptions:
-    linefmt(p, section, "$1.m_type = $2;$n",
-            [r, genTypeInfoV2(p.module, t, info)])
-  else:
-    linefmt(p, section, "$1.m_type = $2;$n",
-            [r, genTypeInfoV1(p.module, t, info)])
+  linefmt(p, section, "$1.m_type = $2;$n",
+          [r, genTypeInfoV2(p.module, t, info)])
 
 proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
                    mode: ObjConstrMode) =
@@ -416,7 +403,6 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
     if mode == constructRefObj: r = "(*$1)" % [r]
     genObjectInitHeader(p, section, t, r, a.lode.info)
   of frEmbedded:
-    if optTinyRtti in p.config.globalOptions:
       var tmp: TLoc
       if mode == constructRefObj:
         let objType = t.skipTypes(abstractInst+{tyRef})
@@ -427,12 +413,6 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
       else:
         rawConstExpr(p, newNodeIT(nkType, a.lode.info, t), tmp)
         genAssignment(p, a, tmp, {})
-    else:
-      # worst case for performance:
-      var r = if mode == constructObj: addrLoc(p.config, a) else: rdLoc(a)
-      linefmt(p, section, "#objectInit($1, $2);$n", [r, genTypeInfoV1(p.module, t, a.lode.info)])
-
-proc genRefAssign(p: BProc, dest, src: TLoc)
 
 proc isComplexValueType(t: PType): bool {.inline.} =
   let t = t.skipTypes(abstractInst + tyUserTypeClasses)
@@ -442,9 +422,8 @@ proc isComplexValueType(t: PType): bool {.inline.} =
 include ccgreset
 
 proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  let containsGcRef = optSeqDestructors notin p.config.globalOptions and containsGarbageCollectedRef(loc.t)
   let typ = skipTypes(loc.t, abstractVarRange)
-  if optSeqDestructors in p.config.globalOptions and typ.kind in {tyString, tySequence}:
+  if typ.kind in {tyString, tySequence}:
     assert rdLoc(loc) != ""
 
     let atyp = skipTypes(loc.t, abstractInst)
@@ -453,24 +432,8 @@ proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
     else:
       linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
   elif not isComplexValueType(typ):
-    if containsGcRef:
-      var nilLoc: TLoc
-      initLoc(nilLoc, locTemp, loc.lode, OnStack)
-      nilLoc.r = rope("NIM_NIL")
-      genRefAssign(p, loc, nilLoc)
-    else:
-      linefmt(p, cpsStmts, "$1 = 0;$n", [rdLoc(loc)])
+    linefmt(p, cpsStmts, "$1 = 0;$n", [rdLoc(loc)])
   else:
-    if loc.storage != OnStack and containsGcRef:
-      specializeReset(p, loc)
-      when false:
-        linefmt(p, cpsStmts, "#genericReset((void*)$1, $2);$n",
-                [addrLoc(p.config, loc), genTypeInfoV1(p.module, loc.t, loc.lode.info)])
-      # XXX: generated reset procs should not touch the m_type
-      # field, so disabling this should be safe:
-      if doInitObj:
-        genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
-    else:
       # array passed as argument decayed into pointer, bug #7332
       # so we use getTypeDesc here rather than rdLoc(loc)
       linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
@@ -483,13 +446,13 @@ proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
 
 proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
   let typ = loc.t
-  if optSeqDestructors in p.config.globalOptions and skipTypes(typ, abstractInst + {tyStatic}).kind in {tyString, tySequence}:
+  if skipTypes(typ, abstractInst + {tyStatic}).kind in {tyString, tySequence}:
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
   elif not isComplexValueType(typ):
     linefmt(p, cpsStmts, "$1 = ($2)0;$n", [rdLoc(loc),
       getTypeDesc(p.module, typ, mapTypeChooser(loc))])
   else:
-    if not isTemp or containsGarbageCollectedRef(loc.t):
+    if not isTemp:
       # don't use nimZeroMem for temporary values for performance if we can
       # avoid it
       linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
@@ -846,12 +809,8 @@ proc closureSetup(p: BProc, prc: PSym) =
   #echo "created environment: ", env.id, " for ", prc.name.s
   assignLocalVar(p, ls)
   # generate cast assignment:
-  if p.config.selectedGC == gcGo:
-    linefmt(p, cpsStmts, "#unsureAsgnRef((void**) $1, ($2) ClE_0);$n",
-            [addrLoc(p.config, env.loc), getTypeDesc(p.module, env.typ)])
-  else:
-    linefmt(p, cpsStmts, "$1 = ($2) ClE_0;$n",
-            [rdLoc(env.loc), getTypeDesc(p.module, env.typ)])
+  linefmt(p, cpsStmts, "$1 = ($2) ClE_0;$n",
+          [rdLoc(env.loc), getTypeDesc(p.module, env.typ)])
 
 proc containsResult(n: PNode): bool =
   result = false
@@ -1299,19 +1258,11 @@ proc genMainProc(m: BModule) =
       "N_LIB_PRIVATE char** cmdLine;$N" &
       "N_LIB_PRIVATE char** gEnv;$N"
 
-    # The use of a volatile function pointer to call Pre/NimMainInner
-    # prevents inlining of the NimMainInner function and dependent
-    # functions, which might otherwise merge their stack frames.
     PreMainBody = "$N" &
-      "N_LIB_PRIVATE void PreMainInner(void) {$N" &
-      "$2" &
-      "}$N$N" &
       PosixCmdLine &
       "N_LIB_PRIVATE void PreMain(void) {$N" &
-      "\tvoid (*volatile inner)(void);$N" &
-      "\tinner = PreMainInner;$N" &
       "$1" &
-      "\t(*inner)();$N" &
+      "$2" &
       "}$N$N"
 
     MainProcs =
@@ -1326,11 +1277,8 @@ proc genMainProc(m: BModule) =
 
     NimMainProc =
       "N_CDECL(void, NimMain)(void) {$N" &
-        "\tvoid (*volatile inner)(void);$N" &
         "$4" &
-        "\tinner = NimMainInner;$N" &
-        "$2" &
-        "\t(*inner)();$N" &
+        "\tNimMainInner();$N" &
       "}$N$N"
 
     NimMainBody = NimMainInner & NimMainProc
@@ -1375,9 +1323,7 @@ proc genMainProc(m: BModule) =
       m.config.globalOptions * {optGenGuiApp, optGenDynLib} != {}:
     m.includeHeader("<windows.h>")
 
-  let initStackBottomCall =
-    if m.config.target.targetOS == osStandalone or m.config.selectedGC == gcNone: "".rope
-    else: ropecg(m, "\t#initStackBottomWith((void *)&inner);$N", [])
+  let initStackBottomCall = ""
   inc(m.labels)
   appcg(m, m.s[cfsProcs], PreMainBody, [m.g.mainDatInit, m.g.otherModsInit])
 
@@ -1460,13 +1406,11 @@ proc registerModuleToMain(g: BModuleList; m: BModule) =
     g.mainModProcs.addf("N_LIB_PRIVATE N_NIMCALL(void, $1)(void);$N", [datInit])
     g.mainDatInit.addf("\t$1();$N", [datInit])
 
-  # Initialization of TLS and GC should be done in between
+  # Initialization of TLS should be done in between
   # systemDatInit and systemInit calls if any
   if sfSystemModule in m.module.flags:
     if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
       g.mainDatInit.add(ropecg(m, "\t#initThreadVarsEmulation();$N", []))
-    if m.config.target.targetOS != osStandalone and m.config.selectedGC notin {gcNone, gcArc, gcOrc}:
-      g.mainDatInit.add(ropecg(m, "\t#initStackBottomWith((void *)&inner);$N", []))
 
   if m.s[cfsInitProc].len > 0:
     g.mainModProcs.addf("N_LIB_PRIVATE N_NIMCALL(void, $1)(void);$N", [init])
@@ -1823,8 +1767,6 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
 
     if sfMainModule in m.module.flags:
       # raise dependencies on behalf of genMainProc
-      if m.config.target.targetOS != osStandalone and m.config.selectedGC != gcNone:
-        discard cgsym(m, "initStackBottomWith")
       if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
         discard cgsym(m, "initThreadVarsEmulation")
 

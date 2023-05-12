@@ -134,13 +134,6 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
                              cmd: $conf.command,
                              srcCodeOrigin: instLoc()))
 
-when declared(GC_setMaxPause):
-  GC_setMaxPause 2_000
-
-when compileOption("gc", "refc"):
-  # the new correct mark&sweep collector is too slow :-/
-  GC_disableMarkAndSweep()
-
 when not defined(selftest):
   var conf = newConfigRef(cli_reporter.reportHook)
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge

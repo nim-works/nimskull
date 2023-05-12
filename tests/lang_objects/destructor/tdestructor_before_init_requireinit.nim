@@ -1,5 +1,5 @@
 discard """
-  matrix: "--gc:refc; --gc:arc"
+  matrix: "--gc:arc"
   description: '''
   . From https://github.com/nim-lang/Nim/issues/16607
     Constructing a named tuple of a requiresInit type causes destructions

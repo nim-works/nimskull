@@ -1,6 +1,5 @@
 discard """
   targets: "c js"
-  matrix: "--gc:refc; --gc:arc"
 """
 
 import std/[strbasics, sugar, macros]

@@ -72,7 +72,7 @@ proc runBasicDLLTest(c, r: var TResults, cat: Category, options: string) =
   testSpec r, makeTest("tests/dll/client.nim", options & " --threads:on" & rpath, cat)
   testSpec r, makeTest("tests/dll/visibility.nim", options & rpath, cat)
 
-  if "boehm" notin options:
+  if true:
     # force build required - see the comments in the .nim file for more details
     for target in cat.defaultTargets():
       var hcri = makeTest("tests/dll/nimhcr_integration.nim",
@@ -89,63 +89,36 @@ proc dllTests(r: var TResults, cat: Category, options: string) =
 
   runBasicDLLTest c, r, cat, options
   runBasicDLLTest c, r, cat, options & " -d:release"
-  when not defined(windows):
-    # still cannot find a recent Windows version of boehm.dll:
-    runBasicDLLTest c, r, cat, options & " --gc:boehm"
-    runBasicDLLTest c, r, cat, options & " -d:release --gc:boehm"
 
 # ------------------------------ GC tests -------------------------------------
 
 proc gcTests(r: var TResults, cat: Category, options: string) =
-  template testWithoutMs(filename: untyped) =
-    testSpec r, makeTest("tests/gc" / filename, options, cat)
-    testSpec r, makeTest("tests/gc" / filename, options &
-                  " -d:release -d:useRealtimeGC --gc:refc", cat)
-    when filename != "gctest":
-      testSpec r, makeTest("tests/gc" / filename, options &
-                    " --gc:orc", cat)
-      testSpec r, makeTest("tests/gc" / filename, options &
-                    " --gc:orc -d:release", cat)
-
-  template testWithoutBoehm(filename: untyped) =
-    testWithoutMs filename
-    testSpec r, makeTest("tests/gc" / filename, options &
-                  " --gc:markAndSweep", cat)
-    testSpec r, makeTest("tests/gc" / filename, options &
-                  " -d:release --gc:markAndSweep", cat)
-
   template test(filename: untyped) =
-    testWithoutBoehm filename
-    when not defined(windows) and not defined(android):
-      # AR: cannot find any boehm.dll on the net, right now, so disabled
-      # for windows:
-      testSpec r, makeTest("tests/gc" / filename, options &
-                    " --gc:boehm", cat)
-      testSpec r, makeTest("tests/gc" / filename, options &
-                    " -d:release --gc:boehm", cat)
+    testSpec r, makeTest("tests/gc" / filename, options, cat)
+    testSpec r, makeTest("tests/gc" / filename, options & " -d:release", cat)
 
-  testWithoutBoehm "foreign_thr"
+  test "foreign_thr"
   test "gcemscripten"
   test "growobjcrash"
   test "gcbench"
   test "gcleak"
   test "gcleak2"
-  testWithoutBoehm "gctest"
+  test "gctest"
   test "gcleak3"
   test "gcleak4"
   # Disabled because it works and takes too long to run:
   #test "gcleak5"
-  testWithoutBoehm "weakrefs"
+  test "weakrefs"
   test "cycleleak"
-  testWithoutBoehm "closureleak"
-  testWithoutMs "refarrayleak"
+  test "closureleak"
+  test "refarrayleak"
 
-  testWithoutBoehm "tlists"
-  testWithoutBoehm "thavlak"
+  test "tlists"
+  test "thavlak"
 
   test "stackrefleak"
   test "cyclecollector"
-  testWithoutBoehm "trace_globals"
+  test "trace_globals"
 
 # ------------------------- threading tests -----------------------------------
 

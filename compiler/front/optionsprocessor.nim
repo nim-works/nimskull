@@ -588,9 +588,7 @@ proc processCompile(conf: ConfigRef; filename: string) =
 # from enum set using `getEnumNames` because nim cmdline has
 # multiple names for the same garbage collector.
 const
-  gcNames = @[
-    "boehm", "refc", "markandsweep", "destructors", "arc", "orc",
-    "hooks", "go", "none", "stack", "regions",]
+  gcNames = @["destructors", "arc", "orc"]
 
   cmdNames = @[
     "c", "cc", "compile", "compiletoc",
@@ -644,15 +642,13 @@ func testCompileOptionArg*(conf: ConfigRef; switch, arg: string): CompileOptArgC
   case switch.normalize
   of "gc":
     case arg.normalize
-    of "boehm": asResult conf.selectedGC == gcBoehm
-    of "refc": asResult conf.selectedGC == gcRefc
-    of "markandsweep": asResult conf.selectedGC == gcMarkAndSweep
     of "destructors", "arc": asResult conf.selectedGC == gcArc
     of "orc": asResult conf.selectedGC == gcOrc
-    of "hooks": asResult conf.selectedGC == gcHooks
-    of "go": asResult conf.selectedGC == gcGo
-    of "none": asResult conf.selectedGC == gcNone
-    of "stack", "regions": asResult conf.selectedGC == gcRegions
+    of "boehm", "refc", "markandsweep", "hooks", "go", "none", "stack", "regions":
+      # XXX: the legacy GCs are still included here so that they can still be
+      #      queried for in standard library code. Remove this branch once the
+      #      csources compiler is updated and the stdlib adjusted
+      asResult false
     else: compileOptArgCheckFailedWithUnexpectedValue
   of "opt":
     case arg.normalize
@@ -1153,21 +1149,11 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
       case arg.normalize
-      of "boehm":
-        conf.selectedGC = gcBoehm
-        defineSymbol(conf, "boehmgc")
-        conf.incl optTlsEmulation # Boehm GC doesn't scan the real TLS
-      of "refc":
-        conf.selectedGC = gcRefc
-      of "markandsweep":
-        conf.selectedGC = gcMarkAndSweep
-        defineSymbol(conf, "gcmarkandsweep")
       of "destructors", "arc":
         conf.selectedGC = gcArc
         defineSymbol(conf, "gcdestructors")
         defineSymbol(conf, "gcarc")
         conf.incl optSeqDestructors
-        conf.incl optTinyRtti
         if pass in {passCmd2, passPP}:
           defineSymbol(conf, "nimSeqsV2")
           defineSymbol(conf, "nimV2")
@@ -1178,28 +1164,11 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
         defineSymbol(conf, "gcdestructors")
         defineSymbol(conf, "gcorc")
         conf.incl optSeqDestructors
-        conf.incl optTinyRtti
         if pass in {passCmd2, passPP}:
           defineSymbol(conf, "nimSeqsV2")
           defineSymbol(conf, "nimV2")
         if conf.exc in {excNone, excNative}:
           conf.exc = excGoto
-      of "hooks":
-        conf.selectedGC = gcHooks
-        defineSymbol(conf, "gchooks")
-        conf.incl optSeqDestructors
-        processOnOffSwitchG(conf, {optSeqDestructors}, arg, switch)
-        if pass in {passCmd2, passPP}:
-          defineSymbol(conf, "nimSeqsV2")
-      of "go":
-        conf.selectedGC = gcGo
-        defineSymbol(conf, "gogc")
-      of "none":
-        conf.selectedGC = gcNone
-        defineSymbol(conf, "nogc")
-      of "stack", "regions":
-        conf.selectedGC = gcRegions
-        defineSymbol(conf, "gcregions")
       else:
         invalidArgValue(arg, switch)
   of "warnings", "w":
@@ -1604,11 +1573,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     expectArg(switch, arg)
     if conf != nil:
       conf.cppDefine(arg)
-  of "seqsv2":
-    setSwitchAndSrc cmdSwitchSeqsv2
-    processOnOffSwitchG(conf, {optSeqDestructors}, arg, switch)
-    if pass in {passCmd2, passPP}:
-      defineSymbol(conf, "nimSeqsV2")
   of "stylecheck":
     setSwitchAndSrc cmdSwitchStylecheck
     case arg.normalize

@@ -11,9 +11,8 @@ ptr Foo
 0
 false
 '''
-joinable: false
 """
-# not joinable because it causes out of memory with --gc:boehm
+
 import typetraits
 
 block t1252:

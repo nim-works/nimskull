@@ -1,6 +1,6 @@
 discard """
   targets: "c"
-  matrix: "--gc:refc; --gc:arc"
+  matrix: "--gc:arc"
   description: '''
     . From https://github.com/nim-lang/Nim/issues/9622
       complex constant doesn't work at c++ backend

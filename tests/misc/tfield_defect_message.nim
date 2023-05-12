@@ -1,5 +1,4 @@
 discard """
-  matrix: "--gc:refc; --gc:orc"
   targets: "c js !vm"
   description: "Tests for ensuring that ``FieldDefect``'s messages are correct"
 """

@@ -2,6 +2,7 @@ discard """
   matrix: "--os:standalone --gc:none"
   exitcode: 1
   output: "value out of range"
+  knownIssue: "`--gc:none` is currently unsupported"
 """
 
 type

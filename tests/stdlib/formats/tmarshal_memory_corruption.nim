@@ -1,5 +1,4 @@
 discard """
-  matrix: "--gc:refc"
   joinable: false
   description: '''
     . From https://github.com/nim-lang/Nim/issues/9754

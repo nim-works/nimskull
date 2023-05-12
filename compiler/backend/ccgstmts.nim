@@ -15,21 +15,6 @@ const
   stringCaseThreshold = 8
     # above X strings a hash-switch for strings is generated
 
-proc getTraverseProc(p: BProc, v: PSym): Rope =
-  if p.config.selectedGC in {gcMarkAndSweep, gcHooks, gcV2, gcRefc} and
-      containsGarbageCollectedRef(v.loc.t):
-    # we register a specialized marked proc here; this has the advantage
-    # that it works out of the box for thread local storage then :-)
-    result = genTraverseProcForGlobal(p.module, v, v.info)
-
-proc registerTraverseProc(p: BProc, v: PSym, traverseProc: Rope) =
-  if sfThread in v.flags:
-    appcg(p.module, p.module.preInitProc.procSec(cpsInit),
-      "$n\t#nimRegisterThreadLocalMarker($1);$n$n", [traverseProc])
-  else:
-    appcg(p.module, p.module.preInitProc.procSec(cpsInit),
-      "$n\t#nimRegisterGlobalMarker($1);$n$n", [traverseProc])
-
 proc isAssignedImmediately(conf: ConfigRef; n: PNode): bool {.inline.} =
   if n.kind == nkEmpty: return false
   if isInvalidReturnType(conf, n.typ):
@@ -74,13 +59,9 @@ proc genVarTuple(p: BProc, n: PNode) =
   for i in 0..<n.len-2:
     let vn = n[i]
     let v = vn.sym
-    var traverseProc: Rope
     if sfGlobal in v.flags:
       assignGlobalVar(p, vn, "")
       genObjectInit(p, cpsInit, v.typ, v.loc, constructObj)
-      traverseProc = getTraverseProc(p, v)
-      if traverseProc != "":
-        registerTraverseProc(p, v, traverseProc)
     else:
       assignLocalVar(p, vn)
       initLocalVar(p, v, immediateAsgn=isAssignedImmediately(p.config, n[^1]))
@@ -138,11 +119,6 @@ proc endBlock(p: BProc) =
   else:
     blockEnd.addf("}$n", [])
   endBlock(p, blockEnd)
-
-proc genSimpleBlock(p: BProc, stmts: PNode) {.inline.} =
-  startBlock(p)
-  genStmts(p, stmts)
-  endBlock(p)
 
 proc exprBlock(p: BProc, n: PNode, d: var TLoc) =
   startBlock(p)
@@ -257,9 +233,6 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
     # if sfImportc notin v.flags: constructLoc(p.module.preInitProc, v.loc)
     if sfExportc in v.flags and p.module.g.generatedHeader != nil:
       genVarPrototype(p.module.g.generatedHeader, vn)
-    traverseProc = getTraverseProc(p, v)
-    if traverseProc != "":
-      registerTraverseProc(p, v, traverseProc)
   else:
     let imm = isAssignedImmediately(p.config, value)
     assignLocalVar(p, vn)
@@ -777,14 +750,6 @@ proc genCase(p: BProc, t: PNode, d: var TLoc) =
     else:
       genOrdinalCase(p, t, d)
 
-proc genRestoreFrameAfterException(p: BProc) =
-  if optStackTrace in p.module.config.options:
-    if hasCurFramePointer notin p.flags:
-      p.flags.incl hasCurFramePointer
-      p.procSec(cpsLocals).add(ropecg(p.module, "\tTFrame* _nimCurFrame;$n", []))
-      p.procSec(cpsInit).add(ropecg(p.module, "\t_nimCurFrame = #getFrame();$n", []))
-    linefmt(p, cpsStmts, "#setFrame(_nimCurFrame);$n", [])
-
 proc bodyCanRaise(p: BProc; n: PNode): bool =
   case n.kind
   of nkCallKinds:
@@ -855,10 +820,7 @@ proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
       for j in 0..<t[i].len - 1:
         assert(t[i][j].kind == nkType)
         if orExpr != "": orExpr.add("||")
-        let checkFor = if optTinyRtti in p.config.globalOptions:
-          genTypeInfo2Name(p.module, t[i][j].typ)
-        else:
-          genTypeInfoV1(p.module, t[i][j].typ, t[i][j].info)
+        let checkFor = genTypeInfo2Name(p.module, t[i][j].typ)
         let memberName = "Sup.m_type"
         appcg(p.module, orExpr, "#isObj(#nimBorrowCurrentException()->$1, $2)", [memberName, checkFor])
 
@@ -991,20 +953,6 @@ proc genPragma(p: BProc, n: PNode) =
     of wEmit: genEmit(p, it)
     else: discard
 
-
-proc genDiscriminantCheck(p: BProc, a, tmp: TLoc, objtype: PType,
-                          field: PSym) =
-  var t = skipTypes(objtype, abstractVar)
-  assert t.kind == tyObject
-  discard genTypeInfoV1(p.module, t, a.lode.info)
-  if not containsOrIncl(p.module.declaredThings, field.id):
-    appcg(p.module, cfsVars, "extern $1",
-          [discriminatorTableDecl(p.module, t, field)])
-  lineCg(p, cpsStmts,
-        "#FieldDiscriminantCheck((NI)(NU)($1), (NI)(NU)($2), $3, $4);$n",
-        [rdLoc(a), rdLoc(tmp), discriminatorTableName(p.module, t, field),
-         intLiteral(toInt64(lengthOrd(p.config, field.typ))+1)])
-
 when false:
   proc genCaseObjDiscMapping(p: BProc, e: PNode, t: PType, field: PSym; d: var TLoc) =
     const ObjDiscMappingProcSlot = -5
@@ -1028,10 +976,6 @@ proc asgnFieldDiscriminant(p: BProc, e: PNode) =
   initLocExpr(p, e[0], a)
   getTemp(p, a.t, tmp)
   expr(p, e[1], tmp)
-  if optTinyRtti notin p.config.globalOptions:
-    let field = dotExpr[1].sym
-    genDiscriminantCheck(p, a, tmp, dotExpr[0].typ, field)
-    localReport(p.config, e, reportSem rsemCaseTransition)
   genAssignment(p, a, tmp, {})
 
 proc genAsgn(p: BProc, e: PNode, fastAsgn: bool) =

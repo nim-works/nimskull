@@ -1,5 +1,4 @@
 discard """
-  matrix: "--gc:refc; --gc:arc"
   description: '''
     . From https://github.com/nim-lang/Nim/issues/5792
       error when a discriminator branch is constructed with certain sets

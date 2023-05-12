@@ -5,7 +5,6 @@ discard """
     location
   '''
   targets: "c js vm"
-  matrix: "--gc:refc; --gc:orc"
 """
 
 type
