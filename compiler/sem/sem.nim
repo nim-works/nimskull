@@ -368,9 +368,9 @@ func getDefNameSymOrRecover*(n: PNode): PSym {.inline.} =
   of nkError:
     case n.diag.kind
     of adSemDefNameSym: n.diag.defNameSym
-    else: unreachable("all error cases must be covered")
+    else: unreachable("all error cases must be covered, got: " & $n.diag.kind)
   else:
-    unreachable("no other cases supported")
+    unreachable("no other cases supported, got: " & $n.kind)
 
 proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
   ## like newSymS, but considers gensym'ed symbols, analyses `n` producing a
