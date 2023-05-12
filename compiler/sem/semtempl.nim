@@ -599,7 +599,9 @@ proc semTemplBodySons(c: var TemplCtx, n: PNode): PNode =
   case n.kind
   of nkError:
     discard   # return the error in result
-  else:
+  of nkWithoutSons - nkError:
+    unreachable("compiler bug, got kind: " & $n.kind)
+  of nkWithSons:
     for i in 0..<n.len:
       result[i] = semTemplBody(c, n[i])
 
@@ -938,7 +940,7 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     of nkAccQuoted:
       result = semTemplBodySons(c, n)
     else:
-      c.c.config.internalError("should never have gotten here")
+      unreachable("should never have gotten here")
   of nkExprColonExpr, nkExprEqExpr:
     if n.len == 2:
       inc c.noGenSym
@@ -954,7 +956,7 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
 
       if result[i].isError:
         hasError = true
-  of nkError:
+  of nkError, nkCommentStmt:
     result = n
   else:
     result = semTemplBodySons(c, n)
@@ -973,7 +975,9 @@ proc semTemplBodyDirtyKids(c: var TemplCtx, n: PNode): PNode =
   case n.kind
   of nkError:
     discard    # result is already assigned n
-  else:
+  of nkWithoutSons - nkError:
+    unreachable("compiler bug, got kind: " & $n.kind)
+  of nkWithSons:
     for i in 0..<n.len:
       result[i] = semTemplBodyDirty(c, n[i])
       
@@ -1007,7 +1011,7 @@ proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode =
     result = semTemplBodyDirty(c, n[0])
   of nkBindStmt:
     result = semBindStmt(c.c, n, c.toBind)
-  of nkEmpty, nkSym..nkNilLit, nkError:
+  of nkEmpty, nkSym..nkNilLit, nkError, nkCommentStmt:
     discard
   of nkDotExpr, nkAccQuoted:
     # dotExpr is ambiguous: note that we explicitly allow 'x.TemplateParam',

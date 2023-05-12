@@ -475,10 +475,9 @@ template copyNodeImpl(dst, src, processSonsStmt) =
   of nkSym: dst.sym = src.sym
   of nkIdent: dst.ident = src.ident
   of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
-  of nkEmpty, nkNone: discard # no children, nothing to do
-  of nkError:
-    dst.diag = src.diag       # do cheap copies
-  else: processSonsStmt
+  of nkEmpty, nkNone, nkNilLit, nkType: discard "no children"
+  of nkError: dst.diag = src.diag # do cheap copies
+  of nkWithSons: processSonsStmt
 
 proc copyNode*(src: PNode): PNode =
   # does not copy its sons!

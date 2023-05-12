@@ -2553,7 +2553,7 @@ proc getNullValueAux(p: BProc; t: PType; obj, constOrNil: PNode,
     var branch = Zero
     if constOrNil != nil:
       ## find kind value, default is zero if not specified
-      for i in 1..<constOrNil.len:
+      for i in 1..<constOrNil.safeLen:
         if constOrNil[i].kind == nkExprColonExpr:
           if constOrNil[i][0].sym.name.id == obj[0].sym.name.id:
             branch = getOrdValue(constOrNil[i][1])
@@ -2576,13 +2576,12 @@ proc getNullValueAux(p: BProc; t: PType; obj, constOrNil: PNode,
       result.add "." & mangleRecFieldName(p.module, b.sym) & " = "
       getNullValueAux(p, t,  b, constOrNil, result, countB, isConst, info)
     result.add "}"
-
   of nkSym:
     if count > 0: result.add ", "
     inc count
     let field = obj.sym
     if constOrNil != nil:
-      for i in 1..<constOrNil.len:
+      for i in 1..<constOrNil.safeLen:
         if constOrNil[i].kind == nkExprColonExpr:
           if constOrNil[i][0].sym.name.id == field.name.id:
             result.add genBracedInit(p, constOrNil[i][1], isConst, field.typ)

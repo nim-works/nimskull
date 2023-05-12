@@ -195,8 +195,9 @@ proc isCallExpr*(n: PNode): bool =
 
 proc safeLen*(n: PNode): int {.inline.} =
   ## works even for leaves.
-  if n.kind in {nkNone..nkNilLit}: result = 0
-  else: result = n.len
+  case n.kind
+  of nkWithoutSons: 0
+  of nkWithSons:    n.len
 
 proc getDeclPragma*(n: PNode): PNode =
   ## return the `nkPragma` node for declaration `n`, or `nil` if no pragma was found.
