@@ -1331,8 +1331,10 @@ proc isMagic(sym: PSym): bool =
 
 proc semProcTypeNode(c: PContext, n, genericParams: PNode,
                      prev: PType, kind: TSymKind; isType=false): PType =
+  # TODO: replace with a node return variant that can in band errors
   # for historical reasons (code grows) this is invoked for parameter
   # lists too and then 'isType' is false.
+  # xxx: ^^^ this is obviously a bad idea
   checkMinSonsLen(n, 1, c.config)
   result = newProcType(c, n.info, prev)
   var check = initIntSet()
@@ -1347,7 +1349,6 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       # pass over this instantiation:
       if a.kind == nkSym and sfFromGeneric in a.sym.flags:
         continue
-
       semReportIllformedAst(c.config, a, "")
 
     checkMinSonsLen(a, 3, c.config)
@@ -1367,7 +1368,6 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
             c.config,
             a[^2].info,
             reportTyp(rsemMisplacedMagicType, typ))
-
 
     if hasDefault:
       def = a[^1]
@@ -1426,7 +1426,14 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       continue
 
     for j in 0..<a.len-2:
-      var arg = newSymG(skParam, if a[j].kind == nkPragmaExpr: a[j][0] else: a[j], c)
+      let
+        givenArg = if a[j].kind == nkPragmaExpr: a[j][0] else: a[j]
+        argNode = newSymGNode(skParam, givenArg, c)
+        arg = getDefNameSymOrRecover(argNode)
+
+      if argNode.kind == nkError:
+        localReport(c.config, argNode)
+
       if a[j].kind == nkPragmaExpr:
         a[j][1] = pragmaDecl(c, arg, a[j][1], paramPragmas)
         # check if we got any errors and if so report them
