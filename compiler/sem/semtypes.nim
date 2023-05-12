@@ -497,6 +497,7 @@ proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =
     addSonSkipIntLit(result, semTypeNode(c, it, nil), c.idgen)
 
 proc semTuple(c: PContext, n: PNode, prev: PType): PType =
+  # TODO: replace with a node returning variant that can in band errors
   addInNimDebugUtils(c.config, "semTuple", n, prev, result)
   var typ: PType
   result = newOrPrevType(tyTuple, prev, c)
@@ -521,14 +522,15 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
       localReport(c.config, a[^1], reportSem rsemInitHereNotAllowed)
 
     for j in 0 ..< a.len - 2:
-      var field = newSymG(skField, a[j], c)
+      let
+        fieldNode = newSymGNode(skField, a[j], c)
+        field = getDefNameSymOrRecover(fieldNode)
       field.typ = typ
       field.position = counter
       inc(counter)
       if containsOrIncl(check, field.name.id):
         localReport(c.config, a[j].info, reportSym(
           rsemRedefinitionOf, field))
-
       else:
         result.n.add newSymNode(field)
         addSonSkipIntLit(result, typ, c.idgen)
