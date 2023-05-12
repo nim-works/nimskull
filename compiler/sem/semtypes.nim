@@ -1332,9 +1332,8 @@ proc isMagic(sym: PSym): bool =
 proc semProcTypeNode(c: PContext, n, genericParams: PNode,
                      prev: PType, kind: TSymKind; isType=false): PType =
   # TODO: replace with a node return variant that can in band errors
-  # for historical reasons (code grows) this is invoked for parameter
-  # lists too and then 'isType' is false.
-  # xxx: ^^^ this is obviously a bad idea
+  # for historical "reasons" (excuses) this is invoked for parameter lists too
+  # and then 'isType' is false; this is of course all terrible design
   checkMinSonsLen(n, 1, c.config)
   result = newProcType(c, n.info, prev)
   var check = initIntSet()
