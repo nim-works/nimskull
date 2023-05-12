@@ -544,16 +544,27 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
 
 proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
                  allowed: TSymFlags): PSym =
+  # TODO: replace with a node return variant that can in band errors
   # identifier with visibility
   if n.kind == nkPostfix:
     if n.len == 2:
       # for gensym'ed identifiers the identifier may already have been
       # transformed to a symbol and we need to use that here:
-      result = newSymG(kind, n[1], c)
-      var (v, err) = considerQuotedIdent(c, n[0])
+      let
+        identNode = newSymGNode(kind, n[1], c)
+        (star, err) = considerQuotedIdent(c, n[0])
+
+      result = getDefNameSymOrRecover(identNode)
+
+      # TODO: remove all this reports stupidity
+      if identNode.kind == nkError:
+        localReport(c.config, identNode)
+
       if err != nil:
         localReport(c.config, err)
-      if sfExported in allowed and v.id == ord(wStar):
+
+      # xxx: we can move the export allowed check much earlier
+      if sfExported in allowed and star.id == ord(wStar):
         incl(result.flags, sfExported)
       else:
         if not (sfExported in allowed):
@@ -563,9 +574,9 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
     else:
       c.config.semReportIllformedAst(
         n, "Expected two nodes for postfix expression, but found " & $n.len)
-
   else:
-    result = newSymG(kind, n, c)
+    let identNode = newSymGNode(kind, n, c)
+    result = getDefNameSymOrRecover(identNode)
 
 proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
                         allowed: TSymFlags): PSym =
