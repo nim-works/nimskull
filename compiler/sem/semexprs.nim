@@ -3208,14 +3208,14 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
         of nkEmpty, nkError:
           givenLabl
         of nkIdent, nkSym, nkAccQuoted:
-          let labl = newSymG(skLabel, givenLabl, c)
-          
+          let
+            lablNode = newSymGNode(skLabel, givenLabl, c)
+            labl = getDefNameSymOrRecover(lablNode)
+
           if sfGenSym notin labl.flags:
             addDecl(c, labl)
           elif labl.owner == nil:
             labl.owner = c.p.owner
-          
-          let lablNode = newSymNode2(labl, givenLabl.info)
 
           suggestSym(c.graph, lablNode.info, labl, c.graph.usageSym)
           styleCheckDef(c.config, labl)
@@ -3227,9 +3227,8 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
       bodyRes = semExpr(c, n[1], flags)
 
     result = copyNode(n)
-    result.flags = n.flags # xxx: we should be able to perserve flags, this
-                           #      code didn't used to do a copyNode, it changed
-                           #      `n` directly
+    result.flags = n.flags # xxx: this code used to change `n` directly, do we
+                           #      we need to preserve the flags?
     result.add lablRes
     result.add bodyRes
     result.typ = bodyRes.typ

@@ -368,9 +368,9 @@ func getDefNameSymOrRecover*(n: PNode): PSym {.inline.} =
   of nkError:
     case n.diag.kind
     of adSemDefNameSym: n.diag.defNameSym
-    else: unreachable("all error cases must be covered")
+    else: unreachable("all error cases must be covered, got: " & $n.diag.kind)
   else:
-    unreachable("no other cases supported")
+    unreachable("no other cases supported, got: " & $n.kind)
 
 proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
   ## like newSymS, but considers gensym'ed symbols, analyses `n` producing a
@@ -467,37 +467,6 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
       suggestDecl(c, n, result.sym)
     else:
       unreachable("only produces `nkSym` or `nkError`")
-
-proc newSymG*(kind: TSymKind, n: PNode, c: PContext): PSym =
-  # like newSymS, but considers gensym'ed symbols
-  case n.kind
-  of nkSym:
-    # and sfGenSym in n.sym.flags:
-    result = n.sym
-    if result.kind notin {kind, skTemp}:
-      # xxx: this happens because a macro, or possibly template, produces a
-      #      mismatched symbol, if it's the compiler that's an outright bug.
-      #      instead of logging it here, we need to ensure that macros API
-      #      doesn't allow this to happen in the first place and/or detect this
-      #      much earlier.
-      localReport(c.config, n.info, SemReport(
-        kind: rsemSymbolKindMismatch,
-        sym: result,
-        expectedSymbolKind: {kind}))
-
-    # when there is a nested proc inside a template, semtmpl
-    # will assign a wrong owner during the first pass over the
-    # template; we must fix it here: see #909
-    result.owner = getCurrOwner(c)
-  else: # xxx: should know the kinds and error out if not valid
-    let (ident, err) = considerQuotedIdent(c, n)
-    if err != nil:
-      localReport(c.config, err)
-    result = newSym(kind, ident, nextSymId c.idgen, getCurrOwner(c), n.info)
-  #if kind in {skForVar, skLet, skVar} and result.owner.kind == skModule:
-  #  incl(result.flags, sfGlobal)
-  when defined(nimsuggest):
-    suggestDecl(c, n, result)
 
 proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
                  allowed: TSymFlags): PSym

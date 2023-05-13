@@ -497,6 +497,7 @@ proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =
     addSonSkipIntLit(result, semTypeNode(c, it, nil), c.idgen)
 
 proc semTuple(c: PContext, n: PNode, prev: PType): PType =
+  # TODO: replace with a node returning variant that can in band errors
   addInNimDebugUtils(c.config, "semTuple", n, prev, result)
   var typ: PType
   result = newOrPrevType(tyTuple, prev, c)
@@ -521,14 +522,15 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
       localReport(c.config, a[^1], reportSem rsemInitHereNotAllowed)
 
     for j in 0 ..< a.len - 2:
-      var field = newSymG(skField, a[j], c)
+      let
+        fieldNode = newSymGNode(skField, a[j], c)
+        field = getDefNameSymOrRecover(fieldNode)
       field.typ = typ
       field.position = counter
       inc(counter)
       if containsOrIncl(check, field.name.id):
         localReport(c.config, a[j].info, reportSym(
           rsemRedefinitionOf, field))
-
       else:
         result.n.add newSymNode(field)
         addSonSkipIntLit(result, typ, c.idgen)
@@ -542,16 +544,27 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
 
 proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
                  allowed: TSymFlags): PSym =
+  # TODO: replace with a node return variant that can in band errors
   # identifier with visibility
   if n.kind == nkPostfix:
     if n.len == 2:
       # for gensym'ed identifiers the identifier may already have been
       # transformed to a symbol and we need to use that here:
-      result = newSymG(kind, n[1], c)
-      var (v, err) = considerQuotedIdent(c, n[0])
+      let
+        identNode = newSymGNode(kind, n[1], c)
+        (star, err) = considerQuotedIdent(c, n[0])
+
+      result = getDefNameSymOrRecover(identNode)
+
+      # TODO: remove all this reports stupidity
+      if identNode.kind == nkError:
+        localReport(c.config, identNode)
+
       if err != nil:
         localReport(c.config, err)
-      if sfExported in allowed and v.id == ord(wStar):
+
+      # xxx: we can move the export allowed check much earlier
+      if sfExported in allowed and star.id == ord(wStar):
         incl(result.flags, sfExported)
       else:
         if not (sfExported in allowed):
@@ -561,9 +574,8 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
     else:
       c.config.semReportIllformedAst(
         n, "Expected two nodes for postfix expression, but found " & $n.len)
-
   else:
-    result = newSymG(kind, n, c)
+    result = getDefNameSymOrRecover(newSymGNode(kind, n, c))
 
 proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
                         allowed: TSymFlags): PSym =
@@ -1318,8 +1330,9 @@ proc isMagic(sym: PSym): bool =
 
 proc semProcTypeNode(c: PContext, n, genericParams: PNode,
                      prev: PType, kind: TSymKind; isType=false): PType =
-  # for historical reasons (code grows) this is invoked for parameter
-  # lists too and then 'isType' is false.
+  # TODO: replace with a node return variant that can in band errors
+  # for historical "reasons" (excuses) this is invoked for parameter lists too
+  # and then 'isType' is false; this is of course all terrible design
   checkMinSonsLen(n, 1, c.config)
   result = newProcType(c, n.info, prev)
   var check = initIntSet()
@@ -1334,7 +1347,6 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       # pass over this instantiation:
       if a.kind == nkSym and sfFromGeneric in a.sym.flags:
         continue
-
       semReportIllformedAst(c.config, a, "")
 
     checkMinSonsLen(a, 3, c.config)
@@ -1354,7 +1366,6 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
             c.config,
             a[^2].info,
             reportTyp(rsemMisplacedMagicType, typ))
-
 
     if hasDefault:
       def = a[^1]
@@ -1413,7 +1424,14 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       continue
 
     for j in 0..<a.len-2:
-      var arg = newSymG(skParam, if a[j].kind == nkPragmaExpr: a[j][0] else: a[j], c)
+      let
+        givenArg = if a[j].kind == nkPragmaExpr: a[j][0] else: a[j]
+        argNode = newSymGNode(skParam, givenArg, c)
+        arg = getDefNameSymOrRecover(argNode)
+
+      if argNode.kind == nkError:
+        localReport(c.config, argNode)
+
       if a[j].kind == nkPragmaExpr:
         a[j][1] = pragmaDecl(c, arg, a[j][1], paramPragmas)
         # check if we got any errors and if so report them
@@ -2303,6 +2321,7 @@ proc semGenericConstraints(c: PContext, x: PType): PType =
   result = newTypeWithSons(c, tyGenericParam, @[x])
 
 proc semGenericParamList(c: PContext, n: PNode, father: PType = nil): PNode =
+  # TODO: replace with a node return variant that can in band errors
 
   template addSym(result: PNode, s: PSym): untyped =
     if father != nil: addSonSkipIntLit(father, s.typ, c.idgen)
@@ -2310,11 +2329,12 @@ proc semGenericParamList(c: PContext, n: PNode, father: PType = nil): PNode =
     result.add newSymNode(s)
 
   result = copyNode(n)
+
   if n.kind != nkGenericParams:
     semReportIllformedAst(
       c.config, n, "Expected generic parameter list")
-
     return
+
   for i in 0..<n.len:
     var a = n[i]
     case a.kind
@@ -2376,10 +2396,17 @@ proc semGenericParamList(c: PContext, n: PNode, father: PType = nil): PNode =
           if father != nil: father.flags.incl tfCovariant
           paramName = paramName[1]
 
-        var s = if finalType.kind == tyStatic or tfWildcard in typ.flags:
-            newSymG(skGenericParam, paramName, c).linkTo(finalType)
-          else:
-            newSymG(skType, paramName, c).linkTo(finalType)
+        let
+          sKind =
+            if finalType.kind == tyStatic or tfWildcard in typ.flags:
+              skGenericParam
+            else:
+              skType
+          sNode = newSymGNode(sKind, paramName, c)
+          s = getDefNameSymOrRecover(sNode).linkTo(finalType)
+
+        if sNode.kind == nkError:
+          c.config.localReport(sNode)
 
         if covarianceFlag != tfUnresolved: s.typ.flags.incl(covarianceFlag)
         if def.kind != nkEmpty: s.ast = def

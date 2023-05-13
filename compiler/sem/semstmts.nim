@@ -177,6 +177,7 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result.typ = typ
 
 proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
+  # TODO: rework to produce `nkError`
   var check = initIntSet()
   template semExceptBranchType(typeNode: PNode): bool =
     # returns true if exception type is imported type
@@ -219,13 +220,17 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
 
       if a.len == 2 and a[0].isInfixAs():
         # support ``except Exception as ex: body``
-        let isImported = semExceptBranchType(a[0][1])
-        let symbol = newSymG(skLet, a[0][2], c)
+        let
+          isImported = semExceptBranchType(a[0][1])
+          symbolNode = newSymGNode(skLet, a[0][2], c)
+          symbol = getDefNameSymOrRecover(symbolNode)
         symbol.typ = if isImported: a[0][1].typ
                      else: a[0][1].typ.toRef(c.idgen)
+        if symbolNode.kind == nkError:
+          localReport(c.config, symbolNode)
         addDecl(c, symbol)
         # Overwrite symbol in AST with the symbol in the symbol table.
-        a[0][2] = newSymNode(symbol, a[0][2].info)
+        a[0][2] = symbolNode
       elif a.len == 1:
         # count number of ``except: body`` blocks
         inc catchAllExcepts
@@ -1450,9 +1455,12 @@ proc semConstLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
 include semfields
 
 proc symForVar(c: PContext, n: PNode): PSym =
-  let hasPragma = n.kind == nkPragmaExpr
+  # TODO: replace with a node return variant that can in band errors
+  let
+    hasPragma = n.kind == nkPragmaExpr
+    resultNode = newSymGNode(skForVar, (if hasPragma: n[0] else: n), c)
 
-  result = newSymG(skForVar, (if hasPragma: n[0] else: n), c)
+  result = getDefNameSymOrRecover(resultNode)
   styleCheckDef(c.config, result)
 
   if hasPragma:
@@ -1460,10 +1468,11 @@ proc symForVar(c: PContext, n: PNode): PSym =
     if pragma.kind == nkError:
       n[1] = pragma
 
-      result = newSym(skError, result.name, nextSymId(c.idgen), result.owner,
-                      n.info)
-      result.typ = c.errorType
-      result.ast = c.config.wrapError(n)
+  if resultNode.kind == nkError or hasPragma and n[1].kind == nkError:
+    result = newSym(skError, result.name, nextSymId(c.idgen), result.owner,
+                    n.info)
+    result.typ = c.errorType
+    result.ast = c.config.wrapError(n)
 
 proc semSingleForVar(c: PContext, formal: PType, view: ViewTypeKind, n: PNode): PNode =
   ## Semantically analyses a single definition of a variable in the context of
