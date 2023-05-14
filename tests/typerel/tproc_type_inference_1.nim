@@ -1,7 +1,7 @@
 discard """
   description: '''
-    Tests for inference of parameter types of procedural types during overload
-    resolution
+    Tests for inference of parameter types of procedural types during type
+    matching
   '''
 """
 
@@ -69,18 +69,19 @@ block auto_return_type:
   proc callSimple(val: int, x: proc(x: int): int) =
     doAssert x(val) == val
 
-  proc callGenericRet[T](val: int, x: proc(x: int): T) =
-    # the return type of the procedural type is generic
-    doAssert x(val) == val
+  proc callGenericRet[T](val: int, x: proc(x: int): T): T =
+    # a type variable in the return type slot of the formal procedural type can
+    # be inferred if the argument type has an auto return type
+    result = x(val)
 
   proc generic[T](x: T): auto =
     result = x
 
   callSimple(1, generic)
-  callGenericRet(2, generic)
+  doAssert callGenericRet(2, generic) == 2
   # lambda expressions also support the auto return type
   callSimple(3, proc(x: auto): auto = x)
-  callGenericRet(3, proc(x: auto): auto = x)
+  doAssert callGenericRet(3, proc(x: auto): auto = x) == 3
 
 block complex_argument_expression_with_auto_return_type:
   # complex expressions yielding generic routines also work

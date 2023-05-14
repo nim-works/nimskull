@@ -1,8 +1,8 @@
 discard """
   action: reject
   description: '''
-    Tests to make sure that inference failures of procedural types during
-    type matching produce the correct error
+    Tests for inference failure of parameter types of procedural types during
+    type matching
   '''
   cmd: "nim check $options --hints:off $file"
   nimout: '''tproc_type_inference_2.nim(61, 9) Error: type mismatch: got <proc (a: A)>
@@ -29,7 +29,7 @@ proc call(x: proc (a: int | float))
   but expression 'generic' is of type: proc (a: A)
 
 expression: call(generic)
-tproc_type_inference_2.nim(87, 7) Error: type mismatch: got <proc (a: A, b: int)>
+tproc_type_inference_2.nim(88, 7) Error: type mismatch: got <proc (a: A, b: int)>
 but expected one of:
 proc call[T](x: proc (a: T; b: T))
   first type mismatch at position: 1
@@ -37,7 +37,7 @@ proc call[T](x: proc (a: T; b: T))
   but expression 'generic' is of type: proc (a: A, b: int)
 
 expression: call(generic)
-tproc_type_inference_2.nim(96, 7) Error: type mismatch: got <proc (a: A, b: A)>
+tproc_type_inference_2.nim(97, 7) Error: type mismatch: got <proc (a: A, b: A)>
 but expected one of:
 proc call[T](x: proc (a: T; b: int))
   first type mismatch at position: 1
