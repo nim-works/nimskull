@@ -518,7 +518,7 @@ proc procParamTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
   ## two different calls:
   ## - matches `f`=T to `a`=Q. `f` is a resolved metatype ('int' is bound to
   ##   it already), so `a` can be inferred; a binding for Q=int is saved
-  ## - matces `f`=U to `a`=Q. `f` is an unresolved metatype, but since Q was
+  ## - matches `f`=U to `a`=Q. `f` is an unresolved metatype, but since Q was
   ##   already inferred as 'int', U can be inferred from it; a binding for
   ##   U=int is saved
   ##
@@ -546,7 +546,7 @@ proc procParamTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
         f = nil
       if f.isNil() or containsGenericType(f):
         # no luck resolving the type, so the inference fails. Note that using
-        # ``isMetaType`` wont work, as it doesn't check for nested
+        # ``isMetaType`` won't work, as it doesn't check for nested
         # unresolved type variables
         return isNone
     # Note that this typeRel call will save a's resolved type into c.bindings

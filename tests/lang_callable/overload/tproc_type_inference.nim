@@ -43,7 +43,7 @@ block cross_inference:
 
   call(1, generic)
   # a lambda expression with two parameters using the same type variable
-  # (i.e., generic parameter) doesn't work
+  # (i.e., generic parameter) is not supported by the parser
 
 block more_complex_inference:
   # inference also works when both the formal and actual type are not directly

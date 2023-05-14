@@ -1785,9 +1785,9 @@ type
     isSubtype
     isSubrange               ## subrange of the wanted type; no type conversion
                              ## but apart from that counts as ``isSubtype``
-    isBothMetaConvertible    ## a generic procedure that otherwise matched has
-                             ## an 'auto' return type; it needs to be instantiated
-                             ## first
+    isBothMetaConvertible    ## a generic procedure with an 'auto' return type
+                             ## that otherwise matched; it needs to be
+                             ## instantiated first
     isInferred               ## generic proc was matched against a concrete type
     isInferredConvertible    ## same as above, but requiring proc CC conversion
     isGeneric

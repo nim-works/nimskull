@@ -243,9 +243,10 @@ proc fitNodeConsiderViewType(c: PContext, formal: PType, arg: PNode; info: TLine
   else:
    result = a
 
-proc genericProcCheck(c: PContext, n: PNode): PNode =
-  ## Checks that the analysed expression `n` is of generic procedural type.
-  ## Returns either `n` or an error.
+proc exprNotGenericRoutine(c: PContext, n: PNode): PNode =
+  ## Checks that the analysed expression `n` is *not* an uninstantiated generic
+  ## routine, and returns an error node if it is one. In the case of no error,
+  ## `n` is returned.
   if n.typ != nil and n.typ.kind == tyError:
     return n
 

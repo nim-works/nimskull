@@ -795,7 +795,7 @@ proc generateTypeInstance*(p: PContext, pt: TIdTable, info: TLineInfo,
                            t: PType): PType =
   ## Produces the instantiated type for the generic type `t`, using the
   ## bindings provided by `pt`. All type variables used by `t` must have
-  ## *concrete* type bounds to them -- both meta types and missing bindings
+  ## *concrete* types bound to them -- both meta types and missing bindings
   ## are disallowed and will result in an instantiation failure.
   # Given `t` like Foo[T]
   # pt: Table with type mappings: T -> int

@@ -83,7 +83,7 @@ proc semProc(c: PContext, n: PNode): PNode
 
 proc semExprBranch(c: PContext, n: PNode; flags: TExprFlags = {}): PNode =
   result = semExpr(c, n, flags)
-  result = genericProcCheck(c, result)
+  result = exprNotGenericRoutine(c, result)
   if result.typ != nil:
     # XXX tyGenericInst here?
     if result.typ.kind in {tyVar, tyLent}: result = newDeref(result)
