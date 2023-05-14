@@ -541,14 +541,16 @@ proc procParamTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
       # type is already fully-determined, so we are
       # going to try resolve it
       if c.call != nil:
-        f = prepareMetatypeForSigmatch(c.c, c.bindings, c.call.info, f)
+        f = tryGenerateInstance(c.c, c.bindings, c.call.info, f)
       else:
+        # XXX: this seems... arbitrary. The else branch prevents explicitly
+        #      instantiating a type like ``Type[A; B: static[proc(a: A)]]``
         f = nil
-      if f.isNil() or containsGenericType(f):
-        # no luck resolving the type, so the inference fails. Note that using
-        # ``isMetaType`` won't work, as it doesn't check for nested
-        # unresolved type variables
+
+      if f.isNil() or f.isMetaType:
+        # no luck resolving the type, so the inference fails
         return isNone
+
     # Note that this typeRel call will save a's resolved type into c.bindings
     let reverseRel = typeRel(c, a, f)
     if reverseRel >= isGeneric:
