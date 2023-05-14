@@ -90,6 +90,14 @@ block complex_argument_expression_with_auto_return_type:
   proc generic[T](x: T): auto =
     result = x
 
+  # with statement expression lists:
   call(1, (discard ""; generic))
   # also works with lambda expressions:
   call(2, (discard ""; (proc(x: auto): auto = x)))
+
+  # with block expressions:
+  call(1):
+    block: discard ""; generic
+  # also works with lambda expressions:
+  call(2):
+    block: discard ""; (proc(x: auto): auto = x)

@@ -252,7 +252,7 @@ proc exprNotGenericRoutine(c: PContext, n: PNode): PNode =
 
   # skip all statement list wrappers:
   var it {.cursor.} = n
-  while it.kind == nkStmtListExpr:
+  while it.kind in {nkStmtListExpr, nkBlockExpr}:
     it = it.lastSon
 
   if (it.kind == nkSym and it.sym.isGenericRoutineStrict) or

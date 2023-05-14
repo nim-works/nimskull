@@ -2095,9 +2095,9 @@ proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
     n = n
     depth = 0
 
-  # the symbol or lambda expression might be coming from a statement list
-  # expression, so we have to unwrap it first
-  while n.kind == nkStmtListExpr:
+  # the symbol or lambda expression might be nested, so we have to unwrap it
+  # first
+  while n.kind in {nkStmtListExpr, nkBlockExpr}:
     n = n.lastSon
     inc depth
 
@@ -2119,19 +2119,19 @@ proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
     # nothing else is able to provide uninstantiated generic routines
     unreachable(n.kind)
 
-  if orig.kind == nkStmtListExpr:
+  if orig.kind in {nkStmtListExpr, nkBlockExpr}:
     # make a copy of the tree, update the types, and fill in the instantiated
     # lambda/symbol expression
     let updated = copyTreeWithoutNode(orig, n)
 
     var it {.cursor.} = updated
-    # traverse all nested statement list expressions and update their type:
+    # traverse all wrappers and update their type:
     for _ in 0..<depth-1:
       it.typ = result.typ
       it = it.lastSon
 
-    # set the type for last statement list and add the instantiated
-    # expression:
+    # set the type for last wrapper and add the instantiated
+    # routine expression:
     it.typ = result.typ
     it.add result
 
