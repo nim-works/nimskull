@@ -2230,17 +2230,22 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     # complex generic type
     r = typeRel(m, f, arg.typ)
     case r
-    of isConvertible, isNone:
+    of isConvertible, isNone, isEqual:
+      # XXX: ``isEqual`` staying means that the the match counts towards both
+      #      conversion *and* exact matches, which might not be the behaviour
+      #      one expects
       discard "okay; these stay"
     of isInferredConvertible, isInferred:
       # there's nothing left to infer for the procedure type used as the
       # argument, so these are not possible
       unreachable()
-    else:
-      # some form of inference must have taken place (otherwise we wouldn't
-      # have reached here), so the match has to be counted as generic;
+    of isGeneric:
+      # don't introduce an unecessary conversion (which could happen for
+      # ``isGeneric``), only the counter needs to be incremented;
       # ``isBothMetaConvertible`` is used to signal this.
       r = isBothMetaConvertible
+    else:
+      unreachable("not possible for procedural types")
 
   # now check the relation result in `r`
   case r
