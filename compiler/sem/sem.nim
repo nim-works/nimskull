@@ -243,6 +243,24 @@ proc fitNodeConsiderViewType(c: PContext, formal: PType, arg: PNode; info: TLine
   else:
    result = a
 
+proc exprNotGenericRoutine(c: PContext, n: PNode): PNode =
+  ## Checks that the analysed expression `n` is *not* an uninstantiated generic
+  ## routine, and returns an error node if it is one. In the case of no error,
+  ## `n` is returned.
+  if n.typ != nil and n.typ.kind == tyError:
+    return n
+
+  # skip all statement list wrappers:
+  var it {.cursor.} = n
+  while it.kind in {nkStmtListExpr, nkBlockExpr}:
+    it = it.lastSon
+
+  if (it.kind == nkSym and it.sym.isGenericRoutineStrict) or
+     it.isGenericRoutine:
+    c.config.newError(n, PAstDiag(kind: adSemProcHasNoConcreteType))
+  else:
+    n
+
 proc inferWithMetatype(c: PContext, formal: PType,
                        arg: PNode, coerceDistincts = false): PNode
 

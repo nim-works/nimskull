@@ -793,6 +793,10 @@ proc recomputeFieldPositions*(t: PType; obj: PNode; currPosition: var int) =
 
 proc generateTypeInstance*(p: PContext, pt: TIdTable, info: TLineInfo,
                            t: PType): PType =
+  ## Produces the instantiated type for the generic type `t`, using the
+  ## bindings provided by `pt`. All type variables used by `t` must have
+  ## *concrete* types bound to them -- both meta types and missing bindings
+  ## are disallowed and will result in an instantiation failure.
   # Given `t` like Foo[T]
   # pt: Table with type mappings: T -> int
   # Desired result: Foo[int]
@@ -819,3 +823,34 @@ proc prepareMetatypeForSigmatch*(p: PContext, pt: TIdTable, info: TLineInfo,
 template generateTypeInstance*(p: PContext, pt: TIdTable, arg: PNode,
                                t: PType): untyped =
   generateTypeInstance(p, pt, arg.info, t)
+
+proc tryGenerateInstance*(c: PContext, pt: TIdTable, info: TLineInfo, t: PType): PType =
+  ## Tries to resolve the generic type `t` to a concrete type. Returns `nil` on
+  ## failure, and the resolved type on success.
+  ##
+  ## XXX: this procedure is only a workaround. ``replaceTypeVarsT`` should
+  ##      properly support the case where it's not certain whether all
+  ##      referenced type parameters are resolved already
+  assert containsGenericType(t)
+  result = prepareMetatypeForSigmatch(c, pt, info, t)
+
+  proc containsGenericType2(t: PType): bool =
+    if t.kind == tyGenericInst:
+      # check the parameters:
+      for i in 1..<t.len-1:
+        if t[i].isMetaType:
+          return true
+
+    result = containsGenericType(t)
+
+  # ``handleGenericInvocation`` doesn't properly propagate the ``tfHasMeta``
+  # flag, so we don't rely on it here. We also need to use a special-purpose
+  # ``containsGenericType`` -- otherwise generic phantom types wouldn't be
+  # detected as being generic
+  if containsGenericType2(result):
+    result = nil
+  else:
+    # ``prepareMetatypeForSigmatch`` doesn't produce proper instances, but
+    # since we now know that all referenced type parameters can be resolved,
+    # we can produce a proper one
+    result = generateTypeInstance(c, pt, info, t)

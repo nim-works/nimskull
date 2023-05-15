@@ -1785,10 +1785,9 @@ type
     isSubtype
     isSubrange               ## subrange of the wanted type; no type conversion
                              ## but apart from that counts as ``isSubtype``
-    isBothMetaConvertible    ## generic proc parameter was matched against
-                             ## generic type, e.g., map(mySeq, x=>x+1),
-                             ## maybe recoverable by rerun if the parameter is
-                             ## the proc's return value
+    isBothMetaConvertible    ## a generic procedure with an 'auto' return type
+                             ## that otherwise matched; it needs to be
+                             ## instantiated first
     isInferred               ## generic proc was matched against a concrete type
     isInferredConvertible    ## same as above, but requiring proc CC conversion
     isGeneric

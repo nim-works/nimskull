@@ -41,6 +41,7 @@ import
   ],
   compiler/utils/[
     debugutils,
+    idioms
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced, for example
@@ -509,20 +510,20 @@ proc procParamTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
   ## For example we have:
   ##
   ## .. code-block:: nim
-  ##   proc myMap[T,S](sIn: seq[T], f: proc(x: T): S): seq[S] = ...
-  ##   proc innerProc[Q,W](q: Q): W = ...
+  ##   proc myMap[T,U,S](sIn: seq[T], f: proc(x: T, y: U): S): seq[S] = ...
+  ##   proc innerProc[Q](q: Q, b: Q): auto = ...
   ##
   ## And we want to match: myMap(@[1,2,3], innerProc)
   ## This proc (procParamTypeRel) will do the following steps in
-  ## three different calls:
-  ## - matches f=T to a=Q. Since f is metatype, we resolve it
-  ##    to int (which is already known at this point). So in this case
-  ##    Q=int mapping will be saved to c.bindings.
-  ## - matches f=S to a=W. Both of these metatypes are unknown, so we
-  ##    return with isBothMetaConvertible to ask for rerun.
-  ## - matches f=S to a=W. At this point the return type of innerProc
-  ##    is known (we get it from c.bindings). We can use that value
-  ##    to match with f, and save back to c.bindings.
+  ## two different calls:
+  ## - matches `f`=T to `a`=Q. `f` is a resolved metatype ('int' is bound to
+  ##   it already), so `a` can be inferred; a binding for Q=int is saved
+  ## - matches `f`=U to `a`=Q. `f` is an unresolved metatype, but since Q was
+  ##   already inferred as 'int', U can be inferred from it; a binding for
+  ##   U=int is saved
+  ##
+  ## The 'auto' return type doesn't reach here, but is instead handled by
+  ## ``procTypeRel``.
   var
     f = f
     a = a
@@ -531,6 +532,7 @@ proc procParamTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
     let aResolved = PType(idTableGet(c.bindings, a))
     if aResolved != nil:
       a = aResolved
+
   if a.isMetaType:
     if f.isMetaType:
       # We are matching a generic proc (as proc param)
@@ -539,12 +541,16 @@ proc procParamTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
       # type is already fully-determined, so we are
       # going to try resolve it
       if c.call != nil:
-        f = generateTypeInstance(c.c, c.bindings, c.call.info, f)
+        f = tryGenerateInstance(c.c, c.bindings, c.call.info, f)
       else:
+        # XXX: this seems... arbitrary. The else branch prevents explicitly
+        #      instantiating a type like ``Type[A; B: static[proc(a: A)]]``
         f = nil
+
       if f.isNil() or f.isMetaType:
         # no luck resolving the type, so the inference fails
-        return isBothMetaConvertible
+        return isNone
+
     # Note that this typeRel call will save a's resolved type into c.bindings
     let reverseRel = typeRel(c, a, f)
     if reverseRel >= isGeneric:
@@ -577,12 +583,16 @@ proc procTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
     for i in 1..<f.len:
       checkParam(f[i], a[i])
 
-    if f[0] != nil:
-      if a[0] != nil:
-        checkParam(f[0], a[0])
+    if f[0] != nil and a[0] != nil:
+      # both have return types
+      if a[0].kind == tyUntyped:
+        # special handling for the return type: if `a` is 'auto' we first
+        # instantiate the procedure passed as the argument
+        result = isBothMetaConvertible
       else:
-        return isNone
-    elif a[0] != nil:
+        checkParam(f[0], a[0])
+    elif a[0] != f[0]:
+      # one has a void return type while the other doesn't
       return isNone
 
     result = getProcConvMismatch(c.c.config, f, a, result)[1]
@@ -2078,6 +2088,62 @@ template matchesVoidProc(t: PType): bool =
   (t.kind == tyProc and t.len == 1 and t[0].isNil()) or
     (t.kind == tyBuiltInTypeClass and t[0].kind == tyProc)
 
+proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
+  ## Instantiates the generic routine that the expression `n` names. Returns
+  ## the updated expression on success, 'nil' if there's nothing to
+  ## instantiate, or an error if instantiation failed.
+  let orig = n
+  var
+    n = n
+    depth = 0
+
+  # the symbol or lambda expression might be nested, so we have to unwrap it
+  # first
+  while n.kind in {nkStmtListExpr, nkBlockExpr}:
+    n = n.lastSon
+    inc depth
+
+  # instantiate the symbol
+  case n.kind
+  of nkProcDef, nkFuncDef, nkIteratorDef, nkLambdaKinds:
+    result = c.semInferredLambda(c, bindings, n)
+  of nkSym:
+    let inferred = c.semGenerateInstance(c, n.sym, bindings, n.info)
+    result =
+      if inferred.isError:
+        inferred.ast
+      else:
+        newSymNode(inferred, n.info)
+  of nkProcTy, nkIteratorTy:
+    # possible in a concept context. There's nothing to instantiate
+    return nil
+  else:
+    # nothing else is able to provide uninstantiated generic routines
+    unreachable(n.kind)
+
+  if orig.kind in {nkStmtListExpr, nkBlockExpr}:
+    # make a copy of the tree, update the types, and fill in the instantiated
+    # lambda/symbol expression
+    let updated = copyTreeWithoutNode(orig, n)
+
+    var it {.cursor.} = updated
+    # traverse all wrappers and update their type:
+    for _ in 0..<depth-1:
+      it.typ = result.typ
+      it = it.lastSon
+
+    # set the type for last wrapper and add the instantiated
+    # routine expression:
+    it.typ = result.typ
+    it.add result
+
+    if result.isError:
+      result = c.config.wrapError(updated)
+    else:
+      result = updated
+  else:
+    discard "result is already set"
+
 proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
                         argSemantized: PNode): PNode =
   if argSemantized.isError:
@@ -2154,42 +2220,34 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
         argSemantized
     return
 
-  var
-    bothMetaCounter = 0
-      ## bothMetaCounter is for safety to avoid any infinite loop,
-      ## we don't have any example when it is needed.
-    lastBindingsLength = -1
-      ## lastBindingsLenth use to track whether m.bindings remains the same,
-      ## because in that case there is no point in continuing.
-  
-  # If r == isBothMetaConvertible then we rerun typeRel.
-  while r == isBothMetaConvertible and
-      lastBindingsLength != m.bindings.counter and
-      bothMetaCounter < 100:                        # ensure termination
-
-    lastBindingsLength = m.bindings.counter
-    inc(bothMetaCounter)
-
-    case arg.kind
-    of nkProcDef, nkFuncDef, nkIteratorDef, nkLambdaKinds:
-      result = c.semInferredLambda(c, m.bindings, arg)
-    of nkSym:
-      let inferred = c.semGenerateInstance(c, arg.sym, m.bindings, arg.info)
-      result =
-        if inferred.isError:
-          inferred.ast
-        else:
-          newSymNode(inferred, arg.info)
-    else:
-      result = nil
-      return
-
-    if result.isError:
+  if r == isBothMetaConvertible:
+    result = instantiateRoutineExpr(c, m.bindings, arg)
+    if result.isNil or result.isError:
       return
 
     inc(m.convMatches)
     arg = result
+    # now that we know the result type, re-run the match. We cannot simply
+    # match the result types unfortunately, as the formal type might be some
+    # complex generic type
     r = typeRel(m, f, arg.typ)
+    case r
+    of isConvertible, isNone, isEqual:
+      # XXX: ``isEqual`` staying means that the the match counts towards both
+      #      conversion *and* exact matches, which might not be the behaviour
+      #      one expects
+      discard "okay; these stay"
+    of isInferredConvertible, isInferred:
+      # there's nothing left to infer for the procedure type used as the
+      # argument, so these are not possible
+      unreachable()
+    of isGeneric:
+      # don't introduce an unecessary conversion (which could happen for
+      # ``isGeneric``), only the counter needs to be incremented;
+      # ``isBothMetaConvertible`` is used to signal this.
+      r = isBothMetaConvertible
+    else:
+      unreachable("not possible for procedural types")
 
   # now check the relation result in `r`
   case r
@@ -2219,17 +2277,8 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       else:
         implicitConv(nkHiddenStdConv, f, arg, m, c)
   of isInferred, isInferredConvertible:
-    case arg.kind
-    of nkProcDef, nkFuncDef, nkIteratorDef, nkLambdaKinds:
-      result = c.semInferredLambda(c, m.bindings, arg)
-    of nkSym:
-      let inferred = c.semGenerateInstance(c, arg.sym, m.bindings, arg.info)
-      result = newSymNode(inferred, arg.info)
-    else:
-      result = nil
-      return
-
-    if result.isError:
+    result = instantiateRoutineExpr(c, m.bindings, arg)
+    if result.isNil or result.isError:
       return
 
     case r
@@ -2255,8 +2304,10 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     else:
       result = arg
   of isBothMetaConvertible:
-    # This is the result for the 101th time.
-    result = nil
+    # we reach here if a generic procedure with an 'auto' return type was
+    # instantiated. Regarding the counters, this is treated the same way
+    # as ``isInferred`` is
+    inc(m.genericMatches)
   of isFromIntLit:
     # too lazy to introduce another ``*matches`` field, so we conflate
     # ``isIntConv`` and ``isIntLit`` here:

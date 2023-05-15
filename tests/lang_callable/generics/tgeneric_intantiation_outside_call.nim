@@ -1,5 +1,5 @@
 discard """
-  errormsg: "cannot instantiate: \'T\'"
+  errormsg: "'m' doesn't have a concrete type, due to unspecified generic parameters"
   description: '''
     . From https://github.com/nim-lang/Nim/issues/8270
       SIGSEGV on pragma with array of generic proc

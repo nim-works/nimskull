@@ -1,5 +1,5 @@
 discard """
-  errormsg: "cannot instantiate: \'T\'"
+  errormsg: "'foo' doesn't have a concrete type, due to unspecified generic parameters"
   description: '''
     . From https://github.com/nim-lang/Nim/issues/7141
       3 lines to break the compiler: proc [T], assignment and SIGSEGV
