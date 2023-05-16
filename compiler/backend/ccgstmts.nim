@@ -157,7 +157,7 @@ proc blockLeaveActions(p: BProc, howManyTrys, howManyExcepts: int) =
 
   # Pop exceptions that was handled by the
   # except-blocks we are in
-  if noSafePoints notin p.flags:
+  block:
     for i in countdown(howManyExcepts-1, 0):
       linefmt(p, cpsStmts, "#popCurrentException();$n", [])
 
@@ -320,11 +320,6 @@ proc genReturnStmt(p: BProc, t: PNode) =
   blockLeaveActions(p,
     howManyTrys    = p.nestedTryStmts.len,
     howManyExcepts = p.inExceptBlockLen)
-  if (p.finallySafePoints.len > 0) and noSafePoints notin p.flags:
-    # If we're in a finally block, and we came here by exception
-    # consume it before we return.
-    var safePoint = p.finallySafePoints[^1]
-    linefmt(p, cpsStmts, "if ($1.status != 0) #popCurrentException();$n", [safePoint])
   lineF(p, cpsStmts, "goto BeforeRet_;$n", [])
 
 proc genGotoForCase(p: BProc; caseStmt: PNode) =

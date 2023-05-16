@@ -87,7 +87,6 @@ type
     beforeRetNeeded,
     threadVarAccessed,
     hasCurFramePointer,
-    noSafePoints,
     nimErrorFlagAccessed,
     nimErrorFlagDeclared,
     nimErrorFlagDisabled
@@ -101,8 +100,6 @@ type
                               ## in how many nested try statements we are
                               ## (the vars must be volatile then)
                               ## bool is true when are in the except part of a try block
-    finallySafePoints*: seq[Rope]  ## For correctly cleaning up exceptions when
-                                   ## using return in finally statements
     labels*: Natural          ## for generating unique labels in the C proc
     blocks*: seq[TBlock]      ## nested blocks
     breakIdx*: int            ## the block that will be exited
@@ -142,7 +139,6 @@ type
     typeInfoMarkerV2*: TypeCacheWithOwner
     config*: ConfigRef
     graph*: ModuleGraph
-    strVersion*, seqVersion*: int ## version of the string/seq implementation to use
 
     nimtv*: Rope            ## Nim thread vars; the struct body
     nimtvDeps*: seq[PType]  ## type deps: every module needs whole struct
@@ -211,7 +207,6 @@ proc newProc*(prc: PSym, module: BModule): BProc =
                    else: module.config.options
   newSeq(result.blocks, 1)
   result.nestedTryStmts = @[]
-  result.finallySafePoints = @[]
   result.sigConflicts = initCountTable[string]()
 
 proc newModuleList*(g: ModuleGraph): BModuleList =
