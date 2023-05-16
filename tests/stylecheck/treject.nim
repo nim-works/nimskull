@@ -1,17 +1,32 @@
 discard """
+  cmd: "nim check $options --stylecheck:error $file"
   action: reject
-  nimout: '''treject.nim(14, 13) Error: 'iD' should be: 'id' [field declared in treject.nim(9, 5)] [Name]'''
-  matrix: "--styleCheck:error --styleCheck:usages"
 """
 
-type
-  Name = object
-    id: int
+block types_must_start_with_a_capital_letter:
+  type
+    user = object      #[tt.Error
+    ^ 'user' should be: 'User' [Name]]#
+      id: int
+  
+  let u = user()
+  discard u
 
-template hello =
-  var iD = "string"
-  var name: Name
-  echo name.iD
-  echo iD
+block multi_letter_non_types_or_consts_must_be_lower_case:
+  proc Lame() = discard  #[tt.Error
+       ^ 'Lame' should be: 'lame']#
+  Lame()
 
-hello()
+block match_casing:
+  type
+    User = object
+      id: int
+
+  template hello =
+    var iD = "string"
+    var user: User
+    echo user.iD       #[tt.Error
+              ^ 'iD' should be: 'id' ]#
+    echo iD
+
+  hello()

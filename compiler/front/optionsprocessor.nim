@@ -1264,6 +1264,8 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     setSwitchAndSrc cmdSwitchStaticboundchecks
     processOnOffSwitch(conf, {optStaticBoundsCheck}, arg, switch)
   of "stylechecks":
+    # xxx: this option makes no sense, combine with "stylecheck"... seriously,
+    #      who hurt the person and how badly for them to produce this design?
     setSwitchAndSrc cmdSwitchStylechecks
     processOnOffSwitch(conf, {optStyleCheck}, arg, switch)
   of "linedir":
@@ -1583,6 +1585,9 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     of "error":
       conf.globalOptions = conf.globalOptions + {optStyleError}
     of "usages":
+      # xxx: this option doesn't make any sense, what should happen:
+      #      - check style for project code not dependencies
+      #      - that's about it
       conf.incl optStyleUsages
     else:
       invalidArgValue(arg, switch)
