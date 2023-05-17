@@ -56,9 +56,8 @@ Advanced options:
   --warning:X:on|off        ditto
   --warningAsError:X:on|off ditto
   --styleCheck:off|hint|error
-                            produce hints or errors for Nim identifiers that
-                            do not adhere to Nim's official style guide
-                            https://nim-lang.org/docs/nep1.html
+                            produce hints or errors for identifiers that do not
+                            adhere to the style guide
   --styleCheck:usages       only enforce consistent spellings of identifiers,
                             do not enforce the style on declarations
   --showAllMismatches:on|off

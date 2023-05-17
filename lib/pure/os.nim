@@ -3458,9 +3458,9 @@ proc getCurrentProcessId*(): int {.noWeirdTarget.} =
   ## See also:
   ## * `osproc.processID(p: Process) <osproc.html#processID,Process>`_
   when defined(windows):
-    proc GetCurrentProcessId(): DWORD {.stdcall, dynlib: "kernel32",
-                                        importc: "GetCurrentProcessId".}
-    result = GetCurrentProcessId().int
+    proc winGetCurrentProcessId(): DWORD {.stdcall, dynlib: "kernel32",
+                                           importc: "GetCurrentProcessId".}
+    result = winGetCurrentProcessId().int
   else:
     result = getpid()
 

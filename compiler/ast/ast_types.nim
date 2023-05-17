@@ -1660,7 +1660,7 @@ type
     options*: TOptions # QUESTION I don't understand the exact purpose of
                        # this field - most of the time it is copied between
                        # symbols all over the place, but checked only in
-                       # the `linter.nep1CheckDefImpl` proc (considering
+                       # the `linter.checkDefImpl` proc (considering
                        # the `optStyleCheck` could've been a global option
                        # it makes it even more weird)
     position*: int            ## used for many different things:

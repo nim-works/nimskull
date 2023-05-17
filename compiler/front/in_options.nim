@@ -23,8 +23,8 @@ type
     optGenMapping             ## generate a mapping file
     optRun                    ## run the compiled project
     optUseNimcache            ## save artifacts (including binary) in $nimcache
-    optStyleHint              ## check that the names adhere to NEP-1
-    optStyleError             ## enforce that the names adhere to NEP-1
+    optStyleHint              ## check that the names adhere to the style guide
+    optStyleError             ## enforce that the names adhere to the style guide
     optStyleUsages            ## only enforce consistent **usages** of the
                               ## symbol
     optSkipSystemConfigFile   ## skip the system's cfg/nims config file
