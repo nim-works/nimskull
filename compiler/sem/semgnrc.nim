@@ -38,7 +38,9 @@ type
   GenericCtx = object
     toMixin, toBind: IntSet
     cursorInBody: bool # only for nimsuggest
-    bracketExpr: PNode
+
+    bindParams: bool ## whether symbols of parameters (both normal and generic)
+      ## should be bound or left as unresolved identifiers
 
   TSemGenericFlag = enum
     withinBind,
@@ -71,6 +73,12 @@ template isMixedIn(sym): bool =
                                s.magic == mNone and
                                s.kind in OverloadableSyms)
 
+proc newParamSymNode(ctx: GenericCtx, orig: PNode, s: PSym): PNode =
+  if ctx.bindParams:
+    newSymNode(s, orig.info)
+  else:
+    orig
+
 proc semGenericStmtSymbol(c: PContext, n: PNode, s: PSym,
                           ctx: var GenericCtx; flags: TSemGenericFlags,
                           fromDotExpr=false): PNode =
@@ -94,22 +102,15 @@ proc semGenericStmtSymbol(c: PContext, n: PNode, s: PSym,
       result = semGenericStmt(c, result, {}, ctx)
     else:
       result = symChoice(c, n, s, scOpen)
-  of skGenericParam:
-    if s.typ != nil and s.typ.kind == tyStatic:
-      if s.typ.n != nil:
-        result = s.typ.n
-      else:
-        result = n
-    else:
-      result = newSymNodeTypeDesc(s, c.idgen, n.info)
-  of skParam:
-    result = n
+  of skGenericParam, skParam:
+    result = newParamSymNode(ctx, n, s)
   of skType:
-    if (s.typ != nil) and
-       (s.typ.flags * {tfGenericTypeParam, tfImplicitTypeParam} == {}):
+    if s.typ.isNil:
+      result = n # an invalid type symbol probably constructed by a macro
+    elif s.typ.flags * {tfGenericTypeParam, tfImplicitTypeParam} == {}:
       result = newSymNodeTypeDesc(s, c.idgen, n.info)
     else:
-      result = n
+      result = newParamSymNode(ctx, n, s)
   of skEnumField:
     if overloadableEnums in c.features:
       result = symChoice(c, n, s, scOpen)
@@ -307,13 +308,10 @@ proc semGenericStmt(c: PContext, n: PNode,
         # skip it
         if s.magic == mRunnableExamples:
           first = result.safeLen # see trunnableexamples.fun3
-      of skGenericParam:
-        result[0] = newSymNodeTypeDesc(s, c.idgen, fn.info)
-        first = 1
-      of skType:
-        # bad hack for generics:
-        if (s.typ != nil) and (s.typ.kind != tyGenericParam):
-          result[0] = newSymNodeTypeDesc(s, c.idgen, fn.info)
+      of skGenericParam, skType:
+        let x = semGenericStmtSymbol(c, n[0], s, ctx, flags)
+        if x != n[0]:
+          result[0] = x
           first = 1
       of skError:
         if s.isError: # has the error ast
@@ -577,10 +575,11 @@ proc semGenericStmt(c: PContext, n: PNode,
   when defined(nimsuggest):
     if withinTypeDesc in flags: dec c.inTypeContext
 
-proc semGenericStmt(c: PContext, n: PNode): PNode =
+proc semGenericStmt(c: PContext, n: PNode; bindParams = false): PNode =
   var ctx: GenericCtx
   ctx.toMixin = initIntSet()
   ctx.toBind = initIntSet()
+  ctx.bindParams = bindParams
   result = semGenericStmt(c, n, {}, ctx)
   semIdeForTemplateOrGeneric(c, result, ctx.cursorInBody)
 

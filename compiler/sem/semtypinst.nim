@@ -32,7 +32,8 @@ import
     semdata,
   ],
   compiler/utils/[
-    astrepr
+    astrepr,
+    debugutils
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
@@ -148,12 +149,6 @@ proc replaceTypeVarsT*(cl: var TReplTypeVars, t: PType): PType =
   result = replaceTypeVarsTAux(cl, t)
   checkMetaInvariants(cl, result)
 
-proc isTypeParameterAccess(cl: TReplTypeVars, s: PSym): bool =
-  # XXX: this is a workaround used for detecting whether the ``skType``
-  #      symbols represents a generic type parameter access
-  s.kind == skType and s.typ.kind == tyTypeDesc and
-    cl.typeMap.lookup(s.typ[0]) != nil
-
 proc prepareNode*(cl: var TReplTypeVars, n: PNode): PNode =
   ## Replaces unresolved types referenced by the nodes of expression/statement
   ## `n` with the corresponding bound ones.
@@ -161,6 +156,8 @@ proc prepareNode*(cl: var TReplTypeVars, n: PNode): PNode =
   ## Because of how late-bound static parameters are currently implemented,
   ## ``prepareNode`` is also responsible for replacing sub-expression of type
   ## ``tyStatic`` with the computed value.
+  ## TODO: update the doc comment
+  addInNimDebugUtils(cl.c.config, "prepareNode", n, result)
   template resolveStatic() =
     ## Redirects to the evaluated (or unevaluated) value of the static type, if
     ## `n` resolves to a ``tyStatic``
@@ -188,18 +185,21 @@ proc prepareNode*(cl: var TReplTypeVars, n: PNode): PNode =
     # XXX: handle the type parameter access differently; the workaround used
     #      here is shaky
     let s = n.sym
-    if s.kind == skParam or
-       (s.kind in {skGenericParam, skType} and
-        {tfGenericTypeParam, tfImplicitTypeParam} * s.typ.flags != {}) or
-       isTypeParameterAccess(cl, s):
+    if s.typ.flags * {tfImplicitTypeParam, tfGenericTypeParam} != {}:
+      assert s.kind in {skType, skParam, skGenericParam}
       resolveStatic()
+      # TODO: this is inefficient; improve it
       result = copyNode(n)
-      result.typ = t
       result.sym = replaceTypeVarsS(cl, s)
+      let typ = result.sym.typ
+      if typ.kind != tyStatic:
+        # it's correct for non-type contexts, and in type contexts,
+        # ``semTypeNode`` will skip the typedesc
+        result.typ = makeTypeDesc(cl.c, typ)
+      else:
+        result.typ = typ
     else:
-      # important: don't use ``resolveStatic`` here, as the ``replaceTypeVarsT``
-      # call would traverse into types not depending on any of the type
-      # variables we're replacing here
+      # this is neither a type variable nor does it store one; leave it as is
       result = n
   of nkWithoutSons - {nkSym}:
     resolveStatic()
@@ -231,7 +231,8 @@ proc reResolveCallsWithTypedescParams(cl: var TReplTypeVars, n: PNode): PNode =
   # in the compiler, but it's quite complicated to do so at the moment so we
   # resort to a mild hack; the head symbol of the call is temporary reset and
   # overload resolution is executed again (which may trigger generateInstance).
-  if n.kind in nkCallKinds and sfFromGeneric in n[0].sym.flags:
+  # TODO: remove this procedure
+  if n.kind in nkCallKinds and n[0].kind == nkSym and sfFromGeneric in n[0].sym.flags:
     var needsFixing = false
     for i in 1..<n.safeLen:
       if isTypeParam(n[i]): needsFixing = true
@@ -289,6 +290,7 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
   ##
   ## **See also:**
   ## * `prepareNode <#prepareNode,TReplTypeVars,PNode>`_
+  addInNimDebugUtils(cl.c.config, "replaceTypeVarsN", n, result)
   if n == nil: return
   result = copyNode(n)
   if n.typ != nil:
@@ -303,6 +305,10 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
       # don't add the 'void' field
       result = newNodeI(nkRecList, n.info)
   of nkRecWhen:
+    if cl.allowMetaTypes:
+      # we cannot choose a branch when in the possible presence of meta-types
+      return newNodeI(nkRecList, result.info)
+
     var branch: PNode = nil              # the branch to take
     for i in 0..<n.len:
       var it = n[i]
@@ -382,6 +388,7 @@ proc replaceTypeVarsS(cl: var TReplTypeVars, s: PSym): PSym =
       var g: G[string]
 
   ]#
+  # TODO: check if only creating a copy when the type changed works
   result = copySym(s, nextSymId cl.c.idgen)
   incl(result.flags, sfFromGeneric)
   #idTablePut(cl.symMap, s, result)
@@ -428,6 +435,7 @@ proc instCopyType*(cl: var TReplTypeVars, t: PType): PType =
 proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   # tyGenericInvocation[A, tyGenericInvocation[A, B]]
   # is difficult to handle:
+  addInNimDebugUtils(cl.c.config, "handleGenericInvocation", t, nil, result)
   var body = t[0]
   cl.c.config.internalAssert(body.kind == tyGenericBody, cl.info, "no generic body")
   var header = t
@@ -594,6 +602,7 @@ proc propagateFieldFlags(t: PType, n: PNode) =
   else: discard
 
 proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
+  addInNimDebugUtils(cl.c.config, "replaceTypeVarsT", t, nil, result)
   template bailout =
     if cl.recursionLimit > 100:
       # bail out, see bug #2509. But note this caching is in general wrong,
@@ -634,8 +643,16 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
     # Otherwise, the cycle will be fatal for the prepareNode call below
     assert t.n.typ != t
     var n = prepareNode(cl, t.n)
-    if n.kind != nkEmpty:
+    case n.kind
+    of nkEmpty:
+      discard
+    of nkStmtListType:
+      # don't push the type expression into compile-time execution; process
+      # it directly
+      return cl.c.semTypeNode(cl.c, n, nil)
+    else:
       n = cl.c.semConstExpr(cl.c, n)
+
     if n.typ.kind == tyTypeDesc:
       # XXX: sometimes, chained typedescs enter here.
       # It may be worth investigating why this is happening,

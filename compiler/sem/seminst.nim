@@ -147,6 +147,8 @@ proc instGenericContainer(c: PContext, info: TLineInfo, header: PType,
     header.kind == tyGenericInvocation,
     "Expected generic invocation for header kind, but found " & $header.kind)
 
+  # TODO: clean up and consider using ``generateTypeInstance`` instead
+
   var
     cl: TReplTypeVars
 
@@ -159,34 +161,34 @@ proc instGenericContainer(c: PContext, info: TLineInfo, header: PType,
   cl.c = c
   cl.allowMetaTypes = allowMetaTypes
 
-  # We must add all generic params in scope, because the generic body
-  # may include tyFromExpr nodes depending on these generic params.
-  # XXX: This looks quite similar to the code in matchUserTypeClass,
-  # perhaps the code can be extracted in a shared function.
-  openScope(c)
-  let genericTyp = header.base
-  for i in 0..<genericTyp.len - 1:
-    let genParam = genericTyp[i]
-    var param: PSym
+  # # We must add all generic params in scope, because the generic body
+  # # may include tyFromExpr nodes depending on these generic params.
+  # # XXX: This looks quite similar to the code in matchUserTypeClass,
+  # # perhaps the code can be extracted in a shared function.
+  # openScope(c)
+  # let genericTyp = header.base
+  # for i in 0..<genericTyp.len - 1:
+  #   let genParam = genericTyp[i]
+  #   var param: PSym
 
-    template paramSym(kind): untyped =
-      newSym(kind, genParam.sym.name, nextSymId c.idgen, genericTyp.sym, genParam.sym.info)
+  #   template paramSym(kind): untyped =
+  #     newSym(kind, genParam.sym.name, nextSymId c.idgen, genericTyp.sym, genParam.sym.info)
 
-    if genParam.kind == tyStatic:
-      param = paramSym skConst
-      param.ast = header[i+1].n
-      param.typ = header[i+1]
-    else:
-      param = paramSym skType
-      param.typ = makeTypeDesc(c, header[i+1])
+  #   if genParam.kind == tyStatic:
+  #     param = paramSym skConst
+  #     param.ast = header[i+1].n
+  #     param.typ = header[i+1]
+  #   else:
+  #     param = paramSym skType
+  #     param.typ = makeTypeDesc(c, header[i+1])
 
-    # this scope was not created by the user,
-    # unused params shouldn't be reported.
-    param.flags.incl sfUsed
-    addDecl(c, param)
+  #   # this scope was not created by the user,
+  #   # unused params shouldn't be reported.
+  #   param.flags.incl sfUsed
+  #   addDecl(c, param)
 
   result = replaceTypeVarsT(cl, header)
-  closeScope(c)
+  # closeScope(c)
 
 proc referencesAnotherParam(n: PNode, p: PSym): bool =
   case n.kind
