@@ -200,7 +200,6 @@ proc checkDefImpl(conf: ConfigRef; info: TLineInfo; s: PSym; k: TSymKind) =
   if optStyleCheck notin conf.options: return
   let wanted = beautifyName(s.name.s, k)
   if s.name.s != wanted:
-    echo "name: ", s.name.s, " owner.name: ", s.owner.name.s, " owner.flags: ", s.owner.flags
     conf.localReport(info, SemReport(
       sym: s,
       kind: rsemLinterReport,
