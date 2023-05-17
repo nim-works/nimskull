@@ -1,5 +1,5 @@
 discard """
-  matrix: "--styleCheck:error"
+  matrix: "--stylechecks --styleCheck:error"
 """
 
 block consts_can_be_either_upper_or_lower:

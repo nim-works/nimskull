@@ -83,7 +83,6 @@ proc beautifyName(s: string, k: TSymKind): string =
     allUpper = allCharsInSet(s, {'A'..'Z', '0'..'9', '_'})
     hasUnderscore = '_' in s
   if allUpper and k in {skType, skConst, skEnumField}: return s
-  result = newStringOfCap(s.len)
 
   # fast tracked handling
   case k
@@ -112,6 +111,7 @@ proc beautifyName(s: string, k: TSymKind): string =
   if result != "":
     return # we got a fast tracked result
 
+  result = newStringOfCap(s.len)
   var style: NamingStyle
   case k
   of skContainers:
@@ -197,7 +197,8 @@ proc checkDefImpl(conf: ConfigRef; info: TLineInfo; s: PSym; k: TSymKind) =
   if s.typ != nil and s.typ.kind == tyTypeDesc: return
   if {sfImportc, sfExportc} * s.flags != {}: return
   if k == skParam and {sfImportc, sfExportc} * s.owner.flags != {}: return
-  if optStyleCheck notin conf.options: return
+  if optStyleCheck notin s.options: return # xxx: invert this option so the
+                                           #      default is to check
   let wanted = beautifyName(s.name.s, k)
   if s.name.s != wanted:
     conf.localReport(info, SemReport(
