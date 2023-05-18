@@ -403,7 +403,7 @@ proc produceModules(g: ModuleGraph, c: var TCtx): BModuleList =
   # setup an entry for each module and generated the code for the modules'
   # initalization logic:
   for it in mlist.modules.values:
-    c.refresh(it.sym, g.idgen)
+    c.refresh(it.sym, it.idgen)
 
     var m = Module(sym: it.sym)
     m.initProc = generateTopLevelStmts(c, g.config, it)

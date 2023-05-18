@@ -27,6 +27,7 @@ type
   FullModule* = object
     stmts*: seq[PNode] ## top level statements in the order they were parsed
     sym*: PSym         ## module symbol
+    idgen*: IdGenerator
 
   ModuleListRef* = ref ModuleList
   ModuleList* = object of RootObj
@@ -56,7 +57,7 @@ proc myOpen(graph: ModuleGraph, module: PSym, idgen: IdGenerator): PPassContext 
     pos = module.position.FileIndex
 
   # add an empty entry for the module:
-  mlist.modules[pos] = FullModule(sym: module)
+  mlist.modules[pos] = FullModule(sym: module, idgen: idgen)
 
   result = ModuleRef(list: mlist, index: pos)
 
