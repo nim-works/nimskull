@@ -1,14 +1,12 @@
 ## The backend for the VM. The core code-generation is done by `vmgen`; the
-## linking bits and artifact creation are implemented here
+## linking bits and artifact creation are implemented here.
 ##
 ## Executable generation happens in roughly the following steps:
-## 1. Collect all modules and their top-level statements via the `passes`
-##  interface. This is a pure collection step, no further processing is done
-## 2. Generate all module init procedures (i.e. code for all top-level
+## 1. Generate all module init procedures (i.e. code for all top-level
 ##  statements)
-## 3. Iteratively generate code for all alive routines (excluding `method`s)
-## 4. Generate the main procedure
-## 5. Pack up all required data into `PackedEnv` and write it to the output
+## 2. Iteratively generate code for all alive routines (excluding `method`s)
+## 3. Generate the main procedure
+## 4. Pack up all required data into `PackedEnv` and write it to the output
 ##  file
 ##
 ## Similiar to the C and JS backend, dead-code-elimination (DCE) happens as a
@@ -24,12 +22,14 @@ import
     lineinfos,
     astalgo, # for `getModule`
   ],
+  compiler/backend/[
+    collectors
+  ],
   compiler/front/[
     msgs,
     options
   ],
   compiler/sem/[
-    passes,
     transf
   ],
   compiler/mir/[
@@ -68,10 +68,8 @@ type
     code: seq[TInstr]
     debug: seq[TLineInfo]
 
-  #[
   Module = object
-    stmts: seq[PNode] ## top level statements in the order they were parsed
-    sym: PSym ## module symbol
+    sym: PSym
 
     initGlobalsCode: CodeFragment ## the bytecode of `initGlobalsProc`. Each
       ## encountered `{.global.}`'s init statement gets code-gen'ed into the
@@ -79,7 +77,11 @@ type
     initGlobalsProc: CodeInfo ## the proc that initializes `{.global.}`
       ## variables
     initProc: CodeInfo ## the module init proc (top-level statements)
-  ]#
+
+  BModuleList = object
+    modules: seq[Module]
+    modulesClosed: seq[int]
+    moduleMap: Table[int, int]
 
 func growBy[T](x: var seq[T], n: Natural) {.inline.} =
   x.setLen(x.len + n)
@@ -141,8 +143,8 @@ proc genStmt(c: var TCtx, n: PNode): auto =
   c.gatherDependencies(n, withGlobals=true)
   vmgen.genStmt(c, n)
 
-proc generateTopLevelStmts*(module: var Module, c: var TCtx,
-                            config: ConfigRef) =
+proc generateTopLevelStmts(c: var TCtx, config: ConfigRef,
+                           module: FullModule): CodeInfo =
   ## Generates code for all collected top-level statements of `module` and
   ## compiles the fragments into a single function. The resulting code is
   ## stored in `module.initProc`
@@ -164,7 +166,7 @@ proc generateTopLevelStmts*(module: var Module, c: var TCtx,
 
   c.gABC(n, opcRet)
 
-  module.initProc = (start: start, regCount: c.prc.regInfo.len)
+  result = (start: start, regCount: c.prc.regInfo.len)
 
 proc generateCodeForProc(c: var TCtx, s: PSym,
                          globals: var seq[PNode]): VmGenResult =
@@ -208,7 +210,7 @@ proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]
   # Swap back once done
   swapState()
 
-proc generateAliveProcs(c: var TCtx, mlist: var ModuleList) =
+proc generateAliveProcs(c: var TCtx, mlist: var BModuleList) =
   ## Runs code generation for all routines (except methods) directly used
   ## by the routines in `c.linkState.newProcs`, including the routines in
   ## the list itself.
@@ -308,7 +310,7 @@ func addInitProcs(ft: var seq[FuncTableEntry], m: Module, sig: RoutineSigId) =
     ft.add initFuncTblEntry(m.sym, sig, m.initProc)
 
 proc generateMain(c: var TCtx, mainModule: PSym,
-                  mlist: ModuleList): FunctionIndex =
+                  mlist: BModuleList): FunctionIndex =
   ## Generates and links in the main procedure (the entry point) along with
   ## setting up the required state.
 
@@ -378,12 +380,39 @@ func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
   mapList(dst.globals, globals, it):
     enc.typeMap[it]
 
+proc produceModules(g: ModuleGraph, c: var TCtx): BModuleList =
+  ## Takes the ``ModuleList`` stored in `g` and uses it for producing the
+  ## module list used by the VM backend. The bytecode for the modules'
+  ## initialization logic (i.e, top-level statements) is also generated
+  ## here already.
+
+  # in order to reduce overall memory consumption, we consume the module list
+  # that was collected earlier. Everything that was not moved over to the
+  # ``ModuleList`` instance we're using in the backend gets freed once the
+  # current procedure exits
+  var mlist = move ModuleListRef(g.backend)[]
+  g.backend = nil # prevent others from observing the empty module list
+
+  # setup an entry for each module and generated the code for the modules'
+  # initalization logic:
+  for it in mlist.modules.items:
+    c.refresh(it.sym, g.idgen)
+
+    var m = Module(sym: it.sym)
+    m.initProc = generateTopLevelStmts(c, g.config, it)
+    m.initGlobalsCode.prc = PProc()
+
+    result.modules.add(m)
+
+  # extract the other data:
+  result.modulesClosed = move mlist.modulesClosed
+  result.moduleMap     = move mlist.moduleMap
+
 proc generateCode*(g: ModuleGraph) =
   ## The backend's entry point. Orchestrates code generation and linking. If
   ## all went well, the resulting binary is written to the project's output
   ## file
   let
-    mlist = g.backend.ModuleListRef
     conf = g.config
 
   var c = TCtx(config: g.config, cache: g.cache, graph: g, idgen: g.idgen,
@@ -395,17 +424,10 @@ proc generateCode*(g: ModuleGraph) =
   # corresponding procs:
   registerCallbacks(c)
 
-  # generate all module init procs (i.e. code for the top-level statements):
-  for m in mlist.modules.mitems:
-    c.refresh(m.sym, g.idgen)
-    generateTopLevelStmts(m, c, g.config)
+  var mlist = produceModules(g, c)
 
-    # combine module list iteration with initialiazing `initGlobalsCode`:
-    m.initGlobalsCode.prc = PProc()
-
-  # generate code for the set of active alive routines
-  # (`c.linkState.newProcs`). This can uncover new ``const`` symbols
-  generateAliveProcs(c, mlist[])
+  # generate code for all alive routines
+  generateAliveProcs(c, mlist)
   reset(c.linkState.newProcs) # free the occupied memory already
 
   # XXX: generation of method dispatchers would go here. Note that `method`
@@ -432,7 +454,7 @@ proc generateCode*(g: ModuleGraph) =
       m.initGlobalsProc = (start: -1, regCount: 0)
 
   let entryPoint =
-    generateMain(c, g.getModule(conf.projectMainIdx), mlist[])
+    generateMain(c, g.getModule(conf.projectMainIdx), mlist)
 
   c.gABC(g.emptyNode, opcEof)
 

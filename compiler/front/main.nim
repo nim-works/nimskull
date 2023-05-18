@@ -42,6 +42,7 @@ import
     modulegraphs # Project module graph
   ],
   compiler/backend/[
+    collectors,
     extccomp,    # Calling C compiler
     cgen,        # C code generation
   ],
@@ -245,11 +246,11 @@ proc commandCompileToJS(graph: ModuleGraph) =
 
 proc commandCompileToVM(graph: ModuleGraph) =
   semanticPasses(graph)
-  registerPass(graph, vmgenPass)
+  registerPass(graph, collectPass)
   compileProject(graph)
 
   # The VM-backend doesn't use a pass for the actual code generation, but a
-  # separate function instead (similar to the C-backend for IC)
+  # separate procedure instead (similar to the C-backend for IC)
   vmbackend.generateCode(graph)
 
 proc interactivePasses(graph: ModuleGraph) =

@@ -23,17 +23,17 @@ import
   ]
 
 type
-  Module* = object
+  FullModule* = object
     stmts*: seq[PNode] ## top level statements in the order they were parsed
     sym*: PSym         ## module symbol
 
   ModuleListRef* = ref ModuleList
   ModuleList* = object of RootObj
-    modules*: seq[Module]
+    modules*: seq[FullModule]
     modulesClosed*: seq[int]   ## indices into `modules` in the order the
                                ## modules were closed. The first closed module
                                ## comes first, then the next, etc.
-    moduleMap: Table[int, int] ## module sym-id -> index into `modules`
+    moduleMap*: Table[int, int] ## module sym-id -> index into `modules`
 
   ModuleRef = ref object of TPassContext
     ## The pass context for the VM backend. Represents a reference to a
@@ -56,7 +56,7 @@ proc myOpen(graph: ModuleGraph, module: PSym, idgen: IdGenerator): PPassContext 
 
   # append an empty module to the list
   mlist.modules.growBy(1)
-  mlist.modules[next] = Module(sym: module)
+  mlist.modules[next] = FullModule(sym: module)
   mlist.moduleMap[module.id] = next
 
   result = ModuleRef(list: mlist, index: next)
