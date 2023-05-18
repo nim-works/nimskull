@@ -387,18 +387,12 @@ func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
   mapList(dst.globals, globals, it):
     enc.typeMap[it]
 
-proc produceModules(g: ModuleGraph, c: var TCtx): BModuleList =
-  ## Takes the ``ModuleList`` stored in `g` and uses it for producing the
-  ## module list used by the VM backend. The bytecode for the modules'
-  ## initialization logic (i.e, top-level statements) is also generated
-  ## here already.
-
-  # in order to reduce overall memory consumption, we consume the module list
-  # that was collected earlier. Everything that was not moved over to the
-  # ``ModuleList`` instance we're using in the backend gets freed once the
-  # current procedure exits
-  var mlist = move ModuleListRef(g.backend)[]
-  g.backend = nil # prevent others from observing the empty module list
+proc produceModules(g: ModuleGraph, c: var TCtx,
+                    mlist: sink ModuleList): BModuleList =
+  ## Translates the input `mlist` into a more packed representation for use by
+  ## the rest of the orchestrator. The bytecode for the modules' initialization
+  ## logic (i.e, top-level statements) is also generated here, so that
+  ## the collected top-level AST can be disposed already.
 
   # setup an entry for each module and generated the code for the modules'
   # initalization logic:
@@ -417,7 +411,7 @@ proc produceModules(g: ModuleGraph, c: var TCtx): BModuleList =
   for i, it in mlist.modulesClosed.pairs:
     result.modulesClosed[i] = result.moduleMap[it.int]
 
-proc generateCode*(g: ModuleGraph) =
+proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   ## The backend's entry point. Orchestrates code generation and linking. If
   ## all went well, the resulting binary is written to the project's output
   ## file
@@ -433,7 +427,7 @@ proc generateCode*(g: ModuleGraph) =
   # corresponding procs:
   registerCallbacks(c)
 
-  var mlist = produceModules(g, c)
+  var mlist = produceModules(g, c, mlist)
 
   # generate code for all alive routines
   generateAliveProcs(c, mlist)

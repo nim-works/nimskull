@@ -108,7 +108,9 @@ type
                                             # first module that included it
     importStack*: seq[FileIndex]  # The current import stack. Used for detecting recursive
                                   # module dependencies.
-    backend*: RootRef # minor hack so that a backend can extend this easily
+    backend*: RootRef # XXX: having this field is a hack, but it's still
+                      #      required by the current ``passes`` design. Remove
+                      #      the ``passes`` design is phased out
     config*: ConfigRef
     cache*: IdentCache
     vm*: RootRef # unfortunately the 'vm' state is shared project-wise, this will

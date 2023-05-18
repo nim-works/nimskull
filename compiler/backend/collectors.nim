@@ -46,6 +46,12 @@ func isFilled*(m: FullModule): bool =
   # required so that ``FullModule`` is usable as the item type of a ``SeqMap``
   m.sym != nil
 
+proc takeModuleList*(graph: ModuleGraph): ModuleList =
+  ## Moves the ``ModuleList`` set up by the collector pass out of the
+  ## `graph.backend` field and returns it.
+  result = move ModuleListRef(graph.backend)[]
+  graph.backend = nil
+
 # Below is the `passes` interface implementation
 
 proc myOpen(graph: ModuleGraph, module: PSym, idgen: IdGenerator): PPassContext =

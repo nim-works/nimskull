@@ -205,7 +205,7 @@ proc commandCompileToC(graph: ModuleGraph) =
   if graph.config.errorCounter > 0:
     return # issue #9933
   if conf.symbolFiles == disabledSf:
-    cbackend2.generateCode(graph)
+    cbackend2.generateCode(graph, graph.takeModuleList())
     cgenWriteModules(graph.backend, conf)
   else:
     if isDefined(conf, "nimIcIntegrityChecks"):
@@ -243,7 +243,7 @@ proc commandCompileToJS(graph: ModuleGraph) =
     registerPass(graph, collectPass)
     compileProject(graph)
 
-    jsbackend.generateCode(graph)
+    jsbackend.generateCode(graph, graph.takeModuleList())
 
     if conf.depfile.string.len != 0:
       writeGccDepfile(conf)
@@ -257,7 +257,7 @@ proc commandCompileToVM(graph: ModuleGraph) =
 
   # The VM-backend doesn't use a pass for the actual code generation, but a
   # separate procedure instead (similar to the C-backend for IC)
-  vmbackend.generateCode(graph)
+  vmbackend.generateCode(graph, graph.takeModuleList())
 
 proc interactivePasses(graph: ModuleGraph) =
   initDefines(graph.config.symbols)

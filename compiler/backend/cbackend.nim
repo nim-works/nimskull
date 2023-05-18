@@ -28,11 +28,10 @@ import
 
 from compiler/sem/passes import skipCodegen
 
-proc generateCode*(graph: ModuleGraph) =
+proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point for C code-generation. Only the C code is generated -- nothing
   ## is written to disk yet.
   let
-    mlist = ModuleListRef(graph.backend)
     config = graph.config
 
   var g = newModuleList(graph)

@@ -42,11 +42,10 @@ proc writeModules(graph: ModuleGraph, globals: PGlobals) =
 
   discard writeRopeIfNotEqual(code, outFile)
 
-proc generateCode*(graph: ModuleGraph) =
+proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point into the JS backend. Generates the code for all modules and
   ## writes it to the output file.
   let
-    mlist = ModuleListRef(graph.backend)
     globals = newGlobals()
 
   # generate the code for all modules:
