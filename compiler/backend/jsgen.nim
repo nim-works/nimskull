@@ -123,7 +123,6 @@ type
 
   PGlobals* = ref object
     typeInfo, constants, code: Rope
-    forwarded: seq[PSym]
     generatedSyms: IntSet
     typeInfoGenerated: IntSet
     unique: int    # for temp identifier generation
@@ -165,7 +164,6 @@ template nested(p, body) =
 
 proc newGlobals*(): PGlobals =
   new(result)
-  result.forwarded = @[]
   result.generatedSyms = initIntSet()
   result.typeInfoGenerated = initIntSet()
 
@@ -1441,9 +1439,9 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
     elif s.kind == skMethod and getBody(p.module.graph, s).kind == nkEmpty:
       # we cannot produce code for the dispatcher yet:
       discard
-    elif sfForward in s.flags:
-      p.g.forwarded.add(s)
     else:
+      # unresolved borrow or forward declarations must not reach here
+      assert {sfForward, sfBorrow} * s.flags == {}
       genProcForSymIfNeeded(p, s)
   else:
     p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
@@ -2679,11 +2677,6 @@ proc genTopLevelStmt*(globals: PGlobals, m: BModule, n: PNode) =
   p.g.code.add(p.body)
 
 proc finishMainModule(graph: ModuleGraph, globals: PGlobals, m: BModule) =
-  for prc in globals.forwarded:
-    if not globals.generatedSyms.containsOrIncl(prc.id):
-      var p = newInitProc(globals, m)
-      attachProc(p, prc)
-
   var disp = generateMethodDispatchers(graph)
   for i in 0..<disp.len:
     let prc = disp[i].sym
