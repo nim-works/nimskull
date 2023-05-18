@@ -151,7 +151,8 @@ type
                             ## nimtvDeps is VERY hard to cache because it's
                             ## not a list of IDs nor can it be made to be one.
 
-  TCGen = object of PPassContext ## represents a C source file
+  TCGen = object ## represents a C source file
+    idgen*: IdGenerator
     s*: TCFileSections        ## sections of the C file
     flags*: set[CodegenFlag]
     module*: PSym

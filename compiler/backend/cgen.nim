@@ -52,7 +52,6 @@ import
     idioms
   ],
   compiler/sem/[
-    passes,
     rodutils,
     aliases,
     lowerings,
@@ -76,9 +75,10 @@ from compiler/ast/reports_sem import SemReport,
   reportTyp
 from compiler/ast/report_enums import ReportKind
 
-# XXX: the code-generator should not need to know about the existance of
+# XXX: the code-generator should not need to know about the existence of
 #      destructor injections (or destructors, for that matter)
 from compiler/sem/injectdestructors import deferGlobalDestructor
+from compiler/sem/passes import moduleHasChanged # XXX: leftover dependency
 
 import std/strutils except `%`, addf # collides with ropes.`%`
 
@@ -1586,7 +1586,7 @@ proc initProcOptions(m: BModule): TOptions =
   let opts = m.config.options
   if sfSystemModule in m.module.flags: opts-{optStackTrace} else: opts
 
-proc rawNewModule(g: BModuleList; module: PSym, filename: AbsoluteFile): BModule =
+proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModule =
   new(result)
   result.g = g
   result.tmpBase = rope("TM" & $hashOwner(module) & "_")
@@ -1629,25 +1629,6 @@ proc newModule*(g: BModuleList; module: PSym; conf: ConfigRef): BModule =
   #growCache g.modules, module.position
   g.modules[module.position] = result
 
-template injectG() {.dirty.} =
-  if graph.backend == nil:
-    graph.backend = newModuleList(graph)
-  let g = BModuleList(graph.backend)
-
-when not defined(nimHasSinkInference):
-  {.pragma: nosinks.}
-
-proc myOpen(graph: ModuleGraph; module: PSym; idgen: IdGenerator): PPassContext {.nosinks.} =
-  injectG()
-  result = newModule(g, module, graph.config)
-  result.idgen = idgen
-  if optGenIndex in graph.config.globalOptions and g.generatedHeader == nil:
-    let f = if graph.config.headerFile.len > 0: AbsoluteFile graph.config.headerFile
-            else: graph.config.projectFull
-    g.generatedHeader = rawNewModule(g, module,
-      changeFileExt(completeCfilePath(graph.config, f), hExt))
-    incl g.generatedHeader.flags, isHeaderFile
-
 proc writeHeader(m: BModule) =
   var result = headerTop()
   var guard = "__$1__" % [m.filename.splitFile.name.rope]
@@ -1670,16 +1651,8 @@ proc writeHeader(m: BModule) =
 proc getCFile(m: BModule): AbsoluteFile =
   result = changeFileExt(completeCfilePath(m.config, withPackageName(m.config, m.cfilename)), ".nim.c")
 
-when false:
-  proc myOpenCached(graph: ModuleGraph; module: PSym, rd: PRodReader): PPassContext =
-    injectG()
-    var m = newModule(g, module, graph.config)
-    readMergeInfo(getCFile(m), m)
-    result = m
-
 proc genTopLevelStmt*(m: BModule; n: PNode) =
-  ## Also called from `ic/cbackend.nim`.
-  if passes.skipCodegen(m.config, n): return
+  ## Called from `ic/cbackend.nim` and ``backend/cbackend.nim``.
   m.initProc.options = initProcOptions(m)
   #softRnl = if optLineDir in m.config.options: noRnl else: rnl
   # XXX replicate this logic!
@@ -1688,12 +1661,6 @@ proc genTopLevelStmt*(m: BModule; n: PNode) =
                                         transformedN, {})
 
   genProcBody(m.initProc, transformedN)
-
-proc myProcess(b: PPassContext, n: PNode): PNode =
-  result = n
-  if b != nil:
-    var m = BModule(b)
-    genTopLevelStmt(m, n)
 
 proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
   if optForceFullMake notin m.config.globalOptions:
@@ -1760,7 +1727,7 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
   # phase ordering problem here: We need to announce this
   # dependency to 'nimTestErrorFlag' before system.c has been written to
   # disk. We also have to announce the dependency *from* the system module, as
-  # only there it is certain that all the procedure's dependencies also exist
+  # only there it is certain that all the procedure's dependencies exist
   # already
   if sfSystemModule in m.module.flags:
     discard cgsym(m, "nimTestErrorFlag")
@@ -1788,14 +1755,9 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
       let disp = generateMethodDispatchers(graph)
       for x in disp: genProcAux(m, x.sym)
 
-  let mm = m
-  m.g.modulesClosed.add mm
-
-
-proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
-  result = n
-  if b == nil: return
-  finalCodegenActions(graph, BModule(b), n)
+  # for compatibility, the code generator still manages its own "closed order"
+  # list, but this should be phased out eventually
+  m.g.modulesClosed.add m
 
 proc genForwardedProcs(g: BModuleList) =
   # Forward declared proc:s lack bodies when first encountered, so they're given
@@ -1822,5 +1784,3 @@ proc cgenWriteModules*(backend: RootRef, config: ConfigRef) =
     m.writeModule(pending=true)
   writeMapping(config, g.mapping)
   if g.generatedHeader != nil: writeHeader(g.generatedHeader)
-
-const cgenPass* = makePass(myOpen, myProcess, myClose)
