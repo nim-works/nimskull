@@ -62,8 +62,8 @@ result.value = move(lvalue)
 var
   :tmp
   :tmp_1
-var :tmp_2
 var a
+var :tmp_2
 try:
   var it_cursor = x
   a = (

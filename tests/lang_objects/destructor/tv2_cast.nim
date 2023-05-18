@@ -40,9 +40,9 @@ finally:
 -- end of expandArc ------------------------
 --expandArc: main2
 
+var s
 var data
 var :tmp
-var s
 try:
   s = newSeq(100)
   var :tmp_1 = encode(s)
