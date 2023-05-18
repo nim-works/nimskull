@@ -58,8 +58,6 @@ Advanced options:
   --styleCheck:off|hint|error
                             produce hints or errors for identifiers that do not
                             adhere to the style guide
-  --styleCheck:usages       only enforce consistent spellings of identifiers,
-                            do not enforce the style on declarations
   --showAllMismatches:on|off
                             show all mismatching candidates in overloading
                             resolution

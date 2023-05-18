@@ -675,12 +675,9 @@ func isEnabled*(conf: ConfigRef, report: ReportKind): bool =
     strictNotNil in conf.features
   of rdbgVmExecTraceMinimal:
     conf.active.isVmTrace
-  of rlexLinterReport, rsemLinterReport:
+  of rlexLinterReport, rsemLinterReport, rsemLinterReportUse:
     # Regular linter report is enabled if style check is either hint or
     # error, AND not `usages`
-    {optStyleHint, optStyleError} * conf.globalOptions != {} and
-    optStyleUsages notin conf.globalOptions
-  of rsemLinterReportUse:
     {optStyleHint, optStyleError} * conf.globalOptions != {}
   else:
     case report
