@@ -65,12 +65,7 @@ proc myProcess(b: PPassContext, n: PNode): PNode =
   result = n
   let m = ModuleRef(b)
 
-  const declarativeKinds = routineDefs + {nkTypeSection, nkPragma,
-    nkExportStmt, nkExportExceptStmt, nkFromStmt, nkImportStmt,
-    nkImportExceptStmt}
-
-  if n.kind notin declarativeKinds:
-    m.list.modules[m.index].stmts.add(n)
+  m.list.modules[m.index].stmts.add(n)
 
 proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
   result = myProcess(b, n)
