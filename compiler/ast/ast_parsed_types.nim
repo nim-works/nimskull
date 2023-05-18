@@ -170,7 +170,6 @@ type
     pnkStmtListExpr
     pnkImportStmt
     pnkImportExceptStmt
-    pnkImportAs
     pnkFromStmt
     pnkIncludeStmt
     pnkExportStmt
