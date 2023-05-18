@@ -1089,6 +1089,16 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
 
     entries.add (pos: pos, scope: scopeStart)
 
+  # sort the entries by scope (first-order) and position (second-order) in
+  # ascending order. Do this before moving the definitions, as `entries` would
+  # have no defined order otherwise (which could change the relative order
+  # of the moved definitions)
+  sort(entries, proc(x, y: auto): int =
+    result = ord(x.scope) - ord(y.scope)
+    if result == 0:
+      result = ord(x.pos) - ord(y.pos)
+  )
+
   # second pass: if at least one entity in a scope needs its destructor call
   # placed in a ``finally`` clause, all others in the same scope do too, as the
   # order-of-destruction would be violated otherwise
@@ -1120,14 +1130,6 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
       c.seek(scope + 1)
       c.insert(NodeInstance pos, buf):
         buf.add toOpenArray(tree, pos.int, pos.int+2)
-
-  # sort the entries by scope (first-order) and position (second-order) in
-  # ascending order
-  sort(entries, proc(x, y: auto): int =
-    result = ord(x.scope) - ord(y.scope)
-    if result == 0:
-      result = ord(x.pos) - ord(y.pos)
-  )
 
   iterator scopeItems(e: seq[DestroyEntry]): Slice[int] {.inline.} =
     ## Partitions `e` using the `scope` field and yields the slice of each
