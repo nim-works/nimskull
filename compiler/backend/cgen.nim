@@ -108,9 +108,6 @@ const NonMagics* = {mNone, mIsolate, mNewSeq, mSetLengthSeq, mAppendSeqElem}
   ## magics that are treated like normal procedures by the code generator.
   ## This set only applies when using the new runtime.
 
-proc addForwardedProc(m: BModule, prc: PSym) =
-  m.g.forwardedProcs.add(prc)
-
 proc findPendingModule(m: BModule, s: PSym): BModule =
   let ms = s.itemId.module  #getModule(s)
   result = m.g.modules[ms]
@@ -1174,18 +1171,18 @@ proc requestConstImpl(p: BProc, sym: PSym) =
 proc isActivated(prc: PSym): bool = prc.typ != nil
 
 proc genProc(m: BModule, prc: PSym) =
-  if sfBorrow in prc.flags or not isActivated(prc): return
-  if sfForward in prc.flags:
-    addForwardedProc(m, prc)
-    fillProcLoc(m, prc.ast[namePos])
-  else:
-    genProcNoForward(m, prc)
-    if {sfExportc, sfCompilerProc} * prc.flags == {sfExportc} and
-        m.g.generatedHeader != nil and lfNoDecl notin prc.loc.flags:
-      genProcPrototype(m.g.generatedHeader, prc)
-      if prc.typ.callConv == ccInline:
-        if not containsOrIncl(m.g.generatedHeader.declaredThings, prc.id):
-          genProcAux(m.g.generatedHeader, prc)
+  # unresolved borrows or forward declarations must not reach here
+  assert {sfBorrow, sfForward} * prc.flags == {}
+  assert isActivated(prc)
+  genProcNoForward(m, prc)
+  if {sfExportc, sfCompilerProc} * prc.flags == {sfExportc} and
+      m.g.generatedHeader != nil and lfNoDecl notin prc.loc.flags:
+    # XXX: don't populate the generated header from inside the code
+    #      generator -- make it a responsibility of the orchestrator
+    genProcPrototype(m.g.generatedHeader, prc)
+    if prc.typ.callConv == ccInline:
+      if not containsOrIncl(m.g.generatedHeader.declaredThings, prc.id):
+        genProcAux(m.g.generatedHeader, prc)
 
 proc genVarPrototype(m: BModule, n: PNode) =
   #assert(sfGlobal in sym.flags)
@@ -1750,8 +1747,7 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
       if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
         discard cgsym(m, "initThreadVarsEmulation")
 
-      if m.g.forwardedProcs.len == 0:
-        incl m.flags, objHasKidsValid
+      incl m.flags, objHasKidsValid
       let disp = generateMethodDispatchers(graph)
       for x in disp: genProcAux(m, x.sym)
 
@@ -1759,26 +1755,9 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
   # list, but this should be phased out eventually
   m.g.modulesClosed.add m
 
-proc genForwardedProcs(g: BModuleList) =
-  # Forward declared proc:s lack bodies when first encountered, so they're given
-  # a second pass here
-  # Note: ``genProcNoForward`` may add to ``forwardedProcs``
-  while g.forwardedProcs.len > 0:
-    let
-      prc = g.forwardedProcs.pop()
-      m = g.modules[prc.itemId.module]
-    m.config.internalAssert(sfForward notin prc.flags, prc.info, "still forwarded: " & prc.name.s)
-
-    genProcNoForward(m, prc)
-
 proc cgenWriteModules*(backend: RootRef, config: ConfigRef) =
   let g = BModuleList(backend)
   g.config = config
-
-  # we need to process the transitive closure because recursive module
-  # deps are allowed (and the system module is processed in the wrong
-  # order anyway)
-  genForwardedProcs(g)
 
   for m in cgenModules(g):
     m.writeModule(pending=true)
