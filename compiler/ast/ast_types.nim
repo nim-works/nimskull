@@ -311,7 +311,7 @@ const
 
     nkStmtList, nkStmtListExpr,
 
-    nkImportStmt, nkImportExceptStmt, nkImportAs, nkFromStmt,
+    nkImportStmt, nkImportExceptStmt, nkFromStmt,
 
     nkIncludeStmt,
 

@@ -46,7 +46,8 @@ import
   ],
   compiler/utils/[
     pathutils,
-    astrepr
+    astrepr,
+    idioms,
   ]
 
 type
@@ -1461,7 +1462,12 @@ proc parseImport(p: var Parser, kind: ParsedNodeKind): ParsedNode =
   result.add parseExpr(p)
   if p.tok.tokType in {tkComma, tkExcept}:
     if p.tok.tokType == tkExcept:
-      result.transitionSonsKind(succ(kind))
+      let exceptKind =
+        case kind
+        of pnkImportStmt: pnkImportExceptStmt
+        of pnkExportStmt: pnkExportExceptStmt
+        else: unreachable()
+      result.transitionSonsKind(exceptKind)
     p.getTok
     p.optInd(result)
     while true:

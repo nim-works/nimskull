@@ -732,7 +732,6 @@ func toTNodeKind*(kind: ParsedNodeKind): TNodeKind {.inline.} =
   of pnkStmtListExpr: nkStmtListExpr
   of pnkImportStmt: nkImportStmt
   of pnkImportExceptStmt: nkImportExceptStmt
-  of pnkImportAs: nkImportAs
   of pnkFromStmt: nkFromStmt
   of pnkIncludeStmt: nkIncludeStmt
   of pnkExportStmt: nkExportStmt
