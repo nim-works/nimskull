@@ -82,7 +82,7 @@ from compiler/front/scripting import runNimScript
 
 when not defined(leanCompiler):
   import
-    compiler/backend/jsgen,
+    compiler/backend/jsbackend,
     compiler/tools/[docgen, docgen2]
 
 when defined(nimDebugUnreportedErrors):
@@ -240,8 +240,11 @@ proc commandCompileToJS(graph: ModuleGraph) =
 
     defineSymbol(conf, "ecmascript") # For backward compatibility
     semanticPasses(graph)
-    registerPass(graph, JSgenPass)
+    registerPass(graph, collectPass)
     compileProject(graph)
+
+    jsbackend.generateCode(graph)
+
     if conf.depfile.string.len != 0:
       writeGccDepfile(conf)
     if optGenScript in conf.globalOptions:
