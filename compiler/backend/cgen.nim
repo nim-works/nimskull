@@ -48,7 +48,8 @@ import
     nversion,
     bitsets,
     ropes,
-    pathutils
+    pathutils,
+    idioms
   ],
   compiler/sem/[
     passes,
@@ -394,7 +395,20 @@ proc genObjectInitHeader(p: BProc, section: TCProcSection, t: PType, r: Rope,
 
 proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
                    mode: ObjConstrMode) =
-  #if optNimV2 in p.config.globalOptions: return
+
+  proc defaultValueExpr(p: BProc, t: PType, info: TLineInfo): TLoc =
+    ## Sets up and returns a loc storing the expression representing the
+    ## default value for `t`.
+    let n =
+      case t.skipTypes(abstractInst).kind
+      of tyObject: newTreeIT(nkObjConstr, info, t, [newNodeIT(nkType, info, t)])
+      of tyTuple:  newTreeIT(nkTupleConstr, info, t)
+      of tyArray:  newTreeIT(nkBracket, info, t)
+      else:
+        unreachable("cannot have embedded type fields")
+
+    rawConstExpr(p, n, result)
+
   case analyseObjectWithTypeField(t)
   of frNone:
     discard
@@ -403,15 +417,14 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
     if mode == constructRefObj: r = "(*$1)" % [r]
     genObjectInitHeader(p, section, t, r, a.lode.info)
   of frEmbedded:
-      var tmp: TLoc
       if mode == constructRefObj:
         let objType = t.skipTypes(abstractInst+{tyRef})
-        rawConstExpr(p, newNodeIT(nkType, a.lode.info, objType), tmp)
+        let tmp = defaultValueExpr(p, objType, a.lode.info)
         linefmt(p, cpsStmts,
             "#nimCopyMem((void*)$1, (NIM_CONST void*)&$2, sizeof($3));$n",
             [rdLoc(a), rdLoc(tmp), getTypeDesc(p.module, objType, mapTypeChooser(a))])
       else:
-        rawConstExpr(p, newNodeIT(nkType, a.lode.info, t), tmp)
+        let tmp = defaultValueExpr(p, t, a.lode.info)
         genAssignment(p, a, tmp, {})
 
 proc isComplexValueType(t: PType): bool {.inline.} =
