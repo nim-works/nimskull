@@ -68,6 +68,7 @@ type
     code: seq[TInstr]
     debug: seq[TLineInfo]
 
+  #[
   Module = object
     stmts: seq[PNode] ## top level statements in the order they were parsed
     sym: PSym ## module symbol
@@ -78,20 +79,7 @@ type
     initGlobalsProc: CodeInfo ## the proc that initializes `{.global.}`
       ## variables
     initProc: CodeInfo ## the module init proc (top-level statements)
-
-  ModuleListRef = ref ModuleList
-  ModuleList = object of RootObj
-    modules: seq[Module]
-    modulesClosed: seq[int] ## indices into `modules` in the order the modules
-                            ## were closed. The first closed module comes
-                            ## first, then the next, etc.
-    moduleMap: Table[int, int] ## module sym-id -> index into `modules`
-
-  ModuleRef = ref object of TPassContext
-    ## The pass context for the VM backend. Represents a reference to a
-    ## module in the module list
-    list: ModuleListRef
-    index: int
+  ]#
 
 func growBy[T](x: var seq[T], n: Natural) {.inline.} =
   x.setLen(x.len + n)
@@ -483,39 +471,3 @@ proc generateCode*(g: ModuleGraph) =
                             outFilename: conf.absOutFile.string,
                             failureMsg: $err)
     conf.globalReport(rep)
-
-# Below is the `passes` interface implementation
-
-proc myOpen(graph: ModuleGraph, module: PSym, idgen: IdGenerator): PPassContext =
-  if graph.backend == nil:
-    graph.backend = ModuleListRef()
-
-  let
-    mlist = ModuleListRef(graph.backend)
-    next = mlist.modules.len
-
-  # append an empty module to the list
-  mlist.modules.growBy(1)
-  mlist.modules[next] = Module(sym: module)
-  mlist.moduleMap[module.id] = next
-
-  result = ModuleRef(list: mlist, index: next)
-
-proc myProcess(b: PPassContext, n: PNode): PNode =
-  result = n
-  let m = ModuleRef(b)
-
-  const declarativeKinds = routineDefs + {nkTypeSection, nkPragma,
-    nkExportStmt, nkExportExceptStmt, nkFromStmt, nkImportStmt,
-    nkImportExceptStmt}
-
-  if n.kind notin declarativeKinds:
-    m.list.modules[m.index].stmts.add(n)
-
-proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
-  result = myProcess(b, n)
-
-  let m = ModuleRef(b)
-  m.list.modulesClosed.add(m.index)
-
-const vmgenPass* = makePass(myOpen, myProcess, myClose)
