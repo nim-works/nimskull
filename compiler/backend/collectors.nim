@@ -7,19 +7,20 @@
 ## interface.
 
 import
-  std/[
-    tables
-  ],
   compiler/ast/[
     ast,
     ast_idgen,
-    ast_types
+    ast_types,
+    lineinfos
   ],
   compiler/modules/[
     modulegraphs
   ],
   compiler/sem/[
     passes
+  ],
+  compiler/utils/[
+    containers
   ]
 
 type
@@ -29,22 +30,22 @@ type
 
   ModuleListRef* = ref ModuleList
   ModuleList* = object of RootObj
-    modules*: seq[FullModule]
-    modulesClosed*: seq[int]   ## indices into `modules` in the order the
-                               ## modules were closed. The first closed module
-                               ## comes first, then the next, etc.
-    moduleMap*: Table[int, int] ## module sym-id -> index into `modules`
+    modules*: SeqMap[FileIndex, FullModule]
+    modulesClosed*: seq[FileIndex]
+      ## stores the modules in the order they were closed. The first closed
+      ## module comes first, then the next, etc.
 
   ModuleRef = ref object of TPassContext
     ## The pass context for the VM backend. Represents a reference to a
     ## module in the module list
     list: ModuleListRef
-    index: int
+    index: FileIndex
+
+func isFilled*(m: FullModule): bool =
+  # required so that ``FullModule`` is usable as the item type of a ``SeqMap``
+  m.sym != nil
 
 # Below is the `passes` interface implementation
-
-func growBy[T](x: var seq[T], n: Natural) {.inline.} =
-  x.setLen(x.len + n)
 
 proc myOpen(graph: ModuleGraph, module: PSym, idgen: IdGenerator): PPassContext =
   if graph.backend == nil:
@@ -52,14 +53,12 @@ proc myOpen(graph: ModuleGraph, module: PSym, idgen: IdGenerator): PPassContext 
 
   let
     mlist = ModuleListRef(graph.backend)
-    next = mlist.modules.len
+    pos = module.position.FileIndex
 
-  # append an empty module to the list
-  mlist.modules.growBy(1)
-  mlist.modules[next] = FullModule(sym: module)
-  mlist.moduleMap[module.id] = next
+  # add an empty entry for the module:
+  mlist.modules[pos] = FullModule(sym: module)
 
-  result = ModuleRef(list: mlist, index: next)
+  result = ModuleRef(list: mlist, index: pos)
 
 proc myProcess(b: PPassContext, n: PNode): PNode =
   result = n

@@ -39,6 +39,9 @@ import
     magicsys,
     modulegraphs
   ],
+  compiler/utils/[
+    containers
+  ],
   compiler/vm/[
     packed_env,
     vmaux,
@@ -78,10 +81,16 @@ type
       ## variables
     initProc: CodeInfo ## the module init proc (top-level statements)
 
+  ModuleId = distinct uint32
+    ## The ID of a ``Module`` instance.
+
   BModuleList = object
-    modules: seq[Module]
-    modulesClosed: seq[int]
-    moduleMap: Table[int, int]
+    modules: Store[ModuleId, Module]
+    modulesClosed: seq[ModuleId]
+
+    moduleMap: Table[int, ModuleId]
+      ## maps a module's position to the ID of the module's ``Module``
+      ## instance
 
 func growBy[T](x: var seq[T], n: Natural) {.inline.} =
   x.setLen(x.len + n)
@@ -257,7 +266,7 @@ proc generateAliveProcs(c: var TCtx, mlist: var BModuleList) =
     # initializer expression might depend on otherwise unused procedures (which
     # might define further globals...)
     if globals.len > 0:
-      let mI = mlist.moduleMap[c.module.id]
+      let mI = mlist.moduleMap[c.module.position]
       generateGlobalInit(c, mlist.modules[mI].initGlobalsCode,
                          globals)
 
@@ -327,12 +336,10 @@ proc generateMain(c: var TCtx, mainModule: PSym,
 
   c.types.add(typ)
 
-  var systemIdx, mainIdx: int
-  # XXX: can't use `pairs` since it copies
-  for i in 0..<mlist.modules.len:
-    let sym = mlist.modules[i].sym
-    if sfMainModule     in sym.flags: mainIdx = i
-    elif sfSystemModule in sym.flags: systemIdx = i
+  var systemId, mainId: ModuleId
+  for id, it in mlist.modules.pairs:
+    if sfMainModule     in it.sym.flags: mainId = id
+    elif sfSystemModule in it.sym.flags: systemId = id
 
   # then, append the module init procs to the function table:
   let firstInitProc = c.functions.len
@@ -341,13 +348,13 @@ proc generateMain(c: var TCtx, mainModule: PSym,
   # init procedures are called in, so we need to add the table entries in the
   # right order. That is, module closed order with special handling for the
   # main and system module
-  addInitProcs(c.functions, mlist.modules[systemIdx], voidSig)
+  addInitProcs(c.functions, mlist.modules[systemId], voidSig)
   for mI in mlist.modulesClosed.items:
     let m = mlist.modules[mI]
     if {sfMainModule, sfSystemModule} * m.sym.flags == {}:
       addInitProcs(c.functions, m, voidSig)
 
-  addInitProcs(c.functions, mlist.modules[mainIdx], voidSig)
+  addInitProcs(c.functions, mlist.modules[mainId], voidSig)
 
   # lastly, generate the actual code:
   let
@@ -395,18 +402,20 @@ proc produceModules(g: ModuleGraph, c: var TCtx): BModuleList =
 
   # setup an entry for each module and generated the code for the modules'
   # initalization logic:
-  for it in mlist.modules.items:
+  for it in mlist.modules.values:
     c.refresh(it.sym, g.idgen)
 
     var m = Module(sym: it.sym)
     m.initProc = generateTopLevelStmts(c, g.config, it)
     m.initGlobalsCode.prc = PProc()
 
-    result.modules.add(m)
+    let id = result.modules.add(m)
+    result.moduleMap[it.sym.position] = id
 
   # extract the other data:
-  result.modulesClosed = move mlist.modulesClosed
-  result.moduleMap     = move mlist.moduleMap
+  result.modulesClosed.newSeq(mlist.modulesClosed.len)
+  for i, it in mlist.modulesClosed.pairs:
+    result.modulesClosed[i] = result.moduleMap[it.int]
 
 proc generateCode*(g: ModuleGraph) =
   ## The backend's entry point. Orchestrates code generation and linking. If
