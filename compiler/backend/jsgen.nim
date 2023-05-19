@@ -2710,11 +2710,13 @@ proc wholeCode(graph: ModuleGraph; m: BModule): Rope =
   result = globals.typeInfo & globals.constants & globals.code
 
 proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
-  result = myProcess(b, n)
   var m = BModule(b)
   if sfMainModule in m.module.flags:
     for destructorCall in graph.globalDestructors:
       n.add destructorCall
+
+  result = myProcess(b, n)
+
   if sfSystemModule in m.module.flags:
     PGlobals(graph.backend).inSystem = false
   if passes.skipCodegen(m.config, n): return n
