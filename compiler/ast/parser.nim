@@ -1824,8 +1824,9 @@ proc parseSection(p: var Parser, kind: ParsedNodeKind,
     # tkParLe is allowed for ``var (x, y) = ...`` tuple parsing
     result.add defparser(p)
   elif p.tok.tokType.isKeyword() and p.tok.indent < 0:
-    # in order to make progress accept the unescaped keyword
-    # p.invalidExpectedIdent()
+    # in order to make progress accept the unescaped keyword. The definition
+    # parsing is responsible for emitting an error diagnostic, so none is added
+    # here
     result.add defparser(p)
   else:
     p.invalidExpectedIdent()
