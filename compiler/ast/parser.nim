@@ -447,7 +447,8 @@ proc parseSymbol(p: var Parser, mode = smNormal): ParsedNode =
       p.getTok
     else:
       p.invalidExpectedIdent()
-      # result = p.emptyNode
+      # error correction: consume the token and treat it as an identifier in
+      # order to allow for further progress
       result = p.newIdentNode(p.tok)
       p.getTok
   of tkAccent:
