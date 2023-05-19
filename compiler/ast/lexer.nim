@@ -169,7 +169,7 @@ when defined(nimsuggest):
 const
   tokKeywordLow* = succ(tkSymbol)
   tokKeywordHigh* = pred(tkIntLit)
-  tkKeyWords* = {tokKeywordLow..tokKeywordHigh}
+  tkKeywords* = {tokKeywordLow..tokKeywordHigh}
 
 func diagToHumanStr*(d: LexerDiag): string =
   ## creates a human readable string message for a diagnostic, does not include
@@ -268,7 +268,7 @@ proc getLineInfo*(L: Lexer, tok: Token): TLineInfo {.inline.} =
   result = newLineInfo(L.fileIdx, tok.line, tok.col)
 
 func isKeyword*(kind: TokType): bool =
-  (kind >= tokKeywordLow) and (kind <= tokKeywordHigh)
+  kind in tkKeywords
 
 func isKeyword*(i: PIdent): bool =
   ## is this the `i`dentifier a keyword?

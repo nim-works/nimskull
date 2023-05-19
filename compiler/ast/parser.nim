@@ -437,7 +437,7 @@ proc parseSymbol(p: var Parser, mode = smNormal): ParsedNode =
   of tkSymbol:
     result = p.newIdentNode(p.tok)
     p.getTok
-  of tkKeyWords:
+  of tkKeywords:
     if p.tok.tokType in tkBuiltInMagics or mode == smAfterDot:
       # for backwards compatibility these 2 are always valid:
       result = p.newIdentNode(p.tok)
@@ -468,7 +468,7 @@ proc parseSymbol(p: var Parser, mode = smNormal): ParsedNode =
           accm.add $p.tok
           p.getTok
         result.idents.add (ident: p.lex.cache.getIdent(accm), line: lineinfo.line, col: lineinfo.col)
-      of tkKeyWords, tkSymbol, tkIntLit..tkCustomLit:
+      of tkKeywords, tkSymbol, tkIntLit..tkCustomLit:
         result.idents.add (ident: p.lex.cache.getIdent($p.tok), line: p.lineInfo.line, col: p.lineInfo.col)
         p.getTok
       else:
@@ -994,7 +994,7 @@ proc parseIdentColonEquals(p: var Parser, flags: DeclaredIdentFlags): ParsedNode
       if withPragma in flags: a = p.identWithPragma(allowDot=withDot in flags)
       else: a = parseSymbol(p)
       if a.kind == pnkEmpty: return
-    of tkKeyWords:
+    of tkKeywords:
       if withPragma in flags: a = p.identWithPragma(allowDot=withDot in flags)
       else: a = parseSymbol(p)
       if a.kind == pnkEmpty: return
@@ -1808,7 +1808,10 @@ proc parseSection(p: var Parser, kind: ParsedNodeKind,
       # progress guaranteed
       while p.sameInd:
         case p.tok.tokType
-        of tkSymbol, tkAccent, tkParLe:
+        of tkSymbol, tkAccent, tkParLe,
+            tkKeywords:
+          # tkKeywords is an error case, definition parsing will emit a
+          # diagnostic and guarantee progress
           var a = defparser(p)
           p.skipComment(a)
           result.add a
@@ -1820,13 +1823,11 @@ proc parseSection(p: var Parser, kind: ParsedNodeKind,
           break
     if result.len == 0:
       p.invalidExpectedIdent()
-  elif p.tok.tokType in {tkSymbol, tkAccent, tkParLe} and p.tok.indent < 0:
+  elif p.tok.tokType in {tkSymbol, tkAccent, tkParLe} + tkKeywords and
+        p.tok.indent < 0:
     # tkParLe is allowed for ``var (x, y) = ...`` tuple parsing
-    result.add defparser(p)
-  elif p.tok.tokType.isKeyword() and p.tok.indent < 0:
-    # in order to make progress accept the unescaped keyword. The definition
-    # parsing is responsible for emitting an error diagnostic, so none is added
-    # here
+    # tkKeywords means an error case: we accept the unescaped keyword and
+    # definition parsing is responsible for emitting an error diagnostic.
     result.add defparser(p)
   else:
     p.invalidExpectedIdent()
