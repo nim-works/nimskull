@@ -1,5 +1,5 @@
 discard """
-  cmd: '''nim c --gc:arc $file'''
+  targets: "c js !vm"
   output: '''(v: 42)
 igotdestroyed'''
 """
