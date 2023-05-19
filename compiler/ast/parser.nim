@@ -990,11 +990,10 @@ proc parseIdentColonEquals(p: var Parser, flags: DeclaredIdentFlags): ParsedNode
   # progress guaranteed
   while true:
     case p.tok.tokType
-    of tkSymbol, tkAccent:
-      if withPragma in flags: a = p.identWithPragma(allowDot=withDot in flags)
-      else: a = parseSymbol(p)
-      if a.kind == pnkEmpty: return
-    of tkKeywords:
+    of tkSymbol, tkAccent,
+        tkKeywords:
+        # `tkKeywords` is an error case, definition parsing will emit a
+        # diagnostic and guarantee progress
       if withPragma in flags: a = p.identWithPragma(allowDot=withDot in flags)
       else: a = parseSymbol(p)
       if a.kind == pnkEmpty: return
@@ -1810,7 +1809,7 @@ proc parseSection(p: var Parser, kind: ParsedNodeKind,
         case p.tok.tokType
         of tkSymbol, tkAccent, tkParLe,
             tkKeywords:
-          # tkKeywords is an error case, definition parsing will emit a
+          # `tkKeywords` is an error case, definition parsing will emit a
           # diagnostic and guarantee progress
           var a = defparser(p)
           p.skipComment(a)
@@ -1826,7 +1825,7 @@ proc parseSection(p: var Parser, kind: ParsedNodeKind,
   elif p.tok.tokType in {tkSymbol, tkAccent, tkParLe} + tkKeywords and
         p.tok.indent < 0:
     # tkParLe is allowed for ``var (x, y) = ...`` tuple parsing
-    # tkKeywords means an error case: we accept the unescaped keyword and
+    # `tkKeywords` means an error case: we accept the unescaped keyword and
     # definition parsing is responsible for emitting an error diagnostic.
     result.add defparser(p)
   else:
