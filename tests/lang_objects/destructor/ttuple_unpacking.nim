@@ -2,7 +2,7 @@ discard """
   description: '''
     Tests for tuple unpacking in the presence of types with lifetime hooks
   '''
-  targets: "c js !vm"
+  targets: "c js vm"
   matrix: "--cursorInference:off"
 """
 

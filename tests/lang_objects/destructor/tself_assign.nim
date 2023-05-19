@@ -1,6 +1,6 @@
 discard """
   description: "Tests for self assignments of types with lifetime hooks"
-  targets: "c js !vm"
+  targets: "c js vm"
   matrix: "--cursorInference:off"
 """
 

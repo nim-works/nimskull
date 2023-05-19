@@ -1,11 +1,9 @@
 discard """
   description: "Tests for tuple unpacking done by for-loops"
-  targets: "c !js !vm"
+  targets: "c !js vm"
 """
 
 # knownIssue: fails for the JS back-end with an internal compiler error
-# knownIssue: fails for the VM back-end because `=copy` hooks are not
-#             supported there
 
 type
   Tup = tuple

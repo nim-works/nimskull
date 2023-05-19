@@ -1,12 +1,10 @@
 discard """
-  targets: "c js !vm"
+  targets: "c js vm"
   description: '''
     A regression test to make sure that redefined locals don't reach (or at
     least cause issues with) the mid- and back-end
   '''
 """
-
-# knownIssue: the ``injectdestructors`` pass is disabled for the VM target
 
 # bug https://github.com/nim-lang/nim/issues/13622
 
