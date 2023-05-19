@@ -2117,8 +2117,6 @@ proc parseVariable(p: var Parser): ParsedNode =
     result.add parseExpr(p)
   else:
     result = p.parseIdentColonEquals({withPragma, withDot})
-  if result.len == 0:
-    echo p.tok
   result[^1] = p.postExprBlocks(result[^1])
   p.indAndComment(result)
 
