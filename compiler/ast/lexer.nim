@@ -169,6 +169,7 @@ when defined(nimsuggest):
 const
   tokKeywordLow* = succ(tkSymbol)
   tokKeywordHigh* = pred(tkIntLit)
+  tkKeyWords* = {tokKeywordLow..tokKeywordHigh}
 
 func diagToHumanStr*(d: LexerDiag): string =
   ## creates a human readable string message for a diagnostic, does not include
@@ -806,46 +807,38 @@ proc addUnicodeCodePoint(s: var string, i: int) =
     s[pos+5] = chr(i and ones(6) or 0b10_0000_00)
 
 proc getEscapedChar(L: var Lexer, tok: var Token) =
+  template addAndProgress(c: char | string) =
+    tok.literal.add(c)
+    inc(L.bufpos)
+
   inc(L.bufpos)               # skip '\'
   case L.buf[L.bufpos]
   of 'n', 'N':
-    tok.literal.add('\L')
-    inc(L.bufpos)
+    addAndProgress('\L')
   of 'p', 'P':
     if tok.tokType == tkCharLit:
       L.handleDiag(lexDiagInvalidCharLiteralPlatformNewline)
-    tok.literal.add(L.config.target.tnl)
-    inc(L.bufpos)
+    addAndProgress(L.config.target.tnl)
   of 'r', 'R', 'c', 'C':
-    tok.literal.add(CR)
-    inc(L.bufpos)
+    addAndProgress(CR)
   of 'l', 'L':
-    tok.literal.add(LF)
-    inc(L.bufpos)
+    addAndProgress(LF)
   of 'f', 'F':
-    tok.literal.add(FF)
-    inc(L.bufpos)
+    addAndProgress(FF)
   of 'e', 'E':
-    tok.literal.add(ESC)
-    inc(L.bufpos)
+    addAndProgress(ESC)
   of 'a', 'A':
-    tok.literal.add(BEL)
-    inc(L.bufpos)
+    addAndProgress(BEL)
   of 'b', 'B':
-    tok.literal.add(BACKSPACE)
-    inc(L.bufpos)
+    addAndProgress(BACKSPACE)
   of 'v', 'V':
-    tok.literal.add(VT)
-    inc(L.bufpos)
+    addAndProgress(VT)
   of 't', 'T':
-    tok.literal.add('\t')
-    inc(L.bufpos)
+    addAndProgress('\t')
   of '\'', '\"':
-    tok.literal.add(L.buf[L.bufpos])
-    inc(L.bufpos)
+    addAndProgress(L.buf[L.bufpos])
   of '\\':
-    tok.literal.add('\\')
-    inc(L.bufpos)
+    addAndProgress('\\')
   of 'x', 'X':
     inc(L.bufpos)
     var xi = 0
