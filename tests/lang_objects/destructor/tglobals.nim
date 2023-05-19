@@ -1,6 +1,6 @@
 discard """
   description: "Tests for globals that have lifetime hooks attached"
-  targets: "c js !vm"
+  targets: "c js vm"
   matrix: "--cursorInference:off"
 """
 

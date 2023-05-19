@@ -3,11 +3,9 @@ discard """
     Tests to make sure that the left-to-right evaluation order is respected for
     assignments involving types with destructors
   '''
-  target: "c js !vm"
+  target: "c js vm"
   matrix: "--cursorInference:off"
 """
-
-## knownIssue: no destructor injection is performed for the VM target
 
 import mhelper
 

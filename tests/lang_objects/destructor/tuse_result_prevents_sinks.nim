@@ -1,6 +1,6 @@
 discard """
   output: ""
-  targets: "c"
+  targets: "c js vm"
 """
 
 # bug #9594

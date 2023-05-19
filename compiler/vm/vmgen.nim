@@ -1894,7 +1894,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.freeTemp(tmp1)
     c.freeTemp(tmp2)
     c.freeTemp(tmp3)
-  of mReset:
+  of mReset, mWasMoved:
     unused(c, n, dest)
     let
       (dest, isDirect) = genNoLoad(c, n[1])

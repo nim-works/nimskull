@@ -149,7 +149,7 @@ func collectRoutineSyms(ast: PNode, syms: var seq[PSym]) =
 
 proc genStmt(c: var TCtx, n: PNode): auto =
   ## Wrapper around ``vmgen.genStmt`` that canonicalizes the input AST first
-  let n = canonicalizeSingle(c.graph, c.idgen, c.module, n, {goIsNimvm})
+  let n = canonicalizeWithInject(c.graph, c.idgen, c.module, n, {goIsNimvm})
   c.gatherDependencies(n, withGlobals=true)
   vmgen.genStmt(c, n)
 
@@ -185,7 +185,7 @@ proc generateCodeForProc(c: var TCtx, s: PSym,
   ## to `globals`.
   var body = transformBody(c.graph, c.idgen, s, cache = false)
   extractGlobals(body, globals, isNimVm = true)
-  body = canonicalize(c.graph, c.idgen, s, body, {goIsNimvm})
+  body = canonicalizeWithInject(c.graph, c.idgen, s, body, {goIsNimvm})
   c.gatherDependencies(body, withGlobals=true)
   result = genProc(c, s, body)
 
