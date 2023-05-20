@@ -622,7 +622,7 @@ func allowedCompileOptionsArgs*(switch: CmdSwitchKind): seq[string] =
   of cmdSwitchProcessing  : @["dots", "filenames", "off"]
   of cmdSwitchExperimental: experimentalFeatures.toSeq.mapIt($it)
   of cmdSwitchExceptions  : @["native", "goto"]
-  of cmdSwitchStylecheck  : @["off", "hint", "error", "usages"]
+  of cmdSwitchStylecheck  : @["off", "hint", "error"]
   else: unreachable("this is a compiler bug")
 
 func allowedCompileOptionArgs*(switch: string): seq[string] =
@@ -1214,7 +1214,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     of "on", "native", "gdb":
       conf.incl optCDebug
       conf.incl optLineDir
-      #defineSymbol(conf.symbols, "nimTypeNames") # type names are used in gdb pretty printing
     of "off":
       conf.excl optCDebug
     else:
@@ -1584,11 +1583,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
       conf.globalOptions = conf.globalOptions + {optStyleHint} - {optStyleError}
     of "error":
       conf.globalOptions = conf.globalOptions + {optStyleError}
-    of "usages":
-      # xxx: this option doesn't make any sense, what should happen:
-      #      - check style for project code not dependencies
-      #      - that's about it
-      conf.incl optStyleUsages
     else:
       invalidArgValue(arg, switch)
   of "showallmismatches":

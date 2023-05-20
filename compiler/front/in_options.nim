@@ -25,8 +25,6 @@ type
     optUseNimcache            ## save artifacts (including binary) in $nimcache
     optStyleHint              ## check that the names adhere to the style guide
     optStyleError             ## enforce that the names adhere to the style guide
-    optStyleUsages            ## only enforce consistent **usages** of the
-                              ## symbol
     optSkipSystemConfigFile   ## skip the system's cfg/nims config file
     optSkipProjConfigFile     ## skip the project's cfg/nims config file
     optSkipUserConfigFile     ## skip the users's cfg/nims config file

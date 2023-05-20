@@ -207,8 +207,7 @@ proc checkDefImpl(conf: ConfigRef; info: TLineInfo; s: PSym; k: TSymKind) =
       linterFail: (wanted, s.name.s)))
 
 template styleCheckDef*(conf: ConfigRef; info: TLineInfo; s: PSym; k: TSymKind) =
-  if {optStyleHint, optStyleError} * conf.globalOptions != {} and
-      optStyleUsages notin conf.globalOptions:
+  if {optStyleHint, optStyleError} * conf.globalOptions != {}:
     checkDefImpl(conf, info, s, k)
 
 template styleCheckDef*(conf: ConfigRef; info: TLineInfo; s: PSym) =
