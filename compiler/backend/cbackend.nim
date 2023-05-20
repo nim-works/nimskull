@@ -61,7 +61,9 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
       if not skipCodegen(bmod.config, it):
         genTopLevelStmt(bmod, it)
 
-    # close the module:
+    # wrap up the main part of code generation for the module. Note that this
+    # doesn't mean that they're closed for writing; invoking the code generator
+    # for other modules' code can still add new code to this module's sections
     finalCodegenActions(graph, g.modules[index.int], newNode(nkStmtList))
 
   # the callsite still expects `graph.backend` to point to the ``BModuleList``
