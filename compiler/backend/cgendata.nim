@@ -133,7 +133,6 @@ type
     mapping*: Rope             ## the generated mapping file (if requested)
     modules*: seq[BModule]     ## list of all compiled modules
     modulesClosed*: seq[BModule] ## list of the same compiled modules, but in the order they were closed
-    forwardedProcs*: seq[PSym] ## proc:s that did not yet have a body
     generatedHeader*: BModule
     typeInfoMarker*: TypeCacheWithOwner
     typeInfoMarkerV2*: TypeCacheWithOwner
@@ -151,7 +150,8 @@ type
                             ## nimtvDeps is VERY hard to cache because it's
                             ## not a list of IDs nor can it be made to be one.
 
-  TCGen = object of PPassContext ## represents a C source file
+  TCGen = object ## represents a C source file
+    idgen*: IdGenerator
     s*: TCFileSections        ## sections of the C file
     flags*: set[CodegenFlag]
     module*: PSym

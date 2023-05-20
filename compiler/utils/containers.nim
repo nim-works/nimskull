@@ -29,6 +29,9 @@ func contains*[K, V](m: SeqMap[K, V], key: K): bool {.inline.} =
 func `[]`*[K, V](m: SeqMap[K, V], key: K): lent V {.inline.} =
   result = m.data[ord(key)]
 
+func `[]`*[K, V](m: var SeqMap[K, V], key: K): var V {.inline.} =
+  result = m.data[ord(key)]
+
 func `[]=`*[K, V](m: var SeqMap[K, V], key: K, val: sink V) =
   let i = ord(key)
   if m.data.len <= i:
@@ -36,6 +39,26 @@ func `[]=`*[K, V](m: var SeqMap[K, V], key: K, val: sink V) =
 
   m.data[i] = val
 
+iterator values*[K, V](m: SeqMap[K, V]): lent V =
+  ## Returns, in an unspecified order, the value for each entry in the map `m`.
+  mixin isFilled
+  var i = 0
+  let L = m.data.len
+  while i < L:
+    if isFilled(m.data[i]):
+      yield m.data[i]
+    inc i
+
+iterator pairs*[K, V](m: SeqMap[K, V]): (K, lent V) =
+  ## Returns, in an unspecified order, the key and value for each entry in the
+  ## map `m`.
+  mixin isFilled
+  var i = 0
+  let L = m.data.len
+  while i < L:
+    if isFilled(m.data[i]):
+      yield (K(i), m.data[i])
+    inc i
 
 # ---------- Store API ------------
 
@@ -54,6 +77,25 @@ func add*[I; T](x: var Store[I, T], it: sink T): I {.inline.} =
   rangeCheck x.data.len.BiggestUInt < high(I).BiggestUInt
   x.data.add it
   result = I(x.data.high)
+
+iterator mitems*[I; T](x: var Store[I, T]): var T =
+  var i = 0
+  let L = x.data.len
+  while i < L:
+    yield x.data[i]
+    inc i
+
+iterator pairs*[I; T](x: Store[I, T]): (I, lent T) =
+  ## Returns all items in `x` together with their corresponding IDs in
+  ## ascending order.
+  var i = 0
+  let L = x.data.len
+  while i < L:
+    # there's no need to perform a range check here: ``add`` already errors
+    # when trying to add items for which the index can't be represented with
+    # ``I``
+    yield (I(i), x.data[i])
+    inc i
 
 # ---------- OrdinalSeq API ------------
 

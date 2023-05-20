@@ -42,6 +42,7 @@ import
     modulegraphs # Project module graph
   ],
   compiler/backend/[
+    collectors,
     extccomp,    # Calling C compiler
     cgen,        # C code generation
   ],
@@ -66,6 +67,8 @@ from compiler/ic/ic import rodViewer
 
 from std/osproc import execCmd
 
+import compiler/backend/cbackend as cbackend2
+
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_internal import InternalReport
 from compiler/ast/report_enums import ReportKind,
@@ -79,7 +82,7 @@ from compiler/front/scripting import runNimScript
 
 when not defined(leanCompiler):
   import
-    compiler/backend/jsgen,
+    compiler/backend/jsbackend,
     compiler/tools/[docgen, docgen2]
 
 when defined(nimDebugUnreportedErrors):
@@ -187,7 +190,7 @@ proc commandCompileToC(graph: ModuleGraph) =
   extccomp.initVars(conf)
   semanticPasses(graph)
   if conf.symbolFiles == disabledSf:
-    registerPass(graph, cgenPass)
+    registerPass(graph, collectPass)
 
     if {optRun, optForceFullMake} * conf.globalOptions == {optRun} or isDefined(conf, "nimBetterRun"):
       if not changeDetectedViaJsonBuildInstructions(conf, conf.jsonBuildInstructionsFile):
@@ -202,6 +205,7 @@ proc commandCompileToC(graph: ModuleGraph) =
   if graph.config.errorCounter > 0:
     return # issue #9933
   if conf.symbolFiles == disabledSf:
+    cbackend2.generateCode(graph, graph.takeModuleList())
     cgenWriteModules(graph.backend, conf)
   else:
     if isDefined(conf, "nimIcIntegrityChecks"):
@@ -236,8 +240,11 @@ proc commandCompileToJS(graph: ModuleGraph) =
 
     defineSymbol(conf, "ecmascript") # For backward compatibility
     semanticPasses(graph)
-    registerPass(graph, JSgenPass)
+    registerPass(graph, collectPass)
     compileProject(graph)
+
+    jsbackend.generateCode(graph, graph.takeModuleList())
+
     if conf.depfile.string.len != 0:
       writeGccDepfile(conf)
     if optGenScript in conf.globalOptions:
@@ -245,12 +252,12 @@ proc commandCompileToJS(graph: ModuleGraph) =
 
 proc commandCompileToVM(graph: ModuleGraph) =
   semanticPasses(graph)
-  registerPass(graph, vmgenPass)
+  registerPass(graph, collectPass)
   compileProject(graph)
 
   # The VM-backend doesn't use a pass for the actual code generation, but a
-  # separate function instead (similar to the C-backend for IC)
-  vmbackend.generateCode(graph)
+  # separate procedure instead (similar to the C-backend for IC)
+  vmbackend.generateCode(graph, graph.takeModuleList())
 
 proc interactivePasses(graph: ModuleGraph) =
   initDefines(graph.config.symbols)

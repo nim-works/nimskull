@@ -1,14 +1,12 @@
 ## The backend for the VM. The core code-generation is done by `vmgen`; the
-## linking bits and artifact creation are implemented here
+## linking bits and artifact creation are implemented here.
 ##
 ## Executable generation happens in roughly the following steps:
-## 1. Collect all modules and their top-level statements via the `passes`
-##  interface. This is a pure collection step, no further processing is done
-## 2. Generate all module init procedures (i.e. code for all top-level
+## 1. Generate all module init procedures (i.e. code for all top-level
 ##  statements)
-## 3. Iteratively generate code for all alive routines (excluding `method`s)
-## 4. Generate the main procedure
-## 5. Pack up all required data into `PackedEnv` and write it to the output
+## 2. Iteratively generate code for all alive routines (excluding `method`s)
+## 3. Generate the main procedure
+## 4. Pack up all required data into `PackedEnv` and write it to the output
 ##  file
 ##
 ## Similiar to the C and JS backend, dead-code-elimination (DCE) happens as a
@@ -24,12 +22,14 @@ import
     lineinfos,
     astalgo, # for `getModule`
   ],
+  compiler/backend/[
+    collectors
+  ],
   compiler/front/[
     msgs,
     options
   ],
   compiler/sem/[
-    passes,
     transf
   ],
   compiler/mir/[
@@ -38,6 +38,9 @@ import
   compiler/modules/[
     magicsys,
     modulegraphs
+  ],
+  compiler/utils/[
+    containers
   ],
   compiler/vm/[
     packed_env,
@@ -69,8 +72,7 @@ type
     debug: seq[TLineInfo]
 
   Module = object
-    stmts: seq[PNode] ## top level statements in the order they were parsed
-    sym: PSym ## module symbol
+    sym: PSym
 
     initGlobalsCode: CodeFragment ## the bytecode of `initGlobalsProc`. Each
       ## encountered `{.global.}`'s init statement gets code-gen'ed into the
@@ -79,19 +81,16 @@ type
       ## variables
     initProc: CodeInfo ## the module init proc (top-level statements)
 
-  ModuleListRef = ref ModuleList
-  ModuleList = object of RootObj
-    modules: seq[Module]
-    modulesClosed: seq[int] ## indices into `modules` in the order the modules
-                            ## were closed. The first closed module comes
-                            ## first, then the next, etc.
-    moduleMap: Table[int, int] ## module sym-id -> index into `modules`
+  ModuleId = distinct uint32
+    ## The ID of a ``Module`` instance.
 
-  ModuleRef = ref object of TPassContext
-    ## The pass context for the VM backend. Represents a reference to a
-    ## module in the module list
-    list: ModuleListRef
-    index: int
+  BModuleList = object
+    modules: Store[ModuleId, Module]
+    modulesClosed: seq[ModuleId]
+
+    moduleMap: Table[int, ModuleId]
+      ## maps a module's position to the ID of the module's ``Module``
+      ## instance
 
 func growBy[T](x: var seq[T], n: Natural) {.inline.} =
   x.setLen(x.len + n)
@@ -153,8 +152,8 @@ proc genStmt(c: var TCtx, n: PNode): auto =
   c.gatherDependencies(n, withGlobals=true)
   vmgen.genStmt(c, n)
 
-proc generateTopLevelStmts*(module: var Module, c: var TCtx,
-                            config: ConfigRef) =
+proc generateTopLevelStmts(c: var TCtx, config: ConfigRef,
+                           module: FullModule): CodeInfo =
   ## Generates code for all collected top-level statements of `module` and
   ## compiles the fragments into a single function. The resulting code is
   ## stored in `module.initProc`
@@ -176,7 +175,7 @@ proc generateTopLevelStmts*(module: var Module, c: var TCtx,
 
   c.gABC(n, opcRet)
 
-  module.initProc = (start: start, regCount: c.prc.regInfo.len)
+  result = (start: start, regCount: c.prc.regInfo.len)
 
 proc generateCodeForProc(c: var TCtx, s: PSym,
                          globals: var seq[PNode]): VmGenResult =
@@ -220,7 +219,7 @@ proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]
   # Swap back once done
   swapState()
 
-proc generateAliveProcs(c: var TCtx, mlist: var ModuleList) =
+proc generateAliveProcs(c: var TCtx, mlist: var BModuleList) =
   ## Runs code generation for all routines (except methods) directly used
   ## by the routines in `c.linkState.newProcs`, including the routines in
   ## the list itself.
@@ -267,7 +266,7 @@ proc generateAliveProcs(c: var TCtx, mlist: var ModuleList) =
     # initializer expression might depend on otherwise unused procedures (which
     # might define further globals...)
     if globals.len > 0:
-      let mI = mlist.moduleMap[c.module.id]
+      let mI = mlist.moduleMap[c.module.position]
       generateGlobalInit(c, mlist.modules[mI].initGlobalsCode,
                          globals)
 
@@ -320,7 +319,7 @@ func addInitProcs(ft: var seq[FuncTableEntry], m: Module, sig: RoutineSigId) =
     ft.add initFuncTblEntry(m.sym, sig, m.initProc)
 
 proc generateMain(c: var TCtx, mainModule: PSym,
-                  mlist: ModuleList): FunctionIndex =
+                  mlist: BModuleList): FunctionIndex =
   ## Generates and links in the main procedure (the entry point) along with
   ## setting up the required state.
 
@@ -337,12 +336,10 @@ proc generateMain(c: var TCtx, mainModule: PSym,
 
   c.types.add(typ)
 
-  var systemIdx, mainIdx: int
-  # XXX: can't use `pairs` since it copies
-  for i in 0..<mlist.modules.len:
-    let sym = mlist.modules[i].sym
-    if sfMainModule     in sym.flags: mainIdx = i
-    elif sfSystemModule in sym.flags: systemIdx = i
+  var systemId, mainId: ModuleId
+  for id, it in mlist.modules.pairs:
+    if sfMainModule     in it.sym.flags: mainId = id
+    elif sfSystemModule in it.sym.flags: systemId = id
 
   # then, append the module init procs to the function table:
   let firstInitProc = c.functions.len
@@ -351,13 +348,13 @@ proc generateMain(c: var TCtx, mainModule: PSym,
   # init procedures are called in, so we need to add the table entries in the
   # right order. That is, module closed order with special handling for the
   # main and system module
-  addInitProcs(c.functions, mlist.modules[systemIdx], voidSig)
+  addInitProcs(c.functions, mlist.modules[systemId], voidSig)
   for mI in mlist.modulesClosed.items:
     let m = mlist.modules[mI]
     if {sfMainModule, sfSystemModule} * m.sym.flags == {}:
       addInitProcs(c.functions, m, voidSig)
 
-  addInitProcs(c.functions, mlist.modules[mainIdx], voidSig)
+  addInitProcs(c.functions, mlist.modules[mainId], voidSig)
 
   # lastly, generate the actual code:
   let
@@ -390,12 +387,35 @@ func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
   mapList(dst.globals, globals, it):
     enc.typeMap[it]
 
-proc generateCode*(g: ModuleGraph) =
+proc produceModules(g: ModuleGraph, c: var TCtx,
+                    mlist: sink ModuleList): BModuleList =
+  ## Translates the input `mlist` into a more packed representation for use by
+  ## the rest of the orchestrator. The bytecode for the modules' initialization
+  ## logic (i.e, top-level statements) is also generated here, so that
+  ## the collected top-level AST can be disposed already.
+
+  # setup an entry for each module and generated the code for the modules'
+  # initalization logic:
+  for it in mlist.modules.values:
+    c.refresh(it.sym, it.idgen)
+
+    var m = Module(sym: it.sym)
+    m.initProc = generateTopLevelStmts(c, g.config, it)
+    m.initGlobalsCode.prc = PProc()
+
+    let id = result.modules.add(m)
+    result.moduleMap[it.sym.position] = id
+
+  # extract the other data:
+  result.modulesClosed.newSeq(mlist.modulesClosed.len)
+  for i, it in mlist.modulesClosed.pairs:
+    result.modulesClosed[i] = result.moduleMap[it.int]
+
+proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   ## The backend's entry point. Orchestrates code generation and linking. If
   ## all went well, the resulting binary is written to the project's output
   ## file
   let
-    mlist = g.backend.ModuleListRef
     conf = g.config
 
   var c = TCtx(config: g.config, cache: g.cache, graph: g, idgen: g.idgen,
@@ -407,17 +427,10 @@ proc generateCode*(g: ModuleGraph) =
   # corresponding procs:
   registerCallbacks(c)
 
-  # generate all module init procs (i.e. code for the top-level statements):
-  for m in mlist.modules.mitems:
-    c.refresh(m.sym, g.idgen)
-    generateTopLevelStmts(m, c, g.config)
+  var mlist = produceModules(g, c, mlist)
 
-    # combine module list iteration with initialiazing `initGlobalsCode`:
-    m.initGlobalsCode.prc = PProc()
-
-  # generate code for the set of active alive routines
-  # (`c.linkState.newProcs`). This can uncover new ``const`` symbols
-  generateAliveProcs(c, mlist[])
+  # generate code for all alive routines
+  generateAliveProcs(c, mlist)
   reset(c.linkState.newProcs) # free the occupied memory already
 
   # XXX: generation of method dispatchers would go here. Note that `method`
@@ -444,7 +457,7 @@ proc generateCode*(g: ModuleGraph) =
       m.initGlobalsProc = (start: -1, regCount: 0)
 
   let entryPoint =
-    generateMain(c, g.getModule(conf.projectMainIdx), mlist[])
+    generateMain(c, g.getModule(conf.projectMainIdx), mlist)
 
   c.gABC(g.emptyNode, opcEof)
 
@@ -483,39 +496,3 @@ proc generateCode*(g: ModuleGraph) =
                             outFilename: conf.absOutFile.string,
                             failureMsg: $err)
     conf.globalReport(rep)
-
-# Below is the `passes` interface implementation
-
-proc myOpen(graph: ModuleGraph, module: PSym, idgen: IdGenerator): PPassContext =
-  if graph.backend == nil:
-    graph.backend = ModuleListRef()
-
-  let
-    mlist = ModuleListRef(graph.backend)
-    next = mlist.modules.len
-
-  # append an empty module to the list
-  mlist.modules.growBy(1)
-  mlist.modules[next] = Module(sym: module)
-  mlist.moduleMap[module.id] = next
-
-  result = ModuleRef(list: mlist, index: next)
-
-proc myProcess(b: PPassContext, n: PNode): PNode =
-  result = n
-  let m = ModuleRef(b)
-
-  const declarativeKinds = routineDefs + {nkTypeSection, nkPragma,
-    nkExportStmt, nkExportExceptStmt, nkFromStmt, nkImportStmt,
-    nkImportExceptStmt}
-
-  if n.kind notin declarativeKinds:
-    m.list.modules[m.index].stmts.add(n)
-
-proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
-  result = myProcess(b, n)
-
-  let m = ModuleRef(b)
-  m.list.modulesClosed.add(m.index)
-
-const vmgenPass* = makePass(myOpen, myProcess, myClose)
