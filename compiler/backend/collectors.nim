@@ -1,6 +1,6 @@
 ## Implements the "collect" pass. This pass gathers the full AST for each
 ## module into a single structure, which is then meant to be consumed by the
-## code-generation orchestrators.
+## code-generation orchestrators (``cbackend``, ``jsbackend``, etc.).
 ##
 ## This is somewhat similar to the rodfile-based IC backend, but instead of
 ## reading the modules' content from the rodfiles, it's collected via the pass

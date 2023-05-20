@@ -110,7 +110,7 @@ type
                                   # module dependencies.
     backend*: RootRef # XXX: having this field is a hack, but it's still
                       #      required by the current ``passes`` design. Remove
-                      #      the ``passes`` design is phased out
+                      #      once the ``passes`` design is phased out
     config*: ConfigRef
     cache*: IdentCache
     vm*: RootRef # unfortunately the 'vm' state is shared project-wise, this will

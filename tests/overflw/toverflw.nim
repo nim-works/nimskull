@@ -25,7 +25,7 @@ except OverflowDefect:
 
 # XXX: overflow checks (and other checks) cannot be disabled for module-level
 #      code at the moment
-doAssert(overflowDetected == false)
+doAssert overflowDetected == false, "re-enable this test, module-level code overflow checking now works"
 
 block: # Overflow checks in a proc
   var
