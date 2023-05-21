@@ -1,7 +1,7 @@
 # Bootstrap
 
 This directory describes the minimal parts of the language if one was just
-starting on a barebone bootstrap compiler.
+starting on a barebones bootstrap compiler.
 
 Focus is limited to the absolute minimum core syntax, literals, expressions,
 statements, minimal control flow, basic routines, and primitive and trivial
