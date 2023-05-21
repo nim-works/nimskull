@@ -1,8 +1,8 @@
 discard """
   description: "Describe block labels and valid label identifiers."
 
-  # valid label identifiers are the same rules for valid identifiers in
-  # general and we'll be using and buliding upon these rules going forward.
+  # the valid identifier rules in general also apply to label identifiers and
+  # we'll be using and building upon these rules going forward.
 """
 
 ## blocks can have labels
