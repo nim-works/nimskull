@@ -11,7 +11,7 @@ then layers on additional capabilities building upon the previous. It is
 written as a conformance test suite starting from a barely functional barebones
 compiler up to a full featured current version.
 
-Generally speaking, each language constructure should be described in its own
+Generally speaking, each language construct should be described in its own
 test spec(s), with separate additional specs where interaction with other
 capabilities requires further clarification, regression testing, and so on.
 
