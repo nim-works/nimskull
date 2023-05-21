@@ -9,7 +9,7 @@ block bool_literals:
 
 block builtin_assert:
   ## `doAssert` command is used throughout the specification to demonstrate
-  ## the correctness of an expression; ergo, it `doAssert` evaluates the
+  ## the correctness of an expression; ergo, `doAssert` evaluates the
   ## expression which must return `true`.
 
   ## If the expression is evaluated as true then the assertion is successful
