@@ -11,7 +11,7 @@ block:      ## this is a block
 ## block: # alone, with nothing after would be an error
 ## Nimskull is blankspace sensitive
 
-## indentation levels does not need to be consistent across the file, only
-## per level
+## indentation levels do not need to be consistent across the file, only
+## per block
 block:
         discard
