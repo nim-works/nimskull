@@ -139,7 +139,8 @@ type
     #----------------------------  Lexer reports  ----------------------------#
     # Lexer report begin
     # errors begin
-    rlexMalformedUnderscores
+    rlexMalformedNumUnderscores
+    rlexMalformedIdentUnderscores
     rlexMalformedTrailingUnderscre
     rlexInvalidToken
     rlexInvalidTokenSpaceBetweenNumAndIdent
@@ -913,7 +914,7 @@ const rstWarnings* = {rbackRstTestUnsupported .. rbackRstRstStyle}
 
 type
   LexerReportKind* = range[
-    rlexMalformedUnderscores .. rlexSourceCodeFilterOutput]
+    rlexMalformedNumUnderscores .. rlexSourceCodeFilterOutput]
 
   ParserReportKind* = range[rparInvalidIndentation .. rparEnablePreviewDotOps]
   VMReportKind* = range[rvmOpcParseExpectedExpression .. rvmStackTrace]
@@ -940,7 +941,7 @@ const
   repLexerKinds*    = {low(LexerReportKind) .. high(LexerReportKind)}
   rlexHintKinds*    = {rlexLineTooLong .. rlexSourceCodeFilterOutput}
   rlexWarningKinds* = {rlexDeprecatedOctalPrefix .. rlexDeprecatedOctalPrefix}
-  rlexErrorKinds*   = {rlexMalformedUnderscores .. rlexUnclosedComment}
+  rlexErrorKinds*   = {rlexMalformedNumUnderscores .. rlexUnclosedComment}
 
 
   #-------------------------------  parser  --------------------------------#

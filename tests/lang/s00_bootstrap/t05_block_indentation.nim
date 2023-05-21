@@ -15,12 +15,3 @@ block:      ## this is a block
 ## per level
 block:
         discard
-
-## blocks can have labels
-block label:
-  discard
-
-## labels will later be used for control flow, but for now they're any valid
-## identifier, and we can use them as "titles" in the spec
-block whatever_valid_identifier_suits_our_fancy:
-  discard
