@@ -33,7 +33,7 @@ implementation must have before implementing iterators.
 When it comes to writing a test for the iterator itself we first start with
 the most basic iterator that does not accept any arguments, and can only
 `yield` values. We check if order of execution for statements is correct,
-and then `yield` returns the correct value, and control is passed correctly,
+`yield` returns the correct value, and control is passed correctly,
 with state being preserved as requried.
 
 At this point we should test `break` and `continue`, and then proceed to
