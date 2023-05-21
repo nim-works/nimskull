@@ -1,7 +1,7 @@
 discard """
   description: "Specifies basic echo operation used for testing."
   output: '''
-  Hello, World!
+Hello, World!
 
 '''
 # the spec parser handles the triple single quotes, they behave like triple
