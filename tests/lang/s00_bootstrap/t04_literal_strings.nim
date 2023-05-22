@@ -35,4 +35,4 @@ discard """
   "key": "value",
   3:     "three"
 }
-""" # it's not json, just a strong
+""" # it's not json, just a string
