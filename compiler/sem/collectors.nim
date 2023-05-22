@@ -24,59 +24,66 @@ import
   ]
 
 type
-  FullModule* = object
+  Module* = object
+    ## Represents the contents of a fully analysed module, intended for use by
+    ## the compiler backend.
     stmts*: seq[PNode] ## top level statements in the order they were parsed
     sym*: PSym         ## module symbol
     idgen*: IdGenerator
 
-  ModuleListRef* = ref ModuleList
-  ModuleList* = object of RootObj
-    modules*: SeqMap[FileIndex, FullModule]
+  ModuleList* = object
+    modules*: SeqMap[FileIndex, Module]
     modulesClosed*: seq[FileIndex]
       ## stores the modules in the order they were closed. The first closed
       ## module comes first, then the next, etc.
 
-  ModuleRef = ref object of TPassContext
-    ## The pass context for the VM backend. Represents a reference to a
-    ## module in the module list
-    list: ModuleListRef
-    index: FileIndex
+  ModuleListBackend = ref object of RootObj
+    ## Adapter type required for storing a ``ModuleList`` in the
+    ## ``ModuleGraph.backend`` field.
+    modules: ModuleList
 
-func isFilled*(m: FullModule): bool =
-  # required so that ``FullModule`` is usable as the item type of a ``SeqMap``
+  CollectPassCtx = ref object of TPassContext
+    ## Represents a module during the "collect" pass, and is populated as part
+    ## of it. Turned into a ``Module`` instance once the module is closed.
+    module: PSym
+    stmts: seq[PNode]
+
+func isFilled*(m: Module): bool =
+  # required so that ``Module`` is usable as the item type of a ``SeqMap``
   m.sym != nil
 
 proc takeModuleList*(graph: ModuleGraph): ModuleList =
   ## Moves the ``ModuleList`` set up by the collector pass out of the
   ## `graph.backend` field and returns it.
-  result = move ModuleListRef(graph.backend)[]
+  result = move ModuleListBackend(graph.backend).modules
   graph.backend = nil
 
 # Below is the `passes` interface implementation
 
 proc myOpen(graph: ModuleGraph, module: PSym, idgen: IdGenerator): PPassContext =
-  if graph.backend == nil:
-    graph.backend = ModuleListRef()
-
-  let
-    mlist = ModuleListRef(graph.backend)
-    pos = module.position.FileIndex
-
-  # add an empty entry for the module:
-  mlist.modules[pos] = FullModule(sym: module, idgen: idgen)
-
-  result = ModuleRef(list: mlist, index: pos)
+  result = CollectPassCtx(idgen: idgen, module: module)
 
 proc myProcess(b: PPassContext, n: PNode): PNode =
   result = n
-  let m = ModuleRef(b)
 
-  m.list.modules[m.index].stmts.add(n)
+  let c = CollectPassCtx(b)
+  c.stmts.add(n)
 
 proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
   result = myProcess(b, n)
 
-  let m = ModuleRef(b)
-  m.list.modulesClosed.add(m.index)
+  if graph.backend == nil:
+    graph.backend = ModuleListBackend()
+
+  template list: ModuleList = ModuleListBackend(graph.backend).modules
+
+  let
+    c = CollectPassCtx(b)
+    pos = c.module.position.FileIndex
+
+  list.modules[pos] = Module(stmts: move c.stmts,
+                             sym: c.module,
+                             idgen: c.idgen)
+  list.modulesClosed.add(pos)
 
 const collectPass* = makePass(myOpen, myProcess, myClose)

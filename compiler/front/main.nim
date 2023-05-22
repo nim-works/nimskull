@@ -32,6 +32,7 @@ import
     commands
   ],
   compiler/sem/[
+    collectors,
     sem,         # Implementation of the semantic pass
     passes,      # Main procs for compilation pass setups
     passaux
@@ -42,7 +43,6 @@ import
     modulegraphs # Project module graph
   ],
   compiler/backend/[
-    collectors,
     extccomp,    # Calling C compiler
     cgen,        # C code generation
   ],
