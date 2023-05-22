@@ -784,12 +784,14 @@ template internalAssert*(conf: ConfigRef, condition: bool, failMsg = "") =
 #      defined/provided diagnostics/etc that we shouldn't muck with. The
 #      code below is a temporary bridge to work around this until fixed.
 
-from compiler/ast/lexer import LexerDiag, LexerDiagKind, prettyTok
+from compiler/ast/lexer import LexerDiag, LexerDiagKind, prettyTok,
+                               diagToHumanStr
 from compiler/ast/reports_lexer import LexerReport
 
 func lexDiagToLegacyReportKind*(diag: LexerDiagKind): ReportKind {.inline.} =
   case diag
-  of lexDiagMalformedUnderscores: rlexMalformedUnderscores
+  of lexDiagMalformedNumUnderscores: rlexMalformedNumUnderscores
+  of lexDiagMalformedIdentUnderscores: rlexMalformedIdentUnderscores
   of lexDiagMalformedTrailingUnderscre: rlexMalformedTrailingUnderscre
   of lexDiagInvalidToken: rlexInvalidToken
   of lexDiagInvalidTokenSpaceBetweenNumAndIdent: rlexInvalidTokenSpaceBetweenNumAndIdent
@@ -817,22 +819,11 @@ func lexDiagToLegacyReportKind*(diag: LexerDiagKind): ReportKind {.inline.} =
 func lexerDiagToLegacyReport*(diag: LexerDiag): Report {.inline.} =
   let
     kind = diag.kind.lexDiagToLegacyReportKind()
-    rep =
-      case kind
-      of rlexLinterReport:
-        LexerReport(
+    rep = LexerReport(
             location: std_options.some diag.location,
             reportInst: diag.instLoc.toReportLineInfo,
             kind: kind,
-            wanted: diag.msg,
-            got: diag.got)
-      else:
-        LexerReport(
-          location: std_options.some diag.location,
-          reportInst: diag.instLoc.toReportLineInfo,
-          msg: diag.msg,
-          kind: kind)
-
+            msg: diagToHumanStr(diag))
   result = Report(category: repLexer, lexReport: rep)
 
 proc handleReport*(

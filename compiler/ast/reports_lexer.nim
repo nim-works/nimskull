@@ -1,4 +1,5 @@
 ## module with lexer legacy reports definitions
+## this is all trash legacy code
 
 import
   compiler/ast/[
@@ -9,12 +10,7 @@ import
 type
   LexerReport* = object of ReportBase
     msg*: string
-    case kind*: ReportKind
-      of rlexLinterReport:
-        wanted*: string
-        got*: string
-      else:
-        discard
+    kind*: ReportKind
 
 func severity*(rep: LexerReport): ReportSeverity =
   case LexerReportKind(rep.kind):

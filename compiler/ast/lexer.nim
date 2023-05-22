@@ -100,7 +100,8 @@ type
     # users errors begin
 
     # spacing
-    lexDiagMalformedUnderscores
+    lexDiagMalformedNumUnderscores
+    lexDiagMalformedIdentUnderscores
     lexDiagMalformedTrailingUnderscre
     lexDiagInvalidToken
     lexDiagInvalidTokenSpaceBetweenNumAndIdent
@@ -156,7 +157,7 @@ type
         discard
 
 const
-  LexDiagsError*   = {lexDiagMalformedUnderscores..lexDiagUnclosedComment}
+  LexDiagsError*   = {lexDiagMalformedNumUnderscores..lexDiagUnclosedComment}
   LexDiagsWarning* = {lexDiagDeprecatedOctalPrefix}
   LexDiagsHint*    = {lexDiagLineTooLong..lexDiagNameXShouldBeY}
 
@@ -177,9 +178,12 @@ func diagToHumanStr*(d: LexerDiag): string =
   case d.kind
   of lexDiagMalformedTrailingUnderscre:
     "invalid token: trailing underscore"
-  of lexDiagMalformedUnderscores:
-    "only single underscores may occur in a token and token may not " &
-      "end with an underscore: e.g. '1__1' and '1_' are invalid"
+  of lexDiagMalformedNumUnderscores:
+    "invalid number: only non-consecutive and non-trailing underscores " &
+      "allowed: e.g. '1__1' and '1_' are invalid"
+  of lexDiagMalformedIdentUnderscores:
+    "invalid identifier: only non-consecutive and non-trailing underscores " &
+      "allowed: eg. 'a__b' and 'a_' are invalid"
   of lexDiagInvalidToken:
     "invalid token: $1 (\\$2)" % [d.msg, $ord(d.msg[0])]
   of lexDiagInvalidTokenSpaceBetweenNumAndIdent:
@@ -187,7 +191,8 @@ func diagToHumanStr*(d: LexerDiag): string =
   of lexDiagNoTabs:
     "tabs are not allowed, use spaces instead"
   of lexDiagInvalidIntegerLiteralOctalPrefix:
-    "$1 is an invalid int literal; For octal literals use the '0o' prefix" % d.msg
+    "$1 is an invalid int literal; For octal literals use the '0o' prefix" %
+      d.msg
   of lexDiagInvalidIntegerSuffix:
     "invalid number suffix: '$1'" % d.msg
   of lexDiagNumberNotInRange:
@@ -470,7 +475,7 @@ proc getNumber(L: var Lexer, result: var Token) =
         break
       if L.buf[pos] == '_':
         if L.buf[pos+1] notin chars:
-          L.handleDiag(lexDiagMalformedUnderscores)
+          L.handleDiag(lexDiagMalformedNumUnderscores)
           break
         tok.literal.add('_')
         inc(pos)
@@ -1057,11 +1062,16 @@ proc getSymbol(L: var Lexer, tok: var Token) =
       inc(pos)
       suspicious = true
     of '_':
-      if L.buf[pos+1] notin SymChars:
+      case L.buf[pos+1]
+      of SymChars:
+        inc(pos)
+        suspicious = true
+      of '_':
+        L.handleDiag(lexDiagMalformedIdentUnderscores)
+        break
+      else:
         L.handleDiag(lexDiagMalformedTrailingUnderscre)
         break
-      inc(pos)
-      suspicious = true
     of '\x80'..'\xFF':
       if c in UnicodeOperatorStartChars and
          unicodeOperators in L.config.features and
