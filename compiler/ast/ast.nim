@@ -441,7 +441,7 @@ proc propagateToOwner*(owner, elem: PType; propagateHasAsgn = true) =
 
 proc rawAddSon*(father, son: PType; propagateHasAsgn = true) =
   father.sons.add(son)
-  if not son.isNil: propagateToOwner(father, son, propagateHasAsgn)
+  if son != nil: propagateToOwner(father, son, propagateHasAsgn)
 
 proc rawAddSonNoPropagationOfTypeFlags*(father, son: PType) =
   father.sons.add(son)

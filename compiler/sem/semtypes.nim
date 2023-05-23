@@ -232,10 +232,28 @@ proc semVarOutType(c: PContext, n: PNode, prev: PType; kind: TTypeKind): PType =
   else:
     result = newConstraint(c, kind)
 
+proc isRecursiveType(t: PType, cycleDetector: var IntSet): bool =
+  if t.isNil:
+    return false
+  if cycleDetector.containsOrIncl(t.id):
+    true
+  else:
+    case t.kind
+    of tyAlias, tyGenericInst, tyDistinct:
+      isRecursiveType(t.lastSon, cycleDetector)
+    else:
+      false
+
 proc semDistinct(c: PContext, n: PNode, prev: PType): PType =
   if n.len == 0: return newConstraint(c, tyDistinct)
   result = newOrPrevType(tyDistinct, prev, c)
-  addSonSkipIntLit(result, semTypeNode(c, n[0], nil), c.idgen)
+  let t = semTypeNode(c, n[0], nil).skipIntLit(c.idgen)
+  var cycleDetector = initIntSet()
+  if isRecursiveType(t, cycleDetector):
+    result.add t
+    c.config.localReport(n.info, reportTyp(rsemIllegalRecursion, t))
+  else:
+    rawAddSon(result, t)
   if n.len > 1: result.n = n[1]
 
 proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
@@ -271,7 +289,6 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
 
     elif not isOrdinalType(rangeT[0]) and rangeT[0].kind notin {tyFloat..tyFloat128} or
         rangeT[0].kind == tyBool:
-
       localReport(c.config, n.info, reportTyp(
         rsemExpectedOrdinalOrFloat, rangeT[0]))
 
@@ -494,7 +511,13 @@ proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =
     localReport(c.config, n, reportSem rsemTypeExpected)
   result = newOrPrevType(tyTuple, prev, c)
   for it in n:
-    addSonSkipIntLit(result, semTypeNode(c, it, nil), c.idgen)
+    let t = semTypeNode(c, it, nil).skipIntLit(c.idgen)
+    var cycleDetector = initIntSet()
+    if isRecursiveType(t, cycleDetector):
+      result.add t
+      c.config.localReport(n.info, reportTyp(rsemIllegalRecursion, t))
+    else:
+      rawAddSon(result, t)
 
 proc semTuple(c: PContext, n: PNode, prev: PType): PType =
   # TODO: replace with a node returning variant that can in band errors
@@ -834,7 +857,6 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
       localReport(c.config, a.info, SemReport(
         kind: rsemMissingCaseBranches,
         nodes: formatMissingBranches(c, a)))
-
     else:
       localReport(c.config, a, reportSem rsemMissingCaseBranches)
 
