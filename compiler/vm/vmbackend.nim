@@ -22,14 +22,12 @@ import
     lineinfos,
     astalgo, # for `getModule`
   ],
-  compiler/backend/[
-    collectors
-  ],
   compiler/front/[
     msgs,
     options
   ],
   compiler/sem/[
+    collectors,
     transf
   ],
   compiler/mir/[
@@ -71,7 +69,7 @@ type
     code: seq[TInstr]
     debug: seq[TLineInfo]
 
-  Module = object
+  BModule = object
     sym: PSym
 
     initGlobalsCode: CodeFragment ## the bytecode of `initGlobalsProc`. Each
@@ -82,14 +80,14 @@ type
     initProc: CodeInfo ## the module init proc (top-level statements)
 
   ModuleId = distinct uint32
-    ## The ID of a ``Module`` instance.
+    ## The ID of a ``BModule`` instance.
 
   BModuleList = object
-    modules: Store[ModuleId, Module]
+    modules: Store[ModuleId, BModule]
     modulesClosed: seq[ModuleId]
 
     moduleMap: Table[int, ModuleId]
-      ## maps a module's position to the ID of the module's ``Module``
+      ## maps a module's position to the ID of the module's ``BModule``
       ## instance
 
 func growBy[T](x: var seq[T], n: Natural) {.inline.} =
@@ -153,7 +151,7 @@ proc genStmt(c: var TCtx, n: PNode): auto =
   vmgen.genStmt(c, n)
 
 proc generateTopLevelStmts(c: var TCtx, config: ConfigRef,
-                           module: FullModule): CodeInfo =
+                           module: Module): CodeInfo =
   ## Generates code for all collected top-level statements of `module` and
   ## compiles the fragments into a single function. The resulting code is
   ## stored in `module.initProc`
@@ -304,7 +302,7 @@ proc generateEntryProc(c: var TCtx, info: TLineInfo, initProcs: Slice[int],
 
   result = (start: start, regCount: 2)
 
-func addInitProcs(ft: var seq[FuncTableEntry], m: Module, sig: RoutineSigId) =
+func addInitProcs(ft: var seq[FuncTableEntry], m: BModule, sig: RoutineSigId) =
   ## Appends entries for module `m`'s initialization procs (if any) to the
   ## function table
   # XXX: initializing the globals _before_ top-level statements are
@@ -399,7 +397,7 @@ proc produceModules(g: ModuleGraph, c: var TCtx,
   for it in mlist.modules.values:
     c.refresh(it.sym, it.idgen)
 
-    var m = Module(sym: it.sym)
+    var m = BModule(sym: it.sym)
     m.initProc = generateTopLevelStmts(c, g.config, it)
     m.initGlobalsCode.prc = PProc()
 

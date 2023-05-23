@@ -12,7 +12,6 @@ import
   compiler/backend/[
     cgen,
     cgendata,
-    collectors,
     extccomp
   ],
   compiler/front/[
@@ -20,6 +19,9 @@ import
   ],
   compiler/modules/[
     modulegraphs
+  ],
+  compiler/sem/[
+    collectors
   ],
   compiler/utils/[
     containers,

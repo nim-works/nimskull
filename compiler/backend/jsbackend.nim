@@ -11,7 +11,6 @@ import
     json
   ],
   compiler/backend/[
-    collectors,
     jsgen
   ],
   compiler/front/[
@@ -21,6 +20,7 @@ import
     modulegraphs
   ],
   compiler/sem/[
+    collectors,
     passes,
     sourcemap
   ],
