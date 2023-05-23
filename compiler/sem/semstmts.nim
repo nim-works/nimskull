@@ -2151,6 +2151,7 @@ proc typeSectionFinalPass(c: PContext, n: PNode) =
 
 
 proc semAllTypeSections(c: PContext; n: PNode): PNode =
+  addInNimDebugUtils(c.config, "semAllTypeSections", n, result)
   proc gatherStmts(c: PContext; n: PNode; result: PNode) {.nimcall.} =
     case n.kind
     of nkIncludeStmt:
