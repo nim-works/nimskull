@@ -13,8 +13,6 @@
 
 import compiler/sem/sighashes, compiler/modules/modulegraphs
 
-proc genProcHeader(m: BModule, prc: PSym): Rope
-
 proc isKeyword(w: PIdent): bool =
   # Nim and C++ share some keywords
   # it's more efficient to test the whole Nim keywords range
