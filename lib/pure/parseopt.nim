@@ -192,57 +192,16 @@ proc parseWord(s: string, i: int, w: var string,
       add(w, s[result])
       inc(result)
 
-proc initOptParser*(cmdline = "", shortNoVal: set[char] = {},
+proc getArguments*(): seq[string] =
+  for i in 1..paramCount():
+    result &= paramStr(i)
+
+proc initOptParser*(args: openArray[string], shortNoVal: set[char] = {},
                     longNoVal: seq[string] = @[];
                     allowWhitespaceAfterColon = true): OptParser =
   ## Initializes the command line parser.
   ##
-  ## If `cmdline == ""`, the real command line as provided by the
-  ## `os` module is retrieved instead if it is available. If the
-  ## command line is not available, a `ValueError` will be raised.
-  ##
-  ## `shortNoVal` and `longNoVal` are used to specify which options
-  ## do not take values. See the `documentation about these
-  ## parameters<#shortnoval-and-longnoval>`_ for more information on
-  ## how this affects parsing.
-  ##
-  ## See also:
-  ## * `getopt iterator<#getopt.i,OptParser>`_
-  runnableExamples:
-    var p = initOptParser()
-    p = initOptParser("--left --debug:3 -l -r:2")
-    p = initOptParser("--left --debug:3 -l -r:2",
-                      shortNoVal = {'l'}, longNoVal = @["left"])
-
-  result.pos = 0
-  result.idx = 0
-  result.inShortState = false
-  result.shortNoVal = shortNoVal
-  result.longNoVal = longNoVal
-  result.allowWhitespaceAfterColon = allowWhitespaceAfterColon
-  if cmdline != "":
-    result.cmds = parseCmdLine(cmdline)
-  else:
-    when declared(paramCount):
-      result.cmds = newSeq[string](paramCount())
-      for i in countup(1, paramCount()):
-        result.cmds[i-1] = paramStr(i)
-    else:
-      # we cannot provide this for NimRtl creation on Posix, because we can't
-      # access the command line arguments then!
-      doAssert false, "empty command line given but" &
-        " real command line is not accessible"
-
-  result.kind = cmdEnd
-  result.key = ""
-  result.val = ""
-
-proc initOptParser*(cmdline: openArray[string], shortNoVal: set[char] = {},
-                    longNoVal: seq[string] = @[];
-                    allowWhitespaceAfterColon = true): OptParser =
-  ## Initializes the command line parser.
-  ##
-  ## If `cmdline.len == 0`, the real command line as provided by the
+  ## If `args.len == 0`, the real command line as provided by the
   ## `os` module is retrieved instead if it is available. If the
   ## command line is not available, a `ValueError` will be raised.
   ## Behavior of the other parameters remains the same as in
@@ -252,7 +211,7 @@ proc initOptParser*(cmdline: openArray[string], shortNoVal: set[char] = {},
   ## See also:
   ## * `getopt iterator<#getopt.i,seq[string],set[char],seq[string]>`_
   runnableExamples:
-    var p = initOptParser()
+    var p = initOptParser(getArguments())
     p = initOptParser(@["--left", "--debug:3", "-l", "-r:2"])
     p = initOptParser(@["--left", "--debug:3", "-l", "-r:2"],
                       shortNoVal = {'l'}, longNoVal = @["left"])
@@ -263,20 +222,11 @@ proc initOptParser*(cmdline: openArray[string], shortNoVal: set[char] = {},
   result.shortNoVal = shortNoVal
   result.longNoVal = longNoVal
   result.allowWhitespaceAfterColon = allowWhitespaceAfterColon
-  if cmdline.len != 0:
-    result.cmds = newSeq[string](cmdline.len)
-    for i in 0..<cmdline.len:
-      result.cmds[i] = cmdline[i]
-  else:
-    when declared(paramCount):
-      result.cmds = newSeq[string](paramCount())
-      for i in countup(1, paramCount()):
-        result.cmds[i-1] = paramStr(i)
-    else:
-      # we cannot provide this for NimRtl creation on Posix, because we can't
-      # access the command line arguments then!
-      doAssert false, "empty command line given but" &
-        " real command line is not accessible"
+
+  result.cmds = newSeq[string](args.len)
+  for i in 0..<args.len:
+    result.cmds[i] = args[i]
+
   result.kind = cmdEnd
   result.key = ""
   result.val = ""
