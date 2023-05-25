@@ -24,8 +24,7 @@ const bootSwitchEnabled: seq[string] = block:
   # TODO: show all the -d:xxx used. Currently it's a limited selection
   testSwitch(defined(release), "-d:release")
   testSwitch(defined(danger), "-d:danger")
-  # `useLinenoise` deprecated in favor of `nimUseLinenoise`, kept for backward compatibility
-  testSwitch(defined(nimUseLinenoise) or defined(useLinenoise), "-d:nimUseLinenoise")
+  testSwitch(defined(useLinenoise), "-d:useLinenoise")
   testSwitch(defined(tinyc), "-d:tinyc")
 
   result

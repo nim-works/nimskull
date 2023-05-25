@@ -13,7 +13,7 @@ import
   compiler/utils/pathutils
 
 # support `useGnuReadline`, `useLinenoise` for backwards compatibility
-const hasRstdin = (defined(nimUseLinenoise) or defined(useLinenoise) or defined(useGnuReadline)) and
+const hasRstdin = (defined(useLinenoise) or defined(useLinenoise) or defined(useGnuReadline)) and
   not defined(windows)
 
 when hasRstdin: import std/rdstdin
