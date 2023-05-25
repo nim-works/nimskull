@@ -3506,3 +3506,7 @@ func isValidFilename*(filename: string, maxLen = 259.Positive): bool {.since: (1
     find(f.name, invalidFilenameChars) != -1): return false
   for invalid in invalidFilenames:
     if cmpIgnoreCase(f.name, invalid) == 0: return false
+
+proc getAppArguments*(): seq[string] =
+  for i in 1..paramCount():
+    result &= paramStr(i)

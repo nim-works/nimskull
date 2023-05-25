@@ -192,10 +192,6 @@ proc parseWord(s: string, i: int, w: var string,
       add(w, s[result])
       inc(result)
 
-proc getArguments*(): seq[string] =
-  for i in 1..paramCount():
-    result &= paramStr(i)
-
 proc initOptParser*(args: openArray[string], shortNoVal: set[char] = {},
                     longNoVal: seq[string] = @[];
                     allowWhitespaceAfterColon = true): OptParser =
@@ -211,7 +207,7 @@ proc initOptParser*(args: openArray[string], shortNoVal: set[char] = {},
   ## See also:
   ## * `getopt iterator<#getopt.i,seq[string],set[char],seq[string]>`_
   runnableExamples:
-    var p = initOptParser(getArguments())
+    var p = initOptParser(getAppArguments())
     p = initOptParser(@["--left", "--debug:3", "-l", "-r:2"])
     p = initOptParser(@["--left", "--debug:3", "-l", "-r:2"],
                       shortNoVal = {'l'}, longNoVal = @["left"])

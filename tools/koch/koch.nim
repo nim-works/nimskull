@@ -606,7 +606,7 @@ proc branchDone() =
     exec("git pull --rebase")
 
 when isMainModule:
-  var op = initOptParser()
+  var op = initOptParser(getAppArguments())
   var
     latest = false
 
