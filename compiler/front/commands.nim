@@ -415,7 +415,7 @@ proc writeVersionInfo(conf: ConfigRef) =
     commitMsg &
     "\nactive boot switches:" & bootSwitchesMsg
 
-proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
+proc processCmdLine*(pass: TCmdLinePass, cmd: openArray[string]; config: ConfigRef) =
   ## Process input command-line parameters into `config` settings. Input is
   ## a joined list of command-line arguments with multiple options and/or
   ## configurations.

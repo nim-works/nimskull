@@ -237,7 +237,7 @@ proc initOptParser*(cmdline = "", shortNoVal: set[char] = {},
   result.key = ""
   result.val = ""
 
-proc initOptParser*(cmdline: seq[string], shortNoVal: set[char] = {},
+proc initOptParser*(cmdline: openArray[string], shortNoVal: set[char] = {},
                     longNoVal: seq[string] = @[];
                     allowWhitespaceAfterColon = true): OptParser =
   ## Initializes the command line parser.
