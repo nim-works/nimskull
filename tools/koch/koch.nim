@@ -123,7 +123,7 @@ proc defineSourceMetadata(): string =
   ## built compiler
   let (hash, date, versionSuffix) = getSourceMetadata()
   if hash != "" and date != "":
-    result = quoteShellCommand(["-d:nimSourceHash=" & hash, "-d:nimSourceDate=" & date])
+    result = quoteShellCommand(["-d:SourceHash=" & hash, "-d:SourceDate=" & date])
   if versionSuffix != "":
     result &= " -d:CompilerVersionSuffix=" & quoteShell(versionSuffix)
 

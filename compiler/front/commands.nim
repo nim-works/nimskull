@@ -8,18 +8,27 @@
 #
 
 # This module handles the parsing of command line arguments.
-
 # We do this here before the ``import`` statement so that defines from
 # inside the imported modules do not affect the boot switches. It's unlikely
 # to happen, but not impossible.
-template bootSwitch(name, expr, userString) =
-  # Helper to build boot constants, for debugging you can 'echo' the else part.
-  const name = if expr: " " & userString else: ""
+#
+# Don't used this other than printing.
+const bootSwitchEnabled: seq[string] = block:
+  var result: seq[string]
+  
+  template testSwitch(expr, userString) =
+    ## Helper to build boot constants
+    if expr:
+      result &= userString
 
-bootSwitch(usedRelease, defined(release), "-d:release")
-bootSwitch(usedDanger, defined(danger), "-d:danger")
-# `useLinenoise` deprecated in favor of `nimUseLinenoise`, kept for backward compatibility
-bootSwitch(useLinenoise, defined(nimUseLinenoise) or defined(useLinenoise), "-d:nimUseLinenoise")
+  # TODO: show all the -d:xxx used. Currently it's a limited selection
+  testSwitch(defined(release), "-d:release")
+  testSwitch(defined(danger), "-d:danger")
+  # `useLinenoise` deprecated in favor of `nimUseLinenoise`, kept for backward compatibility
+  testSwitch(defined(nimUseLinenoise) or defined(useLinenoise), "-d:nimUseLinenoise")
+  testSwitch(defined(tinyc), "-d:tinyc")
+
+  result
 
 import
   std/[
@@ -44,11 +53,8 @@ import
   ],
   compiler/utils/[
     nversion,
-    platform,
     idioms,
   ]
-
-from compiler/front/in_options import MsgFormatKind
 
 # xxx: legacy reports cruft
 from compiler/ast/report_enums import ReportKind,
@@ -57,8 +63,6 @@ from compiler/ast/report_enums import ReportKind,
   repHintGroups,
   repWarningKinds,
   repWarningGroups
-
-bootSwitch(usedTinyC, hasTinyCBackend, "-d:tinyc")
 
 # TODO: temporary, move into `msgs` or `commands`
 type
@@ -359,31 +363,15 @@ proc cliEventLogger*(conf: ConfigRef, evt: CliEvent) =
   of cliEvtWarnings: conf.logWarn(evt)
   of cliEvtHints:    conf.logHint(evt)
 
-type
-  CliData = object
-    ## Information used to construct messages for CLI reports - `--help`,
-    ## `--fullhelp`
-    version*: string ## Language version
-    sourceHash*: string ## Compiler source code git hash
-    sourceDate*: string ## Compiler source code date
-    boot*: seq[string] ## nim compiler boot flags
-    cpu*: TSystemCPU ## Target CPU
-    os*: TSystemOS ## Target OS
-
 const
   sourceHash {.strdefine.} = "" # defined by koch
   sourceDate {.strdefine.} = "" # defined by koch
-  cliData = CliData(version: VersionAsString,
-                    sourceHash: sourceHash,
-                    sourceDate: sourceDate,
-                    boot: @[usedRelease,
-                            usedDanger,
-                            usedTinyC,
-                            useLinenoise],
-                    os: nameToOS(system.hostOS),
-                    cpu: nameToCPU(system.hostCPU))
-  HelpMessage = "Nimskull Compiler Version $1 [$2: $3]\n"
-  CommitMessage = "Source hash: $1\n" &
+  Banner = "Nimskull Compiler Version $1 [$2: $3]\n" % [
+    VersionAsString,
+    system.hostOS,
+    system.hostCPU,
+  ]
+  CommitMessageTemplate = "Source hash: $1\n" &
                   "Source date: $2\n"
   Usage = slurp"../doc/basicopt.txt".replace(" //", "   ")
   AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") %
@@ -398,43 +386,35 @@ proc showMsg*(conf: ConfigRef, msg: string) =
   # TODO: implement procs for actual command output
   conf.msgWrite(msg, {msgNoUnitSep})
 
-func cliMsgLede(data: CliData): string {.inline.} =
-  HelpMessage % [
-    VersionAsString,
-    platform.OS[data.os].name,
-    CPU[data.cpu].name
-  ]
-
-func helpOnErrorMsg*(conf: ConfigRef): string =
-  # TODO: rename this, it's just the usage.
-  cliMsgLede(cliData) & Usage
-
-proc writeHelp(conf: ConfigRef) =
-  conf.showMsg helpOnErrorMsg(conf)
-  msgQuit(0)
+proc writeUsage*(conf: ConfigRef) =
+  conf.showMsg:
+    Banner & Usage
 
 proc writeAdvancedUsage(conf: ConfigRef) =
   conf.showMsg:
-    cliMsgLede(cliData) & AdvancedUsage
-  msgQuit(0)
+    Banner & AdvancedUsage
 
 proc writeFullhelp(conf: ConfigRef) =
   conf.showMsg:
-    cliMsgLede(cliData) & Usage & AdvancedUsage
-  msgQuit(0)
+    Banner & Usage & AdvancedUsage
 
 proc writeVersionInfo(conf: ConfigRef) =
   let
     commitMsg =
       if sourceHash != "":
-        "\n" & CommitMessage % [sourceHash, sourceDate]
+        "\n" & CommitMessageTemplate % [sourceHash, sourceDate]
       else:
         ""
+  
+  var bootSwitchesMsg = ""
+  for switchEnabled in bootSwitchEnabled:
+    bootSwitchesMsg &= " "
+    bootSwitchesMsg &= switchEnabled
+  
   conf.showMsg:
-    cliMsgLede(cliData) &
+    Banner &
     commitMsg &
-    "\nactive boot switches: " & cliData.boot.join(" ")
-  msgQuit(0)
+    "\nactive boot switches:" & bootSwitchesMsg
 
 proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
   ## Process input command-line parameters into `config` settings. Input is
@@ -480,18 +460,22 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
         # only kept because of user expectations
         expectNoArg(cliFlagVersion, p.key, p.val)
         writeVersionInfo(config)
+        msgQuit(0)
       of "help", "h":
         # only kept because of user expectations
         expectNoArg(cliFlagHelp, p.key, p.val)
-        writeHelp(config)
+        writeUsage(config)
+        msgQuit(0)
       of "advanced":
         # deprecate/make it a switch for the help sub-command
         expectNoArg(cliFlagHelpAdvanced, p.key, p.val)
         writeAdvancedUsage(config)
+        msgQuit(0)
       of "fullhelp":
         # deprecate/make it a switch for the help sub-command
         expectNoArg(cliFlagHelpFull, p.key, p.val)
         writeFullhelp(config)
+        msgQuit(0)
       of "msgformat":
         case p.val.normalize
         of "text": config.setMsgFormat(config, msgFormatText)
