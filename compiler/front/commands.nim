@@ -7,19 +7,19 @@
 #    distribution, for details about the copyright.
 #
 
-# This module handles the parsing of command line arguments.
-# We do this here before the ``import`` statement so that defines from
-# inside the imported modules do not affect the boot switches. It's unlikely
-# to happen, but not impossible.
-#
-# Don't used this other than printing.
+## This module handles the parsing of command line arguments.
+
+
+## Switches specified when the compiler is built (-d:xxx)
+## 
+## Don't use the constant for anything other than printing.
 const bootSwitchEnabled: seq[string] = block:
   var result: seq[string]
   
   template testSwitch(expr, userString) =
     ## Helper to build boot constants
     if expr:
-      result &= userString
+      result.add(userString)
 
   # TODO: show all the -d:xxx used. Currently it's a limited selection
   testSwitch(defined(release), "-d:release")
