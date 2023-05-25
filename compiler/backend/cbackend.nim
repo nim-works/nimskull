@@ -46,8 +46,11 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 
   # setup the module for the generated header, if required:
   if optGenIndex in config.globalOptions:
-    let f = if config.headerFile.len > 0: AbsoluteFile config.headerFile
-            else: config.projectFull
+    let f =
+      if config.headerFile.len > 0:
+        AbsoluteFile(config.headerFile)
+      else:
+        config.projectFull
     g.generatedHeader = rawNewModule(g, mlist.modules[config.projectMainIdx2].sym,
       changeFileExt(completeCfilePath(config, f), hExt))
     incl g.generatedHeader.flags, isHeaderFile
