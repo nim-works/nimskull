@@ -54,6 +54,7 @@ proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
     result = f
 
 type
+  # xxx: this is only used by compiler(nim) and nimsuggest. remove this if convenient
   NimProg* = ref object
     suggestMode*: bool
     supportsStdinFile*: bool

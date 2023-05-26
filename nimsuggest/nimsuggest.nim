@@ -621,8 +621,8 @@ proc mainCommand(graph: ModuleGraph) =
   close(requests)
   close(results)
 
-proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
-  var p = parseopt.initOptParser(cmd)
+proc processCmdLine*(pass: TCmdLinePass, argv: openArray[string]; conf: ConfigRef) =
+  var p = parseopt.initOptParser(argv)
   var findProject = false
   while true:
     parseopt.next(p)
@@ -690,7 +690,7 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
           conf.projectName = a
       # if processArgument(pass, p, argsCount): break
 
-proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
+proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]) =
   let self = NimProg(
     suggestMode: true,
     processCmdLine: nimsuggest.processCmdLine
@@ -701,7 +701,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
     stdout.writeLine(Usage)
     return
 
-  self.processCmdLineAndProjectPath(conf)
+  self.processCmdLineAndProjectPath(conf, argv)
 
   if gMode != mstdin:
     conf.writelnHook =
@@ -730,16 +730,17 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
   graph.onMarkUsed = proc (g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; isDecl: bool) =
     suggestSym(g, info, s, usageSym, isDecl)
   graph.onSymImport = graph.onMarkUsed # same callback
-  if self.loadConfigsAndProcessCmdLine(cache, conf, graph):
+  if self.loadConfigsAndProcessCmdLine(cache, conf, graph, argv):
     # defaulting to customizing for the C backend matches what
     # 'nim check' does
     customizeForBackend(graph, conf, backendC)
     mainCommand(graph)
 
 when isMainModule:
+  let argv = getAppArguments()
   let conf = newConfigRef(cli_reporter.reportHook)
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
-  handleCmdLine(newIdentCache(), conf)
+  handleCmdLine(newIdentCache(), conf, argv)
 else:
   export Suggest
   export IdeCmd
@@ -775,7 +776,7 @@ else:
       compileProject(graph)
 
 
-    proc mockCmdLine(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
+    proc mockCmdLine(pass: TCmdLinePass, argv: openArray[string]; conf: ConfigRef) =
       conf.suggestVersion = 0
       let a = unixToNativePath(project)
       if dirExists(a) and not fileExists(a.addFileExt("nim")):
@@ -795,7 +796,7 @@ else:
     conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
     self.initDefinesProg(conf, "nimsuggest")
 
-    self.processCmdLineAndProjectPath(conf)
+    self.processCmdLineAndProjectPath(conf, argv)
 
     if gMode != mstdin:
       conf.writelnHook = proc (msg: string) = discard
