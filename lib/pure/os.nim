@@ -3509,4 +3509,4 @@ func isValidFilename*(filename: string, maxLen = 259.Positive): bool {.since: (1
 
 proc getAppArguments*(): seq[string] =
   for i in 1..paramCount():
-    result &= paramStr(i)
+    result.add(paramStr(i))

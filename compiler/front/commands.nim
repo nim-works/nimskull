@@ -9,7 +9,6 @@
 
 ## This module handles the parsing of command line arguments.
 
-
 # Switches specified when the compiler is built (-d:xxx)
 # 
 # Don't use the constant for anything other than printing.
@@ -17,7 +16,6 @@ const bootSwitchEnabled: seq[string] = block:
   var result: seq[string]
   
   template testSwitch(expr, userString) =
-    ## Helper to build boot constants
     if expr:
       result.add(userString)
 
