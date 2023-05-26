@@ -267,6 +267,7 @@ const ThisIsSystem = true
 
 proc internalNew*[T](a: var ref T) {.magic: "New", noSideEffect.}
   ## Leaked implementation detail. Do not use.
+  # TODO: obsolete; remove after the next csource update
 
 proc wasMoved*[T](obj: var T) {.magic: "WasMoved", noSideEffect.} =
   ## Resets an object `obj` to its initial (binary zero) value to signify
