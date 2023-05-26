@@ -1981,8 +1981,6 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
           t1 = semTypeNode(c, n[1], nil)
           t2 = semTypeNode(c, n[2], nil)
           cycleDetector = initIntSet()
-        if prev != nil:
-          cycleDetector.incl prev.id
         if t1 == nil:
           localReport(c.config, n[1], reportSem rsemTypeExpected)
           result = newOrPrevType(tyError, prev, c)
@@ -1992,10 +1990,16 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
         else:
           result = if op.id == ord(wAnd): makeAndType(c, t1, t2)
                    else: makeOrType(c, t1, t2)
-          if prev != nil and
-              (isRecursiveType(t1, cycleDetector) or
-              isRecursiveType(t2, cycleDetector)):
-            c.config.localReport(n.info, reportTyp(rsemIllegalRecursion, prev))
+          if prev != nil:
+            for t in [t1, t2]:
+              var typeToCheck = t
+              cycleDetector.incl typeToCheck.id
+              while typeToCheck != nil and
+                    typeToCheck.kind in {tyAlias, tyGenericInst, tyDistinct}:
+                typeToCheck = t.lastSon
+                cycleDetector.incl typeToCheck.id
+            if prev.id in cycleDetector:
+              c.config.localReport(n.info, reportTyp(rsemIllegalRecursion, prev))
       elif op.id == ord(wNot):
         case n.len
         of 3:
