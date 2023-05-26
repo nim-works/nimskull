@@ -3508,5 +3508,8 @@ func isValidFilename*(filename: string, maxLen = 259.Positive): bool {.since: (1
     if cmpIgnoreCase(f.name, invalid) == 0: return false
 
 proc getAppArguments*(): seq[string] =
+  ## Returns argument to the running executable
+  ##
+  ## Does not contain the executable path (argv[0]). This is equivalent to argv[1..^1] in C.
   for i in 1..paramCount():
     result.add(paramStr(i))
