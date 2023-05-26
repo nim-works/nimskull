@@ -1994,7 +1994,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
                    else: makeOrType(c, t1, t2)
           if prev != nil and
               (isRecursiveType(t1, cycleDetector) or
-              isRecursiveType(t1, cycleDetector)):
+              isRecursiveType(t2, cycleDetector)):
             c.config.localReport(n.info, reportTyp(rsemIllegalRecursion, prev))
       elif op.id == ord(wNot):
         case n.len
