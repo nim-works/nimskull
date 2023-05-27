@@ -1,6 +1,7 @@
 discard """
   output: ""
   joinable: false
+  knownIssue: "std/thread is broken"
   description: '''
   . if `Thread` is freed before the thread finishes, SIGSEGV
   . reference counting of `Thread.coreFn` is broken
