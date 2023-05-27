@@ -149,8 +149,8 @@ const
   envName* = ":env"
 
 proc newObjConstr(typ: PType, info: TLineInfo): PNode =
-  ## Creates an object constructor node with no arguments for type `typ`, using
-  ## `info` for source line information.
+  ## Creates an object construction node with no arguments for type `typ`,
+  ## using `info` for source line information.
   newTreeIT(nkObjConstr, info, typ, [newNodeIT(nkType, info, typ)])
 
 proc createClosureIterStateType*(g: ModuleGraph; iter: PSym; idgen: IdGenerator): PType =
