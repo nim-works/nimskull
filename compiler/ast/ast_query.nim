@@ -710,3 +710,10 @@ iterator branchLabels*(node: PNode): (int, PNode) =
                        nkElseExpr, nkExceptBranch}
   for i in 0..<node.len-1:
     yield (i, node[i])
+
+iterator names*(node: PNode): PNode =
+  ## Returns the node for each name slot of the `node`, where `node` is the
+  ## definition node for some symbol that is not a routine.
+  assert node.kind in {nkIdentDefs, nkVarTuple, nkConstDef, nkForStmt}
+  for i in 0..<node.len-2:
+    yield node[i]
