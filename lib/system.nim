@@ -265,9 +265,13 @@ proc typeof*(x: untyped; mode = typeOfIter): typedesc {.
 
 const ThisIsSystem = true
 
-proc internalNew*[T](a: var ref T) {.magic: "New", noSideEffect.}
-  ## Leaked implementation detail. Do not use.
-  # TODO: obsolete; remove after the next csource update
+when compileOption("gc", "refc"):
+  # TODO: obsolete magic definition; remove after the next csource update.
+  #       The magic is unrelated to refc, but since only the csource
+  #       compiler still supports and uses refc, we can use its presense as
+  #       a way it to identify the csources compiler
+  proc internalNew*[T](a: var ref T) {.magic: "New", noSideEffect.}
+    ## Leaked implementation detail. Do not use.
 
 proc wasMoved*[T](obj: var T) {.magic: "WasMoved", noSideEffect.} =
   ## Resets an object `obj` to its initial (binary zero) value to signify
