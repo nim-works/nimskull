@@ -40,7 +40,9 @@ import
     msgs
   ],
   compiler/sem/[
+    closureiters,
     semfold,
+    lambdalifting,
     lowerings
   ],
   compiler/backend/[
@@ -49,10 +51,6 @@ import
   compiler/utils/[
     idioms
   ]
-
-proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
-
-import closureiters, lambdalifting
 
 type
   PTransCon = ref object # part of TContext; stackable
@@ -89,6 +87,8 @@ type
     env: PSym ## the symbol of the local (or parameter) through which
               ## the lifted local environment is accessed. 'nil', if
               ## none exists.
+
+proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
 
 proc pushTransCon(c: PTransf, t: PTransCon) =
   t.next = c.transCon
