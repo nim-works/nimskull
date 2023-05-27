@@ -456,3 +456,141 @@ block close_over_compile_time_loc:
 
   static:
     p()
+
+template test(body: untyped) {.dirty.} =
+  ## Tests that `body` works when placed in:
+  ## - a normal procedure
+  ## - a procedure that closes over something
+  ## - a closure iterator
+  ##
+  ## A .dirty template is used in order to interfere with the test as little
+  ## as possible. Ideally, the template would be expanded before running the
+  ## test file.
+  proc outerInternal() =
+    body
+
+  outerInternal()
+
+  proc outerInternal2() =
+    proc innerInternal() =
+      body
+
+    innerInternal()
+
+  outerInternal2()
+
+  iterator iterInternal(): int {.closure.} =
+    body
+
+  let it = iterInternal
+  discard it()
+
+block closure_in_duplicated_for_loop_body:
+  # closing over a local defined in the body of a for-loop that is
+  # duplicated works. Neither the closed over local nor the procedure is
+  # duplicated (in terms of visible behaviour).
+  iterator multiYield(): int {.inline.} =
+    yield 1
+    yield 2
+
+  test:
+    var cl: proc(x: int)
+
+    for it in multiYield():
+      var x = it
+
+      if cl != nil:
+        # the duplicated bodies share the local; invoking the closure would
+        # yield x's value from the previous step otherwise
+        cl(it)
+
+      proc inner(expect: int) =
+        doAssert x == expect
+
+      inner(it) # directly calling the closure procedure works
+      if cl == nil:
+        cl = inner
+
+    # invoking the closure still works after the loop is finished:
+    cl(2)
+
+block capture_in_inline_iterator:
+  # closing over the local of an inline iterator is supported, without having to
+  # raise the iterator to a closure iterator.
+
+  iterator iter(): int {.inline.} =
+    var x = 1
+    proc inner(): int =
+      inc x
+      result = x
+
+    # call ``inner`` multiple times in order to ensure that the modification
+    # of `x` persists
+    yield inner()
+    yield inner()
+
+  test:
+    var items: seq[int]
+    for it in iter():
+      items.add it
+
+    doAssert items == [2, 3]
+
+block closure_closure_iterator_in_closure_iterator:
+  # using a closure closure iterator (a closure iterators that closes over
+  # some outer locals) works. Each usage of the closure closure iterator
+  # expands to the setup of a new environment.
+
+  proc test() =
+    var x = 1
+
+    iterator iter2(): int {.closure.} =
+      var y = 1 # local state
+      yield x + y
+      inc x
+      inc y
+      yield x + y
+      inc x
+      inc y
+      yield x + y
+
+    iterator iter1(): int {.closure.} =
+      let z = iter2 # a standalone environment is allocated here
+      yield z()
+      yield z()
+      yield z()
+
+    # all instances of `iter2` read and write to the same `x`
+    let it = iter1
+    doAssert it() == 2
+    doAssert it() == 4
+    doAssert it() == 6
+
+    let it2 = iter2 # here too
+    doAssert it2() == 4
+    doAssert it2() == 6
+    doAssert it2() == 8
+
+    doAssert x == 5
+
+  test()
+
+block use_closure_iterator_via_for_syntax:
+  # an inner, non-capturing closure iterator can be used in another inner
+  # routine via the for-syntax
+
+  proc outer() =
+    iterator iter(): int {.closure.} =
+      # a closure iterator that doesn't close over any locals
+      var x = 1
+      yield x
+      inc x
+      yield x
+
+    test:
+      var compare = 1
+      for it in iter():
+        doAssert it == compare
+        inc compare
+
+  outer()
