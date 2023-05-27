@@ -228,27 +228,24 @@ proc semVarOutType(c: PContext, n: PNode, prev: PType; kind: TTypeKind): PType =
   else:
     result = newConstraint(c, kind)
 
-proc isRecursiveType(t: PType, cycleDetector: var IntSet): bool =
-  if t.isNil:
-    return false
-  if cycleDetector.containsOrIncl(t.id):
-    true
-  else:
-    case t.kind
-    of tyAlias, tyGenericInst, tyDistinct:
-      isRecursiveType(t.lastSon, cycleDetector)
-    else:
-      false
+proc aliasesType(given: PType, target: PType): bool =
+  ## `true` if `given` is not an alias (inclusive of generic instantiation or
+  ## distincts) of the `target`.
+  var curr = target
+  while curr != given and curr.kind in {tyAlias, tyGenericInst, tyDistinct}:
+    curr = curr.lastSon
+  # TODO: check to see if we need to traverse `tyAnd` and `tyOr`, also ensure
+  #       no `when` clause (including `not`) refers to `given`
+  result = curr == given
 
 proc semDistinct(c: PContext, n: PNode, prev: PType): PType =
   if n.len == 0: return newConstraint(c, tyDistinct)
-  result = newOrPrevType(tyDistinct, prev, c)
   let t = semTypeNode(c, n[0], nil).skipIntLit(c.idgen)
-  var cycleDetector = initIntSet()
-  if isRecursiveType(t, cycleDetector):
-    result.add t
+  if prev != nil and prev.aliasesType(t):
+    result = newOrPrevType(tyError, prev, c)
     c.config.localReport(n.info, reportTyp(rsemIllegalRecursion, t))
   else:
+    result = newOrPrevType(tyDistinct, prev, c)
     rawAddSon(result, t)
   if n.len > 1: result.n = n[1]
 
@@ -505,10 +502,10 @@ proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =
   result = newOrPrevType(tyTuple, prev, c)
   for it in n:
     let t = semTypeNode(c, it, nil).skipIntLit(c.idgen)
-    var cycleDetector = initIntSet()
-    if isRecursiveType(t, cycleDetector):
-      result.add t
+    if prev != nil and prev.aliasesType(t):
+      result = newOrPrevType(tyError, prev, c)
       c.config.localReport(n.info, reportTyp(rsemIllegalRecursion, t))
+      break
     else:
       rawAddSon(result, t)
 
@@ -1750,7 +1747,7 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
   if inherited.kind != nkEmpty:
     for n in inherited.sons:
       let t = semTypeNode(c, n, nil)
-      if isRecursiveType(t, cycleDetector):
+      if prev != nil and prev.aliasesType(t):
         c.config.localReport(n.info, reportTyp(rsemIllegalRecursion, t))
       result.add t
 
@@ -1931,6 +1928,36 @@ proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
   addInNimDebugUtils(c.config, "semTypeNode", n, prev, result)
+
+  proc makeAndType(c: PContext, t1, t2: PType): PType =
+    result = newTypeS(tyAnd, c)
+    result.sons = @[t1, t2]
+    propagateToOwner(result, t1)
+    propagateToOwner(result, t2)
+    result.flags.incl ((t1.flags + t2.flags) * {tfHasStatic}) + {tfHasMeta}
+
+  proc makeOrType(c: PContext, t1, t2: PType): PType =
+    result = newTypeS(tyOr, c)
+    if t1.kind != tyOr and t2.kind != tyOr:
+      result.sons = @[t1, t2]
+    else:
+      template addOr(t1) =
+        if t1.kind == tyOr:
+          for x in t1.sons: result.rawAddSon x
+        else:
+          result.rawAddSon t1
+      addOr(t1)
+      addOr(t2)
+    propagateToOwner(result, t1)
+    propagateToOwner(result, t2)
+    result.flags.incl ((t1.flags + t2.flags) * {tfHasStatic}) + {tfHasMeta}
+
+  proc makeNotType(c: PContext, t1: PType): PType =
+    result = newTypeS(tyNot, c)
+    result.sons = @[t1]
+    propagateToOwner(result, t1)
+    result.flags.incl (t1.flags * {tfHasStatic}) + {tfHasMeta}
+
   result = nil
   inc c.inTypeContext
 
@@ -1980,7 +2007,6 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
         var
           t1 = semTypeNode(c, n[1], nil)
           t2 = semTypeNode(c, n[2], nil)
-          cycleDetector = initIntSet()
         if t1 == nil:
           localReport(c.config, n[1], reportSem rsemTypeExpected)
           result = newOrPrevType(tyError, prev, c)
@@ -1988,18 +2014,15 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
           localReport(c.config, n[2], reportSem rsemTypeExpected)
           result = newOrPrevType(tyError, prev, c)
         else:
-          result = if op.id == ord(wAnd): makeAndType(c, t1, t2)
-                   else: makeOrType(c, t1, t2)
-          if prev != nil:
-            for t in [t1, t2]:
-              var typeToCheck = t
-              cycleDetector.incl typeToCheck.id
-              while typeToCheck != nil and
-                    typeToCheck.kind in {tyAlias, tyGenericInst, tyDistinct}:
-                typeToCheck = t.lastSon
-                cycleDetector.incl typeToCheck.id
-            if prev.id in cycleDetector:
-              c.config.localReport(n.info, reportTyp(rsemIllegalRecursion, prev))
+          result =
+            if prev != nil and (prev.aliasesType(t1) or prev.aliasesType(t2)):
+              c.config.localReport(n.info,
+                                   reportTyp(rsemIllegalRecursion, prev))
+              newOrPrevType(tyError, prev, c)
+            else:
+              if op.id == ord(wAnd): makeAndType(c, t1, t2)
+              else:                  makeOrType(c, t1, t2)
+
       elif op.id == ord(wNot):
         case n.len
         of 3:
