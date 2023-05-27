@@ -148,10 +148,10 @@ const
   paramName* = ":envP"
   envName* = ":env"
 
-proc newCall(a: PSym, b: PNode): PNode =
-  result = newNodeI(nkCall, a.info)
-  result.add newSymNode(a)
-  result.add b
+proc newObjConstr(typ: PType, info: TLineInfo): PNode =
+  ## Creates an object construction node with no arguments for type `typ`,
+  ## using `info` for source line information.
+  newTreeIT(nkObjConstr, info, typ, [newNodeIT(nkType, info, typ)])
 
 proc createClosureIterStateType*(g: ModuleGraph; iter: PSym; idgen: IdGenerator): PType =
   var n = newNodeI(nkRange, iter.info)
@@ -284,8 +284,8 @@ proc liftIterSym*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner: PSym): PN
     let v = newTreeI(nkVarSection, n.info):
       newIdentDefs(env)
     result.add(v)
-  # add 'new' statement:
-  result.add newCall(getSysSym(g, n.info, "internalNew"), env)
+  # add init statement:
+  result.add newAsgnStmt(env, newObjConstr(env.typ, n.info))
   createTypeBoundOpsLL(g, env.typ, n.info, idgen, owner)
   result.add makeClosure(g, idgen, iter, env, n.info)
 
@@ -570,11 +570,8 @@ proc rawClosureCreation(owner: PSym;
     env = setupEnvVar(owner, d, c, info)
     if env.kind == nkSym:
       let v = newTreeI(nkVarSection, env.info):
-        newIdentDefs(env)
+        newIdentDefs(env, newObjConstr(env.typ, env.info))
       result.add(v)
-
-    # add 'new' statement:
-    result.add(newCall(getSysSym(d.graph, env.info, "internalNew"), env))
 
     # add assignment statements for captured parameters:
     for i in 1..<owner.typ.n.len:
@@ -619,7 +616,7 @@ proc closureCreationForIter(iter: PNode;
     let vs = newTreeI(nkVarSection, iter.info):
       newIdentDefs(vnode)
     result.add(vs)
-  result.add(newCall(getSysSym(d.graph, iter.info, "internalNew"), vnode))
+  result.add(newAsgnStmt(vnode, newObjConstr(vnode.typ, iter.info)))
   createTypeBoundOpsLL(d.graph, vnode.typ, iter.info, d.idgen, owner)
 
   let upField = lookupInRecord(v.typ.skipTypes({tyRef, tyPtr}).n, getIdent(d.graph.cache, upName))
@@ -875,11 +872,10 @@ proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator; owner: PSym):
     env.typ = hp.typ
     env.flags = hp.flags
 
-    let v = newTreeI(nkVarSection, body.info):
-      newIdentDefs(newSymNode(env))
+    let v = newTreeI(nkLetSection, body.info):
+      newIdentDefs(newSymNode(env), newObjConstr(env.typ, env.info))
     result.add(v)
-    # add 'new' statement:
-    result.add(newCall(getSysSym(g, env.info, "internalNew"), env.newSymNode))
+
     createTypeBoundOpsLL(g, env.typ, body.info, idgen, owner)
 
   elif op.kind == nkStmtListExpr:
