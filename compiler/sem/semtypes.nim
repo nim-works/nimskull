@@ -158,15 +158,12 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
 template semReportParamCountMismatch(
     config: ConfigRef, node: PNode, semtype: PType,
     expected, got: int,
-    typename: string = ""
-  ): untyped =
-
+    typename: string = ""): untyped =
   var report = semReportCountMismatch(
     rsemWrongNumberOfGenericParams, expected, got)
   report.ast = node
   report.typ = semtype
   report.str = typename
-
   localReport(config, node.info, report)
 
 proc semSet(c: PContext, n: PNode, prev: PType): PType =
@@ -184,7 +181,6 @@ proc semSet(c: PContext, n: PNode, prev: PType): PType =
           kind: rsemSetTooBig,
           expectedCount: toInt128 MaxSetElements,
           got: lengthOrd(c.config, base)))
-
   else:
     c.config.semReportParamCountMismatch(n, result, 1, n.len - 1)
     addSonSkipIntLit(result, errorType(c), c.idgen)
@@ -232,11 +228,28 @@ proc semVarOutType(c: PContext, n: PNode, prev: PType; kind: TTypeKind): PType =
   else:
     result = newConstraint(c, kind)
 
+proc aliasesType(given: PType, target: PType): bool =
+  ## `true` if `given` is not an alias (inclusive of generic instantiation or
+  ## distincts) of the `target`.
+  var curr = target
+  while curr != given and curr.kind in {tyAlias, tyGenericInst, tyDistinct}:
+    curr = curr.lastSon
+  # TODO: check to see if we need to traverse `tyAnd` and `tyOr`, also ensure
+  #       no `when` clause (including `not`) refers to `given`
+  result = curr == given
+
 proc semDistinct(c: PContext, n: PNode, prev: PType): PType =
   if n.len == 0: return newConstraint(c, tyDistinct)
-  result = newOrPrevType(tyDistinct, prev, c)
-  addSonSkipIntLit(result, semTypeNode(c, n[0], nil), c.idgen)
+  let t = semTypeNode(c, n[0], nil).skipIntLit(c.idgen)
+  if prev != nil and prev.aliasesType(t):
+    result = newOrPrevType(tyError, prev, c)
+    c.config.localReport(n.info, reportTyp(rsemIllegalRecursion, t))
+  else:
+    result = newOrPrevType(tyDistinct, prev, c)
+    rawAddSon(result, t)
   if n.len > 1: result.n = n[1]
+
+from std/sequtils import mapIt
 
 proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
   assert isRange(n)
@@ -250,16 +263,11 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
   if (n[1].kind == nkEmpty) or (n[2].kind == nkEmpty):
     localReport(c.config, n, reportSem rsemRangeIsEmpty)
 
-  var range: array[2, PNode]
-  range[0] = semExprWithType(c, n[1])
-  range[1] = semExprWithType(c, n[2])
-
-  var rangeT: array[2, PType]
-  for i in 0..1:
-    rangeT[i] = range[i].typ.skipTypes({tyStatic}).skipIntLit(c.idgen)
-
-  let hasUnknownTypes = c.inGenericContext > 0 and
-    rangeT[0].kind == tyFromExpr or rangeT[1].kind == tyFromExpr
+  let
+    range = [semExprWithType(c, n[1]), semExprWithType(c, n[2])]
+    rangeT = range.mapIt(it.typ.skipTypes({tyStatic}).skipIntLit(c.idgen))
+    hasUnknownTypes = c.inGenericContext > 0 and
+                       tyFromExpr in {rangeT[0].kind, rangeT[1].kind}
 
   if not hasUnknownTypes:
     if not sameType(rangeT[0].skipTypes({tyRange}), rangeT[1].skipTypes({tyRange})):
@@ -271,7 +279,6 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
 
     elif not isOrdinalType(rangeT[0]) and rangeT[0].kind notin {tyFloat..tyFloat128} or
         rangeT[0].kind == tyBool:
-
       localReport(c.config, n.info, reportTyp(
         rsemExpectedOrdinalOrFloat, rangeT[0]))
 
@@ -311,12 +318,12 @@ proc semRange(c: PContext, n: PNode, prev: PType): PType =
           n[1].floatVal < 0.0:
         incl(result.flags, tfRequiresInit)
     else:
-      if n[1].kind == nkInfix and
-         legacyConsiderQuotedIdent(c, n[1][0], nil).s == "..<":
-        localReport(c.config, n[0], reportSem rsemRangeRequiresDotDot)
-      else:
-        localReport(c.config, n[0], reportSem rsemExpectedRange)
-
+      c.config.localReport(n[0]):
+        if n[1].kind == nkInfix and
+          legacyConsiderQuotedIdent(c, n[1][0], nil).s == "..<":
+          reportSem rsemRangeRequiresDotDot
+        else:
+          reportSem rsemExpectedRange
       result = newOrPrevType(tyError, prev, c)
   else:
     c.config.semReportParamCountMismatch(n, nil, 1, n.len - 1, "range")
@@ -494,7 +501,13 @@ proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =
     localReport(c.config, n, reportSem rsemTypeExpected)
   result = newOrPrevType(tyTuple, prev, c)
   for it in n:
-    addSonSkipIntLit(result, semTypeNode(c, it, nil), c.idgen)
+    let t = semTypeNode(c, it, nil).skipIntLit(c.idgen)
+    if prev != nil and prev.aliasesType(t):
+      result = newOrPrevType(tyError, prev, c)
+      c.config.localReport(n.info, reportTyp(rsemIllegalRecursion, t))
+      break
+    else:
+      rawAddSon(result, t)
 
 proc semTuple(c: PContext, n: PNode, prev: PType): PType =
   # TODO: replace with a node returning variant that can in band errors
@@ -834,7 +847,6 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
       localReport(c.config, a.info, SemReport(
         kind: rsemMissingCaseBranches,
         nodes: formatMissingBranches(c, a)))
-
     else:
       localReport(c.config, a, reportSem rsemMissingCaseBranches)
 
@@ -1717,6 +1729,7 @@ template modifierTypeKindOfNode(n: PNode): TTypeKind =
   else: tyNone
 
 proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
+  addInNimDebugUtils(c.config, "semTypeClass", n, prev, result)
   # if n.len == 0: return newConstraint(c, tyTypeClass)
   let
     pragmas = n[1]
@@ -1724,14 +1737,19 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
 
   result = newOrPrevType(tyUserTypeClass, prev, c)
   result.flags.incl tfCheckedForDestructor
-  var owner = getCurrOwner(c)
-  var candidateTypeSlot = newTypeWithSons(owner, tyAlias, @[c.errorType], c.idgen)
+  let owner = getCurrOwner(c)
+  var
+    candidateTypeSlot = newTypeWithSons(owner, tyAlias, @[c.errorType], c.idgen)
+    cycleDetector = initIntSet()
   result.sons = @[candidateTypeSlot]
   result.n = n
 
   if inherited.kind != nkEmpty:
     for n in inherited.sons:
-      result.add semTypeNode(c, n, nil)
+      let t = semTypeNode(c, n, nil)
+      if prev != nil and prev.aliasesType(t):
+        c.config.localReport(n.info, reportTyp(rsemIllegalRecursion, t))
+      result.add t
 
   openScope(c)
   for param in n[0]:
@@ -1910,6 +1928,36 @@ proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
   addInNimDebugUtils(c.config, "semTypeNode", n, prev, result)
+
+  proc makeAndType(c: PContext, t1, t2: PType): PType =
+    result = newTypeS(tyAnd, c)
+    result.sons = @[t1, t2]
+    propagateToOwner(result, t1)
+    propagateToOwner(result, t2)
+    result.flags.incl ((t1.flags + t2.flags) * {tfHasStatic}) + {tfHasMeta}
+
+  proc makeOrType(c: PContext, t1, t2: PType): PType =
+    result = newTypeS(tyOr, c)
+    if t1.kind != tyOr and t2.kind != tyOr:
+      result.sons = @[t1, t2]
+    else:
+      template addOr(t1) =
+        if t1.kind == tyOr:
+          for x in t1.sons: result.rawAddSon x
+        else:
+          result.rawAddSon t1
+      addOr(t1)
+      addOr(t2)
+    propagateToOwner(result, t1)
+    propagateToOwner(result, t2)
+    result.flags.incl ((t1.flags + t2.flags) * {tfHasStatic}) + {tfHasMeta}
+
+  proc makeNotType(c: PContext, t1: PType): PType =
+    result = newTypeS(tyNot, c)
+    result.sons = @[t1]
+    propagateToOwner(result, t1)
+    result.flags.incl (t1.flags * {tfHasStatic}) + {tfHasMeta}
+
   result = nil
   inc c.inTypeContext
 
@@ -1948,7 +1996,6 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
           result.flags.excl(tfNotNil)
       else:
         localReport(c.config, n, reportSem rsemTypeInvalid)
-
     elif n[0].kind notin nkIdentKinds:
       result = semTypeExpr(c, n, prev)
     else:
@@ -1967,8 +2014,15 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
           localReport(c.config, n[2], reportSem rsemTypeExpected)
           result = newOrPrevType(tyError, prev, c)
         else:
-          result = if op.id == ord(wAnd): makeAndType(c, t1, t2)
-                   else: makeOrType(c, t1, t2)
+          result =
+            if prev != nil and (prev.aliasesType(t1) or prev.aliasesType(t2)):
+              c.config.localReport(n.info,
+                                   reportTyp(rsemIllegalRecursion, prev))
+              newOrPrevType(tyError, prev, c)
+            else:
+              if op.id == ord(wAnd): makeAndType(c, t1, t2)
+              else:                  makeOrType(c, t1, t2)
+
       elif op.id == ord(wNot):
         case n.len
         of 3:

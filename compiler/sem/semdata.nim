@@ -989,35 +989,6 @@ proc makeStaticExpr*(c: PContext, n: PNode): PNode =
   result.typ = if n.typ != nil and n.typ.kind == tyStatic: n.typ
                else: newTypeWithSons(c, tyStatic, @[n.typ])
 
-proc makeAndType*(c: PContext, t1, t2: PType): PType =
-  result = newTypeS(tyAnd, c)
-  result.sons = @[t1, t2]
-  propagateToOwner(result, t1)
-  propagateToOwner(result, t2)
-  result.flags.incl ((t1.flags + t2.flags) * {tfHasStatic}) + {tfHasMeta}
-
-proc makeOrType*(c: PContext, t1, t2: PType): PType =
-  result = newTypeS(tyOr, c)
-  if t1.kind != tyOr and t2.kind != tyOr:
-    result.sons = @[t1, t2]
-  else:
-    template addOr(t1) =
-      if t1.kind == tyOr:
-        for x in t1.sons: result.rawAddSon x
-      else:
-        result.rawAddSon t1
-    addOr(t1)
-    addOr(t2)
-  propagateToOwner(result, t1)
-  propagateToOwner(result, t2)
-  result.flags.incl ((t1.flags + t2.flags) * {tfHasStatic}) + {tfHasMeta}
-
-proc makeNotType*(c: PContext, t1: PType): PType =
-  result = newTypeS(tyNot, c)
-  result.sons = @[t1]
-  propagateToOwner(result, t1)
-  result.flags.incl (t1.flags * {tfHasStatic}) + {tfHasMeta}
-
 proc nMinusOne(c: PContext; n: PNode): PNode =
   result = newTreeI(nkCall, n.info, newSymNode(getSysMagic(c.graph, n.info, "pred", mPred)), n)
 

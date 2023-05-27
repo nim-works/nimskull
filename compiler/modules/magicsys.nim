@@ -129,16 +129,17 @@ proc getFloatLitType*(g: ModuleGraph; literal: PNode): PType =
   result.n = literal
 
 proc skipIntLit*(t: PType; id: IdGenerator): PType {.inline.} =
+  # xxx: rename to `numLitToType` or the like
   if t.n != nil and t.kind in {tyInt, tyFloat}:
     result = copyType(t, nextTypeId(id), t.owner)
     result.n = nil
   else:
     result = t
 
-proc addSonSkipIntLit*(father, son: PType; id: IdGenerator) =
-  let s = son.skipIntLit(id)
-  father.sons.add(s)
-  propagateToOwner(father, s)
+proc addSonSkipIntLit*(parent, kid: PType; id: IdGenerator) =
+  let s = kid.skipIntLit(id)
+  parent.sons.add(s)
+  propagateToOwner(parent, s)
 
 proc getCompilerProc*(g: ModuleGraph; name: string): PSym =
   let ident = getIdent(g.cache, name)
