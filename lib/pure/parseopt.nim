@@ -197,15 +197,11 @@ proc initOptParser*(args: openArray[string], shortNoVal: set[char] = {},
                     allowWhitespaceAfterColon = true): OptParser =
   ## Initializes the command line parser.
   ##
-  ## If `args.len == 0`, the real command line as provided by the
-  ## `os` module is retrieved instead if it is available. If the
-  ## command line is not available, a `ValueError` will be raised.
-  ## Behavior of the other parameters remains the same as in
-  ## `initOptParser(string, ...)
-  ## <#initOptParser,string,set[char],seq[string]>`_.
   ##
   ## See also:
+  ## * `os.getAppArguments` for getting command arguments
   ## * `getopt iterator<#getopt.i,seq[string],set[char],seq[string]>`_
+  # xxx: fix the link above after having proper links in doc comments
   runnableExamples:
     var p = initOptParser(getAppArguments())
     p = initOptParser(@["--left", "--debug:3", "-l", "-r:2"])
