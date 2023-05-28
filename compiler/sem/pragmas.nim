@@ -1400,6 +1400,8 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
       of wBase:
         result = noVal(c, it)
         sym.flags.incl sfBase
+      # TODO: support {.xxxdefine: "customName".}
+      # Right now it just ignores the argument
       of wIntDefine:
         result = it
         sym.magic = mIntDefine

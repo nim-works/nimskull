@@ -59,7 +59,7 @@ Possible Commands:
 
 Boot options:
   -d:release               produce a release version of the compiler
-  -d:nimUseLinenoise       use the linenoise library for interactive mode
+  -d:useLinenoise       use the linenoise library for interactive mode
                            `nim secret` (not needed on Windows)
   -d:leanCompiler          produce a compiler without JS codegen or
                            documentation generator in order to use less RAM
@@ -123,7 +123,7 @@ proc defineSourceMetadata(): string =
   ## built compiler
   let (hash, date, versionSuffix) = getSourceMetadata()
   if hash != "" and date != "":
-    result = quoteShellCommand(["-d:nimSourceHash=" & hash, "-d:nimSourceDate=" & date])
+    result = quoteShellCommand(["-d:SourceHash=" & hash, "-d:SourceDate=" & date])
   if versionSuffix != "":
     result &= " -d:CompilerVersionSuffix=" & quoteShell(versionSuffix)
 
