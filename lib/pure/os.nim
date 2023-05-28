@@ -1210,7 +1210,7 @@ proc symlinkExists*(link: string): bool {.rtl, extern: "nos$1",
 
 
 when not defined(windows):
-  const maxSymlinkLen = 1024
+  const maxPathLen = 4096
 
 const
   ExeExts* = ## Platform specific file extension for executables.
@@ -1254,11 +1254,11 @@ proc findExe*(exe: string, followSymlinks: bool = true;
         when not defined(windows):
           while followSymlinks: # doubles as if here
             if x.symlinkExists:
-              var r = newString(maxSymlinkLen)
-              var len = readlink(x.cstring, r.cstring, maxSymlinkLen)
+              var r = newString(maxPathLen)
+              var len = readlink(x.cstring, r.cstring, maxPathLen)
               if len < 0:
                 raiseOSError(osLastError(), exe)
-              if len > maxSymlinkLen:
+              if len > maxPathLen:
                 r = newString(len+1)
                 len = readlink(x.cstring, r.cstring, len)
               setLen(r, len)
@@ -1769,11 +1769,11 @@ proc expandSymlink*(symlinkPath: string): string {.noWeirdTarget.} =
   when defined(windows):
     result = symlinkPath
   else:
-    result = newString(maxSymlinkLen)
-    var len = readlink(symlinkPath, result.cstring, maxSymlinkLen)
+    result = newString(maxPathLen)
+    var len = readlink(symlinkPath, result.cstring, maxPathLen)
     if len < 0:
       raiseOSError(osLastError(), symlinkPath)
-    if len > maxSymlinkLen:
+    if len > maxPathLen:
       result = newString(len+1)
       len = readlink(symlinkPath, result.cstring, len)
     setLen(result, len)
@@ -3031,9 +3031,9 @@ when not weirdTarget and (defined(freebsd) or defined(dragonfly) or defined(netb
 
 when not weirdTarget and (defined(linux) or defined(solaris) or defined(bsd) or defined(aix)):
   proc getApplAux(procPath: string): string =
-    result = newString(maxSymlinkLen)
-    var len = readlink(procPath, result.cstring, maxSymlinkLen)
-    if len > maxSymlinkLen:
+    result = newString(maxPathLen)
+    var len = readlink(procPath, result.cstring, maxPathLen)
+    if len > maxPathLen:
       result = newString(len+1)
       len = readlink(procPath, result.cstring, len)
     setLen(result, len)
@@ -3124,7 +3124,7 @@ proc getAppFilename*(): string {.rtl, extern: "nos$1", tags: [ReadIOEffect], noW
   ## * `getAppDir proc <#getAppDir>`_
   ## * `getCurrentCompilerExe proc <#getCurrentCompilerExe>`_
 
-  # Linux: /proc/<pid>/exe
+  # Linux: /proc/self/exe
   # Solaris:
   # /proc/<pid>/object/a.out (filename only)
   # /proc/<pid>/path/a.out (complete pathname)
