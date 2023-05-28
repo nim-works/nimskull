@@ -132,4 +132,4 @@ block:  # cpDir, cpFile, dirExists, fileExists, mkDir, mvDir, mvFile, rmDir, rmF
 
 block:
   # check parseopt can get command line:
-  discard initOptParser()
+  discard initOptParser(getAppArguments())

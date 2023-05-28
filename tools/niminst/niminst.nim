@@ -175,7 +175,7 @@ Compile_options:
 """
 
 proc parseCmdLine(c: var ConfigData) =
-  var p = initOptParser()
+  var p = initOptParser(getAppArguments())
   while true:
     next(p)
     var kind = p.kind
