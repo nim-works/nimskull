@@ -197,11 +197,15 @@ proc initOptParser*(args: openArray[string], shortNoVal: set[char] = {},
                     allowWhitespaceAfterColon = true): OptParser =
   ## Initializes the command line parser.
   ##
-  ##
+  ## `shortNoVal` and `longNoVal` are used to specify which options
+  ## do not take values. See the `documentation about these
+  ## parameters<#shortnoval-and-longnoval>`_ for more information on
+  ## how this affects parsing.
+  ## 
   ## See also:
-  ## * `os.getAppArguments` for getting command arguments
+  ## * `getAppArguments <os.html#getAppArguments>`_ for getting command-line
+  ##   arguments
   ## * `getopt iterator<#getopt.i,seq[string],set[char],seq[string]>`_
-  # xxx: fix the link above after having proper links in doc comments
   runnableExamples:
     var p = initOptParser(getAppArguments())
     p = initOptParser(@["--left", "--debug:3", "-l", "-r:2"])

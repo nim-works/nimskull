@@ -16,6 +16,7 @@ const bootSwitchEnabled: seq[string] = block:
   var result: seq[string]
   
   template testSwitch(expr, userString) =
+    ## Helper to build boot constants
     if expr:
       result.add(userString)
 

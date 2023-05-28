@@ -74,14 +74,13 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]):
     processCmdLine: processCmdLine
   )
   self.initDefinesProg(conf, "nim_compiler")
-  if paramCount() == 0:
+  if argv.len == 0:
     return cliErrNoParamsProvided
 
   self.processCmdLineAndProjectPath(conf, argv)
   if conf.errorCounter != 0: return
   
   let graph = newModuleGraph(cache, conf)
-  if conf.errorCounter != 0: return
   
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph, argv):
     return
@@ -147,9 +146,7 @@ when not defined(selftest):
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       conf.writeHook(conf, msg & "\n", flags)
 
-  var argv = newSeq[string](paramCount())
-  for i in 0..<paramCount():
-    argv[i] = paramStr(i+1)
+  let argv = getAppArguments()
   case handleCmdLine(newIdentCache(), conf, argv)
   of cliErrNoParamsProvided:
     inc conf.errorCounter # causes a non-0 exit, will be replaced soon
