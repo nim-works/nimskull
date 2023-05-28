@@ -146,7 +146,7 @@ when not defined(selftest):
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       conf.writeHook(conf, msg & "\n", flags)
 
-  let argv = getAppArguments()
+  let argv = getExecArgs()
   case handleCmdLine(newIdentCache(), conf, argv)
   of cliErrNoParamsProvided:
     inc conf.errorCounter # causes a non-0 exit, will be replaced soon

@@ -1234,7 +1234,7 @@ proc main() =
   ## Define CLI Options/Args Parsing loops
   var
     execState = Execution(flags: {outputColour, logBackend})
-    p = initOptParser(getAppArguments())
+    p = initOptParser(getExecArgs())
 
   ## Main procedure
   backend.open()

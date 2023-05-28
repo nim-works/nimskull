@@ -737,7 +737,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]) 
     mainCommand(graph)
 
 when isMainModule:
-  let argv = getAppArguments()
+  let argv = getExecArgs()
   let conf = newConfigRef(cli_reporter.reportHook)
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   handleCmdLine(newIdentCache(), conf, argv)
