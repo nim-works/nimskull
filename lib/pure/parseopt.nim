@@ -51,7 +51,7 @@
 ## .. code-block::
 ##   import std/parseopt
 ##
-##   var p = initOptParser("-ab -e:5 --foo --bar=20 file.txt")
+##   var p = initOptParser(["-ab", "-e:5", "--foo", "--bar=20", "file.txt"])
 ##   while true:
 ##     p.next()
 ##     case p.kind
@@ -259,7 +259,7 @@ proc next*(p: var OptParser) {.rtl, extern: "npo$1".} =
   ## `p.kind` describes what kind of token has been parsed. `p.key` and
   ## `p.val` are set accordingly.
   runnableExamples:
-    var p = initOptParser("--left -r:2 file.txt")
+    var p = initOptParser(["--left", "-r:2", "file.txt"])
     p.next()
     doAssert p.kind == cmdLongOption and p.key == "left"
     p.next()
@@ -333,7 +333,7 @@ when declared(quoteShellCommand):
     ## **Examples:**
     ##
     ## .. code-block::
-    ##   var p = initOptParser("--left -r:2 -- foo.txt bar.txt")
+    ##   var p = initOptParser(["--left", "-r:2", "--", "foo.txt", "bar.txt"])
     ##   while true:
     ##     p.next()
     ##     if p.kind == cmdLongOption and p.key == "":  # Look for "--"
@@ -351,7 +351,7 @@ proc remainingArgs*(p: OptParser): seq[string] {.rtl, extern: "npo$1".} =
   ## **Examples:**
   ##
   ## .. code-block::
-  ##   var p = initOptParser("--left -r:2 -- foo.txt bar.txt")
+  ##   var p = initOptParser(["--left", "-r:2", "--", "foo.txt", "bar.txt"])
   ##   while true:
   ##     p.next()
   ##     if p.kind == cmdLongOption and p.key == "":  # Look for "--"
@@ -379,7 +379,7 @@ iterator getopt*(p: var OptParser): tuple[kind: CmdLineKind, key,
   ##   proc writeVersion() = discard
   ##
   ##   var filename: string
-  ##   var p = initOptParser("--left --debug:3 -l -r:2")
+  ##   var p = initOptParser(["--left", "--debug:3", "-l", "-r:2"])
   ##
   ##   for kind, key, val in p.getopt():
   ##     case kind
