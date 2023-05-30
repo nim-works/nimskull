@@ -259,17 +259,15 @@ proc createTypeBoundOpsLL(g: ModuleGraph; refType: PType; info: TLineInfo; idgen
       owner.flags.incl sfInjectDestructors
 
 proc freshVarForClosureIter*(g: ModuleGraph; s: PSym; idgen: IdGenerator; owner: PSym): PNode =
-  ## Adds a field corresponding to the local `s` to `owner`'s environment
-  ## type.
-  let envParam = getHiddenParam(g, owner)
-  let obj = envParam.typ.base
-  addField(obj, s, g.cache, idgen)
-
-  var access = newSymNode(envParam)
+  ## Adds a unique field to `owner`'s environment type, using the name, type,
+  ## and ``.cursor`` information from the local `s`.
+  let
+    envParam = getHiddenParam(g, owner)
+    obj = envParam.typ.base
   assert obj.kind == tyObject
-  let field = getFieldFromObj(obj, s)
-  g.config.internalAssert(field != nil, s.info, "internal error: cannot generate fresh variable")
-  result = rawIndirectAccess(access, field, s.info)
+
+  let field = addUnmappedField(obj, s, g.cache, idgen)
+  result = rawIndirectAccess(newSymNode(envParam), field, s.info)
 
 # ------------------ new stuff -------------------------------------------
 

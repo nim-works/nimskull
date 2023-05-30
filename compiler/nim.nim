@@ -149,7 +149,7 @@ when not defined(selftest):
   of cliErrNoParamsProvided:
     inc conf.errorCounter # causes a non-0 exit, will be replaced soon
     conf.msgWrite("no command-line parameters provided\n", {msgNoUnitSep})
-    conf.showMsg(helpOnErrorMsg(conf))
+    writeUsage(conf)
   of cliErrConfigProcessing, cliErrCommandProcessing, cliFinished:
     # TODO: more specific handling here
     discard "error messages reported internally"
