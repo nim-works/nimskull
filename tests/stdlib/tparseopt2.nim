@@ -14,6 +14,8 @@ checkOpts opts(["-c:c_val"], shortHasVal="c"),
   @[Opt(kind: optShort, keyShort: 'c', val: "c_val")]
 checkOpts opts(["-c=c_val"], shortHasVal="c"),
   @[Opt(kind: optShort, keyShort: 'c', val: "c_val")]
+checkOpts opts(["-cc_val", "-j4"], shortHasVal=['c', 'j']),
+  @[Opt(kind: optShort, keyShort: 'c', val: "c_val"), Opt(kind: optShort, keyShort: 'j', val: "4")]
 checkOpts opts(["-abcc_val"], shortHasVal="c"),
   @[Opt(kind: optShort, keyShort: 'a', val: ""), Opt(kind: optShort, keyShort: 'b', val: ""), Opt(kind: optShort, keyShort: 'c', val: "c_val")]
 checkOpts opts(["-abc", "c_val"], shortHasVal="c"),

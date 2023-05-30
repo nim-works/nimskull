@@ -20,7 +20,7 @@
 ## 
 ## -:   undefined behavior (separator after dash)
 
-import options, strutils
+import std/[options, strutils]
 
 type
   OptKind* = enum
@@ -66,7 +66,11 @@ proc`==`*(a, b: Opt): bool =
       true
   )
 
-iterator opts*(argv: openArray[string], shortHasVal: openArray[char] = [], longHasVal: openArray[string] = [], sep: set[char] = {'=', ':'}): Opt =
+const defaultSeparators* = {'=', ':'}
+
+iterator opts*(argv: openArray[string], shortHasVal: openArray[char] = [], 
+               longHasVal: openArray[string] = [],
+               sep: set[char] = defaultSeparators): Opt =
   var all_positional = false
   var partial = Opt.none
   for arg in argv:
