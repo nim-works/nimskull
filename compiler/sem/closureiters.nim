@@ -41,15 +41,10 @@ Should be transformed to:
     STATE2:
       :state = -1 # End of execution
 
+The lambdalifting transformation has to have happend already, as it is
+responsible for setting up the environment type, to which we might need to
+append new fields.
 
-The transformation should play well with lambdalifting, however depending
-on situation, it can be called either before or after lambdalifting
-transformation. As such we behave slightly differently, when accessing
-iterator state, or using temp variables. If lambdalifting did not happen,
-we just create local variables, so that they will be lifted further on.
-Otherwise, we utilize existing env, created by lambdalifting.
-Lambdalifting treats :state variable specially, it should always end up
-as the first field in env. Currently C codegen depends on this behavior.
 One special subtransformation is nkStmtListExpr lowering.
 Example:
 
