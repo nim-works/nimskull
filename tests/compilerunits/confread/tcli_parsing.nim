@@ -33,34 +33,31 @@ proc getReports(): seq[Report] =
   reported = @[]
 
 
-proc parse(cmd: string, pass: TCmdLinePass = passCmd1): tuple[reports: seq[Report], conf: CurrentConf] =
+proc parse(args: openArray[string], pass: TCmdLinePass = passCmd1): tuple[reports: seq[Report], conf: CurrentConf] =
   var tmp = newConfigRef(hook)
   tmp.astDiagToLegacyReport = cli_reporter.legacyReportBridge
-  processCmdLine(pass, cmd, tmp)
+  processCmdLine(pass, args, tmp)
   result.reports = getReports()
   result.conf = tmp.active
 
-proc parse(cmds: seq[string], pass: TCmdLinePass = passCmd1): auto =
-  parse(cmds.join(" "), pass)
-
 suite "Basic command parsing":
   test "Valid commands":
-    let conf = parse("compile file.nim").conf
+    let conf = parse(["compile", "file.nim"]).conf
 
     check conf.projectName == "file.nim"
     check conf.cmd == cmdCompileToC
 
   test "Backend resetting":
-    let conf = parse("c --backend:c --backend:js file.nim").conf
+    let conf = parse(["c", "--backend:c", "--backend:js", "file.nim"]).conf
     check conf.projectName == "file.nim"
     check conf.backend == backendJs
 
   test "Hint configuration":
-    let conf = parse("--hint=all:off --hint=Processing:on").conf
+    let conf = parse(["--hint=all:off", "--hint=Processing:on"]).conf
     check(conf.noteSets[cnCurrent] * repHintKinds == {rsemProcessing})
 
   test "Warning configuration":
-    let conf = parse("--warning=all:off --warning=UnusedImport:on").conf
+    let conf = parse(["--warning=all:off", "--warning=UnusedImport:on"]).conf
     check(conf.noteSets[cnCurrent] * repWarningKinds == {rsemUnusedImport})
 
 # import hmisc/other/hpprint
@@ -70,7 +67,7 @@ let csd = currentSourcePath().parentDir()
 suite "Path options specification":
   test "Inferring lazy paths for packages":
     let conf = parse(
-      "--nimblePath=$#/nimbleDir/simplePkgs" % csd,
+      ["--nimblePath=$#/nimbleDir/simplePkgs" % csd],
       passCmd2).conf
 
     let lazy = conf.lazyPaths.mapIt(it.string).sorted()

@@ -207,9 +207,9 @@ proc initOptParser*(args: openArray[string], shortNoVal: set[char] = {},
   ##   arguments
   ## * `getopt iterator<#getopt.i,seq[string],set[char],seq[string]>`_
   runnableExamples:
-    var p = initOptParser(getExecArgs())
-    p = initOptParser(@["--left", "--debug:3", "-l", "-r:2"])
-    p = initOptParser(@["--left", "--debug:3", "-l", "-r:2"],
+    var p = initOptParser([])
+    p = initOptParser(["--left", "--debug:3", "-l", "-r:2"])
+    p = initOptParser(["--left", "--debug:3", "-l", "-r:2"],
                       shortNoVal = {'l'}, longNoVal = @["left"])
 
   result.pos = 0

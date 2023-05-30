@@ -53,7 +53,7 @@ proc firstPass*(args: seq[string]): ConfigRef =
   ## Create config ref object and run fist CLI pass of on the configuration
   result = newConfigRef(hook)
   result.astDiagToLegacyReport = cli_reporter.legacyReportBridge
-  processCmdLine(passCmd1, args.join(" "), result)
+  processCmdLine(passCmd1, args, result)
 
 proc assertInter[T](inters: set[T], want: set[T] = {}) =
   doAssert inters == want, $want
