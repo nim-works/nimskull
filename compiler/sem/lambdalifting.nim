@@ -887,13 +887,13 @@ proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator; owner: PSym):
   result = newNodeI(nkStmtList, body.info)
 
   var op = call[0]
-  if op.kind == nkStmtListExpr and op.lastSon.kind == nkClosure:
+  if op.kind == nkClosure:
     # this is the symbol of a closure iterator that was transformed into a
     # closure setup expression. We assign the created closure to a new
     # local and replace the callee part with said local
     let
       orig = op
-      callee = newSym(skLet, op.lastSon[0].sym.name, nextSymId(idgen), owner, op.info)
+      callee = newSym(skLet, op[0].sym.name, nextSymId(idgen), owner, op.info)
     callee.typ = op.typ
 
     if owner.isIterator:
