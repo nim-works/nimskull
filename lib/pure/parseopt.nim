@@ -203,7 +203,7 @@ proc initOptParser*(args: openArray[string], shortNoVal: set[char] = {},
   ## how this affects parsing.
   ## 
   ## See also:
-  ## * `getAppArguments <os.html#getAppArguments>`_ for getting command-line
+  ## * `getExecArgs <os.html#getExecArgs>`_ for getting command-line
   ##   arguments
   ## * `getopt iterator<#getopt.i,seq[string],set[char],seq[string]>`_
   runnableExamples:
