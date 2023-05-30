@@ -816,7 +816,7 @@ proc liftLambdasForTopLevel*(module: PSym, body: PNode): PNode =
   result = body
 
 proc liftIterSym*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner, currEnv: PSym): PNode =
-  ## Transforms  ``(iter)``  to  ``(let env = newClosure[iter](); (iter, env))``.
+  ## Transforms  ``(iter)``  to  ``(iter, newClosure[iter]())``.
   ## This cannot happen as part of ``liftLambdas``, as the iterators's
   ## environment type is not available at that point.
   let iter = n.sym
@@ -825,24 +825,15 @@ proc liftIterSym*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner, currEnv: 
   let
     hp = getHiddenParam(g, iter)
     envTyp = hp.typ # the environment's ``ref`` type
-    v = newSym(skLet, getIdent(g.cache, envName), nextSymId(idgen), owner, n.info)
-
-  v.typ = envTyp
-  incl(v.flags, sfShadowed)
-
-  let vnode = newSymNode(v)
-
-  result = newNodeIT(nkStmtListExpr, n.info, iter.typ)
-  result.add newTreeI(nkLetSection, n.info,
-    [newIdentDefs(vnode, newObjConstr(envTyp, n.info))])
+    constr = newObjConstr(envTyp, n.info)
 
   let upField = lookupInRecord(envTyp.base.n, getIdent(g.cache, upName))
   if upField != nil:
     # the iterator has an 'up' field, and we have to initialize it here
     let access = accessEnv(currEnv, upField.typ, n.info, g)
-    result.add(newAsgnStmt(rawIndirectAccess(vnode, upField, n.info), access, n.info))
+    constr.add newTree(nkExprColonExpr, [newSymNode(upField), access])
 
-  result.add makeClosure(g, idgen, iter, vnode, n.info)
+  result = makeClosure(g, idgen, iter, constr, n.info)
 
 proc ensureEnvParam*(graph: ModuleGraph, idgen: IdGenerator, prc: PSym) =
   ## Problem: top-level anonymous expression can explicitly use the .closure
