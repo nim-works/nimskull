@@ -290,15 +290,15 @@ proc liftIterSym*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner: PSym): PN
   result.add makeClosure(g, idgen, iter, env, n.info)
 
 proc freshVarForClosureIter*(g: ModuleGraph; s: PSym; idgen: IdGenerator; owner: PSym): PNode =
-  let envParam = getHiddenParam(g, owner)
-  let obj = envParam.typ.skipTypes({tyRef, tyPtr})
-  addField(obj, s, g.cache, idgen)
-
-  var access = newSymNode(envParam)
+  ## Adds a unique field to `owner`'s environment type, using the name, type,
+  ## and ``.cursor`` information from the local `s`.
+  let
+    envParam = getHiddenParam(g, owner)
+    obj = envParam.typ.base
   assert obj.kind == tyObject
-  let field = getFieldFromObj(obj, s)
-  g.config.internalAssert(field != nil, s.info, "internal error: cannot generate fresh variable")
-  result = rawIndirectAccess(access, field, s.info)
+
+  let field = addUnmappedField(obj, s, g.cache, idgen)
+  result = rawIndirectAccess(newSymNode(envParam), field, s.info)
 
 # ------------------ new stuff -------------------------------------------
 
