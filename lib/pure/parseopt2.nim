@@ -97,28 +97,27 @@ iterator opts*(argv: openArray[string], shortHasVal: openArray[char] = [], longH
           else:
             key &= c
         
-        let opt = Opt(kind: optLong, keyLong: key)
         if key in longHasVal:
-          partial = some opt # wait for .val to be filled
+          # wait for .val to be filled
+          partial = some Opt(kind: optLong, keyLong: key)
         else:
-          yield opt
+          yield Opt(kind: optLong, keyLong: key)
     elif arg.startsWith "-": # process short
-      var i = 1
+      var i = 1 # skip starting -
       while i < arg.len:
         let c = arg[i]
         i.inc
-        if c in shortHasVal:
-          if i < arg.len:
-            if arg[i] in sep:
-              # skip = in -a=c if exist
-              i.inc
-            yield Opt(kind: optShort, keyShort: c, val: arg[i..^1])
-            break
-          else:
-            partial = some Opt(kind: optShort, keyShort: c)
-            break
-        else:
+        if c notin shortHasVal:
           yield Opt(kind: optShort, keyShort: c)
+        elif i < arg.len:
+          if arg[i] in sep:
+            # skip separator (e.g. '=') in "-a=c" if it exist
+            i.inc
+          yield Opt(kind: optShort, keyShort: c, val: arg[i..^1])
+          break
+        else:
+          partial = some Opt(kind: optShort, keyShort: c)
+          break
     else: # process positional
       yield Opt(kind: optPos, val: arg)
 

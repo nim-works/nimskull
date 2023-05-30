@@ -54,3 +54,5 @@ checkOpts opts("hello world! -abcde --f:g --h=i --j --k l m".split(" "), shortHa
   Opt(kind: optLong, keyLong: "k", val: "l"),
   Opt(kind: optPos, val: "m"),
 ]
+
+# todo: test exceptions
