@@ -252,6 +252,11 @@ proc handleShortOption(p: var OptParser; cmd: string) =
     p.inShortState = false
     p.pos = 0
     inc p.idx
+    if p.idx < p.cmds.len and
+       card(p.shortNoVal) > 0 and p.key[0] notin p.shortNoVal and
+       p.val == "":
+      p.val = p.cmds[p.idx]
+      inc p.idx
 
 proc next*(p: var OptParser) {.rtl, extern: "npo$1".} =
   ## Parses the next token.
