@@ -1213,7 +1213,15 @@ template liftDefer(c, root) =
 proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode): PNode =
   ## Applies the various transformations to `body` and returns the result.
   ## This step is not indempotent, and since no caching is performed, it
-  ## must not be performed more than once for a procedure and its body.
+  ## must not be performed more than once for a routine and its body.
+  ##
+  ## The transformations are:
+  ## 1. the ``lambdalifting`` transformation
+  ## 2. general lowerings -- these are the ones implemented here in
+  ##    ``transf``
+  ## 3. the ``closureiters`` transformation
+  ##
+  ## Application always happens in that exact order.
   var c = PTransf(graph: g, module: prc.getModule, idgen: idgen)
   (result, c.env) = liftLambdas(g, prc, body, c.idgen)
   result = processTransf(c, result, prc)

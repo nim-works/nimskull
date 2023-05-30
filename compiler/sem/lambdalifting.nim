@@ -289,7 +289,7 @@ type
     usedInner: seq[PSym]
       ## all used inner closure routines defined directly in root. We cannot
       ## gather these by simply looking for procdef nodes, as we'd miss
-      ## instances of generics routines then
+      ## instances of generic routines then
 
     accessOuter: bool
       ## whether the root routine accesses an outer local
@@ -808,7 +808,7 @@ proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode;
       # nothing to do
       result = (body, nil)
   else:
-    # a routine prootype or otherwise empty routine -> nothing to do
+    # a routine prototype or otherwise empty routine -> nothing to do
     result = (body, nil)
 
 proc liftLambdasForTopLevel*(module: PSym, body: PNode): PNode =
@@ -817,7 +817,7 @@ proc liftLambdasForTopLevel*(module: PSym, body: PNode): PNode =
 
 proc liftIterSym*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner, currEnv: PSym): PNode =
   ## Transforms  ``(iter)``  to  ``(iter, newClosure[iter]())``.
-  ## This cannot happen as part of ``liftLambdas``, as the iterators's
+  ## This cannot happen as part of ``liftCapturedVars``, as the iterator's
   ## environment type is not available at that point.
   let iter = n.sym
   assert iter.isIterator
