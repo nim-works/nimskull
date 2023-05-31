@@ -36,26 +36,34 @@ type
     of optPos:
       discard
     val*: string
+
   OptError* = ref object of CatchableError
+    case kind*: OptKind
+    of optShort:
+      keyShort*: char
+    of optLong:
+      keyLong*: string
+    of optPos:
+      discard
   OptExtraneousVal* = ref object of OptError
-    case kind*: OptKind
-    of optShort:
-      keyShort*: char
-    of optLong:
-      keyLong*: string
-    of optPos:
-      discard
   OptMissingVal* = ref object of OptError
-    case kind*: OptKind
-    of optShort:
-      keyShort*: char
-    of optLong:
-      keyLong*: string
-    of optPos:
-      discard
+
+  OptValExpectation* = enum
+    ## Should I expect this option to have a value or not?
+    ## yes: -k=v
+    ## no : -k   ("bare" option)
+    optValRequired
+      ## must have value
+    optValNone
+      ## must not have value
+    optValOptional
+      ## value is optional
+      ## has : -k:v -k=v
+      ## has : -kv  (please don't rely on this behavior)
+      ## none: -k v
 
 # xxx: trivial impl. remove this once == for case objects is implemented
-proc`==`*(a, b: Opt): bool =
+proc `==`*(a, b: Opt): bool =
   a.kind == b.kind and a.val == b.val and (
     case a.kind:
     of optShort:
@@ -66,11 +74,30 @@ proc`==`*(a, b: Opt): bool =
       true
   )
 
+proc get[T](explicitOnes: openArray[(T, OptValExpectation)], key: T,
+    dflt: OptValExpectation): OptValExpectation =
+  for (k, v) in explicitOnes:
+    if k == key:
+      return v
+  return dflt
+
 const defaultSeparators* = {'=', ':'}
 
-iterator opts*(argv: openArray[string], shortHasVal: openArray[char] = [], 
-               longHasVal: openArray[string] = [],
+iterator opts*(argv: openArray[string], defaultVal: OptValExpectation,
+               shortVal: openArray[(char, OptValExpectation)] = [],
+               longVal: openArray[(string, OptValExpectation)] = [],
                sep: set[char] = defaultSeparators): Opt =
+  ## Parse command-line arguments like POSIX getopt(3)
+  ##
+  ## defaultVal:  default expectation of if a option should receive value
+  ## shortVal:    expectation for short options
+  ## longVal:     expectation for long options
+  ## 
+  ## See [`OptValExpectation`] for more info about what those parameters mean
+  runnableExamples:
+    for opt in opts(["-abc"], optValNone, shortVal={'b': optValRequired}):
+      discard opt
+
   var all_positional = false
   var partial = Opt.none
   for arg in argv:
@@ -94,14 +121,14 @@ iterator opts*(argv: openArray[string], shortHasVal: openArray[char] = [],
           let c = arg[i]
           i.inc
           if c in sep:
-            if key notin longHasVal:
+            if longVal.get(key, defaultVal) == optValNone:
               raise OptExtraneousVal(kind: optLong, keyLong: key)
             yield Opt(kind: optLong, keyLong: key, val: arg[i..^1])
             break process_arg
           else:
             key &= c
-        
-        if key in longHasVal:
+
+        if longVal.get(key, defaultVal) == optValRequired:
           # wait for .val to be filled
           partial = some Opt(kind: optLong, keyLong: key)
         else:
@@ -111,16 +138,20 @@ iterator opts*(argv: openArray[string], shortHasVal: openArray[char] = [],
       while i < arg.len:
         let c = arg[i]
         i.inc
-        if c notin shortHasVal:
+        let expectation = shortVal.get(c, defaultVal)
+        if expectation == optValNone:
           yield Opt(kind: optShort, keyShort: c)
-        elif i < arg.len:
-          if arg[i] in sep:
-            # skip separator (e.g. '=') in "-a=c" if it exist
-            i.inc
-          yield Opt(kind: optShort, keyShort: c, val: arg[i..^1])
-          break
         else:
-          partial = some Opt(kind: optShort, keyShort: c)
+          if i < arg.len: # if not the last char in this arg
+            if arg[i] in sep:
+              # skip separator (e.g. '=') in "-a=c" if it exist
+              i.inc
+            yield Opt(kind: optShort, keyShort: c, val: arg[i..^1])
+          else: # this arg exhausted (no char left)
+            if expectation == optValRequired:
+              partial = some Opt(kind: optShort, keyShort: c)
+            else: # implied: expectation == optValOptional
+              yield Opt(kind: optShort, keyShort: c)
           break
     else: # process positional
       yield Opt(kind: optPos, val: arg)
