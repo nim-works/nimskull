@@ -970,7 +970,8 @@ proc identWithPragma(p: var Parser; allowDot=false): ParsedNode =
   #| identWithPragmaDot = identVisDot pragma?
   let a = p.identVis(allowDot)
   if p.tok.tokType == tkCurlyDotLe:
-    p.newNode(pnkPragmaExpr, p.tok, @[a, parsePragma(p)])
+    let tok = p.tok
+    p.newNode(pnkPragmaExpr, tok, @[a, parsePragma(p)])
   else:
     a
 
