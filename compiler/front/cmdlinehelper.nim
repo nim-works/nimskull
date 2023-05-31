@@ -54,10 +54,11 @@ proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
     result = f
 
 type
+  # xxx: this is only used by compiler(nim) and nimsuggest. remove this if convenient
   NimProg* = ref object
     suggestMode*: bool
     supportsStdinFile*: bool
-    processCmdLine*: proc(pass: TCmdLinePass, cmd: string; config: ConfigRef)
+    processCmdLine*: proc(pass: TCmdLinePass, cmd: openArray[string]; config: ConfigRef)
 
 type
   ConfDiagSeverity = enum
@@ -207,7 +208,7 @@ proc initDefinesProg*(self: NimProg, conf: ConfigRef, name: string) =
   # parsing; don't need to care about the rest
   conf.setMsgFormat = legacyReportsMsgFmtSetter
 
-proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef, cmd: string = "") =
+proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef, cmd: openArray[string]) =
   self.processCmdLine(passCmd1, cmd, conf)
   if conf.inputMode == pimFile and self.supportsStdinFile and conf.projectName == "-":
     conf.inputMode = pimStdin
@@ -230,7 +231,7 @@ proc loadConfigs*(
   loadConfigs(cfg, cache, conf, writeConfigEvent, stopOnError)
 
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
-                                   graph: ModuleGraph): bool =
+                                   graph: ModuleGraph, argv: openArray[string]): bool =
   ## Load all the necessary configuration files and command-line options.
   ## Main entry point for configuration processing.
   if self.suggestMode:
@@ -248,7 +249,7 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
     # now process command line arguments again, because some options in the
     # command line can overwrite the config file's settings
     extccomp.initVars(conf)
-    self.processCmdLine(passCmd2, "", conf)
+    self.processCmdLine(passCmd2, argv, conf)
     graph.suggestMode = self.suggestMode
     if conf.cmd == cmdNone:
       conf.logError(CliEvent(kind: cliEvtErrCmdMissing,
@@ -261,7 +262,7 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
     result = false
 
 proc loadConfigsAndRunMainCommand*(
-    self: NimProg, cache: IdentCache; conf: ConfigRef; graph: ModuleGraph): bool =
+    self: NimProg, cache: IdentCache; conf: ConfigRef; graph: ModuleGraph, argv: openArray[string]): bool =
 
   ## Alias for loadConfigsAndProcessCmdLine, here for backwards compatibility
-  loadConfigsAndProcessCmdLine(self, cache, conf, graph)
+  loadConfigsAndProcessCmdLine(self, cache, conf, graph, argv)

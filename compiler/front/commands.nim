@@ -9,7 +9,6 @@
 
 ## This module handles the parsing of command line arguments.
 
-
 # Switches specified when the compiler is built (-d:xxx)
 # 
 # Don't use the constant for anything other than printing.
@@ -415,7 +414,7 @@ proc writeVersionInfo(conf: ConfigRef) =
     commitMsg &
     "\nactive boot switches:" & bootSwitchesMsg
 
-proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
+proc processCmdLine*(pass: TCmdLinePass, cmd: openArray[string]; config: ConfigRef) =
   ## Process input command-line parameters into `config` settings. Input is
   ## a joined list of command-line arguments with multiple options and/or
   ## configurations.

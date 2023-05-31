@@ -512,6 +512,7 @@ proc main() =
   ## The CLI entrypoint and parser
   var
     cliParser = initOptParser(
+      getExecArgs(),
       shortNoVal = {'h'},
       longNoVal = @["--help"],
       allowWhitespaceAfterColon = false

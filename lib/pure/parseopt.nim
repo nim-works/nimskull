@@ -51,7 +51,7 @@
 ## .. code-block::
 ##   import std/parseopt
 ##
-##   var p = initOptParser("-ab -e:5 --foo --bar=20 file.txt")
+##   var p = initOptParser(["-ab", "-e:5", "--foo", "--bar=20", "file.txt"])
 ##   while true:
 ##     p.next()
 ##     case p.kind
@@ -192,69 +192,24 @@ proc parseWord(s: string, i: int, w: var string,
       add(w, s[result])
       inc(result)
 
-proc initOptParser*(cmdline = "", shortNoVal: set[char] = {},
+proc initOptParser*(args: openArray[string], shortNoVal: set[char] = {},
                     longNoVal: seq[string] = @[];
                     allowWhitespaceAfterColon = true): OptParser =
   ## Initializes the command line parser.
-  ##
-  ## If `cmdline == ""`, the real command line as provided by the
-  ## `os` module is retrieved instead if it is available. If the
-  ## command line is not available, a `ValueError` will be raised.
   ##
   ## `shortNoVal` and `longNoVal` are used to specify which options
   ## do not take values. See the `documentation about these
   ## parameters<#shortnoval-and-longnoval>`_ for more information on
   ## how this affects parsing.
-  ##
+  ## 
   ## See also:
-  ## * `getopt iterator<#getopt.i,OptParser>`_
-  runnableExamples:
-    var p = initOptParser()
-    p = initOptParser("--left --debug:3 -l -r:2")
-    p = initOptParser("--left --debug:3 -l -r:2",
-                      shortNoVal = {'l'}, longNoVal = @["left"])
-
-  result.pos = 0
-  result.idx = 0
-  result.inShortState = false
-  result.shortNoVal = shortNoVal
-  result.longNoVal = longNoVal
-  result.allowWhitespaceAfterColon = allowWhitespaceAfterColon
-  if cmdline != "":
-    result.cmds = parseCmdLine(cmdline)
-  else:
-    when declared(paramCount):
-      result.cmds = newSeq[string](paramCount())
-      for i in countup(1, paramCount()):
-        result.cmds[i-1] = paramStr(i)
-    else:
-      # we cannot provide this for NimRtl creation on Posix, because we can't
-      # access the command line arguments then!
-      doAssert false, "empty command line given but" &
-        " real command line is not accessible"
-
-  result.kind = cmdEnd
-  result.key = ""
-  result.val = ""
-
-proc initOptParser*(cmdline: seq[string], shortNoVal: set[char] = {},
-                    longNoVal: seq[string] = @[];
-                    allowWhitespaceAfterColon = true): OptParser =
-  ## Initializes the command line parser.
-  ##
-  ## If `cmdline.len == 0`, the real command line as provided by the
-  ## `os` module is retrieved instead if it is available. If the
-  ## command line is not available, a `ValueError` will be raised.
-  ## Behavior of the other parameters remains the same as in
-  ## `initOptParser(string, ...)
-  ## <#initOptParser,string,set[char],seq[string]>`_.
-  ##
-  ## See also:
+  ## * `getExecArgs <os.html#getExecArgs>`_ for getting command-line
+  ##   arguments
   ## * `getopt iterator<#getopt.i,seq[string],set[char],seq[string]>`_
   runnableExamples:
-    var p = initOptParser()
-    p = initOptParser(@["--left", "--debug:3", "-l", "-r:2"])
-    p = initOptParser(@["--left", "--debug:3", "-l", "-r:2"],
+    var p = initOptParser([])
+    p = initOptParser(["--left", "--debug:3", "-l", "-r:2"])
+    p = initOptParser(["--left", "--debug:3", "-l", "-r:2"],
                       shortNoVal = {'l'}, longNoVal = @["left"])
 
   result.pos = 0
@@ -263,20 +218,11 @@ proc initOptParser*(cmdline: seq[string], shortNoVal: set[char] = {},
   result.shortNoVal = shortNoVal
   result.longNoVal = longNoVal
   result.allowWhitespaceAfterColon = allowWhitespaceAfterColon
-  if cmdline.len != 0:
-    result.cmds = newSeq[string](cmdline.len)
-    for i in 0..<cmdline.len:
-      result.cmds[i] = cmdline[i]
-  else:
-    when declared(paramCount):
-      result.cmds = newSeq[string](paramCount())
-      for i in countup(1, paramCount()):
-        result.cmds[i-1] = paramStr(i)
-    else:
-      # we cannot provide this for NimRtl creation on Posix, because we can't
-      # access the command line arguments then!
-      doAssert false, "empty command line given but" &
-        " real command line is not accessible"
+
+  result.cmds = newSeq[string](args.len)
+  for i in 0..<args.len:
+    result.cmds[i] = args[i]
+
   result.kind = cmdEnd
   result.key = ""
   result.val = ""
@@ -306,6 +252,11 @@ proc handleShortOption(p: var OptParser; cmd: string) =
     p.inShortState = false
     p.pos = 0
     inc p.idx
+    if p.idx < p.cmds.len and
+       card(p.shortNoVal) > 0 and p.key[0] notin p.shortNoVal and
+       p.val == "":
+      p.val = p.cmds[p.idx]
+      inc p.idx
 
 proc next*(p: var OptParser) {.rtl, extern: "npo$1".} =
   ## Parses the next token.
@@ -313,7 +264,7 @@ proc next*(p: var OptParser) {.rtl, extern: "npo$1".} =
   ## `p.kind` describes what kind of token has been parsed. `p.key` and
   ## `p.val` are set accordingly.
   runnableExamples:
-    var p = initOptParser("--left -r:2 file.txt")
+    var p = initOptParser(["--left", "-r:2", "file.txt"])
     p.next()
     doAssert p.kind == cmdLongOption and p.key == "left"
     p.next()
@@ -387,7 +338,7 @@ when declared(quoteShellCommand):
     ## **Examples:**
     ##
     ## .. code-block::
-    ##   var p = initOptParser("--left -r:2 -- foo.txt bar.txt")
+    ##   var p = initOptParser(["--left", "-r:2", "--", "foo.txt", "bar.txt"])
     ##   while true:
     ##     p.next()
     ##     if p.kind == cmdLongOption and p.key == "":  # Look for "--"
@@ -405,7 +356,7 @@ proc remainingArgs*(p: OptParser): seq[string] {.rtl, extern: "npo$1".} =
   ## **Examples:**
   ##
   ## .. code-block::
-  ##   var p = initOptParser("--left -r:2 -- foo.txt bar.txt")
+  ##   var p = initOptParser(["--left", "-r:2", "--", "foo.txt", "bar.txt"])
   ##   while true:
   ##     p.next()
   ##     if p.kind == cmdLongOption and p.key == "":  # Look for "--"
@@ -433,7 +384,7 @@ iterator getopt*(p: var OptParser): tuple[kind: CmdLineKind, key,
   ##   proc writeVersion() = discard
   ##
   ##   var filename: string
-  ##   var p = initOptParser("--left --debug:3 -l -r:2")
+  ##   var p = initOptParser(["--left", "--debug:3", "-l", "-r:2"])
   ##
   ##   for kind, key, val in p.getopt():
   ##     case kind

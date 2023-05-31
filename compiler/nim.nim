@@ -65,7 +65,7 @@ type
     cliErrConfigProcessing
     cliErrCommandProcessing
 
-proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
+proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]): CmdLineHandlingResult =
   ## Main entry point to the compiler - dispatches command-line commands
   ## into different subsystems, sets up configuration options for the
   ## `conf`:arg: and so on.
@@ -74,22 +74,23 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
     processCmdLine: processCmdLine
   )
   self.initDefinesProg(conf, "nim_compiler")
-  if paramCount() == 0:
+  if argv.len == 0:
     return cliErrNoParamsProvided
 
-  self.processCmdLineAndProjectPath(conf)
+  self.processCmdLineAndProjectPath(conf, argv)
   if conf.errorCounter != 0: return
+  
   let graph = newModuleGraph(cache, conf)
-
-  if not self.loadConfigsAndProcessCmdLine(cache, conf, graph) or
-      conf.errorCounter != 0:
+  
+  if not self.loadConfigsAndProcessCmdLine(cache, conf, graph, argv):
     return
+  if conf.errorCounter != 0: return
 
   mainCommand(graph)
   if optCmdExitGcStats in conf.globalOptions:
     conf.logGcStats(GC_getStatistics())
-
   if conf.errorCounter != 0: return
+
   when hasTinyCBackend:
     if conf.cmd == cmdTcc:
       tccgen.run(conf, conf.arguments)
@@ -145,7 +146,8 @@ when not defined(selftest):
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       conf.writeHook(conf, msg & "\n", flags)
 
-  case handleCmdLine(newIdentCache(), conf)
+  let argv = getExecArgs()
+  case handleCmdLine(newIdentCache(), conf, argv)
   of cliErrNoParamsProvided:
     inc conf.errorCounter # causes a non-0 exit, will be replaced soon
     conf.msgWrite("no command-line parameters provided\n", {msgNoUnitSep})
