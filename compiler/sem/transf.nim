@@ -40,7 +40,9 @@ import
     msgs
   ],
   compiler/sem/[
+    closureiters,
     semfold,
+    lambdalifting,
     lowerings
   ],
   compiler/backend/[
@@ -49,10 +51,6 @@ import
   compiler/utils/[
     idioms
   ]
-
-proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
-
-import closureiters, lambdalifting
 
 type
   PTransCon = ref object # part of TContext; stackable
@@ -82,9 +80,15 @@ type
     inlining: int            # > 0 if we are in inlining context (copy vars)
     nestedProcs: int         # > 0 if we are in a nested proc
     contSyms, breakSyms: seq[PSym]  # to transform 'continue' and 'break'
-    deferDetected, tooEarly: bool
+    deferDetected: bool
     graph: ModuleGraph
     idgen: IdGenerator
+
+    env: PSym ## the symbol of the local (or parameter) through which
+              ## the lifted local environment is accessed. 'nil', if
+              ## none exists.
+
+proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
 
 proc pushTransCon(c: PTransf, t: PTransCon) =
   t.next = c.transCon
@@ -104,7 +108,7 @@ proc newTemp(c: PTransf, typ: PType, info: TLineInfo): PNode =
   r.typ = typ #skipTypes(typ, {tyGenericInst, tyAlias, tySink})
   incl(r.flags, sfFromGeneric)
   let owner = getCurrOwner(c)
-  if owner.isIterator and not c.tooEarly:
+  if owner.isIterator:
     result = freshVarForClosureIter(c.graph, r, c.idgen, owner)
   else:
     result = newSymNode(r)
@@ -122,17 +126,18 @@ proc newAsgnStmt(c: PTransf, kind: TNodeKind, le: PNode, ri: PNode): PNode =
 proc transformSymAux(c: PTransf, n: PNode): PNode =
   let s = n.sym
   if s.typ != nil and s.typ.callConv == ccClosure:
-    if s.kind in routineKinds:
-      discard transformBody(c.graph, c.idgen, s, true)
     if s.kind == skIterator:
-      if c.tooEarly: return n
-      else: return liftIterSym(c.graph, n, c.idgen, getCurrOwner(c))
-    elif s.kind in {skProc, skFunc, skConverter, skMethod} and not c.tooEarly:
+      # we need the finished environment type here (because we inserting a
+      # non-nil instance of it, and thus need valid type-bound operators),
+      # which is only available after transforming the routine...
+      discard transformBody(c.graph, c.idgen, s, true)
+
+      return liftIterSym(c.graph, n, c.idgen, getCurrOwner(c), c.env)
+    elif s.kind in {skProc, skFunc, skConverter, skMethod}:
       # top level .closure procs are still somewhat supported for 'Nake':
+      ensureEnvParam(c.graph, c.idgen, s)
       return makeClosure(c.graph, c.idgen, s, nil, n.info)
-  #elif n.sym.kind in {skVar, skLet} and n.sym.typ.callConv == ccClosure:
-  #  echo n.info, " come heer for ", c.tooEarly
-  #  if not c.tooEarly:
+
   var b: PNode
   var tc = c.transCon
   if sfBorrow in s.flags and s.kind in routineKinds:
@@ -180,7 +185,7 @@ proc transformSym(c: PTransf, n: PNode): PNode =
 
 proc freshVar(c: PTransf; v: PSym): PNode =
   let owner = getCurrOwner(c)
-  if owner.isIterator and not c.tooEarly:
+  if owner.isIterator:
     result = freshVarForClosureIter(c.graph, v, c.idgen, owner)
   else:
     var newVar = copySym(v, nextSymId(c.idgen))
@@ -259,12 +264,12 @@ proc transformVarSection(c: PTransf, v: PNode): PNode =
             x
           else:
             transform(c, it[j])
-      
+
       assert(it[^2].kind == nkEmpty)
-      
+
       defs[^2] = newNodeI(nkEmpty, it.info)
       defs[^1] = transform(c, it[^1])
-      
+
       result[i] = defs
     else:
       c.graph.config.internalError(it.info):
@@ -358,6 +363,10 @@ proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
     result = transformSym(c, n)
   of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit:
     # nothing to be done for leaves:
+    result = n
+  of callableDefs:
+    # warning: do not modify this AST; it's the same (as in identity) as
+    # the one stored within the symbol's ``ast`` field
     result = n
   of nkVarSection, nkLetSection:
     result = transformVarSection(c, n)
@@ -1012,14 +1021,6 @@ proc transform(c: PTransf, n: PNode): PNode =
       if result.kind == nkSym: result = n
     else:
       result = n
-  of nkMacroDef:
-    # XXX no proper closure support yet:
-    when false:
-      if n[genericParamsPos].kind == nkEmpty:
-        var s = n[namePos].sym
-        n[bodyPos] = transform(c, s.getBody)
-        if n.kind == nkMethodDef: methodDef(s, false)
-    result = n
   of nkForStmt:
     result = transformFor(c, n)
   of nkCaseStmt:
@@ -1212,14 +1213,25 @@ template liftDefer(c, root) =
 proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode): PNode =
   ## Applies the various transformations to `body` and returns the result.
   ## This step is not indempotent, and since no caching is performed, it
-  ## must not be performed more than once for a procedure and its body.
+  ## must not be performed more than once for a routine and its body.
+  ##
+  ## The transformations are:
+  ## 1. the ``lambdalifting`` transformation
+  ## 2. general lowerings -- these are the ones implemented here in
+  ##    ``transf``
+  ## 3. the ``closureiters`` transformation
+  ##
+  ## Application always happens in that exact order.
   var c = PTransf(graph: g, module: prc.getModule, idgen: idgen)
-  result = liftLambdas(g, prc, body, c.tooEarly, c.idgen)
+  (result, c.env) = liftLambdas(g, prc, body, c.idgen)
   result = processTransf(c, result, prc)
   liftDefer(c, result)
 
   if prc.isIterator:
     result = g.transformClosureIterator(c.idgen, prc, result)
+    # the environment type is closed for modification, meaning that we can
+    # safely create the type-bound operators now
+    finishClosureIterator(c.graph, c.idgen, prc)
 
   incl(result.flags, nfTransf)
 
