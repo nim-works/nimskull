@@ -13,37 +13,37 @@ func allRequired[T](a: openArray[T]): seq[(T, OptValExpectation)] =
     result &= (x, optValRequired)
 
 checkOpts opts(["-c", "c_val"], shortVal=['c'].allRequired),
-  @[Opt(kind: optShort, keyShort: 'c', val: "c_val")]
+  @[Opt(kind: short, keyShort: 'c', value: "c_val")]
 checkOpts opts(["-c:c_val"], shortVal=['c'].allRequired),
-  @[Opt(kind: optShort, keyShort: 'c', val: "c_val")]
+  @[Opt(kind: short, keyShort: 'c', value: "c_val")]
 checkOpts opts(["-c=c_val"], shortVal=['c'].allRequired),
-  @[Opt(kind: optShort, keyShort: 'c', val: "c_val")]
+  @[Opt(kind: short, keyShort: 'c', value: "c_val")]
 checkOpts opts(["-cc_val", "-j4"], shortVal=['c', 'j'].allRequired),
-  @[Opt(kind: optShort, keyShort: 'c', val: "c_val"), Opt(kind: optShort, keyShort: 'j', val: "4")]
+  @[Opt(kind: short, keyShort: 'c', value: "c_val"), Opt(kind: short, keyShort: 'j', value: "4")]
 checkOpts opts(["-abcc_val"], shortVal=['c'].allRequired),
-  @[Opt(kind: optShort, keyShort: 'a', val: ""), Opt(kind: optShort, keyShort: 'b', val: ""), Opt(kind: optShort, keyShort: 'c', val: "c_val")]
+  @[Opt(kind: short, keyShort: 'a', value: ""), Opt(kind: short, keyShort: 'b', value: ""), Opt(kind: short, keyShort: 'c', value: "c_val")]
 checkOpts opts(["-abc", "c_val"], shortVal=['c'].allRequired),
-  @[Opt(kind: optShort, keyShort: 'a', val: ""), Opt(kind: optShort, keyShort: 'b', val: ""), Opt(kind: optShort, keyShort: 'c', val: "c_val")]
+  @[Opt(kind: short, keyShort: 'a', value: ""), Opt(kind: short, keyShort: 'b', value: ""), Opt(kind: short, keyShort: 'c', value: "c_val")]
 checkOpts opts(["-abc:c_val"], shortVal=['c'].allRequired),
-  @[Opt(kind: optShort, keyShort: 'a', val: ""), Opt(kind: optShort, keyShort: 'b', val: ""), Opt(kind: optShort, keyShort: 'c', val: "c_val")]
+  @[Opt(kind: short, keyShort: 'a', value: ""), Opt(kind: short, keyShort: 'b', value: ""), Opt(kind: short, keyShort: 'c', value: "c_val")]
 checkOpts opts(["-abc=c_val"], shortVal=['c'].allRequired),
-  @[Opt(kind: optShort, keyShort: 'a', val: ""), Opt(kind: optShort, keyShort: 'b', val: ""), Opt(kind: optShort, keyShort: 'c', val: "c_val")]
+  @[Opt(kind: short, keyShort: 'a', value: ""), Opt(kind: short, keyShort: 'b', value: ""), Opt(kind: short, keyShort: 'c', value: "c_val")]
 checkOpts opts(["--long", "val"], longVal=["long"].allRequired),
-  @[Opt(kind: optLong, keyLong: "long", val: "val")]
+  @[Opt(kind: long, keyLong: "long", value: "val")]
 checkOpts opts(["--long:val"], longVal=["long"].allRequired),
-  @[Opt(kind: optLong, keyLong: "long", val: "val")]
+  @[Opt(kind: long, keyLong: "long", value: "val")]
 checkOpts opts(["--long=val"], longVal=["long"].allRequired),
-  @[Opt(kind: optLong, keyLong: "long", val: "val")]
+  @[Opt(kind: long, keyLong: "long", value: "val")]
 checkOpts opts(["--long="], longVal=["long"].allRequired),
-  @[Opt(kind: optLong, keyLong: "long", val: "")]
+  @[Opt(kind: long, keyLong: "long", value: "")]
 checkOpts opts(["--", "-positional1", "--positional2", "positional3"]),
-  @[Opt(kind: optPos, val: "-positional1"), Opt(kind: optPos, val: "--positional2"), Opt(kind: optPos, val: "positional3")]
+  @[Opt(kind: positional, value: "-positional1"), Opt(kind: positional, value: "--positional2"), Opt(kind: positional, value: "positional3")]
 checkOpts opts(["-"]),
-  @[Opt(kind: optPos, val: "-")]
+  @[Opt(kind: positional, value: "-")]
 let emptySeq: seq[Opt] = @[]
 checkOpts opts(["--"]), emptySeq
 checkOpts opts(["---"]),
-  @[Opt(kind: optLong, keyLong: "-", val: "")]
+  @[Opt(kind: long, keyLong: "-", value: "")]
 
 
 # mixed tests
@@ -51,33 +51,33 @@ checkOpts opts(["---"]),
 import std/strutils
 checkOpts opts("hello world! -abcde --f:g --h=i --j --k l m".split(" "), shortVal=['c'].allRequired, longVal=["f","h","k"].allRequired),
   @[
-    Opt(kind: optPos, val: "hello"),
-    Opt(kind: optPos, val: "world!"),
-    Opt(kind: optShort, keyShort: 'a', val: ""),
-    Opt(kind: optShort, keyShort: 'b', val: ""),
-    Opt(kind: optShort, keyShort: 'c', val: "de"),
-    Opt(kind: optLong, keyLong: "f", val: "g"),
-    Opt(kind: optLong, keyLong: "h", val: "i"),
-    Opt(kind: optLong, keyLong: "j", val: ""),
-    Opt(kind: optLong, keyLong: "k", val: "l"),
-    Opt(kind: optPos, val: "m"),
+    Opt(kind: positional, value: "hello"),
+    Opt(kind: positional, value: "world!"),
+    Opt(kind: short, keyShort: 'a', value: ""),
+    Opt(kind: short, keyShort: 'b', value: ""),
+    Opt(kind: short, keyShort: 'c', value: "de"),
+    Opt(kind: long, keyLong: "f", value: "g"),
+    Opt(kind: long, keyLong: "h", value: "i"),
+    Opt(kind: long, keyLong: "j", value: ""),
+    Opt(kind: long, keyLong: "k", value: "l"),
+    Opt(kind: positional, value: "m"),
   ]
 
 # optional tests
 # the way to make short opt simple flag, but long opt optionally on/off
 
 checkOpts opts(["--foo"]),
-  @[Opt(kind: optLong, keyLong: "foo", val: "")]
+  @[Opt(kind: long, keyLong: "foo", value: "")]
 checkOpts opts(["--foo:bar"]),
-  @[Opt(kind: optLong, keyLong: "foo", val: "bar")]
+  @[Opt(kind: long, keyLong: "foo", value: "bar")]
 checkOpts opts(["--foo=bar"]),
-  @[Opt(kind: optLong, keyLong: "foo", val: "bar")]
+  @[Opt(kind: long, keyLong: "foo", value: "bar")]
 checkOpts opts(["-fbar"]),
   @[
-    Opt(kind: optShort, keyShort: 'f', val: ""),
-    Opt(kind: optShort, keyShort: 'b', val: ""),
-    Opt(kind: optShort, keyShort: 'a', val: ""),
-    Opt(kind: optShort, keyShort: 'r', val: ""),
+    Opt(kind: short, keyShort: 'f', value: ""),
+    Opt(kind: short, keyShort: 'b', value: ""),
+    Opt(kind: short, keyShort: 'a', value: ""),
+    Opt(kind: short, keyShort: 'r', value: ""),
   ]
 
 # todo: test exceptions

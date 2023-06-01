@@ -11,7 +11,7 @@
 ## --long val
 ## --long:val
 ## --long=val
-## --long=    (empty val)
+## --long=    (empty value)
 ## -- -positional1 --positional2
 ## 
 ## -    is treated as positional
@@ -23,25 +23,25 @@
 import std/[options, strutils]
 
 type
-  OptKind* = enum
-    optShort ## -s
-    optLong  ## --long
-    optPos   ## positional
+  OptKind* {.pure.} = enum
+    short        ## -s
+    long         ## --long
+    positional   ## positional
 
   OptError* {.pure.} = enum
     none
-    missing    ## missing val (after parsing all the args, last opt need val)
-    extraneous ## extra val when optValNone
+    missing    ## missing value (after parsing all the args, last opt need value)
+    extraneous ## extra value when optValNone
 
   Opt* = object
     case kind*: OptKind
-    of optShort:
+    of short:
       keyShort*: char
-    of optLong:
+    of long:
       keyLong*: string
-    of optPos:
+    of positional:
       discard
-    val*: string
+    value*: string
     error*: OptError
       # abuse "feature": the default value is OptError.none
 
@@ -61,13 +61,13 @@ type
 
 # xxx: trivial impl. remove this once == for case objects is implemented
 proc `==`*(a, b: Opt): bool =
-  a.kind == b.kind and a.val == b.val and (
+  a.kind == b.kind and a.value == b.value and (
     case a.kind:
-    of optShort:
+    of short:
       a.keyShort == b.keyShort
-    of optLong:
+    of long:
       a.keyLong == b.keyLong
-    of optPos:
+    of positional:
       true
   )
 
@@ -103,15 +103,15 @@ iterator opts*(argv: openArray[string],
   var all_positional = false
   var partial = Opt.none
   for arg in argv:
-    if partial.isSome: # fill val of partial opt
+    if partial.isSome: # fill value of partial opt
       var opt = partial.get
-      opt.val = arg
+      opt.value = arg
       yield opt
       partial = Opt.none
     elif all_positional:
-      yield Opt(kind: optPos, val: arg)
+      yield Opt(kind: positional, value: arg)
     elif arg == "-":
-      yield Opt(kind: optPos, val: arg)
+      yield Opt(kind: positional, value: arg)
     elif arg == "--":
       all_positional = true
     elif arg.startsWith "--": # process long
@@ -124,18 +124,18 @@ iterator opts*(argv: openArray[string],
           i.inc
           if c in sep:
             if longVal.get(key, longDefault) == optValNone:
-              yield Opt(kind: optLong, keyLong: key, val: arg[i..^1], error: OptError.extraneous)
+              yield Opt(kind: long, keyLong: key, value: arg[i..^1], error: OptError.extraneous)
             else:
-              yield Opt(kind: optLong, keyLong: key, val: arg[i..^1])
+              yield Opt(kind: long, keyLong: key, value: arg[i..^1])
             break process_arg
           else:
             key &= c
 
         if longVal.get(key, longDefault) == optValRequired:
-          # wait for .val to be filled
-          partial = some Opt(kind: optLong, keyLong: key)
+          # wait for .value to be filled
+          partial = some Opt(kind: long, keyLong: key)
         else:
-          yield Opt(kind: optLong, keyLong: key)
+          yield Opt(kind: long, keyLong: key)
     elif arg.startsWith "-": # process short
       var i = 1 # skip starting -
       while i < arg.len:
@@ -143,24 +143,24 @@ iterator opts*(argv: openArray[string],
         i.inc
         let expectation = shortVal.get(c, shortDefault)
         if expectation == optValNone:
-          yield Opt(kind: optShort, keyShort: c)
+          yield Opt(kind: short, keyShort: c)
         else:
           if i < arg.len: # if not the last char in this arg
             # implied: expectation == optValOptional or expectation == optValRequired
             if arg[i] in sep:
               # skip separator (e.g. '=') in "-a=c" if it exist
               i.inc
-            yield Opt(kind: optShort, keyShort: c, val: arg[i..^1])
+            yield Opt(kind: short, keyShort: c, value: arg[i..^1])
           else: # this arg exhausted (no char left)
             if expectation == optValRequired:
-              partial = some Opt(kind: optShort, keyShort: c)
+              partial = some Opt(kind: short, keyShort: c)
             else: # implied: expectation == optValOptional
-              yield Opt(kind: optShort, keyShort: c)
+              yield Opt(kind: short, keyShort: c)
           break
     else: # process positional
-      yield Opt(kind: optPos, val: arg)
+      yield Opt(kind: positional, value: arg)
 
-  # throw on missing val
+  # throw on missing value
   if partial.isSome:
     var opt = partial.get
     opt.error = OptError.missing
