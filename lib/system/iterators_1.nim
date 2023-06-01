@@ -134,3 +134,23 @@ dotdotLessImpl(int64)
 dotdotLessImpl(int32)
 dotdotLessImpl(uint64)
 dotdotLessImpl(uint32)
+
+type
+  IteratorProtocol* = enum
+    ## iterator protocol used by the compiler as part of closure iterator
+    ## lowering.
+    iteratorNotStarted
+    iteratorHasValue
+    iteratorDone
+    # xxx: iterator side cancellation for structured concurrency?
+
+  IteratorState*[R, S] {.pure.} = object  # TODO: constrain `S` to range/ordinal/etc
+    ## state for a closure iterator, together with `IteratorProtocol` form the
+    ## machinery used by the compiler to lower closure iterators. An iterator
+    ## is a routine supporting resumption, it's logical position within the
+    ## computation and a value that may be valid (determined by range)
+    iteratorExecutionState: S ## current computation position
+    when R is void:
+      discard
+    else:
+      iteratorResult: R       ## current value if state is `iteratorHasValue`

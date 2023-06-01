@@ -44,14 +44,14 @@ import
     idioms,
   ]
 
-from compiler/modules/magicsys import nilOrSysInt
+from compiler/modules/magicsys import nilOrSysInt, sysTypeFromName
 
 type
   Ctx = object
     g: ModuleGraph
     it: PSym
+    itConstr: PSym     ## lowered outer procedure being built
     stateVarSym: PSym  ## :state variable
-    resultVarSym: PSym ## :result used to store the yielded/returned value
     states: seq[tuple[label: int, body: PNode]] ## states for each code slice
 
 proc createClosureIterStateType(g: ModuleGraph, it: PSym,
@@ -77,12 +77,27 @@ proc lowerClosureIterator*(g: ModuleGraph, idgen: IdGenerator, it: PSym,
                 )
 
   let
-    itProtoConstrType: PType = nil # TODO: implement me
     itProtoConstrSym =
       block:
         let s = copySym(it, nextSymId(idgen))
         s.transitionRoutineSymKind(skProc)
-        s.typ = nil # TODO: implement me
+        # xxx: this copying is incomplete/dangerous, it's really doing the bare
+        #      minimum it can get away with... this needs recursive sem
+        #
+        # ensure these things are correct enough:
+        # - symbol and type owners
+        # - symbols: sym.typ, and sym.ast
+        # - types: typ.sym, and typ.n
+        s.typ = copyType(it.typ, nextTypeId(idgen), it.owner)
+        for pos, formal in s.typ.pairs:
+          if pos == 0: # return param
+            let newRetTyp = newType(tyProc, nextTypeId(idgen), formal.owner)
+
+        newType(tyTuple, nextTypeId(idgen), it.owner)
+        s.typ.rawAddSon sysTypeFromName("IteratorProtocol")
+        case it.typ
+        of tyVoid: discard
+        else:      s.typ.rawAddSon 
         s
     itProtoConstrBody =
       block:
