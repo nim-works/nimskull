@@ -54,8 +54,8 @@ proc getSysSym*(g: ModuleGraph; info: TLineInfo; name: string): PSym =
   if result.isNil:
     g.config.localReport(info, reportStr(rsemSystemNeeds, name))
 
-    result = newSym(
-      skError, getIdent(g.cache, name), nextSymId(g.idgen), g.systemModule, g.systemModule.info, {})
+    result = newSym(skError, getIdent(g.cache, name), nextSymId(g.idgen),
+                    g.systemModule, g.systemModule.info, {})
     result.typ = newType(tyError, nextTypeId(g.idgen), g.systemModule)
 
 
@@ -69,7 +69,8 @@ proc getSysMagic*(g: ModuleGraph; info: TLineInfo; name: string, m: TMagic): PSy
   if result != nil: return result
   g.config.localReport(info, reportStr(rsemSystemNeeds, name))
 
-  result = newSym(skError, id, nextSymId(g.idgen), g.systemModule, g.systemModule.info, {})
+  result = newSym(skError, id, nextSymId(g.idgen), g.systemModule,
+                  g.systemModule.info, {})
   result.typ = newType(tyError, nextTypeId(g.idgen), g.systemModule)
 
 proc sysTypeFromName*(g: ModuleGraph; info: TLineInfo; name: string): PType =
