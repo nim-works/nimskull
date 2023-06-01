@@ -1747,9 +1747,12 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
       if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
         discard cgsym(m, "initThreadVarsEmulation")
 
-      incl m.flags, objHasKidsValid
-      let disp = generateMethodDispatchers(graph)
-      for x in disp: genProcAux(m, x.sym)
+      if useAliveDataFromDce in m.flags:
+        # methods need to be special-cased for IC, as whether a dispatcher is
+        # alive is only know after ``transf`` (phase-ordering problem)
+        generateMethodDispatchers(graph)
+        for disp in dispatchers(graph):
+          genProcAux(m, disp)
 
   # for compatibility, the code generator still manages its own "closed order"
   # list, but this should be phased out eventually

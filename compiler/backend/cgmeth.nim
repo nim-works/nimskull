@@ -258,9 +258,10 @@ proc sortBucket(a: var seq[PSym], relevantCols: IntSet) =
       a[j] = v
     if h == 1: break
 
-proc genDispatcher(g: ModuleGraph; methods: seq[PSym], relevantCols: IntSet): PSym =
+proc genDispatcher(g: ModuleGraph; methods: seq[PSym], relevantCols: IntSet) =
   var base = methods[0].ast[dispatcherPos].sym
-  result = base
+  # XXX: `base` is not the method marked with ``.base``, but rather the
+  #      *dispatcher*
   var paramLen = base.typ.len
   var nilchecks = newNodeI(nkStmtList, base.info)
   var disp = newNodeI(nkIfStmt, base.info)
@@ -315,10 +316,12 @@ proc genDispatcher(g: ModuleGraph; methods: seq[PSym], relevantCols: IntSet): PS
       disp = ret
   nilchecks.add disp
   nilchecks.flags.incl nfTransf # should not be further transformed
-  result.ast[bodyPos] = nilchecks
+  base.ast[bodyPos] = nilchecks
 
-proc generateMethodDispatchers*(g: ModuleGraph): PNode =
-  result = newNode(nkStmtList)
+proc generateMethodDispatchers*(g: ModuleGraph) =
+  ## For each method dispatcher, generates the body and updates the definition.
+  ## This procedure must only be called once, and only *after* all methods were
+  ## registered.
   for bucket in 0..<g.methods.len:
     var relevantCols = initIntSet()
     for col in 1..<g.methods[bucket].methods[0].typ.len:
@@ -327,4 +330,8 @@ proc generateMethodDispatchers*(g: ModuleGraph): PNode =
         # if multi-methods are not enabled, we are interested only in the first field
         break
     sortBucket(g.methods[bucket].methods, relevantCols)
-    result.add newSymNode(genDispatcher(g, g.methods[bucket].methods, relevantCols))
+    genDispatcher(g, g.methods[bucket].methods, relevantCols)
+
+iterator dispatchers*(g: ModuleGraph): PSym =
+  for bucket in g.methods.items:
+    yield bucket.dispatcher

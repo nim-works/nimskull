@@ -11,6 +11,7 @@ import
     json
   ],
   compiler/backend/[
+    cgmeth,
     jsgen
   ],
   compiler/front/[
@@ -47,6 +48,8 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## writes it to the output file.
   let
     globals = newGlobals()
+
+  generateMethodDispatchers(graph)
 
   # generate the code for all modules:
   for index in mlist.modulesClosed.items:

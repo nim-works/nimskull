@@ -124,7 +124,6 @@ type
                         ## a frame var twice in an init proc
     isHeaderFile,       ## C source file is the header file
     includesStringh,    ## C source file already includes ``<string.h>``
-    objHasKidsValid     ## whether we can rely on tfObjHasKids
     useAliveDataFromDce ## use the `alive: IntSet` field instead of
                         ## computing alive data on our own.
 
