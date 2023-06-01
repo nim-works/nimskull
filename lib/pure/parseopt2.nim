@@ -81,17 +81,22 @@ proc get[T](explicitOnes: openArray[(T, OptValExpectation)], key: T,
       return v
   return dflt
 
-const defaultSeparators* = {'=', ':'}
+const defaultOptSeparators* = {'=', ':'}
+const posixOptSeparators* = {'='}
 
-iterator opts*(argv: openArray[string], defaultVal: OptValExpectation,
+iterator opts*(argv: openArray[string],
+               # keyed arguments below
+               shortDefault: OptValExpectation = optValNone,
+               longDefault: OptValExpectation = optValOptional,
                shortVal: openArray[(char, OptValExpectation)] = [],
                longVal: openArray[(string, OptValExpectation)] = [],
-               sep: set[char] = defaultSeparators): Opt =
+               sep: set[char] = defaultOptSeparators): Opt =
   ## Parse command-line arguments like POSIX getopt(3)
   ##
-  ## defaultVal:  default expectation of if a option should receive value
-  ## shortVal:    expectation for short options
-  ## longVal:     expectation for long options
+  ## shortDefault:  default expectation of if a short option should receive value
+  ## longDefault:   like `shortDefault`, but for long options
+  ## shortVal:      expectation for short options
+  ## longVal:       expectation for long options
   ## 
   ## See [`OptValExpectation`] for more info about what those parameters mean
   runnableExamples:
@@ -121,14 +126,14 @@ iterator opts*(argv: openArray[string], defaultVal: OptValExpectation,
           let c = arg[i]
           i.inc
           if c in sep:
-            if longVal.get(key, defaultVal) == optValNone:
+            if longVal.get(key, longDefault) == optValNone:
               raise OptExtraneousVal(kind: optLong, keyLong: key)
             yield Opt(kind: optLong, keyLong: key, val: arg[i..^1])
             break process_arg
           else:
             key &= c
 
-        if longVal.get(key, defaultVal) == optValRequired:
+        if longVal.get(key, longDefault) == optValRequired:
           # wait for .val to be filled
           partial = some Opt(kind: optLong, keyLong: key)
         else:
@@ -138,7 +143,7 @@ iterator opts*(argv: openArray[string], defaultVal: OptValExpectation,
       while i < arg.len:
         let c = arg[i]
         i.inc
-        let expectation = shortVal.get(c, defaultVal)
+        let expectation = shortVal.get(c, shortDefault)
         if expectation == optValNone:
           yield Opt(kind: optShort, keyShort: c)
         else:
