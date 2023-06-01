@@ -253,11 +253,6 @@ proc newState(ctx: var Ctx, n, gotoOut: PNode): int =
     assert(gotoOut.len == 0)
     gotoOut.add(ctx.g.newIntLit(gotoOut.info, result))
 
-proc toStmtList(n: PNode): PNode =
-  result = n
-  if result.kind notin {nkStmtList, nkStmtListExpr}:
-    result = newTreeI(nkStmtList, n.info): n
-
 proc addGotoOut(n: PNode, gotoOut: PNode): PNode =
   # Make sure `n` is a stmtlist, and ends with `gotoOut`
   result = toStmtList(n)

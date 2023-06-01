@@ -562,11 +562,19 @@ proc copyTreeWithoutNodes*(src: PNode; skippedNodes: varargs[PNode]): PNode =
         result.sons.add copyTreeWithoutNodes(n, skippedNodes)
 
 proc makeStmtList*(n: PNode): PNode =
-  if n.kind == nkStmtList:
+  # xxx: drop in favour of `toStmtList`
+  case n.kind
+  of nkStmtList: # xxx: what about `nkStmtListExpr`
     result = n
   else:
-    result = newNodeI(nkStmtList, n.info)
-    result.add n
+    result = newTreeI(nkStmtList, n.info, n)
+
+proc toStmtList*(n: PNode): PNode =
+  case n.kind
+  of nkStmtList, nkStmtListExpr: # xxx: what about `nkStmtListExpr`
+    result = n
+  else:
+    result = newTreeI(nkStmtList, n.info, n)
 
 proc toVar*(typ: PType; kind: TTypeKind; idgen: IdGenerator): PType =
   ## If ``typ`` is not a tyVar then it is converted into a `var <typ>` and
