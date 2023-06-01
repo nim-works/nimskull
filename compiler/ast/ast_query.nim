@@ -72,7 +72,7 @@ const
   paramsPos*        = 3 ## Formal parameters in the procedure-like nodes
   pragmasPos*       = 4 ## Position of the pragma in the procedure-like nodes
   miscPos*          = 5 ## used for undocumented and hacky stuff
-  bodyPos*          = 6 ## position of body; use rodread.getBody() instead!
+  bodyPos*          = 6 ## position of body
   resultPos*        = 7
   dispatcherPos*    = 8
 
