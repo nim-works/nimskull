@@ -391,7 +391,6 @@ proc semArray(c: PContext, n: PNode, prev: PType): PType =
       elif not isOrdinalType(indxB):
         localReport(c.config, n[1].info, reportTyp(
           rsemExpectedOrdinal, indxB))
-
       elif enumHasHoles(indxB):
         localReport(c.config, n[1].info, reportTyp(
           rsemExpectedUnholyEnum, indxB.skipTypes({tyRange})))
