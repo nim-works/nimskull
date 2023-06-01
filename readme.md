@@ -32,10 +32,7 @@ This repository contains the Nimskull compiler, stdlib, tools, and documentation
 ## About the Project
 
 Nimskull (temporary name) is a *statically typed* *structured* programming
-language to create software (including itself) that is sustainable.
-
-The goal is to have a *statically typed* *structured* programming language to
-create software (including itself) that is sustainable, it aims to be:
+language to create software (itself included) that is sustainable, it aims to be:
 
 - *Safe:* statically typed, nil safe, with structured approach to resources and
   concurrency
