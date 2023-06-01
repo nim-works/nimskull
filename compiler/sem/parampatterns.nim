@@ -91,15 +91,13 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
           rsemIllformedAst, p,
           str = "Expected any of '|', 'or', '&', 'and' for TRM pattern, but found '$1' ($2)" % [
             $op.s, $op.id]))
-
     elif p.len == 2 and (op.s == "~" or op.id == ord(wNot)):
       compileConstraints(p[1], result, conf)
       result.add(ppNot)
     else:
       conf.localReport(p.info, reportAst(
         rsemIllformedAst, p,
-        str = "Unexpected trm patern - wanted negation or and/or infix"))
-
+        str = "Unexpected trm pattern - wanted negation or and/or infix"))
   of nkAccQuoted, nkPar:
     if p.len == 1:
       compileConstraints(p[0], result, conf)
@@ -108,7 +106,6 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
         rsemIllformedAst, p,
         str = "Unexpected number of nodes for node - " &
           "wanted $1, but found $2" % [$1, $p.len]))
-
   of nkIdent:
     let spec = p.ident.s.normalize
     case spec
@@ -151,9 +148,8 @@ proc semNodeKindConstraints*(n: PNode; conf: ConfigRef; start: Natural): PNode =
   if n.len >= 2:
     for i in start..<n.len:
       compileConstraints(n[i], result.strVal, conf)
-
-    conf.internalAssert(result.strVal.len < MaxStackSize, n.info, "parameter pattern too complex")
-
+    conf.internalAssert(result.strVal.len > MaxStackSize - 1, n.info,
+                        "parameter pattern too complex")
   else:
     conf.localReport(n.info, reportAst(rsemIllformedAst, n))
   result.strVal.add(ppEof)
