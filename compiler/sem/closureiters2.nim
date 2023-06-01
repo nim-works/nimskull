@@ -27,6 +27,25 @@ structure and produce values in typical iteration scenarios.
 
 ]##
 
+import
+  compiler/ast/[
+    ast,
+    ast_idgen,
+    idents,
+    types,
+  ],
+  compiler/modules/[
+    modulegraphs,
+  ],
+  compiler/sem/[
+    lambdalifting,
+  ],
+  compiler/utils/[
+    idioms,
+  ]
+
+from compiler/modules/magicsys import nilOrSysInt
+
 type
   Ctx = object
     g: ModuleGraph
@@ -47,8 +66,10 @@ proc createClosureIterStateType(g: ModuleGraph, it: PSym,
 
 proc lowerClosureIterator*(g: ModuleGraph, idgen: IdGenerator, it: PSym,
                            n: PNode): PNode =
+  ## TODO: document
+  ## `n` is the body of the closurer iterator to transforrm
   var ctx = Ctx(g: g, it: it,
-                stateVarSym: newSym(skVar, getIdent(ctx.g.cache, ":state"),
+                stateVarSym: newSym(skVar, getIdent(g.cache, ":state"),
                                     nextSymId(idgen),
                                     it,
                                     it.info,
@@ -56,17 +77,27 @@ proc lowerClosureIterator*(g: ModuleGraph, idgen: IdGenerator, it: PSym,
                 )
 
   let
-    itProtoConstrType = nil # TODO: implement me
+    itProtoConstrType: PType = nil # TODO: implement me
     itProtoConstrSym =
       block:
-        let s = copySym(it, nextSymid(idgen))
+        let s = copySym(it, nextSymId(idgen))
         s.transitionRoutineSymKind(skProc)
-        s.typ = 
+        s.typ = nil # TODO: implement me
+        s
+    itProtoConstrBody =
+      block:
+        let b = toStmtList(n)
+        # TODO: recursive transform of the body
+        b
     itProtoConstr =
       newTreeIT(nkProcDef, n.info, itProtoConstrType):
         [
-          newSymNodeIT(newSym(), it.info, itProtoConstrType),
+          newSymNode(itProtoConstrSym),
           g.emptyNode,
-          copyTree(it[genericParamsPos]), # xxx: is this OK?
-          
+          copyTree(it.ast[genericParamsPos]), # xxx: is this the right thing to do?
+          copyTree(it.ast[paramsPos]),        # xxx: mark this as converted?
+          copyTree(it.ast[miscPos]),          # xxx: same as `genericParamsPos`
+          itProtoConstrBody,
+          nil,                            # TODO: update to return inner proc type
         ]
+  # set `itProtoConstrSym.ast` to `itProtoConstr`
