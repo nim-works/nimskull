@@ -27,6 +27,12 @@ type
     optShort ## -s
     optLong  ## --long
     optPos   ## positional
+
+  OptError* {.pure.} = enum
+    none
+    missing    ## missing val (after parsing all the args, last opt need val)
+    extraneous ## extra val when optValNone
+
   Opt* = object
     case kind*: OptKind
     of optShort:
@@ -36,17 +42,8 @@ type
     of optPos:
       discard
     val*: string
-
-  OptError* = ref object of CatchableError
-    case kind*: OptKind
-    of optShort:
-      keyShort*: char
-    of optLong:
-      keyLong*: string
-    of optPos:
-      discard
-  OptExtraneousVal* = ref object of OptError
-  OptMissingVal* = ref object of OptError
+    error*: OptError
+      # abuse "feature": the default value is OptError.none
 
   OptValExpectation* = enum
     ## Should I expect this option to have a value or not?
@@ -127,8 +124,9 @@ iterator opts*(argv: openArray[string],
           i.inc
           if c in sep:
             if longVal.get(key, longDefault) == optValNone:
-              raise OptExtraneousVal(kind: optLong, keyLong: key)
-            yield Opt(kind: optLong, keyLong: key, val: arg[i..^1])
+              yield Opt(kind: optLong, keyLong: key, val: arg[i..^1], error: OptError.extraneous)
+            else:
+              yield Opt(kind: optLong, keyLong: key, val: arg[i..^1])
             break process_arg
           else:
             key &= c
@@ -148,6 +146,7 @@ iterator opts*(argv: openArray[string],
           yield Opt(kind: optShort, keyShort: c)
         else:
           if i < arg.len: # if not the last char in this arg
+            # implied: expectation == optValOptional or expectation == optValRequired
             if arg[i] in sep:
               # skip separator (e.g. '=') in "-a=c" if it exist
               i.inc
@@ -163,11 +162,6 @@ iterator opts*(argv: openArray[string],
 
   # throw on missing val
   if partial.isSome:
-    let opt = partial.get
-    case opt.kind
-    of optShort:
-      raise OptMissingVal(kind: optShort, keyShort: opt.keyShort)
-    of optLong:
-      raise OptMissingVal(kind: optLong, keyLong: opt.keyLong)
-    else:
-      doAssert false, "unreachable"
+    var opt = partial.get
+    opt.error = OptError.missing
+    yield opt
