@@ -80,4 +80,12 @@ checkOpts opts(["-fbar"]),
     Opt(kind: short, keyShort: 'r', value: ""),
   ]
 
-# todo: test exceptions
+# errors
+checkOpts opts(["--foo=bar"], longVal={"foo": optValNone}),
+  @[Opt(kind: long, keyLong: "foo", value: "bar", error: OptError.extraneous)]
+checkOpts opts(["--foo"], longVal={"foo": optValRequired}),
+  @[Opt(kind: long, keyLong: "foo", value: "", error: OptError.missing)]
+checkOpts opts(["-f=bar"], shortVal={'f': optValNone}),
+  @[Opt(kind: short, keyShort: 'f', value: "bar", error: OptError.extraneous)]
+checkOpts opts(["-f"], shortVal={'f': optValRequired}),
+  @[Opt(kind: short, keyShort: 'f', value: "", error: OptError.missing)]

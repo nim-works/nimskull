@@ -30,8 +30,8 @@ type
 
   OptError* {.pure.} = enum
     none
-    missing    ## missing value (after parsing all the args, last opt need value)
-    extraneous ## extra value when optValNone
+    missing    ## missing required value (when optValRequired) (after parsing all the args, last opt need value)
+    extraneous ## extra value not needed (when optValNone)
 
   Opt* = object
     case kind*: OptKind
@@ -143,13 +143,17 @@ iterator opts*(argv: openArray[string],
         i.inc
         let expectation = shortVal.get(c, shortDefault)
         if expectation == optValNone:
-          yield Opt(kind: short, keyShort: c)
+          if i < arg.len and arg[i] in sep:
+            i.inc # skip separator (e.g. '=') in "-a=c" if it exist
+            yield Opt(kind: short, keyShort: c, value: arg[i..^1], error: OptError.extraneous)
+            break # this arg is fully handled by the line above
+          else:
+            yield Opt(kind: short, keyShort: c)
         else:
           if i < arg.len: # if not the last char in this arg
             # implied: expectation == optValOptional or expectation == optValRequired
             if arg[i] in sep:
-              # skip separator (e.g. '=') in "-a=c" if it exist
-              i.inc
+              i.inc # skip separator (e.g. '=') in "-a=c" if it exist
             yield Opt(kind: short, keyShort: c, value: arg[i..^1])
           else: # this arg exhausted (no char left)
             if expectation == optValRequired:
