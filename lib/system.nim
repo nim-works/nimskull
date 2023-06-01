@@ -1490,7 +1490,7 @@ include "system/memalloc"
 
 proc `|`*(a, b: typedesc): typedesc = discard
 
-include "system/iterators_1"
+include system/iterators_1
 
 
 {.push stackTrace: off.}
