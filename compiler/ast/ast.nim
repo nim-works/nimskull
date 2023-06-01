@@ -505,7 +505,7 @@ proc transitionIntKind*(n: PNode, kind: range[nkCharLit..nkUInt64Lit]) =
 proc transitionNoneToSym*(n: PNode) =
   transitionNodeKindCommon(nkSym)
 
-template transitionSymKindCommon*(k: TSymKind) =
+template transitionSymKindCommon(k: TSymKind) =
   let obj {.inject.} = s[]
   s[] = TSym(kind: k, itemId: obj.itemId, magic: obj.magic, typ: obj.typ, name: obj.name,
              info: obj.info, owner: obj.owner, flags: obj.flags, ast: obj.ast,
