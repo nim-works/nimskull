@@ -12,6 +12,7 @@ import
   compiler/backend/[
     cgen,
     cgendata,
+    cgmeth,
     extccomp
   ],
   compiler/front/[
@@ -35,6 +36,8 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## is written to disk yet.
   let
     config = graph.config
+
+  generateMethodDispatchers(graph)
 
   var g = newModuleList(graph)
 

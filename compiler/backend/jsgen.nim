@@ -66,7 +66,6 @@ import
   ],
   compiler/backend/[
     ccgutils,
-    cgmeth,
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
@@ -1436,9 +1435,6 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
     if lfNoDecl in s.loc.flags or s.magic notin {mNone, mIsolate} or
        {sfImportc, sfInfixCall} * s.flags != {}:
       discard
-    elif s.kind == skMethod and getBody(p.module.graph, s).kind == nkEmpty:
-      # we cannot produce code for the dispatcher yet:
-      discard
     else:
       # unresolved borrow or forward declarations must not reach here
       assert {sfForward, sfBorrow} * s.flags == {}
@@ -2676,14 +2672,6 @@ proc genTopLevelStmt*(globals: PGlobals, m: BModule, n: PNode) =
   p.g.code.add(p.locals)
   p.g.code.add(p.body)
 
-proc finishMainModule(graph: ModuleGraph, globals: PGlobals, m: BModule) =
-  var disp = generateMethodDispatchers(graph)
-  for i in 0..<disp.len:
-    let prc = disp[i].sym
-    if not globals.generatedSyms.containsOrIncl(prc.id):
-      var p = newInitProc(globals, m)
-      attachProc(p, prc)
-
 proc finalCodegenActions*(graph: ModuleGraph; globals: PGlobals, m: BModule) =
   if sfMainModule in m.module.flags and graph.globalDestructors.len > 0:
     let n = newNode(nkStmtList)
@@ -2691,9 +2679,6 @@ proc finalCodegenActions*(graph: ModuleGraph; globals: PGlobals, m: BModule) =
       n.add destructorCall
 
     genTopLevelStmt(globals, m, n)
-
-  if sfMainModule in m.module.flags:
-    finishMainModule(graph, globals, m)
 
 proc wholeCode*(globals: PGlobals): Rope =
   result = globals.typeInfo & globals.constants & globals.code

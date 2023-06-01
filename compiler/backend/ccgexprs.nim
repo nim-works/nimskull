@@ -2268,8 +2268,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
     var sym = n.sym
     case sym.kind
     of skMethod:
-      if useAliveDataFromDce in p.module.flags or {sfDispatcher, sfForward} * sym.flags != {}:
-        # we cannot produce code for the dispatcher yet:
+      if useAliveDataFromDce in p.module.flags or {sfForward} * sym.flags != {}:
         fillProcLoc(p.module, n)
         genProcPrototype(p.module, sym)
       else:
@@ -2471,8 +2470,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
           genProc(p.module, prc)
       elif prc.skipGenericOwner.kind == skModule and sfCompileTime notin prc.flags:
         if ({sfExportc, sfCompilerProc} * prc.flags == {sfExportc}) or
-            (sfExportc in prc.flags and lfExportLib in prc.loc.flags) or
-            (prc.kind == skMethod):
+            (sfExportc in prc.flags and lfExportLib in prc.loc.flags):
           # due to a bug/limitation in the lambda lifting, unused inner procs
           # are not transformed correctly. We work around this issue (#411) here
           # by ensuring it's no inner proc (owner is a module).
