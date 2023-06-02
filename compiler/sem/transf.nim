@@ -1276,7 +1276,7 @@ proc transformExpr*(g: ModuleGraph; idgen: IdGenerator; module: PSym, n: PNode):
     incl(result.flags, nfTransf)
 
 proc extractGlobals*(body: PNode, output: var seq[PNode], isNimVm: bool) =
-  ## Searches for all ``nkIdentDefs`` defining a global, appends them to
+  ## Searches for all ``nkIdentDefs`` defining a pure global, appends them to
   ## `output` in the order they appear in the input AST, and removes the nodes
   ## from `body`. `isNimVm` signals which branch to select for ``when nimvm``
   ## statements/expressions.
@@ -1317,7 +1317,8 @@ proc extractGlobals*(body: PNode, output: var seq[PNode], isNimVm: bool) =
     while i < body.len:
       let it = body[i]
       if it.kind == nkIdentDefs and
-         it[0].kind == nkSym and sfGlobal in it[0].sym.flags:
+         it[0].kind == nkSym and
+         it[0].sym.flags * {sfGlobal, sfPure} == {sfGlobal, sfPure}:
         # found one; append it to the output:
         output.add(it)
         # there's no need to process the initializer expression of the global,

@@ -98,6 +98,9 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
     for s in m.structs.globals.items:
       defineGlobalVar(bmod, newSymNode(s))
 
+    for s in m.structs.globals2.items:
+      defineGlobalVar(bmod, newSymNode(s))
+
     for s in m.structs.threadvars.items:
       fillGlobalLoc(bmod, s, newSymNode(s))
       declareThreadVar(bmod, s, sfImportc in s.flags)

@@ -362,6 +362,9 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
     for s in m.structs.globals.items:
       declareGlobal(s)
 
+    for s in m.structs.globals2.items:
+      declareGlobal(s)
+
     for s in m.structs.threadvars.items:
       declareGlobal(s)
 

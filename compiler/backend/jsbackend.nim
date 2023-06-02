@@ -75,6 +75,7 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
     bmod.idgen = m.idgen
 
     defineGlobals(globals, bmod, m.structs.globals)
+    defineGlobals(globals, bmod, m.structs.globals2)
     # no special handling for thread-local variables (yet)
     defineGlobals(globals, bmod, m.structs.threadvars)
 

@@ -31,7 +31,6 @@ import
     modulegraphs
   ],
   compiler/sem/[
-    lowerings,
     passes
   ],
   compiler/utils/[
@@ -45,6 +44,10 @@ type
   ModuleStructs* = object
     globals*: seq[PSym]
       ## all top-level globals part of the module
+
+    globals2*: seq[PSym]
+      ## all globals defined at the module *level* but not in the outermost
+      ## *scope*. Ideally, these would be locals instead.
 
     threadvars*: seq[PSym]
       ## all thread-local variables part of the module
@@ -166,65 +169,104 @@ proc createModuleOp(graph: ModuleGraph, idgen: IdGenerator, name: string, module
                            pragmas       = graph.emptyNode,
                            exceptions    = graph.emptyNode)
 
-proc extractGlobals(stmts: seq[PNode], graph: ModuleGraph, idgen: IdGenerator,
-                    owner: PSym,
-                    struct: var ModuleStructs): PNode =
-  ## Extracts the definitions of top-level globals and threadvars, and
-  ## extract. The AST with the relevant ``var``/``let`` sections rewritten as
-  ## assignments is returned.
-  ##
-  ## `graph`, `idgen`, and `owner` are currently required for lowering var
-  ## tuples.
+proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
+  ## Create an entry in `structs` for each global or threadvar defined at the
+  ## the module level. `stmts` represents the imperative part of a module's
+  ## body.
 
-  proc transform(n: PNode, graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                 struct: var ModuleStructs, result: PNode) =
-    # XXX: ``transform`` being an iterator would be more flexibile, but also
-    #      more complex
+  proc register(structs: var ModuleStructs, s: PSym, isTopLevel: bool) {.nimcall.} =
+    if sfCompileTime in s.flags:
+      # don't lift compile-time globals into a module struct
+      # XXX: how they work exactly is currently left to the code
+      #      generator, but that is going to change
+      discard
+    elif sfThread in s.flags:
+      structs.threadvars.add s
+    elif sfGlobal in s.flags:
+      if isTopLevel:
+        # a "proper" global
+        structs.globals.add s
+      else:
+        # a global not defined in the outermost scope; those require
+        # special handling, and thus use a separate list
+        structs.globals2.add s
+    else:
+      discard
+
+  proc scan(n: PNode, structs: var ModuleStructs) {.nimcall.} =
+    ## Doesn't modify the AST, and only registers the globals for which
+    ## definitions are found with `structs`. This is a work-around
+    ## required for the globals not defined in the outermost *scope*;
+    ## their definitions must be kept until after the ``injectdestructors``
+    ## pass is done.
+    # XXX: make ``scan`` obsolete as soon as possible
+    template register(it: PNode) =
+      if it.kind == nkSym:
+        register(structs, it.sym, isTopLevel = false)
+
     case n.kind
-    of nkVarSection, nkLetSection:
-      for it in n.items:
+    of nkIdentDefs, nkVarTuple:
+      for it in names(n):
+        register(it)
+
+      # don't scan the type slot
+      scan(n[^1], structs)
+    of nkForStmt:
+      # 'for' statements don't use identdefs...
+      for it in names(n):
         case it.kind
-        of nkCommentStmt:
-          discard "ignore"
+        of nkSym:
+          register(it)
         of nkVarTuple:
-          # XXX: things would be much simpler if var tuples would have be
-          #      lowered already. However, even if ``transf`` did that (which
-          #      is likely should), it would be too late for our case here
-          let r = lowerTupleUnpacking(graph, it, idgen, owner)
-          for x in r.items:
-            transform(x, graph, idgen, owner, struct, result)
-        of nkIdentDefs:
-          assert it.len == 3
-          let s = it[0].sym
-          if sfCompileTime in s.flags:
-            # don't lift compile-time globals into a module struct, and also
-            # don't generate an assignment for them
-            # XXX: how they work exactly is currently left to the code
-            #      generator, but this is going to change
-            discard
-          elif sfThread in s.flags:
-            struct.threadvars.add s
-          elif sfGlobal in s.flags:
-            struct.globals.add s
-            # replace with an assignment:
-            if it[2].kind != nkEmpty:
-              result.add newTreeI(nkAsgn, it.info, [it[0], it[2]])
-          else:
-            # keep the node as an identdefs
-            result.add newTreeI(n.kind, n.info, it)
+          # not a normal var tuple...
+          for i in 0..<it.len-1:
+            register(it[i])
         else:
           unreachable()
 
+      scan(n[^2], structs)
+      scan(n[^1], structs)
+    of nkConv, nkCast, nkHiddenStdConv, nkHiddenSubConv:
+      scan(n[1], structs)
+    of nkWithoutSons, callableDefs:
+      discard "ignore"
+    else:
+      for it in n.items:
+        scan(it, structs)
+
+  proc processVarSection(n: PNode, structs: var ModuleStructs) {.nimcall.} =
+    ## Processes a var/let section appearing in a module's outermost scope.
+    assert n.kind in {nkVarSection, nkLetSection}
+    for it in n.items:
+      case it.kind
+      of nkCommentStmt:
+        discard "ignore"
+      of nkIdentDefs, nkVarTuple:
+        var isCompileTime = false # crude detection for .compileTime globals
+        for name in names(it):
+          if name.kind == nkSym:
+            register(structs, name.sym, true)
+            isCompileTime = isCompileTime or sfCompileTime in name.sym.flags
+
+        if not isCompileTime:
+          # we still need to scan the right-hand side
+          scan(it[^1], structs)
+
+      else:
+        unreachable()
+
+  proc process(n: PNode, structs: var ModuleStructs) =
+    case n.kind
+    of nkVarSection, nkLetSection:
+      processVarSection(n, structs)
     of nkStmtList:
       unreachable("top-level statement lists must not exist at this point")
     else:
-      result.add(n)
-
-  result = newNode(nkStmtList)
-  result.sons = newSeqOfCap[PNode](stmts.len)
+      scan(n, structs)
 
   for it in stmts.items:
-    transform(it, graph, idgen, owner, struct, result)
+    process(it, structs)
+
 
 proc generateModuleDestructor(graph: ModuleGraph, m: Module): PNode =
   ## Generates the body for the destructor procedure of module `m` (also
@@ -257,13 +299,13 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
     if decls.len == 0: newNodeI(nkEmpty, m.info)
     else:              newTreeI(nkStmtList, m.info, decls)
 
-  # extract the top-level globals and threadvars:
-  var imperative = extractGlobals(imperative, graph, idgen, m, result.structs)
-  if imperative.len == 0:
-    # there's no imperative code
-    imperative = newNodeI(nkEmpty, imperative.info)
-  else:
-    imperative.info = m.info
+  # gather the top-level globals and threadvars:
+  registerGlobals(imperative, result.structs)
+
+  # turn the list into a node:
+  let imperative =
+    if imperative.len == 0: newNodeI(nkEmpty, m.info)
+    else:                   newTreeI(nkStmtList, m.info, imperative)
 
   # TODO: the symbols defined by the AST we're moving into the init procedure
   #       also need to be re-targeted (i.e., have their owner adjusted), but
