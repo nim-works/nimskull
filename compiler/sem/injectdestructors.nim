@@ -1314,7 +1314,8 @@ proc deferGlobalDestructors(tree: MirTree, g: ModuleGraph, idgen: IdGenerator,
       if def.kind == mnkGlobal and
          def.sym.flags * {sfPure, sfThread} == {sfPure} and
          hasDestructor(def.sym.typ):
-        g.globalDestructors.add genDestroy(g, idgen, owner, newSymNode(def.sym))
+        g.globalDestructors.add (def.sym.itemId.module,
+                                 genDestroy(g, idgen, owner, newSymNode(def.sym)))
 
     else:
       discard
@@ -1380,7 +1381,8 @@ proc deferGlobalDestructor*(g: ModuleGraph, idgen: IdGenerator, owner: PSym,
   ## If the global has a destructor, emits a call to it at the end of the
   ## section of global destructors.
   if sfThread notin global.sym.flags and hasDestructor(global.typ):
-    g.globalDestructors.add genDestroy(g, idgen, owner, global)
+    g.globalDestructors.add (global.sym.itemId.module,
+                             genDestroy(g, idgen, owner, global))
 
 proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
                             tree: var MirTree, sourceMap: var SourceMap) =
