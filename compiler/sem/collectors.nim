@@ -304,7 +304,7 @@ proc changeOwner(n: PNode, newOwner: PSym) =
     # ignore the type slot here. If it contains definitions, so be
     # it -- changing their owner shouldn't cause any problems
     changeOwner(n[^1], newOwner)
-  of routineDefs:
+  of routineDefs - nkIteratorDef:
     change(n[namePos])
   of nkLambdaKinds:
     change(n[namePos])
@@ -323,6 +323,15 @@ proc changeOwner(n: PNode, newOwner: PSym) =
 
     changeOwner(n[^2], newOwner)
     changeOwner(n[^1], newOwner)
+  of nkIteratorDef:
+    # we special case iterator definitions here, and leave them as direct
+    # descendants of the module. This is currently done for efficieny
+    # reasons: without, a top-level closure iterator creating an instance of
+    # another closure iterator would lead to the unnecessary allocation of
+    # an empty environment that lives for the duration of the module-init
+    # procedure.
+    # XXX: ^^ this is limitation of the lambda-lifting pass
+    discard
   of nkWithoutSons:
     discard "ignore"
   of nkWithSons - entityDefs:
