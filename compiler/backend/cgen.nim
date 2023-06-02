@@ -319,7 +319,7 @@ proc genLineDir(p: BProc, t: PNode) =
 
 proc accessThreadLocalVar(p: BProc, s: PSym)
 proc emulatedThreadVars(conf: ConfigRef): bool {.inline.}
-proc genProc(m: BModule, prc: PSym)
+proc genProc*(m: BModule, prc: PSym)
 proc raiseInstr(p: BProc): Rope
 
 proc getTempName(m: BModule): Rope =
@@ -1171,7 +1171,7 @@ proc requestConstImpl(p: BProc, sym: PSym) =
 
 proc isActivated(prc: PSym): bool = prc.typ != nil
 
-proc genProc(m: BModule, prc: PSym) =
+proc genProc*(m: BModule, prc: PSym) =
   # unresolved borrows or forward declarations must not reach here
   assert {sfBorrow, sfForward} * prc.flags == {}
   assert isActivated(prc)

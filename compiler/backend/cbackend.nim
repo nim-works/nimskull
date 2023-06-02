@@ -123,6 +123,13 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
     # for other modules' code can still add new code to this module's sections
     finalCodegenActions(graph, bmod, newNode(nkStmtList))
 
+  # all alive globals are discovered now, so we can finish the modules'
+  # deinitialization procedures. Note that we have to already pass them
+  # to code generation here
+  finishDeinit(graph, mlist)
+  for pos, m in mlist.modules.pairs:
+    genProc(g.modules[pos.int], m.destructor)
+
   # the main part of code generation is done. Generate the init procedure,
   # and then we're done. Note that no more dependencies (new globals,
   # procedure, constants, etc.) must be raised here

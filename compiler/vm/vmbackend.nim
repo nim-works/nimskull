@@ -30,6 +30,7 @@ import
   ],
   compiler/sem/[
     collectors,
+    injectdestructors,
     transf
   ],
   compiler/mir/[
@@ -169,9 +170,12 @@ proc generateCodeForProc(c: var TCtx, s: PSym,
   c.gatherDependencies(body, withGlobals=true)
   result = genProc(c, s, body)
 
-proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]) =
-  ## Generates and emits code for the given `{.global.}` initialization
-  ## statements (`nkIdentDefs` in this case) into `f`
+proc processPureGlobals(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]) =
+  ## Generates and emits the code for the globals provided by `defs`. `defs`
+  ## is expected to be a list of identdefs for *pure* globals previously
+  ## extracted from procedures.
+  ##
+  ## In addition, defers destructor call for the globals.
   template swapState() =
     swap(c.code, f.code)
     swap(c.debug, f.debug)
@@ -184,8 +188,10 @@ proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]
   for def in defs.items:
     assert def.kind == nkIdentDefs
     for i in 0..<def.len-2:
+      deferGlobalDestructor(c.graph, c.idgen, c.module, def[i])
+
       if def[^1].kind == nkEmpty:
-        # do nothing for globals without initializer expressions
+        # no initializer expression -> no code to generate
         continue
 
       # note: don't transform the expressions here; they already were, during
@@ -249,7 +255,7 @@ proc generateAliveProcs(c: var TCtx, mlist: var BModuleList) =
     # might define further globals...)
     if globals.len > 0:
       let mI = mlist.moduleMap[c.module.position]
-      generateGlobalInit(c, mlist.modules[mI].initGlobalsCode,
+      processPureGlobals(c, mlist.modules[mI].initGlobalsCode,
                          globals)
 
       # prepare for reuse:
@@ -396,7 +402,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
     # already
     reset(frag)
 
-
+  finishDeinit(g, mlist.orig)
   let entryPoint = generateCodeForMain(c, mlist)
 
   c.gABC(g.emptyNode, opcEof)

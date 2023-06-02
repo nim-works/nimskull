@@ -18,6 +18,13 @@ import
     idioms
   ]
 
+iterator ritems[T](x: openArray[T]): lent T =
+  ## Iterates and yields the items from the container `x` in reverse.
+  var i = x.high
+  while i >= 0:
+    yield x[i]
+    dec i
+
 proc emitOpCall(graph: ModuleGraph, op: PSym, dest: PNode) =
   ## Emits a call to the provided operator `op`, but only if the operator is
   ## a non-empty procedure.
@@ -67,6 +74,35 @@ proc generateTeardown*(graph: ModuleGraph, modules: ModuleList, result: PNode) =
       emitOpCall(graph, it.destructor, result)
 
   emitOpCall(graph, systemModule(modules).destructor, result)
+
+proc finishDeinit*(graph: ModuleGraph, modules: var ModuleList) =
+  ## Appends destructor calls for procedure-level globals to the bodies of
+  ## the modules' de-init procedures. Called at the very end of code generation
+  ## once all alive procedure-level globals have been discovered.
+
+  # XXX: if the called destructors access other globals, or introduce new
+  #      ones, behaviour is undefined. In the best but most unlikely case,
+  #      everything will work as expected, but in the worst case, the code
+  #      is going to misbehave at run-time
+
+  proc prepare(prc: PSym): PNode =
+    # XXX: not pretty, but it's going to removed again anyway
+    case prc.ast[bodyPos].kind
+    of nkEmpty:
+      result = newNodeI(nkStmtList, prc.ast[bodyPos].info)
+      prc.ast[bodyPos] = result
+    of nkStmtList:
+      # already supports appending
+      result = prc.ast[bodyPos]
+    else:
+      result = newTree(nkStmtList, prc.ast[bodyPos])
+      prc.ast[bodyPos] = result
+
+  # XXX: the whole ``globalDestructors`` mechanism is wrong. Moving dead-code
+  #      elimination into the orchestrators will, among other things, allow
+  #      for removing it
+  for (module, call) in ritems(graph.globalDestructors):
+    prepare(modules[module.FileIndex].destructor).add call
 
 proc generateMainProcedure*(graph: ModuleGraph, idgen: IdGenerator, modules: ModuleList): PSym =
   ## Generates the procedure for initializing, running, and de-initializing

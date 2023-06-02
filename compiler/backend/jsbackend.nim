@@ -95,6 +95,7 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
     genTopLevelProcedure(globals, bmod, m.init)
 
     if sfMainModule in m.sym.flags:
+      finishDeinit(graph, mlist)
       generateCodeForMain(globals, graph, bmod, mlist)
 
     # we don't need the ``BModule`` instance anymore:
