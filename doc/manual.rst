@@ -6750,8 +6750,7 @@ startup.
 When used within a generic proc, a separate unique global variable will be
 created for each instantiation of the proc. The order of initialization of
 the created global variables within a module is not defined, but all of them
-will be initialized after any top-level variables in their originating module
-and before any variable in a module that imports it.
+will be initialized before any variable in a module that imports it.
 
 Disabling certain messages
 --------------------------
