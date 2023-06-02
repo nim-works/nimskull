@@ -286,6 +286,49 @@ proc generateModuleDestructor(graph: ModuleGraph, m: Module): PNode =
     # order to detect empty procedures)
     result = newNode(nkEmpty)
 
+proc changeOwner(n: PNode, newOwner: PSym) =
+  ## For all symbols defined in the AST `n`, changes the owner to
+  ## `newOwner`.
+  template change(it: PNode) =
+    # make sure to not change the owner of globals
+    # XXX: we shouldn't need to check for globals here, but have to,
+    #      because of globals defined in nested scopes
+    if it.kind == nkSym and sfGlobal notin it.sym.flags:
+      it.sym.owner = newOwner
+
+  case n.kind
+  of nkIdentDefs, nkVarTuple, nkConstDef:
+    for it in names(n):
+      change(it)
+
+    # ignore the type slot here. If it contains definitions, so be
+    # it -- changing their owner shouldn't cause any problems
+    changeOwner(n[^1], newOwner)
+  of routineDefs:
+    change(n[namePos])
+  of nkLambdaKinds:
+    change(n[namePos])
+  of nkForStmt:
+    # 'for' statements don't use identdefs...
+    for it in names(n):
+      case it.kind
+      of nkSym:
+        change(it)
+      of nkVarTuple:
+        # not a normal var tuple...
+        for i in 0..<it.len-1:
+          change(it[i])
+      else:
+        unreachable()
+
+    changeOwner(n[^2], newOwner)
+    changeOwner(n[^1], newOwner)
+  of nkWithoutSons:
+    discard "ignore"
+  of nkWithSons - entityDefs:
+    for it in n.items:
+      changeOwner(it, newOwner)
+
 proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
                   decls, imperative: seq[PNode]): Module =
   ## From the declaratives and imperative statements gathered through the pass
@@ -307,9 +350,10 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
     if imperative.len == 0: newNodeI(nkEmpty, m.info)
     else:                   newTreeI(nkStmtList, m.info, imperative)
 
-  # TODO: the symbols defined by the AST we're moving into the init procedure
-  #       also need to be re-targeted (i.e., have their owner adjusted), but
-  #       that would break too many assumptions right now
+  # FIXME: ``when nimvm`` statements aren't collapsed at this point, and
+  #        ``extractGlobals`` doesn't consider them. This means that the
+  #        definitions from both branches are registered with the module
+  #        struct
 
   var options = graph.config.options
   if sfSystemModule in m.flags:
@@ -320,6 +364,9 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
   # initialization, we wrap it into a procedure:
   result.init = createModuleOp(graph, idgen, m.name.s & "Init", m, imperative, options)
   result.init.flags = m.flags * {sfInjectDestructors} # inherit the flag
+  # we also need to make sure that the owner of all entities defined inside
+  # the body is adjusted:
+  changeOwner(result.init.ast[bodyPos], result.init)
 
   # create a procedure for the data-init operator already. The selected backend
   # is then responsible for filling it with content
