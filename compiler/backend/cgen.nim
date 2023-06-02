@@ -541,50 +541,51 @@ include ccgthreadvars
 
 proc varInDynamicLib(m: BModule, sym: PSym)
 
-proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
+proc fillGlobalLoc*(m: BModule, s: PSym, n: PNode) =
+  fillLoc(s.loc, locGlobalVar, n, mangleName(m, s), OnHeap)
+
+proc defineGlobalVar*(m: BModule, n: PNode) =
   let s = n.sym
   if s.loc.k == locNone:
-    fillLoc(s.loc, locGlobalVar, n, mangleName(p.module, s), OnHeap)
+    fillGlobalLoc(m, s, n)
 
   if lfDynamicLib in s.loc.flags:
-    var q = findPendingModule(p.module, s)
+    var q = findPendingModule(m, s)
     if q != nil and not containsOrIncl(q.declaredThings, s.id):
       varInDynamicLib(q, s)
     else:
       s.loc.r = mangleDynLibProc(s)
-    p.config.internalAssert(value == "", n.info, ".dynlib variables cannot have a value")
     return
-  useHeader(p.module, s)
+  useHeader(m, s)
   if lfNoDecl in s.loc.flags: return
-  if not containsOrIncl(p.module.declaredThings, s.id):
+  if not containsOrIncl(m.declaredThings, s.id):
     if sfThread in s.flags:
-      declareThreadVar(p.module, s, sfImportc in s.flags)
-      p.config.internalAssert(value == "", n.info, ".threadvar variables cannot have a value")
+      # XXX: remove this case once pure globals are handled by the
+      #      orchestrator
+      declareThreadVar(m, s, sfImportc in s.flags)
     else:
       var decl = ""
-      var td = getTypeDesc(p.module, s.loc.t, skVar)
+      var td = getTypeDesc(m, s.loc.t, skVar)
       if s.constraint.isNil:
         if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
           decl.addf "NIM_ALIGN($1) ", [rope(s.alignment)]
         if sfImportc in s.flags: decl.add("extern ")
         elif lfExportLib in s.loc.flags: decl.add("N_LIB_EXPORT_VAR ")
         else: decl.add("N_LIB_PRIVATE ")
-        if s.kind == skLet and value != "": decl.add("NIM_CONST ")
         decl.add(td)
         if sfRegister in s.flags: decl.add(" register")
         if sfVolatile in s.flags: decl.add(" volatile")
         if sfNoalias in s.flags: decl.add(" NIM_NOALIAS")
-        if value != "":
-          decl.addf(" $1 = $2;$n", [s.loc.r, value])
-        else:
-          decl.addf(" $1;$n", [s.loc.r])
+        decl.addf(" $1;$n", [s.loc.r])
       else:
-        if value != "":
-          decl = runtimeFormat(s.cgDeclFrmt & " = $#;$n", [td, s.loc.r, value])
-        else:
-          decl = runtimeFormat(s.cgDeclFrmt & ";$n", [td, s.loc.r])
-      p.module.s[cfsVars].add(decl)
-  if p.withinLoop > 0 and value == "":
+        decl = runtimeFormat(s.cgDeclFrmt & ";$n", [td, s.loc.r])
+      m.s[cfsVars].add(decl)
+
+proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
+  let s = n.sym
+  defineGlobalVar(p.module, n)
+  if p.withinLoop > 0 and value == "" and
+     {lfDynamicLib, lfNoDecl} * s.loc.flags == {}:
     # fixes tests/run/tzeroarray:
     resetLoc(p, s.loc)
 

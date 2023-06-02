@@ -23,7 +23,7 @@ proc accessThreadLocalVar(p: BProc, s: PSym) =
     p.procSec(cpsInit).add(
       ropecg(p.module, "\tNimTV_ = (NimThreadVars*) #GetThreadLocalVars();$n", []))
 
-proc declareThreadVar(m: BModule, s: PSym, isExtern: bool) =
+proc declareThreadVar*(m: BModule, s: PSym, isExtern: bool) =
   if emulatedThreadVars(m.config):
     # we gather all thread locals var into a struct; we need to allocate
     # storage for that somehow, can't use the thread local storage

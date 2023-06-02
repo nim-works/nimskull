@@ -91,6 +91,17 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
       changeFileExt(completeCfilePath(config, f), hExt))
     incl g.generatedHeader.flags, isHeaderFile
 
+  # generate the declarations for all globals first, so that the symbols all
+  # have mangled names already; the order doesn't matter
+  for key, m in mlist.modules.pairs:
+    let bmod = g.modules[key.int]
+    for s in m.structs.globals.items:
+      defineGlobalVar(bmod, newSymNode(s))
+
+    for s in m.structs.threadvars.items:
+      fillGlobalLoc(bmod, s, newSymNode(s))
+      declareThreadVar(bmod, s, sfImportc in s.flags)
+
   # the main part: invoke the code generator for all top-level code
   for m in closed(mlist):
     let bmod = g.modules[m.sym.position]
