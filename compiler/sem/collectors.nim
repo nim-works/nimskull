@@ -20,6 +20,7 @@ import
     ast,
     ast_idgen,
     ast_types,
+    ast_query,
     lineinfos,
     idents
   ],
@@ -37,6 +38,8 @@ import
     containers,
     idioms
   ]
+
+from compiler/sem/injectdestructors import genDestroy
 
 type
   ModuleStructs* = object
@@ -208,6 +211,24 @@ proc extractGlobals(stmts: seq[PNode], graph: ModuleGraph, idgen: IdGenerator,
   for it in stmts.items:
     transform(it, graph, idgen, owner, struct, result)
 
+proc generateModuleDestructor(graph: ModuleGraph, m: Module): PNode =
+  ## Generates the body for the destructor procedure of module `m` (also
+  ## referred to as the 'de-init' procedure).
+  result = newNode(nkStmtList)
+  for s in m.structs.globals.items:
+    if hasDestructor(s.typ):
+      result.add genDestroy(graph, m.idgen, m.sym, newSymNode(s))
+
+  # note: the generated body is not yet final -- we're still missing
+  # destructor calls for globals defined inside procedures (i.e., pure
+  # globals). These calls are inserted once we know all alive pure globals
+  # (which is after the main part of code generation has finished)
+
+  if result.len == 0:
+    # collapse to an empty node (dead-code elimination looks for them in
+    # order to detect empty procedures)
+    result = newNode(nkEmpty)
+
 proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
                   decls, imperative: seq[PNode]): Module =
   ## From the declaratives and imperative statements gathered through the pass
@@ -248,7 +269,8 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
   result.dataInit = createModuleOp(graph, idgen, m.name.s & "DatInit", m, newNode(nkEmpty), options)
 
   # setup the module struct clean-up operator:
-  result.destructor = createModuleOp(graph, idgen, m.name.s & "Deinit", m, newNode(nkEmpty), options)
+  let destructorBody = generateModuleDestructor(graph, result)
+  result.destructor = createModuleOp(graph, idgen, m.name.s & "Deinit", m, destructorBody, options)
 
   result.preInit = createModuleOp(graph, idgen, m.name.s & "PreInit", m, newNode(nkEmpty), options)
 

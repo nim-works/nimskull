@@ -1307,7 +1307,7 @@ proc genOp(idgen: IdGenerator, owner, op: PSym, dest: PNode): PNode =
 
   result = newTreeI(nkCall, dest.info, newSymNode(op), addrExp)
 
-proc genDestroy(graph: ModuleGraph, idgen: IdGenerator, owner: PSym, dest: PNode): PNode =
+proc genDestroy*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym, dest: PNode): PNode =
   let
     t = dest.typ.skipTypes(skipAliases)
     op = getOp(graph, t, attachedDestructor)
