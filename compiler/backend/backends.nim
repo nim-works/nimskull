@@ -31,7 +31,7 @@ func systemModule(modules: ModuleList): lent Module =
 
   unreachable("missing system module")
 
-func mainModule(modules: ModuleList): lent Module =
+func mainModule*(modules: ModuleList): lent Module =
   for it in modules.modules.values:
     if sfMainModule in it.sym.flags:
       return it

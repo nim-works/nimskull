@@ -249,7 +249,7 @@ func analyseIfAddressTaken(n: PNode, locs: var IntSet) =
       analyseIfAddressTaken(it, locs)
 
 
-func registerLinkItem(tbl: var Table[int, LinkIndex], list: var seq[PSym],
+func registerLinkItem*(tbl: var Table[int, LinkIndex], list: var seq[PSym],
                       sym: PSym, next: var LinkIndex) =
   let linkIdx = tbl.mgetOrPut(sym.id, next)
   if linkIdx == next:
@@ -2511,15 +2511,8 @@ proc useGlobal(c: var TCtx, n: PNode): int =
       # XXX: double table lookup
       result = c.symToIndexTbl[s.id].int
     else:
-      if c.mode in {emRepl, emStandalone}:
-        # for REPL and standalone mode, allow the ad-hoc setup of globals. For
-        # the VM back-end (standalone mode), the modules aren't necessarily
-        # processed in a meaningfull order, so the global's var section might
-        # have been not visited yet
-        result = c.lookupGlobal(s)
-      else:
-        # a global that is not accessible in the current context
-        cannotEval(c, n)
+      # a global that is not accessible in the current context
+      cannotEval(c, n)
 
 proc genSym(c: var TCtx; n: PNode; dest: var TDest; load = true) =
   ## Generates and emits the code for loading either the value or handle of
@@ -2877,8 +2870,7 @@ proc genVarSection(c: var TCtx; n: PNode) =
           #      variables are code-gen'ed twice, once via `setupCompileTimeVar`
           #      called from `sem.semVarOrLet` and once through `vm.myProcess`.
           #      This leads to the global's symbol already being present in the
-          #      table. For the VM back-end, the symbol is also already present
-          #      if the global was used somewhere in another module
+          #      table
           #c.config.internalAssert(s.id notin c.symToIndexTbl, a[0].info)
           discard c.lookupGlobal(s)
           discard c.getOrCreate(s.typ)

@@ -19,8 +19,10 @@ import
   compiler/ast/[
     ast,
     ast_types,
-    lineinfos,
-    astalgo, # for `getModule`
+    lineinfos
+  ],
+  compiler/backend/[
+    backends
   ],
   compiler/front/[
     msgs,
@@ -34,7 +36,6 @@ import
     mirbridge
   ],
   compiler/modules/[
-    magicsys,
     modulegraphs
   ],
   compiler/utils/[
@@ -70,22 +71,17 @@ type
     debug: seq[TLineInfo]
 
   BModule = object
-    sym: PSym
-
-    initGlobalsCode: CodeFragment ## the bytecode of `initGlobalsProc`. Each
-      ## encountered `{.global.}`'s init statement gets code-gen'ed into the
-      ## `initGlobalCode` of the module that owns it
-    initGlobalsProc: CodeInfo ## the proc that initializes `{.global.}`
-      ## variables
-    initProc: CodeInfo ## the module init proc (top-level statements)
+    initGlobalsCode: CodeFragment
+      ## the bytecode for the module's pre-init procedure
 
   ModuleId = distinct uint32
     ## The ID of a ``BModule`` instance.
 
   BModuleList = object
-    modules: Store[ModuleId, BModule]
-    modulesClosed: seq[ModuleId]
+    orig: ModuleList ## the list with the modules as produced by the
+                     ## "collector" pass
 
+    modules: Store[ModuleId, BModule]
     moduleMap: Table[int, ModuleId]
       ## maps a module's position to the ID of the module's ``BModule``
       ## instance
@@ -144,36 +140,23 @@ func collectRoutineSyms(ast: PNode, syms: var seq[PSym]) =
   for i in 0..<ast.safeLen:
     collectRoutineSyms(ast[i], syms)
 
+proc queueProcedure(c: var TCtx, prc: PSym) =
+  ## Queues the procedure `prc` for later code generation if it wasn't
+  ## already.
+  registerLinkItem(c.symToIndexTbl, c.linkState.newProcs, prc,
+                   c.linkState.nextProc)
+
+proc refresh(c: var TCtx, m: Module) =
+  ## Prepares the code-generator state of `c` for being used to generate code
+  ## belonging to the module `m`.
+  assert m.idgen != nil
+  c.refresh(m.sym, m.idgen)
+
 proc genStmt(c: var TCtx, n: PNode): auto =
   ## Wrapper around ``vmgen.genStmt`` that canonicalizes the input AST first
   let n = canonicalizeWithInject(c.graph, c.idgen, c.module, n, {goIsNimvm})
   c.gatherDependencies(n, withGlobals=true)
   vmgen.genStmt(c, n)
-
-proc generateTopLevelStmts(c: var TCtx, config: ConfigRef,
-                           module: Module): CodeInfo =
-  ## Generates code for all collected top-level statements of `module` and
-  ## compiles the fragments into a single function. The resulting code is
-  ## stored in `module.initProc`
-  let n = newNodeI(nkEmpty, module.sym.info) # for line information
-
-  c.prc = PProc(sym: module.sym)
-  c.prc.regInfo.newSeq(1) # the first register is always the (potentially
-                          # non-existant) result
-
-  # start of init proc
-  let start = c.code.len
-
-  for x in module.stmts.items:
-    let tn = transformExpr(c.graph, c.idgen, c.module, x)
-    let r = c.genStmt(tn)
-
-    if unlikely(r.isErr):
-      config.localReport(vmGenDiagToLegacyReport(r.takeErr))
-
-  c.gABC(n, opcRet)
-
-  result = (start: start, regCount: c.prc.regInfo.len)
 
 proc generateCodeForProc(c: var TCtx, s: PSym,
                          globals: var seq[PNode]): VmGenResult =
@@ -245,14 +228,15 @@ proc generateAliveProcs(c: var TCtx, mlist: var BModuleList) =
     let i = start + ri
     c.functions[i] = c.initProcEntry(sym)
 
-    # don't generate code for a proc that is overridden with a callback:
-    if c.functions[i].kind == ckCallback:
+    # - don't generate code for a procedure that is overridden with a
+    #   callback
+    # - ``lfNoDecl`` is used internally by the backend to signal that code
+    #   generation is handled elsewhere
+    if c.functions[i].kind == ckCallback or lfNoDecl in sym.loc.flags:
       continue
 
-    # FIXME: using the module where the procedure is defined (i.e.
-    #        ``getModule``) is wrong. It needs to be the module to which the
-    #        symbol is *attached*, i.e. ``sym.itemId.module``
-    c.module = sym.getModule()
+    c.refresh(mlist.orig[sym.itemId.module.FileIndex])
+
     # code-gen' the routine. This might add new entries to the `newProcs` list
     let r = generateCodeForProc(c, sym, globals)
     if r.isOk:
@@ -274,93 +258,17 @@ proc generateAliveProcs(c: var TCtx, mlist: var BModuleList) =
     # code-gen might've found new functions, so adjust the function table:
     c.functions.setLen(c.linkState.nextProc)
 
-proc generateEntryProc(c: var TCtx, info: TLineInfo, initProcs: Slice[int],
-                       initProcTyp: VmTypeId): CodeInfo =
-  ## Generates the entry function and returns it's function table index.
-  ## The entry function simply calls all given `initProcs` (ordered from low
-  ## to high by their function table index) and then returns the value of the
-  ## ``programResult`` global
-  let
-    n = newNodeI(nkEmpty, info)
-    start = c.code.len
+proc generateCodeForMain(c: var TCtx, modules: var BModuleList): FunctionIndex =
+  ## Generate, emits, and links in the main procedure (the entry point).
+  let prc = generateMainProcedure(c.graph, mainModule(modules.orig).idgen, modules.orig)
+  queueProcedure(c, prc)
 
-  # setup code-gen state. One register for the return value and one as a
-  # temporary to hold the init procs
-  c.prc = PProc(regInfo: @[RegInfo(), RegInfo()])
+  # generate the code for `prc` and all its dependencies. New pure globals
+  # discovered beyond this point will be ignored: no initialization nor
+  # de-initialization logic will be generated for them.
+  generateAliveProcs(c, modules)
 
-  # the entry procedure simply calls all module init procedures
-  for idx in initProcs.items:
-    c.gABx(n, opcLdNull, 1, initProcTyp.int)
-    c.gABx(n, opcWrProc, 1, idx) # `idx` is the function's table index
-    c.gABC(n, opcIndCall, 0, 1, 1)
-
-  # load ``programResult`` into the result register and then return
-  let prSym = magicsys.getCompilerProc(c.graph, "programResult")
-  c.gABx(n, opcLdGlobal, 0, c.symToIndexTbl[prSym.id].int)
-  c.gABC(n, opcNodeToReg, 0, 0)
-  c.gABC(n, opcRet)
-
-  result = (start: start, regCount: 2)
-
-func addInitProcs(ft: var seq[FuncTableEntry], m: BModule, sig: RoutineSigId) =
-  ## Appends entries for module `m`'s initialization procs (if any) to the
-  ## function table
-  # XXX: initializing the globals _before_ top-level statements are
-  #      executed violates the spec. Following the spec would cause
-  #      behaviour than can be considered more broken and is thus
-  #      decided against. The language spec needs to clarify what exactly
-  #      is meant by 'initialization' in this context
-  if m.initGlobalsProc.start != -1:
-    ft.add initFuncTblEntry(m.sym, sig, m.initGlobalsProc)
-
-  if m.initProc.start != -1:
-    ft.add initFuncTblEntry(m.sym, sig, m.initProc)
-
-proc generateMain(c: var TCtx, mainModule: PSym,
-                  mlist: BModuleList): FunctionIndex =
-  ## Generates and links in the main procedure (the entry point) along with
-  ## setting up the required state.
-
-  # first, create a `VmType` for the init proc:
-  let
-    # Use a fresh signature ID for the init functions because we'd need
-    # access to a `proc()` `PType` otherwise:
-    voidSig = c.typeInfoCache.nextSigId
-    typId = c.types.len.VmTypeId
-    typ = PVmType(kind: akCallable, routineSig: voidSig)
-
-  # fill in size information
-  (typ.sizeInBytes, typ.alignment) = c.typeInfoCache.staticInfo[akCallable]
-
-  c.types.add(typ)
-
-  var systemId, mainId: ModuleId
-  for id, it in mlist.modules.pairs:
-    if sfMainModule     in it.sym.flags: mainId = id
-    elif sfSystemModule in it.sym.flags: systemId = id
-
-  # then, append the module init procs to the function table:
-  let firstInitProc = c.functions.len
-
-  # `generateEntryProc` uses the function table order as the order the
-  # init procedures are called in, so we need to add the table entries in the
-  # right order. That is, module closed order with special handling for the
-  # main and system module
-  addInitProcs(c.functions, mlist.modules[systemId], voidSig)
-  for mI in mlist.modulesClosed.items:
-    let m = mlist.modules[mI]
-    if {sfMainModule, sfSystemModule} * m.sym.flags == {}:
-      addInitProcs(c.functions, m, voidSig)
-
-  addInitProcs(c.functions, mlist.modules[mainId], voidSig)
-
-  # lastly, generate the actual code:
-  let
-    initProcs = firstInitProc..c.functions.high
-    info = generateEntryProc(c, mainModule.info, initProcs, typId)
-
-  result = c.functions.len.FunctionIndex
-  c.functions.add initFuncTblEntry(mainModule, voidSig, info)
+  result = c.symToIndexTbl[prc.id].FunctionIndex
 
 func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
                 routineSymLookup: sink Table[int, LinkIndex],
@@ -385,29 +293,32 @@ func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
   mapList(dst.globals, globals, it):
     enc.typeMap[it]
 
-proc produceModules(g: ModuleGraph, c: var TCtx,
+proc patchInitProcedure(prc: PSym, preInit: PSym) =
+  ## Patches the `prc` with a call to the `preInit` procedure. This is a
+  ## temporary solution for making sure that pure globals (i.e., those defined
+  ## via the ``.global`` pragma) get initialized.
+  let call = newTree(nkCall, newSymNode(preInit))
+  if prc.ast[bodyPos].kind == nkEmpty:
+    prc.ast[bodyPos] = call
+  else:
+    # prepend to the other statements
+    let n = prc.ast[bodyPos]
+    assert n.kind == nkStmtList
+    n.sons.insert(call, 0)
+
+proc initModuleList(g: ModuleGraph, c: var TCtx,
                     mlist: sink ModuleList): BModuleList =
-  ## Translates the input `mlist` into a more packed representation for use by
-  ## the rest of the orchestrator. The bytecode for the modules' initialization
-  ## logic (i.e, top-level statements) is also generated here, so that
-  ## the collected top-level AST can be disposed already.
+  ## Creates and sets up the list storing backend data associated with each
+  ## module.
+  result = BModuleList()
 
-  # setup an entry for each module and generated the code for the modules'
-  # initalization logic:
   for it in mlist.modules.values:
-    c.refresh(it.sym, it.idgen)
+    var m = BModule()
+    m.initGlobalsCode.prc = PProc(sym: it.preInit)
 
-    var m = BModule(sym: it.sym)
-    m.initProc = generateTopLevelStmts(c, g.config, it)
-    m.initGlobalsCode.prc = PProc()
+    result.moduleMap[it.sym.position] = result.modules.add(m)
 
-    let id = result.modules.add(m)
-    result.moduleMap[it.sym.position] = id
-
-  # extract the other data:
-  result.modulesClosed.newSeq(mlist.modulesClosed.len)
-  for i, it in mlist.modulesClosed.pairs:
-    result.modulesClosed[i] = result.moduleMap[it.int]
+  result.orig = mlist
 
 proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   ## The backend's entry point. Orchestrates code generation and linking. If
@@ -425,7 +336,34 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   # corresponding procs:
   registerCallbacks(c)
 
-  var mlist = produceModules(g, c, mlist)
+  var mlist = initModuleList(g, c, mlist)
+
+  # queue the module-init procedures for code generation and register the
+  # contents of the modules' structs:
+  for m in mlist.orig.modules.values:
+    # we're manually generating code for the pre-init procedure, so prevent
+    # normal code generation from interfering:
+    m.preInit.loc.flags.incl lfNoDecl
+
+    # patch in the call to the pre-init procedure:
+    patchInitProcedure(m.init, m.preInit)
+    queueProcedure(c, m.init)
+
+    template declareGlobal(sym: PSym) =
+      # we silently ignore imported globals here and let ``vmgen`` raise an
+      # error when one is accessed
+      if lfNoDecl notin sym.loc.flags and sfImportc notin sym.flags:
+        # make sure the type is generated and register the global in the
+        # link table
+        discard getOrCreate(c, sym.typ)
+        registerLinkItem(c.symToIndexTbl, c.linkState.newGlobals, sym,
+                         c.linkState.nextGlobal)
+
+    for s in m.structs.globals.items:
+      declareGlobal(s)
+
+    for s in m.structs.threadvars.items:
+      declareGlobal(s)
 
   # generate code for all alive routines
   generateAliveProcs(c, mlist)
@@ -438,24 +376,25 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   # create procs from the global initializer code fragments
   for m in mlist.modules.mitems:
     template frag: untyped = m.initGlobalsCode
-    if frag.code.len > 0:
-      let
-        start = c.code.len
-        rc = frag.prc.regInfo.len
 
-      c.appendCode(frag)
-      c.gABC(g.emptyNode, opcRet)
+    let
+      start = c.code.len
+      rc = frag.prc.regInfo.len
 
-      # The code fragment isn't used anymore beyond this point, so it can be
-      # freed already
-      reset(frag)
+    c.appendCode(frag)
+    c.gABC(g.emptyNode, opcRet)
 
-      m.initGlobalsProc = (start: start, regCount: rc)
-    else:
-      m.initGlobalsProc = (start: -1, regCount: 0)
+    # XXX: always add an entry for now, even if the procedure is empty.
+    #      It's easier to properly implement this once the processing for
+    #      procedure-level globals is unified across the backends
+    fillProcEntry(c.functions[c.symToIndexTbl[frag.prc.sym.id]]): (start: start, regCount: rc)
 
-  let entryPoint =
-    generateMain(c, g.getModule(conf.projectMainIdx), mlist)
+    # the fragment isn't used beyond this point anymore, so it can be freed
+    # already
+    reset(frag)
+
+
+  let entryPoint = generateCodeForMain(c, mlist)
 
   c.gABC(g.emptyNode, opcEof)
 
