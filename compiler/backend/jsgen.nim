@@ -1752,6 +1752,20 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
 
 template returnType: untyped = ~""
 
+proc defineGlobals*(globals: PGlobals, m: BModule, vars: openArray[PSym]) =
+  ## Emits definitions for the items in `vars` into the top-level section,
+  ## with `m` being the module the globals belong to. Also updates each
+  ## symbol that requires name mangling with the mangled name.
+  let p = newInitProc(globals, m)
+    ## required for emitting code
+  for v in vars.items:
+    if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
+      let name = mangleName(m, v) # mutates `v`
+      lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
+
+  # add to the top-level section:
+  globals.code.add(p.body)
+
 proc genVarInit(p: PProc, v: PSym, n: PNode) =
   var
     a: TCompRes

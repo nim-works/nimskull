@@ -11,7 +11,8 @@ import
     json
   ],
   compiler/ast/[
-    ast
+    ast,
+    lineinfos
   ],
   compiler/backend/[
     backends,
@@ -65,13 +66,24 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 
   generateMethodDispatchers(graph)
 
-  # generate the code for all modules:
-  for index in mlist.modulesClosed.items:
-    let
-      m {.cursor.} = mlist.modules[index]
-      bmod = newModule(graph, m.sym)
+  var modules: SeqMap[FileIndex, BModule]
 
+  # setup the ``BModule`` instances and create definitions for all
+  # globals (order doesn't matter):
+  for m in closed(mlist):
+    let bmod = newModule(graph, m.sym)
     bmod.idgen = m.idgen
+
+    defineGlobals(globals, bmod, m.structs.globals)
+    # no special handling for thread-local variables (yet)
+    defineGlobals(globals, bmod, m.structs.threadvars)
+
+    modules[m.sym.position.FileIndex] = bmod
+
+  # generate the code for all modules:
+  for m in closed(mlist):
+    let
+      bmod = modules[m.sym.position.FileIndex]
 
     # invoke ``jsgen`` for the top-level declarative code:
     genTopLevelStmt(globals, bmod, m.decls)
@@ -83,6 +95,9 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 
     if sfMainModule in m.sym.flags:
       generateCodeForMain(globals, graph, bmod, mlist)
+
+    # we don't need the ``BModule`` instance anymore:
+    modules[m.sym.position.FileIndex] = nil
 
   # write the generated code to disk:
   writeModules(graph, globals)
