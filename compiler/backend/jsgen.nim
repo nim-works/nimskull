@@ -85,7 +85,7 @@ type
     config: ConfigRef
     sigConflicts: CountTable[SigHash]
 
-  BModule = ref TJSGen
+  BModule* = ref TJSGen
   TJSTypeKind = enum       # necessary JS "types"
     etyNone,                  # no type
     etyNull,                  # null type
@@ -2346,8 +2346,16 @@ proc frameDestroy(p: PProc): Rope =
 
 proc genProcBody(p: PProc, prc: PSym): Rope =
   if hasFrameInfo(p):
+    # HACK: the orchestrator sets the ``sfGlobal`` flag for init procedures,
+    #        and we check for it there in order to emit a special frame
+    let name =
+      if sfGlobal in prc.flags:
+        makeJSString("module " & p.module.module.name.s)
+      else:
+        makeJSString(prc.owner.name.s & '.' & prc.name.s)
+
     result = frameCreate(p,
-              makeJSString(prc.owner.name.s & '.' & prc.name.s),
+              name,
               makeJSString(toFilenameOption(p.config, prc.info.fileIndex, foStacktrace)))
   else:
     result = ""
@@ -2664,6 +2672,10 @@ proc genModule(p: PProc, n: PNode) =
   if optStackTrace in p.options:
     p.body.add(frameDestroy(p))
 
+proc genTopLevelProcedure*(globals: PGlobals, m: BModule, prc: PSym) =
+  var p = newInitProc(globals, m)
+  attachProc(p, prc)
+
 proc genTopLevelStmt*(globals: PGlobals, m: BModule, n: PNode) =
   m.config.internalAssert(m.module != nil, n.info, "genTopLevelStmt")
   var p = newInitProc(globals, m)
@@ -2671,14 +2683,6 @@ proc genTopLevelStmt*(globals: PGlobals, m: BModule, n: PNode) =
   genModule(p, n)
   p.g.code.add(p.locals)
   p.g.code.add(p.body)
-
-proc finalCodegenActions*(graph: ModuleGraph; globals: PGlobals, m: BModule) =
-  if sfMainModule in m.module.flags and graph.globalDestructors.len > 0:
-    let n = newNode(nkStmtList)
-    for destructorCall in graph.globalDestructors:
-      n.add destructorCall
-
-    genTopLevelStmt(globals, m, n)
 
 proc wholeCode*(globals: PGlobals): Rope =
   result = globals.typeInfo & globals.constants & globals.code

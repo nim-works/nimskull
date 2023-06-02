@@ -10,7 +10,11 @@ import
   std/[
     json
   ],
+  compiler/ast/[
+    ast
+  ],
   compiler/backend/[
+    backends,
     cgmeth,
     jsgen
   ],
@@ -43,6 +47,16 @@ proc writeModules(graph: ModuleGraph, globals: PGlobals) =
 
   discard writeRopeIfNotEqual(code, outFile)
 
+proc generateCodeForMain(globals: PGlobals, graph: ModuleGraph, m: BModule,
+                         modules: ModuleList) =
+  # generate the code for the initializing, running, and de-initializing
+  # the program
+  var body = newNode(nkStmtList)
+  generateMain(graph, modules, body)
+  generateTeardown(graph, modules, body)
+
+  genTopLevelStmt(globals, m, body)
+
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point into the JS backend. Generates the code for all modules and
   ## writes it to the output file.
@@ -59,13 +73,16 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 
     bmod.idgen = m.idgen
 
-    # invoke ``jsgen`` for all top-level code:
-    for n in m.stmts.items:
-      if not skipCodegen(graph.config, n):
-        genTopLevelStmt(globals, bmod, n)
+    # invoke ``jsgen`` for the top-level declarative code:
+    genTopLevelStmt(globals, bmod, m.decls)
 
-    # close the module:
-    finalCodegenActions(graph, globals, bmod)
+    # HACK: we mark the procedure with the ``sfGlobal`` flag in order to
+    #       signal ``jsgen`` that a special stack-trace entry should be used
+    m.init.flags.incl sfGlobal
+    genTopLevelProcedure(globals, bmod, m.init)
+
+    if sfMainModule in m.sym.flags:
+      generateCodeForMain(globals, graph, bmod, mlist)
 
   # write the generated code to disk:
   writeModules(graph, globals)
