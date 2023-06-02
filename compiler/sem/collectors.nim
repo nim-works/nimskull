@@ -102,6 +102,21 @@ func isFilled*(m: Module): bool =
   # required so that ``Module`` is usable as the item type of a ``SeqMap``
   m.sym != nil
 
+template `[]`*(list: ModuleList, i: FileIndex): Module =
+  list.modules[i]
+
+iterator closed*(modules: ModuleList): lent Module =
+  ## Convenience iterator for returning all modules that need to be passed
+  ## to code generation, in the order they were closed.
+  for index in modules.modulesClosed.items:
+    yield modules[index]
+
+iterator rclosed*(modules: ModuleList): lent Module =
+  ## Convenience iterator for returning all modules that need to be passed
+  ## to code generation, in the *reverse* order they were closed.
+  for i in countdown(modules.modulesClosed.high, 0):
+    yield modules[modules.modulesClosed[i]]
+
 proc takeModuleList*(graph: ModuleGraph): ModuleList =
   ## Moves the ``ModuleList`` set up by the collector pass out of the
   ## `graph.backend` field and returns it.
