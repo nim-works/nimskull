@@ -1,5 +1,5 @@
 nim_comment="key-value pairs for windows/posix bootstrapping build scripts"
 nim_csourcesDir=csources_v1
-nim_csourcesUrl=https://github.com/saem/csources_v1.git
-nim_csourcesBranch=saem-unblock-backend-unification-work
-nim_csourcesHash=b0922aaa9f7965ce3587abf0de99db1cdd9b0e54
+nim_csourcesUrl=https://github.com/nim-works/csources_v1.git
+nim_csourcesBranch=master
+nim_csourcesHash=bdb307f6aaeb4ef8f8a6769d4e250d7f98d1f6f4
