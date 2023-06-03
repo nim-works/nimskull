@@ -258,10 +258,6 @@ def main() -> None:
         # Silence "UnknownMagic" warnings that are common place due to the
         # bootstrapping compiler being older than the stdlib.
         "--warning:UnknownMagic:off",
-        # the csources compiler still uses `setjmp`-exceptions by default, but
-        # since everything related to `setjmp`-exceptions is removed from
-        # system, goto-exceptions need to be explicitly enabled
-        "--exceptions:goto",
         # Prevent users configuration and/or configuration placed in a parent
         # directory from interfering, as they might specify flags that are not
         # in the bootstrap compiler.
