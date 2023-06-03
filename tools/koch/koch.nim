@@ -328,21 +328,6 @@ proc boot(args: string) =
 
       let ret = execCmdEx(nimStart & " --version")
       doAssert ret.exitCode == 0
-      let version = ret.output.splitLines[0]
-      if version.startsWith "Nim Compiler Version 0.20.0":
-        extraOption.add " --lib:lib" # see https://github.com/nim-lang/Nim/pull/14291
-
-      if not version.startsWith("Nimskull Compiler"):
-        # the current csource compiler (which can be identified by it still
-        # calling itself "Nim Compiler") is not able to build the compiler with
-        # ORC enabled, so refc is explicitly used
-        extraOption.add " --gc:refc"
-      # the csource compiler still uses setjmp-exceptions by default, but the
-      # runtime library doesn't support them anymore
-      extraOption.add " --exceptions:goto"
-    else:
-      # use ORC for all further iterations
-      extraOption.add " --gc:orc"
 
     # in order to use less memory, we split the build into two steps:
     # --compileOnly produces a $project.json file and does not run GCC/Clang.
