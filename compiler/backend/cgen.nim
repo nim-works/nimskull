@@ -82,7 +82,6 @@ from compiler/sem/passes import moduleHasChanged # XXX: leftover dependency
 
 import std/strutils except `%`, addf # collides with ropes.`%`
 
-from compiler/ic/ic import ModuleBackendFlag
 import dynlib
 
 when defined(nimCompilerStacktraceHints):
@@ -1365,22 +1364,6 @@ proc genMainProc*(m: BModule, body: Rope) =
     else:
       const otherMain = PosixCMain
       appcg(m, m.s[cfsProcs], otherMain, [""])
-
-
-proc registerInitProcs*(g: BModuleList; m: PSym; flags: set[ModuleBackendFlag]) =
-  ## Called from the IC backend.
-  # TODO: remoe
-  discard
-
-proc whichInitProcs*(m: BModule): set[ModuleBackendFlag] =
-  # called from IC.
-  result = {}
-  if m.preInitProc.s(cpsInit).len > 0 or m.preInitProc.s(cpsStmts).len > 0:
-    result.incl HasModuleInitProc
-  for i in cfsTypeInit1..cfsDynLibInit:
-    if m.s[i].len != 0:
-      result.incl HasDatInitProc
-      break
 
 proc genDatInitCode*(m: BModule): bool =
   ## this function is called after all modules are closed,

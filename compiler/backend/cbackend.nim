@@ -64,6 +64,8 @@ proc generateCodeForMain(m: BModule, modules: ModuleList) =
   # the code generator (but this is going to change in the future):
   genMainProc(m, code)
 
+proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList)
+
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point for C code-generation. Only the C code is generated -- nothing
   ## is written to disk yet.
@@ -90,6 +92,18 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
     g.generatedHeader = rawNewModule(g, mlist.modules[config.projectMainIdx2].sym,
       changeFileExt(completeCfilePath(config, f), hExt))
     incl g.generatedHeader.flags, isHeaderFile
+
+  generateCode(graph, g, mlist)
+
+  # the callsite still expects `graph.backend` to point to the ``BModuleList``
+  # so that ``cgenWriteModules`` can query it
+  # XXX: this is the wrong approach -- the code generator must not be
+  #      responsible for writing the generated C translation-units to disk.
+  graph.backend = g
+
+proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
+  ## Implements the main part of the C code-generation orchestrator. Expects an
+  ## already populated ``BModuleList``.
 
   # generate the declarations for all globals first, so that the symbols all
   # have mangled names already; the order doesn't matter
@@ -165,9 +179,3 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
     # anymore beyond this point
     # future direction: this part is going to be turned into an iterator
     # yielding the C file's content
-
-  # the callsite still expects `graph.backend` to point to the ``BModuleList``
-  # so that ``cgenWriteModules`` can query it
-  # XXX: this is the wrong approach -- the code generator must not be
-  #      responsible for writing the generated C translation-units to disk.
-  graph.backend = g
