@@ -34,16 +34,13 @@ proc generateMain*(graph: ModuleGraph, modules: ModuleList, result: PNode) =
   ## Generates the program initialization logic and emits it to `result`. This
   ## is the code invoking each module's init procedures.
 
-  # the ``system`` module is fully initialized first. This is so that the data-
-  # initialization procedures of other modules can make use of the allocator,
-  # etc.
-  emitOpCall(graph, systemModule(modules).dataInit, result)
-  emitOpCall(graph, systemModule(modules).init, result)
-
-  # then the additional data associated with each module is initialized
+  # XXX: why not fully initialize the ``system`` module first?
+  # first initialize the additional data associated with each module:
   for it in closed(modules):
-    if sfSystemModule notin it.sym.flags:
-      emitOpCall(graph, it.dataInit, result)
+    emitOpCall(graph, it.dataInit, result)
+    # the system module is special cased: its fully during the data-init phase
+    if sfSystemModule in it.sym.flags:
+      emitOpCall(graph, it.init, result)
 
   # then the modules are initialized and their module-level code executed
   for it in closed(modules):
