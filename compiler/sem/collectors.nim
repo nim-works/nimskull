@@ -88,6 +88,8 @@ type
       ## stores the modules in the order they were closed. The first closed
       ## module comes first, then the next, etc.
 
+    systemPos, mainPos: FileIndex
+
   ModuleListBackend = ref object of RootObj
     ## Adapter type required for storing a ``ModuleList`` in the
     ## ``ModuleGraph.backend`` field.
@@ -107,6 +109,12 @@ func isFilled*(m: Module): bool =
 
 template `[]`*(list: ModuleList, i: FileIndex): Module =
   list.modules[i]
+
+func systemModule*(modules: ModuleList): lent Module =
+  modules[modules.systemPos]
+
+func mainModule*(modules: ModuleList): lent Module =
+  modules[modules.mainPos]
 
 iterator closed*(modules: ModuleList): lent Module =
   ## Convenience iterator for returning all modules that need to be passed
@@ -413,5 +421,11 @@ proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
   list.modules[pos] = setupModule(graph, c.idgen, c.module, c.decls,
                                   c.imperative)
   list.modulesClosed.add(pos)
+
+  # remember the positions of important modules:
+  if sfSystemModule in c.module.flags:
+    list.systemPos = pos
+  elif sfMainModule in c.module.flags:
+    list.mainPos = pos
 
 const collectPass* = makePass(myOpen, myProcess, myClose)

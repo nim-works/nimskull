@@ -14,8 +14,7 @@ import
     collectors
   ],
   compiler/utils/[
-    containers,
-    idioms
+    containers
   ]
 
 iterator ritems[T](x: openArray[T]): lent T =
@@ -30,20 +29,6 @@ proc emitOpCall(graph: ModuleGraph, op: PSym, dest: PNode) =
   ## a non-empty procedure.
   if getBody(graph, op).kind != nkEmpty:
     dest.add newTree(nkCall, newSymNode(op))
-
-func systemModule(modules: ModuleList): lent Module =
-  for it in modules.modules.values:
-    if sfSystemModule in it.sym.flags:
-      return it
-
-  unreachable("missing system module")
-
-func mainModule*(modules: ModuleList): lent Module =
-  for it in modules.modules.values:
-    if sfMainModule in it.sym.flags:
-      return it
-
-  unreachable("missing main module")
 
 proc generateMain*(graph: ModuleGraph, modules: ModuleList, result: PNode) =
   ## Generates the program initialization logic and emits it to `result`. This
