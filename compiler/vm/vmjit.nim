@@ -131,7 +131,7 @@ proc genStmt*(c: var TCtx; n: PNode): VmGenResult =
 
   result = VmGenResult.ok: (start: start, regCount: c.prc.regInfo.len)
 
-proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
+proc genExpr*(c: var TCtx; n: PNode): VmGenResult =
   ## Generates and emits code for the standalone expression `n`
   c.removeLastEof()
   c.setupLinkState()
@@ -139,46 +139,39 @@ proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
   let n = canonicalizeSingle(c.graph, c.idgen, c.module, n, selectOptions(c))
   gatherDependencies(c, n)
 
-  result = vmgen.genExpr(c, n, requiresValue)
-  if unlikely(result.isErr):
-    return
+  let
+    start = c.code.len
+    r = vmgen.genExpr(c, n)
 
+  if unlikely(r.isErr):
+    return VmGenResult.err(r.takeErr)
+
+  c.gABC(n, opcRet, r.unsafeGet)
   updateEnvironment(c)
 
+  result = VmGenResult.ok: (start: start, regCount: c.prc.regInfo.len)
+
 proc genProc(c: var TCtx, s: PSym): VmGenResult =
-  # remember the previous 'eof' (if there's one) for later retrieval of it's
-  # operand
-  let last = c.code.len-1
-  var eofInstr: TInstr
-  if last >= 0 and c.code[last].opcode == opcEof:
-    eofInstr = c.code[last]
-    c.code.setLen(last)
-    c.debug.setLen(last)
+  c.removeLastEof()
+  c.setupLinkState()
 
   var body =
     if s.kind == skMacro:
       transformBody(c.graph, c.idgen, s, s.ast[bodyPos])
     else:
-      # what out! While compile-time only procedures don't need to be cached
+      # watch out! While compile-time only procedures don't need to be cached
       # here, we still need to retrieve their already cached body (if one
       # exists). Lifted inner procedures would otherwise not work.
       transformBody(c.graph, c.idgen, s, cache = not isCompileTimeProc(s))
 
   body = canonicalize(c.graph, c.idgen, s, body, selectOptions(c))
-
-  c.setupLinkState()
   c.gatherDependencies(body)
 
   result = genProc(c, s, body)
   if unlikely(result.isErr):
     return
 
-  # insert an 'eof' using the previous one's operand. If no there was no
-  # previous 'eof', the operand is '0', which is correct
-  let newEof = opcEof.TInstrType or (eofInstr.regA.TInstrType shl regAShift)
-  c.code.add(newEof.TInstr)
-  c.debug.add(body.info)
-
+  c.gABC(body, opcEof)
   updateEnvironment(c)
 
 

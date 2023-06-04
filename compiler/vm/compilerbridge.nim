@@ -466,8 +466,13 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
   defer:
     c.mode = oldMode
 
-  let requiresValue = mode!=emStaticStmt
-  let (start, regCount) = genExpr(c[], n, requiresValue).returnOnErr(c.config, n)
+  let
+    requiresValue = mode != emStaticStmt
+    r =
+      if requiresValue: genExpr(c[], n)
+      else:             genStmt(c[], n)
+
+  let (start, regCount) = r.returnOnErr(c.config, n)
 
   if c.code[start].opcode == opcEof: return newNodeI(nkEmpty, n.info)
   assert c.code[start].opcode != opcEof
