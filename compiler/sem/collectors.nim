@@ -6,8 +6,8 @@
 ##
 ## For integration with the ``passes`` interface, a simple adapter pass is
 ## provided. It sets up and populates a ``ModuleList`` instance, which can
-## then be retrieved from the ``ModuleGraph`` after all passes have run via
-## ``takeModuleList``.
+## then be retrieved from the ``ModuleGraph`` via ``takeModuleList`` after
+## all passes have run.
 ##
 ## The collection part is somewhat similar to the rodfile-based IC backend, but
 ## instead of reading the modules' content from the rodfiles, it's collected
@@ -47,7 +47,7 @@ type
 
     globals2*: seq[PSym]
       ## all globals defined at the module *level* but not in the outermost
-      ## *scope*. Ideally, these would be locals instead.
+      ## *scope*. Ideally, these would be locals instead
 
     threadvars*: seq[PSym]
       ## all thread-local variables part of the module
