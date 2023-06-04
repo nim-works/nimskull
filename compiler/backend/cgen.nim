@@ -1690,8 +1690,8 @@ proc cgenWriteModules*(backend: RootRef, config: ConfigRef) =
 
   # note: we don't need to call ``writeModule`` in module closed order
   # anymore, as the procedure now does what its name implies: writing the
-  # modules to disk. It also queues the C files for compilation, so we
-  # still keep the behaviour for now
+  # module to disk. However, it also queues the C file for compilation,
+  # so we still keep the behaviour for now
   for m in cgenModules(g):
     m.writeModule()
   writeMapping(config, g.mapping)
