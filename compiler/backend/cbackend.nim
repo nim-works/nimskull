@@ -29,8 +29,6 @@ import
     pathutils
   ]
 
-from compiler/sem/passes import skipCodegen
-
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point for C code-generation. Only the C code is generated -- nothing
   ## is written to disk yet.
@@ -66,8 +64,7 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 
     # pass all top-level code to the code generator:
     for it in m.stmts.items:
-      if not skipCodegen(bmod.config, it):
-        genTopLevelStmt(bmod, it)
+      genTopLevelStmt(bmod, it)
 
     # wrap up the main part of code generation for the module. Note that this
     # doesn't mean that they're closed for writing; invoking the code generator
