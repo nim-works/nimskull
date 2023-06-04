@@ -119,27 +119,10 @@ proc registerCallbacks(c: var TCtx) =
   # Used by some tests
   cb "stdlib.system.getOccupiedMem"
 
-func initFuncTblEntry(sym: PSym, sig: RoutineSigId, info: CodeInfo): FuncTableEntry =
-  FuncTableEntry(sym: sym, sig: sig,
-                 kind: ckDefault,
-                 start: info.start, regCount: info.regCount.uint16)
-
 proc appendCode(c: var TCtx, f: CodeFragment) =
   ## Copies the code from the fragment to the end of the global code buffer
   c.code.add(f.code)
   c.debug.add(f.debug)
-
-func collectRoutineSyms(ast: PNode, syms: var seq[PSym]) =
-  ## Traverses the `ast`, collects all symbols that are of routine kind and
-  ## appends them to `syms`
-  if ast.kind == nkSym:
-    if ast.sym.kind in routineKinds:
-      syms.add(ast.sym)
-
-    return
-
-  for i in 0..<ast.safeLen:
-    collectRoutineSyms(ast[i], syms)
 
 proc queueProcedure(c: var TCtx, prc: PSym) =
   ## Queues the procedure `prc` for later code generation if it wasn't
