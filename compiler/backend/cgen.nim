@@ -1382,18 +1382,6 @@ proc whichInitProcs*(m: BModule): set[ModuleBackendFlag] =
       result.incl HasDatInitProc
       break
 
-# TODO: restore the threadvar storage setup
-# proc registerModuleToMain(g: BModuleList; m: BModule) =
-#   let
-#     init = m.getInitName
-#     datInit = m.getDatInitName
-#
-#   # Initialization of TLS should be done in between
-#   # systemDatInit and systemInit calls if any
-#   if sfSystemModule in m.module.flags:
-#     if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
-#       g.mainDatInit.add(ropecg(m, "\t#initThreadVarsEmulation();$N", []))
-
 proc genDatInitCode*(m: BModule): bool =
   ## this function is called after all modules are closed,
   ## it means raising dependency on the symbols is too late as it will not propagate
@@ -1413,6 +1401,13 @@ proc genDatInitCode*(m: BModule): bool =
     if m.s[i].len != 0:
       moduleDatInitRequired = true
       prc.add(m.s[i])
+
+  # setting up the TLS must happen before initializing the ``system`` module,
+  # so we emit the call at the end of the data-init procedure:
+  if sfSystemModule in m.module.flags and
+     emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
+    moduleDatInitRequired = true
+    prc.addf("\tinitThreadVarsEmulation();$N", [])
 
   prc.addf("}$N$N", [])
 
@@ -1688,6 +1683,9 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
   # already
   if sfSystemModule in m.module.flags:
     discard cgsym(m, "nimTestErrorFlag")
+    if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
+      # raise the dependency on behalf of ``genDatInitCode``:
+      discard cgsym(m, "initThreadVarsEmulation")
 
   if passes.skipCodegen(m.config, n): return
   if moduleHasChanged(graph, m.module):
@@ -1698,12 +1696,7 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
       m.initProc.options = initProcOptions(m)
       genProcBody(m.initProc, n)
 
-    if sfMainModule in m.module.flags:
-      # raise dependencies on behalf of genMainProc
-      if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
-        discard cgsym(m, "initThreadVarsEmulation")
-
-      if useAliveDataFromDce in m.flags:
+    if sfMainModule in m.module.flags and useAliveDataFromDce in m.flags:
         # methods need to be special-cased for IC, as whether a dispatcher is
         # alive is only know after ``transf`` (phase-ordering problem)
         generateMethodDispatchers(graph)
