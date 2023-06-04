@@ -27,7 +27,6 @@ import
   ],
   compiler/sem/[
     collectors,
-    passes,
     sourcemap
   ],
   compiler/utils/[

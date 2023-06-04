@@ -185,31 +185,6 @@ jobs:
         if: failure()
         run: bin/nim r tools/ci_testresults
 
-  orc:
-    needs: [pre_run, binaries]
-
-    strategy:
-      fail-fast: false
-
-      matrix:
-        target: ${{ fromJson(needs.pre_run.outputs.target_matrix) }}
-
-    name: Test build compiler with ORC (${{ matrix.target.name }})
-    runs-on: ${{ matrix.target.runner }}
-
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - uses: ./.github/actions/download-compiler
-
-      - name: Enable annotations
-        run: echo "::add-matcher::.github/nim-problem-matcher.json"
-
-      - name: Test ORC bootstrap
-        run: ./koch.py --nim:bin/nim boot -d:release --gc:orc
-
   tooling:
     needs: [pre_run, binaries]
 
@@ -503,7 +478,6 @@ jobs:
       - source_binaries
       - package
       - test_package
-      - orc
     if: always()
     runs-on: ubuntu-latest
 

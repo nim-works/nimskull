@@ -1664,7 +1664,6 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
       # raise the dependency on behalf of ``genDatInitCode``:
       discard cgsym(m, "initThreadVarsEmulation")
 
-  if passes.skipCodegen(m.config, n): return
   if moduleHasChanged(graph, m.module):
     # if the module is cached, we don't regenerate the main proc
     # nor the dispatchers? But if the dispatchers changed?
