@@ -974,6 +974,14 @@ proc appendInstancedGenericRuntimeRoutines(c: PContext, n: PNode) =
         unreachable()
   c.lastGenericIdx = c.generics.len
 
+proc sealRodFile(c: PContext) =
+  if c.config.symbolFiles != disabledSf:
+    if c.graph.vm != nil:
+      for (m, n) in PEvalContext(c.graph.vm).vm.vmstateDiff:
+        if m == c.module:
+          addPragmaComputation(c, n)
+    c.idgen.sealed = true # no further additions are allowed
+
 proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
   var c = PContext(context)
   if c.config.cmd == cmdIdeTools and not c.suggestionsMade:

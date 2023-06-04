@@ -736,7 +736,7 @@ type
   VmRawStackTrace* = seq[tuple[sym: PSym, pc: PrgCtr]]
 
   PCtx* = ref TCtx
-  TCtx* = object of TPassContext
+  TCtx* = object
     # XXX: TCtx stores three different things:
     #  - VM execution state
     #  - VM environment (code, constants, type data, etc.)
@@ -800,7 +800,7 @@ type
     cache*: IdentCache
     config*: ConfigRef
     graph*: ModuleGraph
-    oldErrorCount*: int
+    idgen*: IdGenerator
     profiler*: Profiler
     templInstCounter*: ref int # gives every template instantiation a unique ID, needed here for getAst
     vmstateDiff*: seq[(PSym, PNode)] # we remember the "diff" to global state here (feature for IC)
@@ -827,8 +827,6 @@ type
     sframe*: StackFrameIndex   ## The current stack frame
 
   TPosition* = distinct int
-
-  PEvalContext* = PCtx
 
 func `<`*(a, b: FieldIndex): bool {.borrow.}
 func `<=`*(a, b: FieldIndex): bool {.borrow.}
@@ -947,9 +945,9 @@ func `==`*(a, b: RoutineSigId): bool {.borrow.}
 proc defaultTracer(c: TCtx, t: VmExecTrace) =
   echo "default echo tracer" & $t
 
-proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
-             idgen: IdGenerator, tracer: TraceHandler = defaultTracer): PCtx =
-  result = PCtx(
+proc initCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
+             idgen: IdGenerator, tracer: TraceHandler = defaultTracer): TCtx =
+  result = TCtx(
     code: @[],
     debug: @[],
     globals: @[],

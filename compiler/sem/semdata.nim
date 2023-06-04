@@ -34,9 +34,6 @@ import
     magicsys,
     modulegraphs,
   ],
-  compiler/vm/[
-    vmdef,
-  ],
   compiler/ic/[
     ic
   ],
@@ -1085,14 +1082,6 @@ proc addToGenericCache*(c: PContext; s: PSym; inst: PType) =
   c.graph.typeInstCache.mgetOrPut(s.itemId, @[]).add LazyType(typ: inst)
   if c.config.symbolFiles != disabledSf:
     storeTypeInst(c.encoder, c.packedRepr, s, inst)
-
-proc sealRodFile*(c: PContext) =
-  if c.config.symbolFiles != disabledSf:
-    if c.graph.vm != nil:
-      for (m, n) in PCtx(c.graph.vm).vmstateDiff:
-        if m == c.module:
-          addPragmaComputation(c, n)
-    c.idgen.sealed = true # no further additions are allowed
 
 proc rememberExpansion*(c: PContext; info: TLineInfo; expandedSym: PSym) =
   ## Templates and macros are very special in Nim; these have

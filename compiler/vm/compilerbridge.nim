@@ -88,6 +88,15 @@ type
 
   ExecutionResult* = Result[PNode, ExecErrorReport]
 
+  PEvalContext* = ref EvalContext
+  EvalContext* = object of TPassContext
+    ## All state required to on-demand translate AST to VM bytecode and execute
+    ## it. An ``EvalContext`` instance makes up everything that is required
+    ## for running code at compile-time.
+    vm*: TCtx
+
+    oldErrorCount: int
+
 # to prevent endless recursion in macro instantiation
 const evalMacroLimit = 1000
 
@@ -289,8 +298,8 @@ proc buildQuit(c: TCtx, thread: VmThread, exitCode: int): ExecErrorReport =
     exitCode: exitCode)
 
 proc createLegacyStackTrace(
-    c: TCtx, 
-    thread: VmThread, 
+    c: TCtx,
+    thread: VmThread,
     instLoc: InstantiationInfo = instLoc(-1)
   ): VMReport =
   let st = createStackTrace(c, thread)
@@ -440,37 +449,26 @@ proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
   addInNimDebugUtils(graph.config, "setupGlobalCtx")
   if graph.vm.isNil:
     let
-      ctx = newCtx(module, graph.cache, graph, idgen, legacyReportsVmTracer)
       disallowDangerous =
         defined(nimsuggest) or graph.config.cmd == cmdCheck or
-        vmopsDanger notin ctx.config.features
+        vmopsDanger notin graph.config.features
 
+    var ctx = initCtx(module, graph.cache, graph, idgen, legacyReportsVmTracer)
     ctx.flags = {cgfAllowMeta}
-    registerAdditionalOps(ctx[], disallowDangerous)
+    registerAdditionalOps(ctx, disallowDangerous)
 
-    graph.vm = ctx
+    graph.vm = PEvalContext(vm: ctx)
   else:
-    let c = PCtx(graph.vm)
-    refresh(c[], module, idgen)
+    let c = PEvalContext(graph.vm)
+    refresh(c.vm, module, idgen)
 
-proc evalConstExprAux(module: PSym; idgen: IdGenerator;
-                      g: ModuleGraph; prc: PSym, n: PNode,
-                      mode: TEvalMode): PNode =
-  addInNimDebugUtils(g.config, "evalConstExprAux", prc, n, result)
-  #if g.config.errorCounter > 0: return n
-  let n = transformExpr(g, idgen, module, n)
-  setupGlobalCtx(module, g, idgen)
-  let c = PCtx g.vm
-  let oldMode = c.mode
-  c.mode = mode
-  defer:
-    c.mode = oldMode
-
+proc eval(c: var TCtx; prc: PSym, n: PNode): PNode =
   let
-    requiresValue = mode != emStaticStmt
+    n = transformExpr(c.graph, c.idgen, c.module, n)
+    requiresValue = c.mode != emStaticStmt
     r =
-      if requiresValue: genExpr(c[], n)
-      else:             genStmt(c[], n)
+      if requiresValue: genExpr(c, n)
+      else:             genStmt(c, n)
 
   let (start, regCount) = r.returnOnErr(c.config, n)
 
@@ -489,7 +487,22 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
     else:
       mkCallback(c, r): newNodeI(nkEmpty, n.info)
 
-  result = execute(c[], start, tos, cb).unpackResult(c.config, n)
+  result = execute(c, start, tos, cb).unpackResult(c.config, n)
+
+proc evalConstExprAux(module: PSym, idgen: IdGenerator, g: ModuleGraph,
+                      prc: PSym, n: PNode,
+                      mode: TEvalMode): PNode =
+  addInNimDebugUtils(g.config, "evalConstExprAux", prc, n, result)
+  setupGlobalCtx(module, g, idgen)
+
+  let
+    c = PEvalContext(g.vm)
+    oldMode = c.vm.mode
+
+  # update the mode, and restore it once we're done
+  c.vm.mode = mode
+  result = eval(c.vm, prc, n)
+  c.vm.mode = oldMode
 
 proc evalConstExpr*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode): PNode {.inline.} =
   result = evalConstExprAux(module, idgen, g, nil, e, emConst)
@@ -516,20 +529,16 @@ proc setupMacroParam(reg: var TFullReg, c: var TCtx, x: PNode, typ: PType) =
     n.typ = x.typ
     reg = TFullReg(kind: rkNimNode, nimNode: n)
 
-proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstCounter: ref int;
-                    call, args: PNode, sym: PSym): PNode =
+proc evalMacroCall*(c: var TCtx, call, args: PNode, sym: PSym): PNode =
   ## Evaluates a call to the macro `sym` with arguments `arg` with the VM.
   ##
   ## `call` is the original call expression, which is used as the ``wrongNode``
   ## in case of an error, as the node returned by the ``callsite`` macro API
   ## procedure, and for providing line information.
-  setupGlobalCtx(module, g, idgen)
-  let c = PCtx g.vm
   let oldMode = c.mode
   c.mode = emStaticStmt
   c.comesFromHeuristic.line = 0'u16
   c.callsite = call
-  c.templInstCounter = templInstCounter
 
   defer:
     # restore the previous state when exiting this procedure
@@ -540,7 +549,7 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
     c.mode = oldMode
     c.callsite = nil
 
-  let (start, regCount) = loadProc(c[], sym).returnOnErr(c.config, call)
+  let (start, regCount) = loadProc(c, sym).returnOnErr(c.config, call)
 
   var tos = TStackFrame(prc: sym, comesFrom: 0)
   tos.slots.newSeq(regCount)
@@ -550,7 +559,7 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
 
   # put the normal arguments into registers
   for i in 1..<sym.typ.len:
-    setupMacroParam(tos.slots[i], c[], args[i - 1], sym.typ[i])
+    setupMacroParam(tos.slots[i], c, args[i - 1], sym.typ[i])
 
   # put the generic arguments into registers
   let gp = sym.ast[genericParamsPos]
@@ -559,13 +568,25 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
     # signature
     if tfImplicitTypeParam notin gp[i].sym.typ.flags:
       let idx = sym.typ.len + i
-      setupMacroParam(tos.slots[idx], c[], args[idx - 1], gp[i].sym.typ)
+      setupMacroParam(tos.slots[idx], c, args[idx - 1], gp[i].sym.typ)
 
   let cb = mkCallback(c, r): r.nimNode
-  result = execute(c[], start, tos, cb).unpackResult(c.config, call)
+  result = execute(c, start, tos, cb).unpackResult(c.config, call)
 
   if result.kind != nkError and cyclicTree(result):
     result = c.config.newError(call, PAstDiag(kind: adCyclicTree))
+
+proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph;
+                    templInstCounter: ref int;
+                    call, args: PNode, sym: PSym): PNode =
+  ## Similar to the other ``evalMacroCall`` overload, but also updates the
+  ## compile-time execution context with the provided `module`, `idgen`, `g`,
+  ## and `templInstCounter`.
+  setupGlobalCtx(module, g, idgen)
+  let c = PEvalContext(g.vm)
+  c.vm.templInstCounter = templInstCounter
+
+  result = evalMacroCall(c.vm, call, args, sym)
 
 # ----------- the VM-related compilerapi -----------
 
@@ -659,20 +680,20 @@ proc myOpen(graph: ModuleGraph; module: PSym; idgen: IdGenerator): PPassContext 
 
   # XXX produce a new 'globals' environment here:
   setupGlobalCtx(module, graph, idgen)
-  result = PCtx graph.vm
+  result = PEvalContext graph.vm
 
 proc myProcess(c: PPassContext, n: PNode): PNode =
-  let c = PCtx(c)
+  let c = PEvalContext(c)
   # don't eval errornous code:
-  if c.oldErrorCount == c.config.errorCounter and not n.isError:
-    let r = evalStmt(c[], n)
-    reportIfError(c.config, r)
+  if c.oldErrorCount == c.vm.config.errorCounter and not n.isError:
+    let r = evalStmt(c.vm, n)
+    reportIfError(c.vm.config, r)
     # TODO: use the node returned by evalStmt as the result and don't report
     #       the error here
     result = newNodeI(nkEmpty, n.info)
   else:
     result = n
-  c.oldErrorCount = c.config.errorCounter
+  c.oldErrorCount = c.vm.config.errorCounter
 
 proc myClose(graph: ModuleGraph; c: PPassContext, n: PNode): PNode =
   result = myProcess(c, n)
