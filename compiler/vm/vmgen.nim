@@ -3249,26 +3249,21 @@ proc genStmt*(c: var TCtx; n: PNode): Result[void, VmGenDiag] =
   c.config.internalAssert(d < 0, n.info, "VM problem: dest register is set")
   result = typeof(result).ok()
 
-proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
+proc genExpr*(c: var TCtx; n: PNode): Result[TRegister, VmGenDiag] =
   analyseIfAddressTaken(n, c.prc.addressTaken)
 
-  let start = c.code.len
   var d: TDest = -1
-  tryOrReturn:
+  try:
     c.gen(n, d)
+  except VmGenError as e:
+    return typeof(result).err(move e.diag)
 
-  if d < 0:
-    c.config.internalAssert(not requiresValue, n.info):
-      "VM problem: dest register is not set"
-    d = 0
+  # the destination register not being set likely indicate that `n` is not an
+  # expression
+  c.config.internalAssert(d != noDest, n.info):
+    "VM problem: dest register is not set"
 
-  if requiresValue:
-    c.gABC(n, opcRet, d)
-  else:
-    c.gABC(n, opcEof)
-
-  result = VmGenResult.ok:
-    (start: start, regCount: c.prc.regInfo.len)
+  result = typeof(result).ok(TRegister(d))
 
 proc realType(s: PSym): PType {.inline.} =
   ## Returns the signature type of the routine `s`
