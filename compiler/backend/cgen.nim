@@ -1625,12 +1625,6 @@ proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
 
     result = true
 
-# We need 2 different logics here: pending modules (including
-# 'nim__dat') may require file merging for the combination of dead code
-# elimination and incremental compilation! Non pending modules need no
-# such logic and in fact the logic hurts for the main module at least;
-# it would generate multiple 'main' procs, for instance.
-
 proc finalizeModule*(m: BModule) =
   # genInitCode(m)
   finishTypeDescriptions(m)
@@ -1638,7 +1632,7 @@ proc finalizeModule*(m: BModule) =
 proc finalizeMainModule*(m: BModule) =
   generateThreadVarsSize(m) # TODO: not the job of the code generator
 
-proc writeModule(m: BModule, pending: bool) =
+proc writeModule(m: BModule) =
   template onExit() = close(m.ndi, m.config)
   let cfile = getCFile(m)
   var cf = Cfile(nimname: m.module.name.s, cname: cfile,
@@ -1699,6 +1693,6 @@ proc cgenWriteModules*(backend: RootRef, config: ConfigRef) =
   # modules to disk. It also queues the C files for compilation, so we
   # still keep the behaviour for now
   for m in cgenModules(g):
-    m.writeModule(pending=true)
+    m.writeModule()
   writeMapping(config, g.mapping)
   if g.generatedHeader != nil: writeHeader(g.generatedHeader)
