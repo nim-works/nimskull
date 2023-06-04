@@ -22,7 +22,6 @@ import
   ],
   compiler/sem/[
     collectors,
-    passes,
     sourcemap
   ],
   compiler/utils/[
@@ -61,8 +60,7 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 
     # invoke ``jsgen`` for all top-level code:
     for n in m.stmts.items:
-      if not skipCodegen(graph.config, n):
-        genTopLevelStmt(globals, bmod, n)
+      genTopLevelStmt(globals, bmod, n)
 
     # close the module:
     finalCodegenActions(graph, globals, bmod)

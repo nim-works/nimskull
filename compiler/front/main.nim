@@ -185,6 +185,17 @@ when not defined(leanCompiler):
     compileProject(graph)
     finishDoc2Pass(graph.config.projectName)
 
+template prepareForCodegen(g: ModuleGraph) =
+  # XXX: the template is going to be removed once compilation is uniform
+  #      enough for the logic here to be located in a single place
+  # if there were errors, don't enter the backend / code generation
+  # phase
+  if g.config.errorCounter > 0:
+    return
+  # the backend / code generation phase generally expects errors to terminate
+  # the compiler, so make sure that they do
+  g.config.errorMax = 1
+
 proc commandCompileToC(graph: ModuleGraph) =
   let conf = graph.config
   extccomp.initVars(conf)
@@ -202,8 +213,7 @@ proc commandCompileToC(graph: ModuleGraph) =
     conf.defineSymbol("nimEmulateOverflowChecks")
 
   compileProject(graph)
-  if graph.config.errorCounter > 0:
-    return # issue #9933
+  prepareForCodegen(graph)
   if conf.symbolFiles == disabledSf:
     cbackend2.generateCode(graph, graph.takeModuleList())
     cgenWriteModules(graph.backend, conf)
@@ -243,6 +253,7 @@ proc commandCompileToJS(graph: ModuleGraph) =
     registerPass(graph, collectPass)
     compileProject(graph)
 
+    prepareForCodegen(graph)
     jsbackend.generateCode(graph, graph.takeModuleList())
 
     if conf.depfile.string.len != 0:
@@ -255,6 +266,7 @@ proc commandCompileToVM(graph: ModuleGraph) =
   registerPass(graph, collectPass)
   compileProject(graph)
 
+  prepareForCodegen(graph)
   # The VM-backend doesn't use a pass for the actual code generation, but a
   # separate procedure instead (similar to the C-backend for IC)
   vmbackend.generateCode(graph, graph.takeModuleList())
