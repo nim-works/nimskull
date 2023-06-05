@@ -441,8 +441,6 @@ proc genComputedGoto(p: BProc; n: PNode) =
 proc genWhileStmt(p: BProc, t: PNode) =
   # we don't generate labels here as for example GCC would produce
   # significantly worse code
-  var
-    a: TLoc
   assert(t.len == 2)
   inc(p.withinLoop)
   genLineDir(p, t)
@@ -458,10 +456,6 @@ proc genWhileStmt(p: BProc, t: PNode) =
     else:
       p.breakIdx = startBlock(p, "while (1) {$n")
       p.blocks[p.breakIdx].isLoop = true
-      initLocExpr(p, t[0], a)
-      if (t[0].kind != nkIntLit) or (t[0].intVal == 0):
-        let label = assignLabel(p.blocks[p.breakIdx])
-        lineF(p, cpsStmts, "if (!$1) goto $2;$n", [rdLoc(a), label])
       genStmts(p, loopBody)
 
       if optProfiler in p.options:

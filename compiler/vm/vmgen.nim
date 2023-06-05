@@ -644,30 +644,14 @@ proc isTrue(n: PNode): bool =
 
 proc genWhile(c: var TCtx; n: PNode) =
   # lab1:
-  #   cond, tmp
-  #   fjmp tmp, lab2
   #   body
   #   jmp lab1
   # lab2:
   let lab1 = c.genLabel
   withBlock(nil):
-    if isTrue(n[0]):
-      c.gen(n[1])
-      c.jmpBack(n, lab1)
-    elif isNotOpr(n[0]):
-      var tmp = c.genx(n[0][1])
-      let lab2 = c.xjmp(n, opcTJmp, tmp)
-      c.freeTemp(tmp)
-      c.gen(n[1])
-      c.jmpBack(n, lab1)
-      c.patch(lab2)
-    else:
-      var tmp = c.genx(n[0])
-      let lab2 = c.xjmp(n, opcFJmp, tmp)
-      c.freeTemp(tmp)
-      c.gen(n[1])
-      c.jmpBack(n, lab1)
-      c.patch(lab2)
+    assert isTrue(n[0])
+    c.gen(n[1])
+    c.jmpBack(n, lab1)
 
 proc genBlock(c: var TCtx; n: PNode; dest: var TDest) =
   let oldRegisterCount = c.prc.regInfo.len

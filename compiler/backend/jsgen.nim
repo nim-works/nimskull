@@ -728,7 +728,6 @@ proc genLineDir(p: PProc, n: PNode) =
     lineF(p, "F.line = $1;$n", [rope(line)])
 
 proc genWhileStmt(p: PProc, n: PNode) =
-  var cond: TCompRes
   internalAssert p.config, isEmptyType(n.typ)
   genLineDir(p, n)
   inc(p.unique)
@@ -737,9 +736,6 @@ proc genWhileStmt(p: PProc, n: PNode) =
   p.blocks[^1].isLoop = true
   let labl = p.unique.rope
   lineF(p, "Label$1: while (true) {$n", [labl])
-  p.nested: gen(p, n[0], cond)
-  lineF(p, "if (!$1) break Label$2;$n",
-       [cond.res, labl])
   p.nested: genStmt(p, n[1])
   lineF(p, "}$n", [labl])
   setLen(p.blocks, p.blocks.len - 1)
