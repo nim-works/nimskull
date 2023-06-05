@@ -2985,16 +2985,6 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
         let idx = c.lookupConst(s)
         discard c.getOrCreate(s.typ)
         c.gABx(n, opcLdCmplxConst, dest, idx)
-    of skEnumField:
-      # we never reach this case - as of the time of this comment,
-      # skEnumField is folded to an int in semfold.nim, but this code
-      # remains for robustness
-      if dest.isUnset: dest = c.getTemp(n.typ)
-      if s.position >= low(int16) and s.position <= high(int16):
-        c.gABx(n, opcLdImmInt, dest, s.position)
-      else:
-        var lit = genLiteral(c, newIntNode(nkIntLit, s.position))
-        c.gABx(n, opcLdConst, dest, lit)
     of skGenericParam:
         # note: this can't be replaced with an assert. ``tryConstExpr`` is
         # sometimes used to check whether an expression can be evaluated
