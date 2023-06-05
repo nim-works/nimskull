@@ -2531,9 +2531,6 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       gen(p, lastSon(n), r)
   of nkBlockStmt, nkBlockExpr: genBlock(p, n, r)
   of nkIfStmt: genIf(p, n)
-  of nkWhen:
-    # This is "when nimvm" node
-    gen(p, n[1][0], r)
   of nkWhileStmt: genWhileStmt(p, n)
   of nkVarSection, nkLetSection: genVarStmt(p, n)
   of nkConstSection: discard
@@ -2562,7 +2559,6 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
     if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
       genSym(p, n[namePos], r)
       r.res = ""
-  of nkPragmaBlock: gen(p, n.lastSon, r)
   else: internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =

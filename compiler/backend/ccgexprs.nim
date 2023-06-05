@@ -2347,18 +2347,11 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
   of nkStmtListExpr: genStmtListExpr(p, n, d)
   of nkStmtList: genStmtList(p, n)
   of nkIfStmt: genIf(p, n)
-  of nkWhen:
   of nkObjDownConv: downConv(p, n, d)
   of nkObjUpConv: upConv(p, n, d)
   of nkChckRangeF, nkChckRange64, nkChckRange: genRangeChck(p, n, d)
   of nkStringToCString: convStrToCStr(p, n, d)
   of nkCStringToString: convCStrToStr(p, n, d)
-  of nkLambdaKinds:
-    var sym = n[namePos].sym
-    genProc(p.module, sym)
-    if sym.loc.r == "" or sym.loc.lode == nil:
-      internalError(p.config, n.info, "expr: proc not init " & sym.name.s)
-    putLocIntoDest(p, d, sym.loc)
   of nkClosure: genClosure(p, n, d)
 
   of nkEmpty: discard
@@ -2403,7 +2396,6 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
      nkFromStmt, nkTemplateDef, nkMacroDef, nkStaticStmt:
     discard
   of nkPragma: genPragma(p, n)
-  of nkPragmaBlock: expr(p, n.lastSon, d)
   of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:
     if n[genericParamsPos].kind == nkEmpty:
       var prc = n[namePos].sym

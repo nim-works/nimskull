@@ -3084,9 +3084,6 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
   of nkIfStmt, nkIfExpr:
     unused(c, n, dest)
     genIf(c, n)
-  of nkWhenStmt:
-    # This is "when nimvm" node. Chose the first branch.
-    gen(c, n[0][1], dest)
   of nkCaseStmt: genCase(c, n, dest)
   of nkWhileStmt:
     unused(c, n, dest)
@@ -3106,8 +3103,6 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
   of nkStmtListExpr:
     for i in 0..<n.len-1: gen(c, n[i])
     gen(c, n[^1], dest)
-  of nkPragmaBlock:
-    gen(c, n.lastSon, dest)
   of nkDiscardStmt:
     unused(c, n, dest)
     gen(c, n[0])
@@ -3120,11 +3115,6 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
     genVarSection(c, n)
   of declarativeDefs, nkMacroDef:
     unused(c, n, dest)
-  of nkLambdaKinds:
-    #let s = n[namePos].sym
-    #discard genProc(c, s)
-    let s = n[namePos].sym
-    genProcLit(c, n, s, dest)
   of nkChckRangeF, nkChckRange64, nkChckRange:
     let tmp0 = c.genx(n[0])
     # XXX: range checks currently always happen, even if disabled by the user.
