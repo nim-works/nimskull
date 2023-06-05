@@ -2343,7 +2343,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
   of nkDerefExpr, nkHiddenDeref: genDeref(p, n, d)
   of nkDotExpr: genRecordField(p, n, d)
   of nkCheckedFieldExpr: genCheckedRecordField(p, n, d)
-  of nkBlockExpr, nkBlockStmt: genBlock(p, n, d)
+  of nkBlockStmt: genBlock(p, n)
   of nkStmtListExpr: genStmtListExpr(p, n, d)
   of nkStmtList: genStmtList(p, n)
   of nkIfStmt: genIf(p, n)
@@ -2362,7 +2362,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
       genConstStmt(p, n)
     # else: consts generated lazily on use
   of nkForStmt: internalError(p.config, n.info, "for statement not eliminated")
-  of nkCaseStmt: genCase(p, n, d)
+  of nkCaseStmt: genCase(p, n)
   of nkReturnStmt: genReturnStmt(p, n)
   of nkBreakStmt: genBreakStmt(p, n)
   of nkAsgn:
@@ -2383,9 +2383,9 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
       initLocExprSingleUse(p, ex, a)
       line(p, cpsStmts, "(void)(" & a.r & ");\L")
   of nkAsmStmt: genAsmStmt(p, n)
-  of nkTryStmt, nkHiddenTryStmt:
+  of nkTryStmt:
     assert p.config.exc == excGoto
-    genTryGoto(p, n, d)
+    genTryGoto(p, n)
   of nkRaiseStmt: genRaiseStmt(p, n)
   of nkTypeSection:
     # we have to emit the type information for object types here to support

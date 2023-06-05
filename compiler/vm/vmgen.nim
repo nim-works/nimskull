@@ -653,14 +653,12 @@ proc genWhile(c: var TCtx; n: PNode) =
     c.gen(n[1])
     c.jmpBack(n, lab1)
 
-proc genBlock(c: var TCtx; n: PNode; dest: var TDest) =
+proc genBlock(c: var TCtx; n: PNode) =
   let oldRegisterCount = c.prc.regInfo.len
   withBlock(n[0].sym):
-    c.gen(n[1], dest)
+    c.gen(n[1])
 
   for i in oldRegisterCount..<c.prc.regInfo.len:
-    #if c.prc.regInfo[i].kind in {slotFixedVar, slotFixedLet}:
-    if i != dest:
       when not defined(release):
         if c.prc.regInfo[i].inUse and c.prc.regInfo[i].kind in {slotTempUnknown,
                                   slotTempInt,
@@ -670,8 +668,6 @@ proc genBlock(c: var TCtx; n: PNode; dest: var TDest) =
                                   slotTempHandle}:
           doAssert false, "leaking temporary " & $i & " " & $c.prc.regInfo[i].kind
       c.prc.regInfo[i] = RegInfo(kind: slotEmpty)
-
-  c.clearDest(n, dest)
 
 proc genBreak(c: var TCtx; n: PNode) =
   let lab1 = c.xjmp(n, opcJmp)
@@ -842,7 +838,7 @@ proc unused(c: TCtx; n: PNode; x: TDest) {.inline.} =
   if x >= 0:
     fail(n.info, vmGenDiagNotUnused, n)
 
-proc genCase(c: var TCtx; n: PNode; dest: var TDest) =
+proc genCase(c: var TCtx; n: PNode) =
   #  if (!expr1) goto lab1;
   #    thenPart
   #    goto LEnd
@@ -853,10 +849,6 @@ proc genCase(c: var TCtx; n: PNode; dest: var TDest) =
   #  lab2:
   #    elsePart
   #  Lend:
-  if not isEmptyType(n.typ):
-    if dest.isUnset: dest = getTemp(c, n.typ)
-  else:
-    unused(c, n, dest)
   let selType = n[0].typ.skipTypes(abstractVarRange)
   var endings: seq[TPosition] = @[]
   withTemp(tmp, n[0], n[0].typ):
@@ -867,24 +859,20 @@ proc genCase(c: var TCtx; n: PNode; dest: var TDest) =
     # iterate of/else branches
     for i in 1..<n.len:
       let branch = n[i]
-      if branch.len == 1:
-        # else stmt:
-        if branch[0].kind != nkNilLit or branch[0].typ != nil:
-          # an nkNilLit with nil for typ implies there is no else branch, this
-          # avoids unused related errors as we've already consumed the dest
-          c.gen(branch[0], dest)
-      else:
-        # elif branches were eliminated during transformation
-        doAssert branch.kind == nkOfBranch
-
+      case branch.kind
+      of nkOfBranch:
         let b = genBranchLit(c, branch, selType)
         c.gABx(branch, opcBranch, tmp, b)
         let elsePos = c.xjmp(branch.lastSon, opcFJmp, tmp)
-        c.gen(branch.lastSon, dest)
+        c.gen(branch.lastSon)
         if i < n.len-1:
           endings.add(c.xjmp(branch.lastSon, opcJmp, 0))
         c.patch(elsePos)
-      c.clearDest(n, dest)
+      of nkElse:
+        # else stmt:
+        c.gen(branch[0])
+      else:
+        unreachable(branch.kind)
   for endPos in endings: c.patch(endPos)
 
 proc genType(c: var TCtx; typ: PType): int =
@@ -910,12 +898,10 @@ proc genTypeInfo(c: var TCtx, typ: PType): int =
 
   internalAssert(c.config, result <= regBxMax, "")
 
-proc genTry(c: var TCtx; n: PNode; dest: var TDest) =
-  if dest.isUnset and not isEmptyType(n.typ): dest = getTemp(c, n.typ)
+proc genTry(c: var TCtx; n: PNode) =
   var endings: seq[TPosition] = @[]
   let ehPos = c.xjmp(n, opcTry, 0)
-  c.gen(n[0], dest)
-  c.clearDest(n, dest)
+  c.gen(n[0])
   # Add a jump past the exception handling code
   let jumpToFinally = c.xjmp(n, opcJmp, 0)
   # This signals where the body ends and where the exception handling begins
@@ -932,8 +918,7 @@ proc genTry(c: var TCtx; n: PNode; dest: var TDest) =
       if it.len == 1:
         # general except section:
         c.gABx(it, opcExcept, 0, 0)
-      c.gen(it.lastSon, dest)
-      c.clearDest(n, dest)
+      c.gen(it.lastSon)
       if i < n.len:
         endings.add(c.xjmp(it, opcJmp, 0))
       c.patch(endExcept)
@@ -945,7 +930,6 @@ proc genTry(c: var TCtx; n: PNode; dest: var TDest) =
   for endPos in endings: c.patch(endPos)
   if fin.kind == nkFinally:
     c.gen(fin[0])
-    c.clearDest(n, dest)
   c.gABx(fin, opcFinallyEnd, 0, 0)
 
 proc genRaise(c: var TCtx; n: PNode) =
@@ -3084,18 +3068,24 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
   of nkIfStmt, nkIfExpr:
     unused(c, n, dest)
     genIf(c, n)
-  of nkCaseStmt: genCase(c, n, dest)
+  of nkCaseStmt:
+    unused(c, n, dest)
+    genCase(c, n)
   of nkWhileStmt:
     unused(c, n, dest)
     genWhile(c, n)
-  of nkBlockExpr, nkBlockStmt: genBlock(c, n, dest)
+  of nkBlockStmt:
+    unused(c, n, dest)
+    genBlock(c, n)
   of nkReturnStmt:
     genReturn(c, n)
   of nkRaiseStmt:
     genRaise(c, n)
   of nkBreakStmt:
     genBreak(c, n)
-  of nkTryStmt, nkHiddenTryStmt: genTry(c, n, dest)
+  of nkTryStmt:
+    unused(c, n, dest)
+    genTry(c, n)
   of nkStmtList:
     #unused(c, n, dest)
     # XXX Fix this bug properly, lexim triggers it

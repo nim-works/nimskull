@@ -694,16 +694,8 @@ proc genWhileStmt(p: PProc, n: PNode) =
   lineF(p, "}$n", [labl])
   setLen(p.blocks, p.blocks.len - 1)
 
-proc moveInto(p: PProc, src: var TCompRes, dest: TCompRes) =
-  if src.kind != resNone:
-    if dest.kind != resNone:
-      lineF(p, "$1 = $2;$n", [dest.rdLoc, src.rdLoc])
-    else:
-      lineF(p, "$1;$n", [src.rdLoc])
-    src.kind = resNone
-    src.res = ""
 
-proc genTry(p: PProc, n: PNode, r: var TCompRes) =
+proc genTry(p: PProc, n: PNode) =
   # code to generate:
   #
   #  ++excHandler;
@@ -728,9 +720,6 @@ proc genTry(p: PProc, n: PNode, r: var TCompRes) =
   #    stmts;
   #  }
   genLineDir(p, n)
-  if not isEmptyType(n.typ):
-    r.kind = resVal
-    r.res = getTemp(p)
   inc(p.unique)
   var i = 1
   var catchBranchesExist = n.len > 1 and n[i].kind == nkExceptBranch
@@ -741,9 +730,7 @@ proc genTry(p: PProc, n: PNode, r: var TCompRes) =
     tmpFramePtr = p.getTemp(true)
     line(p, tmpFramePtr & " = framePtr;\L")
   lineF(p, "try {$n", [])
-  var a: TCompRes
-  gen(p, n[0], a)
-  moveInto(p, a, r)
+  genStmt(p, n[0])
   var generalCatchBranchExists = false
   if catchBranchesExist:
     p.body.addf("--excHandler;$n} catch (EXCEPTION) {$n var prevJSError = lastJSError;$n" &
@@ -754,8 +741,7 @@ proc genTry(p: PProc, n: PNode, r: var TCompRes) =
       # general except section:
       generalCatchBranchExists = true
       if i > 1: lineF(p, "else {$n", [])
-      gen(p, n[i][0], a)
-      moveInto(p, a, r)
+      genStmt(p, n[i][0])
       if i > 1: lineF(p, "}$n", [])
     else:
       var orExpr = ""
@@ -794,8 +780,7 @@ proc genTry(p: PProc, n: PNode, r: var TCompRes) =
       if excAlias != nil:
         excAlias.sym.loc.r = mangleName(p.module, excAlias.sym)
         lineF(p, "var $1 = lastJSError;$n", excAlias.sym.loc.r)
-      gen(p, n[i][^1], a)
-      moveInto(p, a, r)
+      genStmt(p, n[i][^1])
       lineF(p, "}$n", [])
     inc(i)
   if catchBranchesExist:
@@ -825,9 +810,9 @@ proc genRaiseStmt(p: PProc, n: PNode) =
     useMagic(p, "reraiseException")
     line(p, "reraiseException();\L")
 
-proc genCaseJS(p: PProc, n: PNode, r: var TCompRes) =
+proc genCaseJS(p: PProc, n: PNode) =
   var
-    cond, stmt: TCompRes
+    cond: TCompRes
     totalRange = 0
   genLineDir(p, n)
   gen(p, n[0], cond)
@@ -837,9 +822,7 @@ proc genCaseJS(p: PProc, n: PNode, r: var TCompRes) =
     lineF(p, "switch (toJSStr($1)) {$n", [cond.rdLoc])
   else:
     lineF(p, "switch ($1) {$n", [cond.rdLoc])
-  if not isEmptyType(n.typ):
-    r.kind = resVal
-    r.res = getTemp(p)
+
   for i in 1..<n.len:
     let it = n[i]
     case it.kind
@@ -866,19 +849,17 @@ proc genCaseJS(p: PProc, n: PNode, r: var TCompRes) =
             gen(p, e, cond)
             lineF(p, "case $1:$n", [cond.rdLoc])
       p.nested:
-        gen(p, lastSon(it), stmt)
-        moveInto(p, stmt, r)
+        genStmt(p, lastSon(it))
         lineF(p, "break;$n", [])
     of nkElse:
       lineF(p, "default: $n", [])
       p.nested:
-        gen(p, it[0], stmt)
-        moveInto(p, stmt, r)
+        genStmt(p, it[0])
         lineF(p, "break;$n", [])
     else: internalError(p.config, it.info, "jsgen.genCaseStmt")
   lineF(p, "}$n", [])
 
-proc genBlock(p: PProc, n: PNode, r: var TCompRes) =
+proc genBlock(p: PProc, n: PNode) =
   inc(p.unique)
   let idx = p.blocks.len
   if n[0].kind != nkEmpty:
@@ -891,7 +872,7 @@ proc genBlock(p: PProc, n: PNode, r: var TCompRes) =
   lineF(p, "Label$1: do {$n", [labl.rope])
   setLen(p.blocks, idx + 1)
   p.blocks[idx].id = - p.unique # negative because it isn't used yet
-  gen(p, n[1], r)
+  genStmt(p, n[1])
   setLen(p.blocks, idx)
   lineF(p, "} while (false);$n", [labl.rope])
 
@@ -2529,14 +2510,14 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       genStmt(p, n[i])
     if isExpr:
       gen(p, lastSon(n), r)
-  of nkBlockStmt, nkBlockExpr: genBlock(p, n, r)
+  of nkBlockStmt: genBlock(p, n)
   of nkIfStmt: genIf(p, n)
   of nkWhileStmt: genWhileStmt(p, n)
   of nkVarSection, nkLetSection: genVarStmt(p, n)
   of nkConstSection: discard
   of nkForStmt:
     internalError(p.config, n.info, "for statement not eliminated")
-  of nkCaseStmt: genCaseJS(p, n, r)
+  of nkCaseStmt: genCaseJS(p, n)
   of nkReturnStmt: genReturnStmt(p, n)
   of nkBreakStmt: genBreakStmt(p, n)
   of nkAsgn: genAsgn(p, n)
@@ -2547,7 +2528,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       gen(p, n[0], r)
       r.res = "var _ = " & r.res
   of nkAsmStmt: genAsmOrEmitStmt(p, n)
-  of nkTryStmt, nkHiddenTryStmt: genTry(p, n, r)
+  of nkTryStmt: genTry(p, n)
   of nkRaiseStmt: genRaiseStmt(p, n)
   of nkTypeSection, nkCommentStmt, nkIncludeStmt,
      nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt,
