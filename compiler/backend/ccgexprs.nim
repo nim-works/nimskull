@@ -1153,7 +1153,7 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
 proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
                           info: TLineInfo) =
   ## Generates type field (if there are any) initialization code for a
-  ## loaction of type `typ`, where `accessor` is the path of the
+  ## location of type `typ`, where `accessor` is the path of the
   ## location.
   if typ == nil:
     return
