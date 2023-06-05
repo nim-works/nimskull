@@ -966,8 +966,7 @@ const
   nodeKindsNeedNoCopy = {nkCharLit..nkInt64Lit, nkStrLit..nkTripleStrLit,
     nkFloatLit..nkFloat64Lit, nkPar, nkStringToCString,
     nkObjConstr, nkTupleConstr, nkBracket,
-    nkCStringToString, nkCall, nkPrefix, nkPostfix, nkInfix,
-    nkCommand, nkHiddenCallConv, nkCallStrLit}
+    nkCStringToString, nkCall}
 
 proc needsNoCopy(p: PProc; y: PNode): bool =
   return y.kind in nodeKindsNeedNoCopy or
