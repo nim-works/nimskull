@@ -126,3 +126,10 @@ let
   stud2 = stud.setkey("id")
 
 echo stud2
+
+block reset_and_default:
+  var x: stringTest = "a"  # instantiate the concept
+  doAssert x is stringTest # is the meta-type information kept?
+
+  reset(x)               # ``reset`` must work
+  x = default(typeof(x)) # ``default`` too
