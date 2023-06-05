@@ -43,36 +43,6 @@ template startBlock(p: BProc, start: FormatStr = "{$n",
 
 proc endBlock(p: BProc)
 
-proc genVarTuple(p: BProc, n: PNode) =
-  var tup, field: TLoc
-  p.config.internalAssert(n.kind == nkVarTuple, n.info, "genVarTuple")
-
-  # if we have a something that's been captured, use the lowering instead:
-  for i in 0..<n.len-2:
-    if n[i].kind != nkSym:
-      genStmts(p, lowerTupleUnpacking(p.module.g.graph, n, p.module.idgen, p.prc))
-      return
-
-  genLineDir(p, n)
-  initLocExpr(p, n[^1], tup)
-  var t = tup.t.skipTypes(abstractInst)
-  for i in 0..<n.len-2:
-    let vn = n[i]
-    let v = vn.sym
-    if sfGlobal in v.flags:
-      assignGlobalVar(p, vn, "")
-      genObjectInit(p, cpsInit, v.typ, v.loc, constructObj)
-    else:
-      assignLocalVar(p, vn)
-      initLocalVar(p, v, immediateAsgn=isAssignedImmediately(p.config, n[^1]))
-    initLoc(field, locExpr, vn, tup.storage)
-    if t.kind == tyTuple:
-      field.r = "$1.Field$2" % [rdLoc(tup), rope(i)]
-    else:
-      p.config.internalAssert(t.n[i].kind == nkSym, n.info, "genVarTuple")
-      field.r = "$1.$2" % [rdLoc(tup), mangleRecFieldName(p.module, t.n[i].sym)]
-    putLocIntoDest(p, v.loc, field)
-
 proc loadInto(p: BProc, le, ri: PNode, a: var TLoc) {.inline.} =
   if ri.kind in nkCallKinds and (ri[0].kind != nkSym or
                                  ri[0].sym.magic == mNone):
@@ -249,27 +219,11 @@ proc genSingleVar(p: BProc, a: PNode) =
   let v = a[0].sym
   genSingleVar(p, v, a[0], a[2])
 
-proc genClosureVar(p: BProc, a: PNode) =
-  var immediateAsgn = a[2].kind != nkEmpty
-  var v: TLoc
-  initLocExpr(p, a[0], v)
-  genLineDir(p, a)
-  if immediateAsgn:
-    loadInto(p, a[0], a[2], v)
-  else:
-    constructLoc(p, v)
-
 proc genVarStmt(p: BProc, n: PNode) =
   for it in n.sons:
-    if it.kind == nkCommentStmt: continue
-    if it.kind == nkIdentDefs:
-      # can be a lifted var nowadays ...
-      if it[0].kind == nkSym:
-        genSingleVar(p, it)
-      else:
-        genClosureVar(p, it)
-    else:
-      genVarTuple(p, it)
+    assert it.kind == nkIdentDefs
+    assert it[0].kind == nkSym
+    genSingleVar(p, it)
 
 proc genIf(p: BProc, n: PNode) =
   #  if (expr1)

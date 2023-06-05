@@ -60,7 +60,6 @@ import
     ropes
   ],
   compiler/sem/[
-    lowerings,
     rodutils,
     transf,
   ],
@@ -1760,19 +1759,13 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
     lineF(p, "}$n")
 
 proc genVarStmt(p: PProc, n: PNode) =
-  for i in 0..<n.len:
-    var a = n[i]
-    if a.kind != nkCommentStmt:
-      if a.kind == nkVarTuple:
-        let unpacked = lowerTupleUnpacking(p.module.graph, a, p.module.idgen, p.prc)
-        genStmt(p, unpacked)
-      else:
-        assert(a.kind == nkIdentDefs)
-        assert(a[0].kind == nkSym)
-        var v = a[0].sym
-        if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
-          genLineDir(p, a)
-          genVarInit(p, v, a[2])
+  for it in n.items:
+    assert it.kind == nkIdentDefs
+    assert it[0].kind == nkSym
+    let v = it[0].sym
+    if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
+      genLineDir(p, it)
+      genVarInit(p, v, it[2])
 
 proc genConstant(p: PProc, c: PSym) =
   if lfNoDecl notin c.loc.flags and not p.g.generatedSyms.containsOrIncl(c.id):

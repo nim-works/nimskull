@@ -2810,7 +2810,7 @@ proc genVarSection(c: var TCtx; n: PNode) =
   for a in n:
     case a.kind
     of nkIdentDefs:
-      if a[0].kind == nkSym:
+        assert a[0].kind == nkSym
         let s = a[0].sym
         checkCanEval(c, a[0])
         if s.isGlobal:
@@ -2855,13 +2855,6 @@ proc genVarSection(c: var TCtx; n: PNode) =
             # initialization logic here -- the assignment takes care of that
             genSymAsgn(c, a[0], a[2])
 
-      elif a[2].kind == nkEmpty:
-        # The closure's captured value is automatically zero-initialized when
-        # creating the closure environment object; nothing left to do here
-        discard
-      else:
-        # assign to a[0]; happens for closures
-        genAsgn(c, a[0], a[2], true)
     else:
       unreachable(a.kind)
 
