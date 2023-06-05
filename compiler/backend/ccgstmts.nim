@@ -271,46 +271,20 @@ proc genVarStmt(p: BProc, n: PNode) =
     else:
       genVarTuple(p, it)
 
-proc genIf(p: BProc, n: PNode, d: var TLoc) =
-  #
-  #  { if (!expr1) goto L1;
-  #   thenPart }
-  #  goto LEnd
-  #  L1:
-  #  { if (!expr2) goto L2;
-  #   thenPart2 }
-  #  goto LEnd
-  #  L2:
-  #  { elsePart }
-  #  Lend:
+proc genIf(p: BProc, n: PNode) =
+  #  if (expr1)
+  #  {
+  #    thenPart
+  #  }
   var
     a: TLoc
-    lelse: TLabel
-  if not isEmptyType(n.typ) and d.k == locNone:
-    getTemp(p, n.typ, d)
   genLineDir(p, n)
-  let lend = getLabel(p)
-  for it in n.sons:
-    # bug #4230: avoid false sharing between branches:
-    if d.k == locTemp and isEmptyType(n.typ): d.k = locNone
-    if it.len == 2:
-      startBlock(p)
-      initLocExprSingleUse(p, it[0], a)
-      lelse = getLabel(p)
-      inc(p.labels)
-      lineF(p, cpsStmts, "if (!$1) goto $2;$n",
-            [rdLoc(a), lelse])
-      expr(p, it[1], d)
-      endBlock(p)
-      if n.len > 1:
-        lineF(p, cpsStmts, "goto $1;$n", [lend])
-      fixLabel(p, lelse)
-    elif it.len == 1:
-      startBlock(p)
-      expr(p, it[0], d)
-      endBlock(p)
-    else: internalError(p.config, n.info, "genIf()")
-  if n.len > 1: fixLabel(p, lend)
+  assert n.len == 1
+
+  let it = n[0]
+  initLocExprSingleUse(p, it[0], a)
+  lineF(p, cpsStmts, "if ($1)$n", [rdLoc(a)])
+  stmtBlock(p, it[1])
 
 proc genReturnStmt(p: BProc, t: PNode) =
   if nfPreventCg in t.flags: return

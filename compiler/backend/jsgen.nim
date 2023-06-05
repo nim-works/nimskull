@@ -947,28 +947,15 @@ proc genAsmOrEmitStmt(p: PProc, n: PNode) =
       p.body.add(r.rdLoc)
   p.body.add "\L"
 
-proc genIf(p: PProc, n: PNode, r: var TCompRes) =
-  var cond, stmt: TCompRes
-  var toClose = 0
-  if not isEmptyType(n.typ):
-    r.kind = resVal
-    r.res = getTemp(p)
-  for i in 0..<n.len:
-    let it = n[i]
-    if it.len != 1:
-      if i > 0:
-        lineF(p, "else {$n", [])
-        inc(toClose)
-      p.nested: gen(p, it[0], cond)
-      lineF(p, "if ($1) {$n", [cond.rdLoc])
-      gen(p, it[1], stmt)
-    else:
-      # else part:
-      lineF(p, "else {$n", [])
-      p.nested: gen(p, it[0], stmt)
-    moveInto(p, stmt, r)
-    lineF(p, "}$n", [])
-  line(p, repeat('}', toClose) & "\L")
+proc genIf(p: PProc, n: PNode) =
+  assert n.len == 1
+  let it = n[0]
+
+  var cond: TCompRes
+  p.nested: gen(p, it[0], cond)
+  lineF(p, "if ($1) {$n", [cond.rdLoc])
+  genStmt(p, it[1])
+  lineF(p, "}$n", [])
 
 proc generateHeader(p: PProc, prc: PSym): Rope =
   result = ""
@@ -2550,7 +2537,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
     if isExpr:
       gen(p, lastSon(n), r)
   of nkBlockStmt, nkBlockExpr: genBlock(p, n, r)
-  of nkIfStmt, nkIfExpr: genIf(p, n, r)
+  of nkIfStmt: genIf(p, n)
   of nkWhen:
     # This is "when nimvm" node
     gen(p, n[1][0], r)

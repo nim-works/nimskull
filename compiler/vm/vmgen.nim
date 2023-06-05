@@ -685,22 +685,13 @@ proc genBreak(c: var TCtx; n: PNode) =
   else:
     c.prc.blocks[c.prc.blocks.high].fixups.add lab1
 
-proc genIf(c: var TCtx, n: PNode; dest: var TDest) =
+proc genIf(c: var TCtx, n: PNode) =
   #  if (!expr1) goto lab1;
   #    thenPart
-  #    goto LEnd
   #  lab1:
-  #  if (!expr2) goto lab2;
-  #    thenPart2
-  #    goto LEnd
-  #  lab2:
-  #    elsePart
-  #  Lend:
-  if dest.isUnset and not isEmptyType(n.typ): dest = getTemp(c, n.typ)
-  var endings: seq[TPosition] = @[]
-  for i in 0..<n.len:
-    var it = n[i]
-    if it.len == 2:
+  assert n.len == 1
+  block:
+      let it = n[0]
       withTemp(tmp, it[0], it[0].typ):
         var elsePos: TPosition
         if isNotOpr(it[0]):
@@ -709,16 +700,9 @@ proc genIf(c: var TCtx, n: PNode; dest: var TDest) =
         else:
           c.gen(it[0], tmp)
           elsePos = c.xjmp(it[0], opcFJmp, tmp) # if false
-      c.clearDest(n, dest)
-      c.gen(it[1], dest) # then part
-      if i < n.len-1:
-        endings.add(c.xjmp(it[1], opcJmp, 0))
+
+      c.gen(it[1]) # then part
       c.patch(elsePos)
-    else:
-      c.clearDest(n, dest)
-      c.gen(it[0], dest)
-  for endPos in endings: c.patch(endPos)
-  c.clearDest(n, dest)
 
 func isTemp(c: TCtx; dest: TDest): bool =
   result = dest >= 0 and c.prc.regInfo[dest].kind >= slotTempUnknown
@@ -3104,7 +3088,9 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
     assert isVarLent(n.typ)
     # load the source operand as a handle
     genLvalue(c, n[0], dest)
-  of nkIfStmt, nkIfExpr: genIf(c, n, dest)
+  of nkIfStmt, nkIfExpr:
+    unused(c, n, dest)
+    genIf(c, n)
   of nkWhenStmt:
     # This is "when nimvm" node. Chose the first branch.
     gen(c, n[0][1], dest)

@@ -2346,10 +2346,8 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
   of nkBlockExpr, nkBlockStmt: genBlock(p, n, d)
   of nkStmtListExpr: genStmtListExpr(p, n, d)
   of nkStmtList: genStmtList(p, n)
-  of nkIfExpr, nkIfStmt: genIf(p, n, d)
+  of nkIfStmt: genIf(p, n)
   of nkWhen:
-    # This should be a "when nimvm" node.
-    expr(p, n[1][0], d)
   of nkObjDownConv: downConv(p, n, d)
   of nkObjUpConv: upConv(p, n, d)
   of nkChckRangeF, nkChckRange64, nkChckRange: genRangeChck(p, n, d)
