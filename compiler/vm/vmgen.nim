@@ -723,27 +723,6 @@ proc genIf(c: var TCtx, n: PNode; dest: var TDest) =
 func isTemp(c: TCtx; dest: TDest): bool =
   result = dest >= 0 and c.prc.regInfo[dest].kind >= slotTempUnknown
 
-proc genAndOr(c: var TCtx; n: PNode; opc: TOpcode; dest: var TDest) =
-  #   asgn dest, a
-  #   tjmp|fjmp lab1
-  #   asgn dest, b
-  # lab1:
-  let copyBack = dest.isUnset or not isTemp(c, dest)
-  let tmp = if copyBack:
-              getTemp(c, n.typ)
-            else:
-              TRegister dest
-  c.gen(n[1], tmp)
-  let lab1 = c.xjmp(n, opc, tmp)
-  c.gen(n[2], tmp)
-  c.patch(lab1)
-  if dest.isUnset:
-    dest = tmp
-  elif copyBack:
-    c.gABC(n, opcAsgnInt, dest, tmp)
-    freeTemp(c, tmp)
-
-
 # XXX `rawGenLiteral` should be a func, but can't due to `internalAssert`
 proc rawGenLiteral(c: var TCtx, val: sink VmConstant): int =
   result = c.constants.len
@@ -1675,8 +1654,6 @@ proc finish(c: var TCtx, info: PNode, loc: sink Loc) =
 
 proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   case m
-  of mAnd: c.genAndOr(n, opcFJmp, dest)
-  of mOr:  c.genAndOr(n, opcTJmp, dest)
   of mPred, mSubI:
     c.genAddSubInt(n, dest, opcSubInt)
   of mSucc, mAddI:

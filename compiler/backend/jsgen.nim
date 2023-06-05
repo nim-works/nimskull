@@ -343,51 +343,6 @@ proc getTemp(p: PProc, defineInLocals: bool = true): Rope =
   if defineInLocals:
     p.locals.add(p.indentLine("var $1;$n" % [result]))
 
-proc genAnd(p: PProc, a, b: PNode, r: var TCompRes) =
-  assert r.kind == resNone
-  var x, y: TCompRes
-  if p.isSimpleExpr(a) and p.isSimpleExpr(b):
-    gen(p, a, x)
-    gen(p, b, y)
-    r.kind = resExpr
-    r.res = "($1 && $2)" % [x.rdLoc, y.rdLoc]
-  else:
-    r.res = p.getTemp
-    r.kind = resVal
-    # while a and b:
-    # -->
-    # while true:
-    #   aa
-    #   if not a: tmp = false
-    #   else:
-    #     bb
-    #     tmp = b
-    # tmp
-    gen(p, a, x)
-    lineF(p, "if (!$1) $2 = false; else {", [x.rdLoc, r.rdLoc])
-    p.nested:
-      gen(p, b, y)
-      lineF(p, "$2 = $1;", [y.rdLoc, r.rdLoc])
-    line(p, "}")
-
-proc genOr(p: PProc, a, b: PNode, r: var TCompRes) =
-  assert r.kind == resNone
-  var x, y: TCompRes
-  if p.isSimpleExpr(a) and p.isSimpleExpr(b):
-    gen(p, a, x)
-    gen(p, b, y)
-    r.kind = resExpr
-    r.res = "($1 || $2)" % [x.rdLoc, y.rdLoc]
-  else:
-    r.res = p.getTemp
-    r.kind = resVal
-    gen(p, a, x)
-    lineF(p, "if ($1) $2 = true; else {", [x.rdLoc, r.rdLoc])
-    p.nested:
-      gen(p, b, y)
-      lineF(p, "$2 = $1;", [y.rdLoc, r.rdLoc])
-    line(p, "}")
-
 type
   TMagicFrmt = array[0..1, string]
   TMagicOps = array[mAddI..mStrToStr, TMagicFrmt]
@@ -1994,8 +1949,6 @@ proc genJSArrayConstr(p: PProc, n: PNode, r: var TCompRes) =
 proc genMagic(p: PProc, n: PNode, r: var TCompRes) =
   let op = n[0].sym.magic
   case op
-  of mOr: genOr(p, n[1], n[2], r)
-  of mAnd: genAnd(p, n[1], n[2], r)
   of mAddI..mStrToStr: arith(p, n, r, op)
   of mRepr: genRepr(p, n, r)
   of mSwap: genSwap(p, n)

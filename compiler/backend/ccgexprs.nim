@@ -875,61 +875,6 @@ proc isSimpleExpr(n: PNode): bool =
     if n.isAtom:
       result = true
 
-proc genAndOr(p: BProc, e: PNode, d: var TLoc, m: TMagic) =
-  # how to generate code?
-  #  'expr1 and expr2' becomes:
-  #     result = expr1
-  #     fjmp result, end
-  #     result = expr2
-  #  end:
-  #  ... (result computed)
-  # BUGFIX:
-  #   a = b or a
-  # used to generate:
-  # a = b
-  # if a: goto end
-  # a = a
-  # end:
-  # now it generates:
-  # tmp = b
-  # if tmp: goto end
-  # tmp = a
-  # end:
-  # a = tmp
-  when false:
-    #if isSimpleExpr(e) and p.module.compileToCpp:
-    var tmpA, tmpB: TLoc
-    #getTemp(p, e.typ, tmpA)
-    #getTemp(p, e.typ, tmpB)
-    initLocExprSingleUse(p, e[1], tmpA)
-    initLocExprSingleUse(p, e[2], tmpB)
-    tmpB.k = locExpr
-    if m == mOr:
-      tmpB.r = "((" & rdLoc(tmpA) & ")||(" & rdLoc(tmpB) & "))"
-    else:
-      tmpB.r = "((" & rdLoc(tmpA) & ")&&(" & rdLoc(tmpB) & "))"
-    if d.k == locNone:
-      d = tmpB
-    else:
-      genAssignment(p, d, tmpB, {})
-  else:
-    var
-      L: TLabel
-      tmp: TLoc
-    getTemp(p, e.typ, tmp)      # force it into a temp!
-    expr(p, e[1], tmp)
-    L = getLabel(p)
-    if m == mOr:
-      lineF(p, cpsStmts, "if ($1) goto $2;$n", [rdLoc(tmp), L])
-    else:
-      lineF(p, cpsStmts, "if (!($1)) goto $2;$n", [rdLoc(tmp), L])
-    expr(p, e[2], tmp)
-    fixLabel(p, L)
-    if d.k == locNone:
-      d = tmp
-    else:
-      genAssignment(p, d, tmp, {}) # no need for deep copying
-
 proc genEcho(p: BProc, n: PNode) =
   # this unusual way of implementing it ensures that e.g. ``echo("hallo", 45)``
   # is threadsafe.
@@ -1906,7 +1851,6 @@ proc genSlice(p: BProc; e: PNode; d: var TLoc) =
 
 proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
   case op
-  of mOr, mAnd: genAndOr(p, e, d, op)
   of mNot..mUnaryMinusF64: unaryArith(p, e, d, op)
   of mUnaryMinusI..mAbsI: unaryArithOverflow(p, e, d, op)
   of mAddF64..mDivF64: binaryFloatArith(p, e, d, op)
