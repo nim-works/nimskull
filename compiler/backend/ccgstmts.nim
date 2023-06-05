@@ -43,36 +43,6 @@ template startBlock(p: BProc, start: FormatStr = "{$n",
 
 proc endBlock(p: BProc)
 
-proc genVarTuple(p: BProc, n: PNode) =
-  var tup, field: TLoc
-  p.config.internalAssert(n.kind == nkVarTuple, n.info, "genVarTuple")
-
-  # if we have a something that's been captured, use the lowering instead:
-  for i in 0..<n.len-2:
-    if n[i].kind != nkSym:
-      genStmts(p, lowerTupleUnpacking(p.module.g.graph, n, p.module.idgen, p.prc))
-      return
-
-  genLineDir(p, n)
-  initLocExpr(p, n[^1], tup)
-  var t = tup.t.skipTypes(abstractInst)
-  for i in 0..<n.len-2:
-    let vn = n[i]
-    let v = vn.sym
-    if sfGlobal in v.flags:
-      assignGlobalVar(p, vn, "")
-      genObjectInit(p, cpsInit, v.typ, v.loc, constructObj)
-    else:
-      assignLocalVar(p, vn)
-      initLocalVar(p, v, immediateAsgn=isAssignedImmediately(p.config, n[^1]))
-    initLoc(field, locExpr, vn, tup.storage)
-    if t.kind == tyTuple:
-      field.r = "$1.Field$2" % [rdLoc(tup), rope(i)]
-    else:
-      p.config.internalAssert(t.n[i].kind == nkSym, n.info, "genVarTuple")
-      field.r = "$1.$2" % [rdLoc(tup), mangleRecFieldName(p.module, t.n[i].sym)]
-    putLocIntoDest(p, v.loc, field)
-
 proc loadInto(p: BProc, le, ri: PNode, a: var TLoc) {.inline.} =
   if ri.kind in nkCallKinds and (ri[0].kind != nkSym or
                                  ri[0].sym.magic == mNone):
@@ -120,9 +90,9 @@ proc endBlock(p: BProc) =
     blockEnd.addf("}$n", [])
   endBlock(p, blockEnd)
 
-proc exprBlock(p: BProc, n: PNode, d: var TLoc) =
+proc stmtBlock(p: BProc, n: PNode) =
   startBlock(p)
-  expr(p, n, d)
+  genStmts(p, n)
   endBlock(p)
 
 template preserveBreakIdx(body: untyped): untyped =
@@ -249,68 +219,26 @@ proc genSingleVar(p: BProc, a: PNode) =
   let v = a[0].sym
   genSingleVar(p, v, a[0], a[2])
 
-proc genClosureVar(p: BProc, a: PNode) =
-  var immediateAsgn = a[2].kind != nkEmpty
-  var v: TLoc
-  initLocExpr(p, a[0], v)
-  genLineDir(p, a)
-  if immediateAsgn:
-    loadInto(p, a[0], a[2], v)
-  else:
-    constructLoc(p, v)
-
 proc genVarStmt(p: BProc, n: PNode) =
   for it in n.sons:
-    if it.kind == nkCommentStmt: continue
-    if it.kind == nkIdentDefs:
-      # can be a lifted var nowadays ...
-      if it[0].kind == nkSym:
-        genSingleVar(p, it)
-      else:
-        genClosureVar(p, it)
-    else:
-      genVarTuple(p, it)
+    assert it.kind == nkIdentDefs
+    assert it[0].kind == nkSym
+    genSingleVar(p, it)
 
-proc genIf(p: BProc, n: PNode, d: var TLoc) =
-  #
-  #  { if (!expr1) goto L1;
-  #   thenPart }
-  #  goto LEnd
-  #  L1:
-  #  { if (!expr2) goto L2;
-  #   thenPart2 }
-  #  goto LEnd
-  #  L2:
-  #  { elsePart }
-  #  Lend:
+proc genIf(p: BProc, n: PNode) =
+  #  if (expr1)
+  #  {
+  #    thenPart
+  #  }
   var
     a: TLoc
-    lelse: TLabel
-  if not isEmptyType(n.typ) and d.k == locNone:
-    getTemp(p, n.typ, d)
   genLineDir(p, n)
-  let lend = getLabel(p)
-  for it in n.sons:
-    # bug #4230: avoid false sharing between branches:
-    if d.k == locTemp and isEmptyType(n.typ): d.k = locNone
-    if it.len == 2:
-      startBlock(p)
-      initLocExprSingleUse(p, it[0], a)
-      lelse = getLabel(p)
-      inc(p.labels)
-      lineF(p, cpsStmts, "if (!$1) goto $2;$n",
-            [rdLoc(a), lelse])
-      expr(p, it[1], d)
-      endBlock(p)
-      if n.len > 1:
-        lineF(p, cpsStmts, "goto $1;$n", [lend])
-      fixLabel(p, lelse)
-    elif it.len == 1:
-      startBlock(p)
-      expr(p, it[0], d)
-      endBlock(p)
-    else: internalError(p.config, n.info, "genIf()")
-  if n.len > 1: fixLabel(p, lend)
+  assert n.len == 1
+
+  let it = n[0]
+  initLocExprSingleUse(p, it[0], a)
+  lineF(p, cpsStmts, "if ($1)$n", [rdLoc(a)])
+  stmtBlock(p, it[1])
 
 proc genReturnStmt(p: BProc, t: PNode) =
   if nfPreventCg in t.flags: return
@@ -441,8 +369,6 @@ proc genComputedGoto(p: BProc; n: PNode) =
 proc genWhileStmt(p: BProc, t: PNode) =
   # we don't generate labels here as for example GCC would produce
   # significantly worse code
-  var
-    a: TLoc
   assert(t.len == 2)
   inc(p.withinLoop)
   genLineDir(p, t)
@@ -458,10 +384,6 @@ proc genWhileStmt(p: BProc, t: PNode) =
     else:
       p.breakIdx = startBlock(p, "while (1) {$n")
       p.blocks[p.breakIdx].isLoop = true
-      initLocExpr(p, t[0], a)
-      if (t[0].kind != nkIntLit) or (t[0].intVal == 0):
-        let label = assignLabel(p.blocks[p.breakIdx])
-        lineF(p, cpsStmts, "if (!$1) goto $2;$n", [rdLoc(a), label])
       genStmts(p, loopBody)
 
       if optProfiler in p.options:
@@ -471,13 +393,7 @@ proc genWhileStmt(p: BProc, t: PNode) =
 
   dec(p.withinLoop)
 
-proc genBlock(p: BProc, n: PNode, d: var TLoc) =
-  if not isEmptyType(n.typ):
-    # bug #4505: allocate the temp in the outer scope
-    # so that it can escape the generated {}:
-    if d.k == locNone:
-      getTemp(p, n.typ, d)
-    d.flags.incl(lfEnforceDeref)
+proc genBlock(p: BProc, n: PNode) =
   preserveBreakIdx:
     p.breakIdx = startBlock(p)
     if n[0].kind != nkEmpty:
@@ -486,7 +402,7 @@ proc genBlock(p: BProc, n: PNode, d: var TLoc) =
       var sym = n[0].sym
       sym.loc.k = locOther
       sym.position = p.breakIdx+1
-    expr(p, n[1], d)
+    genStmts(p, n[1])
     endBlock(p)
 
 proc genBreakStmt(p: BProc, t: PNode) =
@@ -573,21 +489,19 @@ template genCaseGenericBranch(p: BProc, b: PNode, e: TLoc,
       initLocExpr(p, b[i], x)
       lineCg(p, cpsStmts, eqFormat, [rdCharLoc(e), rdCharLoc(x), labl])
 
-proc genCaseSecondPass(p: BProc, t: PNode, d: var TLoc,
+proc genCaseSecondPass(p: BProc, t: PNode,
                        labId, until: int): TLabel =
   var lend = getLabel(p)
   for i in 1..until:
-    # bug #4230: avoid false sharing between branches:
-    if d.k == locTemp and isEmptyType(t.typ): d.k = locNone
     lineF(p, cpsStmts, "LA$1_: ;$n", [rope(labId + i)])
     if t[i].kind == nkOfBranch:
-      exprBlock(p, t[i][^1], d)
+      stmtBlock(p, t[i][^1])
       lineF(p, cpsStmts, "goto $1;$n", [lend])
     else:
-      exprBlock(p, t[i][0], d)
+      stmtBlock(p, t[i][0])
   result = lend
 
-template genIfForCaseUntil(p: BProc, t: PNode, d: var TLoc,
+template genIfForCaseUntil(p: BProc, t: PNode,
                        rangeFormat, eqFormat: FormatStr,
                        until: int, a: TLoc): TLabel =
   # generate a C-if statement for a Nim case statement
@@ -604,17 +518,17 @@ template genIfForCaseUntil(p: BProc, t: PNode, d: var TLoc,
     inc(p.labels)
     var gotoTarget = p.labels
     lineF(p, cpsStmts, "goto LA$1_;$n", [rope(gotoTarget)])
-    res = genCaseSecondPass(p, t, d, labId, until)
+    res = genCaseSecondPass(p, t, labId, until)
     lineF(p, cpsStmts, "LA$1_: ;$n", [rope(gotoTarget)])
   else:
-    res = genCaseSecondPass(p, t, d, labId, until)
+    res = genCaseSecondPass(p, t, labId, until)
   res
 
-template genCaseGeneric(p: BProc, t: PNode, d: var TLoc,
+template genCaseGeneric(p: BProc, t: PNode,
                     rangeFormat, eqFormat: FormatStr) =
   var a: TLoc
   initLocExpr(p, t[0], a)
-  var lend = genIfForCaseUntil(p, t, d, rangeFormat, eqFormat, t.len-1, a)
+  var lend = genIfForCaseUntil(p, t, rangeFormat, eqFormat, t.len-1, a)
   fixLabel(p, lend)
 
 proc genCaseStringBranch(p: BProc, b: PNode, e: TLoc, labl: TLabel,
@@ -628,7 +542,7 @@ proc genCaseStringBranch(p: BProc, b: PNode, e: TLoc, labl: TLabel,
     appcg(p.module, branches[j], "if (#eqStrings($1, $2)) goto $3;$n",
          [rdLoc(e), rdLoc(x), labl])
 
-proc genStringCase(p: BProc, t: PNode, d: var TLoc) =
+proc genStringCase(p: BProc, t: PNode) =
   # count how many constant strings there are in the case:
   var strings = 0
   for i in 1..<t.len:
@@ -659,10 +573,10 @@ proc genStringCase(p: BProc, t: PNode, d: var TLoc) =
     if t[^1].kind != nkOfBranch:
       lineF(p, cpsStmts, "goto LA$1_;$n", [rope(p.labels)])
     # third pass: generate statements
-    var lend = genCaseSecondPass(p, t, d, labId, t.len-1)
+    var lend = genCaseSecondPass(p, t, labId, t.len-1)
     fixLabel(p, lend)
   else:
-    genCaseGeneric(p, t, d, "", "if (#eqStrings($1, $2)) goto $3;$n")
+    genCaseGeneric(p, t, "", "if (#eqStrings($1, $2)) goto $3;$n")
 
 proc branchHasTooBigRange(b: PNode): bool =
   for it in b:
@@ -696,14 +610,14 @@ proc genCaseRange(p: BProc, branch: PNode) =
     else:
       lineF(p, cpsStmts, "case $1:$n", [genLiteral(p, branch[j])])
 
-proc genOrdinalCase(p: BProc, n: PNode, d: var TLoc) =
+proc genOrdinalCase(p: BProc, n: PNode) =
   # analyse 'case' statement:
   var splitPoint = ifSwitchSplitPoint(p, n)
 
   # generate if part (might be empty):
   var a: TLoc
   initLocExpr(p, n[0], a)
-  var lend = if splitPoint > 0: genIfForCaseUntil(p, n, d,
+  var lend = if splitPoint > 0: genIfForCaseUntil(p, n,
                     rangeFormat = "if ($1 >= $2 && $1 <= $3) goto $4;$n",
                     eqFormat = "if ($1 == $2) goto $3;$n",
                     splitPoint, a) else: ""
@@ -713,37 +627,33 @@ proc genOrdinalCase(p: BProc, n: PNode, d: var TLoc) =
     lineF(p, cpsStmts, "switch ($1) {$n", [rdCharLoc(a)])
     var hasDefault = false
     for i in splitPoint+1..<n.len:
-      # bug #4230: avoid false sharing between branches:
-      if d.k == locTemp and isEmptyType(n.typ): d.k = locNone
-      var branch = n[i]
+      let branch = n[i]
       if branch.kind == nkOfBranch:
         genCaseRange(p, branch)
       else:
         # else part of case statement:
         lineF(p, cpsStmts, "default:$n", [])
         hasDefault = true
-      exprBlock(p, branch.lastSon, d)
+      stmtBlock(p, branch.lastSon)
       lineF(p, cpsStmts, "break;$n", [])
     if (hasAssume in CC[p.config.cCompiler].props) and not hasDefault:
       lineF(p, cpsStmts, "default: __assume(0);$n", [])
     lineF(p, cpsStmts, "}$n", [])
   if lend != "": fixLabel(p, lend)
 
-proc genCase(p: BProc, t: PNode, d: var TLoc) =
+proc genCase(p: BProc, t: PNode) =
   genLineDir(p, t)
-  if not isEmptyType(t.typ) and d.k == locNone:
-    getTemp(p, t.typ, d)
   case skipTypes(t[0].typ, abstractVarRange).kind
   of tyString:
-    genStringCase(p, t, d)
+    genStringCase(p, t)
   of tyFloat..tyFloat128:
-    genCaseGeneric(p, t, d, "if ($1 >= $2 && $1 <= $3) goto $4;$n",
-                            "if ($1 == $2) goto $3;$n")
+    genCaseGeneric(p, t, "if ($1 >= $2 && $1 <= $3) goto $4;$n",
+                         "if ($1 == $2) goto $3;$n")
   else:
     if t[0].kind == nkSym and sfGoto in t[0].sym.flags:
       genGotoForCase(p, t)
     else:
-      genOrdinalCase(p, t, d)
+      genOrdinalCase(p, t)
 
 proc bodyCanRaise(p: BProc; n: PNode): bool =
   case n.kind
@@ -763,7 +673,7 @@ proc bodyCanRaise(p: BProc; n: PNode): bool =
       if bodyCanRaise(p, n[i]): return true
     result = false
 
-proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
+proc genTryGoto(p: BProc; t: PNode) =
   let fin = if t[^1].kind == nkFinally: t[^1] else: nil
   inc p.labels
   let lab = p.labels
@@ -780,10 +690,7 @@ proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
     if fin != nil and not errorFlagSet:
       errorFlagSet = bodyCanRaise(p, n)
 
-  if not isEmptyType(t.typ) and d.k == locNone:
-    getTemp(p, t.typ, d)
-
-  expr(p, t[0], d)
+  genStmts(p, t[0])
   checkSetsErrorFlag(t[0])
 
   if 1 < t.len and t[1].kind == nkExceptBranch:
@@ -800,15 +707,13 @@ proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
     let nextExcept = p.labels
     p.nestedTryStmts[^1].label = nextExcept
 
-    # bug #4230: avoid false sharing between branches:
-    if d.k == locTemp and isEmptyType(t.typ): d.k = locNone
     if t[i].len == 1:
       # general except section:
       if i > 1: lineF(p, cpsStmts, "else", [])
       startBlock(p)
       # we handled the exception, remember this:
       linefmt(p, cpsStmts, "*nimErr_ = NIM_FALSE;$n", [])
-      expr(p, t[i][0], d)
+      genStmts(p, t[i][0])
       checkSetsErrorFlag(t[i][0])
     else:
       var orExpr = ""
@@ -823,7 +728,7 @@ proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
       startBlock(p, "if ($1) {$n", [orExpr])
       # we handled the exception, remember this:
       linefmt(p, cpsStmts, "*nimErr_ = NIM_FALSE;$n", [])
-      expr(p, t[i][^1], d)
+      genStmts(p, t[i][^1])
       checkSetsErrorFlag(t[i][^1])
 
     linefmt(p, cpsStmts, "#popCurrentException();$n", [])
