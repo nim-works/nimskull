@@ -432,7 +432,7 @@ proc isComplexValueType(t: PType): bool {.inline.} =
 include ccgreset
 
 proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  let typ = skipTypes(loc.t, abstractVarRange)
+  let typ = skipTypes(loc.t, abstractVarRange + tyUserTypeClasses)
   if typ.kind in {tyString, tySequence}:
     assert rdLoc(loc) != ""
 
