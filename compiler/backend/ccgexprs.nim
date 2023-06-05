@@ -1097,9 +1097,9 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
 
 proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
                           info: TLineInfo) =
-  ## Generates type field (if there are any) initialization code for an
-  ## variable of `typ` at `accessor`. Specialiaztion for the run-time
-  ## `objectInit` function (that's also only available for the old runtime)
+  ## Generates type field (if there are any) initialization code for a
+  ## location of type `typ`, where `accessor` is the path of the
+  ## location.
   if typ == nil:
     return
 
@@ -1131,7 +1131,8 @@ proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
                          typ[1], info)
     lineF(p, cpsStmts, "}$n", [])
   of tyObject:
-    proc pred(t: PType): bool = not isObjLackingTypeField(t)
+    proc pred(t: PType): bool =
+      t.kind == tyObject and not isObjLackingTypeField(t)
 
     var
       t = typ
@@ -1240,8 +1241,7 @@ proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
       genAssignment(p, d, tmp, {})
 
   if hasCase:
-    # fill in type type fields. Always use `specializeInitObject`, even when
-    # compiling for the old runtime (`objectInit` could be used there)
+    # initialize the object's type fields, if there are any
 
     # XXX: for some discriminators, the value is known at compile-time, so
     #      their switch-case stmt emitted by `specializeInitObject` could be
