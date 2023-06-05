@@ -3077,8 +3077,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
     unused(c, n, dest)
     genTry(c, n)
   of nkStmtList:
-    #unused(c, n, dest)
-    # XXX Fix this bug properly, lexim triggers it
+    unused(c, n, dest)
     for x in n: gen(c, x)
   of nkStmtListExpr:
     for i in 0..<n.len-1: gen(c, n[i])
