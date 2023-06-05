@@ -30,11 +30,6 @@
 # solves the opcLdConst vs opcAsgnConst issue. Of course whether we need
 # this copy depends on the involved types.
 
-# XXX: a significant amount of AST shapes that ``vmgen`` has logic for are no
-#      longer possible (because of the prior MIR transformation). Some parts
-#      already operate under the assumption that the MIR transformation took
-#      place while others don't
-
 import
   std/[
     intsets,
@@ -1089,7 +1084,6 @@ proc genRegLoad(c: var TCtx, n: PNode, dest, src: TRegister) =
     c.gABC(n, opcNarrowU, dest, TRegister(t.size * 8))
 
 proc genCheckedObjAccessAux(c: var TCtx; n: PNode): TRegister
-proc genSymAddr(c: var TCtx, n: PNode): TRegister
 proc genSym(c: var TCtx, n: PNode, dest: var TDest, load = true)
 
 func usesRegister(p: PProc, s: PSym): bool =
@@ -2088,11 +2082,6 @@ func setSlot(c: var TCtx; v: PSym): TRegister {.discardable.} =
 func cannotEval(c: TCtx; n: PNode) {.noinline, noreturn.} =
   raiseVmGenError(vmGenDiagCannotEvaluateAtComptime, n)
 
-
-func getOwner(c: TCtx): PSym =
-  result = c.prc.sym
-  if result.isNil: result = c.module
-
 proc importcCondVar*(s: PSym): bool {.inline.} =
   # see also importcCond
   if sfImportc in s.flags:
@@ -2497,11 +2486,6 @@ proc genSymAddr(c: var TCtx, n: PNode, dest: var TDest) =
   else:
     let local = local(c, n)
     c.gABC(n, opcAddr, dest, local)
-
-proc genSymAddr(c: var TCtx, n: PNode): TRegister =
-  var dest = TDest(-1)
-  genSymAddr(c, n, dest)
-  result = dest
 
 proc genArrAccessOpcode(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode; load = true) =
   let
