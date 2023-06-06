@@ -640,7 +640,7 @@ proc genFieldCheck(p: BProc, e: PNode, obj: Rope, field: PSym) =
   var test, u, v: TLoc
   for i in 1..<e.len:
     var it = e[i]
-    assert(it.kind in nkCallKinds)
+    assert(it.kind == nkCall)
     assert(it[0].kind == nkSym)
     let op = it[0].sym
     if op.magic == mNot: it = it[1]
@@ -2316,7 +2316,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
       genSeqConstr(p, n, d)
     else:
       genArrayConstr(p, n, d)
-  of nkPar, nkTupleConstr:
+  of nkTupleConstr:
     if n.typ != nil and n.typ.kind == tyProc and n.len == 2:
       genClosure(p, n, d)
     elif isDeepConstExpr(n) and n.len != 0:
@@ -2325,7 +2325,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
       genTupleConstr(p, n, d)
   of nkObjConstr: genObjConstr(p, n, d)
   of nkCast: genCast(p, n, d)
-  of nkHiddenStdConv, nkHiddenSubConv, nkConv: genConv(p, n, d)
+  of nkHiddenStdConv, nkConv: genConv(p, n, d)
   of nkHiddenAddr, nkAddr:
     if n[0].kind in {nkHiddenDeref, nkDerefExpr}:
       # views and ``ref``s also map to pointers at the C level. We collapse
@@ -2355,7 +2355,6 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
     if useAliveDataFromDce in p.module.flags:
       genConstStmt(p, n)
     # else: consts generated lazily on use
-  of nkForStmt: internalError(p.config, n.info, "for statement not eliminated")
   of nkCaseStmt: genCase(p, n)
   of nkReturnStmt: genReturnStmt(p, n)
   of nkBreakStmt: genBreakStmt(p, n)
@@ -2381,14 +2380,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
     assert p.config.exc == excGoto
     genTryGoto(p, n)
   of nkRaiseStmt: genRaiseStmt(p, n)
-  of nkTypeSection:
-    # we have to emit the type information for object types here to support
-    # separate compilation:
-    genTypeSection(p.module, n)
-  of nkCommentStmt, nkIteratorDef, nkIncludeStmt,
-     nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt,
-     nkFromStmt, nkTemplateDef, nkMacroDef, nkStaticStmt:
-    discard
+  of nkIteratorDef: discard
   of nkPragma: genPragma(p, n)
   of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:
     if n[genericParamsPos].kind == nkEmpty:
@@ -2404,8 +2396,9 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
           # by ensuring it's no inner proc (owner is a module).
           # Generate proc even if empty body, bugfix #11651.
           genProc(p.module, prc)
-  of nkMixinStmt, nkBindStmt: discard
-  else:
+  of nkType, nkNimNodeLit:
+    unreachable()
+  of nkWithSons + nkWithoutSons - codegenNodeKinds:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 
 proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =

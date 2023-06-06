@@ -56,6 +56,7 @@ import
     msgs
   ],
   compiler/utils/[
+    idioms,
     nversion,
     ropes
   ],
@@ -2451,7 +2452,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       r.res = rope"-Infinity"
     else: r.res = rope(f.toStrMaxPrecision)
     r.kind = resExpr
-  of nkCallKinds:
+  of nkCall:
     if isEmptyType(n.typ):
       genLineDir(p, n)
     if (n[0].kind == nkSym) and (n[0].sym.magic != mNone):
@@ -2470,9 +2471,9 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
     r.kind = resExpr
   of nkCurly: genSetConstr(p, n, r)
   of nkBracket: genArrayConstr(p, n, r)
-  of nkPar, nkTupleConstr: genTupleConstr(p, n, r)
+  of nkTupleConstr: genTupleConstr(p, n, r)
   of nkObjConstr: genObjConstr(p, n, r)
-  of nkHiddenStdConv, nkHiddenSubConv, nkConv: genConv(p, n, r)
+  of nkHiddenStdConv, nkConv: genConv(p, n, r)
   of nkAddr, nkHiddenAddr:
     if mapType(n.typ) != etyBaseIndex:
       # the operation doesn't produce an address-like value (e.g. because the
@@ -2514,8 +2515,6 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkWhileStmt: genWhileStmt(p, n)
   of nkVarSection, nkLetSection: genVarStmt(p, n)
   of nkConstSection: discard
-  of nkForStmt:
-    internalError(p.config, n.info, "for statement not eliminated")
   of nkCaseStmt: genCaseJS(p, n)
   of nkReturnStmt: genReturnStmt(p, n)
   of nkBreakStmt: genBreakStmt(p, n)
@@ -2529,17 +2528,17 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkAsmStmt: genAsmOrEmitStmt(p, n)
   of nkTryStmt: genTry(p, n)
   of nkRaiseStmt: genRaiseStmt(p, n)
-  of nkTypeSection, nkCommentStmt, nkIncludeStmt,
-     nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt,
-     nkFromStmt, nkTemplateDef, nkMacroDef, nkStaticStmt,
-     nkMixinStmt, nkBindStmt, nkIteratorDef: discard
+  of nkIteratorDef: discard
   of nkPragma: genPragma(p, n)
   of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:
     var s = n[namePos].sym
     if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
       genSym(p, n[namePos], r)
       r.res = ""
-  else: internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
+  of nkFloat128Lit, nkNimNodeLit:
+    unreachable()
+  of nkWithSons + nkWithoutSons - codegenNodeKinds:
+    internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =
   new(result)
