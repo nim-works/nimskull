@@ -2980,7 +2980,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
         vmGenDiagCodeGenUnexpectedSym,
         sym = s
       )
-  of nkCallKinds:
+  of nkCall:
     if n[0].kind == nkSym:
       let s = n[0].sym
       if s.magic != mNone:
@@ -3039,7 +3039,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
     assert isVarLent(n.typ)
     # load the source operand as a handle
     genLvalue(c, n[0], dest)
-  of nkIfStmt, nkIfExpr:
+  of nkIfStmt:
     unused(c, n, dest)
     genIf(c, n)
   of nkCaseStmt:
@@ -3069,14 +3069,14 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
   of nkDiscardStmt:
     unused(c, n, dest)
     gen(c, n[0])
-  of nkHiddenStdConv, nkHiddenSubConv, nkConv:
+  of nkHiddenStdConv, nkConv:
     genConv(c, n, n[1], dest)
   of nkObjDownConv, nkObjUpConv:
     genObjConv(c, n, dest)
   of nkLetSection, nkVarSection:
     unused(c, n, dest)
     genVarSection(c, n)
-  of declarativeDefs, nkMacroDef:
+  of declarativeDefs:
     unused(c, n, dest)
   of nkChckRangeF, nkChckRange64, nkChckRange:
     let tmp0 = c.genx(n[0])
@@ -3105,16 +3105,14 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
         c.freeTemp(tmp0)
       else:
         dest = tmp0
-  of nkEmpty, nkCommentStmt, nkTypeSection, nkConstSection, nkPragma,
-     nkTemplateDef, nkIncludeStmt, nkImportStmt, nkFromStmt, nkExportStmt,
-     nkMixinStmt, nkBindStmt:
+  of nkEmpty:
     unused(c, n, dest)
   of nkStringToCString, nkCStringToString:
     gen(c, n[0], dest)
   of nkBracket: genArrayConstr(c, n, dest)
   of nkCurly: genSetConstr(c, n, dest)
   of nkObjConstr: genObjConstr(c, n, dest)
-  of nkPar, nkTupleConstr: genTupleConstr(c, n, dest)
+  of nkTupleConstr: genTupleConstr(c, n, dest)
   of nkClosure: genClosureConstr(c, n, dest)
   of nkCast:
     if allowCast in c.features:
@@ -3123,11 +3121,9 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
       genCastIntFloat(c, n, dest)
   of nkType:
     genTypeLit(c, n.typ, dest)
-  of nkError:
-    c.config.internalError(n.info, $n.kind)
-    assert false
-  else:
-    echo "fail: ", n.kind
+  of nkConstSection, nkPragma, nkAsmStmt:
+    unused(c, n, dest)
+  of nkWithSons + nkWithoutSons - codegenExprNodeKinds:
     fail(n.info, vmGenDiagCannotGenerateCode, n)
 
 proc genStmt*(c: var TCtx; n: PNode): Result[void, VmGenDiag] =
