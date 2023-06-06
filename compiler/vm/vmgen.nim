@@ -3123,7 +3123,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
     genTypeLit(c, n.typ, dest)
   of nkConstSection, nkPragma, nkAsmStmt:
     unused(c, n, dest)
-  of nkWithSons + nkWithoutSons - codegenNodeKinds:
+  of nkWithSons + nkWithoutSons - codegenExprNodeKinds:
     fail(n.info, vmGenDiagCannotGenerateCode, n)
 
 proc genStmt*(c: var TCtx; n: PNode): Result[void, VmGenDiag] =

@@ -350,7 +350,7 @@ const
     nkUsingStmt,
   }
 
-  codegenNodeKinds* = {
+  codegenExprNodeKinds* = {
     nkEmpty,
     nkSym,
     nkType,

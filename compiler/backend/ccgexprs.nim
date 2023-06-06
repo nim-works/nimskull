@@ -2398,7 +2398,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
           genProc(p.module, prc)
   of nkType, nkNimNodeLit:
     unreachable()
-  of nkWithSons + nkWithoutSons - codegenNodeKinds:
+  of nkWithSons + nkWithoutSons - codegenExprNodeKinds:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 
 proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =

@@ -2537,7 +2537,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       r.res = ""
   of nkFloat128Lit, nkNimNodeLit:
     unreachable()
-  of nkWithSons + nkWithoutSons - codegenNodeKinds:
+  of nkWithSons + nkWithoutSons - codegenExprNodeKinds:
     internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =
