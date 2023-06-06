@@ -649,14 +649,14 @@ proc genAndOr(c: var TCtx, n: PNode, dest: Destination) =
   ##
   ## .. code-block:: nim
   ##
-  ##   block label:
-  ##     dest = a
+  ##   dest = a
   ##
-  ##     # for `or`:
-  ##     if dest: break label
-  ##     # for `and`:
-  ##     if not dest: break label
+  ##   # for `or`:
+  ##   if not dest:
+  ##     dest = b
   ##
+  ##   # for `and`:
+  ##   if dest:
   ##     dest = b
   ##
   # TODO: inefficient code is generated for nested ``and|or`` operations, e.g.
@@ -665,20 +665,16 @@ proc genAndOr(c: var TCtx, n: PNode, dest: Destination) =
   #       With the aforementioned transformation, the previously mentioned
   #       example would become: ``or(a, b, c)``
   let label = nextLabel(c)
-  c.stmts.subTree MirNode(kind: mnkBlock, label: label):
+  genAsgn(c, dest, n[1]) # the left-hand side
+
+  # condition:
+  let v = emit(c.stmts, c.sp, c.staging, dest.nodes)
+  if n[0].sym.magic == mOr:
+    forward: v => notOp(c)
+
+  c.stmts.subTree MirNode(kind: mnkIf):
     stmtList(c.stmts):
-      genAsgn(c, dest, n[1])
-
-      # condition:
-      let v = emit(c.stmts, c.sp, c.staging, dest.nodes)
-      if n[0].sym.magic == mAnd:
-        forward: v => notOp(c)
-
-      c.stmts.subTree MirNode(kind: mnkIf, len: 1):
-        # then:
-        c.stmts.add MirNode(kind: mnkBreak, label: label)
-
-      genAsgn(c, dest, n[2])
+      genAsgn(c, dest, n[2]) # the right-hand side
 
 proc genBracketExpr(c: var TCtx, n: PNode): EValue =
   let typ = n[0].typ.skipTypes(abstractInstTypeClass - {tyTypeDesc})
