@@ -574,14 +574,6 @@ proc defineGlobalVar*(m: BModule, n: PNode) =
         decl = runtimeFormat(s.cgDeclFrmt & ";$n", [td, s.loc.r])
       m.s[cfsVars].add(decl)
 
-proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
-  let s = n.sym
-  defineGlobalVar(p.module, n)
-  if p.withinLoop > 0 and value == "" and
-     {lfDynamicLib, lfNoDecl} * s.loc.flags == {}:
-    # fixes tests/run/tzeroarray:
-    resetLoc(p, s.loc)
-
 proc assignParam(p: BProc, s: PSym, retType: PType) =
   assert(s.loc.r != "")
   scopeMangledParam(p, s)
