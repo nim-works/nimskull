@@ -23,29 +23,29 @@ var x
 try:
   x = f()
   block label:
-    var i_cursor
-    var i_1 = 0
+    var i = 0
     block label_1:
       while true:
-        if op(`<`(i_1, 4)):
+        if op(`<`(i, 4)):
           break
-        var :tmp
-        i_cursor = i_1
-        if `==`(i_cursor, 2):
-          return
-        add(a):
-          :tmp = op()
-          `=copy`(:tmp, x)
-          :tmp
-        inc(i_1, 1)
-  block label_2:
+        block label_2:
+          var :tmp
+          var i_1_cursor = i
+          if `==`(i_1_cursor, 2):
+            return
+          add(a):
+            :tmp = op()
+            `=copy`(:tmp, x)
+            :tmp
+          inc(i, 1)
+  block label_3:
     if cond:
       var :tmp_1
       add(a):
         :tmp_1 = x
         op(x)
         :tmp_1
-      break label_2
+      break label_3
     var :tmp_2
     add(b):
       :tmp_2 = x

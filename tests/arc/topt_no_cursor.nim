@@ -87,25 +87,25 @@ var lan_ip
 try:
   lan_ip = ""
   block label:
-    var line
     var i = 0
     var L = len(txt)
     block label_1:
       while true:
         if op(`<`(i, L)):
           break
-        var splitted
-        try:
-          line = txt[i]
-          splitted = split(line, " ", -1)
-          if `==`(splitted[0], "opt"):
-            var :tmp = splitted[1]
-            `=copy`(lan_ip, :tmp)
-          echo([lan_ip])
-          echo([splitted[1]])
-          inc(i, 1)
-        finally:
-          `=destroy`(splitted)
+        block label_2:
+          var splitted
+          try:
+            var line = txt[i]
+            splitted = split(line, " ", -1)
+            if `==`(splitted[0], "opt"):
+              var :tmp = splitted[1]
+              `=copy`(lan_ip, :tmp)
+            echo([lan_ip])
+            echo([splitted[1]])
+          finally:
+            `=destroy`(splitted)
+        inc(i, 1)
 finally:
   `=destroy_1`(lan_ip)
 --expandArc: mergeShadowScope
@@ -116,21 +116,21 @@ try:
   `=copy`(shadowScope, :tmp)
   rawCloseScope(c)
   block label:
-    var sym
     var i = 0
     var L = len(shadowScope[].symbols)
     block label_1:
       while true:
         if op(`<`(i, L)):
           break
-        var :tmp_1
-        sym = shadowScope[].symbols[i]
-        addInterfaceDecl(c):
-          var :tmp_2 = sym
-          :tmp_1 = op()
-          `=copy_1`(:tmp_1, :tmp_2)
-          :tmp_1
-        inc(i, 1)
+        block label_2:
+          var :tmp_1
+          var sym = shadowScope[].symbols[i]
+          addInterfaceDecl(c):
+            var :tmp_2 = sym
+            :tmp_1 = op()
+            `=copy_1`(:tmp_1, :tmp_2)
+            :tmp_1
+          inc(i, 1)
 finally:
   `=destroy`(shadowScope)
 -- end of expandArc ------------------------
