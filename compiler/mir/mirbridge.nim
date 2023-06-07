@@ -82,15 +82,14 @@ proc echoOutput(config: ConfigRef, owner: PSym, body: PNode) =
     writeBody(config, "-- output AST: " & owner.name.s):
       config.writeln(treeRepr(config, body, reprConfig))
 
-proc removeGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
-                      outermost: bool) =
+proc rewriteGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
+                       outermost: bool) =
   ## Removes definitions of non-pure globals from `body`, replacing them with
-  ## as assignment if necessary. This is a hack, but its currently required for
-  ## turning module-level AST into a procedure in a mostly transparent
-  ## way.
+  ## as assignment if necessary.
   ##
   ## If `outermost` is true, only definitions in the outermost scope will be
-  ## removed.
+  ## removed. This is a hack, but its currently required for turning module-level
+  ## AST into a procedure in a mostly transparent way.
   var
     changes = initChangeset(body)
     depth   = 0
@@ -99,11 +98,13 @@ proc removeGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
   while i.int < body.len:
     let n {.cursor.} = body[i]
     case n.kind
-    of mnkDef:
+    of DefNodes:
       let def = i + 1
       if body[def].kind == mnkGlobal and sfPure notin body[def].sym.flags and
         (not outermost or depth == 1):
-        let typ = body[def].sym.typ
+        let
+          sym = body[def].sym
+          typ = sym.typ
         changes.seek(i)
         if hasInput(body, Operation i):
           # the definition has a starting value
@@ -117,15 +118,30 @@ proc removeGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
               buf.add MirNode(kind: mnkTemp, temp: tmp, typ: typ)
 
             argBlock(buf):
-              buf.add MirNode(kind: mnkGlobal, sym: body[def].sym, typ: typ)
+              buf.add MirNode(kind: mnkGlobal, sym: sym, typ: typ)
               buf.add MirNode(kind: mnkTag, effect: ekReassign, typ: typ)
               buf.add MirNode(kind: mnkName, typ: typ)
               buf.add MirNode(kind: mnkTemp, temp: tmp, typ: typ)
-              buf.add MirNode(kind: mnkArg, typ: typ)
+              buf.add MirNode(kind: mnkConsume, typ: typ)
             buf.add MirNode(kind: mnkInit)
 
+        elif sfImportc notin sym.flags and
+             {lfDynamicLib, lfNoDecl} * sym.loc.flags == {}:
+          # XXX: ^^ re-think this condition from first principles. Right now,
+          #      it's just meant to make some tests work
+          # the location doesn't have an explicit starting value. Initialize
+          # it to the type's default value.
+          changes.replaceMulti(buf):
+            argBlock(buf):
+              buf.add MirNode(kind: mnkGlobal, sym: body[def].sym, typ: typ)
+              buf.add MirNode(kind: mnkTag, effect: ekReassign, typ: typ)
+              buf.add MirNode(kind: mnkName, typ: typ)
+              argBlock(buf): discard
+              buf.add MirNode(kind: mnkMagic, magic: mDefault, typ: typ)
+              buf.add MirNode(kind: mnkConsume, typ: typ)
+            buf.add MirNode(kind: mnkInit)
         else:
-          # simply remove the def:
+          # just remove the def:
           changes.remove()
 
       inc i, 2 # skip the whole sub-tree ('def', name, and 'end' node)
@@ -197,7 +213,7 @@ proc canonicalizeWithInject*(graph: ModuleGraph, idgen: IdGenerator,
   var (tree, sourceMap) = generateCode(graph, owner, options, body)
   echoMir(config, owner, tree)
 
-  removeGlobalDefs(tree, sourceMap, outermost = true)
+  rewriteGlobalDefs(tree, sourceMap, outermost = true)
 
   # step 2: run the ``injectdestructors`` pass
   if inject:
@@ -205,7 +221,7 @@ proc canonicalizeWithInject*(graph: ModuleGraph, idgen: IdGenerator,
 
   # XXX: this is a hack. See the documentation of the routine for more
   #      details
-  removeGlobalDefs(tree, sourceMap, outermost = false)
+  rewriteGlobalDefs(tree, sourceMap, outermost = false)
 
   # step 3: translate the MIR code back to an AST
   result = generateAST(graph, idgen, owner, tree, sourceMap)
