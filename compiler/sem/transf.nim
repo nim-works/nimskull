@@ -190,7 +190,10 @@ proc freshVar(c: PTransf; v: PSym): PNode =
   else:
     var newVar = copySym(v, nextSymId(c.idgen))
     incl(newVar.flags, sfFromGeneric)
-    newVar.owner = owner
+    if sfGlobal notin newVar.flags:
+      # don't re-parent globals -- the duplicates need to have the same owner
+      # as the original
+      newVar.owner = owner
     result = newSymNode(newVar)
 
 proc transformDefSym(c: PTransf, n: PNode): PNode {.deprecated: "workaround for sem not sanitizing AST".} =
