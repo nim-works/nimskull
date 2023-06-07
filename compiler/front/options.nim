@@ -1480,19 +1480,23 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   return ""
 
 proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
-  ## Shows the canonical module import, e.g.: system, std/tables,
-  ## fusion/pointers, system/assertions, std/private/asciitables
-  var ret = getRelativePathFromConfigPath(conf, file, isTitle = true)
-  let dir = getNimbleFile(conf, $file).parentDir.AbsoluteDir
-  if not dir.isEmpty:
-    let relPath = relativeTo(file, dir)
-    if not relPath.isEmpty and (ret.isEmpty or relPath.string.len < ret.string.len):
-      ret = relPath
-  if ret.isEmpty:
-    ret = relativeTo(file, conf.projectPath)
-  result = ret.string
+  ## canonical module import filename, e.g.: system.nim, std/tables.nim,
+  ## system/assertions.nim, etc
+  let
+    desc = getPkgDesc(conf, file.string)
+    (_, moduleName, ext) = file.splitFile
+  if desc.pkgKnown:
+    result = desc.pkgRootName
+    if desc.pkgSubpath != "":
+      result = result / desc.pkgSubpath
+  else:
+    result = desc.pkgSubpath
+  result = if result == "": moduleName else: result / moduleName
+  result = result.changeFileExt(ext) # since we lost it above
 
 proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile): string =
+  ## Shows the canonical module import, e.g.: system, std/tables,
+  ## fusion/pointers, system/assertions, std/private/asciitables
   let ret = canonicalImportAux(conf, file)
   result = ret.nativeToUnixPath.changeFileExt("")
 

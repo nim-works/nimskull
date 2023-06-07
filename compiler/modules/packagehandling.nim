@@ -15,7 +15,7 @@ iterator myParentDirs(p: string): string =
     if current.len == 0: break
     yield current
 
-proc getNimbleFile*(conf: ConfigRef; path: string): string =
+proc getNimbleFile(conf: ConfigRef; path: string): string =
   ## returns absolute path to nimble file, e.g.: /pathto/cligen.nimble
   # xxx: make this private
   var parents = 0
@@ -68,7 +68,7 @@ type
   PkgDesc* = object
     ## describes the package, and optional sub-package, used in conjunction
     ## with a module to determine its relationship to a package.
-    # todo: support project/default vs unknown vs with file
+    # todo: support project/default vs unknown vs explicit package
     case pkgKnown*: bool:
       of true:
         pkgFile*: AbsoluteFile ## if applicable, package file

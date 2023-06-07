@@ -194,7 +194,7 @@ proc presentationPath*(conf: ConfigRef, file: AbsoluteFile): RelativeFile =
   template bail() =
     result = relativeTo(file, conf.projectPath)
   proc nimbleDir(): AbsoluteDir =
-    getNimbleFile(conf, file2).parentDir.AbsoluteDir
+    getPkgDesc(conf, file2).pkgRoot
   case conf.docRoot:
   of docRootDefault:
     result = getRelativePathFromConfigPath(conf, file)
