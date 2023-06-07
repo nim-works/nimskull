@@ -250,7 +250,7 @@ type
     errorMax*: int ## Maximum number of errors before compilation will be terminated
     maxLoopIterationsVM*: int ## VM: max iterations of all loops
 
-    packageCache*: StringTableRef
+    packageCache*: StringTableRef      ## absolute path -> absolute path
 
     jsonBuildFile*: AbsoluteFile
     nimStdlibVersion*: NimVer

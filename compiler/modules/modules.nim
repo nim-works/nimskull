@@ -53,6 +53,37 @@ template getModuleIdent(graph: ModuleGraph, filename: AbsoluteFile): PIdent =
 
 template packageId(): untyped {.dirty.} = ItemId(module: PackageModuleId, item: int32(fileIdx))
 
+proc getPackage2(graph: ModuleGraph, fileIdx: FileIndex): PSym =
+  ## returns the package symbol (skPackage) for yet to be defined module for
+  ## `fileIdx`
+  let
+    filename = AbsoluteFile toFullPath(graph.config, fileIdx)
+    info = newLineInfo(fileIdx, 1, 1)
+    desc = getPkgDesc(graph.config, filename.string)
+    rootPkg = getIdent(graph.cache, desc.pkgRootName)
+    existingRootPkgSym = graph.packageSyms.strTableGet(rootPkg)
+    rootPkgSym =
+      if existingRootPkgSym.isNil:
+        let temp = newSym(skPackage, rootPkg, packageId(), nil, info)
+        graph.packageSyms.strTableAdd(temp)
+        temp
+      else:
+        existingRootPkgSym
+
+  if desc.pkgSubpath == "":
+    result = rootPkgSym
+  else:
+    let
+      subPkg = getIdent(graph.cache, desc.pkgName)
+      existingSubPkgSym = graph.packageSyms.strTableGet(subPkg)
+    result =
+      if existingSubPkgSym.isNil:
+        let subPkgSym = newSym(skPackage, subPkg, packageId(), rootPkgSym, info)
+        graph.packageSyms.strTableAdd(subPkgSym)
+        subPkgSym
+      else:
+        existingSubPkgSym
+
 proc getPackage(graph: ModuleGraph; fileIdx: FileIndex): PSym =
   ## returns package symbol (skPackage) for yet to be defined module for fileIdx
   let
@@ -88,7 +119,11 @@ proc getPackage(graph: ModuleGraph; fileIdx: FileIndex): PSym =
         graph.packageSyms.strTableAdd(result)
 
 proc partialInitModule(result: PSym; graph: ModuleGraph; fileIdx: FileIndex; filename: AbsoluteFile) =
-  let packSym = getPackage(graph, fileIdx)
+  let packSym =
+    when true:
+      getPackage2(graph, fileIdx)
+    else:
+      getPackage(graph, fileIdx)
   result.owner = packSym
   result.position = int fileIdx
 
@@ -208,7 +243,11 @@ proc compileProject*(graph: ModuleGraph; projectFileIdx = InvalidFileIdx) =
   let projectFile = if projectFileIdx == InvalidFileIdx: conf.projectMainIdx else: projectFileIdx
   conf.projectMainIdx2 = projectFile
 
-  let packSym = getPackage(graph, projectFile)
+  let packSym =
+    when true:
+      getPackage2(graph, projectFile)
+    else:
+      getPackage(graph, projectFile)
   graph.config.mainPackageId = packSym.getnimblePkgId
   graph.importStack.add projectFile
 
