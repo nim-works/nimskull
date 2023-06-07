@@ -35,13 +35,13 @@ proc getNimbleFile*(conf: ConfigRef; path: string): string =
     dec parents
     if parents <= 0: break
 
-proc getPackageName*(conf: ConfigRef; path: string): string =
+proc getPackageName(conf: ConfigRef; path: string): string =
   ## legacy stuff
   ## returns nimble package name, e.g.: `cligen`
   let path = getNimbleFile(conf, path)
   result = path.splitFile.name
 
-proc fakePackageName*(conf: ConfigRef; path: AbsoluteFile): string =
+proc fakePackageName(conf: ConfigRef; path: AbsoluteFile): string =
   ## legacy stuff for backends
   ## Convert `path` so that 2 modules with same name
   ## in different directory get different name and they can be
@@ -99,7 +99,7 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
     relativePath = relativePath(modulePath.parentDir, pkgRoot)
     pkgSubpath = if relativePath == ".": "" else: relativePath
     pkgName =
-      if pkgKnown and pkgSubpath == "": pkgRootName
+      if pkgKnown or pkgSubpath == "": pkgRootName
       else: pkgRootName & "@p" & mangle(pkgSubpath)
   result =
     if pkgKnown:

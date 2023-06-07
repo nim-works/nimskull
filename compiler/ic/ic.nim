@@ -952,8 +952,6 @@ proc newPackage(config: ConfigRef; cache: IdentCache; fileIdx: FileIndex): PSym 
   let
     filename = AbsoluteFile toFullPath(config, fileIdx)
     info = newLineInfo(fileIdx, 1, 1)
-    # pck = getPackageName(config, filename.string)
-    # pck2 = if pck.len > 0: pck else: "unknown"
   let desc = getPkgDesc(config, filename.string)
   result = newSym(skPackage, getIdent(cache, desc.pkgName),
     ItemId(module: PackageModuleId, item: int32(fileIdx)), nil, info)

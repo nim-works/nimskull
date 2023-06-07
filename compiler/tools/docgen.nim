@@ -1495,10 +1495,11 @@ proc writeOutput*(d: PDoc, useWarning = false, groupedToc = false) =
 proc writeOutputJson*(d: PDoc, useWarning = false) =
   runAllExamples(d)
   var modDesc: string
+  let pkgDesc = getPkgDesc(d.conf, d.filename)
   for desc in d.modDescFinal:
     modDesc &= desc
   let content = %*{"orig": d.filename,
-    "nimble": getPackageName(d.conf, d.filename),
+    "nimble": if pkgDesc.pkgKnown: pkgDesc.pkgRootName else: "",
     "moduleDescription": modDesc,
     "entries": d.jEntriesFinal}
   if optStdout in d.conf.globalOptions:
