@@ -254,7 +254,6 @@ type
 
     jsonBuildFile*: AbsoluteFile
     nimStdlibVersion*: NimVer
-    moduleOverrides*: StringTableRef
     cfileSpecificOptions*: StringTableRef ## File specific compilation options for C backend.
     ## Modified by `{.localPassc.}`
     inputMode*: ProjectInputMode    ## how the main module is sourced
@@ -945,7 +944,6 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
     m: initMsgConfig(),
     headerFile: "",
     packageCache: newPackageCache(),
-    moduleOverrides: newStringTable(modeStyleInsensitive),
     cfileSpecificOptions: newStringTable(modeCaseSensitive),
     inputMode: pimFile,
     projectMainIdx: FileIndex(0'i32), # the canonical path id of the main module
@@ -1356,15 +1354,6 @@ proc rawFindFile2(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
       return canonicalizePath(conf, result)
   result = AbsoluteFile""
 
-proc patchModule(conf: ConfigRef, result: var AbsoluteFile) =
-  ## If there is a known module override for a given
-  ## `package/<name(result)>` replace result with new module override.
-  if not result.isEmpty and conf.moduleOverrides.len > 0:
-    let key = getPackageName(conf, result.string) & "_" & splitFile(result).name
-    if conf.moduleOverrides.hasKey(key):
-      let ov = conf.moduleOverrides[key]
-      if ov.len > 0: result = AbsoluteFile(ov)
-
 when not declared(isRelativeTo):
   proc isRelativeTo(path, base: string): bool =
     # pending #13212 use os.isRelativeTo
@@ -1416,7 +1405,6 @@ proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile
         result = rawFindFile2(conf, RelativeFile f)
         if result.isEmpty:
           result = rawFindFile2(conf, RelativeFile f.toLowerAscii)
-  patchModule(conf, result)
 
 proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFile =
   ## Return absolute path to the imported module `modulename`. Imported
@@ -1448,7 +1436,6 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
       result = AbsoluteFile currentPath / m
     if not fileExists(result):
       result = findFile(conf, m)
-  patchModule(conf, result)
 
 proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   ## Find configuration file for a current project
