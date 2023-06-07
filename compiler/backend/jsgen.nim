@@ -2592,7 +2592,7 @@ proc genModule(p: PProc, n: PNode) =
 
 proc genTopLevelProcedure*(globals: PGlobals, m: BModule, prc: PSym) =
   var p = newInitProc(globals, m)
-  attachProc(p, prc)
+  genProcForSymIfNeeded(p, prc)
 
 proc genTopLevelStmt*(globals: PGlobals, m: BModule, n: PNode) =
   m.config.internalAssert(m.module != nil, n.info, "genTopLevelStmt")
