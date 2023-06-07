@@ -1057,6 +1057,14 @@ proc genProcAux(m: BModule, prc: PSym) =
     generatedProc.add(~"}$N")
   m.s[cfsProcs].add(generatedProc)
 
+proc genInitProc*(m: BModule, prc: PSym) =
+  # HACK: a module's init procedure should be the same as any other
+  #       procedure. Due to ``cgen`` appending to it from multiple unrelated
+  #       places, it currently cannot, so we special case it here
+  var procBody = transformBody(m.g.graph, m.idgen, prc, cache = false)
+  procBody = canonicalizeWithInject(m.g.graph, m.idgen, prc, procBody, {})
+  genProcBody(m.initProc, procBody)
+
 proc genProcPrototype(m: BModule, sym: PSym) =
   useHeader(m, sym)
   if lfNoDecl in sym.loc.flags: return

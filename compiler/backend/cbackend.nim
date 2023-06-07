@@ -126,8 +126,8 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
     # process the declarative statements first:
     genTopLevelStmt(bmod, m.decls)
     # generate code for the init procedure:
-    genTopLevelStmt(bmod, m.init.ast[bodyPos])
-    # XXX: ^^ this is completely wrong. The init procedure should be treated
+    genInitProc(bmod, m.init)
+    # XXX: ^^ this is wrong. The init procedure should be treated
     #      like any other procedure, but ``cgen`` still depends on appending
     #      to it from all over the place. Untangling this will require
     #      multiple intermediate refactorings.
