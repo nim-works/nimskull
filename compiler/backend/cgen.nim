@@ -362,14 +362,9 @@ proc rdCharLoc(a: TLoc): Rope =
   if skipTypes(a.t, abstractRange).kind == tyChar:
     result = "((NU8)($1))" % [result]
 
-type
-  TAssignmentFlag = enum
-    needToCopy
-  TAssignmentFlags = set[TAssignmentFlag]
-
 proc genObjConstr(p: BProc, e: PNode, d: var TLoc)
 proc rawConstExpr(p: BProc, n: PNode; d: var TLoc)
-proc genAssignment(p: BProc, dest, src: TLoc, flags: TAssignmentFlags)
+proc genAssignment(p: BProc, dest, src: TLoc)
 
 type
   ObjConstrMode = enum
@@ -421,7 +416,7 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
             [rdLoc(a), rdLoc(tmp), getTypeDesc(p.module, objType, mapTypeChooser(a))])
       else:
         let tmp = defaultValueExpr(p, t, a.lode.info)
-        genAssignment(p, a, tmp, {})
+        genAssignment(p, a, tmp)
 
 proc isComplexValueType(t: PType): bool {.inline.} =
   let t = t.skipTypes(abstractInst + tyUserTypeClasses)
@@ -431,7 +426,7 @@ proc isComplexValueType(t: PType): bool {.inline.} =
 include ccgreset
 
 proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  let typ = skipTypes(loc.t, abstractVarRange)
+  let typ = skipTypes(loc.t, abstractVarRange + tyUserTypeClasses)
   if typ.kind in {tyString, tySequence}:
     assert rdLoc(loc) != ""
 
@@ -513,7 +508,6 @@ proc localVarDecl(p: BProc; n: PNode): Rope =
   let s = n.sym
   if s.loc.k == locNone:
     fillLoc(s.loc, locLocalVar, n, mangleLocalName(p, s), OnStack)
-    if s.kind == skLet: incl(s.loc.flags, lfNoDeepCopy)
   if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
     result.addf("NIM_ALIGN($1) ", [rope(s.alignment)])
   result.add getTypeDesc(p.module, s.typ, skVar)
@@ -837,22 +831,6 @@ proc containsResult(n: PNode): bool =
 const harmless = {nkConstSection, nkTypeSection, nkEmpty, nkCommentStmt, nkTemplateDef,
                   nkMacroDef, nkMixinStmt, nkBindStmt} +
                   declarativeDefs
-
-proc easyResultAsgn(n: PNode): PNode =
-  case n.kind
-  of nkStmtList, nkStmtListExpr:
-    var i = 0
-    while i < n.len and n[i].kind in harmless: inc i
-    if i < n.len: result = easyResultAsgn(n[i])
-  of nkAsgn, nkFastAsgn:
-    if n[0].kind == nkSym and n[0].sym.kind == skResult and not containsResult(n[1]):
-      incl n.flags, nfPreventCg
-      return n[1]
-  of nkReturnStmt:
-    if n.len > 0:
-      result = easyResultAsgn(n[0])
-      if result != nil: incl n.flags, nfPreventCg
-  else: discard
 
 type
   InitResultEnum = enum Unknown, InitSkippable, InitRequired

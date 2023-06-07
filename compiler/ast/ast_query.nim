@@ -63,7 +63,7 @@ const
   
   PersistentNodeFlags*: TNodeFlags = {nfBase2, nfBase8, nfBase16,
                                       nfDotSetter, nfDotField,
-                                      nfIsRef, nfIsPtr, nfPreventCg, nfLL,
+                                      nfIsRef, nfIsPtr, nfLL,
                                       nfFromTemplate, nfDefaultRefsParam}
   
   namePos*          = 0 ## Name of the type/proc-like node

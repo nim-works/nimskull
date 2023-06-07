@@ -1273,8 +1273,5 @@ proc genTypeInfoV1(m: BModule, t: PType; info: TLineInfo): Rope =
 
   result = prefixTI.rope & result & ")".rope
 
-proc genTypeSection(m: BModule, n: PNode) =
-  discard
-
 proc genTypeInfo*(config: ConfigRef, m: BModule, t: PType; info: TLineInfo): Rope =
   result = genTypeInfoV2(m, t, info)

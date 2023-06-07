@@ -56,11 +56,11 @@ import
     msgs
   ],
   compiler/utils/[
+    idioms,
     nversion,
     ropes
   ],
   compiler/sem/[
-    lowerings,
     rodutils,
     transf,
   ],
@@ -342,51 +342,6 @@ proc getTemp(p: PProc, defineInLocals: bool = true): Rope =
   result = "Temporary$1" % [rope(p.unique)]
   if defineInLocals:
     p.locals.add(p.indentLine("var $1;$n" % [result]))
-
-proc genAnd(p: PProc, a, b: PNode, r: var TCompRes) =
-  assert r.kind == resNone
-  var x, y: TCompRes
-  if p.isSimpleExpr(a) and p.isSimpleExpr(b):
-    gen(p, a, x)
-    gen(p, b, y)
-    r.kind = resExpr
-    r.res = "($1 && $2)" % [x.rdLoc, y.rdLoc]
-  else:
-    r.res = p.getTemp
-    r.kind = resVal
-    # while a and b:
-    # -->
-    # while true:
-    #   aa
-    #   if not a: tmp = false
-    #   else:
-    #     bb
-    #     tmp = b
-    # tmp
-    gen(p, a, x)
-    lineF(p, "if (!$1) $2 = false; else {", [x.rdLoc, r.rdLoc])
-    p.nested:
-      gen(p, b, y)
-      lineF(p, "$2 = $1;", [y.rdLoc, r.rdLoc])
-    line(p, "}")
-
-proc genOr(p: PProc, a, b: PNode, r: var TCompRes) =
-  assert r.kind == resNone
-  var x, y: TCompRes
-  if p.isSimpleExpr(a) and p.isSimpleExpr(b):
-    gen(p, a, x)
-    gen(p, b, y)
-    r.kind = resExpr
-    r.res = "($1 || $2)" % [x.rdLoc, y.rdLoc]
-  else:
-    r.res = p.getTemp
-    r.kind = resVal
-    gen(p, a, x)
-    lineF(p, "if ($1) $2 = true; else {", [x.rdLoc, r.rdLoc])
-    p.nested:
-      gen(p, b, y)
-      lineF(p, "$2 = $1;", [y.rdLoc, r.rdLoc])
-    line(p, "}")
 
 type
   TMagicFrmt = array[0..1, string]
@@ -728,7 +683,6 @@ proc genLineDir(p: PProc, n: PNode) =
     lineF(p, "F.line = $1;$n", [rope(line)])
 
 proc genWhileStmt(p: PProc, n: PNode) =
-  var cond: TCompRes
   internalAssert p.config, isEmptyType(n.typ)
   genLineDir(p, n)
   inc(p.unique)
@@ -737,23 +691,12 @@ proc genWhileStmt(p: PProc, n: PNode) =
   p.blocks[^1].isLoop = true
   let labl = p.unique.rope
   lineF(p, "Label$1: while (true) {$n", [labl])
-  p.nested: gen(p, n[0], cond)
-  lineF(p, "if (!$1) break Label$2;$n",
-       [cond.res, labl])
   p.nested: genStmt(p, n[1])
   lineF(p, "}$n", [labl])
   setLen(p.blocks, p.blocks.len - 1)
 
-proc moveInto(p: PProc, src: var TCompRes, dest: TCompRes) =
-  if src.kind != resNone:
-    if dest.kind != resNone:
-      lineF(p, "$1 = $2;$n", [dest.rdLoc, src.rdLoc])
-    else:
-      lineF(p, "$1;$n", [src.rdLoc])
-    src.kind = resNone
-    src.res = ""
 
-proc genTry(p: PProc, n: PNode, r: var TCompRes) =
+proc genTry(p: PProc, n: PNode) =
   # code to generate:
   #
   #  ++excHandler;
@@ -778,9 +721,6 @@ proc genTry(p: PProc, n: PNode, r: var TCompRes) =
   #    stmts;
   #  }
   genLineDir(p, n)
-  if not isEmptyType(n.typ):
-    r.kind = resVal
-    r.res = getTemp(p)
   inc(p.unique)
   var i = 1
   var catchBranchesExist = n.len > 1 and n[i].kind == nkExceptBranch
@@ -791,9 +731,7 @@ proc genTry(p: PProc, n: PNode, r: var TCompRes) =
     tmpFramePtr = p.getTemp(true)
     line(p, tmpFramePtr & " = framePtr;\L")
   lineF(p, "try {$n", [])
-  var a: TCompRes
-  gen(p, n[0], a)
-  moveInto(p, a, r)
+  genStmt(p, n[0])
   var generalCatchBranchExists = false
   if catchBranchesExist:
     p.body.addf("--excHandler;$n} catch (EXCEPTION) {$n var prevJSError = lastJSError;$n" &
@@ -804,8 +742,7 @@ proc genTry(p: PProc, n: PNode, r: var TCompRes) =
       # general except section:
       generalCatchBranchExists = true
       if i > 1: lineF(p, "else {$n", [])
-      gen(p, n[i][0], a)
-      moveInto(p, a, r)
+      genStmt(p, n[i][0])
       if i > 1: lineF(p, "}$n", [])
     else:
       var orExpr = ""
@@ -844,8 +781,7 @@ proc genTry(p: PProc, n: PNode, r: var TCompRes) =
       if excAlias != nil:
         excAlias.sym.loc.r = mangleName(p.module, excAlias.sym)
         lineF(p, "var $1 = lastJSError;$n", excAlias.sym.loc.r)
-      gen(p, n[i][^1], a)
-      moveInto(p, a, r)
+      genStmt(p, n[i][^1])
       lineF(p, "}$n", [])
     inc(i)
   if catchBranchesExist:
@@ -875,9 +811,9 @@ proc genRaiseStmt(p: PProc, n: PNode) =
     useMagic(p, "reraiseException")
     line(p, "reraiseException();\L")
 
-proc genCaseJS(p: PProc, n: PNode, r: var TCompRes) =
+proc genCaseJS(p: PProc, n: PNode) =
   var
-    cond, stmt: TCompRes
+    cond: TCompRes
     totalRange = 0
   genLineDir(p, n)
   gen(p, n[0], cond)
@@ -887,9 +823,7 @@ proc genCaseJS(p: PProc, n: PNode, r: var TCompRes) =
     lineF(p, "switch (toJSStr($1)) {$n", [cond.rdLoc])
   else:
     lineF(p, "switch ($1) {$n", [cond.rdLoc])
-  if not isEmptyType(n.typ):
-    r.kind = resVal
-    r.res = getTemp(p)
+
   for i in 1..<n.len:
     let it = n[i]
     case it.kind
@@ -916,19 +850,17 @@ proc genCaseJS(p: PProc, n: PNode, r: var TCompRes) =
             gen(p, e, cond)
             lineF(p, "case $1:$n", [cond.rdLoc])
       p.nested:
-        gen(p, lastSon(it), stmt)
-        moveInto(p, stmt, r)
+        genStmt(p, lastSon(it))
         lineF(p, "break;$n", [])
     of nkElse:
       lineF(p, "default: $n", [])
       p.nested:
-        gen(p, it[0], stmt)
-        moveInto(p, stmt, r)
+        genStmt(p, it[0])
         lineF(p, "break;$n", [])
     else: internalError(p.config, it.info, "jsgen.genCaseStmt")
   lineF(p, "}$n", [])
 
-proc genBlock(p: PProc, n: PNode, r: var TCompRes) =
+proc genBlock(p: PProc, n: PNode) =
   inc(p.unique)
   let idx = p.blocks.len
   if n[0].kind != nkEmpty:
@@ -941,7 +873,7 @@ proc genBlock(p: PProc, n: PNode, r: var TCompRes) =
   lineF(p, "Label$1: do {$n", [labl.rope])
   setLen(p.blocks, idx + 1)
   p.blocks[idx].id = - p.unique # negative because it isn't used yet
-  gen(p, n[1], r)
+  genStmt(p, n[1])
   setLen(p.blocks, idx)
   lineF(p, "} while (false);$n", [labl.rope])
 
@@ -996,28 +928,15 @@ proc genAsmOrEmitStmt(p: PProc, n: PNode) =
       p.body.add(r.rdLoc)
   p.body.add "\L"
 
-proc genIf(p: PProc, n: PNode, r: var TCompRes) =
-  var cond, stmt: TCompRes
-  var toClose = 0
-  if not isEmptyType(n.typ):
-    r.kind = resVal
-    r.res = getTemp(p)
-  for i in 0..<n.len:
-    let it = n[i]
-    if it.len != 1:
-      if i > 0:
-        lineF(p, "else {$n", [])
-        inc(toClose)
-      p.nested: gen(p, it[0], cond)
-      lineF(p, "if ($1) {$n", [cond.rdLoc])
-      gen(p, it[1], stmt)
-    else:
-      # else part:
-      lineF(p, "else {$n", [])
-      p.nested: gen(p, it[0], stmt)
-    moveInto(p, stmt, r)
-    lineF(p, "}$n", [])
-  line(p, repeat('}', toClose) & "\L")
+proc genIf(p: PProc, n: PNode) =
+  assert n.len == 1
+  let it = n[0]
+
+  var cond: TCompRes
+  p.nested: gen(p, it[0], cond)
+  lineF(p, "if ($1) {$n", [cond.rdLoc])
+  genStmt(p, it[1])
+  lineF(p, "}$n", [])
 
 proc generateHeader(p: PProc, prc: PSym): Rope =
   result = ""
@@ -1048,8 +967,7 @@ const
   nodeKindsNeedNoCopy = {nkCharLit..nkInt64Lit, nkStrLit..nkTripleStrLit,
     nkFloatLit..nkFloat64Lit, nkPar, nkStringToCString,
     nkObjConstr, nkTupleConstr, nkBracket,
-    nkCStringToString, nkCall, nkPrefix, nkPostfix, nkInfix,
-    nkCommand, nkHiddenCallConv, nkCallStrLit}
+    nkCStringToString, nkCall}
 
 proc needsNoCopy(p: PProc; y: PNode): bool =
   return y.kind in nodeKindsNeedNoCopy or
@@ -1836,19 +1754,13 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
     lineF(p, "}$n")
 
 proc genVarStmt(p: PProc, n: PNode) =
-  for i in 0..<n.len:
-    var a = n[i]
-    if a.kind != nkCommentStmt:
-      if a.kind == nkVarTuple:
-        let unpacked = lowerTupleUnpacking(p.module.graph, a, p.module.idgen, p.prc)
-        genStmt(p, unpacked)
-      else:
-        assert(a.kind == nkIdentDefs)
-        assert(a[0].kind == nkSym)
-        var v = a[0].sym
-        if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
-          genLineDir(p, a)
-          genVarInit(p, v, a[2])
+  for it in n.items:
+    assert it.kind == nkIdentDefs
+    assert it[0].kind == nkSym
+    let v = it[0].sym
+    if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
+      genLineDir(p, it)
+      genVarInit(p, v, it[2])
 
 proc genConstant(p: PProc, c: PSym) =
   if lfNoDecl notin c.loc.flags and not p.g.generatedSyms.containsOrIncl(c.id):
@@ -2012,8 +1924,6 @@ proc genJSArrayConstr(p: PProc, n: PNode, r: var TCompRes) =
 proc genMagic(p: PProc, n: PNode, r: var TCompRes) =
   let op = n[0].sym.magic
   case op
-  of mOr: genOr(p, n[1], n[2], r)
-  of mAnd: genAnd(p, n[1], n[2], r)
   of mAddI..mStrToStr: arith(p, n, r, op)
   of mRepr: genRepr(p, n, r)
   of mSwap: genSwap(p, n)
@@ -2564,7 +2474,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       r.res = rope"-Infinity"
     else: r.res = rope(f.toStrMaxPrecision)
     r.kind = resExpr
-  of nkCallKinds:
+  of nkCall:
     if isEmptyType(n.typ):
       genLineDir(p, n)
     if (n[0].kind == nkSym) and (n[0].sym.magic != mNone):
@@ -2583,9 +2493,9 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
     r.kind = resExpr
   of nkCurly: genSetConstr(p, n, r)
   of nkBracket: genArrayConstr(p, n, r)
-  of nkPar, nkTupleConstr: genTupleConstr(p, n, r)
+  of nkTupleConstr: genTupleConstr(p, n, r)
   of nkObjConstr: genObjConstr(p, n, r)
-  of nkHiddenStdConv, nkHiddenSubConv, nkConv: genConv(p, n, r)
+  of nkHiddenStdConv, nkConv: genConv(p, n, r)
   of nkAddr, nkHiddenAddr:
     if mapType(n.typ) != etyBaseIndex:
       # the operation doesn't produce an address-like value (e.g. because the
@@ -2622,17 +2532,12 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       genStmt(p, n[i])
     if isExpr:
       gen(p, lastSon(n), r)
-  of nkBlockStmt, nkBlockExpr: genBlock(p, n, r)
-  of nkIfStmt, nkIfExpr: genIf(p, n, r)
-  of nkWhen:
-    # This is "when nimvm" node
-    gen(p, n[1][0], r)
+  of nkBlockStmt: genBlock(p, n)
+  of nkIfStmt: genIf(p, n)
   of nkWhileStmt: genWhileStmt(p, n)
   of nkVarSection, nkLetSection: genVarStmt(p, n)
   of nkConstSection: discard
-  of nkForStmt:
-    internalError(p.config, n.info, "for statement not eliminated")
-  of nkCaseStmt: genCaseJS(p, n, r)
+  of nkCaseStmt: genCaseJS(p, n)
   of nkReturnStmt: genReturnStmt(p, n)
   of nkBreakStmt: genBreakStmt(p, n)
   of nkAsgn: genAsgn(p, n)
@@ -2643,20 +2548,19 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       gen(p, n[0], r)
       r.res = "var _ = " & r.res
   of nkAsmStmt: genAsmOrEmitStmt(p, n)
-  of nkTryStmt, nkHiddenTryStmt: genTry(p, n, r)
+  of nkTryStmt: genTry(p, n)
   of nkRaiseStmt: genRaiseStmt(p, n)
-  of nkTypeSection, nkCommentStmt, nkIncludeStmt,
-     nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt,
-     nkFromStmt, nkTemplateDef, nkMacroDef, nkStaticStmt,
-     nkMixinStmt, nkBindStmt, nkIteratorDef: discard
+  of nkIteratorDef: discard
   of nkPragma: genPragma(p, n)
   of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:
     var s = n[namePos].sym
     if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
       genSym(p, n[namePos], r)
       r.res = ""
-  of nkPragmaBlock: gen(p, n.lastSon, r)
-  else: internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
+  of nkFloat128Lit, nkNimNodeLit:
+    unreachable()
+  of nkWithSons + nkWithoutSons - codegenExprNodeKinds:
+    internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =
   new(result)
