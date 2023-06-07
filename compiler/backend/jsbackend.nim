@@ -88,11 +88,12 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
     # invoke ``jsgen`` for the top-level declarative code:
     genTopLevelStmt(globals, bmod, m.decls)
 
-    # HACK: we mark the procedure with the ``sfModuleInit`` flag in order to
-    #       signal to ``jsgen`` that a special stack-trace entry needs to
-    #       be created for the procedure
-    m.init.flags.incl sfModuleInit
-    genTopLevelProcedure(globals, bmod, m.init)
+    if m.init.ast[bodyPos].kind != nkEmpty: # dead-code elimination
+      # HACK: we mark the procedure with the ``sfModuleInit`` flag in order to
+      #       signal to ``jsgen`` that a special stack-trace entry needs to
+      #       be created for the procedure
+      m.init.flags.incl sfModuleInit
+      genTopLevelProcedure(globals, bmod, m.init)
 
     if sfMainModule in m.sym.flags:
       finishDeinit(graph, mlist)
