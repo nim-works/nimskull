@@ -188,6 +188,13 @@ proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
       # XXX: how they work exactly is currently left to the code
       #      generator, but that is going to change
       discard
+    elif s.kind == skTemp:
+      # HACK: semantic analysis sometimes produces temporaries (it does so for
+      #       ``(a, b) = c``, for example) that are also globals. These aren't
+      #       really globals, and we don't to "lift" them into the module
+      #       struct, so we ignore them here and let ``mirgen`` take care of
+      #       them
+      discard
     elif sfThread in s.flags:
       structs.threadvars.add s
     elif sfGlobal in s.flags:
