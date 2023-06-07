@@ -187,13 +187,8 @@ proc newProc(globals: PGlobals, module: BModule, procDef: PNode,
     extraIndent: int(procDef != nil))
   if procDef != nil: result.prc = procDef[namePos].sym
 
-proc initProcOptions(module: BModule): TOptions =
-  result = module.config.options
-  if sfSystemModule in module.module.flags:
-    result.excl(optStackTrace)
-
 proc newInitProc(globals: PGlobals, module: BModule): PProc =
-  result = newProc(globals, module, nil, initProcOptions(module))
+  result = newProc(globals, module, nil, {})
 
 const
   MappedToObject = {tyObject, tyArray, tyTuple, tyOpenArray,
@@ -2579,18 +2574,11 @@ proc genHeader*(): Rope =
   """.unindent.format(VersionAsString))
 
 proc genModule(p: PProc, n: PNode) =
-  if optStackTrace in p.options:
-    p.body.add(frameCreate(p,
-        makeJSString("module " & p.module.module.name.s),
-        makeJSString(toFilenameOption(p.config, p.module.module.info.fileIndex, foStacktrace))))
   var transformedN = transformStmt(p.module.graph, p.module.idgen, p.module.module, n)
   transformedN = canonicalizeWithInject(p.module.graph, p.module.idgen,
                                         p.module.module, transformedN, {})
 
   genStmt(p, transformedN)
-
-  if optStackTrace in p.options:
-    p.body.add(frameDestroy(p))
 
 proc genTopLevelProcedure*(globals: PGlobals, m: BModule, prc: PSym) =
   var p = newInitProc(globals, m)
