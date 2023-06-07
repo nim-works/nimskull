@@ -236,7 +236,7 @@ proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
       scan(n[^1], structs)
     of nkConv, nkCast, nkHiddenStdConv, nkHiddenSubConv:
       scan(n[1], structs)
-    of nkWithoutSons, callableDefs:
+    of nkWithoutSons, callableDefs, nkTypeSection, nkConstSection, nkConstDef:
       discard "ignore"
     else:
       for it in n.items:
@@ -280,7 +280,8 @@ proc generateModuleDestructor(graph: ModuleGraph, m: Module): PNode =
   ## Generates the body for the destructor procedure of module `m` (also
   ## referred to as the 'de-init' procedure).
   result = newNode(nkStmtList)
-  for s in m.structs.globals.items:
+  for i in countdown(m.structs.globals.high, 0):
+    let s = m.structs.globals[i]
     if hasDestructor(s.typ):
       result.add genDestroy(graph, m.idgen, m.sym, newSymNode(s))
 
@@ -340,9 +341,9 @@ proc changeOwner(n: PNode, newOwner: PSym) =
     # procedure.
     # XXX: ^^ this is limitation of the lambda-lifting pass
     discard
-  of nkWithoutSons:
+  of nkWithoutSons, nkTypeSection:
     discard "ignore"
-  of nkWithSons - entityDefs:
+  of nkWithSons - entityDefs - nkTypeSection:
     for it in n.items:
       changeOwner(it, newOwner)
 
