@@ -382,7 +382,7 @@ func initEntityDict(tree: MirTree, owner: PSym): EntityDict =
         of mnkTemp:
           entity.typ
         of mnkGlobal:
-          if sfPure in entity.sym.flags:
+          if entity.sym.owner.kind != skModule:
             # we're not responsible for ensuring destruction of globals
             # defined inside procedures
             # XXX: remove this special case once ``jsgen`` properly removes
@@ -1306,13 +1306,14 @@ proc deferGlobalDestructors(tree: MirTree, g: ModuleGraph, idgen: IdGenerator,
   ## Defers a destructor call for each global defined in `tree`.
   ##
   ## XXX: remove this procedure once the JavaScript backend properly extracts
-  ##      pure globals
+  ##      pure globals from routines
   for i, n in tree.pairs:
     case n.kind
     of mnkDef:
       let def = tree[i+1]
       if def.kind == mnkGlobal and
-         def.sym.flags * {sfPure, sfThread} == {sfPure} and
+         sfThread notin def.sym.flags and
+         def.sym.owner.kind != skModule and
          hasDestructor(def.sym.typ):
         g.globalDestructors.add (def.sym.itemId.module,
                                  genDestroy(g, idgen, owner, newSymNode(def.sym)))

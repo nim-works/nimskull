@@ -100,7 +100,8 @@ proc rewriteGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
     case n.kind
     of DefNodes:
       let def = i + 1
-      if body[def].kind == mnkGlobal and sfPure notin body[def].sym.flags and
+      if body[def].kind == mnkGlobal and
+        body[def].sym.owner.kind == skModule and
         (not outermost or depth == 1):
         let
           sym = body[def].sym
