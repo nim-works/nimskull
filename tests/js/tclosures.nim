@@ -5,10 +5,16 @@ discard """
 import random, strutils
 const consolePrefix = "jsCallbacks"
 
-asm """
-    var callback = []
-    function regCallback (fn) { callback.push (fn); }
-    function runCallbacks () {
+var callback {.importc.}: JsRoot
+
+proc regCallback_ex(fn: JsRoot) {.exportc: "regCallback", asmNoStackFrame.} =
+  ## Simulates a function that is defined at the JavaScript side.
+  asm """
+    `callback`.push (`fn`);
+  """
+
+proc runCallbacks(): cstring {.asmNoStackFrame.} =
+  asm """
         var result = "\n"
         var n = 0
         for (var fn in callback) {
@@ -18,17 +24,15 @@ asm """
             result += "\n"
         }
         return result
-    }
-    function print (text) { console.log (text); }
-"""
+  """
 
-proc consoleprint (str:cstring): void {.importc: "print", nodecl.}
-proc print* (a: varargs[string, `$`]) = consoleprint "$1: $2" % [consolePrefix, join(a, " ")]
+proc print* (a: varargs[string, `$`]) = log "$1: $2" % [consolePrefix, join(a, " ")]
 
 type CallbackProc {.importc.} = proc () : cstring
 
+# import the JavaScript procedure that has no knowledge of NimSkull
+# closures:
 proc regCallback (fn:CallbackProc) {.importc.}
-proc runCallbacks ():cstring {.importc.}
 
 proc `*` (s:string, n:Natural) : string = s.repeat(n)
 
