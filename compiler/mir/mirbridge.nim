@@ -126,6 +126,11 @@ proc rewriteGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
               buf.add MirNode(kind: mnkConsume, typ: typ)
             buf.add MirNode(kind: mnkInit)
 
+        elif sym.typ.kind in {tyVar, tyLent}:
+          # XXX: this works around an issue in ``transf``, where initialization
+          #      of the view is disjoint from its definition. Fix the bug and
+          #      then remove this special case
+          changes.remove()
         elif sfImportc notin sym.flags and
              {lfDynamicLib, lfNoDecl} * sym.loc.flags == {}:
           # XXX: ^^ re-think this condition from first principles. Right now,
