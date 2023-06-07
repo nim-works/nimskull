@@ -241,7 +241,6 @@ proc genIf(p: BProc, n: PNode) =
   stmtBlock(p, it[1])
 
 proc genReturnStmt(p: BProc, t: PNode) =
-  if nfPreventCg in t.flags: return
   p.flags.incl beforeRetNeeded
   genLineDir(p, t)
   if (t[0].kind != nkEmpty): genStmts(p, t[0])
@@ -876,9 +875,9 @@ proc asgnFieldDiscriminant(p: BProc, e: PNode) =
   initLocExpr(p, e[0], a)
   getTemp(p, a.t, tmp)
   expr(p, e[1], tmp)
-  genAssignment(p, a, tmp, {})
+  genAssignment(p, a, tmp)
 
-proc genAsgn(p: BProc, e: PNode, fastAsgn: bool) =
+proc genAsgn(p: BProc, e: PNode) =
   if e[0].kind == nkSym and sfGoto in e[0].sym.flags:
     genLineDir(p, e)
     genGotoVar(p, e[1])
@@ -894,7 +893,6 @@ proc genAsgn(p: BProc, e: PNode, fastAsgn: bool) =
     a.flags.incl {lfEnforceDeref, lfPrepareForMutation}
     expr(p, le, a)
     a.flags.excl lfPrepareForMutation
-    if fastAsgn: a.flags.incl lfNoDeepCopy
     assert(a.t != nil)
     genLineDir(p, ri)
     loadInto(p, le, ri, a)
