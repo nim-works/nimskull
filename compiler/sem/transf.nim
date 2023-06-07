@@ -622,45 +622,6 @@ proc transformConv(c: PTransf, n: PNode): PNode =
   else:
     result = transformSons(c, n)
 
-type
-  TPutArgInto = enum
-    paDirectMapping, paFastAsgn, paFastAsgnTakeTypeFromArg
-    paVarAsgn, paComplexOpenarray
-
-proc putArgInto(arg: PNode, formal: PType): TPutArgInto =
-  # This analyses how to treat the mapping "formal <-> arg" in an
-  # inline context.
-  if formal.kind == tyTypeDesc: return paDirectMapping
-  if skipTypes(formal, abstractInst).kind in {tyOpenArray, tyVarargs}:
-    case arg.kind
-    of nkStmtListExpr:
-      return paComplexOpenarray
-    of nkBracket:
-      return paFastAsgnTakeTypeFromArg
-    else:
-      # XXX incorrect, causes #13417 when `arg` has side effects.
-      return paDirectMapping
-  case arg.kind
-  of nkEmpty..nkNilLit:
-    result = paDirectMapping
-  of nkDotExpr, nkDerefExpr, nkHiddenDeref, nkAddr, nkHiddenAddr:
-    result = putArgInto(arg[0], formal)
-  of nkCurly, nkBracket:
-    for i in 0..<arg.len:
-      if putArgInto(arg[i], formal) != paDirectMapping:
-        return paFastAsgn
-    result = paDirectMapping
-  of nkPar, nkTupleConstr, nkObjConstr:
-    for i in 0..<arg.len:
-      let a = if arg[i].kind == nkExprColonExpr: arg[i][1]
-              else: arg[0]
-      if putArgInto(a, formal) != paDirectMapping:
-        return paFastAsgn
-    result = paDirectMapping
-  else:
-    if skipTypes(formal, abstractInst).kind in {tyVar, tyLent}: result = paVarAsgn
-    else: result = paFastAsgn
-
 proc findWrongOwners(c: PTransf, n: PNode) =
   if n.kind == nkVarSection:
     let x = n[0][0]
@@ -742,38 +703,34 @@ proc transformFor(c: PTransf, n: PNode): PNode =
     # generate access statements for the parameters (unless they are constant)
     pushTransCon(c, newC)
     for i in 1..<call.len:
-      var arg = transform(c, call[i])
-      let ff = skipTypes(iter.typ, abstractInst)
-      # can happen for 'nim check':
-      if i >= ff.n.len: return result
-      var formal = ff.n[i].sym
-      let pa = putArgInto(arg, formal.typ)
-      case pa
-      of paDirectMapping:
+      let
+        arg = transform(c, call[i])
+        ff = skipTypes(iter.typ, abstractInst)
+        formal = ff.n[i].sym
+
+      if formal.typ.kind == tyTypeDesc:
         idNodeTablePut(newC.mapping, formal, arg)
-      of paFastAsgn, paFastAsgnTakeTypeFromArg:
-        var t = formal.typ
-        if pa == paFastAsgnTakeTypeFromArg:
-          t = arg.typ
-        elif formal.ast != nil and formal.ast.typ.destructor != nil and t.destructor == nil:
-          t = formal.ast.typ # better use the type that actually has a destructor.
-        elif t.destructor == nil and arg.typ.destructor != nil:
-          t = arg.typ
-        # generate a temporary and produce an assignment statement:
-        let temp = newTemp(c, t, formal.info)
-        v.add newIdentDefs(temp)
-        stmtList.add(newAsgnStmt(c, nkFastAsgn, temp, arg))
-        idNodeTablePut(newC.mapping, formal, temp)
-      of paVarAsgn:
-        assert(skipTypes(formal.typ, abstractInst).kind in {tyVar})
-        idNodeTablePut(newC.mapping, formal, arg)
-        # XXX BUG still not correct if the arg has a side effect!
-      of paComplexOpenarray:
-        # arrays will deep copy here (pretty bad).
-        let temp = newTemp(c, arg.typ, formal.info)
-        v.add newIdentDefs(temp)
-        stmtList.add(newAsgnStmt(c, nkFastAsgn, temp, arg))
-        idNodeTablePut(newC.mapping, formal, temp)
+        continue
+
+      # put all arguments, even literals, into locations. This makes sure that:
+      # - the left-to-right evaluation order is enforced
+      # - the iterator's body can take the address of all its parameters
+      let temp = newTemp(c, formal.typ, formal.info)
+      v.add newIdentDefs(temp, arg)
+      idNodeTablePut(newC.mapping, formal, temp)
+
+      case formal.typ.skipTypes(abstractInst - {tySink}).kind
+      of tySink:
+        # don't prevent moving the argument into the temporary; those are
+        # exactly the semantics we want for sink parameters
+        discard
+      of tyVar, tyLent, tyOpenArray:
+        discard "cursors for views don't make sense"
+      else:
+        # we don't need a full copy, a. This is not only an optimization --
+        # it's also required for preventing the argument from being moved
+        # into the temporary
+        temp.sym.flags.incl sfCursor
 
     let body = transformBody(c.graph, c.idgen, iter, true)
     pushInfoContext(c.graph.config, n.info)
