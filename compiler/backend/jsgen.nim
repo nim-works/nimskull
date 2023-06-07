@@ -140,6 +140,10 @@ type
     extraIndent: int
     declaredGlobals: IntSet
 
+const
+  sfModuleInit* = sfMainModule
+    ## the procedure is the 'init' procedure of a module
+
 template config*(p: PProc): ConfigRef = p.module.config
 
 proc indentLine(p: PProc, r: Rope): Rope =
@@ -2270,10 +2274,8 @@ proc frameDestroy(p: PProc): Rope =
 
 proc genProcBody(p: PProc, prc: PSym): Rope =
   if hasFrameInfo(p):
-    # HACK: the orchestrator sets the ``sfGlobal`` flag for init procedures,
-    #        and we check for it there in order to emit a special frame
     let name =
-      if sfGlobal in prc.flags:
+      if sfModuleInit in prc.flags:
         makeJSString("module " & p.module.module.name.s)
       else:
         makeJSString(prc.owner.name.s & '.' & prc.name.s)
