@@ -434,12 +434,10 @@ proc newTupleAccess(n: PNode, formal: PType, i: Natural): PNode =
     result = newTreeIT(nkHiddenAddr, n.info, formal): result
 
 proc transformYieldAsgn(c: PTransf, dest, rhs: PNode, result: PNode) =
-  ## Transforms an implicit assignment to the for-loop variables, generating
-  ## code for tuple unpacking, if necessary
-
-  template addTransf(n: PNode) =
-    result.add transform(c, n)
-
+  ## Given a reciever (`dest`) and a source expression (`rhs`; the expression
+  ## appearing in a ``yield`` statement), produces a sequence of identdefs for
+  ## assigning the, potentially unpacked, source expression to the
+  ## destination(s). The identdefs are then appended to `result`.
   case dest.kind
   of nkForStmt, nkVarTuple:
     # ignore conversions when unpacking
@@ -457,7 +455,7 @@ proc transformYieldAsgn(c: PTransf, dest, rhs: PNode, result: PNode) =
         tmp = newTemp(c, rhs.typ, rhs.info)
         tupTyp = rhs.typ.skipTypes({tyGenericInst, tyAlias, tyLent, tyVar})
 
-      addTransf newTreeI(nkLetSection, rhs.info, [newIdentDefs(tmp, rhs)])
+      result.add newIdentDefs(tmp, transform(c, rhs))
 
       for i in 0..<tupTyp.len:
         transformYieldAsgn(c, dest[i],
@@ -466,7 +464,7 @@ proc transformYieldAsgn(c: PTransf, dest, rhs: PNode, result: PNode) =
 
   of nkSym, nkDotExpr:
     # ``nkDotExpr`` occurs for yields from closure iterators
-    addTransf newAsgnStmt(dest, rhs)
+    result.add newIdentDefs(dest, transform(c, rhs))
   else:
     unreachable()
 
@@ -487,21 +485,31 @@ proc transformYield(c: PTransf, n: PNode): PNode =
       # tuple unpacking is used
       c.transCon.forStmt
 
-  transformYieldAsgn(c, dest, e, result)
+  let section = newNodeI(nkVarSection, n.info)
+  transformYieldAsgn(c, dest, e, section)
+
+  # note: it's important that the var section is also processed by
+  # ``introduceNewLocalVars``
+  result.add(section)
+  result.add(c.transCon.forLoopBody)
 
   inc(c.transCon.yieldStmts)
-  if c.transCon.yieldStmts <= 1:
-    # common case
-    result.add(c.transCon.forLoopBody)
-  else:
+  if c.transCon.yieldStmts > 1:
     # we need to introduce new local variables:
-    result.add(introduceNewLocalVars(c, c.transCon.forLoopBody))
+    result = introduceNewLocalVars(c, result)
 
   for idx in 0 ..< result.len:
     var changeNode = result[idx]
     changeNode.info = c.transCon.forStmt.info
     for i, child in changeNode:
       child.info = changeNode.info
+
+  # wrap the inlined body in a block. This ensures that the lifetime of locals
+  # defined inside the inlined body doesn't extend past the body. The for-loop
+  # body was transformed already, so this doesn't interfere with ``break``
+  # target rewriting
+  result = newTreeI(nkBlockStmt, n.info):
+    [newSymNode(newLabel(c, n)), result]
 
 proc transformAddr(c: PTransf, n: PNode): PNode =
   result = transformSons(c, n)
@@ -718,19 +726,20 @@ proc transformFor(c: PTransf, n: PNode): PNode =
 
     let iter = call[0].sym
 
-    var v = newNodeI(nkVarSection, n.info)
-    for i in 0..<n.len - 2:
-      if n[i].kind == nkVarTuple:
-        for j in 0..<n[i].len-1:
-          v.add newIdentDefs(copyTree(n[i][j])) # declare new vars
-      else:
-        if n[i].kind == nkSym and isSimpleIteratorVar(c, iter):
-          incl n[i].sym.flags, sfCursor
-        v.add newIdentDefs(copyTree(n[i])) # declare new vars
-    stmtList.add(v)
+    if isSimpleIteratorVar(c, iter):
+      # the iterator only yields locations that it owns -> the for-vars can be cursors
+      # XXX: maybe leave this to cursor inference instead?
+      for it in forLoopDefs(n):
+        case it.kind
+        of nkSym:     incl it.sym.flags, sfCursor
+        of nkDotExpr: discard "lifted into environment; ignore"
+        else:         unreachable()
 
     # this can fail for 'nimsuggest' and 'check':
     if iter.kind != skIterator: return result
+
+    var v = newNode(nkVarSection)
+      ## var section for parameter handling; will be discarded if empty
 
     # Bugfix: inlined locals belong to the invoking routine, not to the invoked
     # iterator!
@@ -774,6 +783,10 @@ proc transformFor(c: PTransf, n: PNode): PNode =
         v.add newIdentDefs(temp)
         stmtList.add(newAsgnStmt(c, nkFastAsgn, temp, arg))
         idNodeTablePut(newC.mapping, formal, temp)
+
+    if v.len > 0:
+      # prepend the var section to the statement list
+      stmtList.sons.insert(v, 0)
 
     let body = transformBody(c.graph, c.idgen, iter, true)
     pushInfoContext(c.graph.config, n.info)
