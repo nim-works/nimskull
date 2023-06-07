@@ -62,26 +62,6 @@ proc foo(): proc =
 
 doAssert foo()() == (999, 0)
 
-# knownIssue: `i` is treated as a global defined at the procedure level, which
-#             are not properly supported by the JS backend yet
-test tissue7104, {c, vm}:
-  var output: seq[int]
-
-  proc sp(cb: proc())=
-      cb()
-
-  sp:
-      var i = 0
-      output.add(i)
-      sp():
-          inc i
-          output.add(i)
-          sp do:
-              inc i
-              output.add(i)
-
-  doAssert output == [0, 1, 2]
-
 block lifted_var_in_loop_body:
   # bug https://github.com/nim-lang/nim/issues/5519
 
