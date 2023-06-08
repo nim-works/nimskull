@@ -250,11 +250,10 @@ type
     errorMax*: int ## Maximum number of errors before compilation will be terminated
     maxLoopIterationsVM*: int ## VM: max iterations of all loops
 
-    packageCache*: StringTableRef
+    packageCache*: StringTableRef      ## absolute path -> absolute path
 
     jsonBuildFile*: AbsoluteFile
     nimStdlibVersion*: NimVer
-    moduleOverrides*: StringTableRef
     cfileSpecificOptions*: StringTableRef ## File specific compilation options for C backend.
     ## Modified by `{.localPassc.}`
     inputMode*: ProjectInputMode    ## how the main module is sourced
@@ -945,7 +944,6 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
     m: initMsgConfig(),
     headerFile: "",
     packageCache: newPackageCache(),
-    moduleOverrides: newStringTable(modeStyleInsensitive),
     cfileSpecificOptions: newStringTable(modeCaseSensitive),
     inputMode: pimFile,
     projectMainIdx: FileIndex(0'i32), # the canonical path id of the main module
@@ -1356,15 +1354,6 @@ proc rawFindFile2(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
       return canonicalizePath(conf, result)
   result = AbsoluteFile""
 
-proc patchModule(conf: ConfigRef, result: var AbsoluteFile) =
-  ## If there is a known module override for a given
-  ## `package/<name(result)>` replace result with new module override.
-  if not result.isEmpty and conf.moduleOverrides.len > 0:
-    let key = getPackageName(conf, result.string) & "_" & splitFile(result).name
-    if conf.moduleOverrides.hasKey(key):
-      let ov = conf.moduleOverrides[key]
-      if ov.len > 0: result = AbsoluteFile(ov)
-
 when not declared(isRelativeTo):
   proc isRelativeTo(path, base: string): bool =
     # pending #13212 use os.isRelativeTo
@@ -1416,7 +1405,6 @@ proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile
         result = rawFindFile2(conf, RelativeFile f)
         if result.isEmpty:
           result = rawFindFile2(conf, RelativeFile f.toLowerAscii)
-  patchModule(conf, result)
 
 proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFile =
   ## Return absolute path to the imported module `modulename`. Imported
@@ -1448,7 +1436,6 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
       result = AbsoluteFile currentPath / m
     if not fileExists(result):
       result = findFile(conf, m)
-  patchModule(conf, result)
 
 proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   ## Find configuration file for a current project
@@ -1493,19 +1480,36 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   return ""
 
 proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
-  ## Shows the canonical module import, e.g.: system, std/tables,
-  ## fusion/pointers, system/assertions, std/private/asciitables
-  var ret = getRelativePathFromConfigPath(conf, file, isTitle = true)
-  let dir = getNimbleFile(conf, $file).parentDir.AbsoluteDir
-  if not dir.isEmpty:
-    let relPath = relativeTo(file, dir)
-    if not relPath.isEmpty and (ret.isEmpty or relPath.string.len < ret.string.len):
-      ret = relPath
-  if ret.isEmpty:
-    ret = relativeTo(file, conf.projectPath)
-  result = ret.string
+  ## canonical module import filename, e.g.: system.nim, std/tables.nim,
+  ## system/assertions.nim, etc. Canonical module import filenames follow the
+  ## same rules as canonical imports (see `canonicalImport`), except the module
+  ## name is followed by a `.nim` file extension, and the directory separators
+  ## are OS specific.
+  let
+    desc = getPkgDesc(conf, file.string)
+    (_, moduleName, ext) = file.splitFile
+  if desc.pkgKnown and
+     desc.pkgFile != AbsoluteFile(conf.getNimbleFile(conf.projectFull.string)):
+    # we ignore the pkg root name for intra-package module imports, allows for
+    # easier pkg renames (without changing all files using canonical imports).
+    result = desc.pkgRootName
+    if desc.pkgSubpath != "":
+      result = result / desc.pkgSubpath
+  else:
+    result = desc.pkgSubpath
+  result = if result == "": moduleName else: result / moduleName
+  result = result.changeFileExt(ext) # since we lost it above
 
 proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile): string =
+  ## Shows the canonical module import, e.g.: system, std/tables,
+  ## fusion/pointers, system/assertions, std/private/asciitables
+  ## 
+  ## A canonical import path is:
+  ## 
+  ## - typically `pkgroot/pkgsubpath/module`
+  ## - if a module is at the base of a package, then `pkgroot/module`
+  ## - if a module is within the project's package, `pkgroot` is skipped like
+  ##   so `pkgsubpath/module` or `module` (if the module is at the package root).
   let ret = canonicalImportAux(conf, file)
   result = ret.nativeToUnixPath.changeFileExt("")
 
