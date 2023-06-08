@@ -1485,7 +1485,8 @@ proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
   let
     desc = getPkgDesc(conf, file.string)
     (_, moduleName, ext) = file.splitFile
-  if desc.pkgKnown:
+  if desc.pkgKnown and
+     AbsoluteFile(getNimbleFile(conf, conf.projectFull.string)) != desc.pkgFile:
     result = desc.pkgRootName
     if desc.pkgSubpath != "":
       result = result / desc.pkgSubpath
