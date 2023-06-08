@@ -93,19 +93,27 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
     pkgFile = getNimbleFile(conf, modulePath)
     (pkgFileRoot, pkgFileName, _) = pkgFile.splitFile
     pkgKnown = pkgFileName != ""
-    pkgRootName = if pkgKnown: pkgFileName else: "unknown"
-    pkgRoot = if pkgKnown: pkgFileRoot else: conf.projectPath.string
-    relativePath = relativePath(modulePath.parentDir, pkgRoot)
-    pkgSubpath = if relativePath == ".": "" else: relativePath
-    pkgName =
-      if pkgKnown and pkgSubpath == "": pkgRootName
-      else: pkgRootName & "@p" & mangle(pkgSubpath)
+
   result =
     if pkgKnown:
-      PkgDesc(pkgKnown: true, pkgFile: AbsoluteFile pkgFile)
+      PkgDesc(pkgKnown: true,
+              pkgFile: AbsoluteFile pkgFile,
+              pkgRootName: pkgFileName, pkgRoot: AbsoluteDir pkgFileRoot)
     else:
-      PkgDesc(pkgKnown: false)
-  result.pkgRootName = pkgRootName
-  result.pkgRoot = AbsoluteDir pkgRoot
-  result.pkgSubpath = pkgSubpath
-  result.pkgName = pkgName
+      PkgDesc(pkgKnown: false,
+              pkgRootName: "unknown",   pkgRoot: conf.projectPath)
+
+  result.pkgSubpath =
+    block:
+      let relativePath = relativePath(modulePath.parentDir,
+                                      result.pkgRoot.string)
+      if relativePath == ".":
+        ""
+      else:
+        relativePath
+
+  result.pkgName =
+    if pkgKnown and result.pkgSubpath == "":
+      result.pkgRootName
+    else:
+      result.pkgRootName & "@p" & mangle(result.pkgSubpath)
