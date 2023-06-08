@@ -107,7 +107,7 @@ const
     wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
     wThread, wAsmNoStackFrame,
     wRaises, wLocks, wTags, wEffectsOf,
-    wGcSafe, wCodegenDecl, wNoInit, wCompileTime}
+    wGcSafe, wNoInit, wCompileTime}
   typePragmas* = declPragmas + {wMagic, wAcyclic,
     wPure, wHeader, wCompilerProc, wCore, wFinal, wSize, wShallow,
     wIncompleteStruct, wCompleteStruct, wByCopy, wByRef,
@@ -118,7 +118,7 @@ const
   varPragmas* = declPragmas + {wVolatile, wRegister, wThreadVar,
     wMagic, wHeader, wCompilerProc, wCore, wDynlib,
     wNoInit, wCompileTime, wGlobal,
-    wGensym, wInject, wCodegenDecl,
+    wGensym, wInject,
     wGuard, wGoto, wCursor, wNoalias, wAlign}
   constPragmas* = declPragmas + {wHeader, wMagic,
     wGensym, wInject,
@@ -283,12 +283,6 @@ proc getOptionalStrLit(c: PContext, n: PNode, defaultStr: string): PNode =
   ## will error out if an option's value expression produces an error
   if n.kind in nkPragmaCallKinds: result = getStrLitNode(c, n)
   else: result = newStrNode(defaultStr, n.info)
-
-proc processCodegenDecl(c: PContext, n: PNode, sym: PSym): PNode =
-  ## produces (mutates) sym using the `TSym.constraint` field (xxx) to store
-  ## the string literal from `n`
-  result = getStrLitNode(c, n)
-  sym.constraint = result
 
 proc processMagic(c: PContext, n: PNode, s: PSym): PNode =
   ## produces an error if `n` is not a pragmacall kinds, otherwise `n` is
@@ -1324,8 +1318,6 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
       of wNoInit:
         result = noVal(c, it)
         incl(sym.flags, sfNoInit)
-      of wCodegenDecl:
-        result = processCodegenDecl(c, it, sym)
       of wStackTrace, wLineTrace:
         result = processOption(c, it, sym.options)
       of FirstCallConv..LastCallConv:
