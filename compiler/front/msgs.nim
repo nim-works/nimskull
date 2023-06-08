@@ -153,9 +153,7 @@ proc toFilenameOption*(conf: ConfigRef, fileIdx: FileIndex, opt: FilenameOption)
   of foAbs: result = toFullPath(conf, fileIdx)
   of foRelProject: result = toProjPath(conf, fileIdx)
   of foCanonical:
-    let
-      absPath = toFullPath(conf, fileIdx)
-      (_, _, ext) = absPath.splitFile
+    let absPath = toFullPath(conf, fileIdx)
     result = canonicalImportAux(conf, absPath.AbsoluteFile)
   of foName: result = toProjPath(conf, fileIdx).lastPathPart
   of foLegacyRelProj:
