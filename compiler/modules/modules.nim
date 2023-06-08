@@ -53,7 +53,7 @@ template getModuleIdent(graph: ModuleGraph, filename: AbsoluteFile): PIdent =
 
 template packageId(): untyped {.dirty.} = ItemId(module: PackageModuleId, item: int32(fileIdx))
 
-proc getPackage2(graph: ModuleGraph, fileIdx: FileIndex): PSym =
+proc getPackage(graph: ModuleGraph, fileIdx: FileIndex): PSym =
   ## returns the package symbol (skPackage) for yet to be defined module for
   ## `fileIdx`
   let
@@ -85,11 +85,7 @@ proc getPackage2(graph: ModuleGraph, fileIdx: FileIndex): PSym =
         existingSubPkgSym
 
 proc partialInitModule(result: PSym; graph: ModuleGraph; fileIdx: FileIndex; filename: AbsoluteFile) =
-  let packSym =
-    when true:
-      getPackage2(graph, fileIdx)
-    else:
-      getPackage(graph, fileIdx)
+  let packSym = getPackage(graph, fileIdx)
   result.owner = packSym
   result.position = int fileIdx
 
@@ -209,11 +205,7 @@ proc compileProject*(graph: ModuleGraph; projectFileIdx = InvalidFileIdx) =
   let projectFile = if projectFileIdx == InvalidFileIdx: conf.projectMainIdx else: projectFileIdx
   conf.projectMainIdx2 = projectFile
 
-  let packSym =
-    when true:
-      getPackage2(graph, projectFile)
-    else:
-      getPackage(graph, projectFile)
+  let packSym = getPackage(graph, projectFile)
   graph.config.mainPackageId = packSym.getnimblePkgId
   graph.importStack.add projectFile
 
