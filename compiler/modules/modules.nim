@@ -96,10 +96,6 @@ proc partialInitModule(result: PSym; graph: ModuleGraph; fileIdx: FileIndex; fil
     #   c.moduleScope.addSym(module) # a module knows itself
     # in sem.nim, around line 527
 
-  if graph.modulesPerPackage.getOrDefault(packSym.itemId).data.len == 0:
-    graph.modulesPerPackage[packSym.itemId] = newStrTable()
-  graph.modulesPerPackage[packSym.itemId].strTableAdd(result)
-
 proc newModule(graph: ModuleGraph; fileIdx: FileIndex): PSym =
   let filename = AbsoluteFile toFullPath(graph.config, fileIdx)
   # We cannot call ``newSym`` here, because we have to circumvent the ID
