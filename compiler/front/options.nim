@@ -1481,12 +1481,17 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
 
 proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
   ## canonical module import filename, e.g.: system.nim, std/tables.nim,
-  ## system/assertions.nim, etc
+  ## system/assertions.nim, etc. Canonical module import filenames follow the
+  ## same rules as canonical imports (see `canonicalImport`), except the module
+  ## name is followed by a `.nim` file extension, and the directory separators
+  ## are OS specific.
   let
     desc = getPkgDesc(conf, file.string)
     (_, moduleName, ext) = file.splitFile
   if desc.pkgKnown and
-     AbsoluteFile(getNimbleFile(conf, conf.projectFull.string)) != desc.pkgFile:
+     desc.pkgFile != AbsoluteFile(conf.getNimbleFile(conf.projectFull.string)):
+    # we ignore the pkg root name for intra-package module imports, allows for
+    # easier pkg renames (without changing all files using canonical imports).
     result = desc.pkgRootName
     if desc.pkgSubpath != "":
       result = result / desc.pkgSubpath
@@ -1498,6 +1503,13 @@ proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
 proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile): string =
   ## Shows the canonical module import, e.g.: system, std/tables,
   ## fusion/pointers, system/assertions, std/private/asciitables
+  ## 
+  ## A canonical import path is:
+  ## 
+  ## - typically `pkgroot/pkgsubpath/module`
+  ## - if a module is at the base of a package, then `pkgroot/module`
+  ## - if a module is within the project's package, `pkgroot` is skipped like
+  ##   so `pkgsubpath/module` or `module` (if the module is at the package root).
   let ret = canonicalImportAux(conf, file)
   result = ret.nativeToUnixPath.changeFileExt("")
 
