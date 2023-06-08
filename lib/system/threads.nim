@@ -175,6 +175,11 @@ template threadProcWrapperBody(closure: untyped): untyped =
   # However this is doomed to fail, because we already unmapped every heap
   # page!
 
+  when compileOption("gc", "orc"):
+    # run a full garbage collection pass in order to free all cells
+    # kept alive only through reference cycles
+    GC_fullCollect()
+
   # mark as not running anymore:
   thrd.core = nil
   thrd.dataFn = nil
