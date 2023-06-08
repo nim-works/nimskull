@@ -98,7 +98,7 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
     relativePath = relativePath(modulePath.parentDir, pkgRoot)
     pkgSubpath = if relativePath == ".": "" else: relativePath
     pkgName =
-      if pkgKnown or pkgSubpath == "": pkgRootName
+      if pkgKnown and pkgSubpath == "": pkgRootName
       else: pkgRootName & "@p" & mangle(pkgSubpath)
   result =
     if pkgKnown:
