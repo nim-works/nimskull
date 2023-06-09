@@ -118,7 +118,7 @@ const
   varPragmas* = declPragmas + {wVolatile, wRegister, wThreadVar,
     wMagic, wHeader, wCompilerProc, wCore, wDynlib,
     wNoInit, wCompileTime, wGlobal,
-    wGensym, wInject, wCodegenDecl,
+    wGensym, wInject,
     wGuard, wGoto, wCursor, wNoalias, wAlign}
   constPragmas* = declPragmas + {wHeader, wMagic,
     wGensym, wInject,

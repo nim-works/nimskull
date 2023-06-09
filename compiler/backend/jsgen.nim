@@ -1678,18 +1678,13 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
     varName = mangleName(p.module, v)
     useGlobalPragmas = sfGlobal in v.flags and ({sfPure, sfThread} * v.flags != {})
 
-  if v.constraint.isNil:
+  if true:
     if useGlobalPragmas:
       lineF(p, "if (globalThis.$1 === undefined) {$n", varName)
       varCode = "globalThis." & $varName
       inc p.extraIndent
     else:
       varCode = "var $2"
-  else:
-    # Is this really a thought through feature?  this basically unused
-    # feature makes it impossible for almost all format strings in
-    # this function to be checked at compile time.
-    varCode = v.constraint.strVal
 
   if n.kind == nkEmpty:
     if not isIndirect(v) and

@@ -754,9 +754,6 @@ proc finishTypeDescriptions(m: BModule) =
     inc(i)
   m.typeStack.setLen 0
 
-template cgDeclFrmt*(s: PSym): string =
-  s.constraint.strVal
-
 proc genProcHeader(m: BModule, prc: PSym): Rope =
   var
     rettype, params: Rope
@@ -777,11 +774,8 @@ proc genProcHeader(m: BModule, prc: PSym): Rope =
   let name = prc.loc.r
   # careful here! don't access ``prc.ast`` as that could reload large parts of
   # the object graph!
-  if prc.constraint.isNil:
-    result.addf("$1($2, $3)$4",
-         [rope(CallingConvToStr[prc.typ.callConv]), rettype, name, params])
-  else:
-    result = runtimeFormat(prc.cgDeclFrmt, [rettype, name, params])
+  result.addf("$1($2, $3)$4",
+        [rope(CallingConvToStr[prc.typ.callConv]), rettype, name, params])
 
 # ------------------ type info generation -------------------------------------
 

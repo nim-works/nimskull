@@ -7088,37 +7088,26 @@ calling syntax: ``obj.method(arg)``.
 CodegenDecl pragma
 ------------------
 
-The `codegenDecl` pragma can be used to directly influence Nim's code
-generator. It receives a format string that determines how the variable
-or proc is declared in the generated code.
+.. warning::
+  This pragma is deprecated and going to be removed.
 
-For variables, $1 in the format string represents the type of the variable
-and $2 is the name of the variable.
-
-The following Nim code:
-
-.. code-block:: nim
-  var
-    a {.codegenDecl: "$# progmem $#".}: int
-
-will generate this C code:
-
-.. code-block:: c
-  int progmem a
-
-For procedures, $1 is the return type of the procedure, $2 is the name of
-the procedure, and $3 is the parameter list.
+The `codegenDecl` pragma can be used to directly influence |NimSkull|'s JavaScript
+code generator. It receives a format string that determines how the proc
+is declared in the generated code: $1 is the return type of the procedure,
+$2 its name, and $3 is the parameter list.
 
 The following nim code:
 
 .. code-block:: nim
-  proc myinterrupt() {.codegenDecl: "__interrupt $# $#$#".} =
-    echo "realistic interrupt handler"
+  proc p() {.codegenDecl: "async function $2($3)".} =
+    echo "procedure body goes here"
 
 will generate this code:
 
-.. code-block:: c
-  __interrupt void myinterrupt()
+.. code-block:: js
+  async function p() {
+    // ...
+  }
 
 
 compile-time define pragmas
