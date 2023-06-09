@@ -7091,7 +7091,7 @@ CodegenDecl pragma
 .. warning::
   This pragma is deprecated and going to be removed.
 
-The `codegenDecl` pragma can be used to directly influence Nim's JavaScript
+The `codegenDecl` pragma can be used to directly influence |NimSkull|'s JavaScript
 code generator. It receives a format string that determines how the proc
 is declared in the generated code: $1 is the return type of the procedure,
 $2 its name, and $3 is the parameter list.
