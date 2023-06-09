@@ -1039,6 +1039,9 @@ template applyIt*(varSeq, op: untyped) =
   ## expression. The expression has to return the same type as the elements
   ## of the sequence you are mutating.
   ##
+  ## In order for a type T to be used with `applyIt`, an `mitems` iterator
+  ## of the form ``iterator mitems(x: var T): var ...`` must be present.
+  ##
   ## **See also:**
   ## * `apply proc<#apply,openArray[T],proc(T)_2>`_
   ## * `mapIt template<#mapIt.t,typed,untyped>`_
@@ -1048,10 +1051,11 @@ template applyIt*(varSeq, op: untyped) =
     nums.applyIt(it * 3)
     assert nums[0] + nums[3] == 15
 
-  for i in low(varSeq) .. high(varSeq):
-    let it {.inject.} = varSeq[i]
-    varSeq[i] = op
-
+  for v in mitems(varSeq):
+    # we do **not** want to allow mutations of `varSeq` through `it` here, so
+    # create a temporary copy first
+    let it {.inject.} = v
+    v = op
 
 template newSeqWith*(len: int, init: untyped): untyped =
   ## Creates a new `seq` of length `len`, calling `init` to initialize
