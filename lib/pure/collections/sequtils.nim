@@ -89,27 +89,16 @@ when defined(nimHasEffectsOf):
 else:
   {.pragma: effectsOf.}
 
-macro evalOnceAs(expAlias, exp: untyped,
-                 letAssigneable: static[bool]): untyped =
-  ## Injects `expAlias` in caller scope, to avoid bugs involving multiple
-  ## substitution in macro arguments such as
-  ## https://github.com/nim-lang/Nim/issues/7187.
-  ## `evalOnceAs(myAlias, myExp)` will behave as `let myAlias = myExp`
-  ## except when `letAssigneable` is false (e.g. to handle openArray) where
-  ## it just forwards `exp` unchanged.
-  expectKind(expAlias, nnkIdent)
-  var val = exp
-
-  result = newStmtList()
-  # If `exp` is not a symbol we evaluate it once here and then use the temporary
-  # symbol as alias
-  if exp.kind != nnkSym and letAssigneable:
-    val = genSym()
-    result.add(newLetStmt(val, exp))
-
-  result.add(
-    newProc(name = genSym(nskTemplate, $expAlias), params = [getType(untyped)],
-      body = val, procType = nnkTemplateDef))
+iterator mapIter[T; U; V](src: U, dest: var seq[V]): T =
+  ## Helper iterator for implementing ``mapIt``. The destination sequence is
+  ## pre-allocated here, using the length provided by `src`.
+  let L = src.len
+  dest.newSeq(L)
+  # while we could yield an index + item pair, we do not, as that would currently
+  # disable the cursor optimization for the for-var at the callsite (which we
+  # really don't want to miss here)
+  for it in items(src):
+    yield it
 
 func concat*[T](seqs: varargs[seq[T]]): seq[T] =
   ## Takes several sequences' items and returns them inside a new sequence.
@@ -991,46 +980,34 @@ template mapIt*(s: typed, op: untyped): untyped =
       strings = nums.mapIt($(4 * it))
     assert strings == @["4", "8", "12", "16"]
 
-  type OutType = typeof((
-    block:
-      var it{.inject.}: typeof(items(s), typeOfIter);
-      op), typeOfProc)
+  type
+    InType  = typeof(items(s), typeOfIter)
+    OutType = typeof((
+      block:
+        var it{.inject.}: InType;
+        op), typeOfProc)
+  # we cannot use normal overloading instead of the 'when' here, as the that
+  # force `op` to be ``typed``, which is what we don't want it to be
   when OutType is not (proc):
-    # Here, we avoid to create closures in loops.
-    # This avoids https://github.com/nim-lang/Nim/issues/12625
-    when compiles(s.len):
-      block: # using a block avoids https://github.com/nim-lang/Nim/issues/8580
-
-        # BUG: `evalOnceAs(s2, s, false)` would lead to C compile errors
-        # (`error: use of undeclared identifier`) instead of Nim compile errors
-        evalOnceAs(s2, s, compiles((let _ = s)))
-
-        var i = 0
-        var result = newSeq[OutType](s2.len)
-        for it {.inject.} in s2:
-          result[i] = op
-          i += 1
-        result
-    else:
+    # the normal version
+    block:
       var result: seq[OutType] = @[]
-      # use `items` to avoid https://github.com/nim-lang/Nim/issues/12639
-      for it {.inject.} in items(s):
-        result.add(op)
+      when compiles(s.len):
+        # the length is know ahead of time -> pre-allocate
+        var i = 0
+        for it {.inject.} in mapIter[InType](s, result):
+          result[i] = op
+          inc i
+      else:
+        # use `items` to avoid https://github.com/nim-lang/Nim/issues/12639
+        for it {.inject.} in items(s):
+          result.add(op)
+
       result
   else:
-    # `op` is going to create closures in loops, let's fallback to `map`.
-    # NOTE: Without this fallback, developers have to define a helper function and
-    # call `map`:
-    #   [1, 2].map((it) => ((x: int) => it + x))
-    # With this fallback, above code can be simplified to:
-    #   [1, 2].mapIt((x: int) => it + x)
-    # In this case, `mapIt` is just syntax sugar for `map`.
-    type InType = typeof(items(s), typeOfIter)
-    # Use a help proc `f` to create closures for each element in `s`
-    let f = proc (x: InType): OutType =
-              let it {.inject.} = x
-              op
-    map(s, f)
+    # `op` is (probably) a lambda-expression, in which case ``mapIt`` is just
+    # syntax sugar for ``map``.
+    map(s, proc (it {.inject.}: InType): OutType = op)
 
 template applyIt*(varSeq, op: untyped) =
   ## Convenience template around the mutable `apply` proc to reduce typing.
