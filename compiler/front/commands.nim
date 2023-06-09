@@ -15,16 +15,16 @@
 const bootSwitchEnabled: seq[string] = block:
   var result: seq[string]
   
-  template testSwitch(expr, userString) =
+  template detectBootSwitch(expr, userString) =
     ## Helper to build boot constants
     if expr:
       result.add(userString)
 
   # TODO: show all the -d:xxx used. Currently it's a limited selection
-  testSwitch(defined(release), "-d:release")
-  testSwitch(defined(danger), "-d:danger")
-  testSwitch(defined(useLinenoise), "-d:useLinenoise")
-  testSwitch(defined(tinyc), "-d:tinyc")
+  detectBootSwitch(defined(release), "-d:release")
+  detectBootSwitch(defined(danger), "-d:danger")
+  detectBootSwitch(defined(useLinenoise), "-d:useLinenoise")
+  detectBootSwitch(defined(tinyc), "-d:tinyc")
 
   result
 
