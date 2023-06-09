@@ -749,85 +749,25 @@ template anyIt*(s, pred: untyped): bool =
 
 template toSeqBuiltin[T](arg: openArray[T]): seq[T] = @arg
 
-proc toSeqBuiltin[T](arg: set[T]): seq[T] {.inline.} =
-  for it in arg:
-    result.add it
+template toSeqBuiltin[T](arg: seq[T]): seq[T] = arg
 
-proc toSeqBuiltin(a: cstring): seq[char] {.inline.} =
-  let len = a.len
-  result.setLen len
+proc toSeqBuiltin[T](arg: cstring): seq[T] {.inline.} =
+  let len = arg.len
+  result.newSeq(len)
   var i = 0
   while i < len:
-    result[i] = a[i]
+    result[i] = arg[i]
     inc i
 
-proc toSeqBuiltin[E: enum](t: typedesc[E]): seq[E] =
-  for it in t:
-    result.add it
-
-macro toSeqBuiltin(arg: iterator): untyped =
-  let typ = arg.getTypeInst
-  typ.expectKind nnkProcTy # only for closure iterators
-  let formalParams = typ[0]
-  formalParams.expectKind nnkFormalParams
-  formalParams.expectMinLen 1
-  let resultTyp = nnkBracketExpr.newTree(bindSym"seq", formalParams[0])
-  let tmpSym = genSym(nskVar)
-  result = nnkStmtListExpr.newTree
-  result.add nnkVarSection.newTree(nnkIdentDefs.newTree(tmpSym, resultTyp, newNimNode(nnkEmpty)))
-  result.add quote do:
-    for it in `arg`:
-      `tmpSym`.add it
-  result.add tmpSym
-
-template toSeqBuiltin[T: not proc](arg: T): untyped =
-  # fallback for ``IntSet`` and ``HashSet``. Explicit overload would
-  # be better, but this would require an additional import here.
-  var tmp: seq[typeof(items(arg), typeOfIter)]
+template toSeqBuiltin[T](arg: untyped): untyped =
+  ## Catch-all overload that matches everything that the more concrete
+  ## overloads do not.
+  var tmp: seq[T] = @[]
   for it in arg:
     tmp.add it
   tmp
 
-proc isSystemItems(arg: NimNode) : bool =
-  ## Return true if `arg` is the `items` iterator symbol defined in stdlib.
-  if arg.kind == nnkSym and arg.symKind == nskIterator:
-    if arg.eqIdent("items"):
-      if arg.owner.owner.eqIdent("stdlib"):
-        return true
-  return false
-
-macro toSeqImpl(arg: typed): untyped =
-  let iteratorCall = arg[1]
-  if isSystemItems(iteratorCall[0]):
-    let iteratorArg = iteratorCall[1]
-    result = newCall(bindSym"toSeqBuiltin", iteratorArg)
-  else:
-    var typ = iteratorCall.getTypeInst()
-    # `lent` is broken feature. and this special handling to get rid of lent is why it is broken.
-    if typ.kind == nnkBracketExpr and typ.len == 2 and typ[0].eqIdent("lent"):
-      # TODO this is not guaranteed to be the acutal system `lent` symbol.
-      typ = typ[1]
-
-    result = quote do:
-      var tmp: seq[`typ`]
-      for it in `iteratorCall`:
-        tmp.add it
-      tmp
-
-proc genCallToSeqImpl(arg: NimNode): NimNode =
-  newCall(bindSym"toSeqImpl",
-    nnkForStmt.newTree(
-      ident"x", arg, newStmtList()))
-
-macro toSeqImplSingleSym(arg: typed): untyped =
-  if arg.kind != nnkSym:
-    error "identifier not unique", arg # arg is symChoice
-  elif arg.symKind == nskIterator:
-    result = genCallToSeqImpl(newCall(arg))
-  else:
-    result = genCallToSeqImpl(arg)
-
-macro toSeq*(arg: untyped): untyped =
+template toSeq*(arg: untyped): untyped =
   ## Transforms any iterable (anything that can be iterated over, e.g. with
   ## a for-loop) into a sequence.
   ##
@@ -844,10 +784,16 @@ macro toSeq*(arg: untyped): untyped =
     assert mySeq1 == @[1, 2, 3, 4, 5]
     assert mySeq2 == @[1'i8, 3, 5]
 
-  if arg.kind in {nnkSym, nnkIdent, nnkOpenSymChoice, nnkClosedSymChoice}:
-    result = newCall(bindSym"toSeqImplSingleSym", arg)
+  mixin items
+  when compiles(typeof(items(arg))):
+    # arg is something that supports the ``items`` iterator:
+    toSeqBuiltin[typeof(items(arg))](arg)
+  elif compiles(typeof(arg())):
+    # arg must be the symbol of an iterator:
+    toSeqBuiltin[typeof(arg())](arg())
   else:
-    result = genCallToSeqImpl(arg)
+    # arg must be an iterator invocation expression itself:
+    toSeqBuiltin[typeof(arg)](arg)
 
 template foldl*(sequence, operation: untyped): untyped =
   ## Template to fold a sequence from left to right, returning the accumulation.
