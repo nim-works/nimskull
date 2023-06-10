@@ -986,10 +986,11 @@ template mapIt*(s: typed, op: untyped): untyped =
       block:
         var it{.inject.}: InType;
         op), typeOfProc)
-  # we cannot use normal overloading instead of the 'when' here, as the that
-  # force `op` to be ``typed``, which is what we don't want it to be
+  # XXX: once supported by the compiler, drop the ``when`` by overloading
+  #      ``mapIt``: one overload where the `op` is of type ``proc`` and one
+  #      where it's of type ``untyped``
   when OutType is not (proc):
-    # the normal version
+    # the normal version (inline expression)
     block:
       var result: seq[OutType] = @[]
       when compiles(s.len):
