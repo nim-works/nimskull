@@ -1371,9 +1371,20 @@ proc genCard(c: var TCtx; n: PNode; dest: var TDest) =
   c.gABC(n, opcCard, dest, tmp)
   c.freeTemp(tmp)
 
+func fitsRegisterConsiderView(t: PType): bool =
+  ## Returns whether a value of type `t` fits into a register, also
+  ## considering view-types that map to pointers.
+  # XXX: introduce a ``mapType`` (similar to the one used by the other code
+  #      generators) and base the "fits register" queries on that
+  let t = t.skipTypes(IrrelevantTypes)
+  result = fitsRegister(t)
+  if not result:
+    # is it a direct single-location view?
+    result = t.kind in {tyVar, tyLent} and t.base.kind != tyOpenArray
+
 template needsRegLoad(): untyped =
   mixin load
-  load and fitsRegister(n.typ.skipTypes({tyVar, tyLent}))
+  load and fitsRegisterConsiderView(n.typ)
 
 proc genCast(c: var TCtx, n, arg: PNode, dest: var TDest) =
   let
