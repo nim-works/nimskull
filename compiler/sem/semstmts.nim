@@ -3506,9 +3506,8 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
       # assured that the maximum nesting is of depth 1
 
       for j, a in x.pairs:
-        # TODO: guard against last node being an nkStmtList?
         addStmt(a)
-        
+
         if a.kind == nkError:
           hasError = true
     else:
