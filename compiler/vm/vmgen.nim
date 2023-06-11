@@ -1377,10 +1377,9 @@ func fitsRegisterConsiderView(t: PType): bool =
   # XXX: introduce a ``mapType`` (similar to the one used by the other code
   #      generators) and base the "fits register" queries on that
   let t = t.skipTypes(IrrelevantTypes)
-  result = fitsRegister(t)
-  if not result:
-    # is it a direct single-location view?
-    result = t.kind in {tyVar, tyLent} and t.base.kind != tyOpenArray
+  fitsRegister(t) or
+    # is it a direct single-location view?:
+    t.kind in {tyVar, tyLent} and t.base.kind != tyOpenArray
 
 template needsRegLoad(): untyped =
   mixin load
