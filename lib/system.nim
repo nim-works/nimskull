@@ -1078,27 +1078,10 @@ const
 
 const
   hasThreadSupport = compileOption("threads") and not isNimVmTarget
-  hasSharedHeap = defined(boehmgc) or defined(gogc) # don't share heaps; every thread has its own
 
 when hasThreadSupport and defined(tcc) and not compileOption("tlsEmulation"):
   # tcc doesn't support TLS
   {.error: "`--tlsEmulation:on` must be used when using threads with tcc backend".}
-
-when defined(boehmgc):
-  when defined(windows):
-    when sizeof(int) == 8:
-      const boehmLib = "boehmgc64.dll"
-    else:
-      const boehmLib = "boehmgc.dll"
-  elif defined(macosx):
-    const boehmLib = "libgc.dylib"
-  elif defined(openbsd):
-    const boehmLib = "libgc.so.(4|5).0"
-  elif defined(freebsd):
-    const boehmLib = "libgc-threaded.so.1"
-  else:
-    const boehmLib = "libgc.so.1"
-  {.pragma: boehmGC, noconv, dynlib: boehmLib.}
 
 type TaintedString* {.deprecated: "Deprecated since 1.5".} = string
 
@@ -1174,7 +1157,7 @@ template sysAssert(cond: bool, msg: string) =
       cstderr.rawWrite "\n"
       quit 1
 
-const hasAlloc = (hostOS != "standalone" or not defined(nogc)) and not isNimVmTarget
+const hasAlloc = not isNimVmTarget
 
 when notJSnotNims and hostOS != "standalone" and hostOS != "any":
   include "system/cgprocs"
@@ -2137,37 +2120,6 @@ type
 
 
 when not defined(js):
-  {.push stackTrace: off, profiler: off.}
-
-  when hasAlloc:
-    when not defined(gcRegions) and not usesDestructors:
-      proc initGC() {.gcsafe, raises: [].}
-
-    proc initStackBottom() {.inline, compilerproc.} =
-      # WARNING: This is very fragile! An array size of 8 does not work on my
-      # Linux 64bit system. -- That's because the stack direction is the other
-      # way around.
-      when declared(nimGC_setStackBottom):
-        var locals {.volatile, noinit.}: pointer
-        locals = addr(locals)
-        nimGC_setStackBottom(locals)
-
-    proc initStackBottomWith(locals: pointer) {.inline, compilerproc.} =
-      # We need to keep initStackBottom around for now to avoid
-      # bootstrapping problems.
-      when declared(nimGC_setStackBottom):
-        nimGC_setStackBottom(locals)
-
-    when not usesDestructors:
-      {.push profiler: off.}
-      var
-        strDesc = TNimType(size: sizeof(string), kind: tyString, flags: {ntfAcyclic})
-      {.pop.}
-
-  {.pop.}
-
-
-when not defined(js):
   # ugly hack, see the accompanying .pop for
   # the mysterious error message
   {.push stackTrace: off, profiler: off.}
@@ -2237,14 +2189,8 @@ when not defined(js) and declared(alloc0) and declared(dealloc):
       inc(i)
     dealloc(a)
 
-when not defined(js):
-  when declared(initAllocator):
-    initAllocator()
-  when hasThreadSupport:
-    when hostOS != "standalone": include "system/threads"
-  elif not defined(nogc) and not isNimVmTarget:
-    when not defined(useNimRtl) and not defined(createNimRtl): initStackBottom()
-    when declared(initGC): initGC()
+when not defined(js) and hasThreadSupport and hostOS != "standalone":
+  include "system/threads"
 
 when notJSnotNims:
   proc setControlCHook*(hook: proc () {.noconv.})

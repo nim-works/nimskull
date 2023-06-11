@@ -1,6 +1,8 @@
 # ----------------- GC interface ---------------------------------------------
 const
-  usesDestructors = defined(gcDestructors) or defined(gcHooks)
+  usesDestructors = defined(gcDestructors)
+
+# TODO: remove everything only relevant to the now removed GCs
 
 when not usesDestructors:
   {.pragma: nodestroy.}
@@ -53,10 +55,6 @@ when hasAlloc and not defined(js) and not usesDestructors:
   proc GC_unref*[T](x: seq[T]) {.magic: "GCunref", benign.}
   proc GC_unref*(x: string) {.magic: "GCunref", benign.}
     ## See the documentation of `GC_ref <#GC_ref,string>`_.
-
-  proc nimGC_setStackBottom*(theStackBottom: pointer) {.compilerRtl, noinline, benign, raises: [].}
-    ## Expands operating GC stack range to `theStackBottom`. Does nothing
-      ## if current stack bottom is already lower than `theStackBottom`.
 
 when hasAlloc and defined(js):
   template GC_disable* =

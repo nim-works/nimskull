@@ -55,22 +55,6 @@ const
 #const globalsSlot = ThreadVarSlot(0)
 #sysAssert checkSlot.int == globalsSlot.int
 
-# create for the main thread. Note: do not insert this data into the list
-# of all threads; it's not to be stopped etc.
-when not defined(useNimRtl):
-  #when not defined(createNimRtl): initStackBottom()
-  when declared(initGC):
-    initGC()
-    when not emulatedThreadVars:
-      type ThreadType {.pure.} = enum
-        None = 0,
-        NimThread = 1,
-        ForeignThread = 2
-      var
-        threadType {.rtlThreadVar.}: ThreadType
-
-      threadType = ThreadType.NimThread
-
 # We jump through some hops here to ensure that Nim thread procs can have
 # the Nim calling convention. This is needed because thread procs are
 # ``stdcall`` on Windows and ``noconv`` on UNIX. Alternative would be to just
@@ -104,35 +88,12 @@ template afterThreadRuns() =
   for i in countdown(threadDestructionHandlers.len-1, 0):
     threadDestructionHandlers[i]()
 
-when not defined(boehmgc) and not hasSharedHeap and not defined(gogc) and not defined(gcRegions):
-  proc deallocOsPages() {.rtl, raises: [].}
+proc deallocOsPages() {.rtl, raises: [].}
 
 proc threadTrouble() {.raises: [], gcsafe.}
   ## defined in system/excpt.nim
 
-when defined(boehmgc):
-  type GCStackBaseProc = proc(sb: pointer, t: pointer) {.noconv.}
-  proc boehmGC_call_with_stack_base(sbp: GCStackBaseProc, p: pointer)
-    {.importc: "GC_call_with_stack_base", boehmGC.}
-  proc boehmGC_register_my_thread(sb: pointer)
-    {.importc: "GC_register_my_thread", boehmGC.}
-  proc boehmGC_unregister_my_thread()
-    {.importc: "GC_unregister_my_thread", boehmGC.}
-
-  proc threadProcWrapDispatch[TArg](sb: pointer, thrd: pointer) {.noconv, raises: [].} =
-    boehmGC_register_my_thread(sb)
-    try:
-      let thrd = cast[ptr Thread[TArg]](thrd)
-      when TArg is void:
-        thrd.dataFn()
-      else:
-        thrd.dataFn(thrd.data)
-    except:
-      threadTrouble()
-    finally:
-      afterThreadRuns()
-    boehmGC_unregister_my_thread()
-else:
+when true:
   proc threadProcWrapDispatch[TArg](thrd: ptr Thread[TArg]) {.raises: [].} =
     try:
       when TArg is void:
@@ -145,19 +106,7 @@ else:
       afterThreadRuns()
 
 proc threadProcWrapStackFrame[TArg](thrd: ptr Thread[TArg]) {.raises: [].} =
-  when defined(boehmgc):
-    boehmGC_call_with_stack_base(threadProcWrapDispatch[TArg], thrd)
-  elif not defined(nogc) and not defined(gogc) and not defined(gcRegions) and not usesDestructors:
-    var p {.volatile.}: pointer
-    # init the GC for refc/markandsweep
-    nimGC_setStackBottom(addr(p))
-    initGC()
-    when declared(threadType):
-      threadType = ThreadType.NimThread
-    threadProcWrapDispatch[TArg](thrd)
-    when declared(deallocOsPages): deallocOsPages()
-  else:
-    threadProcWrapDispatch(thrd)
+  threadProcWrapDispatch(thrd)
 
 template threadProcWrapperBody(closure: untyped): untyped =
   var thrd = cast[ptr Thread[TArg]](closure)
@@ -255,7 +204,7 @@ when hostOS == "windows":
 
     when TArg isnot void: t.data = param
     t.dataFn = tp
-    when hasSharedHeap: t.core.stackSize = ThreadStackSize
+
     var dummyThreadId: int32
     t.sys = createThread(nil, ThreadStackSize, threadProcWrapper[TArg],
                          addr(t), 0'i32, dummyThreadId)
@@ -282,7 +231,7 @@ else:
 
     when TArg isnot void: t.data = param
     t.dataFn = tp
-    when hasSharedHeap: t.core.stackSize = ThreadStackSize
+
     var a {.noinit.}: Pthread_attr
     doAssert pthread_attr_init(a) == 0
     let setstacksizeResult = pthread_attr_setstacksize(a, ThreadStackSize)
