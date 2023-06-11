@@ -194,7 +194,7 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
 
       # When the native TLS is unavailable, a global thread-local variable needs
       # one more layer of indirection in order to access the TLS block.
-      # Only do this for complex types that may need a call to `objectInit`
+      # Only do this for complex types that may contain type fields
       if sfThread in v.flags and emulatedThreadVars(p.config) and
         isComplexValueType(v.typ):
         initLocExprSingleUse(p.module.preInitProc, vn, loc)

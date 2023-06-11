@@ -297,9 +297,8 @@ proc analyseObjectWithTypeFieldAux(t: PType,
     discard
 
 proc analyseObjectWithTypeField*(t: PType): TTypeFieldResult =
-  # this does a complex analysis whether a call to ``objectInit`` needs to be
-  # made or initializing of the type field suffices or if there is no type field
-  # at all in this type.
+  # this does a complex analysis whether type fields need to be initiatlized
+  # at run-time.
   var marker = initIntSet()
   result = analyseObjectWithTypeFieldAux(t, marker)
 

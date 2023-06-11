@@ -127,48 +127,6 @@ when false:
     cprintf("%s %ld\n", k, t.size)
     debugNimType(t.base)
 
-proc objectInit(dest: pointer, typ: PNimType) {.compilerproc, benign.}
-proc objectInitAux(dest: pointer, n: ptr TNimNode) {.benign.} =
-  var d = cast[ByteAddress](dest)
-  case n.kind
-  of nkNone: sysAssert(false, "objectInitAux")
-  of nkSlot: objectInit(cast[pointer](d +% n.offset), n.typ)
-  of nkList:
-    for i in 0..n.len-1:
-      objectInitAux(dest, n.sons[i])
-  of nkCase:
-    var m = selectBranch(dest, n)
-    if m != nil: objectInitAux(dest, m)
-
-proc objectInit(dest: pointer, typ: PNimType) =
-  # the generic init proc that takes care of initialization of complex
-  # objects on the stack or heap
-  var d = cast[ByteAddress](dest)
-  case typ.kind
-  of tyObject:
-    # iterate over any structural type
-    # here we have to init the type field:
-    when defined(nimSeqsV2):
-      var pint = cast[ptr PNimTypeV2](dest)
-      pint[] = cast[PNimTypeV2](typ.typeInfoV2)
-    else:
-      var pint = cast[ptr PNimType](dest)
-      pint[] = typ
-    objectInitAux(dest, typ.node)
-
-    # initialize the bases. `objectInit` can't be used directly, since it
-    # would change the header type field that was filled above
-    var t = typ.base
-    while t != nil:
-      objectInitAux(dest, t.node)
-      t = t.base
-  of tyTuple:
-    objectInitAux(dest, typ.node)
-  of tyArray, tyArrayConstr:
-    for i in 0..(typ.size div typ.base.size)-1:
-      objectInit(cast[pointer](d +% i * typ.base.size), typ.base)
-  else: discard # nothing to do
-
 # ---------------------- assign zero -----------------------------------------
 
 proc genericReset(dest: pointer, mt: PNimType) {.compilerproc, benign.}
