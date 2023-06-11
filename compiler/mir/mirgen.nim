@@ -61,9 +61,6 @@ import
   compiler/front/[
     options
   ],
-  compiler/sem/[
-    typeallowed
-  ],
   compiler/utils/[
     containers,
     idioms
@@ -859,7 +856,7 @@ proc genCall(c: var TCtx, n: PNode): EValue =
       chain: genEmpty(c, n[i]) => arg(c)
     elif i == 1 and not fntyp[0].isEmptyType() and
          not isHandleLike(t) and
-         directViewType(fntyp[0]) != noView:
+         classifyBackendView(fntyp[0]) != bvcNone:
       # the procedure returns a view, but the first parameter is not something
       # that resembles a handle. We need to make sure that the first argument
       # (which the view could be created from), is passed by reference in that
@@ -1724,10 +1721,14 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
     eval: genx(c, n[0]) => addrOp(c, n.typ)
   of nkHiddenAddr:
     let v = genx(c, n[0])
-    if directViewType(n.typ) != noView:
+    case classifyBackendView(n.typ)
+    of bvcSingle:
       # a view into the source operand is created
       eval: v => viewOp(c, n.typ)
-    else:
+    of bvcSequence:
+      # the addr operation is a no-op
+      v
+    of bvcNone:
       # a normal address-of operation
       eval: v => addrOp(c, n.typ)
 
@@ -1735,10 +1736,13 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
     eval: genx(c, n[0]) => derefOp(c, n.typ)
   of nkHiddenDeref:
     let v = genx(c, n[0])
-    if directViewType(n[0].typ) != noView:
+    case classifyBackendView(n[0].typ)
+    of bvcSingle:
       # it's a deref of a view
       eval: v => derefViewOp(c, n.typ)
-    else:
+    of bvcSequence:
+      v
+    of bvcNone:
       # it's a ``ref`` or ``ptr`` deref
       eval: v => derefOp(c, n.typ)
 

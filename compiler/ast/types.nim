@@ -58,6 +58,11 @@ type
       # most useful, shows: symbol + resolved symbols if it differs, e.g.:
       # tuple[a: MyInt{int}, b: float]
 
+  BackendViewKind* = enum
+    bvcNone     ## no view
+    bvcSingle   ## single-location view
+    bvcSequence ## view of contiguous locations
+
 proc base*(t: PType): PType =
   result = t[0]
 
@@ -1586,3 +1591,23 @@ proc isCyclePossible*(typ: PType, g: ModuleGraph): bool =
   var marker = initIntSet() # keeps track of which object types we've already
                             # analysed
   result = check(marker, g, typ, typ, isInd=false)
+
+proc classifyBackendView*(t: PType): BackendViewKind =
+  ## For the *resolved* type `t`, computes and returns what kind of view
+  ## the type represents. This is meant to be used during the backend
+  ## phase.
+  case t.kind
+  of tyVar, tyLent:
+    if t.base.kind == tyOpenArray: bvcSequence
+    else:                          bvcSingle
+  of tyOpenArray, tyVarargs:
+    bvcSequence
+  of ConcreteTypes - {tyVar, tyLent, tyOpenArray}, tyNil, tyVoid, tyError,
+     tyUncheckedArray, tyTypeDesc:
+    bvcNone
+  of abstractInst - {tyTypeDesc}, tyUserTypeClasses, tyStatic:
+    classifyBackendView(t.lastSon)
+  of tyNone, tyEmpty, tyUntyped, tyTyped, tyGenericInvocation, tyGenericBody,
+     tyGenericParam, tyForward, tyBuiltInTypeClass, tyCompositeTypeClass,
+     tyAnd, tyOr, tyNot, tyAnything, tyFromExpr:
+    unreachable()
