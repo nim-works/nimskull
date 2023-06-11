@@ -129,7 +129,7 @@ when false:
 
 # ---------------------- assign zero -----------------------------------------
 
-proc genericReset(dest: pointer, mt: PNimType) {.compilerproc, benign.}
+proc genericReset(dest: pointer, mt: PNimType) {.benign.}
 proc genericResetAux(dest: pointer, n: ptr TNimNode) =
   var d = cast[ByteAddress](dest)
   case n.kind
