@@ -464,12 +464,6 @@ typedef char* NCSTRING;
 
 #define NIM_STRLIT_FLAG ((NU)(1) << ((NIM_INTBITS) - 2)) /* This has to be the same as system.strlitFlag! */
 
-#define STRING_LITERAL(name, str, length) \
-   static const struct {                   \
-     TGenericSeq Sup;                      \
-     NIM_CHAR data[(length) + 1];          \
-  } name = {{length, (NI) ((NU)length | NIM_STRLIT_FLAG)}, str}
-
 /* declared size of a sequence/variable length array: */
 #if defined(__GNUC__) || defined(__clang__) || defined(_MSC_VER)
 #  define SEQ_DECL_SIZE /* empty is correct! */

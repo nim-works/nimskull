@@ -536,23 +536,6 @@ const
   isNimVmTarget = defined(nimscript) or defined(vm)
   notJSnotNims = not defined(js) and not isNimVmTarget
 
-when not defined(js) and not defined(nimSeqsV2):
-  type
-    TGenericSeq {.compilerproc, pure, inheritable.} = object
-      len, reserved: int
-      when defined(gogc):
-        elemSize: int
-        elemAlign: int
-    PGenericSeq {.exportc.} = ptr TGenericSeq
-    # len and space without counting the terminating zero:
-    NimStringDesc {.compilerproc, final.} = object of TGenericSeq
-      data: UncheckedArray[char]
-    NimString = ptr NimStringDesc
-
-when notJSnotNims and not defined(nimSeqsV2):
-  template space(s: PGenericSeq): int {.dirty.} =
-    s.reserved and not (seqShallowFlag or strlitFlag)
-
 when notJSnotNims:
   include "system/hti"
 
@@ -694,11 +677,7 @@ when not defined(js):
     ##   assert len(x) == 3
     ##   x[0] = 10
     result = newSeqOfCap[T](len)
-    when defined(nimSeqsV2):
-      cast[ptr int](addr result)[] = len
-    else:
-      var s = cast[PGenericSeq](result)
-      s.len = len
+    cast[ptr int](addr result)[] = len
 
 func len*[TOpenArray: openArray|varargs](x: TOpenArray): int {.magic: "LengthOpenArray".} =
   ## Returns the length of an openArray.
@@ -1093,7 +1072,6 @@ const
     ## `"sparc"`, `"amd64"`, `"mips"`, `"mipsel"`, `"arm"`, `"arm64"`,
     ## `"mips64"`, `"mips64el"`, `"riscv32"`, `"riscv64"`, '"loongarch64"'.
 
-  seqShallowFlag = low(int)
   strlitFlag = 1 shl (sizeof(int)*8 - 2) # later versions of the codegen \
   # emit this flag
   # for string literals, it allows for some optimizations.
@@ -1200,8 +1178,6 @@ const hasAlloc = (hostOS != "standalone" or not defined(nogc)) and not isNimVmTa
 
 when notJSnotNims and hostOS != "standalone" and hostOS != "any":
   include "system/cgprocs"
-when notJSnotNims and hasAlloc and not defined(nimSeqsV2):
-  proc addChar(s: NimString, c: char): NimString {.compilerproc, benign.}
 
 when isNimVmTarget or not defined(nimSeqsV2):
   proc add*[T](x: var seq[T], y: sink T) {.magic: "AppendSeqElem", noSideEffect.}
@@ -1725,7 +1701,7 @@ when not defined(js) and hasThreadSupport and hostOS != "standalone":
   include "system/syslocks"
   include "system/threadlocalstorage"
 
-when not defined(js) and defined(nimV2):
+when not defined(js) and not isNimVmTarget:
   type
     DestructorProc = proc (p: pointer) {.nimcall, benign, raises: [].}
     TNimTypeV2 {.compilerproc.} = object
@@ -1972,11 +1948,6 @@ template newException*(exceptn: typedesc, message: string;
   ## Creates an exception object of type `exceptn`, initializes it's `name`
   ## and sets its `msg` field to `message`. Returns the new exception object.
   (ref exceptn)(name: $exceptn, msg: message, parent: parentException)
-
-when hostOS == "standalone" and defined(nogc):
-  proc nimToCStringConv(s: NimString): cstring {.compilerproc, inline.} =
-    if s == nil or s.len == 0: result = cstring""
-    else: result = cstring(addr s.data)
 
 proc getTypeInfo*[T](x: T): pointer {.magic: "GetTypeInfo", benign.}
   ## Get type information for `x`.
@@ -2334,11 +2305,6 @@ when notJSnotNims:
   import system/countbits_impl
   include "system/sets"
 
-  when defined(gogc):
-    const GenericSeqSize = (3 * sizeof(int))
-  else:
-    const GenericSeqSize = (2 * sizeof(int))
-
   proc getDiscriminant(aa: pointer, n: ptr TNimNode): uint =
     sysAssert(n.kind == nkCase, "getDiscriminant: node != nkCase")
     var d: uint
@@ -2365,10 +2331,6 @@ when notJSnotNims:
 when notJSnotNims and hasAlloc:
   {.push profiler: off.}
   include "system/mmdisp"
-  {.pop.}
-  {.push stackTrace: off, profiler: off.}
-  when not defined(nimSeqsV2):
-    include "system/sysstr"
   {.pop.}
 
   include "system/strmantle"
