@@ -119,52 +119,6 @@ proc chckNilDisp(p: pointer) {.compilerproc.} =
   if p == nil:
     sysFatal(NilAccessDefect, "cannot dispatch; dispatcher is nil")
 
-when not defined(nimV2):
-
-  proc chckObj(obj, subclass: PNimType) {.compilerproc.} =
-    # checks if obj is of type subclass:
-    var x = obj
-    if x == subclass: return # optimized fast path
-    while x != subclass:
-      if x == nil:
-        sysFatal(ObjectConversionDefect, "invalid object conversion")
-      x = x.base
-
-  proc chckObjAsgn(a, b: PNimType) {.compilerproc, inline.} =
-    if a != b:
-      sysFatal(ObjectAssignmentDefect, "invalid object assignment")
-
-  type ObjCheckCache = array[0..1, PNimType]
-
-  proc isObjSlowPath(obj, subclass: PNimType;
-                    cache: var ObjCheckCache): bool {.noinline.} =
-    # checks if obj is of type subclass:
-    var x = obj.base
-    while x != subclass:
-      if x == nil:
-        cache[0] = obj
-        return false
-      x = x.base
-    cache[1] = obj
-    return true
-
-  proc isObjWithCache(obj, subclass: PNimType;
-                      cache: var ObjCheckCache): bool {.compilerproc, inline.} =
-    if obj == subclass: return true
-    if obj.base == subclass: return true
-    if cache[0] == obj: return false
-    if cache[1] == obj: return true
-    return isObjSlowPath(obj, subclass, cache)
-
-  proc isObj(obj, subclass: PNimType): bool {.compilerproc.} =
-    # checks if obj is of type subclass:
-    var x = obj
-    if x == subclass: return true # optimized fast path
-    while x != subclass:
-      if x == nil: return false
-      x = x.base
-    return true
-
 when defined(nimV2):
   proc raiseObjectCaseTransition() {.compilerproc.} =
     sysFatal(FieldDefect, "assignment to discriminant changes object branch")

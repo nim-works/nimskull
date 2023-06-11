@@ -7,6 +7,9 @@
 #    distribution, for details about the copyright.
 #
 
+## The run-time copy and reset implementation used by the `deepCopy`
+## implementation and `typeinfo` module.
+
 include seqs_v2_reimpl
 
 proc genericResetAux(dest: pointer, n: ptr TNimNode) {.benign.}
@@ -40,7 +43,7 @@ proc genericAssignAux(dest, src: pointer, n: ptr TNimNode,
   #  echo "ugh memory corruption! ", n.kind
   #  quit 1
 
-when defined(nimSeqsV2):
+when true:
   template deepSeqAssignImpl(operation, additionalArg) {.dirty.} =
     var d = cast[ptr NimSeqV2Reimpl](dest)
     var s = cast[ptr NimSeqV2Reimpl](src)
@@ -62,46 +65,11 @@ proc genericAssignAux(dest, src: pointer, mt: PNimType, shallow: bool) =
   sysAssert(mt != nil, "genericAssignAux 2")
   case mt.kind
   of tyString:
-    when defined(nimSeqsV2):
-      var x = cast[ptr NimStringV2](dest)
-      var s2 = cast[ptr NimStringV2](s)[]
-      nimAsgnStrV2(x[], s2)
-    else:
-      var x = cast[PPointer](dest)
-      var s2 = cast[PPointer](s)[]
-      if s2 == nil or shallow or (
-          cast[PGenericSeq](s2).reserved and seqShallowFlag) != 0:
-        unsureAsgnRef(x, s2)
-      else:
-        unsureAsgnRef(x, copyString(cast[NimString](s2)))
+    var x = cast[ptr NimStringV2](dest)
+    var s2 = cast[ptr NimStringV2](s)[]
+    nimAsgnStrV2(x[], s2)
   of tySequence:
-    when defined(nimSeqsV2):
-      deepSeqAssignImpl(genericAssignAux, shallow)
-    else:
-      var s2 = cast[PPointer](src)[]
-      var seq = cast[PGenericSeq](s2)
-      var x = cast[PPointer](dest)
-      if s2 == nil or shallow or (seq.reserved and seqShallowFlag) != 0:
-        # this can happen! nil sequences are allowed
-        unsureAsgnRef(x, s2)
-        return
-      sysAssert(dest != nil, "genericAssignAux 3")
-      if ntfNoRefs in mt.base.flags:
-        var ss = nimNewSeqOfCap(mt, seq.len)
-        cast[PGenericSeq](ss).len = seq.len
-        unsureAsgnRef(x, ss)
-        var dst = cast[ByteAddress](cast[PPointer](dest)[])
-        copyMem(cast[pointer](dst +% align(GenericSeqSize, mt.base.align)),
-                cast[pointer](cast[ByteAddress](s2) +% align(GenericSeqSize, mt.base.align)),
-                seq.len *% mt.base.size)
-      else:
-        unsureAsgnRef(x, newSeq(mt, seq.len))
-        var dst = cast[ByteAddress](cast[PPointer](dest)[])
-        for i in 0..seq.len-1:
-          genericAssignAux(
-            cast[pointer](dst +% align(GenericSeqSize, mt.base.align) +% i *% mt.base.size ),
-            cast[pointer](cast[ByteAddress](s2) +% align(GenericSeqSize, mt.base.align) +% i *% mt.base.size ),
-            mt.base, shallow)
+    deepSeqAssignImpl(genericAssignAux, shallow)
   of tyObject:
     var it = mt.base
     # don't use recursion here on the PNimType because the subtype
@@ -112,23 +80,9 @@ proc genericAssignAux(dest, src: pointer, mt: PNimType, shallow: bool) =
     genericAssignAux(dest, src, mt.node, shallow)
     # we need to copy m_type field for tyObject, as it could be empty for
     # sequence reallocations:
-    when defined(nimSeqsV2):
-      var pint = cast[ptr PNimTypeV2](dest)
-      #chckObjAsgn(cast[ptr PNimTypeV2](src)[].typeInfoV2, mt)
-      pint[] = cast[PNimTypeV2](mt.typeInfoV2)
-    else:
-      var pint = cast[ptr PNimType](dest)
-      # We need to copy the *static* type not the dynamic type:
-      #   if p of TB:
-      #     var tbObj = TB(p)
-      #     tbObj of TC # needs to be false!
-      #c_fprintf(stdout, "%s %s\n", pint[].name, mt.name)
-      let srcType = cast[ptr PNimType](src)[]
-      if srcType != nil:
-        # `!= nil` needed because of cases where object is not initialized properly (see bug #16706)
-        # note that you can have `srcType == nil` yet `src != nil`
-        chckObjAsgn(srcType, mt)
-      pint[] = mt # cast[ptr PNimType](src)[]
+    var pint = cast[ptr PNimTypeV2](dest)
+    #chckObjAsgn(cast[ptr PNimTypeV2](src)[].typeInfoV2, mt)
+    pint[] = cast[PNimTypeV2](mt.typeInfoV2)
   of tyTuple:
     genericAssignAux(dest, src, mt.node, shallow)
   of tyArray, tyArrayConstr:
@@ -141,10 +95,8 @@ proc genericAssignAux(dest, src: pointer, mt: PNimType, shallow: bool) =
     copyMem(dest, src, mt.size) # copy raw bits
 
 proc genericAssign(dest, src: pointer, mt: PNimType) {.compilerproc.} =
+  # still needs to be a compilerproc for ``typeinfo`` to be able to import it
   genericAssignAux(dest, src, mt, false)
-
-proc genericShallowAssign(dest, src: pointer, mt: PNimType) {.compilerproc.} =
-  genericAssignAux(dest, src, mt, true)
 
 when false:
   proc debugNimType(t: PNimType) =
@@ -175,64 +127,9 @@ when false:
     cprintf("%s %ld\n", k, t.size)
     debugNimType(t.base)
 
-proc genericSeqAssign(dest, src: pointer, mt: PNimType) {.compilerproc.} =
-  var src = src # ugly, but I like to stress the parser sometimes :-)
-  genericAssign(dest, addr(src), mt)
-
-proc genericAssignOpenArray(dest, src: pointer, len: int,
-                            mt: PNimType) {.compilerproc.} =
-  var
-    d = cast[ByteAddress](dest)
-    s = cast[ByteAddress](src)
-  for i in 0..len-1:
-    genericAssign(cast[pointer](d +% i *% mt.base.size),
-                  cast[pointer](s +% i *% mt.base.size), mt.base)
-
-proc objectInit(dest: pointer, typ: PNimType) {.compilerproc, benign.}
-proc objectInitAux(dest: pointer, n: ptr TNimNode) {.benign.} =
-  var d = cast[ByteAddress](dest)
-  case n.kind
-  of nkNone: sysAssert(false, "objectInitAux")
-  of nkSlot: objectInit(cast[pointer](d +% n.offset), n.typ)
-  of nkList:
-    for i in 0..n.len-1:
-      objectInitAux(dest, n.sons[i])
-  of nkCase:
-    var m = selectBranch(dest, n)
-    if m != nil: objectInitAux(dest, m)
-
-proc objectInit(dest: pointer, typ: PNimType) =
-  # the generic init proc that takes care of initialization of complex
-  # objects on the stack or heap
-  var d = cast[ByteAddress](dest)
-  case typ.kind
-  of tyObject:
-    # iterate over any structural type
-    # here we have to init the type field:
-    when defined(nimSeqsV2):
-      var pint = cast[ptr PNimTypeV2](dest)
-      pint[] = cast[PNimTypeV2](typ.typeInfoV2)
-    else:
-      var pint = cast[ptr PNimType](dest)
-      pint[] = typ
-    objectInitAux(dest, typ.node)
-
-    # initialize the bases. `objectInit` can't be used directly, since it
-    # would change the header type field that was filled above
-    var t = typ.base
-    while t != nil:
-      objectInitAux(dest, t.node)
-      t = t.base
-  of tyTuple:
-    objectInitAux(dest, typ.node)
-  of tyArray, tyArrayConstr:
-    for i in 0..(typ.size div typ.base.size)-1:
-      objectInit(cast[pointer](d +% i * typ.base.size), typ.base)
-  else: discard # nothing to do
-
 # ---------------------- assign zero -----------------------------------------
 
-proc genericReset(dest: pointer, mt: PNimType) {.compilerproc, benign.}
+proc genericReset(dest: pointer, mt: PNimType) {.benign.}
 proc genericResetAux(dest: pointer, n: ptr TNimNode) =
   var d = cast[ByteAddress](dest)
   case n.kind
@@ -252,46 +149,21 @@ proc genericReset(dest: pointer, mt: PNimType) =
   of tyRef:
     unsureAsgnRef(cast[PPointer](dest), nil)
   of tyString:
-    when defined(nimSeqsV2):
-      var s = cast[ptr NimStringV2](dest)
-      frees(s[])
-      zeroMem(dest, mt.size)
-    else:
-      unsureAsgnRef(cast[PPointer](dest), nil)
+    var s = cast[ptr NimStringV2](dest)
+    frees(s[])
+    zeroMem(dest, mt.size)
   of tySequence:
-    when defined(nimSeqsV2):
-      frees(cast[ptr NimSeqV2Reimpl](dest)[])
-      zeroMem(dest, mt.size)
-    else:
-      unsureAsgnRef(cast[PPointer](dest), nil)
+    frees(cast[ptr NimSeqV2Reimpl](dest)[])
+    zeroMem(dest, mt.size)
   of tyTuple:
     genericResetAux(dest, mt.node)
   of tyObject:
     genericResetAux(dest, mt.node)
     # also reset the type field for tyObject, for correct branch switching!
-    when defined(nimSeqsV2):
-      var pint = cast[ptr PNimTypeV2](dest)
-      pint[] = nil
-    else:
-      var pint = cast[ptr PNimType](dest)
-      pint[] = nil
+    var pint = cast[ptr PNimTypeV2](dest)
+    pint[] = nil
   of tyArray, tyArrayConstr:
     for i in 0..(mt.size div mt.base.size)-1:
       genericReset(cast[pointer](d +% i *% mt.base.size), mt.base)
   else:
     zeroMem(dest, mt.size) # set raw bits to zero
-
-proc selectBranch(discVal, L: int,
-                  a: ptr array[0x7fff, ptr TNimNode]): ptr TNimNode =
-  result = a[L] # a[L] contains the ``else`` part (but may be nil)
-  if discVal <% L:
-    let x = a[discVal]
-    if x != nil: result = x
-
-proc FieldDiscriminantCheck(oldDiscVal, newDiscVal: int,
-                            a: ptr array[0x7fff, ptr TNimNode],
-                            L: int) {.compilerproc.} =
-  let oldBranch = selectBranch(oldDiscVal, L, a)
-  let newBranch = selectBranch(newDiscVal, L, a)
-  if newBranch != oldBranch:
-    sysFatal(FieldDefect, "assignment to discriminant changes object branch")
