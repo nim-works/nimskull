@@ -840,8 +840,6 @@ proc toPNode*(parsed: ParsedNode): PNode =
   else:
     if parsed.isBlockArg:
       result.flags.incl nfBlockArg
-    doAssert nfBlockArg notin result.flags or result.kind == nkStmtList,
-      "block args only applies to stmtlists, kind: " & $result.kind
 
     for sub in parsed.sons.items:
       result.add toPNode(sub)
