@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-# Cell seqs for cyclebreaker and cyclicrefs_v2.
+# Cell seqs for cyclebreaker and orc.
 
 type
   CellTuple[T] = (T, PNimTypeV2)
