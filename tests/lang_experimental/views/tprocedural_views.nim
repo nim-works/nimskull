@@ -6,7 +6,8 @@ discard """
   '''
 """
 
-# knownIssue: vmgen generates incorrect code for view dereferences
+# knownIssue: semantic analysis produces incorrect AST for tuple initialization,
+#             causing VM access violation errors at run-time
 
 {.experimental: "views".}
 
