@@ -138,12 +138,7 @@ else:
       when TArg is void:
         thrd.dataFn()
       else:
-        when defined(nimV2):
-          thrd.dataFn(thrd.data)
-        else:
-          var x: TArg
-          deepCopy(x, thrd.data)
-          thrd.dataFn(x)
+        thrd.dataFn(thrd.data)
     except:
       threadTrouble()
     finally:
