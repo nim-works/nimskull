@@ -7,14 +7,6 @@ const
 when not usesDestructors:
   {.pragma: nodestroy.}
 
-when hasAlloc:
-  type
-    GC_Strategy* = enum  ## The strategy the GC should use for the application.
-      gcThroughput,      ## optimize for throughput
-      gcResponsiveness,  ## optimize for responsiveness (default)
-      gcOptimizeTime,    ## optimize for speed
-      gcOptimizeSpace    ## optimize for memory footprint
-
 when hasAlloc and not defined(js) and not usesDestructors:
   proc GC_disable*() {.rtl, inl, benign, raises: [].}
     ## Disables the GC. If called `n` times, `n` calls to `GC_enable`
@@ -44,17 +36,13 @@ when hasAlloc and not defined(js) and not usesDestructors:
     ## for tweaking.
 
   proc GC_ref*[T](x: ref T) {.magic: "GCref", benign.}
-  proc GC_ref*[T](x: seq[T]) {.magic: "GCref", benign.}
-  proc GC_ref*(x: string) {.magic: "GCref", benign.}
     ## Marks the object `x` as referenced, so that it will not be freed until
     ## it is unmarked via `GC_unref`.
     ## If called n-times for the same object `x`,
     ## n calls to `GC_unref` are needed to unmark `x`.
 
   proc GC_unref*[T](x: ref T) {.magic: "GCunref", benign.}
-  proc GC_unref*[T](x: seq[T]) {.magic: "GCunref", benign.}
-  proc GC_unref*(x: string) {.magic: "GCunref", benign.}
-    ## See the documentation of `GC_ref <#GC_ref,string>`_.
+    ## See the documentation of `GC_ref <#GC_ref,ref.T>`_.
 
 when hasAlloc and defined(js):
   template GC_disable* =
@@ -66,9 +54,6 @@ when hasAlloc and defined(js):
   template GC_fullCollect* =
     {.warning: "GC_fullCollect is a no-op in JavaScript".}
 
-  template GC_setStrategy* =
-    {.warning: "GC_setStrategy is a no-op in JavaScript".}
-
   template GC_enableMarkAndSweep* =
     {.warning: "GC_enableMarkAndSweep is a no-op in JavaScript".}
 
@@ -78,19 +63,7 @@ when hasAlloc and defined(js):
   template GC_ref*[T](x: ref T) =
     {.warning: "GC_ref is a no-op in JavaScript".}
 
-  template GC_ref*[T](x: seq[T]) =
-    {.warning: "GC_ref is a no-op in JavaScript".}
-
-  template GC_ref*(x: string) =
-    {.warning: "GC_ref is a no-op in JavaScript".}
-
   template GC_unref*[T](x: ref T) =
-    {.warning: "GC_unref is a no-op in JavaScript".}
-
-  template GC_unref*[T](x: seq[T]) =
-    {.warning: "GC_unref is a no-op in JavaScript".}
-
-  template GC_unref*(x: string) =
     {.warning: "GC_unref is a no-op in JavaScript".}
 
   template GC_getStatistics*(): string =
