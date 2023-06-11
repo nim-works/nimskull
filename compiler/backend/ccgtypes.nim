@@ -135,7 +135,7 @@ proc mapType(conf: ConfigRef; typ: PType; kind: TSymKind): TCTypeKind =
   of tySet: result = mapSetType(conf, typ)
   of tyOpenArray, tyVarargs:
     if kind == skParam: result = ctArray
-    else: result = ctStruct
+    else: result = ctNimOpenArray
   of tyArray, tyUncheckedArray: result = ctArray
   of tyObject, tyTuple: result = ctStruct
   of tyUserTypeClasses:
@@ -161,7 +161,7 @@ proc mapType(conf: ConfigRef; typ: PType; kind: TSymKind): TCTypeKind =
     of tyArray, tyUncheckedArray: result = ctPtrToArray
     of tyOpenArray, tyVarargs:
       if kind == skParam: result = ctPtrToArray
-      else:               result = ctStruct
+      else:               result = ctNimOpenArray
     of tySet:
       if mapSetType(conf, base) == ctArray: result = ctPtrToArray
       else: result = ctPtr
