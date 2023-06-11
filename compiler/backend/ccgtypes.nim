@@ -158,7 +158,10 @@ proc mapType(conf: ConfigRef; typ: PType; kind: TSymKind): TCTypeKind =
   of tyPtr, tyVar, tyLent, tyRef:
     var base = skipTypes(typ.lastSon, typedescInst)
     case base.kind
-    of tyOpenArray, tyArray, tyVarargs, tyUncheckedArray: result = ctPtrToArray
+    of tyArray, tyUncheckedArray: result = ctPtrToArray
+    of tyOpenArray, tyVarargs:
+      if kind == skParam: result = ctPtrToArray
+      else:               result = ctStruct
     of tySet:
       if mapSetType(conf, base) == ctArray: result = ctPtrToArray
       else: result = ctPtr
@@ -601,7 +604,7 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKin
     let star = "*"
     var et = origTyp.skipTypes(abstractInst).lastSon
     var etB = et.skipTypes(abstractInst)
-    if mapType(m.config, t, kind) == ctPtrToArray and (etB.kind != tyOpenArray or kind == skParam):
+    if mapType(m.config, t, kind) == ctPtrToArray:
       if etB.kind == tySet:
         et = getSysType(m.g.graph, unknownLineInfo, tyUInt8)
       else:
