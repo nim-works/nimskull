@@ -2374,9 +2374,6 @@ when notJSnotNims and hasAlloc:
   include "system/strmantle"
   include "system/assign"
 
-  when not defined(nimV2):
-    include "system/repr"
-
 when notJSnotNims and hasThreadSupport and hostOS != "standalone":
   include "system/channels_builtin"
 
