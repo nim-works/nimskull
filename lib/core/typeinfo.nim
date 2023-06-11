@@ -116,17 +116,10 @@ when not defined(js):
 
 proc genericAssign(dest, src: pointer, mt: PNimType) {.importCompilerProc.}
 
-when not defined(gcDestructors):
-  proc genericShallowAssign(dest, src: pointer, mt: PNimType) {.importCompilerProc.}
-  proc incrSeq(seq: PGenSeq, elemSize, elemAlign: int): PGenSeq {.importCompilerProc.}
-  proc newObj(typ: PNimType, size: int): pointer {.importCompilerProc.}
-  proc newSeq(typ: PNimType, len: int): pointer {.importCompilerProc.}
-  proc objectInit(dest: pointer, typ: PNimType) {.importCompilerProc.}
-else:
-  proc nimNewObj(size, align: int): pointer {.importCompilerProc.}
-  proc newSeqPayload(cap, elemSize, elemAlign: int): pointer {.importCompilerProc.}
-  proc prepareSeqAdd(len: int; p: pointer; addlen, elemSize, elemAlign: int): pointer {.
-    importCompilerProc.}
+proc nimNewObj(size, align: int): pointer {.importCompilerProc.}
+proc newSeqPayload(cap, elemSize, elemAlign: int): pointer {.importCompilerProc.}
+proc prepareSeqAdd(len: int; p: pointer; addlen, elemSize, elemAlign: int): pointer {.
+  importCompilerProc.}
 
 template `+!!`(a, b): untyped = cast[pointer](cast[ByteAddress](a) + b)
 
@@ -192,48 +185,34 @@ proc baseTypeSize*(x: Any): int {.inline.} =
 proc invokeNew*(x: Any) =
   ## Performs `new(x)`. `x` needs to represent a `ref`.
   assert x.rawType.kind == tyRef
-  when defined(gcDestructors):
-    cast[ppointer](x.value)[] = nimNewObj(x.rawType.base.size, x.rawType.base.align)
-  else:
-    var z = newObj(x.rawType, x.rawType.base.size)
-    genericAssign(x.value, addr(z), x.rawType)
+  cast[ppointer](x.value)[] = nimNewObj(x.rawType.base.size, x.rawType.base.align)
 
 proc invokeNewSeq*(x: Any, len: int) =
   ## Performs `newSeq(x, len)`. `x` needs to represent a `seq`.
   assert x.rawType.kind == tySequence
-  when defined(gcDestructors):
+  when true:
     var s = cast[ptr NimSeqV2Reimpl](x.value)
     s.len = len
     let elem = x.rawType.base
     s.p = cast[ptr NimSeqPayloadReimpl](newSeqPayload(len, elem.size, elem.align))
-  else:
-    var z = newSeq(x.rawType, len)
-    genericShallowAssign(x.value, addr(z), x.rawType)
 
 proc extendSeq*(x: Any) =
   ## Performs `setLen(x, x.len+1)`. `x` needs to represent a `seq`.
   assert x.rawType.kind == tySequence
-  when defined(gcDestructors):
+  when true:
     var s = cast[ptr NimSeqV2Reimpl](x.value)
     let elem = x.rawType.base
     if s.p == nil or s.p.cap < s.len+1:
       s.p = cast[ptr NimSeqPayloadReimpl](prepareSeqAdd(s.len, s.p, 1, elem.size, elem.align))
     inc s.len
-  else:
-    var y = cast[ptr PGenSeq](x.value)[]
-    var z = incrSeq(y, x.rawType.base.size, x.rawType.base.align)
-    # 'incrSeq' already freed the memory for us and copied over the RC!
-    # So we simply copy the raw pointer into 'x.value':
-    cast[ppointer](x.value)[] = z
-    #genericShallowAssign(x.value, addr(z), x.rawType)
 
 proc setObjectRuntimeType*(x: Any) =
   ## This needs to be called to set `x`'s runtime object type field.
   assert x.rawType.kind == tyObject
-  when defined(gcDestructors):
+  when not defined(js):
+    # although doing so doesn't make much sense, the guard allows for importing
+    # this module when using the JS backend
     cast[ppointer](x.value)[] = x.rawType.typeInfoV2
-  else:
-    objectInit(x.value, x.rawType)
 
 proc skipRange(x: PNimType): PNimType {.inline.} =
   result = x
@@ -251,7 +230,7 @@ proc `[]`*(x: Any, i: int): Any =
       raise newException(IndexDefect, formatErrorIndexBound(i, x.rawType.size div bs))
     return newAny(x.value +!! i*bs, x.rawType.base)
   of tySequence:
-    when defined(gcDestructors):
+    when true:
       var s = cast[ptr NimSeqV2Reimpl](x.value)
       if i >=% s.len:
         raise newException(IndexDefect, formatErrorIndexBound(i, s.len-1))
@@ -259,13 +238,6 @@ proc `[]`*(x: Any, i: int): Any =
       let ba = x.rawType.base.align
       let headerSize = align(sizeof(int), ba)
       return newAny(s.p +!! (headerSize+i*bs), x.rawType.base)
-    else:
-      var s = cast[ppointer](x.value)[]
-      if s == nil: raise newException(ValueError, "sequence is nil")
-      let bs = x.rawType.base.size
-      if i >=% cast[PGenSeq](s).len:
-        raise newException(IndexDefect, formatErrorIndexBound(i, cast[PGenSeq](s).len-1))
-      return newAny(s +!! (align(GenericSeqSize, x.rawType.base.align)+i*bs), x.rawType.base)
   else: assert false
 
 proc `[]=`*(x: Any, i: int, y: Any) =
@@ -278,7 +250,7 @@ proc `[]=`*(x: Any, i: int, y: Any) =
     assert y.rawType == x.rawType.base
     genericAssign(x.value +!! i*bs, y.value, y.rawType)
   of tySequence:
-    when defined(gcDestructors):
+    when true:
       var s = cast[ptr NimSeqV2Reimpl](x.value)
       if i >=% s.len:
         raise newException(IndexDefect, formatErrorIndexBound(i, s.len-1))
@@ -287,14 +259,6 @@ proc `[]=`*(x: Any, i: int, y: Any) =
       let headerSize = align(sizeof(int), ba)
       assert y.rawType == x.rawType.base
       genericAssign(s.p +!! (headerSize+i*bs), y.value, y.rawType)
-    else:
-      var s = cast[ppointer](x.value)[]
-      if s == nil: raise newException(ValueError, "sequence is nil")
-      var bs = x.rawType.base.size
-      if i >=% cast[PGenSeq](s).len:
-        raise newException(IndexDefect, formatErrorIndexBound(i, cast[PGenSeq](s).len-1))
-      assert y.rawType == x.rawType.base
-      genericAssign(s +!! (align(GenericSeqSize, x.rawType.base.align)+i*bs), y.value, y.rawType)
   else: assert false
 
 proc len*(x: Any): int =
@@ -303,14 +267,7 @@ proc len*(x: Any): int =
   of tyArray:
     result = x.rawType.size div x.rawType.base.size
   of tySequence:
-    when defined(gcDestructors):
-      result = cast[ptr NimSeqV2Reimpl](x.value).len
-    else:
-      let pgenSeq = cast[PGenSeq](cast[ppointer](x.value)[])
-      if isNil(pgenSeq):
-        result = 0
-      else:
-        result = pgenSeq.len
+    result = cast[ptr NimSeqV2Reimpl](x.value).len
   else: assert false
 
 
@@ -326,9 +283,7 @@ proc isNil*(x: Any): bool =
   assert x.rawType.kind in {tyCstring, tyRef, tyPtr, tyPointer, tyProc}
   result = isNil(cast[ppointer](x.value)[])
 
-const pointerLike =
-  when defined(gcDestructors): {tyCstring, tyRef, tyPtr, tyPointer, tyProc}
-  else: {tyString, tyCstring, tyRef, tyPtr, tyPointer, tySequence, tyProc}
+const pointerLike = {tyCstring, tyRef, tyPtr, tyPointer, tyProc}
 
 proc getPointer*(x: Any): pointer =
   ## Retrieves the pointer value out of `x`. `x` needs to be of kind
@@ -657,16 +612,12 @@ proc setBiggestFloat*(x: Any, y: BiggestFloat) =
 proc getString*(x: Any): string =
   ## Retrieves the `string` value out of `x`. `x` needs to represent a `string`.
   assert x.rawType.kind == tyString
-  when defined(gcDestructors):
-    result = cast[ptr string](x.value)[]
-  else:
-    if not isNil(cast[ptr pointer](x.value)[]):
-      result = cast[ptr string](x.value)[]
+  result = cast[ptr string](x.value)[]
 
 proc setString*(x: Any, y: string) =
   ## Sets the `string` value of `x`. `x` needs to represent a `string`.
   assert x.rawType.kind == tyString
-  cast[ptr string](x.value)[] = y # also correct for gcDestructors
+  cast[ptr string](x.value)[] = y
 
 proc getCString*(x: Any): cstring =
   ## Retrieves the `cstring` value out of `x`. `x` needs to represent a `cstring`.
