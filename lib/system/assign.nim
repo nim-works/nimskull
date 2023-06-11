@@ -7,6 +7,9 @@
 #    distribution, for details about the copyright.
 #
 
+## The run-time copy and reset implementation used by the `deepCopy`
+## implementation and `typeinfo` module.
+
 include seqs_v2_reimpl
 
 proc genericResetAux(dest: pointer, n: ptr TNimNode) {.benign.}
@@ -92,10 +95,8 @@ proc genericAssignAux(dest, src: pointer, mt: PNimType, shallow: bool) =
     copyMem(dest, src, mt.size) # copy raw bits
 
 proc genericAssign(dest, src: pointer, mt: PNimType) {.compilerproc.} =
+  # still needs to be a compilerproc for ``typeinfo`` to be able to import it
   genericAssignAux(dest, src, mt, false)
-
-proc genericShallowAssign(dest, src: pointer, mt: PNimType) {.compilerproc.} =
-  genericAssignAux(dest, src, mt, true)
 
 when false:
   proc debugNimType(t: PNimType) =
@@ -125,19 +126,6 @@ when false:
     else: k = "other"
     cprintf("%s %ld\n", k, t.size)
     debugNimType(t.base)
-
-proc genericSeqAssign(dest, src: pointer, mt: PNimType) {.compilerproc.} =
-  var src = src # ugly, but I like to stress the parser sometimes :-)
-  genericAssign(dest, addr(src), mt)
-
-proc genericAssignOpenArray(dest, src: pointer, len: int,
-                            mt: PNimType) {.compilerproc.} =
-  var
-    d = cast[ByteAddress](dest)
-    s = cast[ByteAddress](src)
-  for i in 0..len-1:
-    genericAssign(cast[pointer](d +% i *% mt.base.size),
-                  cast[pointer](s +% i *% mt.base.size), mt.base)
 
 proc objectInit(dest: pointer, typ: PNimType) {.compilerproc, benign.}
 proc objectInitAux(dest: pointer, n: ptr TNimNode) {.benign.} =
@@ -221,18 +209,3 @@ proc genericReset(dest: pointer, mt: PNimType) =
       genericReset(cast[pointer](d +% i *% mt.base.size), mt.base)
   else:
     zeroMem(dest, mt.size) # set raw bits to zero
-
-proc selectBranch(discVal, L: int,
-                  a: ptr array[0x7fff, ptr TNimNode]): ptr TNimNode =
-  result = a[L] # a[L] contains the ``else`` part (but may be nil)
-  if discVal <% L:
-    let x = a[discVal]
-    if x != nil: result = x
-
-proc FieldDiscriminantCheck(oldDiscVal, newDiscVal: int,
-                            a: ptr array[0x7fff, ptr TNimNode],
-                            L: int) {.compilerproc.} =
-  let oldBranch = selectBranch(oldDiscVal, L, a)
-  let newBranch = selectBranch(newDiscVal, L, a)
-  if newBranch != oldBranch:
-    sysFatal(FieldDefect, "assignment to discriminant changes object branch")
