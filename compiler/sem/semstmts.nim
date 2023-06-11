@@ -3505,15 +3505,12 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
       # this can be flattened, because of the earlier semExpr call we are
       # assured that the maximum nesting is of depth 1
 
-      if nfBlockArg in x.flags:
-        addStmt(x)
-      else:
-        for j, a in x.pairs:
-          # TODO: guard against last node being an nkStmtList?
-          addStmt(a)
-          
-          if a.kind == nkError:
-            hasError = true
+      for j, a in x.pairs:
+        # TODO: guard against last node being an nkStmtList?
+        addStmt(a)
+        
+        if a.kind == nkError:
+          hasError = true
     else:
       addStmt(x)
   
