@@ -1,9 +1,25 @@
 discard """
   output: '''
 StmtList
+  ImportStmt
+    Ident "foo"
+  ImportStmt
+    Ident "foo"
+    Ident "bar"
   FromStmt
-      Sym "tables"
-          Sym "OrderedTable"
+    Ident "foo"
+    Ident "bar"
+  FromStmt
+    Ident "foo"
+    Ident "bar"
+    Ident "baz"
+  ImportExceptStmt
+    Ident "foo"
+    Ident "bar"
+  ImportExceptStmt
+    Ident "foo"
+    Ident "bar"
+    Ident "baz"
 '''
 """
 
@@ -14,4 +30,10 @@ macro blah(n: untyped) =
   quote:
     echo `output`
 blah:
-  from std/tables import OrderedTable
+  import foo
+  import foo, bar
+  from foo import bar
+  from foo import bar, baz
+  import foo except bar
+  import foo except bar, baz
+
