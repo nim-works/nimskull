@@ -7,24 +7,16 @@
 #    distribution, for details about the copyright.
 #
 
-# Nim high-level memory manager: It supports Boehm's GC, Go's GC, no GC and the
-# native Nim GC. The native Nim GC is the default.
+# NimSkull high-level memory manager. Currently, it only supports the native
+# NimSkull GC.
 
-#{.push checks:on, assertions:on.}
 {.push checks:off.}
 
 const
-  logGC = false
-  traceGC = false # extensive debugging
-  alwaysCycleGC = defined(nimSmokeCycles)
-  alwaysGC = defined(nimFulldebug) # collect after every memory
-                                # allocation (for debugging)
   leakDetector = defined(nimLeakDetector)
   overwriteFree = defined(nimBurnFree) # overwrite memory with 0xFF before free
   trackAllocationSource = leakDetector
 
-  cycleGC = true # (de)activate the cycle GC
-  reallyDealloc = true # for debugging purposes this can be set to false
   reallyOsDealloc = true
   coalescRight = true
   coalescLeft = true
@@ -48,7 +40,7 @@ when defined(useMalloc):
   include system / mm / malloc
 
 else:
-  include "system/alloc"
+  include system / alloc
 
   var allocator {.rtlThreadVar.}: MemRegion
   instantiateForRegion(allocator)
@@ -60,3 +52,5 @@ when not declared(ForeignCell):
   proc protect*(x: pointer): ForeignCell = ForeignCell(data: x)
   proc dispose*(x: ForeignCell) = discard
   proc isNotForeign*(x: ForeignCell): bool = false
+
+{.pop.}
