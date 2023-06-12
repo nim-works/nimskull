@@ -220,3 +220,50 @@ proc dontInlineConstant*(orig, cnst: PNode): bool {.inline.} =
   result = orig.kind != cnst.kind and
            cnst.kind in {nkCurly, nkPar, nkTupleConstr, nkBracket, nkObjConstr} and
            cnst.len > ord(cnst.kind == nkObjConstr)
+
+proc flattenExpr*(expr: PNode, stmts: var seq[PNode]): PNode =
+  ## Applies the following transformations to the expression `expr`:
+  ## 1.) transform an AST like: ``(A (StmtListExpr (x) (y)) (z))`` into
+  ##     ``(StmtListExpr (x) (A (y) (z)))``
+  ## 2.) add all statements from a statement list expression to `stmts` and
+  ##     pass on the last node
+  ##
+  ## The result of #2 is passed back to step #1 and the process is repeated
+  ## until none of the two transformations apply anymore. Together, these
+  ## transformations make processing easier for the following analysis steps,
+  ## and the generated AST a bit less nested.
+  proc forward(n: PNode, p: int): PNode =
+    ## Performs transformation #1
+    if n[p].kind == nkStmtListExpr:
+      result = n[p]
+      n[p] = result[^1]
+      result[^1] = n
+    else:
+      result = n
+
+  var it = expr
+  while true:
+    # we're looking for expression nodes that represent side-effect free
+    # operations
+    case it.kind
+    of nkDotExpr, nkCheckedFieldExpr, nkBracketExpr, nkHiddenAddr, nkAddr,
+      nkDerefExpr, nkHiddenDeref, nkCStringToString, nkStringToCString,
+      nkObjDownConv, nkObjUpConv:
+      it = forward(it, 0)
+    of nkConv, nkHiddenStdConv, nkCast:
+      it = forward(it, 1)
+    else:
+      # no AST to which transform #1 applies
+      discard
+
+    if it.kind == nkStmtListExpr:
+      # transformation #2:
+      for i in 0..<it.len-1:
+        stmts.add it[i]
+
+      it = it[^1]
+    else:
+      # we're done transforming
+      break
+
+  result = it
