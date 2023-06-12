@@ -536,23 +536,6 @@ const
   isNimVmTarget = defined(nimscript) or defined(vm)
   notJSnotNims = not defined(js) and not isNimVmTarget
 
-when not defined(js) and not defined(nimSeqsV2):
-  type
-    TGenericSeq {.compilerproc, pure, inheritable.} = object
-      len, reserved: int
-      when defined(gogc):
-        elemSize: int
-        elemAlign: int
-    PGenericSeq {.exportc.} = ptr TGenericSeq
-    # len and space without counting the terminating zero:
-    NimStringDesc {.compilerproc, final.} = object of TGenericSeq
-      data: UncheckedArray[char]
-    NimString = ptr NimStringDesc
-
-when notJSnotNims and not defined(nimSeqsV2):
-  template space(s: PGenericSeq): int {.dirty.} =
-    s.reserved and not (seqShallowFlag or strlitFlag)
-
 when notJSnotNims:
   include "system/hti"
 
@@ -694,11 +677,7 @@ when not defined(js):
     ##   assert len(x) == 3
     ##   x[0] = 10
     result = newSeqOfCap[T](len)
-    when defined(nimSeqsV2):
-      cast[ptr int](addr result)[] = len
-    else:
-      var s = cast[PGenericSeq](result)
-      s.len = len
+    cast[ptr int](addr result)[] = len
 
 func len*[TOpenArray: openArray|varargs](x: TOpenArray): int {.magic: "LengthOpenArray".} =
   ## Returns the length of an openArray.
@@ -1093,34 +1072,16 @@ const
     ## `"sparc"`, `"amd64"`, `"mips"`, `"mipsel"`, `"arm"`, `"arm64"`,
     ## `"mips64"`, `"mips64el"`, `"riscv32"`, `"riscv64"`, '"loongarch64"'.
 
-  seqShallowFlag = low(int)
   strlitFlag = 1 shl (sizeof(int)*8 - 2) # later versions of the codegen \
   # emit this flag
   # for string literals, it allows for some optimizations.
 
 const
   hasThreadSupport = compileOption("threads") and not isNimVmTarget
-  hasSharedHeap = defined(boehmgc) or defined(gogc) # don't share heaps; every thread has its own
 
 when hasThreadSupport and defined(tcc) and not compileOption("tlsEmulation"):
   # tcc doesn't support TLS
   {.error: "`--tlsEmulation:on` must be used when using threads with tcc backend".}
-
-when defined(boehmgc):
-  when defined(windows):
-    when sizeof(int) == 8:
-      const boehmLib = "boehmgc64.dll"
-    else:
-      const boehmLib = "boehmgc.dll"
-  elif defined(macosx):
-    const boehmLib = "libgc.dylib"
-  elif defined(openbsd):
-    const boehmLib = "libgc.so.(4|5).0"
-  elif defined(freebsd):
-    const boehmLib = "libgc-threaded.so.1"
-  else:
-    const boehmLib = "libgc.so.1"
-  {.pragma: boehmGC, noconv, dynlib: boehmLib.}
 
 type TaintedString* {.deprecated: "Deprecated since 1.5".} = string
 
@@ -1196,12 +1157,10 @@ template sysAssert(cond: bool, msg: string) =
       cstderr.rawWrite "\n"
       quit 1
 
-const hasAlloc = (hostOS != "standalone" or not defined(nogc)) and not isNimVmTarget
+const hasAlloc = not isNimVmTarget
 
 when notJSnotNims and hostOS != "standalone" and hostOS != "any":
   include "system/cgprocs"
-when notJSnotNims and hasAlloc and not defined(nimSeqsV2):
-  proc addChar(s: NimString, c: char): NimString {.compilerproc, benign.}
 
 when isNimVmTarget or not defined(nimSeqsV2):
   proc add*[T](x: var seq[T], y: sink T) {.magic: "AppendSeqElem", noSideEffect.}
@@ -1725,7 +1684,7 @@ when not defined(js) and hasThreadSupport and hostOS != "standalone":
   include "system/syslocks"
   include "system/threadlocalstorage"
 
-when not defined(js) and defined(nimV2):
+when not defined(js) and not isNimVmTarget:
   type
     DestructorProc = proc (p: pointer) {.nimcall, benign, raises: [].}
     TNimTypeV2 {.compilerproc.} = object
@@ -1973,11 +1932,6 @@ template newException*(exceptn: typedesc, message: string;
   ## and sets its `msg` field to `message`. Returns the new exception object.
   (ref exceptn)(name: $exceptn, msg: message, parent: parentException)
 
-when hostOS == "standalone" and defined(nogc):
-  proc nimToCStringConv(s: NimString): cstring {.compilerproc, inline.} =
-    if s == nil or s.len == 0: result = cstring""
-    else: result = cstring(addr s.data)
-
 proc getTypeInfo*[T](x: T): pointer {.magic: "GetTypeInfo", benign.}
   ## Get type information for `x`.
   ##
@@ -2166,37 +2120,6 @@ type
 
 
 when not defined(js):
-  {.push stackTrace: off, profiler: off.}
-
-  when hasAlloc:
-    when not defined(gcRegions) and not usesDestructors:
-      proc initGC() {.gcsafe, raises: [].}
-
-    proc initStackBottom() {.inline, compilerproc.} =
-      # WARNING: This is very fragile! An array size of 8 does not work on my
-      # Linux 64bit system. -- That's because the stack direction is the other
-      # way around.
-      when declared(nimGC_setStackBottom):
-        var locals {.volatile, noinit.}: pointer
-        locals = addr(locals)
-        nimGC_setStackBottom(locals)
-
-    proc initStackBottomWith(locals: pointer) {.inline, compilerproc.} =
-      # We need to keep initStackBottom around for now to avoid
-      # bootstrapping problems.
-      when declared(nimGC_setStackBottom):
-        nimGC_setStackBottom(locals)
-
-    when not usesDestructors:
-      {.push profiler: off.}
-      var
-        strDesc = TNimType(size: sizeof(string), kind: tyString, flags: {ntfAcyclic})
-      {.pop.}
-
-  {.pop.}
-
-
-when not defined(js):
   # ugly hack, see the accompanying .pop for
   # the mysterious error message
   {.push stackTrace: off, profiler: off.}
@@ -2266,14 +2189,8 @@ when not defined(js) and declared(alloc0) and declared(dealloc):
       inc(i)
     dealloc(a)
 
-when not defined(js):
-  when declared(initAllocator):
-    initAllocator()
-  when hasThreadSupport:
-    when hostOS != "standalone": include "system/threads"
-  elif not defined(nogc) and not isNimVmTarget:
-    when not defined(useNimRtl) and not defined(createNimRtl): initStackBottom()
-    when declared(initGC): initGC()
+when not defined(js) and hasThreadSupport and hostOS != "standalone":
+  include "system/threads"
 
 when notJSnotNims:
   proc setControlCHook*(hook: proc () {.noconv.})
@@ -2334,11 +2251,6 @@ when notJSnotNims:
   import system/countbits_impl
   include "system/sets"
 
-  when defined(gogc):
-    const GenericSeqSize = (3 * sizeof(int))
-  else:
-    const GenericSeqSize = (2 * sizeof(int))
-
   proc getDiscriminant(aa: pointer, n: ptr TNimNode): uint =
     sysAssert(n.kind == nkCase, "getDiscriminant: node != nkCase")
     var d: uint
@@ -2366,16 +2278,9 @@ when notJSnotNims and hasAlloc:
   {.push profiler: off.}
   include "system/mmdisp"
   {.pop.}
-  {.push stackTrace: off, profiler: off.}
-  when not defined(nimSeqsV2):
-    include "system/sysstr"
-  {.pop.}
 
   include "system/strmantle"
   include "system/assign"
-
-  when not defined(nimV2):
-    include "system/repr"
 
 when notJSnotNims and hasThreadSupport and hostOS != "standalone":
   include "system/channels_builtin"

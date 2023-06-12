@@ -1,8 +1,10 @@
 discard """
-  errormsg: "type mismatch: got <seq[int]> but expected 'seq[float]'"
-  line: 8
+  errormsg: "type mismatch: got <seq[Obj]> but expected 'seq[float]'"
+  line: 10
 """
 
-import sequtils
+type
+  Obj = object
+  Alias = Obj
 
-var x: seq[float] = @[1].mapIt(it)
+var x: seq[float] = newSeq[Alias]()

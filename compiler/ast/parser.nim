@@ -1411,7 +1411,8 @@ proc postExprBlocks(p: var Parser, x: ParsedNode): ParsedNode =
         nextBlock.add parseStmt(p)
 
       # nextBlock.flags.incl nfBlockArg # XXXX
-      nextBlock.isBlockArg = true
+      if nextBlock.kind in {pnkStmtList, pnkStmtListExpr}:
+        nextBlock.isBlockArg = true
       result.add nextBlock
 
       if nextBlock.kind in {pnkElse, pnkFinally}: break

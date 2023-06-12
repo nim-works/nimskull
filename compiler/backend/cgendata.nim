@@ -64,6 +64,7 @@ type
     ctFloat, ctFloat32, ctFloat64, ctFloat128,
     ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64,
     ctArray, ctPtrToArray, ctStruct, ctPtr, ctNimStr, ctNimSeq, ctProc,
+    ctNimOpenArray,
     ctCString
   TCFileSections* = array[TCFileSection, Rope] ## represents a generated C file
   TCProcSection* = enum       ## the sections a generated C proc consists of
