@@ -716,6 +716,10 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
         diagnostics.add report.semReport
   )
 
+  # xxx: this is where we end up with collapsed bodies and drives the need for
+  #      the check in `semexprs.semExpr`'s `nkStmtList/Expr` branch, a
+  #      `semTryStmt` that doesn't collapse should remove the awkward logic and
+  #      action at a distance.
   var checkedBody = c.semTryExpr(c, body.copyTree, {efExplain})
 
   c.config.setReportHook(tmpHook)
@@ -2509,8 +2513,30 @@ proc setSon(father: PNode, at: int, son: PNode) =
 
 # we are allowed to modify the calling node in the 'prepare*' procs:
 proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
-  if formal.kind == tyUntyped and formal.len != 1:
+  when defined(nimCompilerStacktraceHints):
+    {.line.}:
+      frameMsg(c.config, a)
+  if formal.kind == tyUntyped:
+    assert formal.len != 1
     result = a
+  # elif formal.kind == tyTyped and a.typ.isNil:
+  #   var hasError = false
+  #   case a.kind
+  #   of nkStmtList, nkStmtListExpr:
+  #     result = shallowCopy(a)
+  #     for i, k in a.pairs:
+  #       doAssert k.kind != nkEmpty
+  #       result[i] = c.semOperand(c, k, {efAllowStmt})
+  #       hasError = hasError or result[i].kind == nkError
+  #     # skip the expr/stmt node kind conversion and discard check, because it's
+  #     # a fragment, and might get inserted into a position where that's handled.
+  #     let lastTyp = result.lastSon.typ
+  #     if lastTyp != nil and lastTyp.kind notin {tyError}:
+  #       result.typ = lastTyp
+  #     if hasError:
+  #       result = c.config.wrapError(result)
+  #   else:
+  #     result = c.semOperand(c, a, {efAllowStmt})
   elif a.typ.isNil:
     # XXX This is unsound! 'formal' can differ from overloaded routine to
     # overloaded routine!
@@ -2518,7 +2544,7 @@ proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
   else:
     result = a
     considerGenSyms(c, result)
-    
+
     if result.kind != nkHiddenDeref and
        result.typ.kind in {tyVar, tyLent} and
        c.matchedConcept.isNil():

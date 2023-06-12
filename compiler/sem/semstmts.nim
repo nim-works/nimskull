@@ -3403,11 +3403,12 @@ proc inferConceptStaticParam(c: PContext, inferred, n: PNode) =
 
   typ.n = res
 
-proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
+proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNode =
   ## analyses `n`, a statement list or list expression, producing a statement
   ## list or expression with appropriate type and flattening all immediate
   ## children statment list or expressions where possible. on failure an
-  ## nkError is produced instead.
+  ## nkError is produced instead. `collapse` controls whether single child
+  ## statement lists should be unwrapped, yielding the child directly.
   addInNimDebugUtils(c.config, "semStmtList", n, result, flags)
 
   assert n != nil
@@ -3525,11 +3526,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
                       SemReport(kind: rsemUnreachableCode))
 
   if result.kind != nkError and result.len == 1 and
-     # concept bodies should be preserved as a stmt list:
-     c.matchedConcept == nil and
-     # also, don't make life complicated for macros.
-     # they will always expect a proper stmtlist:
-     nfBlockArg notin n.flags and
+     collapse and
      result[0].kind != nkDefer:
     result = result[0]
 
