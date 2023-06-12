@@ -426,29 +426,6 @@ proc isComplexValueType(t: PType): bool {.inline.} =
 
 include ccgreset
 
-proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  let typ = skipTypes(loc.t, abstractVarRange + tyUserTypeClasses)
-  if typ.kind in {tyString, tySequence}:
-    assert rdLoc(loc) != ""
-
-    let atyp = skipTypes(loc.t, abstractInst)
-    if atyp.kind in {tyVar, tyLent}:
-      linefmt(p, cpsStmts, "$1->len = 0; $1->p = NIM_NIL;$n", [rdLoc(loc)])
-    else:
-      linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
-  elif not isComplexValueType(typ):
-    linefmt(p, cpsStmts, "$1 = 0;$n", [rdLoc(loc)])
-  else:
-      # array passed as argument decayed into pointer, bug #7332
-      # so we use getTypeDesc here rather than rdLoc(loc)
-      linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-              [addrLoc(p.config, loc),
-              getTypeDesc(p.module, loc.t, mapTypeChooser(loc))])
-      # XXX: We can be extra clever here and call memset only
-      # on the bytes following the m_type field?
-      if doInitObj:
-        genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
-
 proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
   let kind = mapTypeChooser(loc)
   case mapType(p.config, loc.t, kind)
@@ -473,6 +450,11 @@ proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
       genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
   of ctVoid:
     unreachable()
+
+proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
+  # we always want to clear out the destination, so pass `false` for
+  # ``isTemp``
+  constructLoc(p, loc, false, doInitObj)
 
 proc initLocalVar(p: BProc, v: PSym, immediateAsgn: bool) =
   if sfNoInit notin v.flags:
