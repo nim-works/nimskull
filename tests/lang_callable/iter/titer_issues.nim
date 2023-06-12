@@ -262,3 +262,19 @@ block addr_of_parameters:
   for a, b in iter(1, get()):
     doAssert a[] == 1
     doAssert b[] == 2
+
+block ref_construction_argument:
+  # a literal ref construction expression must only be evaluated once, prior
+  # to control-flow entering the iterators body
+  type RefObj = ref object
+    i: int
+
+  iterator iter(a: RefObj): int =
+    # use `a` multiple times in order to detect the argument expression
+    # being erroneously inlined
+    inc a.i
+    inc a.i
+    yield a.i
+
+  for i in iter(RefObj(i: 1)):
+    doAssert i == 4
