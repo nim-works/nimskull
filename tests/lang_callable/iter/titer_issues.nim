@@ -250,3 +250,15 @@ block:
 
   for x in ff(@[1, 2], @[1, 2, 3]):
     echo x
+
+block addr_of_parameters:
+  # iterator parameters support having their address taken, regardless of how
+  # the argument expression looks like
+  proc get(): int {.noinline.} = 2
+
+  iterator iter(a: int, b: int): (ptr int, ptr int) {.inline.} =
+    yield (addr(a), addr(b))
+
+  for a, b in iter(1, get()):
+    doAssert a[] == 1
+    doAssert b[] == 2
