@@ -24,10 +24,12 @@ try:
   x = f()
   block label:
     var i_cursor
-    var i_1 = 0
+    var a_1 = 0
+    var b_1 = 4
+    var i_1 = a_1
     block label_1:
       while true:
-        if op(`<`(i_1, 4)):
+        if op(`<`(i_1, b_1)):
           break
         var :tmp
         i_cursor = i_1

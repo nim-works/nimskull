@@ -22,7 +22,8 @@ finally:
 
 block label:
   var x_cursor
-  var f = open("debug.txt", fmRead, 8000)
+  var filename_cursor = "debug.txt"
+  var f = open(filename_cursor, fmRead, 8000)
   try:
     var res
     try:
