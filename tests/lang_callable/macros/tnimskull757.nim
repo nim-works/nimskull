@@ -1,4 +1,5 @@
 discard """
+  description: "Test import statements are properly analysed"
   output: '''
 StmtList
   ImportStmt
