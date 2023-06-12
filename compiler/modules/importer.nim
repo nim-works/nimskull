@@ -408,7 +408,7 @@ proc evalFrom*(c: PContext, n: PNode): PNode =
   # TODO: this proc, `myImportModule`, and friends are all very convoluted in
   #       how they work, far too much mutation
   checkMinSonsLen(n, 2, c.config)
-  result = newNodeI(nkImportStmt, n.info)
+  result = newNodeI(nkFromStmt, n.info)
   let m = myImportModule(c, n[0], result)
   var hasError = m.isError
   if m != nil:
@@ -451,7 +451,7 @@ proc readExceptSet(c: PContext, n: PNode): IntSet =
 
 proc evalImportExcept*(c: PContext, n: PNode): PNode =
   checkMinSonsLen(n, 2, c.config)
-  result = newNodeI(nkImportStmt, n.info)
+  result = newNodeI(nkImportExceptStmt, n.info)
   let m = myImportModule(c, n[0], result)
   var hasError = m.isError
 
