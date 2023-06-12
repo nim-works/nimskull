@@ -216,10 +216,7 @@ proc openArrayLoc(p: BProc, formalType: PType, n: PNode): Rope =
     case skipTypes(a.t, abstractVar+{tyStatic}).kind
     of tyOpenArray, tyVarargs:
       if reifiedOpenArray(n):
-        if a.t.kind in {tyVar, tyLent}:
-          result = "$1->Field0, $1->Field1" % [rdLoc(a)]
-        else:
-          result = "$1.Field0, $1.Field1" % [rdLoc(a)]
+        result = "$1.Field0, $1.Field1" % [rdLoc(a)]
       else:
         result = "$1, $1Len_0" % [rdLoc(a)]
     of tyString, tySequence:

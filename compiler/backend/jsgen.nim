@@ -973,7 +973,7 @@ proc needsNoCopy(p: PProc; y: PNode): bool =
   return y.kind in nodeKindsNeedNoCopy or
         ((mapType(y.typ) != etyBaseIndex) and
           (skipTypes(y.typ, abstractInst).kind in
-            {tyRef, tyPtr, tyLent, tyVar, tyCstring, tyProc} + IntegralTypes))
+            {tyRef, tyPtr, tyLent, tyVar, tyCstring, tyProc, tyOpenArray} + IntegralTypes))
 
 proc genAsgnAux(p: PProc, x, y: PNode, noCopyNeeded: bool) =
   var a, b: TCompRes
@@ -1656,7 +1656,7 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
       result = putToSeq("null", indirect)
   of tySequence, tyString:
     result = putToSeq("[]", indirect)
-  of tyCstring, tyProc:
+  of tyCstring, tyProc, tyOpenArray:
     result = putToSeq("null", indirect)
   of tyStatic:
     p.config.internalAssert(t.n != nil, "createVar: " & $t.kind)
@@ -1697,7 +1697,7 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
     gen(p, n, a)
     case mapType(p, v.typ)
     of etyObject, etySeq:
-      if needsNoCopy(p, n):
+      if needsNoCopy(p, n) or classifyBackendView(v.typ) == bvcSequence:
         s = a.res
       else:
         useMagic(p, "nimCopy")

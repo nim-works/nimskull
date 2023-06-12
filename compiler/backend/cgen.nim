@@ -450,21 +450,29 @@ proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
         genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
 
 proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
-  let typ = loc.t
-  if skipTypes(typ, abstractInst + {tyStatic}).kind in {tyString, tySequence}:
+  let kind = mapTypeChooser(loc)
+  case mapType(p.config, loc.t, kind)
+  of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
+     ctFloat, ctFloat32, ctFloat64, ctFloat128,
+     ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64:
+    # numeric type
+    linefmt(p, cpsStmts, "$1 = 0;$n", [rdLoc(loc)])
+  of ctPtrToArray, ctPtr, ctCString, ctProc:
+    # a simple ptr-like type -> assign nil
+    linefmt(p, cpsStmts, "$1 = NIM_NIL;$n", [rdLoc(loc)])
+  of ctNimStr, ctNimSeq:
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
-  elif not isComplexValueType(typ):
-    linefmt(p, cpsStmts, "$1 = ($2)0;$n", [rdLoc(loc),
-      getTypeDesc(p.module, typ, mapTypeChooser(loc))])
-  else:
+  of ctArray, ctStruct, ctNimOpenArray:
     if not isTemp:
       # don't use nimZeroMem for temporary values for performance if we can
       # avoid it
       linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-              [addrLoc(p.config, loc), getTypeDesc(p.module, typ, mapTypeChooser(loc))])
+              [addrLoc(p.config, loc), getTypeDesc(p.module, loc.t, kind)])
 
     if doInitObj:
       genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
+  of ctVoid:
+    unreachable()
 
 proc initLocalVar(p: BProc, v: PSym, immediateAsgn: bool) =
   if sfNoInit notin v.flags:

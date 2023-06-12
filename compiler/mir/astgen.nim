@@ -52,7 +52,6 @@ import
   ]
 
 from compiler/sem/semdata import makeVarType
-from compiler/sem/typeallowed import directViewType, noView
 
 # TODO: move the procedure somewhere common
 from compiler/vm/vmaux import findRecCase
@@ -534,7 +533,7 @@ proc canUseView(n: PNode): bool =
     of nkCallKinds:
       # if the call yields a view, use an lvalue reference (view) -- otherwise,
       # do not
-      return directViewType(n.typ) != noView
+      return classifyBackendView(n.typ) != bvcNone
     else:
       return false
 
