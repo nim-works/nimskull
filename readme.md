@@ -149,7 +149,7 @@ should add the ``bin`` directory to your PATH.
 
 ## Contributing
 
-Contributing is simplified thanks to our [contribution guide](https://nim-works.github.io/nimskull/contributing.html).
+Contributing is simplified thanks to our [contribution guide](https://nim-works.github.io/nimskull/contributing.html) [(local version)](doc/contributing.rst).
 Right now, the easiest and most important contribution is test suite improvement, also
 [described](https://nim-works.github.io/nimskull/contributing.html#writing-or-improving-tests) in the guide.
 
