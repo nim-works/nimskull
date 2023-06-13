@@ -3807,12 +3807,6 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     result = semStmtList(c, n, flags,
                          # preserve concept bodies as a stmt list:
                          collapse = c.matchedConcept.isNil)
-                        #  collapse =
-                        #     # preserve concept bodies as a stmt list:
-                        #     c.matchedConcept.isNil and
-                        #     # also, don't make life complicated for macros.
-                        #     # they will always expect a proper stmtlist:
-                        #     nfBlockArg notin n.flags)
   of nkRaiseStmt: result = semRaise(c, n)
   of nkVarSection: result = semConstLetOrVar(c, n, skVar)
   of nkLetSection: result = semConstLetOrVar(c, n, skLet)

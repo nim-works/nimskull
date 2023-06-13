@@ -2581,11 +2581,10 @@ template isVarargsUntyped(x): untyped =
   x.kind == tyVarargs and x[0].kind == tyUntyped
 
 proc findFirstArgBlock(m: var TCandidate, n: PNode): int =
+  # xxx: this "feature" isn't a great idea and the implementation is awful
   # see https://github.com/nim-lang/RFCs/issues/405
   result = int.high
   for a2 in countdown(n.len - 1, 0):
-    # checking `nfBlockArg in n[a2].flags` wouldn't work inside templates
-    # xxx: ^^ why???
     case n[a2].kind
     of nkStmtList:
       let formalLast = m.callee.n[m.callee.n.len - (n.len - a2)]
