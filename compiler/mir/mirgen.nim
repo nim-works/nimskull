@@ -1929,6 +1929,7 @@ proc gen(c: var TCtx, n: PNode) =
     # as a ``discard``
     assert n.typ.isEmptyType()
   of nkCommentStmt, nkTemplateDef, nkMacroDef, nkImportStmt,
+     nkImportExceptStmt, nkFromStmt,
      nkIncludeStmt, nkStaticStmt, nkExportStmt, nkExportExceptStmt,
      nkTypeSection, nkMixinStmt, nkBindStmt, nkEmpty:
     discard "ignore"
