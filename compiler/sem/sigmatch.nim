@@ -718,7 +718,7 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
 
   # xxx: this is where we end up with collapsed bodies and drives the need for
   #      the check in `semexprs.semExpr`'s `nkStmtList/Expr` branch, a
-  #      `semTryStmt` that doesn't collapse should remove the awkward logic and
+  #      `semTryExpr` that doesn't collapse should remove the awkward logic and
   #      action at a distance.
   var checkedBody = c.semTryExpr(c, body.copyTree, {efExplain})
 
