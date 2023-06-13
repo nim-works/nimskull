@@ -48,7 +48,7 @@ proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     else:
       semExpr(c, n, exprFlags)
 
-  result.flags.incl nfSem # `semStmtList` doesn't add them
+  result.flags.incl nfSem # `semStmtList` doesn't add it
 
   if result.typ != nil:
     # XXX tyGenericInst here?
