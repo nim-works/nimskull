@@ -4402,14 +4402,14 @@ evaluation order is the same as everywhere else, that is, left to right.
 
 How exactly this is achieved for `inline` iterators is up to the compiler, but
 with the following restrictions / guarantees:
-- no full copy must be introduced when passing to an immutable parameter (a full
-  copy might still be needed in order to ensure the left-to-right evaluation
-  order)
+- no full copy must be introduced when passing to an immutable parameter (a
+  full copy might still be needed in order to ensure the left-to-right
+  evaluation order)
 - except for `seq`s, `string`s, and `ref`s, if the argument is an lvalue
-  expression, the parameter must not be a full location, but only store the
-  handle
-- if the argument is an unamed location (e.g. the result of a call), a full
-  location *may* be used
+  expression, the parameter must not be an *owning* location, but only store
+  the handle
+- if the argument is an unamed location (e.g. the result of a call), an
+  *owning* location *may* be used
 - the lvalues passed to `var` parameters are passed and stored by handle
 
 In the `for`-loop body, modifying a location of which the handle was passed to
