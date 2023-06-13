@@ -37,8 +37,19 @@ template rejectEmptyNode(n: PNode) =
 proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   # same as 'semExprWithType' but doesn't check for proc vars
   rejectEmptyNode(n)
-  result = semExpr(c, n, flags + {efOperand})
-  
+  let exprFlags = flags + efOperand
+  result =
+    case n.kind
+    of nkStmtList, nkStmtListExpr:
+      if nfSem in n.flags:
+        n
+      else:
+        semStmtList(c, n, exprFlags, collapse = false)
+    else:
+      semExpr(c, n, exprFlags)
+
+  result.flags.incl nfSem # `semStmtList` doesn't add them
+
   if result.typ != nil:
     # XXX tyGenericInst here?
     if result.typ.kind == tyProc and hasUnresolvedParams(result, {efOperand}):
@@ -3794,12 +3805,14 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkBlockStmt, nkBlockExpr: result = semBlock(c, n, flags)
   of nkStmtList, nkStmtListExpr:
     result = semStmtList(c, n, flags,
-                         collapse =
-                            # preserve concept bodies as a stmt list:
-                            c.matchedConcept.isNil and
-                            # also, don't make life complicated for macros.
-                            # they will always expect a proper stmtlist:
-                            nfBlockArg notin n.flags)
+                         # preserve concept bodies as a stmt list:
+                         collapse = c.matchedConcept.isNil)
+                        #  collapse =
+                        #     # preserve concept bodies as a stmt list:
+                        #     c.matchedConcept.isNil and
+                        #     # also, don't make life complicated for macros.
+                        #     # they will always expect a proper stmtlist:
+                        #     nfBlockArg notin n.flags)
   of nkRaiseStmt: result = semRaise(c, n)
   of nkVarSection: result = semConstLetOrVar(c, n, skVar)
   of nkLetSection: result = semConstLetOrVar(c, n, skLet)
