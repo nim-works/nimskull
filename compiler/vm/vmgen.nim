@@ -1814,7 +1814,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     # var types
     if fitsRegister(n[1].typ):
       # we need to account for the fact that either operand could be
-      # stored in a register alreay (because it's a local variable)
+      # stored in a register already (because it's a local variable)
       let
         a = c.genLoc(n[1])
         b = c.genLoc(n[2])
