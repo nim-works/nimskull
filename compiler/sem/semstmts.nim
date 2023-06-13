@@ -3421,11 +3421,11 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNod
   result = copyNode(n)
   result.flags = n.flags # preserve flags as copyNode is selective
   result.transitionSonsKind(nkStmtList)
-  
+
   var
     voidContext = false
     hasError = false
-  
+
   let lastInputChildIndex = n.len - 1
 
   # by not allowing for nkCommentStmt etc. we ensure nkStmtListExpr actually
@@ -3440,10 +3440,10 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNod
     let 
       x = semExpr(c, n[i], flags)
       last = lastInputChildIndex == i
-    
+
     if c.matchedConcept != nil and x.typ != nil and
         (nfFromTemplate notin n.flags or not last):
-      
+
       if x.isError:
         result.add:
           newError(c.config, n[i], PAstDiag(kind: adSemConceptPredicateFailed))
@@ -3468,7 +3468,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNod
             x.lastSon
           else:
             x
-        
+
         if verdict == nil or verdict.kind != nkIntLit or verdict.intVal == 0:
           result.add:
             newError(c.config, n[i],
@@ -3494,7 +3494,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNod
           discardCheck(c, kid, flags)
         else:
           kid
-      
+
       if result[^1].isError:
         hasError = true
 
@@ -3513,7 +3513,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNod
           hasError = true
     else:
       addStmt(x)
-  
+
     if x.kind in nkLastBlockStmts or
        x.kind in nkCallKinds and x[0].kind == nkSym and
        sfNoReturn in x[0].sym.flags:
@@ -3526,8 +3526,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNod
                       SemReport(kind: rsemUnreachableCode))
 
   if result.kind != nkError and result.len == 1 and
-     collapse and
-     result[0].kind != nkDefer:
+     collapse and result[0].kind != nkDefer:
     result = result[0]
 
   when defined(nimfix):
