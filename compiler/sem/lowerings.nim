@@ -128,20 +128,6 @@ proc lowerTupleUnpackingForAsgn*(g: ModuleGraph; n: PNode; idgen: IdGenerator; o
   for i in 0..<lhs.len:
     result.add newAsgnStmt(lhs[i], newTupleAccessRaw(tempAsNode, i))
 
-proc lowerSwap*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner: PSym): PNode =
-  # note: cannot use 'skTemp' here cause we really need the copy for the VM :-(
-  var temp = newSym(skVar, getIdent(g.cache, genPrefix), nextSymId(idgen), owner, n.info, owner.options)
-  temp.typ = n[1].typ
-  temp.flags.incl {sfFromGeneric, sfGenSym}
-
-  let tempAsNode = newSymNode(temp)
-
-  let v = newTreeI(nkVarSection, n.info):
-    newIdentDefs(tempAsNode, n[1])
-
-  result = newTreeI(nkStmtList, n.info):
-    [v, newFastAsgnStmt(n[1], n[2]), newFastAsgnStmt(n[2], tempAsNode)]
-
 proc createObj*(g: ModuleGraph; idgen: IdGenerator; owner: PSym, info: TLineInfo; final=true): PType =
   result = newType(tyObject, nextTypeId(idgen), owner)
   if final:
