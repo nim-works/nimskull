@@ -2514,8 +2514,7 @@ proc setSon(father: PNode, at: int, son: PNode) =
 # we are allowed to modify the calling node in the 'prepare*' procs:
 proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
   when defined(nimCompilerStacktraceHints):
-    {.line.}:
-      frameMsg(c.config, a)
+    frameMsg(c.config, a)
   if formal.kind == tyUntyped:
     assert formal.len != 1
     result = a
