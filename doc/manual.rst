@@ -4390,6 +4390,38 @@ parameters of an outer factory proc:
   for f in foo():
     echo f
 
+Parameter Passing For Iterators In `for` Loops
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. note::
+  The following only applies to `inline` iterators at the moment.
+
+For iterators invoked in the context of `for`-loops, the arguments are
+evaluated before passing control to the iterator's body. The argument
+evaluation order is the same as everywhere else, that is, left to right.
+
+How exactly this is achieved for `inline` iterators is up to the compiler, but
+with the following restrictions / guarantees:
+- no full copy must be introduced when passing to an immutable parameter (a
+  full copy might still be needed in order to ensure the left-to-right
+  evaluation order)
+- except for `seq`s, `string`s, and `ref`s, if the argument is an lvalue
+  expression, the parameter must not be an *owning* location, but only store
+  the handle
+- if the argument is an unamed location (e.g. the result of a call), an
+  *owning* location *may* be used
+- the lvalues passed to `var` parameters are passed and stored by handle
+
+In the `for`-loop body, modifying a location of which the handle was passed to
+a `var` parameter of the iterator is allowed. Modifications to the location
+from the iterator's body are visible to the `for`-loop's body, and vice versa.
+
+`sink` parameters work the same as they do with the other routines.
+
+.. warning::
+  There's currently no detection for location passed to immutable iterator
+  parameters being modified inside the `for`-loop's body. Doing so results in
+  undefined behaviour.
 
 Converters
 ==========
