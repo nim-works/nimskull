@@ -277,4 +277,4 @@ block ref_construction_argument:
     yield a.i
 
   for i in iter(RefObj(i: 1)):
-    doAssert i == 4
+    doAssert i == 3
