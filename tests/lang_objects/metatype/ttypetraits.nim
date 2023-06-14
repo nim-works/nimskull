@@ -93,6 +93,15 @@ block distinctBase:
     doAssert seq[int].distinctBase is seq[int]
     doAssert "abc".distinctBase == "abc"
 
+  block with_generic_instance:
+    type
+      Type[T] = object
+      Distinct = distinct Type[int]
+
+    # the instantiated type with all generic arguments is returned:
+    doAssert $distinctBase(Type[int]) == "Type[system.int]"
+    doAssert $distinctBase(Distinct)  == "Type[system.int]"
+
   block:
     # simplified from https://github.com/nim-lang/Nim/pull/8531#issuecomment-410436458
     macro uintImpl(bits: static[int]): untyped =
@@ -108,6 +117,7 @@ block distinctBase:
       Uint[bits: static[int]] = distinct uintImpl(bits)
 
     doAssert Uint[128].distinctBase is UintImpl[uint64]
+    doAssert Uint[256].distinctBase isnot UintImpl[uint64]
 
     block:
       type
