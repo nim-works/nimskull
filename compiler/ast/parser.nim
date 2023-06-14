@@ -1360,8 +1360,6 @@ proc postExprBlocks(p: var Parser, x: ParsedNode): ParsedNode =
       # to keep backwards compatibility (see tests/vm/tstringnil)
       if stmtList[0].kind == pnkStmtList: stmtList = stmtList[0]
 
-      stmtList.isBlockArg = true
-      # stmtList.flags.incl nfBlockArg # XXXX
       result.add if openingParams.kind == pnkEmpty and
                     openingPragmas.kind == pnkEmpty:
                    stmtList
@@ -1410,8 +1408,6 @@ proc postExprBlocks(p: var Parser, x: ParsedNode): ParsedNode =
         p.eat(tkColon)
         nextBlock.add parseStmt(p)
 
-      # nextBlock.flags.incl nfBlockArg # XXXX
-      nextBlock.isBlockArg = true
       result.add nextBlock
 
       if nextBlock.kind in {pnkElse, pnkFinally}: break

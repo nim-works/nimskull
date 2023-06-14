@@ -3403,11 +3403,12 @@ proc inferConceptStaticParam(c: PContext, inferred, n: PNode) =
 
   typ.n = res
 
-proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
+proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNode =
   ## analyses `n`, a statement list or list expression, producing a statement
   ## list or expression with appropriate type and flattening all immediate
   ## children statment list or expressions where possible. on failure an
-  ## nkError is produced instead.
+  ## nkError is produced instead. `collapse` controls whether single child
+  ## statement lists should be unwrapped, yielding the child directly.
   addInNimDebugUtils(c.config, "semStmtList", n, result, flags)
 
   assert n != nil
@@ -3420,11 +3421,11 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
   result = copyNode(n)
   result.flags = n.flags # preserve flags as copyNode is selective
   result.transitionSonsKind(nkStmtList)
-  
+
   var
     voidContext = false
     hasError = false
-  
+
   let lastInputChildIndex = n.len - 1
 
   # by not allowing for nkCommentStmt etc. we ensure nkStmtListExpr actually
@@ -3439,10 +3440,10 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
     let 
       x = semExpr(c, n[i], flags)
       last = lastInputChildIndex == i
-    
+
     if c.matchedConcept != nil and x.typ != nil and
         (nfFromTemplate notin n.flags or not last):
-      
+
       if x.isError:
         result.add:
           newError(c.config, n[i], PAstDiag(kind: adSemConceptPredicateFailed))
@@ -3467,7 +3468,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
             x.lastSon
           else:
             x
-        
+
         if verdict == nil or verdict.kind != nkIntLit or verdict.intVal == 0:
           result.add:
             newError(c.config, n[i],
@@ -3493,7 +3494,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
           discardCheck(c, kid, flags)
         else:
           kid
-      
+
       if result[^1].isError:
         hasError = true
 
@@ -3505,18 +3506,14 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
       # this can be flattened, because of the earlier semExpr call we are
       # assured that the maximum nesting is of depth 1
 
-      if nfBlockArg in x.flags:
-        addStmt(x)
-      else:
-        for j, a in x.pairs:
-          # TODO: guard against last node being an nkStmtList?
-          addStmt(a)
-          
-          if a.kind == nkError:
-            hasError = true
+      for j, a in x.pairs:
+        addStmt(a)
+
+        if a.kind == nkError:
+          hasError = true
     else:
       addStmt(x)
-  
+
     if x.kind in nkLastBlockStmts or
        x.kind in nkCallKinds and x[0].kind == nkSym and
        sfNoReturn in x[0].sym.flags:
@@ -3529,12 +3526,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
                       SemReport(kind: rsemUnreachableCode))
 
   if result.kind != nkError and result.len == 1 and
-     # concept bodies should be preserved as a stmt list:
-     c.matchedConcept == nil and
-     # also, don't make life complicated for macros.
-     # they will always expect a proper stmtlist:
-     nfBlockArg notin n.flags and
-     result[0].kind != nkDefer:
+     collapse and result[0].kind != nkDefer:
     result = result[0]
 
   when defined(nimfix):

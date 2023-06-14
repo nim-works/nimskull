@@ -87,16 +87,12 @@ type
     ntfEnumHole = 2    # enum has holes and thus `$` for them needs the slow
                        # version
   TNimType {.compilerproc.} = object
-    when defined(gcHooks):
-      head*: pointer
     size*: int
     align*: int
     kind: TNimKind
     flags: set[TNimTypeFlag]
     base*: ptr TNimType
     node: ptr TNimNode # valid for tyRecord, tyObject, tyTuple, tyEnum
-    finalizer*: pointer # the finalizer for the type
-    marker*: proc (p: pointer, op: int) {.nimcall, benign, tags: [], raises: [].} # marker proc for GC
     deepcopy: proc (p: pointer): pointer {.nimcall, benign, tags: [], raises: [].}
     when defined(nimSeqsV2):
       typeInfoV2*: pointer
@@ -106,12 +102,8 @@ type
       instances: int # count the number of instances
       sizes: int # sizes of all instances in bytes
 
-when defined(gcHooks):
-  type
-    PNimType* = ptr TNimType
-else:
-  type
-    PNimType = ptr TNimType
+type
+  PNimType = ptr TNimType
 
 when defined(nimTypeNames):
   # Declare this variable only once in system.nim

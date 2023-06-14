@@ -40,6 +40,7 @@ import
     msgs
   ],
   compiler/sem/[
+    ast_analysis,
     closureiters,
     semfold,
     lambdalifting,
@@ -51,6 +52,8 @@ import
   compiler/utils/[
     idioms
   ]
+
+from compiler/sem/semdata import makeVarType
 
 type
   PTransCon = ref object # part of TContext; stackable
@@ -623,43 +626,51 @@ proc transformConv(c: PTransf, n: PNode): PNode =
     result = transformSons(c, n)
 
 type
-  TPutArgInto = enum
-    paDirectMapping, paFastAsgn, paFastAsgnTakeTypeFromArg
-    paVarAsgn, paComplexOpenarray
+  PassBy = enum
+    passByForward ## inline the argument expression at each parameter usage
+    passByCopy    ## materialize a full copy (the argument being moved is also
+                  ## okay)
+    passByValue   ## the parameter is allowed to have a different identity than
+                  ## the argument (e.g.: shallow copy), but no full copy must be
+                  ## materialized
+    passOpenArray
+    # XXX: remove ``passOpenArray`` once ``transformConv`` no longer elides
+    #      to-openArray conversions
 
-proc putArgInto(arg: PNode, formal: PType): TPutArgInto =
-  # This analyses how to treat the mapping "formal <-> arg" in an
-  # inline context.
-  if formal.kind == tyTypeDesc: return paDirectMapping
-  if skipTypes(formal, abstractInst).kind in {tyOpenArray, tyVarargs}:
-    case arg.kind
-    of nkStmtListExpr:
-      return paComplexOpenarray
-    of nkBracket:
-      return paFastAsgnTakeTypeFromArg
+proc putArgInto(arg, formal: PType): PassBy =
+  ## Returns what to do for an argument of type `typ` passed to a parameter of
+  ## type `formal`, in the context of inlining.
+  let t = formal.skipTypes(abstractInst - {tySink, tyTypeDesc})
+  case t.kind
+  of tyTypeDesc, tyStatic:
+    passByForward
+  of tySink:
+    # use a full copy, which can then, if possible, be turned into a
+    # move, later
+    passByCopy
+  of tyVar, tyLent:
+    # always copy views (but not the viewed location)
+    passByCopy
+  of tyOpenArray, tyVarargs:
+    let arg = arg.skipTypes(abstractVar + tyUserTypeClasses + {tyStatic})
+    if arg.kind in {tyOpenArray, tyVarargs}:
+      # the argument is already of ``openArray`` type -> a copy (of the view)
+      # can be performed
+      passByCopy
     else:
-      # XXX incorrect, causes #13417 when `arg` has side effects.
-      return paDirectMapping
-  case arg.kind
-  of nkEmpty..nkNilLit:
-    result = paDirectMapping
-  of nkDotExpr, nkDerefExpr, nkHiddenDeref, nkAddr, nkHiddenAddr:
-    result = putArgInto(arg[0], formal)
-  of nkCurly, nkBracket:
-    for i in 0..<arg.len:
-      if putArgInto(arg[i], formal) != paDirectMapping:
-        return paFastAsgn
-    result = paDirectMapping
-  of nkPar, nkTupleConstr, nkObjConstr:
-    for i in 0..<arg.len:
-      let a = if arg[i].kind == nkExprColonExpr: arg[i][1]
-              else: arg[0]
-      if putArgInto(a, formal) != paDirectMapping:
-        return paFastAsgn
-    result = paDirectMapping
+      # a temporary might be needed
+      passOpenArray
   else:
-    if skipTypes(formal, abstractInst).kind in {tyVar, tyLent}: result = paVarAsgn
-    else: result = paFastAsgn
+    passByValue
+
+proc parameterToLocationType(g: ModuleGraph, idgen: IdGenerator, typ: PType): PType =
+  if typ.kind == tyVarargs:
+    # varargs is not a valid location type; turn it into an ``openArray``
+    result = newType(tyOpenArray, nextTypeId(idgen), typ.owner)
+    result.rawAddSon(typ.base)
+    # don't copy the flags, etc.
+  else:
+    result = typ
 
 proc findWrongOwners(c: PTransf, n: PNode) =
   if n.kind == nkVarSection:
@@ -684,8 +695,6 @@ proc isSimpleIteratorVar(c: PTransf; iter: PSym): bool =
   var dangerousYields = 0
   rec(getBody(c.graph, iter), iter, dangerousYields)
   result = dangerousYields == 0
-
-template destructor(t: PType): PSym = getAttachedOp(c.graph, t, attachedDestructor)
 
 proc transformFor(c: PTransf, n: PNode): PNode =
   # generate access statements for the parameters (unless they are constant)
@@ -739,41 +748,92 @@ proc transformFor(c: PTransf, n: PNode): PNode =
       mapping: newIdNodeTable(),
       forStmt: n,
       forLoopBody: loopBody)
-    # generate access statements for the parameters (unless they are constant)
     pushTransCon(c, newC)
+    # generate access expressions for the parameters:
     for i in 1..<call.len:
-      var arg = transform(c, call[i])
-      let ff = skipTypes(iter.typ, abstractInst)
-      # can happen for 'nim check':
-      if i >= ff.n.len: return result
-      var formal = ff.n[i].sym
-      let pa = putArgInto(arg, formal.typ)
-      case pa
-      of paDirectMapping:
-        idNodeTablePut(newC.mapping, formal, arg)
-      of paFastAsgn, paFastAsgnTakeTypeFromArg:
-        var t = formal.typ
-        if pa == paFastAsgnTakeTypeFromArg:
-          t = arg.typ
-        elif formal.ast != nil and formal.ast.typ.destructor != nil and t.destructor == nil:
-          t = formal.ast.typ # better use the type that actually has a destructor.
-        elif t.destructor == nil and arg.typ.destructor != nil:
-          t = arg.typ
-        # generate a temporary and produce an assignment statement:
-        let temp = newTemp(c, t, formal.info)
-        v.add newIdentDefs(temp)
-        stmtList.add(newAsgnStmt(c, nkFastAsgn, temp, arg))
-        idNodeTablePut(newC.mapping, formal, temp)
-      of paVarAsgn:
-        assert(skipTypes(formal.typ, abstractInst).kind in {tyVar})
-        idNodeTablePut(newC.mapping, formal, arg)
-        # XXX BUG still not correct if the arg has a side effect!
-      of paComplexOpenarray:
-        # arrays will deep copy here (pretty bad).
-        let temp = newTemp(c, arg.typ, formal.info)
-        v.add newIdentDefs(temp)
-        stmtList.add(newAsgnStmt(c, nkFastAsgn, temp, arg))
-        idNodeTablePut(newC.mapping, formal, temp)
+      let
+        arg = transform(c, call[i])
+        formal = skipTypes(iter.typ, abstractInst).n[i].sym
+
+      proc addLocal(c: PTransf, typ: PType, formal: PSym, value,
+                    stmts: PNode): PNode {.nimcall.} =
+        ## Creates a new local from `typ` and `formal`, adds statement
+        ## for defining and initializing it, and returns a symbol node
+        ## holding the local's symbol.
+        let owner = getCurrOwner(c)
+        let sym = newSym(skLet, formal.name, nextSymId(c.idgen), owner,
+                         formal.info)
+        sym.typ = parameterToLocationType(c.graph, c.idgen, typ)
+        sym.flags.incl sfFromGeneric
+        sym.flags.incl sfShadowed
+
+        result =
+          if owner.isIterator:
+            freshVarForClosureIter(c.graph, sym, c.idgen, owner)
+          else:
+            newSymNode(sym)
+
+        stmts.add newTree(nkVarSection, newIdentDefs(result, value))
+
+      template addLocal(typ: PType, value: PNode): PNode =
+        addLocal(c, typ, formal, value, stmtList)
+
+      # XXX: two things are currently ignored here:
+      #      1. callsite aliasing (`iter(x, (x = 1; 2))`)
+      #      2. the for-loop body modifying a location that was passed by-name
+      #         to the iterator parameter (i.e. the local corresponding to the
+      #         parameter uses ``lent`` or is a cursor)
+      #
+      #      Triggering any of the two is likely going to result in run-time
+      #      crashes or misbehaving programs.
+
+      # don't forward simple expressions like literals; we might still need a
+      # location (e.g., when the iterator takes the address of the parameter)
+      let expr =
+        case putArgInto(arg.typ, formal.typ)
+        of passByForward: arg
+        of passByCopy:    addLocal(formal.typ, arg)
+        of passByValue:
+          let e = flattenExpr(arg, stmtList.sons)
+          # note that however we choose to pass the argument, if the source
+          # is an lvalue, the source must never be moved out of
+          if e.typ.kind in IntegralTypes + {tyPtr, tyPointer, tyCstring}:
+            # for integral types and other simple types, a normal temporary
+            # suffices
+            addLocal(formal.typ, e)
+          elif e.typ.kind in {tyRef, tySequence, tyString} or
+               not canUseView(e):
+            # something that is know to be small, or the source is not an
+            # lvalue -> use a cursor
+            let loc = addLocal(formal.typ, e)
+            # TODO: also turn temporaries lifted into the environment into cursors.
+            #       This requires the ``liftdestructors`` logic for cursor fields
+            #       to be fixed first
+            if loc.kind == nkSym:
+              loc.sym.flags.incl sfCursor
+            loc
+          else:
+            # a view can be used, which is generally preferred
+            let
+              vt  = makeVarType(newC.owner, formal.typ, c.idgen, tyLent)
+              src = addLocal(vt, newTreeIT(nkHiddenAddr, arg.info, vt, [e]))
+            newTreeIT(nkHiddenDeref, arg.info, formal.typ, [src])
+
+        of passOpenArray:
+          let e = flattenExpr(arg, stmtList.sons)
+          if canUseView(e):
+            addLocal(formal.typ, e)
+          else:
+            # assigning to an openArray location requires an lvalue source
+            # operand, but the argument is not an lvalue expression. The
+            # argument is assigned to a temporary, which we then create an
+            # ``openArray`` view of
+            let src = newTemp(c, arg.typ, arg.info)
+            stmtList.add newTree(nkVarSection, newIdentDefs(src, arg))
+            addLocal(formal.typ, src)
+
+      # map all usages of the parameter symbol to `expr`:
+      idNodeTablePut(newC.mapping, formal, expr)
 
     let body = transformBody(c.graph, c.idgen, iter, true)
     pushInfoContext(c.graph.config, n.info)

@@ -716,6 +716,10 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
         diagnostics.add report.semReport
   )
 
+  # xxx: this is where we end up with collapsed bodies and drives the need for
+  #      the check in `semexprs.semExpr`'s `nkStmtList/Expr` branch, a
+  #      `semTryExpr` that doesn't collapse should remove the awkward logic and
+  #      action at a distance.
   var checkedBody = c.semTryExpr(c, body.copyTree, {efExplain})
 
   c.config.setReportHook(tmpHook)
@@ -2509,7 +2513,10 @@ proc setSon(father: PNode, at: int, son: PNode) =
 
 # we are allowed to modify the calling node in the 'prepare*' procs:
 proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
-  if formal.kind == tyUntyped and formal.len != 1:
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(c.config, a)
+  if formal.kind == tyUntyped:
+    assert formal.len != 1
     result = a
   elif a.typ.isNil:
     # XXX This is unsound! 'formal' can differ from overloaded routine to
@@ -2518,7 +2525,7 @@ proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
   else:
     result = a
     considerGenSyms(c, result)
-    
+
     if result.kind != nkHiddenDeref and
        result.typ.kind in {tyVar, tyLent} and
        c.matchedConcept.isNil():
@@ -2573,11 +2580,10 @@ template isVarargsUntyped(x): untyped =
   x.kind == tyVarargs and x[0].kind == tyUntyped
 
 proc findFirstArgBlock(m: var TCandidate, n: PNode): int =
+  # xxx: this "feature" isn't a great idea and the implementation is awful
   # see https://github.com/nim-lang/RFCs/issues/405
   result = int.high
   for a2 in countdown(n.len - 1, 0):
-    # checking `nfBlockArg in n[a2].flags` wouldn't work inside templates
-    # xxx: ^^ why???
     case n[a2].kind
     of nkStmtList:
       let formalLast = m.callee.n[m.callee.n.len - (n.len - a2)]

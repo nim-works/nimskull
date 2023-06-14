@@ -30,6 +30,7 @@ import
     ast_query,
     idents,
     lineinfos,
+    trees,
     types
   ],
   compiler/front/[
@@ -44,6 +45,7 @@ import
     modulegraphs
   ],
   compiler/sem/[
+    ast_analysis,
     lowerings
   ],
   compiler/utils/[
@@ -52,7 +54,6 @@ import
   ]
 
 from compiler/sem/semdata import makeVarType
-from compiler/sem/typeallowed import directViewType, noView
 
 # TODO: move the procedure somewhere common
 from compiler/vm/vmaux import findRecCase
@@ -247,53 +248,6 @@ proc wrapArg(stmts: seq[PNode], info: TLineInfo, val: PNode): PNode =
     assert val.kind != nkStmtListExpr
     result = newTreeIT(nkStmtListExpr, info, val.typ, stmts)
     result.add val
-
-proc flatten(expr: PNode, stmts: var seq[PNode]): PNode =
-  ## Applies the following transformations to the expression `expr`:
-  ## 1.) transform an AST like: ``(A (StmtListExpr (x) (y)) (z))`` into
-  ##     ``(StmtListExpr (x) (A (y) (z)))``
-  ## 2.) add all statements from a statement list expression to `stmts` and
-  ##     pass on the last node
-  ##
-  ## The result of #2 is passed back to step #1 and the process is repeated
-  ## until none of the two transformations apply anymore. Together, these
-  ## transformations make processing easier for the following analysis steps,
-  ## and the generated AST a bit less nested.
-  proc forward(n: PNode, p: int): PNode =
-    ## Performs transformation #1
-    if n[p].kind == nkStmtListExpr:
-      result = n[p]
-      n[p] = result[^1]
-      result[^1] = n
-    else:
-      result = n
-
-  var it = expr
-  while true:
-    # we're looking for expression nodes that represent side-effect free
-    # operations
-    case it.kind
-    of nkDotExpr, nkCheckedFieldExpr, nkBracketExpr, nkHiddenAddr, nkAddr,
-      nkDerefExpr, nkHiddenDeref, nkCStringToString, nkStringToCString,
-      nkObjDownConv, nkObjUpConv:
-      it = forward(it, 0)
-    of nkConv, nkHiddenStdConv, nkCast:
-      it = forward(it, 1)
-    else:
-      # no AST to which transform #1 applies
-      discard
-
-    if it.kind == nkStmtListExpr:
-      # transformation #2:
-      for i in 0..<it.len-1:
-        stmts.add it[i]
-
-      it = it[^1]
-    else:
-      # we're done transforming
-      break
-
-  result = it
 
 proc makeVarSection(syms: openArray[PSym], info: TLineInfo): PNode =
   ## Creates a var section with all symbols from `syms`
@@ -509,38 +463,9 @@ proc useTemporary(n: PNode, cl: var TranslateCl, stmts: var seq[PNode]): PNode =
   stmts.add newTreeI(nkVarSection, n.info, [newIdentDefs(newSymNode(sym), n)])
   result = newSymNode(sym)
 
-proc canUseView(n: PNode): bool =
-  ## Computes whether the expression `n` computes to something for which a
-  ## view can be created
-  var n {.cursor.} = n
-  while true:
-    case n.kind
-    of nkAddr, nkHiddenAddr, nkBracketExpr, nkObjUpConv, nkObjDownConv,
-       nkCheckedFieldExpr, nkDotExpr:
-      n = n[0]
-    of nkHiddenStdConv, nkHiddenSubConv, nkConv:
-      if skipTypes(n.typ, abstractVarRange).kind in {tyOpenArray, tyTuple, tyObject} or
-         compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct):
-        # lvalue conversion
-        n = n[1]
-      else:
-        return false
-
-    of nkSym:
-      # don't use a view if the location is part of a constant
-      return n.sym.kind in {skVar, skLet, skForVar, skResult, skParam, skTemp}
-    of nkHiddenDeref, nkDerefExpr:
-      return true
-    of nkCallKinds:
-      # if the call yields a view, use an lvalue reference (view) -- otherwise,
-      # do not
-      return directViewType(n.typ) != noView
-    else:
-      return false
-
 proc prepareParameter(expr: PNode, tag: ValueTags, mode: ArgumentMode,
                       cl: var TranslateCl, stmts: var seq[PNode]): PNode =
-  let expr = flatten(expr, stmts)
+  let expr = flattenExpr(expr, stmts)
   if isSimple(expr):
     # if it's an independent expression with no side-effects, a temporary is
     # not needed and the expression can be used directly

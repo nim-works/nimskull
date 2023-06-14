@@ -552,7 +552,6 @@ Define                   Effect
                          its size to support clearing memory on reallocation.
                          This only works with `--gc:arc`:option: and
                          `--gc:orc`:option:.
-`logGC`                  Enable GC logging to stdout.
 `nodejs`                 The JS target is actually ``node.js``.
 `ssl`                    Enables OpenSSL support for the sockets module.
 `memProfiler`            Enables memory profiling for the native GC.

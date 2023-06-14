@@ -146,8 +146,6 @@ type
     cond: SysCond
     elemType: PNimType
     ready: bool
-    when not usesDestructors:
-      region: MemRegion
   PRawChannel = ptr RawChannel
   LoadStoreMode = enum mStore, mLoad
   Channel*[TMsg] {.gcsafe.} = RawChannel ## a channel for thread communication
@@ -166,135 +164,10 @@ proc deinitRawChannel(p: pointer) =
   # we need to grab the lock to be safe against sending threads!
   acquireSys(c.lock)
   c.mask = ChannelDeadMask
-  when not usesDestructors:
-    deallocOsPages(c.region)
-  else:
-    if c.data != nil: deallocShared(c.data)
+  if c.data != nil:
+    deallocShared(c.data)
   deinitSys(c.lock)
   deinitSysCond(c.cond)
-
-when not usesDestructors:
-
-  proc storeAux(dest, src: pointer, mt: PNimType, t: PRawChannel,
-                mode: LoadStoreMode) {.benign.}
-
-  proc storeAux(dest, src: pointer, n: ptr TNimNode, t: PRawChannel,
-                mode: LoadStoreMode) {.benign.} =
-    var
-      d = cast[ByteAddress](dest)
-      s = cast[ByteAddress](src)
-    case n.kind
-    of nkSlot: storeAux(cast[pointer](d +% n.offset),
-                        cast[pointer](s +% n.offset), n.typ, t, mode)
-    of nkList:
-      for i in 0..n.len-1: storeAux(dest, src, n.sons[i], t, mode)
-    of nkCase:
-      copyMem(cast[pointer](d +% n.offset), cast[pointer](s +% n.offset),
-              n.typ.size)
-      var m = selectBranch(src, n)
-      if m != nil: storeAux(dest, src, m, t, mode)
-    of nkNone: sysAssert(false, "storeAux")
-
-  proc storeAux(dest, src: pointer, mt: PNimType, t: PRawChannel,
-                mode: LoadStoreMode) =
-    template `+!`(p: pointer; x: int): pointer =
-      cast[pointer](cast[int](p) +% x)
-
-    var
-      d = cast[ByteAddress](dest)
-      s = cast[ByteAddress](src)
-    sysAssert(mt != nil, "mt == nil")
-    case mt.kind
-    of tyString:
-      if mode == mStore:
-        var x = cast[PPointer](dest)
-        var s2 = cast[PPointer](s)[]
-        if s2 == nil:
-          x[] = nil
-        else:
-          var ss = cast[NimString](s2)
-          var ns = cast[NimString](alloc(t.region, GenericSeqSize + ss.len+1))
-          copyMem(ns, ss, ss.len+1 + GenericSeqSize)
-          x[] = ns
-      else:
-        var x = cast[PPointer](dest)
-        var s2 = cast[PPointer](s)[]
-        if s2 == nil:
-          unsureAsgnRef(x, s2)
-        else:
-          let y = copyDeepString(cast[NimString](s2))
-          #echo "loaded ", cast[int](y), " ", cast[string](y)
-          unsureAsgnRef(x, y)
-          dealloc(t.region, s2)
-    of tySequence:
-      var s2 = cast[PPointer](src)[]
-      var seq = cast[PGenericSeq](s2)
-      var x = cast[PPointer](dest)
-      if s2 == nil:
-        if mode == mStore:
-          x[] = nil
-        else:
-          unsureAsgnRef(x, nil)
-      else:
-        sysAssert(dest != nil, "dest == nil")
-        if mode == mStore:
-          x[] = alloc0(t.region, align(GenericSeqSize, mt.base.align) +% seq.len *% mt.base.size)
-        else:
-          unsureAsgnRef(x, newSeq(mt, seq.len))
-        var dst = cast[ByteAddress](cast[PPointer](dest)[])
-        var dstseq = cast[PGenericSeq](dst)
-        dstseq.len = seq.len
-        dstseq.reserved = seq.len
-        for i in 0..seq.len-1:
-          storeAux(
-            cast[pointer](dst +% align(GenericSeqSize, mt.base.align) +% i *% mt.base.size),
-            cast[pointer](cast[ByteAddress](s2) +% align(GenericSeqSize, mt.base.align) +%
-                          i *% mt.base.size),
-            mt.base, t, mode)
-        if mode != mStore: dealloc(t.region, s2)
-    of tyObject:
-      if mt.base != nil:
-        storeAux(dest, src, mt.base, t, mode)
-      else:
-        # copy type field:
-        var pint = cast[ptr PNimType](dest)
-        pint[] = cast[ptr PNimType](src)[]
-      storeAux(dest, src, mt.node, t, mode)
-    of tyTuple:
-      storeAux(dest, src, mt.node, t, mode)
-    of tyArray, tyArrayConstr:
-      for i in 0..(mt.size div mt.base.size)-1:
-        storeAux(cast[pointer](d +% i *% mt.base.size),
-                cast[pointer](s +% i *% mt.base.size), mt.base, t, mode)
-    of tyRef:
-      var s = cast[PPointer](src)[]
-      var x = cast[PPointer](dest)
-      if s == nil:
-        if mode == mStore:
-          x[] = nil
-        else:
-          unsureAsgnRef(x, nil)
-      else:
-        #let size = if mt.base.kind == tyObject: cast[ptr PNimType](s)[].size
-        #           else: mt.base.size
-        if mode == mStore:
-          let dyntype = when declared(usrToCell): usrToCell(s).typ
-                        else: mt
-          let size = dyntype.base.size
-          # we store the real dynamic 'ref type' at offset 0, so that
-          # no information is lost
-          let a = alloc0(t.region, size+sizeof(pointer))
-          x[] = a
-          cast[PPointer](a)[] = dyntype
-          storeAux(a +! sizeof(pointer), s, dyntype.base, t, mode)
-        else:
-          let dyntype = cast[ptr PNimType](s)[]
-          var obj = newObj(dyntype, dyntype.base.size)
-          unsureAsgnRef(x, obj)
-          storeAux(x[], s +! sizeof(pointer), dyntype.base, t, mode)
-          dealloc(t.region, s)
-    else:
-      copyMem(dest, src, mt.size) # copy raw bits
 
 proc rawSend(q: PRawChannel, data: pointer, typ: PNimType) =
   ## Adds an `item` to the end of the queue `q`.
@@ -302,10 +175,7 @@ proc rawSend(q: PRawChannel, data: pointer, typ: PNimType) =
   if q.count >= cap:
     # start with capacity for 2 entries in the queue:
     if cap == 0: cap = 1
-    when not usesDestructors:
-      var n = cast[pbytes](alloc0(q.region, cap*2*typ.size))
-    else:
-      var n = cast[pbytes](allocShared0(cap*2*typ.size))
+    var n = cast[pbytes](allocShared0(cap*2*typ.size))
     var z = 0
     var i = q.rd
     var c = q.count
@@ -315,28 +185,20 @@ proc rawSend(q: PRawChannel, data: pointer, typ: PNimType) =
       i = (i + 1) and q.mask
       inc z
     if q.data != nil:
-      when not usesDestructors:
-        dealloc(q.region, q.data)
-      else:
-        deallocShared(q.data)
+      deallocShared(q.data)
     q.data = n
     q.mask = cap*2 - 1
     q.wr = q.count
     q.rd = 0
-  when not usesDestructors:
-    storeAux(addr(q.data[q.wr * typ.size]), data, typ, q, mStore)
-  else:
-    copyMem(addr(q.data[q.wr * typ.size]), data, typ.size)
+
+  copyMem(addr(q.data[q.wr * typ.size]), data, typ.size)
   inc q.count
   q.wr = (q.wr + 1) and q.mask
 
 proc rawRecv(q: PRawChannel, data: pointer, typ: PNimType) =
   sysAssert q.count > 0, "rawRecv"
   dec q.count
-  when not usesDestructors:
-    storeAux(data, addr(q.data[q.rd * typ.size]), typ, q, mLoad)
-  else:
-    copyMem(data, addr(q.data[q.rd * typ.size]), typ.size)
+  copyMem(data, addr(q.data[q.rd * typ.size]), typ.size)
   q.rd = (q.rd + 1) and q.mask
 
 template lockChannel(q, action): untyped =
@@ -366,8 +228,7 @@ proc sendImpl(q: PRawChannel, typ: PNimType, msg: pointer, noBlock: bool): bool 
 proc send*[TMsg](c: var Channel[TMsg], msg: sink TMsg) {.inline.} =
   ## Sends a message to a thread. `msg` is deeply copied.
   discard sendImpl(cast[PRawChannel](addr c), cast[PNimType](getTypeInfo(msg)), unsafeAddr(msg), false)
-  when defined(gcDestructors):
-    wasMoved(msg)
+  wasMoved(msg)
 
 proc trySend*[TMsg](c: var Channel[TMsg], msg: sink TMsg): bool {.inline.} =
   ## Tries to send a message to a thread.
@@ -377,9 +238,8 @@ proc trySend*[TMsg](c: var Channel[TMsg], msg: sink TMsg): bool {.inline.} =
   ## Returns `false` if the message was not sent because number of pending items
   ## in the channel exceeded `maxItems`.
   result = sendImpl(cast[PRawChannel](addr c), cast[PNimType](getTypeInfo(msg)), unsafeAddr(msg), true)
-  when defined(gcDestructors):
-    if result:
-      wasMoved(msg)
+  if result:
+    wasMoved(msg)
 
 proc llRecv(q: PRawChannel, res: pointer, typ: PNimType) =
   q.ready = true

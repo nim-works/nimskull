@@ -549,12 +549,10 @@ when not defined(noSignalHandler) and not defined(useNimRtl):
     when defined(memtracker):
       logPendingOps()
     when hasSomeStackTrace:
-      when not usesDestructors: GC_disable()
       var buf = newStringOfCap(2000)
       rawWriteStackTrace(buf)
       processSignal(sign, buf.add) # nice hu? currying a la Nim :-)
       showErrorMessage2(buf)
-      when not usesDestructors: GC_enable()
     else:
       var msg: cstring
       template asgn(y) =
