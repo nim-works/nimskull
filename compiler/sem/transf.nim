@@ -123,9 +123,6 @@ proc transformSons(c: PTransf, n: PNode): PNode =
   for i in 0..<n.len:
     result[i] = transform(c, n[i])
 
-proc newAsgnStmt(c: PTransf, kind: TNodeKind, le: PNode, ri: PNode): PNode =
-  result = newTreeI(kind, ri.info): [le, ri]
-
 proc transformSymAux(c: PTransf, n: PNode): PNode =
   let s = n.sym
   if s.typ != nil and s.typ.callConv == ccClosure:
@@ -747,9 +744,6 @@ proc transformFor(c: PTransf, n: PNode): PNode =
     # this can fail for 'nimsuggest' and 'check':
     if iter.kind != skIterator: return result
 
-    var v = newNode(nkVarSection)
-      ## var section for parameter handling; will be discarded if empty
-
     # Bugfix: inlined locals belong to the invoking routine, not to the invoked
     # iterator!
     var newC = PTransCon(
@@ -843,10 +837,6 @@ proc transformFor(c: PTransf, n: PNode): PNode =
 
       # map all usages of the parameter symbol to `expr`:
       idNodeTablePut(newC.mapping, formal, expr)
-
-    if v.len > 0:
-      # prepend the var section to the statement list
-      stmtList.sons.insert(v, 0)
 
     let body = transformBody(c.graph, c.idgen, iter, true)
     pushInfoContext(c.graph.config, n.info)
