@@ -53,39 +53,36 @@ template getModuleIdent(graph: ModuleGraph, filename: AbsoluteFile): PIdent =
 
 template packageId(): untyped {.dirty.} = ItemId(module: PackageModuleId, item: int32(fileIdx))
 
-proc getPackage(graph: ModuleGraph; fileIdx: FileIndex): PSym =
-  ## returns package symbol (skPackage) for yet to be defined module for fileIdx
+proc getPackage(graph: ModuleGraph, fileIdx: FileIndex): PSym =
+  ## returns the package symbol (skPackage) for yet to be defined module for
+  ## `fileIdx`
   let
     filename = AbsoluteFile toFullPath(graph.config, fileIdx)
-    name = getModuleIdent(graph, filename)
     info = newLineInfo(fileIdx, 1, 1)
-    pck = getPackageName(graph.config, filename.string)
-    pck2 = if pck.len > 0: pck else: "unknown"
-    pack = getIdent(graph.cache, pck2)
-  
-  result = graph.packageSyms.strTableGet(pack)
-  
-  if result == nil:
-    result = newSym(skPackage, getIdent(graph.cache, pck2), packageId(), nil, info)
-    #initStrTable(packSym.tab)
-    graph.packageSyms.strTableAdd(result)
-  else:
-    let modules = graph.modulesPerPackage.getOrDefault(result.itemId)
-    let existing = if modules.data.len > 0: strTableGet(modules, name) else: nil
-    if existing != nil and existing.info.fileIndex != info.fileIndex:
-      when false:
-        # we used to produce an error:
-        localReport(graph.config, info,
-          "module names need to be unique per Nimble package; module clashes with " &
-            toFullPath(graph.config, existing.info.fileIndex))
+    desc = getPkgDesc(graph.config, filename.string)
+    rootPkg = getIdent(graph.cache, desc.pkgRootName)
+    existingRootPkgSym = graph.packageSyms.strTableGet(rootPkg)
+    rootPkgSym =
+      if existingRootPkgSym.isNil:
+        let temp = newSym(skPackage, rootPkg, packageId(), nil, info)
+        graph.packageSyms.strTableAdd(temp)
+        temp
       else:
-        # but starting with version 0.20 we now produce a fake Nimble package instead
-        # to resolve the conflicts:
-        let pck3 = fakePackageName(graph.config, filename)
-        # this makes the new `result`'s owner be the original `result`
-        result = newSym(skPackage, getIdent(graph.cache, pck3), packageId(), result, info)
-        #initStrTable(packSym.tab)
-        graph.packageSyms.strTableAdd(result)
+        existingRootPkgSym
+
+  if desc.pkgSubpath == "":
+    result = rootPkgSym
+  else:
+    let
+      subPkg = getIdent(graph.cache, desc.pkgName)
+      existingSubPkgSym = graph.packageSyms.strTableGet(subPkg)
+    result =
+      if existingSubPkgSym.isNil:
+        let subPkgSym = newSym(skPackage, subPkg, packageId(), rootPkgSym, info)
+        graph.packageSyms.strTableAdd(subPkgSym)
+        subPkgSym
+      else:
+        existingSubPkgSym
 
 proc partialInitModule(result: PSym; graph: ModuleGraph; fileIdx: FileIndex; filename: AbsoluteFile) =
   let packSym = getPackage(graph, fileIdx)
@@ -98,10 +95,6 @@ proc partialInitModule(result: PSym; graph: ModuleGraph; fileIdx: FileIndex; fil
     # This is now implemented via
     #   c.moduleScope.addSym(module) # a module knows itself
     # in sem.nim, around line 527
-
-  if graph.modulesPerPackage.getOrDefault(packSym.itemId).data.len == 0:
-    graph.modulesPerPackage[packSym.itemId] = newStrTable()
-  graph.modulesPerPackage[packSym.itemId].strTableAdd(result)
 
 proc newModule(graph: ModuleGraph; fileIdx: FileIndex): PSym =
   let filename = AbsoluteFile toFullPath(graph.config, fileIdx)

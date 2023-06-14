@@ -363,14 +363,9 @@ proc rdCharLoc(a: TLoc): Rope =
   if skipTypes(a.t, abstractRange).kind == tyChar:
     result = "((NU8)($1))" % [result]
 
-type
-  TAssignmentFlag = enum
-    needToCopy
-  TAssignmentFlags = set[TAssignmentFlag]
-
 proc genObjConstr(p: BProc, e: PNode, d: var TLoc)
 proc rawConstExpr(p: BProc, n: PNode; d: var TLoc)
-proc genAssignment(p: BProc, dest, src: TLoc, flags: TAssignmentFlags)
+proc genAssignment(p: BProc, dest, src: TLoc)
 
 type
   ObjConstrMode = enum
@@ -422,7 +417,7 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
             [rdLoc(a), rdLoc(tmp), getTypeDesc(p.module, objType, mapTypeChooser(a))])
       else:
         let tmp = defaultValueExpr(p, t, a.lode.info)
-        genAssignment(p, a, tmp, {})
+        genAssignment(p, a, tmp)
 
 proc isComplexValueType(t: PType): bool {.inline.} =
   let t = t.skipTypes(abstractInst + tyUserTypeClasses)
@@ -431,45 +426,35 @@ proc isComplexValueType(t: PType): bool {.inline.} =
 
 include ccgreset
 
-proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  let typ = skipTypes(loc.t, abstractVarRange + tyUserTypeClasses)
-  if typ.kind in {tyString, tySequence}:
-    assert rdLoc(loc) != ""
-
-    let atyp = skipTypes(loc.t, abstractInst)
-    if atyp.kind in {tyVar, tyLent}:
-      linefmt(p, cpsStmts, "$1->len = 0; $1->p = NIM_NIL;$n", [rdLoc(loc)])
-    else:
-      linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
-  elif not isComplexValueType(typ):
-    linefmt(p, cpsStmts, "$1 = 0;$n", [rdLoc(loc)])
-  else:
-      # array passed as argument decayed into pointer, bug #7332
-      # so we use getTypeDesc here rather than rdLoc(loc)
-      linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-              [addrLoc(p.config, loc),
-              getTypeDesc(p.module, loc.t, mapTypeChooser(loc))])
-      # XXX: We can be extra clever here and call memset only
-      # on the bytes following the m_type field?
-      if doInitObj:
-        genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
-
 proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
-  let typ = loc.t
-  if skipTypes(typ, abstractInst + {tyStatic}).kind in {tyString, tySequence}:
+  let kind = mapTypeChooser(loc)
+  case mapType(p.config, loc.t, kind)
+  of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
+     ctFloat, ctFloat32, ctFloat64, ctFloat128,
+     ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64:
+    # numeric type
+    linefmt(p, cpsStmts, "$1 = 0;$n", [rdLoc(loc)])
+  of ctPtrToArray, ctPtr, ctCString, ctProc:
+    # a simple ptr-like type -> assign nil
+    linefmt(p, cpsStmts, "$1 = NIM_NIL;$n", [rdLoc(loc)])
+  of ctNimStr, ctNimSeq:
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
-  elif not isComplexValueType(typ):
-    linefmt(p, cpsStmts, "$1 = ($2)0;$n", [rdLoc(loc),
-      getTypeDesc(p.module, typ, mapTypeChooser(loc))])
-  else:
+  of ctArray, ctStruct, ctNimOpenArray:
     if not isTemp:
       # don't use nimZeroMem for temporary values for performance if we can
       # avoid it
       linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-              [addrLoc(p.config, loc), getTypeDesc(p.module, typ, mapTypeChooser(loc))])
+              [addrLoc(p.config, loc), getTypeDesc(p.module, loc.t, kind)])
 
     if doInitObj:
       genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
+  of ctVoid:
+    unreachable()
+
+proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
+  # we always want to clear out the destination, so pass `false` for
+  # ``isTemp``
+  constructLoc(p, loc, false, doInitObj)
 
 proc initLocalVar(p: BProc, v: PSym, immediateAsgn: bool) =
   if sfNoInit notin v.flags:
@@ -514,11 +499,10 @@ proc localVarDecl(p: BProc; n: PNode): Rope =
   let s = n.sym
   if s.loc.k == locNone:
     fillLoc(s.loc, locLocalVar, n, mangleLocalName(p, s), OnStack)
-    if s.kind == skLet: incl(s.loc.flags, lfNoDeepCopy)
   if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
     result.addf("NIM_ALIGN($1) ", [rope(s.alignment)])
   result.add getTypeDesc(p.module, s.typ, skVar)
-  if s.constraint.isNil:
+  if true:
     if sfRegister in s.flags: result.add(" register")
     #elif skipTypes(s.typ, abstractInst).kind in GcTypeKinds:
     #  decl.add(" GC_GUARD")
@@ -526,8 +510,6 @@ proc localVarDecl(p: BProc; n: PNode): Rope =
     if sfNoalias in s.flags: result.add(" NIM_NOALIAS")
     result.add(" ")
     result.add(s.loc.r)
-  else:
-    result = runtimeFormat(s.cgDeclFrmt, [result, s.loc.r])
 
 proc assignLocalVar(p: BProc, n: PNode) =
   #assert(s.loc.k == locNone) # not yet assigned
@@ -563,7 +545,7 @@ proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
     else:
       var decl = ""
       var td = getTypeDesc(p.module, s.loc.t, skVar)
-      if s.constraint.isNil:
+      if true:
         if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
           decl.addf "NIM_ALIGN($1) ", [rope(s.alignment)]
         if sfImportc in s.flags: decl.add("extern ")
@@ -578,11 +560,7 @@ proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
           decl.addf(" $1 = $2;$n", [s.loc.r, value])
         else:
           decl.addf(" $1;$n", [s.loc.r])
-      else:
-        if value != "":
-          decl = runtimeFormat(s.cgDeclFrmt & " = $#;$n", [td, s.loc.r, value])
-        else:
-          decl = runtimeFormat(s.cgDeclFrmt & ";$n", [td, s.loc.r])
+
       p.module.s[cfsVars].add(decl)
   if p.withinLoop > 0 and value == "":
     # fixes tests/run/tzeroarray:
@@ -837,22 +815,6 @@ proc containsResult(n: PNode): bool =
 const harmless = {nkConstSection, nkTypeSection, nkEmpty, nkCommentStmt, nkTemplateDef,
                   nkMacroDef, nkMixinStmt, nkBindStmt} +
                   declarativeDefs
-
-proc easyResultAsgn(n: PNode): PNode =
-  case n.kind
-  of nkStmtList, nkStmtListExpr:
-    var i = 0
-    while i < n.len and n[i].kind in harmless: inc i
-    if i < n.len: result = easyResultAsgn(n[i])
-  of nkAsgn, nkFastAsgn:
-    if n[0].kind == nkSym and n[0].sym.kind == skResult and not containsResult(n[1]):
-      incl n.flags, nfPreventCg
-      return n[1]
-  of nkReturnStmt:
-    if n.len > 0:
-      result = easyResultAsgn(n[0])
-      if result != nil: incl n.flags, nfPreventCg
-  else: discard
 
 type
   InitResultEnum = enum Unknown, InitSkippable, InitRequired

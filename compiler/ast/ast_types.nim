@@ -647,8 +647,6 @@ type
     nfExplicitCall ## `x.y()` was used instead of x.y
     nfIsRef     ## this node is a 'ref' node; used for the VM
     nfIsPtr     ## this node is a 'ptr' node; used for the VM
-    nfPreventCg ## this node should be ignored by the codegen
-    nfBlockArg  ## this a stmtlist appearing in a call (e.g. a do block)
     nfFromTemplate ## a top-level node returned from a template
     nfDefaultParam ## an automatically inserter default parameter
     nfDefaultRefsParam ## a default param value references another parameter
@@ -1611,7 +1609,6 @@ type
     lfFullExternalName, ## only used when 'conf.cmd == cmdNimfix': Indicates
       ## that the symbol has been imported via 'importc: "fullname"' and
       ## no format string.
-    lfNoDeepCopy,             ## no need for a deep copy
     lfNoDecl,                 ## do not declare it in C
     lfDynamicLib,             ## link symbol to dynamic library
     lfExportLib,              ## export symbol for dynamic library generation

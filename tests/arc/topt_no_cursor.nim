@@ -87,8 +87,9 @@ var lan_ip
 try:
   lan_ip = ""
   block label:
+    var a_cursor = txt
     var i = 0
-    var L = len(txt)
+    var L = len(a_cursor)
     block label_1:
       while true:
         if op(`<`(i, L)):
@@ -96,7 +97,7 @@ try:
         block label_2:
           var splitted
           try:
-            var line = txt[i]
+            var line = a_cursor[i]
             splitted = split(line, " ", -1)
             if `==`(splitted[0], "opt"):
               var :tmp = splitted[1]
@@ -116,15 +117,16 @@ try:
   `=copy`(shadowScope, :tmp)
   rawCloseScope(c)
   block label:
+    var a_cursor = shadowScope[].symbols
     var i = 0
-    var L = len(shadowScope[].symbols)
+    var L = len(a_cursor)
     block label_1:
       while true:
         if op(`<`(i, L)):
           break
         block label_2:
           var :tmp_1
-          var sym = shadowScope[].symbols[i]
+          var sym = a_cursor[i]
           addInterfaceDecl(c):
             var :tmp_2 = sym
             :tmp_1 = op()

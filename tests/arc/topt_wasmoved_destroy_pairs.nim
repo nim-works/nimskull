@@ -23,10 +23,12 @@ var x
 try:
   x = f()
   block label:
-    var i = 0
+    var a_1 = 0
+    var b_1 = 4
+    var i = a_1
     block label_1:
       while true:
-        if op(`<`(i, 4)):
+        if op(`<`(i, b_1)):
           break
         block label_2:
           var :tmp

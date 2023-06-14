@@ -766,7 +766,7 @@ proc fillBody(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   case t.kind
   of tyNone, tyEmpty, tyVoid: discard
   of tyPointer, tySet, tyBool, tyChar, tyEnum, tyInt..tyUInt64, tyCstring,
-      tyPtr, tyUncheckedArray, tyVar, tyLent:
+      tyPtr, tyUncheckedArray, tyVar, tyLent, tyVarargs, tyOpenArray:
     defaultOp(c, t, body, x, y)
   of tyRef:
     if c.g.config.selectedGC in {gcArc, gcOrc}:
@@ -817,12 +817,6 @@ proc fillBody(c: var TLiftCtx; t: PType; body, x, y: PNode) =
       fillBody(c, t[0], body, x, y)
   of tyTuple:
     fillBodyTup(c, t, body, x, y)
-  of tyVarargs, tyOpenArray:
-    if c.kind == attachedDestructor and (tfHasAsgn in t.flags or useNoGc(c, t)):
-      forallElements(c, t, body, x, y)
-    else:
-      discard "cannot copy openArray"
-
   of tyFromExpr, tyProxy, tyBuiltInTypeClass, tyUserTypeClass,
      tyUserTypeClassInst, tyCompositeTypeClass, tyAnd, tyOr, tyNot, tyAnything,
      tyGenericParam, tyGenericBody, tyNil, tyUntyped, tyTyped,

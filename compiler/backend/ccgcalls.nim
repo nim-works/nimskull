@@ -114,7 +114,7 @@ proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
         pl.add(~");$n")
         line(p, cpsStmts, pl)
         exitCall(p, ri[0], canRaise)
-        genAssignment(p, d, tmp, {}) # no need for deep copying
+        genAssignment(p, d, tmp)
     else:
       pl.add(~")")
       if isHarmlessStore(p, canRaise, d):
@@ -123,7 +123,7 @@ proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
         var list: TLoc
         initLoc(list, locCall, d.lode, OnUnknown)
         list.r = pl
-        genAssignment(p, d, list, {}) # no need for deep copying
+        genAssignment(p, d, list)
         exitCall(p, ri[0], canRaise)
       else:
         var tmp: TLoc
@@ -131,9 +131,9 @@ proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
         var list: TLoc
         initLoc(list, locCall, d.lode, OnUnknown)
         list.r = pl
-        genAssignment(p, tmp, list, {}) # no need for deep copying
+        genAssignment(p, tmp, list)
         exitCall(p, ri[0], canRaise)
-        genAssignment(p, d, tmp, {})
+        genAssignment(p, d, tmp)
   else:
     pl.add(~");$n")
     line(p, cpsStmts, pl)
@@ -216,10 +216,7 @@ proc openArrayLoc(p: BProc, formalType: PType, n: PNode): Rope =
     case skipTypes(a.t, abstractVar+{tyStatic}).kind
     of tyOpenArray, tyVarargs:
       if reifiedOpenArray(n):
-        if a.t.kind in {tyVar, tyLent}:
-          result = "$1->Field0, $1->Field1" % [rdLoc(a)]
-        else:
-          result = "$1.Field0, $1.Field1" % [rdLoc(a)]
+        result = "$1.Field0, $1.Field1" % [rdLoc(a)]
       else:
         result = "$1, $1Len_0" % [rdLoc(a)]
     of tyString, tySequence:
@@ -253,13 +250,13 @@ proc withTmpIfNeeded(p: BProc, a: TLoc, needsTmp: bool): TLoc =
   if needsTmp and a.lode.typ != nil and p.config.selectedGC in {gcArc, gcOrc} and
       getSize(p.config, a.lode.typ) < 1024:
     getTemp(p, a.lode.typ, result, needsInit=false)
-    genAssignment(p, result, a, {})
+    genAssignment(p, result, a)
   else:
     result = a
 
 proc literalsNeedsTmp(p: BProc, a: TLoc): TLoc =
   getTemp(p, a.lode.typ, result, needsInit=false)
-  genAssignment(p, result, a, {})
+  genAssignment(p, result, a)
 
 proc genArgStringToCString(p: BProc, n: PNode, needsTmp: bool): Rope {.inline.} =
   var a: TLoc
@@ -439,7 +436,7 @@ proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
         pl.add(addrLoc(p.config, tmp))
         genCallPattern()
         exitCall(p, ri[0], canRaise)
-        genAssignment(p, d, tmp, {}) # no need for deep copying
+        genAssignment(p, d, tmp)
     elif isHarmlessStore(p, canRaise, d):
       if d.k == locNone: getTemp(p, typ[0], d)
       assert(d.t != nil)        # generate an assignment to d:
@@ -449,7 +446,7 @@ proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
         list.r = PatIter % [rdLoc(op), pl, pl.addComma, rawProc]
       else:
         list.r = PatProc % [rdLoc(op), pl, pl.addComma, rawProc]
-      genAssignment(p, d, list, {}) # no need for deep copying
+      genAssignment(p, d, list)
       exitCall(p, ri[0], canRaise)
     else:
       var tmp: TLoc
@@ -461,9 +458,9 @@ proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
         list.r = PatIter % [rdLoc(op), pl, pl.addComma, rawProc]
       else:
         list.r = PatProc % [rdLoc(op), pl, pl.addComma, rawProc]
-      genAssignment(p, tmp, list, {})
+      genAssignment(p, tmp, list)
       exitCall(p, ri[0], canRaise)
-      genAssignment(p, d, tmp, {})
+      genAssignment(p, d, tmp)
   else:
     genCallPattern()
     exitCall(p, ri[0], canRaise)
