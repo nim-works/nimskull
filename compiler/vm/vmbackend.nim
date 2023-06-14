@@ -90,7 +90,7 @@ type
 func growBy[T](x: var seq[T], n: Natural) {.inline.} =
   x.setLen(x.len + n)
 
-iterator cpairs[T](s: seq[T]): (int, lent T) =
+iterator cpairs[T](s: var seq[T]): (int, lent T) =
   ## Continous pair iterator. Supports `s` growing during iteration
   var i = 0
   while i < s.len:

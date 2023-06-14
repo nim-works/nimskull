@@ -972,7 +972,7 @@ proc needsNoCopy(p: PProc; y: PNode): bool =
   return y.kind in nodeKindsNeedNoCopy or
         ((mapType(y.typ) != etyBaseIndex) and
           (skipTypes(y.typ, abstractInst).kind in
-            {tyRef, tyPtr, tyLent, tyVar, tyCstring, tyProc} + IntegralTypes))
+            {tyRef, tyPtr, tyLent, tyVar, tyCstring, tyProc, tyOpenArray} + IntegralTypes))
 
 proc genAsgnAux(p: PProc, x, y: PNode, noCopyNeeded: bool) =
   var a, b: TCompRes
@@ -1655,7 +1655,7 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
       result = putToSeq("null", indirect)
   of tySequence, tyString:
     result = putToSeq("[]", indirect)
-  of tyCstring, tyProc:
+  of tyCstring, tyProc, tyOpenArray:
     result = putToSeq("null", indirect)
   of tyStatic:
     p.config.internalAssert(t.n != nil, "createVar: " & $t.kind)
@@ -1691,18 +1691,13 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
     varName = mangleName(p.module, v)
     useGlobalPragmas = sfGlobal in v.flags and ({sfPure, sfThread} * v.flags != {})
 
-  if v.constraint.isNil:
+  if true:
     if useGlobalPragmas:
       lineF(p, "if (globalThis.$1 === undefined) {$n", varName)
       varCode = "globalThis." & $varName
       inc p.extraIndent
     else:
       varCode = "var $2"
-  else:
-    # Is this really a thought through feature?  this basically unused
-    # feature makes it impossible for almost all format strings in
-    # this function to be checked at compile time.
-    varCode = v.constraint.strVal
 
   if n.kind == nkEmpty:
     if not isIndirect(v) and
@@ -1715,7 +1710,7 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
     gen(p, n, a)
     case mapType(p, v.typ)
     of etyObject, etySeq:
-      if needsNoCopy(p, n):
+      if needsNoCopy(p, n) or classifyBackendView(v.typ) == bvcSequence:
         s = a.res
       else:
         useMagic(p, "nimCopy")

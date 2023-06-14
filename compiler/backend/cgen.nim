@@ -425,45 +425,35 @@ proc isComplexValueType(t: PType): bool {.inline.} =
 
 include ccgreset
 
-proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  let typ = skipTypes(loc.t, abstractVarRange + tyUserTypeClasses)
-  if typ.kind in {tyString, tySequence}:
-    assert rdLoc(loc) != ""
-
-    let atyp = skipTypes(loc.t, abstractInst)
-    if atyp.kind in {tyVar, tyLent}:
-      linefmt(p, cpsStmts, "$1->len = 0; $1->p = NIM_NIL;$n", [rdLoc(loc)])
-    else:
-      linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
-  elif not isComplexValueType(typ):
-    linefmt(p, cpsStmts, "$1 = 0;$n", [rdLoc(loc)])
-  else:
-      # array passed as argument decayed into pointer, bug #7332
-      # so we use getTypeDesc here rather than rdLoc(loc)
-      linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-              [addrLoc(p.config, loc),
-              getTypeDesc(p.module, loc.t, mapTypeChooser(loc))])
-      # XXX: We can be extra clever here and call memset only
-      # on the bytes following the m_type field?
-      if doInitObj:
-        genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
-
 proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
-  let typ = loc.t
-  if skipTypes(typ, abstractInst + {tyStatic}).kind in {tyString, tySequence}:
+  let kind = mapTypeChooser(loc)
+  case mapType(p.config, loc.t, kind)
+  of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
+     ctFloat, ctFloat32, ctFloat64, ctFloat128,
+     ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64:
+    # numeric type
+    linefmt(p, cpsStmts, "$1 = 0;$n", [rdLoc(loc)])
+  of ctPtrToArray, ctPtr, ctCString, ctProc:
+    # a simple ptr-like type -> assign nil
+    linefmt(p, cpsStmts, "$1 = NIM_NIL;$n", [rdLoc(loc)])
+  of ctNimStr, ctNimSeq:
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
-  elif not isComplexValueType(typ):
-    linefmt(p, cpsStmts, "$1 = ($2)0;$n", [rdLoc(loc),
-      getTypeDesc(p.module, typ, mapTypeChooser(loc))])
-  else:
+  of ctArray, ctStruct, ctNimOpenArray:
     if not isTemp:
       # don't use nimZeroMem for temporary values for performance if we can
       # avoid it
       linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-              [addrLoc(p.config, loc), getTypeDesc(p.module, typ, mapTypeChooser(loc))])
+              [addrLoc(p.config, loc), getTypeDesc(p.module, loc.t, kind)])
 
     if doInitObj:
       genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
+  of ctVoid:
+    unreachable()
+
+proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
+  # we always want to clear out the destination, so pass `false` for
+  # ``isTemp``
+  constructLoc(p, loc, false, doInitObj)
 
 proc initLocalVar(p: BProc, v: PSym, immediateAsgn: bool) =
   if sfNoInit notin v.flags:
@@ -511,7 +501,7 @@ proc localVarDecl(p: BProc; n: PNode): Rope =
   if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
     result.addf("NIM_ALIGN($1) ", [rope(s.alignment)])
   result.add getTypeDesc(p.module, s.typ, skVar)
-  if s.constraint.isNil:
+  if true:
     if sfRegister in s.flags: result.add(" register")
     #elif skipTypes(s.typ, abstractInst).kind in GcTypeKinds:
     #  decl.add(" GC_GUARD")
@@ -519,8 +509,6 @@ proc localVarDecl(p: BProc; n: PNode): Rope =
     if sfNoalias in s.flags: result.add(" NIM_NOALIAS")
     result.add(" ")
     result.add(s.loc.r)
-  else:
-    result = runtimeFormat(s.cgDeclFrmt, [result, s.loc.r])
 
 proc assignLocalVar(p: BProc, n: PNode) =
   #assert(s.loc.k == locNone) # not yet assigned
@@ -559,7 +547,7 @@ proc defineGlobalVar*(m: BModule, n: PNode) =
     else:
       var decl = ""
       var td = getTypeDesc(m, s.loc.t, skVar)
-      if s.constraint.isNil:
+      if true:
         if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
           decl.addf "NIM_ALIGN($1) ", [rope(s.alignment)]
         if sfImportc in s.flags: decl.add("extern ")
@@ -570,8 +558,7 @@ proc defineGlobalVar*(m: BModule, n: PNode) =
         if sfVolatile in s.flags: decl.add(" volatile")
         if sfNoalias in s.flags: decl.add(" NIM_NOALIAS")
         decl.addf(" $1;$n", [s.loc.r])
-      else:
-        decl = runtimeFormat(s.cgDeclFrmt & ";$n", [td, s.loc.r])
+
       m.s[cfsVars].add(decl)
 
 proc assignParam(p: BProc, s: PSym, retType: PType) =

@@ -27,6 +27,8 @@ macro testX(x,inst0: typed; recurse: static[bool]; implX: typed) =
   let inst = x.getTypeInst
   let instr = inst.symToIdent.treeRepr
   let inst0r = inst0.symToIdent.treeRepr
+  let implX = if implX.kind in {nnkStmtList, nnkStmtListExpr}: implX[0]
+              else:                                            implX
   if instr != inst0r:
     echo "instr:\n", instr
     echo "inst0r:\n", inst0r

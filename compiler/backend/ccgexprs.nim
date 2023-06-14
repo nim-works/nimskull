@@ -172,39 +172,27 @@ proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
 proc genAssignment(p: BProc, dest, src: TLoc) =
   # This function replaces all other methods for generating
   # the assignment operation in C.
-  if src.t != nil and src.t.kind == tyPtr:
-    # little HACK to support the new 'var T' as return type:
+  case mapType(p.config, dest.t, skVar)
+  of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
+     ctFloat, ctFloat32, ctFloat64, ctFloat128,
+     ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64,
+     ctStruct, ctPtrToArray, ctPtr, ctNimStr, ctNimSeq, ctProc,
+     ctCString:
     linefmt(p, cpsStmts, "$1 = $2;$n", [rdLoc(dest), rdLoc(src)])
-    return
-  let ty = skipTypes(dest.t, abstractRange + tyUserTypeClasses + {tyStatic})
-  case ty.kind
-  of tyRef, tySequence, tyString, tyProc, tyTuple, tyObject:
-    linefmt(p, cpsStmts, "$1 = $2;$n", [rdLoc(dest), rdLoc(src)])
-  of tyArray:
-      linefmt(p, cpsStmts,
-           "#nimCopyMem((void*)$1, (NIM_CONST void*)$2, sizeof($3));$n",
-           [rdLoc(dest), rdLoc(src), getTypeDesc(p.module, dest.t)])
-  of tyOpenArray, tyVarargs:
-    # open arrays are always on the stack - really? What if a sequence is
-    # passed to an open array?
+  of ctArray:
+    assert dest.t.skipTypes(irrelevantForBackend + abstractInst).kind != tyOpenArray
+    linefmt(p, cpsStmts, "#nimCopyMem((void*)$1, (NIM_CONST void*)$2, $3);$n",
+            [rdLoc(dest), rdLoc(src), getSize(p.config, dest.t)])
+  of ctNimOpenArray:
+    # HACK: ``astgen`` elides to-openArray-conversion operations, so we
+    #       need to reconstruct that information here. Remove this case
+    #       once ``astgen`` no longer elides the operations
     if reifiedOpenArray(dest.lode):
       genOpenArrayConv(p, dest, src)
     else:
-      linefmt(p, cpsStmts,
-           # bug #4799, keep the nimCopyMem for a while
-           #"#nimCopyMem((void*)$1, (NIM_CONST void*)$2, sizeof($1[0])*$1Len_0);$n",
-           "$1 = $2;$n",
-           [rdLoc(dest), rdLoc(src)])
-  of tySet:
-    if mapSetType(p.config, ty) == ctArray:
-      linefmt(p, cpsStmts, "#nimCopyMem((void*)$1, (NIM_CONST void*)$2, $3);$n",
-              [rdLoc(dest), rdLoc(src), getSize(p.config, dest.t)])
-    else:
       linefmt(p, cpsStmts, "$1 = $2;$n", [rdLoc(dest), rdLoc(src)])
-  of tyPtr, tyPointer, tyChar, tyBool, tyEnum, tyCstring,
-     tyInt..tyUInt64, tyRange, tyVar, tyLent, tyNil:
-    linefmt(p, cpsStmts, "$1 = $2;$n", [rdLoc(dest), rdLoc(src)])
-  else: internalError(p.config, "genAssignment: " & $ty.kind)
+  of ctVoid:
+    unreachable("not a valid location type")
 
   if optMemTracker in p.options and dest.storage in {OnHeap, OnUnknown}:
     #writeStackTrace()

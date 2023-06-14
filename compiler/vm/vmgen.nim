@@ -51,9 +51,6 @@ import
     msgs,
     options
   ],
-  compiler/sem/[
-    lowerings
-  ],
   compiler/utils/[
     idioms
   ],
@@ -556,17 +553,13 @@ func prepare(c: var TCtx, dest: var TDest, typ: PType) =
   if dest.isUnset:
     dest = c.getTemp(typ)
 
-func isVarLent(t: PType): bool {.inline.} =
-  ## Returns whether `t` is a ``var`` or ``lent`` type (i.e. a direct
-  ## single-location view type). ``openArray`` types are currently not
-  ## considered.
-  t.skipTypes(abstractInst).kind in {tyVar, tyLent}
+func isLocView(t: PType): bool {.inline.} =
+  ## Returns whether `t` is a a direct single-location view-type.
+  classifyBackendView(t) == bvcSingle
 
 func isDirectView(t: PType): bool {.inline.} =
-  ## Returns whether `t` is a direct view type
-  isVarLent(t)
-  # TODO: use the below once ``openArray``s are properly supported
-  #directViewType(t) != noView
+  ## Returns whether `t` is a direct view-type.
+  classifyBackendView(t) != bvcNone
 
 proc prepare(c: var TCtx, dest: var TDest, n: PNode, typ: PType) =
   ## If `dest` is not already set or refers to an argument slot, allocates a
@@ -1371,9 +1364,19 @@ proc genCard(c: var TCtx; n: PNode; dest: var TDest) =
   c.gABC(n, opcCard, dest, tmp)
   c.freeTemp(tmp)
 
+func fitsRegisterConsiderView(t: PType): bool =
+  ## Returns whether a value of type `t` fits into a register, also
+  ## considering view-types that map to pointers.
+  # XXX: introduce a ``mapType`` (similar to the one used by the other code
+  #      generators) and base the "fits register" queries on that
+  let t = t.skipTypes(IrrelevantTypes)
+  fitsRegister(t) or
+    # is it a direct single-location view?:
+    t.kind in {tyVar, tyLent} and t.base.kind != tyOpenArray
+
 template needsRegLoad(): untyped =
   mixin load
-  load and fitsRegister(n.typ.skipTypes({tyVar, tyLent}))
+  load and fitsRegisterConsiderView(n.typ)
 
 proc genCast(c: var TCtx, n, arg: PNode, dest: var TDest) =
   let
@@ -1804,7 +1807,37 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.freeTemp(d)
   of mSwap:
     unused(c, n, dest)
-    c.gen(lowerSwap(c.graph, n, c.idgen, if c.prc == nil or c.prc.sym == nil: c.module else: c.prc.sym))
+    let tmp = getTemp(c, n.typ)
+    # XXX: swap doesn't need to be implemented here; lower it into assignment
+    #      with a MIR pass
+    # there's no ``nkHiddenAddr`` on the operands, so we don't need to skip
+    # var types
+    if fitsRegister(n[1].typ):
+      # we need to account for the fact that either operand could be
+      # stored in a register already (because it's a local variable)
+      let
+        a = c.genLoc(n[1])
+        b = c.genLoc(n[2])
+      # register copies are enough, here
+      c.gABC(n, opcFastAsgnComplex, tmp, a.val)
+      c.gABC(n, opcFastAsgnComplex, a.val, b.val)
+      c.gABC(n, opcFastAsgnComplex, b.val, tmp)
+      # write back (if necessary):
+      finish(c, n, b)
+      finish(c, n, a)
+    else:
+      let
+        a = c.genLvalue(n[1])
+        b = c.genLvalue(n[2])
+      # XXX: this currently creates a full copy; the VM is still missing the
+      #      ability to create shallow copies
+      c.gABC(n, opcAsgnComplex, tmp, a)
+      c.gABC(n, opcWrLoc, a, b)
+      c.gABC(n, opcWrLoc, b, tmp)
+      c.freeTemp(b)
+      c.freeTemp(a)
+
+    c.freeTemp(tmp)
   of mIsNil: genUnaryABC(c, n, dest, opcIsNil)
   of mParseBiggestFloat:
     if dest.isUnset: dest = c.getTemp(n.typ)
@@ -2227,7 +2260,7 @@ proc genAsgnSource(c: var TCtx, n: PNode, wantsPtr: bool): TRegister =
   ## handling is required when the source operand is a view. ``wantsPtr``
   ## indicates which one the consumer expects.
   result = c.genx(n)
-  if isVarLent(n.typ):
+  if isLocView(n.typ):
     let isPtr = isPtrView(n)
     # if necessary, convert the view to the representation the destination
     # expects:
@@ -2277,7 +2310,7 @@ proc genSymAsgn(c: var TCtx, le, ri: PNode) =
       # an assignment is required to the local. Views are always stored as
       # handles in this case, so a register move is used for assigning them
       let
-        opc = (if isVarLent(s.typ): opcFastAsgnComplex else: opcWrLoc)
+        opc = (if isDirectView(s.typ): opcFastAsgnComplex else: opcWrLoc)
         b = c.genx(ri)
       c.gABC(le, opc, dest, b)
       c.freeTemp(b)
@@ -2441,7 +2474,7 @@ proc genSym(c: var TCtx; n: PNode; dest: var TDest; load = true) =
     if dest.isUnset:
       dest = c.getTemp(s.typ)
 
-    if load and (isVarLent(s.typ) or fitsRegister(s.typ)):
+    if load and (isLocView(s.typ) or fitsRegister(s.typ)):
       let cc = c.getTemp(n.typ)
       c.gABx(n, opcLdGlobal, cc, pos)
       c.genRegLoad(n, dest, cc)
@@ -2669,7 +2702,7 @@ proc genAddr(c: var TCtx, src, n: PNode, dest: var TDest) =
   of nkHiddenDeref:
     # taking the address of a view's or ``var`` parameter's underlying
     # location
-    assert isVarLent(n[0].typ)
+    assert isLocView(n[0].typ)
     if isPtrView(n[0]):
       # the view is stored as an address; treat the deref as a no-op
       genLvalue(c, n[0], dest)
@@ -2740,7 +2773,7 @@ proc genLvalue(c: var TCtx, n: PNode, dest: var TDest) =
     # type
     gen(c, n, dest)
   of nkHiddenDeref:
-    assert isVarLent(n[0].typ)
+    assert isLocView(n[0].typ)
     if isPtrView(n[0]):
       # we want a handle (``rkHandle``), but the input view uses a pointer
       # (``rkAddress``) internally. Turn it into a handle by dereferencing it
@@ -2757,7 +2790,7 @@ proc genLvalue(c: var TCtx, n: PNode, dest: var TDest) =
     # we only reach this case for ``HiddenAddr (HiddenDeref (Call ...))``.
     # Generate the call returning a view as is
     # XXX: ``astgen`` should not emit these instead
-    assert isVarLent(n.typ)
+    assert isLocView(n.typ)
     gen(c, n, dest)
   of nkStmtListExpr:
     for i in 0..<n.len-1:
@@ -2807,7 +2840,8 @@ proc genVarSection(c: var TCtx; n: PNode) =
 
             c.gABx(a, opc, reg, c.genType(s.typ))
           else:
-            if not usesRegister(c.prc, s) and not isVarLent(s.typ):
+            # XXX: checking for views here is wrong but necessary
+            if not usesRegister(c.prc, s) and not isDirectView(s.typ):
               # only setup a memory location if the local uses one
               c.gABx(a, opcLdNull, reg, c.genType(s.typ))
 
@@ -3024,11 +3058,11 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
   of nkDerefExpr: genDeref(c, n, dest)
   of nkAddr: genAddr(c, n, n[0], dest)
   of nkHiddenDeref:
-    assert isVarLent(n[0].typ)
+    assert isLocView(n[0].typ)
     # a view indirection
     genDerefView(c, n[0], dest)
   of nkHiddenAddr:
-    assert isVarLent(n.typ)
+    assert isLocView(n.typ)
     # load the source operand as a handle
     genLvalue(c, n[0], dest)
   of nkIfStmt:

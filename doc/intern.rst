@@ -245,9 +245,7 @@ Runtimes
 was removed from the compiler. Some documentation might still use the terms
 "old runtime" and "new runtime".
 
-In order to continue bootstrapping, the code for the implementation of the
-"old runtime" still exists. The new runtime is active `when defined(nimV2)`.
-
+The new runtime is active `when defined(nimV2)`.
 
 Coding Guidelines
 =================

@@ -344,7 +344,7 @@ proc toJson*[T](a: T, opt = initToJsonOptions()): JsonNode =
   elif T is cstring: (if a == nil: result = newJNull() else: result = % $a)
   else: result = %a
 
-proc fromJsonHook*[K: string|cstring, V](t: var (Table[K, V] | OrderedTable[K, V]),
+proc fromJsonHook*[K: string, V](t: var (Table[K, V] | OrderedTable[K, V]),
                          jsonNode: JsonNode) =
   ## Enables `fromJson` for `Table` and `OrderedTable` types.
   ##

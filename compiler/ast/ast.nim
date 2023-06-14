@@ -838,8 +838,5 @@ proc toPNode*(parsed: ParsedNode): PNode =
     unreachable("IMPLEMENT ME")
 
   else:
-    if parsed.isBlockArg:
-      result.flags.incl nfBlockArg
-
     for sub in parsed.sons.items:
       result.add toPNode(sub)

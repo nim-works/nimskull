@@ -4390,6 +4390,38 @@ parameters of an outer factory proc:
   for f in foo():
     echo f
 
+Parameter Passing For Iterators In `for` Loops
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. note::
+  The following only applies to `inline` iterators at the moment.
+
+For iterators invoked in the context of `for`-loops, the arguments are
+evaluated before passing control to the iterator's body. The argument
+evaluation order is the same as everywhere else, that is, left to right.
+
+How exactly this is achieved for `inline` iterators is up to the compiler, but
+with the following restrictions / guarantees:
+- no full copy must be introduced when passing to an immutable parameter (a
+  full copy might still be needed in order to ensure the left-to-right
+  evaluation order)
+- except for `seq`s, `string`s, and `ref`s, if the argument is an lvalue
+  expression, the parameter must not be an *owning* location, but only store
+  the handle
+- if the argument is an unamed location (e.g. the result of a call), an
+  *owning* location *may* be used
+- the lvalues passed to `var` parameters are passed and stored by handle
+
+In the `for`-loop body, modifying a location of which the handle was passed to
+a `var` parameter of the iterator is allowed. Modifications to the location
+from the iterator's body are visible to the `for`-loop's body, and vice versa.
+
+`sink` parameters work the same as they do with the other routines.
+
+.. warning::
+  There's currently no detection for location passed to immutable iterator
+  parameters being modified inside the `for`-loop's body. Doing so results in
+  undefined behaviour.
 
 Converters
 ==========
@@ -7087,37 +7119,26 @@ calling syntax: ``obj.method(arg)``.
 CodegenDecl pragma
 ------------------
 
-The `codegenDecl` pragma can be used to directly influence Nim's code
-generator. It receives a format string that determines how the variable
-or proc is declared in the generated code.
+.. warning::
+  This pragma is deprecated and going to be removed.
 
-For variables, $1 in the format string represents the type of the variable
-and $2 is the name of the variable.
-
-The following Nim code:
-
-.. code-block:: nim
-  var
-    a {.codegenDecl: "$# progmem $#".}: int
-
-will generate this C code:
-
-.. code-block:: c
-  int progmem a
-
-For procedures, $1 is the return type of the procedure, $2 is the name of
-the procedure, and $3 is the parameter list.
+The `codegenDecl` pragma can be used to directly influence |NimSkull|'s JavaScript
+code generator. It receives a format string that determines how the proc
+is declared in the generated code: $1 is the return type of the procedure,
+$2 its name, and $3 is the parameter list.
 
 The following nim code:
 
 .. code-block:: nim
-  proc myinterrupt() {.codegenDecl: "__interrupt $# $#$#".} =
-    echo "realistic interrupt handler"
+  proc p() {.codegenDecl: "async function $2($3)".} =
+    echo "procedure body goes here"
 
 will generate this code:
 
-.. code-block:: c
-  __interrupt void myinterrupt()
+.. code-block:: js
+  async function p() {
+    // ...
+  }
 
 
 compile-time define pragmas
