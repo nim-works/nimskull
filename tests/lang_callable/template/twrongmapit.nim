@@ -30,3 +30,15 @@ import sequtils
 (var i = @[""];i).applyIt(it)
 # now works:
 echo "##", i[0], "##"
+
+block evaluation_order:
+  # the ``applyIt`` argument expression must only be evaluated once
+  var
+    x = 0
+    a = [1, 2, 3]
+
+  # add 1 to each element:
+  applyIt((inc x; a), it + 1)
+
+  doAssert x == 1, "expression evaluated multiple times"
+  doAssert a == [2, 3, 4]
