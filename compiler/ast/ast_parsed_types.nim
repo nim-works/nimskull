@@ -251,8 +251,6 @@ type
         idents*: seq[tuple[ident: PIdent, line: uint16, col: int16]]
       of pnkCall..pnkUsingStmt:
         token*: ParsedToken
-        isBlockArg*: bool       # TODO: rework ast to eliminate this flag,
-                                #       maybe with a `pnkStmtListArg` kind.
         sons*: seq[ParsedNode]  # TODO: replace `ref` object graph with
                                 #       begin/end ranges for tracking the tree
                                 #       hierarchy in a linear data structure.
@@ -304,7 +302,6 @@ proc transitionSonsKind*(n: ParsedNode, kind: ParsedNodeKind) =
   {.cast(uncheckedAssign).}:
     n[] = ParsedNodeData(kind: kind,
                          token: obj.token,
-                         isBlockArg: obj.isBlockArg,
                          sons: obj.sons,
                          comment: obj.comment,
                          fileIndex: obj.fileIndex)
