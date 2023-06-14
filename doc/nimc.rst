@@ -253,9 +253,9 @@ as it is the first match.
 Generated C code directory
 --------------------------
 The generated files that Nim produces all go into a subdirectory called
-``nimcache``. Its full path is
+``nimskullcache``. Its full path is
 
-- ``$XDG_CACHE_HOME/nim/$projectname(_r|_d)`` or ``~/.cache/nimskull/$projectname(_r|_d)``
+- ``$XDG_CACHE_HOME/nimskull/$projectname(_r|_d)`` or ``~/.cache/nimskull/$projectname(_r|_d)``
   on Posix
 - ``$HOME\nimskullcache\$projectname(_r|_d)`` on Windows.
 
@@ -265,7 +265,7 @@ This makes it easy to delete all generated files.
 
 The `--nimcache`:option:
 `compiler switch <#compiler-usage-commandminusline-switches>`_ can be used to
-to change the ``nimcache`` directory.
+to change the ``nimskullcache`` directory.
 
 However, the generated C code is not platform-independent. C code generated for
 Linux does not compile on Windows, for instance. The comment on top of the
