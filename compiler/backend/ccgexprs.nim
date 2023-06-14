@@ -535,29 +535,17 @@ proc genDeref(p: BProc, e: PNode, d: var TLoc) =
       discard getTypeDesc(p.module, e.typ, skVar)
       putIntoDest(p, d, e, "(*$1)" % [rdLoc(a)], a.storage)
 
-proc cowBracket(p: BProc; n: PNode) =
-  if n.kind == nkBracketExpr:
-    let strCandidate = n[0]
-    if strCandidate.typ.skipTypes(abstractInst).kind == tyString:
-      var a: TLoc
-      initLocExpr(p, strCandidate, a)
-      linefmt(p, cpsStmts, "#nimPrepareStrMutationV2($1);$n", [byRefLoc(p, a)])
-
-proc cow(p: BProc; n: PNode) {.inline.} =
-  if n.kind == nkHiddenAddr: cowBracket(p, n[0])
-
-proc genAddr(p: BProc, e: PNode, d: var TLoc) =
-  # careful  'addr(myptrToArray)' needs to get the ampersand:
-  if e[0].typ.skipTypes(abstractInst).kind in {tyRef, tyPtr}:
-    var a: TLoc
-    initLocExpr(p, e[0], a)
-    putIntoDest(p, d, e, "&" & a.r, a.storage)
-    #Message(e.info, warnUser, "HERE NEW &")
-  elif mapType(p.config, e[0].typ, mapTypeChooser(e[0])) == ctArray:
+proc genAddr(p: BProc, e: PNode, mutate: bool, d: var TLoc) =
+  if mapType(p.config, e[0].typ, mapTypeChooser(e[0])) == ctArray:
     expr(p, e[0], d)
   else:
     var a: TLoc
-    initLocExpr(p, e[0], a)
+    if mutate:
+      initLoc(a, locNone, e[0], OnUnknown)
+      a.flags.incl lfPrepareForMutation
+      expr(p, e[0], a)
+    else:
+      initLocExpr(p, e[0], a)
     putIntoDest(p, d, e, addrLoc(p.config, a), a.storage)
 
 template inheritLocation(d: var TLoc, a: TLoc) =
@@ -1454,12 +1442,14 @@ proc genSwap(p: BProc, e: PNode, d: var TLoc) =
   # temp = a
   # a = b
   # b = temp
-  cowBracket(p, e[1])
-  cowBracket(p, e[2])
   var a, b, tmp: TLoc
   getTemp(p, skipTypes(e[1].typ, abstractVar), tmp)
-  initLocExpr(p, e[1], a) # eval a
-  initLocExpr(p, e[2], b) # eval b
+  initLoc(a, locNone, e[1], OnUnknown)
+  initLoc(b, locNone, e[2], OnUnknown)
+  a.flags.incl lfPrepareForMutation
+  b.flags.incl lfPrepareForMutation
+  expr(p, e[1], a) # eval a
+  expr(p, e[2], b) # eval b
   genAssignment(p, tmp, a)
   genAssignment(p, a, b)
   genAssignment(p, b, tmp)
@@ -2317,7 +2307,8 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
       # ``&(*x)`` to just ``x``
       expr(p, n[0][0], d)
     else:
-      genAddr(p, n, d)
+      let mutate = n.kind == nkHiddenAddr and n.typ.kind == tyVar
+      genAddr(p, n, mutate, d)
   of nkBracketExpr: genBracketExpr(p, n, d)
   of nkDerefExpr, nkHiddenDeref: genDeref(p, n, d)
   of nkDotExpr: genRecordField(p, n, d)
@@ -2344,7 +2335,6 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
   of nkReturnStmt: genReturnStmt(p, n)
   of nkBreakStmt: genBreakStmt(p, n)
   of nkAsgn, nkFastAsgn:
-    cow(p, n[1])
     genAsgn(p, n)
   of nkDiscardStmt:
     let ex = n[0]
