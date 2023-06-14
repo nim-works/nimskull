@@ -107,7 +107,11 @@ proc rewriteGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
           sym = body[def].sym
           typ = sym.typ
         changes.seek(i)
-        if hasInput(body, Operation i):
+        if sfPure in sym.flags:
+          # HACK: yet another hack for the JS backend not using
+          #       ``transf.extractGlobals``...
+          discard "do nothing"
+        elif hasInput(body, Operation i):
           # the definition has a starting value
           # XXX: consider disallowing inputs to 'def's, they complicate things
           #      quite a bit (as made evident here)
