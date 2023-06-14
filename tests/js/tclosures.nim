@@ -5,12 +5,15 @@ discard """
 import random, strutils
 const consolePrefix = "jsCallbacks"
 
-var callback {.importc.}: JsRoot
+var callback {.exportc.}: JsRoot
 
 proc regCallback_ex(fn: JsRoot) {.exportc: "regCallback", asmNoStackFrame.} =
   ## Simulates a function that is defined at the JavaScript side.
   asm """
-    `callback`.push (`fn`);
+    if (callback == null) {
+      callback = []
+    }
+    callback.push (`fn`);
   """
 
 proc runCallbacks(): cstring {.asmNoStackFrame.} =
