@@ -272,7 +272,7 @@ program:
 .. code:: cmd
 
   nim c --noMain --noLinking fib.nim
-  gcc -o m -I$HOME/.cache/nim/fib_d -Ipath/to/nim/lib $HOME/.cache/nim/fib_d/*.c maths.c
+  gcc -o m -I$HOME/.cache/nimskull/fib_d -Ipath/to/nim/lib $HOME/.cache/nimskull/fib_d/*.c maths.c
 
 The first command runs the Nim compiler with three special options to avoid
 generating a `main()`:c: function in the generated files and to avoid linking the

@@ -255,9 +255,9 @@ Generated C code directory
 The generated files that Nim produces all go into a subdirectory called
 ``nimcache``. Its full path is
 
-- ``$XDG_CACHE_HOME/nim/$projectname(_r|_d)`` or ``~/.cache/nim/$projectname(_r|_d)``
+- ``$XDG_CACHE_HOME/nim/$projectname(_r|_d)`` or ``~/.cache/nimskull/$projectname(_r|_d)``
   on Posix
-- ``$HOME\nimcache\$projectname(_r|_d)`` on Windows.
+- ``$HOME\nimskullcache\$projectname(_r|_d)`` on Windows.
 
 The `_r` suffix is used for release builds, `_d` is for debug builds.
 

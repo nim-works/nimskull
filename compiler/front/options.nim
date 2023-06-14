@@ -1311,7 +1311,7 @@ proc toGeneratedFile*(
     path: AbsoluteFile,
     ext: string
   ): AbsoluteFile =
-  ## converts "/home/a/mymodule.nim", "rod" to "/home/a/nimcache/mymodule.rod"
+  ## converts "/home/a/mymodule.nim", "rod" to "/home/a/nimskullcache/mymodule.rod"
   result = getNimcacheDir(conf) / RelativeFile(
     path.string.splitPath.tail.changeFileExt(ext))
 
