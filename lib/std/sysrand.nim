@@ -83,7 +83,7 @@ when defined(js):
   import std/private/jsutils
 
   when defined(nodejs):
-    proc require(p: cstring): JsRoot {.importjs.}
+    proc require(p: cstring): JsRoot {.importc.}
 
     var crypto_module {.exportc: "_nim_nodejs_crypto".} = require("crypto")
 
