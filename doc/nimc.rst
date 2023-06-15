@@ -252,7 +252,7 @@ as it is the first match.
 
 Generated C code directory
 --------------------------
-The generated files that Nim produces all go into a subdirectory called
+The generated files that |Nimskull| produces all go into a subdirectory called
 ``nimskullcache``. Its full path is
 
 - ``$XDG_CACHE_HOME/nimskull/$projectname(_r|_d)`` or ``~/.cache/nimskull/$projectname(_r|_d)``
