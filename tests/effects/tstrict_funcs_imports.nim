@@ -7,7 +7,10 @@ discard """
 when defined(linux):
   import linenoise
 elif defined(windows):
-  import std/winlean
+  import std/[
+    registry,
+    winlean
+  ]
 
 import
   algorithm,
@@ -81,7 +84,6 @@ import
   rationals,
   rdstdin,
   re,
-  registry,
   reservedmem,
   rlocks,
   ropes,
