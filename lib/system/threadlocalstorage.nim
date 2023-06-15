@@ -189,7 +189,10 @@ type
       nil
 
 when emulatedThreadVars:
-  var globalsSlot: ThreadVarSlot
+  var globalsSlot {.noInit.}: ThreadVarSlot
+  # the `globalSlot` global is special, in that it's initialized by
+  # ``initThreadVarsEmulation``, which is called *before* control-flow reaches
+  # here
 
   when not defined(useNimRtl):
     var mainThread: GcThread
