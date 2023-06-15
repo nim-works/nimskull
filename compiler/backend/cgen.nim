@@ -1045,9 +1045,9 @@ proc genProcAux(m: BModule, prc: PSym) =
   m.s[cfsProcs].add(generatedProc)
 
 proc genInitProc*(m: BModule, prc: PSym) =
-  # HACK: a module's init procedure should be the same as any other
-  #       procedure. Due to ``cgen`` appending to it from multiple unrelated
-  #       places, it currently cannot, so we special case it here
+  # HACK: a module's init procedure needs to be treated the same as any other
+  #       procedure. Due to ``cgen`` appending to it from all over the place,
+  #       it currently cannot
   var procBody = transformBody(m.g.graph, m.idgen, prc, cache = false)
   procBody = canonicalizeWithInject(m.g.graph, m.idgen, prc, procBody, {})
   genProcBody(m.initProc, procBody)
@@ -1591,7 +1591,6 @@ proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
     result = true
 
 proc finalizeModule*(m: BModule) =
-  # genInitCode(m)
   finishTypeDescriptions(m)
 
 proc finalizeMainModule*(m: BModule) =

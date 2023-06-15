@@ -12,7 +12,7 @@
 ## generation orchestrator for the C backend.
 ##
 ## However, instead of leaving dead-code elimination (=DCE) to the
-## orchestrator we compute the set of alive symbols here, through a prepass
+## orchestrator, we compute the set of alive symbols here, through a prepass
 ## over the entire packed module graph. The code generator currently picks
 ## this up via the ``useAliveDataFromDce`` flag.
 
@@ -194,8 +194,8 @@ proc generateCode*(g: ModuleGraph) =
     discard pass.close(g, c, g.emptyNode)
 
   var mlist = takeModuleList(g)
-  # make at least sure that the main module comes last (the other modules are
-  # closed in the wrong order):
+  # make sure that, at least, the main module comes last (the other modules
+  # are closed in the wrong order):
   for i, pos in mlist.modulesClosed.pairs:
     if pos == g.config.projectMainIdx2:
       # move to the end:
@@ -207,7 +207,8 @@ proc generateCode*(g: ModuleGraph) =
   cbackend2.generateCode(g, backend, mlist)
   g.backend = backend
 
-  # Last pass: Write the packed modules to disk. This currently cannot happen
-  # earlier, as the code generator still modifies their contents.
+  # Last pass: Write the rodfiles to disk. The code generator still modifies
+  # their contents right up to this point, so this step currently cannot happen
+  # earlier
   for i in 0..high(g.packed):
     storePackedModule(g, i, alive)

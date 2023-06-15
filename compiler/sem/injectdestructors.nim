@@ -1394,8 +1394,6 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
   ## For now, semantic errors and other diagnostics related to lifetime-hook
   ## usage are also reported here.
 
-  # XXX: this is only required until the JavaScript backend extracts
-  #      pure globals from procedures
   deferGlobalDestructors(tree, g, idgen, owner)
 
   template apply(c: Changeset) =

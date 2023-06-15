@@ -88,8 +88,8 @@ proc rewriteGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
   ## as assignment if necessary.
   ##
   ## If `outermost` is true, only definitions in the outermost scope will be
-  ## removed. This is a hack, but its currently required for turning module-level
-  ## AST into a procedure in a mostly transparent way.
+  ## removed. This is a hack, but it's currently required for turning
+  ## module-level AST into a procedure in a mostly transparent way.
   var
     changes = initChangeset(body)
     depth   = 0

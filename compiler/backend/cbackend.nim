@@ -31,9 +31,10 @@ import
   ]
 
 proc configureInitProcedure(prc: PSym, name: string) =
-  ## Generating and emitting the modules' initialization procedures is
-  ## currently still done by the code generator. In order to support this in
-  ## a clean way, the procedures are treated as imported.
+  ## Generating and emitting the C code for a modules' init procedures is
+  ## currently still the responsibility of the code generator. In order to
+  ## support this in a clean way, the init procedures are treated as
+  ## imported.
   prc.flags.incl sfImportc
   prc.loc.r = name # set the mangled name
 
@@ -61,13 +62,14 @@ proc generateCodeForMain(m: BModule, modules: ModuleList) =
   code.add(p.s(cpsInit))
   code.add(p.s(cpsStmts))
   # emitting and adjusting for the selected OS and target is still done by
-  # the code generator (but this is going to change in the future):
+  # the code generator:
+  # XXX: ^^ this is going to change in the future
   genMainProc(m, code)
 
 proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList)
 
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
-  ## Entry point for C code-generation. Only the C code is generated -- nothing
+  ## Entry point for C code generation. Only the C code is generated -- nothing
   ## is written to disk yet.
   let
     config = graph.config
@@ -105,8 +107,8 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
   ## Implements the main part of the C code-generation orchestrator. Expects an
   ## already populated ``BModuleList``.
 
-  # generate the declarations for all globals first, so that the symbols all
-  # have mangled names already; the order doesn't matter
+  # generate the definitions for all globals first, so that the symbols all
+  # have mangled names already; the order in which this happens doesn't matter
   for key, m in mlist.modules.pairs:
     let bmod = g.modules[key.int]
     for s in m.structs.globals.items:
@@ -119,7 +121,8 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
       fillGlobalLoc(bmod, s, newSymNode(s))
       declareThreadVar(bmod, s, sfImportc in s.flags)
 
-  # the main part: invoke the code generator for all top-level code
+  # the main part: invoke the code generator for all declarative code and the
+  # init procedures
   for m in closed(mlist):
     let bmod = g.modules[m.sym.position]
 
@@ -138,15 +141,15 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
     finalCodegenActions(graph, bmod, newNode(nkStmtList))
 
   # all alive globals are discovered now, so we can finish the modules'
-  # deinitialization procedures. Note that we have to already pass them
-  # to code generation here
+  # deinitialization procedures. Note that we have to already pass the
+  # procedures to code generation here
   finishDeinit(graph, mlist)
   for pos, m in mlist.modules.pairs:
     genProc(g.modules[pos.int], m.destructor)
 
-  # the main part of code generation is done. Generate the init procedure,
-  # and then we're done. Note that no more dependencies (new globals,
-  # procedure, constants, etc.) must be raised here
+  # the main part of code generation is wrapped up. Generate and emit the entry
+  # point, and then we're done. Note that no more dependencies (new globals,
+  # procedure, constants, etc.) must be raised beyond this point
   for m in closed(mlist):
     let bmod = g.modules[m.sym.position]
 
@@ -163,10 +166,10 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
 
     if hasDatInit:
       # the data-init procedure is currently empty by default. We signal that
-      # the call to it should not be elided by changing the body to an empty
+      # the call to it should not be elided, by changing the body to an empty
       # statement list
       # XXX: this is only a temporary solution until populating the procedure
-      #      is the responsibility of the orchestrator or an earlier step
+      #      is the responsibility of the orchestrator (or an earlier step)
       m.dataInit.ast[bodyPos] = newNode(nkStmtList)
       configureInitProcedure(m.dataInit, getDatInitName(bmod))
 
@@ -175,7 +178,7 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
       finalizeMainModule(bmod)
       generateCodeForMain(bmod, mlist)
 
-    # code generation for the module is done; it's C code will not change
+    # code generation for the module is done; its C code will not change
     # anymore beyond this point
     # future direction: this part is going to be turned into an iterator
     # yielding the C file's content

@@ -31,14 +31,16 @@ proc emitOpCall(graph: ModuleGraph, op: PSym, dest: PNode) =
     dest.add newTree(nkCall, newSymNode(op))
 
 proc generateMain*(graph: ModuleGraph, modules: ModuleList, result: PNode) =
-  ## Generates the program initialization logic and emits it to `result`. This
-  ## is the code invoking each module's init procedures.
+  ## Generates the program initialization code and emits it to `result`. The
+  ## initialization logic is the code that invokes each module's init
+  ## procedures.
 
   # XXX: why not fully initialize the ``system`` module first?
   # first initialize the additional data associated with each module:
   for it in closed(modules):
     emitOpCall(graph, it.dataInit, result)
-    # the system module is special cased: its fully during the data-init phase
+    # the system module is special cased: its fully initialized during the
+    # data-init phase
     if sfSystemModule in it.sym.flags:
       emitOpCall(graph, it.init, result)
 
@@ -48,7 +50,8 @@ proc generateMain*(graph: ModuleGraph, modules: ModuleList, result: PNode) =
       emitOpCall(graph, it.init, result)
 
 proc generateTeardown*(graph: ModuleGraph, modules: ModuleList, result: PNode) =
-  ## Generates the code for de-initializing the program and emits it to `result`.
+  ## Generates the code for de-initializing the program, and emits it to
+  ## `result`.
   # tearing down the modules has to happen in the reverse order they were
   # initialized in, but with ``system`` always coming last
   for it in rclosed(modules):
@@ -58,9 +61,10 @@ proc generateTeardown*(graph: ModuleGraph, modules: ModuleList, result: PNode) =
   emitOpCall(graph, systemModule(modules).destructor, result)
 
 proc finishDeinit*(graph: ModuleGraph, modules: var ModuleList) =
-  ## Appends destructor calls for procedure-level globals to the bodies of
-  ## the modules' de-init procedures. Called at the very end of code generation
-  ## once all alive procedure-level globals have been discovered.
+  ## Appends destructor calls for lifted globals (those marked with
+  ## ``.global``) to the bodies of the modules' de-init procedures. Called at
+  ## the very end of code generation once all alive lifted globals have been
+  ## discovered.
 
   # XXX: if the called destructors access other globals, or introduce new
   #      ones, behaviour is undefined. In the best but most unlikely case,
@@ -86,9 +90,11 @@ proc finishDeinit*(graph: ModuleGraph, modules: var ModuleList) =
   for (module, call) in ritems(graph.globalDestructors):
     prepare(modules[module.FileIndex].destructor).add call
 
-proc generateMainProcedure*(graph: ModuleGraph, idgen: IdGenerator, modules: ModuleList): PSym =
+proc generateMainProcedure*(graph: ModuleGraph, idgen: IdGenerator,
+                            modules: ModuleList): PSym =
   ## Generates the procedure for initializing, running, and de-initializing
-  ## the full program (`modules`).
+  ## the full program (`modules`). The procedure returns the value of the
+  ## internal ``programResult`` global.
   let
     owner = mainModule(modules).sym
     programRes = getCompilerProc(graph, "programResult")

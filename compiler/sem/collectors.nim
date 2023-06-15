@@ -1,8 +1,8 @@
 ## Implements the lowering of modules into procedures and objects. The AST
-## of a module is separated in *declarative* and *imperative* nodes:
-## *declarative* nodes are gathered into a single list, while *imperative*
-## nodes are turned into a statement list, transformed, and then wrapped in a
-## procedure (the module's ``init`` procedure).
+## of a module is separated into *declarative* and *imperative* nodes:
+## both are gathered into separate statement lists, with the *imperative*
+## one then being transformed into a procedure (the module's ``init``
+## procedure).
 ##
 ## For integration with the ``passes`` interface, a simple adapter pass is
 ## provided. It sets up and populates a ``ModuleList`` instance, which can
@@ -62,7 +62,7 @@ type
       ## all declarative statements (type, routine, and constant
       ## definitions)
     structs*: ModuleStructs
-      ## stores the contents of the module's structs
+      ## the contents of the module's structs
 
     # the module-bound procedures. Conceptually, these operate on the module
     # structs
@@ -80,7 +80,7 @@ type
     #      At the moment, we set it up here so that the code generators /
     #      orchestrators have a symbol to attach code to
     preInit*: PSym
-      ## the procedure for initializing the module's pure globals
+      ## the procedure for initializing the module's lifted globals
 
   ModuleList* = object
     modules*: SeqMap[FileIndex, Module]
@@ -184,16 +184,15 @@ proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
 
   proc register(structs: var ModuleStructs, s: PSym, isTopLevel: bool) {.nimcall.} =
     if sfCompileTime in s.flags:
-      # don't lift compile-time globals into a module struct
+      # don't register compile-time globals with the module struct
       # XXX: how they work exactly is currently left to the code
-      #      generator, but that is going to change
+      #      generator, but this is going to change
       discard
     elif s.kind == skTemp:
       # HACK: semantic analysis sometimes produces temporaries (it does so for
       #       ``(a, b) = c``, for example) that are also globals. These aren't
-      #       really globals, and we don't to "lift" them into the module
-      #       struct, so we ignore them here and let ``mirgen`` take care of
-      #       them
+      #       really globals, and we don't want to "lift" them into the module
+      #       struct, so we ignore them here and pass them on to ``mirgen``
       discard
     elif sfThread in s.flags:
       structs.threadvars.add s
@@ -293,13 +292,13 @@ proc generateModuleDestructor(graph: ModuleGraph, m: Module): PNode =
       result.add genDestroy(graph, m.idgen, m.sym, newSymNode(s))
 
   # note: the generated body is not yet final -- we're still missing
-  # destructor calls for globals defined inside procedures (i.e., pure
-  # globals). These calls are inserted once we know all alive pure globals
-  # (which is after the main part of code generation has finished)
+  # destructor calls for lifted globals (i.e., those marked with ``.global``).
+  # Those calls are inserted once we know all alive pure globals (which is
+  # after the main part of code generation has finished)
 
   if result.len == 0:
-    # collapse to an empty node (dead-code elimination looks for them in
-    # order to detect empty procedures)
+    # collapse to an empty node (dead-code elimination treats procedures with
+    # ``nkEmpty`` nodes as the body as empty)
     result = newNode(nkEmpty)
 
 proc changeOwner(n: PNode, newOwner: PSym) =
@@ -307,8 +306,6 @@ proc changeOwner(n: PNode, newOwner: PSym) =
   ## `newOwner`.
   template change(it: PNode) =
     # make sure to not change the owner of globals
-    # XXX: we shouldn't need to check for globals here, but have to,
-    #      because of globals defined in nested scopes
     if it.kind == nkSym and sfGlobal notin it.sym.flags:
       it.sym.owner = newOwner
 
@@ -356,11 +353,10 @@ proc changeOwner(n: PNode, newOwner: PSym) =
 
 proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
                   decls, imperative: seq[PNode]): Module =
-  ## From the declaratives and imperative statements gathered through the pass
-  ## interface for a single module, creates a ``Module`` instance. The module
+  ## Creates a ``Module`` instance from `decls` and `imperative`. The module
   ## structs are populated with the initial items (top-level globals defined
-  ## in the outermost scope, and threadvars), and the module-bound
-  ## operators created and initialized.
+  ## in the outermost scope, and threadvars) and the module-bound operators
+  ## are set up.
   result = Module(sym: m, idgen: idgen)
 
   result.decls =

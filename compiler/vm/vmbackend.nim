@@ -131,7 +131,7 @@ proc queueProcedure(c: var TCtx, prc: PSym) =
                    c.linkState.nextProc)
 
 proc refresh(c: var TCtx, m: Module) =
-  ## Prepares the code-generator state of `c` for being used to generate code
+  ## Prepares the code-generator state of `c` for processing AST
   ## belonging to the module `m`.
   assert m.idgen != nil
   c.refresh(m.sym, m.idgen)
