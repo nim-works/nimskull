@@ -29,7 +29,7 @@ import
     options
   ],
   compiler/sem/[
-    collectors,
+    modulelowering,
     injectdestructors,
     transf
   ],
@@ -351,7 +351,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
     for s in m.structs.globals.items:
       declareGlobal(s)
 
-    for s in m.structs.globals2.items:
+    for s in m.structs.nestedGlobals.items:
       declareGlobal(s)
 
     for s in m.structs.threadvars.items:

@@ -47,7 +47,7 @@ import
     rodfiles
   ],
   compiler/sem/[
-    collectors
+    modulelowering
   ]
 
 import compiler/backend/cbackend as cbackend2

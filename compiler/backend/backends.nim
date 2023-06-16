@@ -11,7 +11,7 @@ import
     magicsys
   ],
   compiler/sem/[
-    collectors
+    modulelowering
   ],
   compiler/utils/[
     containers

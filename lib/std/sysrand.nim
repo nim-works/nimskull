@@ -85,7 +85,7 @@ when defined(js):
   when defined(nodejs):
     proc require(p: cstring): JsRoot {.importc.}
 
-    var crypto_module {.exportc: "_nim_nodejs_crypto".} = require("crypto")
+    let crypto_module {.exportc: "_nim_nodejs_crypto".} = require("crypto")
 
     proc randomFillSync(p: Uint8Array) {.importjs: "_nim_nodejs_crypto.randomFillSync(#)".}
 

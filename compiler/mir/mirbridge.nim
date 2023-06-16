@@ -112,14 +112,12 @@ proc rewriteGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
           #       ``transf.extractGlobals``...
           discard "do nothing"
         elif hasInput(body, Operation i):
-          # the definition has a starting value
-          # XXX: consider disallowing inputs to 'def's, they complicate things
-          #      quite a bit (as made evident here)
+          # the global has a starting value
           changes.replaceMulti(buf):
             let tmp = changes.getTemp()
             buf.subTree MirNode(kind: mnkDef):
               # assign to a temporary first, and then assign the temporary to the
-              # globals
+              # global
               buf.add MirNode(kind: mnkTemp, temp: tmp, typ: typ)
 
             argBlock(buf):

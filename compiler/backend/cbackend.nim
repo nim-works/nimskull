@@ -23,7 +23,7 @@ import
     modulegraphs
   ],
   compiler/sem/[
-    collectors
+    modulelowering
   ],
   compiler/utils/[
     containers,
@@ -114,7 +114,7 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
     for s in m.structs.globals.items:
       defineGlobalVar(bmod, newSymNode(s))
 
-    for s in m.structs.globals2.items:
+    for s in m.structs.nestedGlobals.items:
       defineGlobalVar(bmod, newSymNode(s))
 
     for s in m.structs.threadvars.items:

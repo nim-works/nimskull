@@ -13,8 +13,6 @@
 ## instead of reading the modules' content from the rodfiles, it's collected
 ## via the pass interface.
 
-# TODO: the module needs a better name
-
 import
   compiler/ast/[
     ast,
@@ -45,7 +43,7 @@ type
     globals*: seq[PSym]
       ## all top-level globals part of the module
 
-    globals2*: seq[PSym]
+    nestedGlobals*: seq[PSym]
       ## all globals defined at the module *level* but not in the outermost
       ## *scope*. Ideally, these would be locals instead
 
@@ -64,7 +62,7 @@ type
     structs*: ModuleStructs
       ## the contents of the module's structs
 
-    # the module-bound procedures. Conceptually, these operate on the module
+    # the module-bound procedures. Conceptually, these operate on the module's
     # structs
     dataInit*: PSym
       ## the procedure responsible for initializing data associated with the
@@ -134,7 +132,7 @@ proc takeModuleList*(graph: ModuleGraph): ModuleList =
   result = move ModuleListBackend(graph.backend).modules
   graph.backend = nil
 
-proc distribute(n: PNode, decl, imperative: var seq[PNode]) =
+proc group(n: PNode, decl, imperative: var seq[PNode]) =
   case n.kind
   of nkCommentStmt, nkIncludeStmt, nkImportStmt, nkImportExceptStmt,
      nkExportStmt, nkExportExceptStmt, nkFromStmt, nkMixinStmt, nkBindStmt,
@@ -151,7 +149,7 @@ proc distribute(n: PNode, decl, imperative: var seq[PNode]) =
   of nkStmtList:
     # flatten statement lists
     for it in n.items:
-      distribute(it, decl, imperative)
+      group(it, decl, imperative)
   of nkTypeSection, nkConstSection, declarativeDefs:
     decl.add(n)
   else:
@@ -179,8 +177,7 @@ proc createModuleOp(graph: ModuleGraph, idgen: IdGenerator, name: string, module
 
 proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
   ## Create an entry in `structs` for each global or threadvar defined at the
-  ## the module level. `stmts` represents the imperative part of a module's
-  ## body.
+  ## the module level (within the module imperative body `stmts`).
 
   proc register(structs: var ModuleStructs, s: PSym, isTopLevel: bool) {.nimcall.} =
     if sfCompileTime in s.flags:
@@ -203,7 +200,7 @@ proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
       else:
         # a global not defined in the outermost scope; those require
         # special handling, and thus use a separate list
-        structs.globals2.add s
+        structs.nestedGlobals.add s
     else:
       discard
 
@@ -408,7 +405,7 @@ proc myProcess(b: PPassContext, n: PNode): PNode =
   result = n
 
   let c = CollectPassCtx(b)
-  distribute(n, c.decls, c.imperative)
+  group(n, c.decls, c.imperative)
 
 proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
   result = myProcess(b, n)
