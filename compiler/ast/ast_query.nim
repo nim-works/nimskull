@@ -103,6 +103,9 @@ const
   routineDefs* = declarativeDefs + {nkMacroDef, nkTemplateDef}
   procDefs* = nkLambdaKinds + declarativeDefs
   callableDefs* = nkLambdaKinds + routineDefs
+  entityDefs* = callableDefs + {nkIdentDefs, nkVarTuple, nkConstDef, nkForStmt}
+    ## all nodes that have definition slots. In other words, semantic analysis
+    ## of these can introduce new symbols
 
   nkSymChoices* = {nkClosedSymChoice, nkOpenSymChoice}
 

@@ -7,6 +7,8 @@ discard """
 
 when defined(linux):
   import linenoise
+elif defined(windows):
+  import std/winlean
 
 import
   algorithm,
@@ -73,7 +75,6 @@ import
   parsexml,
   pathnorm,
   pegs,
-  posix_utils,
   prelude,
   punycode,
   random,
@@ -112,7 +113,6 @@ import
   unittest,
   uri,
   volatile,
-  winlean,
   xmlparser,
   xmltree
 
@@ -165,3 +165,8 @@ import std/private/[
   strimpl,
   underscored_calls,
 ]
+
+when defined(posix):
+  import std/[
+    posix_utils,
+  ]

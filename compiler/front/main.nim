@@ -32,7 +32,7 @@ import
     commands
   ],
   compiler/sem/[
-    collectors,
+    modulelowering,
     sem,         # Implementation of the semantic pass
     passes,      # Main procs for compilation pass setups
     passaux

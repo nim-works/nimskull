@@ -17,6 +17,8 @@ import
   ],
   compiler/mir/[
     astgen,
+    mirchangesets,
+    mirconstr,
     mirtrees,
     mirgen,
     sourcemaps,
@@ -80,6 +82,85 @@ proc echoOutput(config: ConfigRef, owner: PSym, body: PNode) =
     writeBody(config, "-- output AST: " & owner.name.s):
       config.writeln(treeRepr(config, body, reprConfig))
 
+proc rewriteGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
+                       outermost: bool) =
+  ## Removes definitions of non-pure globals from `body`, replacing them with
+  ## as assignment if necessary.
+  ##
+  ## If `outermost` is true, only definitions in the outermost scope will be
+  ## removed. This is a hack, but it's currently required for turning
+  ## module-level AST into a procedure in a mostly transparent way.
+  var
+    changes = initChangeset(body)
+    depth   = 0
+    i       = NodePosition 0
+
+  while i.int < body.len:
+    let n {.cursor.} = body[i]
+    case n.kind
+    of DefNodes:
+      let def = i + 1
+      if body[def].kind == mnkGlobal and
+        body[def].sym.owner.kind == skModule and
+        (not outermost or depth == 1):
+        let
+          sym = body[def].sym
+          typ = sym.typ
+        changes.seek(i)
+        if sfPure in sym.flags:
+          # HACK: yet another hack for the JS backend not using
+          #       ``transf.extractGlobals``...
+          discard "do nothing"
+        elif hasInput(body, Operation i):
+          # the global has a starting value
+          changes.replaceMulti(buf):
+            let tmp = changes.getTemp()
+            buf.subTree MirNode(kind: mnkDef):
+              # assign to a temporary first, and then assign the temporary to the
+              # global
+              buf.add MirNode(kind: mnkTemp, temp: tmp, typ: typ)
+
+            argBlock(buf):
+              buf.add MirNode(kind: mnkGlobal, sym: sym, typ: typ)
+              buf.add MirNode(kind: mnkTag, effect: ekReassign, typ: typ)
+              buf.add MirNode(kind: mnkName, typ: typ)
+              buf.add MirNode(kind: mnkTemp, temp: tmp, typ: typ)
+              buf.add MirNode(kind: mnkConsume, typ: typ)
+            buf.add MirNode(kind: mnkInit)
+        elif {sfImportc, sfNoInit} * sym.flags == {} and
+             {lfDynamicLib, lfNoDecl} * sym.loc.flags == {}:
+          # XXX: ^^ re-think this condition from first principles. Right now,
+          #      it's just meant to make some tests work
+          # the location doesn't have an explicit starting value. Initialize
+          # it to the type's default value.
+          changes.replaceMulti(buf):
+            argBlock(buf):
+              buf.add MirNode(kind: mnkGlobal, sym: body[def].sym, typ: typ)
+              buf.add MirNode(kind: mnkTag, effect: ekReassign, typ: typ)
+              buf.add MirNode(kind: mnkName, typ: typ)
+              argBlock(buf): discard
+              buf.add MirNode(kind: mnkMagic, magic: mDefault, typ: typ)
+              buf.add MirNode(kind: mnkConsume, typ: typ)
+            buf.add MirNode(kind: mnkInit)
+        else:
+          # just remove the def:
+          changes.remove()
+
+      inc i, 2 # skip the whole sub-tree ('def', name, and 'end' node)
+    of mnkScope:
+      inc depth
+    of mnkEnd:
+      if n.start == mnkScope:
+        dec depth
+    else:
+      discard "ignore"
+
+    inc i
+
+  let prepared = prepare(changes, sourceMap)
+  updateSourceMap(sourceMap, prepared)
+  apply(body, prepared)
+
 proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
                    body: PNode, options: set[GenOption]): PNode =
   ## No MIR passes exist yet, so the to-and-from translation is treated as a
@@ -113,8 +194,10 @@ proc canonicalizeWithInject*(graph: ModuleGraph, idgen: IdGenerator,
   ## Transforms `body` through the following steps:
   ## 1. cursor inference
   ## 2. translation to MIR code
-  ## 3. application of the ``injectdestructors`` pass
-  ## 4. translation back to AST
+  ## 3. removal of non-pure global definitions from the outermost scope
+  ## 4. application of the ``injectdestructors`` pass
+  ## 5. (temporarily) removal of remaining non-pure global definitions
+  ## 6. translation back to AST
   ##
   ## Cursor inference and destructor injection are only performed if `owner`
   ## is eligible according to ``injectdestructors.shouldInjectDestructorCalls``
@@ -132,9 +215,15 @@ proc canonicalizeWithInject*(graph: ModuleGraph, idgen: IdGenerator,
   var (tree, sourceMap) = generateCode(graph, owner, options, body)
   echoMir(config, owner, tree)
 
+  rewriteGlobalDefs(tree, sourceMap, outermost = true)
+
   # step 2: run the ``injectdestructors`` pass
   if inject:
     injectDestructorCalls(graph, idgen, owner, tree, sourceMap)
+
+  # XXX: this is a hack. See the documentation of the routine for more
+  #      details
+  rewriteGlobalDefs(tree, sourceMap, outermost = false)
 
   # step 3: translate the MIR code back to an AST
   result = generateAST(graph, idgen, owner, tree, sourceMap)

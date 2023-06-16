@@ -193,7 +193,10 @@ proc freshVar(c: PTransf; v: PSym): PNode =
   else:
     var newVar = copySym(v, nextSymId(c.idgen))
     incl(newVar.flags, sfFromGeneric)
-    newVar.owner = owner
+    if sfGlobal notin newVar.flags:
+      # don't re-parent globals -- the duplicates need to have the same owner
+      # as the original
+      newVar.owner = owner
     result = newSymNode(newVar)
 
 proc transformDefSym(c: PTransf, n: PNode): PNode {.deprecated: "workaround for sem not sanitizing AST".} =
@@ -1336,10 +1339,10 @@ proc transformExpr*(g: ModuleGraph; idgen: IdGenerator; module: PSym, n: PNode):
     incl(result.flags, nfTransf)
 
 proc extractGlobals*(body: PNode, output: var seq[PNode], isNimVm: bool) =
-  ## Searches for all ``nkIdentDefs`` defining a global, appends them to
-  ## `output` in the order they appear in the input AST, and removes the nodes
-  ## from `body`. `isNimVm` signals which branch to select for ``when nimvm``
-  ## statements/expressions.
+  ## Searches for all ``nkIdentDefs`` defining a global that's not owned by a
+  ## module, appends them to `output` in the order they appear in the input
+  ## AST, and removes the nodes from `body`. `isNimVm` signals which branch
+  ## to select for ``when nimvm`` statements/expressions.
   ##
   ## XXX: this can't happen as part of ``transformBody``, as ``transformBody``
   ##      is reentrant because of ``lambdalifting`` and it's thus not easily
@@ -1377,7 +1380,8 @@ proc extractGlobals*(body: PNode, output: var seq[PNode], isNimVm: bool) =
     while i < body.len:
       let it = body[i]
       if it.kind == nkIdentDefs and
-         it[0].kind == nkSym and sfGlobal in it[0].sym.flags:
+         it[0].kind == nkSym and
+         sfGlobal in it[0].sym.flags and it[0].sym.owner.kind != skModule:
         # found one; append it to the output:
         output.add(it)
         # there's no need to process the initializer expression of the global,

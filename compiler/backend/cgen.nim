@@ -82,7 +82,6 @@ from compiler/sem/passes import moduleHasChanged # XXX: leftover dependency
 
 import std/strutils except `%`, addf # collides with ropes.`%`
 
-from compiler/ic/ic import ModuleBackendFlag
 import dynlib
 
 when defined(nimCompilerStacktraceHints):
@@ -319,7 +318,7 @@ proc genLineDir(p: BProc, t: PNode) =
 
 proc accessThreadLocalVar(p: BProc, s: PSym)
 proc emulatedThreadVars(conf: ConfigRef): bool {.inline.}
-proc genProc(m: BModule, prc: PSym)
+proc genProc*(m: BModule, prc: PSym)
 proc raiseInstr(p: BProc): Rope
 
 proc getTempName(m: BModule): Rope =
@@ -523,48 +522,44 @@ include ccgthreadvars
 
 proc varInDynamicLib(m: BModule, sym: PSym)
 
-proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
+proc fillGlobalLoc*(m: BModule, s: PSym, n: PNode) =
+  fillLoc(s.loc, locGlobalVar, n, mangleName(m, s), OnHeap)
+
+proc defineGlobalVar*(m: BModule, n: PNode) =
   let s = n.sym
   if s.loc.k == locNone:
-    fillLoc(s.loc, locGlobalVar, n, mangleName(p.module, s), OnHeap)
+    fillGlobalLoc(m, s, n)
 
   if lfDynamicLib in s.loc.flags:
-    var q = findPendingModule(p.module, s)
+    var q = findPendingModule(m, s)
     if q != nil and not containsOrIncl(q.declaredThings, s.id):
       varInDynamicLib(q, s)
     else:
       s.loc.r = mangleDynLibProc(s)
-    p.config.internalAssert(value == "", n.info, ".dynlib variables cannot have a value")
     return
-  useHeader(p.module, s)
+  useHeader(m, s)
   if lfNoDecl in s.loc.flags: return
-  if not containsOrIncl(p.module.declaredThings, s.id):
+  if not containsOrIncl(m.declaredThings, s.id):
     if sfThread in s.flags:
-      declareThreadVar(p.module, s, sfImportc in s.flags)
-      p.config.internalAssert(value == "", n.info, ".threadvar variables cannot have a value")
+      # XXX: remove this case once pure globals are handled by the
+      #      orchestrator
+      declareThreadVar(m, s, sfImportc in s.flags)
     else:
       var decl = ""
-      var td = getTypeDesc(p.module, s.loc.t, skVar)
+      var td = getTypeDesc(m, s.loc.t, skVar)
       if true:
         if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
           decl.addf "NIM_ALIGN($1) ", [rope(s.alignment)]
         if sfImportc in s.flags: decl.add("extern ")
         elif lfExportLib in s.loc.flags: decl.add("N_LIB_EXPORT_VAR ")
         else: decl.add("N_LIB_PRIVATE ")
-        if s.kind == skLet and value != "": decl.add("NIM_CONST ")
         decl.add(td)
         if sfRegister in s.flags: decl.add(" register")
         if sfVolatile in s.flags: decl.add(" volatile")
         if sfNoalias in s.flags: decl.add(" NIM_NOALIAS")
-        if value != "":
-          decl.addf(" $1 = $2;$n", [s.loc.r, value])
-        else:
-          decl.addf(" $1;$n", [s.loc.r])
+        decl.addf(" $1;$n", [s.loc.r])
 
-      p.module.s[cfsVars].add(decl)
-  if p.withinLoop > 0 and value == "":
-    # fixes tests/run/tzeroarray:
-    resetLoc(p, s.loc)
+      m.s[cfsVars].add(decl)
 
 proc assignParam(p: BProc, s: PSym, retType: PType) =
   assert(s.loc.r != "")
@@ -919,7 +914,7 @@ proc allPathsAsgnResult(n: PNode): InitResultEnum =
     for i in 0..<n.safeLen:
       allPathsInBranch(n[i])
 
-proc genProcBody(p: BProc; procBody: PNode) =
+proc genProcBody*(p: BProc; procBody: PNode) =
   genStmts(p, procBody) # modifies p.locals, p.init, etc.
   if {nimErrorFlagAccessed, nimErrorFlagDeclared} * p.flags == {nimErrorFlagAccessed}:
     p.flags.incl nimErrorFlagDeclared
@@ -1049,6 +1044,14 @@ proc genProcAux(m: BModule, prc: PSym) =
     generatedProc.add(~"}$N")
   m.s[cfsProcs].add(generatedProc)
 
+proc genInitProc*(m: BModule, prc: PSym) =
+  # HACK: a module's init procedure needs to be treated the same as any other
+  #       procedure. Due to ``cgen`` appending to it from all over the place,
+  #       it currently cannot
+  var procBody = transformBody(m.g.graph, m.idgen, prc, cache = false)
+  procBody = canonicalizeWithInject(m.g.graph, m.idgen, prc, procBody, {})
+  genProcBody(m.initProc, procBody)
+
 proc genProcPrototype(m: BModule, sym: PSym) =
   useHeader(m, sym)
   if lfNoDecl in sym.loc.flags: return
@@ -1132,7 +1135,7 @@ proc requestConstImpl(p: BProc, sym: PSym) =
 
 proc isActivated(prc: PSym): bool = prc.typ != nil
 
-proc genProc(m: BModule, prc: PSym) =
+proc genProc*(m: BModule, prc: PSym) =
   # unresolved borrows or forward declarations must not reach here
   assert {sfBorrow, sfForward} * prc.flags == {}
   assert isActivated(prc)
@@ -1206,22 +1209,19 @@ proc getSomeInitName(m: BModule, suffix: string): Rope =
   result = getSomeNameForModule(m.module)
   result.add suffix
 
-proc getInitName(m: BModule): Rope =
+proc getInitName*(m: BModule): Rope =
   if sfMainModule in m.module.flags:
     # generate constant name for main module, for "easy" debugging.
     result = rope"NimMainModule"
   else:
     result = getSomeInitName(m, "Init000")
 
-proc getDatInitName(m: BModule): Rope = getSomeInitName(m, "DatInit000")
+proc getDatInitName*(m: BModule): Rope = getSomeInitName(m, "DatInit000")
 
-proc genMainProc(m: BModule) =
+proc genMainProc*(m: BModule, body: Rope) =
   ## this function is called in cgenWriteModules after all modules are closed,
   ## it means raising dependency on the symbols is too late as it will not propagate
   ## into other modules, only simple rope manipulations are allowed
-
-  var preMainCode: Rope
-  preMainCode.add("\tPreMain();\L")
 
   const
     # not a big deal if we always compile these 3 global vars... makes the HCR code easier
@@ -1231,11 +1231,7 @@ proc genMainProc(m: BModule) =
       "N_LIB_PRIVATE char** gEnv;$N"
 
     PreMainBody = "$N" &
-      PosixCmdLine &
-      "N_LIB_PRIVATE void PreMain(void) {$N" &
-      "$1" &
-      "$2" &
-      "}$N$N"
+      PosixCmdLine
 
     MainProcs =
       "\tNimMain();$N"
@@ -1243,17 +1239,12 @@ proc genMainProc(m: BModule) =
     MainProcsWithResult =
       MainProcs & ("\treturn $1nim_program_result;$N")
 
-    NimMainInner = "N_LIB_PRIVATE N_CDECL(void, NimMainInner)(void) {$N" &
-        "$1" &
-      "}$N$N"
-
     NimMainProc =
       "N_CDECL(void, NimMain)(void) {$N" &
-        "$4" &
-        "\tNimMainInner();$N" &
+        "$1$N" &
       "}$N$N"
 
-    NimMainBody = NimMainInner & NimMainProc
+    NimMainBody = NimMainProc
 
     PosixCMain =
       "int main(int argc, char** args, char** env) {$N" &
@@ -1276,7 +1267,7 @@ proc genMainProc(m: BModule) =
       "                        LPSTR lpCmdLine, int nCmdShow) {$N" &
       MainProcsWithResult & "}$N$N"
 
-    WinNimDllMain = NimMainInner & "N_LIB_EXPORT " & NimMainProc
+    WinNimDllMain = "N_LIB_EXPORT " & NimMainProc
 
     WinCDllMain =
       "BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fwdreason, $N" &
@@ -1295,32 +1286,30 @@ proc genMainProc(m: BModule) =
       m.config.globalOptions * {optGenGuiApp, optGenDynLib} != {}:
     m.includeHeader("<windows.h>")
 
-  let initStackBottomCall = ""
-  inc(m.labels)
-  appcg(m, m.s[cfsProcs], PreMainBody, [m.g.mainDatInit, m.g.otherModsInit])
+  appcg(m, m.s[cfsProcs], PreMainBody, [])
 
   if m.config.target.targetOS == osWindows and
       m.config.globalOptions * {optGenGuiApp, optGenDynLib} != {}:
     if optGenGuiApp in m.config.globalOptions:
       const nimMain = WinNimMain
       appcg(m, m.s[cfsProcs], nimMain,
-        [m.g.mainModInit, initStackBottomCall, m.labels, preMainCode])
+        [body])
     else:
       const nimMain = WinNimDllMain
       appcg(m, m.s[cfsProcs], nimMain,
-        [m.g.mainModInit, initStackBottomCall, m.labels, preMainCode])
+        [body])
   elif optGenDynLib in m.config.globalOptions:
     const nimMain = PosixNimDllMain
     appcg(m, m.s[cfsProcs], nimMain,
-        [m.g.mainModInit, initStackBottomCall, m.labels, preMainCode])
+        [body])
   elif m.config.target.targetOS == osStandalone:
     const nimMain = NimMainBody
     appcg(m, m.s[cfsProcs], nimMain,
-        [m.g.mainModInit, initStackBottomCall, m.labels, preMainCode])
+        [body])
   else:
     const nimMain = NimMainBody
     appcg(m, m.s[cfsProcs], nimMain,
-        [m.g.mainModInit, initStackBottomCall, m.labels, preMainCode])
+        [body])
 
   if optNoMain notin m.config.globalOptions:
     if m.config.target.targetOS == osWindows and
@@ -1341,61 +1330,8 @@ proc genMainProc(m: BModule) =
       const otherMain = PosixCMain
       appcg(m, m.s[cfsProcs], otherMain, [""])
 
-
-proc registerInitProcs*(g: BModuleList; m: PSym; flags: set[ModuleBackendFlag]) =
-  ## Called from the IC backend.
-  if HasDatInitProc in flags:
-    let datInit = getSomeNameForModule(m) & "DatInit000"
-    g.mainModProcs.addf("N_LIB_PRIVATE N_NIMCALL(void, $1)(void);$N", [datInit])
-    g.mainDatInit.addf("\t$1();$N", [datInit])
-  if HasModuleInitProc in flags:
-    let init = getSomeNameForModule(m) & "Init000"
-    g.mainModProcs.addf("N_LIB_PRIVATE N_NIMCALL(void, $1)(void);$N", [init])
-    let initCall = "\t$1();$N" % [init]
-    if sfMainModule in m.flags:
-      g.mainModInit.add(initCall)
-    elif sfSystemModule in m.flags:
-      g.mainDatInit.add(initCall) # systemInit must called right after systemDatInit if any
-    else:
-      g.otherModsInit.add(initCall)
-
-proc whichInitProcs*(m: BModule): set[ModuleBackendFlag] =
-  # called from IC.
-  result = {}
-  if m.preInitProc.s(cpsInit).len > 0 or m.preInitProc.s(cpsStmts).len > 0:
-    result.incl HasModuleInitProc
-  for i in cfsTypeInit1..cfsDynLibInit:
-    if m.s[i].len != 0:
-      result.incl HasDatInitProc
-      break
-
-proc registerModuleToMain(g: BModuleList; m: BModule) =
-  let
-    init = m.getInitName
-    datInit = m.getDatInitName
-
-  if m.s[cfsDatInitProc].len > 0:
-    g.mainModProcs.addf("N_LIB_PRIVATE N_NIMCALL(void, $1)(void);$N", [datInit])
-    g.mainDatInit.addf("\t$1();$N", [datInit])
-
-  # Initialization of TLS should be done in between
-  # systemDatInit and systemInit calls if any
-  if sfSystemModule in m.module.flags:
-    if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
-      g.mainDatInit.add(ropecg(m, "\t#initThreadVarsEmulation();$N", []))
-
-  if m.s[cfsInitProc].len > 0:
-    g.mainModProcs.addf("N_LIB_PRIVATE N_NIMCALL(void, $1)(void);$N", [init])
-    let initCall = "\t$1();$N" % [init]
-    if sfMainModule in m.module.flags:
-      g.mainModInit.add(initCall)
-    elif sfSystemModule in m.module.flags:
-      g.mainDatInit.add(initCall) # systemInit must called right after systemDatInit if any
-    else:
-      g.otherModsInit.add(initCall)
-
-proc genDatInitCode(m: BModule) =
-  ## this function is called in cgenWriteModules after all modules are closed,
+proc genDatInitCode*(m: BModule): bool =
+  ## this function is called after all modules are closed,
   ## it means raising dependency on the symbols is too late as it will not propagate
   ## into other modules, only simple rope manipulations are allowed
 
@@ -1414,14 +1350,23 @@ proc genDatInitCode(m: BModule) =
       moduleDatInitRequired = true
       prc.add(m.s[i])
 
+  # setting up the TLS must happen before initializing the ``system`` module,
+  # so we emit the call at the end of the data-init procedure:
+  if sfSystemModule in m.module.flags and
+     emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
+    moduleDatInitRequired = true
+    prc.addf("\tinitThreadVarsEmulation();$N", [])
+
   prc.addf("}$N$N", [])
 
   if moduleDatInitRequired:
     m.s[cfsDatInitProc].add(prc)
     #rememberFlag(m.g.graph, m.module, HasDatInitProc)
 
-proc genInitCode(m: BModule) =
-  ## this function is called in cgenWriteModules after all modules are closed,
+  result = moduleDatInitRequired
+
+proc genInitCode*(m: BModule): bool =
+  ## this function is called after all modules are closed,
   ## it means raising dependency on the symbols is too late as it will not propagate
   ## into other modules, only simple rope manipulations are allowed
   var moduleInitRequired = false
@@ -1509,9 +1454,7 @@ proc genInitCode(m: BModule) =
     m.s[cfsInitProc].add(prc)
     #rememberFlag(m.g.graph, m.module, HasModuleInitProc)
 
-  genDatInitCode(m)
-
-  registerModuleToMain(m.g, m)
+  result = moduleInitRequired
 
 proc genModule(m: BModule, cfile: Cfile): Rope =
   var moduleIsEmpty = true
@@ -1647,24 +1590,15 @@ proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
 
     result = true
 
-# We need 2 different logics here: pending modules (including
-# 'nim__dat') may require file merging for the combination of dead code
-# elimination and incremental compilation! Non pending modules need no
-# such logic and in fact the logic hurts for the main module at least;
-# it would generate multiple 'main' procs, for instance.
+proc finalizeModule*(m: BModule) =
+  finishTypeDescriptions(m)
 
-proc writeModule(m: BModule, pending: bool) =
+proc finalizeMainModule*(m: BModule) =
+  generateThreadVarsSize(m) # TODO: not the job of the code generator
+
+proc writeModule(m: BModule) =
   template onExit() = close(m.ndi, m.config)
   let cfile = getCFile(m)
-  if moduleHasChanged(m.g.graph, m.module):
-    genInitCode(m)
-    finishTypeDescriptions(m)
-    if sfMainModule in m.module.flags:
-      # generate main file:
-      genMainProc(m)
-      m.s[cfsProcHeaders].add(m.g.mainModProcs)
-      generateThreadVarsSize(m)
-
   var cf = Cfile(nimname: m.module.name.s, cname: cfile,
                   obj: completeCfilePath(m.config, toObjFile(m.config, cfile)), flags: {})
   var code = genModule(m, cf)
@@ -1690,11 +1624,9 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
   # already
   if sfSystemModule in m.module.flags:
     discard cgsym(m, "nimTestErrorFlag")
-
-  if sfMainModule in m.module.flags:
-    if {optGenStaticLib, optGenDynLib, optNoMain} * m.config.globalOptions == {}:
-      for i in countdown(high(graph.globalDestructors), 0):
-        n.add graph.globalDestructors[i]
+    if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
+      # raise the dependency on behalf of ``genDatInitCode``:
+      discard cgsym(m, "initThreadVarsEmulation")
 
   if moduleHasChanged(graph, m.module):
     # if the module is cached, we don't regenerate the main proc
@@ -1704,12 +1636,7 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
       m.initProc.options = initProcOptions(m)
       genProcBody(m.initProc, n)
 
-    if sfMainModule in m.module.flags:
-      # raise dependencies on behalf of genMainProc
-      if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
-        discard cgsym(m, "initThreadVarsEmulation")
-
-      if useAliveDataFromDce in m.flags:
+    if sfMainModule in m.module.flags and useAliveDataFromDce in m.flags:
         # methods need to be special-cased for IC, as whether a dispatcher is
         # alive is only know after ``transf`` (phase-ordering problem)
         generateMethodDispatchers(graph)
@@ -1724,7 +1651,11 @@ proc cgenWriteModules*(backend: RootRef, config: ConfigRef) =
   let g = BModuleList(backend)
   g.config = config
 
+  # note: we don't need to call ``writeModule`` in module closed order
+  # anymore, as the procedure now does what its name implies: writing the
+  # module to disk. However, it also queues the C file for compilation,
+  # so we still keep the behaviour for now
   for m in cgenModules(g):
-    m.writeModule(pending=true)
+    m.writeModule()
   writeMapping(config, g.mapping)
   if g.generatedHeader != nil: writeHeader(g.generatedHeader)

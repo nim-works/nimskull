@@ -358,14 +358,6 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
 
   #result.pos = p
 
-func isTopLevel(tree: MirTree, scope: Slice[NodePosition]): bool =
-  # XXX: this relies on an implementation detail of how scopes are
-  #      emitted. The better solution is to not emit 'def's for globals
-  #      at module-scope in the first place. Those should be stored as
-  #      module attachments, also simplifying the destructor injection for
-  #      them
-  scope.a == NodePosition(1)
-
 func initEntityDict(tree: MirTree, owner: PSym): EntityDict =
   ## Collects the names of all analysable locations relevant to destructor
   ## injection and the move analyser. This includes: locals, temporaries, sink
@@ -390,16 +382,11 @@ func initEntityDict(tree: MirTree, owner: PSym): EntityDict =
         of mnkTemp:
           entity.typ
         of mnkGlobal:
-          if sfThread in entity.sym.flags or isTopLevel(tree, scope) or
-             owner.kind != skModule:
-            # we can't reason about:
-            # - threadvars: because they're not destroyed at the module level
-            # - top-level globals: because we don't have access to the full
-            #   top-level code of a module, and they might also be exported
-            # - procedure-level globals: they're destroyed at the end of their
-            #   owning module to which we have no access to here
-            # XXX: none of those should reach here in the first place
-            #      (i.e. no 'def' should be emitted for them)
+          if entity.sym.owner.kind != skModule:
+            # we're not responsible for ensuring destruction of globals
+            # defined inside procedures
+            # XXX: remove this special case once ``jsgen`` properly removes
+            #      their definitions from procedures
             nil
           else:
             entity.sym.typ
@@ -1307,7 +1294,7 @@ proc genOp(idgen: IdGenerator, owner, op: PSym, dest: PNode): PNode =
 
   result = newTreeI(nkCall, dest.info, newSymNode(op), addrExp)
 
-proc genDestroy(graph: ModuleGraph, idgen: IdGenerator, owner: PSym, dest: PNode): PNode =
+proc genDestroy*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym, dest: PNode): PNode =
   let
     t = dest.typ.skipTypes(skipAliases)
     op = getOp(graph, t, attachedDestructor)
@@ -1316,32 +1303,20 @@ proc genDestroy(graph: ModuleGraph, idgen: IdGenerator, owner: PSym, dest: PNode
 
 proc deferGlobalDestructors(tree: MirTree, g: ModuleGraph, idgen: IdGenerator,
                             owner: PSym) =
-  ## Adds a destructor call for each global in `tree` for which the scope-based
-  ## destruction doesn't apply to the global destructor section
-  var depth = 0 ## keeps track of the scope level
-
+  ## Defers a destructor call for each global defined in `tree`.
+  ##
+  ## XXX: remove this procedure once the JavaScript backend properly extracts
+  ##      pure globals from routines
   for i, n in tree.pairs:
     case n.kind
-    of mnkScope:
-      inc depth
-    of mnkEnd:
-      if n.start == mnkScope:
-        dec depth
-
     of mnkDef:
       let def = tree[i+1]
-      if def.kind == mnkGlobal:
-        let s = def.sym
-        # thread-local globals for never destroyed for now
-        # XXX: to implement destruction for thread-local globals, one has to
-        #      emit the destructor calls for all thread-local globals into a
-        #      dedicated procedure that is then called when exiting a
-        #      ``.thread``procedure
-        # TODO: remove the check for procedure-level globals once they no
-        #       longer reach here (because of ``jsgen``, they still do)
-        if ((depth == 1 or owner.kind != skModule) and sfThread notin s.flags) and
-            hasDestructor(s.typ):
-          g.globalDestructors.add genDestroy(g, idgen, owner, newSymNode(s))
+      if def.kind == mnkGlobal and
+         sfThread notin def.sym.flags and
+         def.sym.owner.kind != skModule and
+         hasDestructor(def.sym.typ):
+        g.globalDestructors.add (def.sym.itemId.module,
+                                 genDestroy(g, idgen, owner, newSymNode(def.sym)))
 
     else:
       discard
@@ -1407,7 +1382,8 @@ proc deferGlobalDestructor*(g: ModuleGraph, idgen: IdGenerator, owner: PSym,
   ## If the global has a destructor, emits a call to it at the end of the
   ## section of global destructors.
   if sfThread notin global.sym.flags and hasDestructor(global.typ):
-    g.globalDestructors.add genDestroy(g, idgen, owner, global)
+    g.globalDestructors.add (global.sym.itemId.module,
+                             genDestroy(g, idgen, owner, global))
 
 proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
                             tree: var MirTree, sourceMap: var SourceMap) =
@@ -1418,11 +1394,6 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
   ## For now, semantic errors and other diagnostics related to lifetime-hook
   ## usage are also reported here.
 
-  # the 'def' for non-analysable globals stay the same (i.e. none are added
-  # or removed), so semantics wise, it doesn't matter at which point we scan
-  # for them. There is less MIR code before applying all sub-passes than
-  # there is after, so we perform the scanning first in order to reduce the
-  # amount of nodes we have to scan
   deferGlobalDestructors(tree, g, idgen, owner)
 
   template apply(c: Changeset) =

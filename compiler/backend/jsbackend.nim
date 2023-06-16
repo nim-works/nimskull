@@ -10,7 +10,12 @@ import
   std/[
     json
   ],
+  compiler/ast/[
+    ast,
+    lineinfos
+  ],
   compiler/backend/[
+    backends,
     cgmeth,
     jsgen
   ],
@@ -21,7 +26,7 @@ import
     modulegraphs
   ],
   compiler/sem/[
-    collectors,
+    modulelowering,
     sourcemap
   ],
   compiler/utils/[
@@ -42,6 +47,16 @@ proc writeModules(graph: ModuleGraph, globals: PGlobals) =
 
   discard writeRopeIfNotEqual(code, outFile)
 
+proc generateCodeForMain(globals: PGlobals, graph: ModuleGraph, m: BModule,
+                         modules: ModuleList) =
+  # generate the code for the initializing, running, and de-initializing
+  # the program
+  var body = newNode(nkStmtList)
+  generateMain(graph, modules, body)
+  generateTeardown(graph, modules, body)
+
+  genTopLevelStmt(globals, m, body)
+
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point into the JS backend. Generates the code for all modules and
   ## writes it to the output file.
@@ -50,20 +65,42 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 
   generateMethodDispatchers(graph)
 
-  # generate the code for all modules:
-  for index in mlist.modulesClosed.items:
-    let
-      m {.cursor.} = mlist.modules[index]
-      bmod = newModule(graph, m.sym)
+  var modules: SeqMap[FileIndex, BModule]
 
+  # setup the ``BModule`` instances and create definitions for all
+  # globals (order doesn't matter):
+  for m in closed(mlist):
+    let bmod = newModule(graph, m.sym)
     bmod.idgen = m.idgen
 
-    # invoke ``jsgen`` for all top-level code:
-    for n in m.stmts.items:
-      genTopLevelStmt(globals, bmod, n)
+    defineGlobals(globals, bmod, m.structs.globals)
+    defineGlobals(globals, bmod, m.structs.nestedGlobals)
+    # no special handling for thread-local variables (yet)
+    defineGlobals(globals, bmod, m.structs.threadvars)
 
-    # close the module:
-    finalCodegenActions(graph, globals, bmod)
+    modules[m.sym.position.FileIndex] = bmod
+
+  # generate the code for all modules:
+  for m in closed(mlist):
+    let
+      bmod = modules[m.sym.position.FileIndex]
+
+    # invoke ``jsgen`` for the top-level declarative code:
+    genTopLevelStmt(globals, bmod, m.decls)
+
+    if m.init.ast[bodyPos].kind != nkEmpty: # dead-code elimination
+      # HACK: we mark the procedure with the ``sfModuleInit`` flag in order to
+      #       signal to ``jsgen`` that a special stack-trace entry needs to
+      #       be created for the procedure
+      m.init.flags.incl sfModuleInit
+      genTopLevelProcedure(globals, bmod, m.init)
+
+    if sfMainModule in m.sym.flags:
+      finishDeinit(graph, mlist)
+      generateCodeForMain(globals, graph, bmod, mlist)
+
+    # we don't need the ``BModule`` instance anymore:
+    modules[m.sym.position.FileIndex] = nil
 
   # write the generated code to disk:
   writeModules(graph, globals)

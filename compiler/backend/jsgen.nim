@@ -85,7 +85,7 @@ type
     config: ConfigRef
     sigConflicts: CountTable[SigHash]
 
-  BModule = ref TJSGen
+  BModule* = ref TJSGen
   TJSTypeKind = enum       # necessary JS "types"
     etyNone,                  # no type
     etyNull,                  # null type
@@ -140,6 +140,10 @@ type
     extraIndent: int
     declaredGlobals: IntSet
 
+const
+  sfModuleInit* = sfMainModule
+    ## the procedure is the 'init' procedure of a module
+
 template config*(p: PProc): ConfigRef = p.module.config
 
 proc indentLine(p: PProc, r: Rope): Rope =
@@ -183,13 +187,8 @@ proc newProc(globals: PGlobals, module: BModule, procDef: PNode,
     extraIndent: int(procDef != nil))
   if procDef != nil: result.prc = procDef[namePos].sym
 
-proc initProcOptions(module: BModule): TOptions =
-  result = module.config.options
-  if sfSystemModule in module.module.flags:
-    result.excl(optStackTrace)
-
 proc newInitProc(globals: PGlobals, module: BModule): PProc =
-  result = newProc(globals, module, nil, initProcOptions(module))
+  result = newProc(globals, module, nil, {})
 
 const
   MappedToObject = {tyObject, tyArray, tyTuple, tyOpenArray,
@@ -1670,6 +1669,21 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
 
 template returnType: untyped = ~""
 
+proc defineGlobals*(globals: PGlobals, m: BModule, vars: openArray[PSym]) =
+  ## Emits definitions for the items in `vars` into the top-level section,
+  ## with `m` being the module the globals belong to. Also updates each
+  ## symbol that requires name mangling with the mangled name.
+  let p = newInitProc(globals, m)
+    ## required for emitting code
+  for v in vars.items:
+    if lfNoDecl notin v.loc.flags and sfImportc notin v.flags and
+       sfPure notin v.flags: # XXX: temporary workaround
+      let name = mangleName(m, v) # mutates `v`
+      lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
+
+  # add to the top-level section:
+  globals.code.add(p.body)
+
 proc genVarInit(p: PProc, v: PSym, n: PNode) =
   var
     a: TCompRes
@@ -2251,8 +2265,14 @@ proc frameDestroy(p: PProc): Rope =
 
 proc genProcBody(p: PProc, prc: PSym): Rope =
   if hasFrameInfo(p):
+    let name =
+      if sfModuleInit in prc.flags:
+        makeJSString("module " & p.module.module.name.s)
+      else:
+        makeJSString(prc.owner.name.s & '.' & prc.name.s)
+
     result = frameCreate(p,
-              makeJSString(prc.owner.name.s & '.' & prc.name.s),
+              name,
               makeJSString(toFilenameOption(p.config, prc.info.fileIndex, foStacktrace)))
   else:
     result = ""
@@ -2550,18 +2570,15 @@ proc genHeader*(): Rope =
   """.unindent.format(VersionAsString))
 
 proc genModule(p: PProc, n: PNode) =
-  if optStackTrace in p.options:
-    p.body.add(frameCreate(p,
-        makeJSString("module " & p.module.module.name.s),
-        makeJSString(toFilenameOption(p.config, p.module.module.info.fileIndex, foStacktrace))))
   var transformedN = transformStmt(p.module.graph, p.module.idgen, p.module.module, n)
   transformedN = canonicalizeWithInject(p.module.graph, p.module.idgen,
                                         p.module.module, transformedN, {})
 
   genStmt(p, transformedN)
 
-  if optStackTrace in p.options:
-    p.body.add(frameDestroy(p))
+proc genTopLevelProcedure*(globals: PGlobals, m: BModule, prc: PSym) =
+  var p = newInitProc(globals, m)
+  genProcForSymIfNeeded(p, prc)
 
 proc genTopLevelStmt*(globals: PGlobals, m: BModule, n: PNode) =
   m.config.internalAssert(m.module != nil, n.info, "genTopLevelStmt")
@@ -2570,14 +2587,6 @@ proc genTopLevelStmt*(globals: PGlobals, m: BModule, n: PNode) =
   genModule(p, n)
   p.g.code.add(p.locals)
   p.g.code.add(p.body)
-
-proc finalCodegenActions*(graph: ModuleGraph; globals: PGlobals, m: BModule) =
-  if sfMainModule in m.module.flags and graph.globalDestructors.len > 0:
-    let n = newNode(nkStmtList)
-    for destructorCall in graph.globalDestructors:
-      n.add destructorCall
-
-    genTopLevelStmt(globals, m, n)
 
 proc wholeCode*(globals: PGlobals): Rope =
   result = globals.typeInfo & globals.constants & globals.code
