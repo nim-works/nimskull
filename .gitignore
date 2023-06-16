@@ -2,7 +2,11 @@
 !**/
 !*.*
 
-# Cache
+# |Nimskull| Bootstrap Cache
+nimskullcache/
+rnimskullcache/
+dnimskullcache/
+# Old Cache Path
 nimcache/
 rnimcache/
 dnimcache/
