@@ -555,6 +555,57 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
     localReport(c.config, n.info, reportTyp(
       rsemIllegalRecursion, result))
 
+proc semDefnIdentVis(c: PContext, kind: TSymKind, n: PNode,
+                    allowed: TSymFlags): PNode =
+  ## analyse a name node of the form `foo` or `foo*` (with visibility marker),
+  ## producing the analysed AST.
+  # xxx: this proc, and others like it, might be better off returning a sym
+  #      node, flat error message if no progress is possible, or a
+  #      statement list:
+  #      - sym node if it's just a symbol, nothing else to do
+  #      - an error, if we have an error block progress
+  #      - statement list, list of ops for the compiler to process, e.g.:
+  #        - `(stmtList (sym foo) (export foo)), define and export `foo`
+  #        - `(stmtList (warn ...) (sym foo))`, issue warning + define `foo`
+  #        - etc...
+  case n.kind
+  of nkPostfix:
+    if n.len == 2:
+      # for gensym'ed identifiers the identifier may already have been
+      # transformed to a symbol and we need to use that here:
+      let
+        identNode = newSymGNode(kind, n[1], c)
+        sym = getDefNameSymOrRecover(identNode)
+        (op, err) = considerQuotedIdent(c, n[0])
+        star = err != nil and op.id == ord(wStar)
+        validExport = star and sfExported in allowed
+        anyErrors = identNode.kind == nkError or err != nil or not validExport
+
+      # semantically analysed AST
+      if anyErrors:
+        result = shallowCopy n
+        result[0] = n[0]
+        result[1] = identNode
+        result = c.config.wrapError(result)
+      else:
+        result = identNode
+
+      if sfExported notin allowed:
+        result = c.config.newError(result, PAstDiag(kind: adSemIdentVisRequiresTopLevel))
+      elif not star:
+        result = c.config.newError(result, PAstDiag(kind: adSemIdentVisInvalidMarker))
+      elif identNode.kind == nkError:
+        result = c.config.newError(result, PAstDiag(kind: adSemIdentVisSymInvalid))
+      else: # valid export
+        sym.flags.incl sfExported
+    else:
+      result = c.config.newError(n, PAstDiag(kind: adSemIdentVisMalformed))
+      # result[1] = newSym(kind, c.cache.getNotFoundIdent(), nextSymId c.idgen,
+      #                    getCurrOwner(c), n.info)
+  else:
+    result = newSymGNode(kind, n, c)
+
+
 proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
                  allowed: TSymFlags): PSym =
   # TODO: replace with a node return variant that can in band errors
@@ -588,7 +639,10 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
       c.config.semReportIllformedAst(
         n, "Expected two nodes for postfix expression, but found " & $n.len)
   else:
-    result = getDefNameSymOrRecover(newSymGNode(kind, n, c))
+    let identNode = newSymGNode(kind, n, c)
+    if identNode.kind == nkError:
+      localReport(c.config, identNode)
+    result = getDefNameSymOrRecover(identNode)
 
 proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
                         allowed: TSymFlags): PSym =

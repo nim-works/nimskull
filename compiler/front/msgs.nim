@@ -607,6 +607,10 @@ func astDiagToLegacyReportKind*(
   of adSemDeprecatedCompilerOpt: rsemDeprecatedCompilerOpt
   of adSemCompilerOptionArgInvalid: rsemCompilerOptionArgInvalid
   of adSemDeprecatedCompilerOptArg: rsemDeprecatedCompilerOptArg
+  of adSemIdentVisInvalidMarker: rsemInvalidVisibility
+  of adSemIdentVisRequiresTopLevel: rsemExportRequiresToplevel
+  of adSemIdentVisMalformed: rsemIllformedAst
+  of adSemIdentVisSymInvalid: rsemIdentVisSymInvalid
 
 func astDiagToLegacyReportKind*(diag: PAstDiag): ReportKind {.inline.} =
   case diag.kind

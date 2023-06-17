@@ -1172,6 +1172,10 @@ type
     adSemDefNameSym   ## when creating a sym node from `nkIdentKinds`
     # semtypes
     adSemTypeExpected
+    adSemIdentVisInvalidMarker
+    adSemIdentVisRequiresTopLevel
+    adSemIdentVisMalformed
+    adSemIdentVisSymInvalid
     # semtempl
     adSemIllformedAst
     adSemIllformedAstExpectedPragmaOrIdent
@@ -1378,7 +1382,11 @@ type
         adSemInvalidRangeConversion,
         adSemFoldCannotComputeOffset,
         adSemExpectedIdentifierQuoteLimit,
-        adSemExpectedRangeType:
+        adSemExpectedRangeType,
+        adSemIdentVisInvalidMarker,
+        adSemIdentVisRequiresTopLevel,
+        adSemIdentVisMalformed,
+        adSemIdentVisSymInvalid:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode

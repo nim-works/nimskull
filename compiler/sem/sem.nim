@@ -407,16 +407,16 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
     currOwner = getCurrOwner(c)
 
   template makeError(config: ConfigRef, n: PNode, sym: PSym,
-                     dataKindSuffix: untyped): PNode =
+                     dataKind: AdSemDefNameSymKind): PNode =
     let
-      dataKind = `adSemDefNameSym dataKindSuffix`
       (wrongNode, defData) =
         case dataKind
         of adSemDefNameSymExpectedKindMismatch:
-          (n, AdSemDefNameSym(kind: dataKind, expectedKind: kind))
+          (n, AdSemDefNameSym(kind: adSemDefNameSymExpectedKindMismatch,
+                              expectedKind: kind))
         of adSemDefNameSymIdentGenFailed:
           (n.diag.wrongNode,
-          AdSemDefNameSym(kind: dataKind, identGenErr: n))
+          AdSemDefNameSym(kind: adSemDefNameSymIdentGenFailed, identGenErr: n))
         of adSemDefNameSymExistingError,
             adSemDefNameSymIllformedAst:
           (n, AdSemDefNameSym(kind: dataKind))
@@ -438,7 +438,7 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
         let recoverySym = copySym(n.sym, nextSymId c.idgen)
         recoverySym.transitionRoutineSymKind(kind)
         recoverySym.owner = currOwner
-        c.config.makeError(n, recoverySym, ExpectedKindMismatch)
+        c.config.makeError(n, recoverySym, adSemDefNameSymExpectedKindMismatch)
   of nkIdent, nkAccQuoted:
     # xxx: sym choices qualify here, but shouldn't those be errors in
     #      definition positions?
@@ -449,7 +449,7 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
       if err.isNil:
         newSymNode(sym)
       else:
-        c.config.makeError(err, sym, IdentGenFailed)
+        c.config.makeError(err, sym, adSemDefNameSymIdentGenFailed)
   of nkError:
     result = 
       case n.diag.kind
@@ -472,11 +472,11 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
 
         let recoverySym = newSym(kind, c.cache.getNotFoundIdent(),
                                 nextSymId c.idgen, currOwner, info)
-        c.config.makeError(n, recoverySym, ExistingError)
+        c.config.makeError(n, recoverySym, adSemDefNameSymExistingError)
   of nkAllNodeKinds - nkIdentKinds - {nkError} + nkSymChoices:
     let recoverySym = newSym(kind, c.cache.getNotFoundIdent(),
                              nextSymId c.idgen, currOwner, info)
-    result = c.config.makeError(n, recoverySym, IllformedAst)
+    result = c.config.makeError(n, recoverySym, adSemDefNameSymIllformedAst)
   when defined(nimsuggest):
     case result.kind
     of nkError:
