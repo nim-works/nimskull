@@ -17,8 +17,8 @@ import sys
 # Nim source directory, which is the directory this script resides in
 NimSource = Path(__file__).resolve(strict=True).parent
 
-# The nimcache folder
-Nimcache = NimSource / "nimcache"
+# The bootstrap nimskullcache folder
+Nimcache = NimSource / "nimskullcache"
 
 
 def exe(p: Path) -> Path:

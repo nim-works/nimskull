@@ -288,8 +288,8 @@ jobs:
             --git.commit:'${{ github.sha }}' \
             --git.devel:devel
 
-          # Remove leftover nimcache
-          rm -rf doc/html/nimcache
+          # Remove leftover nimskullcache
+          rm -rf doc/html/nimskullcache
 
       - id: package
         name: Create release package
@@ -346,8 +346,8 @@ jobs:
             --git.commit:'${{ github.sha }}' \
             --git.devel:devel
 
-          # Remove leftover nimcache
-          rm -rf doc/html/nimcache
+          # Remove leftover nimskullcache
+          rm -rf doc/html/nimskullcache
 
       - id: package
         name: Create release package
