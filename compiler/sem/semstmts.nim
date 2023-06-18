@@ -385,7 +385,6 @@ proc checkNilableOrError(c: PContext; def: PNode): PNode =
     if {sfGlobal, sfImportc} * v.flags == {sfGlobal} and v.typ.requiresInit:
       if v.astdef.isNil:
         result = c.config.newError(def, PAstDiag(kind: adSemProveInit, unproven: v))
-
       elif tfNotNil in v.typ.flags and
           not v.astdef.typ.isNil and
           tfNotNil notin v.astdef.typ.flags:

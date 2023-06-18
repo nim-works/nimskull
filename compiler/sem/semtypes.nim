@@ -613,7 +613,7 @@ proc semDefnIdentVis(c: PContext, kind: TSymKind, n: PNode,
           if star and sfExported notin allowed:
             c.config.newError(result,
                               PAstDiag(kind: adSemIdentVisRequiresTopLevel))
-      else:
+          else:
             c.config.wrapError(result)
       else:
         # xxx: not ideal as we're losing the export structure
@@ -736,7 +736,6 @@ proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
     # check if we got any errors and if so report them
     for e in ifErrorWalkErrors(c.config, n[1]):
       localReport(c.config, e)
-
   else:
     result = semIdentVis(c, kind, n, allowed)
 
@@ -990,7 +989,6 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
       var it = n[i]
       if it == nil:
         semReportIllformedAst(c.config, n, "nil")
-
       var idx = 1
       case it.kind
       of nkElifBranch:
@@ -1008,7 +1006,6 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
       else:
         semReportIllformedAst(
           c.config, n, "Expected elifBranch of else, but found" & $it.kind)
-
       if c.inGenericContext > 0:
         # use a new check intset here for each branch:
         var newCheck: IntSet
@@ -1064,12 +1061,10 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
       inc(pos)
       if containsOrIncl(check, f.name.id):
         localReport(c.config, info, reportSym(rsemRedefinitionOf, f))
-
       if a.kind == nkEmpty:
         father.add newSymNode(f)
       else:
         a.add newSymNode(f)
-
       styleCheckDef(c.config, f)
     if a.kind != nkEmpty: father.add a
   of nkSym:
@@ -1078,7 +1073,6 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
     # There is no branch validity check here
     if containsOrIncl(check, n.sym.name.id):
       localReport(c.config, n.info, reportSym(rsemRedefinitionOf, n.sym))
-
     father.add n
   of nkEmpty:
     if father.kind in {nkElse, nkOfBranch}:
