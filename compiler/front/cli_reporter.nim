@@ -3614,8 +3614,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemExpectedIdentifierQuoteLimit,
       adSemExpectedRangeType,
       adSemIdentVisInvalidMarker,
-      adSemIdentVisRequiresTopLevel,
-      adSemIdentVisSymInvalid:
+      adSemIdentVisRequiresTopLevel:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,

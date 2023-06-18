@@ -1175,7 +1175,6 @@ type
     adSemIdentVisInvalidMarker
     adSemIdentVisRequiresTopLevel
     adSemIdentVisMalformed
-    adSemIdentVisSymInvalid
     # semtempl
     adSemIllformedAst
     adSemIllformedAstExpectedPragmaOrIdent
@@ -1384,9 +1383,7 @@ type
         adSemExpectedIdentifierQuoteLimit,
         adSemExpectedRangeType,
         adSemIdentVisInvalidMarker,
-        adSemIdentVisRequiresTopLevel,
-        adSemIdentVisMalformed,
-        adSemIdentVisSymInvalid:
+        adSemIdentVisRequiresTopLevel:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode
@@ -1557,6 +1554,8 @@ type
     of adSemDefNameSym:
       defNameSym*: PSym
       defNameSymData*: AdSemDefNameSym
+    of adSemIdentVisMalformed:
+      recoverySym*: PSym
 
   AdSemDefNameSymKind* = enum
     adSemDefNameSymExpectedKindMismatch

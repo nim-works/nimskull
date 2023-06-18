@@ -555,6 +555,25 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
     localReport(c.config, n.info, reportTyp(
       rsemIllegalRecursion, result))
 
+proc getDefnIdentVisSymOrRecover(n: PNode): PSym =
+  ## extracts the symbol from `n`, which must be the output of
+  ## `semDefnIdentVis`, if `n` is an error, a recovery symbol is provided.
+  case n.kind
+  of nkSym: n.sym
+  of nkPostfix: getDefNameSymOrRecover(n[1])
+  of nkError:
+    case n.diag.kind
+    of adSemDefNameSym: getDefNameSymOrRecover(n[1])
+    of adSemIdentVisMalformed: n.diag.recoverySym
+    of adSemIdentVisRequiresTopLevel, adWrappedError:
+      if n.diag.wrongNode.kind == nkPostfix:
+        getDefNameSymOrRecover(n[1])
+      else:
+        unreachable("only valid postfix kinds should be possible: " &
+                    $n.diag.wrongNode.kind)
+    else: unreachable("all error kinds must be covered: " & $n.diag.kind)
+  else: unreachable("no other node kinds possible: " & $n.kind)
+
 proc semDefnIdentVis(c: PContext, kind: TSymKind, n: PNode,
                     allowed: TSymFlags): PNode =
   ## analyse a name node of the form `foo` or `foo*` (with visibility marker),
@@ -568,6 +587,7 @@ proc semDefnIdentVis(c: PContext, kind: TSymKind, n: PNode,
   #        - `(stmtList (sym foo) (export foo)), define and export `foo`
   #        - `(stmtList (warn ...) (sym foo))`, issue warning + define `foo`
   #        - etc...
+  addInNimDebugUtils(c.config, "semDefnIdentVis", n, result)
   case n.kind
   of nkPostfix:
     if n.len == 2:
@@ -575,7 +595,6 @@ proc semDefnIdentVis(c: PContext, kind: TSymKind, n: PNode,
       # transformed to a symbol and we need to use that here:
       let
         identNode = newSymGNode(kind, n[1], c)
-        sym = getDefNameSymOrRecover(identNode)
         (op, err) = considerQuotedIdent(c, n[0])
         star = err != nil and op.id == ord(wStar)
         validExport = star and sfExported in allowed
@@ -584,26 +603,81 @@ proc semDefnIdentVis(c: PContext, kind: TSymKind, n: PNode,
       # semantically analysed AST
       if anyErrors:
         result = shallowCopy n
-        result[0] = n[0]
+        result[0] =
+          if not star:
+            c.config.newError(n[0], PAstDiag(kind: adSemIdentVisInvalidMarker))
+          else:
+            n[0]
         result[1] = identNode
-        result = c.config.wrapError(result)
+        result =
+          if star and sfExported notin allowed:
+            c.config.newError(result,
+                              PAstDiag(kind: adSemIdentVisRequiresTopLevel))
       else:
+            c.config.wrapError(result)
+      else:
+        # xxx: not ideal as we're losing the export structure
         result = identNode
 
-      if sfExported notin allowed:
-        result = c.config.newError(result, PAstDiag(kind: adSemIdentVisRequiresTopLevel))
-      elif not star:
-        result = c.config.newError(result, PAstDiag(kind: adSemIdentVisInvalidMarker))
-      elif identNode.kind == nkError:
-        result = c.config.newError(result, PAstDiag(kind: adSemIdentVisSymInvalid))
-      else: # valid export
-        sym.flags.incl sfExported
+      if validExport:
+        getDefNameSymOrRecover(identNode).flags.incl sfExported
     else:
-      result = c.config.newError(n, PAstDiag(kind: adSemIdentVisMalformed))
-      # result[1] = newSym(kind, c.cache.getNotFoundIdent(), nextSymId c.idgen,
-      #                    getCurrOwner(c), n.info)
+      # xxx: replace this with a `checkSonsLen`?
+      let sym = newSym(kind, c.cache.getNotFoundIdent(), nextSymId c.idgen,
+                        getCurrOwner(c), n.info)
+      result = c.config.newError(n, PAstDiag(kind: adSemIdentVisMalformed,
+                                             recoverySym: sym))
   else:
     result = newSymGNode(kind, n, c)
+
+proc getDefnIdentWithPragmaSymOrRecover(n: PNode): PSym =
+  ## extracts the symbol from `n`, which must be the output of
+  ## `semDefnIdentVis`, if `n` is an error, a recovery symbol is provided.
+  # these are more branches than we strictly need, but the extra branches allow
+  # us to avoid some recursive calls (fast-paths)
+  case n.kind
+  of nkSym:        n.sym
+  of nkPostfix:    getDefnIdentVisSymOrRecover(n)
+  of nkPragmaExpr: getDefnIdentVisSymOrRecover(n[0])
+  of nkError:
+    case n.diag.kind
+    of adWrappedError:
+      case n.diag.wrongNode.kind
+      of nkPragmaExpr: getDefnIdentVisSymOrRecover(n.diag.wrongNode[0])
+      of nkPostfix:    getDefnIdentVisSymOrRecover(n.diag.wrongNode)
+      else:            unreachable("other node kinds shouldn't be wrapped: " &
+                                   $n.diag.wrongNode.kind)
+    else:              getDefnIdentVisSymOrRecover(n)
+  else: getDefnIdentVisSymOrRecover(n)
+
+proc semDefnIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
+                            allowed: TSymFlags): PNode =
+  ## semantically analyse a name node of the form: `foo* {.somePragma.}`,
+  ## `foo {.somePragma.}`, `foo*`, or `foo` (with pragmas and/or visibility
+  ## markers), producing an analysed AST.
+  addInNimDebugUtils(c.config, "semDefnIdentWithPragma", n, result)
+  case n.kind
+  of nkPragmaExpr:
+    checkSonsLen(n, 2, c.config)
+    let
+      nameNode = semDefnIdentVis(c, kind, n[0], allowed)
+      sym = getDefnIdentVisSymOrRecover(nameNode)
+      pragmaApp: PNode =
+        case kind
+        of skType:  n[1] # process later, because the symbol's type is unknown
+        of skField: pragmaDecl(c, sym, n[1], fieldPragmas)
+        of skVar:   pragmaDecl(c, sym, n[1], varPragmas)
+        of skLet:   pragmaDecl(c, sym, n[1], letPragmas)
+        of skConst: pragmaDecl(c, sym, n[1], constPragmas)
+        else:       n[1] # xxx: nothing to do for these other ones?
+      anyErrors = nkError in {nameNode.kind, pragmaApp.kind}
+    result = shallowCopy n
+    result[0] = nameNode
+    result[1] = pragmaApp
+    if anyErrors:
+      result = c.config.wrapError(result)
+  else:
+    result = semDefnIdentVis(c, kind, n, allowed)
 
 
 proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,

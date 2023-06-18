@@ -362,6 +362,18 @@ proc semIdentDef(c: PContext, n: PNode, kind: TSymKind): PSym =
   let info = getIdentLineInfo(n)
   suggestSym(c.graph, info, result, c.graph.usageSym)
 
+proc semIdentDefNode(c: PContext, n: PNode, kind: TSymKind): (PNode, PSym) =
+  ## semantically analyse a identdef node, which might contain an export marker
+  ## and/or pragmas, returning the analysed tree and resulting symbol.
+  addInNimDebugUtils(c.config, "semIdentDefNode", n, result[0])
+
+  let flags = if isTopLevel(c): {sfExported} else: {}
+  result[0] = semDefnIdentWithPragma(c, kind, n, flags)
+  result[1] = getDefnIdentWithPragmaSymOrRecover(result[0])
+  if isTopLevel(c) or result[1].owner.kind == skModule:
+    result[1].flags.incl sfGlobal
+  result[1].options = c.config.options
+
 proc checkNilableOrError(c: PContext; def: PNode): PNode =
   ## checks if a symbol node is nilable, on success returns def, else nkError
   # xxx: this is a terrible name
