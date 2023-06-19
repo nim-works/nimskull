@@ -1,3 +1,9 @@
+discard """
+  joinable: false
+"""
+
+# marked as not joinable as this test executes other tests
+
 import std/[os, osproc, strformat]
 
 
