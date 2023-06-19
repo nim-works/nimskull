@@ -2,6 +2,7 @@ discard """
   output: '''true
 true'''
   targets: "c"
+  joinable: false
 """
 
 import os, osproc

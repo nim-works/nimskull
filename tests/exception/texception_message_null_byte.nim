@@ -5,7 +5,11 @@ description: '''
   . Error output produced by raise newException is inconsistent with other
     IO such as echo or stdout.write.
 '''
+joinable: false
 """
+
+# marked as not joinable because this test self-executes
+
 const msg = "This char is `" & '\0' & "` and works fine!"
 
 when defined nim_t13115:
