@@ -2472,12 +2472,11 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkObjConstr: genObjConstr(p, n, r)
   of nkHiddenStdConv, nkConv: genConv(p, n, r)
   of nkAddr, nkHiddenAddr:
-    if mapType(n.typ) != etyBaseIndex:
+    if n.typ.kind == tyLent or mapType(n.typ) != etyBaseIndex:
       # the operation doesn't produce an address-like value (e.g. because the
-      # operand is a JS object and those already have reference semantics)
-      # FIXME: this won't work for ``lent`` views (outside of return values),
-      #        as ``lent`` is skipped by ``mapType``, meaning that a
-      #        ``lent int`` is an ``etyInt``
+      # operand is a JS object and those already have reference semantics).
+      # ``lent T`` types are currently treated as normal, non-owning
+      # locations, so the hidden address operation is skipped
       gen(p, n[0], r)
     else:
       genAddr(p, n[0], r)
