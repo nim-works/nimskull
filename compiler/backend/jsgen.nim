@@ -190,15 +190,17 @@ proc newProc(globals: PGlobals, module: BModule, procDef: PNode,
 proc newInitProc(globals: PGlobals, module: BModule): PProc =
   result = newProc(globals, module, nil, {})
 
-const
-  MappedToObject = {tyObject, tyArray, tyTuple, tyOpenArray,
-    tySet, tyVarargs}
-
-proc mapType(typ: PType): TJSTypeKind =
+proc mapType(typ: PType; indirect = false): TJSTypeKind =
+  ## Returns how a value of `typ` is represented on the JavaScript side.
+  ## `indirect` indicates whether a pointer-like type was followed.
   let t = skipTypes(typ, abstractInst)
   case t.kind
   of tyVar, tyRef, tyPtr:
-    if skipTypes(t.lastSon, abstractInst).kind in MappedToObject:
+    # for efficiency, don't use a base+index pair for values that have
+    # reference semantics already (e.g. JavaScript objects). However,
+    # double indirections (e.g. ``ptr ptr object``) do need the base+index
+    # pair.
+    if not indirect and mapType(t.lastSon, true) == etyObject:
       result = etyObject
     else:
       result = etyBaseIndex
@@ -207,7 +209,7 @@ proc mapType(typ: PType): TJSTypeKind =
     result = etyBaseIndex
   of tyRange, tyDistinct, tyOrdinal, tyProxy, tyLent:
     # tyLent is no-op as JS has pass-by-reference semantics
-    result = mapType(t[0])
+    result = mapType(t[0], indirect)
   of tyInt..tyInt64, tyUInt..tyUInt64, tyEnum, tyChar: result = etyInt
   of tyBool: result = etyBool
   of tyFloat..tyFloat128: result = etyFloat
@@ -223,9 +225,9 @@ proc mapType(typ: PType): TJSTypeKind =
     result = etyNone
   of tyGenericInst, tyInferred, tyAlias, tyUserTypeClass, tyUserTypeClassInst,
      tySink:
-    result = mapType(typ.lastSon)
+    result = mapType(typ.lastSon, indirect)
   of tyStatic:
-    if t.n != nil: result = mapType(lastSon t)
+    if t.n != nil: result = mapType(t.lastSon, indirect)
     else: result = etyNone
   of tyProc: result = etyProc
   of tyCstring: result = etyString
@@ -1017,9 +1019,6 @@ proc genAsgnAux(p: PProc, x, y: PNode, noCopyNeeded: bool) =
         lineF(p, "var $1 = $4; $2 = $1[0]; $3 = $1[1];$n", [tmp, a.address, a.res, b.rdLoc])
       elif b.typ == etyBaseIndex:
         lineF(p, "$# = [$#, $#];$n", [a.res, b.address, b.res])
-      elif b.typ == etyNone:
-        internalAssert p.config, b.address == ""
-        lineF(p, "$# = [$#, 0];$n", [a.address, b.res])
       elif x.typ.kind == tyVar and y.typ.kind == tyPtr:
         lineF(p, "$# = [$#, $#];$n", [a.res, b.address, b.res])
         lineF(p, "$1 = $2;$n", [a.address, b.res])
@@ -1219,6 +1218,11 @@ proc genArrayAccess(p: PProc, n: PNode, r: var TCompRes) =
     r.res = "$1[$2]" % [r.address, r.res]
   r.kind = resExpr
 
+func isBoxedPointer(v: PSym): bool =
+  ## Returns whether `v` stores a pointer value boxed in an array. If not,
+  ## the value is stored as two variables (base and index).
+  v.kind != skParam and {sfGlobal, sfAddrTaken} * v.flags != {}
+
 template isIndirect(x: PSym): bool =
   let v = x
   ({sfAddrTaken, sfGlobal} * v.flags != {} and
@@ -1233,29 +1237,19 @@ proc genSymAddr(p: PProc, n: PNode, r: var TCompRes) =
   let s = n.sym
   p.config.internalAssert(s.loc.r != "", n.info, "genAddr: 3")
   case s.kind
-  of skParam:
-    # FIXME: this is a hack. Only ``genAsgnAux`` handles this special encoding
-    #        (and gets it wrong), ``genVarInit`` (var sections) and ``genArg``
-    #        (arguments) do not. Instead of misusing ``etyNone``, it'd be better
-    #        to either:
-    #        1. emit a temporary base and index
-    #        2. introduce a dedicated ``TJsTypeKind`` enum field for this case
-    r.res = s.loc.r
-    r.address = ""
-    r.typ = etyNone
-  of skVar, skLet, skResult, skForVar:
+  of skVar, skLet, skResult, skForVar, skParam:
     r.kind = resExpr
-    let jsType = mapType(p): n.typ
-    if {sfGlobal, sfAddrTaken} * s.flags != {} or jsType == etyBaseIndex:
-      # for ease of code generation, we do not distinguish between
-      # sfAddrTaken and sfGlobal.
-      r.typ = etyBaseIndex
+    r.typ = etyBaseIndex
+    r.res = "0"
+    if isIndirect(s):
       r.address = s.loc.r
-      r.res = rope("0")
+    elif mapType(p, s.typ) == etyBaseIndex and not isBoxedPointer(s):
+      # box the separate base+index into an array first
+      r.address = "[[$1, $1_Idx]]" % s.loc.r
     else:
-      # 'var openArray' for instance produces an 'addr' but this is harmless:
-      gen(p, n, r)
-      #internalError(p.config, n.info, "genAddr: 4 " & renderTree(n))
+      # something that doesn't directly support having its address
+      # taken (e.g. imported variable, parameter, let, etc.)
+      r.address = "[$1]" % s.loc.r
   else: internalError(p.config, n.info, $("genAddr: 2", s.kind))
 
 proc genAddr(p: PProc, n: PNode, r: var TCompRes) =
@@ -1324,7 +1318,7 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
     let k = mapType(p, s.typ)
     if k == etyBaseIndex:
       r.typ = etyBaseIndex
-      if {sfAddrTaken, sfGlobal} * s.flags != {}:
+      if isBoxedPointer(s):
         if isIndirect(s):
           r.address = "$1[0][0]" % [s.loc.r]
           r.res = "$1[0][1]" % [s.loc.r]
@@ -1717,26 +1711,14 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
         useMagic(p, "nimCopy")
         s = "nimCopy(null, $1, $2)" % [a.res, genTypeInfo(p, n.typ)]
     of etyBaseIndex:
-      let targetBaseIndex = {sfAddrTaken, sfGlobal} * v.flags == {}
-      if a.typ == etyBaseIndex:
-        if targetBaseIndex:
-          line(p, runtimeFormat(varCode & " = $3, $2_Idx = $4;$n",
-                   [returnType, v.loc.r, a.address, a.res]))
-        else:
-          if isIndirect(v):
-            line(p, runtimeFormat(varCode & " = [[$3, $4]];$n",
-                     [returnType, v.loc.r, a.address, a.res]))
-          else:
-            line(p, runtimeFormat(varCode & " = [$3, $4];$n",
-                     [returnType, v.loc.r, a.address, a.res]))
+      p.config.internalAssert(a.typ == etyBaseIndex, n.info)
+      if isBoxedPointer(v):
+        s = "[$1, $2]" % [a.address, a.res]
       else:
-        if targetBaseIndex:
-          let tmp = p.getTemp
-          lineF(p, "var $1 = $2, $3 = $1[0], $3_Idx = $1[1];$n",
-                   [tmp, a.res, v.loc.r])
-        else:
-          line(p, runtimeFormat(varCode & " = $3;$n", [returnType, v.loc.r, a.res]))
-      return
+        line(p, runtimeFormat(varCode & " = $3, $2_Idx = $4;$n",
+                  [returnType, v.loc.r, a.address, a.res]))
+        # exit early because we've already emitted the definition
+        return
     else:
       s = a.res
     if isIndirect(v):
@@ -2490,12 +2472,11 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkObjConstr: genObjConstr(p, n, r)
   of nkHiddenStdConv, nkConv: genConv(p, n, r)
   of nkAddr, nkHiddenAddr:
-    if mapType(n.typ) != etyBaseIndex:
+    if n.typ.kind == tyLent or mapType(n.typ) != etyBaseIndex:
       # the operation doesn't produce an address-like value (e.g. because the
-      # operand is a JS object and those already have reference semantics)
-      # FIXME: this won't work for ``lent`` views (outside of return values),
-      #        as ``lent`` is skipped by ``mapType``, meaning that a
-      #        ``lent int`` is an ``etyInt``
+      # operand is a JS object and those already have reference semantics).
+      # ``lent T`` types are currently treated as normal, non-owning
+      # locations, so the hidden address operation is skipped
       gen(p, n[0], r)
     else:
       genAddr(p, n[0], r)
