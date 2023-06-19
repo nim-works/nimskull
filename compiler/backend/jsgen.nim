@@ -190,15 +190,17 @@ proc newProc(globals: PGlobals, module: BModule, procDef: PNode,
 proc newInitProc(globals: PGlobals, module: BModule): PProc =
   result = newProc(globals, module, nil, {})
 
-const
-  MappedToObject = {tyObject, tyArray, tyTuple, tyOpenArray,
-    tySet, tyVarargs}
-
-proc mapType(typ: PType): TJSTypeKind =
+proc mapType(typ: PType; indirect = false): TJSTypeKind =
+  ## Returns how a value of `typ` is represented on the JavaScript side.
+  ## `indirect` indicates whether a pointer-like type was followed.
   let t = skipTypes(typ, abstractInst)
   case t.kind
   of tyVar, tyRef, tyPtr:
-    if skipTypes(t.lastSon, abstractInst).kind in MappedToObject:
+    # for efficiency, don't use a base+index pair for values that have
+    # reference semantics already (e.g. JavaScript objects). However,
+    # double indirections (e.g. ``ptr ptr object``) do need the base+index
+    # pair.
+    if not indirect and mapType(t.lastSon, true) == etyObject:
       result = etyObject
     else:
       result = etyBaseIndex
@@ -207,7 +209,7 @@ proc mapType(typ: PType): TJSTypeKind =
     result = etyBaseIndex
   of tyRange, tyDistinct, tyOrdinal, tyProxy, tyLent:
     # tyLent is no-op as JS has pass-by-reference semantics
-    result = mapType(t[0])
+    result = mapType(t[0], indirect)
   of tyInt..tyInt64, tyUInt..tyUInt64, tyEnum, tyChar: result = etyInt
   of tyBool: result = etyBool
   of tyFloat..tyFloat128: result = etyFloat
@@ -223,9 +225,9 @@ proc mapType(typ: PType): TJSTypeKind =
     result = etyNone
   of tyGenericInst, tyInferred, tyAlias, tyUserTypeClass, tyUserTypeClassInst,
      tySink:
-    result = mapType(typ.lastSon)
+    result = mapType(typ.lastSon, indirect)
   of tyStatic:
-    if t.n != nil: result = mapType(lastSon t)
+    if t.n != nil: result = mapType(t.lastSon, indirect)
     else: result = etyNone
   of tyProc: result = etyProc
   of tyCstring: result = etyString
