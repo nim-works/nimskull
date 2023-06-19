@@ -116,9 +116,8 @@ when hasAlloc and not defined(js):
     ##
     ## See also:
     ## * `create <#create,typedesc>`_
-    static:
-      when T is UncheckedArray:
-        {.error: "UncheckedArray[T] does not have size, use T instead".}
+    when T is UncheckedArray:
+      {.error: "UncheckedArray[T] has no size. Use T instead".}
     cast[ptr T](alloc(T.sizeof * size))
 
   template alloc0*(size: Natural): pointer =
@@ -144,9 +143,8 @@ when hasAlloc and not defined(js):
     ##
     ## The allocated memory belongs to its allocating thread!
     ## Use `createShared <#createShared,typedesc>`_ to allocate from a shared heap.
-    static:
-      when T is UncheckedArray:
-        {.error: "UncheckedArray[T] does not have size, use T instead".}
+    when T is UncheckedArray:
+      {.error: "UncheckedArray[T] has no size. Use T instead".}
     cast[ptr T](alloc0(sizeof(T) * size))
 
   template realloc*(p: pointer, newSize: Natural): pointer =
@@ -237,9 +235,8 @@ when hasAlloc and not defined(js):
     ##
     ## See also:
     ## * `createShared <#createShared,typedesc>`_
-    static:
-      when T is UncheckedArray:
-        {.error: "UncheckedArray[T] does not have size, use T instead".}
+    when T is UncheckedArray:
+      {.error: "UncheckedArray[T] has no size. Use T instead".}
     cast[ptr T](allocShared(T.sizeof * size))
 
   template allocShared0*(size: Natural): pointer =
@@ -267,9 +264,8 @@ when hasAlloc and not defined(js):
     ## The block is initialized with all bytes
     ## containing zero, so it is somewhat safer than
     ## `createSharedU <#createSharedU,typedesc>`_.
-    static:
-      when T is UncheckedArray:
-        {.error: "UncheckedArray[T] does not have size, use T instead".}
+    when T is UncheckedArray:
+      {.error: "UncheckedArray[T] has no size. Use T instead".}
     cast[ptr T](allocShared0(T.sizeof * size))
 
   template reallocShared*(p: pointer, newSize: Natural): pointer =
