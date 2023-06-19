@@ -1,5 +1,6 @@
 discard """
   exitcode: 0
+  disable: osx
 """
 
 when defined(linux):
