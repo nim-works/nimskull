@@ -83,7 +83,9 @@ when defined(js):
   import std/private/jsutils
 
   when defined(nodejs):
-    {.emit: "const _nim_nodejs_crypto = require('crypto');".}
+    proc require(p: cstring): JsRoot {.importc.}
+
+    let crypto_module {.exportc: "_nim_nodejs_crypto".} = require("crypto")
 
     proc randomFillSync(p: Uint8Array) {.importjs: "_nim_nodejs_crypto.randomFillSync(#)".}
 

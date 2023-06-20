@@ -51,9 +51,6 @@ import
     msgs,
     options
   ],
-  compiler/sem/[
-    lowerings
-  ],
   compiler/utils/[
     idioms
   ],
@@ -244,7 +241,7 @@ func analyseIfAddressTaken(n: PNode, locs: var IntSet) =
       analyseIfAddressTaken(it, locs)
 
 
-func registerLinkItem(tbl: var Table[int, LinkIndex], list: var seq[PSym],
+func registerLinkItem*(tbl: var Table[int, LinkIndex], list: var seq[PSym],
                       sym: PSym, next: var LinkIndex) =
   let linkIdx = tbl.mgetOrPut(sym.id, next)
   if linkIdx == next:
@@ -1810,7 +1807,37 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.freeTemp(d)
   of mSwap:
     unused(c, n, dest)
-    c.gen(lowerSwap(c.graph, n, c.idgen, if c.prc == nil or c.prc.sym == nil: c.module else: c.prc.sym))
+    let tmp = getTemp(c, n.typ)
+    # XXX: swap doesn't need to be implemented here; lower it into assignment
+    #      with a MIR pass
+    # there's no ``nkHiddenAddr`` on the operands, so we don't need to skip
+    # var types
+    if fitsRegister(n[1].typ):
+      # we need to account for the fact that either operand could be
+      # stored in a register already (because it's a local variable)
+      let
+        a = c.genLoc(n[1])
+        b = c.genLoc(n[2])
+      # register copies are enough, here
+      c.gABC(n, opcFastAsgnComplex, tmp, a.val)
+      c.gABC(n, opcFastAsgnComplex, a.val, b.val)
+      c.gABC(n, opcFastAsgnComplex, b.val, tmp)
+      # write back (if necessary):
+      finish(c, n, b)
+      finish(c, n, a)
+    else:
+      let
+        a = c.genLvalue(n[1])
+        b = c.genLvalue(n[2])
+      # XXX: this currently creates a full copy; the VM is still missing the
+      #      ability to create shallow copies
+      c.gABC(n, opcAsgnComplex, tmp, a)
+      c.gABC(n, opcWrLoc, a, b)
+      c.gABC(n, opcWrLoc, b, tmp)
+      c.freeTemp(b)
+      c.freeTemp(a)
+
+    c.freeTemp(tmp)
   of mIsNil: genUnaryABC(c, n, dest, opcIsNil)
   of mParseBiggestFloat:
     if dest.isUnset: dest = c.getTemp(n.typ)
@@ -2435,15 +2462,8 @@ proc useGlobal(c: var TCtx, n: PNode): int =
       # XXX: double table lookup
       result = c.symToIndexTbl[s.id].int
     else:
-      if c.mode in {emRepl, emStandalone}:
-        # for REPL and standalone mode, allow the ad-hoc setup of globals. For
-        # the VM back-end (standalone mode), the modules aren't necessarily
-        # processed in a meaningfull order, so the global's var section might
-        # have been not visited yet
-        result = c.lookupGlobal(s)
-      else:
-        # a global that is not accessible in the current context
-        cannotEval(c, n)
+      # a global that is not accessible in the current context
+      cannotEval(c, n)
 
 proc genSym(c: var TCtx; n: PNode; dest: var TDest; load = true) =
   ## Generates and emits the code for loading either the value or handle of
@@ -2796,8 +2816,7 @@ proc genVarSection(c: var TCtx; n: PNode) =
           #      variables are code-gen'ed twice, once via `setupCompileTimeVar`
           #      called from `sem.semVarOrLet` and once through `vm.myProcess`.
           #      This leads to the global's symbol already being present in the
-          #      table. For the VM back-end, the symbol is also already present
-          #      if the global was used somewhere in another module
+          #      table
           #c.config.internalAssert(s.id notin c.symToIndexTbl, a[0].info)
           discard c.lookupGlobal(s)
           discard c.getOrCreate(s.typ)

@@ -647,7 +647,6 @@ type
     nfExplicitCall ## `x.y()` was used instead of x.y
     nfIsRef     ## this node is a 'ref' node; used for the VM
     nfIsPtr     ## this node is a 'ptr' node; used for the VM
-    nfBlockArg  ## this a stmtlist appearing in a call (e.g. a do block)
     nfFromTemplate ## a top-level node returned from a template
     nfDefaultParam ## an automatically inserter default parameter
     nfDefaultRefsParam ## a default param value references another parameter

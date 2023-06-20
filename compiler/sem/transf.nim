@@ -123,9 +123,6 @@ proc transformSons(c: PTransf, n: PNode): PNode =
   for i in 0..<n.len:
     result[i] = transform(c, n[i])
 
-proc newAsgnStmt(c: PTransf, kind: TNodeKind, le: PNode, ri: PNode): PNode =
-  result = newTreeI(kind, ri.info): [le, ri]
-
 proc transformSymAux(c: PTransf, n: PNode): PNode =
   let s = n.sym
   if s.typ != nil and s.typ.callConv == ccClosure:
@@ -193,7 +190,10 @@ proc freshVar(c: PTransf; v: PSym): PNode =
   else:
     var newVar = copySym(v, nextSymId(c.idgen))
     incl(newVar.flags, sfFromGeneric)
-    newVar.owner = owner
+    if sfGlobal notin newVar.flags:
+      # don't re-parent globals -- the duplicates need to have the same owner
+      # as the original
+      newVar.owner = owner
     result = newSymNode(newVar)
 
 proc transformDefSym(c: PTransf, n: PNode): PNode {.deprecated: "workaround for sem not sanitizing AST".} =
@@ -437,12 +437,10 @@ proc newTupleAccess(n: PNode, formal: PType, i: Natural): PNode =
     result = newTreeIT(nkHiddenAddr, n.info, formal): result
 
 proc transformYieldAsgn(c: PTransf, dest, rhs: PNode, result: PNode) =
-  ## Transforms an implicit assignment to the for-loop variables, generating
-  ## code for tuple unpacking, if necessary
-
-  template addTransf(n: PNode) =
-    result.add transform(c, n)
-
+  ## Given a reciever (`dest`) and a source expression (`rhs`; the expression
+  ## appearing in a ``yield`` statement), produces a sequence of identdefs for
+  ## assigning the, potentially unpacked, source expression to the
+  ## destination(s). The identdefs are then appended to `result`.
   case dest.kind
   of nkForStmt, nkVarTuple:
     # ignore conversions when unpacking
@@ -460,7 +458,7 @@ proc transformYieldAsgn(c: PTransf, dest, rhs: PNode, result: PNode) =
         tmp = newTemp(c, rhs.typ, rhs.info)
         tupTyp = rhs.typ.skipTypes({tyGenericInst, tyAlias, tyLent, tyVar})
 
-      addTransf newTreeI(nkLetSection, rhs.info, [newIdentDefs(tmp, rhs)])
+      result.add newIdentDefs(tmp, transform(c, rhs))
 
       for i in 0..<tupTyp.len:
         transformYieldAsgn(c, dest[i],
@@ -469,7 +467,7 @@ proc transformYieldAsgn(c: PTransf, dest, rhs: PNode, result: PNode) =
 
   of nkSym, nkDotExpr:
     # ``nkDotExpr`` occurs for yields from closure iterators
-    addTransf newAsgnStmt(dest, rhs)
+    result.add newIdentDefs(dest, transform(c, rhs))
   else:
     unreachable()
 
@@ -490,21 +488,31 @@ proc transformYield(c: PTransf, n: PNode): PNode =
       # tuple unpacking is used
       c.transCon.forStmt
 
-  transformYieldAsgn(c, dest, e, result)
+  let section = newNodeI(nkVarSection, n.info)
+  transformYieldAsgn(c, dest, e, section)
+
+  # note: it's important that the var section is also processed by
+  # ``introduceNewLocalVars``
+  result.add(section)
+  result.add(c.transCon.forLoopBody)
 
   inc(c.transCon.yieldStmts)
-  if c.transCon.yieldStmts <= 1:
-    # common case
-    result.add(c.transCon.forLoopBody)
-  else:
+  if c.transCon.yieldStmts > 1:
     # we need to introduce new local variables:
-    result.add(introduceNewLocalVars(c, c.transCon.forLoopBody))
+    result = introduceNewLocalVars(c, result)
 
   for idx in 0 ..< result.len:
     var changeNode = result[idx]
     changeNode.info = c.transCon.forStmt.info
     for i, child in changeNode:
       child.info = changeNode.info
+
+  # wrap the inlined body in a block. This ensures that the lifetime of locals
+  # defined inside the inlined body doesn't extend past the body. The for-loop
+  # body was transformed already, so this doesn't interfere with ``break``
+  # target rewriting
+  result = newTreeI(nkBlockStmt, n.info):
+    [newSymNode(newLabel(c, n)), result]
 
 proc transformAddr(c: PTransf, n: PNode): PNode =
   result = transformSons(c, n)
@@ -727,16 +735,14 @@ proc transformFor(c: PTransf, n: PNode): PNode =
 
     let iter = call[0].sym
 
-    var v = newNodeI(nkVarSection, n.info)
-    for i in 0..<n.len - 2:
-      if n[i].kind == nkVarTuple:
-        for j in 0..<n[i].len-1:
-          v.add newIdentDefs(copyTree(n[i][j])) # declare new vars
-      else:
-        if n[i].kind == nkSym and isSimpleIteratorVar(c, iter):
-          incl n[i].sym.flags, sfCursor
-        v.add newIdentDefs(copyTree(n[i])) # declare new vars
-    stmtList.add(v)
+    if isSimpleIteratorVar(c, iter):
+      # the iterator only yields locations that it owns -> the for-vars can be cursors
+      # XXX: maybe leave this to cursor inference instead?
+      for it in forLoopDefs(n):
+        case it.kind
+        of nkSym:     incl it.sym.flags, sfCursor
+        of nkDotExpr: discard "lifted into environment; ignore"
+        else:         unreachable()
 
     # this can fail for 'nimsuggest' and 'check':
     if iter.kind != skIterator: return result
@@ -1336,10 +1342,10 @@ proc transformExpr*(g: ModuleGraph; idgen: IdGenerator; module: PSym, n: PNode):
     incl(result.flags, nfTransf)
 
 proc extractGlobals*(body: PNode, output: var seq[PNode], isNimVm: bool) =
-  ## Searches for all ``nkIdentDefs`` defining a global, appends them to
-  ## `output` in the order they appear in the input AST, and removes the nodes
-  ## from `body`. `isNimVm` signals which branch to select for ``when nimvm``
-  ## statements/expressions.
+  ## Searches for all ``nkIdentDefs`` defining a global that's not owned by a
+  ## module, appends them to `output` in the order they appear in the input
+  ## AST, and removes the nodes from `body`. `isNimVm` signals which branch
+  ## to select for ``when nimvm`` statements/expressions.
   ##
   ## XXX: this can't happen as part of ``transformBody``, as ``transformBody``
   ##      is reentrant because of ``lambdalifting`` and it's thus not easily
@@ -1377,7 +1383,8 @@ proc extractGlobals*(body: PNode, output: var seq[PNode], isNimVm: bool) =
     while i < body.len:
       let it = body[i]
       if it.kind == nkIdentDefs and
-         it[0].kind == nkSym and sfGlobal in it[0].sym.flags:
+         it[0].kind == nkSym and
+         sfGlobal in it[0].sym.flags and it[0].sym.owner.kind != skModule:
         # found one; append it to the output:
         output.add(it)
         # there's no need to process the initializer expression of the global,

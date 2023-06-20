@@ -21,7 +21,6 @@ finally:
 --expandArc: sio
 
 block label:
-  var x_cursor
   var filename_cursor = "debug.txt"
   var f = open(filename_cursor, fmRead, 8000)
   try:
@@ -32,8 +31,9 @@ block label:
         while true:
           if op(readLine(f, res)):
             break
-          x_cursor = res
-          echo([x_cursor])
+          block label_2:
+            var x_cursor = res
+            echo([x_cursor])
     finally:
       `=destroy`(res)
   finally:

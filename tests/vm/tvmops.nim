@@ -1,14 +1,15 @@
 discard """
+  description: "Tests for VM Operations (`vmops.nim`)"
   matrix: "--experimental:vmopsDanger"
   targets: "c js"
+  joinable: false
 """
 
-#[
-test for vmops.nim
-]#
-import os
-import math
-import strutils
+# marked as not joinable as this test executes the compiler (error prone)
+
+import std/os
+import std/math
+import std/strutils
 
 static:
   # TODO: add more tests

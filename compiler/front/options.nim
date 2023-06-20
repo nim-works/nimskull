@@ -49,7 +49,8 @@ const
 
 const
   harmlessOptions* = {optForceFullMake, optNoLinking, optRun, optUseColors, optStdout}
-  genSubDir* = RelativeDir"nimcache"
+  genSubDir* = RelativeDir"nimskullcache"
+  # XXX: |Nimskull| extensions and config files
   NimExt* = "nim"
   RodExt* = "rod"
   HtmlExt* = "html"
@@ -1254,7 +1255,7 @@ include compiler/modules/packagehandling
 
 proc getOsCacheDir(): string =
   when defined(posix):
-    result = getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / "nim"
+    result = getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / "nimskull"
   else:
     result = getHomeDir() / genSubDir.string
 
@@ -1310,7 +1311,7 @@ proc toGeneratedFile*(
     path: AbsoluteFile,
     ext: string
   ): AbsoluteFile =
-  ## converts "/home/a/mymodule.nim", "rod" to "/home/a/nimcache/mymodule.rod"
+  ## converts "/home/a/mymodule.nim", "rod" to "/home/a/nimskullcache/mymodule.rod"
   result = getNimcacheDir(conf) / RelativeFile(
     path.string.splitPath.tail.changeFileExt(ext))
 

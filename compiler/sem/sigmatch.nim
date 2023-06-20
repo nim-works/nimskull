@@ -471,6 +471,56 @@ proc isGenericSubtype(c: var TCandidate; a, f: PType, d: var int, fGenericOrigin
     d = depth
     result = true
 
+proc isSubtypeOfGenericInstance(c: var TCandidate; a, f: PType, fGenericOrigin: PType): int =
+  ## Computes whether the resolved object-like type `a` is a subtype of `f`,
+  ## where `f` is a ``tyGenericInst``. The inheritance depth is returned,
+  ## or, if the types are not related, -1.
+  ##
+  ## In case of a match, the unresolved generic parameters of `f` are bound to
+  ## the arguments taken from the base type of actual that matched.
+  assert f.kind == tyGenericInst
+  var
+    askip = skippedNone
+    fskip = skippedNone
+
+    t = a.skipToObject(askip)
+    last = t ## the unskipped type
+
+  assert t != nil, "'a' is not object-like type"
+  discard f.skipToObject(fskip) # only compute the skip kind
+
+  proc isEqual(c: var TCandidate, f, a: PType): bool {.nimcall.} =
+    if f.id == a.id: # fast equality check
+      result = true
+    elif a.kind == tyGenericInst and
+         (let roota = a.skipGenericAlias; roota.base == f.base):
+      # formal might still contain unresovled generic parameters, in which case
+      # the ID comparison won't work as an equality check
+      for i in 1..<f.len-1:
+        # don't bind generic parameters yet; binding must only happen in
+        # case of a match
+        if typeRel(c, f[i], roota[i], {trDontBind}) < isGeneric:
+          return false
+
+      result = true
+    else:
+      result = false
+
+  # traverse the type hieararchy until we either reach the end or find a type
+  # that is equal to `f`
+  while t != nil and askip == fskip and not isEqual(c, f, last):
+    t = t.base
+    if t.isNil:
+      break # we reached the end
+    last = t
+    t = t.skipToObject(askip)
+    inc result
+
+  if t != nil and askip == fskip:
+    genericParamPut(c, last, f)
+  else:
+    result = -1 # no relationship
+
 proc minRel(a, b: TTypeRelation): TTypeRelation =
   if a <= b: result = a
   else: result = b
@@ -716,6 +766,10 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
         diagnostics.add report.semReport
   )
 
+  # xxx: this is where we end up with collapsed bodies and drives the need for
+  #      the check in `semexprs.semExpr`'s `nkStmtList/Expr` branch, a
+  #      `semTryExpr` that doesn't collapse should remove the awkward logic and
+  #      action at a distance.
   var checkedBody = c.semTryExpr(c, body.copyTree, {efExplain})
 
   c.config.setReportHook(tmpHook)
@@ -1429,10 +1483,6 @@ typeRel can be used to establish various relationships between types:
     let origF = f
     var f = if prev.isNil(): f else: prev
 
-    if a.len > 0:
-      let skippedA = a.skipTypesOrNil({tyObject}) # Skips if it's inheriting from a generic
-      if skippedA != nil:
-        a = skippedA
     let roota = a.skipGenericAlias
     let rootf = f.skipGenericAlias
 
@@ -1496,8 +1546,26 @@ typeRel can be used to establish various relationships between types:
             return if ret in {isEqual,isGeneric}: isSubtype else: ret
 
         result = isNone
+    elif rootf.base.lastSon.skipTypes({tyRef, tyPtr}).kind == tyObject and
+         roota.skipTypes({tyRef, tyPtr, tyAlias}).kind == tyObject:
+      # the formal type is a generic object type, and the actual type a non-
+      # generic one. We cannot just dispatch to ``typeRel`` with the
+      # instantiated object type here, as that would lead to phantom
+      # type information (if any is present) being ignored
+      let depth = isSubtypeOfGenericInstance(c, roota, rootf, f)
+      case depth
+      of -1:
+        result = isNone
+      of 0:
+        unreachable("already handled by the ``a.kind == tyGenericInst`` branch")
+      else:
+        c.inheritancePenalty += depth
+        result = isSubtype
     else:
       assert lastSon(origF) != nil
+      # no object relation, but this doesn't mean that the types aren't
+      # related (e.g.: f = ``Generic[int]`` and a = ``seq[int]``, where
+      # ``Generic[T] = seq[T]``)
       result = typeRel(c, lastSon(origF), a, flags)
       if result != isNone and a.kind != tyNil:
         put(c, f, a)
@@ -2509,7 +2577,10 @@ proc setSon(father: PNode, at: int, son: PNode) =
 
 # we are allowed to modify the calling node in the 'prepare*' procs:
 proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
-  if formal.kind == tyUntyped and formal.len != 1:
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(c.config, a)
+  if formal.kind == tyUntyped:
+    assert formal.len != 1
     result = a
   elif a.typ.isNil:
     # XXX This is unsound! 'formal' can differ from overloaded routine to
@@ -2518,7 +2589,7 @@ proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
   else:
     result = a
     considerGenSyms(c, result)
-    
+
     if result.kind != nkHiddenDeref and
        result.typ.kind in {tyVar, tyLent} and
        c.matchedConcept.isNil():
@@ -2573,11 +2644,10 @@ template isVarargsUntyped(x): untyped =
   x.kind == tyVarargs and x[0].kind == tyUntyped
 
 proc findFirstArgBlock(m: var TCandidate, n: PNode): int =
+  # xxx: this "feature" isn't a great idea and the implementation is awful
   # see https://github.com/nim-lang/RFCs/issues/405
   result = int.high
   for a2 in countdown(n.len - 1, 0):
-    # checking `nfBlockArg in n[a2].flags` wouldn't work inside templates
-    # xxx: ^^ why???
     case n[a2].kind
     of nkStmtList:
       let formalLast = m.callee.n[m.callee.n.len - (n.len - a2)]
