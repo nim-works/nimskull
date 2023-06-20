@@ -720,3 +720,14 @@ iterator names*(node: PNode): PNode =
   assert node.kind in {nkIdentDefs, nkVarTuple, nkConstDef, nkForStmt}
   for i in 0..<node.len-2:
     yield node[i]
+
+iterator forLoopDefs*(forStmt: PNode): PNode =
+  ## Returns the nodes appearing in the name slots (including nested ones) of
+  ## the provided ``nkForStmt`` node.
+  assert forStmt.kind == nkForStmt
+  for n in names(forStmt):
+    if n.kind == nkVarTuple:
+      for j in 0..<(n.len - 1):
+        yield n[j]
+    else:
+      yield n
