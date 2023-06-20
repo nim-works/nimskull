@@ -2220,7 +2220,11 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
     of skVar, skForVar, skResult, skLet:
       if {sfGlobal, sfThread} * sym.flags != {}:
         genVarPrototype(p.module, n)
-        if sfCompileTime in sym.flags:
+        if sfCompileTime in sym.flags and
+           sym.id notin p.module.declaredThings:
+          # the ``declaredThings`` check makes sure that only a single
+          # definition is emitted in each module that uses the .compileTime
+          # global
           genSingleVar(p, sym, n, astdef(sym))
 
       if sym.loc.r == "" or sym.loc.t == nil:

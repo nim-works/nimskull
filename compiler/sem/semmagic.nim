@@ -155,6 +155,7 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
   const skippedTypes = {tyTypeDesc, tyAlias, tySink}
   let trait = traitCall[0]
   c.config.internalAssert trait.kind == nkSym
+  let orig = operand
   var operand = operand.skipTypes(skippedTypes)
 
   template operand2: PType =
@@ -223,12 +224,14 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
     assert operand.kind == tyTuple, $operand.kind
     result = newIntNodeT(toInt128(operand.len), traitCall, c.idgen, c.graph)
   of "distinctBase":
+    var last = orig.skipTypes({tyTypeDesc})
     var arg = operand.skipTypes({tyGenericInst})
     let rec = semConstExpr(c, traitCall[2]).intVal != 0
     while arg.kind == tyDistinct:
-      arg = arg.base.skipTypes(skippedTypes + {tyGenericInst})
+      last = arg.base
+      arg = last.skipTypes(skippedTypes + {tyGenericInst})
       if not rec: break
-    result = getTypeDescNode(c, arg, operand.owner, traitCall.info)
+    result = getTypeDescNode(c, last, operand.owner, traitCall.info)
   of "rangeBase":
     # return the range's base type
     let arg = operand.skipTypes({tyGenericInst})

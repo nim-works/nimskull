@@ -156,25 +156,16 @@ proc genGotoVar(p: BProc; value: PNode) =
 
 proc genBracedInit(p: BProc, n: PNode; isConst: bool; optionalType: PType): Rope
 
-proc potentialValueInit(p: BProc; v: PSym; value: PNode): Rope =
-  if lfDynamicLib in v.loc.flags or sfThread in v.flags:
-    result = ""
-  elif sfGlobal in v.flags and value != nil and isDeepConstExpr(value) and
-      p.withinLoop == 0 and not containsGarbageCollectedRef(v.typ):
-    #echo "New code produced for ", v.name.s, " ", p.config $ value.info
-    result = genBracedInit(p, value, isConst = false, v.typ)
-  else:
-    result = ""
-
 proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
   if sfGoto in v.flags:
     # translate 'var state {.goto.} = X' into 'goto LX':
     genGotoVar(p, value)
     return
   var targetProc = p
-  var traverseProc: Rope
-  let valueAsRope = potentialValueInit(p, v, value)
   if sfGlobal in v.flags:
+    #assert {sfPure, sfThread} * v.flags != {}, "normal globals don't reach here"
+    # XXX: thanks to ``.compileTime`` globals, the assertion cannot be used
+    #      yet
     if v.flags * {sfImportc, sfExportc} == {sfImportc} and
         value.kind == nkEmpty and
         v.loc.flags * {lfHeader, lfNoDecl} != {}:
@@ -182,14 +173,14 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
     if sfPure in v.flags:
       # v.owner.kind != skModule:
       targetProc = p.module.preInitProc
-    assignGlobalVar(targetProc, vn, valueAsRope)
+    defineGlobalVar(targetProc.module, vn)
     # XXX: be careful here.
     # Global variables should not be zeromem-ed within loops
     # (see bug #20).
     # That's why we are doing the construction inside the preInitProc.
     # genObjectInit relies on the C runtime's guarantees that
     # global variables will be initialized to zero.
-    if valueAsRope == "":
+    if true:
       var loc = v.loc
 
       # When the native TLS is unavailable, a global thread-local variable needs
@@ -208,10 +199,7 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
     assignLocalVar(p, vn)
     initLocalVar(p, v, imm)
 
-  if traverseProc == "":
-    traverseProc = ~"NULL"
-
-  if value.kind != nkEmpty and valueAsRope == "":
+  if value.kind != nkEmpty:
     genLineDir(targetProc, vn)
     loadInto(targetProc, vn, value, v.loc)
 

@@ -271,7 +271,7 @@ func ignoreFile(f, explicit: string, allowHtml: bool): bool =
 proc walkDirRecursively(s: var seq[string], root, explicit: string,
                         allowHtml: bool) =
   let tail = splitPath(root).tail
-  if tail == "nimcache" or tail[0] == '.':
+  if tail == "nimcache" or tail == "nimskullcache" or tail[0] == '.':
     return
   let allowHtml = allowHtml or tail == "doc"
   for k, f in walkDir(root):

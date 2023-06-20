@@ -6,6 +6,11 @@ discard """
 
 when defined(linux):
   import linenoise
+elif defined(windows):
+  import std/[
+    registry,
+    winlean
+  ]
 
 import
   algorithm,
@@ -73,14 +78,12 @@ import
   parsexml,
   pathnorm,
   pegs,
-  posix_utils,
   prelude,
   punycode,
   random,
   rationals,
   rdstdin,
   re,
-  registry,
   reservedmem,
   rlocks,
   ropes,
@@ -112,7 +115,6 @@ import
   unittest,
   uri,
   volatile,
-  winlean,
   xmlparser,
   xmltree
 
@@ -159,3 +161,8 @@ import std/private/[
   strimpl,
   underscored_calls,
 ]
+
+when defined(posix):
+  import std/[
+    posix_utils,
+  ]

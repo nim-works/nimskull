@@ -10,6 +10,7 @@ import
     ast
   ],
   compiler/backend/[
+    backends,
     cgen,
     cgendata,
     cgmeth,
@@ -22,15 +23,53 @@ import
     modulegraphs
   ],
   compiler/sem/[
-    collectors
+    modulelowering
   ],
   compiler/utils/[
     containers,
     pathutils
   ]
 
+proc configureInitProcedure(prc: PSym, name: string) =
+  ## Generating and emitting the C code for a modules' init procedures is
+  ## currently still the responsibility of the code generator. In order to
+  ## support this in a clean way, the init procedures are treated as
+  ## imported.
+  prc.flags.incl sfImportc
+  prc.loc.r = name # set the mangled name
+
+proc generateCodeForMain(m: BModule, modules: ModuleList) =
+  ## Generates and emits the C code for the program's or library's entry
+  ## point.
+  let p = newProc(nil, m)
+  # we don't want error or stack-trace code in the main procedure:
+  p.flags.incl nimErrorFlagDisabled
+  p.options = {}
+
+  # generate the body:
+  let body = newNode(nkStmtList)
+  generateMain(m.g.graph, modules, body)
+  if {optGenStaticLib, optGenDynLib, optNoMain} * m.config.globalOptions == {}:
+    # only emit the teardown logic when we're building a standalone program
+    # XXX: the teardown logic should be generated into a separate C function
+    #      in this case; otherwise there's no way to free the module structs
+    generateTeardown(m.g.graph, modules, body)
+
+  # now generate the C code for the body:
+  genProcBody(p, body)
+  var code: string
+  code.add(p.s(cpsLocals))
+  code.add(p.s(cpsInit))
+  code.add(p.s(cpsStmts))
+  # emitting and adjusting for the selected OS and target is still done by
+  # the code generator:
+  # XXX: ^^ this is going to change in the future
+  genMainProc(m, code)
+
+proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList)
+
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
-  ## Entry point for C code-generation. Only the C code is generated -- nothing
+  ## Entry point for C code generation. Only the C code is generated -- nothing
   ## is written to disk yet.
   let
     config = graph.config
@@ -56,23 +95,90 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
       changeFileExt(completeCfilePath(config, f), hExt))
     incl g.generatedHeader.flags, isHeaderFile
 
-  # the main part: invoke the code generator for all top-level code
-  for index in mlist.modulesClosed.items:
-    let
-      m {.cursor.} = mlist.modules[index]
-      bmod = g.modules[index.int]
-
-    # pass all top-level code to the code generator:
-    for it in m.stmts.items:
-      genTopLevelStmt(bmod, it)
-
-    # wrap up the main part of code generation for the module. Note that this
-    # doesn't mean that they're closed for writing; invoking the code generator
-    # for other modules' code can still add new code to this module's sections
-    finalCodegenActions(graph, g.modules[index.int], newNode(nkStmtList))
+  generateCode(graph, g, mlist)
 
   # the callsite still expects `graph.backend` to point to the ``BModuleList``
   # so that ``cgenWriteModules`` can query it
   # XXX: this is the wrong approach -- the code generator must not be
-  #      responsible for writing the generated C translation units to disk.
+  #      responsible for writing the generated C translation-units to disk.
   graph.backend = g
+
+proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
+  ## Implements the main part of the C code-generation orchestrator. Expects an
+  ## already populated ``BModuleList``.
+
+  # generate the definitions for all globals first, so that the symbols all
+  # have mangled names already; the order in which this happens doesn't matter
+  for key, m in mlist.modules.pairs:
+    let bmod = g.modules[key.int]
+    for s in m.structs.globals.items:
+      defineGlobalVar(bmod, newSymNode(s))
+
+    for s in m.structs.nestedGlobals.items:
+      defineGlobalVar(bmod, newSymNode(s))
+
+    for s in m.structs.threadvars.items:
+      fillGlobalLoc(bmod, s, newSymNode(s))
+      declareThreadVar(bmod, s, sfImportc in s.flags)
+
+  # the main part: invoke the code generator for all declarative code and the
+  # init procedures
+  for m in closed(mlist):
+    let bmod = g.modules[m.sym.position]
+
+    # process the declarative statements first:
+    genTopLevelStmt(bmod, m.decls)
+    # generate code for the init procedure:
+    genInitProc(bmod, m.init)
+    # XXX: ^^ this is wrong. The init procedure should be treated
+    #      like any other procedure, but ``cgen`` still depends on appending
+    #      to it from all over the place. Untangling this will require
+    #      multiple intermediate refactorings.
+
+    # wrap up the main part of code generation for the module. Note that this
+    # doesn't mean that they're closed for writing; invoking the code generator
+    # for other modules' code can still add new code to this module's sections
+    finalCodegenActions(graph, bmod, newNode(nkStmtList))
+
+  # all alive globals are discovered now, so we can finish the modules'
+  # deinitialization procedures. Note that we have to already pass the
+  # procedures to code generation here
+  finishDeinit(graph, mlist)
+  for pos, m in mlist.modules.pairs:
+    genProc(g.modules[pos.int], m.destructor)
+
+  # the main part of code generation is wrapped up. Generate and emit the entry
+  # point, and then we're done. Note that no more dependencies (new globals,
+  # procedure, constants, etc.) must be raised beyond this point
+  for m in closed(mlist):
+    let bmod = g.modules[m.sym.position]
+
+    let
+      hasInit = genInitCode(bmod)
+      hasDatInit = genDatInitCode(bmod)
+
+    if not hasInit:
+      # communicate to the dead-code elimination later performed by
+      # ``backends.generateMain`` that the init procedure has no content
+      m.init.ast[bodyPos] = graph.emptyNode
+    else:
+      configureInitProcedure(m.init, getInitName(bmod))
+
+    if hasDatInit:
+      # the data-init procedure is currently empty by default. We signal that
+      # the call to it should not be elided, by changing the body to an empty
+      # statement list
+      # XXX: this is only a temporary solution until populating the procedure
+      #      is the responsibility of the orchestrator (or an earlier step)
+      m.dataInit.ast[bodyPos] = newNode(nkStmtList)
+      configureInitProcedure(m.dataInit, getDatInitName(bmod))
+
+    finalizeModule(bmod)
+    if sfMainModule in m.sym.flags:
+      finalizeMainModule(bmod)
+      generateCodeForMain(bmod, mlist)
+
+    # code generation for the module is done; its C code will not change
+    # anymore beyond this point
+    # future direction: this part is going to be turned into an iterator
+    # yielding the C file's content

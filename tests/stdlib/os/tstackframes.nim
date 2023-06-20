@@ -1,3 +1,9 @@
+discard """
+  joinable: false
+"""
+
+# marked as not joinable as this test self-executes
+
 import std/[strformat,os,osproc]
 import stdtest/unittest_light
 
