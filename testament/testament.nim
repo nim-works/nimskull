@@ -70,7 +70,6 @@ type
     testArgs: seq[string]
     startTime: float
     spec: TSpec
-
     inCurrentBatch: bool ## whether the test is part of the current
                          ## batch
 
@@ -84,7 +83,7 @@ type
     debugInfo: string
 
   CompilerOutput = object
-    ## Describes the output of a a compiler invocation.
+    ## Describes the output of a compiler invocation.
     cmd: string    ## the command that was run
     nimout: string ## compiler output
     output: string ## test output
