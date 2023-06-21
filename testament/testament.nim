@@ -12,8 +12,9 @@
 import std/[
   strutils, pegs, os, osproc, streams, json, parseopt, browsers,
   terminal, algorithm, times, md5, intsets, macros, tables,
-  options
+  options, sequtils
 ]
+import system/platforms
 import backend, htmlgen, specs
 from std/sugar import dup
 import compiler/utils/nodejs
@@ -70,6 +71,9 @@ type
     startTime: float
     spec: TSpec
 
+    inCurrentBatch: bool ## whether the test is part of the current
+                         ## batch
+
   TestRun = object
     test: TTest
     expected: TSpec
@@ -78,6 +82,20 @@ type
     nimcache: string
     startTime: float
     debugInfo: string
+
+  CompilerOutput = object
+    ## Describes the output of a a compiler invocation.
+    cmd: string    ## the command that was run
+    nimout: string ## compiler output
+    output: string ## test output
+
+    # information related to reported compiler errors (unused if
+    # none were reported):
+    file, msg: string
+    line, column: int
+
+    debugInfo: seq[string] ## debug info to give more context
+    err: TResultEnum       ## the reason the test failed (or succeeded)
 
   Execution = object
     ## state object to data relevant for a testament run
@@ -314,7 +332,7 @@ proc prepareTestCmd(cmdTemplate, filename, options, nimcache: string,
                       "filedir", filename.getFileDir(), "nim", compilerPrefix]
 
 proc callNimCompiler(cmdTemplate, filename, options, nimcache: string,
-                     target: TTarget, extraOptions = ""): TSpec =
+                     target: TTarget, extraOptions = ""): CompilerOutput =
   ## Execute nim compiler with given `filename`, `options` and `nimcache`.
   ## Compile to target specified in the `target` and return compilation
   ## results as a new `TSpec` value. Resulting spec contains `.nimout` set
@@ -423,7 +441,7 @@ proc getName(run: TestRun): string =
   if run.test.options.len > 0:
     result.add ' ' & run.test.options
 
-proc logToConsole(param: ReportParams, givenSpec: ptr TSpec = nil) =
+proc logToConsole(param: ReportParams, given: ptr CompilerOutput = nil) =
   ## Format test infomation to the console. `test` contains information
   ## about the test itself, `param` contains additional data about test
   ## execution.
@@ -452,9 +470,9 @@ proc logToConsole(param: ReportParams, givenSpec: ptr TSpec = nil) =
 
     maybeStyledEcho styleBright, fgRed, "Failure: ", $param.success
 
-  template onFailGivenSpecDebugInfo(givenSpec: ptr TSpec) =
-    if givenSpec != nil and givenSpec.debugInfo.len > 0:
-      msg Undefined: "debugInfo: " & givenSpec.debugInfo
+  template onFailGivenSpecDebugInfo(given: ptr CompilerOutput) =
+    if given != nil and given.debugInfo.len > 0:
+      msg Undefined: "debugInfo: " & given.debugInfo
 
   case param.success
   of reSuccess:
@@ -472,12 +490,12 @@ proc logToConsole(param: ReportParams, givenSpec: ptr TSpec = nil) =
     msg Undefined: param.given
   of reBuildFailed, reNimcCrash, reInstallFailed:
     dispFail(param)
-    onFailGivenSpecDebugInfo(givenSpec)
+    onFailGivenSpecDebugInfo(given)
     # expected is empty, no reason to print it.
     msg Undefined: param.given
   else:
     dispFail(param)
-    onFailGivenSpecDebugInfo(givenSpec)
+    onFailGivenSpecDebugInfo(given)
 
     if param.outCompare.isNil:
       # REFACTOR error message formatting should be based on the
@@ -499,11 +517,11 @@ proc logToBackend(param: ReportParams) =
     backend.writeTestResult(param)
 
 
-proc addResult(r: var TResults, param: ReportParams, givenSpec: ptr TSpec) =
+proc addResult(r: var TResults, param: ReportParams, given: ptr CompilerOutput) =
   ## Report results to backend, end user (write to command-line) and so on.
   
   # instead of `ptr tspec` we could also use `option[tspec]`; passing
-  # `givenspec` makes it easier to get what we need instead of having to
+  # `given` makes it easier to get what we need instead of having to
   # pass individual fields, or abusing existing ones like expected vs
   # given. test.name is easier to find than test.name.extractfilename a bit
   # hacky but simple and works with tests/testament/tshould_not_work.nim
@@ -515,14 +533,14 @@ proc addResult(r: var TResults, param: ReportParams, givenSpec: ptr TSpec) =
                                 $param.success)
 
   # Write to console
-  logToConsole(param, givenSpec)
+  logToConsole(param, given)
 
 proc addResult(
     r: var TResults,
     run: TestRun,
     expected, given: string,
     successOrig: TResultEnum,
-    givenSpec: ptr TSpec = nil,
+    output: ptr CompilerOutput = nil,
     outCompare: TOutCompare = nil
   ) =
   ## Report final test run to backend, end user (write to command-line) and etc
@@ -545,24 +563,24 @@ proc addResult(
       debugInfo: run.debugInfo,
       outCompare: outCompare,
       success: success,
-      knownIssues: if isNil(givenSpec): @[] else: givenSpec[].knownIssues,
-      inCurrentBatch: run.test.spec.inCurrentBatch,
+      knownIssues: if isNil(output): @[] else: run.test.spec.knownIssues,
+      inCurrentBatch: run.test.inCurrentBatch,
       expected: expected,
       given: given
     )
   
-  addResult(r, param, givenSpec)
+  addResult(r, param, output)
 
-proc addResult(r: var TResults, test: TTest) =
+proc addResult(r: var TResults, test: TTest, reason: TResultEnum) =
   ## Report test failure/skip etc to backend, end user (write to command-line)
   ## and so on.
   const allowedTestStatus = {reInvalidSpec, reDisabled, reKnownIssue, reJoined}
-  doAssert test.spec.err in allowedTestStatus,
+  doAssert reason in allowedTestStatus,
            "Test: $1 with status: $2, should have ran" %
-              [test.getName(), $test.spec.err]
+              [test.getName(), $reason]
   let
     given =
-      case test.spec.err
+      case reason
       of reInvalidSpec: test.spec.parseErrors
       of reKnownIssue: test.spec.knownIssues.join("\n")
       else: ""
@@ -574,8 +592,8 @@ proc addResult(r: var TResults, test: TTest) =
       action: test.spec.action,
       targetStr: "",
       debugInfo: "",
-      success: test.spec.err,
-      inCurrentBatch: test.spec.inCurrentBatch,
+      success: reason,
+      inCurrentBatch: test.inCurrentBatch,
       knownIssues: test.spec.knownIssues,
       expected: "",
       given: given,
@@ -585,7 +603,7 @@ proc addResult(r: var TResults, test: TTest) =
   addResult(r, param, nil)
 
 
-proc checkForInlineErrors(r: var TResults, run: TestRun, given: TSpec) =
+proc checkForInlineErrors(r: var TResults, run: TestRun, given: CompilerOutput) =
   ## Check for inline error annotations in the nimout results, comparing
   ## them with the output of the compiler.
 
@@ -637,17 +655,17 @@ proc checkForInlineErrors(r: var TResults, run: TestRun, given: TSpec) =
     r.addResult(run, "", given.msg, reSuccess)
     inc(r.passed)
 
-proc nimoutCheck(expected, given: TSpec): bool =
+proc nimoutCheck(expected: TSpec, nimout: string): bool =
   ## Check if expected nimout values match with specified ones. This check
   ## implements comparison of the unstructured data.
   result = true
   if expected.nimoutFull:
-    if expected.nimout != given.nimout:
+    if expected.nimout != nimout:
       result = false
-  elif expected.nimout.len > 0 and not greedyOrderedSubsetLines(expected.nimout, given.nimout):
+  elif expected.nimout.len > 0 and not greedyOrderedSubsetLines(expected.nimout, nimout):
     result = false
 
-proc sexpCheck(test: TTest, expected, given: TSpec): TOutCompare =
+proc sexpCheck(test: TTest, expected: TSpec, nimout: string): TOutCompare =
   ## Check if expected nimout values match with specified ones. Thish check
   ## implements a structured comparison of the data and returns full report
   ## about all the mismatches that can be formatted as needed.
@@ -671,7 +689,7 @@ proc sexpCheck(test: TTest, expected, given: TSpec): TOutCompare =
       r.expectedReports.add TOutReport(node: parseSexp(line))
 
   var outputParseFailed = false
-  for line in splitLines(given.nimout):
+  for line in splitLines(nimout):
     if line.len > 0:
       let parsedSexp = parseSexp(line)
       if parsedSexp.kind != SList:
@@ -711,7 +729,7 @@ proc sexpCheck(test: TTest, expected, given: TSpec): TOutCompare =
 
   return r
 
-proc cmpMsgs(r: var TResults, run: TestRun, given: TSpec) =
+proc cmpMsgs(r: var TResults, run: TestRun, given: CompilerOutput) =
   ## Compare all test output messages. This proc does structured or
   ## unstructured comparison comparison and immediately reports it's
   ## results.
@@ -722,7 +740,7 @@ proc cmpMsgs(r: var TResults, run: TestRun, given: TSpec) =
   # If structural comparison is requested - drop directly to it and handle
   # the success/failure modes in the branch
   if run.expected.nimoutSexp:
-    let outCompare = run.test.sexpCheck(run.expected, given)
+    let outCompare = run.test.sexpCheck(run.expected, given.nimout)
     # Full match of the output results.
     if outCompare.match:
       r.addResult(run, run.expected.msg, given.msg, reSuccess)
@@ -730,13 +748,13 @@ proc cmpMsgs(r: var TResults, run: TestRun, given: TSpec) =
     elif outCompare.failed:
       # little janky, but that's just sexp reporting
       r.addResult(run, run.expected.nimout, given.nimout.strip, reMsgsDiffer,
-        givenSpec = unsafeAddr given)
+        output = unsafeAddr given)
     else:
       # Write out error message.
       r.addResult(
         run, run.expected.msg, given.msg,
         reMsgsDiffer,
-        givenSpec = unsafeAddr given,
+        output = unsafeAddr given,
         outCompare = outCompare
       )
   # Checking for inline errors.
@@ -764,7 +782,7 @@ proc cmpMsgs(r: var TResults, run: TestRun, given: TSpec) =
     r.addResult(run, run.expected.msg, given.msg, reMsgsDiffer)
 
   # Compare expected and resulted spec messages
-  elif not nimoutCheck(run.expected, given):
+  elif not nimoutCheck(run.expected, given.nimout):
     # Report general message mismatch error
     r.addResult(run, run.expected.nimout, given.nimout, reMsgsDiffer)
 
@@ -809,7 +827,7 @@ proc codegenCheck(
     target: TTarget,
     spec: TSpec,
     expectedMsg: var string,
-    given: var TSpec
+    given: var CompilerOutput
   ) =
   ## Check for any codegen mismatches in file generated from `test` run.
   ## Only file that was immediately generated is tested.
@@ -835,7 +853,7 @@ proc codegenCheck(
     given.err = reCodeNotFound
     msg Undefined: getCurrentExceptionMsg()
 
-proc compilerOutputTests(run: var TestRun, given: var TSpec; r: var TResults) =
+proc compilerOutputTests(run: TestRun, given: var CompilerOutput; r: var TResults) =
   ## Test output of the compiler for correctness
   var expectedmsg: string = ""
   var givenmsg: string = ""
@@ -847,10 +865,11 @@ proc compilerOutputTests(run: var TestRun, given: var TSpec; r: var TResults) =
       codegenCheck(run.test, run.target, run.expected, expectedmsg, given)
       givenmsg = given.msg
 
+    # XXX: try to merge this with ``cmpMsgs`` -- there is considerable overlap
     if run.expected.nimoutSexp:
       # If test requires structural comparison - run it and then check
       # output results for any failures.
-      outCompare = run.test.sexpCheck(run.expected, given)
+      outCompare = run.test.sexpCheck(run.expected, given.nimout)
       if not outCompare.match:
         given.err = reMsgsDiffer
       if outCompare.failed:
@@ -860,7 +879,7 @@ proc compilerOutputTests(run: var TestRun, given: var TSpec; r: var TResults) =
         outCompare = nil # drop this noise
     else:
       # Use unstructured data comparison for the expected and given outputs
-      if not nimoutCheck(run.expected, given):
+      if not nimoutCheck(run.expected, given.nimout):
         given.err = reMsgsDiffer
 
         # Just like unstructured comparison - assign expected/given pair.
@@ -878,22 +897,21 @@ proc compilerOutputTests(run: var TestRun, given: var TSpec; r: var TResults) =
   # Write out results of the compiler output testing
   r.addResult(
     run, expectedmsg, givenmsg, given.err,
-    givenSpec = addr given,
+    output = addr given,
     # Supply results of the optional structured comparison.
     outCompare = outCompare
   )
 
-proc checkDisabled(r: var TResults, test: TTest): bool =
+proc skip(r: var TResults, test: TTest, reason: TResultEnum) =
+  ## Records with the backend that the given test is skipped.
+  r.addResult(test, reason)
+  inc(r.skipped)
+  inc(r.total)
+
+proc checkDisabled(err: TResultEnum): bool =
   ## Check if test has been enabled (not `disabled: true`, and not joined).
   ## Return true if test can be executed.
-  if test.spec.err in {reDisabled, reKnownIssue, reJoined}:
-    # targetC is a lie, but parameter is required
-    r.addResult(test)
-    inc(r.skipped)
-    inc(r.total)
-    result = false
-  else:
-    result = true
+  err in {reDisabled, reKnownIssue, reJoined}
 
 var count = 0
 
@@ -933,7 +951,7 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
     if given.err != reSuccess:
       r.addResult(
         run, "", "$ " & given.cmd & '\n' & given.nimout,
-        given.err, givenSpec = given.addr)
+        given.err, output = given.addr)
     else:
       let
         isJsTarget = run.target == targetJS
@@ -1040,15 +1058,43 @@ func defaultTargets(category: Category): set[TTarget] =
   else:
     standardTargets
 
-proc testSpec(r: var TResults, test: TTest) =
-  var expected = test.spec
-  if expected.parseErrors.len > 0:
-    r.addResult(test)
+proc computeEarly(spec: TSpec, inCurrentBatch: bool): TResultEnum =
+  ## Computes the early result for a test based on its `spec` and
+  ## the current configuration.
+  let cmpString =
+    when defined(windows):  spec.file.replace(r"\", r"/")
+    else:                   spec.file
+
+  if retryContainer.retry and not retryContainer.names.anyIt(cmpString == it[0]):
+    # we're retrying failed test and the test is not in the retry-set
+    reDisabled
+  elif spec.parseErrors.len > 0:
+    reInvalidSpec
+  elif targetOS in spec.disabledOs or targetCPU in spec.disabledCpu:
+    reDisabled
+  elif spec.disable32bit and sizeof(int) == 4:
+    reDisabled
+  elif skips.anyIt(it in spec.file):
+    reDisabled # manually skipped
+  elif not inCurrentBatch:
+    reDisabled
+  elif spec.knownIssues.len > 0:
+    reKnownIssue
+  else:
+    reSuccess
+
+proc testSpec(r: var TResults, test: TTest, early: TResultEnum) =
+  if early == reInvalidSpec:
+    # if the specification is invalid, we cannot go on
+    r.addResult(test, early)
     inc(r.total)
     return
 
-  if not checkDisabled(r, test):
+  if checkDisabled(early):
+    r.skip(test, early)
     return
+
+  var expected = test.spec
 
   if expected.targets == {}:
     expected.targets = test.cat.defaultTargets()
@@ -1073,9 +1119,17 @@ proc testSpec(r: var TResults, test: TTest) =
       run.matrixEntry = noMatrixEntry
       targetHelper(r, run)
 
+proc testSpec(r: var TResults, test: TTest) =
+  let res = computeEarly(test.spec, test.inCurrentBatch)
+  testSpec r, test, res
+
 proc testSpecWithNimcache(
     r: var TResults, test: TTest; nimcache: string) {.used.} =
-  if not checkDisabled(r, test): return
+  let res = computeEarly(test.spec, test.inCurrentBatch)
+  if checkDisabled(res):
+    r.skip(test, res)
+    return
+
   for target in (test.spec.targets * gTargets):
     inc(r.total)
     var testRun = TestRun(
@@ -1095,6 +1149,8 @@ proc initTest(test, options: string; cat: Category, spec: TSpec): TTest =
   result.options = options
   result.spec = spec
   result.startTime = epochTime()
+  result.inCurrentBatch = isCurrentBatch(testamentData0, result.spec.file) or
+                          result.spec.unbatchable
 
 proc makeTest(test, options: string, cat: Category): TTest =
   ## make a test from inferring the test's filename from `test` and parsing the
