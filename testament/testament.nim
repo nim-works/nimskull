@@ -81,10 +81,11 @@ type
     nimcache: string
     startTime: float
     debugInfo: string
+    cmd: string       ## the shell command for invoking the compiler for
+                      ## the test
 
   CompilerOutput = object
     ## Describes the output of a compiler invocation.
-    cmd: string    ## the command that was run
     nimout: string ## compiler output
     output: string ## test output
 
@@ -369,17 +370,11 @@ func makeResult(expected, given: sink string, code: TResultEnum;
     compare: compare,
     success: code)
 
-proc callNimCompiler(cmdTemplate, filename, options, nimcache: string,
-                     target: TTarget, extraOptions = ""): CompilerOutput =
-  ## Execute nim compiler with given `filename`, `options` and `nimcache`.
-  ## Compile to target specified in the `target` and return compilation
-  ## results as a new `TSpec` value. Resulting spec contains `.nimout` set
-  ## from the compiler run results as well as known inline messages (output
-  ## is immedately scanned for results).
-  result.cmd = prepareTestCmd(cmdTemplate, filename, options, nimcache, target,
-                          extraOptions)
-  verboseCmd(result.cmd)
-  var p = startProcess(command = result.cmd,
+proc callNimCompiler(cmd: string): CompilerOutput =
+  ## Executes the |NimSkull| compiler via the shell command `cmd` and returns
+  ## the invocation's pre-processed output.
+  verboseCmd(cmd)
+  var p = startProcess(command = cmd,
                        options = {poStdErrToStdOut, poUsePath, poEvalCommand})
   let outp = p.outputStream
   var foundSuccessMsg = false
@@ -910,7 +905,7 @@ proc compilerOutputTests(run: TestRun, given: CompilerOutput): TestResult =
       result = makeResult("", "", reSuccess)
 
   else:
-    result = makeResult("", "$ " & given.cmd & '\n' & given.nimout,
+    result = makeResult("", "$ " & run.cmd & '\n' & given.nimout,
                         reNimcCrash)
 
 proc skip(r: var TResults, test: TTest, reason: TResultEnum) =
@@ -940,14 +935,11 @@ func extraOptions(run: TestRun): string =
 proc testSpecHelper(r: var TResults, run: var TestRun) =
   run.startTime = epochTime()
   run.test.startTime = run.startTime # xxx: set the same for legacy reasons
-
-  template callNimCompilerImpl(): untyped =
-    # xxx this used to also pass: `--stdout --hint:Path:off`, but was done
-    # inconsistently with other branches
-    callNimCompiler(
-      run.expected.getCmd, run.test.name, run.test.options, run.nimcache, run.target, run.extraOptions)
+  run.cmd = prepareTestCmd(run.expected.getCmd, run.test.name,
+                           run.test.options, run.nimcache, run.target,
+                           run.extraOptions)
   
-  let given = callNimCompilerImpl()
+  let given = callNimCompiler(run.cmd)
   var res: TestResult # must be initialized on all paths
 
   case run.expected.action
