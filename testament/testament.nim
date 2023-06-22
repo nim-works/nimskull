@@ -94,7 +94,7 @@ type
     line, column: int
 
     debugInfo: seq[string] ## debug info to give more context
-    err: TResultEnum       ## the reason the test failed (or succeeded)
+    success: bool          ## whether compilation was succesful
 
   TestResult = object
     ## Represents the result of a single test run.
@@ -406,14 +406,14 @@ proc callNimCompiler(cmdTemplate, filename, options, nimcache: string,
   result.line = 0
   result.column = 0
 
-  result.err = reNimcCrash
+  result.success = false
   let exitCode = p.peekExitCode
   case exitCode
   of 0:
     if foundErrorMsg:
       result.debugInfo.add " compiler exit code was 0 but some Error's were found."
     else:
-      result.err = reSuccess
+      result.success = true
   of 1:
     if not foundErrorMsg:
       result.debugInfo.add " compiler exit code was 1 but no Error's were found."
@@ -874,7 +874,7 @@ proc codegenCheck(
 
 proc compilerOutputTests(run: TestRun, given: CompilerOutput): TestResult =
   ## Test output of the compiler for correctness
-  if given.err == reSuccess:
+  if given.success:
     # Check size??? of the generated C code. If fails then add error
     # message.
     if run.needsCodegenCheck:
@@ -910,7 +910,8 @@ proc compilerOutputTests(run: TestRun, given: CompilerOutput): TestResult =
       result = makeResult("", "", reSuccess)
 
   else:
-    result = makeResult("", "$ " & given.cmd & '\n' & given.nimout, given.err)
+    result = makeResult("", "$ " & given.cmd & '\n' & given.nimout,
+                        reNimcCrash)
 
 proc skip(r: var TResults, test: TTest, reason: TResultEnum) =
   ## Records with the backend that the given test is skipped.
