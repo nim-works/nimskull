@@ -309,7 +309,7 @@ proc processSingleTest(r: var TResults, cat: Category, options, test: string) =
   doAssert fileExists(test), test & " test does not exist"
   testSpec r, makeTest(test, options, cat)
 
-proc isJoinableSpec(spec: TSpec, targets: set[TTarget]): bool =
+proc isJoinableSpec(spec: TSpec, targets: set[TTarget], early: TResultEnum): bool =
   # xxx simplify implementation using an allow list of fields that are allowed
   # to be set to non-default values (use `fieldPairs`), to avoid issues like
   # bug #16576.
@@ -319,7 +319,7 @@ proc isJoinableSpec(spec: TSpec, targets: set[TTarget]): bool =
     not fileExists(spec.file.changeFileExt("nim.cfg")) and
     not fileExists(parentDir(spec.file) / "nim.cfg") and
     spec.cmd.len == 0 and
-    spec.err notin {reDisabled, reKnownIssue} and
+    early notin {reDisabled, reKnownIssue} and
     not spec.unjoinable and
     spec.exitCode == 0 and
     spec.input.len == 0 and
@@ -354,7 +354,7 @@ proc runJoinedTest(r: var TResults, targets: set[TTarget], testsDir, options: st
         if isTestFile(file):
           try:
             let spec = parseSpec(file, cat.Category.defaultTargets, nativeTarget())
-            if isJoinableSpec(spec, targets):
+            if isJoinableSpec(spec, targets, computeEarly(spec, true)):
               specs.add spec
           except ValueError:
             msg Undefined:
@@ -552,14 +552,15 @@ proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
       if isTestFile(file): files.add file
     files.sort # give reproducible order
     for i, name in files:
-      var test = makeTest(name, options, cat)
+      let test = makeTest(name, options, cat)
+      var res = computeEarly(test.spec, test.inCurrentBatch)
       if runJoinableTests or
-          not isJoinableSpec(test.spec, targets) or
+          not isJoinableSpec(test.spec, targets, res) or
           cat.string in specialCategories:
         discard "run the test"
       else:
-        test.spec.err = reJoined
-      testSpec r, test
+        res = reJoined
+      testSpec r, test, res
       inc testsRun
     if testsRun == 0:
       const allowedDirs = ["deps", "htmldocs", "pkgs"]
