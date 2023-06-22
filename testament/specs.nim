@@ -323,7 +323,7 @@ proc initSpec*(filename: string): TSpec =
   result.file = filename
 
 proc isCurrentBatch*(testamentData: TestamentData; filename: string): bool =
-  # TODO: move elsewhere
+  # TODO: not related to spec parsing; move to ``testament.nim``
   if testamentData.testamentNumBatch != 0:
     hash(filename) mod testamentData.testamentNumBatch == testamentData.testamentBatch
   else:
