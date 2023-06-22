@@ -965,9 +965,8 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
     res = cmpMsgs(run, given)
 
   of actionRun:
-    if given.err != reSuccess:
-      res = makeResult("", "$ " & given.cmd & '\n' & given.nimout, given.err)
-    else:
+    res = compilerOutputTests(run, given)
+    if res.success == reSuccess:
       let
         isJsTarget = run.target == targetJS
         ext =
@@ -1041,7 +1040,7 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
           ):
             res = makeResult(run.expected.output, bufB, reOutputsDiffer)
           else:
-            res = compilerOutputTests(run, given)
+            res = makeResult("", "", reSuccess)
 
   if res.success == reSuccess:
     inc r.passed
