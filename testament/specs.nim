@@ -15,24 +15,13 @@ import
     streams,
     parsecfg,
     tables,
-    hashes,
     sets
   ],
   system/platforms
 
-type TestamentData* = ref object
-  # better to group globals under 1 object; could group the other ones here too
-  batchArg*: string
-  testamentNumBatch*: int
-  testamentBatch*: int
-
 # global mutable state for funsies
 var
   compilerPrefix* = findExe("nim")
-  skips*: seq[string]
-
-let testamentData0* = TestamentData()
-# TODO: ^^ move to ``testament.nim``
 
 type
   TTestAction* = enum
@@ -133,17 +122,6 @@ type
     inlineErrors*: seq[InlineError] ## line information to error message
     knownIssues*: seq[string] ## known issues to be fixed
     labels*: seq[string] ## user-added metadata
-
-  RetryContainer* = object
-    ## Global object which contains information related to the --retry flag.
-    ## See `var retryContainer`.
-    retry*: bool  # true when --retry flag has been passed
-    cats*: seq[string] # contains categories with failed tests
-    names*: seq[(string, string)] # contains pair of failed test name and its target
-
-# Exported global RetryContainer object.
-var retryContainer* = RetryContainer(retry: false)
-# TODO: ^^ move to ``testament.nim``
 
 proc getCmd*(s: TSpec): string =
   ## Get runner command for a given test specification
@@ -321,13 +299,6 @@ proc addLine*(self: var string; a, b: string) =
 
 proc initSpec*(filename: string): TSpec =
   result.file = filename
-
-proc isCurrentBatch*(testamentData: TestamentData; filename: string): bool =
-  # TODO: not related to spec parsing; move to ``testament.nim``
-  if testamentData.testamentNumBatch != 0:
-    hash(filename) mod testamentData.testamentNumBatch == testamentData.testamentBatch
-  else:
-    true
 
 proc parseSpec*(filename: string,
                 catTargets: set[TTarget],

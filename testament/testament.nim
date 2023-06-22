@@ -12,7 +12,7 @@
 import std/[
   strutils, pegs, os, osproc, streams, json, parseopt, browsers,
   terminal, algorithm, times, md5, intsets, macros, tables,
-  options, sequtils
+  options, sequtils, hashes
 ]
 import system/platforms
 import backend, htmlgen, specs
@@ -142,6 +142,22 @@ type
     parseSuccess       ## successfully parsed cli params
     parseQuitWithUsage ## parsing failed, quit with usage message
 
+  RetryContainer = object
+    ## Global object which contains information related to the --retry flag.
+    ## See the `retryContainer` global.
+    retry: bool
+      ## true when --retry flag has been passed
+    cats: seq[string]
+      ## contains categories with failed tests
+    names: seq[(string, string)]
+      ## contains pair of failed test name and its target
+
+  TestamentData = ref object
+    ## Groups various globals into a single object.
+    batchArg: string
+    testamentNumBatch: int
+    testamentBatch: int
+
 const noMatrixEntry = -1
 
 # ----------------------------------------------------------------------------
@@ -155,6 +171,13 @@ var
   optVerbose = false
   useMegatest = true
   optFailing = false
+  retryContainer = RetryContainer(retry: false)
+    ## global `RetryContainer` object
+  skips: seq[string]
+    ## names of test files that are to be disabled
+
+let
+  testamentData0 = TestamentData()
 
 # ----------------------------------------------------------------------------
 
@@ -1139,6 +1162,12 @@ proc testSpecWithNimcache(
       nimcache: nimcache
     )
     testSpecHelper(r, testRun)
+
+proc isCurrentBatch(data: TestamentData; filename: string): bool =
+  if data.testamentNumBatch != 0:
+    hash(filename) mod data.testamentNumBatch == data.testamentBatch
+  else:
+    true
 
 proc initTest(test, options: string; cat: Category, spec: TSpec): TTest =
   ## make a test with the given spec, meant to be used internally as a
