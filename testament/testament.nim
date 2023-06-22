@@ -577,22 +577,15 @@ proc addResult(
     r: var TResults,
     run: TestRun,
     expected, given: sink string,
-    successOrig: TResultEnum,
+    success: TResultEnum,
     output: ptr CompilerOutput = nil,
     outCompare: TOutCompare = nil
   ) =
   ## Report final test run to backend, end user (write to command-line) and etc
   let
-    duration = epochTime() - run.startTime
-    timeout = run.expected.timeout
-    success =
-      if timeout > 0.0 and duration > timeout:
-        reTimeout
-      else:
-        successOrig
     targetStr = $run.target
     param = ReportParams(
-      duration: duration,
+      duration: epochTime() - run.startTime,
       name: run.getName(),
       origName: run.test.name,
       cat: run.test.cat.string,
@@ -1041,6 +1034,16 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
             res = makeResult(run.expected.output, bufB, reOutputsDiffer)
           else:
             res = makeResult("", "", reSuccess)
+
+  block: # reject if the test took longer than expected
+    # XXX: testing the time-taken here means that we're also measuring the
+    #      time testament took for its various output checks
+    let
+      duration = epochTime() - run.startTime
+      timeout = run.expected.timeout
+
+    if timeout > 0.0 and duration > timeout:
+      res.success = reTimeout
 
   if res.success == reSuccess:
     inc r.passed
