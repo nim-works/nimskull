@@ -844,6 +844,8 @@ proc codegenCheck(
   ): TestResult =
   ## Check for any codegen mismatches in file generated from `test` run.
   ## Only file that was immediately generated is tested.
+
+  # XXX: only reports last failure, an iterator or early exit might be better?
   result.success = reSuccess
   try:
     let genFile = generatedFile(test, target)
