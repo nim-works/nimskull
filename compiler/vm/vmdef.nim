@@ -983,12 +983,6 @@ proc registerCallback*(c: var TCtx; name: string; callback: VmCallback): int {.d
   # XXX: for backwards compatibility, `name` is still a `string`
   c.callbackKeys.add(IdentPattern(name))
 
-template registerCallback*(c: PCtx; name: string; callback: VmCallback): int {.deprecated.} =
-  ## A transition helper. Use the `registerCallback` proc that takes
-  ## `var TCtx` instead
-  registerCallback(c[], name, callback)
-
-
 const pseudoAtomKinds* = {akObject, akArray}
 const realAtomKinds* = {low(AtomKind)..high(AtomKind)} - pseudoAtomKinds
 
