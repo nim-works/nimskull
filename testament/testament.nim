@@ -81,10 +81,11 @@ type
     nimcache: string
     startTime: float
     debugInfo: string
+    cmd: string       ## the shell command for invoking the compiler for
+                      ## the test
 
   CompilerOutput = object
     ## Describes the output of a compiler invocation.
-    cmd: string    ## the command that was run
     nimout: string ## compiler output
     output: string ## test output
 
@@ -94,7 +95,14 @@ type
     line, column: int
 
     debugInfo: seq[string] ## debug info to give more context
-    err: TResultEnum       ## the reason the test failed (or succeeded)
+    success: bool          ## whether compilation was succesful
+
+  TestResult = object
+    ## Represents the result of a single test run.
+    expected, given: string
+    compare: TOutCompare ## result from the structural output comparision,
+                         ## or nil
+    success: TResultEnum ## the success or failure code
 
   Execution = object
     ## state object to data relevant for a testament run
@@ -353,17 +361,20 @@ proc prepareTestCmd(cmdTemplate, filename, options, nimcache: string,
                       "options", options, "file", filename.quoteShell,
                       "filedir", filename.getFileDir(), "nim", compilerPrefix]
 
-proc callNimCompiler(cmdTemplate, filename, options, nimcache: string,
-                     target: TTarget, extraOptions = ""): CompilerOutput =
-  ## Execute nim compiler with given `filename`, `options` and `nimcache`.
-  ## Compile to target specified in the `target` and return compilation
-  ## results as a new `TSpec` value. Resulting spec contains `.nimout` set
-  ## from the compiler run results as well as known inline messages (output
-  ## is immedately scanned for results).
-  result.cmd = prepareTestCmd(cmdTemplate, filename, options, nimcache, target,
-                          extraOptions)
-  verboseCmd(result.cmd)
-  var p = startProcess(command = result.cmd,
+func makeResult(expected, given: sink string, code: TResultEnum;
+                compare: TOutCompare = nil): TestResult {.inline.} =
+  ## Convenience routine for constructing a ``TestResult``.
+  TestResult(
+    expected: expected,
+    given: given,
+    compare: compare,
+    success: code)
+
+proc callNimCompiler(cmd: string): CompilerOutput =
+  ## Executes the |NimSkull| compiler via the shell command `cmd` and returns
+  ## the invocation's pre-processed output.
+  verboseCmd(cmd)
+  var p = startProcess(command = cmd,
                        options = {poStdErrToStdOut, poUsePath, poEvalCommand})
   let outp = p.outputStream
   var foundSuccessMsg = false
@@ -390,14 +401,14 @@ proc callNimCompiler(cmdTemplate, filename, options, nimcache: string,
   result.line = 0
   result.column = 0
 
-  result.err = reNimcCrash
+  result.success = false
   let exitCode = p.peekExitCode
   case exitCode
   of 0:
     if foundErrorMsg:
       result.debugInfo.add " compiler exit code was 0 but some Error's were found."
     else:
-      result.err = reSuccess
+      result.success = true
   of 1:
     if not foundErrorMsg:
       result.debugInfo.add " compiler exit code was 1 but no Error's were found."
@@ -560,23 +571,16 @@ proc addResult(r: var TResults, param: ReportParams, given: ptr CompilerOutput) 
 proc addResult(
     r: var TResults,
     run: TestRun,
-    expected, given: string,
-    successOrig: TResultEnum,
+    expected, given: sink string,
+    success: TResultEnum,
     output: ptr CompilerOutput = nil,
     outCompare: TOutCompare = nil
   ) =
   ## Report final test run to backend, end user (write to command-line) and etc
   let
-    duration = epochTime() - run.startTime
-    timeout = run.expected.timeout
-    success =
-      if timeout > 0.0 and duration > timeout:
-        reTimeout
-      else:
-        successOrig
     targetStr = $run.target
     param = ReportParams(
-      duration: duration,
+      duration: epochTime() - run.startTime,
       name: run.getName(),
       origName: run.test.name,
       cat: run.test.cat.string,
@@ -625,7 +629,7 @@ proc addResult(r: var TResults, test: TTest, reason: TResultEnum) =
   addResult(r, param, nil)
 
 
-proc checkForInlineErrors(r: var TResults, run: TestRun, given: CompilerOutput) =
+proc checkForInlineErrors(run: TestRun, given: CompilerOutput): TestResult =
   ## Check for inline error annotations in the nimout results, comparing
   ## them with the output of the compiler.
 
@@ -671,11 +675,10 @@ proc checkForInlineErrors(r: var TResults, run: TestRun, given: CompilerOutput) 
         e.add ": "
         e.add exp.msg
 
-        r.addResult(run, e, given.nimout, reMsgsDiffer)
+        result = makeResult(e, given.nimout, reMsgsDiffer)
         break coverCheck
 
-    r.addResult(run, "", given.msg, reSuccess)
-    inc(r.passed)
+    result = makeResult("", given.msg, reSuccess)
 
 proc nimoutCheck(expected: TSpec, nimout: string): bool =
   ## Check if expected nimout values match with specified ones. This check
@@ -751,10 +754,9 @@ proc sexpCheck(test: TTest, expected: TSpec, nimout: string): TOutCompare =
 
   return r
 
-proc cmpMsgs(r: var TResults, run: TestRun, given: CompilerOutput) =
+proc cmpMsgs(run: TestRun, given: CompilerOutput): TestResult =
   ## Compare all test output messages. This proc does structured or
-  ## unstructured comparison comparison and immediately reports it's
-  ## results.
+  ## unstructured comparison comparison and returns the result.
   ##
   ## It is used to for performing 'reject' action checks - it compares
   ## both inline and regular messages - in addition to `nimoutCheck`
@@ -765,20 +767,12 @@ proc cmpMsgs(r: var TResults, run: TestRun, given: CompilerOutput) =
     let outCompare = run.test.sexpCheck(run.expected, given.nimout)
     # Full match of the output results.
     if outCompare.match:
-      r.addResult(run, run.expected.msg, given.msg, reSuccess)
-      inc(r.passed)
+      makeResult(run.expected.msg, given.msg, reSuccess)
     elif outCompare.failed:
       # little janky, but that's just sexp reporting
-      r.addResult(run, run.expected.nimout, given.nimout.strip, reMsgsDiffer,
-        output = unsafeAddr given)
+      makeResult(run.expected.nimout, given.nimout.strip, reMsgsDiffer)
     else:
-      # Write out error message.
-      r.addResult(
-        run, run.expected.msg, given.msg,
-        reMsgsDiffer,
-        output = unsafeAddr given,
-        outCompare = outCompare
-      )
+      makeResult(run.expected.msg, given.msg, reMsgsDiffer, outCompare)
   # Checking for inline errors.
   elif run.expected.inlineErrors.len > 0:
     # QUESTION - `checkForInlineErrors` does not perform any comparisons
@@ -797,22 +791,22 @@ proc cmpMsgs(r: var TResults, run: TestRun, given: CompilerOutput) =
     # who wrote this solved the same problem using "I don't care" approach.
     #
     # https://github.com/nim-lang/Nim/commit/9a110047cbe2826b1d4afe63e3a1f5a08422b73f#diff-a161d4667e86146f2f8003f08f765b8d9580ae92ec5fb6679c80c07a5310a551R362-R364
-    checkForInlineErrors(r, run, given)
+    checkForInlineErrors(run, given)
 
   # Check for `.errormsg` in expected and given spec first
   elif strip(run.expected.msg) notin strip(given.msg):
-    r.addResult(run, run.expected.msg, given.msg, reMsgsDiffer)
+    makeResult(run.expected.msg, given.msg, reMsgsDiffer)
 
   # Compare expected and resulted spec messages
   elif not nimoutCheck(run.expected, given.nimout):
     # Report general message mismatch error
-    r.addResult(run, run.expected.nimout, given.nimout, reMsgsDiffer)
+    makeResult(run.expected.nimout, given.nimout, reMsgsDiffer)
 
   # Check for filename mismatches
   elif extractFilename(run.expected.file) != extractFilename(given.file) and
       "internal error:" notin run.expected.msg:
     # Report error for the the error file mismatch
-    r.addResult(run, run.expected.file, given.file, reFilesDiffer)
+    makeResult(run.expected.file, given.file, reFilesDiffer)
 
   # Check for produced and given error message locations
   elif run.expected.line != given.line and
@@ -820,13 +814,12 @@ proc cmpMsgs(r: var TResults, run: TestRun, given: CompilerOutput) =
        run.expected.column != given.column and
        run.expected.column != 0:
     # Report error for the location mismatch
-    r.addResult(run, $run.expected.line & ':' & $run.expected.column,
-                $given.line & ':' & $given.column, reLinesDiffer)
+    makeResult($run.expected.line & ':' & $run.expected.column,
+               $given.line & ':' & $given.column, reLinesDiffer)
 
-  # None of the unstructured checks found mismatches, reporting test passed
+  # None of the unstructured checks found mismatches, report a success
   else:
-    r.addResult(run, run.expected.msg, given.msg, reSuccess)
-    inc(r.passed)
+    makeResult(run.expected.msg, given.msg, reSuccess)
 
 proc generatedFile(test: TTest, target: TTarget): string =
   ## Get path to the generated file name from the test.
@@ -847,12 +840,13 @@ proc needsCodegenCheck(run: TestRun): bool =
 proc codegenCheck(
     test: TTest,
     target: TTarget,
-    spec: TSpec,
-    expectedMsg: var string,
-    given: var CompilerOutput
-  ) =
+    spec: TSpec
+  ): TestResult =
   ## Check for any codegen mismatches in file generated from `test` run.
   ## Only file that was immediately generated is tested.
+
+  # XXX: only reports last failure, an iterator or early exit might be better?
+  result.success = reSuccess
   try:
     let genFile = generatedFile(test, target)
     let contents = readFile(genFile)
@@ -860,69 +854,61 @@ proc codegenCheck(
       if check.len > 0 and check[0] == '\\':
         # little hack to get 'match' support:
         if not contents.match(check.peg):
-          given.err = reCodegenFailure
+          result.success = reCodegenFailure
       elif contents.find(check.peg) < 0:
-        given.err = reCodegenFailure
-      expectedMsg = check
+        result.success = reCodegenFailure
+      result.expected = check
     if spec.maxCodeSize > 0 and contents.len > spec.maxCodeSize:
-      given.err = reCodegenFailure
-      given.msg = "generated code size: " & $contents.len
-      expectedMsg = "max allowed size: " & $spec.maxCodeSize
+      result = makeResult("max allowed size: " & $spec.maxCodeSize,
+                          "generated code size: " & $contents.len,
+                          reCodegenFailure)
   except ValueError:
-    given.err = reInvalidPeg
+    result.success = reInvalidPeg
     msg Undefined: getCurrentExceptionMsg()
   except IOError:
-    given.err = reCodeNotFound
+    result.success = reCodeNotFound
     msg Undefined: getCurrentExceptionMsg()
 
-proc compilerOutputTests(run: TestRun, given: var CompilerOutput; r: var TResults) =
+proc compilerOutputTests(run: TestRun, given: CompilerOutput): TestResult =
   ## Test output of the compiler for correctness
-  var expectedmsg: string = ""
-  var givenmsg: string = ""
-  var outCompare: TOutCompare
-  if given.err == reSuccess:
+  if given.success:
     # Check size??? of the generated C code. If fails then add error
     # message.
     if run.needsCodegenCheck:
-      codegenCheck(run.test, run.target, run.expected, expectedmsg, given)
-      givenmsg = given.msg
+      result = codegenCheck(run.test, run.target, run.expected)
+      if result.success != reSuccess:
+        # no need to perform the output tests
+        return
 
     # XXX: try to merge this with ``cmpMsgs`` -- there is considerable overlap
     if run.expected.nimoutSexp:
       # If test requires structural comparison - run it and then check
       # output results for any failures.
-      outCompare = run.test.sexpCheck(run.expected, given.nimout)
-      if not outCompare.match:
-        given.err = reMsgsDiffer
-      if outCompare.failed:
-        given.err = reMsgsDiffer
-        expectedmsg = run.expected.nimout
-        givenmsg = given.nimout.strip
-        outCompare = nil # drop this noise
-    else:
-      # Use unstructured data comparison for the expected and given outputs
-      if not nimoutCheck(run.expected, given.nimout):
-        given.err = reMsgsDiffer
+      let outCompare = run.test.sexpCheck(run.expected, given.nimout)
+      if outCompare.match:
+        result = makeResult("", "", reSuccess)
+      elif outCompare.failed:
+        # there was an error while comparing; don't report the comparison
+        # result (`outCompare`)
+        result = makeResult(run.expected.nimout, given.nimout.strip,
+                            reMsgsDiffer)
+      else:
+        # structural comparison detected as mismatch
+        result = makeResult("", "", reMsgsDiffer, outCompare)
 
+    elif not nimoutCheck(run.expected, given.nimout):
         # Just like unstructured comparison - assign expected/given pair.
         # In that case deep structural comparison is not necessary so we
         # are just pasing strings around, they will be diffed only on
         # reporting.
-        expectedmsg = run.expected.nimout
-        givenmsg = given.nimout.strip
-  else:
-    givenmsg = "$ " & given.cmd & '\n' & given.nimout
-  
-  if given.err == reSuccess:
-    inc(r.passed)
+        result = makeResult(run.expected.nimout, given.nimout.strip,
+                            reMsgsDiffer)
+    else:
+      result = makeResult("", "", reSuccess)
 
-  # Write out results of the compiler output testing
-  r.addResult(
-    run, expectedmsg, givenmsg, given.err,
-    output = addr given,
-    # Supply results of the optional structured comparison.
-    outCompare = outCompare
-  )
+  else:
+    result = makeResult("", "$ " & run.cmd & '\n' & given.nimout,
+                        reNimcCrash)
 
 proc skip(r: var TResults, test: TTest, reason: TResultEnum) =
   ## Records with the backend that the given test is skipped.
@@ -951,30 +937,24 @@ func extraOptions(run: TestRun): string =
 proc testSpecHelper(r: var TResults, run: var TestRun) =
   run.startTime = epochTime()
   run.test.startTime = run.startTime # xxx: set the same for legacy reasons
-
-  template callNimCompilerImpl(): untyped =
-    # xxx this used to also pass: `--stdout --hint:Path:off`, but was done
-    # inconsistently with other branches
-    callNimCompiler(
-      run.expected.getCmd, run.test.name, run.test.options, run.nimcache, run.target, run.extraOptions)
+  run.cmd = prepareTestCmd(run.expected.getCmd, run.test.name,
+                           run.test.options, run.nimcache, run.target,
+                           run.extraOptions)
   
+  let given = callNimCompiler(run.cmd)
+  var res: TestResult # must be initialized on all paths
+
   case run.expected.action
   of actionCompile:
-    var given = callNimCompilerImpl()
-    compilerOutputTests(run, given, r)
+    res = compilerOutputTests(run, given)
 
   of actionReject:
-    let given = callNimCompilerImpl()
     # Scan compiler output fully for all mismatches and report if any found
-    cmpMsgs(r, run, given)
+    res = cmpMsgs(run, given)
 
   of actionRun:
-    var given = callNimCompilerImpl()
-    if given.err != reSuccess:
-      r.addResult(
-        run, "", "$ " & given.cmd & '\n' & given.nimout,
-        given.err, output = given.addr)
-    else:
+    res = compilerOutputTests(run, given)
+    if res.success == reSuccess:
       let
         isJsTarget = run.target == targetJS
         ext =
@@ -986,14 +966,14 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
       var exeFile = changeFileExt(run.test.name, ext)
       
       if not fileExists(exeFile):
-        r.addResult(run, run.expected.output,
-                    "executable not found: " & exeFile, reExeNotFound)
+        res = makeResult(run.expected.output,
+                         "executable not found: " & exeFile, reExeNotFound)
       else:
         let nodejs = if isJsTarget: findNodeJs() else: ""
       
         if isJsTarget and nodejs == "":
-          r.addResult(run, run.expected.output, "nodejs binary not in PATH",
-                      reExeNotFound)
+          res = makeResult(run.expected.output, "nodejs binary not in PATH",
+                           reExeNotFound)
         else:
           var exeCmd: string
           var args = run.test.testArgs
@@ -1035,10 +1015,10 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
               buf
           
           if exitCode != run.expected.exitCode:
-            r.addResult(run,
-                        "exitcode: " & $run.expected.exitCode,
-                        "exitcode: " & $exitCode & "\n\nOutput:\n" & bufB,
-                        reExitcodesDiffer)
+            res = makeResult(
+              "exitcode: " & $run.expected.exitCode,
+              "exitcode: " & $exitCode & "\n\nOutput:\n" & bufB,
+              reExitcodesDiffer)
           elif (
             run.expected.outputCheck == ocEqual and
             not run.expected.output.equalModuloLastNewline(bufB)
@@ -1046,10 +1026,26 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
             run.expected.outputCheck == ocSubstr and
             run.expected.output notin bufB
           ):
-            given.err = reOutputsDiffer
-            r.addResult(run, run.expected.output, bufB, reOutputsDiffer)
+            res = makeResult(run.expected.output, bufB, reOutputsDiffer)
           else:
-            compilerOutputTests(run, given, r)
+            res = makeResult("", "", reSuccess)
+
+  block: # reject if the test took longer than expected
+    # XXX: testing the time-taken here means that we're also measuring the
+    #      time testament took for its various output checks
+    let
+      duration = epochTime() - run.startTime
+      timeout = run.expected.timeout
+
+    if timeout > 0.0 and duration > timeout:
+      res.success = reTimeout
+
+  if res.success == reSuccess:
+    inc r.passed
+
+  # output the test result to the backend:
+  r.addResult(run, res.expected, res.given, res.success,
+              addr given, res.compare)
 
 proc targetHelper(r: var TResults, run: var TestRun) =
   inc(r.total)

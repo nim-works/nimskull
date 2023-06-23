@@ -411,7 +411,7 @@ proc parseSpec*(filename: string,
           result.disabledOs.incl OsPlatform.linux
         of "bsd":
           result.disabledOs.incl {netbsd, freebsd, openbsd}
-        of "osx", "macosx": # xxx remove `macosx` alias?
+        of "osx":
           result.disabledOs.incl OsPlatform.macosx
         of "unix", "posix":
           result.disabledOs.incl {linux, netbsd, freebsd, openbsd, macosx}
