@@ -390,6 +390,54 @@ func getDefNameSymOrRecover*(n: PNode): PSym {.inline.} =
   else:
     unreachable("no other cases supported, got: " & $n.kind)
 
+proc newSymG*(kind: TSymKind, n: PNode, c: PContext): PSym =
+  ## like `newSymS`, but considers gensym'ed symbols, analyses `n` producing a
+  ## canonical symbol, where the `ast` field is either an `nkSym` on success,
+  ## otherwise an `nkError`.
+  let
+    info = n.info
+    currOwner = getCurrOwner(c)
+  case n.kind
+  of nkSym:
+    if n.sym.kind in {kind, skTemp}:
+      result = n.sym
+      result.ast = n
+    else:
+      result = copySym(n.sym, nextSymId c.idgen)
+      result.transitionRoutineSymKind(kind)
+      # xxx: bit hacky with the AST to get the right error message, remove once
+      #      `newSymGNode` is fully replaced
+      result.ast =
+        c.config.newError(n):
+          PAstDiag(
+            kind: adSemDefNameSym,
+            defNameSym: result,
+            defNameSymData: AdSemDefNameSym(
+                              kind: adSemDefNameSymExpectedKindMismatch,
+                              expectedKind: kind))
+    result.owner = currOwner # xxx: modifying the sym owner is suss
+  of nkIdent, nkAccQuoted:
+    let (ident, err) = considerQuotedIdent(c, n)
+    result = newSym(kind, ident, nextSymId c.idgen, currOwner, info)
+    result.ast =
+      if err.isNil: newSymNode(s)
+      else:         err
+  of nkError:
+    result = newSym(kind, c.cache.getNotFoundIdent(), nextSymId c.idegen,
+                    currOwner, info)
+    result.ast = n
+  of nkAllNodeKinds - nkIdentKinds + nkSymChoices - nkError:
+    result = newSym(kind, c.cache.getNotFoundIdent(), nextSymId c.idegen,
+                    currOwner, info)
+    result.ast = c.config.newError(n, PAstDiag(kind: adSemDefNameSymIllformedAst))
+      c.config.newError(n):
+          PAstDiag(
+            kind: adSemDefNameSym,
+            defNameSym: result,
+            defNameSymData: AdSemDefNameSym(kind: adSemDefNameSymIllformedAst))
+  when defined(nimsuggest):
+    suggestDecl(c, n, result)
+
 proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
   ## like newSymS, but considers gensym'ed symbols, analyses `n` producing a
   ## canonical symbol node (`nkSym`), or if unsuccessful an `nkError` with an

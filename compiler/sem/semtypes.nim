@@ -596,7 +596,7 @@ proc semDefnIdentVis(c: PContext, kind: TSymKind, n: PNode,
       let
         identNode = newSymGNode(kind, n[1], c)
         (op, err) = considerQuotedIdent(c, n[0])
-        star = err != nil and op.id == ord(wStar)
+        star = err == nil and op.id == ord(wStar)
         validExport = star and sfExported in allowed
         anyErrors = identNode.kind == nkError or err != nil or not validExport
 
@@ -679,6 +679,58 @@ proc semDefnIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
   else:
     result = semDefnIdentVis(c, kind, n, allowed)
 
+proc semIdentVis2(c: PContext, kind: TSymKind, n: PNode,
+                  allowed: TSymFlags): PSym =
+  case n.kind
+  of nkPostfix:
+    if n.len == 2:
+      # for gensym'ed identifiers the identifier may already have been
+      # transformed to a symbol and we need to use that here:
+      let
+        sym = newSymG(kind, n[1], c)
+        symNode = sym.ast
+        (star, err) = considerQuotedIdent(c, n[0])
+      if sfExported in allowed and star.id == order:
+        sym.flags.incl sfExported
+      else:
+        let diag =
+          if sfExported notin allowed: adSemIdentVisInvalidMarker
+          else:                        adSemIdentVisRequiresTopLevel
+        sym.ast = shallowCopy n
+        sym.ast[0] = c.config.newError(n[0], PAstDiag(kind: diag))
+        sym.ast[1] = symNode
+      result = sym
+    else:
+      result = newSym(kind, c.cache.getNotFoundIdent(), nextSymId c.idgen,
+                        getCurrOwner(c), n.info)
+      # xxx: eventually shouldn't need the recovery sym field
+      result.ast = c.config.newError(n, PAstDiag(kind: adSemIdentVisMalformed,
+                                             recoverySym: result))
+  else:
+    result = newSymG(kind, n, c)
+
+
+proc semIdentWithPragma2(c: PContext, kind: TSymKind, n: PNode,
+                        allowed: TSymFlags): PSym =
+  addInNimDebugUtils(c.config, "semIdentWithPragma2", n, result)
+  case n.kind
+  of nkPragmaExpr:
+    checkSonsLen(n, 2, c.config)
+    result = semIdentVis2(c, kind, n[0], allowed)
+    let symNode = sym.ast
+    sym.ast = shallowCopy n
+    sym.ast[0] = symNode
+    case kind
+    of skType:
+      # process pragmas later, because result.typ has not been set yet
+      discard
+    of skField: sym.ast[1] = pragmaDecl(c, result, n[1], fieldPragmas)
+    of skVar:   sym.ast[1] = pragmaDecl(c, result, n[1], varPragmas)
+    of skLet:   sym.ast[1] = pragmaDecl(c, result, n[1], letPragmas)
+    of skConst: sym.ast[1] = pragmaDecl(c, result, n[1], constPragmas)
+    else: discard
+  else:
+    result = semIdentVis2(c, kind, n, allowed)
 
 proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
                  allowed: TSymFlags): PSym =

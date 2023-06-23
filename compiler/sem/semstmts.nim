@@ -362,17 +362,18 @@ proc semIdentDef(c: PContext, n: PNode, kind: TSymKind): PSym =
   let info = getIdentLineInfo(n)
   suggestSym(c.graph, info, result, c.graph.usageSym)
 
-proc semIdentDefNode(c: PContext, n: PNode, kind: TSymKind): (PNode, PSym) =
+proc semIdentDefNode(c: PContext, n: PNode, kind: TSymKind): PNode =
   ## semantically analyse a identdef node, which might contain an export marker
-  ## and/or pragmas, returning the analysed tree and resulting symbol.
-  addInNimDebugUtils(c.config, "semIdentDefNode", n, result[0])
+  ## and/or pragmas, returning the analysed tree. A symbol can be retrieved, or
+  ## recovered if needed, via `getDefnIdentWithPragmaSymOrRecover`.
+  addInNimDebugUtils(c.config, "semIdentDefNode", n, result)
 
   let flags = if isTopLevel(c): {sfExported} else: {}
-  result[0] = semDefnIdentWithPragma(c, kind, n, flags)
-  result[1] = getDefnIdentWithPragmaSymOrRecover(result[0])
-  if isTopLevel(c) or result[1].owner.kind == skModule:
-    result[1].flags.incl sfGlobal
-  result[1].options = c.config.options
+  result = semDefnIdentWithPragma(c, kind, n, flags)
+  let sym = getDefnIdentWithPragmaSymOrRecover(result)
+  if isTopLevel(c) or sym.owner.kind == skModule:
+    sym.flags.incl sfGlobal
+  sym.options = c.config.options
 
 proc checkNilableOrError(c: PContext; def: PNode): PNode =
   ## checks if a symbol node is nilable, on success returns def, else nkError
@@ -627,6 +628,153 @@ proc semConstLetOrVarAnnotation(c: PContext, n: PNode): PNode =
     else:
       newTreeI(nkStmtList, n.info, result)
 
+proc blarg(c: PContext, n: PNode, symkind: TSymKind): PNode =
+  assert n != nil
+
+  if n.kind == nkError:
+    return n # TODO: really???
+
+  # here we traverse the input, if it's fresh (i.e. from the parser), then
+  # we're trying to get the pragmaExpr, export postfix, and the actual name's
+  # respective `PNode`. effectively, it's a flat view, without actually
+  # changing the shape. if those positions don't exist we use empty nodes as
+  # markers, and in the face of errors we have to associate the error with the
+  # appropriate position we're trying to extract.
+  var next = n
+    ## `next` is used to walk whatever input we receive, each input processing
+    ## step (per ident in the `let` section below) uses it to "iterate" along
+    ## the input/signal the next ident. This ended up being easier to write and
+    ## follow than templates.
+  let
+    pragmaExprRaw =
+      case n.kind
+      of nkPragmaExpr:
+        checkSonsLen(n, 2, c.config)
+        next = n[0]
+        n
+      of nkError:
+        c.graph.emptyNode # let `name/exportMarkerRaw` handle this (below)
+      else:
+        c.graph.emptyNode
+    exportMarkerRaw =
+      case next.kind
+      of nkPostfix:
+        if next.len == 2:
+          let res = next
+          next = next[1]
+          res
+        else:             # malformed AST
+          let res = next
+          next = nil
+          c.config.newError(res, PAstDiag(kind: adSemIdentVisMalformed))
+      of nkError:
+        if next.diag.kind == adSemIdentVisMalformed: # if prior malformed AST
+          let res = next
+          next = nil
+          res
+        else:
+          c.graph.emptyNode # let `nameRaw` handle this (below)
+      else:
+        c.graph.emptyNode
+    nameRaw =
+      if next.isNil: # only possible via `exportMarkerRaw` processing
+        c.graph.emptyNode
+      else:
+        case next.kind
+        of nkSym, nkIdent, nkAccQuoted:
+          next
+        of nkError:
+          next
+        else:
+          c.config.newError(next, PAstDiag(kind: adSemDefNameSymIllformedAst))
+
+  # at this point all the `__Raw` let variables will be set to their value, an
+  # empty as a sentinel, or error if there is a significant input AST issue
+
+  # see if we can get a symbol and check for `*` export markers
+  let
+    star =
+      case exportMarkerRaw.kind
+      of nkEmpty: exportMarkerRaw # denoting no export
+      of nkPostfix:
+        let starRaw = exportMarkerRaw[0]
+        if starRaw.kind == nkIdent and starRaw.id == ord(wStar):
+          starRaw
+        else:
+          c.config.newError(starRaw,
+                            PAstDiag(kind: adSemIdentVisInvalidMarker))
+      of nkError: nil  # AST too broken to tell
+      else: unreachable()
+    (sym, symNode) =  ## a `nil` `sym` means irrecoverable
+      case nameRaw.kind
+      of nkEmpty:
+        assert exportMarkerRaw.kind == nkError and
+              exportMarkerRaw.diag.kind == adSemIdentVisMalformed
+        # irrecoverable
+        (nil, nameRaw)
+      of nkSym:
+        if nameRaw.kind in {symkind, skTemp}:
+          nameRaw.sym.owner = getCurrOwner(c) # xxx: modifying sym owner, ugh
+          (nameRaw.sym, nameRaw)
+        else:
+          let
+            sym = copySym(n.sym, nextSymId c.idgen)
+            err = c.config.newError(nameRaw, adSemDefNameSymExpectedKindMismatch)
+          sym.transitionRoutineSymKind(kind)
+          sym.owner = currOwner
+          (sym, err) # recoverable??
+      of nkIdent, nkAccQuoted:
+        let
+          (ident, err) = considerQuotedIdent(c, n)
+          sym = newSym(kind, ident, nextSymId c.idgen, currOwner, info)
+        # recoverable
+        (sym, if err.isNil: newSymNode(sym) else: err)
+      of nkError:
+        # irrecoverable
+        (nil, nameRaw)
+      of: nkAllNodeKinds - nkIdentKinds + nkSymChoices - {nkError}:
+        unreachable()
+
+  let exportMarkerChecked =
+    case exportMarkerRaw.kind
+    of nkError: exportMarkerRaw
+    of nkEmpty: exportMarkerRaw
+    of nkPostfix:
+      if star.kind == nkError or symNode != nameRaw:
+        let res = shallowCopy exporMarkerRaw
+        res[0] = star
+        res[1] = symNode
+        res
+      else:
+        exportMarkerRaw
+    else: unreachable()
+
+  # check to see the export marker is well formed before we go on, this also
+  # guarantees that a non-empty `exportMarkerChecked` will always have the
+  # correct name node to make building up an error AST easier
+  let exportMarkerChecked =
+    if exportMarkerRaw.kind notin {nkError, nkEmpty}:
+      let
+        starRaw = exportMarkerRaw[0]
+        (op, err) = considerQuotedIdent(c, starRaw)
+        star = err == nil and op.id == ord(wStar)
+      if star and nameRaw == symNode and symNode.kind != nkError:
+        # keep the node as is if all children remain the same and error free
+        exportMarkerRaw
+      else:
+        # errors or revised nodes means we need a new production
+        let res = shallowCopy exportMarkerRaw
+        res[0] =
+          if star: starRaw
+          else: c.config.newError(starRaw,
+                                  PAstDiag(kind: adSemIdentVisInvalidMarker))
+        res[1] = symNode
+        if not star or symNode.kind == nkError:
+          c.config.wrapError(res)
+    else:
+      exportMarkerRaw
+
+
 proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
   ## Semantically analyse a let or var section that's been normalized to
   ## a single identdefs with only one ident or an tuple unpacking line.
@@ -818,7 +966,19 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
     #      rethinking and reworking all of this code.
 
     let
-      v = semIdentDef(c, r, symkind)
+      vNode =
+        block:
+          let vNodeTmp = semIdentDefNode(c, r, symkind)
+          if vNodeTmp.kind == nkError:
+            hasError = true
+            if vNodeTmp.diag.kind == adWrappedError:
+              # extra wrapping just gets in the way
+              vNodeTmp.diag.wrongNode
+            else:
+              vNodeTmp
+          else:
+            vNodeTmp
+      v = getDefnIdentWithPragmaSymOrRecover(vNode)
       vTyp =
         if typ.kind == tyError:
           # tyError means we just set the type on v later
@@ -3414,12 +3574,11 @@ proc inferConceptStaticParam(c: PContext, inferred, n: PNode) =
 
   typ.n = res
 
-proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNode =
+proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ## analyses `n`, a statement list or list expression, producing a statement
   ## list or expression with appropriate type and flattening all immediate
   ## children statment list or expressions where possible. on failure an
-  ## nkError is produced instead. `collapse` controls whether single child
-  ## statement lists should be unwrapped, yielding the child directly.
+  ## nkError is produced instead.
   addInNimDebugUtils(c.config, "semStmtList", n, result, flags)
 
   assert n != nil
@@ -3432,11 +3591,11 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNod
   result = copyNode(n)
   result.flags = n.flags # preserve flags as copyNode is selective
   result.transitionSonsKind(nkStmtList)
-
+  
   var
     voidContext = false
     hasError = false
-
+  
   let lastInputChildIndex = n.len - 1
 
   # by not allowing for nkCommentStmt etc. we ensure nkStmtListExpr actually
@@ -3451,10 +3610,10 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNod
     let 
       x = semExpr(c, n[i], flags)
       last = lastInputChildIndex == i
-
+    
     if c.matchedConcept != nil and x.typ != nil and
         (nfFromTemplate notin n.flags or not last):
-
+      
       if x.isError:
         result.add:
           newError(c.config, n[i], PAstDiag(kind: adSemConceptPredicateFailed))
@@ -3479,7 +3638,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNod
             x.lastSon
           else:
             x
-
+        
         if verdict == nil or verdict.kind != nkIntLit or verdict.intVal == 0:
           result.add:
             newError(c.config, n[i],
@@ -3505,7 +3664,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNod
           discardCheck(c, kid, flags)
         else:
           kid
-
+      
       if result[^1].isError:
         hasError = true
 
@@ -3524,7 +3683,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNod
           hasError = true
     else:
       addStmt(x)
-
+  
     if x.kind in nkLastBlockStmts or
        x.kind in nkCallKinds and x[0].kind == nkSym and
        sfNoReturn in x[0].sym.flags:
@@ -3537,7 +3696,12 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags, collapse: bool): PNod
                       SemReport(kind: rsemUnreachableCode))
 
   if result.kind != nkError and result.len == 1 and
-     collapse and result[0].kind != nkDefer:
+     # concept bodies should be preserved as a stmt list:
+     c.matchedConcept == nil and
+     # also, don't make life complicated for macros.
+     # they will always expect a proper stmtlist:
+     nfBlockArg notin n.flags and
+     result[0].kind != nkDefer:
     result = result[0]
 
   when defined(nimfix):
