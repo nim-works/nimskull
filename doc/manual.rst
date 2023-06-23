@@ -927,7 +927,7 @@ problem.)
   var fibPrev {.compileTime.}: int
   var fibPrevPrev {.compileTime.}: int
 
-  proc nextFib(): int =
+  proc nextFib(): int {.compileTime.} =
     result = if fibN < 2:
       fibN
     else:
