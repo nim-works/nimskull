@@ -373,7 +373,7 @@ type
     cnstSliceListStr
 
   ConstantId* = int ## The ID of a `VmConstant`. Currently just an index into
-                    ## `PCtx.constants`
+                    ## `TCtx.constants`
 
   VmConstant* = object
     ## `VmConstant`s are used for passing constant data from `vmgen` to the
@@ -735,7 +735,6 @@ type
 
   VmRawStackTrace* = seq[tuple[sym: PSym, pc: PrgCtr]]
 
-  PCtx* = ref TCtx
   TCtx* = object
     # XXX: TCtx stores three different things:
     #  - VM execution state

@@ -875,7 +875,7 @@ proc genType(c: var TCtx; typ: PType): int =
   internalAssert(c.config, result <= regBxMax, "")
 
 proc genTypeInfo(c: var TCtx, typ: PType): int =
-  ## Returns the stable index into `PCtx.rtti` where `typ`'s corresponding
+  ## Returns the stable index into `TCtx.rtti` where `typ`'s corresponding
   ## `VmTypeInfo` is located. If it doesn't exist yet, it is created first
   for i, t in c.rtti.pairs:
     if sameType(t.nimType, typ): return i

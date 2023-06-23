@@ -1,7 +1,7 @@
 ## This module implements the interface between the VM and the rest of the
 ## compiler. The VM is only interacted with through this interface. Do note
 ## that right now, the compiler still indirectly interacts with the VM through
-## the ``vmdef.PCtx`` object.
+## the ``vmdef.TCtx`` object.
 ##
 ## The interface includes:
 ## - the procedure that sets up a VM instance for use during compilation
