@@ -553,6 +553,7 @@ type
     rsemCannotAssignTo
     rsemNoReturnTypeDeclared
     rsemReturnNotAllowed
+    rsemIllegalCompileTimeAccess
     rsemCannotInferReturnType
     rsemExpectedValueForYield
     rsemUnexpectedYield

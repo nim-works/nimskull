@@ -182,8 +182,6 @@ proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
   proc register(structs: var ModuleStructs, s: PSym, isTopLevel: bool) {.nimcall.} =
     if sfCompileTime in s.flags:
       # don't register compile-time globals with the module struct
-      # XXX: how they work exactly is currently left to the code
-      #      generator, but this is going to change
       discard
     elif s.kind == skTemp:
       # HACK: semantic analysis sometimes produces temporaries (it does so for

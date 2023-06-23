@@ -6423,6 +6423,7 @@ This pragma can also take in an optional warning string to relay to developers.
 
 compileTime pragma
 ------------------
+
 The `compileTime` pragma is used to mark a proc or variable to be used only
 during compile-time execution. No code will be generated for it. Compile-time
 procs are useful as helpers for macros. Since version 0.12.0 of the language, a
@@ -6438,31 +6439,6 @@ Is the same as:
 .. code-block:: nim
   proc astHelper(n: NimNode): NimNode {.compileTime.} =
     result = n
-
-`compileTime` globals are available at runtime too. This simplifies certain
-idioms where variables are filled at compile-time (for example, lookup tables)
-but accessed at runtime:
-
-.. code-block:: nim
-    :test: "nim c -r $1"
-
-  import std/macros
-
-  var nameToProc {.compileTime.}: seq[(string, proc (): string {.nimcall.})]
-
-  macro registerProc(p: untyped): untyped =
-    result = newTree(nnkStmtList, p)
-
-    let procName = p[0]
-    let procNameAsStr = $p[0]
-    result.add quote do:
-      nameToProc.add((`procNameAsStr`, `procName`))
-
-  proc foo: string {.registerProc.} = "foo"
-  proc bar: string {.registerProc.} = "bar"
-  proc baz: string {.registerProc.} = "baz"
-
-  doAssert nameToProc[2][1]() == "baz"
 
 For locals defined inside compile-time-only routines, the `compileTime`
 pragma is ignored -- for all other locals, using the pragma is a semantic

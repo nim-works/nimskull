@@ -432,7 +432,7 @@ type
     sfThread          ## proc will run as a thread
                       ## variable is a thread variable
     sfCompileTime     ## proc can only be used in compile time contexts;
-                      ## global is accessible in compile time contexts
+                      ## global is only accessible in compile time contexts
     sfDispatcher      ## copied method symbol is the dispatcher
                       ## deprecated and unused, except for the con
     sfBorrow          ## proc is borrowed

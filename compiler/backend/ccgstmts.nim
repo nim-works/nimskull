@@ -163,9 +163,7 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
     return
   var targetProc = p
   if sfGlobal in v.flags:
-    #assert {sfPure, sfThread} * v.flags != {}, "normal globals don't reach here"
-    # XXX: thanks to ``.compileTime`` globals, the assertion cannot be used
-    #      yet
+    assert {sfPure, sfThread} * v.flags != {}, "normal globals don't reach here"
     if v.flags * {sfImportc, sfExportc} == {sfImportc} and
         value.kind == nkEmpty and
         v.loc.flags * {lfHeader, lfNoDecl} != {}:
