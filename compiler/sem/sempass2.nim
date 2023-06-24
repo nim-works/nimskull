@@ -398,6 +398,14 @@ proc useVarNoInitCheck(a: PEffects; n: PNode; s: PSym) =
      {sfGlobal, sfThread} * s.flags == {}:
     a.isInnerProc = true
 
+  if s.magic != mNimvm and # XXX: workaround for ``when nimvm`` reaching here
+     s.kind notin routineKinds and
+     sfCompileTime in s.flags and
+     not inCompileTimeOnlyContext(a.c):
+    # a .compileTime location is used outside of a compile-time-only
+    # context, which is disallowed
+    localReport(a.config, n.info, reportSym(rsemIllegalCompileTimeAccess, s))
+
 proc useVar(a: PEffects, n: PNode) =
   let s = n.sym
   if a.inExceptOrFinallyStmt > 0:
@@ -1115,6 +1123,17 @@ proc allowCStringConv(n: PNode): bool =
     result = isCharArrayPtr(n.typ, n[0].kind == nkSym and n[0].sym.magic == mAddr)
   else: result = isCharArrayPtr(n.typ, false)
 
+proc reportErrors(c: ConfigRef, n: PNode) =
+  ## Reports all errors found in the AST `n`.
+  case n.kind
+  of nkError:
+    localReport(c, n)
+  of nkWithSons:
+    for it in n.items:
+      reportErrors(c, it)
+  of nkWithoutSons - {nkError}:
+    discard "ignore"
+
 proc track(tracked: PEffects, n: PNode) =
   addInNimDebugUtils(tracked.config, "track")
   case n.kind
@@ -1172,6 +1191,12 @@ proc track(tracked: PEffects, n: PNode) =
   of nkVarSection, nkLetSection:
     for child in n:
       let last = lastSon(child)
+      if child.kind == nkIdentDefs and sfCompileTime in child[0].sym.flags:
+        # don't analyse the definition of ``.compileTime`` globals. They
+        # don't "exist" in the context (i.e., run time) we're analysing
+        # in
+        continue
+
       if last.kind != nkEmpty: track(tracked, last)
       if tracked.owner.kind != skMacro:
         if child.kind == nkVarTuple:
@@ -1382,6 +1407,11 @@ proc track(tracked: PEffects, n: PNode) =
       track(tracked, n[i])
 
     inc tracked.leftPartOfAsgn
+  of nkBindStmt, nkMixinStmt, nkImportStmt, nkImportExceptStmt, nkExportStmt,
+     nkExportExceptStmt, nkFromStmt:
+    # a declarative statement that is not relevant to the analysis. Report
+    # errors part of the AST, but otherwise ignore
+    reportErrors(tracked.config, n)
   of nkError:
     localReport(tracked.config, n)
   else:

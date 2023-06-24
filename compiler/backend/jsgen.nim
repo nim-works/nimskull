@@ -1312,8 +1312,6 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
   var s = n.sym
   case s.kind
   of skVar, skLet, skParam, skTemp, skResult, skForVar:
-    if sfCompileTime in s.flags:
-      genVarInit(p, s, if s.ast != nil: s.ast else: newNodeI(nkEmpty, s.info))
     p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
     let k = mapType(p, s.typ)
     if k == etyBaseIndex:

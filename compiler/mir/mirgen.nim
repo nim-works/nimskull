@@ -1303,11 +1303,11 @@ proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
   assert sym.kind in {skVar, skLet, skTemp, skForVar}
 
   if sfCompileTime in sym.flags and goIsNimvm notin c.options:
-    # XXX: ``.compileTime`` variables are currently lazily generated/emitted
-    #      (that is, only when they're actually used in alive code). This
-    #      approach has issues and needs to eventually be revisited, but for
-    #      now, we omit their definitions in non-compile-time contexts in order
-    #      to make the lazy-generation approach work
+    # compile-time-only locations don't exist outside of compile-time
+    # contexts, so omit their definitions
+    # FIXME: the check above is wrong. ``goIsNimvm`` is also set when using
+    #        the VM backend, but that's not a compile-time context. A
+    #        dedicated option is needed
     return
 
   # if there's an initial value and the destination is non-owning, we pass the

@@ -1470,6 +1470,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemReturnNotAllowed:
       result = "'return' not allowed here"
 
+    of rsemIllegalCompileTimeAccess:
+      result = "cannot access a .compileTime location outside of a " &
+               "compile-time-only context"
+
     of rsemCannotInferReturnType:
       result = "cannot infer the return type of '$1'" % r.symstr
 

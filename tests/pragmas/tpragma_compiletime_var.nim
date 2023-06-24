@@ -1,10 +1,7 @@
 discard """
   description: "Tests for the '.compileTime' pragma"
-  targets: "c !js vm"
+  targets: "c js vm"
 """
-
-# knownIssue: support for accessing a ``.compileTime`` variable at run-time is
-#             not properly implemented in the JS backend
 
 template test(global: int) {.dirty.} =
   block:
@@ -16,12 +13,6 @@ template test(global: int) {.dirty.} =
     const c = global
     static:
       doAssert c == 2
-
-  block:
-    # make sure that the global can be accessed in a run-time context
-    doAssert global == 1
-    global = 2
-    doAssert global == 2
 
 # top-level global
 var g {.compileTime.} = 1
