@@ -1314,9 +1314,7 @@ proc transformBody*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; cache: bool):
     prc.transformedBody = newNode(nkEmpty) # protects from recursion
     result = transformBody(g, idgen, prc, getBody(g, prc))
 
-    if cache or prc.typ.callConv == ccInline:
-      # genProc for inline procs will be called multiple times from different modules,
-      # it is important to transform exactly once to get sym ids and locations right
+    if cache:
       prc.transformedBody = result
     else:
       prc.transformedBody = nil
