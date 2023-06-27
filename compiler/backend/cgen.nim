@@ -1343,6 +1343,10 @@ proc genDatInitCode*(m: BModule): bool =
   # directive from a function written by the user spills after itself
   genCLineDir(prc, "generated_not_to_break_here", 999999, m.config)
 
+  if m.typeNodes > 0:
+    # emit a definition for the node storage, if used
+    appcg(m, m.s[cfsTypeInit1], "static #TNimNode $1[$2];$n",
+          [m.typeNodesName, m.typeNodes])
 
   for i in cfsTypeInit1..cfsDynLibInit:
     if m.s[i].len != 0:
@@ -1375,13 +1379,6 @@ proc genInitCode*(m: BModule): bool =
   # we don't want to break into such init code - could happen if a line
   # directive from a function written by the user spills after itself
   genCLineDir(prc, "generated_not_to_break_here", 999999, m.config)
-  if m.typeNodes > 0:
-    appcg(m, m.s[cfsTypeInit1], "static #TNimNode $1[$2];$n",
-          [m.typeNodesName, m.typeNodes])
-
-  if m.nimTypes > 0:
-    appcg(m, m.s[cfsTypeInit1], "static #TNimType $1[$2];$n",
-          [m.nimTypesName, m.nimTypes])
 
   template writeSection(thing: untyped, section: TCProcSection) =
     if m.thing.s(section).len > 0:
@@ -1509,7 +1506,6 @@ proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModul
   initNodeTable(result.dataCache)
   result.typeStack = @[]
   result.typeNodesName = getTempName(result)
-  result.nimTypesName = getTempName(result)
   # no line tracing for the init sections of the system module so that we
   # don't generate a TFrame which can confuse the stack bottom initialization:
   if sfSystemModule in module.flags:
