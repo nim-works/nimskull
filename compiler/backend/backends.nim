@@ -493,7 +493,15 @@ func discoverFrom*(data: var DiscoveryData, decl: PNode) =
         register(data, procedures, prc)
     of nkIteratorDef:
       discard "ignore; cannot be exported"
-    of nkConstSection, nkTypeSection:
+    of nkConstSection:
+      # scan the section for exported constants:
+      for it in n.items:
+        if it.kind == nkConstDef:
+          let s = it[0].sym
+          if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
+            register(data, constants, s)
+
+    of nkTypeSection:
       discard
     else:
       unreachable(n.kind)
