@@ -180,7 +180,6 @@ type
     headerFiles*: seq[string] ## needed headers to include
     typeInfoMarker*: TypeCache ## needed for generating type information
     typeInfoMarkerV2*: TypeCache
-    initProc*: BProc          ## code for init procedure
     typeStack*: TTypeSeq      ## used for type generation
     dataCache*: TNodeTable
     typeNodes*: int ## used for type info generation

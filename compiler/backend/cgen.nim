@@ -694,12 +694,16 @@ proc symInDynamicLib*(m: BModule, sym: PSym) =
   sym.typ.sym = nil           # generate a new name
   inc(m.labels, 2)
   if isCall:
+    let p = newProc(nil, m)
+    p.options = {}
+    p.flags.incl nimErrorFlagDisabled
+
     let n = lib.path
     var a: TLoc
-    initLocExpr(m.initProc, n[0], a)
+    initLocExpr(p, n[0], a)
     var params = rdLoc(a) & "("
     for i in 1..<n.len-1:
-      initLocExpr(m.initProc, n[i], a)
+      initLocExpr(p, n[i], a)
       params.add(rdLoc(a))
       params.add(", ")
     let load = "\t$1 = ($2) ($3$4));$n" %
@@ -709,11 +713,17 @@ proc symInDynamicLib*(m: BModule, sym: PSym) =
     internalAssert(m.config, last.kind == nkStrLit)
     let idx = last.strVal
     if idx.len == 0:
-      m.initProc.s(cpsStmts).add(load)
+      p.s(cpsStmts).add(load)
     elif idx.len == 1 and idx[0] in {'0'..'9'}:
       m.extensionLoaders[idx[0]].add(load)
     else:
       internalError(m.config, sym.info, "wrong index: " & idx)
+
+    # the call is emitted into the dynlib-init section:
+    m.s[cfsDynLibInit].addf("{$n", [])
+    m.s[cfsDynLibInit].add p.s(cpsLocals)
+    m.s[cfsDynLibInit].add p.s(cpsStmts)
+    m.s[cfsDynLibInit].addf("}$n", [])
   else:
     appcg(m, m.s[cfsDynLibInit],
         "\t$1 = ($2) #nimGetProcAddr($3, $4);$n",
@@ -1308,10 +1318,6 @@ proc genModule(m: BModule, cfile: Cfile): Rope =
   if moduleIsEmpty:
     result = ""
 
-proc initProcOptions(m: BModule): TOptions =
-  let opts = m.config.options
-  if sfSystemModule in m.module.flags: opts-{optStackTrace} else: opts
-
 proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModule =
   new(result)
   result.g = g
@@ -1326,8 +1332,6 @@ proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModul
   result.module = module
   result.typeInfoMarker = initTable[SigHash, Rope]()
   result.sigConflicts = initCountTable[SigHash]()
-  result.initProc = newProc(nil, result)
-  result.initProc.options = initProcOptions(result)
   initNodeTable(result.dataCache)
   result.typeStack = @[]
   result.typeNodesName = getTempName(result)
