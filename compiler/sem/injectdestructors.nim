@@ -200,8 +200,6 @@ import
 from compiler/ast/reports_sem import SemReport
 from compiler/ast/report_enums import ReportKind
 
-from compiler/sem/semdata import makeVarType
-
 type
   AnalyseCtx = object
     cfg: ControlFlowGraph
@@ -299,7 +297,7 @@ func paramType(p: PSym, i: Natural): PType =
 proc getVoidType(g: ModuleGraph): PType {.inline.} =
   g.getSysType(unknownLineInfo, tyVoid)
 
-proc getOp(g: ModuleGraph, t: PType, kind: TTypeAttachedOp): PSym =
+proc getOp*(g: ModuleGraph, t: PType, kind: TTypeAttachedOp): PSym =
   let t = t.skipTypes(skipForHooks)
   result = getAttachedOp(g, t, kind)
   if result == nil or result.ast.isGenericRoutine:
@@ -1286,20 +1284,6 @@ proc lowerBranchSwitch(buf: var MirNodeSeq, body: MirTree, graph: ModuleGraph,
   buf.add MirNode(kind: mnkFastAsgn)
 
   buf.add endNode(mnkRegion)
-
-proc genOp(idgen: IdGenerator, owner, op: PSym, dest: PNode): PNode =
-  let
-    typ = makeVarType(owner, dest.typ, idgen, tyVar)
-    addrExp = newTreeIT(nkHiddenAddr, dest.info, typ): dest
-
-  result = newTreeI(nkCall, dest.info, newSymNode(op), addrExp)
-
-proc genDestroy*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym, dest: PNode): PNode =
-  let
-    t = dest.typ.skipTypes(skipAliases)
-    op = getOp(graph, t, attachedDestructor)
-
-  result = genOp(idgen, owner, op, dest)
 
 proc deferGlobalDestructors(tree: MirTree, g: ModuleGraph, idgen: IdGenerator,
                             owner: PSym) =

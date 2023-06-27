@@ -36,7 +36,7 @@ import
     idioms
   ]
 
-from compiler/sem/injectdestructors import genDestroy
+from compiler/sem/injectdestructors import getOp
 
 type
   ModuleStructs* = object
@@ -277,6 +277,15 @@ proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
     process(it, structs)
 
 
+proc genDestroy(graph: ModuleGraph, dest: PNode): PNode =
+  ## Constructs and returns the AST representing a call to the
+  ## ``=destroy`` hook for `dest`.
+  let
+    op = getOp(graph, dest.typ, attachedDestructor)
+    addrExp = newTreeIT(nkHiddenAddr, dest.info, op.typ[1]): dest
+
+  result = newTreeI(nkCall, dest.info, newSymNode(op), addrExp)
+
 proc generateModuleDestructor(graph: ModuleGraph, m: Module): PNode =
   ## Generates the body for the destructor procedure of module `m` (also
   ## referred to as the 'de-init' procedure).
@@ -284,7 +293,7 @@ proc generateModuleDestructor(graph: ModuleGraph, m: Module): PNode =
   for i in countdown(m.structs.globals.high, 0):
     let s = m.structs.globals[i]
     if hasDestructor(s.typ):
-      result.add genDestroy(graph, m.idgen, m.sym, newSymNode(s))
+      result.add genDestroy(graph, newSymNode(s))
 
   # note: the generated body is not yet final -- we're still missing
   # destructor calls for lifted globals (i.e., those marked with ``.global``).
