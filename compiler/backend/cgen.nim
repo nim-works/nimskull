@@ -74,11 +74,7 @@ from compiler/ast/reports_sem import SemReport,
   reportTyp
 from compiler/ast/report_enums import ReportKind
 
-# XXX: the code-generator should not need to know about the existence of
-#      destructor injections (or destructors, for that matter)
-from compiler/sem/injectdestructors import deferGlobalDestructor
 from compiler/sem/passes import moduleHasChanged # XXX: leftover dependency
-
 import std/strutils except `%`, addf # collides with ropes.`%`
 
 import dynlib
@@ -934,38 +930,6 @@ proc genProcAux(m: BModule, prc: PSym) =
   assert(prc.ast != nil)
 
   var procBody = transformBody(m.g.graph, m.idgen, prc, cache = false)
-  block:
-    # process globals defined by the procedure's body
-    var globals: seq[PNode]
-    extractGlobals(procBody, globals, isNimVm = false)
-    # note: we're modifying the procedure's cached transformed body above,
-    # meaning that globals defiend inside ``inline`` procedures are also only
-    # extracted once
-
-    let m2 = if m.config.symbolFiles != disabledSf: m
-             else: findPendingModule(m, prc)
-
-    # first pass: register the destructors
-    for it in globals.items:
-      deferGlobalDestructor(m2.g.graph, m2.idgen, prc, it[0])
-
-    # second pass: generate the initialization code. This is done here already,
-    # as it might depend on other procedures. Deferring this to ``genInitCode``
-    # is not possible, because then it's too late to raise further dependencies.
-    # Also, generate the code in the pre-init procedure of the module where the
-    # procedure is *defined*, not where it's first *used* (this is only relevant
-    # for ``inline`` procedures, as they're generated multiple times)
-    for it in globals.items:
-      # since the identdefs are extracted from the transformed AST, the
-      # initializer expression isn't canonicalized yet
-      let value =
-        if it[2].kind != nkEmpty:
-          canonicalizeSingle(m2.g.graph, m2.idgen, prc, it[2], {})
-        else:
-          it[2]
-
-      genSingleVar(m2.preInitProc, it[0].sym, it[0], value)
-
   procBody = canonicalizeWithInject(m.g.graph, m.idgen, prc, procBody, {})
 
   if sfPure notin prc.flags and prc.typ[0] != nil:
