@@ -73,10 +73,22 @@ proc echoOutput*(config: ConfigRef, owner: PSym, body: PNode) =
     writeBody(config, "-- output AST: " & owner.name.s):
       config.writeln(treeRepr(config, body, reprConfig))
 
+proc restoreGlobal(s: PSym): PSym =
+  ## If the global `s` is a duplicate that was introduced in order to make
+  ## the code temporarily semantically correct, restores the original
+  ## symbol -- otherwise returns `s` as is.
+  ##
+  ## Refer to ``transf.freshVars`` for why this workaround exists.
+  if s.owner.kind in {skVar, skLet, skForVar}:
+    s.owner
+  else:
+    s
+
 proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
                        outermost: bool) =
   ## Removes definitions of non-pure globals from `body`, replacing them with
-  ## as assignment if necessary.
+  ## as assignment if necessary. The correct symbols for globals of which
+  ## copies were introduced during ``transf`` are also restored here.
   ##
   ## If `outermost` is true, only definitions in the outermost scope will be
   ## removed. This is a hack, but it's currently required for turning
@@ -93,7 +105,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
       let def = i + 1
       if body[def].kind == mnkGlobal and (not outermost or depth == 1):
         let
-          sym = body[def].sym
+          sym = restoreGlobal(body[def].sym)
           typ = sym.typ
         changes.seek(i)
         if hasInput(body, Operation i):
@@ -120,7 +132,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
           # it to the type's default value.
           changes.replaceMulti(buf):
             argBlock(buf):
-              buf.add MirNode(kind: mnkGlobal, sym: body[def].sym, typ: typ)
+              buf.add MirNode(kind: mnkGlobal, sym: sym, typ: typ)
               buf.add MirNode(kind: mnkTag, effect: ekReassign, typ: typ)
               buf.add MirNode(kind: mnkName, typ: typ)
               argBlock(buf): discard
@@ -132,6 +144,14 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
           changes.remove()
 
       inc i, 2 # skip the whole sub-tree ('def', name, and 'end' node)
+    of mnkGlobal:
+      # remove the temporary duplicates of nested globals again:
+      if not outermost and depth > 1:
+        let s = restoreGlobal(n.sym)
+        if s != n.sym:
+          changes.seek(i)
+          changes.replace: MirNode(kind: mnkGlobal, sym: s, typ: s.typ)
+
     of mnkScope:
       inc depth
     of mnkEnd:

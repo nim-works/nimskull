@@ -189,7 +189,20 @@ proc freshVar(c: PTransf; v: PSym): PNode =
     # don't introduce copies of symbols of globals. The processing
     # following after ``transf`` expects that the set of existing globals
     # stays unchanged
-    result = newSymNode(v)
+    if v.owner.kind == skModule:
+      # HACK: a nested global. Not introducing a new global would cause the
+      #       resulting AST to be semantically invalid (and the
+      #       ``injectdestructors`` pass to rightfully complain). As a
+      #       workaround, we introduce a copy here, associate it with the
+      #       correct global via the `owner` field, and then restore the
+      #       proper global during the MIR phase...
+      let newVar = copySym(v, nextSymId(c.idgen))
+      newVar.owner = v
+      result = newSymNode(newVar)
+    else:
+      # a lifted global; don't introduce a copy
+      result = newSymNode(v)
+
   elif owner.isIterator:
     result = freshVarForClosureIter(c.graph, v, c.idgen, owner)
   else:
@@ -1397,7 +1410,8 @@ proc extractGlobals*(body: PNode, output: var seq[PNode], isNimVm: bool) =
       let it = body[i]
       if it.kind == nkIdentDefs and
          it[0].kind == nkSym and
-         sfGlobal in it[0].sym.flags and it[0].sym.owner.kind != skModule:
+         sfGlobal in it[0].sym.flags and
+         it[0].sym.owner.kind in routineKinds:
         # found one; append it to the output:
         output.add(it)
         # there's no need to process the initializer expression of the global,
