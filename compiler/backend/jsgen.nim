@@ -1648,8 +1648,7 @@ proc defineGlobals*(globals: PGlobals, m: BModule, vars: openArray[PSym]) =
   let p = newInitProc(globals, m)
     ## required for emitting code
   for v in vars.items:
-    if lfNoDecl notin v.loc.flags and sfImportc notin v.flags and
-       sfPure notin v.flags: # XXX: temporary workaround
+    if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
       let name = mangleName(m, v) # mutates `v`
       lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
 

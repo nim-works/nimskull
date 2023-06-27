@@ -356,7 +356,7 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
 
   #result.pos = p
 
-func initEntityDict(tree: MirTree, owner: PSym): EntityDict =
+func initEntityDict(tree: MirTree): EntityDict =
   ## Collects the names of all analysable locations relevant to destructor
   ## injection and the move analyser. This includes: locals, temporaries, sink
   ## parameters and, with some restrictions, globals.
@@ -374,21 +374,11 @@ func initEntityDict(tree: MirTree, owner: PSym): EntityDict =
         of mnkParam:
           assert isSinkTypeForParam(entity.sym.typ)
           entity.sym.typ
-        of mnkLocal:
+        of mnkLocal, mnkGlobal:
           assert sfCursor notin entity.sym.flags
           entity.sym.typ
         of mnkTemp:
           entity.typ
-        of mnkGlobal:
-          if entity.sym.owner.kind != skModule:
-            # we're not responsible for ensuring destruction of globals
-            # defined inside procedures
-            # XXX: remove this special case once ``jsgen`` properly removes
-            #      their definitions from procedures
-            nil
-          else:
-            entity.sym.typ
-
         else:
           nil # not a location (e.g. a procedure)
 
@@ -1285,26 +1275,6 @@ proc lowerBranchSwitch(buf: var MirNodeSeq, body: MirTree, graph: ModuleGraph,
 
   buf.add endNode(mnkRegion)
 
-proc deferGlobalDestructors(tree: MirTree, g: ModuleGraph, idgen: IdGenerator,
-                            owner: PSym) =
-  ## Defers a destructor call for each global defined in `tree`.
-  ##
-  ## XXX: remove this procedure once the JavaScript backend properly extracts
-  ##      pure globals from routines
-  for i, n in tree.pairs:
-    case n.kind
-    of mnkDef:
-      let def = tree[i+1]
-      if def.kind == mnkGlobal and
-         sfThread notin def.sym.flags and
-         def.sym.owner.kind != skModule and
-         hasDestructor(def.sym.typ):
-        g.globalDestructors.add (def.sym.itemId.module,
-                                 genDestroy(g, idgen, owner, newSymNode(def.sym)))
-
-    else:
-      discard
-
 proc lowerNew(tree: MirTree, g: ModuleGraph, c: var Changeset) =
   ## Lower calls to the ``new(x)`` into a ``=destroy(x); new(x)``
   for i, n in tree.pairs:
@@ -1378,8 +1348,6 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
   ## For now, semantic errors and other diagnostics related to lifetime-hook
   ## usage are also reported here.
 
-  deferGlobalDestructors(tree, g, idgen, owner)
-
   template apply(c: Changeset) =
     ## Applies the changeset to both the
     let prepared = prepare(c, sourceMap)
@@ -1419,7 +1387,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
 
     let
       actx = AnalyseCtx(graph: g, cfg: computeCfg(tree))
-      entities = initEntityDict(tree, owner)
+      entities = initEntityDict(tree)
 
     var values = computeValuesAndEffects(tree)
     solveOwnership(tree, actx.cfg, values, entities)

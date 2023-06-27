@@ -100,18 +100,12 @@ proc rewriteGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
     case n.kind
     of DefNodes:
       let def = i + 1
-      if body[def].kind == mnkGlobal and
-        body[def].sym.owner.kind == skModule and
-        (not outermost or depth == 1):
+      if body[def].kind == mnkGlobal and (not outermost or depth == 1):
         let
           sym = body[def].sym
           typ = sym.typ
         changes.seek(i)
-        if sfPure in sym.flags:
-          # HACK: yet another hack for the JS backend not using
-          #       ``transf.extractGlobals``...
-          discard "do nothing"
-        elif hasInput(body, Operation i):
+        if hasInput(body, Operation i):
           # the global has a starting value
           changes.replaceMulti(buf):
             let tmp = changes.getTemp()
