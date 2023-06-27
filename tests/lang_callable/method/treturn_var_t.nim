@@ -1,10 +1,7 @@
 discard """
-  target: "!vm"
   output: '''Inh
 45'''
 """
-
-# disabled on VM until we support methods (knownIssue)
 
 type
   Base = ref object of RootObj

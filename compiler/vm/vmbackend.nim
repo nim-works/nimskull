@@ -22,7 +22,8 @@ import
     lineinfos
   ],
   compiler/backend/[
-    backends
+    backends,
+    cgmeth
   ],
   compiler/front/[
     msgs,
@@ -357,13 +358,11 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
     for s in m.structs.threadvars.items:
       declareGlobal(s)
 
+  generateMethodDispatchers(g)
+
   # generate code for all alive routines
   generateAliveProcs(c, mlist)
   reset(c.linkState.newProcs) # free the occupied memory already
-
-  # XXX: generation of method dispatchers would go here. Note that `method`
-  #      support will require adjustments to DCE handling
-  #generateMethods(c)
 
   # create procs from the global initializer code fragments
   for m in mlist.modules.mitems:

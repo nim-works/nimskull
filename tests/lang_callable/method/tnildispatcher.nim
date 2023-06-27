@@ -1,10 +1,8 @@
 discard """
-  target: "!vm !js"
+  target: "!js"
   outputsub: '''Error: unhandled exception: cannot dispatch; dispatcher is nil [NilAccessDefect]'''
   exitcode: 1
 """
-
-# disabled on VM until we support methods (knownIssue)
 
 # disabled on JS because sem/codegen lets it through and we get a runtime NPE
 

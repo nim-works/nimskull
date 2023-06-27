@@ -186,6 +186,11 @@ proc genRegLoad(c: var TCtx, n: PNode, dest, src: TRegister)
 template isUnset(x: TDest): bool = x < 0
 
 
+proc realType(s: PSym): PType {.inline.} =
+  ## Returns the signature type of the routine `s`
+  if s.kind == skMacro: s.internal
+  else:                 s.typ
+
 func underlyingLoc(n: PNode): PSym =
   ## Computes and returns the symbol of the complete location (i.e., a location
   ## not part of a compound location) that l-value expression `n` names. If no
@@ -942,7 +947,7 @@ proc writeBackResult(c: var TCtx, info: PNode) =
   ## If the result value fits into a register but is not stored in one
   ## (because it has its address taken, etc.), emits the code for storing it
   ## back into a register. `info` is only used to provide line information.
-  if resultPos < c.prc.sym.ast.len:
+  if not isEmptyType(c.prc.sym.realType[0]):
     let
       res = c.prc.sym.ast[resultPos]
       typ = res.typ
@@ -3011,7 +3016,9 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
       let s = n[0].sym
       if s.magic != mNone:
         genMagic(c, n, dest, s.magic)
-      elif s.kind == skMethod:
+      elif s.kind == skMethod and c.mode != emStandalone:
+        # XXX: detect and reject this earlier -- it's not a code
+        #      generation error
         fail(n.info, vmGenDiagCannotCallMethod, sym = s)
       else:
         genCall(c, n, dest)
@@ -3180,20 +3187,15 @@ proc genExpr*(c: var TCtx; n: PNode): Result[TRegister, VmGenDiag] =
 
   result = typeof(result).ok(TRegister(d))
 
-proc realType(s: PSym): PType {.inline.} =
-  ## Returns the signature type of the routine `s`
-  if s.kind == skMacro: s.internal
-  else:                 s.typ
 
 proc genParams(prc: PProc; s: PSym) =
   let
     params = s.realType.n
-    res = if resultPos < s.ast.len: s.ast[resultPos] else: nil
 
   setLen(prc.regInfo, max(params.len, 1))
 
-  if res != nil:
-    prc.locals[res.sym.id] = 0
+  if not isEmptyType(s.realType[0]):
+    prc.locals[s.ast[resultPos].sym.id] = 0
     prc.regInfo[0] = RegInfo(refCount: 1, kind: slotFixedVar)
 
   for i in 1..<params.len:

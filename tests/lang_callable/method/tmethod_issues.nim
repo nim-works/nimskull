@@ -1,12 +1,10 @@
 discard """
-  target: "!vm"
   output: '''
 wof!
 wof!
 '''
 """
 
-# disabled on VM until we support methods (knownIssue)
 
 
 # bug #1659

@@ -115,10 +115,6 @@ proc chckNil(p: pointer) =
   if p == nil:
     sysFatal(NilAccessDefect, "attempt to write to a nil address")
 
-proc chckNilDisp(p: pointer) {.compilerproc.} =
-  if p == nil:
-    sysFatal(NilAccessDefect, "cannot dispatch; dispatcher is nil")
-
 when defined(nimV2):
   proc raiseObjectCaseTransition() {.compilerproc.} =
     sysFatal(FieldDefect, "assignment to discriminant changes object branch")

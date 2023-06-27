@@ -2242,6 +2242,9 @@ when not defined(js):
   # Error: system module needs: nimGCvisit
   {.pop.} # stackTrace: off, profiler: off
 
+proc chckNilDisp(p: pointer) {.compilerproc.} =
+  if p.isNil:
+    sysFatal(NilAccessDefect, "cannot dispatch; dispatcher is nil")
 
 
 when notJSnotNims:
