@@ -50,6 +50,7 @@ Options:
   --backendLogging:on|off      Disable or enable backend logging. By default turned on.
   --megatest:on|off            Enable or disable megatest. Default is on.
   --skipFrom:file              Read tests to skip from `file` - one test per line, # comments ignored
+  --tryFailing                 Run tests marked as "known issue" and verify that they're still failing
 
 Experimental: using environment variable `NIM_TESTAMENT_REMOTE_NETWORKING=1` enables
 tests with remote networking (as in CI).
@@ -510,18 +511,20 @@ proc logToConsole(param: ReportParams, given: ptr CompilerOutput = nil) =
   case param.success
   of reSuccess:
     dispNonSkipped(fgGreen, "PASS: ")
-  of reDisabled, reKnownIssue:
+  of reDisabled:
     disp:
       if param.inCurrentBatch:
         "SKIP:"
       else:
         "NOTINBATCH:"
+  of reKnownIssue:
+    disp("KNOWNISSUE:")
   of reJoined:
     disp("JOINED:")
   of reInvalidSpec:
     dispFail(param)
     msg Undefined: param.given
-  of reBuildFailed, reNimcCrash, reInstallFailed:
+  of reBuildFailed, reNimcCrash, reInstallFailed, reUnexpectedSuccess:
     dispFail(param)
     onFailGivenSpecDebugInfo(given)
     # expected is empty, no reason to print it.
@@ -1040,8 +1043,21 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
     if timeout > 0.0 and duration > timeout:
       res.success = reTimeout
 
-  if res.success == reSuccess:
+  if run.expected.knownIssues.len > 0:
+    # the test has known issue(s) and is expected to fail
+    if res.success == reSuccess:
+      # it didn't fail
+      res = makeResult("", "", reUnexpectedSuccess)
+    else:
+      res = makeResult("", "", reKnownIssue)
+
+  case res.success
+  of reSuccess:
     inc r.passed
+  of reKnownIssue:
+    inc r.skipped # counts as a skipped test
+  else:
+    discard "failure; no counter to increment"
 
   # output the test result to the backend:
   r.addResult(run, res.expected, res.given, res.success,
@@ -1269,6 +1285,7 @@ proc parseOpts(execState: var Execution, p: var OptParser): ParseCliResult =
       else: return parseQuitWithUsage
     of "skipfrom": execState.skipsFile = p.val
     of "retry": execState.flags.incl rerunFailed
+    of "tryfailing": execState.flags.incl runKnownIssues
     else:
       return parseQuitWithUsage
     p.next()
@@ -1340,6 +1357,7 @@ proc main() =
     action = $execState.filter.kind
     options = execState.userTestOptions
     targetsStr = execState.targetsStr
+    runKnownIssues = runKnownIssues in execState.flags
 
   optPrintResults = outputResults in execState.flags
   useColors = outputColour in execState.flags
@@ -1411,7 +1429,8 @@ proc main() =
       skips = loadSkipFrom(skipFrom)
       for i, cati in cats:
         progressStatus(i)
-        processCategory(r, Category(cati), gTargets, options, testsDir, runJoinableTests = false)
+        processCategory(r, Category(cati), gTargets, options, testsDir,
+                        runJoinableTests = false, runKnownIssues)
     else:
       let processOpts =
         if optFailing and not optVerbose:
@@ -1428,7 +1447,8 @@ proc main() =
   of "c", "cat", "category": # Run all tests of a certain category
     skips = loadSkipFrom(skipFrom)
     var cat = Category(p.key)
-    processCategory(r, cat, gTargets, options, testsDir, runJoinableTests = true)
+    processCategory(r, cat, gTargets, options, testsDir,
+                    runJoinableTests = true, runKnownIssues)
   of "pcat": # Run cat in parallel
     # Run all tests of a certain category in parallel; does not include joinable
     # tests which are covered in the 'megatest' category.
@@ -1436,7 +1456,8 @@ proc main() =
     isMainProcess = false
     var cat = Category(p.key)
     p.next
-    processCategory(r, cat, gTargets, options, testsDir, runJoinableTests = false)
+    processCategory(r, cat, gTargets, options, testsDir,
+                    runJoinableTests = false, runKnownIssues)
   of "r", "run": # Run single test file
     let (cat, path) = splitTestFile(p.key)
     processSingleTest(r, cat.Category, options, path)

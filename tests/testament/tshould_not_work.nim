@@ -36,6 +36,8 @@ FAIL: tests/shouldfail/ttimeout.nim
 Failure: reTimeout
 FAIL: tests/shouldfail/tvalgrind.nim
 Failure: reExitcodesDiffer
+FAIL: tests/shouldfail/tworking_known_issue.nim
+Failure: reUnexpectedSuccess
 """
 
 import std/[os,strformat,osproc]
@@ -45,7 +47,7 @@ proc main =
   const nim = getCurrentCompilerExe()
   # TODO: bin/testament instead? like other tools (eg bin/nim, bin/nimsuggest etc)
   let testamentExe = "testament/testament"
-  let cmd = fmt"{testamentExe} --directory:testament --colors:off --backendLogging:off --nim:{nim} category shouldfail"
+  let cmd = fmt"{testamentExe} --directory:testament --colors:off --tryFailing --backendLogging:off --nim:{nim} category shouldfail"
   let (outp, status) = execCmdEx(cmd)
   doAssert status == 1, $status
 

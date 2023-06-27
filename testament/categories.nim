@@ -515,7 +515,7 @@ proc runJoinedTest(r: var TResults, targets: set[TTarget], testsDir, options: st
 
 proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
                      options, testsDir: string,
-                     runJoinableTests: bool) =
+                     runJoinableTests, runKnownIssues: bool) =
   let cat2 = cat.string.split("/")[0].normalize
   case cat2
   of "js":
@@ -554,7 +554,10 @@ proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
     for i, name in files:
       let test = makeTest(name, options, cat)
       var res = computeEarly(test.spec, test.inCurrentBatch)
-      if runJoinableTests or
+      if res == reKnownIssue and runKnownIssues:
+        # we want to still run the test
+        res = reSuccess
+      elif runJoinableTests or
           not isJoinableSpec(test.spec, targets, res) or
           cat.string in specialCategories:
         discard "run the test"
