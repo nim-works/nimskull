@@ -655,6 +655,8 @@ proc genFieldCheck(p: BProc, e: PNode, obj: Rope, field: PSym) =
       else:
         # use the compiler-generated enum-to-string procedure
         let prc = p.module.g.graph.getToStringProc(disc.typ)
+        p.module.extra.add prc # late dependency
+
         var tmp: TLoc
         expr(p, newSymNode(prc), tmp)
         toStr = "$1($2)" % [rdLoc(tmp), rdLoc(v)]
