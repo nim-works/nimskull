@@ -385,7 +385,7 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
 
   # now that we have the code that makes up the user-defined module
   # initialization, we wrap it into a procedure:
-  result.init = createModuleOp(graph, idgen, "Init", m, imperative, options)
+  result.init = createModuleOp(graph, idgen, "", m, imperative, options)
   result.init.flags = m.flags * {sfInjectDestructors} # inherit the flag
   # we also need to make sure that the owner of all entities defined inside
   # the body is adjusted:
