@@ -528,10 +528,6 @@ when not defined(nimNoZeroExtendMagic):
 proc nimMin(a, b: int): int {.compilerproc.} = return if a <= b: a else: b
 proc nimMax(a, b: int): int {.compilerproc.} = return if a >= b: a else: b
 
-proc chckNilDisp(p: pointer) {.compilerproc.} =
-  if p == nil:
-    sysFatal(NilAccessDefect, "cannot dispatch; dispatcher is nil")
-
 include "system/hti"
 
 proc isFatPointer(ti: PNimType): bool =

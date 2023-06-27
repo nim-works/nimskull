@@ -1,6 +1,5 @@
 discard """
   matrix: "--multimethods:off"
-  target: "!vm"
   output: '''base
 base
 base
@@ -9,8 +8,6 @@ base
 base
 '''
 """
-
-# disabled on VM until we support methods (knownIssue)
 
 # bug #10912
 

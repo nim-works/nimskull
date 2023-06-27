@@ -9,7 +9,9 @@ cool
 test'''
 """
 
-# disabled on VM until it supports methods (knownIssue)
+# knownIssue: fails for the VM target because ``astgen`` emits the
+#             incorrect conversion operator for ``ref`` types involving
+#             generics
 
 # bug #5241
 type

@@ -13,8 +13,8 @@ do nothing
 '''
 """
 
-# disabled on VM until we support methods (knownIssue)
-
+# knownIssue: the ``of`` operator only considers the static type when using
+#             the VM backend
 
 # tmultim2
 type
