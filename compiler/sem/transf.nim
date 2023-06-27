@@ -1320,6 +1320,19 @@ proc transformBody*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; cache: bool):
       prc.transformedBody = nil
     # XXX Rodfile support for transformedBody!
 
+proc transformBodyWithCache*(g: ModuleGraph, idgen: IdGenerator, prc: PSym): PNode =
+  ## Transforms the body of `prc` and returns, but doesn't cache, the resulting
+  ## AST. If the transformed body was already cached earlier,
+  assert prc.kind in routineKinds - {skTemplate, skMacro}
+  if prc.transformedBody != nil:
+    result = prc.transformedBody
+  elif nfTransf in getBody(g, prc).flags:
+    # the AST was already transformed:
+    result = getBody(g, prc)
+  else:
+    # no recursion is possible here, so no guard is needed
+    result = transformBody(g, idgen, prc, getBody(g, prc))
+
 proc transformStmt*(g: ModuleGraph; idgen: IdGenerator; module: PSym, n: PNode): PNode =
   if nfTransf in n.flags:
     result = n
