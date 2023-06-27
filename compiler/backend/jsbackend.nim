@@ -1,14 +1,12 @@
-## The code-generation orchestrator for the JavaScript backend. It generates
-## the JS code for the semantically analysed AST of the whole progam by
-## invoking ``jsgen``.
-##
-## The general direction is to move more logic out of the code generator (such
-## as figuring out the set of alive procedures) and into the orchestrator,
-## leaving only the core of code generation to ``jsgen``.
+## The code-generation orchestrator for the JavaScript backend. Takes the
+## semantically analysed AST of the whole program, generates the JavaScript
+## code for it (delegated to ``jsgen``), and assembles everything into a
+## single JavaScript file.
 
 import
   std/[
-    json
+    json,
+    tables
   ],
   compiler/ast/[
     ast,
@@ -16,7 +14,6 @@ import
   ],
   compiler/backend/[
     backends,
-    cgmeth,
     jsgen
   ],
   compiler/front/[
@@ -34,6 +31,64 @@ import
     ropes
   ]
 
+type
+  BModuleList = SeqMap[FileIndex, BModule]
+  PartialTable = Table[int, PProc]
+
+proc prepare(globals: PGlobals, modules: BModuleList, d: var DiscoveryData) =
+  ## Emits the definitions for all constants, globals, and threadvars
+  ## discovered while producing the current event.
+  for _, s in visit(d.constants):
+    genConstant(globals, modules[moduleId(s).FileIndex], s)
+
+  for _, s in visit(d.globals):
+    defineGlobal(globals, modules[moduleId(s).FileIndex], s)
+
+  for _, s in visit(d.threadvars):
+    defineGlobal(globals, modules[moduleId(s).FileIndex], s)
+
+proc processLate(globals: PGlobals, discovery: var DiscoveryData) =
+  # queue the late dependencies:
+  for it in globals.extra.items:
+    register(discovery, it)
+
+  # we processed/consumed all elements
+  globals.extra.setLen(0)
+
+proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
+                  discovery: var DiscoveryData, partial: var PartialTable,
+                  evt: sink BackendEvent) =
+  ## The orchestrator's event processor.
+  let bmod = modules[evt.module]
+  prepare(g, modules, discovery)
+
+  case evt.kind
+  of bekModule:
+    discard "nothing to do"
+  of bekPartial:
+    var p = partial.getOrDefault(evt.sym.id)
+    if p == nil:
+      p = startProc(g, bmod, evt.sym)
+      partial[evt.sym.id] = p
+
+    let body = generateAST(graph, bmod.idgen, evt.sym, evt.body)
+    genStmt(p, body)
+
+    processLate(g, discovery)
+  of bekProcedure:
+    let
+      body = generateAST(graph, bmod.idgen, evt.sym, evt.body)
+      r = genProc(g, bmod, evt.sym, body)
+
+    if sfCompilerProc in evt.sym.flags:
+      # compilerprocs go into the constants section ...
+      g.constants.add(r)
+    else:
+      # ... other procedures into the normal code section
+      g.code.add(r)
+
+    processLate(g, discovery)
+
 proc writeModules(graph: ModuleGraph, globals: PGlobals) =
   let
     config = graph.config
@@ -45,6 +100,7 @@ proc writeModules(graph: ModuleGraph, globals: PGlobals) =
     (code, map) = genSourceMap($(code), outFile.string)
     writeFile(outFile.string & ".map", $(%map))
 
+  # write the generated code to disk:
   discard writeRopeIfNotEqual(code, outFile)
 
 proc generateCodeForMain(globals: PGlobals, graph: ModuleGraph, m: BModule,
@@ -63,44 +119,29 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   let
     globals = newGlobals()
 
-  generateMethodDispatchers(graph)
+  var
+    modules: BModuleList
+    discovery: DiscoveryData
+    partial: PartialTable
 
-  var modules: SeqMap[FileIndex, BModule]
-
-  # setup the ``BModule`` instances and create definitions for all
-  # globals (order doesn't matter):
+  # setup the ``BModule`` instances:
   for m in closed(mlist):
     let bmod = newModule(graph, m.sym)
     bmod.idgen = m.idgen
-
-    defineGlobals(globals, bmod, m.structs.globals)
-    defineGlobals(globals, bmod, m.structs.nestedGlobals)
-    # no special handling for thread-local variables (yet)
-    defineGlobals(globals, bmod, m.structs.threadvars)
-
     modules[m.sym.position.FileIndex] = bmod
 
-  # generate the code for all modules:
-  for m in closed(mlist):
-    let
-      bmod = modules[m.sym.position.FileIndex]
+  for evt in process(graph, mlist, discovery, {}, BackendConfig()):
+    processEvent(globals, graph, modules, discovery, partial, evt)
 
-    # invoke ``jsgen`` for the top-level declarative code:
-    genTopLevelStmt(globals, bmod, m.decls)
+  # finish the partial procedures:
+  for p in partial.values:
+    globals.code.add finishProc(p)
 
-    if m.init.ast[bodyPos].kind != nkEmpty: # dead-code elimination
-      # HACK: we mark the procedure with the ``sfModuleInit`` flag in order to
-      #       signal to ``jsgen`` that a special stack-trace entry needs to
-      #       be created for the procedure
-      m.init.flags.incl sfModuleInit
-      genTopLevelProcedure(globals, bmod, m.init)
+  # wrap up:
+  let main = modules[graph.config.projectMainIdx2]
+  reset(modules) # we don't need the data anymore
 
-    if sfMainModule in m.sym.flags:
-      finishDeinit(graph, mlist)
-      generateCodeForMain(globals, graph, bmod, mlist)
-
-    # we don't need the ``BModule`` instance anymore:
-    modules[m.sym.position.FileIndex] = nil
+  generateCodeForMain(globals, graph, main, mlist)
 
   # write the generated code to disk:
   writeModules(graph, globals)

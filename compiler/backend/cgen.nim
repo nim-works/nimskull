@@ -94,7 +94,9 @@ when not declared(dynlib.libCandidates):
 when options.hasTinyCBackend:
   import backend/tccgen
 
-const NonMagics* = {mNone, mIsolate, mNewSeq, mSetLengthSeq, mAppendSeqElem}
+const NonMagics* = {mNewString, mNewStringOfCap, mNewSeq, mSetLengthSeq,
+                    mAppendSeqElem, mEnumToStr, mExit, mParseBiggestFloat,
+                    mDotDot, mEqCString, mIsolate}
   ## magics that are treated like normal procedures by the code generator.
   ## This set only applies when using the new runtime.
 
@@ -308,7 +310,7 @@ proc genLineDir(p: BProc, t: PNode) =
               [line, quotedFilename(p.config, t.info)])
 
 proc accessThreadLocalVar(p: BProc, s: PSym)
-proc emulatedThreadVars(conf: ConfigRef): bool {.inline.}
+proc emulatedThreadVars*(conf: ConfigRef): bool {.inline.}
 proc useProc(m: BModule, prc: PSym)
 proc raiseInstr(p: BProc): Rope
 
@@ -557,10 +559,13 @@ proc assignParam(p: BProc, s: PSym, retType: PType) =
   assert(s.loc.r != "")
   scopeMangledParam(p, s)
 
-proc fillProcLoc(m: BModule; n: PNode) =
+proc fillProcLoc(n: PNode, name: Rope) {.inline.} =
+  fillLoc(n.sym.loc, locProc, n, name, OnStack)
+
+proc fillProcLoc*(m: BModule; n: PNode) =
   let sym = n.sym
   if sym.loc.k == locNone:
-    fillLoc(sym.loc, locProc, n, mangleName(m, sym), OnStack)
+    fillProcLoc(n, mangleName(m, sym))
 
 proc getLabel(p: BProc): TLabel =
   inc(p.labels)
@@ -570,8 +575,8 @@ proc fixLabel(p: BProc, labl: TLabel) =
   lineF(p, cpsStmts, "$1: ;$n", [labl])
 
 proc genVarPrototype(m: BModule, n: PNode)
-proc genProcPrototype(m: BModule, sym: PSym)
-proc genStmts(p: BProc, t: PNode)
+proc genProcPrototype*(m: BModule, sym: PSym)
+proc genStmts*(p: BProc, t: PNode)
 proc expr(p: BProc, n: PNode, d: var TLoc)
 proc putLocIntoDest(p: BProc, d: var TLoc, s: TLoc)
 proc intLiteral(i: BiggestInt): Rope
@@ -679,7 +684,7 @@ proc mangleDynLibProc(sym: PSym): Rope =
   else:
     result = rope(strutils.`%`("Dl_$1_", $sym.id))
 
-proc symInDynamicLib(m: BModule, sym: PSym) =
+proc symInDynamicLib*(m: BModule, sym: PSym) =
   var lib = sym.annex
   let isCall = isGetProcAddr(lib)
   var extname = sym.loc.r
@@ -956,6 +961,13 @@ proc startProc*(m: BModule, prc: PSym; procBody: PNode = nil): BProc =
             param.paramStorageLoc)
     assignParam(p, param, prc.typ[0])
   closureSetup(p, prc)
+
+  if sfPure notin prc.flags and optStackTrace in prc.options:
+    # HACK: we need to raise the dependencies here already. Doing so when
+    #       finishing the procedure would be too late in the case of
+    #       procedures for which code is generated incrementally
+    discard cgsym(p.module, "nimFrame")
+    discard cgsym(p.module, "popFrame")
 
   result = p
 

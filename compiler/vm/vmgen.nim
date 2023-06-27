@@ -96,8 +96,8 @@ const
     ## the set of types that are not relevant to the VM. ``tyTypeDesc``, while
     ## not relevant right now, is likely going to be in the future.
 
-  MagicsToKeep = {mNone, mIsolate, mNHint, mNWarning, mNError, mMinI, mMaxI,
-                  mAbsI, mDotDot}
+  MagicsToKeep* = {mNone, mIsolate, mNHint, mNWarning, mNError, mMinI, mMaxI,
+                   mAbsI, mDotDot}
     ## the set of magics that are kept as normal procedure calls and thus need
     ## an entry in the function table. For convenience, the ``mNone`` magic is
     ## also included

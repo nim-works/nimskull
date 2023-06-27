@@ -1,10 +1,5 @@
 ## A temporary module that implements convenience routines for the ``PNode``
 ## AST <-> ``MirTree`` translation.
-##
-## With the current implementation, the code-generators are responsible for
-## running both translation steps (plus any MIR passes), but this is the wrong
-## approach -- the code reaching the code-generators should have already been
-## processed (i.e. MIR translation and passes done).
 
 import
   compiler/ast/[
@@ -26,10 +21,6 @@ import
   ],
   compiler/modules/[
     modulegraphs
-  ],
-  compiler/sem/[
-    injectdestructors,
-    varpartitions
   ],
   compiler/utils/[
     astrepr
@@ -61,28 +52,28 @@ let reprConfig = block:
 # and outputs in the context of compiler debugging until a more
 # structured/integrated solution is implemented
 
-proc echoInput(config: ConfigRef, owner: PSym, body: PNode) =
+proc echoInput*(config: ConfigRef, owner: PSym, body: PNode) =
   ## If requested via the define, renders the input AST `body` and writes the
   ## result out through ``config.writeLine``.
   if config.getStrDefine("nimShowMirInput") == owner.name.s:
     writeBody(config, "-- input AST: " & owner.name.s):
       config.writeln(treeRepr(config, body, reprConfig))
 
-proc echoMir(config: ConfigRef, owner: PSym, tree: MirTree) =
+proc echoMir*(config: ConfigRef, owner: PSym, tree: MirTree) =
   ## If requested via the define, renders the `tree` and writes the result out
   ## through ``config.writeln``.
   if config.getStrDefine("nimShowMir") == owner.name.s:
     writeBody(config, "-- MIR: " & owner.name.s):
       config.writeln(print(tree))
 
-proc echoOutput(config: ConfigRef, owner: PSym, body: PNode) =
+proc echoOutput*(config: ConfigRef, owner: PSym, body: PNode) =
   ## If requested via the define, renders the output AST `body` and writes the
   ## result out through ``config.writeLine``.
   if config.getStrDefine("nimShowMirOutput") == owner.name.s:
     writeBody(config, "-- output AST: " & owner.name.s):
       config.writeln(treeRepr(config, body, reprConfig))
 
-proc rewriteGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
+proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
                        outermost: bool) =
   ## Removes definitions of non-pure globals from `body`, replacing them with
   ## as assignment if necessary.
@@ -157,12 +148,8 @@ proc rewriteGlobalDefs(body: var MirTree, sourceMap: var SourceMap,
 
 proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
                    body: PNode, options: set[GenOption]): PNode =
-  ## No MIR passes exist yet, so the to-and-from translation is treated as a
-  ## canonicalization step. To be able to step-by-step rewrite
-  ## transformations done in ``transf`` and in the back-ends as MIR passes, it
-  ## is important that ``canonicalize`` is applied to *all* code reaching
-  ## the code-generators, so that they can depend on the shape of the
-  ## resulting AST
+  ## Legacy routine. Translates the body `body` of the procedure `owner` to
+  ## MIR code, and the MIR code back to ``PNode`` AST.
   echoInput(graph.config, owner, body)
   # step 1: generate a ``MirTree`` from the input AST
   let (tree, sourceMap) = generateCode(graph, owner, options, body)
@@ -171,47 +158,6 @@ proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
   # step 2: translate it back
   result = generateAST(graph, idgen, owner, tree, sourceMap)
   echoOutput(graph.config, owner, result)
-
-proc canonicalizeWithInject*(graph: ModuleGraph, idgen: IdGenerator,
-                             owner: PSym, body: PNode,
-                             options: set[GenOption]): PNode =
-  ## Transforms `body` through the following steps:
-  ## 1. cursor inference
-  ## 2. translation to MIR code
-  ## 3. removal of non-pure global definitions from the outermost scope
-  ## 4. application of the ``injectdestructors`` pass
-  ## 5. (temporarily) removal of remaining non-pure global definitions
-  ## 6. translation back to AST
-  ##
-  ## Cursor inference and destructor injection are only performed if `owner`
-  ## is eligible according to ``injectdestructors.shouldInjectDestructorCalls``
-  let config = graph.config
-
-  # cursor inference is not a MIR pass yet, so it has to be applied before
-  # the MIR translation/processing
-  let inject = shouldInjectDestructorCalls(owner)
-  if inject and optCursorInference in config.options:
-    computeCursors(owner, body, graph)
-
-  echoInput(config, owner, body)
-
-  # step 1: generate a ``MirTree`` from the input AST
-  var (tree, sourceMap) = generateCode(graph, owner, options, body)
-  echoMir(config, owner, tree)
-
-  rewriteGlobalDefs(tree, sourceMap, outermost = true)
-
-  # step 2: run the ``injectdestructors`` pass
-  if inject:
-    injectDestructorCalls(graph, idgen, owner, tree, sourceMap)
-
-  # XXX: this is a hack. See the documentation of the routine for more
-  #      details
-  rewriteGlobalDefs(tree, sourceMap, outermost = false)
-
-  # step 3: translate the MIR code back to an AST
-  result = generateAST(graph, idgen, owner, tree, sourceMap)
-  echoOutput(config, owner, result)
 
 proc canonicalizeSingle*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
                          n: PNode, options: set[GenOption]): PNode =

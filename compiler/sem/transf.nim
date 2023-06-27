@@ -185,15 +185,17 @@ proc transformSym(c: PTransf, n: PNode): PNode =
 
 proc freshVar(c: PTransf; v: PSym): PNode =
   let owner = getCurrOwner(c)
-  if owner.isIterator:
+  if {sfGlobal, sfThread} * v.flags != {}:
+    # don't introduce copies of symbols of globals. The processing
+    # following after ``transf`` expects that the set of existing globals
+    # stays unchanged
+    result = newSymNode(v)
+  elif owner.isIterator:
     result = freshVarForClosureIter(c.graph, v, c.idgen, owner)
   else:
     var newVar = copySym(v, nextSymId(c.idgen))
     incl(newVar.flags, sfFromGeneric)
-    if sfGlobal notin newVar.flags:
-      # don't re-parent globals -- the duplicates need to have the same owner
-      # as the original
-      newVar.owner = owner
+    newVar.owner = owner
     result = newSymNode(newVar)
 
 proc transformDefSym(c: PTransf, n: PNode): PNode {.deprecated: "workaround for sem not sanitizing AST".} =
