@@ -139,6 +139,8 @@ type
   GenOption* = enum
     goIsNimvm     ## choose the ``nimvm`` branch for ``when nimvm`` statements
     goGenTypeExpr ## don't omit type expressions
+    goIsCompileTime ## whether the code is meant to be run at compile-time.
+                    ## Affects handling of ``.compileTime`` globals
 
   TCtx = object
     # output:
@@ -1302,12 +1304,9 @@ proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
 
   assert sym.kind in {skVar, skLet, skTemp, skForVar}
 
-  if sfCompileTime in sym.flags and goIsNimvm notin c.options:
+  if sfCompileTime in sym.flags and goIsCompileTime notin c.options:
     # compile-time-only locations don't exist outside of compile-time
     # contexts, so omit their definitions
-    # FIXME: the check above is wrong. ``goIsNimvm`` is also set when using
-    #        the VM backend, but that's not a compile-time context. A
-    #        dedicated option is needed
     return
 
   # if there's an initial value and the destination is non-owning, we pass the
