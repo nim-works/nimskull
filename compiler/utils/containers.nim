@@ -1,6 +1,11 @@
 ## This module contains ``seq``-based containers useful in contexts that make
 ## use of data-oriented design
 
+import
+  std/[
+    options
+  ]
+
 type
   SeqMap*[K: Ordinal, V] = object
     ## Maps a 0-based integer-like key to a value, using a ``seq`` as the
@@ -85,17 +90,19 @@ iterator mitems*[I; T](x: var Store[I, T]): var T =
     yield x.data[i]
     inc i
 
-iterator pairs*[I; T](x: Store[I, T]): (I, lent T) =
-  ## Returns all items in `x` together with their corresponding IDs in
-  ## ascending order.
-  var i = 0
-  let L = x.data.len
-  while i < L:
-    # there's no need to perform a range check here: ``add`` already errors
-    # when trying to add items for which the index can't be represented with
-    # ``I``
-    yield (I(i), x.data[i])
-    inc i
+func merge*[I; T](dst: var Store[I, T], src: sink Store[I, T]): Option[I] =
+  ## Merges `src` into `dst` and returns the ID of the first-merged item. If
+  ## `src` has no items, ``none(I)`` is returned.
+  let start = dst.data.len
+  rangeCheck start.BiggestUInt + src.data.len.BiggestUInt <= high(I).BiggestUInt
+
+  dst.data.setLen(start + src.data.len)
+  for i, it in src.data.mpairs:
+    dst.data[start + i] = move(it)
+
+  result =
+    if src.data.len > 0: some I(start)
+    else:                none(I)
 
 # ---------- OrdinalSeq API ------------
 
