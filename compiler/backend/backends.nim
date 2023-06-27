@@ -42,11 +42,13 @@ proc generateMain*(graph: ModuleGraph, modules: ModuleList, result: PNode) =
     # the system module is special cased: its fully initialized during the
     # data-init phase
     if sfSystemModule in it.sym.flags:
+      emitOpCall(graph, it.preInit, result)
       emitOpCall(graph, it.init, result)
 
   # then the modules are initialized and their module-level code executed
   for it in closed(modules):
     if sfSystemModule notin it.sym.flags:
+      emitOpCall(graph, it.preInit, result)
       emitOpCall(graph, it.init, result)
 
 proc generateTeardown*(graph: ModuleGraph, modules: ModuleList, result: PNode) =
