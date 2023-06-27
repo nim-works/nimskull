@@ -65,6 +65,17 @@ iterator pairs*[K, V](m: SeqMap[K, V]): (K, lent V) =
       yield (K(i), m.data[i])
     inc i
 
+iterator mpairs*[K, V](m: var SeqMap[K, V]): (K, var V) =
+  ## Returns, in an unspecified order, the key and value for each entry in the
+  ## map `m`.
+  mixin isFilled
+  var i = 0
+  let L = m.data.len
+  while i < L:
+    if isFilled(m.data[i]):
+      yield (K(i), m.data[i])
+    inc i
+
 # ---------- Store API ------------
 
 template `[]`*[I; T](x: Store[I, T], i: I): untyped =
@@ -75,6 +86,26 @@ template `[]=`*[I; T](x: var Store[I, T], i: I, it: T): untyped =
   ## Overwrites the item corresponding to `i` with `it`
   # TODO: convert to ``distinctBase`` instead
   x.data[int(i)] = it
+
+iterator items*[I, T](x: Store[I, T]): lent T =
+  ## Iterates over and returns all items in `x`
+  var i = 0
+  let L = x.data.len
+  while i < L:
+    yield x.data[i]
+    inc i
+
+iterator pairs*[I, T](x: Store[I, T]): (I, lent T) =
+  ## Iterates over and returns all items in `x` together with their
+  ## corresponding IDs
+  var i = 0
+  let L = x.data.len
+  while i < L:
+    # there's no need to perform a range check here: ``add`` already errors
+    # when trying to add items for which the index can't be represented with
+    # ``I``
+    yield (I(i), x.data[i])
+    inc i
 
 func add*[I; T](x: var Store[I, T], it: sink T): I {.inline.} =
   ## Appends a new item to the Store and returns the ID assigned to
