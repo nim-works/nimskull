@@ -2,13 +2,9 @@ discard """
   description: '''
     Tests for globals defined inside procedures via the `.global.` pragma
   '''
-  targets: "c !js vm"
+  targets: "c js vm"
   output: "in globalaux2: 10\ntotal globals: 2\nint value: 100\nstring value: second"
 """
-
-## knownIssue: when using the JS backend, globals defined inside procedures are
-##             initialized when executing their owning procedures, instead of
-##             during the module's pre-init phase
 
 import globalaux, globalaux2
 
