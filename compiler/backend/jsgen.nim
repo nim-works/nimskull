@@ -59,7 +59,6 @@ import
   ],
   compiler/sem/[
     rodutils,
-    transf,
   ],
   compiler/backend/[
     ccgutils,
@@ -933,7 +932,9 @@ proc genIf(p: PProc, n: PNode) =
   genStmt(p, it[1])
   lineF(p, "}$n", [])
 
-proc generateHeader(p: PProc, prc: PSym): Rope =
+proc generateHeader(prc: PSym): Rope =
+  ## Generates the JavaScript function header for `prc`. The parameters are
+  ## assumed to already have their mangled names set.
   result = ""
 
   let typ = prc.typ
@@ -943,20 +944,12 @@ proc generateHeader(p: PProc, prc: PSym): Rope =
     var param = typ.n[i].sym
     if isCompileTimeOnly(param.typ): continue
     if result != "": result.add(", ")
-    var name = mangleName(p.module, param)
+    let name = param.loc.r
     result.add(name)
     if mapType(param.typ) == etyBaseIndex:
       result.add(", ")
       result.add(name)
       result.add("_Idx")
-
-  if typ.callConv == ccClosure:
-    # generate the name for the hidden environment parameter. When creating a
-    # closure object, the environment is bound to the ``this`` argument of the
-    # function, hence using ``this`` for the name
-    let hidden = prc.ast[paramsPos].lastSon
-    assert hidden.kind == nkSym, "the hidden parameter is missing"
-    hidden.sym.loc.r = "this"
 
 const
   nodeKindsNeedNoCopy = {nkCharLit..nkInt64Lit, nkStrLit..nkTripleStrLit,
@@ -2244,20 +2237,43 @@ proc optionalLine(p: Rope): Rope =
   else:
     return p & "\L"
 
-proc genProc(oldProc: PProc, prc: PSym): Rope =
-  var
-    resultSym: PSym
-    a: TCompRes
-  #if gVerbosity >= 3:
-  #  echo "BEGIN generating code for: " & prc.name.s
-  var p = newProc(oldProc.g, oldProc.module, prc.ast, prc.options)
-  var returnStmt = ""
-  var resultAsgn = ""
-  var name = mangleName(p.module, prc)
-  let header = generateHeader(p, prc)
+proc startProc*(g: PGlobals, module: BModule, prc: PSym): PProc =
+  let p = newProc(g, module, prc.ast, prc.options)
+
+  # make sure the procedure has a mangled name:
+  discard mangleName(p.module, prc)
+
+  # same for the result symbol and parameters:
   if prc.typ[0] != nil and sfPure notin prc.flags:
-    resultSym = prc.ast[resultPos].sym
-    let mname = mangleName(p.module, resultSym)
+    discard mangleName(p.module, prc.ast[resultPos].sym)
+
+  # set the mangled name for the parameters:
+  for i in 1..<prc.typ.n.len:
+    let param = prc.typ.n[i].sym
+    if not isCompileTimeOnly(param.typ):
+      discard mangleName(p.module, param)
+
+  if prc.typ.callConv == ccClosure:
+    # generate the name for the hidden environment parameter. When creating a
+    # closure object, the environment is bound to the ``this`` argument of the
+    # function, hence using ``this`` for the name
+    let hidden = prc.ast[paramsPos].lastSon
+    assert hidden.kind == nkSym, "the hidden parameter is missing"
+    hidden.sym.loc.r = "this"
+
+  result = p
+
+proc finishProc*(p: PProc): string =
+  let
+    prc = p.prc
+
+  var
+    returnStmt = ""
+    resultAsgn = ""
+
+  if prc.typ[0] != nil and sfPure notin prc.flags:
+    let resultSym = prc.ast[resultPos].sym
+    let mname = resultSym.loc.r
     let returnAddress = not isIndirect(resultSym) and
       resultSym.typ.kind in {tyVar, tyPtr, tyLent, tyRef} and
         mapType(p, resultSym.typ) == etyBaseIndex
@@ -2267,21 +2283,19 @@ proc genProc(oldProc: PProc, prc: PSym): Rope =
     else:
       let resVar = createVar(p, resultSym.typ, isIndirect(resultSym))
       resultAsgn = p.indentLine(("var $# = $#;$n") % [mname, resVar])
+    var a: TCompRes
     gen(p, prc.ast[resultPos], a)
     if returnAddress:
       returnStmt = "return [$#, $#];$n" % [a.address, a.res]
     else:
       returnStmt = "return $#;$n" % [a.res]
 
-  var transformedBody = transformBody(p.module.graph, p.module.idgen, prc, cache = false)
-  transformedBody = canonicalizeWithInject(p.module.graph, p.module.idgen, prc,
-                                           transformedBody, {})
-
-  p.nested: genStmt(p, transformedBody)
-
-
   if optLineDir in p.config.options:
     result = lineDir(p.config, prc.info, toLinenumber(prc.info))
+
+  let
+    name   = prc.loc.r
+    header = generateHeader(prc)
 
   var def: Rope
   if not prc.constraint.isNil:
@@ -2313,6 +2327,12 @@ proc genProc(oldProc: PProc, prc: PSym): Rope =
 
   #if gVerbosity >= 3:
   #  echo "END   generated code for: " & prc.name.s
+
+proc genProc*(g: PGlobals, module: BModule, prc: PSym,
+              transformedBody: PNode): Rope =
+  var p = startProc(g, module, prc)
+  p.nested: genStmt(p, transformedBody)
+  result = finishProc(p)
 
 proc genStmt(p: PProc, n: PNode) =
   var r: TCompRes
@@ -2518,22 +2538,11 @@ proc genHeader*(): Rope =
     var lastJSError = null;
   """.unindent.format(VersionAsString))
 
-proc genModule(p: PProc, n: PNode) =
-  var transformedN = transformStmt(p.module.graph, p.module.idgen, p.module.module, n)
-  transformedN = canonicalizeWithInject(p.module.graph, p.module.idgen,
-                                        p.module.module, transformedN, {})
-
-  genStmt(p, transformedN)
-
-proc genTopLevelProcedure*(globals: PGlobals, m: BModule, prc: PSym) =
-  var p = newInitProc(globals, m)
-  genProcForSymIfNeeded(p, prc)
-
 proc genTopLevelStmt*(globals: PGlobals, m: BModule, n: PNode) =
   m.config.internalAssert(m.module != nil, n.info, "genTopLevelStmt")
   var p = newInitProc(globals, m)
   p.unique = globals.unique
-  genModule(p, n)
+  genStmt(p, n)
   p.g.code.add(p.locals)
   p.g.code.add(p.body)
 
