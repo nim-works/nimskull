@@ -2050,11 +2050,6 @@ proc genArrayConstr(p: BProc, n: PNode, d: var TLoc) =
       arr.r = "$1[$2]" % [rdLoc(d), intLiteral(i)]
       expr(p, n[i], arr)
 
-proc genComplexConst(p: BProc, sym: PSym, d: var TLoc) =
-  requestConstImpl(p, sym)
-  assert((sym.loc.r != "") and (sym.loc.t != nil))
-  putLocIntoDest(p, d, sym.loc)
-
 template genStmtListExprImpl(exprOrStmt) {.dirty.} =
   #let hasNimFrame = magicsys.getCompilerProc("nimFrame") != nil
   for i in 0..<n.len - 1:
@@ -2142,39 +2137,37 @@ proc exprComplexConst(p: BProc, n: PNode, d: var TLoc) =
     if t.kind notin {tySequence, tyString}:
       d.storage = OnStatic
 
-proc genConstSetup(m: BModule; sym: PSym): bool =
-  useHeader(m, sym)
+proc fillConstLoc(m: BModule, sym: PSym) =
   if sym.loc.k == locNone:
     fillLoc(sym.loc, locData, sym.ast, mangleName(m, sym), OnStatic)
 
+proc genConstSetup(m: BModule; sym: PSym): bool =
+  useHeader(m, sym)
+  fillConstLoc(m, sym)
+
   result = lfNoDecl notin sym.loc.flags
 
-proc genConstHeader*(m, q: BModule; sym: PSym) =
-  if sym.loc.r == "" and not genConstSetup(m, sym):
+proc useConst*(m: BModule; sym: PSym) =
+  if not genConstSetup(m, sym):
     return
 
   assert(sym.loc.r != "", $sym.name.s & $sym.itemId)
-  block:
+  let q = findPendingModule(m, sym)
+  # only emit a declaration if the constant is used in a module that is not the
+  # one the constant is part of
+  if q != m and not containsOrIncl(m.declaredThings, sym.id):
     let headerDecl = "extern NIM_CONST $1 $2;$n" %
         [getTypeDesc(m, sym.loc.t, skVar), sym.loc.r]
     m.s[cfsData].add(headerDecl)
     if sfExportc in sym.flags and m.g.generatedHeader != nil:
       m.g.generatedHeader.s[cfsData].add(headerDecl)
 
-proc genConstDefinition(q: BModule; p: BProc; sym: PSym) =
+proc genConstDefinition*(q: BModule; sym: PSym) =
+  let p = newProc(nil, q)
+  fillConstLoc(q, sym)
   q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
       [getTypeDesc(q, sym.typ), sym.loc.r,
-      genBracedInit(q.initProc, sym.ast, isConst = true, sym.typ)])
-
-proc genConstStmt(p: BProc, n: PNode) =
-  # This code is only used in the new DCE implementation.
-  assert useAliveDataFromDce in p.module.flags
-  let m = p.module
-  for it in n:
-    if it[0].kind == nkSym:
-      let sym = it[0].sym
-      if not isSimpleConst(sym.typ) and sym.itemId.item in m.alive and genConstSetup(m, sym):
-        genConstDefinition(m, p, sym)
+      genBracedInit(p, sym.ast, isConst = true, sym.typ)])
 
 proc expr(p: BProc, n: PNode, d: var TLoc) =
   when defined(nimCompilerStacktraceHints):
@@ -2185,33 +2178,23 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
   of nkSym:
     var sym = n.sym
     case sym.kind
-    of skMethod:
-      genProc(p.module, sym)
-      putLocIntoDest(p, d, sym.loc)
-    of skProc, skConverter, skIterator, skFunc:
-      #if sym.kind == skIterator:
-      #  echo renderTree(sym.getBody, {renderIds})
+    of skProc, skConverter, skIterator, skFunc, skMethod:
       if sfCompileTime in sym.flags:
         localReport(p.config, n.info, reportSym(
           rsemCannotCodegenCompiletimeProc, sym))
 
-      if useAliveDataFromDce in p.module.flags and sym.typ.callConv != ccInline:
-        fillProcLoc(p.module, n)
-        genProcPrototype(p.module, sym)
-      else:
-        genProc(p.module, sym)
+      useProc(p.module, sym)
+
       if sym.loc.r == "" or sym.loc.lode == nil:
         internalError(p.config, n.info, "expr: proc not init " & sym.name.s)
       putLocIntoDest(p, d, sym.loc)
     of skConst:
       if isSimpleConst(sym.typ):
         putIntoDest(p, d, n, genLiteral(p, sym.ast, sym.typ), OnStatic)
-      elif useAliveDataFromDce in p.module.flags:
-        genConstHeader(p.module, p.module, sym)
+      else:
+        useConst(p.module, sym)
         assert((sym.loc.r != "") and (sym.loc.t != nil))
         putLocIntoDest(p, d, sym.loc)
-      else:
-        genComplexConst(p, sym, d)
     of skVar, skForVar, skResult, skLet:
       if {sfGlobal, sfThread} * sym.flags != {}:
         genVarPrototype(p.module, n)
@@ -2320,10 +2303,6 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
   of nkEmpty: discard
   of nkWhileStmt: genWhileStmt(p, n)
   of nkVarSection, nkLetSection: genVarStmt(p, n)
-  of nkConstSection:
-    if useAliveDataFromDce in p.module.flags:
-      genConstStmt(p, n)
-    # else: consts generated lazily on use
   of nkCaseStmt: genCase(p, n)
   of nkReturnStmt: genReturnStmt(p, n)
   of nkBreakStmt: genBreakStmt(p, n)
@@ -2343,20 +2322,8 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
   of nkRaiseStmt: genRaiseStmt(p, n)
   of nkIteratorDef: discard
   of nkPragma: genPragma(p, n)
-  of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:
-    if n[genericParamsPos].kind == nkEmpty:
-      var prc = n[namePos].sym
-      if useAliveDataFromDce in p.module.flags:
-        if p.module.alive.contains(prc.itemId.item) and prc.magic in NonMagics:
-          genProc(p.module, prc)
-      elif prc.skipGenericOwner.kind == skModule and sfCompileTime notin prc.flags:
-        if ({sfExportc, sfCompilerProc} * prc.flags == {sfExportc}) or
-            (sfExportc in prc.flags and lfExportLib in prc.loc.flags):
-          # due to a bug/limitation in the lambda lifting, unused inner procs
-          # are not transformed correctly. We work around this issue (#411) here
-          # by ensuring it's no inner proc (owner is a module).
-          # Generate proc even if empty body, bugfix #11651.
-          genProc(p.module, prc)
+  of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef, nkConstSection:
+    discard
   of nkType, nkNimNodeLit:
     unreachable()
   of nkWithSons + nkWithoutSons - codegenExprNodeKinds:

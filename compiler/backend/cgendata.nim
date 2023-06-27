@@ -149,6 +149,16 @@ type
                             ## nimtvDeps is VERY hard to cache because it's
                             ## not a list of IDs nor can it be made to be one.
 
+    hooks*: seq[(BModule, PSym)]
+      ## late late-dependencies. Generating code for a procedure might lead
+      ## to the RTTI setup code for some type from a foreign module (i.e., one
+      ## different from the module that acts as the current context) to be
+      ## emitted, and this setup code might reference additional procedures.
+      ## Written: by the code generator; reset by the orchestrator
+      ## Read:    by the orchestrator
+      # XXX: move emission of RTTI setup into the orchestrator and remove this
+      #      facility
+
   TCGen = object ## represents a C source file
     idgen*: IdGenerator
     s*: TCFileSections        ## sections of the C file
@@ -182,6 +192,12 @@ type
     sigConflicts*: CountTable[SigHash]
     g*: BModuleList
     ndi*: NdiFile
+
+    extra*: seq[PSym]
+      ## communicates dependencies introduced by the code-generator
+      ## back to the caller. The caller is responsible for clearing the list
+      ## after it's done with processing it. The code-generator only ever
+      ## appends to it
 
 template config*(m: BModule): ConfigRef = m.g.config
 template config*(p: BProc): ConfigRef = p.module.g.config

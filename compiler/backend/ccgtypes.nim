@@ -1034,7 +1034,8 @@ proc fakeClosureType(m: BModule; owner: PSym): PType =
   result.rawAddSon(r)
 
 proc genDeepCopyProc(m: BModule; s: PSym; result: Rope) =
-  genProc(m, s)
+  useProc(m, s)
+  m.g.hooks.add (m, s)
   m.s[cfsTypeInit3].addf("$1.deepcopy =(void* (N_RAW_NIMCALL*)(void*))$2;$n",
      [result, s.loc.r])
 
@@ -1076,7 +1077,9 @@ proc genHook(m: BModule; t: PType; info: TLineInfo; op: TTypeAttachedOp): Rope =
       localReport(m.config, info, reportSym(
         rsemExpectedNimcallProc, theProc))
 
-    genProc(m, theProc)
+    useProc(m, theProc)
+    m.g.hooks.add (m, theProc)
+
     result = theProc.loc.r
 
     when false:
