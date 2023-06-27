@@ -59,38 +59,10 @@ proc generateTeardown*(graph: ModuleGraph, modules: ModuleList, result: PNode) =
   for it in rclosed(modules):
     if sfSystemModule notin it.sym.flags:
       emitOpCall(graph, it.destructor, result)
+      emitOpCall(graph, it.postDestructor, result)
 
   emitOpCall(graph, systemModule(modules).destructor, result)
-
-proc finishDeinit*(graph: ModuleGraph, modules: var ModuleList) =
-  ## Appends destructor calls for lifted globals (those marked with
-  ## ``.global``) to the bodies of the modules' de-init procedures. Called at
-  ## the very end of code generation once all alive lifted globals have been
-  ## discovered.
-
-  # XXX: if the called destructors access other globals, or introduce new
-  #      ones, behaviour is undefined. In the best but most unlikely case,
-  #      everything will work as expected, but in the worst case, the code
-  #      is going to misbehave at run-time
-
-  proc prepare(prc: PSym): PNode =
-    # XXX: not pretty, but it's going to removed again anyway
-    case prc.ast[bodyPos].kind
-    of nkEmpty:
-      result = newNodeI(nkStmtList, prc.ast[bodyPos].info)
-      prc.ast[bodyPos] = result
-    of nkStmtList:
-      # already supports appending
-      result = prc.ast[bodyPos]
-    else:
-      result = newTree(nkStmtList, prc.ast[bodyPos])
-      prc.ast[bodyPos] = result
-
-  # XXX: the whole ``globalDestructors`` mechanism is wrong. Moving dead-code
-  #      elimination into the orchestrators will, among other things, allow
-  #      for removing it
-  for (module, call) in ritems(graph.globalDestructors):
-    prepare(modules[module.FileIndex].destructor).add call
+  emitOpCall(graph, systemModule(modules).postDestructor, result)
 
 proc generateMainProcedure*(graph: ModuleGraph, idgen: IdGenerator,
                             modules: ModuleList): PSym =

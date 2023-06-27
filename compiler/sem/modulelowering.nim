@@ -74,11 +74,13 @@ type
       ## the prodcedure responsible for de-initializing the module's
       ## globals
 
-    # XXX: the design around the pre-init procedure is likely not final yet.
-    #      At the moment, we set it up here so that the code generators /
-    #      orchestrators have a symbol to attach code to
+    # XXX: the design around the pre-init and post-destructor procedure is
+    #      likely not final yet. At the moment, we set them up here so that
+    #      the backend processing has a symbol to attach code to
     preInit*: PSym
       ## the procedure for initializing the module's lifted globals
+    postDestructor*: PSym
+      ## the procedure for destroying the module's lifted globals
 
   ModuleList* = object
     modules*: SeqMap[FileIndex, Module]
@@ -296,11 +298,6 @@ proc generateModuleDestructor(graph: ModuleGraph, m: Module): PNode =
     if hasDestructor(s.typ):
       result.add genDestroy(graph, newSymNode(s))
 
-  # note: the generated body is not yet final -- we're still missing
-  # destructor calls for lifted globals (i.e., those marked with ``.global``).
-  # Those calls are inserted once we know all alive pure globals (which is
-  # after the main part of code generation has finished)
-
   if result.len == 0:
     # collapse to an empty node (dead-code elimination treats procedures with
     # ``nkEmpty`` nodes as the body as empty)
@@ -403,6 +400,7 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
   result.destructor = createModuleOp(graph, idgen, "Deinit", m, destructorBody, options)
 
   result.preInit = createModuleOp(graph, idgen, "PreInit", m, newNode(nkEmpty), options)
+  result.postDestructor = createModuleOp(graph, idgen, "PostDeinit", m, newNode(nkEmpty), options)
 
 # Below is the `passes` interface implementation
 
