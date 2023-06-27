@@ -646,21 +646,14 @@ proc genFieldCheck(p: BProc, e: PNode, obj: Rope, field: PSym) =
     # generate and emit the code for the failure case:
     case base.kind
     of tyEnum:
-      if useAliveDataFromDce in p.module.flags:
-        # DCE doesn't scan the ``nkCheckedFieldExpr`` nodes yet, meaning that
-        # the compiler-generated enum-to-string procedures aren't reliably
-        # available. Fallback to rendering the enum as it's integer value
-        toStr = "(NI)" & rdLoc(v)
-        raiseProc = "raiseFieldErrorInt"
-      else:
-        # use the compiler-generated enum-to-string procedure
-        let prc = p.module.g.graph.getToStringProc(disc.typ)
-        p.module.extra.add prc # late dependency
+      # use the compiler-generated enum-to-string procedure
+      let prc = p.module.g.graph.getToStringProc(disc.typ)
+      p.module.extra.add prc # late dependency
 
-        var tmp: TLoc
-        expr(p, newSymNode(prc), tmp)
-        toStr = "$1($2)" % [rdLoc(tmp), rdLoc(v)]
-        raiseProc = "raiseFieldErrorStr"
+      var tmp: TLoc
+      expr(p, newSymNode(prc), tmp)
+      toStr = "$1($2)" % [rdLoc(tmp), rdLoc(v)]
+      raiseProc = "raiseFieldErrorStr"
 
     of tyChar:
       # XXX: rendering as a character is supported by the runtime
