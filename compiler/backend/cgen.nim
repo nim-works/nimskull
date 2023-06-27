@@ -33,9 +33,6 @@ import
     astmsgs,
     ndi
   ],
-  compiler/mir/[
-    mirbridge
-  ],
   compiler/modules/[
     magicsys,
   ],
@@ -55,7 +52,6 @@ import
     rodutils,
     aliases,
     lowerings,
-    transf
   ],
   compiler/backend/[
     extccomp,
@@ -313,7 +309,6 @@ proc genLineDir(p: BProc, t: PNode) =
 
 proc accessThreadLocalVar(p: BProc, s: PSym)
 proc emulatedThreadVars(conf: ConfigRef): bool {.inline.}
-proc genProc*(m: BModule, prc: PSym)
 proc useProc(m: BModule, prc: PSym)
 proc raiseInstr(p: BProc): Rope
 
@@ -578,7 +573,6 @@ proc genVarPrototype(m: BModule, n: PNode)
 proc genProcPrototype(m: BModule, sym: PSym)
 proc genStmts(p: BProc, t: PNode)
 proc expr(p: BProc, n: PNode, d: var TLoc)
-proc genProcPrototype(m: BModule, sym: PSym)
 proc putLocIntoDest(p: BProc, d: var TLoc, s: TLoc)
 proc intLiteral(i: BiggestInt): Rope
 proc genLiteral(p: BProc, n: PNode): Rope
@@ -734,10 +728,6 @@ proc varInDynamicLib(m: BModule, sym: PSym) =
       [tmp, getTypeDesc(m, sym.typ, skVar), lib.name, makeCString($extname)])
   m.s[cfsVars].addf("$2* $1;$n",
       [sym.loc.r, getTypeDesc(m, sym.loc.t, skVar)])
-
-proc symInDynamicLibPartial(m: BModule, sym: PSym) =
-  sym.loc.r = mangleDynLibProc(sym)
-  sym.typ.sym = nil           # generate a new name
 
 proc cgsym(m: BModule, name: string): Rope =
   let sym = magicsys.getCompilerProc(m.g.graph, name)
@@ -913,25 +903,12 @@ proc allPathsAsgnResult(n: PNode): InitResultEnum =
     for i in 0..<n.safeLen:
       allPathsInBranch(n[i])
 
-proc genProcBody*(p: BProc; procBody: PNode) =
-  genStmts(p, procBody) # modifies p.locals, p.init, etc.
-  if {nimErrorFlagAccessed, nimErrorFlagDeclared} * p.flags == {nimErrorFlagAccessed}:
-    p.flags.incl nimErrorFlagDeclared
-    p.blocks[0].sections[cpsLocals].add(ropecg(p.module, "NIM_BOOL* nimErr_;$n", []))
-    p.blocks[0].sections[cpsInit].add(ropecg(p.module, "nimErr_ = #nimErrorFlag();$n", []))
-
 proc isNoReturn(m: BModule; s: PSym): bool {.inline.} =
   sfNoReturn in s.flags and m.config.exc != excGoto
 
-proc genProcAux(m: BModule, prc: PSym) =
+proc startProc*(m: BModule, prc: PSym; procBody: PNode = nil): BProc =
   var p = newProc(prc, m)
-  var header = genProcHeader(m, prc)
-  var returnStmt = ""
   assert(prc.ast != nil)
-
-  var procBody = transformBody(m.g.graph, m.idgen, prc, cache = false)
-  procBody = canonicalizeWithInject(m.g.graph, m.idgen, prc, procBody, {})
-
   if sfPure notin prc.flags and prc.typ[0] != nil:
     m.config.internalAssert(resultPos < prc.ast.len, prc.info, "proc has no result symbol")
     let resNode = prc.ast[resultPos]
@@ -942,7 +919,6 @@ proc genProcAux(m: BModule, prc: PSym) =
       assignLocalVar(p, resNode)
       assert(res.loc.r != "")
       initLocalVar(p, res, immediateAsgn=false)
-      returnStmt = ropecg(p.module, "\treturn $1;$n", [rdLoc(res.loc)])
     else:
       fillResult(p.config, resNode)
       assignParam(p, res, prc.typ[0])
@@ -953,7 +929,8 @@ proc genProcAux(m: BModule, prc: PSym) =
       # global is either 'nil' or points to valid memory and so the RC operation
       # succeeds without touching not-initialized memory.
       if sfNoInit in prc.flags: discard
-      elif allPathsAsgnResult(procBody) == InitSkippable: discard
+      elif procBody != nil and
+           allPathsAsgnResult(procBody) == InitSkippable: discard
       else:
         resetLoc(p, res.loc)
       if skipTypes(res.typ, abstractInst).kind == tyArray:
@@ -975,12 +952,29 @@ proc genProcAux(m: BModule, prc: PSym) =
   for i in 1..<prc.typ.n.len:
     let param = prc.typ.n[i].sym
     if param.typ.isCompileTimeOnly: continue
+    fillLoc(param.loc, locParam, prc.typ.n[i], mangleParamName(m, param),
+            param.paramStorageLoc)
     assignParam(p, param, prc.typ[0])
   closureSetup(p, prc)
-  genProcBody(p, procBody)
+
+  result = p
+
+proc finishProc*(p: BProc, prc: PSym): string =
+  if {nimErrorFlagAccessed, nimErrorFlagDeclared} * p.flags == {nimErrorFlagAccessed}:
+    p.flags.incl nimErrorFlagDeclared
+    p.blocks[0].sections[cpsLocals].add(ropecg(p.module, "NIM_BOOL* nimErr_;$n", []))
+    p.blocks[0].sections[cpsInit].add(ropecg(p.module, "nimErr_ = #nimErrorFlag();$n", []))
+
+  var
+    header = genProcHeader(p.module, prc)
+    returnStmt = ""
+
+  if sfPure notin prc.flags and not isInvalidReturnType(p.config, prc.typ[0]):
+    returnStmt = ropecg(p.module, "\treturn $1;$n",
+                        [rdLoc(prc.ast[resultPos].sym.loc)])
 
   var generatedProc: Rope
-  generatedProc.genCLineDir prc.info, m.config
+  generatedProc.genCLineDir prc.info, p.config
   if isNoReturn(p.module, prc):
     if hasDeclspec in extccomp.CC[p.config.cCompiler].props:
       header = "__declspec(noreturn) " & header
@@ -1009,15 +1003,15 @@ proc genProcAux(m: BModule, prc: PSym) =
     if optStackTrace in prc.options: generatedProc.add(deinitFrame(p))
     generatedProc.add(returnStmt)
     generatedProc.add(~"}$N")
-  m.s[cfsProcs].add(generatedProc)
 
-proc genInitProc*(m: BModule, prc: PSym) =
-  # HACK: a module's init procedure needs to be treated the same as any other
-  #       procedure. Due to ``cgen`` appending to it from all over the place,
-  #       it currently cannot
-  var procBody = transformBody(m.g.graph, m.idgen, prc, cache = false)
-  procBody = canonicalizeWithInject(m.g.graph, m.idgen, prc, procBody, {})
-  genProcBody(m.initProc, procBody)
+  result = generatedProc
+
+proc genProc*(m: BModule, prc: PSym, procBody: PNode): Rope =
+  ## Generates the code for the procedure `prc`, where `procBody` is the code
+  ## of the body with all applicable lowerings and transformation applied.
+  let p = startProc(m, prc, procBody)
+  genStmts(p, procBody)
+  result = finishProc(p, prc)
 
 proc genProcPrototype(m: BModule, sym: PSym) =
   useHeader(m, sym)
@@ -1053,22 +1047,6 @@ proc useProc(m: BModule, prc: PSym) =
     # mangle based on the attached-to module
     fillProcLoc(findPendingModule(m, prc), prc.ast[namePos])
     genProcPrototype(m, prc)
-
-proc isActivated(prc: PSym): bool = prc.typ != nil
-
-proc genProc*(m: BModule, prc: PSym) =
-  # unresolved borrows or forward declarations must not reach here
-  assert {sfBorrow, sfForward} * prc.flags == {}
-  assert isActivated(prc)
-  # genProcNoForward(m, prc)
-  if {sfExportc, sfCompilerProc} * prc.flags == {sfExportc} and
-      m.g.generatedHeader != nil and lfNoDecl notin prc.loc.flags:
-    # XXX: don't populate the generated header from inside the code
-    #      generator -- make it a responsibility of the orchestrator
-    genProcPrototype(m.g.generatedHeader, prc)
-    if prc.typ.callConv == ccInline:
-      if not containsOrIncl(m.g.generatedHeader.declaredThings, prc.id):
-        genProcAux(m.g.generatedHeader, prc)
 
 proc genVarPrototype(m: BModule, n: PNode) =
   #assert(sfGlobal in sym.flags)
@@ -1290,90 +1268,6 @@ proc genDatInitCode*(m: BModule): bool =
 
   result = moduleDatInitRequired
 
-proc genInitCode*(m: BModule): bool =
-  ## this function is called after all modules are closed,
-  ## it means raising dependency on the symbols is too late as it will not propagate
-  ## into other modules, only simple rope manipulations are allowed
-  var moduleInitRequired = false
-  let initname = getInitName(m)
-  var prc = "$1 N_NIMCALL(void, $2)(void) {$N" %
-    [rope("N_LIB_PRIVATE"), initname]
-  # we don't want to break into such init code - could happen if a line
-  # directive from a function written by the user spills after itself
-  genCLineDir(prc, "generated_not_to_break_here", 999999, m.config)
-
-  template writeSection(thing: untyped, section: TCProcSection) =
-    if m.thing.s(section).len > 0:
-      moduleInitRequired = true
-      prc.add(m.thing.s(section))
-
-  if m.preInitProc.s(cpsInit).len > 0 or m.preInitProc.s(cpsStmts).len > 0:
-    # Give this small function its own scope
-    prc.addf("{$N", [])
-    # Keep a bogus frame in case the code needs one
-    prc.add(~"\tTFrame FR_; FR_.len = 0;$N")
-
-    writeSection(preInitProc, cpsLocals)
-    writeSection(preInitProc, cpsInit)
-    writeSection(preInitProc, cpsStmts)
-    prc.addf("}/* preInitProc end */$N", [])
-    when false:
-      m.initProc.blocks[0].sections[cpsLocals].add m.preInitProc.s(cpsLocals)
-      m.initProc.blocks[0].sections[cpsInit].prepend m.preInitProc.s(cpsInit)
-      m.initProc.blocks[0].sections[cpsStmts].prepend m.preInitProc.s(cpsStmts)
-
-  # add new scope for following code, because old vcc compiler need variable
-  # be defined at the top of the block
-  prc.addf("{$N", [])
-  writeSection(initProc, cpsLocals)
-
-  if m.initProc.s(cpsInit).len > 0 or m.initProc.s(cpsStmts).len > 0:
-    moduleInitRequired = true
-    if optStackTrace in m.initProc.options and frameDeclared notin m.flags:
-      # BUT: the generated init code might depend on a current frame, so
-      # declare it nevertheless:
-      incl m.flags, frameDeclared
-      if preventStackTrace notin m.flags:
-        var procname = makeCString(m.module.name.s)
-        prc.add(initFrame(m.initProc, procname, quotedFilename(m.config, m.module.info)))
-      else:
-        prc.add(~"\tTFrame FR_; FR_.len = 0;$N")
-
-    writeSection(initProc, cpsInit)
-    writeSection(initProc, cpsStmts)
-
-    if beforeRetNeeded in m.initProc.flags:
-      prc.add(~"\tBeforeRet_: ;$n")
-
-    # each module's module-level code can potentially raise, so the error flag
-    # always needs to be tested
-    if getCompilerProc(m.g.graph, "nimTestErrorFlag") != nil:
-      m.appcg(prc, "\t#nimTestErrorFlag();$n", [])
-
-    if optStackTrace in m.initProc.options and preventStackTrace notin m.flags:
-      prc.add(deinitFrame(m.initProc))
-
-  prc.addf("}$N", [])
-
-  prc.addf("}$N$N", [])
-
-  # we cannot simply add the init proc to ``m.s[cfsProcs]`` anymore because
-  # that would lead to a *nesting* of merge sections which the merger does
-  # not support. So we add it to another special section: ``cfsInitProc``
-
-  for i, el in pairs(m.extensionLoaders):
-    if el != "":
-      let ex = "NIM_EXTERNC N_NIMCALL(void, nimLoadProcs$1)(void) {$2}$N$N" %
-        [(i.ord - '0'.ord).rope, el]
-      moduleInitRequired = true
-      prc.add(ex)
-
-  if moduleInitRequired or sfMainModule in m.module.flags:
-    m.s[cfsInitProc].add(prc)
-    #rememberFlag(m.g.graph, m.module, HasModuleInitProc)
-
-  result = moduleInitRequired
-
 proc genModule(m: BModule, cfile: Cfile): Rope =
   var moduleIsEmpty = true
 
@@ -1470,17 +1364,6 @@ proc writeHeader(m: BModule) =
 proc getCFile(m: BModule): AbsoluteFile =
   result = changeFileExt(completeCfilePath(m.config, withPackageName(m.config, m.cfilename)), ".nim.c")
 
-proc genTopLevelStmt*(m: BModule; n: PNode) =
-  ## Called from `ic/cbackend.nim` and ``backend/cbackend.nim``.
-  m.initProc.options = initProcOptions(m)
-  #softRnl = if optLineDir in m.config.options: noRnl else: rnl
-  # XXX replicate this logic!
-  var transformedN = transformStmt(m.g.graph, m.idgen, m.module, n)
-  transformedN = canonicalizeWithInject(m.g.graph, m.idgen, m.module,
-                                        transformedN, {})
-
-  genProcBody(m.initProc, transformedN)
-
 proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
   if optForceFullMake notin m.config.globalOptions:
     if not moduleHasChanged(m.g.graph, m.module):
@@ -1531,32 +1414,6 @@ proc writeModule(m: BModule) =
 
     addFileToCompile(m.config, cf)
   onExit()
-
-proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
-  ## Also called from IC.
-  # phase ordering problem here: We need to announce this
-  # dependency to 'nimTestErrorFlag' before system.c has been written to
-  # disk. We also have to announce the dependency *from* the system module, as
-  # only there it is certain that all the procedure's dependencies exist
-  # already
-  if sfSystemModule in m.module.flags:
-    discard cgsym(m, "nimTestErrorFlag")
-    if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
-      # raise the dependency on behalf of ``genDatInitCode``:
-      discard cgsym(m, "initThreadVarsEmulation")
-
-  if moduleHasChanged(graph, m.module):
-    # if the module is cached, we don't regenerate the main proc
-    # nor the dispatchers? But if the dispatchers changed?
-    # XXX emit the dispatchers into its own .c file?
-    if n != nil:
-      m.initProc.options = initProcOptions(m)
-      genProcBody(m.initProc, n)
-
-
-  # for compatibility, the code generator still manages its own "closed order"
-  # list, but this should be phased out eventually
-  m.g.modulesClosed.add m
 
 proc cgenWriteModules*(backend: RootRef, config: ConfigRef) =
   let g = BModuleList(backend)
