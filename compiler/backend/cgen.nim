@@ -1121,8 +1121,8 @@ proc genProcNoForward(m: BModule, prc: PSym) =
     genProcPrototype(m, prc)
 
 proc requestConstImpl(p: BProc, sym: PSym) =
-  if genConstSetup(p, sym):
-    let m = p.module
+  let m = p.module
+  if genConstSetup(m, sym):
     # declare implementation:
     var q = findPendingModule(m, sym)
     if q != nil and not containsOrIncl(q.declaredThings, sym.id):
@@ -1130,7 +1130,7 @@ proc requestConstImpl(p: BProc, sym: PSym) =
       genConstDefinition(q, p, sym)
     # declare header:
     if q != m and not containsOrIncl(m.declaredThings, sym.id):
-      genConstHeader(m, q, p, sym)
+      genConstHeader(m, q, sym)
 
 proc isActivated(prc: PSym): bool = prc.typ != nil
 

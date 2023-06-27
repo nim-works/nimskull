@@ -2142,16 +2142,15 @@ proc exprComplexConst(p: BProc, n: PNode, d: var TLoc) =
     if t.kind notin {tySequence, tyString}:
       d.storage = OnStatic
 
-proc genConstSetup(p: BProc; sym: PSym): bool =
-  let m = p.module
+proc genConstSetup(m: BModule; sym: PSym): bool =
   useHeader(m, sym)
   if sym.loc.k == locNone:
-    fillLoc(sym.loc, locData, sym.ast, mangleName(p.module, sym), OnStatic)
+    fillLoc(sym.loc, locData, sym.ast, mangleName(m, sym), OnStatic)
 
   result = lfNoDecl notin sym.loc.flags
 
-proc genConstHeader(m, q: BModule; p: BProc, sym: PSym) =
-  if sym.loc.r == "" and not genConstSetup(p, sym):
+proc genConstHeader*(m, q: BModule; sym: PSym) =
+  if sym.loc.r == "" and not genConstSetup(m, sym):
     return
 
   assert(sym.loc.r != "", $sym.name.s & $sym.itemId)
@@ -2159,8 +2158,8 @@ proc genConstHeader(m, q: BModule; p: BProc, sym: PSym) =
     let headerDecl = "extern NIM_CONST $1 $2;$n" %
         [getTypeDesc(m, sym.loc.t, skVar), sym.loc.r]
     m.s[cfsData].add(headerDecl)
-    if sfExportc in sym.flags and p.module.g.generatedHeader != nil:
-      p.module.g.generatedHeader.s[cfsData].add(headerDecl)
+    if sfExportc in sym.flags and m.g.generatedHeader != nil:
+      m.g.generatedHeader.s[cfsData].add(headerDecl)
 
 proc genConstDefinition(q: BModule; p: BProc; sym: PSym) =
   q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
@@ -2174,7 +2173,7 @@ proc genConstStmt(p: BProc, n: PNode) =
   for it in n:
     if it[0].kind == nkSym:
       let sym = it[0].sym
-      if not isSimpleConst(sym.typ) and sym.itemId.item in m.alive and genConstSetup(p, sym):
+      if not isSimpleConst(sym.typ) and sym.itemId.item in m.alive and genConstSetup(m, sym):
         genConstDefinition(m, p, sym)
 
 proc expr(p: BProc, n: PNode, d: var TLoc) =
@@ -2208,7 +2207,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
       if isSimpleConst(sym.typ):
         putIntoDest(p, d, n, genLiteral(p, sym.ast, sym.typ), OnStatic)
       elif useAliveDataFromDce in p.module.flags:
-        genConstHeader(p.module, p.module, p, sym)
+        genConstHeader(p.module, p.module, sym)
         assert((sym.loc.r != "") and (sym.loc.t != nil))
         putLocIntoDest(p, d, sym.loc)
       else:
