@@ -186,7 +186,7 @@ proc genRegLoad(c: var TCtx, n: PNode, dest, src: TRegister)
 template isUnset(x: TDest): bool = x < 0
 
 
-proc realType(s: PSym): PType {.inline.} =
+proc routineSignature(s: PSym): PType {.inline.} =
   ## Returns the signature type of the routine `s`
   if s.kind == skMacro: s.internal
   else:                 s.typ
@@ -947,7 +947,7 @@ proc writeBackResult(c: var TCtx, info: PNode) =
   ## If the result value fits into a register but is not stored in one
   ## (because it has its address taken, etc.), emits the code for storing it
   ## back into a register. `info` is only used to provide line information.
-  if not isEmptyType(c.prc.sym.realType[0]):
+  if not isEmptyType(c.prc.sym.routineSignature[0]):
     let
       res = c.prc.sym.ast[resultPos]
       typ = res.typ
@@ -3190,11 +3190,11 @@ proc genExpr*(c: var TCtx; n: PNode): Result[TRegister, VmGenDiag] =
 
 proc genParams(prc: PProc; s: PSym) =
   let
-    params = s.realType.n
+    params = s.routineSignature.n
 
   setLen(prc.regInfo, max(params.len, 1))
 
-  if not isEmptyType(s.realType[0]):
+  if not isEmptyType(s.routineSignature[0]):
     prc.locals[s.ast[resultPos].sym.id] = 0
     prc.regInfo[0] = RegInfo(refCount: 1, kind: slotFixedVar)
 
@@ -3274,7 +3274,7 @@ proc prepareParameters(c: var TCtx, info: PNode) =
   ## Prepares immutable parameters backed by registers for having their address
   ## taken. If an immutable parameter has its address taken, it is transitioned
   ## to a VM memory location at the start of the procedure.
-  let typ = c.prc.sym.realType # the procedure's type
+  let typ = c.prc.sym.routineSignature # the procedure's type
 
   template setupParam(c: var TCtx, s: PSym) =
     if fitsRegister(s.typ) and s.id in c.prc.addressTaken:
@@ -3312,7 +3312,7 @@ proc genProcBody(c: var TCtx; s: PSym, body: PNode): int =
     # iterate over the parameters and allocate space for them:
     genParams(c.prc, s)
 
-    if s.realType.callConv == ccClosure:
+    if s.routineSignature.callConv == ccClosure:
       # reserve a slot for the hidden environment parameter and register the
       # mapping
       c.prc.regInfo.add RegInfo(refCount: 1, kind: slotFixedLet)
@@ -3322,7 +3322,7 @@ proc genProcBody(c: var TCtx; s: PSym, body: PNode): int =
     # result register is setup at the start of macro evaluation
     # XXX: initializing the ``result`` of a macro should be handled through
     #      inserting the necessary code either in ``sem` or here
-    let rt = s.realType[0]
+    let rt = s.routineSignature[0]
     if not isEmptyType(rt) and fitsRegister(rt):
       # initialize the register holding the result
       let r = s.ast[resultPos].sym
