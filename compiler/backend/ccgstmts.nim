@@ -777,7 +777,7 @@ proc genAsmStmt(p: BProc, t: PNode) =
   # see bug #2362, "top level asm statements" seem to be a mis-feature
   # but even if we don't do this, the example in #2362 cannot possibly
   # work:
-  if p.prc == nil:
+  if sfTopLevel in p.prc.flags:
     # top level asm statement?
     p.module.s[cfsProcHeaders].add runtimeFormat(CC[p.config.cCompiler].asmStmtFrmt, [s])
   else:
@@ -793,7 +793,7 @@ proc determineSection(n: PNode): TCFileSection =
 
 proc genEmit(p: BProc, t: PNode) =
   var s = genAsmOrEmitStmt(p, t[1])
-  if p.prc == nil:
+  if sfTopLevel in p.prc.flags:
     # top level emit pragma?
     let section = determineSection(t[1])
     genCLineDir(p.module.s[section], t.info, p.config)

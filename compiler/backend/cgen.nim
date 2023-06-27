@@ -100,6 +100,11 @@ const NonMagics* = {mNewString, mNewStringOfCap, mNewSeq, mSetLengthSeq,
   ## magics that are treated like normal procedures by the code generator.
   ## This set only applies when using the new runtime.
 
+const
+  sfTopLevel* = sfMainModule
+    ## the procedure contains top-level code, which currently affects how
+    ## emit, asm, and error handling works
+
 proc findPendingModule(m: BModule, s: PSym): BModule =
   let ms = s.itemId.module  #getModule(s)
   result = m.g.modules[ms]
@@ -1022,6 +1027,10 @@ proc finishProc*(p: BProc, prc: PSym): string =
     generatedProc.add(p.s(cpsInit))
     generatedProc.add(p.s(cpsStmts))
     if beforeRetNeeded in p.flags: generatedProc.add(~"\t}BeforeRet_: ;$n")
+
+    if sfTopLevel in prc.flags:
+      generatedProc.add ropecg(p.module, "\t#nimTestErrorFlag();$n", [])
+
     if optStackTrace in prc.options: generatedProc.add(deinitFrame(p))
     generatedProc.add(returnStmt)
     generatedProc.add(~"}$N")

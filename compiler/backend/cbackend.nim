@@ -311,6 +311,10 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
     m.init.loc.r = getInitName(bmod)
     m.dataInit.loc.r = getDatInitName(bmod)
 
+    # mark the init procedure so that the code generator can detect and
+    # special-case it:
+    m.init.flags.incl sfTopLevel
+
   # ----- main event processing -----
   let
     config = BackendConfig()
