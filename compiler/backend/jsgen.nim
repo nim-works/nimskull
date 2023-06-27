@@ -1667,17 +1667,7 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
   var
     a: TCompRes
     s: Rope
-    varCode: string
     varName = mangleName(p.module, v)
-    useGlobalPragmas = sfGlobal in v.flags and ({sfPure, sfThread} * v.flags != {})
-
-  if true:
-    if useGlobalPragmas:
-      lineF(p, "if (globalThis.$1 === undefined) {$n", varName)
-      varCode = "globalThis." & $varName
-      inc p.extraIndent
-    else:
-      varCode = "var $2"
 
   if n.kind == nkEmpty:
     if not isIndirect(v) and
@@ -1685,7 +1675,7 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
       lineF(p, "var $1 = null;$n", [varName])
       lineF(p, "var $1_Idx = 0;$n", [varName])
     else:
-      line(p, runtimeFormat(varCode & " = $3;$n", [returnType, varName, createVar(p, v.typ, isIndirect(v))]))
+      lineF(p, "var $2 = $3;$n", [returnType, varName, createVar(p, v.typ, isIndirect(v))])
   else:
     gen(p, n, a)
     case mapType(p, v.typ)
@@ -1700,20 +1690,16 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
       if isBoxedPointer(v):
         s = "[$1, $2]" % [a.address, a.res]
       else:
-        line(p, runtimeFormat(varCode & " = $3, $2_Idx = $4;$n",
-                  [returnType, v.loc.r, a.address, a.res]))
+        lineF(p, "var $2 = $3, $2_Idx = $4;$n",
+                 [returnType, v.loc.r, a.address, a.res])
         # exit early because we've already emitted the definition
         return
     else:
       s = a.res
     if isIndirect(v):
-      line(p, runtimeFormat(varCode & " = [$3];$n", [returnType, v.loc.r, s]))
+      lineF(p, "var $2 = [$3];$n", [returnType, v.loc.r, s])
     else:
-      line(p, runtimeFormat(varCode & " = $3;$n", [returnType, v.loc.r, s]))
-
-  if useGlobalPragmas:
-    dec p.extraIndent
-    lineF(p, "}$n")
+      lineF(p, "var $2 = $3;$n", [returnType, v.loc.r, s])
 
 proc genVarStmt(p: PProc, n: PNode) =
   for it in n.items:
