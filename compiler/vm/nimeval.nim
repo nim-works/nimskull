@@ -86,23 +86,23 @@ proc selectRoutine*(i: Interpreter; name: string): PSym =
 
 proc callRoutine*(i: Interpreter; routine: PSym; args: openArray[PNode]): PNode =
   assert i != nil
-  let c = PCtx(i.graph.vm)
-  result = execProc(c[], routine, args)
+  let c = PEvalContext(i.graph.vm)
+  result = execProc(c.vm, routine, args)
 
 proc getGlobalValue*(i: Interpreter; letOrVar: PSym): PNode =
-  let c = PCtx(i.graph.vm)
-  result = getGlobalValue(c[], letOrVar)
+  let c = PEvalContext(i.graph.vm)
+  result = getGlobalValue(c.vm, letOrVar)
 
 proc setGlobalValue*(i: Interpreter; letOrVar: PSym, val: PNode) =
   ## Sets a global value to a given PNode, does not do any type checking.
-  let c = PCtx(i.graph.vm)
-  setGlobalValue(c[], letOrVar, val)
+  let c = PEvalContext(i.graph.vm)
+  setGlobalValue(c.vm, letOrVar, val)
 
 proc implementRoutine*(i: Interpreter; pkg, module, name: string;
                        impl: proc (a: VmArgs) {.closure, gcsafe.}) =
   assert i != nil
-  let vm = PCtx(i.graph.vm)
-  vm.registerCallback(pkg & "." & module & "." & name, impl)
+  let c = PEvalContext(i.graph.vm)
+  c.vm.registerCallback(pkg & "." & module & "." & name, impl)
 
 proc evalScript*(i: Interpreter; scriptStream: PLLStream = nil) =
   ## This can also be used to *reload* the script.
@@ -165,14 +165,14 @@ proc createInterpreter*(
   var m = graph.makeModule(scriptName)
   incl(m.flags, sfMainModule)
   var idgen = idGeneratorFromModule(m)
-  var vm = newCtx(m, cache, graph, idgen, legacyReportsVmTracer)
+  var vm = initCtx(m, cache, graph, idgen, legacyReportsVmTracer)
   vm.flags = {cgfAllowMeta}
   vm.mode = emRepl
   vm.features = flags
   if registerOps:
     # Register basic system operations and parts of stdlib modules
-    vm[].registerBasicOps()
-  graph.vm = vm
+    vm.registerBasicOps()
+  graph.vm = PEvalContext(vm: vm)
   graph.compileSystemModule()
   result = Interpreter(mainModule: m, graph: graph, scriptName: scriptName, idgen: idgen)
 
@@ -217,7 +217,7 @@ proc runRepl*(
   var idgen = idGeneratorFromModule(m)
 
   if supportNimscript:
-    graph.vm = setupVM(m, cache, "stdin", graph, idgen)
+    graph.vm = PEvalContext(vm: setupVM(m, cache, "stdin", graph, idgen))
 
   graph.compileSystemModule()
   processModule(graph, m, idgen, llStreamOpenStdIn(r))

@@ -49,14 +49,14 @@ from compiler/vm/vmlegacy import legacyReportsVmTracer
 from std/strutils import cmpIgnoreStyle, contains
 
 proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
-              graph: ModuleGraph; idgen: IdGenerator): PEvalContext =
+              graph: ModuleGraph; idgen: IdGenerator): TCtx =
   # For Nimble we need to export 'setupVM'.
-  result = newCtx(module, cache, graph, idgen, legacyReportsVmTracer)
+  result = initCtx(module, cache, graph, idgen, legacyReportsVmTracer)
   # for backwards compatibility, allow meta expressions in nimscript (this
   # matches the previous behaviour)
   result.flags = {cgfAllowMeta}
   result.mode = emRepl
-  registerBasicOps(result[])
+  registerBasicOps(result)
 
   proc listDirs(a: VmArgs, filter: set[PathComponent]) =
     let dir = getString(a, 0)
@@ -213,10 +213,10 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
   # - the ``vmopsDanger`` option has no effect on callbacks registered
   #  during `setupVM`
   # - NimScript has access to the macro/compile-time APIs
-  registerAdditionalOps(vm[], disallowDanger)
-  graph.vm = vm
+  registerAdditionalOps(vm, disallowDanger)
+  graph.vm = PEvalContext(vm: vm)
 
   graph.compileSystemModule()
-  discard graph.processModule(m, vm.idgen, stream)
+  discard graph.processModule(m, graph.idgen, stream)
 
   undefSymbol(conf, "nimscript")
