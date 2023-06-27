@@ -2187,11 +2187,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
     var sym = n.sym
     case sym.kind
     of skMethod:
-      if useAliveDataFromDce in p.module.flags or {sfForward} * sym.flags != {}:
-        fillProcLoc(p.module, n)
-        genProcPrototype(p.module, sym)
-      else:
-        genProc(p.module, sym)
+      genProc(p.module, sym)
       putLocIntoDest(p, d, sym.loc)
     of skProc, skConverter, skIterator, skFunc:
       #if sym.kind == skIterator:

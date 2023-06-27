@@ -74,8 +74,6 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   let
     config = graph.config
 
-  generateMethodDispatchers(graph)
-
   var g = newModuleList(graph)
 
   # first create a module list entry for each input module. This has to happen
@@ -106,6 +104,8 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
   ## Implements the main part of the C code-generation orchestrator. Expects an
   ## already populated ``BModuleList``.
+
+  generateMethodDispatchers(graph)
 
   # generate the definitions for all globals first, so that the symbols all
   # have mangled names already; the order in which this happens doesn't matter

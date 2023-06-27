@@ -60,7 +60,6 @@ import
   compiler/backend/[
     extccomp,
     ccgutils,
-    cgmeth,
     cgendata
   ],
   compiler/plugins/[
@@ -1636,12 +1635,6 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
       m.initProc.options = initProcOptions(m)
       genProcBody(m.initProc, n)
 
-    if sfMainModule in m.module.flags and useAliveDataFromDce in m.flags:
-        # methods need to be special-cased for IC, as whether a dispatcher is
-        # alive is only know after ``transf`` (phase-ordering problem)
-        generateMethodDispatchers(graph)
-        for disp in dispatchers(graph):
-          genProcAux(m, disp)
 
   # for compatibility, the code generator still manages its own "closed order"
   # list, but this should be phased out eventually
