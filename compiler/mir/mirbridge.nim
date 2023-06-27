@@ -169,24 +169,14 @@ proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
   ## is important that ``canonicalize`` is applied to *all* code reaching
   ## the code-generators, so that they can depend on the shape of the
   ## resulting AST
-  let config = graph.config
-  if config.getStrDefine("nimShowMirInput") == owner.name.s:
-    writeBody(config, "-- input AST: " & owner.name.s):
-      config.writeln(treeRepr(config, body, reprConfig))
-
+  echoInput(graph.config, owner, body)
   # step 1: generate a ``MirTree`` from the input AST
   let (tree, sourceMap) = generateCode(graph, owner, options, body)
-
-  if graph.config.getStrDefine("nimShowMir") == owner.name.s:
-    writeBody(config, "-- MIR: " & owner.name.s):
-      config.writeln(print(tree))
+  echoMir(graph.config, owner, tree)
 
   # step 2: translate it back
   result = generateAST(graph, idgen, owner, tree, sourceMap)
-
-  if config.getStrDefine("nimShowMirOutput") == owner.name.s:
-    writeBody(config, "-- output AST: " & owner.name.s):
-      config.writeln(treeRepr(config, result, reprConfig))
+  echoOutput(graph.config, owner, result)
 
 proc canonicalizeWithInject*(graph: ModuleGraph, idgen: IdGenerator,
                              owner: PSym, body: PNode,
