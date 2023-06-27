@@ -158,11 +158,12 @@ proc group(n: PNode, decl, imperative: var seq[PNode]) =
     # of nested scopes (those inside ``if``, ``block``, etc. statements)
     imperative.add(n)
 
-proc createModuleOp(graph: ModuleGraph, idgen: IdGenerator, name: string, module: PSym, body: PNode, options: TOptions): PSym =
+proc createModuleOp(graph: ModuleGraph, idgen: IdGenerator, postfix: string,
+                    module: PSym, body: PNode, options: TOptions): PSym =
   ## Creates the symbol for a module-bound operator. Note that this attachment
   ## is purely at the conceptional level at the moment.
-  result = newSym(skProc, getIdent(graph.cache, name), nextSymId idgen,
-                  module, module.info, options)
+  result = newSym(skProc, getIdent(graph.cache, module.name.s & postfix),
+                  nextSymId idgen, module, module.info, options)
   # the procedure doesn't return anything and doesn't have parameters:
   result.typ = newProcType(module.info, nextTypeId idgen, module)
 
@@ -387,7 +388,7 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
 
   # now that we have the code that makes up the user-defined module
   # initialization, we wrap it into a procedure:
-  result.init = createModuleOp(graph, idgen, m.name.s & "Init", m, imperative, options)
+  result.init = createModuleOp(graph, idgen, "Init", m, imperative, options)
   result.init.flags = m.flags * {sfInjectDestructors} # inherit the flag
   # we also need to make sure that the owner of all entities defined inside
   # the body is adjusted:
@@ -395,13 +396,13 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
 
   # create a procedure for the data-init operator already. The selected backend
   # is then responsible for filling it with content
-  result.dataInit = createModuleOp(graph, idgen, m.name.s & "DatInit", m, newNode(nkEmpty), options)
+  result.dataInit = createModuleOp(graph, idgen, "DatInit", m, newNode(nkEmpty), options)
 
   # setup the module struct clean-up operator:
   let destructorBody = generateModuleDestructor(graph, result)
-  result.destructor = createModuleOp(graph, idgen, m.name.s & "Deinit", m, destructorBody, options)
+  result.destructor = createModuleOp(graph, idgen, "Deinit", m, destructorBody, options)
 
-  result.preInit = createModuleOp(graph, idgen, m.name.s & "PreInit", m, newNode(nkEmpty), options)
+  result.preInit = createModuleOp(graph, idgen, "PreInit", m, newNode(nkEmpty), options)
 
 # Below is the `passes` interface implementation
 
