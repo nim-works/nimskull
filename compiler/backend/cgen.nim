@@ -1316,9 +1316,6 @@ proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModul
   result.sigConflicts = initCountTable[SigHash]()
   result.initProc = newProc(nil, result)
   result.initProc.options = initProcOptions(result)
-  result.preInitProc = newProc(nil, result)
-  result.preInitProc.flags.incl nimErrorFlagDisabled
-  result.preInitProc.labels = 100_000 # little hack so that unique temporaries are generated
   initNodeTable(result.dataCache)
   result.typeStack = @[]
   result.typeNodesName = getTempName(result)
@@ -1326,7 +1323,6 @@ proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModul
   # don't generate a TFrame which can confuse the stack bottom initialization:
   if sfSystemModule in module.flags:
     incl result.flags, preventStackTrace
-    excl(result.preInitProc.options, optStackTrace)
   let ndiName = if optCDebug in g.config.globalOptions: changeFileExt(completeCfilePath(g.config, filename), "ndi")
                 else: AbsoluteFile""
   open(result.ndi, ndiName, g.config)

@@ -181,7 +181,6 @@ type
     typeInfoMarker*: TypeCache ## needed for generating type information
     typeInfoMarkerV2*: TypeCache
     initProc*: BProc          ## code for init procedure
-    preInitProc*: BProc       ## code executed before the init proc
     typeStack*: TTypeSeq      ## used for type generation
     dataCache*: TNodeTable
     typeNodes*: int ## used for type info generation
