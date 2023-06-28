@@ -139,9 +139,6 @@ proc semTypeOf(c: PContext; n: PNode): PNode
 proc computeRequiresInit(c: PContext, t: PType): bool
 proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode
 proc hasUnresolvedArgs(c: PContext, n: PNode): bool
-proc isArrayConstr(n: PNode): bool {.inline.} =
-  result = n.kind == nkBracket and
-    n.typ.skipTypes(abstractInst).kind == tyArray
 
 proc wrapErrorAndUpdate(c: ConfigRef, n: PNode, s: PSym): PNode =
   ## Wraps the erroneous AST `n` in an error node, sets it as the AST of `s`,
