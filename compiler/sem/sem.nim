@@ -188,7 +188,7 @@ proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
   if (x.kind == nkCurly and formal.kind == tySet and formal.base.kind != tyGenericParam) or
     (x.kind in {nkPar, nkTupleConstr}) and formal.kind notin {tyUntyped, tyBuiltInTypeClass}:
     x = changeType(c, x, formal, check=true)
-    
+
     if x.isError:
       result = c.config.wrapError(a)
       return

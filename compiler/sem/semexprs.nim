@@ -838,7 +838,7 @@ proc isArrayConstr(n: PNode): bool {.inline.} =
 
 proc fixAbstractType(c: PContext, n: PNode): PNode =
   assert n != nil
-  
+
   var hasError = false
 
   result = n
