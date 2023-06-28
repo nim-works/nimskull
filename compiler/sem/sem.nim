@@ -621,20 +621,6 @@ proc semRealConstExpr(c: PContext, n: PNode): PNode =
   if result.kind != nkError:
     result = evalConstExpr(c, result)
 
-proc semExprFlagDispatched(c: PContext, n: PNode, flags: TExprFlags): PNode =
-  if efNeedStatic in flags:
-    if efPreferNilResult in flags:
-      return tryConstExpr(c, n)
-    else:
-      return semConstExpr(c, n)
-  else:
-    result = semExprWithType(c, n, flags)
-    if efPreferStatic in flags:
-      var evaluated = getConstExpr(c.module, result, c.idgen, c.graph)
-      if evaluated != nil: return evaluated
-      evaluated = evalAtCompileTime(c, result)
-      if evaluated != nil: return evaluated
-
 when not defined(nimHasSinkInference):
   {.pragma: nosinks.}
 
