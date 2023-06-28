@@ -761,7 +761,7 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   ## program compilation.
   addInNimDebugUtils(c.config, "semStmtAndGenerateGenerics", n, result)
 
-  proc isImportSystemStmt(g: ModuleGraph; n: PNode): bool =
+  proc isImportSystemStmt(g: ModuleGraph; n: PNode): bool {.nimcall.} =
     ## true if `n` is an import statement referring to the system module
     if g.systemModule == nil: return false
     case n.kind
