@@ -650,16 +650,6 @@ when not defined(nimHasSinkInference):
 
 include hlo, seminst, semcall
 
-proc resetSemFlag(n: PNode) =
-  if n != nil:
-    excl n.flags, nfSem
-    case n.kind
-    of nkError:
-      discard
-    else:
-      for i in 0..<n.safeLen:
-        resetSemFlag(n[i])
-
 proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
                        s: PSym, flags: TExprFlags): PNode =
   ## Semantically check the output of a macro.
@@ -668,6 +658,17 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
   ## reassigned, and binding the unbound identifiers that the macro output
   ## contains.
   c.config.addInNimDebugUtils("semAfterMacroCall", s, macroResult, result)
+
+  proc resetSemFlag(n: PNode) =
+    if n != nil:
+      excl n.flags, nfSem
+      case n.kind
+      of nkError:
+        discard
+      else:
+        for i in 0..<n.safeLen:
+          resetSemFlag(n[i])
+
   inc(c.config.evalTemplateCounter)
   if c.config.evalTemplateCounter > evalTemplateLimit:
     globalReport(c.config, s.info, SemReport(kind: rsemTemplateInstantiationTooNested))
