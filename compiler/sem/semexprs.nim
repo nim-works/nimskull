@@ -1076,6 +1076,28 @@ proc fixVarArgumentsAndAnalyse(c: PContext, n: PNode): PNode =
 
 include semmagic
 
+proc fixupTypeAfterEval(c: PContext, evaluated, eOrig: PNode): PNode =
+  # recompute the types as 'eval' isn't guaranteed to construct types nor
+  # that the types are sound:
+  # XXX: `fixupTypeAfterEval` is not really needed anymore
+  when true:
+    if eOrig.typ.kind in {tyUntyped, tyTyped, tyTypeDesc}:
+      # XXX: is this case still used now?
+      result = semExprWithType(c, evaluated)
+    else:
+      result = evaluated
+  else:
+    result = semExprWithType(c, evaluated)
+    #result = fitNode(c, e.typ, result) inlined with special case:
+    let arg = result
+    result = indexTypesMatch(c, eOrig.typ, arg.typ, arg)
+    if result == nil:
+      result = arg
+      # for 'tcnstseq' we support [] to become 'seq'
+      if eOrig.typ.skipTypes(abstractInst).kind == tySequence and
+         isArrayConstr(arg):
+        arg.typ = eOrig.typ
+
 proc evalAtCompileTime(c: PContext, n: PNode): PNode =
   result = n
   if n.kind notin nkCallKinds or n[0].kind != nkSym: return
