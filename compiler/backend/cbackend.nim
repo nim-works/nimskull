@@ -148,11 +148,20 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
   prepare(g, discovery)
 
   # prepare the newly discovered dynlib procedures:
+  # XXX: dynlib procedure handling is going to move into the unified backend
+  #      processing pipeline (i.e., the ``process`` iterator) in the future
   for _, s in peek(discovery.procedures):
     if lfDynamicLib in s.loc.flags:
-      let bmod = g.modules[s.itemId.module.int]
-      fillProcLoc(bmod, newSymNode(s))
-      symInDynamicLib(bmod, s)
+      let m = g.modules[s.itemId.module.int]
+      fillProcLoc(m, newSymNode(s))
+      symInDynamicLib(m, s)
+
+      if m != bmod:
+        # record the foreign dependencies as late late-dependencies
+        for it in m.extra.items:
+          registerLate(discovery, s, m.module.position.FileIndex)
+
+        m.extra.setLen(0)
 
   proc handleInline(inl: var InliningData, m: ModuleId, prc: PSym,
                     body: MirTree): Option[uint32] {.nimcall.} =
@@ -202,6 +211,9 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
       dependOnCompilerProc(inl, discovery, evt.module, g.graph,
                            "initThreadVarsEmulation")
 
+    # generating the code for the dynlib procedures might have raised some
+    # late dependencies:
+    processLate(bmod, discovery, inl, evt.module, none(uint32))
   of bekPartial:
     # register inline dependencies:
     let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.tree)
