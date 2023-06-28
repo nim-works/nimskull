@@ -778,7 +778,7 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
           return true
     else: discard
 
-  proc isEmptyTree(n: PNode): bool =
+  proc isEmptyTree(n: PNode): bool {.nimcall.} =
     ## true if `n` is empty that shouldn't count as a top level statement
     case n.kind
     of nkStmtList:
