@@ -833,6 +833,9 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     if hasError:
       result = c.config.wrapError(result)
 
+proc isArrayConstr(n: PNode): bool {.inline.} =
+  n.kind == nkBracket and n.typ.skipTypes(abstractInst).kind == tyArray
+
 proc fixAbstractType(c: PContext, n: PNode): PNode =
   assert n != nil
   
