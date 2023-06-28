@@ -635,7 +635,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
   ## contains.
   c.config.addInNimDebugUtils("semAfterMacroCall", s, macroResult, result)
 
-  proc resetSemFlag(n: PNode) =
+  proc resetSemFlag(n: PNode) {.nimcall.} =
     if n != nil:
       excl n.flags, nfSem
       case n.kind
