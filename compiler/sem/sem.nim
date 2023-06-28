@@ -792,33 +792,6 @@ proc semConceptBody(c: PContext, n: PNode): PNode
 
 include semtypes, semtempl, semgnrc, semstmts, semexprs
 
-proc isImportSystemStmt(g: ModuleGraph; n: PNode): bool =
-  ## true if `n` is an import statement referring to the system module
-  if g.systemModule == nil: return false
-  case n.kind
-  of nkImportStmt:
-    for x in n:
-      if x.kind == nkIdent:
-        let f = checkModuleName(g.config, x, false)
-        if f == g.systemModule.info.fileIndex:
-          return true
-  of nkImportExceptStmt, nkFromStmt:
-    if n[0].kind == nkIdent:
-      let f = checkModuleName(g.config, n[0], false)
-      if f == g.systemModule.info.fileIndex:
-        return true
-  else: discard
-
-proc isEmptyTree(n: PNode): bool =
-  ## true if `n` is empty that shouldn't count as a top level statement
-  case n.kind
-  of nkStmtList:
-    for it in n:
-      if not isEmptyTree(it): return false
-    result = true
-  of nkEmpty, nkCommentStmt: result = true
-  else: result = false
-
 proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   ## given top level statements from a module, carries out semantic analysis:
   ## - per module, ensure system module is improted first unless in system
@@ -831,6 +804,33 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   ## accumulator across the various top level statements, modules, and overall
   ## program compilation.
   addInNimDebugUtils(c.config, "semStmtAndGenerateGenerics", n, result)
+
+  proc isImportSystemStmt(g: ModuleGraph; n: PNode): bool =
+    ## true if `n` is an import statement referring to the system module
+    if g.systemModule == nil: return false
+    case n.kind
+    of nkImportStmt:
+      for x in n:
+        if x.kind == nkIdent:
+          let f = checkModuleName(g.config, x, false)
+          if f == g.systemModule.info.fileIndex:
+            return true
+    of nkImportExceptStmt, nkFromStmt:
+      if n[0].kind == nkIdent:
+        let f = checkModuleName(g.config, n[0], false)
+        if f == g.systemModule.info.fileIndex:
+          return true
+    else: discard
+
+  proc isEmptyTree(n: PNode): bool =
+    ## true if `n` is empty that shouldn't count as a top level statement
+    case n.kind
+    of nkStmtList:
+      for it in n:
+        if not isEmptyTree(it): return false
+      result = true
+    of nkEmpty, nkCommentStmt: result = true
+    else: result = false
 
   if c.isfirstTopLevelStmt and not isImportSystemStmt(c.graph, n):
     if sfSystemModule notin c.module.flags and not isEmptyTree(n):
