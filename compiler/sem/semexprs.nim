@@ -2089,7 +2089,9 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
           of skTemplate: result = semTemplateExpr(c, n, s, flags)
           else: discard
       of skType:
-        result = symNodeFromType(c, semTypeNode(c, n, nil), n.info)
+        let t = semTypeNode(c, n, nil)
+        result = newSymNode(symFromType(c, t, n.info), n.info)
+        result.typ = makeTypeDesc(c, t)
       else:
         discard
 

@@ -1856,6 +1856,12 @@ proc semProcTypeWithScope(c: PContext, n: PNode,
     when useEffectSystem: setEffectsForProcType(c.graph, result, n[1])
   closeScope(c)
 
+proc symFromType(c: PContext; t: PType, info: TLineInfo): PSym =
+  if t.sym != nil: return t.sym
+  result = newSym(skType, getIdent(c.cache, "AnonType"), nextSymId c.idgen, t.owner, info)
+  result.flags.incl sfAnon
+  result.typ = t
+
 proc symFromExpectedTypeNode(c: PContext, n: PNode): PSym =
   if n.kind == nkType:
     result = symFromType(c, n.typ, n.info)
