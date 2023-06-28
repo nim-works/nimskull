@@ -488,14 +488,16 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
 proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
                         allowed: TSymFlags): PSym
 
-proc typeAllowedCheck(c: PContext; info: TLineInfo; typ: PType; kind: TSymKind;
-                      flags: TTypeAllowedFlags = {}) =
-  let t = typeAllowed(typ, kind, c, flags)
+proc paramsTypeCheck(c: PContext, typ: PType) {.inline.} =
+  let
+    kind = skProc
+    t = typeAllowed(typ, kind, c)
+    info = typ.n.info
   if t != nil:
     # var err: string
     # if t == typ:
     #   err = "invalid type: '$1' for $2" % [typeToString(typ), toHumanStr(kind)]
-    #   if kind in {skVar, skLet, skConst} and taIsTemplateOrMacro in flags:
+    #   if kind in {skVar, skLet, skConst}:
     #     err &= ". Did you mean to call the $1 with '()'?" % [toHumanStr(typ.owner.kind)]
     # else:
     #   err = "invalid type: '$1' in this context: '$2' for $3" % [typeToString(t),
@@ -507,10 +509,7 @@ proc typeAllowedCheck(c: PContext; info: TLineInfo; typ: PType; kind: TSymKind;
         allowed: t,
         actual: typ,
         kind: kind,
-        allowedFlags: flags)))
-
-proc paramsTypeCheck(c: PContext, typ: PType) {.inline.} =
-  typeAllowedCheck(c, typ.n.info, typ, skProc)
+        allowedFlags: {})))
 
 proc semDirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode
 proc semWhen(c: PContext, n: PNode, semCheck: bool = true): PNode
