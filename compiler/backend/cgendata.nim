@@ -177,8 +177,6 @@ type
     typeNodes*, nimTypes*: int ## used for type info generation
     typeNodesName*, nimTypesName*: Rope ## used for type info generation
     labels*: Natural          ## for generating unique module-scope names
-    extensionLoaders*: array['0'..'9', Rope] ## special procs for the
-                                             ## OpenGL wrapper
     sigConflicts*: CountTable[SigHash]
     g*: BModuleList
     ndi*: NdiFile
