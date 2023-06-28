@@ -204,7 +204,6 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
 
   if arg.typ.isNil:
     c.config.localReport(arg.info, reportAst(rsemExpressionHasNoType, arg))
-
     # error correction:
     result = copyTree(arg)
     result.typ = formal
