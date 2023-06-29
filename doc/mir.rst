@@ -136,6 +136,9 @@ in memory:
   finally  = "finally", stmt, "end"
   try-stmt = "try", stmt, [except], [finally], "end"
 
+  asm = "asm", name, {name}, "end"
+  emit = "emit", name, {name}, "end"
+
   scope = "scope", {stmt-list-item}, "end"
 
   single-stmt = "break" | "return" | "pnode" | def | while-stmt | try-stmt |

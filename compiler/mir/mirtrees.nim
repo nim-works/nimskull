@@ -234,6 +234,11 @@ type
 
     mnkBranch ## defines a branch of an ``mnkExcept`` or ``mnkCase``
 
+    mnkAsm    ## corresponds to the high-level ``asm`` statement. The body is a
+              ## sequence of string literals and entity references
+    mnkEmit   ## corresponds to the ``emit`` directive. Has the same structure
+              ## as ``mnkAsm``
+
     mnkEnd    ## marks the physical end of a sub-tree. Has no semantic
               ## meaning -- it's only required to know where a sub-tree ends
 
@@ -330,7 +335,7 @@ const
     ## introduces a named entity)
 
   SubTreeNodes* = {mnkObjConstr, mnkArgBlock, mnkRegion, mnkStmtList, mnkScope,
-                   mnkIf..mnkBlock, mnkBranch } + DefNodes
+                   mnkIf..mnkBlock, mnkBranch, mnkAsm, mnkEmit } + DefNodes
     ## Nodes that mark the start of a sub-tree. They're always matched with a
     ## corrsponding ``mnkEnd`` node
 
@@ -362,7 +367,7 @@ const
     ## Operators and statements that must not have argument-blocks as input
 
   StmtNodes* = {mnkScope, mnkRepeat, mnkTry, mnkBlock, mnkBreak, mnkReturn,
-                mnkPNode} + DefNodes
+                mnkPNode, mnkAsm, mnkEmit} + DefNodes
     ## Nodes that act as statements syntax-wise
 
   SymbolLike* = {mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal}

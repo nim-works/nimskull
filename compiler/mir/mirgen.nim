@@ -1625,6 +1625,14 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
 
   c.stmts.add endNode(mnkTry)
 
+proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
+  ## Generates and emits the MIR code for an emit directive or ``asm``
+  ## statement.
+  c.stmts.subTree MirNode(kind: kind):
+    for it in n.items:
+      assert it.kind in nkStrKinds + {nkSym}
+      forward: genx(c, it)
+
 proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for assigning the value resulting from
   ## the complex expression `n` to destination `dest`
@@ -1938,20 +1946,26 @@ proc gen(c: var TCtx, n: PNode) =
     # needs them to be present
     c.stmts.add MirNode(kind: mnkPNode, node: n)
   of nkPragma:
-    # if the pragma statement contains an ``.emit`` or ``.computeGoto``, it is
-    # stored in the MIR as an ``mnkPNode`` -- otherwise it's discarded
-    var hasInteresting = false
+    # traverse the pragma statement and look for and extract directives we're
+    # interested in. Everything else is discarded
     for it in n:
       case whichPragma(it)
-      of wEmit, wComputedGoto: hasInteresting = true; break
+      of wEmit:
+        c.stmts.useSource(c.sp, it)
+        genAsmOrEmitStmt(c, mnkEmit, it[1])
+      of wComputedGoto:
+        # the MIR doesn't handle this directive, but the code generators
+        # might. As such, we need to keep it via a ``mnkPNode``. Since the
+        # directive might be combined with some other directive in a
+        # single statement, we split it out into a standalone pragma statement
+        # first
+        # XXX: ideally, sem or transf would split pragma statement up
+        c.stmts.useSource(c.sp, it)
+        c.stmts.add MirNode(kind: mnkPNode, node: newTree(nkPragma, [it]))
       else:     discard
 
-    if hasInteresting:
-      c.stmts.add MirNode(kind: mnkPNode, node: n)
-
   of nkAsmStmt:
-    # these don't have a direct MIR counterpart
-    c.stmts.add MirNode(kind: mnkPNode, node: n)
+    genAsmOrEmitStmt(c, mnkAsm, n)
   of nkWhenStmt:
     # a ``when nimvm`` statement
     gen(c, selectWhenBranch(n, goIsNimvm in c.options))
