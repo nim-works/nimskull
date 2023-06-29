@@ -506,6 +506,20 @@ func discoverFrom*(data: var DiscoveryData, decl: PNode) =
     else:
       unreachable(n.kind)
 
+func discoverFromValueAst(data: var DiscoveryData, ast: PNode) =
+  ## Discover new routines from `ast`, which is an AST representing a value
+  ## construction expression.
+  case ast.kind
+  of nkSym:
+    let s = ast.sym
+    if s.kind in routineKinds:
+      register(data, procedures, s)
+  of nkWithSons:
+    for n in ast.items:
+      discoverFromValueAst(data, n)
+  of nkWithoutSons - {nkSym}:
+    discard "nothing to do"
+
 func queue(iter: var ProcedureIter, prc: PSym, m: FileIndex) =
   ## If eligible for processing and code generation, adds `prc` to
   ## `iter`'s queue.
@@ -521,20 +535,6 @@ func queueAll(iter: var ProcedureIter, data: var DiscoveryData,
   ## processed/read.
   for _, it in visit(data.procedures):
     queue(iter, it, origin)
-
-func discoveryFromValue(data: var DiscoveryData, ast: PNode) =
-  ## Discover new routines from `ast`, which is an AST representing a value
-  ## construction expression.
-  case ast.kind
-  of nkSym:
-    let s = ast.sym
-    if s.kind in routineKinds:
-      register(data, procedures, s)
-  of nkWithSons:
-    for n in ast.items:
-      discoveryFromValue(data, n)
-  of nkWithoutSons - {nkSym}:
-    discard "nothing to do"
 
 # ----- ``process`` iterator implementation -----
 
@@ -560,7 +560,7 @@ func processConstants(data: var DiscoveryData): seq[(FileIndex, int)] =
   ## and marks the constants as processed.
   assert data.procedures.isProcessed
   for _, s in peek(data.constants):
-    discoveryFromValue(data, astdef(s))
+    discoverFromValueAst(data, astdef(s))
     # the procedure needs to be queued from the context of the module `s` is
     # attached to:
     let m = moduleId(s).FileIndex
