@@ -43,6 +43,8 @@ Options
                           By default turned on.
 --skipFrom:file           Read tests to skip from ``file`` - one test per
                           line, # comments ignored
+--tryFailing              Run tests marked as "known issue" and verify that
+                          they're still failing
 
 
 Running a single test

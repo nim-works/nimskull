@@ -48,6 +48,7 @@ type
     reExeNotFound,
     reInstallFailed    # package installation failed
     reBuildFailed      # package building failed
+    reUnexpectedSuccess# test is expected to fail, but didn't
     reDisabled,        # test is disabled
     reJoined,          # test is disabled because it was joined into the megatest
     reInvalidSpec      # test had problems to parse the spec

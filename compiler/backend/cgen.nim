@@ -711,18 +711,9 @@ proc symInDynamicLib*(m: BModule, sym: PSym) =
       initLocExpr(p, n[i], a)
       params.add(rdLoc(a))
       params.add(", ")
-    let load = "\t$1 = ($2) ($3$4));$n" %
-        [tmp, getTypeDesc(m, sym.typ, skVar), params, makeCString($extname)]
-    var last = lastSon(n)
-    if last.kind == nkHiddenStdConv: last = last[1]
-    internalAssert(m.config, last.kind == nkStrLit)
-    let idx = last.strVal
-    if idx.len == 0:
-      p.s(cpsStmts).add(load)
-    elif idx.len == 1 and idx[0] in {'0'..'9'}:
-      m.extensionLoaders[idx[0]].add(load)
-    else:
-      internalError(m.config, sym.info, "wrong index: " & idx)
+    appcg(p, cpsStmts,
+        "\t$1 = ($2) ($3$4));$n",
+        [tmp, getTypeDesc(m, sym.typ, skVar), params, makeCString($extname)])
 
     # the call is emitted into the dynlib-init section:
     m.s[cfsDynLibInit].addf("{$n", [])
