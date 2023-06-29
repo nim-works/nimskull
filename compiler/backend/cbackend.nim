@@ -248,6 +248,61 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
 
     processLate(bmod, discovery, inl, evt.module, inlineId)
 
+proc emit(m: BModule, inl: InliningData, prc: InlineProc, r: var Rope) =
+  ## Emits the inline procedure `prc` and all its inline dependencies into
+  ## `r`.
+
+  # guard against recurisve inline procedures and the procedure having
+  # been emitted already
+  if m.declaredThings.containsOrIncl(prc.sym.id):
+    return
+
+  # emit the dependencies first:
+  for dep in prc.deps.items:
+    emit(m, inl, inl.inlineProcs[dep], r)
+
+  assert prc.body != nil, "missing body"
+  # conservatively emit a prototype for all procedures to make sure that
+  # recursive procedures work:
+  genProcPrototype(m, prc.sym)
+  r.add(genProc(m, prc.sym, prc.body))
+
+proc generateHeader(g: BModuleList, inl: InliningData, data: DiscoveryData,
+                    s: PSym): BModule =
+  ## Generates a C header file containing the prototypes of all
+  ## ``.exportc``'ed entities. For inline procedure, the full definition is
+  ## emitted.
+  let f =
+    if g.config.headerFile.len > 0: AbsoluteFile(g.config.headerFile)
+    else:                           g.config.projectFull
+
+  result = rawNewModule(g, s,
+                        changeFileExt(completeCfilePath(g.config, f), hExt))
+  result.flags.incl(isHeaderFile)
+
+  # fill the header file with all exported entities:
+  for _, s in all(data.constants):
+    if sfExportc in s.flags:
+      useConst(result, s)
+
+  for _, s in all(data.globals):
+    if sfExportc in s.flags:
+      genVarPrototype(result, newSymNode(s))
+
+  for _, s in all(data.procedures):
+    # we don't want to emit compilerprocs (which are automatically marked
+    # as ``exportc``)
+    if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
+      if ccInline == s.typ.callConv:
+        # inline procedure get inlined into the header
+        let id = inl.inlineMap[s.id]
+        var r: string
+        emit(result, inl, inl.inlineProcs[id], r)
+        result.s[cfsProcs].add(r)
+      else:
+        # for non-inline procedure, only a prototype is placed in the header
+        genProcPrototype(result, s)
+
 proc generateCodeForMain(m: BModule, modules: ModuleList) =
   ## Generates and emits the C code for the program's or library's entry
   ## point.
@@ -291,17 +346,6 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   for key, val in mlist.modules.pairs:
     let m = newModule(g, val.sym, config)
     m.idgen = val.idgen
-
-  # setup the module for the generated header, if required:
-  if optGenIndex in config.globalOptions:
-    let f =
-      if config.headerFile.len > 0:
-        AbsoluteFile(config.headerFile)
-      else:
-        config.projectFull
-    g.generatedHeader = rawNewModule(g, mlist.modules[config.projectMainIdx2].sym,
-      changeFileExt(completeCfilePath(config, f), hExt))
-    incl g.generatedHeader.flags, isHeaderFile
 
   generateCode(graph, g, mlist)
 
@@ -355,22 +399,6 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
   # procedure is used. Due to how ``cgen`` currently works, this means
   # generating C code for the procedure again
   for i, m in mlist.modules.pairs:
-    proc emit(m: BModule, inl: InliningData, prc: InlineProc, r: var Rope) =
-      # guard against recurisve inline procedures and the procedure having
-      # been emitted already
-      if m.declaredThings.containsOrIncl(prc.sym.id):
-        return
-
-      # emit the dependencies first:
-      for dep in prc.deps.items:
-        emit(m, inl, inl.inlineProcs[dep], r)
-
-      assert prc.body != nil, "missing body"
-      # conservatively emit a prototype for all procedures to make sure that
-      # recursive procedures work:
-      genProcPrototype(m, prc.sym)
-      r.add(genProc(m, prc.sym, prc.body))
-
     let bmod = g.modules[i.int]
 
     var r: Rope
@@ -379,6 +407,12 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
 
     # append the generated procedures to the module:
     bmod.s[cfsProcs].add(r)
+
+  if optGenIndex in graph.config.globalOptions:
+    # XXX: the header is just a normal C file artifact of ``generateCode``,
+    #      don't store it with ``BModuleList``
+    g.generatedHeader = generateHeader(g, inl, discovery,
+                                       mlist[graph.config.projectMainIdx2].sym)
 
   # finalize code generation for the modules and generate and emit the code
   # for the 'main' procedure:

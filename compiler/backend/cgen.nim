@@ -579,7 +579,7 @@ proc getLabel(p: BProc): TLabel =
 proc fixLabel(p: BProc, labl: TLabel) =
   lineF(p, cpsStmts, "$1: ;$n", [labl])
 
-proc genVarPrototype(m: BModule, n: PNode)
+proc genVarPrototype*(m: BModule, n: PNode)
 proc genProcPrototype*(m: BModule, sym: PSym)
 proc genStmts*(p: BProc, t: PNode)
 proc expr(p: BProc, n: PNode, d: var TLoc)

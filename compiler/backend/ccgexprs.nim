@@ -2154,8 +2154,6 @@ proc useConst*(m: BModule; sym: PSym) =
     let headerDecl = "extern NIM_CONST $1 $2;$n" %
         [getTypeDesc(m, sym.loc.t, skVar), sym.loc.r]
     m.s[cfsData].add(headerDecl)
-    if sfExportc in sym.flags and m.g.generatedHeader != nil:
-      m.g.generatedHeader.s[cfsData].add(headerDecl)
 
 proc genConstDefinition*(q: BModule; sym: PSym) =
   let p = newProc(nil, q)
