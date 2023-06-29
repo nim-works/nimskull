@@ -152,7 +152,8 @@ type
       ## to the RTTI setup code for some type from a foreign module (i.e., one
       ## different from the module that acts as the current context) to be
       ## emitted, and this setup code might reference additional procedures.
-      ## Written: by the code generator; reset by the orchestrator
+      ## Written: by the code generator and orchestrator; reset by the
+      ##          orchestrator
       ## Read:    by the orchestrator
       # XXX: move emission of RTTI setup into the orchestrator and remove this
       #      facility

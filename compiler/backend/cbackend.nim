@@ -157,9 +157,10 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
       symInDynamicLib(m, s)
 
       if m != bmod:
-        # record the foreign dependencies as late late-dependencies
+        # move the foreign dependencies into the global late-dependencies list,
+        # so that they will be registered as late late-dependencies
         for it in m.extra.items:
-          registerLate(discovery, s, m.module.position.FileIndex)
+          g.hooks.add (m, it)
 
         m.extra.setLen(0)
 
