@@ -1391,6 +1391,8 @@ proc main() =
         myself &= " " & quoteShell("--failing")
       if retryContainer.retry:
         myself &= " " & quoteShell("--retry")
+      if runKnownIssues:
+        myself &= " " & quoteShell("--tryfailing")
       if targetsStr.len > 0:
         myself &= " " & quoteShell("--targets:" & targetsStr)
       myself &= " " & quoteShell("--nim:" & compilerPrefix)
