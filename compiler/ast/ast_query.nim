@@ -11,7 +11,8 @@ import
     ast_types  # Main ast type definitions
   ],
   compiler/utils/[
-    int128 # Values for integer nodes
+    int128,    # Values for integer nodes
+    idioms,    # `unreachable`
   ]
 
 const
@@ -144,6 +145,23 @@ proc getPIdent*(a: PNode): PIdent {.inline.} =
   of nkSym: a.sym.name
   of nkIdent: a.ident
   else: nil
+
+proc getIdentLineInfo*(n: PNode): TLineInfo =
+  ## Returns the line information of the identifier-like node in the
+  ## (semantically valid) AST `n` appearing in a name slot.
+  var n {.cursor.} = n
+  # unpack the node until we reach the identifier or symbol
+  if n.kind == nkPragmaExpr:
+    n = n[0]
+  if n.kind == nkPostfix:
+    n = n[1]
+  if n.kind == nkAccQuoted:
+    n = n[0]
+
+  result =
+    case n.kind
+    of nkIdent, nkSym: n.info
+    else:              unreachable(n.kind)
 
 proc getnimblePkg*(a: PSym): PSym =
   result = a
