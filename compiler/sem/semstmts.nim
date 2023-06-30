@@ -1891,10 +1891,8 @@ proc checkCovariantParamsUsages(c: PContext; genericType: PType) =
       if result:
         c.config.localReport(genericType.sym.info, reportTyp(
           rsemExpectedInvariantParam, t))
-
     of tySequence:
       return traverseSubTypes(c, t[0])
-
     of tyGenericInvocation:
       let targetBody = t[0]
       for i in 1..<t.len:
@@ -1905,7 +1903,6 @@ proc checkCovariantParamsUsages(c: PContext; genericType: PType) =
             if tfCovariant notin formalFlags:
               c.config.localReport(genericType.sym.info, reportSym(
                 rsemCovariantUsedAsNonCovariant, param.sym))
-
             elif tfWeakCovariant in formalFlags:
               param.flags.incl tfWeakCovariant
             result = true
@@ -1914,31 +1911,25 @@ proc checkCovariantParamsUsages(c: PContext; genericType: PType) =
             if tfContravariant notin formalParam.typ.flags:
               c.config.localReport(genericType.sym.info, reportSym(
                 rsemContravariantUsedAsNonCovariant, param.sym))
-
             result = true
         else:
           subresult traverseSubTypes(c, param)
     of tyAnd, tyOr, tyNot, tyStatic, tyBuiltInTypeClass, tyCompositeTypeClass:
       c.config.localReport(genericType.sym.info, reportTyp(
         rsemNonInvariantCannotBeUsedWith, t))
-
     of tyUserTypeClass, tyUserTypeClassInst:
       c.config.localReport(genericType.sym.info, reportTyp(
         rsemNonInvariantCnnnotBeUsedInConcepts, t))
-
     of tyTuple:
       for fieldType in t.sons:
         subresult traverseSubTypes(c, fieldType)
     of tyPtr, tyRef, tyVar, tyLent:
       if t.base.kind == tyGenericParam: return true
       return traverseSubTypes(c, t.base)
-
     of tyDistinct, tyAlias, tySink:
       return traverseSubTypes(c, t.lastSon)
-
     of tyGenericInst:
       internalError(c.config, "???")
-
     else:
       discard
   discard traverseSubTypes(c, body)
@@ -2067,7 +2058,6 @@ proc checkForMetaFields(c: PContext; n: PNode) =
       if t.kind == tyBuiltInTypeClass and t.len == 1 and t[0].kind == tyProc:
         localReport(c.config, n.info, reportTyp(
           rsemProcIsNotAConcreteType, t))
-
       else:
         localReport(c.config, n.info, reportTyp(
           rsemTIsNotAConcreteType, t))
@@ -2138,14 +2128,13 @@ proc semAllTypeSections(c: PContext; n: PNode): PNode =
   proc gatherStmts(c: PContext; n: PNode; result: PNode) {.nimcall.} =
     case n.kind
     of nkIncludeStmt:
-      for i in 0 ..< n.len:
-        var f = checkModuleName(c.config, n[i])
+      for p in n.items:
+        let f = checkModuleName(c.config, p)
         if f != InvalidFileIdx:
           if containsOrIncl(c.includedFiles, f.int):
             localReport(c.config, n.info, reportAst(
               rsemRecursiveImport, n,
               str = toMsgFilename(c.config, f)))
-
           else:
             let code = c.graph.includeFileCallback(c.graph, c.module, f)
             gatherStmts c, code, result
@@ -2170,20 +2159,6 @@ proc semAllTypeSections(c: PContext; n: PNode): PNode =
 
   rec typeSectionRightSidePass
   rec typeSectionFinalPass
-  when false:
-    # too beautiful to delete:
-    template rec(name; setbit=false) =
-      proc `name rec`(c: PContext; n: PNode) {.nimcall.} =
-        if n.kind == nkTypeSection:
-          when setbit: incl n.flags, nfSem
-          name(c, n)
-        elif n.kind == nkStmtList:
-          for i in 0..<n.len:
-            `name rec`(c, n[i])
-      `name rec`(c, n)
-    rec typeSectionLeftSidePass, true
-    rec typeSectionRightSidePass
-    rec typeSectionFinalPass
 
 proc semTypeSection(c: PContext, n: PNode): PNode =
   ## Processes a type section. This must be done in separate passes, in order
@@ -2204,7 +2179,6 @@ proc addParams(c: PContext, n: PNode) =
   for i in 1..<n.len:
     if n[i].kind == nkSym:
       addParamOrResult(c, n[i].sym)
-
     else:
       semReportIllformedAst(c.config, n[i], {nkSym})
 
@@ -3187,39 +3161,30 @@ proc semRoutineDef(c: PContext, n: PNode): PNode =
     of skMacro:     semMacroDef(c, result)
     else:           unreachable(kind)
 
-
-proc incMod(c: PContext, n: PNode, it: PNode, includeStmtResult: PNode) =
-  var f = checkModuleName(c.config, it)
-  if f != InvalidFileIdx:
-    addIncludeFileDep(c, f)
-    onProcessing(c.graph, f, "include", c.module)
-    if containsOrIncl(c.includedFiles, f.int):
-      localReport(c.config, n.info, reportStr(
-        rsemRecursiveInclude, toMsgFilename(c.config, f)))
-
-    else:
-      includeStmtResult.add semStmt(
-        c, c.graph.includeFileCallback(c.graph, c.module, f), {})
-
-      excl(c.includedFiles, f.int)
-
 proc evalInclude(c: PContext, n: PNode): PNode =
+  proc incMod(c: PContext, n, it, includeStmtResult: PNode) {.nimcall.} =
+    let f = checkModuleName(c.config, it)
+    if f != InvalidFileIdx:
+      addIncludeFileDep(c, f)
+      onProcessing(c.graph, f, "include", c.module)
+      if containsOrIncl(c.includedFiles, f.int):
+        localReport(c.config, n.info, reportStr(
+          rsemRecursiveInclude, toMsgFilename(c.config, f)))
+      else:
+        includeStmtResult.add:
+          semStmt(c, c.graph.includeFileCallback(c.graph, c.module, f), {})
+        excl(c.includedFiles, f.int)
+
   result = newNodeI(nkStmtList, n.info)
-  result.add n
-  for i in 0..<n.len:
-    var imp: PNode
-    let it = n[i]
+  for it in n.items:
     if it.kind == nkInfix and it.len == 3 and it[0].ident.s != "/":
       localReport(c.config, it.info, reportAst(
         rsemUnexpectedInfixInInclude, it, str = it[0].ident.s))
-
     if it.kind == nkInfix and it.len == 3 and it[2].kind == nkBracket:
-      let sep = it[0]
-      let dir = it[1]
-      imp = newNodeI(nkInfix, it.info)
-      imp.add sep
-      imp.add dir
-      imp.add sep # dummy entry, replaced in the loop
+      let imp = shallowCopy(it)
+        ## normalized include path, reused to process each import
+      imp[0] = it[0] # separator
+      imp[1] = it[1] # path
       for x in it[2]:
         imp[2] = x
         incMod(c, n, imp, result)
