@@ -136,9 +136,6 @@ in memory:
   finally  = "finally", stmt, "end"
   try-stmt = "try", stmt, [except], [finally], "end"
 
-  asm = "asm", name, {name}, "end"
-  emit = "emit", name, {name}, "end"
-
   scope = "scope", {stmt-list-item}, "end"
 
   single-stmt = "break" | "return" | "pnode" | def | while-stmt | try-stmt |
@@ -152,7 +149,7 @@ in memory:
 
   in-op     = "none" | name | arg-block | "opParam" {* may only appear inside a region *}
   out-op    = "void" | "raise" | "init" | "fastAsgn" | "asgn" | "switch" |
-              def | if-stmt | case-stmt | region
+              "asm" | "emit" | def | if-stmt | case-stmt | region
   in-out-op = "magic" | "call" | "pathNamed" | "pathPos" | "pathArray" |
               "pathVariant" | "constr" | obj-constr | "cast" | "deref" |
               "addr" | "stdConv" | "conv" | "view" | "derefView"
