@@ -1634,6 +1634,13 @@ proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
       # (including type expressions) ...
       if it.typ != nil and it.typ.kind == tyTypeDesc:
         chain: genTypeExpr(c, it) => arg(c)
+      elif it.kind == nkSym and it.sym.kind == skField:
+        # emit and asm support using raw symbols. So that we don't
+        # have to allow ``skField``s in general, we special case them
+        # here (by pushing them through the MIR phase boxed as
+        # ``mnkLiteral``s)
+        c.stmts.add MirNode(kind: mnkLiteral, lit: it, typ: it.sym.typ)
+        chain: EValue(typ: it.sym.typ) => arg(c)
       else:
         # XXX: we treat the operands as using pass-by-value. This is not
         #      really correct, but it makes the logic here simpler, and
