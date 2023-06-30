@@ -773,23 +773,6 @@ proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
     result = newTreeI(nkBreakStmt, info, [label])
   of mnkReturn:
     result = newTreeI(nkReturnStmt, info, [newNode(nkEmpty)])
-  of mnkAsm, mnkEmit:
-    var r = newNodeI(nkAsmStmt, info)
-    # there cannot be any sub-trees, so we know that the first 'end' node we
-    # find belongs to the statement
-    while tree[cr].kind != mnkEnd:
-      r.add tbSingle(get(tree, cr), cl, cr.info)
-
-    if n.kind == mnkEmit:
-      # turn the ``asm`` statement into an emit directive:
-      transitionSonsKind(r, nkBracket)
-      let ex = newTreeI(nkExprColonExpr, info):
-        [newIdentNode(cl.cache.getIdent("emit"), info), r]
-      result = newTreeI(nkPragma, info, ex)
-    else:
-      result = r
-
-    leave(tree, cr)
   of mnkPNode:
     result = n.node
   of AllNodeKinds - StmtNodes:
@@ -870,6 +853,17 @@ proc tbOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
     newTreeI(nkRaiseStmt, cr.info, [prev.single])
   of mnkCase:
     tbCaseStmt(tree, cl, n, prev, cr)
+  of mnkAsm:
+    var r = newNodeI(nkAsmStmt, cr.info)
+    r.sons = move prev.list
+    r
+  of mnkEmit:
+    var r = newNodeI(nkBracket, cr.info)
+    r.sons = move prev.list
+
+    newTreeI(nkPragma, cr.info, [
+      newTreeI(nkExprColonExpr, cr.info, [
+        newIdentNode(cl.cache.getIdent("emit"), cr.info), r])])
   of AllNodeKinds - OutputNodes:
     unreachable(n.kind)
 

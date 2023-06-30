@@ -1628,10 +1628,20 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
 proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
   ## Generates and emits the MIR code for an emit directive or ``asm``
   ## statement.
-  c.stmts.subTree MirNode(kind: kind):
+  argBlock(c.stmts):
     for it in n.items:
-      assert it.kind in nkStrKinds + {nkSym}
-      forward: genx(c, it)
+      # both asm and emit statements support arbitrary expressions
+      # (including type expressions) ...
+      if it.typ != nil and it.typ.kind == tyTypeDesc:
+        chain: genTypeExpr(c, it) => arg(c)
+      else:
+        # XXX: we treat the operands as using pass-by-value. This is not
+        #      really correct, but it makes the logic here simpler, and
+        #      the whole facility is unsafe enough that one should not depend
+        #      on these kind of details
+        chain: genx(c, it) => arg(c)
+
+  c.stmts.add MirNode(kind: kind)
 
 proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for assigning the value resulting from
