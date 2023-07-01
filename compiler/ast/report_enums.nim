@@ -323,7 +323,6 @@ type
     rsemInvalidModuleName
     rsemCannotImportItself
     rsemRecursiveInclude
-    rsemRecursiveImport
     rsemCannotOpenFile
     rsemExportRequiresToplevel
     rsemExperimentalRequiresToplevel

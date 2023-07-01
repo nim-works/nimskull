@@ -2120,46 +2120,6 @@ proc typeSectionFinalPass(c: PContext, n: PNode) =
         if s.typ.kind in {tyEnum, tyRef, tyObject} and not isTopLevel(c):
           incl(s.flags, sfGenSym)
 
-  #instAllTypeBoundOp(c, n.info)
-
-
-proc semAllTypeSections(c: PContext; n: PNode): PNode =
-  addInNimDebugUtils(c.config, "semAllTypeSections", n, result)
-  proc gatherStmts(c: PContext; n: PNode; result: PNode) {.nimcall.} =
-    case n.kind
-    of nkIncludeStmt:
-      for p in n.items:
-        let f = checkModuleName(c.config, p)
-        if f != InvalidFileIdx:
-          if containsOrIncl(c.includedFiles, f.int):
-            localReport(c.config, n.info, reportAst(
-              rsemRecursiveImport, n,
-              str = toMsgFilename(c.config, f)))
-          else:
-            let code = c.graph.includeFileCallback(c.graph, c.module, f)
-            gatherStmts c, code, result
-            excl(c.includedFiles, f.int)
-    of nkStmtList:
-      for i in 0..<n.len:
-        gatherStmts(c, n[i], result)
-    of nkTypeSection:
-      incl n.flags, nfSem
-      typeSectionLeftSidePass(c, n)
-      result.add n
-    else:
-      result.add n
-
-  result = newNodeI(nkStmtList, n.info)
-  gatherStmts(c, n, result)
-
-  template rec(name) =
-    for i in 0..<result.len:
-      if result[i].kind == nkTypeSection:
-        name(c, result[i])
-
-  rec typeSectionRightSidePass
-  rec typeSectionFinalPass
-
 proc semTypeSection(c: PContext, n: PNode): PNode =
   ## Processes a type section. This must be done in separate passes, in order
   ## to allow the type definitions in the section to reference each other
