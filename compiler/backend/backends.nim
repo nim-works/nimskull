@@ -555,6 +555,47 @@ proc next(iter: var ProcedureIter, graph: ModuleGraph,
     # apply all MIR passes:
     process(result.prc, graph, idgen)
 
+proc preprocessDynlib(graph: ModuleGraph, idgen: IdGenerator,
+                      sym: PSym, deps: var seq[PSym]) =
+  # HACK: so that procedures and unexpanded constants used in the
+  #       expressions passed to `.dylib` pragmas are discovered, we
+  #       translate the expression to MIR code, scan it, and then
+  #       translate it back to AST and update the symbol with it. This is
+  #       horrendous, but fortunately, this hack (`preprocessDynlib``) can
+  #       be removed once handling of dynlib procedures and globals is fully
+  #       implemented in the ``process`` iterator
+  if lfDynamicLib in sym.loc.flags:
+    if sym.annex.path.kind in nkStrKinds:
+      # it's a string, no need to transform nor scan it
+      discard
+    else:
+      # XXX: the logic here ignores a large amount of things
+      #      (options, proper owner symbol, etc.)...
+      var
+        t: MirTree
+        m: SourceMap
+
+      generateCode(graph, {}, sym.annex.path, t, m)
+      for dep in deps(t, {}): # just ignore magics here
+        if dep.kind in routineKinds + {skConst}:
+          deps.add dep
+
+      sym.annex.path = generateAST(graph, idgen, sym.owner, t, m)
+
+proc preprocessDynlib(graph: ModuleGraph, mlist: ModuleList,
+                      data: var DiscoveryData) =
+  # XXX: remove this procedure once ``process`` is fully responsible for
+  #      .dynlib handling
+  var deps: seq[PSym]
+  for _, it in peek(data.procedures):
+    preprocessDynlib(graph, mlist[moduleId(it).FileIndex].idgen, it, deps)
+
+  for it in deps.items:
+    if it.kind in routineKinds:
+      register(data, procedures, it)
+    else:
+      register(data, constants, it)
+
 func processConstants(data: var DiscoveryData): seq[(FileIndex, int)] =
   ## Registers with `data` the procedures used by all un-processed constants
   ## and marks the constants as processed.
@@ -673,6 +714,8 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
     for s in m.structs.threadvars.items:
       register(discovery, threadvars, s)
 
+    preprocessDynlib(graph, modules, discovery)
+
     let ctx = preActions(discovery)
     # inform the caller that the initial set of alive entities became
     # available:
@@ -683,6 +726,8 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
                       frag: MirFragment) =
     ## Reports (i.e., yields an event) a procedure-related event.
     discoverFrom(discovery, noMagics, frag.tree)
+
+    preprocessDynlib(graph, modules, discovery)
 
     let work = preActions(discovery)
     yield BackendEvent(module: m, kind: evt, sym: prc, body: frag)
