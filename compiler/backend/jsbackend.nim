@@ -137,7 +137,7 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 
     modules[m.sym.position.FileIndex] = bmod
 
-  for evt in process(graph, mlist, discovery, {}, BackendConfig()):
+  for evt in process(graph, mlist, discovery, NonMagics, BackendConfig()):
     processEvent(globals, graph, modules, discovery, partial, evt)
 
   # finish the partial procedures:

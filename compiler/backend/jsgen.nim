@@ -141,6 +141,10 @@ const
   sfModuleInit* = sfMainModule
     ## the procedure is the 'init' procedure of a module
 
+  NonMagics* = { mDotDot }
+    ## magics that are treated like normal procedures by the code
+    ## generator
+
 template config*(p: PProc): ConfigRef = p.module.config
 
 proc indentLine(p: PProc, r: Rope): Rope =
