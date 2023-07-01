@@ -1913,11 +1913,6 @@ proc gen(c: var TCtx, n: PNode) =
   of nkProcDef, nkFuncDef, nkIteratorDef, nkMethodDef, nkConverterDef:
     c.stmts.subTree MirNode(kind: mnkDef):
       c.stmts.add procNode(n[namePos].sym)
-      # XXX: this is a temporary solution. The current code-generators
-      #      require procdef nodes in some cases, and instead of
-      #      recreating them during ``astgen``, we carry the original nodes
-      #      over
-      c.stmts.add MirNode(kind: mnkPNode, node: n)
 
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
@@ -1928,14 +1923,10 @@ proc gen(c: var TCtx, n: PNode) =
     # as a ``discard``
     assert n.typ.isEmptyType()
   of nkCommentStmt, nkTemplateDef, nkMacroDef, nkImportStmt,
-     nkImportExceptStmt, nkFromStmt,
-     nkIncludeStmt, nkStaticStmt, nkExportStmt, nkExportExceptStmt,
-     nkTypeSection, nkMixinStmt, nkBindStmt, nkEmpty:
+     nkImportExceptStmt, nkFromStmt, nkIncludeStmt, nkStaticStmt,
+     nkExportStmt, nkExportExceptStmt, nkTypeSection, nkMixinStmt,
+     nkBindStmt, nkConstSection, nkEmpty:
     discard "ignore"
-  of nkConstSection:
-    # const sections are not relevant for the MIR, but the IC implementation
-    # needs them to be present
-    c.stmts.add MirNode(kind: mnkPNode, node: n)
   of nkPragma:
     # if the pragma statement contains an ``.emit`` or ``.computeGoto``, it is
     # stored in the MIR as an ``mnkPNode`` -- otherwise it's discarded

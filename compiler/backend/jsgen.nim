@@ -2497,7 +2497,6 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkIfStmt: genIf(p, n)
   of nkWhileStmt: genWhileStmt(p, n)
   of nkVarSection, nkLetSection: genVarStmt(p, n)
-  of nkConstSection: discard
   of nkCaseStmt: genCaseJS(p, n)
   of nkReturnStmt: genReturnStmt(p, n)
   of nkBreakStmt: genBreakStmt(p, n)
@@ -2511,13 +2510,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkAsmStmt: genAsmOrEmitStmt(p, n)
   of nkTryStmt: genTry(p, n)
   of nkRaiseStmt: genRaiseStmt(p, n)
-  of nkIteratorDef: discard
   of nkPragma: genPragma(p, n)
-  of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:
-    var s = n[namePos].sym
-    if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
-      genSym(p, n[namePos], r)
-      r.res = ""
   of nkFloat128Lit, nkNimNodeLit:
     unreachable()
   of nkWithSons + nkWithoutSons - codegenExprNodeKinds:

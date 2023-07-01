@@ -3109,8 +3109,6 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
   of nkLetSection, nkVarSection:
     unused(c, n, dest)
     genVarSection(c, n)
-  of declarativeDefs:
-    unused(c, n, dest)
   of nkChckRangeF, nkChckRange64, nkChckRange:
     let tmp0 = c.genx(n[0])
     # XXX: range checks currently always happen, even if disabled by the user.
@@ -3154,7 +3152,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
       genCastIntFloat(c, n, dest)
   of nkType:
     genTypeLit(c, n.typ, dest)
-  of nkConstSection, nkPragma, nkAsmStmt:
+  of nkPragma, nkAsmStmt:
     unused(c, n, dest)
   of nkWithSons + nkWithoutSons - codegenExprNodeKinds:
     fail(n.info, vmGenDiagCannotGenerateCode, n)

@@ -2313,10 +2313,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
     assert p.config.exc == excGoto
     genTryGoto(p, n)
   of nkRaiseStmt: genRaiseStmt(p, n)
-  of nkIteratorDef: discard
   of nkPragma: genPragma(p, n)
-  of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef, nkConstSection:
-    discard
   of nkType, nkNimNodeLit:
     unreachable()
   of nkWithSons + nkWithoutSons - codegenExprNodeKinds:

@@ -376,13 +376,11 @@ const
 
     nkAsgn, nkFastAsgn,
 
-    nkProcDef, nkMethodDef, nkConverterDef, nkIteratorDef, nkFuncDef,
-
     nkAsmStmt, nkPragma,
 
     nkIfStmt, nkWhileStmt, nkCaseStmt,
 
-    nkVarSection, nkLetSection, nkConstSection,
+    nkVarSection, nkLetSection,
     nkTryStmt,
 
     nkRaiseStmt, nkReturnStmt, nkBreakStmt, nkBlockStmt, nkDiscardStmt,
