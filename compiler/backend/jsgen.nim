@@ -174,16 +174,16 @@ proc rdLoc(a: TCompRes): Rope {.inline.} =
   else:
     result = "$1[$2]" % [a.address, a.res]
 
-proc newProc(globals: PGlobals, module: BModule, procDef: PNode,
+proc newProc(globals: PGlobals, module: BModule, prc: PSym,
              options: TOptions): PProc =
   result = PProc(
     blocks: @[],
     options: options,
     module: module,
-    procDef: procDef,
+    prc: prc,
+    procDef: (if prc != nil: prc.ast else: nil),
     g: globals,
-    extraIndent: int(procDef != nil))
-  if procDef != nil: result.prc = procDef[namePos].sym
+    extraIndent: int(prc != nil))
 
 proc newInitProc(globals: PGlobals, module: BModule): PProc =
   result = newProc(globals, module, nil, {})
@@ -2237,7 +2237,7 @@ proc optionalLine(p: Rope): Rope =
     return p & "\L"
 
 proc startProc*(g: PGlobals, module: BModule, prc: PSym): PProc =
-  let p = newProc(g, module, prc.ast, prc.options)
+  let p = newProc(g, module, prc, prc.options)
 
   # make sure the procedure has a mangled name:
   discard mangleName(p.module, prc)
