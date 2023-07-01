@@ -235,6 +235,10 @@ proc main =
   echo five.left.value
   echo five.right.value
 
+# make sure that the expandArc output has the expected order by directly
+# referencing ``delete`` here
+let _ = topt_no_cursor.delete
+
 main()
 
 type
@@ -252,6 +256,8 @@ proc p1(): Maybe =
 proc tissue15130 =
   doAssert p1().value == @[123]
 
+let _ = topt_no_cursor.p1
+
 tissue15130()
 
 type
@@ -268,6 +274,8 @@ proc encodedQuery =
 
   for elem in query:
     elem.tt()
+
+let _ = topt_no_cursor.tt
 
 encodedQuery()
 
