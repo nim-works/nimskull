@@ -149,7 +149,7 @@ in memory:
 
   in-op     = "none" | name | arg-block | "opParam" {* may only appear inside a region *}
   out-op    = "void" | "raise" | "init" | "fastAsgn" | "asgn" | "switch" |
-              def | if-stmt | case-stmt | region
+              "asm" | "emit" | def | if-stmt | case-stmt | region
   in-out-op = "magic" | "call" | "pathNamed" | "pathPos" | "pathArray" |
               "pathVariant" | "constr" | obj-constr | "cast" | "deref" |
               "addr" | "stdConv" | "conv" | "view" | "derefView"

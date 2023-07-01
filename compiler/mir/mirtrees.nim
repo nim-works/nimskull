@@ -234,6 +234,12 @@ type
 
     mnkBranch ## defines a branch of an ``mnkExcept`` or ``mnkCase``
 
+    mnkAsm    ## corresponds to the high-level ``asm`` statement. Takes an
+              ## argument block as input, but has itself no meaning at the MIR
+              ## level
+    mnkEmit   ## corresponds to the ``emit`` directive. In the context of the
+              ## MIR, has the same behaviour as ``mnkAsm``
+
     mnkEnd    ## marks the physical end of a sub-tree. Has no semantic
               ## meaning -- it's only required to know where a sub-tree ends
 
@@ -348,7 +354,7 @@ const
     ## Nodes than can appear in the position of inputs/operands
 
   OutputNodes* = {mnkRaise, mnkFastAsgn..mnkInit, mnkSwitch, mnkVoid, mnkIf,
-                  mnkCase, mnkRegion} + DefNodes
+                  mnkCase, mnkRegion, mnkAsm, mnkEmit} + DefNodes
     ## Node kinds that are allowed in every output context
     # TODO: maybe rename to SinkNodes
 

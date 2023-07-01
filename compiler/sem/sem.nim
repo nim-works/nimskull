@@ -139,9 +139,6 @@ proc semTypeOf(c: PContext; n: PNode): PNode
 proc computeRequiresInit(c: PContext, t: PType): bool
 proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode
 proc hasUnresolvedArgs(c: PContext, n: PNode): bool
-proc isArrayConstr(n: PNode): bool {.inline.} =
-  result = n.kind == nkBracket and
-    n.typ.skipTypes(abstractInst).kind == tyArray
 
 proc wrapErrorAndUpdate(c: ConfigRef, n: PNode, s: PSym): PNode =
   ## Wraps the erroneous AST `n` in an error node, sets it as the AST of `s`,
@@ -191,7 +188,7 @@ proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
   if (x.kind == nkCurly and formal.kind == tySet and formal.base.kind != tyGenericParam) or
     (x.kind in {nkPar, nkTupleConstr}) and formal.kind notin {tyUntyped, tyBuiltInTypeClass}:
     x = changeType(c, x, formal, check=true)
-    
+
     if x.isError:
       result = c.config.wrapError(a)
       return
@@ -207,7 +204,6 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
 
   if arg.typ.isNil:
     c.config.localReport(arg.info, reportAst(rsemExpressionHasNoType, arg))
-
     # error correction:
     result = copyTree(arg)
     result.typ = formal
@@ -492,16 +488,16 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
 proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
                         allowed: TSymFlags): PSym
 
-proc getIdentLineInfo(n: PNode): TLineInfo
-
-proc typeAllowedCheck(c: PContext; info: TLineInfo; typ: PType; kind: TSymKind;
-                      flags: TTypeAllowedFlags = {}) =
-  let t = typeAllowed(typ, kind, c, flags)
+proc paramsTypeCheck(c: PContext, typ: PType) {.inline.} =
+  let
+    kind = skProc
+    t = typeAllowed(typ, kind, c)
+    info = typ.n.info
   if t != nil:
     # var err: string
     # if t == typ:
     #   err = "invalid type: '$1' for $2" % [typeToString(typ), toHumanStr(kind)]
-    #   if kind in {skVar, skLet, skConst} and taIsTemplateOrMacro in flags:
+    #   if kind in {skVar, skLet, skConst}:
     #     err &= ". Did you mean to call the $1 with '()'?" % [toHumanStr(typ.owner.kind)]
     # else:
     #   err = "invalid type: '$1' in this context: '$2' for $3" % [typeToString(t),
@@ -513,10 +509,7 @@ proc typeAllowedCheck(c: PContext; info: TLineInfo; typ: PType; kind: TSymKind;
         allowed: t,
         actual: typ,
         kind: kind,
-        allowedFlags: flags)))
-
-proc paramsTypeCheck(c: PContext, typ: PType) {.inline.} =
-  typeAllowedCheck(c, typ.n.info, typ, skProc)
+        allowedFlags: {})))
 
 proc semDirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode
 proc semWhen(c: PContext, n: PNode, semCheck: bool = true): PNode
@@ -525,45 +518,14 @@ proc semTemplateExpr(c: PContext, n: PNode, s: PSym,
 proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
                   flags: TExprFlags = {}): PNode
 
-proc symFromType(c: PContext; t: PType, info: TLineInfo): PSym =
-  if t.sym != nil: return t.sym
-  result = newSym(skType, getIdent(c.cache, "AnonType"), nextSymId c.idgen, t.owner, info)
-  result.flags.incl sfAnon
-  result.typ = t
-
-proc symNodeFromType(c: PContext, t: PType, info: TLineInfo): PNode =
-  result = newSymNode(symFromType(c, t, info), info)
-  result.typ = makeTypeDesc(c, t)
-
 proc hasCycle(n: PNode): bool =
+  # xxx: this isn't used, we should consider reinstating this?
   incl n.flags, nfNone
   for i in 0..<n.safeLen:
     if nfNone in n[i].flags or hasCycle(n[i]):
       result = true
       break
   excl n.flags, nfNone
-
-proc fixupTypeAfterEval(c: PContext, evaluated, eOrig: PNode): PNode =
-  # recompute the types as 'eval' isn't guaranteed to construct types nor
-  # that the types are sound:
-  # XXX: `fixupTypeAfterEval` is not really needed anymore
-  when true:
-    if eOrig.typ.kind in {tyUntyped, tyTyped, tyTypeDesc}:
-      # XXX: is this case still used now?
-      result = semExprWithType(c, evaluated)
-    else:
-      result = evaluated
-  else:
-    result = semExprWithType(c, evaluated)
-    #result = fitNode(c, e.typ, result) inlined with special case:
-    let arg = result
-    result = indexTypesMatch(c, eOrig.typ, arg.typ, arg)
-    if result == nil:
-      result = arg
-      # for 'tcnstseq' we support [] to become 'seq'
-      if eOrig.typ.skipTypes(abstractInst).kind == tySequence and
-         isArrayConstr(arg):
-        arg.typ = eOrig.typ
 
 proc tryConstExpr(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "tryConstExpr", n, result)
@@ -659,34 +621,10 @@ proc semRealConstExpr(c: PContext, n: PNode): PNode =
   if result.kind != nkError:
     result = evalConstExpr(c, result)
 
-proc semExprFlagDispatched(c: PContext, n: PNode, flags: TExprFlags): PNode =
-  if efNeedStatic in flags:
-    if efPreferNilResult in flags:
-      return tryConstExpr(c, n)
-    else:
-      return semConstExpr(c, n)
-  else:
-    result = semExprWithType(c, n, flags)
-    if efPreferStatic in flags:
-      var evaluated = getConstExpr(c.module, result, c.idgen, c.graph)
-      if evaluated != nil: return evaluated
-      evaluated = evalAtCompileTime(c, result)
-      if evaluated != nil: return evaluated
-
 when not defined(nimHasSinkInference):
   {.pragma: nosinks.}
 
 include hlo, seminst, semcall
-
-proc resetSemFlag(n: PNode) =
-  if n != nil:
-    excl n.flags, nfSem
-    case n.kind
-    of nkError:
-      discard
-    else:
-      for i in 0..<n.safeLen:
-        resetSemFlag(n[i])
 
 proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
                        s: PSym, flags: TExprFlags): PNode =
@@ -696,6 +634,17 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
   ## reassigned, and binding the unbound identifiers that the macro output
   ## contains.
   c.config.addInNimDebugUtils("semAfterMacroCall", s, macroResult, result)
+
+  proc resetSemFlag(n: PNode) {.nimcall.} =
+    if n != nil:
+      excl n.flags, nfSem
+      case n.kind
+      of nkError:
+        discard
+      else:
+        for i in 0..<n.safeLen:
+          resetSemFlag(n[i])
+
   inc(c.config.evalTemplateCounter)
   if c.config.evalTemplateCounter > evalTemplateLimit:
     globalReport(c.config, s.info, SemReport(kind: rsemTemplateInstantiationTooNested))
@@ -799,33 +748,6 @@ proc semConceptBody(c: PContext, n: PNode): PNode
 
 include semtypes, semtempl, semgnrc, semstmts, semexprs
 
-proc isImportSystemStmt(g: ModuleGraph; n: PNode): bool =
-  ## true if `n` is an import statement referring to the system module
-  if g.systemModule == nil: return false
-  case n.kind
-  of nkImportStmt:
-    for x in n:
-      if x.kind == nkIdent:
-        let f = checkModuleName(g.config, x, false)
-        if f == g.systemModule.info.fileIndex:
-          return true
-  of nkImportExceptStmt, nkFromStmt:
-    if n[0].kind == nkIdent:
-      let f = checkModuleName(g.config, n[0], false)
-      if f == g.systemModule.info.fileIndex:
-        return true
-  else: discard
-
-proc isEmptyTree(n: PNode): bool =
-  ## true if `n` is empty that shouldn't count as a top level statement
-  case n.kind
-  of nkStmtList:
-    for it in n:
-      if not isEmptyTree(it): return false
-    result = true
-  of nkEmpty, nkCommentStmt: result = true
-  else: result = false
-
 proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   ## given top level statements from a module, carries out semantic analysis:
   ## - per module, ensure system module is improted first unless in system
@@ -838,6 +760,33 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   ## accumulator across the various top level statements, modules, and overall
   ## program compilation.
   addInNimDebugUtils(c.config, "semStmtAndGenerateGenerics", n, result)
+
+  proc isImportSystemStmt(g: ModuleGraph; n: PNode): bool {.nimcall.} =
+    ## true if `n` is an import statement referring to the system module
+    if g.systemModule == nil: return false
+    case n.kind
+    of nkImportStmt:
+      for x in n:
+        if x.kind == nkIdent:
+          let f = checkModuleName(g.config, x, false)
+          if f == g.systemModule.info.fileIndex:
+            return true
+    of nkImportExceptStmt, nkFromStmt:
+      if n[0].kind == nkIdent:
+        let f = checkModuleName(g.config, n[0], false)
+        if f == g.systemModule.info.fileIndex:
+          return true
+    else: discard
+
+  proc isEmptyTree(n: PNode): bool {.nimcall.} =
+    ## true if `n` is empty that shouldn't count as a top level statement
+    case n.kind
+    of nkStmtList:
+      for it in n:
+        if not isEmptyTree(it): return false
+      result = true
+    of nkEmpty, nkCommentStmt: result = true
+    else: result = false
 
   if c.isfirstTopLevelStmt and not isImportSystemStmt(c.graph, n):
     if sfSystemModule notin c.module.flags and not isEmptyTree(n):

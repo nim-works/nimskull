@@ -854,6 +854,17 @@ proc tbOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
     newTreeI(nkRaiseStmt, cr.info, [prev.single])
   of mnkCase:
     tbCaseStmt(tree, cl, n, prev, cr)
+  of mnkAsm:
+    var r = newNodeI(nkAsmStmt, cr.info)
+    r.sons = move prev.list
+    r
+  of mnkEmit:
+    var r = newNodeI(nkBracket, cr.info)
+    r.sons = move prev.list
+
+    newTreeI(nkPragma, cr.info, [
+      newTreeI(nkExprColonExpr, cr.info, [
+        newIdentNode(cl.cache.getIdent("emit"), cr.info), r])])
   of AllNodeKinds - OutputNodes:
     unreachable(n.kind)
 

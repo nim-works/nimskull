@@ -833,9 +833,12 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     if hasError:
       result = c.config.wrapError(result)
 
+proc isArrayConstr(n: PNode): bool {.inline.} =
+  n.kind == nkBracket and n.typ.skipTypes(abstractInst).kind == tyArray
+
 proc fixAbstractType(c: PContext, n: PNode): PNode =
   assert n != nil
-  
+
   var hasError = false
 
   result = n
@@ -1072,6 +1075,28 @@ proc fixVarArgumentsAndAnalyse(c: PContext, n: PNode): PNode =
     result = wrapError(c.config, result)
 
 include semmagic
+
+proc fixupTypeAfterEval(c: PContext, evaluated, eOrig: PNode): PNode =
+  # recompute the types as 'eval' isn't guaranteed to construct types nor
+  # that the types are sound:
+  # XXX: `fixupTypeAfterEval` is not really needed anymore
+  when true:
+    if eOrig.typ.kind in {tyUntyped, tyTyped, tyTypeDesc}:
+      # XXX: is this case still used now?
+      result = semExprWithType(c, evaluated)
+    else:
+      result = evaluated
+  else:
+    result = semExprWithType(c, evaluated)
+    #result = fitNode(c, e.typ, result) inlined with special case:
+    let arg = result
+    result = indexTypesMatch(c, eOrig.typ, arg.typ, arg)
+    if result == nil:
+      result = arg
+      # for 'tcnstseq' we support [] to become 'seq'
+      if eOrig.typ.skipTypes(abstractInst).kind == tySequence and
+         isArrayConstr(arg):
+        arg.typ = eOrig.typ
 
 proc evalAtCompileTime(c: PContext, n: PNode): PNode =
   result = n
@@ -2064,7 +2089,9 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
           of skTemplate: result = semTemplateExpr(c, n, s, flags)
           else: discard
       of skType:
-        result = symNodeFromType(c, semTypeNode(c, n, nil), n.info)
+        let t = semTypeNode(c, n, nil)
+        result = newSymNode(symFromType(c, t, n.info), n.info)
+        result.typ = makeTypeDesc(c, t)
       else:
         discard
 

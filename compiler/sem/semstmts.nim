@@ -329,23 +329,6 @@ proc identWithin(n: PNode, s: PIdent): bool =
     if identWithin(n[i], s): return true
   result = n.kind == nkSym and n.sym.name.id == s.id
 
-proc getIdentLineInfo(n: PNode): TLineInfo =
-  ## Returns the line information of the identifier-like node in the
-  ## (semantically valid) AST `n` appearing in a name slot.
-  var n {.cursor.} = n
-  # unpack the node until we reach the identifier or symbol
-  if n.kind == nkPragmaExpr:
-    n = n[0]
-  if n.kind == nkPostfix:
-    n = n[1]
-  if n.kind == nkAccQuoted:
-    n = n[0]
-
-  result =
-    case n.kind
-    of nkIdent, nkSym: n.info
-    else:              unreachable(n.kind)
-
 proc semIdentDef(c: PContext, n: PNode, kind: TSymKind): PSym =
   addInNimDebugUtils(c.config, "semIdentDef", n, result)
   if isTopLevel(c):
