@@ -128,6 +128,13 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   for m in closed(mlist):
     let bmod = newModule(graph, m.sym)
     bmod.idgen = m.idgen
+
+    if m.init.ast[bodyPos].kind != nkEmpty: # dead-code elimination
+      # HACK: we mark the procedure with the ``sfModuleInit`` flag in order to
+      #       signal to ``jsgen`` that a special stack-trace entry needs to
+      #       be created for the procedure
+      m.init.flags.incl sfModuleInit
+
     modules[m.sym.position.FileIndex] = bmod
 
   for evt in process(graph, mlist, discovery, {}, BackendConfig()):
