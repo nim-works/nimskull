@@ -118,7 +118,6 @@ type
 
   PGlobals* = ref object
     typeInfo, constants*, code*: Rope
-    generatedSyms: IntSet
     typeInfoGenerated: IntSet
     unique: int    # for temp identifier generation
 
@@ -165,7 +164,6 @@ template nested(p, body) =
 
 proc newGlobals*(): PGlobals =
   new(result)
-  result.generatedSyms = initIntSet()
   result.typeInfoGenerated = initIntSet()
 
 proc rdLoc(a: TCompRes): Rope {.inline.} =
