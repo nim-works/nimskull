@@ -1675,9 +1675,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCannotImportItself:
       result = "module '$1' cannot import itself" % r.symstr
 
-    of rsemRecursiveImport:
-      result = "recursive dependency: '$1'" % r.str
-
     of rsemCannotOpenFile:
       result = "cannot open '$1'" % r.str
 
