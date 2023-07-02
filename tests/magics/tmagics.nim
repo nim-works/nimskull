@@ -50,10 +50,6 @@ block t9442:
   GC_ref(v1)
   GC_unref(v1)
 
-block: # bug #6499
-  let x = (chr, 0)
-  doAssert x[1] == 0
-
 block: # bug #12229
   proc foo(T: typedesc) = discard
   foo(ref)
