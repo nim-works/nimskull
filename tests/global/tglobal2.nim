@@ -1,3 +1,8 @@
+discard """
+  targets: "c js vm"
+  description: "Additional tests for lifted globals"
+"""
+
 block global:
   proc getState(): int =
     var state0 {.global.}: int

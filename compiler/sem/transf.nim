@@ -1368,13 +1368,16 @@ proc transformExpr*(g: ModuleGraph; idgen: IdGenerator; module: PSym, n: PNode):
     incl(result.flags, nfTransf)
 
 proc extractGlobals*(body: PNode, output: var seq[PNode], isNimVm: bool) =
-  ## Searches for all ``nkIdentDefs`` defining a global that's not owned by a
-  ## module, appends them to `output` in the order they appear in the input
-  ## AST, and removes the nodes from `body`. `isNimVm` signals which branch
-  ## to select for ``when nimvm`` statements/expressions.
+  ## Searches for all ``nkIdentDefs`` defining a global that's either:
+  ## - not owned by a module
+  ## - explicitly marked with the ``.global`` pragma (indicated by the
+  ##   ``sfPure`` flag)
+  ## appends them to `output` in the order they appear in the input AST, and
+  ## removes the nodes from `body`. `isNimVm` signals which branch to select
+  ## for ``when nimvm`` statements/expressions.
   ##
   ## XXX: this can't happen as part of ``transformBody``, as ``transformBody``
-  ##      is reentrant because of ``lambdalifting`` and it's thus not easily
+  ##      is reentrant because of iterator inlining and it's thus not easily
   ##      possible to collect something from the body of a single procedure
   ##      only. There's also the problem that extracting the globals is not
   ##      wanted when transformation happens for a procedure that's invoked
@@ -1411,8 +1414,8 @@ proc extractGlobals*(body: PNode, output: var seq[PNode], isNimVm: bool) =
       if it.kind == nkIdentDefs and
          it[0].kind == nkSym and
          sfGlobal in it[0].sym.flags and
-         it[0].sym.owner.kind in routineKinds:
-        # found one; append it to the output:
+         (sfPure in it[0].sym.flags or it[0].sym.owner.kind in routineKinds):
+        # found a relevant one; append it to the output:
         output.add(it)
         # there's no need to process the initializer expression of the global,
         # as we know that further globals defined inside them are not visible
