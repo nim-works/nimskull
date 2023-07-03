@@ -192,6 +192,11 @@ proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
       #       really globals, and we don't want to "lift" them into the module
       #       struct, so we ignore them here and pass them on to ``mirgen``
       discard
+    elif sfPure in s.flags:
+      # if it's a global or threadvar explicitly marked with ``.global``, then
+      # we treat it like a *lifted global* and don't add it to the module
+      # struct
+      discard
     elif sfThread in s.flags:
       structs.threadvars.add s
     elif sfGlobal in s.flags:
@@ -307,8 +312,16 @@ proc changeOwner(n: PNode, newOwner: PSym) =
   ## For all symbols defined in the AST `n`, changes the owner to
   ## `newOwner`.
   template change(it: PNode) =
-    # make sure to not change the owner of globals
-    if it.kind == nkSym and sfGlobal notin it.sym.flags:
+    # make sure to not change the owner of non-pure globals. Pure globals (i.e.
+    # those explicitly marked with the ``.global`` pragma) are reparented, so
+    # that they're later treated as lifted globals. The cumbersome check is
+    # required because a procedure symbol can also have both the ``sfGlobal``
+    # *and* ``sfPure`` flag set
+    # XXX: we also have to include ``skTemp`` in the set here, as temporaries
+    #      would otherwise be extracted by the later called ``extractGlobals``,
+    #      and that must not happen
+    if it.kind == nkSym and (it.sym.kind notin {skVar, skLet, skForVar, skTemp} or
+       {sfGlobal, sfPure} * it.sym.flags != {sfGlobal}):
       it.sym.owner = newOwner
 
   case n.kind
