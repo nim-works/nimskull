@@ -66,8 +66,8 @@ iterator pairs*[K, V](m: SeqMap[K, V]): (K, lent V) =
     inc i
 
 iterator mpairs*[K, V](m: var SeqMap[K, V]): (K, var V) =
-  ## Returns, in an unspecified order, the key and value for each entry in the
-  ## map `m`.
+  ## Returns, in an unspecified order, the key and mutable value for each entry
+  ## in the map `m`.
   mixin isFilled
   var i = 0
   let L = m.data.len
@@ -115,6 +115,7 @@ func add*[I; T](x: var Store[I, T], it: sink T): I {.inline.} =
   result = I(x.data.high)
 
 iterator mitems*[I; T](x: var Store[I, T]): var T =
+  ## Yields a mutable item for each entry in `x`.
   var i = 0
   let L = x.data.len
   while i < L:

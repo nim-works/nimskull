@@ -1334,8 +1334,8 @@ proc transformBody*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; cache: bool):
     # XXX Rodfile support for transformedBody!
 
 proc transformBodyWithCache*(g: ModuleGraph, idgen: IdGenerator, prc: PSym): PNode =
-  ## Transforms the body of `prc` and returns, but doesn't cache, the resulting
-  ## AST. If the transformed body was already cached earlier,
+  ## Fetches the cached transformed body of `prc`, transforming it if not
+  ## available, new transforms are not cached
   assert prc.kind in routineKinds - {skTemplate, skMacro}
   if prc.transformedBody != nil:
     result = prc.transformedBody

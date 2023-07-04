@@ -76,7 +76,7 @@ type
     ## Combines a sequence of items with a "read" cursor.
     data: seq[T]
     progress: int
-      ## remembers the the position until which the items have already
+      ## remembers the position until which the items have already
       ## been processed
 
   DiscoveryData* = object
@@ -428,7 +428,7 @@ proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
         if it[2].kind == nkEmpty:
           # no explicit initializer expression means that the default value
           # should be used
-          # XXX: ^^ it'd make to instead let semantic analysis ensure this
+          # XXX: ^^ it'd make sense to instead let semantic analysis ensure this
           #      (i.e. by placing a ``default(T)`` in the initializer slot)
           r.add(it[2]): MirNode(kind: mnkArgBlock)
           r.add(it[2]): MirNode(kind: mnkEnd, start: mnkArgBlock)

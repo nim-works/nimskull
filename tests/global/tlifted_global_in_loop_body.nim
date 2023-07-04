@@ -23,7 +23,7 @@ block single_yield:
   doAssert test() == 3
 
 block multi_yield:
-  # test with an inline iteratong that has multiple yield statements
+  # test with an inline iterator that has multiple yield statements
 
   iterator iter(): int {.inline.} =
     yield 1

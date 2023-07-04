@@ -1,7 +1,7 @@
 discard """
   targets: "c js vm"
   description: '''
-    Tests to make sure that lifted globals defined inside inline iterators work
+    Ensure lifted globals defined inside inline iterators work
   '''
 """
 
@@ -25,5 +25,5 @@ let (val, address) = test1()
 doAssert val == 2
 
 # invoking the iterator again must not reset the global to its initial
-# value
+# value, nor move the global (same address)
 doAssert test2() == (3, address)
