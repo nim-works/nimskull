@@ -73,17 +73,6 @@ proc echoOutput*(config: ConfigRef, owner: PSym, body: PNode) =
     writeBody(config, "-- output AST: " & owner.name.s):
       config.writeln(treeRepr(config, body, reprConfig))
 
-proc restoreGlobal(s: PSym): PSym =
-  ## If the global `s` is a duplicate that was introduced in order to make
-  ## the code temporarily semantically correct, restores the original
-  ## symbol -- otherwise returns `s` as is.
-  ##
-  ## Refer to ``transf.freshVars`` for why this workaround exists.
-  if s.owner.kind in {skVar, skLet, skForVar}:
-    s.owner
-  else:
-    s
-
 proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
                        outermost: bool) =
   ## Removes definitions of non-pure globals from `body`, replacing them with
@@ -93,6 +82,17 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
   ## If `outermost` is true, only definitions in the outermost scope will be
   ## removed. This is a hack, but it's currently required for turning
   ## module-level AST into a procedure in a mostly transparent way.
+  proc restoreGlobal(s: PSym): PSym {.nimcall.} =
+    ## If the global `s` is a duplicate that was introduced in order to make
+    ## the code temporarily semantically correct, restores the original
+    ## symbol -- otherwise returns `s` as is.
+    ##
+    ## Refer to ``transf.freshVars`` for why this workaround exists.
+    if s.owner.kind in {skVar, skLet, skForVar}:
+      s.owner
+    else:
+      s
+
   var
     changes = initChangeset(body)
     depth   = 0
