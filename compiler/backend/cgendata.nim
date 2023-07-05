@@ -125,8 +125,6 @@ type
                         ## a frame var twice in an init proc
     isHeaderFile,       ## C source file is the header file
     includesStringh,    ## C source file already includes ``<string.h>``
-    useAliveDataFromDce ## use the `alive: IntSet` field instead of
-                        ## computing alive data on our own.
 
   BModuleList* = ref object of RootObj
     mapping*: Rope             ## the generated mapping file (if requested)
@@ -149,6 +147,17 @@ type
                             ## nimtvDeps is VERY hard to cache because it's
                             ## not a list of IDs nor can it be made to be one.
 
+    hooks*: seq[(BModule, PSym)]
+      ## late late-dependencies. Generating code for a procedure might lead
+      ## to the RTTI setup code for some type from a foreign module (i.e., one
+      ## different from the module that acts as the current context) to be
+      ## emitted, and this setup code might reference additional procedures.
+      ## Written: by the code generator and orchestrator; reset by the
+      ##          orchestrator
+      ## Read:    by the orchestrator
+      # XXX: move emission of RTTI setup into the orchestrator and remove this
+      #      facility
+
   TCGen = object ## represents a C source file
     idgen*: IdGenerator
     s*: TCFileSections        ## sections of the C file
@@ -166,20 +175,23 @@ type
     forwTypeCache*: TypeCache ## cache for forward declarations of types
     declaredThings*: IntSet   ## things we have declared in this .c file
     declaredProtos*: IntSet   ## prototypes we have declared in this .c file
-    alive*: IntSet            ## symbol IDs of alive data as computed by `dce.nim`
     headerFiles*: seq[string] ## needed headers to include
     typeInfoMarker*: TypeCache ## needed for generating type information
     typeInfoMarkerV2*: TypeCache
-    initProc*: BProc          ## code for init procedure
-    preInitProc*: BProc       ## code executed before the init proc
     typeStack*: TTypeSeq      ## used for type generation
     dataCache*: TNodeTable
-    typeNodes*, nimTypes*: int ## used for type info generation
-    typeNodesName*, nimTypesName*: Rope ## used for type info generation
+    typeNodes*: int ## used for type info generation
+    typeNodesName*: Rope ## used for type info generation
     labels*: Natural          ## for generating unique module-scope names
     sigConflicts*: CountTable[SigHash]
     g*: BModuleList
     ndi*: NdiFile
+
+    extra*: seq[PSym]
+      ## communicates dependencies introduced by the code-generator
+      ## back to the caller. The caller is responsible for clearing the list
+      ## after it's done with processing it. The code-generator only ever
+      ## appends to it
 
 template config*(m: BModule): ConfigRef = m.g.config
 template config*(p: BProc): ConfigRef = p.module.g.config

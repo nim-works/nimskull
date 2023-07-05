@@ -36,7 +36,7 @@ import
     idioms
   ]
 
-from compiler/sem/injectdestructors import genDestroy
+from compiler/sem/injectdestructors import getOp
 
 type
   ModuleStructs* = object
@@ -74,11 +74,13 @@ type
       ## the prodcedure responsible for de-initializing the module's
       ## globals
 
-    # XXX: the design around the pre-init procedure is likely not final yet.
-    #      At the moment, we set it up here so that the code generators /
-    #      orchestrators have a symbol to attach code to
+    # XXX: the design around the pre-init and post-destructor procedure is
+    #      likely not final yet. At the moment, we set them up here so that
+    #      the backend processing has a symbol to attach code to
     preInit*: PSym
       ## the procedure for initializing the module's lifted globals
+    postDestructor*: PSym
+      ## the procedure for destroying the module's lifted globals
 
   ModuleList* = object
     modules*: SeqMap[FileIndex, Module]
@@ -158,11 +160,12 @@ proc group(n: PNode, decl, imperative: var seq[PNode]) =
     # of nested scopes (those inside ``if``, ``block``, etc. statements)
     imperative.add(n)
 
-proc createModuleOp(graph: ModuleGraph, idgen: IdGenerator, name: string, module: PSym, body: PNode, options: TOptions): PSym =
+proc createModuleOp(graph: ModuleGraph, idgen: IdGenerator, postfix: string,
+                    module: PSym, body: PNode, options: TOptions): PSym =
   ## Creates the symbol for a module-bound operator. Note that this attachment
   ## is purely at the conceptional level at the moment.
-  result = newSym(skProc, getIdent(graph.cache, name), nextSymId idgen,
-                  module, module.info, options)
+  result = newSym(skProc, getIdent(graph.cache, module.name.s & postfix),
+                  nextSymId idgen, module, module.info, options)
   # the procedure doesn't return anything and doesn't have parameters:
   result.typ = newProcType(module.info, nextTypeId idgen, module)
 
@@ -188,6 +191,11 @@ proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
       #       ``(a, b) = c``, for example) that are also globals. These aren't
       #       really globals, and we don't want to "lift" them into the module
       #       struct, so we ignore them here and pass them on to ``mirgen``
+      discard
+    elif sfPure in s.flags:
+      # if it's a global or threadvar explicitly marked with ``.global``, then
+      # we treat it like a *lifted global* and don't add it to the module
+      # struct
       discard
     elif sfThread in s.flags:
       structs.threadvars.add s
@@ -277,6 +285,15 @@ proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
     process(it, structs)
 
 
+proc genDestroy(graph: ModuleGraph, dest: PNode): PNode =
+  ## Constructs and returns the AST representing a call to the
+  ## ``=destroy`` hook for `dest`.
+  let
+    op = getOp(graph, dest.typ, attachedDestructor)
+    addrExp = newTreeIT(nkHiddenAddr, dest.info, op.typ[1]): dest
+
+  result = newTreeI(nkCall, dest.info, newSymNode(op), addrExp)
+
 proc generateModuleDestructor(graph: ModuleGraph, m: Module): PNode =
   ## Generates the body for the destructor procedure of module `m` (also
   ## referred to as the 'de-init' procedure).
@@ -284,12 +301,7 @@ proc generateModuleDestructor(graph: ModuleGraph, m: Module): PNode =
   for i in countdown(m.structs.globals.high, 0):
     let s = m.structs.globals[i]
     if hasDestructor(s.typ):
-      result.add genDestroy(graph, m.idgen, m.sym, newSymNode(s))
-
-  # note: the generated body is not yet final -- we're still missing
-  # destructor calls for lifted globals (i.e., those marked with ``.global``).
-  # Those calls are inserted once we know all alive pure globals (which is
-  # after the main part of code generation has finished)
+      result.add genDestroy(graph, newSymNode(s))
 
   if result.len == 0:
     # collapse to an empty node (dead-code elimination treats procedures with
@@ -300,8 +312,16 @@ proc changeOwner(n: PNode, newOwner: PSym) =
   ## For all symbols defined in the AST `n`, changes the owner to
   ## `newOwner`.
   template change(it: PNode) =
-    # make sure to not change the owner of globals
-    if it.kind == nkSym and sfGlobal notin it.sym.flags:
+    # make sure to not change the owner of non-pure globals. Pure globals (i.e.
+    # those explicitly marked with the ``.global`` pragma) are reparented, so
+    # that they're later treated as lifted globals. The cumbersome check is
+    # required because a procedure symbol can also have both the ``sfGlobal``
+    # *and* ``sfPure`` flag set
+    # XXX: we also have to include ``skTemp`` in the set here, as temporaries
+    #      would otherwise be extracted by the later called ``extractGlobals``,
+    #      and that must not happen
+    if it.kind == nkSym and (it.sym.kind notin {skVar, skLet, skForVar, skTemp} or
+       {sfGlobal, sfPure} * it.sym.flags != {sfGlobal}):
       it.sym.owner = newOwner
 
   case n.kind
@@ -378,7 +398,7 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
 
   # now that we have the code that makes up the user-defined module
   # initialization, we wrap it into a procedure:
-  result.init = createModuleOp(graph, idgen, m.name.s & "Init", m, imperative, options)
+  result.init = createModuleOp(graph, idgen, "", m, imperative, options)
   result.init.flags = m.flags * {sfInjectDestructors} # inherit the flag
   # we also need to make sure that the owner of all entities defined inside
   # the body is adjusted:
@@ -386,13 +406,14 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
 
   # create a procedure for the data-init operator already. The selected backend
   # is then responsible for filling it with content
-  result.dataInit = createModuleOp(graph, idgen, m.name.s & "DatInit", m, newNode(nkEmpty), options)
+  result.dataInit = createModuleOp(graph, idgen, "DatInit", m, newNode(nkEmpty), options)
 
   # setup the module struct clean-up operator:
   let destructorBody = generateModuleDestructor(graph, result)
-  result.destructor = createModuleOp(graph, idgen, m.name.s & "Deinit", m, destructorBody, options)
+  result.destructor = createModuleOp(graph, idgen, "Deinit", m, destructorBody, options)
 
-  result.preInit = createModuleOp(graph, idgen, m.name.s & "PreInit", m, newNode(nkEmpty), options)
+  result.preInit = createModuleOp(graph, idgen, "PreInit", m, newNode(nkEmpty), options)
+  result.postDestructor = createModuleOp(graph, idgen, "PostDeinit", m, newNode(nkEmpty), options)
 
 # Below is the `passes` interface implementation
 

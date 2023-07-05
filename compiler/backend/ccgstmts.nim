@@ -161,45 +161,15 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
     # translate 'var state {.goto.} = X' into 'goto LX':
     genGotoVar(p, value)
     return
-  var targetProc = p
-  if sfGlobal in v.flags:
-    assert {sfPure, sfThread} * v.flags != {}, "normal globals don't reach here"
-    if v.flags * {sfImportc, sfExportc} == {sfImportc} and
-        value.kind == nkEmpty and
-        v.loc.flags * {lfHeader, lfNoDecl} != {}:
-      return
-    if sfPure in v.flags:
-      # v.owner.kind != skModule:
-      targetProc = p.module.preInitProc
-    defineGlobalVar(targetProc.module, vn)
-    # XXX: be careful here.
-    # Global variables should not be zeromem-ed within loops
-    # (see bug #20).
-    # That's why we are doing the construction inside the preInitProc.
-    # genObjectInit relies on the C runtime's guarantees that
-    # global variables will be initialized to zero.
-    if true:
-      var loc = v.loc
 
-      # When the native TLS is unavailable, a global thread-local variable needs
-      # one more layer of indirection in order to access the TLS block.
-      # Only do this for complex types that may contain type fields
-      if sfThread in v.flags and emulatedThreadVars(p.config) and
-        isComplexValueType(v.typ):
-        initLocExprSingleUse(p.module.preInitProc, vn, loc)
-      genObjectInit(p.module.preInitProc, cpsInit, v.typ, loc, constructObj)
-    # Alternative construction using default constructor (which may zeromem):
-    # if sfImportc notin v.flags: constructLoc(p.module.preInitProc, v.loc)
-    if sfExportc in v.flags and p.module.g.generatedHeader != nil:
-      genVarPrototype(p.module.g.generatedHeader, vn)
-  else:
-    let imm = isAssignedImmediately(p.config, value)
-    assignLocalVar(p, vn)
-    initLocalVar(p, v, imm)
+  assert {sfGlobal, sfThread} * v.flags == {}
+  let imm = isAssignedImmediately(p.config, value)
+  assignLocalVar(p, vn)
+  initLocalVar(p, v, imm)
 
   if value.kind != nkEmpty:
-    genLineDir(targetProc, vn)
-    loadInto(targetProc, vn, value, v.loc)
+    genLineDir(p, vn)
+    loadInto(p, vn, value, v.loc)
 
 proc genSingleVar(p: BProc, a: PNode) =
   let v = a[0].sym
@@ -807,7 +777,7 @@ proc genAsmStmt(p: BProc, t: PNode) =
   # see bug #2362, "top level asm statements" seem to be a mis-feature
   # but even if we don't do this, the example in #2362 cannot possibly
   # work:
-  if p.prc == nil:
+  if sfTopLevel in p.prc.flags:
     # top level asm statement?
     p.module.s[cfsProcHeaders].add runtimeFormat(CC[p.config.cCompiler].asmStmtFrmt, [s])
   else:
@@ -823,7 +793,7 @@ proc determineSection(n: PNode): TCFileSection =
 
 proc genEmit(p: BProc, t: PNode) =
   var s = genAsmOrEmitStmt(p, t[1])
-  if p.prc == nil:
+  if sfTopLevel in p.prc.flags:
     # top level emit pragma?
     let section = determineSection(t[1])
     genCLineDir(p.module.s[section], t.info, p.config)

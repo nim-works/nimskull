@@ -185,15 +185,30 @@ proc transformSym(c: PTransf, n: PNode): PNode =
 
 proc freshVar(c: PTransf; v: PSym): PNode =
   let owner = getCurrOwner(c)
-  if owner.isIterator:
+  if {sfGlobal, sfThread} * v.flags != {}:
+    # don't introduce copies of symbols of globals. The processing
+    # following after ``transf`` expects that the set of existing globals
+    # stays unchanged
+    if v.owner.kind == skModule:
+      # HACK: a nested global. Not introducing a new global would cause the
+      #       resulting AST to be semantically invalid (and the
+      #       ``injectdestructors`` pass to rightfully complain). As a
+      #       workaround, we introduce a copy here, associate it with the
+      #       correct global via the `owner` field, and then restore the
+      #       proper global during the MIR phase...
+      let newVar = copySym(v, nextSymId(c.idgen))
+      newVar.owner = v
+      result = newSymNode(newVar)
+    else:
+      # a lifted global; don't introduce a copy
+      result = newSymNode(v)
+
+  elif owner.isIterator:
     result = freshVarForClosureIter(c.graph, v, c.idgen, owner)
   else:
     var newVar = copySym(v, nextSymId(c.idgen))
     incl(newVar.flags, sfFromGeneric)
-    if sfGlobal notin newVar.flags:
-      # don't re-parent globals -- the duplicates need to have the same owner
-      # as the original
-      newVar.owner = owner
+    newVar.owner = owner
     result = newSymNode(newVar)
 
 proc transformDefSym(c: PTransf, n: PNode): PNode {.deprecated: "workaround for sem not sanitizing AST".} =
@@ -1312,13 +1327,24 @@ proc transformBody*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; cache: bool):
     prc.transformedBody = newNode(nkEmpty) # protects from recursion
     result = transformBody(g, idgen, prc, getBody(g, prc))
 
-    if cache or prc.typ.callConv == ccInline:
-      # genProc for inline procs will be called multiple times from different modules,
-      # it is important to transform exactly once to get sym ids and locations right
+    if cache:
       prc.transformedBody = result
     else:
       prc.transformedBody = nil
     # XXX Rodfile support for transformedBody!
+
+proc transformBodyWithCache*(g: ModuleGraph, idgen: IdGenerator, prc: PSym): PNode =
+  ## Fetches the cached transformed body of `prc`, transforming it if not
+  ## available, new transforms are not cached
+  assert prc.kind in routineKinds - {skTemplate, skMacro}
+  if prc.transformedBody != nil:
+    result = prc.transformedBody
+  elif nfTransf in getBody(g, prc).flags:
+    # the AST was already transformed:
+    result = getBody(g, prc)
+  else:
+    # no recursion is possible here, so no guard is needed
+    result = transformBody(g, idgen, prc, getBody(g, prc))
 
 proc transformStmt*(g: ModuleGraph; idgen: IdGenerator; module: PSym, n: PNode): PNode =
   if nfTransf in n.flags:
@@ -1384,7 +1410,8 @@ proc extractGlobals*(body: PNode, output: var seq[PNode], isNimVm: bool) =
       let it = body[i]
       if it.kind == nkIdentDefs and
          it[0].kind == nkSym and
-         sfGlobal in it[0].sym.flags and it[0].sym.owner.kind != skModule:
+         sfGlobal in it[0].sym.flags and
+         it[0].sym.owner.kind in routineKinds:
         # found one; append it to the output:
         output.add(it)
         # there's no need to process the initializer expression of the global,

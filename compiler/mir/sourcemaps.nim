@@ -10,6 +10,9 @@
 ## data structures.
 
 import
+  std/[
+    options
+  ],
   compiler/ast/[
     ast_types
   ],
@@ -48,3 +51,13 @@ func `[]`*(m: SourceMap, i: NodeInstance): SourceId {.inline.} =
 
 func sourceFor*(m: SourceMap, i: NodeInstance): PNode {.inline.} =
   m.source[m.map[ord(i)]]
+
+func append*(dst: var SourceMap, src: sink SourceMap) =
+  ## Appends all source mappings from `src` to `dst`.
+  if src.map.len == 0:
+    return # nothing to do
+
+  let first = unsafeGet(merge(dst.source, src.source))
+
+  for i, it in src.map.pairs:
+    dst.map.add SourceId(ord(first) + ord(it))

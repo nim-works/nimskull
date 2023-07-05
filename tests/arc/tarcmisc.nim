@@ -30,11 +30,15 @@ copying
 123
 42
 closed
-destroying variable: 20
 destroying variable: 10
+destroying variable: 20
 '''
   cmd: "nim c --gc:arc --deepcopy:on -d:nimAllocPagesViaMalloc $file"
 """
+
+# XXX: the test currently depends on the order in which `{.globals.}` are
+#      destroyed, but this order is unspecified, and the compiler is free
+#      to destroy them in any order
 
 proc takeSink(x: sink string): bool = true
 

@@ -96,8 +96,8 @@ const
     ## the set of types that are not relevant to the VM. ``tyTypeDesc``, while
     ## not relevant right now, is likely going to be in the future.
 
-  MagicsToKeep = {mNone, mIsolate, mNHint, mNWarning, mNError, mMinI, mMaxI,
-                  mAbsI, mDotDot}
+  MagicsToKeep* = {mNone, mIsolate, mNHint, mNWarning, mNError, mMinI, mMaxI,
+                   mAbsI, mDotDot}
     ## the set of magics that are kept as normal procedure calls and thus need
     ## an entry in the function table. For convenience, the ``mNone`` magic is
     ## also included
@@ -3109,8 +3109,6 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
   of nkLetSection, nkVarSection:
     unused(c, n, dest)
     genVarSection(c, n)
-  of declarativeDefs:
-    unused(c, n, dest)
   of nkChckRangeF, nkChckRange64, nkChckRange:
     let tmp0 = c.genx(n[0])
     # XXX: range checks currently always happen, even if disabled by the user.
@@ -3154,7 +3152,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
       genCastIntFloat(c, n, dest)
   of nkType:
     genTypeLit(c, n.typ, dest)
-  of nkConstSection, nkPragma, nkAsmStmt:
+  of nkPragma, nkAsmStmt:
     unused(c, n, dest)
   of nkWithSons + nkWithoutSons - codegenExprNodeKinds:
     fail(n.info, vmGenDiagCannotGenerateCode, n)

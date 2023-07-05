@@ -200,8 +200,6 @@ import
 from compiler/ast/reports_sem import SemReport
 from compiler/ast/report_enums import ReportKind
 
-from compiler/sem/semdata import makeVarType
-
 type
   AnalyseCtx = object
     cfg: ControlFlowGraph
@@ -299,7 +297,7 @@ func paramType(p: PSym, i: Natural): PType =
 proc getVoidType(g: ModuleGraph): PType {.inline.} =
   g.getSysType(unknownLineInfo, tyVoid)
 
-proc getOp(g: ModuleGraph, t: PType, kind: TTypeAttachedOp): PSym =
+proc getOp*(g: ModuleGraph, t: PType, kind: TTypeAttachedOp): PSym =
   let t = t.skipTypes(skipForHooks)
   result = getAttachedOp(g, t, kind)
   if result == nil or result.ast.isGenericRoutine:
@@ -358,7 +356,7 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
 
   #result.pos = p
 
-func initEntityDict(tree: MirTree, owner: PSym): EntityDict =
+func initEntityDict(tree: MirTree): EntityDict =
   ## Collects the names of all analysable locations relevant to destructor
   ## injection and the move analyser. This includes: locals, temporaries, sink
   ## parameters and, with some restrictions, globals.
@@ -376,21 +374,11 @@ func initEntityDict(tree: MirTree, owner: PSym): EntityDict =
         of mnkParam:
           assert isSinkTypeForParam(entity.sym.typ)
           entity.sym.typ
-        of mnkLocal:
+        of mnkLocal, mnkGlobal:
           assert sfCursor notin entity.sym.flags
           entity.sym.typ
         of mnkTemp:
           entity.typ
-        of mnkGlobal:
-          if entity.sym.owner.kind != skModule:
-            # we're not responsible for ensuring destruction of globals
-            # defined inside procedures
-            # XXX: remove this special case once ``jsgen`` properly removes
-            #      their definitions from procedures
-            nil
-          else:
-            entity.sym.typ
-
         else:
           nil # not a location (e.g. a procedure)
 
@@ -668,8 +656,8 @@ template genWasMoved(buf: var MirNodeSeq, graph: ModuleGraph, body: untyped) =
                   magic: mWasMoved)
   buf.add MirNode(kind: mnkVoid)
 
-proc genDestroy(buf: var MirNodeSeq, graph: ModuleGraph, t: PType,
-                target: sink MirNode) =
+proc genDestroy*(buf: var MirNodeSeq, graph: ModuleGraph, t: PType,
+                 target: sink MirNode) =
   let destr = getOp(graph, t, attachedDestructor)
 
   argBlock(buf):
@@ -1287,40 +1275,6 @@ proc lowerBranchSwitch(buf: var MirNodeSeq, body: MirTree, graph: ModuleGraph,
 
   buf.add endNode(mnkRegion)
 
-proc genOp(idgen: IdGenerator, owner, op: PSym, dest: PNode): PNode =
-  let
-    typ = makeVarType(owner, dest.typ, idgen, tyVar)
-    addrExp = newTreeIT(nkHiddenAddr, dest.info, typ): dest
-
-  result = newTreeI(nkCall, dest.info, newSymNode(op), addrExp)
-
-proc genDestroy*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym, dest: PNode): PNode =
-  let
-    t = dest.typ.skipTypes(skipAliases)
-    op = getOp(graph, t, attachedDestructor)
-
-  result = genOp(idgen, owner, op, dest)
-
-proc deferGlobalDestructors(tree: MirTree, g: ModuleGraph, idgen: IdGenerator,
-                            owner: PSym) =
-  ## Defers a destructor call for each global defined in `tree`.
-  ##
-  ## XXX: remove this procedure once the JavaScript backend properly extracts
-  ##      pure globals from routines
-  for i, n in tree.pairs:
-    case n.kind
-    of mnkDef:
-      let def = tree[i+1]
-      if def.kind == mnkGlobal and
-         sfThread notin def.sym.flags and
-         def.sym.owner.kind != skModule and
-         hasDestructor(def.sym.typ):
-        g.globalDestructors.add (def.sym.itemId.module,
-                                 genDestroy(g, idgen, owner, newSymNode(def.sym)))
-
-    else:
-      discard
-
 proc lowerNew(tree: MirTree, g: ModuleGraph, c: var Changeset) =
   ## Lower calls to the ``new(x)`` into a ``=destroy(x); new(x)``
   for i, n in tree.pairs:
@@ -1377,14 +1331,6 @@ func shouldInjectDestructorCalls*(owner: PSym): bool =
      {sfInjectDestructors, sfGeneratedOp} * owner.flags == {sfInjectDestructors} and
      (owner.kind != skIterator or not isInlineIterator(owner.typ))
 
-proc deferGlobalDestructor*(g: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                            global: PNode) =
-  ## If the global has a destructor, emits a call to it at the end of the
-  ## section of global destructors.
-  if sfThread notin global.sym.flags and hasDestructor(global.typ):
-    g.globalDestructors.add (global.sym.itemId.module,
-                             genDestroy(g, idgen, owner, global))
-
 proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
                             tree: var MirTree, sourceMap: var SourceMap) =
   ## The ``injectdestructors`` pass entry point. The pass is made up of
@@ -1393,8 +1339,6 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
   ##
   ## For now, semantic errors and other diagnostics related to lifetime-hook
   ## usage are also reported here.
-
-  deferGlobalDestructors(tree, g, idgen, owner)
 
   template apply(c: Changeset) =
     ## Applies the changeset to both the
@@ -1435,7 +1379,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
 
     let
       actx = AnalyseCtx(graph: g, cfg: computeCfg(tree))
-      entities = initEntityDict(tree, owner)
+      entities = initEntityDict(tree)
 
     var values = computeValuesAndEffects(tree)
     solveOwnership(tree, actx.cfg, values, entities)

@@ -1,6 +1,11 @@
 ## This module contains ``seq``-based containers useful in contexts that make
 ## use of data-oriented design
 
+import
+  std/[
+    options
+  ]
+
 type
   SeqMap*[K: Ordinal, V] = object
     ## Maps a 0-based integer-like key to a value, using a ``seq`` as the
@@ -60,6 +65,17 @@ iterator pairs*[K, V](m: SeqMap[K, V]): (K, lent V) =
       yield (K(i), m.data[i])
     inc i
 
+iterator mpairs*[K, V](m: var SeqMap[K, V]): (K, var V) =
+  ## Returns, in an unspecified order, the key and mutable value for each entry
+  ## in the map `m`.
+  mixin isFilled
+  var i = 0
+  let L = m.data.len
+  while i < L:
+    if isFilled(m.data[i]):
+      yield (K(i), m.data[i])
+    inc i
+
 # ---------- Store API ------------
 
 template `[]`*[I; T](x: Store[I, T], i: I): untyped =
@@ -71,23 +87,17 @@ template `[]=`*[I; T](x: var Store[I, T], i: I, it: T): untyped =
   # TODO: convert to ``distinctBase`` instead
   x.data[int(i)] = it
 
-func add*[I; T](x: var Store[I, T], it: sink T): I {.inline.} =
-  ## Appends a new item to the Store and returns the ID assigned to
-  ## it
-  rangeCheck x.data.len.BiggestUInt < high(I).BiggestUInt
-  x.data.add it
-  result = I(x.data.high)
-
-iterator mitems*[I; T](x: var Store[I, T]): var T =
+iterator items*[I, T](x: Store[I, T]): lent T =
+  ## Iterates over and returns all items in `x`
   var i = 0
   let L = x.data.len
   while i < L:
     yield x.data[i]
     inc i
 
-iterator pairs*[I; T](x: Store[I, T]): (I, lent T) =
-  ## Returns all items in `x` together with their corresponding IDs in
-  ## ascending order.
+iterator pairs*[I, T](x: Store[I, T]): (I, lent T) =
+  ## Iterates over and returns all items in `x` together with their
+  ## corresponding IDs
   var i = 0
   let L = x.data.len
   while i < L:
@@ -96,6 +106,35 @@ iterator pairs*[I; T](x: Store[I, T]): (I, lent T) =
     # ``I``
     yield (I(i), x.data[i])
     inc i
+
+func add*[I; T](x: var Store[I, T], it: sink T): I {.inline.} =
+  ## Appends a new item to the Store and returns the ID assigned to
+  ## it
+  rangeCheck x.data.len.BiggestUInt < high(I).BiggestUInt
+  x.data.add it
+  result = I(x.data.high)
+
+iterator mitems*[I; T](x: var Store[I, T]): var T =
+  ## Yields a mutable item for each entry in `x`.
+  var i = 0
+  let L = x.data.len
+  while i < L:
+    yield x.data[i]
+    inc i
+
+func merge*[I; T](dst: var Store[I, T], src: sink Store[I, T]): Option[I] =
+  ## Merges `src` into `dst` and returns the ID of the first-merged item. If
+  ## `src` has no items, ``none(I)`` is returned.
+  let start = dst.data.len
+  rangeCheck start.BiggestUInt + src.data.len.BiggestUInt <= high(I).BiggestUInt
+
+  dst.data.setLen(start + src.data.len)
+  for i, it in src.data.mpairs:
+    dst.data[start + i] = move(it)
+
+  result =
+    if src.data.len > 0: some I(start)
+    else:                none(I)
 
 # ---------- OrdinalSeq API ------------
 

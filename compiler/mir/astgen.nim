@@ -655,12 +655,10 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
     case def.sym.kind
     of skVar, skLet, skForVar:
       discard "pass through"
-    of skParam:
-      # has no ``PNode`` counterpart
+    of skParam, routineKinds:
+      # the 'def' of params and procedures only has meaning at the MIR level;
+      # the code generators don't care about them
       def = newNode(nkEmpty)
-    of routineKinds:
-      # the original procdef is stored as the second sub-node
-      def = get(tree, cr).node
     else:
       unreachable()
 
@@ -679,7 +677,8 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
 
   leave(tree, cr)
 
-  if def.kind == nkSym:
+  case def.kind
+  of nkSym:
     assert def.sym.kind in {skVar, skLet, skForVar, skTemp}
     # it's a definition that needs to be put into a var section
     if cl.inArgBlock > 0:
@@ -701,8 +700,10 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
         of vkSingle: newIdentDefs(def, prev.single)
         of vkMulti:  unreachable()
 
-  else:
+  of nkEmpty:
     result = def
+  else:
+    unreachable()
 
 proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
                   cr: var TreeCursor): PNode =

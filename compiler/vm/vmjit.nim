@@ -56,6 +56,9 @@ func selectOptions(c: TCtx): set[GenOption] =
   if cgfAllowMeta in c.flags:
     result.incl goGenTypeExpr
 
+  if c.mode in {emConst, emOptimize, emStaticExpr, emStaticStmt}:
+    result.incl goIsCompileTime
+
 func setupLinkState(c: var TCtx) =
   c.linkState.newProcs.setLen(0)
   c.linkState.newGlobals.setLen(0)

@@ -139,6 +139,8 @@ type
   GenOption* = enum
     goIsNimvm     ## choose the ``nimvm`` branch for ``when nimvm`` statements
     goGenTypeExpr ## don't omit type expressions
+    goIsCompileTime ## whether the code is meant to be run at compile-time.
+                    ## Affects handling of ``.compileTime`` globals
 
   TCtx = object
     # output:
@@ -1302,12 +1304,9 @@ proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
 
   assert sym.kind in {skVar, skLet, skTemp, skForVar}
 
-  if sfCompileTime in sym.flags and goIsNimvm notin c.options:
+  if sfCompileTime in sym.flags and goIsCompileTime notin c.options:
     # compile-time-only locations don't exist outside of compile-time
     # contexts, so omit their definitions
-    # FIXME: the check above is wrong. ``goIsNimvm`` is also set when using
-    #        the VM backend, but that's not a compile-time context. A
-    #        dedicated option is needed
     return
 
   # if there's an initial value and the destination is non-owning, we pass the
@@ -1939,11 +1938,6 @@ proc gen(c: var TCtx, n: PNode) =
   of nkProcDef, nkFuncDef, nkIteratorDef, nkMethodDef, nkConverterDef:
     c.stmts.subTree MirNode(kind: mnkDef):
       c.stmts.add procNode(n[namePos].sym)
-      # XXX: this is a temporary solution. The current code-generators
-      #      require procdef nodes in some cases, and instead of
-      #      recreating them during ``astgen``, we carry the original nodes
-      #      over
-      c.stmts.add MirNode(kind: mnkPNode, node: n)
 
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
@@ -1954,14 +1948,10 @@ proc gen(c: var TCtx, n: PNode) =
     # as a ``discard``
     assert n.typ.isEmptyType()
   of nkCommentStmt, nkTemplateDef, nkMacroDef, nkImportStmt,
-     nkImportExceptStmt, nkFromStmt,
-     nkIncludeStmt, nkStaticStmt, nkExportStmt, nkExportExceptStmt,
-     nkTypeSection, nkMixinStmt, nkBindStmt, nkEmpty:
+     nkImportExceptStmt, nkFromStmt, nkIncludeStmt, nkStaticStmt,
+     nkExportStmt, nkExportExceptStmt, nkTypeSection, nkMixinStmt,
+     nkBindStmt, nkConstSection, nkEmpty:
     discard "ignore"
-  of nkConstSection:
-    # const sections are not relevant for the MIR, but the IC implementation
-    # needs them to be present
-    c.stmts.add MirNode(kind: mnkPNode, node: n)
   of nkPragma:
     # traverse the pragma statement and look for and extract directives we're
     # interested in. Everything else is discarded

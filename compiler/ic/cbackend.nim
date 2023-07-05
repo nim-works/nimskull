@@ -10,11 +10,6 @@
 ## Entry point into the C code generator when rodfiles are used. Instead of
 ## invoking the code generator directly, it simply invokes the normal code
 ## generation orchestrator for the C backend.
-##
-## However, instead of leaving dead-code elimination (=DCE) to the
-## orchestrator, we compute the set of alive symbols here, through a prepass
-## over the entire packed module graph. The code generator currently picks
-## this up via the ``useAliveDataFromDce`` flag.
 
 import
   std/[
@@ -60,10 +55,6 @@ proc unpackTree(g: ModuleGraph; thisModule: int;
 proc setupBackendModule(g: BModuleList; m: var LoadedModule, alive: AliveSyms) =
   var bmod = cgen.newModule(g, m.module, g.config)
   bmod.idgen = idgenFromLoadedModule(m)
-
-  bmod.flags.incl useAliveDataFromDce
-  # XXX: we need to copy for now :(
-  bmod.alive = alive[m.module.position]
 
 proc addFileToLink(config: ConfigRef; m: PSym) {.used.} =
   # XXX: currently unused, but kept in case it is needed again

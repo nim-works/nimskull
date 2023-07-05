@@ -44,9 +44,6 @@ import
     lineinfos,
     astmsgs,
   ],
-  compiler/mir/[
-    mirbridge
-  ],
   compiler/modules/[
     magicsys,
     modulegraphs
@@ -62,7 +59,6 @@ import
   ],
   compiler/sem/[
     rodutils,
-    transf,
   ],
   compiler/backend/[
     ccgutils,
@@ -121,13 +117,14 @@ type
     isLoop: bool             # whether it's a 'block' or 'while'
 
   PGlobals* = ref object
-    typeInfo, constants, code: Rope
-    generatedSyms: IntSet
+    typeInfo, constants*, code*: Rope
     typeInfoGenerated: IntSet
     unique: int    # for temp identifier generation
 
-  PProc = ref TProc
-  TProc = object
+    extra*: seq[PSym]
+
+  PProc* = ref TProc
+  TProc* = object
     procDef: PNode
     prc: PSym
     globals, locals, body: Rope
@@ -143,6 +140,10 @@ type
 const
   sfModuleInit* = sfMainModule
     ## the procedure is the 'init' procedure of a module
+
+  NonMagics* = { mDotDot }
+    ## magics that are treated like normal procedures by the code
+    ## generator
 
 template config*(p: PProc): ConfigRef = p.module.config
 
@@ -167,7 +168,6 @@ template nested(p, body) =
 
 proc newGlobals*(): PGlobals =
   new(result)
-  result.generatedSyms = initIntSet()
   result.typeInfoGenerated = initIntSet()
 
 proc rdLoc(a: TCompRes): Rope {.inline.} =
@@ -176,16 +176,16 @@ proc rdLoc(a: TCompRes): Rope {.inline.} =
   else:
     result = "$1[$2]" % [a.address, a.res]
 
-proc newProc(globals: PGlobals, module: BModule, procDef: PNode,
+proc newProc(globals: PGlobals, module: BModule, prc: PSym,
              options: TOptions): PProc =
   result = PProc(
     blocks: @[],
     options: options,
     module: module,
-    procDef: procDef,
+    prc: prc,
+    procDef: (if prc != nil: prc.ast else: nil),
     g: globals,
-    extraIndent: int(procDef != nil))
-  if procDef != nil: result.prc = procDef[namePos].sym
+    extraIndent: int(prc != nil))
 
 proc newInitProc(globals: PGlobals, module: BModule): PProc =
   result = newProc(globals, module, nil, {})
@@ -309,18 +309,13 @@ proc makeJSString(s: string, escapeNonAscii = true): Rope =
 include jstypes
 
 proc gen(p: PProc, n: PNode, r: var TCompRes)
-proc genStmt(p: PProc, n: PNode)
-proc genProc(oldProc: PProc, prc: PSym): Rope
-proc genConstant(p: PProc, c: PSym)
+proc genStmt*(p: PProc, n: PNode)
 
 proc useMagic(p: PProc, name: string) =
   if name.len == 0: return
   var s = magicsys.getCompilerProc(p.module.graph, name)
   if s != nil:
-    internalAssert p.config, s.kind in {skProc, skFunc, skMethod, skConverter}
-    if not p.g.generatedSyms.containsOrIncl(s.id):
-      let code = genProc(p, s)
-      p.g.constants.add(code)
+    p.g.extra.add s
   else:
     if p.prc != nil:
       globalReport(p.config, p.prc.info, reportStr(rsemSystemNeeds, name))
@@ -939,7 +934,9 @@ proc genIf(p: PProc, n: PNode) =
   genStmt(p, it[1])
   lineF(p, "}$n", [])
 
-proc generateHeader(p: PProc, prc: PSym): Rope =
+proc generateHeader(prc: PSym): Rope =
+  ## Generates the JavaScript function header for `prc`. The parameters are
+  ## assumed to already have their mangled names set.
   result = ""
 
   let typ = prc.typ
@@ -949,20 +946,12 @@ proc generateHeader(p: PProc, prc: PSym): Rope =
     var param = typ.n[i].sym
     if isCompileTimeOnly(param.typ): continue
     if result != "": result.add(", ")
-    var name = mangleName(p.module, param)
+    let name = param.loc.r
     result.add(name)
     if mapType(param.typ) == etyBaseIndex:
       result.add(", ")
       result.add(name)
       result.add("_Idx")
-
-  if typ.callConv == ccClosure:
-    # generate the name for the hidden environment parameter. When creating a
-    # closure object, the environment is bound to the ``this`` argument of the
-    # function, hence using ``this`` for the name
-    let hidden = prc.ast[paramsPos].lastSon
-    assert hidden.kind == nkSym, "the hidden parameter is missing"
-    hidden.sym.loc.r = "this"
 
 const
   nodeKindsNeedNoCopy = {nkCharLit..nkInt64Lit, nkStrLit..nkTripleStrLit,
@@ -1295,17 +1284,6 @@ proc genAddr(p: PProc, n: PNode, r: var TCompRes) =
   else:
     internalError(p.config, n.info, "genAddr: " & $n.kind)
 
-proc attachProc(p: PProc; content: Rope; s: PSym) =
-  p.g.code.add(content)
-
-proc attachProc(p: PProc; s: PSym) =
-  let newp = genProc(p, s)
-  attachProc(p, newp, s)
-
-proc genProcForSymIfNeeded(p: PProc, s: PSym) =
-  if not p.g.generatedSyms.containsOrIncl(s.id):
-    attachProc(p, s)
-
 proc genVarInit(p: PProc, v: PSym, n: PNode)
 
 proc genSym(p: PProc, n: PNode, r: var TCompRes) =
@@ -1331,7 +1309,6 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
     else:
       r.res = s.loc.r
   of skConst:
-    genConstant(p, s)
     p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
     r.res = s.loc.r
   of skProc, skFunc, skConverter, skMethod, skIterator:
@@ -1341,13 +1318,6 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
 
     discard mangleName(p.module, s)
     r.res = s.loc.r
-    if lfNoDecl in s.loc.flags or s.magic notin {mNone, mIsolate} or
-       {sfImportc, sfInfixCall} * s.flags != {}:
-      discard
-    else:
-      # unresolved borrow or forward declarations must not reach here
-      assert {sfForward, sfBorrow} * s.flags == {}
-      genProcForSymIfNeeded(p, s)
   else:
     p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
     if mapType(p, s.typ) == etyBaseIndex:
@@ -1661,6 +1631,18 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
 
 template returnType: untyped = ~""
 
+proc defineGlobal*(globals: PGlobals, m: BModule, v: PSym) =
+  ## Emits the definition for the single global `v` into the top-level section,
+  ## with `m` being the module the global belongs to. Also sets up the symbols
+  ## mangled name.
+  let p = newInitProc(globals, m)
+  if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
+    let name = mangleName(m, v) # mutates `v`
+    lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
+
+  # add to the top-level section:
+  globals.code.add(p.body)
+
 proc defineGlobals*(globals: PGlobals, m: BModule, vars: openArray[PSym]) =
   ## Emits definitions for the items in `vars` into the top-level section,
   ## with `m` being the module the globals belong to. Also updates each
@@ -1668,8 +1650,7 @@ proc defineGlobals*(globals: PGlobals, m: BModule, vars: openArray[PSym]) =
   let p = newInitProc(globals, m)
     ## required for emitting code
   for v in vars.items:
-    if lfNoDecl notin v.loc.flags and sfImportc notin v.flags and
-       sfPure notin v.flags: # XXX: temporary workaround
+    if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
       let name = mangleName(m, v) # mutates `v`
       lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
 
@@ -1680,17 +1661,7 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
   var
     a: TCompRes
     s: Rope
-    varCode: string
     varName = mangleName(p.module, v)
-    useGlobalPragmas = sfGlobal in v.flags and ({sfPure, sfThread} * v.flags != {})
-
-  if true:
-    if useGlobalPragmas:
-      lineF(p, "if (globalThis.$1 === undefined) {$n", varName)
-      varCode = "globalThis." & $varName
-      inc p.extraIndent
-    else:
-      varCode = "var $2"
 
   if n.kind == nkEmpty:
     if not isIndirect(v) and
@@ -1698,7 +1669,7 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
       lineF(p, "var $1 = null;$n", [varName])
       lineF(p, "var $1_Idx = 0;$n", [varName])
     else:
-      line(p, runtimeFormat(varCode & " = $3;$n", [returnType, varName, createVar(p, v.typ, isIndirect(v))]))
+      lineF(p, "var $2 = $3;$n", [returnType, varName, createVar(p, v.typ, isIndirect(v))])
   else:
     gen(p, n, a)
     case mapType(p, v.typ)
@@ -1713,20 +1684,16 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
       if isBoxedPointer(v):
         s = "[$1, $2]" % [a.address, a.res]
       else:
-        line(p, runtimeFormat(varCode & " = $3, $2_Idx = $4;$n",
-                  [returnType, v.loc.r, a.address, a.res]))
+        lineF(p, "var $2 = $3, $2_Idx = $4;$n",
+                 [returnType, v.loc.r, a.address, a.res])
         # exit early because we've already emitted the definition
         return
     else:
       s = a.res
     if isIndirect(v):
-      line(p, runtimeFormat(varCode & " = [$3];$n", [returnType, v.loc.r, s]))
+      lineF(p, "var $2 = [$3];$n", [returnType, v.loc.r, s])
     else:
-      line(p, runtimeFormat(varCode & " = $3;$n", [returnType, v.loc.r, s]))
-
-  if useGlobalPragmas:
-    dec p.extraIndent
-    lineF(p, "}$n")
+      lineF(p, "var $2 = $3;$n", [returnType, v.loc.r, s])
 
 proc genVarStmt(p: PProc, n: PNode) =
   for it in n.items:
@@ -1737,14 +1704,12 @@ proc genVarStmt(p: PProc, n: PNode) =
       genLineDir(p, it)
       genVarInit(p, v, it[2])
 
-proc genConstant(p: PProc, c: PSym) =
-  if lfNoDecl notin c.loc.flags and not p.g.generatedSyms.containsOrIncl(c.id):
-    let oldBody = p.body
-    p.body = ""
+proc genConstant*(g: PGlobals, m: BModule, c: PSym) =
+  if lfNoDecl notin c.loc.flags:
+    var p = newInitProc(g, m)
     #genLineDir(p, c.ast)
     genVarInit(p, c, c.ast)
-    p.g.constants.add(p.body)
-    p.body = oldBody
+    g.constants.add(p.body)
 
 proc genNew(p: PProc, n: PNode) =
   var a: TCompRes
@@ -2031,7 +1996,6 @@ proc genMagic(p: PProc, n: PNode, r: var TCompRes) =
   of mNewStringOfCap:
     unaryExpr(p, n, r, "mnewString", "mnewString(0)")
   of mDotDot:
-    genProcForSymIfNeeded(p, n[0].sym)
     genCall(p, n, r)
   of mParseBiggestFloat:
     useMagic(p, "nimParseBiggestFloat")
@@ -2274,20 +2238,43 @@ proc optionalLine(p: Rope): Rope =
   else:
     return p & "\L"
 
-proc genProc(oldProc: PProc, prc: PSym): Rope =
-  var
-    resultSym: PSym
-    a: TCompRes
-  #if gVerbosity >= 3:
-  #  echo "BEGIN generating code for: " & prc.name.s
-  var p = newProc(oldProc.g, oldProc.module, prc.ast, prc.options)
-  var returnStmt = ""
-  var resultAsgn = ""
-  var name = mangleName(p.module, prc)
-  let header = generateHeader(p, prc)
+proc startProc*(g: PGlobals, module: BModule, prc: PSym): PProc =
+  let p = newProc(g, module, prc, prc.options)
+
+  # make sure the procedure has a mangled name:
+  discard mangleName(p.module, prc)
+
+  # same for the result symbol and parameters:
   if prc.typ[0] != nil and sfPure notin prc.flags:
-    resultSym = prc.ast[resultPos].sym
-    let mname = mangleName(p.module, resultSym)
+    discard mangleName(p.module, prc.ast[resultPos].sym)
+
+  # set the mangled name for the parameters:
+  for i in 1..<prc.typ.n.len:
+    let param = prc.typ.n[i].sym
+    if not isCompileTimeOnly(param.typ):
+      discard mangleName(p.module, param)
+
+  if prc.typ.callConv == ccClosure:
+    # generate the name for the hidden environment parameter. When creating a
+    # closure object, the environment is bound to the ``this`` argument of the
+    # function, hence using ``this`` for the name
+    let hidden = prc.ast[paramsPos].lastSon
+    assert hidden.kind == nkSym, "the hidden parameter is missing"
+    hidden.sym.loc.r = "this"
+
+  result = p
+
+proc finishProc*(p: PProc): string =
+  let
+    prc = p.prc
+
+  var
+    returnStmt = ""
+    resultAsgn = ""
+
+  if prc.typ[0] != nil and sfPure notin prc.flags:
+    let resultSym = prc.ast[resultPos].sym
+    let mname = resultSym.loc.r
     let returnAddress = not isIndirect(resultSym) and
       resultSym.typ.kind in {tyVar, tyPtr, tyLent, tyRef} and
         mapType(p, resultSym.typ) == etyBaseIndex
@@ -2297,21 +2284,19 @@ proc genProc(oldProc: PProc, prc: PSym): Rope =
     else:
       let resVar = createVar(p, resultSym.typ, isIndirect(resultSym))
       resultAsgn = p.indentLine(("var $# = $#;$n") % [mname, resVar])
+    var a: TCompRes
     gen(p, prc.ast[resultPos], a)
     if returnAddress:
       returnStmt = "return [$#, $#];$n" % [a.address, a.res]
     else:
       returnStmt = "return $#;$n" % [a.res]
 
-  var transformedBody = transformBody(p.module.graph, p.module.idgen, prc, cache = false)
-  transformedBody = canonicalizeWithInject(p.module.graph, p.module.idgen, prc,
-                                           transformedBody, {})
-
-  p.nested: genStmt(p, transformedBody)
-
-
   if optLineDir in p.config.options:
     result = lineDir(p.config, prc.info, toLinenumber(prc.info))
+
+  let
+    name   = prc.loc.r
+    header = generateHeader(prc)
 
   var def: Rope
   if not prc.constraint.isNil:
@@ -2343,6 +2328,12 @@ proc genProc(oldProc: PProc, prc: PSym): Rope =
 
   #if gVerbosity >= 3:
   #  echo "END   generated code for: " & prc.name.s
+
+proc genProc*(g: PGlobals, module: BModule, prc: PSym,
+              transformedBody: PNode): Rope =
+  var p = startProc(g, module, prc)
+  p.nested: genStmt(p, transformedBody)
+  result = finishProc(p)
 
 proc genStmt(p: PProc, n: PNode) =
   var r: TCompRes
@@ -2508,7 +2499,6 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkIfStmt: genIf(p, n)
   of nkWhileStmt: genWhileStmt(p, n)
   of nkVarSection, nkLetSection: genVarStmt(p, n)
-  of nkConstSection: discard
   of nkCaseStmt: genCaseJS(p, n)
   of nkReturnStmt: genReturnStmt(p, n)
   of nkBreakStmt: genBreakStmt(p, n)
@@ -2522,13 +2512,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkAsmStmt: genAsmOrEmitStmt(p, n)
   of nkTryStmt: genTry(p, n)
   of nkRaiseStmt: genRaiseStmt(p, n)
-  of nkIteratorDef: discard
   of nkPragma: genPragma(p, n)
-  of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:
-    var s = n[namePos].sym
-    if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
-      genSym(p, n[namePos], r)
-      r.res = ""
   of nkFloat128Lit, nkNimNodeLit:
     unreachable()
   of nkWithSons + nkWithoutSons - codegenExprNodeKinds:
@@ -2548,22 +2532,11 @@ proc genHeader*(): Rope =
     var lastJSError = null;
   """.unindent.format(VersionAsString))
 
-proc genModule(p: PProc, n: PNode) =
-  var transformedN = transformStmt(p.module.graph, p.module.idgen, p.module.module, n)
-  transformedN = canonicalizeWithInject(p.module.graph, p.module.idgen,
-                                        p.module.module, transformedN, {})
-
-  genStmt(p, transformedN)
-
-proc genTopLevelProcedure*(globals: PGlobals, m: BModule, prc: PSym) =
-  var p = newInitProc(globals, m)
-  genProcForSymIfNeeded(p, prc)
-
 proc genTopLevelStmt*(globals: PGlobals, m: BModule, n: PNode) =
   m.config.internalAssert(m.module != nil, n.info, "genTopLevelStmt")
   var p = newInitProc(globals, m)
   p.unique = globals.unique
-  genModule(p, n)
+  genStmt(p, n)
   p.g.code.add(p.locals)
   p.g.code.add(p.body)
 
