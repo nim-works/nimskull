@@ -370,6 +370,10 @@ $3endif$N
 
 proc prepareParameters(m: BModule, t: PType) =
   ## Prepares the locs of the parameter symbols for procedure type `t`.
+  ##
+  ## Neither the loc for the 'result' nor for the hidden environment parameter
+  ## are filled-in here. 'result' might not be a parameter, and the hidden
+  ## environment parameter is currently always treated as a local variable.
   assert t.kind == tyProc
   let params = t.n
   for i in 1..<params.len:
@@ -394,10 +398,6 @@ proc prepareParameters(m: BModule, t: PType) =
       # the parameter is passed by address; mark it as indirect
       incl(param.loc.flags, lfIndirect)
       param.loc.storage = OnUnknown
-
-  # neither the loc for the result nor for the hidden environment parameter
-  # are filled-in here. The result might not be a parameter, and the hidden
-  # environment parameter is currently always treated as a local variable
 
 proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
                    check: var IntSet, declareEnvironment=true;
