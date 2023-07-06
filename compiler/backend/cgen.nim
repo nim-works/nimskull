@@ -920,6 +920,8 @@ proc isNoReturn(m: BModule; s: PSym): bool {.inline.} =
 proc startProc*(m: BModule, prc: PSym; procBody: PNode = nil): BProc =
   var p = newProc(prc, m)
   assert(prc.ast != nil)
+  prepareParameters(m, prc.typ)
+
   if sfPure notin prc.flags and prc.typ[0] != nil:
     m.config.internalAssert(resultPos < prc.ast.len, prc.info, "proc has no result symbol")
     let resNode = prc.ast[resultPos]
@@ -962,9 +964,7 @@ proc startProc*(m: BModule, prc: PSym; procBody: PNode = nil): BProc =
 
   for i in 1..<prc.typ.n.len:
     let param = prc.typ.n[i].sym
-    if param.typ.isCompileTimeOnly: continue
-    fillLoc(param.loc, locParam, prc.typ.n[i], mangleParamName(m, param),
-            param.paramStorageLoc)
+    if param.loc.k == locNone: continue
     assignParam(p, param, prc.typ[0])
   closureSetup(p, prc)
 

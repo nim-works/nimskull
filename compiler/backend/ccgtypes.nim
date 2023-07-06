@@ -368,12 +368,36 @@ struct $2_Content { NI cap; $1 data[SEQ_DECL_SIZE];};
 $3endif$N
       """, [getTypeDescAux(m, t.skipTypes(abstractInst)[0], check, skVar), result, rope"#"])
 
-proc paramStorageLoc(param: PSym): TStorageLoc =
-  if param.typ.skipTypes({tyVar, tyLent, tyTypeDesc}).kind notin {
-          tyArray, tyOpenArray, tyVarargs}:
-    result = OnStack
-  else:
-    result = OnUnknown
+proc prepareParameters(m: BModule, t: PType) =
+  ## Prepares the locs of the parameter symbols for procedure type `t`.
+  ##
+  ## Neither the loc for the 'result' nor for the hidden environment parameter
+  ## are filled-in here. 'result' might not be a parameter, and the hidden
+  ## environment parameter is currently always treated as a local variable.
+  assert t.kind == tyProc
+  let params = t.n
+  for i in 1..<params.len:
+    let param = params[i].sym
+    if isCompileTimeOnly(param.typ) or param.loc.k != locNone:
+      # ignore parameters only relevant for overloading (e.g., ``static[T]``,
+      # etc.); already filled-in parameters are also skipped
+      continue
+
+    let storage =
+      if mapType(m.config, param.typ.skipTypes({tyVar, tyLent}), skParam) == ctArray:
+        # something that's represented as a C array. Since an indirection is
+        # involved, we don't know where the location resides
+        OnUnknown
+      else:
+        OnStack
+
+    fillLoc(param.loc, locParam, params[i], mangleParamName(m, param),
+            storage)
+
+    if ccgIntroducedPtr(m.config, param, t[0]):
+      # the parameter is passed by address; mark it as indirect
+      incl(param.loc.flags, lfIndirect)
+      param.loc.storage = OnUnknown
 
 proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
                    check: var IntSet, declareEnvironment=true;
@@ -386,15 +410,11 @@ proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
   for i in 1..<t.n.len:
     m.config.internalAssert(t.n[i].kind == nkSym, t.n.info, "genProcParams")
     var param = t.n[i].sym
-    if isCompileTimeOnly(param.typ): continue
+    if param.loc.k == locNone: continue
     if params != "": params.add(~", ")
-    fillLoc(param.loc, locParam, t.n[i], mangleParamName(m, param),
-            param.paramStorageLoc)
-    if ccgIntroducedPtr(m.config, param, t[0]):
+    if lfIndirect in param.loc.flags:
       params.add(getTypeDescWeak(m, param.typ, check, skParam))
       params.add(~"*")
-      incl(param.loc.flags, lfIndirect)
-      param.loc.storage = OnUnknown
     elif weakDep:
       params.add(getTypeDescWeak(m, param.typ, check, skParam))
     else:
@@ -408,8 +428,6 @@ proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
     if arr.kind in {tyVar, tyLent, tySink}: arr = arr.lastSon
     var j = 0
     while arr.kind in {tyOpenArray, tyVarargs}:
-      # this fixes the 'sort' bug:
-      if param.typ.kind in {tyVar, tyLent}: param.loc.storage = OnUnknown
       # need to pass hidden parameter:
       params.addf(", NI $1Len_$2", [param.loc.r, j.rope])
       inc(j)
@@ -669,6 +687,7 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKin
     result = getTypeName(m, origTyp, sig)
     m.typeCache[sig] = result
     var rettype, desc: Rope
+    prepareParameters(m, t)
     genProcParams(m, t, rettype, desc, check, true, true)
     if not isImportedType(t):
       if t.callConv != ccClosure: # procedure vars may need a closure!
@@ -746,6 +765,7 @@ proc getClosureType(m: BModule, t: PType, kind: TClosureTypeKind): Rope =
   var check = initIntSet()
   result = getTempName(m)
   var rettype, desc: Rope
+  prepareParameters(m, t)
   genProcParams(m, t, rettype, desc, check, declareEnvironment=kind != clHalf)
   if not isImportedType(t):
     if t.callConv != ccClosure or kind != clFull:
@@ -784,6 +804,7 @@ proc genProcHeader(m: BModule, prc: PSym): Rope =
     result.add "N_LIB_PRIVATE "
   var check = initIntSet()
   fillLoc(prc.loc, locProc, prc.ast[namePos], mangleName(m, prc), OnUnknown)
+  prepareParameters(m, prc.typ)
   genProcParams(m, prc.typ, rettype, params, check)
 
   let name = prc.loc.r
