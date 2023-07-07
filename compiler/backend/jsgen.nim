@@ -221,9 +221,6 @@ proc mapType(typ: PType; indirect = false): TJSTypeKind =
   of tyProc: result = etyProc
   of tyCstring: result = etyString
 
-proc mapType(p: PProc; typ: PType): TJSTypeKind =
-  result = mapType(typ)
-
 func mangleJs(name: string): string =
   ## Mangles the given `name` and returns the result. The mangling is required
   ## in order to ensure that NimSkull identifiers map to valid JavaScript
@@ -946,7 +943,7 @@ proc needsNoCopy(p: PProc; y: PNode): bool =
 
 proc genAsgnAux(p: PProc, x, y: PNode, noCopyNeeded: bool) =
   var a, b: TCompRes
-  var xtyp = mapType(p, x.typ)
+  var xtyp = mapType(x.typ)
 
   # disable `[]=` for cstring
   if x.kind == nkBracketExpr and x.len >= 2 and x[0].typ.skipTypes(abstractInst).kind == tyCstring:
@@ -1025,7 +1022,7 @@ proc genSwap(p: PProc, n: PNode) =
   gen(p, n[1], a)
   gen(p, n[2], b)
   var tmp = p.getTemp(false)
-  if mapType(p, skipTypes(n[1].typ, abstractVar)) == etyBaseIndex:
+  if mapType(skipTypes(n[1].typ, abstractVar)) == etyBaseIndex:
     let tmp2 = p.getTemp(false)
     p.config.internalAssert(a.typ == etyBaseIndex and b.typ == etyBaseIndex, n.info, "genSwap")
     lineF(p, "var $1 = $2; $2 = $3; $3 = $1;$n",
@@ -1211,7 +1208,7 @@ proc genSymAddr(p: PProc, n: PNode, r: var TCompRes) =
     r.res = "0"
     if isIndirect(s):
       r.address = s.loc.r
-    elif mapType(p, s.typ) == etyBaseIndex and not isBoxedPointer(s):
+    elif mapType(s.typ) == etyBaseIndex and not isBoxedPointer(s):
       # box the separate base+index into an array first
       r.address = "[[$1, $1_Idx]]" % s.loc.r
     else:
@@ -1270,7 +1267,7 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
   case s.kind
   of skVar, skLet, skParam, skTemp, skResult, skForVar:
     p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
-    let k = mapType(p, s.typ)
+    let k = mapType(s.typ)
     if k == etyBaseIndex:
       r.typ = etyBaseIndex
       if isBoxedPointer(s):
@@ -1299,7 +1296,7 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
     r.res = s.loc.r
   else:
     p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
-    if mapType(p, s.typ) == etyBaseIndex:
+    if mapType(s.typ) == etyBaseIndex:
       r.address = s.loc.r
       r.res = s.loc.r & "_Idx"
     else:
@@ -1308,14 +1305,14 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
 
 proc genDeref(p: PProc, n: PNode, r: var TCompRes) =
   let it = n[0]
-  let t = mapType(p, it.typ)
+  let t = mapType(it.typ)
   if t == etyObject or it.typ.kind == tyLent:
     gen(p, it, r)
   else:
     var a: TCompRes
     gen(p, it, a)
     r.kind = a.kind
-    r.typ = mapType(p, n.typ)
+    r.typ = mapType(n.typ)
     if r.typ == etyBaseIndex:
       let tmp = p.getTemp
       r.address = "($1 = $2, $1)[0]" % [tmp, a.rdLoc]
@@ -1590,7 +1587,7 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
     result = ("({$1})") % [initList]
     if indirect: result = "[$1]" % [result]
   of tyVar, tyPtr, tyRef, tyPointer:
-    if mapType(p, t) == etyBaseIndex:
+    if mapType(t) == etyBaseIndex:
       result = putToSeq("[null, 0]", indirect)
     else:
       result = putToSeq("null", indirect)
@@ -1644,14 +1641,14 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
 
   if n.kind == nkEmpty:
     if not isIndirect(v) and
-      v.typ.kind in {tyVar, tyPtr, tyLent, tyRef} and mapType(p, v.typ) == etyBaseIndex:
+      v.typ.kind in {tyVar, tyPtr, tyLent, tyRef} and mapType(v.typ) == etyBaseIndex:
       lineF(p, "var $1 = null;$n", [varName])
       lineF(p, "var $1_Idx = 0;$n", [varName])
     else:
       lineF(p, "var $2 = $3;$n", [returnType, varName, createVar(p, v.typ, isIndirect(v))])
   else:
     gen(p, n, a)
-    case mapType(p, v.typ)
+    case mapType(v.typ)
     of etyObject, etySeq:
       if needsNoCopy(p, n) or classifyBackendView(v.typ) == bvcSequence:
         s = a.res
@@ -2256,7 +2253,7 @@ proc finishProc*(p: PProc): string =
     let mname = resultSym.loc.r
     let returnAddress = not isIndirect(resultSym) and
       resultSym.typ.kind in {tyVar, tyPtr, tyLent, tyRef} and
-        mapType(p, resultSym.typ) == etyBaseIndex
+        mapType(resultSym.typ) == etyBaseIndex
     if returnAddress:
       resultAsgn = p.indentLine(("var $# = null;$n") % [mname])
       resultAsgn.add p.indentLine("var $#_Idx = 0;$n" % [mname])
@@ -2353,11 +2350,11 @@ proc genCast(p: PProc, n: PNode, r: var TCompRes) =
           of 4: "0xfffffffe"
           else: ""
         r.res = "($1 - ($2 $3))" % [rope minuend, r.res, trimmer]
-  elif (src.kind == tyPtr and mapType(p, src) == etyObject) and dest.kind == tyPointer:
+  elif (src.kind == tyPtr and mapType(src) == etyObject) and dest.kind == tyPointer:
     r.address = r.res
     r.res = ~"null"
     r.typ = etyBaseIndex
-  elif (dest.kind == tyPtr and mapType(p, dest) == etyObject) and src.kind == tyPointer:
+  elif (dest.kind == tyPtr and mapType(dest) == etyObject) and src.kind == tyPointer:
     r.res = r.address
     r.typ = etyObject
 
@@ -2379,7 +2376,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkNilLit:
     if isEmptyType(n.typ):
       discard
-    elif mapType(p, n.typ) == etyBaseIndex:
+    elif mapType(n.typ) == etyBaseIndex:
       r.typ = etyBaseIndex
       r.address = rope"null"
       r.res = rope"0"
