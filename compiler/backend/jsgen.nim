@@ -10,7 +10,7 @@
 ## This is the JavaScript code generator.
 
 discard """
-The JS code generator contains only 2 tricks:
+The JS code generator contains only 1 trick:
 
 Trick 1
 -------
@@ -18,13 +18,6 @@ Some locations (for example 'var int') require "fat pointers" (`etyBaseIndex`)
 which are pairs (array, index). The derefence operation is then 'array[index]'.
 Check `mapType` for the details.
 
-Trick 2
--------
-It is preferable to generate '||' and '&&' if possible since that is more
-idiomatic and hence should be friendlier for the JS JIT implementation. However
-code like `foo and (let bar = baz())` cannot be translated this way. Instead
-the expressions need to be transformed into statements. `isSimpleExpr`
-implements the required case distinction.
 """
 
 import
@@ -79,7 +72,6 @@ type
     module: PSym
     graph: ModuleGraph
     config: ConfigRef
-    sigConflicts: CountTable[SigHash]
 
   BModule* = ref TJSGen
   TJSTypeKind = enum       # necessary JS "types"
@@ -125,9 +117,8 @@ type
 
   PProc* = ref TProc
   TProc* = object
-    procDef: PNode
     prc: PSym
-    globals, locals, body: Rope
+    locals, body: Rope
     options: TOptions
     module: BModule
     g: PGlobals
@@ -135,7 +126,6 @@ type
     unique: int    # for temp identifier generation
     blocks: seq[TBlock]
     extraIndent: int
-    declaredGlobals: IntSet
 
 const
   sfModuleInit* = sfMainModule
@@ -183,7 +173,6 @@ proc newProc(globals: PGlobals, module: BModule, prc: PSym,
     options: options,
     module: module,
     prc: prc,
-    procDef: (if prc != nil: prc.ast else: nil),
     g: globals,
     extraIndent: int(prc != nil))
 
@@ -231,9 +220,6 @@ proc mapType(typ: PType; indirect = false): TJSTypeKind =
     else: result = etyNone
   of tyProc: result = etyProc
   of tyCstring: result = etyString
-
-proc mapType(p: PProc; typ: PType): TJSTypeKind =
-  result = mapType(typ)
 
 func mangleJs(name: string): string =
   ## Mangles the given `name` and returns the result. The mangling is required
@@ -323,16 +309,6 @@ proc useMagic(p: PProc, name: string) =
     else:
       localReport(p.config, reportStr(rsemSystemNeeds, name))
 
-proc isSimpleExpr(p: PProc; n: PNode): bool =
-  # calls all the way down --> can stay expression based
-  if n.kind in nkCallKinds+{nkBracketExpr, nkDotExpr, nkPar, nkTupleConstr} or
-      (n.kind in {nkObjConstr, nkBracket, nkCurly}):
-    for c in n:
-      if not p.isSimpleExpr(c): return false
-    result = true
-  elif n.isAtom:
-    result = true
-
 proc getTemp(p: PProc, defineInLocals: bool = true): Rope =
   inc(p.unique)
   result = "Temporary$1" % [rope(p.unique)]
@@ -408,20 +384,20 @@ const # magic checked op; magic unchecked op;
     mCStrToStr: ["cstrToNimstr", "cstrToNimstr"],
     mStrToStr: ["", ""]]
 
-proc needsTemp(p: PProc; n: PNode): bool =
+proc needsTemp(n: PNode): bool =
   # check if n contains a call to determine
   # if a temp should be made to prevent multiple evals
   if n.kind in nkCallKinds + {nkTupleConstr, nkObjConstr, nkBracket, nkCurly}:
     return true
   for c in n:
-    if needsTemp(p, c):
+    if needsTemp(c):
       return true
 
 proc maybeMakeTemp(p: PProc, n: PNode; x: TCompRes): tuple[a, tmp: Rope] =
   var
     a = x.rdLoc
     b = a
-  if needsTemp(p, n):
+  if needsTemp(n):
     # if we have tmp just use it
     if x.tmpLoc != "" and (mapType(n.typ) == etyBaseIndex or n.kind in {nkHiddenDeref, nkDerefExpr}):
       b = "$1[0][$1[1]]" % [x.tmpLoc]
@@ -438,7 +414,7 @@ proc maybeMakeTempAssignable(p: PProc, n: PNode; x: TCompRes): tuple[a, tmp: Rop
   var
     a = x.rdLoc
     b = a
-  if needsTemp(p, n):
+  if needsTemp(n):
     # if we have tmp just use it
     if x.tmpLoc != "" and (mapType(n.typ) == etyBaseIndex or n.kind in {nkHiddenDeref, nkDerefExpr}):
       b = "$1[0][$1[1]]" % [x.tmpLoc]
@@ -967,7 +943,7 @@ proc needsNoCopy(p: PProc; y: PNode): bool =
 
 proc genAsgnAux(p: PProc, x, y: PNode, noCopyNeeded: bool) =
   var a, b: TCompRes
-  var xtyp = mapType(p, x.typ)
+  var xtyp = mapType(x.typ)
 
   # disable `[]=` for cstring
   if x.kind == nkBracketExpr and x.len >= 2 and x[0].typ.skipTypes(abstractInst).kind == tyCstring:
@@ -1046,7 +1022,7 @@ proc genSwap(p: PProc, n: PNode) =
   gen(p, n[1], a)
   gen(p, n[2], b)
   var tmp = p.getTemp(false)
-  if mapType(p, skipTypes(n[1].typ, abstractVar)) == etyBaseIndex:
+  if mapType(skipTypes(n[1].typ, abstractVar)) == etyBaseIndex:
     let tmp2 = p.getTemp(false)
     p.config.internalAssert(a.typ == etyBaseIndex and b.typ == etyBaseIndex, n.info, "genSwap")
     lineF(p, "var $1 = $2; $2 = $3; $3 = $1;$n",
@@ -1084,7 +1060,7 @@ proc genFieldAccess(p: PProc, n: PNode, r: var TCompRes) =
 
   template mkTemp(i: int) =
     if r.typ == etyBaseIndex:
-      if needsTemp(p, n[i]):
+      if needsTemp(n[i]):
         let tmp = p.getTemp
         r.address = "($1 = $2, $1)[0]" % [tmp, r.res]
         r.res = "$1[1]" % [tmp]
@@ -1194,7 +1170,7 @@ proc genArrayAccess(p: PProc, n: PNode, r: var TCompRes) =
   if ty.kind == tyCstring:
     r.res = "$1.charCodeAt($2)" % [r.address, r.res]
   elif r.typ == etyBaseIndex:
-    if needsTemp(p, n[0]):
+    if needsTemp(n[0]):
       let tmp = p.getTemp
       r.address = "($1 = $2, $1)[0]" % [tmp, r.rdLoc]
       r.res = "$1[1]" % [tmp]
@@ -1232,7 +1208,7 @@ proc genSymAddr(p: PProc, n: PNode, r: var TCompRes) =
     r.res = "0"
     if isIndirect(s):
       r.address = s.loc.r
-    elif mapType(p, s.typ) == etyBaseIndex and not isBoxedPointer(s):
+    elif mapType(s.typ) == etyBaseIndex and not isBoxedPointer(s):
       # box the separate base+index into an array first
       r.address = "[[$1, $1_Idx]]" % s.loc.r
     else:
@@ -1291,7 +1267,7 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
   case s.kind
   of skVar, skLet, skParam, skTemp, skResult, skForVar:
     p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
-    let k = mapType(p, s.typ)
+    let k = mapType(s.typ)
     if k == etyBaseIndex:
       r.typ = etyBaseIndex
       if isBoxedPointer(s):
@@ -1320,7 +1296,7 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
     r.res = s.loc.r
   else:
     p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
-    if mapType(p, s.typ) == etyBaseIndex:
+    if mapType(s.typ) == etyBaseIndex:
       r.address = s.loc.r
       r.res = s.loc.r & "_Idx"
     else:
@@ -1329,14 +1305,14 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
 
 proc genDeref(p: PProc, n: PNode, r: var TCompRes) =
   let it = n[0]
-  let t = mapType(p, it.typ)
+  let t = mapType(it.typ)
   if t == etyObject or it.typ.kind == tyLent:
     gen(p, it, r)
   else:
     var a: TCompRes
     gen(p, it, a)
     r.kind = a.kind
-    r.typ = mapType(p, n.typ)
+    r.typ = mapType(n.typ)
     if r.typ == etyBaseIndex:
       let tmp = p.getTemp
       r.address = "($1 = $2, $1)[0]" % [tmp, a.rdLoc]
@@ -1464,9 +1440,10 @@ proc genPatternCall(p: PProc; n: PNode; pat: string; typ: PType;
 proc genInfixCall(p: PProc, n: PNode, r: var TCompRes) =
   # don't call '$' here for efficiency:
   let f = n[0].sym
+  assert sfInfixCall in f.flags
   if f.loc.r == "": f.loc.r = mangleName(p.module, f)
-  if sfInfixCall in f.flags:
-    let pat = n[0].sym.loc.r
+  if true:
+    let pat = f.loc.r
     internalAssert p.config, pat.len > 0
     if pat.contains({'#', '(', '@'}):
       var typ = skipTypes(n[0].typ, abstractInst)
@@ -1611,7 +1588,7 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
     result = ("({$1})") % [initList]
     if indirect: result = "[$1]" % [result]
   of tyVar, tyPtr, tyRef, tyPointer:
-    if mapType(p, t) == etyBaseIndex:
+    if mapType(t) == etyBaseIndex:
       result = putToSeq("[null, 0]", indirect)
     else:
       result = putToSeq("null", indirect)
@@ -1665,14 +1642,14 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
 
   if n.kind == nkEmpty:
     if not isIndirect(v) and
-      v.typ.kind in {tyVar, tyPtr, tyLent, tyRef} and mapType(p, v.typ) == etyBaseIndex:
+      v.typ.kind in {tyVar, tyPtr, tyLent, tyRef} and mapType(v.typ) == etyBaseIndex:
       lineF(p, "var $1 = null;$n", [varName])
       lineF(p, "var $1_Idx = 0;$n", [varName])
     else:
-      lineF(p, "var $2 = $3;$n", [returnType, varName, createVar(p, v.typ, isIndirect(v))])
+      lineF(p, "var $1 = $2;$n", [varName, createVar(p, v.typ, isIndirect(v))])
   else:
     gen(p, n, a)
-    case mapType(p, v.typ)
+    case mapType(v.typ)
     of etyObject, etySeq:
       if needsNoCopy(p, n) or classifyBackendView(v.typ) == bvcSequence:
         s = a.res
@@ -1684,16 +1661,16 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
       if isBoxedPointer(v):
         s = "[$1, $2]" % [a.address, a.res]
       else:
-        lineF(p, "var $2 = $3, $2_Idx = $4;$n",
-                 [returnType, v.loc.r, a.address, a.res])
+        lineF(p, "var $1 = $2, $1_Idx = $3;$n",
+                 [v.loc.r, a.address, a.res])
         # exit early because we've already emitted the definition
         return
     else:
       s = a.res
     if isIndirect(v):
-      lineF(p, "var $2 = [$3];$n", [returnType, v.loc.r, s])
+      lineF(p, "var $1 = [$2];$n", [v.loc.r, s])
     else:
-      lineF(p, "var $2 = $3;$n", [returnType, v.loc.r, s])
+      lineF(p, "var $1 = $2;$n", [v.loc.r, s])
 
 proc genVarStmt(p: PProc, n: PNode) =
   for it in n.items:
@@ -2189,7 +2166,7 @@ proc convCStrToStr(p: PProc, n: PNode, r: var TCompRes) =
     r.kind = resExpr
 
 proc genReturnStmt(p: PProc, n: PNode) =
-  p.config.internalAssert(p.procDef != nil, n.info, "genReturnStmt")
+  p.config.internalAssert(p.prc != nil, n.info, "genReturnStmt")
   p.beforeRetNeeded = true
   if n[0].kind != nkEmpty:
     genStmt(p, n[0])
@@ -2277,7 +2254,7 @@ proc finishProc*(p: PProc): string =
     let mname = resultSym.loc.r
     let returnAddress = not isIndirect(resultSym) and
       resultSym.typ.kind in {tyVar, tyPtr, tyLent, tyRef} and
-        mapType(p, resultSym.typ) == etyBaseIndex
+        mapType(resultSym.typ) == etyBaseIndex
     if returnAddress:
       resultAsgn = p.indentLine(("var $# = null;$n") % [mname])
       resultAsgn.add p.indentLine("var $#_Idx = 0;$n" % [mname])
@@ -2300,11 +2277,10 @@ proc finishProc*(p: PProc): string =
 
   var def: Rope
   if not prc.constraint.isNil:
-    def = runtimeFormat(prc.constraint.strVal & " {$n$#$#$#$#$#",
+    def = runtimeFormat(prc.constraint.strVal & " {$n$#$#$#$#",
             [ returnType,
               name,
               header,
-              optionalLine(p.globals),
               optionalLine(p.locals),
               optionalLine(resultAsgn),
               optionalLine(genProcBody(p, prc)),
@@ -2313,10 +2289,9 @@ proc finishProc*(p: PProc): string =
     # if optLineDir in p.config.options:
       # result.add(~"\L")
 
-    def = "\Lfunction $#($#) {$n$#$#$#$#$#" %
+    def = "\Lfunction $#($#) {$n$#$#$#$#" %
             [ name,
               header,
-              optionalLine(p.globals),
               optionalLine(p.locals),
               optionalLine(resultAsgn),
               optionalLine(genProcBody(p, prc)),
@@ -2376,11 +2351,11 @@ proc genCast(p: PProc, n: PNode, r: var TCompRes) =
           of 4: "0xfffffffe"
           else: ""
         r.res = "($1 - ($2 $3))" % [rope minuend, r.res, trimmer]
-  elif (src.kind == tyPtr and mapType(p, src) == etyObject) and dest.kind == tyPointer:
+  elif (src.kind == tyPtr and mapType(src) == etyObject) and dest.kind == tyPointer:
     r.address = r.res
     r.res = ~"null"
     r.typ = etyBaseIndex
-  elif (dest.kind == tyPtr and mapType(p, dest) == etyObject) and src.kind == tyPointer:
+  elif (dest.kind == tyPtr and mapType(dest) == etyObject) and src.kind == tyPointer:
     r.res = r.address
     r.typ = etyObject
 
@@ -2402,7 +2377,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkNilLit:
     if isEmptyType(n.typ):
       discard
-    elif mapType(p, n.typ) == etyBaseIndex:
+    elif mapType(n.typ) == etyBaseIndex:
       r.typ = etyBaseIndex
       r.address = rope"null"
       r.res = rope"0"
@@ -2521,7 +2496,6 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
 proc newModule*(g: ModuleGraph; module: PSym): BModule =
   new(result)
   result.module = module
-  result.sigConflicts = initCountTable[SigHash]()
   result.graph = g
   result.config = g.config
 
