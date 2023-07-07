@@ -2136,14 +2136,9 @@ proc fillConstLoc(m: BModule, sym: PSym) =
   if sym.loc.k == locNone:
     fillLoc(sym.loc, locData, sym.ast, mangleName(m, sym), OnStatic)
 
-proc genConstSetup(m: BModule; sym: PSym): bool =
-  useHeader(m, sym)
-  fillConstLoc(m, sym)
-
-  result = lfNoDecl notin sym.loc.flags
-
 proc useConst*(m: BModule; sym: PSym) =
-  if not genConstSetup(m, sym):
+  useHeader(m, sym)
+  if lfNoDecl in sym.loc.flags:
     return
 
   assert(sym.loc.r != "", $sym.name.s & $sym.itemId)
@@ -2156,11 +2151,12 @@ proc useConst*(m: BModule; sym: PSym) =
     m.s[cfsData].add(headerDecl)
 
 proc genConstDefinition*(q: BModule; sym: PSym) =
-  let p = newProc(nil, q)
-  fillConstLoc(q, sym)
-  q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
-      [getTypeDesc(q, sym.typ), sym.loc.r,
-      genBracedInit(p, sym.ast, isConst = true, sym.typ)])
+  fillConstLoc(q, sym) # all consts need a valid loc
+  if lfNoDecl notin sym.loc.flags:
+    let p = newProc(nil, q)
+    q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
+        [getTypeDesc(q, sym.typ), sym.loc.r,
+        genBracedInit(p, sym.ast, isConst = true, sym.typ)])
 
 proc expr(p: BProc, n: PNode, d: var TLoc) =
   when defined(nimCompilerStacktraceHints):
