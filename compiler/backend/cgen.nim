@@ -528,22 +528,16 @@ proc defineGlobalVar*(m: BModule, n: PNode) =
   if s.loc.k == locNone:
     fillGlobalLoc(m, s, n)
 
+  assert s.id notin m.declaredThings
+  assert findPendingModule(m, s) == m, "not the attached-to module"
+
   if lfDynamicLib in s.loc.flags:
-    var q = findPendingModule(m, s)
-    if q != nil and not containsOrIncl(q.declaredThings, s.id):
-      varInDynamicLib(q, s)
-    else:
-      s.loc.r = mangleDynLibProc(s)
-    return
-  useHeader(m, s)
-  if lfNoDecl in s.loc.flags: return
-  if true:
     incl(m.declaredThings, s.id)
-    if sfThread in s.flags:
-      # XXX: remove this case once pure globals are handled by the
-      #      orchestrator
-      declareThreadVar(m, s, sfImportc in s.flags)
-    else:
+    varInDynamicLib(m, s)
+  else:
+    useHeader(m, s)
+    if lfNoDecl notin s.loc.flags:
+      incl(m.declaredThings, s.id)
       var decl = ""
       var td = getTypeDesc(m, s.loc.t, skVar)
       if true:
