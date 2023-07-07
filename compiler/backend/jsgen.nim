@@ -387,20 +387,20 @@ const # magic checked op; magic unchecked op;
     mCStrToStr: ["cstrToNimstr", "cstrToNimstr"],
     mStrToStr: ["", ""]]
 
-proc needsTemp(p: PProc; n: PNode): bool =
+proc needsTemp(n: PNode): bool =
   # check if n contains a call to determine
   # if a temp should be made to prevent multiple evals
   if n.kind in nkCallKinds + {nkTupleConstr, nkObjConstr, nkBracket, nkCurly}:
     return true
   for c in n:
-    if needsTemp(p, c):
+    if needsTemp(c):
       return true
 
 proc maybeMakeTemp(p: PProc, n: PNode; x: TCompRes): tuple[a, tmp: Rope] =
   var
     a = x.rdLoc
     b = a
-  if needsTemp(p, n):
+  if needsTemp(n):
     # if we have tmp just use it
     if x.tmpLoc != "" and (mapType(n.typ) == etyBaseIndex or n.kind in {nkHiddenDeref, nkDerefExpr}):
       b = "$1[0][$1[1]]" % [x.tmpLoc]
@@ -417,7 +417,7 @@ proc maybeMakeTempAssignable(p: PProc, n: PNode; x: TCompRes): tuple[a, tmp: Rop
   var
     a = x.rdLoc
     b = a
-  if needsTemp(p, n):
+  if needsTemp(n):
     # if we have tmp just use it
     if x.tmpLoc != "" and (mapType(n.typ) == etyBaseIndex or n.kind in {nkHiddenDeref, nkDerefExpr}):
       b = "$1[0][$1[1]]" % [x.tmpLoc]
@@ -1063,7 +1063,7 @@ proc genFieldAccess(p: PProc, n: PNode, r: var TCompRes) =
 
   template mkTemp(i: int) =
     if r.typ == etyBaseIndex:
-      if needsTemp(p, n[i]):
+      if needsTemp(n[i]):
         let tmp = p.getTemp
         r.address = "($1 = $2, $1)[0]" % [tmp, r.res]
         r.res = "$1[1]" % [tmp]
@@ -1173,7 +1173,7 @@ proc genArrayAccess(p: PProc, n: PNode, r: var TCompRes) =
   if ty.kind == tyCstring:
     r.res = "$1.charCodeAt($2)" % [r.address, r.res]
   elif r.typ == etyBaseIndex:
-    if needsTemp(p, n[0]):
+    if needsTemp(n[0]):
       let tmp = p.getTemp
       r.address = "($1 = $2, $1)[0]" % [tmp, r.rdLoc]
       r.res = "$1[1]" % [tmp]
