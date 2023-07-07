@@ -79,7 +79,6 @@ type
     module: PSym
     graph: ModuleGraph
     config: ConfigRef
-    sigConflicts: CountTable[SigHash]
 
   BModule* = ref TJSGen
   TJSTypeKind = enum       # necessary JS "types"
@@ -125,9 +124,8 @@ type
 
   PProc* = ref TProc
   TProc* = object
-    procDef: PNode
     prc: PSym
-    globals, locals, body: Rope
+    locals, body: Rope
     options: TOptions
     module: BModule
     g: PGlobals
@@ -135,7 +133,6 @@ type
     unique: int    # for temp identifier generation
     blocks: seq[TBlock]
     extraIndent: int
-    declaredGlobals: IntSet
 
 const
   sfModuleInit* = sfMainModule
@@ -183,7 +180,6 @@ proc newProc(globals: PGlobals, module: BModule, prc: PSym,
     options: options,
     module: module,
     prc: prc,
-    procDef: (if prc != nil: prc.ast else: nil),
     g: globals,
     extraIndent: int(prc != nil))
 
@@ -2189,7 +2185,7 @@ proc convCStrToStr(p: PProc, n: PNode, r: var TCompRes) =
     r.kind = resExpr
 
 proc genReturnStmt(p: PProc, n: PNode) =
-  p.config.internalAssert(p.procDef != nil, n.info, "genReturnStmt")
+  p.config.internalAssert(p.prc != nil, n.info, "genReturnStmt")
   p.beforeRetNeeded = true
   if n[0].kind != nkEmpty:
     genStmt(p, n[0])
@@ -2300,11 +2296,10 @@ proc finishProc*(p: PProc): string =
 
   var def: Rope
   if not prc.constraint.isNil:
-    def = runtimeFormat(prc.constraint.strVal & " {$n$#$#$#$#$#",
+    def = runtimeFormat(prc.constraint.strVal & " {$n$#$#$#$#",
             [ returnType,
               name,
               header,
-              optionalLine(p.globals),
               optionalLine(p.locals),
               optionalLine(resultAsgn),
               optionalLine(genProcBody(p, prc)),
@@ -2313,10 +2308,9 @@ proc finishProc*(p: PProc): string =
     # if optLineDir in p.config.options:
       # result.add(~"\L")
 
-    def = "\Lfunction $#($#) {$n$#$#$#$#$#" %
+    def = "\Lfunction $#($#) {$n$#$#$#$#" %
             [ name,
               header,
-              optionalLine(p.globals),
               optionalLine(p.locals),
               optionalLine(resultAsgn),
               optionalLine(genProcBody(p, prc)),
@@ -2521,7 +2515,6 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
 proc newModule*(g: ModuleGraph; module: PSym): BModule =
   new(result)
   result.module = module
-  result.sigConflicts = initCountTable[SigHash]()
   result.graph = g
   result.config = g.config
 
