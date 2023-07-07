@@ -1645,7 +1645,7 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
       lineF(p, "var $1 = null;$n", [varName])
       lineF(p, "var $1_Idx = 0;$n", [varName])
     else:
-      lineF(p, "var $2 = $3;$n", [returnType, varName, createVar(p, v.typ, isIndirect(v))])
+      lineF(p, "var $1 = $2;$n", [varName, createVar(p, v.typ, isIndirect(v))])
   else:
     gen(p, n, a)
     case mapType(v.typ)
@@ -1660,16 +1660,16 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
       if isBoxedPointer(v):
         s = "[$1, $2]" % [a.address, a.res]
       else:
-        lineF(p, "var $2 = $3, $2_Idx = $4;$n",
-                 [returnType, v.loc.r, a.address, a.res])
+        lineF(p, "var $1 = $2, $1_Idx = $3;$n",
+                 [v.loc.r, a.address, a.res])
         # exit early because we've already emitted the definition
         return
     else:
       s = a.res
     if isIndirect(v):
-      lineF(p, "var $2 = [$3];$n", [returnType, v.loc.r, s])
+      lineF(p, "var $1 = [$2];$n", [v.loc.r, s])
     else:
-      lineF(p, "var $2 = $3;$n", [returnType, v.loc.r, s])
+      lineF(p, "var $1 = $2;$n", [v.loc.r, s])
 
 proc genVarStmt(p: PProc, n: PNode) =
   for it in n.items:
