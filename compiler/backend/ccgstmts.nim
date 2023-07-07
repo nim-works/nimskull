@@ -729,28 +729,41 @@ proc genAsmOrEmitStmt(p: BProc, t: PNode, isAsmStmt=false): Rope =
       res.add(it.strVal)
     of nkSym:
       var sym = it.sym
-      if sym.kind in {skProc, skFunc, skIterator, skMethod}:
+      case sym.kind
+      of skProc, skFunc, skIterator, skMethod:
         var a: TLoc
         initLocExpr(p, it, a)
-        res.add($rdLoc(a))
-      elif sym.kind == skType:
-        res.add($getTypeDesc(p.module, sym.typ))
-      else:
+        res.add(rdLoc(a))
+      of skVar, skLet, skForVar, skParam, skResult, skTemp:
+        # make sure the C type description is available:
+        discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
+        var a: TLoc
+        initLocExpr(p, it, a)
+        res.add(rdLoc(a))
+      of skType:
+        res.add(getTypeDesc(p.module, sym.typ))
+      of skField:
+        # special support for raw field symbols
         discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
         var r = sym.loc.r
         if r == "":
-          # if no name has already been given,
-          # it doesn't matter much:
-          r = mangleName(p.module, sym)
+          # problem: a field doesn't know what type it is part of, so we
+          # can neither use ``fillObjectFields`` nor a ``FieldX`` name
+          # (in the case of tuples). To make sure that the mangled name is
+          # at  least correct for object types, we always use field name
+          # mangling
+          r = mangleRecFieldName(p.module, sym)
           sym.loc.r = r       # but be consequent!
-        res.add($r)
+        res.add(r)
+      else:
+        unreachable(sym.kind)
     of nkType:
-      res.add($getTypeDesc(p.module, it.typ))
+      res.add(getTypeDesc(p.module, it.typ))
     else:
       discard getTypeDesc(p.module, skipTypes(it.typ, abstractPtrs))
       var a: TLoc
       initLocExpr(p, it, a)
-      res.add($a.rdLoc)
+      res.add(a.rdLoc)
 
   if isAsmStmt and hasGnuAsm in CC[p.config.cCompiler].props:
     for x in splitLines(res):
