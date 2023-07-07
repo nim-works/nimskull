@@ -132,8 +132,6 @@ type
     cacheCounters*: Table[string, BiggestInt] # IC: implemented
     cacheTables*: Table[string, BTree[string, PNode]] # IC: implemented
     passes*: seq[TPass]
-    strongSemCheck*: proc (graph: ModuleGraph; owner: PSym; body: PNode) {.nimcall.}
-    compatibleProps*: proc (graph: ModuleGraph; formal, actual: PType): bool {.nimcall.}
     idgen*: IdGenerator
     operators*: Operators
     when defined(nimsuggest):
@@ -293,13 +291,6 @@ iterator systemModuleSyms*(g: ModuleGraph; name: PIdent): PSym =
     yield r
     r = nextModuleIter(mi, g)
 
-proc resolveType(g: ModuleGraph; t: var LazyType): PType =
-  result = t.typ
-  if result == nil and isCachedModule(g, t.id.module):
-    result = loadTypeFromId(g.config, g.cache, g.packed, t.id.module, t.id.packed)
-    t.typ = result
-  assert result != nil
-
 proc resolveSym(g: ModuleGraph; t: var LazySym): PSym =
   result = t.sym
   if result == nil and isCachedModule(g, t.id.module):
@@ -307,50 +298,59 @@ proc resolveSym(g: ModuleGraph; t: var LazySym): PSym =
     t.sym = result
   assert result != nil
 
-proc resolveInst(g: ModuleGraph; t: var LazyInstantiation): PInstantiation =
-  result = t.inst
-  if result == nil and isCachedModule(g, t.module):
-    result = PInstantiation(sym: loadSymFromId(g.config, g.cache, g.packed, t.sym.module, t.sym.packed))
-    result.concreteTypes = newSeq[PType](t.concreteTypes.len)
-    for i in 0..high(result.concreteTypes):
-      result.concreteTypes[i] = loadTypeFromId(g.config, g.cache, g.packed,
-          t.concreteTypes[i].module, t.concreteTypes[i].packed)
-    t.inst = result
-  assert result != nil
-
 iterator typeInstCacheItems*(g: ModuleGraph; s: PSym): PType =
+  proc resolveType(g: ModuleGraph; t: var LazyType): PType =
+    result = t.typ
+    if result == nil and isCachedModule(g, t.id.module):
+      result = loadTypeFromId(g.config, g.cache, g.packed, t.id.module,
+                              t.id.packed)
+      t.typ = result
+    assert result != nil
+
   if g.typeInstCache.contains(s.itemId):
     let x = addr(g.typeInstCache[s.itemId])
     for t in mitems(x[]):
       yield resolveType(g, t)
 
 iterator procInstCacheItems*(g: ModuleGraph; s: PSym): PInstantiation =
+  proc resolveInst(g: ModuleGraph; t: var LazyInstantiation): PInstantiation =
+    result = t.inst
+    if result == nil and isCachedModule(g, t.module):
+      result = PInstantiation(sym: loadSymFromId(g.config, g.cache, g.packed,
+                              t.sym.module, t.sym.packed))
+      result.concreteTypes = newSeq[PType](t.concreteTypes.len)
+      for i in 0..high(result.concreteTypes):
+        result.concreteTypes[i] = loadTypeFromId(g.config, g.cache, g.packed,
+            t.concreteTypes[i].module, t.concreteTypes[i].packed)
+      t.inst = result
+    assert result != nil
+
   if g.procInstCache.contains(s.itemId):
     let x = addr(g.procInstCache[s.itemId])
     for t in mitems(x[]):
       yield resolveInst(g, t)
 
-proc resolveBackendSym(g: ModuleGraph, t: var LazySym): PSym =
-  ## Returns the concrete symbol for `t`, loading it from the packed
-  ## module-graph first if necessary. `t` is updated with the loaded symbol.
-  ##
-  ## Compared to ``resolveSym``, this procedure also support being called from
-  ## the backend.
-  result = t.sym
-  if result == nil:
-    # XXX: ``storing``, ``stored``, and ``outdated`` are also valid here, as
-    #      the backend currently throws away and reloads all type-bound
-    #      operator attachment information
-    assert g.packed[t.id.module].status in {loaded, storing, stored, outdated}
-    result = loadSymFromId(g.config, g.cache, g.packed,
-                           t.id.module, t.id.packed)
-    t.sym = result
-
-  assert result != nil
-
 proc getAttachedOp*(g: ModuleGraph; t: PType; op: TTypeAttachedOp): PSym =
   ## returns the requested attached operation for type `t`. Can return nil
   ## if no such operation exists.
+  proc resolveBackendSym(g: ModuleGraph, t: var LazySym): PSym =
+    ## Returns the concrete symbol for `t`, loading it from the packed
+    ## module-graph first if necessary. `t` is updated with the loaded symbol.
+    ##
+    ## Compared to ``resolveSym``, this procedure also support being called from
+    ## the backend.
+    result = t.sym
+    if result == nil:
+      # XXX: ``storing``, ``stored``, and ``outdated`` are also valid here, as
+      #      the backend currently throws away and reloads all type-bound
+      #      operator attachment information
+      assert g.packed[t.id.module].status in {loaded, storing, stored, outdated}
+      result = loadSymFromId(g.config, g.cache, g.packed,
+                            t.id.module, t.id.packed)
+      t.sym = result
+
+    assert result != nil
+
   withValue(g.attachedOps[op], t.itemId, value):
     result = resolveBackendSym(g, value[])
 
@@ -560,7 +560,6 @@ proc addDep*(g: ModuleGraph; m: PSym, dep: FileIndex) =
     g.deps.incl m.position.dependsOn(dep.int)
     # we compute the transitive closure later when querying the graph lazily.
     # this improves efficiency quite a lot:
-    #invalidTransitiveClosure = true
 
 proc addIncludeDep*(g: ModuleGraph; module, includeFile: FileIndex) =
   discard hasKeyOrPut(g.inclToMod, includeFile, module)
@@ -574,23 +573,23 @@ proc parentModule*(g: ModuleGraph; fileIdx: FileIndex): FileIndex =
   else:
     result = g.inclToMod.getOrDefault(fileIdx)
 
-proc transitiveClosure(g: var IntSet; n: int) =
-  # warshall's algorithm
-  for k in 0..<n:
-    for i in 0..<n:
-      for j in 0..<n:
-        if i != j and not g.contains(i.dependsOn(j)):
-          if g.contains(i.dependsOn(k)) and g.contains(k.dependsOn(j)):
-            g.incl i.dependsOn(j)
-
 proc markDirty*(g: ModuleGraph; fileIdx: FileIndex) =
   let m = g.getModule fileIdx
   if m != nil: incl m.flags, sfDirty
 
 proc markClientsDirty*(g: ModuleGraph; fileIdx: FileIndex) =
-  # we need to mark its dependent modules D as dirty right away because after
-  # nimsuggest is done with this module, the module's dirty flag will be
-  # cleared but D still needs to be remembered as 'dirty'.
+  ## we need to mark its dependent modules D as dirty right away because after
+  ## nimsuggest is done with this module, the module's dirty flag will be
+  ## cleared but D still needs to be remembered as 'dirty'.
+  proc transitiveClosure(g: var IntSet; n: int) =
+    # warshall's algorithm
+    for k in 0..<n:
+      for i in 0..<n:
+        for j in 0..<n:
+          if i != j and not g.contains(i.dependsOn(j)):
+            if g.contains(i.dependsOn(k)) and g.contains(k.dependsOn(j)):
+              g.incl i.dependsOn(j)
+
   if g.invalidTransitiveClosure:
     g.invalidTransitiveClosure = false
     transitiveClosure(g.deps, g.ifaces.len)
