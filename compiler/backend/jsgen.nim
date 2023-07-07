@@ -1440,9 +1440,10 @@ proc genPatternCall(p: PProc; n: PNode; pat: string; typ: PType;
 proc genInfixCall(p: PProc, n: PNode, r: var TCompRes) =
   # don't call '$' here for efficiency:
   let f = n[0].sym
+  assert sfInfixCall in f.flags
   if f.loc.r == "": f.loc.r = mangleName(p.module, f)
-  if sfInfixCall in f.flags:
-    let pat = n[0].sym.loc.r
+  if true:
+    let pat = f.loc.r
     internalAssert p.config, pat.len > 0
     if pat.contains({'#', '(', '@'}):
       var typ = skipTypes(n[0].typ, abstractInst)
