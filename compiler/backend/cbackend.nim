@@ -37,7 +37,8 @@ import
   ],
   compiler/ast/[
     ast,
-    lineinfos
+    lineinfos,
+    ndi
   ],
   compiler/backend/[
     backends,
@@ -92,6 +93,14 @@ type
       ## to be duplicated into the module's corresponding C file
 
 func hash(x: PSym): int = hash(x.id)
+
+proc writeMangledLocals(p: BProc) =
+  ## Writes the mangled names of `p`'s locals to the module's NDI file.
+  for it in p.locals.items:
+    # writing out mangled names for compiler-inserted variables (temporaries)
+    # is not necessary (lode is guaranteed to be a symbol)
+    if it.lode.sym.kind != skTemp:
+      writeMangledName(p.module.ndi, it.lode.sym, it.r, p.config)
 
 func registerInline(g: var InliningData, prc: PSym): uint32 =
   ## If not already registered, registers the inline procedure `prc` with
@@ -237,7 +246,13 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
     bmod.declaredThings.incl(evt.sym.id)
     let
       body = generateAST(g.graph, bmod.idgen, evt.sym, evt.body)
-      r    = genProc(bmod, evt.sym, body)
+      p    = startProc(bmod, evt.sym, body)
+
+    # we can't generate with ``genProc`` because we still need to output
+    # the mangled names
+    genStmts(p, body)
+    writeMangledLocals(p)
+    let r = finishProc(p, evt.sym)
 
     if inlineId.isSome:
       # remember the generated body:
@@ -389,11 +404,34 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
 
   # finish the partial procedures:
   for s, p in partial.pairs:
+    writeMangledLocals(p)
     p.module.s[cfsProcs].add(finishProc(p, s))
 
   # -------------------------
   # all alive entities must have been discovered when reaching here; it is
   # not allowed to raise new ones beyond this point
+
+  block:
+    # write the mangled names of the various entities to the NDI files
+    for it in g.procs.items:
+      let
+        s = it.loc.lode.sym
+        m = g.modules[moduleId(s)]
+      writeMangledName(m.ndi, s, it.loc.r, g.config)
+      # parameters:
+      for p in it.params.items:
+        if p.k != locNone: # not all parameters have locs
+          writeMangledName(m.ndi, s, p.r, g.config)
+
+    template write(loc: TLoc) =
+      let s = loc.lode.sym
+      writeMangledName(g.modules[moduleId(s)].ndi, s, loc.r, g.config)
+
+    for it in g.globals.items:
+      write(it)
+
+    for it in g.consts.items:
+      write(it)
 
   # now emit a duplicate of each inline procedure into the C files where the
   # procedure is used. Due to how ``cgen`` currently works, this means
