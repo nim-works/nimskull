@@ -293,13 +293,13 @@ iterator cgenModules*(g: BModuleList): BModule =
     # iterate modules in the order they were closed
     yield m
 
-func put*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.}  =
+proc put*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.}  =
   ## Adds `it` to `m` and registers a mapping between the item and
   ## `sym`. `sym` must have no mapping registered yet.
   assert sym.locId == 0, "symbol already registered"
   sym.locId = uint32(m.store.add(it)) + 1
 
-func forcePut*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.} =
+proc forcePut*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.} =
   ## Adds `it` to `m` and register a mapping between the item and
   ## `sym`, overwriting any existing mappings of `sym`.
   sym.locId = uint32(m.store.add(it)) + 1

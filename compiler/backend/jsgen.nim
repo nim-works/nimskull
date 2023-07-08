@@ -275,9 +275,12 @@ func mangleName(m: BModule, s: PSym): Rope =
       result.add("_")
       result.add(rope(s.id))
 
-proc mangledName(p: PProc, s: PSym, info: TLineInfo): lent string =
-  template get(tbl: untyped): untyped =
-    p.config.internalAssert(s.id in tbl, info):
+proc mangledName(p: PProc, s: PSym, info: TLineInfo): string =
+  ## Returns the cached JavaScript name for `s`.
+  ## At the time of writing, a borrowed string (``lent string``) from
+  ## can't be returned because of compiler shortcomings.
+  template get(tbl: untyped): string =
+    p.module.config.internalAssert(s.id in tbl, info):
       "symbol has no generated name: " & s.name.s
     tbl[s.id]
 
@@ -305,7 +308,7 @@ proc ensureMangledName(p: PProc, s: PSym): lent string =
     # the mangled named hasn't been generated yet
     n[] = mangleName(p.module, s)
 
-  result = n[]
+  result = p.g.names[s.id]
 
 proc escapeJSString(s: string): string =
   result = newStringOfCap(s.len + s.len shr 2)
