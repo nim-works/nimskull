@@ -27,12 +27,24 @@ import
     options
   ],
   compiler/utils/[
+    containers,
     ropes,
     pathutils
   ]
 
 
 type
+  SymbolMap*[T] = object
+    ## Associates extra location-related data with symbols. This is
+    ## temporary scaffolding until each entity (type, local, procedure,
+    ## etc.) is consistently represented as an index-like handle in the
+    ## code generator, at which point a ``Store`` (or ``SeqMap``) can be
+    ## used directly.
+    ##
+    ## Mapping from a symbol to the associated data currently happens via
+    ## ``TSym.locId``.
+    store: Store[range[0'u32..high(uint32)-1], T]
+
   TLabel* = Rope              ## for the C generator a label is just a rope
   TCFileSection* = enum       ## the sections a generated C file consists of
     cfsMergeInfo,             ## section containing merge information
@@ -114,6 +126,8 @@ type
     withinBlockLeaveActions*: int ## complex to explain
     sigConflicts*: CountTable[string]
 
+    locals*: SymbolMap[TLoc]  ## the locs for all locals of the procedure
+
   TTypeSeq* = seq[PType]
   TypeCache* = Table[SigHash, Rope]
   TypeCacheWithOwner* = Table[SigHash, tuple[str: Rope, owner: int32]]
@@ -146,6 +160,16 @@ type
                             ## unconditionally...
                             ## nimtvDeps is VERY hard to cache because it's
                             ## not a list of IDs nor can it be made to be one.
+
+    globals*: SymbolMap[TLoc]
+      ## the locs for all alive globals of the program
+    consts*: SymbolMap[TLoc]
+      ## the locs for all alive constants of the program
+    procs*: SymbolMap[tuple[loc: TLoc, params: seq[TLoc]]]
+      ## the locs for all alive procedure of the program. Also stores the
+      ## locs for the parameters
+    fields*: SymbolMap[TLoc]
+      ## the locs for all fields
 
     hooks*: seq[(BModule, PSym)]
       ## late late-dependencies. Generating code for a procedure might lead
@@ -196,6 +220,20 @@ type
 template config*(m: BModule): ConfigRef = m.g.config
 template config*(p: BProc): ConfigRef = p.module.g.config
 
+template procs*(m: BModule): untyped   = m.g.procs
+template fields*(m: BModule): untyped  = m.g.fields
+template globals*(m: BModule): untyped = m.g.globals
+template consts*(m: BModule): untyped  = m.g.consts
+
+template fieldLoc*(p: BProc, field: PSym): TLoc =
+  ## Returns the loc for the given `field`.
+  p.module.fields[field]
+
+template params*(p: BProc): seq[TLoc] =
+  ## Returns the mutable list with the locs of `p`'s
+  ## parameters.
+  p.module.procs[p.prc].params
+
 proc includeHeader*(this: BModule; header: string) =
   if not this.headerFiles.contains header:
     this.headerFiles.add header
@@ -226,3 +264,33 @@ iterator cgenModules*(g: BModuleList): BModule =
   for m in g.modulesClosed:
     # iterate modules in the order they were closed
     yield m
+
+func put*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.}  =
+  ## Adds `it` to `m` and registers a mapping between the item and
+  ## `sym`. `sym` must have no mapping registered yet.
+  assert sym.locId == 0, "symbol already registered"
+  sym.locId = uint32(m.store.add(it)) + 1
+
+func forcePut*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.} =
+  ## Adds `it` to `m` and register a mapping between the item and
+  ## `sym`, overwriting any existing mappings of `sym`.
+  sym.locId = uint32(m.store.add(it)) + 1
+
+func assign*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.}  =
+  ## Sets the value of the item in `m` with which `sym` is associated. This is
+  ## only meant as a workaround.
+  assert sym.locId > 0
+  m.store[sym.locId - 1] = it
+
+func `[]`*[T](m: SymbolMap[T], sym: PSym): lent T {.inline.} =
+  m.store[sym.locId - 1]
+
+func `[]`*[T](m: var SymbolMap[T], sym: PSym): var T {.inline.} =
+  m.store[sym.locId - 1]
+
+func contains*[T](m: SymbolMap[T], sym: PSym): bool {.inline.} =
+  sym.locId > 0 and m.store.nextId().uint32 > sym.locId - 1
+
+iterator items*[T](m: SymbolMap[T]): lent T =
+  for it in m.store.items:
+    yield it

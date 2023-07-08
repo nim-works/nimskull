@@ -30,9 +30,8 @@ proc specializeResetN(p: BProc, accessor: Rope, n: PNode;
   of nkRecCase:
     p.config.internalAssert(n[0].kind == nkSym, n.info, "specializeResetN")
     let disc = n[0].sym
-    if disc.loc.r == "": fillObjectFields(p.module, typ)
-    p.config.internalAssert(disc.loc.t != nil, n.info, "specializeResetN()")
-    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, disc.loc.r])
+    ensureObjectFields(p.module, disc, typ)
+    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, p.fieldLoc(disc).r])
     for i in 1..<n.len:
       let branch = n[i]
       assert branch.kind in {nkOfBranch, nkElse}
@@ -43,13 +42,12 @@ proc specializeResetN(p: BProc, accessor: Rope, n: PNode;
       specializeResetN(p, accessor, lastSon(branch), typ)
       lineF(p, cpsStmts, "break;$n", [])
     lineF(p, cpsStmts, "} $n", [])
-    specializeResetT(p, "$1.$2" % [accessor, disc.loc.r], disc.loc.t)
+    specializeResetT(p, "$1.$2" % [accessor, p.fieldLoc(disc).r], disc.typ)
   of nkSym:
     let field = n.sym
     if field.typ.kind == tyVoid: return
-    if field.loc.r == "": fillObjectFields(p.module, typ)
-    p.config.internalAssert(field.loc.t != nil, n.info, "specializeResetN()")
-    specializeResetT(p, "$1.$2" % [accessor, field.loc.r], field.loc.t)
+    ensureObjectFields(p.module, field, typ)
+    specializeResetT(p, "$1.$2" % [accessor, p.fieldLoc(field).r], field.typ)
   else: internalError(p.config, n.info, "specializeResetN()")
 
 proc specializeResetT(p: BProc, accessor: Rope, typ: PType) =

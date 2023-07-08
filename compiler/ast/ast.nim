@@ -510,7 +510,8 @@ template transitionSymKindCommon*(k: TSymKind) =
   s[] = TSym(kind: k, itemId: obj.itemId, magic: obj.magic, typ: obj.typ, name: obj.name,
              info: obj.info, owner: obj.owner, flags: obj.flags, ast: obj.ast,
              options: obj.options, position: obj.position, offset: obj.offset,
-             loc: obj.loc, annex: obj.annex, constraint: obj.constraint)
+             loc: obj.loc, locId: obj.locId,
+             annex: obj.annex, constraint: obj.constraint)
   when defined(nimsuggest):
     s.allUsages = obj.allUsages
 

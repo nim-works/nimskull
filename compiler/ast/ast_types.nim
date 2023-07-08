@@ -1714,6 +1714,8 @@ type
                               ## for variables a slot index for the evaluator
     offset*: int              ## offset of record field
     loc*: TLoc
+    locId*: uint32            ## associates the symbol with a loc in the C code
+                              ## generator. 0 means unset.
     annex*: PLib              ## additional fields (seldom used, so we use a
                               ## reference to another object to save space)
     constraint*: PNode        ## additional constraints like 'lit|result'; also
@@ -1759,7 +1761,6 @@ type
     align*: int16             ## the type's alignment requirements
     paddingAtEnd*: int16      ##
     lockLevel*: TLockLevel    ## lock level as required for deadlock checking
-    loc*: TLoc
     typeInst*: PType          ## for generic instantiations the tyGenericInst that led to this
                               ## type; for tyError the previous type if avaiable
     uniqueId*: ItemId         ## due to a design mistake, we need to keep the real ID here as it

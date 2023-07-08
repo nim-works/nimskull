@@ -41,8 +41,6 @@ proc mangleName(m: BModule; s: PSym): Rope =
     result.add m.g.graph.ifaces[s.itemId.module].uniqueName
     result.add "_"
     result.add rope s.itemId.item
-    s.loc.r = result
-    writeMangledName(m.ndi, s, m.config)
 
 proc mangleParamName(m: BModule; s: PSym): Rope =
   ## we cannot use 'sigConflicts' here since we have a BModule, not a BProc.
@@ -55,8 +53,6 @@ proc mangleParamName(m: BModule; s: PSym): Rope =
       res.add "_0"
 
     result = res.rope
-    s.loc.r = result
-    writeMangledName(m.ndi, s, m.config)
 
 proc mangleLocalName(p: BProc; s: PSym): Rope =
   assert s.kind in skLocalVars+{skTemp}
@@ -73,8 +69,6 @@ proc mangleLocalName(p: BProc; s: PSym): Rope =
     elif counter != 0 or isKeyword(s.name) or p.module.g.config.cppDefines.contains(key):
       result.add "_" & rope(counter+1)
     p.sigConflicts.inc(key)
-    s.loc.r = result
-    if s.kind != skTemp: writeMangledName(p.module.ndi, s, p.config)
 
 proc scopeMangledParam(p: BProc; param: PSym) =
   ## parameter generation only takes BModule, not a BProc, so we have to
@@ -108,14 +102,7 @@ proc getTypeName(m: BModule; typ: PType; sig: SigHash): Rope =
     else:
       break
   let typ = if typ.kind in {tyAlias, tySink}: typ.lastSon else: typ
-  if typ.loc.r == "":
-    typ.loc.r = typ.typeName & $sig
-  else:
-    when defined(debugSigHashes):
-      # check consistency:
-      assert($typ.loc.r == $(typ.typeName & $sig))
-  result = typ.loc.r
-  m.config.internalAssert(result != "", "getTypeName: " & $typ.kind)
+  result = typ.typeName & $sig
 
 proc mapSetType(conf: ConfigRef; typ: PType): TCTypeKind =
   case int(getSize(conf, typ))
@@ -227,13 +214,12 @@ proc addAbiCheck(m: BModule, t: PType, name: Rope) =
     # see `testCodegenABICheck` for example error message it generates
 
 
-proc fillResult(conf: ConfigRef; param: PNode) =
-  fillLoc(param.sym.loc, locParam, param, ~"Result",
-          OnStack)
+proc initResultParamLoc(conf: ConfigRef; param: PNode): TLoc =
+  result = initLoc(locParam, param, "Result", OnStack)
   let t = param.sym.typ
   if mapReturnType(conf, t) != ctArray and isInvalidReturnType(conf, t):
-    incl(param.sym.loc.flags, lfIndirect)
-    param.sym.loc.storage = OnUnknown
+    incl(result.flags, lfIndirect)
+    result.storage = OnUnknown
 
 proc typeNameOrLiteral(m: BModule; t: PType, literal: string): Rope =
   if t.sym != nil and sfImportc in t.sym.flags and t.sym.magic == mNone:
@@ -368,17 +354,20 @@ struct $2_Content { NI cap; $1 data[SEQ_DECL_SIZE];};
 $3endif$N
       """, [getTypeDescAux(m, t.skipTypes(abstractInst)[0], check, skVar), result, rope"#"])
 
-proc prepareParameters(m: BModule, t: PType) =
-  ## Prepares the locs of the parameter symbols for procedure type `t`.
+proc prepareParameters(m: BModule, t: PType): seq[TLoc] =
+  ## Sets up and returns the locs of the parameter symbols for procedure
+  ## type `t`. The loc for the first parameter is stored at index 1.
   ##
   ## Neither the loc for the 'result' nor for the hidden environment parameter
   ## are filled-in here. 'result' might not be a parameter, and the hidden
   ## environment parameter is currently always treated as a local variable.
   assert t.kind == tyProc
   let params = t.n
+  result.newSeq(params.len)
+
   for i in 1..<params.len:
     let param = params[i].sym
-    if isCompileTimeOnly(param.typ) or param.loc.k != locNone:
+    if isCompileTimeOnly(param.typ):
       # ignore parameters only relevant for overloading (e.g., ``static[T]``,
       # etc.); already filled-in parameters are also skipped
       continue
@@ -391,17 +380,17 @@ proc prepareParameters(m: BModule, t: PType) =
       else:
         OnStack
 
-    fillLoc(param.loc, locParam, params[i], mangleParamName(m, param),
-            storage)
+    result[i] = initLoc(locParam, params[i], mangleParamName(m, param),
+                        storage)
 
     if ccgIntroducedPtr(m.config, param, t[0]):
       # the parameter is passed by address; mark it as indirect
-      incl(param.loc.flags, lfIndirect)
-      param.loc.storage = OnUnknown
+      incl(result[i].flags, lfIndirect)
+      result[i].storage = OnUnknown
 
 proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
-                   check: var IntSet, declareEnvironment=true;
-                   weakDep=false) =
+                   check: var IntSet, locs: openArray[TLoc],
+                   declareEnvironment=true; weakDep=false) =
   params = ""
   if t[0] == nil or isInvalidReturnType(m.config, t[0]):
     rettype = ~"void"
@@ -410,9 +399,9 @@ proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
   for i in 1..<t.n.len:
     m.config.internalAssert(t.n[i].kind == nkSym, t.n.info, "genProcParams")
     var param = t.n[i].sym
-    if param.loc.k == locNone: continue
+    if locs[i].k == locNone: continue
     if params != "": params.add(~", ")
-    if lfIndirect in param.loc.flags:
+    if lfIndirect in locs[i].flags:
       params.add(getTypeDescWeak(m, param.typ, check, skParam))
       params.add(~"*")
     elif weakDep:
@@ -422,14 +411,14 @@ proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
     params.add(~" ")
     if sfNoalias in param.flags:
       params.add(~"NIM_NOALIAS ")
-    params.add(param.loc.r)
+    params.add(locs[i].r)
     # declare the len field for open arrays:
     var arr = param.typ.skipTypes({tyGenericInst})
     if arr.kind in {tyVar, tyLent, tySink}: arr = arr.lastSon
     var j = 0
     while arr.kind in {tyOpenArray, tyVarargs}:
       # need to pass hidden parameter:
-      params.addf(", NI $1Len_$2", [param.loc.r, j.rope])
+      params.addf(", NI $1Len_$2", [locs[i].r, j.rope])
       inc(j)
       arr = arr[0].skipTypes({tySink})
   if t[0] != nil and isInvalidReturnType(m.config, t[0]):
@@ -501,35 +490,46 @@ proc genRecordFieldsAux(m: BModule, n: PNode,
     if field.typ.kind == tyVoid: return
     #assert(field.ast == nil)
     let sname = mangleRecFieldName(m, field)
-    fillLoc(field.loc, locField, n, unionPrefix & sname, OnUnknown)
+    if field.locId == 0:
+      # XXX: the C struct definition for the type is re-generated in every C
+      #      file the type is used in, so the field might have an associated
+      #      loc. Eventually, each C type is only generated once, and then the
+      #      guard can be removed
+      m.fields.put(field):
+        initLoc(locField, n, unionPrefix & sname, OnUnknown)
+
     if field.alignment > 0:
       result.addf "NIM_ALIGN($1) ", [rope(field.alignment)]
     let noAlias = if sfNoalias in field.flags: " NIM_NOALIAS" else: ""
 
-    let fieldType = field.loc.lode.typ.skipTypes(abstractInst)
+    let fieldType = field.typ.skipTypes(abstractInst)
     if fieldType.kind == tyUncheckedArray:
       result.addf("$1 $2[SEQ_DECL_SIZE];$n",
           [getTypeDescAux(m, fieldType.elemType, check, skField), sname])
     elif fieldType.kind == tySequence:
       # we need to use a weak dependency here for trecursive_table.
-      result.addf("$1$3 $2;$n", [getTypeDescWeak(m, field.loc.t, check, skField), sname, noAlias])
+      result.addf("$1$3 $2;$n", [getTypeDescWeak(m, field.typ, check, skField), sname, noAlias])
     elif field.bitsize != 0:
-      result.addf("$1$4 $2:$3;$n", [getTypeDescAux(m, field.loc.t, check, skField), sname, rope($field.bitsize), noAlias])
+      result.addf("$1$4 $2:$3;$n", [getTypeDescAux(m, field.typ, check, skField), sname, rope($field.bitsize), noAlias])
     else:
       # TODO: C++ remove
       # don't use fieldType here because we need the
       # tyGenericInst for C++ template support
-      result.addf("$1$3 $2;$n", [getTypeDescAux(m, field.loc.t, check, skField), sname, noAlias])
+      result.addf("$1$3 $2;$n", [getTypeDescAux(m, field.typ, check, skField), sname, noAlias])
   else: internalError(m.config, n.info, "genRecordFieldsAux()")
 
 proc getRecordFields(m: BModule, typ: PType, check: var IntSet): Rope =
   result = genRecordFieldsAux(m, typ.n, typ, check)
 
-proc fillObjectFields*(m: BModule; typ: PType) =
-  # sometimes generic objects are not consistently merged. We patch over
-  # this fact here.
-  var check = initIntSet()
-  discard getRecordFields(m, typ, check)
+proc ensureObjectFields*(m: BModule; field: PSym, typ: PType) =
+  ## Two different object types can produce the same signature hash in
+  ## certain cases (the hidden parameter type of a generic's inner procedure,
+  ## for example), in which case ``getTypeDescAux`` never calls
+  ## ``genRecordDesc``. This procedures makes sure that the field has a valid
+  ## loc.
+  if field.locId == 0:
+    var check = initIntSet()
+    discard getRecordFields(m, typ, check)
 
 proc mangleDynLibProc(sym: PSym): Rope
 
@@ -687,8 +687,8 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKin
     result = getTypeName(m, origTyp, sig)
     m.typeCache[sig] = result
     var rettype, desc: Rope
-    prepareParameters(m, t)
-    genProcParams(m, t, rettype, desc, check, true, true)
+    let params = prepareParameters(m, t)
+    genProcParams(m, t, rettype, desc, check, params, true, true)
     if not isImportedType(t):
       if t.callConv != ccClosure: # procedure vars may need a closure!
         m.s[cfsTypes].addf("typedef $1_PTR($2, $3) $4;$n",
@@ -764,9 +764,9 @@ proc getClosureType(m: BModule, t: PType, kind: TClosureTypeKind): Rope =
   assert t.kind == tyProc
   var check = initIntSet()
   result = getTempName(m)
+  let params = prepareParameters(m, t)
   var rettype, desc: Rope
-  prepareParameters(m, t)
-  genProcParams(m, t, rettype, desc, check, declareEnvironment=kind != clHalf)
+  genProcParams(m, t, rettype, desc, check, params, declareEnvironment=kind != clHalf)
   if not isImportedType(t):
     if t.callConv != ccClosure or kind != clFull:
       m.s[cfsTypes].addf("typedef $1_PTR($2, $3) $4;$n",
@@ -789,7 +789,9 @@ proc finishTypeDescriptions(m: BModule) =
     inc(i)
   m.typeStack.setLen 0
 
-proc genProcHeader(m: BModule, prc: PSym): Rope =
+proc genProcHeader(m: BModule, prc: PSym, locs: openArray[TLoc]): Rope =
+  ## Generates the C function header for `prc`, with `locs` being the locs
+  ## of the formal parameters.
   var
     rettype, params: Rope
   # using static is needed for inline procs
@@ -803,15 +805,13 @@ proc genProcHeader(m: BModule, prc: PSym): Rope =
   elif sfImportc notin prc.flags:
     result.add "N_LIB_PRIVATE "
   var check = initIntSet()
-  fillLoc(prc.loc, locProc, prc.ast[namePos], mangleName(m, prc), OnUnknown)
-  prepareParameters(m, prc.typ)
-  genProcParams(m, prc.typ, rettype, params, check)
+  genProcParams(m, prc.typ, rettype, params, check, locs)
 
-  let name = prc.loc.r
   # careful here! don't access ``prc.ast`` as that could reload large parts of
   # the object graph!
   result.addf("$1($2, $3)$4",
-        [rope(CallingConvToStr[prc.typ.callConv]), rettype, name, params])
+        [rope(CallingConvToStr[prc.typ.callConv]), rettype, m.procs[prc].loc.r,
+         params])
 
 # ------------------ type info generation -------------------------------------
 
@@ -909,12 +909,12 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
     var tmp = discriminatorTableName(m, typ, field)
     var L = lengthOrd(m.config, field.typ)
     assert L > 0
-    if field.loc.r == "": fillObjectFields(m, typ)
-    m.config.internalAssert(field.loc.t != nil, n.info, "genObjectFields")
+    ensureObjectFields(m, field, typ)
     m.s[cfsTypeInit3].addf("$1.kind = 3;$n" &
         "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
         "$1.name = $5;$n" & "$1.sons = &$6[0];$n" &
-        "$1.len = $7;$n", [expr, getTypeDesc(m, origType, skVar), field.loc.r,
+        "$1.len = $7;$n", [expr, getTypeDesc(m, origType, skVar),
+                           m.fields[field].r,
                            genTypeInfoV1(m, field.typ, info),
                            makeCString(field.name.s),
                            tmp, rope(L)])
@@ -945,12 +945,12 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
     # Do not produce code for void types
     if isEmptyType(field.typ): return
     if field.bitsize == 0:
-      if field.loc.r == "": fillObjectFields(m, typ)
-      m.config.internalAssert(field.loc.t != nil, n.info, "genObjectFields")
+      ensureObjectFields(m, field, typ)
       m.s[cfsTypeInit3].addf("$1.kind = 1;$n" &
           "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
           "$1.name = $5;$n", [expr, getTypeDesc(m, origType, skVar),
-          field.loc.r, genTypeInfoV1(m, field.typ, info), makeCString(field.name.s)])
+          m.fields[field].r, genTypeInfoV1(m, field.typ, info),
+          makeCString(field.name.s)])
   else: internalError(m.config, n.info, "genObjectFields")
 
 proc genObjectInfo(m: BModule, typ, origType: PType, name: Rope; info: TLineInfo) =
@@ -1058,7 +1058,7 @@ proc genDeepCopyProc(m: BModule; s: PSym; result: Rope) =
   useProc(m, s)
   m.g.hooks.add (m, s)
   m.s[cfsTypeInit3].addf("$1.deepcopy =(void* (N_RAW_NIMCALL*)(void*))$2;$n",
-     [result, s.loc.r])
+     [result, m.procs[s].loc.r])
 
 proc declareNimType(m: BModule, name: string; str: Rope, module: int) =
   m.s[cfsData].addf("extern $2 $1;$n", [str, rope(name)])
@@ -1101,7 +1101,7 @@ proc genHook(m: BModule; t: PType; info: TLineInfo; op: TTypeAttachedOp): Rope =
     useProc(m, theProc)
     m.g.hooks.add (m, theProc)
 
-    result = theProc.loc.r
+    result = m.procs[theProc].loc.r
 
     when false:
       if not canFormAcycle(t) and op == attachedTrace:

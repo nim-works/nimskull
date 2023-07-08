@@ -602,9 +602,8 @@ proc genRecordField(p: BProc, e: PNode, d: var TLoc) =
   else:
     var rtyp: PType
     let field = lookupFieldAgain(p, ty, f, r, addr rtyp)
-    if field.loc.r == "" and rtyp != nil: fillObjectFields(p.module, rtyp)
-    if field.loc.r == "": internalError(p.config, e.info, "genRecordField 3 " & typeToString(ty))
-    r.addf(".$1", [field.loc.r])
+    ensureObjectFields(p.module, field, rtyp)
+    r.addf(".$1", [p.fieldLoc(field).r])
     putIntoDest(p, d, e, r, a.storage)
 
 proc genInExprAux(p: BProc, e: PNode, a, b, d: var TLoc)
@@ -624,7 +623,7 @@ proc genFieldCheck(p: BProc, e: PNode, obj: Rope, field: PSym) =
     initLoc(v, locExpr, disc, OnUnknown)
     v.r = obj
     v.r.add(".")
-    v.r.add(disc.sym.loc.r)
+    v.r.add(p.fieldLoc(disc.sym).r)
     genInExprAux(p, it, u, v, test)
     var msg = ""
     if optDeclaredLocs in p.config.globalOptions:
@@ -686,11 +685,10 @@ proc genCheckedRecordField(p: BProc, e: PNode, d: var TLoc) =
     var r = rdLoc(a)
     let f = e[0][1].sym
     let field = lookupFieldAgain(p, ty, f, r)
-    if field.loc.r == "": fillObjectFields(p.module, ty)
-    if field.loc.r == "":
-      internalError(p.config, e.info, "genCheckedRecordField") # generate the checks:
+    ensureObjectFields(p.module, field, ty)
+    # generate the checks:
     genFieldCheck(p, e, r, field)
-    r.add(ropecg(p.module, ".$1", [field.loc.r]))
+    r.add(ropecg(p.module, ".$1", [p.fieldLoc(field).r]))
     putIntoDest(p, d, e[0], r, a.storage)
   else:
     genRecordField(p, e[0], d)
@@ -1040,10 +1038,8 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
     p.config.internalAssert(n[0].kind == nkSym, n.info,
                             "specializeInitObjectN")
     let disc = n[0].sym
-    if disc.loc.r == "": fillObjectFields(p.module, typ)
-    p.config.internalAssert(disc.loc.t != nil, n.info,
-                            "specializeInitObjectN()")
-    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, disc.loc.r])
+    ensureObjectFields(p.module, disc, typ)
+    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, p.fieldLoc(disc).r])
     for i in 1..<n.len:
       let branch = n[i]
       assert branch.kind in {nkOfBranch, nkElse}
@@ -1057,10 +1053,8 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
   of nkSym:
     let field = n.sym
     if field.typ.kind == tyVoid: return
-    if field.loc.r == "": fillObjectFields(p.module, typ)
-    p.config.internalAssert(field.loc.t != nil, n.info,
-                            "specializeInitObjectN()")
-    specializeInitObjectL(p, accessor, field.loc)
+    ensureObjectFields(p.module, field, typ)
+    specializeInitObjectL(p, accessor, p.fieldLoc(field))
   else: internalError(p.config, n.info, "specializeInitObjectN()")
 
 proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
@@ -1188,12 +1182,11 @@ proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
     var tmp2: TLoc
     tmp2.r = r
     let field = lookupFieldAgain(p, ty, it[0].sym, tmp2.r)
-    if field.loc.r == "": fillObjectFields(p.module, ty)
-    if field.loc.r == "": internalError(p.config, e.info, "genObjConstr")
+    ensureObjectFields(p.module, field, ty)
     if it.len == 3 and optFieldCheck in p.options:
       genFieldCheck(p, it[2], r, field)
     tmp2.r.add(".")
-    tmp2.r.add(field.loc.r)
+    tmp2.r.add(p.fieldLoc(field).r)
     if useTemp:
       tmp2.k = locTemp
       tmp2.storage = if isRef: OnHeap else: OnStack
@@ -1891,7 +1884,7 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
     let member =
       if t.kind == tyTuple:
         "Field" & rope(dotExpr[1].sym.position)
-      else: dotExpr[1].sym.loc.r
+      else: p.fieldLoc(dotExpr[1].sym).r
     putIntoDest(p,d,e, "((NI)offsetof($1, $2))" % [tname, member])
   of mChr: genSomeCast(p, e, d)
   of mOrd: genOrd(p, e, d)
@@ -2141,22 +2134,24 @@ proc useConst*(m: BModule; sym: PSym) =
   if lfNoDecl in sym.loc.flags:
     return
 
-  assert(sym.loc.r != "", $sym.name.s & $sym.itemId)
   let q = findPendingModule(m, sym)
   # only emit a declaration if the constant is used in a module that is not the
   # one the constant is part of
   if q != m and not containsOrIncl(m.declaredThings, sym.id):
     let headerDecl = "extern NIM_CONST $1 $2;$n" %
-        [getTypeDesc(m, sym.loc.t, skVar), sym.loc.r]
+        [getTypeDesc(m, sym.typ, skVar), q.consts[sym].r]
     m.s[cfsData].add(headerDecl)
 
 proc genConstDefinition*(q: BModule; sym: PSym) =
-  fillConstLoc(q, sym) # all consts need a valid loc
+  let name = mangleName(q, sym)
   if lfNoDecl notin sym.loc.flags:
     let p = newProc(nil, q)
     q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
-        [getTypeDesc(q, sym.typ), sym.loc.r,
+        [getTypeDesc(q, sym.typ), name,
         genBracedInit(p, sym.ast, isConst = true, sym.typ)])
+
+  # all constants need a loc:
+  q.consts.put(sym, initLoc(locData, newSymNode(sym), name, OnStatic))
 
 proc expr(p: BProc, n: PNode, d: var TLoc) =
   when defined(nimCompilerStacktraceHints):
@@ -2173,52 +2168,43 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
           rsemCannotCodegenCompiletimeProc, sym))
 
       useProc(p.module, sym)
-
-      if sym.loc.r == "" or sym.loc.lode == nil:
-        internalError(p.config, n.info, "expr: proc not init " & sym.name.s)
-      putLocIntoDest(p, d, sym.loc)
+      putLocIntoDest(p, d, p.module.procs[sym].loc)
     of skConst:
       if isSimpleConst(sym.typ):
         putIntoDest(p, d, n, genLiteral(p, sym.ast, sym.typ), OnStatic)
       else:
         useConst(p.module, sym)
-        assert((sym.loc.r != "") and (sym.loc.t != nil))
-        putLocIntoDest(p, d, sym.loc)
-    of skVar, skForVar, skResult, skLet:
+        putLocIntoDest(p, d, p.module.consts[sym])
+    of skVar, skForVar, skLet:
       if {sfGlobal, sfThread} * sym.flags != {}:
         genVarPrototype(p.module, n)
 
-      if sym.loc.r == "" or sym.loc.t == nil:
-        #echo "FAILED FOR PRCO ", p.prc.name.s
-        #echo renderTree(p.prc.ast, {renderIds})
-        internalError p.config, n.info, "expr: var not init " & sym.name.s & "_" & $sym.id
       if sfThread in sym.flags:
         accessThreadLocalVar(p, sym)
         if emulatedThreadVars(p.config):
-          putIntoDest(p, d, sym.loc.lode, "NimTV_->" & sym.loc.r)
+          let loc {.cursor.} = p.module.globals[sym]
+          putIntoDest(p, d, loc.lode, "NimTV_->" & loc.r)
         else:
-          putLocIntoDest(p, d, sym.loc)
+          putLocIntoDest(p, d, p.module.globals[sym])
+      elif sfGlobal in sym.flags:
+        putLocIntoDest(p, d, p.module.globals[sym])
+      else: # must be a local then
+        putLocIntoDest(p, d, p.locals[sym])
+    of skResult:
+      # the 'result' location is either a parameter or local
+      if p.params[0].k != locNone:
+        putLocIntoDest(p, d, p.params[0])
       else:
-        putLocIntoDest(p, d, sym.loc)
+        putLocIntoDest(p, d, p.locals[sym])
     of skTemp:
-      when false:
-        # this is more harmful than helpful.
-        if sym.loc.r == "":
-          # we now support undeclared 'skTemp' variables for easier
-          # transformations in other parts of the compiler:
-          assignLocalVar(p, n)
-      if sym.loc.r == "" or sym.loc.t == nil:
-        #echo "FAILED FOR PRCO ", p.prc.name.s
-        #echo renderTree(p.prc.ast, {renderIds})
-        internalError(p.config, n.info, "expr: temp not init " & sym.name.s & "_" & $sym.id)
-      putLocIntoDest(p, d, sym.loc)
+      putLocIntoDest(p, d, p.locals[sym])
     of skParam:
-      if sym.loc.r == "" or sym.loc.t == nil:
-        # echo "FAILED FOR PRCO ", p.prc.name.s
-        # debug p.prc.typ.n
-        # echo renderTree(p.prc.ast, {renderIds})
-        internalError(p.config, n.info, "expr: param not init " & sym.name.s & "_" & $sym.id)
-      putLocIntoDest(p, d, sym.loc)
+      if sym.position + 1 < p.params.len:
+        putLocIntoDest(p, d, p.params[sym.position + 1])
+      else:
+        # must be the hidden environment parameter (which is treated as a
+        # local)
+        putLocIntoDest(p, d, p.locals[sym])
     else: internalError(p.config, n.info, "expr(" & $sym.kind & "); unknown symbol")
   of nkNilLit:
     if not isEmptyType(n.typ):

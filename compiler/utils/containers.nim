@@ -107,6 +107,11 @@ iterator pairs*[I, T](x: Store[I, T]): (I, lent T) =
     yield (I(i), x.data[i])
     inc i
 
+func nextId*[I; T](x: Store[I, T]): I {.inline.} =
+  ## Returns the ID that would be assigned to the next added item.
+  rangeCheck x.data.len.BiggestUInt < high(I).BiggestUInt
+  result = I(x.data.len)
+
 func add*[I; T](x: var Store[I, T], it: sink T): I {.inline.} =
   ## Appends a new item to the Store and returns the ID assigned to
   ## it
