@@ -33,23 +33,23 @@ proc mangleField(m: BModule; name: PIdent): string =
   if isKeyword(name):
     result.add "_0"
 
-proc mangleName(m: BModule; s: PSym): Rope =
+proc mangleName(g: ModuleGraph; s: PSym): Rope =
   result = s.extname
   if result == "":
     result = s.name.s.mangle.rope
     result.add "__"
-    result.add m.g.graph.ifaces[s.itemId.module].uniqueName
+    result.add g.ifaces[s.itemId.module].uniqueName
     result.add "_"
     result.add rope s.itemId.item
 
-proc mangleParamName(m: BModule; s: PSym): Rope =
-  ## we cannot use 'sigConflicts' here since we have a BModule, not a BProc.
+proc mangleParamName(c: ConfigRef; s: PSym): Rope =
+  ## we cannot use 'sigConflicts' here since we don't have access to a BProc.
   ## Fortunately C's scoping rules are sane enough so that that doesn't
   ## cause any trouble.
   result = s.extname
   if result == "":
     var res = s.name.s.mangle
-    if isKeyword(s.name) or m.g.config.cppDefines.contains(res):
+    if isKeyword(s.name) or c.cppDefines.contains(res):
       res.add "_0"
 
     result = res.rope
@@ -71,7 +71,7 @@ proc mangleLocalName(p: BProc; s: PSym): Rope =
     p.sigConflicts.inc(key)
 
 proc scopeMangledParam(p: BProc; param: PSym) =
-  ## parameter generation only takes BModule, not a BProc, so we have to
+  ## parameter generation doesn't have access to a ``BProc``, so we have to
   ## remember these parameter names are already in scope to be able to
   ## generate unique identifiers reliably (consider that ``var a = a`` is
   ## even an idiom in Nim).
@@ -380,7 +380,7 @@ proc prepareParameters(m: BModule, t: PType): seq[TLoc] =
       else:
         OnStack
 
-    result[i] = initLoc(locParam, params[i], mangleParamName(m, param),
+    result[i] = initLoc(locParam, params[i], mangleParamName(m.config, param),
                         storage)
 
     if ccgIntroducedPtr(m.config, param, t[0]):

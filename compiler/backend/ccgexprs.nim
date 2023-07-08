@@ -2138,7 +2138,7 @@ proc useConst*(m: BModule; sym: PSym) =
     m.s[cfsData].add(headerDecl)
 
 proc genConstDefinition*(q: BModule; sym: PSym) =
-  let name = mangleName(q, sym)
+  let name = mangleName(q.g.graph, sym)
   if lfNoDecl notin sym.locFlags:
     let p = newProc(nil, q)
     q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",

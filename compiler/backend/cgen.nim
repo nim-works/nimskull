@@ -532,7 +532,7 @@ include ccgthreadvars
 proc varInDynamicLib(m: BModule, sym: PSym)
 
 proc fillGlobalLoc*(m: BModule, s: PSym, n: PNode) =
-  m.globals.put(s, initLoc(locGlobalVar, n, mangleName(m, s), OnHeap))
+  m.globals.put(s, initLoc(locGlobalVar, n, mangleName(m.g.graph, s), OnHeap))
 
 proc defineGlobalVar*(m: BModule, n: PNode) =
   let s = n.sym
@@ -568,7 +568,8 @@ proc fillProcLoc*(m: BModule; n: PNode) =
   let sym = n.sym
   if sym.locId == 0:
     m.procs.put(sym):
-      (initLoc(locProc, n, mangleName(m, sym), OnStack), (seq[TLoc])(@[]))
+      (initLoc(locProc, n, mangleName(m.g.graph, sym), OnStack),
+       (seq[TLoc])(@[]))
 
 proc getLabel(p: BProc): TLabel =
   inc(p.labels)
