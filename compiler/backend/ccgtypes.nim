@@ -34,7 +34,7 @@ proc mangleField(m: BModule; name: PIdent): string =
     result.add "_0"
 
 proc mangleName(m: BModule; s: PSym): Rope =
-  result = s.loc.r
+  result = s.extname
   if result == "":
     result = s.name.s.mangle.rope
     result.add "__"
@@ -46,7 +46,7 @@ proc mangleParamName(m: BModule; s: PSym): Rope =
   ## we cannot use 'sigConflicts' here since we have a BModule, not a BProc.
   ## Fortunately C's scoping rules are sane enough so that that doesn't
   ## cause any trouble.
-  result = s.loc.r
+  result = s.extname
   if result == "":
     var res = s.name.s.mangle
     if isKeyword(s.name) or m.g.config.cppDefines.contains(res):
@@ -57,7 +57,7 @@ proc mangleParamName(m: BModule; s: PSym): Rope =
 proc mangleLocalName(p: BProc; s: PSym): Rope =
   assert s.kind in skLocalVars+{skTemp}
   #assert sfGlobal notin s.flags
-  result = s.loc.r
+  result = s.extname
   if result == "":
     var key: string
     shallowCopy(key, s.name.s.mangle)
@@ -95,7 +95,7 @@ proc getTypeName(m: BModule; typ: PType; sig: SigHash): Rope =
   var t = typ
   while true:
     if t.sym != nil and {sfImportc, sfExportc} * t.sym.flags != {}:
-      return t.sym.loc.r
+      return t.sym.extname
 
     if t.kind in irrelevantForBackend:
       t = t.lastSon
@@ -224,7 +224,7 @@ proc initResultParamLoc(conf: ConfigRef; param: PNode): TLoc =
 proc typeNameOrLiteral(m: BModule; t: PType, literal: string): Rope =
   if t.sym != nil and sfImportc in t.sym.flags and t.sym.magic == mNone:
     useHeader(m, t.sym)
-    result = t.sym.loc.r
+    result = t.sym.extname
   else:
     result = rope(literal)
 
@@ -442,7 +442,7 @@ proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
 
 proc mangleRecFieldName(m: BModule; field: PSym): Rope =
   if {sfImportc, sfExportc} * field.flags != {}:
-    result = field.loc.r
+    result = field.extname
   else:
     result = rope(mangleField(m, field.name))
   m.config.internalAssert(result != "", field.info, "mangleRecFieldName")
@@ -795,7 +795,7 @@ proc genProcHeader(m: BModule, prc: PSym, locs: openArray[TLoc]): Rope =
   var
     rettype, params: Rope
   # using static is needed for inline procs
-  if lfExportLib in prc.loc.flags:
+  if lfExportLib in prc.locFlags:
     if isHeaderFile in m.flags:
       result.add "N_LIB_IMPORT "
     else:

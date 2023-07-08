@@ -151,7 +151,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
   # XXX: dynlib procedure handling is going to move into the unified backend
   #      processing pipeline (i.e., the ``process`` iterator) in the future
   for _, s in peek(discovery.procedures):
-    if lfDynamicLib in s.loc.flags:
+    if lfDynamicLib in s.locFlags:
       let m = g.modules[s.itemId.module.int]
       fillProcLoc(m, newSymNode(s))
       symInDynamicLib(m, s)
@@ -365,8 +365,8 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
 
     # the init and data-init procedures use special names in the
     # generated code:
-    m.init.loc.r = getInitName(bmod)
-    m.dataInit.loc.r = getDatInitName(bmod)
+    m.init.extname = getInitName(bmod)
+    m.dataInit.extname = getDatInitName(bmod)
 
     # mark the init procedure so that the code generator can detect and
     # special-case it:

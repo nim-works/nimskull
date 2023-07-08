@@ -45,6 +45,34 @@ type
     ## ``TSym.locId``.
     store: Store[range[0'u32..high(uint32)-1], T]
 
+  TLocKind* = enum
+    locNone,                  ## no location
+    locTemp,                  ## temporary location
+    locLocalVar,              ## location is a local variable
+    locGlobalVar,             ## location is a global variable
+    locParam,                 ## location is a parameter
+    locField,                 ## location is a record field
+    locExpr,                  ## "location" is really an expression
+    locProc,                  ## location is a proc (an address of a procedure)
+    locData,                  ## location is a constant
+    locCall,                  ## location is a call expression
+    locOther                  ## location is something other
+
+  TStorageLoc* = enum
+    # XXX: ``TStorageLoc`` is obsolete -- remove it
+    OnUnknown,                ## location is unknown (stack, heap or static)
+    OnStatic,                 ## in a static section
+    OnStack,                  ## location is on hardware stack
+    OnHeap                    ## location is on heap or global
+                              ## (reference counting needed)
+
+  TLoc* = object
+    k*: TLocKind              ## kind of location
+    storage*: TStorageLoc
+    flags*: TLocFlags         ## location's flags
+    lode*: PNode              ## Node where the location came from; can be faked
+    r*: Rope                  ## rope value of location (code generators)
+
   TLabel* = Rope              ## for the C generator a label is just a rope
   TCFileSection* = enum       ## the sections a generated C file consists of
     cfsMergeInfo,             ## section containing merge information

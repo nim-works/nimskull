@@ -33,7 +33,7 @@ proc declareThreadVar*(m: BModule, s: PSym, isExtern: bool) =
       m.g.nimtv.addf("$1 $2;$n", [getTypeDesc(m, s.typ), m.globals[s].r])
   else:
     if isExtern: m.s[cfsVars].add("extern ")
-    elif lfExportLib in s.loc.flags: m.s[cfsVars].add("N_LIB_EXPORT_VAR ")
+    elif lfExportLib in s.locFlags: m.s[cfsVars].add("N_LIB_EXPORT_VAR ")
     else: m.s[cfsVars].add("N_LIB_PRIVATE ")
     if optThreads in m.config.globalOptions:
       m.s[cfsVars].add("NIM_THREADVAR ")

@@ -1901,12 +1901,11 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
     # Why would anyone want to set nodecl to one of these hardcoded magics?
     # - not sure, and it wouldn't work if the symbol behind the magic isn't
     #   somehow forward-declared from some other usage, but it is *possible*
-    if lfNoDecl notin opr.loc.flags:
-      let prc = magicsys.getCompilerProc(p.module.g.graph, $opr.loc.r)
-      assert prc != nil, $opr.loc.r
-      # Make the function behind the magic get actually generated - this will
-      # not lead to a forward declaration! The genCall will lead to one.
-      discard cgsym(p.module, $opr.loc.r)
+    if lfNoDecl notin opr.locFlags:
+      let prc = magicsys.getCompilerProc(p.module.g.graph, opr.extname)
+      assert prc != nil, opr.extname
+      # Make the function behind the magic get actually generated
+      discard cgsym(p.module, opr.extname)
 
     genCall(p, e, d)
   of mDefault: genDefault(p, e, d)
@@ -2125,13 +2124,9 @@ proc exprComplexConst(p: BProc, n: PNode, d: var TLoc) =
     if t.kind notin {tySequence, tyString}:
       d.storage = OnStatic
 
-proc fillConstLoc(m: BModule, sym: PSym) =
-  if sym.loc.k == locNone:
-    fillLoc(sym.loc, locData, sym.ast, mangleName(m, sym), OnStatic)
-
 proc useConst*(m: BModule; sym: PSym) =
   useHeader(m, sym)
-  if lfNoDecl in sym.loc.flags:
+  if lfNoDecl in sym.locFlags:
     return
 
   let q = findPendingModule(m, sym)
@@ -2144,7 +2139,7 @@ proc useConst*(m: BModule; sym: PSym) =
 
 proc genConstDefinition*(q: BModule; sym: PSym) =
   let name = mangleName(q, sym)
-  if lfNoDecl notin sym.loc.flags:
+  if lfNoDecl notin sym.locFlags:
     let p = newProc(nil, q)
     q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
         [getTypeDesc(q, sym.typ), name,

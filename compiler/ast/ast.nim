@@ -309,14 +309,6 @@ proc newType*(kind: TTypeKind, id: ItemId; owner: PSym): PType =
       echo "KNID ", kind
       writeStackTrace()
 
-
-proc mergeLoc(a: var TLoc, b: TLoc) =
-  if a.k == low(typeof(a.k)): a.k = b.k
-  if a.storage == low(typeof(a.storage)): a.storage = b.storage
-  a.flags.incl b.flags
-  if a.lode == nil: a.lode = b.lode
-  if a.r.len == 0: a.r = b.r
-
 proc newSons*(father: Indexable, length: int) =
   setLen(father.sons, length)
 
@@ -333,7 +325,9 @@ proc assignType*(dest, src: PType) =
     if dest.sym != nil:
       dest.sym.flags.incl src.sym.flags-{sfExported}
       if dest.sym.annex == nil: dest.sym.annex = src.sym.annex
-      mergeLoc(dest.sym.loc, src.sym.loc)
+      dest.sym.locFlags.incl src.sym.locFlags
+      if dest.sym.extname.len == 0:
+        dest.sym.extname = src.sym.extname
     else:
       dest.sym = src.sym
   newSons(dest, src.len)
@@ -355,7 +349,8 @@ proc copySym*(s: PSym; id: ItemId): PSym =
   result.magic = s.magic
   result.options = s.options
   result.position = s.position
-  result.loc = s.loc
+  result.extname = s.extname
+  result.locFlags = s.locFlags
   result.annex = s.annex      # BUGFIX
   result.constraint = s.constraint
   if result.kind in {skVar, skLet, skField}:
@@ -372,7 +367,8 @@ proc createModuleAlias*(s: PSym, id: ItemId, newIdent: PIdent, info: TLineInfo;
   result.flags = s.flags
   result.options = s.options
   result.position = s.position
-  result.loc = s.loc
+  result.extname = s.extname
+  result.locFlags = s.locFlags
   result.annex = s.annex
 
 proc initStrTable*(x: var TStrTable) =
@@ -510,7 +506,7 @@ template transitionSymKindCommon*(k: TSymKind) =
   s[] = TSym(kind: k, itemId: obj.itemId, magic: obj.magic, typ: obj.typ, name: obj.name,
              info: obj.info, owner: obj.owner, flags: obj.flags, ast: obj.ast,
              options: obj.options, position: obj.position, offset: obj.offset,
-             loc: obj.loc, locId: obj.locId,
+             extname: obj.extname, locFlags: obj.locFlags, locId: obj.locId,
              annex: obj.annex, constraint: obj.constraint)
   when defined(nimsuggest):
     s.allUsages = obj.allUsages

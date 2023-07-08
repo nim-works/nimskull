@@ -418,8 +418,8 @@ proc storeSym*(s: PSym; c: var PackedEncoder; m: var PackedModule): PackedItemId
       p.bitsize = s.bitsize
       p.alignment = s.alignment
 
-    p.externalName = toLitId(s.loc.r, m)
-    p.locFlags = s.loc.flags
+    p.externalName = toLitId(s.extname, m)
+    p.locFlags = s.locFlags
     c.addMissing s.typ
     p.typ = s.typ.storeType(c, m)
     c.addMissing s.owner
@@ -878,8 +878,8 @@ proc symBodyFromPacked(c: var PackedDecoder; g: var PackedModuleGraph;
   result.owner = loadSym(c, g, si, s.owner)
   let externalName = g[si].fromDisk.strings[s.externalName]
   if externalName != "":
-    result.loc.r = rope externalName
-  result.loc.flags = s.locFlags
+    result.extname = rope externalName
+  result.locFlags = s.locFlags
 
 proc loadSym(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int; s: PackedItemId): PSym =
   if s == nilItemId:

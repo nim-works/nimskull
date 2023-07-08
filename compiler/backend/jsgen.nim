@@ -262,7 +262,7 @@ func mangleName(m: BModule, s: PSym): Rope =
     for chr in name:
       if chr notin {'A'..'Z','a'..'z','_','$','0'..'9'}:
         return false
-  result = s.loc.r
+  result = s.extname
   if result == "":
     if s.kind == skField and s.name.s.validJsName:
       result = rope(s.name.s)
@@ -779,7 +779,7 @@ proc genTry(p: PProc, n: PNode) =
         # if isJsObject(throwObj.typ):
         if isImportedException(throwObj.typ, p.config):
           orExpr.addf("lastJSError instanceof $1",
-            [throwObj.typ.sym.loc.r])
+            [throwObj.typ.sym.extname])
         else:
           orExpr.addf("isObj(lastJSError.m_type, $1)",
                [genTypeInfo(p, throwObj.typ)])
@@ -1466,7 +1466,7 @@ proc genInfixCall(p: PProc, n: PNode, r: var TCompRes) =
   let f = n[0].sym
   assert sfInfixCall in f.flags
   if true:
-    let pat = f.loc.r
+    let pat = f.extname
     internalAssert p.config, pat.len > 0
     if pat.contains({'#', '(', '@'}):
       var typ = skipTypes(n[0].typ, abstractInst)
@@ -1562,7 +1562,7 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
   var t = skipTypes(typ, abstractInst)
   case t.kind
   of tyInt..tyInt64, tyUInt..tyUInt64, tyEnum, tyChar:
-    if $t.sym.loc.r == "bigint":
+    if t.sym.extname == "bigint":
       result = putToSeq("0n", indirect)
     else:
       result = putToSeq("0", indirect)
@@ -1637,7 +1637,7 @@ proc defineGlobal*(globals: PGlobals, m: BModule, v: PSym) =
   ## symbol's JavaScript name.
   let p = newInitProc(globals, m)
   let name = mangleName(m, v)
-  if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
+  if lfNoDecl notin v.locFlags and sfImportc notin v.flags:
     lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
 
   globals.names[v.id] = name
@@ -1652,7 +1652,7 @@ proc defineGlobals*(globals: PGlobals, m: BModule, vars: openArray[PSym]) =
     ## required for emitting code
   for v in vars.items:
     let name = mangleName(m, v)
-    if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
+    if lfNoDecl notin v.locFlags and sfImportc notin v.flags:
       lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
 
     globals.names[v.id] = name
@@ -1703,7 +1703,7 @@ proc genVarStmt(p: PProc, n: PNode) =
     assert it[0].kind == nkSym
     let v = it[0].sym
     let name = mangleName(p.module, v)
-    if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
+    if lfNoDecl notin v.locFlags and sfImportc notin v.flags:
       genLineDir(p, it)
       genVarInit(p, v, name, it[2])
 
@@ -1712,7 +1712,7 @@ proc genVarStmt(p: PProc, n: PNode) =
 
 proc genConstant*(g: PGlobals, m: BModule, c: PSym) =
   let name = mangleName(m, c)
-  if lfNoDecl notin c.loc.flags:
+  if lfNoDecl notin c.locFlags:
     var p = newInitProc(g, m)
     #genLineDir(p, c.ast)
     genVarInit(p, c, name, c.ast)
