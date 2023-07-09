@@ -169,7 +169,7 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
 
   if value.kind != nkEmpty:
     genLineDir(p, vn)
-    # we have an parameter aliasing issue here: passing `p.locals[v]`
+    # we have a parameter aliasing issue here: passing `p.locals[v]`
     # as the parameter directly would be an aliasing rule violation.
     # Since the initializer expression cannot reference `v` itself,
     # it's safe to temporarily move the loc out of ``p.locals``

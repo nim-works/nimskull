@@ -277,7 +277,7 @@ func mangleName(m: BModule, s: PSym): Rope =
 
 proc mangledName(p: PProc, s: PSym, info: TLineInfo): string =
   ## Returns the cached JavaScript name for `s`.
-  ## At the time of writing, a borrowed string (``lent string``) from
+  ## At the time of writing, a borrowed string (``lent string``)
   ## can't be returned because of compiler shortcomings.
   template get(tbl: untyped): string =
     p.module.config.internalAssert(s.id in tbl, info):

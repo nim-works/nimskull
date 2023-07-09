@@ -493,8 +493,8 @@ proc genRecordFieldsAux(m: BModule, n: PNode,
     if field.locId == 0:
       # XXX: the C struct definition for the type is re-generated in every C
       #      file the type is used in, so the field might have an associated
-      #      loc. Eventually, each C type is only generated once, and then the
-      #      guard can be removed
+      #      loc. Eventually, each C type will only be generated once, and then
+      #      the guard can be removed
       m.fields.put(field):
         initLoc(locField, n, unionPrefix & sname, OnUnknown)
 
