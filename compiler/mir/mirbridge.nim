@@ -125,7 +125,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
               buf.add MirNode(kind: mnkConsume, typ: typ)
             buf.add MirNode(kind: mnkInit)
         elif {sfImportc, sfNoInit} * sym.flags == {} and
-             {lfDynamicLib, lfNoDecl} * sym.loc.flags == {}:
+             {lfDynamicLib, lfNoDecl} * sym.locFlags == {}:
           # XXX: ^^ re-think this condition from first principles. Right now,
           #      it's just meant to make some tests work
           # the location doesn't have an explicit starting value. Initialize

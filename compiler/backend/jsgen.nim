@@ -113,6 +113,9 @@ type
     typeInfoGenerated: IntSet
     unique: int    # for temp identifier generation
 
+    names: Table[int, string]
+      ## maps a symbol IDs to the symbol's JavaScript name
+
     extra*: seq[PSym]
 
   PProc* = ref TProc
@@ -126,6 +129,11 @@ type
     unique: int    # for temp identifier generation
     blocks: seq[TBlock]
     extraIndent: int
+
+    params: seq[string]
+      ## mangled names of the procedure's parameters
+    localNames: Table[int, string]
+      ## mapes the symbol ID of locals to the JavaScript name
 
 const
   sfModuleInit* = sfMainModule
@@ -233,7 +241,7 @@ func mangleJs(name: string): string =
     else:
       result.add("HEX" & toHex(ord(c), 2))
 
-proc mangleName(m: BModule, s: PSym): Rope =
+func mangleName(m: BModule, s: PSym): Rope =
   proc validJsName(name: string): bool =
     result = true
     const reservedWords = ["abstract", "await", "boolean", "break", "byte",
@@ -254,7 +262,7 @@ proc mangleName(m: BModule, s: PSym): Rope =
     for chr in name:
       if chr notin {'A'..'Z','a'..'z','_','$','0'..'9'}:
         return false
-  result = s.loc.r
+  result = s.extname
   if result == "":
     if s.kind == skField and s.name.s.validJsName:
       result = rope(s.name.s)
@@ -267,7 +275,40 @@ proc mangleName(m: BModule, s: PSym): Rope =
       result.add("_")
       result.add(rope(s.id))
 
-    s.loc.r = result
+proc mangledName(p: PProc, s: PSym, info: TLineInfo): string =
+  ## Returns the cached JavaScript name for `s`.
+  ## At the time of writing, a borrowed string (``lent string``)
+  ## can't be returned because of compiler shortcomings.
+  template get(tbl: untyped): string =
+    p.module.config.internalAssert(s.id in tbl, info):
+      "symbol has no generated name: " & s.name.s
+    tbl[s.id]
+
+  case s.kind
+  of skVar, skLet, skTemp, skForVar:
+    if sfGlobal in s.flags:
+      result = get(p.g.names)
+    else:
+      result = get(p.localNames)
+  of skResult:
+    result = get(p.localNames)
+  of skParam:
+    result = p.params[s.position]
+  of routineKinds, skConst:
+    result = get(p.g.names)
+  else:
+    unreachable()
+
+proc ensureMangledName(p: PProc, s: PSym): lent string =
+  ## Looks up and returns the mangled name for the non-local symbol
+  ## `s`, generating and caching the mangled name if it hasn't been
+  ## already.
+  let n = addr p.g.names.mgetOrPut(s.id, "")
+  if n[].len == 0:
+    # the mangled named hasn't been generated yet
+    n[] = mangleName(p.module, s)
+
+  result = p.g.names[s.id]
 
 proc escapeJSString(s: string): string =
   result = newStringOfCap(s.len + s.len shr 2)
@@ -741,7 +782,7 @@ proc genTry(p: PProc, n: PNode) =
         # if isJsObject(throwObj.typ):
         if isImportedException(throwObj.typ, p.config):
           orExpr.addf("lastJSError instanceof $1",
-            [throwObj.typ.sym.loc.r])
+            [throwObj.typ.sym.extname])
         else:
           orExpr.addf("isObj(lastJSError.m_type, $1)",
                [genTypeInfo(p, throwObj.typ)])
@@ -751,8 +792,9 @@ proc genTry(p: PProc, n: PNode) =
       # If some branch requires a local alias introduce it here. This is needed
       # since JS cannot do ``catch x as y``.
       if excAlias != nil:
-        excAlias.sym.loc.r = mangleName(p.module, excAlias.sym)
-        lineF(p, "var $1 = lastJSError;$n", excAlias.sym.loc.r)
+        let name = mangleName(p.module, excAlias.sym)
+        lineF(p, "var $1 = lastJSError;$n", name)
+        p.localNames[excAlias.sym.id] = name
       genStmt(p, n[i][^1])
       lineF(p, "}$n", [])
     inc(i)
@@ -839,7 +881,6 @@ proc genBlock(p: PProc, n: PNode) =
     # named block?
     p.config.internalAssert(n[0].kind == nkSym, n.info, "genBlock")
     var sym = n[0].sym
-    sym.loc.k = locOther
     sym.position = idx+1
   let labl = p.unique
   lineF(p, "Label$1: do {$n", [labl.rope])
@@ -856,7 +897,7 @@ proc genBreakStmt(p: PProc, n: PNode) =
     # named break?
     assert(n[0].kind == nkSym)
     let sym = n[0].sym
-    assert(sym.loc.k == locOther)
+    assert(sym.kind == skLabel)
     idx = sym.position-1
   else:
     # an unnamed 'break' can only break a loop after 'transf' pass:
@@ -910,7 +951,7 @@ proc genIf(p: PProc, n: PNode) =
   genStmt(p, it[1])
   lineF(p, "}$n", [])
 
-proc generateHeader(prc: PSym): Rope =
+proc generateHeader(prc: PSym, params: openArray[string]): Rope =
   ## Generates the JavaScript function header for `prc`. The parameters are
   ## assumed to already have their mangled names set.
   result = ""
@@ -922,7 +963,7 @@ proc generateHeader(prc: PSym): Rope =
     var param = typ.n[i].sym
     if isCompileTimeOnly(param.typ): continue
     if result != "": result.add(", ")
-    let name = param.loc.r
+    let name = params[i-1]
     result.add(name)
     if mapType(param.typ) == etyBaseIndex:
       result.add(", ")
@@ -1046,9 +1087,7 @@ proc genFieldAddr(p: PProc, n: PNode, r: var TCompRes) =
     r.res = makeJSString("Field" & $getFieldPosition(p, b[1]))
   else:
     p.config.internalAssert(b[1].kind == nkSym, b[1].info, "genFieldAddr")
-    var f = b[1].sym
-    if f.loc.r == "": f.loc.r = mangleName(p.module, f)
-    r.res = makeJSString($f.loc.r)
+    r.res = makeJSString(ensureMangledName(p, b[1].sym))
   internalAssert p.config, a.typ != etyBaseIndex
   r.address = a.res
   r.kind = resExpr
@@ -1074,9 +1113,7 @@ proc genFieldAccess(p: PProc, n: PNode, r: var TCompRes) =
     mkTemp(0)
   else:
     p.config.internalAssert(n[1].kind == nkSym, n[1].info, "genFieldAccess")
-    var f = n[1].sym
-    if f.loc.r == "": f.loc.r = mangleName(p.module, f)
-    r.res = "$1.$2" % [r.res, f.loc.r]
+    r.res = "$1.$2" % [r.res, ensureMangledName(p, n[1].sym)]
     mkTemp(1)
   r.kind = resExpr
 
@@ -1096,11 +1133,9 @@ proc genCheckedFieldOp(p: PProc, n: PNode, takeAddr: bool, r: var TCompRes) =
   # Field symbol
   var field = accessExpr[1].sym
   internalAssert p.config, field.kind == skField
-  if field.loc.r == "": field.loc.r = mangleName(p.module, field)
   # Discriminant symbol
   let disc = checkExpr[2].sym
   internalAssert p.config, disc.kind == skField
-  if disc.loc.r == "": disc.loc.r = mangleName(p.module, disc)
 
   var setx: TCompRes
   gen(p, checkExpr[1], setx)
@@ -1117,16 +1152,17 @@ proc genCheckedFieldOp(p: PProc, n: PNode, takeAddr: bool, r: var TCompRes) =
   useMagic(p, "reprDiscriminant") # no need to offset by firstOrd unlike for cgen
   let msg = genFieldDefect(p.config, field.name.s, disc)
   lineF(p, "if ($1[$2.$3]$4undefined) { raiseFieldError2(makeNimstrLit($5), reprDiscriminant($2.$3, $6)); }$n",
-    setx.res, tmp, disc.loc.r, if negCheck: ~"!==" else: ~"===",
+    setx.res, tmp, ensureMangledName(p, disc), if negCheck: ~"!==" else: ~"===",
     makeJSString(msg), genTypeInfo(p, disc.typ))
 
+  let name = ensureMangledName(p, field)
   if takeAddr:
     r.typ = etyBaseIndex
-    r.res = makeJSString($field.loc.r)
+    r.res = makeJSString(name)
     r.address = tmp
   else:
     r.typ = etyNone
-    r.res = "$1.$2" % [tmp, field.loc.r]
+    r.res = "$1.$2" % [tmp, name]
   r.kind = resExpr
 
 proc genArrayAddr(p: PProc, n: PNode, r: var TCompRes) =
@@ -1200,21 +1236,21 @@ proc genSymAddr(p: PProc, n: PNode, r: var TCompRes) =
   ## Generates the code for taking the address of the location identified by
   ## symbol node `n`
   let s = n.sym
-  p.config.internalAssert(s.loc.r != "", n.info, "genAddr: 3")
   case s.kind
   of skVar, skLet, skResult, skForVar, skParam:
+    let name = mangledName(p, s, n.info)
     r.kind = resExpr
     r.typ = etyBaseIndex
     r.res = "0"
     if isIndirect(s):
-      r.address = s.loc.r
+      r.address = name
     elif mapType(s.typ) == etyBaseIndex and not isBoxedPointer(s):
       # box the separate base+index into an array first
-      r.address = "[[$1, $1_Idx]]" % s.loc.r
+      r.address = "[[$1, $1_Idx]]" % name
     else:
       # something that doesn't directly support having its address
       # taken (e.g. imported variable, parameter, let, etc.)
-      r.address = "[$1]" % s.loc.r
+      r.address = "[$1]" % name
   else: internalError(p.config, n.info, $("genAddr: 2", s.kind))
 
 proc genAddr(p: PProc, n: PNode, r: var TCompRes) =
@@ -1260,47 +1296,38 @@ proc genAddr(p: PProc, n: PNode, r: var TCompRes) =
   else:
     internalError(p.config, n.info, "genAddr: " & $n.kind)
 
-proc genVarInit(p: PProc, v: PSym, n: PNode)
-
 proc genSym(p: PProc, n: PNode, r: var TCompRes) =
   var s = n.sym
   case s.kind
   of skVar, skLet, skParam, skTemp, skResult, skForVar:
-    p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
+    let name = mangledName(p, s, n.info)
     let k = mapType(s.typ)
     if k == etyBaseIndex:
       r.typ = etyBaseIndex
       if isBoxedPointer(s):
         if isIndirect(s):
-          r.address = "$1[0][0]" % [s.loc.r]
-          r.res = "$1[0][1]" % [s.loc.r]
+          r.address = "$1[0][0]" % [name]
+          r.res = "$1[0][1]" % [name]
         else:
-          r.address = "$1[0]" % [s.loc.r]
-          r.res = "$1[1]" % [s.loc.r]
+          r.address = "$1[0]" % [name]
+          r.res = "$1[1]" % [name]
       else:
-        r.address = s.loc.r
-        r.res = s.loc.r & "_Idx"
+        r.address = name
+        r.res = name & "_Idx"
     elif isIndirect(s):
-      r.res = "$1[0]" % [s.loc.r]
+      r.res = "$1[0]" % [name]
     else:
-      r.res = s.loc.r
+      r.res = name
   of skConst:
-    p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
-    r.res = s.loc.r
+    r.res = mangledName(p, s, n.info)
   of skProc, skFunc, skConverter, skMethod, skIterator:
     if sfCompileTime in s.flags:
       localReport(p.config, n.info, reportSym(
         rsemCannotCodegenCompiletimeProc, s))
 
-    discard mangleName(p.module, s)
-    r.res = s.loc.r
+    r.res = ensureMangledName(p, s)
   else:
-    p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
-    if mapType(s.typ) == etyBaseIndex:
-      r.address = s.loc.r
-      r.res = s.loc.r & "_Idx"
-    else:
-      r.res = s.loc.r
+    unreachable()
   r.kind = resVal
 
 proc genDeref(p: PProc, n: PNode, r: var TCompRes) =
@@ -1441,9 +1468,8 @@ proc genInfixCall(p: PProc, n: PNode, r: var TCompRes) =
   # don't call '$' here for efficiency:
   let f = n[0].sym
   assert sfInfixCall in f.flags
-  if f.loc.r == "": f.loc.r = mangleName(p.module, f)
   if true:
-    let pat = f.loc.r
+    let pat = f.extname
     internalAssert p.config, pat.len > 0
     if pat.contains({'#', '(', '@'}):
       var typ = skipTypes(n[0].typ, abstractInst)
@@ -1539,7 +1565,7 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
   var t = skipTypes(typ, abstractInst)
   case t.kind
   of tyInt..tyInt64, tyUInt..tyUInt64, tyEnum, tyChar:
-    if $t.sym.loc.r == "bigint":
+    if t.sym.extname == "bigint":
       result = putToSeq("0n", indirect)
     else:
       result = putToSeq("0", indirect)
@@ -1610,35 +1636,37 @@ template returnType: untyped = ~""
 
 proc defineGlobal*(globals: PGlobals, m: BModule, v: PSym) =
   ## Emits the definition for the single global `v` into the top-level section,
-  ## with `m` being the module the global belongs to. Also sets up the symbols
-  ## mangled name.
+  ## with `m` being the module the global belongs to. Also sets up the
+  ## symbol's JavaScript name.
   let p = newInitProc(globals, m)
-  if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
-    let name = mangleName(m, v) # mutates `v`
+  let name = mangleName(m, v)
+  if lfNoDecl notin v.locFlags and sfImportc notin v.flags:
     lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
 
+  globals.names[v.id] = name
   # add to the top-level section:
   globals.code.add(p.body)
 
 proc defineGlobals*(globals: PGlobals, m: BModule, vars: openArray[PSym]) =
   ## Emits definitions for the items in `vars` into the top-level section,
-  ## with `m` being the module the globals belong to. Also updates each
-  ## symbol that requires name mangling with the mangled name.
+  ## with `m` being the module the globals belong to. Also sets up the
+  ## JavaScript name for the globals.
   let p = newInitProc(globals, m)
     ## required for emitting code
   for v in vars.items:
-    if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
-      let name = mangleName(m, v) # mutates `v`
+    let name = mangleName(m, v)
+    if lfNoDecl notin v.locFlags and sfImportc notin v.flags:
       lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
+
+    globals.names[v.id] = name
 
   # add to the top-level section:
   globals.code.add(p.body)
 
-proc genVarInit(p: PProc, v: PSym, n: PNode) =
+proc genVarInit(p: PProc, v: PSym, varName: string, n: PNode) =
   var
     a: TCompRes
     s: Rope
-    varName = mangleName(p.module, v)
 
   if n.kind == nkEmpty:
     if not isIndirect(v) and
@@ -1662,31 +1690,39 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
         s = "[$1, $2]" % [a.address, a.res]
       else:
         lineF(p, "var $1 = $2, $1_Idx = $3;$n",
-                 [v.loc.r, a.address, a.res])
+                 [varName, a.address, a.res])
         # exit early because we've already emitted the definition
         return
     else:
       s = a.res
     if isIndirect(v):
-      lineF(p, "var $1 = [$2];$n", [v.loc.r, s])
+      lineF(p, "var $1 = [$2];$n", [varName, s])
     else:
-      lineF(p, "var $1 = $2;$n", [v.loc.r, s])
+      lineF(p, "var $1 = $2;$n", [varName, s])
 
 proc genVarStmt(p: PProc, n: PNode) =
   for it in n.items:
     assert it.kind == nkIdentDefs
     assert it[0].kind == nkSym
     let v = it[0].sym
-    if lfNoDecl notin v.loc.flags and sfImportc notin v.flags:
+    let name = mangleName(p.module, v)
+    if lfNoDecl notin v.locFlags and sfImportc notin v.flags:
       genLineDir(p, it)
-      genVarInit(p, v, it[2])
+      genVarInit(p, v, name, it[2])
+
+    # all locals need a name:
+    p.localNames[v.id] = name
 
 proc genConstant*(g: PGlobals, m: BModule, c: PSym) =
-  if lfNoDecl notin c.loc.flags:
+  let name = mangleName(m, c)
+  if lfNoDecl notin c.locFlags:
     var p = newInitProc(g, m)
     #genLineDir(p, c.ast)
-    genVarInit(p, c, c.ast)
+    genVarInit(p, c, name, c.ast)
     g.constants.add(p.body)
+
+  # all constants need a name:
+  g.names[c.id] = name
 
 proc genNew(p: PProc, n: PNode) =
   var a: TCompRes
@@ -2085,17 +2121,17 @@ proc genObjConstr(p: PProc, n: PNode, r: var TCompRes) =
     let val = it[1]
     gen(p, val, a)
     var f = it[0].sym
-    if f.loc.r == "": f.loc.r = mangleName(p.module, f)
+    let name = ensureMangledName(p, f)
     fieldIDs.incl(lookupFieldAgain(n.typ, f).id)
 
     let typ = val.typ.skipTypes(abstractInst)
     if a.typ == etyBaseIndex:
-      initList.addf("$#: [$#, $#]", [f.loc.r, a.address, a.res])
+      initList.addf("$#: [$#, $#]", [name, a.address, a.res])
     else:
       if not needsNoCopy(p, val):
         useMagic(p, "nimCopy")
         a.res = "nimCopy(null, $1, $2)" % [a.rdLoc, genTypeInfo(p, typ)]
-      initList.addf("$#: $#", [f.loc.r, a.res])
+      initList.addf("$#: $#", [name, a.res])
   let t = skipTypes(n.typ, abstractInst + skipPtrs)
   createObjInitList(p, t, fieldIDs, initList)
   r.res = ("{$1}") % [initList]
@@ -2219,25 +2255,29 @@ proc startProc*(g: PGlobals, module: BModule, prc: PSym): PProc =
   let p = newProc(g, module, prc, prc.options)
 
   # make sure the procedure has a mangled name:
-  discard mangleName(p.module, prc)
+  discard ensureMangledName(p, prc)
+
+  p.params.newSeq(prc.typ.len - 1 + ord(prc.typ.callConv == ccClosure))
+  # -1 for the result type
 
   # same for the result symbol and parameters:
   if prc.typ[0] != nil and sfPure notin prc.flags:
-    discard mangleName(p.module, prc.ast[resultPos].sym)
+    let s = prc.ast[resultPos].sym
+    p.localNames[s.id] = mangleName(p.module, s)
 
   # set the mangled name for the parameters:
   for i in 1..<prc.typ.n.len:
     let param = prc.typ.n[i].sym
     if not isCompileTimeOnly(param.typ):
-      discard mangleName(p.module, param)
+      p.params[i-1] = mangleName(p.module, param)
 
   if prc.typ.callConv == ccClosure:
     # generate the name for the hidden environment parameter. When creating a
     # closure object, the environment is bound to the ``this`` argument of the
     # function, hence using ``this`` for the name
-    let hidden = prc.ast[paramsPos].lastSon
-    assert hidden.kind == nkSym, "the hidden parameter is missing"
-    hidden.sym.loc.r = "this"
+    assert prc.ast[paramsPos].lastSon.kind == nkSym,
+           "the hidden parameter is missing"
+    p.params[^1] = "this"
 
   result = p
 
@@ -2251,7 +2291,7 @@ proc finishProc*(p: PProc): string =
 
   if prc.typ[0] != nil and sfPure notin prc.flags:
     let resultSym = prc.ast[resultPos].sym
-    let mname = resultSym.loc.r
+    let mname = p.localNames[resultSym.id]
     let returnAddress = not isIndirect(resultSym) and
       resultSym.typ.kind in {tyVar, tyPtr, tyLent, tyRef} and
         mapType(resultSym.typ) == etyBaseIndex
@@ -2272,8 +2312,8 @@ proc finishProc*(p: PProc): string =
     result = lineDir(p.config, prc.info, toLinenumber(prc.info))
 
   let
-    name   = prc.loc.r
-    header = generateHeader(prc)
+    name   = p.g.names[prc.id]
+    header = generateHeader(prc, p.params)
 
   var def: Rope
   if not prc.constraint.isNil:

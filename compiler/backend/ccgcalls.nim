@@ -467,7 +467,7 @@ proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
 
 proc notYetAlive(n: PNode): bool {.inline.} =
   let r = getRoot(n)
-  result = r != nil and r.loc.lode == nil
+  result = r != nil and r.locId == 0
 
 proc isInactiveDestructorCall(p: BProc, e: PNode): bool =
   #[ Consider this example.

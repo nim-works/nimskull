@@ -147,8 +147,9 @@ proc createDispatcher(s: PSym; g: ModuleGraph; idgen: IdGenerator): PSym =
   # we can't inline the dispatcher itself (for now):
   if disp.typ.callConv == ccInline: disp.typ.callConv = ccNimCall
   disp.ast = copyTree(s.ast)
+  disp.ast[namePos] = newSymNode(disp)
   disp.ast[bodyPos] = newNodeI(nkEmpty, s.info)
-  disp.loc.r = ""
+  disp.extname = ""
   if s.typ[0] != nil:
     if disp.ast.len > resultPos:
       disp.ast[resultPos].sym = copySym(s.ast[resultPos].sym, nextSymId(idgen))

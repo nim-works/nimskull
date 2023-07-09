@@ -1590,19 +1590,13 @@ type
     data*: seq[PSym]
 
   # -------------- backend information -------------------------------
-  TLocKind* = enum
-    locNone,                  ## no location
-    locTemp,                  ## temporary location
-    locLocalVar,              ## location is a local variable
-    locGlobalVar,             ## location is a global variable
-    locParam,                 ## location is a parameter
-    locField,                 ## location is a record field
-    locExpr,                  ## "location" is really an expression
-    locProc,                  ## location is a proc (an address of a procedure)
-    locData,                  ## location is a constant
-    locCall,                  ## location is a call expression
-    locOther                  ## location is something other
   TLocFlag* = enum
+    # XXX: `TLocFlag` conflates two things:
+    #      - flags regarding the external interface (e.g., `lfHeader`; set by
+    #        sem, used by sem and the code generators)
+    #      - location-related flags (e.g., ``lfIndirect``, ``lfSingleUse``,
+    #        etc.; only relevant to the C code generator)
+    #      Split the enum up.
     lfIndirect,               ## backend introduced a pointer
     lfFullExternalName, ## only used when 'conf.cmd == cmdNimfix': Indicates
       ## that the symbol has been imported via 'importc: "fullname"' and
@@ -1617,19 +1611,8 @@ type
                               ## ptr array due to C array limitations.
                               ## See #1181, #6422, #11171
     lfPrepareForMutation      ## string location is about to be mutated (V2)
-  TStorageLoc* = enum
-    OnUnknown,                ## location is unknown (stack, heap or static)
-    OnStatic,                 ## in a static section
-    OnStack,                  ## location is on hardware stack
-    OnHeap                    ## location is on heap or global
-                              ## (reference counting needed)
+
   TLocFlags* = set[TLocFlag]
-  TLoc* = object
-    k*: TLocKind              ## kind of location
-    storage*: TStorageLoc
-    flags*: TLocFlags         ## location's flags
-    lode*: PNode              ## Node where the location came from; can be faked
-    r*: Rope                  ## rope value of location (code generators)
 
   # ---------------- end of backend information ------------------------------
 
@@ -1713,7 +1696,12 @@ type
                               ## to the module's fileIdx
                               ## for variables a slot index for the evaluator
     offset*: int              ## offset of record field
-    loc*: TLoc
+    extname*: string          ## the external name of the type, or empty if a
+                              ## generated name is to be used
+    locFlags*: TLocFlags      ## additional flags that are relevant to code
+                              ## generation
+    locId*: uint32            ## associates the symbol with a loc in the C code
+                              ## generator. 0 means unset.
     annex*: PLib              ## additional fields (seldom used, so we use a
                               ## reference to another object to save space)
     constraint*: PNode        ## additional constraints like 'lit|result'; also
@@ -1759,7 +1747,6 @@ type
     align*: int16             ## the type's alignment requirements
     paddingAtEnd*: int16      ##
     lockLevel*: TLockLevel    ## lock level as required for deadlock checking
-    loc*: TLoc
     typeInst*: PType          ## for generic instantiations the tyGenericInst that led to this
                               ## type; for tyError the previous type if avaiable
     uniqueId*: ItemId         ## due to a design mistake, we need to keep the real ID here as it

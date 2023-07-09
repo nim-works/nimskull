@@ -486,7 +486,7 @@ func discoverFrom*(data: var DiscoveryData, decl: PNode) =
     of nkProcDef, nkFuncDef, nkConverterDef, nkMethodDef:
       let prc = n[namePos].sym
       if {sfExportc, sfCompilerProc} * prc.flags == {sfExportc} or
-         (sfExportc in prc.flags and lfExportLib in prc.loc.flags):
+         (sfExportc in prc.flags and lfExportLib in prc.locFlags):
         # an exported routine. It must always have code generated for it. Note
         # that compilerprocs, while exported, are still only have code generated
         # for them when used
@@ -524,7 +524,7 @@ func queue(iter: var ProcedureIter, prc: PSym, m: FileIndex) =
   ## If eligible for processing and code generation, adds `prc` to
   ## `iter`'s queue.
   assert prc.kind in routineKinds
-  if lfNoDecl notin prc.loc.flags and
+  if lfNoDecl notin prc.locFlags and
      (sfImportc notin prc.flags or (iter.config.noImported and
                                     prc.ast[bodyPos].kind != nkEmpty)):
     iter.queued.add (prc, m)
@@ -564,7 +564,7 @@ proc preprocessDynlib(graph: ModuleGraph, idgen: IdGenerator,
   #       horrendous, but fortunately, this hack (`preprocessDynlib``) can
   #       be removed once handling of dynlib procedures and globals is fully
   #       implemented in the ``process`` iterator
-  if lfDynamicLib in sym.loc.flags:
+  if lfDynamicLib in sym.locFlags:
     if sym.annex.path.kind in nkStrKinds:
       # it's a string, no need to transform nor scan it
       discard

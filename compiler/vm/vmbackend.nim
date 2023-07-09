@@ -132,7 +132,7 @@ proc genStmt(c: var TCtx, f: var CodeFragment, stmt: PNode) =
 proc declareGlobal(c: var TCtx, sym: PSym) =
   # we silently ignore imported globals here and let ``vmgen`` raise an
   # error when one is accessed
-  if lfNoDecl notin sym.loc.flags and sfImportc notin sym.flags:
+  if lfNoDecl notin sym.locFlags and sfImportc notin sym.flags:
     # make sure the type is generated and register the global in the
     # link table
     discard getOrCreate(c, sym.typ)
@@ -153,7 +153,7 @@ proc prepare(c: var TCtx, data: var DiscoveryData) =
     # don't want any processing to happen for it, which we signal to the
     # event producer via ``lfNoDecl``
     if c.functions[i].kind == ckCallback:
-      it.loc.flags.incl lfNoDecl
+      it.locFlags.incl lfNoDecl
 
   # register the constants with the link table:
   for i, s in visit(data.constants):

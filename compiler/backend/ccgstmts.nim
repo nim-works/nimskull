@@ -169,7 +169,13 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
 
   if value.kind != nkEmpty:
     genLineDir(p, vn)
-    loadInto(p, vn, value, v.loc)
+    # we have a parameter aliasing issue here: passing `p.locals[v]`
+    # as the parameter directly would be an aliasing rule violation.
+    # Since the initializer expression cannot reference `v` itself,
+    # it's safe to temporarily move the loc out of ``p.locals``
+    var loc = move p.locals[v]
+    loadInto(p, vn, value, loc)
+    p.locals.assign(v, loc) # put it back
 
 proc genSingleVar(p: BProc, a: PNode) =
   let v = a[0].sym
@@ -355,7 +361,6 @@ proc genBlock(p: BProc, n: PNode) =
       # named block?
       assert(n[0].kind == nkSym)
       var sym = n[0].sym
-      sym.loc.k = locOther
       sym.position = p.breakIdx+1
     genStmts(p, n[1])
     endBlock(p)
@@ -366,7 +371,7 @@ proc genBreakStmt(p: BProc, t: PNode) =
     # named break?
     assert(t[0].kind == nkSym)
     var sym = t[0].sym
-    doAssert(sym.loc.k == locOther)
+    doAssert(sym.kind == skLabel)
     idx = sym.position-1
   else:
     # an unnamed 'break' can only break a loop after 'transf' pass:
@@ -745,16 +750,9 @@ proc genAsmOrEmitStmt(p: BProc, t: PNode, isAsmStmt=false): Rope =
       of skField:
         # special support for raw field symbols
         discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
-        var r = sym.loc.r
-        if r == "":
-          # problem: a field doesn't know what type it is part of, so we
-          # can neither use ``fillObjectFields`` nor a ``FieldX`` name
-          # (in the case of tuples). To make sure that the mangled name is
-          # at  least correct for object types, we always use field name
-          # mangling
-          r = mangleRecFieldName(p.module, sym)
-          sym.loc.r = r       # but be consequent!
-        res.add(r)
+        p.config.internalAssert(sym.locId != 0, it.info):
+          "field's surrounding type not setup"
+        res.add(p.fieldLoc(sym).r)
       else:
         unreachable(sym.kind)
     of nkType:

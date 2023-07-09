@@ -205,14 +205,14 @@ proc setExternName(c: PContext; s: PSym, ext: string) =
 
   # special cases to improve performance:
   if ext == "$1":
-    s.loc.r = s.name.s
+    s.extname = s.name.s
   elif '$' notin ext:
-    s.loc.r = ext
+    s.extname = ext
   else:
-    s.loc.r = ext % s.name.s
+    s.extname = ext % s.name.s
   if c.config.cmd == cmdNimfix and '$' notin ext:
     # note that '{.importc.}' is transformed into '{.importc: "$1".}'
-    s.loc.flags.incl(lfFullExternalName)
+    s.locFlags.incl(lfFullExternalName)
 
 proc makeExternImport(c: PContext; s: PSym, ext: string) =
   ## produces (mutates) `s`'s `loc`ation setting the import name, marks it as
@@ -235,7 +235,7 @@ proc processImportCompilerProc(c: PContext; s: PSym, ext: string) =
   setExternName(c, s, ext)
   incl(s.flags, sfImportc)
   excl(s.flags, sfForward)
-  incl(s.loc.flags, lfImportCompilerProc)
+  incl(s.locFlags, lfImportCompilerProc)
 
 proc getStrLitNode(c: PContext, n: PNode): PNode =
   ## returns a PNode that's either an error or a string literal node
@@ -402,9 +402,9 @@ proc processDynLib(c: PContext, n: PNode, sym: PSym): PNode =
         var lib = getLib(c, libDynamic, libNode)
         if not lib.isOverriden:
           addToLib(lib, sym)
-          incl(sym.loc.flags, lfDynamicLib)
+          incl(sym.locFlags, lfDynamicLib)
     else:
-      incl(sym.loc.flags, lfExportLib)
+      incl(sym.locFlags, lfExportLib)
     # since we'll be loading the dynlib symbols dynamically, we must use
     # a calling convention that doesn't introduce custom name mangling
     # cdecl is the default - the user can override this explicitly
@@ -1150,7 +1150,7 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
             c.config.newError(it, PAstDiag(kind: adSemAlignRequiresPowerOfTwo))
       of wNodecl:
         result = noVal(c, it)
-        incl(sym.loc.flags, lfNoDecl)
+        incl(sym.locFlags, lfNoDecl)
       of wPure, wAsmNoStackFrame:
         result = noVal(c, it)
         incl(sym.flags, sfPure)
@@ -1192,9 +1192,9 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         let lib = getLib(c, libHeader, path)
         addToLib(lib, sym)
         sym.flags.incl sfImportc
-        sym.loc.flags.incl {lfHeader, lfNoDecl}
+        sym.locFlags.incl {lfHeader, lfNoDecl}
         # implies nodecl, because otherwise header would not make sense
-        if sym.loc.r == "": sym.loc.r = sym.name.s
+        if sym.extname == "": sym.extname = sym.name.s
       of wNoSideEffect:
         result = noVal(c, it)
         incl(sym.flags, sfNoSideEffect)
@@ -1853,13 +1853,13 @@ proc inheritDynlib*(c: PContext, sym: PSym) =
   ## imported, but no header nor dynlib are specified.
   let lib = c.optionStack[^1].dynlib
   if lib != nil and sfImportc in sym.flags and
-     {lfDynamicLib, lfHeader} * sym.loc.flags == {}:
-    incl(sym.loc.flags, lfDynamicLib)
+     {lfDynamicLib, lfHeader} * sym.locFlags == {}:
+    incl(sym.locFlags, lfDynamicLib)
     addToLib(lib, sym)
-    if sym.loc.r == "":
+    if sym.extname == "":
       # XXX: this looks like a unnecessary defensive check. If the symbol is
       #      marked as imported, it already has an external name set
-      sym.loc.r = sym.name.s
+      sym.extname = sym.name.s
 
 proc containsError(n: PNode): bool =
   for it in n.items:
