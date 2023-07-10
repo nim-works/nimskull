@@ -1,5 +1,34 @@
-## This module contains constructor procedures for the different kinds of
-## ``MirNode``s plus convenience procedures for generating expressions.
+## This module implements a small domain-specific language (=DSL) for
+## constructing sequences of MIR code, and constructor routines for
+## ``MirNode``s.
+##
+## Chain DSL
+## ---------
+##
+## The idea is to provide a simple DSL that makes generating MIR code more
+## ergonomic than manually adding nodes to a buffer. It is entirely realized
+## via templates, and looks like this:
+##
+## .. code-block:: nim
+##
+##   chain: input() => in_out() => in_out() => sink()
+##
+## The `chain <#chain.t,MirNodeSeq,untyped>`_ template provides the context
+## for the generator routines. The ``=>`` operator does the actual chaining --
+## each call of it yields a sentinel value that informs the next ``=>``
+## invocation on how to interpet the sub-expression. The `input`, `in_out`,
+## and `sink` calls are referred to as *operands*.
+##
+## The first operand must always be an *input* (something that provides an
+## initial `EValue <#EValue>`_), the following operands must be an
+## *input-output*, and the last operand, depending on the the context,
+## either an *sink* or *input-output*.
+##
+## There are two kinds of operands:
+## - those that emit an MIR node (or sequence) and update (or return) an
+##   ``EValue``
+## - those that emit neither MIR code nor modify the ``EValue``, but
+##   instead affect how the operands following it are interpreted
 
 import
   compiler/ast/[
@@ -15,6 +44,8 @@ type
   Sink* = distinct bool
     ## Used to mark a procedure as generating code that acts as a sink
   SinkAndValue* = distinct bool
+    ## Marks a procedure as generating code that acts as a sink and
+    ## yields a value.
 
   Cond = distinct bool
     ## Marks a procedure as being a meta-operand that acts as a condition.
