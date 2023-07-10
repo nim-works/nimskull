@@ -119,6 +119,12 @@ template follows*(): Sink =
 
 {.push inline.}
 
+func emit*(s: var MirNodeSeq; n: sink MirNode): EValue =
+  ## Adds `n` to the node sequences, with its type providing
+  ## the initial type information for the result.
+  result = EValue(typ: n.typ)
+  s.add n
+
 func procLit*(s: var MirNodeSeq, sym: PSym): EValue =
   s.add MirNode(kind: mnkProc, typ: sym.typ, sym: sym)
   result = EValue(typ: sym.typ)
@@ -137,6 +143,16 @@ func constr*(s: var MirNodeSeq, typ: PType): EValue =
 
 func tempNode*(s: var MirNodeSeq, typ: PType, id: TempId): EValue =
   s.add MirNode(kind: mnkTemp, typ: typ, temp: id)
+  result = EValue(typ: typ)
+
+func symbol*(s: var MirNodeSeq, kind: range[mnkConst..mnkLocal],
+             sym: PSym): EValue =
+  s.add MirNode(kind: kind, typ: sym.typ, sym: sym)
+  result = EValue(typ: sym.typ)
+
+func opParam*(s: var MirNodeSeq, i: uint32, typ: PType): EValue =
+  assert typ != nil
+  s.add MirNode(kind: mnkOpParam, param: i, typ: typ)
   result = EValue(typ: typ)
 
 func magicCall*(s: var MirNodeSeq, m: TMagic, typ: PType): EValue =
@@ -242,11 +258,14 @@ template genSinkAdapter(name: untyped) =
     Sink(false)
 
 # generate the adapters:
+genInputAdapter1(emit, n)
 genInputAdapter1(procLit, sym)
 genInputAdapter1(genTypeLit, n)
 genInputAdapter1(genLit, n)
 genInputAdapter1(constr, typ)
 genInputAdapter2(tempNode, typ, id)
+genInputAdapter2(symbol, kind, sym)
+genInputAdapter2(opParam, i, typ)
 genInputAdapter2(magicCall, typ, id)
 
 genValueAdapter1(tag, effect)

@@ -413,7 +413,7 @@ proc genEmpty(c: var TCtx, n: PNode): EValue =
   c.stmts.nodes.add MirNode(kind: mnkNone, typ: n.typ)
   result = EValue(typ: c.graph.getSysType(n.info, tyVoid))
 
-func nameNode(s: PSym, n: PNode): MirNode =
+func nameNode(s: PSym): MirNode =
   if sfGlobal in s.flags:
     MirNode(kind: mnkGlobal, typ: s.typ, sym: s)
   elif s.kind == skParam:
@@ -425,11 +425,8 @@ func nameNode(s: PSym, n: PNode): MirNode =
   else:
     unreachable(s.kind)
 
-func genLocation(c: var TCtx, n: PNode): EValue =
-  let mn = nameNode(n.sym, n)
-  c.stmts.nodes.add mn
-
-  result = EValue(typ: mn.typ)
+template genLocation(c: var TCtx, n: PNode): EValue =
+  c.stmts.nodes.emit(nameNode(n.sym))
 
 func emit(dest: var CodeFragment, sp: var SourceProvider, src: CodeFragment,
           span: NodeSpan): EValue =
