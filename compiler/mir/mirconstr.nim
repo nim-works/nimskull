@@ -16,6 +16,11 @@ type
     ## Used to mark a procedure as generating code that acts as a sink
   SinkAndValue* = distinct bool
 
+  Cond = distinct bool
+    ## Marks a procedure as being a meta-operand that acts as a condition.
+  Predicate = distinct bool
+    ## Depending on the boolean value, excludes the next item in the chain.
+
   ChainEnd = distinct bool
     ## Sentinel type used to mark an operator in a chain as ending the chain.
     ## No further operators can be chained after an operator marked as
@@ -86,6 +91,20 @@ template `=>`*(a: EValue, b: Sink): ChainEnd =
   value = a
   discard b
   ChainEnd(false)
+
+template `=>`*(v: Value, c: Cond): Predicate =
+  discard v
+  Predicate(c)
+
+template `=>`*(v: EValue, c: Cond): Predicate =
+  value = v
+  Predicate(c)
+
+template `=>`*(v: Predicate, sink: SinkAndValue): Value =
+  if bool(v):
+    discard sink
+  Value(false)
+
 template `=>`*(v: Value, sink: SinkAndValue): Value =
   discard v
   discard sink
@@ -224,6 +243,13 @@ func name*(s: var MirNodeSeq, val: EValue) =
 
 func genVoid*(s: var MirNodeSeq, val: EValue) =
   s.add MirNode(kind: mnkVoid)
+
+# special operators:
+
+template predicate*(val: bool): Cond =
+  ## If `val` evaluates to 'false', the operand following next in the chain
+  ## is not evaluated.
+  Cond(val)
 
 {.pop.} # inline
 
