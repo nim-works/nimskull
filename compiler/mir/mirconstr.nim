@@ -71,10 +71,6 @@ template eval*(buf: var MirNodeSeq, x: untyped): EValue =
     discardTypeCheck[Value](x)
     value
 
-template `=>`*(v: Value, sink: Sink) =
-  discard v
-  discard sink
-
 template `=>`*(a: EValue, b: SinkAndValue): Value =
   mixin value
   value = a
@@ -108,20 +104,6 @@ template `=>`*(v: Predicate, sink: SinkAndValue): Value =
 template `=>`*(v: Value, sink: SinkAndValue): Value =
   discard v
   discard sink
-  Value(false)
-
-template `=>|`*(v: Value, sink: SinkAndValue) =
-  discard v
-  discard sink
-
-template `|=>`*(sink: Sink) =
-  discard sink
-
-template `|=>`*(sink: SinkAndValue): Value =
-  discard sink
-  Value(false)
-
-template previous*(): Value =
   Value(false)
 
 template follows*(): Sink =
