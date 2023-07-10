@@ -1640,7 +1640,7 @@ proc defineGlobal*(globals: PGlobals, m: BModule, v: PSym) =
   ## symbol's JavaScript name.
   let p = newInitProc(globals, m)
   let name = mangleName(m, v)
-  if lfNoDecl notin v.locFlags and sfImportc notin v.flags:
+  if exfNoDecl notin v.extFlags and sfImportc notin v.flags:
     lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
 
   globals.names[v.id] = name
@@ -1655,7 +1655,7 @@ proc defineGlobals*(globals: PGlobals, m: BModule, vars: openArray[PSym]) =
     ## required for emitting code
   for v in vars.items:
     let name = mangleName(m, v)
-    if lfNoDecl notin v.locFlags and sfImportc notin v.flags:
+    if exfNoDecl notin v.extFlags and sfImportc notin v.flags:
       lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
 
     globals.names[v.id] = name
@@ -1706,7 +1706,7 @@ proc genVarStmt(p: PProc, n: PNode) =
     assert it[0].kind == nkSym
     let v = it[0].sym
     let name = mangleName(p.module, v)
-    if lfNoDecl notin v.locFlags and sfImportc notin v.flags:
+    if exfNoDecl notin v.extFlags and sfImportc notin v.flags:
       genLineDir(p, it)
       genVarInit(p, v, name, it[2])
 
@@ -1715,7 +1715,7 @@ proc genVarStmt(p: PProc, n: PNode) =
 
 proc genConstant*(g: PGlobals, m: BModule, c: PSym) =
   let name = mangleName(m, c)
-  if lfNoDecl notin c.locFlags:
+  if exfNoDecl notin c.extFlags:
     var p = newInitProc(g, m)
     #genLineDir(p, c.ast)
     genVarInit(p, c, name, c.ast)

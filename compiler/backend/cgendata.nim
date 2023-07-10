@@ -66,10 +66,18 @@ type
     OnHeap                    ## location is on heap or global
                               ## (reference counting needed)
 
+  LocFlag* = enum
+    lfIndirect               ## code generator introduced a pointer
+    lfSingleUse              ## no location yet and will only be used once
+    lfEnforceDeref           ## a copyMem is required to dereference if this a
+                             ## ptr array due to C array limitations.
+                             ## See #1181, #6422, #11171
+    lfPrepareForMutation     ## string location is about to be mutated
+
   TLoc* = object
     k*: TLocKind              ## kind of location
     storage*: TStorageLoc
-    flags*: TLocFlags         ## location's flags
+    flags*: set[LocFlag]      ## location's flags
     lode*: PNode              ## Node where the location came from; can be faked
     r*: Rope                  ## rope value of location (code generators)
 

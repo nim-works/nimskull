@@ -795,7 +795,7 @@ proc genProcHeader(m: BModule, prc: PSym, locs: openArray[TLoc]): Rope =
   var
     rettype, params: Rope
   # using static is needed for inline procs
-  if lfExportLib in prc.locFlags:
+  if exfExportLib in prc.extFlags:
     if isHeaderFile in m.flags:
       result.add "N_LIB_IMPORT "
     else:

@@ -63,7 +63,7 @@ proc isExportedToC(c: var AliveContext; g: PackedModuleGraph; symId: int32): boo
         (symPtr.kind == skMethod):
       result = true
       # XXX: This used to be a condition to:
-      #  (sfExportc in prc.flags and lfExportLib in prc.locFlags) or
+      #  (sfExportc in prc.flags and exfExportLib in prc.extFlags) or
     if sfCompilerProc in flags:
       c.compilerProcs[g[c.thisModule].fromDisk.strings[symPtr.name]] = (c.thisModule, symId)
 

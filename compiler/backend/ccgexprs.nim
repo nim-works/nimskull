@@ -1901,7 +1901,7 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
     # Why would anyone want to set nodecl to one of these hardcoded magics?
     # - not sure, and it wouldn't work if the symbol behind the magic isn't
     #   somehow forward-declared from some other usage, but it is *possible*
-    if lfNoDecl notin opr.locFlags:
+    if exfNoDecl notin opr.extFlags:
       let prc = magicsys.getCompilerProc(p.module.g.graph, opr.extname)
       assert prc != nil, opr.extname
       # Make the function behind the magic get actually generated
@@ -2126,7 +2126,7 @@ proc exprComplexConst(p: BProc, n: PNode, d: var TLoc) =
 
 proc useConst*(m: BModule; sym: PSym) =
   useHeader(m, sym)
-  if lfNoDecl in sym.locFlags:
+  if exfNoDecl in sym.extFlags:
     return
 
   let q = findPendingModule(m, sym)
@@ -2139,7 +2139,7 @@ proc useConst*(m: BModule; sym: PSym) =
 
 proc genConstDefinition*(q: BModule; sym: PSym) =
   let name = mangleName(q.g.graph, sym)
-  if lfNoDecl notin sym.locFlags:
+  if exfNoDecl notin sym.extFlags:
     let p = newProc(nil, q)
     q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
         [getTypeDesc(q, sym.typ), name,

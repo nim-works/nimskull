@@ -160,7 +160,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
   # XXX: dynlib procedure handling is going to move into the unified backend
   #      processing pipeline (i.e., the ``process`` iterator) in the future
   for _, s in peek(discovery.procedures):
-    if lfDynamicLib in s.locFlags:
+    if exfDynamicLib in s.extFlags:
       let m = g.modules[s.itemId.module.int]
       fillProcLoc(m, newSymNode(s))
       symInDynamicLib(m, s)

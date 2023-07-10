@@ -60,7 +60,7 @@ type
     position*: int
     offset*: int
     externalName*: LitId # instead of TLoc
-    locFlags*: TLocFlags
+    extFlags*: ExternalFlags
     annex*: PackedLib
     constraint*: NodeId
 

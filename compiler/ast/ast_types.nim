@@ -1589,30 +1589,18 @@ type
     counter*: int
     data*: seq[PSym]
 
-  # -------------- backend information -------------------------------
-  TLocFlag* = enum
-    # XXX: `TLocFlag` conflates two things:
-    #      - flags regarding the external interface (e.g., `lfHeader`; set by
-    #        sem, used by sem and the code generators)
-    #      - location-related flags (e.g., ``lfIndirect``, ``lfSingleUse``,
-    #        etc.; only relevant to the C code generator)
-    #      Split the enum up.
-    lfIndirect,               ## backend introduced a pointer
-    lfFullExternalName, ## only used when 'conf.cmd == cmdNimfix': Indicates
+  ExternalFlag* = enum
+    ## Flags that describe a symbol's external interface.
+    exfFullExternalName  ## only used when 'conf.cmd == cmdNimfix': Indicates
       ## that the symbol has been imported via 'importc: "fullname"' and
       ## no format string.
-    lfNoDecl,                 ## do not declare it in C
-    lfDynamicLib,             ## link symbol to dynamic library
-    lfExportLib,              ## export symbol for dynamic library generation
-    lfHeader,                 ## include header file for symbol
-    lfImportCompilerProc,     ## ``importc`` of a compilerproc
-    lfSingleUse               ## no location yet and will only be used once
-    lfEnforceDeref            ## a copyMem is required to dereference if this a
-                              ## ptr array due to C array limitations.
-                              ## See #1181, #6422, #11171
-    lfPrepareForMutation      ## string location is about to be mutated (V2)
+    exfNoDecl                 ## do not declare it in C
+    exfDynamicLib             ## link symbol to dynamic library
+    exfExportLib              ## export symbol for dynamic library generation
+    exfHeader                 ## include header file for symbol
+    exfImportCompilerProc     ## ``importc`` of a compilerproc
 
-  TLocFlags* = set[TLocFlag]
+  ExternalFlags* = set[ExternalFlag]
 
   # ---------------- end of backend information ------------------------------
 
@@ -1698,7 +1686,7 @@ type
     offset*: int              ## offset of record field
     extname*: string          ## the external name of the type, or empty if a
                               ## generated name is to be used
-    locFlags*: TLocFlags      ## additional flags that are relevant to code
+    extFlags*: ExternalFlags  ## additional flags that are relevant to code
                               ## generation
     locId*: uint32            ## associates the symbol with a loc in the C code
                               ## generator. 0 means unset.
