@@ -325,7 +325,7 @@ proc assignType*(dest, src: PType) =
     if dest.sym != nil:
       dest.sym.flags.incl src.sym.flags-{sfExported}
       if dest.sym.annex == nil: dest.sym.annex = src.sym.annex
-      dest.sym.locFlags.incl src.sym.locFlags
+      dest.sym.extFlags.incl src.sym.extFlags
       if dest.sym.extname.len == 0:
         dest.sym.extname = src.sym.extname
     else:
@@ -350,7 +350,7 @@ proc copySym*(s: PSym; id: ItemId): PSym =
   result.options = s.options
   result.position = s.position
   result.extname = s.extname
-  result.locFlags = s.locFlags
+  result.extFlags = s.extFlags
   result.annex = s.annex      # BUGFIX
   result.constraint = s.constraint
   if result.kind in {skVar, skLet, skField}:
@@ -368,7 +368,7 @@ proc createModuleAlias*(s: PSym, id: ItemId, newIdent: PIdent, info: TLineInfo;
   result.options = s.options
   result.position = s.position
   result.extname = s.extname
-  result.locFlags = s.locFlags
+  result.extFlags = s.extFlags
   result.annex = s.annex
 
 proc initStrTable*(x: var TStrTable) =
@@ -506,7 +506,7 @@ template transitionSymKindCommon*(k: TSymKind) =
   s[] = TSym(kind: k, itemId: obj.itemId, magic: obj.magic, typ: obj.typ, name: obj.name,
              info: obj.info, owner: obj.owner, flags: obj.flags, ast: obj.ast,
              options: obj.options, position: obj.position, offset: obj.offset,
-             extname: obj.extname, locFlags: obj.locFlags, locId: obj.locId,
+             extname: obj.extname, extFlags: obj.extFlags, locId: obj.locId,
              annex: obj.annex, constraint: obj.constraint)
   when defined(nimsuggest):
     s.allUsages = obj.allUsages

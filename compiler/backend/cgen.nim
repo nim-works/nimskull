@@ -144,7 +144,7 @@ proc isSimpleConst(typ: PType): bool =
       (t.kind == tyProc and t.callConv == ccClosure)
 
 proc useHeader(m: BModule, sym: PSym) =
-  if lfHeader in sym.locFlags:
+  if exfHeader in sym.extFlags:
     assert(sym.annex != nil)
     let str = getStr(sym.annex.path)
     m.includeHeader(str)
@@ -541,12 +541,12 @@ proc defineGlobalVar*(m: BModule, n: PNode) =
   assert s.id notin m.declaredThings
   assert findPendingModule(m, s) == m, "not the attached-to module"
 
-  if lfDynamicLib in s.locFlags:
+  if exfDynamicLib in s.extFlags:
     incl(m.declaredThings, s.id)
     varInDynamicLib(m, s)
   else:
     useHeader(m, s)
-    if lfNoDecl notin s.locFlags:
+    if exfNoDecl notin s.extFlags:
       incl(m.declaredThings, s.id)
       var decl = ""
       var td = getTypeDesc(m, m.globals[s].t, skVar)
@@ -554,7 +554,7 @@ proc defineGlobalVar*(m: BModule, n: PNode) =
         if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
           decl.addf "NIM_ALIGN($1) ", [rope(s.alignment)]
         if sfImportc in s.flags: decl.add("extern ")
-        elif lfExportLib in s.locFlags: decl.add("N_LIB_EXPORT_VAR ")
+        elif exfExportLib in s.extFlags: decl.add("N_LIB_EXPORT_VAR ")
         else: decl.add("N_LIB_PRIVATE ")
         decl.add(td)
         if sfRegister in s.flags: decl.add(" register")
@@ -1040,8 +1040,8 @@ proc genProc*(m: BModule, prc: PSym, procBody: PNode): Rope =
 
 proc genProcPrototype(m: BModule, sym: PSym) =
   useHeader(m, sym)
-  if lfNoDecl in sym.locFlags: return
-  if lfDynamicLib in sym.locFlags:
+  if exfNoDecl in sym.extFlags: return
+  if exfDynamicLib in sym.extFlags:
     if sym.itemId.module != m.module.position and
         not containsOrIncl(m.declaredThings, sym.id):
       m.s[cfsVars].add(ropecg(m, "$1 $2 $3;$n",
@@ -1062,12 +1062,12 @@ proc genProcPrototype(m: BModule, sym: PSym) =
     m.s[cfsProcHeaders].add(ropecg(m, "$1;$N", [header]))
 
 proc useProc(m: BModule, prc: PSym) =
-  if lfImportCompilerProc in prc.locFlags:
+  if exfImportCompilerProc in prc.extFlags:
     fillProcLoc(m, prc.ast[namePos])
     useHeader(m, prc)
     # dependency to a compilerproc:
     discard cgsym(m, prc.name.s)
-  elif lfNoDecl in prc.locFlags or sfImportc in prc.flags:
+  elif exfNoDecl in prc.extFlags or sfImportc in prc.flags:
     fillProcLoc(m, prc.ast[namePos])
     genProcPrototype(m, prc)
   else:
@@ -1079,7 +1079,7 @@ proc genVarPrototype(m: BModule, n: PNode) =
   #assert(sfGlobal in sym.flags)
   let sym = n.sym
   useHeader(m, sym)
-  if (lfNoDecl in sym.locFlags) or contains(m.declaredThings, sym.id):
+  if (exfNoDecl in sym.extFlags) or contains(m.declaredThings, sym.id):
     return
   if sym.owner.id != m.module.id:
     # else we already have the symbol generated!
@@ -1091,7 +1091,7 @@ proc genVarPrototype(m: BModule, n: PNode) =
         m.s[cfsVars].addf "NIM_ALIGN($1) ", [rope(sym.alignment)]
       m.s[cfsVars].add("extern ")
       m.s[cfsVars].add(getTypeDesc(m, sym.typ, skVar))
-      if lfDynamicLib in sym.locFlags: m.s[cfsVars].add("*")
+      if exfDynamicLib in sym.extFlags: m.s[cfsVars].add("*")
       if sfRegister in sym.flags: m.s[cfsVars].add(" register")
       if sfVolatile in sym.flags: m.s[cfsVars].add(" volatile")
       if sfNoalias in sym.flags: m.s[cfsVars].add(" NIM_NOALIAS")
