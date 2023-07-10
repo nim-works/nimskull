@@ -383,16 +383,16 @@ template procLit(c: var TCtx, s: PSym): EValue =
   procLit(c.stmts.nodes, s)
 
 template genTypeLit(c: var TCtx, t: PType): EValue =
-  genTypeLit(c.stmts.nodes, t)
+  typeLit(c.stmts.nodes, t)
 
 template genLit(c: var TCtx, n: PNode): EValue =
-  genLit(c.stmts.nodes, n)
+  literal(c.stmts.nodes, n)
 
 template constr(c: var TCtx, t: PType): EValue =
   constr(c.stmts.nodes, t)
 
 template tempNode(c: var TCtx, t: PType, id: TempId): EValue =
-  tempNode(c.stmts.nodes, t, id)
+  temp(c.stmts.nodes, t, id)
 
 template magicCall(c: var TCtx, m: TMagic, typ: PType): EValue =
   magicCall(c.stmts.nodes, m, typ)
@@ -864,13 +864,13 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
     # that's what we emit
     argBlock(c.stmts):
       # skip the surrounding typedesc
-      chain(c): genTypeLit(n[1].typ.skipTypes({tyTypeDesc})) => arg()
+      chain(c): typeLit(n[1].typ.skipTypes({tyTypeDesc})) => arg()
     magicCall(c, m, n.typ)
   of mGetTypeInfoV2:
     if n[0].typ == nil:
       # the compiler-generated version always uses a type as the argument
       argBlock(c.stmts):
-        chain(c): genTypeLit(n[1].typ) => arg()
+        chain(c): typeLit(n[1].typ) => arg()
       magicCall(c, m, n.typ)
     else:
       # only the compiler-generated version of the magic has a type parameter.
@@ -1198,7 +1198,7 @@ proc genVarTuple(c: var TCtx, n: PNode) =
       # generate the assignment:
       argBlock(c.stmts):
         chain(c): genx(c, lhs) => outOp() => name()
-        chain(c): tempNode(typ, tmp) => tupleAccess(i.uint32, lhs.sym.typ) => consume()
+        chain(c): temp(typ, tmp) => tupleAccess(i.uint32, lhs.sym.typ) => consume()
       c.stmts.add MirNode(kind: mnkInit)
 
 proc genVarSection(c: var TCtx, n: PNode) =
@@ -1755,14 +1755,14 @@ proc gen(c: var TCtx, n: PNode) =
       genFastAsgn(c, n[0], n[1])
 
   of nkCallKinds:
-    chain(c): genCallOrMagic(c, n) => genVoid()
+    chain(c): genCallOrMagic(c, n) => voidOut()
   of nkProcDef, nkFuncDef, nkIteratorDef, nkMethodDef, nkConverterDef:
     c.stmts.subTree MirNode(kind: mnkDef):
       c.stmts.add procNode(n[namePos].sym)
 
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
-      chain(c): genx(c, n[0]) => genVoid()
+      chain(c): genx(c, n[0]) => voidOut()
 
   of nkNilLit:
     # a 'nil' literals can be used as a statement, in which case it is treated

@@ -130,11 +130,11 @@ func procLit*(s: var MirNodeSeq, sym: PSym): EValue =
   s.add MirNode(kind: mnkProc, typ: sym.typ, sym: sym)
   result = EValue(typ: sym.typ)
 
-func genTypeLit*(s: var MirNodeSeq, t: PType): EValue =
+func typeLit*(s: var MirNodeSeq, t: PType): EValue =
   s.add MirNode(kind: mnkType, typ: t)
   result = EValue(typ: t)
 
-func genLit*(s: var MirNodeSeq; n: PNode): EValue =
+func literal*(s: var MirNodeSeq; n: PNode): EValue =
   s.add MirNode(kind: mnkLiteral, typ: n.typ, lit: n)
   result = EValue(typ: n.typ)
 
@@ -142,7 +142,7 @@ func constr*(s: var MirNodeSeq, typ: PType): EValue =
   s.add MirNode(kind: mnkConstr, typ: typ)
   result = EValue(typ: typ)
 
-func tempNode*(s: var MirNodeSeq, typ: PType, id: TempId): EValue =
+func temp*(s: var MirNodeSeq, typ: PType, id: TempId): EValue =
   s.add MirNode(kind: mnkTemp, typ: typ, temp: id)
   result = EValue(typ: typ)
 
@@ -223,7 +223,7 @@ func consume*(s: var MirNodeSeq, val: EValue) =
 func name*(s: var MirNodeSeq, val: EValue) =
   s.add MirNode(kind: mnkName, typ: val.typ)
 
-func genVoid*(s: var MirNodeSeq, val: EValue) =
+func voidOut*(s: var MirNodeSeq, val: EValue) =
   s.add MirNode(kind: mnkVoid)
 
 # special operators:
@@ -268,10 +268,10 @@ template genSinkAdapter(name: untyped) =
 # generate the adapters:
 genInputAdapter1(emit, n)
 genInputAdapter1(procLit, sym)
-genInputAdapter1(genTypeLit, n)
-genInputAdapter1(genLit, n)
+genInputAdapter1(typeLit, n)
+genInputAdapter1(literal, n)
 genInputAdapter1(constr, typ)
-genInputAdapter2(tempNode, typ, id)
+genInputAdapter2(temp, typ, id)
 genInputAdapter2(symbol, kind, sym)
 genInputAdapter2(opParam, i, typ)
 genInputAdapter2(magicCall, typ, id)
@@ -292,7 +292,7 @@ genValueAdapter2(unaryMagicCall, m, typ)
 genSinkAdapter(arg)
 genSinkAdapter(name)
 genSinkAdapter(consume)
-genSinkAdapter(genVoid)
+genSinkAdapter(voidOut)
 
 # --------- node constructors:
 
