@@ -255,6 +255,9 @@ func name*(s: var MirNodeSeq, val: EValue) =
   s.add MirNode(kind: mnkName, typ: val.typ)
 
 func voidOut*(s: var MirNodeSeq, val: EValue) =
+  ## Ends the input MIR expression as a void-expression (i.e., the
+  ## computed result of the expression is discarded). Corresponds
+  ## to ``mnkVoid``.
   s.add MirNode(kind: mnkVoid)
 
 # special operators:
