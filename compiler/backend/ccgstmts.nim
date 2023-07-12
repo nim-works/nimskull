@@ -752,7 +752,7 @@ proc genAsmOrEmitStmt(p: BProc, t: PNode, isAsmStmt=false): Rope =
         discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
         p.config.internalAssert(sym.locId != 0, it.info):
           "field's surrounding type not setup"
-        res.add(p.fieldLoc(sym).r)
+        res.add(p.fieldName(sym))
       else:
         unreachable(sym.kind)
     of nkType:

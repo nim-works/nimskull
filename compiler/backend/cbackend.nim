@@ -162,7 +162,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
   for _, s in peek(discovery.procedures):
     if exfDynamicLib in s.extFlags:
       let m = g.modules[s.itemId.module.int]
-      fillProcLoc(m, newSymNode(s))
+      fillProcLoc(m, s)
       symInDynamicLib(m, s)
 
       if m != bmod:
@@ -415,9 +415,9 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
     # write the mangled names of the various entities to the NDI files
     for it in g.procs.items:
       let
-        s = it.loc.lode.sym
+        s = it.sym
         m = g.modules[moduleId(s)]
-      writeMangledName(m.ndi, s, it.loc.r, g.config)
+      writeMangledName(m.ndi, s, it.name, g.config)
       # parameters:
       for p in it.params.items:
         if p.k != locNone: # not all parameters have locs

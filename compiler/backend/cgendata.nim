@@ -51,9 +51,7 @@ type
     locLocalVar,              ## location is a local variable
     locGlobalVar,             ## location is a global variable
     locParam,                 ## location is a parameter
-    locField,                 ## location is a record field
     locExpr,                  ## "location" is really an expression
-    locProc,                  ## location is a proc (an address of a procedure)
     locData,                  ## location is a constant
     locCall,                  ## location is a call expression
     locOther                  ## location is something other
@@ -80,6 +78,15 @@ type
     flags*: set[LocFlag]      ## location's flags
     lode*: PNode              ## Node where the location came from; can be faked
     r*: Rope                  ## rope value of location (code generators)
+
+  ProcLoc* = object
+    name*: string             ## the name of the C function in the generated
+                              ## code
+    sym*: PSym                ## the source symbol. Only needed for NDI file
+                              ## generation XXX: unnecessary once there's a
+                              ## one-to-one correspondence between
+                              ## ``DiscoverData`` and ``ProcLoc``
+    params*: seq[TLoc]        ## the locs of the parameters
 
   TLabel* = Rope              ## for the C generator a label is just a rope
   TCFileSection* = enum       ## the sections a generated C file consists of
@@ -201,11 +208,10 @@ type
       ## the locs for all alive globals of the program
     consts*: SymbolMap[TLoc]
       ## the locs for all alive constants of the program
-    procs*: SymbolMap[tuple[loc: TLoc, params: seq[TLoc]]]
-      ## the locs for all alive procedure of the program. Also stores the
-      ## locs for the parameters
-    fields*: SymbolMap[TLoc]
-      ## the locs for all fields
+    procs*: SymbolMap[ProcLoc]
+      ## the locs for all alive procedure of the program
+    fields*: SymbolMap[string]
+      ## stores the C name for each field
 
     hooks*: seq[(BModule, PSym)]
       ## late late-dependencies. Generating code for a procedure might lead
@@ -261,8 +267,8 @@ template fields*(m: BModule): untyped  = m.g.fields
 template globals*(m: BModule): untyped = m.g.globals
 template consts*(m: BModule): untyped  = m.g.consts
 
-template fieldLoc*(p: BProc, field: PSym): TLoc =
-  ## Returns the loc for the given `field`.
+template fieldName*(p: BProc, field: PSym): string =
+  ## Returns the C name for the given `field`.
   p.module.fields[field]
 
 template params*(p: BProc): seq[TLoc] =

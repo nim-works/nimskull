@@ -495,8 +495,7 @@ proc genRecordFieldsAux(m: BModule, n: PNode,
       #      file the type is used in, so the field might have an associated
       #      loc. Eventually, each C type will only be generated once, and then
       #      the guard can be removed
-      m.fields.put(field):
-        initLoc(locField, n, unionPrefix & sname, OnUnknown)
+      m.fields.put(field): unionPrefix & sname
 
     if field.alignment > 0:
       result.addf "NIM_ALIGN($1) ", [rope(field.alignment)]
@@ -810,7 +809,7 @@ proc genProcHeader(m: BModule, prc: PSym, locs: openArray[TLoc]): Rope =
   # careful here! don't access ``prc.ast`` as that could reload large parts of
   # the object graph!
   result.addf("$1($2, $3)$4",
-        [rope(CallingConvToStr[prc.typ.callConv]), rettype, m.procs[prc].loc.r,
+        [rope(CallingConvToStr[prc.typ.callConv]), rettype, m.procs[prc].name,
          params])
 
 # ------------------ type info generation -------------------------------------
@@ -914,7 +913,7 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
         "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
         "$1.name = $5;$n" & "$1.sons = &$6[0];$n" &
         "$1.len = $7;$n", [expr, getTypeDesc(m, origType, skVar),
-                           m.fields[field].r,
+                           m.fields[field],
                            genTypeInfoV1(m, field.typ, info),
                            makeCString(field.name.s),
                            tmp, rope(L)])
@@ -949,7 +948,7 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
       m.s[cfsTypeInit3].addf("$1.kind = 1;$n" &
           "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
           "$1.name = $5;$n", [expr, getTypeDesc(m, origType, skVar),
-          m.fields[field].r, genTypeInfoV1(m, field.typ, info),
+          m.fields[field], genTypeInfoV1(m, field.typ, info),
           makeCString(field.name.s)])
   else: internalError(m.config, n.info, "genObjectFields")
 
@@ -1058,7 +1057,7 @@ proc genDeepCopyProc(m: BModule; s: PSym; result: Rope) =
   useProc(m, s)
   m.g.hooks.add (m, s)
   m.s[cfsTypeInit3].addf("$1.deepcopy =(void* (N_RAW_NIMCALL*)(void*))$2;$n",
-     [result, m.procs[s].loc.r])
+     [result, m.procs[s].name])
 
 proc declareNimType(m: BModule, name: string; str: Rope, module: int) =
   m.s[cfsData].addf("extern $2 $1;$n", [str, rope(name)])
@@ -1101,7 +1100,7 @@ proc genHook(m: BModule; t: PType; info: TLineInfo; op: TTypeAttachedOp): Rope =
     useProc(m, theProc)
     m.g.hooks.add (m, theProc)
 
-    result = m.procs[theProc].loc.r
+    result = m.procs[theProc].name
 
     when false:
       if not canFormAcycle(t) and op == attachedTrace:

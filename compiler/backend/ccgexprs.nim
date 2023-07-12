@@ -603,7 +603,7 @@ proc genRecordField(p: BProc, e: PNode, d: var TLoc) =
     var rtyp: PType
     let field = lookupFieldAgain(p, ty, f, r, addr rtyp)
     ensureObjectFields(p.module, field, rtyp)
-    r.addf(".$1", [p.fieldLoc(field).r])
+    r.addf(".$1", [p.fieldName(field)])
     putIntoDest(p, d, e, r, a.storage)
 
 proc genInExprAux(p: BProc, e: PNode, a, b, d: var TLoc)
@@ -623,7 +623,7 @@ proc genFieldCheck(p: BProc, e: PNode, obj: Rope, field: PSym) =
     initLoc(v, locExpr, disc, OnUnknown)
     v.r = obj
     v.r.add(".")
-    v.r.add(p.fieldLoc(disc.sym).r)
+    v.r.add(p.fieldName(disc.sym))
     genInExprAux(p, it, u, v, test)
     var msg = ""
     if optDeclaredLocs in p.config.globalOptions:
@@ -688,7 +688,7 @@ proc genCheckedRecordField(p: BProc, e: PNode, d: var TLoc) =
     ensureObjectFields(p.module, field, ty)
     # generate the checks:
     genFieldCheck(p, e, r, field)
-    r.add(ropecg(p.module, ".$1", [p.fieldLoc(field).r]))
+    r.add(ropecg(p.module, ".$1", [p.fieldName(field)]))
     putIntoDest(p, d, e[0], r, a.storage)
   else:
     genRecordField(p, e[0], d)
@@ -1019,11 +1019,6 @@ proc handleConstExpr(p: BProc, n: PNode, d: var TLoc): bool =
 proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
                           info: TLineInfo)
 
-proc specializeInitObjectL(p: BProc, accessor: Rope, loc: TLoc) =
-  ## Generates type field (if there are any) initialization code for the given
-  ## `loc`. `accessor` is the path to `loc`, excluding loc itself
-  specializeInitObject(p, "$1.$2" % [accessor, loc.r], loc.t, loc.lode.info)
-
 proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
   ## Generates type field initialization code for the record node
 
@@ -1039,7 +1034,7 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
                             "specializeInitObjectN")
     let disc = n[0].sym
     ensureObjectFields(p.module, disc, typ)
-    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, p.fieldLoc(disc).r])
+    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, p.fieldName(disc)])
     for i in 1..<n.len:
       let branch = n[i]
       assert branch.kind in {nkOfBranch, nkElse}
@@ -1054,7 +1049,8 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
     let field = n.sym
     if field.typ.kind == tyVoid: return
     ensureObjectFields(p.module, field, typ)
-    specializeInitObjectL(p, accessor, p.fieldLoc(field))
+    specializeInitObject(p, "$1.$2" % [accessor, p.fieldName(field)],
+                         field.typ, n.info)
   else: internalError(p.config, n.info, "specializeInitObjectN()")
 
 proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
@@ -1141,7 +1137,7 @@ proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
   # check if we need to construct the object in a temporary
   var useTemp =
         isRef or
-        (d.k notin {locTemp,locLocalVar,locGlobalVar,locParam,locField}) or
+        (d.k notin {locTemp,locLocalVar,locGlobalVar,locParam}) or
         (isPartOf(d.lode, e) != arNo)
 
   # if the object has a record-case, don't initialize type fields before but
@@ -1186,7 +1182,7 @@ proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
     if it.len == 3 and optFieldCheck in p.options:
       genFieldCheck(p, it[2], r, field)
     tmp2.r.add(".")
-    tmp2.r.add(p.fieldLoc(field).r)
+    tmp2.r.add(p.fieldName(field))
     if useTemp:
       tmp2.k = locTemp
       tmp2.storage = if isRef: OnHeap else: OnStack
@@ -1884,7 +1880,7 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
     let member =
       if t.kind == tyTuple:
         "Field" & rope(dotExpr[1].sym.position)
-      else: p.fieldLoc(dotExpr[1].sym).r
+      else: p.fieldName(dotExpr[1].sym)
     putIntoDest(p,d,e, "((NI)offsetof($1, $2))" % [tname, member])
   of mChr: genSomeCast(p, e, d)
   of mOrd: genOrd(p, e, d)
@@ -2163,7 +2159,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
           rsemCannotCodegenCompiletimeProc, sym))
 
       useProc(p.module, sym)
-      putLocIntoDest(p, d, p.module.procs[sym].loc)
+      putIntoDest(p, d, n, p.module.procs[sym].name, OnStack)
     of skConst:
       if isSimpleConst(sym.typ):
         putIntoDest(p, d, n, genLiteral(p, sym.ast, sym.typ), OnStatic)
