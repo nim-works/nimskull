@@ -602,35 +602,6 @@ func needsReset(tree: MirTree, cfg: ControlFlowGraph, ar: AnalysisResults,
 
 # ------- code generation routines --------
 
-# XXX: there are two problems here:
-#      1. the code is unnecessarily complex, manual, and error-prone
-#      2. the generated code is invalid, due to the missing type
-#         information on some nodes
-#      The second one only causes no issues because there are no further
-#      passes happening past ``rewriteAssignments``, ``astgen`` is not as
-#      strict as it should be, and the nodes in question don't translate
-#      to ``PNode``s.
-#
-#      The way ``mirgen`` emits nodes is much simpler, easier to follow, and
-#      also less error prone. It also enforces that nodes are correctly typed
-#      (in the sense that types are present, not that they're valid). The
-#      attempt at generalizing the builder routines (i.e. ``mirconstr``) is
-#      not developed far enough yet to be of much use here.
-#
-#      There is also the problem that the order in which it makes sense to
-#      generate node sequences is in many cases not the order in which they
-#      need to appear in the final stream. This causes friction with the
-#      ``Changesets`` API and is the cause of the rather nested and awkward
-#      code that is currently present. Some way of passing abstract node
-#      sequences around / forwarding them would help here. One approach could
-#      be to represent them as closures (lazy generation, dynamic dispatch,
-#      the environment creation overhead might be significant), another one to
-#      emit them into a staging buffer first and then pass a handle to said
-#      span around. I'd favor the latter.
-
-proc compilerProc(graph: ModuleGraph, name: string): MirNode =
-  MirNode(kind: mnkProc, sym: getCompilerProc(graph, name))
-
 func undoConversions(buf: var MirNodeSeq, tree: MirTree, src: OpValue) =
   ## When performing a destructive move for ``ref`` values, it's possible for
   ## the source to be an lvalue conversion -- in that case, we want pass the
@@ -642,93 +613,65 @@ func undoConversions(buf: var MirNodeSeq, tree: MirTree, src: OpValue) =
     p = previous(tree, p)
     buf.add MirNode(kind: mnkConv, typ: tree[p].typ)
 
+template voidCallWithArgs(buf: var MirNodeSeq, body: untyped) =
+  argBlock(buf):
+    body
+  buf.add MirNode(kind: mnkCall, typ: getVoidType(graph))
+  buf.add MirNode(kind: mnkVoid)
+
 func genDefTemp(buf: var MirNodeSeq, id: TempId, typ: PType) =
   buf.subTree MirNode(kind: mnkDef):
     buf.add MirNode(kind: mnkTemp, typ: typ, temp: id)
 
-template genWasMoved(buf: var MirNodeSeq, graph: ModuleGraph, body: untyped) =
+template genWasMoved(buf: var MirNodeSeq, graph: ModuleGraph, target: EValue) =
   argBlock(buf):
-    body
-    buf.add MirNode(kind: mnkTag, effect: ekKill)
-    buf.add MirNode(kind: mnkArg)
-  buf.add MirNode(kind: mnkMagic,
-                  typ: graph.getSysType(unknownLineInfo, tyVoid),
-                  magic: mWasMoved)
-  buf.add MirNode(kind: mnkVoid)
+    chain(buf): target => tag(ekKill) => arg()
+  chain(buf): magicCall(mWasMoved, getVoidType(graph)) => voidOut()
 
 proc genDestroy*(buf: var MirNodeSeq, graph: ModuleGraph, t: PType,
                  target: sink MirNode) =
   let destr = getOp(graph, t, attachedDestructor)
 
-  argBlock(buf):
-    buf.add MirNode(kind: mnkProc, sym: destr)
-    buf.add MirNode(kind: mnkArg)
-    buf.add target
-    buf.add MirNode(kind: mnkTag, typ: destr.paramType(0), effect: ekMutate)
-    buf.add MirNode(kind: mnkArg)
-  buf.add MirNode(kind: mnkCall, typ: getVoidType(graph))
-  buf.add MirNode(kind: mnkVoid)
+  voidCallWithArgs(buf):
+    chain(buf): procLit(destr) => arg()
+    chain(buf): emit(target) => tag(ekMutate) => arg()
 
-proc genInjectedSink(buf: var MirNodeSeq, graph: ModuleGraph, t: PType) =
+proc genInjectedSink(buf: var MirNodeSeq, graph: ModuleGraph, t: PType,
+                     source: sink MirNode) =
   ## Generates either a call to the ``=sink`` hook, or (if none exists), a
   ## sink emulated via a destructor-call + bitwise-copy. The output is meant
   ## to be placed inside a region.
   let op = getOp(graph, t, attachedSink)
   if op != nil:
-    argBlock(buf):
-      buf.add MirNode(kind: mnkProc, sym: op)
-      buf.add MirNode(kind: mnkArg)
-      buf.add MirNode(kind: mnkOpParam, param: 0)
-      buf.add MirNode(kind: mnkTag, typ: op.paramType(0), effect: ekMutate)
-      buf.add MirNode(kind: mnkArg)
-      buf.add MirNode(kind: mnkOpParam, param: 1)
-      buf.add MirNode(kind: mnkArg)
-    buf.add MirNode(kind: mnkCall, typ: getVoidType(graph))
-    buf.add MirNode(kind: mnkVoid)
+    voidCallWithArgs(buf):
+      chain(buf): procLit(op) => arg()
+      chain(buf): opParam(0, t) => tag(ekMutate) => arg()
+      chain(buf): emit(source) => arg()
   else:
     # without a sink hook, a ``=destroy`` + blit-copy is used
     genDestroy(buf, graph, t, MirNode(kind: mnkOpParam, param: 0))
 
     argBlock(buf):
-      buf.add MirNode(kind: mnkOpParam, param: 0)
-      buf.add MirNode(kind: mnkArg)
-      buf.add MirNode(kind: mnkOpParam, param: 1)
-      buf.add MirNode(kind: mnkArg)
+      chain(buf): opParam(0, t) => arg()
+      chain(buf): emit(source) => arg()
     buf.add MirNode(kind: mnkFastAsgn)
+
+proc genInjectedSink(buf: var MirNodeSeq, graph: ModuleGraph, t: PType) =
+  genInjectedSink(buf, graph, t):
+    MirNode(kind: mnkOpParam, typ: t, param: 1)
 
 proc genSinkFromTemporary(buf: var MirNodeSeq, graph: ModuleGraph, t: PType,
                           tmp: TempId) =
   ## Similar to ``genInjectedSink`` but generates code for destructively
   ## moving the source operand into a temporary first
-  let op = getOp(graph, t, attachedSink)
-
   buf.add MirNode(kind: mnkOpParam, param: 1)
   buf.genDefTemp(tmp, t)
 
   genWasMoved(buf, graph):
-    buf.add MirNode(kind: mnkOpParam, param: 1)
+    opParam(buf, 1, t)
 
-  if op != nil:
-    argBlock(buf):
-      buf.add MirNode(kind: mnkProc, sym: op)
-      buf.add MirNode(kind: mnkArg)
-      buf.add MirNode(kind: mnkOpParam, param: 0)
-      buf.add MirNode(kind: mnkTag, typ: op.paramType(0), effect: ekMutate)
-      buf.add MirNode(kind: mnkArg)
-      buf.add MirNode(kind: mnkTemp, temp: tmp)
-      buf.add MirNode(kind: mnkArg)
-    buf.add MirNode(kind: mnkCall, typ: getVoidType(graph))
-    buf.add MirNode(kind: mnkVoid)
-  else:
-    # without a sink hook, a ``=destroy`` + blit-copy is used
-    genDestroy(buf, graph, t, MirNode(kind: mnkOpParam, param: 0))
-
-    argBlock(buf):
-      buf.add MirNode(kind: mnkOpParam, param: 0)
-      buf.add MirNode(kind: mnkArg)
-      buf.add MirNode(kind: mnkTemp, temp: tmp)
-      buf.add MirNode(kind: mnkArg)
-    buf.add MirNode(kind: mnkFastAsgn)
+  genInjectedSink(buf, graph, t):
+    MirNode(kind: mnkTemp, typ: t, temp: tmp)
 
 proc genCopy(buf: var MirTree, graph: ModuleGraph, t: PType,
              dst, src: sink MirNode, maybeCyclic: bool) =
@@ -737,25 +680,16 @@ proc genCopy(buf: var MirTree, graph: ModuleGraph, t: PType,
   let op = getOp(graph, t, attachedAsgn)
   assert op != nil
 
-  argBlock(buf):
-    buf.add MirNode(kind: mnkProc, sym: op)
-    buf.add MirNode(kind: mnkArg)
-    buf.add dst
-    buf.add MirNode(kind: mnkTag, typ: op.paramType(0), effect: ekMutate)
-    buf.add MirNode(kind: mnkArg)
-    buf.add src
-    buf.add MirNode(kind: mnkArg)
+  voidCallWithArgs(buf):
+    chain(buf): procLit(op) => arg()
+    chain(buf): emit(dst) => tag(ekMutate) => arg()
+    chain(buf): emit(src) => arg()
 
     if graph.config.selectedGC == gcOrc and
         cyclicType(t.skipTypes(skipAliases + {tyDistinct}), graph):
       # pass whether the copy can potentially introduce cycles as the third
       # parameter:
-      buf.add MirNode(kind: mnkLiteral,
-                      lit: boolLit(graph, unknownLineInfo, maybeCyclic))
-      buf.add MirNode(kind: mnkArg)
-
-  buf.add MirNode(kind: mnkCall, typ: getVoidType(graph))
-  buf.add MirNode(kind: mnkVoid)
+      chain(buf): literal(boolLit(graph, unknownLineInfo, maybeCyclic)) => arg()
 
 proc genMarkCyclic(buf: var MirTree, graph: ModuleGraph, typ: PType,
                    dest: sink MirNode) =
@@ -765,21 +699,14 @@ proc genMarkCyclic(buf: var MirTree, graph: ModuleGraph, typ: PType,
     # cyclic too
     let t = typ.skipTypes(skipAliases + {tyDistinct})
     if cyclicType(t, graph):
-      argBlock(buf):
-        buf.add compilerProc(graph, "nimMarkCyclic")
-        buf.add MirNode(kind: mnkArg)
-
-        buf.add dest
-        if t.kind == tyProc:
-          # a closure. Only the environment needs to be marked as potentially
-          # cyclic
-          buf.add MirNode(kind: mnkMagic, typ: getSysType(graph, unknownLineInfo, tyPointer),
-                          magic: mAccessEnv)
-
-        buf.add MirNode(kind: mnkArg)
-
-      buf.add MirNode(kind: mnkCall, typ: getVoidType(graph))
-      buf.add MirNode(kind: mnkVoid)
+      voidCallWithArgs(buf):
+        chain(buf): procLit(getCompilerProc(graph, "nimMarkCyclic")) => arg()
+        # for closures, only the environment needs to be marked as potentially
+        # cyclic
+        chain(buf): emit(dest) => predicate(t.kind == tyProc) =>
+          unaryMagicCall(mAccessEnv,
+                         getSysType(graph, unknownLineInfo, tyPointer)) =>
+          arg()
 
 proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                 typ: PType, source: OpValue, asgn: Operation,
@@ -823,6 +750,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                 genWasMoved(buf, ctx.graph):
                   buf.add MirNode(kind: mnkOpParam, param: 1)
                   undoConversions(buf, tree, source)
+                  EValue(typ: buf[^1].typ)
 
           else:
             # the value is only accessible through the source expression, a
@@ -838,10 +766,8 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
           # from it, in which case it doesn't matter when the reset happens
           buf.subTree MirNode(kind: mnkRegion):
             argBlock(buf):
-              buf.add MirNode(kind: mnkOpParam, param: 0)
-              buf.add MirNode(kind: mnkArg)
-              buf.add MirNode(kind: mnkOpParam, param: 1)
-              buf.add MirNode(kind: mnkArg)
+              chain(buf): opParam(0, typ) => arg()
+              chain(buf): opParam(1, typ) => arg()
 
             buf.add MirNode(kind: mnkFastAsgn)
 
@@ -850,6 +776,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
               genWasMoved(buf, ctx.graph):
                 buf.add MirNode(kind: mnkOpParam, param: 1)
                 undoConversions(buf, tree, source)
+                EValue(typ: buf[^1].typ)
 
         else:
           # no hook call nor destructive move is required
@@ -899,6 +826,7 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
           genWasMoved(buf, ctx.graph):
             buf.add MirNode(kind: mnkOpParam, param: 0)
             undoConversions(buf, tree, src)
+            EValue(typ: buf[^1].typ)
 
       buf.add MirNode(kind: mnkTemp, typ: typ, temp: tmp)
 
@@ -1092,10 +1020,9 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
         c.replaceMulti(buf):
           buf.subTree MirNode(kind: mnkRegion):
             argBlock(buf):
-              buf.add tree[getDefEntity(tree, pos)] # the entity (e.g. local)
-              buf.add MirNode(kind: mnkName)
-              buf.add MirNode(kind: mnkOpParam, param: 0)
-              buf.add MirNode(kind: mnkArg)
+              let e = getDefEntity(tree, pos) # the entity (e.g. local)
+              chain(buf): emit(tree[e]) => name()
+              chain(buf): opParam(0, tree[e].typ) => arg()
             buf.add MirNode(kind: mnkInit)
 
       else:
@@ -1237,24 +1164,17 @@ proc lowerBranchSwitch(buf: var MirNodeSeq, body: MirTree, graph: ModuleGraph,
     #      the VM's behaviour. There, the branch is only reset if it's
     #      actually changed
     argBlock(buf):
-      buf.add MirNode(kind: mnkOpParam, param: 0)
-      buf.add MirNode(kind: mnkArg)
-      buf.add MirNode(kind: mnkOpParam, param: 1)
-      buf.add MirNode(kind: mnkArg)
+      chain(buf): opParam(0, typ) => arg()
+      chain(buf): opParam(1, typ) => arg()
 
-    buf.add magic(getMagicEqForType(typ), boolTyp)
-    buf.add magic(mNot, boolTyp)
+    forward(buf): magicCall(getMagicEqForType(typ), boolTyp) =>
+                  unaryMagicCall(mNot, boolTyp)
     buf.subTree MirNode(kind: mnkIf):
       stmtList(buf):
         # ``=destroy`` call:
-        argBlock(buf):
-          buf.add MirNode(kind: mnkProc, sym: branchDestructor)
-          buf.add MirNode(kind: mnkArg)
-          buf.add MirNode(kind: mnkOpParam, param: 0)
-          buf.add MirNode(kind: mnkTag, effect: ekInvalidate)
-          buf.add MirNode(kind: mnkArg)
-        buf.add MirNode(kind: mnkCall, typ: voidTyp)
-        buf.add MirNode(kind: mnkVoid)
+        voidCallWithArgs(buf):
+          chain(buf): procLit(buf, branchDestructor) => arg()
+          chain(buf): opParam(buf, 0, typ) => tag(ekInvalidate) => arg()
 
   else:
     # the object doesn't need destruction, which means that neither does one
@@ -1266,11 +1186,8 @@ proc lowerBranchSwitch(buf: var MirNodeSeq, body: MirTree, graph: ModuleGraph,
 
   # generate the ``discriminant = newValue`` assignment:
   argBlock(buf):
-    buf.add MirNode(kind: mnkOpParam, param: 0)
-    buf.add MirNode(kind: mnkTag, effect: ekReassign, typ: typ)
-    buf.add MirNode(kind: mnkName)
-    buf.add MirNode(kind: mnkOpParam, param: 1)
-    buf.add MirNode(kind: mnkArg)
+    chain(buf): opParam(0, typ) => tag(ekReassign) => name()
+    chain(buf): opParam(1, typ) => arg()
   buf.add MirNode(kind: mnkFastAsgn)
 
   buf.add endNode(mnkRegion)
@@ -1289,20 +1206,14 @@ proc lowerNew(tree: MirTree, g: ModuleGraph, c: var Changeset) =
 
           # re-insert the call to ``new``
           argBlock(buf):
-            buf.add MirNode(kind: mnkOpParam, param: 0, typ: typ)
-            buf.add MirNode(kind: mnkTag, effect: ekReassign, typ: typ)
-            buf.add MirNode(kind: mnkName, typ: typ)
+            chain(buf): opParam(0, typ) => tag(ekReassign) => name()
 
             # add the remaining arguments (if any)
             for j in 1..<numArgs(tree, Operation i):
-              # XXX: type information is missing. A separate pass that
-              #      fills in the missing type information could help
-              #      here and in general
-              buf.add MirNode(kind: mnkOpParam, param: j.uint32)
-              buf.add MirNode(kind: mnkArg)
+              let typ = tree[operand(tree, Operation i, j)].typ
+              chain(buf): opParam(buf, j.uint32, typ) => arg()
 
-          buf.add n # the original operation
-          buf.add MirNode(kind: mnkVoid)
+          chain(buf): emit(n) => voidOut() # use the original 'new' operator
 
       c.remove() # remove the ``mnkVoid`` node
 

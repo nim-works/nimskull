@@ -118,11 +118,8 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
               buf.add MirNode(kind: mnkTemp, temp: tmp, typ: typ)
 
             argBlock(buf):
-              buf.add MirNode(kind: mnkGlobal, sym: sym, typ: typ)
-              buf.add MirNode(kind: mnkTag, effect: ekReassign, typ: typ)
-              buf.add MirNode(kind: mnkName, typ: typ)
-              buf.add MirNode(kind: mnkTemp, temp: tmp, typ: typ)
-              buf.add MirNode(kind: mnkConsume, typ: typ)
+              chain(buf): symbol(mnkGlobal, sym) => tag(ekReassign) => name()
+              chain(buf): temp(typ, tmp) => consume()
             buf.add MirNode(kind: mnkInit)
         elif {sfImportc, sfNoInit} * sym.flags == {} and
              {exfDynamicLib, exfNoDecl} * sym.extFlags == {}:
@@ -132,12 +129,9 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
           # it to the type's default value.
           changes.replaceMulti(buf):
             argBlock(buf):
-              buf.add MirNode(kind: mnkGlobal, sym: sym, typ: typ)
-              buf.add MirNode(kind: mnkTag, effect: ekReassign, typ: typ)
-              buf.add MirNode(kind: mnkName, typ: typ)
+              chain(buf): symbol(mnkGlobal, sym) => tag(ekReassign) => name()
               argBlock(buf): discard
-              buf.add MirNode(kind: mnkMagic, magic: mDefault, typ: typ)
-              buf.add MirNode(kind: mnkConsume, typ: typ)
+              chain(buf): magicCall(mDefault, typ) => consume()
             buf.add MirNode(kind: mnkInit)
         else:
           # just remove the def:

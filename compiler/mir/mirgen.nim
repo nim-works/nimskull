@@ -12,9 +12,6 @@
 ## they're used, either a temporary or existing lvalue expression. The latter
 ## are forwarded to the generation procedures via ``Destination``.
 ##
-## To shorten the emit code and also make it a bit easier to read and
-## understand, a mini DSL realised through templates is used.
-##
 ## Origin information
 ## ==================
 ##
@@ -70,13 +67,6 @@ import
   ]
 
 type
-  EValue = object
-    ## Encapsulates information about the abstract value that results from
-    ## an operation sequence. It's used as a way to transport said information
-    ## between the generator procedures for operators
-    # XXX: maybe rename to ``Computation``?
-    typ {.cursor.}: PType
-
   NodeSpan = HOslice[NodeIndex]
     ## Refers to a span of nodes in a ``Fragment``
 
@@ -103,11 +93,6 @@ type
       node {.cursor.}: PNode
 
     flags: set[DestFlag]
-
-  ChainEnd = distinct bool
-    ## Sentinel type used to mark an operator in a chain as ending the chain.
-    ## No further operators can be chained after an operator marked as
-    ## ``ChainEnd``
 
   Block = object
     ## Information about a ``block``
@@ -362,104 +347,7 @@ func popSlice(frag: var CodeFragment, span: NodeSpan) =
   frag.nodes.setLen(span.a)
   frag.source.setLen(span.a)
 
-# -------------- DSL routines -------------
-
-template genValueAdapter(name: untyped) =
-  template `name`(): SinkAndValue =
-    mixin value, buffer
-    `name`(buffer, value)
-    SinkAndValue(false)
-
-template genValueAdapter1(name, arg1: untyped) =
-  template `name`(arg1: untyped): SinkAndValue =
-    mixin value, buffer
-    `name`(buffer, arg1, value)
-    SinkAndValue(false)
-
-template genValueAdapter2(name, arg1, arg2: untyped) =
-  template `name`(arg1, arg2: untyped): SinkAndValue =
-    mixin value, buffer
-    `name`(buffer, arg1, arg2, value)
-    SinkAndValue(false)
-
-template genSinkAdapter(name: untyped) =
-  template `name`(): Sink =
-    mixin value, buffer
-    `name`(buffer, value)
-    Sink(false)
-
-template genInputAdapter(name, arg: untyped) =
-  template `name`(c: var TCtx, arg: untyped): EValue =
-    # for backwards compatibility
-    name(c.stmts.nodes, arg)
-
-  template `name`(arg: untyped): EValue =
-    # the actual adapter
-    mixin buffer
-    name(buffer, arg)
-
-template genInputAdapter2(name, arg1, arg2: untyped) =
-  template `name`(c: var TCtx, arg1, arg2: untyped): EValue =
-    # for backwards compatibility
-    name(c.stmts.nodes, arg1, arg2)
-
-  template `name`(arg1, arg2: untyped): EValue =
-    # the actual adapter
-    mixin buffer
-    name(buffer, arg1, arg2)
-
-template `=>`(a: EValue, b: SinkAndValue): Value =
-  mixin value
-  value = a
-  discard b
-  Value(false)
-
-template `=>`(a: Value, b: Sink): ChainEnd =
-  discard a
-  discard b
-  ChainEnd(false)
-
-template `=>`(a: EValue, b: Sink): ChainEnd =
-  mixin value
-  value = a
-  discard b
-  ChainEnd(false)
-
-template discardTypeCheck[T](x: T) =
-  ## Helper to discard the expression `x` while still requiring it to be of
-  ## the given type. The templates making use of this helper can't use typed
-  ## parameters directly, as the arguments (which require a ``value`` symbol
-  ## to exist) would be sem'-checked before the `value` symbol is injected
-  discard x
-
-template chain(c: var TCtx, x: untyped) =
-  ## Provides the context for chaining operators together via ``=>`` that end
-  ## in a value sink
-  block:
-    var value {.inject, used.}: EValue
-    template buffer: untyped {.inject, used.} = c.stmts.nodes
-    discardTypeCheck[ChainEnd](x)
-
-template forward(c: var TCtx, x: untyped) =
-  ## Provides the context for chaining operators together via ``=>`` that end
-  ## in *value*. This is used in places where the consuming operator can't be
-  ## expressed as part of the chain and is expected to be emitted immediately
-  ## after
-  block:
-    var value {.inject, used.}: EValue
-    template buffer: untyped {.inject, used.} = c.stmts.nodes
-
-    type T = Value or EValue
-    discardTypeCheck[T](x)
-
-template eval(c: var TCtx, x: untyped): EValue =
-  ## Similar to ``forward``, but returns the resulting ``EValue`` to be used
-  ## as the input to another generator chain
-  block:
-    var value {.inject, used.}: EValue
-    template buffer: untyped {.inject, used.} = c.stmts.nodes
-    discardTypeCheck[Value](x)
-    value
+# -------------- convenience templates -------------
 
 template forward(v: EValue) =
   ## Acts the same as discarding the expression's result, but hints to
@@ -479,132 +367,53 @@ template stmtList(f: var CodeFragment, body: untyped) =
   f.nodes.stmtList:
     body
 
-func arg(s: var MirNodeSeq, val: EValue) =
-  s.add MirNode(kind: mnkArg, typ: val.typ)
+# for convenience, we introduce wrapper template accepting a
+# ``TCtx`` for some DSL atoms
 
-func consume(s: var MirNodeSeq, val: EValue) =
-  s.add MirNode(kind: mnkConsume, typ: val.typ)
+template chain(c: var TCtx, x: untyped) =
+  chain(c.stmts.nodes, x)
 
-func name(s: var MirNodeSeq, val: EValue) =
-  s.add MirNode(kind: mnkName, typ: val.typ)
+template eval(c: var TCtx, x: untyped): EValue =
+  eval(c.stmts.nodes, x)
 
-func genVoid(s: var MirNodeSeq, val: EValue) =
-  s.add MirNode(kind: mnkVoid)
+template forward(c: var TCtx, x: untyped) =
+  forward(c.stmts.nodes, x)
 
-func tag(s: var MirNodeSeq, effect: EffectKind, val: var EValue) =
-  s.add MirNode(kind: mnkTag, effect: effect, typ: val.typ)
+template procLit(c: var TCtx, s: PSym): EValue =
+  procLit(c.stmts.nodes, s)
 
-func modify(s: var MirNodeSeq, val: var EValue) =
-  tag(s, ekMutate, val)
+template genTypeLit(c: var TCtx, t: PType): EValue =
+  typeLit(c.stmts.nodes, t)
 
-func outOp(s: var MirNodeSeq, val: var EValue) =
-  tag(s, ekReassign, val)
+template genLit(c: var TCtx, n: PNode): EValue =
+  literal(c.stmts.nodes, n)
 
-func castOp(s: var MirNodeSeq, typ: PType, val: var EValue) =
-  s.add MirNode(kind: mnkCast, typ: typ)
-  val.typ = typ
+template constr(c: var TCtx, t: PType): EValue =
+  constr(c.stmts.nodes, t)
 
-func stdConvOp(s: var MirNodeSeq, typ: PType, val: var EValue) =
-  s.add MirNode(kind: mnkStdConv, typ: typ)
-  val.typ = typ
+template tempNode(c: var TCtx, t: PType, id: TempId): EValue =
+  temp(c.stmts.nodes, t, id)
 
-func convOp(s: var MirNodeSeq, typ: PType, val: var EValue) =
-  s.add MirNode(kind: mnkConv, typ: typ)
-  val.typ = typ
+template magicCall(c: var TCtx, m: TMagic, typ: PType): EValue =
+  magicCall(c.stmts.nodes, m, typ)
 
-func addrOp(s: var MirNodeSeq, typ: PType, val: var EValue) =
-  s.add MirNode(kind: mnkAddr, typ: typ)
-  # don't change ownership. If the l-value is owned so is the resulting
-  # pointer
-  val.typ = typ
+template modify(): untyped =
+  tag(ekMutate)
 
-func viewOp(s: var MirNodeSeq, typ: PType, val: var EValue) =
-  s.add MirNode(kind: mnkView, typ: typ)
-  val.typ = typ
+template outOp(): untyped =
+  tag(ekReassign)
 
-func derefOp(s: var MirNodeSeq, typ: PType, val: var EValue) =
-  s.add MirNode(kind: mnkDeref, typ: typ)
-  val.typ = typ
+template notOp(c: var TCtx): untyped =
+  unaryMagicCall(mNot, getSysType(c.graph, c.sp.active.n.info, tyBool))
 
-func derefViewOp(s: var MirNodeSeq, typ: PType, val: var EValue) =
-  s.add MirNode(kind: mnkDerefView, typ: typ)
-  val.typ = typ
-
-func pathObj(s: var MirNodeSeq, field: PSym, val: var EValue) =
-  assert field.kind == skField
-  s.add MirNode(kind: mnkPathNamed, typ: field.typ, field: field)
-  val.typ = field.typ
-
-func pathPos(s: var MirNodeSeq, elemType: PType, position: uint32, val: var EValue) =
-  s.add MirNode(kind: mnkPathPos, typ: elemType, position: position)
-  val.typ = elemType
-
-func pathVariant(s: var MirNodeSeq, objType: PType, field: PSym, val: var EValue) =
-  let objType = objType.skipTypes(abstractInstTypeClass)
-  s.add MirNode(kind: mnkPathVariant,
-                      typ: objType,
-                      field: field)
-  val.typ = objType
-
-func unaryMagicCall(s: var MirNodeSeq, m: TMagic, typ: PType, val: var EValue) =
-  assert typ != nil
-  s.add MirNode(kind: mnkMagic, typ: typ, magic: m)
-  val.typ = typ
-
-func magicCall(s: var MirNodeSeq, m: TMagic, typ: PType): EValue =
-  assert typ != nil
-  s.add MirNode(kind: mnkMagic, typ: typ, magic: m)
-  result = EValue(typ: typ)
-
-func tupleAccess(s: var MirNodeSeq, pos: uint32, typ: PType, val: var EValue) =
-  s.add MirNode(kind: mnkPathPos, typ: typ, position: pos)
-  val.typ = typ
-
-# generate the adapters:
-genSinkAdapter(arg)
-genSinkAdapter(name)
-genSinkAdapter(consume)
-genSinkAdapter(genVoid)
-
-genValueAdapter(modify)
-genValueAdapter(outOp)
-
-genValueAdapter1(castOp, typ)
-genValueAdapter1(stdConvOp, typ)
-genValueAdapter1(convOp, typ)
-genValueAdapter1(addrOp, typ)
-genValueAdapter1(viewOp, typ)
-genValueAdapter1(derefOp, typ)
-genValueAdapter1(derefViewOp, typ)
-genValueAdapter1(pathObj, field)
-genValueAdapter1(tag, effect)
-
-genValueAdapter2(pathPos, typ, pos)
-genValueAdapter2(pathVariant, typ, field)
-genValueAdapter2(tupleAccess, pos, typ)
-genValueAdapter2(unaryMagicCall, m, typ)
-
-func constr(s: var MirNodeSeq, typ: PType): EValue =
-  s.add MirNode(kind: mnkConstr, typ: typ)
-  result = EValue(typ: typ)
-
-func tempNode(s: var MirNodeSeq, typ: PType, id: TempId): EValue =
-  s.add MirNode(kind: mnkTemp, typ: typ, temp: id)
-  result = EValue(typ: typ)
-
-func procLit(s: var MirNodeSeq, sym: PSym): EValue =
-  s.add MirNode(kind: mnkProc, typ: sym.typ, sym: sym)
-  result = EValue(typ: sym.typ)
-
-func genTypeLit(s: var MirNodeSeq, t: PType): EValue =
-  s.add MirNode(kind: mnkType, typ: t)
-  result = EValue(typ: t)
+template tupleAccess(pos: uint32, elem: PType): untyped =
+  pathPos(elem, pos)
 
 proc genEmpty(c: var TCtx, n: PNode): EValue =
   c.stmts.nodes.add MirNode(kind: mnkNone, typ: n.typ)
   result = EValue(typ: c.graph.getSysType(n.info, tyVoid))
 
-func nameNode(s: PSym, n: PNode): MirNode =
+func nameNode(s: PSym): MirNode =
   if sfGlobal in s.flags:
     MirNode(kind: mnkGlobal, typ: s.typ, sym: s)
   elif s.kind == skParam:
@@ -616,26 +425,8 @@ func nameNode(s: PSym, n: PNode): MirNode =
   else:
     unreachable(s.kind)
 
-func genLocation(s: var MirNodeSeq; n: PNode): EValue =
-  let mn = nameNode(n.sym, n)
-  s.add mn
-
-  result = EValue(typ: mn.typ)
-
-proc genLit(s: var MirNodeSeq; n: PNode): EValue =
-  s.add MirNode(kind: mnkLiteral, typ: n.typ, lit: n)
-  result = EValue(typ: n.typ)
-
-genInputAdapter2(magicCall, typ, id)
-genInputAdapter(constr, typ)
-genInputAdapter2(tempNode, typ, id)
-genInputAdapter(procLit, sym)
-genInputAdapter(genTypeLit, n)
-genInputAdapter(genLit, n)
-genInputAdapter(genLocation, n)
-
-template notOp(c: var TCtx): untyped =
-  unaryMagicCall(mNot, getSysType(c.graph, c.sp.active.n.info, tyBool))
+template genLocation(c: var TCtx, n: PNode): EValue =
+  c.stmts.nodes.emit(nameNode(n.sym))
 
 func emit(dest: var CodeFragment, sp: var SourceProvider, src: CodeFragment,
           span: NodeSpan): EValue =
@@ -654,7 +445,7 @@ func emit(dest: var CodeFragment, sp: var SourceProvider, src: CodeFragment,
 func genDefault(c: var TCtx, typ: PType): EValue =
   ## Emits a call to the ``default`` operator for the given `typ`
   argBlock(c.stmts): discard
-  magicCall(c, mDefault, typ)
+  magicCall(c.stmts.nodes, mDefault, typ)
 
 proc gen(c: var TCtx; n: PNode)
 proc genx(c: var TCtx; n: PNode, consume: bool = false): EValue
@@ -1073,13 +864,13 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
     # that's what we emit
     argBlock(c.stmts):
       # skip the surrounding typedesc
-      chain(c): genTypeLit(n[1].typ.skipTypes({tyTypeDesc})) => arg()
+      chain(c): typeLit(n[1].typ.skipTypes({tyTypeDesc})) => arg()
     magicCall(c, m, n.typ)
   of mGetTypeInfoV2:
     if n[0].typ == nil:
       # the compiler-generated version always uses a type as the argument
       argBlock(c.stmts):
-        chain(c): genTypeLit(n[1].typ) => arg()
+        chain(c): typeLit(n[1].typ) => arg()
       magicCall(c, m, n.typ)
     else:
       # only the compiler-generated version of the magic has a type parameter.
@@ -1407,7 +1198,7 @@ proc genVarTuple(c: var TCtx, n: PNode) =
       # generate the assignment:
       argBlock(c.stmts):
         chain(c): genx(c, lhs) => outOp() => name()
-        chain(c): tempNode(typ, tmp) => tupleAccess(i.uint32, lhs.sym.typ) => consume()
+        chain(c): temp(typ, tmp) => tupleAccess(i.uint32, lhs.sym.typ) => consume()
       c.stmts.add MirNode(kind: mnkInit)
 
 proc genVarSection(c: var TCtx, n: PNode) =
@@ -1964,14 +1755,14 @@ proc gen(c: var TCtx, n: PNode) =
       genFastAsgn(c, n[0], n[1])
 
   of nkCallKinds:
-    chain(c): genCallOrMagic(c, n) => genVoid()
+    chain(c): genCallOrMagic(c, n) => voidOut()
   of nkProcDef, nkFuncDef, nkIteratorDef, nkMethodDef, nkConverterDef:
     c.stmts.subTree MirNode(kind: mnkDef):
       c.stmts.add procNode(n[namePos].sym)
 
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
-      chain(c): genx(c, n[0]) => genVoid()
+      chain(c): genx(c, n[0]) => voidOut()
 
   of nkNilLit:
     # a 'nil' literals can be used as a statement, in which case it is treated
