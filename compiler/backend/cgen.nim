@@ -564,12 +564,9 @@ proc defineGlobalVar*(m: BModule, n: PNode) =
 
       m.s[cfsVars].add(decl)
 
-proc fillProcLoc*(m: BModule; n: PNode) =
-  let sym = n.sym
+proc fillProcLoc*(m: BModule; sym: PSym) =
   if sym.locId == 0:
-    m.procs.put(sym):
-      (initLoc(locProc, n, mangleName(m.g.graph, sym), OnStack),
-       (seq[TLoc])(@[]))
+    m.procs.put(sym): ProcLoc(sym: sym, name: mangleName(m.g.graph, sym))
 
 proc getLabel(p: BProc): TLabel =
   inc(p.labels)
@@ -696,7 +693,7 @@ proc symInDynamicLib*(m: BModule, sym: PSym) =
   let tmp = mangleDynLibProc(sym)
   # XXX: dynlib procedures should be treated as globals here (because that's
   #      what they are, really)
-  m.procs[sym].loc.r = tmp    # from now on we only need the internal name
+  m.procs[sym].name = tmp     # from now on we only need the internal name
   sym.typ.sym = nil           # generate a new name
   inc(m.labels, 2)
   if isCall:
@@ -921,7 +918,7 @@ proc isNoReturn(m: BModule; s: PSym): bool {.inline.} =
 proc startProc*(m: BModule, prc: PSym; procBody: PNode = nil): BProc =
   var p = newProc(prc, m)
   assert(prc.ast != nil)
-  fillProcLoc(m, prc.ast[namePos]) # ensure that a loc exists
+  fillProcLoc(m, prc) # ensure that a loc exists
   if m.procs[prc].params.len == 0:
     # if a prototype was emitted, the parameter list already exists
     m.procs[prc].params = prepareParameters(m, prc.typ)
@@ -1046,7 +1043,7 @@ proc genProcPrototype(m: BModule, sym: PSym) =
         not containsOrIncl(m.declaredThings, sym.id):
       m.s[cfsVars].add(ropecg(m, "$1 $2 $3;$n",
                         ["extern",
-                        getTypeDesc(m, m.procs[sym].loc.t), mangleDynLibProc(sym)]))
+                        getTypeDesc(m, sym.typ), mangleDynLibProc(sym)]))
 
   elif not containsOrIncl(m.declaredProtos, sym.id):
     if m.procs[sym].params.len == 0:
@@ -1063,16 +1060,16 @@ proc genProcPrototype(m: BModule, sym: PSym) =
 
 proc useProc(m: BModule, prc: PSym) =
   if exfImportCompilerProc in prc.extFlags:
-    fillProcLoc(m, prc.ast[namePos])
+    fillProcLoc(m, prc)
     useHeader(m, prc)
     # dependency to a compilerproc:
     discard cgsym(m, prc.name.s)
   elif exfNoDecl in prc.extFlags or sfImportc in prc.flags:
-    fillProcLoc(m, prc.ast[namePos])
+    fillProcLoc(m, prc)
     genProcPrototype(m, prc)
   else:
     # mangle based on the attached-to module
-    fillProcLoc(findPendingModule(m, prc), prc.ast[namePos])
+    fillProcLoc(findPendingModule(m, prc), prc)
     genProcPrototype(m, prc)
 
 proc genVarPrototype(m: BModule, n: PNode) =

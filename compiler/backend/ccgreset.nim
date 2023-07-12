@@ -31,7 +31,7 @@ proc specializeResetN(p: BProc, accessor: Rope, n: PNode;
     p.config.internalAssert(n[0].kind == nkSym, n.info, "specializeResetN")
     let disc = n[0].sym
     ensureObjectFields(p.module, disc, typ)
-    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, p.fieldLoc(disc).r])
+    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, p.fieldName(disc)])
     for i in 1..<n.len:
       let branch = n[i]
       assert branch.kind in {nkOfBranch, nkElse}
@@ -42,12 +42,12 @@ proc specializeResetN(p: BProc, accessor: Rope, n: PNode;
       specializeResetN(p, accessor, lastSon(branch), typ)
       lineF(p, cpsStmts, "break;$n", [])
     lineF(p, cpsStmts, "} $n", [])
-    specializeResetT(p, "$1.$2" % [accessor, p.fieldLoc(disc).r], disc.typ)
+    specializeResetT(p, "$1.$2" % [accessor, p.fieldName(disc)], disc.typ)
   of nkSym:
     let field = n.sym
     if field.typ.kind == tyVoid: return
     ensureObjectFields(p.module, field, typ)
-    specializeResetT(p, "$1.$2" % [accessor, p.fieldLoc(field).r], field.typ)
+    specializeResetT(p, "$1.$2" % [accessor, p.fieldName(field)], field.typ)
   else: internalError(p.config, n.info, "specializeResetN()")
 
 proc specializeResetT(p: BProc, accessor: Rope, typ: PType) =
