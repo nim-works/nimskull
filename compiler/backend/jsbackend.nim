@@ -88,6 +88,8 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
       g.code.add(r)
 
     processLate(g, discovery)
+  of bekImported:
+    discard "ignored for now"
 
 proc writeModules(graph: ModuleGraph, globals: PGlobals) =
   let

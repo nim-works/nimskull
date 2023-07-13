@@ -1929,6 +1929,17 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
   of mAccessTypeField: genAccessTypeField(p, e, d)
   of mSlice: genSlice(p, e, d)
   of mTrace: discard "no code to generate"
+  of mAsgnDynlibVar:
+    # initialize the internal pointer for a dynlib global/procedure
+    var a, b: TLoc
+    initLocExpr(p, e[1][0], a)
+    initLocExpr(p, e[2], b)
+    var typ = getTypeDesc(p.module, a.t)
+    # dynlib variables are stored as pointers
+    if lfIndirect in a.flags:
+      typ.add "*"
+
+    linefmt(p, cpsStmts, "$1 = ($2)($3);$n", [a.r, typ, rdLoc(b)])
   else:
     when defined(debugMagics):
       echo p.prc.name.s, " ", p.prc.id, " ", p.prc.flags, " ", p.prc.ast[genericParamsPos].kind

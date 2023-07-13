@@ -110,9 +110,6 @@ type
     cfsTypeInit2,             ## section 2 for init of type information
     cfsTypeInit3,             ## section 3 for init of type information
     cfsDebugInit,             ## section for init of debug information
-    cfsDynLibInit,            ## section for init of dynamic library binding
-    cfsDynLibDeinit           ## section for deinitialization of dynamic
-                              ## libraries
   TCTypeKind* = enum          ## describes the type kind of a C type
     ctVoid, ctChar, ctBool,
     ctInt, ctInt8, ctInt16, ctInt32, ctInt64,

@@ -67,6 +67,10 @@ import
 
 import std/options as std_options
 
+from compiler/front/msgs import localReport
+from compiler/ast/reports import ReportKind
+from compiler/ast/reports_sem import SemReport
+
 type
   InlineProc = object
     ## Information about an inline procedure.
@@ -156,23 +160,6 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
 
   prepare(g, discovery)
 
-  # prepare the newly discovered dynlib procedures:
-  # XXX: dynlib procedure handling is going to move into the unified backend
-  #      processing pipeline (i.e., the ``process`` iterator) in the future
-  for _, s in peek(discovery.procedures):
-    if exfDynamicLib in s.extFlags:
-      let m = g.modules[s.itemId.module.int]
-      fillProcLoc(m, s)
-      symInDynamicLib(m, s)
-
-      if m != bmod:
-        # move the foreign dependencies into the global late-dependencies list,
-        # so that they will be registered as late late-dependencies
-        for it in m.extra.items:
-          g.hooks.add (m, it)
-
-        m.extra.setLen(0)
-
   proc handleInline(inl: var InliningData, m: ModuleId, prc: PSym,
                     body: MirTree): Option[uint32] {.nimcall.} =
     ## Registers the dependency on inline procedure that `body` has
@@ -221,9 +208,6 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
       dependOnCompilerProc(inl, discovery, evt.module, g.graph,
                            "initThreadVarsEmulation")
 
-    # generating the code for the dynlib procedures might have raised some
-    # late dependencies:
-    processLate(bmod, discovery, inl, evt.module, none(uint32))
   of bekPartial:
     # register inline dependencies:
     let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.tree)
@@ -262,6 +246,9 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
     bmod.s[cfsProcs].add(r)
 
     processLate(bmod, discovery, inl, evt.module, inlineId)
+  of bekImported:
+    # an imported procedure available
+    symInDynamicLib(bmod, evt.sym)
 
 proc emit(m: BModule, inl: InliningData, prc: InlineProc, r: var Rope) =
   ## Emits the inline procedure `prc` and all its inline dependencies into
@@ -451,6 +438,12 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
     #      don't store it with ``BModuleList``
     g.generatedHeader = generateHeader(g, inl, discovery,
                                        mlist[graph.config.projectMainIdx2].sym)
+
+  # not pretty, but here's the earliest point where we know about the set of
+  # all actually-used dynamic libraries
+  for lib in discovery.libs.items:
+    localReport(graph.config):
+      SemReport(kind: rsemHintLibDependency, str: lib.path.strVal)
 
   # finalize code generation for the modules and generate and emit the code
   # for the 'main' procedure:

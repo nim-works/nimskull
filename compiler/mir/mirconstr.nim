@@ -173,6 +173,10 @@ func constr*(s: var MirNodeSeq, typ: PType): EValue =
   s.add MirNode(kind: mnkConstr, typ: typ)
   result = EValue(typ: typ)
 
+func callOp*(s: var MirNodeSeq, typ: PType): EValue =
+  s.add MirNode(kind: mnkCall, typ: typ)
+  result = EValue(typ: typ)
+
 func temp*(s: var MirNodeSeq, typ: PType, id: TempId): EValue =
   s.add MirNode(kind: mnkTemp, typ: typ, temp: id)
   result = EValue(typ: typ)
@@ -305,6 +309,7 @@ genInputAdapter1(procLit, sym)
 genInputAdapter1(typeLit, n)
 genInputAdapter1(literal, n)
 genInputAdapter1(constr, typ)
+genInputAdapter1(callOp, typ)
 genInputAdapter2(temp, typ, id)
 genInputAdapter2(symbol, kind, sym)
 genInputAdapter2(opParam, i, typ)

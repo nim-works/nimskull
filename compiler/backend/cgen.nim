@@ -73,23 +73,8 @@ from compiler/ast/report_enums import ReportKind
 from compiler/sem/passes import moduleHasChanged # XXX: leftover dependency
 import std/strutils except `%`, addf # collides with ropes.`%`
 
-import dynlib
-
 when defined(nimCompilerStacktraceHints):
   import compiler/utils/debugutils
-
-when not declared(dynlib.libCandidates):
-  proc libCandidates(s: string, dest: var seq[string]) =
-    ## given a library name pattern `s` write possible library names to `dest`.
-    var le = strutils.find(s, '(')
-    var ri = strutils.find(s, ')', le+1)
-    if le >= 0 and ri > le:
-      var prefix = substr(s, 0, le - 1)
-      var suffix = substr(s, ri + 1)
-      for middle in split(substr(s, le + 1, ri - 1), '|'):
-        libCandidates(prefix & middle & suffix, dest)
-    else:
-      dest.add(s)
 
 when options.hasTinyCBackend:
   import backend/tccgen
@@ -625,59 +610,6 @@ proc deinitFrame(p: BProc): Rope =
 
 include ccgexprs
 
-# ----------------------------- dynamic library handling -----------------
-# We don't finalize dynamic libs as the OS does this for us.
-
-proc isGetProcAddr(lib: PLib): bool =
-  let n = lib.path
-  result = n.kind in nkCallKinds and n.typ != nil and
-    n.typ.kind in {tyPointer, tyProc}
-
-proc loadDynamicLib(m: BModule, lib: PLib) =
-  assert(lib != nil)
-  if not lib.generated:
-    lib.generated = true
-    var tmp = getTempName(m)
-    assert(lib.name == "")
-    lib.name = tmp # BUGFIX: cgsym has awful side-effects
-    m.s[cfsVars].addf("static void* $1;$n", [tmp])
-    if lib.path.kind in {nkStrLit..nkTripleStrLit}:
-      var s: TStringSeq = @[]
-      libCandidates(lib.path.strVal, s)
-      localReport(m.config, reportStr(
-        rsemHintLibDependency, lib.path.strVal))
-
-      var loadlib = ""
-      for i in 0..high(s):
-        inc(m.labels)
-        if i > 0: loadlib.add("||")
-        let n = newStrNode(nkStrLit, s[i])
-        n.info = lib.path.info
-        appcg(m, loadlib, "($1 = #nimLoadLibrary($2))$n",
-              [tmp, genStringLiteral(m, n)])
-      appcg(m, m.s[cfsDynLibInit],
-            "if (!($1)) #nimLoadLibraryError($2);$n",
-            [loadlib, genStringLiteral(m, lib.path)])
-    else:
-      var p = newProc(nil, m)
-      p.options.excl optStackTrace
-      p.flags.incl nimErrorFlagDisabled
-      var dest: TLoc
-      initLoc(dest, locTemp, lib.path, OnStack)
-      dest.r = getTempName(m)
-      appcg(m, m.s[cfsDynLibInit],"$1 $2;$n",
-           [getTypeDesc(m, lib.path.typ, skVar), rdLoc(dest)])
-      expr(p, lib.path, dest)
-
-      m.s[cfsVars].add(p.s(cpsLocals))
-      m.s[cfsDynLibInit].add(p.s(cpsInit))
-      m.s[cfsDynLibInit].add(p.s(cpsStmts))
-      appcg(m, m.s[cfsDynLibInit],
-           "if (!($1 = #nimLoadLibrary($2))) #nimLoadLibraryError($2);$n",
-           [tmp, rdLoc(dest)])
-
-  m.config.internalAssert(lib.name != "", "loadDynamicLib")
-
 proc mangleDynLibProc(sym: PSym): Rope =
   if sfCompilerProc in sym.flags:
     # NOTE: sym.extname is the external name!
@@ -685,56 +617,22 @@ proc mangleDynLibProc(sym: PSym): Rope =
   else:
     result = rope(strutils.`%`("Dl_$1_", $sym.id))
 
+proc fillDynlibProcLoc(m: BModule, s: PSym) =
+  if s.locId == 0:
+    # XXX: a dynlib procedure is not really a ``locProc``, but rather a
+    #      global variable
+    m.procs.put(s): ProcLoc(name: mangleDynLibProc(s), sym: s)
+
 proc symInDynamicLib*(m: BModule, sym: PSym) =
-  var lib = sym.annex
-  let isCall = isGetProcAddr(lib)
-  let extname = sym.extname
-  if not isCall: loadDynamicLib(m, lib)
-  let tmp = mangleDynLibProc(sym)
-  # XXX: dynlib procedures should be treated as globals here (because that's
-  #      what they are, really)
-  m.procs[sym].name = tmp     # from now on we only need the internal name
-  sym.typ.sym = nil           # generate a new name
-  inc(m.labels, 2)
-  if isCall:
-    let p = newProc(nil, m)
-    p.options = {}
-    p.flags.incl nimErrorFlagDisabled
+  fillDynlibProcLoc(m, sym)
+  m.s[cfsVars].addf("$2 $1;$n",
+                    [m.procs[sym].name, getTypeDesc(m, sym.typ, skVar)])
 
-    let n = lib.path
-    var a: TLoc
-    initLocExpr(p, n[0], a)
-    var params = rdLoc(a) & "("
-    for i in 1..<n.len-1:
-      initLocExpr(p, n[i], a)
-      params.add(rdLoc(a))
-      params.add(", ")
-    appcg(p, cpsStmts,
-        "\t$1 = ($2) ($3$4));$n",
-        [tmp, getTypeDesc(m, sym.typ, skVar), params, makeCString($extname)])
-
-    # the call is emitted into the dynlib-init section:
-    m.s[cfsDynLibInit].addf("{$n", [])
-    m.s[cfsDynLibInit].add p.s(cpsLocals)
-    m.s[cfsDynLibInit].add p.s(cpsStmts)
-    m.s[cfsDynLibInit].addf("}$n", [])
-  else:
-    appcg(m, m.s[cfsDynLibInit],
-        "\t$1 = ($2) #nimGetProcAddr($3, $4);$n",
-        [tmp, getTypeDesc(m, sym.typ, skVar), lib.name, makeCString($extname)])
-  m.s[cfsVars].addf("$2 $1;$n", [tmp, getTypeDesc(m, sym.typ, skVar)])
 
 proc varInDynamicLib(m: BModule, sym: PSym) =
-  var lib = sym.annex
-  let extname = sym.extname
-  loadDynamicLib(m, lib)
   let tmp = mangleDynLibProc(sym)
   incl(m.globals[sym].flags, lfIndirect)
   m.globals[sym].r = tmp  # from now on we only need the internal name
-  inc(m.labels, 2)
-  appcg(m, m.s[cfsDynLibInit],
-      "$1 = ($2*) #nimGetProcAddr($3, $4);$n",
-      [tmp, getTypeDesc(m, sym.typ, skVar), lib.name, makeCString($extname)])
   m.s[cfsVars].addf("$2* $1;$n",
       [tmp, getTypeDesc(m, sym.typ, skVar)])
 
@@ -1043,7 +941,7 @@ proc genProcPrototype(m: BModule, sym: PSym) =
         not containsOrIncl(m.declaredThings, sym.id):
       m.s[cfsVars].add(ropecg(m, "$1 $2 $3;$n",
                         ["extern",
-                        getTypeDesc(m, sym.typ), mangleDynLibProc(sym)]))
+                        getTypeDesc(m, sym.typ), m.procs[sym].name]))
 
   elif not containsOrIncl(m.declaredProtos, sym.id):
     if m.procs[sym].params.len == 0:
@@ -1064,6 +962,10 @@ proc useProc(m: BModule, prc: PSym) =
     useHeader(m, prc)
     # dependency to a compilerproc:
     discard cgsym(m, prc.name.s)
+  elif exfDynamicLib in prc.extFlags:
+    # a special name is used for run-time imported procedures:
+    fillDynlibProcLoc(m, prc)
+    genProcPrototype(m, prc)
   elif exfNoDecl in prc.extFlags or sfImportc in prc.flags:
     fillProcLoc(m, prc)
     genProcPrototype(m, prc)
@@ -1269,7 +1171,7 @@ proc genDatInitCode*(m: BModule): bool =
     appcg(m, m.s[cfsTypeInit1], "static #TNimNode $1[$2];$n",
           [m.typeNodesName, m.typeNodes])
 
-  for i in cfsTypeInit1..cfsDynLibInit:
+  for i in cfsTypeInit1..cfsDebugInit:
     if m.s[i].len != 0:
       moduleDatInitRequired = true
       prc.add(m.s[i])

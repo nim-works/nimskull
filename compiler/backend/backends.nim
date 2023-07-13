@@ -3,6 +3,7 @@
 import
   std/[
     deques,
+    dynlib, # for computing possible candidate names
     intsets
   ],
   compiler/ast/[
@@ -19,6 +20,7 @@ import
   compiler/mir/[
     astgen,
     mirbridge,
+    mirconstr,
     mirgen,
     mirtrees,
     sourcemaps
@@ -92,6 +94,9 @@ type
     globals*: Queue[PSym]
     threadvars*: Queue[PSym]
 
+    libs*: seq[PLib]
+      ## all dynamic libraries that the alive graph depends on
+
     additional: seq[tuple[m: FileIndex, prc: PSym]]
       # HACK: see documentation of the procedure that appends to this list
 
@@ -115,6 +120,7 @@ type
     bekPartial   ## a fragment of a procedure that's generated incrementally
                  ## became available
     bekProcedure ## a complete procedure was processed and transformed
+    bekImported  ## an alive runtime-imported procedure finished processing
 
   BackendEvent* = object
     ## Progress event returned by the ``process`` iterator.
@@ -126,7 +132,7 @@ type
     case kind*: BackendEventKind
     of bekModule:
       discard
-    of bekPartial, bekProcedure:
+    of bekPartial, bekProcedure, bekImported:
       sym*: PSym
         ## the symbol of the procedure the event is about
       body*: MirFragment
@@ -208,6 +214,7 @@ proc generateMain*(graph: ModuleGraph, modules: ModuleList, result: PNode) =
   # first initialize the additional data associated with each module:
   for it in closed(modules):
     emitOpCall(graph, it.dataInit, result)
+    emitOpCall(graph, it.dynlibInit, result)
     # the system module is special cased: its fully initialized during the
     # data-init phase
     if sfSystemModule in it.sym.flags:
@@ -312,6 +319,10 @@ proc preprocess*(conf: BackendConfig, prc: PSym, graph: ModuleGraph,
                  idgen: IdGenerator): Procedure =
   ## Transforms the body of the given procedure and translates it to MIR code.
   ## No MIR passes are applied yet
+  if exfDynamicLib in prc.extFlags:
+    # a procedure imported at runtime, it has no body
+    return Procedure(sym: prc, isImported: true)
+
   result = Procedure(sym: prc, isImported: false)
 
   var body = transformBodyWithCache(graph, idgen, prc)
@@ -451,6 +462,148 @@ proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
   finish(result.init, graph.emptyNode)
   finish(result.deinit, graph.emptyNode)
 
+# ----- dynlib handling -----
+
+proc genLoadLib(graph: ModuleGraph, buf: var MirNodeSeq, loc, name: MirNode) =
+  ## Emits the MIR code for ``loc = nimLoadLibrary(name); loc.isNil``.
+  let loadLib = graph.getCompilerProc("nimLoadLibrary")
+
+  argBlock(buf):
+    chain(buf): emit(loc) => tag(ekReassign) => name()
+    argBlock(buf):
+      chain(buf): procLit(loadLib) => arg()
+      chain(buf): emit(name) => arg()
+    chain(buf): callOp(loadLib.typ[0]) => consume()
+  buf.add MirNode(kind: mnkAsgn)
+
+  argBlock(buf):
+    chain(buf): emit(loc) => arg()
+  forward(buf): magicCall(mIsNil, graph.getSysType(unknownLineInfo, tyBool))
+
+proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
+                 name: PSym, path: PNode, dest: var MirFragment) =
+  ## Emits the MIR code for loading a dynamic library to `dest`, with `name`
+  ## being the symbol of the location that stores the handle and `path` the
+  ## expression used with the ``.dynlib`` pragma.
+  let
+    errorProc = graph.getCompilerProc("nimLoadLibraryError")
+    voidTyp   = graph.getSysType(path.info, tyVoid)
+    nameNode  = MirNode(kind: mnkGlobal, sym: name, typ: name.typ)
+
+  template buf: MirNodeSeq = dest.tree
+
+  if path.kind in nkStrKinds:
+    # the library name is known at compile-time
+    var candidates: seq[string]
+    libCandidates(path.strVal, candidates)
+
+    let outer = LabelId(1) # labels are 1-based
+
+    # generate an 'or' chain that tries every candidate until one is found
+    # for which loading succeeds
+    buf.subTree MirNode(kind: mnkBlock, label: outer):
+      buf.add MirNode(kind: mnkStmtList) # manual, for less visual nesting
+      for candidate in candidates.items:
+        genLoadLib(graph, buf, nameNode):
+          MirNode(kind: mnkLiteral, lit: newStrNode(nkStrLit, candidate))
+        forward(buf): magicCall(mNot, graph.getSysType(path.info, tyBool))
+        buf.subTree MirNode(kind: mnkIf):
+          buf.add MirNode(kind: mnkBreak, label: outer)
+
+      # if none of the candidates worked, a run-time error is reported:
+      argBlock(buf):
+        chain(buf): procLit(errorProc) => arg()
+        chain(buf): literal(path) => arg()
+      chain(buf): callOp(voidTyp) => voidOut()
+      buf.add endNode(mnkStmtList)
+  else:
+    # the name of the dynamic library to load the procedure from is only known
+    # at run-time
+    let
+      nameTemp = TempId(0) # we can allocate a temporary here by just using it
+      strType = graph.getSysType(path.info, tyString)
+
+    buf.subTree MirNode(kind: mnkDef):
+      buf.add MirNode(kind: mnkTemp, typ: strType, temp: nameTemp)
+
+    # computing the string and assigning it to a temporary
+    argBlock(buf):
+      chain(buf): temp(strType, nameTemp) => tag(ekReassign) => name()
+      updateWithSource(dest, path)
+      generateCode(graph, conf.options, path, buf, dest.source)
+      buf.add MirNode(kind: mnkConsume, typ: strType)
+    buf.add MirNode(kind: mnkInit)
+
+    genLoadLib(graph, buf, nameNode):
+      MirNode(kind: mnkTemp, typ: strType, temp: nameTemp)
+    buf.subTree MirNode(kind: mnkIf):
+      stmtList(buf):
+        argBlock(buf):
+          chain(buf): procLit(errorProc) => arg()
+          chain(buf): temp(strType, nameTemp) => arg()
+        chain(buf): callOp(voidTyp) => voidOut()
+
+proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
+                   conf: BackendConfig, sym: PSym): MirFragment =
+  ## Produces a MIR fragment with the load-at-run-time logic for procedure/
+  ## variable `sym`. If not generated already, the loading logic for the
+  ## necessary dynamic library is emitted into the fragment and the global
+  ## storing the library handle registered with `data`.
+  let
+    lib      = sym.annex
+    loadProc = graph.getCompilerProc("nimGetProcAddr")
+    path     = transformExpr(graph, m.idgen, m.sym, lib.path)
+    extname  = newStrNode(nkStrLit, sym.extname)
+    voidTyp  = graph.getSysType(path.info, tyVoid)
+
+  extname.typ = graph.getSysType(lib.path.info, tyCstring)
+
+  let dest =
+    if sym.kind in routineKinds:
+      MirNode(kind: mnkProc, typ: sym.typ, sym: sym)
+    else:
+      MirNode(kind: mnkGlobal, typ: sym.typ, sym: sym)
+
+  # the scope makes sure that locals are destroyed once loading the
+  # procedure has finished
+  result.tree.add MirNode(kind: mnkScope)
+
+  if path.kind in nkCallKinds and path.typ != nil and
+     path.typ.kind in {tyPointer, tyProc}:
+    # a call expression for loading the procedure
+    path[^1] = extname # update to the correct name
+    # XXX: ^^ maybe sem should do this instead...
+
+    argBlock(result.tree):
+      chain(result.tree): emit(dest) => tag(ekReassign) => name()
+      updateWithSource(result, path)
+      generateCode(graph, conf.options, path, result.tree, result.source)
+      result.tree.add MirNode(kind: mnkArg, typ: dest.typ)
+    chain(result.tree): magicCall(mAsgnDynlibVar, voidTyp) => voidOut()
+  else:
+    # the imported procedure is identified by the symbol's external name and
+    # the built-in proc loading logic is to be used
+
+    if not data.seen.containsOrIncl(lib.name.id):
+      # the library hasn't been loaded yet
+      genLibSetup(graph, conf, lib.name, path, result)
+      if path.kind in nkStrKinds: # only register statically-known dependencies
+        data.libs.add lib
+      data.globals.add lib.name # register the global
+
+    # generate the code for ``sym = cast[typ](nimGetProcAddr(lib, extname))``
+    argBlock(result.tree):
+      chain(result.tree): emit(dest) => tag(ekReassign) => name()
+      argBlock(result.tree):
+        chain(result.tree): procLit(loadProc) => arg()
+        chain(result.tree): symbol(mnkGlobal, lib.name) => arg()
+        chain(result.tree): literal(extname) => arg()
+      chain(result.tree): callOp(loadProc.typ[0]) => arg()
+    chain(result.tree): magicCall(mAsgnDynlibVar, voidTyp) => voidOut()
+
+  result.tree.add endNode(mnkScope)
+  updateWithSource(result, path)
+
 # ----- discovery and queueing logic -----
 
 func includeIfUnseen(q: var Queue[PSym], marker: var IntSet, sym: PSym) =
@@ -525,8 +678,9 @@ func queue(iter: var ProcedureIter, prc: PSym, m: FileIndex) =
   ## `iter`'s queue.
   assert prc.kind in routineKinds
   if exfNoDecl notin prc.extFlags and
-     (sfImportc notin prc.flags or (iter.config.noImported and
-                                    prc.ast[bodyPos].kind != nkEmpty)):
+     (sfImportc notin prc.flags or
+      exfDynamicLib in prc.extFlags or (iter.config.noImported and
+                                        prc.ast[bodyPos].kind != nkEmpty)):
     iter.queued.add (prc, m)
 
 func queueAll(iter: var ProcedureIter, data: var DiscoveryData,
@@ -554,47 +708,6 @@ proc next(iter: var ProcedureIter, graph: ModuleGraph,
   if not result.prc.isImported:
     # apply all MIR passes:
     process(result.prc, graph, idgen)
-
-proc preprocessDynlib(graph: ModuleGraph, idgen: IdGenerator,
-                      sym: PSym, deps: var seq[PSym]) =
-  # HACK: so that procedures and unexpanded constants used in the
-  #       expressions passed to `.dylib` pragmas are discovered, we
-  #       translate the expression to MIR code, scan it, and then
-  #       translate it back to AST and update the symbol with it. This is
-  #       horrendous, but fortunately, this hack (`preprocessDynlib``) can
-  #       be removed once handling of dynlib procedures and globals is fully
-  #       implemented in the ``process`` iterator
-  if exfDynamicLib in sym.extFlags:
-    if sym.annex.path.kind in nkStrKinds:
-      # it's a string, no need to transform nor scan it
-      discard
-    else:
-      # XXX: the logic here ignores a large amount of things
-      #      (options, proper owner symbol, etc.)...
-      var
-        t: MirTree
-        m: SourceMap
-
-      generateCode(graph, {}, sym.annex.path, t, m)
-      for dep in deps(t, {}): # just ignore magics here
-        if dep.kind in routineKinds + {skConst}:
-          deps.add dep
-
-      sym.annex.path = generateAST(graph, idgen, sym.owner, t, m)
-
-proc preprocessDynlib(graph: ModuleGraph, mlist: ModuleList,
-                      data: var DiscoveryData) =
-  # XXX: remove this procedure once ``process`` is fully responsible for
-  #      .dynlib handling
-  var deps: seq[PSym]
-  for _, it in peek(data.procedures):
-    preprocessDynlib(graph, mlist[moduleId(it).FileIndex].idgen, it, deps)
-
-  for it in deps.items:
-    if it.kind in routineKinds:
-      register(data, procedures, it)
-    else:
-      register(data, constants, it)
 
 func processConstants(data: var DiscoveryData): seq[(FileIndex, int)] =
   ## Registers with `data` the procedures used by all un-processed constants
@@ -714,8 +827,6 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
     for s in m.structs.threadvars.items:
       register(discovery, threadvars, s)
 
-    preprocessDynlib(graph, modules, discovery)
-
     let ctx = preActions(discovery)
     # inform the caller that the initial set of alive entities became
     # available:
@@ -727,11 +838,27 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
     ## Reports (i.e., yields an event) a procedure-related event.
     discoverFrom(discovery, noMagics, frag.tree)
 
-    preprocessDynlib(graph, modules, discovery)
-
     let work = preActions(discovery)
     yield BackendEvent(module: m, kind: evt, sym: prc, body: frag)
     postActions(iter, discovery, m, work)
+
+  template reportProgress(prc: PSym, frag: MirFragment) =
+    ## Applies the relevant passes to the fragment and notifies the caller
+    ## about it.
+    if not isEmpty(frag):
+      process(frag, prc, graph, modules[module].idgen)
+      reportBody(prc, module, bekPartial, frag)
+
+      # mark the procedure as non-empty:
+      if prc.ast[bodyPos].kind == nkEmpty:
+        prc.ast[bodyPos] = newNode(nkStmtList)
+
+  # generate the importing logic for all known dynlib globals:
+  for _, it in all(discovery.globals):
+    if exfDynamicLib in it.extFlags:
+      let module = moduleId(it).FileIndex
+      var frag = produceLoader(graph, modules[module], discovery, conf, it)
+      reportProgress(modules[module].dynlibInit, frag)
 
   # process queued procedures until there are none left:
   while iter.queued.len > 0:
@@ -748,17 +875,6 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
           produceFragmentsForGlobals(discovery, prc.globals, graph,
                                      conf.options)
 
-        template reportProgress(prc: PSym, frag: MirFragment) =
-          ## Applies the relevant passes, and notifies the caller about the
-          ## fragments.
-          if not isEmpty(frag):
-            process(frag, prc, graph, modules[module].idgen)
-            reportBody(prc, module, bekPartial, frag)
-
-            # mark the procedure as non-empty:
-            if prc.ast[bodyPos].kind == nkEmpty:
-              prc.ast[bodyPos] = newNode(nkStmtList)
-
         reportProgress(modules[module].preInit, init)
         reportProgress(modules[module].postDestructor, deinit)
 
@@ -770,8 +886,15 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
 
       reportBody(prc.sym, id, bekProcedure, prc.body)
     of true:
-      # a procedure imported at run-time (i.e. a .dynlib procedure)
-      discard "still managed by the code generator"
+      # a procedure imported at run-time (i.e., a dynlib procedure)
+      # first announce the procedure...
+      let ctx = preActions(discovery)
+      yield BackendEvent(module: module, kind: bekImported, sym: prc.sym)
+      postActions(iter, discovery, module, ctx)
+
+      # ... then produce and announce the loader fragment:
+      var frag = produceLoader(graph, modules[module], discovery, conf, prc.sym)
+      reportProgress(modules[module].dynlibInit, frag)
 
 # ----- API for interacting with ``DiscoveryData`` -----
 

@@ -81,6 +81,10 @@ type
       ## the procedure for initializing the module's lifted globals
     postDestructor*: PSym
       ## the procedure for destroying the module's lifted globals
+    dynlibInit*: PSym
+      ## the procedure for loading the dynamic libraries, procedure, and
+      ## variables associated with the module
+    # finalizing dynamic libs is left to the OS
 
   ModuleList* = object
     modules*: SeqMap[FileIndex, Module]
@@ -414,6 +418,7 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
 
   result.preInit = createModuleOp(graph, idgen, "PreInit", m, newNode(nkEmpty), options)
   result.postDestructor = createModuleOp(graph, idgen, "PostDeinit", m, newNode(nkEmpty), options)
+  result.dynlibInit = createModuleOp(graph, idgen, "DynlibInit", m, newNode(nkEmpty), options)
 
 # Below is the `passes` interface implementation
 
