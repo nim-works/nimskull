@@ -128,7 +128,7 @@ proc myLog(conf: ConfigRef, s: string, flags: MsgFlags = {}) =
 proc reportHook(conf: ConfigRef, report: Report): TErrorHandling =
   result = doNothing
   case report.category
-  of repCmd, repDebug, repDbgTrace, repInternal, repExternal:
+  of repCmd, repDebug, repInternal, repExternal:
     myLog(conf, $report)
   of repParser, repLexer, repSem, repVM:
     if report.category == repSem and

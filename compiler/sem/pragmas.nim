@@ -48,7 +48,6 @@ import
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_sem import SemReport,
-  TraceSemReport,
   reportAst,
   reportSem,
   reportStr,
@@ -635,8 +634,8 @@ proc processDefine(c: PContext, n: PNode): PNode =
     let str = n[1].ident.s
     if defined(nimDebugUtils) and
        cmpIgnoreStyle(str, "nimCompilerDebug") == 0:
-      c.config.localReport(
-        n.info, TraceSemReport(kind: rdbgTraceDefined))
+      c.config.outputTrace(CompilerTrace(kind: compilerTraceDefined,
+                                         srcLoc: n.info))
 
     defineSymbol(c.config, str)
     n
@@ -651,8 +650,8 @@ proc processUndef(c: PContext, n: PNode): PNode =
     let str = n[1].ident.s
     if defined(nimDebugUtils) and
        cmpIgnoreStyle(str, "nimCompilerDebug") == 0:
-      c.config.localReport(
-        n.info, TraceSemReport(kind: rdbgTraceUndefined))
+      c.config.outputTrace(CompilerTrace(kind: compilerTraceUndefined,
+                                         srcLoc: n.info))
 
     undefSymbol(c.config, str)
     n

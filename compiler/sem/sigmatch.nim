@@ -44,9 +44,8 @@ import
     idioms
   ]
 
-# xxx: reports are a code smell meaning data types are misplaced, for example
-#      DebugCallableCandidate
-from compiler/ast/reports_sem import SemReport, DebugCallableCandidate,
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import SemReport,
   reportAst,
   reportSym
 from compiler/ast/report_enums import ReportKind,
