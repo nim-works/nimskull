@@ -64,7 +64,6 @@ type
     SemReport      |
     VMReport       |
     CmdReport      |
-    TraceSemReport |
     DebugReport    |
     InternalReport |
     BackendReport  |
@@ -87,9 +86,6 @@ type
 
       of repCmd:
         cmdReport*: CmdReport
-
-      of repDbgTrace:
-        dbgTraceReport*: TraceSemReport
 
       of repDebug:
         debugReport*: DebugReport
@@ -116,7 +112,6 @@ static:
     echo "size of ParserReport   ", sizeof(ParserReport)
     echo "size of SemReport      ", sizeof(SemReport)
     echo "size of CmdReport      ", sizeof(CmdReport)
-    echo "size of DbgTraceReport ", sizeof(TraceSemReport)
     echo "size of DebugReport    ", sizeof(DebugReport)
     echo "size of InternalReport ", sizeof(InternalReport)
     echo "size of BackendReport  ", sizeof(BackendReport)
@@ -138,7 +133,6 @@ template eachCategory*(report: Report, field: untyped): untyped =
     of repCmd:      report.cmdReport.field
     of repVM:       report.vmReport.field
     of repSem:      report.semReport.field
-    of repDbgTrace: report.dbgTraceReport.field
     of repDebug:    report.debugReport.field
     of repInternal: report.internalReport.field
     of repBackend:  report.backendReport.field
@@ -179,14 +173,12 @@ func `reportFrom=`*(report: var Report, loc: ReportLineInfo) =
   of repSem:      report.semReport.reportFrom = loc
   of repVM:       report.vmReport.reportFrom = loc
   of repDebug:    report.debugReport.reportFrom = loc
-  of repDbgTrace: report.dbgTraceReport.reportFrom = loc
   of repInternal: report.internalReport.reportFrom = loc
   of repBackend:  report.backendReport.reportFrom = loc
   of repExternal: report.externalReport.reportFrom = loc
 
 func category*(kind: ReportKind): ReportCategory =
   case kind
-  of repDbgTraceKinds: result = repDbgTrace
   of repDebugKinds:    result = repDebug
   of repInternalKinds: result = repInternal
   of repExternalKinds: result = repExternal
@@ -230,7 +222,6 @@ func severity*(
       of repInternal: report.internalReport.severity()
       of repBackend:  report.backendReport.severity()
       of repDebug:    report.debugReport.severity()
-      of repDbgTrace: report.dbgTraceReport.severity()
       of repExternal: report.externalReport.severity()
 
 func toReportLineInfo*(iinfo: InstantiationInfo): ReportLineInfo =
@@ -275,10 +266,6 @@ func wrap*(rep: sink BackendReport): Report =
 func wrap*(rep: sink CmdReport): Report =
   assert rep.kind in repCmdKinds, $rep.kind
   Report(category: repCmd, cmdReport: rep)
-
-func wrap*(rep: sink TraceSemReport): Report =
-  assert rep.kind in repDbgTraceKinds, $rep.kind
-  Report(category: repDbgTrace, dbgTraceReport: rep)
 
 func wrap*(rep: sink DebugReport): Report =
   assert rep.kind in repDebugKinds, $rep.kind

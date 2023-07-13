@@ -709,8 +709,7 @@ type
 
 func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
   const forceWrite =
-    {rsemExpandArc} + # Not considered a hint for now
-    repDbgTraceKinds  # Unconditionally write debug tracing information
+    {rsemExpandArc} # Not a hint, just legacy reports overeach
 
   let compTimeCtx = conf.m.errorOutputs == {}
     ## indicates whether we're in a `compiles` or `constant expression
@@ -732,10 +731,7 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
   ))):
     return writeForceEnabled
 
-  elif r.kind == rdbgVmCodeListing or (
-    # Optionally Ignore context stacktrace
-    r.kind == rdbgTraceLine and not conf.hack.semStack
-  ):
+  elif r.kind == rdbgVmCodeListing:
     return writeDisabled
 
   elif (
@@ -839,11 +835,6 @@ proc computeNotesVerbosity(): tuple[
     result.base.incl {
       rdbgVmCodeListing    # immediately generated code listings
     }
-
-  when defined(nimDebugUtils):
-    # By default enable only semantic debug trace reports - other changes
-    # might be put in there *temporarily* to aid the debugging.
-    result.base.incl repDbgTraceKinds
 
   result.main[compVerbosityMax] =
     result.base + repWarningKinds + repHintKinds - {

@@ -20,20 +20,404 @@ import
     msgs
   ]
 
+# output styling related imports
+from std/os import `/`, createDir, dirExists
+from std/strutils import `%`, addf, align, alignLeft, repeat, endsWith,
+                         multiReplace
+from experimental/colortext import `+`,
+                                   ForegroundColor,
+                                   ColText,
+                                   addf,
+                                   Style,
+                                   toString
+
+from compiler/ast/lineinfos import TLineInfo
+
+from compiler/utils/astrepr import treeRepr,
+                                   implicitCompilerTraceReprConf
+
 when defined(nimCompilerStacktraceHints):
   from std/stackframes import setFrameMsg
   from strutils import `%`
 
-from compiler/ast/reports_sem import TraceSemReport,
-  DebugSemStep, 
-  DebugSemStepKind, 
-  DebugSemStepDirection
+type
+  # xxx: compiler execution tracing is a general thing, not semantic analysis
+  #      specific. The types below to be renamed with prefix `Trace` are
+  #      general and should move accordingly. This will require further
+  #      refactoring of all the report types prefixed with `Debug`... sigh.
 
-from compiler/ast/report_enums import ReportKind
+  # TODO: rename to `TraceStepDirection` or something, it's not sem specific
+  DebugSemStepDirection* = enum semstepEnter, semstepLeave
+  
+  # TODO: rename to `TraceStepKind` or something, it's not sem specific
+  DebugSemStepKind* = enum
+    stepNodeToNode
+    stepNodeToSym
+    stepIdentToSym
+    stepSymNodeToNode
+    stepNodeFlagsToNode
+    stepNodeTypeToNode
+    stepTypeTypeToType
+    stepResolveOverload
+    stepNodeSigMatch
+    stepWrongNode
+    stepError
+    stepTrack
 
-from compiler/ast/reports import calledFromInfo,
-  toReportLineInfo,
-  wrap
+  DebugCallableCandidate* = object
+    ## stripped down version of `sigmatch.TCandidate`
+    state*: string
+    callee*: PType
+    calleeSym*: PSym
+    calleeScope*: int
+    call*: PNode
+    error*: SemCallMismatch
+
+  DebugSemStep* = object
+    direction*: DebugSemStepDirection
+    level*: int
+    name*: string
+    node*: PNode ## Depending on the step direction this field stores
+                 ## either input or output node
+    steppedFrom*: InstantiationInfo
+    sym*: PSym
+    case kind*: DebugSemStepKind
+      of stepIdentToSym:
+        ident*: PIdent
+
+      of stepNodeTypeToNode, stepTypeTypeToType:
+        typ*: PType
+        typ1*: PType
+
+      of stepNodeFlagsToNode:
+        flags*: TExprFlags
+
+      of stepNodeSigMatch, stepResolveOverload:
+        filters*: TSymKinds
+        candidate*: DebugCallableCandidate
+        errors*: seq[SemCallMismatch]
+
+      else:
+        discard
+  
+  CompilerTraceKind* = enum
+    compilerTraceStep
+    compilerTraceLine
+    compilerTraceStart
+    compilerTraceEnd
+    compilerTraceDefined   # TODO: rename
+    compilerTraceUndefined # TODO: rename
+
+  CompilerTrace* = object
+    instLoc*: InstantiationInfo
+    case kind*: CompilerTraceKind:
+      of compilerTraceStep:
+        semstep*: DebugSemStep
+
+      of compilerTraceLine, compilerTraceStart:
+        ctraceData*: tuple[level: int, entries: seq[StackTraceEntry]]
+
+      of compilerTraceDefined, compilerTraceUndefined:
+        srcLoc*: TLineInfo
+
+      of compilerTraceEnd:
+        discard
+
+func add(target: var string, other: varargs[string, `$`]) =
+  for item in other:
+    target.add item
+
+# Formatting code copied from `cli_reporter` to avoid a dependency on that 
+# awful module, these should be pared down to what's necessary/makes sense for
+# this modules
+func wrap(s: string, color: ForegroundColor, style: set[Style] = {}): string =
+  ## Wrap text with ANSI color formatting codes
+  if s.len == 0: # don't bother with empty strings
+    return s
+
+  result.add("\e[", color.int, "m")
+  for s in style:
+    result.add("\e[", s.int, "m")
+
+  result.add s
+  result.add "\e[0m"
+
+func wrap(conf: ConfigRef, str: string, color: ForegroundColor,
+          style: set[Style] = {}): string {.inline.} =
+  ## Optionally wrap text in ansi color formatting, if `conf` has coloring
+  ## enabled
+  if conf.useColor:
+    wrap(str, color, style)
+  else:
+    str
+
+func wrap(conf: ConfigRef, text: ColText): string =
+  toString(text, conf.useColor())
+
+func dropExt(path: string, doDrop: bool): string =
+  ## Optionally drop `.nim` file extension
+  if doDrop and path.endsWith(".nim"): path[0 .. ^5] else: path
+
+proc toStr(conf: ConfigRef, loc: TLineInfo, dropExt: bool = false): string =
+  ## Convert `loc`ation to printable string
+  conf.wrap(
+    "$1($2, $3)" % [
+      conf.toMsgFilename(loc.fileIndex).dropExt(dropExt),
+      $loc.line,
+      $(loc.col + ColOffset)
+    ],
+    fgDefault,
+    {styleBright})
+
+proc toStr(conf: ConfigRef, loc: InstantiationInfo, dropExt: bool = false): string =
+  ## Convert `loc`ation to printable string
+  conf.wrap(
+    "$1($2, $3)" % [
+      conf.formatPath(loc.filename).dropExt(dropExt),
+      $loc.line,
+      $(loc.column + ColOffset)
+    ],
+    fgDefault,
+    {styleBright})
+
+func isValid(info: InstantiationInfo): bool {.inline.} =
+  info.filename.len > 0 and info.filename != "???"
+
+const
+  dropTraceExt = off
+  reportCaller = on
+
+const
+  traceDir = "nimCompilerDebugTraceDir"
+
+proc generateOutput(conf: ConfigRef, r: CompilerTrace): string =
+  case r.kind:
+  of compilerTraceStep:
+    let
+      s = r.semstep
+      indent = s.level * 2 + (
+        2 #[ Item indentation ]# +
+        5 #[ Global entry indentation ]#
+      )
+      enter = s.direction == semstepEnter
+
+    proc render(node: PNode): string =
+      conf.wrap(conf.treeRepr(node,
+                              indent = indent + 2,
+                              rconf = implicitCompilerTraceReprConf))
+
+    proc render(typ: PType): string =
+      conf.wrap(conf.treeRepr(typ,
+                              indent = indent + 2,
+                              rconf = implicitCompilerTraceReprConf))
+
+    proc render(sym: PSym): string =
+      conf.wrap(conf.treeRepr(sym,
+                              indent = indent + 2,
+                              rconf = implicitCompilerTraceReprConf))
+
+    proc render(sym: PIdent): string =
+      conf.wrap(conf.treeRepr(sym,
+                              indent = indent + 2,
+                              rconf = implicitCompilerTraceReprConf))
+
+    result.addf("$1]", align($s.level, 2, '#'))
+    result.add(
+      repeat("  ", s.level),
+      if s.direction == semstepEnter: "> " else: "< ",
+      conf.wrap(s.name, if s.direction == semstepEnter: fgGreen else: fgRed),
+      " @ ",
+      conf.wrap(conf.toStr(r.instLoc, dropTraceExt), fgCyan),
+      if reportCaller and s.steppedFrom.isValid():
+        " from " & conf.toStr(s.steppedFrom, dropTraceExt)
+      else:
+        "")
+
+    var res = addr result
+    proc field(name: string, value = "\n") =
+      res[].add "\n"
+      res[].add repeat(" ", indent)
+      res[].add name
+      res[].add ":"
+      res[].add value
+
+    if conf.hack.semTraceData:
+      # field("kind", $s.kind) # if you're new to reading traces, uncomment
+
+      case s.kind:
+      of stepNodeToNode:
+        if enter:
+          field("from node")
+        else:
+          field("to node")
+
+        result.add render(s.node)
+
+      of stepSymNodeToNode:
+        if enter:
+          field("from sym")
+          result.add render(s.sym)
+          field("from node")
+          result.add render(s.node)
+        else:
+          field("to node")
+          result.add render(s.node)
+
+      of stepNodeTypeToNode:
+        if enter:
+          field("from node")
+          result.add render(s.node)
+          field("from type")
+          result.add render(s.typ)
+        else:
+          field("to node")
+          result.add render(s.node)
+
+      of stepNodeFlagsToNode:
+        if enter:
+          field("from flags",  " " & conf.wrap($s.flags + fgCyan))
+          result.add
+          field("from node")
+          result.add render(s.node)
+        else:
+          field("to node")
+          result.add render(s.node)
+
+      of stepTrack:
+        discard #[ 'track' has no extra data fields ]#
+
+      of stepError, stepWrongNode:
+        field("node")
+        result.add render(s.node)
+
+      of stepNodeToSym:
+        if enter:
+          field("from node")
+          result.add render(s.node)
+        else:
+          field("to sym")
+          result.add render(s.sym)
+
+      of stepIdentToSym:
+        if enter:
+          field("from ident")
+          result.add render(s.ident)
+        else:
+          field("to sym")
+          result.add render(s.sym)
+
+      of stepTypeTypeToType:
+        if enter:
+          field("from type")
+          result.add render(s.typ)
+          field("from type1")
+          result.add render(s.typ1)
+        else:
+          field("to type")
+          result.add render(s.typ)
+      
+      of stepNodeSigMatch, stepResolveOverload:
+        if enter:
+          field("from node")
+          result.add render(s.node)
+        else:
+          field("match status", s.candidate.state)
+
+          if s.candidate.call.isNil:
+            field("mismatch kind", $s.candidate.error.firstMismatch.kind)
+          else:
+            if s.candidate.calleeSym.isNil:
+              field("callee")
+              result.add render(s.candidate.callee)
+            else:
+              field("calleeSym")
+              result.add render(s.candidate.calleeSym)
+            field("call")
+            result.add render(s.candidate.call)
+  of compilerTraceLine:
+    let ind = repeat("  ", r.ctraceData.level)
+    var
+      paths: seq[string]
+      width = 0
+    for entry in r.ctraceData.entries:
+      paths.add "$1($2)" % [
+        formatPath(conf, $entry.filename), $entry.line]
+
+      width = max(paths[^1].len, width)
+
+    for idx, entry in r.ctraceData.entries:
+      result.add(
+        "  ]",
+        ind, " | ",
+        alignLeft(paths[idx], width + 1),
+        conf.wrap($entry.procname, fgGreen),
+        if idx < r.ctraceData.entries.high: "\n" else: ""
+      )
+
+  of compilerTraceStart:
+    result = ">>] trace start"
+
+  of compilerTraceEnd:
+    result = "<<] trace end"
+
+  of compilerTraceDefined:
+    result = ">>] debug trace defined at " & toStr(conf, r.srcLoc)
+
+  of compilerTraceUndefined:
+    result = "<<] debug trace undefined " & toStr(conf, r.srcLoc)
+
+# xxx: global state like so is most likely a terrible idea
+var
+  traceFile: File
+  fileIndex: int32 = 0
+  counter = 0
+
+proc rotatedTrace(conf: ConfigRef, r: CompilerTrace) =
+  ## Write out debug traces into separate files in directory defined by
+  ## `nimCompilerDebugTraceDir`
+  # Dispatch each `{.define(nimCompilerDebug).}` section into separate file
+  case r.kind
+  of compilerTraceStart, compilerTraceEnd:
+    # Rotated trace is constrolled by the define-undefine pair, not by
+    # singular call to the nested recursion handling.
+    discard
+  of compilerTraceDefined:
+    if not dirExists(conf.getDefined(traceDir)):
+      createDir conf.getDefined(traceDir)
+    counter = 0
+    let loc = r.srcLoc
+    let path = conf.getDefined(traceDir) / "compiler_trace_$1_$2.nim" % [
+      conf.toFilename(loc).multiReplace({"/":    "_", ".nim": ""}),
+      $fileIndex]
+    echo "$1($2, $3): opening $4 trace" % [
+      conf.toFilename(loc), $loc.line, $loc.col, path]
+    traceFile = open(path, fmWrite)
+    inc fileIndex
+  of compilerTraceUndefined:
+    let loc = r.srcLoc
+    echo "$1($2, $3): closing trace, wrote $4 records" % [
+      conf.toFilename(loc), $loc.line, $loc.col, $counter]
+    close(traceFile)
+  else:
+    inc counter
+    conf.excl optUseColors
+    traceFile.write(conf.generateOutput(r))
+    traceFile.write("\n")
+    traceFile.flushFile() # Forcefully flush the file in case of abrupt
+    # exit by the compiler.
+    conf.incl optUseColors
+
+proc outputTrace*(conf: ConfigRef, t: CompilerTrace) =
+  ## outputs the `CompilerTrace` to stdout or the file is specified
+  if conf.isDefined(traceDir):
+    rotatedTrace(conf, t)
+  else:
+    # xxx: indentation should probably be removed as the output is already very
+    #      wide and this makes it plain harder to read
+    var indent {.global.}: int
+    if t.kind == compilerTraceStep:
+      indent = t.semstep.level
+    echo conf.generateOutput(t)
 
 proc isCompilerDebug*(conf: ConfigRef): bool {.inline.} =
   ##[
@@ -56,10 +440,8 @@ proc isCompilerDebug*(conf: ConfigRef): bool {.inline.} =
   ]##
   conf.isDefined("nimCompilerDebug")
 
-
 proc isCompilerTraceDebug*(conf: ConfigRef): bool =
   conf.isCompilerDebug() and conf.isDefined("nimCompilerDebugCalltrace")
-
 
 template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
                                 enterMsg, leaveMsg) =
@@ -96,8 +478,8 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
     # do all this at the start of any proc we're debugging
     let
       isDebug = conf.isCompilerTraceDebug()
-        ## see if we're in compiler debug mode and also use the fact that we know
-        ## this early to see if we just entered or just left
+        ## see if we're in compiler debug mode and also use the fact that we
+        ## know this early to see if we just entered or just left
 
       # determine indentitation levels for output
       indentLevel = conf.debugUtilsStack.len
@@ -126,12 +508,12 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
               break                                       # skip the rest
 
           # print the trace oldest (startFrom) to newest (endsWith)
-          var rep = TraceSemReport(kind: rdbgTraceLine)
-          rep.ctraceData.level = indentLevel
+          var trace = CompilerTrace(kind: compilerTraceLine)
+          trace.ctraceData.level = indentLevel
           for i in startFrom .. endsWith:
-            rep.ctraceData.entries.add entries[i]
+            trace.ctraceData.entries.add entries[i]
 
-          conf.localReport(rep)
+          conf.outputTrace(trace)
 
     # upon leaving the proc being debugged (`defer`), let's see what changed
     defer:
@@ -140,25 +522,24 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
           # meaning we just analysed a `{.define(nimCompilerDebug).}`
           # it started of as false, now after the proc's work (`semExpr`) this
           # `defer`red logic is seeing `true`, so we must have just started.
-          var report = TraceSemReport(kind: rdbgTraceStart)
+          var trace = CompilerTrace(kind: compilerTraceStart)
           {.line.}:
             # don't let the template show up in the StackTrace gives context
             # to the rest of the partial traces we do a full one instead
-            report.ctraceData = (indentLevel, getStackTraceEntries())
+            trace.ctraceData = (indentLevel, getStackTraceEntries())
 
-          conf.localReport(report)
+          conf.outputTrace(trace)
         elif isDebug and not conf.isCompilerTraceDebug():
           # meaning we just analysed an `{.undef(nimCompilerDebug).}`
           # it started of as true, now in the `defer` it's false
           discard conf.debugUtilsStack.pop()
-          conf.localReport(TraceSemReport(kind: rdbgTraceEnd))
+          conf.outputTrace(CompilerTrace(kind: compilerTraceEnd))
         elif isDebug:
           discard conf.debugUtilsStack.pop()
           leaveMsg(indentLevel)
       discard
   else:
     discard # noop if undefined
-
 
 type
   StepParams* = object
@@ -178,6 +559,11 @@ proc stepParams*(
   StepParams(c: c, kind: kind, indentLevel: indentLevel, action: action)
 
 const hasStacktrace = compileOption"stacktrace"
+
+template calledFromInfo*(): InstantiationInfo =
+  {.line.}:
+    let e = getStackTraceEntries()[^2]
+    (filename: $e.filename, line: e.line, column: 0)
 
 template traceStepImpl*(
     params: StepParams,
@@ -204,11 +590,11 @@ template traceStepImpl*(
     block:
       body
 
-    handleReport(p.c, wrap(p.info, TraceSemReport(
-      kind: rdbgTraceStep,
+    outputTrace(p.c, CompilerTrace(
+      kind: compilerTraceStep,
       semstep: it,
-      reportInst: toReportLineInfo(p.info)
-    )), p.info)
+      instLoc: instLoc())
+    )
 
 template traceEnterIt*(
     loc: InstantiationInfo,

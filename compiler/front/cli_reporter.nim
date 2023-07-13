@@ -2763,198 +2763,6 @@ proc reportShort*(conf: ConfigRef, r: ExternalReport): string {.inline.} =
   # mostly created for nimsuggest
   result.add(prefixShort(conf, r), reportBody(conf, r))
 
-const
-  dropTraceExt = off
-  reportCaller = on
-
-proc reportBody*(conf: ConfigRef, r: TraceSemReport): string =
-  assertKind r
-
-  case DbgTraceReportKind(r.kind):
-  of rdbgTraceStep:
-    let
-      s = r.semstep
-      indent = s.level * 2 + (
-        2 #[ Item indentation ]# +
-        5 #[ Global entry indentation ]#
-      )
-
-    proc render(node: PNode): string =
-      conf.wrap(conf.treeRepr(node,
-                              indent = indent + 2,
-                              rconf = implicitCompilerTraceReprConf))
-
-    proc render(typ: PType): string =
-      conf.wrap(conf.treeRepr(typ,
-                              indent = indent + 2,
-                              rconf = implicitCompilerTraceReprConf))
-
-    proc render(sym: PSym): string =
-      conf.wrap(conf.treeRepr(sym,
-                              indent = indent + 2,
-                              rconf = implicitCompilerTraceReprConf))
-
-    proc render(sym: PIdent): string =
-      conf.wrap(conf.treeRepr(sym,
-                              indent = indent + 2,
-                              rconf = implicitCompilerTraceReprConf))
-
-
-    result.addf("$1]", align($s.level, 2, '#'))
-    result.add(
-      repeat("  ", s.level),
-      tern(s.direction == semstepEnter, "> ", "< "),
-      conf.wrap(s.name, tern(s.direction == semstepEnter, fgGreen, fgRed)),
-      " @ ",
-      conf.wrap(conf.toStr(r.reportInst, dropTraceExt), fgCyan),
-      tern(
-        reportCaller and s.steppedFrom.isValid(),
-        " from " & conf.toStr(s.steppedFrom, dropTraceExt),
-        ""))
-
-    var res = addr result
-    proc field(name: string, value: string = "\n") =
-      res[].add "\n"
-      res[].add repeat(" ", indent)
-      res[].add name
-      res[].add ":"
-      res[].add value
-
-    let enter = s.direction == semstepEnter
-    if conf.hack.semTraceData:
-      # field("kind", $s.kind) # if you're new to reading traces, uncomment
-      
-      case s.kind:
-        of stepNodeToNode:
-          if enter:
-            field("from node")
-          else:
-            field("to node")
-
-          result.add render(s.node)
-
-        of stepSymNodeToNode:
-          if enter:
-            field("from sym")
-            result.add render(s.sym)
-            field("from node")
-            result.add render(s.node)
-          else:
-            field("to node")
-            result.add render(s.node)
-
-        of stepNodeTypeToNode:
-          if enter:
-            field("from node")
-            result.add render(s.node)
-            field("from type")
-            result.add render(s.typ)
-          else:
-            field("to node")
-            result.add render(s.node)
-
-        of stepNodeFlagsToNode:
-          if enter:
-            field("from flags",  " " & conf.wrap($s.flags + fgCyan))
-            result.add
-            field("from node")
-            result.add render(s.node)
-          else:
-            field("to node")
-            result.add render(s.node)
-
-        of stepTrack:
-          discard #[ 'track' has no extra data fields ]#
-
-        of stepError, stepWrongNode:
-          field("node")
-          result.add render(s.node)
-
-        of stepNodeToSym:
-          if enter:
-            field("from node")
-            result.add render(s.node)
-          else:
-            field("to sym")
-            result.add render(s.sym)
-
-        of stepIdentToSym:
-          if enter:
-            field("from ident")
-            result.add render(s.ident)
-          else:
-            field("to sym")
-            result.add render(s.sym)
-
-        of stepTypeTypeToType:
-          if enter:
-            field("from type")
-            result.add render(s.typ)
-            field("from type1")
-            result.add render(s.typ1)
-          else:
-            field("to type")
-            result.add render(s.typ)
-        
-        of stepNodeSigMatch, stepResolveOverload:
-          if enter:
-            field("from node")
-            result.add render(s.node)
-          else:
-            field("match status", s.candidate.state)
-
-            if s.candidate.call.isNil:
-              field("mismatch kind", $s.candidate.error.firstMismatch.kind)
-            else:
-              if s.candidate.calleeSym.isNil:
-                field("callee")
-                result.add render(s.candidate.callee)
-              else:
-                field("calleeSym")
-                result.add render(s.candidate.calleeSym)
-              field("call")
-              result.add render(s.candidate.call)
-  of rdbgTraceLine:
-    let ind = repeat("  ", r.ctraceData.level)
-    var
-      paths: seq[string]
-      width = 0
-    for entry in r.ctraceData.entries:
-      paths.add "$1($2)" % [
-        formatPath(conf, $entry.filename), $entry.line]
-
-      width = max(paths[^1].len, width)
-
-    for idx, entry in r.ctraceData.entries:
-      result.add(
-        "  ]",
-        ind, " | ",
-        alignLeft(paths[idx], width + 1),
-        conf.wrap($entry.procname, fgGreen),
-        tern(idx < r.ctraceData.entries.high, "\n", "")
-      )
-
-  of rdbgTraceStart:
-    result = ">>] trace start"
-
-  of rdbgTraceEnd:
-    result = "<<] trace end"
-
-  of rdbgTraceDefined:
-    result = ">>] debug trace defined at " & toStr(conf, r.location.get())
-
-  of rdbgTraceUndefined:
-    result = "<<] debug trace undefined " & toStr(conf, r.location.get())
-
-proc reportFull*(conf: ConfigRef, r: TraceSemReport): string =
-  assertKind r
-  result = reportBody(conf, r)
-
-proc reportShort*(conf: ConfigRef, r: TraceSemReport): string =
-  # mostly created for nimsuggest
-  assertKind r
-  result = reportBody(conf, r)
-
 proc reportBody*(conf: ConfigRef, r: DebugReport): string =
   assertKind r
   func toStr(opc: TOpcode): string = substr($opc, 3)
@@ -3377,7 +3185,6 @@ proc reportBody*(conf: ConfigRef, r: Report): string =
   of repParser:   conf.reportBody(r.parserReport)
   of repCmd:      conf.reportBody(r.cmdReport)
   of repSem:      conf.reportBody(r.semReport)
-  of repDbgTrace: conf.reportBody(r.dbgTraceReport)
   of repDebug:    conf.reportBody(r.debugReport)
   of repInternal: conf.reportBody(r.internalReport)
   of repBackend:  conf.reportBody(r.backendReport)
@@ -3393,7 +3200,6 @@ proc reportFull*(conf: ConfigRef, r: Report): string =
   of repParser:   conf.reportFull(r.parserReport)
   of repCmd:      conf.reportFull(r.cmdReport)
   of repSem:      conf.reportFull(r.semReport)
-  of repDbgTrace: conf.reportFull(r.dbgTraceReport)
   of repDebug:    conf.reportFull(r.debugReport)
   of repInternal: conf.reportFull(r.internalReport)
   of repBackend:  conf.reportFull(r.backendReport)
@@ -3408,67 +3214,11 @@ proc reportShort*(conf: ConfigRef, r: Report): string =
   of repParser:   conf.reportShort(r.parserReport)
   of repCmd:      conf.reportShort(r.cmdReport)
   of repSem:      conf.reportShort(r.semReport)
-  of repDbgTrace: conf.reportShort(r.dbgTraceReport)
   of repDebug:    conf.reportShort(r.debugReport)
   of repInternal: conf.reportShort(r.internalReport)
   of repBackend:  conf.reportShort(r.backendReport)
   of repExternal: conf.reportShort(r.externalReport)
   of repVM:       conf.reportShort(r.vmReport)
-
-const
-  rdbgTracerKinds* = {rdbgTraceDefined .. rdbgTraceEnd}
-  traceDir = "nimCompilerDebugTraceDir"
-
-var
-  traceFile: File
-  fileIndex: int = 0
-
-var counter = 0
-
-proc rotatedTrace(conf: ConfigRef, r: Report) =
-  ## Write out debug traces into separate files in directory defined by
-  ## `nimCompilerDebugTraceDir`
-  # Dispatch each `{.define(nimCompilerDebug).}` section into separate file
-  assert r.kind in rdbgTracerKinds, $r.kind
-  
-  case r.kind
-  of rdbgTraceStart, rdbgTraceEnd:
-    # Rotated trace is constrolled by the define-undefine pair, not by
-    # singular call to the nested recursion handling.
-    discard
-  of rdbgTraceDefined:
-    if not dirExists(conf.getDefined(traceDir)):
-      createDir conf.getDefined(traceDir)
-
-    counter = 0
-    let loc = r.location.get()
-    let path = conf.getDefined(traceDir) / "compiler_trace_$1_$2.nim" % [
-      conf.toFilename(loc).multiReplace({
-        "/": "_",
-        ".nim": ""
-      }),
-      $fileIndex
-    ]
-
-    echo "$1($2, $3): opening $4 trace" % [
-      conf.toFilename(loc), $loc.line, $loc.col, path]
-
-    traceFile = open(path, fmWrite)
-    inc fileIndex
-  of rdbgTraceUndefined:
-    let loc = r.location.get()
-    echo "$1($2, $3): closing trace, wrote $4 records" % [
-      conf.toFilename(loc), $loc.line, $loc.col, $counter]
-
-    close(traceFile)
-  else:
-    inc counter
-    conf.excl optUseColors
-    traceFile.write(conf.reportFull(r))
-    traceFile.write("\n")
-    traceFile.flushFile() # Forcefully flush the file in case of abrupt
-    # exit by the compiler.
-    conf.incl optUseColors
 
 
 func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
@@ -4316,17 +4066,14 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## category) `reportBody` overloads defined above
   assertKind r
   let wkind = conf.writabilityKind(r)
-  # debug reports can be both enabled and force enabled, and sem tracer
-  # first needs to be checked for the trace group rotation. So adding a
-  # case here is not really useful, since report writability kind does not
-  # necessarily dictate how it is written, just whether it can/must/cannot
-  # be written.
+  # debug reports can be both enabled and force enabled. So adding a case here
+  # is not really useful, since report writability kind does not necessarily
+  # dictate how it is written, just whether it can/must/cannot be written.
+  # xxx: the above convoluted comment brought to you by _glaring_ design flaws!
   if wkind == writeDisabled:
     return
   else:
-    if r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
-      rotatedTrace(conf, r)
-    elif wkind == writeForceEnabled:
+    if wkind == writeForceEnabled:
       echo conf.reportFull(r)
     elif r.kind == rsemProcessing and conf.hintProcessingDots:
       # xxx: the report hook is handling processing dots output, why? this whole
@@ -4338,10 +4085,6 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       if conf.hack.reportInTrace:
         var indent {.global.}: int
         case r.kind:
-        of rdbgTracerKinds:
-          if r.kind == rdbgTraceStep:
-            indent = r.dbgTraceReport.semstep.level
-          msg.add(conf.reportFull(r))
         of repSemKinds:
           if indent > 0:
             for line in conf.reportFull(r).splitLines():
