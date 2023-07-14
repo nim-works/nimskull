@@ -29,6 +29,7 @@ import
     idents,
   ],
   compiler/utils/[
+    containers,
     pathutils,
     btrees,
     ropes,
@@ -97,6 +98,8 @@ type
     methodsPerType*: Table[ItemId, seq[(int, LazySym)]] # Type ID, attached methods
     enumToStringProcs*: Table[ItemId, LazySym]
     emittedTypeInfo*: Table[string, FileIndex]
+
+    libs*: seq[Store[LibId, TLib]] ## indexed by module position
 
     startupPackedConfig*: PackedConfig
     packageSyms*: TStrTable
@@ -376,6 +379,10 @@ proc getToStringProc*(g: ModuleGraph; t: PType): PSym =
 
 proc setToStringProc*(g: ModuleGraph; t: PType; value: PSym) =
   g.enumToStringProcs[t.itemId] = LazySym(sym: value)
+
+proc storeLib*(g: ModuleGraph, module: int, lib: TLib) =
+  if g.config.symbolFiles != disabledSf:
+    storeLib(g.encoders[module], g.packed[module].fromDisk, lib)
 
 iterator methodsForGeneric*(g: ModuleGraph; t: PType): (int, PSym) =
   if g.methodsPerType.contains(t.itemId):

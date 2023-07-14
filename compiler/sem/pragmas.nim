@@ -27,13 +27,15 @@ import
     lineinfos
   ],
   compiler/modules/[
-    magicsys
+    magicsys,
+    modulegraphs
   ],
   compiler/front/[
     msgs,
     options
   ],
   compiler/utils/[
+    containers,
     pathutils,
     debugutils,
     idioms
@@ -44,6 +46,9 @@ import
   ],
   compiler/backend/[
     extccomp
+  ],
+  experimental/[
+    dod_helpers
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
@@ -353,16 +358,17 @@ proc processCallConv(c: PContext, n: PNode): PNode =
   else:
     result = c.config.newError(n, PAstDiag(kind: adSemCallconvExpected))
 
-proc getLib(c: PContext, kind: TLibKind, path: PNode): PLib =
-  for it in c.libs:
+proc getLib(c: PContext, kind: TLibKind, path: PNode): LibId =
+  for id, it in c.libs.pairs:
     if it.kind == kind and trees.exprStructuralEquivalent(it.path, path):
-      return it
+      return id
 
-  result = newLib(kind)
-  result.path = path
-  c.libs.add result
+  var lib = initLib(kind)
+  lib.path = path
   if path.kind in {nkStrLit..nkTripleStrLit}:
-    result.isOverriden = options.isDynlibOverride(c.config, path.strVal)
+    lib.isOverriden = options.isDynlibOverride(c.config, path.strVal)
+
+  result = c.libs.add(lib)
 
 proc expectDynlibNode(c: PContext, n: PNode): PNode =
   ## `n` must be a callable, this will produce the ast for the callable or
@@ -389,8 +395,8 @@ proc processDynLib(c: PContext, n: PNode, sym: PSym): PNode =
       result = libNode
     else:
       let lib = getLib(c, libDynamic, libNode)
-      if not lib.isOverriden:
-        c.optionStack[^1].dynlib = lib
+      if not c.libs[lib].isOverriden:
+        c.optionStack[^1].dynlib = someOpt(lib)
   else:
     if n.kind in nkPragmaCallKinds:
       let libNode = expectDynlibNode(c, n)
@@ -399,7 +405,7 @@ proc processDynLib(c: PContext, n: PNode, sym: PSym): PNode =
         result = libNode
       else:
         var lib = getLib(c, libDynamic, libNode)
-        if not lib.isOverriden:
+        if not c.libs[lib].isOverriden:
           addToLib(lib, sym)
           incl(sym.extFlags, exfDynamicLib)
     else:
@@ -1851,10 +1857,10 @@ proc inheritDynlib*(c: PContext, sym: PSym) =
   ## applicable. The dynlib pragma can be applied if the symbol is marked as
   ## imported, but no header nor dynlib are specified.
   let lib = c.optionStack[^1].dynlib
-  if lib != nil and sfImportc in sym.flags and
+  if lib.isSome and sfImportc in sym.flags and
      {exfDynamicLib, exfHeader} * sym.extFlags == {}:
     incl(sym.extFlags, exfDynamicLib)
-    addToLib(lib, sym)
+    addToLib(lib[], sym)
     if sym.extname == "":
       # XXX: this looks like a unnecessary defensive check. If the symbol is
       #      marked as imported, it already has an external name set

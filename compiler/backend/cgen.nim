@@ -41,6 +41,7 @@ import
     msgs
   ],
   compiler/utils/[
+    containers,
     platform,
     nversion,
     bitsets,
@@ -58,7 +59,8 @@ import
     ccgutils,
     cgendata
   ],
-  compiler/plugins/[
+  experimental/[
+    dod_helpers
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced...
@@ -145,8 +147,7 @@ proc isSimpleConst(typ: PType): bool =
 
 proc useHeader(m: BModule, sym: PSym) =
   if exfHeader in sym.extFlags:
-    assert(sym.annex != nil)
-    let str = getStr(sym.annex.path)
+    let str = getStr(m.g.graph.libs[sym.itemId.module][sym.annex[]].path)
     m.includeHeader(str)
 
 proc cgsym(m: BModule, name: string): Rope
@@ -628,13 +629,12 @@ include ccgexprs
 # ----------------------------- dynamic library handling -----------------
 # We don't finalize dynamic libs as the OS does this for us.
 
-proc isGetProcAddr(lib: PLib): bool =
+proc isGetProcAddr(lib: TLib): bool =
   let n = lib.path
   result = n.kind in nkCallKinds and n.typ != nil and
     n.typ.kind in {tyPointer, tyProc}
 
-proc loadDynamicLib(m: BModule, lib: PLib) =
-  assert(lib != nil)
+proc loadDynamicLib(m: BModule, lib: var TLib) =
   if not lib.generated:
     lib.generated = true
     var tmp = getTempName(m)
@@ -686,10 +686,10 @@ proc mangleDynLibProc(sym: PSym): Rope =
     result = rope(strutils.`%`("Dl_$1_", $sym.id))
 
 proc symInDynamicLib*(m: BModule, sym: PSym) =
-  var lib = sym.annex
-  let isCall = isGetProcAddr(lib)
+  var lib = addr m.g.graph.libs[sym.itemId.module][sym.annex[]]
+  let isCall = isGetProcAddr(lib[])
   let extname = sym.extname
-  if not isCall: loadDynamicLib(m, lib)
+  if not isCall: loadDynamicLib(m, lib[])
   let tmp = mangleDynLibProc(sym)
   # XXX: dynlib procedures should be treated as globals here (because that's
   #      what they are, really)
@@ -725,9 +725,9 @@ proc symInDynamicLib*(m: BModule, sym: PSym) =
   m.s[cfsVars].addf("$2 $1;$n", [tmp, getTypeDesc(m, sym.typ, skVar)])
 
 proc varInDynamicLib(m: BModule, sym: PSym) =
-  var lib = sym.annex
+  var lib = addr m.g.graph.libs[sym.itemId.module][sym.annex[]]
   let extname = sym.extname
-  loadDynamicLib(m, lib)
+  loadDynamicLib(m, lib[])
   let tmp = mangleDynLibProc(sym)
   incl(m.globals[sym].flags, lfIndirect)
   m.globals[sym].r = tmp  # from now on we only need the internal name

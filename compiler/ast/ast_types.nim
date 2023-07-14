@@ -1,6 +1,7 @@
 import compiler/ast/lineinfos
 import compiler/utils/ropes
 import std/[hashes]
+import experimental/dod_helpers
 
 from compiler/ast/idents import PIdent, TIdent
 
@@ -44,10 +45,15 @@ type
 
 type
   NodeId* = distinct int32
+  LibId* = distinct uint32
 
 proc `==`*(a, b: NodeId): bool {.borrow.}
 proc hash*(a: NodeId): Hash {.borrow.}
 proc `$`*(a: NodeId): string {.borrow.}
+
+template indexLike*(_: typedesc[LibId]) =
+  # makes ``LibId`` available to use with ``opt``
+  discard
 
 type
   TNodeKind* = enum
@@ -1633,7 +1639,6 @@ type
 
   PScope* = ref TScope
 
-  PLib* = ref TLib
   TSym* {.acyclic.} = object of TIdObj # Keep in sync with PackedSym
     ## proc and type instantiations are cached in the generic symbol
     case kind*: TSymKind
@@ -1690,7 +1695,7 @@ type
                               ## generation
     locId*: uint32            ## associates the symbol with a loc in the C code
                               ## generator. 0 means unset.
-    annex*: PLib              ## additional fields (seldom used, so we use a
+    annex*: opt(LibId)        ## additional fields (seldom used, so we use a
                               ## reference to another object to save space)
     constraint*: PNode        ## additional constraints like 'lit|result'; also
                               ## misused for the codegenDecl pragma in the hope

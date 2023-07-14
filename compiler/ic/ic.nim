@@ -25,6 +25,7 @@ import
     options
   ],
   compiler/utils/[
+    containers,
     ropes,
     pathutils
   ]
@@ -69,6 +70,7 @@ type
     attachedOps*: seq[(TTypeAttachedOp, PackedItemId, PackedItemId)]
     methodsPerType*: seq[(PackedItemId, int, PackedItemId)]
     enumToStringProcs*: seq[(PackedItemId, PackedItemId)]
+    libs*: seq[PackedLib]
 
     emittedTypeInfo*: seq[string]
     backendFlags*: set[ModuleBackendFlag]
@@ -383,9 +385,7 @@ proc storeType(t: PType; c: var PackedEncoder; m: var PackedModule): PackedItemI
     # fill the reserved slot, nothing else:
     m.types[t.uniqueId.item] = p
 
-proc toPackedLib(l: PLib; c: var PackedEncoder; m: var PackedModule): PackedLib =
-  ## the plib hangs off the psym via the .annex field
-  if l.isNil: return
+proc toPackedLib(l: TLib; c: var PackedEncoder; m: var PackedModule): PackedLib =
   result.kind = l.kind
   result.generated = l.generated
   result.isOverriden = l.isOverriden
@@ -424,7 +424,7 @@ proc storeSym*(s: PSym; c: var PackedEncoder; m: var PackedModule): PackedItemId
     p.typ = s.typ.storeType(c, m)
     c.addMissing s.owner
     p.owner = s.owner.safeItemId(c, m)
-    p.annex = toPackedLib(s.annex, c, m)
+    p.annex = s.annex
 
     # fill the reserved slot, nothing else:
     m.syms[s.itemId.item] = p
@@ -558,6 +558,10 @@ proc storeAttachedOp*(c: var PackedEncoder; m: var PackedModule, kind: TTypeAtta
   ## Records a type-bound operator attachment action to module `m`.
   m.attachedOps.add((kind, storeTypeLater(t, c, m), storeSymLater(s, c, m)))
 
+proc storeLib*(c: var PackedEncoder, m: var PackedModule, lib: TLib) =
+  m.libs.add toPackedLib(lib, c, m)
+  flush c, m
+
 proc loadError(err: RodFileError; filename: AbsoluteFile; config: ConfigRef;) =
   case err
   of cannotOpen:
@@ -626,6 +630,7 @@ proc loadRodFile*(filename: AbsoluteFile; m: var PackedModule; config: ConfigRef
   loadSeqSection attachedOpsSection, m.attachedOps
   loadSeqSection methodsPerTypeSection, m.methodsPerType
   loadSeqSection enumToStringProcsSection, m.enumToStringProcs
+  loadSeqSection libsSection, m.libs
   loadSeqSection typeInfoSection, m.emittedTypeInfo
 
   f.loadSection backendFlagsSection
@@ -692,6 +697,7 @@ proc saveRodFile*(filename: AbsoluteFile; encoder: var PackedEncoder; m: var Pac
   storeSeqSection attachedOpsSection, m.attachedOps
   storeSeqSection methodsPerTypeSection, m.methodsPerType
   storeSeqSection enumToStringProcsSection, m.enumToStringProcs
+  storeSeqSection libsSection, m.libs
   storeSeqSection typeInfoSection, m.emittedTypeInfo
 
   f.storeSection backendFlagsSection
@@ -852,14 +858,10 @@ template loadAstBodyLazy(p, field) =
     result.field = loadProcHeader(c, g, si, g[si].fromDisk.bodies, NodePos p.field)
 
 proc loadLib(c: var PackedDecoder; g: var PackedModuleGraph;
-             si, item: int32; l: PackedLib): PLib =
-  # XXX: hack; assume a zero LitId means the PackedLib is all zero (empty)
-  if l.name.int == 0:
-    result = nil
-  else:
-    result = PLib(generated: l.generated, isOverriden: l.isOverriden,
-                  kind: l.kind, name: rope g[si].fromDisk.strings[l.name])
-    loadAstBody(l, path)
+             si: int; l: PackedLib): TLib =
+  result = TLib(generated: l.generated, isOverriden: l.isOverriden,
+                kind: l.kind, name: rope g[si].fromDisk.strings[l.name])
+  loadAstBody(l, path)
 
 proc symBodyFromPacked(c: var PackedDecoder; g: var PackedModuleGraph;
                        s: PackedSym; si, item: int32; result: PSym) =
@@ -869,7 +871,7 @@ proc symBodyFromPacked(c: var PackedDecoder; g: var PackedModuleGraph;
     loadAstBodyLazy(s, ast)
   else:
     loadAstBody(s, ast)
-  result.annex = loadLib(c, g, si, item, s.annex)
+  result.annex = s.annex
 
   if s.kind in {skLet, skVar, skField, skForVar}:
     result.guard = loadSym(c, g, si, s.guard)
@@ -1094,6 +1096,12 @@ proc loadSymFromId*(config: ConfigRef, cache: IdentCache;
     setupDecoder()
     result = loadSym(decoder, g, module, id)
 
+proc loadLibs*(config: ConfigRef, cache: IdentCache,
+               g: var PackedModuleGraph, module: int): Store[LibId, TLib] =
+  setupDecoder()
+  for it in g[module].fromDisk.libs.items:
+    discard result.add(loadLib(decoder, g, module, it))
+
 proc translateId*(id: PackedItemId; g: PackedModuleGraph; thisModule: int; config: ConfigRef): ItemId =
   if id.module == LitId(0):
     ItemId(module: thisModule.int32, item: id.item)
@@ -1234,6 +1242,10 @@ proc rodViewer*(rodfile: AbsoluteFile; config: ConfigRef, cache: IdentCache) =
       echo "  ", m.strings[m.syms[i].name], " local ID: ", i, " kind ", m.syms[i].kind
     else:
       echo "  <anon symbol?> local ID: ", i, " kind ", m.syms[i].kind
+
+  echo "all lib objects"
+  for it in m.libs.items:
+    echo "  kind: ", it.kind, " name: ", it.name, " path: ", it.path
 
   echo "symbols: ", m.syms.len, " types: ", m.types.len,
     " top level nodes: ", m.topLevel.nodes.len, " other nodes: ", m.bodies.nodes.len,

@@ -13,6 +13,7 @@
 ## it is superior.
 
 import std/[hashes, tables, strtabs]
+import experimental/[dod_helpers]
 import compiler/ic/bitabs
 import compiler/ast/ast, compiler/front/options
 
@@ -61,7 +62,7 @@ type
     offset*: int
     externalName*: LitId # instead of TLoc
     extFlags*: ExternalFlags
-    annex*: PackedLib
+    annex*: opt(LibId)
     constraint*: NodeId
 
   PackedType* = object

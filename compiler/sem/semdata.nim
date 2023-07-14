@@ -38,8 +38,10 @@ import
     ic
   ],
   compiler/utils/[
-    pathutils,
-    astrepr,
+    containers
+  ],
+  experimental/[
+    dod_helpers
   ]
 
 from compiler/ast/reports_sem import reportAst,
@@ -55,7 +57,7 @@ type
   TOptionEntry* = object      ## entries to put on a stack for pragma parsing
     options*: TOptions
     defaultCC*: TCallingConvention
-    dynlib*: PLib
+    dynlib*: opt(LibId)
     notes*: ReportKinds
     features*: set[Feature]
     otherPragmas*: PNode      ## every pragma can be pushed
@@ -563,14 +565,6 @@ type
       ##  - pragmas: query user pragmas to see if we need to process it now
       ##  - semstmts: query user pragmas for proc/conv/etc annotation lookup
       ##  - semtypes: query user pragmas for type section pragmas
-    libs*: seq[PLib]
-      ## all libs used by this module, mostly setup pragmas.
-      ##
-      ## written:
-      ##  - semdata: init
-      ##  - pragmas: add to dynamic libs
-      ## read:
-      ##  - pragmas: query dynamic libs
 
     # hacks used for lookups
     isAmbiguous*: bool # little hack <-- it never is "little"
@@ -805,7 +799,7 @@ proc newOptionEntry*(conf: ConfigRef): POptionEntry =
   new(result)
   result.options = conf.options
   result.defaultCC = ccNimCall
-  result.dynlib = nil
+  result.dynlib = noneOpt(LibId)
   result.notes = conf.notes
   result.warningAsErrors = conf.warningAsErrors
 
@@ -830,7 +824,6 @@ proc popOptionEntry*(c: PContext) =
 proc newContext*(graph: ModuleGraph; module: PSym): PContext =
   new(result)
   result.optionStack = @[newOptionEntry(graph.config)]
-  result.libs = @[]
   result.module = module
   result.friendModules = @[module]
   result.converters = @[]
@@ -904,14 +897,16 @@ proc reexportSym*(c: PContext; s: PSym) =
   if c.config.symbolFiles != disabledSf:
     addReexport(c.encoder, c.packedRepr, s)
 
-proc newLib*(kind: TLibKind): PLib =
-  new(result)
-  result.kind = kind          #initObjectSet(result.syms)
+template libs*(c: PContext): Store[LibId, TLib] =
+  c.graph.libs[c.module.position]
 
-proc addToLib*(lib: PLib, sym: PSym) =
+proc initLib*(kind: TLibKind): TLib =
+  result = TLib(kind: kind)
+
+proc addToLib*(lib: LibId, sym: PSym) =
   #if sym.annex != nil and not isGenericRoutine(sym):
   #  LocalError(sym.info, errInvalidPragma)
-  sym.annex = lib
+  sym.annex = someOpt(lib)
 
 proc newTypeS*(kind: TTypeKind, c: PContext): PType =
   result = newType(kind, nextTypeId(c.idgen), getCurrOwner(c))
