@@ -67,6 +67,9 @@ import
 
 import std/options as std_options
 
+# XXX: reports are a legacy facility that is going to be phased out. A
+#      note on how to move forward is left at each usage site in this
+#      module
 from compiler/front/msgs import localReport
 from compiler/ast/reports import ReportKind
 from compiler/ast/reports_sem import SemReport
@@ -441,6 +444,9 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
 
   # not pretty, but here's the earliest point where we know about the set of
   # all actually-used dynamic libraries
+  # XXX: instead of reporting them here, we could return the list to the
+  #      caller, which is in a better position to decide what to do with
+  #      it
   for lib in discovery.libs.items:
     localReport(graph.config):
       SemReport(kind: rsemHintLibDependency,
