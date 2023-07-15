@@ -93,6 +93,7 @@ type
     attachedOpsSection
     methodsPerTypeSection
     enumToStringProcsSection
+    libsSection
     typeInfoSection  # required by the backend
     backendFlagsSection
     aliveSymsSection # beware, this is stored in a `.alivesyms` file.

@@ -144,6 +144,7 @@ proc compileModule*(graph: ModuleGraph; fileIdx: FileIndex; flags: TSymFlags, fr
       registerModuleById(graph, m)
       replayStateChanges(graph.packed[m.int].module, graph)
       replayGenericCacheInformation(graph, m.int)
+      replayLibs(graph, m.int)
   elif graph.isDirty(result):
     result.flags.excl sfDirty
     # reset module fields:

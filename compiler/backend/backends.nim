@@ -565,7 +565,8 @@ proc preprocessDynlib(graph: ModuleGraph, idgen: IdGenerator,
   #       be removed once handling of dynlib procedures and globals is fully
   #       implemented in the ``process`` iterator
   if exfDynamicLib in sym.extFlags:
-    if sym.annex.path.kind in nkStrKinds:
+    let lib = addr graph.getLib(sym.annex)
+    if lib.path.kind in nkStrKinds:
       # it's a string, no need to transform nor scan it
       discard
     else:
@@ -575,12 +576,12 @@ proc preprocessDynlib(graph: ModuleGraph, idgen: IdGenerator,
         t: MirTree
         m: SourceMap
 
-      generateCode(graph, {}, sym.annex.path, t, m)
+      generateCode(graph, {}, lib.path, t, m)
       for dep in deps(t, {}): # just ignore magics here
         if dep.kind in routineKinds + {skConst}:
           deps.add dep
 
-      sym.annex.path = generateAST(graph, idgen, sym.owner, t, m)
+      lib.path = generateAST(graph, idgen, sym.owner, t, m)
 
 proc preprocessDynlib(graph: ModuleGraph, mlist: ModuleList,
                       data: var DiscoveryData) =

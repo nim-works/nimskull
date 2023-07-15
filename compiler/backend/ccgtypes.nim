@@ -11,7 +11,7 @@
 
 # ------------------------- Name Mangling --------------------------------
 
-import compiler/sem/sighashes, compiler/modules/modulegraphs
+import compiler/sem/sighashes
 
 proc isKeyword(w: PIdent): bool =
   # Nim and C++ share some keywords

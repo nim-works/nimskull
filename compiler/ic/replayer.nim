@@ -186,3 +186,11 @@ proc replayGenericCacheInformation*(g: ModuleGraph; module: int) =
   for it in mitems(g.packed[module].fromDisk.pureEnums):
     let symId = FullId(module: module, packed: PackedItemId(module: LitId(0), item: it))
     g.ifaces[module].pureEnums.add LazySym(id: symId, sym: nil)
+
+proc replayLibs*(g: ModuleGraph, module: int) =
+  ## Loads the packed library information for `module` into `g`.
+  # XXX: libs are not really replayed state changes...
+  if module >= g.libs.len:
+    g.libs.setLen(module + 1)
+
+  g.libs[module] = loadLibs(g.config, g.cache, g.packed, module)

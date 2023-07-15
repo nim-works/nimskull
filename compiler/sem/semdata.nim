@@ -36,10 +36,6 @@ import
   ],
   compiler/ic/[
     ic
-  ],
-  compiler/utils/[
-    pathutils,
-    astrepr,
   ]
 
 from compiler/ast/reports_sem import reportAst,
@@ -55,7 +51,7 @@ type
   TOptionEntry* = object      ## entries to put on a stack for pragma parsing
     options*: TOptions
     defaultCC*: TCallingConvention
-    dynlib*: PLib
+    dynlib*: LibId
     notes*: ReportKinds
     features*: set[Feature]
     otherPragmas*: PNode      ## every pragma can be pushed
@@ -563,14 +559,6 @@ type
       ##  - pragmas: query user pragmas to see if we need to process it now
       ##  - semstmts: query user pragmas for proc/conv/etc annotation lookup
       ##  - semtypes: query user pragmas for type section pragmas
-    libs*: seq[PLib]
-      ## all libs used by this module, mostly setup pragmas.
-      ##
-      ## written:
-      ##  - semdata: init
-      ##  - pragmas: add to dynamic libs
-      ## read:
-      ##  - pragmas: query dynamic libs
 
     # hacks used for lookups
     isAmbiguous*: bool # little hack <-- it never is "little"
@@ -805,7 +793,7 @@ proc newOptionEntry*(conf: ConfigRef): POptionEntry =
   new(result)
   result.options = conf.options
   result.defaultCC = ccNimCall
-  result.dynlib = nil
+  result.dynlib = LibId()
   result.notes = conf.notes
   result.warningAsErrors = conf.warningAsErrors
 
@@ -830,7 +818,6 @@ proc popOptionEntry*(c: PContext) =
 proc newContext*(graph: ModuleGraph; module: PSym): PContext =
   new(result)
   result.optionStack = @[newOptionEntry(graph.config)]
-  result.libs = @[]
   result.module = module
   result.friendModules = @[module]
   result.converters = @[]
@@ -904,14 +891,26 @@ proc reexportSym*(c: PContext; s: PSym) =
   if c.config.symbolFiles != disabledSf:
     addReexport(c.encoder, c.packedRepr, s)
 
-proc newLib*(kind: TLibKind): PLib =
-  new(result)
-  result.kind = kind          #initObjectSet(result.syms)
+proc initLib*(kind: TLibKind): TLib =
+  result = TLib(kind: kind)
 
-proc addToLib*(lib: PLib, sym: PSym) =
+proc addToLib*(lib: LibId, sym: PSym) =
   #if sym.annex != nil and not isGenericRoutine(sym):
   #  LocalError(sym.info, errInvalidPragma)
+  assert not isNil(lib)
   sym.annex = lib
+
+proc addLib*(c: PContext, lib: sink TLib): LibId =
+  c.graph.addLib(c.idgen.module, lib)
+
+func `[]`*(c: PContext, id: LibId): var TLib =
+  c.graph.getLib(id)
+
+iterator libs*(c: PContext): (LibId, var TLib)  =
+  ## Returns all ``TLib`` instances associated with `c`.
+  let pos = c.idgen.module
+  for i in 0..<c.graph.libs[pos].len:
+    yield (LibId(module: pos, index: uint32(i + 1)), c.graph.libs[pos][i])
 
 proc newTypeS*(kind: TTypeKind, c: PContext): PType =
   result = newType(kind, nextTypeId(c.idgen), getCurrOwner(c))

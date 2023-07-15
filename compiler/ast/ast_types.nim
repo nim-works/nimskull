@@ -1615,6 +1615,20 @@ type
     name*: Rope
     path*: PNode              ## can be a string literal!
 
+  LibId* = object
+    ## Identifies a ``TLib`` instance. The default value means 'none'.
+    # XXX: ideally, a ``LibId`` would be a single 32-bit index into the
+    #      surrounding module, but this is not possible at the moment, because
+    #      of how aliased structural types work.
+    #
+    #        type A {.header: ... .} = int # declared in module 'A'
+    #        type B = A                    # declared in module 'B'
+    #
+    #      Here, 'B' is not a ``tyAlias`` type, but rather a ``tyInt``, with
+    #      the symbol information from 'A' (including the ``LibId``) copied
+    #      over.
+    module*: int32   ## the ID of the module the lib object is part
+    index*: uint32   ## 1-based index. Zero means 'none'
 
   CompilesId* = int ## id that is used for the caching logic within
                     ## ``system.compiles``. See the seminst module.
@@ -1633,7 +1647,6 @@ type
 
   PScope* = ref TScope
 
-  PLib* = ref TLib
   TSym* {.acyclic.} = object of TIdObj # Keep in sync with PackedSym
     ## proc and type instantiations are cached in the generic symbol
     case kind*: TSymKind
@@ -1690,7 +1703,7 @@ type
                               ## generation
     locId*: uint32            ## associates the symbol with a loc in the C code
                               ## generator. 0 means unset.
-    annex*: PLib              ## additional fields (seldom used, so we use a
+    annex*: LibId             ## additional fields (seldom used, so we use a
                               ## reference to another object to save space)
     constraint*: PNode        ## additional constraints like 'lit|result'; also
                               ## misused for the codegenDecl pragma in the hope
@@ -1892,3 +1905,5 @@ proc `comment=`*(n: PNode, a: string) =
     gconfig.comments.del(n.id)
 
 proc setUseIc*(useIc: bool) = gconfig.useIc = useIc
+
+func isNil*(id: LibId): bool = id.index == 0

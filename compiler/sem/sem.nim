@@ -829,6 +829,9 @@ proc myOpen(graph: ModuleGraph; module: PSym;
 
   graph.config.internalAssert(c.p == nil, module.info, "sem.myOpen")
 
+  if module.position >= graph.libs.len:
+    graph.libs.setLen(module.position + 1)
+
   c.semConstExpr = semConstExpr
   c.semExpr = semExpr
   c.semTryExpr = tryExpr
@@ -935,6 +938,7 @@ proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
   var c = PContext(context)
   if c.config.cmd == cmdIdeTools and not c.suggestionsMade:
     suggestSentinel(c)
+  storeLibs(graph, c.idgen.module)
   closeScope(c)         # close module's scope
   rawCloseScope(c)      # imported symbols; don't check for unused ones!
   reportUnusedModules(c)
