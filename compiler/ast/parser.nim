@@ -134,10 +134,10 @@ proc getTok(p: var Parser) =
   p.lex.rawGetTok(p.tok)
 
   if p.tok.tokType == tkError:
-    p.lex.config.handleReport(p.tok.error, instLoc(-1), doAbort)
+    p.lex.config.handleLexerDiag(p.tok.error, instLoc(-1), doAbort)
 
   for d in p.lex.errorsHintsAndWarnings(lexDiagOffset):
-    p.lex.config.handleReport(d, instLoc(-1))
+    p.lex.config.handleLexerDiag(d, instLoc(-1))
 
   p.hasProgress = true
 
