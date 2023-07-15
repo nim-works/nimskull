@@ -324,7 +324,7 @@ proc assignType*(dest, src: PType) =
   if src.sym != nil:
     if dest.sym != nil:
       dest.sym.flags.incl src.sym.flags-{sfExported}
-      if dest.sym.annex == nil: dest.sym.annex = src.sym.annex
+      if dest.sym.annex.isNil: dest.sym.annex = src.sym.annex
       dest.sym.extFlags.incl src.sym.extFlags
       if dest.sym.extname.len == 0:
         dest.sym.extname = src.sym.extname

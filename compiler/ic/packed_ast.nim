@@ -60,7 +60,7 @@ type
     offset*: int
     externalName*: LitId # instead of TLoc
     extFlags*: ExternalFlags
-    annex*: PackedLib
+    annex*: tuple[module: LitId, index: uint32]
     constraint*: NodeId
 
   PackedType* = object

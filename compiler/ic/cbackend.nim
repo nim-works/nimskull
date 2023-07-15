@@ -131,6 +131,7 @@ proc generateCode*(g: ModuleGraph) =
   # XXX: these state changes were already applied during semantic analysis,
   #      but ``resetForBackend`` (unnecessarily) throws them away again
   for i in 0..high(g.packed):
+    replayLibs(g, i)
     replayBackendRoutines(g, i)
 
   var alive = computeAliveSyms(g.packed, g, g.config)

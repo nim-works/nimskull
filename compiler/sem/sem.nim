@@ -829,6 +829,9 @@ proc myOpen(graph: ModuleGraph; module: PSym;
 
   graph.config.internalAssert(c.p == nil, module.info, "sem.myOpen")
 
+  if module.position >= graph.libs.len:
+    graph.libs.setLen(module.position + 1)
+
   c.semConstExpr = semConstExpr
   c.semExpr = semExpr
   c.semTryExpr = tryExpr
@@ -938,14 +941,15 @@ proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
 
   # setup the symbols for the globals that store the handles of loaded
   # dynamic libraries:
-  for i, it in c.libs.pairs:
+  for id, it in c.libs:
     let info = c.module.info
-    let s = newSym(skVar, c.cache.getIdent("lib" & $i), nextSymId(c.idgen),
-                   c.module, info)
+    let s = newSym(skVar, c.cache.getIdent("lib" & $id.index),
+                   nextSymId(c.idgen), c.module, info)
     s.typ = graph.getSysType(info, tyPointer)
     s.flags.incl sfGlobal
     it.name = s
 
+  storeLibs(graph, c.idgen.module)
   closeScope(c)         # close module's scope
   rawCloseScope(c)      # imported symbols; don't check for unused ones!
   reportUnusedModules(c)

@@ -35,6 +35,7 @@ import
   ],
   compiler/modules/[
     magicsys,
+    modulegraphs
   ],
   compiler/front/[
     options,
@@ -130,8 +131,7 @@ proc isSimpleConst(typ: PType): bool =
 
 proc useHeader(m: BModule, sym: PSym) =
   if exfHeader in sym.extFlags:
-    assert(sym.annex != nil)
-    let str = getStr(sym.annex.path)
+    let str = getStr(m.g.graph.getLib(sym.annex).path)
     m.includeHeader(str)
 
 proc cgsym(m: BModule, name: string): Rope
