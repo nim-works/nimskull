@@ -423,7 +423,8 @@ proc storeSym*(s: PSym; c: var PackedEncoder; m: var PackedModule): PackedItemId
     p.typ = s.typ.storeType(c, m)
     c.addMissing s.owner
     p.owner = s.owner.safeItemId(c, m)
-    p.annex = s.annex
+    if s.annex.index != 0:
+      p.annex = (toLitId(s.annex.module.FileIndex, c, m), s.annex.index)
 
     # fill the reserved slot, nothing else:
     m.syms[s.itemId.item] = p
@@ -832,10 +833,15 @@ proc loadProcBody(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: in
       result = loadNodes(c, g, thisModule, tree, n0)
     inc i
 
+proc moduleIndex(c: var PackedDecoder; g: PackedModuleGraph; thisModule: int;
+                 module: LitId): int32 {.inline.} =
+  ## Returns the module ID for the stored ``FileIndex`` identified by `module`.
+  result = if module == LitId(0): thisModule.int32
+           else: toFileIndexCached(c, g, thisModule, module).int32
+
 proc moduleIndex*(c: var PackedDecoder; g: PackedModuleGraph; thisModule: int;
                   s: PackedItemId): int32 {.inline.} =
-  result = if s.module == LitId(0): thisModule.int32
-           else: toFileIndexCached(c, g, thisModule, s.module).int32
+  result = moduleIndex(c, g, thisModule, s.module)
 
 proc symHeaderFromPacked(c: var PackedDecoder; g: var PackedModuleGraph;
                          s: PackedSym; si, item: int32): PSym =
@@ -870,7 +876,10 @@ proc symBodyFromPacked(c: var PackedDecoder; g: var PackedModuleGraph;
     loadAstBodyLazy(s, ast)
   else:
     loadAstBody(s, ast)
-  result.annex = s.annex
+
+  if s.annex.index != 0:
+    result.annex = LibId(module: moduleIndex(c, g, si, s.annex.module),
+                        index: s.annex.index)
 
   if s.kind in {skLet, skVar, skField, skForVar}:
     result.guard = loadSym(c, g, si, s.guard)
