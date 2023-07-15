@@ -1248,7 +1248,7 @@ template debug*(it: PType) =
 
                   # trfShowNodeTypes,
                   trfShowNodeLineInfo, trfShowNodeFlags}
-  debugAux(implicitDebugConfRef, it, implicitTReprConf, instLoc())
+  debugAux(implicitDebugConfRef, it, conf, instLoc())
 
 template debug*(it: PIdent) =
   ## Print tree representation of a PIdent for compiler debugging
