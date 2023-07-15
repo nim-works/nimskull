@@ -1234,7 +1234,20 @@ template debug*(it: PSym) =
 
 template debug*(it: PType) =
   ## Print tree representation of a PType for compiler debugging
-  # TODO: customize the TReprConf here
+  # TODO: create a PType specific implicitTReprConf
+  var conf = implicitTReprConf
+  conf.flags = conf.flags +
+                {
+                  trfShowTypeAst, trfShowTypeId,
+
+                  trfShowTypeFlags
+                } -
+                {
+                  trfShowTypeSym, trfShowSymLineInfo,
+                  trfShowSymFlags, trfShowSymMagic,
+
+                  # trfShowNodeTypes,
+                  trfShowNodeLineInfo, trfShowNodeFlags}
   debugAux(implicitDebugConfRef, it, implicitTReprConf, instLoc())
 
 template debug*(it: PIdent) =
