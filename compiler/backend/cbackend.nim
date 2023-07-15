@@ -443,7 +443,8 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
   # all actually-used dynamic libraries
   for lib in discovery.libs.items:
     localReport(graph.config):
-      SemReport(kind: rsemHintLibDependency, str: lib.path.strVal)
+      SemReport(kind: rsemHintLibDependency,
+                str: graph.getLib(lib).path.strVal)
 
   # finalize code generation for the modules and generate and emit the code
   # for the 'main' procedure:

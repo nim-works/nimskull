@@ -94,7 +94,7 @@ type
     globals*: Queue[PSym]
     threadvars*: Queue[PSym]
 
-    libs*: seq[PLib]
+    libs*: seq[LibId]
       ## all dynamic libraries that the alive graph depends on
 
     additional: seq[tuple[m: FileIndex, prc: PSym]]
@@ -550,7 +550,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
   ## necessary dynamic library is emitted into the fragment and the global
   ## storing the library handle registered with `data`.
   let
-    lib      = sym.annex
+    lib      = graph.getLib(sym.annex)
     loadProc = graph.getCompilerProc("nimGetProcAddr")
     path     = transformExpr(graph, m.idgen, m.sym, lib.path)
     extname  = newStrNode(nkStrLit, sym.extname)
@@ -588,7 +588,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
       # the library hasn't been loaded yet
       genLibSetup(graph, conf, lib.name, path, result)
       if path.kind in nkStrKinds: # only register statically-known dependencies
-        data.libs.add lib
+        data.libs.add sym.annex
       data.globals.add lib.name # register the global
 
     # generate the code for ``sym = cast[typ](nimGetProcAddr(lib, extname))``
