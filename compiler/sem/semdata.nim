@@ -36,12 +36,6 @@ import
   ],
   compiler/ic/[
     ic
-  ],
-  compiler/utils/[
-    containers
-  ],
-  experimental/[
-    dod_helpers
   ]
 
 from compiler/ast/reports_sem import reportAst,
@@ -57,7 +51,7 @@ type
   TOptionEntry* = object      ## entries to put on a stack for pragma parsing
     options*: TOptions
     defaultCC*: TCallingConvention
-    dynlib*: opt(LibId)
+    dynlib*: LibId
     notes*: ReportKinds
     features*: set[Feature]
     otherPragmas*: PNode      ## every pragma can be pushed
@@ -799,7 +793,7 @@ proc newOptionEntry*(conf: ConfigRef): POptionEntry =
   new(result)
   result.options = conf.options
   result.defaultCC = ccNimCall
-  result.dynlib = noneOpt(LibId)
+  result.dynlib = LibId()
   result.notes = conf.notes
   result.warningAsErrors = conf.warningAsErrors
 
@@ -897,16 +891,26 @@ proc reexportSym*(c: PContext; s: PSym) =
   if c.config.symbolFiles != disabledSf:
     addReexport(c.encoder, c.packedRepr, s)
 
-template libs*(c: PContext): Store[LibId, TLib] =
-  c.graph.libs[c.module.position]
-
 proc initLib*(kind: TLibKind): TLib =
   result = TLib(kind: kind)
 
 proc addToLib*(lib: LibId, sym: PSym) =
   #if sym.annex != nil and not isGenericRoutine(sym):
   #  LocalError(sym.info, errInvalidPragma)
-  sym.annex = someOpt(lib)
+  assert not isNil(lib)
+  sym.annex = lib
+
+proc addLib*(c: PContext, lib: sink TLib): LibId =
+  c.graph.addLib(c.idgen.module, lib)
+
+func `[]`*(c: PContext, id: LibId): var TLib =
+  c.graph.getLib(id)
+
+iterator libs*(c: PContext): (LibId, var TLib)  =
+  ## Returns all ``TLib`` instances associated with `c`.
+  let pos = c.idgen.module
+  for i in 0..<c.graph.libs[pos].len:
+    yield (LibId(module: pos, index: uint32(i + 1)), c.graph.libs[pos][i])
 
 proc newTypeS*(kind: TTypeKind, c: PContext): PType =
   result = newType(kind, nextTypeId(c.idgen), getCurrOwner(c))

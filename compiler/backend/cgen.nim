@@ -35,13 +35,13 @@ import
   ],
   compiler/modules/[
     magicsys,
+    modulegraphs
   ],
   compiler/front/[
     options,
     msgs
   ],
   compiler/utils/[
-    containers,
     platform,
     nversion,
     bitsets,
@@ -59,8 +59,7 @@ import
     ccgutils,
     cgendata
   ],
-  experimental/[
-    dod_helpers
+  compiler/plugins/[
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced...
@@ -147,7 +146,7 @@ proc isSimpleConst(typ: PType): bool =
 
 proc useHeader(m: BModule, sym: PSym) =
   if exfHeader in sym.extFlags:
-    let str = getStr(m.g.graph.libs[sym.itemId.module][sym.annex[]].path)
+    let str = getStr(m.g.graph.getLib(sym.annex).path)
     m.includeHeader(str)
 
 proc cgsym(m: BModule, name: string): Rope
@@ -686,7 +685,7 @@ proc mangleDynLibProc(sym: PSym): Rope =
     result = rope(strutils.`%`("Dl_$1_", $sym.id))
 
 proc symInDynamicLib*(m: BModule, sym: PSym) =
-  var lib = addr m.g.graph.libs[sym.itemId.module][sym.annex[]]
+  var lib = addr m.g.graph.getLib(sym.annex)
   let isCall = isGetProcAddr(lib[])
   let extname = sym.extname
   if not isCall: loadDynamicLib(m, lib[])
@@ -725,7 +724,7 @@ proc symInDynamicLib*(m: BModule, sym: PSym) =
   m.s[cfsVars].addf("$2 $1;$n", [tmp, getTypeDesc(m, sym.typ, skVar)])
 
 proc varInDynamicLib(m: BModule, sym: PSym) =
-  var lib = addr m.g.graph.libs[sym.itemId.module][sym.annex[]]
+  var lib = addr m.g.graph.getLib(sym.annex)
   let extname = sym.extname
   loadDynamicLib(m, lib[])
   let tmp = mangleDynLibProc(sym)

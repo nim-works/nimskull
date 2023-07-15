@@ -25,7 +25,6 @@ import
     options
   ],
   compiler/utils/[
-    containers,
     ropes,
     pathutils
   ]
@@ -1097,10 +1096,10 @@ proc loadSymFromId*(config: ConfigRef, cache: IdentCache;
     result = loadSym(decoder, g, module, id)
 
 proc loadLibs*(config: ConfigRef, cache: IdentCache,
-               g: var PackedModuleGraph, module: int): Store[LibId, TLib] =
+               g: var PackedModuleGraph, module: int): seq[TLib] =
   setupDecoder()
   for it in g[module].fromDisk.libs.items:
-    discard result.add(loadLib(decoder, g, module, it))
+    result.add(loadLib(decoder, g, module, it))
 
 proc translateId*(id: PackedItemId; g: PackedModuleGraph; thisModule: int; config: ConfigRef): ItemId =
   if id.module == LitId(0):

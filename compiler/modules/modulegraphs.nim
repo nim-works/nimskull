@@ -99,7 +99,7 @@ type
     enumToStringProcs*: Table[ItemId, LazySym]
     emittedTypeInfo*: Table[string, FileIndex]
 
-    libs*: seq[Store[LibId, TLib]] ## indexed by module position
+    libs*: seq[seq[TLib]] ## indexed by ``LibId``
 
     startupPackedConfig*: PackedConfig
     packageSyms*: TStrTable
@@ -380,9 +380,23 @@ proc getToStringProc*(g: ModuleGraph; t: PType): PSym =
 proc setToStringProc*(g: ModuleGraph; t: PType; value: PSym) =
   g.enumToStringProcs[t.itemId] = LazySym(sym: value)
 
-proc storeLib*(g: ModuleGraph, module: int, lib: TLib) =
+func getLib*(g: ModuleGraph, id: LibId): var TLib =
+  assert not isNil(id), "id is 'none'"
+  result = g.libs[id.module][id.index - 1]
+
+proc addLib*(g: ModuleGraph, module: int, lib: sink TLib): LibId =
+  ## Registers (adds) `lib` with the given module and returns the ID through
+  ## which the instance can be accessed from now on.
+  g.libs[module].add lib
+  # the index is 1-based, so we can directly use the length
+  result = LibId(module: module.int32, index: g.libs[module].len.uint32)
+
+proc storeLibs*(g: ModuleGraph, module: int) =
+  ## Writes the ``TLib`` instances associated with `module` to the module's
+  ## packed representation. Only relevant for IC.
   if g.config.symbolFiles != disabledSf:
-    storeLib(g.encoders[module], g.packed[module].fromDisk, lib)
+    for lib in g.libs[module].items:
+      storeLib(g.encoders[module], g.packed[module].fromDisk, lib)
 
 iterator methodsForGeneric*(g: ModuleGraph; t: PType): (int, PSym) =
   if g.methodsPerType.contains(t.itemId):

@@ -35,7 +35,6 @@ import
     options
   ],
   compiler/utils/[
-    containers,
     pathutils,
     debugutils,
     idioms
@@ -46,9 +45,6 @@ import
   ],
   compiler/backend/[
     extccomp
-  ],
-  experimental/[
-    dod_helpers
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
@@ -359,7 +355,7 @@ proc processCallConv(c: PContext, n: PNode): PNode =
     result = c.config.newError(n, PAstDiag(kind: adSemCallconvExpected))
 
 proc getLib(c: PContext, kind: TLibKind, path: PNode): LibId =
-  for id, it in c.libs.pairs:
+  for id, it in c.libs:
     if it.kind == kind and trees.exprStructuralEquivalent(it.path, path):
       return id
 
@@ -368,7 +364,7 @@ proc getLib(c: PContext, kind: TLibKind, path: PNode): LibId =
   if path.kind in {nkStrLit..nkTripleStrLit}:
     lib.isOverriden = options.isDynlibOverride(c.config, path.strVal)
 
-  result = c.libs.add(lib)
+  result = c.addLib(lib)
 
 proc expectDynlibNode(c: PContext, n: PNode): PNode =
   ## `n` must be a callable, this will produce the ast for the callable or
@@ -395,8 +391,8 @@ proc processDynLib(c: PContext, n: PNode, sym: PSym): PNode =
       result = libNode
     else:
       let lib = getLib(c, libDynamic, libNode)
-      if not c.libs[lib].isOverriden:
-        c.optionStack[^1].dynlib = someOpt(lib)
+      if not c[lib].isOverriden:
+        c.optionStack[^1].dynlib = lib
   else:
     if n.kind in nkPragmaCallKinds:
       let libNode = expectDynlibNode(c, n)
@@ -405,7 +401,7 @@ proc processDynLib(c: PContext, n: PNode, sym: PSym): PNode =
         result = libNode
       else:
         var lib = getLib(c, libDynamic, libNode)
-        if not c.libs[lib].isOverriden:
+        if not c[lib].isOverriden:
           addToLib(lib, sym)
           incl(sym.extFlags, exfDynamicLib)
     else:
@@ -1857,10 +1853,10 @@ proc inheritDynlib*(c: PContext, sym: PSym) =
   ## applicable. The dynlib pragma can be applied if the symbol is marked as
   ## imported, but no header nor dynlib are specified.
   let lib = c.optionStack[^1].dynlib
-  if lib.isSome and sfImportc in sym.flags and
+  if not lib.isNil and sfImportc in sym.flags and
      {exfDynamicLib, exfHeader} * sym.extFlags == {}:
     incl(sym.extFlags, exfDynamicLib)
-    addToLib(lib[], sym)
+    addToLib(lib, sym)
     if sym.extname == "":
       # XXX: this looks like a unnecessary defensive check. If the symbol is
       #      marked as imported, it already has an external name set

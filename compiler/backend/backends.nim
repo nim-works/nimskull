@@ -36,9 +36,6 @@ import
   compiler/utils/[
     containers,
     idioms
-  ],
-  experimental/[
-    dod_helpers
   ]
 
 type
@@ -568,7 +565,7 @@ proc preprocessDynlib(graph: ModuleGraph, idgen: IdGenerator,
   #       be removed once handling of dynlib procedures and globals is fully
   #       implemented in the ``process`` iterator
   if exfDynamicLib in sym.extFlags:
-    let lib = addr graph.libs[moduleId(sym)][sym.annex[]]
+    let lib = addr graph.getLib(sym.annex)
     if lib.path.kind in nkStrKinds:
       # it's a string, no need to transform nor scan it
       discard
