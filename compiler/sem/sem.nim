@@ -942,12 +942,14 @@ proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
   # setup the symbols for the globals that store the handles of loaded
   # dynamic libraries:
   for id, it in c.libs:
-    let info = c.module.info
-    let s = newSym(skVar, c.cache.getIdent("lib" & $id.index),
+    if it.kind == libDynamic:
+      let
+        info = c.module.info
+        s = newSym(skVar, c.cache.getIdent("lib" & $id.index),
                    nextSymId(c.idgen), c.module, info)
-    s.typ = graph.getSysType(info, tyPointer)
-    s.flags.incl sfGlobal
-    it.name = s
+      s.typ = graph.getSysType(info, tyPointer)
+      s.flags.incl sfGlobal
+      it.name = s
 
   storeLibs(graph, c.idgen.module)
   closeScope(c)         # close module's scope
