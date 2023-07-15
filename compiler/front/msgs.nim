@@ -826,7 +826,7 @@ func lexerDiagToLegacyReport*(diag: LexerDiag): Report {.inline.} =
             msg: diagToHumanStr(diag))
   result = Report(category: repLexer, lexReport: rep)
 
-proc handleReport*(
+proc handleLexerDiag*(
     conf: ConfigRef,
     diag: LexerDiag,
     reportFrom: InstantiationInfo,
