@@ -751,6 +751,10 @@ makeCnstFunc(toFloatCnst, BiggestFloat, cnstFloat, floatVal, cmpFloatRep)
 
 makeCnstFunc(toStringCnst, string, cnstString, strVal, `==`)
 
+proc toIntCnst(c: var TCtx, val: Int128): int =
+  # integer constants are stored as their raw bit representation
+  toIntCnst(c, BiggestInt(toInt64(val)))
+
 proc genLiteral(c: var TCtx, n: PNode): int =
   ## Create a constant, add it to the `c.constants` list and return
   ## the index of where it's located there
@@ -1229,12 +1233,11 @@ proc genVarargsABC(c: var TCtx; n: PNode; dest: TRegister; opc: TOpcode) =
   c.freeTempRange(x, n.len-1)
 
 proc isInt8Lit(n: PNode): bool =
-  if n.kind in {nkCharLit..nkUInt64Lit}:
-    result = n.intVal >= low(int8) and n.intVal <= high(int8)
-
-proc isInt16Lit(n: PNode): bool =
-  if n.kind in {nkCharLit..nkUInt64Lit}:
-    result = n.intVal >= low(int16) and n.intVal <= high(int16)
+  ## Returns whether `n` represents an integer value (signed or
+  ## unsigned) that fits into the range of an 8-bit signed integer.
+  if n.kind in nkIntKinds:
+    let val = getInt(n)
+    result = val >= low(int8) and val <= high(int8)
 
 proc genAddSubInt(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode) =
   if n[2].isInt8Lit:
@@ -1506,35 +1509,42 @@ proc genVoidBC(c: var TCtx, n: PNode, dest: TDest, opcode: TOpcode) =
   c.freeTemp(tmp1)
   c.freeTemp(tmp2)
 
-proc loadInt(c: var TCtx, n: PNode, dest: TRegister, val: BiggestInt) =
+proc loadInt(c: var TCtx, n: PNode, dest: TRegister, val: Int128) =
   ## Loads the integer `val` into `dest`, choosing the most efficient way to
   ## do so.
   if val in regBxMin-1..regBxMax:
     # can be loaded as an immediate
-    c.gABx(n, opcLdImmInt, dest, val.int)
+    c.gABx(n, opcLdImmInt, dest, toInt(val))
   else:
     # requires a constant
     c.gABx(n, opcLdConst, dest, c.toIntCnst(val))
 
-proc genSetElem(c: var TCtx, n: PNode, first: int): TRegister =
+proc genSetElem(c: var TCtx, n: PNode, first: Int128): TRegister =
   result = c.getTemp(n.typ)
 
   if first != 0:
     if n.kind in nkIntKinds:
-      # a literal value
-      c.gABx(n, opcLdImmInt, result, int(n.intVal - first))
+      # a literal value. Since sem makes sure sets cannot store elements
+      # with an adjusted value of >= 2^16, we know that the result of the
+      # subtraction fits into the encodable range for ABX
+      c.gABx(n, opcLdImmInt, result, toInt(getInt(n) - first))
     else:
       gen(c, n, result)
       if first notin -127..127:
         # too large for the ABI encoding; we need to load a constant
-        let tmp = c.getTemp(n.typ)
+        let
+          typ = skipTypes(n.typ, IrrelevantTypes + {tyRange})
+          tmp = c.getTemp(typ)
+          opc =
+            if isUnsigned(typ): opcSubu
+            else:               opcSubInt
         c.loadInt(n, tmp, first)
-        c.gABC(n, opcSubInt, result, result, tmp)
+        c.gABC(n, opc, result, result, tmp)
         c.freeTemp(tmp)
       elif first > 0:
-        c.gABI(n, opcSubImmInt, result, result, first)
+        c.gABI(n, opcSubImmInt, result, result, toInt(first))
       else:
-        c.gABI(n, opcAddImmInt, result, result, -first)
+        c.gABI(n, opcAddImmInt, result, result, toInt(-first))
 
   else:
     gen(c, n, result)
@@ -1547,7 +1557,7 @@ proc genSetElem(c: var TCtx, n: PNode, typ: PType): TRegister {.inline.} =
   # `first` can't be reliably derived from `n.typ` since the type may not
   # match the set element type. This happens with the set in a
   # `nkCheckedFieldExpr` for example
-  let first = toInt(c.config.firstOrd(t))
+  let first = c.config.firstOrd(t)
   genSetElem(c, n, first)
 
 func fitsRegister(t: PType): bool =
@@ -2885,7 +2895,7 @@ proc genSetConstr(c: var TCtx, n: PNode, dest: var TDest) =
   c.gABx(n, opcLdNull, dest, c.genType(n.typ))
   # XXX: since `first` stays the same across the loop, we could invert
   #      the loop around `genSetElem`'s logic...
-  let first = firstOrd(c.config, n.typ.skipTypes(abstractInst)).toInt()
+  let first = firstOrd(c.config, n.typ.skipTypes(abstractInst))
   for x in n:
     if x.kind == nkRange:
       let a = c.genSetElem(x[0], first)
@@ -3026,13 +3036,10 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
     else:
       genCall(c, n, dest)
       clearDest(c, n, dest)
-  of nkCharLit..nkInt64Lit:
-    if isInt16Lit(n):
-      if dest.isUnset: dest = c.getTemp(n.typ)
-      c.gABx(n, opcLdImmInt, dest, n.intVal.int)
-    else:
-      genLit(c, n, dest)
-  of nkUIntLit..pred(nkNilLit): genLit(c, n, dest)
+  of nkIntKinds:
+    prepare(c, dest, n.typ)
+    c.loadInt(n, dest, getInt(n))
+  of nkFloatKinds, nkStrKinds: genLit(c, n, dest)
   of nkNilLit:
     if not n.typ.isEmptyType:
       let t = n.typ.skipTypes(abstractInst)
