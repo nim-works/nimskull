@@ -1172,7 +1172,7 @@ proc getPrecedence*(tok: Token): int =
   of tkOr, tkXor, tkPtr, tkRef: result = 3
   else: return -10
 
-proc newlineFollows*(L: Lexer): bool =
+proc newlineFollows(L: Lexer): bool =
   var pos = L.bufpos
   while true:
     case L.buf[pos]
@@ -1526,7 +1526,7 @@ proc rawGetTok*(L: var Lexer, tok: var Token) =
         inc(L.bufpos)
   atTokenEnd()
 
-proc getIndentWidth*(fileIdx: FileIndex, inputstream: PLLStream;
+proc getIndentWidth(fileIdx: FileIndex, inputstream: PLLStream;
                      cache: IdentCache; config: ConfigRef): int =
   var lex: Lexer
   var tok: Token
