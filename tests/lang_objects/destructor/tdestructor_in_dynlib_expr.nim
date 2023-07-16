@@ -4,7 +4,7 @@ discard """
     Run-time expressions used with the `.dynlib` pragma are also affected by
     destructor injection
   '''
-  output: "could not load: non_existent_library_name"
+  outputsub: "could not load: non_existent_library_name"
   exitcode: 1
 """
 
