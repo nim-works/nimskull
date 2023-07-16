@@ -199,7 +199,10 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
 
   var m = graph.makeModule(scriptName)
   incl(m.flags, sfMainModule)
-  var vm = setupVM(m, cache, scriptName.string, graph, graph.idgen)
+  # use a dedicated ID generator for the module; don't reuse the graph's
+  let idgen = idGeneratorFromModule(m)
+
+  var vm = setupVM(m, cache, scriptName.string, graph, idgen)
   let disallowDanger =
     defined(nimsuggest) or graph.config.cmd == cmdCheck or
     vmopsDanger notin graph.config.features
@@ -217,6 +220,6 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
   graph.vm = PEvalContext(vm: vm)
 
   graph.compileSystemModule()
-  discard graph.processModule(m, graph.idgen, stream)
+  discard graph.processModule(m, idgen, stream)
 
   undefSymbol(conf, "nimscript")
