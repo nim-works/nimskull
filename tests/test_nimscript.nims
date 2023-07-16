@@ -89,6 +89,11 @@ import stdlib/os/tosenv
 echo "Nimscript imports are successful."
 
 block:
+  # a procedure with a .header (or .dynlib) pragma defined directly inside
+  # the executed NimScript file would crash the compiler
+  proc test() {.importc, header: "ignore".}
+
+block:
   doAssert "./foo//./bar/".normalizedPath == "foo/bar".unixToNativePath
 block:
   doAssert $3'u == "3"
