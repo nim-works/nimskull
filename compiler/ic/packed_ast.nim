@@ -39,9 +39,8 @@ type
 
   PackedLib* = object
     kind*: TLibKind
-    generated*: bool
     isOverriden*: bool
-    name*: LitId
+    name*: PackedItemId
     path*: NodeId
 
   PackedSym* = object

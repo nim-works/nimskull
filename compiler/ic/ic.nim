@@ -386,9 +386,9 @@ proc storeType(t: PType; c: var PackedEncoder; m: var PackedModule): PackedItemI
 
 proc toPackedLib(l: TLib; c: var PackedEncoder; m: var PackedModule): PackedLib =
   result.kind = l.kind
-  result.generated = l.generated
   result.isOverriden = l.isOverriden
-  result.name = toLitId($l.name, m)
+  if l.kind == libDynamic:
+    result.name = storeSymLater(l.name, c, m)
   storeNode(result, l, path)
 
 proc storeSym*(s: PSym; c: var PackedEncoder; m: var PackedModule): PackedItemId =
@@ -864,8 +864,10 @@ template loadAstBodyLazy(p, field) =
 
 proc loadLib(c: var PackedDecoder; g: var PackedModuleGraph;
              si: int; l: PackedLib): TLib =
-  result = TLib(generated: l.generated, isOverriden: l.isOverriden,
-                kind: l.kind, name: rope g[si].fromDisk.strings[l.name])
+  result = TLib(isOverriden: l.isOverriden, kind: l.kind)
+  if l.kind == libDynamic:
+    result.name = loadSym(c, g, si, l.name)
+
   loadAstBody(l, path)
 
 proc symBodyFromPacked(c: var PackedDecoder; g: var PackedModuleGraph;

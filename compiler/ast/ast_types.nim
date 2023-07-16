@@ -1,5 +1,4 @@
 import compiler/ast/lineinfos
-import compiler/utils/ropes
 import std/[hashes]
 
 from compiler/ast/idents import PIdent, TIdent
@@ -852,6 +851,8 @@ type
     mException, mBuiltinType, mSymOwner, mUncheckedArray, mGetImplTransf,
     mSymIsInstantiationOf, mNodeId, mPrivateAccess
 
+    # magics only used internally:
+    mAsgnDynlibVar
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const
@@ -1610,9 +1611,8 @@ type
   TLib* = object              ## also misused for headers!
                               ## keep in sync with PackedLib
     kind*: TLibKind
-    generated*: bool          ## needed for the backends:
     isOverriden*: bool
-    name*: Rope
+    name*: PSym
     path*: PNode              ## can be a string literal!
 
   LibId* = object

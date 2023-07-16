@@ -187,6 +187,10 @@ proc processEvent(c: var TCtx, mlist: ModuleList, discovery: var DiscoveryData,
     # a complete procedure became available
     let r = generateCodeForProc(c, evt.sym, evt.body)
     fillProcEntry(c.functions[c.symToIndexTbl[evt.sym.id]], r)
+  of bekImported:
+    # not supported at the moment; ``vmgen`` is going to raise an
+    # error when generating a call to a dynlib procedure
+    discard "ignore"
 
 proc generateAliveProcs(c: var TCtx, config: BackendConfig,
                         discovery: var DiscoveryData, mlist: var ModuleList) =

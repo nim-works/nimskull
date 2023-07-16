@@ -938,6 +938,19 @@ proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
   var c = PContext(context)
   if c.config.cmd == cmdIdeTools and not c.suggestionsMade:
     suggestSentinel(c)
+
+  # setup the symbols for the globals that store the handles of loaded
+  # dynamic libraries:
+  for id, it in c.libs:
+    if it.kind == libDynamic:
+      let
+        info = c.module.info
+        s = newSym(skVar, c.cache.getIdent("lib" & $id.index),
+                   nextSymId(c.idgen), c.module, info)
+      s.typ = graph.getSysType(info, tyPointer)
+      s.flags.incl sfGlobal
+      it.name = s
+
   storeLibs(graph, c.idgen.module)
   closeScope(c)         # close module's scope
   rawCloseScope(c)      # imported symbols; don't check for unused ones!
