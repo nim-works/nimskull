@@ -6,7 +6,7 @@
 ## Functions for writing target's dependencies in various formats.
 
 import
-  std/[strutils, tables]
+  std/[os, strutils, tables]
 
 import
   compiler/utils/[pathutils],
@@ -25,13 +25,15 @@ proc writeDepsFile*(g: ModuleGraph) =
       f.writeLine(toFullPath(g.config, k))
   f.close()
 
+func quoteFilepath(path: string): string =
+  ## Quote paths for use in Unix Makefiles.
+  return path.multiReplace((" ", "\\ "), ("#", "\\#"))
+
 proc writeGccDepfile*(depfile: File, target: string, paths: openArray[string]) =
   ## Outputs one `make` rule containing target's file name, a colon, and the
   ## names of all specified paths. Spaces and hashes are escaped.
-  let target = target.multiReplace((" ", "\\ "), ("#", "\\#"))
-  depfile.write(target & ": \\" & '\n')
-  for it in paths:
-    let path = it.multiReplace((" ", "\\ "), ("#", "\\#"))
-    if path.len == 0:
+  depfile.write(target.quoteFilepath & ": \\" & '\n')
+  for path in paths:
+    if path.len == 0 or not fileExists(path):
       continue
-    depfile.write('\t' & path & " \\" & '\n')
+    depfile.write('\t' & path.quoteFilepath & " \\" & '\n')
