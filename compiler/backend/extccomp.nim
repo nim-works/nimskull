@@ -626,7 +626,7 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
           kind: rbackCannotProduceAssembly,
           usedCompiler: CC[conf.cCompiler].name)
 
-  result = exe & ' ' & CC[c].compileTmpl % [
+  result = exe.quoteShell & ' ' & CC[c].compileTmpl % [
     "dfile", dfile,
     "file", cfsh, "objfile", quoteShell(objfile),
     "options", options, "include", includeCmd,
