@@ -1,3 +1,7 @@
+<!--- The Pull Request (=PR) message is what will get automatically used as
+the commit message when the PR is merged. Make sure that no line is longer
+than 72 characters -->
+
 ## Summary
 * what changed and how?
 * why are we changing it?
@@ -30,4 +34,3 @@ for details, especially if you're new to this project.
 Tips that make PRs easier:
 * for big/impactful changes, start with chat/discussions to refine ideas
 * refine the pull request message over time; don't have to nail it in one go
-* handle the single commit message requirement at the end of review
