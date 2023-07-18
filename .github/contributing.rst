@@ -87,50 +87,23 @@ Anatomy of a Pull Request
 =========================
 
 There is a GitHub Pull Request template to help guide crafting a description,
-and you can liberally copy content from the commit message as needed.
+and you can liberally copy content from the commit messages as needed.
 
 If your PR isn't quite ready feel free to create it as a draft, then once
 you're all set feel free to flip it to "Ready for review".
 
+The PR can have as many commits as you want, with multiple commits being
+preferred, as it can make review easier, especially when there are many
+changes.
 
-One Commit Per Pull Request
----------------------------
+When the PR is merged, a squashed version of the commits is automatically
+created (leaving both the original branch and the commits as they show up in
+the history on GitHub intact), with everything coming before the first section
+break (`---`) in the PR message being used as the commit message.
 
-Pull request should contain a single **passing** commit. This is necessary
-to ensure clean git history that is not cluttered by a partially working,
-failing and outright failing to compile states.
-
-To achieve this you can do either of the following:
-
-- If the change fits into a single commit you don't need to do anything
-- If you need to made some additional modifications (review requested) you
-  can amend the commit and force-push it (`git commit --amend
-  --no-edit`:cmd: and `git push --force <remote> <your branch>`:cmd:)
-- Create multiple commits and then squash them when your pull request is
-  approved.
-  1. Create multiple commits
-  2. Create new branch based on `devel` (`git checkout devel`:cmd: and `git
-     checkout <branch>-squashed`:cmd:)
-  3. Squash merge your original branch into a new one - `git merge --squash
-     <branch>`:cmd:
-  4. Commit your squashed branch using `git commit`:cmd:
-
-     .. note::
-
-        By default you will get pre-filled commit message which contains
-        pretty verbose "sqash of the following" message - those are not
-        going to be accepted by the PR reviewers, and need to be edited
-        into human-readable error message according to the commit message
-        guidelines.
-
-     .. tip::
-
-        You can write a commit message as a PR description and then
-        copy-paste it when you are done with the implementation.
-
-  5. Force-push your squashed branch using `git push --force <remote>
-     HEAD:<branch>`:cmd:
-
+Force pushing to a branch for which a PR has already been created is okay, but
+please try to only rewrite history for commits that haven't been reviewed yet,
+so as to make incremental reviews easier.
 
 Commit Message
 --------------
