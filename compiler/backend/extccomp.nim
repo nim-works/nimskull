@@ -569,9 +569,16 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
   var options = cFileSpecificOptions(conf, cfile.nimname, cfile.cname.changeFileExt("").string)
 
   var exe = getConfigVar(conf, c, ".exe")
-  if exe.len == 0: exe = getCompilerExe(conf, c, cfile.cname)
+  if exe.len == 0:
+    # fallback to the default
+    exe = getCompilerExe(conf, c, cfile.cname)
 
-  if needsExeExt(conf): exe = addFileExt(exe, "exe")
+  if needsExeExt(conf):
+    exe = exe.addFileExt("exe")
+
+  if not noAbsolutePaths(conf):
+    exe = joinPath(conf.cCompilerPath, exe)
+
   if optGenDynLib in conf.globalOptions and
       ospNeedsPIC in platform.OS[conf.target.targetOS].props:
     options.add(' ' & CC[c].pic)
@@ -580,21 +587,15 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
     options.add ' '
     options.add cfile.customArgs
 
-  var compilePattern: string
-  # compute include paths:
-  var includeCmd = CC[c].includeCmd & quoteShell(conf.libpath)
-  if not noAbsolutePaths(conf):
-    for includeDir in items(conf.cIncludes):
-      includeCmd.add(join([CC[c].includeCmd, includeDir.quoteShell]))
+  # compute include paths
+  let includeDirs = @[conf.libpath, conf.projectPath] & conf.cIncludes
+  let includeCmd = join(includeDirs.mapIt(CC[c].includeCmd & it.quoteShell))
 
-    compilePattern = joinPath(conf.cCompilerPath, exe)
-  else:
-    compilePattern = getCompilerExe(conf, c, cfile.cname)
-
-  includeCmd.add(join([CC[c].includeCmd, quoteShell(conf.projectPath.string)]))
-
-  let cf = if noAbsolutePaths(conf): AbsoluteFile extractFilename(cfile.cname.string)
-           else: cfile.cname
+  let cf =
+    if noAbsolutePaths(conf):
+      extractFilename(cfile.cname.string).AbsoluteFile
+    else:
+      cfile.cname
 
   let objfile =
     if cfile.obj.isEmpty:
@@ -612,12 +613,6 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
   let dfile = objfile.changeFileExt(".d").quoteShell
 
   let cfsh = quoteShell(cf)
-  result = quoteShell(compilePattern % [
-    "dfile", dfile,
-    "file", cfsh, "objfile", quoteShell(objfile), "options", options,
-    "include", includeCmd, "nim", getPrefixDir(conf).string,
-    "lib", conf.libpath.string,
-    "ccenvflags", envFlags(conf)])
 
   if optProduceAsm in conf.globalOptions:
     if CC[conf.cCompiler].produceAsm.len > 0:
@@ -631,15 +626,14 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
           kind: rbackCannotProduceAssembly,
           usedCompiler: CC[conf.cCompiler].name)
 
-  result.add(' ')
-  strutils.addf(result, CC[c].compileTmpl, [
+  result = exe.quoteShell & ' ' & CC[c].compileTmpl % [
     "dfile", dfile,
     "file", cfsh, "objfile", quoteShell(objfile),
     "options", options, "include", includeCmd,
     "nim", quoteShell(getPrefixDir(conf)),
     "lib", quoteShell(conf.libpath),
     "vccplatform", vccplatform(conf),
-    "ccenvflags", envFlags(conf)])
+    "ccenvflags", envFlags(conf)]
 
 proc footprint(conf: ConfigRef; cfile: Cfile): SecureHash =
   result = secureHash(
