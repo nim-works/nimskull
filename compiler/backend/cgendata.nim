@@ -11,6 +11,7 @@
 
 import
   std/[
+    hashes,
     intsets,
     tables,
     sets
@@ -18,7 +19,8 @@ import
   compiler/ast/[
     ast,
     lineinfos,
-    ndi
+    ndi,
+    types
   ],
   compiler/modules/[
     modulegraphs
@@ -28,6 +30,7 @@ import
   ],
   compiler/utils/[
     containers,
+    idioms,
     ropes,
     pathutils
   ]
@@ -87,6 +90,11 @@ type
                               ## one-to-one correspondence between
                               ## ``DiscoverData`` and ``ProcLoc``
     params*: seq[TLoc]        ## the locs of the parameters
+
+  ConstrTree* = distinct PNode
+    ## A ``PNode`` tree that represents a literal primitive/aggregate value
+    ## construction expression. A ``distinct`` alias for ``PNode`` is used
+    ## such that special equality and hash operations can be attached.
 
   TLabel* = Rope              ## for the C generator a label is just a rope
   TCFileSection* = enum       ## the sections a generated C file consists of
@@ -242,7 +250,9 @@ type
     typeInfoMarker*: TypeCache ## needed for generating type information
     typeInfoMarkerV2*: TypeCache
     typeStack*: TTypeSeq      ## used for type generation
-    dataCache*: TNodeTable
+    dataCache*: Table[ConstrTree, int] ## maps a value construction
+                              ## expression to the label of the C constant
+                              ## created for it
     typeNodes*: int ## used for type info generation
     typeNodesName*: Rope ## used for type info generation
     labels*: Natural          ## for generating unique module-scope names
@@ -333,3 +343,69 @@ func contains*[T](m: SymbolMap[T], sym: PSym): bool {.inline.} =
 iterator items*[T](m: SymbolMap[T]): lent T =
   for it in m.store.items:
     yield it
+
+proc hash(n: ConstrTree): Hash =
+  ## Computes a hash over the structure of `tree`. The hash function is
+  ## intended to be used with ``Table``, so two different trees are not
+  ## guaranteed to produce a different hash, but the same hash *must* be
+  ## produced for two structurally equal trees.
+  proc hashTree(n: PNode): Hash =
+    result = ord(n.kind)
+    case n.kind
+    of nkEmpty, nkNilLit, nkType:
+      discard
+    of nkSym:
+      result = result !& n.sym.id
+    of nkIntKinds:
+      result = result !& hash(n.intVal)
+    of nkFloatKinds:
+      # we'll be comparing the bit patterns later on, meaning that
+      # they're what we have to compute the hash for
+      result = result !& hash(cast[BiggestInt](n.floatVal))
+    of nkStrKinds:
+      result = result !& hash(n.strVal)
+    of nkWithSons:
+      for i in 0..<n.len:
+        result = result !& hashTree(n[i])
+    of nkNone, nkIdent, nkError:
+      unreachable()
+    result = !$result
+
+  result = hashTree(PNode(n))
+
+proc `==`(a, b: ConstrTree): bool =
+  ## Computes and returns whether `a` and `b` are structurally equal *and*
+  ## have equal types.
+  proc treesEquivalent(a, b: PNode): bool =
+    if a == b:
+      result = true
+    elif a.kind == b.kind:
+      case a.kind
+      of nkEmpty, nkNilLit, nkType:
+        result = true
+      of nkSym:
+        result = a.sym.id == b.sym.id
+      of nkIntKinds:
+        result = a.intVal == b.intVal
+      of nkFloatKinds:
+        result = cast[BiggestInt](a.floatVal) == cast[BiggestInt](b.floatVal)
+      of nkStrKinds:
+        result = a.strVal == b.strVal
+      of nkWithSons:
+        if a.len == b.len:
+          for i in 0..<a.len:
+            if not treesEquivalent(a[i], b[i]): return
+          result = true
+      of nkNone, nkIdent, nkError:
+        unreachable()
+
+      # we also want equal types:
+      if result:
+        result = sameTypeOrNil(a.typ, b.typ)
+
+  treesEquivalent(PNode(a), PNode(b))
+
+proc getOrPut*(t: var Table[ConstrTree, int], n: PNode, label: int): int =
+  ## Fetches the label for the given data AST, or adds the AST + label to the
+  ## table first if they're not present yet.
+  mgetOrPut(t, ConstrTree(n), label)

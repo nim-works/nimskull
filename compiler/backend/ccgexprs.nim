@@ -65,7 +65,7 @@ proc genLiteral(p: BProc, n: PNode, ty: PType): Rope =
   of nkNilLit:
     let k = if ty == nil: tyPointer else: skipTypes(ty, abstractVarRange).kind
     if k == tyProc and skipTypes(ty, abstractVarRange).callConv == ccClosure:
-      let id = nodeTableTestOrSet(p.module.dataCache, n, p.module.labels)
+      let id = getOrPut(p.module.dataCache, n, p.module.labels)
       result = p.module.tmpBase & rope(id)
       if id == p.module.labels:
         # not found in cache:
@@ -132,7 +132,7 @@ proc genSetNode(p: BProc, n: PNode): Rope =
   var size = int(getSize(p.config, n.typ))
   let cs = toBitSet(p.config, n)
   if size > 8:
-    let id = nodeTableTestOrSet(p.module.dataCache, n, p.module.labels)
+    let id = getOrPut(p.module.dataCache, n, p.module.labels)
     result = p.module.tmpBase & rope(id)
     if id == p.module.labels:
       # not found in cache:
@@ -998,7 +998,7 @@ proc genNewSeqOfCap(p: BProc; e: PNode; d: var TLoc) =
 proc rawConstExpr(p: BProc, n: PNode; d: var TLoc) =
   let t = n.typ
   discard getTypeDesc(p.module, t) # so that any fields are initialized
-  let id = nodeTableTestOrSet(p.module.dataCache, n, p.module.labels)
+  let id = getOrPut(p.module.dataCache, n, p.module.labels)
   fillLoc(d, locData, n, p.module.tmpBase & rope(id), OnStatic)
   if id == p.module.labels:
     # expression not found in the cache:
@@ -2113,7 +2113,7 @@ proc downConv(p: BProc, n: PNode, d: var TLoc) =
 proc exprComplexConst(p: BProc, n: PNode, d: var TLoc) =
   let t = n.typ
   discard getTypeDesc(p.module, t) # so that any fields are initialized
-  let id = nodeTableTestOrSet(p.module.dataCache, n, p.module.labels)
+  let id = getOrPut(p.module.dataCache, n, p.module.labels)
   let tmp = p.module.tmpBase & rope(id)
 
   if id == p.module.labels:
