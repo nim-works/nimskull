@@ -345,7 +345,7 @@ iterator items*[T](m: SymbolMap[T]): lent T =
     yield it
 
 proc hash(n: ConstrTree): Hash =
-  ## Computes a hash over the structure of `tree`. The hash function is
+  ## Computes a hash over the structure of a tree (`n`). The hash function is
   ## intended to be used with ``Table``, so two different trees are not
   ## guaranteed to produce a different hash, but the same hash *must* be
   ## produced for two structurally equal trees.
