@@ -25,7 +25,7 @@ proc genStringLiteralDataOnlyV2(m: BModule, s: string; result: Rope; isConst: bo
        rope(if isConst: "const" else: "")])
 
 proc genStringLiteralV2(m: BModule; n: PNode; isConst: bool): Rope =
-  let id = nodeTableTestOrSet(m.dataCache, n, m.labels)
+  let id = getOrPut(m.dataCache, n, m.labels)
   if id == m.labels:
     let pureLit = getTempName(m)
     genStringLiteralDataOnlyV2(m, n.strVal, pureLit, isConst)
@@ -42,7 +42,7 @@ proc genStringLiteralV2(m: BModule; n: PNode; isConst: bool): Rope =
           rope(if isConst: "const" else: "")])
 
 proc genStringLiteralV2Const(m: BModule; n: PNode; isConst: bool): Rope =
-  let id = nodeTableTestOrSet(m.dataCache, n, m.labels)
+  let id = getOrPut(m.dataCache, n, m.labels)
   var pureLit: Rope
   if id == m.labels:
     pureLit = getTempName(m)
