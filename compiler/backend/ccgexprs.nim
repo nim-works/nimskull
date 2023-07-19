@@ -1451,7 +1451,7 @@ proc fewCmps(conf: ConfigRef; s: PNode): bool =
   # this function estimates whether it is better to emit code
   # for constructing the set or generating a bunch of comparisons directly
   if s.kind != nkCurly: return false
-  if (getSize(conf, s.typ) <= conf.target.intSize) and (nfAllConst in s.flags):
+  if (getSize(conf, s.typ) <= conf.target.intSize) and isDeepConstExpr(s):
     result = false            # it is better to emit the set generation code
   elif elemType(s.typ).kind in {tyInt, tyInt16..tyInt64}:
     result = true             # better not emit the set if int is basetype!
@@ -1952,9 +1952,7 @@ proc genSetConstr(p: BProc, e: PNode, d: var TLoc) =
   # incl(tmp, d); incl(tmp, e); inclRange(tmp, f, g);
   var
     a, b, idx: TLoc
-  if nfAllConst in e.flags:
-    putIntoDest(p, d, e, genSetNode(p, e))
-  else:
+  if true:
     if d.k == locNone: getTemp(p, e.typ, d)
     if getSize(p.config, e.typ) > 8:
       # big set:
