@@ -228,7 +228,6 @@ type
     rvmCannotFindBreakTarget
     rvmNotUnused
     rvmUserError
-    rvmNotAFieldSymbol
     rvmTooLargetOffset
     rvmUnhandledException
     rvmCannotGenerateCode
@@ -238,7 +237,6 @@ type
     ## this report is largely meaningless, and used only to raise exception.
     rvmCannotEvaluateAtComptime
     rvmCannotImportc
-    rvmInvalidObjectConstructor
     rvmCannotCallMethod
     rvmCallingNonRoutine
     rvmCannotModifyTypechecked

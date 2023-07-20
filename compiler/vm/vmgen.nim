@@ -1058,8 +1058,7 @@ func local(prc: PProc, sym: PSym): TDest {.inline.} =
   prc.locals.getOrDefault(sym.id, -1)
 
 proc genField(c: TCtx; n: PNode): TRegister =
-  if n.kind != nkSym or n.sym.kind != skField:
-    fail(n.info, vmGenDiagNotAFieldSymbol, ast = n)
+  assert n.kind == nkSym and n.sym.kind == skField
 
   let s = n.sym
   if s.position > high(typeof(result)):
@@ -2921,7 +2920,8 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
 
   for i in 1..<n.len:
     let it = n[i]
-    if it.kind == nkExprColonExpr and it[0].kind == nkSym:
+    assert it.kind == nkExprColonExpr and it[0].kind == nkSym
+    if true:
       let idx = genField(c, it[0])
       var tmp: TRegister
       var opcode: TOpcode
@@ -2945,8 +2945,6 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
         opcode = opcInitDisc
       c.gABC(it[1], opcode, dest, idx, tmp)
       c.freeTemp(tmp)
-    else:
-      fail(n.info, vmGenDiagInvalidObjectConstructor, it)
 
   if t.kind == tyRef:
     swap(refTemp, dest)
@@ -3377,13 +3375,10 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
     of vmGenDiagTooManyRegistersRequired: adVmGenTooManyRegistersRequired
     of vmGenDiagCannotFindBreakTarget: adVmGenCannotFindBreakTarget
     of vmGenDiagNotUnused: adVmGenNotUnused
-    of vmGenDiagNotAFieldSymbol: adVmGenNotAFieldSymbol
     of vmGenDiagCannotGenerateCode: adVmGenCannotGenerateCode
     of vmGenDiagCannotEvaluateAtComptime: adVmGenCannotEvaluateAtComptime
-    of vmGenDiagInvalidObjectConstructor: adVmGenInvalidObjectConstructor
     of vmGenDiagMissingImportcCompleteStruct: adVmGenMissingImportcCompleteStruct
     of vmGenDiagCodeGenUnhandledMagic: adVmGenCodeGenUnhandledMagic
-    of vmGenDiagCodeGenGenericInNonMacro: adVmGenCodeGenGenericInNonMacro
     of vmGenDiagCodeGenUnexpectedSym: adVmGenCodeGenUnexpectedSym
     of vmGenDiagCannotImportc: adVmGenCannotImportc
     of vmGenDiagTooLargeOffset: adVmGenTooLargeOffset
@@ -3393,8 +3388,7 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
   {.cast(uncheckedAssign).}: # discriminants on both sides lead to saddness
     result =
       case diag.kind
-      of vmGenDiagCodeGenGenericInNonMacro,
-          vmGenDiagCodeGenUnexpectedSym,
+      of vmGenDiagCodeGenUnexpectedSym,
           vmGenDiagCannotImportc,
           vmGenDiagTooLargeOffset,
           vmGenDiagCannotCallMethod:
@@ -3412,10 +3406,8 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
           kind: kind,
           magic: diag.magic)
       of vmGenDiagNotUnused,
-          vmGenDiagNotAFieldSymbol,
           vmGenDiagCannotGenerateCode,
-          vmGenDiagCannotEvaluateAtComptime,
-          vmGenDiagInvalidObjectConstructor:
+          vmGenDiagCannotEvaluateAtComptime:
         AstDiagVmGenError(
           kind: kind,
           ast: diag.ast)

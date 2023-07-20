@@ -2966,14 +2966,8 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
   of rvmMissingImportcCompleteStruct:
     result = "'$1' requires '.importc' types to be '.completeStruct'" % r.str
 
-  of rvmNotAFieldSymbol:
-    result = "no field symbol"
-
   of rvmCannotImportc:
     result = "cannot 'importc' variable/proc at compile time: " & r.symstr
-
-  of rvmInvalidObjectConstructor:
-    result = "invalid object constructor"
 
   of rvmStackTrace:
     result = "stack trace: (most recent call last)\n"
@@ -3986,15 +3980,12 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         kind: kind,
         location: some location,
         reportInst: diag.instLoc.toReportLineInfo)
-    of adVmGenCodeGenGenericInNonMacro,
-        adVmGenCodeGenUnexpectedSym,
+    of adVmGenCodeGenUnexpectedSym,
         adVmGenCannotImportc,
         adVmGenCannotCallMethod,
         adVmGenTooLargeOffset:
       vmRep = VMReport(
         str: case diag.vmGenErr.kind
-              of adVmGenCodeGenGenericInNonMacro:
-                "Attempt to generate VM code for generic parameter in non-macro proc"
               of adVmGenCodeGenUnexpectedSym:
                 "Unexpected symbol for VM code - " & $diag.vmGenErr.sym.kind
               else:
@@ -4004,10 +3995,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind)
     of adVmGenNotUnused,
-        adVmGenNotAFieldSymbol,
         adVmGenCannotGenerateCode,
-        adVmGenCannotEvaluateAtComptime,
-        adVmGenInvalidObjectConstructor:
+        adVmGenCannotEvaluateAtComptime:
       vmRep = VMReport(
         ast: diag.vmGenErr.ast,
         kind: kind,

@@ -1045,13 +1045,13 @@ type
     adVmGenTooManyRegistersRequired       # |       defined in the `vmdef`
     adVmGenCannotFindBreakTarget          # |       module. There should be a
     adVmGenNotUnused                      # |       way to cross-reference data
-    adVmGenNotAFieldSymbol                # |       without introducing direct
+                                          # |       without introducing direct
     adVmGenCannotGenerateCode             # |       import or type
     adVmGenCannotEvaluateAtComptime       # |       dependencies. Likely this
-    adVmGenInvalidObjectConstructor       # |       involves data oriented
+                                          # |       involves data oriented
     adVmGenMissingImportcCompleteStruct   # |       design, use of handles and
     adVmGenCodeGenUnhandledMagic          # |       the like, along with
-    adVmGenCodeGenGenericInNonMacro       # |       breaking up the coupling
+                                          # |       breaking up the coupling
     adVmGenCodeGenUnexpectedSym           # |       within the `compiler/vm`
     adVmGenCannotImportc                  # |       package between pure VM and
     adVmGenTooLargeOffset                 # |       the VM for the compiler.
@@ -1064,16 +1064,13 @@ type
           adVmGenCannotFindBreakTarget:
         discard
       of adVmGenNotUnused,
-          adVmGenNotAFieldSymbol,
           adVmGenCannotGenerateCode,
-          adVmGenCannotEvaluateAtComptime,
-          adVmGenInvalidObjectConstructor:
+          adVmGenCannotEvaluateAtComptime:
         ast*: PNode
       of adVmGenMissingImportcCompleteStruct,
           adVmGenCodeGenUnhandledMagic:
         magic*: TMagic
-      of adVmGenCodeGenGenericInNonMacro,
-          adVmGenCodeGenUnexpectedSym,
+      of adVmGenCodeGenUnexpectedSym,
           adVmGenCannotImportc,
           adVmGenTooLargeOffset,
           adVmGenCannotCallMethod:
