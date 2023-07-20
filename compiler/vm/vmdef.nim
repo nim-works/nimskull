@@ -586,15 +586,12 @@ type
     vmGenDiagCannotFindBreakTarget
     # has ast data
     vmGenDiagNotUnused
-    vmGenDiagNotAFieldSymbol
     vmGenDiagCannotGenerateCode
     vmGenDiagCannotEvaluateAtComptime
-    vmGenDiagInvalidObjectConstructor
     # has magic data
     vmGenDiagMissingImportcCompleteStruct
     vmGenDiagCodeGenUnhandledMagic
     # has sym data
-    vmGenDiagCodeGenGenericInNonMacro
     vmGenDiagCodeGenUnexpectedSym
     vmGenDiagCannotImportc
     vmGenDiagTooLargeOffset
@@ -603,12 +600,12 @@ type
     vmGenDiagCannotCast
 
   VmGenDiagKindAstRelated* =
-    range[vmGenDiagNotUnused..vmGenDiagInvalidObjectConstructor]
+    range[vmGenDiagNotUnused..vmGenDiagCannotEvaluateAtComptime]
     # TODO: this is a somewhat silly type, the range allows creating type safe
     #       diag construction functions -- see: `vmgen.fail`
 
   VmGenDiagKindSymRelated* =
-    range[vmGenDiagCodeGenGenericInNonMacro..vmGenDiagCannotCallMethod]
+    range[vmGenDiagCodeGenUnexpectedSym..vmGenDiagCannotCallMethod]
     # TODO: this is a somewhat silly type, the range allows creating type safe
     #       diag construction functions -- see: `vmgen.fail`
 
@@ -627,8 +624,7 @@ type
     location*: TLineInfo        ## diagnostic location
     instLoc*: InstantiationInfo ## instantiation in VM Gen's source
     case kind*: VmGenDiagKind
-      of vmGenDiagCodeGenGenericInNonMacro,
-          vmGenDiagCodeGenUnexpectedSym,
+      of vmGenDiagCodeGenUnexpectedSym,
           vmGenDiagCannotImportc,
           vmGenDiagTooLargeOffset,
           vmGenDiagCannotCallMethod:
@@ -639,10 +635,8 @@ type
           vmGenDiagCodeGenUnhandledMagic:
         magic*: TMagic
       of vmGenDiagNotUnused,
-          vmGenDiagNotAFieldSymbol,
           vmGenDiagCannotGenerateCode,
-          vmGenDiagCannotEvaluateAtComptime,
-          vmGenDiagInvalidObjectConstructor:
+          vmGenDiagCannotEvaluateAtComptime:
         ast*: PNode
       of vmGenDiagTooManyRegistersRequired,
           vmGenDiagCannotFindBreakTarget:

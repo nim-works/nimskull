@@ -23,16 +23,13 @@ func vmGenDiagToLegacyReportKind(diag: VmGenDiagKind): ReportKind {.inline.} =
   of vmGenDiagTooManyRegistersRequired: rvmTooManyRegistersRequired
   of vmGenDiagCannotFindBreakTarget: rvmCannotFindBreakTarget
   of vmGenDiagNotUnused: rvmNotUnused
-  of vmGenDiagNotAFieldSymbol: rvmNotAFieldSymbol
   of vmGenDiagTooLargeOffset: rvmTooLargetOffset
   of vmGenDiagCannotGenerateCode: rvmCannotGenerateCode
   of vmGenDiagCodeGenUnhandledMagic: rvmCannotGenerateCode
-  of vmGenDiagCodeGenGenericInNonMacro: rvmCannotGenerateCode
   of vmGenDiagCodeGenUnexpectedSym: rvmCannotGenerateCode
   of vmGenDiagCannotCast: rvmCannotCast
   of vmGenDiagCannotEvaluateAtComptime: rvmCannotEvaluateAtComptime
   of vmGenDiagCannotImportc: rvmCannotImportc
-  of vmGenDiagInvalidObjectConstructor: rvmInvalidObjectConstructor
   of vmGenDiagCannotCallMethod: rvmCannotCallMethod
 
 template magicToString(m: TMagic): string =
@@ -60,15 +57,12 @@ func vmGenDiagToLegacyVmReport*(diag: VmGenDiag): VMReport {.inline.} =
         kind: kind,
         location: std_options.some diag.location,
         reportInst: diag.instLoc.toReportLineInfo)
-    of vmGenDiagCodeGenGenericInNonMacro,
-        vmGenDiagCodeGenUnexpectedSym,
+    of vmGenDiagCodeGenUnexpectedSym,
         vmGenDiagCannotImportc,
         vmGenDiagCannotCallMethod,
         vmGenDiagTooLargeOffset:
       VMReport(
         str: case diag.kind
-              of vmGenDiagCodeGenGenericInNonMacro:
-                "Attempt to generate VM code for generic parameter in non-macro proc"
               of vmGenDiagCodeGenUnexpectedSym:
                 "Unexpected symbol for VM code - " & $diag.sym.kind
               else:
@@ -78,10 +72,8 @@ func vmGenDiagToLegacyVmReport*(diag: VmGenDiag): VMReport {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind)
     of vmGenDiagNotUnused,
-        vmGenDiagNotAFieldSymbol,
         vmGenDiagCannotGenerateCode,
-        vmGenDiagCannotEvaluateAtComptime,
-        vmGenDiagInvalidObjectConstructor:
+        vmGenDiagCannotEvaluateAtComptime:
       VMReport(
         ast: diag.ast,
         kind: kind,

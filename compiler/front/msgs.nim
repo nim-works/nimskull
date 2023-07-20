@@ -420,16 +420,13 @@ func astDiagVmGenToLegacyReportKind*(
   of adVmGenTooManyRegistersRequired: rvmTooManyRegistersRequired
   of adVmGenCannotFindBreakTarget: rvmCannotFindBreakTarget
   of adVmGenNotUnused: rvmNotUnused
-  of adVmGenNotAFieldSymbol: rvmNotAFieldSymbol
   of adVmGenTooLargeOffset: rvmTooLargetOffset
   of adVmGenCannotGenerateCode: rvmCannotGenerateCode
   of adVmGenCodeGenUnhandledMagic: rvmCannotGenerateCode
-  of adVmGenCodeGenGenericInNonMacro: rvmCannotGenerateCode
   of adVmGenCodeGenUnexpectedSym: rvmCannotGenerateCode
   of adVmGenCannotCast: rvmCannotCast
   of adVmGenCannotEvaluateAtComptime: rvmCannotEvaluateAtComptime
   of adVmGenCannotImportc: rvmCannotImportc
-  of adVmGenInvalidObjectConstructor: rvmInvalidObjectConstructor
   of adVmGenCannotCallMethod: rvmCannotCallMethod
 
 func astDiagToLegacyReportKind*(
