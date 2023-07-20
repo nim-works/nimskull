@@ -1995,9 +1995,7 @@ proc genTupleConstr(p: BProc, n: PNode, d: var TLoc) =
     let t = n.typ
     discard getTypeDesc(p.module, t) # so that any fields are initialized
     if d.k == locNone: getTemp(p, t, d)
-    for i in 0..<n.len:
-      var it = n[i]
-      if it.kind == nkExprColonExpr: it = it[1]
+    for i, it in n.pairs:
       initLoc(rec, locExpr, it, d.storage)
       rec.r = "$1.Field$2" % [rdLoc(d), rope(i)]
       rec.flags.incl(lfEnforceDeref)
@@ -2373,12 +2371,9 @@ proc getNullValueAux(p: BProc; t: PType; obj, constOrNil: PNode,
     if constOrNil != nil:
       ## find kind value, default is zero if not specified
       for i in 1..<constOrNil.safeLen:
-        if constOrNil[i].kind == nkExprColonExpr:
-          if constOrNil[i][0].sym.name.id == obj[0].sym.name.id:
-            branch = getOrdValue(constOrNil[i][1])
-            break
-        elif i == obj[0].sym.position:
-          branch = getOrdValue(constOrNil[i])
+        assert constOrNil[i].kind == nkExprColonExpr
+        if constOrNil[i][0].sym.name.id == obj[0].sym.name.id:
+          branch = getOrdValue(constOrNil[i][1])
           break
 
     let selectedBranch = caseObjDefaultBranch(obj, branch)
@@ -2401,12 +2396,9 @@ proc getNullValueAux(p: BProc; t: PType; obj, constOrNil: PNode,
     let field = obj.sym
     if constOrNil != nil:
       for i in 1..<constOrNil.safeLen:
-        if constOrNil[i].kind == nkExprColonExpr:
-          if constOrNil[i][0].sym.name.id == field.name.id:
-            result.add genBracedInit(p, constOrNil[i][1], isConst, field.typ)
-            return
-        elif i == field.position:
-          result.add genBracedInit(p, constOrNil[i], isConst, field.typ)
+        assert constOrNil[i].kind == nkExprColonExpr
+        if constOrNil[i][0].sym.name.id == field.name.id:
+          result.add genBracedInit(p, constOrNil[i][1], isConst, field.typ)
           return
     # not found, produce default value:
     result.add getDefaultValue(p, field.typ, info)
@@ -2444,8 +2436,7 @@ proc genConstSimpleList(p: BProc, n: PNode; isConst: bool): Rope =
   for i in 0..<n.len:
     let it = n[i]
     if i > 0: result.add ",\n"
-    if it.kind == nkExprColonExpr: result.add genBracedInit(p, it[1], isConst, it[0].typ)
-    else: result.add genBracedInit(p, it, isConst, it.typ)
+    result.add genBracedInit(p, it, isConst, it.typ)
   result.add("}\n")
 
 proc genConstTuple(p: BProc, n: PNode; isConst: bool; tup: PType): Rope =
