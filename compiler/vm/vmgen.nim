@@ -2957,17 +2957,10 @@ proc genTupleConstr(c: var TCtx, n: PNode, dest: var TDest) =
   if n.typ.kind != tyTypeDesc:
     c.gABx(n, opcLdNull, dest, c.genType(n.typ))
     # XXX x = (x.old, 22)  produces wrong code ... stupid self assignments
-    for i in 0..<n.len:
-      let it = n[i]
-      if it.kind == nkExprColonExpr:
-        let idx = genField(c, it[0])
-        let tmp = c.genAsgnSource(it[1], wantsPtr = true)
-        c.gABC(it[1], opcWrObj, dest, idx, tmp)
-        c.freeTemp(tmp)
-      else:
-        let tmp = c.genAsgnSource(it, wantsPtr = true)
-        c.gABC(it, opcWrObj, dest, i.TRegister, tmp)
-        c.freeTemp(tmp)
+    for i, it in n.pairs:
+      let tmp = c.genAsgnSource(it, wantsPtr = true)
+      c.gABC(it, opcWrObj, dest, i.TRegister, tmp)
+      c.freeTemp(tmp)
 
 proc genClosureConstr(c: var TCtx, n: PNode, dest: var TDest) =
   if dest.isUnset: dest = c.getTemp(n.typ)
