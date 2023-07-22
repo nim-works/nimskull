@@ -39,7 +39,6 @@ import
     idioms
   ],
   compiler/vm/[
-    vmaux,
     vmcompilerserdes,
     vmdef,
     vmjit,
@@ -94,6 +93,7 @@ type
     ## it. An ``EvalContext`` instance makes up everything that is required
     ## for running code at compile-time.
     vm*: TCtx
+    jit*: JitState
 
     oldErrorCount: int
 
@@ -103,9 +103,13 @@ const evalMacroLimit = 1000
 # prevent a default `$` implementation from being generated
 func `$`(e: ExecErrorReport): string {.error.}
 
-proc putIntoReg(dest: var TFullReg; c: var TCtx, n: PNode, formal: PType) =
+proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
+                formal: PType) =
   ## Put the value that is represented by `n` (but not the node itself) into
   ## `dest`. Implicit conversion is also performed, if necessary.
+  # XXX: requring access to the JIT state here is all kinds of wrong and
+  #      indicates that ``putIntoReg`` is not a good idea to being with. The
+  #      XXX comment below describes a good way to get out of this mess
   let t = formal.skipTypes(abstractInst+{tyStatic}-{tyTypeDesc})
 
   # XXX: instead of performing conversion here manually, sem could generate a
@@ -114,22 +118,22 @@ proc putIntoReg(dest: var TFullReg; c: var TCtx, n: PNode, formal: PType) =
   #      the code here obsolete while also eliminating unnecessary
   #      deserialize/serialize round-trips
 
-  proc registerProcs(c: var TCtx, n: PNode) =
+  proc registerProcs(jit: var JitState, c: var TCtx, n: PNode) =
     # note: this kind of scanning only works for AST representing concrete
     # values
     case n.kind
     of nkSym:
       if n.sym.kind in routineKinds:
-        discard registerProc(c, n.sym)
+        discard registerProcedure(jit, c, n.sym)
     of nkWithoutSons - {nkSym}:
       discard "not relevant"
     of nkWithSons:
       for it in n.items:
-        registerProcs(c, it)
+        registerProcs(jit, c, it)
 
   # create a function table entry for each procedure referenced by `n` --
   # ``serialize`` depends on it
-  registerProcs(c, n)
+  registerProcs(jit, c, n)
 
   case t.kind
   of tyBool, tyChar, tyEnum, tyInt..tyInt64, tyUInt..tyUInt64:
@@ -311,7 +315,7 @@ proc createLegacyStackTrace(
                     location: some source(c, thread),
                     reportInst: toReportLineInfo(instLoc))
 
-proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
+proc execute(jit: var JitState, c: var TCtx, start: int, frame: sink TStackFrame;
              cb: proc(c: TCtx, r: TFullReg): PNode
             ): ExecutionResult {.inline.} =
   ## This is the entry point for invoking the VM to execute code at
@@ -357,7 +361,7 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
     of yrkMissingProcedure:
       # a stub entry was encountered -> generate the code for the
       # corresponding procedure
-      let res = compile(c, r.entry)
+      let res = compile(jit, c, r.entry)
       if res.isErr:
         # code-generation failed
         result.initFailure:
@@ -378,10 +382,10 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
 
   dispose(c, thread)
 
-proc execute(c: var TCtx, info: CodeInfo): ExecutionResult =
+proc execute(jit: var JitState, c: var TCtx, info: CodeInfo): ExecutionResult =
   var tos = TStackFrame(prc: nil, comesFrom: 0)
   tos.slots.newSeq(info.regCount)
-  execute(c, info.start, tos,
+  execute(jit, c, info.start, tos,
           proc(c: TCtx, r: TFullReg): PNode = c.graph.emptyNode)
 
 template returnOnErr(res: VmGenResult, config: ConfigRef, node: PNode): CodeInfo =
@@ -434,14 +438,14 @@ template mkCallback(cn, rn, body): untyped =
   let p = proc(cn: TCtx, rn: TFullReg): PNode = body
   p
 
-proc evalStmt(c: var TCtx, n: PNode): PNode =
+proc evalStmt(jit: var JitState, c: var TCtx, n: PNode): PNode =
   let n = transformExpr(c.graph, c.idgen, c.module, n)
-  let info = genStmt(c, n).returnOnErr(c.config, n)
+  let info = genStmt(jit, c, n).returnOnErr(c.config, n)
 
   # execute new instructions; this redundant opcEof check saves us lots
   # of allocations in 'execute':
   if c.code[info.start].opcode != opcEof:
-    result = execute(c, info).unpackResult(c.config, n)
+    result = execute(jit, c, info).unpackResult(c.config, n)
   else:
     result = c.graph.emptyNode
 
@@ -462,13 +466,13 @@ proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
     let c = PEvalContext(graph.vm)
     refresh(c.vm, module, idgen)
 
-proc eval(c: var TCtx; prc: PSym, n: PNode): PNode =
+proc eval(jit: var JitState, c: var TCtx; prc: PSym, n: PNode): PNode =
   let
     n = transformExpr(c.graph, c.idgen, c.module, n)
     requiresValue = c.mode != emStaticStmt
     r =
-      if requiresValue: genExpr(c, n)
-      else:             genStmt(c, n)
+      if requiresValue: genExpr(jit, c, n)
+      else:             genStmt(jit, c, n)
 
   let (start, regCount) = r.returnOnErr(c.config, n)
 
@@ -476,7 +480,7 @@ proc eval(c: var TCtx; prc: PSym, n: PNode): PNode =
   assert c.code[start].opcode != opcEof
   when defined(nimVMDebugGenerate):
     c.config.localReport():
-      initVmCodeListingReport(c[], prc, n)
+      initVmCodeListingReport(c, prc, n)
 
   var tos = TStackFrame(prc: prc, comesFrom: 0)
   tos.slots.newSeq(regCount)
@@ -487,7 +491,7 @@ proc eval(c: var TCtx; prc: PSym, n: PNode): PNode =
     else:
       mkCallback(c, r): newNodeI(nkEmpty, n.info)
 
-  result = execute(c, start, tos, cb).unpackResult(c.config, n)
+  result = execute(jit, c, start, tos, cb).unpackResult(c.config, n)
 
 proc evalConstExprAux(module: PSym, idgen: IdGenerator, g: ModuleGraph,
                       prc: PSym, n: PNode,
@@ -501,7 +505,7 @@ proc evalConstExprAux(module: PSym, idgen: IdGenerator, g: ModuleGraph,
 
   # update the mode, and restore it once we're done
   c.vm.mode = mode
-  result = eval(c.vm, prc, n)
+  result = eval(c.jit, c.vm, prc, n)
   c.vm.mode = oldMode
 
 proc evalConstExpr*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode): PNode {.inline.} =
@@ -518,10 +522,10 @@ proc setupCompileTimeVar*(module: PSym; idgen: IdGenerator; g: ModuleGraph; n: P
   # TODO: the node needs to be returned to the caller instead
   reportIfError(g.config, r)
 
-proc setupMacroParam(reg: var TFullReg, c: var TCtx, x: PNode, typ: PType) =
+proc setupMacroParam(reg: var TFullReg, jit: var JitState, c: var TCtx, x: PNode, typ: PType) =
   case typ.kind
   of tyStatic:
-    putIntoReg(reg, c, x, typ)
+    putIntoReg(reg, jit, c, x, typ)
   else:
     var n = x
     if n.kind in {nkHiddenSubConv, nkHiddenStdConv}: n = n[1]
@@ -529,7 +533,8 @@ proc setupMacroParam(reg: var TFullReg, c: var TCtx, x: PNode, typ: PType) =
     n.typ = x.typ
     reg = TFullReg(kind: rkNimNode, nimNode: n)
 
-proc evalMacroCall*(c: var TCtx, call, args: PNode, sym: PSym): PNode =
+proc evalMacroCall*(jit: var JitState, c: var TCtx, call, args: PNode,
+                    sym: PSym): PNode =
   ## Evaluates a call to the macro `sym` with arguments `arg` with the VM.
   ##
   ## `call` is the original call expression, which is used as the ``wrongNode``
@@ -549,7 +554,7 @@ proc evalMacroCall*(c: var TCtx, call, args: PNode, sym: PSym): PNode =
     c.mode = oldMode
     c.callsite = nil
 
-  let (start, regCount) = loadProc(c, sym).returnOnErr(c.config, call)
+  let (start, regCount) = loadProc(jit, c, sym).returnOnErr(c.config, call)
 
   var tos = TStackFrame(prc: sym, comesFrom: 0)
   tos.slots.newSeq(regCount)
@@ -559,7 +564,7 @@ proc evalMacroCall*(c: var TCtx, call, args: PNode, sym: PSym): PNode =
 
   # put the normal arguments into registers
   for i in 1..<sym.typ.len:
-    setupMacroParam(tos.slots[i], c, args[i - 1], sym.typ[i])
+    setupMacroParam(tos.slots[i], jit, c, args[i - 1], sym.typ[i])
 
   # put the generic arguments into registers
   let gp = sym.ast[genericParamsPos]
@@ -568,10 +573,10 @@ proc evalMacroCall*(c: var TCtx, call, args: PNode, sym: PSym): PNode =
     # signature
     if tfImplicitTypeParam notin gp[i].sym.typ.flags:
       let idx = sym.typ.len + i
-      setupMacroParam(tos.slots[idx], c, args[idx - 1], gp[i].sym.typ)
+      setupMacroParam(tos.slots[idx], jit, c, args[idx - 1], gp[i].sym.typ)
 
   let cb = mkCallback(c, r): r.nimNode
-  result = execute(c, start, tos, cb).unpackResult(c.config, call)
+  result = execute(jit, c, start, tos, cb).unpackResult(c.config, call)
 
   if result.kind != nkError and cyclicTree(result):
     result = c.config.newError(call, PAstDiag(kind: adCyclicTree))
@@ -586,14 +591,15 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph;
   let c = PEvalContext(g.vm)
   c.vm.templInstCounter = templInstCounter
 
-  result = evalMacroCall(c.vm, call, args, sym)
+  result = evalMacroCall(c.jit, c.vm, call, args, sym)
 
 # ----------- the VM-related compilerapi -----------
 
 # NOTE: it might make sense to move the VM-related compilerapi into
 #       ``nimeval.nim`` -- the compiler itself doesn't depend on or uses it
 
-proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
+proc execProc*(jit: var JitState, c: var TCtx; sym: PSym;
+               args: openArray[PNode]): PNode =
   # XXX: `localReport` is still used here since execProc is only used by the
   # VM's compilerapi (`nimeval`) whose users don't know about nkError yet
 
@@ -611,7 +617,7 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
       let (start, maxSlots) = block:
         # XXX: `returnOnErr` should be used here instead, but isn't for
         #      backwards compatiblity
-        let r = loadProc(c, sym)
+        let r = loadProc(jit, c, sym)
         if unlikely(r.isErr):
           localReport(c.config, vmGenDiagToLegacyVmReport(r.takeErr))
           return nil
@@ -627,7 +633,7 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
           tos.slots[0].initLocReg(typ, c.memory)
       # XXX We could perform some type checking here.
       for i in 1..<sym.typ.len:
-        putIntoReg(tos.slots[i], c, args[i-1], sym.typ[i])
+        putIntoReg(tos.slots[i], jit, c, args[i-1], sym.typ[i])
 
       let cb =
         if not isEmptyType(sym.typ[0]):
@@ -638,7 +644,7 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
         else:
           mkCallback(c, r): newNodeI(nkEmpty, sym.info)
 
-      let r = execute(c, start, tos, cb)
+      let r = execute(jit, c, start, tos, cb)
       result = r.unpackResult(c.config, c.graph.emptyNode)
       reportIfError(c.config, result)
       if result.isError:
@@ -686,7 +692,7 @@ proc myProcess(c: PPassContext, n: PNode): PNode =
   let c = PEvalContext(c)
   # don't eval errornous code:
   if c.oldErrorCount == c.vm.config.errorCounter and not n.isError:
-    let r = evalStmt(c.vm, n)
+    let r = evalStmt(c.jit, c.vm, n)
     reportIfError(c.vm.config, r)
     # TODO: use the node returned by evalStmt as the result and don't report
     #       the error here

@@ -108,7 +108,10 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
           sym = restoreGlobal(body[def].sym)
           typ = sym.typ
         changes.seek(i)
-        if hasInput(body, Operation i):
+        # HACK: ``vmjit`` currently passes us expressions where a 'def' can
+        #       be the very first node, something that ``hasInput`` doesn't
+        #       support. We thus have to guard against i == 0
+        if i.int > 0 and hasInput(body, Operation i):
           # the global has a starting value
           changes.replaceMulti(buf):
             let tmp = changes.getTemp()
@@ -172,19 +175,3 @@ proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
   # step 2: translate it back
   result = generateAST(graph, idgen, owner, tree, sourceMap)
   echoOutput(graph.config, owner, result)
-
-proc canonicalizeSingle*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                         n: PNode, options: set[GenOption]): PNode =
-  ## Similar to ``canonicalize``, but accepts a freestanding expression or
-  ## statement. The `owner` is used as the owner when generating the necessary
-  ## new symbols or types
-  var
-    tree: MirTree
-    sourceMap: SourceMap
-
-  # step 1: generate a ``MirTree`` from the input AST
-  generateCode(graph, options, n, tree, sourceMap)
-  # step 2: translate it back, but only if there is something to translate
-  result =
-    if tree.len > 0: generateAST(graph, idgen, owner, tree, sourceMap)
-    else:            newNode(nkEmpty)

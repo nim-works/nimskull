@@ -136,8 +136,8 @@ proc declareGlobal(c: var TCtx, sym: PSym) =
     # make sure the type is generated and register the global in the
     # link table
     discard getOrCreate(c, sym.typ)
-    registerLinkItem(c.symToIndexTbl, c.linkState.newGlobals, sym,
-                      c.linkState.nextGlobal)
+    c.symToIndexTbl[sym.id] = LinkIndex(c.collectedGlobals.len)
+    c.collectedGlobals.add sym
 
 proc prepare(c: var TCtx, data: var DiscoveryData) =
   ## Registers with the link table all procedures, constants, globals,
@@ -287,8 +287,8 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   #      Pros: no need for the `globals` and `consts` seqs
   #      Cons: (probably) higher I-cache pressure, slightly more complex logic
 
-  var globals = newSeq[PVmType](c.linkState.newGlobals.len)
-  for i, sym in c.linkState.newGlobals.pairs:
+  var globals = newSeq[PVmType](c.collectedGlobals.len)
+  for i, sym in c.collectedGlobals.pairs:
     let typ = c.typeInfoCache.lookup(conf, sym.typ)
     # the type was already created during vmgen
     globals[i] = typ.unsafeGet

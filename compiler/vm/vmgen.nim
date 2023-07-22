@@ -246,61 +246,6 @@ func analyseIfAddressTaken(n: PNode, locs: var IntSet) =
       analyseIfAddressTaken(it, locs)
 
 
-func registerLinkItem*(tbl: var Table[int, LinkIndex], list: var seq[PSym],
-                      sym: PSym, next: var LinkIndex) =
-  let linkIdx = tbl.mgetOrPut(sym.id, next)
-  if linkIdx == next:
-    # a not seen before symbol:
-    list.add(sym)
-    inc next
-
-proc gatherDependencies*(c: var TCtx, n: PNode; withGlobals = false) =
-  ## Gathers all relevant dependencies of `n` into the ``TCtx.linkState``
-  ## field while also registering them in the link table.
-  ##
-  ## Globals are only considered when `withGlobals` is true.
-  # XXX: previously, the dependencies were collected as part of code
-  #      generation. While this had the benefit of only looking up the
-  #      referenced symbols in the link table once (instead of twice), it's
-  #      not compatbile with the future backend architecture, and also
-  #      conflates linking with code generation. Once dependency collection
-  #      is unified across the backend, ``gatherDependencies`` becomes
-  #      obsolete
-  template register(name, next: untyped, s: PSym) =
-    registerLinkItem(c.symToIndexTbl, c.linkState.name, s, c.linkState.next)
-
-  case n.kind
-  of nkSym:
-    let s = n.sym
-    case s.kind
-    of skProcKinds:
-      if s.magic in MagicsToKeep:
-        register(newProcs, nextProc, s)
-    of skConst:
-      register(newConsts, nextConst, s)
-      # scan the constant for referenced routines:
-      gatherDependencies(c, s.astdef)
-    of skVar, skLet, skForVar:
-      # importc'ed globals can't be used in the VM, so we don't register them
-      if withGlobals and {sfGlobal, sfImportc} * s.flags == {sfGlobal}:
-        register(newGlobals, nextGlobal, s)
-    else:
-      discard "not relevant"
-  of nkNone, nkEmpty, nkIdent, nkLiterals, nkNimNodeLit, routineDefs,
-     nkConstSection:
-    discard "not relevant"
-  of nkIdentDefs:
-    # always register globals that appear as definitions
-    gatherDependencies(c, n[0], true)
-    gatherDependencies(c, n[2], withGlobals)
-  of nkCast, nkConv, nkHiddenStdConv:
-    gatherDependencies(c, n[1], withGlobals)
-  of nkError:
-    unreachable("errors can't reach here")
-  else:
-    for it in n.items:
-      gatherDependencies(c, it, withGlobals)
-
 func lookupGlobal(c: TCtx, sym: PSym): int {.inline.} =
   c.symToIndexTbl[sym.id].int
 
@@ -2821,30 +2766,8 @@ proc genVarSection(c: var TCtx; n: PNode) =
         assert a[0].kind == nkSym
         let s = a[0].sym
         checkCanEval(c, a[0])
-        if s.isGlobal:
-          if importcCondVar(s):
-            # Ignore definitions of importc'ed variables
-            continue
-
-          # XXX: during NimScript execution, top-level ``.compileTime``
-          #      variables are code-gen'ed twice, once via `setupCompileTimeVar`
-          #      called from `sem.semVarOrLet` and once through `vm.myProcess`.
-          #      This leads to the global's symbol already being present in the
-          #      table
-          #c.config.internalAssert(s.id notin c.symToIndexTbl, a[0].info)
-          discard c.lookupGlobal(s)
-          discard c.getOrCreate(s.typ)
-
-          # no need to generate an assignment if the global has no initializer
-          if a[2].kind == nkEmpty:
-            continue
-
-          # for globals, ``vmgen`` trusts the callsite (i.e. the place where
-          # ``genProcBody`` is invoked) to make sure that globals defined
-          # inside procedures are extracted / otherwise taken care of. Thus, we
-          # emit the initialization logic here without further checks
-          genSymAsgn(c, a[0], a[2])
-        else:
+        assert not s.isGlobal
+        if true:
           let reg = setSlot(c, s)
           if a[2].kind == nkEmpty:
             # no initializer; only setup the register (and memory location,

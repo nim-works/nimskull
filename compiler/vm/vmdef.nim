@@ -561,25 +561,6 @@ type
   LinkIndex* = uint32 ## Depending on the context: `FunctionIndex`; index
     ## into `TCtx.globals`; index into `TCtx.complexConsts`
 
-  # XXX: design of `CodeGenInOut` is not yet final
-  LinkState* = object
-    ## Temporary state used when gathering new dependencies.
-    ##
-    ## The `newX` seqs accumulate the symbols added to `symToIndexTbl` during
-    ## code-gen, with a seq for each link-item kind. They're never reset by
-    ## `vmgen`.
-    ##
-    ## The `nextX` values hold the `LinkIndex` to use for new entries
-    ## added to `symToIndexTbl`. They're incremented after a respective
-    ## new entry is added.
-    newProcs*: seq[PSym]
-    newGlobals*: seq[PSym]
-    newConsts*: seq[PSym]
-
-    nextProc*: LinkIndex
-    nextGlobal*: LinkIndex
-    nextConst*: LinkIndex
-
   VmGenDiagKind* = enum
     # has no extra data
     vmGenDiagTooManyRegistersRequired
@@ -753,15 +734,13 @@ type
       ## for each procedure known to the VM. Indexed by `FunctionIndex`
     memory*: VmMemoryManager
 
-    # linker state:
+    # code generator state:
     symToIndexTbl*: Table[int, LinkIndex] ## keeps track of all known
       ## dependencies. Expanded during code-generation and used for looking
       ## up the link-index (e.g. `FunctionIndex`) of a symbol
 
-    linkState*: LinkState ## temporary state used by dependency collection.
-      ## Stored as part of ``TCtx`` for convenience, and to allow for memory
-      ## reuse
-    # XXX: `linkState` is eventually going to be removed
+    collectedGlobals*: seq[PSym]
+      ## leaked implementation detail of ``vmbackend.nim`` -- don't use
 
     flags*: set[CodeGenFlag] ## flags that alter the behaviour of the code
       ## generator. Initialized by the VM's callsite and queried by the JIT.
