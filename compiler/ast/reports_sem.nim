@@ -74,7 +74,6 @@ type
       of rsemExpectedIdentifierInExpr,
          rsemExpectedIdentifierWithExprContext,
          rsemExpectedOrdinal,
-         rsemFieldOkButAssignedValueInvalid,
          rsemUseOrDiscardExpr,
          rsemOnlyDeclaredIdentifierFoundIsError,
          rsemCantConvertLiteralToRange:

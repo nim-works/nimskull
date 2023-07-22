@@ -599,10 +599,6 @@ type
       ## object field assignment invalid syntax
     rsemFieldAssignmentInvalidNeedSpace
       ## object field assignment invalid syntax, need space after colon
-    rsemFieldOkButAssignedValueInvalid
-      ## object field assignment, where the field name is ok, but value is not
-    rsemObjectConstructorIncorrect
-      ## one or more issues encountered with object constructor
 
     # General Type Checks
     rsemExpressionHasNoType

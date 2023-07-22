@@ -1526,9 +1526,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "runtime discriminator must be immutable if branch fields are " &
         "initialized, a 'let' binding is required."
 
-    of rsemObjectConstructorIncorrect:
-      result = "Invalid object constructor: '$1'" % r.ast.render
-
     of rsemBorrowTargetNotFound:
       result = "no symbol to borrow from found"
 
@@ -2153,12 +2150,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemFieldNotAccessible:
       result = "the field '$1' is not accessible." % r.symstr
-
-    of rsemFieldOkButAssignedValueInvalid:
-      result = "Invalid field assignment '$1'$2" % [
-        r.wrongNode.render,
-        tern(r.ast.isNil, "", "; " & r.ast.render)
-      ]
 
     of rsemStrictNotNilResult:
       case r.nilIssue:
@@ -3349,9 +3340,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemNamedExprNotAllowed,
       adSemNoReturnTypeDeclared,
       adSemReturnNotAllowed,
-      adSemFieldAssignmentInvalidNeedSpace,
-      adSemFieldAssignmentInvalid,
-      adSemObjectConstructorIncorrect,
       adSemExpectedObjectType,
       adSemFoldOverflow,
       adSemFoldDivByZero,
@@ -3363,6 +3351,18 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind,
         ast: diag.wrongNode)
+  of adSemFieldAssignmentInvalid:
+    let n = diag.wrongNode
+    let kind =
+      if n.kind == nkInfix and n[0].kind == nkIdent and n[0].ident.s[0] == ':':
+        rsemFieldAssignmentInvalidNeedSpace
+      else:
+        rsemFieldAssignmentInvalid
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: n)
   of adSemInvalidRangeConversion:
     semRep = SemReport(
         location: some diag.location,
@@ -3811,13 +3811,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       kind: kind,
       ast: diag.wrongNode,
       sym: diag.inaccessible)
-  of adSemFieldOkButAssignedValueInvalid:
-    semRep = SemReport(
-      location: some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.initVal,
-      sym: diag.targetField)
   of adSemObjectRequiresFieldInitNoDefault:
     semRep = SemReport(
       location: some diag.location,

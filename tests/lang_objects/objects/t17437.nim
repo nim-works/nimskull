@@ -4,7 +4,6 @@ discard """
   nimout: '''
 t17437.nim(18, 16) Error: undeclared identifier: 'x'
 t17437.nim(18, 19) Error: Invalid field assignment 'y'
-t17437.nim(18, 12) Error: Invalid object constructor: 'V(x: x, y)'
 '''
 """
 
