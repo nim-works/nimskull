@@ -27,7 +27,6 @@ import
   compiler/mir/[
     astgen,
     mirbridge,
-    utils,
     mirgen,
     mirtrees,
     sourcemaps,

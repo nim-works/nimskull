@@ -246,9 +246,6 @@ func analyseIfAddressTaken(n: PNode, locs: var IntSet) =
       analyseIfAddressTaken(it, locs)
 
 
-func lookupGlobal(c: TCtx, sym: PSym): int {.inline.} =
-  c.symToIndexTbl[sym.id].int
-
 func lookupConst(c: TCtx, sym: PSym): int {.inline.} =
   c.symToIndexTbl[sym.id].int
 
