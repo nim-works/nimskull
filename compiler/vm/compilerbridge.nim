@@ -108,7 +108,7 @@ proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
   ## Put the value that is represented by `n` (but not the node itself) into
   ## `dest`. Implicit conversion is also performed, if necessary.
   # XXX: requring access to the JIT state here is all kinds of wrong and
-  #      indicates that ``putIntoReg`` is not a good idea to being with. The
+  #      indicates that ``putIntoReg`` is not a good idea to begin with. The
   #      XXX comment below describes a good way to get out of this mess
   let t = formal.skipTypes(abstractInst+{tyStatic}-{tyTypeDesc})
 
