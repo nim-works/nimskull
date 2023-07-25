@@ -104,10 +104,17 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]):
       case conf.backend
       of backendC: discard
       of backendJs:
-        # D20210217T215950:here this flag is needed for node < v15.0.0, otherwise
-        # tasyncjs_fail` would fail, refs https://nodejs.org/api/cli.html#cli_unhandled_rejections_mode
-        if cmdPrefix.len == 0: cmdPrefix = findNodeJs().quoteShell
-        cmdPrefix.add " --unhandled-rejections=strict"
+        let nodejs = findNodeJs()
+        if nodejs.len > 0:
+          # D20210217T215950:here this flag is needed for node < v15.0.0, otherwise
+          # tasyncjs_fail` would fail, refs https://nodejs.org/api/cli.html#cli_unhandled_rejections_mode
+          if cmdPrefix.len == 0: cmdPrefix = nodejs.quoteShell
+          cmdPrefix.add " --unhandled-rejections=strict"
+        else:
+          conf.logError:
+            "NodeJS not found in path. For installing it, refer to " &
+            "https://nodejs.org/en/download"
+          return
       of backendNimVm:
         if cmdPrefix.len == 0:
           cmdPrefix = changeFileExt(getAppDir() / "vmrunner", ExeExt)
