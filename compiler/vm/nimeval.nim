@@ -87,7 +87,7 @@ proc selectRoutine*(i: Interpreter; name: string): PSym =
 proc callRoutine*(i: Interpreter; routine: PSym; args: openArray[PNode]): PNode =
   assert i != nil
   let c = PEvalContext(i.graph.vm)
-  result = execProc(c.vm, routine, args)
+  result = execProc(c.jit, c.vm, routine, args)
 
 proc getGlobalValue*(i: Interpreter; letOrVar: PSym): PNode =
   let c = PEvalContext(i.graph.vm)

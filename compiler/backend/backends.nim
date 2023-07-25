@@ -903,6 +903,11 @@ func register*(data: var DiscoveryData, prc: PSym) =
   ## of known procedures.
   register(data, procedures, prc)
 
+func registerGlobal*(data: var DiscoveryData, sym: PSym) {.inline.} =
+  ## If not already known to `data`, adds the global `sym` to the list of
+  ## known globals.
+  register(data, globals, sym)
+
 func registerLate*(discovery: var DiscoveryData, prc: PSym, module: FileIndex) =
   ## Registers a late late-dependency with `data`. These are dependencies
   ## that were raised while processing some code fragment, but that are not
@@ -910,3 +915,18 @@ func registerLate*(discovery: var DiscoveryData, prc: PSym, module: FileIndex) =
   ## `register <#register,DiscoveryData,PSym>`_ should be preferred whenever
   ## possible.
   discovery.additional.add (module, prc)
+
+func rewind*(data: var DiscoveryData) =
+  ## Un-discovers all not-yet-processed procedures, globals, threadvars,
+  ## and constants. After the call to ``rewind``, it will appear as if the
+  ## dropped entities were never registered with `data`.
+  template rewindQueue(q: Queue[PSym]) =
+    for _, it in peek(q):
+      data.seen.excl(it.id)
+
+    q.data.setLen(q.progress) # remove all unprocessed items
+
+  rewindQueue(data.procedures)
+  rewindQueue(data.constants)
+  rewindQueue(data.globals)
+  rewindQueue(data.threadvars)
