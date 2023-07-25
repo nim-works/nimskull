@@ -6,14 +6,14 @@ discard """
 var it_cursor = root
 block label:
   while true:
-    if op(not(`==`(it_cursor, nil))):
+    if op(not(==(it_cursor, nil))):
       break
     echo([it_cursor[].s])
     it_cursor = it_cursor[].ri
 var jt_cursor = root
 block label_1:
   while true:
-    if op(not(`==`(jt_cursor, nil))):
+    if op(not(==(jt_cursor, nil))):
       break
     var ri_1_cursor = jt_cursor[].ri
     echo([jt_cursor[].s])

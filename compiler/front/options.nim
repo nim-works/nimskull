@@ -708,9 +708,6 @@ type
     writeForceEnabled
 
 func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
-  const forceWrite =
-    {rsemExpandArc} # Not a hint, just legacy reports overeach
-
   let compTimeCtx = conf.m.errorOutputs == {}
     ## indicates whether we're in a `compiles` or `constant expression
     ## evaluation` context. `sem` and `semexprs` in particular will clear
@@ -743,9 +740,7 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
 
   elif (
     # Not explicitly enabled
-    not conf.isEnabled(r) and
-    # And not added for forced write
-    r.kind notin forceWrite
+    not conf.isEnabled(r)
   ) or (
     # Or we are in the special hack mode for `compiles()` processing
     compTimeCtx
