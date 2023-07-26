@@ -1962,6 +1962,8 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       # we fill it out later. For magic generics like 'seq', it won't be filled
       # so we use tyNone instead of nil to not crash for strange conversions
       # like: mydata.seq
+      # xxx: this proxy type and passing `nil` to `semTypeNode`'s previous type
+      #      all seem like bad ideas
       rawAddSon(s.typ, newTypeS(tyNone, c))
       s.ast = a
       inc c.inGenericContext

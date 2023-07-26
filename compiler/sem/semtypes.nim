@@ -497,6 +497,17 @@ proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =
   if n.len == 0:
     localReport(c.config, n, reportSem rsemTypeExpected)
   result = newOrPrevType(tyTuple, prev, c)
+  let setupOwner = c.inGenericContext == 0 and result.sym.isNil
+  if setupOwner:
+    # xxx: instead of "AnonType" maybe generate a name from the field
+    #      names+types with some caching so the same structures have the same
+    #      names/symbols.
+    let sym = newSym(skType, getIdent(c.cache, "AnonType"),
+                      nextSymId c.idgen, c.getCurrOwner(), n.info)
+    sym.flags.incl sfAnon
+    sym.typ = result
+    result.owner = sym
+    pushOwner(c, sym)
   for it in n:
     let t = semTypeNode(c, it, nil).skipIntLit(c.idgen)
     if prev != nil and prev.aliasesType(t):
@@ -505,6 +516,8 @@ proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =
       break
     else:
       rawAddSon(result, t)
+  if setupOwner:
+    popOwner(c)
 
 proc semTuple(c: PContext, n: PNode, prev: PType): PType =
   # TODO: replace with a node returning variant that can in band errors
@@ -512,6 +525,17 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
   var typ: PType
   result = newOrPrevType(tyTuple, prev, c)
   result.n = newNodeI(nkRecList, n.info)
+  let setupOwner = c.inGenericContext == 0 and result.sym.isNil
+  if setupOwner:
+    # xxx: instead of "AnonType" maybe generate a name from the field
+    #      names+types with some caching so the same structures have the same
+    #      names/symbols.
+    let sym = newSym(skType, getIdent(c.cache, "AnonType"),
+                      nextSymId c.idgen, c.getCurrOwner(), n.info)
+    sym.flags.incl sfAnon
+    sym.typ = result
+    result.owner = sym
+    pushOwner(c, sym)
   var check = initIntSet()
   var counter = 0
   for i in ord(n.kind == nkBracketExpr)..<n.len:
@@ -546,6 +570,8 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
   if isTupleRecursive(result):
     localReport(c.config, n.info, reportTyp(
       rsemIllegalRecursion, result))
+  if setupOwner:
+    popOwner(c)
 
 proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
                  allowed: TSymFlags): PSym =
