@@ -1789,7 +1789,6 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
     if pkg.isNil or pkg.kind != skPackage:
       localReport(c.config, name.info, reportStr(
         rsemUnknownPackageName, pkgName.s))
-
     else:
       let typsym = c.graph.packageTypes.strTableGet(typName)
       if typsym.isNil:
@@ -1805,7 +1804,6 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
       else:
         localReport(c.config, name.info, reportSym(
           rsemTypeCannotBeForwarded, typsym))
-
         s = typsym
   else:
     s = semIdentDef(c, name, skType)
@@ -1821,7 +1819,6 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
       # check if we got any errors and if so report them
       for e in ifErrorWalkErrors(c.config, name[1]):
         localReport(c.config, e)
-
     if sfForward in s.flags:
       # check if the symbol already exists:
       let pkg = c.module.owner
@@ -1836,12 +1833,10 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
           else:
             localReport(c.config, name.info, reportSymbols(
               rsemDoubleCompletionOf, @[typsym, s]))
-
           s = typsym
     # add it here, so that recursive types are possible:
     if sfGenSym notin s.flags:
       addInterfaceDecl(c, s)
-
     elif s.owner == nil:
       s.owner = getCurrOwner(c)
 
@@ -1863,7 +1858,6 @@ proc typeSectionLeftSidePass(c: PContext, n: PNode) =
     if a.kind == nkCommentStmt: continue
     if a.kind != nkTypeDef:
       semReportIllformedAst(c.config, a, {nkTypeDef})
-
     typeDefLeftSidePass(c, n, i)
 
 proc checkCovariantParamsUsages(c: PContext; genericType: PType) =
@@ -1940,14 +1934,12 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
     if a.kind == nkCommentStmt: continue
     if a.kind != nkTypeDef:
       semReportIllformedAst(c.config, a, {nkTypeDef})
-
     checkSonsLen(a, 3, c.config)
     let name = typeSectionTypeName(c, a[0])
     var s = name.sym
     if s.magic == mNone and a[2].kind == nkEmpty:
       localReport(c.config, a.info, reportSym(
         rsemImplementationExpected, s))
-
     if s.magic != mNone:
       processMagicType(c, s)
 
@@ -1997,12 +1989,10 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       # process the type's body:
       pushOwner(c, s)
       var t = semTypeNode(c, a[2], s.typ)
-      
       if t.kind == tyError and t.n.isError:
         # we've got a tyError with a report in n
         # xxx: we should probably propagate tyError like nkError
         c.config.localReport(t.n)
-      
       if s.typ == nil:
         s.typ = t
       elif t != s.typ and (s.typ == nil or s.typ.kind != tyAlias):
@@ -2015,7 +2005,7 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       # final pass
       if a[2].kind in nkCallKinds:
         incl a[2].flags, nfSem # bug #10548
-    
+
     if sfExportc in s.flags and s.typ.kind == tyAlias:
       localReport(c.config, name.info, reportSym(
         rsemUnexpectedExportcInAlias, s))
