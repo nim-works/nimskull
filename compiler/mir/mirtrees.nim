@@ -363,7 +363,7 @@ const
     ## arg-block
 
   SingleInputNodes* = {mnkAddr, mnkDeref, mnkDerefView, mnkCast, mnkConv,
-                       mnkTag, mnkIf, mnkCase, mnkRaise, mnkVoid} +
+                       mnkStdConv, mnkTag, mnkIf, mnkCase, mnkRaise, mnkVoid} +
                       ArgumentNodes
     ## Operators and statements that must not have argument-blocks as input
 
