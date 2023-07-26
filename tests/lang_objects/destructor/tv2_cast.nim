@@ -5,41 +5,38 @@ discard """
 destroying O1'''
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:main1 --expandArc:main2 --expandArc:main3 --hints:off --assertions:off $file'''
   nimout: '''--expandArc: main
-
 var data
 var :tmp
 var :tmp_1
 try:
-  var :tmp_2 = encode do:
-    var :tmp_3 = newString(100)
-    :tmp = :tmp_3
-    cast[[type node]](:tmp)
+  var :tmp_2 = encode(
+      var :tmp_3 = newString(100)
+      :tmp = :tmp_3
+      cast[seq[byte]](:tmp))
   :tmp_1 = :tmp_2
   var :tmp_4 = cast[string](:tmp_1)
-  `=copy`(data, :tmp_4)
+  =copy(data, :tmp_4)
 finally:
-  `=destroy`(:tmp_1)
-  `=destroy_1`(:tmp)
-  `=destroy_1`(data)
+  =destroy(:tmp_1)
+  =destroy_1(:tmp)
+  =destroy_1(data)
 -- end of expandArc ------------------------
 --expandArc: main1
-
 var s
 var data
 var :tmp
 try:
   s = newString(100)
-  var :tmp_1 = encode(toOpenArrayByte(s, 0, `-`(len(s), 1)))
+  var :tmp_1 = encode(toOpenArrayByte(s, 0, -(len(s), 1)))
   :tmp = :tmp_1
   var :tmp_2 = cast[string](:tmp)
-  `=copy`(data, :tmp_2)
+  =copy(data, :tmp_2)
 finally:
-  `=destroy`(:tmp)
-  `=destroy_1`(data)
-  `=destroy_1`(s)
+  =destroy(:tmp)
+  =destroy_1(data)
+  =destroy_1(s)
 -- end of expandArc ------------------------
 --expandArc: main2
-
 var s
 var data
 var :tmp
@@ -48,29 +45,28 @@ try:
   var :tmp_1 = encode(s)
   :tmp = :tmp_1
   var :tmp_2 = cast[string](:tmp)
-  `=copy`(data, :tmp_2)
+  =copy(data, :tmp_2)
 finally:
-  `=destroy`(:tmp)
-  `=destroy_1`(data)
-  `=destroy`(s)
+  =destroy(:tmp)
+  =destroy_1(data)
+  =destroy(s)
 -- end of expandArc ------------------------
 --expandArc: main3
-
 var data
 var :tmp
 var :tmp_1
 try:
-  var :tmp_2 = encode do:
-    var :tmp_3 = newSeq(100)
-    :tmp = :tmp_3
-    :tmp
+  var :tmp_2 = encode(
+      var :tmp_3 = newSeq(100)
+      :tmp = :tmp_3
+      :tmp)
   :tmp_1 = :tmp_2
   var :tmp_4 = cast[string](:tmp_1)
-  `=copy`(data, :tmp_4)
+  =copy(data, :tmp_4)
 finally:
-  `=destroy`(:tmp_1)
-  `=destroy`(:tmp)
-  `=destroy_1`(data)
+  =destroy(:tmp_1)
+  =destroy(:tmp)
+  =destroy_1(data)
 -- end of expandArc ------------------------'''
 """
 
