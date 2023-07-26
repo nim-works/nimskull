@@ -11,18 +11,21 @@ doing shady stuff...
   cmd: '''nim c --gc:arc --expandArc:newTarget --expandArc:delete --expandArc:p1 --expandArc:tt --hint:Performance:off --assertions:off --expandArc:extractConfig --expandArc:mergeShadowScope --expandArc:check $file'''
   nimout: '''--expandArc: newTarget
 
+var :tmp
+var :tmp_1
+var :tmp_2
 var splat
 splat = splitFile(path)
-var :tmp
-:tmp = splat.dir
-op(splat.dir)
-var :tmp_1
-:tmp_1 = splat.name
-op(splat.name)
-var :tmp_2
-:tmp_2 = splat.ext
-op(splat.ext)
-result = (:tmp, :tmp_1, :tmp_2)
+result = (
+  :tmp = splat.dir
+  op(splat.dir)
+  :tmp,
+  :tmp_1 = splat.name
+  op(splat.name)
+  :tmp_1,
+  :tmp_2 = splat.ext
+  op(splat.ext)
+  :tmp_2)
 =destroy(splat)
 -- end of expandArc ------------------------
 --expandArc: delete
