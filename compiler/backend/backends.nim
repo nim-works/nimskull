@@ -22,6 +22,7 @@ import
     mirbridge,
     mirconstr,
     mirgen,
+    mirpasses,
     mirtrees,
     sourcemaps
   ],
@@ -355,6 +356,15 @@ proc process*(prc: var Procedure, graph: ModuleGraph, idgen: IdGenerator) =
   rewriteGlobalDefs(prc.body.tree, prc.body.source, outermost = false)
   # XXX: ^^ this is a hack. See the documentation of the routine for more
   #      details
+
+  let target =
+    case graph.config.backend
+    of backendC:       targetC
+    of backendJs:      targetJs
+    of backendNimVm:   targetVm
+    of backendInvalid: unreachable()
+
+  applyPasses(prc.body.tree, prc.body.source, prc.sym, target)
 
 proc process(body: var MirFragment, ctx: PSym, graph: ModuleGraph,
              idgen: IdGenerator) =
