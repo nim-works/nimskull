@@ -12,17 +12,17 @@ try:
       break label
     x_cursor = [type node](("string here", 80))
   echo([
-    var :tmp_1 = `$`(x_cursor)
+    var :tmp_1 = $(x_cursor)
     :tmp = :tmp_1
     :tmp])
 finally:
-  `=destroy`(:tmp)
+  =destroy(:tmp)
 -- end of expandArc ------------------------
 --expandArc: sio
 
 block label:
   var filename_cursor = "debug.txt"
-  var f = open(filename_cursor, fmRead, 8000)
+  var f = open(filename_cursor, 0, 8000)
   try:
     var res
     try:
@@ -35,7 +35,7 @@ block label:
             var x_cursor = res
             echo([x_cursor])
     finally:
-      `=destroy`(res)
+      =destroy(res)
   finally:
     close(f)
 -- end of expandArc ------------------------'''

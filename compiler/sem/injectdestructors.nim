@@ -200,6 +200,10 @@ import
 from compiler/ast/reports_sem import SemReport
 from compiler/ast/report_enums import ReportKind
 
+# XXX: we shouldn't need to be concerned with rendering backend-
+#      IR to text here
+from compiler/backend/cgirutils import render
+
 type
   AnalyseCtx = object
     cfg: ControlFlowGraph
@@ -1317,12 +1321,11 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
     apply(changes)
 
   if g.config.arcToExpand.hasKey(owner.name.s):
-    # the diagnostic expects a ``PNode`` AST, so we first have to tranlsate
-    # the MIR code into one. While this is inefficient, ``expandArc`` is only
-    # meant as a utility, so it's okay for now.
+    # due to some parts of it being very declarative, rendering and echoing
+    # the MIR code wouldn't be very useful, so we turn it into backend IR
+    # first, which we then render to text
+    # XXX: this needs a deeper rethink
     let n = generateAST(g, idgen, owner, tree, sourceMap)
-    g.config.localReport(SemReport(
-      kind: rsemExpandArc,
-      sym: owner,
-      expandedAst: n
-    ))
+    g.config.msgWrite("--expandArc: " & owner.name.s & "\n")
+    g.config.msgWrite(render(n))
+    g.config.msgWrite("\n-- end of expandArc ------------------------\n")

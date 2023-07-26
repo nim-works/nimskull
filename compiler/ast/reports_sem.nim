@@ -151,7 +151,7 @@ type
       of rsemReportTwoSym + rsemReportOneSym + rsemReportListSym:
         symbols*: seq[PSym]
 
-      of rsemExpandMacro, rsemPattern, rsemExpandArc:
+      of rsemExpandMacro, rsemPattern:
         expandedAst*: PNode
 
       of rsemLockLevelMismatch, rsemMethodLockMismatch:

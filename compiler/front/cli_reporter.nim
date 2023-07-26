@@ -520,17 +520,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
          r.typ.kind == tyProc:
         result.add(" = ", typeToString(r.typ, preferDesc))
 
-
-    of rsemExpandArc:
-      result.add(
-        "--expandArc: ",
-        r.symstr,
-        "\n",
-        r.expandedAst.renderTree({renderIr, renderNoComments}),
-        "\n",
-        "-- end of expandArc ------------------------"
-      )
-
     of rsemCannotBorrow:
       result.add(
         "cannot borrow ",
@@ -2238,7 +2227,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
 
 const standalone = {
-  rsemExpandArc, # Original compiler did not consider it as a hint
   rvmStackTrace, # Always associated with extra report
   rsemDiagnostics, # Wraps other reports
 }

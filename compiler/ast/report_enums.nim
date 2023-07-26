@@ -818,7 +818,6 @@ type
 
     rsemEffectsListingHint
     rsemExpandMacro = "ExpandMacro" ## Trace macro expansion progress
-    rsemExpandArc = "ExpandArc"
 
     rsemCompilesReport
     rsemNonMatchingCandidates
