@@ -502,8 +502,7 @@ proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =
     # xxx: instead of "AnonType" maybe generate a name from the field
     #      names+types with some caching so the same structures have the same
     #      names/symbols.
-    let sym = newSym(skType, getIdent(c.cache, "AnonType"),
-                      nextSymId c.idgen, c.getCurrOwner(), n.info)
+    let sym = newAnonSym(c, skType, n.info)
     sym.flags.incl sfAnon
     sym.typ = result
     result.owner = sym
@@ -530,9 +529,7 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
     # xxx: instead of "AnonType" maybe generate a name from the field
     #      names+types with some caching so the same structures have the same
     #      names/symbols.
-    let sym = newSym(skType, getIdent(c.cache, "AnonType"),
-                      nextSymId c.idgen, c.getCurrOwner(), n.info)
-    sym.flags.incl sfAnon
+    let sym = newAnonSym(c, skType, n.info)
     sym.typ = result
     result.owner = sym
     pushOwner(c, sym)
