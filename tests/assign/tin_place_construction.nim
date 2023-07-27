@@ -6,7 +6,7 @@ discard """
   '''
 """
 
-# assignments are always evluated left-to-right. Optimizing an assignment with
+# assignments are always evaluated left-to-right. Optimizing an assignment with
 # a constructed rvalue as the source into an in-place construction is
 # allowed, as long as this doesn't lead to left-to-right evaluation order
 # violations

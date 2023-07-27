@@ -210,7 +210,7 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
 
   # we don't need to consider defs or initializing assignments (``mnkInit``)
   # here, because there it is guaranteed that the destination does not appear
-  # anwhere in the source expression
+  # anywhere in the source expression
   # XXX: no fast-assignments should exist at this point, but currently they
   #      do
   for i in search(tree, {mnkFastAsgn, mnkAsgn}):
