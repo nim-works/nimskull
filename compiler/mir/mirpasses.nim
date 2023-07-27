@@ -118,11 +118,6 @@ func next(iter: var ArgIter, tree: MirTree): OpValue =
 func hasNext(iter: ArgIter): bool {.inline.} =
   iter.pos != NodePosition(-1)
 
-func getAsgnOperands(tree: MirTree, n: NodePosition): tuple[dest, src: OpValue] =
-  var iter = initArgIter(tree, n)
-  result.dest = next(iter, tree)
-  result.src = next(iter, tree)
-
 iterator search(tree: MirTree, kinds: static set[MirNodeKind]): NodePosition =
   ## Returns in order of appearance the positions of all nodes matching the
   ## given `kinds`.
