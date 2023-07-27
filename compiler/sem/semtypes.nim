@@ -828,6 +828,7 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
       #       - got: firstOrd(c.config, typ)),
       typ: typ,
       sym: a[0].sym)
+    localReport(c.config, n.info, rep)
 
   for i in 1..<n.len:
     var b = copyTree(n[i])
