@@ -46,8 +46,11 @@ const
 
 func isRvalue(tree: MirTree, a: OpValue): bool {.inline.} =
   ## Returns whether `a` represents an r-value, that is, something that
-  ## doesn't have a name and cannot be assigned to.
-  tree[a].kind in {mnkLiteral, mnkConstr, mnkObjConstr, mnkCall}
+  ## doesn't have a name and cannot be assigned to. Only checks the
+  ## immediate operator that yield the value.
+  tree[a].kind in { mnkNone, mnkProc, mnkType, mnkLiteral, mnkConstr,
+                    mnkObjConstr, mnkCall, mnkStdConv, mnkCast, mnkAddr,
+                    mnkView }
 
 func getRoot(tree: MirTree, n: OpValue): NodePosition =
   ## Returns the root of a value. The root is either:
