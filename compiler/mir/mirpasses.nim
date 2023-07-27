@@ -52,6 +52,10 @@ func isRvalue(tree: MirTree, a: OpValue): bool {.inline.} =
                     mnkObjConstr, mnkCall, mnkStdConv, mnkCast, mnkAddr,
                     mnkView }
 
+func isArgBlock(tree: MirTree, n: NodePosition): bool =
+  ## Returns whether the node `n` is the end-node of an arg-block.
+  tree[n].kind == mnkEnd and tree[n].start == mnkArgBlock
+
 func getRoot(tree: MirTree, n: OpValue): NodePosition =
   ## Returns the root of a value. The root is either:
   ## - the first operation yielding an lvalue (e.g., a pointer dereference)
@@ -85,8 +89,17 @@ func skipTag(tree: MirTree, a: OpValue): OpValue {.inline.} =
   else:                      a
 
 func initArgIter*(tree: MirTree, call: NodePosition): ArgIter =
-  assert tree[call].kind in {mnkCall, mnkMagic}
-  result = ArgIter(pos: call - 2)
+  assert tree[call].kind in { mnkCall, mnkMagic, mnkRegion, mnkAsgn,
+                              mnkFastAsgn, mnkInit, mnkPathArray, mnkAsm,
+                              mnkEmit }
+  assert isArgBlock(tree, call-1)
+
+  var pos = call - 2
+  if tree[pos].kind == mnkArgBlock:
+    # it's an empty arg-block, there's nothing to iterate
+    pos = NodePosition(-1)
+
+  result = ArgIter(pos: pos)
 
 func next(iter: var ArgIter, tree: MirTree): OpValue =
   assert iter.pos.int >= 0, "no more arguments"
