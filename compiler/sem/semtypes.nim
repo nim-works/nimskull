@@ -753,22 +753,17 @@ iterator processBranchVals(b: PNode): int =
 
 proc toLiterals*(vals: IntSet, t: PType): seq[PNode] =
   let t = t.skipTypes(abstractRange)
-
   var enumSymOffset = 0
   for val in vals:
-    case t.kind:
-      of tyEnum, tyBool:
-        while t.n[enumSymOffset].sym.position < val:
-          inc(enumSymOffset)
-
-        result &= t.n[enumSymOffset]
-
-      of tyChar:
-        result.add newIntNode(nkCharLit, BiggestInt(val))
-
-      else:
-        result.add newIntNode(nkIntLit, BiggestInt(val))
-
+    case t.kind
+    of tyEnum, tyBool:
+      while t.n[enumSymOffset].sym.position < val:
+        inc(enumSymOffset)
+      result &= t.n[enumSymOffset]
+    of tyChar:
+      result.add newIntNode(nkCharLit, BiggestInt(val))
+    else:
+      result.add newIntNode(nkIntLit, BiggestInt(val))
 
 proc toEnumFields(vals: IntSet, t: PType): seq[PSym] =
   block:
@@ -783,9 +778,7 @@ proc missingInts(c: PContext, n: PNode): IntSet =
   for i in 1..<n.len:
     for val in processBranchVals(n[i]):
       coveredCases.incl val
-
   return c.getIntSetOfType(n[0].typ) - coveredCases
-
 
 proc formatMissingBranches(c: PContext, n: PNode): seq[PNode] =
   toLiterals(missingInts(c, n) , n[0].typ)
@@ -826,7 +819,6 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
       #       - got: firstOrd(c.config, typ)),
       typ: typ,
       sym: a[0].sym)
-
     localReport(c.config, n.info, rep)
   elif lengthOrd(c.config, typ) > 0x00007FFF:
     var rep = SemReport(
@@ -854,7 +846,6 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
         c.config, n,
         "Expected ofBranch or else for object case statement, but found" &
           $n[i].kind)
-
     delSon(b, b.len - 1)
     semRecordNodeAux(c, lastSon(n[i]), check, pos, b, rectype, hasCaseFields = true)
   if chckCovered and covered != toCover(c, a[0].typ):
@@ -864,7 +855,6 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
         nodes: formatMissingBranches(c, a)))
     else:
       localReport(c.config, a, reportSem rsemMissingCaseBranches)
-
   father.add a
 
 proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
@@ -1081,8 +1071,6 @@ proc semAnyRef(c: PContext; n: PNode; kind: TTypeKind; prev: PType): PType =
     if t.kind == tyVoid:
       localReport(c.config, n.info, reportTyp(
         rsemTVoidNotAllowed, t, str = kind.toHumanStr))
-
-
     result = newOrPrevType(kind, prev, c)
     var isNilable = false
     var wrapperKind = tyNone
@@ -1100,7 +1088,6 @@ proc semAnyRef(c: PContext; n: PNode; kind: TTypeKind; prev: PType): PType =
               tyError, tyObject}:
           localReport(c.config, n[i], reportSem rsemExpectedObjectForRegion)
           addSonSkipIntLit(result, region, c.idgen)
-
         else:
           localReport(c.config, n.info, reportSem(rsemPtrRegionIsDeprecated))
           addSonSkipIntLit(result, region, c.idgen)
@@ -1583,7 +1570,6 @@ proc semObjectTypeForInheritedGenericInst(c: PContext, n: PNode, t: PType) =
     base = skipTypesOrNil(realBase, skipPtrs)
   if base.isNil:
     localReport(c.config, n.info, reportTyp(rsemIllegalRecursion, t))
-
   else:
     let concreteBase = skipGenericInvocation(base)
     if concreteBase.kind == tyObject and tfFinal notin concreteBase.flags:
@@ -1916,7 +1902,6 @@ proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
         ast: n,
         location: some(n.info),
         kind: rvmCannotEvaluateAtComptime))
-
     else:
       m = mode.intVal
   
