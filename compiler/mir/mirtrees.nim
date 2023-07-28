@@ -363,6 +363,7 @@ const
     ## arg-block
 
   SingleInputNodes* = {mnkAddr, mnkDeref, mnkDerefView, mnkCast, mnkConv,
+                       mnkStdConv, mnkPathNamed, mnkPathPos, mnkPathVariant,
                        mnkTag, mnkIf, mnkCase, mnkRaise, mnkVoid} +
                       ArgumentNodes
     ## Operators and statements that must not have argument-blocks as input
@@ -551,7 +552,7 @@ func operand*(tree: MirTree, op: Operation, opr: Natural): OpValue =
     # skip the sub-nodes until we've reached the `opr`-th arg node
     var i = 0
     while pos < prev:
-      if tree[pos].kind in {mnkArg, mnkName}:
+      if tree[pos].kind in ArgumentNodes:
         if i == opr:
           # return the input, not the 'arg' node itself
           return OpValue getStart(tree, pos - 1)

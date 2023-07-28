@@ -521,7 +521,7 @@ proc genDeref(p: BProc, e: PNode, d: var TLoc) =
         d.storage = OnUnknown         # BUGFIX!
       else:
         internalError(p.config, e.info, "genDeref " & $typ.kind)
-    
+
     if mt == ctPtrToArray and lfEnforceDeref in d.flags:
       # we lie about the type for better C interop: 'ptr array[3,T]' is
       # translated to 'ptr T', but for deref'ing this produces wrong code.
@@ -1134,11 +1134,10 @@ proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
   var t = e.typ.skipTypes(abstractInst)
   let isRef = t.kind == tyRef
 
-  # check if we need to construct the object in a temporary
-  var useTemp =
-        isRef or
-        (d.k notin {locTemp,locLocalVar,locGlobalVar,locParam}) or
-        (isPartOf(d.lode, e) != arNo)
+  # a temporary was injected if in-place construction cannot be used,
+  # meaning that we can always construct in-place here (we still have
+  # to consider uninitialized and expression locs)
+  let useTemp = isRef or d.k == locNone
 
   # if the object has a record-case, don't initialize type fields before but
   # after initializing discriminators. Otherwise, the type fields in the
@@ -1208,37 +1207,28 @@ proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
 
     specializeInitObject(p, r, t, e.info)
 
-proc lhsDoesAlias(a, b: PNode): bool =
-  for y in b:
-    if isPartOf(a, y) != arNo: return true
-
 proc genSeqConstr(p: BProc, n: PNode, d: var TLoc) =
   var arr, tmp: TLoc
   # bug #668
-  let doesAlias = lhsDoesAlias(d.lode, n)
-  let dest = if doesAlias: addr(tmp) else: addr(d)
-  if doesAlias:
-    getTemp(p, n.typ, tmp)
-  elif d.k == locNone:
-    getTemp(p, n.typ, d)
+  getTemp(p, n.typ, tmp)
 
   let l = intLiteral(n.len)
   block:
     let seqtype = n.typ
     linefmt(p, cpsStmts, "$1.len = $2; $1.p = ($4*) #newSeqPayload($2, sizeof($3), NIM_ALIGNOF($3));$n",
-      [rdLoc dest[], l, getTypeDesc(p.module, seqtype.lastSon),
+      [rdLoc tmp, l, getTypeDesc(p.module, seqtype.lastSon),
       getSeqPayloadType(p.module, seqtype)])
 
   for i in 0..<n.len:
     initLoc(arr, locExpr, n[i], OnHeap)
-    arr.r = ropecg(p.module, "$1$3[$2]", [rdLoc(dest[]), intLiteral(i), dataField(p)])
+    arr.r = ropecg(p.module, "$1$3[$2]", [rdLoc(tmp), intLiteral(i), dataField(p)])
     arr.storage = OnHeap            # we know that sequences are on the heap
     expr(p, n[i], arr)
-  if doesAlias:
-    if d.k == locNone:
-      d = tmp
-    else:
-      genAssignment(p, d, tmp)
+
+  if d.k == locNone:
+    d = tmp
+  else:
+    genAssignment(p, d, tmp)
 
 proc genArrToSeq(p: BProc, n: PNode, d: var TLoc) =
   var elem, a, arr: TLoc

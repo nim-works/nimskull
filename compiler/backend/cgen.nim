@@ -50,7 +50,6 @@ import
   ],
   compiler/sem/[
     rodutils,
-    aliases,
     lowerings,
   ],
   compiler/backend/[

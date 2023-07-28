@@ -401,34 +401,6 @@ proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
     for i in 0..<n.len:
       result[i] = introduceNewLocalVars(c, n[i])
 
-proc transformAsgn(c: PTransf, n: PNode): PNode =
-  let rhs = n[1]
-
-  if rhs.kind != nkTupleConstr:
-    return transformSons(c, n)
-
-  # Unpack the tuple assignment into N temporary variables and then pack them
-  # into a tuple: this allows us to get the correct results even when the rhs
-  # depends on the value of the lhs
-  let letSection = newNodeI(nkLetSection, n.info, rhs.len)
-  let newTupleConstr = newNodeI(nkTupleConstr, n.info, rhs.len)
-  for i, field in rhs:
-    let val = if field.kind == nkExprColonExpr: field[1] else: field
-    let def = newTreeI(nkIdentDefs, field.info):
-      [newTemp(c, val.typ, field.info), newNodeI(nkEmpty, field.info), transform(c, val)]
-    letSection[i] = def
-    # NOTE: We assume the constructor fields are in the correct order for the
-    # given tuple type
-    newTupleConstr[i] = def[0]
-
-  newTupleConstr.typ = rhs.typ
-
-  let asgnNode = newTreeI(nkAsgn, n.info):
-    [transform(c, n[0]), newTupleConstr]
-
-  result = newTreeI(nkStmtList, n.info):
-    [letSection, asgnNode]
-
 proc newTupleAccess(n: PNode, formal: PType, i: Natural): PNode =
   ## Creates a new expression for accessing the `i`-th tuple element, taking
   ## views into account. `formal` is the target type
@@ -1186,8 +1158,6 @@ proc transform(c: PTransf, n: PNode): PNode =
       result = transformYield(c, n)
     else:
       result = transformSons(c, n)
-  of nkAsgn:
-    result = transformAsgn(c, n)
   of nkIdentDefs, nkConstDef:
     result = shallowCopy(n)
     result[0] = transformDefSym(c, n[0])

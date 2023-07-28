@@ -234,3 +234,19 @@ block assign_pure_subobject:
   doAssert x.r != nil # prevent a sink for the assignment by using `x`
                       # afterwards
   doAssert y.r != nil
+
+block assign_literal_tuple_construction_to_effectful_lhs:
+  var i = 0
+  var tup = (0, 0)
+  # the assignment to `i` must be observable on the right-hand
+  # side. Previously, it wasn't
+  (i = 1; tup) = (i, 2)
+  doAssert tup == (1, 2)
+
+  # test with an side-effectful call expression:
+  proc modify(a: var (int, int), b: var int): var (int, int) =
+    inc b
+    result = a
+
+  modify(tup, i) = (i, 3)
+  doAssert tup == (2, 3)

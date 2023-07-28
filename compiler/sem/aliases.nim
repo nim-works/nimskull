@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-## Simple alias analysis for the HLO and the code generators.
+## Simple alias analysis for the HLO.
 
 
 import
@@ -66,7 +66,7 @@ proc isPartOfAux(a, b: PType, marker: var IntSet): TAnalysisResult =
       if result == arYes: return
   else: discard
 
-proc isPartOf(a, b: PType): TAnalysisResult =
+proc isPartOf*(a, b: PType): TAnalysisResult =
   ## checks iff 'a' can be part of 'b'. Iterates over VALUE types!
   var marker = initIntSet()
   # watch out: parameters reversed because I'm too lazy to change the code...

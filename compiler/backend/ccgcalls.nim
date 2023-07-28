@@ -24,7 +24,10 @@ proc canRaiseDisp(p: BProc; n: PNode): bool =
     # we have to be *very* conservative:
     result = canRaiseConservative(n)
 
-proc preventNrvo(p: BProc; le, ri: PNode): bool =
+proc reportObservableStore(p: BProc; le, ri: PNode) =
+  ## Reports the ``rsemObservableStores`` hint when the called procedure can
+  ## exit with an exception and `le` is something to which an assignment is
+  ## observable in the exception-raised case.
   proc locationEscapes(p: BProc; le: PNode; inTryStmt: bool): bool =
     var n = le
     while true:
@@ -48,15 +51,11 @@ proc preventNrvo(p: BProc; le, ri: PNode): bool =
         # cannot analyse the location; assume the worst
         return true
 
-  if le != nil:
-    for i in 1..<ri.len:
-      let r = ri[i]
-      if isPartOf(le, r) != arNo: return true
-    # we use the weaker 'canRaise' here in order to prevent too many
-    # annoying warnings, see #14514
-    if canRaise(ri[0]) and
-        locationEscapes(p, le, p.nestedTryStmts.len > 0):
-      localReport(p.config, le, reportSem rsemObservableStores)
+  # we use the weaker 'canRaise' here in order to prevent too many
+  # annoying warnings, see #14514
+  if le != nil and canRaise(ri[0]) and
+     locationEscapes(p, le, p.nestedTryStmts.len > 0):
+    localReport(p.config, le, reportSem rsemObservableStores)
 
 proc hasNoInit(call: PNode): bool {.inline.} =
   result = call[0].kind == nkSym and sfNoInit in call[0].sym.flags
@@ -96,9 +95,12 @@ proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
   if typ[0] != nil:
     if isInvalidReturnType(p.config, typ[0]):
       if params != "": pl.add(~", ")
-      # beware of 'result = p(result)'. We may need to allocate a temporary:
-      if d.k in {locTemp, locNone} or not preventNrvo(p, le, ri):
-        # Great, we can use 'd':
+      # the destination is guaranteed to be either a temporary or an lvalue
+      # that can be modified in-place
+      if true:
+        if d.k notin {locTemp, locNone}:
+          reportObservableStore(p, le, ri)
+
         if d.k == locNone: getTemp(p, typ[0], d, needsInit=true)
         elif d.k notin {locTemp} and not hasNoInit(ri):
           # reset before pass as 'result' var:
@@ -107,14 +109,6 @@ proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
         pl.add(~");$n")
         line(p, cpsStmts, pl)
         exitCall(p, ri[0], canRaise)
-      else:
-        var tmp: TLoc
-        getTemp(p, typ[0], tmp, needsInit=true)
-        pl.add(addrLoc(p.config, tmp))
-        pl.add(~");$n")
-        line(p, cpsStmts, pl)
-        exitCall(p, ri[0], canRaise)
-        genAssignment(p, d, tmp)
     else:
       pl.add(~")")
       if isHarmlessStore(p, canRaise, d):
@@ -419,9 +413,12 @@ proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
   if typ[0] != nil:
     if isInvalidReturnType(p.config, typ[0]):
       if ri.len > 1: pl.add(~", ")
-      # beware of 'result = p(result)'. We may need to allocate a temporary:
-      if d.k in {locTemp, locNone} or not preventNrvo(p, le, ri):
-        # Great, we can use 'd':
+      # the destination is guaranteed to be either a temporary or an lvalue
+      # that can be modified in-place
+      if true:
+        if d.k notin {locTemp, locNone}:
+          reportObservableStore(p, le, ri)
+
         if d.k == locNone:
           getTemp(p, typ[0], d, needsInit=true)
         elif d.k notin {locTemp} and not hasNoInit(ri):
@@ -430,13 +427,6 @@ proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
         pl.add(addrLoc(p.config, d))
         genCallPattern()
         exitCall(p, ri[0], canRaise)
-      else:
-        var tmp: TLoc
-        getTemp(p, typ[0], tmp, needsInit=true)
-        pl.add(addrLoc(p.config, tmp))
-        genCallPattern()
-        exitCall(p, ri[0], canRaise)
-        genAssignment(p, d, tmp)
     elif isHarmlessStore(p, canRaise, d):
       if d.k == locNone: getTemp(p, typ[0], d)
       assert(d.t != nil)        # generate an assignment to d:

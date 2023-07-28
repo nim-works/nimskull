@@ -179,6 +179,7 @@ proc isInvalidReturnType(conf: ConfigRef; rettype: PType): bool =
   # Arrays and sets cannot be returned by a C procedure, because C is
   # such a poor programming language.
   # We exclude records with refs too. This enhances efficiency.
+  # keep synchronized with ``mirpasses.eligibleForRvo``
   if rettype == nil: result = true
   else:
     case mapType(conf, rettype, skResult)
