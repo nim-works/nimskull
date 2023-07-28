@@ -617,6 +617,9 @@ func undoConversions(buf: var MirNodeSeq, tree: MirTree, src: OpValue) =
     p = previous(tree, p)
     buf.add MirNode(kind: mnkConv, typ: tree[p].typ)
 
+func opParamNode(index: uint32, typ: PType): MirNode {.inline.} =
+  MirNode(kind: mnkOpParam, typ: typ, param: index)
+
 template voidCallWithArgs(buf: var MirNodeSeq, body: untyped) =
   argBlock(buf):
     body
@@ -653,7 +656,7 @@ proc genInjectedSink(buf: var MirNodeSeq, graph: ModuleGraph, t: PType,
       chain(buf): emit(source) => arg()
   else:
     # without a sink hook, a ``=destroy`` + blit-copy is used
-    genDestroy(buf, graph, t, MirNode(kind: mnkOpParam, param: 0))
+    genDestroy(buf, graph, t, opParamNode(0, t))
 
     argBlock(buf):
       chain(buf): opParam(0, t) => arg()
@@ -662,13 +665,13 @@ proc genInjectedSink(buf: var MirNodeSeq, graph: ModuleGraph, t: PType,
 
 proc genInjectedSink(buf: var MirNodeSeq, graph: ModuleGraph, t: PType) =
   genInjectedSink(buf, graph, t):
-    MirNode(kind: mnkOpParam, typ: t, param: 1)
+    opParamNode(1, t)
 
 proc genSinkFromTemporary(buf: var MirNodeSeq, graph: ModuleGraph, t: PType,
                           tmp: TempId) =
   ## Similar to ``genInjectedSink`` but generates code for destructively
   ## moving the source operand into a temporary first
-  buf.add MirNode(kind: mnkOpParam, param: 1)
+  buf.add opParamNode(1, t)
   buf.genDefTemp(tmp, t)
 
   genWasMoved(buf, graph):
@@ -752,7 +755,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 
               if needsReset(tree, ctx.cfg, ar, Lvalue source):
                 genWasMoved(buf, ctx.graph):
-                  buf.add MirNode(kind: mnkOpParam, param: 1)
+                  buf.add opParamNode(1, typ)
                   undoConversions(buf, tree, source)
                   EValue(typ: buf[^1].typ)
 
@@ -778,7 +781,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
             # XXX: the reset could be omitted for part-to-whole assignments
             if needsReset(tree, ctx.cfg, ar, Lvalue source):
               genWasMoved(buf, ctx.graph):
-                buf.add MirNode(kind: mnkOpParam, param: 1)
+                buf.add opParamNode(1, typ)
                 undoConversions(buf, tree, source)
                 EValue(typ: buf[^1].typ)
 
@@ -796,8 +799,8 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 
       buf.subTree MirNode(kind: mnkRegion):
         genCopy(buf, ctx.graph, typ,
-                MirNode(kind: mnkOpParam, param: 0),
-                MirNode(kind: mnkOpParam, param: 1),
+                opParamNode(0, typ),
+                opParamNode(1, typ),
                 maybeCyclic)
 
 proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
@@ -822,13 +825,13 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 
     c.insert(NodeInstance src, buf):
       buf.subTree MirNode(kind: mnkRegion):
-        buf.add MirNode(kind: mnkOpParam, param: 0)
+        buf.add opParamNode(0, typ)
         buf.genDefTemp(tmp, typ)
 
-        genMarkCyclic(buf, ctx.graph, typ, MirNode(kind: mnkOpParam, param: 0))
+        genMarkCyclic(buf, ctx.graph, typ, opParamNode(0, typ))
         if reset:
           genWasMoved(buf, ctx.graph):
-            buf.add MirNode(kind: mnkOpParam, param: 0)
+            buf.add opParamNode(0, typ)
             undoConversions(buf, tree, src)
             EValue(typ: buf[^1].typ)
 
@@ -847,7 +850,7 @@ proc insertCopy(tree: MirTree, graph: ModuleGraph, typ: PType,
 
       genCopy(buf, graph, typ,
               MirNode(kind: mnkTemp, typ: typ, temp: tmp),
-              MirNode(kind: mnkOpParam, param: 0),
+              opParamNode(0, typ),
               maybeCyclic)
 
     buf.add MirNode(kind: mnkTemp, typ: typ, temp: tmp)
@@ -1206,7 +1209,7 @@ proc lowerNew(tree: MirTree, g: ModuleGraph, c: var Changeset) =
           let typ = skipTypes(tree[operand(tree, Operation(i), 0)].typ,
                               skipAliases + {tyVar})
           # first destroy the previous value
-          genDestroy(buf, g, typ, MirNode(kind: mnkOpParam, param: 0))
+          genDestroy(buf, g, typ, opParamNode(0, typ))
 
           # re-insert the call to ``new``
           argBlock(buf):
