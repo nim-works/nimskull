@@ -1112,7 +1112,7 @@ proc genLocDef(c: var TCtx, n: PNode) =
         else:                   mnkLocal
 
       {.cast(uncheckedAssign).}:
-        c.stmts.add MirNode(kind: kind, sym: s)
+        c.stmts.add MirNode(kind: kind, typ: s.typ, sym: s)
 
 proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
   ## Generates the code for a location definition. `sym` is the symbol of the
@@ -1892,9 +1892,10 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, options: set[GenOption],
     # processing and analysis
     let params = owner.typ.n
     for i in 1..<params.len:
-      if params[i].sym.typ.isSinkTypeForParam():
+      let s = params[i].sym
+      if s.typ.isSinkTypeForParam():
         c.stmts.subTree MirNode(kind: mnkDef):
-          c.stmts.add MirNode(kind: mnkParam, sym: params[i].sym)
+          c.stmts.add MirNode(kind: mnkParam, typ: s.typ, sym: s)
 
   gen(c, body)
 
