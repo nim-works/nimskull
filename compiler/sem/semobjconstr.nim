@@ -465,14 +465,15 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
     result[i][1] = fitNodeConsiderViewType(c, it[0].typ, val, val.info)
 
-    # now check whether it's legal for the field to appear in the construction
+    # now check whether it's legal for the field to appear in the construction.
+    # Visibility errors take precedence over multiple initializations
     if not fieldVisible(c, it[0].sym):
       result[i][0] = newError(c.config, it[0]):
         PAstDiag(kind: adSemFieldNotAccessible, inaccessible: it[0].sym)
     elif containsOrIncl(seen, it[0].sym.id):
       # duplicate field initialization
       result[i][0] = newError(c.config, it[0]):
-        PAstDiag(kind: adSemFieldInitTwice)
+        PAstDiag(kind: adSemFieldInitTwice, dupFld: it[0].sym.name)
 
   # now verify that the language rules requiring a complex type traversal are
   # not violated. These are:
