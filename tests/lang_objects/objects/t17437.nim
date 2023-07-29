@@ -7,6 +7,7 @@ t17437.nim(18, 19) Error: Invalid field assignment 'y'
 '''
 """
 
+
 # bug #17437 invalid object construction should result in error
 
 type
