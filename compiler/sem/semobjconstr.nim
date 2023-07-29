@@ -220,7 +220,7 @@ proc checkConstructFields(c: PContext, n: PNode,
                                                 constrCtx.initExpr)
       var discriminatorVal = if discrimAssign.isNil: nil else: discrimAssign[1]
 
-      if discriminatorVal != nil and discriminator.kind != nkError:
+      if discriminatorVal != nil and discriminatorVal.kind != nkError:
         discriminatorVal = discriminatorVal.skipHidden
         if discriminatorVal.kind notin nkLiterals and (
             not isOrdinalType(discriminatorVal.typ, true) or
