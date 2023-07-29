@@ -65,6 +65,16 @@ template test =
   var h = 1
   say h, h +=+ 1 # 1,2
 
+  proc mutateFirst(a: var C, b: C) =
+    a.i = 2
+    doAssert b.i == 1
+
+  var i = C(i: 1)
+  when nimvm: # XXX: doesn't work yet
+    discard
+  else:
+    mutateFirst(i, i)
+
 test
 
 static:

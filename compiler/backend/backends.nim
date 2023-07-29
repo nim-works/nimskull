@@ -364,7 +364,7 @@ proc process*(prc: var Procedure, graph: ModuleGraph, idgen: IdGenerator) =
     of backendNimVm:   targetVm
     of backendInvalid: unreachable()
 
-  applyPasses(prc.body.tree, prc.body.source, prc.sym, target)
+  applyPasses(prc.body.tree, prc.body.source, prc.sym, graph.config, target)
 
 proc process(body: var MirFragment, ctx: PSym, graph: ModuleGraph,
              idgen: IdGenerator) =
