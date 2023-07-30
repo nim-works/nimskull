@@ -442,7 +442,7 @@ proc fixupCallArguments(tree: MirTree, config: ConfigRef,
           continue
 
         var needsTemp = false
-        block:
+        block checkIfArgNeedsTemp:
           # first, check whether the argument value is passed to an earlier
           # ``var`` parameter of the procedure (e.g., given the call
           # ``f(a, b, c, d)`` and analysing 'c', check 'a' and 'b'. 'd' is
@@ -453,15 +453,14 @@ proc fixupCallArguments(tree: MirTree, config: ConfigRef,
             if tree[arg2].kind == mnkName and tree[arg2 - 1].kind == mnkTag:
               if maybeSameMutableLocation(tree, val, OpValue(arg2 - 2)):
                 needsTemp = true
-                break
+                break checkIfArgNeedsTemp
 
-        if not needsTemp:
           # look for potential mutations of the argument that happen after
           # the argument is bound
           for mut in potentialMutations(tree, arg + 1, i - 2):
             if maybeSameMutableLocation(tree, val, mut):
               needsTemp = true
-              break
+              break checkIfArgNeedsTemp
 
         if needsTemp:
           let temp = MirNode(kind: mnkTemp, typ: tree[arg].typ,
