@@ -402,11 +402,6 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
         let tmp = defaultValueExpr(p, t, a.lode.info)
         genAssignment(p, a, tmp)
 
-proc isComplexValueType(t: PType): bool {.inline.} =
-  let t = t.skipTypes(abstractInst + tyUserTypeClasses)
-  result = t.kind in {tyArray, tySet, tyTuple, tyObject, tyOpenArray} or
-    (t.kind == tyProc and t.callConv == ccClosure)
-
 include ccgreset
 
 proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =

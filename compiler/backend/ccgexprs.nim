@@ -824,23 +824,6 @@ proc genBracketExpr(p: BProc; n: PNode; d: var TLoc) =
   else: internalError(p.config, n.info, "expr(nkBracketExpr, " & $ty.kind & ')')
   discard getTypeDesc(p.module, n.typ)
 
-proc isSimpleExpr(n: PNode): bool =
-  # calls all the way down --> can stay expression based
-  case n.kind
-  of nkCallKinds, nkDotExpr, nkPar, nkTupleConstr,
-      nkObjConstr, nkBracket, nkCurly, nkHiddenDeref, nkDerefExpr, nkHiddenAddr,
-      nkHiddenStdConv, nkHiddenSubConv, nkConv, nkAddr:
-    for c in n:
-      if not isSimpleExpr(c): return false
-    result = true
-  of nkStmtListExpr:
-    for i in 0..<n.len-1:
-      if n[i].kind notin {nkCommentStmt, nkEmpty}: return false
-    result = isSimpleExpr(n.lastSon)
-  else:
-    if n.isAtom:
-      result = true
-
 proc genEcho(p: BProc, n: PNode) =
   # this unusual way of implementing it ensures that e.g. ``echo("hallo", 45)``
   # is threadsafe.
