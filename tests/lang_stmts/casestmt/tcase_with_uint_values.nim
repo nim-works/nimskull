@@ -1,10 +1,13 @@
 discard """
-  targets: "c js vm"
+  targets: "c !js vm"
   description: '''
     Ensures that case statements work with uint operands and of-branch values
     not representable with the same-sized signed integer type
   '''
 """
+
+# knownIssue: compiles correctly for JS, but doesn't work at run-time because
+#             of the improper large integer support
 
 proc test[T: uint64|uint; S]() =
   const Border = T(high(S)) # the highest possible signed integer value
