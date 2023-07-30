@@ -387,7 +387,7 @@ proc fixupCallArguments(tree: MirTree, config: ConfigRef,
     result = true # until proven otherwise
     for i in 1..min(an.len, bn.len):
       let a {.cursor.} = tree[an[^i]]
-      let b {.cursor.} = tree[bn[^1]]
+      let b {.cursor.} = tree[bn[^i]]
 
       template check(cond: bool) =
         if cond:
@@ -407,7 +407,7 @@ proc fixupCallArguments(tree: MirTree, config: ConfigRef,
       of mnkPathPos:
         check(a.position != b.position)
       of mnkPathArray:
-        check(sameIndex(tree[an[i] - 3], tree[bn[i] - 3]) == no)
+        check(sameIndex(tree[an[^i] - 3], tree[bn[^i] - 3]) == no)
       else:
         unreachable()
 
