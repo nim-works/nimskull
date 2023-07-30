@@ -2252,11 +2252,10 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
     genAsgn(p, n)
   of nkDiscardStmt:
     let ex = n[0]
-    if ex.kind != nkEmpty:
-      genLineDir(p, n)
-      var a: TLoc
-      initLocExprSingleUse(p, ex, a)
-      line(p, cpsStmts, "(void)(" & a.r & ");\L")
+    genLineDir(p, n)
+    var a: TLoc
+    initLocExprSingleUse(p, ex, a)
+    line(p, cpsStmts, "(void)(" & a.r & ");\L")
   of nkAsmStmt: genAsmStmt(p, n)
   of nkTryStmt:
     assert p.config.exc == excGoto
