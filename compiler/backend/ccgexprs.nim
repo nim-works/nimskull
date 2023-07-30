@@ -2177,13 +2177,9 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
         # local)
         putLocIntoDest(p, d, p.locals[sym])
     else: internalError(p.config, n.info, "expr(" & $sym.kind & "); unknown symbol")
-  of nkNilLit:
-    if not isEmptyType(n.typ):
-      putIntoDest(p, d, n, genLiteral(p, n))
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     putDataIntoDest(p, d, n, genLiteral(p, n))
-  of nkIntLit..nkUInt64Lit,
-     nkFloatLit..nkFloat128Lit, nkCharLit:
+  of nkIntLiterals, nkFloatLiterals, nkNilLit:
     putIntoDest(p, d, n, genLiteral(p, n))
   of nkCall:
     genLineDir(p, n) # may be redundant, it is generated in fixupCall as well

@@ -2415,9 +2415,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       r.res = rope(n.intVal)
     r.kind = resExpr
   of nkNilLit:
-    if isEmptyType(n.typ):
-      discard
-    elif mapType(n.typ) == etyBaseIndex:
+    if mapType(n.typ) == etyBaseIndex:
       r.typ = etyBaseIndex
       r.address = rope"null"
       r.res = rope"0"

@@ -2952,7 +2952,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
     c.loadInt(n, dest, getInt(n))
   of nkFloatKinds, nkStrKinds: genLit(c, n, dest)
   of nkNilLit:
-    if not n.typ.isEmptyType:
+    if true:
       let t = n.typ.skipTypes(abstractInst)
       internalAssert(c.config,
         t.kind in {tyPtr, tyRef, tyPointer, tyNil, tyProc, tyCstring},
@@ -2960,7 +2960,6 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
         $t.kind)
       if dest.isUnset: dest = c.getTemp(t)
       c.gABx(n, ldNullOpcode(t), dest, c.genType(n.typ))
-    else: unused(c, n, dest)
   of nkNimNodeLit:
     # the VM does not copy the tree when loading a ``PNode`` constant (which
     # is correct). ``NimNode``s not marked with `nfSem` can be freely modified
