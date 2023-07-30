@@ -39,29 +39,22 @@ proc intLiteral(i: BiggestInt): Rope =
 proc intLiteral(i: Int128): Rope =
   intLiteral(toInt64(i))
 
+proc intLiteral(p: BProc, i: Int128, ty: PType): Rope =
+  assert ty != nil
+  case skipTypes(ty, abstractVarRange).kind
+  of tyChar:      intLiteral(i)
+  of tyBool:
+    if i != Zero: "NIM_TRUE"
+    else:         "NIM_FALSE"
+  of tyInt64:     int64Literal(toInt64(i))
+  of tyUInt64:    uint64Literal(toUInt64(i))
+  else:
+    "(($1) $2)" % [getTypeDesc(p.module, ty), intLiteral(i)]
+
 proc genLiteral(p: BProc, n: PNode, ty: PType): Rope =
   case n.kind
   of nkCharLit..nkUInt64Lit:
-    var k: TTypeKind
-    if ty != nil:
-      k = skipTypes(ty, abstractVarRange).kind
-    else:
-      case n.kind
-      of nkCharLit: k = tyChar
-      of nkUInt64Lit: k = tyUInt64
-      of nkInt64Lit: k = tyInt64
-      else: k = tyNil # don't go into the case variant that uses 'ty'
-    case k
-    of tyChar, tyNil:
-      result = intLiteral(n.intVal)
-    of tyBool:
-      if n.intVal != 0: result = ~"NIM_TRUE"
-      else: result = ~"NIM_FALSE"
-    of tyInt64: result = int64Literal(n.intVal)
-    of tyUInt64: result = uint64Literal(uint64(n.intVal))
-    else:
-      result = "(($1) $2)" % [getTypeDesc(p.module,
-          ty), intLiteral(n.intVal)]
+    result = intLiteral(p, getInt(n), ty)
   of nkNilLit:
     let k = if ty == nil: tyPointer else: skipTypes(ty, abstractVarRange).kind
     if k == tyProc and skipTypes(ty, abstractVarRange).callConv == ccClosure:
