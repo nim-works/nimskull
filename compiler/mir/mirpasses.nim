@@ -335,8 +335,8 @@ proc fixupCallArguments(tree: MirTree, config: ConfigRef,
   ## Do note that due to the placement of this pass (it happens after the
   ## ``injectdestructors`` pass), only *shallow*, non-owning copies of the
   ## affected arguments are made, meaning that there's the issue of resource-
-  ## like values (refs, seqs, strings, everything else that has a destructor)
-  ## being freed while they're still reachable through an immutable parameter.
+  ## like values (refs, seqs, strings, everything else that has non-trivial
+  ## copy behaviour) not being duplicated properly.
 
   proc maybeSameMutableLocation(tree: MirTree, a, b: OpValue): bool {.nimcall.} =
     ## Compares the path of both `a` and `b` to check whether they could
