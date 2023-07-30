@@ -205,7 +205,6 @@ proc genIf(p: BProc, n: PNode) =
 proc genReturnStmt(p: BProc, t: PNode) =
   p.flags.incl beforeRetNeeded
   genLineDir(p, t)
-  if (t[0].kind != nkEmpty): genStmts(p, t[0])
   blockLeaveActions(p,
     howManyTrys    = p.nestedTryStmts.len,
     howManyExcepts = p.inExceptBlockLen)

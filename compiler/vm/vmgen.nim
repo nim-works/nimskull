@@ -910,9 +910,6 @@ proc writeBackResult(c: var TCtx, info: PNode) =
       c.freeTemp(tmp)
 
 proc genReturn(c: var TCtx; n: PNode) =
-  if n[0].kind != nkEmpty:
-    gen(c, n[0])
-
   writeBackResult(c, n)
   c.gABC(n, opcRet)
 

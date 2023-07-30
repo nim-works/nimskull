@@ -2204,10 +2204,7 @@ proc convCStrToStr(p: PProc, n: PNode, r: var TCompRes) =
 proc genReturnStmt(p: PProc, n: PNode) =
   p.config.internalAssert(p.prc != nil, n.info, "genReturnStmt")
   p.beforeRetNeeded = true
-  if n[0].kind != nkEmpty:
-    genStmt(p, n[0])
-  else:
-    genLineDir(p, n)
+  genLineDir(p, n)
   lineF(p, "break BeforeRet;$n", [])
 
 proc frameCreate(p: PProc; procname, filename: Rope): Rope =
