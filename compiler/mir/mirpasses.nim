@@ -24,6 +24,10 @@ import
 # for type-based alias analysis
 from compiler/sem/aliases import isPartOf, TAnalysisResult
 
+# XXX: required for computing the size of types. Ideally, the size would
+#      be fully computed already at this stage of compilation...
+from compiler/front/options import ConfigRef
+
 type
   TargetBackend* = enum
     ## The backend that is going to consume the MIR code. Used to select what
@@ -88,6 +92,17 @@ func skipTag(tree: MirTree, a: OpValue): OpValue {.inline.} =
   if tree[a].kind == mnkTag: OpValue(NodePosition(a) - 1)
   else:                      a
 
+func skipOpParam(tree: MirTree, n: OpValue): OpValue =
+  ## Returns the value that was passed to the surrounding region's argument
+  ## corresponding to the given ``mnkOpParam``.
+  assert tree[n].kind == mnkOpParam
+  let p = findParent(tree, NodePosition n, mnkRegion)
+  if isArgBlock(tree, p - 1):
+    result = operand(tree, Operation(p), tree[n].param)
+  else:
+    # it's a single argument region
+    result = getStart(tree, p - 1).OpValue
+
 func initArgIter*(tree: MirTree, call: NodePosition): ArgIter =
   assert tree[call].kind in { mnkCall, mnkMagic, mnkRegion, mnkAsgn,
                               mnkFastAsgn, mnkInit, mnkPathArray, mnkAsm,
@@ -101,9 +116,10 @@ func initArgIter*(tree: MirTree, call: NodePosition): ArgIter =
 
   result = ArgIter(pos: pos)
 
-func next(iter: var ArgIter, tree: MirTree): OpValue =
+func rawNext(iter: var ArgIter, tree: MirTree): NodePosition =
+  ## Returns the next argument node.
   assert iter.pos.int >= 0, "no more arguments"
-  result = OpValue(iter.pos - 1) # return the operand, not the argument node itself
+  result = iter.pos
   # move to the next argument node:
   var i = iter.pos - 1
   while tree[i].kind notin ArgumentNodes + {mnkArgBlock}:
@@ -114,6 +130,10 @@ func next(iter: var ArgIter, tree: MirTree): OpValue =
     iter.pos = NodePosition(-1)
   else:
     iter.pos = i
+
+func next(iter: var ArgIter, tree: MirTree): OpValue {.inline.} =
+  ## Returns the next operand node.
+  OpValue(rawNext(iter, tree) - 1)
 
 func hasNext(iter: ArgIter): bool {.inline.} =
   iter.pos != NodePosition(-1)
@@ -139,6 +159,22 @@ iterator uses(tree: MirTree, start, last: NodePosition): OpValue =
       yield skipTag(tree, unaryOperand(tree, Operation(i)))
 
     dec i
+
+iterator potentialMutations(tree: MirTree, start, last: NodePosition): OpValue =
+  ## Returns in an unspecified order all values that are:
+  ## - passed to parameters that allow for mutations
+  ## - turned into pointer rvalues (i.e., have their address taken)
+  ## - have mutable views created of them
+  ## None of the above means that the used value is really mutated in the
+  ## specified range, rather it means that the value *could* be mutated.
+  var i = start
+  while i <= last:
+    # all ``mnkTag`` nodes currently imply some sort of mutation/change
+    if tree[i].kind in {mnkTag, mnkAddr} or
+       (tree[i].kind == mnkView and tree[i].typ.kind == tyVar):
+      yield OpValue(i - 1)
+
+    inc i
 
 proc overlapsConservative(tree: MirTree, a, b: LvalueExpr): bool =
   ## Computes whether the lvalues `a` and `b` potentially name overlapping
@@ -277,8 +313,173 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
           buf.add temp
         buf.add temp
 
+proc fixupCallArguments(tree: MirTree, config: ConfigRef,
+                        changes: var Changeset) =
+  ## Injects temporaries in order to ensure that left-to-right evaluation
+  ## order is respected for call arguments. This is necessary because of
+  ## the implicit pass-by-reference semantics of some arguments. Consider:
+  ##
+  ##   f(a, (a = x; b))
+  ##
+  ## Where the first parameter uses pass-by-reference. At run-time, it has
+  ## to look like the first argument is *evaluated* (not just have its identity
+  ## computed, that is, address taken) before evaluating the second argument,
+  ## and this is what "fixing up" the arguments is about.
+  ##
+  ## There is another, somewhat related, problem: the underlying location of an
+  ## immutable pass-by-reference parameter can overlap with that of a ``var``
+  ## parameter, in which case changes through the ``var`` parameter are
+  ## observable on the immutable parameter. This problem is also addressed by
+  ## the fixup.
+  ##
+  ## Do note that due to the placement of this pass (it happens after the
+  ## ``injectdestructors`` pass), only *shallow*, non-owning copies of the
+  ## affected arguments are made, meaning that there's the issue of resource-
+  ## like values (refs, seqs, strings, everything else that has non-trivial
+  ## copy behaviour) not being duplicated properly.
+
+  proc maybeSameMutableLocation(tree: MirTree, a, b: OpValue): bool {.nimcall.} =
+    ## Compares the path of both `a` and `b` to check whether they could
+    ## potentially refer to overlapping mutable memory locations.
+    proc path(tree: MirTree, x: OpValue): seq[NodePosition] =
+      # gather all path-like operations that contribute to `x` into a
+      # list
+      var x = x
+      while true:
+        case tree[x].kind
+        of mnkAddr, mnkView, mnkDeref, mnkDerefView, mnkConv, mnkStdConv,
+           mnkTag:
+          x = unaryOperand(tree, x)
+        of mnkPathNamed, mnkPathPos, mnkPathVariant:
+          result.add NodePosition(x)
+          x = unaryOperand(tree, x)
+        of mnkPathArray:
+          result.add NodePosition(x)
+          x = operand(tree, x, 0)
+        of mnkTemp, mnkParam, mnkLocal, mnkGlobal:
+          # found a location root
+          result.add NodePosition(x)
+          break
+        of mnkOpParam:
+          x = skipOpParam(tree, x)
+        of mnkNone, mnkType, mnkLiteral, mnkProc, mnkConst, mnkCall, mnkMagic,
+           mnkObjConstr, mnkConstr, mnkCast:
+          # either an rvalue or something that's never mutable
+          result = @[]
+          break
+        of AllNodeKinds - SourceNodes + {mnkArgBlock}:
+          unreachable(tree[x].kind)
+
+    let
+      an = path(tree, a)
+      bn = path(tree, b)
+
+    if an.len == 0 or bn.len == 0:
+      # at least one of the values is unique or known to be immutable
+      return false
+
+    # we now compare the two paths, and if one ends while they haven't
+    # diverged, we treat the values as overlapping in memory. Since derefs are
+    # skipped, there can be both false positives and false negatives, as the
+    # underlying location cannot be statically known when dereferences are
+    # involved. For the immediate use case here, the heuristic works okay
+
+    result = true # until proven otherwise
+    for i in 1..min(an.len, bn.len):
+      let a {.cursor.} = tree[an[^i]]
+      let b {.cursor.} = tree[bn[^i]]
+
+      template check(cond: bool) =
+        if cond:
+          # bail out once the paths diverge
+          result = false
+          break
+
+      check(a.kind != b.kind)
+
+      case a.kind
+      of SymbolLike:
+        check(a.sym.id != b.sym.id)
+      of mnkTemp:
+        check(a.temp != b.temp)
+      of mnkPathNamed, mnkPathVariant:
+        check(a.field.id != b.field.id)
+      of mnkPathPos:
+        check(a.position != b.position)
+      of mnkPathArray:
+        check(sameIndex(tree[an[^i] - 3], tree[bn[^i] - 3]) == no)
+      else:
+        unreachable()
+
+  # we follow op-params in the analysis, meaning that we can ignore
+  # ``mnkRegion``s here
+  for i in search(tree, {mnkCall}):
+    # regions are allowed to not use an arg-block, and we don't want/need to
+    # analyse those that don't
+    if not isArgBlock(tree, i - 1):
+      continue
+
+    var iter = initArgIter(tree, i)
+    while iter.hasNext:
+      let arg = rawNext(iter, tree)
+      case tree[arg].kind
+      of mnkArg:
+        # check if a value that is potentially the same as the analysed
+        # one is:
+        # - potentially mutated while evaluating following arguments
+        # - passed to a parameter of the analysed call that allows for
+        #   mutations
+        # If either is the case, we need to introduce a shallow copy and use
+        # that as the argument
+        let val = skipTag(tree, unaryOperand(tree, Operation arg))
+
+        # 1. an r-value is unique, meaning that we know that a temporary is
+        #    not needed
+        # 2. aliasing is preferred over stack overflows
+        # XXX: ^^ it shouldn't be. A static error would be better...
+        if isRvalue(tree, getRoot(tree, val).OpValue) or
+           getSize(config, tree[val].typ) >= 1024:
+          continue
+
+        var needsTemp = false
+        block checkIfArgNeedsTemp:
+          # first, check whether the argument value is passed to an earlier
+          # ``var`` parameter of the procedure (e.g., given the call
+          # ``f(a, b, c, d)`` and analysing 'c', check 'a' and 'b'. 'd' is
+          # analysed as part of the ``potentialMutations`` loop below)
+          var iter2 = iter
+          while iter2.hasNext:
+            let arg2 = rawNext(iter2, tree)
+            if tree[arg2].kind == mnkName and tree[arg2 - 1].kind == mnkTag:
+              if maybeSameMutableLocation(tree, val, OpValue(arg2 - 2)):
+                needsTemp = true
+                break checkIfArgNeedsTemp
+
+          # look for potential mutations of the argument that happen after
+          # the argument is bound
+          for mut in potentialMutations(tree, arg + 1, i - 2):
+            if maybeSameMutableLocation(tree, val, mut):
+              needsTemp = true
+              break checkIfArgNeedsTemp
+
+        if needsTemp:
+          let temp = MirNode(kind: mnkTemp, typ: tree[arg].typ,
+                             temp: changes.getTemp())
+          changes.seek(arg)
+          changes.insert(NodeInstance arg, buf):
+            buf.subTree MirNode(kind: mnkDef):
+              buf.add temp
+            buf.add temp
+
+      of mnkName:
+        discard "the argument is explicitly passed by reference"
+      of mnkConsume:
+        discard "the value is guaranteed to be unique"
+      of AllNodeKinds - ArgumentNodes:
+        unreachable()
+
 proc applyPasses*(tree: var MirTree, source: var SourceMap, prc: PSym,
-                  target: TargetBackend) =
+                  config: ConfigRef, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
   ## `prc`. `target` is the targeted backend and is used to enable/disable
   ## certain passes.
@@ -291,7 +492,10 @@ proc applyPasses*(tree: var MirTree, source: var SourceMap, prc: PSym,
       apply(tree, p)
 
   if target == targetC:
-    # only the C code generator employs the RVO and in-place construction
-    # at the moment
     batch:
+      # only the C code generator employs the RVO and in-place construction
+      # at the moment
       preventRvo(tree, c)
+      # XXX: use the fixup pass for all targets. Both the VM and JavaScript
+      #      targets are also affected
+      fixupCallArguments(tree, config, c)
