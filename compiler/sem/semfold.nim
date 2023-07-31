@@ -761,8 +761,8 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
     let a = getConstExpr(m, n[0], idgen, g)
     if a == nil: return
     if leValueConv(n[1], a) and leValueConv(a, n[2]):
-      result = a              # a <= x and x <= b
-      result.typ = n.typ
+      # a <= x and x <= b
+      result = foldConv(n, a, idgen, g, check=false)
     else:
       result = g.config.newError(n,
                                  PAstDiag(kind: adSemInvalidRangeConversion))
