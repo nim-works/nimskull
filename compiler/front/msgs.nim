@@ -421,9 +421,7 @@ func astDiagVmGenToLegacyReportKind*(
   of adVmGenCannotFindBreakTarget: rvmCannotFindBreakTarget
   of adVmGenNotUnused: rvmNotUnused
   of adVmGenTooLargeOffset: rvmTooLargetOffset
-  of adVmGenCannotGenerateCode: rvmCannotGenerateCode
   of adVmGenCodeGenUnhandledMagic: rvmCannotGenerateCode
-  of adVmGenCodeGenUnexpectedSym: rvmCannotGenerateCode
   of adVmGenCannotCast: rvmCannotCast
   of adVmGenCannotEvaluateAtComptime: rvmCannotEvaluateAtComptime
   of adVmGenCannotImportc: rvmCannotImportc

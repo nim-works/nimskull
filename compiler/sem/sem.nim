@@ -540,6 +540,33 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
   result = getConstExpr(c.module, e, c.idgen, c.graph)
   if result != nil: return
 
+  proc containsUnresolvedTypeVar(n: PNode): bool {.nimcall.} =
+    ## Returns whether the expression `n` contains an unresolved generic
+    ## parameter. Only considers imperative contexts.
+    case n.kind
+    of nkSym:
+      if n.sym.kind == skGenericParam:
+        return true
+    of routineDefs, nkImportStmt, nkImportExceptStmt, nkExportStmt,
+       nkExportExceptStmt, nkFromStmt, nkBindStmt, nkMixinStmt, nkTypeSection,
+       nkConstSection:
+      result = false
+    of nkConv, nkCast, nkHiddenSubConv, nkHiddenStdConv, nkIdentDefs,
+       nkVarTuple:
+      result = containsUnresolvedTypeVar(n[^1])
+    else:
+      for it in n.items:
+        if containsUnresolvedTypeVar(it):
+          return true
+
+  if e.typ.kind == tyFromExpr or containsUnresolvedTypeVar(e):
+    # XXX: a work around for unresolved generic expressions reaching here. They
+    #      shouldn't, but until they don't, we at least prevent them from
+    #      reaching into the compile-time evaluation machinery. Known places
+    #      from which this case is triggered:
+    #      - ``paramTypesMatchAux``
+    return nil
+
   let oldErrorCount = c.config.errorCounter
   let oldErrorMax = c.config.errorMax
   let oldErrorOutputs = c.config.m.errorOutputs

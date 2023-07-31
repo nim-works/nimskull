@@ -1510,26 +1510,6 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
       tempNode(c, s.typ, c.tmpMap[s.itemId])
     of skProc, skFunc, skConverter, skMethod, skIterator:
       procLit(c, s)
-    of skGenericParam:
-      case c.context
-      of skUnknown:
-        # HACK: during parameter type matching, sigmatch (``paramTypesMatchAux``)
-        #       uses ``tryConstExpr`` in order to find out whether the argument
-        #       expression to a ``static`` parameter is evaluatable at
-        #       compile-time. If the expression contains a reference to an
-        #       unresolved generic parameter, ``vmgen`` is expected to fail.
-        #       The problem: ``mirgen`` is unable to report any errors, so we
-        #       have to push the original ``skGenericParam`` symbol through
-        #       the MIR stage to ``vmgen``
-        #       The likely best solution is to introduce a dedicated analysis
-        #       layer that makes sure that the AST passed to it is valid in the
-        #       context of compile-time execution (i.e. does the checks that
-        #       ``vmgen`` currently has to do). It would take place after
-        #       ``semfold``.
-        genLit(c, n)
-      else:
-        unreachable()
-
     else:
       unreachable(s.kind)
 
@@ -1849,16 +1829,6 @@ proc generateCode*(graph: ModuleGraph, options: set[GenOption], n: PNode,
     #        simpler, faster, and more intuitive to either evaluate them directly
     #        when analying the type expression or during ``semfold``
     discard genTypeExpr(c, n)
-  elif n.typ.kind == tyFromExpr:
-    assert goGenTypeExpr in options
-    # a type expression that uses unresolved generic parameters. As we're unable
-    # to report errors here, we push the expression through to ``vmgen`` as an
-    # ``mnkLiteral``
-    # TODO: we shouldn't have to do this here. ``paramTypesMatchAux`` should
-    #       only try to run compile-time evaluation for expressions with no
-    #       unknowns (e.g. unresolved generic parameters)
-    c.stmts.useSource(c.sp, n)
-    discard genLit(c, n)
   else:
     discard genx(c, n)
 

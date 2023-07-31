@@ -24,9 +24,7 @@ func vmGenDiagToLegacyReportKind(diag: VmGenDiagKind): ReportKind {.inline.} =
   of vmGenDiagCannotFindBreakTarget: rvmCannotFindBreakTarget
   of vmGenDiagNotUnused: rvmNotUnused
   of vmGenDiagTooLargeOffset: rvmTooLargetOffset
-  of vmGenDiagCannotGenerateCode: rvmCannotGenerateCode
   of vmGenDiagCodeGenUnhandledMagic: rvmCannotGenerateCode
-  of vmGenDiagCodeGenUnexpectedSym: rvmCannotGenerateCode
   of vmGenDiagCannotCast: rvmCannotCast
   of vmGenDiagCannotEvaluateAtComptime: rvmCannotEvaluateAtComptime
   of vmGenDiagCannotImportc: rvmCannotImportc
@@ -57,22 +55,16 @@ func vmGenDiagToLegacyVmReport*(diag: VmGenDiag): VMReport {.inline.} =
         kind: kind,
         location: std_options.some diag.location,
         reportInst: diag.instLoc.toReportLineInfo)
-    of vmGenDiagCodeGenUnexpectedSym,
-        vmGenDiagCannotImportc,
+    of vmGenDiagCannotImportc,
         vmGenDiagCannotCallMethod,
         vmGenDiagTooLargeOffset:
       VMReport(
-        str: case diag.kind
-              of vmGenDiagCodeGenUnexpectedSym:
-                "Unexpected symbol for VM code - " & $diag.sym.kind
-              else:
-                "",
+        str: "",
         sym: diag.sym,
         location: std_options.some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind)
     of vmGenDiagNotUnused,
-        vmGenDiagCannotGenerateCode,
         vmGenDiagCannotEvaluateAtComptime:
       VMReport(
         ast: diag.ast,
