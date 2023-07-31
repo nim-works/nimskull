@@ -2204,10 +2204,7 @@ proc convCStrToStr(p: PProc, n: PNode, r: var TCompRes) =
 proc genReturnStmt(p: PProc, n: PNode) =
   p.config.internalAssert(p.prc != nil, n.info, "genReturnStmt")
   p.beforeRetNeeded = true
-  if n[0].kind != nkEmpty:
-    genStmt(p, n[0])
-  else:
-    genLineDir(p, n)
+  genLineDir(p, n)
   lineF(p, "break BeforeRet;$n", [])
 
 proc frameCreate(p: PProc; procname, filename: Rope): Rope =
@@ -2415,9 +2412,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       r.res = rope(n.intVal)
     r.kind = resExpr
   of nkNilLit:
-    if isEmptyType(n.typ):
-      discard
-    elif mapType(n.typ) == etyBaseIndex:
+    if mapType(n.typ) == etyBaseIndex:
       r.typ = etyBaseIndex
       r.address = rope"null"
       r.res = rope"0"
@@ -2520,10 +2515,9 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkAsgn: genAsgn(p, n)
   of nkFastAsgn: genFastAsgn(p, n)
   of nkDiscardStmt:
-    if n[0].kind != nkEmpty:
-      genLineDir(p, n)
-      gen(p, n[0], r)
-      r.res = "var _ = " & r.res
+    genLineDir(p, n)
+    gen(p, n[0], r)
+    r.res = "var _ = " & r.res
   of nkAsmStmt: genAsmOrEmitStmt(p, n)
   of nkTryStmt: genTry(p, n)
   of nkRaiseStmt: genRaiseStmt(p, n)

@@ -402,11 +402,6 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
         let tmp = defaultValueExpr(p, t, a.lode.info)
         genAssignment(p, a, tmp)
 
-proc isComplexValueType(t: PType): bool {.inline.} =
-  let t = t.skipTypes(abstractInst + tyUserTypeClasses)
-  result = t.kind in {tyArray, tySet, tyTuple, tyObject, tyOpenArray} or
-    (t.kind == tyProc and t.callConv == ccClosure)
-
 include ccgreset
 
 proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
@@ -744,14 +739,12 @@ proc allPathsAsgnResult(n: PNode): InitResultEnum =
     elif containsResult(n):
       result = InitRequired
   of nkReturnStmt:
-    if n.len > 0:
-      if n[0].kind == nkEmpty and result != InitSkippable:
+      if true:
         # This is a bare `return` statement, if `result` was not initialized
         # anywhere else (or if we're not sure about this) let's require it to be
         # initialized. This avoids cases like #9286 where this heuristic lead to
         # wrong code being generated.
         result = InitRequired
-      else: result = allPathsAsgnResult(n[0])
   of nkIfStmt, nkIfExpr:
     var exhaustive = false
     result = InitSkippable

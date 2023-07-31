@@ -824,23 +824,6 @@ proc genBracketExpr(p: BProc; n: PNode; d: var TLoc) =
   else: internalError(p.config, n.info, "expr(nkBracketExpr, " & $ty.kind & ')')
   discard getTypeDesc(p.module, n.typ)
 
-proc isSimpleExpr(n: PNode): bool =
-  # calls all the way down --> can stay expression based
-  case n.kind
-  of nkCallKinds, nkDotExpr, nkPar, nkTupleConstr,
-      nkObjConstr, nkBracket, nkCurly, nkHiddenDeref, nkDerefExpr, nkHiddenAddr,
-      nkHiddenStdConv, nkHiddenSubConv, nkConv, nkAddr:
-    for c in n:
-      if not isSimpleExpr(c): return false
-    result = true
-  of nkStmtListExpr:
-    for i in 0..<n.len-1:
-      if n[i].kind notin {nkCommentStmt, nkEmpty}: return false
-    result = isSimpleExpr(n.lastSon)
-  else:
-    if n.isAtom:
-      result = true
-
 proc genEcho(p: BProc, n: PNode) =
   # this unusual way of implementing it ensures that e.g. ``echo("hallo", 45)``
   # is threadsafe.
@@ -2194,13 +2177,9 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
         # local)
         putLocIntoDest(p, d, p.locals[sym])
     else: internalError(p.config, n.info, "expr(" & $sym.kind & "); unknown symbol")
-  of nkNilLit:
-    if not isEmptyType(n.typ):
-      putIntoDest(p, d, n, genLiteral(p, n))
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     putDataIntoDest(p, d, n, genLiteral(p, n))
-  of nkIntLit..nkUInt64Lit,
-     nkFloatLit..nkFloat128Lit, nkCharLit:
+  of nkIntLiterals, nkFloatLiterals, nkNilLit:
     putIntoDest(p, d, n, genLiteral(p, n))
   of nkCall:
     genLineDir(p, n) # may be redundant, it is generated in fixupCall as well
@@ -2273,11 +2252,10 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
     genAsgn(p, n)
   of nkDiscardStmt:
     let ex = n[0]
-    if ex.kind != nkEmpty:
-      genLineDir(p, n)
-      var a: TLoc
-      initLocExprSingleUse(p, ex, a)
-      line(p, cpsStmts, "(void)(" & a.r & ");\L")
+    genLineDir(p, n)
+    var a: TLoc
+    initLocExprSingleUse(p, ex, a)
+    line(p, cpsStmts, "(void)(" & a.r & ");\L")
   of nkAsmStmt: genAsmStmt(p, n)
   of nkTryStmt:
     assert p.config.exc == excGoto
