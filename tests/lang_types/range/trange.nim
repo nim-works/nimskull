@@ -1,4 +1,5 @@
 discard """
+  targets: "c js vm"
   output: '''
 TSubRange: 5 from 1 to 10
 #FF3722
@@ -154,3 +155,11 @@ block:
   c = d
   doAssert a == b
   doAssert c == d
+
+block int_literal_to_float_range:
+  type Range = range[0'f..1'f]
+
+  var val = 0'f
+  # use the value in a comparison in order to make sure that
+  # the conversion really worked
+  doAssert val == Range(0)
