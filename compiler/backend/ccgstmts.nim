@@ -541,7 +541,7 @@ proc branchHasTooBigRange(b: PNode): bool =
   for it in b:
     # last son is block
     if (it.kind == nkRange) and
-        it[1].intVal - it[0].intVal > RangeExpandLimit:
+        getInt(it[1]) - getInt(it[0]) > RangeExpandLimit:
       return true
 
 proc ifSwitchSplitPoint(p: BProc, n: PNode): int =
@@ -562,10 +562,13 @@ proc genCaseRange(p: BProc, branch: PNode) =
             genLiteral(p, branch[j][0]),
             genLiteral(p, branch[j][1])])
       else:
-        var v = copyNode(branch[j][0])
-        while v.intVal <= branch[j][1].intVal:
-          lineF(p, cpsStmts, "case $1:$n", [genLiteral(p, v)])
-          inc(v.intVal)
+        let
+          typ   = branch[j][0].typ
+          upper = getInt(branch[j][1])
+        var v = getInt(branch[j][0])
+        while v <= upper:
+          lineF(p, cpsStmts, "case $1:$n", [intLiteral(p, v, typ)])
+          inc(v)
     else:
       lineF(p, cpsStmts, "case $1:$n", [genLiteral(p, branch[j])])
 

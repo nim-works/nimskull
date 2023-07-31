@@ -559,6 +559,7 @@ proc genStmts*(p: BProc, t: PNode)
 proc expr(p: BProc, n: PNode, d: var TLoc)
 proc putLocIntoDest(p: BProc, d: var TLoc, s: TLoc)
 proc intLiteral(i: BiggestInt): Rope
+proc intLiteral(p: BProc, i: Int128, ty: PType): Rope
 proc genLiteral(p: BProc, n: PNode): Rope
 proc raiseExit(p: BProc)
 

@@ -825,10 +825,16 @@ proc genRaiseStmt(p: PProc, n: PNode) =
     useMagic(p, "reraiseException")
     line(p, "reraiseException();\L")
 
+func intLiteral(v: Int128, typ: PType): string =
+  if typ.kind == tyBool:
+    if v == Zero: "false"
+    else:         "true"
+  else:           $v
+
 proc genCaseJS(p: PProc, n: PNode) =
   var
     cond: TCompRes
-    totalRange = 0
+    totalRange = Zero
   genLineDir(p, n)
   gen(p, n[0], cond)
   let stringSwitch = skipTypes(n[0].typ, abstractVar).kind == tyString
@@ -845,15 +851,15 @@ proc genCaseJS(p: PProc, n: PNode) =
       for j in 0..<it.len - 1:
         let e = it[j]
         if e.kind == nkRange:
-          var v = copyNode(e[0])
-          inc(totalRange, int(e[1].intVal - v.intVal))
+          let upper = getInt(e[1])
+          var v = getInt(e[0])
+          totalRange += upper - v
           if totalRange > 65535:
             localReport(p.config, n.info, BackendReport(kind: rbackJsTooCaseTooLarge))
 
-          while v.intVal <= e[1].intVal:
-            gen(p, v, cond)
-            lineF(p, "case $1:$n", [cond.rdLoc])
-            inc(v.intVal)
+          while v <= upper:
+            lineF(p, "case $1:$n", [intLiteral(v, e[0].typ)])
+            inc v
         else:
           if stringSwitch:
             case e.kind
@@ -2406,10 +2412,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkSym:
     genSym(p, n, r)
   of nkCharLit..nkUInt64Lit:
-    if n.typ.kind == tyBool:
-      r.res = if n.intVal == 0: rope"false" else: rope"true"
-    else:
-      r.res = rope(n.intVal)
+    r.res = intLiteral(getInt(n), n.typ)
     r.kind = resExpr
   of nkNilLit:
     if mapType(n.typ) == etyBaseIndex:
