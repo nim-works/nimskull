@@ -3968,22 +3968,16 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         kind: kind,
         location: some location,
         reportInst: diag.instLoc.toReportLineInfo)
-    of adVmGenCodeGenUnexpectedSym,
-        adVmGenCannotImportc,
+    of adVmGenCannotImportc,
         adVmGenCannotCallMethod,
         adVmGenTooLargeOffset:
       vmRep = VMReport(
-        str: case diag.vmGenErr.kind
-              of adVmGenCodeGenUnexpectedSym:
-                "Unexpected symbol for VM code - " & $diag.vmGenErr.sym.kind
-              else:
-                "",
+        str: "",
         sym: diag.vmGenErr.sym,
         location: some location,
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind)
     of adVmGenNotUnused,
-        adVmGenCannotGenerateCode,
         adVmGenCannotEvaluateAtComptime:
       vmRep = VMReport(
         ast: diag.vmGenErr.ast,

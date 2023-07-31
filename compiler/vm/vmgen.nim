@@ -2918,17 +2918,8 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
         let idx = c.lookupConst(s)
         discard c.getOrCreate(s.typ)
         c.gABx(n, opcLdCmplxConst, dest, idx)
-    of skGenericParam:
-        # note: this can't be replaced with an assert. ``tryConstExpr`` is
-        # sometimes used to check whether an expression can be evaluated
-        # at compile-time, in which case we need to report an error when
-        # encountering an unresolved generic parameter
-        fail(n.info, vmGenDiagCannotGenerateCode, n)
     else:
-      fail(n.info,
-        vmGenDiagCodeGenUnexpectedSym,
-        sym = s
-      )
+      unreachable(s.kind)
   of nkCall:
     if n[0].kind == nkSym:
       let s = n[0].sym
@@ -3069,7 +3060,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest) =
   of nkPragma, nkAsmStmt:
     unused(c, n, dest)
   of nkWithSons + nkWithoutSons - codegenExprNodeKinds:
-    fail(n.info, vmGenDiagCannotGenerateCode, n)
+    unreachable(n.kind)
 
 proc genStmt*(c: var TCtx; n: PNode): Result[void, VmGenDiag] =
   analyseIfAddressTaken(n, c.prc.addressTaken)
@@ -3291,11 +3282,9 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
     of vmGenDiagTooManyRegistersRequired: adVmGenTooManyRegistersRequired
     of vmGenDiagCannotFindBreakTarget: adVmGenCannotFindBreakTarget
     of vmGenDiagNotUnused: adVmGenNotUnused
-    of vmGenDiagCannotGenerateCode: adVmGenCannotGenerateCode
     of vmGenDiagCannotEvaluateAtComptime: adVmGenCannotEvaluateAtComptime
     of vmGenDiagMissingImportcCompleteStruct: adVmGenMissingImportcCompleteStruct
     of vmGenDiagCodeGenUnhandledMagic: adVmGenCodeGenUnhandledMagic
-    of vmGenDiagCodeGenUnexpectedSym: adVmGenCodeGenUnexpectedSym
     of vmGenDiagCannotImportc: adVmGenCannotImportc
     of vmGenDiagTooLargeOffset: adVmGenTooLargeOffset
     of vmGenDiagCannotCallMethod: adVmGenCannotCallMethod
@@ -3304,8 +3293,7 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
   {.cast(uncheckedAssign).}: # discriminants on both sides lead to saddness
     result =
       case diag.kind
-      of vmGenDiagCodeGenUnexpectedSym,
-          vmGenDiagCannotImportc,
+      of vmGenDiagCannotImportc,
           vmGenDiagTooLargeOffset,
           vmGenDiagCannotCallMethod:
         AstDiagVmGenError(
@@ -3322,7 +3310,6 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
           kind: kind,
           magic: diag.magic)
       of vmGenDiagNotUnused,
-          vmGenDiagCannotGenerateCode,
           vmGenDiagCannotEvaluateAtComptime:
         AstDiagVmGenError(
           kind: kind,

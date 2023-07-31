@@ -1046,13 +1046,13 @@ type
     adVmGenCannotFindBreakTarget          # |       module. There should be a
     adVmGenNotUnused                      # |       way to cross-reference data
                                           # |       without introducing direct
-    adVmGenCannotGenerateCode             # |       import or type
+                                          # |       import or type
     adVmGenCannotEvaluateAtComptime       # |       dependencies. Likely this
                                           # |       involves data oriented
     adVmGenMissingImportcCompleteStruct   # |       design, use of handles and
     adVmGenCodeGenUnhandledMagic          # |       the like, along with
                                           # |       breaking up the coupling
-    adVmGenCodeGenUnexpectedSym           # |       within the `compiler/vm`
+                                          # |       within the `compiler/vm`
     adVmGenCannotImportc                  # |       package between pure VM and
     adVmGenTooLargeOffset                 # |       the VM for the compiler.
     adVmGenCannotCallMethod               # |
@@ -1064,14 +1064,12 @@ type
           adVmGenCannotFindBreakTarget:
         discard
       of adVmGenNotUnused,
-          adVmGenCannotGenerateCode,
           adVmGenCannotEvaluateAtComptime:
         ast*: PNode
       of adVmGenMissingImportcCompleteStruct,
           adVmGenCodeGenUnhandledMagic:
         magic*: TMagic
-      of adVmGenCodeGenUnexpectedSym,
-          adVmGenCannotImportc,
+      of adVmGenCannotImportc,
           adVmGenTooLargeOffset,
           adVmGenCannotCallMethod:
         sym*: PSym
