@@ -455,22 +455,16 @@ proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph; check = false): P
       result.typ = n.typ
     else: unreachable(srcTyp.kind)
   of IntegerLike:
-    case srcTyp.kind
-    of FloatLike:
-      result = newIntNodeT(toInt128(getFloat(a)), n, idgen, g)
-    of IntegerLike, tyEnum, tyBool:
-      let val = a.getOrdValue
-      if check and not rangeCheck(n, val, g):
-        result = rangeError(n, a, g)
-      else:
-        result = newIntNodeT(val, n, idgen, g)
-        if dstTyp.kind in {tyUInt..tyUInt64}:
-          result.transitionIntKind(nkUIntLit)
+    let val =
+      case srcTyp.kind
+      of IntegerLike, tyEnum, tyBool: getOrdValue(a)
+      of FloatLike:                   toInt128(getFloat(a))
+      else:                           unreachable(srcTyp.kind)
+
+    if check and not rangeCheck(n, val, g):
+      result = rangeError(n, a, g)
     else:
-      unreachable(srcTyp.kind)
-    if check and result.kind in {nkCharLit..nkUInt64Lit} and
-      not rangeCheck(n, getInt(result), g):
-        result = rangeError(n, a, g)
+      result = newIntNodeT(val, n, idgen, g)
   of FloatLike:
     case srcTyp.kind
     of IntegerLike, tyEnum, tyBool:
