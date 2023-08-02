@@ -21,6 +21,9 @@ Check `mapType` for the details.
 """
 
 import
+  system/[
+    formatfloat
+  ],
   std/[
     sets,
     math,
@@ -49,9 +52,6 @@ import
     idioms,
     nversion,
     ropes
-  ],
-  compiler/sem/[
-    rodutils,
   ],
   compiler/backend/[
     ccgutils,
@@ -2449,7 +2449,11 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       r.res = rope"Infinity"
     of fcNegInf:
       r.res = rope"-Infinity"
-    else: r.res = rope(f.toStrMaxPrecision)
+    else:
+      if n.typ.skipTypes(abstractRange).kind == tyFloat32:
+        r.res.addFloatRoundtrip(f.float32)
+      else:
+        r.res.addFloatRoundtrip(f)
     r.kind = resExpr
   of nkCall:
     if isEmptyType(n.typ):
