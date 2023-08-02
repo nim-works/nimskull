@@ -144,10 +144,7 @@ template main =
         doAssert $(x0, x1, x2, x3) == "(1.32, 1.32, 1.32, 1.32)"
       block: # example https://github.com/nim-lang/Nim/issues/12884#issuecomment-564967962
         let x = float(1.32'f32)
-        when nimvm: discard # xxx prints 1.3
-        else:
-          when not defined(js):
-            doAssert $x == "1.3200000524520874"
+        doAssert $x == "1.32"
         doAssert $1.32 == "1.32"
         doAssert $1.32'f32 == "1.32"
         let x2 = 1.32'f32

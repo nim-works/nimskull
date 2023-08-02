@@ -439,51 +439,44 @@ proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph; check = false): P
              PAstDiag(kind: adSemFoldRangeCheckForLiteralConversionFailed,
                       inputLit: a))
 
-  # if srcTyp.kind == tyUInt64 and "FFFFFF" in $n:
-  #   echo "n: ", n, " a: ", a
-  #   echo "from: ", srcTyp, " to: ", dstTyp, " check: ", check
-  #   echo getInt(a)
-  #   echo high(int64)
-  #   writeStackTrace()
+  const
+    IntegerLike = {tyInt..tyInt64, tyUInt..tyUInt64, tyChar}
+    FloatLike   = {tyFloat..tyFloat64}
+
   case dstTyp.kind
   of tyBool:
     case srcTyp.kind
-    of tyFloat..tyFloat64:
+    of FloatLike:
       result = newIntNodeT(toInt128(getFloat(a) != 0.0), n, idgen, g)
-    of tyChar, tyUInt..tyUInt64, tyInt..tyInt64:
+    of IntegerLike:
       result = newIntNodeT(toInt128(a.getOrdValue != 0), n, idgen, g)
     of tyBool, tyEnum: # xxx shouldn't we disallow `tyEnum`?
       result = a
       result.typ = n.typ
-    else: doAssert false, $srcTyp.kind
-  of tyInt..tyInt64, tyUInt..tyUInt64:
-    case srcTyp.kind
-    of tyFloat..tyFloat64:
-      result = newIntNodeT(toInt128(getFloat(a)), n, idgen, g)
-    of tyChar, tyUInt..tyUInt64, tyInt..tyInt64:
-      let val = a.getOrdValue
-      if check and not rangeCheck(n, val, g):
-        result = rangeError(n, a, g)
-      else:
-        result = newIntNodeT(val, n, idgen, g)
-        if dstTyp.kind in {tyUInt..tyUInt64}:
-          result.transitionIntKind(nkUIntLit)
+    else: unreachable(srcTyp.kind)
+  of IntegerLike:
+    let val =
+      case srcTyp.kind
+      of IntegerLike, tyEnum, tyBool: getOrdValue(a)
+      of FloatLike:                   toInt128(getFloat(a))
+      else:                           unreachable(srcTyp.kind)
+
+    if check and not rangeCheck(n, val, g):
+      result = rangeError(n, a, g)
     else:
-      result = a
-      result.typ = n.typ
-    if check and result.kind in {nkCharLit..nkUInt64Lit} and
-      not rangeCheck(n, getInt(result), g):
-        result = rangeError(n, a, g)
-  of tyFloat..tyFloat64:
+      result = newIntNodeT(val, n, idgen, g)
+  of FloatLike:
     case srcTyp.kind
-    of tyInt..tyInt64, tyEnum, tyBool, tyChar:
+    of IntegerLike, tyEnum, tyBool:
       result = newFloatNodeT(toFloat64(getOrdValue(a)), n, g)
+    of FloatLike:
+      result = newFloatNodeT(a.floatVal, n, g)
     else:
-      result = a
-      result.typ = n.typ
+      unreachable(srcTyp.kind)
   of tyOpenArray, tyVarargs, tyProc, tyPointer:
     discard
   else:
+    # FIXME: conversion-to-enum is missing checks
     result = a
     result.typ = n.typ
 

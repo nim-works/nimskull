@@ -11,6 +11,9 @@ reject:
     const x = int8(300)
 
 reject:
+    const x = char(high(int32))
+
+reject:
     const x = int64(NaN)
 
 type
