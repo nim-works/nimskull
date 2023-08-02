@@ -154,12 +154,8 @@ template main =
         doAssert $x2 == "1.32"
       block:
         var x = 1.23456789012345'f32
-        when nimvm:
-          discard # xxx, refs #12884
-        else:
-          when not defined(js):
-            doAssert x == 1.2345679'f32
-            doAssert $x == "1.2345679"
+        doAssert x == 1.2345679'f32
+        doAssert $x == "1.2345679"
 
 static: main()
 main()
