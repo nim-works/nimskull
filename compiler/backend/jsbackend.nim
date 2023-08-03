@@ -74,13 +74,13 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
       p = startProc(g, bmod, evt.sym)
       partial[evt.sym.id] = p
 
-    let body = generateAST(graph, bmod.idgen, evt.sym, evt.body)
+    let body = generateIR(graph, bmod.idgen, evt.sym, evt.body)
     genStmt(p, body)
 
     processLate(g, discovery)
   of bekProcedure:
     let
-      body = generateAST(graph, bmod.idgen, evt.sym, evt.body)
+      body = generateIR(graph, bmod.idgen, evt.sym, evt.body)
       r = genProc(g, bmod, evt.sym, body)
 
     if sfCompilerProc in evt.sym.flags:

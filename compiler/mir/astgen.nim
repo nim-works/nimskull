@@ -1396,7 +1396,7 @@ proc tb(tree: TreeWithSource, cl: var TranslateCl, start: NodePosition): CgNode 
   tbMulti(tree, cl, cr)
 
 
-proc generateAST*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
+proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
                   tree: sink MirTree, sourceMap: sink SourceMap): CgNode =
   ## Generates the ``CgNode`` IR corresponding to the input MIR code (`tree`),
   ## using `idgen` for provide new IDs when creating symbols. `sourceMap`

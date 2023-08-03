@@ -178,9 +178,9 @@ proc generateMirCode(c: var TCtx, n: PNode;
   else:
     generateCode(c.graph, selectOptions(c), n, result[0], result[1])
 
-proc generateAST(c: var TCtx, tree: sink MirTree,
-                 source: sink SourceMap): CgNode {.inline.} =
-  if tree.len > 0: generateAST(c.graph, c.idgen, c.module, tree, source)
+proc generateIR(c: var TCtx, tree: sink MirTree,
+                source: sink SourceMap): CgNode {.inline.} =
+  if tree.len > 0: generateIR(c.graph, c.idgen, c.module, tree, source)
   else:            newNode(cnkEmpty)
 
 proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
@@ -194,7 +194,7 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   register(c, jit.discovery)
 
   let
-    n = generateAST(c, tree, sourceMap)
+    n = generateIR(c, tree, sourceMap)
     start = c.code.len
     r = vmgen.genStmt(c, n)
 
@@ -229,7 +229,7 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   register(c, jit.discovery)
 
   let
-    n = generateAST(c, tree, sourceMap)
+    n = generateIR(c, tree, sourceMap)
     start = c.code.len
     r = vmgen.genExpr(c, n)
 
@@ -267,7 +267,7 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   discoverFrom(jit.discovery, MagicsToKeep, tree)
   register(c, jit.discovery)
 
-  let outBody = generateAST(c.graph, c.idgen, s, tree, sourceMap)
+  let outBody = generateIR(c.graph, c.idgen, s, tree, sourceMap)
   echoOutput(c.config, s, outBody)
 
   result = genProc(c, s, outBody)

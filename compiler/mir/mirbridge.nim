@@ -177,5 +177,5 @@ proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
   echoMir(graph.config, owner, tree)
 
   # step 2: generate the ``CgNode`` tree
-  result = generateAST(graph, idgen, owner, tree, sourceMap)
+  result = generateIR(graph, idgen, owner, tree, sourceMap)
   echoOutput(graph.config, owner, result)

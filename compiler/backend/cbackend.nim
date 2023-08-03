@@ -226,7 +226,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
       p = startProc(g.modules[evt.module.int], evt.sym)
       partial[evt.sym] = p
 
-    let body = generateAST(g.graph, bmod.idgen, evt.sym, evt.body)
+    let body = generateIR(g.graph, bmod.idgen, evt.sym, evt.body)
     # emit into the procedure:
     genStmts(p, body)
 
@@ -238,7 +238,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
     # emit of the prototype in the case of self-recursion
     bmod.declaredThings.incl(evt.sym.id)
     let
-      body = generateAST(g.graph, bmod.idgen, evt.sym, evt.body)
+      body = generateIR(g.graph, bmod.idgen, evt.sym, evt.body)
       p    = startProc(bmod, evt.sym, body)
 
     # we can't generate with ``genProc`` because we still need to output

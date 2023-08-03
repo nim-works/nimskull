@@ -106,7 +106,7 @@ proc generateCodeForProc(c: var TCtx, s: PSym, body: sink MirFragment): CodeInfo
   ## Generates and the bytecode for the procedure `s` with body `body`. The
   ## resulting bytecode is emitted into the global bytecode section.
   let
-    body = generateAST(c.graph, c.idgen, s, body)
+    body = generateIR(c.graph, c.idgen, s, body)
     r    = genProc(c, s, body)
 
   if r.isOk:
@@ -182,7 +182,7 @@ proc processEvent(c: var TCtx, mlist: ModuleList, discovery: var DiscoveryData,
       # it's a fragment that was just started
       p.prc = PProc(sym: evt.sym)
 
-    let stmt = generateAST(c.graph, c.idgen, evt.sym, evt.body)
+    let stmt = generateIR(c.graph, c.idgen, evt.sym, evt.body)
     genStmt(c, p[], stmt)
   of bekProcedure:
     # a complete procedure became available
