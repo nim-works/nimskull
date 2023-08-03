@@ -30,6 +30,7 @@ type
   TOutCompare* = ref object
     ## Result of comparing two data outputs for a given spec
     match*: bool
+    failed*: bool   ## if true then generating the report failed
     expectedReports*: seq[TOutReport]
     givenReports*: seq[TOutReport]
     sortedMapping*: seq[tuple[pair: (int, int), cost: int]]

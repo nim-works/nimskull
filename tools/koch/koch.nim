@@ -59,7 +59,7 @@ Possible Commands:
 
 Boot options:
   -d:release               produce a release version of the compiler
-  -d:nimUseLinenoise       use the linenoise library for interactive mode
+  -d:useLinenoise       use the linenoise library for interactive mode
                            `nim secret` (not needed on Windows)
   -d:leanCompiler          produce a compiler without JS codegen or
                            documentation generator in order to use less RAM
@@ -123,7 +123,7 @@ proc defineSourceMetadata(): string =
   ## built compiler
   let (hash, date, versionSuffix) = getSourceMetadata()
   if hash != "" and date != "":
-    result = quoteShellCommand(["-d:nimSourceHash=" & hash, "-d:nimSourceDate=" & date])
+    result = quoteShellCommand(["-d:SourceHash=" & hash, "-d:SourceDate=" & date])
   if versionSuffix != "":
     result &= " -d:CompilerVersionSuffix=" & quoteShell(versionSuffix)
 
@@ -201,12 +201,10 @@ proc buildTools(args: string = "") =
   bundleNimsuggest(args)
   nimCompileFold("Compile nimgrep", "tools/nimgrep.nim",
                  options = "-d:release " & defineSourceMetadata() & " " & args)
-  when defined(windows): buildVccTool(args)
+  when defined(windows): buildVccTool("--gc:orc " & args)
 
-  # the VM runs into `setjmp`-related stack-corruption issues when using the
-  # MinGW runtime. ``exceptions:goto`` is used as a workaround
   nimCompileFold("Compile vmrunner", "compiler/vm/vmrunner.nim",
-                options = "-d:release --exceptions:goto $# $#" % [defineSourceMetadata(), args])
+                options = "-d:release --gc:orc $# $#" % [defineSourceMetadata(), args])
 
   # pre-packages a debug version of nim which can help in many cases investigate issuses
   # withouth having to rebuild compiler.
@@ -214,7 +212,7 @@ proc buildTools(args: string = "") =
   # `-d:debug` should be changed to a flag that doesn't require re-compiling nim
   # `--opt:speed` is a sensible default even for a debug build, it doesn't affect nim stacktraces
   nimCompileFold("Compile nim_dbg", "compiler/nim.nim", options =
-      "--opt:speed --stacktrace -d:debug --stacktraceMsgs -d:nimCompilerStacktraceHints --excessiveStackTrace:off " & defineSourceMetadata() & " " & args,
+      "--opt:speed --stacktrace -d:debug --stacktraceMsgs -d:nimCompilerStacktraceHints --excessiveStackTrace:off --gc:orc " & defineSourceMetadata() & " " & args,
       outputName = "nim_dbg")
 
 
@@ -305,7 +303,7 @@ proc boot(args: string) =
   var output = "compiler" / "nim".exe
   var finalDest = "bin" / "nim".exe
   # default to use the 'c' command:
-  let smartNimcache = (if "release" in args or "danger" in args: "nimcache/r_" else: "nimcache/d_") &
+  let smartNimcache = (if "release" in args or "danger" in args: "nimskullcache/r_" else: "nimskullcache/d_") &
                       hostOS & "_" & hostCPU
 
   let nimStart = findStartNim().quoteShell()
@@ -330,9 +328,6 @@ proc boot(args: string) =
 
       let ret = execCmdEx(nimStart & " --version")
       doAssert ret.exitCode == 0
-      let version = ret.output.splitLines[0]
-      if version.startsWith "Nim Compiler Version 0.20.0":
-        extraOption.add " --lib:lib" # see https://github.com/nim-lang/Nim/pull/14291
 
     # in order to use less memory, we split the build into two steps:
     # --compileOnly produces a $project.json file and does not run GCC/Clang.
@@ -522,6 +517,8 @@ proc installDeps(dep: string, commit = "") =
   # xxx: also add linenoise, niminst etc, refs https://github.com/nim-lang/RFCs/issues/206
 
 proc testTools(cmd: string) =
+  # xxx: temporarily placing nimscript testing to ensure it's at least running
+  nimexecFold("Test nimscript", "e tests/test_nimscript.nims")
   nimexecFold("Run nimdoc tests", "r nimdoc/tester")
   nimexecFold("Run rst2html tests", "r nimdoc/rsttester")
   # refs #18385, build with -d:release instead of -d:danger for testing
@@ -594,7 +591,7 @@ proc branchDone() =
     exec("git pull --rebase")
 
 when isMainModule:
-  var op = initOptParser()
+  var op = initOptParser(getExecArgs())
   var
     latest = false
 

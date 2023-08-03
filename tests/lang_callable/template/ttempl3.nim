@@ -2,23 +2,30 @@ discard """
 action: compile
 """
 
+type
+  FakeFile = object
+    discard
+
+proc fakeOpen(ff: FakeFile, filename: string, mode: FileMode): bool = true
+proc fakeWriteLine(ff: FakeFile, filename: string) = discard
+proc fakeClose(ff: FakeFile) = discard
 
 template withOpenFile(f: untyped, filename: string, mode: FileMode,
                       actions: untyped): untyped =
   block:
     # test that 'f' is implicitly 'injecting':
-    var f: File
-    if open(f, filename, mode):
+    var f: FakeFile
+    if fakeOpen(f, filename, mode):
       try:
         actions
       finally:
-        close(f)
+        fakeClose(f)
     else:
       quit("cannot open for writing: " & filename)
 
 withOpenFile(txt, "ttempl3.txt", fmWrite):
-  writeLine(txt, "line 1")
-  txt.writeLine("line 2")
+  fakeWriteLine(txt, "line 1")
+  txt.fakeWriteLine("line 2")
 
 var
   myVar: array[0..1, int]

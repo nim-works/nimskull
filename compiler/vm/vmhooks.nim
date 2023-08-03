@@ -26,15 +26,6 @@ import
 # XXX: proper error handling is missing here. Since these functions are exposed
 # via the compilerapi, `doAssert` is used for pre-condition checking
 
-template kind(x: ptr TFullReg): untyped = x[].kind
-template atomVal(x: ptr TFullReg): untyped = x[].atomVal
-
-func setIntReg(x: var TFullReg, v: BiggestInt) {.inline.} =
-  x = TFullReg(kind: rkInt, intVal: v)
-
-func setFloatReg(x: var TFullReg, v: BiggestFloat) {.inline.} =
-  x = TFullReg(kind: rkFloat, floatVal: v)
-
 template setX(k, f) {.dirty.} =
   doAssert a.slots[a.ra].kind == k
   a.slots[a.ra].f = v
@@ -91,13 +82,9 @@ func getHandle*(a: VmArgs; i: Natural): LocHandle =
   doAssert p.kind in {rkHandle, rkLocation}
   p.handle
 
-
 proc getVar*(a: VmArgs; i: Natural): LocHandle =
-  # XXX: vmops don't have access to mutable int,float,ptr,NimNode paramenters right now.
-  # Once rkRegAddr is gone and vmgen properly handles the aforementioned types, the issue
-  # is no more
   let si = i+a.rb+1
-  assert a.slots[si].kind == rkAddress
+  assert a.slots[si].kind == rkHandle
 
-  # The address was validate by the VM prior the invoking the callback
-  makeLocHandle(a.slots[si].addrVal, a.slots[si].addrTyp)
+  # The handle was validate by the VM prior to invoking the callback
+  a.slots[si].handle

@@ -46,9 +46,12 @@ proc runBasicDLLTest(c, r: var TResults, cat: Category, options: string) =
     else:
       ""
 
-  var test1 = makeTest("lib/nimrtl.nim", options & " --outdir:tests/dll", cat)
-  test1.spec.action = actionCompile
-  testSpec c, test1
+  # XXX: nimrtl is currently defunct and the tests making use of it are
+  #      disabled
+  when false:
+    var test1 = makeTest("lib/nimrtl.nim", options & " --outdir:tests/dll", cat)
+    test1.spec.action = actionCompile
+    testSpec c, test1
   var test2 = makeTest("tests/dll/server.nim", options & " --threads:on" & rpath, cat)
   test2.spec.action = actionCompile
   testSpec c, test2
@@ -69,7 +72,7 @@ proc runBasicDLLTest(c, r: var TResults, cat: Category, options: string) =
   testSpec r, makeTest("tests/dll/client.nim", options & " --threads:on" & rpath, cat)
   testSpec r, makeTest("tests/dll/visibility.nim", options & rpath, cat)
 
-  if "boehm" notin options:
+  if true:
     # force build required - see the comments in the .nim file for more details
     for target in cat.defaultTargets():
       var hcri = makeTest("tests/dll/nimhcr_integration.nim",
@@ -86,63 +89,36 @@ proc dllTests(r: var TResults, cat: Category, options: string) =
 
   runBasicDLLTest c, r, cat, options
   runBasicDLLTest c, r, cat, options & " -d:release"
-  when not defined(windows):
-    # still cannot find a recent Windows version of boehm.dll:
-    runBasicDLLTest c, r, cat, options & " --gc:boehm"
-    runBasicDLLTest c, r, cat, options & " -d:release --gc:boehm"
 
 # ------------------------------ GC tests -------------------------------------
 
 proc gcTests(r: var TResults, cat: Category, options: string) =
-  template testWithoutMs(filename: untyped) =
-    testSpec r, makeTest("tests/gc" / filename, options, cat)
-    testSpec r, makeTest("tests/gc" / filename, options &
-                  " -d:release -d:useRealtimeGC", cat)
-    when filename != "gctest":
-      testSpec r, makeTest("tests/gc" / filename, options &
-                    " --gc:orc", cat)
-      testSpec r, makeTest("tests/gc" / filename, options &
-                    " --gc:orc -d:release", cat)
-
-  template testWithoutBoehm(filename: untyped) =
-    testWithoutMs filename
-    testSpec r, makeTest("tests/gc" / filename, options &
-                  " --gc:markAndSweep", cat)
-    testSpec r, makeTest("tests/gc" / filename, options &
-                  " -d:release --gc:markAndSweep", cat)
-
   template test(filename: untyped) =
-    testWithoutBoehm filename
-    when not defined(windows) and not defined(android):
-      # AR: cannot find any boehm.dll on the net, right now, so disabled
-      # for windows:
-      testSpec r, makeTest("tests/gc" / filename, options &
-                    " --gc:boehm", cat)
-      testSpec r, makeTest("tests/gc" / filename, options &
-                    " -d:release --gc:boehm", cat)
+    testSpec r, makeTest("tests/gc" / filename, options, cat)
+    testSpec r, makeTest("tests/gc" / filename, options & " -d:release", cat)
 
-  testWithoutBoehm "foreign_thr"
+  test "foreign_thr"
   test "gcemscripten"
   test "growobjcrash"
   test "gcbench"
   test "gcleak"
   test "gcleak2"
-  testWithoutBoehm "gctest"
+  test "gctest"
   test "gcleak3"
   test "gcleak4"
   # Disabled because it works and takes too long to run:
   #test "gcleak5"
-  testWithoutBoehm "weakrefs"
+  test "weakrefs"
   test "cycleleak"
-  testWithoutBoehm "closureleak"
-  testWithoutMs "refarrayleak"
+  test "closureleak"
+  test "refarrayleak"
 
-  testWithoutBoehm "tlists"
-  testWithoutBoehm "thavlak"
+  test "tlists"
+  test "thavlak"
 
   test "stackrefleak"
   test "cyclecollector"
-  testWithoutBoehm "trace_globals"
+  test "trace_globals"
 
 # ------------------------- threading tests -----------------------------------
 
@@ -174,12 +150,12 @@ proc jsTests(r: var TResults, cat: Category, options: string) =
 
   for t in os.walkFiles("tests/js/t*.nim"):
     test(t)
+
   for testfile in ["exception/texceptions", "exception/texcpt1",
                    "exception/texcsub", "exception/tfinally",
                    "exception/tfinally2", "exception/tfinally3",
-                   "actiontable/tactiontable", "method/tmultimjs",
-                   "varres/tvarres0", "varres/tvarres3", "varres/tvarres4",
-                   "varres/tvartup", "misc/tints", "misc/tunsignedinc",
+                   "stdlib/types/tactiontable",
+                   "misc/tints", "misc/tunsignedinc",
                    "js/tjsasync"]:
     test "tests/" & testfile & ".nim"
 
@@ -273,23 +249,15 @@ proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
 
 # ---------------- IC tests ---------------------------------------------
 
-proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
-             isNavigatorTest: bool) =
+proc icTests(r: var TResults; testsDir: string, cat: Category, options: string) =
   const
     tooltests = ["compiler/nim.nim"]
     incrementalOn = " --incremental:on -d:nimIcIntegrityChecks "
-    navTestConfig = " --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off "
   
-  let targets =
-    if isNavigatorTest:
-      {nativeTarget()}
-    else:
-      cat.defaultTargets()
+  let targets = cat.defaultTargets()
 
   template editedTest(x: untyped) =
     var test = makeTest(file, x & options, cat)
-    if isNavigatorTest:
-      test.spec.action = actionCompile
     test.spec.targets = targets
     testSpecWithNimcache(r, test, nimcache)
 
@@ -298,19 +266,18 @@ proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
     test.spec.cmd = compilerPrefix & " check --hint:Conf:off --warnings:off --ic:on $options " & file
     testSpecWithNimcache(r, test, nimcache)
 
-  if not isNavigatorTest:
-    for file in tooltests:
-      for target in targets:
-        let nimcache = nimcacheDir(file, options, target)
-        removeDir(nimcache)
+  for file in tooltests:
+    for target in targets:
+      let nimcache = nimcacheDir(file, options, target)
+      removeDir(nimcache)
 
-        let oldPassed = r.passed
+      let oldPassed = r.passed
+      checkTest()
+
+      if r.passed == oldPassed+1:
         checkTest()
-
-        if r.passed == oldPassed+1:
+        if r.passed == oldPassed+2:
           checkTest()
-          if r.passed == oldPassed+2:
-            checkTest()
 
   const tempExt = "_temp.nim"
   for it in walkDirRec(testsDir):
@@ -325,12 +292,12 @@ proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
           let file = it.replace(".nim", tempExt)
           writeFile(file, fragment)
           let oldPassed = r.passed
-          editedTest(if isNavigatorTest: navTestConfig else: incrementalOn)
+          editedTest(incrementalOn)
           if r.passed != oldPassed+1: break
 
 # ----------------------------------------------------------------------------
 
-# const AdditionalCategories = ["debugger", "lib", "ic", "navigator"]
+# const AdditionalCategories = ["debugger", "lib", "ic"]
 const AdditionalCategories = ["debugger", "lib"]
 const MegaTestCat = "megatest"
 
@@ -342,18 +309,17 @@ proc processSingleTest(r: var TResults, cat: Category, options, test: string) =
   doAssert fileExists(test), test & " test does not exist"
   testSpec r, makeTest(test, options, cat)
 
-proc isJoinableSpec(spec: TSpec, targets: set[TTarget]): bool =
+proc isJoinableSpec(spec: TSpec, targets: set[TTarget], early: TResultEnum): bool =
   # xxx simplify implementation using an allow list of fields that are allowed
   # to be set to non-default values (use `fieldPairs`), to avoid issues like
   # bug #16576.
   result = useMegatest and not spec.sortoutput and
     spec.action == actionRun and
     not fileExists(spec.file.changeFileExt("cfg")) and
-    not fileExists(spec.file.changeFileExt("nims")) and
+    not fileExists(spec.file.changeFileExt("nim.cfg")) and
     not fileExists(parentDir(spec.file) / "nim.cfg") and
-    not fileExists(parentDir(spec.file) / "config.nims") and
     spec.cmd.len == 0 and
-    spec.err notin {reDisabled, reKnownIssue} and
+    early notin {reDisabled, reKnownIssue} and
     not spec.unjoinable and
     spec.exitCode == 0 and
     spec.input.len == 0 and
@@ -388,11 +354,9 @@ proc runJoinedTest(r: var TResults, targets: set[TTarget], testsDir, options: st
         if isTestFile(file):
           try:
             let spec = parseSpec(file, cat.Category.defaultTargets, nativeTarget())
-            if isJoinableSpec(spec, targets):
+            if isJoinableSpec(spec, targets, computeEarly(spec, true)):
               specs.add spec
           except ValueError:
-            # e.g. for `tests/navigator/tincludefile.nim` which have multiple
-            # specs; this will be handled elsewhere
             msg Undefined:
               "parseSpec raised ValueError for: '$1', assuming this will be handled outside of megatest" % file
             continue
@@ -551,13 +515,13 @@ proc runJoinedTest(r: var TResults, targets: set[TTarget], testsDir, options: st
 
 proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
                      options, testsDir: string,
-                     runJoinableTests: bool) =
+                     runJoinableTests, runKnownIssues: bool) =
   let cat2 = cat.string.split("/")[0].normalize
   case cat2
   of "js":
     # only run the JS tests on Windows or Linux because some CI and other OSes
     # like Haiku might hijack/lack nodejs:
-    if not defined(linux) or not defined(windows):
+    if not defined(linux) and not defined(windows):
       discard
     else:
       jsTests(r, cat, options)
@@ -574,9 +538,7 @@ proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
   of "lib":
     testStdlib(r, "lib/pure/", options, cat)
   of "ic":
-    icTests(r, testsDir / cat2, cat, options, isNavigatorTest=false)
-  of "navigator":
-    icTests(r, testsDir / cat2, cat, options, isNavigatorTest=true)
+    icTests(r, testsDir / cat2, cat, options)
   of "untestable":
     # These require special treatment e.g. because they depend on a third party
     # dependency; see `trunner_special` which runs some of those.
@@ -590,14 +552,18 @@ proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
       if isTestFile(file): files.add file
     files.sort # give reproducible order
     for i, name in files:
-      var test = makeTest(name, options, cat)
-      if runJoinableTests or
-          not isJoinableSpec(test.spec, targets) or
+      let test = makeTest(name, options, cat)
+      var res = computeEarly(test.spec, test.inCurrentBatch)
+      if res == reKnownIssue and runKnownIssues:
+        # we want to still run the test
+        res = reSuccess
+      elif runJoinableTests or
+          not isJoinableSpec(test.spec, targets, res) or
           cat.string in specialCategories:
         discard "run the test"
       else:
-        test.spec.err = reJoined
-      testSpec r, test
+        res = reJoined
+      testSpec r, test, res
       inc testsRun
     if testsRun == 0:
       const allowedDirs = ["deps", "htmldocs", "pkgs"]

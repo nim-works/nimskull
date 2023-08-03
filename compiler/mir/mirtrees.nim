@@ -234,6 +234,12 @@ type
 
     mnkBranch ## defines a branch of an ``mnkExcept`` or ``mnkCase``
 
+    mnkAsm    ## corresponds to the high-level ``asm`` statement. Takes an
+              ## argument block as input, but has itself no meaning at the MIR
+              ## level
+    mnkEmit   ## corresponds to the ``emit`` directive. In the context of the
+              ## MIR, has the same behaviour as ``mnkAsm``
+
     mnkEnd    ## marks the physical end of a sub-tree. Has no semantic
               ## meaning -- it's only required to know where a sub-tree ends
 
@@ -241,8 +247,8 @@ type
              ## If it appears as a statement, it is expected to not have any
              ## obsersvable effects
              ## XXX: eventually, everything that currently requires
-             ##      ``mnkPNode`` (for example, ``nkGotoState``, ``nkAsmStmt``,
-             ##      emit, etc.) should be expressable directly in the IR
+             ##      ``mnkPNode`` (for example, ``nkAsmStmt``, emit, etc.)
+             ##      should be expressable directly in the IR
 
   EffectKind* = enum
     ekMutate    ## the value in the location is mutated
@@ -348,7 +354,7 @@ const
     ## Nodes than can appear in the position of inputs/operands
 
   OutputNodes* = {mnkRaise, mnkFastAsgn..mnkInit, mnkSwitch, mnkVoid, mnkIf,
-                  mnkCase, mnkRegion} + DefNodes
+                  mnkCase, mnkRegion, mnkAsm, mnkEmit} + DefNodes
     ## Node kinds that are allowed in every output context
     # TODO: maybe rename to SinkNodes
 
@@ -357,6 +363,7 @@ const
     ## arg-block
 
   SingleInputNodes* = {mnkAddr, mnkDeref, mnkDerefView, mnkCast, mnkConv,
+                       mnkStdConv, mnkPathNamed, mnkPathPos, mnkPathVariant,
                        mnkTag, mnkIf, mnkCase, mnkRaise, mnkVoid} +
                       ArgumentNodes
     ## Operators and statements that must not have argument-blocks as input
@@ -545,7 +552,7 @@ func operand*(tree: MirTree, op: Operation, opr: Natural): OpValue =
     # skip the sub-nodes until we've reached the `opr`-th arg node
     var i = 0
     while pos < prev:
-      if tree[pos].kind in {mnkArg, mnkName}:
+      if tree[pos].kind in ArgumentNodes:
         if i == opr:
           # return the input, not the 'arg' node itself
           return OpValue getStart(tree, pos - 1)

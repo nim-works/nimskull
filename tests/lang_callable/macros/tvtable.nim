@@ -1,4 +1,5 @@
 discard """
+  target: "!js !vm"
   output: '''
 OBJ 1 foo
 10

@@ -1,5 +1,9 @@
+discard """
+"""
+
 # bug #5522
-import macros, sugar, sequtils
+
+import std/[macros, sugar, sequtils]
 
 proc tryS(f: () -> void): void =
   (try: f() except: discard)

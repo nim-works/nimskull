@@ -10,11 +10,9 @@ import
     idents,    # Ast identifiers
     ast_types  # Main ast type definitions
   ],
-  compiler/front/[
-    options,
-  ],
   compiler/utils/[
-    int128 # Values for integer nodes
+    int128,    # Values for integer nodes
+    idioms,    # `unreachable`
   ]
 
 const
@@ -66,7 +64,7 @@ const
   
   PersistentNodeFlags*: TNodeFlags = {nfBase2, nfBase8, nfBase16,
                                       nfDotSetter, nfDotField,
-                                      nfIsRef, nfIsPtr, nfPreventCg, nfLL,
+                                      nfIsRef, nfIsPtr, nfLL,
                                       nfFromTemplate, nfDefaultRefsParam}
   
   namePos*          = 0 ## Name of the type/proc-like node
@@ -106,6 +104,9 @@ const
   routineDefs* = declarativeDefs + {nkMacroDef, nkTemplateDef}
   procDefs* = nkLambdaKinds + declarativeDefs
   callableDefs* = nkLambdaKinds + routineDefs
+  entityDefs* = callableDefs + {nkIdentDefs, nkVarTuple, nkConstDef, nkForStmt}
+    ## all nodes that have definition slots. In other words, semantic analysis
+    ## of these can introduce new symbols
 
   nkSymChoices* = {nkClosedSymChoice, nkOpenSymChoice}
 
@@ -113,6 +114,8 @@ const
   nkIntKinds*   = nkIntLiterals
   nkFloatKinds* = nkFloatLiterals
   nkStrKinds*   = nkStrLiterals
+
+  nkAllNodeKinds* = {low(TNodeKind) .. high(TNodeKind)}
 
   skLocalVars* = {skVar, skLet, skForVar, skParam, skResult}
   skProcKinds* = {skProc, skFunc, skTemplate, skMacro, skIterator,
@@ -123,96 +126,7 @@ const
   defaultAlignment* = -1
   defaultOffset* = -1
 
-  nodeKindsProducedByParse* = {
-    nkError, nkEmpty,
-    nkIdent,
-
-    nkCharLit,
-    nkIntLit, nkInt8Lit, nkInt16Lit, nkInt32Lit, nkInt64Lit,
-    nkUIntLit, nkUInt8Lit, nkUInt16Lit, nkUInt32Lit, nkUInt64Lit,
-    nkFloatLit, nkFloat32Lit, nkFloat64Lit, nkFloat128Lit,
-    nkStrLit, nkRStrLit, nkTripleStrLit,
-    nkNilLit,
-
-    nkCall, nkCommand, nkCallStrLit, nkInfix, nkPrefix, nkPostfix,
-
-    nkExprEqExpr, nkExprColonExpr, nkIdentDefs, nkConstDef, nkVarTuple, nkPar,
-    nkBracket, nkCurly, nkTupleConstr, nkObjConstr, nkTableConstr,
-    nkBracketExpr, nkCurlyExpr,
-
-    nkPragmaExpr, nkPragma, nkPragmaBlock,
-
-    nkDotExpr, nkAccQuoted,
-
-    nkIfExpr, nkIfStmt, nkElifBranch, nkElifExpr, nkElse, nkElseExpr,
-    nkCaseStmt, nkOfBranch,
-    nkWhenStmt,
-
-    nkForStmt, nkWhileStmt,
-
-    nkBlockExpr, nkBlockStmt,
-
-    nkDiscardStmt, nkContinueStmt, nkBreakStmt, nkReturnStmt, nkRaiseStmt,
-    nkYieldStmt,
-
-    nkTryStmt, nkExceptBranch, nkFinally,
-
-    nkDefer,
-
-    nkLambda, nkDo,
-
-    nkBind, nkBindStmt, nkMixinStmt,
-
-    nkCast,
-    nkStaticStmt,
-
-    nkAsgn,
-
-    nkGenericParams,
-    nkFormalParams,
-
-    nkStmtList, nkStmtListExpr,
-
-    nkImportStmt, nkImportExceptStmt, nkImportAs, nkFromStmt,
-
-    nkIncludeStmt,
-
-    nkExportStmt, nkExportExceptStmt,
-
-    nkConstSection, nkLetSection, nkVarSection,
-
-    nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef, nkIteratorDef,
-    nkMacroDef, nkTemplateDef,
-
-    nkTypeSection, nkTypeDef,
-
-    nkEnumTy, nkEnumFieldDef,
-
-    nkObjectTy, nkTupleTy, nkProcTy, nkIteratorTy,
-
-    nkRecList, nkRecCase, nkRecWhen,
-
-    nkTypeOfExpr,
-
-    # nkConstTy,
-    nkRefTy, nkVarTy, nkPtrTy, nkStaticTy, nkDistinctTy,
-    nkMutableTy,
-
-    nkTupleClassTy, nkTypeClassTy,
-
-    nkOfInherit,
-
-    nkArgList,
-
-    nkWith, nkWithout,
-
-    nkAsmStmt,
-    nkCommentStmt,
-
-    nkUsingStmt,
-  }
-
-  FakeVarParams* = {mNew, mNewFinalize, mInc, mDec, mIncl, mExcl,
+  FakeVarParams* = {mNew, mInc, mDec, mIncl, mExcl,
     mSetLengthStr, mSetLengthSeq, mAppendStrCh, mAppendStrStr, mSwap,
     mAppendSeqElem, mNewSeq, mReset, mShallowCopy, mDeepCopy, mMove,
     mWasMoved}
@@ -231,6 +145,23 @@ proc getPIdent*(a: PNode): PIdent {.inline.} =
   of nkSym: a.sym.name
   of nkIdent: a.ident
   else: nil
+
+proc getIdentLineInfo*(n: PNode): TLineInfo =
+  ## Returns the line information of the identifier-like node in the
+  ## (semantically valid) AST `n` appearing in a name slot.
+  var n {.cursor.} = n
+  # unpack the node until we reach the identifier or symbol
+  if n.kind == nkPragmaExpr:
+    n = n[0]
+  if n.kind == nkPostfix:
+    n = n[1]
+  if n.kind == nkAccQuoted:
+    n = n[0]
+
+  result =
+    case n.kind
+    of nkIdent, nkSym: n.info
+    else:              unreachable(n.kind)
 
 proc getnimblePkg*(a: PSym): PSym =
   result = a
@@ -285,8 +216,9 @@ proc isCallExpr*(n: PNode): bool =
 
 proc safeLen*(n: PNode): int {.inline.} =
   ## works even for leaves.
-  if n.kind in {nkNone..nkNilLit}: result = 0
-  else: result = n.len
+  case n.kind
+  of nkWithoutSons: 0
+  of nkWithSons:    n.len
 
 proc getDeclPragma*(n: PNode): PNode =
   ## return the `nkPragma` node for declaration `n`, or `nil` if no pragma was found.
@@ -580,6 +512,20 @@ proc requiredParams*(s: PSym): int =
       return i - 1
   return s.typ.len - 1
 
+proc requiredGenericParams*(s: PSym): int =
+  # Returns the number of required generic parameters (without default
+  # values).
+  let params = s.ast[genericParamsPos]
+  if params.kind == nkEmpty:
+    # doesn't have generic parameters
+    return
+
+  for i in 0..<params.len:
+    if params[i].sym.ast != nil:
+      return i
+
+  result = params.len
+
 proc hasPattern*(s: PSym): bool {.inline.} =
   result = isRoutine(s) and s.ast[patternPos].kind != nkEmpty
 
@@ -603,17 +549,6 @@ proc skipStmtList*(n: PNode): PNode =
     result = n.lastSon
   else:
     result = n
-
-
-proc isImportedException*(t: PType; conf: ConfigRef): bool =
-  assert t != nil
-  if conf.exc != excNative:
-    return false
-
-  let base = t.skipTypes({tyAlias, tyPtr, tyDistinct, tyGenericInst})
-
-  if base.sym != nil and sfImportc in base.sym.flags:
-    result = true
 
 proc isInfixAs*(n: PNode): bool =
   return n.kind == nkInfix and n[0].kind == nkIdent and n[0].ident.s == "as"
@@ -644,7 +579,10 @@ when false:
       if n[i].containsNil: return true
 
 
-template hasDestructor*(t: PType): bool = tfHasAsgn in t.flags
+func hasDestructor*(t: PType): bool {.inline.} =
+  ## Returns whether the underlying concrete type of `t` has attached lifetime
+  ## tracking hooks (that is, is resource-like).
+  result = tfHasAsgn in t.skipTypes(skipForHooks).flags
 
 template incompleteType*(t: PType): bool =
   t.sym != nil and {sfForward, sfNoForward} * t.sym.flags == {sfForward}
@@ -793,3 +731,21 @@ iterator branchLabels*(node: PNode): (int, PNode) =
                        nkElseExpr, nkExceptBranch}
   for i in 0..<node.len-1:
     yield (i, node[i])
+
+iterator names*(node: PNode): PNode =
+  ## Returns the node for each name slot of the `node`, where `node` is the
+  ## definition node for some symbol that is not a routine.
+  assert node.kind in {nkIdentDefs, nkVarTuple, nkConstDef, nkForStmt}
+  for i in 0..<node.len-2:
+    yield node[i]
+
+iterator forLoopDefs*(forStmt: PNode): PNode =
+  ## Returns the nodes appearing in the name slots (including nested ones) of
+  ## the provided ``nkForStmt`` node.
+  assert forStmt.kind == nkForStmt
+  for n in names(forStmt):
+    if n.kind == nkVarTuple:
+      for j in 0..<(n.len - 1):
+        yield n[j]
+    else:
+      yield n

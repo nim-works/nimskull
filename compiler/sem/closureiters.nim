@@ -41,15 +41,10 @@ Should be transformed to:
     STATE2:
       :state = -1 # End of execution
 
+The lambdalifting transformation has to have happend already, as it is
+responsible for setting up the environment type, to which we might need to
+append new fields.
 
-The transformation should play well with lambdalifting, however depending
-on situation, it can be called either before or after lambdalifting
-transformation. As such we behave slightly differently, when accessing
-iterator state, or using temp variables. If lambdalifting did not happen,
-we just create local variables, so that they will be lifted further on.
-Otherwise, we utilize existing env, created by lambdalifting.
-Lambdalifting treats :state variable specially, it should always end up
-as the first field in env. Currently C codegen depends on this behavior.
 One special subtransformation is nkStmtListExpr lowering.
 Example:
 
@@ -180,12 +175,11 @@ type
   Ctx = object
     g: ModuleGraph
     fn: PSym
-    stateVarSym: PSym # :state variable. nil if env already introduced by lambdalifting
     tmpResultSym: PSym # Used when we return, but finally has to interfere
     unrollFinallySym: PSym # Indicates that we're unrolling finally states (either exception happened or premature return)
     curExcSym: PSym # Current exception
 
-    states: seq[PNode] # The resulting states. Every state is an nkState node.
+    states: seq[tuple[label: int, body: PNode]] # The resulting states
     blockLevel: int # Temp used to transform break and continue stmts
     stateLoopLabel: PSym # Label to break on, when jumping between states.
     exitStateIdx: int # index of the last state
@@ -207,11 +201,8 @@ proc boolLit(ctx: Ctx, info: TLineInfo, val: bool): PNode =
   result.info = info
 
 proc newStateAccess(ctx: var Ctx): PNode =
-  if ctx.stateVarSym.isNil:
-    result = rawIndirectAccess(newSymNode(getEnvParam(ctx.fn)),
-        getStateField(ctx.g, ctx.fn), ctx.fn.info)
-  else:
-    result = newSymNode(ctx.stateVarSym)
+  result = rawIndirectAccess(newSymNode(getEnvParam(ctx.fn)),
+      getStateField(ctx.g, ctx.fn), ctx.fn.info)
 
 proc newStateAssgn(ctx: var Ctx, toValue: PNode): PNode =
   # Creates state assignment:
@@ -228,22 +219,11 @@ proc newEnvVar(ctx: var Ctx, name: string, typ: PType): PSym =
   result.typ = typ
   assert(not typ.isNil)
 
-  if not ctx.stateVarSym.isNil:
-    # We haven't gone through labmda lifting yet, so just create a local var,
-    # it will be lifted later
-    if ctx.tempVars.isNil:
-      ctx.tempVars = newTreeI(nkVarSection, ctx.fn.info):
-        newIdentDefs(newSymNode(result))
-  else:
-    let envParam = getEnvParam(ctx.fn)
-    # let obj = envParam.typ.lastSon
-    result = addUniqueField(envParam.typ.lastSon, result, ctx.g.cache, ctx.idgen)
+  let envParam = getEnvParam(ctx.fn)
+  result = addUniqueField(envParam.typ.lastSon, result, ctx.g.cache, ctx.idgen)
 
 proc newEnvVarAccess(ctx: Ctx, s: PSym): PNode =
-  if ctx.stateVarSym.isNil:
-    result = rawIndirectAccess(newSymNode(getEnvParam(ctx.fn)), s, ctx.fn.info)
-  else:
-    result = newSymNode(s)
+  result = rawIndirectAccess(newSymNode(getEnvParam(ctx.fn)), s, ctx.fn.info)
 
 proc newTmpResultAccess(ctx: var Ctx): PNode =
   if ctx.tmpResultSym.isNil:
@@ -266,9 +246,7 @@ proc newState(ctx: var Ctx, n, gotoOut: PNode): int =
   # Returns index of the newly created state
 
   result = ctx.states.len
-  let resLit = ctx.g.newIntLit(n.info, result)
-  let s = newTreeI(nkState, n.info): [resLit, n]
-  ctx.states.add(s)
+  ctx.states.add (result, n)
   ctx.exceptionTable.add(ctx.curExcHandlingState)
 
   if not gotoOut.isNil:
@@ -1128,7 +1106,7 @@ proc skipEmptyStates(ctx: Ctx, stateIdx: int): int =
     if label == -1:
       newLabel = ctx.exitStateIdx
     else:
-      let fs = skipStmtList(ctx, ctx.states[label][1])
+      let fs = skipStmtList(ctx, ctx.states[label].body)
       if fs.kind == nkGotoState:
         newLabel = fs[0].intVal.int
     if label == newLabel: break
@@ -1137,7 +1115,7 @@ proc skipEmptyStates(ctx: Ctx, stateIdx: int): int =
     if maxJumps == 0:
       assert(false, "Internal error")
 
-  result = ctx.states[stateIdx][0].intVal.int
+  result = ctx.states[stateIdx].label
 
 proc skipThroughEmptyStates(ctx: var Ctx, n: PNode): PNode=
   result = n
@@ -1255,30 +1233,16 @@ proc wrapIntoTryExcept(ctx: var Ctx, n: PNode): PNode {.inline.} =
 proc wrapIntoStateLoop(ctx: var Ctx, n: PNode): PNode =
   # while true:
   #   block :stateLoop:
-  #     gotoState :state
   #     local vars decl (if needed)
   #     body # Might get wrapped in try-except
   let loopBody = newNodeI(nkStmtList, n.info)
   result = newTree(nkWhileStmt, boolLit(ctx, n.info, true), loopBody)
   result.info = n.info
 
-  let localVars = newNodeI(nkStmtList, n.info)
-  if not ctx.stateVarSym.isNil:
-    let varSect = newTreeI(nkVarSection, n.info):
-      newIdentDefs(newSymNode(ctx.stateVarSym))
-    localVars.add(varSect)
-
-    if not ctx.tempVars.isNil:
-      localVars.add(ctx.tempVars)
-
   let blockStmt = newNodeI(nkBlockStmt, n.info)
   blockStmt.add(newSymNode(ctx.stateLoopLabel))
 
-  let gs = newNodeI(nkGotoState, n.info)
-  gs.add(ctx.newStateAccess())
-  gs.add(ctx.g.newIntLit(n.info, ctx.states.len - 1))
-
-  var blockBody = newTree(nkStmtList, gs, localVars, n)
+  var blockBody = newTree(nkStmtList, n)
   if ctx.hasExceptions:
     blockBody = ctx.wrapIntoTryExcept(blockBody)
 
@@ -1289,31 +1253,35 @@ proc deleteEmptyStates(ctx: var Ctx) =
   let goOut = newTree(nkGotoState, ctx.g.newIntLit(TLineInfo(), -1))
   ctx.exitStateIdx = ctx.newState(goOut, nil)
 
+  const unusedLabel = -1
+    ## indicates that the label refers to an empty/redundant code block, and is
+    ## going to be removed
+
   # Apply new state indexes and mark unused states with -1
   var iValid = 0
-  for i, s in ctx.states:
-    let body = skipStmtList(ctx, s[1])
-    if body.kind == nkGotoState and i != ctx.states.len - 1 and i != 0:
-      # This is an empty state. Mark with -1.
-      s[0].intVal = -1
+  for i, s in ctx.states.mpairs:
+    let body = skipStmtList(ctx, s.body)
+    if body.kind == nkGotoState and i in 1..(ctx.states.len-2):
+      # this is an empty state
+      s.label = unusedLabel
     else:
-      s[0].intVal = iValid
+      s.label = iValid
       inc iValid
 
-  for i, s in ctx.states:
-    let body = skipStmtList(ctx, s[1])
+  for i, s in ctx.states.pairs:
+    let body = skipStmtList(ctx, s.body)
     if body.kind != nkGotoState or i == 0:
-      discard ctx.skipThroughEmptyStates(s)
+      discard ctx.skipThroughEmptyStates(s.body)
       let excHandlState = ctx.exceptionTable[i]
       if excHandlState < 0:
         ctx.exceptionTable[i] = -ctx.skipEmptyStates(-excHandlState)
       elif excHandlState != 0:
         ctx.exceptionTable[i] = ctx.skipEmptyStates(excHandlState)
 
-  var i = 0
+  # remove unused states except for the first (entry) and last one (exit)
+  var i = 1
   while i < ctx.states.len - 1:
-    let fs = skipStmtList(ctx, ctx.states[i][1])
-    if fs.kind == nkGotoState and i != 0:
+    if ctx.states[i].label == unusedLabel:
       ctx.states.delete(i)
       ctx.exceptionTable.delete(i)
     else:
@@ -1425,12 +1393,6 @@ proc transformClosureIterator*(g: ModuleGraph; idgen: IdGenerator; fn: PSym, n: 
   ctx.fn = fn
   ctx.idgen = idgen
 
-  if getEnvParam(fn).isNil:
-    # Lambda lifting was not done yet. Use temporary :state sym, which will
-    # be handled specially by lambda lifting. Local temp vars (if needed)
-    # should follow the same logic.
-    ctx.stateVarSym = newSym(skVar, getIdent(ctx.g.cache, ":state"), nextSymId(idgen), fn, fn.info)
-    ctx.stateVarSym.typ = g.createClosureIterStateType(fn, idgen)
   ctx.stateLoopLabel = newSym(skLabel, getIdent(ctx.g.cache, ":stateLoop"), nextSymId(idgen), fn, fn.info)
   var pc = PreprocessContext(finallys: @[], config: g.config, idgen: idgen)
   var n = preprocess(pc, n.toStmtList)
@@ -1451,21 +1413,26 @@ proc transformClosureIterator*(g: ModuleGraph; idgen: IdGenerator; fn: PSym, n: 
   # Optimize empty states away
   ctx.deleteEmptyStates()
 
-  # Make new body by concatenating the list of states
-  result = newNodeI(nkStmtList, n.info)
-  for s in ctx.states:
-    assert(s.len == 2)
-    let body = s[1]
-    s.sons.del(1)
-    result.add(s)
-    result.add(body)
+  # create the dispatcher:
+  #
+  #   case env.:state
+  #   of 0: ...
+  #   of 1: ...
+  #   ...
+  #   else: return
+  result = newNodeI(nkCaseStmt, n.info)
+  result.add(ctx.newStateAccess())
+  for s in ctx.states.items:
+    # transform the gotos into state assignments:
+    let body = ctx.transformStateAssignments(s.body)
+    # then add the block as a branch to the dispatcher:
+    result.add:
+      newTreeI(nkOfBranch, body.info):
+        [g.newIntLit(body.info, s.label), body]
 
-  result = ctx.transformStateAssignments(result)
+  # add the exit:
+  result.add:
+    newTreeI(nkElse, n.info):
+      newTreeI(nkReturnStmt, n.info, g.emptyNode)
+
   result = ctx.wrapIntoStateLoop(result)
-
-  # echo "TRANSFORM TO STATES: "
-  # echo renderTree(result)
-
-  # echo "exception table:"
-  # for i, e in ctx.exceptionTable:
-  #   echo i, " -> ", e

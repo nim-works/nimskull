@@ -2,13 +2,9 @@ discard """
   description: '''
     Tests for globals defined inside procedures via the `.global.` pragma
   '''
-  targets: "c !vm"
+  targets: "c js vm"
   output: "in globalaux2: 10\ntotal globals: 2\nint value: 100\nstring value: second"
 """
-
-## knownIssue: the VM backend initializes the globals in the pre-init procedure
-##             of the module where the generic is defined, not where it's
-##             instantiated
 
 import globalaux, globalaux2
 

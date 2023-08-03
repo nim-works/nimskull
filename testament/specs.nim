@@ -9,29 +9,19 @@
 
 import
   std/[
-    sequtils,
     parseutils,
     strutils,
     os,
     streams,
     parsecfg,
     tables,
-    hashes,
     sets
-  ]
-
-type TestamentData* = ref object
-  # better to group globals under 1 object; could group the other ones here too
-  batchArg*: string
-  testamentNumBatch*: int
-  testamentBatch*: int
+  ],
+  system/platforms
 
 # global mutable state for funsies
 var
   compilerPrefix* = findExe("nim")
-  skips*: seq[string]
-
-let testamentData0* = TestamentData()
 
 type
   TTestAction* = enum
@@ -58,6 +48,7 @@ type
     reExeNotFound,
     reInstallFailed    # package installation failed
     reBuildFailed      # package building failed
+    reUnexpectedSuccess# test is expected to fail, but didn't
     reDisabled,        # test is disabled
     reJoined,          # test is disabled because it was joined into the megatest
     reInvalidSpec      # test had problems to parse the spec
@@ -106,8 +97,13 @@ type
     ccodeCheck*: seq[string] ## List of peg patterns that need to be
     ## searched for in the generated code. Used for backend code testing.
     maxCodeSize*: int ## Maximum allowed code size (in bytes) for the test.
-    err*: TResultEnum
-    inCurrentBatch*: bool
+    disabledOs*: set[OsPlatform]
+      ## the OS'es the test is disabled for
+    disabledCpu*: set[CpuPlatform]
+      ## the cpu architectures the test is disabled for
+    disable32bit*: bool
+      ## whether the test is disabled on 32-bit systems
+
     targets*: set[TTarget]
     specifiedTargets*: set[SpecifiedTarget] ## targets as described by the spec
     matrix*: seq[string]
@@ -125,19 +121,8 @@ type
     timeout*: float ## in seconds, fractions possible, but don't rely on
     ## much precision
     inlineErrors*: seq[InlineError] ## line information to error message
-    debugInfo*: string ## debug info to give more context
     knownIssues*: seq[string] ## known issues to be fixed
     labels*: seq[string] ## user-added metadata
-
-  RetryContainer* = object
-    ## Global object which contains information related to the --retry flag.
-    ## See `var retryContainer`.
-    retry*: bool  # true when --retry flag has been passed
-    cats*: seq[string] # contains categories with failed tests
-    names*: seq[(string, string)] # contains pair of failed test name and its target
-
-# Exported global RetryContainer object.
-var retryContainer* = RetryContainer(retry: false)
 
 proc getCmd*(s: TSpec): string =
   ## Get runner command for a given test specification
@@ -239,17 +224,12 @@ proc extractSpec(filename: string; spec: var TSpec): string =
   var line = 1
   var col = 1
   while i < s.len:
-    if (i == 0 or s[i-1] != ' ') and s.continuesWith(specStart, i):
+    if a == -1 and (i == 0 or s[i-1] != ' ') and s.continuesWith(specStart, i):
       # `s[i-1] == '\n'` would not work because of
       # `tests/stdlib/tbase64.nim` which contains BOM
       # (https://en.wikipedia.org/wiki/Byte_order_mark)
       const lineMax = 10
-      if a != -1:
-        raise newException(
-          ValueError,
-          "testament spec violation: duplicate `specStart` found: " &
-            $(filename, a, b, line))
-      elif line > lineMax:
+      if line > lineMax:
         # not overly restrictive, but prevents mistaking some `specStart`
         # as spec if deep inside a test file
         raise newException(
@@ -321,25 +301,11 @@ proc addLine*(self: var string; a, b: string) =
 proc initSpec*(filename: string): TSpec =
   result.file = filename
 
-proc isCurrentBatch*(testamentData: TestamentData; filename: string): bool =
-  if testamentData.testamentNumBatch != 0:
-    hash(filename) mod testamentData.testamentNumBatch == testamentData.testamentBatch
-  else:
-    true
-
 proc parseSpec*(filename: string,
                 catTargets: set[TTarget],
                 nativeTarget: TTarget): TSpec =
   ## Extract and parse specification for a given file path
   result.file = filename
-
-  when defined(windows):
-    let cmpString = result.file.replace(r"\", r"/")
-  else:
-    let cmpString = result.file
-  if retryContainer.retry and not retryContainer.names.anyIt(cmpString == it[0]):
-    result.err = reDisabled
-    return result
 
   let specStr = extractSpec(filename, result)
   var ss = newStringStream(specStr)
@@ -436,33 +402,32 @@ proc parseSpec*(filename: string,
           result.useValgrind = disabled
       of "disabled":
         case e.value.normalize
-        of "y", "yes", "true", "1", "on": result.err = reDisabled
+        of "y", "yes", "true", "1", "on":
+          result.disabledOs = {low(OsPlatform)..high(OsPlatform)}
+          result.disabledCpu = {low(CpuPlatform)..high(CpuPlatform)}
         of "n", "no", "false", "0", "off": discard
         of "win", "windows":
-          when defined(windows): result.err = reDisabled
+          result.disabledOs.incl OsPlatform.windows
         of "linux":
-          when defined(linux): result.err = reDisabled
+          result.disabledOs.incl OsPlatform.linux
         of "bsd":
-          when defined(bsd): result.err = reDisabled
-        of "osx", "macosx": # xxx remove `macosx` alias?
-          when defined(osx): result.err = reDisabled
-        of "unix":
-          when defined(unix): result.err = reDisabled
-        of "posix":
-          when defined(posix): result.err = reDisabled
+          result.disabledOs.incl {netbsd, freebsd, openbsd}
+        of "osx":
+          result.disabledOs.incl OsPlatform.macosx
+        of "unix", "posix":
+          result.disabledOs.incl {linux, netbsd, freebsd, openbsd, macosx}
         of "32bit":
-          if sizeof(int) == 4:
-            result.err = reDisabled
+          result.disable32bit = true
         of "freebsd":
-          when defined(freebsd): result.err = reDisabled
+          result.disabledOs.incl OsPlatform.freebsd
         of "arm64":
-          when defined(arm64): result.err = reDisabled
+          result.disabledCpu.incl CpuPlatform.arm64
         of "i386":
-          when defined(i386): result.err = reDisabled
+          result.disabledCpu.incl CpuPlatform.i386
         of "openbsd":
-          when defined(openbsd): result.err = reDisabled
+          result.disabledOs.incl OsPlatform.openbsd
         of "netbsd":
-          when defined(netbsd): result.err = reDisabled
+          result.disabledOs.incl OsPlatform.netbsd
         else:
           result.parseErrors.addLine "cannot interpret as a bool or platform name: ", e.value
       of "cmd":
@@ -527,7 +492,6 @@ proc parseSpec*(filename: string,
         of "n", "no", "false", "0": discard
         else:
             result.knownIssues.add e.value
-            result.err = reKnownIssue
       of "labels":
          discard """
          Adding only key support for now.
@@ -547,17 +511,8 @@ proc parseSpec*(filename: string,
       break
   close(p)
 
-  if skips.anyIt(it in result.file):
-    result.err = reDisabled
   if nimoutFound and result.nimout.len == 0 and not result.nimoutFull:
     result.parseErrors.addLine "empty `nimout` is vacuously true, use `nimoutFull:true` if intentional"
 
-  if result.parseErrors.len > 0:
-    result.err = reInvalidSpec
-
-  result.inCurrentBatch = isCurrentBatch(testamentData0, filename) or result.unbatchable
-  if not result.inCurrentBatch:
-    result.err = reDisabled
-  
-  if result.targets == {} and result.err != reInvalidSpec:
+  if result.targets == {} and result.parseErrors.len == 0:
     result.targets = catTargets

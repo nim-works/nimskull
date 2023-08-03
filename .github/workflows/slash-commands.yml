@@ -1,0 +1,27 @@
+name: Dispatch slash commands
+
+on:
+  issue_comment:
+    types:
+      - created
+
+jobs:
+  dispatch_pr:
+    if: github.event.issue.pull_request
+    name: Dispatch on Pull Request comments
+    runs-on: ubuntu-latest
+    steps:
+      - id: token
+        uses: tibdex/github-app-token@v1
+        with:
+          app_id: ${{ secrets.CHORE_APP_ID }}
+          private_key: ${{ secrets.CHORE_APP_KEY }}
+
+      - uses: peter-evans/slash-command-dispatch@v3
+        with:
+          token: ${{ steps.token.outputs.token }}
+          reaction-token: ${{ steps.token.outputs.token }}
+          commands: |
+            merge
+          issue-type: pull-request
+          permission: write

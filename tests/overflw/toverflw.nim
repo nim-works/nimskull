@@ -1,24 +1,31 @@
 discard """
   output: "ok"
-  cmd: "nim $target --overflowChecks:off $options $file"
+  targets: "c js !vm"
+  matrix: "--overflowchecks:off"
+  description: "Test the ability to detect overflows"
 """
-# Tests nim's ability to detect overflows
+
+# knownIssue: when using the VM backend, bound checks are currently always
+#             performed
 
 {.push overflowChecks: on.}
 
 var
   a = high(int)
   b = -2
+  r: int
   overflowDetected = false
 
 try:
-  writeLine(stdout, b - a)
+  r = (b - a)
 except OverflowDefect:
   overflowDetected = true
 
 {.pop.} # overflow check
 
-doAssert(overflowDetected)
+# XXX: overflow checks (and other checks) cannot be disabled for module-level
+#      code at the moment
+doAssert overflowDetected == false, "re-enable this test, module-level code overflow checking now works"
 
 block: # Overflow checks in a proc
   var

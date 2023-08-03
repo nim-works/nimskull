@@ -24,9 +24,6 @@ when defined(windows) and not defined(nimKochBootstrap):
     {.link: "../icons/nim-i386-windows-vcc.res".}
 
 import
-  compiler/backend/[
-    extccomp
-  ],
   compiler/front/[
     msgs, main, cmdlinehelper, options, commands, cli_reporter
   ],
@@ -37,14 +34,11 @@ import
     pathutils
   ],
   compiler/ast/[
-    idents
+    idents,
+    lineinfos
   ]
 
-# xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_internal import InternalReport
-from compiler/ast/reports_external import ExternalReport
-from compiler/ast/report_enums import ReportKind
-
+from std/osproc import execCmd
 
 from std/browsers import openDefaultBrowser
 from compiler/utils/nodejs import findNodeJs
@@ -64,7 +58,14 @@ proc getNimRunExe(conf: ConfigRef): string =
     if conf.isDefined("i386"): result = "wine"
     elif conf.isDefined("amd64"): result = "wine64"
 
-proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
+type
+  CmdLineHandlingResult = enum
+    cliFinished             # might still have errors, check `conf.errorCount`
+    cliErrNoParamsProvided
+    cliErrConfigProcessing
+    cliErrCommandProcessing
+
+proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]): CmdLineHandlingResult =
   ## Main entry point to the compiler - dispatches command-line commands
   ## into different subsystems, sets up configuration options for the
   ## `conf`:arg: and so on.
@@ -73,22 +74,23 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
     processCmdLine: processCmdLine
   )
   self.initDefinesProg(conf, "nim_compiler")
-  if paramCount() == 0:
-    writeCommandLineUsage(conf)
-    return
+  if argv.len == 0:
+    return cliErrNoParamsProvided
 
-  self.processCmdLineAndProjectPath(conf)
-  var graph = newModuleGraph(cache, conf)
-
-  if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
+  self.processCmdLineAndProjectPath(conf, argv)
+  if conf.errorCounter != 0: return
+  
+  let graph = newModuleGraph(cache, conf)
+  
+  if not self.loadConfigsAndProcessCmdLine(cache, conf, graph, argv):
     return
+  if conf.errorCounter != 0: return
 
   mainCommand(graph)
-  if conf.hasHint(rintGCStats):
-    conf.localReport(InternalReport(
-      kind: rintGCStats, msg: GC_getStatistics()))
-
+  if optCmdExitGcStats in conf.globalOptions:
+    conf.logGcStats(GC_getStatistics())
   if conf.errorCounter != 0: return
+
   when hasTinyCBackend:
     if conf.cmd == cmdTcc:
       tccgen.run(conf, conf.arguments)
@@ -102,41 +104,47 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
       case conf.backend
       of backendC: discard
       of backendJs:
-        # D20210217T215950:here this flag is needed for node < v15.0.0, otherwise
-        # tasyncjs_fail` would fail, refs https://nodejs.org/api/cli.html#cli_unhandled_rejections_mode
-        if cmdPrefix.len == 0: cmdPrefix = findNodeJs().quoteShell
-        cmdPrefix.add " --unhandled-rejections=strict"
+        let nodejs = findNodeJs()
+        if nodejs.len > 0:
+          # D20210217T215950:here this flag is needed for node < v15.0.0, otherwise
+          # tasyncjs_fail` would fail, refs https://nodejs.org/api/cli.html#cli_unhandled_rejections_mode
+          if cmdPrefix.len == 0: cmdPrefix = nodejs.quoteShell
+          cmdPrefix.add " --unhandled-rejections=strict"
+        else:
+          conf.logError:
+            "NodeJS not found in path. For installing it, refer to " &
+            "https://nodejs.org/en/download"
+          return
       of backendNimVm:
         if cmdPrefix.len == 0:
           cmdPrefix = changeFileExt(getAppDir() / "vmrunner", ExeExt)
-      else: doAssert false, $conf.backend
+      of backendInvalid: doAssert false, $conf.backend
       if cmdPrefix.len > 0: cmdPrefix.add " "
         # without the `cmdPrefix.len > 0` check, on windows you'd get a cryptic:
         # `The parameter is incorrect`
-      execExternalProgram(
-        conf, cmdPrefix & output.quoteShell & ' ' & conf.arguments, rcmdExecuting)
-
+      let cmd = cmdPrefix & output.quoteShell & ' ' & conf.arguments
+      conf.logExecStart(cmd)
+      let code = execCmd(cmd)
+      if code != 0:
+        conf.logError(execExternalProgramFailedMsg(cmd, code))
     of cmdDocLike, cmdRst2html, cmdRst2tex: # bugfix(cmdRst2tex was missing)
       if conf.arguments.len > 0:
         # reserved for future use
-        localReport(conf, ExternalReport(
-          kind: rextExpectedNoCmdArgument, cmdlineSwitch: $conf.cmd))
-
+        conf.logError:
+          CliEvent(kind: cliEvtErrCmdExpectedNoAdditionalArgs,
+                   cmd: $conf.command,
+                   unexpectedArgs: conf.arguments,
+                   srcCodeOrigin: instLoc())
       openDefaultBrowser($output)
     else:
       # support as needed
-      localReport(conf, ExternalReport(
-        kind: rextUnexpectedRunOpt, cmdlineSwitch: $conf.cmd))
-
-when declared(GC_setMaxPause):
-  GC_setMaxPause 2_000
-
-when compileOption("gc", "refc"):
-  # the new correct mark&sweep collector is too slow :-/
-  GC_disableMarkAndSweep()
+      conf.logError(CliEvent(kind: cliEvtErrUnexpectedRunOpt,
+                             cmd: $conf.command,
+                             srcCodeOrigin: instLoc()))
 
 when not defined(selftest):
   var conf = newConfigRef(cli_reporter.reportHook)
+  conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   conf.writeHook =
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       msgs.msgWrite(conf, msg, flags)
@@ -145,7 +153,16 @@ when not defined(selftest):
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       conf.writeHook(conf, msg & "\n", flags)
 
-  handleCmdLine(newIdentCache(), conf)
+  let argv = getExecArgs()
+  case handleCmdLine(newIdentCache(), conf, argv)
+  of cliErrNoParamsProvided:
+    inc conf.errorCounter # causes a non-0 exit, will be replaced soon
+    conf.msgWrite("no command-line parameters provided\n", {msgNoUnitSep})
+    writeUsage(conf)
+  of cliErrConfigProcessing, cliErrCommandProcessing, cliFinished:
+    # TODO: more specific handling here
+    discard "error messages reported internally"
+
   when declared(GC_setMaxPause):
     echo GC_getStatistics()
 

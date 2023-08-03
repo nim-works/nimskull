@@ -166,7 +166,7 @@ proc fillBodyObj(c: var TLiftCtx; n, body, x, y: PNode; enforceDefaultOp: bool) 
     let f = n.sym
     let b = if c.kind == attachedTrace: y else: y.dotField(f)
     if (sfCursor in f.flags and f.typ.skipTypes(abstractInst).kind in {tyRef, tyProc} and
-        c.g.config.selectedGC in {gcArc, gcOrc, gcHooks}) or
+        c.g.config.selectedGC in {gcArc, gcOrc}) or
         enforceDefaultOp:
       defaultOp(c, f.typ, body, x.dotField(f), b)
     else:
@@ -533,7 +533,10 @@ proc fillSeqOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
     forallElements(c, t, body, x, y)
     body.add genBuiltin(c, mDestroy, "destroy", x)
   of attachedTrace:
-    if canFormAcycle(t.elemType):
+    # TODO: this check is incorrect: it's not relevant whether the type is
+    #       cyclic, but rather whether it has an attached =trace operator
+    #       (either lifted or user provided)
+    if isCyclePossible(t.elemType, c.g):
       # follow all elements:
       forallElements(c, t, body, x, y)
 
@@ -568,7 +571,7 @@ proc useSeqOrStrOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
     doAssert t.destructor != nil
     body.add destructorCall(c, t.destructor, x)
   of attachedTrace:
-    if t.kind != tyString and canFormAcycle(t.elemType):
+    if t.kind != tyString and isCyclePossible(t.elemType, c.g):
       let op = getAttachedOp(c.g, t, c.kind)
       if op == nil:
         return # protect from recursion
@@ -589,9 +592,9 @@ proc fillStrOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   of attachedTrace:
     discard "strings are atomic and have no inner elements that are to trace"
 
-proc cyclicType*(t: PType): bool =
+proc cyclicType*(t: PType, g: ModuleGraph): bool =
   case t.kind
-  of tyRef: result = types.canFormAcycle(t.lastSon)
+  of tyRef: result = types.isCyclePossible(t.lastSon, g)
   of tyProc: result = t.callConv == ccClosure
   else: result = false
 
@@ -619,7 +622,7 @@ proc atomicRefOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   let elemType = t.lastSon
 
   createTypeBoundOps(c.g, c.c, elemType, c.info, c.idgen)
-  let isCyclic = c.g.config.selectedGC == gcOrc and types.canFormAcycle(elemType)
+  let isCyclic = c.g.config.selectedGC == gcOrc and types.isCyclePossible(elemType, c.g)
 
   let tmp =
     if isCyclic and c.kind in {attachedAsgn, attachedSink}:
@@ -763,7 +766,7 @@ proc fillBody(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   case t.kind
   of tyNone, tyEmpty, tyVoid: discard
   of tyPointer, tySet, tyBool, tyChar, tyEnum, tyInt..tyUInt64, tyCstring,
-      tyPtr, tyUncheckedArray, tyVar, tyLent:
+      tyPtr, tyUncheckedArray, tyVar, tyLent, tyVarargs, tyOpenArray:
     defaultOp(c, t, body, x, y)
   of tyRef:
     if c.g.config.selectedGC in {gcArc, gcOrc}:
@@ -814,12 +817,6 @@ proc fillBody(c: var TLiftCtx; t: PType; body, x, y: PNode) =
       fillBody(c, t[0], body, x, y)
   of tyTuple:
     fillBodyTup(c, t, body, x, y)
-  of tyVarargs, tyOpenArray:
-    if c.kind == attachedDestructor and (tfHasAsgn in t.flags or useNoGc(c, t)):
-      forallElements(c, t, body, x, y)
-    else:
-      discard "cannot copy openArray"
-
   of tyFromExpr, tyProxy, tyBuiltInTypeClass, tyUserTypeClass,
      tyUserTypeClassInst, tyCompositeTypeClass, tyAnd, tyOr, tyNot, tyAnything,
      tyGenericParam, tyGenericBody, tyNil, tyUntyped, tyTyped,
@@ -860,7 +857,7 @@ proc symPrototype(g: ModuleGraph; typ: PType; owner: PSym; kind: TTypeAttachedOp
     result.typ.addParam src
 
   if kind == attachedAsgn and g.config.selectedGC == gcOrc and
-      cyclicType(typ.skipTypes(abstractInst)):
+      cyclicType(typ.skipTypes(abstractInst), g):
     let cycleParam = newSym(skParam, getIdent(g.cache, "cyclic"),
                             nextSymId(idgen), result, info)
     cycleParam.typ = getSysType(g, info, tyBool)
@@ -908,7 +905,7 @@ proc produceSym(g: ModuleGraph; c: PContext; typ: PType; kind: TTypeAttachedOp;
     result.ast[bodyPos].add newAsgnStmt(d, src)
   else:
     var tk: TTypeKind
-    if g.config.selectedGC in {gcArc, gcOrc, gcHooks}:
+    if g.config.selectedGC in {gcArc, gcOrc}:
       tk = skipTypes(typ, {tyOrdinal, tyRange, tyInferred, tyGenericInst, tyStatic, tyAlias, tySink}).kind
     else:
       tk = tyNone # no special casing for strings and seqs
@@ -987,9 +984,6 @@ proc inst(g: ModuleGraph; c: PContext; t: PType; kind: TTypeAttachedOp; idgen: I
     else:
       localReport(g.config, info, reportSem(rsemUnresolvedGenericParameter))
 
-proc isTrival(s: PSym): bool {.inline.} =
-  s == nil or (s.ast != nil and s.ast[bodyPos].len == 0)
-
 proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInfo;
                         idgen: IdGenerator) =
   ## In the semantic pass this is called in strategic places
@@ -1038,7 +1032,8 @@ proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInf
     if canon != orig:
       setAttachedOp(g, idgen.module, orig, k, getAttachedOp(g, canon, k))
 
-  if not isTrival(getAttachedOp(g, orig, attachedDestructor)):
+  let op = getAttachedOp(g, orig, attachedDestructor)
+  if op != nil and getBody(g, op).len != 0:
     #or not isTrival(orig.assignment) or
     # not isTrival(orig.sink):
     orig.flags.incl tfHasAsgn

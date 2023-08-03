@@ -188,7 +188,7 @@ dot operators
 .. note:: Dot operators are still experimental and so need to be enabled
   via `{.experimental: "dotOperators".}`.
 
-Nim offers a special family of dot operators that can be used to
+|NimSkull| offers a special family of dot operators that can be used to
 intercept and rewrite proc call and field access attempts, referring
 to previously undeclared symbol names. They can be used to provide a
 fluent interface to objects lying outside the static confines of the
@@ -240,10 +240,10 @@ This operator will be matched against assignments to missing fields.
 
 Call operator
 -------------
-The call operator, `()`, matches all kinds of unresolved calls and takes
-precedence over dot operators, however it does not match missing overloads
-for existing routines. The experimental `callOperator` switch must be enabled
-to use this operator.
+The call operator, `()`, matches all kinds of unresolved calls and has lower
+precedence than dot operators, and matches missing overloads for existing
+routines. The experimental `callOperator` switch must be enabled to use this
+operator.
 
 .. code-block:: nim
 
@@ -1266,8 +1266,8 @@ constant folding, so the following does not work:
 
 The reason is that the compiler already transformed the 1 into "1" for
 the `echo` statement. However, a term rewriting macro should not change the
-semantics anyway. In fact, they can be deactivated with the `--patterns:off`:option:
-command line option or temporarily with the `patterns` pragma.
+semantics anyway. In fact, they can be deactivated with the `--trmacros:off`:option:
+command line option or temporarily with the `trmacros` pragma.
 
 
 The `{}` operator

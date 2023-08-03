@@ -1,70 +1,23 @@
 discard """
-output: '''
-foo88
-23 24foo 88
-foo88
-23 24foo 88
-11
-int: 108
-0
-11
-1
-11
-2
-11
-3
-11
-4
-11
-5
-11
-6
-11
-7
-11
-8
-11
-9
-11
-11
-py
-py
-py
-py
-px
-6
-proc (){.closure, gcsafe, locks: 0.}
-'''
+  targets: "c js vm"
+  description: "Tests for nested closures and closure iterators"
 """
-
 
 block tnestedclosure:
   proc main(param: int) =
     var foo = 23
     proc outer(outerParam: string) =
       var outerVar = 88
-      echo outerParam, outerVar
+      doAssert outerParam == "foo"
+      doAssert outerVar == 88
       proc inner() =
         block Test:
-          echo foo, " ", param, outerParam, " ", outerVar
+          doAssert foo == 23
+          doAssert param == 24
+          doAssert outerParam == "foo"
+          doAssert outerVar == 88
       inner()
     outer("foo")
-
-  # test simple closure within dummy 'main':
-  proc dummy =
-    proc main2(param: int) =
-      var fooB = 23
-      proc outer(outerParam: string) =
-        var outerVar = 88
-        echo outerParam, outerVar
-        proc inner() =
-          block Test:
-            echo fooB, " ", param, outerParam, " ", outerVar
-        inner()
-      outer("foo")
-    main2(24)
-
-  dummy()
 
   main(24)
 
@@ -80,19 +33,19 @@ block tnestedclosure:
       cbIter()
   cbOuter()
 
-
 block tnestedproc:
   proc p(x, y: int): int =
     result = x + y
 
-  echo p((proc (): int =
+  doAssert p((proc (): int =
             var x = 7
             return x)(),
-         (proc (): int = return 4)())
-
+        (proc (): int = return 4)()) == 11
 
 block deeplynested:
-  # bug #4070
+  # bug https://github.com/nim-lang/nim/issues/4070
+  var output: seq[int]
+
   proc id(f: (proc())): auto =
     return f
 
@@ -100,30 +53,36 @@ block deeplynested:
     return iterator(): int {.closure.} =
             proc bar() =
               proc kk() =
-                echo "int: ", myinteger
+                output.add myinteger
               kk()
             id(bar)()
 
   discard foo(108)()
 
+  doAssert output == [108]
+
 
 block tclosure2:
-  when true:
+  block:
+    var output: seq[int]
     proc ax =
       for xxxx in 0..9:
         var i = 0
         proc bx =
           if i > 10:
-            echo xxxx
+            output.add xxxx
             return
           i += 1
           #for j in 0 .. 0: echo i
           bx()
 
         bx()
-        echo i
+        output.add i
 
     ax()
+
+    doAssert output ==
+      [0, 11, 1, 11, 2, 11, 3, 11, 4, 11, 5, 11, 6, 11, 7, 11, 8, 11, 9, 11]
 
   when true:
     proc accumulator(start: int): (proc(): int {.closure.}) =
@@ -139,21 +98,26 @@ block tclosure2:
 
     var a = accumulator(3)
     let b = accumulator(4)
-    echo a() + b() + a()
+    doAssert a() + b() + a() == 11
 
+  block:
+    var counter = 0
 
     proc outer =
 
       proc py() =
         # no closure here:
-        for i in 0..3: echo "py"
+        for i in 0..3: inc counter
 
       py()
 
     outer()
 
+    doAssert counter == 4
+
 
   when true:
+    var output: seq[string]
     proc outer2 =
       var errorValue = 3
       proc fac[T](n: T): T =
@@ -162,10 +126,10 @@ block tclosure2:
         else: result = n * fac(n-1)
 
       proc px() {.closure.} =
-        echo "px"
+        output.add "px"
 
       proc py() {.closure.} =
-        echo "py"
+        output.add "py"
 
       let
         mapping = {
@@ -174,23 +138,25 @@ block tclosure2:
         }
       mapping[0][1]()
 
-      echo fac(3)
+      output.add $fac(3)
 
 
     outer2()
 
-# bug #5688
+    doAssert output == ["px", "6"]
 
-import typetraits
+# bug https://github.com/nim-lang/nim/issues/5688
+
+import std/typetraits
 
 proc myDiscard[T](a: T) = discard
 
 proc foo() =
   let a = 5
   let f = (proc() =
-             myDiscard (proc() = echo a)
+             myDiscard (proc() = (echo a; doAssert false))
           )
-  echo name(typeof(f))
+  doAssert name(typeof(f)) == "proc (){.closure, gcsafe, locks: 0.}"
 
 foo()
 

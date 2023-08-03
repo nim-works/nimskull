@@ -1,7 +1,6 @@
 discard """
   description: "Tests to make sure that the Exception.name field is set"
   targets: "c js"
-  matrix: "--gc:refc; --gc:arc"
 """
 
 template test(desc, body) {.dirty.} =

@@ -20,11 +20,10 @@ import
     numericbase       # NumericalBase
   ],
   compiler/front/[
-    options
+    in_options
   ],
   compiler/utils/[
-    ropes,
-    astrepr,
+    idioms,
     int128 # Values for integer nodes
   ],
   std/[
@@ -32,7 +31,7 @@ import
     tables # For symbol table mapping
   ]
 
-export ast_types, ast_idgen, ast_query, int128, ast_parsed_types
+export ast_types, ast_idgen, ast_query, int128
 
 var ggDebug* {.deprecated.}: bool ## convenience switch for trying out things
 
@@ -310,14 +309,6 @@ proc newType*(kind: TTypeKind, id: ItemId; owner: PSym): PType =
       echo "KNID ", kind
       writeStackTrace()
 
-
-proc mergeLoc(a: var TLoc, b: TLoc) =
-  if a.k == low(typeof(a.k)): a.k = b.k
-  if a.storage == low(typeof(a.storage)): a.storage = b.storage
-  a.flags.incl b.flags
-  if a.lode == nil: a.lode = b.lode
-  if a.r == nil: a.r = b.r
-
 proc newSons*(father: Indexable, length: int) =
   setLen(father.sons, length)
 
@@ -333,8 +324,10 @@ proc assignType*(dest, src: PType) =
   if src.sym != nil:
     if dest.sym != nil:
       dest.sym.flags.incl src.sym.flags-{sfExported}
-      if dest.sym.annex == nil: dest.sym.annex = src.sym.annex
-      mergeLoc(dest.sym.loc, src.sym.loc)
+      if dest.sym.annex.isNil: dest.sym.annex = src.sym.annex
+      dest.sym.extFlags.incl src.sym.extFlags
+      if dest.sym.extname.len == 0:
+        dest.sym.extname = src.sym.extname
     else:
       dest.sym = src.sym
   newSons(dest, src.len)
@@ -356,7 +349,8 @@ proc copySym*(s: PSym; id: ItemId): PSym =
   result.magic = s.magic
   result.options = s.options
   result.position = s.position
-  result.loc = s.loc
+  result.extname = s.extname
+  result.extFlags = s.extFlags
   result.annex = s.annex      # BUGFIX
   result.constraint = s.constraint
   if result.kind in {skVar, skLet, skField}:
@@ -373,7 +367,8 @@ proc createModuleAlias*(s: PSym, id: ItemId, newIdent: PIdent, info: TLineInfo;
   result.flags = s.flags
   result.options = s.options
   result.position = s.position
-  result.loc = s.loc
+  result.extname = s.extname
+  result.extFlags = s.extFlags
   result.annex = s.annex
 
 proc initStrTable*(x: var TStrTable) =
@@ -442,7 +437,7 @@ proc propagateToOwner*(owner, elem: PType; propagateHasAsgn = true) =
 
 proc rawAddSon*(father, son: PType; propagateHasAsgn = true) =
   father.sons.add(son)
-  if not son.isNil: propagateToOwner(father, son, propagateHasAsgn)
+  if son != nil: propagateToOwner(father, son, propagateHasAsgn)
 
 proc rawAddSonNoPropagationOfTypeFlags*(father, son: PType) =
   father.sons.add(son)
@@ -467,16 +462,18 @@ template copyNodeImpl(dst, src, processSonsStmt) =
   when defined(useNodeIds):
     if dst.id == nodeIdToDebug:
       echo "COMES FROM ", src.id
+    elif src.id == nodeIdToDebug:
+      echo "GOES TO ", dst.id
+      writeStackTrace()
   case src.kind
   of nkCharLit..nkUInt64Lit: dst.intVal = src.intVal
   of nkFloatLiterals: dst.floatVal = src.floatVal
   of nkSym: dst.sym = src.sym
   of nkIdent: dst.ident = src.ident
   of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
-  of nkEmpty, nkNone: discard # no children, nothing to do
-  of nkError:
-    dst.diag = src.diag       # do cheap copies
-  else: processSonsStmt
+  of nkEmpty, nkNone, nkNilLit, nkType: discard "no children"
+  of nkError: dst.diag = src.diag # do cheap copies
+  of nkWithSons: processSonsStmt
 
 proc copyNode*(src: PNode): PNode =
   # does not copy its sons!
@@ -509,7 +506,8 @@ template transitionSymKindCommon*(k: TSymKind) =
   s[] = TSym(kind: k, itemId: obj.itemId, magic: obj.magic, typ: obj.typ, name: obj.name,
              info: obj.info, owner: obj.owner, flags: obj.flags, ast: obj.ast,
              options: obj.options, position: obj.position, offset: obj.offset,
-             loc: obj.loc, annex: obj.annex, constraint: obj.constraint)
+             extname: obj.extname, extFlags: obj.extFlags, locId: obj.locId,
+             annex: obj.annex, constraint: obj.constraint)
   when defined(nimsuggest):
     s.allUsages = obj.allUsages
 
@@ -518,8 +516,9 @@ proc transitionGenericParamToType*(s: PSym) =
 
 proc transitionRoutineSymKind*(s: PSym, kind: range[skProc..skTemplate]) =
   transitionSymKindCommon(kind)
-  s.gcUnsafetyReason = obj.gcUnsafetyReason
-  s.transformedBody = obj.transformedBody
+  if obj.kind in routineKinds - {skMacro} and s.kind != skMacro:
+    s.gcUnsafetyReason = obj.gcUnsafetyReason
+    s.transformedBody = obj.transformedBody
 
 proc transitionToLet*(s: PSym) =
   transitionSymKindCommon(skLet)
@@ -637,38 +636,204 @@ proc toHumanStr*(kind: TTypeKind): string =
   ## strips leading `tk`
   result = toHumanStrImpl(kind, 2)
 
-proc setBaseFlags(n: PNode, base: NumericalBase) =
+proc setBaseFlags*(n: PNode, base: NumericalBase) =
   case base
   of base10: discard
   of base2: incl(n.flags, nfBase2)
   of base8: incl(n.flags, nfBase8)
   of base16: incl(n.flags, nfBase16)
 
+func toTNodeKind*(kind: ParsedNodeKind): TNodeKind {.inline.} =
+  case kind
+  of pnkError: nkError
+  of pnkEmpty: nkEmpty
+  of pnkIdent: nkIdent
+  of pnkCharLit: nkCharLit
+  of pnkIntLit: nkIntLit
+  of pnkInt8Lit: nkInt8Lit
+  of pnkInt16Lit: nkInt16Lit
+  of pnkInt32Lit: nkInt32Lit
+  of pnkInt64Lit: nkInt64Lit
+  of pnkUIntLit: nkUIntLit
+  of pnkUInt8Lit: nkUInt8Lit
+  of pnkUInt16Lit: nkUInt16Lit
+  of pnkUInt32Lit: nkUInt32Lit
+  of pnkUInt64Lit: nkUInt64Lit
+  of pnkFloatLit: nkFloatLit
+  of pnkFloat32Lit: nkFloat32Lit
+  of pnkFloat64Lit: nkFloat64Lit
+  of pnkFloat128Lit: nkFloat128Lit
+  of pnkStrLit: nkStrLit
+  of pnkRStrLit: nkRStrLit
+  of pnkTripleStrLit: nkTripleStrLit
+  of pnkNilLit: nkNilLit
+  of pnkCustomLit: nkDotExpr
+  of pnkCall: nkCall
+  of pnkCommand: nkCommand
+  of pnkCallStrLit: nkCallStrLit
+  of pnkInfix: nkInfix
+  of pnkPrefix: nkPrefix
+  of pnkPostfix: nkPostfix
+  of pnkExprEqExpr: nkExprEqExpr
+  of pnkExprColonExpr: nkExprColonExpr
+  of pnkIdentDefs: nkIdentDefs
+  of pnkConstDef: nkConstDef
+  of pnkVarTuple: nkVarTuple
+  of pnkPar: nkPar
+  of pnkSqrBracket: nkBracket
+  of pnkCurly: nkCurly
+  of pnkTupleConstr: nkTupleConstr
+  of pnkObjConstr: nkObjConstr
+  of pnkTableConstr: nkTableConstr
+  of pnkSqrBracketExpr: nkBracketExpr
+  of pnkCurlyExpr: nkCurlyExpr
+  of pnkPragmaExpr: nkPragmaExpr
+  of pnkPragma: nkPragma
+  of pnkPragmaBlock: nkPragmaBlock
+  of pnkDotExpr: nkDotExpr
+  of pnkAccQuoted: nkAccQuoted
+  of pnkIfExpr: nkIfExpr
+  of pnkIfStmt: nkIfStmt
+  of pnkElifBranch: nkElifBranch
+  of pnkElifExpr: nkElifExpr
+  of pnkElse: nkElse
+  of pnkElseExpr: nkElseExpr
+  of pnkCaseStmt: nkCaseStmt
+  of pnkOfBranch: nkOfBranch
+  of pnkWhenStmt, pnkWhenExpr: nkWhenStmt
+  of pnkForStmt: nkForStmt
+  of pnkWhileStmt: nkWhileStmt
+  of pnkBlockExpr: nkBlockExpr
+  of pnkBlockStmt: nkBlockStmt
+  of pnkDiscardStmt: nkDiscardStmt
+  of pnkContinueStmt: nkContinueStmt
+  of pnkBreakStmt: nkBreakStmt
+  of pnkReturnStmt: nkReturnStmt
+  of pnkRaiseStmt: nkRaiseStmt
+  of pnkYieldStmt: nkYieldStmt
+  of pnkTryStmt: nkTryStmt
+  of pnkExceptBranch: nkExceptBranch
+  of pnkFinally: nkFinally
+  of pnkDefer: nkDefer
+  of pnkLambda: nkLambda
+  of pnkDo: nkDo
+  of pnkBind: nkBind
+  of pnkBindStmt: nkBindStmt
+  of pnkMixinStmt: nkMixinStmt
+  of pnkCast: nkCast
+  of pnkStaticStmt: nkStaticStmt
+  of pnkAsgn: nkAsgn
+  of pnkGenericParams: nkGenericParams
+  of pnkFormalParams: nkFormalParams
+  of pnkStmtList: nkStmtList
+  of pnkStmtListExpr: nkStmtListExpr
+  of pnkImportStmt: nkImportStmt
+  of pnkImportExceptStmt: nkImportExceptStmt
+  of pnkFromStmt: nkFromStmt
+  of pnkIncludeStmt: nkIncludeStmt
+  of pnkExportStmt: nkExportStmt
+  of pnkExportExceptStmt: nkExportExceptStmt
+  of pnkConstSection: nkConstSection
+  of pnkLetSection: nkLetSection
+  of pnkVarSection: nkVarSection
+  of pnkProcDef: nkProcDef
+  of pnkFuncDef: nkFuncDef
+  of pnkMethodDef: nkMethodDef
+  of pnkConverterDef: nkConverterDef
+  of pnkIteratorDef: nkIteratorDef
+  of pnkMacroDef: nkMacroDef
+  of pnkTemplateDef: nkTemplateDef
+  of pnkTypeSection: nkTypeSection
+  of pnkTypeDef: nkTypeDef
+  of pnkEnumTy: nkEnumTy
+  of pnkEnumFieldDef: nkEnumFieldDef
+  of pnkObjectTy: nkObjectTy
+  of pnkTupleTy: nkTupleTy
+  of pnkProcTy: nkProcTy
+  of pnkIteratorTy: nkIteratorTy
+  of pnkRecList: nkRecList
+  of pnkRecCase: nkRecCase
+  of pnkRecWhen: nkRecWhen
+  of pnkTypeOfExpr: nkTypeOfExpr
+  of pnkRefTy: nkRefTy
+  of pnkVarTy: nkVarTy
+  of pnkPtrTy: nkPtrTy
+  of pnkStaticTy: nkStaticTy
+  of pnkDistinctTy: nkDistinctTy
+  of pnkMutableTy: nkMutableTy
+  of pnkTupleClassTy: nkTupleClassTy
+  of pnkTypeClassTy: nkTypeClassTy
+  of pnkOfInherit: nkOfInherit
+  of pnkArgList: nkArgList
+  of pnkWith: nkWith
+  of pnkWithout: nkWithout
+  of pnkAsmStmt: nkAsmStmt
+  of pnkCommentStmt: nkCommentStmt
+  of pnkUsingStmt: nkUsingStmt
+
+proc splitCustomLit*(n: ParsedNode): tuple[num, ident: ParsedNode] {.inline.} =
+  assert n != nil
+  assert n.kind == pnkCustomLit
+  var strLitTok = n.lit
+  strLitTok.literal = n.lit.literal.substr(0, n.lit.iNumber.int - 1)
+  var suffixTok = n.lit
+  suffixTok.literal = n.lit.ident.s
+  result =
+    (ParsedNode(kind: pnkRStrLit, fileIndex: n.fileIndex, lit: strLitTok),
+     ParsedNode(kind: pnkIdent, fileIndex: n.fileIndex, startToken: suffixTok))
+
 proc toPNode*(parsed: ParsedNode): PNode =
-  result = newNodeI(parsed.kind, parsed.info)
-  result.comment = parsed.comment
-  case parsed.kind:
-    of nkFloatKinds:
-      result.floatVal = parsed.token.fNumber
-      result.setBaseFlags(parsed.token.base)
-
-    of nkIntKinds - { nkCharLit }:
-      result.intVal = parsed.token.iNumber
-      result.setBaseFlags(parsed.token.base)
-
-    of nkCharLit:
-      result.intVal = ord(parsed.token.literal[0])
-
-    of nkStrKinds:
-      result.strVal = parsed.token.literal
-
-    of nkIdent:
-      result.ident = parsed.token.ident
-
+  if parsed.isNil: return
+  result =
+    case parsed.kind
+    of pnkCustomLit:
+      # xxx: between reworking the `lexer` and `PNode`, this awkward handling
+      #      should go away
+      let split = splitCustomLit(parsed)
+      newTreeI(nkDotExpr, parsed.info): # TODO: confirm info is correct
+              [toPNode(split.num), toPNode(split.ident)]
     else:
-      if parsed.isBlockArg:
-        result.flags.incl nfBlockArg
+      newNodeI(parsed.kind.toTNodeKind, parsed.info)
 
-      for sub in items(parsed):
-        result.add sub.toPNode()
+  result.comment = parsed.comment
 
+  case parsed.kind
+  of pnkEmpty:
+    discard
+
+  of pnkFloatKinds:
+    result.floatVal = parsed.lit.fNumber
+    result.setBaseFlags(parsed.lit.base)
+
+  of pnkIntKinds - { pnkCharLit }:
+    result.intVal = parsed.lit.iNumber
+    result.setBaseFlags(parsed.lit.base)
+
+  of pnkCharLit:
+    result.intVal = ord(parsed.lit.literal[0])
+
+  of pnkStrKinds:
+    result.strVal = parsed.lit.literal
+
+  of pnkNilLit:
+    discard
+
+  of pnkIdent:
+    assert parsed.startToken.ident != nil,
+          "tkIn, tkOut, etc need to be translated, probably in the parser for now"
+    result.ident = parsed.startToken.ident
+
+  of pnkAccQuoted:
+    for (ident, line, col) in parsed.idents.items:
+      let info = TLineInfo(fileIndex: parsed.fileIndex, line: line, col: col)
+      result.add newIdentNode(ident, info)
+
+  of pnkCustomLit:
+    discard "handled earlier"
+
+  of pnkError:
+    unreachable("IMPLEMENT ME")
+
+  else:
+    for sub in parsed.sons.items:
+      result.add toPNode(sub)

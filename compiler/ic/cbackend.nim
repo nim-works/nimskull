@@ -7,20 +7,13 @@
 #    distribution, for details about the copyright.
 #
 
-## New entry point into our C code generator. Ideally
-## somebody would rewrite the old backend (which is 8000 lines of crufty Nim code)
-## to work on packed trees directly and produce the C code as an AST which can
-## then be rendered to text in a very simple manner. Unfortunately nobody wrote
-## this code. So instead we wrap the existing cgen.nim and its friends so that
-## we call directly into the existing code generation logic but avoiding the
-## naive, outdated `passes` design. Thus you will see some
-## `useAliveDataFromDce in flags` checks in the old code -- the old code is
-## also doing cross-module dependency tracking and DCE that we don't need
-## anymore. DCE is now done as prepass over the entire packed module graph.
+## Entry point into the C code generator when rodfiles are used. Instead of
+## invoking the code generator directly, it simply invokes the normal code
+## generation orchestrator for the C backend.
 
 import
   std/[
-    packedsets, algorithm, tables
+    packedsets, algorithm
   ],
   compiler/ast/[
     ast,
@@ -45,40 +38,26 @@ import
     packed_ast,
     ic,
     dce,
+    replayer,
     rodfiles
+  ],
+  compiler/sem/[
+    modulelowering
   ]
+
+import compiler/backend/cbackend as cbackend2
 
 proc unpackTree(g: ModuleGraph; thisModule: int;
                 tree: PackedTree; n: NodePos): PNode =
   var decoder = initPackedDecoder(g.config, g.cache)
   result = loadNodes(decoder, g.packed, thisModule, tree, n)
 
-proc setupBackendModule(g: ModuleGraph; m: var LoadedModule) =
-  if g.backend == nil:
-    g.backend = cgendata.newModuleList(g)
-  assert g.backend != nil
-  var bmod = cgen.newModule(BModuleList(g.backend), m.module, g.config)
+proc setupBackendModule(g: BModuleList; m: var LoadedModule, alive: AliveSyms) =
+  var bmod = cgen.newModule(g, m.module, g.config)
   bmod.idgen = idgenFromLoadedModule(m)
 
-proc generateCodeForModule(g: ModuleGraph; m: var LoadedModule; alive: var AliveSyms) =
-  var bmod = BModuleList(g.backend).modules[m.module.position]
-  assert bmod != nil
-  bmod.flags.incl useAliveDataFromDce
-  bmod.alive = move alive[m.module.position]
-
-  for p in allNodes(m.fromDisk.topLevel):
-    let n = unpackTree(g, m.module.position, m.fromDisk.topLevel, p)
-    cgen.genTopLevelStmt(bmod, n)
-
-  finalCodegenActions(g, bmod, newNodeI(nkStmtList, m.module.info))
-  m.fromDisk.backendFlags = cgen.whichInitProcs(bmod)
-
-proc replayTypeInfo(g: ModuleGraph; m: var LoadedModule; origin: FileIndex) =
-  for x in mitems(m.fromDisk.emittedTypeInfo):
-    #echo "found type ", x, " for file ", int(origin)
-    g.emittedTypeInfo[x] = origin
-
-proc addFileToLink(config: ConfigRef; m: PSym) =
+proc addFileToLink(config: ConfigRef; m: PSym) {.used.} =
+  # XXX: currently unused, but kept in case it is needed again
   let filename = AbsoluteFile toFullPath(config, m.position.FileIndex)
   let ext = ".nim.c"
   let cfile = changeFileExt(completeCfilePath(config, withPackageName(config, filename)), ext)
@@ -131,39 +110,42 @@ proc aliveSymsChanged(config: ConfigRef; position: int; alive: AliveSyms): bool 
     result = true
     storeAliveSymsImpl(asymFile, s)
 
-proc genPackedModule(g: ModuleGraph, i: int; alive: var AliveSyms) =
+proc storePackedModule(g: ModuleGraph, i: int; alive: AliveSyms) =
   # case statement here to enforce exhaustive checks.
   case g.packed[i].status
-  of undefined:
+  of undefined, loaded:
     discard "nothing to do"
   of loading, stored:
     assert false
   of storing, outdated:
     storeAliveSyms(g.config, g.packed[i].module.position, alive)
-    generateCodeForModule(g, g.packed[i], alive)
     closeRodFile(g, g.packed[i].module)
-  of loaded:
-    if g.packed[i].loadedButAliveSetChanged:
-      generateCodeForModule(g, g.packed[i], alive)
-    else:
-      addFileToLink(g.config, g.packed[i].module)
-      replayTypeInfo(g, g.packed[i], FileIndex(i))
-
-      if g.backend == nil:
-        g.backend = cgendata.newModuleList(g)
-      registerInitProcs(BModuleList(g.backend), g.packed[i].module, g.packed[i].fromDisk.backendFlags)
 
 proc generateCode*(g: ModuleGraph) =
   ## The single entry point, generate C(++) code for the entire
   ## Nim program aka `ModuleGraph`.
   resetForBackend(g)
-  var alive = computeAliveSyms(g.packed, g.config)
+
+  # First pass: replay the module-graph state changes that the backend needs to
+  # know about (the alive analysis does too)
+  # XXX: these state changes were already applied during semantic analysis,
+  #      but ``resetForBackend`` (unnecessarily) throws them away again
+  for i in 0..high(g.packed):
+    replayLibs(g, i)
+    replayBackendRoutines(g, i)
+
+  var alive = computeAliveSyms(g.packed, g, g.config)
 
   when false:
     for i in 0..high(g.packed):
       echo i, " is of status ", g.packed[i].status, " ", toFullPath(g.config, FileIndex(i))
 
-  # First pass: Setup all the backend modules for all the modules that have
+  # setup the module list and allocate space for all existing modules.
+  # The slots for unchanged modules stay uninitialized.
+  let backend = cgendata.newModuleList(g)
+  backend.modules.setLen(g.packed.len)
+
+  # Second pass: Setup all the backend modules for all the modules that have
   # changed:
   for i in 0..high(g.packed):
     # case statement here to enforce exhaustive checks.
@@ -173,7 +155,7 @@ proc generateCode*(g: ModuleGraph) =
     of loading, stored:
       assert false
     of storing, outdated:
-      setupBackendModule(g, g.packed[i])
+      setupBackendModule(backend, g.packed[i], alive)
     of loaded:
       # Even though this module didn't change, DCE might trigger a change.
       # Consider this case: Module A uses symbol S from B and B does not use
@@ -181,14 +163,44 @@ proc generateCode*(g: ModuleGraph) =
       # recompile B in order to remove S from the final result.
       if aliveSymsChanged(g.config, g.packed[i].module.position, alive):
         g.packed[i].loadedButAliveSetChanged = true
-        setupBackendModule(g, g.packed[i])
 
-  # Second pass: Code generation.
-  let mainModuleIdx = g.config.projectMainIdx2.int
-  # We need to generate the main module last, because only then
-  # all init procs have been registered:
+      # for now, we simply re-generate code for all modules, independent of
+      # whether they've changed
+      setupBackendModule(backend, g.packed[i], alive)
+
+  # Third pass: Setup a ``ModuleList``. For simplicity, we simulate the
+  # ``collectPass`` being invoked.
+  const pass = collectPass
+  for m in g.packed.items:
+    if m.status == undefined:
+      continue
+
+    let
+      pos = m.module.position
+      c = pass.open(g, m.module, backend.modules[pos].idgen)
+    for p in allNodes(m.fromDisk.topLevel):
+      let n = unpackTree(g, pos, m.fromDisk.topLevel, p)
+      discard pass.process(c, n)
+
+    # XXX: the order in which the modules are closed is incorrect
+    discard pass.close(g, c, g.emptyNode)
+
+  var mlist = takeModuleList(g)
+  # make sure that, at least, the main module comes last (the other modules
+  # are closed in the wrong order):
+  for i, pos in mlist.modulesClosed.pairs:
+    if pos == g.config.projectMainIdx2:
+      # move to the end:
+      delete(mlist.modulesClosed, i)
+      mlist.modulesClosed.add(pos)
+      break
+
+  # Fourth pass: Generate the code:
+  cbackend2.generateCode(g, backend, mlist)
+  g.backend = backend
+
+  # Last pass: Write the rodfiles to disk. The code generator still modifies
+  # their contents right up to this point, so this step currently cannot happen
+  # earlier
   for i in 0..high(g.packed):
-    if i != mainModuleIdx:
-      genPackedModule(g, i, alive)
-  if mainModuleIdx >= 0:
-    genPackedModule(g, mainModuleIdx, alive)
+    storePackedModule(g, i, alive)

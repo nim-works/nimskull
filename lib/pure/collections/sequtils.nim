@@ -89,27 +89,16 @@ when defined(nimHasEffectsOf):
 else:
   {.pragma: effectsOf.}
 
-macro evalOnceAs(expAlias, exp: untyped,
-                 letAssigneable: static[bool]): untyped =
-  ## Injects `expAlias` in caller scope, to avoid bugs involving multiple
-  ## substitution in macro arguments such as
-  ## https://github.com/nim-lang/Nim/issues/7187.
-  ## `evalOnceAs(myAlias, myExp)` will behave as `let myAlias = myExp`
-  ## except when `letAssigneable` is false (e.g. to handle openArray) where
-  ## it just forwards `exp` unchanged.
-  expectKind(expAlias, nnkIdent)
-  var val = exp
-
-  result = newStmtList()
-  # If `exp` is not a symbol we evaluate it once here and then use the temporary
-  # symbol as alias
-  if exp.kind != nnkSym and letAssigneable:
-    val = genSym()
-    result.add(newLetStmt(val, exp))
-
-  result.add(
-    newProc(name = genSym(nskTemplate, $expAlias), params = [getType(untyped)],
-      body = val, procType = nnkTemplateDef))
+iterator mapIter[T; U; V](src: U, dest: var seq[V]): T =
+  ## Helper iterator for implementing ``mapIt``. The destination sequence is
+  ## pre-allocated here, using the length provided by `src`.
+  let L = src.len
+  dest.newSeq(L)
+  # while we could yield an index + item pair, we do not, as that would currently
+  # disable the cursor optimization for the for-var at the callsite (which we
+  # really don't want to miss here)
+  for it in items(src):
+    yield it
 
 func concat*[T](seqs: varargs[seq[T]]): seq[T] =
   ## Takes several sequences' items and returns them inside a new sequence.
@@ -245,49 +234,37 @@ func maxIndex*[T](s: openArray[T]): int {.since: (1, 1).} =
     if s[i] > s[result]: result = i
 
 
-template zipImpl(s1, s2, retType: untyped): untyped =
-  proc zip*[S, T](s1: openArray[S], s2: openArray[T]): retType =
-    ## Returns a new sequence with a combination of the two input containers.
-    ##
-    ## The input containers can be of different types.
-    ## If one container is shorter, the remaining items in the longer container
-    ## are discarded.
-    ##
-    ## **Note**: For Nim 1.0.x and older version, `zip` returned a seq of
-    ## named tuples with fields `a` and `b`. For Nim versions 1.1.x and newer,
-    ## `zip` returns a seq of unnamed tuples.
-    runnableExamples:
-      let
-        short = @[1, 2, 3]
-        long = @[6, 5, 4, 3, 2, 1]
-        words = @["one", "two", "three"]
-        letters = "abcd"
-        zip1 = zip(short, long)
-        zip2 = zip(short, words)
-      assert zip1 == @[(1, 6), (2, 5), (3, 4)]
-      assert zip2 == @[(1, "one"), (2, "two"), (3, "three")]
-      assert zip1[2][0] == 3
-      assert zip2[1][1] == "two"
-      when (NimMajor, NimMinor) <= (1, 0):
-        let
-          zip3 = zip(long, letters)
-        assert zip3 == @[(a: 6, b: 'a'), (5, 'b'), (4, 'c'), (3, 'd')]
-        assert zip3[0].b == 'a'
-      else:
-        let
-          zip3: seq[tuple[num: int, letter: char]] = zip(long, letters)
-        assert zip3 == @[(6, 'a'), (5, 'b'), (4, 'c'), (3, 'd')]
-        assert zip3[0].letter == 'a'
+proc zip*[S, T](s1: openArray[S], s2: openArray[T]): seq[(S, T)] =
+  ## Returns a new sequence with a combination of the two input containers.
+  ##
+  ## The input containers can be of different types.
+  ## If one container is shorter, the remaining items in the longer container
+  ## are discarded.
+  ##
+  ## **Note**: For Nim 1.0.x and older version, `zip` returned a seq of
+  ## named tuples with fields `a` and `b`. For Nim versions 1.1.x and newer,
+  ## `zip` returns a seq of unnamed tuples.
+  runnableExamples:
+    let
+      short = @[1, 2, 3]
+      long = @[6, 5, 4, 3, 2, 1]
+      words = @["one", "two", "three"]
+      letters = "abcd"
+      zip1 = zip(short, long)
+      zip2 = zip(short, words)
+    assert zip1 == @[(1, 6), (2, 5), (3, 4)]
+    assert zip2 == @[(1, "one"), (2, "two"), (3, "three")]
+    assert zip1[2][0] == 3
+    assert zip2[1][1] == "two"
+    let
+      zip3: seq[tuple[num: int, letter: char]] = zip(long, letters)
+    assert zip3 == @[(6, 'a'), (5, 'b'), (4, 'c'), (3, 'd')]
+    assert zip3[0].letter == 'a'
 
-    var m = min(s1.len, s2.len)
-    newSeq(result, m)
-    for i in 0 ..< m:
-      result[i] = (s1[i], s2[i])
-
-when (NimMajor, NimMinor) <= (1, 0):
-  zipImpl(s1, s2, seq[tuple[a: S, b: T]])
-else:
-  zipImpl(s1, s2, seq[(S, T)])
+  var m = min(s1.len, s2.len)
+  newSeq(result, m)
+  for i in 0 ..< m:
+    result[i] = (s1[i], s2[i])
 
 proc unzip*[S, T](s: openArray[(S, T)]): (seq[S], seq[T]) {.since: (1, 1).} =
   ## Returns a tuple of two sequences split out from a sequence of 2-field tuples.
@@ -761,85 +738,25 @@ template anyIt*(s, pred: untyped): bool =
 
 template toSeqBuiltin[T](arg: openArray[T]): seq[T] = @arg
 
-proc toSeqBuiltin[T](arg: set[T]): seq[T] {.inline.} =
-  for it in arg:
-    result.add it
+template toSeqBuiltin[T](arg: seq[T]): seq[T] = arg
 
-proc toSeqBuiltin(a: cstring): seq[char] {.inline.} =
-  let len = a.len
-  result.setLen len
+proc toSeqBuiltin[T](arg: cstring): seq[T] {.inline.} =
+  let len = arg.len
+  result.newSeq(len)
   var i = 0
   while i < len:
-    result[i] = a[i]
+    result[i] = arg[i]
     inc i
 
-proc toSeqBuiltin[E: enum](t: typedesc[E]): seq[E] =
-  for it in t:
-    result.add it
-
-macro toSeqBuiltin(arg: iterator): untyped =
-  let typ = arg.getTypeInst
-  typ.expectKind nnkProcTy # only for closure iterators
-  let formalParams = typ[0]
-  formalParams.expectKind nnkFormalParams
-  formalParams.expectMinLen 1
-  let resultTyp = nnkBracketExpr.newTree(bindSym"seq", formalParams[0])
-  let tmpSym = genSym(nskVar)
-  result = nnkStmtListExpr.newTree
-  result.add nnkVarSection.newTree(nnkIdentDefs.newTree(tmpSym, resultTyp, newNimNode(nnkEmpty)))
-  result.add quote do:
-    for it in `arg`:
-      `tmpSym`.add it
-  result.add tmpSym
-
-template toSeqBuiltin[T: not proc](arg: T): untyped =
-  # fallback for ``IntSet`` and ``HashSet``. Explicit overload would
-  # be better, but this would require an additional import here.
-  var tmp: seq[typeof(items(arg), typeOfIter)]
+template toSeqBuiltin[T](arg: untyped): untyped =
+  ## Catch-all overload that matches everything that the more concrete
+  ## overloads do not.
+  var tmp: seq[T] = @[]
   for it in arg:
     tmp.add it
   tmp
 
-proc isSystemItems(arg: NimNode) : bool =
-  ## Return true if `arg` is the `items` iterator symbol defined in stdlib.
-  if arg.kind == nnkSym and arg.symKind == nskIterator:
-    if arg.eqIdent("items"):
-      if arg.owner.owner.eqIdent("stdlib"):
-        return true
-  return false
-
-macro toSeqImpl(arg: typed): untyped =
-  let iteratorCall = arg[1]
-  if isSystemItems(iteratorCall[0]):
-    let iteratorArg = iteratorCall[1]
-    result = newCall(bindSym"toSeqBuiltin", iteratorArg)
-  else:
-    var typ = iteratorCall.getTypeInst()
-    # `lent` is broken feature. and this special handling to get rid of lent is why it is broken.
-    if typ.kind == nnkBracketExpr and typ.len == 2 and typ[0].eqIdent("lent"):
-      # TODO this is not guaranteed to be the acutal system `lent` symbol.
-      typ = typ[1]
-
-    result = quote do:
-      var tmp: seq[`typ`]
-      for it in `iteratorCall`:
-        tmp.add it
-      tmp
-
-proc genCallToSeqImpl(arg: NimNode): NimNode =
-  newCall(bindSym"toSeqImpl",
-    nnkForStmt.newTree(
-      ident"x", arg, newStmtList()))
-
-macro toSeqImplSingleSym(arg: typed): untyped =
-  if arg.kind != nnkSym:
-    error "identifier not unique", arg # arg is symChoice
-  elif arg.symKind == nskIterator:
-    result = genCallToSeqImpl(newCall(arg))
-  else:
-    result = genCallToSeqImpl(arg)
-
-macro toSeq*(arg: untyped): untyped =
+template toSeq*(arg: untyped): untyped =
   ## Transforms any iterable (anything that can be iterated over, e.g. with
   ## a for-loop) into a sequence.
   ##
@@ -856,10 +773,16 @@ macro toSeq*(arg: untyped): untyped =
     assert mySeq1 == @[1, 2, 3, 4, 5]
     assert mySeq2 == @[1'i8, 3, 5]
 
-  if arg.kind in {nnkSym, nnkIdent, nnkOpenSymChoice, nnkClosedSymChoice}:
-    result = newCall(bindSym"toSeqImplSingleSym", arg)
+  mixin items
+  when compiles(typeof(items(arg))):
+    # arg is something that supports the ``items`` iterator:
+    toSeqBuiltin[typeof(items(arg))](arg)
+  elif compiles(typeof(arg())):
+    # arg must be the symbol of an iterator:
+    toSeqBuiltin[typeof(arg())](arg())
   else:
-    result = genCallToSeqImpl(arg)
+    # arg must be an iterator invocation expression itself:
+    toSeqBuiltin[typeof(arg)](arg)
 
 template foldl*(sequence, operation: untyped): untyped =
   ## Template to fold a sequence from left to right, returning the accumulation.
@@ -1003,46 +926,35 @@ template mapIt*(s: typed, op: untyped): untyped =
       strings = nums.mapIt($(4 * it))
     assert strings == @["4", "8", "12", "16"]
 
-  type OutType = typeof((
-    block:
-      var it{.inject.}: typeof(items(s), typeOfIter);
-      op), typeOfProc)
+  type
+    InType  = typeof(items(s), typeOfIter)
+    OutType = typeof((
+      block:
+        var it{.inject.}: InType;
+        op), typeOfProc)
+  # XXX: once supported by the compiler, drop the ``when`` by overloading
+  #      ``mapIt``: one overload where the `op` is of type ``proc`` and one
+  #      where it's of type ``untyped``
   when OutType is not (proc):
-    # Here, we avoid to create closures in loops.
-    # This avoids https://github.com/nim-lang/Nim/issues/12625
-    when compiles(s.len):
-      block: # using a block avoids https://github.com/nim-lang/Nim/issues/8580
-
-        # BUG: `evalOnceAs(s2, s, false)` would lead to C compile errors
-        # (`error: use of undeclared identifier`) instead of Nim compile errors
-        evalOnceAs(s2, s, compiles((let _ = s)))
-
-        var i = 0
-        var result = newSeq[OutType](s2.len)
-        for it {.inject.} in s2:
-          result[i] = op
-          i += 1
-        result
-    else:
+    # the normal version (inline expression)
+    block:
       var result: seq[OutType] = @[]
-      # use `items` to avoid https://github.com/nim-lang/Nim/issues/12639
-      for it {.inject.} in items(s):
-        result.add(op)
+      when compiles(s.len):
+        # the length is know ahead of time -> pre-allocate
+        var i = 0
+        for it {.inject.} in mapIter[InType](s, result):
+          result[i] = op
+          inc i
+      else:
+        # use `items` to avoid https://github.com/nim-lang/Nim/issues/12639
+        for it {.inject.} in items(s):
+          result.add(op)
+
       result
   else:
-    # `op` is going to create closures in loops, let's fallback to `map`.
-    # NOTE: Without this fallback, developers have to define a helper function and
-    # call `map`:
-    #   [1, 2].map((it) => ((x: int) => it + x))
-    # With this fallback, above code can be simplified to:
-    #   [1, 2].mapIt((x: int) => it + x)
-    # In this case, `mapIt` is just syntax sugar for `map`.
-    type InType = typeof(items(s), typeOfIter)
-    # Use a help proc `f` to create closures for each element in `s`
-    let f = proc (x: InType): OutType =
-              let it {.inject.} = x
-              op
-    map(s, f)
+    # `op` is (probably) a lambda-expression, in which case ``mapIt`` is just
+    # syntax sugar for ``map``.
+    map(s, proc (it {.inject.}: InType): OutType = op)
 
 template applyIt*(varSeq, op: untyped) =
   ## Convenience template around the mutable `apply` proc to reduce typing.
@@ -1050,6 +962,9 @@ template applyIt*(varSeq, op: untyped) =
   ## The template injects the `it` variable which you can use directly in an
   ## expression. The expression has to return the same type as the elements
   ## of the sequence you are mutating.
+  ##
+  ## In order for a type T to be used with `applyIt`, an `mitems` iterator
+  ## of the form ``iterator mitems(x: var T): var ...`` must be present.
   ##
   ## **See also:**
   ## * `apply proc<#apply,openArray[T],proc(T)_2>`_
@@ -1060,10 +975,11 @@ template applyIt*(varSeq, op: untyped) =
     nums.applyIt(it * 3)
     assert nums[0] + nums[3] == 15
 
-  for i in low(varSeq) .. high(varSeq):
-    let it {.inject.} = varSeq[i]
-    varSeq[i] = op
-
+  for v in mitems(varSeq):
+    # we do **not** want to allow mutations of `varSeq` through `it` here, so
+    # create a temporary copy first
+    let it {.inject.} = v
+    v = op
 
 template newSeqWith*(len: int, init: untyped): untyped =
   ## Creates a new `seq` of length `len`, calling `init` to initialize

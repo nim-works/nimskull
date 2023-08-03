@@ -78,11 +78,6 @@ type
     head: PPageDesc
     data: PPageDescArray
 
-when defined(gcOrc) or defined(gcArc):
-  discard
-else:
-  include cellseqs_v1
-
 # ------------------- cell set handling ---------------------------------------
 
 const

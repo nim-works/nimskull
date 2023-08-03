@@ -1,6 +1,5 @@
 discard """
   description: "Tests for the MIR ``Changeset`` API"
-  matrix: "--gc:refc; --gc:orc"
   targets: native
 """
 

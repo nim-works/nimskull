@@ -11,39 +11,42 @@ doing shady stuff...
   cmd: '''nim c --gc:arc --expandArc:newTarget --expandArc:delete --expandArc:p1 --expandArc:tt --hint:Performance:off --assertions:off --expandArc:extractConfig --expandArc:mergeShadowScope --expandArc:check $file'''
   nimout: '''--expandArc: newTarget
 
+var :tmp
+var :tmp_1
+var :tmp_2
 var splat
 splat = splitFile(path)
-var :tmp
-:tmp = splat.dir
-op(splat.dir)
-var :tmp_1
-:tmp_1 = splat.name
-op(splat.name)
-var :tmp_2
-:tmp_2 = splat.ext
-op(splat.ext)
-result = (:tmp, :tmp_1, :tmp_2)
-`=destroy`(splat)
+result = (
+  :tmp = splat.dir
+  op(splat.dir)
+  :tmp,
+  :tmp_1 = splat.name
+  op(splat.name)
+  :tmp_1,
+  :tmp_2 = splat.ext
+  op(splat.ext)
+  :tmp_2)
+=destroy(splat)
 -- end of expandArc ------------------------
 --expandArc: delete
 
 var sibling
 var :tmp = target[].parent[].left
-`=copy`(sibling, :tmp)
+=copy(sibling, :tmp)
 var saved
 var :tmp_1 = sibling[].right
-`=copy`(saved, :tmp_1)
+=copy(saved, :tmp_1)
 var :tmp_2 = sibling[].right
 var :tmp_3 = saved[].left
-`=copy`(:tmp_2, :tmp_3)
+=copy(:tmp_2, :tmp_3)
 var :tmp_4 = sibling[].parent
-`=sink`(:tmp_4, saved)
-`=destroy`(sibling)
+=sink(:tmp_4, saved)
+=destroy(sibling)
 -- end of expandArc ------------------------
 --expandArc: p1
 
 var lresult
-lresult = `@`([123])
+lresult = @([123])
 var lvalue
 var lnext
 var :tmp
@@ -53,33 +56,32 @@ op(:tmp[0])
 lnext = :tmp[1]
 op(:tmp[1])
 result.value = move(lvalue)
-`=destroy`(:tmp)
-`=destroy_1`(lnext)
-`=destroy_2`(lvalue)
+=destroy(:tmp)
+=destroy_1(lnext)
+=destroy_2(lvalue)
 -- end of expandArc ------------------------
 --expandArc: tt
 
-var
-  :tmp
-  :tmp_1
-var :tmp_2
+var :tmp
+var :tmp_1
 var a
+var :tmp_2
 try:
   var it_cursor = x
   a = (
     :tmp = op()
-    `=copy`(:tmp, it_cursor.key)
+    =copy(:tmp, it_cursor.key)
     :tmp,
     :tmp_1 = op()
-    `=copy`(:tmp_1, it_cursor.val)
+    =copy(:tmp_1, it_cursor.val)
     :tmp_1)
   echo([
-    var :tmp_3 = `$`(a)
+    var :tmp_3 = $(a)
     :tmp_2 = :tmp_3
     :tmp_2])
 finally:
-  `=destroy`(:tmp_2)
-  `=destroy_1`(a)
+  =destroy(:tmp_2)
+  =destroy_1(a)
 -- end of expandArc ------------------------
 --expandArc: extractConfig
 
@@ -87,52 +89,54 @@ var lan_ip
 try:
   lan_ip = ""
   block label:
-    var line
+    var a_cursor = txt
     var i = 0
-    var L = len(txt)
+    var L = len(a_cursor)
     block label_1:
       while true:
-        if op(`<`(i, L)):
+        if op(<(i, L)):
           break
-        var splitted
-        try:
-          line = txt[i]
-          splitted = split(line, " ", -1)
-          if `==`(splitted[0], "opt"):
-            var :tmp = splitted[1]
-            `=copy`(lan_ip, :tmp)
-          echo([lan_ip])
-          echo([splitted[1]])
-          inc(i, 1)
-        finally:
-          `=destroy`(splitted)
+        block label_2:
+          var splitted
+          try:
+            var line = a_cursor[i]
+            splitted = split(line, " ", -1)
+            if ==(splitted[0], "opt"):
+              var :tmp = splitted[1]
+              =copy(lan_ip, :tmp)
+            echo([lan_ip])
+            echo([splitted[1]])
+          finally:
+            =destroy(splitted)
+        inc(i, 1)
 finally:
-  `=destroy_1`(lan_ip)
+  =destroy_1(lan_ip)
 --expandArc: mergeShadowScope
 
 var shadowScope
 try:
   var :tmp = c[].currentScope
-  `=copy`(shadowScope, :tmp)
+  =copy(shadowScope, :tmp)
   rawCloseScope(c)
   block label:
-    var sym
+    var a_cursor = shadowScope[].symbols
     var i = 0
-    var L = len(shadowScope[].symbols)
+    var L = len(a_cursor)
     block label_1:
       while true:
-        if op(`<`(i, L)):
+        if op(<(i, L)):
           break
-        var :tmp_1
-        sym = shadowScope[].symbols[i]
-        addInterfaceDecl(c):
-          var :tmp_2 = sym
-          :tmp_1 = op()
-          `=copy_1`(:tmp_1, :tmp_2)
-          :tmp_1
+        block label_2:
+          var :tmp_1
+          var sym = a_cursor[i]
+          addInterfaceDecl(c,
+            var :tmp_2 = sym
+            :tmp_1 = op()
+            =copy_1(:tmp_1, :tmp_2)
+            :tmp_1)
         inc(i, 1)
 finally:
-  `=destroy`(shadowScope)
+  =destroy(shadowScope)
 -- end of expandArc ------------------------
 --expandArc: check
 
@@ -145,34 +149,33 @@ try:
       par = [type node]((
         var :tmp_1 = this[].value
         :tmp = op()
-        `=copy`(:tmp, :tmp_1)
+        =copy(:tmp, :tmp_1)
         :tmp, ""))
       break label
-    var
-      :tmp_2
-      :tmp_3
-      :tmp_4
+    var :tmp_2
+    var :tmp_3
+    var :tmp_4
     par = [type node]((parentDir(this[].value),
-      :tmp_3 = splitPath do:
+      :tmp_3 = splitPath(
         var :tmp_5 = this[].value
         :tmp_2 = op()
-        `=copy`(:tmp_2, :tmp_5)
-        :tmp_2
+        =copy(:tmp_2, :tmp_5)
+        :tmp_2)
       :tmp_4 = :tmp_3.tail
       op(:tmp_3.tail)
       :tmp_4))
-    `=destroy`(:tmp_3)
+    =destroy(:tmp_3)
   block label_1:
     if dirExists(par.dir):
       var :tmp_6 = this[].matchDirs
       var :tmp_7 = getSubDirs(par.dir, par.front)
-      `=sink`(:tmp_6, :tmp_7)
+      =sink(:tmp_6, :tmp_7)
       break label_1
     var :tmp_8 = this[].matchDirs
     var :tmp_9 = []
-    `=sink`(:tmp_8, :tmp_9)
+    =sink(:tmp_8, :tmp_9)
 finally:
-  `=destroy`(par)
+  =destroy(par)
 -- end of expandArc ------------------------'''
 """
 
@@ -233,6 +236,10 @@ proc main =
   echo five.left.value
   echo five.right.value
 
+# make sure that the expandArc output has the expected order by directly
+# referencing ``delete`` here
+let _ = topt_no_cursor.delete
+
 main()
 
 type
@@ -250,6 +257,8 @@ proc p1(): Maybe =
 proc tissue15130 =
   doAssert p1().value == @[123]
 
+let _ = topt_no_cursor.p1
+
 tissue15130()
 
 type
@@ -266,6 +275,8 @@ proc encodedQuery =
 
   for elem in query:
     elem.tt()
+
+let _ = topt_no_cursor.tt
 
 encodedQuery()
 

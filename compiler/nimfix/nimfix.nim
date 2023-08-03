@@ -127,9 +127,6 @@ proc handleCmdLine(config: ConfigRef) =
     processCmdLine(passCmd2, "", config)
     mainCommand()
 
-when compileOption("gc", "refc"):
-  GC_disableMarkAndSweep()
-
 condsyms.initDefines()
 defineSymbol "nimfix"
 handleCmdline newConfigRef()

@@ -1,13 +1,10 @@
-## This module implements the allocator and also contains functions for working
+## This module implements the allocator and also contains routines for working
 ## with handles.
 
 # XXX: module maybe needs a better name?
 # XXX: lots of duplicated code here
 
 import
-  compiler/ast/[
-    ast_types,
-  ],
   compiler/vm/[
     vmdef,
     vmtypes
@@ -32,34 +29,62 @@ const FailureCodeToEvent* = [
   dfcTypeMismatch: vmEvtAccessTypeMismatch
 ]
 
-# TODO: rename to `allocUntypedMemory`
-func allocLocationMemory*(a: var VmAllocator, len: Natural): MemRegionPtr =
-  {.noSideEffect.}:
-    let rounded = (len + sizeof(Atom) - 1) /% sizeof(Atom) * sizeof(Atom)
-    let p = alloc0(rounded)
-    result = makeMemPtr(p, rounded.uint)
-  a.regions.add((nil, 0, cast[int](p), rounded))
+{.push stackTrace: off.}
 
-func allocTypedLocations*(a: var VmAllocator, typ: PVmType; count, lenInBytes: Natural): MemRegionPtr =
-  {.noSideEffect.}:
-    let rounded = (lenInBytes + sizeof(Atom) - 1) /% sizeof(Atom) * sizeof(Atom)
-    let p = alloc0(rounded)
-    result = makeMemPtr(p, rounded.uint)
-  a.regions.add((typ, count, cast[int](p), rounded))
+template next(c: VmCell): untyped =
+  c.count
+
+template `next=`(c: var VmCell, id: CellId) =
+  c.count = id
+
+func addCell(a: var VmAllocator, p: pointer, c: sink VmCell): CellId =
+  if a.freeHead == a.freeTail:
+    # no more items in the linked list. There might still be more free slots in
+    # the sequence, however.
+    if a.freeTail >= a.cells.len:
+      # no more free cell slots exists -> allocate more
+      a.cells.setLen(max(16, a.cells.len * 3 div 2))
+
+    inc a.freeTail # append a new free slot at the end
+    a.cells[a.freeHead].next = a.freeTail
+
+  # pop the first item from the free-cell list:
+  result = a.freeHead
+  a.freeHead = a.cells[result].next
+
+  # update the cell slot:
+  assert a.cells[result].p == nil, "cell not free"
+  c.p = cast[ptr UncheckedArray[byte]](p)
+  {.cast(noSideEffect).}: # erroneously inferred side-effect
+    a.cells[result] = c
+
+template sfAlloc(num: Natural): untyped =
+  ## Side-effect free alloc that rounds the allocated size to the next multiple
+  ## of the size of an atom. The side-effect (i.e. modifcation of the native
+  ## allocator state) is handled by the ``var VmAllocator`` parameter (this is
+  ## not entirely correct, but good enough)
+  const AtomSize = uint sizeof(Atom)
+  {.cast(noSideEffect).}:
+    alloc0((uint(num) + AtomSize - 1) div AtomSize * AtomSize)
+
+func allocLocationMemory*(a: var VmAllocator, len: Natural): CellId {.used.} =
+  # TODO: rename to `allocUntypedMemory`
+  # XXX: not used right now, but will be eventually
+  a.addCell(sfAlloc(len), VmCell(sizeInBytes: len))
+
+func allocTypedLocations*(a: var VmAllocator, typ: PVmType; count, lenInBytes: Natural): CellPtr =
+  let p = sfAlloc(lenInBytes)
+  discard a.addCell(p, VmCell(typ: typ, count: count, sizeInBytes: lenInBytes))
+
+  result = cast[CellPtr](p)
 
 func allocSingleLocation*(a: var VmAllocator, typ: PVmType): LocHandle =
-  {.noSideEffect.}:
-    let rounded = (int(typ.sizeInBytes) + sizeof(Atom) - 1) /% sizeof(Atom) * sizeof(Atom)
-    let p = alloc0(rounded)
-    result = makeLocHandle(p, typ)
-  a.regions.add((typ, 1, cast[int](p), rounded))
+  let
+    numBytes = typ.sizeInBytes
+    p = sfAlloc(numBytes)
+    cell = a.addCell(p, VmCell(typ: typ, count: 1, sizeInBytes: int(numBytes)))
 
-func allocAtomLocation*(a: var VmAllocator, typ: PVmType): LocHandle =
-  assert typ.kind in realAtomKinds
-  {.noSideEffect.}:
-    let p = create(Atom)
-    result = makeLocHandle(p, typ)
-  a.regions.add((typ, 1, cast[int](p), sizeof(Atom)))
+  result = LocHandle(cell: cell, typ: typ, p: cast[VmMemPointer](p))
 
 func allocConstantLocation*(a: var VmAllocator, typ: PVmType): LocHandle =
   # XXX: currently the same as allocSingleLocation, but in the future,
@@ -67,79 +92,146 @@ func allocConstantLocation*(a: var VmAllocator, typ: PVmType): LocHandle =
   # read-only
   allocSingleLocation(a, typ)
 
+func mapPointerToCell*(a: VmAllocator, p: CellPtr): CellId =
+  ## Maps a cell pointer to the corresponding cell id, or -1 if the pointer
+  ## is not a valid cell pointer
+  for id in 0..<a.freeTail:
+    if a.cells[id].p == pointer(p):
+      return id
 
-func dealloc*(a: var VmAllocator, p: MemRegionPtr) =
+  result = -1
+
+func mapInteriorPointerToCell(a: VmAllocator, p: pointer): CellId =
+  let rp = cast[int](p)
+  for id in 0..<a.freeTail:
+    let
+      cell = a.cells[id]
+      start = cast[int](cell.p)
+    if rp in start..<(start+cell.sizeInBytes):
+      return id
+
+  result = -1
+
+func mapToCell*(a: VmAllocator, p: CellPtr): lent VmCell =
+  let id = mapPointerToCell(a, p)
+  assert id != -1, "pointer wasn't checked"
+  result = a.cells[id]
+
+func dealloc*(a: var VmAllocator, c: CellId) =
+  ## Frees the cell's memory and marks the cell slot as empty. `c` is required
+  ## to name a valid non-empty cell
+  # this procedure is not available to guest code so it's okay to use
+  # assertions here for now
+  assert c != -1
+  assert a.cells[c].p != nil, "cell is empty"
+
   {.noSideEffect.}:
-    if p.rawPointer != nil:
-      let rp = cast[int](p.rawPointer)
-      var ri = -1
-      for (i, x) in a.regions.pairs:
-        if x.start == rp:
-          ri = i
-          break
+    dealloc(a.cells[c].p)
 
-      # This function is not available to guest code so it's
-      # okay to use an assert here
-      assert ri != -1
-      a.regions.del(ri)
+  # mark the cell as free:
+  reset(a.cells[c])
 
-      dealloc(p.rawPointer)
+  # prepend the cell to the list of free cells:
+  a.cells[c].next = a.freeHead
+  a.freeHead = c
 
+func dealloc*(a: var VmAllocator, p: CellPtr) =
+  ## Deallocates the cell indicated by the valid cell pointer `p`. A ``nil``
+  ## pointer is ignored.
+  if pointer(p) != nil:
+    let id = mapPointerToCell(a, p)
+    assert id != -1, "pointer wasn't checked"
+
+    dealloc(a, id)
 
 func dealloc*(a: var VmAllocator, handle: LocHandle) {.inline.} =
-  a.dealloc(handle.h)
+  ## Deallocates the valid cell `handle` references.
+  a.dealloc(handle.cell)
 
-# XXX: maybe use `[]` operator overload instead?
-template subView*(p: MemRegionPtr, len: Natural): VmMemoryRegion =
-  ## Shortcut for `p.byteView.subView(0, len-1)`
-  assert len == 0 or p.isValid(uint(len))
+func makeLocHandle*(a: VmAllocator, p: pointer, typ: PVmType): LocHandle =
+  ## Attempts to create a handle to the guest memory location that to host
+  ## address `p` maps to. A handle signaling "invalid" is returned if no
+  ## mapping exists.
+  let id =
+    if p == nil: -1
+    else:        mapInteriorPointerToCell(a, p)
 
-  # Trick the compiler into giving us a mutable `openArray` by having `v` as
-  # var (let wont work)
-  var v = p.rawPointer
-  toOpenArray(v, 0, int(len)-1)
+  LocHandle(cell: id, p: cast[VmMemPointer](p), typ: typ)
 
-template subView*(p: MemRegionPtr, offset, len: Natural): VmMemoryRegion =
-  ## Shortcut for `p.byteView.subView(offset, len-1)`
-  assert p.isValid(uint(int(offset) + int(len)))
-  var v = p.rawPointer
-  toOpenArray(v, offset, int(offset)+int(len)-1)
+func makeLocHandle*(a: VmAllocator, cp: CellPtr, offset: Natural, typ: PVmType
+                   ): LocHandle =
+  ## Attempts to create a handle to an interior location of the cell
+  ## coressponding to `cp`. If `cp` is not a valid cell pointer, a handle that
+  ## signals "invalid" is returned.
+  let id = mapPointerToCell(a, cp)
+  LocHandle(cell: id, p: applyOffset(cp, uint(offset)), typ: typ)
 
-# TODO: rename to something more fitting
-func getSubHandle*(h: MemRegionPtr, offset: Natural): MemRegionPtr {.inline.} =
-  assert h.len > offset
-  assert not(h.isNil)
-  makeMemPtr(addr h.rawPointer[offset], uint(h.len - offset))
+func loadFullSlice*(a: VmAllocator, cp: CellPtr, typ: PVmType): VmSlice =
+  ## Attempts to create and returns a slice with item type `typ` covering all
+  ## locations of the sequence cell corresponding to `cp`. Returns a slice
+  ## signaling invalid if that's not possible.
+  let id = mapPointerToCell(a, cp)
+  # XXX: don't use assertions for ensuring that some expectations hold. While
+  #      it would work now, it's not future proof
+  VmSlice(cell: id, start: cast[VmMemPointer](cp), len: a.cells[id].count,
+          typ: typ)
 
-func getSubHandle*(h: LocHandle, offset: Natural, typ: PVmType): LocHandle {.inline.} =
-  assert h.h.isValid(uint(offset) + typ.sizeInBytes)
+template internalSlice(p: VmMemPointer | CellPtr, l, h: Natural): untyped =
+  var x = p # assign to a `var` first. This allows for using the resulting
+            # `openArray` for mutations
+  toOpenArray(x.rawPointer, l, h)
+
+template `[]`*[T](p: VmMemPointer | CellPtr, s: Slice[T]): untyped =
+  internalSlice(p, s.a, s.b)
+
+template slice*(p: VmMemPointer | CellPtr, len: Natural): untyped =
+  internalSlice(p, 0, int(len) - 1)
+
+template slice*(p: VmMemPointer | CellPtr, offset, len: Natural): untyped =
+  let o = int(offset) # warning: evaluation order differs from parameter order
+  internalSlice(p, o, o + int(len) - 1)
+
+func subLocation*(h: LocHandle, offset: Natural, typ: PVmType): LocHandle {.inline.} =
+  ## Creates a handle to the interior location located at the relative
+  ## `offset`, using `typ` for the handle's type.
+  assert h.isValid
   assert h.typ.kind in pseudoAtomKinds
-  makeLocHandle(h.h.getSubHandle(offset), typ)
+  LocHandle(cell: h.cell, p: applyOffset(h.p, uint(offset)), typ: typ)
 
 func getFieldHandle*(h: LocHandle, idx: FieldIndex): LocHandle {.inline.} =
   let f = h.typ.fieldAt(idx)
-  h.getSubHandle(f.offset, f.typ)
+  subLocation(h, f.offset, f.typ)
 
 # TODO: maybe rename to getHandleToField? makeHandleToField?
-func getFieldHandle*(h: LocHandle, pos: FieldPosition): LocHandle =
+func getFieldHandle*(loc: LocHandle, pos: FieldPosition): LocHandle =
   ## Creates a handle to the field with position `pos` of the object at
   ## location `h`
   let (typ, adjusted) =
-    if h.typ.relFieldStart == 0: # common case
-      (h.typ, FieldIndex(pos))
+    if loc.typ.relFieldStart == 0: # common case
+      (loc.typ, FieldIndex(pos))
     else:
-      getFieldAndOwner(h.typ, pos)
+      getFieldAndOwner(loc.typ, pos)
 
   let f = typ.fieldAt(adjusted)
-  h.getSubHandle(f.offset, f.typ)
+  subLocation(loc, f.offset, f.typ)
 
 func deref*(handle: LocHandle): ptr Atom {.inline.} =
-  # let x = handle
   assert handle.isValid()
-  cast[ptr Atom](handle.h.rawPointer)
+  cast[ptr Atom](handle.p)
+
+template byteView*(c: VmCell): untyped =
+  let x = c
+  toOpenArray(x.p, 0, x.sizeInBytes-1)
 
 template byteView*(handle: LocHandle): untyped =
-  handle.h.subView(handle.typ.sizeInBytes)
+  var x = handle
+  toOpenArray(x.rawPointer, 0, int(x.typ.sizeInBytes - 1))
+
+template byteView*(slice: VmSlice): untyped =
+  var x = slice
+  toOpenArray(x.start.rawPointer, 0, int(uint(x.len) * alignedSize(x.typ)) - 1)
+
+{.pop.}
 
 func heapNew*(heap: var VmHeap, a: var VmAllocator, typ: PVmType): HeapSlotHandle =
   ## Creates a new managed slot of type `typ` and sets the ref-count to 1
@@ -151,7 +243,7 @@ func heapNew*(heap: var VmHeap, a: var VmAllocator, typ: PVmType): HeapSlotHandl
 func heapIncRef*(heap: var VmHeap, slot: HeapSlotHandle) =
   ## Increments the ref-counter for the given slot (expected to be valid)
   assert not slot.isNil
-  assert not heap.slots[slot].handle.h.isNil
+  assert heap.slots[slot].handle.isValid
   assert heap.slots[slot].refCount > 0
   inc heap.slots[slot].refCount
 
@@ -160,7 +252,7 @@ func heapDecRef*(heap: var VmHeap, a: var VmAllocator, slot: HeapSlotHandle) =
   ## If the counter reaches zero, the slot is added to the list of slots
   ## pending clean-up
   assert not slot.isNil
-  assert not heap.slots[slot].handle.h.isNil
+  assert heap.slots[slot].handle.isValid
   assert heap.slots[slot].refCount > 0
 
   if heap.slots[slot].refCount > 1:
@@ -218,5 +310,5 @@ func tryDeref*(heap: VmHeap, slot: HeapSlotHandle, typ: PVmType): Result[LocHand
 
 func getUsedMem*(a: VmAllocator): uint =
   ## Calculates and returns the combined size-in-bytes of all current allocations
-  for r in a.regions.items:
-    result += r.len.uint
+  for r in a.cells.items:
+    result += r.sizeInBytes.uint

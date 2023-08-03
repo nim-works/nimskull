@@ -4,8 +4,8 @@ discard """
     control-flow reaches the call, not when it reaches the argument expression
   '''
   action: reject
-  cmd: "nim $target --filenames=canonical --msgFormat=sexp $options $file"
-  targets: "c js !vm"
+  matrix: "--filenames=canonical --msgFormat=sexp"
+  targets: "c js vm"
   nimoutFormat: sexp
 """
 

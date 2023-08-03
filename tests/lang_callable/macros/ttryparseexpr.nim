@@ -1,9 +1,12 @@
 discard """
+  target: "!vm"
   outputsub: '''Error: expression expected, but found '[EOF]' 45'''
 """
 
+# disabled for VM until we support `getCurrentExceptionMsg` (knownIssue)
+
 # feature request #1473
-import macros
+import std/macros
 
 macro test(text: string): untyped =
   try:

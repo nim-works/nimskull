@@ -1,4 +1,11 @@
-# bug #16706
+discard """
+  description: '''
+    Regression test for assigning to an uninitialized `seq` slot that
+    has a type header
+  '''
+"""
+
+# bug https://github.com/nim-lang/nim/issues/16706
 
 block: # reduced example
   type

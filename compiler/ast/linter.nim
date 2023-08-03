@@ -8,6 +8,20 @@
 #
 
 ## This module implements the style checker.
+## 
+## Directionally, style will become part of the language, think `go fmt` where
+## violations are errors.
+## 
+## Currently focused on names, but should cover spacing, and more.
+## 
+## ## General rules of style:
+## - Saem decides style matters
+## - lower/upper camel case good; snake case bad
+## - lower camel case for most things
+## - upper camel case for non-runtime things (types, some consts)
+## - single letter names are ok, should be lower; tolerate upper
+## - all-caps snake case is occassionally tolerated
+
 import
   std/[
     strutils
@@ -21,9 +35,12 @@ import
   compiler/front/[
     options,
     msgs
+  ],
+  compiler/utils/[
+    idioms,
   ]
 
-# TODO: linter should have it's own diag/event/telemetry types
+# TODO: linter should have its own diag/event/telemetry types
 from compiler/ast/reports_sem import SemReport
 
 const
@@ -37,54 +54,119 @@ proc `=~`(s: string, a: openArray[string]): bool =
   for x in a:
     if s.startsWith(x): return true
 
-proc beautifyName(s: string, k: TSymKind): string =
-  # minimal set of rules here for transition:
-  # GC_ is allowed
+const 
+  skContainers = {skModule, skPackage}
+  skSingletonDef = {skType, skGenericParam}
+  skLiteralValue = {skEnumField, skLabel}
+  skOverloadableDef = routineKinds
+  skLocals = {skLet, skVar, skParam, skForVar, skField}
+  skIgnore = {skUnknown, skConditional, skDynLib, skStub, skTemp}
+  # skResult needs to be accounted for here
 
-  let allUpper = allCharsInSet(s, {'A'..'Z', '0'..'9', '_'})
-  if allUpper and k in {skConst, skEnumField, skType}: return s
-  result = newStringOfCap(s.len)
-  var i = 0
+type
+  NamingStyle = enum
+    ## list of various styles of naming that can occur, note many of these are
+    ## present not because they're good, but because the legacy nim compiler
+    ## and standard library are a mess
+    upperCamelStyle       ## UpperCamelCase, tolerate underscores
+    lowerCamelStyle       ## lowerCamelCase, tolerate underscores
+    mixedCamelStyle       ## lower/UpperCamelCase, tolerate underscores
+    lowerCamelStrict      ## lowerCamelCase, do not tolerate underscores
+    atomStyle             ## single lower/upper case letter
+    shoutingStyle         ## SHOUTING_STYLE; disgusting
+
+proc beautifyName(s: string, k: TSymKind): string =
+  # xxx: these style rules are a mess, any changes to the actual rules require
+  #      Saem's approval in the PR.
+
+  let
+    allUpper = allCharsInSet(s, {'A'..'Z', '0'..'9', '_'})
+    hasUnderscore = '_' in s
+  if allUpper and k in {skType, skConst, skEnumField}: return s
+
+  # fast tracked handling
   case k
-  of skType, skGenericParam:
+  of skType:
     # Types should start with a capital unless builtins like 'int' etc.:
-    if s =~ ["int", "uint", "cint", "cuint", "clong", "cstring", "string",
-             "char", "byte", "bool", "openArray", "seq", "array", "void",
-             "pointer", "float", "csize", "csize_t", "cdouble", "cchar", "cschar",
-             "cshort", "cu", "nil", "typedesc", "auto", "any",
-             "range", "openarray", "varargs", "set", "cfloat", "ref", "ptr",
-             "untyped", "typed", "static", "sink", "lent", "type"]:
-      result.add s[i]
-    else:
-      result.add toUpperAscii(s[i])
-  of skConst, skEnumField:
-    # for 'const' we keep how it's spelt; either upper case or lower case:
-    result.add s[0]
+    # TODO: this should be defined elsewhere, `wordrecg`?
+    const builtIns = ["int", "int8", "int16", "int32", "int64",
+      "uint", "uint8", "uint16", "uint32", "uint64",
+      "float", "float32", "float64",
+      "cint", "cuint", "clong", "cstring",
+      "string", "char", "byte", "bool", "openArray", "seq", "array", "void",
+      "pointer", "csize", "csize_t", "cdouble", "cchar", "cschar",
+      "cshort", "cu", "nil", "typedesc", "auto", "any",
+      "range", "openarray", "varargs", "set", "cfloat", "ref", "ptr",
+      "untyped", "typed", "static", "sink", "lent", "type"]
+    for b in builtIns.items:
+      if s == b:
+        result = b
+  of skResult:
+    result = "result"
+  of skIgnore:
+    unreachable("got an impossible symbol kind: " & $k)
   else:
-    # as a special rule, don't transform 'L' to 'l'
-    if s.len == 1 and s[0] == 'L': result.add 'L'
-    elif '_' in s: result.add(s[i])
-    else: result.add toLowerAscii(s[0])
-  inc i
+    discard
+
+  if result != "":
+    return # we got a fast tracked result
+
+  result = newStringOfCap(s.len)
+  var style: NamingStyle
+  case k
+  of skContainers:
+    style = lowerCamelStyle
+  of skSingletonDef:
+    style =
+      if allUpper: shoutingStyle
+      else:        upperCamelStyle
+  of skConst:
+    style = mixedCamelStyle
+  of skLiteralValue:
+    style = mixedCamelStyle
+  of skOverloadableDef:
+    style =
+      if hasUnderscore: mixedCamelStyle # `GC_` in `gc_interface`
+      elif s.len == 1:  atomStyle
+      else:             lowerCamelStyle
+  of skLocals:
+    style =
+      if s.len == 1:     atomStyle        # `L` in `lexer`
+      elif k == skParam: mixedCamelStyle  # xxx: legacy?
+      else:              lowerCamelStrict
+  of skResult, skIgnore:
+    unreachable("can never get here")
+
+  var i = 0
   while i < s.len:
-    if s[i] == '_':
-      if i+1 >= s.len:
-        discard "trailing underscores should be stripped off"
-      elif i > 0 and s[i-1] in {'A'..'Z'}:
-        # don't skip '_' as it's essential for e.g. 'GC_disable'
-        result.add('_')
-        inc i
-        result.add s[i]
+    if i == 0:    # first
+      result.add:
+        case style
+        of upperCamelStyle, shoutingStyle:    toUpperAscii(s[0])
+        of lowerCamelStyle, lowerCamelStrict: toLowerAscii(s[0])
+        of mixedCamelStyle, atomStyle:        s[0]
+    elif i+1 < s.len:
+      case s[i]
+      of '_':
+        case style
+        of upperCamelStyle, shoutingStyle, lowerCamelStyle, mixedCamelStyle:
+          result.add '_'
+          inc i
+          result.add s[i]
+        of lowerCamelStrict:
+          inc i
+          result.add toUpperAscii(s[i])
+        of atomStyle:
+          unreachable("cannot have more than one identifier")
       else:
-        inc i
-        result.add toUpperAscii(s[i])
-    elif allUpper:
-      result.add toLowerAscii(s[i])
-    else:
-      result.add s[i]
+        result.add s[i]
+    else:         # last
+      case s[i]
+      of '_':   discard "ignore trailing underscores"
+      else:     result.add s[i]
     inc i
 
-proc differ*(line: string, a, b: int, x: string): string =
+proc differ(line: string, a, b: int, x: string): string =
   proc substrEq(s: string, pos, last: int, substr: string): bool =
     result = true
     for i in 0..<substr.len:
@@ -95,29 +177,6 @@ proc differ*(line: string, a, b: int, x: string): string =
     let y = line[a..b]
     if cmpIgnoreStyle(y, x) == 0:
       result = y
-
-proc nep1CheckDefImpl(conf: ConfigRef; info: TLineInfo; s: PSym; k: TSymKind) =
-  # operators stay as they are:
-  if k in {skResult, skTemp} or s.name.s[0] notin Letters: return
-  if k in {skType, skGenericParam} and sfAnon in s.flags: return
-  if s.typ != nil and s.typ.kind == tyTypeDesc: return
-  if {sfImportc, sfExportc} * s.flags != {}: return
-  if optStyleCheck notin s.options: return
-  let wanted = beautifyName(s.name.s, k)
-  if s.name.s != wanted:
-    conf.localReport(info, SemReport(
-      sym: s,
-      kind: rsemLinterReport,
-      linterFail: (wanted, s.name.s)))
-
-template styleCheckDef*(conf: ConfigRef; info: TLineInfo; s: PSym; k: TSymKind) =
-  if {optStyleHint, optStyleError} * conf.globalOptions != {} and optStyleUsages notin conf.globalOptions:
-    nep1CheckDefImpl(conf, info, s, k)
-
-template styleCheckDef*(conf: ConfigRef; info: TLineInfo; s: PSym) =
-  styleCheckDef(conf, info, s, s.kind)
-template styleCheckDef*(conf: ConfigRef; s: PSym) =
-  styleCheckDef(conf, s.info, s, s.kind)
 
 proc differs(conf: ConfigRef; info: TLineInfo; newName: string): string =
   let line = sourceLine(conf, info)
@@ -130,6 +189,31 @@ proc differs(conf: ConfigRef; info: TLineInfo; newName: string): string =
 
   let last = first+identLen(line, first)-1
   result = differ(line, first, last, newName)
+
+proc checkDefImpl(conf: ConfigRef; info: TLineInfo; s: PSym; k: TSymKind) =
+  # operators stay as they are:
+  if k in {skResult, skTemp} or s.name.s[0] notin Letters: return
+  if k in {skType, skGenericParam} and sfAnon in s.flags: return
+  if s.typ != nil and s.typ.kind == tyTypeDesc: return
+  if {sfImportc, sfExportc} * s.flags != {}: return
+  if k == skParam and {sfImportc, sfExportc} * s.owner.flags != {}: return
+  if optStyleCheck notin s.options: return # xxx: invert this option so the
+                                           #      default is to check
+  let wanted = beautifyName(s.name.s, k)
+  if s.name.s != wanted:
+    conf.localReport(info, SemReport(
+      sym: s,
+      kind: rsemLinterReport,
+      linterFail: (wanted, s.name.s)))
+
+template styleCheckDef*(conf: ConfigRef; info: TLineInfo; s: PSym; k: TSymKind) =
+  if {optStyleHint, optStyleError} * conf.globalOptions != {}:
+    checkDefImpl(conf, info, s, k)
+
+template styleCheckDef*(conf: ConfigRef; info: TLineInfo; s: PSym) =
+  styleCheckDef(conf, info, s, s.kind)
+template styleCheckDef*(conf: ConfigRef; s: PSym) =
+  styleCheckDef(conf, s.info, s, s.kind)
 
 proc styleCheckUse*(conf: ConfigRef; info: TLineInfo; s: PSym) =
   if info.fileIndex.int < 0: return

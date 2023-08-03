@@ -1,4 +1,6 @@
 discard """
+  target: "!vm"
+  joinable: false
   output: '''
 collide: unit, thing
 collide: unit, thing
@@ -9,10 +11,10 @@ collide: unit, thing |
 collide: thing, unit |
 do nothing
 '''
-  joinable: false
-
 """
 
+# knownIssue: the ``of`` operator only considers the static type when using
+#             the VM backend
 
 # tmultim2
 type

@@ -1,6 +1,12 @@
 discard """
   errormsg: "type mismatch: got <typedesc[int]>"
-  line: 6
+  line: 12
 """
-# bug #3079, #1146
-echo repr(int)
+
+# bug https://github.com/nim-lang/nim/issues/3079
+# bug https://github.com/nim-lang/nim/issues/1146
+
+proc p[T](x: T) =
+  discard
+
+p(int)

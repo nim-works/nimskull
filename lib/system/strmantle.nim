@@ -221,7 +221,7 @@ proc nimCharToStr(x: char): string {.compilerRtl.} =
   result = newString(1)
   result[0] = x
 
-when defined(gcDestructors):
+when true:
   proc GC_getStatistics*(): string =
     result = "[GC] total memory: "
     result.addInt getTotalMem()

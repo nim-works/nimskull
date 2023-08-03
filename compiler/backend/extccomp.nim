@@ -44,7 +44,6 @@ import
 #       dependencies with other modules... yay!
 #       Also, diagnostic, telemetry, and event are better terms
 from compiler/ast/report_enums import ReportKind
-from compiler/ast/reports_external import ExternalReport
 from compiler/ast/reports_cmd import CmdReport
 from compiler/ast/reports_backend import BackendReport
 
@@ -309,7 +308,7 @@ proc nameToCC*(name: string): TSystemCC =
       return i
   result = ccNone
 
-proc listCCnames(): seq[string] =
+proc listCCnames*(): seq[string] =
   for i in succ(ccNone)..high(TSystemCC):
     result.add CC[i].name
 
@@ -342,13 +341,12 @@ proc getConfigVar(conf: ConfigRef; c: TSystemCC, suffix: string): string =
   else:
     result = getConfigVar(conf, CC[c].name & fullSuffix)
 
-proc setCC*(conf: ConfigRef; ccname: string; info: TLineInfo) =
-  conf.cCompiler = nameToCC(ccname)
+proc setCC*(conf: ConfigRef; ccname: string): TSystemCC =
+  ## returns the compiler that was set, or `ccNone` in case there was an error
+  result = nameToCC(ccname)
+  conf.cCompiler = result
   if conf.cCompiler == ccNone:
-    conf.localReport(ExternalReport(
-      kind: rextUnknownCCompiler,
-      knownCompilers: listCCnames(),
-      passedCompiler: ccname))
+    return
 
   conf.compileOptions = getConfigVar(conf, conf.cCompiler, ".options.always")
   conf.linkOptions = ""
@@ -421,7 +419,7 @@ proc execWithEcho(conf: ConfigRef; cmd: string, execKind: ReportKind): int =
   conf.localReport(CmdReport(kind: execKind, cmd: cmd))
   result = execCmd(cmd)
 
-proc execExternalProgram*(conf: ConfigRef; cmd: string, kind: ReportKind) =
+proc execExternalProgram(conf: ConfigRef; cmd: string, kind: ReportKind) =
   let code = execWithEcho(conf, cmd, kind)
   if code != 0:
     conf.localReport CmdReport(kind: rcmdFailedExecution, cmd: cmd, code: code)
@@ -571,9 +569,16 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
   var options = cFileSpecificOptions(conf, cfile.nimname, cfile.cname.changeFileExt("").string)
 
   var exe = getConfigVar(conf, c, ".exe")
-  if exe.len == 0: exe = getCompilerExe(conf, c, cfile.cname)
+  if exe.len == 0:
+    # fallback to the default
+    exe = getCompilerExe(conf, c, cfile.cname)
 
-  if needsExeExt(conf): exe = addFileExt(exe, "exe")
+  if needsExeExt(conf):
+    exe = exe.addFileExt("exe")
+
+  if not noAbsolutePaths(conf):
+    exe = joinPath(conf.cCompilerPath, exe)
+
   if optGenDynLib in conf.globalOptions and
       ospNeedsPIC in platform.OS[conf.target.targetOS].props:
     options.add(' ' & CC[c].pic)
@@ -582,21 +587,15 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
     options.add ' '
     options.add cfile.customArgs
 
-  var compilePattern: string
-  # compute include paths:
-  var includeCmd = CC[c].includeCmd & quoteShell(conf.libpath)
-  if not noAbsolutePaths(conf):
-    for includeDir in items(conf.cIncludes):
-      includeCmd.add(join([CC[c].includeCmd, includeDir.quoteShell]))
+  # compute include paths
+  let includeDirs = @[conf.libpath, conf.projectPath] & conf.cIncludes
+  let includeCmd = join(includeDirs.mapIt(CC[c].includeCmd & it.quoteShell))
 
-    compilePattern = joinPath(conf.cCompilerPath, exe)
-  else:
-    compilePattern = getCompilerExe(conf, c, cfile.cname)
-
-  includeCmd.add(join([CC[c].includeCmd, quoteShell(conf.projectPath.string)]))
-
-  let cf = if noAbsolutePaths(conf): AbsoluteFile extractFilename(cfile.cname.string)
-           else: cfile.cname
+  let cf =
+    if noAbsolutePaths(conf):
+      extractFilename(cfile.cname.string).AbsoluteFile
+    else:
+      cfile.cname
 
   let objfile =
     if cfile.obj.isEmpty:
@@ -614,12 +613,6 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
   let dfile = objfile.changeFileExt(".d").quoteShell
 
   let cfsh = quoteShell(cf)
-  result = quoteShell(compilePattern % [
-    "dfile", dfile,
-    "file", cfsh, "objfile", quoteShell(objfile), "options", options,
-    "include", includeCmd, "nim", getPrefixDir(conf).string,
-    "lib", conf.libpath.string,
-    "ccenvflags", envFlags(conf)])
 
   if optProduceAsm in conf.globalOptions:
     if CC[conf.cCompiler].produceAsm.len > 0:
@@ -627,22 +620,20 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
       addOpt(result, CC[conf.cCompiler].produceAsm % ["asmfile", asmfile])
       if produceOutput:
         conf.localReport BackendReport(kind: rbackProducedAssembly, filename: asmfile)
-
     else:
       if produceOutput:
         conf.localReport BackendReport(
           kind: rbackCannotProduceAssembly,
           usedCompiler: CC[conf.cCompiler].name)
 
-  result.add(' ')
-  result.addf(CC[c].compileTmpl, [
+  result = exe.quoteShell & ' ' & CC[c].compileTmpl % [
     "dfile", dfile,
     "file", cfsh, "objfile", quoteShell(objfile),
     "options", options, "include", includeCmd,
     "nim", quoteShell(getPrefixDir(conf)),
     "lib", quoteShell(conf.libpath),
     "vccplatform", vccplatform(conf),
-    "ccenvflags", envFlags(conf)])
+    "ccenvflags", envFlags(conf)]
 
 proc footprint(conf: ConfigRef; cfile: Cfile): SecureHash =
   result = secureHash(
@@ -726,7 +717,7 @@ proc getLinkCmd(conf: ConfigRef; output: AbsoluteFile,
         "buildgui", buildgui, "options", linkOptions, "objfiles", objfiles,
         "exefile", exefile, "nim", getPrefixDir(conf).string, "lib", conf.libpath.string])
     result.add ' '
-    result.addf(linkTmpl, ["builddll", builddll,
+    strutils.addf(result, linkTmpl, ["builddll", builddll,
         "mapfile", mapfile,
         "buildgui", buildgui, "options", linkOptions,
         "objfiles", objfiles, "exefile", exefile,
@@ -838,7 +829,7 @@ proc callCCompiler*(conf: ConfigRef) =
     return # speed up that call if only compiling and no script shall be
            # generated
   #var c = cCompiler
-  var script: Rope = nil
+  var script = ""
   var cmds: TStringSeq
   var prettyCmds: TStringSeq
   let prettyCb = proc (idx: int) = writePrettyCmdsStderr(prettyCmds[idx])
@@ -903,7 +894,7 @@ proc jsonBuildInstructionsFile*(conf: ConfigRef): AbsoluteFile =
   # works out of the box with `hashMainCompilationParams`.
   result = getNimcacheDir(conf) / conf.outFile.changeFileExt("json")
 
-const cacheVersion = "D20210525T193831" # update when `BuildCache` spec changes
+const cacheVersion = "D20230310T000000" # update when `BuildCache` spec changes
 type BuildCache = object
   cacheVersion: string
   outputFile: string
@@ -912,9 +903,7 @@ type BuildCache = object
   linkcmd: string
   extraCmds: seq[string]
   configFiles: seq[string] # the hash shouldn't be needed
-  stdinInput: bool
-  projectIsCmd: bool
-  cmdInput: string
+  inputMode: ProjectInputMode
   currentDir: string
   cmdline: string
   depfiles: seq[(string, string)]
@@ -934,9 +923,7 @@ proc writeJsonBuildInstructions*(conf: ConfigRef) =
     link: linkFiles,
     linkcmd: getLinkCmd(conf, conf.absOutFile, linkFiles.quoteShellCommand),
     extraCmds: getExtraCmds(conf, conf.absOutFile),
-    stdinInput: conf.projectIsStdin,
-    projectIsCmd: conf.projectIsCmd,
-    cmdInput: conf.cmdInput,
+    inputMode: conf.inputMode,
     configFiles: conf.configFiles.mapIt(it.string),
     currentDir: getCurrentDir())
   if optRun in conf.globalOptions or isDefined(conf, "nimBetterRun"):
@@ -954,14 +941,15 @@ proc changeDetectedViaJsonBuildInstructions*(conf: ConfigRef; jsonFile: Absolute
   var bcache: BuildCache
   try: bcache.fromJson(jsonFile.string.parseFile)
   except IOError, OSError, ValueError:
+    echo getCurrentException().msg
     stderr.write "Warning: JSON processing failed for: $#\n" % jsonFile.string
     return true
   if bcache.currentDir != getCurrentDir() or # fixes bug #16271
      bcache.configFiles != conf.configFiles.mapIt(it.string) or
      bcache.cacheVersion != cacheVersion or bcache.outputFile != conf.absOutFile.string or
      bcache.cmdline != conf.commandLine or bcache.nimexe != hashNimExe() or
-     bcache.projectIsCmd != conf.projectIsCmd or conf.cmdInput != bcache.cmdInput: return true
-  if bcache.stdinInput or conf.projectIsStdin: return true
+     bcache.inputMode != conf.inputMode: return true
+  if bcache.inputMode != pimFile: return true
     # xxx optimize by returning false if stdin input was the same
   for (file, hash) in bcache.depfiles:
     if $secureHashFile(file) != hash: return true
@@ -995,7 +983,7 @@ proc runJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
 
 proc genMappingFiles(conf: ConfigRef; list: CfileList): Rope =
   for it in list:
-    result.addf("--file:r\"$1\"$N", [rope(it.cname.string)])
+    ropes.addf(result, "--file:r\"$1\"$N", [rope(it.cname.string)])
 
 proc writeMapping*(conf: ConfigRef; symbolMapping: Rope) =
   if optGenMapping notin conf.globalOptions: return
@@ -1011,7 +999,7 @@ proc writeMapping*(conf: ConfigRef; symbolMapping: Rope) =
   code.add("\n[Environment]\nlibpath=")
   code.add(strutils.escape(conf.libpath.string))
 
-  code.addf("\n[Symbols]$n$1", [symbolMapping])
+  ropes.addf(code, "\n[Symbols]$n$1", [symbolMapping])
   let filename = getNimcacheDir(conf) / RelativeFile"mapping.txt"
   if not writeRope(code, filename):
     conf.localReport BackendReport(

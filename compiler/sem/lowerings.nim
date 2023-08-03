@@ -128,20 +128,6 @@ proc lowerTupleUnpackingForAsgn*(g: ModuleGraph; n: PNode; idgen: IdGenerator; o
   for i in 0..<lhs.len:
     result.add newAsgnStmt(lhs[i], newTupleAccessRaw(tempAsNode, i))
 
-proc lowerSwap*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner: PSym): PNode =
-  # note: cannot use 'skTemp' here cause we really need the copy for the VM :-(
-  var temp = newSym(skVar, getIdent(g.cache, genPrefix), nextSymId(idgen), owner, n.info, owner.options)
-  temp.typ = n[1].typ
-  temp.flags.incl {sfFromGeneric, sfGenSym}
-
-  let tempAsNode = newSymNode(temp)
-
-  let v = newTreeI(nkVarSection, n.info):
-    newIdentDefs(tempAsNode, n[1])
-
-  result = newTreeI(nkStmtList, n.info):
-    [v, newFastAsgnStmt(n[1], n[2]), newFastAsgnStmt(n[2], tempAsNode)]
-
 proc createObj*(g: ModuleGraph; idgen: IdGenerator; owner: PSym, info: TLineInfo; final=true): PType =
   result = newType(tyObject, nextTypeId(idgen), owner)
   if final:
@@ -204,20 +190,27 @@ proc lookupInRecord(n: PNode, id: ItemId): PSym =
     if n.sym.itemId.module == id.module and n.sym.itemId.item == -abs(id.item): result = n.sym
   else: discard
 
-proc addField*(obj: PType; s: PSym; cache: IdentCache; idgen: IdGenerator) =
+proc addUnmappedField*(obj: PType, s: PSym, cache: IdentCache, idgen: IdGenerator): PSym =
+  ## Adds a new field to `obj` and returns the new field's symbol. The field's
+  ## type and whether it's a cursor are provided by `s`; it's name is based
+  ## on that of `s`, but guaranteed to be unique.
   # because of 'gensym' support, we have to mangle the name with its ID.
   # This is hacky but the clean solution is much more complex than it looks.
   var field = newSym(skField, getIdent(cache, s.name.s & $obj.n.len),
                      nextSymId(idgen), s.owner, s.info, s.options)
-  field.itemId = ItemId(module: s.itemId.module, item: -s.itemId.item)
   let t = skipIntLit(s.typ, idgen)
   field.typ = t
   assert t.kind != tyTyped
-  propagateToOwner(obj, t)
-  field.position = obj.n.len
   field.flags = s.flags * {sfCursor}
-  obj.n.add newSymNode(field)
-  fieldCheck()
+  rawAddField(obj, field)
+
+  result = field
+
+proc addField*(obj: PType; s: PSym; cache: IdentCache; idgen: IdGenerator) =
+  ## Similar to ``addUnmappedField``, but makes sure that the field can later
+  ## be looked up via the ``ItemId`` of `s`.
+  let field = addUnmappedField(obj, s, cache, idgen)
+  field.itemId = ItemId(module: s.itemId.module, item: -s.itemId.item)
 
 proc addUniqueField*(obj: PType; s: PSym; cache: IdentCache; idgen: IdGenerator): PSym {.discardable.} =
   result = lookupInRecord(obj.n, s.itemId)

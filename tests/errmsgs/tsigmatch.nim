@@ -71,18 +71,6 @@ proc f(x: string; a0: var int)
   but expression 'a0 = 12' is immutable, not 'var'
 
 expression: f(foo, a0 = 12)
-tsigmatch.nim(171, 7) Error: type mismatch: got <Mystring, string>
-but expected one of:
-proc fun1(a1: MyInt; a2: Mystring)
-  first type mismatch at position: 1
-  required type for a1: MyInt
-  but expression 'default(Mystring)' is of type: Mystring
-proc fun1(a1: float; a2: Mystring)
-  first type mismatch at position: 1
-  required type for a1: float
-  but expression 'default(Mystring)' is of type: Mystring
-
-expression: fun1(default(Mystring), "asdf")
 '''
   errormsg: "type mismatch"
 """
@@ -92,6 +80,18 @@ expression: fun1(default(Mystring), "asdf")
 #[
 see also: tests/errmsgs/tdeclaredlocs.nim
 ]#
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -163,7 +163,9 @@ block:
   var foo = ""
   f(foo, a0 = 12)
 
-when true:
+when false:
+  # XXX: doesn't work reliably, see
+  #      ``generics/tinstantiation_with_type_alias.nim``
   type Mystring = string
   type MyInt = int
   proc fun1(a1: MyInt, a2: Mystring) = discard

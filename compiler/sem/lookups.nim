@@ -28,6 +28,7 @@ import
     modulegraphs
   ],
   compiler/utils/[
+    idioms,
     debugutils
   ],
   compiler/front/[
@@ -36,9 +37,6 @@ import
   ],
   compiler/sem/[
     semdata
-  ],
-  compiler/nimfix/[
-    prettybase
   ]
 
 
@@ -56,67 +54,215 @@ proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope)
 type
   PIdentResult* = tuple
     ident: PIdent      ## found ident, otherwise `IdentCache.notFoundIdent`
-    errNode: PNode     ## if ident is notFoundIdent, node where error occurred
-                       ## use with original PNode for better error reporting
-
-proc noidentError(conf: ConfigRef; n, origin: PNode): PNode =
-  ## generate an error node when no ident was found in `n`, with `origin` being
-  ## the the expression within which `n` resides, if `origin` is the same then
-  ## a simplified error is generated.
-  assert n != nil, "`n` must be provided"
-  result =
-    if origin.isNil:
-      conf.newError(n, PAstDiag(kind: adSemExpectedIdentifier))
-    else:
-      conf.newError(origin, PAstDiag(kind: adSemExpectedIdentifierInExpr,
-                                    notIdent: n))
+    errNode: PNode     ## if ident is notFoundIdent, node with the error, use
+                       ## with original PNode for better error reporting
 
 proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
-  ## Retrieve a PIdent from a PNode, taking into account accent nodes.
+  ## Retrieve a PIdent from a PNode, taking into account accent nodes for
+  ## keyword escaping (stropping) and identifier construction. If none found,
+  ## returns a `idents.IdentCache.identNotFound` and an error node (`nkError`).
   ##
-  ## If none found, returns a `idents.IdentCache.identNotFound`
-  let ic = c.cache
+  ## Idents are derived as follows:
+  ## - nkIdent -> ident
+  ## - nkSym -> ident
+  ## - nkSymChoices -> ident of first child; assert if malformed
+  ## - nkAccQuoted:
+  ##    - if empty -> an error
+  ##    - if singleton with nkIdent|Sym|SymChoices -> handled as above
+  ##    - else -> construct identifier, see next
+  ## - anything else -> not found (see note )
+  ##
+  ## Ident Construction, creates an ident by concatenating child string values:
+  ## - nkIdent|Sym|SymChoices -> ident.s for string value
+  ## - nkAccQuoted:
+  ##   - if empty -> empty string
+  ##   - else -> recursively evaluate
+  ## - string literals -> string
+  ## - chararacter literal -> character as string
+  ## - integer literal -> int to string
+  ## - anything else -> error
+  ## To ensure we don't have a run away evaluation, identifier construction has
+  ## a hard limit on number of items.
+  # xxx: `considerQuotedIdent` raises an interesting question around what is a
+  #      syntactically valid identifier vs a core language valid identifier.
+  #      That is to say what can a human provide as source that'll pass lexing
+  #      and parsing, and is generally known as Nimskull vs what our "lisp-y"
+  #      core language allows. Further to that, what do we afford
+  #      end-programmers via templates vs macros? Presently, `nkAccQuote` we
+  #      don't _really_ enforce identifier well-formed-ness in many places and
+  #      `nkAccQuoted` identifier construction let's us get away with a lot
+  #      more than keyword escaping.
+  let
+    ic = c.cache
+    notFoundIdent = ic.getNotFoundIdent()
 
-  result =
-    case n.kind
-    of nkIdent: (ident: n.ident, errNode: nil)
-    of nkSym: (ident: n.sym.name, errNode: nil)
-    of nkAccQuoted:
-      case n.len
-      of 0: (ident: ic.getNotFoundIdent(), errNode: n)
-      of 1: considerQuotedIdent(c, n[0])
+  const
+    atomicIdentKinds = {nkIdent, nkSym}
+    renderableLiterals = nkLiterals - nkFloatLiterals
+    renderableKinds = atomicIdentKinds + renderableLiterals
+    allNodeKinds = {low(TNodeKind)..high(TNodeKind)}
+
+  proc accQuotedConstrIdentNode(c: PContext, n: PNode): PNode =
+    ## construct an identifier from the `nkAccQuoted` node `n`, returning an
+    ## `nkIdent` node, or `nkError` upon failure.
+    const limit = 20 ## limit how much evaluation we do here
+    assert n.kind == nkAccQuoted
+    var
+      stack: seq[(int, PNode)] = @[(0, n)]
+        ## tracks the depth first node traversal (child index and node) of
+        ## `nkAccQuoted` nodes, the index is mutated to track which quoted
+        ## child needs to be processed next
+      wellFormedAst = true
+        ## tracks if `n` is well formed AST even if there are no `nkError`
+      hasError = false
+        ## `n` already has errors (`nkError` nodes)
+      counter = 0
+        ## how many iterations we've done, used to avoid lengthy/endless eval
+      flattened: seq[PNode]
+        ## collection point for a flat `nkAccQuote` tree, for ident string gen
+
+    while stack.len > 0 and counter < limit:
+      let
+        stackPos = stack.len - 1
+        quote = stack[stackPos][1]
+      var idx = stack[stackPos][0]
+
+      # process until the next `nkAccQuoted` that requires descent
+      while idx < quote.len and
+            (quote[idx].kind != nkAccQuoted or quote[idx].len == 0):
+        inc counter
+        let q = quote[idx]
+        case q.kind
+        of atomicIdentKinds, nkIntLiterals, nkStrLiterals:
+          flattened.add q
+        of nkSymChoices:
+          flattened.add:
+            if q.len > 0 and q[0].kind == nkSym:
+              q[0]
+            else:
+              q   # treat `nkSymChoices` as an error signal below
+        of nkAccQuoted:
+          assert q.len == 0
+          flattened.add q
+        of nkError:
+          hasError = true
+          flattened.add q
+        of allNodeKinds - nkIdentKinds - renderableKinds - {nkError}:
+          wellFormedAst = false
+          flattened.add q
+        inc idx
+
+      if idx < quote.len:
+        assert quote[idx].kind == nkAccQuoted and quote[idx].len > 0
+        stack.add (0, quote[idx])
+        inc counter
+        inc idx
+        stack[stackPos][0] = idx # update to latest index
       else:
+        discard stack.pop() # we're done processing pop and move on
+
+    # now we have a very flattened/normalized `nkAccQuoted` ast expression,
+    # time to try constructing an identifier.
+    result =
+      if hasError:
+        c.config.wrapError(n)
+      elif counter >= limit:
+        c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifierQuoteLimit))
+      elif wellFormedAst:
         var
           id = ""
-          error = false
-        for i in 0..<n.len:
-          let x = n[i]
-          case x.kind
-          of nkIdent: id.add(x.ident.s)
-          of nkSym: id.add(x.sym.name.s)
-          of nkLiterals - nkFloatLiterals: id.add(x.renderTree)
-          else:
-            error = true
+          badNode: PNode = nil
+        for s in flattened.items:
+          case s.kind
+          of nkIdent:                     id.add(s.ident.s)
+          of nkSym:                       id.add(s.sym.name.s)
+          of nkStrLiterals:               id.add(s.strVal)
+          of nkCharLit:                   id.add(char(s.intVal))
+          of nkIntLiterals - {nkCharLit}: id.addInt(s.intVal)
+          of nkAccQuoted:                 discard "empty string"
+          of nkSymChoices:
+            badNode = s
             break
-        if error:
-          (ident: ic.getNotFoundIdent(), errNode: n)
+          of allNodeKinds - nkIdentKinds - renderableKinds:
+            unreachable("was eliminated in normalization")
+        if badNode != nil:
+          c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifierInExpr,
+                                        notIdent: badNode))
+        elif id == "":
+          c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifier))
         else:
-          (ident: getIdent(c.cache, id), errNode: nil)
-    of nkOpenSymChoice, nkClosedSymChoice:
-      if n[0].kind == nkSym:
-        (ident: n[0].sym.name, errNode: nil)
+          newIdentNode(ic.getIdent(id), n.info)
       else:
-        (ident: ic.getNotFoundIdent(), errNode: n)
-    else:
-      (ident: ic.getNotFoundIdent(), errNode: n)
+        # not well formed, but no errors
+        c.config.newError(n,
+          PAstDiag(kind: adSemExpectedIdentifier))
 
-  # this handles the case where in an `nkAccQuoted` node we "dig"
-  if result[1] != nil:
-    case result[1].kind
-    of nkError:
-      discard    # nothing to do, it's already an error
+  template extractAtomicIdent(atom: PNode): PIdent =
+    ## extracts the ident from `atom` which must be an `atomicIdentKinds`
+    case atom.kind
+    of nkIdent:                         atom.ident
+    of nkSym:                           atom.sym.name
+    of allNodeKinds - atomicIdentKinds: unreachable()
+
+  var
+    currN = n
+    ident: PIdent
+  case currN.kind
+  of nkIdent, nkSym:
+    ident = extractAtomicIdent(currN)
+  of nkOpenSymChoice, nkClosedSymChoice:
+    assert currN.len > 0 and currN[0].kind == nkSym
+    currN = currN[0]
+  of nkAccQuoted:
+    case currN.len
+    of 0: ident = notFoundIdent
+    of 1:
+      let inner = currN[0]
+      case inner.kind
+      of atomicIdentKinds:
+        currN = inner
+      of nkSymChoices:
+        assert inner.len > 0 and inner[0].kind == nkSym
+        currN = inner[0]
+      of nkAccQuoted, renderableLiterals:
+        currN = accQuotedConstrIdentNode(c, currN)
+      of nkError:
+        currN = c.config.wrapError(n)
+      else:
+        ident = notFoundIdent
     else:
-      result[1] = noidentError(c.config, result[1], n)
+      currN = accQuotedConstrIdentNode(c, currN)
+  of allNodeKinds - nkIdentKinds:
+    # the case condition is awkward, but it ensures exhaustiveness
+    ident = notFoundIdent
+
+  if ident.isNil: # we didn't find one, so check the innner part via `currN`
+    assert currN != n, "need a different node for different results"
+    ident =
+      case currN.kind
+      of nkIdent, nkSym:
+        assert (currN.kind == nkIdent and n.kind == nkAccQuoted) or
+                (currN.kind == nkSym and n.kind in nkSymChoices+{nkAccQuoted})
+        extractAtomicIdent(currN)
+      of allNodeKinds - atomicIdentKinds:
+        notFoundIdent
+
+  assert ident != nil, "ident not set to fournd or `notFoundIdent` sentinel"
+
+  result.ident = ident
+  result.errNode =
+    if currN.kind == nkError:
+      currN
+    elif ident == notFoundIdent:
+      c.config.newError(n):
+        if currN == n: PAstDiag(kind: adSemExpectedIdentifier)
+        else:          PAstDiag(kind: adSemExpectedIdentifierInExpr,
+                                notIdent: currN)
+    else:
+      nil
+  
+  assert result.ident != notFoundIdent or result.errNode != nil,
+    "we either found and ident or it must be an error"
 
 proc legacyConsiderQuotedIdent*(c: PContext; n, origin: PNode): PIdent =
   ## Legacy/Transition Code: avoid using this
@@ -177,17 +323,6 @@ iterator localScopesFrom*(c: PContext; scope: PScope): PScope =
   for s in allScopes(scope):
     if s == c.topLevelScope: break
     yield s
-
-proc skipAlias*(s: PSym; n: PNode; conf: ConfigRef): PSym =
-  if s == nil or s.kind != skAlias:
-    result = s
-  else:
-    result = s.owner
-    if conf.cmd == cmdNimfix:
-      prettybase.replaceDeprecated(conf, n.info, s, result)
-    else:
-      conf.localReport(
-        n.info, reportSymbols(rsemDeprecated, @[s, result]))
 
 proc isShadowScope*(s: PScope): bool {.inline.} =
   s.parent != nil and s.parent.depthLevel == s.depthLevel
@@ -525,36 +660,29 @@ proc fixSpelling*(c: PContext, ident: PIdent): seq[SemSpellCandidate] =
     inc count
 
 
-proc errorUseQualifier(
-    c: PContext; info: TLineInfo; s: PSym; amb: var bool): PSym =
+proc errorUseQualifier*(c: PContext, n: PNode; s: PSym): PSym =
   var
     i = 0
     ignoredModules = 0
-    rep = SemReport(kind: rsemAmbiguousIdentWithCandidates, sym: s)
+    diag = PAstDiag(kind: adSemAmbiguousIdentWithCandidates,
+                    candidateSyms: @[s])
 
   for candidate in importedItems(c, s.name):
-    rep.symbols.add candidate
-    if candidate.kind == skModule:
+    diag.candidateSyms.add candidate
+    case candidate.kind
+    of skModule:
       inc ignoredModules
     else:
       result = candidate
     inc i
 
-  if ignoredModules != i - 1:
-    c.config.localReport(info, rep)
-    result = nil
+  if ignoredModules == i - 1: # we ignored all but one, not ambiguous
+    discard "return result as is"
   else:
-    amb = false
-
-proc errorUseQualifier*(c: PContext; info: TLineInfo; s: PSym) =
-  var amb: bool
-  discard errorUseQualifier(c, info, s, amb)
-
-proc errorUseQualifier(c: PContext; info: TLineInfo; candidates: seq[PSym]) =
-  var rep = reportSym(rsemAmbiguousIdentWithCandidates, candidates[0])
-  rep.symbols = candidates
-
-  c.config.localReport(info, rep)
+    result = newSym(skError, s.name, c.idgen.nextSymId, c.getCurrOwner, n.info)
+    result.typ = c.errorType
+    result.flags.incl(sfDiscardable)
+    result.ast = c.config.newError(n, diag)
 
 proc clearRecursiveDeps(c: PContext) =
   ## clears the recursive dependency stack being tracked, this was done to make
@@ -631,7 +759,7 @@ proc lookUp*(c: PContext, n: PNode): PSym =
   var amb = false
   case n.kind
   of nkIdent:
-    result = searchInScopes(c, n.ident, amb).skipAlias(n, c.config)
+    result = searchInScopes(c, n.ident, amb)
     if result == nil:
       result = errorUndeclaredIdentifierHint(c, n, n.ident)
       localReport(c.config, result.ast)
@@ -640,7 +768,7 @@ proc lookUp*(c: PContext, n: PNode): PSym =
   of nkAccQuoted:
     var (ident, err) = considerQuotedIdent(c, n)
     if err.isNil:
-      result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
+      result = searchInScopes(c, ident, amb)
       if result == nil:
         result = errorUndeclaredIdentifierHint(c, n, ident)
         localReport(c.config, result.ast)
@@ -650,7 +778,7 @@ proc lookUp*(c: PContext, n: PNode): PSym =
     c.config.internalError("lookUp")
     return
   if amb:
-    result = errorUseQualifier(c, n.info, result, amb)
+    result = errorUseQualifier(c, n, result)
   when false:
     if result.kind == skStub: loadStub(result)
 
@@ -753,7 +881,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         
       result = errorExpectedIdentifier(c, ident, wrongNode, errExprCtx)
     elif checkModule in flags:
-      result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
+      result = searchInScopes(c, ident, amb)
       # xxx: search in scopes can return an skError -- this happens because
       # skError is a const referring to skUnknown, which gets used in resolving
       # `result`, which starts off as undeclared/unknown.
@@ -763,7 +891,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
                             err:       result.ast)
         result.ast = c.config.newError(n, diag)
     else:
-      let candidates = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
+      let candidates = searchInScopesFilterBy(c, ident, allExceptModule)
       result = symFromCandidates(c, candidates, ident, n, flags, amb)
 
     if result.isNil:
@@ -779,7 +907,6 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         candidates = fixSpelling(c, ident)
 
       result = errorUndeclaredIdentifierWithHint(c, n, ident.s, candidates)
-
     elif checkAmbiguity in flags and result != nil and amb:
       var
         i = 0
@@ -825,14 +952,14 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         (ident, errNode) = considerQuotedIdent(c, n[1])
 
       if ident != nil and errNode.isNil:
-        if m == c.module:
-          result = strTableGet(c.topLevelScope.symbols, ident).skipAlias(n, c.config)
-        else:
-          result = someSym(c.graph, m, ident).skipAlias(n, c.config)
+        result =
+          if m == c.module:
+            strTableGet(c.topLevelScope.symbols, ident)
+          else:
+            someSym(c.graph, m, ident)
 
         if result == nil and checkUndeclared in flags:
           result = errorUndeclaredIdentifierWithHint(c, n[1], ident.s, @[])
-
       elif n[1].kind == nkSym:
         result = n[1].sym
       elif checkUndeclared in flags and
@@ -860,7 +987,7 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
       var scope = c.currentScope
       o.mode = oimNoQualifier
       while true:
-        result = initIdentIter(o.it, scope.symbols, ident).skipAlias(n, c.config)
+        result = initIdentIter(o.it, scope.symbols, ident)
         if result != nil:
           o.currentScope = scope
           break
@@ -868,7 +995,7 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
           scope = scope.parent
           if scope == nil:
             for i in 0..c.imports.high:
-              result = initIdentIter(o.mit, o.marked, c.imports[i], ident, c.graph).skipAlias(n, c.config)
+              result = initIdentIter(o.mit, o.marked, c.imports[i], ident, c.graph)
               if result != nil:
                 o.currentScope = nil
                 o.importIdx = i
@@ -898,10 +1025,10 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
           if o.m == c.module:
             # a module may access its private members:
             result = initIdentIter(o.it, c.topLevelScope.symbols,
-                                  ident).skipAlias(n, c.config)
+                                  ident)
             o.mode = oimSelfModule
           else:
-            result = initModuleIter(o.mit, c.graph, o.m, ident).skipAlias(n, c.config)
+            result = initModuleIter(o.mit, c.graph, o.m, ident)
       else:
         let errDotExpr = copyNode n
         errDotExpr.add o.m.ast
@@ -915,6 +1042,7 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
       o.mode = oimSymChoice
       result = n[0].sym
 
+      o.currentScope = c.currentScope # already remember the start scope
       o.symChoiceIndex = 1
       o.marked = initIntSet()
       incl(o.marked, result.id)
@@ -927,6 +1055,15 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
 
   when false:
     if result != nil and result.kind == skStub: loadStub(result)
+
+proc initOverloadIter*(o: var TOverloadIter, c: PContext, scope: PScope,
+                       n: PNode): PSym =
+  ## Similiar to the normal ``initOverloadIter`` procedure, but allows for
+  ## specifying the scope to start in.
+  let prev = c.currentScope
+  c.currentScope = scope
+  result = initOverloadIter(o, c, n)
+  c.currentScope = prev # restore the current scope
 
 proc lastOverloadScope*(o: TOverloadIter): int =
   case o.mode
@@ -943,7 +1080,7 @@ proc nextOverloadIterImports(o: var TOverloadIter, c: PContext, n: PNode): PSym 
   var idx = o.importIdx+1
   o.importIdx = c.imports.len # assume the other imported modules lack this symbol too
   while idx < c.imports.len:
-    result = initIdentIter(o.mit, o.marked, c.imports[idx], o.it.name, c.graph).skipAlias(n, c.config)
+    result = initIdentIter(o.mit, o.marked, c.imports[idx], o.it.name, c.graph)
     if result != nil:
       # oh, we were wrong, some other module had the symbol, so remember that:
       o.importIdx = idx
@@ -953,7 +1090,7 @@ proc nextOverloadIterImports(o: var TOverloadIter, c: PContext, n: PNode): PSym 
 proc symChoiceExtension(o: var TOverloadIter; c: PContext; n: PNode): PSym =
   assert o.currentScope == nil
   while o.importIdx < c.imports.len:
-    result = initIdentIter(o.mit, o.marked, c.imports[o.importIdx], o.it.name, c.graph).skipAlias(n, c.config)
+    result = initIdentIter(o.mit, o.marked, c.imports[o.importIdx], o.it.name, c.graph)
     #while result != nil and result.id in o.marked:
     #  result = nextIdentIter(o.it, o.marked, c.imports[o.importIdx])
     if result != nil:
@@ -968,29 +1105,29 @@ proc nextOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
   of oimNoQualifier:
     if o.currentScope != nil:
       assert o.importIdx < 0
-      result = nextIdentIter(o.it, o.currentScope.symbols).skipAlias(n, c.config)
+      result = nextIdentIter(o.it, o.currentScope.symbols)
       while result == nil:
         o.currentScope = o.currentScope.parent
         if o.currentScope != nil:
-          result = initIdentIter(o.it, o.currentScope.symbols, o.it.name).skipAlias(n, c.config)
+          result = initIdentIter(o.it, o.currentScope.symbols, o.it.name)
           # BUGFIX: o.it.name <-> n.ident
         else:
           o.importIdx = 0
           if c.imports.len > 0:
-            result = initIdentIter(o.mit, o.marked, c.imports[o.importIdx], o.it.name, c.graph).skipAlias(n, c.config)
+            result = initIdentIter(o.mit, o.marked, c.imports[o.importIdx], o.it.name, c.graph)
             if result == nil:
               result = nextOverloadIterImports(o, c, n)
           break
     elif o.importIdx < c.imports.len:
-      result = nextIdentIter(o.mit, o.marked, c.imports[o.importIdx], c.graph).skipAlias(n, c.config)
+      result = nextIdentIter(o.mit, o.marked, c.imports[o.importIdx], c.graph)
       if result == nil:
         result = nextOverloadIterImports(o, c, n)
     else:
       result = nil
   of oimSelfModule:
-    result = nextIdentIter(o.it, c.topLevelScope.symbols).skipAlias(n, c.config)
+    result = nextIdentIter(o.it, c.topLevelScope.symbols)
   of oimOtherModule:
-    result = nextModuleIter(o.mit, c.graph).skipAlias(n, c.config)
+    result = nextModuleIter(o.mit, c.graph)
   of oimSymChoice:
     if o.symChoiceIndex < n.len:
       result = n[o.symChoiceIndex].sym
@@ -999,14 +1136,14 @@ proc nextOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
     elif n.kind == nkOpenSymChoice:
       # try 'local' symbols too for Koenig's lookup:
       o.mode = oimSymChoiceLocalLookup
-      o.currentScope = c.currentScope
+      # the `currentScope` was already initialized by ``initOverloadIter``
       result = firstIdentExcluding(o.it, o.currentScope.symbols,
-                                   n[0].sym.name, o.marked).skipAlias(n, c.config)
+                                   n[0].sym.name, o.marked)
       while result == nil:
         o.currentScope = o.currentScope.parent
         if o.currentScope != nil:
           result = firstIdentExcluding(o.it, o.currentScope.symbols,
-                                      n[0].sym.name, o.marked).skipAlias(n, c.config)
+                                      n[0].sym.name, o.marked)
         else:
           o.importIdx = 0
           result = symChoiceExtension(o, c, n)
@@ -1015,12 +1152,12 @@ proc nextOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
         incl o.marked, result.id
   of oimSymChoiceLocalLookup:
     if o.currentScope != nil:
-      result = nextIdentExcluding(o.it, o.currentScope.symbols, o.marked).skipAlias(n, c.config)
+      result = nextIdentExcluding(o.it, o.currentScope.symbols, o.marked)
       while result == nil:
         o.currentScope = o.currentScope.parent
         if o.currentScope != nil:
           result = firstIdentExcluding(o.it, o.currentScope.symbols,
-                                      n[0].sym.name, o.marked).skipAlias(n, c.config)
+                                      n[0].sym.name, o.marked)
         else:
           o.importIdx = 0
           result = symChoiceExtension(o, c, n)
@@ -1029,10 +1166,10 @@ proc nextOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
         incl o.marked, result.id
 
     elif o.importIdx < c.imports.len:
-      result = nextIdentIter(o.mit, o.marked, c.imports[o.importIdx], c.graph).skipAlias(n, c.config)
+      result = nextIdentIter(o.mit, o.marked, c.imports[o.importIdx], c.graph)
       #assert result.id notin o.marked
       #while result != nil and result.id in o.marked:
-      #  result = nextIdentIter(o.it, c.imports[o.importIdx]).skipAlias(n, c.config)
+      #  result = nextIdentIter(o.it, c.imports[o.importIdx])
       if result == nil:
         inc o.importIdx
         result = symChoiceExtension(o, c, n)

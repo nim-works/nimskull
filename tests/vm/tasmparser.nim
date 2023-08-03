@@ -13,6 +13,10 @@ var
 proc log(msg: string) {.compileTime.} =
     echo msg
 
+{.push compileTime.}
+# ^^ makes sure that the nested routines are also only available at compile-
+# time; the .compileTime globals wouldn't be accessible otherwise
+
 proc asmx64() {.compileTime} =
 
   #log "code = $1" % code
@@ -161,6 +165,8 @@ proc asmx64() {.compileTime} =
   cpp.add asmx64post
 
   echo($cpp)
+
+{.pop.}
 
 macro asmx64x(code_in:untyped) : typed =
   code = $code_in

@@ -265,22 +265,13 @@ proc typeof*(x: untyped; mode = typeOfIter): typedesc {.
 
 const ThisIsSystem = true
 
-proc internalNew*[T](a: var ref T) {.magic: "New", noSideEffect.}
-  ## Leaked implementation detail. Do not use.
-
-when true:
-  proc new*[T](a: var ref T, finalizer: proc (x: ref T) {.nimcall.}) {.
-    magic: "NewFinalize", noSideEffect.}
-    ## Creates a new object of type `T` and returns a safe (traced)
-    ## reference to it in `a`.
-    ##
-    ## When the garbage collector frees the object, `finalizer` is called.
-    ## The `finalizer` may not keep a reference to the
-    ## object pointed to by `x`. The `finalizer` cannot prevent the GC from
-    ## freeing the object.
-    ##
-    ## **Note**: The `finalizer` refers to the type `T`, not to the object!
-    ## This means that for each object of type `T` the finalizer will be called!
+when compileOption("gc", "refc"):
+  # TODO: obsolete magic definition; remove after the next csource update.
+  #       The magic is unrelated to refc, but since only the csource
+  #       compiler still supports and uses refc, we can use its presense as
+  #       a way it to identify the csources compiler
+  proc internalNew*[T](a: var ref T) {.magic: "New", noSideEffect.}
+    ## Leaked implementation detail. Do not use.
 
 proc wasMoved*[T](obj: var T) {.magic: "WasMoved", noSideEffect.} =
   ## Resets an object `obj` to its initial (binary zero) value to signify
@@ -545,23 +536,6 @@ const
   isNimVmTarget = defined(nimscript) or defined(vm)
   notJSnotNims = not defined(js) and not isNimVmTarget
 
-when not defined(js) and not defined(nimSeqsV2):
-  type
-    TGenericSeq {.compilerproc, pure, inheritable.} = object
-      len, reserved: int
-      when defined(gogc):
-        elemSize: int
-        elemAlign: int
-    PGenericSeq {.exportc.} = ptr TGenericSeq
-    # len and space without counting the terminating zero:
-    NimStringDesc {.compilerproc, final.} = object of TGenericSeq
-      data: UncheckedArray[char]
-    NimString = ptr NimStringDesc
-
-when notJSnotNims and not defined(nimSeqsV2):
-  template space(s: PGenericSeq): int {.dirty.} =
-    s.reserved and not (seqShallowFlag or strlitFlag)
-
 when notJSnotNims:
   include "system/hti"
 
@@ -703,11 +677,7 @@ when not defined(js):
     ##   assert len(x) == 3
     ##   x[0] = 10
     result = newSeqOfCap[T](len)
-    when defined(nimSeqsV2):
-      cast[ptr int](addr result)[] = len
-    else:
-      var s = cast[PGenericSeq](result)
-      s.len = len
+    cast[ptr int](addr result)[] = len
 
 func len*[TOpenArray: openArray|varargs](x: TOpenArray): int {.magic: "LengthOpenArray".} =
   ## Returns the length of an openArray.
@@ -1102,34 +1072,16 @@ const
     ## `"sparc"`, `"amd64"`, `"mips"`, `"mipsel"`, `"arm"`, `"arm64"`,
     ## `"mips64"`, `"mips64el"`, `"riscv32"`, `"riscv64"`, '"loongarch64"'.
 
-  seqShallowFlag = low(int)
   strlitFlag = 1 shl (sizeof(int)*8 - 2) # later versions of the codegen \
   # emit this flag
   # for string literals, it allows for some optimizations.
 
 const
   hasThreadSupport = compileOption("threads") and not isNimVmTarget
-  hasSharedHeap = defined(boehmgc) or defined(gogc) # don't share heaps; every thread has its own
 
 when hasThreadSupport and defined(tcc) and not compileOption("tlsEmulation"):
   # tcc doesn't support TLS
   {.error: "`--tlsEmulation:on` must be used when using threads with tcc backend".}
-
-when defined(boehmgc):
-  when defined(windows):
-    when sizeof(int) == 8:
-      const boehmLib = "boehmgc64.dll"
-    else:
-      const boehmLib = "boehmgc.dll"
-  elif defined(macosx):
-    const boehmLib = "libgc.dylib"
-  elif defined(openbsd):
-    const boehmLib = "libgc.so.(4|5).0"
-  elif defined(freebsd):
-    const boehmLib = "libgc-threaded.so.1"
-  else:
-    const boehmLib = "libgc.so.1"
-  {.pragma: boehmGC, noconv, dynlib: boehmLib.}
 
 type TaintedString* {.deprecated: "Deprecated since 1.5".} = string
 
@@ -1205,12 +1157,10 @@ template sysAssert(cond: bool, msg: string) =
       cstderr.rawWrite "\n"
       quit 1
 
-const hasAlloc = (hostOS != "standalone" or not defined(nogc)) and not isNimVmTarget
+const hasAlloc = not isNimVmTarget
 
 when notJSnotNims and hostOS != "standalone" and hostOS != "any":
   include "system/cgprocs"
-when notJSnotNims and hasAlloc and not defined(nimSeqsV2):
-  proc addChar(s: NimString, c: char): NimString {.compilerproc, benign.}
 
 when isNimVmTarget or not defined(nimSeqsV2):
   proc add*[T](x: var seq[T], y: sink T) {.magic: "AppendSeqElem", noSideEffect.}
@@ -1734,7 +1684,7 @@ when not defined(js) and hasThreadSupport and hostOS != "standalone":
   include "system/syslocks"
   include "system/threadlocalstorage"
 
-when not defined(js) and defined(nimV2):
+when not defined(js) and not isNimVmTarget:
   type
     DestructorProc = proc (p: pointer) {.nimcall, benign, raises: [].}
     TNimTypeV2 {.compilerproc.} = object
@@ -1982,11 +1932,6 @@ template newException*(exceptn: typedesc, message: string;
   ## and sets its `msg` field to `message`. Returns the new exception object.
   (ref exceptn)(name: $exceptn, msg: message, parent: parentException)
 
-when hostOS == "standalone" and defined(nogc):
-  proc nimToCStringConv(s: NimString): cstring {.compilerproc, inline.} =
-    if s == nil or s.len == 0: result = cstring""
-    else: result = cstring(addr s.data)
-
 proc getTypeInfo*[T](x: T): pointer {.magic: "GetTypeInfo", benign.}
   ## Get type information for `x`.
   ##
@@ -2064,20 +2009,55 @@ template unlikely*(val: bool): bool =
       unlikelyProc(val)
 
 const
+  ## TODO: in the next csources release:
+  ## - create a tuple for the compiler and stdlib version
+  ## - create a string for the both of these versions
+  ## - compiler version must be a magic, hardcoded by the compiler
+  ## - standard library version must be hardcoded in the stdlib source
+  ## - implement comparison operators and such niceities for versions
+  ## - toss NimVersion and all that
+  CompilerVersionMajor* {.intdefine.}: int = 1
+    ## major version number for the current compiler.
+    ## TODO: change to `0` in next csources
+    ## 
+    ## .. code-block:: Nim
+    ##   when CompilerVersionMajor > 0: echo "stability cargo culting"
+  CompilerVersionMinor* {.intdefine.}: int = 6
+    ## minor version number for the current compiler.
+    ## TODO: change to `1` in next csources
+  CompilerVersionPatch* {.intdefine.}: int = 0
+    ## patch version number for the current compiler.
+    ## TODO: change to `0` in next csources
+
+  StdlibMajor*: int = 1
+    ## standard library major version
+    ## TODO: change to `0` in next csources
+    ## 
+    ## Example:
+    ## 
+    ## .. code-block:: Nim
+    ##   when (StdlibMajor, StdlibMinor, StdlibPatch) >= (1, 3, 1): discard
+  StdlibMinor*: int = 6
+    ## standard library minor version
+    ## TODO: change to `1` in next csources
+  StdlibPatch*: int = 0
+    ## standard library patch version
+    ## TODO: change to `0` in next csources
+
+  # xxx: there is a difference between compiler version and standard library
+  #      version, these should be the _compiler_ version.
   NimMajor* {.intdefine.}: int = 1
     ## is the major number of Nim's version. Example:
-    ##
+    ## TODO: remove in next csources
     ## .. code-block:: Nim
     ##   when (NimMajor, NimMinor, NimPatch) >= (1, 3, 1): discard
     # see also std/private/since
-
   NimMinor* {.intdefine.}: int = 6
     ## is the minor number of Nim's version.
-    ## Odd for devel, even for releases.
-
+    ## TODO: remove in next csources
   NimPatch* {.intdefine.}: int = 0
     ## is the patch number of Nim's version.
-    ## Odd for devel, even for releases.
+    ## TODO: remove in next csources
 
 import system/dollars
 export dollars
@@ -2125,8 +2105,10 @@ proc delete*[T](x: var seq[T], i: Natural) {.noSideEffect, auditDelete.} =
 
 const
   NimVersion*: string = $NimMajor & "." & $NimMinor & "." & $NimPatch
-    ## is the version of Nim as a string.
-
+    ## the compiler version as a string.
+    # xxx: this is being conflated as the standard library version, it is not
+  StdlibVersion*: string = $StdlibMajor & "." & $StdlibMinor & "." & $StdlibPatch
+    ## the standard library version
 
 type
   FileSeekPos* = enum ## Position relative to which seek should happen.
@@ -2135,37 +2117,6 @@ type
     fspSet            ## Seek to absolute value
     fspCur            ## Seek relative to current position
     fspEnd            ## Seek relative to end
-
-
-when not defined(js):
-  {.push stackTrace: off, profiler: off.}
-
-  when hasAlloc:
-    when not defined(gcRegions) and not usesDestructors:
-      proc initGC() {.gcsafe, raises: [].}
-
-    proc initStackBottom() {.inline, compilerproc.} =
-      # WARNING: This is very fragile! An array size of 8 does not work on my
-      # Linux 64bit system. -- That's because the stack direction is the other
-      # way around.
-      when declared(nimGC_setStackBottom):
-        var locals {.volatile, noinit.}: pointer
-        locals = addr(locals)
-        nimGC_setStackBottom(locals)
-
-    proc initStackBottomWith(locals: pointer) {.inline, compilerproc.} =
-      # We need to keep initStackBottom around for now to avoid
-      # bootstrapping problems.
-      when declared(nimGC_setStackBottom):
-        nimGC_setStackBottom(locals)
-
-    when not usesDestructors:
-      {.push profiler: off.}
-      var
-        strDesc = TNimType(size: sizeof(string), kind: tyString, flags: {ntfAcyclic})
-      {.pop.}
-
-  {.pop.}
 
 
 when not defined(js):
@@ -2238,23 +2189,8 @@ when not defined(js) and declared(alloc0) and declared(dealloc):
       inc(i)
     dealloc(a)
 
-when notJSnotNims:
-  type
-    PSafePoint = ptr TSafePoint
-    TSafePoint {.compilerproc, final.} = object
-      prev: PSafePoint # points to next safe point ON THE STACK
-      status: int
-      context: C_JmpBuf
-    SafePoint = TSafePoint
-
-when not defined(js):
-  when declared(initAllocator):
-    initAllocator()
-  when hasThreadSupport:
-    when hostOS != "standalone": include "system/threads"
-  elif not defined(nogc) and not isNimVmTarget:
-    when not defined(useNimRtl) and not defined(createNimRtl): initStackBottom()
-    when declared(initGC): initGC()
+when not defined(js) and hasThreadSupport and hostOS != "standalone":
+  include "system/threads"
 
 when notJSnotNims:
   proc setControlCHook*(hook: proc () {.noconv.})
@@ -2306,6 +2242,9 @@ when not defined(js):
   # Error: system module needs: nimGCvisit
   {.pop.} # stackTrace: off, profiler: off
 
+proc chckNilDisp(p: pointer) {.compilerproc.} =
+  if p.isNil:
+    sysFatal(NilAccessDefect, "cannot dispatch; dispatcher is nil")
 
 
 when notJSnotNims:
@@ -2314,11 +2253,6 @@ when notJSnotNims:
 
   import system/countbits_impl
   include "system/sets"
-
-  when defined(gogc):
-    const GenericSeqSize = (3 * sizeof(int))
-  else:
-    const GenericSeqSize = (2 * sizeof(int))
 
   proc getDiscriminant(aa: pointer, n: ptr TNimNode): uint =
     sysAssert(n.kind == nkCase, "getDiscriminant: node != nkCase")
@@ -2347,16 +2281,9 @@ when notJSnotNims and hasAlloc:
   {.push profiler: off.}
   include "system/mmdisp"
   {.pop.}
-  {.push stackTrace: off, profiler: off.}
-  when not defined(nimSeqsV2):
-    include "system/sysstr"
-  {.pop.}
 
   include "system/strmantle"
   include "system/assign"
-
-  when not defined(nimV2):
-    include "system/repr"
 
 when notJSnotNims and hasThreadSupport and hostOS != "standalone":
   include "system/channels_builtin"
@@ -2384,6 +2311,11 @@ when notJSnotNims and hostOS != "standalone":
     currException = exc
 elif isNimVmTarget:
   proc getCurrentException*(): ref Exception {.compilerRtl.} = discard
+
+  proc closureIterSetupExc(e: ref Exception) {.compilerproc, inline.} =
+    ## Used by the closure transformation pass for preparing for exception
+    ## handling. Implemented as a callback.
+    discard
 
 when notJSnotNims:
   {.push stackTrace: off, profiler: off.}
@@ -2415,6 +2347,7 @@ when notJSnotNims:
     else:
       {.error: "Only closure function and iterator are allowed!".}
 
+when true:
   proc finished*[T: proc](x: T): bool {.noSideEffect, magic: "Finished".} =
     ## Tests if the given closure iterator `x` has finished iterating.
 
@@ -2729,29 +2662,6 @@ when compileOption("rangechecks"):
 else:
   template rangeCheck*(cond) = discard
 
-proc shallow*[T](s: var seq[T]) {.noSideEffect, inline.} =
-  ## Marks a sequence `s` as `shallow`:idx:. Subsequent assignments will not
-  ## perform deep copies of `s`.
-  ##
-  ## This is only useful for optimization purposes.
-  if s.len == 0: return
-  when not defined(js) and not isNimVmTarget and not defined(nimSeqsV2):
-    var s = cast[PGenericSeq](s)
-    s.reserved = s.reserved or seqShallowFlag
-
-proc shallow*(s: var string) {.noSideEffect, inline.} =
-  ## Marks a string `s` as `shallow`:idx:. Subsequent assignments will not
-  ## perform deep copies of `s`.
-  ##
-  ## This is only useful for optimization purposes.
-  when not defined(js) and not isNimVmTarget and not defined(nimSeqsV2):
-    var s = cast[PGenericSeq](s)
-    if s == nil:
-      s = cast[PGenericSeq](newString(0))
-    # string literals cannot become 'shallow':
-    if (s.reserved and strlitFlag) == 0:
-      s.reserved = s.reserved or seqShallowFlag
-
 type
   NimNodeObj = object
 
@@ -3025,7 +2935,7 @@ proc substr*(s: string, first, last: int): string =
 proc substr*(s: string, first = 0): string =
   result = substr(s, first, high(s))
 
-when defined(nimconfig):
+when defined(nimscript):
   include "system/nimscript"
 
 when not defined(js):
@@ -3059,7 +2969,7 @@ export widestrs
 import system/io
 export io
 
-when notJSnotNims and not defined(nimSeqsV2):
+when not defined(nimSeqsV2):
   proc prepareMutation*(s: var string) {.inline.} =
     ## String literals (e.g. "abc", etc) in the ARC/ORC mode are "copy on write",
     ## therefore you should call `prepareMutation` before modifying the strings

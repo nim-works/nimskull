@@ -184,6 +184,35 @@ since (1, 3, 5):
 
     typeof(block: (for ai in a: ai))
 
+proc rangeBase*(t: typedesc): typedesc {.magic: "TypeTrait".} =
+  ## Returns the base type of the ``range`` type `t`. Only a single level is
+  ## skipped, that is, if the range type's base type is also a range type,
+  ## the base type is not skipped.
+  runnableExamples:
+    type
+      Range = range[1..3]
+      Nested = range[Range(1)..Range(3)]
+
+    doAssert rangeBase(Range) is int
+    doAssert rangeBase(Range) isnot range
+    doAssert rangeBase(Nested) is Range
+
+proc isCyclical*(t: typedesc): bool {.magic: "TypeTrait".} =
+  ## Returns whether the type `t` is *potentially* able to be part of a
+  ## reference cycle when used as the type of a managed heap location.
+  runnableExamples:
+    type
+      NoCycle = object
+        x: seq[NoCycle]
+      NoCycle2 {.acyclic.} = ref object
+        x: NoCycle2
+      Cycle = ref object
+        x: Cycle
+
+    doAssert not isCyclical(NoCycle)
+    doAssert not isCyclical(NoCycle2)
+    doAssert isCyclical(Cycle)
+
 import std/macros
 
 macro enumLen*(T: typedesc[enum]): int =

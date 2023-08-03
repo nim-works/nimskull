@@ -1,5 +1,5 @@
 discard """
-  matrix: "--gc:arc; --gc:refc"
+  matrix: "--gc:arc"
   description: '''
   . From https://github.com/nim-lang/Nim/issues/18620
     Stacktrace when using async with arc/orc is different than

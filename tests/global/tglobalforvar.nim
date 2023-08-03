@@ -1,4 +1,5 @@
 discard """
+  targets: "c vm"
 output: 100
 """
 

@@ -76,7 +76,8 @@ type
          rsemExpectedOrdinal,
          rsemFieldOkButAssignedValueInvalid,
          rsemUseOrDiscardExpr,
-         rsemOnlyDeclaredIdentifierFoundIsError:
+         rsemOnlyDeclaredIdentifierFoundIsError,
+         rsemCantConvertLiteralToRange:
         wrongNode*: PNode
 
       of rsemWarnGcUnsafeListing, rsemErrGcUnsafeListing:
@@ -85,6 +86,13 @@ type
           unsafeVia: PSym,
           unsafeRelation: SemGcUnsafetyKind,
         ]
+
+      of rsemDeprecatedCompilerOptArg:
+        compilerOptArg*: string
+
+      of rsemCompilerOptionArgInvalid:
+        badCompilerOptArg*: string
+        allowedOptArgs*: seq[string]
 
       of rsemHasSideEffects:
         sideEffectTrace*: seq[tuple[isUnsafe: PSym,
@@ -143,7 +151,7 @@ type
       of rsemReportTwoSym + rsemReportOneSym + rsemReportListSym:
         symbols*: seq[PSym]
 
-      of rsemExpandMacro, rsemPattern, rsemExpandArc:
+      of rsemExpandMacro, rsemPattern:
         expandedAst*: PNode
 
       of rsemLockLevelMismatch, rsemMethodLockMismatch:
@@ -199,79 +207,6 @@ type
 
       else:
         discard
-  
-  # xxx: compiler execution tracing is a general thing, not semantic analysis
-  #      specific. The types below to be renamed with prefix `Trace` are
-  #      general and should move accordingly. This will require further
-  #      refactoring of all the report types prefixed with `Debug`... sigh.
-
-  # TODO: rename to `TraceStepDirection` or something, it's not sem specific
-  DebugSemStepDirection* = enum semstepEnter, semstepLeave
-  
-  # TODO: rename to `TraceStepKind` or something, it's not sem specific
-  DebugSemStepKind* = enum
-    stepNodeToNode
-    stepNodeToSym
-    stepIdentToSym
-    stepSymNodeToNode
-    stepNodeFlagsToNode
-    stepNodeTypeToNode
-    stepTypeTypeToType
-    stepResolveOverload
-    stepNodeSigMatch
-    stepWrongNode
-    stepError
-    stepTrack
-
-  DebugCallableCandidate* = object
-    ## stripped down version of `sigmatch.TCandidate`
-    state*: string
-    callee*: PType
-    calleeSym*: PSym
-    calleeScope*: int
-    call*: PNode
-    error*: SemCallMismatch
-
-  DebugSemStep* = object
-    direction*: DebugSemStepDirection
-    level*: int
-    name*: string
-    node*: PNode ## Depending on the step direction this field stores
-                 ## either input or output node
-    steppedFrom*: ReportLineInfo
-    sym*: PSym
-    case kind*: DebugSemStepKind
-      of stepIdentToSym:
-        ident*: PIdent
-
-      of stepNodeTypeToNode, stepTypeTypeToType:
-        typ*: PType
-        typ1*: PType
-
-      of stepNodeFlagsToNode:
-        flags*: TExprFlags
-      
-      of stepNodeSigMatch, stepResolveOverload:
-        filters*: TSymKinds
-        candidate*: DebugCallableCandidate
-        errors*: seq[SemCallMismatch]
-
-      else:
-        discard
-  
-  TraceSemReport* = object of DebugReportBase
-    case kind*: ReportKind:
-      of rdbgTraceStep:
-        semstep*: DebugSemStep
-
-      of rdbgTraceLine, rdbgTraceStart:
-        ctraceData*: tuple[level: int, entries: seq[StackTraceEntry]]
-
-      of rdbgStartingConfRead, rdbgFinishedConfRead:
-        filename*: string
-
-      else:
-        discard
 
 
 func severity*(report: SemReport): ReportSeverity =
@@ -303,7 +238,6 @@ func reportAst*(
     kind: ReportKind,
     ast: PNode, str: string = "", typ: PType = nil, sym: PSym = nil
   ): SemReport =
-
   SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
 
 func reportTyp*(
@@ -311,21 +245,14 @@ func reportTyp*(
     typ: PType, ast: PNode = nil, sym: PSym = nil, str: string = ""
   ): SemReport =
   SemReport(kind: kind, typ: typ, ast: ast, sym: sym, str: str)
-
 func reportStr*(
     kind: ReportKind,
     str: string, ast: PNode = nil, typ: PType = nil, sym: PSym = nil
   ): SemReport =
-
   SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
 
 func reportSym*(
     kind: ReportKind,
     sym: PSym, ast: PNode = nil, str: string = "", typ: PType = nil,
   ): SemReport =
-
   SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
-
-
-func severity*(report: TraceSemReport): ReportSeverity {.inline.} =
-  rsevTrace

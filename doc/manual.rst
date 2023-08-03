@@ -927,7 +927,7 @@ problem.)
   var fibPrev {.compileTime.}: int
   var fibPrevPrev {.compileTime.}: int
 
-  proc nextFib(): int =
+  proc nextFib(): int {.compileTime.} =
     result = if fibN < 2:
       fibN
     else:
@@ -957,9 +957,7 @@ Nim code that will be executed at compile time cannot use the following
 language features:
 
 * methods
-* closure iterators
 * the `cast` operator
-* reference (pointer) types
 * FFI
 
 The use of wrappers that use FFI and/or `cast` is also disallowed. Note that
@@ -3432,19 +3430,16 @@ Type conversion can also be used to disambiguate overloaded routines:
   let procVar = (proc(x: string))(p)
   procVar("a")
 
-Since operations on unsigned numbers wrap around and are unchecked so are
-type conversions to unsigned integers and between unsigned integers. The
+Operations on unsigned numbers wrap around and are unchecked so are type
+conversions to unsigned integers and between unsigned integers. The
 rationale for this is mostly better interoperability with the C Programming
 language when algorithms are ported from C to Nim.
 
 Exception: Values that are converted to an unsigned type at compile time
 are checked so that code like `byte(-1)` does not compile.
 
-**Note**: Historically the operations
-were unchecked and the conversions were sometimes checked but starting with
-the revision 1.0.4 of this document and the language implementation the
-conversions too are now *always unchecked*.
-
+**Note**: Range checks are likely to be reintroduced
+Tracked in this issue: https://github.com/nim-works/nimskull/issues/574.
 
 Type casts
 ----------
@@ -4293,12 +4288,10 @@ In contrast to that, a `closure iterator`:idx: can be passed around more freely:
 
 Closure iterators and inline iterators have some restrictions:
 
-1. For now, a closure iterator cannot be executed at compile time.
-2. `return` is allowed in a closure iterator but not in an inline iterator
+1. `return` is allowed in a closure iterator but not in an inline iterator
    (but rarely useful) and ends the iteration.
-3. Neither inline nor closure iterators can be (directly)* recursive.
-4. Neither inline nor closure iterators have the special `result` variable.
-5. Closure iterators are not supported by the JS backend.
+2. Neither inline nor closure iterators can be (directly)* recursive.
+3. Neither inline nor closure iterators have the special `result` variable.
 
 (*) Closure iterators can be co-recursive with a factory proc which results
 in similar syntax to a recursive iterator. More details follow.
@@ -4397,6 +4390,38 @@ parameters of an outer factory proc:
   for f in foo():
     echo f
 
+Parameter Passing For Iterators In `for` Loops
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. note::
+  The following only applies to `inline` iterators at the moment.
+
+For iterators invoked in the context of `for`-loops, the arguments are
+evaluated before passing control to the iterator's body. The argument
+evaluation order is the same as everywhere else, that is, left to right.
+
+How exactly this is achieved for `inline` iterators is up to the compiler, but
+with the following restrictions / guarantees:
+- no full copy must be introduced when passing to an immutable parameter (a
+  full copy might still be needed in order to ensure the left-to-right
+  evaluation order)
+- except for `seq`s, `string`s, and `ref`s, if the argument is an lvalue
+  expression, the parameter must not be an *owning* location, but only store
+  the handle
+- if the argument is an unamed location (e.g. the result of a call), an
+  *owning* location *may* be used
+- the lvalues passed to `var` parameters are passed and stored by handle
+
+In the `for`-loop body, modifying a location of which the handle was passed to
+a `var` parameter of the iterator is allowed. Modifications to the location
+from the iterator's body are visible to the `for`-loop's body, and vice versa.
+
+`sink` parameters work the same as they do with the other routines.
+
+.. warning::
+  There's currently no detection for location passed to immutable iterator
+  parameters being modified inside the `for`-loop's body. Doing so results in
+  undefined behaviour.
 
 Converters
 ==========
@@ -5367,9 +5392,9 @@ symbols by a `bind` statement inside `genericB`.
 Templates
 =========
 
-A template is a simple form of a macro: It is a simple substitution
-mechanism that operates on Nim's abstract syntax trees. It is processed in
-the semantic pass of the compiler.
+A template is a form of metaprogramming: a template call evaluates to a
+|Nimskull| abstract syntax tree that is substituted in place of the call. The
+evaluation and substitution is done during semantic pass of the compiler.
 
 The syntax to *invoke* a template is the same as calling a procedure.
 
@@ -5389,10 +5414,32 @@ templates:
 | `a in b` is transformed into `contains(b, a)`.
 | `notin` and `isnot` have the obvious meanings.
 
-The "types" of templates can be the symbols `untyped`,
-`typed` or `typedesc`. These are "meta types", they can only be used in certain
-contexts. Regular types can be used too; this implies that `typed` expressions
-are expected.
+The "types" of templates can be the symbols `untyped`, `typed` or `typedesc`.
+These are "meta types", they can only be used in certain contexts. Regular
+types can be used too; this implies that `typed` expressions are expected.
+
+**Future directions**: the output type of a template is the output type of the
+template body, which itself can be thought of as an out parameter. Templates
+will be classified into two major categories AST output (`untyped` and `typed`)
+and expression based (other types). Along with substitution positions (see
+below) template evaluation will be revised as follows:
+- `untyped` template: allow `typed` and `untyped` params in defining or
+  using positions; and all other params only in using positions
+- `typed` template: allow `typed` and `untyped` params in defining or using
+  positions; and all other params only in using positions
+- non-ast template: only allow substitution in the using positions
+The above direction describes the nuance that will be incorporated into a
+broader redesign of how templates work in |Nimskull|.
+
+Defining vs Using Positions
+---------------------------
+
+Substitution positions are places in the template body where template parameter
+substitution can take place. There are two substitution positions definition
+and usage, also referred to as definitional/defining/define or using/use,
+respectively. Definitional positions is any syntactic position intended to
+define new names (e.g.: routine, variable, parameter, type, field names), while
+usage positions are all other positions where an identifier is to be looked up.
 
 
 Typed vs untyped parameters
@@ -5420,6 +5467,10 @@ performed before the expression is passed to the template. This means that
     var x: int
 
   declareInt(x) # invalid, because x has not been declared and so it has no type
+
+`typed` and `untyped` parameters may appear in defining or using symbol
+positions, while all other parameters are only substituted for using symbol
+positions.
 
 A template where every parameter is `untyped` is called an `immediate`:idx:
 template. For historical reasons, templates can be explicitly annotated with
@@ -5684,10 +5735,6 @@ However, this means that the method call syntax is not available for
     echo x.T # invalid: instead use:  'echo T(x)'.
 
   tmp(12)
-
-
-**Note**: The Nim compiler prior to version 1 was more lenient about this
-requirement. Use the `--useVersion:0.19`:option: switch for a transition period.
 
 
 
@@ -6376,6 +6423,7 @@ This pragma can also take in an optional warning string to relay to developers.
 
 compileTime pragma
 ------------------
+
 The `compileTime` pragma is used to mark a proc or variable to be used only
 during compile-time execution. No code will be generated for it. Compile-time
 procs are useful as helpers for macros. Since version 0.12.0 of the language, a
@@ -6392,31 +6440,9 @@ Is the same as:
   proc astHelper(n: NimNode): NimNode {.compileTime.} =
     result = n
 
-`compileTime` variables are available at runtime too. This simplifies certain
-idioms where variables are filled at compile-time (for example, lookup tables)
-but accessed at runtime:
-
-.. code-block:: nim
-    :test: "nim c -r $1"
-
-  import std/macros
-
-  var nameToProc {.compileTime.}: seq[(string, proc (): string {.nimcall.})]
-
-  macro registerProc(p: untyped): untyped =
-    result = newTree(nnkStmtList, p)
-
-    let procName = p[0]
-    let procNameAsStr = $p[0]
-    result.add quote do:
-      nameToProc.add((`procNameAsStr`, `procName`))
-
-  proc foo: string {.registerProc.} = "foo"
-  proc bar: string {.registerProc.} = "bar"
-  proc baz: string {.registerProc.} = "baz"
-
-  doAssert nameToProc[2][1]() == "baz"
-
+For locals defined inside compile-time-only routines, the `compileTime`
+pragma is ignored -- for all other locals, using the pragma is a semantic
+error.
 
 noreturn pragma
 ---------------
@@ -6653,8 +6679,6 @@ boundChecks      on|off           Turns the code generation for array bound
                                   checks on or off.
 overflowChecks   on|off           Turns the code generation for over- or
                                   underflow checks on or off.
-nilChecks        on|off           Turns the code generation for nil pointer
-                                  checks on or off.
 assertions       on|off           Turns the code generation for assertions
                                   on or off.
 warnings         on|off           Turns the warning messages of the compiler
@@ -6663,7 +6687,7 @@ hints            on|off           Turns the hint messages of the compiler
                                   on or off.
 optimization     none|speed|size  Optimize the code for speed or size, or
                                   disable optimization.
-patterns         on|off           Turns the term rewriting templates/macros
+trmacros         on|off           Turns the term rewriting templates/macros
                                   on or off.
 callconv         cdecl|...        Specifies the default calling convention for
                                   all procedures (and procedure types) that
@@ -6734,8 +6758,7 @@ startup.
 When used within a generic proc, a separate unique global variable will be
 created for each instantiation of the proc. The order of initialization of
 the created global variables within a module is not defined, but all of them
-will be initialized after any top-level variables in their originating module
-and before any variable in a module that imports it.
+will be initialized before any variable in a module that imports it.
 
 Disabling certain messages
 --------------------------
@@ -7072,37 +7095,26 @@ calling syntax: ``obj.method(arg)``.
 CodegenDecl pragma
 ------------------
 
-The `codegenDecl` pragma can be used to directly influence Nim's code
-generator. It receives a format string that determines how the variable
-or proc is declared in the generated code.
+.. warning::
+  This pragma is deprecated and going to be removed.
 
-For variables, $1 in the format string represents the type of the variable
-and $2 is the name of the variable.
-
-The following Nim code:
-
-.. code-block:: nim
-  var
-    a {.codegenDecl: "$# progmem $#".}: int
-
-will generate this C code:
-
-.. code-block:: c
-  int progmem a
-
-For procedures, $1 is the return type of the procedure, $2 is the name of
-the procedure, and $3 is the parameter list.
+The `codegenDecl` pragma can be used to directly influence |NimSkull|'s JavaScript
+code generator. It receives a format string that determines how the proc
+is declared in the generated code: $1 is the return type of the procedure,
+$2 its name, and $3 is the parameter list.
 
 The following nim code:
 
 .. code-block:: nim
-  proc myinterrupt() {.codegenDecl: "__interrupt $# $#$#".} =
-    echo "realistic interrupt handler"
+  proc p() {.codegenDecl: "async function $2($3)".} =
+    echo "procedure body goes here"
 
 will generate this code:
 
-.. code-block:: c
-  __interrupt void myinterrupt()
+.. code-block:: js
+  async function p() {
+    // ...
+  }
 
 
 compile-time define pragmas

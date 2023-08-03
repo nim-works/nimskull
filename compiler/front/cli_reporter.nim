@@ -46,7 +46,6 @@ import
     reports_external,
   ],
   compiler/utils/[
-    platform,
     nversion,
     astrepr,
     idioms
@@ -63,7 +62,7 @@ import
 
 import compiler/front/options as compiler_options
 from compiler/ast/reports_base_sem import ReportContext, ReportContextKind
-
+from compiler/front/optionsprocessor import allowedCompileOptionArgs
 
 func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
 
@@ -94,7 +93,7 @@ func wrap*(
     color: ForegroundColor,
     style: set[Style] = {}
   ): string =
-  ## Optionally wrap text in ansi color formatting, of `conf` has coloring
+  ## Optionally wrap text in ansi color formatting, if `conf` has coloring
   ## enabled
   if conf.useColor:
     wrap(str, color, style)
@@ -420,7 +419,6 @@ const defaultRenderFlags: set[TRenderFlag] = {
     renderWithoutErrorPrefix
   }
 
-
 proc reportBody*(conf: ConfigRef, r: SemReport): string =
   proc render(n: PNode, rf = defaultRenderFlags): string = renderTree(n, rf)
   proc render(t: PType): string = typeToString(t)
@@ -487,7 +485,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           result.add(
             "; another read is done here: ",
             conf.toStr(r.missingTypeBoundElaboration.anotherRead.get()))
-
         elif r.missingTypeBoundElaboration.tryMakeSinkParam:
           result.add("; try to make", r.ast.render, "a 'sink' parameter")
 
@@ -522,17 +519,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
          sfAnon notin r.typ.sym.flags and
          r.typ.kind == tyProc:
         result.add(" = ", typeToString(r.typ, preferDesc))
-
-
-    of rsemExpandArc:
-      result.add(
-        "--expandArc: ",
-        r.symstr,
-        "\n",
-        r.expandedAst.renderTree({renderIr, renderNoComments}),
-        "\n",
-        "-- end of expandArc ------------------------"
-      )
 
     of rsemCannotBorrow:
       result.add(
@@ -614,8 +600,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           else:
             result.add(s.name.s, " is deprecated")
 
-
-
     of rsemThisPragmaRequires01Args:
       # FIXME remove this report kind, reuse "wrong number of arguments"
       result = "'this' pragma is allowed to have zero or one arguments"
@@ -641,10 +625,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
         if kind in {skVar, skLet, skConst} and
            taIsTemplateOrMacro in r.allowedType.allowedFlags:
-
           result &= ". Did you mean to call the $1 with '()'?" % [
             toHumanStr(typ.owner.kind)]
-
       else:
         result = "invalid type: '$1' in this context: '$2' for $3" % [
           typeToString(t), typeToString(typ), toHumanStr(kind)]
@@ -718,8 +700,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           args.add(", ")
         args.add(typeToString(r.ast[i].typ))
       args.add(")")
-
-
       result = "ambiguous call; both $1 and $2 match for: $3" % [
         getProcHeader(conf, r.symbols[0]),
         getProcHeader(conf, r.symbols[1]),
@@ -777,10 +757,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemTypeExpected:
       if r.sym.isNil:
         result = "type expected, but expression has no type"
-
       elif r.sym.typ.isNil:
         result = "type expected, but symbol '$1' has no type." % r.symstr
-
       else:
         result = "type expected, but got symbol '$1' of kind '$2'" %
           [r.sym.name.s, r.sym.kind.toHumanStr]
@@ -792,16 +770,13 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       if r.typ.isNil:
         if r.sym.isNil:
           result = "cannot instantiate: '$1'" % r.ast.render
-
         else:
           result = "cannot instantiate: '$1'" % r.symstr
-
       elif r.ownerSym.isNil:
         result.addf(
           "cannot instantiate: '$1'; Maybe generic arguments are missing?",
           typeToString(r.typ, preferDesc)
         )
-
       else:
         result.addf(
           "cannot instantiate '$1' inside of type definition: '$2'; " &
@@ -838,7 +813,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "unknown trait: " & r.sym.name.s
 
     of rsemExpectedOrdinal:
-      if r.ast != nil and r.ast.kind == nkBracket:
+      if r.ast != nil and r.ast.kind == nkExprColonExpr:
         result.add "expected ordinal value for array index, got '$1'" % r.wrongNode.render
       else:
         result = "ordinal type expected"
@@ -873,9 +848,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCannotFindPlugin:
       result = "cannot find plugin " & r.symstr
 
-    of rsemExpectedProcReferenceForFinalizer:
-      result = "finalizer must be a direct reference to a proc"
-
     of rsemUnsafeSetLen:
       result = "setLen can potentially expand the sequence, " &
         "but the element type '$1' doesn't have a valid default value" %
@@ -898,6 +870,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "pragmas are disallowed during tuple unpacking assignment, " &
         "this is a know design issue; as a work around split pragmas and " &
         "unpacking into two steps."
+
+    of rsemIllegalCompileTime:
+      result = "the '.compileTime' pragma must only be used with locals inside" &
+               " compile-time-only procedures or with globals."
 
     of rsemPragmaOptionExpected:
       result = "option expected"
@@ -928,12 +904,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemInvalidExtern:
       result = "invalid extern name: '" & r.externName & "'. (Forgot to escape '$'?)"
-
-    of rsemBadDeprecatedArg:
-      result = "key:value pair expected"
-
-    of rsemBadDeprecatedArgs:
-      result = "list of key:value pairs expected"
 
     of rsemInvalidPragma:
       result = "invalid pragma: " & r.ast.render
@@ -1085,7 +1055,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
       if conf.isDefined("nimLegacyTypeMismatch"):
         result.add  " got <$1>" % actualStr
-
       else:
         result.add  " got '$1' for '$2'" % [actualStr, r.ast.renderTree]
 
@@ -1466,9 +1435,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemStackEscape:
       result = "address of '$1' may not escape its stack frame" % r.ast.render
 
-    of rsemCannotInterpretNode:
-      result = "cannot evaluate '$1'" % r.ast.render
-
     of rsemRecursiveDependencyIterator:
       result = "recursion is not supported in iterators: '$1'" % r.symstr
 
@@ -1492,6 +1458,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemReturnNotAllowed:
       result = "'return' not allowed here"
+
+    of rsemIllegalCompileTimeAccess:
+      result = "cannot access a .compileTime location outside of a " &
+               "compile-time-only context"
 
     of rsemCannotInferReturnType:
       result = "cannot infer the return type of '$1'" % r.symstr
@@ -1536,9 +1506,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemExpectedObjectForOf:
       result = "'of' takes object types"
-
-    of rsemSemfoldDivByZero:
-      result = "over- or underflow"
 
     of rsemRuntimeDiscriminantRequiresElif:
       result = "branch initialization with a runtime discriminator " &
@@ -1642,7 +1609,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = r.str
 
     of rsemImplicitPragmaError:
-      result = "???"
+      result = "application of implicit pragma failed"
 
     of rsemInvalidModulePath:
       result = "invalid path: " & r.str
@@ -1697,9 +1664,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCannotImportItself:
       result = "module '$1' cannot import itself" % r.symstr
 
-    of rsemRecursiveImport:
-      result = "recursive dependency: '$1'" % r.str
-
     of rsemCannotOpenFile:
       result = "cannot open '$1'" % r.str
 
@@ -1720,6 +1684,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemSemfoldOverflow:
       result = "over- or underflow"
+
+    of rsemSemfoldDivByZero:
+      result = "division by zero"
 
     of rsemCaseInUnion:
       result = "Illegal use of ``case`` in union type."
@@ -1763,7 +1730,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "len($1) must be less than 32768" % r.symstr
 
     of rsemCantConvertLiteralToRange:
-      result = "cannot convert " & $r.str & " to " & r.typ.render
+      result = "cannot convert $# to $#" % [r.wrongNode.render, $r.ast.typ.render]
 
     of rsemCantComputeOffsetof:
       result = "can't compute offsetof on this ast"
@@ -1811,6 +1778,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "the overloaded " & r.symstr &
         " operator has to be enabled with {.experimental: \"callOperator\".}"
 
+    of rsemUnexpectedPattern:
+      result = "patterns can only be specified on macros and templates"
+
     of rsemExpectedImportedType:
       result = "the '$1' modifier can be used only with imported types" % r.ast.render
 
@@ -1824,7 +1794,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           r.symbols[0].name.s,
           conf.toStr(r.symbols[1].info)
         )
-
       else:
         result = "attempt to redefine: '" & r.symstr & "'"
 
@@ -1841,6 +1810,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         $r.countMismatch.got,
         $r.countMismatch.expected
       )
+
+    of rsemCalleeHasAnError:
+      result = "cannot call '$1'; its definition has an error [defined at '$2']" %
+               [r.symstr, conf.toFileLineCol(r.sym.info)]
 
     of rsemNoGenericParamsAllowed:
       result = "no generic parameters allowed for $1" % r.symstr
@@ -1902,9 +1875,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemHintLibDependency:
       result = r.str
-
-    of rsemCaseTransition:
-      result = "Potential object case transition, instantiate new object instead"
 
     of rsemObservableStores:
       result = "observable stores to '$1'" % r.ast.render
@@ -1981,9 +1951,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemUnexpectedPragma:
       result = "unexpected pragma"
-
-    of rsemDisallowedReprForNewruntime:
-      result = "'repr' is not available for --gc:arc|orc"
 
     of rsemDisallowedOfForPureObjects:
       result = "no 'of' operator available for pure objects"
@@ -2129,13 +2096,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemHoleEnumConvert:
       result = "conversion to enum with holes is unsafe: $1" % r.ast.render
 
-
     of rsemAnyEnumConvert:
       result = "enum conversion: $1" % r.ast.render
 
     of rsemUseOfGc:
       result = "'$1' uses GC'ed memory" % r.ast.render
-
 
     of rsemPattern:
       result = r.ast.render
@@ -2163,6 +2128,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       # clarifies the message.
       result = "in expression '$1': identifier expected, but found '$2'" %
                 [r.ast.render(), r.wrongNode.render()]
+
+    of rsemExpectedIdentifierQuoteLimit:
+      result =
+        "identifier expected, found too large identifier construction '$1'" %
+          [r.ast.render()]
 
     of rsemExpectedIdentifierWithExprContext:
       # `ast` the identifier, the expression `wrongNode` (where the error is)
@@ -2241,9 +2211,22 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemDiagnostics:
       result.add presentDiagnostics(conf, r.diag, startWithNewLine = false)
 
+    of rsemCompilerOptionInvalid:
+      result = "Invalid compiler option - '$#'" % r.str
+
+    of rsemDeprecatedCompilerOpt:
+      result = "'$#' is deprecated, now a noop" % r.str
+
+    of rsemCompilerOptionArgInvalid:
+      result = "Unexpected value for option '$#'. Expected one of $#, but got '$#'" %
+                [r.str, r.allowedOptArgs.join(", "), r.badCompilerOptArg]
+
+    of rsemDeprecatedCompilerOptArg:
+      result = "'$#' is deprecated for option '$#', now a noop" %
+                [r.str, r.compilerOptArg]
+
 
 const standalone = {
-  rsemExpandArc, # Original compiler did not consider it as a hint
   rvmStackTrace, # Always associated with extra report
   rsemDiagnostics, # Wraps other reports
 }
@@ -2261,7 +2244,8 @@ func prefixShort(conf: ConfigRef, r: ReportTypes): string {.inline.} =
 
 proc prefix(conf: ConfigRef, r: ReportTypes): string =
   let sev = conf.severity(r)
-  if r.location.isSome() and r.kind in repWithLocation:
+  if r.kind in repWithLocation and r.location.isSome() and
+      r.location.get() != gCmdLineInfo:
     # Optional report location
     result.add conf.toStr(r.location.get()) & " "
 
@@ -2318,74 +2302,80 @@ proc reportShort*(conf: ConfigRef, r: SemReport): string =
 
 proc reportBody*(conf: ConfigRef, r: ParserReport): string =
   assertKind r
-  case ParserReportKind(r.kind):
-    of rparInvalidIndentation:
-       result = "invalid indentation"
-       result.add r.msg
+  case ParserReportKind(r.kind)
+  of rparInvalidIndentation:
+    result = "invalid indentation"
 
-    of rparNestableRequiresIndentation:
-       result = "nestable statement requires indentation"
+  of rparInvalidIndentationWithForgotEqualSignHint:
+    result = "invalid indentation, maybe missing '=' at $1?" % conf$r.eqInfo
 
-    of rparIdentExpected, rparIdentOrKwdExpected:
-      result = "identifier expected, but found '$1'" % r.found
+  of rparNestableRequiresIndentation:
+    result = "nestable statement requires indentation"
 
-    of rparExprExpected:
-      result = "expression expected, but found '$1'" % r.found
+  of rparIdentExpected:
+    result = "identifier expected, but found '$1'" % r.found
 
-    of rparMissingToken:
-      result = "expected " & r.expected[0]
+  of rparIdentExpectedEmptyAccQuote:
+    result = "identifier expected, but got empty accent quotes"
 
-    of rparUnexpectedToken:
-      result = "expected: '" & $r.expected[0] & "', but got: '" & r.found & "'"
+  of rparExprExpected:
+    result = "expression expected, but found '$1'" % r.found
 
-    of rparUnexpectedTokenKind:
-      result = r.msg
+  of rparMissingToken:
+    result =
+      case r.expected.len
+      of 1:
+        "expected " & r.expected[0]
+      of 2:
+        "expected $1 or $2" % [r.expected[0], r.expected[1]]
+      else:
+        unreachable("only 1-2 expected tokesn allowed, update message to fix")
 
-    of rparFuncNotAllowed:
-      result = "func keyword is not allowed in type descriptions, " &
-        "use proc with {.noSideEffect.} pragma instead"
+  of rparUnexpectedToken:
+    result = "expected: '$1', but got: '$2'" % [r.expectedKind, r.found]
 
-    of rparTupleTypeWithPar:
-      result = "the syntax for tuple types is 'tuple[...]', not 'tuple(...)'"
+  of rparAsmStmtExpectsStrLit:
+    result = "the 'asm' statement takes a string literal, got: '$1'" % r.found
 
-    of rparMisplacedParameterVar:
-      result = "the syntax is 'parameter: var T', not 'var parameter: T'"
+  of rparFuncNotAllowed:
+    result = "func keyword is not allowed in type descriptions, " &
+      "use proc with {.noSideEffect.} pragma instead"
 
-    of rparConceptNotinType:
-      result = "the 'concept' keyword is only valid in 'type' sections"
+  of rparTupleTypeWithPar:
+    result = "the syntax for tuple types is 'tuple[...]', not 'tuple(...)'"
 
-    of rparRotineExpected:
-      result = r.msg
+  of rparMisplacedParameterVar:
+    result = "the syntax is 'parameter: var T', not 'var parameter: T'"
 
-    of rparPragmaAlreadyPresent:
-      result = "pragma already present"
+  of rparConceptNotinType:
+    result = "the 'concept' keyword is only valid in 'type' sections"
 
-    of rparMisplacedExport:
-      result = "invalid indentation; an export marker '*' " &
-        "follows the declared identifier"
+  of rparMisplacedExport:
+    result = "invalid indentation; an export marker '*' " &
+      "follows the declared identifier"
 
-    of rparTemplMissingEndClose:
-      result = "'end' does not close a control flow construct"
+  of rparTemplMissingEndClose:
+    result = "'end' does not close a control flow construct"
 
-    of rparTemplInvalidExpression:
-      result = "invalid expression"
+  of rparTemplInvalidExpression:
+    result = "invalid expression"
 
-    of rparInconsistentSpacing:
-      result = "Number of spaces around '$#' is not consistent"
+  of rparInconsistentSpacing:
+    result = "Number of spaces around '$1' is not consistent" % r.found
 
-    of rparEnablePreviewDotOps:
-      result = "dot-like operators will be parsed differently " &
-        "with `-d:nimPreviewDotLikeOps`"
+  of rparEnablePreviewDotOps:
+    result = "dot-like operators will be parsed differently " &
+      "with `-d:nimPreviewDotLikeOps`"
 
-    of rparPragmaNotFollowingTypeName:
-      result = "type pragmas follow the type name; this form of " &
-        "writing pragmas is deprecated"
+  of rparPragmaNotFollowingTypeName:
+    result = "type pragmas follow the type name; this form of " &
+      "writing pragmas is deprecated"
 
-    of rparPragmaBeforeGenericParameters:
-      result = "pragma must come after any generic parameter list"
+  of rparPragmaBeforeGenericParameters:
+    result = "pragma must come after any generic parameter list"
 
-    of rparInvalidFilter:
-      result = "invalid filter: $1" % r.node.renderTree
+  of rparInvalidFilter:
+    result = "invalid filter: $1" % r.node.renderTree
 
 proc reportFull*(conf: ConfigRef, r: ParserReport): string =
   assertKind r
@@ -2504,6 +2494,8 @@ proc presentFailedCandidates(
       candidates.add("  first type mismatch at position: " & $err.firstMismatch.pos)
       # candidates.add "\n  reason: " & $err.firstMismatch.kind # for debugging
       case err.firstMismatch.kind:
+        of kNotGeneric:
+          candidates.add("\n  routine is not generic")
         of kUnknownNamedParam:
           if nArg == nil:
             candidates.add("\n  unknown named parameter")
@@ -2522,7 +2514,7 @@ proc presentFailedCandidates(
         of kMissingParam:
           candidates.add("\n  missing parameter: " & nameParam)
 
-        of kTypeMismatch, kVarNeeded:
+        of kTypeMismatch, kVarNeeded, kGenericTypeMismatch:
           doAssert nArg != nil
           doAssert err.firstMismatch.formal != nil
           let wanted = err.firstMismatch.formal.typ
@@ -2589,39 +2581,13 @@ const
     "Source date: $2\n"
 
   Usage = slurp"../doc/basicopt.txt".replace(" //", "   ")
-  AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") % [
-    genFeatureDesc(Feature),
-    genFeatureDesc(LegacyFeature)
-  ]
+  AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") %
+    genFeatureDesc(Feature)
 
 
 proc reportBody*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
   case InternalReportKind(r.kind):
-    of rintCliKinds:
-      let d = r.cliData
-      result = HelpMessage % [
-        VersionAsString,
-        platform.OS[d.os].name,
-        CPU[d.cpu].name
-      ]
-
-      if r.kind == rintCliVersion:
-        if d.sourceHash != "":
-          result.add "\n"
-          result.add CommitMessage % [d.sourceHash, d.sourceDate
-          ]
-
-        result.add "\n"
-        result.add "active boot switches:" & d.boot.join(" ")
-
-      else:
-        if r.kind in {rintCliHelp, rintCliFullHelp}:
-          result.add Usage
-
-        if r.kind in {rintCliFullHelp, rintCliAdvancedUsage}:
-          result.add AdvancedUsage
-
     of rintStackTrace:
       result = conf.formatTrace(r.trace)
 
@@ -2638,32 +2604,7 @@ proc reportBody*(conf: ConfigRef, r: InternalReport): string =
           kind in r.enabledOptions, "X", " "), $kind)
 
     of rintSuccessX:
-      var build = ""
-      let par = r.buildParams
-      if conf.cmd in cmdBackends:
-        build.add "gc: $#; " % par.gc
-
-        if par.threads:
-          build.add "threads: on; "
-
-        build.add "opt: "
-        if par.optimize == "debug":
-          build.add "none (DEBUG BUILD, `-d:release` generates faster code)"
-
-        else:
-          build.add par.optimize
-          build.add "; "
-          build.add par.buildMode
-          build.add " "
-
-      let mem =
-        if par.isMaxMem:
-          formatSize(par.mem) & " peakmem"
-
-        else:
-          formatSize(par.mem) & " totmem"
-
-      result = &"{conf.prefix(r)}{build}{par.linesCompiled} lines; {par.sec:.3f}s; {mem}; proj: {par.project}; out: {par.output}{conf.suffix(r)}"
+      unreachable("this should never use reports")
 
     of rintUsingLeanCompiler:
       result = r.msg
@@ -2692,11 +2633,8 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
       )
 
     of rintEchoMessage:
-      if conf.cmd == cmdInteractive:
-        result = ">>> " & r.msg
-
-      else:
-        result = r.msg
+      result = if conf.cmd == cmdInteractive: ">>> " & r.msg
+               else:                          r.msg
 
     of rintCannotOpenFile, rintWarnCannotOpenFile:
       result = "cannot open file: $1" % r.file
@@ -2725,77 +2663,20 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
     of rintSource:
       assert false, "is a configuration hint, should not be reported manually"
 
-    of rintGCStats:
-      result = r.msg
-
     of rintQuitCalled:
       result = "quit() called"
 
     of rintMsgOrigin, rintErrKind:
       assert false, "is a configuration hint, should not be reported manually"
 
-    of rintNimconfWrite:
-      result = ""
-
-    of rintDumpState:
-      if getConfigVar(conf, "dump.format") == "json":
-        let s = r.stateDump
-        var definedSymbols = newJArray()
-        for s in s.definedSymbols:
-          definedSymbols.elems.add(%s)
-
-        var libpaths = newJArray()
-        var lazyPaths = newJArray()
-        for dir in conf.searchPaths:
-          libpaths.elems.add(%dir.string)
-
-        for dir in conf.lazyPaths:
-          lazyPaths.elems.add(%dir.string)
-
-        var hints = newJObject()
-        for (a, state) in s.hints:
-          hints[$a] = %(state)
-
-
-        var warnings = newJObject()
-        for (a, state) in s.warnings:
-          warnings[$a] = %(state)
-
-        result = $(%[
-          (key: "version",         val: %s.version),
-          (key: "nimExe",          val: %s.nimExe),
-          (key: "prefixdir",       val: %s.prefixdir),
-          (key: "libpath",         val: %s.libpath),
-          (key: "project_path",    val: %s.projectPath),
-          (key: "defined_symbols", val: definedSymbols),
-          (key: "lib_paths",       val: libpaths),
-          (key: "lazyPaths",       val: lazyPaths),
-          (key: "outdir",          val: %s.outdir),
-          (key: "out",             val: %s.out),
-          (key: "nimcache",        val: %s.nimcache),
-          (key: "hints",           val: hints),
-          (key: "warnings",        val: warnings),
-        ])
-
-      else:
-        result.add "-- list of currently defined symbols --\n"
-        let s = r.stateDump
-        for s in s.definedSymbols:
-          result.add(s, "\n")
-
-        result.add "-- end of list --\n"
-
-        for it in s.libPaths:
-          result.add it, "\n"
 
 proc reportFull*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
   case r.kind:
-    of rintCannotOpenFile, rintWarnCannotOpenFile:
-      result.add(conf.prefix(r), conf.reportBody(r), conf.suffix(r))
-
-    else:
-      result = reportBody(conf, r)
+  of rintCannotOpenFile, rintWarnCannotOpenFile:
+    result.add(conf.prefix(r), conf.reportBody(r), conf.suffix(r))
+  else:
+    result = reportBody(conf, r)
 
 proc reportShort*(conf: ConfigRef, r: InternalReport): string =
   # mostly created for nimsuggest
@@ -2807,72 +2688,38 @@ proc reportShort*(conf: ConfigRef, r: InternalReport): string =
 
 proc reportBody*(conf: ConfigRef, r: LexerReport): string =
   assertKind r
-  case LexerReportKind(r.kind):
-    of rlexMalformedTrailingUnderscre:
-      result.add "invalid token: trailing underscore"
+  case LexerReportKind(r.kind)
+  of rlexMalformedTrailingUnderscre,
+      rlexMalformedNumUnderscores,
+      rlexMalformedIdentUnderscores,
+      rlexInvalidToken,
+      rlexInvalidTokenSpaceBetweenNumAndIdent,
+      rlexNoTabs,
+      rlexInvalidIntegerLiteralOctalPrefix,
+      rlexInvalidIntegerSuffix,
+      rlexNumberNotInRange,
+      rlexExpectedHex,
+      rlexInvalidNumericLiteral,
+      rlexInvalidIntegerLiteral,
+      rlexInvalidCharLiteral,
+      rlexInvalidCharLiteralConstant,
+      rlexInvalidCharLiteralPlatformNewline,
+      rlexInvalidCharLiteralUnicodeCodepoint,
+      rlexMissingClosingApostrophe,
+      rlexInvalidUnicodeCodepointEmpty,
+      rlexInvalidUnicodeCodepointGreaterThan0x10FFFF,
+      rlexUnclosedTripleString,
+      rlexUnclosedSingleString,
+      rlexUnclosedComment,
+      rlexDeprecatedOctalPrefix,
+      rlexLinterReport,
+      rlexLineTooLong:
+    result = r.msg
 
-    of rlexMalformedUnderscores:
-      result.add "only single underscores may occur in a token and token may not " &
-        "end with an underscore: e.g. '1__1' and '1_' are invalid"
-
-    of rlexInvalidToken:
-      result.add r.msg
-
-    of rlexNoTabs:
-      result.add "tabs are not allowed, use spaces instead"
-
-    of rlexInvalidIntegerPrefix:
-      result.add r.msg
-
-    of rlexInvalidIntegerSuffix:
-      result.add r.msg
-
-    of rlexNumberNotInRange:
-      result.add r.msg
-
-    of rlexExpectedHex:
-      result.add r.msg
-
-    of rlexInvalidIntegerLiteral:
-      result.add r.msg
-
-    of rlexInvalidCharLiteral:
-      result.add r.msg
-
-    of rlexMissingClosingApostrophe:
-      result.add "missing closing ' for character literal"
-
-    of rlexInvalidUnicodeCodepoint:
-      result.add r.msg
-
-    of rlexUnclosedTripleString:
-      result.add "closing \"\"\" expected, but end of file reached"
-
-    of rlexUnclosedSingleString:
-      result.add "closing \" expected"
-
-    of rlexExpectedToken:
-      assert false
-
-    of rlexCfgInvalidDirective:
-      result.addf("invalid directive: '$1'", r.msg)
-
-    of rlexUnclosedComment:
-      result.add "end of multiline comment expected"
-
-    of rlexDeprecatedOctalPrefix:
-      result.add r.msg
-
-    of rlexLinterReport:
-      result.addf("'$1' should be: '$2'", r.got, r.wanted)
-
-    of rlexLineTooLong:
-      result.add "line too long"
-
-    of rlexSourceCodeFilterOutput:
-      result.add "generated code listing:"
-      result.add r.msg
-      result.add "end of listing"
+  of rlexSourceCodeFilterOutput:
+    result.add "generated code listing:"
+    result.add r.msg
+    result.add "end of listing"
 
 proc reportFull*(conf: ConfigRef, r: LexerReport): string    =
   assertKind r
@@ -2888,293 +2735,21 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
   assertKind r
   case ExternalReportKind(r.kind):
     of rextConf:
-      result.add(
-        conf.prefix(r),
-        "used config file '$1'" % r.msg,
-        conf.suffix(r)
-      )
+      unreachable("this should never be reported")
 
-    of rextCommandMissing:
-      result.add("Command missing")
-
-    of rextInvalidHint:
-      result.add("Invalid hint - ", r.cmdlineProvided)
-
-    of rextInvalidWarning:
-      result.add("Invalid warning - ", r.cmdlineProvided)
-
-    of rextInvalidCommand:
-       result.add("Invalid command - ", r.cmdlineProvided)
-
-    of rextInvalidCommandLineOption:
-      result.add("Invalid command line option - ", r.cmdlineProvided)
-
-    of rextUnknownCCompiler:
-      result = "unknown C compiler: '$1'. Available options are: $2" % [
-        r.passedCompiler,
-        r.knownCompilers.join(", ")
-      ]
-
-    of rextOnlyAllOffSupported:
-      result = "only 'all:off' is supported"
-
-    of rextExpectedOnOrOff:
-      result = "'on' or 'off' expected, but '$1' found" % r.cmdlineProvided
-
-    of rextExpectedOnOrOffOrList:
-      result = "'on', 'off' or 'list' expected, but '$1' found" % r.cmdlineProvided
-
-    of rextExpectedCmdArgument:
-      result = "argument for command line option expected: '$1'" % r.cmdlineSwitch
-
-    of rextExpectedNoCmdArgument:
-      result = "invalid argument for command line option: '$1'" % r.cmdlineSwitch
-
-    of rextInvalidNumber:
-      result = "$1 is not a valid number" % r.cmdlineProvided
-
-    of rextInvalidValue:
-      result = ("Unexpected value for " &
-        "the $1. Expected one of $2, but got '$3'") % [
-          r.cmdlineSwitch,
-          r.cmdlineAllowed.mapIt("'" & it & "'").join(", "),
-          r.cmdlineProvided
-      ]
-
-    of rextUnexpectedValue:
-      result = "Unexpected value for $1. Expected one of $2" % [
-        r.cmdlineSwitch, r.cmdlineAllowed.join(", ")
-      ]
-
-    of rextIcUnknownFileName:
-      result = "unknown file name: " & r.msg
-
-    of rextIcNoSymbolAtPosition:
-      result = "no symbol at this position"
-
-    of rextExpectedTinyCForRun:
-      result = "'run' command not available; rebuild with -d:tinyc"
-
-    of rextExpectedCbackendForRun:
-      result = "'run' requires c backend, got: '$1'" % $conf.backend
-
-    of rextExpectedRunOptForArgs:
-      result = "arguments can only be given if the '--run' option is selected"
-
-    of rextUnexpectedRunOpt:
-      result = "'$1 cannot handle --run" % r.cmdlineProvided
-
-    of rextInvalidPath:
-      result = "invalid path: " & r.cmdlineProvided
-
-    of rextInvalidPackageName:
-      result = "invalid package name: " & r.packageName
-
-    of rextDeprecated:
-      result = r.msg
+    of rextCmdRequiresFile:
+      result = "command requires a filename"
 
     of rextPath:
-      result = "added path: '$1'" % r.packagePath
+      unreachable("this should never be reported")
 
 proc reportFull*(conf: ConfigRef, r: ExternalReport): string =
   assertKind r
-  reportBody(conf, r)
+  result.add(prefix(conf, r), reportBody(conf, r))
 
 proc reportShort*(conf: ConfigRef, r: ExternalReport): string {.inline.} =
   # mostly created for nimsuggest
-  reportBody(conf, r)
-
-const
-  dropTraceExt = off
-  reportCaller = on
-
-proc reportBody*(conf: ConfigRef, r: TraceSemReport): string =
-  assertKind r
-
-  case DbgTraceReportKind(r.kind):
-  of rdbgTraceStep:
-    let
-      s = r.semstep
-      indent = s.level * 2 + (
-        2 #[ Item indentation ]# +
-        5 #[ Global entry indentation ]#
-      )
-
-    proc render(node: PNode): string =
-      conf.wrap(conf.treeRepr(node,
-                              indent = indent + 2,
-                              rconf = implicitCompilerTraceReprConf))
-
-    proc render(typ: PType): string =
-      conf.wrap(conf.treeRepr(typ,
-                              indent = indent + 2,
-                              rconf = implicitCompilerTraceReprConf))
-
-    proc render(sym: PSym): string =
-      conf.wrap(conf.treeRepr(sym,
-                              indent = indent + 2,
-                              rconf = implicitCompilerTraceReprConf))
-
-    proc render(sym: PIdent): string =
-      conf.wrap(conf.treeRepr(sym,
-                              indent = indent + 2,
-                              rconf = implicitCompilerTraceReprConf))
-
-
-    result.addf("$1]", align($s.level, 2, '#'))
-    result.add(
-      repeat("  ", s.level),
-      tern(s.direction == semstepEnter, "> ", "< "),
-      conf.wrap(s.name, tern(s.direction == semstepEnter, fgGreen, fgRed)),
-      " @ ",
-      conf.wrap(conf.toStr(r.reportInst, dropTraceExt), fgCyan),
-      tern(
-        reportCaller and s.steppedFrom.isValid(),
-        " from " & conf.toStr(s.steppedFrom, dropTraceExt),
-        ""))
-
-    var res = addr result
-    proc field(name: string, value: string = "\n") =
-      res[].add "\n"
-      res[].add repeat(" ", indent)
-      res[].add name
-      res[].add ":"
-      res[].add value
-
-    let enter = s.direction == semstepEnter
-    if conf.hack.semTraceData:
-      # field("kind", $s.kind) # if you're new to reading traces, uncomment
-      
-      case s.kind:
-        of stepNodeToNode:
-          if enter:
-            field("from node")
-          else:
-            field("to node")
-
-          result.add render(s.node)
-
-        of stepSymNodeToNode:
-          if enter:
-            field("from sym")
-            result.add render(s.sym)
-            field("from node")
-            result.add render(s.node)
-          else:
-            field("to node")
-            result.add render(s.node)
-
-        of stepNodeTypeToNode:
-          if enter:
-            field("from node")
-            result.add render(s.node)
-            field("from type")
-            result.add render(s.typ)
-          else:
-            field("to node")
-            result.add render(s.node)
-
-        of stepNodeFlagsToNode:
-          if enter:
-            field("from flags",  " " & conf.wrap($s.flags + fgCyan))
-            result.add
-            field("from node")
-            result.add render(s.node)
-          else:
-            field("to node")
-            result.add render(s.node)
-
-        of stepTrack:
-          discard #[ 'track' has no extra data fields ]#
-
-        of stepError, stepWrongNode:
-          field("node")
-          result.add render(s.node)
-
-        of stepNodeToSym:
-          if enter:
-            field("from node")
-            result.add render(s.node)
-          else:
-            field("to sym")
-            result.add render(s.sym)
-
-        of stepIdentToSym:
-          if enter:
-            field("from ident")
-            result.add render(s.ident)
-          else:
-            field("to sym")
-            result.add render(s.sym)
-
-        of stepTypeTypeToType:
-          if enter:
-            field("from type")
-            result.add render(s.typ)
-            field("from type1")
-            result.add render(s.typ1)
-          else:
-            field("to type")
-            result.add render(s.typ)
-        
-        of stepNodeSigMatch, stepResolveOverload:
-          if enter:
-            field("from node")
-            result.add render(s.node)
-          else:
-            field("match status", s.candidate.state)
-
-            if s.candidate.call.isNil:
-              field("mismatch kind", $s.candidate.error.firstMismatch.kind)
-            else:
-              if s.candidate.calleeSym.isNil:
-                field("callee")
-                result.add render(s.candidate.callee)
-              else:
-                field("calleeSym")
-                result.add render(s.candidate.calleeSym)
-              field("call")
-              result.add render(s.candidate.call)
-  of rdbgTraceLine:
-    let ind = repeat("  ", r.ctraceData.level)
-    var
-      paths: seq[string]
-      width = 0
-    for entry in r.ctraceData.entries:
-      paths.add "$1($2)" % [
-        formatPath(conf, $entry.filename), $entry.line]
-
-      width = max(paths[^1].len, width)
-
-    for idx, entry in r.ctraceData.entries:
-      result.add(
-        "  ]",
-        ind, " | ",
-        alignLeft(paths[idx], width + 1),
-        conf.wrap($entry.procname, fgGreen),
-        tern(idx < r.ctraceData.entries.high, "\n", "")
-      )
-
-  of rdbgTraceStart:
-    result = ">>] trace start"
-
-  of rdbgTraceEnd:
-    result = "<<] trace end"
-
-  of rdbgTraceDefined:
-    result = ">>] debug trace defined at " & toStr(conf, r.location.get())
-
-  of rdbgTraceUndefined:
-    result = "<<] debug trace undefined " & toStr(conf, r.location.get())
-
-proc reportFull*(conf: ConfigRef, r: TraceSemReport): string =
-  assertKind r
-  result = reportBody(conf, r)
-
-proc reportShort*(conf: ConfigRef, r: TraceSemReport): string =
-  # mostly created for nimsuggest
-  assertKind r
-  result = reportBody(conf, r)
+  result.add(prefixShort(conf, r), reportBody(conf, r))
 
 proc reportBody*(conf: ConfigRef, r: DebugReport): string =
   assertKind r
@@ -3205,15 +2780,6 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
       tern(exec.rb == rkNone, "", $exec.rb),
       tern(exec.rc == rkNone, "", $exec.rc)
     )
-
-  of rdbgFinishedConfRead:
-    result = "finished configuration file read $1" % r.filename
-
-  of rdbgStartingConfRead:
-    result = "starting configuration file read $1" % r.filename
-
-  of rdbgCfgTrace:
-    result = "cfg trace '" & r.str & "'"
 
   of rdbgVmCodeListing:
     result.add "Code listing"
@@ -3268,25 +2834,16 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
 
 proc reportFull*(conf: ConfigRef, r: DebugReport): string =
   assertKind r
-  case r.kind
-  of rdbgCfgTrace:
-    result.add(prefix(conf, r), reportBody(conf, r), suffix(conf, r))
-  else:
-    result = reportBody(conf, r)
+  result = reportBody(conf, r)
 
 proc reportShort*(conf: ConfigRef, r: DebugReport): string =
   # mostly created for nimsuggest
   assertKind r
   result = reportBody(conf, r)
-  if r.kind == rdbgCfgTrace:
-    result.add suffixShort(conf, r)
 
 proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
   assertKind r
   case BackendReportKind(r.kind):
-  of rbackJsUnsupportedClosureIter:
-    "Closure iterators are not supported by JS backend!"
-
   of rbackJsTooCaseTooLarge:
     "Your case statement contains too many branches, consider using if/else instead!"
 
@@ -3382,8 +2939,7 @@ proc reportShort*(conf: ConfigRef, r: BackendReport): string =
   # mostly created for nimsuggest
   assertKind r
   result = reportBody(conf, r)
-  if BackendReportKind(r.kind) in {rbackJsUnsupportedClosureIter,
-                                   rbackJsTooCaseTooLarge}:
+  if BackendReportKind(r.kind) == rbackJsTooCaseTooLarge:
     result.add conf.suffixShort(r)
 
 
@@ -3398,20 +2954,8 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
   of rvmMissingImportcCompleteStruct:
     result = "'$1' requires '.importc' types to be '.completeStruct'" % r.str
 
-  of rvmNotAFieldSymbol:
-    result = "no field symbol"
-
-  of rvmBadExpandToAst:
-    result = "expandToAst requires 1 argument"
-
   of rvmCannotImportc:
     result = "cannot 'importc' variable/proc at compile time: " & r.symstr
-
-  of rvmInvalidObjectConstructor:
-    result = "invalid object constructor"
-
-  of rvmNoClosureIterators:
-    result = "Closure iterators are not supported by VM!"
 
   of rvmStackTrace:
     result = "stack trace: (most recent call last)\n"
@@ -3477,6 +3021,10 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
 
   of rvmIllegalConv:
     result = r.str
+
+  of rvmIllegalConvFromXToY:
+    result = "illegal conversion from '$1' to '$2'" %
+             [$r.actualType, $r.formalType]
 
   of rvmFieldNotFound:
     result = "node lacks field: " & r.str
@@ -3619,7 +3167,6 @@ proc reportBody*(conf: ConfigRef, r: Report): string =
   of repParser:   conf.reportBody(r.parserReport)
   of repCmd:      conf.reportBody(r.cmdReport)
   of repSem:      conf.reportBody(r.semReport)
-  of repDbgTrace: conf.reportBody(r.dbgTraceReport)
   of repDebug:    conf.reportBody(r.debugReport)
   of repInternal: conf.reportBody(r.internalReport)
   of repBackend:  conf.reportBody(r.backendReport)
@@ -3635,7 +3182,6 @@ proc reportFull*(conf: ConfigRef, r: Report): string =
   of repParser:   conf.reportFull(r.parserReport)
   of repCmd:      conf.reportFull(r.cmdReport)
   of repSem:      conf.reportFull(r.semReport)
-  of repDbgTrace: conf.reportFull(r.dbgTraceReport)
   of repDebug:    conf.reportFull(r.debugReport)
   of repInternal: conf.reportFull(r.internalReport)
   of repBackend:  conf.reportFull(r.backendReport)
@@ -3650,68 +3196,840 @@ proc reportShort*(conf: ConfigRef, r: Report): string =
   of repParser:   conf.reportShort(r.parserReport)
   of repCmd:      conf.reportShort(r.cmdReport)
   of repSem:      conf.reportShort(r.semReport)
-  of repDbgTrace: conf.reportShort(r.dbgTraceReport)
   of repDebug:    conf.reportShort(r.debugReport)
   of repInternal: conf.reportShort(r.internalReport)
   of repBackend:  conf.reportShort(r.backendReport)
   of repExternal: conf.reportShort(r.externalReport)
   of repVM:       conf.reportShort(r.vmReport)
 
-const
-  rdbgTracerKinds* = {rdbgTraceDefined .. rdbgTraceEnd}
-  traceDir = "nimCompilerDebugTraceDir"
 
-var
-  lastDot: bool = false
-  traceFile: File
-  fileIndex: int = 0
+func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
+  ## legacy because it converts a diag to a Sem/VM report wrapped in a Report.
+  ## Why, you might ask? Well that's because reports are a mess and it'll take
+  ## many messy intermediate steps to get out of this quagmire. So at present
+  ## we do this conversion such that we can make use of `cli_reporter`...
+  ## another things that needs to be broken down.
 
-var counter = 0
+  template magicToStr(m: TMagic): string =
+    # TODO: figure out what consistent approach to take for creating human
+    #       readable strings out of magics
+    case m
+    of mLow: "low"
+    of mHigh: "high"
+    of mSizeOf: "sizeof"
+    else: unreachable()
 
-proc rotatedTrace(conf: ConfigRef, r: Report) =
-  ## Write out debug traces into separate files in directory defined by
-  ## `nimCompilerDebugTraceDir`
-  # Dispatch each `{.define(nimCompilerDebug).}` section into separate file
-  assert r.kind in rdbgTracerKinds, $r.kind
-  
-  case r.kind
-  of rdbgTraceStart, rdbgTraceEnd:
-    # Rotated trace is constrolled by the define-undefine pair, not by
-    # singular call to the nested recursion handling.
-    discard
-  of rdbgTraceDefined:
-    if not dirExists(conf.getDefined(traceDir)):
-      createDir conf.getDefined(traceDir)
+  let kind = astDiagToLegacyReportKind(diag)
+      
+  var
+    semRep: SemReport
+    vmRep: VMReport
 
-    counter = 0
-    let loc = r.location.get()
-    let path = conf.getDefined(traceDir) / "compiler_trace_$1_$2.nim" % [
-      conf.toFilename(loc).multiReplace({
-        "/": "_",
-        ".nim": ""
-      }),
-      $fileIndex
-    ]
+  case diag.kind
+  of adWrappedError:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemWrappedError,
+        ast: diag.wrongNode)
+  of adSemTypeMismatch:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemTypeMismatch,
+        typeMismatch: diag.typeMismatch,
+        ast: diag.wrongNode)
+  of adSemIllegalConversion:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemIllegalConversion,
+        typeMismatch: diag.typeMismatch,
+        ast: diag.wrongNode)
+  of adSemConflictingExportnims:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemConflictingExportnims,
+        symbols: @[diag.wrongNode.sym, diag.conflict],
+        ast: diag.wrongNode)
+  of adSemAmbiguousIdentWithCandidates:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemAmbiguousIdentWithCandidates,
+        sym: diag.candidateSyms[0],
+        symbols: diag.candidateSyms,
+        ast: diag.wrongNode)
+  of adSemTypeNotAllowed:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemTypeNotAllowed,
+        allowedType: diag.allowedType,
+        ast: diag.wrongNode)
+  of adSemAmbiguousIdent,
+      adSemExpectedIdentifier,
+      adSemModuleAliasMustBeIdentifier,
+      adSemInvalidPragma,
+      adSemStringLiteralExpected,
+      adSemIntLiteralExpected,
+      adSemOnOrOffExpected,
+      adSemCallconvExpected,
+      adSemUnknownExperimental,
+      adSemPragmaOptionExpected,
+      adSemUnexpectedPushArgument,
+      adSemMismatchedPopPush,
+      adSemExcessiveCompilePragmaArgs,
+      adSemEmptyAsm,
+      adSemLinePragmaExpectsTuple,
+      adSemLocksPragmaExpectsList,
+      adSemBorrowPragmaNonDot,
+      adSemMisplacedEffectsOf,
+      adSemMissingPragmaArg,
+      adSemCannotPushCast,
+      adSemCastRequiresStatement,
+      adSemImportjsRequiresJs,
+      adSemBitsizeRequires1248,
+      adSemAlignRequiresPowerOfTwo,
+      adSemNoReturnHasReturn,
+      adSemMisplacedDeprecation,
+      adSemFatalError,
+      adSemNoUnionForJs,
+      adSemBitsizeRequiresPositive,
+      adSemExperimentalRequiresToplevel,
+      adSemPragmaDynlibRequiresExportc,
+      adSemWrongNumberOfArguments,
+      adVmDerefNilAccess,
+      adVmDerefAccessOutOfBounds,
+      adVmDerefAccessTypeMismatch,
+      adSemRawTypeMismatch,
+      adSemExpressionCannotBeCalled,
+      adSemCallInCompilesContextNotAProcOrField,
+      adSemExpressionHasNoType,
+      adSemTypeExpected,
+      adSemIllformedAst,
+      adSemInvalidExpression,
+      adSemExpectedNonemptyPattern,
+      adSemPragmaDisallowedForTupleUnpacking,
+      adSemIllegalCompileTime,
+      adSemThreadvarCannotInit,
+      adSemLetNeedsInit,
+      adSemConstExpressionExpected,
+      adSemSelectorMustBeOfCertainTypes,
+      adSemInvalidPragmaBlock,
+      adSemConceptPredicateFailed,
+      adSemDotOperatorsNotEnabled,
+      adSemCallOperatorsNotEnabled,
+      adSemUnexpectedPattern,
+      adSemIsOperatorTakes2Args,
+      adSemNoTupleTypeForConstructor,
+      adSemInvalidOrderInArrayConstructor, # xxx: used to capture, but not report, count mismatch
+      adSemStackEscape,
+      adSemVarForOutParamNeeded,
+      adSemExprHasNoAddress,
+      adSemConstExprExpected,
+      adSemDisallowedNilDeref,
+      adSemCannotReturnTypeless,
+      adSemExpectedValueForYield,
+      adSemNamedExprExpected,
+      adSemDisallowedTypedescForTupleField,
+      adSemNamedExprNotAllowed,
+      adSemNoReturnTypeDeclared,
+      adSemReturnNotAllowed,
+      adSemFieldAssignmentInvalidNeedSpace,
+      adSemFieldAssignmentInvalid,
+      adSemObjectConstructorIncorrect,
+      adSemExpectedObjectType,
+      adSemFoldOverflow,
+      adSemFoldDivByZero,
+      adSemFoldCannotComputeOffset,
+      adSemExpectedIdentifierQuoteLimit,
+      adSemExpectedRangeType:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind,
+        ast: diag.wrongNode)
+  of adSemInvalidRangeConversion:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemSemfoldInvalidConversion,
+        ast: diag.wrongNode,
+        typeMismatch: @[typeMismatch(diag.wrongNode[0].typ,
+                                     diag.wrongNode.typ)])
+  of adSemUseOrDiscardExpr:
+    semRep = SemReport(
+        location: some diag.undiscarded.info, # xxx: location override
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemUseOrDiscardExpr,
+        ast: diag.wrongNode,
+        wrongNode: diag.undiscarded)
+  of adSemUnexpectedEqInObjectConstructor:
+    semRep = SemReport(
+        location: some diag.eqInfo,   # xxx: location override
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind,
+        ast: diag.wrongNode)
+  of adSemExpectedIdentifierInExpr:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemExpectedIdentifierInExpr,
+        wrongNode: diag.notIdent,
+        ast: diag.wrongNode)
+  of adSemExpectedIdentifierWithExprContext:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemExpectedIdentifierWithExprContext,
+        wrongNode: diag.expr,
+        ast: diag.wrongNode)
+  of adSemUndeclaredIdentifier:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemUndeclaredIdentifier,
+        str: diag.name,
+        spellingCandidates: diag.spellingCandidates,
+        recursiveDeps: diag.recursiveDeps,
+        ast: diag.wrongNode)
+  of adSemOnlyDeclaredIdentifierFoundIsError:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemOnlyDeclaredIdentifierFoundIsError,
+        str: diag.identName,
+        ast: diag.wrongNode,
+        wrongNode: diag.err)
+  of adSemCannotImportItself:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemCannotImportItself,
+        sym: diag.selfModule,
+        ast: diag.wrongNode)
+  of adSemIllegalCustomPragma:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemIllegalCustomPragma,
+        sym: diag.customPragma,
+        ast: diag.wrongNode)
+  of adSemWrongIdent:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemWrongIdent,
+        expectedIdents: diag.allowedIdents,
+        ast: diag.wrongNode)
+  of adSemAsmEmitExpectsStringLiteral:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemIllformedAst,
+        str: "Expected string literal for asm/emit statement [1] but AST" &
+              "contains '$1'" % $diag.unexpectedKind,
+        ast: diag.wrongNode)
+  of adSemRaisesPragmaExpectsObject,
+      adSemCannotInferTypeOfLiteral,
+      adSemProcHasNoConcreteType,
+      adSemCannotAssignTo:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind,
+        typ: diag.wrongType,
+        ast: diag.wrongNode)
+  of adSemLocksPragmaBadLevelRange:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemLocksPragmaBadLevel,
+        str: "integer must be within 0.." & $MaxLockLevel,
+        ast: diag.wrongNode)
+  of adSemLocksPragmaBadLevelString:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemLocksPragmaBadLevel,
+        str: "invalid string literal for locks pragma (only allowed string is \"unknown\")",
+        ast: diag.wrongNode)
+  of adSemInvalidExtern:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemInvalidExtern,
+        sym: diag.compProcToBe,
+        externName: diag.externName,
+        ast: diag.wrongNode)
+  of adSemPragmaRecursiveDependency:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemPragmaRecursiveDependency,
+        sym: diag.userPragma,
+        ast: diag.wrongNode)
+  of adSemCustomUserError:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemCustomUserError,
+        str: diag.errmsg,
+        ast: diag.wrongNode)
+  of adSemImplicitPragmaError:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemImplicitPragmaError,
+        sym: diag.implicitPragma,
+        ast: diag.wrongNode)
+  of adSemIncompatibleDefaultExpr:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemIncompatibleDefaultExpr,
+      sym: diag.formal,
+      ast: diag.wrongNode)
+  of adVmUnsupportedNonNil:
+    vmRep = VMReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rvmUnsupportedNonNil,
+      typ: diag.unsupported,
+      ast: diag.wrongNode)
+  of adCyclicTree:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rvmUnsupportedNonNil,
+      ast: diag.cyclic)
+  of adSemCallTypeMismatch:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCallTypeMismatch,
+      ast: diag.wrongNode,
+      spellingCandidates: diag.callSpellingCandidates,
+      callMismatches: diag.callMismatches)
+  of adSemCallNotAProcOrField:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCallNotAProcOrField,
+      ast: diag.wrongNode,
+      explicitCall: true,
+      notProcOrField: diag.notProcOrField,
+      unexpectedCandidate: diag.unexpectedCandidates,
+      spellingCandidates: diag.spellingAlts)
+  of adSemImplicitDotCallNotAProcOrField:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCallNotAProcOrField,
+      ast: diag.wrongNode,
+      explicitCall: false,
+      notProcOrField: diag.notProcOrField,
+      typ: diag.wrongNode[1].typ,
+      unexpectedCandidate: diag.unexpectedCandidates,
+      spellingCandidates: diag.spellingAlts)
+  of adSemUndeclaredField:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemUndeclaredField,
+      ast: diag.wrongNode,
+      sym: diag.givenSym,
+      typ: diag.symTyp)
+  of adSemCannotInstantiate:
+    semRep = SemReport(
+      location: some diag.callLineInfo,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCannotInstantiate,
+      ast: diag.wrongNode)
+  of adSemWrongNumberOfGenericParams:
+    semRep = SemReport(
+      location: some diag.gnrcCallLineInfo,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemWrongNumberOfGenericParams,
+      ast: diag.wrongNode,
+      countMismatch: diag.countMismatch)
+  of adSemCalleeHasAnError:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCalleeHasAnError,
+      ast: diag.wrongNode,
+      sym: diag.callee)
+  of adSemIllformedAstExpectedPragmaOrIdent:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemIllformedAst,
+      ast: diag.wrongNode,
+      str: "Expected postfix, pragma or indent, but found " &
+              $diag.wrongNode.kind)
+  of adSemIllformedAstExpectedOneOf:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemIllformedAst,
+      ast: diag.wrongNode,
+      str: createSemIllformedAstMsg(diag.wrongNode, diag.expectedKinds))
+  of adSemImplementationExpected:
+    semRep = SemReport(
+      location: some diag.routineDefStartPos,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.routineSym)
+  of adSemImplementationNotAllowed:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.symWithImpl)
+  of adSemCannotConvertToRange:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.convTyp,
+      str: $diag.floatVal)
+  of adSemProveInit:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.unproven)
+  of adSemDifferentTypeForReintroducedSymbol:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemDifferentTypeForReintroducedSymbol,
+      ast: diag.wrongNode,
+      sym: diag.reintrod,
+      typeMismatch: @[SemTypeMismatch(actualType: diag.foundTyp,
+                                      formalType: diag.reintrod.typ)])
+  of adSemTypeKindMismatch:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemTypeKindMismatch,
+      ast: diag.wrongNode,
+      typeMismatch: @[SemTypeMismatch(actualType: diag.givenTyp,
+                                      formalTypeKind: diag.expectedTypKinds)])
+  of adSemCannotCastTypes:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCannotCastTypes,
+      ast: diag.wrongNode,
+      typeMismatch: diag.typeMismatch)
+  of adSemWrongNumberOfVariables:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemWrongNumberOfVariables,
+      ast: diag.wrongNode,
+      countMismatch: (diag.varsExpected, diag.varsGiven))
+  of adSemConstantOfTypeHasNoValue:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.constSym)
+  of adSemTypeConversionArgumentMismatch:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemTypeConversionArgumentMismatch,
+      ast: diag.wrongNode,
+      countMismatch: (1, diag.convArgsRecvd))
+  of adSemCannotBeConvertedTo:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCannotBeConvertedTo,
+      ast: diag.inputVal,              # xxx: ignores `diag.wrongNode`
+      typ: diag.targetTyp)
+  of adSemCannotCastToNonConcrete:
+    semRep = SemReport(
+      location: some diag.wrongNode[0].info, # xxx: location override
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCannotCastToNonConcrete,
+      ast: diag.wrongNode,
+      typ: diag.wrongType)
+  of adSemFoldRangeCheckForLiteralConversionFailed:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCantConvertLiteralToRange,
+      ast: diag.wrongNode,              # xxx: ignores `diag.wrongNode`
+      wrongNode: diag.inputLit)
+  of adSemIndexOutOfBoundsStatic:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemStaticOutOfBounds,
+      ast: diag.wrongNode,
+      indexSpec: (usedIdx: getInt(diag.staticIndex),
+                  minIdx: if diag.staticCollection.kind == nkBracket:
+                            firstOrd(conf, diag.staticCollection.typ)
+                          else:
+                            toInt128(0),
+                  maxIdx: toInt128(diag.staticCollection.len - 1)))
+  of adSemMagicExpectTypeOrValue:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      str: magicToStr(diag.magic))
+  of adSemLowHighInvalidArgument:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.invalidTyp,
+      str: magicToStr(diag.highLow))
+  of adSemUnknownIdentifier,
+      adSemStaticFieldNotFound:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.unknownSym)
+  of adSemInvalidTupleConstructorKey:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.invalidKey) # xxx: wrongNode/ast override
+  of adSemExpectedOrdinalArrayIdx:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemExpectedOrdinal,
+      ast: diag.indexExpr,
+      wrongNode: diag.nonOrdInput, # xxx: wrongNode/ast override
+      typ: diag.nonOrdInput.typ)
+  of adSemIndexOutOfBounds:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemIndexOutOfBounds,
+      ast: diag.wrongNode,
+      typ: diag.ordRange,
+      countMismatch: (toInt(lastOrd(conf, diag.ordRange)),
+                      diag.outOfBoundsIdx))
+  of adSemExpectedOrdinal:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemExpectedOrdinal,
+      ast: diag.wrongNode,
+      typ: diag.nonOrdTyp)
+  of adSemRecursiveDependencyIterator:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.recurrCallee)
+  of adSemCallIndirectTypeMismatch:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.indirCallTyp)
+  of adSemSystemNeeds:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      str: diag.sysIdent)
+  of adSemLocalEscapesStackFrame:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.escCtx)
+  of adSemImplicitAddrIsNotFirstParam:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.exprRoot)
+  of adSemYieldExpectedTupleConstr:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.tupleTyp)
+  of adSemFieldInitTwice:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      str: diag.dupFld.s)
+  of adSemCannotMixTypesAndValuesInTuple:
+    semRep = SemReport(
+      location: some diag.wrongFldInfo, # xxx: location override
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode)
+  of adSemFieldNotAccessible:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.inaccessible)
+  of adSemFieldOkButAssignedValueInvalid:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.initVal,
+      sym: diag.targetField)
+  of adSemObjectRequiresFieldInitNoDefault:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemObjectRequiresFieldInitNoDefault,
+      ast: diag.wrongNode,
+      symbols: diag.missing,
+      typ: diag.objTyp)
+  of adSemDistinctDoesNotHaveDefaultValue:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.distinctTyp)
+  of adSemExpectedObjectOfType:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.expectedObjTyp)
+  of adSemInvalidIntDefine,
+      adSemInvalidBoolDefine:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      str: diag.invalidDef)
+  of adSemDefNameSym:
+    case diag.defNameSymData.kind
+    of adSemDefNameSymExpectedKindMismatch:
+      semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemSymbolKindMismatch,
+        sym: diag.wrongNode.sym,
+        expectedSymbolKind: {diag.defNameSymData.expectedKind},
+        ast: diag.wrongNode)
+    of adSemDefNameSymIllformedAst:
+      semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemExpectedIdentifier,
+        ast: diag.wrongNode)
+    of adSemDefNameSymIdentGenFailed:
+      return astDiagToLegacyReport(conf, diag.defNameSymData.identGenErr.diag)
+    of adSemDefNameSymExistingError:
+      return astDiagToLegacyReport(conf, diag.wrongNode.diag)
+  of adSemCompilerOptionInvalid,
+      adSemDeprecatedCompilerOpt:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      str: diag.badCompilerOpt.getStr)
+  of adSemCompilerOptionArgInvalid:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCompilerOptionArgInvalid,
+      ast: diag.wrongNode,
+      str: diag.forCompilerOpt.getStr,
+      badCompilerOptArg: diag.badCompilerOptArg.getStr,
+      allowedOptArgs: allowedCompileOptionArgs(diag.forCompilerOpt.getStr))
+  of adSemDeprecatedCompilerOptArg:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemDeprecatedCompilerOptArg,
+      ast: diag.wrongNode,
+      str: diag.compilerOpt.getStr,
+      compilerOptArg: diag.compilerOptArg.getStr)
+  of adVmError:
+    let
+      kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()
+      location = diag.location
 
-    echo "$1($2, $3): opening $4 trace" % [
-      conf.toFilename(loc), $loc.line, $loc.col, path]
+    case kind
+    of rvmCannotCast, rvmIllegalConvFromXToY:
+      vmRep = VMReport(
+        kind: kind,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        actualType: diag.vmErr.actualType,
+        formalType: diag.vmErr.formalType)
+    of rvmIndexError:
+      vmRep = VMReport(
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind,
+        indexSpec: diag.vmErr.indexSpec)
+    of rvmCannotSetChild, rvmCannotAddChild, rvmCannotGetChild,
+        rvmUnhandledException, rvmNoType, rvmNodeNotASymbol:
+      case diag.vmErr.kind
+      of adVmArgNodeNotASymbol:
+        vmRep = VMReport(
+          location: some diag.vmErr.argAst.info,
+          reportInst: diag.instLoc.toReportLineInfo,
+          kind: kind,
+          str: diag.vmErr.callName & "()",
+          ast: diag.vmErr.argAst)
+      else:
+        vmRep = VMReport(
+          location: some location,
+          reportInst: diag.instLoc.toReportLineInfo,
+          kind: kind,
+          ast: diag.vmErr.ast)
+    of rvmUserError:
+      vmRep = VMReport(
+        kind: kind,
+        str: diag.vmErr.errMsg,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    of rvmErrInternal, rvmNilAccess, rvmIllegalConv, rvmFieldInavailable,
+        rvmFieldNotFound, rvmCacheKeyAlreadyExists, rvmMissingCacheKey:
+      vmRep = VMReport(
+        kind: kind,
+        str: diag.vmErr.msg,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    of rvmNotAField:
+      vmRep = VMReport(
+        kind: kind,
+        sym: diag.vmErr.sym,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    else:
+      vmRep = VMReport(
+        kind: kind,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+  of adVmGenError:
+    template magicToString(m: TMagic): string =
+      # TODO: duplicated above, consolidate
+      case m
+      of mSizeOf:   "sizeOf"
+      of mAlignOf:  "align"
+      of mOffsetOf: "offset"
+      else:         $m
 
-    traceFile = open(path, fmWrite)
-    inc fileIndex
-  of rdbgTraceUndefined:
-    let loc = r.location.get()
-    echo "$1($2, $3): closing trace, wrote $4 records" % [
-      conf.toFilename(loc), $loc.line, $loc.col, $counter]
+    let
+      kind = diag.vmGenErr.kind.astDiagVmGenToLegacyReportKind()
+      location = diag.location
 
-    close(traceFile)
-  else:
-    inc counter
-    conf.excl optUseColors
-    traceFile.write(conf.reportFull(r))
-    traceFile.write("\n")
-    traceFile.flushFile() # Forcefully flush the file in case of abrupt
-    # exit by the compiler.
-    conf.incl optUseColors
+    case diag.vmGenErr.kind
+    of adVmGenCannotCast:
+      vmRep = VMReport(
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rvmCannotCast,
+        actualType: diag.vmGenErr.actualType,
+        formalType: diag.vmGenErr.formalType)
+    of adVmGenCodeGenUnhandledMagic,
+        adVmGenMissingImportcCompleteStruct:
+      vmRep = VMReport(
+        str: magicToString(diag.vmGenErr.magic),
+        kind: kind,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    of adVmGenCannotImportc,
+        adVmGenCannotCallMethod,
+        adVmGenTooLargeOffset:
+      vmRep = VMReport(
+        str: "",
+        sym: diag.vmGenErr.sym,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind)
+    of adVmGenNotUnused,
+        adVmGenCannotEvaluateAtComptime:
+      vmRep = VMReport(
+        ast: diag.vmGenErr.ast,
+        kind: kind,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    else:
+      vmRep = VMReport(
+        kind: kind,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+  of adVmQuit:
+    vmRep = VMReport(
+      kind: rvmQuit,
+      exitCode: diag.vmExitCode,
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo)
+
+  result =
+    case kind
+    of repVMKinds:
+      if diag.kind == adVmGenError and diag.duringJit or
+          diag.kind == adVmError:
+        let st =
+          case diag.kind
+          of adVmGenError: diag.vmGenTrace
+          of adVmError:    diag.vmTrace
+          else:            unreachable()
+
+        {.cast(noSideEffect).}: # side-effect analysis fails
+          vmRep.trace =
+            (ref VMReport)(kind: rvmStackTrace,
+                      currentExceptionA: st.currentExceptionA,
+                      currentExceptionB: st.currentExceptionB,
+                      stacktrace: st.stacktrace,
+                      skipped: st.skipped,
+                      location: some st.location,
+                      reportInst: toReportLineInfo(st.instLoc))
+
+      Report(category: repVM, vmReport: vmRep)
+    of repSemKinds:
+      Report(category: repSem, semReport: semRep)
+    else:
+      unreachable()
+
+proc legacyReportBridge*(conf: ConfigRef, diag: PAstDiag): Report =
+  ## Converts AST Diagnostics to legacy reports; meant to be assigned to a
+  ## `ConfigRef` as a procedural value and act as a callback.
+  # Not the ideal place for this proc, but I'd rather keep the reports mess in
+  # as few files as possible
+  # TODO: will use conf soon
+  astDiagToLegacyReport(conf, diag)
 
 proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## Default implementation of the report hook. Dispatches into
@@ -3719,51 +4037,46 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## category) `reportBody` overloads defined above
   assertKind r
   let wkind = conf.writabilityKind(r)
-  # debug reports can be both enabled and force enabled, and sem tracer
-  # first needs to be checked for the trace group rotation. So adding a
-  # case here is not really useful, since report writability kind does not
-  # necessarily dictate how it is written, just whether it can/must/cannot
-  # be written.
+  # debug reports can be both enabled and force enabled. So adding a case here
+  # is not really useful, since report writability kind does not necessarily
+  # dictate how it is written, just whether it can/must/cannot be written.
+  # xxx: the above convoluted comment brought to you by _glaring_ design flaws!
   if wkind == writeDisabled:
     return
-  elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
-    rotatedTrace(conf, r)
-  elif wkind == writeForceEnabled:
-    echo conf.reportFull(r)
-  elif r.kind == rsemProcessing and conf.hintProcessingDots:
-    # xxx: the report hook is handling processing dots output, why? this whole
-    #      infrastructure is overwrought. seriously, they're not hints, they're
-    #      progress indicators.
-    conf.write(".")
-    lastDot = true
   else:
-    var msg: seq[string]
-    if lastDot:
-      msg.add("")
-      lastDot = false
-
-    if conf.hack.reportInTrace:
-      var indent {.global.}: int
-      if r.kind == rdbgTraceStep:
-        indent = r.dbgTraceReport.semstep.level
-
-      case r.kind:
-        of rdbgTracerKinds:
-          msg.add(conf.reportFull(r))
+    if wkind == writeForceEnabled:
+      echo conf.reportFull(r)
+    elif r.kind == rsemProcessing and conf.hintProcessingDots:
+      # xxx: the report hook is handling processing dots output, why? this whole
+      #      infrastructure is overwrought. seriously, they're not hints, they're
+      #      progress indicators.
+      conf.write(".")
+    else:
+      var msg: seq[string]
+      if conf.hack.reportInTrace:
+        var indent {.global.}: int
+        case r.kind:
         of repSemKinds:
-          if 0 < indent:
+          if indent > 0:
             for line in conf.reportFull(r).splitLines():
               msg.add("  ]" & repeat("  ", indent) & " ! " & line)
           else:
             msg.add(conf.reportFull(r))
         else:
           msg.add(conf.reportFull(r))
-    else:
-      msg.add(conf.reportFull(r))
+      else:
+        msg.add(conf.reportFull(r))
 
-    if conf.hack.bypassWriteHookForTrace:
-      for item in msg:
-        echo item
-    else:
-      for item in msg:
-        conf.writeln(item)
+      if conf.hack.reportInTrace and conf.hack.bypassWriteHookForTrace:
+        # leverage `msgs` output once it's free of legacy reports
+        if stdOrrStdout in conf.lastMsgWasDot:
+          conf.lastMsgWasDot.excl stdOrrStdout
+          echo ""
+        for item in msg:
+          echo item
+      else:
+        for item in msg:
+          conf.writeln(item)
+  if r.category in {repInternal, repExternal, repBackend} and
+      conf.severity(r) in {rsevFatal, rsevError}:
+    result = doAbort

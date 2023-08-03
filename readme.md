@@ -32,10 +32,7 @@ This repository contains the Nimskull compiler, stdlib, tools, and documentation
 ## About the Project
 
 Nimskull (temporary name) is a *statically typed* *structured* programming
-language to create software (including itself) that is sustainable.
-
-The goal is to have a *statically typed* *structured* programming language to
-create software (including itself) that is sustainable, it aims to be:
+language to create software (itself included) that is sustainable, it aims to be:
 
 - *Safe:* statically typed, nil safe, with structured approach to resources and
   concurrency
@@ -219,38 +216,45 @@ and community.
 <details>
 <summary class"blue">Why start with Nim?</summary>
 </br>
+
 It's convenient. Creating a compiler from scratch is labour intensive and the
 existing contributors are already familiar with the current code base. We chose
 to evolve it.
+
 </details>
 
 <details>
 <summary class="blue">Will this break my Nim code?</summary>
 </br>
+
 This project aims to become a different programming language, if you want Nim go use that.
+
 </details>
 
 <details>
 <summary class="blue">Can I help somehow?</summary>
 </br>
+
 There is lots to do, and we're very interested in people contributing to the compiler.
 First step is getting a development environment setup, then join the
-<a href="https://matrix.to/#/#nimworks:envs.net?client=element.io">matrix chat</a> and introduce yourself. It's a small community so time
+[matrix chat][nim-works-matrix] and introduce yourself. It's a small community so time
 zones might not align, so please be patient.
 
 We're presently reworking much of the compiler, removing dialects and half-baked
 features to end up with a slim down core. Some areas of contribution:
 
-- <a href="https://github.com/nim-works/nimskull/projects">reworking the internal error handling</a>
+- [reworking the internal error handling](https://github.com/nim-works/nimskull/projects)
 - improving the compiler internal [debugging and tracing tools](https://nim-works.github.io/nimskull/debug.html)
-- <a href="https://github.com/nim-works/nimskull/projects/2">"language spec as tests" effort</a>
+- ["language spec as tests" effort](https://github.com/nim-works/nimskull/projects/2)
 
 </details>
 
 <details>
 <summary class="blue">Any chat room on matrix/irc/discord?</summary>
 </br>
-Yes! Feel free to join us on our [nim-works channel!][nim-works-matrix] Please have a read of our [Code of Conduct](https://github.com/nim-works/nimskull/blob/devel/CODE_OF_CONDUCT.md)
+
+Yes! Feel free to join us on our [nim-works channel][nim-works-matrix]! Please have a read of our [Code of Conduct](https://github.com/nim-works/nimskull/blob/devel/CODE_OF_CONDUCT.md)
+
 </details>
 <p align="right">(<a href="#top">back to top</a>)</p>
 

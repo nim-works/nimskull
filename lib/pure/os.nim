@@ -68,7 +68,7 @@ else:
   {.pragma: noWeirdTarget.}
 
 when defined(nimscript):
-  # for procs already defined in scriptconfig.nim
+  # for procs already defined in scripting.nim
   template noNimJs(body): untyped = discard
 elif defined(js):
   {.pragma: noNimJs, error: "this proc is not available on the js target".}
@@ -248,10 +248,7 @@ proc splitPath*(path: string): tuple[head, tail: string] {.
     assert splitPath("usr/local/bin") == ("usr/local", "bin")
     assert splitPath("usr/local/bin/") == ("usr/local/bin", "")
     assert splitPath("/bin/") == ("/bin", "")
-    when (NimMajor, NimMinor) <= (1, 0):
-      assert splitPath("/bin") == ("", "bin")
-    else:
-      assert splitPath("/bin") == ("/", "bin")
+    assert splitPath("/bin") == ("/", "bin")
     assert splitPath("bin") == ("", "bin")
     assert splitPath("") == ("", "")
 
@@ -262,10 +259,7 @@ proc splitPath*(path: string): tuple[head, tail: string] {.
       break
   if sepPos >= 0:
     result.head = substr(path, 0,
-      when (NimMajor, NimMinor) <= (1, 0):
-        sepPos-1
-      else:
-        if likely(sepPos >= 1): sepPos-1 else: 0
+      if likely(sepPos >= 1): sepPos-1 else: 0
     )
     result.tail = substr(path, sepPos+1)
   else:
@@ -448,8 +442,7 @@ proc relativePath*(path, base: string, sep = DirSep): string {.
     if not f.hasNext(path): break
     ff = f.next(path)
 
-  when not defined(nimOldRelativePathBehavior):
-    if result.len == 0: result.add "."
+  if result.len == 0: result.add "."
 
 proc isRelativeTo*(path: string, base: string): bool {.since: (1, 1).} =
   ## Returns true if `path` is relative to `base`.
@@ -3465,9 +3458,9 @@ proc getCurrentProcessId*(): int {.noWeirdTarget.} =
   ## See also:
   ## * `osproc.processID(p: Process) <osproc.html#processID,Process>`_
   when defined(windows):
-    proc GetCurrentProcessId(): DWORD {.stdcall, dynlib: "kernel32",
-                                        importc: "GetCurrentProcessId".}
-    result = GetCurrentProcessId().int
+    proc winGetCurrentProcessId(): DWORD {.stdcall, dynlib: "kernel32",
+                                           importc: "GetCurrentProcessId".}
+    result = winGetCurrentProcessId().int
   else:
     result = getpid()
 
@@ -3513,3 +3506,10 @@ func isValidFilename*(filename: string, maxLen = 259.Positive): bool {.since: (1
     find(f.name, invalidFilenameChars) != -1): return false
   for invalid in invalidFilenames:
     if cmpIgnoreCase(f.name, invalid) == 0: return false
+
+proc getExecArgs*(): seq[string] =
+  ## Returns arguments given by the OS to the running process
+  ##
+  ## Does not contain the executable path (argv[0] in C). This is equivalent to argv[1..^1] in C.
+  for i in 1..paramCount():
+    result.add(paramStr(i))

@@ -71,28 +71,27 @@ when NimStackTraceMsgs:
   var frameMsgBuf* {.threadvar.}: string
 var
   framePtr {.threadvar.}: PFrame
-  excHandler {.threadvar.}: PSafePoint
-    # list of exception handlers
-    # a global variable for the root of all try blocks
   currException {.threadvar.}: ref Exception
   gcFramePtr {.threadvar.}: GcFrame
 
 type
   FrameState = tuple[gcFramePtr: GcFrame, framePtr: PFrame,
-                     excHandler: PSafePoint, currException: ref Exception]
+                     currException: ref Exception]
 
 proc getFrameState*(): FrameState {.compilerRtl, inl.} =
-  return (gcFramePtr, framePtr, excHandler, currException)
+  return (gcFramePtr, framePtr, currException)
 
 proc setFrameState*(state: FrameState) {.compilerRtl, inl.} =
   gcFramePtr = state.gcFramePtr
   framePtr = state.framePtr
-  excHandler = state.excHandler
   currException = state.currException
 
 proc getFrame*(): PFrame {.compilerRtl, inl.} = framePtr
 
 proc popFrame {.compilerRtl, inl.} =
+  # note: this procedure is potentially called while unwinding is happening,
+  # and thus must not, under any circumstances, perfom any action that might
+  # test or alter the error flag
   framePtr = framePtr.prev
 
 when false:
@@ -117,13 +116,6 @@ proc pushGcFrame*(s: GcFrame) {.compilerRtl, inl.} =
   s.prev = gcFramePtr
   zeroMem(cast[pointer](cast[int](s)+%sizeof(GcFrameHeader)), s.len*sizeof(pointer))
   gcFramePtr = s
-
-proc pushSafePoint(s: PSafePoint) {.compilerRtl, inl.} =
-  s.prev = excHandler
-  excHandler = s
-
-proc popSafePoint {.compilerRtl, inl.} =
-  excHandler = excHandler.prev
 
 proc pushCurrentException(e: sink(ref Exception)) {.compilerRtl, inl.} =
   e.up = currException
@@ -400,14 +392,7 @@ proc reportUnhandledError(e: ref Exception) {.nodestroy.} =
   when hostOS != "any":
     reportUnhandledErrorAux(e)
 
-proc nimLeaveFinally() {.compilerRtl.} =
-  if excHandler != nil:
-    c_longjmp(excHandler.context, 1)
-  else:
-    reportUnhandledError(currException)
-    quit(1)
-
-when gotoBasedExceptions:
+when true:
   var nimInErrorMode {.threadvar.}: bool
 
   proc nimErrorFlag(): ptr bool {.compilerRtl, inl.} =
@@ -417,13 +402,20 @@ when gotoBasedExceptions:
     ## This proc must be called before `currException` is destroyed.
     ## It also must be called at the end of every thread to ensure no
     ## error is swallowed.
-    if nimInErrorMode and currException != nil:
+    # clear the error flag before doing anything else. Otherwise the first
+    # non-magic call would cause this procedure to exit
+    var wasInErrorMode = false
+    swap(nimInErrorMode, wasInErrorMode)
+
+    if wasInErrorMode and currException != nil:
       reportUnhandledError(currException)
       currException = nil
       quit(1)
 
 proc raiseExceptionAux(e: sink(ref Exception)) {.nodestroy.} =
   when defined(nimPanics):
+    # XXX: the compiler should reject raise being used with defects. User-code
+    #      should raise defects via ``sysFatal``
     if e of Defect:
       reportUnhandledError(e)
       quit(1)
@@ -432,17 +424,9 @@ proc raiseExceptionAux(e: sink(ref Exception)) {.nodestroy.} =
     if not localRaiseHook(e): return
   if globalRaiseHook != nil:
     if not globalRaiseHook(e): return
-  when defined(nimQuirky) or gotoBasedExceptions:
-    pushCurrentException(e)
-    when gotoBasedExceptions:
-      inc nimInErrorMode
-  else:
-    if excHandler != nil:
-      pushCurrentException(e)
-      c_longjmp(excHandler.context, 1)
-    else:
-      reportUnhandledError(e)
-      quit(1)
+
+  pushCurrentException(e)
+  inc nimInErrorMode
 
 proc raiseExceptionEx(e: sink(ref Exception), ename, procname, filename: cstring,
                       line: int) {.compilerRtl, nodestroy.} =
@@ -474,10 +458,7 @@ proc reraiseException() {.compilerRtl.} =
   if currException == nil:
     sysFatal(ReraiseDefect, "no exception to reraise")
   else:
-    when gotoBasedExceptions:
-      inc nimInErrorMode
-    else:
-      raiseExceptionAux(currException)
+    inc nimInErrorMode
 
 proc threadTrouble() =
   # also forward declared, it is 'raises: []' hence the try-except.
@@ -568,12 +549,10 @@ when not defined(noSignalHandler) and not defined(useNimRtl):
     when defined(memtracker):
       logPendingOps()
     when hasSomeStackTrace:
-      when not usesDestructors: GC_disable()
       var buf = newStringOfCap(2000)
       rawWriteStackTrace(buf)
       processSignal(sign, buf.add) # nice hu? currying a la Nim :-)
       showErrorMessage2(buf)
-      when not usesDestructors: GC_enable()
     else:
       var msg: cstring
       template asgn(y) =

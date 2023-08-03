@@ -91,6 +91,8 @@ proc test() =
   doAssert sc.arr[1].b == 321
 
   var str = "---"
+  prepareMutation(str)
+
   changeChar(str[1])
   assertStrEq str, "-A-"
 

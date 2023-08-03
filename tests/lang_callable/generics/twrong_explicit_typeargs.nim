@@ -1,5 +1,5 @@
 discard """
-  errormsg: "cannot instantiate: 'newImage[string]'"
+  errormsg: "type mismatch: got <int literal(320), int literal(200)>"
   line: 16
 """
 

@@ -1,14 +1,15 @@
 discard """
+  description: "Tests for VM Operations (`vmops.nim`)"
   matrix: "--experimental:vmopsDanger"
   targets: "c js"
+  joinable: false
 """
 
-#[
-test for vmops.nim
-]#
-import os
-import math
-import strutils
+# marked as not joinable as this test executes the compiler (error prone)
+
+import std/os
+import std/math
+import std/strutils
 
 static:
   # TODO: add more tests
@@ -16,11 +17,11 @@ static:
     const nim = getCurrentCompilerExe()
     let ret = gorgeEx(nim & " --version")
     doAssert ret.exitCode == 0
-    doAssert ret.output.contains "Nim Compiler"
+    doAssert ret.output.contains "Nimskull Compiler"
     let ret2 = gorgeEx(nim & " --nonxistent")
     doAssert ret2.exitCode != 0
     let output3 = gorge(nim & " --version")
-    doAssert output3.contains "Nim Compiler"
+    doAssert output3.contains "Nimskull Compiler"
 
   block:
     const key = "D20181210T175037"

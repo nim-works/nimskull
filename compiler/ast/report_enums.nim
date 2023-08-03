@@ -21,20 +21,17 @@ type
 
     repVM = "VM" ## Report related to embedded virtual machine
 
-    repDbgTrace = "Trace" ## compiler execution expansion traces for debugging
-    ## or understaning the compiler
-
     repDebug = "Debug" ## Side channel for the compiler debug report. Helper
     ## messages designed specifically to aid development of the compiler
 
-    repInternal = "Internal" ## Reports constructed during hanling of the
+    repInternal = "Internal" ## Reports constructed during handling of
     ## internal compilation errors. Separate from debugging reports since
     ## they always exist - ICE, internal fatal errors etc.
 
     repBackend = "Backend" ## Backend-specific reports.
 
-    repExternal = "External" ## Report constructed during handling of the
-    ## external configuration, command-line flags, packages, modules.
+    repExternal = "External" ## Report constructed during handling of
+                             ## configuration, packages, modules.
 
 
   # TODO: "severity" in such a general fashion barely makes sense. Since
@@ -106,26 +103,19 @@ type
     rintErrKind = "ErrKind" ## Show report kind in error messages
                             # REFACTOR this is a global option not a hint
 
-    rintGCStats = "GCStats" ## Print GC statistics for the compiler run
     rintQuitCalled = "QuitCalled" ## `quit()` called by the macro code
     ## compilation error handling and similar
     rintMissingStackTrace ## Stack trace would've been generated in the
     ## debug compiler build
 
-    rintSuccessX = "SuccessX" ## Succesfull compilation
+    rintSuccessX = "SuccessX" ## Successful compilation, only used as a "note",
+                              ## it's not a hint either
     # hints END !! add reports BEFORE the last enum !!
 
     rintStackTrace = "StackTrace" ## Stack trace during internal
-    rintNimconfWrite
     rintListWarnings
     rintListHints
 
-    rintCliHelp # cli report first!
-    rintCliFullHelp
-    rintCliVersion
-    rintCliAdvancedUsage # cli report last!
-
-    rintDumpState
     rintEchoMessage # last !
 
     # internal reports END !! add reports BEFORE the last enum !!
@@ -133,51 +123,12 @@ type
     #--------------------------  External reports  ---------------------------#
     # External reports
     # errors begin
-    rextUnknownCCompiler
-
-    # malformed cmdline parameters begin
-    rextInvalidHint
-    rextInvalidWarning
-    rextInvalidCommandLineOption ## Invalid command-line option passed to
-                                 ## the compiler
-    rextOnlyAllOffSupported ## Only `all:off` is supported for mass
-    ## hint/warning modification. Separate diagnostics must be enabled on
-    ## one-by-one basis.
-    rextExpectedOnOrOff ## Command-line option expected 'on' or 'off' value
-    rextExpectedOnOrOffOrList ## Command-line option expected 'on', 'off'
-    ## or 'list' value.
-    rextExpectedCmdArgument ## Command-line option expected argument
-    rextExpectedNoCmdArgument ## Command-line option expected no arguments
-    rextInvalidNumber ## Command-line switch expected a number
-    rextInvalidValue
-    rextUnexpectedValue ## Command-line argument had value, but it did not
-    ## match with any expected.
-
-    rextIcUnknownFileName
-    rextIcNoSymbolAtPosition
-
-    rextExpectedCbackendForRun
-    rextExpectedTinyCForRun
-    rextInvalidCommand
-    rextCommandMissing
-    rextExpectedRunOptForArgs
-    rextUnexpectedRunOpt
-    rextInvalidPath ## Invalid path for a command-line argument
-
-    rextInvalidPackageName ## When adding packages from the `--nimbleDir`
-    ## (or it's default value), names are validated. This error is
-    ## generated if package name is not correct.
+    rextCmdRequiresFile ## fatal error, user failed to provide a file
     # errors END !! add reports BEFORE the last enum !!
 
-    # warnings begin
-    rextDeprecated ## Report about use of the deprecated feature that is
-    ## not in the semantic pass. Things like deprecated flags, compiler
-    ## commands and so on.
-    # warnings end
-
     # hints start
-    rextConf = "Conf" ## Processing user configutation file
-    rextPath = "Path" ## Add nimble path
+    rextConf = "Conf" ## Processed user configutation file; not a "report"
+    rextPath = "Path" ## Add nimble path; xxx: this isn't a "report"
     # hints END !! add reports BEFORE the last enum !!
 
     # external reports END !! add reports BEFORE the last enum !!
@@ -185,31 +136,33 @@ type
     #----------------------------  Lexer reports  ----------------------------#
     # Lexer report begin
     # errors begin
-    rlexMalformedUnderscores
+    rlexMalformedNumUnderscores
+    rlexMalformedIdentUnderscores
     rlexMalformedTrailingUnderscre
     rlexInvalidToken
+    rlexInvalidTokenSpaceBetweenNumAndIdent
     rlexNoTabs
 
     # numbers
-    rlexInvalidIntegerPrefix
+    rlexInvalidIntegerLiteralOctalPrefix
     rlexInvalidIntegerSuffix
     rlexNumberNotInRange
     rlexExpectedHex
     rlexInvalidIntegerLiteral
+    rlexInvalidNumericLiteral
 
     # char
     rlexInvalidCharLiteral
+    rlexInvalidCharLiteralConstant
+    rlexInvalidCharLiteralPlatformNewline
+    rlexInvalidCharLiteralUnicodeCodepoint
     rlexMissingClosingApostrophe
-    rlexInvalidUnicodeCodepoint
+    rlexInvalidUnicodeCodepointEmpty
+    rlexInvalidUnicodeCodepointGreaterThan0x10FFFF
 
     # string
     rlexUnclosedTripleString
     rlexUnclosedSingleString
-
-    # xxx: expected token and invalid direct are not really "lexer" errors, it
-    #      is `nimconf` module abusing error reporting facilities
-    rlexExpectedToken
-    rlexCfgInvalidDirective
 
     # comments
     rlexUnclosedComment
@@ -233,29 +186,29 @@ type
     # errors begin
     # regular nim parser
     rparInvalidIndentation
+    rparInvalidIndentationWithForgotEqualSignHint
     rparNestableRequiresIndentation
 
     rparIdentExpected
-    rparIdentOrKwdExpected
+    rparIdentExpectedEmptyAccQuote
     rparExprExpected
-    rparMissingToken
+    rparMissingToken         # also used in filter_tmpl
     rparUnexpectedToken
-    rparUnexpectedTokenKind
+    rparAsmStmtExpectsStrLit
 
     rparFuncNotAllowed
     rparTupleTypeWithPar
     rparMisplacedParameterVar
     rparConceptNotinType
-    rparRotineExpected
-    rparPragmaAlreadyPresent
     rparMisplacedExport
 
     rparPragmaBeforeGenericParameters
 
-    # template parser `filter_tmpl.nim`
+    # source filter template parser `filter_tmpl.nim`
     rparTemplMissingEndClose
     rparTemplInvalidExpression
 
+    # source filter `syntaxes.nim`
     rparInvalidFilter
 
     # erorrs END !! add reports BEFORE the last enum !!
@@ -275,7 +228,6 @@ type
     rvmCannotFindBreakTarget
     rvmNotUnused
     rvmUserError
-    rvmNotAFieldSymbol
     rvmTooLargetOffset
     rvmUnhandledException
     rvmCannotGenerateCode
@@ -283,11 +235,8 @@ type
     rvmGlobalError ## Error report that was declared as 'global' in the
     ## VM - with current 'globalError-is-a-control-flow-mechanism' approach
     ## this report is largely meaningless, and used only to raise exception.
-    rvmBadExpandToAst
     rvmCannotEvaluateAtComptime
     rvmCannotImportc
-    rvmInvalidObjectConstructor
-    rvmNoClosureIterators
     rvmCannotCallMethod
     rvmCallingNonRoutine
     rvmCannotModifyTypechecked
@@ -303,6 +252,7 @@ type
     rvmNodeNotASymbol
     rvmNodeNotAProcSymbol
     rvmIllegalConv
+    rvmIllegalConvFromXToY
     rvmMissingCacheKey
     rvmCacheKeyAlreadyExists
     rvmFieldNotFound
@@ -368,7 +318,6 @@ type
     rsemInvalidModuleName
     rsemCannotImportItself
     rsemRecursiveInclude
-    rsemRecursiveImport
     rsemCannotOpenFile
     rsemExportRequiresToplevel
     rsemExperimentalRequiresToplevel
@@ -447,6 +396,7 @@ type
     rsemEnableNotNilExperimental
     rsemEnableDotOperatorsExperimental
     rsemEnableCallOperatorExperimental
+    rsemUnexpectedPattern
     rsemExpectedObjectType
     rsemExpectedImportedType
     rsemUnexpectedExportcInAlias
@@ -479,6 +429,7 @@ type
     rsemIsOperatorTakes2Args
     rsemWrongNumberOfVariables
     rsemWrongNumberOfGenericParams
+    rsemCalleeHasAnError
     rsemNoGenericParamsAllowed
     rsemAmbiguousCall
     rsemCallingConventionMismatch
@@ -586,9 +537,7 @@ type
     rsemOldTakesParameterName
     rsemOldDoesNotBelongTo
     rsemCannotFindPlugin
-    rsemExpectedProcReferenceForFinalizer
     rsemCannotIsolate
-    rsemCannotInterpretNode
     rsemRecursiveDependencyIterator
     rsemIllegalNimvmContext
     rsemDisallowedNilDeref
@@ -598,6 +547,7 @@ type
     rsemCannotAssignTo
     rsemNoReturnTypeDeclared
     rsemReturnNotAllowed
+    rsemIllegalCompileTimeAccess
     rsemCannotInferReturnType
     rsemExpectedValueForYield
     rsemUnexpectedYield
@@ -636,6 +586,7 @@ type
     # Identifier Lookup
     rsemUndeclaredIdentifier
     rsemExpectedIdentifier
+    rsemExpectedIdentifierQuoteLimit
     rsemExpectedIdentifierInExpr
     rsemExpectedIdentifierWithExprContext
     rsemModuleAliasMustBeIdentifier
@@ -701,7 +652,6 @@ type
     rsemExpectedLiteralForGoto
     rsemRequiresDeepCopyEnabled
     rsemDisallowedOfForPureObjects
-    rsemDisallowedReprForNewruntime
     rsemCannotCodegenCompiletimeProc
 
     # Pragma
@@ -733,6 +683,10 @@ type
       ## underspecified. This is not a matter of reenabling it as a rethinking
       ## the approach from a first principles perspective is required.
 
+    rsemIllegalCompileTime
+      ## when used on variables, the ``.compileTime`` pragma must only be
+      ## applied to locals inside compile-time procedures or to globals
+
     rsemSymbolKindMismatch
     rsemIllformedAst
     rsemInitHereNotAllowed
@@ -759,6 +713,9 @@ type
     rsemLinePragmaExpectsTuple
     rsemRaisesPragmaExpectsObject
 
+    rsemCompilerOptionInvalid
+    rsemCompilerOptionArgInvalid
+
     # -- locking
     rsemLocksPragmaExpectsList
     rsemLocksPragmaBadLevel
@@ -775,8 +732,6 @@ type
     rsemBorrowPragmaNonDot
     rsemInvalidExtern
     rsemInvalidPragmaBlock
-    rsemBadDeprecatedArg
-    rsemBadDeprecatedArgs
     rsemMisplacedEffectsOf
     rsemMissingPragmaArg
     rsemErrGcUnsafe
@@ -784,12 +739,14 @@ type
     # END !! add reports BEFORE the last enum !!
 
     # Semantic warnings begin
-    rsemUserWarning            = "User" ## `{.warning: }`
-    rsemUnknownMagic           = "UnknownMagic"
-    rsemUnusedImport           = "UnusedImport"
-    rsemDeprecated             = "Deprecated"
-    rsemLockLevelMismatch      = "LockLevel"
-    rsemTypelessParam          = "TypelessParam"
+    rsemUserWarning              = "User" ## `{.warning: }`
+    rsemUnknownMagic             = "UnknownMagic"
+    rsemUnusedImport             = "UnusedImport"
+    rsemDeprecated               = "Deprecated"
+    rsemDeprecatedCompilerOpt    = "Deprecated"
+    rsemDeprecatedCompilerOptArg = "Deprecated"
+    rsemLockLevelMismatch        = "LockLevel"
+    rsemTypelessParam            = "TypelessParam"
     rsemOwnedTypeDeprecated
 
     rsemWarnUnlistedRaises = "Effect" ## `sempass2.checkRaisesSpec` had
@@ -827,7 +784,6 @@ type
     rsemUnsafeDefault          = "UnsafeDefault"
     rsemBindDeprecated
     rsemObservableStores       = "ObservableStores"
-    rsemCaseTransition         = "CaseTransition"
     rsemUseOfGc                = "GcMem" # last !
     # END !! add reports BEFORE the last enum !!
 
@@ -836,7 +792,7 @@ type
     rsemUserHint = "User" ## `{.hint: .}` pragma encountereed
     rsemLinterReport  = "Name"
     rsemLinterReportUse = "Name"
-    rsemHintLibDependency
+    rsemHintLibDependency = "Dependency"
     rsemXDeclaredButNotUsed = "XDeclaredButNotUsed"
     rsemDuplicateModuleImport = "DuplicateModuleImport"
     rsemXCannotRaiseY = "XCannotRaiseY"
@@ -862,7 +818,6 @@ type
 
     rsemEffectsListingHint
     rsemExpandMacro = "ExpandMacro" ## Trace macro expansion progress
-    rsemExpandArc = "ExpandArc"
 
     rsemCompilesReport
     rsemNonMatchingCandidates
@@ -884,26 +839,13 @@ type
     rcmdCompiling = "CC"
     rcmdLinking = "Link"
     rcmdExecuting = "Exec"
-    rcmdRunnableExamplesSuccess
+    rcmdRunnableExamplesSuccess = "Success"
     # hints END !! add reports BEFORE the last enum !!
-
-    #----------------------------  Trace reports  ----------------------------#
-
-    rdbgTraceDefined # first ! trace begin
-    rdbgTraceUndefined
-    rdbgTraceStart
-    rdbgTraceStep
-    rdbgTraceLine
-    rdbgTraceEnd # last ! trace end
 
     #----------------------------  Debug reports  ----------------------------#
     rdbgVmExecTraceFull
     rdbgVmExecTraceMinimal
     rdbgVmCodeListing
-
-    rdbgStartingConfRead
-    rdbgFinishedConfRead
-    rdbgCfgTrace
 
     rdbgOptionsPush
     rdbgOptionsPop
@@ -911,11 +853,10 @@ type
     #---------------------------  Backend reports  ---------------------------#
     # errors start
     rbackCannotWriteScript ## Cannot write build script to a cache file
-    rbackCannotWriteMappingFile ## Canot write module compilation mapping
+    rbackCannotWriteMappingFile ## Cannot write module compilation mapping
     ## file to cache directory
     rbackTargetNotSupported ## C compiler does not support requested target
     rbackJsTooCaseTooLarge
-    rbackJsUnsupportedClosureIter
     rbackJsonScriptMismatch # ??? used in `extccomp.nim`, TODO figure out
     # what the original mesage was responsible for exactly
 
@@ -958,7 +899,7 @@ const rstWarnings* = {rbackRstTestUnsupported .. rbackRstRstStyle}
 
 type
   LexerReportKind* = range[
-    rlexMalformedUnderscores .. rlexSourceCodeFilterOutput]
+    rlexMalformedNumUnderscores .. rlexSourceCodeFilterOutput]
 
   ParserReportKind* = range[rparInvalidIndentation .. rparEnablePreviewDotOps]
   VMReportKind* = range[rvmOpcParseExpectedExpression .. rvmStackTrace]
@@ -969,13 +910,11 @@ type
 
   CmdReportKind* = range[rcmdFailedExecution .. rcmdRunnableExamplesSuccess]
 
-  DbgTraceReportKind* = range[rdbgTraceDefined .. rdbgTraceEnd]
-  
   DebugReportKind* = range[rdbgVmExecTraceFull .. rdbgOptionsPop]
 
   BackendReportKind* = range[rbackCannotWriteScript .. rbackLinking]
 
-  ExternalReportKind* = range[rextUnknownCCompiler .. rextPath]
+  ExternalReportKind* = range[rextCmdRequiresFile .. rextPath]
 
   InternalReportKind* = range[rintUnknown .. rintEchoMessage]
 
@@ -985,7 +924,7 @@ const
   repLexerKinds*    = {low(LexerReportKind) .. high(LexerReportKind)}
   rlexHintKinds*    = {rlexLineTooLong .. rlexSourceCodeFilterOutput}
   rlexWarningKinds* = {rlexDeprecatedOctalPrefix .. rlexDeprecatedOctalPrefix}
-  rlexErrorKinds*   = {rlexMalformedUnderscores .. rlexUnclosedComment}
+  rlexErrorKinds*   = {rlexMalformedNumUnderscores .. rlexUnclosedComment}
 
 
   #-------------------------------  parser  --------------------------------#
@@ -1021,9 +960,6 @@ const
   rcmdWarningKinds* = default(set[ReportKind])
   rcmdHintKinds* = {rcmdCompiling .. rcmdRunnableExamplesSuccess}
 
-  #--------------------------------  trace  --------------------------------#
-  repDbgTraceKinds* = {low(DbgTraceReportKind) .. high(DbgTraceReportKind)}
-
   #--------------------------------  debug  --------------------------------#
   repDebugKinds* = {low(DebugReportKind) .. high(DebugReportKind)}
 
@@ -1035,8 +971,7 @@ const
 
   #------------------------------  external  -------------------------------#
   repExternalKinds* = {low(ExternalReportKind) .. high(ExternalReportKind)}
-  rextErrorKinds* = {rextUnknownCCompiler .. rextInvalidPackageName}
-  rextWarningKinds* = {rextDeprecated}
+  rextErrorKinds* = {rextCmdRequiresFile .. rextCmdRequiresFile}
   rextHintKinds* = {rextConf .. rextPath}
 
 
@@ -1050,7 +985,6 @@ const
   rintWarningKinds* = {rintWarnCannotOpenFile .. rintWarnFileChanged}
   rintHintKinds* = {rintSource .. rintSuccessX}
   rintDataPassKinds* = {rintStackTrace .. rintEchoMessage}
-  rintCliKinds* = {rintCliHelp .. rintCliAdvancedUsage}
 
 
 const
@@ -1059,14 +993,12 @@ const
       rlexWarningKinds +
       rparWarningKinds +
       rbackWarningKinds +
-      rextWarningKinds +
       rvmWarningKinds +
       rcmdWarningKinds +
       rintWarningKinds
 
   repTraceKinds*: ReportKinds =
     {rvmStackTrace, rintStackTrace} +
-    repDbgTraceKinds +
     repDebugKinds
 
   repHintKinds*: ReportKinds    =
@@ -1120,7 +1052,6 @@ static:
       set[ReportKind](repParserKinds) +
       set[ReportKind](repInternalKinds) +
       set[ReportKind](repExternalKinds) +
-      set[ReportKind](repDbgTraceKinds) +
       set[ReportKind](repDebugKinds) +
       set[ReportKind](repBackendKinds) +
       set[ReportKind](repCmdKinds) +

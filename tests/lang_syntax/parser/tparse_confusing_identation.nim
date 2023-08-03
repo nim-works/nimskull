@@ -3,11 +3,11 @@ discard """
   cmd: "nim check $options $file"
   action: "reject"
   nimout: '''
-tparse_confusing_identation.nim(23, 5) Error: invalid indentation, maybe you forgot a '=' at tparse_confusing_identation.nim(22, 13) ?
-tparse_confusing_identation.nim(28, 5) Error: invalid indentation, maybe you forgot a '=' at tparse_confusing_identation.nim(26, 13) ?
-tparse_confusing_identation.nim(33, 5) Error: invalid indentation, maybe you forgot a '=' at tparse_confusing_identation.nim(31, 25) ?
-tparse_confusing_identation.nim(42, 5) Error: invalid indentation, maybe you forgot a '=' at tparse_confusing_identation.nim(38, 12) ?
-tparse_confusing_identation.nim(56, 5) Error: invalid indentation, maybe you forgot a '=' at tparse_confusing_identation.nim(55, 13) ?
+tparse_confusing_identation.nim(23, 5) Error: invalid indentation, maybe missing '=' at tparse_confusing_identation.nim(22, 13)?
+tparse_confusing_identation.nim(28, 5) Error: invalid indentation, maybe missing '=' at tparse_confusing_identation.nim(26, 13)?
+tparse_confusing_identation.nim(33, 5) Error: invalid indentation, maybe missing '=' at tparse_confusing_identation.nim(31, 25)?
+tparse_confusing_identation.nim(42, 5) Error: invalid indentation, maybe missing '=' at tparse_confusing_identation.nim(38, 12)?
+tparse_confusing_identation.nim(56, 5) Error: invalid indentation, maybe missing '=' at tparse_confusing_identation.nim(55, 13)?
 tparse_confusing_identation.nim(61, 48) Error: expression expected, but found ','
 '''
 """

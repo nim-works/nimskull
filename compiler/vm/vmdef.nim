@@ -10,9 +10,11 @@
 ## This module contains the type definitions for the new evaluation engine.
 ## An instruction is 1-3 int32s in memory, it is a register based VM.
 
-import std/tables
-
 import
+  std/[
+    intsets,
+    tables
+  ],
   compiler/ast/[
     ast,
     idents,
@@ -71,6 +73,13 @@ type
   TDest* = range[-1..regAMask.int]
   TInstr* = distinct TInstrType
 
+  NumericConvKind* = enum
+    ## Identifies the numeric conversion kind.
+    ## I = signed; U = unsigned; F = float;
+    nckFToI, nckFToU
+    nckIToF, nckUToF
+    nckFToF ## float-to-float
+    nckToB  ## float or int to bool
 
   TBlock* = object
     label*: PSym
@@ -269,22 +278,40 @@ type
     fnc*: VmFunctionPtr
     env*: HeapSlotHandle
 
-  # XXX: once first class openArray support is available during bootstrapping,
-  #      `MemRegionPtr` could be turned into `openArray[byte]`
-  MemRegionPtr* = object
-    ## A pointer to a region of memory
-    p: ptr UncheckedArray[byte]
-    l: int
+  VmMemPointer* = distinct ptr UncheckedArray[byte]
+    ## A pointer into a memory region managed by the VM (i.e. guest memory)
   VmMemoryRegion* = openArray[byte]
 
+  CellId* = int
+  CellPtr* = distinct ptr UncheckedArray[byte]
+    ## A pointer that either is nil or points to the start of a VM memory cell
+
   LocHandle* = object
-    ## A handle to a ``location``
-    h*: MemRegionPtr
-    typ* {.cursor.}: PVmType # ownership of `typ` is not needed
+    ## A handle to a VM memory location. Since looking up the cell a location
+    ## is part of is a very common operation (due to access checks), the cell's
+    ## ID is also stored here.
+    cell*: CellId
+      ## the ID of the cell that owns the location
+    p*: VmMemPointer
+      ## the memory address of the reference location, in host address space
+    typ* {.cursor.}: PVmType
+      ## the type that the handles views the location as
+
+  VmSlice* = object
+    ## A loaded slice. Stores all information that the VM needs to efficiently
+    ## access the referenced guest memory. A `VmSlice` is not meant to be
+    ## stored in guest memory, but rather for internal use by the VM.
+    cell*:  CellId           ## the cell of which the locations are part of
+    start*: VmMemPointer     ## start of the slice (or ``nil``)
+    len*:   int              ## the number of items
+    typ* {.cursor.}: PVmType ## the item type
 
   VmSeq* = object
+    # XXX: consider storing the cell's ID instead of the pointer. Doing so
+    #      would significantly speed up seq/string access, as no costly
+    #      pointer-to-id mapping operation has to take place then
     length*: int
-    data*: MemRegionPtr
+    data*: CellPtr
 
   VmString* = distinct VmSeq
 
@@ -308,16 +335,12 @@ type
     of rkInt: intVal*: BiggestInt
     of rkFloat: floatVal*: BiggestFloat
     of rkAddress:
-      addrVal*: MemRegionPtr
+      addrVal*: pointer
       addrTyp*: PVmType
     of rkLocation, rkHandle:
       handle*: LocHandle
     of rkNimNode:
       nimNode*: PNode
-
-    of rkRegAddr:
-      regAddr*: ptr TFullReg
-
 
   # XXX should probably be a distinct int
   HeapSlotHandle* = int
@@ -350,7 +373,7 @@ type
     cnstSliceListStr
 
   ConstantId* = int ## The ID of a `VmConstant`. Currently just an index into
-                    ## `PCtx.constants`
+                    ## `TCtx.constants`
 
   VmConstant* = object
     ## `VmConstant`s are used for passing constant data from `vmgen` to the
@@ -388,6 +411,12 @@ type
     sym*: PSym
     regInfo*: seq[RegInfo]
 
+    addressTaken*: IntSet
+      ## the set of locations (identified by their symbol id) that have their
+      ## address taken or a view of them created. This information is used to
+      ## decide whether a full VM memory location is required, or if the
+      ## value can be stored in a register directly
+
     # XXX: the value's type should be `TRegister`, but we need a sentinel
     #      value (-1) for `getOrDefault`, so it has to be `int`
     locals*: Table[int, int] ## symbol-id -> register index. Used for looking
@@ -397,7 +426,9 @@ type
   VmArgs* = object
     ra*, rb*, rc*: Natural
     slots*: ptr UncheckedArray[TFullReg]
-    currentException*: HeapSlotHandle
+    # TODO: rework either the callback or exception handling (or both) so that
+    #       no pointer is required here
+    currentExceptionPtr*: ptr HeapSlotHandle
     currentLineInfo*: TLineInfo
 
     # XXX: These are only here as a temporary measure until callback handling
@@ -410,13 +441,46 @@ type
                                   ## symbol identifier
   VmCallback* = proc (args: VmArgs) {.closure.}
 
+  VmCell* = object
+    ## Stores information about a memory cell allocated by the VM's allocator
+    count*: int
+      ## stores the number of locations for cells that are in-use; for free
+      ## cells this is the next pointer
+      # TODO: once ``VmCell`` is part of the ``vmmemory`` module, don't export
+      #       `count` nor access it directly -- use accessors instead
+    sizeInBytes*: int
+      ## the total number of *guest-accesible* bytes the cell occupies
+
+    p*: ptr UncheckedArray[byte]
+    typ* {.cursor.}: PVmType
+
+  # ---------- Future work --------------
+  #
+  # 1) use a separate cell type and list for stack cells. They don't require
+  #    the `count` field and have a different usage pattern, i.e. push/pop
+  #    (not yet but eventually).
+  #
+  # 2) merge ``VmHeap`` into ``VmAllocator``. Neither a separate cell type
+  #    (i.e. ``HeapSlot``) nor the separate list is required for refcounted
+  #    cell anymore. Merging them will simplify the allocator and speed up
+  #    ``ref``s.
+  #    The ``count`` field of ``VmCell`` should be used for storing the
+  #    refcounter for refcounted cells.
+  #
+  # 3) don't use a linear search for mapping an address to a cell. In addition,
+  #    don't consider free cells during the search.
+
   VmAllocator* = object
-    # XXX: the current implementation of the allocator is overly simple and
-    #      only temporary
     # XXX: support for memory regions going past the 0..2^63 (or 0..2^31)
     #      region is very fuzzy at the moment due to the mixing of int
     #      and uint
-    regions*: seq[tuple[typ: PVmType, count: int, start: int, len: int]]
+    cells*: seq[VmCell]
+      ## the underlying storage for the cell slots. Both stack and
+      ## (non-refcounted) heap slots are included here
+
+    # the intrusive linked list storing all free cells:
+    freeHead*, freeTail*: int
+
     byteType*: PVmType ## The VM type for `byte`
 
   VmMemoryManager* = object
@@ -497,63 +561,33 @@ type
   LinkIndex* = uint32 ## Depending on the context: `FunctionIndex`; index
     ## into `TCtx.globals`; index into `TCtx.complexConsts`
 
-  # XXX: design of `CodeGenInOut` is not yet final
-  CodeGenInOut* = object
-    ## Mutable global state for the code-generator (`vmgen`) that is not
-    ## directly related to the code being generated.
-    ##
-    ## The `newX` seqs accumulate the symbols added to `symToIndexTbl` during
-    ## code-gen, with a seq for each link-item kind. They're never reset by
-    ## `vmgen`.
-    ##
-    ## The `nextX` values hold the `LinkIndex` to use for new entries
-    ## added to `symToIndexTbl`. They're incremented after a respective
-    ## new entry is added.
-    newProcs*: seq[PSym]
-    newGlobals*: seq[PSym]
-    newConsts*: seq[PSym]
-
-    nextProc*: LinkIndex
-    nextGlobal*: LinkIndex
-    nextConst*: LinkIndex
-
-    flags*: set[CodeGenFlag] ## input
-  
   VmGenDiagKind* = enum
     # has no extra data
-    vmGenDiagBadExpandToAstArgRequired
-    vmGenDiagBadExpandToAstCallExprRequired
     vmGenDiagTooManyRegistersRequired
     vmGenDiagCannotFindBreakTarget
     # has ast data
     vmGenDiagNotUnused
-    vmGenDiagNotAFieldSymbol
-    vmGenDiagCannotGenerateCode
     vmGenDiagCannotEvaluateAtComptime
-    vmGenDiagInvalidObjectConstructor
     # has magic data
     vmGenDiagMissingImportcCompleteStruct
     vmGenDiagCodeGenUnhandledMagic
     # has sym data
-    vmGenDiagCodeGenGenericInNonMacro
-    vmGenDiagCodeGenUnexpectedSym
     vmGenDiagCannotImportc
     vmGenDiagTooLargeOffset
-    vmGenDiagNoClosureIterators
     vmGenDiagCannotCallMethod
     # has type mismatch data
     vmGenDiagCannotCast
-  
+
   VmGenDiagKindAstRelated* =
-    range[vmGenDiagNotUnused..vmGenDiagInvalidObjectConstructor]
+    range[vmGenDiagNotUnused..vmGenDiagCannotEvaluateAtComptime]
     # TODO: this is a somewhat silly type, the range allows creating type safe
     #       diag construction functions -- see: `vmgen.fail`
-  
+
   VmGenDiagKindSymRelated* =
-    range[vmGenDiagCodeGenGenericInNonMacro..vmGenDiagCannotCallMethod]
+    range[vmGenDiagCannotImportc..vmGenDiagCannotCallMethod]
     # TODO: this is a somewhat silly type, the range allows creating type safe
     #       diag construction functions -- see: `vmgen.fail`
-  
+
   VmGenDiagKindMagicRelated* =
     range[vmGenDiagMissingImportcCompleteStruct..vmGenDiagCodeGenUnhandledMagic]
     # TODO: this is a somewhat silly type, the range allows creating type safe
@@ -569,11 +603,8 @@ type
     location*: TLineInfo        ## diagnostic location
     instLoc*: InstantiationInfo ## instantiation in VM Gen's source
     case kind*: VmGenDiagKind
-      of vmGenDiagCodeGenGenericInNonMacro,
-          vmGenDiagCodeGenUnexpectedSym,
-          vmGenDiagCannotImportc,
+      of vmGenDiagCannotImportc,
           vmGenDiagTooLargeOffset,
-          vmGenDiagNoClosureIterators,
           vmGenDiagCannotCallMethod:
         sym*: PSym
       of vmGenDiagCannotCast:
@@ -582,14 +613,9 @@ type
           vmGenDiagCodeGenUnhandledMagic:
         magic*: TMagic
       of vmGenDiagNotUnused,
-          vmGenDiagNotAFieldSymbol,
-          vmGenDiagCannotGenerateCode,
-          vmGenDiagCannotEvaluateAtComptime,
-          vmGenDiagInvalidObjectConstructor:
+          vmGenDiagCannotEvaluateAtComptime:
         ast*: PNode
-      of vmGenDiagBadExpandToAstArgRequired,
-          vmGenDiagBadExpandToAstCallExprRequired,
-          vmGenDiagTooManyRegistersRequired,
+      of vmGenDiagTooManyRegistersRequired,
           vmGenDiagCannotFindBreakTarget:
         discard
 
@@ -613,6 +639,7 @@ type
     vmEvtNodeNotASymbol
     vmEvtNodeNotAProcSymbol
     vmEvtIllegalConv
+    vmEvtIllegalConvFromXToY
     vmEvtMissingCacheKey
     vmEvtCacheKeyAlreadyExists
     vmEvtFieldNotFound
@@ -637,7 +664,7 @@ type
         callName*: string
         argAst*: PNode
         argPos*: int
-      of vmEvtCannotCast:
+      of vmEvtCannotCast, vmEvtIllegalConvFromXToY:
         typeMismatch*: VmTypeMismatch
       of vmEvtIndexError:
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
@@ -646,8 +673,11 @@ type
           vmEvtCacheKeyAlreadyExists, vmEvtMissingCacheKey:
         msg*: string
       of vmEvtCannotSetChild, vmEvtCannotAddChild, vmEvtCannotGetChild,
-          vmEvtUnhandledException, vmEvtNoType, vmEvtNodeNotASymbol:
+         vmEvtNoType, vmEvtNodeNotASymbol:
         ast*: PNode
+      of vmEvtUnhandledException:
+        exc*: PNode
+        trace*: VmRawStackTrace
       of vmEvtNotAField:
         sym*: PSym
       else:
@@ -674,8 +704,9 @@ type
     stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
     skipped*: int
 
-  PCtx* = ref TCtx
-  TCtx* = object of TPassContext
+  VmRawStackTrace* = seq[tuple[sym: PSym, pc: PrgCtr]]
+
+  TCtx* = object
     # XXX: TCtx stores three different things:
     #  - VM execution state
     #  - VM environment (code, constants, type data, etc.)
@@ -699,17 +730,29 @@ type
       ## for each procedure known to the VM. Indexed by `FunctionIndex`
     memory*: VmMemoryManager
 
-    # linker state:
+    # code generator state:
     symToIndexTbl*: Table[int, LinkIndex] ## keeps track of all known
       ## dependencies. Expanded during code-generation and used for looking
       ## up the link-index (e.g. `FunctionIndex`) of a symbol
 
-    codegenInOut*: CodeGenInOut ## Input and outputs to vmgen
-    # TODO: `codegenInOut` shouldn't be part of `TCtx` but rather a `var`
-    #       parameter for the various codegen functions
+    collectedGlobals*: seq[PSym]
+      ## leaked implementation detail of ``vmbackend.nim`` -- don't use
 
+    flags*: set[CodeGenFlag] ## flags that alter the behaviour of the code
+      ## generator. Initialized by the VM's callsite and queried by the JIT.
+    # XXX: `flags` is code generator / JIT state, and needs to be moved out of
+    #      ``TCtx``
+
+    # exception state:
+    # XXX: this is thread-local state and should thus not be part of the
+    #      global context
     currentExceptionA*, currentExceptionB*: HeapSlotHandle
-    exceptionInstr*: int # index of instruction that raised the exception
+    activeException*: HeapSlotHandle ## the exception that is currently
+      ## in-flight (i.e. being raised), or nil, if none is in-flight. Note that
+      ## `activeException` is different from `currentException`.
+    activeExceptionTrace*: VmRawStackTrace ##
+      ## the stack-trace of where the exception was raised from
+
     prc*: PProc
     module*: PSym
     callsite*: PNode
@@ -725,7 +768,7 @@ type
     cache*: IdentCache
     config*: ConfigRef
     graph*: ModuleGraph
-    oldErrorCount*: int
+    idgen*: IdGenerator
     profiler*: Profiler
     templInstCounter*: ref int # gives every template instantiation a unique ID, needed here for getAst
     vmstateDiff*: seq[(PSym, PNode)] # we remember the "diff" to global state here (feature for IC)
@@ -737,18 +780,21 @@ type
     prc*: PSym                 # current prc; proc that is evaluated
     slots*: seq[TFullReg]      # parameters passed to the proc + locals;
                               # parameters come first
-    next*: StackFrameIndex         # for stacking
+
     comesFrom*: int
     safePoints*: seq[int]      # used for exception handling
                               # XXX 'break' should perform cleanup actions
                               # What does the C backend do for it?
+
+    savedPC*: PrgCtr         ## remembers the program counter of the ``Ret``
+                             ## instruction during cleanup. -1 indicates that
+                             ## no clean-up is happening
+
   Profiler* = object
     tEnter*: float
     sframe*: StackFrameIndex   ## The current stack frame
 
   TPosition* = distinct int
-
-  PEvalContext* = PCtx
 
 func `<`*(a, b: FieldIndex): bool {.borrow.}
 func `<=`*(a, b: FieldIndex): bool {.borrow.}
@@ -867,9 +913,9 @@ func `==`*(a, b: RoutineSigId): bool {.borrow.}
 proc defaultTracer(c: TCtx, t: VmExecTrace) =
   echo "default echo tracer" & $t
 
-proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
-             idgen: IdGenerator, tracer: TraceHandler = defaultTracer): PCtx =
-  result = PCtx(
+proc initCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
+             idgen: IdGenerator, tracer: TraceHandler = defaultTracer): TCtx =
+  result = TCtx(
     code: @[],
     debug: @[],
     globals: @[],
@@ -905,12 +951,6 @@ proc registerCallback*(c: var TCtx; name: string; callback: VmCallback): int {.d
   # XXX: for backwards compatibility, `name` is still a `string`
   c.callbackKeys.add(IdentPattern(name))
 
-template registerCallback*(c: PCtx; name: string; callback: VmCallback): int {.deprecated.} =
-  ## A transition helper. Use the `registerCallback` proc that takes
-  ## `var TCtx` instead
-  registerCallback(c[], name, callback)
-
-
 const pseudoAtomKinds* = {akObject, akArray}
 const realAtomKinds* = {low(AtomKind)..high(AtomKind)} - pseudoAtomKinds
 
@@ -928,53 +968,75 @@ template regBx*(x: TInstr): int = (x.TInstrType shr regBxShift and regBxMask).in
 
 template jmpDiff*(x: TInstr): int = regBx(x) - wordExcess
 
-func makeMemPtr*(p: pointer, sizeInBytes: uint): MemRegionPtr {.inline.} =
-  MemRegionPtr(p: cast[ptr UncheckedArray[byte]](p), l: sizeInBytes.int)
-
-func makeLocHandle*(p: MemRegionPtr, typ: PVmType): LocHandle {.inline.} =
-  assert typ != nil
-  assert typ.sizeInBytes <= uint(p.l)
-  LocHandle(h: MemRegionPtr(p: p.p, l: int(typ.sizeInBytes)), typ: typ)
-
-func makeLocHandle*(h: pointer, typ: PVmType): LocHandle {.inline.} =
-  LocHandle(h: makeMemPtr(h, typ.sizeInBytes), typ: typ)
-
-template isNil*(h: MemRegionPtr): bool = h.p == nil
-template isNil*(h: HeapSlotHandle): bool = int(h) == 0
+template isNil*(p: VmMemPointer | CellPtr): bool = p.rawPointer == nil
+template isNil*(h: HeapSlotHandle): bool = ord(h) == 0
+template isNotNil*(h: HeapSlotHandle): bool = ord(h) != 0
 
 const noneType*: PVmType = nil
 
-template nilMemPtr*: untyped = MemRegionPtr(p: nil, l: 0)
-template invalidLocHandle*: untyped = (h: nilMemPtr, typ: nil)
-
 template isValid*(t: PVmType): bool = t != nil
 
-template rawPointer*(h: MemRegionPtr): untyped =
-  h.p
+template rawPointer*(p: VmMemPointer | CellPtr): untyped =
+  (ptr UncheckedArray[byte])(p)
 
-template len*(h: MemRegionPtr): untyped = h.l
-
-template byteView*(h: MemRegionPtr): untyped =
-  toOpenArray(h.p, 0, h.l-1)
+template rawPointer*(h: LocHandle): untyped =
+  h.p.rawPointer
 
 template subView*[T](x: openArray[T], off, len): untyped =
   x.toOpenArray(off, int(uint(off) + uint(len) - 1))
 
+template subView*[T](x: openArray[T], off): untyped =
+  x.toOpenArray(int off, x.high)
 
-func newVmString*(data: MemRegionPtr, len: Natural): VmString {.inline.} =
+template byteView*(x: ptr UncheckedArray[byte], t: PVmType; num: int): untyped =
+  x.toOpenArray(0, (t.alignedSize.int * num) - 1)
+
+template byteView*(x: VmMemPointer | CellPtr, t: PVmType; num: int): untyped =
+  var p = x.rawPointer
+  byteView(p, t, num)
+
+func applyOffset*(p: VmMemPointer | CellPtr, offset: uint): VmMemPointer {.inline.} =
+  cast[VmMemPointer](unsafeAddr p.rawPointer[offset])
+
+func newVmString*(data: CellPtr, len: Natural): VmString {.inline.} =
   VmString(VmSeq(data: data, length: len))
 
 func len*(s: VmString): int {.inline.} = VmSeq(s).length
 
-func data*(s: VmString): MemRegionPtr {.inline.} = VmSeq(s).data
+func data*(s: VmString): CellPtr {.inline.} = VmSeq(s).data
 
-
-template isValid*(h: MemRegionPtr, len: uint): bool = h.p != nil and int(len) <=% h.l
 template isValid*(handle: LocHandle): bool =
+  ## Checks if `handle` is a valid handle, that is, whether it stores non-nil
+  ## pointer and type information. **NOTE**: this is only meant for debugging
+  ## and assertions -- the procedure does **not** check whether accessing the
+  ## referenced memory location is legal
   let x = handle
-  isValid(x.h, x.typ.sizeInBytes)
+  x.p.rawPointer != nil and x.typ != nil
 
-# TODO: move `overlap` and it's tests somewhere else
+template currentException*(a: VmArgs): HeapSlotHandle =
+  ## A temporary workaround for the exception handle being stored as a pointer
+  a.currentExceptionPtr[]
+
+template `currentException=`*(a: VmArgs, h: HeapSlotHandle) =
+  ## A temporary workaround for the exception handle being stored as a pointer
+  a.currentExceptionPtr[] = h
+
+func unpackedConvDesc*(info: uint16
+                      ): tuple[op: NumericConvKind, dstbytes, srcbytes: int] =
+  ## Unpacks the numeric conversion description from `info`.
+  result.op = NumericConvKind(info and 0x7)
+  # note: add 1 to undo the shifting done during packing
+  result.dstbytes = 1 + int((info shr 3) and 0x7)
+  result.srcbytes = 1 + int((info shr 6) and 0x7)
+
+func packedConvDesc*(op: NumericConvKind, dstbytes, srcbytes: range[1..8]): uint16 =
+  ## Packs the numeric conversion description into a single ``uint16``.
+  template pack(s: int): uint16 =
+    # substract one from the size values so that they fit into 3 bit
+    uint16(s - 1)
+  result = uint16(op) or (pack(dstbytes) shl 3) or (pack(srcbytes) shl 6)
+
+# TODO: move `overlap` and its tests somewhere else
 func overlap*(a, b: int, aLen, bLen: Natural): bool =
   ## Tests if the ranges `[a, a+aLen)` and `[b, b+bLen)` have elements
   ## in common
@@ -1004,13 +1066,18 @@ static:
   test(0, 5, 5, 5, true) # disjoint
   test(0, 10, 2, 6) # a contains b
 
+func `$`*(x: ptr UncheckedArray[byte]): string =
+  $cast[int](x)
+
+func `$`*(x: PVmType): string =
+  result = "PVmType(" & $x.kind & ")"
 
 # TODO: move `safeCopyMem` and `safeZeroMem` somewhere else
 
 func safeCopyMem*(dest: var openArray[byte|char], src: openArray[byte|char], numBytes: Natural) {.inline.} =
   # TODO: Turn the asserts into range checks instead
   assert numBytes <= dest.len
-  assert numBytes <= src.len
+  assert numBytes <= src.len, $numBytes & ", " & $src.len
   if numBytes > 0:
     # Calling `safeCopyMem` with empty src/dest would erroneously raise without the > 0 check
     assert not overlap(addr dest[0], unsafeAddr src[0], dest.len, src.len)

@@ -1,0 +1,5 @@
+discard """
+  description: "tests config parsing error, see corresponding '.nim.cfg' file"
+  errormsg: "expected closing ']'"
+  file: "tcfg_closingtokenerr.nim.cfg"
+"""

@@ -1,3 +1,9 @@
+discard """
+target: "!vm"
+"""
+
+# disabled on VM, compiler crash needs a deeper dive (knownIssue)
+
 import std/macros
 import stdtest/testutils
 

@@ -7,13 +7,24 @@ import
     report_enums,
   ]
 
+from compiler/ast/lineinfos import TLineInfo
+
 type
   ParserReport* = object of ReportBase
     msg*: string
     found*: string
     case kind*: ReportKind
-      of rparIdentExpected .. rparUnexpectedToken:
+      of rparInvalidIndentationWithForgotEqualSignHint:
+        eqInfo*: TLineInfo
+
+      of rparIdentExpected .. rparMissingToken:
         expected*: seq[string]
+
+      of rparUnexpectedToken:
+        expectedKind*: string
+
+      of rparAsmStmtExpectsStrLit:
+        discard
 
       of rparInvalidFilter:
         node*: PNode

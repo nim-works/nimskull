@@ -145,15 +145,12 @@ proc `==`(a, b: TLockLevel): bool {.borrow.}
 proc max(a, b: TLockLevel): TLockLevel {.borrow.}
 
 proc createTypeBoundOps(tracked: PEffects, typ: PType; info: TLineInfo) =
-  if typ == nil: return
-  when false:
-    let realType = typ.skipTypes(abstractInst)
-    if realType.kind == tyRef and
-        optSeqDestructors in tracked.config.globalOptions:
-      createTypeBoundOps(tracked.graph, tracked.c, realType.lastSon, info)
-
-  createTypeBoundOps(tracked.graph, tracked.c, typ, info, tracked.c.idgen)
-  if (tfHasAsgn in typ.flags) or
+  if typ == nil or tfHasMeta in typ.flags: return
+  # lift the type-bound operations for the underlying concrete type, not for
+  # the wrapper type
+  let realType = typ.skipTypes(skipForHooks)
+  createTypeBoundOps(tracked.graph, tracked.c, realType, info, tracked.c.idgen)
+  if (tfHasAsgn in realType.flags) or
       optSeqDestructors in tracked.config.globalOptions:
     tracked.owner.flags.incl sfInjectDestructors
 
@@ -244,15 +241,10 @@ proc guardDotAccess(a: PEffects; n: PNode) =
   else:
     guardGlobal(a, n, g)
 
-proc makeVolatile(a: PEffects; s: PSym) {.inline.} =
-  if a.inTryStmt > 0 and a.config.exc == excSetjmp:
-    incl(s.flags, sfVolatile)
-
-proc initVar(a: PEffects, n: PNode; volatileCheck: bool) =
+proc initVar(a: PEffects, n: PNode) =
   if n.kind != nkSym: return
   let s = n.sym
   if isLocalVar(a, s):
-    if volatileCheck: makeVolatile(a, s)
     for x in a.init:
       if x == s.id: return
     a.init.add s.id
@@ -263,9 +255,7 @@ proc initVarViaNew(a: PEffects, n: PNode) =
   if {tfRequiresInit, tfNotNil} * s.typ.flags <= {tfNotNil}:
     # 'x' is not nil, but that doesn't mean its "not nil" children
     # are initialized:
-    initVar(a, n, volatileCheck=true)
-  elif isLocalVar(a, s):
-    makeVolatile(a, s)
+    initVar(a, n)
 
 proc warnAboutGcUnsafe(n: PNode; conf: ConfigRef) =
   localReport(conf, n.info, reportAst(rsemWarnGcUnsafe, n))
@@ -273,12 +263,13 @@ proc warnAboutGcUnsafe(n: PNode; conf: ConfigRef) =
 proc markGcUnsafe(a: PEffects; reason: PSym) =
   if not a.inEnforcedGcSafe:
     a.gcUnsafe = true
-    if a.owner.kind in routineKinds: a.owner.gcUnsafetyReason = reason
+    if a.owner.kind in routineKinds - {skMacro}:
+      a.owner.gcUnsafetyReason = reason
 
 proc markGcUnsafe(a: PEffects; reason: PNode) =
   if not a.inEnforcedGcSafe:
     a.gcUnsafe = true
-    if a.owner.kind in routineKinds:
+    if a.owner.kind in routineKinds - {skMacro}:
       if reason.kind == nkSym:
         a.owner.gcUnsafetyReason = reason.sym
       else:
@@ -407,6 +398,14 @@ proc useVarNoInitCheck(a: PEffects; n: PNode; s: PSym) =
      {sfGlobal, sfThread} * s.flags == {}:
     a.isInnerProc = true
 
+  if s.magic != mNimvm and # XXX: workaround for ``when nimvm`` reaching here
+     s.kind notin routineKinds and
+     sfCompileTime in s.flags and
+     not inCompileTimeOnlyContext(a.c):
+    # a .compileTime location is used outside of a compile-time-only
+    # context, which is disallowed
+    localReport(a.config, n.info, reportSym(rsemIllegalCompileTimeAccess, s))
+
 proc useVar(a: PEffects, n: PNode) =
   let s = n.sym
   if a.inExceptOrFinallyStmt > 0:
@@ -482,9 +481,8 @@ proc addRaiseEffect(a: PEffects, e, comesFrom: PNode) =
     # to safe space and time.
     if sameType(a.graph.excType(aa[i]), a.graph.excType(e)): return
 
-  if e.typ != nil:
-    if optNimV1Emulation in a.config.globalOptions or not isDefectException(e.typ):
-      throws(a.exc, e, comesFrom)
+  if e.typ != nil and not isDefectException(e.typ):
+    throws(a.exc, e, comesFrom)
 
 proc addTag(a: PEffects, e, comesFrom: PNode) =
   var aa = a.tags
@@ -795,9 +793,6 @@ proc trackOperandForIndirectCall(tracked: PEffects, n: PNode, formals: PType; ar
       elif tfNoSideEffect notin op.flags:
         markSideEffect(tracked, a, n.info)
   let paramType = if formals != nil and argIndex < formals.len: formals[argIndex] else: nil
-  if paramType != nil and paramType.kind in {tyVar}:
-    if n.kind == nkSym and isLocalVar(tracked, n.sym):
-      makeVolatile(tracked, n.sym)
   if paramType != nil and paramType.kind == tyProc and tfGcSafe in paramType.flags:
     let argtype = skipTypes(a.typ, abstractInst)
     # XXX figure out why this can be a non tyProc here. See httpclient.nim for an
@@ -951,7 +946,11 @@ proc trackCall(tracked: PEffects; n: PNode) =
   if n.typ != nil:
     if tracked.owner.kind != skMacro and n.typ.skipTypes(abstractVar).kind != tyOpenArray:
       createTypeBoundOps(tracked, n.typ, n.info)
-  if getConstExpr(tracked.ownerModule, n, tracked.c.idgen, tracked.graph) == nil:
+  let asConstExpr = getConstExpr(tracked.ownerModule, n, tracked.c.idgen, tracked.graph)
+  if asConstExpr.isError:
+    track(tracked, asConstExpr)     # will emit errors
+    return
+  elif asConstExpr == nil:
     if a.kind == nkCast and a[1].typ.kind == tyProc:
       a = a[1]
     # XXX: in rare situations, templates and macros will reach here after
@@ -982,7 +981,7 @@ proc trackCall(tracked: PEffects; n: PNode) =
     if a.kind != nkSym or a.sym.magic notin {mFinished}:
       for i in 1..<n.len:
         trackOperandForIndirectCall(tracked, n[i], op, i, a)
-    if a.kind == nkSym and a.sym.magic in {mNew, mNewFinalize, mNewSeq}:
+    if a.kind == nkSym and a.sym.magic in {mNew, mNewSeq}:
       # may not look like an assignment, but it is:
       let arg = n[1]
       initVarViaNew(tracked, arg)
@@ -998,7 +997,6 @@ proc trackCall(tracked: PEffects; n: PNode) =
       if n[1].typ.len > 0:
         createTypeBoundOps(tracked, n[1].typ.lastSon, n.info)
         createTypeBoundOps(tracked, n[1].typ, n.info)
-        # new(x, finalizer): Problem: how to move finalizer into 'createTypeBoundOps'?
 
     elif a.kind == nkSym and a.sym.magic in {mArrGet, mArrPut} and
         optStaticBoundsCheck in tracked.currOptions:
@@ -1014,7 +1012,7 @@ proc trackCall(tracked: PEffects; n: PNode) =
     if a.sym.name.s == "=": opKind = attachedAsgn.int
     if opKind != -1:
       # rebind type bounds operations after createTypeBoundOps call
-      let t = n[1].typ.skipTypes({tyAlias, tyVar})
+      let t = n[1].typ.skipTypes(skipForHooks + {tyVar})
       if a.sym != getAttachedOp(tracked.graph, t, TTypeAttachedOp(opKind)):
         createTypeBoundOps(tracked, t, n.info)
         let op = getAttachedOp(tracked.graph, t, TTypeAttachedOp(opKind))
@@ -1125,6 +1123,17 @@ proc allowCStringConv(n: PNode): bool =
     result = isCharArrayPtr(n.typ, n[0].kind == nkSym and n[0].sym.magic == mAddr)
   else: result = isCharArrayPtr(n.typ, false)
 
+proc reportErrors(c: ConfigRef, n: PNode) =
+  ## Reports all errors found in the AST `n`.
+  case n.kind
+  of nkError:
+    localReport(c, n)
+  of nkWithSons:
+    for it in n.items:
+      reportErrors(c, it)
+  of nkWithoutSons - {nkError}:
+    discard "ignore"
+
 proc track(tracked: PEffects, n: PNode) =
   addInNimDebugUtils(tracked.config, "track")
   case n.kind
@@ -1165,7 +1174,7 @@ proc track(tracked: PEffects, n: PNode) =
   of nkPragma: trackPragmaStmt(tracked, n)
   of nkAsgn, nkFastAsgn:
     track(tracked, n[1])
-    initVar(tracked, n[0], volatileCheck=true)
+    initVar(tracked, n[0])
     inc tracked.leftPartOfAsgn
     track(tracked, n[0])
     dec tracked.leftPartOfAsgn
@@ -1182,6 +1191,12 @@ proc track(tracked: PEffects, n: PNode) =
   of nkVarSection, nkLetSection:
     for child in n:
       let last = lastSon(child)
+      if child.kind == nkIdentDefs and sfCompileTime in child[0].sym.flags:
+        # don't analyse the definition of ``.compileTime`` globals. They
+        # don't "exist" in the context (i.e., run time) we're analysing
+        # in
+        continue
+
       if last.kind != nkEmpty: track(tracked, last)
       if tracked.owner.kind != skMacro:
         if child.kind == nkVarTuple:
@@ -1192,7 +1207,7 @@ proc track(tracked: PEffects, n: PNode) =
           createTypeBoundOps(tracked, child[0].typ, child.info)
       if child.kind == nkIdentDefs and last.kind != nkEmpty:
         for i in 0..<child.len-2:
-          initVar(tracked, child[i], volatileCheck=false)
+          initVar(tracked, child[i])
           addAsgnFact(tracked.guards, child[i], last)
           notNilCheck(tracked, last, child[i].typ)
       elif child.kind == nkVarTuple and last.kind != nkEmpty:
@@ -1200,7 +1215,7 @@ proc track(tracked: PEffects, n: PNode) =
           if child[i].kind == nkEmpty or
             child[i].kind == nkSym and child[i].sym.name.s == "_":
             continue
-          initVar(tracked, child[i], volatileCheck=false)
+          initVar(tracked, child[i])
           if last.kind in {nkPar, nkTupleConstr}:
             addAsgnFact(tracked.guards, child[i], last[i])
             notNilCheck(tracked, last[i], child[i].typ)
@@ -1222,8 +1237,6 @@ proc track(tracked: PEffects, n: PNode) =
       let oldState = tracked.init.len
       let oldFacts = tracked.guards.s.len
       addFact(tracked.guards, n[0])
-      if n[0].kind == nkError:
-        echo n.id
       track(tracked, n[0])
       track(tracked, n[1])
       setLen(tracked.init, oldState)
@@ -1302,6 +1315,7 @@ proc track(tracked: PEffects, n: PNode) =
   of nkTupleConstr:
     for i in 0..<n.len:
       track(tracked, n[i])
+      notNilCheck(tracked, n[i].skipColon, n[i].typ)
       if tracked.owner.kind != skMacro:
         if n[i].kind == nkExprColonExpr:
           createTypeBoundOps(tracked, n[i][0].typ, n.info)
@@ -1394,6 +1408,11 @@ proc track(tracked: PEffects, n: PNode) =
       track(tracked, n[i])
 
     inc tracked.leftPartOfAsgn
+  of nkBindStmt, nkMixinStmt, nkImportStmt, nkImportExceptStmt, nkExportStmt,
+     nkExportExceptStmt, nkFromStmt:
+    # a declarative statement that is not relevant to the analysis. Report
+    # errors part of the AST, but otherwise ignore
+    reportErrors(tracked.config, n)
   of nkError:
     localReport(tracked.config, n)
   else:
@@ -1607,14 +1626,17 @@ proc detectCapture(owner, top: PSym, n: PNode, marker: var IntSet): PNode =
           result = detect(s)
     else:
       discard "not relevant"
-  of nkWithoutSons - {nkSym}:
+  of nkWithoutSons - {nkSym, nkCommentStmt}:
     discard "not relevant"
   of nkConv, nkHiddenStdConv, nkHiddenSubConv:
     # only analyse the imperative part:
     result = detectCapture(owner, top, n[1], marker)
   of nkLambdaKinds:
     result = detectCapture(owner, top, n[namePos], marker)
+  of nkNimNodeLit:
+    discard "ignore node literals as they're data not code"
   else:
+    # TODO: make exhaustive
     for it in n.items:
       result = detectCapture(owner, top, it, marker)
       if result != nil:
@@ -1622,34 +1644,36 @@ proc detectCapture(owner, top: PSym, n: PNode, marker: var IntSet): PNode =
         # unwind
         return
 
-proc isCompileTimeProc2*(s: PSym): bool =
-  ## Tests if `s` is a compile-time procedure, but compared to
-  ## ``isCompileTimeProc``, also considers where `s` is defined. In the
-  ## following example:
-  ##
-  ## .. code-block:: nim
-  ##
-  ##   proc a() {.compileTime.} =
-  ##     proc b() =
-  ##       discard
-  ##
-  ## ``b`` is also a procedure that can only be run at compile-time, but it
-  ## doesn't have the ``sfCompileTime`` flag set
-  # TODO: propagate the ``sfCompileTime`` flag downwards instead (likely in
-  #       sempass2) and use ``isCompileTimeProc`` directly
-  # FIXME: procedures defined inside ``static`` blocks are not detected
-  var s = s
-  while s.kind != skModule:
-    if isCompileTimeProc(s):
-      return true
-    s = s.skipGenericOwner
+proc canCaptureFrom*(captor, target: PSym): bool =
+  ## Tests if the `captor` routine is allowed to capture a local from `target`,
+  ## taking the compile-time/run-time boundary into account:
+  ## 1) attempting to capture a local defined outside an inner macro from
+  ##   inside the macro is illegal
+  ## 2) closing over a local defined inside a compile-time-only routine from a
+  ##   routine than can also be used at run-time is only valid if the chain of
+  ##   enclosing routines leading up to `target` are all compile-time-only
+  ## 3) a compile-time-only routine closing over a run-time location is illegal
+  template isCompTimeOnly(s: PSym): bool =
+    sfCompileTime in s.flags
 
-  result = false
+  result = not captor.isCompTimeOnly or target.isCompTimeOnly    # rule #3
+  # check `captor` and all enclosing routines up to, but not including,
+  # `target` for rule violations
+  var s = captor
+  while result and s != target:
+    result =
+      s.kind != skMacro and                                      # rule #1
+      (s == captor or s.isCompTimeOnly == target.isCompTimeOnly) # rule #2
+    s = s.skipGenericOwner
 
 # ------------- public interface ----------------
 
 proc trackProc*(c: PContext; s: PSym, body: PNode) =
   addInNimDebugUtils(c.config, "trackProc")
+  if body.kind == nkError:
+    # the body has an error, don't attempt to analyse it further
+    return
+
   let g = c.graph
   var effects = s.typ.n[0]
   if effects.kind != nkEffectList: return
@@ -1685,8 +1709,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
   if cap != nil:
     # the procedure captures something and thus requires a hidden environment
     # parameter
-    if s.kind == skMacro or
-       (isCompileTimeProc2(s) and not isCompileTimeProc2(cap.sym.owner)):
+    if not canCaptureFrom(s, cap.sym.owner):
       # attempting to capture an entity that only exists at run-time in a
       # compile-time context
       localReport(g.config, cap.info, reportSym(
@@ -1745,7 +1768,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
     if views in c.features:
       checkBorrowedLocations(partitions, body, g.config)
 
-  if sfThread in s.flags and t.gcUnsafe:
+  if s.kind != skMacro and sfThread in s.flags and t.gcUnsafe:
     if optThreads in g.config.globalOptions and optThreadAnalysis in g.config.globalOptions:
       #localReport(s.info, "'$1' is not GC-safe" % s.name.s)
       listGcUnsafety(s, onlyWarning=false, g.config)

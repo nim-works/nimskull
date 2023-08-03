@@ -163,8 +163,6 @@ template symbolRank*[T: enum](a: T): int =
     assert c2.symbolRank == 2
     assert c2.ord == 12
     assert a2.ord == 11
-    var invalid = 7.A
-    doAssertRaises(IndexDefect): discard invalid.symbolRank
   when T is Ordinal: ord(a) - T.low.ord.static
   else: symbolRankImpl(a)
 

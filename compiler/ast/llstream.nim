@@ -12,9 +12,8 @@
 import
   compiler/utils/pathutils
 
-# support `useGnuReadline`, `useLinenoise` for backwards compatibility
-const hasRstdin = (defined(nimUseLinenoise) or defined(useLinenoise) or defined(useGnuReadline)) and
-  not defined(windows)
+const hasRstdin = defined(useLinenoise) and not defined(windows)
+  # TODO: Add linenoise with windows support by porting improvements from https://github.com/arangodb/linenoise-ng
 
 when hasRstdin: import std/rdstdin
 

@@ -1,4 +1,5 @@
 discard """
+  target: "!vm"
   output: '''
 100
 0
@@ -8,8 +9,9 @@ float32
 '''
 """
 
+# disabled on VM: it seems to get stuck; needs a deeper dive (knownIssue)
 
-import tables
+import std/tables
 
 
 block tgeneric0:
@@ -76,7 +78,7 @@ block tgeneric1:
 
   proc print[T](heap: PBinHeap[T]) =
     for i in countup(0, heap.last):
-      stdout.write($heap.heap[i].data, "\n")
+      echo $heap.heap[i].data
 
   var heap: PBinHeap[int]
 

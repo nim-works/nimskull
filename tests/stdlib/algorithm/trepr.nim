@@ -1,6 +1,5 @@
 discard """
   targets: "c js"
-  matrix: ";--gc:arc"
 """
 
 from strutils import endsWith, contains, strip
@@ -66,6 +65,20 @@ template main() =
     when defined(js): discard # BUG: doesn't work
     else:
       doAssert reprOpenarray(arr) == "[1, 2, 3]"
+
+  block repr_with_range:
+    type
+      Range = range[1..2]
+      DistinctRange = distinct range[1..2]
+      Nested = distinct range[DistinctRange(1)..DistinctRange(2)]
+
+    # simple case: only a range
+    doAssert repr(Range(1)) == "1"
+    # more complex: a range wrapped in a ``distinct``
+    doAssert repr(DistinctRange(1)) == "1"
+    # complex case: a distinct range where the base type is also a distinct
+    # type
+    doAssert repr(Nested(DistinctRange(1))) == "1"
 
   block: # bug #17292 repr with `do`
     template foo(a, b, c, d) = discard

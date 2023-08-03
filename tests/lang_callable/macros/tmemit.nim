@@ -1,4 +1,5 @@
 discard """
+  target: c
   output: '''
 c_func
 12

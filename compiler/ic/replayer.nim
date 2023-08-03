@@ -114,6 +114,21 @@ proc replayStateChanges*(module: PSym; g: ModuleGraph) =
       else:
         internalAssert g.config, false
 
+proc replayBackendRoutines*(g: ModuleGraph, module: int) =
+  ## Applies changes to whole-program (``ModuleGraph``) state the module
+  ## `module` has. Only changes relevant to the backend part of the compiler
+  ## are included here.
+  for it in mitems(g.packed[module].fromDisk.enumToStringProcs):
+    let key = translateId(it[0], g.packed, module, g.config)
+    g.enumToStringProcs[key] =
+      LazySym(id: FullId(module: module, packed: it[1]), sym: nil)
+
+  for it in mitems(g.packed[module].fromDisk.attachedOps):
+    let
+      key = translateId(it[1], g.packed, module, g.config)
+      symId = FullId(module: module, packed: it[2])
+    g.attachedOps[it[0]][key] = LazySym(id: symId, sym: nil)
+
 proc replayGenericCacheInformation*(g: ModuleGraph; module: int) =
   ## We remember the generic instantiations a module performed
   ## in order to to avoid the code bloat that generic code tends
@@ -128,28 +143,26 @@ proc replayGenericCacheInformation*(g: ModuleGraph; module: int) =
 
   for it in mitems(g.packed[module].fromDisk.procInstCache):
     let key = translateId(it.key, g.packed, module, g.config)
-    let sym = translateId(it.sym, g.packed, module, g.config)
     var concreteTypes = newSeq[FullId](it.concreteTypes.len)
     for i in 0..high(it.concreteTypes):
-      let tmp = translateId(it.concreteTypes[i], g.packed, module, g.config)
-      concreteTypes[i] = FullId(module: tmp.module, packed: it.concreteTypes[i])
+      concreteTypes[i] = FullId(module: module, packed: it.concreteTypes[i])
 
     g.procInstCache.mgetOrPut(key, @[]).add LazyInstantiation(
-      module: module, sym: FullId(module: sym.module, packed: it.sym),
+      module: module, sym: FullId(module: module, packed: it.sym),
       concreteTypes: concreteTypes, inst: nil)
 
   for it in mitems(g.packed[module].fromDisk.methodsPerType):
     let key = translateId(it[0], g.packed, module, g.config)
     let col = it[1]
-    let tmp = translateId(it[2], g.packed, module, g.config)
-    let symId = FullId(module: tmp.module, packed: it[2])
+    let symId = FullId(module: module, packed: it[2])
     g.methodsPerType.mgetOrPut(key, @[]).add (col, LazySym(id: symId, sym: nil))
 
   for it in mitems(g.packed[module].fromDisk.enumToStringProcs):
     let key = translateId(it[0], g.packed, module, g.config)
-    let tmp = translateId(it[1], g.packed, module, g.config)
-    let symId = FullId(module: tmp.module, packed: it[1])
-    g.enumToStringProcs[key] = LazySym(id: symId, sym: nil)
+    g.enumToStringProcs[key] =
+      LazySym(id: FullId(module: module, packed: it[1]), sym: nil)
+
+  replayBackendRoutines(g, module)
 
   for it in mitems(g.packed[module].fromDisk.methods):
     let sym = loadSymFromId(g.config, g.cache, g.packed, module,
@@ -173,3 +186,11 @@ proc replayGenericCacheInformation*(g: ModuleGraph; module: int) =
   for it in mitems(g.packed[module].fromDisk.pureEnums):
     let symId = FullId(module: module, packed: PackedItemId(module: LitId(0), item: it))
     g.ifaces[module].pureEnums.add LazySym(id: symId, sym: nil)
+
+proc replayLibs*(g: ModuleGraph, module: int) =
+  ## Loads the packed library information for `module` into `g`.
+  # XXX: libs are not really replayed state changes...
+  if module >= g.libs.len:
+    g.libs.setLen(module + 1)
+
+  g.libs[module] = loadLibs(g.config, g.cache, g.packed, module)

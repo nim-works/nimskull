@@ -47,6 +47,8 @@ from compiler/ast/reports_internal import InternalReport
 from compiler/ast/reports_vm import VMReport
 from compiler/ast/reports import ReportKind, toReportLineInfo
 
+from compiler/vm/vmlegacy import legacyReportsVmTracer
+
 proc loadDiscrConst(s: PackedEnv, constIdx: int, dst: LocHandle,
                     objTyp: PVmType, fieldPos: FieldPosition): int =
   let
@@ -91,7 +93,7 @@ proc loadConst(s: PackedEnv, idx: int, dst: LocHandle,
 
     var i = 0
     while i < L:
-      result += loadConst(s, idx+1+result, getItemHandle(dst, i), mem)
+      result += loadConst(s, idx+1+result, getItemHandle(dst, i, mem.allocator), mem)
       inc i
 
   of akString:
@@ -269,6 +271,7 @@ func vmEventToLegacyReportKind(evt: VmEventKind): ReportKind {.inline.} =
   of vmEvtNodeNotASymbol: rvmNodeNotASymbol
   of vmEvtNodeNotAProcSymbol: rvmNodeNotAProcSymbol
   of vmEvtIllegalConv: rvmIllegalConv
+  of vmEvtIllegalConvFromXToY: rvmIllegalConvFromXToY
   of vmEvtMissingCacheKey: rvmMissingCacheKey
   of vmEvtCacheKeyAlreadyExists: rvmCacheKeyAlreadyExists
   of vmEvtFieldNotFound: rvmFieldNotFound
@@ -287,14 +290,13 @@ func vmEventToLegacyVmReport(
   let kind = evt.kind.vmEventToLegacyReportKind()
   result =
     case kind
-    of rvmCannotCast:
+    of rvmCannotCast, rvmIllegalConvFromXToY:
       VMReport(
         kind: kind,
         location: location,
         reportInst: evt.instLoc.toReportLineInfo,
-        typeMismatch:
-          @[SemTypeMismatch(actualType: evt.typeMismatch.actualType,
-                            formalType: evt.typeMismatch.formalType)])
+        actualType: evt.typeMismatch.actualType,
+        formalType: evt.typeMismatch.formalType)
     of rvmIndexError:
       VMReport(
         location: location,
@@ -311,6 +313,12 @@ func vmEventToLegacyVmReport(
           kind: kind,
           str: evt.callName & "()",
           ast: evt.argAst)
+      of vmEvtUnhandledException:
+        VMReport(
+          location: location,
+          reportInst: evt.instLoc.toReportLineInfo,
+          kind: kind,
+          ast: evt.exc)
       else:
         VMReport(
           location: location,
@@ -344,6 +352,7 @@ func vmEventToLegacyVmReport(
 
 proc main*(args: seq[string]): int =
   let config = newConfigRef(cli_reporter.reportHook)
+  config.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   config.writeHook =
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       msgs.msgWrite(conf, msg, flags)
@@ -352,7 +361,8 @@ proc main*(args: seq[string]): int =
       conf.writeHook(conf, msg & "\n", flags)
 
   # setup the execution context
-  var c = TCtx(config: config, mode: emStandalone)
+  var c = TCtx(config: config, mode: emStandalone,
+               vmtraceHandler: legacyReportsVmTracer)
   c.features.incl(allowInfiniteLoops)
   c.heap.slots.newSeq(1) # setup the heap
 
@@ -375,7 +385,7 @@ proc main*(args: seq[string]): int =
       newIntNode(nkIntLit, r.intVal)
 
   # setup the starting frame:
-  var frame = TStackFrame(prc: entryPoint.sym, next: -1)
+  var frame = TStackFrame(prc: entryPoint.sym)
   frame.slots.newSeq(entryPoint.regCount)
 
   # the execution part. Set up a thread and run it until it either exits

@@ -222,10 +222,8 @@ func hash(x: PVmType): int {.inline.} =
   # the 4 or 8 byte alignment of `VmType`)
   hash(cast[int](x))
 
-func hash(x: TypeId): Hash {.borrow.}
 func `==`(a, b: TypeId): bool {.borrow.}
 
-func hash(x: SymId): Hash {.borrow.}
 func `==`(a, b: SymId): bool {.borrow.}
 
 template genAccessors(t: type, f: untyped, idTyp: type) {.dirty.} =
@@ -601,7 +599,7 @@ func storeNode(enc: var TypeInfoEncoder, ps: var PackedEnv, n: PNode): NodeId =
   var hasSons = false
   let item =
     case n.kind
-    of nkEmpty: 0'i32 # zero children
+    of nkEmpty, nkType, nkNilLit: 0'i32 # zero children
     of nkIdent: ps.getLitId(n.ident.s).int32
     of nkSym:   enc.storeSymLater(ps, n.sym).int32
     of nkIntKinds:   ps.getLitId(n.intVal).int32
@@ -674,7 +672,7 @@ proc loadNode(dec: var TypeInfoDecoder, ps: PackedEnv, id: NodeId): (PNode, int3
                 typ: loadType(dec, ps, n.typeId))
 
   case n.kind
-  of nkEmpty:
+  of nkEmpty, nkType, nkNilLit:
     discard "do nothing"
   of nkCharLit..nkUInt64Lit:
     r.intVal = ps.numbers[n.operand.LitId]

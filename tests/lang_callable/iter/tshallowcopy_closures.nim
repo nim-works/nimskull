@@ -1,4 +1,5 @@
 discard """
+  target: "!js !vm"
   ccodecheck: "!@('{' \\s* 'NI HEX3Astate;' \\s* '}')"
   output: '''
 a1 10
@@ -6,7 +7,11 @@ a1 9
 '''
 """
 
+# TODO: ccodecheck only works for the C target. Adjust the test to not depend
+#       on inspecting the generated C code and enable it for the VM/JS target
+
 # bug #1803
+
 type TaskFn = iterator (): float
 
 iterator a1(): float {.closure.} =

@@ -1,23 +1,20 @@
 discard """
+target: "!vm"
 output: '''
-@[]
-5
 0
 a
 hi
 Hello, World!
 (e: 42)
 hey
-foo
-foo
-foo
 false
 true
 '''
 """
 
+# VM disabled: needs a deeper dive (knownIssue)
 
-import macros, json
+import std/[macros, json]
 
 
 block t2057:
@@ -42,16 +39,17 @@ block t2057:
 
 
 import sequtils, os
-block t2629:
-  template glob_rst(basedir: string = ""): untyped =
-    if baseDir.len == 0:
-      to_seq(walk_files("*.rst"))
-    else:
-      to_seq(walk_files(basedir/"*.rst"))
+when not defined(js) and not defined(vm):
+  block t2629:
+    template glob_rst(basedir: string = ""): untyped =
+      if baseDir.len == 0:
+        to_seq(walk_files("*.rst"))
+      else:
+        to_seq(walk_files(basedir/"*.rst"))
 
-  let rst_files = concat(glob_rst(), glob_rst("docs"))
+    let rst_files = concat(glob_rst(), glob_rst("docs"))
 
-  when true: echo rst_files
+    doAssert rst_files == @[]
 
 
 block t5417:
@@ -73,19 +71,19 @@ block t5417:
 
 
 block t909:
-  template baz() =
-    proc bar() =
-      var x = 5
-      iterator foo(): int {.closure.} =
-        echo x
-      var y = foo
-      discard y()
+    template baz() =
+      proc bar() =
+        var x = 5
+        iterator foo(): int {.closure.} =
+          yield x
+        var y = foo
+        doAssert y() == 5
 
-  macro test(): untyped =
-    result = getAst(baz())
+    macro test(): untyped =
+      result = getAst(baz())
 
-  test()
-  bar()
+    test()
+    bar()
 
 
 
@@ -252,22 +250,26 @@ proc foo(): auto =
 discard foo()
 
 
-# bug #4722
-type
-  IteratorF*[In] = iterator() : In {.closure.}
+# bug https://github.com/nim-lang/nim/issues/4722
+block t4722:
+  type
+    IteratorF[In] = iterator() : In {.closure.}
 
-template foof(In: untyped) : untyped =
-  proc ggg*(arg: IteratorF[In]) =
-    for i in arg():
-      echo "foo"
+  var output = ""
+
+  template foof(In: untyped) : untyped =
+    proc ggg(arg: IteratorF[In]) =
+      for i in arg():
+        output.add "foo"
 
 
-iterator hello() : int {.closure.} =
-  for i in 1 .. 3:
-    yield i
+  iterator hello() : int {.closure.} =
+    for i in 1 .. 3:
+      yield i
 
-foof(int)
-ggg(hello)
+  foof(int)
+  ggg(hello)
+  doAssert output == "foofoofoo"
 
 
 # bug #2586

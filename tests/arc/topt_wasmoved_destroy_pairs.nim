@@ -12,8 +12,8 @@ block label:
     add(a, x)
     break label
   add(b, x)
-`=destroy`(b)
-`=destroy`(a)
+=destroy(b)
+=destroy(a)
 -- end of expandArc ------------------------
 --expandArc: tfor
 
@@ -23,38 +23,40 @@ var x
 try:
   x = f()
   block label:
-    var i_cursor
-    var i_1 = 0
+    var a_1 = 0
+    var b_1 = 4
+    var i = a_1
     block label_1:
       while true:
-        if op(`<`(i_1, 4)):
+        if op(<(i, b_1)):
           break
-        var :tmp
-        i_cursor = i_1
-        if `==`(i_cursor, 2):
-          return
-        add(a):
-          :tmp = op()
-          `=copy`(:tmp, x)
-          :tmp
-        inc(i_1, 1)
-  block label_2:
+        block label_2:
+          var :tmp
+          var i_1_cursor = i
+          if ==(i_1_cursor, 2):
+            return
+          add(a,
+            :tmp = op()
+            =copy(:tmp, x)
+            :tmp)
+          inc(i, 1)
+  block label_3:
     if cond:
       var :tmp_1
-      add(a):
+      add(a,
         :tmp_1 = x
         op(x)
-        :tmp_1
-      break label_2
+        :tmp_1)
+      break label_3
     var :tmp_2
-    add(b):
+    add(b,
       :tmp_2 = x
       op(x)
-      :tmp_2
+      :tmp_2)
 finally:
-  `=destroy`(x)
-  `=destroy_1`(b)
-  `=destroy_1`(a)
+  =destroy(x)
+  =destroy_1(b)
+  =destroy_1(a)
 -- end of expandArc ------------------------'''
 """
 

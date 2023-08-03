@@ -366,7 +366,7 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
     of akString, akSeq:
       assert t.kind in {tySequence, tyOpenArray}
       result = deserializeArray(c,
-        atom.seqVal.data.byteView(),
+        byteView(toSlice(atom.seqVal, vt.seqElemType, c.allocator)),
         atom.seqVal.length,
         vt.seqElemStride,
         vt.seqElemType,
@@ -401,14 +401,6 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
 # XXX: can't be a func because of internal error reporting
 proc deserialize*(c: TCtx, handle: LocHandle, asType: PType, info: TLineInfo): PNode =
   deserialize(c, handle.byteView(), handle.typ, asType, info)
-
-func findInConstr(n: PNode, pos: FieldPosition): PNode =
-  assert n.kind == nkObjConstr
-  for i in 1..<n.len:
-    if n[i][0].sym.position == pos.int:
-      return n[i]
-
-  return nil
 
 proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil)
 
@@ -528,7 +520,7 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
       of nkNilLit: discard "nothing to do"
       of nkClosure:
         assert n[0].kind == nkSym
-        let fnc = toFuncPtr(c.registerProc(n[0].sym))
+        let fnc = toFuncPtr(c.lookupProc(n[0].sym))
 
         let env =
           if n[1].kind == nkNilLit:
@@ -550,7 +542,7 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
     else:
       assert n.kind == nkSym
       assert dest.typ.kind == akCallable
-      deref(dest).callableVal = toFuncPtr(c.registerProc(n.sym))
+      deref(dest).callableVal = toFuncPtr(c.lookupProc(n.sym))
   of tyObject:
     assert n.kind == nkObjConstr
     assert dest.typ.kind == akObject
@@ -560,21 +552,18 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
 
   of tyArray, tySequence, tyOpenArray:
     assert n.kind == nkBracket
-    var off = 0
-    let typ = dest.typ
-    let (data, stride, eTyp) =
+    let slice =
       if t.kind == tyArray:
-        assert typ.kind == akArray
-        (dest.h, typ.elementStride, typ.elementType)
+        assert dest.typ.kind == akArray
+        toSlice(dest)
       else:
         # `openArray` is currently the same as `seq` inside the VM
-        assert typ.kind == akSeq
-        newVmSeq(deref(dest).seqVal, typ, n.len, c.memory)
-        (deref(dest).seqVal.data, typ.seqElemStride, typ.seqElemType)
+        assert dest.typ.kind == akSeq
+        newVmSeq(deref(dest).seqVal, dest.typ, n.len, c.memory)
+        loadFullSlice(c.allocator, deref(dest).seqVal.data, dest.typ.seqElemType)
 
     for (i, x) in n.pairs:
-      c.serialize(x, makeLocHandle(data.getSubHandle(off), eTyp))
-      off += stride
+      c.serialize(x, slice[i])
 
   of tyTuple:
     assert n.kind == nkTupleConstr

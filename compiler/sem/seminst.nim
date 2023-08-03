@@ -89,7 +89,7 @@ proc freshGenSyms(c: PContext; n: PNode, owner, orig: PSym, symMap: var TIdTable
   else:
     for i in 0..<n.safeLen: freshGenSyms(c, n[i], owner, orig, symMap)
 
-proc addParamOrResult(c: PContext, param: PSym, kind: TSymKind)
+proc addParamOrResult(c: PContext, param: PSym)
 
 proc instantiateBody(c: PContext, n, params: PNode, result, orig: PSym) =
   if n[bodyPos].kind != nkEmpty:
@@ -256,10 +256,20 @@ proc instantiateProcType(c: PContext, pt: TIdTable,
     # call head symbol, because this leads to infinite recursion.
     if oldParam.ast != nil:
       var def = oldParam.ast.copyTree
-      if def.kind == nkCall:
-        for i in 1..<def.len:
-          def[i] = replaceTypeVarsN(cl, def[i])
+      # XXX: patching the ``tyFromExpr`` away is a hack, and only hides the
+      #      issues. The problem is that ``replaceTypeVarsT`` (called from
+      #      ``prepareNode``) always attempts to evaluate the from-expression
+      #      as a constant, leading to a "cannot evaluate at compile-time"
+      #      error if this fails. Multiple things need to be done here:
+      #      1. don't try to always evaluate the from-expression at
+      #         compile-time. If the consumer of the type requires a
+      #         ``tyStatic``, the from-expression should be wrapped in a
+      #         ``nkStaticExpr``
+      #      2. make ``prepareNode`` obsolete and remove it
+      if def.typ.kind == tyFromExpr:
+        def.typ = nil
 
+      def = prepareNode(cl, def)
       def = semExprWithType(c, def)
       if def.referencesAnotherParam(getCurrOwner(c)):
         def.flags.incl nfDefaultRefsParam
@@ -384,7 +394,7 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
     addToGenericProcCache(c, fn, entry)
     c.generics.add(makeInstPair(fn, entry))
     if n[pragmasPos].kind != nkEmpty:
-      result.ast[pragmasPos] = pragma(c, result, n[pragmasPos], allRoutinePragmas)
+      result.ast[pragmasPos] = pragmaDecl(c, result, n[pragmasPos], allRoutinePragmas)
       # check if we got any errors and if so report them
       for e in ifErrorWalkErrors(c.config, result.ast[pragmasPos]):
         localReport(c.config, e)
@@ -393,6 +403,13 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
       n[bodyPos] = copyTree(getBody(c.graph, fn))
     if c.inGenericContext == 0:
       instantiateBody(c, n, fn.typ.n, result, fn)
+      if result.ast[bodyPos].kind == nkError:
+        # XXX: we also need to report the error here for now. Without the
+        #      ``localReport``, the error would never get reported
+        localReport(c.config, result.ast[bodyPos])
+        # compilation might continue after the report
+        result.ast = c.config.wrapError(result.ast)
+
     sideEffectsCheck(c, result)
     if result.magic notin {mSlice, mTypeOf}:
       # 'toOpenArray' is special and it is allowed to return 'openArray':

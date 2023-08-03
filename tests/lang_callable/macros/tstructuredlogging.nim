@@ -5,7 +5,7 @@ exiting: a=12, b=overriden-b, c=100, msg=bye bye, x=16
 '''
 """
 
-import macros, tables
+import std/[macros, tables]
 
 template scopeHolder =
   0 # scope revision number
@@ -76,6 +76,13 @@ type
     line: string
 
   StdoutLogRecord = object
+    str*: string
+
+proc write(r: var StdoutLogRecord, stuff: string) =
+  r.str.add stuff
+
+proc flushFile(r: var StdoutLogRecord) =
+  echo r.str
 
 template setProperty(r: var TextLogRecord, key: string, val: string, isFirst: bool) =
   if not first: r.line.add ", "
@@ -84,17 +91,16 @@ template setProperty(r: var TextLogRecord, key: string, val: string, isFirst: bo
   r.line.add val
 
 template setEventName(r: var StdoutLogRecord, name: string) =
-  stdout.write(name & ": ")
+  r.write(name & ": ")
 
 template setProperty(r: var StdoutLogRecord, key: string, val: auto, isFirst: bool) =
-  when not isFirst: stdout.write ", "
-  stdout.write key
-  stdout.write "="
-  stdout.write $val
+  when not isFirst: r.write ", "
+  r.write key
+  r.write "="
+  r.write $val
 
 template flushRecord(r: var StdoutLogRecord) =
-  stdout.write "\n"
-  stdout.flushFile
+  r.flushFile
 
 macro logImpl(scopeHolders: typed,
               logStmtProps: varargs[untyped]): untyped =

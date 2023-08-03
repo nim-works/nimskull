@@ -1,3 +1,8 @@
+discard """
+  targets: "c"
+  description: "Tests for the `marshal` module"
+"""
+
 import std/marshal
 
 # TODO: add static tests

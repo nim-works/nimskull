@@ -11,6 +11,7 @@
 
 import
   std/[
+    hashes,
     intsets,
     tables,
     sets
@@ -18,7 +19,8 @@ import
   compiler/ast/[
     ast,
     lineinfos,
-    ndi
+    ndi,
+    types
   ],
   compiler/modules/[
     modulegraphs
@@ -27,12 +29,73 @@ import
     options
   ],
   compiler/utils/[
+    containers,
+    idioms,
     ropes,
     pathutils
   ]
 
 
 type
+  SymbolMap*[T] = object
+    ## Associates extra location-related data with symbols. This is
+    ## temporary scaffolding until each entity (type, local, procedure,
+    ## etc.) is consistently represented as an index-like handle in the
+    ## code generator, at which point a ``Store`` (or ``SeqMap``) can be
+    ## used directly.
+    ##
+    ## Mapping from a symbol to the associated data currently happens via
+    ## ``TSym.locId``.
+    store: Store[range[0'u32..high(uint32)-1], T]
+
+  TLocKind* = enum
+    locNone,                  ## no location
+    locTemp,                  ## temporary location
+    locLocalVar,              ## location is a local variable
+    locGlobalVar,             ## location is a global variable
+    locParam,                 ## location is a parameter
+    locExpr,                  ## "location" is really an expression
+    locData,                  ## location is a constant
+    locCall,                  ## location is a call expression
+    locOther                  ## location is something other
+
+  TStorageLoc* = enum
+    # XXX: ``TStorageLoc`` is obsolete -- remove it
+    OnUnknown,                ## location is unknown (stack, heap or static)
+    OnStatic,                 ## in a static section
+    OnStack,                  ## location is on hardware stack
+    OnHeap                    ## location is on heap or global
+                              ## (reference counting needed)
+
+  LocFlag* = enum
+    lfIndirect               ## code generator introduced a pointer
+    lfSingleUse              ## no location yet and will only be used once
+    lfEnforceDeref           ## a copyMem is required to dereference if this a
+                             ## ptr array due to C array limitations.
+                             ## See #1181, #6422, #11171
+    lfPrepareForMutation     ## string location is about to be mutated
+
+  TLoc* = object
+    k*: TLocKind              ## kind of location
+    storage*: TStorageLoc
+    flags*: set[LocFlag]      ## location's flags
+    lode*: PNode              ## Node where the location came from; can be faked
+    r*: Rope                  ## rope value of location (code generators)
+
+  ProcLoc* = object
+    name*: string             ## the name of the C function in the generated
+                              ## code
+    sym*: PSym                ## the source symbol. Only needed for NDI file
+                              ## generation XXX: unnecessary once there's a
+                              ## one-to-one correspondence between
+                              ## ``DiscoverData`` and ``ProcLoc``
+    params*: seq[TLoc]        ## the locs of the parameters
+
+  ConstrTree* = distinct PNode
+    ## A ``PNode`` tree that represents a literal primitive/aggregate value
+    ## construction expression. A ``distinct`` alias for ``PNode`` is used
+    ## such that special equality and hash operations can be attached.
+
   TLabel* = Rope              ## for the C generator a label is just a rope
   TCFileSection* = enum       ## the sections a generated C file consists of
     cfsMergeInfo,             ## section containing merge information
@@ -55,15 +118,13 @@ type
     cfsTypeInit2,             ## section 2 for init of type information
     cfsTypeInit3,             ## section 3 for init of type information
     cfsDebugInit,             ## section for init of debug information
-    cfsDynLibInit,            ## section for init of dynamic library binding
-    cfsDynLibDeinit           ## section for deinitialization of dynamic
-                              ## libraries
   TCTypeKind* = enum          ## describes the type kind of a C type
     ctVoid, ctChar, ctBool,
     ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
     ctFloat, ctFloat32, ctFloat64, ctFloat128,
     ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64,
     ctArray, ctPtrToArray, ctStruct, ctPtr, ctNimStr, ctNimSeq, ctProc,
+    ctNimOpenArray,
     ctCString
   TCFileSections* = array[TCFileSection, Rope] ## represents a generated C file
   TCProcSection* = enum       ## the sections a generated C proc consists of
@@ -87,7 +148,6 @@ type
     beforeRetNeeded,
     threadVarAccessed,
     hasCurFramePointer,
-    noSafePoints,
     nimErrorFlagAccessed,
     nimErrorFlagDeclared,
     nimErrorFlagDisabled
@@ -101,8 +161,6 @@ type
                               ## in how many nested try statements we are
                               ## (the vars must be volatile then)
                               ## bool is true when are in the except part of a try block
-    finallySafePoints*: seq[Rope]  ## For correctly cleaning up exceptions when
-                                   ## using return in finally statements
     labels*: Natural          ## for generating unique labels in the C proc
     blocks*: seq[TBlock]      ## nested blocks
     breakIdx*: int            ## the block that will be exited
@@ -116,6 +174,8 @@ type
     withinBlockLeaveActions*: int ## complex to explain
     sigConflicts*: CountTable[string]
 
+    locals*: SymbolMap[TLoc]  ## the locs for all locals of the procedure
+
   TTypeSeq* = seq[PType]
   TypeCache* = Table[SigHash, Rope]
   TypeCacheWithOwner* = Table[SigHash, tuple[str: Rope, owner: int32]]
@@ -127,22 +187,16 @@ type
                         ## a frame var twice in an init proc
     isHeaderFile,       ## C source file is the header file
     includesStringh,    ## C source file already includes ``<string.h>``
-    objHasKidsValid     ## whether we can rely on tfObjHasKids
-    useAliveDataFromDce ## use the `alive: IntSet` field instead of
-                        ## computing alive data on our own.
 
   BModuleList* = ref object of RootObj
-    mainModProcs*, mainModInit*, otherModsInit*, mainDatInit*: Rope
     mapping*: Rope             ## the generated mapping file (if requested)
     modules*: seq[BModule]     ## list of all compiled modules
     modulesClosed*: seq[BModule] ## list of the same compiled modules, but in the order they were closed
-    forwardedProcs*: seq[PSym] ## proc:s that did not yet have a body
     generatedHeader*: BModule
     typeInfoMarker*: TypeCacheWithOwner
     typeInfoMarkerV2*: TypeCacheWithOwner
     config*: ConfigRef
     graph*: ModuleGraph
-    strVersion*, seqVersion*: int ## version of the string/seq implementation to use
 
     nimtv*: Rope            ## Nim thread vars; the struct body
     nimtvDeps*: seq[PType]  ## type deps: every module needs whole struct
@@ -155,7 +209,28 @@ type
                             ## nimtvDeps is VERY hard to cache because it's
                             ## not a list of IDs nor can it be made to be one.
 
-  TCGen = object of PPassContext ## represents a C source file
+    globals*: SymbolMap[TLoc]
+      ## the locs for all alive globals of the program
+    consts*: SymbolMap[TLoc]
+      ## the locs for all alive constants of the program
+    procs*: SymbolMap[ProcLoc]
+      ## the locs for all alive procedure of the program
+    fields*: SymbolMap[string]
+      ## stores the C name for each field
+
+    hooks*: seq[(BModule, PSym)]
+      ## late late-dependencies. Generating code for a procedure might lead
+      ## to the RTTI setup code for some type from a foreign module (i.e., one
+      ## different from the module that acts as the current context) to be
+      ## emitted, and this setup code might reference additional procedures.
+      ## Written: by the code generator and orchestrator; reset by the
+      ##          orchestrator
+      ## Read:    by the orchestrator
+      # XXX: move emission of RTTI setup into the orchestrator and remove this
+      #      facility
+
+  TCGen = object ## represents a C source file
+    idgen*: IdGenerator
     s*: TCFileSections        ## sections of the C file
     flags*: set[CodegenFlag]
     module*: PSym
@@ -171,25 +246,42 @@ type
     forwTypeCache*: TypeCache ## cache for forward declarations of types
     declaredThings*: IntSet   ## things we have declared in this .c file
     declaredProtos*: IntSet   ## prototypes we have declared in this .c file
-    alive*: IntSet            ## symbol IDs of alive data as computed by `dce.nim`
     headerFiles*: seq[string] ## needed headers to include
     typeInfoMarker*: TypeCache ## needed for generating type information
     typeInfoMarkerV2*: TypeCache
-    initProc*: BProc          ## code for init procedure
-    preInitProc*: BProc       ## code executed before the init proc
     typeStack*: TTypeSeq      ## used for type generation
-    dataCache*: TNodeTable
-    typeNodes*, nimTypes*: int ## used for type info generation
-    typeNodesName*, nimTypesName*: Rope ## used for type info generation
+    dataCache*: Table[ConstrTree, int] ## maps a value construction
+                              ## expression to the label of the C constant
+                              ## created for it
+    typeNodes*: int ## used for type info generation
+    typeNodesName*: Rope ## used for type info generation
     labels*: Natural          ## for generating unique module-scope names
-    extensionLoaders*: array['0'..'9', Rope] ## special procs for the
-                                             ## OpenGL wrapper
     sigConflicts*: CountTable[SigHash]
     g*: BModuleList
     ndi*: NdiFile
 
+    extra*: seq[PSym]
+      ## communicates dependencies introduced by the code-generator
+      ## back to the caller. The caller is responsible for clearing the list
+      ## after it's done with processing it. The code-generator only ever
+      ## appends to it
+
 template config*(m: BModule): ConfigRef = m.g.config
 template config*(p: BProc): ConfigRef = p.module.g.config
+
+template procs*(m: BModule): untyped   = m.g.procs
+template fields*(m: BModule): untyped  = m.g.fields
+template globals*(m: BModule): untyped = m.g.globals
+template consts*(m: BModule): untyped  = m.g.consts
+
+template fieldName*(p: BProc, field: PSym): string =
+  ## Returns the C name for the given `field`.
+  p.module.fields[field]
+
+template params*(p: BProc): seq[TLoc] =
+  ## Returns the mutable list with the locs of `p`'s
+  ## parameters.
+  p.module.procs[p.prc].params
 
 proc includeHeader*(this: BModule; header: string) =
   if not this.headerFiles.contains header:
@@ -211,7 +303,6 @@ proc newProc*(prc: PSym, module: BModule): BProc =
                    else: module.config.options
   newSeq(result.blocks, 1)
   result.nestedTryStmts = @[]
-  result.finallySafePoints = @[]
   result.sigConflicts = initCountTable[string]()
 
 proc newModuleList*(g: ModuleGraph): BModuleList =
@@ -222,3 +313,99 @@ iterator cgenModules*(g: BModuleList): BModule =
   for m in g.modulesClosed:
     # iterate modules in the order they were closed
     yield m
+
+proc put*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.}  =
+  ## Adds `it` to `m` and registers a mapping between the item and
+  ## `sym`. `sym` must have no mapping registered yet.
+  assert sym.locId == 0, "symbol already registered"
+  sym.locId = uint32(m.store.add(it)) + 1
+
+proc forcePut*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.} =
+  ## Adds `it` to `m` and register a mapping between the item and
+  ## `sym`, overwriting any existing mappings of `sym`.
+  sym.locId = uint32(m.store.add(it)) + 1
+
+func assign*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.}  =
+  ## Sets the value of the item in `m` with which `sym` is associated. This is
+  ## only meant as a workaround.
+  assert sym.locId > 0
+  m.store[sym.locId - 1] = it
+
+func `[]`*[T](m: SymbolMap[T], sym: PSym): lent T {.inline.} =
+  m.store[sym.locId - 1]
+
+func `[]`*[T](m: var SymbolMap[T], sym: PSym): var T {.inline.} =
+  m.store[sym.locId - 1]
+
+func contains*[T](m: SymbolMap[T], sym: PSym): bool {.inline.} =
+  sym.locId > 0 and m.store.nextId().uint32 > sym.locId - 1
+
+iterator items*[T](m: SymbolMap[T]): lent T =
+  for it in m.store.items:
+    yield it
+
+proc hash(n: ConstrTree): Hash =
+  ## Computes a hash over the structure of a tree (`n`). The hash function is
+  ## intended to be used with ``Table``, so two different trees are not
+  ## guaranteed to produce a different hash, but the same hash *must* be
+  ## produced for two structurally equal trees.
+  proc hashTree(n: PNode): Hash =
+    result = ord(n.kind)
+    case n.kind
+    of nkEmpty, nkNilLit, nkType:
+      discard
+    of nkSym:
+      result = result !& n.sym.id
+    of nkIntKinds:
+      result = result !& hash(n.intVal)
+    of nkFloatKinds:
+      # we'll be comparing the bit patterns later on, meaning that
+      # they're what we have to compute the hash for
+      result = result !& hash(cast[BiggestInt](n.floatVal))
+    of nkStrKinds:
+      result = result !& hash(n.strVal)
+    of nkWithSons:
+      for i in 0..<n.len:
+        result = result !& hashTree(n[i])
+    of nkNone, nkIdent, nkError:
+      unreachable()
+    result = !$result
+
+  result = hashTree(PNode(n))
+
+proc `==`(a, b: ConstrTree): bool =
+  ## Computes and returns whether `a` and `b` are structurally equal *and*
+  ## have equal types.
+  proc treesEquivalent(a, b: PNode): bool =
+    if a == b:
+      result = true
+    elif a.kind == b.kind:
+      case a.kind
+      of nkEmpty, nkNilLit, nkType:
+        result = true
+      of nkSym:
+        result = a.sym.id == b.sym.id
+      of nkIntKinds:
+        result = a.intVal == b.intVal
+      of nkFloatKinds:
+        result = cast[BiggestInt](a.floatVal) == cast[BiggestInt](b.floatVal)
+      of nkStrKinds:
+        result = a.strVal == b.strVal
+      of nkWithSons:
+        if a.len == b.len:
+          for i in 0..<a.len:
+            if not treesEquivalent(a[i], b[i]): return
+          result = true
+      of nkNone, nkIdent, nkError:
+        unreachable()
+
+      # we also want equal types:
+      if result:
+        result = sameTypeOrNil(a.typ, b.typ)
+
+  treesEquivalent(PNode(a), PNode(b))
+
+proc getOrPut*(t: var Table[ConstrTree, int], n: PNode, label: int): int =
+  ## Fetches the label for the given data AST, or adds the AST + label to the
+  ## table first if they're not present yet.
+  mgetOrPut(t, ConstrTree(n), label)

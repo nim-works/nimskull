@@ -142,7 +142,7 @@ when not defined(nimscript):
       # environ is needed, the _NSGetEnviron() routine, defined in
       # <crt_externs.h>, can be used to retrieve the address of environ
       # at runtime.
-      proc NSGetEnviron(): ptr cstringArray {.importc: "_NSGetEnviron",
+      proc nsGetEnviron(): ptr cstringArray {.importc: "_NSGetEnviron",
           header: "<crt_externs.h>".}
     elif defined(haiku):
       var gEnv {.importc: "environ", header: "<stdlib.h>".}: cstringArray
@@ -171,7 +171,7 @@ when not defined(nimscript):
       else:
         var i = 0
         when defined(macosx) and not defined(ios) and not defined(emscripten):
-          var gEnv = NSGetEnviron()[]
+          var gEnv = nsGetEnviron()[]
         while gEnv[i] != nil:
           let kv = $gEnv[i]
           inc(i)

@@ -15,15 +15,6 @@ proc `==`(a, b: RefPerson): bool =
   assert(not a.isNil and not b.isNil)
   a.name == b.name
 
-
-template disableJsVm(body) =
-  # something doesn't work in JS VM
-  when defined(js):
-    when nimvm: discard
-    else: body
-  else:
-    body
-
 proc main() =
   type
     Foo = ref object
@@ -85,10 +76,9 @@ proc main() =
       doAssert($(some("Correct")) == "some(\"Correct\")")
       doAssert($(stringNone) == "none(string)")
 
-    disableJsVm:
+    when true:
       block map_with_a_void_result:
         var procRan = 0
-        # TODO closure anonymous functions doesn't work in VM with JS
         # Error: cannot evaluate at compile time: procRan
         some(123).map(proc (v: int) = procRan = v)
         doAssert procRan == 123

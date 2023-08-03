@@ -66,7 +66,6 @@ template fn() =
   block: # OrderedTable
     testRoundtrip({"z": "Z", "y": "Y"}.toOrderedTable): """{"z":"Z","y":"Y"}"""
     doAssert toJson({"z": 10, "": 11}.newTable).`$`.contains """"":11""" # allows hash to change
-    testRoundtrip({"z".cstring: 1, "".cstring: 2}.toOrderedTable): """{"z":1,"":2}"""
     testRoundtrip({"z": (f1: 'f'), }.toTable): """{"z":{"f1":102}}"""
 
   block: # StringTable

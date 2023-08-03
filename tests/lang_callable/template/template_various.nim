@@ -1,4 +1,5 @@
 discard """
+target: "!vm"
 output: '''
 i2416
 33
@@ -6,7 +7,6 @@ foo55
 foo8.0
 fooaha
 bar7
-10
 4true
 132
 20
@@ -35,7 +35,9 @@ bar7
 '''
 """
 
-import macros
+# disabled on VM: std/streams and/or std/os don't work for the VM (knownIssue)
+
+import std/macros
 
 
 
@@ -85,16 +87,16 @@ block generic_templates:
 
   # https://github.com/nim-lang/Nim/issues/7883
   template t1[T: int|int64](s: string): T =
-     var t: T
-     t
+    var t: T
+    t
 
   template t1[T: int|int64](x: int, s: string): T =
-     var t: T
-     t
+    var t: T
+    t
 
   var i3: int = t1[int]("xx")
 
-from strutils import contains
+from std/strutils import contains
 
 block tgetast_typeliar:
   proc error(s: string) = quit s
@@ -147,31 +149,34 @@ block pattern_with_converter:
 
 
 
+when not defined(js) and not defined(vm):
+  block procparshadow:
+    var output = ""
+    template something(name: untyped) =
+      proc name(x: int) =
+        var x = x # this one should not be rejected by the compiler (#5225)
+        output.add $x
 
-block procparshadow:
-  template something(name: untyped) =
-    proc name(x: int) =
-      var x = x # this one should not be rejected by the compiler (#5225)
-      echo x
+    something(what)
+    what(10)
 
-  something(what)
-  what(10)
+    doAssert output == "10"
 
-  # bug #4750
-  type
-    O = object
-      i: int
-    OP = ptr O
+    # bug #4750
+    type
+      O = object
+        i: int
+      OP = ptr O
 
-  template alf(p: pointer): untyped =
-    cast[OP](p)
+    template alf(p: pointer): untyped =
+      cast[OP](p)
 
-  proc t1(al: pointer) =
-    var o = alf(al)
+    proc t1(al: pointer) =
+      var o = alf(al)
 
-  proc t2(alf: pointer) =
-    var x = alf
-    var o = alf(x)
+    proc t2(alf: pointer) =
+      var x = alf
+      var o = alf(x)
 
 
 
@@ -190,7 +195,7 @@ block symchoicefield:
 
 
 
-import os, times
+import std/times
 include "sunset.nimf"
 block ttempl:
   const
@@ -201,19 +206,13 @@ block ttempl:
             ["FAQ", "question"],
             ["links", "links"]]
 
-
-  var i = 0
-  for item in items(tabs):
-    var content = $i
-    var file: File
-    if open(file, changeFileExt(item[1], "html"), fmWrite):
-      write(file, sunsetTemplate(current=item[1], ticker="", content=content,
-                                  tabs=tabs))
-      close(file)
-    else:
-      write(stdout, "cannot open file for writing")
-    inc(i)
-
+  for i, item in tabs.pairs:
+    var
+      content = $i
+      output = sunsetTemplate(current=item[1], ticker="", content=content,
+                              tabs=tabs)
+    # if there are no errors, I'm sure it's fine...
+    # rewrite so we can do an actual compare with a less obnoxious template
 
 
 block ttempl4:

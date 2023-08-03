@@ -1,6 +1,7 @@
 discard """
 output: '''
-testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttest2!test3?hi
+testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttesttest2!test3?
+hi
 what's
 your
 name
@@ -38,6 +39,11 @@ iterator interval[T](a, b: T): T =
 #    if shouldClose: close(f)
 #
 
+var stdout = ""
+proc write(fakeStdout: var string, stuff: varargs[string]) =
+  for s in stuff:
+    fakeStdout.add s
+
 for i in xrange(0, 5):
   for k in xrange(1, 7):
     write(stdout, "test")
@@ -45,6 +51,8 @@ for i in xrange(0, 5):
 for j in interval(45, 45):
   write(stdout, "test2!")
   write(stdout, "test3?")
+
+echo stdout
 
 for x in items(["hi", "what's", "your", "name"]):
   echo(x)

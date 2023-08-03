@@ -34,17 +34,19 @@ proc leaveImpl(prof: var Profiler, c: TCtx) {.noinline.} =
       data[li].time += tLeave - prof.tEnter
       if frameIdx == prof.sframe:
         inc data[li].count
-    frameIdx = frame.next
+    dec frameIdx
 
 proc leave*(prof: var Profiler, c: TCtx) {.inline.} =
   if optProfileVM in c.config.globalOptions:
     leaveImpl(prof, c)
 
 proc dump*(conf: ConfigRef, pd: ProfileData): string =
+  ## constructs a string containing a report of vm exectuion based on the given
+  ## `ProfileData`. The report is formatted and ready to print to console or
+  ## similar interface.
   var data = pd.data
-  echo "\nprof:     µs    #instr  location"
+  result = "\nprof:     µs    #instr  location\n"
   for i in 0..<32:
-    var tMax: float
     var infoMax: ProfileInfo
     var flMax: TLineInfo
     for fl, info in data:

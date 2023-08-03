@@ -46,33 +46,9 @@ when not defined(gcOrc):
   proc GC_enableMarkAndSweep() = discard
   proc GC_disableMarkAndSweep() = discard
 
-proc GC_setStrategy(strategy: GC_Strategy) = discard
-
 proc getOccupiedMem(): int = discard
 proc getFreeMem(): int = discard
 proc getTotalMem(): int = discard
-
-proc nimGC_setStackBottom(theStackBottom: pointer) = discard
-
-proc initGC() = discard
-
-proc newObjNoInit(typ: PNimType, size: int): pointer =
-  result = alloc(size)
-
-proc growObj(old: pointer, newsize: int): pointer =
-  result = realloc(old, newsize)
-
-proc nimGCref(p: pointer) {.compilerproc, inline.} = discard
-proc nimGCunref(p: pointer) {.compilerproc, inline.} = discard
-
-when not defined(gcDestructors):
-  proc unsureAsgnRef(dest: PPointer, src: pointer) {.compilerproc, inline.} =
-    dest[] = src
-
-proc asgnRef(dest: PPointer, src: pointer) {.compilerproc, inline.} =
-  dest[] = src
-proc asgnRefNoCycle(dest: PPointer, src: pointer) {.compilerproc, inline,
-  deprecated: "old compiler compat".} = asgnRef(dest, src)
 
 type
   MemRegion = object

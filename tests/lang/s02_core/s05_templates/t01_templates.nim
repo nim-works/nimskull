@@ -48,41 +48,90 @@ block identifier_join:
 
   template getVar(idx: untyped): untyped = `varName idx`
 
-  var
-    varNameQq = 30
-    varNameZzz = 50
+  block using_an_identifier:
+    var varNameQq = 30
+    doAssert getVar(Qq) == 30
 
-    varName1 = 12
-    varName2 = 20
+  block is_style_insensitive:
+    ## Identifier joining is also style-insensitive - variable `varNameZzz`
+    ## can be accessed by passing `zzz`.
+    var varNameZzz = 50
+    doAssert getVar(zzz) == 50
 
+  block works_with_string_literals:
+    var varNameFoo = 12
+    doAssert getVar("foo") == 12
+    doAssert getVar("""foo""") == 12
+    doAssert getVar(r"foo") == 12
 
-  when defined(tryBrokenSpecification):
-    ## Stropping does not work with identifier join in templates
-    var `varName??` = 40
-    doAssert getVar(`??`) == 40
+  block works_with_character_literals:
+    var varNameB = 20
+    doAssert getVar("b") == 20
 
-  doAssert getVar(Qq) == 30
+  block works_with_bool_literals:
+    ## bool literals can be used as well
+    var varNameFalse = 30
+    doAssert getVar(false) == 30
 
-  ## Identifier joining is also style-insensetive - variable `varNameZzz`
-  ## can be accessed by passing `zzz`.
-  doAssert getVar(zzz) == 50
+  block works_with_unsigned_integer_literals:
+    var varName1 = 40
+    doAssert getVar(1'u)   == 40
+    doAssert getVar(1'u8)  == 40
+    doAssert getVar(1'u16) == 40
+    doAssert getVar(1'u32) == 40
+    doAssert getVar(1'u64) == 40
 
-  ## Integer literals can be used as well
-  doAssert getVar(1) == 12
-  doAssert getvar(2) == 20
+  block works_with_integer_literals:
+    var varName2 = 50
+    doAssert getVar(2)     == 50
+    doAssert getvar(2'i8)  == 50
+    doAssert getvar(2'i16) == 50
+    doAssert getvar(2'i32) == 50
+    doAssert getvar(2'i64) == 50
 
+  block works_with_stropping:
+    ## Stropping works with identifier join in templates
+    var `varName??` = 50
+    doAssert getVar(`??`) == 50
 
-  ## Note that template arguments are substituted as a code, not by value.
-  ## That's why calling `getVar(idx)` with `idx` being a variable or even a
-  ## constant (which are known at compile-time), will result in the
-  ## `varNameIdx` variable being accessed.
+  block silly_things_like_this_are_probably_going_to_go:
+    ## don't expect this to last, likely to be dropped from the spec
+    var foo = 10
+    doAssert foo == `r"foo"`
 
-  var varNameIdx = 900
+  when false:
+    # These are gaps in the spec, what sort of error should result?
+    # the spec feels really half-baked at this point... we should probably
+    # create an identifier type and constructor and only accept those
+    getVar(-2)   # produces "varName-2"
+    getVar('\n') # produces "varName10" ... wtf
+    getVar("\n") # produces "varName<newLine>"
 
-  block:
-    let idx = 1
-    doAssert getVar(idx) == 900
+  # TODO: these aren't really identifier construction tests, move them out
+  block substitution_is_ast_based:
+    ## Note that template arguments are substituted as a code, not by value.
+    ## That's why calling `getVar(idx)` with `idx` being a variable, will
+    ## result in the `varNameIdx` variable being accessed.
+    block subsitute_ast_as_is:
+      var varNameIdx = 900
+      let idx {.used.} = 1
+      doAssert getVar(idx) == 900
 
-  block:
-    const idx = 1
-    doAssert getVar(idx) == 900
+    block same_with_const_known_at_compile_time:
+      var varNameIdx = 910
+      const idx {.used.} = 1
+      doAssert getVar(idx) == 910
+
+    block typed_will_take_the_value_of_a_const_as_we_eval_it_first:
+      template getVarTyped(idx: typed): untyped = `varName idx`
+      var varName90 = 1
+      const foo = 90
+      doAssert getVarTyped(foo) == 1
+
+    when defined(tryBrokenSpecification):
+      # for some reason the value "bar" isn't being passed unlike the int above
+      block typed_will_take_the_value_of_a_const_as_we_eval_it_first:
+        template getVarTyped(idx: typed): untyped = `varName idx`
+        var varNameBar = 1
+        const foo = "bar"
+        doAssert getVarTyped(foo) == 1

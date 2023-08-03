@@ -3,6 +3,7 @@ discard """
 X 1
 X 3'''
 """
+
 type
   First[T] = ref object of RootObj
     value: T

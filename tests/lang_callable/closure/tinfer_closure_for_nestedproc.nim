@@ -1,9 +1,13 @@
 discard """
   action: compile
+  target: "!vm"
 """
 
+# knownIssue: the `strtabs` module imports the ``std/os`` module, which isn't
+#             yet supported for the VM target
+
 # bug #9441
-import strtabs
+import std/strtabs
 
 type
   Request = object

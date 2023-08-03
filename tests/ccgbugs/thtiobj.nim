@@ -5,4 +5,4 @@ discard """
 import typeinfo
 
 var x = ""
-discard (getPointer(toAny(x)))
+discard getString(toAny(x))

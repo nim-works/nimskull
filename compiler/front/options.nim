@@ -9,22 +9,28 @@
 
 import
   std/[os, strutils, strtabs, sets, tables, packedsets],
-  compiler/utils/[prefixmatches, pathutils, platform, strutils2, ropes],
+  compiler/utils/[prefixmatches, pathutils, platform],
   compiler/ast/[lineinfos],
   compiler/modules/nimpaths
 
 import compiler/front/in_options
 export in_options
 
+when not FileSystemCaseSensitive:
+  from compiler/utils/strutils2 import toLowerAscii
 from terminal import isatty
 from times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
 
 from compiler/ast/ast_types import
-  NodeId, # used as a reportId/diagId proxy
-  PNode,  # because of reports, more leakage
-  PSym    # Contextual details of the instantiation stack optionally refer to
-          # the used symbol
+  TNodeKind,  # used in conversion from `ParsedNode` to `PNode`
+  TNodeFlag,  # used in conversion from `ParsedNode` to `PNode`
+  `comment=`, # used in conversion from `ParsedNode` to `PNode`
+  NodeId,     # used as a reportId/diagId proxy
+  PNode,      # because of reports, more leakage
+  PSym,       # Contextual details of the instantiation stack optionally refers
+              # to the used symbol
+  PAstDiag    # used to bridge ast diags to legacy reports
 
 # xxx: legacy Reports to be removed
 import compiler/ast/report_enums
@@ -43,7 +49,8 @@ const
 
 const
   harmlessOptions* = {optForceFullMake, optNoLinking, optRun, optUseColors, optStdout}
-  genSubDir* = RelativeDir"nimcache"
+  genSubDir* = RelativeDir"nimskullcache"
+  # XXX: |Nimskull| extensions and config files
   NimExt* = "nim"
   RodExt* = "rod"
   HtmlExt* = "html"
@@ -92,6 +99,11 @@ type
     ## is stored in this field - full/relative paths, list of line etc.
     ## (For full list see `TFileInfo`)
     systemFileIdx*: FileIndex
+
+  TCmdLinePass* = enum
+    passCmd1,                 # first pass over the command line
+    passCmd2,                 # second pass over the command line
+    passPP                    # preprocessor called processCommand()
 
 proc initMsgConfig*(): MsgConfig =
   result.msgContext = @[]
@@ -170,6 +182,12 @@ type
     doAbort   ## Immediately abort compilation
     doRaise   ## Raise recoverable error
 
+  ProjectInputMode* = enum
+    pimStdin ## the contents of the main module are provided by stdin
+    pimCmd   ## the contents of the main module are provided by a command-line
+             ## argument
+    pimFile  ## the main module is a file
+
   ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
 
   HackController* = object
@@ -214,14 +232,7 @@ type
     unitSep*: string ## Unit separator between compiler messages
     evalTemplateCounter*: int ## Template instantiation depth used to guard
     ## against infinite expansion recursion
-    evalMacroCounter*: int ## Macro instantiation depth, used to guard
-    ## against infinite macro expansion recursion
     exitcode*: int8
-
-    # `--eval` flag handling
-    cmdInput*: string    ## Code to evaluate from `--eval` switch
-    projectIsCmd*: bool  ## whether we're compiling from a command input (`--eval` switch)
-    implicitCmd*: bool   ## whether some flag triggered an implicit `command` (`--eval`)
 
     hintProcessingDots*: bool ## true for dots, false for filenames
 
@@ -240,17 +251,20 @@ type
     errorMax*: int ## Maximum number of errors before compilation will be terminated
     maxLoopIterationsVM*: int ## VM: max iterations of all loops
 
-    packageCache*: StringTableRef
+    packageCache*: StringTableRef      ## absolute path -> absolute path
 
     jsonBuildFile*: AbsoluteFile
     nimStdlibVersion*: NimVer
-    moduleOverrides*: StringTableRef
     cfileSpecificOptions*: StringTableRef ## File specific compilation options for C backend.
     ## Modified by `{.localPassc.}`
-    projectIsStdin*: bool           ## whether we're compiling from stdin
+    inputMode*: ProjectInputMode    ## how the main module is sourced
     lastMsgWasDot*: set[StdOrrKind] ## the last compiler message was a single '.'
     projectMainIdx*: FileIndex      ## the canonical path id of the main module
     projectMainIdx2*: FileIndex     ## consider merging with projectMainIdx
+    commandLineSrcIdx*: FileIndex   ## used by `commands` to base paths off for
+                                    ## path, lib, and other additions; default
+                                    ## to `lineinfos.commandLineIdx` and
+                                    ## altered by `nimconf` as needed
     command*: string                ## the main command (e.g. cc, check, scan, etc)
     commandArgs*: seq[string]       ## any arguments after the main command
     commandLine*: string
@@ -286,10 +300,12 @@ type
     ## textual output from the compiler goes through this callback.
     writeHook*: proc(conf: ConfigRef, output: string, flags: MsgFlags) {.closure.}
     structuredReportHook*: ReportHook
+    astDiagToLegacyReport*: proc(conf: ConfigRef, d: PAstDiag): Report
     vmProfileData*: ProfileData
-
+    setMsgFormat*: proc(config: ConfigRef, fmt: MsgFormatKind) {.closure.}
+      ## callback that sets the message format for legacy reporting, needs to
+      ## set before CLI handling, because reports are just that awful
     hack*: HackController ## Configuration values for debug printing
-
     when defined(nimDebugUtils):
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
       ## len is also used for output indent level
@@ -367,7 +383,6 @@ passSeqField lazyPaths,         AbsoluteDir
 passSetField localOptions,   TOptions,           TOption
 passSetField globalOptions,  TGlobalOptions,     TGlobalOption
 passSetField features,       set[Feature],       Feature
-passSetField legacyFeatures, set[LegacyFeature], LegacyFeature
 
 passStrTableField dllOverrides
 passStrTableField configVars
@@ -514,7 +529,7 @@ proc writelnHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
   conf.writelnHook(conf, msg, flags)
 
 proc writeHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
-  ## Write string usign write hook
+  ## Write string using write hook
   conf.writeHook(conf, msg, flags)
 
 proc writeln*(conf: ConfigRef, args: varargs[string, `$`]) =
@@ -571,7 +586,8 @@ from compiler/ast/reports_internal import severity
 func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
   ## Check if report stores fatal compilation error
   report.category == repInternal and
-  report.internalReport.severity() == rsevFatal
+  report.internalReport.severity() == rsevFatal or
+  report.kind == rextCmdRequiresFile
 
 func severity*(conf: ConfigRef, report: ReportTypes | Report): ReportSeverity =
   # style checking is a hint by default, but can be globally overriden to
@@ -659,12 +675,9 @@ func isEnabled*(conf: ConfigRef, report: ReportKind): bool =
     strictNotNil in conf.features
   of rdbgVmExecTraceMinimal:
     conf.active.isVmTrace
-  of rlexLinterReport, rsemLinterReport:
+  of rlexLinterReport, rsemLinterReport, rsemLinterReportUse:
     # Regular linter report is enabled if style check is either hint or
     # error, AND not `usages`
-    {optStyleHint, optStyleError} * conf.globalOptions != {} and
-    optStyleUsages notin conf.globalOptions
-  of rsemLinterReportUse:
     {optStyleHint, optStyleError} * conf.globalOptions != {}
   else:
     case report
@@ -695,14 +708,11 @@ type
     writeForceEnabled
 
 func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
-  const forceWrite =
-    {rsemExpandArc} + # Not considered a hint for now
-    repDbgTraceKinds  # Unconditionally write debug tracing information
-
-  let tryhack = conf.m.errorOutputs == {}
-  # REFACTOR this check is an absolute hack, `errorOutputs` need to be
-  # removed. For more details see `lineinfos.MsgConfig.errorOutputs`
-  # comment
+  let compTimeCtx = conf.m.errorOutputs == {}
+    ## indicates whether we're in a `compiles` or `constant expression
+    ## evaluation` context. `sem` and `semexprs` in particular will clear
+    ## `conf.m.errorOutputs` as a signal for this. For more details see the
+    ## comment for `MsgConfig.errorOutputs`.
 
   if (r.kind == rdbgVmCodeListing) and (
     (
@@ -718,30 +728,22 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
   ))):
     return writeForceEnabled
 
-  elif r.kind == rdbgVmCodeListing or (
-    # Optionally Ignore context stacktrace
-    r.kind == rdbgTraceLine and not conf.hack.semStack
-  ):
+  elif r.kind == rdbgVmCodeListing:
     return writeDisabled
 
   elif (
-     (conf.isEnabled(r) and r.category == repDebug and tryhack) or
-     # Force write of the report messages using regular stdout if tryhack is
-     # enabled
-     r.kind in rintCliKinds
-     # or if we are writing command-line help/usage information - it must
-     # always be printed
+    (conf.isEnabled(r) and r.category == repDebug and compTimeCtx)
+    # Force write of the report messages using regular stdout if compTimeCtx
+    # is enabled
   ):
     return writeForceEnabled
 
   elif (
     # Not explicitly enabled
-    not conf.isEnabled(r) and
-    # And not added for forced write
-    r.kind notin forceWrite
+    not conf.isEnabled(r)
   ) or (
     # Or we are in the special hack mode for `compiles()` processing
-    tryhack
+    compTimeCtx
   ):
 
     # Return without writing
@@ -829,11 +831,6 @@ proc computeNotesVerbosity(): tuple[
       rdbgVmCodeListing    # immediately generated code listings
     }
 
-  when defined(nimDebugUtils):
-    # By default enable only semantic debug trace reports - other changes
-    # might be put in there *temporarily* to aid the debugging.
-    result.base.incl repDbgTraceKinds
-
   result.main[compVerbosityMax] =
     result.base + repWarningKinds + repHintKinds - {
     rsemObservableStores,
@@ -868,7 +865,6 @@ proc computeNotesVerbosity(): tuple[
       rsemHintLibDependency,
       rsemGlobalVar,
 
-      rintGCStats,
       rintMsgOrigin,
 
       rextPath,
@@ -913,7 +909,7 @@ const
 
 proc initConfigRefCommon(conf: ConfigRef) =
   conf.symbols = newStringTable(modeStyleInsensitive)
-  conf.selectedGC = gcRefc
+  conf.selectedGC = gcUnselected
   conf.verbosity = compVerbosityDefault
   conf.hintProcessingDots = true
   conf.options = DefaultOptions
@@ -935,20 +931,19 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
     m: initMsgConfig(),
     headerFile: "",
     packageCache: newPackageCache(),
-    moduleOverrides: newStringTable(modeStyleInsensitive),
     cfileSpecificOptions: newStringTable(modeCaseSensitive),
-    projectIsStdin: false, # whether we're compiling from stdin
+    inputMode: pimFile,
     projectMainIdx: FileIndex(0'i32), # the canonical path id of the main module
     command: "", # the main command (e.g. cc, check, scan, etc)
     commandArgs: @[], # any arguments after the main command
     commandLine: "",
+    commandLineSrcIdx: commandLineIdx, # set the command line as the source
     keepComments: true, # whether the parser needs to keep comments
     docSeeSrcUrl: "",
     active: CurrentConf(
       backend:        backendInvalid,
       cppDefines:     initHashSet[string](),
       features:       {},
-      legacyFeatures: {},
       cCompiler:      ccGcc,
       macrosToExpand: newStringTable(modeStyleInsensitive),
       arcToExpand:    newStringTable(modeStyleInsensitive),
@@ -1049,7 +1044,6 @@ template quitOrRaise*(conf: ConfigRef, msg = "") =
     quit(msg) # quits with QuitFailure
 
 proc importantComments*(conf: ConfigRef): bool {.inline.} = conf.cmd in cmdDocLike + {cmdIdeTools}
-proc usesWriteBarrier*(conf: ConfigRef): bool {.inline.} = conf.selectedGC >= gcRefc
 
 template compilationCachePresent*(conf: ConfigRef): untyped =
   false
@@ -1162,19 +1156,17 @@ proc toCChar*(c: char; result: var string) {.inline.} =
   else:
     result.add c
 
-proc makeCString*(s: string): Rope =
-  result = nil
-  var res = newStringOfCap(int(s.len.toFloat * 1.1) + 1)
-  res.add("\"")
+proc makeCString*(s: string): string =
+  result = newStringOfCap(int(s.len.toFloat * 1.1) + 1)
+  result.add("\"")
   for i in 0..<s.len:
     # line wrapping of string litterals in cgen'd code was a bad idea, e.g. causes: bug #16265
     # It also makes reading c sources or grepping harder, for zero benefit.
     # const MaxLineLength = 64
     # if (i + 1) mod MaxLineLength == 0:
     #   res.add("\"\L\"")
-    toCChar(s[i], res)
-  res.add('\"')
-  result.add(rope(res))
+    toCChar(s[i], result)
+  result.add('\"')
 
 proc newFileInfo(fullPath: AbsoluteFile, projPath: RelativeFile): TFileInfo =
   result.fullPath = fullPath
@@ -1209,15 +1201,13 @@ proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile; isKnownFile: var bool
 
   try:
     canon = canonicalizePath(conf, filename)
-    shallow(canon.string)
   except OSError:
     canon = filename
     # The compiler uses "filenames" such as `command line` or `stdin`
     # This flag indicates that we are working with such a path here
     pseudoPath = true
 
-  var canon2: string
-  forceCopy(canon2, canon.string) # because `canon` may be shallow
+  var canon2 = canon.string
   canon2.canonicalCase
 
   if conf.m.filenameToIndexTbl.hasKey(canon2):
@@ -1251,7 +1241,7 @@ include compiler/modules/packagehandling
 
 proc getOsCacheDir(): string =
   when defined(posix):
-    result = getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / "nim"
+    result = getEnv("XDG_CACHE_HOME", getHomeDir() / ".cache") / "nimskull"
   else:
     result = getHomeDir() / genSubDir.string
 
@@ -1307,7 +1297,7 @@ proc toGeneratedFile*(
     path: AbsoluteFile,
     ext: string
   ): AbsoluteFile =
-  ## converts "/home/a/mymodule.nim", "rod" to "/home/a/nimcache/mymodule.rod"
+  ## converts "/home/a/mymodule.nim", "rod" to "/home/a/nimskullcache/mymodule.rod"
   result = getNimcacheDir(conf) / RelativeFile(
     path.string.splitPath.tail.changeFileExt(ext))
 
@@ -1351,16 +1341,7 @@ proc rawFindFile2(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
       return canonicalizePath(conf, result)
   result = AbsoluteFile""
 
-proc patchModule(conf: ConfigRef, result: var AbsoluteFile) =
-  ## If there is a known module override for a given
-  ## `package/<name(result)>` replace result with new module override.
-  if not result.isEmpty and conf.moduleOverrides.len > 0:
-    let key = getPackageName(conf, result.string) & "_" & splitFile(result).name
-    if conf.moduleOverrides.hasKey(key):
-      let ov = conf.moduleOverrides[key]
-      if ov.len > 0: result = AbsoluteFile(ov)
-
-when (NimMajor, NimMinor) < (1, 1) or not declared(isRelativeTo):
+when not declared(isRelativeTo):
   proc isRelativeTo(path, base: string): bool =
     # pending #13212 use os.isRelativeTo
     let path = path.normalizedPath
@@ -1411,7 +1392,6 @@ proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile
         result = rawFindFile2(conf, RelativeFile f)
         if result.isEmpty:
           result = rawFindFile2(conf, RelativeFile f.toLowerAscii)
-  patchModule(conf, result)
 
 proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFile =
   ## Return absolute path to the imported module `modulename`. Imported
@@ -1443,11 +1423,11 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
       result = AbsoluteFile currentPath / m
     if not fileExists(result):
       result = findFile(conf, m)
-  patchModule(conf, result)
 
 proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   ## Find configuration file for a current project
-  const extensions = [".nims", ".cfg", ".nimcfg", ".nimble"]
+  const extensions = [".nims", ".cfg", ".nimble"]
+    # xxx: remove '.nimble' (and nimble files from compiler src)
   var
     candidates: seq[string] = @[]
     dir = pkg
@@ -1487,19 +1467,36 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   return ""
 
 proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
-  ## Shows the canonical module import, e.g.: system, std/tables,
-  ## fusion/pointers, system/assertions, std/private/asciitables
-  var ret = getRelativePathFromConfigPath(conf, file, isTitle = true)
-  let dir = getNimbleFile(conf, $file).parentDir.AbsoluteDir
-  if not dir.isEmpty:
-    let relPath = relativeTo(file, dir)
-    if not relPath.isEmpty and (ret.isEmpty or relPath.string.len < ret.string.len):
-      ret = relPath
-  if ret.isEmpty:
-    ret = relativeTo(file, conf.projectPath)
-  result = ret.string
+  ## canonical module import filename, e.g.: system.nim, std/tables.nim,
+  ## system/assertions.nim, etc. Canonical module import filenames follow the
+  ## same rules as canonical imports (see `canonicalImport`), except the module
+  ## name is followed by a `.nim` file extension, and the directory separators
+  ## are OS specific.
+  let
+    desc = getPkgDesc(conf, file.string)
+    (_, moduleName, ext) = file.splitFile
+  if desc.pkgKnown and
+     desc.pkgFile != AbsoluteFile(conf.getNimbleFile(conf.projectFull.string)):
+    # we ignore the pkg root name for intra-package module imports, allows for
+    # easier pkg renames (without changing all files using canonical imports).
+    result = desc.pkgRootName
+    if desc.pkgSubpath != "":
+      result = result / desc.pkgSubpath
+  else:
+    result = desc.pkgSubpath
+  result = if result == "": moduleName else: result / moduleName
+  result = result.changeFileExt(ext) # since we lost it above
 
 proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile): string =
+  ## Shows the canonical module import, e.g.: system, std/tables,
+  ## fusion/pointers, system/assertions, std/private/asciitables
+  ## 
+  ## A canonical import path is:
+  ## 
+  ## - typically `pkgroot/pkgsubpath/module`
+  ## - if a module is at the base of a package, then `pkgroot/module`
+  ## - if a module is within the project's package, `pkgroot` is skipped like
+  ##   so `pkgsubpath/module` or `module` (if the module is at the package root).
   let ret = canonicalImportAux(conf, file)
   result = ret.nativeToUnixPath.changeFileExt("")
 
@@ -1561,3 +1558,33 @@ proc floatInt64Align*(conf: ConfigRef): int16 =
       # to 4bytes (except with -malign-double)
       return 4
   return 8
+
+const
+  commandLineDesc* = "command line"
+
+template toFilename*(conf: ConfigRef; fileIdx: FileIndex): string =
+  if fileIdx.int32 < 0 or conf == nil:
+    (if fileIdx == commandLineIdx: commandLineDesc else: "???")
+  else:
+    conf[fileIdx].shortName
+
+template toFilename*(conf: ConfigRef; info: TLineInfo): string =
+  toFilename(conf, info.fileIndex)
+
+proc inFile*(
+    conf: ConfigRef,
+    info: TLineInfo,
+    file: string,
+    lrange: Slice[int] = low(int) .. high(int)
+  ): bool {.deprecated: "DEBUG proc, do not use in the final build!",
+            noSideEffect.} =
+  ## `true` if `info` has `file`name and is within the specified line range
+  ## (`lrange`), else `false`. Meant for debugging -- it's slow.
+  {.cast(noSideEffect).}: # ignore side-effect tracking
+    return file in toFilename(conf, info) and info.line.int in lrange
+
+func inDebug*(conf: ConfigRef): bool {.
+  deprecated: "DEBUG proc, do not use in the final build!",
+  noSideEffect.} =
+  ## Check whether 'nim compiler debug' is defined right now.
+  return conf.isDefined("nimCompilerDebug")

@@ -28,6 +28,7 @@ import
   ],
   compiler/utils/[
     platform,
+    idioms,
     int128,
   ],
   compiler/modules/[
@@ -56,6 +57,11 @@ type
     preferMixed,
       # most useful, shows: symbol + resolved symbols if it differs, e.g.:
       # tuple[a: MyInt{int}, b: float]
+
+  BackendViewKind* = enum
+    bvcNone     ## no view
+    bvcSingle   ## single-location view
+    bvcSequence ## view of contiguous locations
 
 proc base*(t: PType): PType =
   result = t[0]
@@ -93,13 +99,17 @@ proc isPureObject*(typ: PType): bool =
     t = t[0].skipTypes(skipPtrs)
   result = t.sym != nil and sfPure in t.sym.flags
 
-proc isUnsigned*(t: PType): bool =
+func isUnsigned*(t: PType): bool {.inline.} =
   t.skipTypes(abstractInst).kind in {tyChar, tyUInt..tyUInt64}
 
 proc getOrdValue*(n: PNode; onError = high(Int128)): Int128 =
-  var k = n.kind
-  if n.typ != nil and n.typ.skipTypes(abstractInst).kind in {tyChar, tyUInt..tyUInt64}:
-    k = nkUIntLit
+  let k =
+    if n.typ.isNil:
+      n.kind
+    elif n.typ.isUnsigned:
+      nkUIntLit
+    else:
+      n.kind
 
   case k
   of nkCharLit, nkUIntLit..nkUInt64Lit:
@@ -177,6 +187,9 @@ proc iterOverTypeAux(marker: var IntSet, t: PType, iter: TTypeIter,
     case t.kind
     of tyGenericInst, tyGenericBody, tyAlias, tySink, tyInferred:
       result = iterOverTypeAux(marker, lastSon(t), iter, closure)
+    of tyError:
+      # the error is reported elsewhere
+      discard
     else:
       for i in 0..<t.len:
         result = iterOverTypeAux(marker, t[i], iter, closure)
@@ -289,9 +302,8 @@ proc analyseObjectWithTypeFieldAux(t: PType,
     discard
 
 proc analyseObjectWithTypeField*(t: PType): TTypeFieldResult =
-  # this does a complex analysis whether a call to ``objectInit`` needs to be
-  # made or initializing of the type field suffices or if there is no type field
-  # at all in this type.
+  # this does a complex analysis whether type fields need to be initiatlized
+  # at run-time.
   var marker = initIntSet()
   result = analyseObjectWithTypeFieldAux(t, marker)
 
@@ -351,6 +363,8 @@ proc canFormAcycleAux(marker: var IntSet, typ: PType, startId: int): bool =
   case t.kind
   of tyTuple, tyObject, tyRef, tySequence, tyArray, tyOpenArray, tyVarargs:
     if t.id == startId:
+      # XXX: this check leads to all types not being explicitly marked as
+      #      acyclic to be treated as cyclic!
       result = true
     elif not containsOrIncl(marker, t.id):
       for i in 0..<t.len:
@@ -420,6 +434,14 @@ template isResolvedUserTypeClass*(t: PType): bool =
   tfResolved in t.flags
 
 proc firstOrd*(conf: ConfigRef; t: PType): Int128 =
+  ## computes the first ordinal value of a concrete `t`ype, taking into account:
+  ## - `int` bit-width via the `conf` param (a `nil` `conf` assumes 64 bits)
+  ## - the ordinal value set of the first enum element
+  # xxx: consider how/whether to handle inband reporting for `tyError` (aka
+  #      `tyProxy`), and potentially empty vector types like `tyCstring` and
+  #      `tyUncheckedArray`
+  # Note: `tyInt` and `tyUint`'s platform specifics, and therefore the `conf`
+  #       param, are here because of things like `sizeof` evaluation during sem
   case t.kind
   of tyBool, tyChar, tySequence, tyOpenArray, tyString, tyVarargs, tyProxy:
     result = Zero
@@ -440,49 +462,31 @@ proc firstOrd*(conf: ConfigRef; t: PType): Int128 =
   of tyInt64: result = toInt128(0x8000000000000000'i64)
   of tyUInt..tyUInt64: result = Zero
   of tyEnum:
-    # if basetype <> nil then return firstOrd of basetype
-    if t.len > 0 and t[0] != nil:
-      result = firstOrd(conf, t[0])
-    else:
+    result =
       if t.n.len > 0:
         assert(t.n[0].kind == nkSym)
-        result = toInt128(t.n[0].sym.position)
+        toInt128(t.n[0].sym.position)
+      else:
+        # currently empty enums aren't supported as a type, but they should be
+        Zero
   of tyGenericInst, tyDistinct, tyTypeDesc, tyAlias, tySink,
      tyStatic, tyInferred, tyUserTypeClasses, tyLent:
     result = firstOrd(conf, lastSon(t))
   of tyOrdinal:
-    if t.len > 0: result = firstOrd(conf, lastSon(t))
+    if t.len > 0:
+      result = firstOrd(conf, lastSon(t))
     else:
-      conf.localReport InternalReport(
-        kind: rintUnreachable,
-        msg: "invalid kind for firstOrd(" & $t.kind & ')')
-
+      unreachable("firstOrd - abstract ordinal type given")
   of tyUncheckedArray, tyCstring:
     result = Zero
   else:
-    conf.localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for firstOrd(" & $t.kind & ')')
-    result = Zero
-
-proc firstFloat*(t: PType): BiggestFloat =
-  case t.kind
-  of tyFloat..tyFloat128: -Inf
-  of tyRange:
-    assert(t.n != nil)        # range directly given:
-    assert(t.n.kind == nkRange)
-    getFloatValue(t.n[0])
-  of tyVar: firstFloat(t[0])
-  of tyGenericInst, tyDistinct, tyTypeDesc, tyAlias, tySink,
-     tyStatic, tyInferred, tyUserTypeClasses:
-    firstFloat(lastSon(t))
-  else:
-    newPartialConfigRef().localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for firstFloat(" & $t.kind & ')')
-    NaN
+    unreachable("firstOrd - non-ordinal type given: " & $t.kind)
 
 proc lastOrd*(conf: ConfigRef; t: PType): Int128 =
+  ## computes the last ordinal value of a concrete `t`ype, taking into account:
+  ## - `int` bit-width via the `conf` param (a `nil` `conf` assumes 64 bits)
+  ## - the ordinal value set of the last enum element
+  # xxx: same issues as described under `firstOrd`, see that proc
   case t.kind
   of tyBool: result = toInt128(1'u)
   of tyChar: result = toInt128(255'u)
@@ -510,26 +514,61 @@ proc lastOrd*(conf: ConfigRef; t: PType): Int128 =
   of tyUInt64:
     result = toInt128(0xFFFFFFFFFFFFFFFF'u64)
   of tyEnum:
-    if t.n.len > 0:
-      assert(t.n[^1].kind == nkSym)
-      result = toInt128(t.n[^1].sym.position)
+    result =
+      if t.n.len > 0:
+        assert(t.n[^1].kind == nkSym)
+        toInt128(t.n[^1].sym.position)
+      else:
+        # currently empty enums aren't supported as a type, but they should be
+        Zero
   of tyGenericInst, tyDistinct, tyTypeDesc, tyAlias, tySink,
      tyStatic, tyInferred, tyUserTypeClasses, tyLent:
     result = lastOrd(conf, lastSon(t))
-  of tyProxy: result = Zero
+  of tyProxy:
+     # xxx: this seems off; also not in `firstOrd`. I'm guessing this is to
+     #      allow `check` or `suggest` to continue to make progress.
+    result = Zero
   of tyOrdinal:
-    if t.len > 0: result = lastOrd(conf, lastSon(t))
+    if t.len > 0:
+      result = lastOrd(conf, lastSon(t))
     else:
-      conf.localReport InternalReport(
-        kind: rintUnreachable,
-        msg: "invalid kind for firstOrd(" & $t.kind & ')')
+      unreachable("lastOrd - abstract ordinal type given")
   of tyUncheckedArray:
+    # xxx: what about `tyCstring`; see `firstOrd`? Also, this analysis isn't
+    #      quite right, `tyUncheckedArray`, and `tyCstring`, both could be
+    #      empty, and the range is pessimistically akin to `-1..-1`.
     result = Zero
   else:
-    conf.localReport InternalReport(
+    unreachable("lastOrd - non-ordinal type given: " & $t.kind)
+
+proc lengthOrd*(conf: ConfigRef; t: PType): Int128 =
+  ## Computes the length, or rather cardinality, of concrete ordinal type
+  ## (including distincts with ordinal type bases). The cardinality of a type
+  ## is the total number of possible values that may represent by it.
+  # xxx: Seriously, Int128... wouldn't failing fast when it matters be smarter?
+  if t.skipTypes(tyUserTypeClasses).kind == tyDistinct:
+    result = lengthOrd(conf, t[0])
+  else:
+    let last = lastOrd(conf, t)
+    let first = firstOrd(conf, t)
+    result = last - first + One
+
+proc firstFloat*(t: PType): BiggestFloat =
+  case t.kind
+  of tyFloat..tyFloat128: -Inf
+  of tyRange:
+    assert(t.n != nil)        # range directly given:
+    assert(t.n.kind == nkRange)
+    getFloatValue(t.n[0])
+  of tyVar: firstFloat(t[0])
+  of tyGenericInst, tyDistinct, tyTypeDesc, tyAlias, tySink,
+     tyStatic, tyInferred, tyUserTypeClasses:
+    firstFloat(lastSon(t))
+  else:
+    newPartialConfigRef().localReport InternalReport(
       kind: rintUnreachable,
-      msg: "invalid kind for firstOrd(" & $t.kind & ')')
-    result = Zero
+      msg: "invalid kind for firstFloat(" & $t.kind & ')')
+    NaN
 
 proc lastFloat*(t: PType): BiggestFloat =
   case t.kind
@@ -566,15 +605,6 @@ proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
       kind: rintUnreachable,
       msg: "invalid kind for floatRangeCheck(" & $t.kind & ')')
     false
-
-proc lengthOrd*(conf: ConfigRef; t: PType): Int128 =
-  # xxx: Seriously, Int128... wouldn't failing fast when it matters be smarter?
-  if t.skipTypes(tyUserTypeClasses).kind == tyDistinct:
-    result = lengthOrd(conf, t[0])
-  else:
-    let last = lastOrd(conf, t)
-    let first = firstOrd(conf, t)
-    result = last - first + One
 
 # -------------- type equality -----------------------------------------------
 
@@ -924,6 +954,14 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
   of tyNone: result = false
 
 proc sameBackendType*(x, y: PType): bool =
+  var c = initSameTypeClosure()
+  c.flags.incl IgnoreTupleFields
+  c.cmp = dcEqIgnoreDistinct
+  result = sameTypeAux(x, y, c)
+
+proc sameLocationType*(x, y: PType): bool =
+  ## Tests and returns whether `x` and `y` are the same when used as the type
+  ## for locations
   var c = initSameTypeClosure()
   c.flags.incl IgnoreTupleFields
   c.cmp = dcEqIgnoreDistinct
@@ -1354,7 +1392,8 @@ proc isDefectException*(t: PType): bool =
   return false
 
 proc isSinkTypeForParam*(t: PType): bool =
-  ## Returns whether the using `t` as the type of a parameter makes it a sink-like
+  ## Returns whether `t` is considered to be a sink-like type when used in a
+  ## parameter context.
   result = t.skipTypes({tyGenericInst, tyAlias}).kind == tySink
   when false:
     if isSinkType(t):
@@ -1398,3 +1437,176 @@ proc isObjLackingTypeField*(typ: PType): bool {.inline.} =
   ## is not marked as ``.pure`` (the ``sfPure`` flags is not present on it)
   result = (typ.kind == tyObject) and ((tfFinal in typ.flags) and
       (typ[0] == nil) or isPureObject(typ))
+
+proc isImportedException*(t: PType; conf: ConfigRef): bool =
+  ## true of the `Exception` described by type `t` was imported
+  assert t != nil
+  if conf.exc != excNative:
+    return false
+
+  let base = t.skipTypes({tyAlias, tyPtr, tyDistinct, tyGenericInst})
+
+  if base.sym != nil and sfImportc in base.sym.flags:
+    result = true
+
+proc productReachable(marker: var IntSet, g: ModuleGraph, t: PType,
+                      search: PType, isInd: bool): bool
+
+proc check(marker: var IntSet, g: ModuleGraph, t: PType, search: PType,
+           isInd: bool): bool =
+  ## Returns whether the type `search` either matches `t` or is *potentially*
+  ## reachable through a ``ref`` type part of `t`. `isInd` indicates whether
+  ## the analysed `t` was reached through following a ``ref`` type
+  if t == nil or tfAcyclic in t.flags:
+    return false
+
+  # if the type is marked as acyclic, it is asserted to never being part of a
+  # reference cycle at run-time, meaning that we don't need to follow it
+  # further
+  let t = t.skipTypes(abstractInst - {tyTypeDesc})
+  if tfAcyclic in t.flags:
+    return false
+  # we're not interested in the difference between named and unnamed tuples nor
+  # distinct types, so use ``sameLocationType`` instead of ``sameType``
+  if isInd and sameLocationType(t, search):
+    # the searched for type is reachable from itself through a ref indirection
+    return true
+
+  let trace = getAttachedOp(g, t, attachedTrace)
+  if trace != nil and sfOverriden in trace.flags:
+    # the type has a custom trace hook. We take it as implying that reasoning
+    # about the type is not possible, and have to assume that a cycle through
+    # the type is possible
+    return true
+
+  case t.kind
+  of tyRef:
+    let base = t.base.skipTypes(abstractInst - {tyTypeDesc})
+    if base.kind == tyObject and not isFinal(base):
+      # a polymorphic ``ref``. We have to assume that the dynamic type contains
+      # the `search` type somewhere
+      result = tfAcyclic notin base.flags
+    else:
+      # a static ``ref``. Check the elements' types as we're analysing
+      # for type reachability through a ref indirection
+      result = check(marker, g, base, search, isInd=true)
+
+  of tyProc:
+    # since the env type is dynamic (only known at run-time), we don't know if
+    # a cycle to the type we're searching for is possible (or not possible) --
+    # we have to assume that it's possible
+    result = t.callConv == ccClosure
+  else:
+    result = productReachable(marker, g, t, search, isInd)
+
+proc productReachable(marker: var IntSet, g: ModuleGraph, n: PNode,
+                      search: PType, isInd: bool): bool =
+  ## Traverses the fields of the given record `n` and checks if the type
+  ## identified by `search` is reachable through one of them. Returns the
+  ## result.
+  result = false
+  case n.kind
+  of nkSym:
+    # cursor fields are non-owning -- they can't keep references alive and
+    # thus can't cause a reference cycle
+    if sfCursor notin n.sym.flags:
+      result = check(marker, g, n.typ, search, isInd)
+  of nkWithSons:
+    for it in n.items:
+      result = productReachable(marker, g, it, search, isInd)
+      if result:
+        break
+
+  of nkWithoutSons - {nkSym}:
+    discard "not relevant"
+
+proc productReachable(marker: var IntSet, g: ModuleGraph, t: PType, search: PType,
+          isInd: bool): bool =
+  ## Computes and returns whether `search` is *potentially* reachable from `t`
+  case t.kind
+  of tyTuple, tySequence, tyArray:
+    # value types that can keep something alive
+    for i in 0..<t.len:
+      result = check(marker, g, t[i], search, isInd)
+      if result:
+        break
+
+  of tyObject:
+    # special handling for objects
+    if containsOrIncl(marker, t.id): # prevent recursion
+      return false
+
+    # analyse the base type (if one exists):
+    if t.base != nil and
+       productReachable(marker, g, t.base.skipTypes(abstractPtrs), search, isInd):
+      return true
+
+    # analyse the body:
+    result = productReachable(marker, g, t.n, search, isInd)
+  of tyProc:
+    assert t.callConv != ccClosure
+    result = false
+  of tyVar, tyLent, tyOpenArray, tyVarargs, tyPtr, tyPointer:
+    # these are views; they don't own their items and thus can't keep them
+    # alive
+    result = false
+  of tyUncheckedArray:
+    # the items of an ``UncheckedArray`` are not considered by the cycle
+    # collector, so we don't follow them
+    result = false
+  of IntegralTypes, tyTypeDesc, tyEmpty, tyNil, tyOrdinal, tySet, tyRange,
+     tyString, tyCstring, tyVoid:
+    result = false
+  of tyDistinct, tyGenericInst, tyAlias, tyUserTypeClassInst, tyInferred:
+    result = productReachable(marker, g, t.lastSon, search, isInd)
+  of tyError:
+    # ``productReachable`` returning true usually means more work for the
+    # compiler, so we treat the error type as not being able to introduce
+    # reference cycles -- the type doesn't reach the code generators anyway
+    result = false
+  of tyRef:
+    unreachable("handled by check")
+  of tyNone, tyUntyped, tyTyped, tyGenericInvocation, tyGenericBody,
+     tyGenericParam, tyForward, tySink, tyBuiltInTypeClass,
+     tyCompositeTypeClass, tyUserTypeClass, tyAnd, tyOr, tyNot, tyAnything,
+     tyStatic, tyFromExpr:
+    unreachable("not a concrete type")
+
+proc isCyclePossible*(typ: PType, g: ModuleGraph): bool =
+  ## Analyses and returns whether `typ` can possibly be the root of a reference
+  ## cycle, or in other words, whether a heap cell of type `typ` can keep
+  ## itself alive.
+  ##
+  ## The analysis is conservative: if a location of `typ` can have shared
+  ## ownership (``ref`` or closure) of a heap location with a dynamic type that
+  ## might not match the static one (i.e. a polymorphic ref or closure, the
+  ## latter uses type erasure), `typ` is treated as possibly cyclic.
+  let t = typ.skipTypes(abstractInst - {tyTypeDesc})
+  if not isFinal(t):
+    # we don't know where `typ` is used, so we have to treat it as possibly
+    # cyclic (if not explictly marked to not be)
+    return tfAcyclic notin typ.flags and tfAcyclic notin t.flags
+
+  var marker = initIntSet() # keeps track of which object types we've already
+                            # analysed
+  result = check(marker, g, typ, typ, isInd=false)
+
+proc classifyBackendView*(t: PType): BackendViewKind =
+  ## For the *resolved* type `t`, computes and returns what kind of view
+  ## the type represents. This is meant to be used during the backend
+  ## phase.
+  case t.kind
+  of tyVar, tyLent:
+    if t.base.kind == tyOpenArray: bvcSequence
+    else:                          bvcSingle
+  of tyOpenArray, tyVarargs:
+    bvcSequence
+  of ConcreteTypes - {tyVar, tyLent, tyOpenArray}, tyNil, tyVoid, tyError,
+     tyUncheckedArray, tyTypeDesc:
+    bvcNone
+  of abstractInst - {tyTypeDesc}, tyUserTypeClasses, tyStatic:
+    classifyBackendView(t.lastSon)
+  of tyNone, tyEmpty, tyUntyped, tyTyped, tyGenericInvocation, tyGenericBody,
+     tyGenericParam, tyForward, tyBuiltInTypeClass, tyCompositeTypeClass,
+     tyAnd, tyOr, tyNot, tyAnything, tyFromExpr:
+    unreachable()

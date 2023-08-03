@@ -135,16 +135,6 @@ template wrap2svoid(op, modop) {.dirty.} =
     op(getString(a, 0), getString(a, 1))
   modop op
 
-template wrapDangerous(op, modop) {.dirty.} =
-  if vmopsDanger notin c.config.features and (defined(nimsuggest) or c.config.cmd == cmdCheck):
-    proc `op Wrapper`(a: VmArgs) {.nimcall.} =
-      discard
-    modop op
-  else:
-    proc `op Wrapper`(a: VmArgs) {.nimcall.} =
-      op(getString(a, 0), getString(a, 1))
-    modop op
-
 proc getCurrentExceptionMsgWrapper(a: VmArgs) {.nimcall.} =
   if a.currentException.isNil:
     setResult(a, "")
@@ -160,6 +150,14 @@ proc getCurrentExceptionWrapper(a: VmArgs) {.nimcall.} =
   if not a.currentException.isNil:
     a.heap[].heapIncRef(a.currentException)
 
+proc setCurrentExceptionWrapper(a: VmArgs) {.nimcall.} =
+  # set the current exception to the one provided as the first argument
+  asgnRef(a.currentException, deref(a.getHandle(0)).refVal,
+          a.mem[], reset=true)
+
+proc prepareMutationWrapper(a: VmArgs) {.nimcall.} =
+  discard "no-op"
+
 template wrapIteratorInner(a: VmArgs, iter: untyped) =
   let rh = a.getResultHandle()
   assert rh.typ.kind == akSeq
@@ -168,7 +166,7 @@ template wrapIteratorInner(a: VmArgs, iter: untyped) =
   var i = 0
   for x in iter:
     s[].growBy(rh.typ, 1, a.mem[])
-    writeTo(x, getItemHandle(s[], rh.typ, i), a.mem[])
+    writeTo(x, getItemHandle(s[], rh.typ, i, a.mem.allocator), a.mem[])
     inc i
 
 template wrapIterator(fqname: string, iter: untyped) =
@@ -241,6 +239,9 @@ proc registerBasicOps*(c: var TCtx) =
   # system operations
   systemop(getCurrentExceptionMsg)
   systemop(getCurrentException)
+  systemop(prepareMutation)
+  registerCallback(c, "stdlib.system.closureIterSetupExc",
+                   setCurrentExceptionWrapper)
 
   # math operations
   wrap1f_math(sqrt)
@@ -344,7 +345,7 @@ proc registerBasicOps*(c: var TCtx) =
     let n = writeFloatToBufferSprintf(temp, x)
     let oldLen = deref(p).strVal.len
     deref(p).strVal.setLen(oldLen + n, a.mem.allocator)
-    safeCopyMem(deref(p).strVal.data.subView(oldLen, n), temp, n)
+    safeCopyMem(deref(p).strVal.data.slice(oldLen, n), temp, n)
 
 proc registerIoReadOps*(c: var TCtx) =
   ## Registers callbacks for read operations from the ``io`` module
@@ -378,9 +379,6 @@ proc registerOsOps*(c: var TCtx) =
 proc registerOs2Ops*(c: var TCtx) =
   ## OS operations that are able to modify the host's environment or run
   ## external programs
-
-  # captured vars:
-  let config = c.config
 
   wrap2svoid(putEnv, osop)
   wrap1svoid(delEnv, osop)
@@ -481,12 +479,6 @@ proc registerMacroOps*(c: var TCtx) =
     let fn = getNode(a, 0)
     setResult(a, fn.kind == nkClosure or (fn.typ != nil and fn.typ.callConv == ccClosure))
 
-  template userStrMsg(a: VmArgs): string =
-    let r = a.slots[a.ra]
-    {.line.}:
-      assert r.handle.typ.kind == akString
-    $deref(r.handle).strVal
-  
   template getInfo(a: VmArgs): TLineInfo =
     let b = getNode(a, 1)
     if b.kind == nkNilLit: a.currentLineInfo else: b.info

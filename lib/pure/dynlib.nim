@@ -150,7 +150,7 @@ elif defined(windows) or defined(dos):
     HMODULE {.importc: "HMODULE".} = pointer
     FARPROC {.importc: "FARPROC".} = pointer
 
-  proc FreeLibrary(lib: HMODULE) {.importc, header: "<windows.h>", stdcall.}
+  proc freeLibrary(lib: HMODULE) {.importc: "FreeLibrary", header: "<windows.h>", stdcall.}
   proc winLoadLibrary(path: cstring): HMODULE {.
       importc: "LoadLibraryA", header: "<windows.h>", stdcall.}
   proc getProcAddress(lib: HMODULE, name: cstring): FARPROC {.
@@ -160,7 +160,7 @@ elif defined(windows) or defined(dos):
     result = cast[LibHandle](winLoadLibrary(path))
   proc loadLib(): LibHandle =
     result = cast[LibHandle](winLoadLibrary(nil))
-  proc unloadLib(lib: LibHandle) = FreeLibrary(cast[HMODULE](lib))
+  proc unloadLib(lib: LibHandle) = freeLibrary(cast[HMODULE](lib))
 
   proc symAddr(lib: LibHandle, name: cstring): pointer =
     result = cast[pointer](getProcAddress(cast[HMODULE](lib), name))

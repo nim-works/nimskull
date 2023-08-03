@@ -2,6 +2,7 @@ discard """
 action: compile
   cmd: "nim $target --debuginfo --hints:on --define:useNimRtl --app:lib $options $file"
 batchable: false
+knownIssue: "the new runtime doesn't yet support the nimrtl dynlib"
 """
 
 type

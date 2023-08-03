@@ -380,27 +380,27 @@ block t2304:
 
 
 block t2752:
-  proc myFilter[T](it: (iterator(): T), f: (proc(anything: T):bool)): (iterator(): T) =
-    iterator aNameWhichWillConflict(): T {.closure.}=
-      for x in it():
-        if f(x):
+    proc myFilter[T](it: (iterator(): T), f: (proc(anything: T):bool)): (iterator(): T) =
+      iterator aNameWhichWillConflict(): T {.closure.}=
+        for x in it():
+          if f(x):
+            yield x
+      result = aNameWhichWillConflict
+
+    iterator testIt():int {.closure.}=
+      yield -1
+      yield 2
+
+    #let unusedVariable = myFilter(testIt, (x: int) => x > 0)
+
+    proc onlyPos(it: (iterator(): int)): (iterator(): int)=
+      iterator aNameWhichWillConflict(): int {.closure.}=
+        var filtered = onlyPos(myFilter(it, (x:int) => x > 0))
+        for x in filtered():
           yield x
-    result = aNameWhichWillConflict
+      result = aNameWhichWillConflict
 
-  iterator testIt():int {.closure.}=
-    yield -1
-    yield 2
-
-  #let unusedVariable = myFilter(testIt, (x: int) => x > 0)
-
-  proc onlyPos(it: (iterator(): int)): (iterator(): int)=
-    iterator aNameWhichWillConflict(): int {.closure.}=
-      var filtered = onlyPos(myFilter(it, (x:int) => x > 0))
-      for x in filtered():
-        yield x
-    result = aNameWhichWillConflict
-
-  let x = onlyPos(testIt)
+    let x = onlyPos(testIt)
 
 
 
@@ -872,3 +872,126 @@ block: # Ensure no segfault from constraint
     a = Regex[int]()
     b = Regex[bool]()
     c = MyOtherType[seq[int]]()
+
+block uninstantiated_symbol_in_default_value_ast:
+  # `prc` must have a parameter with a non-builtin container type where the
+  # relevant type parameter is not phantom type information
+  proc prc[T](x: Slice[T]) =
+    discard
+
+  template imm() =
+    # `imm` must be an immediate template, so that it is instantiated  when
+    # analysing the default value expression
+    bind prc # <-- this is the imporant part. The symbol of an uninstantiated
+             # generic routine exists in a non-callee AST slot
+
+  # `param` must have a type that depends on a generic parameter
+  proc p[T](param = (imm(); default(T))) =
+    doAssert param == 0
+
+  # this used to fail with a "cannot instantiate; Maybe generic arguments are
+  # missing" error
+  p[int]()
+
+block unrelated_type_in_body:
+  # a variation of the "uninstantiated_symbol_in_default_value_ast" test, but
+  # with the symbol of an unrelated type
+  type Type[U] = object
+    x: U
+
+  template get(x: typed) =
+    discard
+
+  proc p[T](param = (get(Type); default(T))) =
+    doAssert param == 0
+
+  p[int]()
+
+block non_call_generic_default_value_expression:
+  # because the `x.len` expression is a generic statement (it depends on a
+  # type variable), it is kept as a dot-expression until instantiation. The
+  # issues was that non-call expression didn't have their type vars replaced
+  proc p(x: static[string]; L = x.len) =
+    doAssert x.len == 1
+
+  p("a")
+
+block no_alias_like_template:
+  # same as with normal call expressions, when type arguments are supplied,
+  # alias-like templates are not considered in the callee position.
+  template overload: untyped = 1
+
+  proc overload[T](x: int): int =
+    x
+
+  doAssert overload[int](2) == 2
+
+block no_alias_like_macro:
+  # the same goes for alias-like macros -- they too are not considered
+  macro overload: untyped =
+    result = nil
+
+  proc overload[T](x: int): int =
+    x
+
+  doAssert overload[int](2) == 2
+
+block overload_resolution_with_macro_and_proc:
+  proc test[T: int]() =
+    {.error.}
+
+  macro test[T: string]() =
+    discard
+
+  # if the lookup lands on the proc (which is the case here), then the macro
+  # was ignored. Since there's then only a single eligible element in the
+  # overload set and it doesn't match, a `cannot instantiate` error was
+  # produced. Swapping the definitions made it work as expected
+  test[string]()
+
+block no_early_instantiation:
+  # a regression test for the situation were the automatic use of early
+  # instantiation prevented valid code from working
+  proc test[A; B: string]() =
+    discard
+
+  proc test[A; B: int](x: static int) =
+    discard
+
+  # whether this compiled did depend on the order in which the procedures
+  # are placed in the symbol table. Using the definition order from above,
+  # the call used to fail with a `cannot instantiate: 'p[int, int]'` error
+  test[int, int](1)
+
+block single_macro_with_explicit_static:
+  # if there's only a single macro (or template) in the overload set,
+  # passing the argument for the ``static[T]`` generic parameter was not
+  # possible, as it always lead to a ``type expected, but expression has
+  # no type`` error
+  macro m[I: static[int]](): untyped =
+    result = quote: `I`
+
+  doAssert m[2]() == 2
+
+block static_argument_in_generic_or_template:
+  # passing arguments to ``static[T]`` type parameters needs to work inside
+  # template and generics
+  proc p[I: static[int]](): int =
+    result = I
+
+  proc p(x: int) =
+    # the presence of this overload used to prevent non-typedesc
+    # type arguments from working
+    discard
+
+  # check that `p` can be invoked from inside a generic routine:
+  proc generic[T]() =
+    doAssert p[1]() == 1
+
+  generic[int]()
+
+  # check the same is true for templates:
+  template templ() =
+    doAssert p[2]() == 2
+
+  templ()

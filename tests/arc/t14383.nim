@@ -52,21 +52,6 @@ echo x
 import std/os
 discard getFileInfo(".")
 
-
-#------------------------------------------------------------------------------
-# Issue #15707
-#------------------------------------------------------------------------------
-
-type
-  JVMObject = ref object
-proc freeJVMObject(o: JVMObject) =
-  discard
-proc fromJObject(T: typedesc[JVMObject]): T =
-  result.new(cast[proc(r: T) {.nimcall.}](freeJVMObject))
-
-discard JVMObject.fromJObject()
-
-
 #------------------------------------------------------------------------------
 # Issue #15910
 #------------------------------------------------------------------------------

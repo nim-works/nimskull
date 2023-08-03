@@ -98,7 +98,7 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
     else:
       result.add newNodeI(nkEmpty, templ.info)
   of nkError:
-    c.config.localReport(templ)
+    c.config.internalError(templ.info, "unreported error")
   else:
     let parentIsDeclarative = c.isDeclarative
     if templ.kind in routineDefs + {nkTypeSection, nkVarSection, nkLetSection, nkConstSection}:
@@ -111,13 +111,19 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
       result.add res
     c.isDeclarative = parentIsDeclarative
 
-proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode =
+proc evalTemplateArgs*(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode =
+  ## Produces an ``nkArgList`` node storing all arguments taken from the
+  ## call-like expression `n`. Immediate templates/macros are also considered,
+  ## by making sure enough parameters are provided and by inserting the default
+  ## for parameters where no argument is provided.
+  ##
+  ## Despite the name, the procedure also applies to macro arguments.
   # if the template has zero arguments, it can be called without ``()``
   # `n` is then a nkSym or something similar
   let
     totalParams = if n.kind in nkCallKinds: n.len-1
                   else: 0
-    # XXX: Since immediate templates are not subject to the
+    # XXX: Since immediate templates/macros are not subject to the
     # standard sigmatching algorithm, they will have a number
     # of deficiencies when it comes to generic params:
     # Type dependencies between the parameters won't be honoured

@@ -378,10 +378,6 @@ proc parseUntil*(s: string, token: var string, until: string,
     doAssert myToken == "Hello "
     doAssert parseUntil("Hello World", myToken, "Wor", 2) == 4
     doAssert myToken == "llo "
-  when (NimMajor, NimMinor) <= (1, 0):
-    if until.len == 0:
-      token.setLen(0)
-      return 0
   var i = start
   while i < s.len:
     if until.len > 0 and s[i] == until[0]:

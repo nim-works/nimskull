@@ -272,7 +272,7 @@ program:
 .. code:: cmd
 
   nim c --noMain --noLinking fib.nim
-  gcc -o m -I$HOME/.cache/nim/fib_d -Ipath/to/nim/lib $HOME/.cache/nim/fib_d/*.c maths.c
+  gcc -o m -I$HOME/.cache/nimskull/fib_d -Ipath/to/nim/lib $HOME/.cache/nimskull/fib_d/*.c maths.c
 
 The first command runs the Nim compiler with three special options to avoid
 generating a `main()`:c: function in the generated files and to avoid linking the
@@ -360,8 +360,7 @@ painless. Most C functions accepting a Nim string converted to a
 they return the string won't be needed anymore. However, for the rare cases
 where a Nim string has to be preserved and made available to the C backend
 as a `cstring`, you will need to manually prevent the string data
-from being freed with `GC_ref <system.html#GC_ref,string>`_ and `GC_unref
-<system.html#GC_unref,string>`_.
+from being freed.
 
 A similar thing happens with C code invoking Nim code which returns a
 `cstring`. Consider the following proc:
@@ -371,15 +370,8 @@ A similar thing happens with C code invoking Nim code which returns a
   proc gimme(): cstring {.exportc.} =
     result = "Hey there C code! " & $rand(100)
 
-Since Nim's garbage collector is not aware of the C code, once the
+Since |NimSkull|'s garbage collector is not aware of the C code, once the
 `gimme` proc has finished it can reclaim the memory of the `cstring`.
-However, from a practical standpoint, the C code invoking the `gimme`
-function directly will be able to use it since Nim's garbage collector has
-not had a chance to run *yet*. This gives you enough time to make a copy for
-the C side of the program, as calling any further Nim procs *might* trigger
-garbage collection making the previously returned string garbage. Or maybe you
-are `yourself triggering the collection <gc.html>`_.
-
 
 Custom data types
 -----------------

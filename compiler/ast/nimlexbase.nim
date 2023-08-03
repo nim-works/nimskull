@@ -27,18 +27,18 @@ const
   BACKSPACE* = '\x08'
   VT* = '\x0B'
 
+## This diagram illustrates how the `buf`fer, length, position, sentinel, and
+## newline characters are considered:
+##
+## .. code-block:: nim
+##
+##   "Example Text\n ha!"   bufLen = 17
+##    ^pos = 0     ^ sentinel = 12
+##
+## NB: '\n' is one character/byte
+
 const
-  EndOfFile* = '\0' ##[
-end of file marker
-
-A little picture makes everything clear
-
-.. code-block:: nim
-
-  "Example Text\n ha!"   bufLen = 17
-    ^pos = 0     ^ sentinel = 12
-
-  ]##
+  EndOfFile* = '\0'    ## end of file marker
   NewLines* = {CR, LF}
 
 type
@@ -47,12 +47,12 @@ type
     buf*: cstring
     bufStorage: string
     bufLen: int
-    stream*: PLLStream        ## we read from this stream
-    lineNumber*: int          ## the current line number
-                              ## private data:
+    stream*: PLLStream ## we read from this stream
+    lineNumber*: int   ## the current line number
+    # private data:
     sentinel*: int
-    lineStart*: int           ## index of last line start in buffer
-    offsetBase*: int          ## use ``offsetBase + bufpos`` to get the offset
+    lineStart*: int    ## index of last line start in buffer
+    offsetBase*: int   ## use ``offsetBase + bufpos`` to get the offset
 
 
 proc openBaseLexer*(L: var TBaseLexer, inputstream: PLLStream,

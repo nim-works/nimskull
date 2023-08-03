@@ -1,7 +1,11 @@
 discard """
-  cmd: '''nim c -d:nimAllocStats --gc:arc $file'''
+  target: "!js !vm"
+  matrix: '''-d:nimAllocStats --gc:arc'''
   output: '''(allocCount: 102, deallocCount: 102)'''
 """
+
+# TODO: adjust the test so that it doesn't depend on allocator-stats and
+#       enable it for the VM/JS
 
 type
   FutureBase = ref object

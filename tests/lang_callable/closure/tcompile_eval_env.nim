@@ -1,4 +1,5 @@
 discard """
+targets: "c js vm"
 output: ""
 description: '''
   . From https://github.com/nim-lang/Nim/issues/1512

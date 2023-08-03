@@ -6,6 +6,9 @@ proc isNamedTuple(T: typedesc): bool {.magic: "TypeTrait".}
 proc distinctBase(T: typedesc, recursive: static bool = true): typedesc {.magic: "TypeTrait".}
   ## imported from typetraits
 
+proc rangeBase(T: typedesc): typedesc {.magic: "TypeTrait".}
+  ## imported from typetraits
+
 proc repr*(x: NimNode): string {.magic: "Repr", noSideEffect.}
 
 proc repr*(x: int): string =
@@ -92,8 +95,15 @@ proc repr*(p: proc): string =
   ## repr of a proc as its address
   repr(cast[ptr pointer](unsafeAddr p)[])
 
-template repr*(x: distinct): string =
-  repr(distinctBase(typeof(x))(x))
+template repr*[T: distinct|range](x: T): string =
+  # note: distinct and range match equally well, so it's not possible to use
+  # two templates -- doing so would lead to ambiguity errors
+  when T is range:
+    repr(rangeBase(typeof(x))(x))
+  elif T is distinct:
+    repr(distinctBase(typeof(x))(x))
+  else:
+    {.error: "unreachable".}
 
 template repr*(t: typedesc): string = $t
 

@@ -39,9 +39,8 @@ type
 
   PackedLib* = object
     kind*: TLibKind
-    generated*: bool
     isOverriden*: bool
-    name*: LitId
+    name*: PackedItemId
     path*: NodeId
 
   PackedSym* = object
@@ -60,8 +59,8 @@ type
     position*: int
     offset*: int
     externalName*: LitId # instead of TLoc
-    locFlags*: TLocFlags
-    annex*: PackedLib
+    extFlags*: ExternalFlags
+    annex*: tuple[module: LitId, index: uint32]
     constraint*: NodeId
 
   PackedType* = object
@@ -303,6 +302,12 @@ proc ithSon*(tree: PackedTree; n: NodePos; i: int): NodePos =
       if count == i: return child
       inc count
   assert false, "node has no i-th child"
+
+proc lastSon*(tree: PackedTree, n: NodePos): NodePos =
+  assert(not isAtom(tree, n.int))
+  let len = tree.nodes[n.int].operand
+  assert len > 0, "node has no children"
+  result = NodePos(n.int + len)
 
 when false:
   proc `@`*(tree: PackedTree; lit: LitId): lent string {.inline.} =

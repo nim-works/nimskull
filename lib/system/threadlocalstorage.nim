@@ -88,14 +88,14 @@ else:
                     header: "<sys/types.h>".} = distinct cuint
   elif defined(openbsd) and defined(amd64):
     type
-      SysThread* {.importc: "pthread_t", header: "<pthread.h>".} = object
+      SysThread* {.importc: "pthread_t", header: "<pthread.h>".} = distinct pointer
       Pthread_attr {.importc: "pthread_attr_t",
                        header: "<pthread.h>".} = object
       ThreadVarSlot {.importc: "pthread_key_t",
                      header: "<pthread.h>".} = cint
   else:
     type
-      SysThread* {.importc: "pthread_t", header: "<sys/types.h>".} = object
+      SysThread* {.importc: "pthread_t", header: "<sys/types.h>".} = distinct pointer
       Pthread_attr {.importc: "pthread_attr_t",
                        header: "<sys/types.h>".} = object
       ThreadVarSlot {.importc: "pthread_key_t",
@@ -187,15 +187,12 @@ type
       tls: ThreadLocalStorage
     else:
       nil
-    when hasSharedHeap:
-      next, prev: PGcThread
-      stackBottom, stackTop: pointer
-      stackSize: int
-    else:
-      nil
 
 when emulatedThreadVars:
-  var globalsSlot: ThreadVarSlot
+  var globalsSlot {.noInit.}: ThreadVarSlot
+  # the `globalSlot` global is special, in that it's initialized by
+  # ``initThreadVarsEmulation``, which is called *before* control-flow reaches
+  # here
 
   when not defined(useNimRtl):
     var mainThread: GcThread

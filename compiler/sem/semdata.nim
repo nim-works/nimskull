@@ -34,15 +34,8 @@ import
     magicsys,
     modulegraphs,
   ],
-  compiler/vm/[
-    vmdef,
-  ],
   compiler/ic/[
     ic
-  ],
-  compiler/utils/[
-    pathutils,
-    astrepr,
   ]
 
 from compiler/ast/reports_sem import reportAst,
@@ -58,7 +51,7 @@ type
   TOptionEntry* = object      ## entries to put on a stack for pragma parsing
     options*: TOptions
     defaultCC*: TCallingConvention
-    dynlib*: PLib
+    dynlib*: LibId
     notes*: ReportKinds
     features*: set[Feature]
     otherPragmas*: PNode      ## every pragma can be pushed
@@ -77,6 +70,17 @@ type
     mapping*: TIdTable
     caseContext*: seq[tuple[n: PNode, idx: int]]
     localBindStmts*: seq[PNode]
+
+    inStaticContext*: int
+      ## > 0 if we are inside a ``static`` block/expression or initializer
+      ## expression of a ``const``
+      ##
+      ## written:
+      ##  - semexprs: save/restore in ``tryExpr``, inc/dec in ``semStaticExpr``
+      ##  - semstmts: inc/dec around ``semConst`` and ``semStaticStmt``
+      ## read:
+      ##  - semBindSym: whether to resolve the binding or not
+      ##  - inCompileTimeOnlyContext
 
   TMatchedConcept* = object
     candidateType*: PType
@@ -142,9 +146,9 @@ type
     # -------------------------------------------------------------------------
     enforceVoidContext*: PType
       ## for `if cond: stmt else: foo`, `foo` will be evaluated under
-      ## enforceVoidContext != nil; meaning we infered if to contain a a `stmt`
-      ## (void) and so `foo` must result in an expression that can be `void`.
-      ## Which plays into discard checks.
+      ## enforceVoidContext != nil; meaning we infered the `if` to contain a
+      ## `stmt` (void) and so `foo` must result in an expression that can be
+      ## `void`. Which plays into discard checks.
       ##
       ## It's used as a sentinel value, setting a node's typ field to this can
       ## then be compared with later to raise errors or to see if something is
@@ -264,19 +268,6 @@ type
                               ##    seems to be the only thing that might need
                               ##    this and it's likely a leak -- growing over
                               ##    time.
-
-    # static contexts
-    inStaticContext*: int
-      ## > 0 if we are inside a static: block
-      ##
-      ## written:
-      ##  - semStaticExpr: inc/dec around semExprWithType call likely for the
-      ##                   evalAtCompileTime, see below
-      ##  - semexprs: save/restore in `tryExpr`
-      ##  - semstmts: inc/dec around semConst and semStaticStmt
-      ## read:
-      ##  - evalAtCompileTime: guard compile time eval
-      ##  - semBindSym: whether to resolve the binding or not
 
     # hlo??
     inUnrolledContext*: int    ## > 0 if we are unrolling a loop
@@ -554,8 +545,6 @@ type
       ## written:
       ##  - semdata: init and updated via addPattern, which isn't used by hlo??
       ##  - hlo: `applyPatterns` add patterns for optimizations
-      ##  - semstmts: semProcAux adds term rewriting definitions
-      ##  - semtempl: semTemplateDef adds term rewriting definitions
       ## read:
       ##  - hlo: check len to see if there are patterns to apply
     
@@ -570,14 +559,6 @@ type
       ##  - pragmas: query user pragmas to see if we need to process it now
       ##  - semstmts: query user pragmas for proc/conv/etc annotation lookup
       ##  - semtypes: query user pragmas for type section pragmas
-    libs*: seq[PLib]
-      ## all libs used by this module, mostly setup pragmas.
-      ##
-      ## written:
-      ##  - semdata: init
-      ##  - pragmas: add to dynamic libs
-      ## read:
-      ##  - pragmas: query dynamic libs
 
     # hacks used for lookups
     isAmbiguous*: bool # little hack <-- it never is "little"
@@ -812,7 +793,7 @@ proc newOptionEntry*(conf: ConfigRef): POptionEntry =
   new(result)
   result.options = conf.options
   result.defaultCC = ccNimCall
-  result.dynlib = nil
+  result.dynlib = LibId()
   result.notes = conf.notes
   result.warningAsErrors = conf.warningAsErrors
 
@@ -837,7 +818,6 @@ proc popOptionEntry*(c: PContext) =
 proc newContext*(graph: ModuleGraph; module: PSym): PContext =
   new(result)
   result.optionStack = @[newOptionEntry(graph.config)]
-  result.libs = @[]
   result.module = module
   result.friendModules = @[module]
   result.converters = @[]
@@ -911,14 +891,26 @@ proc reexportSym*(c: PContext; s: PSym) =
   if c.config.symbolFiles != disabledSf:
     addReexport(c.encoder, c.packedRepr, s)
 
-proc newLib*(kind: TLibKind): PLib =
-  new(result)
-  result.kind = kind          #initObjectSet(result.syms)
+proc initLib*(kind: TLibKind): TLib =
+  result = TLib(kind: kind)
 
-proc addToLib*(lib: PLib, sym: PSym) =
+proc addToLib*(lib: LibId, sym: PSym) =
   #if sym.annex != nil and not isGenericRoutine(sym):
   #  LocalError(sym.info, errInvalidPragma)
+  assert not isNil(lib)
   sym.annex = lib
+
+proc addLib*(c: PContext, lib: sink TLib): LibId =
+  c.graph.addLib(c.idgen.module, lib)
+
+func `[]`*(c: PContext, id: LibId): var TLib =
+  c.graph.getLib(id)
+
+iterator libs*(c: PContext): (LibId, var TLib)  =
+  ## Returns all ``TLib`` instances associated with `c`.
+  let pos = c.idgen.module
+  for i in 0..<c.graph.libs[pos].len:
+    yield (LibId(module: pos, index: uint32(i + 1)), c.graph.libs[pos][i])
 
 proc newTypeS*(kind: TTypeKind, c: PContext): PType =
   result = newType(kind, nextTypeId(c.idgen), getCurrOwner(c))
@@ -993,35 +985,6 @@ proc makeStaticExpr*(c: PContext, n: PNode): PNode =
   result.typ = if n.typ != nil and n.typ.kind == tyStatic: n.typ
                else: newTypeWithSons(c, tyStatic, @[n.typ])
 
-proc makeAndType*(c: PContext, t1, t2: PType): PType =
-  result = newTypeS(tyAnd, c)
-  result.sons = @[t1, t2]
-  propagateToOwner(result, t1)
-  propagateToOwner(result, t2)
-  result.flags.incl ((t1.flags + t2.flags) * {tfHasStatic}) + {tfHasMeta}
-
-proc makeOrType*(c: PContext, t1, t2: PType): PType =
-  result = newTypeS(tyOr, c)
-  if t1.kind != tyOr and t2.kind != tyOr:
-    result.sons = @[t1, t2]
-  else:
-    template addOr(t1) =
-      if t1.kind == tyOr:
-        for x in t1.sons: result.rawAddSon x
-      else:
-        result.rawAddSon t1
-    addOr(t1)
-    addOr(t2)
-  propagateToOwner(result, t1)
-  propagateToOwner(result, t2)
-  result.flags.incl ((t1.flags + t2.flags) * {tfHasStatic}) + {tfHasMeta}
-
-proc makeNotType*(c: PContext, t1: PType): PType =
-  result = newTypeS(tyNot, c)
-  result.sons = @[t1]
-  propagateToOwner(result, t1)
-  result.flags.incl (t1.flags * {tfHasStatic}) + {tfHasMeta}
-
 proc nMinusOne(c: PContext; n: PNode): PNode =
   result = newTreeI(nkCall, n.info, newSymNode(getSysMagic(c.graph, n.info, "pred", mPred)), n)
 
@@ -1087,6 +1050,11 @@ proc isTopLevelInsideDeclaration*(c: PContext, sym: PSym): bool {.inline.} =
   # for routeKinds the scope isn't closed yet:
   c.currentScope.depthLevel <= 2 + ord(sym.kind in routineKinds)
 
+proc inCompileTimeOnlyContext*(c: PContext): bool =
+  ## Returns whether the current analysis happens for code that can only run
+  ## at compile-time
+  c.p.inStaticContext > 0 or sfCompileTime in c.p.owner.flags
+
 proc pushCaseContext*(c: PContext, caseNode: PNode) =
   c.p.caseContext.add((caseNode, 0))
 
@@ -1113,14 +1081,6 @@ proc addToGenericCache*(c: PContext; s: PSym; inst: PType) =
   c.graph.typeInstCache.mgetOrPut(s.itemId, @[]).add LazyType(typ: inst)
   if c.config.symbolFiles != disabledSf:
     storeTypeInst(c.encoder, c.packedRepr, s, inst)
-
-proc sealRodFile*(c: PContext) =
-  if c.config.symbolFiles != disabledSf:
-    if c.graph.vm != nil:
-      for (m, n) in PCtx(c.graph.vm).vmstateDiff:
-        if m == c.module:
-          addPragmaComputation(c, n)
-    c.idgen.sealed = true # no further additions are allowed
 
 proc rememberExpansion*(c: PContext; info: TLineInfo; expandedSym: PSym) =
   ## Templates and macros are very special in Nim; these have

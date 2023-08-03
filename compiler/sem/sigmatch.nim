@@ -41,11 +41,11 @@ import
   ],
   compiler/utils/[
     debugutils,
+    idioms
   ]
 
-# xxx: reports are a code smell meaning data types are misplaced, for example
-#      DebugCallableCandidate
-from compiler/ast/reports_sem import SemReport, DebugCallableCandidate,
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import SemReport,
   reportAst,
   reportSym
 from compiler/ast/report_enums import ReportKind,
@@ -145,8 +145,8 @@ proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PType) =
   c.error = SemCallMismatch()
   initIdTable(c.bindings)
 
-proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
-                    binding: PNode, calleeScope = -1) =
+proc initCallCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
+                        calleeScope = -1) =
   initCandidate(ctx, c, callee.typ)
   c.calleeSym = callee
   if callee.kind in skProcKinds and calleeScope == -1:
@@ -162,22 +162,10 @@ proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
   else:
     c.calleeScope = calleeScope
   c.magic = c.calleeSym.magic
-  if binding != nil and callee.kind in routineKinds:
-    var typeParams = callee.ast[genericParamsPos]
-    for i in 1..min(typeParams.safeLen, binding.safeLen-1):
-      var formalTypeParam = typeParams[i-1].typ
-      var bound = binding[i].typ
-      if bound != nil:
-        if formalTypeParam.kind == tyTypeDesc:
-          if bound.kind != tyTypeDesc:
-            bound = makeTypeDesc(ctx, bound)
-        else:
-          bound = bound.skipTypes({tyTypeDesc})
-        put(c, formalTypeParam, bound)
 
-proc newCandidate*(ctx: PContext, callee: PSym,
-                   binding: PNode, calleeScope = -1): TCandidate =
-  initCandidate(ctx, result, callee, binding, calleeScope)
+proc newCallCandidate*(ctx: PContext, callee: PSym,
+                       calleeScope = -1): TCandidate =
+  initCallCandidate(ctx, result, callee, calleeScope)
 
 proc newCandidate*(ctx: PContext, callee: PType): TCandidate =
   initCandidate(ctx, result, callee)
@@ -482,6 +470,56 @@ proc isGenericSubtype(c: var TCandidate; a, f: PType, d: var int, fGenericOrigin
     d = depth
     result = true
 
+proc isSubtypeOfGenericInstance(c: var TCandidate; a, f: PType, fGenericOrigin: PType): int =
+  ## Computes whether the resolved object-like type `a` is a subtype of `f`,
+  ## where `f` is a ``tyGenericInst``. The inheritance depth is returned,
+  ## or, if the types are not related, -1.
+  ##
+  ## In case of a match, the unresolved generic parameters of `f` are bound to
+  ## the arguments taken from the base type of actual that matched.
+  assert f.kind == tyGenericInst
+  var
+    askip = skippedNone
+    fskip = skippedNone
+
+    t = a.skipToObject(askip)
+    last = t ## the unskipped type
+
+  assert t != nil, "'a' is not object-like type"
+  discard f.skipToObject(fskip) # only compute the skip kind
+
+  proc isEqual(c: var TCandidate, f, a: PType): bool {.nimcall.} =
+    if f.id == a.id: # fast equality check
+      result = true
+    elif a.kind == tyGenericInst and
+         (let roota = a.skipGenericAlias; roota.base == f.base):
+      # formal might still contain unresovled generic parameters, in which case
+      # the ID comparison won't work as an equality check
+      for i in 1..<f.len-1:
+        # don't bind generic parameters yet; binding must only happen in
+        # case of a match
+        if typeRel(c, f[i], roota[i], {trDontBind}) < isGeneric:
+          return false
+
+      result = true
+    else:
+      result = false
+
+  # traverse the type hieararchy until we either reach the end or find a type
+  # that is equal to `f`
+  while t != nil and askip == fskip and not isEqual(c, f, last):
+    t = t.base
+    if t.isNil:
+      break # we reached the end
+    last = t
+    t = t.skipToObject(askip)
+    inc result
+
+  if t != nil and askip == fskip:
+    genericParamPut(c, last, f)
+  else:
+    result = -1 # no relationship
+
 proc minRel(a, b: TTypeRelation): TTypeRelation =
   if a <= b: result = a
   else: result = b
@@ -521,20 +559,20 @@ proc procParamTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
   ## For example we have:
   ##
   ## .. code-block:: nim
-  ##   proc myMap[T,S](sIn: seq[T], f: proc(x: T): S): seq[S] = ...
-  ##   proc innerProc[Q,W](q: Q): W = ...
+  ##   proc myMap[T,U,S](sIn: seq[T], f: proc(x: T, y: U): S): seq[S] = ...
+  ##   proc innerProc[Q](q: Q, b: Q): auto = ...
   ##
   ## And we want to match: myMap(@[1,2,3], innerProc)
   ## This proc (procParamTypeRel) will do the following steps in
-  ## three different calls:
-  ## - matches f=T to a=Q. Since f is metatype, we resolve it
-  ##    to int (which is already known at this point). So in this case
-  ##    Q=int mapping will be saved to c.bindings.
-  ## - matches f=S to a=W. Both of these metatypes are unknown, so we
-  ##    return with isBothMetaConvertible to ask for rerun.
-  ## - matches f=S to a=W. At this point the return type of innerProc
-  ##    is known (we get it from c.bindings). We can use that value
-  ##    to match with f, and save back to c.bindings.
+  ## two different calls:
+  ## - matches `f`=T to `a`=Q. `f` is a resolved metatype ('int' is bound to
+  ##   it already), so `a` can be inferred; a binding for Q=int is saved
+  ## - matches `f`=U to `a`=Q. `f` is an unresolved metatype, but since Q was
+  ##   already inferred as 'int', U can be inferred from it; a binding for
+  ##   U=int is saved
+  ##
+  ## The 'auto' return type doesn't reach here, but is instead handled by
+  ## ``procTypeRel``.
   var
     f = f
     a = a
@@ -543,6 +581,7 @@ proc procParamTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
     let aResolved = PType(idTableGet(c.bindings, a))
     if aResolved != nil:
       a = aResolved
+
   if a.isMetaType:
     if f.isMetaType:
       # We are matching a generic proc (as proc param)
@@ -551,12 +590,16 @@ proc procParamTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
       # type is already fully-determined, so we are
       # going to try resolve it
       if c.call != nil:
-        f = generateTypeInstance(c.c, c.bindings, c.call.info, f)
+        f = tryGenerateInstance(c.c, c.bindings, c.call.info, f)
       else:
+        # XXX: this seems... arbitrary. The else branch prevents explicitly
+        #      instantiating a type like ``Type[A; B: static[proc(a: A)]]``
         f = nil
+
       if f.isNil() or f.isMetaType:
         # no luck resolving the type, so the inference fails
-        return isBothMetaConvertible
+        return isNone
+
     # Note that this typeRel call will save a's resolved type into c.bindings
     let reverseRel = typeRel(c, a, f)
     if reverseRel >= isGeneric:
@@ -589,12 +632,16 @@ proc procTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
     for i in 1..<f.len:
       checkParam(f[i], a[i])
 
-    if f[0] != nil:
-      if a[0] != nil:
-        checkParam(f[0], a[0])
+    if f[0] != nil and a[0] != nil:
+      # both have return types
+      if a[0].kind == tyUntyped:
+        # special handling for the return type: if `a` is 'auto' we first
+        # instantiate the procedure passed as the argument
+        result = isBothMetaConvertible
       else:
-        return isNone
-    elif a[0] != nil:
+        checkParam(f[0], a[0])
+    elif a[0] != f[0]:
+      # one has a void return type while the other doesn't
       return isNone
 
     result = getProcConvMismatch(c.c.config, f, a, result)[1]
@@ -718,6 +765,10 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
         diagnostics.add report.semReport
   )
 
+  # xxx: this is where we end up with collapsed bodies and drives the need for
+  #      the check in `semexprs.semExpr`'s `nkStmtList/Expr` branch, a
+  #      `semTryExpr` that doesn't collapse should remove the awkward logic and
+  #      action at a distance.
   var checkedBody = c.semTryExpr(c, body.copyTree, {efExplain})
 
   c.config.setReportHook(tmpHook)
@@ -1277,7 +1328,7 @@ typeRel can be used to establish various relationships between types:
     else:
       discard
   of tyOrdinal:
-    if isOrdinalType(a, allowEnumWithHoles = optNimV1Emulation in c.c.config.globalOptions):
+    if isOrdinalType(a, allowEnumWithHoles = false):
       var x =
         if a.kind == tyOrdinal:
           a[0]
@@ -1431,10 +1482,6 @@ typeRel can be used to establish various relationships between types:
     let origF = f
     var f = if prev.isNil(): f else: prev
 
-    if a.len > 0:
-      let skippedA = a.skipTypesOrNil({tyObject}) # Skips if it's inheriting from a generic
-      if skippedA != nil:
-        a = skippedA
     let roota = a.skipGenericAlias
     let rootf = f.skipGenericAlias
 
@@ -1498,8 +1545,26 @@ typeRel can be used to establish various relationships between types:
             return if ret in {isEqual,isGeneric}: isSubtype else: ret
 
         result = isNone
+    elif rootf.base.lastSon.skipTypes({tyRef, tyPtr}).kind == tyObject and
+         roota.skipTypes({tyRef, tyPtr, tyAlias}).kind == tyObject:
+      # the formal type is a generic object type, and the actual type a non-
+      # generic one. We cannot just dispatch to ``typeRel`` with the
+      # instantiated object type here, as that would lead to phantom
+      # type information (if any is present) being ignored
+      let depth = isSubtypeOfGenericInstance(c, roota, rootf, f)
+      case depth
+      of -1:
+        result = isNone
+      of 0:
+        unreachable("already handled by the ``a.kind == tyGenericInst`` branch")
+      else:
+        c.inheritancePenalty += depth
+        result = isSubtype
     else:
       assert lastSon(origF) != nil
+      # no object relation, but this doesn't mean that the types aren't
+      # related (e.g.: f = ``Generic[int]`` and a = ``seq[int]``, where
+      # ``Generic[T] = seq[T]``)
       result = typeRel(c, lastSon(origF), a, flags)
       if result != isNone and a.kind != tyNil:
         put(c, f, a)
@@ -2090,6 +2155,62 @@ template matchesVoidProc(t: PType): bool =
   (t.kind == tyProc and t.len == 1 and t[0].isNil()) or
     (t.kind == tyBuiltInTypeClass and t[0].kind == tyProc)
 
+proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
+  ## Instantiates the generic routine that the expression `n` names. Returns
+  ## the updated expression on success, 'nil' if there's nothing to
+  ## instantiate, or an error if instantiation failed.
+  let orig = n
+  var
+    n = n
+    depth = 0
+
+  # the symbol or lambda expression might be nested, so we have to unwrap it
+  # first
+  while n.kind in {nkStmtListExpr, nkBlockExpr}:
+    n = n.lastSon
+    inc depth
+
+  # instantiate the symbol
+  case n.kind
+  of nkProcDef, nkFuncDef, nkIteratorDef, nkLambdaKinds:
+    result = c.semInferredLambda(c, bindings, n)
+  of nkSym:
+    let inferred = c.semGenerateInstance(c, n.sym, bindings, n.info)
+    result =
+      if inferred.isError:
+        inferred.ast
+      else:
+        newSymNode(inferred, n.info)
+  of nkProcTy, nkIteratorTy:
+    # possible in a concept context. There's nothing to instantiate
+    return nil
+  else:
+    # nothing else is able to provide uninstantiated generic routines
+    unreachable(n.kind)
+
+  if orig.kind in {nkStmtListExpr, nkBlockExpr}:
+    # make a copy of the tree, update the types, and fill in the instantiated
+    # lambda/symbol expression
+    let updated = copyTreeWithoutNode(orig, n)
+
+    var it {.cursor.} = updated
+    # traverse all wrappers and update their type:
+    for _ in 0..<depth-1:
+      it.typ = result.typ
+      it = it.lastSon
+
+    # set the type for last wrapper and add the instantiated
+    # routine expression:
+    it.typ = result.typ
+    it.add result
+
+    if result.isError:
+      result = c.config.wrapError(updated)
+    else:
+      result = updated
+  else:
+    discard "result is already set"
+
 proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
                         argSemantized: PNode): PNode =
   if argSemantized.isError:
@@ -2166,42 +2287,34 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
         argSemantized
     return
 
-  var
-    bothMetaCounter = 0
-      ## bothMetaCounter is for safety to avoid any infinite loop,
-      ## we don't have any example when it is needed.
-    lastBindingsLength = -1
-      ## lastBindingsLenth use to track whether m.bindings remains the same,
-      ## because in that case there is no point in continuing.
-  
-  # If r == isBothMetaConvertible then we rerun typeRel.
-  while r == isBothMetaConvertible and
-      lastBindingsLength != m.bindings.counter and
-      bothMetaCounter < 100:                        # ensure termination
-
-    lastBindingsLength = m.bindings.counter
-    inc(bothMetaCounter)
-
-    case arg.kind
-    of nkProcDef, nkFuncDef, nkIteratorDef, nkLambdaKinds:
-      result = c.semInferredLambda(c, m.bindings, arg)
-    of nkSym:
-      let inferred = c.semGenerateInstance(c, arg.sym, m.bindings, arg.info)
-      result =
-        if inferred.isError:
-          inferred.ast
-        else:
-          newSymNode(inferred, arg.info)
-    else:
-      result = nil
-      return
-
-    if result.isError:
+  if r == isBothMetaConvertible:
+    result = instantiateRoutineExpr(c, m.bindings, arg)
+    if result.isNil or result.isError:
       return
 
     inc(m.convMatches)
     arg = result
+    # now that we know the result type, re-run the match. We cannot simply
+    # match the result types unfortunately, as the formal type might be some
+    # complex generic type
     r = typeRel(m, f, arg.typ)
+    case r
+    of isConvertible, isNone, isEqual:
+      # XXX: ``isEqual`` staying means that the the match counts towards both
+      #      conversion *and* exact matches, which might not be the behaviour
+      #      one expects
+      discard "okay; these stay"
+    of isInferredConvertible, isInferred:
+      # there's nothing left to infer for the procedure type used as the
+      # argument, so these are not possible
+      unreachable()
+    of isGeneric:
+      # don't introduce an unecessary conversion (which could happen for
+      # ``isGeneric``), only the counter needs to be incremented;
+      # ``isBothMetaConvertible`` is used to signal this.
+      r = isBothMetaConvertible
+    else:
+      unreachable("not possible for procedural types")
 
   # now check the relation result in `r`
   case r
@@ -2231,17 +2344,8 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       else:
         implicitConv(nkHiddenStdConv, f, arg, m, c)
   of isInferred, isInferredConvertible:
-    case arg.kind
-    of nkProcDef, nkFuncDef, nkIteratorDef, nkLambdaKinds:
-      result = c.semInferredLambda(c, m.bindings, arg)
-    of nkSym:
-      let inferred = c.semGenerateInstance(c, arg.sym, m.bindings, arg.info)
-      result = newSymNode(inferred, arg.info)
-    else:
-      result = nil
-      return
-
-    if result.isError:
+    result = instantiateRoutineExpr(c, m.bindings, arg)
+    if result.isNil or result.isError:
       return
 
     case r
@@ -2267,8 +2371,10 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     else:
       result = arg
   of isBothMetaConvertible:
-    # This is the result for the 101th time.
-    result = nil
+    # we reach here if a generic procedure with an 'auto' return type was
+    # instantiated. Regarding the counters, this is treated the same way
+    # as ``isInferred`` is
+    inc(m.genericMatches)
   of isFromIntLit:
     # too lazy to introduce another ``*matches`` field, so we conflate
     # ``isIntConv`` and ``isIntLit`` here:
@@ -2470,23 +2576,19 @@ proc setSon(father: PNode, at: int, son: PNode) =
 
 # we are allowed to modify the calling node in the 'prepare*' procs:
 proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
-  if formal.kind == tyUntyped and formal.len != 1:
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(c.config, a)
+  if formal.kind == tyUntyped:
+    assert formal.len != 1
     result = a
   elif a.typ.isNil:
     # XXX This is unsound! 'formal' can differ from overloaded routine to
     # overloaded routine!
-    let
-      flags = {efDetermineType, efAllowStmt}
-                #if formal.kind == tyIterable: {efDetermineType, efWantIterator}
-                #else: {efDetermineType, efAllowStmt}
-                #elif formal.kind == tyTyped: {efDetermineType, efWantStmt}
-                #else: {efDetermineType}
-
-    result = c.semOperand(c, a, flags)
+    result = c.semOperand(c, a, {efAllowStmt})
   else:
     result = a
     considerGenSyms(c, result)
-    
+
     if result.kind != nkHiddenDeref and
        result.typ.kind in {tyVar, tyLent} and
        c.matchedConcept.isNil():
@@ -2494,7 +2596,7 @@ proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
 
 proc prepareOperand(c: PContext; a: PNode): PNode =
   if a.typ.isNil:
-    result = c.semOperand(c, a, {efDetermineType})
+    result = c.semOperand(c, a)
   else:
     result = a
     considerGenSyms(c, result)
@@ -2541,11 +2643,10 @@ template isVarargsUntyped(x): untyped =
   x.kind == tyVarargs and x[0].kind == tyUntyped
 
 proc findFirstArgBlock(m: var TCandidate, n: PNode): int =
+  # xxx: this "feature" isn't a great idea and the implementation is awful
   # see https://github.com/nim-lang/RFCs/issues/405
   result = int.high
   for a2 in countdown(n.len - 1, 0):
-    # checking `nfBlockArg in n[a2].flags` wouldn't work inside templates
-    # xxx: ^^ why???
     case n[a2].kind
     of nkStmtList:
       let formalLast = m.callee.n[m.callee.n.len - (n.len - a2)]
@@ -2557,6 +2658,79 @@ proc findFirstArgBlock(m: var TCandidate, n: PNode): int =
     else:
       break
 
+proc matchesGenericParams*(c: PContext, args: PNode, m: var TCandidate) =
+  ## Matches the provided generic arguments `args` (stored as a
+  ## ``nkBracketExpr``) against the candidate's generic parameters. Updates
+  ## `m` with whether or not there was a match.
+  ##
+  ## The arguments must strictly match the parameters -- them not being exactly
+  ## equal means no match.
+  ##
+  ## XXX: this strictness might be subject to change
+  assert args.kind == nkBracketExpr
+  assert m.calleeSym.isGenericRoutineStrict
+
+  m.state = csNoMatch
+  let params = m.calleeSym.ast[genericParamsPos]
+
+  # quick check: are more arguments provided than there are parameters?
+  if args.len - 1 > params.len:
+    m.error.firstMismatch.kind = kExtraArg
+    return
+
+  proc matchesSingle(c: PContext, formal: PType, a: PNode, m: var TCandidate): bool =
+    # prepare the arguments type for being passed to ``typeRel``
+    let passed =
+      case formal.kind
+      of tyTypeDesc:
+        if a.typ.kind == tyTypeDesc: a.typ
+        else:                        nil
+      of tyStatic:
+        if a.typ.kind == tyStatic:
+          assert a.typ.n != nil, "unresolved static"
+          a.typ
+        else:
+          nil
+      else:
+        # ``typeRel`` wants the underlying type and not the typedesc
+        a.typ.skipTypes({tyTypeDesc})
+
+    result =
+      if passed != nil:
+        typeRel(m, formal, passed) in {isEqual, isGeneric}
+      else:
+        false
+
+  # match all the provided arguments:
+  for i in 1..<args.len:
+    if not matchesSingle(c, params[i-1].typ, args[i], m):
+      # no match; bail out
+      m.error.firstMismatch.kind = kGenericTypeMismatch
+      m.error.firstMismatch.pos = i-1
+      m.error.firstMismatch.formal = params[i-1].sym
+      m.error.firstMismatch.arg = args[i]
+      return
+
+  # match the defaults for all parameters with explicit arguments
+  for i in (args.len-1)..<params.len:
+    if params[i].sym.ast != nil: # has default?
+      # matching the default value against the formal type is required, as
+      # the type parameter might have a generic constraint. For example:
+      # ``proc[A; B: static[A] = 1]()``
+      if not matchesSingle(c, params[i].typ, params[i].sym.ast, m):
+        m.error.firstMismatch.kind = kGenericTypeMismatch
+        m.error.firstMismatch.pos = i
+        m.error.firstMismatch.formal = params[i].sym
+        m.error.firstMismatch.arg = params[i].sym.ast
+        return
+    else:
+      # this does not mean no match. The remaining parameters might still be
+      # inferrable from normal routine arguments
+      break
+
+  # there might still be implicit parameters, but inferring them (or not) is
+  # the responsibility of the callsite
+  m.state = csMatch
 
 proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
   ## used to match a call `n` with a candidate `m`, noting matched formal
@@ -2604,6 +2778,23 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
   m.error.firstMismatch = MismatchInfo()
   m.call = newNodeIT(n.kind, n.info, m.callee.base)
   m.call.add n[0]
+
+  if n[0].kind == nkBracketExpr and n[0].typ == nil:
+    # the ``nkBracketExpr`` doesn't necessarily imply explicit generic
+    # arguments, call expressions where the callee is an array access also
+    # end up here, hence the ``typ == nil`` check
+    if m.calleeSym.isGenericRoutineStrict:
+      matchesGenericParams(c, n[0], m)
+    else:
+      # the call has explicit generic arguments, but the callee is not
+      # generic -> no match is possible
+      m.state = csNoMatch
+      m.error.firstMismatch.kind = kNotGeneric
+
+    if m.state == csNoMatch:
+      # don't use ``noMatch``. The error is already set and there also
+      # doesn't exist a shadow scope yet
+      return
 
   let firstArgBlock = findFirstArgBlock(m, n)
 
@@ -2989,6 +3180,9 @@ proc matches*(c: PContext, n: PNode, m: var TCandidate) =
           of nkNilLit:
             implicitConv(nkHiddenStdConv, formal.typ, copyTree(formal.ast), m, c)
           else:
+            # don't attempt to match the default value with the formal type
+            # here. For generic routines, incompatible default expression are
+            # detected after instantiation
             copyTree(formal.ast)
 
         if defaultValue.isError:
@@ -3007,7 +3201,24 @@ proc matches*(c: PContext, n: PNode, m: var TCandidate) =
         
         defaultValue.flags.incl nfDefaultParam
         setSon(m.call, formal.position + 1, defaultValue)
-  
+
+  if m.calleeSym != nil and m.calleeSym.isGenericRoutineStrict:
+    # check that every formal generic parameter got a value or type. Note that
+    # this has to happen *after* default values for formal paramters were
+    # processed, as the default parameter handling can still insert missing
+    # bindings
+    let params = m.calleeSym.ast[genericParamsPos]
+    for f in 0..<params.len:
+      let id = idTableGet(m.bindings, params[f].typ)
+      if id.isNil and tfRetType notin params[f].typ.flags:
+        # a generic parameter has no type bound -> no match. Note that a
+        # generic parameter used for the return type can still be bound past
+        # sigmatch.
+        m.state = csNoMatch
+        m.error.firstMismatch.kind = kMissingParam
+        m.error.firstMismatch.formal = params[f].sym
+        break
+
   # forget all inferred types if the overload matching failed
   if m.state == csNoMatch:
     for t in m.inferredTypes:

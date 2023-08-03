@@ -2,7 +2,7 @@ discard """
   output: '''asdf
 231
 '''
-  cmd: "nim c --gc:arc -d:useMalloc -g $file"
+  cmd: "nim c --gc:arc -d:useMalloc --debugger:native $file"
   valgrind: true
 """
 

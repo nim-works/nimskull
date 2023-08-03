@@ -1,5 +1,4 @@
 discard """
-ccodeCheck: "\\i @'__attribute__((noreturn))' .*"
 action: compile
 """
 

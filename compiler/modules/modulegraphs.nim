@@ -29,6 +29,7 @@ import
     idents,
   ],
   compiler/utils/[
+    containers,
     pathutils,
     btrees,
     ropes,
@@ -93,14 +94,15 @@ type
 
     typeInstCache*: Table[ItemId, seq[LazyType]] # A symbol's ItemId.
     procInstCache*: Table[ItemId, seq[LazyInstantiation]] # A symbol's ItemId.
-    attachedOps*: array[TTypeAttachedOp, Table[ItemId, PSym]] # Type ID, destructors, etc.
+    attachedOps*: array[TTypeAttachedOp, Table[ItemId, LazySym]] # Type ID, destructors, etc.
     methodsPerType*: Table[ItemId, seq[(int, LazySym)]] # Type ID, attached methods
     enumToStringProcs*: Table[ItemId, LazySym]
     emittedTypeInfo*: Table[string, FileIndex]
 
+    libs*: seq[seq[TLib]] ## indexed by ``LibId``
+
     startupPackedConfig*: PackedConfig
     packageSyms*: TStrTable
-    modulesPerPackage*: Table[ItemId, TStrTable]
     deps*: IntSet # the dependency graph or potentially its transitive closure.
     suggestMode*: bool # whether we are in nimsuggest mode or not.
     invalidTransitiveClosure: bool
@@ -108,7 +110,9 @@ type
                                             # first module that included it
     importStack*: seq[FileIndex]  # The current import stack. Used for detecting recursive
                                   # module dependencies.
-    backend*: RootRef # minor hack so that a backend can extend this easily
+    backend*: RootRef # XXX: having this field is a hack, but it's still
+                      #      required by the current ``passes`` design. Remove
+                      #      once the ``passes`` design is phased out
     config*: ConfigRef
     cache*: IdentCache
     vm*: RootRef # unfortunately the 'vm' state is shared project-wise, this will
@@ -131,9 +135,6 @@ type
     cacheCounters*: Table[string, BiggestInt] # IC: implemented
     cacheTables*: Table[string, BTree[string, PNode]] # IC: implemented
     passes*: seq[TPass]
-    globalDestructors*: seq[PNode]
-    strongSemCheck*: proc (graph: ModuleGraph; owner: PSym; body: PNode) {.nimcall.}
-    compatibleProps*: proc (graph: ModuleGraph; formal, actual: PType): bool {.nimcall.}
     idgen*: IdGenerator
     operators*: Operators
     when defined(nimsuggest):
@@ -293,13 +294,6 @@ iterator systemModuleSyms*(g: ModuleGraph; name: PIdent): PSym =
     yield r
     r = nextModuleIter(mi, g)
 
-proc resolveType(g: ModuleGraph; t: var LazyType): PType =
-  result = t.typ
-  if result == nil and isCachedModule(g, t.id.module):
-    result = loadTypeFromId(g.config, g.cache, g.packed, t.id.module, t.id.packed)
-    t.typ = result
-  assert result != nil
-
 proc resolveSym(g: ModuleGraph; t: var LazySym): PSym =
   result = t.sym
   if result == nil and isCachedModule(g, t.id.module):
@@ -307,24 +301,33 @@ proc resolveSym(g: ModuleGraph; t: var LazySym): PSym =
     t.sym = result
   assert result != nil
 
-proc resolveInst(g: ModuleGraph; t: var LazyInstantiation): PInstantiation =
-  result = t.inst
-  if result == nil and isCachedModule(g, t.module):
-    result = PInstantiation(sym: loadSymFromId(g.config, g.cache, g.packed, t.sym.module, t.sym.packed))
-    result.concreteTypes = newSeq[PType](t.concreteTypes.len)
-    for i in 0..high(result.concreteTypes):
-      result.concreteTypes[i] = loadTypeFromId(g.config, g.cache, g.packed,
-          t.concreteTypes[i].module, t.concreteTypes[i].packed)
-    t.inst = result
-  assert result != nil
-
 iterator typeInstCacheItems*(g: ModuleGraph; s: PSym): PType =
+  proc resolveType(g: ModuleGraph; t: var LazyType): PType =
+    result = t.typ
+    if result == nil and isCachedModule(g, t.id.module):
+      result = loadTypeFromId(g.config, g.cache, g.packed, t.id.module,
+                              t.id.packed)
+      t.typ = result
+    assert result != nil
+
   if g.typeInstCache.contains(s.itemId):
     let x = addr(g.typeInstCache[s.itemId])
     for t in mitems(x[]):
       yield resolveType(g, t)
 
 iterator procInstCacheItems*(g: ModuleGraph; s: PSym): PInstantiation =
+  proc resolveInst(g: ModuleGraph; t: var LazyInstantiation): PInstantiation =
+    result = t.inst
+    if result == nil and isCachedModule(g, t.module):
+      result = PInstantiation(sym: loadSymFromId(g.config, g.cache, g.packed,
+                              t.sym.module, t.sym.packed))
+      result.concreteTypes = newSeq[PType](t.concreteTypes.len)
+      for i in 0..high(result.concreteTypes):
+        result.concreteTypes[i] = loadTypeFromId(g.config, g.cache, g.packed,
+            t.concreteTypes[i].module, t.concreteTypes[i].packed)
+      t.inst = result
+    assert result != nil
+
   if g.procInstCache.contains(s.itemId):
     let x = addr(g.procInstCache[s.itemId])
     for t in mitems(x[]):
@@ -333,22 +336,42 @@ iterator procInstCacheItems*(g: ModuleGraph; s: PSym): PInstantiation =
 proc getAttachedOp*(g: ModuleGraph; t: PType; op: TTypeAttachedOp): PSym =
   ## returns the requested attached operation for type `t`. Can return nil
   ## if no such operation exists.
-  result = g.attachedOps[op].getOrDefault(t.itemId)
+  proc resolveBackendSym(g: ModuleGraph, t: var LazySym): PSym =
+    ## Returns the concrete symbol for `t`, loading it from the packed
+    ## module-graph first if necessary. `t` is updated with the loaded symbol.
+    ##
+    ## Compared to ``resolveSym``, this procedure also support being called from
+    ## the backend.
+    result = t.sym
+    if result == nil:
+      # XXX: ``storing``, ``stored``, and ``outdated`` are also valid here, as
+      #      the backend currently throws away and reloads all type-bound
+      #      operator attachment information
+      assert g.packed[t.id.module].status in {loaded, storing, stored, outdated}
+      result = loadSymFromId(g.config, g.cache, g.packed,
+                            t.id.module, t.id.packed)
+      t.sym = result
+
+    assert result != nil
+
+  withValue(g.attachedOps[op], t.itemId, value):
+    result = resolveBackendSym(g, value[])
 
 proc setAttachedOp*(g: ModuleGraph; module: int; t: PType; op: TTypeAttachedOp; value: PSym) =
-  ## we also need to record this to the packed module.
-  g.attachedOps[op][t.itemId] = value
+  g.attachedOps[op][t.itemId] = LazySym(sym: value)
+  if g.config.symbolFiles != disabledSf:
+    storeAttachedOp(g.encoders[module], g.packed[module].fromDisk, op, t, value)
 
 proc setAttachedOpPartial*(g: ModuleGraph; module: int; t: PType; op: TTypeAttachedOp; value: PSym) =
-  ## we also need to record this to the packed module.
-  g.attachedOps[op][t.itemId] = value
-  # XXX Also add to the packed module!
+  g.attachedOps[op][t.itemId] = LazySym(sym: value)
+  # the effect is recored once the op is completed
 
 proc completePartialOp*(g: ModuleGraph; module: int; t: PType; op: TTypeAttachedOp; value: PSym) =
   if g.config.symbolFiles != disabledSf:
     assert module < g.encoders.len
     assert isActive(g.encoders[module])
     toPackedGeneratedProcDef(value, g.encoders[module], g.packed[module].fromDisk)
+    storeAttachedOp(g.encoders[module], g.packed[module].fromDisk, op, t, value)
 
 proc getToStringProc*(g: ModuleGraph; t: PType): PSym =
   result = resolveSym(g, g.enumToStringProcs[t.itemId])
@@ -356,6 +379,24 @@ proc getToStringProc*(g: ModuleGraph; t: PType): PSym =
 
 proc setToStringProc*(g: ModuleGraph; t: PType; value: PSym) =
   g.enumToStringProcs[t.itemId] = LazySym(sym: value)
+
+func getLib*(g: ModuleGraph, id: LibId): var TLib =
+  assert not isNil(id), "id is 'none'"
+  result = g.libs[id.module][id.index - 1]
+
+proc addLib*(g: ModuleGraph, module: int, lib: sink TLib): LibId =
+  ## Registers (adds) `lib` with the given module and returns the ID through
+  ## which the instance can be accessed from now on.
+  g.libs[module].add lib
+  # the index is 1-based, so we can directly use the length
+  result = LibId(module: module.int32, index: g.libs[module].len.uint32)
+
+proc storeLibs*(g: ModuleGraph, module: int) =
+  ## Writes the ``TLib`` instances associated with `module` to the module's
+  ## packed representation. Only relevant for IC.
+  if g.config.symbolFiles != disabledSf:
+    for lib in g.libs[module].items:
+      storeLib(g.encoders[module], g.packed[module].fromDisk, lib)
 
 iterator methodsForGeneric*(g: ModuleGraph; t: PType): (int, PSym) =
   if g.methodsPerType.contains(t.itemId):
@@ -540,7 +581,6 @@ proc addDep*(g: ModuleGraph; m: PSym, dep: FileIndex) =
     g.deps.incl m.position.dependsOn(dep.int)
     # we compute the transitive closure later when querying the graph lazily.
     # this improves efficiency quite a lot:
-    #invalidTransitiveClosure = true
 
 proc addIncludeDep*(g: ModuleGraph; module, includeFile: FileIndex) =
   discard hasKeyOrPut(g.inclToMod, includeFile, module)
@@ -554,23 +594,23 @@ proc parentModule*(g: ModuleGraph; fileIdx: FileIndex): FileIndex =
   else:
     result = g.inclToMod.getOrDefault(fileIdx)
 
-proc transitiveClosure(g: var IntSet; n: int) =
-  # warshall's algorithm
-  for k in 0..<n:
-    for i in 0..<n:
-      for j in 0..<n:
-        if i != j and not g.contains(i.dependsOn(j)):
-          if g.contains(i.dependsOn(k)) and g.contains(k.dependsOn(j)):
-            g.incl i.dependsOn(j)
-
 proc markDirty*(g: ModuleGraph; fileIdx: FileIndex) =
   let m = g.getModule fileIdx
   if m != nil: incl m.flags, sfDirty
 
 proc markClientsDirty*(g: ModuleGraph; fileIdx: FileIndex) =
-  # we need to mark its dependent modules D as dirty right away because after
-  # nimsuggest is done with this module, the module's dirty flag will be
-  # cleared but D still needs to be remembered as 'dirty'.
+  ## we need to mark its dependent modules D as dirty right away because after
+  ## nimsuggest is done with this module, the module's dirty flag will be
+  ## cleared but D still needs to be remembered as 'dirty'.
+  proc transitiveClosure(g: var IntSet; n: int) =
+    # warshall's algorithm
+    for k in 0..<n:
+      for i in 0..<n:
+        for j in 0..<n:
+          if i != j and not g.contains(i.dependsOn(j)):
+            if g.contains(i.dependsOn(k)) and g.contains(k.dependsOn(j)):
+              g.incl i.dependsOn(j)
+
   if g.invalidTransitiveClosure:
     g.invalidTransitiveClosure = false
     transitiveClosure(g.deps, g.ifaces.len)

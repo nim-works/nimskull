@@ -1,5 +1,6 @@
 # This nimscript is used to test if the following modules can be imported
-# http://nim-lang.org/docs/nims.html
+# https://nim-works.github.io/nimskull/nims.html
+# tested via `koch.testTools` (temporary home)
 
 {.warning[UnusedImport]: off.}
 
@@ -66,7 +67,7 @@ import std/[
 
   # Miscellaneous:
   colors, sugar, varints, with,
-  # fails due to FFI: browsers, segfaults
+  # fails due to FFI: browsers
   # fails due to times import/methods: logging
   # fails due to methods: unittest
 
@@ -75,17 +76,22 @@ import std/[
   # jsfetch, jsformdata, jsheaders
 
   # Unlisted in lib.html:
-  decls, compilesettings, wrapnils, effecttraits, genasts,
+  compilesettings, wrapnils, effecttraits, genasts,
   importutils, isolation
 ]
 
 # non-std imports
 import stdtest/testutils
 # tests (increase coverage via code reuse)
-import stdlib/trandom
-import stdlib/tosenv
+import stdlib/algorithm/trandom
+import stdlib/os/tosenv
 
 echo "Nimscript imports are successful."
+
+block:
+  # a procedure with a .header (or .dynlib) pragma defined directly inside
+  # the executed NimScript file would crash the compiler
+  proc test() {.importc, header: "ignore".}
 
 block:
   doAssert "./foo//./bar/".normalizedPath == "foo/bar".unixToNativePath
@@ -131,4 +137,4 @@ block:  # cpDir, cpFile, dirExists, fileExists, mkDir, mvDir, mvFile, rmDir, rmF
 
 block:
   # check parseopt can get command line:
-  discard initOptParser()
+  discard initOptParser(getExecArgs())

@@ -92,7 +92,7 @@ Each hint can be activated individually with `--hint:NAME:on|off`:option: or in 
 Name                             Description
 ==========================       ============================================
 CC                               Shows when the C compiler is called.
-SourceCodeFilterOutput           Shows the output of an source code filters
+SourceCodeFilterOutput           Shows the output of a source code filters
 CodeEnd
 CondTrue
 Conf                             A config file was loaded.
@@ -102,7 +102,6 @@ Dependency
 Exec                             Program is executed.
 ExprAlwaysX
 ExtendedContext
-GCStats                          Dumps statistics about the Garbage Collector.
 GlobalVar                        Shows global variables declarations.
 LineTooLong                      Line exceeds the maximum length.
 Link                             Linking phase.
@@ -141,20 +140,6 @@ Level  Description
        for compiler developers.
 =====  ============================================
 
-Compiler message formats
-------------------------
-
-The compiler can output messages in both unstructured (plaintext) and
-structured (S-expressions) forms. S-expressions were chosen mostly for
-integration with testament, in the future json support will be added as
-well.
-
-You can select message format using `--msgFormat=text|sexp`:option: switch
-in the compiler. Unstructured compiler reports are formatted for higher
-readability and used by default. Structured reports are formatted as
-S-expressions, one per line. Every single compiler report is wrapped in
-structured data, including ``echo`` messages at compile-time.
-
 
 Compile-time symbols
 --------------------
@@ -182,17 +167,14 @@ implementation and should not be used elsewhere.
 ==========================       ============================================
 Name                             Description
 ==========================       ============================================
-nimStdSetjmp                     Use the standard `setjmp()/longjmp()` library
-                                 functions for setjmp-based exceptions. This is
-                                 the default on most platforms.
-nimSigSetjmp                     Use `sigsetjmp()/siglongjmp()` for setjmp-based exceptions.
-nimRawSetjmp                     Use `_setjmp()/_longjmp()` on POSIX and `_setjmp()/longjmp()`
-                                 on Windows, for setjmp-based exceptions. It's the default on
-                                 BSDs and BSD-like platforms, where it's significantly faster
-                                 than the standard functions.
-nimBuiltinSetjmp                 Use `__builtin_setjmp()/__builtin_longjmp()` for setjmp-based
-                                 exceptions. This will not work if an exception is being thrown
-                                 and caught inside the same procedure. Useful for benchmarking.
+nimStdSetjmp                     Use the standard `setjmp()` library function
+                                 for saving the register state during stack
+                                 scanning. Only relevant for stack-scanning GCs
+nimRawSetjmp                     Use `_setjmp()` on POSIX and `_setjmp()`
+                                 on Windows, for saving the register state.
+                                 It's the default on BSDs and BSD-like platforms,
+                                 where it's significantly faster than the
+                                 standard functions.
 ==========================       ============================================
 
 
@@ -270,12 +252,12 @@ as it is the first match.
 
 Generated C code directory
 --------------------------
-The generated files that Nim produces all go into a subdirectory called
-``nimcache``. Its full path is
+The generated files that |Nimskull| produces all go into a subdirectory called
+``nimskullcache``. Its full path is
 
-- ``$XDG_CACHE_HOME/nim/$projectname(_r|_d)`` or ``~/.cache/nim/$projectname(_r|_d)``
+- ``$XDG_CACHE_HOME/nimskull/$projectname(_r|_d)`` or ``~/.cache/nimskull/$projectname(_r|_d)``
   on Posix
-- ``$HOME\nimcache\$projectname(_r|_d)`` on Windows.
+- ``$HOME\nimskullcache\$projectname(_r|_d)`` on Windows.
 
 The `_r` suffix is used for release builds, `_d` is for debug builds.
 
@@ -283,7 +265,7 @@ This makes it easy to delete all generated files.
 
 The `--nimcache`:option:
 `compiler switch <#compiler-usage-commandminusline-switches>`_ can be used to
-to change the ``nimcache`` directory.
+to change the ``nimskullcache`` directory.
 
 However, the generated C code is not platform-independent. C code generated for
 Linux does not compile on Windows, for instance. The comment on top of the
@@ -568,12 +550,8 @@ Define                   Effect
 `useMalloc`              Makes Nim use C's `malloc`:idx: instead of Nim's
                          own memory manager, albeit prefixing each allocation with
                          its size to support clearing memory on reallocation.
-                         This only works with `--gc:none`:option:,
-                         `--gc:arc`:option: and `--gc:orc`:option:.
-`useRealtimeGC`          Enables support of Nim's GC for *soft* realtime
-                         systems. See the documentation of the `gc <gc.html>`_
-                         for further information.
-`logGC`                  Enable GC logging to stdout.
+                         This only works with `--gc:arc`:option: and
+                         `--gc:orc`:option:.
 `nodejs`                 The JS target is actually ``node.js``.
 `ssl`                    Enables OpenSSL support for the sockets module.
 `memProfiler`            Enables memory profiling for the native GC.
@@ -702,7 +680,7 @@ for further information.
 
   The Nim compiler supports an interactive mode. This is also known as
   a `REPL`:idx: (*read eval print loop*). If Nim has been built with the
-  `-d:nimUseLinenoise` switch, it uses the GNU readline library for terminal
+  `-d:useLinenoise` switch, it uses the GNU readline library for terminal
   input management. To start Nim in interactive mode use the command
   `nim secret`. To quit use the `quit()` command. To determine whether an input
   line is an incomplete statement to be continued these rules are used:
@@ -832,20 +810,6 @@ For `let` symbols a copy is not always necessary:
 .. code-block:: Nim
 
   let s = varA    # may only copy a pointer if it safe to do so
-
-
-If you know what you're doing, you can also mark single-string (or sequence)
-objects as `shallow`:idx:\:
-
-.. code-block:: Nim
-
-  var s = "abc"
-  shallow(s) # mark 's' as a shallow string
-  var x = s  # now might not copy the string!
-
-Usage of `shallow` is always safe once you know the string won't be modified
-anymore, similar to Ruby's `freeze`:idx:.
-
 
 The compiler optimizes string case statements: A hashing scheme is used for them
 if several different string constants are used. So code like this is reasonably

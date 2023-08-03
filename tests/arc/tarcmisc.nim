@@ -23,20 +23,22 @@ whiley ends :(
 0
 new line before - @['a']
 new line after - @['a']
-finalizer
 aaaaa
 hello
-ok
 true
 copying
 123
 42
 closed
-destroying variable: 20
 destroying variable: 10
+destroying variable: 20
 '''
   cmd: "nim c --gc:arc --deepcopy:on -d:nimAllocPagesViaMalloc $file"
 """
+
+# XXX: the test currently depends on the order in which `{.globals.}` are
+#      destroyed, but this order is unspecified, and the compiler is free
+#      to destroy them in any order
 
 proc takeSink(x: sink string): bool = true
 
@@ -159,21 +161,6 @@ proc match(inp: string, rg: static MyType) =
 match("ac", re"a(b|c)")
 
 #------------------------------------------------------------------------------
-# issue #14243
-
-type
-  Game* = ref object
-
-proc free*(game: Game) =
-  let a = 5
-
-proc newGame*(): Game =
-  new(result, free)
-
-var game*: Game
-
-
-#------------------------------------------------------------------------------
 # issue #14333
 
 type
@@ -265,23 +252,6 @@ echo "new line before - ", newline
 newline.insert(indent, 0)
 
 echo "new line after - ", newline
-
-# bug #15044
-
-type
-  Test = ref object
-
-proc test: Test =
-  # broken
-  new(result, proc(x: Test) =
-    echo "finalizer"
-  )
-
-proc tdirectFinalizer =
-  discard test()
-
-tdirectFinalizer()
-
 
 # bug #14480
 proc hello(): int =
@@ -383,17 +353,6 @@ proc text_parser(xml: var XmlParser) =
 
 text_parser(xml)
 text_parser(xml2)
-
-# bug #15599
-type
-  PixelBuffer = ref object
-
-proc newPixelBuffer(): PixelBuffer =
-  new(result) do (buffer: PixelBuffer):
-    echo "ok"
-
-discard newPixelBuffer()
-
 
 # bug #17199
 

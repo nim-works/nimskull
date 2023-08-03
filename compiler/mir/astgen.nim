@@ -30,6 +30,7 @@ import
     ast_query,
     idents,
     lineinfos,
+    trees,
     types
   ],
   compiler/front/[
@@ -44,6 +45,7 @@ import
     modulegraphs
   ],
   compiler/sem/[
+    ast_analysis,
     lowerings
   ],
   compiler/utils/[
@@ -52,7 +54,6 @@ import
   ]
 
 from compiler/sem/semdata import makeVarType
-from compiler/sem/typeallowed import directViewType, noView
 
 # TODO: move the procedure somewhere common
 from compiler/vm/vmaux import findRecCase
@@ -247,15 +248,6 @@ proc wrapArg(stmts: seq[PNode], info: TLineInfo, val: PNode): PNode =
     assert val.kind != nkStmtListExpr
     result = newTreeIT(nkStmtListExpr, info, val.typ, stmts)
     result.add val
-
-func unwrap(expr: PNode, stmts: var seq[PNode]): PNode =
-  if expr.kind == nkStmtListExpr:
-    for i in 0..<expr.len-1:
-      stmts.add expr[i]
-
-    result = expr[^1]
-  else:
-    result = expr
 
 proc makeVarSection(syms: openArray[PSym], info: TLineInfo): PNode =
   ## Creates a var section with all symbols from `syms`
@@ -471,38 +463,9 @@ proc useTemporary(n: PNode, cl: var TranslateCl, stmts: var seq[PNode]): PNode =
   stmts.add newTreeI(nkVarSection, n.info, [newIdentDefs(newSymNode(sym), n)])
   result = newSymNode(sym)
 
-proc canUseView(n: PNode): bool =
-  ## Computes whether the expression `n` computes to something for which a
-  ## view can be created
-  var n {.cursor.} = n
-  while true:
-    case n.kind
-    of nkAddr, nkHiddenAddr, nkBracketExpr, nkObjUpConv, nkObjDownConv,
-       nkCheckedFieldExpr, nkDotExpr:
-      n = n[0]
-    of nkHiddenStdConv, nkHiddenSubConv, nkConv:
-      if skipTypes(n.typ, abstractVarRange).kind in {tyOpenArray, tyTuple, tyObject} or
-         compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct):
-        # lvalue conversion
-        n = n[1]
-      else:
-        return false
-
-    of nkSym:
-      # don't use a view if the location is part of a constant
-      return n.sym.kind in {skVar, skLet, skForVar, skResult, skParam, skTemp}
-    of nkHiddenDeref, nkDerefExpr:
-      return true
-    of nkCallKinds:
-      # if the call yields a view, use an lvalue reference (view) -- otherwise,
-      # do not
-      return directViewType(n.typ) != noView
-    else:
-      return false
-
 proc prepareParameter(expr: PNode, tag: ValueTags, mode: ArgumentMode,
                       cl: var TranslateCl, stmts: var seq[PNode]): PNode =
-  let expr = unwrap(expr, stmts)
+  let expr = flattenExpr(expr, stmts)
   if isSimple(expr):
     # if it's an independent expression with no side-effects, a temporary is
     # not needed and the expression can be used directly
@@ -512,6 +475,11 @@ proc prepareParameter(expr: PNode, tag: ValueTags, mode: ArgumentMode,
         canUseView(expr)):
     # using an lvalue reference (view) is preferred for complex values
     result = useLvalueRef(expr, vtMutable in tag, cl, stmts)
+  elif mode == amConsume and canUseView(expr):
+    # changes to the consumed value inside the region must be visible at the
+    # source location, so if the source is an lvalue, we need to use an lvalue
+    # reference
+    result = useLvalueRef(expr, true, cl, stmts)
   else:
     # assign to a temporary first
     result = useTemporary(expr, cl, stmts)
@@ -598,7 +566,8 @@ proc handleSpecialConv(c: ConfigRef, n: PNode, info: TLineInfo,
     assert source.kind == dest.kind
 
     if source.base.kind == tyObject:
-      if n.kind in {nkObjUpConv, nkObjDownConv} and sameType(dest, n[0].typ):
+      if n.kind in {nkObjUpConv, nkObjDownConv} and
+         sameType(dest, n[0].typ.skipTypes(abstractInst)):
         # this one and the previous conversion cancel each other out. Both
         # ``nkObjUpConv`` and ``nkObjDownConv`` are not treated as lvalue
         # conversions when the source/dest operands are pointer/reference-like,
@@ -686,12 +655,10 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
     case def.sym.kind
     of skVar, skLet, skForVar:
       discard "pass through"
-    of skParam:
-      # has no ``PNode`` counterpart
+    of skParam, routineKinds:
+      # the 'def' of params and procedures only has meaning at the MIR level;
+      # the code generators don't care about them
       def = newNode(nkEmpty)
-    of routineKinds:
-      # the original procdef is stored as the second sub-node
-      def = get(tree, cr).node
     else:
       unreachable()
 
@@ -710,7 +677,8 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
 
   leave(tree, cr)
 
-  if def.kind == nkSym:
+  case def.kind
+  of nkSym:
     assert def.sym.kind in {skVar, skLet, skForVar, skTemp}
     # it's a definition that needs to be put into a var section
     if cl.inArgBlock > 0:
@@ -732,8 +700,10 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
         of vkSingle: newIdentDefs(def, prev.single)
         of vkMulti:  unreachable()
 
-  else:
+  of nkEmpty:
     result = def
+  else:
+    unreachable()
 
 proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
                   cr: var TreeCursor): PNode =
@@ -884,6 +854,17 @@ proc tbOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
     newTreeI(nkRaiseStmt, cr.info, [prev.single])
   of mnkCase:
     tbCaseStmt(tree, cl, n, prev, cr)
+  of mnkAsm:
+    var r = newNodeI(nkAsmStmt, cr.info)
+    r.sons = move prev.list
+    r
+  of mnkEmit:
+    var r = newNodeI(nkBracket, cr.info)
+    r.sons = move prev.list
+
+    newTreeI(nkPragma, cr.info, [
+      newTreeI(nkExprColonExpr, cr.info, [
+        newIdentNode(cl.cache.getIdent("emit"), cr.info), r])])
   of AllNodeKinds - OutputNodes:
     unreachable(n.kind)
 

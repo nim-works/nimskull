@@ -64,6 +64,21 @@ func `-`*[T](x, y: set[T]): set[T] {.magic: "MinusSet".} =
   runnableExamples:
     assert {1, 2, 3} - {2, 3, 4} == {1}
 
+func `+`*[T](x: set[T], y: T): set[T] {.inline.} =
+  ## This operator computes the union of two sets, where the second set operand
+  ## is derived by promoting a single element to a set containing that element.
+  runnableExamples:
+    assert {1, 2, 3} + 4 == {1, 2, 3, 4}
+  x + {y}
+
+func `-`*[T](x: set[T], y: T): set[T] {.inline.} =
+  ## This operator computes the difference of two sets, where the second set
+  ## operand is derived by promoting a single element to a set containing that
+  ## element.
+  runnableExamples:
+    assert {1, 2} - 2 == {1}
+  x - {y}
+
 func contains*[T](x: set[T], y: T): bool {.magic: "InSet".} =
   ## One should overload this proc if one wants to overload the `in` operator.
   ##

@@ -175,7 +175,7 @@ Compile_options:
 """
 
 proc parseCmdLine(c: var ConfigData) =
-  var p = initOptParser()
+  var p = initOptParser(getExecArgs())
   while true:
     next(p)
     var kind = p.kind
@@ -271,7 +271,7 @@ func ignoreFile(f, explicit: string, allowHtml: bool): bool =
 proc walkDirRecursively(s: var seq[string], root, explicit: string,
                         allowHtml: bool) =
   let tail = splitPath(root).tail
-  if tail == "nimcache" or tail[0] == '.':
+  if tail == "nimcache" or tail == "nimskullcache" or tail[0] == '.':
     return
   let allowHtml = allowHtml or tail == "doc"
   for k, f in walkDir(root):
@@ -601,7 +601,7 @@ proc srcdist(c: var ConfigData) =
     # Remove the cache if it exist so we get fresh files and avoid any bugs in
     # the caching system
     removeDir(cacheDir)
-    var cmd = ("$# compile -f --symbolfiles:off --compileonly " &
+    var cmd = ("$# compile -f --incremental:off --compileonly " &
                "--gen_mapping --cc:gcc --skipUserCfg" &
                # Silence the compiler to the best of our abilities, or it would
                # be a mess since we are running in parallel

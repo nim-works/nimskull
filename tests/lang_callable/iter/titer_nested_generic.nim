@@ -7,6 +7,7 @@ discard """
     works since Nim v1.2.6
   '''
 """
+
 type
   A[T] = iterator(x: T): T {.gcsafe, closure.}
 

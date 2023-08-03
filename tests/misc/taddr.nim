@@ -1,7 +1,16 @@
 discard """
-  targets: "c js"
+  targets: "c js vm"
   matrix: "; -d:release"
 """
+
+template disableVm(code: untyped) =
+  ## Only executes `code` if not running in the VM
+  when nimvm:
+    discard
+  else:
+    when not defined(vm):
+      block:
+        code
 
 type T = object
   x: int
@@ -32,6 +41,7 @@ doAssert objDeref.x == 42
 
 # String tests
 obj.s = "lorem ipsum dolor sit amet"
+prepareMutation(obj.s)
 var indexAddr = addr(obj.s[2])
 
 doAssert indexAddr[] == 'r'
@@ -90,7 +100,9 @@ block:
     let (x,y) = byLent(a)
     doAssert (x,y) == a
 
-  block: # (with -d:release) bug #14578
+  # knownIssue: borrowing from parameters that are of primitive type doesn't
+  #             work yet
+  disableVm: # (with -d:release) bug #14578
     let a = 10
     doAssert byLent(a) == 10
     let a2 = byLent(a)
@@ -143,7 +155,9 @@ proc test14420() = # bug #14420
     discard fn(a)
     discard fn2(a)
 
-  block:
+  # knownIssue: both the JS and VM target don't support borrowing from the
+  #             first parameter when it's of primitive type
+  when not defined(js) and not defined(vm):
     proc byLent2[T](a: T): lent T =
       runnableExamples: discard
       a
@@ -190,11 +204,7 @@ template test14339() = # bug #14339
       n.val
     var a = Node(val: 3)
     a.bar() = 5
-    when nimvm:
-      doAssert a.val == 5
-    else:
-      when not defined(js): # pending bug #16003
-        doAssert a.val == 5
+    doAssert a.val == 5
 
 template testStatic15464() = # bug #15464
   proc access(s: var seq[char], i: int): var char = s[i]
@@ -234,6 +244,9 @@ block: # bug #15939
 
 proc test15939() = # bug #15939 (v2)
   template fn(a) =
+    when typeof(a) is string:
+      prepareMutation(a)
+
     let pa = a[0].addr
     doAssert pa != nil
     doAssert pa[] == 'a'
@@ -253,6 +266,7 @@ proc test15939() = # bug #15939 (v2)
   # mycstring[ind].addr
   template cstringTest =
     var a2 = "abc"
+    prepareMutation(a2)
     var b2 = a2.cstring
     fn(b2)
   when nimvm: cstringTest()
@@ -278,19 +292,18 @@ block immutable_parameter:
   type Obj = object
     val: int
 
-  when not defined(js):
-    # XXX: invalid code is generated with the JS back-end
-    test(1)                 # int
-    test(1.0)               # float
-    test(@[1, 2])           # seq
-    test("str")             # string
-    test(cstring"str")      # cstring
-    test[range[0..1]](1)    # range
-    test(new int)           # ref to int
-    test((ref Obj)(val: 1)) # ref to object
+  test(1)                 # int
+  test(1.0)               # float
+  test(@[1, 2])           # seq
+  test("str")             # string
+  test(cstring"str")      # cstring
+  test[range[0..1]](1)    # range
+  test(pointer(nil))      # pointer
+  test(new int)           # ref to int
+  test((ref Obj)(val: 1)) # ref to object
 
-    test(proc() {.nimcall.} = discard) # normal procedure
-    test(proc() {.closure.} = discard) # closure
+  test(proc() {.nimcall.} = discard) # normal procedure
+  test(proc() {.closure.} = discard) # closure
 
   test([1, 2])      # array
   test({false})     # set
@@ -310,9 +323,35 @@ block immutable_for_var_addr:
     test()
   prc()
 
+block address_of_let:
+  # taking the address of a `let` binding works, and the resulting pointer can
+  # be used for reading
+  proc test[T](def: T) =
+    # use a static parameter so that the initial value is inlined
+    # directly
+    let local = def
+
+    # the pointer can be assigned to another local:
+    var p = addr local    # (initializing assignment)
+    doAssert p[] == local # dereferencing works and yields the source value
+
+    # a re-assigned pointer works too
+    p = addr local
+    doAssert p[] == local
+
+  test(1)                 # int
+  test(1.0)               # float
+  test([1, 2])            # array
+  test(@[1, 2])           # seq
+  test("str")             # string
+  test(cstring("str"))    # cstring
+  test(pointer(nil))      # pointer
+  test(Foo(bar: 1))       # object
+  test(proc() {.nimcall.} = discard) # normal procedure
+  test(new int)           # ref with primitive base type
+  test((ref Foo)(bar: 1)) # ref object
+
 template main =
-  # xxx wrap all other tests here like that so they're also tested in VM
-  test14420()
   test14339()
   test15464()
   test15939()

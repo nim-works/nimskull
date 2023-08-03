@@ -1,10 +1,13 @@
 discard """
+  joinable: false
   output: '''
 Error: cannot open 'a.nim'
 Error: cannot open 'b.nim'
 '''
   targets: "c"
 """
+
+# marked as not joinable as this test executes compiler processes (error prone)
 
 import osproc
 from std/os import getCurrentCompilerExe

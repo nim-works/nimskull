@@ -84,12 +84,12 @@ proc toBitSet*(conf: ConfigRef; s: PNode): TBitSet =
   inclTreeSet(result, conf, s)
 
 proc toTreeSet*(conf: ConfigRef; s: TBitSetView, settype: PType, info: TLineInfo): PNode =
+  let
+    elemType = settype[0]
+    first = firstOrd(conf, elemType)
   var
-    a, b, e, first: BiggestInt # a, b are interval borders
-    elemType: PType
-    n: PNode
-  elemType = settype[0]
-  first = firstOrd(conf, elemType).toInt64
+    a, b, e: BiggestInt # a, b are interval borders
+
   result = newNodeI(nkCurly, info)
   result.typ = settype
   result.info = info
@@ -107,12 +107,12 @@ proc toTreeSet*(conf: ConfigRef; s: TBitSetView, settype: PType, info: TLineInfo
       if a == b:
         result.add aa
       else:
-        n = newNodeI(nkRange, info)
+        var n = newNodeI(nkRange, info, 2)
         n.typ = elemType
-        n.add aa
+        n[0] = aa
         let bb = newIntTypeNode(b + first, elemType)
         bb.info = info
-        n.add bb
+        n[1] = bb
         result.add n
       e = b
     inc(e)

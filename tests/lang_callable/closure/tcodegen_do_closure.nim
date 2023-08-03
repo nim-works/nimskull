@@ -2,6 +2,7 @@ discard """
   output: '''foo 0
 bar 0
 baz'''
+  targets: "c js vm"
   description: '''
     . From https://github.com/nim-lang/Nim/issues/1641
       Incorrect closure code generation

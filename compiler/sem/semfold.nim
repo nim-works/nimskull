@@ -23,25 +23,22 @@ import
     ast,
     trees,
     lineinfos,
+    errorhandling,
   ],
   compiler/modules/[
     magicsys,
     modulegraphs,
   ],
   compiler/front/[
-    commands,
-    msgs,
     options,
   ],
   compiler/utils/[
     platform,
+    idioms,
   ]
 
-from compiler/ast/reports_sem import SemReport,
-  reportAst,
-  reportStr,
-  reportTyp
-from compiler/ast/report_enums import ReportKind
+# xxx: legacy reports cruft
+from compiler/front/msgs import internalError
 
 from system/memory import nimCStrLen
 
@@ -109,29 +106,40 @@ proc foldMul(a, b: Int128, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
   if checkInRange(g.config, n, res):
     return newIntNodeT(res, n, idgen, g)
 
-proc ordinalValToString*(a: PNode; g: ModuleGraph): string =
+proc ordinalValToString(a: PNode; g: ModuleGraph): string =
   # because $ has the param ordinal[T], `a` is not necessarily an enum, but an
   # ordinal
-  var x = getInt(a)
-
-  var t = skipTypes(a.typ, abstractRange)
-  case t.kind
-  of tyChar:
-    result = $chr(toInt64(x) and 0xff)
-  of tyEnum:
-    var n = t.n
-    for i in 0..<n.len:
-      g.config.internalAssert(n[i].kind == nkSym, "ordinalValToString")
-      var field = n[i].sym
-      if field.position == x:
-        if field.ast == nil:
-          return field.name.s
+  case a.kind
+  of nkIntLiterals:
+    let
+      x = getInt(a)
+      t = skipTypes(a.typ, abstractRange)
+    case t.kind
+    of tyChar:
+      result = $chr(toInt64(x) and 0xff)
+    of tyEnum:
+      let n = t.n
+      for i in 0..<n.len:
+        case n[i].kind
+        of nkSym:
+          let field = n[i].sym
+          if field.position == x:
+            if field.ast == nil:
+              return field.name.s
+            else:
+              return field.ast.strVal
+        of nkError:
+          g.config.internalError(n[i].info, "ordinalValToString")
         else:
-          return field.ast.strVal
-
-    g.config.localReport(a.info, reportTyp(rsemCantConvertLiteralToType, t))
+          unreachable("ordinalValToString")
+      if n.len > 0:
+        unreachable("range checking `semConv` eliminates this case")
+    else:
+      result = $x
+  of nkError:
+    g.config.internalError(a.info, "ordinalValToString")
   else:
-    result = $x
+    unreachable("non-ordinals never make it here")
 
 proc isFloatRange(t: PType): bool {.inline.} =
   result = t.kind == tyRange and t[0].kind in {tyFloat..tyFloat128}
@@ -211,7 +219,7 @@ proc evalOp(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): P
       else:
         result = newIntNodeT(toInt128(toUInt64(getInt(a)) shl toInt64(getInt(b))), n, idgen, g)
     else:
-      g.config.internalError(rintUnreachable, "constant folding for shl")
+      unreachable("constant folding for shl")
   of mShrI:
     var a = cast[uint64](getInt(a))
     let b = cast[uint64](getInt(b))
@@ -240,7 +248,7 @@ proc evalOp(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): P
     of tyInt64, tyInt:
       result = newIntNodeT(toInt128(ashr(toInt64(getInt(a)), toInt64(getInt(b)))), n, idgen, g)
     else:
-      g.config.internalError(rintUnreachable, "constant folding for ashr")
+      unreachable("constant folding for ashr")
   of mDivI:
     let argA = getInt(a)
     let argB = getInt(b)
@@ -327,11 +335,6 @@ proc evalOp(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): P
   of mArrToSeq:
     result = copyTree(a)
     result.typ = n.typ
-  of mCompileOption:
-    result = newIntNodeT(toInt128(ord(commands.testCompileOption(g.config, a.getStr, n.info))), n, idgen, g)
-  of mCompileOptionArg:
-    result = newIntNodeT(toInt128(ord(
-      testCompileOptionArg(g.config, getStr(a), getStr(b), n.info))), n, idgen, g)
   of mEqProc:
     result = newIntNodeT(toInt128(ord(
         exprStructuralEquivalent(a, b, strictSymEquality=true))), n, idgen, g)
@@ -351,7 +354,7 @@ proc getConstIfExpr(c: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNod
     elif it.len == 1:
       if result == nil: result = getConstExpr(c, it[0], idgen, g)
     else:
-      g.config.internalError(rintUnreachable, "getConstIfExpr()")
+      unreachable("getConstIfExpr()")
 
 proc leValueConv*(a, b: PNode): bool =
   result = false
@@ -369,19 +372,50 @@ proc leValueConv*(a, b: PNode): bool =
   else: result = false # internalError(a.info, "leValueConv")
 
 proc magicCall(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
+  # TODO: make `magicCall1`, `magicCall2` etc for different arg variants and
+  #       drop all these silly conditionals
   if n.len <= 1: return
+  let
+    s = n[0].sym
+    a = getConstExpr(m, n[1], idgen, g)
+    b = if n.len > 2: getConstExpr(m, n[2], idgen, g) else: nil
+    c = if n.len > 3: getConstExpr(m, n[3], idgen, g) else: nil
 
-  var s = n[0].sym
-  var a = getConstExpr(m, n[1], idgen, g)
-  var b, c: PNode
-  if a == nil: return
-  if n.len > 2:
-    b = getConstExpr(m, n[2], idgen, g)
-    if b == nil: return
-    if n.len > 3:
-      c = getConstExpr(m, n[3], idgen, g)
-      if c == nil: return
-  result = evalOp(s.magic, n, a, b, c, idgen, g)
+  template makeError(toCopy, a: PNode; b, c: PNode = nil) =
+    result = shallowCopy(toCopy)
+    result.flags = toCopy.flags # make an "exact" copy
+    result[0] = toCopy[0]
+    result[1] = if a != nil: a else: toCopy[1]
+    if toCopy.len > 2:
+      result[2] = if b != nil: b else: toCopy[2]
+    if toCopy.len > 3:
+      result[3] = if c != nil: c else: toCopy[3]
+    result = g.config.wrapError(result)
+
+  # Next we have to check for errors prior to nil because `semfold` is used to
+  # do semantic analysis (including error detection).
+  case n.len
+  of 0, 1: unreachable("early return above eliminates this case")
+  of 2:
+    if a.isError:
+      makeError(n, a)
+      return
+    elif a.isNil:
+      return
+  of 3:
+    if a.isError or b.isError:
+      makeError(n, a, b)
+      return
+    elif a.isNil or b.isNil:
+      return
+  else:
+    if a.isError or b.isError or c.isError:
+      makeError(n, a, b, c)
+      return
+    elif a.isNil or b.isNil or c.isNil:
+      return
+
+  evalOp(s.magic, n, a, b, c, idgen, g)
 
 proc getAppType(n: PNode; g: ModuleGraph): PNode =
   if g.config.globalOptions.contains(optGenDynLib):
@@ -393,57 +427,56 @@ proc getAppType(n: PNode; g: ModuleGraph): PNode =
   else:
     result = newStrNodeT("console", n, g)
 
-proc rangeCheck(n: PNode, value: Int128; g: ModuleGraph) =
-  if value < firstOrd(g.config, n.typ) or value > lastOrd(g.config, n.typ):
-    g.config.localReport(n.info, reportStr(
-      rsemCantConvertLiteralToRange, $value, typ = n.typ))
-
 proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph; check = false): PNode =
   let dstTyp = skipTypes(n.typ, abstractRange - {tyTypeDesc})
   let srcTyp = skipTypes(a.typ, abstractRange - {tyTypeDesc})
 
-  # if srcTyp.kind == tyUInt64 and "FFFFFF" in $n:
-  #   echo "n: ", n, " a: ", a
-  #   echo "from: ", srcTyp, " to: ", dstTyp, " check: ", check
-  #   echo getInt(a)
-  #   echo high(int64)
-  #   writeStackTrace()
+  template rangeCheck(n: PNode, value: Int128, g: ModuleGraph): bool =
+    value >= firstOrd(g.config, n.typ) and value <= lastOrd(g.config, n.typ)
+
+  template rangeError(n, a: PNode, g: ModuleGraph): PNode =
+    newError(g.config, n,
+             PAstDiag(kind: adSemFoldRangeCheckForLiteralConversionFailed,
+                      inputLit: a))
+
+  const
+    IntegerLike = {tyInt..tyInt64, tyUInt..tyUInt64, tyChar}
+    FloatLike   = {tyFloat..tyFloat64}
+
   case dstTyp.kind
   of tyBool:
     case srcTyp.kind
-    of tyFloat..tyFloat64:
+    of FloatLike:
       result = newIntNodeT(toInt128(getFloat(a) != 0.0), n, idgen, g)
-    of tyChar, tyUInt..tyUInt64, tyInt..tyInt64:
+    of IntegerLike:
       result = newIntNodeT(toInt128(a.getOrdValue != 0), n, idgen, g)
     of tyBool, tyEnum: # xxx shouldn't we disallow `tyEnum`?
       result = a
       result.typ = n.typ
-    else: doAssert false, $srcTyp.kind
-  of tyInt..tyInt64, tyUInt..tyUInt64:
-    case srcTyp.kind
-    of tyFloat..tyFloat64:
-      result = newIntNodeT(toInt128(getFloat(a)), n, idgen, g)
-    of tyChar, tyUInt..tyUInt64, tyInt..tyInt64:
-      var val = a.getOrdValue
-      if check: rangeCheck(n, val, g)
+    else: unreachable(srcTyp.kind)
+  of IntegerLike:
+    let val =
+      case srcTyp.kind
+      of IntegerLike, tyEnum, tyBool: getOrdValue(a)
+      of FloatLike:                   toInt128(getFloat(a))
+      else:                           unreachable(srcTyp.kind)
+
+    if check and not rangeCheck(n, val, g):
+      result = rangeError(n, a, g)
+    else:
       result = newIntNodeT(val, n, idgen, g)
-      if dstTyp.kind in {tyUInt..tyUInt64}:
-        result.transitionIntKind(nkUIntLit)
-    else:
-      result = a
-      result.typ = n.typ
-    if check and result.kind in {nkCharLit..nkUInt64Lit}:
-      rangeCheck(n, getInt(result), g)
-  of tyFloat..tyFloat64:
+  of FloatLike:
     case srcTyp.kind
-    of tyInt..tyInt64, tyEnum, tyBool, tyChar:
+    of IntegerLike, tyEnum, tyBool:
       result = newFloatNodeT(toFloat64(getOrdValue(a)), n, g)
+    of FloatLike:
+      result = newFloatNodeT(a.floatVal, n, g)
     else:
-      result = a
-      result.typ = n.typ
+      unreachable(srcTyp.kind)
   of tyOpenArray, tyVarargs, tyProc, tyPointer:
     discard
   else:
+    # FIXME: conversion-to-enum is missing checks
     result = a
     result.typ = n.typ
 
@@ -455,21 +488,18 @@ proc getArrayConstr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNod
     if result == nil: result = n
 
 proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
-  var x = getConstExpr(m, n[0], idgen, g)
-  if x == nil or x.typ.skipTypes({tyGenericInst, tyAlias, tySink}).kind == tyTypeDesc:
+  let x = getConstExpr(m, n[0], idgen, g)
+  if x.isNil or
+      x.typ.skipTypes({tyGenericInst, tyAlias, tySink}).kind == tyTypeDesc:
     return
 
-  var y = getConstExpr(m, n[1], idgen, g)
-  if y == nil: return
+  let y = getConstExpr(m, n[1], idgen, g)
+  if y.isNil: return
 
-  proc outOfBounds(idx: int64): SemReport =
-    SemReport(
-      kind: rsemStaticOutOfBounds,
-      ast: n,
-      indexSpec: (
-        usedIdx: toInt128(idx),
-        minIdx: toInt128(0),
-        maxIdx: toInt128(x.len - 1)))
+  template outOfBounds(n, x, y: PNode, c: ConfigRef): PNode =
+    c.newError(n, PAstDiag(kind: adSemIndexOutOfBoundsStatic,
+                           staticCollection: x,
+                           staticIndex: y))
 
   var idx = toInt64(getOrdValue(y))
   case x.kind
@@ -478,32 +508,31 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
       result = x.sons[idx]
       if result.kind == nkExprColonExpr: result = result[1]
     else:
-      g.config.localReport(n.info, outOfBounds(idx))
+      result = outOfBounds(n, x, y, g.config)
 
   of nkBracket:
     idx -= toInt64(firstOrd(g.config, x.typ))
     if 0 <= idx and idx < x.len:
       result = x[int(idx)]
-
     else:
-      g.config.localReport(n.info, outOfBounds(idx))
+      result = outOfBounds(n, x, y, g.config)
 
   of nkStrLit..nkTripleStrLit:
-    result = newNodeIT(nkCharLit, x.info, n.typ)
     if 0 <= idx and idx < x.strVal.len:
+      result = newNodeIT(nkCharLit, x.info, n.typ)
       result.intVal = ord(x.strVal[int(idx)])
     else:
-      g.config.localReport(n.info, outOfBounds(idx))
+      result = outOfBounds(n, x, y, g.config)
 
   else:
     discard
 
 proc foldFieldAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
   # a real field access; proc calls have already been transformed
-  var x = getConstExpr(m, n[0], idgen, g)
+  let x = getConstExpr(m, n[0], idgen, g)
   if x == nil or x.kind notin {nkObjConstr, nkPar, nkTupleConstr}: return
 
-  var field = n[1].sym
+  let field = n[1].sym
   for i in ord(x.kind == nkObjConstr)..<x.len:
     var it = x[i]
     if it.kind != nkExprColonExpr:
@@ -515,8 +544,8 @@ proc foldFieldAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
       result = x[i][1]
       return
 
-  g.config.localReport(n.info, reportAst(
-    rsemStaticFieldNotFound, n, sym = field))
+  g.config.newError(n, PAstDiag(kind: adSemStaticFieldNotFound,
+                                unknownSym: field))
 
 
 proc foldConStrStr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
@@ -554,31 +583,29 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
       of mBuildOS: result = newStrNodeT(toLowerAscii(platform.OS[g.config.target.hostOS].name), n, g)
       of mBuildCPU: result = newStrNodeT(platform.CPU[g.config.target.hostCPU].name.toLowerAscii, n, g)
       of mAppType: result = getAppType(n, g)
-      of mIntDefine:
-        if isDefined(g.config, s.name.s):
-          try:
-            result = newIntNodeT(toInt128(g.config.symbols[s.name.s].parseInt), n, idgen, g)
-          except ValueError:
-            g.config.localReport reportStr(
-              rsemInvalidIntdefine, g.config.symbols[s.name.s])
-
-        else:
-          result = copyTree(s.ast)
-      of mStrDefine:
-        if isDefined(g.config, s.name.s):
-          result = newStrNodeT(g.config.symbols[s.name.s], n, g)
-        else:
-          result = copyTree(s.ast)
-      of mBoolDefine:
-        if isDefined(g.config, s.name.s):
-          try:
-            result = newIntNodeT(toInt128(g.config.symbols[s.name.s].parseBool.int), n, idgen, g)
-          except ValueError:
-            g.config.localReport reportStr(
-              rsemInvalidBooldefine, g.config.symbols[s.name.s])
-
-        else:
-          result = copyTree(s.ast)
+      of mStrDefine, mIntDefine, mBoolDefine:
+        result =
+          if isDefined(g.config, s.name.s):
+            let define = g.config.symbols[s.name.s]
+            case s.magic
+            of mStrDefine:
+              newStrNodeT(define, n, g)
+            of mIntDefine:
+              try:
+                newIntNodeT(toInt128(define.parseInt), n, idgen, g)
+              except ValueError:
+                g.config.newError(n, PAstDiag(kind: adSemInvalidIntDefine,
+                                              invalidDef: define))
+            of mBoolDefine:
+              try:
+                newIntNodeT(toInt128(define.parseBool.int), n, idgen, g)
+              except ValueError:
+                g.config.newError(n, PAstDiag(kind: adSemInvalidBoolDefine,
+                                              invalidDef: define))
+            else:
+              unreachable("guarded by outer case branch")
+          else:
+            copyTree(s.ast)
       else:
         result = copyTree(s.ast)
     of skProc, skFunc, skMethod:
@@ -612,7 +639,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
     try:
       case s.magic
       of mNone:
-        # If it has no sideEffect, it should be evaluated. But not here.
+        # If it has no sideEffect, `evalAtCompileTime` should evaluate it
         return
       of mLow:
         if skipTypes(n[1].typ, abstractVarRange).kind in tyFloat..tyFloat64:
@@ -627,17 +654,18 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
           else:
             result = newIntNodeT(lastOrd(g.config, skipTypes(n[1].typ, abstractVar)), n, idgen, g)
         else:
-          var a = getArrayConstr(m, n[1], idgen, g)
+          let a = getArrayConstr(m, n[1], idgen, g)
           if a.kind == nkBracket:
             # we can optimize it away:
             result = newIntNodeT(toInt128(a.len-1), n, idgen, g)
       of mLengthOpenArray:
-        var a = getArrayConstr(m, n[1], idgen, g)
-        if a.kind == nkBracket:
-          # we can optimize it away! This fixes the bug ``len(134)``.
-          result = newIntNodeT(toInt128(a.len), n, idgen, g)
-        else:
-          result = magicCall(m, n, idgen, g)
+        let a = getArrayConstr(m, n[1], idgen, g)
+        result =
+          if a.kind == nkBracket:
+            # we can optimize it away! This fixes the bug ``len(134)``.
+            newIntNodeT(toInt128(a.len), n, idgen, g)
+          else:
+            magicCall(m, n, idgen, g)
       of mLengthArray:
         # It doesn't matter if the argument is const or not for mLengthArray.
         # This fixes bug #544.
@@ -675,25 +703,25 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
       else:
         result = magicCall(m, n, idgen, g)
     except OverflowDefect:
-      g.config.localReport(n.info, reportAst(rsemSemfoldOverflow, n))
+      result = g.config.newError(n, PAstDiag(kind: adSemFoldOverflow))
     except DivByZeroDefect:
-      g.config.localReport(n.info, reportAst(rsemSemfoldDivByZero, n))
+      result = g.config.newError(n, PAstDiag(kind: adSemFoldDivByZero))
   of nkAddr:
-    var a = getConstExpr(m, n[0], idgen, g)
+    let a = getConstExpr(m, n[0], idgen, g)
     if a != nil:
       result = n
       n[0] = a
   of nkBracket, nkCurly:
     result = copyNode(n)
     for i, son in n.pairs:
-      var a = getConstExpr(m, son, idgen, g)
+      let a = getConstExpr(m, son, idgen, g)
       if a == nil: return nil
       result.add a
     incl(result.flags, nfAllConst)
   of nkRange:
-    var a = getConstExpr(m, n[0], idgen, g)
+    let a = getConstExpr(m, n[0], idgen, g)
     if a == nil: return
-    var b = getConstExpr(m, n[1], idgen, g)
+    let b = getConstExpr(m, n[1], idgen, g)
     if b == nil: return
     result = copyNode(n)
     result.add a
@@ -723,32 +751,30 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
         result.add a
     incl(result.flags, nfAllConst)
   of nkChckRangeF, nkChckRange64, nkChckRange:
-    var a = getConstExpr(m, n[0], idgen, g)
+    let a = getConstExpr(m, n[0], idgen, g)
     if a == nil: return
     if leValueConv(n[1], a) and leValueConv(a, n[2]):
-      result = a              # a <= x and x <= b
-      result.typ = n.typ
+      # a <= x and x <= b
+      result = foldConv(n, a, idgen, g, check=false)
     else:
-      g.config.localReport(n.info, SemReport(
-        kind: rsemSemfoldInvalidConversion,
-        typeMismatch: @[typeMismatch(n[0].typ, n.typ)]))
-
+      result = g.config.newError(n,
+                                 PAstDiag(kind: adSemInvalidRangeConversion))
   of nkStringToCString, nkCStringToString:
-    var a = getConstExpr(m, n[0], idgen, g)
+    let a = getConstExpr(m, n[0], idgen, g)
     if a == nil: return
     result = a
     result.typ = n.typ
   of nkHiddenStdConv, nkHiddenSubConv, nkConv:
-    var a = getConstExpr(m, n[1], idgen, g)
+    let a = getConstExpr(m, n[1], idgen, g)
     if a == nil: return
     result = foldConv(n, a, idgen, g, check=true)
   of nkDerefExpr, nkHiddenDeref:
     let a = getConstExpr(m, n[0], idgen, g)
     if a != nil and a.kind == nkNilLit:
-      result = nil
-      #localReport(g.config, n.info, "nil dereference is not allowed")
+      result = nil  # xxx: `nkNilLit` should generate an error; fix the code
+                    #      that generates the obviously wrong deref
   of nkCast:
-    var a = getConstExpr(m, n[1], idgen, g)
+    let a = getConstExpr(m, n[1], idgen, g)
     if a == nil: return
     if n.typ != nil and n.typ.kind in NilableTypes:
       # we allow compile-time 'cast' for pointer types:
@@ -767,4 +793,4 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
     if i == n.len - 1:
       result = getConstExpr(m, n[i], idgen, g)
   else:
-    discard
+    discard # xxx: should we return nil for nkError?

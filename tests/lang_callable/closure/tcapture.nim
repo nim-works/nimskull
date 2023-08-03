@@ -1,4 +1,5 @@
 discard """
+  targets: "c js vm"
   output: '''
 to be, or not to be
 (v: 1)

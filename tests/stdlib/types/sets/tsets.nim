@@ -1,4 +1,7 @@
-# Test builtin sets
+discard """
+  targets: "c js vm"
+  description: "Test builtin sets"
+"""
 
 # xxx these tests are not very good, this should be revisited.
 
@@ -69,7 +72,15 @@ type Foo = enum
 let x = { Foo1, Foo2 }
 # bug #8425
 
-block:
+template disallowVm(code: untyped) =
+  when not defined(vm):
+    block:
+      code
+
+# knownIssue: the serilization logic (``vm/packed_env``) doesn't offset the
+#             elements for sets, resulting in either crashes or wrong values
+#             if the first element of a set doesn't have the ordinal value '0'
+disallowVm:
   # bug #2880
   type
     FakeMsgKind = enum

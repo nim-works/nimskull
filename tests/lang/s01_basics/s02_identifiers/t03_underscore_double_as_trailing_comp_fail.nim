@@ -4,7 +4,7 @@ Two consecutive underscores are considered a break in an identifier, or a
 trailing underscore per the error.
 '''
 action: reject
-errormsg: "invalid token: trailing underscore"
+errormsg: "invalid identifier: only non-consecutive and non-trailing underscores allowed: eg. 'a__b' and 'a_' are invalid"
 line: 13
 column: 31
 """

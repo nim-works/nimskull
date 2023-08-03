@@ -1,6 +1,5 @@
 discard """
   description: "Tests for the std/experimental/results module"
-  matrix: "--gc:refc; --gc:arc"
   targets: "c !js"
 """
 

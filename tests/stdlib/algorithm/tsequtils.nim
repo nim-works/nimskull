@@ -1,11 +1,11 @@
 discard """
-  targets: "c js"
+  targets: "c js !vm"
 """
 
-# xxx move all tests under `main`
+# knownIssue: disable for the VM due to an internal VM crash at run-time. Needs to be investigated further
 
-import std/sequtils
-import strutils
+# xxx move all tests under `main`
+import std/[sequtils, strutils]
 from algorithm import sorted
 
 {.experimental: "strictEffects".}
@@ -116,23 +116,15 @@ block: # zip test
   doAssert zip1[2][1] == 4
   doAssert zip2[2][1] == "three"
   doAssert zip3[2][1] == 4
-  when (NimMajor, NimMinor) <= (1, 0):
-    let
-      # In Nim 1.0.x and older, zip returned a seq of tuple strictly
-      # with fields named "a" and "b".
-      zipAb = zip(ashort, awords)
-    doAssert zipAb == @[(a: 1, b: "one"), (2, "two"), (3, "three")]
-    doAssert zipAb[2].b == "three"
-  else:
-    let
-      # As zip returns seq of anonymous tuples, they can be assigned
-      # to any variable that's a sequence of named tuples too.
-      zipXy: seq[tuple[x: int, y: string]] = zip(ashort, awords)
-      zipMn: seq[tuple[m: int, n: string]] = zip(ashort, words)
-    doAssert zipXy == @[(x: 1, y: "one"), (2, "two"), (3, "three")]
-    doAssert zipMn == @[(m: 1, n: "one"), (2, "two"), (3, "three")]
-    doAssert zipXy[2].y == "three"
-    doAssert zipMn[2].n == "three"
+  let
+    # As zip returns seq of anonymous tuples, they can be assigned
+    # to any variable that's a sequence of named tuples too.
+    zipXy: seq[tuple[x: int, y: string]] = zip(ashort, awords)
+    zipMn: seq[tuple[m: int, n: string]] = zip(ashort, words)
+  doAssert zipXy == @[(x: 1, y: "one"), (2, "two"), (3, "three")]
+  doAssert zipMn == @[(m: 1, n: "one"), (2, "two"), (3, "three")]
+  doAssert zipXy[2].y == "three"
+  doAssert zipMn[2].n == "three"
 
 block: # distribute tests
   let numbers = @[1, 2, 3, 4, 5, 6, 7]
@@ -297,8 +289,7 @@ block: # toSeq test
     doAssert myIter.toSeq == @[1, 2]
     doAssert toSeq(myIter) == @[1, 2]
 
-  when not defined(js):
-    # pending #4695
+  when true:
     block:
         iterator myIter(): int {.closure.} =
           yield 1
@@ -453,11 +444,12 @@ block:
       for i in 0..<len:
         yield i
 
-  when not defined(js):
-    # xxx: obscure CT error: basic_types.nim(16, 16) Error: internal error: symbol has no generated name: true
+  when true:
     doAssert: iter(3).mapIt(2*it).foldl(a + b) == 6
 
-block: # strictFuncs tests with ref object
+# XXX: fails at run-time due to what looks like a codegen issue. Needs further
+#      investigation.
+when not defined(vm): # block: # strictFuncs tests with ref object
   type Foo = ref object
 
   let foo1 = Foo()

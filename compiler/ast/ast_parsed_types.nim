@@ -2,10 +2,15 @@
 
 import
   compiler/ast/[
-    ast_types, # For the node kinds
-    lexer,     # For the token type definition
-    lineinfos  # For TLineInfo
+    lineinfos,  # For TLineInfo
+    idents,     # For `PIdent`
+    numericbase
+  ],
+  compiler/utils/[
+    idioms
   ]
+
+from compiler/ast/lexer import Token, TokType
 
 # NOTE further refactoring considerations for the parser:
 #
@@ -17,44 +22,260 @@ import
 #   it should not be placed where it is now.
 
 type
-  ParsedNode* = ref object
-    # NOTE next two fields are very large combined, but further plans will
-    # deal with that problem - current implementation is easier to write
-    # and it is just a transition point.
-    info*: TLineInfo # TODO replace line and separate token with index to
-                     # the token, which in turn will store information
-                     # about global positioning (tuple made up of a token
-                     # id and a file ID)
-                     #
-                     # NOTE technically this is not really necessary even
-                     # with the current implementation, but the parser
-                     # consistently copies this information around anyway,
-                     # so I will let it stay this way for now.
-    token*: Token # TODO Replace full token value with an index information
-    kind*: TNodeKind # NOTE/QUESTION - for now the same kind of nodes is
-                     # reused as the main parser, to ease the transition,
-                     # but in the future two different sets of node kinds
-                     # might(?) be introduced.
+  ParseDiagKind* = enum
+    # internal errors begin
+    # pdkInternalError
+    # internal errors end
 
-    # TODO replace `ref` object tree with begin/end ranges for the nested
-    # trees in the linearized structure.
-    sons*: seq[ParsedNode]
-    comment*: string # TODO this should either be a token or a sequence of
-                     # tokens.
+    # TODO: likely incorporate lexer errors etc
+    
+    # errors begin
+    pdkInvalidIndentation
+    pdkInvalidIndentationWithForgotEqualSignHint
+    pdkNestableRequiresIndentation
+    pdkIdentExpected
+    pdkIdentExpectedEmptyAccQuote
+    pdkExprExpected
+    pdkMissingToken
+    pdkUnexpectedToken
+    pdkAsmStmtExpectsStrLit
+    pdkFuncNotAllowed   # xxx: bad name
+    pdkTupleTypeWithPar # xxx: bad name
+    pdkMisplacedParameterVar # xxx: bad name
+    pdkConceptNotInType
+    pdkMisplacedExport
+    pdkPragmaBeforeGenericParameters
+    # errors end
 
-    # HACK explicit flags in order to track down all 'extra' information
-    # that is collected during parsing.
-    isBlockArg*: bool # QUESTION add 'nkStmtListBlockArg' or similar node
-                      # and convert it to the `nkStmtList` + `nfBlocArg`
-                      # flags later on? Why do we need the `nfBlockArg`
-                      # flag in the first place?
+    # warnings being
+    pdkInconsistentSpacing # xxx: bad name
+    pdkPragmaDoesNotFollowTypeName
+    pdkEnablePreviewDotOps
+    # warnings end
+
+const
+  pdkWithExtraData* = {pdkInvalidIndentationWithForgotEqualSignHint,
+                        pdkUnexpectedToken,
+                        pdkMissingToken,
+                        pdkIdentExpected,
+                        pdkExprExpected,
+                        pdkAsmStmtExpectsStrLit,
+                        pdkInconsistentSpacing}
+  pdkWithoutExtraData* = {low(ParseDiagKind)..high(ParseDiagKind)} - 
+                          pdkWithExtraData
+
+type
+  ParseDiag* = object
+    instLoc*: InstantiationInfo
+    location*: TLineInfo        # xxx: can we get away with line/col only?
+    case kind*: ParseDiagKind:
+      of pdkInvalidIndentationWithForgotEqualSignHint:
+        eqLineInfo*: TLineInfo
+      of pdkUnexpectedToken:
+        expected*: TokType
+        actual*: Token
+      of pdkMissingToken:
+        missedToks*: seq[TokType]
+      of pdkIdentExpected,
+          pdkExprExpected,
+          pdkAsmStmtExpectsStrLit,
+          pdkInconsistentSpacing:
+        found*: Token
+      of pdkWithoutExtraData:
+        discard
+
+  ParsedNodeKind* = enum
+    pnkError        ## currently we don't produce error nodes
+    pnkEmpty
+    pnkIdent
+    pnkCharLit
+    pnkIntLit
+    pnkInt8Lit
+    pnkInt16Lit
+    pnkInt32Lit
+    pnkInt64Lit
+    pnkUIntLit
+    pnkUInt8Lit
+    pnkUInt16Lit
+    pnkUInt32Lit
+    pnkUInt64Lit
+    pnkFloatLit
+    pnkFloat32Lit
+    pnkFloat64Lit
+    pnkFloat128Lit
+    pnkStrLit
+    pnkRStrLit
+    pnkTripleStrLit
+    pnkNilLit
+    pnkCustomLit
+    pnkAccQuoted
+    pnkCall
+    pnkCommand
+    pnkCallStrLit
+    pnkInfix
+    pnkPrefix
+    pnkPostfix
+    pnkExprEqExpr
+    pnkExprColonExpr
+    pnkIdentDefs
+    pnkConstDef
+    pnkVarTuple
+    pnkPar
+    pnkSqrBracket
+    pnkCurly
+    pnkTupleConstr
+    pnkObjConstr
+    pnkTableConstr
+    pnkSqrBracketExpr
+    pnkCurlyExpr
+    pnkPragmaExpr
+    pnkPragma
+    pnkPragmaBlock
+    pnkDotExpr
+    pnkIfExpr
+    pnkIfStmt
+    pnkElifBranch
+    pnkElifExpr
+    pnkElse
+    pnkElseExpr
+    pnkCaseStmt
+    pnkOfBranch
+    pnkWhenExpr
+    pnkWhenStmt
+    pnkForStmt
+    pnkWhileStmt
+    pnkBlockExpr
+    pnkBlockStmt
+    pnkDiscardStmt
+    pnkContinueStmt
+    pnkBreakStmt
+    pnkReturnStmt
+    pnkRaiseStmt
+    pnkYieldStmt
+    pnkTryStmt
+    pnkExceptBranch
+    pnkFinally
+    pnkDefer
+    pnkLambda
+    pnkDo
+    pnkBind
+    pnkBindStmt
+    pnkMixinStmt
+    pnkCast
+    pnkStaticStmt
+    pnkAsgn
+    pnkGenericParams
+    pnkFormalParams
+    pnkStmtList
+    pnkStmtListExpr
+    pnkImportStmt
+    pnkImportExceptStmt
+    pnkFromStmt
+    pnkIncludeStmt
+    pnkExportStmt
+    pnkExportExceptStmt
+    pnkConstSection
+    pnkLetSection
+    pnkVarSection
+    pnkProcDef
+    pnkFuncDef
+    pnkMethodDef
+    pnkConverterDef
+    pnkIteratorDef
+    pnkMacroDef
+    pnkTemplateDef
+    pnkTypeSection
+    pnkTypeDef
+    pnkEnumTy
+    pnkEnumFieldDef
+    pnkObjectTy
+    pnkTupleTy
+    pnkProcTy
+    pnkIteratorTy
+    pnkRecList
+    pnkRecCase
+    pnkRecWhen
+    pnkTypeOfExpr
+    pnkRefTy
+    pnkVarTy
+    pnkPtrTy
+    pnkStaticTy
+    pnkDistinctTy
+    pnkMutableTy
+    pnkTupleClassTy
+    pnkTypeClassTy
+    pnkOfInherit
+    pnkArgList
+    pnkWith
+    pnkWithout
+    pnkAsmStmt
+    pnkCommentStmt
+    pnkUsingStmt
+  
+  ParsedKindWithSons* = range[pnkCall..pnkUsingStmt]
+  ParsedKindLiteral* = range[pnkCharLit..pnkCustomLit]
+  ParsedKindBracket* = range[pnkPar..pnkCurly]
+
+  ParsedToken* = object
+    ## Used instead of `Token` to save memory
+    line*: uint16
+    col*: int16
+    tokType*: TokType
+    ident*: PIdent
+    iNumber*: BiggestInt
+    fNumber*: BiggestFloat
+    base*: NumericalBase
+    literal*: string
+
+  ParsedNodeData*{.final, acyclic.} = object
+    # TODO: replace token fields with indexing into a token sequence, this
+    #       should also address line info tracking.
+    comment*: string       # TODO: replace with an index into a token stream
+    fileIndex*: FileIndex  # xxx: remove and have the caller handle it?
+    case kind*: ParsedNodeKind:
+      of pnkError:
+        diag*: ParseDiag
+      of pnkEmpty:
+        line*: uint16
+        col*: int16
+      of pnkIdent:
+        startToken*: ParsedToken
+      of pnkCharLit..pnkUInt64Lit,
+          pnkFloatLit..pnkFloat128Lit,
+          pnkStrLit..pnkTripleStrLit,
+          pnkNilLit,
+          pnkCustomLit:
+        lit*: ParsedToken
+      of pnkAccQuoted:
+        quote*: ParsedToken
+        idents*: seq[tuple[ident: PIdent, line: uint16, col: int16]]
+      of pnkCall..pnkUsingStmt:
+        token*: ParsedToken
+        sons*: seq[ParsedNode]  # TODO: replace `ref` object graph with
+                                #       begin/end ranges for tracking the tree
+                                #       hierarchy in a linear data structure.
+
+  ParsedNode* = ref ParsedNodeData
+
+
+const
+  pnkParsedKindsWithSons* = {pnkCall..pnkUsingStmt}
+  pnkCallKinds* = {pnkCall, pnkInfix, pnkPrefix, pnkPostfix,
+                  pnkCommand, pnkCallStrLit}
+  pnkFloatKinds* = {pnkFloatLit..pnkFloat128Lit}
+  pnkIntKinds* = {pnkCharLit..pnkUInt64Lit}
+  pnkStrKinds* = {pnkStrLit..pnkTripleStrLit}
 
 func len*(node: ParsedNode): int =
   ## Number of sons of the parsed node
   return node.sons.len()
 
 # NOTE added for the sake of API similarity between PNode
-proc safeLen*(node: ParsedNode): int = node.len()
+func safeLen*(node: ParsedNode): int =
+  if node.kind in pnkParsedKindsWithSons:
+    node.len()
+  else:
+    0
 
 proc `[]`*(node: ParsedNode, idx: int | BackwardsIndex): ParsedNode =
   return node.sons[idx]
@@ -74,39 +295,108 @@ proc add*(node: ParsedNode, other: ParsedNode) =
   ## append `other` to `node`'s `sons`
   node.sons.add(other)
 
-proc transitionSonsKind*(n: ParsedNode, kind: TNodeKind) =
-  n.kind = kind
+proc transitionSonsKind*(n: ParsedNode, kind: ParsedNodeKind) =
+  assert n.kind in pnkParsedKindsWithSons and kind in pnkParsedKindsWithSons,
+          "kind from: " & $n.kind & " to: " & $kind
+  let obj = n[]
+  {.cast(uncheckedAssign).}:
+    n[] = ParsedNodeData(kind: kind,
+                         token: obj.token,
+                         sons: obj.sons,
+                         comment: obj.comment,
+                         fileIndex: obj.fileIndex)
 
-proc transitionIntKind*(n: ParsedNode, kind: TNodeKind) =
-  n.kind = kind
-
-proc transitionNoneToSym*(n: ParsedNode) =
-  n.kind = nkSym
-
-func newParsedNode*(kind: TNodeKind): ParsedNode =
-  ## Create a new parsed node without any location or token information
-  return ParsedNode(kind: kind, info: unknownLineInfo)
+func newEmptyParsedNode*(fileIndex: FileIndex,
+                         line = unknownLineInfo.line,
+                         col = unknownLineInfo.col): ParsedNode =
+  ## Create an empty ParsedNode
+  ParsedNode(kind: pnkEmpty, fileIndex: fileIndex, line: line, col: col)
 
 func newParsedNode*(
-  kind: TNodeKind, info: TLineInfo, sons: seq[ParsedNode] = @[]): ParsedNode =
+  kind: ParsedKindWithSons,
+  fileIndex: FileIndex,
+  token: ParsedToken,
+  sons: seq[ParsedNode] = @[]): ParsedNode =
   ## Create a new non-leaf parsed node with a specified location
   ## information and sons.
-  return ParsedNode(kind: kind, info: info, sons: sons)
+  ParsedNode(kind: kind, fileIndex: fileIndex, token: token, sons: sons)
 
-func newParsedNode*(kind: TNodeKind, info: TLineInfo, token: Token): ParsedNode =
-  ## Create a new leaf parsed node with the specified location information
-  ## and token kind.
-  return ParsedNode(kind: kind, info: info, token: token)
+func newParsedLitNode*(
+  kind: ParsedKindLiteral,
+  fileIndex: FileIndex,
+  token: ParsedToken): ParsedNode =
+  ## Create a new leaf literal parsed node.
+  ParsedNode(kind: kind, fileIndex: fileIndex, lit: token)
 
+func newParsedNodeIdent*(fileIndex: FileIndex, token: ParsedToken): ParsedNode =
+  ## Create a `pnkIdent` node
+  ParsedNode(kind: pnkIdent, fileIndex: fileIndex, startToken: token)
+
+proc getToken*(n: ParsedNode): ParsedToken =
+  case n.kind
+  of pnkError, pnkEmpty:
+    unreachable()
+  of pnkIdent:
+    n.startToken
+  of pnkCharLit..pnkUInt64Lit,
+      pnkFloatLit..pnkFloat128Lit,
+      pnkStrLit..pnkTripleStrLit,
+      pnkNilLit,
+      pnkCustomLit:
+    n.lit
+  of pnkAccQuoted:
+    n.quote
+  of pnkCall..pnkUsingStmt:
+    n.token
 
 proc newProcNode*(
-    kind: TNodeKind,
-    info: TLineInfo,
+    kind: ParsedNodeKind,
+    fileIndex: FileIndex,
+    token: ParsedToken,
     body, params, name, pattern, genericParams,
     pragmas, exceptions: ParsedNode
   ): ParsedNode =
-
-  result = newParsedNode(
+  newParsedNode(
     kind,
-    info,
+    fileIndex,
+    token,
     @[name, pattern, genericParams, params, pragmas, exceptions, body])
+
+func info*(p: ParsedNode): TLineInfo {.inline.} =
+  case p.kind
+  of pnkError:
+    unreachable("IMPLEMENT ME") # xxx: we don't produce pnkError nodes, yet
+  of pnkEmpty:
+    TLineInfo(fileIndex: p.fileIndex, line: p.line, col: p.col)
+  of pnkIdent:
+    TLineInfo(fileIndex: p.fileIndex,
+              line: p.startToken.line,
+              col: p.startToken.col)
+  of pnkCharLit..pnkUInt64Lit,
+      pnkFloatLit..pnkFloat128Lit,
+      pnkStrLit..pnkTripleStrLit,
+      pnkNilLit,
+      pnkCustomLit:
+    TLineInfo(fileIndex: p.fileIndex,
+              line: p.lit.line,
+              col: p.lit.col)
+  of pnkAccQuoted:
+    TLineInfo(fileIndex: p.fileIndex,
+              line: p.quote.line,
+              col: p.quote.col)
+  of pnkCall..pnkUsingStmt:
+    TLineInfo(fileIndex: p.fileIndex,
+              line: p.token.line,
+              col: p.token.col)
+
+proc toParsedToken*(t: Token): ParsedToken {.inline.} =
+  let (line, col) = clampLineCol(t.line, t.col)
+  result = ParsedToken(
+    line: line,
+    col: col,
+    tokType: t.tokType,
+    ident: t.ident,
+    iNumber: t.iNumber,
+    fNumber: t.fNumber,
+    base: t.base,
+    literal: t.literal)

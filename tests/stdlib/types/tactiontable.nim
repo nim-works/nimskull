@@ -2,7 +2,7 @@ discard """
 labels: "table var const"
 """
 
-import tables
+import std/tables
 
 proc action1(arg: string) : string =
   return "action 1 " & arg

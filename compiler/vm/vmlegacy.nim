@@ -23,19 +23,11 @@ func vmGenDiagToLegacyReportKind(diag: VmGenDiagKind): ReportKind {.inline.} =
   of vmGenDiagTooManyRegistersRequired: rvmTooManyRegistersRequired
   of vmGenDiagCannotFindBreakTarget: rvmCannotFindBreakTarget
   of vmGenDiagNotUnused: rvmNotUnused
-  of vmGenDiagNotAFieldSymbol: rvmNotAFieldSymbol
   of vmGenDiagTooLargeOffset: rvmTooLargetOffset
-  of vmGenDiagCannotGenerateCode: rvmCannotGenerateCode
   of vmGenDiagCodeGenUnhandledMagic: rvmCannotGenerateCode
-  of vmGenDiagCodeGenGenericInNonMacro: rvmCannotGenerateCode
-  of vmGenDiagCodeGenUnexpectedSym: rvmCannotGenerateCode
   of vmGenDiagCannotCast: rvmCannotCast
-  of vmGenDiagBadExpandToAstArgRequired: rvmBadExpandToAst
-  of vmGenDiagBadExpandToAstCallExprRequired: rvmBadExpandToAst
   of vmGenDiagCannotEvaluateAtComptime: rvmCannotEvaluateAtComptime
   of vmGenDiagCannotImportc: rvmCannotImportc
-  of vmGenDiagInvalidObjectConstructor: rvmInvalidObjectConstructor
-  of vmGenDiagNoClosureIterators: rvmNoClosureIterators
   of vmGenDiagCannotCallMethod: rvmCannotCallMethod
 
 template magicToString(m: TMagic): string =
@@ -54,9 +46,8 @@ func vmGenDiagToLegacyVmReport*(diag: VmGenDiag): VMReport {.inline.} =
         location: std_options.some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
         kind: rvmCannotCast,
-        typeMismatch:
-          @[SemTypeMismatch(actualType: diag.typeMismatch.actualType,
-                            formalType: diag.typeMismatch.formalType)])
+        actualType: diag.typeMismatch.actualType,
+        formalType: diag.typeMismatch.formalType)
     of vmGenDiagCodeGenUnhandledMagic,
         vmGenDiagMissingImportcCompleteStruct:
       VMReport(
@@ -64,41 +55,17 @@ func vmGenDiagToLegacyVmReport*(diag: VmGenDiag): VMReport {.inline.} =
         kind: kind,
         location: std_options.some diag.location,
         reportInst: diag.instLoc.toReportLineInfo)
-    of vmGenDiagCodeGenGenericInNonMacro,
-        vmGenDiagCodeGenUnexpectedSym,
-        vmGenDiagNoClosureIterators,
-        vmGenDiagCannotImportc,
+    of vmGenDiagCannotImportc,
         vmGenDiagCannotCallMethod,
         vmGenDiagTooLargeOffset:
       VMReport(
-        str: case diag.kind
-              of vmGenDiagCodeGenGenericInNonMacro:
-                "Attempt to generate VM code for generic parameter in non-macro proc"
-              of vmGenDiagCodeGenUnexpectedSym:
-                "Unexpected symbol for VM code - " & $diag.sym.kind
-              else:
-                "",
+        str: "",
         sym: diag.sym,
         location: std_options.some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind)
-    of vmGenDiagBadExpandToAstArgRequired:
-      VMReport(
-        str: "expandToAst requires 1 argument",
-        kind: kind,
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo)
-    of vmGenDiagBadExpandToAstCallExprRequired:
-      VMReport(
-        str: "expandToAst requires a call expression",
-        kind: kind,
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo)
     of vmGenDiagNotUnused,
-        vmGenDiagNotAFieldSymbol,
-        vmGenDiagCannotGenerateCode,
-        vmGenDiagCannotEvaluateAtComptime,
-        vmGenDiagInvalidObjectConstructor:
+        vmGenDiagCannotEvaluateAtComptime:
       VMReport(
         ast: diag.ast,
         kind: kind,

@@ -1,8 +1,12 @@
 discard """
 action: compile
+target: c
 """
 
-import os
+# this tests needs to stop depending upon `walkDirRec` and be generalized to
+# work across platforms
+
+import std/os
 
 # bug #3636
 

@@ -66,8 +66,9 @@ else:
 
   #RFC-2781 "UTF-16, an encoding of ISO 10646"
 
-  var wc: WideCString
-  unsafeNew(wc, 1024 * 4 + 2)
+  var
+    wco = newWideCString(2048)
+    wc  = toWideCString(wco)
 
   #U+0000 to U+D7FF
   #skip the U+0000

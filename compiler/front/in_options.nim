@@ -23,10 +23,8 @@ type
     optGenMapping             ## generate a mapping file
     optRun                    ## run the compiled project
     optUseNimcache            ## save artifacts (including binary) in $nimcache
-    optStyleHint              ## check that the names adhere to NEP-1
-    optStyleError             ## enforce that the names adhere to NEP-1
-    optStyleUsages            ## only enforce consistent **usages** of the
-                              ## symbol
+    optStyleHint              ## check that the names adhere to the style guide
+    optStyleError             ## enforce that the names adhere to the style guide
     optSkipSystemConfigFile   ## skip the system's cfg/nims config file
     optSkipProjConfigFile     ## skip the project's cfg/nims config file
     optSkipUserConfigFile     ## skip the users's cfg/nims config file
@@ -52,37 +50,23 @@ type
     optDynlibOverrideAll
     optSeqDestructors         ## active if the implementation uses the new
                               ## string/seq implementation based on destructors
-    optTinyRtti               ## active if we use the new "tiny RTTI"
-                              ## implementation
     optMultiMethods
     optBenchmarkVM            ## Enables cpuTime() in the VM
     optProduceAsm             ## produce assembler code
     optPanics                 ## turn panics (sysFatal) into a process
                               ## termination
-    optNimV1Emulation         ## emulate Nim v1.0
-    optNimV12Emulation        ## emulate Nim v1.2
     optSourcemap
     optProfileVM              ## enable VM profiler
-    optEnableDeepCopy         ## ORC specific: enable 'deepcopy' for all
-                              ## types.
+    optEnableDeepCopy         ## ORC specific: enable 'deepcopy' for all types
+    optCmdExitGcStats         ## print gc stats as part of command exit
 
   TGlobalOptions* = set[TGlobalOption]
 
-
   TGCMode* = enum             # the selected GC
     gcUnselected = "unselected"
-    gcNone = "none"
-    gcBoehm = "boehm"
-    gcRegions = "regions"
+    gcNative = "native" ## use the memory management native to the backend
     gcArc = "arc"
     gcOrc = "orc"
-    gcMarkAndSweep = "markAndSweep"
-    gcHooks = "hooks"
-    gcRefc = "refc"
-    gcV2 = "v2"
-    gcGo = "go"
-    # gcRefc and the GCs that follow it use a write barrier, as far as
-    # usesWriteBarrier() is concerned
 
   TOption* = enum
     ##
@@ -126,15 +110,6 @@ type
 
   TOptions* = set[TOption]
 
-  TBackend* = enum
-    ## Target compilation backend
-    backendInvalid = "" # for parseEnum
-    backendC = "c"
-    backendJs = "js"
-    backendNimVm = "vm"
-    # backendNimscript = "nimscript" # this could actually work
-    # backendLlvm = "llvm" # probably not well supported; was cmdCompileToLLVM
-
   Command* = enum
     ## Compiler execution command
     cmdNone        ## not yet processed command
@@ -146,6 +121,7 @@ type
     cmdTcc         ## run the project via TCC backend
     cmdCheck       ## semantic checking for whole project
     cmdParse       ## parse a single file (for debugging)
+    cmdScan        ## scan/lexically analyse a single file (for debugging)
     cmdRod         ## .rod to some text representation (for debugging)
     cmdIdeTools    ## ide tools (e.g. nimsuggest)
     cmdNimscript   ## evaluate nimscript
@@ -173,6 +149,43 @@ type
     foName          ## lastPathPart, e.g.: foo.nim
     foStacktrace    ## if optExcessiveStackTrace: foAbs else: foName
 
+  TSystemCC* = enum
+    ccNone, ccGcc, ccNintendoSwitch, ccLLVM_Gcc, ccCLang, ccBcc, ccVcc,
+    ccTcc, ccEnv, ccIcl, ccIcc, ccClangCl
+
+  ExceptionSystem* = enum
+    excNone,   ## no exception system selected yet
+    excNative, ## use backend native exception handling
+    excGoto,   ## exception handling based on goto
+
+  SymbolFilesOption* = enum
+    disabledSf   ## disables Rod files and maybe packed AST features
+    writeOnlySf  ## not really sure, beyond not reading rod files
+    readOnlySf   ## we only read from rod files
+    v2Sf         ## who knows, probably a bad idea
+    stressTest   ## likely more bad ideas
+
+type
+  TBackend* = enum
+    ## Target compilation backend
+    backendInvalid = "" # for parseEnum
+    backendC = "c"
+    backendJs = "js"
+    backendNimVm = "vm"
+    # backendNimscript = "nimscript" # this could actually work
+    # backendLlvm = "llvm" # probably not well supported; was cmdCompileToLLVM
+  TValidBackend* = range[backendC .. backendJs]
+
+const validBackends*: set[TValidBackend] = {backendC .. backendJs}
+
+type
+  # "reports" strikes again, this bit of silliness is to stop reports from
+  # infecting the `commands` module among others.
+  MsgFormatKind* = enum
+    msgFormatText = "text" ## text legacy reports message formatting
+    msgFormatSexp = "sexp" ## sexp legacy reports message formatting
+
+type
   Feature* = enum  ## experimental features; DO NOT RENAME THESE!
     implicitDeref,
     dotOperators,
@@ -187,34 +200,7 @@ type
     strictEffects,
     unicodeOperators
 
-
-  LegacyFeature* = enum
-    allowSemcheckedAstModification,
-      ## Allows to modify a NimNode where the type has already been
-      ## flagged with nfSem. If you actually do this, it will cause
-      ## bugs.
-    checkUnsignedConversions
-      ## Historically and especially in version 1.0.0 of the language
-      ## conversions to unsigned numbers were checked. In 1.0.4 they
-      ## are not anymore.
-
-  TSystemCC* = enum
-    ccNone, ccGcc, ccNintendoSwitch, ccLLVM_Gcc, ccCLang, ccBcc, ccVcc,
-    ccTcc, ccEnv, ccIcl, ccIcc, ccClangCl
-
-  ExceptionSystem* = enum
-    excNone,   ## no exception system selected yet
-    excSetjmp, ## setjmp based exception handling
-    excNative, ## use backend native exception handling
-    excGoto,   ## exception handling based on goto (should become the new default for C)
-    excQuirky  ## quirky exception handling
-
-  SymbolFilesOption* = enum
-    disabledSf   ## disables Rod files and maybe packed AST features
-    writeOnlySf  ## not really sure, beyond not reading rod files
-    readOnlySf   ## we only read from rod files
-    v2Sf         ## who knows, probably a bad idea
-    stressTest   ## likely more bad ideas
+const experimentalFeatures*: set[Feature] = {implicitDeref..unicodeOperators}
 
 type
   ConfNoteSet* = enum
@@ -240,7 +226,6 @@ type
     ## only be supplied from the command line or the configuration files.
     cppDefines*: HashSet[string] #[ (*) ]# ## C pre-processor defines
     features*: set[Feature]
-    legacyFeatures*: set[LegacyFeature]
 
     symbolFiles*: SymbolFilesOption
     symbols*: StringTableRef ## We need to use a StringTableRef here as

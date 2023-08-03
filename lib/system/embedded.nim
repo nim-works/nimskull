@@ -19,8 +19,6 @@ proc nimFrame(s: PFrame) {.compilerRtl, inl, exportc: "nimFrame".} = discard
 proc popFrame {.compilerRtl, inl.} = discard
 
 proc setFrame(s: PFrame) {.compilerRtl, inl.} = discard
-proc pushSafePoint(s: PSafePoint) {.compilerRtl, inl.} = discard
-proc popSafePoint {.compilerRtl, inl.} = discard
 proc pushCurrentException(e: ref Exception) {.compilerRtl, inl.} = discard
 proc popCurrentException {.compilerRtl, inl.} = discard
 
@@ -49,7 +47,7 @@ proc setControlCHook(hook: proc () {.noconv.}) = discard
 proc closureIterSetupExc(e: ref Exception) {.compilerproc, inline.} =
   sysFatal(ReraiseDefect, "exception handling is not available")
 
-when gotoBasedExceptions:
+when true:
   var nimInErrorMode {.threadvar.}: bool
 
   proc nimErrorFlag(): ptr bool {.compilerRtl, inl.} =

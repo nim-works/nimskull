@@ -1,7 +1,7 @@
 ## This module implements the interface between the VM and the rest of the
 ## compiler. The VM is only interacted with through this interface. Do note
 ## that right now, the compiler still indirectly interacts with the VM through
-## the ``vmdef.PCtx`` object.
+## the ``vmdef.TCtx`` object.
 ##
 ## The interface includes:
 ## - the procedure that sets up a VM instance for use during compilation
@@ -51,6 +51,9 @@ import
     results
   ]
 
+when defined(nimVMDebugGenerate):
+  import compiler/vm/vmutils
+
 import std/options as std_options
 
 from std/strutils import join
@@ -84,15 +87,29 @@ type
 
   ExecutionResult* = Result[PNode, ExecErrorReport]
 
+  PEvalContext* = ref EvalContext
+  EvalContext* = object of TPassContext
+    ## All state required to on-demand translate AST to VM bytecode and execute
+    ## it. An ``EvalContext`` instance makes up everything that is required
+    ## for running code at compile-time.
+    vm*: TCtx
+    jit*: JitState
+
+    oldErrorCount: int
+
 # to prevent endless recursion in macro instantiation
 const evalMacroLimit = 1000
 
 # prevent a default `$` implementation from being generated
 func `$`(e: ExecErrorReport): string {.error.}
 
-proc putIntoReg(dest: var TFullReg; c: var TCtx, n: PNode, formal: PType) =
+proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
+                formal: PType) =
   ## Put the value that is represented by `n` (but not the node itself) into
   ## `dest`. Implicit conversion is also performed, if necessary.
+  # XXX: requring access to the JIT state here is all kinds of wrong and
+  #      indicates that ``putIntoReg`` is not a good idea to begin with. The
+  #      XXX comment below describes a good way to get out of this mess
   let t = formal.skipTypes(abstractInst+{tyStatic}-{tyTypeDesc})
 
   # XXX: instead of performing conversion here manually, sem could generate a
@@ -100,6 +117,23 @@ proc putIntoReg(dest: var TFullReg; c: var TCtx, n: PNode, formal: PType) =
   #      then invokes the macro. The thunk would be executed in the VM, making
   #      the code here obsolete while also eliminating unnecessary
   #      deserialize/serialize round-trips
+
+  proc registerProcs(jit: var JitState, c: var TCtx, n: PNode) =
+    # note: this kind of scanning only works for AST representing concrete
+    # values
+    case n.kind
+    of nkSym:
+      if n.sym.kind in routineKinds:
+        discard registerProcedure(jit, c, n.sym)
+    of nkWithoutSons - {nkSym}:
+      discard "not relevant"
+    of nkWithSons:
+      for it in n.items:
+        registerProcs(jit, c, it)
+
+  # create a function table entry for each procedure referenced by `n` --
+  # ``serialize`` depends on it
+  registerProcs(jit, c, n)
 
   case t.kind
   of tyBool, tyChar, tyEnum, tyInt..tyInt64, tyUInt..tyUInt64:
@@ -204,11 +238,44 @@ proc unpackResult(res: sink ExecutionResult; config: ConfigRef, node: PNode): PN
 
     result = config.newError(node, astDiag, instLoc(-1))
 
+proc createStackTrace(c: TCtx, raw: VmRawStackTrace;
+                      recursionLimit: int = 100): VmStackTrace =
+  ## Creates a compiler-facing stacktrace from the internal stacktrace `raw`.
+  result = VmStackTrace(currentExceptionA: nil, currentExceptionB: nil)
+
+  var count = 0
+  # create the stacktrace entries:
+  for i in countdown(raw.high, 0):
+    let f {.cursor.} = raw[i]
+
+    if count < recursionLimit - 1 or i == 0:
+      # The `i == 0` is to make sure that we're always including the bottom of
+      # the stack (the entry procedure) in the trace
+
+      # Since we're walking the stack from top to bottom, the elements are
+      # added to the trace in reverse order (the most recent procedure is
+      # first in the list, not last). This needs to be accounted for by the
+      # actual reporting logic
+      result.stacktrace.add((sym: f.sym, location: c.debug[f.pc]))
+
+    inc count
+
+  if count > recursionLimit:
+    result.skipped = count - recursionLimit
+
+  assert result.stacktrace.len() <= recursionLimit # post condition check
+
 proc buildError(c: TCtx, thread: VmThread, event: sink VmEvent): ExecErrorReport  =
   ## Creates an `ExecErrorReport` with the `event` and a stack-trace for
   ## `thread`
+  let stackTrace =
+    if event.kind == vmEvtUnhandledException:
+      createStackTrace(c, event.trace)
+    else:
+      createStackTrace(c, thread)
+
   ExecErrorReport(
-    stackTrace: createStackTrace(c, thread),
+    stackTrace: stackTrace,
     instLoc: instLoc(-1),
     location: source(c, thread),
     kind: execErrorVm,
@@ -235,8 +302,8 @@ proc buildQuit(c: TCtx, thread: VmThread, exitCode: int): ExecErrorReport =
     exitCode: exitCode)
 
 proc createLegacyStackTrace(
-    c: TCtx, 
-    thread: VmThread, 
+    c: TCtx,
+    thread: VmThread,
     instLoc: InstantiationInfo = instLoc(-1)
   ): VMReport =
   let st = createStackTrace(c, thread)
@@ -248,7 +315,7 @@ proc createLegacyStackTrace(
                     location: some source(c, thread),
                     reportInst: toReportLineInfo(instLoc))
 
-proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
+proc execute(jit: var JitState, c: var TCtx, start: int, frame: sink TStackFrame;
              cb: proc(c: TCtx, r: TFullReg): PNode
             ): ExecutionResult {.inline.} =
   ## This is the entry point for invoking the VM to execute code at
@@ -264,7 +331,14 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
     case r.kind
     of yrkDone:
       # execution is finished
-      result.initSuccess cb(c, c.sframes[0].slots[r.reg.get])
+      doAssert r.reg.isSome() or c.mode in {emStaticStmt, emRepl},
+        "non-static stmt evaluation must produce a value, mode: " & $c.mode
+      let reg =
+        if r.reg.isSome:
+          c.sframes[0].slots[r.reg.get]
+        else:
+          TFullReg(kind: rkNone)
+      result.initSuccess cb(c, reg)
       break
     of yrkError:
       result.initFailure buildError(c, thread, r.error)
@@ -287,7 +361,7 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
     of yrkMissingProcedure:
       # a stub entry was encountered -> generate the code for the
       # corresponding procedure
-      let res = compile(c, r.entry)
+      let res = compile(jit, c, r.entry)
       if res.isErr:
         # code-generation failed
         result.initFailure:
@@ -308,10 +382,10 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
 
   dispose(c, thread)
 
-proc execute(c: var TCtx, info: CodeInfo): ExecutionResult =
-  var tos = TStackFrame(prc: nil, comesFrom: 0, next: -1)
+proc execute(jit: var JitState, c: var TCtx, info: CodeInfo): ExecutionResult =
+  var tos = TStackFrame(prc: nil, comesFrom: 0)
   tos.slots.newSeq(info.regCount)
-  execute(c, info.start, tos,
+  execute(jit, c, info.start, tos,
           proc(c: TCtx, r: TFullReg): PNode = c.graph.emptyNode)
 
 template returnOnErr(res: VmGenResult, config: ConfigRef, node: PNode): CodeInfo =
@@ -364,14 +438,14 @@ template mkCallback(cn, rn, body): untyped =
   let p = proc(cn: TCtx, rn: TFullReg): PNode = body
   p
 
-proc evalStmt(c: var TCtx, n: PNode): PNode =
+proc evalStmt(jit: var JitState, c: var TCtx, n: PNode): PNode =
   let n = transformExpr(c.graph, c.idgen, c.module, n)
-  let info = genStmt(c, n).returnOnErr(c.config, n)
+  let info = genStmt(jit, c, n).returnOnErr(c.config, n)
 
   # execute new instructions; this redundant opcEof check saves us lots
   # of allocations in 'execute':
   if c.code[info.start].opcode != opcEof:
-    result = execute(c, info).unpackResult(c.config, n)
+    result = execute(jit, c, info).unpackResult(c.config, n)
   else:
     result = c.graph.emptyNode
 
@@ -379,42 +453,36 @@ proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
   addInNimDebugUtils(graph.config, "setupGlobalCtx")
   if graph.vm.isNil:
     let
-      ctx = newCtx(module, graph.cache, graph, idgen, legacyReportsVmTracer)
       disallowDangerous =
         defined(nimsuggest) or graph.config.cmd == cmdCheck or
-        vmopsDanger notin ctx.config.features
+        vmopsDanger notin graph.config.features
 
-    ctx.codegenInOut.flags = {cgfAllowMeta}
-    registerAdditionalOps(ctx[], disallowDangerous)
+    var ctx = initCtx(module, graph.cache, graph, idgen, legacyReportsVmTracer)
+    ctx.flags = {cgfAllowMeta}
+    registerAdditionalOps(ctx, disallowDangerous)
 
-    graph.vm = ctx
+    graph.vm = PEvalContext(vm: ctx)
   else:
-    let c = PCtx(graph.vm)
-    refresh(c[], module, idgen)
+    let c = PEvalContext(graph.vm)
+    refresh(c.vm, module, idgen)
 
-proc evalConstExprAux(module: PSym; idgen: IdGenerator;
-                      g: ModuleGraph; prc: PSym, n: PNode,
-                      mode: TEvalMode): PNode =
-  addInNimDebugUtils(g.config, "evalConstExprAux", prc, n, result)
-  #if g.config.errorCounter > 0: return n
-  let n = transformExpr(g, idgen, module, n)
-  setupGlobalCtx(module, g, idgen)
-  let c = PCtx g.vm
-  let oldMode = c.mode
-  c.mode = mode
-  defer:
-    c.mode = oldMode
+proc eval(jit: var JitState, c: var TCtx; prc: PSym, n: PNode): PNode =
+  let
+    n = transformExpr(c.graph, c.idgen, c.module, n)
+    requiresValue = c.mode != emStaticStmt
+    r =
+      if requiresValue: genExpr(jit, c, n)
+      else:             genStmt(jit, c, n)
 
-  let requiresValue = mode!=emStaticStmt
-  let (start, regCount) = genExpr(c[], n, requiresValue).returnOnErr(c.config, n)
+  let (start, regCount) = r.returnOnErr(c.config, n)
 
   if c.code[start].opcode == opcEof: return newNodeI(nkEmpty, n.info)
   assert c.code[start].opcode != opcEof
   when defined(nimVMDebugGenerate):
     c.config.localReport():
-      initVmCodeListingReport(c[], prc, n)
+      initVmCodeListingReport(c, prc, n)
 
-  var tos = TStackFrame(prc: prc, comesFrom: 0, next: -1)
+  var tos = TStackFrame(prc: prc, comesFrom: 0)
   tos.slots.newSeq(regCount)
   #for i in 0..<regCount: tos.slots[i] = newNode(nkEmpty)
   let cb =
@@ -423,7 +491,22 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
     else:
       mkCallback(c, r): newNodeI(nkEmpty, n.info)
 
-  result = execute(c[], start, tos, cb).unpackResult(c.config, n)
+  result = execute(jit, c, start, tos, cb).unpackResult(c.config, n)
+
+proc evalConstExprAux(module: PSym, idgen: IdGenerator, g: ModuleGraph,
+                      prc: PSym, n: PNode,
+                      mode: TEvalMode): PNode =
+  addInNimDebugUtils(g.config, "evalConstExprAux", prc, n, result)
+  setupGlobalCtx(module, g, idgen)
+
+  let
+    c = PEvalContext(g.vm)
+    oldMode = c.vm.mode
+
+  # update the mode, and restore it once we're done
+  c.vm.mode = mode
+  result = eval(c.jit, c.vm, prc, n)
+  c.vm.mode = oldMode
 
 proc evalConstExpr*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode): PNode {.inline.} =
   result = evalConstExprAux(module, idgen, g, nil, e, emConst)
@@ -431,20 +514,18 @@ proc evalConstExpr*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode):
 proc evalStaticExpr*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode, prc: PSym): PNode {.inline.} =
   result = evalConstExprAux(module, idgen, g, prc, e, emStaticExpr)
 
-proc evalStaticStmt*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode, prc: PSym) {.inline.} =
-  let r = evalConstExprAux(module, idgen, g, prc, e, emStaticStmt)
-  # TODO: the node needs to be returned to the caller instead
-  reportIfError(g.config, r)
+proc evalStaticStmt*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode, prc: PSym): PNode {.inline.} =
+  result = evalConstExprAux(module, idgen, g, prc, e, emStaticStmt)
 
 proc setupCompileTimeVar*(module: PSym; idgen: IdGenerator; g: ModuleGraph; n: PNode) {.inline.} =
   let r = evalConstExprAux(module, idgen, g, nil, n, emStaticStmt)
   # TODO: the node needs to be returned to the caller instead
   reportIfError(g.config, r)
 
-proc setupMacroParam(reg: var TFullReg, c: var TCtx, x: PNode, typ: PType) =
+proc setupMacroParam(reg: var TFullReg, jit: var JitState, c: var TCtx, x: PNode, typ: PType) =
   case typ.kind
   of tyStatic:
-    putIntoReg(reg, c, x, typ)
+    putIntoReg(reg, jit, c, x, typ)
   else:
     var n = x
     if n.kind in {nkHiddenSubConv, nkHiddenStdConv}: n = n[1]
@@ -452,33 +533,17 @@ proc setupMacroParam(reg: var TFullReg, c: var TCtx, x: PNode, typ: PType) =
     n.typ = x.typ
     reg = TFullReg(kind: rkNimNode, nimNode: n)
 
-proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstCounter: ref int;
-                    n: PNode, sym: PSym): PNode =
-  #if g.config.errorCounter > 0: return errorNode(idgen, module, n)
-
-  # XXX globalReport() is ugly here, but I don't know a better solution for now
-  inc(g.config.evalMacroCounter)
-  if g.config.evalMacroCounter > evalMacroLimit:
-    globalReport(g.config, n.info, VMReport(
-      kind: rsemMacroInstantiationTooNested, ast: n))
-
-  # immediate macros can bypass any type and arity checking so we check the
-  # arity here too:
-  if sym.typ.len > n.safeLen and sym.typ.len > 1:
-    globalReport(g.config, n.info, SemReport(
-      kind: rsemWrongNumberOfArguments,
-      ast: n,
-      countMismatch: (
-        expected: sym.typ.len - 1,
-        got: n.safeLen - 1)))
-
-  setupGlobalCtx(module, g, idgen)
-  let c = PCtx g.vm
+proc evalMacroCall*(jit: var JitState, c: var TCtx, call, args: PNode,
+                    sym: PSym): PNode =
+  ## Evaluates a call to the macro `sym` with arguments `arg` with the VM.
+  ##
+  ## `call` is the original call expression, which is used as the ``wrongNode``
+  ## in case of an error, as the node returned by the ``callsite`` macro API
+  ## procedure, and for providing line information.
   let oldMode = c.mode
   c.mode = emStaticStmt
   c.comesFromHeuristic.line = 0'u16
-  c.callsite = n
-  c.templInstCounter = templInstCounter
+  c.callsite = call
 
   defer:
     # restore the previous state when exiting this procedure
@@ -489,61 +554,52 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
     c.mode = oldMode
     c.callsite = nil
 
-  let (start, regCount) = loadProc(c[], sym).returnOnErr(c.config, n)
+  let (start, regCount) = loadProc(jit, c, sym).returnOnErr(c.config, call)
 
-  var tos = TStackFrame(prc: sym, comesFrom: 0, next: -1)
+  var tos = TStackFrame(prc: sym, comesFrom: 0)
   tos.slots.newSeq(regCount)
-  # setup arguments:
-  var L = n.safeLen
-  if L == 0: L = 1
-  # This is wrong for tests/reject/tind1.nim where the passed 'else' part
-  # doesn't end up in the parameter:
-  #InternalAssert tos.slots.len >= L
 
   # return value:
-  tos.slots[0] = TFullReg(kind: rkNimNode, nimNode: newNodeI(nkEmpty, n.info))
+  tos.slots[0] = TFullReg(kind: rkNimNode, nimNode: newNodeI(nkEmpty, call.info))
 
-  # put macro call arguments into registers
+  # put the normal arguments into registers
   for i in 1..<sym.typ.len:
-    setupMacroParam(tos.slots[i], c[], n[i], sym.typ[i])
+    setupMacroParam(tos.slots[i], jit, c, args[i - 1], sym.typ[i])
 
-  # put macro generic parameters into registers
+  # put the generic arguments into registers
   let gp = sym.ast[genericParamsPos]
   for i in 0..<gp.safeLen:
-    let idx = sym.typ.len + i
-    if idx < n.len:
-      setupMacroParam(tos.slots[idx], c[], n[idx], gp[i].sym.typ)
-    else:
-      # TODO: the decrement here is wrong, but the else branch is likely
-      #       currently not reached anyway
-      dec(g.config.evalMacroCounter)
-      localReport(c.config, n.info, SemReport(
-        kind: rsemWrongNumberOfGenericParams,
-        countMismatch: (
-          expected: gp.len,
-          got: idx)))
+    # skip implicit type parameters -- they're not part of the internal
+    # signature
+    if tfImplicitTypeParam notin gp[i].sym.typ.flags:
+      let idx = sym.typ.len + i
+      setupMacroParam(tos.slots[idx], jit, c, args[idx - 1], gp[i].sym.typ)
 
-  # temporary storage:
-  #for i in L..<maxSlots: tos.slots[i] = newNode(nkEmpty)
-
-  # n.typ == nil is valid and means that resulting NimNode represents
-  # a statement
   let cb = mkCallback(c, r): r.nimNode
-  result = execute(c[], start, tos, cb).unpackResult(c.config, n)
+  result = execute(jit, c, start, tos, cb).unpackResult(c.config, call)
 
   if result.kind != nkError and cyclicTree(result):
-    globalReport(c.config, n.info, VMReport(
-      kind: rsemCyclicTree, ast: n, sym: sym))
+    result = c.config.newError(call, PAstDiag(kind: adCyclicTree))
 
-  dec(g.config.evalMacroCounter)
+proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph;
+                    templInstCounter: ref int;
+                    call, args: PNode, sym: PSym): PNode =
+  ## Similar to the other ``evalMacroCall`` overload, but also updates the
+  ## compile-time execution context with the provided `module`, `idgen`, `g`,
+  ## and `templInstCounter`.
+  setupGlobalCtx(module, g, idgen)
+  let c = PEvalContext(g.vm)
+  c.vm.templInstCounter = templInstCounter
 
+  result = evalMacroCall(c.jit, c.vm, call, args, sym)
 
 # ----------- the VM-related compilerapi -----------
 
 # NOTE: it might make sense to move the VM-related compilerapi into
 #       ``nimeval.nim`` -- the compiler itself doesn't depend on or uses it
 
-proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
+proc execProc*(jit: var JitState, c: var TCtx; sym: PSym;
+               args: openArray[PNode]): PNode =
   # XXX: `localReport` is still used here since execProc is only used by the
   # VM's compilerapi (`nimeval`) whose users don't know about nkError yet
 
@@ -561,13 +617,13 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
       let (start, maxSlots) = block:
         # XXX: `returnOnErr` should be used here instead, but isn't for
         #      backwards compatiblity
-        let r = loadProc(c, sym)
+        let r = loadProc(jit, c, sym)
         if unlikely(r.isErr):
           localReport(c.config, vmGenDiagToLegacyVmReport(r.takeErr))
           return nil
         r.unsafeGet
 
-      var tos = TStackFrame(prc: sym, comesFrom: 0, next: -1)
+      var tos = TStackFrame(prc: sym, comesFrom: 0)
       tos.slots.newSeq(maxSlots)
 
       # setup parameters:
@@ -577,7 +633,7 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
           tos.slots[0].initLocReg(typ, c.memory)
       # XXX We could perform some type checking here.
       for i in 1..<sym.typ.len:
-        putIntoReg(tos.slots[i], c, args[i-1], sym.typ[i])
+        putIntoReg(tos.slots[i], jit, c, args[i-1], sym.typ[i])
 
       let cb =
         if not isEmptyType(sym.typ[0]):
@@ -588,7 +644,7 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
         else:
           mkCallback(c, r): newNodeI(nkEmpty, sym.info)
 
-      let r = execute(c, start, tos, cb)
+      let r = execute(jit, c, start, tos, cb)
       result = r.unpackResult(c.config, c.graph.emptyNode)
       reportIfError(c.config, result)
       if result.isError:
@@ -630,20 +686,20 @@ proc myOpen(graph: ModuleGraph; module: PSym; idgen: IdGenerator): PPassContext 
 
   # XXX produce a new 'globals' environment here:
   setupGlobalCtx(module, graph, idgen)
-  result = PCtx graph.vm
+  result = PEvalContext graph.vm
 
 proc myProcess(c: PPassContext, n: PNode): PNode =
-  let c = PCtx(c)
+  let c = PEvalContext(c)
   # don't eval errornous code:
-  if c.oldErrorCount == c.config.errorCounter and not n.isError:
-    let r = evalStmt(c[], n)
-    reportIfError(c.config, r)
+  if c.oldErrorCount == c.vm.config.errorCounter and not n.isError:
+    let r = evalStmt(c.jit, c.vm, n)
+    reportIfError(c.vm.config, r)
     # TODO: use the node returned by evalStmt as the result and don't report
     #       the error here
     result = newNodeI(nkEmpty, n.info)
   else:
     result = n
-  c.oldErrorCount = c.config.errorCounter
+  c.oldErrorCount = c.vm.config.errorCounter
 
 proc myClose(graph: ModuleGraph; c: PPassContext, n: PNode): PNode =
   result = myProcess(c, n)

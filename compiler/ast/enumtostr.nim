@@ -47,6 +47,9 @@ proc genEnumToStrProc*(t: PType; info: TLineInfo; g: ModuleGraph; idgen: IdGener
   n[bodyPos] = body
   n[resultPos] = newSymNode(res)
   result.ast = n
+  # treat the symbol as a magic so that further processing can easily detect
+  # auto-generated enum-to-string procedures
+  result.magic = mEnumToStr
   result.flags.incl {sfFromGeneric, sfNeverRaises}
 
 proc searchObjCaseImpl(obj: PNode; field: PSym): PNode =

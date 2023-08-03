@@ -126,7 +126,7 @@ proc lookup(c: PContext, n: PNode, flags: TSemGenericFlags,
     result = err
     return
   var amb = false
-  var s = searchInScopes(c, ident, amb).skipAlias(n, c.config)
+  var s = searchInScopes(c, ident, amb)
   if s == nil:
     s = strTableGet(c.pureEnumFields, ident)
     #if s != nil and contains(c.ambiguousSymbols, s.id):
@@ -171,7 +171,7 @@ proc fuzzyLookup(c: PContext, n: PNode, flags: TSemGenericFlags,
       result[1] = err
       result = c.config.wrapError(result)
       return
-    let candidates = searchInScopesFilterBy(c, ident, routineKinds) # .skipAlias(n, c.config)
+    let candidates = searchInScopesFilterBy(c, ident, routineKinds)
     if candidates.len > 0:
       let s = candidates[0] # XXX take into account the other candidates!
       isMacro = s.kind in {skTemplate, skMacro}
@@ -235,7 +235,7 @@ proc semGenericStmt(c: PContext, n: PNode,
     let a = n.sym
     let b = getGenSym(c, a)
     if b != a: n.sym = b
-  of nkEmpty, succ(nkSym)..nkNilLit:
+  of nkEmpty, succ(nkSym)..nkNilLit, nkCommentStmt:
     # see tests/compile/tgensymgeneric.nim:
     # We need to open the gensym'ed symbol again so that the instantiation
     # creates a fresh copy; but this is wrong the very first reason for gensym
@@ -346,6 +346,10 @@ proc semGenericStmt(c: PContext, n: PNode,
     result = semGenericStmt(c, result, flags, ctx)
     if result.isError: return
   of nkBracketExpr:
+    # xxx: screwing up `nkBracketExpr` nodes like this does no one any favours.
+    #      instead, just pass them on and figure out what to do _later_ when
+    #      there is more context to make a decision. Instead, `semExpr` now has
+    #      to crudely recreate this information.
     result = newNodeI(nkCall, n.info)
     result.add newIdentNode(getIdent(c.cache, "[]"), n.info)
     for i in 0..<n.len: result.add(n[i])

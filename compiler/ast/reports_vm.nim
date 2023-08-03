@@ -18,14 +18,16 @@ type
     typ*: PType
     str*: string
     sym*: PSym
+    trace*: ref VMReport  ## for storing an `rvmStackTrace`, not ideal but
+                          ## reports are legacy and to be removed
     case kind*: ReportKind
       of rvmStackTrace:
         currentExceptionA*, currentExceptionB*: PNode
         stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
         skipped*: int
 
-      of rvmCannotCast:
-        typeMismatch*: seq[SemTypeMismatch]
+      of rvmCannotCast, rvmIllegalConvFromXToY:
+        actualType*, formalType*: PType
 
       of rvmIndexError:
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]

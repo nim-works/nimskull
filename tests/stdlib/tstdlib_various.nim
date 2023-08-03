@@ -33,7 +33,7 @@ true
 
 import
   critbits, sets, strutils, tables, random, algorithm, re, ropes,
-  segfaults, lists, parsesql, streams, os, htmlgen, xmltree, strtabs
+  lists, parsesql, streams, os, htmlgen, xmltree, strtabs
 
 
 block tcritbits:
@@ -151,27 +151,6 @@ block tropes:
   doAssert $r2 == "123456"
   doAssert $r1[1] == "2"
   doAssert $r2[2] == "3"
-
-
-
-block tsegfaults:
-  when not defined(arm64):
-    var crashes = 0
-    proc main =
-      try:
-        var x: ptr int
-        echo x[]
-        try:
-          raise newException(ValueError, "not a crash")
-        except ValueError:
-          discard
-      except NilAccessDefect:
-        inc crashes
-    for i in 0..5:
-      main()
-    assert crashes == 6
-
-
 
 block tsinglylinkedring:
   var r = initSinglyLinkedRing[int]()

@@ -9,6 +9,51 @@
 
 # included from sem.nim
 
+## The current implementation of templates might not yet conform to the
+## description that follows.
+## 
+## Template Basics
+## ===============
+##
+## Given a basic template as follows:
+## ..code::
+##   template identity(arg: untyped): untyped =
+##     arg
+##
+## The template's output type is `untyped`, meaning the body (`arg`) is treated
+## as an `untyped` AST fragment, that substitution of parameters will evaluate
+## per the rules of `untyped` templates, and finally evaluation and insertion
+## of the template at the callsite will be hygeinic. The template parameter
+## `arg` will be captured as `untyped`, meaning no attempt will be made to
+## semantically analyse the parameter prior to substitution.
+## 
+## Template Taxonomy
+## =================
+## 
+## There are at least four types of templates across two categories:
+## - AST templates:
+##   - `untyped`
+##     - `dirty` a non-hygienic sub-variant
+##   - `typed`
+## - expression templates (all types that are not `untyped` or `typed`)
+## 
+## Substitution Positions
+## ----------------------
+## Templates are ultimately AST level constructs regardless of output type,
+## even they follow the grammar. There are two types of positions in a template
+## body, one is `definition` and the other is `usage`. A `definition` are any
+## position where the grammar construct is intended to introduce a new symbol,
+## i.e.: the name of a routine, including its parameters; names of variables
+## (`const`, `let`, `var`), and so on. All other sites are `usage` sites, where
+## a symbol of "chunk" of AST might be used.
+## 
+## This is a draft of subsitution rules:
+## - `untyped` template bodies accept `typed` and `untyped` params in
+##   definition or usage positions; and all other params are usage only
+## - `typed` template bodies accept `typed` and `untyped` params in definition
+##    or usage positions; and all other params are usage only
+## - non-ast template bodies only allow subsitutions within usage positions
+
 discard """
   hygienic templates:
 
@@ -164,6 +209,7 @@ proc replaceIdentBySym(c: PContext; n: var PNode, s: PNode) =
 
 type
   TemplCtx = object
+    ## Context used during template definition evaluation
     c: PContext
     toBind, toMixin, toInject: IntSet
     owner: PSym
@@ -175,7 +221,6 @@ type
 proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
   ## gets the ident node, will mutate `n` if it's an `nkPostfix` or
   ## `nkPragmaExpr` and there is an error (return an nkError).
-
   case n.kind
   of nkPostfix:
     result = getIdentNode(c, n[1])
@@ -189,7 +234,6 @@ proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
       result = c.c.config.wrapError(n)
   of nkIdent:
     let s = qualifiedLookUp(c.c, n, {})
-
     if s.isNil:
       result = n
     elif s.isError:
@@ -207,11 +251,15 @@ proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
                   expectedKinds: {nkPostfix, nkPragmaExpr, nkIdent,
                                   nkAccQuoted}))
 
-
-proc isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
+func isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
   ## True if `n` is a parameter symbol of the current template.
-  result = n.kind == nkSym and n.sym.kind == skParam and
-           n.sym.owner == c.owner and sfTemplateParam in n.sym.flags
+  n.kind == nkSym and n.sym.kind == skParam and n.sym.owner == c.owner and
+    sfTemplateParam in n.sym.flags
+
+func definitionTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
+  ## True if `n` is an AST typed (`typed`/`untyped`) parameter symbol of the
+  ## current template
+  isTemplParam(c, n) and n.sym.typ.kind in {tyUntyped, tyTyped}
 
 proc semTemplBody(c: var TemplCtx, n: PNode): PNode
 
@@ -295,10 +343,10 @@ proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
     of nkError:
       n = ident
     else:
-      if not isTemplParam(c, ident):
-        c.toInject.incl(x.ident.id)
-      else:
+      if definitionTemplParam(c, ident):
         replaceIdentBySym(c.c, n, ident)
+      else:
+        c.toInject.incl(x.ident.id)
 
   else:
     var hasError = false
@@ -331,7 +379,9 @@ proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
     of nkError:
       n = ident
     else:
-      if not isTemplParam(c, ident):
+      if definitionTemplParam(c, ident):
+        replaceIdentBySym(c.c, n, ident)
+      else:
         if n.kind != nkSym:
           let local = newGenSym(k, ident, c)
 
@@ -346,8 +396,6 @@ proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
 
           if k == skParam and c.inTemplateHeader > 0:
             local.flags.incl sfTemplateParam
-      else:
-        replaceIdentBySym(c.c, n, ident)
 
     if hasError and n.kind != nkError:
       n = c.c.config.wrapError(n)
@@ -435,14 +483,14 @@ proc semRoutineInTemplBody(c: var TemplCtx, n: PNode, k: TSymKind): PNode =
 
     if ident.isError:
       n[namePos] = ident
-    elif not isTemplParam(c, ident):
+    elif definitionTemplParam(c, ident):
+      n[namePos] = ident
+    else:
       var s = newGenSym(k, ident, c)
       s.ast = n
       addPrelimDecl(c.c, s)
       styleCheckDef(c.c.config, n.info, s)
       n[namePos] = newSymNode(s, n[namePos].info)
-    else:
-      n[namePos] = ident
   else:
     n[namePos] = semRoutineInTemplName(c, n[namePos])
 
@@ -457,6 +505,9 @@ proc semRoutineInTemplBody(c: var TemplCtx, n: PNode, k: TSymKind): PNode =
     if n[i].isError:
       hasError = true
 
+  # xxx: special handling for templates within `untyped` output templates
+  #      doesn't make sense, it's just untyped AST. For `typed` or `expression`
+  #      templates they should be analysed.
   if k == skTemplate: inc(c.inTemplateHeader)
   n[paramsPos] = semTemplBody(c, n[paramsPos])
   if k == skTemplate: dec(c.inTemplateHeader)
@@ -536,7 +587,7 @@ proc semTemplSomeDecl(c: var TemplCtx, n: PNode, symKind: TSymKind,
   if hasError:
     result = c.c.config.wrapError(result)
 
-proc semPattern(c: PContext, n: PNode; s: PSym): PNode
+proc semPattern(c: PContext, n: PNode): PNode
 
 proc semTemplBodySons(c: var TemplCtx, n: PNode): PNode =
   ## Analyses child nodes of `n` with the production being `n` updated in-place
@@ -548,7 +599,9 @@ proc semTemplBodySons(c: var TemplCtx, n: PNode): PNode =
   case n.kind
   of nkError:
     discard   # return the error in result
-  else:
+  of nkWithoutSons - nkError:
+    unreachable("compiler bug, got kind: " & $n.kind)
+  of nkWithSons:
     for i in 0..<n.len:
       result[i] = semTemplBody(c, n[i])
 
@@ -811,6 +864,10 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
       else:
         discard
   of nkBracketExpr:
+    # xxx: screwing up `nkBracketExpr` nodes like this does no one any favours.
+    #      instead, just pass them on and figure out what to do _later_ when
+    #      there is more context to make a decision. Instead, `semExpr` now has
+    #      to crudely recreate this information.
     result = newNodeI(nkCall, n.info)
     result.add newIdentNode(getIdent(c.c.cache, "[]"), n.info)
     for i in 0..<n.len: result.add(n[i])
@@ -883,7 +940,7 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     of nkAccQuoted:
       result = semTemplBodySons(c, n)
     else:
-      c.c.config.internalError("should never have gotten here")
+      unreachable("should never have gotten here")
   of nkExprColonExpr, nkExprEqExpr:
     if n.len == 2:
       inc c.noGenSym
@@ -899,7 +956,7 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
 
       if result[i].isError:
         hasError = true
-  of nkError:
+  of nkError, nkCommentStmt:
     result = n
   else:
     result = semTemplBodySons(c, n)
@@ -918,7 +975,9 @@ proc semTemplBodyDirtyKids(c: var TemplCtx, n: PNode): PNode =
   case n.kind
   of nkError:
     discard    # result is already assigned n
-  else:
+  of nkWithoutSons - nkError:
+    unreachable("compiler bug, got kind: " & $n.kind)
+  of nkWithSons:
     for i in 0..<n.len:
       result[i] = semTemplBodyDirty(c, n[i])
       
@@ -952,7 +1011,7 @@ proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode =
     result = semTemplBodyDirty(c, n[0])
   of nkBindStmt:
     result = semBindStmt(c.c, n, c.toBind)
-  of nkEmpty, nkSym..nkNilLit, nkError:
+  of nkEmpty, nkSym..nkNilLit, nkError, nkCommentStmt:
     discard
   of nkDotExpr, nkAccQuoted:
     # dotExpr is ambiguous: note that we explicitly allow 'x.TemplateParam',
@@ -970,8 +1029,7 @@ proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode =
   else:
     result = semTemplBodyDirtyKids(c, n)
 
-
-proc semProcAnnotation(c: PContext, prc: PNode; validPragmas: TSpecialWords): PNode
+proc semRoutineParams(c: PContext, routine, formal, generic: PNode, kind: TSymKind): PType
 # from semstmts
 
 proc semTemplateDef(c: PContext, n: PNode): PNode =
@@ -980,20 +1038,14 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
 
   assert n.kind == nkTemplateDef, "template def expected, got: " & $n.kind
 
-  result = semProcAnnotation(c, n, templatePragmas)
-  if result != nil:
-    return result
-
   # setup node for production
   result = copyNode(n)      # not all flags copied, let's see how that works
   result.sons.newSeq(n.len) # make space for the kids
 
-  var hasError = false
+  result[namePos] = n[namePos]
+  var hasError = result[namePos].kind == nkError
 
-  var s = semIdentVis(c, skTemplate, n[namePos],
-                      allowed = (if c.isTopLevel: {sfExported} else: {}))
-  if c.isTopLevel:
-    incl(s.flags, sfGlobal)
+  let s = result[namePos].getDefNameSymOrRecover()
 
   assert s.kind == skTemplate
 
@@ -1003,39 +1055,25 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
        s.owner.name.s == "vm" and s.name.s == "stackTrace":
       incl(s.flags, sfCallsite)
 
-  styleCheckDef(c.config, s)
-
   # check parameter list:
   pushOwner(c, s)
   openScope(c)
 
-  result[namePos] = newSymNode(s)
   result[pragmasPos] = n[pragmasPos]
 
-  discard pragmaCallable(c, s, result, templatePragmas) # just check pragmasPos
+  if n[pragmasPos].kind != nkEmpty:
+    result[pragmasPos] = pragmaDeclNoImplicit(c, s, n[pragmasPos], templatePragmas)
+
+  result[pragmasPos] = implicitPragmas(c, s, result[pragmasPos], templatePragmas)
 
   if result[pragmasPos].kind == nkError:
     hasError = true
-  
-  # this should return the same `s` if there were no errors
-  s = implicitPragmas(c, s, n.info, templatePragmas)
 
-  if s.isError:
-    result[namePos] = s.ast
-    hasError = true
-  
-  result[genericParamsPos] = n[genericParamsPos]
-  result[miscPos] = n[miscPos]
-
-  setGenericParamsMisc(c, result)
-
-  result[paramsPos] = n[paramsPos]
+  s.typ = semRoutineParams(c, result, n[paramsPos], n[genericParamsPos], skTemplate)
 
   # process parameters:
   var allUntyped = true
-  case n[paramsPos].kind
-  of nkFormalParams:
-    s.typ = semParamList(c, result[paramsPos], result[genericParamsPos], s.kind)
+  if s.typ != nil:
     # a template's parameters are not gensym'ed even if that was originally the
     # case as we determine whether it's a template parameter in the template
     # body by the absence of the sfGenSym flag:
@@ -1045,25 +1083,18 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
       param.flags.excl sfGenSym
       if param.typ.kind != tyUntyped:
         allUntyped = false
-  of nkEmpty:
+  else:
+    # an empty parameter list was provided, default to returning ``typed``
     s.typ = newTypeS(tyProc, c)
     # XXX why do we need tyTyped as a return type again?
     s.typ.n = newNodeI(nkFormalParams, n.info)
     rawAddSon(s.typ, newTypeS(tyTyped, c))
     s.typ.n.add newNodeIT(nkType, n.info, s.typ[0])
-  else:
-    discard # error out?
-  
-  if result[genericParamsPos].safeLen == 0:
-    # restore original generic type params as no explicit or implicit params
-    # were found
-    result[genericParamsPos] = result[miscPos][1]
-    result[miscPos] = c.graph.emptyNode
-  
+
   if allUntyped:
     incl(s.flags, sfAllUntyped)
   
-  result[patternPos] = semPattern(c, n[patternPos], s)
+  result[patternPos] = semPattern(c, n[patternPos])
   if result[patternPos].isError:
     hasError = true
 
@@ -1113,10 +1144,10 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
   of nkEmpty:
     discard # no pattern, nothing to do
   else:
-    c.patterns.add(s)
+    addPattern(c, LazySym(sym: s))
 
   if hasError:
-    result = c.config.wrapError(result)
+    result = c.config.wrapErrorAndUpdate(result, s)
 
 proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
   ## Analyse `n` a term rewriting pattern body producing an instantiable
@@ -1300,7 +1331,7 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
   if hasError and result.kind != nkError:
     result = c.c.config.wrapError(result)
 
-proc semPattern(c: PContext, n: PNode; s: PSym): PNode =
+proc semPattern(c: PContext, n: PNode): PNode =
   ## Analyses `n` and produces an analysed pattern or `nkError` upon failure.
   ##
   ## `n` should be the AST from a `patternPos` of a template definition. The
@@ -1333,5 +1364,3 @@ proc semPattern(c: PContext, n: PNode; s: PSym): PNode =
         else:
           result    # leave as is
     closeScope(c)
-    
-    addPattern(c, LazySym(sym: s))

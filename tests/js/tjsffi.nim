@@ -177,16 +177,6 @@ block: # Test lit
   let obj = TestObject{ a: 1 }
   doAssert obj == comparison
 
-block: # Test bindMethod
-  type TestObject = object
-    a: int
-    onWhatever: proc(e: int): int
-  proc handleWhatever(this: TestObject, e: int): int =
-    e + this.a
-  block:
-    let obj = TestObject(a: 9, onWhatever: bindMethod(handleWhatever))
-    doAssert obj.onWhatever(1) == 10
-
 block:
   {.emit: "function jsProc(n) { return n; }" .}
   proc jsProc(x: int32): JsObject {.importjs: "jsProc(#)".}

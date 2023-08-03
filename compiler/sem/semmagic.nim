@@ -10,7 +10,9 @@
 # This include file implements the semantic checking for magics.
 # included from sem.nim
 
-import compiler/ast/typesrenderer
+import
+  compiler/ast/typesrenderer,
+  compiler/front/optionsprocessor
 
 proc semAddrArg(c: PContext; n: PNode): PNode =
   let n = semExprWithType(c, n)
@@ -153,6 +155,7 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
   const skippedTypes = {tyTypeDesc, tyAlias, tySink}
   let trait = traitCall[0]
   c.config.internalAssert trait.kind == nkSym
+  let orig = operand
   var operand = operand.skipTypes(skippedTypes)
 
   template operand2: PType =
@@ -221,12 +224,32 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
     assert operand.kind == tyTuple, $operand.kind
     result = newIntNodeT(toInt128(operand.len), traitCall, c.idgen, c.graph)
   of "distinctBase":
+    var last = orig.skipTypes({tyTypeDesc})
     var arg = operand.skipTypes({tyGenericInst})
     let rec = semConstExpr(c, traitCall[2]).intVal != 0
     while arg.kind == tyDistinct:
-      arg = arg.base.skipTypes(skippedTypes + {tyGenericInst})
+      last = arg.base
+      arg = last.skipTypes(skippedTypes + {tyGenericInst})
       if not rec: break
-    result = getTypeDescNode(c, arg, operand.owner, traitCall.info)
+    result = getTypeDescNode(c, last, operand.owner, traitCall.info)
+  of "rangeBase":
+    # return the range's base type
+    let arg = operand.skipTypes({tyGenericInst})
+    if arg.kind == tyRange:
+      result = getTypeDescNode(c, arg.base, operand.owner, traitCall.info)
+    else:
+      result = traitCall
+      result[1] = c.config.newError(traitCall[1],
+                                    PAstDiag(kind: adSemExpectedRangeType))
+      result = c.config.wrapError(result)
+  of "isCyclical":
+    let r =
+      if operand.skipTypes(abstractInst).kind in ConcreteTypes:
+        isCyclePossible(operand, c.graph)
+      else:
+        false
+
+    result = newIntNodeT(toInt128(ord(r)), traitCall, c.idgen, c.graph)
   else:
     localReport(c.config, traitCall.info, reportSym(
       rsemUnknownTrait, trait.sym))
@@ -281,7 +304,7 @@ proc semBindSym(c: PContext, n: PNode): PNode =
     return createUndeclaredIdentifierError(c, n[1], sl.strVal)
 
   let sc = symChoice(c, id, s, TSymChoiceRule(rule.intVal))
-  if not (c.inStaticContext > 0 or getCurrOwner(c).isCompileTimeProc):
+  if not inCompileTimeOnlyContext(c):
     # outside of static evaluation and macros, ``bindSym`` resolves to the
     # sym-choice nodes
     result = sc
@@ -295,7 +318,7 @@ proc semShallowCopy(c: PContext, n: PNode, flags: TExprFlags): PNode
 proc semOf(c: PContext, n: PNode): PNode =
   if n.len == 3:
     n[1] = semExprWithType(c, n[1])
-    n[2] = semExprWithType(c, n[2], {efDetermineType})
+    n[2] = semExprWithType(c, n[2])
     #restoreOldStyleType(n[1])
     #restoreOldStyleType(n[2])
     let a = skipTypes(n[1].typ, abstractPtrs)
@@ -338,41 +361,6 @@ proc semOf(c: PContext, n: PNode): PNode =
   n.typ = getSysType(c.graph, n.info, tyBool)
   result = n
 
-proc turnFinalizerIntoDestructor(c: PContext; orig: PSym; info: TLineInfo): PSym =
-  # We need to do 2 things: Replace n.typ which is a 'ref T' by a 'var T' type.
-  # Replace nkDerefExpr by nkHiddenDeref
-  # nkDeref is for 'ref T':  x[].field
-  # nkHiddenDeref is for 'var T': x<hidden deref [] here>.field
-  proc transform(c: PContext; procSym: PSym; n: PNode; old, fresh: PType; oldParam, newParam: PSym): PNode =
-    result = shallowCopy(n)
-    if sameTypeOrNil(n.typ, old):
-      result.typ = fresh
-    if n.kind == nkSym:
-      if n.sym == oldParam:
-        result.sym = newParam
-      elif n.sym.owner == orig:
-        result.sym = copySym(n.sym, nextSymId c.idgen)
-        result.sym.owner = procSym
-    for i in 0 ..< safeLen(n):
-      result[i] = transform(c, procSym, n[i], old, fresh, oldParam, newParam)
-    #if n.kind == nkDerefExpr and sameType(n[0].typ, old):
-    #  result =
-
-  result = copySym(orig, nextSymId c.idgen)
-  result.info = info
-  result.flags.incl sfFromGeneric
-  result.owner = orig
-  let origParamType = orig.typ[1]
-  let newParamType = makeVarType(result, origParamType.skipTypes(abstractPtrs), c.idgen)
-  let oldParam = orig.typ.n[1].sym
-  let newParam = newSym(skParam, oldParam.name, nextSymId c.idgen, result, result.info)
-  newParam.typ = newParamType
-  # proc body:
-  result.ast = transform(c, result, orig.ast, origParamType, newParamType, oldParam, newParam)
-  # proc signature:
-  result.typ = newProcType(result.info, nextTypeId c.idgen, result)
-  result.typ.addParam newParam
-
 proc semPrivateAccess(c: PContext, n: PNode): PNode =
   let t = n[1].typ[0].toObjectFromRefPtrGeneric
   c.currentScope.allowPrivateAccess.add t.sym
@@ -384,7 +372,9 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   ## ``c`` the current module, a symbol table to a very good approximation
   ## ``n`` the ast like it would be passed to a real macro
   ## ``flags`` Some flags for more contextual information on how the
-  ## "macro" is calld.
+  ## "macro" is called.
+  addInNimDebugUtils(c.config, "magicsAfterOverloadResolution", n, result,
+                     flags)
 
   if n.isError:
     result = n
@@ -414,6 +404,14 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
       result = semAsgnOpr(c, n)
     else:
       result = semShallowCopy(c, n, flags)
+  of mEnumToStr:
+    # overload resolution picked the generic enum-to-string magic.
+    # Replace the symbol with that of the auto-generated procedure.
+    let
+      info = n[0].info
+      prc = getToStringProc(c.graph, n[1].typ.skipTypes(abstractRange))
+    result = n
+    result[0] = newSymNode(prc, info)
   of mIsPartOf: result = semIsPartOf(c, n, flags)
   of mTypeTrait: result = semTypeTraits(c, n)
   of mAstToStr:
@@ -436,48 +434,14 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
     if plugin.isNil:
       localReport(c.config, n.info, reportSym(
         rsemCannotFindPlugin, sym = n[0].sym))
-
       result = n
     else:
       result = plugin(c, n)
-  of mNewFinalize:
-    # Make sure the finalizer procedure refers to a procedure
-    if n[^1].kind == nkSym and n[^1].sym.kind notin {skProc, skFunc}:
-      localReport(c.config, n, reportSem rsemExpectedProcReferenceForFinalizer)
-    elif optTinyRtti in c.config.globalOptions:
-      let nfin = skipConvCastAndClosure(n[^1])
-      let fin = case nfin.kind
-        of nkSym: nfin.sym
-        of nkLambda, nkDo: nfin[namePos].sym
-        else:
-          localReport(c.config, n, reportSem rsemExpectedProcReferenceForFinalizer)
-          nil
-      if fin != nil:
-        if fin.kind notin {skProc, skFunc}:
-          # calling convention is checked in codegen
-          localReport(c.config, n, reportSem rsemExpectedProcReferenceForFinalizer)
-
-        # check if we converted this finalizer into a destructor already:
-        let t = whereToBindTypeHook(c, fin.typ[1].skipTypes(abstractInst+{tyRef}))
-        if t != nil and getAttachedOp(c.graph, t, attachedDestructor) != nil and
-            getAttachedOp(c.graph, t, attachedDestructor).owner == fin:
-          discard "already turned this one into a finalizer"
-        else:
-          bindTypeHook(c, turnFinalizerIntoDestructor(c, fin, n.info), n, attachedDestructor)
+  of mDestroy, mTrace:
+    # these are explicit calls to hooks for which overload resolution picked
+    # the generic magic from system. Leave them be; ``sempass2`` will patch
+    # these calls with the correct procedure
     result = n
-  of mDestroy:
-    result = n
-    let t = n[1].typ.skipTypes(abstractVar)
-    let op = getAttachedOp(c.graph, t, attachedDestructor)
-    if op != nil:
-      result[0] = newSymNode(op)
-  of mTrace:
-    result = n
-    let t = n[1].typ.skipTypes(abstractVar)
-    let op = getAttachedOp(c.graph, t, attachedTrace)
-    if op != nil:
-      result[0] = newSymNode(op)
-
   of mSetLengthSeq:
     result = n
     let seqType = result[1].typ.skipTypes({tyPtr, tyRef, # in case we had auto-dereferencing
@@ -486,7 +450,6 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
     if seqType.kind == tySequence and seqType.base.requiresInit:
       localReport(c.config, n.info, reportTyp(
         rsemUnsafeSetLen, seqType.base))
-
   of mDefault:
     result = n
     c.config.internalAssert result[1].typ.kind == tyTypeDesc
@@ -494,11 +457,9 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
     if constructed.requiresInit:
       localReport(c.config, n.info, reportTyp(
         rsemUnsafeDefault, constructed))
-
   of mIsolate:
     if not checkIsolate(n[1]):
       localReport(c.config, n.info, reportAst(rsemCannotIsolate, n[1]))
-
     result = n
   of mPred:
     if n[1].typ.skipTypes(abstractInst).kind in {tyUInt..tyUInt64}:
@@ -506,5 +467,67 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
     result = n
   of mPrivateAccess:
     result = semPrivateAccess(c, n)
+  of mCompileOption:
+    let a = evalConstExpr(c, n[1])
+    case a.kind
+    of nkError:
+      result = copyTreeWithoutNode(n, n[1])
+      result[1] = a
+      result = c.config.wrapError(result)
+    else:
+      result =
+        case optionsprocessor.testCompileOption(c.config, a.getStr)
+        of compileOptCheckSuccessTrue:
+          newIntNodeT(toInt128(ord(true)), n, c.idgen, c.graph)
+        of compileOptCheckSuccessFalse:
+          newIntNodeT(toInt128(ord(false)), n, c.idgen, c.graph)
+        of compileOptCheckWarnFalseDeprecated:
+          # xxx: there must be a nicer way to handle warnings, either inline as
+          #      error or side-channel into diagnostics somewhere?
+          if rsemDeprecatedCompilerOpt in c.config.warningAsErrors:
+            c.config.newError(n, PAstDiag(kind: adSemDeprecatedCompilerOpt,
+                                          badCompilerOpt: a))
+          else:
+            # TODO: remove legacy reports cruft
+            c.config.localReport(n.info,
+              SemReport(kind: rsemDeprecatedCompilerOpt, str: a.getStr))
+            newIntNodeT(toInt128(ord(false)), n, c.idgen, c.graph)
+        of compileOptCheckFailedWithInvalidOption:
+          c.config.newError(n, PAstDiag(kind: adSemCompilerOptionInvalid,
+                                        badCompilerOpt: a))
+  of mCompileOptionArg:
+    let
+      a = evalConstExpr(c, n[1])
+      b = evalConstExpr(c, n[2])
+    if nkError in {a.kind, b.kind}:
+      result = copyTreeWithoutNodes(n, n[1], n[2])
+      result[1] = a
+      result[2] = b
+      result = c.config.wrapError(result)
+    else:
+      result =
+        case optionsprocessor.testCompileOptionArg(c.config, a.getStr, b.getStr)
+        of compileOptArgCheckSuccessTrue:
+          newIntNodeT(toInt128(ord(true)), n, c.idgen, c.graph)
+        of compileOptArgCheckSuccessFalse:
+          newIntNodeT(toInt128(ord(false)), n, c.idgen, c.graph)
+        of compileOptArgCheckWarnFalseDeprecated:
+          if rsemDeprecatedCompilerOptArg in c.config.warningAsErrors:
+            c.config.newError(n, PAstDiag(kind: adSemDeprecatedCompilerOptArg,
+                                          compilerOpt: a,
+                                          compilerOptArg: b))
+          else:
+            # TODO: remove legacy reports cruft
+            c.config.localReport(n.info,
+              SemReport(kind: rsemDeprecatedCompilerOptArg, str: a.getStr,
+                        compilerOptArg: b.getStr))
+            newIntNodeT(toInt128(ord(false)), n, c.idgen, c.graph)
+        of compileOptArgCheckFailedWithUnexpectedValue:
+          c.config.newError(n, PAstDiag(kind: adSemCompilerOptionArgInvalid,
+                                        forCompilerOpt: a,
+                                        badCompilerOptArg: b))
+        of compileOptArgCheckFailedWithInvalidOption:
+          c.config.newError(n, PAstDiag(kind: adSemCompilerOptionInvalid,
+                                        badCompilerOpt: a))
   else:
     result = n

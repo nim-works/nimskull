@@ -16,16 +16,17 @@ var
 for a in modItems(arr):
   a = "X"
 
+var output = ""
 for a in items(arr):
-  stdout.write(a)
+  output.add(a)
 
 for i, a in modPairs(arr):
   a = $i
 
 for a in items(arr):
-  stdout.write(a)
+  output.add(a)
 
-echo ""
+echo output
 
 #--------------------------------------------------------------------
 # Lent iterators

@@ -63,11 +63,10 @@ type
     wFloatChecks = "floatChecks", wNanChecks = "nanChecks", wInfChecks = "infChecks",
     wStyleChecks = "styleChecks", wStaticBoundchecks = "staticBoundChecks"
 
-    wAssertions = "assertions", wPatterns = "patterns", wTrMacros = "trmacros",
+    wAssertions = "assertions", wTrMacros = "trmacros",
     wSinkInference = "sinkInference", wWarnings = "warnings",
     wHints = "hints", wOptimization = "optimization", wRaises = "raises",
     wWrites = "writes", wReads = "reads", wSize = "size", wEffects = "effects", wTags = "tags",
-    wAssert = "assert",
     wDeadCodeElimUnused = "deadCodeElim",  # deprecated, dead code elim always happens
     wSafecode = "safecode", wPackage = "package",
     wNoRewrite = "norewrite", wNoDestroy = "nodestroy", wPragma = "pragma",
@@ -81,7 +80,6 @@ type
     wAsmNoStackFrame = "asmNoStackFrame", wImplicitStatic = "implicitStatic",
     wGlobal = "global", wCodegenDecl = "codegenDecl", wUnchecked = "unchecked",
     wGuard = "guard", wLocks = "locks", wExplain = "explain",
-    wEnforceNoRaises = "enforceNoRaises",
 
     wAuto = "auto", wBool = "bool", wCatch = "catch", wChar = "char",
     wClass = "class", wCompl = "compl", wConst_cast = "const_cast", wDefault = "default",

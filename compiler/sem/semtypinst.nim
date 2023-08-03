@@ -148,19 +148,73 @@ proc replaceTypeVarsT*(cl: var TReplTypeVars, t: PType): PType =
   result = replaceTypeVarsTAux(cl, t)
   checkMetaInvariants(cl, result)
 
-proc prepareNode(cl: var TReplTypeVars, n: PNode): PNode =
-  let t = replaceTypeVarsT(cl, n.typ)
-  if t != nil and t.kind == tyStatic and t.n != nil:
-    return if tfUnresolved in t.flags: prepareNode(cl, t.n)
-           else: t.n
-  result = copyNode(n)
-  result.typ = t
-  if result.kind == nkSym: result.sym = replaceTypeVarsS(cl, n.sym)
-  let isCall = result.kind in nkCallKinds
-  for i in 0..<n.safeLen:
-    # XXX HACK: ``f(a, b)``, avoid to instantiate `f`
-    if isCall and i == 0: result.add(n[i])
-    else: result.add(prepareNode(cl, n[i]))
+proc isTypeParameterAccess(cl: TReplTypeVars, s: PSym): bool =
+  # XXX: this is a workaround used for detecting whether the ``skType``
+  #      symbols represents a generic type parameter access
+  s.kind == skType and s.typ.kind == tyTypeDesc and
+    cl.typeMap.lookup(s.typ[0]) != nil
+
+proc prepareNode*(cl: var TReplTypeVars, n: PNode): PNode =
+  ## Replaces unresolved types referenced by the nodes of expression/statement
+  ## `n` with the corresponding bound ones.
+  ##
+  ## Because of how late-bound static parameters are currently implemented,
+  ## ``prepareNode`` is also responsible for replacing sub-expression of type
+  ## ``tyStatic`` with the computed value.
+  template resolveStatic() =
+    ## Redirects to the evaluated (or unevaluated) value of the static type, if
+    ## `n` resolves to a ``tyStatic``
+    let t {.inject.} = replaceTypeVarsT(cl, n.typ)
+    # XXX: this logic has to be here because of the ``tyStatic``-related logic
+    #      in ``evalAtCompileTime``. Try to find a way to handle late-bound
+    #      static parameters differently
+    if t != nil and t.kind == tyStatic and t.n != nil:
+      # a ``tyStatic`` having a non-nil AST value doesn't mean that it's a
+      # resolved ``tyStatic``, see ``sigmatch.paramTypeMatchesAux``
+      # XXX: this is dangerous. A lot of places in the compiler depend on
+      #      ``TTNode.n != nil`` meaning resolved
+      return if tfUnresolved in t.flags: prepareNode(cl, t.n)
+              else: t.n
+
+  case n.kind
+  of nkSym:
+    # only replace type variables for symbols if the symbol belongs to a generic
+    # parameter, non-generic parameters, or where it represents an access of
+    # generic types parameters. An example of the latter:
+    #
+    #   type Typ[Param] = object
+    #   proc p(x: Typ): seq[Typ.Param]
+    #
+    # XXX: handle the type parameter access differently; the workaround used
+    #      here is shaky
+    let s = n.sym
+    if s.kind == skParam or
+       (s.kind in {skGenericParam, skType} and
+        {tfGenericTypeParam, tfImplicitTypeParam} * s.typ.flags != {}) or
+       isTypeParameterAccess(cl, s):
+      resolveStatic()
+      result = copyNode(n)
+      result.typ = t
+      result.sym = replaceTypeVarsS(cl, s)
+    else:
+      # important: don't use ``resolveStatic`` here, as the ``replaceTypeVarsT``
+      # call would traverse into types not depending on any of the type
+      # variables we're replacing here
+      result = n
+  of nkWithoutSons - {nkSym}:
+    resolveStatic()
+    result = copyNode(n)
+    result.typ = t
+  of nkSymChoices:
+    # a symbol choice is itself similiar to a symbol
+    result = n
+  of nkWithSons - nkSymChoices:
+    resolveStatic()
+
+    result = shallowCopy(n)
+    result.typ = t
+    for i, it in n.pairs:
+      result[i] = prepareNode(cl, it)
 
 proc isTypeParam(n: PNode): bool =
   # XXX: generic params should use skGenericParam instead of skType
@@ -230,11 +284,15 @@ proc replaceObjBranches(cl: TReplTypeVars, n: PNode): PNode =
       n[i] = replaceObjBranches(cl, n[i])
 
 proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
+  ## Replaces references to unresolved types in AST associated with types (i.e.:
+  ## the AST that is stored in the ``TType.n`` field).
+  ##
+  ## **See also:**
+  ## * `prepareNode <#prepareNode,TReplTypeVars,PNode>`_
   if n == nil: return
   result = copyNode(n)
   if n.typ != nil:
     result.typ = replaceTypeVarsT(cl, n.typ)
-    checkMetaInvariants(cl, result.typ)
   case n.kind
   of nkNone..pred(nkSym), succ(nkSym)..nkNilLit:
     discard
@@ -423,11 +481,7 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   cl.typeMap = newTypeMapLayer(cl)
 
   for i in 1..<t.len:
-    var x = replaceTypeVarsT(cl):
-      if header[i].kind == tyGenericInst:
-        t[i]
-      else:
-        header[i]
+    let x = replaceTypeVarsT(cl, header[i])
     assert x.kind != tyGenericInvocation
     header[i] = x
     propagateToOwner(header, x)
@@ -566,7 +620,7 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
     if result.lastSon.kind == tyUserTypeClass:
       result.kind = tyUserTypeClassInst
 
-  of tyGenericBody:
+  of tyGenericBody, tyCompositeTypeClass:
     cl.c.config.localReport(cl.info, reportTyp(rsemCannotInstantiate,t))
 
     result = errorType(cl.c)
@@ -617,13 +671,19 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
   of tyUserTypeClass, tyStatic:
     result = t
 
-  of tyGenericInst, tyUserTypeClassInst:
+  of tyUserTypeClassInst:
     bailout()
     result = instCopyType(cl, t)
     idTablePut(cl.localCache, t, result)
     for i in 1..<result.len:
       result[i] = replaceTypeVarsT(cl, result[i])
     propagateToOwner(result, result.lastSon)
+
+  of tyGenericInst:
+    # do nothing for ``tyGenericInst`` instances. Concrete ones don't need any
+    # replacing, and meta ones are handled at the callsite
+    doAssert(cl.allowMetaTypes or not containsGenericType(t))
+    result = t
 
   else:
     if containsGenericType(t):
@@ -733,6 +793,10 @@ proc recomputeFieldPositions*(t: PType; obj: PNode; currPosition: var int) =
 
 proc generateTypeInstance*(p: PContext, pt: TIdTable, info: TLineInfo,
                            t: PType): PType =
+  ## Produces the instantiated type for the generic type `t`, using the
+  ## bindings provided by `pt`. All type variables used by `t` must have
+  ## *concrete* types bound to them -- both meta types and missing bindings
+  ## are disallowed and will result in an instantiation failure.
   # Given `t` like Foo[T]
   # pt: Table with type mappings: T -> int
   # Desired result: Foo[int]
@@ -759,3 +823,34 @@ proc prepareMetatypeForSigmatch*(p: PContext, pt: TIdTable, info: TLineInfo,
 template generateTypeInstance*(p: PContext, pt: TIdTable, arg: PNode,
                                t: PType): untyped =
   generateTypeInstance(p, pt, arg.info, t)
+
+proc tryGenerateInstance*(c: PContext, pt: TIdTable, info: TLineInfo, t: PType): PType =
+  ## Tries to resolve the generic type `t` to a concrete type. Returns `nil` on
+  ## failure, and the resolved type on success.
+  ##
+  ## XXX: this procedure is only a workaround. ``replaceTypeVarsT`` should
+  ##      properly support the case where it's not certain whether all
+  ##      referenced type parameters are resolved already
+  assert containsGenericType(t)
+  result = prepareMetatypeForSigmatch(c, pt, info, t)
+
+  proc containsGenericType2(t: PType): bool =
+    if t.kind == tyGenericInst:
+      # check the parameters:
+      for i in 1..<t.len-1:
+        if t[i].isMetaType:
+          return true
+
+    result = containsGenericType(t)
+
+  # ``handleGenericInvocation`` doesn't properly propagate the ``tfHasMeta``
+  # flag, so we don't rely on it here. We also need to use a special-purpose
+  # ``containsGenericType`` -- otherwise generic phantom types wouldn't be
+  # detected as being generic
+  if containsGenericType2(result):
+    result = nil
+  else:
+    # ``prepareMetatypeForSigmatch`` doesn't produce proper instances, but
+    # since we now know that all referenced type parameters can be resolved,
+    # we can produce a proper one
+    result = generateTypeInstance(c, pt, info, t)

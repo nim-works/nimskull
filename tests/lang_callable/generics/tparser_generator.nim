@@ -1,16 +1,19 @@
 discard """
+  target: "!js !vm"
+  joinable: false
   output: '''Match failed: spam
 Match failed: ham'''
-joinable: false
 """
 
 # bug #6220
 
-import nre
-import options
-import strutils except isAlpha, isLower, isUpper, isSpace
-from unicode import isAlpha, isLower, isUpper, isTitle, isWhiteSpace
-import os
+# fix `std/nre` to work across platforms to enable for js and vm
+
+import std/nre
+import std/options
+import std/strutils except isAlpha, isLower, isUpper, isSpace
+from std/unicode import isAlpha, isLower, isUpper, isTitle, isWhiteSpace
+import std/os
 
 const debugLex = false
 
@@ -363,7 +366,8 @@ proc `->`*(rule: Rule, production: Rule) =
   doAssert(not isnil(production.parser), "Right hand side of -> is nil - has the rule been defined yet?")
   rule.parser = production.parser
 
-template grammar*[K](Kind, Text, Symbol: typedesc; default: K, code: untyped): typed {.hint[XDeclaredButNotUsed]: off.} =
+template grammar*[K](Kind, Text, Symbol: typedesc; default: K, code: untyped): typed =
+    {.push hint[XDeclaredButNotUsed]: off.}
 
     proc newRule(): Rule[Kind, Text] {.inject.} = newRule[Kind, Text](default)
     proc chartest(testfunc: proc(c: Symbol): bool): Rule[Kind, Text] {.inject.} = chartest[Kind, Text, Symbol](testfunc, default)
@@ -395,8 +399,12 @@ template grammar*[K](Kind, Text, Symbol: typedesc; default: K, code: untyped): t
 
     code
 
-template grammar*[K](Kind: typedesc; default: K, code: untyped): typed {.hint[XDeclaredButNotUsed]: off.} =
+    {.pop.}
+
+template grammar*[K](Kind: typedesc; default: K, code: untyped): typed =
+  {.push hint[XDeclaredButNotUsed]: off.}
   grammar(Kind, string, char, default, code)
+  {.pop.}
 
 block:
   type DummyKind = enum dkDefault

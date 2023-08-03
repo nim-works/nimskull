@@ -103,7 +103,6 @@ proc sexp*(e: StackTraceEntry): SexpNode =
   result.add newSKeyword(
     "filename", writeConf.formatPath($e.filename).sexp())
 
-
 proc sexp*(typ: PType): SexpNode =
   if typ.isNil: return newSNil()
   result = newSList()
@@ -116,16 +115,18 @@ proc sexp*(node: PNode): SexpNode =
 
   result = newSList()
   result.add newSSymbol(($node.kind)[2 ..^ 1])
-  case node.kind:
-    of nkCharLit..nkUInt64Lit:    result.add sexp(node.intVal)
-    of nkFloatLit..nkFloat128Lit: result.add sexp(node.floatVal)
-    of nkStrLit..nkTripleStrLit:  result.add sexp(node.strVal)
-    of nkSym:                     result.add newSSymbol(node.sym.name.s)
-    of nkIdent:                   result.add newSSymbol(node.ident.s)
-    of nkError:                   result.add sexp(node.diag.wrongNode)
-    else:
-      for node in node.sons:
-        result.add sexp(node)
+  case node.kind
+  of nkNone, nkEmpty, nkType:   discard
+  of nkCharLit..nkUInt64Lit:    result.add sexp(node.intVal)
+  of nkFloatLit..nkFloat128Lit: result.add sexp(node.floatVal)
+  of nkStrLit..nkTripleStrLit:  result.add sexp(node.strVal)
+  of nkSym:                     result.add newSSymbol(node.sym.name.s)
+  of nkIdent:                   result.add newSSymbol(node.ident.s)
+  of nkError:                   result.add sexp(node.diag.wrongNode)
+  of nkNilLit:                  result.add newSNil()
+  of nkWithSons:
+    for node in node.sons:
+      result.add sexp(node)
 
 proc sexp*(t: PSym): SexpNode =
   convertSexp([
@@ -168,7 +169,6 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
           s.addFields(r.semReport, f & "node")
         else:
           s.addFields(r.semReport, f)
-      of repDbgTrace: s.addFields(r.dbgTraceReport, f)
       of repDebug:    s.addFields(r.debugReport, f)
       of repInternal: s.addFields(r.internalReport, f)
       of repBackend:  s.addFields(r.backendReport, f)

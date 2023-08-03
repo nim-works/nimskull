@@ -1,5 +1,4 @@
 import compiler/ast/lineinfos
-import compiler/utils/ropes
 import std/[hashes]
 
 from compiler/ast/idents import PIdent, TIdent
@@ -31,6 +30,8 @@ type
   MismatchKind* = enum
     ## Procedure call argument mismatch reason
     kUnknown
+    kGenericTypeMismatch    ## Generic parameter type mismatch
+    kNotGeneric             ## Generic routine expected
     kAlreadyGiven           ## Named argument already given
     kUnknownNamedParam      ## No such named parameter
     kTypeMismatch           ## Parameter type mismatch
@@ -233,8 +234,8 @@ type
     nkPattern             ## a special pattern; used for matching
     nkHiddenTryStmt       ## a hidden try statement
     nkClosure             ## (prc, env)-pair (internally used for code gen)
-    nkGotoState           ## used for the state machine (for iterators)
-    nkState               ## give a label to a code section (for iterators)
+    nkGotoState           ## used only temporarily during closure iterator
+                          ## transformation
     nkFuncDef             ## a func
     nkTupleConstr         ## a tuple constructor
     nkError               ## erroneous AST node see `errorhandling`
@@ -245,6 +246,150 @@ type
     nkNilRodNode          ## for .rod file support: a 'nil' PNode
 
   TNodeKinds* = set[TNodeKind]
+
+const
+  nkWithoutSons* =
+    {nkEmpty, nkNone} +
+    {nkIdent, nkSym} +
+    {nkType} +
+    {nkCharLit..nkUInt64Lit} +
+    {nkFloatLit..nkFloat128Lit} +
+    {nkStrLit..nkTripleStrLit} +
+    {nkNilLit} +
+    {nkError}
+
+  nkWithSons* = {low(TNodeKind) .. high(TNodeKind)} - nkWithoutSons
+
+  nodeKindsProducedByParse* = {
+    nkError, nkEmpty,
+    nkIdent,
+
+    nkCharLit,
+    nkIntLit, nkInt8Lit, nkInt16Lit, nkInt32Lit, nkInt64Lit,
+    nkUIntLit, nkUInt8Lit, nkUInt16Lit, nkUInt32Lit, nkUInt64Lit,
+    nkFloatLit, nkFloat32Lit, nkFloat64Lit, nkFloat128Lit,
+    nkStrLit, nkRStrLit, nkTripleStrLit,
+    nkNilLit,
+
+    nkCall, nkCommand, nkCallStrLit, nkInfix, nkPrefix, nkPostfix,
+
+    nkExprEqExpr, nkExprColonExpr, nkIdentDefs, nkConstDef, nkVarTuple, nkPar,
+    nkBracket, nkCurly, nkTupleConstr, nkObjConstr, nkTableConstr,
+    nkBracketExpr, nkCurlyExpr,
+
+    nkPragmaExpr, nkPragma, nkPragmaBlock,
+
+    nkDotExpr, nkAccQuoted,
+
+    nkIfExpr, nkIfStmt, nkElifBranch, nkElifExpr, nkElse, nkElseExpr,
+    nkCaseStmt, nkOfBranch,
+    nkWhenStmt,
+
+    nkForStmt, nkWhileStmt,
+
+    nkBlockExpr, nkBlockStmt,
+
+    nkDiscardStmt, nkContinueStmt, nkBreakStmt, nkReturnStmt, nkRaiseStmt,
+    nkYieldStmt,
+
+    nkTryStmt, nkExceptBranch, nkFinally,
+
+    nkDefer,
+
+    nkLambda, nkDo,
+
+    nkBind, nkBindStmt, nkMixinStmt,
+
+    nkCast,
+    nkStaticStmt,
+
+    nkAsgn,
+
+    nkGenericParams,
+    nkFormalParams,
+
+    nkStmtList, nkStmtListExpr,
+
+    nkImportStmt, nkImportExceptStmt, nkFromStmt,
+
+    nkIncludeStmt,
+
+    nkExportStmt, nkExportExceptStmt,
+
+    nkConstSection, nkLetSection, nkVarSection,
+
+    nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef, nkIteratorDef,
+    nkMacroDef, nkTemplateDef,
+
+    nkTypeSection, nkTypeDef,
+
+    nkEnumTy, nkEnumFieldDef,
+
+    nkObjectTy, nkTupleTy, nkProcTy, nkIteratorTy,
+
+    nkRecList, nkRecCase, nkRecWhen,
+
+    nkTypeOfExpr,
+
+    # nkConstTy,
+    nkRefTy, nkVarTy, nkPtrTy, nkStaticTy, nkDistinctTy,
+    nkMutableTy,
+
+    nkTupleClassTy, nkTypeClassTy,
+
+    nkOfInherit,
+
+    nkArgList,
+
+    nkWith, nkWithout,
+
+    nkAsmStmt,
+    nkCommentStmt,
+
+    nkUsingStmt,
+  }
+
+  codegenExprNodeKinds* = {
+    nkEmpty,
+    nkSym,
+    nkType,
+
+    nkCharLit,
+    nkIntLit, nkInt8Lit, nkInt16Lit, nkInt32Lit, nkInt64Lit,
+    nkUIntLit, nkUInt8Lit, nkUInt16Lit, nkUInt32Lit, nkUInt64Lit,
+    nkFloatLit, nkFloat32Lit, nkFloat64Lit, nkFloat128Lit,
+    nkStrLit, nkRStrLit, nkTripleStrLit,
+    nkNilLit,
+
+    nkCall,
+
+    nkObjConstr, nkCurly, nkBracket,
+
+    nkBracketExpr, nkDotExpr, nkCheckedFieldExpr, nkDerefExpr,
+
+    nkHiddenStdConv, nkConv, nkCast, nkAddr, nkHiddenAddr,
+    nkHiddenDeref, nkObjDownConv, nkObjUpConv,
+
+    nkChckRangeF, nkChckRange64, nkChckRange, nkStringToCString,
+    nkCStringToString,
+
+    nkAsgn, nkFastAsgn,
+
+    nkAsmStmt, nkPragma,
+
+    nkIfStmt, nkWhileStmt, nkCaseStmt,
+
+    nkVarSection, nkLetSection,
+    nkTryStmt,
+
+    nkRaiseStmt, nkReturnStmt, nkBreakStmt, nkBlockStmt, nkDiscardStmt,
+
+    nkStmtList, nkStmtListExpr,
+
+    nkClosure,
+    nkTupleConstr,
+    nkNimNodeLit,
+  }
 
 type
   TSymFlag* = enum    # 48 flags!
@@ -283,7 +428,8 @@ type
     sfShadowed        ## a symbol that was shadowed in some inner scope
     sfThread          ## proc will run as a thread
                       ## variable is a thread variable
-    sfCompileTime     ## proc can be evaluated at compile time
+    sfCompileTime     ## proc can only be used in compile time contexts;
+                      ## global is only accessible in compile time contexts
     sfDispatcher      ## copied method symbol is the dispatcher
                       ## deprecated and unused, except for the con
     sfBorrow          ## proc is borrowed
@@ -435,7 +581,7 @@ type
       ## instantiation and prior to this it has the potential to
       ## be any type.
 
-    tyVoid ## now different from tyEmpty, hurray!
+    tyVoid ## void type, lack of a value or unit
 
 static:
   # remind us when TTypeKind stops to fit in a single 64-bit word
@@ -472,6 +618,11 @@ const
   typedescPtrs* = abstractPtrs + {tyTypeDesc}
   typedescInst* = abstractInst + {tyTypeDesc, tyUserTypeClass}
 
+  skipForHooks* = {tyGenericInst, tyOrdinal, tyAlias, tySink, tyInferred} +
+                  tyUserTypeClasses
+    ## the types to skip in order to reach the type that instantiated
+    ## type-bound operations are attached to. User type-classes are also
+    ## unconditionally included in this set
 
 type
   TTypeKinds* = set[TTypeKind]
@@ -493,20 +644,11 @@ type
     nfExplicitCall ## `x.y()` was used instead of x.y
     nfIsRef     ## this node is a 'ref' node; used for the VM
     nfIsPtr     ## this node is a 'ptr' node; used for the VM
-    nfPreventCg ## this node should be ignored by the codegen
-    nfBlockArg  ## this a stmtlist appearing in a call (e.g. a do block)
     nfFromTemplate ## a top-level node returned from a template
     nfDefaultParam ## an automatically inserter default parameter
     nfDefaultRefsParam ## a default param value references another parameter
                        ## the flag is applied to proc default values and to calls
     nfHasComment ## node has a comment
-    nfImplicitPragma ## node is a "singlePragma" this is a transition flag
-                  ## created as part of nkError refactoring for the pragmas
-                  ## module. an old proc, `singlePragma` did a lot of side-
-                  ## effects and returned a bool signal to callers typically to
-                  ## either break a loop and raise an error in
-                  ## `pragmas.implicitPragmas` or simply break a loop in
-                  ## `pragmas.pragmaRec`.
 
   TNodeFlags* = set[TNodeFlag]
   TTypeFlag* = enum   ## keep below 32 for efficiency reasons (now: 43)
@@ -610,7 +752,6 @@ type
                           ## file (it is loaded on demand, which may
                           ## mean: never)
     skPackage             ## symbol is a package (used for canonicalization)
-    skAlias               ## an alias (needs to be resolved immediately)
 
   TSymKinds* = set[TSymKind]
 
@@ -618,7 +759,7 @@ type
 const
   routineKinds* = {skProc, skFunc, skMethod, skIterator,
                    skConverter, skMacro, skTemplate}
-  ExportableSymKinds* = {skVar, skLet, skConst, skType, skEnumField, skStub, skAlias} + routineKinds
+  ExportableSymKinds* = {skVar, skLet, skConst, skType, skEnumField, skStub} + routineKinds
 
   tfUnion* = tfNoSideEffect
   tfGcSafe* = tfThread
@@ -626,16 +767,12 @@ const
   tfReturnsNew* = tfInheritable
   skError* = skUnknown
 
-var
   eqTypeFlags* = {
     tfIterator,
     tfNotNil,
     tfGcSafe,
     tfNoSideEffect
-  }
-    ## type flags that are essential for type equality.
-    ## This is now a variable because for emulation of version:1.0 we
-    ## might exclude {tfGcSafe, tfNoSideEffect}.
+  } ## type flags that are essential for type equality.
 
 type
   TMagic* = enum ## symbols that require compiler magic:
@@ -646,7 +783,7 @@ type
     mPlugin, mEcho, mShallowCopy, mSlurp, mStaticExec, mStatic,
     mParseExprToAst, mParseStmtToAst, mExpandToAst, mQuoteAst,
     mInc, mDec, mOrd,
-    mNew, mNewFinalize, mNewSeq, mNewSeqOfCap,
+    mNew, mNewSeq, mNewSeqOfCap,
     mLengthOpenArray, mLengthStr, mLengthArray, mLengthSeq,
     mIncl, mExcl, mCard, mChr,
     mGCref, mGCunref,
@@ -714,6 +851,8 @@ type
     mException, mBuiltinType, mSymOwner, mUncheckedArray, mGetImplTransf,
     mSymIsInstantiationOf, mNodeId, mPrivateAccess
 
+    # magics only used internally:
+    mAsgnDynlibVar
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const
@@ -851,6 +990,7 @@ type
     adVmNodeNotASymbol
     adVmNodeNotAProcSymbol
     adVmIllegalConv
+    adVmIllegalConvFromXToY
     adVmMissingCacheKey
     adVmCacheKeyAlreadyExists
     adVmFieldNotFound
@@ -871,7 +1011,7 @@ type
         callName*: string
         argAst*: PNode
         argPos*: int
-      of adVmCannotCast:
+      of adVmCannotCast, adVmIllegalConvFromXToY:
         formalType*: PType
         actualType*: PType
       of adVmIndexError:
@@ -900,46 +1040,37 @@ type
 
   AstDiagVmGenKind* = enum
     ## Kinds for errors produced by `vmgen`
-    adVmGenBadExpandToAstArgRequired      # | TODO: these enum values duplicate
-    adVmGenBadExpandToAstCallExprRequired # |       `VmGenDiagKind` vmgen enum
+                                          # | TODO: these enum values duplicate
+                                          # |       `VmGenDiagKind` vmgen enum
     adVmGenTooManyRegistersRequired       # |       defined in the `vmdef`
     adVmGenCannotFindBreakTarget          # |       module. There should be a
     adVmGenNotUnused                      # |       way to cross-reference data
-    adVmGenNotAFieldSymbol                # |       without introducing direct
-    adVmGenCannotGenerateCode             # |       import or type
+                                          # |       without introducing direct
+                                          # |       import or type
     adVmGenCannotEvaluateAtComptime       # |       dependencies. Likely this
-    adVmGenInvalidObjectConstructor       # |       involves data oriented
+                                          # |       involves data oriented
     adVmGenMissingImportcCompleteStruct   # |       design, use of handles and
     adVmGenCodeGenUnhandledMagic          # |       the like, along with
-    adVmGenCodeGenGenericInNonMacro       # |       breaking up the coupling
-    adVmGenCodeGenUnexpectedSym           # |       within the `compiler/vm`
+                                          # |       breaking up the coupling
+                                          # |       within the `compiler/vm`
     adVmGenCannotImportc                  # |       package between pure VM and
     adVmGenTooLargeOffset                 # |       the VM for the compiler.
-    adVmGenNoClosureIterators             # |
     adVmGenCannotCallMethod               # |
     adVmGenCannotCast                     # |       fin.
 
   AstDiagVmGenError* = object
     case kind*: AstDiagVmGenKind:
-      of adVmGenBadExpandToAstArgRequired,
-          adVmGenBadExpandToAstCallExprRequired,
-          adVmGenTooManyRegistersRequired,
+      of adVmGenTooManyRegistersRequired,
           adVmGenCannotFindBreakTarget:
         discard
       of adVmGenNotUnused,
-          adVmGenNotAFieldSymbol,
-          adVmGenCannotGenerateCode,
-          adVmGenCannotEvaluateAtComptime,
-          adVmGenInvalidObjectConstructor:
+          adVmGenCannotEvaluateAtComptime:
         ast*: PNode
       of adVmGenMissingImportcCompleteStruct,
           adVmGenCodeGenUnhandledMagic:
         magic*: TMagic
-      of adVmGenCodeGenGenericInNonMacro,
-          adVmGenCodeGenUnexpectedSym,
-          adVmGenCannotImportc,
+      of adVmGenCannotImportc,
           adVmGenTooLargeOffset,
-          adVmGenNoClosureIterators,
           adVmGenCannotCallMethod:
         sym*: PSym
       of adVmGenCannotCast:
@@ -960,6 +1091,7 @@ type
     adSemExpectedIdentifier
     adSemExpectedIdentifierInExpr          ## Expr is the wrongNode itself
     adSemExpectedIdentifierWithExprContext ## Expr part is informational
+    adSemExpectedIdentifierQuoteLimit      ## backtick ident construction limit
     adSemModuleAliasMustBeIdentifier
     adSemOnlyDeclaredIdentifierFoundIsError
     # imports
@@ -986,8 +1118,6 @@ type
     adSemLocksPragmaBadLevelString
     adSemBorrowPragmaNonDot
     adSemInvalidExtern
-    adSemBadDeprecatedArg
-    adSemBadDeprecatedArgs
     adSemMisplacedEffectsOf
     adSemMissingPragmaArg
     adSemCannotPushCast
@@ -1029,8 +1159,10 @@ type
     adSemUndeclaredField
     adSemCannotInstantiate
     adSemWrongNumberOfGenericParams
+    adSemCalleeHasAnError
     # sem
     adSemExpressionHasNoType
+    adSemDefNameSym   ## when creating a sym node from `nkIdentKinds`
     # semtypes
     adSemTypeExpected
     # semtempl
@@ -1049,6 +1181,7 @@ type
     adSemCannotInferTypeOfLiteral
     adSemProcHasNoConcreteType
     adSemPragmaDisallowedForTupleUnpacking
+    adSemIllegalCompileTime
     adSemDifferentTypeForReintroducedSymbol
     adSemThreadvarCannotInit
     adSemWrongNumberOfVariables
@@ -1057,6 +1190,9 @@ type
     adSemSelectorMustBeOfCertainTypes
     adSemInvalidPragmaBlock
     adSemConceptPredicateFailed
+    adSemDotOperatorsNotEnabled
+    adSemCallOperatorsNotEnabled
+    adSemUnexpectedPattern
     # types
     adSemTypeKindMismatch
     # semexprs
@@ -1093,10 +1229,13 @@ type
     adSemDisallowedTypedescForTupleField
     adSemNamedExprNotAllowed
     adSemCannotMixTypesAndValuesInTuple
+    adSemNoReturnTypeDeclared
+    adSemReturnNotAllowed
     # semmagics
     adSemExprHasNoAddress
     adSemExpectedOrdinal
     adSemConstExprExpected
+    adSemExpectedRangeType
     # semobjconstr
     adSemFieldAssignmentInvalidNeedSpace
     adSemFieldAssignmentInvalid
@@ -1107,6 +1246,20 @@ type
     adSemExpectedObjectType
     adSemExpectedObjectOfType
     adSemDistinctDoesNotHaveDefaultValue
+    # semfold
+    adSemFoldRangeCheckForLiteralConversionFailed
+    adSemIndexOutOfBoundsStatic
+    adSemStaticFieldNotFound
+    adSemInvalidIntDefine
+    adSemInvalidBoolDefine
+    adSemFoldOverflow       # xxx: remove 'Fold' from name?
+    adSemFoldDivByZero      # xxx: remove 'Fold' from name?
+    adSemInvalidRangeConversion
+    adSemFoldCannotComputeOffset
+    adSemCompilerOptionInvalid
+    adSemCompilerOptionArgInvalid
+    adSemDeprecatedCompilerOpt      # warning promoted to error
+    adSemDeprecatedCompilerOptArg   # warning promoted to error
 
   PAstDiag* = ref TAstDiag
   TAstDiag* {.acyclic.} = object
@@ -1156,8 +1309,6 @@ type
         adSemLocksPragmaBadLevelRange,
         adSemLocksPragmaBadLevelString,
         adSemBorrowPragmaNonDot,
-        adSemBadDeprecatedArg,
-        adSemBadDeprecatedArgs,
         adSemMisplacedEffectsOf,
         adSemMissingPragmaArg,
         adSemCannotPushCast,
@@ -1186,12 +1337,16 @@ type
         adSemInvalidExpression,
         adSemExpectedNonemptyPattern,
         adSemPragmaDisallowedForTupleUnpacking,
+        adSemIllegalCompileTime,
         adSemThreadvarCannotInit,
         adSemLetNeedsInit,
         adSemConstExpressionExpected,
         adSemSelectorMustBeOfCertainTypes,
         adSemInvalidPragmaBlock,
         adSemConceptPredicateFailed,
+        adSemDotOperatorsNotEnabled,
+        adSemCallOperatorsNotEnabled,
+        adSemUnexpectedPattern,
         adSemIsOperatorTakes2Args,
         adSemNoTupleTypeForConstructor,
         adSemInvalidOrderInArrayConstructor,
@@ -1205,10 +1360,18 @@ type
         adSemNamedExprExpected,
         adSemDisallowedTypedescForTupleField,
         adSemNamedExprNotAllowed,
+        adSemNoReturnTypeDeclared,
+        adSemReturnNotAllowed,
         adSemFieldAssignmentInvalidNeedSpace,
         adSemFieldAssignmentInvalid,
         adSemObjectConstructorIncorrect,
-        adSemExpectedObjectType:
+        adSemExpectedObjectType,
+        adSemFoldOverflow,
+        adSemFoldDivByZero,
+        adSemInvalidRangeConversion,
+        adSemFoldCannotComputeOffset,
+        adSemExpectedIdentifierQuoteLimit,
+        adSemExpectedRangeType:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode
@@ -1281,6 +1444,8 @@ type
     of adSemWrongNumberOfGenericParams:
       countMismatch*: tuple[expected, got: int]
       gnrcCallLineInfo*: TLineInfo
+    of adSemCalleeHasAnError:
+      callee*: PSym
     of adSemIllformedAstExpectedOneOf:
       expectedKinds*: TNodeKinds
     of adSemImplementationExpected:
@@ -1316,7 +1481,8 @@ type
     of adSemLowHighInvalidArgument:
       invalidTyp*: PType
       highLow*: TMagic
-    of adSemUnknownIdentifier:
+    of adSemUnknownIdentifier,
+        adSemStaticFieldNotFound:
       unknownSym*: PSym
     of adSemInvalidTupleConstructorKey:
       invalidKey*: PNode
@@ -1324,7 +1490,6 @@ type
       nonOrdInput*: PNode
       indexExpr*: PNode
     of adSemIndexOutOfBounds:
-      maxOrdIdx*: int
       outOfBoundsIdx*: int
       ordRange*: PType
     of adSemExpectedOrdinal:
@@ -1357,6 +1522,41 @@ type
       distinctTyp*: PType
     of adSemExpectedObjectOfType:
       expectedObjTyp*: PType
+    of adSemFoldRangeCheckForLiteralConversionFailed:
+      inputLit*: PNode
+    of adSemIndexOutOfBoundsStatic:
+      staticCollection*: PNode
+      staticIndex*: PNode
+    of adSemInvalidIntDefine,
+        adSemInvalidBoolDefine:
+      invalidDef*: string
+    of adSemCompilerOptionInvalid,
+        adSemDeprecatedCompilerOpt:
+      badCompilerOpt*: PNode
+    of adSemDeprecatedCompilerOptArg:
+      compilerOpt*: PNode
+      compilerOptArg*: PNode
+    of adSemCompilerOptionArgInvalid:
+      forCompilerOpt*: PNode
+      badCompilerOptArg*: PNode
+    of adSemDefNameSym:
+      defNameSym*: PSym
+      defNameSymData*: AdSemDefNameSym
+
+  AdSemDefNameSymKind* = enum
+    adSemDefNameSymExpectedKindMismatch
+    adSemDefNameSymIdentGenFailed
+    adSemDefNameSymExistingError
+    adSemDefNameSymIllformedAst
+  AdSemDefNameSym* = object
+    case kind*: AdSemDefNameSymKind:
+      of adSemDefNameSymExpectedKindMismatch:
+        expectedKind*: TSymKind # xxx: maybe always capture this?
+      of adSemDefNameSymIdentGenFailed:
+        identGenErr*: PNode
+      of adSemDefNameSymExistingError,
+          adSemDefNameSymIllformedAst:
+        discard
 
   TNode*{.final, acyclic.} = object # on a 32bit machine, this takes 32 bytes
     id*: NodeId
@@ -1374,59 +1574,29 @@ type
       sym*: PSym
     of nkIdent:
       ident*: PIdent
-    of nkEmpty, nkNone:
+    of nkEmpty, nkNone, nkType, nkNilLit:
       discard
     of nkError:
       diag*: PAstDiag
-    else:
+    of nkWithSons:
       sons*: TNodeSeq
 
   TStrTable* = object         ## a table[PIdent] of PSym
     counter*: int
     data*: seq[PSym]
 
-  # -------------- backend information -------------------------------
-  TLocKind* = enum
-    locNone,                  ## no location
-    locTemp,                  ## temporary location
-    locLocalVar,              ## location is a local variable
-    locGlobalVar,             ## location is a global variable
-    locParam,                 ## location is a parameter
-    locField,                 ## location is a record field
-    locExpr,                  ## "location" is really an expression
-    locProc,                  ## location is a proc (an address of a procedure)
-    locData,                  ## location is a constant
-    locCall,                  ## location is a call expression
-    locOther                  ## location is something other
-  TLocFlag* = enum
-    lfIndirect,               ## backend introduced a pointer
-    lfFullExternalName, ## only used when 'conf.cmd == cmdNimfix': Indicates
+  ExternalFlag* = enum
+    ## Flags that describe a symbol's external interface.
+    exfFullExternalName  ## only used when 'conf.cmd == cmdNimfix': Indicates
       ## that the symbol has been imported via 'importc: "fullname"' and
       ## no format string.
-    lfNoDeepCopy,             ## no need for a deep copy
-    lfNoDecl,                 ## do not declare it in C
-    lfDynamicLib,             ## link symbol to dynamic library
-    lfExportLib,              ## export symbol for dynamic library generation
-    lfHeader,                 ## include header file for symbol
-    lfImportCompilerProc,     ## ``importc`` of a compilerproc
-    lfSingleUse               ## no location yet and will only be used once
-    lfEnforceDeref            ## a copyMem is required to dereference if this a
-                              ## ptr array due to C array limitations.
-                              ## See #1181, #6422, #11171
-    lfPrepareForMutation      ## string location is about to be mutated (V2)
-  TStorageLoc* = enum
-    OnUnknown,                ## location is unknown (stack, heap or static)
-    OnStatic,                 ## in a static section
-    OnStack,                  ## location is on hardware stack
-    OnHeap                    ## location is on heap or global
-                              ## (reference counting needed)
-  TLocFlags* = set[TLocFlag]
-  TLoc* = object
-    k*: TLocKind              ## kind of location
-    storage*: TStorageLoc
-    flags*: TLocFlags         ## location's flags
-    lode*: PNode              ## Node where the location came from; can be faked
-    r*: Rope                  ## rope value of location (code generators)
+    exfNoDecl                 ## do not declare it in C
+    exfDynamicLib             ## link symbol to dynamic library
+    exfExportLib              ## export symbol for dynamic library generation
+    exfHeader                 ## include header file for symbol
+    exfImportCompilerProc     ## ``importc`` of a compilerproc
+
+  ExternalFlags* = set[ExternalFlag]
 
   # ---------------- end of backend information ------------------------------
 
@@ -1436,11 +1606,24 @@ type
   TLib* = object              ## also misused for headers!
                               ## keep in sync with PackedLib
     kind*: TLibKind
-    generated*: bool          ## needed for the backends:
     isOverriden*: bool
-    name*: Rope
+    name*: PSym
     path*: PNode              ## can be a string literal!
 
+  LibId* = object
+    ## Identifies a ``TLib`` instance. The default value means 'none'.
+    # XXX: ideally, a ``LibId`` would be a single 32-bit index into the
+    #      surrounding module, but this is not possible at the moment, because
+    #      of how aliased structural types work.
+    #
+    #        type A {.header: ... .} = int # declared in module 'A'
+    #        type B = A                    # declared in module 'B'
+    #
+    #      Here, 'B' is not a ``tyAlias`` type, but rather a ``tyInt``, with
+    #      the symbol information from 'A' (including the ``LibId``) copied
+    #      over.
+    module*: int32   ## the ID of the module the lib object is part
+    index*: uint32   ## 1-based index. Zero means 'none'
 
   CompilesId* = int ## id that is used for the caching logic within
                     ## ``system.compiles``. See the seminst module.
@@ -1459,14 +1642,18 @@ type
 
   PScope* = ref TScope
 
-  PLib* = ref TLib
   TSym* {.acyclic.} = object of TIdObj # Keep in sync with PackedSym
     ## proc and type instantiations are cached in the generic symbol
     case kind*: TSymKind
-    of routineKinds:
+    of routineKinds - {skMacro}:
       #procInstCache*: seq[PInstantiation]
       gcUnsafetyReason*: PSym  ## for better error messages regarding gcsafe
       transformedBody*: PNode  ## cached body after transf pass
+    of skMacro:
+      internal*: PType ## the internal signature that the macro has in a
+                       ## compile-time evaluation context. Can be used to
+                       ## query the symbols the parameters use in the macro's
+                       ## body
     of skLet, skVar, skField, skForVar:
       guard*: PSym
       bitsize*: int
@@ -1491,7 +1678,7 @@ type
     options*: TOptions # QUESTION I don't understand the exact purpose of
                        # this field - most of the time it is copied between
                        # symbols all over the place, but checked only in
-                       # the `linter.nep1CheckDefImpl` proc (considering
+                       # the `linter.checkDefImpl` proc (considering
                        # the `optStyleCheck` could've been a global option
                        # it makes it even more weird)
     position*: int            ## used for many different things:
@@ -1505,8 +1692,13 @@ type
                               ## to the module's fileIdx
                               ## for variables a slot index for the evaluator
     offset*: int              ## offset of record field
-    loc*: TLoc
-    annex*: PLib              ## additional fields (seldom used, so we use a
+    extname*: string          ## the external name of the type, or empty if a
+                              ## generated name is to be used
+    extFlags*: ExternalFlags  ## additional flags that are relevant to code
+                              ## generation
+    locId*: uint32            ## associates the symbol with a loc in the C code
+                              ## generator. 0 means unset.
+    annex*: LibId             ## additional fields (seldom used, so we use a
                               ## reference to another object to save space)
     constraint*: PNode        ## additional constraints like 'lit|result'; also
                               ## misused for the codegenDecl pragma in the hope
@@ -1551,7 +1743,6 @@ type
     align*: int16             ## the type's alignment requirements
     paddingAtEnd*: int16      ##
     lockLevel*: TLockLevel    ## lock level as required for deadlock checking
-    loc*: TLoc
     typeInst*: PType          ## for generic instantiations the tyGenericInst that led to this
                               ## type; for tyError the previous type if avaiable
     uniqueId*: ItemId         ## due to a design mistake, we need to keep the real ID here as it
@@ -1599,18 +1790,6 @@ type
   TImplication* = enum
     impUnknown, impNo, impYes
 
-const
-  nkWithoutSons* =
-    {nkCharLit..nkUInt64Lit} +
-    {nkFloatLit..nkFloat128Lit} +
-    {nkStrLit..nkTripleStrLit} +
-    {nkSym} +
-    {nkIdent} +
-    {nkError} +
-    {nkEmpty, nkNone}
-
-  nkWithSons* = {low(TNodeKind) .. high(TNodeKind)} - nkWithoutSons
-
 type
   EffectsCompat* = enum
     efCompat
@@ -1628,10 +1807,9 @@ type
     isSubtype
     isSubrange               ## subrange of the wanted type; no type conversion
                              ## but apart from that counts as ``isSubtype``
-    isBothMetaConvertible    ## generic proc parameter was matched against
-                             ## generic type, e.g., map(mySeq, x=>x+1),
-                             ## maybe recoverable by rerun if the parameter is
-                             ## the proc's return value
+    isBothMetaConvertible    ## a generic procedure with an 'auto' return type
+                             ## that otherwise matched; it needs to be
+                             ## instantiated first
     isInferred               ## generic proc was matched against a concrete type
     isInferredConvertible    ## same as above, but requiring proc CC conversion
     isGeneric
@@ -1650,22 +1828,22 @@ type
   TExprFlag* = enum
     efLValue, efWantIterator, efInTypeof,
     efNeedStatic,
-      # Use this in contexts where a static value is mandatory
+      ## Use this in contexts where a static value is mandatory
     efPreferStatic,
-      # Use this in contexts where a static value could bring more
-      # information, but it's not strictly mandatory. This may become
-      # the default with implicit statics in the future.
+      ## Use this in contexts where a static value could bring more
+      ## information, but it's not strictly mandatory. This may become
+      ## the default with implicit statics in the future.
     efPreferNilResult,
-      # Use this if you want a certain result (e.g. static value),
-      # but you don't want to trigger a hard error. For example,
-      # you may be in position to supply a better error message
-      # to the user.
-    efWantStmt, efAllowStmt, efDetermineType, efExplain,
+      ## Use this if you want a certain result (e.g. static value),
+      ## but you don't want to trigger a hard error. For example,
+      ## you may be in position to supply a better error message
+      ## to the user.
+    efWantStmt, efAllowStmt, efExplain,
     efWantValue, efOperand, efNoSemCheck,
     efNoEvaluateGeneric, efInCall, efFromHlo, efNoSem2Check,
     efNoUndeclared
-      # Use this if undeclared identifiers should not raise an error during
-      # overload resolution.
+      ## Use this if undeclared identifiers should not raise an error during
+      ## overload resolution.
 
   TExprFlags* = set[TExprFlag]
 
@@ -1722,3 +1900,5 @@ proc `comment=`*(n: PNode, a: string) =
     gconfig.comments.del(n.id)
 
 proc setUseIc*(useIc: bool) = gconfig.useIc = useIc
+
+func isNil*(id: LibId): bool = id.index == 0

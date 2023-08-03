@@ -46,6 +46,7 @@ template toStdOrrKind(stdOrr): untyped =
 
 proc flushDot*(conf: ConfigRef) =
   ## safe to call multiple times
+  # xxx: this proc is a bad idea, no need to have all sorts of callers to it
   let stdOrr = if optStdout in conf.globalOptions: stdout else: stderr
   let stdOrrKind = toStdOrrKind(stdOrr)
   if stdOrrKind in conf.lastMsgWasDot:
@@ -69,7 +70,6 @@ const
   # but column numbers start with 0, however most editors expect
   # first column to be 1, so we need to +1 here
   ColOffset*   = 1
-  commandLineDesc* = "command line"
 
 proc getInfoContextLen*(conf: ConfigRef): int = return conf.m.msgContext.len
 proc setInfoContextLen*(conf: ConfigRef; L: int) = setLen(conf.m.msgContext, L)
@@ -97,12 +97,6 @@ proc getInfoContext*(conf: ConfigRef; index: int): TLineInfo =
     result = unknownLineInfo
   else:
     result = conf.m.msgContext[i].info
-
-template toFilename*(conf: ConfigRef; fileIdx: FileIndex): string =
-  if fileIdx.int32 < 0 or conf == nil:
-    (if fileIdx == commandLineIdx: commandLineDesc else: "???")
-  else:
-    conf[fileIdx].shortName
 
 proc toProjPath*(conf: ConfigRef; fileIdx: FileIndex): string =
   if fileIdx.int32 < 0 or conf == nil:
@@ -144,9 +138,6 @@ proc toFullPathConsiderDirty*(conf: ConfigRef; fileIdx: FileIndex): AbsoluteFile
     result = conf[fileIdx].dirtyFile
   else:
     result = conf[fileIdx].fullPath
-
-template toFilename*(conf: ConfigRef; info: TLineInfo): string =
-  toFilename(conf, info.fileIndex)
 
 template toProjPath*(conf: ConfigRef; info: TLineInfo): string =
   toProjPath(conf, info.fileIndex)
@@ -252,15 +243,28 @@ proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
   ##
   ## This procedure is used as a default implementation of the
   ## `ConfigRef.writeHook`.
-  let sep = if msgNoUnitSep notin flags: conf.unitSep else: ""
+  let
+    sep = if msgNoUnitSep notin flags: conf.unitSep else: ""
+    isDot = s == "."
+
+  template newLineIfRequired(stdOrr: untyped) =
+    let stdOrrKind = toStdOrrKind(stdOrr)
+    if stdOrrKind in conf.lastMsgWasDot and not isDot:
+      write(stdOrr, "\n")
+    if isDot:
+      conf.lastMsgWasDot.incl stdOrrKind
+    else:
+      conf.lastMsgWasDot.excl stdOrrKind
 
   if optStdout in conf.globalOptions or msgStdout in flags:
     if eStdOut in conf.m.errorOutputs:
+      newLineIfRequired(stdout)
       write(stdout, s)
       write(stdout, sep)
       flushFile(stdout)
   else:
     if eStdErr in conf.m.errorOutputs:
+      newLineIfRequired(stderr)
       write(stderr, s)
       write(stderr, sep)
 
@@ -297,20 +301,17 @@ proc errorActions(
   if conf.isCompilerFatal(report):
     # Fatal message such as ICE (internal compiler), errFatal,
     result = (doAbort, true)
-
   elif conf.isCodeError(report):
     # Regular code error
     inc(conf.errorCounter)
     conf.exitcode = 1'i8
 
-    if conf.errorMax <= conf.errorCounter:
+    if conf.errorCounter >= conf.errorMax:
       # only really quit when we're not in the new 'nim check --def' mode:
       if conf.ideCmd == ideNone:
         result = (doAbort, false)
-
     elif eh == doAbort and conf.cmd != cmdIdeTools:
       result = (doAbort, false)
-
     elif eh == doRaise:
       result = (doRaise, false)
 
@@ -373,41 +374,9 @@ proc getSurroundingSrc*(conf: ConfigRef; info: TLineInfo): string =
     if info.col >= 0:
       result.add "\n" & indent & spaces(info.col) & '^'
 
-proc joinAnyOf*[T](values: seq[T], quote: bool = false): string =
-  proc q(s: string): string =
-    if quote:
-      "'" & s & "'"
-    else:
-      s
-
-  case len(values)
-  of 1:
-    result.add q($values[0])
-  of 2:
-    result.add q($values[0]) & " or " & q($values[1])
-  else:
-    for idx in 0..<len(values) - 1:
-      if idx > 0:
-        result.add ", "
-      result.add q($values[idx])
-
-    result.add " or "
-    result.add q($values[^1])
-
-template createSemIllformedAstMsg*(node: PNode,
-                                   expected: set[TNodeKind]): string =
-  var exp: seq[TNodeKind]
-  for e in expected:
-    exp.add e
-
-  "Expected $1, but found $2" % [joinAnyOf(exp), $node.kind]
-
 # xxx: All the SemReport stuff needs to go, it should just be the sem layer
 #      defined/provided diagnostics/etc that we shouldn't muck with. The
 #      code below is a temporary bridge to work around this until fixed.
-from compiler/ast/reports_vm import VMReport
-from compiler/ast/ast_query import MaxLockLevel
-
 func astDiagVmToLegacyReportKind*(
   evt: AstDiagVmKind
   ): ReportKind {.inline.} =
@@ -431,6 +400,7 @@ func astDiagVmToLegacyReportKind*(
   of adVmNodeNotASymbol: rvmNodeNotASymbol
   of adVmNodeNotAProcSymbol: rvmNodeNotAProcSymbol
   of adVmIllegalConv: rvmIllegalConv
+  of adVmIllegalConvFromXToY: rvmIllegalConvFromXToY
   of adVmMissingCacheKey: rvmMissingCacheKey
   of adVmCacheKeyAlreadyExists: rvmCacheKeyAlreadyExists
   of adVmFieldNotFound: rvmFieldNotFound
@@ -450,19 +420,11 @@ func astDiagVmGenToLegacyReportKind*(
   of adVmGenTooManyRegistersRequired: rvmTooManyRegistersRequired
   of adVmGenCannotFindBreakTarget: rvmCannotFindBreakTarget
   of adVmGenNotUnused: rvmNotUnused
-  of adVmGenNotAFieldSymbol: rvmNotAFieldSymbol
   of adVmGenTooLargeOffset: rvmTooLargetOffset
-  of adVmGenCannotGenerateCode: rvmCannotGenerateCode
   of adVmGenCodeGenUnhandledMagic: rvmCannotGenerateCode
-  of adVmGenCodeGenGenericInNonMacro: rvmCannotGenerateCode
-  of adVmGenCodeGenUnexpectedSym: rvmCannotGenerateCode
   of adVmGenCannotCast: rvmCannotCast
-  of adVmGenBadExpandToAstArgRequired: rvmBadExpandToAst
-  of adVmGenBadExpandToAstCallExprRequired: rvmBadExpandToAst
   of adVmGenCannotEvaluateAtComptime: rvmCannotEvaluateAtComptime
   of adVmGenCannotImportc: rvmCannotImportc
-  of adVmGenInvalidObjectConstructor: rvmInvalidObjectConstructor
-  of adVmGenNoClosureIterators: rvmNoClosureIterators
   of adVmGenCannotCallMethod: rvmCannotCallMethod
 
 func astDiagToLegacyReportKind*(
@@ -470,6 +432,9 @@ func astDiagToLegacyReportKind*(
   vmGenDiag: Option[AstDiagVmGenKind] = none(AstDiagVmGenKind),
   vmEvent: Option[AstDiagVmKind] = none(AstDiagVmKind)
   ): ReportKind {.inline.} =
+  ## with the introduction of `adSemDefNameSym` style diagnostics, this
+  ## function is no longer all that sensible. `AstDiagKind` will move towards
+  ## very broad categories and they'll no longer map to "reports".
   case diag
   of adWrappedError: rsemWrappedError
   of adSemTypeMismatch: rsemTypeMismatch
@@ -481,6 +446,7 @@ func astDiagToLegacyReportKind*(
   of adSemExpectedIdentifier: rsemExpectedIdentifier
   of adSemExpectedIdentifierInExpr: rsemExpectedIdentifierInExpr
   of adSemExpectedIdentifierWithExprContext: rsemExpectedIdentifierWithExprContext
+  of adSemExpectedIdentifierQuoteLimit: rsemExpectedIdentifierQuoteLimit
   of adSemOnlyDeclaredIdentifierFoundIsError: rsemOnlyDeclaredIdentifierFoundIsError
   of adSemModuleAliasMustBeIdentifier: rsemModuleAliasMustBeIdentifier
   of adSemCannotImportItself: rsemCannotImportItself
@@ -505,8 +471,6 @@ func astDiagToLegacyReportKind*(
   of adSemLocksPragmaBadLevelString: rsemLocksPragmaBadLevel
   of adSemBorrowPragmaNonDot: rsemBorrowPragmaNonDot
   of adSemInvalidExtern: rsemInvalidExtern
-  of adSemBadDeprecatedArg: rsemBadDeprecatedArg
-  of adSemBadDeprecatedArgs: rsemBadDeprecatedArgs
   of adSemMisplacedEffectsOf: rsemMisplacedEffectsOf
   of adSemMissingPragmaArg: rsemMissingPragmaArg
   of adSemCannotPushCast: rsemCannotPushCast
@@ -547,6 +511,7 @@ func astDiagToLegacyReportKind*(
   of adSemUndeclaredField: rsemUndeclaredField
   of adSemCannotInstantiate: rsemCannotInstantiate
   of adSemWrongNumberOfGenericParams: rsemWrongNumberOfGenericParams
+  of adSemCalleeHasAnError: rsemCalleeHasAnError
   of adSemExpressionHasNoType: rsemExpressionHasNoType
   of adSemTypeExpected: rsemTypeExpected
   of adSemIllformedAst: rsemIllformedAst
@@ -562,6 +527,7 @@ func astDiagToLegacyReportKind*(
   of adSemCannotInferTypeOfLiteral: rsemCannotInferTypeOfLiteral
   of adSemProcHasNoConcreteType: rsemProcHasNoConcreteType
   of adSemPragmaDisallowedForTupleUnpacking: rsemPragmaDisallowedForTupleUnpacking
+  of adSemIllegalCompileTime: rsemIllegalCompileTime
   of adSemDifferentTypeForReintroducedSymbol: rsemDifferentTypeForReintroducedSymbol
   of adSemThreadvarCannotInit: rsemThreadvarCannotInit
   of adSemTypeKindMismatch: rsemTypeKindMismatch
@@ -571,6 +537,9 @@ func astDiagToLegacyReportKind*(
   of adSemSelectorMustBeOfCertainTypes: rsemSelectorMustBeOfCertainTypes
   of adSemInvalidPragmaBlock: rsemInvalidPragmaBlock
   of adSemConceptPredicateFailed: rsemConceptPredicateFailed
+  of adSemDotOperatorsNotEnabled: rsemEnableDotOperatorsExperimental
+  of adSemCallOperatorsNotEnabled: rsemEnableCallOperatorExperimental
+  of adSemUnexpectedPattern: rsemUnexpectedPattern
   of adSemConstantOfTypeHasNoValue: rsemConstantOfTypeHasNoValue
   of adSemTypeConversionArgumentMismatch: rsemTypeConversionArgumentMismatch
   of adSemUnexpectedEqInObjectConstructor: rsemUnexpectedEqInObjectConstructor
@@ -592,6 +561,7 @@ func astDiagToLegacyReportKind*(
   of adSemExprHasNoAddress: rsemExprHasNoAddress
   of adSemExpectedOrdinal: rsemExpectedOrdinal
   of adSemConstExprExpected: rsemConstExprExpected
+  of adSemExpectedRangeType: rsemExpectedRange
   of adSemRecursiveDependencyIterator: rsemRecursiveDependencyIterator
   of adSemCallIndirectTypeMismatch: rsemCallIndirectTypeMismatch
   of adSemSystemNeeds: rsemSystemNeeds
@@ -607,6 +577,8 @@ func astDiagToLegacyReportKind*(
   of adSemDisallowedTypedescForTupleField: rsemDisallowedTypedescForTupleField
   of adSemNamedExprNotAllowed: rsemNamedExprNotAllowed
   of adSemCannotMixTypesAndValuesInTuple: rsemCannotMixTypesAndValuesInTuple
+  of adSemNoReturnTypeDeclared: rsemNoReturnTypeDeclared
+  of adSemReturnNotAllowed: rsemReturnNotAllowed
   of adSemFieldAssignmentInvalidNeedSpace: rsemFieldAssignmentInvalidNeedSpace
   of adSemFieldAssignmentInvalid: rsemFieldAssignmentInvalid
   of adSemFieldNotAccessible: rsemFieldNotAccessible
@@ -616,6 +588,20 @@ func astDiagToLegacyReportKind*(
   of adSemExpectedObjectType: rsemExpectedObjectType
   of adSemExpectedObjectOfType: rsemExpectedObjectType
   of adSemDistinctDoesNotHaveDefaultValue: rsemDistinctDoesNotHaveDefaultValue
+  of adSemFoldRangeCheckForLiteralConversionFailed: rsemCantConvertLiteralToRange
+  of adSemIndexOutOfBoundsStatic: rsemStaticOutOfBounds
+  of adSemStaticFieldNotFound: rsemStaticFieldNotFound
+  of adSemInvalidIntDefine: rsemInvalidIntdefine
+  of adSemInvalidBoolDefine: rsemInvalidBooldefine
+  of adSemFoldOverflow: rsemSemfoldOverflow
+  of adSemFoldDivByZero: rsemSemfoldDivByZero
+  of adSemInvalidRangeConversion: rsemSemfoldInvalidConversion
+  of adSemFoldCannotComputeOffset: rsemCantComputeOffsetof
+  of adSemDefNameSym: rsemExpectedIdentifier
+  of adSemCompilerOptionInvalid: rsemCompilerOptionInvalid
+  of adSemDeprecatedCompilerOpt: rsemDeprecatedCompilerOpt
+  of adSemCompilerOptionArgInvalid: rsemCompilerOptionArgInvalid
+  of adSemDeprecatedCompilerOptArg: rsemDeprecatedCompilerOptArg
 
 func astDiagToLegacyReportKind*(diag: PAstDiag): ReportKind {.inline.} =
   case diag.kind
@@ -626,747 +612,11 @@ func astDiagToLegacyReportKind*(diag: PAstDiag): ReportKind {.inline.} =
   else:
     astDiagToLegacyReportKind(diag.kind)
 
-func astDiagToLegacyReport*(diag: PAstDiag): Report {.inline.} =
-  ## legacy because it converts a diag to a Sem/VM report wrapped in a Report.
-  ## Why, you might ask? Well that's because reports are a mess and it'll take
-  ## many messy intermediate steps to get out of this quagmire. So at present
-  ## we do this conversion such that we can make use of `cli_reporter`...
-  ## another things that needs to be broken down.
-
-  template magicToStr(m: TMagic): string =
-    # TODO: figure out what consistent approach to take for creating human
-    #       readable strings out of magics
-    case m
-    of mLow: "low"
-    of mHigh: "high"
-    of mSizeOf: "sizeof"
-    else: unreachable()
-
-  let kind = astDiagToLegacyReportKind(diag)
-      
-  var
-    semRep: SemReport
-    vmRep: VMReport
-
-  case diag.kind
-  of adWrappedError:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemWrappedError,
-        ast: diag.wrongNode)
-  of adSemTypeMismatch:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemTypeMismatch,
-        typeMismatch: diag.typeMismatch,
-        ast: diag.wrongNode)
-  of adSemIllegalConversion:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemIllegalConversion,
-        typeMismatch: diag.typeMismatch,
-        ast: diag.wrongNode)
-  of adSemConflictingExportnims:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemConflictingExportnims,
-        symbols: @[diag.wrongNode.sym, diag.conflict],
-        ast: diag.wrongNode)
-  of adSemAmbiguousIdentWithCandidates:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemAmbiguousIdentWithCandidates,
-        sym: diag.candidateSyms[0],
-        symbols: diag.candidateSyms,
-        ast: diag.wrongNode)
-  of adSemTypeNotAllowed:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemTypeNotAllowed,
-        allowedType: diag.allowedType,
-        ast: diag.wrongNode)
-  of adSemAmbiguousIdent,
-      adSemExpectedIdentifier,
-      adSemModuleAliasMustBeIdentifier,
-      adSemInvalidPragma,
-      adSemStringLiteralExpected,
-      adSemIntLiteralExpected,
-      adSemOnOrOffExpected,
-      adSemCallconvExpected,
-      adSemUnknownExperimental,
-      adSemPragmaOptionExpected,
-      adSemUnexpectedPushArgument,
-      adSemMismatchedPopPush,
-      adSemExcessiveCompilePragmaArgs,
-      adSemEmptyAsm,
-      adSemLinePragmaExpectsTuple,
-      adSemLocksPragmaExpectsList,
-      adSemBorrowPragmaNonDot,
-      adSemBadDeprecatedArg,
-      adSemBadDeprecatedArgs,
-      adSemMisplacedEffectsOf,
-      adSemMissingPragmaArg,
-      adSemCannotPushCast,
-      adSemCastRequiresStatement,
-      adSemImportjsRequiresJs,
-      adSemBitsizeRequires1248,
-      adSemAlignRequiresPowerOfTwo,
-      adSemNoReturnHasReturn,
-      adSemMisplacedDeprecation,
-      adSemFatalError,
-      adSemNoUnionForJs,
-      adSemBitsizeRequiresPositive,
-      adSemExperimentalRequiresToplevel,
-      adSemPragmaDynlibRequiresExportc,
-      adSemWrongNumberOfArguments,
-      adVmDerefNilAccess,
-      adVmDerefAccessOutOfBounds,
-      adVmDerefAccessTypeMismatch,
-      adSemRawTypeMismatch,
-      adSemExpressionCannotBeCalled,
-      adSemCallInCompilesContextNotAProcOrField,
-      adSemExpressionHasNoType,
-      adSemTypeExpected,
-      adSemIllformedAst,
-      adSemInvalidExpression,
-      adSemExpectedNonemptyPattern,
-      adSemPragmaDisallowedForTupleUnpacking,
-      adSemThreadvarCannotInit,
-      adSemLetNeedsInit,
-      adSemConstExpressionExpected,
-      adSemSelectorMustBeOfCertainTypes,
-      adSemInvalidPragmaBlock,
-      adSemConceptPredicateFailed,
-      adSemIsOperatorTakes2Args,
-      adSemNoTupleTypeForConstructor,
-      adSemInvalidOrderInArrayConstructor, # xxx: used to capture, but not report, count mismatch
-      adSemStackEscape,
-      adSemVarForOutParamNeeded,
-      adSemExprHasNoAddress,
-      adSemConstExprExpected,
-      adSemDisallowedNilDeref,
-      adSemCannotReturnTypeless,
-      adSemExpectedValueForYield,
-      adSemNamedExprExpected,
-      adSemDisallowedTypedescForTupleField,
-      adSemNamedExprNotAllowed,
-      adSemFieldAssignmentInvalidNeedSpace,
-      adSemFieldAssignmentInvalid,
-      adSemObjectConstructorIncorrect,
-      adSemExpectedObjectType:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: kind,
-        ast: diag.wrongNode)
-  of adSemUseOrDiscardExpr:
-    semRep = SemReport(
-        location: std_options.some diag.undiscarded.info, # xxx: location override
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemUseOrDiscardExpr,
-        ast: diag.wrongNode,
-        wrongNode: diag.undiscarded)
-  of adSemUnexpectedEqInObjectConstructor:
-    semRep = SemReport(
-        location: std_options.some diag.eqInfo,   # xxx: location override
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: kind,
-        ast: diag.wrongNode)
-  of adSemExpectedIdentifierInExpr:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemExpectedIdentifierInExpr,
-        wrongNode: diag.notIdent,
-        ast: diag.wrongNode)
-  of adSemExpectedIdentifierWithExprContext:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemExpectedIdentifierWithExprContext,
-        wrongNode: diag.expr,
-        ast: diag.wrongNode)
-  of adSemUndeclaredIdentifier:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemUndeclaredIdentifier,
-        str: diag.name,
-        spellingCandidates: diag.spellingCandidates,
-        recursiveDeps: diag.recursiveDeps,
-        ast: diag.wrongNode)
-  of adSemOnlyDeclaredIdentifierFoundIsError:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemOnlyDeclaredIdentifierFoundIsError,
-        str: diag.identName,
-        ast: diag.wrongNode,
-        wrongNode: diag.err)
-  of adSemCannotImportItself:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemCannotImportItself,
-        sym: diag.selfModule,
-        ast: diag.wrongNode)
-  of adSemIllegalCustomPragma:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemIllegalCustomPragma,
-        sym: diag.customPragma,
-        ast: diag.wrongNode)
-  of adSemWrongIdent:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemWrongIdent,
-        expectedIdents: diag.allowedIdents,
-        ast: diag.wrongNode)
-  of adSemAsmEmitExpectsStringLiteral:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemIllformedAst,
-        str: "Expected string literal for asm/emit statement [1] but AST" &
-              "contains '$1'" % $diag.unexpectedKind,
-        ast: diag.wrongNode)
-  of adSemRaisesPragmaExpectsObject,
-      adSemCannotInferTypeOfLiteral,
-      adSemProcHasNoConcreteType,
-      adSemCannotAssignTo:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: kind,
-        typ: diag.wrongType,
-        ast: diag.wrongNode)
-  of adSemLocksPragmaBadLevelRange:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemLocksPragmaBadLevel,
-        str: "integer must be within 0.." & $MaxLockLevel,
-        ast: diag.wrongNode)
-  of adSemLocksPragmaBadLevelString:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemLocksPragmaBadLevel,
-        str: "invalid string literal for locks pragma (only allowed string is \"unknown\")",
-        ast: diag.wrongNode)
-  of adSemInvalidExtern:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemInvalidExtern,
-        sym: diag.compProcToBe,
-        externName: diag.externName,
-        ast: diag.wrongNode)
-  of adSemPragmaRecursiveDependency:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemPragmaRecursiveDependency,
-        sym: diag.userPragma,
-        ast: diag.wrongNode)
-  of adSemCustomUserError:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemCustomUserError,
-        str: diag.errmsg,
-        ast: diag.wrongNode)
-  of adSemImplicitPragmaError:
-    semRep = SemReport(
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemImplicitPragmaError,
-        sym: diag.implicitPragma,
-        ast: diag.wrongNode)
-  of adSemIncompatibleDefaultExpr:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemIncompatibleDefaultExpr,
-      sym: diag.formal,
-      ast: diag.wrongNode)
-  of adVmUnsupportedNonNil:
-    vmRep = VMReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rvmUnsupportedNonNil,
-      typ: diag.unsupported,
-      ast: diag.wrongNode)
-  of adCyclicTree:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rvmUnsupportedNonNil,
-      ast: diag.cyclic)
-  of adSemCallTypeMismatch:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemCallTypeMismatch,
-      ast: diag.wrongNode,
-      spellingCandidates: diag.callSpellingCandidates,
-      callMismatches: diag.callMismatches)
-  of adSemCallNotAProcOrField:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemCallNotAProcOrField,
-      ast: diag.wrongNode,
-      explicitCall: true,
-      notProcOrField: diag.notProcOrField,
-      unexpectedCandidate: diag.unexpectedCandidates,
-      spellingCandidates: diag.spellingAlts)
-  of adSemImplicitDotCallNotAProcOrField:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemCallNotAProcOrField,
-      ast: diag.wrongNode,
-      explicitCall: false,
-      notProcOrField: diag.notProcOrField,
-      typ: diag.wrongNode[1].typ,
-      unexpectedCandidate: diag.unexpectedCandidates,
-      spellingCandidates: diag.spellingAlts)
-  of adSemUndeclaredField:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemUndeclaredField,
-      ast: diag.wrongNode,
-      sym: diag.givenSym,
-      typ: diag.symTyp)
-  of adSemCannotInstantiate:
-    semRep = SemReport(
-      location: std_options.some diag.callLineInfo,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemCannotInstantiate,
-      ast: diag.wrongNode)
-  of adSemWrongNumberOfGenericParams:
-    semRep = SemReport(
-      location: std_options.some diag.gnrcCallLineInfo,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemWrongNumberOfGenericParams,
-      ast: diag.wrongNode,
-      countMismatch: diag.countMismatch)
-  of adSemIllformedAstExpectedPragmaOrIdent:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemIllformedAst,
-      ast: diag.wrongNode,
-      str: "Expected postfix, pragma or indent, but found " &
-              $diag.wrongNode.kind)
-  of adSemIllformedAstExpectedOneOf:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemIllformedAst,
-      ast: diag.wrongNode,
-      str: createSemIllformedAstMsg(diag.wrongNode, diag.expectedKinds))
-  of adSemImplementationExpected:
-    semRep = SemReport(
-      location: std_options.some diag.routineDefStartPos,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      sym: diag.routineSym)
-  of adSemImplementationNotAllowed:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      sym: diag.symWithImpl)
-  of adSemCannotConvertToRange:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      typ: diag.convTyp,
-      str: $diag.floatVal)
-  of adSemProveInit:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      sym: diag.unproven)
-  of adSemDifferentTypeForReintroducedSymbol:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemDifferentTypeForReintroducedSymbol,
-      ast: diag.wrongNode,
-      sym: diag.reintrod,
-      typeMismatch: @[SemTypeMismatch(actualType: diag.foundTyp,
-                                      formalType: diag.reintrod.typ)])
-  of adSemTypeKindMismatch:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemTypeKindMismatch,
-      ast: diag.wrongNode,
-      typeMismatch: @[SemTypeMismatch(actualType: diag.givenTyp,
-                                      formalTypeKind: diag.expectedTypKinds)])
-  of adSemCannotCastTypes:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemCannotCastTypes,
-      ast: diag.wrongNode,
-      typeMismatch: diag.typeMismatch)
-  of adSemWrongNumberOfVariables:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemWrongNumberOfVariables,
-      ast: diag.wrongNode,
-      countMismatch: (diag.varsExpected, diag.varsGiven))
-  of adSemConstantOfTypeHasNoValue:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      sym: diag.constSym)
-  of adSemTypeConversionArgumentMismatch:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemTypeConversionArgumentMismatch,
-      ast: diag.wrongNode,
-      countMismatch: (1, diag.convArgsRecvd))
-  of adSemCannotBeConvertedTo:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemCannotBeConvertedTo,
-      ast: diag.inputVal,              # xxx: ignores `diag.wrongNode`
-      typ: diag.targetTyp)
-  of adSemCannotCastToNonConcrete:
-    semRep = SemReport(
-      location: std_options.some diag.wrongNode[0].info, # xxx: location override
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemCannotCastToNonConcrete,
-      ast: diag.wrongNode,
-      typ: diag.wrongType)
-  of adSemMagicExpectTypeOrValue:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      str: magicToStr(diag.magic))
-  of adSemLowHighInvalidArgument:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      typ: diag.invalidTyp,
-      str: magicToStr(diag.highLow))
-  of adSemUnknownIdentifier:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      sym: diag.unknownSym)
-  of adSemInvalidTupleConstructorKey:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.invalidKey) # xxx: wrongNode/ast override
-  of adSemExpectedOrdinalArrayIdx:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemExpectedOrdinal,
-      ast: diag.indexExpr,
-      wrongNode: diag.nonOrdInput, # xxx: wrongNode/ast override
-      typ: diag.nonOrdInput.typ)
-  of adSemIndexOutOfBounds:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemIndexOutOfBounds,
-      ast: diag.wrongNode,
-      typ: diag.ordRange,
-      countMismatch: (diag.maxOrdIdx, diag.outOfBoundsIdx))
-  of adSemExpectedOrdinal:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemExpectedOrdinal,
-      ast: diag.wrongNode,
-      typ: diag.nonOrdTyp)
-  of adSemRecursiveDependencyIterator:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      sym: diag.recurrCallee)
-  of adSemCallIndirectTypeMismatch:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      typ: diag.indirCallTyp)
-  of adSemSystemNeeds:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      str: diag.sysIdent)
-  of adSemLocalEscapesStackFrame:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      sym: diag.escCtx)
-  of adSemImplicitAddrIsNotFirstParam:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      sym: diag.exprRoot)
-  of adSemYieldExpectedTupleConstr:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      typ: diag.tupleTyp)
-  of adSemFieldInitTwice:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      str: diag.dupFld.s)
-  of adSemCannotMixTypesAndValuesInTuple:
-    semRep = SemReport(
-      location: std_options.some diag.wrongFldInfo, # xxx: location override
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode)
-  of adSemFieldNotAccessible:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      sym: diag.inaccessible)
-  of adSemFieldOkButAssignedValueInvalid:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.initVal,
-      sym: diag.targetField)
-  of adSemObjectRequiresFieldInitNoDefault:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemObjectRequiresFieldInitNoDefault,
-      ast: diag.wrongNode,
-      symbols: diag.missing,
-      typ: diag.objTyp)
-  of adSemDistinctDoesNotHaveDefaultValue:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      typ: diag.distinctTyp)
-  of adSemExpectedObjectOfType:
-    semRep = SemReport(
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: kind,
-      ast: diag.wrongNode,
-      typ: diag.expectedObjTyp)
-  of adVmError:
-    let
-      kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()
-      location = diag.location
-
-    case kind
-    of rvmCannotCast:
-      vmRep = VMReport(
-        kind: kind,
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        typeMismatch:
-          @[SemTypeMismatch(actualType: diag.vmErr.actualType,
-                            formalType: diag.vmErr.formalType)])
-    of rvmIndexError:
-      vmRep = VMReport(
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: kind,
-        indexSpec: diag.vmErr.indexSpec)
-    of rvmCannotSetChild, rvmCannotAddChild, rvmCannotGetChild,
-        rvmUnhandledException, rvmNoType, rvmNodeNotASymbol:
-      case diag.vmErr.kind
-      of adVmArgNodeNotASymbol:
-        vmRep = VMReport(
-          location: some diag.vmErr.argAst.info,
-          reportInst: diag.instLoc.toReportLineInfo,
-          kind: kind,
-          str: diag.vmErr.callName & "()",
-          ast: diag.vmErr.argAst)
-      else:
-        vmRep = VMReport(
-          location: std_options.some location,
-          reportInst: diag.instLoc.toReportLineInfo,
-          kind: kind,
-          ast: diag.vmErr.ast)
-    of rvmUserError:
-      vmRep = VMReport(
-        kind: kind,
-        str: diag.vmErr.errMsg,
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo)
-    of rvmErrInternal, rvmNilAccess, rvmIllegalConv, rvmFieldInavailable,
-        rvmFieldNotFound, rvmCacheKeyAlreadyExists, rvmMissingCacheKey:
-      vmRep = VMReport(
-        kind: kind,
-        str: diag.vmErr.msg,
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo)
-    of rvmNotAField:
-      vmRep = VMReport(
-        kind: kind,
-        sym: diag.vmErr.sym,
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo)
-    else:
-      vmRep = VMReport(
-        kind: kind,
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo)
-  of adVmGenError:
-    template magicToString(m: TMagic): string =
-      # TODO: duplicated above, consolidate
-      case m
-      of mSizeOf:   "sizeOf"
-      of mAlignOf:  "align"
-      of mOffsetOf: "offset"
-      else:         $m
-
-    let
-      kind = diag.vmGenErr.kind.astDiagVmGenToLegacyReportKind()
-      location = diag.location
-
-    case diag.vmGenErr.kind
-    of adVmGenCannotCast:
-      vmRep = VMReport(
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rvmCannotCast,
-        typeMismatch:
-          @[SemTypeMismatch(actualType: diag.vmGenErr.actualType,
-                            formalType: diag.vmGenErr.formalType)])
-    of adVmGenCodeGenUnhandledMagic,
-        adVmGenMissingImportcCompleteStruct:
-      vmRep = VMReport(
-        str: magicToString(diag.vmGenErr.magic),
-        kind: kind,
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo)
-    of adVmGenCodeGenGenericInNonMacro,
-        adVmGenCodeGenUnexpectedSym,
-        adVmGenNoClosureIterators,
-        adVmGenCannotImportc,
-        adVmGenCannotCallMethod,
-        adVmGenTooLargeOffset:
-      vmRep = VMReport(
-        str: case diag.vmGenErr.kind
-              of adVmGenCodeGenGenericInNonMacro:
-                "Attempt to generate VM code for generic parameter in non-macro proc"
-              of adVmGenCodeGenUnexpectedSym:
-                "Unexpected symbol for VM code - " & $diag.vmGenErr.sym.kind
-              else:
-                "",
-        sym: diag.vmGenErr.sym,
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: kind)
-    of adVmGenBadExpandToAstArgRequired:
-      vmRep = VMReport(
-        str: "expandToAst requires 1 argument",
-        kind: kind,
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo)
-    of adVmGenBadExpandToAstCallExprRequired:
-      vmRep = VMReport(
-        str: "expandToAst requires a call expression",
-        kind: kind,
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo)
-    of adVmGenNotUnused,
-        adVmGenNotAFieldSymbol,
-        adVmGenCannotGenerateCode,
-        adVmGenCannotEvaluateAtComptime,
-        adVmGenInvalidObjectConstructor:
-      vmRep = VMReport(
-        ast: diag.vmGenErr.ast,
-        kind: kind,
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo)
-    else:
-      vmRep = VMReport(
-        kind: kind,
-        location: std_options.some location,
-        reportInst: diag.instLoc.toReportLineInfo)
-  of adVmQuit:
-    vmRep = VMReport(
-      kind: rvmQuit,
-      exitCode: diag.vmExitCode,
-      location: std_options.some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo)
-
-  result =
-    case kind
-    of repVMKinds:
-      Report(category: repVM, vmReport: vmRep)
-    of repSemKinds:
-      Report(category: repSem, semReport: semRep)
-    else:
-      unreachable()
-
-
 proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
   ## Write out report from the nkError node
   # xxx: legacy report temporarily here until we can rip it out
   assert node.kind == nkError
-  return conf.report(node.diag.astDiagToLegacyReport)
-
-proc getReport*(err: PNode): Report =
-  ## Get report from the nkError node (diagnostic to legacy error conversion)
-  # xxx: legacy report temporarily here until we can rip it out
-  err.diag.astDiagToLegacyReport
+  return conf.report(conf.astDiagToLegacyReport(conf, node.diag))
 
 proc handleReport*(
     conf: ConfigRef,
@@ -1377,6 +627,9 @@ proc handleReport*(
   rep.reportFrom = toReportLineInfo(reportFrom)
   if rep.category in { repSem, repVM } and rep.location.isSome():
     rep.context = conf.getContext(rep.location.get())
+
+  if rep.category == repVM and rep.vmReport.trace != nil:
+    handleReport(conf, wrap(rep.vmReport.trace[]), reportFrom)
 
   let
     userAction = conf.report(rep)
@@ -1403,6 +656,10 @@ template globalAssert*(
     var arg2 = "'$1' failed" % [astToStr(cond)]
     if arg.len > 0: arg2.add "; " & astToStr(arg) & ": " & arg
     handleReport(conf, info, errGenerated, arg2, doRaise, instLoc())
+
+template fatalReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
+  # this works around legacy reports stupidity
+  handleReport(conf, wrap(report, instLoc(), info), instLoc(), doAbort)
 
 template globalReport*(
   conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
@@ -1437,28 +694,116 @@ template localReport*(conf: ConfigRef, report: ReportTypes) =
 template localReport*(conf: ConfigRef, report: Report) =
   handleReport(conf, report, instLoc(), doNothing)
 
+# xxx: `internalError` and `internalAssert` in conjunction with `handleReport`,
+#      and the whole concept of "reports" indicating error handling action at a
+#      callsite, is *terrible*. Since neither will necessarily raise/end
+#      execution of the current routine, which may lead to NPEs and the like.
+
+template internalError*(
+    conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
+  ## Causes an internal error; but does not necessarily raise/end the currently
+  ## executing routine.
+  conf.handleReport(
+    wrap(InternalReport(kind: repKind, msg: fail), instLoc()),
+    instLoc(),
+    doAbort)
+
+template internalError*(
+    conf: ConfigRef, info: TLineInfo,
+    repKind: InternalReportKind, fail: string): untyped =
+  ## Causes an internal error; but does not necessarily raise/end the currently
+  ## executing routine.
+  conf.handleReport(
+    wrap(InternalReport(kind: repKind, msg: fail), instLoc(), info),
+    instLoc(),
+    doAbort)
+
+proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
+                            instLoc: InstantiationInfo) {.noreturn, inline.} =
+  ## this proc firewalls other code from legacy reports, used in conjunction
+  ## with the `internalError` templates
+  let
+    intRep = InternalReport(kind: rintUnreachable, msg: msg)
+    rep =
+      if info == unknownLineInfo:
+        wrap(intRep, instLoc)
+      else:
+        wrap(intRep, instLoc, info)
+
+  conf.handleReport(rep, instLoc, doAbort)
+
+template internalError*(
+    conf: ConfigRef,
+    info: TLineInfo,
+    fail: string,
+  ): untyped =
+  ## Causes an internal error; but does not necessarily raise/end the currently
+  ## executing routine.
+  doInternalUnreachable(conf, info, fail, instLoc())
+
+template internalError*(conf: ConfigRef, fail: string): untyped =
+  ## Causes an internal error; but does not necessarily raise/end the currently
+  ## executing routine.
+  doInternalUnreachable(conf, unknownLineInfo, fail, instLoc())
+
+proc doInternalAssert*(conf: ConfigRef,
+                       instLoc: InstantiationInfo,
+                       msg: string,
+                       info = unknownLineInfo) {.noreturn, inline.} =
+  ## this proc firewalls other code from legacy reports, used in conjunction
+  ## with the `internalAssert` templates
+  let
+    intRep = InternalReport(kind: rintAssert, msg: msg)
+    rep =
+      if info == unknownLineInfo:
+        wrap(intRep, instLoc)
+      else:
+        wrap(intRep, instLoc, info)
+
+  conf.handleReport(rep, instLoc, doAbort)
+
+template internalAssert*(
+    conf: ConfigRef, condition: bool, info: TLineInfo, failMsg: string = "") =
+  ## Causes an internal error if the provided condition evaluates to false; but
+  ## does not necessarily raise/end the currently executing routine.
+  if not condition:
+    doInternalAssert(conf, instLoc(), failMsg, info)
+
+template internalAssert*(conf: ConfigRef, condition: bool, failMsg = "") =
+  ## Causes an internal error if the provided condition evaluates to false; but
+  ## does not necessarily raise/end the currently executing routine.
+  if not condition:
+    doInternalAssert(conf, instLoc(), failMsg)
+
 # xxx: All the LexerReport stuff needs to go, it should just be the lexer
 #      defined/provided diagnostics/etc that we shouldn't muck with. The
 #      code below is a temporary bridge to work around this until fixed.
 
-from compiler/ast/lexer import LexerDiag, LexerDiagKind
+from compiler/ast/lexer import LexerDiag, LexerDiagKind, prettyTok,
+                               diagToHumanStr
 from compiler/ast/reports_lexer import LexerReport
 
 func lexDiagToLegacyReportKind*(diag: LexerDiagKind): ReportKind {.inline.} =
   case diag
-  of lexDiagInternalError: rintIce
-  of lexDiagMalformedUnderscores: rlexMalformedUnderscores
+  of lexDiagMalformedNumUnderscores: rlexMalformedNumUnderscores
+  of lexDiagMalformedIdentUnderscores: rlexMalformedIdentUnderscores
   of lexDiagMalformedTrailingUnderscre: rlexMalformedTrailingUnderscre
   of lexDiagInvalidToken: rlexInvalidToken
+  of lexDiagInvalidTokenSpaceBetweenNumAndIdent: rlexInvalidTokenSpaceBetweenNumAndIdent
   of lexDiagNoTabs: rlexNoTabs
-  of lexDiagInvalidIntegerPrefix: rlexInvalidIntegerPrefix
+  of lexDiagInvalidIntegerLiteralOctalPrefix: rlexInvalidIntegerLiteralOctalPrefix
   of lexDiagInvalidIntegerSuffix: rlexInvalidIntegerSuffix
   of lexDiagNumberNotInRange: rlexNumberNotInRange
   of lexDiagExpectedHex: rlexExpectedHex
   of lexDiagInvalidIntegerLiteral: rlexInvalidIntegerLiteral
+  of lexDiagInvalidNumericLiteral: rlexInvalidNumericLiteral
   of lexDiagInvalidCharLiteral: rlexInvalidCharLiteral
+  of lexDiagInvalidCharLiteralConstant: rlexInvalidCharLiteralConstant
+  of lexDiagInvalidCharLiteralPlatformNewline: rlexInvalidCharLiteralPlatformNewline
+  of lexDiagInvalidCharLiteralUnicodeCodepoint: rlexInvalidCharLiteralUnicodeCodepoint
   of lexDiagMissingClosingApostrophe: rlexMissingClosingApostrophe
-  of lexDiagInvalidUnicodeCodepoint: rlexInvalidUnicodeCodepoint
+  of lexDiagInvalidUnicodeCodepointEmpty: rlexInvalidUnicodeCodepointEmpty
+  of lexDiagInvalidUnicodeCodepointGreaterThan0x10FFFF: rlexInvalidUnicodeCodepointGreaterThan0x10FFFF
   of lexDiagUnclosedTripleString: rlexUnclosedTripleString
   of lexDiagUnclosedSingleString: rlexUnclosedSingleString
   of lexDiagUnclosedComment: rlexUnclosedComment
@@ -1469,26 +814,14 @@ func lexDiagToLegacyReportKind*(diag: LexerDiagKind): ReportKind {.inline.} =
 func lexerDiagToLegacyReport*(diag: LexerDiag): Report {.inline.} =
   let
     kind = diag.kind.lexDiagToLegacyReportKind()
-    rep =
-      case kind
-      of rlexLinterReport:
-        LexerReport(
+    rep = LexerReport(
             location: std_options.some diag.location,
             reportInst: diag.instLoc.toReportLineInfo,
-            msg: diag.msg,
             kind: kind,
-            wanted: diag.wanted,
-            got: diag.got)
-      else:
-        LexerReport(
-          location: std_options.some diag.location,
-          reportInst: diag.instLoc.toReportLineInfo,
-          msg: diag.msg,
-          kind: kind)
-
+            msg: diagToHumanStr(diag))
   result = Report(category: repLexer, lexReport: rep)
 
-proc handleReport*(
+proc handleLexerDiag*(
     conf: ConfigRef,
     diag: LexerDiag,
     reportFrom: InstantiationInfo,
@@ -1498,6 +831,92 @@ proc handleReport*(
   let rep = diag.lexerDiagToLegacyReport()
   handleReport(conf, rep, reportFrom, eh)
 
+# xxx: All the ParserReport stuff needs to go, it should just be the parser
+#      defined/provided diagnostics/etc that we shouldn't muck with. The
+#      code below is a temporary bridge to work around this until fixed.
+from compiler/ast/reports_parser import ParserReport
+from compiler/ast/ast_parsed_types import ParseDiag, ParseDiagKind
+
+func parseDiagToLegacyReportKind(d: ParseDiagKind): ReportKind {.inline.} =
+  case d
+  of pdkInvalidIndentation: rparInvalidIndentation
+  of pdkInvalidIndentationWithForgotEqualSignHint: rparInvalidIndentation
+  of pdkNestableRequiresIndentation: rparNestableRequiresIndentation
+  of pdkIdentExpected: rparIdentExpected
+  of pdkIdentExpectedEmptyAccQuote: rparIdentExpectedEmptyAccQuote
+  of pdkExprExpected: rparExprExpected
+  of pdkMissingToken: rparMissingToken
+  of pdkUnexpectedToken: rparUnexpectedToken
+  of pdkAsmStmtExpectsStrLit: rparAsmStmtExpectsStrLit
+  of pdkFuncNotAllowed: rparFuncNotAllowed
+  of pdkTupleTypeWithPar: rparTupleTypeWithPar
+  of pdkMisplacedParameterVar: rparMisplacedParameterVar
+  of pdkConceptNotInType: rparConceptNotinType
+  of pdkMisplacedExport: rparMisplacedExport
+  of pdkPragmaBeforeGenericParameters: rparPragmaBeforeGenericParameters
+  of pdkInconsistentSpacing: rparInconsistentSpacing
+  of pdkPragmaDoesNotFollowTypeName: rparPragmaNotFollowingTypeName
+  of pdkEnablePreviewDotOps: rparEnablePreviewDotOps
+
+proc parseDiagToLegacyReport(d: ParseDiag): Report =
+  let
+    kind = d.kind.parseDiagToLegacyReportKind
+    rep =
+      case d.kind
+      of pdkInvalidIndentation,
+          pdkNestableRequiresIndentation,
+          pdkIdentExpectedEmptyAccQuote,
+          pdkFuncNotAllowed,
+          pdkTupleTypeWithPar,
+          pdkMisplacedParameterVar,
+          pdkConceptNotInType,
+          pdkMisplacedExport,
+          pdkPragmaBeforeGenericParameters,
+          pdkPragmaDoesNotFollowTypeName,
+          pdkEnablePreviewDotOps:
+        ParserReport(kind: kind,
+                     location: std_options.some d.location,
+                     reportInst: d.instLoc.toReportLineInfo)
+      of pdkInvalidIndentationWithForgotEqualSignHint:
+        ParserReport(kind: rparInvalidIndentationWithForgotEqualSignHint,
+                     location: std_options.some d.location,
+                     reportInst: d.instLoc.toReportLineInfo,
+                     eqInfo: d.eqLineInfo)
+      of pdkMissingToken:
+        var ex: seq[string]
+        for t in d.missedToks:
+          ex.add $t
+        ParserReport(kind: rparMissingToken,
+                     location: std_options.some d.location,
+                     reportInst: d.instLoc.toReportLineInfo,
+                     expected: ex)
+      of pdkUnexpectedToken:
+        ParserReport(kind: rparUnexpectedToken,
+                     location: std_options.some d.location,
+                     reportInst: d.instLoc.toReportLineInfo,
+                     expectedKind: $d.expected,
+                     found: prettyTok(d.actual))
+      of pdkIdentExpected,
+          pdkAsmStmtExpectsStrLit,
+          pdkExprExpected,
+          pdkInconsistentSpacing:
+        ParserReport(kind: kind,
+                     location: std_options.some d.location,
+                     reportInst: d.instLoc.toReportLineInfo,
+                     found: prettyTok(d.found))
+  
+  result = Report(category: repParser, parserReport: rep)
+
+proc handleParserDiag*(
+    conf: ConfigRef,
+    diag: ParseDiag,
+    reportFrom: InstantiationInfo,
+    eh: TErrorHandling = doNothing
+  ) {.inline.} =
+  # REFACTOR: this is a temporary bridge into existing reporting
+  let rep = parseDiagToLegacyReport(diag)
+  handleReport(conf, rep, reportFrom, eh)
+
 proc handleReport*(
     conf: ConfigRef,
     diag: PAstDiag,
@@ -1505,7 +924,7 @@ proc handleReport*(
     eh: TErrorHandling = doNothing
   ) {.inline.} =
   # REFACTOR: this is a temporary bridge into existing reporting
-  let rep = diag.astDiagToLegacyReport()
+  let rep = conf.astDiagToLegacyReport(conf, diag)
   handleReport(conf, rep, reportFrom, eh)
 
 proc semReportCountMismatch*(
@@ -1517,7 +936,36 @@ proc semReportCountMismatch*(
   result = SemReport(kind: kind, ast: node)
   result.countMismatch = (expected, got)
 
-proc illformedAstReport*(node: PNode, explain: string): SemReport {.inline.} =
+proc joinAnyOf*[T](values: seq[T], quote: bool = false): string =
+  proc q(s: string): string =
+    if quote:
+      "'" & s & "'"
+    else:
+      s
+
+  case len(values)
+  of 1:
+    result.add q($values[0])
+  of 2:
+    result.add q($values[0]) & " or " & q($values[1])
+  else:
+    for idx in 0..<len(values) - 1:
+      if idx > 0:
+        result.add ", "
+      result.add q($values[idx])
+
+    result.add " or "
+    result.add q($values[^1])
+
+template createSemIllformedAstMsg*(node: PNode,
+                                   expected: set[TNodeKind]): string =
+  var exp: seq[TNodeKind]
+  for e in expected:
+    exp.add e
+
+  "Expected $1, but found $2" % [joinAnyOf(exp), $node.kind]
+
+proc illformedAstReport(node: PNode, explain: string): SemReport {.inline.} =
   SemReport(kind: rsemIllformedAst, ast: node, str: explain)
 
 template semReportIllformedAst*(
@@ -1531,69 +979,12 @@ template semReportIllformedAst*(
     instLoc(),
     doNothing)
 
-proc illformedAstReport*(node: PNode, 
-                         expected: set[TNodeKind]): SemReport {.inline.} =
-  illformedAstReport(node, createSemIllformedAstMsg(node, expected))
-
 template semReportIllformedAst*(
   conf: ConfigRef, node: PNode, expected: set[TNodeKind]): untyped =
   semReportIllformedAst(conf, node, createSemIllformedAstMsg(node, expected))
 
 template localReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc(), info), instLoc(), doNothing)
-
-template internalError*(
-    conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
-  conf.handleReport(
-    wrap(InternalReport(
-      kind: repKind,
-      msg: fail),
-         instLoc()),
-    instLoc(),
-    doAbort
-  )
-
-template internalError*(
-    conf: ConfigRef, info: TLineInfo,
-    repKind: InternalReportKind, fail: string): untyped =
-  ## Causes an internal error
-  conf.handleReport(wrap(
-    InternalReport(
-      kind: repKind, msg: fail), instLoc(), info),
-                    instLoc(), doAbort)
-
-template internalError*(
-    conf: ConfigRef,
-    info: TLineInfo,
-    fail: string,
-  ): untyped =
-  ## Causes an internal error
-  conf.handleReport(wrap(
-    InternalReport(kind: rintUnreachable, msg: fail),
-    instLoc(), info), instLoc(), doAbort)
-
-template internalError*(
-    conf: ConfigRef,
-    fail: string
-  ): untyped =
-  ## Causes an internal error
-  conf.handleReport(wrap(InternalReport(
-    kind: rintUnreachable, msg: fail), instLoc()), instLoc(), doAbort)
-
-template internalAssert*(
-    conf: ConfigRef, condition: bool, info: TLineInfo, failMsg: string = "") =
-  ## Causes an internal error if the provided condition evaluates to false
-  if not condition:
-    conf.handleReport(wrap(
-      InternalReport(kind: rintAssert, msg: failMsg),
-      instLoc(), info), instLoc(), doAbort)
-
-template internalAssert*(
-    conf: ConfigRef, condition: bool, failMsg: string = "") =
-  ## Causes an internal error if the provided condition evaluates to false
-  if not condition:
-    conf.handleReport(wrap(InternalReport(
-      kind: rintAssert, msg: failMsg), instLoc()), instLoc(), doAbort)
 
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
   if i.fileIndex.int32 < 0:
@@ -1639,52 +1030,3 @@ proc uniqueModuleName*(conf: ConfigRef; fid: FileIndex): string =
       # We mangle upper letters and digits too so that there cannot
       # be clashes with our special meanings of 'Z' and 'O'
       result.addInt ord(c)
-
-proc genSuccessX*(conf: ConfigRef) =
-  ## Generate and write report for the successful compilation parameters
-  var params = UsedBuildParams(linesCompiled: conf.linesCompiled)
-  if conf.cmd in cmdBackends:
-    params = UsedBuildParams(
-      isCompilation: true,
-      gc: $conf.selectedGC,
-      threads: optThreads in conf.globalOptions,
-      optimize:
-        if optOptimizeSpeed in conf.options: "speed"
-        elif optOptimizeSize in conf.options: "size"
-        else: "debug",
-      buildMode:
-        if isDefined(conf, "danger"): "danger"
-        elif isDefined(conf, "release"): "release"
-        else: "debug"
-    )
-
-  params.sec = epochTime() - conf.lastCmdTime
-
-  params.project =
-    case conf.filenameOption
-    of foAbs:
-      $conf.projectFull
-    else:
-      $conf.projectName
-
-  params.output =
-    if optCompileOnly in conf.globalOptions and conf.cmd != cmdJsonscript:
-      $conf.jsonBuildFile
-    elif conf.outFile.isEmpty and
-         conf.cmd notin {cmdJsonscript} + cmdDocLike + cmdBackends:
-      # for some cmd we expect a valid absOutFile
-      "unknownOutput"
-    else:
-      $conf.absOutFile
-
-  when declared(system.getMaxMem):
-    params.mem = getMaxMem()
-    params.isMaxMem = true
-  else:
-    params.mem = getTotalMem()
-
-  if conf.filenameOption != foAbs:
-    params.output = params.output.AbsoluteFile.extractFilename
-
-  discard conf.report(InternalReport(
-    kind: rintSuccessX, buildParams: params))

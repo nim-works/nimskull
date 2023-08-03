@@ -93,6 +93,15 @@ block distinctBase:
     doAssert seq[int].distinctBase is seq[int]
     doAssert "abc".distinctBase == "abc"
 
+  block with_generic_instance:
+    type
+      Type[T] = object
+      Distinct = distinct Type[int]
+
+    # the instantiated type with all generic arguments is returned:
+    doAssert $distinctBase(Type[int]) == "Type[system.int]"
+    doAssert $distinctBase(Distinct)  == "Type[system.int]"
+
   block:
     # simplified from https://github.com/nim-lang/Nim/pull/8531#issuecomment-410436458
     macro uintImpl(bits: static[int]): untyped =
@@ -108,6 +117,7 @@ block distinctBase:
       Uint[bits: static[int]] = distinct uintImpl(bits)
 
     doAssert Uint[128].distinctBase is UintImpl[uint64]
+    doAssert Uint[256].distinctBase isnot UintImpl[uint64]
 
     block:
       type
@@ -256,6 +266,34 @@ static:
   doAssert(not string.supportsCopyMem)
   doAssert x.T is string          # true
   doAssert x.raw_buffer is seq
+
+block supportsCopyMem_with_concept:
+  # ``supportsCopyMem`` must also work with resolved concept types
+  type
+    WithDestructor = object
+    Copyable = object
+    WithRef = object
+      x: ref int
+
+    MatchAll = concept x
+      x is any
+
+  proc `=destroy`(x: var WithDestructor) =
+    # the implementation doesn't matter
+    discard
+
+  template withResolvedConcept(t: untyped): untyped =
+    typeof:
+      var x: MatchAll = t()
+      x
+
+  static:
+    doAssert(not supportsCopyMem(withResolvedConcept(WithDestructor)))
+    doAssert(    supportsCopyMem(withResolvedConcept(Copyable)))
+    # knownIssue: ``ref`` types are not properly checked for when the input
+    # type is a resolved type-class and ``--gc:arc|orc`` is not used
+    when compileOption("gc", "arc") or compileOption("gc", "orc"):
+      doAssert(not supportsCopyMem(withResolvedConcept(WithRef)))
 
 block genericHead:
   type Foo[T1,T2] = object

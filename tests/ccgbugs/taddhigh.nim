@@ -2,6 +2,8 @@ discard """
   output: '''@[5, 5, 5, 5, 5]'''
 """
 
+# TODO: the test applies to all code-generators -- move it somewhere else
+
 # bug #1832
 
 var s = @[5]

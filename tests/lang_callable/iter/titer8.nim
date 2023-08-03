@@ -3,7 +3,8 @@ discard """
 1
 2
 3
-ta da1 1
+ta da
+1 1
 1 2
 1 3
 2 1
@@ -25,7 +26,7 @@ a1: D'''
 """
 # Test first class iterator:
 
-import strutils
+import std/strutils
 
 iterator tokenize2(s: string, seps: set[char] = Whitespace): tuple[
   token: string, isSep: bool] {.closure.} =
@@ -47,17 +48,20 @@ iterator count3(): int {.closure.} =
   yield 2
   yield 3
 
+var output = ""
 for word, isSep in tokenize2("ta da", WhiteSpace):
   if not isSep:
-    stdout.write(word)
-echo ""
+    output.add(word)
+echo output
 
 proc inProc() =
   for c in count3():
     echo c
 
+  var output = ""
   for word, isSep in tokenize2("ta da", WhiteSpace):
-    stdout.write(word)
+    output.add(word)
+  echo output
 
   for c in count3():
     for d in count3():

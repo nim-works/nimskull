@@ -69,6 +69,7 @@ type
     attachedOps*: seq[(TTypeAttachedOp, PackedItemId, PackedItemId)]
     methodsPerType*: seq[(PackedItemId, int, PackedItemId)]
     enumToStringProcs*: seq[(PackedItemId, PackedItemId)]
+    libs*: seq[PackedLib]
 
     emittedTypeInfo*: seq[string]
     backendFlags*: set[ModuleBackendFlag]
@@ -383,13 +384,11 @@ proc storeType(t: PType; c: var PackedEncoder; m: var PackedModule): PackedItemI
     # fill the reserved slot, nothing else:
     m.types[t.uniqueId.item] = p
 
-proc toPackedLib(l: PLib; c: var PackedEncoder; m: var PackedModule): PackedLib =
-  ## the plib hangs off the psym via the .annex field
-  if l.isNil: return
+proc toPackedLib(l: TLib; c: var PackedEncoder; m: var PackedModule): PackedLib =
   result.kind = l.kind
-  result.generated = l.generated
   result.isOverriden = l.isOverriden
-  result.name = toLitId($l.name, m)
+  if l.kind == libDynamic:
+    result.name = storeSymLater(l.name, c, m)
   storeNode(result, l, path)
 
 proc storeSym*(s: PSym; c: var PackedEncoder; m: var PackedModule): PackedItemId =
@@ -418,13 +417,14 @@ proc storeSym*(s: PSym; c: var PackedEncoder; m: var PackedModule): PackedItemId
       p.bitsize = s.bitsize
       p.alignment = s.alignment
 
-    p.externalName = toLitId(if s.loc.r.isNil: "" else: $s.loc.r, m)
-    p.locFlags = s.loc.flags
+    p.externalName = toLitId(s.extname, m)
+    p.extFlags = s.extFlags
     c.addMissing s.typ
     p.typ = s.typ.storeType(c, m)
     c.addMissing s.owner
     p.owner = s.owner.safeItemId(c, m)
-    p.annex = toPackedLib(s.annex, c, m)
+    if s.annex.index != 0:
+      p.annex = (toLitId(s.annex.module.FileIndex, c, m), s.annex.index)
 
     # fill the reserved slot, nothing else:
     m.syms[s.itemId.item] = p
@@ -554,6 +554,14 @@ proc storeInstantiation*(c: var PackedEncoder; m: var PackedModule; s: PSym; i: 
 proc storeExpansion*(c: var PackedEncoder; m: var PackedModule; info: TLineInfo; s: PSym) =
   toPackedNode(newSymNode(s, info), m.bodies, c, m)
 
+proc storeAttachedOp*(c: var PackedEncoder; m: var PackedModule, kind: TTypeAttachedOp, t: PType, s: PSym) =
+  ## Records a type-bound operator attachment action to module `m`.
+  m.attachedOps.add((kind, storeTypeLater(t, c, m), storeSymLater(s, c, m)))
+
+proc storeLib*(c: var PackedEncoder, m: var PackedModule, lib: TLib) =
+  m.libs.add toPackedLib(lib, c, m)
+  flush c, m
+
 proc loadError(err: RodFileError; filename: AbsoluteFile; config: ConfigRef;) =
   case err
   of cannotOpen:
@@ -622,6 +630,7 @@ proc loadRodFile*(filename: AbsoluteFile; m: var PackedModule; config: ConfigRef
   loadSeqSection attachedOpsSection, m.attachedOps
   loadSeqSection methodsPerTypeSection, m.methodsPerType
   loadSeqSection enumToStringProcsSection, m.enumToStringProcs
+  loadSeqSection libsSection, m.libs
   loadSeqSection typeInfoSection, m.emittedTypeInfo
 
   f.loadSection backendFlagsSection
@@ -688,6 +697,7 @@ proc saveRodFile*(filename: AbsoluteFile; encoder: var PackedEncoder; m: var Pac
   storeSeqSection attachedOpsSection, m.attachedOps
   storeSeqSection methodsPerTypeSection, m.methodsPerType
   storeSeqSection enumToStringProcsSection, m.enumToStringProcs
+  storeSeqSection libsSection, m.libs
   storeSeqSection typeInfoSection, m.emittedTypeInfo
 
   f.storeSection backendFlagsSection
@@ -823,10 +833,15 @@ proc loadProcBody(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: in
       result = loadNodes(c, g, thisModule, tree, n0)
     inc i
 
-proc moduleIndex*(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int;
+proc moduleIndex(c: var PackedDecoder; g: PackedModuleGraph; thisModule: int;
+                 module: LitId): int32 {.inline.} =
+  ## Returns the module ID for the stored ``FileIndex`` identified by `module`.
+  result = if module == LitId(0): thisModule.int32
+           else: toFileIndexCached(c, g, thisModule, module).int32
+
+proc moduleIndex*(c: var PackedDecoder; g: PackedModuleGraph; thisModule: int;
                   s: PackedItemId): int32 {.inline.} =
-  result = if s.module == LitId(0): thisModule.int32
-           else: toFileIndexCached(c, g, thisModule, s.module).int32
+  result = moduleIndex(c, g, thisModule, s.module)
 
 proc symHeaderFromPacked(c: var PackedDecoder; g: var PackedModuleGraph;
                          s: PackedSym; si, item: int32): PSym =
@@ -848,14 +863,12 @@ template loadAstBodyLazy(p, field) =
     result.field = loadProcHeader(c, g, si, g[si].fromDisk.bodies, NodePos p.field)
 
 proc loadLib(c: var PackedDecoder; g: var PackedModuleGraph;
-             si, item: int32; l: PackedLib): PLib =
-  # XXX: hack; assume a zero LitId means the PackedLib is all zero (empty)
-  if l.name.int == 0:
-    result = nil
-  else:
-    result = PLib(generated: l.generated, isOverriden: l.isOverriden,
-                  kind: l.kind, name: rope g[si].fromDisk.strings[l.name])
-    loadAstBody(l, path)
+             si: int; l: PackedLib): TLib =
+  result = TLib(isOverriden: l.isOverriden, kind: l.kind)
+  if l.kind == libDynamic:
+    result.name = loadSym(c, g, si, l.name)
+
+  loadAstBody(l, path)
 
 proc symBodyFromPacked(c: var PackedDecoder; g: var PackedModuleGraph;
                        s: PackedSym; si, item: int32; result: PSym) =
@@ -865,7 +878,10 @@ proc symBodyFromPacked(c: var PackedDecoder; g: var PackedModuleGraph;
     loadAstBodyLazy(s, ast)
   else:
     loadAstBody(s, ast)
-  result.annex = loadLib(c, g, si, item, s.annex)
+
+  if s.annex.index != 0:
+    result.annex = LibId(module: moduleIndex(c, g, si, s.annex.module),
+                        index: s.annex.index)
 
   if s.kind in {skLet, skVar, skField, skForVar}:
     result.guard = loadSym(c, g, si, s.guard)
@@ -874,8 +890,8 @@ proc symBodyFromPacked(c: var PackedDecoder; g: var PackedModuleGraph;
   result.owner = loadSym(c, g, si, s.owner)
   let externalName = g[si].fromDisk.strings[s.externalName]
   if externalName != "":
-    result.loc.r = rope externalName
-  result.loc.flags = s.locFlags
+    result.extname = rope externalName
+  result.extFlags = s.extFlags
 
 proc loadSym(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int; s: PackedItemId): PSym =
   if s == nilItemId:
@@ -948,9 +964,8 @@ proc newPackage(config: ConfigRef; cache: IdentCache; fileIdx: FileIndex): PSym 
   let
     filename = AbsoluteFile toFullPath(config, fileIdx)
     info = newLineInfo(fileIdx, 1, 1)
-    pck = getPackageName(config, filename.string)
-    pck2 = if pck.len > 0: pck else: "unknown"
-  result = newSym(skPackage, getIdent(cache, pck2),
+  let desc = getPkgDesc(config, filename.string)
+  result = newSym(skPackage, getIdent(cache, desc.pkgName),
     ItemId(module: PackageModuleId, item: int32(fileIdx)), nil, info)
 
 proc setupLookupTables(g: var PackedModuleGraph; conf: ConfigRef; cache: IdentCache;
@@ -1071,33 +1086,31 @@ proc loadProcBody*(config: ConfigRef, cache: IdentCache;
 
 proc loadTypeFromId*(config: ConfigRef, cache: IdentCache;
                      g: var PackedModuleGraph; module: int; id: PackedItemId): PType =
-  if id.item < g[module].types.len:
+  if id.module == LitId(0) and g[module].typesInit:
+    # it's a type from `module`, but it doesn't have to be cached yet
     result = g[module].types[id.item]
-  else:
-    result = nil
+
   if result == nil:
-    var decoder = PackedDecoder(
-      lastModule: int32(-1),
-      lastLit: LitId(0),
-      lastFile: FileIndex(-1),
-      config: config,
-      cache: cache)
+    setupDecoder()
     result = loadType(decoder, g, module, id)
 
 proc loadSymFromId*(config: ConfigRef, cache: IdentCache;
                     g: var PackedModuleGraph; module: int; id: PackedItemId): PSym =
-  if id.item < g[module].syms.len:
+  ## Loads the symbol with `id` from the context of the module `module`. The
+  ## resulting symbol is cached if it wasn't already.
+  if id.module == LitId(0) and g[module].symsInit:
+    # it's a symbol from `module`, but it doesn't have to be cached yet
     result = g[module].syms[id.item]
-  else:
-    result = nil
+
   if result == nil:
-    var decoder = PackedDecoder(
-      lastModule: int32(-1),
-      lastLit: LitId(0),
-      lastFile: FileIndex(-1),
-      config: config,
-      cache: cache)
+    setupDecoder()
     result = loadSym(decoder, g, module, id)
+
+proc loadLibs*(config: ConfigRef, cache: IdentCache,
+               g: var PackedModuleGraph, module: int): seq[TLib] =
+  setupDecoder()
+  for it in g[module].fromDisk.libs.items:
+    result.add(loadLib(decoder, g, module, it))
 
 proc translateId*(id: PackedItemId; g: PackedModuleGraph; thisModule: int; config: ConfigRef): ItemId =
   if id.module == LitId(0):
@@ -1239,6 +1252,10 @@ proc rodViewer*(rodfile: AbsoluteFile; config: ConfigRef, cache: IdentCache) =
       echo "  ", m.strings[m.syms[i].name], " local ID: ", i, " kind ", m.syms[i].kind
     else:
       echo "  <anon symbol?> local ID: ", i, " kind ", m.syms[i].kind
+
+  echo "all lib objects"
+  for it in m.libs.items:
+    echo "  kind: ", it.kind, " name: ", it.name, " path: ", it.path
 
   echo "symbols: ", m.syms.len, " types: ", m.types.len,
     " top level nodes: ", m.topLevel.nodes.len, " other nodes: ", m.bodies.nodes.len,

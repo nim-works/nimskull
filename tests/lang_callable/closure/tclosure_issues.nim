@@ -1,12 +1,10 @@
 discard """
-  output: '''true
-(999, 0)
-ok 0
-ok 1
-ok 2
-'''
+  targets: "c js vm"
+  output: ""
 """
 
+import std/sequtils
+import mutils
 
 block tissue600:
   for i in 1..1:
@@ -15,8 +13,6 @@ block tissue600:
       reported = true
 
 
-
-import sequtils
 block tissue1502def:
   let xs: seq[tuple[key: string, val: seq[string]]] = @[("foo", @["bar"])]
 
@@ -45,7 +41,7 @@ block tissue1846:
     result.cmp = cmp
 
   var h = initHeap[int](less[int])
-  echo h.cmp(2,3)
+  doAssert h.cmp(2,3) == true
 
 
 
@@ -58,28 +54,39 @@ block tissue1911:
 
     return (bar, baz)
 
-# bug #11523
+# bug https://github.com/nim-lang/nim/issues/11523
 proc foo(): proc =
   let a = 999
   return proc(): (int, int) =
     return (a, 0)
 
-echo foo()()
+doAssert foo()() == (999, 0)
 
+block lifted_var_in_loop_body:
+  # bug https://github.com/nim-lang/nim/issues/5519
 
-block tissue7104:
-  proc sp(cb: proc())=
-      cb()
+  iterator iter(): int =
+    # it's important that the iterator has at least two yield statements,
+    # so that new variables are introduced for each inlined loop body
+    yield 1
+    yield 1
 
-  sp:
-      var i = 0
-      echo "ok ", i
-      sp():
-          inc i
-          echo "ok ", i
-          sp do:
-              inc i
-              echo "ok ", i
+  proc tup(): (int, int) {.noinline.} =
+    ## used to prevent the optimizer from interfering with the test
+    result = (1, 2)
+
+  proc outer() =
+    for _ in iter():
+      # a var tuple where at least one symbol was lifted into the environment
+      # casued the compiler to crash, due to ``transf`` not considering the
+      # possibility of a ``nkVarTuple`` containing lifted locals
+      var (a, b) = tup()
+
+      proc cap() {.closure.} =
+        # capture `a`
+        doAssert a == 1
+
+      cap()
 
 block:
   # a regression test against closure inference happening too early (i.e.

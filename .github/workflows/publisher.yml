@@ -16,13 +16,21 @@ jobs:
   publisher:
     runs-on: ubuntu-latest
 
+    permissions:
+      actions: read
+      contents: write
+
+    environment:
+      name: release
+      url: ${{ steps.release.outputs.url }}
+
     steps:
       # Publish action needs a checkout
       - uses: actions/checkout@v3
 
       # Download the latest instance of artifacts from a build done previously
       - name: Download generated docs
-        uses: dawidd6/action-download-artifact@v2.25.0
+        uses: dawidd6/action-download-artifact@v2.27.0
         with:
           workflow: ci.yml
           workflow_conclusion: success
@@ -32,7 +40,7 @@ jobs:
           path: doc/html
 
       - name: Download generated source archive
-        uses: dawidd6/action-download-artifact@v2.25.0
+        uses: dawidd6/action-download-artifact@v2.27.0
         with:
           workflow: ci.yml
           workflow_conclusion: success
@@ -42,7 +50,7 @@ jobs:
           path: release-staging
 
       - name: Download generated release binaries
-        uses: dawidd6/action-download-artifact@v2.25.0
+        uses: dawidd6/action-download-artifact@v2.27.0
         with:
           workflow: ci.yml
           workflow_conclusion: success
@@ -52,7 +60,7 @@ jobs:
           path: release-staging
 
       - name: Download release manifest tool
-        uses: dawidd6/action-download-artifact@v2.25.0
+        uses: dawidd6/action-download-artifact@v2.27.0
         with:
           workflow: ci.yml
           workflow_conclusion: success
@@ -62,7 +70,7 @@ jobs:
           path: release-staging
 
       - name: Publish docs
-        uses: JamesIves/github-pages-deploy-action@v4.4.1
+        uses: JamesIves/github-pages-deploy-action@v4.4.3
         with:
           branch: gh-pages
           folder: doc/html
@@ -85,7 +93,8 @@ jobs:
           echo "version=$(./release_manifest version)" >> $GITHUB_OUTPUT
         working-directory: release-staging
 
-      - name: Create pre-release
+      - id: release
+        name: Create pre-release
         uses: softprops/action-gh-release@v0.1.15
         with:
           prerelease: true
