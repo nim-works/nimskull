@@ -15,6 +15,9 @@ import
   compiler/ast/[
     ast_types
   ],
+  compiler/backend/[
+    cgir
+  ],
   compiler/front/[
     options,
     msgs
@@ -628,6 +631,14 @@ template frameMsg*(c: ConfigRef, n: PNode) =
     setFrameMsg "$1 $2 $3($4, $5)" % [
       $n.kind,
       $n.id,
+      c.toFullPath(n.info.fileIndex),
+      $n.info.line,
+      $n.info.col]
+
+template frameMsg*(c: ConfigRef, n: CgNode) =
+  {.line.}:
+    setFrameMsg "$1 $2($3, $4)" % [
+      $n.kind,
       c.toFullPath(n.info.fileIndex),
       $n.info.line,
       $n.info.col]
