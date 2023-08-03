@@ -23,10 +23,10 @@ import
   ],
   compiler/backend/[
     backends,
-    cgir
+    cgir,
+    cgirgen
   ],
   compiler/mir/[
-    astgen,
     mirbridge,
     mirgen,
     mirtrees,

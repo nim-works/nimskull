@@ -28,7 +28,7 @@ import
     int128
   ]
 
-from compiler/mir/astgen import translateLit
+from compiler/backend/cgirgen import translateLit
 
 func lastSon*(n: CgNode): CgNode {.inline.} =
   # XXX: replace usages with `n[^1]`

@@ -9,13 +9,13 @@ import
   ],
   compiler/backend/[
     cgir,
+    cgirgen,
     cgirutils
   ],
   compiler/front/[
     options
   ],
   compiler/mir/[
-    astgen,
     mirchangesets,
     mirconstr,
     mirtrees,

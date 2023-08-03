@@ -13,13 +13,13 @@ import
   ],
   compiler/backend/[
     cgmeth,
-    cgir
+    cgir,
+    cgirgen
   ],
   compiler/front/[
     options
   ],
   compiler/mir/[
-    astgen,
     mirbridge,
     mirconstr,
     mirgen,

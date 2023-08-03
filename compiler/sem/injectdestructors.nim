@@ -171,7 +171,6 @@ import
   ],
   compiler/mir/[
     analysis,
-    astgen,
     mirchangesets,
     mirconstr,
     mirtrees,
@@ -203,6 +202,7 @@ from compiler/ast/report_enums import ReportKind
 # XXX: we shouldn't need to be concerned with rendering backend-
 #      IR to text here
 from compiler/backend/cgirutils import render
+from compiler/backend/cgirgen import generateIR
 
 type
   AnalyseCtx = object
