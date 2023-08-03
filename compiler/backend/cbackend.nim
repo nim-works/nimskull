@@ -326,7 +326,7 @@ proc generateCodeForMain(m: BModule, modules: ModuleList) =
     generateTeardown(m.g.graph, modules, body)
 
   # now generate the C code for the body:
-  genStmts(p, body)
+  genStmts(p, canonicalize(m.g.graph, m.idgen, m.module, body, {}))
   var code: string
   code.add(p.s(cpsLocals))
   code.add(p.s(cpsInit))

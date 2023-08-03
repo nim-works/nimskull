@@ -19,6 +19,9 @@ import
   compiler/front/[
     options
   ],
+  compiler/mir/[
+    mirbridge, # for `canonicalize`
+  ],
   compiler/modules/[
     modulegraphs
   ],
@@ -113,7 +116,8 @@ proc generateCodeForMain(globals: PGlobals, graph: ModuleGraph, m: BModule,
   generateMain(graph, modules, body)
   generateTeardown(graph, modules, body)
 
-  genTopLevelStmt(globals, m, body)
+  let owner = m.module
+  genTopLevelStmt(globals, m, canonicalize(graph, m.idgen, owner, body, {}))
 
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point into the JS backend. Generates the code for all modules and
