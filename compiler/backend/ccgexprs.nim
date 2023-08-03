@@ -1137,7 +1137,7 @@ proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
     r = rdLoc(tmp)
     if isRef:
       rawGenNew(p, tmp, "",
-                needsInit = nfAllFieldsSet notin e.flags,
+                needsInit = true,
                 doInitObj = not hasCase)
       t = t.lastSon.skipTypes(abstractInst)
       r = "(*$1)" % [r]
