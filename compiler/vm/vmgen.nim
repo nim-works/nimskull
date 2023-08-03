@@ -254,7 +254,7 @@ func isNimNode(t: PType): bool =
   let t = skipTypes(t, IrrelevantTypes)
   t.sym != nil and t.sym.magic == mPNimrodNode
 
-func gABC*(ctx: var TCtx; n: PNode; opc: TOpcode; a, b, c: TRegister = 0) =
+func gABC*(ctx: var TCtx; i: TLineInfo; opc: TOpcode; a, b, c: TRegister = 0) =
   ## Takes the registers `b` and `c`, applies the operation `opc` to them, and
   ## stores the result into register `a`
   ## The node is needed for debug information
@@ -269,22 +269,22 @@ func gABC*(ctx: var TCtx; n: PNode; opc: TOpcode; a, b, c: TRegister = 0) =
       echo "generating ", opc
   ]#
   ctx.code.add(ins)
-  ctx.debug.add(n.info)
+  ctx.debug.add(i)
 
-proc gABI(c: var TCtx; n: PNode; opc: TOpcode; a, b: TRegister; imm: BiggestInt) =
+proc gABI(c: var TCtx; i: TLineInfo; opc: TOpcode; a, b: TRegister; imm: BiggestInt) =
   # Takes the `b` register and the immediate `imm`, applies the operation `opc`,
   # and stores the output value into `a`.
   # `imm` is signed and must be within [-128, 127]
-  c.config.internalAssert(imm in -128..127 , n.info,
+  c.config.internalAssert(imm in -128..127, i,
     "VM: immediate value does not fit into an int8")
 
   let ins = (opc.TInstrType or (a.TInstrType shl regAShift) or
                            (b.TInstrType shl regBShift) or
                            (imm+byteExcess).TInstrType shl regCShift).TInstr
   c.code.add(ins)
-  c.debug.add(n.info)
+  c.debug.add(i)
 
-proc gABx*(c: var TCtx; n: PNode; opc: TOpcode; a: TRegister = 0; bx: int) =
+proc gABx*(c: var TCtx; i: TLineInfo; opc: TOpcode; a: TRegister = 0; bx: int) =
   # Applies `opc` to `bx` and stores it into register `a`
   # `bx` must be signed and in the range [regBxMin, regBxMax]
 
@@ -295,13 +295,23 @@ proc gABx*(c: var TCtx; n: PNode; opc: TOpcode; a: TRegister = 0; bx: int) =
       echo "generating ", opc
       ]#
 
-  c.config.internalAssert(bx in regBxMin-1..regBxMax, n.info,
+  c.config.internalAssert(bx in regBxMin-1..regBxMax, i,
     "VM: immediate value does not fit into regBx")
 
   let ins = (opc.TInstrType or a.TInstrType shl regAShift or
             (bx+wordExcess).TInstrType shl regBxShift).TInstr
   c.code.add(ins)
-  c.debug.add(n.info)
+  c.debug.add(i)
+
+# convenience templates that take the line information from the node
+template gABC*(ctx: var TCtx; n: PNode; opc: TOpcode; a, b, c: TRegister = 0) =
+  gABC(ctx, n.info, opc, a, b, c)
+
+template gABI(c: var TCtx; n: PNode; opc: TOpcode; a, b: TRegister; imm: BiggestInt) =
+  gABI(c, n.info, opc, a, b, imm)
+
+template gABx(c: var TCtx, n: PNode, opc: TOpcode; a: TRegister, bx: int) =
+  gABx(c, n.info, opc, a, bx)
 
 proc xjmp(c: var TCtx; n: PNode; opc: TOpcode; a: TRegister = 0): TPosition =
   #assert opc in {opcJmp, opcFJmp, opcTJmp}
