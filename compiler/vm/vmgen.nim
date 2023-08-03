@@ -2114,7 +2114,7 @@ proc genDiscrVal(c: var TCtx, discr, n: PNode, oty: PType): TRegister =
   if n.kind in nkCharLit..nkUInt64Lit:
     # Discriminator value is known at compile-time
 
-    let b = findMatchingBranch(recCase, n)
+    let b = findMatchingBranch(recCase, getInt(n))
     assert b != -1 # no matching branch; should have been caught already
 
     assert n.intVal <= (1 shl discrTyp.numBits) - 1
