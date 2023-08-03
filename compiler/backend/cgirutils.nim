@@ -9,11 +9,60 @@ import
     ast_query,
     typesrenderer
   ],
+  compiler/backend/[
+    cgir
+  ],
   compiler/utils/[
     idioms
   ]
 
 from compiler/ast/renderer import renderTree, TRenderFlag
+
+proc treeRepr*(n: CgNode): string =
+  ## Renders the tree representation of `n` to text.
+  proc treeRepr(n: CgNode, indent: int, result: var string) {.nimcall.} =
+    result.add $n.kind
+    result.add " "
+    if n.typ != nil:
+      result.add "typ: "
+      result.add $n.typ
+      result.add " "
+
+    case n.kind
+    of cnkIntLit:
+      result.add "intVal: "
+      result.add $n.intVal
+    of cnkUIntLit:
+      result.add "uintVal: "
+      result.add $cast[BiggestUInt](n.intVal)
+    of cnkFloatLit:
+      result.add "floatVal: "
+      result.add $n.floatVal
+    of cnkStrLit:
+      result.add "strVal: \""
+      result.add n.strVal
+      result.add "\""
+    of cnkPragmaStmt:
+      result.add "pragma: "
+      result.add $n.pragma
+    of cnkSym:
+      result.add "sym: "
+      result.add n.sym.name.s
+      result.add " id: "
+      result.add $n.sym.itemId
+    of cnkEmpty, cnkInvalid, cnkType, cnkAstLit, cnkNilLit, cnkReturnStmt:
+      discard
+    of cnkWithItems:
+      result.add "\n"
+      for i in 0..<n.len:
+        if i > 0:
+          result.add "\n"
+        result.add repeat("  ", indent)
+        result.add $i
+        result.add ": "
+        treeRepr(n[i], indent+1, result)
+
+  treeRepr(n, 0, result)
 
 type
   RenderCtx = object
