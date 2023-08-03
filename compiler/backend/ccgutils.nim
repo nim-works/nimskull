@@ -16,8 +16,7 @@ import
   compiler/ast/[
     wordrecg,
     ast,
-    types,
-    trees
+    types
   ],
   compiler/front/[
     options
@@ -28,21 +27,21 @@ import
   compiler/sem/[
   ],
   compiler/backend/[
-    cgendata
+    cgendata,
+    cgir
   ]
 
-proc getPragmaStmt*(n: PNode, w: TSpecialWord): PNode =
+proc getPragmaStmt*(n: CgNode, w: TSpecialWord): CgNode =
   case n.kind
-  of nkStmtList:
+  of cnkStmtList:
     for i in 0..<n.len:
       result = getPragmaStmt(n[i], w)
       if result != nil: break
-  of nkPragma:
-    for i in 0..<n.len:
-      if whichPragma(n[i]) == w: return n[i]
+  of cnkPragmaStmt:
+    if n.pragma == w: return n
   else: discard
 
-proc stmtsContainPragma*(n: PNode, w: TSpecialWord): bool =
+proc stmtsContainPragma*(n: CgNode, w: TSpecialWord): bool =
   result = getPragmaStmt(n, w) != nil
 
 proc hashString*(conf: ConfigRef; s: string): BiggestInt =

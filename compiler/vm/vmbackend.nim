@@ -16,7 +16,8 @@ import
     lineinfos
   ],
   compiler/backend/[
-    backends
+    backends,
+    cgir
   ],
   compiler/front/[
     msgs,
@@ -113,7 +114,7 @@ proc generateCodeForProc(c: var TCtx, s: PSym, body: sink MirFragment): CodeInfo
   else:
     c.config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
-proc genStmt(c: var TCtx, f: var CodeFragment, stmt: PNode) =
+proc genStmt(c: var TCtx, f: var CodeFragment, stmt: CgNode) =
   ## Generates and emits the code for a statement into the fragment `f`.
   template swapState() =
     swap(c.code, f.code)
@@ -209,7 +210,7 @@ proc generateAliveProcs(c: var TCtx, config: BackendConfig,
       rc = frag.prc.regInfo.len
 
     c.appendCode(frag)
-    c.gABC(c.graph.emptyNode, opcRet)
+    c.gABC(unknownLineInfo, opcRet)
 
     let id = registerProc(c, frag.prc.sym)
     fillProcEntry(c.functions[id.int]): (start: start, regCount: rc)
@@ -278,7 +279,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
 
   let entryPoint = generateCodeForMain(c, bconf, mlist)
 
-  c.gABC(g.emptyNode, opcEof)
+  c.gABC(unknownLineInfo, opcEof)
 
   # ----- code generation is finished
 

@@ -36,7 +36,8 @@ import
     tables
   ],
   compiler/ast/[
-    ast,
+    ast_query,
+    ast_types,
     lineinfos,
     ndi
   ],
@@ -44,12 +45,15 @@ import
     backends,
     cgen,
     cgendata,
+    cgir,
+    compat,
     extccomp
   ],
   compiler/front/[
     options
   ],
   compiler/mir/[
+    mirbridge,
     mirtrees
   ],
   compiler/modules/[
@@ -67,6 +71,8 @@ import
 
 import std/options as std_options
 
+from compiler/ast/ast import id, newNode
+
 # XXX: reports are a legacy facility that is going to be phased out. A
 #      note on how to move forward is left at each usage site in this
 #      module
@@ -78,7 +84,7 @@ type
   InlineProc = object
     ## Information about an inline procedure.
     sym: PSym
-    body: PNode
+    body: CgNode
       ## the fully processed body of the procedure
 
     deps: PackedSet[uint32]
@@ -150,11 +156,11 @@ proc prepare(g: BModuleList, d: var DiscoveryData) =
 
   # emit definitions for the lifted globals we've discovered:
   for _, s in visit(d.globals):
-    defineGlobalVar(g.modules[moduleId(s)], newSymNode(s))
+    defineGlobalVar(g.modules[moduleId(s)], s)
 
   for _, s in visit(d.threadvars):
     let bmod = g.modules[moduleId(s)]
-    fillGlobalLoc(bmod, s, newSymNode(s))
+    fillGlobalLoc(bmod, s)
     declareThreadVar(bmod, s, sfImportc in s.flags)
 
 proc processEvent(g: BModuleList, inl: var InliningData, discovery: var DiscoveryData, partial: var Table[PSym, BProc], evt: sink BackendEvent) =

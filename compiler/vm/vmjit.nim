@@ -22,7 +22,8 @@ import
     ast_query,
   ],
   compiler/backend/[
-    backends
+    backends,
+    cgir
   ],
   compiler/mir/[
     astgen,
@@ -50,8 +51,6 @@ when defined(nimVMDebugGenerate):
   import
     compiler/front/msgs,
     compiler/vm/vmutils
-
-from compiler/ast/ast import newNode
 
 export VmGenResult
 
@@ -180,9 +179,9 @@ proc generateMirCode(c: var TCtx, n: PNode;
     generateCode(c.graph, selectOptions(c), n, result[0], result[1])
 
 proc generateAST(c: var TCtx, tree: sink MirTree,
-                 source: sink SourceMap): PNode {.inline.} =
+                 source: sink SourceMap): CgNode {.inline.} =
   if tree.len > 0: generateAST(c.graph, c.idgen, c.module, tree, source)
-  else:            newNode(nkEmpty)
+  else:            newNode(cnkEmpty)
 
 proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   ## Generates and emits code for the standalone top-level statement `n`.
@@ -246,7 +245,7 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
 proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   c.removeLastEof()
 
-  var body =
+  let body =
     if s.kind == skMacro:
       transformBody(c.graph, c.idgen, s, s.ast[bodyPos])
     else:
@@ -268,15 +267,15 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   discoverFrom(jit.discovery, MagicsToKeep, tree)
   register(c, jit.discovery)
 
-  body = generateAST(c.graph, c.idgen, s, tree, sourceMap)
-  echoOutput(c.config, s, body)
+  let outBody = generateAST(c.graph, c.idgen, s, tree, sourceMap)
+  echoOutput(c.config, s, outBody)
 
-  result = genProc(c, s, body)
+  result = genProc(c, s, outBody)
   if unlikely(result.isErr):
     rewind(jit.discovery)
     return
 
-  c.gABC(body, opcEof)
+  c.gABC(outBody, opcEof)
   updateEnvironment(c, jit.discovery)
 
 proc registerProcedure*(jit: var JitState, c: var TCtx, prc: PSym): FunctionIndex =

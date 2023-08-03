@@ -608,7 +608,7 @@ proc isSinkParam*(s: PSym): bool {.inline.} =
 proc isSinkType*(t: PType): bool {.inline.} =
   t.kind == tySink
 
-const magicsThatCanRaise = {
+const magicsThatCanRaise* = {
   mNone, mSlurp, mStaticExec, mParseExprToAst, mParseStmtToAst, mEcho}
 
 proc canRaiseConservative*(fn: PNode): bool =
