@@ -336,7 +336,8 @@ func toSingleNode(stmts: sink seq[CgNode]): CgNode =
   of 1:
     result = move stmts[0]
   else:
-    result = newStmt(cnkStmtList, unknownLineInfo, stmts)
+    result = newNode(cnkStmtList)
+    result.kids = stmts
 
 proc wrapArg(stmts: sink seq[CgNode], info: TLineInfo, val: sink CgNode): CgNode =
   ## If there are extra statements (i.e. `stmts` is not empty), wraps the
