@@ -19,9 +19,6 @@ import
   compiler/front/[
     options
   ],
-  compiler/mir/[
-    mirbridge, # for `canonicalize`
-  ],
   compiler/modules/[
     modulegraphs
   ],
@@ -33,6 +30,8 @@ import
     containers,
     ropes
   ]
+
+from compiler/mir/mirbridge import canonicalize
 
 type
   BModuleList = SeqMap[FileIndex, BModule]
