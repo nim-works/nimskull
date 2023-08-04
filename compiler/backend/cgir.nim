@@ -153,33 +153,33 @@ type
     of cnkSym:        sym*: PSym
     of cnkPragmaStmt: pragma*: TSpecialWord
     of cnkWithItems:
-      childs*: seq[CgNode]
+      kids*: seq[CgNode]
 
   # future direction: move to a single-sequence-based, data-oriented design
   # for the code-generator IR
 
 func len*(n: CgNode): int {.inline.} =
-  n.childs.len
+  n.kids.len
 
 template `[]`*(n: CgNode, i: Natural): CgNode =
-  n.childs[i]
+  n.kids[i]
 
 template `[]`*(n: CgNode, i: BackwardsIndex): CgNode =
   {.cast(noSideEffect).}:
-    n.childs[i]
+    n.kids[i]
 
 iterator items*(n: CgNode): CgNode =
   var i = 0
-  let L = n.childs.len
+  let L = n.kids.len
   while i < L:
-    yield n.childs[i]
+    yield n.kids[i]
     inc i
 
 iterator pairs*(n: CgNode): (int, CgNode) =
   var i = 0
-  let L = n.childs.len
+  let L = n.kids.len
   while i < L:
-    yield (i, n.childs[i])
+    yield (i, n.kids[i])
     inc i
 
 iterator sliceIt*[T](x: seq[T], lo, hi: Natural): (int, lent T) =
@@ -189,14 +189,14 @@ iterator sliceIt*[T](x: seq[T], lo, hi: Natural): (int, lent T) =
     inc i
 
 proc newStmt*(kind: CgNodeKind, info: TLineInfo,
-              childs: varargs[CgNode]): CgNode =
+              kids: varargs[CgNode]): CgNode =
   result = CgNode(kind: kind, info: info)
-  result.childs = @childs
+  result.kids = @kids
 
 proc newExpr*(kind: CgNodeKind, info: TLineInfo, typ: PType,
-              childs: varargs[CgNode]): CgNode =
+              kids: varargs[CgNode]): CgNode =
   result = CgNode(kind: kind, info: info, typ: typ)
-  result.childs = @childs
+  result.kids = @kids
 
 proc newNode*(kind: CgNodeKind; info = unknownLineInfo;
              typ = PType(nil)): CgNode =

@@ -96,7 +96,7 @@ const
     ## emit, asm, and error handling works
 
 template `[]=`(x: CgNode, i: Natural, n: CgNode) =
-  x.childs[i] = n
+  x.kids[i] = n
 
 proc findPendingModule(m: BModule, s: PSym): BModule =
   let ms = s.itemId.module  #getModule(s)

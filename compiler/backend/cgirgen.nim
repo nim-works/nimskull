@@ -202,13 +202,13 @@ func toMode(kind: range[mnkArg..mnkConsume]): ArgumentMode =
   of mnkConsume: amConsume
 
 template `[]=`(x: CgNode, i: Natural, n: CgNode) =
-  x.childs[i] = n
+  x.kids[i] = n
 
 template `[]=`(x: CgNode, i: BackwardsIndex, n: CgNode) =
-  x.childs[i] = n
+  x.kids[i] = n
 
 template add(x: CgNode, y: CgNode) =
-  x.childs.add y
+  x.kids.add y
 
 proc copyTree(n: CgNode): CgNode =
   case n.kind
@@ -217,17 +217,17 @@ proc copyTree(n: CgNode): CgNode =
     result[] = n[]
   of cnkWithItems:
     result = CgNode(kind: n.kind, info: n.info, typ: n.typ)
-    result.childs.setLen(n.childs.len)
-    for i, it in n.childs.pairs:
+    result.kids.setLen(n.kids.len)
+    for i, it in n.pairs:
       result[i] = copyTree(it)
 
 proc newEmpty(info = unknownLineInfo): CgNode =
   CgNode(kind: cnkEmpty, info: info)
 
-proc newTree(kind: CgNodeKind, info: TLineInfo, childs: varargs[CgNode]): CgNode =
+proc newTree(kind: CgNodeKind, info: TLineInfo, kids: varargs[CgNode]): CgNode =
   ## For node kinds that don't represent standalone statements.
   result = CgNode(kind: kind, info: info)
-  result.childs = @childs
+  result.kids = @kids
 
 func newTypeNode(info: TLineInfo, typ: PType): CgNode =
   CgNode(kind: cnkType, info: info, typ: typ)
@@ -236,18 +236,18 @@ func newSymNode(s: PSym; info = unknownLineInfo): CgNode =
   CgNode(kind: cnkSym, info: info, typ: s.typ, sym: s)
 
 proc newExpr(kind: CgNodeKind, info: TLineInfo, typ: PType,
-             childs: sink seq[CgNode]): CgNode =
+             kids: sink seq[CgNode]): CgNode =
   ## Variant of ``newExpr`` optimized for passing a pre-existing child
   ## node sequence.
   result = CgNode(kind: kind, info: info, typ: typ)
-  result.childs = childs
+  result.kids = kids
 
 proc newStmt(kind: CgNodeKind, info: TLineInfo,
-             childs: sink seq[CgNode]): CgNode =
+             kids: sink seq[CgNode]): CgNode =
   ## Variant of ``newStmt`` optimized for passing a pre-existing child
   ## node sequence.
   result = CgNode(kind: kind, info: info)
-  result.childs = childs
+  result.kids = kids
 
 proc translateLit*(val: PNode): CgNode =
   ## Translates an ``mnkLiteral`` node to a ``CgNode``.
@@ -287,7 +287,7 @@ proc translateLit*(val: PNode): CgNode =
   of nkNimNodeLit:
     node(cnkAstLit, astLit, val[0])
   of nkRange:
-    node(cnkRange, childs, @[translateLit(val[0]), translateLit(val[1])])
+    node(cnkRange, kids, @[translateLit(val[0]), translateLit(val[1])])
   of nkBracket:
     assert val.len == 0
     # XXX: ``mirgen`` having to generate ``mnkLiteral``s for empty seq
@@ -314,7 +314,7 @@ proc copySubTree[A, B](source: PNode, slice: HSlice[A, B], to: var CgNode) =
 
   # resize the node list first:
   let start = to.len
-  to.childs.setLen(start + (b - a) + 1)
+  to.kids.setLen(start + (b - a) + 1)
 
   # then copy all nodes:
   for i in a..b:
@@ -336,8 +336,7 @@ func toSingleNode(stmts: sink seq[CgNode]): CgNode =
   of 1:
     result = move stmts[0]
   else:
-    result = newNode(cnkStmtList)
-    result.childs = move stmts
+    result = newStmt(cnkStmtList, unknownLineInfo, stmts)
 
 proc wrapArg(stmts: sink seq[CgNode], info: TLineInfo, val: sink CgNode): CgNode =
   ## If there are extra statements (i.e. `stmts` is not empty), wraps the
@@ -348,7 +347,7 @@ proc wrapArg(stmts: sink seq[CgNode], info: TLineInfo, val: sink CgNode): CgNode
   else:
     assert val.kind != cnkStmtListExpr
     result = newExpr(cnkStmtListExpr, info, val.typ, stmts)
-    result.childs.add val
+    result.add val
 
 proc newTemp(cl: var TranslateCl, info: TLineInfo, typ: PType): PSym =
   ## Creates and returns a new ``skTemp`` symbol
@@ -476,7 +475,7 @@ proc addToVariantAccess(cl: var TranslateCl, dest: CgNode, field: PSym,
     # ``cnkCheckedFieldAccess`` in another one -- append the check instead.
     # While the order of the checks *should* be irrelevant, we still emit them
     # in the order they were generated originally (i.e. innermost to outermost)
-    dest.childs.insert(check, 1)
+    dest.kids.insert(check, 1)
     # update the type of the expression:
     dest.typ = field.typ
     dest
@@ -1130,16 +1129,16 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
     tbArgs(prev, n.magic, cl)
 
     var node = newExpr(cnkCall, info, n.typ)
-    node.childs.newSeq(1 + prev.len)
+    node.kids.newSeq(1 + prev.len)
     # ``CgNode`` requires a symbol for magics, so we have to create one
-    node.childs[0] = newSymNode(createMagic(cl, n.magic))
+    node.kids[0] = newSymNode(createMagic(cl, n.magic))
 
     case prev.kind
     of vkNone: discard
-    of vkSingle: node.childs[1] = move prev.single
+    of vkSingle: node.kids[1] = move prev.single
     of vkMulti:
       for i, v in prev.list.mpairs:
-        node.childs[1 + i] = move v
+        node.kids[1 + i] = move v
 
     toValues node
   of mnkCall:
@@ -1150,10 +1149,10 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
       # pre-process the argument expressions:
       tbArgs(prev, getCalleeMagic(prev.list[0]), cl)
 
-      node.childs = move prev.list
+      node.kids = move prev.list
     of vkSingle:
       # the procedure is called with no arguments
-      node.childs = @[prev.single]
+      node.kids = @[prev.single]
     of vkNone:
       unreachable()
 

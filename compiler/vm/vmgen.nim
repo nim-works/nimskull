@@ -749,7 +749,7 @@ proc genBranchLit(c: var TCtx, n: CgNode, t: PType): int =
     var cnst: VmConstant
 
     template values: untyped =
-      n.childs.toOpenArray(0, n.childs.high - 1) # -1 for the branch body
+      n.kids.toOpenArray(0, n.kids.high - 1) # -1 for the branch body
 
     case t.kind
     of IntegralTypes-{tyFloat..tyFloat128}:

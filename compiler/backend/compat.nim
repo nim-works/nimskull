@@ -33,7 +33,7 @@ from compiler/backend/cgirgen import translateLit
 func lastSon*(n: CgNode): CgNode {.inline.} =
   # XXX: replace usages with `n[^1]`
   {.cast(noSideEffect).}:
-    n.childs[^1]
+    n.kids[^1]
 
 proc skipConv*(n: CgNode): CgNode {.inline.} =
   result = n
@@ -205,7 +205,7 @@ proc flattenStmts*(n: CgNode): CgNode =
       for it in n.items:
         unnestStmts(it, result)
     else:
-      result.childs.add n
+      result.kids.add n
 
   result = CgNode(kind: cnkStmtList)
   unnestStmts(n, result)
@@ -228,32 +228,32 @@ proc translate*(n: PNode): CgNode =
   of nkObjConstr:
     result = newExpr(cnkObjConstr, n.info, n.typ)
     for i, it in sliceIt(n.sons, 1, n.len-1):
-      result.childs.add translate(it)
+      result.kids.add translate(it)
   of nkBracket:
     result = newExpr(cnkArrayConstr, n.info, n.typ)
     for it in n.items:
-      result.childs.add translate(it)
+      result.kids.add translate(it)
   of nkCurly:
     result = newExpr(cnkSetConstr, n.info, n.typ)
     for it in n.items:
-      result.childs.add translate(it)
+      result.kids.add translate(it)
   of nkTupleConstr:
     result = newExpr(cnkTupleConstr, n.info, n.typ)
     for it in n.items:
       let it = if it.kind == nkExprColonExpr: it[1] else: it
-      result.childs.add translate(it)
+      result.kids.add translate(it)
   of nkClosure:
     result = newExpr(cnkClosureConstr, n.info, n.typ)
-    result.childs = @[translate(n[0]), translate(n[1])]
+    result.kids = @[translate(n[0]), translate(n[1])]
   of nkRange:
     result = newNode(cnkRange, n.info)
-    result.childs = @[translate(n[0]), translate(n[1])]
+    result.kids = @[translate(n[0]), translate(n[1])]
   of nkSym:
     result = newSymNode(n.sym)
     result.info = n.info
   of nkExprColonExpr:
     result = newNode(cnkBinding, n.info)
-    result.childs = @[translate(n[0]), translate(n[1])]
+    result.kids = @[translate(n[0]), translate(n[1])]
   of nkLiterals:
     result = translateLit(n)
   of nkNilLit:
