@@ -2759,7 +2759,7 @@ proc genLvalue(c: var TCtx, n: CgNode, dest: var TDest) =
   of cnkCall:
     # we only reach this case for ``HiddenAddr (DerefView (Call ...))``.
     # Generate the call returning a view as is
-    # XXX: ``astgen`` should not emit these instead
+    # XXX: ``cgirgen`` should not emit these instead
     assert isLocView(n.typ)
     gen(c, n, dest)
   of cnkStmtListExpr:

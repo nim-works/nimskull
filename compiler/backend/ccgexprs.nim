@@ -175,9 +175,9 @@ proc genAssignment(p: BProc, dest, src: TLoc) =
     linefmt(p, cpsStmts, "#nimCopyMem((void*)$1, (NIM_CONST void*)$2, $3);$n",
             [rdLoc(dest), rdLoc(src), getSize(p.config, dest.t)])
   of ctNimOpenArray:
-    # HACK: ``astgen`` elides to-openArray-conversion operations, so we
+    # HACK: ``cgirgen`` elides to-openArray-conversion operations, so we
     #       need to reconstruct that information here. Remove this case
-    #       once ``astgen`` no longer elides the operations
+    #       once ``cgirgen`` no longer elides the operations
     if reifiedOpenArray(dest.lode):
       genOpenArrayConv(p, dest, src)
     else:

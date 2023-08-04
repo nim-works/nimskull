@@ -437,8 +437,8 @@ printed twice.
 To print the generated MIR code for a procedure, `--define:nimShowMir=name`
 can be used. The same limitation as for `nimShowMirInput` apply.
 
-`--define:nimShowMirOutput=name` prints the `PNode`-AST that is output by
-`astgen`. This is AST that the code-generators will operate on.
+`--define:nimShowMirOutput=name` prints the `CgNode`-IR that is output by
+`cgirgen`. This is IR that the code generators operate on.
 
 While all of the defines listed above can be used simultaneously, only a single
 occurrence of each is considered. Each further occurrence will override the

@@ -13,7 +13,7 @@ type
     x is MyType
 
 # semantic analysis changes the type of the ``nkObjConstr`` node to a resolved
-# ``tyUserTypeClass``, which is something not considered by ``astgen`` and the
+# ``tyUserTypeClass``, which is something not considered by ``cgirgen`` and the
 # code generators
 var x: Concept = MyType(val: 1)
 doAssert x.val == 1

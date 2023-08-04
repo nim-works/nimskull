@@ -610,7 +610,7 @@ func undoConversions(buf: var MirNodeSeq, tree: MirTree, src: OpValue) =
   ## When performing a destructive move for ``ref`` values, it's possible for
   ## the source to be an lvalue conversion -- in that case, we want pass the
   ## uncoverted root location to the ``wasMoved`` operation. To do so, we apply
-  ## the conversions in *reverse*. ``astgen`` detects this pattern and removes
+  ## the conversions in *reverse*. ``cgirgen`` detects this pattern and removes
   ## the conversions that cancel each other out.
   var p = NodePosition(src)
   while tree[p].kind in {mnkStdConv, mnkConv}:
