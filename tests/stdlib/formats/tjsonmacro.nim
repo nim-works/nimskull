@@ -3,7 +3,7 @@ discard """
   targets: "c js"
 """
 
-import json, strutils, options, tables
+import std/[json, strutils, options, tables]
 
 # The definition of the `%` proc needs to be here, since the `% c` calls below
 # can only find our custom `%` proc for `Pix` if defined in global scope.
