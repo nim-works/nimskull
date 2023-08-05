@@ -1046,10 +1046,17 @@ template verifyJsonKind(node: JsonNode, kinds: set[JsonNodeKind],
     ]
     raise newException(JsonKindError, msg)
 
-when defined(nimFixedForwardGeneric):
+when defined(nimFixedForwardGeneric): # xxx: this seems unnecessary with the updated bootstrap
 
   macro isRefSkipDistinct*(arg: typed): untyped =
     ## internal only, do not use
+    # xxx: why can't we:
+    # ```
+    #    import std/typetraits
+    #    proc isRefBase*(t: typedesc[distinct]): bool =
+    #       t.distinctBase(true) is ref
+    # ```
+    # instead?
     var impl = getTypeImpl(arg)
     if impl.kind == nnkBracketExpr and impl[0].eqIdent("typeDesc"):
       impl = getTypeImpl(impl[1])
@@ -1193,6 +1200,36 @@ when defined(nimFixedForwardGeneric):
         dst = some(default(T))
       initFromJson(dst.get, jsonNode, jsonPath)
 
+  from std/typetraits import isNamedTuple
+
+  proc initFromJson[T: object|tuple](dst: var T, jsonNode: JsonNode, jsonPath: var string) =
+    let originalJsonPathLen = jsonPath.len ## so we can trucate/reset after
+    when T is tuple:
+      when T.isNamedTuple:
+        # TODO: nimvm workaround for distinct?
+        jsonPath.add "."
+        for name, value in dst.fieldPairs:
+          jsonPath.add name
+          var val = value
+          initFromJson(val, jsonNode.getOrDefault(name), jsonPath)
+          value = val
+          jsonPath.setLen(jsonPath.len - name.len)
+        jsonPath.setLen originalJsonPathLen
+      else:
+        error("Use a named tuple instead of: " & T.repr)
+    elif T is object:
+      jsonPath.add "."
+      for name, value in dst.fieldPairs:
+        # xxx: might need unsafe assign due to kind fields
+        jsonPath.add name
+        var val = value
+        initFromJson(val, jsonNode.getOrDefault(name), jsonPath)
+        value = val
+        jsonPath.setLen(jsonPath.len - name.len)
+      jsonPath.setLen originalJsonPathLen
+    else:
+      error("Unreachable type: " & T.repr)
+
   macro assignDistinctImpl[T: distinct](dst: var T;jsonNode: JsonNode; jsonPath: var string) =
     let typInst = getTypeInst(dst)
     let typImpl = getTypeImpl(dst)
@@ -1209,110 +1246,6 @@ when defined(nimFixedForwardGeneric):
 
   proc initFromJson[T: distinct](dst: var T; jsonNode: JsonNode; jsonPath: var string) =
     assignDistinctImpl(dst, jsonNode, jsonPath)
-
-  proc detectIncompatibleType(typeExpr, lineinfoNode: NimNode) =
-    if typeExpr.kind == nnkTupleConstr:
-      error("Use a named tuple instead of: " & typeExpr.repr, lineinfoNode)
-
-  proc foldObjectBody(dst, typeNode, tmpSym, jsonNode, jsonPath, originalJsonPathLen: NimNode) =
-    case typeNode.kind
-    of nnkEmpty:
-      discard
-    of nnkRecList, nnkTupleTy:
-      for it in typeNode:
-        foldObjectBody(dst, it, tmpSym, jsonNode, jsonPath, originalJsonPathLen)
-
-    of nnkIdentDefs:
-      typeNode.expectLen 3
-      let fieldSym = typeNode[0]
-      let fieldNameLit = newLit(fieldSym.strVal)
-      let fieldPathLit = newLit("." & fieldSym.strVal)
-      let fieldType = typeNode[1]
-
-      # Detecting incompatiple tuple types in `assignObjectImpl` only
-      # would be much cleaner, but the ast for tuple types does not
-      # contain usable type information.
-      detectIncompatibleType(fieldType, fieldSym)
-
-      dst.add quote do:
-        jsonPath.add `fieldPathLit`
-        when nimvm:
-          when isRefSkipDistinct(`tmpSym`.`fieldSym`):
-            # workaround #12489
-            var tmp: `fieldType`
-            initFromJson(tmp, getOrDefault(`jsonNode`,`fieldNameLit`), `jsonPath`)
-            `tmpSym`.`fieldSym` = tmp
-          else:
-            initFromJson(`tmpSym`.`fieldSym`, getOrDefault(`jsonNode`,`fieldNameLit`), `jsonPath`)
-        else:
-          initFromJson(`tmpSym`.`fieldSym`, getOrDefault(`jsonNode`,`fieldNameLit`), `jsonPath`)
-        jsonPath.setLen `originalJsonPathLen`
-
-    of nnkRecCase:
-      let kindSym = typeNode[0][0]
-      let kindNameLit = newLit(kindSym.strVal)
-      let kindPathLit = newLit("." & kindSym.strVal)
-      let kindType = typeNode[0][1]
-      let kindOffsetLit = newLit(uint(getOffset(kindSym)))
-      dst.add quote do:
-        var kindTmp: `kindType`
-        jsonPath.add `kindPathLit`
-        initFromJson(kindTmp, `jsonNode`[`kindNameLit`], `jsonPath`)
-        jsonPath.setLen `originalJsonPathLen`
-        when defined js:
-          `tmpSym`.`kindSym` = kindTmp
-        else:
-          when nimvm:
-            `tmpSym`.`kindSym` = kindTmp
-          else:
-            # fuck it, assign kind field anyway
-            ((cast[ptr `kindType`](cast[uint](`tmpSym`.addr) + `kindOffsetLit`))[]) = kindTmp
-      dst.add nnkCaseStmt.newTree(nnkDotExpr.newTree(tmpSym, kindSym))
-      for i in 1 ..< typeNode.len:
-        foldObjectBody(dst, typeNode[i], tmpSym, jsonNode, jsonPath, originalJsonPathLen)
-
-    of nnkOfBranch, nnkElse:
-      let ofBranch = newNimNode(typeNode.kind)
-      for i in 0 ..< typeNode.len-1:
-        ofBranch.add copyNimTree(typeNode[i])
-      let dstInner = newNimNode(nnkStmtListExpr)
-      foldObjectBody(dstInner, typeNode[^1], tmpSym, jsonNode, jsonPath, originalJsonPathLen)
-      # resOuter now contains the inner stmtList
-      ofBranch.add dstInner
-      dst[^1].expectKind nnkCaseStmt
-      dst[^1].add ofBranch
-
-    of nnkObjectTy:
-      typeNode[0].expectKind nnkEmpty
-      typeNode[1].expectKind {nnkEmpty, nnkOfInherit}
-      if typeNode[1].kind == nnkOfInherit:
-        let base = typeNode[1][0]
-        var impl = getTypeImpl(base)
-        while impl.kind in {nnkRefTy, nnkPtrTy}:
-          impl = getTypeImpl(impl[0])
-        foldObjectBody(dst, impl, tmpSym, jsonNode, jsonPath, originalJsonPathLen)
-      let body = typeNode[2]
-      foldObjectBody(dst, body, tmpSym, jsonNode, jsonPath, originalJsonPathLen)
-
-    else:
-      error("unhandled kind: " & $typeNode.kind, typeNode)
-
-  macro assignObjectImpl[T](dst: var T; jsonNode: JsonNode; jsonPath: var string) =
-    let typeSym = getTypeInst(dst)
-    let originalJsonPathLen = genSym(nskLet, "originalJsonPathLen")
-    result = newStmtList()
-    result.add quote do:
-      let `originalJsonPathLen` = len(`jsonPath`)
-    if typeSym.kind in {nnkTupleTy, nnkTupleConstr}:
-      # both, `dst` and `typeSym` don't have good lineinfo. But nothing
-      # else is available here.
-      detectIncompatibleType(typeSym, dst)
-      foldObjectBody(result, typeSym, dst, jsonNode, jsonPath, originalJsonPathLen)
-    else:
-      foldObjectBody(result, typeSym.getTypeImpl, dst, jsonNode, jsonPath, originalJsonPathLen)
-
-  proc initFromJson[T: object|tuple](dst: var T; jsonNode: JsonNode; jsonPath: var string) =
-    assignObjectImpl(dst, jsonNode, jsonPath)
 
   proc to*[T](node: JsonNode, t: typedesc[T]): T =
     ## `Unmarshals`:idx: the specified node into the object type specified.
