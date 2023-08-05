@@ -331,7 +331,7 @@ proc hasNilSon*(n: PNode): bool =
 proc containsNode*(n: PNode, kinds: TNodeKinds): bool =
   if n == nil: return
   case n.kind
-  of nkEmpty..nkNilLit: result = n.kind in kinds
+  of nkEmpty..nkNilLit, nkError: result = n.kind in kinds
   else:
     for i in 0..<n.len:
       if n.kind in kinds or containsNode(n[i], kinds): return true
