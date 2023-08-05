@@ -81,7 +81,6 @@ proc semForObjectFields(c: TFieldsCtx, typ, forLoop, father: PNode) =
     if call.len > 2:
       localReport(c.c.config, forLoop.info, reportAst(
         rsemParallelFieldsDisallowsCase, call))
-
       return
     # iterate over the selector:
     semForObjectFields(c, typ[0], forLoop, father)
@@ -102,7 +101,6 @@ proc semForObjectFields(c: TFieldsCtx, typ, forLoop, father: PNode) =
   of nkRecList:
     for t in items(typ):
       semForObjectFields(c, t, forLoop, father)
-
   else:
     semReportIllformedAst(c.c.config, typ, {
       nkRecList, nkRecCase, nkNilLit, nkSym})
@@ -114,7 +112,6 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
   var trueSymbol = systemModuleSym(c.graph, getIdent(c.cache, "true"))
   if trueSymbol == nil:
     localReport(c.config, n.info, reportStr(rsemSystemNeeds, "true"))
-
     trueSymbol = newSym(
       skUnknown, getIdent(c.cache, "true"),
       nextSymId c.idgen, getCurrOwner(c), n.info)
@@ -130,14 +127,12 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
       rsemWrongNumberOfVariables,
       expected = call.len - 1 + ord(m == mFieldPairs),
       got = n.len - 2))
-
     return result
 
   const skippedTypesForFields = abstractVar - {tyTypeDesc} + tyUserTypeClasses
   var tupleTypeA = skipTypes(call[1].typ, skippedTypesForFields)
   if tupleTypeA.kind notin {tyTuple, tyObject}:
     localReport(c.config, n.info, reportSem(rsemNoObjectOrTupleType))
-
     return result
   for i in 1..<call.len:
     let calli = call[i]
@@ -146,7 +141,6 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
       let r = typeMismatch(c.config, calli.info, tupleTypeA, tupleTypeB, calli)
       if r.kind == nkError:
         localReport(c.config, r)
-
   inc(c.p.nestedLoopCounter)
   if tupleTypeA.kind == tyTuple:
     var loopBody = n[^1]
