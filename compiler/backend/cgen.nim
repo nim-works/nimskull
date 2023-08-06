@@ -410,8 +410,6 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
         let tmp = defaultValueExpr(p, t, a.lode.info)
         genAssignment(p, a, tmp)
 
-include ccgreset
-
 proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
   let kind = mapTypeChooser(loc)
   case mapType(p.config, loc.t, kind)
