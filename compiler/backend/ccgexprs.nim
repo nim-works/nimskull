@@ -1379,23 +1379,6 @@ proc makeAddr(n: CgNode; idgen: IdGenerator): CgNode =
 proc genSetLengthStr(p: BProc, e: CgNode, d: var TLoc) =
   binaryStmtAddr(p, e, d, "setLengthStrV2")
 
-proc genSwap(p: BProc, e: CgNode, d: var TLoc) =
-  # swap(a, b) -->
-  # temp = a
-  # a = b
-  # b = temp
-  var a, b, tmp: TLoc
-  getTemp(p, skipTypes(e[1].typ, abstractVar), tmp)
-  initLoc(a, locNone, e[1], OnUnknown)
-  initLoc(b, locNone, e[2], OnUnknown)
-  a.flags.incl lfPrepareForMutation
-  b.flags.incl lfPrepareForMutation
-  expr(p, e[1], a) # eval a
-  expr(p, e[2], b) # eval b
-  genAssignment(p, tmp, a)
-  genAssignment(p, a, b)
-  genAssignment(p, b, tmp)
-
 proc rdSetElemLoc(conf: ConfigRef; a: TLoc, typ: PType): Rope =
   # read a location of an set element; it may need a subtraction operation
   # before the set operation
@@ -1776,7 +1759,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mAddI..mPred: binaryArithOverflow(p, e, d, op)
   of mGetTypeInfo: genGetTypeInfo(p, e, d)
   of mGetTypeInfoV2: genGetTypeInfoV2(p, e, d)
-  of mSwap: genSwap(p, e, d)
   of mInc, mDec:
     const opr: array[mInc..mDec, string] = ["+=", "-="]
     const fun64: array[mInc..mDec, string] = ["nimAddInt64", "nimSubInt64"]
