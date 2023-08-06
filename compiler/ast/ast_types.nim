@@ -1237,11 +1237,8 @@ type
     adSemConstExprExpected
     adSemExpectedRangeType
     # semobjconstr
-    adSemFieldAssignmentInvalidNeedSpace
     adSemFieldAssignmentInvalid
     adSemFieldNotAccessible
-    adSemFieldOkButAssignedValueInvalid
-    adSemObjectConstructorIncorrect
     adSemObjectRequiresFieldInitNoDefault
     adSemExpectedObjectType
     adSemExpectedObjectOfType
@@ -1362,9 +1359,7 @@ type
         adSemNamedExprNotAllowed,
         adSemNoReturnTypeDeclared,
         adSemReturnNotAllowed,
-        adSemFieldAssignmentInvalidNeedSpace,
         adSemFieldAssignmentInvalid,
-        adSemObjectConstructorIncorrect,
         adSemExpectedObjectType,
         adSemFoldOverflow,
         adSemFoldDivByZero,
@@ -1512,9 +1507,6 @@ type
       wrongFldInfo*: TLineInfo
     of adSemFieldNotAccessible:
       inaccessible*: PSym
-    of adSemFieldOkButAssignedValueInvalid:
-      targetField*: PSym
-      initVal*: PNode
     of adSemObjectRequiresFieldInitNoDefault:
       missing*: seq[PSym]
       objTyp*: PType
@@ -1827,17 +1819,6 @@ type
 type
   TExprFlag* = enum
     efLValue, efWantIterator, efInTypeof,
-    efNeedStatic,
-      ## Use this in contexts where a static value is mandatory
-    efPreferStatic,
-      ## Use this in contexts where a static value could bring more
-      ## information, but it's not strictly mandatory. This may become
-      ## the default with implicit statics in the future.
-    efPreferNilResult,
-      ## Use this if you want a certain result (e.g. static value),
-      ## but you don't want to trigger a hard error. For example,
-      ## you may be in position to supply a better error message
-      ## to the user.
     efWantStmt, efAllowStmt, efExplain,
     efWantValue, efOperand, efNoSemCheck,
     efNoEvaluateGeneric, efInCall, efFromHlo, efNoSem2Check,
