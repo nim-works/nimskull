@@ -1,13 +1,10 @@
 discard """
-  targets: "c !js vm"
+  targets: "c js vm"
   description: '''
     Regression test for a double-evaluation bug involving assignment to or
     creating view of string characters
   '''
 """
-
-# knownIssue: double evaluation bug with arguments to ``swap`` when using
-# the JavaScript backend
 
 block:
   # for a string access used as the argument to a ``swap`` call, the string
