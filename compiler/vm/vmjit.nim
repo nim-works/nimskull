@@ -29,6 +29,7 @@ import
   compiler/mir/[
     mirbridge,
     mirgen,
+    mirpasses,
     mirtrees,
     sourcemaps,
   ],
@@ -190,6 +191,7 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   # `n` is expected to have been put through ``transf`` already
   var (tree, sourceMap) = generateMirCode(c, n, isStmt = true)
   discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
+  applyPasses(tree, sourceMap, c.module, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
   register(c, jit.discovery)
 
@@ -225,6 +227,7 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   #
   #     If `c` is defined at the top-level, then `x` is a "global" variable
   discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
+  applyPasses(tree, sourceMap, c.module, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
   register(c, jit.discovery)
 
@@ -264,6 +267,7 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   #      to be decided how lifted globals should work in compile-time and
   #      interpreted contexts
   discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
+  applyPasses(tree, sourceMap, s, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
   register(c, jit.discovery)
 
