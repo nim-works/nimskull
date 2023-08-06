@@ -29,7 +29,7 @@ block label:
       res = newStringOfCap(80)
       block label_1:
         while true:
-          if op(readLine(f, res)):
+          if not(readLine(f, res)):
             break
           block label_2:
             var x_cursor = res

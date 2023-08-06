@@ -18,13 +18,13 @@ var splat
 splat = splitFile(path)
 result = (
   :tmp = splat.dir
-  op(splat.dir)
+  wasMoved(splat.dir)
   :tmp,
   :tmp_1 = splat.name
-  op(splat.name)
+  wasMoved(splat.name)
   :tmp_1,
   :tmp_2 = splat.ext
-  op(splat.ext)
+  wasMoved(splat.ext)
   :tmp_2)
 =destroy(splat)
 -- end of expandArc ------------------------
@@ -52,9 +52,9 @@ var lnext
 var :tmp
 :tmp = (lresult, ";")
 lvalue = :tmp[0]
-op(:tmp[0])
+wasMoved(:tmp[0])
 lnext = :tmp[1]
-op(:tmp[1])
+wasMoved(:tmp[1])
 result.value = move(lvalue)
 =destroy(:tmp)
 =destroy_1(lnext)
@@ -69,10 +69,10 @@ var :tmp_2
 try:
   var it_cursor = x
   a = (
-    :tmp = op()
+    :tmp = default()
     =copy(:tmp, it_cursor.key)
     :tmp,
-    :tmp_1 = op()
+    :tmp_1 = default()
     =copy(:tmp_1, it_cursor.val)
     :tmp_1)
   echo([
@@ -94,7 +94,7 @@ try:
     var L = len(a_cursor)
     block label_1:
       while true:
-        if op(<(i, L)):
+        if not(<(i, L)):
           break
         block label_2:
           var splitted
@@ -124,14 +124,14 @@ try:
     var L = len(a_cursor)
     block label_1:
       while true:
-        if op(<(i, L)):
+        if not(<(i, L)):
           break
         block label_2:
           var :tmp_1
           var sym = a_cursor[i]
           addInterfaceDecl(c,
             var :tmp_2 = sym
-            :tmp_1 = op()
+            :tmp_1 = default()
             =copy_1(:tmp_1, :tmp_2)
             :tmp_1)
         inc(i, 1)
@@ -148,7 +148,7 @@ try:
       var :tmp
       par = [type node]((
         var :tmp_1 = this[].value
-        :tmp = op()
+        :tmp = default()
         =copy(:tmp, :tmp_1)
         :tmp, ""))
       break label
@@ -158,11 +158,11 @@ try:
     par = [type node]((parentDir(this[].value),
       :tmp_3 = splitPath(
         var :tmp_5 = this[].value
-        :tmp_2 = op()
+        :tmp_2 = default()
         =copy(:tmp_2, :tmp_5)
         :tmp_2)
       :tmp_4 = :tmp_3.tail
-      op(:tmp_3.tail)
+      wasMoved(:tmp_3.tail)
       :tmp_4))
     =destroy(:tmp_3)
   block label_1:
