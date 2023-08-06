@@ -44,8 +44,7 @@ template startBlock(p: BProc, start: FormatStr = "{$n",
 proc endBlock(p: BProc)
 
 proc loadInto(p: BProc, le, ri: CgNode, a: var TLoc) {.inline.} =
-  if ri.kind == cnkCall and (ri[0].kind != cnkSym or
-                             ri[0].sym.magic == mNone):
+  if ri.kind == cnkCall and getCalleeMagic(ri[0]) == mNone:
     genAsgnCall(p, le, ri, a)
   else:
     # this is a hacky way to fix #1181 (tmissingderef)::

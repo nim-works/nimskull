@@ -70,7 +70,8 @@ import
 
 import std/options as std_options
 
-from compiler/backend/compat import getInt, isOfBranch, skipConv, lastSon
+from compiler/backend/compat import getInt, isOfBranch, skipConv, lastSon,
+  getMagic
 
 from std/bitops import bitor
 
@@ -567,9 +568,8 @@ proc clearDest(c: var TCtx; n: CgNode; dest: var TDest) {.inline.} =
     c.freeTemp(dest)
     dest = -1
 
-proc isNotOpr(n: CgNode): bool =
-  n.kind == cnkCall and n[0].kind == cnkSym and
-    n[0].sym.magic == mNot
+func isNotOpr(n: CgNode): bool {.inline.} =
+  getMagic(n) == mNot
 
 proc genRepeat(c: var TCtx; n: CgNode) =
   # lab1:
@@ -2548,7 +2548,7 @@ proc genCheckedObjAccessAux(c: var TCtx; n: CgNode): TRegister =
   # the call to check if the discriminant is valid
   var checkExpr = n[1]
 
-  let negCheck = checkExpr[0].sym.magic == mNot
+  let negCheck = checkExpr[0].magic == mNot
   if negCheck:
     checkExpr = checkExpr[^1]
 
@@ -2930,17 +2930,14 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     else:
       unreachable(s.kind)
   of cnkCall:
-    if n[0].kind == cnkSym:
-      let s = n[0].sym
-      if s.magic != mNone:
-        genMagic(c, n, dest, s.magic)
-      elif s.kind == skMethod and c.mode != emStandalone:
+    let magic = getMagic(n)
+    if magic != mNone:
+      genMagic(c, n, dest, magic)
+    elif n[0].kind == cnkSym and n[0].sym.kind == skMethod and
+         c.mode != emStandalone:
         # XXX: detect and reject this earlier -- it's not a code
         #      generation error
-        fail(n.info, vmGenDiagCannotCallMethod, sym = s)
-      else:
-        genCall(c, n, dest)
-        clearDest(c, n, dest)
+        fail(n.info, vmGenDiagCannotCallMethod, sym = n[0].sym)
     else:
       genCall(c, n, dest)
       clearDest(c, n, dest)
@@ -3068,7 +3065,8 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     genTypeLit(c, n, n.typ, dest)
   of cnkPragmaStmt, cnkAsmStmt, cnkEmitStmt:
     unused(c, n, dest)
-  of cnkInvalid, cnkRange, cnkExcept, cnkFinally, cnkBranch, cnkBinding:
+  of cnkInvalid, cnkMagic, cnkRange, cnkExcept, cnkFinally, cnkBranch,
+     cnkBinding:
     unreachable(n.kind)
 
 proc genStmt*(c: var TCtx; n: CgNode): Result[void, VmGenDiag] =

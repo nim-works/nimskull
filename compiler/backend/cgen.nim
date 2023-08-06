@@ -577,7 +577,7 @@ proc initLocExpr(p: BProc, e: CgNode, result: var TLoc) =
 
 proc initLocExprSingleUse(p: BProc, e: CgNode, result: var TLoc) =
   initLoc(result, locNone, e, OnUnknown)
-  if e.kind == cnkCall and (e[0].kind != cnkSym or e[0].sym.magic == mNone):
+  if e.kind == cnkCall and getCalleeMagic(e[0]) == mNone:
     # We cannot check for tfNoSideEffect here because of mutable parameters.
     discard "bug #8202; enforce evaluation order for nested calls"
     # We may need to consider that 'f(g())' cannot be rewritten to 'tmp = g(); f(tmp)'

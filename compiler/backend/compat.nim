@@ -53,13 +53,16 @@ proc getOrdValue*(n: CgNode): Int128 =
   of cnkHiddenConv: getOrdValue(n[1])
   else:             unreachable()
 
+func getCalleeMagic*(callee: CgNode): TMagic {.inline.} =
+  case callee.kind
+  of cnkSym:   callee.sym.magic
+  of cnkMagic: callee.magic
+  else:        mNone
+
 proc getMagic*(op: CgNode): TMagic {.inline.}  =
   case op.kind
-  of cnkCall:
-    case op[0].kind
-    of cnkSym: op[0].sym.magic
-    else:      mNone
-  else:        mNone
+  of cnkCall: getCalleeMagic(op[0])
+  else:       mNone
 
 proc isDiscriminantField*(n: CgNode): bool =
   case n.kind
@@ -156,10 +159,9 @@ proc isLValue*(n: CgNode): bool =
 
 proc canRaiseConservative*(fn: CgNode): bool =
   ## Duplicate of `canRaiseConservative <ast_query.html#canRaiseConservative,PNode>`_.
-  if fn.kind == cnkSym and fn.sym.magic notin magicsThatCanRaise:
-    result = false
-  else:
-    result = true
+  # ``mNone`` is also included in the set, therefore this check works even for
+  # non-magic calls
+  getCalleeMagic(fn) in magicsThatCanRaise
 
 proc canRaise*(fn: CgNode): bool =
   ## Duplicate of `canRaise <ast_query.html#canRaise,PNode>`_.
@@ -169,6 +171,8 @@ proc canRaise*(fn: CgNode): bool =
     result = false
   elif fn.kind == cnkSym and fn.sym.magic == mEcho:
     result = true
+  elif fn.kind == cnkMagic:
+    result = fn.magic in magicsThatCanRaise
   else:
     if fn.typ != nil and fn.typ.n != nil and fn.typ.n[0].kind == nkSym:
       result = false

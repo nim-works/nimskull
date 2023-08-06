@@ -370,7 +370,7 @@ proc hash(n: ConstrTree): Hash =
     of cnkWithItems:
       for it in n.items:
         result = result !& hashTree(it)
-    of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt:
+    of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic:
       unreachable()
     result = !$result
 
@@ -399,7 +399,7 @@ proc `==`(a, b: ConstrTree): bool =
           for i in 0..<a.len:
             if not treesEquivalent(a[i], b[i]): return
           result = true
-      of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt:
+      of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic:
         # nodes that cannot appear in construction trees
         unreachable()
 

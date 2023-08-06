@@ -169,8 +169,8 @@ func getCalleeMagic(n: CgNode): TMagic =
   if n.kind == cnkSym: n.sym.magic
   else:                mNone
 
-proc createMagic(cl: var TranslateCl, magic: TMagic): PSym =
-  createMagic(cl.graph, cl.idgen, "op", magic)
+func newMagicNode(magic: TMagic, info: TLineInfo): CgNode =
+  CgNode(kind: cnkMagic, info: info, magic: magic)
 
 func get(t: TreeWithSource, cr: var TreeCursor): lent MirNode {.inline.} =
   cr.origin = sourceFor(t.map, cr.pos.NodeInstance)
@@ -424,7 +424,7 @@ proc buildCheck(cl: var TranslateCl, recCase: PNode, pos: Natural,
   # create a ``contains(lit, discr)`` expression:
   let inExpr =
     newExpr(cnkCall, info, getSysType(cl.graph, info, tyBool), [
-      newSymNode(getSysMagic(cl.graph, info, "contains", mInSet), info),
+      newMagicNode(mInSet, info),
       lit,
       newSymNode(discr.sym)
     ])
@@ -432,7 +432,7 @@ proc buildCheck(cl: var TranslateCl, recCase: PNode, pos: Natural,
   if invert:
     result =
       newExpr(cnkCall, info, getSysType(cl.graph, info, tyBool), [
-        newSymNode(getSysMagic(cl.graph, info, "not", mNot), info),
+        newMagicNode(mNot, info),
         inExpr
       ])
   else:
@@ -1131,8 +1131,7 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
 
     var node = newExpr(cnkCall, info, n.typ)
     node.kids.newSeq(1 + prev.len)
-    # ``CgNode`` requires a symbol for magics, so we have to create one
-    node.kids[0] = newSymNode(createMagic(cl, n.magic))
+    node.kids[0] = newMagicNode(n.magic, info)
 
     case prev.kind
     of vkNone: discard

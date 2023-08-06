@@ -28,6 +28,8 @@ type
 
     cnkSym
     # future direction: split up ``cnkSym`` in the way the MIR does it
+    cnkMagic         ## name of a magic procedure. Only valid in the callee
+                     ## slot of ``cnkCall`` nodes
 
     cnkCall          ## a procedure call. The first operand is the procedure,
                      ## the following operands the arguments
@@ -131,7 +133,7 @@ type
 const
   AllKinds = {low(CgNodeKind)..high(CgNodeKind)}
 
-  cnkWithoutItems* = {cnkInvalid..cnkSym, cnkReturnStmt, cnkPragmaStmt}
+  cnkWithoutItems* = {cnkInvalid..cnkMagic, cnkReturnStmt, cnkPragmaStmt}
   cnkWithItems*    = AllKinds - cnkWithoutItems
 
   cnkLiterals* = {cnkIntLit, cnkUIntLit, cnkFloatLit, cnkStrLit}
@@ -151,6 +153,7 @@ type
     of cnkStrLit:     strVal*: string
     of cnkAstLit:     astLit*: PNode
     of cnkSym:        sym*: PSym
+    of cnkMagic:      magic*: TMagic
     of cnkPragmaStmt: pragma*: TSpecialWord
     of cnkWithItems:
       kids*: seq[CgNode]

@@ -1135,7 +1135,7 @@ proc genCheckedFieldOp(p: PProc, n: CgNode, takeAddr: bool, r: var TCompRes) =
   # nkCall to check if the discriminant is valid
   var checkExpr = n[1]
 
-  let negCheck = checkExpr[0].sym.magic == mNot
+  let negCheck = checkExpr[0].magic == mNot
   if negCheck:
     checkExpr = checkExpr[^1]
 
@@ -1882,7 +1882,7 @@ proc genJSArrayConstr(p: PProc, n: CgNode, r: var TCompRes) =
   r.res.add("]")
 
 proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
-  let op = n[0].sym.magic
+  let op = getCalleeMagic(n[0])
   case op
   of mAddI..mStrToStr: arith(p, n, r, op)
   of mRepr: genRepr(p, n, r)
@@ -2452,7 +2452,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkCall:
     if isEmptyType(n.typ):
       genLineDir(p, n)
-    if (n[0].kind == cnkSym) and (n[0].sym.magic != mNone):
+    if getCalleeMagic(n[0]) != mNone:
       genMagic(p, n, r)
     elif n[0].kind == cnkSym and sfInfixCall in n[0].sym.flags and
         n.len >= 1:
@@ -2523,8 +2523,8 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkTryStmt: genTry(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)
   of cnkPragmaStmt: discard
-  of cnkInvalid, cnkRange, cnkBinding, cnkExcept, cnkFinally, cnkBranch,
-     cnkAstLit:
+  of cnkInvalid, cnkMagic, cnkRange, cnkBinding, cnkExcept, cnkFinally,
+     cnkBranch, cnkAstLit:
     internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =
