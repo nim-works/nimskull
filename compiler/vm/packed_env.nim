@@ -276,7 +276,7 @@ func storeData*(enc: var DataEncoder, e: var PackedEnv, n: PNode)
 func storeDiscrData(enc: var DataEncoder, e: var PackedEnv, s: PSym, v: PNode) =
   let
     recCase = findRecCase(s.owner.typ, s)
-    b = findMatchingBranch(recCase, v)
+    b = findMatchingBranch(recCase, getInt(v))
   assert b != -1
   # We don't have access to vm type information here, so 32 is always
   # used for `numBits`. This is safe, since the both `value` and `index`

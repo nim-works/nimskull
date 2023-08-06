@@ -24,7 +24,7 @@ proc genStringLiteralDataOnlyV2(m: BModule, s: string; result: Rope; isConst: bo
        [result, rope(s.len), makeCString(s),
        rope(if isConst: "const" else: "")])
 
-proc genStringLiteralV2(m: BModule; n: PNode; isConst: bool): Rope =
+proc genStringLiteralV2(m: BModule; n: CgNode; isConst: bool): Rope =
   let id = getOrPut(m.dataCache, n, m.labels)
   if id == m.labels:
     let pureLit = getTempName(m)
@@ -41,7 +41,7 @@ proc genStringLiteralV2(m: BModule; n: PNode; isConst: bool): Rope =
           [result, rope(n.strVal.len), m.tmpBase & rope(id),
           rope(if isConst: "const" else: "")])
 
-proc genStringLiteralV2Const(m: BModule; n: PNode; isConst: bool): Rope =
+proc genStringLiteralV2Const(m: BModule; n: CgNode; isConst: bool): Rope =
   let id = getOrPut(m.dataCache, n, m.labels)
   var pureLit: Rope
   if id == m.labels:
@@ -59,5 +59,5 @@ proc genStringLiteralV2Const(m: BModule; n: PNode; isConst: bool): Rope =
 proc genNilStringLiteral(m: BModule; info: TLineInfo): Rope =
   result = ropecg(m, "((#NimStringDesc*) NIM_NIL)", [])
 
-proc genStringLiteral(m: BModule; n: PNode): Rope =
+proc genStringLiteral(m: BModule; n: CgNode): Rope =
   result = genStringLiteralV2(m, n, isConst = true)

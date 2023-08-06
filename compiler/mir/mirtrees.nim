@@ -132,7 +132,7 @@ type
     mnkConv       ## ``conv(x)``; a conversion. Depending on the source and
                   ## target type, lvalue-ness is preserved
     # XXX: distinguishing between ``stdConv`` and ``conv`` is only done to
-    #      make ``astgen`` a bit more efficient. Further progress should focus
+    #      make ``cgirgen`` a bit more efficient. Further progress should focus
     #      on removing the need for it
     mnkCast       ## ``cast(x)``; produces a new *instance* of the input value
                   ## with a different type

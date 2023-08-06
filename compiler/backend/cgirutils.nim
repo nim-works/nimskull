@@ -6,14 +6,60 @@ import
   ],
   compiler/ast/[
     ast_types,
-    ast_query,
     typesrenderer
+  ],
+  compiler/backend/[
+    cgir
   ],
   compiler/utils/[
     idioms
   ]
 
-from compiler/ast/renderer import renderTree, TRenderFlag
+proc treeRepr*(n: CgNode): string =
+  ## Renders the tree representation of `n` to text.
+  proc treeRepr(n: CgNode, indent: int, result: var string) {.nimcall.} =
+    result.add $n.kind
+    result.add " "
+    if n.typ != nil:
+      result.add "typ: "
+      result.add $n.typ
+      result.add " "
+
+    case n.kind
+    of cnkIntLit:
+      result.add "intVal: "
+      result.add $n.intVal
+    of cnkUIntLit:
+      result.add "uintVal: "
+      result.add $cast[BiggestUInt](n.intVal)
+    of cnkFloatLit:
+      result.add "floatVal: "
+      result.add $n.floatVal
+    of cnkStrLit:
+      result.add "strVal: \""
+      result.add n.strVal
+      result.add "\""
+    of cnkPragmaStmt:
+      result.add "pragma: "
+      result.add $n.pragma
+    of cnkSym:
+      result.add "sym: "
+      result.add n.sym.name.s
+      result.add " id: "
+      result.add $n.sym.itemId
+    of cnkEmpty, cnkInvalid, cnkType, cnkAstLit, cnkNilLit, cnkReturnStmt:
+      discard
+    of cnkWithItems:
+      result.add "\n"
+      for i in 0..<n.len:
+        if i > 0:
+          result.add "\n"
+        result.add repeat("  ", indent)
+        result.add $i
+        result.add ": "
+        treeRepr(n[i], indent+1, result)
+
+  treeRepr(n, 0, result)
 
 type
   RenderCtx = object
@@ -33,8 +79,8 @@ proc disambiguate(c: var RenderCtx, s: PSym): int =
 
   c.syms.add s # remember the symbol
 
-proc render(c: var RenderCtx, ind: int, n: PNode, res: var string) =
-  template add(s: var string, n: PNode) =
+proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
+  template add(s: var string, n: CgNode) =
     render(c, ind, n, res)
 
   template indent(extra = 1) =
@@ -47,33 +93,33 @@ proc render(c: var RenderCtx, ind: int, n: PNode, res: var string) =
   template newLine() =
     indent(0)
 
-  template renderList(n: PNode, sep: untyped; start: int = 0; fin: int = 0) =
+  template renderList(n: CgNode, sep: untyped; start: int = 0; fin: int = 0) =
     ## Renders the items in the slice ``start..<n.len - fin``
     for i in start..<n.len-fin:
       if i > start:
         sep
       res.add n[i]
 
-  template renderList(n: PNode, sep: string; start: int = 0; fin: int = 0) =
+  template renderList(n: CgNode, sep: string; start: int = 0; fin: int = 0) =
     ## Renders the items in the slice ``start..<n.len - fin``
     renderList(n, res.add(sep), start, fin)
 
   case n.kind
-  of nkIntLit..nkInt64Lit:
+  of cnkIntLit:
     res.addInt n.intVal
-  of nkCharLit, nkUIntLit..nkUInt64Lit:
+  of cnkUIntLit:
     res.addInt cast[BiggestUInt](n.intVal)
-  of nkFloatLit..nkFloat128Lit:
+  of cnkFloatLit:
     res.add $n.floatVal
-  of nkStrLiterals:
+  of cnkStrLit:
     res.add '"'
     res.add n.strVal
     res.add '"'
-  of nkNilLit:
+  of cnkNilLit:
     res.add "nil"
-  of nkNimNodeLit:
+  of cnkAstLit:
     res.add "<ast>"
-  of nkSym:
+  of cnkSym:
     res.add n.sym.name.s
     let postfix = disambiguate(c, n.sym)
     if postfix > 0 and n.sym.magic == mNone:
@@ -83,131 +129,136 @@ proc render(c: var RenderCtx, ind: int, n: PNode, res: var string) =
     # highlight cursor locals
     if sfCursor in n.sym.flags:
       res.add "_cursor"
-  of nkType:
+  of cnkType:
     if n.typ.sym != nil:
       res.add $n.typ
     else:
       res.add "[type node]"
-  of nkCheckedFieldExpr, nkHiddenAddr, nkHiddenDeref, nkHiddenStdConv, nkChckRange, nkChckRange64, nkChckRangeF:
+  of cnkCheckedFieldAccess, cnkHiddenAddr, cnkDerefView, cnkHiddenConv, cnkChckRange,
+     cnkChckRange64, cnkChckRangeF:
     res.add n[0]
-  of nkAddr:
+  of cnkAddr:
     res.add "addr "
     res.add n[0]
-  of nkDerefExpr:
+  of cnkDeref:
     res.add n[0]
     res.add "[]"
-  of nkDotExpr:
+  of cnkFieldAccess:
     res.add n[0]
     res.add '.'
     res.add n[1]
-  of nkBracketExpr:
+  of cnkBracketAccess:
     res.add n[0]
     res.add '['
     res.add n[1]
     res.add ']'
-  of nkRange:
+  of cnkRange:
     res.add n[0]
     res.add ".."
     res.add n[1]
-  of nkCast:
+  of cnkCast:
     res.add "cast["
     res.add $n[0].typ
     res.add "]("
     res.add n[1]
     res.add ")"
-  of nkStringToCString:
+  of cnkStringToCString:
     res.add "cstring("
     res.add n[0]
     res.add ')'
-  of nkCStringToString:
+  of cnkCStringToString:
     res.add "string("
     res.add n[0]
     res.add ')'
-  of nkConv:
+  of cnkConv:
     res.add n[0]
     res.add '('
     res.add n[1]
     res.add ')'
-  of nkObjUpConv, nkObjDownConv:
+  of cnkObjUpConv, cnkObjDownConv:
     res.add $n.typ
     res.add "("
     res.add n[0]
     res.add ")"
-  of nkExprColonExpr:
+  of cnkBinding:
     res.add n[0]
     res.add ": "
     res.add n[1]
-  of nkCall:
+  of cnkCall:
     res.add n[0]
     res.add '('
     let ind = ind + 1
     renderList(n, ", ", 1)
     res.add ')'
 
-  of nkObjConstr:
-    res.add $n[0].typ
+  of cnkObjConstr:
+    res.add $n.typ
     res.add '('
     renderList(n, ", ", 1)
     res.add ')'
-  of nkTupleConstr, nkClosure:
+  of cnkTupleConstr, cnkClosureConstr:
     res.add '('
     renderList(n, ", ")
     res.add ')'
-  of nkBracket:
+  of cnkArrayConstr:
     res.add '['
     renderList(n, ", ")
     res.add ']'
-  of nkCurly:
+  of cnkSetConstr:
     res.add '{'
     renderList(n, ", ")
     res.add '}'
 
-  of nkAsgn, nkFastAsgn:
+  of cnkAsgn, cnkFastAsgn:
     res.add n[0]
     res.add " = "
     let ind = ind + 1
     res.add n[1]
-  of nkVarSection, nkLetSection:
-    for i, def in n.pairs:
-      if i > 0:
-        newLine()
-      res.add "var "
-      res.add def[0]
-      if def[2].kind != nkEmpty:
-        res.add " = "
-        let ind = ind + 1
-        res.add def[2]
-  of nkPragma:
-    # re-use the ``PNode`` rendering
-    res.add renderTree(n, {renderIr, renderNoComments})
-  of nkReturnStmt:
+  of cnkDef:
+    res.add "var "
+    res.add n[0]
+    if n[1].kind != cnkEmpty:
+      res.add " = "
+      let ind = ind + 1
+      res.add n[1]
+  of cnkPragmaStmt:
+    res.add "{."
+    let name = substr($n.pragma, 1) # cut off the 'w' prefix
+    res.add name
+    res.add ".}"
+  of cnkReturnStmt:
     res.add "return"
-  of nkDiscardStmt:
+  of cnkVoidStmt:
     res.add "discard "
     res.add n[0]
-  of nkBreakStmt:
-    if n[0].kind == nkEmpty:
+  of cnkBreakStmt:
+    if n[0].kind == cnkEmpty:
       res.add "break"
     else:
       res.add "break "
       res.add n[0]
-  of nkRaiseStmt:
-    if n[0].kind == nkEmpty:
+  of cnkRaiseStmt:
+    if n[0].kind == cnkEmpty:
       res.add "raise"
     else:
       res.add "raise "
       res.add n[0]
-  of nkAsmStmt:
+  of cnkAsmStmt:
     res.add "asm "
     let ind = ind + 1
     renderList(n, ", ")
     res.add ""
-  of nkWhileStmt:
+  of cnkEmitStmt:
+    res.add "{.emit: "
+    let ind = ind + 1
+    renderList(n, ", ")
+    res.add ".}"
+  of cnkRepeatStmt:
     res.add "while true:"
     indent()
-    render(c, ind + 1, n[1], res)
-  of nkBlockStmt:
-    if n[0].kind == nkEmpty:
+    render(c, ind + 1, n[0], res)
+  of cnkBlockStmt:
+    if n[0].kind == cnkEmpty:
       res.add "block:"
     else:
       res.add "block "
@@ -215,57 +266,53 @@ proc render(c: var RenderCtx, ind: int, n: PNode, res: var string) =
       res.add ":"
     indent()
     render(c, ind + 1, n[1], res)
-  of nkIfStmt:
+  of cnkIfStmt:
     res.add "if "
-    res.add n[0][0]
+    res.add n[0]
     res.add ':'
     indent()
-    render(c, ind + 1, n[0][1], res)
-  of nkCaseStmt:
+    render(c, ind + 1, n[1], res)
+  of cnkCaseStmt:
     res.add "case "
     res.add n[0]
     for i in 1..<n.len:
       newLine()
-      case n.kind
-      of nkOfBranch:
+      if n[i].len > 1:
         res.add "of "
         renderList(n[i], ", ", 1, 1)
-      of nkElse:
-        res.add "else"
       else:
-        unreachable()
+        res.add "else"
 
       res.add ":"
       indent()
       render(c, ind + 1, n[i][^1], res)
-  of nkTryStmt:
+  of cnkTryStmt:
     res.add "try:"
     indent()
     render(c, ind + 1, n[0], res)
     for i in 1..<n.len:
       case n[i].kind
-      of nkExceptBranch:
+      of cnkExcept:
         newLine()
         res.add "except:"
         indent()
         render(c, ind + 1, n[i][^1], res)
-      of nkFinally:
+      of cnkFinally:
         newLine()
         res.add "finally:"
         indent()
         render(c, ind + 1, n[i][0], res)
       else:
         unreachable()
-  of nkStmtListExpr:
+  of cnkStmtListExpr:
     newLine()
     renderList(n, newLine())
-  of nkStmtList:
+  of cnkStmtList:
     renderList(n, newLine())
-  of nkWithSons + nkWithoutSons - codegenExprNodeKinds -
-     {nkExprColonExpr, nkRange} + {nkEmpty}:
+  of cnkInvalid, cnkEmpty, cnkExcept, cnkFinally, cnkBranch:
     unreachable(n.kind)
 
-proc render*(n: PNode): string =
+proc render*(n: CgNode): string =
   ## Renders `n` to human-readable code that tries to emulate the shape of the
   ## high-level language. The output is meant for debugging and tracing and is
   ## not guaranteed to have a stable format.

@@ -9,7 +9,7 @@ cool
 test'''
 """
 
-# knownIssue: fails for the VM target because ``astgen`` emits the
+# knownIssue: fails for the VM target because ``cgirgen`` emits the
 #             incorrect conversion operator for ``ref`` types involving
 #             generics
 

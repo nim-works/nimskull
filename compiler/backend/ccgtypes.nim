@@ -215,7 +215,7 @@ proc addAbiCheck(m: BModule, t: PType, name: Rope) =
     # see `testCodegenABICheck` for example error message it generates
 
 
-proc initResultParamLoc(conf: ConfigRef; param: PNode): TLoc =
+proc initResultParamLoc(conf: ConfigRef; param: CgNode): TLoc =
   result = initLoc(locParam, param, "Result", OnStack)
   let t = param.sym.typ
   if mapReturnType(conf, t) != ctArray and isInvalidReturnType(conf, t):
@@ -381,8 +381,8 @@ proc prepareParameters(m: BModule, t: PType): seq[TLoc] =
       else:
         OnStack
 
-    result[i] = initLoc(locParam, params[i], mangleParamName(m.config, param),
-                        storage)
+    result[i] = initLoc(locParam, toSymNode(params[i]),
+                        mangleParamName(m.config, param), storage)
 
     if ccgIntroducedPtr(m.config, param, t[0]):
       # the parameter is passed by address; mark it as indirect

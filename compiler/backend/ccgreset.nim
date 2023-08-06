@@ -12,7 +12,7 @@
 ## Code specialization instead of the old, incredibly slow 'genericReset'
 ## implementation.
 
-proc genCaseRange(p: BProc, branch: PNode)
+proc genCaseRange(p: BProc, branch: PNode|CgNode)
 proc getTemp(p: BProc, t: PType, result: var TLoc; needsInit=false)
 
 proc specializeResetT(p: BProc, accessor: Rope, typ: PType)

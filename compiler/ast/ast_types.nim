@@ -349,48 +349,6 @@ const
     nkUsingStmt,
   }
 
-  codegenExprNodeKinds* = {
-    nkEmpty,
-    nkSym,
-    nkType,
-
-    nkCharLit,
-    nkIntLit, nkInt8Lit, nkInt16Lit, nkInt32Lit, nkInt64Lit,
-    nkUIntLit, nkUInt8Lit, nkUInt16Lit, nkUInt32Lit, nkUInt64Lit,
-    nkFloatLit, nkFloat32Lit, nkFloat64Lit, nkFloat128Lit,
-    nkStrLit, nkRStrLit, nkTripleStrLit,
-    nkNilLit,
-
-    nkCall,
-
-    nkObjConstr, nkCurly, nkBracket,
-
-    nkBracketExpr, nkDotExpr, nkCheckedFieldExpr, nkDerefExpr,
-
-    nkHiddenStdConv, nkConv, nkCast, nkAddr, nkHiddenAddr,
-    nkHiddenDeref, nkObjDownConv, nkObjUpConv,
-
-    nkChckRangeF, nkChckRange64, nkChckRange, nkStringToCString,
-    nkCStringToString,
-
-    nkAsgn, nkFastAsgn,
-
-    nkAsmStmt, nkPragma,
-
-    nkIfStmt, nkWhileStmt, nkCaseStmt,
-
-    nkVarSection, nkLetSection,
-    nkTryStmt,
-
-    nkRaiseStmt, nkReturnStmt, nkBreakStmt, nkBlockStmt, nkDiscardStmt,
-
-    nkStmtList, nkStmtListExpr,
-
-    nkClosure,
-    nkTupleConstr,
-    nkNimNodeLit,
-  }
-
 type
   TSymFlag* = enum    # 48 flags!
     sfUsed            ## read access of sym (for warnings) or simply used

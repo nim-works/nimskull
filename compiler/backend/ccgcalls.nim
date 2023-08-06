@@ -10,12 +10,12 @@
 
 ## included from cgen.nim
 
-proc canRaiseDisp(p: BProc; n: PNode): bool =
+proc canRaiseDisp(p: BProc; n: CgNode): bool =
   ## 'true' if calling the callee expression `n` can exit via exceptional
   ## control-flow, otherwise 'false'. If panics are disabled, this also
   ## includes all routines that are not certain magics, compiler procs, or
   ## imported.
-  if n.kind == nkSym and {sfNeverRaises, sfImportc, sfCompilerProc} * n.sym.flags != {}:
+  if n.kind == cnkSym and {sfNeverRaises, sfImportc, sfCompilerProc} * n.sym.flags != {}:
     result = false
   elif optPanics in p.config.globalOptions:
     # we know we can be strict:
@@ -24,16 +24,16 @@ proc canRaiseDisp(p: BProc; n: PNode): bool =
     # we have to be *very* conservative:
     result = canRaiseConservative(n)
 
-proc reportObservableStore(p: BProc; le, ri: PNode) =
+proc reportObservableStore(p: BProc; le, ri: CgNode) =
   ## Reports the ``rsemObservableStores`` hint when the called procedure can
   ## exit with an exception and `le` is something to which an assignment is
   ## observable in the exception-raised case.
-  proc locationEscapes(p: BProc; le: PNode; inTryStmt: bool): bool =
+  proc locationEscapes(p: BProc; le: CgNode; inTryStmt: bool): bool =
     var n = le
     while true:
-      # do NOT follow nkHiddenDeref here!
+      # do NOT follow ``cnkDerefView`` here!
       case n.kind
-      of nkSym:
+      of cnkSym:
         # we don't own the location so it escapes:
         if n.sym.owner != p.prc:
           return true
@@ -42,10 +42,10 @@ proc reportObservableStore(p: BProc; le, ri: PNode) =
           # in 'except' or 'finally'
           return true
         return false
-      of nkDotExpr, nkBracketExpr, nkObjUpConv, nkObjDownConv,
-          nkCheckedFieldExpr:
+      of cnkFieldAccess, cnkBracketAccess, cnkObjUpConv, cnkObjDownConv,
+          cnkCheckedFieldAccess:
         n = n[0]
-      of nkHiddenStdConv, nkHiddenSubConv, nkConv:
+      of cnkHiddenConv, cnkConv:
         n = n[1]
       else:
         # cannot analyse the location; assume the worst
@@ -55,10 +55,10 @@ proc reportObservableStore(p: BProc; le, ri: PNode) =
   # annoying warnings, see #14514
   if le != nil and canRaise(ri[0]) and
      locationEscapes(p, le, p.nestedTryStmts.len > 0):
-    localReport(p.config, le, reportSem rsemObservableStores)
+    localReport(p.config, le.info, reportSem rsemObservableStores)
 
-proc hasNoInit(call: PNode): bool {.inline.} =
-  result = call[0].kind == nkSym and sfNoInit in call[0].sym.flags
+proc hasNoInit(call: CgNode): bool {.inline.} =
+  result = call[0].kind == cnkSym and sfNoInit in call[0].sym.flags
 
 proc isHarmlessStore(p: BProc; canRaise: bool; d: TLoc): bool =
   if d.k in {locTemp, locNone} or not canRaise:
@@ -70,11 +70,11 @@ proc isHarmlessStore(p: BProc; canRaise: bool; d: TLoc): bool =
   else:
     result = false
 
-proc exitCall(p: BProc, callee: PNode, canRaise: bool) =
+proc exitCall(p: BProc, callee: CgNode, canRaise: bool) =
   ## Emits the exceptional control-flow related post-call logic.
   if p.config.exc == excGoto:
     if nimErrorFlagDisabled in p.flags:
-      if callee.kind == nkSym and sfNoReturn in callee.sym.flags and
+      if callee.kind == cnkSym and sfNoReturn in callee.sym.flags and
          canRaiseConservative(callee):
         # when using goto-exceptions, noreturn doesn't map to "doesn't return"
         # at the C-level. In order to still support dispatching to wrapper
@@ -85,7 +85,7 @@ proc exitCall(p: BProc, callee: PNode, canRaise: bool) =
     elif canRaise:
       raiseExit(p)
 
-proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
+proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
                callee, params: Rope) =
   let canRaise = canRaiseDisp(p, ri[0])
   genLineDir(p, ri)
@@ -135,16 +135,16 @@ proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
 
 proc genBoundsCheck(p: BProc; arr, a, b: TLoc)
 
-proc reifiedOpenArray(n: PNode): bool {.inline.} =
+proc reifiedOpenArray(n: CgNode): bool {.inline.} =
   var x = n
-  while x.kind in {nkAddr, nkHiddenAddr, nkHiddenStdConv, nkHiddenDeref}:
+  while x.kind in {cnkAddr, cnkHiddenAddr, cnkHiddenConv, cnkDerefView}:
     x = x[0]
-  if x.kind == nkSym and x.sym.kind == skParam:
+  if x.kind == cnkSym and x.sym.kind == skParam:
     result = false
   else:
     result = true
 
-proc genOpenArraySlice(p: BProc; q: PNode; formalType, destType: PType): (Rope, Rope) =
+proc genOpenArraySlice(p: BProc; q: CgNode; formalType, destType: PType): (Rope, Rope) =
   var a, b, c: TLoc
   initLocExpr(p, q[1], a)
   initLocExpr(p, q[2], b)
@@ -188,17 +188,17 @@ proc genOpenArraySlice(p: BProc; q: PNode; formalType, destType: PType): (Rope, 
   else:
     internalError(p.config, "openArrayLoc: " & typeToString(a.t))
 
-proc openArrayLoc(p: BProc, formalType: PType, n: PNode): Rope =
+proc openArrayLoc(p: BProc, formalType: PType, n: CgNode): Rope =
   var q = skipConv(n)
   var skipped = false
-  while q.kind == nkStmtListExpr and q.len > 0:
+  while q.kind == cnkStmtListExpr and q.len > 0:
     skipped = true
     q = q.lastSon
   if getMagic(q) == mSlice:
     # magic: pass slice to openArray:
     if skipped:
       q = skipConv(n)
-      while q.kind == nkStmtListExpr and q.len > 0:
+      while q.kind == cnkStmtListExpr and q.len > 0:
         for i in 0..<q.len-1:
           genStmts(p, q[i])
         q = q.lastSon
@@ -206,7 +206,7 @@ proc openArrayLoc(p: BProc, formalType: PType, n: PNode): Rope =
     result = x & ", " & y
   else:
     var a: TLoc
-    initLocExpr(p, if n.kind == nkHiddenStdConv: n[1] else: n, a)
+    initLocExpr(p, if n.kind == cnkHiddenConv: n[1] else: n, a)
     case skipTypes(a.t, abstractVar+{tyStatic}).kind
     of tyOpenArray, tyVarargs:
       if reifiedOpenArray(n):
@@ -241,21 +241,21 @@ proc literalsNeedsTmp(p: BProc, a: TLoc): TLoc =
   getTemp(p, a.lode.typ, result, needsInit=false)
   genAssignment(p, result, a)
 
-proc genArgStringToCString(p: BProc, n: PNode): Rope {.inline.} =
+proc genArgStringToCString(p: BProc, n: CgNode): Rope {.inline.} =
   var a: TLoc
   initLocExpr(p, n[0], a)
   ropecg(p.module, "#nimToCStringConv($1)", [rdLoc(a)])
 
-proc genArg(p: BProc, n: PNode, param: PSym; call: PNode): Rope =
+proc genArg(p: BProc, n: CgNode, param: PSym; call: CgNode): Rope =
   var a: TLoc
-  if n.kind == nkStringToCString:
+  if n.kind == cnkStringToCString:
     result = genArgStringToCString(p, n)
   elif skipTypes(param.typ, abstractVar).kind in {tyOpenArray, tyVarargs}:
-    var n = if n.kind != nkHiddenAddr: n else: n[0]
+    var n = if n.kind != cnkHiddenAddr: n else: n[0]
     result = openArrayLoc(p, param.typ, n)
   elif ccgIntroducedPtr(p.config, param, call[0].typ[0]):
     initLocExpr(p, n, a)
-    if n.kind in {nkCharLit..nkNilLit}:
+    if n.kind in cnkLiterals + {cnkNilLit}:
       result = addrLoc(p.config, literalsNeedsTmp(p, a))
     else:
       result = addrLoc(p.config, a)
@@ -264,15 +264,15 @@ proc genArg(p: BProc, n: PNode, param: PSym; call: PNode): Rope =
     result = rdLoc(a)
   #assert result != nil
 
-proc genArgNoParam(p: BProc, n: PNode, needsTmp = false): Rope =
+proc genArgNoParam(p: BProc, n: CgNode, needsTmp = false): Rope =
   var a: TLoc
-  if n.kind == nkStringToCString:
+  if n.kind == cnkStringToCString:
     result = genArgStringToCString(p, n)
   else:
     initLocExprSingleUse(p, n, a)
     result = rdLoc(a)
 
-proc genParams(p: BProc, ri: PNode, typ: PType): Rope =
+proc genParams(p: BProc, ri: CgNode, typ: PType): Rope =
   for i in 1..<ri.len:
     if i < typ.len:
       assert(typ.n[i].kind == nkSym)
@@ -284,7 +284,7 @@ proc genParams(p: BProc, ri: PNode, typ: PType): Rope =
       if result != "": result.add(", ")
       result.add(genArgNoParam(p, ri[i]))
 
-proc genPrefixCall(p: BProc, le, ri: PNode, d: var TLoc) =
+proc genPrefixCall(p: BProc, le, ri: CgNode, d: var TLoc) =
   var op: TLoc
   # this is a hotspot in the compiler
   initLocExpr(p, ri[0], op)
@@ -299,7 +299,7 @@ proc genPrefixCall(p: BProc, le, ri: PNode, d: var TLoc) =
 
   fixupCall(p, le, ri, d, callee, params)
 
-proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
+proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
 
   proc addComma(r: Rope): Rope =
     if r == "": r else: r & ", "
@@ -370,11 +370,11 @@ proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
     genCallPattern()
     exitCall(p, ri[0], canRaise)
 
-proc notYetAlive(n: PNode): bool {.inline.} =
+proc notYetAlive(n: CgNode): bool {.inline.} =
   let r = getRoot(n)
   result = r != nil and r.locId == 0
 
-proc isInactiveDestructorCall(p: BProc, e: PNode): bool =
+proc isInactiveDestructorCall(p: BProc, e: CgNode): bool =
   #[ Consider this example.
 
     var :tmpD_3281815
@@ -391,10 +391,10 @@ proc isInactiveDestructorCall(p: BProc, e: PNode): bool =
   We want to return early but the 'finally' section is traversed before
   the 'let args = ...' statement. We exploit this to generate better
   code for 'return'. ]#
-  result = e.len == 2 and e[0].kind == nkSym and
-    e[0].sym.name.s == "=destroy" and notYetAlive(e[1].skipAddr)
+  result = e.len == 2 and e[0].kind == cnkSym and
+    e[0].sym.name.s == "=destroy" and notYetAlive(e[1][0])
 
-proc genAsgnCall(p: BProc, le, ri: PNode, d: var TLoc) =
+proc genAsgnCall(p: BProc, le, ri: CgNode, d: var TLoc) =
   if p.withinBlockLeaveActions > 0 and isInactiveDestructorCall(p, ri):
     return
   if ri[0].typ.skipTypes({tyGenericInst, tyAlias, tySink}).callConv == ccClosure:
@@ -402,4 +402,4 @@ proc genAsgnCall(p: BProc, le, ri: PNode, d: var TLoc) =
   else:
     genPrefixCall(p, le, ri, d)
 
-proc genCall(p: BProc, e: PNode, d: var TLoc) = genAsgnCall(p, nil, e, d)
+proc genCall(p: BProc, e: CgNode, d: var TLoc) = genAsgnCall(p, nil, e, d)

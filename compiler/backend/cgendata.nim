@@ -22,6 +22,9 @@ import
     ndi,
     types
   ],
+  compiler/backend/[
+    cgir
+  ],
   compiler/modules/[
     modulegraphs
   ],
@@ -79,7 +82,7 @@ type
     k*: TLocKind              ## kind of location
     storage*: TStorageLoc
     flags*: set[LocFlag]      ## location's flags
-    lode*: PNode              ## Node where the location came from; can be faked
+    lode*: CgNode             ## Node where the location came from; can be faked
     r*: Rope                  ## rope value of location (code generators)
 
   ProcLoc* = object
@@ -91,9 +94,9 @@ type
                               ## ``DiscoverData`` and ``ProcLoc``
     params*: seq[TLoc]        ## the locs of the parameters
 
-  ConstrTree* = distinct PNode
-    ## A ``PNode`` tree that represents a literal primitive/aggregate value
-    ## construction expression. A ``distinct`` alias for ``PNode`` is used
+  ConstrTree* = distinct CgNode
+    ## A ``CgNode`` tree that represents a literal primitive/aggregate value
+    ## construction expression. A ``distinct`` alias for ``CgNode`` is used
     ## such that special equality and hash operations can be attached.
 
   TLabel* = Rope              ## for the C generator a label is just a rope
@@ -157,7 +160,7 @@ type
     flags*: set[TCProcFlag]
     lastLineInfo*: TLineInfo  ## to avoid generating excessive 'nimln' statements
     currLineInfo*: TLineInfo  ## AST codegen will make this superfluous
-    nestedTryStmts*: seq[tuple[fin: PNode, inExcept: bool, label: Natural]]
+    nestedTryStmts*: seq[tuple[fin: CgNode, inExcept: bool, label: Natural]]
                               ## in how many nested try statements we are
                               ## (the vars must be volatile then)
                               ## bool is true when are in the except part of a try block
@@ -349,63 +352,64 @@ proc hash(n: ConstrTree): Hash =
   ## intended to be used with ``Table``, so two different trees are not
   ## guaranteed to produce a different hash, but the same hash *must* be
   ## produced for two structurally equal trees.
-  proc hashTree(n: PNode): Hash =
+  proc hashTree(n: CgNode): Hash =
     result = ord(n.kind)
     case n.kind
-    of nkEmpty, nkNilLit, nkType:
+    of cnkEmpty, cnkNilLit, cnkType:
       discard
-    of nkSym:
+    of cnkSym:
       result = result !& n.sym.id
-    of nkIntKinds:
+    of cnkIntLit, cnkUIntLit:
       result = result !& hash(n.intVal)
-    of nkFloatKinds:
+    of cnkFloatLit:
       # we'll be comparing the bit patterns later on, meaning that
       # they're what we have to compute the hash for
       result = result !& hash(cast[BiggestInt](n.floatVal))
-    of nkStrKinds:
+    of cnkStrLit:
       result = result !& hash(n.strVal)
-    of nkWithSons:
-      for i in 0..<n.len:
-        result = result !& hashTree(n[i])
-    of nkNone, nkIdent, nkError:
+    of cnkWithItems:
+      for it in n.items:
+        result = result !& hashTree(it)
+    of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt:
       unreachable()
     result = !$result
 
-  result = hashTree(PNode(n))
+  result = hashTree(CgNode(n))
 
 proc `==`(a, b: ConstrTree): bool =
   ## Computes and returns whether `a` and `b` are structurally equal *and*
   ## have equal types.
-  proc treesEquivalent(a, b: PNode): bool =
+  proc treesEquivalent(a, b: CgNode): bool =
     if a == b:
       result = true
     elif a.kind == b.kind:
       case a.kind
-      of nkEmpty, nkNilLit, nkType:
+      of cnkEmpty, cnkNilLit, cnkType:
         result = true
-      of nkSym:
+      of cnkSym:
         result = a.sym.id == b.sym.id
-      of nkIntKinds:
+      of cnkIntLit, cnkUIntLit:
         result = a.intVal == b.intVal
-      of nkFloatKinds:
+      of cnkFloatLit:
         result = cast[BiggestInt](a.floatVal) == cast[BiggestInt](b.floatVal)
-      of nkStrKinds:
+      of cnkStrLit:
         result = a.strVal == b.strVal
-      of nkWithSons:
+      of cnkWithItems:
         if a.len == b.len:
           for i in 0..<a.len:
             if not treesEquivalent(a[i], b[i]): return
           result = true
-      of nkNone, nkIdent, nkError:
+      of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt:
+        # nodes that cannot appear in construction trees
         unreachable()
 
       # we also want equal types:
       if result:
         result = sameTypeOrNil(a.typ, b.typ)
 
-  treesEquivalent(PNode(a), PNode(b))
+  treesEquivalent(CgNode(a), CgNode(b))
 
-proc getOrPut*(t: var Table[ConstrTree, int], n: PNode, label: int): int =
+proc getOrPut*(t: var Table[ConstrTree, int], n: CgNode, label: int): int =
   ## Fetches the label for the given data AST, or adds the AST + label to the
   ## table first if they're not present yet.
   mgetOrPut(t, ConstrTree(n), label)
