@@ -133,7 +133,7 @@ proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
     if sfCursor in n.sym.flags:
       res.add "_cursor"
   of cnkMagic:
-    # cut of the 'm' prefix and use lower-case for the first character
+    # cut off the 'm' prefix and use lower-case for the first character
     var name = substr($n.magic, 1)
     name[0] = toLowerAscii(name[0])
     res.add name
