@@ -548,6 +548,7 @@ proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
   else:
     var testsRun = 0
     var files: seq[string]
+    var runs: seq[TestRun]
     for file in walkDirRec(testsDir &.? cat.string):
       if isTestFile(file): files.add file
     files.sort # give reproducible order
@@ -563,7 +564,9 @@ proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
         discard "run the test"
       else:
         res = reJoined
-      testSpec r, test, res
+      produceRuns r, test, res, runs
+      run(r, runs)
+      runs.setLen(0) # prepare for the next test
       inc testsRun
     if testsRun == 0:
       const allowedDirs = ["deps", "htmldocs", "pkgs"]

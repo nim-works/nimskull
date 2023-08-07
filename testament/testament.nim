@@ -1074,6 +1074,12 @@ proc targetHelper(r: var TResults, run: var TestRun) =
   else:
     testSpecHelper(r, run)
 
+proc run(r: var TResults, runs: var openArray[TestRun]) =
+  ## Executes the given `runs`.
+  for run in runs.mitems:
+    run.startTime = epochTime()
+    targetHelper(r, run)
+
 func nativeTarget(): TTarget {.inline.} =
   targetC
 
@@ -1117,7 +1123,12 @@ proc computeEarly(spec: TSpec, inCurrentBatch: bool): TResultEnum =
   else:
     reSuccess
 
-proc testSpec(r: var TResults, test: TTest, early: TResultEnum) =
+proc produceRuns(r: var TResults, test: TTest, early: TResultEnum,
+                  runs: var seq[TestRun]) =
+  ## Takes a test description (`test`) and the computed early result and
+  ## produces a list of test-run descriptions that are appended to
+  ## `runs`. If `early` indicates failure, nothing is added to `runs`, but a
+  ## failure (or test skip) is instead recorded with `r`.
   if early == reInvalidSpec:
     # if the specification is invalid, we cannot go on
     r.addResult(test, early)
@@ -1139,23 +1150,25 @@ proc testSpec(r: var TResults, test: TTest, early: TResultEnum) =
         expected: test.spec,
         matrixEntry: noMatrixEntry,
         target: target,
-        nimcache: nimcacheDir(test.name, test.options, target),
-        startTime: epochTime()
+        nimcache: nimcacheDir(test.name, test.options, target)
       )
 
     if test.spec.matrix.len > 0:
       for entryId, _ in test.spec.matrix.pairs:
         var run = runTemplate
         run.matrixEntry = entryId
-        targetHelper(r, run)
+        runs.add run
     else:
       var run = runTemplate
       run.matrixEntry = noMatrixEntry
-      targetHelper(r, run)
+      runs.add run
 
 proc testSpec(r: var TResults, test: TTest) =
+  ## Legacy procedure only used by the custom-category tests.
   let res = computeEarly(test.spec, test.inCurrentBatch)
-  testSpec r, test, res
+  var runs: seq[TestRun]
+  produceRuns r, test, res, runs
+  run(r, runs)
 
 proc testSpecWithNimcache(
     r: var TResults, test: TTest; nimcache: string) {.used.} =
