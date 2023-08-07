@@ -47,6 +47,9 @@ proc treeRepr*(n: CgNode): string =
       result.add n.sym.name.s
       result.add " id: "
       result.add $n.sym.itemId
+    of cnkMagic:
+      result.add "magic: "
+      result.add $n.magic
     of cnkEmpty, cnkInvalid, cnkType, cnkAstLit, cnkNilLit, cnkReturnStmt:
       discard
     of cnkWithItems:
@@ -129,6 +132,11 @@ proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
     # highlight cursor locals
     if sfCursor in n.sym.flags:
       res.add "_cursor"
+  of cnkMagic:
+    # cut off the 'm' prefix and use lower-case for the first character
+    var name = substr($n.magic, 1)
+    name[0] = toLowerAscii(name[0])
+    res.add name
   of cnkType:
     if n.typ.sym != nil:
       res.add $n.typ

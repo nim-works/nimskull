@@ -601,9 +601,9 @@ proc genFieldCheck(p: BProc, e: CgNode, obj: Rope, field: PSym) =
   for i in 1..<e.len:
     var it = e[i]
     assert(it.kind == cnkCall)
-    assert(it[0].kind == cnkSym)
-    let op = it[0].sym
-    if op.magic == mNot: it = it[1]
+    assert(it[0].kind == cnkMagic)
+    let op = it[0].magic
+    if op == mNot: it = it[1]
     let disc = it[2].skipConv
     assert(disc.kind == cnkSym)
     initLoc(test, locNone, it, OnStack)
@@ -626,7 +626,7 @@ proc genFieldCheck(p: BProc, e: CgNode, obj: Rope, field: PSym) =
 
     ## discriminant check
     template fun(code) = linefmt(p, cpsStmts, code, [rdLoc(test)])
-    if op.magic == mNot: fun("if ($1) ") else: fun("if (!($1)) ")
+    if op == mNot: fun("if ($1) ") else: fun("if (!($1)) ")
 
     let base = disc.typ.skipTypes(abstractRange)
     var raiseProc, toStr: string
@@ -1326,7 +1326,7 @@ proc genArrayLen(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   case typ.kind
   of tyOpenArray, tyVarargs:
     # Bug #9279, len(toOpenArray()) has to work:
-    if a.kind == cnkCall and a[0].kind == cnkSym and a[0].sym.magic == mSlice:
+    if getMagic(a) == mSlice:
       # magic: pass slice to openArray:
       var b, c: TLoc
       initLocExpr(p, a[2], b)
@@ -2171,14 +2171,14 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     if n.typ.isNil:
       # discard the value:
       var a: TLoc
-      if op.kind == cnkSym and op.sym.magic != mNone:
-        genMagicExpr(p, n, a, op.sym.magic)
+      if (let m = getCalleeMagic(n[0]); m != mNone):
+        genMagicExpr(p, n, a, m)
       else:
         genCall(p, n, a)
     else:
       # load it into 'd':
-      if op.kind == cnkSym and op.sym.magic != mNone:
-        genMagicExpr(p, n, d, op.sym.magic)
+      if (let m = getCalleeMagic(n[0]); m != mNone):
+        genMagicExpr(p, n, d, m)
       else:
         genCall(p, n, d)
   of cnkSetConstr:
@@ -2245,7 +2245,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     genTryGoto(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)
   of cnkPragmaStmt: discard
-  of cnkInvalid, cnkType, cnkAstLit, cnkRange, cnkBinding, cnkExcept,
+  of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkExcept,
      cnkFinally, cnkBranch:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 

@@ -28,7 +28,7 @@ try:
     var i = a_1
     block label_1:
       while true:
-        if op(<(i, b_1)):
+        if not(<(i, b_1)):
           break
         block label_2:
           var :tmp
@@ -36,7 +36,7 @@ try:
           if ==(i_1_cursor, 2):
             return
           add(a,
-            :tmp = op()
+            :tmp = default()
             =copy(:tmp, x)
             :tmp)
           inc(i, 1)
@@ -45,13 +45,13 @@ try:
       var :tmp_1
       add(a,
         :tmp_1 = x
-        op(x)
+        wasMoved(x)
         :tmp_1)
       break label_3
     var :tmp_2
     add(b,
       :tmp_2 = x
-      op(x)
+      wasMoved(x)
       :tmp_2)
 finally:
   =destroy(x)
