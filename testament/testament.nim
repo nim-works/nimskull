@@ -1063,22 +1063,20 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
   r.addResult(run, res.expected, res.given, res.success,
               addr given, res.compare)
 
-proc targetHelper(r: var TResults, run: var TestRun) =
-  inc(r.total)
-  if run.target notin gTargets:
-    r.addResult(run, "", "", reDisabled)
-    inc(r.skipped)
-  elif simulate:
-    inc count
-    msg Undefined: "testSpec count: " & $count & " expected: " & $run.expected
-  else:
-    testSpecHelper(r, run)
-
 proc run(r: var TResults, runs: var openArray[TestRun]) =
   ## Executes the given `runs`.
   for run in runs.mitems:
     run.startTime = epochTime()
-    targetHelper(r, run)
+    inc(r.total)
+    # XXX: remove the usage of globals here
+    if run.target notin gTargets:
+      r.addResult(run, "", "", reDisabled)
+      inc(r.skipped)
+    elif simulate:
+      inc count
+      msg Undefined: "testSpec count: " & $count & " expected: " & $run.expected
+    else:
+      testSpecHelper(r, run)
 
 func nativeTarget(): TTarget {.inline.} =
   targetC
