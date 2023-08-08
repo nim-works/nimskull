@@ -174,3 +174,5 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
     stmts.add(b)
   else:
     result = stmts
+  if containsNode(stmts, {nkError}):
+    result = c.config.wrapError(result)
