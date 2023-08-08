@@ -147,6 +147,15 @@ iterator search(tree: MirTree, kinds: static set[MirNodeKind]): NodePosition =
       yield NodePosition(i)
     inc i
 
+iterator search(tree: MirTree, magic: static TMagic): NodePosition =
+  ## Returns in appearance order the positions of all ``mnkMagic`` nodes
+  ## that match `magic`.
+  var i = 0
+  while i < tree.len:
+    if tree[i].kind == mnkMagic and tree[i].magic == magic:
+      yield NodePosition(i)
+    inc i
+
 iterator uses(tree: MirTree, start, last: NodePosition): OpValue =
   ## Returns in an unspecified order all values used for reads/writes
   ## in the code range ``start..last``. Tags are already skipped.
@@ -478,6 +487,38 @@ proc fixupCallArguments(tree: MirTree, config: ConfigRef,
       of AllNodeKinds - ArgumentNodes:
         unreachable()
 
+proc lowerSwap(tree: MirTree, changes: var Changeset) =
+  ## Lowers a ``swap(a, b)`` call into:
+  ##
+  ## ..code-block:: nim
+  ##
+  ##   let tmp = a
+  ##   a = b
+  ##   b = tmp
+  ##
+  ## where all assignments are shallow.
+  for i in search(tree, mSwap):
+    let
+      typ = tree[operand(tree, Operation i, 0)].typ
+      temp = MirNode(kind: mnkTemp, typ: typ, temp: changes.getTemp())
+    changes.seek(i)
+    changes.replaceMulti(buf):
+      buf.subTree MirNode(kind: mnkRegion):
+        # the temporary doesn't need to own the value, so use ``DefCursor``
+        buf.add opParamNode(0, typ)
+        buf.subTree MirNode(kind: mnkDefCursor):
+          buf.add temp
+        # we're just swapping the values, no full copy is needed
+        argBlock(buf):
+          chain(buf): opParam(0, typ) => tag(ekReassign) => name()
+          chain(buf): opParam(1, typ) => arg()
+        buf.add MirNode(kind: mnkFastAsgn)
+        argBlock(buf):
+          chain(buf): opParam(1, typ) => tag(ekReassign) => name()
+          chain(buf): emit(temp) => arg()
+        buf.add MirNode(kind: mnkFastAsgn)
+    changes.remove() # remove the 'void' sink
+
 proc applyPasses*(tree: var MirTree, source: var SourceMap, prc: PSym,
                   config: ConfigRef, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
@@ -499,3 +540,6 @@ proc applyPasses*(tree: var MirTree, source: var SourceMap, prc: PSym,
       # XXX: use the fixup pass for all targets. Both the VM and JavaScript
       #      targets are also affected
       fixupCallArguments(tree, config, c)
+
+  batch:
+    lowerSwap(tree, c)

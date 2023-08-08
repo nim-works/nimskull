@@ -646,13 +646,10 @@ proc finishCall(c: var TCtx, callee: PNode, fntyp: PType): EValue =
 
   result = EValue(typ: rtyp)
 
-proc genCall(c: var TCtx, n: PNode): EValue =
-  ## Generates and emits the MIR code for a call expression
+proc genArgs(c: var TCtx, n: PNode) =
+  ## Emits the MIR code for the argument expressions (including the
+  ## argument node), but without a wrapping ``mnkArgBlock``.
   let fntyp = skipTypes(n[0].typ, abstractInst)
-
-  c.stmts.add MirNode(kind: mnkArgBlock)
-
-  chain(c): genCallee(c, n[0]) => arg()
 
   for i in 1..<n.len:
     # for procedures with unsafe varargs, the type of the argument expression
@@ -688,9 +685,13 @@ proc genCall(c: var TCtx, n: PNode): EValue =
     else:
       genArg(c, t, n[i])
 
-  c.stmts.add endNode(mnkArgBlock)
+proc genCall(c: var TCtx, n: PNode): EValue =
+  ## Generates and emits the MIR code for a call expression.
+  argBlock(c.stmts):
+    chain(c): genCallee(c, n[0]) => arg()
+    genArgs(c, n)
 
-  finishCall(c, n[0], fntyp)
+  finishCall(c, n[0], skipTypes(n[0].typ, abstractInst))
 
 proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
   ## Generates the arguments for a macro/template call expression. `n` is
@@ -904,6 +905,13 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
       EValue(typ: n.typ)
     else:
       unreachable()
+
+  of mSwap:
+    # turn calls to magic procedures that don't require symbols into MIR
+    # magic calls
+    argBlock(c.stmts):
+      genArgs(c, n)
+    magicCall(c, m, typeOrVoid(c, n.typ))
 
   else:
     # no special transformation for the other magics:

@@ -617,9 +617,6 @@ func undoConversions(buf: var MirNodeSeq, tree: MirTree, src: OpValue) =
     p = previous(tree, p)
     buf.add MirNode(kind: mnkConv, typ: tree[p].typ)
 
-func opParamNode(index: uint32, typ: PType): MirNode {.inline.} =
-  MirNode(kind: mnkOpParam, typ: typ, param: index)
-
 template voidCallWithArgs(buf: var MirNodeSeq, body: untyped) =
   argBlock(buf):
     body

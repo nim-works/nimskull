@@ -1067,20 +1067,6 @@ proc genFastAsgn(p: PProc, n: CgNode) =
   let noCopy = n[0].typ.skipTypes(abstractInst).kind in {tySequence, tyString}
   genAsgnAux(p, n[0], n[1], noCopyNeeded=noCopy)
 
-proc genSwap(p: PProc, n: CgNode) =
-  var a, b: TCompRes
-  gen(p, n[1], a)
-  gen(p, n[2], b)
-  var tmp = p.getTemp(false)
-  if mapType(skipTypes(n[1].typ, abstractVar)) == etyBaseIndex:
-    let tmp2 = p.getTemp(false)
-    p.config.internalAssert(a.typ == etyBaseIndex and b.typ == etyBaseIndex, n.info, "genSwap")
-    lineF(p, "var $1 = $2; $2 = $3; $3 = $1;$n",
-             [tmp, a.address, b.address])
-    tmp = tmp2
-  lineF(p, "var $1 = $2; $2 = $3; $3 = $1;",
-           [tmp, a.res, b.res])
-
 proc getFieldPosition(p: PProc; f: CgNode): int =
   case f.kind
   of cnkIntLit: result = int(f.intVal)
@@ -1886,7 +1872,6 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   case op
   of mAddI..mStrToStr: arith(p, n, r, op)
   of mRepr: genRepr(p, n, r)
-  of mSwap: genSwap(p, n)
   of mAppendStrCh:
     binaryExpr(p, n, r, "addChar",
         "addChar($1, $2);")

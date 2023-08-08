@@ -345,6 +345,9 @@ func magic*(m: TMagic, typ: PType; n: PNode = nil): MirNode {.inline.} =
 template endNode*(k: MirNodeKind): MirNode =
   MirNode(kind: mnkEnd, start: k)
 
+func opParamNode*(index: uint32, typ: PType): MirNode {.inline.} =
+  MirNode(kind: mnkOpParam, typ: typ, param: index)
+
 # --------- tree generation utilities:
 
 template subTree*(tree: var MirTree, n: MirNode, body: untyped) =

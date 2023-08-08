@@ -1,5 +1,6 @@
 discard """
-  targets: "vm"
+  targets: "c js vm"
+  description: "Tests for the `swap` magic"
 """
 
 # https://github.com/nim-lang/nim/issues/2946

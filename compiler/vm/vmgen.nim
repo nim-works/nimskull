@@ -1767,39 +1767,6 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.gABC(n, if m == mSetLengthStr: opcSetLenStr else: opcSetLenSeq, d, tmp)
     c.freeTemp(tmp)
     c.freeTemp(d)
-  of mSwap:
-    unused(c, n, dest)
-    let tmp = getTemp(c, n.typ)
-    # XXX: swap doesn't need to be implemented here; lower it into assignment
-    #      with a MIR pass
-    # there's no ``nkHiddenAddr`` on the operands, so we don't need to skip
-    # var types
-    if fitsRegister(n[1].typ):
-      # we need to account for the fact that either operand could be
-      # stored in a register already (because it's a local variable)
-      let
-        a = c.genLoc(n[1])
-        b = c.genLoc(n[2])
-      # register copies are enough, here
-      c.gABC(n, opcFastAsgnComplex, tmp, a.val)
-      c.gABC(n, opcFastAsgnComplex, a.val, b.val)
-      c.gABC(n, opcFastAsgnComplex, b.val, tmp)
-      # write back (if necessary):
-      finish(c, n, b)
-      finish(c, n, a)
-    else:
-      let
-        a = c.genLvalue(n[1])
-        b = c.genLvalue(n[2])
-      # XXX: this currently creates a full copy; the VM is still missing the
-      #      ability to create shallow copies
-      c.gABC(n, opcAsgnComplex, tmp, a)
-      c.gABC(n, opcWrLoc, a, b)
-      c.gABC(n, opcWrLoc, b, tmp)
-      c.freeTemp(b)
-      c.freeTemp(a)
-
-    c.freeTemp(tmp)
   of mIsNil: genUnaryABC(c, n, dest, opcIsNil)
   of mParseBiggestFloat:
     if dest.isUnset: dest = c.getTemp(n.typ)
