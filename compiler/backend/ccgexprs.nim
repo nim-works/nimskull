@@ -906,15 +906,6 @@ proc genStrAppend(p: BProc, e: CgNode, d: var TLoc) =
           [byRefLoc(p, dest), lens, L])
   p.s(cpsStmts).add appends
 
-proc genReset(p: BProc, n: CgNode) =
-  var a: TLoc
-  initLocExpr(p, n[1], a)
-  specializeReset(p, a)
-  when false:
-    linefmt(p, cpsStmts, "#genericReset((void*)$1, $2);$n",
-            [addrLoc(p.config, a),
-            genTypeInfoV1(p.module, skipTypes(a.t, {tyVar}), n.info)])
-
 proc genDefault(p: BProc; n: CgNode; d: var TLoc) =
   if d.k == locNone: getTemp(p, n.typ, d, needsInit=true)
   else: resetLoc(p, d)
@@ -982,9 +973,6 @@ proc handleConstExpr(p: BProc, n: CgNode, d: var TLoc): bool =
     result = true
   else:
     result = false
-
-# XXX: maybe move the `specializeInitObject` procs into a separate module
-#      (similiar to `specializeReset`)
 
 proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
                           info: TLineInfo)
@@ -1074,7 +1062,7 @@ proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
       if t.n != nil and searchTypeNodeFor(t.n, pred):
         specializeInitObjectN(p, a, t.n, t)
 
-      a = parentObj(a)
+      a.add ".Sup"
       t = t.base
 
     # type header:
@@ -1864,7 +1852,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
 
     genCall(p, e, d)
   of mDefault: genDefault(p, e, d)
-  of mReset: genReset(p, e)
   of mEcho: genEcho(p, e[1].skipConv)
   of mArrToSeq: genArrToSeq(p, e, d)
   of mNLen..mNError, mSlurp..mQuoteAst:

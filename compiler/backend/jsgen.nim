@@ -2006,7 +2006,7 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mNewSeqOfCap: unaryExpr(p, n, r, "", "[]")
   of mOf: genOf(p, n, r)
   of mDefault: genDefault(p, n, r)
-  of mReset, mWasMoved: genReset(p, n)
+  of mWasMoved: genReset(p, n)
   of mEcho: genEcho(p, n, r)
   of mNLen..mNError, mSlurp, mStaticExec:
     localReport(p.config, n.info, reportSym(
