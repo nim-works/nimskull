@@ -1,9 +1,8 @@
 discard """
-  targets: "c !js vm"
+  targets: "c js vm"
   description: "Tests for conversion between the primitive numeric types"
+  knownIssue.js: "full-range integers aren't supported yet"
 """
-
-# knownIssue: the JavaScript target doesn't yet support full-range integers
 
 block negative_float64_to_uint:
   # has the same result as converting to a signed int of the same width first,

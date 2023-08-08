@@ -1,5 +1,8 @@
 discard """
-  target: "!vm"
+  knownIssue.vm: '''
+    The ``of`` operator only considers the static type when using the
+    VM backend
+  '''
   joinable: false
   output: '''
 collide: unit, thing
@@ -12,9 +15,6 @@ collide: thing, unit |
 do nothing
 '''
 """
-
-# knownIssue: the ``of`` operator only considers the static type when using
-#             the VM backend
 
 # tmultim2
 type

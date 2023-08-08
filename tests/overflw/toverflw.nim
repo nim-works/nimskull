@@ -1,12 +1,10 @@
 discard """
   output: "ok"
-  targets: "c js !vm"
+  targets: "c js vm"
   matrix: "--overflowchecks:off"
   description: "Test the ability to detect overflows"
+  knownIssue.vm: "bound checks are always performed"
 """
-
-# knownIssue: when using the VM backend, bound checks are currently always
-#             performed
 
 {.push overflowChecks: on.}
 

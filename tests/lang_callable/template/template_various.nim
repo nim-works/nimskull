@@ -1,5 +1,5 @@
 discard """
-target: "!vm"
+knownIssue.vm: "std/streams and/or std/os don't work for the VM"
 output: '''
 i2416
 33
@@ -34,8 +34,6 @@ bar7
 -1-1-1
 '''
 """
-
-# disabled on VM: std/streams and/or std/os don't work for the VM (knownIssue)
 
 import std/macros
 
