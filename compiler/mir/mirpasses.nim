@@ -148,7 +148,7 @@ iterator search(tree: MirTree, kinds: static set[MirNodeKind]): NodePosition =
     inc i
 
 iterator search(tree: MirTree, magic: static TMagic): NodePosition =
-  ## Returns in order appearance the positions of all ``mnkMagic`` nodes
+  ## Returns in appearance order the positions of all ``mnkMagic`` nodes
   ## that match `magic`.
   var i = 0
   while i < tree.len:
