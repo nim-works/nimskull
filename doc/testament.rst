@@ -133,7 +133,7 @@ Test execution options
   .. code-block:: nim
 
     knownIssue.vm: "..."   # the test only fails with the vm target
-    knownIssue.c js: "..." # the fails with both the c and js target
+    knownIssue.c js: "..." # fails with both the c and js target
 
   A standalone ``knownIssue`` key means that all selected targets are
   affected by the issue(s).
