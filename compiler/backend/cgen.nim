@@ -694,11 +694,13 @@ proc closureSetup(p: BProc, prc: PSym) =
 func containsResult(n: CgNode): bool =
   result = false
   case n.kind
-  of cnkWithoutItems - {cnkSym}:
+  of cnkAtoms - {cnkSym}:
     discard "ignore"
   of cnkSym:
     if n.sym.kind == skResult:
       result = true
+  of cnkWithOperand:
+    result = containsResult(n.operand)
   of cnkWithItems:
     for i in 0..<n.len:
       if containsResult(n[i]): return true
@@ -772,7 +774,7 @@ proc allPathsAsgnResult(n: CgNode): InitResultEnum =
     result = allPathsAsgnResult(n[0])
     # a 'repeat' loop is always executed at least once
     if result == InitSkippable: result = Unknown
-  of cnkWithoutItems - {cnkSym, cnkReturnStmt}:
+  of cnkAtoms - {cnkSym, cnkReturnStmt}:
     result = Unknown
   of cnkSym:
     # some path reads from 'result' before it was written to!
@@ -794,6 +796,8 @@ proc allPathsAsgnResult(n: CgNode): InitResultEnum =
         result = allPathsAsgnResult(n[i].lastSon)
       else:
         allPathsInBranch(n[i].lastSon)
+  of cnkWithOperand:
+    allPathsInBranch(n.operand)
   else:
     for it in n.items:
       allPathsInBranch(it)

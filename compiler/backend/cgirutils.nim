@@ -52,6 +52,10 @@ proc treeRepr*(n: CgNode): string =
       result.add $n.magic
     of cnkEmpty, cnkInvalid, cnkType, cnkAstLit, cnkNilLit, cnkReturnStmt:
       discard
+    of cnkWithOperand:
+      result.add "\n"
+      result.add repeat("  ", indent)
+      treeRepr(n.operand, indent+1, result)
     of cnkWithItems:
       result.add "\n"
       for i in 0..<n.len:
@@ -142,14 +146,15 @@ proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
       res.add $n.typ
     else:
       res.add "[type node]"
-  of cnkCheckedFieldAccess, cnkHiddenAddr, cnkDerefView, cnkHiddenConv, cnkChckRange,
-     cnkChckRange64, cnkChckRangeF:
+  of cnkCheckedFieldAccess, cnkChckRange, cnkChckRange64, cnkChckRangeF:
     res.add n[0]
+  of cnkHiddenAddr, cnkDerefView, cnkHiddenConv:
+    res.add n.operand
   of cnkAddr:
     res.add "addr "
-    res.add n[0]
+    res.add n.operand
   of cnkDeref:
-    res.add n[0]
+    res.add n.operand
     res.add "[]"
   of cnkFieldAccess:
     res.add n[0]
@@ -166,27 +171,30 @@ proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
     res.add n[1]
   of cnkCast:
     res.add "cast["
-    res.add $n[0].typ
+    res.add $n.typ
     res.add "]("
-    res.add n[1]
+    res.add n.operand
     res.add ")"
   of cnkStringToCString:
     res.add "cstring("
-    res.add n[0]
+    res.add n.operand
     res.add ')'
   of cnkCStringToString:
     res.add "string("
-    res.add n[0]
+    res.add n.operand
     res.add ')'
   of cnkConv:
-    res.add n[0]
+    if n.typ.sym != nil:
+      res.add $n.typ
+    else:
+      res.add "[type node]"
     res.add '('
-    res.add n[1]
+    res.add n.operand
     res.add ')'
   of cnkObjUpConv, cnkObjDownConv:
     res.add $n.typ
     res.add "("
-    res.add n[0]
+    res.add n.operand
     res.add ")"
   of cnkBinding:
     res.add n[0]
@@ -317,7 +325,9 @@ proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
     renderList(n, newLine())
   of cnkStmtList:
     renderList(n, newLine())
-  of cnkInvalid, cnkEmpty, cnkExcept, cnkFinally, cnkBranch:
+  of cnkEmpty:
+    discard
+  of cnkInvalid, cnkExcept, cnkFinally, cnkBranch:
     unreachable(n.kind)
 
 proc render*(n: CgNode): string =

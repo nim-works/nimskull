@@ -133,8 +133,13 @@ type
 const
   AllKinds = {low(CgNodeKind)..high(CgNodeKind)}
 
-  cnkWithoutItems* = {cnkInvalid..cnkMagic, cnkReturnStmt, cnkPragmaStmt}
-  cnkWithItems*    = AllKinds - cnkWithoutItems
+  cnkWithOperand*  = {cnkConv, cnkHiddenConv, cnkDeref, cnkAddr, cnkHiddenAddr,
+                      cnkDerefView, cnkObjDownConv, cnkObjUpConv, cnkCast,
+                      cnkStringToCString, cnkCStringToString}
+  cnkAtoms*        = {cnkInvalid..cnkMagic, cnkReturnStmt, cnkPragmaStmt}
+    ## node kinds that denote leafs
+  cnkWithItems*    = AllKinds - cnkWithOperand - cnkAtoms
+    ## node kinds for which the ``items`` iterator is available
 
   cnkLiterals* = {cnkIntLit, cnkUIntLit, cnkFloatLit, cnkStrLit}
 
@@ -155,6 +160,7 @@ type
     of cnkSym:        sym*: PSym
     of cnkMagic:      magic*: TMagic
     of cnkPragmaStmt: pragma*: TSpecialWord
+    of cnkWithOperand: operand*: CgNode
     of cnkWithItems:
       kids*: seq[CgNode]
 
@@ -204,3 +210,8 @@ proc newExpr*(kind: CgNodeKind, info: TLineInfo, typ: PType,
 proc newNode*(kind: CgNodeKind; info = unknownLineInfo;
              typ = PType(nil)): CgNode =
   CgNode(kind: kind, info: info, typ: typ)
+
+proc newOp*(kind: CgNodeKind; info: TLineInfo, typ: PType,
+            opr: sink CgNode): CgNode =
+  result = CgNode(kind: kind, info: info, typ: typ)
+  result.operand = opr
