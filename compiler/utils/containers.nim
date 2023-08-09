@@ -143,18 +143,31 @@ func merge*[I; T](dst: var Store[I, T], src: sink Store[I, T]): Option[I] =
 
 # ---------- OrdinalSeq API ------------
 
+template base*[I; T](x: OrdinalSeq[I, T]): seq[T] =
+  ## Returns underlying seq of `x`.
+  seq[T](x)
+
 template len*[I; T](x: OrdinalSeq[I, T]): int =
-  (seq[T])(x).len
+  base(x).len
 
 template `[]`*[I; T](x: OrdinalSeq[I, T], i: I): untyped =
-  (seq[T])(x)[ord i]
+  base(x)[ord i]
 
 template `[]=`*[I; T](x: OrdinalSeq[I, T], i: I, item: T): untyped =
-  (seq[T])(x)[ord i] = item
+  base(x)[ord i] = item
 
-func add*[I; T](x: OrdinalSeq[I, T], item: sink T): I {.inline.} =
-  (seq[T])(x).add item
-  result = I(x.high)
+func add*[I; T](x: var OrdinalSeq[I, T], item: sink T): I {.inline.} =
+  base(x).add item
+  result = I(base(x).high)
 
 func newSeq*[I; T](x: var OrdinalSeq[I, T], len: int) {.inline.} =
-  newSeq((seq[T])(x), len)
+  newSeq(base(x), len)
+
+func setLen*[I; T](x: var OrdinalSeq[I, T], len: int) {.inline.} =
+  setLen(base(x), len)
+
+iterator pairs*[I; T](x: OrdinalSeq[I, T]): (I, lent T) =
+  var i = 0
+  while i < x.len:
+    yield (I(i), x[I(i)])
+    inc i
