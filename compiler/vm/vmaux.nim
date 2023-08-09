@@ -142,18 +142,6 @@ func fillProcEntry*(e: var FuncTableEntry, info: CodeInfo) {.inline.} =
   e.start = info.start
   e.regCount = info.regCount.uint16
 
-proc registerProc*(c: var TCtx, prc: PSym): FunctionIndex =
-  ## Registers the procedure in the function table if it wasn't already. In
-  ## both cases, an index into the function table is returned. Whether a
-  ## procedure will resolve to a callback is decided on it's addition to the
-  ## function table
-  let next = LinkIndex(c.functions.len)
-
-  result = c.symToIndexTbl.mgetOrPut(prc.id, next).FunctionIndex
-  if result == next.FunctionIndex:
-    # a new entry:
-    c.functions.add(initProcEntry(c, prc))
-
 proc lookupProc*(c: var TCtx, prc: PSym): FunctionIndex {.inline.} =
   ## Returns the function-table index corresponding to the provided `prc`
   ## symbol. Behaviour is undefined if `prc` has no corresponding function-

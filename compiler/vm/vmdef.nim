@@ -735,9 +735,6 @@ type
       ## dependencies. Expanded during code-generation and used for looking
       ## up the link-index (e.g. `FunctionIndex`) of a symbol
 
-    collectedGlobals*: seq[PSym]
-      ## leaked implementation detail of ``vmbackend.nim`` -- don't use
-
     flags*: set[CodeGenFlag] ## flags that alter the behaviour of the code
       ## generator. Initialized by the VM's callsite and queried by the JIT.
     # XXX: `flags` is code generator / JIT state, and needs to be moved out of

@@ -67,6 +67,17 @@ type
   PartialTbl = Table[int, CodeFragment]
     ## Maps the symbol ID of a partial procedure to the in-progress fragment
 
+  GenCtx = object
+    ## State of the orchestrator.
+    graph: ModuleGraph
+
+    # link tables:
+    globals: OrdinalSeq[LinkIndex, PVmType]
+    functions: OrdinalSeq[LinkIndex, FuncTableEntry]
+    # for constants, the discovery data is re-used
+
+    gen: TCtx ## only used for the code generator state
+
 func growBy[T](x: var seq[T], n: Natural) {.inline.} =
   x.setLen(x.len + n)
 
@@ -91,22 +102,25 @@ proc registerCallbacks(c: var TCtx) =
   # Used by some tests
   cb "stdlib.system.getOccupiedMem"
 
+proc registerProc(c: var GenCtx, prc: PSym): FunctionIndex =
+  ## Adds an empty function-table entry for `prc` and registers the latter
+  ## in the link table.
+  assert prc.id notin c.gen.symToIndexTbl
+  let idx = c.functions.add(initProcEntry(c.gen, prc))
+  c.gen.symToIndexTbl[prc.id] = idx
+  result = FunctionIndex(idx)
+
 proc appendCode(c: var TCtx, f: CodeFragment) =
   ## Copies the code from the fragment to the end of the global code buffer
   c.code.add(f.code)
   c.debug.add(f.debug)
 
-proc refresh(c: var TCtx, m: Module) =
-  ## Prepares the code-generator state of `c` for processing AST
-  ## belonging to the module `m`.
-  assert m.idgen != nil
-  c.refresh(m.sym, m.idgen)
-
-proc generateCodeForProc(c: var TCtx, s: PSym, body: sink MirFragment): CodeInfo =
+proc generateCodeForProc(c: var TCtx, idgen: IdGenerator, s: PSym,
+                         body: sink MirFragment): CodeInfo =
   ## Generates and the bytecode for the procedure `s` with body `body`. The
   ## resulting bytecode is emitted into the global bytecode section.
   let
-    body = generateIR(c.graph, c.idgen, s, body)
+    body = generateIR(c.graph, idgen, s, body)
     r    = genProc(c, s, body)
 
   if r.isOk:
@@ -130,35 +144,34 @@ proc genStmt(c: var TCtx, f: var CodeFragment, stmt: CgNode) =
   if unlikely(r.isErr):
     c.config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
-proc declareGlobal(c: var TCtx, sym: PSym) =
+proc declareGlobal(c: var GenCtx, sym: PSym) =
   # we silently ignore imported globals here and let ``vmgen`` raise an
   # error when one is accessed
   if exfNoDecl notin sym.extFlags and sfImportc notin sym.flags:
     # make sure the type is generated and register the global in the
     # link table
-    discard getOrCreate(c, sym.typ)
-    c.symToIndexTbl[sym.id] = LinkIndex(c.collectedGlobals.len)
-    c.collectedGlobals.add sym
+    c.gen.symToIndexTbl[sym.id] = c.globals.add(getOrCreate(c.gen, sym.typ))
 
-proc prepare(c: var TCtx, data: var DiscoveryData) =
+proc prepare(c: var GenCtx, data: var DiscoveryData) =
   ## Registers with the link table all procedures, constants, globals,
   ## and threadvars discovered as part of producing the currently
   ## processed event.
 
   c.functions.setLen(data.procedures.len)
   for i, it in peek(data.procedures):
-    c.functions[i] = c.initProcEntry(it)
-    c.symToIndexTbl[it.id] = LinkIndex(i)
+    let idx = LinkIndex(i)
+    c.functions[idx] = c.gen.initProcEntry(it)
+    c.gen.symToIndexTbl[it.id] = idx
 
     # if a procedure's implementation is overridden with a VM callback, we
     # don't want any processing to happen for it, which we signal to the
     # event producer via ``exfNoDecl``
-    if c.functions[i].kind == ckCallback:
+    if c.functions[idx].kind == ckCallback:
       it.extFlags.incl exfNoDecl
 
   # register the constants with the link table:
   for i, s in visit(data.constants):
-    c.symToIndexTbl[s.id] = LinkIndex(i)
+    c.gen.symToIndexTbl[s.id] = LinkIndex(i)
 
   for _, s in visit(data.globals):
     declareGlobal(c, s)
@@ -166,12 +179,13 @@ proc prepare(c: var TCtx, data: var DiscoveryData) =
   for _, s in visit(data.threadvars):
     declareGlobal(c, s)
 
-proc processEvent(c: var TCtx, mlist: ModuleList, discovery: var DiscoveryData,
+proc processEvent(c: var GenCtx, mlist: ModuleList, discovery: var DiscoveryData,
                   partial: var PartialTbl, evt: sink BackendEvent) =
   ## The orchestrator's event processor.
   prepare(c, discovery)
 
-  c.refresh(mlist[evt.module])
+  let idgen = mlist[evt.module].idgen
+  c.gen.module = mlist[evt.module].sym
 
   case evt.kind
   of bekModule:
@@ -182,18 +196,18 @@ proc processEvent(c: var TCtx, mlist: ModuleList, discovery: var DiscoveryData,
       # it's a fragment that was just started
       p.prc = PProc(sym: evt.sym)
 
-    let stmt = generateIR(c.graph, c.idgen, evt.sym, evt.body)
-    genStmt(c, p[], stmt)
+    let stmt = generateIR(c.graph, idgen, evt.sym, evt.body)
+    genStmt(c.gen, p[], stmt)
   of bekProcedure:
     # a complete procedure became available
-    let r = generateCodeForProc(c, evt.sym, evt.body)
-    fillProcEntry(c.functions[c.symToIndexTbl[evt.sym.id]], r)
+    let r = generateCodeForProc(c.gen, idgen, evt.sym, evt.body)
+    fillProcEntry(c.functions[c.gen.symToIndexTbl[evt.sym.id]], r)
   of bekImported:
     # not supported at the moment; ``vmgen`` is going to raise an
     # error when generating a call to a dynlib procedure
     discard "ignore"
 
-proc generateAliveProcs(c: var TCtx, config: BackendConfig,
+proc generateAliveProcs(c: var GenCtx, config: BackendConfig,
                         discovery: var DiscoveryData, mlist: var ModuleList) =
   ## Generates and emits the bytecode for all alive procedure (excluding the
   ## entry point).
@@ -206,14 +220,14 @@ proc generateAliveProcs(c: var TCtx, config: BackendConfig,
   # finish the partial procedures:
   for s, frag in partial.mpairs:
     let
-      start = c.code.len
+      start = c.gen.code.len
       rc = frag.prc.regInfo.len
 
-    c.appendCode(frag)
-    c.gABC(unknownLineInfo, opcRet)
+    c.gen.appendCode(frag)
+    c.gen.gABC(unknownLineInfo, opcRet)
 
     let id = registerProc(c, frag.prc.sym)
-    fillProcEntry(c.functions[id.int]): (start: start, regCount: rc)
+    fillProcEntry(c.functions[id.LinkIndex]): (start: start, regCount: rc)
 
     frag.prc.sym.ast[bodyPos] = newNode(nkStmtList)
 
@@ -221,17 +235,19 @@ proc generateAliveProcs(c: var TCtx, config: BackendConfig,
     # already
     reset(frag)
 
-proc generateCodeForMain(c: var TCtx, config: BackendConfig,
+proc generateCodeForMain(c: var GenCtx, config: BackendConfig,
                          modules: var ModuleList): FunctionIndex =
   ## Generate, emits, and links in the main procedure (the entry point).
-  let prc = generateMainProcedure(c.graph, mainModule(modules).idgen, modules)
-  var p = preprocess(config, prc, c.graph, c.idgen)
-  process(p, c.graph, c.idgen)
+  let
+    idgen = mainModule(modules).idgen
+    prc = generateMainProcedure(c.graph, idgen, modules)
+  var p = preprocess(config, prc, c.graph, idgen)
+  process(p, c.graph, idgen)
 
   result = registerProc(c, prc)
 
-  let r = generateCodeForProc(c, prc, p.body)
-  fillProcEntry(c.functions[result.int], r)
+  let r = generateCodeForProc(c.gen, idgen, prc, p.body)
+  fillProcEntry(c.functions[result.LinkIndex], r)
 
 func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
                 routineSymLookup: sink Table[int, LinkIndex],
@@ -264,14 +280,16 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
     conf = g.config
     bconf = BackendConfig(noImported: true, options: {goIsNimvm})
 
-  var c = TCtx(config: g.config, cache: g.cache, graph: g, idgen: g.idgen,
-               mode: emStandalone)
+  var c =
+    GenCtx(graph: g,
+           gen: TCtx(config: g.config, cache: g.cache, graph: g,
+                     mode: emStandalone))
 
-  c.typeInfoCache.init()
+  c.gen.typeInfoCache.init()
 
   # register the extra ops so that code generation isn't performed for the
   # corresponding procs:
-  registerCallbacks(c)
+  registerCallbacks(c.gen)
 
   # generate code for all alive routines:
   var discovery: DiscoveryData
@@ -279,35 +297,29 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
 
   let entryPoint = generateCodeForMain(c, bconf, mlist)
 
-  c.gABC(unknownLineInfo, opcEof)
+  c.gen.gABC(unknownLineInfo, opcEof)
 
   # ----- code generation is finished
 
-  # collect globals and `const`s:
-  # XXX: these two steps could be combined with storing into `PackedEnv`.
-  #      Pros: no need for the `globals` and `consts` seqs
-  #      Cons: (probably) higher I-cache pressure, slightly more complex logic
-
-  var globals = newSeq[PVmType](c.collectedGlobals.len)
-  for i, sym in c.collectedGlobals.pairs:
-    let typ = c.typeInfoCache.lookup(conf, sym.typ)
-    # the type was already created during vmgen
-    globals[i] = typ.unsafeGet
-
+  # produce a list with the type of each constant:
   var consts = newSeq[(PVmType, PNode)](discovery.constants.len)
   for i, sym in all(discovery.constants):
-    let typ = c.typeInfoCache.lookup(conf, sym.typ)
+    let typ = c.gen.typeInfoCache.lookup(conf, sym.typ)
     consts[i] = (typ.unsafeGet, sym.ast)
+
+  # put the finished function table into the ``TCtx`` object for the encoder
+  # to pack it
+  c.gen.functions = move base(c.functions)
 
   # pack the data and write it to the ouput file:
   var
     enc: PackedEncoder
     env: PackedEnv
 
-  enc.init(c.types)
-  storeEnv(enc, env, c)
-  storeExtra(enc, env, c.symToIndexTbl, consts, globals)
-  env.code = move c.code
+  enc.init(c.gen.types)
+  storeEnv(enc, env, c.gen)
+  storeExtra(enc, env, c.gen.symToIndexTbl, consts, base(c.globals))
+  env.code = move c.gen.code
   env.entryPoint = entryPoint
 
   let err = writeToFile(env, prepareToWriteOutput(conf))

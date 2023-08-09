@@ -162,3 +162,12 @@ func add*[I; T](x: var OrdinalSeq[I, T], item: sink T): I {.inline.} =
 
 func newSeq*[I; T](x: var OrdinalSeq[I, T], len: int) {.inline.} =
   newSeq(base(x), len)
+
+func setLen*[I; T](x: var OrdinalSeq[I, T], len: int) {.inline.} =
+  setLen(base(x), len)
+
+iterator pairs*[I; T](x: OrdinalSeq[I, T]): (I, lent T) =
+  var i = 0
+  while i < x.len:
+    yield (I(i), x[I(i)])
+    inc i
