@@ -1,13 +1,14 @@
 discard """
-  targets: "c vm !js"
+  targets: "c vm js"
   description: '''
     Test the `incl`, `contains`, and set construction operation for sets where
     the element range crosses the signed 64-bit integer upper bound
   '''
+  knownIssue.js: '''
+    sets with sets with elements beyond 2^53-1 don't work the JavaScript
+    backend
+  '''
 """
-
-# knownIssue: sets with elements beyond 2^53-1 don't work the JavaScript
-#             backend
 
 const
   Low  = uint64(high(int64))

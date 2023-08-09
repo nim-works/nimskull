@@ -1,10 +1,10 @@
 discard """
   action: compile
-  target: "!vm"
+  knownIssue.vm: '''
+    The `strtabs` module imports the ``std/os`` module, which isn't
+    yet supported for the VM target
+  '''
 """
-
-# knownIssue: the `strtabs` module imports the ``std/os`` module, which isn't
-#             yet supported for the VM target
 
 # bug #9441
 import std/strtabs

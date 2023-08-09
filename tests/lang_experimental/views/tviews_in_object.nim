@@ -1,13 +1,12 @@
 discard """
-  targets: "c !js vm"
+  targets: "c js vm"
   matrix: "--experimental:views"
   description: '''
     Tests for direct single-location views used as the type of
     object fields. Only read access is tested here.
   '''
+  knownIssue.js: "multiple problems with the JavaScript code generator"
 """
-
-# knownIssue: multiple problems with the JavaScript code generator
 
 # note: all the tests here are run in the context of procedures; tests for
 # views in the context of top-level code should go elsewhere

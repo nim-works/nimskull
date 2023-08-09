@@ -8,8 +8,6 @@ discard """
   '''
 """
 
-# knownIssue: ``vmgen`` generates incorrect code in some cases
-
 template disableIf(cond: bool, body: untyped) =
   when defined(tryBrokenSpecification) or not cond:
     body

@@ -1,12 +1,9 @@
 discard """
   description: "Tests for the std/experimental/results module"
-  targets: "c !js"
+  targets: "c js vm"
+  knownIssue.js: "code-gen issue that seems to be related to sink parameters"
+  knownIssue.vm: "code-gen issues"
 """
-
-# knownIssue: fails on the JS back-end due to a code-gen issue. The issue
-#             seems to be related to sink parameters
-
-# knownIssue: fails for the VM back-end due to code-gen issues
 
 # This file was based on the ``test.nim`` file
 # from https://github.com/disruptek/badresults

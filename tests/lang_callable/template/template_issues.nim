@@ -1,5 +1,5 @@
 discard """
-target: "!vm"
+knownIssue.vm: true
 output: '''
 0
 a
@@ -11,8 +11,6 @@ false
 true
 '''
 """
-
-# VM disabled: needs a deeper dive (knownIssue)
 
 import std/[macros, json]
 

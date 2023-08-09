@@ -1,9 +1,8 @@
 discard """
   description: "Tests for tuple unpacking done by for-loops"
-  targets: "c !js vm"
+  targets: "c js vm"
+  knownIssue.js: "fails for the JS back-end with an internal compiler error"
 """
-
-# knownIssue: fails for the JS back-end with an internal compiler error
 
 type
   Tup = tuple

@@ -1,10 +1,12 @@
 discard """
-  targets: "c js !vm"
+  targets: "c js vm"
   description: "Tests for ensuring that ``FieldDefect``'s messages are correct"
+  knownIssue.vm: '''
+    ``FieldDefect``s are not currently catchable with the VM target,
+    not even for debugging purposes
+  '''
 """
 
-# knownIssue: ``FieldDefect``s are not currently catchable with the VM target,
-#             not even for debugging purposes
 
 type
   Enum = enum

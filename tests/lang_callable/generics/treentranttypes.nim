@@ -1,5 +1,5 @@
 discard """
-target: "!vm"
+knownIssue.vm: '''"same" output but float formatting is off'''
 output: '''
 (10, ("test", 1.2))
 3x3 Matrix [[0.0, 2.0, 3.0], [2.0, 0.0, 5.0], [2.0, 0.0, 5.0]]
@@ -16,8 +16,6 @@ output: '''
 @[1, 2]@[3, 4]
 '''
 """
-
-# disabled on VM: "same" output but float formatting is off (knownIssue)
 
 # https://github.com/nim-lang/Nim/issues/5962
 
