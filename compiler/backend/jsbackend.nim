@@ -31,6 +31,8 @@ import
     ropes
   ]
 
+from compiler/mir/mirbridge import canonicalize
+
 type
   BModuleList = SeqMap[FileIndex, BModule]
   PartialTable = Table[int, PProc]
@@ -71,13 +73,13 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
       p = startProc(g, bmod, evt.sym)
       partial[evt.sym.id] = p
 
-    let body = generateAST(graph, bmod.idgen, evt.sym, evt.body)
+    let body = generateIR(graph, bmod.idgen, evt.sym, evt.body)
     genStmt(p, body)
 
     processLate(g, discovery)
   of bekProcedure:
     let
-      body = generateAST(graph, bmod.idgen, evt.sym, evt.body)
+      body = generateIR(graph, bmod.idgen, evt.sym, evt.body)
       r = genProc(g, bmod, evt.sym, body)
 
     if sfCompilerProc in evt.sym.flags:
@@ -113,7 +115,8 @@ proc generateCodeForMain(globals: PGlobals, graph: ModuleGraph, m: BModule,
   generateMain(graph, modules, body)
   generateTeardown(graph, modules, body)
 
-  genTopLevelStmt(globals, m, body)
+  let owner = m.module
+  genTopLevelStmt(globals, m, canonicalize(graph, m.idgen, owner, body, {}))
 
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point into the JS backend. Generates the code for all modules and

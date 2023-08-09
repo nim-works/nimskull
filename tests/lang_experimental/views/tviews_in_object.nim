@@ -55,7 +55,7 @@ testCase(seq[int], @[1]):
   doAssert o.field[0] == 1 # subscript access works
   doAssert o.field == [1]
 
-# XXX: internal compiler error in ``astgen``
+# XXX: internal compiler error in ``cgirgen``
 when false:
   # test: single tuple location
   testCase(tuple[x: int], (1,)):

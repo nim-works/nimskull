@@ -36,7 +36,8 @@ import
     tables
   ],
   compiler/ast/[
-    ast,
+    ast_query,
+    ast_types,
     lineinfos,
     ndi
   ],
@@ -44,12 +45,15 @@ import
     backends,
     cgen,
     cgendata,
+    cgir,
+    compat,
     extccomp
   ],
   compiler/front/[
     options
   ],
   compiler/mir/[
+    mirbridge,
     mirtrees
   ],
   compiler/modules/[
@@ -67,6 +71,8 @@ import
 
 import std/options as std_options
 
+from compiler/ast/ast import id, newNode
+
 # XXX: reports are a legacy facility that is going to be phased out. A
 #      note on how to move forward is left at each usage site in this
 #      module
@@ -78,7 +84,7 @@ type
   InlineProc = object
     ## Information about an inline procedure.
     sym: PSym
-    body: PNode
+    body: CgNode
       ## the fully processed body of the procedure
 
     deps: PackedSet[uint32]
@@ -150,11 +156,11 @@ proc prepare(g: BModuleList, d: var DiscoveryData) =
 
   # emit definitions for the lifted globals we've discovered:
   for _, s in visit(d.globals):
-    defineGlobalVar(g.modules[moduleId(s)], newSymNode(s))
+    defineGlobalVar(g.modules[moduleId(s)], s)
 
   for _, s in visit(d.threadvars):
     let bmod = g.modules[moduleId(s)]
-    fillGlobalLoc(bmod, s, newSymNode(s))
+    fillGlobalLoc(bmod, s)
     declareThreadVar(bmod, s, sfImportc in s.flags)
 
 proc processEvent(g: BModuleList, inl: var InliningData, discovery: var DiscoveryData, partial: var Table[PSym, BProc], evt: sink BackendEvent) =
@@ -220,7 +226,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
       p = startProc(g.modules[evt.module.int], evt.sym)
       partial[evt.sym] = p
 
-    let body = generateAST(g.graph, bmod.idgen, evt.sym, evt.body)
+    let body = generateIR(g.graph, bmod.idgen, evt.sym, evt.body)
     # emit into the procedure:
     genStmts(p, body)
 
@@ -232,7 +238,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
     # emit of the prototype in the case of self-recursion
     bmod.declaredThings.incl(evt.sym.id)
     let
-      body = generateAST(g.graph, bmod.idgen, evt.sym, evt.body)
+      body = generateIR(g.graph, bmod.idgen, evt.sym, evt.body)
       p    = startProc(bmod, evt.sym, body)
 
     # we can't generate with ``genProc`` because we still need to output
@@ -326,7 +332,7 @@ proc generateCodeForMain(m: BModule, modules: ModuleList) =
     generateTeardown(m.g.graph, modules, body)
 
   # now generate the C code for the body:
-  genStmts(p, body)
+  genStmts(p, canonicalize(m.g.graph, m.idgen, m.module, body, {}))
   var code: string
   code.add(p.s(cpsLocals))
   code.add(p.s(cpsInit))

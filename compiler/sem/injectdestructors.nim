@@ -171,7 +171,6 @@ import
   ],
   compiler/mir/[
     analysis,
-    astgen,
     mirchangesets,
     mirconstr,
     mirtrees,
@@ -203,6 +202,7 @@ from compiler/ast/report_enums import ReportKind
 # XXX: we shouldn't need to be concerned with rendering backend-
 #      IR to text here
 from compiler/backend/cgirutils import render
+from compiler/backend/cgirgen import generateIR
 
 type
   AnalyseCtx = object
@@ -610,15 +610,12 @@ func undoConversions(buf: var MirNodeSeq, tree: MirTree, src: OpValue) =
   ## When performing a destructive move for ``ref`` values, it's possible for
   ## the source to be an lvalue conversion -- in that case, we want pass the
   ## uncoverted root location to the ``wasMoved`` operation. To do so, we apply
-  ## the conversions in *reverse*. ``astgen`` detects this pattern and removes
+  ## the conversions in *reverse*. ``cgirgen`` detects this pattern and removes
   ## the conversions that cancel each other out.
   var p = NodePosition(src)
   while tree[p].kind in {mnkStdConv, mnkConv}:
     p = previous(tree, p)
     buf.add MirNode(kind: mnkConv, typ: tree[p].typ)
-
-func opParamNode(index: uint32, typ: PType): MirNode {.inline.} =
-  MirNode(kind: mnkOpParam, typ: typ, param: index)
 
 template voidCallWithArgs(buf: var MirNodeSeq, body: untyped) =
   argBlock(buf):
@@ -1328,7 +1325,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
     # the MIR code wouldn't be very useful, so we turn it into backend IR
     # first, which we then render to text
     # XXX: this needs a deeper rethink
-    let n = generateAST(g, idgen, owner, tree, sourceMap)
+    let n = generateIR(g, idgen, owner, tree, sourceMap)
     g.config.msgWrite("--expandArc: " & owner.name.s & "\n")
     g.config.msgWrite(render(n))
     g.config.msgWrite("\n-- end of expandArc ------------------------\n")

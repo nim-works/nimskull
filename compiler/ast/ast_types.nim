@@ -349,48 +349,6 @@ const
     nkUsingStmt,
   }
 
-  codegenExprNodeKinds* = {
-    nkEmpty,
-    nkSym,
-    nkType,
-
-    nkCharLit,
-    nkIntLit, nkInt8Lit, nkInt16Lit, nkInt32Lit, nkInt64Lit,
-    nkUIntLit, nkUInt8Lit, nkUInt16Lit, nkUInt32Lit, nkUInt64Lit,
-    nkFloatLit, nkFloat32Lit, nkFloat64Lit, nkFloat128Lit,
-    nkStrLit, nkRStrLit, nkTripleStrLit,
-    nkNilLit,
-
-    nkCall,
-
-    nkObjConstr, nkCurly, nkBracket,
-
-    nkBracketExpr, nkDotExpr, nkCheckedFieldExpr, nkDerefExpr,
-
-    nkHiddenStdConv, nkConv, nkCast, nkAddr, nkHiddenAddr,
-    nkHiddenDeref, nkObjDownConv, nkObjUpConv,
-
-    nkChckRangeF, nkChckRange64, nkChckRange, nkStringToCString,
-    nkCStringToString,
-
-    nkAsgn, nkFastAsgn,
-
-    nkAsmStmt, nkPragma,
-
-    nkIfStmt, nkWhileStmt, nkCaseStmt,
-
-    nkVarSection, nkLetSection,
-    nkTryStmt,
-
-    nkRaiseStmt, nkReturnStmt, nkBreakStmt, nkBlockStmt, nkDiscardStmt,
-
-    nkStmtList, nkStmtListExpr,
-
-    nkClosure,
-    nkTupleConstr,
-    nkNimNodeLit,
-  }
-
 type
   TSymFlag* = enum    # 48 flags!
     sfUsed            ## read access of sym (for warnings) or simply used
@@ -1237,11 +1195,8 @@ type
     adSemConstExprExpected
     adSemExpectedRangeType
     # semobjconstr
-    adSemFieldAssignmentInvalidNeedSpace
     adSemFieldAssignmentInvalid
     adSemFieldNotAccessible
-    adSemFieldOkButAssignedValueInvalid
-    adSemObjectConstructorIncorrect
     adSemObjectRequiresFieldInitNoDefault
     adSemExpectedObjectType
     adSemExpectedObjectOfType
@@ -1362,9 +1317,7 @@ type
         adSemNamedExprNotAllowed,
         adSemNoReturnTypeDeclared,
         adSemReturnNotAllowed,
-        adSemFieldAssignmentInvalidNeedSpace,
         adSemFieldAssignmentInvalid,
-        adSemObjectConstructorIncorrect,
         adSemExpectedObjectType,
         adSemFoldOverflow,
         adSemFoldDivByZero,
@@ -1512,9 +1465,6 @@ type
       wrongFldInfo*: TLineInfo
     of adSemFieldNotAccessible:
       inaccessible*: PSym
-    of adSemFieldOkButAssignedValueInvalid:
-      targetField*: PSym
-      initVal*: PNode
     of adSemObjectRequiresFieldInitNoDefault:
       missing*: seq[PSym]
       objTyp*: PType
@@ -1827,17 +1777,6 @@ type
 type
   TExprFlag* = enum
     efLValue, efWantIterator, efInTypeof,
-    efNeedStatic,
-      ## Use this in contexts where a static value is mandatory
-    efPreferStatic,
-      ## Use this in contexts where a static value could bring more
-      ## information, but it's not strictly mandatory. This may become
-      ## the default with implicit statics in the future.
-    efPreferNilResult,
-      ## Use this if you want a certain result (e.g. static value),
-      ## but you don't want to trigger a hard error. For example,
-      ## you may be in position to supply a better error message
-      ## to the user.
     efWantStmt, efAllowStmt, efExplain,
     efWantValue, efOperand, efNoSemCheck,
     efNoEvaluateGeneric, efInCall, efFromHlo, efNoSem2Check,

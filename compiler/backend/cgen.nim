@@ -19,10 +19,11 @@ import
     sets
   ],
   compiler/ast/[
-    ast,
+    ast_query,
+    ast_types,
+    ast_idgen,
     astalgo,
     trees,
-    nimsets,
     idents,
     types,
     typesrenderer,
@@ -46,16 +47,19 @@ import
     bitsets,
     ropes,
     pathutils,
-    idioms
+    idioms,
+    int128
   ],
   compiler/sem/[
     rodutils,
     lowerings,
   ],
   compiler/backend/[
+    compat,
     extccomp,
     ccgutils,
-    cgendata
+    cgendata,
+    cgir
   ],
   compiler/plugins/[
   ]
@@ -71,6 +75,8 @@ from compiler/ast/report_enums import ReportKind
 
 from compiler/sem/passes import moduleHasChanged # XXX: leftover dependency
 import std/strutils except `%`, addf # collides with ropes.`%`
+
+from compiler/ast/ast import newType, rawAddSon
 
 when defined(nimCompilerStacktraceHints):
   import compiler/utils/debugutils
@@ -89,21 +95,24 @@ const
     ## the procedure contains top-level code, which currently affects how
     ## emit, asm, and error handling works
 
+template `[]=`(x: CgNode, i: Natural, n: CgNode) =
+  x.kids[i] = n
+
 proc findPendingModule(m: BModule, s: PSym): BModule =
   let ms = s.itemId.module  #getModule(s)
   result = m.g.modules[ms]
 
-proc initLoc(result: var TLoc, k: TLocKind, lode: PNode, s: TStorageLoc) =
+proc initLoc(result: var TLoc, k: TLocKind, lode: CgNode, s: TStorageLoc) =
   result.k = k
   result.storage = s
   result.lode = lode
   result.r = ""
   result.flags = {}
 
-func initLoc(kind: TLocKind, n: PNode, name: sink string, storage: TStorageLoc): TLoc =
+func initLoc(kind: TLocKind, n: CgNode, name: sink string, storage: TStorageLoc): TLoc =
   TLoc(k: kind, storage: storage, lode: n, r: name, flags: {})
 
-proc fillLoc(a: var TLoc, k: TLocKind, lode: PNode, r: Rope, s: TStorageLoc) =
+proc fillLoc(a: var TLoc, k: TLocKind, lode: CgNode, r: Rope, s: TStorageLoc) =
   ## fills the loc if it is not already initialized
   if a.k == locNone:
     a.k = k
@@ -112,14 +121,13 @@ proc fillLoc(a: var TLoc, k: TLocKind, lode: PNode, r: Rope, s: TStorageLoc) =
     if a.r == "": a.r = r
 
 proc t(a: TLoc): PType {.inline.} =
-  if a.lode.kind == nkSym:
+  if a.lode.kind == cnkSym:
     result = a.lode.sym.typ
   else:
     result = a.lode.typ
 
-proc lodeTyp(t: PType): PNode =
-  result = newNode(nkEmpty)
-  result.typ = t
+proc lodeTyp(t: PType): CgNode =
+  result = newNode(cnkEmpty, typ = t)
 
 proc isSimpleConst(typ: PType): bool =
   let t = skipTypes(typ, abstractVar)
@@ -288,7 +296,7 @@ proc freshLineInfo(p: BProc; info: TLineInfo): bool =
     p.lastLineInfo.fileIndex = info.fileIndex
     result = true
 
-proc genLineDir(p: BProc, t: PNode) =
+proc genLineDir(p: BProc, t: CgNode) =
   let line = t.info.safeLineNm
 
   if optEmbedOrigSrc in p.config.globalOptions:
@@ -325,8 +333,8 @@ include ccgtypes
 
 # ------------------------------ Manager of temporaries ------------------
 
-template mapTypeChooser(n: PNode): TSymKind =
-  (if n.kind == nkSym: n.sym.kind else: skVar)
+template mapTypeChooser(n: CgNode): TSymKind =
+  (if n.kind == cnkSym: n.sym.kind else: skVar)
 
 template mapTypeChooser(a: TLoc): TSymKind = mapTypeChooser(a.lode)
 
@@ -346,8 +354,8 @@ proc rdCharLoc(a: TLoc): Rope =
   if skipTypes(a.t, abstractRange).kind == tyChar:
     result = "((NU8)($1))" % [result]
 
-proc genObjConstr(p: BProc, e: PNode, d: var TLoc)
-proc rawConstExpr(p: BProc, n: PNode; d: var TLoc)
+proc genObjConstr(p: BProc, e: CgNode, d: var TLoc)
+proc rawConstExpr(p: BProc, n: CgNode; d: var TLoc)
 proc genAssignment(p: BProc, dest, src: TLoc)
 
 type
@@ -374,15 +382,15 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
   proc defaultValueExpr(p: BProc, t: PType, info: TLineInfo): TLoc =
     ## Sets up and returns a loc storing the expression representing the
     ## default value for `t`.
-    let n =
+    let kind =
       case t.skipTypes(abstractInst).kind
-      of tyObject: newTreeIT(nkObjConstr, info, t, [newNodeIT(nkType, info, t)])
-      of tyTuple:  newTreeIT(nkTupleConstr, info, t)
-      of tyArray:  newTreeIT(nkBracket, info, t)
+      of tyObject: cnkObjConstr
+      of tyTuple:  cnkTupleConstr
+      of tyArray:  cnkArrayConstr
       else:
         unreachable("cannot have embedded type fields")
 
-    rawConstExpr(p, n, result)
+    rawConstExpr(p, newExpr(kind, info, t), result)
 
   case analyseObjectWithTypeField(t)
   of frNone:
@@ -401,8 +409,6 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
       else:
         let tmp = defaultValueExpr(p, t, a.lode.info)
         genAssignment(p, a, tmp)
-
-include ccgreset
 
 proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
   let kind = mapTypeChooser(loc)
@@ -473,7 +479,7 @@ proc getIntTemp(p: BProc, result: var TLoc) =
   result.lode = lodeTyp getSysType(p.module.g.graph, unknownLineInfo, tyInt)
   result.flags = {}
 
-proc localVarDecl(p: BProc; n: PNode): Rope =
+proc localVarDecl(p: BProc; n: CgNode): Rope =
   let s = n.sym
   let loc = initLoc(locLocalVar, n, mangleLocalName(p, s), OnStack)
   if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
@@ -500,7 +506,7 @@ proc localVarDecl(p: BProc; n: PNode): Rope =
     #      generation
     p.locals.assign(s, loc)
 
-proc assignLocalVar(p: BProc, n: PNode) =
+proc assignLocalVar(p: BProc, n: CgNode) =
   let nl = if optLineDir in p.config.options: "" else: "\L"
   let decl = localVarDecl(p, n) & ";" & nl
   line(p, cpsLocals, decl)
@@ -509,12 +515,12 @@ include ccgthreadvars
 
 proc varInDynamicLib(m: BModule, sym: PSym)
 
-proc fillGlobalLoc*(m: BModule, s: PSym, n: PNode) =
+proc fillGlobalLoc*(m: BModule, s: PSym) =
+  let n = CgNode(kind: cnkSym, info: s.info, typ: s.typ, sym: s)
   m.globals.put(s, initLoc(locGlobalVar, n, mangleName(m.g.graph, s), OnHeap))
 
-proc defineGlobalVar*(m: BModule, n: PNode) =
-  let s = n.sym
-  fillGlobalLoc(m, s, n)
+proc defineGlobalVar*(m: BModule, s: PSym) =
+  fillGlobalLoc(m, s)
 
   assert s.id notin m.declaredThings
   assert findPendingModule(m, s) == m, "not the attached-to module"
@@ -553,23 +559,23 @@ proc getLabel(p: BProc): TLabel =
 proc fixLabel(p: BProc, labl: TLabel) =
   lineF(p, cpsStmts, "$1: ;$n", [labl])
 
-proc genVarPrototype*(m: BModule, n: PNode)
+proc genVarPrototype*(m: BModule, n: CgNode)
 proc genProcPrototype*(m: BModule, sym: PSym)
-proc genStmts*(p: BProc, t: PNode)
-proc expr(p: BProc, n: PNode, d: var TLoc)
+proc genStmts*(p: BProc, t: CgNode)
+proc expr(p: BProc, n: CgNode, d: var TLoc)
 proc putLocIntoDest(p: BProc, d: var TLoc, s: TLoc)
 proc intLiteral(i: BiggestInt): Rope
 proc intLiteral(p: BProc, i: Int128, ty: PType): Rope
-proc genLiteral(p: BProc, n: PNode): Rope
+proc genLiteral(p: BProc, n: CgNode): Rope
 proc raiseExit(p: BProc)
 
-proc initLocExpr(p: BProc, e: PNode, result: var TLoc) =
+proc initLocExpr(p: BProc, e: CgNode, result: var TLoc) =
   initLoc(result, locNone, e, OnUnknown)
   expr(p, e, result)
 
-proc initLocExprSingleUse(p: BProc, e: PNode, result: var TLoc) =
+proc initLocExprSingleUse(p: BProc, e: CgNode, result: var TLoc) =
   initLoc(result, locNone, e, OnUnknown)
-  if e.kind in nkCallKinds and (e[0].kind != nkSym or e[0].sym.magic == mNone):
+  if e.kind == cnkCall and getCalleeMagic(e[0]) == mNone:
     # We cannot check for tfNoSideEffect here because of mutable parameters.
     discard "bug #8202; enforce evaluation order for nested calls"
     # We may need to consider that 'f(g())' cannot be rewritten to 'tmp = g(); f(tmp)'
@@ -680,31 +686,27 @@ proc closureSetup(p: BProc, prc: PSym) =
   p.config.internalAssert(ls.kind == nkSym, prc.info, "closure generation failed")
   var env = ls.sym
   #echo "created environment: ", env.id, " for ", prc.name.s
-  assignLocalVar(p, ls)
+  assignLocalVar(p, toSymNode(ls))
   # generate cast assignment:
   linefmt(p, cpsStmts, "$1 = ($2) ClE_0;$n",
           [rdLoc(p.locals[env]), getTypeDesc(p.module, env.typ)])
 
-proc containsResult(n: PNode): bool =
+func containsResult(n: CgNode): bool =
   result = false
   case n.kind
-  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit, nkFormalParams:
-    discard
-  of nkSym:
+  of cnkWithoutItems - {cnkSym}:
+    discard "ignore"
+  of cnkSym:
     if n.sym.kind == skResult:
       result = true
-  else:
+  of cnkWithItems:
     for i in 0..<n.len:
       if containsResult(n[i]): return true
-
-const harmless = {nkConstSection, nkTypeSection, nkEmpty, nkCommentStmt, nkTemplateDef,
-                  nkMacroDef, nkMixinStmt, nkBindStmt} +
-                  declarativeDefs
 
 type
   InitResultEnum = enum Unknown, InitSkippable, InitRequired
 
-proc allPathsAsgnResult(n: PNode): InitResultEnum =
+proc allPathsAsgnResult(n: CgNode): InitResultEnum =
   # Exceptions coming from calls don't have not be considered here:
   #
   # proc bar(): string = raise newException(...)
@@ -729,36 +731,34 @@ proc allPathsAsgnResult(n: PNode): InitResultEnum =
 
   result = Unknown
   case n.kind
-  of nkStmtList, nkStmtListExpr:
+  of cnkStmtList, cnkStmtListExpr:
     for it in n:
       result = allPathsAsgnResult(it)
       if result != Unknown: return result
-  of nkAsgn, nkFastAsgn:
-    if n[0].kind == nkSym and n[0].sym.kind == skResult:
+  of cnkAsgn, cnkFastAsgn:
+    if n[0].kind == cnkSym and n[0].sym.kind == skResult:
       if not containsResult(n[1]): result = InitSkippable
       else: result = InitRequired
     elif containsResult(n):
       result = InitRequired
-  of nkReturnStmt:
+  of cnkReturnStmt:
       if true:
         # This is a bare `return` statement, if `result` was not initialized
         # anywhere else (or if we're not sure about this) let's require it to be
         # initialized. This avoids cases like #9286 where this heuristic lead to
         # wrong code being generated.
         result = InitRequired
-  of nkIfStmt, nkIfExpr:
-    var exhaustive = false
+  of cnkIfStmt:
     result = InitSkippable
-    for it in n:
-      # Every condition must not use 'result':
-      if it.len == 2 and containsResult(it[0]):
-        return InitRequired
-      if it.len == 1: exhaustive = true
-      allPathsInBranch(it.lastSon)
+    # the condition must not use 'result':
+    if containsResult(n[0]):
+      return InitRequired
+
+    allPathsInBranch(n[1])
     # if the 'if' statement is not exhaustive and yet it touched 'result'
     # in some way, say Unknown.
-    if not exhaustive: result = Unknown
-  of nkCaseStmt:
+    result = Unknown
+  of cnkCaseStmt:
     if containsResult(n[0]): return InitRequired
     result = InitSkippable
     var exhaustive = skipTypes(n[0].typ,
@@ -766,22 +766,18 @@ proc allPathsAsgnResult(n: PNode): InitResultEnum =
     for i in 1..<n.len:
       let it = n[i]
       allPathsInBranch(it.lastSon)
-      if it.kind == nkElse: exhaustive = true
+      if not isOfBranch(it): exhaustive = true
     if not exhaustive: result = Unknown
-  of nkWhileStmt:
-    # some dubious code can assign the result in the 'while'
-    # condition and that would be fine. Everything else isn't:
+  of cnkRepeatStmt:
     result = allPathsAsgnResult(n[0])
-    if result == Unknown:
-      result = allPathsAsgnResult(n[1])
-      # we cannot assume that the 'while' loop is really executed at least once:
-      if result == InitSkippable: result = Unknown
-  of harmless:
+    # a 'repeat' loop is always executed at least once
+    if result == InitSkippable: result = Unknown
+  of cnkWithoutItems - {cnkSym, cnkReturnStmt}:
     result = Unknown
-  of nkSym:
+  of cnkSym:
     # some path reads from 'result' before it was written to!
     if n.sym.kind == skResult: result = InitRequired
-  of nkTryStmt, nkHiddenTryStmt:
+  of cnkTryStmt:
     # We need to watch out for the following problem:
     # try:
     #   result = stuffThatRaises()
@@ -794,18 +790,18 @@ proc allPathsAsgnResult(n: PNode): InitResultEnum =
     result = InitSkippable
     allPathsInBranch(n[0])
     for i in 1..<n.len:
-      if n[i].kind == nkFinally:
+      if n[i].kind == cnkFinally:
         result = allPathsAsgnResult(n[i].lastSon)
       else:
         allPathsInBranch(n[i].lastSon)
   else:
-    for i in 0..<n.safeLen:
-      allPathsInBranch(n[i])
+    for it in n.items:
+      allPathsInBranch(it)
 
 proc isNoReturn(m: BModule; s: PSym): bool {.inline.} =
   sfNoReturn in s.flags and m.config.exc != excGoto
 
-proc startProc*(m: BModule, prc: PSym; procBody: PNode = nil): BProc =
+proc startProc*(m: BModule, prc: PSym; procBody: CgNode = nil): BProc =
   var p = newProc(prc, m)
   assert(prc.ast != nil)
   fillProcLoc(m, prc) # ensure that a loc exists
@@ -815,8 +811,9 @@ proc startProc*(m: BModule, prc: PSym; procBody: PNode = nil): BProc =
 
   if sfPure notin prc.flags and prc.typ[0] != nil:
     m.config.internalAssert(resultPos < prc.ast.len, prc.info, "proc has no result symbol")
-    let resNode = prc.ast[resultPos]
-    let res = resNode.sym # get result symbol
+    let
+      res = prc.ast[resultPos].sym # get result symbol
+      resNode = newSymNode(res)
     if not isInvalidReturnType(m.config, prc.typ[0]):
       if sfNoInit in prc.flags: incl(res.flags, sfNoInit)
       # declare the result symbol:
@@ -918,7 +915,7 @@ proc finishProc*(p: BProc, prc: PSym): string =
 
   result = generatedProc
 
-proc genProc*(m: BModule, prc: PSym, procBody: PNode): Rope =
+proc genProc*(m: BModule, prc: PSym, procBody: CgNode): Rope =
   ## Generates the code for the procedure `prc`, where `procBody` is the code
   ## of the body with all applicable lowerings and transformation applied.
   let p = startProc(m, prc, procBody)
@@ -966,7 +963,7 @@ proc useProc(m: BModule, prc: PSym) =
     fillProcLoc(findPendingModule(m, prc), prc)
     genProcPrototype(m, prc)
 
-proc genVarPrototype(m: BModule, n: PNode) =
+proc genVarPrototype(m: BModule, n: CgNode) =
   #assert(sfGlobal in sym.flags)
   let sym = n.sym
   useHeader(m, sym)

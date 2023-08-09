@@ -20,8 +20,6 @@ import
     tables
   ]
 
-from compiler/ast/nimsets import overlap
-
 # XXX: this proc was previously located in ``vmgen.nim``
 func matches(s: PSym; x: IdentPattern): bool =
   var s = s
@@ -72,16 +70,21 @@ func findRecCase*(t: PType, d: PSym): PNode =
   if result == nil and t.sons[0] != nil:
     result = findRecCase(t[0].skipTypes({tyAlias, tyGenericInst, tyRef, tyPtr}), d)
 
-func findMatchingBranch*(recCase: PNode, lit: PNode): int =
+func findMatchingBranch*(recCase: PNode, val: Int128): int =
   # XXX: If Option[Natural] would be stored as a single integer it could be
   #      used as the result type here instead
   assert recCase.kind == nkRecCase
-  assert lit.kind in nkLiterals
+
+  func overlap(val: Int128, n: PNode): bool =
+    if n.kind == nkRange:
+      getInt(n[0]) <= val and val <= getInt(n[1])
+    else:
+      getInt(n) == val
 
   for i in 1..<recCase.len:
     let branch = recCase[i]
     for j in 0..<branch.len-1: # the last son is the content of the branch
-      if overlap(lit, branch[j]):
+      if overlap(val, branch[j]):
         return i - 1
 
     if branch.kind == nkElse:

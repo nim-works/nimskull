@@ -12,13 +12,14 @@ import
     lineinfos
   ],
   compiler/backend/[
-    cgmeth
+    cgmeth,
+    cgir,
+    cgirgen
   ],
   compiler/front/[
     options
   ],
   compiler/mir/[
-    astgen,
     mirbridge,
     mirconstr,
     mirgen,
@@ -373,11 +374,11 @@ proc process(body: var MirFragment, ctx: PSym, graph: ModuleGraph,
   ## is used for the purpose of error reporting and debug tracing.
   injectDestructorCalls(graph, idgen, ctx, body.tree, body.source)
 
-proc generateAST*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                  code: sink MirFragment): PNode =
-  ## Translates the MIR code provided by `code` into ``PNode`` AST and,
+proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
+                  code: sink MirFragment): CgNode =
+  ## Translates the MIR code provided by `code` into ``CgNode`` IR and,
   ## if enabled, echoes the result.
-  result = generateAST(graph, idgen, owner, code.tree, code.source)
+  result = generateIR(graph, idgen, owner, code.tree, code.source)
   echoOutput(graph.config, owner, result)
 
 # ------- handling of lifted globals ---------

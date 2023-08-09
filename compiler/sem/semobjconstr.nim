@@ -54,88 +54,24 @@ proc mergeInitStatus(existing: var InitStatus, newStatus: InitStatus) =
   of initUnknown:
     discard
 
-proc invalidObjConstr(c: PContext, n: PNode): PNode =
-  newError(c.config, n):
-    if n.kind == nkInfix and n[0].kind == nkIdent and n[0].ident.s[0] == ':':
-      PAstDiag(kind: adSemFieldAssignmentInvalidNeedSpace)
-    else:
-      PAstDiag(kind: adSemFieldAssignmentInvalid)
-
 proc locateFieldInInitExpr(c: PContext, field: PSym, initExpr: PNode): PNode =
-  ## Returns the assignment nkExprColonExpr node, nkError if malformed, or nil
-  let fieldId = field.name.id
+  ## Returns the assignment ``nkExprColonExpr`` node, or nil, if there's none
+  ## for `field`.
   for i in 1..<initExpr.len:
-    let
-      e = initExpr[i]
-      valid = e.kind == nkExprColonExpr
-      partiallyValid = e.kind == nkError and
-                       e.errorKind == adSemFieldOkButAssignedValueInvalid
-      atLeastPartiallyValid = valid or partiallyValid
-      assignment = if partiallyValid: e[wrongNodePos] else: e
-      match =
-        if atLeastPartiallyValid:
-          let
-            (ident, errNode) = considerQuotedIdent(c, assignment[0])
-            validIdent = errNode.isNil
-          validIdent and fieldId == ident.id
-        else:
-          false
-
-    if match: # found it!
-      return e # return the error so we can handle it later
-    elif not atLeastPartiallyValid:
-      result = invalidObjConstr(c, assignment)
-      initExpr[i] = result # remember the error and bail early
-      return
+    let e = initExpr[i]
+    case e.kind
+    of nkExprColonExpr:
+      if e[0].kind == nkSym and e[0].sym.id == field.id:
+        # found it!
+        return e
+      # continue searching
+    of nkError:
+      discard "skip errors"
     else:
-      discard # keep looking
+      unreachable()
 
-proc semExprFlagDispatched(c: PContext, n: PNode, flags: TExprFlags): PNode =
-  if efNeedStatic in flags:
-    if efPreferNilResult in flags:
-      return tryConstExpr(c, n)
-    else:
-      return semConstExpr(c, n)
-  else:
-    result = semExprWithType(c, n, flags)
-    if efPreferStatic in flags:
-      var evaluated = getConstExpr(c.module, result, c.idgen, c.graph)
-      if evaluated != nil: return evaluated
-      evaluated = evalAtCompileTime(c, result)
-      if evaluated != nil: return evaluated
-
-proc semConstrField(c: PContext, flags: TExprFlags,
-                    field: PSym, initExpr: PNode): PNode =
-  let assignment = locateFieldInInitExpr(c, field, initExpr)
-  if assignment != nil:
-    result = assignment
-    if nfSem in result.flags:
-      return
-    if not fieldVisible(c, field):
-      result = newError(
-        c.config, initExpr,
-        PAstDiag(kind: adSemFieldNotAccessible, inaccessible: field))
-
-      result.typ = errorType(c)
-      return
-    if result.kind == nkError and
-       result.errorKind != adSemFieldOkButAssignedValueInvalid:
-      return # result is the assignment error
-
-    var initValue = semExprFlagDispatched(c, result[1], flags)
-    if initValue != nil:
-      initValue = fitNodeConsiderViewType(c, field.typ, initValue, result.info)
-    result[0] = newSymNode(field)
-    result[1] = initValue
-    result.flags.incl nfSem
-    if initValue != nil and initValue.kind == nkError:
-      result = newError(
-        c.config,
-        result,
-        PAstDiag(kind: adSemFieldOkButAssignedValueInvalid,
-                        targetField: field,
-                        initVal: initValue))
-
+  # assignment for field is missing
+  result = nil
 
 proc caseBranchMatchesExpr(branch, matched: PNode): bool =
   for i in 0..<branch.len-1:
@@ -190,16 +126,8 @@ iterator directFieldsInRecList(recList: PNode): PNode =
 
 proc fieldsPresentInInitExpr(c: PContext, fieldsRecList, initExpr: PNode): seq[PSym] =
   for field in directFieldsInRecList(fieldsRecList):
-    let
-      assignment = locateFieldInInitExpr(c, field.sym, initExpr)
-      found = assignment != nil
-    if found:
-      case assignment.kind:
-      of nkError:
-        discard # XXX: figure out whether errors should be represented and how
-      else:
-        # more than just nkExprColonExpr is handled by this
-        result.add field.sym
+    if locateFieldInInitExpr(c, field.sym, initExpr) != nil:
+      result.add field.sym
 
 proc collectMissingFields(c: PContext, fieldsRecList: PNode,
                           constrCtx: var ObjConstrContext) =
@@ -207,25 +135,23 @@ proc collectMissingFields(c: PContext, fieldsRecList: PNode,
     if constrCtx.needsFullInit or
        sfRequiresInit in r.sym.flags or
        r.sym.typ.requiresInit:
-      let assignment = locateFieldInInitExpr(c, r.sym, constrCtx.initExpr)
-      if assignment == nil or
-         assignment.kind == nkError and
-         assignment.errorKind != adSemFieldOkButAssignedValueInvalid:
+      if locateFieldInInitExpr(c, r.sym, constrCtx.initExpr).isNil:
         constrCtx.missingFields.add r.sym
 
-proc semConstructFields(c: PContext, n: PNode,
-                        constrCtx: var ObjConstrContext,
-                        flags: TExprFlags): InitStatus =
+proc checkConstructFields(c: PContext, n: PNode,
+                          constrCtx: var ObjConstrContext): InitStatus =
   result = initUnknown
 
   case n.kind
   of nkRecList:
     for field in n:
-      let status = semConstructFields(c, field, constrCtx, flags)
+      let status = checkConstructFields(c, field, constrCtx)
       mergeInitStatus(result, status)
 
   of nkRecCase:
     template fieldsPresentInBranch(branchIdx: int): seq[PSym] =
+      # XXX: this is related to diagnostics rendering, it should not be
+      #      located here, but rather in the rendering layer
       let branch = n[branchIdx]
       let fields = branch[^1]
       fieldsPresentInInitExpr(c, fields, constrCtx.initExpr)
@@ -243,7 +169,7 @@ proc semConstructFields(c: PContext, n: PNode,
 
     for i in 1..<n.len:
       let innerRecords = n[i][^1]
-      let status = semConstructFields(c, innerRecords, constrCtx, flags)
+      let status = checkConstructFields(c, innerRecords, constrCtx)
       if status notin {initNone, initUnknown}:
         mergeInitStatus(result, status)
         if selectedBranch != -1:
@@ -290,16 +216,11 @@ proc semConstructFields(c: PContext, n: PNode,
         localReport(c.config, discriminatorVal.info, rep)
 
       let branchNode = n[selectedBranch]
-      let flags = {efPreferStatic, efPreferNilResult}
-      let discrimAssign = semConstrField(c, flags,
-                                         discriminator.sym,
-                                         constrCtx.initExpr)
-      if discrimAssign != nil and discrimAssign.kind == nkError:
-        mergeInitStatus(result, initError)
-        return
+      let discrimAssign = locateFieldInInitExpr(c, discriminator.sym,
+                                                constrCtx.initExpr)
       var discriminatorVal = if discrimAssign.isNil: nil else: discrimAssign[1]
 
-      if discriminatorVal != nil:
+      if discriminatorVal != nil and discriminatorVal.kind != nkError:
         discriminatorVal = discriminatorVal.skipHidden
         if discriminatorVal.kind notin nkLiterals and (
             not isOrdinalType(discriminatorVal.typ, true) or
@@ -310,6 +231,8 @@ proc semConstructFields(c: PContext, n: PNode,
 
       if discriminatorVal == nil:
         badDiscriminatorError()
+      elif discriminatorVal.kind == nkError:
+        mergeInitStatus(result, initError)
       elif discriminatorVal.kind == nkSym:
         let (ctorCase, ctorIdx) = findUsefulCaseContext(c, discriminatorVal)
         if ctorCase == nil:
@@ -366,12 +289,8 @@ proc semConstructFields(c: PContext, n: PNode,
 
     else:
       result = initNone
-      let discrimAssign = semConstrField(c, flags + {efPreferStatic},
-                                         discriminator.sym,
-                                         constrCtx.initExpr)
-      if discrimAssign != nil and discrimAssign.kind == nkError:
-        mergeInitStatus(result, initError)
-        return
+      let discrimAssign = locateFieldInInitExpr(c, discriminator.sym,
+                                                constrCtx.initExpr)
 
       let discriminatorVal = if discrimAssign.isNil: nil else: discrimAssign[1]
       if discriminatorVal == nil:
@@ -382,6 +301,8 @@ proc semConstructFields(c: PContext, n: PNode,
         let defaultValue = newIntLit(c.graph, constrCtx.initExpr.info, 0)
         let matchedBranch = n.pickCaseBranch defaultValue
         collectMissingFields matchedBranch
+      elif discriminatorVal.kind == nkError:
+        mergeInitStatus(result, initError)
       else:
         result = initPartial
         if discriminatorVal.kind == nkIntLit:
@@ -396,31 +317,22 @@ proc semConstructFields(c: PContext, n: PNode,
 
   of nkSym:
     let field = n.sym
-    let assignment = semConstrField(c, flags, field, constrCtx.initExpr)
+    let assignment = locateFieldInInitExpr(c, field, constrCtx.initExpr)
+    # error or not, if the field has an assginment, we treat it as
+    # fully initialized
     result =
-      if assignment != nil:
-        if assignment.kind == nkError:
-          initError
-        else:
-          let initVal = assignment[1]
-          if initVal != nil:
-            # assignment should cover all error cases already
-            initFull
-          else:
-            initNone
-      else:
-        initNone
+      if assignment != nil: initFull
+      else:                 initNone
 
   else:
-    c.config.internalAssert false
+    unreachable(n.kind)
 
-proc semConstructTypeAux(c: PContext,
-                         constrCtx: var ObjConstrContext,
-                         flags: TExprFlags): InitStatus =
+proc checkConstructTypeAux(c: PContext,
+                           constrCtx: var ObjConstrContext): InitStatus =
   result = initUnknown
   var t = constrCtx.typ
   while true:
-    let status = semConstructFields(c, t.n, constrCtx, flags)
+    let status = checkConstructFields(c, t.n, constrCtx)
     mergeInitStatus(result, status)
     if status in {initPartial, initNone, initUnknown}:
       collectMissingFields c, t.n, constrCtx
@@ -434,10 +346,6 @@ proc semConstructTypeAux(c: PContext,
       return
     constrCtx.needsFullInit = constrCtx.needsFullInit or
                               tfNeedsFullInit in t.flags
-  if result == initError:
-    constrCtx.initExpr = newError(
-      c.config, constrCtx.initExpr,
-      PAstDiag(kind: adSemObjectConstructorIncorrect))
 
 proc initConstrContext(t: PType, initExpr: PNode): ObjConstrContext =
   ObjConstrContext(
@@ -449,7 +357,7 @@ proc initConstrContext(t: PType, initExpr: PNode): ObjConstrContext =
 proc computeRequiresInit(c: PContext, t: PType): bool =
   assert t.kind == tyObject
   var constrCtx = initConstrContext(t, newNode(nkObjConstr))
-  let initResult = semConstructTypeAux(c, constrCtx, {})
+  let initResult = checkConstructTypeAux(c, constrCtx)
   constrCtx.missingFields.len > 0
 
 proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode =
@@ -462,7 +370,7 @@ proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode =
   case objType.kind
   of tyObject:
     var constrCtx = initConstrContext(objType, newNodeI(nkObjConstr, n.info))
-    let initResult = semConstructTypeAux(c, constrCtx, {})
+    let initResult = checkConstructTypeAux(c, constrCtx)
     if constrCtx.missingFields.len > 0:
       result = c.config.newError(
                   n,
@@ -496,12 +404,85 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
                     PAstDiag(kind: adSemExpectedObjectOfType,
                              expectedObjTyp: t))
 
-  # Check if the object is fully initialized by recursively testing each
-  # field (if this is a case object, initialized fields in two different
-  # branches will be reported as an error):
+  proc lookupInType(typ: PType, field: PIdent): PSym =
+    ## Searches for a field with the given identifier (`field`) in the object
+    ## type hierarchy of `typ`.
+    var typ = typ
+    while typ != nil:
+      typ = typ.skipTypes(skipPtrs)
+      result = lookupInRecord(typ.n, field)
+      if result != nil:
+        return
+      typ = typ.base
+
+  # phase 1: verify that the AST is valid and has unambiguous meaning
+  for i in 1..<n.len:
+    let it = n[i]
+
+    if it.kind != nkExprColonExpr or it.len != 2 or
+       it[0].kind notin nkIdentKinds:
+      # the AST is invalid; skip
+      result[i] = newError(c.config, it):
+        PAstDiag(kind: adSemFieldAssignmentInvalid)
+      continue
+
+    # don't perform anything like fitting the type or folding the expression
+    # here; we just want the typed AST
+    let
+      (ident, err) = considerQuotedIdent(c, it[0])
+      field =
+        if err.isNil:
+          let s = lookupInType(t, ident)
+          if s != nil:
+            newSymNode(s, it[0].info)
+          else:
+            newError(c.config, it[0]):
+              PAstDiag(kind: adSemUndeclaredField, givenSym: t.sym, symTyp: t)
+        else:
+          err
+
+    let elem = shallowCopy(it)
+    elem[0] = field
+    elem[1] = semExprWithType(c, it[1])
+    result[i] = elem
+
+  # phase 2: ensure that the valid parts of the typed construction expression
+  # adhere to the language rules. For the first pass, we only consider the
+  # rules that don't require a complex type traversal
+  var seen = initIntSet()
+  for i in 1..<result.len:
+    let it = result[i]
+    if it.kind == nkError or it[0].kind == nkError:
+      continue # invalid AST or no valid field symbol; ignore
+
+    # post-process the initializer expression:
+    var val = it[1]
+    if sfDiscriminant in it[0].sym.flags:
+      # we prefer a compile-time-known value
+      val = getConstExpr(c.module, val, c.idgen, c.graph)
+      if val == nil:
+        val = evalAtCompileTime(c, it[1])
+
+    result[i][1] = fitNodeConsiderViewType(c, it[0].typ, val, val.info)
+
+    # now check whether it's legal for the field to appear in the construction.
+    # Visibility errors take precedence over multiple initializations
+    if not fieldVisible(c, it[0].sym):
+      result[i][0] = newError(c.config, it[0]):
+        PAstDiag(kind: adSemFieldNotAccessible, inaccessible: it[0].sym)
+    elif containsOrIncl(seen, it[0].sym.id):
+      # duplicate field initialization
+      result[i][0] = newError(c.config, it[0]):
+        PAstDiag(kind: adSemFieldInitTwice, dupFld: it[0].sym.name)
+
+  # now verify that the language rules requiring a complex type traversal are
+  # not violated. These are:
+  # 1. all fields of the object that are required to be initialized are
+  #    initialized
+  # 2. an initialized discriminated field's branch must be proven to be active
   var constrCtx = initConstrContext(t, result)
   let
-    initResult = semConstructTypeAux(c, constrCtx, flags)
+    initResult = checkConstructTypeAux(c, constrCtx)
     missedFields = constrCtx.missingFields.len > 0
     constructionError = initResult == initError
   var hasError = constructionError or missedFields
@@ -515,66 +496,18 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
       constrCtx.missingFields,
       typ = t))
 
-  if constructionError:
-    result = constrCtx.initExpr
-    return
-
-  # Since we were traversing the object fields, it's possible that
-  # not all of the fields specified in the constructor was visited.
-  # We'll check for such fields here:
-  for i in 1..<result.len:
-    let field = result[i]
-    if nfSem notin field.flags:
-      # handle various error cases first
-      case field.kind
-      of nkError:
-        # skip nkError so we report it later
-        continue
-      of nkExprColonExpr:
-        # process later in the loop
-        discard
-      else:
-        let e =
-          if field.kind == nkError:
-            field
-          else:
-            invalidObjConstr(c, field)
-        # XXX: shouldn't report errors here, since creating and reporting split
-        #      need to cascade an nkError instead
-        localReport(c.config, e)
+  if not hasError:
+    # we're not tracking the error nodes and thus have to look for
+    # them here
+    for i in 1..<n.len:
+      let it = result[i]
+      if it.kind == nkError or nkError in {it[0].kind, it[1].kind}:
         hasError = true
-        continue
-
-      let (id, err) = considerQuotedIdent(c, field[0])
-      if err != nil:
-        localReport(c.config, err)
-      # This node was not processed. There are two possible reasons:
-      # 1) It was shadowed by a field with the same name on the left
-      for j in 1..<i:
-        let (prevId, err) = considerQuotedIdent(c, result[j][0])
-        if err != nil:
-          localReport(c.config, err)
-        if prevId.id == id.id:
-          localReport(c.config, field.info, reportAst(
-            rsemFieldInitTwice, result[j][0]))
-
-          hasError = true
-          break
-      # 2) No such field exists in the constructed type
-
-      localReport(c.config, field[0], reportStr(
-        rsemUndeclaredField, id.s, typ = t, sym = t.sym))
-
-      hasError = true
-      break
+        break
 
   if initResult == initFull:
     incl result.flags, nfAllFieldsSet
 
   # wrap in an error see #17437
   if hasError:
-    result = newError(
-      c.config, result,
-      PAstDiag(kind: adSemObjectConstructorIncorrect))
-
-    result.typ = errorType(c)
+    result = wrapError(c.config, result)

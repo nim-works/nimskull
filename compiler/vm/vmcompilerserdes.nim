@@ -459,7 +459,7 @@ proc serializeObject*(c: var TCtx, dest: LocHandle, constr: PNode, ty: PType): i
       else:
         let recCase = findRecCase(ty, s)
         assert recCase != nil
-        let b = findMatchingBranch(recCase, rhs)
+        let b = findMatchingBranch(recCase, getInt(rhs))
         assert b != -1
 
         fLoc.writeDiscrField(dest.typ, idx, rhs.intVal.int, b)

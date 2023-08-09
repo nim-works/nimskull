@@ -904,11 +904,13 @@ proc produceSym(g: ModuleGraph; c: PContext; typ: PType; kind: TTypeAttachedOp;
     result.ast[bodyPos].add newOpCall(a, getAttachedOp(g, typ, attachedDestructor), d[0])
     result.ast[bodyPos].add newAsgnStmt(d, src)
   else:
-    var tk: TTypeKind
-    if g.config.selectedGC in {gcArc, gcOrc}:
-      tk = skipTypes(typ, {tyOrdinal, tyRange, tyInferred, tyGenericInst, tyStatic, tyAlias, tySink}).kind
-    else:
-      tk = tyNone # no special casing for strings and seqs
+    let (tk, baseTyp) =
+      if g.config.selectedGC in {gcArc, gcOrc}:
+        let t = skipTypes(typ, {tyOrdinal, tyRange, tyInferred, tyGenericInst,
+                                tyStatic, tyAlias, tySink})
+        (t.kind, t)
+      else:
+        (tyNone, typ) # no special casing for strings and seqs
     case tk
     of tySequence:
       fillSeqOp(a, typ, result.ast[bodyPos], d, src)
@@ -917,7 +919,7 @@ proc produceSym(g: ModuleGraph; c: PContext; typ: PType; kind: TTypeAttachedOp;
     else:
       fillBody(a, typ, result.ast[bodyPos], d, src)
       if tk == tyObject and a.kind in {attachedAsgn, attachedSink, attachedDeepCopy} and
-         not isObjLackingTypeField(typ):
+         not isObjLackingTypeField(baseTyp):
         # bug #19205: Do not forget to also copy the hidden type field:
         genTypeFieldCopy(a, typ, result.ast[bodyPos], d, src)
 
