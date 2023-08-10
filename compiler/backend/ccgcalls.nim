@@ -42,11 +42,10 @@ proc reportObservableStore(p: BProc; le, ri: CgNode) =
           # in 'except' or 'finally'
           return true
         return false
-      of cnkFieldAccess, cnkBracketAccess, cnkObjUpConv, cnkObjDownConv,
-          cnkCheckedFieldAccess:
+      of cnkFieldAccess, cnkBracketAccess, cnkCheckedFieldAccess:
         n = n[0]
-      of cnkHiddenConv, cnkConv:
-        n = n[1]
+      of cnkObjUpConv, cnkObjDownConv, cnkHiddenConv, cnkConv:
+        n = n.operand
       else:
         # cannot analyse the location; assume the worst
         return true
@@ -138,7 +137,7 @@ proc genBoundsCheck(p: BProc; arr, a, b: TLoc)
 proc reifiedOpenArray(n: CgNode): bool {.inline.} =
   var x = n
   while x.kind in {cnkAddr, cnkHiddenAddr, cnkHiddenConv, cnkDerefView}:
-    x = x[0]
+    x = x.operand
   if x.kind == cnkSym and x.sym.kind == skParam:
     result = false
   else:
@@ -206,7 +205,7 @@ proc openArrayLoc(p: BProc, formalType: PType, n: CgNode): Rope =
     result = x & ", " & y
   else:
     var a: TLoc
-    initLocExpr(p, if n.kind == cnkHiddenConv: n[1] else: n, a)
+    initLocExpr(p, if n.kind == cnkHiddenConv: n.operand else: n, a)
     case skipTypes(a.t, abstractVar+{tyStatic}).kind
     of tyOpenArray, tyVarargs:
       if reifiedOpenArray(n):
@@ -243,7 +242,7 @@ proc literalsNeedsTmp(p: BProc, a: TLoc): TLoc =
 
 proc genArgStringToCString(p: BProc, n: CgNode): Rope {.inline.} =
   var a: TLoc
-  initLocExpr(p, n[0], a)
+  initLocExpr(p, n.operand, a)
   ropecg(p.module, "#nimToCStringConv($1)", [rdLoc(a)])
 
 proc genArg(p: BProc, n: CgNode, param: PSym; call: CgNode): Rope =
@@ -251,7 +250,7 @@ proc genArg(p: BProc, n: CgNode, param: PSym; call: CgNode): Rope =
   if n.kind == cnkStringToCString:
     result = genArgStringToCString(p, n)
   elif skipTypes(param.typ, abstractVar).kind in {tyOpenArray, tyVarargs}:
-    var n = if n.kind != cnkHiddenAddr: n else: n[0]
+    var n = if n.kind != cnkHiddenAddr: n else: n.operand
     result = openArrayLoc(p, param.typ, n)
   elif ccgIntroducedPtr(p.config, param, call[0].typ[0]):
     initLocExpr(p, n, a)
@@ -392,7 +391,7 @@ proc isInactiveDestructorCall(p: BProc, e: CgNode): bool =
   the 'let args = ...' statement. We exploit this to generate better
   code for 'return'. ]#
   result = e.len == 2 and e[0].kind == cnkSym and
-    e[0].sym.name.s == "=destroy" and notYetAlive(e[1][0])
+    e[0].sym.name.s == "=destroy" and notYetAlive(e[1].operand)
 
 proc genAsgnCall(p: BProc, le, ri: CgNode, d: var TLoc) =
   if p.withinBlockLeaveActions > 0 and isInactiveDestructorCall(p, ri):

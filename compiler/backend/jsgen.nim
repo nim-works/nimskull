@@ -434,8 +434,10 @@ proc needsTemp(n: CgNode): bool =
   case n.kind
   of cnkCall, cnkTupleConstr, cnkObjConstr, cnkArrayConstr, cnkSetConstr:
     result = true
-  of cnkWithoutItems:
+  of cnkAtoms:
     result = false
+  of cnkWithOperand:
+    result = needsTemp(n.operand)
   else:
     for c in n.items:
       if needsTemp(c):
@@ -1021,7 +1023,7 @@ proc genAsgnAux(p: PProc, x, y: CgNode, noCopyNeeded: bool) =
     else:
       useMagic(p, "nimCopy")
       # supports proc getF(): var T
-      if x.kind in {cnkDerefView, cnkDeref} and x[0].kind == cnkCall:
+      if x.kind in {cnkDerefView, cnkDeref} and x.operand.kind == cnkCall:
           lineF(p, "nimCopy($1, $2, $3);$n",
                 [a.res, b.res, genTypeInfo(p, x.typ)])
       else:
@@ -1076,7 +1078,7 @@ proc getFieldPosition(p: PProc; f: CgNode): int =
 proc genFieldAddr(p: PProc, n: CgNode, r: var TCompRes) =
   var a: TCompRes
   r.typ = etyBaseIndex
-  let b = if n.kind == cnkHiddenAddr: n[0] else: n
+  let b = if n.kind == cnkHiddenAddr: n.operand else: n
   gen(p, b[0], a)
   if skipTypes(b[0].typ, abstractVarRange).kind == tyTuple:
     r.res = makeJSString("Field" & $getFieldPosition(p, b[1]))
@@ -1165,7 +1167,7 @@ proc genArrayAddr(p: PProc, n: CgNode, r: var TCompRes) =
     a, b: TCompRes
     first: Int128
   r.typ = etyBaseIndex
-  let m = if n.kind == cnkHiddenAddr: n[0] else: n
+  let m = if n.kind == cnkHiddenAddr: n.operand else: n
   gen(p, m[0], a)
   gen(p, m[1], b)
   #internalAssert p.config, a.typ != etyBaseIndex and b.typ != etyBaseIndex
@@ -1270,12 +1272,12 @@ proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkDerefView, cnkDeref:
     # attemping to take the address of a deref expression -> skip both the
     # addr and deref
-    gen(p, n[0], r)
+    gen(p, n.operand, r)
   of cnkConv:
     # an explicit lvalue conversion. Conversion between lvalues of different
     # underlying type is not possible, so we simply skip the conversion and
     # apply the operation to the source expression
-    genAddr(p, n[1], r)
+    genAddr(p, n.operand, r)
   of cnkStmtListExpr:
     for i in 0..<n.len-1:
       genStmt(p, n[i])
@@ -1326,7 +1328,7 @@ proc genSym(p: PProc, n: CgNode, r: var TCompRes) =
   r.kind = resVal
 
 proc genDeref(p: PProc, n: CgNode, r: var TCompRes) =
-  let it = n[0]
+  let it = n.operand
   let t = mapType(it.typ)
   if t == etyObject or it.typ.kind == tyLent:
     gen(p, it, r)
@@ -2129,8 +2131,8 @@ proc genObjConstr(p: PProc, n: CgNode, r: var TCompRes) =
 
 proc genConv(p: PProc, n: CgNode, r: var TCompRes) =
   var dest = skipTypes(n.typ, abstractVarRange)
-  var src = skipTypes(n[1].typ, abstractVarRange)
-  gen(p, n[1], r)
+  var src = skipTypes(n.operand.typ, abstractVarRange)
+  gen(p, n.operand, r)
   if dest.kind == src.kind:
     # no-op conversion
     return
@@ -2151,7 +2153,7 @@ proc genConv(p: PProc, n: CgNode, r: var TCompRes) =
     discard
 
 proc upConv(p: PProc, n: CgNode, r: var TCompRes) =
-  gen(p, n[0], r)        # XXX
+  gen(p, n.operand, r)        # XXX
 
 proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes, magic: string) =
   var a, b: TCompRes
@@ -2171,10 +2173,10 @@ proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes, magic: string) =
 proc convStrToCStr(p: PProc, n: CgNode, r: var TCompRes) =
   # we do an optimization here as this is likely to slow down
   # much of the code otherwise:
-  if n[0].kind == cnkCStringToString:
-    gen(p, n[0][0], r)
+  if n.operand.kind == cnkCStringToString:
+    gen(p, n.operand.operand, r)
   else:
-    gen(p, n[0], r)
+    gen(p, n.operand, r)
     p.config.internalAssert(r.res != "", n.info, "convStrToCStr")
     useMagic(p, "toJSStr")
     r.res = "toJSStr($1)" % [r.res]
@@ -2183,10 +2185,10 @@ proc convStrToCStr(p: PProc, n: CgNode, r: var TCompRes) =
 proc convCStrToStr(p: PProc, n: CgNode, r: var TCompRes) =
   # we do an optimization here as this is likely to slow down
   # much of the code otherwise:
-  if n[0].kind == cnkStringToCString:
-    gen(p, n[0][0], r)
+  if n.operand.kind == cnkStringToCString:
+    gen(p, n.operand.operand, r)
   else:
-    gen(p, n[0], r)
+    gen(p, n.operand, r)
     p.config.internalAssert(r.res != "", n.info, "convCStrToStr")
     useMagic(p, "cstrToNimstr")
     r.res = "cstrToNimstr($1)" % [r.res]
@@ -2345,8 +2347,8 @@ proc genStmt(p: PProc, n: CgNode) =
 
 proc genCast(p: PProc, n: CgNode, r: var TCompRes) =
   var dest = skipTypes(n.typ, abstractVarRange)
-  var src = skipTypes(n[1].typ, abstractVarRange)
-  gen(p, n[1], r)
+  var src = skipTypes(n.operand.typ, abstractVarRange)
+  gen(p, n.operand, r)
   if dest.kind == src.kind:
     # no-op conversion
     return
@@ -2462,18 +2464,18 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       # operand is a JS object and those already have reference semantics).
       # ``lent T`` types are currently treated as normal, non-owning
       # locations, so the hidden address operation is skipped
-      gen(p, n[0], r)
+      gen(p, n.operand, r)
     else:
-      genAddr(p, n[0], r)
+      genAddr(p, n.operand, r)
   of cnkDeref, cnkDerefView:
     if n.typ.kind in {tyLent}:
-      gen(p, n[0], r)
+      gen(p, n.operand, r)
     else:
       genDeref(p, n, r)
   of cnkBracketAccess: genArrayAccess(p, n, r)
   of cnkFieldAccess: genFieldAccess(p, n, r)
   of cnkCheckedFieldAccess: genCheckedFieldOp(p, n, takeAddr=false, r)
-  of cnkObjDownConv: gen(p, n[0], r)
+  of cnkObjDownConv: gen(p, n.operand, r)
   of cnkObjUpConv: upConv(p, n, r)
   of cnkCast: genCast(p, n, r)
   of cnkChckRangeF: genRangeChck(p, n, r, "chckRangeF")

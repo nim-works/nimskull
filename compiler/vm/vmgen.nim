@@ -205,8 +205,11 @@ func underlyingLoc(n: CgNode): PSym =
   var root {.cursor.} = n
   # skip nodes that don't change the location until we arrive at either one
   # that does, or a symbol
-  while root.kind in {cnkConv, cnkStmtListExpr}:
-    root = root.lastSon
+  while true:
+    case root.kind
+    of cnkConv:         root = root.operand
+    of cnkStmtListExpr: root = root[^1]
+    else:               break
 
   result =
     if root.kind == cnkSym: root.sym
@@ -221,17 +224,19 @@ func analyseIfAddressTaken(n: CgNode, locs: var IntSet) =
   case n.kind
   of cnkHiddenAddr, cnkAddr:
     # the nodes we're interested
-    let loc = underlyingLoc(n[0])
+    let loc = underlyingLoc(n.operand)
     if loc != nil:
       # we're only interested in locals
       if sfGlobal notin loc.flags:
         locs.incl(loc.id)
     else:
       # the operand expression must still be anaylsed
-      analyseIfAddressTaken(n[0], locs)
-  of cnkWithoutItems:
+      analyseIfAddressTaken(n.operand, locs)
+  of cnkAtoms:
     discard "ignore"
-  of cnkWithItems - {cnkHiddenAddr, cnkAddr}:
+  of cnkWithOperand - {cnkHiddenAddr, cnkAddr}:
+    analyseIfAddressTaken(n.operand, locs)
+  of cnkWithItems:
     for it in n.items:
       analyseIfAddressTaken(it, locs)
 
@@ -1161,7 +1166,7 @@ proc genParseOp(c: var TCtx; n: CgNode; dest: var TDest,
   # been eliminated by ``transf``)
   var x = n[2]
   if x.kind in {cnkAddr, cnkHiddenAddr}:
-    x = x[0]
+    x = x.operand
 
   let
     in1 = c.genx(n[1])
@@ -1295,7 +1300,7 @@ proc genToStr(c: var TCtx, n, arg: CgNode, dest: var TDest) =
 proc genObjConv(c: var TCtx, n: CgNode, dest: var TDest) =
   prepare(c, dest, n.typ)
   let
-    tmp = genx(c, n[0])
+    tmp = genx(c, n.operand)
     desttyp = n.typ.skipTypes(IrrelevantTypes + {tyVar, tyLent})
   # XXX: var and lent in conversions should not end up here -- fix-up
   #      the conversions in ``mirgen``
@@ -1354,13 +1359,13 @@ proc genCastIntFloat(c: var TCtx; n: CgNode; dest: var TDest) =
   const allowedIntegers = {tyInt..tyInt64, tyUInt..tyUInt64, tyChar}
   var signedIntegers = {tyInt..tyInt64}
   var unsignedIntegers = {tyUInt..tyUInt64, tyChar}
-  let src = n[1].typ.skipTypes(abstractRange)#.kind
-  let dst = n[0].typ.skipTypes(abstractRange)#.kind
+  let src = n.operand.typ.skipTypes(abstractRange)#.kind
+  let dst = n.typ.skipTypes(abstractRange)#.kind
   let srcSize = getSize(c.config, src)
   let dstSize = getSize(c.config, dst)
   if src.kind in allowedIntegers and dst.kind in allowedIntegers:
-    let tmp = c.genx(n[1])
-    if dest.isUnset: dest = c.getTemp(n[0].typ)
+    let tmp = c.genx(n.operand)
+    if dest.isUnset: dest = c.getTemp(n.typ)
     c.gABC(n, opcAsgnInt, dest, tmp)
     if dstSize != sizeof(BiggestInt): # don't do anything on biggest int types
       if dst.kind in signedIntegers: # we need to do sign extensions
@@ -1376,8 +1381,8 @@ proc genCastIntFloat(c: var TCtx; n: CgNode; dest: var TDest) =
     c.freeTemp(tmp)
   elif srcSize == dstSize and src.kind in allowedIntegers and
                            dst.kind in {tyFloat, tyFloat32, tyFloat64}:
-    let tmp = c.genx(n[1])
-    if dest.isUnset: dest = c.getTemp(n[0].typ)
+    let tmp = c.genx(n.operand)
+    if dest.isUnset: dest = c.getTemp(n.typ)
     if dst.kind == tyFloat32:
       c.gABC(n, opcCastIntToFloat32, dest, tmp)
     else:
@@ -1386,8 +1391,8 @@ proc genCastIntFloat(c: var TCtx; n: CgNode; dest: var TDest) =
 
   elif srcSize == dstSize and src.kind in {tyFloat, tyFloat32, tyFloat64} and
                            dst.kind in allowedIntegers:
-    let tmp = c.genx(n[1])
-    if dest.isUnset: dest = c.getTemp(n[0].typ)
+    let tmp = c.genx(n.operand)
+    if dest.isUnset: dest = c.getTemp(n.typ)
     if src.kind == tyFloat32:
       c.gABC(n, opcCastFloatToInt32, dest, tmp)
       if dst.kind in unsignedIntegers:
@@ -1399,21 +1404,21 @@ proc genCastIntFloat(c: var TCtx; n: CgNode; dest: var TDest) =
       # narrowing for 64 bits not needed (no extended sign bits available).
     c.freeTemp(tmp)
   elif src.kind in PtrLikeKinds + {tyRef} and dst.kind == tyInt:
-    let tmp = c.genx(n[1])
-    if dest.isUnset: dest = c.getTemp(n[0].typ)
+    let tmp = c.genx(n.operand)
+    if dest.isUnset: dest = c.getTemp(n.typ)
     var imm: BiggestInt = if src.kind in PtrLikeKinds: 1 else: 2
     c.gABI(n, opcCastPtrToInt, dest, tmp, imm)
     c.freeTemp(tmp)
   elif src.kind in PtrLikeKinds + {tyInt} and dst.kind in PtrLikeKinds:
-    let tmp = c.genx(n[1])
-    if dest.isUnset: dest = c.getTemp(n[0].typ)
+    let tmp = c.genx(n.operand)
+    if dest.isUnset: dest = c.getTemp(n.typ)
     c.gABC(n, opcCastIntToPtr, dest, tmp)
     c.gABx(n, opcSetType, dest, c.genType(dst))
     c.freeTemp(tmp)
   elif src.kind == tyNil and dst.kind in NilableTypes:
     # supports casting nil literals to NilableTypes in VM
     # see #16024
-    if dest.isUnset: dest = c.getTemp(n[0].typ)
+    if dest.isUnset: dest = c.getTemp(n.typ)
     let opcode = if fitsRegister(dst): opcLdNullReg else: opcLdNull
     c.gABx(n, opcode, dest, c.genType(dst))
   else:
@@ -2030,7 +2035,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     fail(n.info, vmGenDiagCodeGenUnhandledMagic, m)
 
 proc genDeref(c: var TCtx, n: CgNode, dest: var TDest; load = true) =
-    let tmp = c.genx(n[0])
+    let tmp = c.genx(n.operand)
     if dest.isUnset: dest = c.getTemp(n.typ)
     gABC(c, n, opcLdDeref, dest, tmp)
 
@@ -2316,7 +2321,7 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
     # an assignment to a view's underlying location. The source cannot be a
     # view, so using ``genAsgnSource`` is unnecessary
     var dest = noDest
-    genDerefView(c, le[0], dest, load=false) # we need a handle, hence ``false``
+    genDerefView(c, le.operand, dest, load=false) # we need a handle, hence ``false``
     let tmp = c.genx(ri)
 
     c.gABC(le, opcWrLoc, dest, tmp)
@@ -2325,7 +2330,7 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
   of cnkDeref:
     # same as for ``nkHiddenDeref``, the source cannot be a view
     let
-      dest = c.genx(le[0])
+      dest = c.genx(le.operand)
       tmp = c.genx(ri)
     c.gABC(le, opcWrDeref, dest, 0, tmp)
     c.freeTemp(dest)
@@ -2349,7 +2354,7 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
   of cnkConv, cnkHiddenConv:
     # these conversions don't result in a lvalue of different run-time type, so
     # they're skipped
-    genAsgn(c, le[0], ri, requiresCopy)
+    genAsgn(c, le.operand, ri, requiresCopy)
   of cnkSym:
     checkCanEval(c, le)
     genSymAsgn(c, le, ri)
@@ -2639,13 +2644,13 @@ proc genAddr(c: var TCtx, src, n: CgNode, dest: var TDest) =
   of cnkDerefView:
     # taking the address of a view's or ``var`` parameter's underlying
     # location
-    assert isLocView(n[0].typ)
-    if isPtrView(n[0]):
+    assert isLocView(n.operand.typ)
+    if isPtrView(n.operand):
       # the view is stored as an address; treat the deref as a no-op
-      genLvalue(c, n[0], dest)
+      genLvalue(c, n.operand, dest)
     else:
       prepare(c, dest, src.typ)
-      let tmp = genx(c, n[0]) # skip the deref
+      let tmp = genx(c, n.operand) # skip the deref
       c.gABC(src, opcAddr, dest, tmp)
       c.freeTemp(tmp)
   of cnkDeref:
@@ -2659,7 +2664,7 @@ proc genAddr(c: var TCtx, src, n: CgNode, dest: var TDest) =
     c.freeTemp(tmp)
   of cnkConv:
     # an l-value conversion. Take the address of the source expression
-    genAddr(c, src, n[1], dest)
+    genAddr(c, src, n.operand, dest)
   of cnkObjDownConv, cnkObjUpConv:
     case n.typ.skipTypes(IrrelevantTypes).kind
     of tyPtr:
@@ -2704,23 +2709,23 @@ proc genLvalue(c: var TCtx, n: CgNode, dest: var TDest) =
   of cnkConv:
     # if a conversion reaches here, it must be an l-value conversion. They
     # don't map to any bytecode, so we skip them
-    genLvalue(c, n[1], dest)
+    genLvalue(c, n.operand, dest)
   of cnkObjDownConv, cnkObjUpConv:
     # these conversions are *not* no-ops, as they produce a handle of different
     # type
     gen(c, n, dest)
   of cnkDerefView:
-    assert isLocView(n[0].typ)
-    if isPtrView(n[0]):
+    assert isLocView(n.operand.typ)
+    if isPtrView(n.operand):
       # we want a handle (``rkHandle``), but the input view uses a pointer
       # (``rkAddress``) internally. Turn it into a handle by dereferencing it
-      prepare(c, dest, n[0].typ)
-      let tmp = c.genx(n[0])
+      prepare(c, dest, n.operand.typ)
+      let tmp = c.genx(n.operand)
       c.gABC(n, opcLdDeref, dest, tmp)
       c.freeTemp(tmp)
     else:
       # the operand is a handle already; treat the deref as a no-op
-      genLvalue(c, n[0], dest)
+      genLvalue(c, n.operand, dest)
   of cnkDeref:
     genDeref(c, n, dest, load=false)
   of cnkCall:
@@ -2941,15 +2946,15 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkCheckedFieldAccess: genCheckedObjAccess(c, n, dest)
   of cnkBracketAccess: genArrAccess(c, n, dest)
   of cnkDeref: genDeref(c, n, dest)
-  of cnkAddr: genAddr(c, n, n[0], dest)
+  of cnkAddr: genAddr(c, n, n.operand, dest)
   of cnkDerefView:
-    assert isLocView(n[0].typ)
+    assert isLocView(n.operand.typ)
     # a view indirection
-    genDerefView(c, n[0], dest)
+    genDerefView(c, n.operand, dest)
   of cnkHiddenAddr:
     assert isLocView(n.typ)
     # load the source operand as a handle
-    genLvalue(c, n[0], dest)
+    genLvalue(c, n.operand, dest)
   of cnkIfStmt:
     unused(c, n, dest)
     genIf(c, n)
@@ -2981,7 +2986,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     unused(c, n, dest)
     gen(c, n[0])
   of cnkHiddenConv, cnkConv:
-    genConv(c, n, n[1], dest)
+    genConv(c, n, n.operand, dest)
   of cnkObjDownConv, cnkObjUpConv:
     genObjConv(c, n, dest)
   of cnkDef:
@@ -3017,7 +3022,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkEmpty:
     unused(c, n, dest)
   of cnkStringToCString, cnkCStringToString:
-    gen(c, n[0], dest)
+    gen(c, n.operand, dest)
   of cnkArrayConstr: genArrayConstr(c, n, dest)
   of cnkSetConstr: genSetConstr(c, n, dest)
   of cnkObjConstr: genObjConstr(c, n, dest)
@@ -3025,7 +3030,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkClosureConstr: genClosureConstr(c, n, dest)
   of cnkCast:
     if allowCast in c.features:
-      genCast(c, n, n[1], dest)
+      genCast(c, n, n.operand, dest)
     else:
       genCastIntFloat(c, n, dest)
   of cnkType:

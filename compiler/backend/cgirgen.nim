@@ -212,9 +212,12 @@ template add(x: CgNode, y: CgNode) =
 
 proc copyTree(n: CgNode): CgNode =
   case n.kind
-  of cnkWithoutItems:
+  of cnkAtoms:
     new(result)
     result[] = n[]
+  of cnkWithOperand:
+    result = CgNode(kind: n.kind, info: n.info, typ: n.typ)
+    result.operand = copyTree(n.operand)
   of cnkWithItems:
     result = CgNode(kind: n.kind, info: n.info, typ: n.typ)
     result.kids.setLen(n.kids.len)
@@ -517,7 +520,7 @@ func underlyingLoc(n: CgNode): tuple[underlying: CgNode, firstConv: CgNode] =
 
   while n.kind in {cnkObjDownConv, cnkObjUpConv}:
     orig = n
-    n = n[^1]
+    n = n.operand
 
   result = (n, orig)
 
@@ -539,16 +542,16 @@ proc useLvalueRef(n: CgNode, mutable: bool, cl: var TranslateCl,
   # location and the conversion is applied at each usage site
   stmts.add newStmt(cnkDef, n.info,
                      [newSymNode(sym),
-                      newExpr(cnkHiddenAddr, n.info, typ, [locExpr])]
+                      newOp(cnkHiddenAddr, n.info, typ, locExpr)]
                    )
 
   if locExpr != conv:
     # a conversion exists. Rewrite the conversion operation to apply to the
     # dereferenced view
-    conv[0] = newExpr(cnkDerefView, n.info, locExpr.typ, [newSymNode(sym)])
+    conv.operand = newOp(cnkDerefView, n.info, locExpr.typ, newSymNode(sym))
     result = n
   else:
-    result = newExpr(cnkDerefView, n.info, n.typ, [newSymNode(sym)])
+    result = newOp(cnkDerefView, n.info, n.typ, newSymNode(sym))
 
 proc useTemporary(n: CgNode, cl: var TranslateCl, stmts: var seq[CgNode]): CgNode =
   let sym = newTemp(cl, n.info, n.typ)
@@ -559,11 +562,11 @@ proc useTemporary(n: CgNode, cl: var TranslateCl, stmts: var seq[CgNode]): CgNod
 proc flattenExpr*(expr: CgNode, stmts: var seq[CgNode]): CgNode =
   ## A copy of `flattenExpr <ast/trees.html#PNode,seq[PNode]>`_ adjusted for
   ## ``CgNode``.
-  proc forward(n: var CgNode, p: int): CgNode =
+  proc forward(n: CgNode, sub: var CgNode): CgNode =
     ## Performs transformation #1
-    if n[p].kind == cnkStmtListExpr:
-      result = n[p]
-      n[p] = result[^1]
+    if sub.kind == cnkStmtListExpr:
+      result = sub
+      sub = sub[^1]
       result[^1] = n
     else:
       result = n
@@ -573,12 +576,12 @@ proc flattenExpr*(expr: CgNode, stmts: var seq[CgNode]): CgNode =
     # we're looking for expression nodes that represent side-effect free
     # operations
     case it.kind
-    of cnkFieldAccess, cnkCheckedFieldAccess, cnkBracketAccess, cnkHiddenAddr, cnkAddr,
-      cnkDeref, cnkDerefView, cnkCStringToString, cnkStringToCString,
-      cnkObjDownConv, cnkObjUpConv:
-      it = forward(it, 0)
-    of cnkConv, cnkHiddenConv, cnkCast:
-      it = forward(it, 1)
+    of cnkFieldAccess, cnkCheckedFieldAccess, cnkBracketAccess:
+      it = forward(it, it[0])
+    of cnkHiddenAddr, cnkAddr, cnkDeref, cnkDerefView, cnkCStringToString,
+       cnkStringToCString, cnkObjDownConv, cnkObjUpConv, cnkConv,
+       cnkHiddenConv, cnkCast:
+      it = forward(it, it.operand)
     else:
       # no IR to which transform #1 applies
       discard
@@ -601,14 +604,15 @@ proc canUseView*(n: CgNode): bool =
   var n {.cursor.} = n
   while true:
     case n.kind
-    of cnkAddr, cnkHiddenAddr, cnkBracketAccess, cnkObjUpConv, cnkObjDownConv,
-       cnkCheckedFieldAccess, cnkFieldAccess:
+    of cnkBracketAccess, cnkCheckedFieldAccess, cnkFieldAccess:
       n = n[0]
+    of cnkAddr, cnkHiddenAddr, cnkObjUpConv, cnkObjDownConv:
+      n = n.operand
     of cnkHiddenConv, cnkConv:
       if skipTypes(n.typ, abstractVarRange).kind in {tyOpenArray, tyTuple, tyObject} or
-         compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct):
+         compareTypes(n.typ, n.operand.typ, dcEqIgnoreDistinct):
         # lvalue conversion
-        n = n[1]
+        n = n.operand
       else:
         return false
 
@@ -672,15 +676,15 @@ proc wrapInHiddenAddr(cl: TranslateCl, n: CgNode): CgNode =
 
   result =
     if n.typ.skipTypes(abstractInst).kind != tyVar:
-      newExpr(cnkHiddenAddr, n.info, makeVarType(cl.owner, n.typ, cl.idgen), n)
+      newOp(cnkHiddenAddr, n.info, makeVarType(cl.owner, n.typ, cl.idgen), n)
     elif inner.kind == cnkObjDownConv and
-         inner[0].typ.kind != tyVar:
+         inner.operand.typ.kind != tyVar:
       # TODO: ``nkHiddenSubConv`` nodes for objects (which are later
       #       transformed into ``nkObjDownConv`` nodes) are in some cases
       #       incorrectly typed as ``var`` somewhere in the compiler
       #       (presumably during sem). Fix the underlying problem and remove
       #       the special case here
-      newExpr(cnkHiddenAddr, n.info, n.typ, n)
+      newOp(cnkHiddenAddr, n.info, n.typ, n)
     else:
       n
 
@@ -693,7 +697,7 @@ proc genObjConv(n: CgNode, a, b, t: PType): CgNode =
   #assert diff != 0 and diff != high(int), "redundant or illegal conversion"
   if diff == 0:
     return nil
-  result = newExpr(
+  result = newOp(
     if diff < 0: cnkObjUpConv else: cnkObjDownConv,
     n.info, t): n
 
@@ -739,13 +743,13 @@ proc handleSpecialConv(c: ConfigRef, n: CgNode, info: TLineInfo,
 
     if source.base.kind == tyObject:
       if n.kind in {cnkObjUpConv, cnkObjDownConv} and
-         sameType(dest, n[0].typ.skipTypes(abstractInst)):
+         sameType(dest, n.operand.typ.skipTypes(abstractInst)):
         # this one and the previous conversion cancel each other out. Both
         # ``cnkObjUpConv`` and ``cnkObjDownConv`` are not treated as lvalue
         # conversions when the source/dest operands are pointer/reference-like,
         # so the collapsing here is required in order to generate correct
         # code
-        result = n[0]
+        result = n.operand
       else:
         result = genObjConv(n, source.base, dest.base, orig)
 
@@ -787,7 +791,7 @@ proc tbConv(cl: TranslateCl, n: CgNode, info: TLineInfo, dest: PType): CgNode =
   result = handleSpecialConv(cl.graph.config, n, info, dest)
   if result == nil:
     # no special conversion is used
-    result = newExpr(cnkConv, info, dest): [newTypeNode(info, dest), n]
+    result = newOp(cnkConv, info, dest, n)
 
 proc tbSingle(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
   case n.kind
@@ -1158,7 +1162,7 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
 
     toValues node
   of mnkCast:
-    toValues newExpr(cnkCast, info, n.typ, newTypeNode(info, n.typ), prev.single)
+    toValues newOp(cnkCast, info, n.typ, prev.single)
   of mnkConv:
     toValues tbConv(cl, prev.single, info, n.typ)
   of mnkStdConv:
@@ -1172,11 +1176,11 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
     case dest.kind
     of tyCstring:
       if source.kind == tyString:
-        adjusted = newExpr(cnkStringToCString, info, n.typ): opr
+        adjusted = newOp(cnkStringToCString, info, n.typ): opr
 
     of tyString:
       if source.kind == tyCstring:
-        adjusted = newExpr(cnkCStringToString, info, n.typ): opr
+        adjusted = newOp(cnkCStringToString, info, n.typ): opr
 
     of tyOpenArray, tyVarargs:
       # the old code-generators depend on conversions to ``openArray`` to be
@@ -1187,8 +1191,7 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
 
     if adjusted == nil:
       # no special conversion is used
-      adjusted = newExpr(cnkHiddenConv, info, n.typ,
-                         [newTypeNode(info, n.typ), opr])
+      adjusted = newOp(cnkHiddenConv, info, n.typ, opr)
 
     toValues adjusted
   of mnkPathVariant:
@@ -1226,13 +1229,13 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
   of mnkPathArray:
     toValues newExpr(cnkBracketAccess, info, n.typ, move prev.list)
   of mnkAddr:
-    toValues newExpr(cnkAddr, info, n.typ, [prev.single])
+    toValues newOp(cnkAddr, info, n.typ, prev.single)
   of mnkDeref:
-    toValues newExpr(cnkDeref, info, n.typ, [prev.single])
+    toValues newOp(cnkDeref, info, n.typ, prev.single)
   of mnkView:
-    toValues newExpr(cnkHiddenAddr, info, n.typ, [prev.single])
+    toValues newOp(cnkHiddenAddr, info, n.typ, prev.single)
   of mnkDerefView:
-    toValues newExpr(cnkDerefView, info, n.typ, [prev.single])
+    toValues newOp(cnkDerefView, info, n.typ, prev.single)
   of mnkObjConstr:
     assert n.typ.skipTypes(abstractVarRange).kind in {tyObject, tyRef}
     var node = newExpr(cnkObjConstr, info, n.typ)
