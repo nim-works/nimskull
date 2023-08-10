@@ -1538,8 +1538,10 @@ proc genSomeCast(p: BProc, e: CgNode, d: var TLoc) =
     ValueTypes = {tyTuple, tyObject, tyArray, tyOpenArray, tyVarargs, tyUncheckedArray}
 
   let src =
-    if e.kind == cnkCall: e[1]
-    else:                 e.operand
+    case e.kind
+    of cnkCast, cnkConv, cnkHiddenConv: e.operand
+    of cnkCall:                         e[1]
+    else:                               unreachable()
   # we use whatever C gives us. Except if we have a value-type, we need to go
   # through its address:
   var a: TLoc
