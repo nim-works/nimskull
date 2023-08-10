@@ -1755,10 +1755,7 @@ proc tryReadingTypeField(c: PContext, n: PNode, i: PIdent, ty: PType): PNode =
   of tyEnum:
     # look up if the identifier belongs to the enum:
     var f = PSym(nil)
-    while ty != nil:
-      f = getSymFromList(ty.n, i)
-      if f != nil: break
-      ty = ty.sons[0]         # enum inheritance
+    f = getSymFromList(ty.n, i)
     if f != nil:
       result = newSymNode(f)
       result.info = n.info

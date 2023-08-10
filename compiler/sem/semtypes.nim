@@ -34,17 +34,13 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
     base: PType
     identToReplace: ptr PNode
   counter = 0
-  base = nil
   result = newOrPrevType(tyEnum, prev, c)
   result.n = newNodeI(nkEnumTy, n.info)
   checkMinSonsLen(n, 1, c.config)
   if n[0].kind != nkEmpty:
-    base = semTypeNode(c, n[0][0], nil)
-    if base.kind != tyEnum:
-      localReport(c.config, n[0], reportSem(rsemInheritanceOnlyWorksWithAnEnum))
+    localReport(c.config, n[0], reportAst(rsemIllformedAst, n[0]))
 
-    counter = toInt64(lastOrd(c.config, base)) + 1
-  rawAddSon(result, base)
+  rawAddSon(result, nil) # base type; always nil
   let isPure = result.sym != nil and sfPure in result.sym.flags
   var symbols: TStrTable
   if isPure: initStrTable(symbols)
