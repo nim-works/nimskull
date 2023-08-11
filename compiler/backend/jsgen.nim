@@ -210,7 +210,7 @@ proc mapType(typ: PType; indirect = false): TJSTypeKind =
   of tyRange, tyDistinct, tyOrdinal, tyProxy, tyLent:
     # tyLent is no-op as JS has pass-by-reference semantics
     result = mapType(t[0], indirect)
-  of tyInt..tyInt64, tyUInt..tyUInt64, tyEnum, tyChar: result = etyInt
+  of tyInt..tyInt64, tyUInt..tyUInt64, tyChar: result = etyInt
   of tyBool: result = etyBool
   of tyFloat..tyFloat128: result = etyFloat
   of tySet: result = etyObject # map a set to a table
@@ -224,7 +224,7 @@ proc mapType(typ: PType; indirect = false): TJSTypeKind =
      tyAnd, tyOr, tyNot, tyAnything, tyVoid:
     result = etyNone
   of tyGenericInst, tyInferred, tyAlias, tyUserTypeClass, tyUserTypeClassInst,
-     tySink:
+     tySink, tyEnum:
     result = mapType(typ.lastSon, indirect)
   of tyStatic:
     if t.n != nil: result = mapType(t.lastSon, indirect)

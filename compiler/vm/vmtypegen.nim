@@ -130,19 +130,8 @@ func getAtomicType(cache: TypeInfoCache, conf: ConfigRef, t: PType): Option[PVmT
       if t.sym != nil and t.sym.magic == mPNimrodNode: cache.nodeType
       else: nil
     of tyEnum:
-      # This mirrors the logic for `tyEnum` in `types.getSize`
-      {.cast(noSideEffect).}: # cast away the reporting related side effects
-                              # of `firstOrd`/`lastOrd`
-        if firstOrd(conf, t) < Zero:
-          cache.intTypes[tyInt32]
-        else:
-          let lastOrd = toInt64(lastOrd(conf, t))   # BUGFIX: use lastOrd!
-          let tk =
-            if lastOrd < (1 shl 8): tyUInt8
-            elif lastOrd < (1 shl 16): tyUInt16
-            elif lastOrd < (BiggestInt(1) shl 32): tyUInt32
-            else: tyUInt64
-          cache.uintTypes[tk]
+      # use the underlying type:
+      getAtomicType(cache, conf, t.lastSon).get()
     else:
       nil
 

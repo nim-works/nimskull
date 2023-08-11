@@ -129,18 +129,8 @@ proc mapType(conf: ConfigRef; typ: PType; kind: TSymKind): TCTypeKind =
     doAssert typ.isResolvedUserTypeClass
     return mapType(conf, typ.lastSon, kind)
   of tyGenericBody, tyGenericInst, tyGenericParam, tyDistinct, tyOrdinal,
-     tyTypeDesc, tyAlias, tySink, tyInferred:
+     tyTypeDesc, tyAlias, tySink, tyInferred, tyEnum:
     result = mapType(conf, lastSon(typ), kind)
-  of tyEnum:
-    if firstOrd(conf, typ) < 0:
-      result = ctInt32
-    else:
-      case int(getSize(conf, typ))
-      of 1: result = ctUInt8
-      of 2: result = ctUInt16
-      of 4: result = ctInt32
-      of 8: result = ctInt64
-      else: result = ctInt32
   of tyRange: result = mapType(conf, typ[0], kind)
   of tyPtr, tyVar, tyLent, tyRef:
     var base = skipTypes(typ.lastSon, typedescInst)
@@ -661,18 +651,8 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKin
       result = getTypeName(m, origTyp, sig)
       if not (sfImportc in t.sym.flags and t.sym.magic == mNone):
         m.typeCache[sig] = result
-        var size: int
-        if firstOrd(m.config, t) < 0:
-          m.s[cfsTypes].addf("typedef NI32 $1;$n", [result])
-          size = 4
-        else:
-          size = int(getSize(m.config, t))
-          case size
-          of 1: m.s[cfsTypes].addf("typedef NU8 $1;$n", [result])
-          of 2: m.s[cfsTypes].addf("typedef NU16 $1;$n", [result])
-          of 4: m.s[cfsTypes].addf("typedef NI32 $1;$n", [result])
-          of 8: m.s[cfsTypes].addf("typedef NI64 $1;$n", [result])
-          else: internalError(m.config, t.sym.info, "getTypeDescAux: enum")
+        m.s[cfsTypes].addf("typedef $1 $2;$n",
+          [getTypeDescAux(m, t.lastSon, check, skVar), result])
         when false:
           let owner = hashOwner(t.sym)
           if not gDebugInfo.hasEnum(t.sym.name.s, t.sym.info.line, owner):
