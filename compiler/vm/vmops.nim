@@ -69,7 +69,6 @@ from system/formatfloat import writeFloatToBufferSprintf
 
 from compiler/modules/modulegraphs import `$`
 
-
 func emptyCallback(a: VmArgs) =
   discard
 
@@ -170,7 +169,7 @@ template wrapIteratorInner(a: VmArgs, iter: untyped) =
     inc i
 
 template wrapIterator(fqname: string, iter: untyped) =
-  registerCallback c, fqname, proc(a: VmArgs) =
+  registerCallback c, fqname, proc(a: VmArgs) {.nimcall.} =
     wrapIteratorInner(a, iter)
 
 
@@ -223,18 +222,10 @@ proc getEffectList(cache: IdentCache, idgen: IdGenerator; a: VmArgs;
 template writeResult(ret) {.dirty.} =
   writeTo(ret, a.getResultHandle(), a.mem[])
 
-# XXX: various callbacks currently require captured state (i.e. closures)
-#      in order to work. Once `TCtx` is split up into smaller parts, the VM
-#      environment related ones could be passed to the callbacks instead,
-#      making most of the capturing unnecessary
-
 proc registerBasicOps*(c: var TCtx) =
   ## Basic system operations as well as callbacks for some stdlib functions
   ## that don't interact with the host environement, but use language features
   ## that the VM doesn't directly support (such as 'importc'-ed functions)
-
-  # captured vars:
-  let isJs = c.config.backend == backendJs
 
   # system operations
   systemop(getCurrentExceptionMsg)
@@ -275,7 +266,7 @@ proc registerBasicOps*(c: var TCtx) =
   #wrap1f_math(`mod`)
   # XXX: the csources compiler doesn't accept ``nkAccQuoted`` during
   #      identifier construction, so the above can't be used here
-  registerCallback c, "stdlib.math.mod", proc(a: VmArgs) =
+  registerCallback c, "stdlib.math.mod", proc(a: VmArgs) {.nimcall.} =
     setResult(a, `mod`(getFloat(a, 0), getFloat(a, 1)))
 
   when declared(copySign):
@@ -295,17 +286,17 @@ proc registerBasicOps*(c: var TCtx) =
 
   # ``hashes`` module
 
-  proc hashVmImpl(a: VmArgs) =
+  proc hashVmImpl(a: VmArgs) {.nimcall.} =
     # TODO: perform index check here
     var res = hashes.hash(a.getString(0), a.getInt(1).int, a.getInt(2).int)
-    if isJs:
+    if a.config.backend == backendJs:
       # emulate JS's terrible integers:
       res = cast[int32](res)
     setResult(a, res)
 
   registerCallback c, "stdlib.hashes.hashVmImpl", hashVmImpl
 
-  proc hashVmImplByte(a: VmArgs) =
+  proc hashVmImplByte(a: VmArgs) {.nimcall.} =
     let sPos = a.getInt(1).int
     let ePos = a.getInt(2).int
     let arr = a.getHandle(0)
@@ -328,7 +319,7 @@ proc registerBasicOps*(c: var TCtx) =
     let p = seqVal.data.rawPointer
 
     var res = hashes.hash(toOpenArray(p, sPos, ePos), sPos, ePos)
-    if isJs:
+    if a.config.backend == backendJs:
       # emulate JS's terrible integers:
       res = cast[int32](res)
     setResult(a, res)
@@ -338,7 +329,7 @@ proc registerBasicOps*(c: var TCtx) =
 
   # ``formatfloat`` module
 
-  registerCallback c, "stdlib.formatfloat.addFloatSprintf", proc(a: VmArgs) =
+  registerCallback c, "stdlib.formatfloat.addFloatSprintf", proc(a: VmArgs) {.nimcall.} =
     let p = a.getVar(0)
     let x = a.getFloat(1)
     var temp {.noinit.}: array[65, char]
@@ -391,14 +382,11 @@ proc registerCompileTimeOps*(c: var TCtx) =
   ## Operations for querying compiler related information at compile-time.
   ## Also includes ``gorgeEx`` for now
 
-  # captured vars:
-  let config = c.config
-
   when defined(nimHasInvariant):
-    registerCallback c, "stdlib.compilesettings.querySetting", proc (a: VmArgs) =
-      writeResult(querySettingImpl(config, getInt(a, 0)))
-    registerCallback c, "stdlib.compilesettings.querySettingSeq", proc (a: VmArgs) =
-      writeResult(querySettingSeqImpl(config, getInt(a, 0)))
+    registerCallback c, "stdlib.compilesettings.querySetting", proc (a: VmArgs) {.nimcall.} =
+      writeResult(querySettingImpl(a.config, getInt(a, 0)))
+    registerCallback c, "stdlib.compilesettings.querySettingSeq", proc (a: VmArgs) {.nimcall.} =
+      writeResult(querySettingSeqImpl(a.config, getInt(a, 0)))
 
   registerCallback c, "stdlib.os.getCurrentCompilerExe", proc (a: VmArgs) {.nimcall.} =
     setResult(a, getAppFilename())
@@ -408,38 +396,30 @@ proc registerCompileTimeOps*(c: var TCtx) =
   # XXX: the register functions should not use conditionals like this, as it
   #      hurts modularity
   if defined(nimsuggest) or c.config.cmd == cmdCheck:
-    registerCallback c, gorgeExName, proc (a: VmArgs) =
+    registerCallback c, gorgeExName, proc (a: VmArgs) {.nimcall.} =
       discard "gorgeEx is disabled for nimsuggest/nimcheck"
   else:
-    registerCallback c, gorgeExName, proc (a: VmArgs) =
+    registerCallback c, gorgeExName, proc (a: VmArgs) {.nimcall.} =
       let ret = opGorge(getString(a, 0), getString(a, 1), getString(a, 2),
-                        a.currentLineInfo, config)
+                        a.currentLineInfo, a.config)
       writeResult(ret)
 
 proc registerDebugOps*(c: var TCtx) =
-  let config = c.config
-
-  registerCallback c, "stdlib.vmutils.vmTrace", proc (a: VmArgs) =
+  registerCallback c, "stdlib.vmutils.vmTrace", proc (a: VmArgs) {.nimcall.} =
     # XXX: `isVmTrace` should probably be in `TCtx` instead of in the active
-    config.active.isVmTrace = getBool(a, 0)
+    #      configuration
+    a.config.active.isVmTrace = getBool(a, 0)
 
 proc registerMacroOps*(c: var TCtx) =
   ## Operations that are part of the Macro API
 
-  # captured vars:
-  let
-    config = c.config
-    cache = c.cache
-    idgen = c.idgen
-    graph = c.graph
-
   # XXX: doesn't really have to do anything with macros, but it's in
   #      `stdlib.macros`, so...
-  proc getProjectPathWrapper(a: VmArgs) =
-    setResult a, config.projectPath.string
+  proc getProjectPathWrapper(a: VmArgs) {.nimcall.} =
+    setResult a, a.config.projectPath.string
   macrosop getProjectPath
 
-  registerCallback c, "stdlib.macros.symBodyHash", proc (a: VmArgs) =
+  registerCallback c, "stdlib.macros.symBodyHash", proc (a: VmArgs) {.nimcall.} =
     let n = getNode(a, 0)
     if n.kind != nkSym:
       raiseVmError(VmEvent(
@@ -448,9 +428,9 @@ proc registerMacroOps*(c: var TCtx) =
         argAst: n,
         argPos: 0))
 
-    setResult(a, $symBodyDigest(graph, n.sym))
+    setResult(a, $symBodyDigest(a.graph, n.sym))
 
-  registerCallback c, "stdlib.macros.isExported", proc(a: VmArgs) =
+  registerCallback c, "stdlib.macros.isExported", proc(a: VmArgs) {.nimcall.} =
     let n = getNode(a, 0)
     if n.kind != nkSym:
       raiseVmError(VmEvent(
@@ -461,21 +441,21 @@ proc registerMacroOps*(c: var TCtx) =
 
     setResult(a, sfExported in n.sym.flags)
 
-  registerCallback c, "stdlib.effecttraits.getRaisesListImpl", proc (a: VmArgs) =
-    getEffectList(cache, idgen, a, exceptionEffects)
-  registerCallback c, "stdlib.effecttraits.getTagsListImpl", proc (a: VmArgs) =
-    getEffectList(cache, idgen, a, tagEffects)
+  registerCallback c, "stdlib.effecttraits.getRaisesListImpl", proc (a: VmArgs) {.nimcall.} =
+    getEffectList(a.cache, a.idgen, a, exceptionEffects)
+  registerCallback c, "stdlib.effecttraits.getTagsListImpl", proc (a: VmArgs) {.nimcall.} =
+    getEffectList(a.cache, a.idgen, a, tagEffects)
 
-  registerCallback c, "stdlib.effecttraits.isGcSafeImpl", proc (a: VmArgs) =
+  registerCallback c, "stdlib.effecttraits.isGcSafeImpl", proc (a: VmArgs) {.nimcall.} =
     let fn = getNode(a, 0)
     setResult(a, fn.typ != nil and tfGcSafe in fn.typ.flags)
 
-  registerCallback c, "stdlib.effecttraits.hasNoSideEffectsImpl", proc (a: VmArgs) =
+  registerCallback c, "stdlib.effecttraits.hasNoSideEffectsImpl", proc (a: VmArgs) {.nimcall.} =
     let fn = getNode(a, 0)
     setResult(a, (fn.typ != nil and tfNoSideEffect in fn.typ.flags) or
                  (fn.kind == nkSym and fn.sym.kind == skFunc))
 
-  registerCallback c, "stdlib.typetraits.hasClosureImpl", proc (a: VmArgs) =
+  registerCallback c, "stdlib.typetraits.hasClosureImpl", proc (a: VmArgs) {.nimcall.} =
     let fn = getNode(a, 0)
     setResult(a, fn.kind == nkClosure or (fn.typ != nil and fn.typ.callConv == ccClosure))
 
@@ -483,19 +463,19 @@ proc registerMacroOps*(c: var TCtx) =
     let b = getNode(a, 1)
     if b.kind == nkNilLit: a.currentLineInfo else: b.info
 
-  registerCallback c, "stdlib.macros.error", proc (a: VmArgs) =
+  registerCallback c, "stdlib.macros.error", proc (a: VmArgs) {.nimcall.} =
     raiseVmError(VmEvent(
       kind: vmEvtUserError,
       errMsg: getString(a, 0),
       errLoc: a.getInfo()))
   
-  registerCallback c, "stdlib.macros.warning", proc (a: VmArgs) =
-    config.localReport(a.getInfo(),
-                       SemReport(kind: rsemUserWarning, str: getString(a, 0)))
+  registerCallback c, "stdlib.macros.warning", proc (a: VmArgs) {.nimcall.} =
+    a.config.localReport(a.getInfo(),
+                         SemReport(kind: rsemUserWarning, str: getString(a, 0)))
   
-  registerCallback c, "stdlib.macros.hint", proc (a: VmArgs) =
-    config.localReport(a.getInfo(),
-                       SemReport(kind: rsemUserHint, str: getString(a, 0)))
+  registerCallback c, "stdlib.macros.hint", proc (a: VmArgs) {.nimcall.} =
+    a.config.localReport(a.getInfo(),
+                         SemReport(kind: rsemUserHint, str: getString(a, 0)))
 
 proc registerAdditionalOps*(c: var TCtx, disallowDangerous: bool) =
   ## Convenience proc used for setting up the callbacks relevant during
