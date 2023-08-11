@@ -371,9 +371,6 @@ type
     rsemCannotInstantiateWithParameter
     rsemCannotGenerateGenericDestructor
     rsemUndeclaredField
-    rsemInheritanceOnlyWorksWithAnEnum # I have **//ABSOLUTELY NO IDEA//**
-    # what this error means. I think I might need to add something like
-    # `rsemWTF`
     rsemExpectedOrdinal
     rsemExpectedOrdinalOrFloat
     rsemExpectedUnholyEnum # yes
