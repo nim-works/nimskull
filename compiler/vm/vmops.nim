@@ -69,7 +69,6 @@ from system/formatfloat import writeFloatToBufferSprintf
 
 from compiler/modules/modulegraphs import `$`
 
-
 func emptyCallback(a: VmArgs) =
   discard
 
@@ -223,18 +222,10 @@ proc getEffectList(cache: IdentCache, idgen: IdGenerator; a: VmArgs;
 template writeResult(ret) {.dirty.} =
   writeTo(ret, a.getResultHandle(), a.mem[])
 
-# XXX: various callbacks currently require captured state (i.e. closures)
-#      in order to work. Once `TCtx` is split up into smaller parts, the VM
-#      environment related ones could be passed to the callbacks instead,
-#      making most of the capturing unnecessary
-
 proc registerBasicOps*(c: var TCtx) =
   ## Basic system operations as well as callbacks for some stdlib functions
   ## that don't interact with the host environement, but use language features
   ## that the VM doesn't directly support (such as 'importc'-ed functions)
-
-  # captured vars:
-  let isJs = c.config.backend == backendJs
 
   # system operations
   systemop(getCurrentExceptionMsg)
@@ -298,7 +289,7 @@ proc registerBasicOps*(c: var TCtx) =
   proc hashVmImpl(a: VmArgs) =
     # TODO: perform index check here
     var res = hashes.hash(a.getString(0), a.getInt(1).int, a.getInt(2).int)
-    if isJs:
+    if a.config.backend == backendJs:
       # emulate JS's terrible integers:
       res = cast[int32](res)
     setResult(a, res)
@@ -328,7 +319,7 @@ proc registerBasicOps*(c: var TCtx) =
     let p = seqVal.data.rawPointer
 
     var res = hashes.hash(toOpenArray(p, sPos, ePos), sPos, ePos)
-    if isJs:
+    if a.config.backend == backendJs:
       # emulate JS's terrible integers:
       res = cast[int32](res)
     setResult(a, res)
@@ -391,14 +382,11 @@ proc registerCompileTimeOps*(c: var TCtx) =
   ## Operations for querying compiler related information at compile-time.
   ## Also includes ``gorgeEx`` for now
 
-  # captured vars:
-  let config = c.config
-
   when defined(nimHasInvariant):
     registerCallback c, "stdlib.compilesettings.querySetting", proc (a: VmArgs) =
-      writeResult(querySettingImpl(config, getInt(a, 0)))
+      writeResult(querySettingImpl(a.config, getInt(a, 0)))
     registerCallback c, "stdlib.compilesettings.querySettingSeq", proc (a: VmArgs) =
-      writeResult(querySettingSeqImpl(config, getInt(a, 0)))
+      writeResult(querySettingSeqImpl(a.config, getInt(a, 0)))
 
   registerCallback c, "stdlib.os.getCurrentCompilerExe", proc (a: VmArgs) {.nimcall.} =
     setResult(a, getAppFilename())
@@ -413,30 +401,22 @@ proc registerCompileTimeOps*(c: var TCtx) =
   else:
     registerCallback c, gorgeExName, proc (a: VmArgs) =
       let ret = opGorge(getString(a, 0), getString(a, 1), getString(a, 2),
-                        a.currentLineInfo, config)
+                        a.currentLineInfo, a.config)
       writeResult(ret)
 
 proc registerDebugOps*(c: var TCtx) =
-  let config = c.config
-
   registerCallback c, "stdlib.vmutils.vmTrace", proc (a: VmArgs) =
     # XXX: `isVmTrace` should probably be in `TCtx` instead of in the active
-    config.active.isVmTrace = getBool(a, 0)
+    #      configuration
+    a.config.active.isVmTrace = getBool(a, 0)
 
 proc registerMacroOps*(c: var TCtx) =
   ## Operations that are part of the Macro API
 
-  # captured vars:
-  let
-    config = c.config
-    cache = c.cache
-    idgen = c.idgen
-    graph = c.graph
-
   # XXX: doesn't really have to do anything with macros, but it's in
   #      `stdlib.macros`, so...
   proc getProjectPathWrapper(a: VmArgs) =
-    setResult a, config.projectPath.string
+    setResult a, a.config.projectPath.string
   macrosop getProjectPath
 
   registerCallback c, "stdlib.macros.symBodyHash", proc (a: VmArgs) =
@@ -448,7 +428,7 @@ proc registerMacroOps*(c: var TCtx) =
         argAst: n,
         argPos: 0))
 
-    setResult(a, $symBodyDigest(graph, n.sym))
+    setResult(a, $symBodyDigest(a.graph, n.sym))
 
   registerCallback c, "stdlib.macros.isExported", proc(a: VmArgs) =
     let n = getNode(a, 0)
@@ -462,9 +442,9 @@ proc registerMacroOps*(c: var TCtx) =
     setResult(a, sfExported in n.sym.flags)
 
   registerCallback c, "stdlib.effecttraits.getRaisesListImpl", proc (a: VmArgs) =
-    getEffectList(cache, idgen, a, exceptionEffects)
+    getEffectList(a.cache, a.idgen, a, exceptionEffects)
   registerCallback c, "stdlib.effecttraits.getTagsListImpl", proc (a: VmArgs) =
-    getEffectList(cache, idgen, a, tagEffects)
+    getEffectList(a.cache, a.idgen, a, tagEffects)
 
   registerCallback c, "stdlib.effecttraits.isGcSafeImpl", proc (a: VmArgs) =
     let fn = getNode(a, 0)
@@ -490,12 +470,12 @@ proc registerMacroOps*(c: var TCtx) =
       errLoc: a.getInfo()))
   
   registerCallback c, "stdlib.macros.warning", proc (a: VmArgs) =
-    config.localReport(a.getInfo(),
-                       SemReport(kind: rsemUserWarning, str: getString(a, 0)))
+    a.config.localReport(a.getInfo(),
+                         SemReport(kind: rsemUserWarning, str: getString(a, 0)))
   
   registerCallback c, "stdlib.macros.hint", proc (a: VmArgs) =
-    config.localReport(a.getInfo(),
-                       SemReport(kind: rsemUserHint, str: getString(a, 0)))
+    a.config.localReport(a.getInfo(),
+                         SemReport(kind: rsemUserHint, str: getString(a, 0)))
 
 proc registerAdditionalOps*(c: var TCtx, disallowDangerous: bool) =
   ## Convenience proc used for setting up the callbacks relevant during

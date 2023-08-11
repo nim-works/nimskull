@@ -2028,7 +2028,11 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
                  currentLineInfo: c.debug[pc],
                  typeCache: addr c.typeInfoCache,
                  mem: addr c.memory,
-                 heap: addr c.heap))
+                 heap: addr c.heap,
+                 graph: c.graph,
+                 config: c.config,
+                 cache: c.cache,
+                 idgen: c.idgen))
       of ckDefault:
         # the instruction may be executed a second time, so everything leading
         # up to the yield (i.e. ``return``) must not modify any VM state

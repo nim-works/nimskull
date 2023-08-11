@@ -437,6 +437,12 @@ type
     mem*: ptr VmMemoryManager
     heap*: ptr VmHeap
 
+    # compiler interfacing:
+    graph*: ModuleGraph
+    config*: ConfigRef
+    cache*: IdentCache
+    idgen*: IdGenerator
+
   IdentPattern* = distinct string ## A matcher pattern for a fully qualified
                                   ## symbol identifier
   VmCallback* = proc (args: VmArgs) {.closure.}
