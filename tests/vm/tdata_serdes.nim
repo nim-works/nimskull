@@ -1,11 +1,8 @@
 discard """
   description: "Tests for the serialization/deserialization"
-  targets: "c !js"
+  targets: "c js"
+  knownIssue.js: "Fails due to code-gen issues"
 """
-
-# knownIssue: fails with JS backend due to code-gen issues as well as due to
-#             `transf` working differently regarding closures when compiling
-#             for the JS backend (even for code being transformed for the VM)
 
 # This test file tests four things:
 # * VM representation -> PNode tree representation (via `deserialize`)

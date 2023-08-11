@@ -485,20 +485,22 @@ proc unaryArith(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     assert false, $op
 
 proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
-  let mt = mapType(p.config, e[0].typ, mapTypeChooser(e[0]))
+  let
+    src = e.operand
+    mt = mapType(p.config, src.typ, mapTypeChooser(src))
   if mt in {ctArray, ctPtrToArray} and lfEnforceDeref notin d.flags:
     # XXX the amount of hacks for C's arrays is incredible, maybe we should
     # simply wrap them in a struct? --> Losing auto vectorization then?
-    expr(p, e[0], d)
-    if e[0].typ.skipTypes(abstractInst).kind == tyRef:
+    expr(p, src, d)
+    if src.typ.skipTypes(abstractInst).kind == tyRef:
       d.storage = OnHeap
   else:
     var a: TLoc
-    var typ = e[0].typ
+    var typ = src.typ
     if typ.kind in {tyUserTypeClass, tyUserTypeClassInst} and typ.isResolvedUserTypeClass:
       typ = typ.lastSon
     typ = typ.skipTypes(abstractInst)
-    initLocExprSingleUse(p, e[0], a)
+    initLocExprSingleUse(p, src, a)
     if d.k == locNone:
       # dest = *a;  <-- We do not know that 'dest' is on the heap!
       # It is completely wrong to set 'd.storage' here, unless it's not yet
@@ -527,16 +529,16 @@ proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
       putIntoDest(p, d, e, "(*$1)" % [rdLoc(a)], a.storage)
 
 proc genAddr(p: BProc, e: CgNode, mutate: bool, d: var TLoc) =
-  if mapType(p.config, e[0].typ, mapTypeChooser(e[0])) == ctArray:
-    expr(p, e[0], d)
+  if mapType(p.config, e.operand.typ, mapTypeChooser(e.operand)) == ctArray:
+    expr(p, e.operand, d)
   else:
     var a: TLoc
     if mutate:
-      initLoc(a, locNone, e[0], OnUnknown)
+      initLoc(a, locNone, e.operand, OnUnknown)
       a.flags.incl lfPrepareForMutation
-      expr(p, e[0], a)
+      expr(p, e.operand, a)
     else:
-      initLocExpr(p, e[0], a)
+      initLocExpr(p, e.operand, a)
     putIntoDest(p, d, e, addrLoc(p.config, a), a.storage)
 
 template inheritLocation(d: var TLoc, a: TLoc) =
@@ -1309,7 +1311,7 @@ template genDollar(p: BProc, n: CgNode, d: var TLoc, frmt: string) =
 
 proc genArrayLen(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   var a = e[1]
-  if a.kind == cnkHiddenAddr: a = a[0]
+  if a.kind == cnkHiddenAddr: a = a.operand
   var typ = skipTypes(a.typ, abstractVar + tyUserTypeClasses)
   case typ.kind
   of tyOpenArray, tyVarargs:
@@ -1362,7 +1364,7 @@ proc makeAddr(n: CgNode; idgen: IdGenerator): CgNode =
   if n.kind == cnkHiddenAddr:
     result = n
   else:
-    result = newExpr(cnkHiddenAddr, n.info, makePtrType(n.typ, idgen), [n])
+    result = newOp(cnkHiddenAddr, n.info, makePtrType(n.typ, idgen), n)
 
 proc genSetLengthStr(p: BProc, e: CgNode, d: var TLoc) =
   binaryStmtAddr(p, e, d, "setLengthStrV2")
@@ -1534,12 +1536,18 @@ proc genOrd(p: BProc, e: CgNode, d: var TLoc) =
 proc genSomeCast(p: BProc, e: CgNode, d: var TLoc) =
   const
     ValueTypes = {tyTuple, tyObject, tyArray, tyOpenArray, tyVarargs, tyUncheckedArray}
+
+  let src =
+    case e.kind
+    of cnkCast, cnkConv, cnkHiddenConv: e.operand
+    of cnkCall:                         e[1]
+    else:                               unreachable()
   # we use whatever C gives us. Except if we have a value-type, we need to go
   # through its address:
   var a: TLoc
-  initLocExpr(p, e[1], a)
+  initLocExpr(p, src, a)
   let etyp = skipTypes(e.typ, abstractRange)
-  let srcTyp = skipTypes(e[1].typ, abstractRange)
+  let srcTyp = skipTypes(src.typ, abstractRange)
   if etyp.kind in ValueTypes and lfIndirect notin a.flags:
     putIntoDest(p, d, e, "(*($1*) ($2))" %
         [getTypeDesc(p.module, e.typ), addrLoc(p.config, a)], a.storage)
@@ -1564,8 +1572,9 @@ proc genSomeCast(p: BProc, e: CgNode, d: var TLoc) =
 proc genCast(p: BProc, e: CgNode, d: var TLoc) =
   const ValueTypes = {tyFloat..tyFloat128, tyTuple, tyObject, tyArray}
   let
+    src = e.operand
     destt = skipTypes(e.typ, abstractRange)
-    srct = skipTypes(e[1].typ, abstractRange)
+    srct = skipTypes(src.typ, abstractRange)
   if destt.kind in ValueTypes or srct.kind in ValueTypes:
     # 'cast' and some float type involved? --> use a union.
     inc(p.labels)
@@ -1573,12 +1582,12 @@ proc genCast(p: BProc, e: CgNode, d: var TLoc) =
     var tmp: TLoc
     tmp.r = "LOC$1.source" % [lbl]
     linefmt(p, cpsLocals, "union { $1 source; $2 dest; } LOC$3;$n",
-      [getTypeDesc(p.module, e[1].typ), getTypeDesc(p.module, e.typ), lbl])
+      [getTypeDesc(p.module, src.typ), getTypeDesc(p.module, e.typ), lbl])
     tmp.k = locExpr
     tmp.lode = lodeTyp srct
     tmp.storage = OnStack
     tmp.flags = {}
-    expr(p, e[1], tmp)
+    expr(p, src, tmp)
     putIntoDest(p, d, e, "LOC$#.dest" % [lbl], tmp.storage)
   else:
     # I prefer the shorter cast version for pointer types -> generate less
@@ -1623,14 +1632,14 @@ proc genRangeChck(p: BProc, n: CgNode, d: var TLoc) =
 
 proc genConv(p: BProc, e: CgNode, d: var TLoc) =
   let destType = e.typ.skipTypes({tyVar, tyLent, tyGenericInst, tyAlias, tySink})
-  if sameBackendType(destType, e[1].typ):
-    expr(p, e[1], d)
+  if sameBackendType(destType, e.operand.typ):
+    expr(p, e.operand, d)
   else:
     genSomeCast(p, e, d)
 
 proc convStrToCStr(p: BProc, n: CgNode, d: var TLoc) =
   var a: TLoc
-  initLocExpr(p, n[0], a)
+  initLocExpr(p, n.operand, a)
   putIntoDest(p, d, n,
               ropecg(p.module, "#nimToCStringConv($1)", [rdLoc(a)]),
 #                "($1 ? $1->data : (NCSTRING)\"\")" % [a.rdLoc],
@@ -1638,7 +1647,7 @@ proc convStrToCStr(p: BProc, n: CgNode, d: var TLoc) =
 
 proc convCStrToStr(p: BProc, n: CgNode, d: var TLoc) =
   var a: TLoc
-  initLocExpr(p, n[0], a)
+  initLocExpr(p, n.operand, a)
   putIntoDest(p, d, n,
               ropecg(p.module, "#cstrToNimstr($1)", [rdLoc(a)]),
               a.storage)
@@ -1677,7 +1686,7 @@ proc binaryFloatArith(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
     binaryArith(p, e, d, m)
 
 proc skipAddr(n: CgNode): CgNode =
-  result = if n.kind in {cnkAddr, cnkHiddenAddr}: n[0] else: n
+  result = if n.kind in {cnkAddr, cnkHiddenAddr}: n.operand else: n
 
 proc genWasMoved(p: BProc; n: CgNode) =
   var a: TLoc
@@ -1845,7 +1854,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
       localReport(p.config, e.info, reportSem rsemRequiresDeepCopyEnabled)
 
     var a, b: TLoc
-    let x = if e[1].kind in {cnkAddr, cnkHiddenAddr}: e[1][0] else: e[1]
+    let x = if e[1].kind in {cnkAddr, cnkHiddenAddr}: e[1].operand else: e[1]
     initLocExpr(p, x, a)
     initLocExpr(p, e[2], b)
     genDeepCopy(p, a, b)
@@ -1860,7 +1869,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mAsgnDynlibVar:
     # initialize the internal pointer for a dynlib global/procedure
     var a, b: TLoc
-    initLocExpr(p, e[1][0], a)
+    initLocExpr(p, e[1].operand, a)
     initLocExpr(p, e[2], b)
     var typ = getTypeDesc(p.module, a.t)
     # dynlib variables are stored as pointers
@@ -1984,7 +1993,7 @@ proc genStmtList(p: BProc, n: CgNode) =
 
 proc upConv(p: BProc, n: CgNode, d: var TLoc) =
   var a: TLoc
-  initLocExpr(p, n[0], a)
+  initLocExpr(p, n.operand, a)
   let dest = skipTypes(n.typ, abstractPtrs)
   if optObjCheck in p.options and not isObjLackingTypeField(dest):
     var nilCheck = ""
@@ -1996,7 +2005,7 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
       linefmt(p, cpsStmts, "if ($1 && !#isObj($2, $3)){ #raiseObjectConversionError(); $4}$n",
               [nilCheck, r, genTypeInfo2Name(p.module, dest), raiseInstr(p)])
 
-  if n[0].typ.kind != tyObject:
+  if n.operand.typ.kind != tyObject:
     if n.isLValue:
       putIntoDest(p, d, n,
                 "(*(($1*) (&($2))))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
@@ -2008,8 +2017,8 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
                         [getTypeDesc(p.module, dest), addrLoc(p.config, a)], a.storage)
 
 proc downConv(p: BProc, n: CgNode, d: var TLoc) =
-  var arg = n[0]
-  while arg.kind == cnkObjDownConv: arg = arg[0]
+  var arg = n.operand
+  while arg.kind == cnkObjDownConv: arg = arg.operand
 
   let dest = skipTypes(n.typ, abstractPtrs)
   let src = skipTypes(arg.typ, abstractPtrs)
@@ -2173,10 +2182,10 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkCast: genCast(p, n, d)
   of cnkHiddenConv, cnkConv: genConv(p, n, d)
   of cnkHiddenAddr, cnkAddr:
-    if n[0].kind in {cnkDerefView, cnkDeref}:
+    if n.operand.kind in {cnkDerefView, cnkDeref}:
       # views and ``ref``s also map to pointers at the C level. We collapse
       # ``&(*x)`` to just ``x``
-      expr(p, n[0][0], d)
+      expr(p, n.operand.operand, d)
     else:
       let mutate = n.kind == cnkHiddenAddr and n.typ.kind == tyVar
       genAddr(p, n, mutate, d)
@@ -2387,7 +2396,7 @@ proc genConstSeqV2(p: BProc, n: CgNode, t: PType; isConst: bool): Rope =
 proc genBracedInit(p: BProc, n: CgNode; isConst: bool; optionalType: PType): Rope =
   case n.kind
   of cnkHiddenConv:
-    result = genBracedInit(p, n[1], isConst, n.typ)
+    result = genBracedInit(p, n.operand, isConst, n.typ)
   else:
     var ty = tyNone
     var typ: PType = nil

@@ -592,7 +592,7 @@ proc addResult(
       debugInfo: run.debugInfo,
       outCompare: outCompare,
       success: success,
-      knownIssues: if isNil(output): @[] else: run.test.spec.knownIssues,
+      knownIssues: run.test.spec.knownIssues[run.target],
       inCurrentBatch: run.test.inCurrentBatch,
       expected: expected,
       given: given
@@ -603,7 +603,7 @@ proc addResult(
 proc addResult(r: var TResults, test: TTest, reason: TResultEnum) =
   ## Report test failure/skip etc to backend, end user (write to command-line)
   ## and so on.
-  const allowedTestStatus = {reInvalidSpec, reDisabled, reKnownIssue, reJoined}
+  const allowedTestStatus = {reInvalidSpec, reDisabled, reJoined}
   doAssert reason in allowedTestStatus,
            "Test: $1 with status: $2, should have ran" %
               [test.getName(), $reason]
@@ -611,7 +611,6 @@ proc addResult(r: var TResults, test: TTest, reason: TResultEnum) =
     given =
       case reason
       of reInvalidSpec: test.spec.parseErrors
-      of reKnownIssue: test.spec.knownIssues.join("\n")
       else: ""
     param = ReportParams(
       duration: epochTime() - test.startTime,
@@ -623,7 +622,7 @@ proc addResult(r: var TResults, test: TTest, reason: TResultEnum) =
       debugInfo: "",
       success: reason,
       inCurrentBatch: test.inCurrentBatch,
-      knownIssues: test.spec.knownIssues,
+      knownIssues: @[],
       expected: "",
       given: given,
       outCompare: nil
@@ -1043,7 +1042,7 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
     if timeout > 0.0 and duration > timeout:
       res.success = reTimeout
 
-  if run.expected.knownIssues.len > 0:
+  if run.expected.knownIssues[run.target].len > 0:
     # the test has known issue(s) and is expected to fail
     if res.success == reSuccess:
       # it didn't fail
@@ -1063,22 +1062,24 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
   r.addResult(run, res.expected, res.given, res.success,
               addr given, res.compare)
 
-proc targetHelper(r: var TResults, run: var TestRun) =
-  inc(r.total)
-  if run.target notin gTargets:
-    r.addResult(run, "", "", reDisabled)
-    inc(r.skipped)
-  elif simulate:
-    inc count
-    msg Undefined: "testSpec count: " & $count & " expected: " & $run.expected
-  else:
-    testSpecHelper(r, run)
-
-proc run(r: var TResults, runs: var openArray[TestRun]) =
+proc run(r: var TResults, runs: var openArray[TestRun], runKnownIssues: bool) =
   ## Executes the given `runs`.
   for run in runs.mitems:
     run.startTime = epochTime()
-    targetHelper(r, run)
+    inc(r.total)
+    # XXX: remove the usage of globals here
+    if run.target notin gTargets:
+      r.addResult(run, "", "", reDisabled)
+      inc(r.skipped)
+    elif run.expected.knownIssues[run.target].len > 0 and not runKnownIssues:
+      # tests with known issues are not tried
+      r.addResult(run, "", "", reKnownIssue)
+      inc(r.skipped)
+    elif simulate:
+      inc count
+      msg Undefined: "testSpec count: " & $count & " expected: " & $run.expected
+    else:
+      testSpecHelper(r, run)
 
 func nativeTarget(): TTarget {.inline.} =
   targetC
@@ -1118,8 +1119,6 @@ proc computeEarly(spec: TSpec, inCurrentBatch: bool): TResultEnum =
     reDisabled # manually skipped
   elif not inCurrentBatch:
     reDisabled
-  elif spec.knownIssues.len > 0:
-    reKnownIssue
   else:
     reSuccess
 
@@ -1168,7 +1167,7 @@ proc testSpec(r: var TResults, test: TTest) =
   let res = computeEarly(test.spec, test.inCurrentBatch)
   var runs: seq[TestRun]
   produceRuns r, test, res, runs
-  run(r, runs)
+  run(r, runs, false)
 
 proc testSpecWithNimcache(
     r: var TResults, test: TTest; nimcache: string) {.used.} =

@@ -610,8 +610,10 @@ proc bodyCanRaise(p: BProc; n: CgNode): bool =
         if bodyCanRaise(p, n[i]): return true
   of cnkRaiseStmt:
     result = true
-  of cnkWithoutItems:
+  of cnkAtoms:
     result = false
+  of cnkWithOperand:
+    result = bodyCanRaise(p, n.operand)
   of cnkWithItems - {cnkCall, cnkRaiseStmt}:
     for it in n.items:
       if bodyCanRaise(p, it): return true

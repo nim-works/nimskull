@@ -3,11 +3,10 @@ discard """
     Tests for assignments of types with lifetime hooks where l-value
     conversions are involved
   '''
-  targets: "c !js !vm"
+  targets: "c js vm"
   matrix: "--gc:arc --cursorInference:off"
+  knownIssue.js vm: "`--gc:arc` is not supported"
 """
-
-# knownIssues: both the JS and VM target don't yet support ``--gc:arc``:option:
 
 import mhelper
 

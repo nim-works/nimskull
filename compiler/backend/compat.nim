@@ -38,7 +38,7 @@ func lastSon*(n: CgNode): CgNode {.inline.} =
 proc skipConv*(n: CgNode): CgNode {.inline.} =
   result = n
   while result.kind in {cnkConv, cnkHiddenConv}:
-    result = result[1]
+    result = result.operand
 
 func getInt*(n: CgNode): Int128 =
   case n.kind
@@ -50,7 +50,7 @@ proc getOrdValue*(n: CgNode): Int128 =
   case n.kind
   of cnkUIntLit:    toInt128(cast[BiggestUInt](n.intVal))
   of cnkIntLit:     toInt128(n.intVal)
-  of cnkHiddenConv: getOrdValue(n[1])
+  of cnkHiddenConv: getOrdValue(n.operand)
   else:             unreachable()
 
 func getCalleeMagic*(callee: CgNode): TMagic {.inline.} =
@@ -106,12 +106,11 @@ proc getRoot*(n: CgNode): PSym =
   of cnkSym:
     if n.sym.kind in {skVar, skResult, skTemp, skLet, skForVar, skParam}:
       result = n.sym
-  of cnkFieldAccess, cnkBracketAccess, cnkDerefView, cnkDeref,
-     cnkObjUpConv, cnkObjDownConv, cnkCheckedFieldAccess, cnkHiddenAddr,
-     cnkAddr:
+  of cnkFieldAccess, cnkBracketAccess, cnkCheckedFieldAccess:
     result = getRoot(n[0])
-  of cnkHiddenConv, cnkConv:
-    result = getRoot(n[1])
+  of cnkDerefView, cnkDeref, cnkObjUpConv, cnkObjDownConv, cnkHiddenAddr,
+     cnkAddr, cnkHiddenConv, cnkConv:
+    result = getRoot(n.operand)
   of cnkCall:
     if getMagic(n) == mSlice:
       result = getRoot(n[1])
@@ -138,17 +137,19 @@ proc isLValue*(n: CgNode): bool =
   of cnkHiddenConv, cnkConv:
     if skipTypes(n.typ, abstractPtrs-{tyTypeDesc}).kind in
         {tyOpenArray, tyTuple, tyObject}:
-      isLValue(n[1])
-    elif compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct):
-      isLValue(n[1])
+      isLValue(n.operand)
+    elif compareTypes(n.typ, n.operand.typ, dcEqIgnoreDistinct):
+      isLValue(n.operand)
     else:
       false
   of cnkDerefView:
-    let n0 = n[0]
+    let n0 = n.operand
     n0.typ.kind != tyLent or (n0.kind == cnkSym and n0.sym.kind == skResult)
   of cnkDeref, cnkHiddenAddr:
     true
-  of cnkObjUpConv, cnkObjDownConv, cnkCheckedFieldAccess:
+  of cnkObjUpConv, cnkObjDownConv:
+    isLValue(n.operand)
+  of cnkCheckedFieldAccess:
     isLValue(n[0])
   of cnkCall:
     (getMagic(n) == mSlice and isLValue(n[1])) or n.typ.kind in {tyVar}

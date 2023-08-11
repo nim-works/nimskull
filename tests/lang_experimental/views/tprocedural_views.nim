@@ -1,13 +1,14 @@
 discard """
-  targets: "c js !vm"
+  targets: "c js vm"
   description: '''
     Tests for indirect calls where the callee is an expression evaluating to a
     view
   '''
+  knownIssue.vm: '''
+    Semantic analysis produces incorrect AST for tuple initialization, causing
+    VM access violation errors at run-time
+  '''
 """
-
-# knownIssue: semantic analysis produces incorrect AST for tuple initialization,
-#             causing VM access violation errors at run-time
 
 {.experimental: "views".}
 

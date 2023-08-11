@@ -319,7 +319,7 @@ proc isJoinableSpec(spec: TSpec, targets: set[TTarget], early: TResultEnum): boo
     not fileExists(spec.file.changeFileExt("nim.cfg")) and
     not fileExists(parentDir(spec.file) / "nim.cfg") and
     spec.cmd.len == 0 and
-    early notin {reDisabled, reKnownIssue} and
+    early notin {reDisabled} and
     not spec.unjoinable and
     spec.exitCode == 0 and
     spec.input.len == 0 and
@@ -331,6 +331,13 @@ proc isJoinableSpec(spec: TSpec, targets: set[TTarget], early: TResultEnum): boo
     spec.outputCheck != ocSubstr and
     spec.ccodeCheck.len == 0 and
     (spec.targets * targets != {} or spec.targets == {})
+  if result:
+    # the test must have no known issues
+    for it in spec.knownIssues.items:
+      if it.len > 0:
+        result = false
+        break
+
   if result:
     if spec.file.readFile.contains "when isMainModule":
       result = false
@@ -555,17 +562,14 @@ proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
     for i, name in files:
       let test = makeTest(name, options, cat)
       var res = computeEarly(test.spec, test.inCurrentBatch)
-      if res == reKnownIssue and runKnownIssues:
-        # we want to still run the test
-        res = reSuccess
-      elif runJoinableTests or
+      if runJoinableTests or
           not isJoinableSpec(test.spec, targets, res) or
           cat.string in specialCategories:
         discard "run the test"
       else:
         res = reJoined
       produceRuns r, test, res, runs
-      run(r, runs)
+      run(r, runs, runKnownIssues)
       runs.setLen(0) # prepare for the next test
       inc testsRun
     if testsRun == 0:

@@ -121,7 +121,7 @@ type
     timeout*: float ## in seconds, fractions possible, but don't rely on
     ## much precision
     inlineErrors*: seq[InlineError] ## line information to error message
-    knownIssues*: seq[string] ## known issues to be fixed
+    knownIssues*: array[TTarget, seq[string]] ## known issues to be fixed
     labels*: seq[string] ## user-added metadata
 
 proc getCmd*(s: TSpec): string =
@@ -289,6 +289,16 @@ proc parseSpecifiedTargets*(value: string): set[SpecifiedTarget] =
       else: raise newException(ValueError,
                                "invalid target specificatoin: '$#'" % v)
 
+proc splitKey*(key: string): tuple[key, sub: string] =
+  ## Splits the key (after normalizing) into the main and sub-key part.
+  let
+    key = normalize(key)
+    p = find(key, '.')
+  if p == -1:
+    result = (key, "")
+  else:
+    result = (key[0..<p], key[p+1..<key.len])
+
 proc addLine*(self: var string; a: string) =
   self.add a
   self.add "\n"
@@ -317,7 +327,7 @@ proc parseSpec*(filename: string,
     var e = next(p)
     case e.kind
     of cfgKeyValuePair:
-      let key = e.key.normalize
+      let (key, subKey) = splitKey(e.key)
       const allowMultipleOccurences = ["disabled", "ccodecheck" , "knownissue"]
         ## list of flags that are correctly handled when passed multiple times
         ## (instead of being overwritten)
@@ -491,7 +501,13 @@ proc parseSpec*(filename: string,
         case e.value.normalize
         of "n", "no", "false", "0": discard
         else:
-            result.knownIssues.add e.value
+          # no sub-key means "applies to all targets"
+          let targets =
+            if subKey.len == 0: {low(TTarget)..high(TTarget)}
+            else:               parseTargets(subKey)
+
+          for t in targets.items:
+            result.knownIssues[t].add e.value
       of "labels":
          discard """
          Adding only key support for now.

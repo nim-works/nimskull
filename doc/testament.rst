@@ -127,7 +127,16 @@ Test execution options
 
 - ``knownIssue`` description of the test that currently fails but should
   execute successfully; it is a known bug that must be fixed in the future.
-  Can be used several times in specification.
+  Can be used several times in specification. One can also specify the
+  affected targets.
+
+  .. code-block:: nim
+
+    knownIssue.vm: "..."   # the test only fails with the vm target
+    knownIssue.c js: "..." # fails with both the c and js target
+
+  A standalone ``knownIssue`` key means that all selected targets are
+  affected by the issue(s).
 
 Compiler output assertions
 --------------------------

@@ -1116,9 +1116,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         "previous type completion was here: " &
         (conf $ r.symbols[0].info)
 
-    of rsemInheritanceOnlyWorksWithAnEnum:
-      result = "inheritance only works with an enum"
-
     of rsemWrongNumberOfVariables:
       result = "wrong number of variables"
 
