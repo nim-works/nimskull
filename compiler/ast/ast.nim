@@ -255,7 +255,12 @@ proc newIntTypeNode*(intVal: BiggestInt, typ: PType): PNode =
   of tyUInt16:  result = newNode(nkUInt16Lit)
   of tyUInt32:  result = newNode(nkUInt32Lit)
   of tyUInt64:  result = newNode(nkUInt64Lit)
-  of tyBool, tyEnum:
+  of tyEnum:
+    # XXX: the kind for the underlying type should be used here, but too much
+    #      code still relies on literal enum values being represented as
+    #      exactly ``nkIntLit``
+    result = newNode(nkIntLit)
+  of tyBool:
     # XXX: does this really need to be the kind nkIntLit?
     result = newNode(nkIntLit)
   of tyStatic: # that's a pre-existing bug, will fix in another PR

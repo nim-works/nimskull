@@ -100,7 +100,7 @@ proc isPureObject*(typ: PType): bool =
   result = t.sym != nil and sfPure in t.sym.flags
 
 func isUnsigned*(t: PType): bool {.inline.} =
-  t.skipTypes(abstractInst).kind in {tyChar, tyUInt..tyUInt64}
+  t.skipTypes(abstractInst + {tyEnum}).kind in {tyChar, tyUInt..tyUInt64}
 
 proc getOrdValue*(n: PNode; onError = high(Int128)): Int128 =
   let k =
