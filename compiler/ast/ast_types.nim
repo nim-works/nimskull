@@ -475,6 +475,9 @@ type
     tyGenericParam,      ## ``a`` in the above patterns
     tyDistinct,
     tyEnum,
+      ## enum type. `base` stores the base type (currently always nil) and
+      ## `lastSon` the storage type (also referred to as "underlying type"),
+      ## which is the type used for the in-memory representation
     tyOrdinal,           ## integer types (including enums and boolean)
     tyArray,
     tyObject,
