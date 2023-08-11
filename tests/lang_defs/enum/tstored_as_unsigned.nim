@@ -38,3 +38,28 @@ proc test() =
   doAssert ord(arr2[0]) == int high(uint16)
 
 test()
+
+block compile_time_run_time_boundary:
+  # make sure that enum values stored as unsigned integers properly cross the
+  # compile-time/run-time boundary
+  proc get[T](): T = high(T)
+
+  block uint8_value:
+    const
+      folded   = (enuA_b,)       # the VM is not used
+      computed = (get[EnumA](),) # ``vmcompilerserdes`` is used
+
+    var val = folded
+    doAssert val[0] == enuA_b
+    val = computed
+    doAssert val[0] == enuA_b
+
+  block uint16_value:
+    const
+      folded   = (enuB_b,)       # the VM is not used
+      computed = (get[EnumB](),) # ``vmcompilerserdes`` is used
+
+    var val = folded
+    doAssert val[0] == enuB_b
+    val = computed
+    doAssert val[0] == enuB_b
