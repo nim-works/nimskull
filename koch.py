@@ -47,7 +47,7 @@ def run(*args: Any, cwd: Optional[Path] = None, replace=False) -> None:
     print("Running:", run_args, flush=True)
     completed = subprocess.run(run_args, check=(not replace), cwd=cwd)
     if replace:
-        quit(completed.returncode)
+        sys.exit(completed.returncode)
 
 
 def capture(*args: Any) -> subprocess.CompletedProcess:
