@@ -1216,7 +1216,7 @@ when defined(nimFixedForwardGeneric): # xxx: this seems unnecessary with the upd
           jsonPath.setLen(jsonPath.len - name.len)
         jsonPath.setLen originalJsonPathLen
       else:
-        error("Use a named tuple instead of: " & T.repr)
+        {.error("Use a named tuple instead of: " & T.repr).}
     elif T is object:
       jsonPath.add "."
       for name, value in dst.fieldPairs:
@@ -1228,7 +1228,7 @@ when defined(nimFixedForwardGeneric): # xxx: this seems unnecessary with the upd
         jsonPath.setLen(jsonPath.len - name.len)
       jsonPath.setLen originalJsonPathLen
     else:
-      error("Unreachable type: " & T.repr)
+      {.error("Unreachable type: " & T.repr).}
 
   macro assignDistinctImpl[T: distinct](dst: var T;jsonNode: JsonNode; jsonPath: var string) =
     let typInst = getTypeInst(dst)

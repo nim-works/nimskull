@@ -1,10 +1,9 @@
 discard """
   errormsg: "Use a named tuple instead of: (string, float)"
-  file: "tjsonmacro_reject.nim"
-  line: 11
+  file: "json.nim"
 """
 
-import json
+import std/json
 
 type
   Car = object
