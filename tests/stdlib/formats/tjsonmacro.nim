@@ -646,6 +646,15 @@ proc testJson() =
     ]
     doAssert (%* a).to(a.typeof) == a
 
+  block:
+    type
+      Car = object
+        engine: (string, float)
+        model: string
+    let j = """{"engine": {"name": "V8", "capacity": 5.5}, "model": "Skyline"}"""
+    let parsed = parseJson(j)
+    doAssert not compiles(to(parsed, Car))
+
 
 testJson()
 static:
