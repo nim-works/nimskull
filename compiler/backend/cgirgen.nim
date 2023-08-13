@@ -712,17 +712,6 @@ proc tbScope(tree: TreeWithSource, cl: var TranslateCl, n: MirNode, cr: var Tree
 proc tbRegion(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
               cr: var TreeCursor): CgNode
 
-proc newIntLit(val: Int128, t: PType): CgNode =
-  case t.skipTypes(abstractVarRange + {tyEnum}).kind
-  of tyUInt..tyUInt64, tyChar:
-    CgNode(kind: cnkUIntLit, info: unknownLineInfo, typ: t,
-           intVal: cast[BiggestInt](toUInt(val)))
-  of tyInt..tyInt64, tyBool:
-    CgNode(kind: cnkIntLit, info: unknownLineInfo, typ: t,
-           intVal: toInt(val))
-  else:
-    unreachable()
-
 proc handleSpecialConv(c: ConfigRef, n: CgNode, info: TLineInfo,
                        dest: PType): CgNode =
   ## Checks if a special conversion operator is required for a conversion
@@ -752,36 +741,6 @@ proc handleSpecialConv(c: ConfigRef, n: CgNode, info: TLineInfo,
         result = n.operand
       else:
         result = genObjConv(n, source.base, dest.base, orig)
-
-  of tyInt..tyInt64, tyEnum, tyChar, tyUInt8..tyUInt32:
-    # TODO: including ``tyUInt64`` here causes rvmIllegalConv errors for code
-    #       that is run in the VM. ``transf`` (from where the logic was copied
-    #       from) also doesn't include it. Find out what the underlying problem
-    #       is, fix it, and include ``tyUInt64`` here
-    # TODO: introducing and lowering range checks into an if + raise should
-    #       happen at the MIR level as a MIR pass (maybe even earlier) instead
-    #       of requiring the code-generators to implement this logic
-    if isOrdinalType(source) and               # is it a float-to-int conversion?
-       (firstOrd(c, orig) > firstOrd(c, n.typ) or
-        lastOrd(c, n.typ) > lastOrd(c, orig)): # is dest not a sub-range of source?
-      # generate a range check:
-      let
-        rangeDest = skipTypes(orig, abstractVar)
-        kind =
-          if tyInt64 in {dest.kind, source.kind}: cnkChckRange64
-          else:                                   cnkChckRange
-
-      result = newExpr(kind, info, orig):
-        [n,
-         newIntLit(firstOrd(c, rangeDest), rangeDest),
-         newIntLit(lastOrd(c, rangeDest), rangeDest)]
-  of tyFloat..tyFloat128:
-    let rangeDest = skipTypes(orig, abstractVar)
-    if rangeDest.kind == tyRange:
-      # a conversion to a float range (e.g. ``range[0.0 .. 1.0]``)
-      result = newExpr(cnkChckRangeF, info, orig):
-        [n, translateLit(rangeDest.n[0]), translateLit(rangeDest.n[1])]
-
   else:
     result = nil
 

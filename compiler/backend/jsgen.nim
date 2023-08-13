@@ -1869,6 +1869,8 @@ proc genJSArrayConstr(p: PProc, n: CgNode, r: var TCompRes) =
       r.res.add(a.res)
   r.res.add("]")
 
+proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes)
+
 proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   let op = getCalleeMagic(n[0])
   case op
@@ -2030,6 +2032,8 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
     #      MIR pass that is used for all backends
     r.res = "($1.env.$2 < 0)" % [x.rdLoc, mangleJs(":state")]
     r.kind = resExpr
+  of mChckRange:
+    genRangeChck(p, n, r)
   else:
     genCall(p, n, r)
     #else internalError(p.config, e.info, 'genMagic: ' + magicToStr[op]);
@@ -2155,17 +2159,12 @@ proc genConv(p: PProc, n: CgNode, r: var TCompRes) =
 proc upConv(p: PProc, n: CgNode, r: var TCompRes) =
   gen(p, n.operand, r)        # XXX
 
-proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes, magic: string) =
+proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes) =
   var a, b: TCompRes
-  gen(p, n[0], r)
-  if optRangeCheck notin p.options:
-    discard "no need to generate a check because it was disabled"
-  elif skipTypes(n.typ, abstractVar).kind in {tyUInt..tyUInt64}:
-    discard "should range check, see: https://github.com/nim-works/nimskull/issues/574"
-    discard "XXX maybe emit masking instructions here"
-  else:
-    gen(p, n[1], a)
-    gen(p, n[2], b)
+  gen(p, n[1], r)
+  if true:
+    gen(p, n[2], a)
+    gen(p, n[3], b)
     useMagic(p, "chckRange")
     r.res = "chckRange($1, $2, $3)" % [r.res, a.res, b.res]
     r.kind = resExpr
@@ -2478,9 +2477,6 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkObjDownConv: gen(p, n.operand, r)
   of cnkObjUpConv: upConv(p, n, r)
   of cnkCast: genCast(p, n, r)
-  of cnkChckRangeF: genRangeChck(p, n, r, "chckRangeF")
-  of cnkChckRange64: genRangeChck(p, n, r, "chckRange64")
-  of cnkChckRange: genRangeChck(p, n, r, "chckRange")
   of cnkStringToCString: convStrToCStr(p, n, r)
   of cnkCStringToString: convCStrToStr(p, n, r)
   of cnkEmpty: discard

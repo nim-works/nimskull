@@ -80,9 +80,6 @@ type
                      ## different type
 
     # ---- special conversions kept for compatibility
-    cnkChckRangeF      ## range check for floats
-    cnkChckRange64     ## range check for 64-bit ints
-    cnkChckRange       ## range check for ints
     cnkStringToCString ## string to cstring
     cnkCStringToString ## cstring to string
     # future direction: lower these coversion operations during the MIR

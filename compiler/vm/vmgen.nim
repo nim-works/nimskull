@@ -2032,6 +2032,19 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.freeTemp(state)
     c.freeTemp(env)
     c.freeTemp(tmp)
+  of mChckRange:
+    let
+      tmp0 = c.genx(n[1])
+      tmp1 = c.genx(n[2])
+      tmp2 = c.genx(n[3])
+    c.gABC(n, opcRangeChck, tmp0, tmp1, tmp2)
+    c.freeTemp(tmp1)
+    c.freeTemp(tmp2)
+    if dest >= 0:
+      gABC(c, n, whichAsgnOpc(n), dest, tmp0)
+      c.freeTemp(tmp0)
+    else:
+      dest = tmp0
   else:
     # mGCref, mGCunref, mFinished, etc.
     fail(n.info, vmGenDiagCodeGenUnhandledMagic, m)
@@ -2994,33 +3007,6 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkDef:
     unused(c, n, dest)
     genDef(c, n)
-  of cnkChckRangeF, cnkChckRange64, cnkChckRange:
-    let tmp0 = c.genx(n[0])
-    # XXX: range checks currently always happen, even if disabled by the user.
-    #      Once the range check injection logic is an MIR pass, this should be
-    #      reconsidered, at least for code not running at compile-time
-    # note: don't skip ``tyRange``
-    case n.typ.skipTypes(IrrelevantTypes + {tyVar, tyLent}).kind
-    of tyUInt..tyUInt64:
-      # use a normal conversion instead of a range check for unsigned integers
-      let
-        a = n.typ.skipTypes(IrrelevantTypes + {tyVar, tyLent, tyRange})
-        b = n[0].typ.skipTypes(IrrelevantTypes + {tyVar, tyLent, tyRange})
-      prepare(c, dest, n.typ)
-      genNumberConv(c, n, dest, tmp0, a, b)
-      c.freeTemp(tmp0)
-    else:
-      let
-        tmp1 = c.genx(n[1])
-        tmp2 = c.genx(n[2])
-      c.gABC(n, opcRangeChck, tmp0, tmp1, tmp2)
-      c.freeTemp(tmp1)
-      c.freeTemp(tmp2)
-      if dest >= 0:
-        gABC(c, n, whichAsgnOpc(n), dest, tmp0)
-        c.freeTemp(tmp0)
-      else:
-        dest = tmp0
   of cnkEmpty:
     unused(c, n, dest)
   of cnkStringToCString, cnkCStringToString:
