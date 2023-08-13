@@ -277,23 +277,11 @@ proc computeSizeAlign(conf: ConfigRef; typ: PType) =
     typ.align = base.align
 
   of tyEnum:
-    if firstOrd(conf, typ) < Zero:
-      typ.size = 4              # use signed int32
-      typ.align = 4
-    else:
-      let lastOrd = toInt64(lastOrd(conf, typ))   # BUGFIX: use lastOrd!
-      if lastOrd < `shl`(1, 8):
-        typ.size = 1
-        typ.align = 1
-      elif lastOrd < `shl`(1, 16):
-        typ.size = 2
-        typ.align = 2
-      elif lastOrd < `shl`(BiggestInt(1), 32):
-        typ.size = 4
-        typ.align = 4
-      else:
-        typ.size = 8
-        typ.align = int16(conf.floatInt64Align)
+    let base = typ.lastSon
+    computeSizeAlign(conf, base)
+    # use the size and alignment of the underlying type:
+    typ.size = base.size
+    typ.align = base.align
   of tySet:
     if typ[0].kind == tyGenericParam:
       typ.size = szUncomputedSize

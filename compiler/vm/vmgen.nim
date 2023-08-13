@@ -98,7 +98,7 @@ type
     val: TRegister   ## the register holding the loaded value
 
 const
-  IrrelevantTypes = abstractInst + {tyStatic} - {tyTypeDesc}
+  IrrelevantTypes = abstractInst + {tyStatic, tyEnum} - {tyTypeDesc}
     ## the set of types that are not relevant to the VM. ``tyTypeDesc``, while
     ## not relevant right now, is likely going to be in the future.
 
@@ -333,8 +333,8 @@ proc patch(c: var TCtx, p: TPosition) =
                TInstrType(diff+wordExcess) shl regBxShift).TInstr
 
 proc getSlotKind(t: PType): TSlotKind =
-  case t.skipTypes(abstractRange-{tyTypeDesc}).kind
-  of tyBool, tyChar, tyEnum, tyOrdinal, tyInt..tyInt64, tyUInt..tyUInt64:
+  case t.skipTypes(IrrelevantTypes+{tyRange}).kind
+  of tyBool, tyChar, tyInt..tyInt64, tyUInt..tyUInt64:
     slotTempInt
   of tyString, tyCstring:
     slotTempStr
@@ -1207,7 +1207,7 @@ proc genNumberConv(c: var TCtx, info: CgNode, dest, src: TRegister,
   ## numeric types.
   const
     Floats = {tyFloat..tyFloat64}
-    Signed = {tyInt..tyInt64, tyEnum}
+    Signed = {tyInt..tyInt64}
     Unsigned = {tyUInt..tyUInt64, tyChar, tyBool}
 
   template payload(op: NumericConvKind): uint16 =
@@ -1291,10 +1291,12 @@ proc genConv(c: var TCtx; n, arg: CgNode; dest: var TDest) =
 
 proc genToStr(c: var TCtx, n, arg: CgNode, dest: var TDest) =
   # TODO: don't use ``opcConv`` for to-string conversions
+  # don't skip enum types
+  const Skip = IrrelevantTypes - {tyEnum}
   prepare(c, dest, n, n.typ)
   let tmp = c.genx(arg)
-  c.gABx(n, opcConv, dest, c.genTypeInfo(n.typ.skipTypes(IrrelevantTypes)))
-  c.gABx(n, opcConv, tmp, c.genTypeInfo(arg.typ.skipTypes(IrrelevantTypes)))
+  c.gABx(n, opcConv, dest, c.genTypeInfo(n.typ.skipTypes(Skip)))
+  c.gABx(n, opcConv, tmp, c.genTypeInfo(arg.typ.skipTypes(Skip)))
   c.freeTemp(tmp)
 
 proc genObjConv(c: var TCtx, n: CgNode, dest: var TDest) =
@@ -1513,8 +1515,8 @@ proc genSetElem(c: var TCtx, n: CgNode, typ: PType): TRegister {.inline.} =
   genSetElem(c, n, first)
 
 func fitsRegister(t: PType): bool =
-  let st = t.skipTypes(abstractInst + {tyStatic} - {tyTypeDesc})
-  st.kind in { tyRange, tyEnum, tyBool, tyInt..tyUInt64, tyChar, tyPtr, tyPointer} or
+  let st = t.skipTypes(IrrelevantTypes + {tyRange})
+  st.kind in { tyBool, tyInt..tyUInt64, tyChar, tyPtr, tyPointer} or
     (st.sym != nil and st.sym.magic == mPNimrodNode) # NimNode goes into register too
 
 proc ldNullOpcode(t: PType): TOpcode =
@@ -1522,8 +1524,8 @@ proc ldNullOpcode(t: PType): TOpcode =
   if fitsRegister(t): opcLdNullReg else: opcLdNull
 
 proc whichAsgnOpc(n: CgNode; requiresCopy = true): TOpcode =
-  case n.typ.skipTypes(abstractRange-{tyTypeDesc}).kind
-  of tyBool, tyChar, tyEnum, tyOrdinal, tyInt..tyInt64, tyUInt..tyUInt64:
+  case n.typ.skipTypes(IrrelevantTypes + {tyRange}).kind
+  of tyBool, tyChar, tyInt..tyInt64, tyUInt..tyUInt64:
     opcAsgnInt
   of tyFloat..tyFloat128:
     opcAsgnFloat

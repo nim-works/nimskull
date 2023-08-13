@@ -272,14 +272,19 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
       of akInt: readUInt(m)
       of akDiscriminator: readDiscriminant(m, vt.numBits)
       else: unreachable()
-    setResult(nkUIntLit, intVal, i)
-  of tyBool, tyEnum, tyInt..tyInt64:
+    result = newIntTypeNode(i, formal)
+    result.info = info
+  of tyBool, tyInt..tyInt64:
     let i =
       case vt.kind
       of akInt: signExtended(readIntBits(m), BiggestInt(s))
       of akDiscriminator: readDiscriminant(m, vt.numBits)
       else: unreachable()
-    setResult(nkIntLit, intVal, i)
+    result = newIntTypeNode(i, formal)
+    result.info = info
+  of tyEnum:
+    # the value is stored as the enum's underlying type
+    result = deserialize(c, m, vt, formal, t.lastSon, info)
   of tyFloat32:
     assert vt.kind == akFloat
     setResult(nkFloat32Lit, floatVal, readFloat32(m))

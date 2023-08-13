@@ -41,6 +41,10 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
     localReport(c.config, n[0], reportAst(rsemIllformedAst, n[0]))
 
   rawAddSon(result, nil) # base type; always nil
+  # add a preliminary storage type such that the enum can already be
+  # used in its own definition
+  rawAddSon(result, getSysType(c.graph, n.info, tyInt))
+
   let isPure = result.sym != nil and sfPure in result.sym.flags
   var symbols: TStrTable
   if isPure: initStrTable(symbols)
@@ -143,6 +147,33 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
       wrongRedefinition(c, e.info, e, conflict)
 
     inc(counter)
+
+  # now that we know the full value range, select the correct storage type
+  # of the enum:
+  let tk =
+    if firstOrd(c.config, result) < Zero:
+      tyInt32 # use signed int32
+    elif result.size != szUncomputedSize:
+      # use the manually specified size for selecting the storage type
+      let s = result.size
+      if   s <= 1: tyUInt8
+      elif s <= 2: tyUInt16
+      elif s <= 4: tyInt32
+      elif s <= 8: tyInt64
+      else:        unreachable()
+    else:
+      let lastOrd = lastOrd(c.config, result)
+      if lastOrd < (1 shl 8):
+        tyUInt8
+      elif lastOrd < (1 shl 16):
+        tyUInt16
+      elif lastOrd < (BiggestInt(1) shl 32):
+        tyInt32
+      else:
+        tyInt64
+
+  result[1] = getSysType(c.graph, n.info, tk)
+
   if isPure and sfExported in result.sym.flags:
     addPureEnum(c, LazySym(sym: result.sym))
 

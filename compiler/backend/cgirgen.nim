@@ -262,8 +262,8 @@ proc translateLit*(val: PNode): CgNode =
   case val.kind
   of nkIntLiterals:
     # use the type for deciding what whether it's a signed or unsigned value
-    case val.typ.skipTypes(abstractRange).kind
-    of tyInt..tyInt64, tyEnum, tyBool:
+    case val.typ.skipTypes(abstractRange + {tyEnum}).kind
+    of tyInt..tyInt64, tyBool:
       node(cnkIntLit, intVal, val.intVal)
     of tyUInt..tyUInt64, tyChar:
       node(cnkUIntLit, intVal, val.intVal)
@@ -713,11 +713,11 @@ proc tbRegion(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
               cr: var TreeCursor): CgNode
 
 proc newIntLit(val: Int128, t: PType): CgNode =
-  case t.skipTypes(abstractVarRange).kind
+  case t.skipTypes(abstractVarRange + {tyEnum}).kind
   of tyUInt..tyUInt64, tyChar:
     CgNode(kind: cnkUIntLit, info: unknownLineInfo, typ: t,
            intVal: cast[BiggestInt](toUInt(val)))
-  of tyInt..tyInt64, tyBool, tyEnum:
+  of tyInt..tyInt64, tyBool:
     CgNode(kind: cnkIntLit, info: unknownLineInfo, typ: t,
            intVal: toInt(val))
   else:
