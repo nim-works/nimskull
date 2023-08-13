@@ -7,9 +7,9 @@
 #    distribution, for details about the copyright.
 #
 
-## This module implements callbacks for various stdlib and system functions.
-## They are split up into multiple categories so that each can be separately
-## registered via the `registerOps` procedures.
+## This module implements overrides for various stdlib and system functions.
+## The overrides are sorted into multiple categories and are provided through
+## iterators.
 
 import
   compiler/ast/[
@@ -69,29 +69,38 @@ from system/formatfloat import writeFloatToBufferSprintf
 
 from compiler/modules/modulegraphs import `$`
 
+type
+  Override = tuple
+    ## The information about a procedure override.
+    pattern: string
+    prc: VmCallback
+
 func emptyCallback(a: VmArgs) =
   discard
 
+template override(p: string, cb: VmCallback) =
+  yield (p, VmCallback(cb))
+
 template mathop(op) {.dirty.} =
-  registerCallback(c, "stdlib.math." & astToStr(op), `op Wrapper`)
+  override("stdlib.math." & astToStr(op), `op Wrapper`)
 
 template osop(op) {.dirty.} =
-  registerCallback(c, "stdlib.os." & astToStr(op), `op Wrapper`)
+  override("stdlib.os." & astToStr(op), `op Wrapper`)
 
 template timesop(op) {.dirty.} =
   registerCallback(c, "stdlib.times." & astToStr(op), `op Wrapper`)
 
 template systemop(op) {.dirty.} =
-  registerCallback(c, "stdlib.system." & astToStr(op), `op Wrapper`)
+  override("stdlib.system." & astToStr(op), `op Wrapper`)
 
 template ioop(op) {.dirty.} =
-  registerCallback(c, "stdlib.io." & astToStr(op), `op Wrapper`)
+  override("stdlib.io." & astToStr(op), `op Wrapper`)
 
 template macrosop(op) {.dirty.} =
-  registerCallback(c, "stdlib.macros." & astToStr(op), `op Wrapper`)
+  override("stdlib.macros." & astToStr(op), `op Wrapper`)
 
 template md5op(op) {.dirty.} =
-  registerCallback(c, "stdlib.md5." & astToStr(op), `op Wrapper`)
+  override("stdlib.md5." & astToStr(op), `op Wrapper`)
 
 template wrap1f_math(op) {.dirty.} =
   proc `op Wrapper`(a: VmArgs) {.nimcall.} =
@@ -169,7 +178,7 @@ template wrapIteratorInner(a: VmArgs, iter: untyped) =
     inc i
 
 template wrapIterator(fqname: string, iter: untyped) =
-  registerCallback c, fqname, proc(a: VmArgs) {.nimcall.} =
+  override fqname, proc(a: VmArgs) {.nimcall.} =
     wrapIteratorInner(a, iter)
 
 
@@ -222,8 +231,8 @@ proc getEffectList(cache: IdentCache, idgen: IdGenerator; a: VmArgs;
 template writeResult(ret) {.dirty.} =
   writeTo(ret, a.getResultHandle(), a.mem[])
 
-proc registerBasicOps*(c: var TCtx) =
-  ## Basic system operations as well as callbacks for some stdlib functions
+iterator basicOps*(): Override =
+  ## Basic system operations as well as overrides for some stdlib functions
   ## that don't interact with the host environement, but use language features
   ## that the VM doesn't directly support (such as 'importc'-ed functions)
 
@@ -231,8 +240,8 @@ proc registerBasicOps*(c: var TCtx) =
   systemop(getCurrentExceptionMsg)
   systemop(getCurrentException)
   systemop(prepareMutation)
-  registerCallback(c, "stdlib.system.closureIterSetupExc",
-                   setCurrentExceptionWrapper)
+  override("stdlib.system.closureIterSetupExc",
+           setCurrentExceptionWrapper)
 
   # math operations
   wrap1f_math(sqrt)
@@ -266,7 +275,7 @@ proc registerBasicOps*(c: var TCtx) =
   #wrap1f_math(`mod`)
   # XXX: the csources compiler doesn't accept ``nkAccQuoted`` during
   #      identifier construction, so the above can't be used here
-  registerCallback c, "stdlib.math.mod", proc(a: VmArgs) {.nimcall.} =
+  override "stdlib.math.mod", proc(a: VmArgs) {.nimcall.} =
     setResult(a, `mod`(getFloat(a, 0), getFloat(a, 1)))
 
   when declared(copySign):
@@ -275,7 +284,7 @@ proc registerBasicOps*(c: var TCtx) =
   when declared(signbit):
     wrap1f_math(signbit)
 
-  registerCallback c, "stdlib.math.round", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.math.round", proc (a: VmArgs) {.nimcall.} =
     let n = a.numArgs
     case n
     of 1: setResult(a, round(getFloat(a, 0)))
@@ -294,7 +303,7 @@ proc registerBasicOps*(c: var TCtx) =
       res = cast[int32](res)
     setResult(a, res)
 
-  registerCallback c, "stdlib.hashes.hashVmImpl", hashVmImpl
+  override "stdlib.hashes.hashVmImpl", hashVmImpl
 
   proc hashVmImplByte(a: VmArgs) {.nimcall.} =
     let sPos = a.getInt(1).int
@@ -324,12 +333,12 @@ proc registerBasicOps*(c: var TCtx) =
       res = cast[int32](res)
     setResult(a, res)
 
-  registerCallback c, "stdlib.hashes.hashVmImplByte", hashVmImplByte
-  registerCallback c, "stdlib.hashes.hashVmImplChar", hashVmImplByte
+  override "stdlib.hashes.hashVmImplByte", hashVmImplByte
+  override "stdlib.hashes.hashVmImplChar", hashVmImplByte
 
   # ``formatfloat`` module
 
-  registerCallback c, "stdlib.formatfloat.addFloatSprintf", proc(a: VmArgs) {.nimcall.} =
+  override "stdlib.formatfloat.addFloatSprintf", proc(a: VmArgs) {.nimcall.} =
     let p = a.getVar(0)
     let x = a.getFloat(1)
     var temp {.noinit.}: array[65, char]
@@ -338,23 +347,23 @@ proc registerBasicOps*(c: var TCtx) =
     deref(p).strVal.setLen(oldLen + n, a.mem.allocator)
     safeCopyMem(deref(p).strVal.data.slice(oldLen, n), temp, n)
 
-proc registerIoReadOps*(c: var TCtx) =
-  ## Registers callbacks for read operations from the ``io`` module
+iterator ioReadOps*(): Override =
+  ## Returns overrides for read operations from the ``io`` module.
   wrap1s(readFile, ioop)
   wrap2si(readLines, ioop)
 
-proc registerIoWriteOps*(c: var TCtx) =
-  ## Registers callbacks for write operations from the ``io`` module
+iterator ioWriteOps*(): Override =
+  ## Returns overrides for write operations from the ``io`` module.
   wrap2svoid(writeFile, ioop)
 
-proc registerOsOps*(c: var TCtx) =
-  ## OS operations that can't modify the host's enivronment
+iterator osOps*(): Override =
+  ## OS operations that can't modify the host's enivronment.
 
   wrap2s(getEnv, osop)
   wrap1s(existsEnv, osop)
   wrap1s(dirExists, osop)
   wrap1s(fileExists, osop)
-  registerCallback c, "stdlib.*.staticWalkDir", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.*.staticWalkDir", proc (a: VmArgs) {.nimcall.} =
     let path = getString(a, 0)
     let relative = getBool(a, 1)
     wrapIteratorInner(a):
@@ -364,47 +373,45 @@ proc registerOsOps*(c: var TCtx) =
 
   wrapIterator("stdlib.os.envPairsImplSeq"): envPairs()
 
-  registerCallback c, "stdlib.times.getTime", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.times.getTime", proc (a: VmArgs) {.nimcall.} =
     writeResult times.getTime()
 
-proc registerOs2Ops*(c: var TCtx) =
+iterator os2Ops*(): Override =
   ## OS operations that are able to modify the host's environment or run
   ## external programs
 
   wrap2svoid(putEnv, osop)
   wrap1svoid(delEnv, osop)
 
-  registerCallback c, "stdlib.osproc.execCmdEx", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.osproc.execCmdEx", proc (a: VmArgs) {.nimcall.} =
     let options = readAs(getHandle(a, 1), set[osproc.ProcessOption])
     writeResult osproc.execCmdEx(getString(a, 0), options)
 
-proc registerCompileTimeOps*(c: var TCtx) =
+iterator compileTimeOps*(): Override =
   ## Operations for querying compiler related information at compile-time.
-  ## Also includes ``gorgeEx`` for now
 
   when defined(nimHasInvariant):
-    registerCallback c, "stdlib.compilesettings.querySetting", proc (a: VmArgs) {.nimcall.} =
+    override "stdlib.compilesettings.querySetting", proc (a: VmArgs) {.nimcall.} =
       writeResult(querySettingImpl(a.config, getInt(a, 0)))
-    registerCallback c, "stdlib.compilesettings.querySettingSeq", proc (a: VmArgs) {.nimcall.} =
+    override "stdlib.compilesettings.querySettingSeq", proc (a: VmArgs) {.nimcall.} =
       writeResult(querySettingSeqImpl(a.config, getInt(a, 0)))
 
-  registerCallback c, "stdlib.os.getCurrentCompilerExe", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.os.getCurrentCompilerExe", proc (a: VmArgs) {.nimcall.} =
     setResult(a, getAppFilename())
 
-proc registerGorgeOps*(c: var TCtx) =
+iterator gorgeOps*(): Override =
   ## Special operations for executing external programs at compile time.
-  registerCallback c, "stdlib.system.gorgeEx", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.system.gorgeEx", proc (a: VmArgs) {.nimcall.} =
     let ret = opGorge(getString(a, 0), getString(a, 1), getString(a, 2),
                       a.currentLineInfo, a.config)
     writeResult(ret)
 
-proc registerDebugOps*(c: var TCtx) =
-  registerCallback c, "stdlib.vmutils.vmTrace", proc (a: VmArgs) {.nimcall.} =
+iterator debugOps*(): Override =
+  override "stdlib.vmutils.vmTrace", proc (a: VmArgs) {.nimcall.} =
     # XXX: `isVmTrace` should probably be in `TCtx` instead of in the active
-    #      configuration
     a.config.active.isVmTrace = getBool(a, 0)
 
-proc registerMacroOps*(c: var TCtx) =
+iterator macroOps*(): Override =
   ## Operations that are part of the Macro API
 
   # XXX: doesn't really have to do anything with macros, but it's in
@@ -413,7 +420,7 @@ proc registerMacroOps*(c: var TCtx) =
     setResult a, a.config.projectPath.string
   macrosop getProjectPath
 
-  registerCallback c, "stdlib.macros.symBodyHash", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.macros.symBodyHash", proc (a: VmArgs) {.nimcall.} =
     let n = getNode(a, 0)
     if n.kind != nkSym:
       raiseVmError(VmEvent(
@@ -424,7 +431,7 @@ proc registerMacroOps*(c: var TCtx) =
 
     setResult(a, $symBodyDigest(a.graph, n.sym))
 
-  registerCallback c, "stdlib.macros.isExported", proc(a: VmArgs) {.nimcall.} =
+  override "stdlib.macros.isExported", proc(a: VmArgs) {.nimcall.} =
     let n = getNode(a, 0)
     if n.kind != nkSym:
       raiseVmError(VmEvent(
@@ -435,21 +442,21 @@ proc registerMacroOps*(c: var TCtx) =
 
     setResult(a, sfExported in n.sym.flags)
 
-  registerCallback c, "stdlib.effecttraits.getRaisesListImpl", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.effecttraits.getRaisesListImpl", proc (a: VmArgs) {.nimcall.} =
     getEffectList(a.cache, a.idgen, a, exceptionEffects)
-  registerCallback c, "stdlib.effecttraits.getTagsListImpl", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.effecttraits.getTagsListImpl", proc (a: VmArgs) {.nimcall.} =
     getEffectList(a.cache, a.idgen, a, tagEffects)
 
-  registerCallback c, "stdlib.effecttraits.isGcSafeImpl", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.effecttraits.isGcSafeImpl", proc (a: VmArgs) {.nimcall.} =
     let fn = getNode(a, 0)
     setResult(a, fn.typ != nil and tfGcSafe in fn.typ.flags)
 
-  registerCallback c, "stdlib.effecttraits.hasNoSideEffectsImpl", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.effecttraits.hasNoSideEffectsImpl", proc (a: VmArgs) {.nimcall.} =
     let fn = getNode(a, 0)
     setResult(a, (fn.typ != nil and tfNoSideEffect in fn.typ.flags) or
                  (fn.kind == nkSym and fn.sym.kind == skFunc))
 
-  registerCallback c, "stdlib.typetraits.hasClosureImpl", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.typetraits.hasClosureImpl", proc (a: VmArgs) {.nimcall.} =
     let fn = getNode(a, 0)
     setResult(a, fn.kind == nkClosure or (fn.typ != nil and fn.typ.callConv == ccClosure))
 
@@ -457,37 +464,51 @@ proc registerMacroOps*(c: var TCtx) =
     let b = getNode(a, 1)
     if b.kind == nkNilLit: a.currentLineInfo else: b.info
 
-  registerCallback c, "stdlib.macros.error", proc (a: VmArgs) {.nimcall.} =
+  override "stdlib.macros.error", proc (a: VmArgs) {.nimcall.} =
     raiseVmError(VmEvent(
       kind: vmEvtUserError,
       errMsg: getString(a, 0),
       errLoc: a.getInfo()))
-  
-  registerCallback c, "stdlib.macros.warning", proc (a: VmArgs) {.nimcall.} =
+
+  override "stdlib.macros.warning", proc (a: VmArgs) {.nimcall.} =
     a.config.localReport(a.getInfo(),
                          SemReport(kind: rsemUserWarning, str: getString(a, 0)))
-  
-  registerCallback c, "stdlib.macros.hint", proc (a: VmArgs) {.nimcall.} =
+
+  override "stdlib.macros.hint", proc (a: VmArgs) {.nimcall.} =
     a.config.localReport(a.getInfo(),
                          SemReport(kind: rsemUserHint, str: getString(a, 0)))
 
+proc registerCallback*(c: var TCtx; pattern: string; callback: VmCallback) =
+  ## Registers the `callback` with `c`. After the ``registerCallback`` call,
+  ## when a procedures of which the fully qualified identifier matches
+  ## `pattern` is added to the VM's function table, all invokes of the
+  ## procedure at run-time will invoke the override instead.
+  # XXX: consider renaming this procedure to ``registerOverride``
+  c.callbacks.add(callback)
+  c.callbackKeys.add(IdentPattern(pattern))
+  assert c.callbacks.len == c.callbackKeys.len
+
 proc registerAdditionalOps*(c: var TCtx, disallowDangerous: bool) =
-  ## Convenience proc used for setting up the callbacks relevant during
+  ## Convenience proc used for setting up the overrides relevant during
   ## compile-time execution. If `disallowDangerous` is set to 'true', all
   ## operations that are able to modify the host's environment are replaced
   ## with no-ops
-  registerBasicOps(c)
-  registerMacroOps(c)
-  registerDebugOps(c)
-  registerCompileTimeOps(c)
-  registerIoReadOps(c)
-  registerOsOps(c)
+  template register(list: untyped) =
+    for it in list:
+      registerCallback(c, it.pattern, it.prc)
+
+  register(): basicOps()
+  register(): macroOps()
+  register(): debugOps()
+  register(): compileTimeOps()
+  register(): ioReadOps()
+  register(): osOps()
 
   let cbStart = c.callbacks.len # remember where the callbacks for dangerous
                                 # ops start
-  registerGorgeOps(c)
-  registerIoWriteOps(c)
-  registerOs2Ops(c)
+  register(): gorgeOps()
+  register(): ioWriteOps()
+  register(): os2Ops()
 
   if disallowDangerous:
     # note: replacing the callbacks like this only works because

@@ -202,17 +202,24 @@ proc registerCallbacks(c: var TCtx): bool =
   ## Registers the callbacks and makes sure that they match with the ones the
   ## executable expects. Returns 'true' on success and 'false' otherwise
   var other: seq[IdentPattern]
-  swap(other, c.callbackKeys) # `c.callbackKeys` is now empty
+
+  template cb(pattern: string, prc: VmCallback) =
+    other.add IdentPattern(pattern)
+    c.callbacks.add prc
+
+  template register(iter: untyped) =
+    for op in iter:
+      cb(op.pattern, op.prc)
 
   # first, register all ops that the runner knows of:
-  registerBasicOps(c)
-  registerDebugOps(c)
-  registerIoReadOps(c)
-  registerIoWriteOps(c)
-  registerOsOps(c)
-  registerOs2Ops(c)
+  register: basicOps()
+  register: debugOps()
+  register: ioReadOps()
+  register: ioWriteOps()
+  register: osOps()
+  register: os2Ops()
 
-  registerCallback c, "stdlib.system.getOccupiedMem", proc (a: VmArgs) =
+  cb "stdlib.system.getOccupiedMem", proc (a: VmArgs) =
     setResult(a, a.mem.allocator.getUsedMem().int)
 
   if c.callbackKeys.len != other.len:
@@ -226,7 +233,6 @@ proc registerCallbacks(c: var TCtx): bool =
   # then make sure that the callbacks are at the indices the function table
   # entries expect them to be:
   result = true
-  swap(other, c.callbackKeys)
   for i, p in c.callbackKeys.pairs:
     if other[i].string != p.string:
       echo "expected '$#' callback but got '$#'" % [p.string, other[i].string]
