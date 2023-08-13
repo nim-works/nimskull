@@ -44,6 +44,9 @@ proc getCurrentDir*(): string =
 proc rawExec(cmd: string): int {.tags: [ExecIOEffect], raises: [OSError].} =
   builtin
 
+proc rawExecEx(cmd, input, cache: string): (string, int) {.tags: [ExecIOEffect].} =
+  builtin
+
 proc paramStr*(i: int): string =
   ## Retrieves the `i`'th command line parameter.
   builtin
@@ -212,7 +215,7 @@ proc exec*(command: string, input: string, cache = ""): string {.
   ## Executes an external process. If the external process terminates with
   ## a non-zero exit code, an OSError exception is raised.
   log "exec: " & command:
-    let (output, exitCode) = gorgeEx(command, input, cache)
+    let (output, exitCode) = rawExecEx(command, input, cache)
     if exitCode != 0:
       raise newException(OSError, "FAILED: " & command)
     result = output

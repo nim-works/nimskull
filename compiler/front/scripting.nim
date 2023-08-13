@@ -30,6 +30,7 @@ import
   ],
   compiler/vm/[
     compilerbridge,
+    gorgeimpl,
     vmconv,
     vmdef,
     vmhooks,
@@ -140,6 +141,10 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
   cbos rawExec:
     guardEffect:
       setResult(a, osproc.execCmd getString(a, 0))
+  cbos rawExecEx:
+    setResult(a):
+      opGorge(getString(a, 0), getString(a, 1), getString(a, 2),
+              a.info, a.config)
   cbio writeFile:
     guardEffect:
       system.writeFile(getString(a, 0), getString(a, 1))
