@@ -391,18 +391,12 @@ proc registerCompileTimeOps*(c: var TCtx) =
   registerCallback c, "stdlib.os.getCurrentCompilerExe", proc (a: VmArgs) {.nimcall.} =
     setResult(a, getAppFilename())
 
-  const gorgeExName = "stdlib.system.gorgeEx"
-  # XXX: `gorgeEx` is not treated as a dangerous op for now
-  # XXX: the register functions should not use conditionals like this, as it
-  #      hurts modularity
-  if defined(nimsuggest) or c.config.cmd == cmdCheck:
-    registerCallback c, gorgeExName, proc (a: VmArgs) {.nimcall.} =
-      discard "gorgeEx is disabled for nimsuggest/nimcheck"
-  else:
-    registerCallback c, gorgeExName, proc (a: VmArgs) {.nimcall.} =
-      let ret = opGorge(getString(a, 0), getString(a, 1), getString(a, 2),
-                        a.currentLineInfo, a.config)
-      writeResult(ret)
+proc registerGorgeOps*(c: var TCtx) =
+  ## Special operations for executing external programs at compile time.
+  registerCallback c, "stdlib.system.gorgeEx", proc (a: VmArgs) {.nimcall.} =
+    let ret = opGorge(getString(a, 0), getString(a, 1), getString(a, 2),
+                      a.currentLineInfo, a.config)
+    writeResult(ret)
 
 proc registerDebugOps*(c: var TCtx) =
   registerCallback c, "stdlib.vmutils.vmTrace", proc (a: VmArgs) {.nimcall.} =
@@ -491,6 +485,7 @@ proc registerAdditionalOps*(c: var TCtx, disallowDangerous: bool) =
 
   let cbStart = c.callbacks.len # remember where the callbacks for dangerous
                                 # ops start
+  registerGorgeOps(c)
   registerIoWriteOps(c)
   registerOs2Ops(c)
 

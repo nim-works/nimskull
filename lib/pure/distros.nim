@@ -145,7 +145,7 @@ var unameRes, osReleaseIDRes, releaseRes, hostnamectlRes: string
 
 template cmdRelease(cmd, cache): untyped =
   if cache.len == 0:
-    cache = (when defined(nimscript): gorge(cmd) else: execProcess(cmd))
+    cache = (when defined(nimscript): exec(cmd, "") else: execProcess(cmd))
   cache
 
 template uname(): untyped = cmdRelease("uname -a", unameRes)

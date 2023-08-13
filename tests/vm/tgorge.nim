@@ -1,4 +1,5 @@
 discard """
+matrix: "--experimental:vmopsDanger"
 disabled: "windows"
 """
 
