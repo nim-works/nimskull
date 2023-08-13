@@ -2640,7 +2640,8 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       inc pc
       let rd = c.code[pc].regA
       checkHandle(regs[ra])
-      if defined(nimsuggest) or c.config.cmd == cmdCheck:
+      if defined(nimsuggest) or c.config.cmd == cmdCheck or
+         vmopsDanger notin c.config.features:
         discard "don't run staticExec for 'nim suggest'"
         regs[ra].strVal = ""
       else:

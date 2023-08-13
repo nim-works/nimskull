@@ -142,9 +142,10 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
     guardEffect:
       setResult(a, osproc.execCmd getString(a, 0))
   cbos rawExecEx:
-    setResult(a):
-      opGorge(getString(a, 0), getString(a, 1), getString(a, 2),
-              a.info, a.config)
+    guardEffect:
+      let ret = opGorge(getString(a, 0), getString(a, 1), getString(a, 2),
+                        a.currentLineInfo, a.config)
+      writeTo(ret, a.getResultHandle(), a.mem[])
   cbio writeFile:
     guardEffect:
       system.writeFile(getString(a, 0), getString(a, 1))
