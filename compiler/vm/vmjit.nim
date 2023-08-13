@@ -339,3 +339,13 @@ proc loadProc*(jit: var JitState, c: var TCtx, sym: PSym): VmGenResult =
     VmGenResult.ok: (start: prc.start, regCount: prc.regCount.int)
   else:
     compile(jit, c, idx)
+
+proc registerCallback*(c: var TCtx; pattern: string; callback: VmCallback) =
+  ## Registers the `callback` with `c`. After the ``registerCallback`` call,
+  ## when a procedures of which the fully qualified identifier matches
+  ## `pattern` is added to the VM's function table, all invokes of the
+  ## procedure at run-time will invoke the override instead.
+  # XXX: consider renaming this procedure to ``registerOverride``
+  c.callbacks.add(callback)
+  c.callbackKeys.add(IdentPattern(pattern))
+  assert c.callbacks.len == c.callbackKeys.len

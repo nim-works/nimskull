@@ -61,7 +61,7 @@ from std/os import getEnv, existsEnv, delEnv, putEnv, envPairs,
   raiseOSError, osLastError
 
 from std/md5 import getMD5
-from std/times import cpuTime
+from std/times import getTime
 from std/hashes import hash
 from std/osproc import nil
 from std/options as std_options import some
@@ -75,9 +75,6 @@ type
     pattern: string
     prc: VmCallback
 
-func emptyCallback(a: VmArgs) =
-  discard
-
 template override(p: string, cb: VmCallback) =
   yield (p, VmCallback(cb))
 
@@ -86,9 +83,6 @@ template mathop(op) {.dirty.} =
 
 template osop(op) {.dirty.} =
   override("stdlib.os." & astToStr(op), `op Wrapper`)
-
-template timesop(op) {.dirty.} =
-  registerCallback(c, "stdlib.times." & astToStr(op), `op Wrapper`)
 
 template systemop(op) {.dirty.} =
   override("stdlib.system." & astToStr(op), `op Wrapper`)
@@ -477,49 +471,3 @@ iterator macroOps*(): Override =
   override "stdlib.macros.hint", proc (a: VmArgs) {.nimcall.} =
     a.config.localReport(a.getInfo(),
                          SemReport(kind: rsemUserHint, str: getString(a, 0)))
-
-proc registerCallback*(c: var TCtx; pattern: string; callback: VmCallback) =
-  ## Registers the `callback` with `c`. After the ``registerCallback`` call,
-  ## when a procedures of which the fully qualified identifier matches
-  ## `pattern` is added to the VM's function table, all invokes of the
-  ## procedure at run-time will invoke the override instead.
-  # XXX: consider renaming this procedure to ``registerOverride``
-  c.callbacks.add(callback)
-  c.callbackKeys.add(IdentPattern(pattern))
-  assert c.callbacks.len == c.callbackKeys.len
-
-proc registerAdditionalOps*(c: var TCtx, disallowDangerous: bool) =
-  ## Convenience proc used for setting up the overrides relevant during
-  ## compile-time execution. If `disallowDangerous` is set to 'true', all
-  ## operations that are able to modify the host's environment are replaced
-  ## with no-ops
-  template register(list: untyped) =
-    for it in list:
-      registerCallback(c, it.pattern, it.prc)
-
-  register(): basicOps()
-  register(): macroOps()
-  register(): debugOps()
-  register(): compileTimeOps()
-  register(): ioReadOps()
-  register(): osOps()
-
-  let cbStart = c.callbacks.len # remember where the callbacks for dangerous
-                                # ops start
-  register(): gorgeOps()
-  register(): ioWriteOps()
-  register(): os2Ops()
-
-  if disallowDangerous:
-    # note: replacing the callbacks like this only works because
-    # ``registerCallback`` always appends them to the list
-    for i in cbStart..<c.callbacks.len:
-      c.callbacks[i] = emptyCallback
-
-  # the `cpuTime` callback doesn't fit any other category so it's registered
-  # here
-  if optBenchmarkVM in c.config.globalOptions or not disallowDangerous:
-    wrap0(cpuTime, timesop)
-  else:
-    proc cpuTime(): float = 5.391245e-44  # Randomly chosen
-    wrap0(cpuTime, timesop)

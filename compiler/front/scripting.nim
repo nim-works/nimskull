@@ -45,6 +45,7 @@ import
   ]
 
 from compiler/vm/vmlegacy import legacyReportsVmTracer
+from compiler/vm/vmjit import registerCallback
 
 # we support 'cmpIgnoreStyle' natively for efficiency:
 from std/strutils import cmpIgnoreStyle, contains
