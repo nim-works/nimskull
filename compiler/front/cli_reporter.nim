@@ -3330,7 +3330,9 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemFoldDivByZero,
       adSemFoldCannotComputeOffset,
       adSemExpectedIdentifierQuoteLimit,
-      adSemExpectedRangeType:
+      adSemExpectedRangeType,
+      adSemIdentVisInvalidMarker,
+      adSemIdentVisRequiresTopLevel:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
@@ -3871,6 +3873,14 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       ast: diag.wrongNode,
       str: diag.compilerOpt.getStr,
       compilerOptArg: diag.compilerOptArg.getStr)
+  of adSemIdentVisMalformed:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      str: "Expected two nodes for postfix expression, but found " &
+            $diag.wrongNode.len)
   of adVmError:
     let
       kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()
