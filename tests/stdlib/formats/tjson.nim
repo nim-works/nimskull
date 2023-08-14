@@ -234,32 +234,6 @@ block:
     doAssert res == fragments
 
 
-# test isRefSkipDistinct
-type
-  MyRef = ref object
-  MyObject = object
-  MyDistinct = distinct MyRef
-  MyOtherDistinct = distinct MyRef
-
-var x0: ref int
-var x1: MyRef
-var x2: MyObject
-var x3: MyDistinct
-var x4: MyOtherDistinct
-
-doAssert isRefSkipDistinct(x0)
-doAssert isRefSkipDistinct(x1)
-doAssert not isRefSkipDistinct(x2)
-doAssert isRefSkipDistinct(x3)
-doAssert isRefSkipDistinct(x4)
-
-
-doAssert isRefSkipDistinct(ref int)
-doAssert isRefSkipDistinct(MyRef)
-doAssert not isRefSkipDistinct(MyObject)
-doAssert isRefSkipDistinct(MyDistinct)
-doAssert isRefSkipDistinct(MyOtherDistinct)
-
 let x = parseJson("9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999")
 
 doAssert x.kind == JString

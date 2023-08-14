@@ -1046,22 +1046,6 @@ template verifyJsonKind(node: JsonNode, kinds: set[JsonNodeKind],
     ]
     raise newException(JsonKindError, msg)
 
-macro isRefSkipDistinct*(arg: typed): untyped =
-  ## internal only, do not use
-  # xxx: why can't we:
-  # ```
-  #    import std/typetraits
-  #    proc isRefBase*(t: typedesc[distinct]): bool =
-  #       t.distinctBase(true) is ref
-  # ```
-  # instead?
-  var impl = getTypeImpl(arg)
-  if impl.kind == nnkBracketExpr and impl[0].eqIdent("typeDesc"):
-    impl = getTypeImpl(impl[1])
-  while impl.kind == nnkDistinctTy:
-    impl = getTypeImpl(impl[0])
-  result = newLit(impl.kind == nnkRefTy)
-
 # The following forward declarations don't work in older versions of Nim
 
 # forward declare all initFromJson
