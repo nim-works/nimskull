@@ -1182,7 +1182,7 @@ proc initFromJson[T](dst: var Option[T]; jsonNode: JsonNode; jsonPath: var strin
       dst = some(default(T))
     initFromJson(dst.get, jsonNode, jsonPath)
 
-from std/typetraits import isNamedTuple
+from std/typetraits import isNamedTuple, distinctBase
 
 proc initFromJson[T: object|tuple](dst: var T, jsonNode: JsonNode, jsonPath: var string) =
   let originalJsonPathLen = jsonPath.len ## so we can trucate/reset after
@@ -1212,22 +1212,8 @@ proc initFromJson[T: object|tuple](dst: var T, jsonNode: JsonNode, jsonPath: var
   else:
     {.error("Unreachable type: " & T.repr).}
 
-macro assignDistinctImpl[T: distinct](dst: var T;jsonNode: JsonNode; jsonPath: var string) =
-  let typInst = getTypeInst(dst)
-  let typImpl = getTypeImpl(dst)
-  let baseTyp = typImpl[0]
-
-  result = quote do:
-    when nimvm:
-      # workaround #12282
-      var tmp: `baseTyp`
-      initFromJson( tmp, `jsonNode`, `jsonPath`)
-      `dst` = `typInst`(tmp)
-    else:
-      initFromJson( `baseTyp`(`dst`), `jsonNode`, `jsonPath`)
-
-proc initFromJson[T: distinct](dst: var T; jsonNode: JsonNode; jsonPath: var string) =
-  assignDistinctImpl(dst, jsonNode, jsonPath)
+proc initFromJson[T: distinct](dst: var T, jsonNode: JsonNode, jsonPath: var string) =
+  initFromJson(distinctBase dst, jsonNode, jsonPath)
 
 proc to*[T](node: JsonNode, t: typedesc[T]): T =
   ## `Unmarshals`:idx: the specified node into the object type specified.
