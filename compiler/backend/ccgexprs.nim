@@ -1414,8 +1414,8 @@ proc genInOp(p: BProc, e: CgNode, d: var TLoc) =
     # do not emit the set, but generate a bunch of comparisons; and if we do
     # so, we skip the unnecessary range check: This is a semantical extension
     # that code now relies on. :-/ XXX
-    let ea = if e[2].kind in {cnkChckRange, cnkChckRange64}:
-               e[2][0]
+    let ea = if getMagic(e[2]) == mChckRange:
+               e[2][1]
              else:
                e[2]
     initLocExpr(p, ea, a)
@@ -1597,18 +1597,14 @@ proc genCast(p: BProc, e: CgNode, d: var TLoc) =
 proc genRangeChck(p: BProc, n: CgNode, d: var TLoc) =
   var a: TLoc
   var dest = skipTypes(n.typ, abstractVar)
-  initLocExpr(p, n[0], a)
-  if optRangeCheck notin p.options:
-    discard "no need to generate a check because it was disabled"
-  elif dest.kind in {tyUInt..tyUInt64}:
-    discard "should range check, see: https://github.com/nim-works/nimskull/issues/574"
-  else:
-    let n0t = n[0].typ
+  initLocExpr(p, n[1], a)
+  if true:
+    let n0t = n[1].typ
 
     # emit range check:
     if n0t.kind in {tyUInt, tyUInt64}:
       linefmt(p, cpsStmts, "if ($1 > ($6)($3)){ #raiseRangeErrorNoArgs(); $5}$n",
-        [rdCharLoc(a), genLiteral(p, n[1], dest), genLiteral(p, n[2], dest),
+        [rdCharLoc(a), genLiteral(p, n[2], dest), genLiteral(p, n[3], dest),
         raiser, raiseInstr(p), getTypeDesc(p.module, n0t)])
     else:
       let raiser =
@@ -1625,7 +1621,7 @@ proc genRangeChck(p: BProc, n: CgNode, d: var TLoc) =
         else:
           ""
       linefmt(p, cpsStmts, "if ($6($1) < $2 || $6($1) > $3){ $4($1, $2, $3); $5}$n",
-        [rdCharLoc(a), genLiteral(p, n[1], dest), genLiteral(p, n[2], dest),
+        [rdCharLoc(a), genLiteral(p, n[2], dest), genLiteral(p, n[3], dest),
         raiser, raiseInstr(p), boundaryCast])
   putIntoDest(p, d, n, "(($1) ($2))" %
       [getTypeDesc(p.module, dest), rdCharLoc(a)], a.storage)
@@ -1877,6 +1873,8 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
       typ.add "*"
 
     linefmt(p, cpsStmts, "$1 = ($2)($3);$n", [a.r, typ, rdLoc(b)])
+  of mChckRange:
+    genRangeChck(p, e, d)
   else:
     when defined(debugMagics):
       echo p.prc.name.s, " ", p.prc.id, " ", p.prc.flags, " ", p.prc.ast[genericParamsPos].kind
@@ -2199,7 +2197,6 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkIfStmt: genIf(p, n)
   of cnkObjDownConv: downConv(p, n, d)
   of cnkObjUpConv: upConv(p, n, d)
-  of cnkChckRangeF, cnkChckRange64, cnkChckRange: genRangeChck(p, n, d)
   of cnkStringToCString: convStrToCStr(p, n, d)
   of cnkCStringToString: convCStrToStr(p, n, d)
   of cnkClosureConstr: genClosure(p, n, d)

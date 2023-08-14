@@ -36,6 +36,8 @@ import
     idioms
   ]
 
+from compiler/ast/ast_query import magicsThatCanRaise
+
 type
   Opcode = enum
     opFork ## branching control-flow that cannot introduce a cycle
@@ -111,11 +113,6 @@ type
       ## next
     i: NodePosition
       ## points to the next item to yield
-
-# TODO: copied from ``ast_query.nim``. Either export the original or use a
-#       different approach - duplicating the constant is not acceptable
-const magicsThatCanRaise = {
-  mNone, mSlurp, mStaticExec, mParseExprToAst, mParseStmtToAst, mEcho}
 
 func incl[T](s: var seq[T], v: sink T) =
   ## If not present already, adds `v` to the sorted ``seq`` `s`

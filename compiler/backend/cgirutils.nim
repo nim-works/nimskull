@@ -146,7 +146,7 @@ proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
       res.add $n.typ
     else:
       res.add "[type node]"
-  of cnkCheckedFieldAccess, cnkChckRange, cnkChckRange64, cnkChckRangeF:
+  of cnkCheckedFieldAccess:
     res.add n[0]
   of cnkHiddenAddr, cnkDerefView, cnkHiddenConv:
     res.add n.operand

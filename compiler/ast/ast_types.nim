@@ -814,6 +814,9 @@ type
 
     # magics only used internally:
     mAsgnDynlibVar
+    mChckRange
+      ## chckRange(v, lower, upper); conversion + range check -- returns
+      ## either the type-converted value or raises a defect
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const

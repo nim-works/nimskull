@@ -102,17 +102,12 @@ block: # #14350, #16674, #16686 for JS
     doAssert nil2 == cstring("")
 
 block:
-  when defined(js): # bug #18591
-    let a1 = -1'i8
-    let a2 = uint8(a1)
-    # if `uint8(a1)` changes meaning to `cast[uint8](a1)` in future, update this test;
-    # until then, this is the correct semantics.
-    let a3 = $a2
-    doAssert a2 < 3
-    doAssert a3 == "-1"
-    proc intToStr(a: uint8): cstring {.importjs: "(# + \"\")".}
-    doAssert $intToStr(a2) == "-1"
-  else:
+  when true:
+    block:
+      # bug https://github.com/nim-lang/nim/issues/18591
+      let x = -1'i8
+      let y = uint8(x)
+      doAssert $y == "255"
     block:
       let x = -1'i8
       let y = uint32(x)

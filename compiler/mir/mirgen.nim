@@ -151,6 +151,7 @@ type
     context: TSymKind ## what entity the input AST is part of (e.g. procedure,
                       ## macro, module, etc.). Used to allow or change how the
                       ## AST is interpreted in some places
+    userOptions: set[TOption]
     graph: ModuleGraph
 
     options: set[GenOption]
@@ -1586,11 +1587,20 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
   of nkLambdaKinds:
     procLit(c, n[namePos].sym)
   of nkChckRangeF, nkChckRange64, nkChckRange:
-    # turn the conversion back into an unchecked conversion
-    # TODO: remove the ``nkConv|nkHiddenStdConv|nkHiddenSubConv`` ->
-    #       ``nkChckRange`` transformation logic from ``transf`` -- it's
-    #       unnecessary now
-    eval(c): genx(c, n[0]) => convOp(n.typ)
+    # XXX: only produce range-check nodes where range checks should take
+    #      place, and then remove the conditional logic here -- ``mirgen``
+    #      should only do what it's told to and not make program-semantics-
+    #      related descisons on its own
+    if optRangeCheck notin c.userOptions or
+       skipTypes(n.typ, abstractVar).kind in {tyUInt..tyUInt64}:
+      # unsigned types should be range checked, see: https://github.com/nim-works/nimskull/issues/574
+      eval(c): genx(c, n[0]) => convOp(n.typ)
+    else:
+      argBlock(c.stmts):
+        chain(c): genx(c, n[0]) => arg()
+        chain(c): genx(c, n[1]) => arg()
+        chain(c): genx(c, n[2]) => arg()
+      magicCall(c, mChckRange, n.typ)
   of nkStringToCString, nkCStringToString:
     # undo the transformation done by ``transf``
     # TODO: turn both of them into operators
@@ -1861,7 +1871,8 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, options: set[GenOption],
   #      might no longer be present after the lambdalifting pass
   #assert nfTransf in body.flags, "transformed AST is expected as input"
 
-  var c = TCtx(context: owner.kind, graph: graph, options: options)
+  var c = TCtx(context: owner.kind, graph: graph, options: options,
+               userOptions: owner.options)
   c.sp = SourceProvider(active: (body, noneOpt(SourceId)))
 
   c.stmts.add MirNode(kind: mnkScope)
