@@ -41,6 +41,7 @@ import
   compiler/vm/[
     vmcompilerserdes,
     vmdef,
+    vmhooks,
     vmjit,
     vmlegacy,
     vmops,
@@ -57,6 +58,7 @@ when defined(nimVMDebugGenerate):
 import std/options as std_options
 
 from std/strutils import join
+from std/times import cpuTime
 
 from compiler/vm/vmgen import vmGenDiagToAstDiagVmGenError
 
@@ -448,6 +450,44 @@ proc evalStmt(jit: var JitState, c: var TCtx, n: PNode): PNode =
     result = execute(jit, c, info).unpackResult(c.config, n)
   else:
     result = c.graph.emptyNode
+
+proc registerAdditionalOps*(c: var TCtx, disallowDangerous: bool) =
+  ## Convenience proc used for setting up the overrides relevant during
+  ## compile-time execution. If `disallowDangerous` is set to 'true', all
+  ## operations that are able to modify the host's environment are replaced
+  ## with no-ops
+  template register(list: untyped) =
+    for it in list:
+      registerCallback(c, it.pattern, it.prc)
+
+  register(): basicOps()
+  register(): macroOps()
+  register(): debugOps()
+  register(): compileTimeOps()
+  register(): ioReadOps()
+  register(): osOps()
+
+  let cbStart = c.callbacks.len # remember where the callbacks for dangerous
+                                # ops start
+  register(): gorgeOps()
+  register(): ioWriteOps()
+  register(): os2Ops()
+
+  if disallowDangerous:
+    # note: replacing the callbacks like this only works because
+    # ``registerCallback`` always appends them to the list
+    for i in cbStart..<c.callbacks.len:
+      # replace with a no-op
+      c.callbacks[i] = proc(a: VmArgs) {.nimcall.} = discard
+
+  # the `cpuTime` callback doesn't fit any other category so it's registered
+  # here
+  if optBenchmarkVM in c.config.globalOptions or not disallowDangerous:
+    registerCallback c, "stdlib.times.cpuTime", proc(a: VmArgs) {.nimcall.} =
+      setResult(a, cpuTime())
+  else:
+    registerCallback c, "stdlib.times.cpuTime", proc(a: VmArgs) {.nimcall.} =
+      setResult(a, 5.391245e-44)  # Randomly chosen
 
 proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
   addInNimDebugUtils(graph.config, "setupGlobalCtx")

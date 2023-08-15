@@ -45,6 +45,7 @@ import
   ]
 
 from compiler/vm/vmlegacy import legacyReportsVmTracer
+from compiler/vm/vmjit import registerCallback
 
 # we support 'cmpIgnoreStyle' natively for efficiency:
 from std/strutils import cmpIgnoreStyle, contains
@@ -57,7 +58,8 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
   # matches the previous behaviour)
   result.flags = {cgfAllowMeta}
   result.mode = emRepl
-  registerBasicOps(result)
+  for op in basicOps():
+    result.registerCallback(op.pattern, op.prc)
 
   proc listDirs(a: VmArgs, filter: set[PathComponent]) =
     let dir = getString(a, 0)

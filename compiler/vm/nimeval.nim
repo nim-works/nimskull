@@ -41,6 +41,7 @@ import
   compiler/vm/[
     compilerbridge,
     vmdef,
+    vmjit,
     vmops
   ]
 
@@ -171,7 +172,8 @@ proc createInterpreter*(
   vm.features = flags
   if registerOps:
     # Register basic system operations and parts of stdlib modules
-    vm.registerBasicOps()
+    for o in basicOps():
+      vm.registerCallback(o.pattern, o.prc)
   graph.vm = PEvalContext(vm: vm)
   graph.compileSystemModule()
   result = Interpreter(mainModule: m, graph: graph, scriptName: scriptName, idgen: idgen)

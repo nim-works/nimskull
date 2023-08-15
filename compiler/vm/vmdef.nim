@@ -948,12 +948,6 @@ func refresh*(c: var TCtx, module: PSym; idgen: IdGenerator) =
   c.loopIterations = c.config.maxLoopIterationsVM
   c.idgen = idgen
 
-proc registerCallback*(c: var TCtx; name: string; callback: VmCallback): int {.discardable.} =
-  result = c.callbacks.len
-  c.callbacks.add(callback)
-  # XXX: for backwards compatibility, `name` is still a `string`
-  c.callbackKeys.add(IdentPattern(name))
-
 const pseudoAtomKinds* = {akObject, akArray}
 const realAtomKinds* = {low(AtomKind)..high(AtomKind)} - pseudoAtomKinds
 

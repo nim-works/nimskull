@@ -92,12 +92,16 @@ proc registerCallbacks(c: var TCtx) =
   template cb(key: string) =
     c.callbackKeys.add(IdentPattern(key))
 
-  registerBasicOps(c)
-  registerDebugOps(c)
-  registerIoReadOps(c)
-  registerIoWriteOps(c)
-  registerOsOps(c)
-  registerOs2Ops(c)
+  template register(iter: untyped) =
+    for it in iter:
+      cb(it.pattern)
+
+  register: basicOps()
+  register: debugOps()
+  register: ioReadOps()
+  register: ioWriteOps()
+  register: osOps()
+  register: os2Ops()
 
   # Used by some tests
   cb "stdlib.system.getOccupiedMem"
