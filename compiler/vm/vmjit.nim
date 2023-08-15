@@ -346,6 +346,6 @@ proc registerCallback*(c: var TCtx; pattern: string; callback: VmCallback) =
   ## `pattern` is added to the VM's function table, all invocations of the
   ## procedure at run-time will invoke the callback instead.
   # XXX: consider renaming this procedure to ``registerOverride``
-  c.callbacks.add(callback)
+  c.callbacks.add(callback) # some consumers rely on preserving registration order
   c.callbackKeys.add(IdentPattern(pattern))
   assert c.callbacks.len == c.callbackKeys.len
