@@ -1200,7 +1200,6 @@ proc initFromJson[T: object|tuple](dst: var T, jsonNode: JsonNode, jsonPath: var
   elif T is object:
     jsonPath.add "."
     for name, value in dst.fieldPairs:
-      # xxx: might need unsafe assign due to kind fields
       jsonPath.add name
       var val = value
       initFromJson(val, jsonNode.getOrDefault(name), jsonPath)
