@@ -87,6 +87,9 @@ type
   VmGenError = object of CatchableError
     diag: VmGenDiag
 
+  TPosition = distinct int
+  TDest = range[-1..regAMask.int]
+
   Loc = object
     ## An encapsulation that associates the register storing the value with
     ## the register storing the handle of the location it was loaded from.
@@ -97,6 +100,72 @@ type
     ## be reflected at the memory location the value originated from
     handleReg: TDest ## the register holding the handle to the location
     val: TRegister   ## the register holding the loaded value
+
+  TSlotKind = enum    # We try to re-use slots in a smart way to
+                      # minimize allocations; however the VM supports arbitrary
+                      # temporary slot usage. This is required for the parameter
+                      # passing implementation.
+    slotEmpty,        ## slot is unused
+    slotFixedVar,     ## slot is used for a fixed var/result (requires copy then)
+    slotFixedLet,     ## slot is used for a fixed param/let
+    slotTempUnknown,  ## slot but type unknown (argument of proc call)
+    slotTempInt,      ## some temporary int
+    slotTempFloat,    ## some temporary float
+    slotTempStr,      ## some temporary string
+    slotTempComplex,  ## some complex temporary (s.node field is used)
+    slotTempHandle,   ## some temporary handle into an object/array
+    slotTempPerm      ## slot is temporary but permanent (hack)
+
+  RegInfo = object
+    refCount: uint16
+    locReg: uint16 ## if the register stores a handle, `locReg` is the
+                   ## register storing the backing location
+    kind: TSlotKind
+
+  TBlock = object
+    label: PSym
+    fixups: seq[TPosition]
+
+  PProc* = ref object
+    blocks: seq[TBlock]
+      ## blocks; temp data structure
+    sym*: PSym
+    regInfo*: seq[RegInfo]
+
+    addressTaken: IntSet
+      ## the set of locations (identified by their symbol id) that have their
+      ## address taken or a view of them created. This information is used to
+      ## decide whether a full VM memory location is required, or if the
+      ## value can be stored in a register directly
+
+    # XXX: the value's type should be `TRegister`, but we need a sentinel
+    #      value (-1) for `getOrDefault`, so it has to be `int`
+    locals: Table[int, int]
+      ## symbol-id -> register index. Used for looking up the corresponding
+      ## register slot of each local (including parameters and `result`)
+
+  CodeGenCtx* = object
+    ## Bundles all input, output, and other contextual data needed for the
+    ## code generator
+    prc*: PProc
+
+    # immutable input parameters:
+    graph*: ModuleGraph
+    config*: ConfigRef
+    mode*: TEvalMode
+    features*: TSandboxFlags
+    module*: PSym
+
+    linking*: LinkerData
+
+    # input-output parameters:
+    code*: seq[TInstr]
+    debug*: seq[TLineInfo]
+    constants*: seq[VmConstant]
+    typeInfoCache*: TypeInfoCache
+    rtti*: seq[VmTypeInfo]
+
+  TCtx = CodeGenCtx ## legacy alias
 
 const
   IrrelevantTypes = abstractInst + {tyStatic, tyEnum} - {tyTypeDesc}
@@ -110,6 +179,11 @@ const
     ## also included
 
   noDest = TDest(-1)
+  slotSomeTemp* = slotTempUnknown
+
+proc getOrCreate*(c: var TCtx, typ: PType): PVmType {.inline.} =
+  var cl: GenClosure
+  getOrCreate(c.typeInfoCache, c.config, typ, cl)
 
 func raiseVmGenError(diag: sink VmGenDiag) {.noinline, noreturn.} =
   raise (ref VmGenError)(diag: diag)
@@ -834,7 +908,7 @@ proc genType(c: var TCtx; typ: PType): int =
   let t = c.getOrCreate(typ)
   # XXX: `getOrCreate` doesn't return the id directly yet. Once it does, the
   #      linear search below can be removed
-  result = c.types.find(t)
+  result = c.typeInfoCache.types.find(t)
   assert result != -1
 
   internalAssert(c.config, result <= regBxMax, "")

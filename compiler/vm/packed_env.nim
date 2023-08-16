@@ -832,8 +832,8 @@ func init*(enc: var PackedEncoder, types: seq[PVmType]) =
 func storeEnv*(enc: var PackedEncoder, dst: var PackedEnv, c: TCtx) =
   ## Stores all relevant data provided by `c` into `dst`. Previously stored
   ## data (except `nodes`, `numbers`, and `strings`) is thrown away. The only
-  ## parts of `dst` not touched by `storeEnv` are: `cconsts`, `globals`,
-  ## `code`, and `entryPoint`. These have to be filled in separately.
+  ## parts of `dst` not touched by `storeEnv` are: `cconsts`, `globals`, and
+  ## `entryPoint`. These have to be filled in separately.
   # store all types:
   dst.types.newSeq(c.types.len - 1) # -1 since the invalid type is not included
   for i in 1..<c.types.len:
@@ -868,6 +868,8 @@ func storeEnv*(enc: var PackedEncoder, dst: var PackedEnv, c: TCtx) =
       of ckDefault:  (x.start.uint32, x.regCount.uint32)
 
     (d, x.sig, t1, t2, x.kind, a, b)
+
+  dst.code = c.code
 
   mapList(dst.debug, c.debug, d):
     dst.infos.getOrIncl(d).uint32

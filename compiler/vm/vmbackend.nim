@@ -77,7 +77,7 @@ type
     functions: OrdinalSeq[LinkIndex, FuncTableEntry]
     # for constants, the discovery data is re-used
 
-    gen: TCtx ## only used for the code generator state
+    gen: CodeGenCtx ## code generator state
 
 func growBy[T](x: var seq[T], n: Natural) {.inline.} =
   x.setLen(x.len + n)
@@ -121,12 +121,12 @@ proc registerProc(c: var GenCtx, prc: PSym): FunctionIndex =
   setLinkIndex(c, prc, idx)
   result = FunctionIndex(idx)
 
-proc appendCode(c: var TCtx, f: CodeFragment) =
+proc appendCode(c: var CodeGenCtx, f: CodeFragment) =
   ## Copies the code from the fragment to the end of the global code buffer
   c.code.add(f.code)
   c.debug.add(f.debug)
 
-proc generateCodeForProc(c: var TCtx, idgen: IdGenerator, s: PSym,
+proc generateCodeForProc(c: var CodeGenCtx, idgen: IdGenerator, s: PSym,
                          body: sink MirFragment): CodeInfo =
   ## Generates and the bytecode for the procedure `s` with body `body`. The
   ## resulting bytecode is emitted into the global bytecode section.
@@ -139,7 +139,7 @@ proc generateCodeForProc(c: var TCtx, idgen: IdGenerator, s: PSym,
   else:
     c.config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
-proc genStmt(c: var TCtx, f: var CodeFragment, stmt: CgNode) =
+proc genStmt(c: var CodeGenCtx, f: var CodeFragment, stmt: CgNode) =
   ## Generates and emits the code for a statement into the fragment `f`.
   template swapState() =
     swap(c.code, f.code)
@@ -297,8 +297,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
 
   var c =
     GenCtx(graph: g,
-           gen: TCtx(config: g.config, cache: g.cache, graph: g,
-                     mode: emStandalone))
+           gen: CodeGenCtx(config: g.config, graph: g, mode: emStandalone))
 
   c.gen.typeInfoCache.init()
 
@@ -316,28 +315,35 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
 
   # ----- code generation is finished
 
+  # set up a VM execution environment and fill it with the artifacts produced
+  # by the of code generator:
+  var env: TCtx
+  env.config = c.gen.config # currently needed by the packer
+  env.code = move c.gen.code
+  env.debug = move c.gen.debug
+  env.functions = move base(c.functions)
+  env.constants = move c.gen.constants
+  env.rtti = move c.gen.rtti
+
   # produce a list with the type of each constant:
   var consts = newSeq[(PVmType, PNode)](discovery.constants.len)
   for i, sym in all(discovery.constants):
     let typ = c.gen.typeInfoCache.lookup(conf, sym.typ)
     consts[i] = (typ.unsafeGet, sym.ast)
 
-  # put the finished function table into the ``TCtx`` object for the encoder
-  # to pack it
-  c.gen.functions = move base(c.functions)
+  env.typeInfoCache = move c.gen.typeInfoCache
 
   # pack the data and write it to the ouput file:
   var
     enc: PackedEncoder
-    env: PackedEnv
+    penv: PackedEnv
 
-  enc.init(c.gen.types)
-  storeEnv(enc, env, c.gen)
-  storeExtra(enc, env, c.gen.linking, consts, base(c.globals))
-  env.code = move c.gen.code
-  env.entryPoint = entryPoint
+  enc.init(env.types)
+  storeEnv(enc, penv, env)
+  storeExtra(enc, penv, c.gen.linking, consts, base(c.globals))
+  penv.entryPoint = entryPoint
 
-  let err = writeToFile(env, prepareToWriteOutput(conf))
+  let err = writeToFile(penv, prepareToWriteOutput(conf))
   if err != RodFileError.ok:
     let rep = BackendReport(kind: rbackVmFileWriteFailed,
                             outFilename: conf.absOutFile.string,

@@ -63,6 +63,8 @@ type
       ## acts as the source-of-truth regarding what entities exists. All
       ## entities not registered with `discovery` also don't exist in
       ## ``TCtx``
+    gen: CodeGenCtx
+      ## code generator state
 
 func selectOptions(c: TCtx): set[GenOption] =
   result = {goIsNimvm}
@@ -71,6 +73,28 @@ func selectOptions(c: TCtx): set[GenOption] =
 
   if c.mode in {emConst, emOptimize, emStaticExpr, emStaticStmt}:
     result.incl goIsCompileTime
+
+func swapState(c: var TCtx, gen: var CodeGenCtx) =
+  ## Swaps the values of the fields shared between ``TCtx`` and ``CodeGenCtx``.
+  ## This achieves reasonably fast mutable-borrow-like semantics without
+  ## resorting to pointers.
+  template swap(field: untyped) =
+    swap(c.field, gen.field)
+
+  # inpute parameters:
+  swap(graph)
+  swap(config)
+  swap(mode)
+  swap(features)
+  swap(module)
+  swap(linking)
+
+  # input-output parameters:
+  swap(code)
+  swap(debug)
+  swap(constants)
+  swap(typeInfoCache)
+  swap(rtti)
 
 proc updateEnvironment(c: var TCtx, data: var DiscoveryData) =
   ## Needs to be called after a `vmgen` invocation and prior to resuming
@@ -185,6 +209,16 @@ proc generateIR(c: var TCtx, tree: sink MirTree,
   if tree.len > 0: generateIR(c.graph, c.idgen, c.module, tree, source)
   else:            newNode(cnkEmpty)
 
+template runCodeGen(c: var TCtx, cg: var CodeGenCtx, n: CgNode,
+                    body: untyped): untyped =
+  ## Prepares the code generator's context and then executes `body`. A
+  ## delimiting 'eof' instruction is emitted at the end.
+  swapState(c, cg)
+  let r = body
+  cg.gABC(n, opcEof)
+  swapState(c, cg)
+  r
+
 proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   ## Generates and emits code for the standalone top-level statement `n`.
   c.removeLastEof()
@@ -199,16 +233,18 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   let
     n = generateIR(c, tree, sourceMap)
     start = c.code.len
-    r = vmgen.genStmt(c, n)
+
+  # generate the bytecode:
+  jit.gen.prc = PProc()
+  let r = runCodeGen(c, jit.gen, n): genStmt(jit.gen, n)
 
   if unlikely(r.isErr):
     rewind(jit.discovery)
     return VmGenResult.err(r.takeErr)
 
-  c.gABC(n, opcEof)
   updateEnvironment(c, jit.discovery)
 
-  result = VmGenResult.ok: (start: start, regCount: c.prc.regInfo.len)
+  result = VmGenResult.ok: (start: start, regCount: jit.gen.prc.regInfo.len)
 
 proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   ## Generates and emits code for the standalone expression `n`
@@ -235,16 +271,18 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   let
     n = generateIR(c, tree, sourceMap)
     start = c.code.len
-    r = vmgen.genExpr(c, n)
+
+  # generate the bytecode:
+  jit.gen.prc = PProc()
+  let r = runCodeGen(c, jit.gen, n): genExpr(jit.gen, n)
 
   if unlikely(r.isErr):
     rewind(jit.discovery)
     return VmGenResult.err(r.takeErr)
 
-  c.gABC(n, opcEof)
   updateEnvironment(c, jit.discovery)
 
-  result = VmGenResult.ok: (start: start, regCount: c.prc.regInfo.len)
+  result = VmGenResult.ok: (start: start, regCount: jit.gen.prc.regInfo.len)
 
 proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   c.removeLastEof()
@@ -275,12 +313,13 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   let outBody = generateIR(c.graph, c.idgen, s, tree, sourceMap)
   echoOutput(c.config, s, outBody)
 
-  result = genProc(c, s, outBody)
+  # generate the bytecode:
+  result = runCodeGen(c, jit.gen, outBody): genProc(jit.gen, s, outBody)
+
   if unlikely(result.isErr):
     rewind(jit.discovery)
     return
 
-  c.gABC(outBody, opcEof)
   updateEnvironment(c, jit.discovery)
 
 proc registerProcedure*(jit: var JitState, c: var TCtx, prc: PSym): FunctionIndex =
