@@ -41,6 +41,7 @@ import
     vmcompilerserdes,
     vmdef,
     vmgen,
+    vmlinker,
     vmmemory,
     vmtypegen
   ],
@@ -152,22 +153,22 @@ func discoverGlobalsAndRewrite(data: var DiscoveryData, tree: var MirTree,
   # can rewrite all defs in one go:
   rewriteGlobalDefs(tree, source, outermost = false)
 
-func register(c: var TCtx, data: DiscoveryData) =
+func register(linker: var LinkerData, data: DiscoveryData) =
   ## Registers the newly discovered entities in the link table, but doesn't
   ## commit to them yet.
   for i, it in peek(data.procedures):
-    c.symToIndexTbl[it.id] = LinkIndex(i)
+    linker.symToIndexTbl[it.id] = LinkIndex(i)
 
   for i, it in peek(data.constants):
-    c.symToIndexTbl[it.id] = LinkIndex(i)
+    linker.symToIndexTbl[it.id] = LinkIndex(i)
 
   # first register globals, then threadvars. This order must be the same as
   # the one they're later committed to in
   for i, it in peek(data.globals):
-    c.symToIndexTbl[it.id] = LinkIndex(i)
+    linker.symToIndexTbl[it.id] = LinkIndex(i)
 
   for i, it in peek(data.threadvars):
-    c.symToIndexTbl[it.id] = LinkIndex(i)
+    linker.symToIndexTbl[it.id] = LinkIndex(i)
 
 proc generateMirCode(c: var TCtx, n: PNode;
                      isStmt = false): (MirTree, SourceMap) =
@@ -193,7 +194,7 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
   applyPasses(tree, sourceMap, c.module, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
-  register(c, jit.discovery)
+  register(c.linking, jit.discovery)
 
   let
     n = generateIR(c, tree, sourceMap)
@@ -229,7 +230,7 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
   applyPasses(tree, sourceMap, c.module, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
-  register(c, jit.discovery)
+  register(c.linking, jit.discovery)
 
   let
     n = generateIR(c, tree, sourceMap)
@@ -269,7 +270,7 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
   applyPasses(tree, sourceMap, s, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
-  register(c, jit.discovery)
+  register(c.linking, jit.discovery)
 
   let outBody = generateIR(c.graph, c.idgen, s, tree, sourceMap)
   echoOutput(c.config, s, outBody)
@@ -295,13 +296,13 @@ proc registerProcedure*(jit: var JitState, c: var TCtx, prc: PSym): FunctionInde
   c.functions.setLen(jit.discovery.procedures.len)
   for i, it in visit(jit.discovery.procedures):
     assert it == prc
-    c.symToIndexTbl[it.id] = LinkIndex(i)
+    c.linking.symToIndexTbl[it.id] = LinkIndex(i)
     c.functions[i] = initProcEntry(c, it)
     index = i
 
   if index == -1:
     # no entry was added -> one must exist already
-    result = FunctionIndex(c.symToIndexTbl[prc.id])
+    result = FunctionIndex(c.linking.symToIndexTbl[prc.id])
   else:
     result = FunctionIndex(index)
 
@@ -347,5 +348,5 @@ proc registerCallback*(c: var TCtx; pattern: string; callback: VmCallback) =
   ## procedure at run-time will invoke the callback instead.
   # XXX: consider renaming this procedure to ``registerOverride``
   c.callbacks.add(callback) # some consumers rely on preserving registration order
-  c.callbackKeys.add(IdentPattern(pattern))
-  assert c.callbacks.len == c.callbackKeys.len
+  c.linking.callbackKeys.add(IdentPattern(pattern))
+  assert c.callbacks.len == c.linking.callbackKeys.len

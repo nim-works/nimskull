@@ -10,37 +10,18 @@ import
     ast,
     types
   ],
+  compiler/front/[
+    options
+  ],
   compiler/vm/[
     vmdef,
+    vmlinker,
     vmtypegen
   ],
 
   std/[
-    strutils,
     tables
   ]
-
-# XXX: this proc was previously located in ``vmgen.nim``
-func matches(s: PSym; x: IdentPattern): bool =
-  var s = s
-  for part in rsplit(string(x), '.'):
-    if s == nil or (part.cmpIgnoreStyle(s.name.s) != 0 and part != "*"):
-      return false
-    s = if sfFromGeneric in s.flags: s.owner.owner else: s.owner
-    while s != nil and s.kind == skPackage and s.owner != nil: s = s.owner
-  result = true
-
-func lookup*(patterns: seq[IdentPattern]; s: PSym): int =
-  ## Tries to find and return the index of the pattern matching `s`. If none
-  ## is found, -1 is returned
-  var i = 0
-  # XXX: `pairs` doesn't use `lent`, so a manual implementation of `pairs`
-  #      is used
-  for p in patterns.items:
-    if s.matches(p): return i
-    inc i
-
-  result = -1
 
 func findRecCaseAux(n: PNode, d: PSym): PNode =
   ## Find the `nkRecCase` node in the tree `r` that has `d` as the discriminator
@@ -104,38 +85,46 @@ func getEnvParam*(prc: PSym): PSym =
   else: nil
 
 
-proc initProcEntry*(c: var TCtx, prc: PSym): FuncTableEntry =
+proc initProcEntry*(linker: LinkerData, config: ConfigRef,
+                    tc: var TypeInfoCache, prc: PSym): FuncTableEntry =
   ## Returns an initialized function table entry. Execution information (such
   ## as the bytecode offset and register count) for procedures not overriden
-  ## by callbacks is initialized to a state that indicates "missing" and needs
-  ## to be filled in separately via `fillProcEntry`
-  let cbIndex = lookup(c.callbackKeys, prc)
+  ## by callbacks is initialized to a state that indicates "missing"; it needs
+  ## to be filled in separately via `fillProcEntry`.
+  let cbIndex = lookup(linker.callbackKeys, prc)
   result =
     if cbIndex >= 0:
       FuncTableEntry(kind: ckCallback, cbOffset: cbIndex)
     else:
       FuncTableEntry(kind: ckDefault, start: -1)
 
+  var cl = GenClosure() # for creating the VM type structures
+
   result.sym = prc
-  result.sig = c.typeInfoCache.makeSignatureId(prc.typ)
+  result.sig = tc.makeSignatureId(prc.typ)
   result.retValDesc =
     if prc.kind == skMacro:
-      c.typeInfoCache.nodeType
+      tc.nodeType
     else:
       let rTyp = prc.getReturnType()
       if not isEmptyType(rTyp):
-        c.getOrCreate(rTyp)
+        tc.getOrCreate(config, rTyp, cl)
       else:
         noneType
 
   # Create the env parameter type (if an env param exists)
   result.envParamType =
     if (let envP = getEnvParam(prc); envP != nil):
-      c.getOrCreate(envP.typ)
+      tc.getOrCreate(config, envP.typ, cl)
     else:
       noneType
 
   assert result.envParamType == noneType or result.envParamType.kind == akRef
+
+proc initProcEntry*(c: var TCtx, prc: PSym): FuncTableEntry {.inline.} =
+  ## Convenience wrapper around
+  ## `initProcEntry <#initProcEntry,LinkerData,ConfigRef,TypeInfoCache,PSym>`_.
+  initProcEntry(c.linking, c.config, c.typeInfoCache, prc)
 
 func fillProcEntry*(e: var FuncTableEntry, info: CodeInfo) {.inline.} =
   ## Sets the execution information of the function table entry to `info`
@@ -146,4 +135,4 @@ proc lookupProc*(c: var TCtx, prc: PSym): FunctionIndex {.inline.} =
   ## Returns the function-table index corresponding to the provided `prc`
   ## symbol. Behaviour is undefined if `prc` has no corresponding function-
   ## table entry.
-  c.symToIndexTbl[prc.id].FunctionIndex
+  c.linking.symToIndexTbl[prc.id].FunctionIndex

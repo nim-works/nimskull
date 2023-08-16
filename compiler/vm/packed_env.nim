@@ -32,7 +32,8 @@ import
     pathutils # for `AbsoluteFile`
   ],
   compiler/vm/[
-    vmdef
+    vmdef,
+    vmlinker
   ]
 
 from compiler/vm/vmaux import findRecCase, findMatchingBranch
@@ -870,12 +871,6 @@ func storeEnv*(enc: var PackedEncoder, dst: var PackedEnv, c: TCtx) =
 
   mapList(dst.debug, c.debug, d):
     dst.infos.getOrIncl(d).uint32
-
-  # TODO: add support for either `distinct string` or custom `storePrim`
-  #       overloads (or both) to `rodfiles`. Due to the lack of both, we
-  #       have to perform a manual copy instead of a move here
-  mapList(dst.callbacks, c.callbackKeys, c):
-    c.string
 
   mapList(dst.files, c.config.m.fileInfos, fi):
     fi.fullPath.string

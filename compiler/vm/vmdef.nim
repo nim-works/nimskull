@@ -32,6 +32,8 @@ import
 
 import std/options as std_options
 
+from compiler/vm/vmlinker import LinkerData
+
 import vm_enums
 export vm_enums
 
@@ -443,8 +445,6 @@ type
     cache*: IdentCache
     idgen*: IdGenerator
 
-  IdentPattern* = distinct string ## A matcher pattern for a fully qualified
-                                  ## symbol identifier
   VmCallback* = proc (args: VmArgs) {.closure.}
 
   VmCell* = object
@@ -563,9 +563,6 @@ type
     cgfAllowMeta ## If not present, type or other meta expressions are
                  ## disallowed in imperative contexts and code-gen for meta
                  ## function arguments (e.g. `typedesc`) is suppressed
-
-  LinkIndex* = uint32 ## Depending on the context: `FunctionIndex`; index
-    ## into `TCtx.globals`; index into `TCtx.complexConsts`
 
   VmGenDiagKind* = enum
     # has no extra data
@@ -736,15 +733,14 @@ type
       ## for each procedure known to the VM. Indexed by `FunctionIndex`
     memory*: VmMemoryManager
 
-    # code generator state:
-    symToIndexTbl*: Table[int, LinkIndex] ## keeps track of all known
-      ## dependencies. Expanded during code-generation and used for looking
-      ## up the link-index (e.g. `FunctionIndex`) of a symbol
-
     flags*: set[CodeGenFlag] ## flags that alter the behaviour of the code
       ## generator. Initialized by the VM's callsite and queried by the JIT.
     # XXX: `flags` is code generator / JIT state, and needs to be moved out of
     #      ``TCtx``
+
+    linking*: LinkerData
+    # XXX: ^^ should be made part of the JIT state but ``vmcompilerserdes``
+    #      currently blocks that
 
     # exception state:
     # XXX: this is thread-local state and should thus not be part of the
@@ -765,9 +761,6 @@ type
     loopIterations*: int
     comesFromHeuristic*: TLineInfo # Heuristic for better macro stack traces
     callbacks*: seq[VmCallback]
-    callbackKeys*: seq[IdentPattern] ## The matcher patterns corresponding to
-      ## each entry in `callbacks`. Written during VM environment setup or
-      ## inbetween invocations. Read during code-generation.
     cache*: IdentCache
     config*: ConfigRef
     graph*: ModuleGraph

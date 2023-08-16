@@ -60,6 +60,7 @@ import
   compiler/vm/[
     vmaux,
     vmdef,
+    vmlinker,
     vmobjects,
     vmtypegen,
     vmtypes,
@@ -240,9 +241,6 @@ func analyseIfAddressTaken(n: CgNode, locs: var IntSet) =
     for it in n.items:
       analyseIfAddressTaken(it, locs)
 
-
-func lookupConst(c: TCtx, sym: PSym): int {.inline.} =
-  c.symToIndexTbl[sym.id].int
 
 func isNimNode(t: PType): bool =
   ## Returns whether `t` is the ``NimNode`` magic type
@@ -949,7 +947,7 @@ proc genProcLit(c: var TCtx, n: CgNode, s: PSym; dest: var TDest) =
   if dest.isUnset:
     dest = c.getTemp(s.typ)
 
-  let idx = c.lookupProc(s).int
+  let idx = c.linking.symToIndexTbl[s.id].int
 
   c.gABx(n, opcLdNull, dest, c.genType(s.typ))
   c.gABx(n, opcWrProc, dest, idx)
@@ -2417,9 +2415,9 @@ proc useGlobal(c: var TCtx, n: CgNode): int =
       # not allowed
       fail(n.info, vmGenDiagCannotImportc, sym = s)
 
-    if s.id in c.symToIndexTbl:
+    if s.id in c.linking.symToIndexTbl:
       # XXX: double table lookup
-      result = c.symToIndexTbl[s.id].int
+      result = c.linking.symToIndexTbl[s.id].int
     else:
       # a global that is not accessible in the current context
       cannotEval(c, n)
@@ -2900,7 +2898,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     of skVar, skForVar, skTemp, skLet, skParam, skResult:
       genSym(c, n, dest)
     of skProc, skFunc, skConverter, skMacro, skMethod, skIterator:
-      if importcCond(c, s) and lookup(c.callbackKeys, s) == -1:
+      if importcCond(c, s) and lookup(c.linking.callbackKeys, s) == -1:
         fail(n.info, vmGenDiagCannotImportc, sym = s)
 
       genProcLit(c, n, s, dest)
@@ -2911,7 +2909,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
         let lit = genLiteral(c, s.ast)
         c.genLit(n, lit, dest)
       else:
-        let idx = c.lookupConst(s)
+        let idx = int c.linking.lookup(s)
         discard c.getOrCreate(s.typ)
         c.gABx(n, opcLdCmplxConst, dest, idx)
     else:
