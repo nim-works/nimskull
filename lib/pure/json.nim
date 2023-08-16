@@ -1046,7 +1046,6 @@ template verifyJsonKind(node: JsonNode, kinds: set[JsonNodeKind],
     ]
     raise newException(JsonKindError, msg)
 
-# The following forward declarations don't work in older versions of Nim
 
 # forward declare all initFromJson
 
