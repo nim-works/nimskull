@@ -3039,7 +3039,8 @@ proc genStmt*(c: var TCtx; n: CgNode): Result[void, VmGenDiag] =
   c.config.internalAssert(d < 0, n.info, "VM problem: dest register is set")
   result = typeof(result).ok()
 
-proc genExpr*(c: var TCtx; n: CgNode): Result[TRegister, VmGenDiag] =
+proc genExpr*(c: var TCtx; n: CgNode): Result[void, VmGenDiag] =
+  ## Generates and emits the code for a standalone expression.
   analyseIfAddressTaken(n, c.prc.addressTaken)
 
   var d: TDest = -1
@@ -3052,8 +3053,11 @@ proc genExpr*(c: var TCtx; n: CgNode): Result[TRegister, VmGenDiag] =
   # expression
   c.config.internalAssert(d != noDest, n.info):
     "VM problem: dest register is not set"
+  # standalone expressions are treated as nullary procedures that
+  # directly return the value
+  c.gABC(n, opcRet, d)
 
-  result = typeof(result).ok(TRegister(d))
+  result = typeof(result).ok()
 
 
 proc genParams(prc: PProc; s: PSym) =

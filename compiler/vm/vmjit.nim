@@ -241,7 +241,7 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
     rewind(jit.discovery)
     return VmGenResult.err(r.takeErr)
 
-  c.gABC(n, opcRet, r.unsafeGet)
+  c.gABC(n, opcEof)
   updateEnvironment(c, jit.discovery)
 
   result = VmGenResult.ok: (start: start, regCount: c.prc.regInfo.len)
