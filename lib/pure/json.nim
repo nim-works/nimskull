@@ -1187,7 +1187,6 @@ proc initFromJson[T: object|tuple](dst: var T, jsonNode: JsonNode, jsonPath: var
   let originalJsonPathLen = jsonPath.len ## so we can trucate/reset after
   when T is tuple:
     when T.isNamedTuple:
-      # TODO: nimvm workaround for distinct?
       jsonPath.add "."
       for name, value in dst.fieldPairs:
         jsonPath.add name
