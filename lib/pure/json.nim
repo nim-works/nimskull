@@ -1183,21 +1183,9 @@ proc initFromJson[T](dst: var Option[T]; jsonNode: JsonNode; jsonPath: var strin
 
 from std/typetraits import isNamedTuple, distinctBase
 
-proc initFromJson[T: object|tuple](dst: var T, jsonNode: JsonNode, jsonPath: var string) =
+proc initFromJson[T: tuple](dst: var T, jsonNode: JsonNode, jsonPath: var string) =
   let originalJsonPathLen = jsonPath.len ## so we can trucate/reset after
-  when T is tuple:
-    when T.isNamedTuple:
-      jsonPath.add "."
-      for name, value in dst.fieldPairs:
-        jsonPath.add name
-        var val = value
-        initFromJson(val, jsonNode.getOrDefault(name), jsonPath)
-        value = val
-        jsonPath.setLen(jsonPath.len - name.len)
-      jsonPath.setLen originalJsonPathLen
-    else:
-      {.error("Use a named tuple instead of: " & T.repr).}
-  elif T is object:
+  when T.isNamedTuple:
     jsonPath.add "."
     for name, value in dst.fieldPairs:
       jsonPath.add name
@@ -1207,7 +1195,18 @@ proc initFromJson[T: object|tuple](dst: var T, jsonNode: JsonNode, jsonPath: var
       jsonPath.setLen(jsonPath.len - name.len)
     jsonPath.setLen originalJsonPathLen
   else:
-    {.error("Unreachable type: " & T.repr).}
+    {.error("Use a named tuple instead of: " & T.repr).}
+
+proc initFromJson[T: object](dst: var T, jsonNode: JsonNode, jsonPath: var string) =
+  let originalJsonPathLen = jsonPath.len ## so we can trucate/reset after
+  jsonPath.add "."
+  for name, value in dst.fieldPairs:
+    jsonPath.add name
+    var val = value
+    initFromJson(val, jsonNode.getOrDefault(name), jsonPath)
+    value = val
+    jsonPath.setLen(jsonPath.len - name.len)
+  jsonPath.setLen originalJsonPathLen
 
 proc initFromJson[T: distinct](dst: var T, jsonNode: JsonNode, jsonPath: var string) =
   initFromJson(distinctBase dst, jsonNode, jsonPath)
