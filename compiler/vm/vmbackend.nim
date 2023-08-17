@@ -41,6 +41,7 @@ import
     vmdef,
     vmgen,
     vmlegacy,
+    vmlinker,
     vmobjects,
     vmops,
     vmtypegen
@@ -76,12 +77,12 @@ type
     functions: OrdinalSeq[LinkIndex, FuncTableEntry]
     # for constants, the discovery data is re-used
 
-    gen: TCtx ## only used for the code generator state
+    gen: CodeGenCtx ## code generator state
 
 func growBy[T](x: var seq[T], n: Natural) {.inline.} =
   x.setLen(x.len + n)
 
-proc registerCallbacks(c: var TCtx) =
+proc registerCallbacks(linking: var LinkerData) =
   ## Registers callbacks for various functions, so that no code is
   ## generated for them and that they can (must) be overridden by the runner
 
@@ -90,7 +91,7 @@ proc registerCallbacks(c: var TCtx) =
   # complain if there's a mismatch
 
   template cb(key: string) =
-    c.callbackKeys.add(IdentPattern(key))
+    linking.callbackKeys.add(IdentPattern(key))
 
   template register(iter: untyped) =
     for it in iter:
@@ -106,20 +107,26 @@ proc registerCallbacks(c: var TCtx) =
   # Used by some tests
   cb "stdlib.system.getOccupiedMem"
 
+func setLinkIndex(c: var GenCtx, s: PSym, i: LinkIndex) =
+  assert s.id notin c.gen.linking.symToIndexTbl
+  c.gen.linking.symToIndexTbl[s.id] = i
+
+proc initProcEntry(c: var GenCtx, prc: PSym): FuncTableEntry {.inline.} =
+  initProcEntry(c.gen.linking, c.graph.config, c.gen.typeInfoCache, prc)
+
 proc registerProc(c: var GenCtx, prc: PSym): FunctionIndex =
   ## Adds an empty function-table entry for `prc` and registers the latter
   ## in the link table.
-  assert prc.id notin c.gen.symToIndexTbl
-  let idx = c.functions.add(initProcEntry(c.gen, prc))
-  c.gen.symToIndexTbl[prc.id] = idx
+  let idx = c.functions.add(c.initProcEntry(prc))
+  setLinkIndex(c, prc, idx)
   result = FunctionIndex(idx)
 
-proc appendCode(c: var TCtx, f: CodeFragment) =
+proc appendCode(c: var CodeGenCtx, f: CodeFragment) =
   ## Copies the code from the fragment to the end of the global code buffer
   c.code.add(f.code)
   c.debug.add(f.debug)
 
-proc generateCodeForProc(c: var TCtx, idgen: IdGenerator, s: PSym,
+proc generateCodeForProc(c: var CodeGenCtx, idgen: IdGenerator, s: PSym,
                          body: sink MirFragment): CodeInfo =
   ## Generates and the bytecode for the procedure `s` with body `body`. The
   ## resulting bytecode is emitted into the global bytecode section.
@@ -132,7 +139,7 @@ proc generateCodeForProc(c: var TCtx, idgen: IdGenerator, s: PSym,
   else:
     c.config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
-proc genStmt(c: var TCtx, f: var CodeFragment, stmt: CgNode) =
+proc genStmt(c: var CodeGenCtx, f: var CodeFragment, stmt: CgNode) =
   ## Generates and emits the code for a statement into the fragment `f`.
   template swapState() =
     swap(c.code, f.code)
@@ -154,7 +161,7 @@ proc declareGlobal(c: var GenCtx, sym: PSym) =
   if exfNoDecl notin sym.extFlags and sfImportc notin sym.flags:
     # make sure the type is generated and register the global in the
     # link table
-    c.gen.symToIndexTbl[sym.id] = c.globals.add(getOrCreate(c.gen, sym.typ))
+    setLinkIndex(c, sym, c.globals.add(getOrCreate(c.gen, sym.typ)))
 
 proc prepare(c: var GenCtx, data: var DiscoveryData) =
   ## Registers with the link table all procedures, constants, globals,
@@ -164,8 +171,8 @@ proc prepare(c: var GenCtx, data: var DiscoveryData) =
   c.functions.setLen(data.procedures.len)
   for i, it in peek(data.procedures):
     let idx = LinkIndex(i)
-    c.functions[idx] = c.gen.initProcEntry(it)
-    c.gen.symToIndexTbl[it.id] = idx
+    c.functions[idx] = c.initProcEntry(it)
+    setLinkIndex(c, it, idx)
 
     # if a procedure's implementation is overridden with a VM callback, we
     # don't want any processing to happen for it, which we signal to the
@@ -175,7 +182,7 @@ proc prepare(c: var GenCtx, data: var DiscoveryData) =
 
   # register the constants with the link table:
   for i, s in visit(data.constants):
-    c.gen.symToIndexTbl[s.id] = LinkIndex(i)
+    setLinkIndex(c, s, LinkIndex(i))
 
   for _, s in visit(data.globals):
     declareGlobal(c, s)
@@ -205,7 +212,7 @@ proc processEvent(c: var GenCtx, mlist: ModuleList, discovery: var DiscoveryData
   of bekProcedure:
     # a complete procedure became available
     let r = generateCodeForProc(c.gen, idgen, evt.sym, evt.body)
-    fillProcEntry(c.functions[c.gen.symToIndexTbl[evt.sym.id]], r)
+    fillProcEntry(c.functions[lookup(c.gen.linking, evt.sym)], r)
   of bekImported:
     # not supported at the moment; ``vmgen`` is going to raise an
     # error when generating a call to a dynlib procedure
@@ -254,15 +261,13 @@ proc generateCodeForMain(c: var GenCtx, config: BackendConfig,
   fillProcEntry(c.functions[result.LinkIndex], r)
 
 func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
-                routineSymLookup: sink Table[int, LinkIndex],
+                linking: sink LinkerData,
                 consts: seq[(PVmType, PNode)], globals: seq[PVmType]) =
   ## Stores the previously gathered complex constants and globals into `dst`
 
   var denc: DataEncoder
   denc.startEncoding(dst)
-  # XXX: `sink` is used for `routineSymLookup` in order to get around a
-  #      deep copy
-  denc.routineSymLookup = routineSymLookup
+  denc.routineSymLookup = move linking.symToIndexTbl
 
   # complex constants (i.e. non-literals):
   mapList(dst.cconsts, consts, it):
@@ -276,6 +281,12 @@ func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
   mapList(dst.globals, globals, it):
     enc.typeMap[it]
 
+  # TODO: add support for either `distinct string` or custom `storePrim`
+  #       overloads (or both) to `rodfiles`. Due to the lack of both, we
+  #       have to perform a manual copy instead of a move here
+  mapList(dst.callbacks, linking.callbackKeys, c):
+    c.string
+
 proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   ## The backend's entry point. Orchestrates code generation and linking. If
   ## all went well, the resulting binary is written to the project's output
@@ -286,14 +297,13 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
 
   var c =
     GenCtx(graph: g,
-           gen: TCtx(config: g.config, cache: g.cache, graph: g,
-                     mode: emStandalone))
+           gen: CodeGenCtx(config: g.config, graph: g, mode: emStandalone))
 
   c.gen.typeInfoCache.init()
 
   # register the extra ops so that code generation isn't performed for the
   # corresponding procs:
-  registerCallbacks(c.gen)
+  registerCallbacks(c.gen.linking)
 
   # generate code for all alive routines:
   var discovery: DiscoveryData
@@ -305,28 +315,35 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
 
   # ----- code generation is finished
 
+  # set up a VM execution environment and fill it with the artifacts produced
+  # by the of code generator:
+  var env: TCtx
+  env.config = c.gen.config # currently needed by the packer
+  env.code = move c.gen.code
+  env.debug = move c.gen.debug
+  env.functions = move base(c.functions)
+  env.constants = move c.gen.constants
+  env.rtti = move c.gen.rtti
+
   # produce a list with the type of each constant:
   var consts = newSeq[(PVmType, PNode)](discovery.constants.len)
   for i, sym in all(discovery.constants):
     let typ = c.gen.typeInfoCache.lookup(conf, sym.typ)
     consts[i] = (typ.unsafeGet, sym.ast)
 
-  # put the finished function table into the ``TCtx`` object for the encoder
-  # to pack it
-  c.gen.functions = move base(c.functions)
+  env.typeInfoCache = move c.gen.typeInfoCache
 
   # pack the data and write it to the ouput file:
   var
     enc: PackedEncoder
-    env: PackedEnv
+    penv: PackedEnv
 
-  enc.init(c.gen.types)
-  storeEnv(enc, env, c.gen)
-  storeExtra(enc, env, c.gen.symToIndexTbl, consts, base(c.globals))
-  env.code = move c.gen.code
-  env.entryPoint = entryPoint
+  enc.init(env.types)
+  storeEnv(enc, penv, env)
+  storeExtra(enc, penv, c.gen.linking, consts, base(c.globals))
+  penv.entryPoint = entryPoint
 
-  let err = writeToFile(env, prepareToWriteOutput(conf))
+  let err = writeToFile(penv, prepareToWriteOutput(conf))
   if err != RodFileError.ok:
     let rep = BackendReport(kind: rbackVmFileWriteFailed,
                             outFilename: conf.absOutFile.string,

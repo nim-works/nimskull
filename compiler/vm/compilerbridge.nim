@@ -702,7 +702,7 @@ proc getGlobalValue*(c: TCtx; s: PSym): PNode =
   ## Does not perform type checking, so ensure that `s.typ` matches the
   ## global's type
   internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
-  let slotIdx = c.globals[c.symToIndexTbl[s.id]]
+  let slotIdx = c.globals[c.linking.symToIndexTbl[s.id]]
   let slot = c.heap.slots[slotIdx]
 
   result = c.deserialize(slot.handle, s.typ, s.info)
@@ -710,7 +710,7 @@ proc getGlobalValue*(c: TCtx; s: PSym): PNode =
 proc setGlobalValue*(c: var TCtx; s: PSym, val: PNode) =
   ## Does not do type checking so ensure the `val` matches the `s.typ`
   internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
-  let slotIdx = c.globals[c.symToIndexTbl[s.id]]
+  let slotIdx = c.globals[c.linking.symToIndexTbl[s.id]]
   let slot = c.heap.slots[slotIdx]
 
   c.serialize(val, slot.handle)

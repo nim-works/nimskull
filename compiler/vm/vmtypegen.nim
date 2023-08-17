@@ -792,7 +792,6 @@ proc getOrCreate*(
 
   genAllTypes(c, typ, cl)
 
-# TODO: move this one to `vmgen`
 proc getOrCreate*(c: var TCtx, typ: PType): PVmType {.inline.} =
   var cl: GenClosure
   getOrCreate(c.typeInfoCache, c.config, typ, cl)

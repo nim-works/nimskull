@@ -60,6 +60,7 @@ import
   compiler/vm/[
     vmaux,
     vmdef,
+    vmlinker,
     vmobjects,
     vmtypegen,
     vmtypes,
@@ -86,6 +87,9 @@ type
   VmGenError = object of CatchableError
     diag: VmGenDiag
 
+  TPosition = distinct int
+  TDest = range[-1..regAMask.int]
+
   Loc = object
     ## An encapsulation that associates the register storing the value with
     ## the register storing the handle of the location it was loaded from.
@@ -96,6 +100,72 @@ type
     ## be reflected at the memory location the value originated from
     handleReg: TDest ## the register holding the handle to the location
     val: TRegister   ## the register holding the loaded value
+
+  TSlotKind = enum    # We try to re-use slots in a smart way to
+                      # minimize allocations; however the VM supports arbitrary
+                      # temporary slot usage. This is required for the parameter
+                      # passing implementation.
+    slotEmpty,        ## slot is unused
+    slotFixedVar,     ## slot is used for a fixed var/result (requires copy then)
+    slotFixedLet,     ## slot is used for a fixed param/let
+    slotTempUnknown,  ## slot but type unknown (argument of proc call)
+    slotTempInt,      ## some temporary int
+    slotTempFloat,    ## some temporary float
+    slotTempStr,      ## some temporary string
+    slotTempComplex,  ## some complex temporary (s.node field is used)
+    slotTempHandle,   ## some temporary handle into an object/array
+    slotTempPerm      ## slot is temporary but permanent (hack)
+
+  RegInfo = object
+    refCount: uint16
+    locReg: uint16 ## if the register stores a handle, `locReg` is the
+                   ## register storing the backing location
+    kind: TSlotKind
+
+  TBlock = object
+    label: PSym
+    fixups: seq[TPosition]
+
+  PProc* = ref object
+    blocks: seq[TBlock]
+      ## blocks; temp data structure
+    sym*: PSym
+    regInfo*: seq[RegInfo]
+
+    addressTaken: IntSet
+      ## the set of locations (identified by their symbol id) that have their
+      ## address taken or a view of them created. This information is used to
+      ## decide whether a full VM memory location is required, or if the
+      ## value can be stored in a register directly
+
+    # XXX: the value's type should be `TRegister`, but we need a sentinel
+    #      value (-1) for `getOrDefault`, so it has to be `int`
+    locals: Table[int, int]
+      ## symbol-id -> register index. Used for looking up the corresponding
+      ## register slot of each local (including parameters and `result`)
+
+  CodeGenCtx* = object
+    ## Bundles all input, output, and other contextual data needed for the
+    ## code generator
+    prc*: PProc
+
+    # immutable input parameters:
+    graph*: ModuleGraph
+    config*: ConfigRef
+    mode*: TEvalMode
+    features*: TSandboxFlags
+    module*: PSym
+
+    linking*: LinkerData
+
+    # input-output parameters:
+    code*: seq[TInstr]
+    debug*: seq[TLineInfo]
+    constants*: seq[VmConstant]
+    typeInfoCache*: TypeInfoCache
+    rtti*: seq[VmTypeInfo]
+
+  TCtx = CodeGenCtx ## legacy alias
 
 const
   IrrelevantTypes = abstractInst + {tyStatic, tyEnum} - {tyTypeDesc}
@@ -109,6 +179,11 @@ const
     ## also included
 
   noDest = TDest(-1)
+  slotSomeTemp* = slotTempUnknown
+
+proc getOrCreate*(c: var TCtx, typ: PType): PVmType {.inline.} =
+  var cl: GenClosure
+  getOrCreate(c.typeInfoCache, c.config, typ, cl)
 
 func raiseVmGenError(diag: sink VmGenDiag) {.noinline, noreturn.} =
   raise (ref VmGenError)(diag: diag)
@@ -240,9 +315,6 @@ func analyseIfAddressTaken(n: CgNode, locs: var IntSet) =
     for it in n.items:
       analyseIfAddressTaken(it, locs)
 
-
-func lookupConst(c: TCtx, sym: PSym): int {.inline.} =
-  c.symToIndexTbl[sym.id].int
 
 func isNimNode(t: PType): bool =
   ## Returns whether `t` is the ``NimNode`` magic type
@@ -836,7 +908,7 @@ proc genType(c: var TCtx; typ: PType): int =
   let t = c.getOrCreate(typ)
   # XXX: `getOrCreate` doesn't return the id directly yet. Once it does, the
   #      linear search below can be removed
-  result = c.types.find(t)
+  result = c.typeInfoCache.types.find(t)
   assert result != -1
 
   internalAssert(c.config, result <= regBxMax, "")
@@ -949,7 +1021,7 @@ proc genProcLit(c: var TCtx, n: CgNode, s: PSym; dest: var TDest) =
   if dest.isUnset:
     dest = c.getTemp(s.typ)
 
-  let idx = c.lookupProc(s).int
+  let idx = c.linking.symToIndexTbl[s.id].int
 
   c.gABx(n, opcLdNull, dest, c.genType(s.typ))
   c.gABx(n, opcWrProc, dest, idx)
@@ -2417,9 +2489,9 @@ proc useGlobal(c: var TCtx, n: CgNode): int =
       # not allowed
       fail(n.info, vmGenDiagCannotImportc, sym = s)
 
-    if s.id in c.symToIndexTbl:
+    if s.id in c.linking.symToIndexTbl:
       # XXX: double table lookup
-      result = c.symToIndexTbl[s.id].int
+      result = c.linking.symToIndexTbl[s.id].int
     else:
       # a global that is not accessible in the current context
       cannotEval(c, n)
@@ -2900,7 +2972,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     of skVar, skForVar, skTemp, skLet, skParam, skResult:
       genSym(c, n, dest)
     of skProc, skFunc, skConverter, skMacro, skMethod, skIterator:
-      if importcCond(c, s) and lookup(c.callbackKeys, s) == -1:
+      if importcCond(c, s) and lookup(c.linking.callbackKeys, s) == -1:
         fail(n.info, vmGenDiagCannotImportc, sym = s)
 
       genProcLit(c, n, s, dest)
@@ -2911,7 +2983,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
         let lit = genLiteral(c, s.ast)
         c.genLit(n, lit, dest)
       else:
-        let idx = c.lookupConst(s)
+        let idx = int c.linking.lookup(s)
         discard c.getOrCreate(s.typ)
         c.gABx(n, opcLdCmplxConst, dest, idx)
     else:
@@ -3041,7 +3113,8 @@ proc genStmt*(c: var TCtx; n: CgNode): Result[void, VmGenDiag] =
   c.config.internalAssert(d < 0, n.info, "VM problem: dest register is set")
   result = typeof(result).ok()
 
-proc genExpr*(c: var TCtx; n: CgNode): Result[TRegister, VmGenDiag] =
+proc genExpr*(c: var TCtx; n: CgNode): Result[void, VmGenDiag] =
+  ## Generates and emits the code for a standalone expression.
   analyseIfAddressTaken(n, c.prc.addressTaken)
 
   var d: TDest = -1
@@ -3054,8 +3127,11 @@ proc genExpr*(c: var TCtx; n: CgNode): Result[TRegister, VmGenDiag] =
   # expression
   c.config.internalAssert(d != noDest, n.info):
     "VM problem: dest register is not set"
+  # standalone expressions are treated as nullary procedures that
+  # directly return the value
+  c.gABC(n, opcRet, d)
 
-  result = typeof(result).ok(TRegister(d))
+  result = typeof(result).ok()
 
 
 proc genParams(prc: PProc; s: PSym) =

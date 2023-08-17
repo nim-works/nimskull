@@ -32,6 +32,8 @@ import
 
 import std/options as std_options
 
+from compiler/vm/vmlinker import LinkerData
+
 import vm_enums
 export vm_enums
 
@@ -70,7 +72,6 @@ type
                  ## changing the type in the future (distinct/width)
 
   TRegister* = range[0..regAMask.int]
-  TDest* = range[-1..regAMask.int]
   TInstr* = distinct TInstrType
 
   NumericConvKind* = enum
@@ -80,10 +81,6 @@ type
     nckIToF, nckUToF
     nckFToF ## float-to-float
     nckToB  ## float or int to bool
-
-  TBlock* = object
-    label*: PSym
-    fixups*: seq[TPosition]
 
   TEvalMode* = enum           ## reason for evaluation
     emRepl,                   ## evaluate because in REPL mode
@@ -100,21 +97,6 @@ type
     allowCast,                ## allow unsafe language feature: 'cast'
     allowInfiniteLoops        ## allow endless loops
   TSandboxFlags* = set[TSandboxFlag]
-
-  TSlotKind* = enum   # We try to re-use slots in a smart way to
-                      # minimize allocations; however the VM supports arbitrary
-                      # temporary slot usage. This is required for the parameter
-                      # passing implementation.
-    slotEmpty,        ## slot is unused
-    slotFixedVar,     ## slot is used for a fixed var/result (requires copy then)
-    slotFixedLet,     ## slot is used for a fixed param/let
-    slotTempUnknown,  ## slot but type unknown (argument of proc call)
-    slotTempInt,      ## some temporary int
-    slotTempFloat,    ## some temporary float
-    slotTempStr,      ## some temporary string
-    slotTempComplex,  ## some complex temporary (s.node field is used)
-    slotTempHandle,   ## some temporary handle into an object/array
-    slotTempPerm      ## slot is temporary but permanent (hack)
 
   CodeInfo* = tuple
     start: int ## The position where the bytecode starts
@@ -400,29 +382,6 @@ type
       strSlices*: seq[Slice[ConstantId]] ## Stores the ids of string constants
                                          ## as a storage optimization
 
-  RegInfo* = object
-    refCount*: uint16
-    locReg*: uint16 ## if the register stores a handle, `locReg` is the
-                    ## register storing the backing location
-    kind*: TSlotKind
-
-  PProc* = ref object
-    blocks*: seq[TBlock]    # blocks; temp data structure
-    sym*: PSym
-    regInfo*: seq[RegInfo]
-
-    addressTaken*: IntSet
-      ## the set of locations (identified by their symbol id) that have their
-      ## address taken or a view of them created. This information is used to
-      ## decide whether a full VM memory location is required, or if the
-      ## value can be stored in a register directly
-
-    # XXX: the value's type should be `TRegister`, but we need a sentinel
-    #      value (-1) for `getOrDefault`, so it has to be `int`
-    locals*: Table[int, int] ## symbol-id -> register index. Used for looking
-                             ## up the corresponding register slot of each
-                             ## local (including parameters and `result`)
-
   VmArgs* = object
     ra*, rb*, rc*: Natural
     slots*: ptr UncheckedArray[TFullReg]
@@ -443,8 +402,6 @@ type
     cache*: IdentCache
     idgen*: IdGenerator
 
-  IdentPattern* = distinct string ## A matcher pattern for a fully qualified
-                                  ## symbol identifier
   VmCallback* = proc (args: VmArgs) {.closure.}
 
   VmCell* = object
@@ -511,6 +468,8 @@ type
 
   TypeInfoCache* = object
     ## An append-only cache for everything type related
+    # future work: split everything related to the *production* of types into
+    # a type placed in ``vmtypegen``
     lut*: Table[ItemId, PVmType] ## `PType`-id -> `PVmType` mappings
     genericInsts*: Table[ItemId, seq[(PType, PVmType)]] ##
       ## 'generic type' -> 'known instantiations' mappings. Needed to make
@@ -556,16 +515,13 @@ type
   #        reused across compiler invocations (relevant for IC). Not mutated
   #        by the execution engine
   #      - code and debug information
-  #      - 'vmgen' state: auxiliary data used during code generation, reused
-  #        across vmgen invocations for efficiency
+  #      - (DONE) 'vmgen' state: auxiliary data used during code generation,
+  #        reused across vmgen invocations for efficiency
 
   CodeGenFlag* = enum
     cgfAllowMeta ## If not present, type or other meta expressions are
                  ## disallowed in imperative contexts and code-gen for meta
                  ## function arguments (e.g. `typedesc`) is suppressed
-
-  LinkIndex* = uint32 ## Depending on the context: `FunctionIndex`; index
-    ## into `TCtx.globals`; index into `TCtx.complexConsts`
 
   VmGenDiagKind* = enum
     # has no extra data
@@ -713,12 +669,6 @@ type
   VmRawStackTrace* = seq[tuple[sym: PSym, pc: PrgCtr]]
 
   TCtx* = object
-    # XXX: TCtx stores three different things:
-    #  - VM execution state
-    #  - VM environment (code, constants, type data, etc.)
-    #  - vmgen context/state
-    # These should be encapsulated into standalone types
-
     code*: seq[TInstr]
     debug*: seq[TLineInfo]  # line info for every instruction; kept separate
                             # to not slow down interpretation
@@ -736,15 +686,13 @@ type
       ## for each procedure known to the VM. Indexed by `FunctionIndex`
     memory*: VmMemoryManager
 
-    # code generator state:
-    symToIndexTbl*: Table[int, LinkIndex] ## keeps track of all known
-      ## dependencies. Expanded during code-generation and used for looking
-      ## up the link-index (e.g. `FunctionIndex`) of a symbol
-
     flags*: set[CodeGenFlag] ## flags that alter the behaviour of the code
       ## generator. Initialized by the VM's callsite and queried by the JIT.
-    # XXX: `flags` is code generator / JIT state, and needs to be moved out of
-    #      ``TCtx``
+    # XXX: ^^ make this a part of the JIT state as soon as possible
+
+    linking*: LinkerData
+    # XXX: ^^ should be made part of the JIT state but ``vmcompilerserdes``
+    #      currently blocks that
 
     # exception state:
     # XXX: this is thread-local state and should thus not be part of the
@@ -756,7 +704,6 @@ type
     activeExceptionTrace*: VmRawStackTrace ##
       ## the stack-trace of where the exception was raised from
 
-    prc*: PProc
     module*: PSym
     callsite*: PNode
     mode*: TEvalMode
@@ -765,9 +712,6 @@ type
     loopIterations*: int
     comesFromHeuristic*: TLineInfo # Heuristic for better macro stack traces
     callbacks*: seq[VmCallback]
-    callbackKeys*: seq[IdentPattern] ## The matcher patterns corresponding to
-      ## each entry in `callbacks`. Written during VM environment setup or
-      ## inbetween invocations. Read during code-generation.
     cache*: IdentCache
     config*: ConfigRef
     graph*: ModuleGraph
@@ -796,8 +740,6 @@ type
   Profiler* = object
     tEnter*: float
     sframe*: StackFrameIndex   ## The current stack frame
-
-  TPosition* = distinct int
 
 func `<`*(a, b: FieldIndex): bool {.borrow.}
 func `<=`*(a, b: FieldIndex): bool {.borrow.}
@@ -923,7 +865,6 @@ proc initCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
     debug: @[],
     globals: @[],
     constants: @[],
-    prc: PProc(blocks: @[]),
     module: module,
     loopIterations: g.config.maxLoopIterationsVM,
     comesFromHeuristic: unknownLineInfo,
@@ -944,15 +885,11 @@ proc initCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
 func refresh*(c: var TCtx, module: PSym; idgen: IdGenerator) =
   addInNimDebugUtils(c.config, "refresh")
   c.module = module
-  c.prc = PProc(blocks: @[])
   c.loopIterations = c.config.maxLoopIterationsVM
   c.idgen = idgen
 
 const pseudoAtomKinds* = {akObject, akArray}
 const realAtomKinds* = {low(AtomKind)..high(AtomKind)} - pseudoAtomKinds
-
-const
-  slotSomeTemp* = slotTempUnknown
 
 # flag is used to signal opcSeqLen if node is NimNode.
 const nimNodeFlag* = 16

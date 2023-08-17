@@ -41,6 +41,7 @@ import
     vmcompilerserdes,
     vmdef,
     vmgen,
+    vmlinker,
     vmmemory,
     vmtypegen
   ],
@@ -62,6 +63,8 @@ type
       ## acts as the source-of-truth regarding what entities exists. All
       ## entities not registered with `discovery` also don't exist in
       ## ``TCtx``
+    gen: CodeGenCtx
+      ## code generator state
 
 func selectOptions(c: TCtx): set[GenOption] =
   result = {goIsNimvm}
@@ -70,6 +73,28 @@ func selectOptions(c: TCtx): set[GenOption] =
 
   if c.mode in {emConst, emOptimize, emStaticExpr, emStaticStmt}:
     result.incl goIsCompileTime
+
+func swapState(c: var TCtx, gen: var CodeGenCtx) =
+  ## Swaps the values of the fields shared between ``TCtx`` and ``CodeGenCtx``.
+  ## This achieves reasonably fast mutable-borrow-like semantics without
+  ## resorting to pointers.
+  template swap(field: untyped) =
+    swap(c.field, gen.field)
+
+  # input parameters:
+  swap(graph)
+  swap(config)
+  swap(mode)
+  swap(features)
+  swap(module)
+  swap(linking)
+
+  # input-output parameters:
+  swap(code)
+  swap(debug)
+  swap(constants)
+  swap(typeInfoCache)
+  swap(rtti)
 
 proc updateEnvironment(c: var TCtx, data: var DiscoveryData) =
   ## Needs to be called after a `vmgen` invocation and prior to resuming
@@ -152,22 +177,22 @@ func discoverGlobalsAndRewrite(data: var DiscoveryData, tree: var MirTree,
   # can rewrite all defs in one go:
   rewriteGlobalDefs(tree, source, outermost = false)
 
-func register(c: var TCtx, data: DiscoveryData) =
+func register(linker: var LinkerData, data: DiscoveryData) =
   ## Registers the newly discovered entities in the link table, but doesn't
   ## commit to them yet.
   for i, it in peek(data.procedures):
-    c.symToIndexTbl[it.id] = LinkIndex(i)
+    linker.symToIndexTbl[it.id] = LinkIndex(i)
 
   for i, it in peek(data.constants):
-    c.symToIndexTbl[it.id] = LinkIndex(i)
+    linker.symToIndexTbl[it.id] = LinkIndex(i)
 
   # first register globals, then threadvars. This order must be the same as
   # the one they're later committed to in
   for i, it in peek(data.globals):
-    c.symToIndexTbl[it.id] = LinkIndex(i)
+    linker.symToIndexTbl[it.id] = LinkIndex(i)
 
   for i, it in peek(data.threadvars):
-    c.symToIndexTbl[it.id] = LinkIndex(i)
+    linker.symToIndexTbl[it.id] = LinkIndex(i)
 
 proc generateMirCode(c: var TCtx, n: PNode;
                      isStmt = false): (MirTree, SourceMap) =
@@ -184,6 +209,16 @@ proc generateIR(c: var TCtx, tree: sink MirTree,
   if tree.len > 0: generateIR(c.graph, c.idgen, c.module, tree, source)
   else:            newNode(cnkEmpty)
 
+template runCodeGen(c: var TCtx, cg: var CodeGenCtx, n: CgNode,
+                    body: untyped): untyped =
+  ## Prepares the code generator's context and then executes `body`. A
+  ## delimiting 'eof' instruction is emitted at the end.
+  swapState(c, cg)
+  let r = body
+  cg.gABC(n, opcEof)
+  swapState(c, cg)
+  r
+
 proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   ## Generates and emits code for the standalone top-level statement `n`.
   c.removeLastEof()
@@ -193,21 +228,23 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
   applyPasses(tree, sourceMap, c.module, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
-  register(c, jit.discovery)
+  register(c.linking, jit.discovery)
 
   let
     n = generateIR(c, tree, sourceMap)
     start = c.code.len
-    r = vmgen.genStmt(c, n)
+
+  # generate the bytecode:
+  jit.gen.prc = PProc()
+  let r = runCodeGen(c, jit.gen, n): genStmt(jit.gen, n)
 
   if unlikely(r.isErr):
     rewind(jit.discovery)
     return VmGenResult.err(r.takeErr)
 
-  c.gABC(n, opcEof)
   updateEnvironment(c, jit.discovery)
 
-  result = VmGenResult.ok: (start: start, regCount: c.prc.regInfo.len)
+  result = VmGenResult.ok: (start: start, regCount: jit.gen.prc.regInfo.len)
 
 proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   ## Generates and emits code for the standalone expression `n`
@@ -229,21 +266,23 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
   applyPasses(tree, sourceMap, c.module, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
-  register(c, jit.discovery)
+  register(c.linking, jit.discovery)
 
   let
     n = generateIR(c, tree, sourceMap)
     start = c.code.len
-    r = vmgen.genExpr(c, n)
+
+  # generate the bytecode:
+  jit.gen.prc = PProc()
+  let r = runCodeGen(c, jit.gen, n): genExpr(jit.gen, n)
 
   if unlikely(r.isErr):
     rewind(jit.discovery)
     return VmGenResult.err(r.takeErr)
 
-  c.gABC(n, opcRet, r.unsafeGet)
   updateEnvironment(c, jit.discovery)
 
-  result = VmGenResult.ok: (start: start, regCount: c.prc.regInfo.len)
+  result = VmGenResult.ok: (start: start, regCount: jit.gen.prc.regInfo.len)
 
 proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   c.removeLastEof()
@@ -269,17 +308,18 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
   applyPasses(tree, sourceMap, s, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
-  register(c, jit.discovery)
+  register(c.linking, jit.discovery)
 
   let outBody = generateIR(c.graph, c.idgen, s, tree, sourceMap)
   echoOutput(c.config, s, outBody)
 
-  result = genProc(c, s, outBody)
+  # generate the bytecode:
+  result = runCodeGen(c, jit.gen, outBody): genProc(jit.gen, s, outBody)
+
   if unlikely(result.isErr):
     rewind(jit.discovery)
     return
 
-  c.gABC(outBody, opcEof)
   updateEnvironment(c, jit.discovery)
 
 proc registerProcedure*(jit: var JitState, c: var TCtx, prc: PSym): FunctionIndex =
@@ -295,13 +335,13 @@ proc registerProcedure*(jit: var JitState, c: var TCtx, prc: PSym): FunctionInde
   c.functions.setLen(jit.discovery.procedures.len)
   for i, it in visit(jit.discovery.procedures):
     assert it == prc
-    c.symToIndexTbl[it.id] = LinkIndex(i)
+    c.linking.symToIndexTbl[it.id] = LinkIndex(i)
     c.functions[i] = initProcEntry(c, it)
     index = i
 
   if index == -1:
     # no entry was added -> one must exist already
-    result = FunctionIndex(c.symToIndexTbl[prc.id])
+    result = FunctionIndex(c.linking.symToIndexTbl[prc.id])
   else:
     result = FunctionIndex(index)
 
@@ -347,5 +387,5 @@ proc registerCallback*(c: var TCtx; pattern: string; callback: VmCallback) =
   ## procedure at run-time will invoke the callback instead.
   # XXX: consider renaming this procedure to ``registerOverride``
   c.callbacks.add(callback) # some consumers rely on preserving registration order
-  c.callbackKeys.add(IdentPattern(pattern))
-  assert c.callbacks.len == c.callbackKeys.len
+  c.linking.callbackKeys.add(IdentPattern(pattern))
+  assert c.callbacks.len == c.linking.callbackKeys.len

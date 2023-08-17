@@ -182,11 +182,8 @@ proc loadIntoContext(c: var TCtx, p: PackedEnv) =
     discard loadConst(p, x.packedId.int, handle, c.memory)
     handle
 
-  mapList(c.callbackKeys, p.callbacks, it):
-    # the actual callback procs are setup separately via ``registerCallbacks``
-    IdentPattern(it)
-
-proc loadFromFile(c: var TCtx, file: AbsoluteFile): Result[FunctionIndex, RodFileError] =
+proc loadFromFile(c: var TCtx, overrides: var seq[string],
+                  file: AbsoluteFile): Result[FunctionIndex, RodFileError] =
   var p: PackedEnv
   let err = readFromFile(p, file)
   if err != RodFileError.ok:
@@ -195,16 +192,17 @@ proc loadFromFile(c: var TCtx, file: AbsoluteFile): Result[FunctionIndex, RodFil
 
   loadIntoContext(c, p)
   c.code = move p.code
+  overrides = move p.callbacks
 
   result.initSuccess(p.entryPoint)
 
-proc registerCallbacks(c: var TCtx): bool =
+proc registerCallbacks(c: var TCtx, expected: seq[string]): bool =
   ## Registers the callbacks and makes sure that they match with the ones the
   ## executable expects. Returns 'true' on success and 'false' otherwise
-  var other: seq[IdentPattern]
+  var got: seq[string] ## the patterns of the overrides the runner supplies
 
   template cb(pattern: string, prc: VmCallback) =
-    other.add IdentPattern(pattern)
+    got.add pattern
     c.callbacks.add prc
 
   template register(iter: untyped) =
@@ -222,7 +220,7 @@ proc registerCallbacks(c: var TCtx): bool =
   cb "stdlib.system.getOccupiedMem", proc (a: VmArgs) =
     setResult(a, a.mem.allocator.getUsedMem().int)
 
-  if c.callbackKeys.len != other.len:
+  if expected.len != got.len:
     # this means one of the following:
     # - the runner and the executable's compiler were built from different
     #  compiler sources
@@ -233,9 +231,9 @@ proc registerCallbacks(c: var TCtx): bool =
   # then make sure that the callbacks are at the indices the function table
   # entries expect them to be:
   result = true
-  for i, p in c.callbackKeys.pairs:
-    if other[i].string != p.string:
-      echo "expected '$#' callback but got '$#'" % [p.string, other[i].string]
+  for i, p in expected.pairs:
+    if got[i] != p:
+      echo "expected '$#' callback but got '$#'" % [p, got[i]]
       result = false
 
 # TODO: remove legacy VMReport and these conversion procs
@@ -366,18 +364,20 @@ proc main*(args: seq[string]): int =
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       conf.writeHook(conf, msg & "\n", flags)
 
+  var overrides: seq[string]
   # setup the execution context
   var c = TCtx(config: config, mode: emStandalone,
                vmtraceHandler: legacyReportsVmTracer)
   c.features.incl(allowInfiniteLoops)
   c.heap.slots.newSeq(1) # setup the heap
 
-  let lr = loadFromFile(c, toAbsolute(args[0], getCurrentDir().AbsoluteDir))
+  let lr = loadFromFile(c, overrides,
+                        toAbsolute(args[0], getCurrentDir().AbsoluteDir))
   if lr.isErr:
     echo "failed to load file: ", lr.takeErr
     return 1
 
-  if not registerCallbacks(c):
+  if not registerCallbacks(c, overrides):
     # callback setup failed -> abort
     echo "failed to register callbacks"
     return 1
