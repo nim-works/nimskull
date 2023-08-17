@@ -81,7 +81,7 @@ func swapState(c: var TCtx, gen: var CodeGenCtx) =
   template swap(field: untyped) =
     swap(c.field, gen.field)
 
-  # inpute parameters:
+  # input parameters:
   swap(graph)
   swap(config)
   swap(mode)
