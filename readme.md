@@ -66,13 +66,16 @@ For updates on the progress see the roadmap progress [thread](https://github.com
 
 The current and key areas of development are as follows:
 
-1. improve tests - core specification as tests (see `slim the core` below).
+1. decouple the data types used by the different compilation stages
+2. simplify the code generators - perform much of the transformation and lowering
+   via passes over the mid-end IR
+3. improve tests - core specification as tests (see `slim the core` below).
    Reorganize existing tests. [Project](https://github.com/nim-works/nimskull/projects/2)
    to track progress.
-2. nkError/tyError/skerror - replace `localError` etc approach with an AST
+4. nkError/tyError/skerror - replace `localError` etc approach with an AST
    (`nkError`) one [Project](https://github.com/nim-works/nimskull/projects/1)
-3. comments - incrementally document compiler source for easier learning
-4. slim the core - remove dialects, backwards compatibility, etc [Discussion](https://github.com/nim-works/nimskull/discussions/289)
+5. comments - incrementally document compiler source for easier learning
+6. slim the core - remove dialects, backwards compatibility, etc [Discussion](https://github.com/nim-works/nimskull/discussions/289)
 
 There are more, the above have been carefully chosen based on the direction of
 the language; moreover, their impact goes beyond what's been described and
@@ -80,6 +83,8 @@ intends to create a virtuous cycle. Examples:
 
 * clarifying the language specification will identify bugs and design flaws that
   in turn will be fixed.
+* moving decision making out of the code generators will make behaviour of the
+  backends consistent with each other
 * changes introduced via nkError result in more pure code (`func`) as control-
   flow and effects are no longer intertwined; lead to bug and language
   design fixes due to a broad audit, ease compiler as a library usage for tools
