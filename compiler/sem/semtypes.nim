@@ -990,7 +990,6 @@ proc addInheritedFieldsAux(c: PContext, check: var IntSet, pos: var int,
   case n.kind
   of nkRecCase:
     c.config.internalAssert(n[0].kind == nkSym, n.info, "addInheritedFieldsAux")
-
     addInheritedFieldsAux(c, check, pos, n[0])
     for i in 1..<n.len:
       case n[i].kind
@@ -998,7 +997,6 @@ proc addInheritedFieldsAux(c: PContext, check: var IntSet, pos: var int,
         addInheritedFieldsAux(c, check, pos, lastSon(n[i]))
       else:
         internalError(c.config, n.info, "addInheritedFieldsAux(record case branch)")
-
   of nkRecList, nkRecWhen, nkElifBranch, nkElse:
     for i in int(n.kind == nkElifBranch)..<n.len:
       addInheritedFieldsAux(c, check, pos, n[i])
@@ -1017,7 +1015,7 @@ proc skipGenericInvocation(t: PType): PType {.inline.} =
 
 proc addInheritedFields(c: PContext, check: var IntSet, pos: var int,
                         obj: PType) =
-  assert obj.kind == tyObject
+  assert obj.kind == tyObject, $obj.kind
   if (obj.len > 0) and (obj[0] != nil):
     addInheritedFields(c, check, pos, obj[0].skipGenericInvocation)
   addInheritedFieldsAux(c, check, pos, obj.n)

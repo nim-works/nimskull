@@ -3,7 +3,7 @@ discard """
   targets: "c js"
 """
 
-import json, strutils, options, tables
+import std/[json, strutils, options, tables]
 
 # The definition of the `%` proc needs to be here, since the `% c` calls below
 # can only find our custom `%` proc for `Pix` if defined in global scope.
@@ -645,6 +645,15 @@ proc testJson() =
       five: -10
     ]
     doAssert (%* a).to(a.typeof) == a
+
+  block:
+    type
+      Car = object
+        engine: (string, float)
+        model: string
+    let j = """{"engine": {"name": "V8", "capacity": 5.5}, "model": "Skyline"}"""
+    let parsed = parseJson(j)
+    doAssert not compiles(to(parsed, Car))
 
 
 testJson()

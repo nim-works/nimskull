@@ -1638,12 +1638,13 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
       n[^2] = implicitIterator(c, "pairs", n[^2])
     else:
       localReport(c.config, n[^2], reportSem(rsemForExpectsIterator))
-
     result = semForVars(c, n, flags)
   else:
     result = semForVars(c, n, flags)
-  # propagate any enforced VoidContext:
-  if n[^1].typ == c.enforceVoidContext:
+  if result.kind == nkError:
+    discard # do nothing
+  elif n[^1].typ == c.enforceVoidContext:
+    # propagate any enforced VoidContext:
     result.typ = c.enforceVoidContext
   elif efInTypeof in flags:
     result.typ = result.lastSon.typ
