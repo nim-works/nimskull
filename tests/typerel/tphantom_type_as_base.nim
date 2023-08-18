@@ -73,3 +73,24 @@ block with_ptr_object:
   proc p(x: ptr Sub): int = 3
   # the more precise overload matches:
   doAssert p(addr obj) == 3
+
+block with_intermediate_non_object_base:
+  # test the case where an intermediate base type is a ``ref`` or
+  # ``ptr`` while formal type is not
+  type
+    Root[T] = object of RootObj
+
+    First   = ref object of Root[int]
+    Second  = object of First
+
+    GFirst[T] = ref object of Root[T]
+    GSecond   = object of GFirst[float]
+
+  proc p(x: Root[int]): int = 1
+  proc p(x: Root[float]): int = 2
+
+  # test with non-generic intermediate base:
+  doAssert p(Second()) == 1
+
+  # test with generic intermediate base:
+  doAssert p(GSecond()) == 2

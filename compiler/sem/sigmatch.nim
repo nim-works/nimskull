@@ -475,18 +475,22 @@ proc isSubtypeOfGenericInstance(c: var TCandidate; a, f: PType, fGenericOrigin: 
   ## where `f` is a ``tyGenericInst``. The inheritance depth is returned,
   ## or, if the types are not related, -1.
   ##
-  ## In case of a match, the unresolved generic parameters of `f` are bound to
-  ## the arguments taken from the base type of actual that matched.
+  ## In case of a subtype relationship existing, the unbound generic parameters
+  ## of `f` are bound to the respective parameters of `a`.
   assert f.kind == tyGenericInst
   var
     askip = skippedNone
     fskip = skippedNone
 
     t = a.skipToObject(askip)
-    last = t ## the unskipped type
+    last = t ## the most recently compared unskipped type
 
   assert t != nil, "'a' is not object-like type"
   discard f.skipToObject(fskip) # only compute the skip kind
+
+  if fskip != askip:
+    # one is a ref|ptr object while the other is not -> no relationship
+    return -1
 
   proc isEqual(c: var TCandidate, f, a: PType): bool {.nimcall.} =
     if f.id == a.id: # fast equality check
@@ -507,15 +511,16 @@ proc isSubtypeOfGenericInstance(c: var TCandidate; a, f: PType, fGenericOrigin: 
 
   # traverse the type hieararchy until we either reach the end or find a type
   # that is equal to `f`
-  while t != nil and askip == fskip and not isEqual(c, f, last):
+  while t != nil and not isEqual(c, f, last):
     t = t.base
     if t.isNil:
       break # we reached the end
     last = t
-    t = t.skipToObject(askip)
+    var skip: SkippedPtr # ignore skip
+    t = t.skipToObject(skip)
     inc result
 
-  if t != nil and askip == fskip:
+  if t != nil:
     genericParamPut(c, last, f)
   else:
     result = -1 # no relationship
