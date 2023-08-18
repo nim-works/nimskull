@@ -1062,7 +1062,8 @@ proc initFromJson[T](dst: var OrderedTable[string, T]; jsonNode: JsonNode; jsonP
 proc initFromJson[T](dst: var ref T; jsonNode: JsonNode; jsonPath: var string)
 proc initFromJson[T](dst: var Option[T]; jsonNode: JsonNode; jsonPath: var string)
 proc initFromJson[T: distinct](dst: var T; jsonNode: JsonNode; jsonPath: var string)
-proc initFromJson[T: object|tuple](dst: var T; jsonNode: JsonNode; jsonPath: var string)
+proc initFromJson[T: tuple](dst: var T; jsonNode: JsonNode; jsonPath: var string)
+proc initFromJson[T: object](dst: var T; jsonNode: JsonNode; jsonPath: var string)
 
 # initFromJson definitions
 
