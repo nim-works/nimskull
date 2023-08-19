@@ -40,7 +40,6 @@ Define                        Enables
 `nimDebugUtils`               Allows for semantic analysis execution tracing and more
 `nimDebugUnreportedErrors`    Enable unreported error debugging
 `nimVMDebugExecute`           Print out every instruction executed by the VM
-`nimVMDebugGenerate`          List VM code generated for every procedure called at compile-time
 `nimCompilerStacktraceHints`  Add extra information (node location + kind) to some
 ============================= =======
 
@@ -447,11 +446,14 @@ respective name.
 VM Codegen and Execution
 ========================
 
-VM code generation prints all of the generated procedures. If this is not
-needed (which would be the majority of use cases) you can add
-`--define:expandVmListing=vmTarget`:option: to print only the code
-generated for this proc. For example (generated listing might not match
-exactly)
+For echoing the VM bytecode generated for compile-time procedures and macros,
+`--define:expandVmListing=vmTarget`:option: can be passed to the compiler (no
+special build of the compiler is required). The bytecode for all routines of
+which the name is `vmTarget` is then echoed to the standard output. Leaving
+`vmTarget` empty enables echoing for *all* VM bytecode that is generated as
+part of compile-time execution.
+
+For example (generated listing might not match exactly)
 
 .. code-block:: nim
 
@@ -474,7 +476,7 @@ exactly)
 
 .. code-block:: literal
 
-    Code listing for the 'vmTarget' file.nim(6, 6)
+    Code listing for 'vmTarget' file.nim(6, 6)
 
       LdConst      r3     $     1279                system.nim(2005, 30)
       LdObj        r6     r1     r0                 file.nim(7, 11)

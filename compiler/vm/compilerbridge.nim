@@ -46,14 +46,12 @@ import
     vmlegacy,
     vmops,
     vmtypegen,
+    vmutils,
     vm
   ],
   experimental/[
     results
   ]
-
-when defined(nimVMDebugGenerate):
-  import compiler/vm/vmutils
 
 import std/options as std_options
 
@@ -104,6 +102,15 @@ const evalMacroLimit = 1000
 
 # prevent a default `$` implementation from being generated
 func `$`(e: ExecErrorReport): string {.error.}
+
+proc logBytecode(c: TCtx, owner: PSym, start: int) =
+  ## If enabled, renders the bytecode ranging from `start` to the current end
+  ## into text that is then written to the standard output.
+  const Symbol = "expandVmListing"
+  if owner != nil and c.config.isDefined(Symbol):
+    if c.config.getDefined(Symbol) == owner.name.s:
+      let listing = codeListing(c, start)
+      c.config.msgWrite: renderCodeListing(c.config, owner, listing)
 
 proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
                 formal: PType) =
@@ -371,6 +378,7 @@ proc execute(jit: var JitState, c: var TCtx, start: int, frame: sink TStackFrame
         break
       # success! ``compile`` updated the procedure's entry, so we can
       # continue execution
+      logBytecode(c, c.functions[r.entry.int].sym, res.get.start)
     of yrkEcho:
       # vm yielded with an echo
       # xxx: `localReport` and report anything needs to be replaced, this is
@@ -518,9 +526,8 @@ proc eval(jit: var JitState, c: var TCtx; prc: PSym, n: PNode): PNode =
 
   if c.code[start].opcode == opcEof: return newNodeI(nkEmpty, n.info)
   assert c.code[start].opcode != opcEof
-  when defined(nimVMDebugGenerate):
-    c.config.localReport():
-      initVmCodeListingReport(c, prc, n)
+
+  logBytecode(c, prc, start)
 
   var tos = TStackFrame(prc: prc, comesFrom: 0)
   tos.slots.newSeq(regCount)
@@ -594,7 +601,12 @@ proc evalMacroCall*(jit: var JitState, c: var TCtx, call, args: PNode,
     c.mode = oldMode
     c.callsite = nil
 
+  let wasAvailable = isAvailable(c, sym)
   let (start, regCount) = loadProc(jit, c, sym).returnOnErr(c.config, call)
+
+  # make sure to only output the code listing once:
+  if not wasAvailable:
+    logBytecode(c, sym, start)
 
   var tos = TStackFrame(prc: sym, comesFrom: 0)
   tos.slots.newSeq(regCount)

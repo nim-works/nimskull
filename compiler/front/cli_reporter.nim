@@ -2769,57 +2769,6 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
       tern(exec.rc == rkNone, "", $exec.rc)
     )
 
-  of rdbgVmCodeListing:
-    result.add "Code listing"
-    let l = r.vmgenListing
-
-    if not l.sym.isNil():
-      result.addf(
-        " for the '$#' $#\n\n",
-        l.sym.name.s,
-        conf.toStr(l.sym.info))
-    else:
-      result.add "\n\n"
-
-    for e in r.vmgenListing.entries:
-      if e.isTarget:
-        result.add("L:", e.pc, "\n")
-
-      func `$<`[T](arg: T): string = alignLeft($arg, 5)
-      func `$<`(opc: TOpcode): string = alignLeft(opc.toStr, 12)
-
-      var line: string
-
-      case e.opc
-      of {opcIndCall, opcIndCallAsgn}:
-        line.addf("  $# r$# r$# #$#", $<e.opc, $<e.ra, $<e.rb, $<e.rc)
-      of {opcConv, opcCast}:
-        line.addf(
-          "  $# r$# r$# $# $#",
-          $<e.opc,
-          $<e.ra,
-          $<e.rb,
-          $<e.types[0].typeToString(),
-          $<e.types[1].typeToString())
-      elif e.opc < firstABxInstr:
-        line.addf("  $# r$# r$# r$#", $<e.opc, $<e.ra, $<e.rb, $<e.rc)
-      elif e.opc in relativeJumps + {opcTry}:
-        line.addf("  $# r$# L$#", $<e.opc, $<e.ra, $<e.idx)
-      elif e.opc in {opcExcept}:
-        line.addf("  $# $# $#", $<e.opc, $<e.ra, $<e.idx)
-      elif e.opc in {opcLdConst, opcAsgnConst}:
-        line.addf(
-          "  $# r$# $# $#",
-          $<e.opc, $<e.ra, $<e.ast.renderTree(), $<e.idx)
-      else:
-        line.addf("  $# r$# $#", $<e.opc, $<e.ra, $<e.idx)
-
-      result.add(
-        line,
-        tern(line.len <= 48, repeat(" ", 48 - line.len), ""),
-        toStr(conf, e.info),
-        "\n")
-
 proc reportFull*(conf: ConfigRef, r: DebugReport): string =
   assertKind r
   result = reportBody(conf, r)

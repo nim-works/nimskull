@@ -76,9 +76,6 @@ from compiler/ast/report_enums import ReportKind
 #      the ground that can cover.
 from compiler/ast/reports import Report, wrap
 
-when defined(nimVMDebugGenerate):
-  import compiler/vm/vmutils
-
 # XXX: instead of `assert` a special `vmAssert` could be used for internal
 #      checks. This would allow for also reporting things like the current
 #      executed instruction

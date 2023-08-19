@@ -6,28 +6,26 @@
 
 import
   std/[
-    intsets
+    intsets,
+    strutils
   ],
   compiler/ast/[
     ast,
     lineinfos,
+    renderer,
+    typesrenderer,
+  ],
+  compiler/front/[
+    options
   ],
   compiler/vm/[
     vmdef
   ]
 
-# TODO: remove legacy reports cruft
-import compiler/ast/reports
-import compiler/ast/reports_debug
+from compiler/front/msgs import toFileLineCol
 
 type
-  VmGenCodeListing* = tuple[
-      sym: PSym,
-      ast: PNode,
-      entries: seq[DebugVmCodeEntry]
-    ]
-
-  VmDebugCodeEntry* = object
+  DebugVmCodeEntry* = object
     isTarget*: bool
     info*: TLineInfo
     pc*: int
@@ -44,7 +42,7 @@ type
     rc*: int
 
 
-func codeListing*(c: TCtx; start = 0; last = -1): seq[DebugVmCodeEntry] =
+proc codeListing*(c: TCtx; start = 0; last = -1): seq[DebugVmCodeEntry] =
   ## Produces a listing of the instructions in `c` that are located in the
   ## instruction range ``start..last``. If ``last < 0``, then all instructions
   ## after position `start` are included in the listing. The instructions are
@@ -105,14 +103,54 @@ func codeListing*(c: TCtx; start = 0; last = -1): seq[DebugVmCodeEntry] =
     result.add code
     inc i
 
-func initVmCodeListingReport*(c: TCtx, prc: PSym, ast: PNode;
-                              start = 0; last = -1): DebugReport =
-  ## Convenience procedure for initializing a code-listing debug report with
-  ## the given arguments.
-  ##
-  ## See also:
-  ## * `codeListing <#codeListing,TCtx,int,int>`_
-  result = DebugReport(kind: rdbgVmCodeListing)
-  result.vmgenListing.sym = prc
-  result.vmgenListing.ast = ast
-  result.vmgenListing.entries = codeListing(c, start, last)
+proc renderCodeListing*(config: ConfigRef, sym: PSym,
+                        entries: seq[DebugVmCodeEntry]): string =
+  ## Renders the code listing `entries` to text. `sym` is an optional symbol
+  ## that, if provided, is used for providing additional context.
+  if sym != nil:
+    result = "Code Listing for '$1' $2" %
+             [sym.name.s, config.toFileLineCol(sym.info)]
+  else:
+    result = "Code Listing for <unknown>"
+
+  result.add "\n\n"
+
+  var line: string # re-used for efficiency
+  for e in entries:
+    if e.isTarget:
+      result.addf("L:$1\n", e.pc)
+
+    func `$<`[T](arg: T): string =
+      alignLeft($arg, 5)
+    func `$<`(opc: TOpcode): string =
+      # cut off the enum prefix
+      alignLeft(substr($opc, 3), 12)
+
+    line.setLen(0)
+
+    case e.opc
+    of opcIndCall, opcIndCallAsgn:
+      line.addf("  $# r$# r$# #$#", $<e.opc, $<e.ra, $<e.rb, $<e.rc)
+    of opcConv, opcCast:
+      line.addf("  $# r$# r$# $# $#",
+                $<e.opc, $<e.ra, $<e.rb,
+                $<e.types[0].typeToString(),
+                $<e.types[1].typeToString())
+    elif e.opc < firstABxInstr:
+      line.addf("  $# r$# r$# r$#", $<e.opc, $<e.ra, $<e.rb, $<e.rc)
+    elif e.opc in relativeJumps + {opcTry}:
+      line.addf("  $# r$# L$#", $<e.opc, $<e.ra, $<e.idx)
+    elif e.opc in {opcExcept}:
+      line.addf("  $# $# $#", $<e.opc, $<e.ra, $<e.idx)
+    elif e.opc in {opcLdConst, opcAsgnConst}:
+      line.addf("  $# r$# $# $#",
+                $<e.opc, $<e.ra, $<e.ast.renderTree(), $<e.idx)
+    else:
+      line.addf("  $# r$# $#", $<e.opc, $<e.ra, $<e.idx)
+
+    result.add alignLeft(line, 48)
+    result.add toFileLineCol(config, e.info)
+    result.add "\n"
+
+  # one final line break
+  result.add "\n"

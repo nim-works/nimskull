@@ -6,7 +6,6 @@
 
 import
   compiler/ast/[
-    ast_types,
     lineinfos,
     reports_base,
     report_enums,
@@ -17,22 +16,6 @@ import
   compiler/vm/vm_enums
 
 type
-  DebugVmCodeEntry* = object
-    isTarget*: bool
-    info*: TLineInfo
-    pc*: int
-    idx*: int
-    case opc*: TOpcode:
-      of opcConv, opcCast:
-        types*: tuple[tfrom, tto: PType]
-      of opcLdConst, opcAsgnConst:
-        ast*: PNode
-      else:
-        discard
-    ra*: int
-    rb*: int
-    rc*: int
-
   DebugReport* = object of DebugReportBase
     case kind*: ReportKind
       of rdbgOptionsPush, rdbgOptionsPop:
@@ -50,13 +33,6 @@ type
         vmgenExecMinimal*: tuple[
           info: TLineInfo,
           opc: TOpcode
-        ]
-
-      of rdbgVmCodeListing:
-        vmgenListing*: tuple[
-          sym: PSym,
-          ast: PNode,
-          entries: seq[DebugVmCodeEntry]
         ]
 
       else:

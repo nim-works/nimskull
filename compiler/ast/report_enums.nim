@@ -838,7 +838,6 @@ type
     #----------------------------  Debug reports  ----------------------------#
     rdbgVmExecTraceFull
     rdbgVmExecTraceMinimal
-    rdbgVmCodeListing
 
     rdbgOptionsPush
     rdbgOptionsPop
