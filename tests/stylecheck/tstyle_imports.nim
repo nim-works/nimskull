@@ -53,7 +53,7 @@ import
   logging,
   macrocache,
   macros,
-  #marshal, # imports `typeinfo`
+  marshal,
   math,
   md5,
   memfiles,
