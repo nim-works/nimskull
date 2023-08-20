@@ -1082,7 +1082,7 @@ typeRel can be used to establish various relationships between types:
 
   if a.kind == tyGenericInst and
       skipTypes(f, {tyStatic, tyVar, tyLent, tySink}).kind notin {
-        tyGenericBody, tyGenericInvocation,
+        tyGenericBody, tyGenericInvocation, tyDistinct,
         tyGenericInst, tyGenericParam} + tyTypeClasses:
     return typeRel(c, f, lastSon(a), flags)
 
@@ -1368,7 +1368,9 @@ typeRel can be used to establish various relationships between types:
           inc(c.inheritancePenalty, depth)
           result = isSubtype
   of tyDistinct:
-    a = a.skipTypes({tyGenericInst, tyRange})
+    # FIXME: don't skip ``tyRange`` here. A ``range[D(0) .. D(1)`` is not
+    #        equal to ``D = distinct int``
+    a = a.skipTypes({tyRange})
     if a.kind == tyDistinct:
       if sameDistinctTypes(f, a):
         result = isEqual
