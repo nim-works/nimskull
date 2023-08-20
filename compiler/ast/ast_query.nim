@@ -272,6 +272,14 @@ proc isMetaType*(t: PType): bool =
 proc isUnresolvedStatic*(t: PType): bool =
   return t.kind == tyStatic and t.n == nil
 
+proc isUnresolvedSym*(s: PSym): bool =
+  result = s.kind == skGenericParam
+  if not result and s.typ != nil:
+    result = tfInferrableStatic in s.typ.flags or
+        (s.kind == skParam and s.typ.isMetaType) or
+        (s.kind == skType and
+        s.typ.flags * {tfGenericTypeParam, tfImplicitTypeParam} != {})
+
 template fileIdx*(c: PSym): FileIndex =
   assert c.kind == skModule, "this should be used only on module symbols"
   c.position.FileIndex

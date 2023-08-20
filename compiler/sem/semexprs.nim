@@ -869,14 +869,6 @@ proc fixAbstractType(c: PContext, n: PNode): PNode =
 proc isAssignable(c: PContext, n: PNode; isUnsafeAddr=false): TAssignableResult =
   result = parampatterns.isAssignable(c.p.owner, n, isUnsafeAddr)
 
-proc isUnresolvedSym(s: PSym): bool =
-  result = s.kind == skGenericParam
-  if not result and s.typ != nil:
-    result = tfInferrableStatic in s.typ.flags or
-        (s.kind == skParam and s.typ.isMetaType) or
-        (s.kind == skType and
-        s.typ.flags * {tfGenericTypeParam, tfImplicitTypeParam} != {})
-
 proc hasUnresolvedArgs(c: PContext, n: PNode): bool =
   # Checks whether an expression depends on generic parameters that
   # don't have bound values yet. E.g. this could happen in situations
@@ -1582,7 +1574,7 @@ proc readTypeParameter(c: PContext, typ: PType,
                        paramName: PIdent, info: TLineInfo): PNode =
   # Note: This function will return emptyNode when attempting to read
   # a static type parameter that is not yet resolved (e.g. this may
-  # happen in proc signatures such as `proc(x: T): array[T.sizeParam, U]`
+  # happen in types such as ``type Typ[T] = arary[T.sizeParam, int]``)
   if typ.kind in {tyUserTypeClass, tyUserTypeClassInst}:
     for statement in typ.n:
       case statement.kind
