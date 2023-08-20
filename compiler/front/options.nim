@@ -713,25 +713,7 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
     ## evaluation` context. `sem` and `semexprs` in particular will clear
     ## `conf.m.errorOutputs` as a signal for this. For more details see the
     ## comment for `MsgConfig.errorOutputs`.
-
-  if (r.kind == rdbgVmCodeListing) and (
-    (
-     # If special expand target is not defined, debug all generated code
-     ("expandVmListing" notin conf.symbols)
-    ) or (
-     # Otherwise check if listing target is not nil, and it's name is the
-     # name we are targeting.
-     (not r.debugReport.vmgenListing.sym.isNil()) and
-     (
-       r.debugReport.vmgenListing.sym.name.s ==
-       conf.symbols["expandVmListing"]
-  ))):
-    return writeForceEnabled
-
-  elif r.kind == rdbgVmCodeListing:
-    return writeDisabled
-
-  elif (
+  if (
     (conf.isEnabled(r) and r.category == repDebug and compTimeCtx)
     # Force write of the report messages using regular stdout if compTimeCtx
     # is enabled
@@ -824,11 +806,6 @@ proc computeNotesVerbosity(): tuple[
   when defined(nimVMDebugExecute):
     result.base.incl {
       rdbgVmExecTraceFull # execution of the generated code listings
-    }
-
-  when defined(nimVMDebugGenerate):
-    result.base.incl {
-      rdbgVmCodeListing    # immediately generated code listings
     }
 
   result.main[compVerbosityMax] =

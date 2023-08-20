@@ -49,11 +49,6 @@ import
     results
   ]
 
-when defined(nimVMDebugGenerate):
-  import
-    compiler/front/msgs,
-    compiler/vm/vmutils
-
 export VmGenResult
 
 type
@@ -322,6 +317,11 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
 
   updateEnvironment(c, jit.discovery)
 
+func isAvailable*(c: TCtx, prc: PSym): bool =
+  ## Returns whether the bytecode for `prc` is already available.
+  prc.id in c.linking.symToIndexTbl and
+    c.functions[c.linking.symToIndexTbl[prc.id].int].start >= 0
+
 proc registerProcedure*(jit: var JitState, c: var TCtx, prc: PSym): FunctionIndex =
   ## If it hasn't been already, adds `prc` to the set of procedures the JIT
   ## code-generator knowns about and sets up a function-table entry. `jit` is
@@ -359,12 +359,6 @@ proc compile*(jit: var JitState, c: var TCtx, fnc: FunctionIndex): VmGenResult =
     return
 
   fillProcEntry(c.functions[fnc.int], result.unsafeGet)
-
-  when defined(nimVMDebugGenerate):
-    # XXX: ``compile`` shouldn't be responsible for neither the generating nor
-    #      the reporting of a code-listing
-    c.config.localReport():
-      initVmCodeListingReport(c, prc.sym, nil, start = result.unsafeGet.start)
 
 proc loadProc*(jit: var JitState, c: var TCtx, sym: PSym): VmGenResult =
   ## The main entry point into the JIT code-generator. Retrieves the
