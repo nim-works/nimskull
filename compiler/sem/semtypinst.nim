@@ -32,7 +32,9 @@ import
     semdata,
   ],
   compiler/utils/[
-    astrepr
+    astrepr,
+    debugutils,
+    idioms
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
@@ -115,7 +117,7 @@ type
 
 proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType
 proc replaceTypeVarsS(cl: var TReplTypeVars, s: PSym): PSym
-proc replaceTypeVarsN*(cl: var TReplTypeVars, n: PNode; start=0): PNode
+proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode
 
 proc initLayeredTypeMap*(pt: TIdTable): LayeredIdTable =
   result = LayeredIdTable()
@@ -154,6 +156,26 @@ proc isTypeParameterAccess(cl: TReplTypeVars, s: PSym): bool =
   s.kind == skType and s.typ.kind == tyTypeDesc and
     cl.typeMap.lookup(s.typ[0]) != nil
 
+proc fixType(c: PContext, s: PSym, t: PType): PType =
+  ## Computes the correct type to assign to the symbol node of a replaced
+  ## type variable.
+  # XXX: ideally, this would be left to ``semSym``, but at the time of writing,
+  #      an expression having a type prevents it from being analyzed again in
+  #      some cases (e.g., call operands), meaning that we have to already
+  #      assign the expected type here
+  case s.kind
+  of skGenericParam:
+    if s.typ.kind == tyStatic:
+      t
+    else:
+      makeTypeDesc(c, t)
+  of skType:
+    makeTypeDesc(c, t)
+  of skParam:
+    t
+  else:
+    unreachable(s.kind)
+
 proc prepareNode*(cl: var TReplTypeVars, n: PNode): PNode =
   ## Replaces unresolved types referenced by the nodes of expression/statement
   ## `n` with the corresponding bound ones.
@@ -161,6 +183,8 @@ proc prepareNode*(cl: var TReplTypeVars, n: PNode): PNode =
   ## Because of how late-bound static parameters are currently implemented,
   ## ``prepareNode`` is also responsible for replacing sub-expression of type
   ## ``tyStatic`` with the computed value.
+  addInNimDebugUtils(cl.c.config, "prepareNode", n, result)
+
   template resolveStatic() =
     ## Redirects to the evaluated (or unevaluated) value of the static type, if
     ## `n` resolves to a ``tyStatic``
@@ -194,8 +218,14 @@ proc prepareNode*(cl: var TReplTypeVars, n: PNode): PNode =
        isTypeParameterAccess(cl, s):
       resolveStatic()
       result = copyNode(n)
-      result.typ = t
       result.sym = replaceTypeVarsS(cl, s)
+      result.typ = fixType(cl.c, s, t)
+
+      if s.kind == skParam and s.typ.kind == tyTypeDesc:
+        # late-bound typedesc parameters act like types when used inside
+        # type-attached AST, and to make things easier for further
+        # processing, we make this explicit by transitioning the symbol kind
+        result.sym.transitionGenericParamToType()
     else:
       # important: don't use ``resolveStatic`` here, as the ``replaceTypeVarsT``
       # call would traverse into types not depending on any of the type
@@ -222,7 +252,7 @@ proc isTypeParam(n: PNode): bool =
          (n.sym.kind == skGenericParam or
            (n.sym.kind == skType and sfFromGeneric in n.sym.flags))
 
-proc reResolveCallsWithTypedescParams(cl: var TReplTypeVars, n: PNode): PNode =
+proc reResolveCallsWithTypedescParams(c: PContext, n: PNode): PNode =
   # This is needed for tgenericshardcases
   # It's possible that a generic param will be used in a proc call to a
   # typedesc accepting proc. After generic param substitution, such procs
@@ -231,16 +261,17 @@ proc reResolveCallsWithTypedescParams(cl: var TReplTypeVars, n: PNode): PNode =
   # in the compiler, but it's quite complicated to do so at the moment so we
   # resort to a mild hack; the head symbol of the call is temporary reset and
   # overload resolution is executed again (which may trigger generateInstance).
-  if n.kind in nkCallKinds and sfFromGeneric in n[0].sym.flags:
+  if n.kind in nkCallKinds and n[0].kind == nkSym and
+     sfFromGeneric in n[0].sym.flags:
     var needsFixing = false
     for i in 1..<n.safeLen:
       if isTypeParam(n[i]): needsFixing = true
     if needsFixing:
       n[0] = newSymNode(n[0].sym.owner)
-      return cl.c.semOverloadedCall(cl.c, n, {skProc, skFunc}, {})
+      return c.semOverloadedCall(c, n, {skProc, skFunc}, {})
 
   for i in 0..<n.safeLen:
-    n[i] = reResolveCallsWithTypedescParams(cl, n[i])
+    n[i] = reResolveCallsWithTypedescParams(c, n[i])
 
   return n
 
@@ -332,7 +363,7 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
       result = newNodeI(nkRecList, n.info)
   of nkStaticExpr:
     var n = prepareNode(cl, n)
-    n = reResolveCallsWithTypedescParams(cl, n)
+    n = reResolveCallsWithTypedescParams(cl.c, n)
     result = if cl.allowMetaTypes: n
              else: cl.c.semExpr(cl.c, n)
     if not cl.allowMetaTypes:
@@ -755,14 +786,73 @@ proc initTypeVars*(p: PContext, typeMap: LayeredIdTable, info: TLineInfo;
   result.c = p
   result.owner = owner
 
-proc replaceTypesInBody*(p: PContext, pt: TIdTable, n: PNode;
-                         owner: PSym, allowMetaTypes = false): PNode =
+proc instantiateTypesInBody*(p: PContext, pt: TIdTable, n: PNode;
+                         owner: PSym): PNode =
+  ## Instantiates all types referenced in the generic AST `n`. `pt` provides
+  ## the bindings for all used type variables (i.e., generic parameters and
+  ## type-classes) -- missing bindings result in an error.
   var typeMap = initLayeredTypeMap(pt)
   var cl = initTypeVars(p, typeMap, n.info, owner)
-  cl.allowMetaTypes = allowMetaTypes
   pushInfoContext(p.config, n.info)
   result = replaceTypeVarsN(cl, n)
   popInfoContext(p.config)
+
+proc replaceTypeVarsInBody*(c: PContext, pt: TIdTable, n: PNode): PNode =
+  ## Replaces with their bound types (provided by `pt`) all type variables in
+  ## the generic AST `n`, with unbound type variables being ignored. Generic
+  ## types are not instantiated and static expression not evaluated.
+  ##
+  ## Use this procedure instead of ``instantiateTypesInBody`` when its not
+  ## guaranteed whether all type variables have been resolved.
+  template lookup(t: PType): PType = PType(idTableGet(pt, t))
+
+  case n.kind
+  of nkSym:
+    let s = n.sym
+    if isUnresolvedSym(s) and (let t = lookup(s.typ); t != nil):
+      # we've found a type variable that has something bound to it
+      if t.kind == tyStatic and t.n != nil:
+        # replace ``static`` types with their computed value or unresolved
+        # expression
+        if tfUnresolved in t.flags:
+          # also process the unresolved expression
+          result = replaceTypeVarsInBody(c, pt, t.n)
+        else:
+          result = t.n
+      else:
+        # don't modify the existing symbol; create a copy first
+        let copy = copySym(s, nextSymId(c.idgen))
+        copy.owner = s.owner
+        copy.typ = t
+
+        # transition ``skGenericParam`` and ``skParam``s to ``skType``,
+        # replicating how they would look like in other normal instantiated
+        # generic AST
+        if t.kind notin {tyStatic, tyGenericParam}:
+          transitionGenericParamToType(copy)
+
+        result = copyNode(n)
+        result.sym = copy
+        result.typ = fixType(c, s, t)
+    else:
+      result = n
+
+  of nkWithoutSons - {nkSym}:
+    result = n
+  of nkWithSons:
+    # XXX: can be optimized by only copying `n` when some sub node
+    #      changes (i.e., copy on write)
+    result = shallowCopy(n)
+    # HACK: we de-type the expression here. This is necessary because some
+    #       expressions are getting types assigned to them, which would then
+    #       prevent the expression from getting properly analyzed when used
+    #       as a call operands. Ultimately, the producers of the generic
+    #       expressions (e.g., ``semRangeAux``) need to make sure that
+    #       the expressions stay untyped (apart from the type
+    #       variables)
+    result.typ = nil
+    for i, it in n.pairs:
+      result[i] = replaceTypeVarsInBody(c, pt, it)
 
 when false:
   # deadcode

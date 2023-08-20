@@ -2275,7 +2275,7 @@ proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   #incl(s.flags, sfFromGeneric)
   #s.owner = original
 
-  n = replaceTypesInBody(c, pt, n, original)
+  n = instantiateTypesInBody(c, pt, n, original)
   result = n
   s.ast = result
   n[namePos].sym = s
