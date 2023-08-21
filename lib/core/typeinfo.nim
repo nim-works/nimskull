@@ -86,8 +86,8 @@ type
     else:
       rawTypePtr: pointer
 
-  ppointer = ptr pointer
-  pbyteArray = ptr array[0xffff, int8]
+  PPointer = ptr pointer
+  PbyteArray = ptr array[0xffff, int8]
 
 include system/seqs_v2_reimpl
 
@@ -171,7 +171,7 @@ proc baseTypeSize*(x: Any): int {.inline.} =
 proc invokeNew*(x: Any) =
   ## Performs `new(x)`. `x` needs to represent a `ref`.
   assert x.rawType.kind == tyRef
-  cast[ppointer](x.value)[] = nimNewObj(x.rawType.base.size, x.rawType.base.align)
+  cast[PPointer](x.value)[] = nimNewObj(x.rawType.base.size, x.rawType.base.align)
 
 proc invokeNewSeq*(x: Any, len: int) =
   ## Performs `newSeq(x, len)`. `x` needs to represent a `seq`.
@@ -198,7 +198,7 @@ proc setObjectRuntimeType*(x: Any) =
   when not defined(js):
     # although doing so doesn't make much sense, the guard allows for importing
     # this module when using the JS backend
-    cast[ppointer](x.value)[] = x.rawType.typeInfoV2
+    cast[PPointer](x.value)[] = x.rawType.typeInfoV2
 
 proc skipRange(x: PNimType): PNimType {.inline.} =
   result = x
@@ -267,7 +267,7 @@ proc isNil*(x: Any): bool =
   ## `isNil` for an `x` that represents a cstring, proc or
   ## some pointer type.
   assert x.rawType.kind in {tyCstring, tyRef, tyPtr, tyPointer, tyProc}
-  result = isNil(cast[ppointer](x.value)[])
+  result = isNil(cast[PPointer](x.value)[])
 
 const pointerLike = {tyCstring, tyRef, tyPtr, tyPointer, tyProc}
 
@@ -276,7 +276,7 @@ proc getPointer*(x: Any): pointer =
   ## `akString`, `akCString`, `akProc`, `akRef`, `akPtr`,
   ## `akPointer` or `akSequence`.
   assert x.rawType.kind in pointerLike
-  result = cast[ppointer](x.value)[]
+  result = cast[PPointer](x.value)[]
 
 proc setPointer*(x: Any, y: pointer) =
   ## Sets the pointer value of `x`. `x` needs to be of kind
@@ -286,7 +286,7 @@ proc setPointer*(x: Any, y: pointer) =
   if y != nil and x.rawType.kind != tyPointer:
     genericAssign(x.value, y, x.rawType)
   else:
-    cast[ppointer](x.value)[] = y
+    cast[PPointer](x.value)[] = y
 
 proc fieldsAux(p: pointer, n: ptr TNimNode,
                ret: var seq[tuple[name: cstring, any: Any]]) =
@@ -372,14 +372,14 @@ proc `[]`*(x: Any, fieldName: string): Any =
 proc `[]`*(x: Any): Any =
   ## Dereference operator for `Any`. `x` needs to represent a ptr or a ref.
   assert x.rawType.kind in {tyRef, tyPtr}
-  result.value = cast[ppointer](x.value)[]
+  result.value = cast[PPointer](x.value)[]
   result.rawType = x.rawType.base
 
 proc `[]=`*(x, y: Any) =
   ## Dereference operator for `Any`. `x` needs to represent a ptr or a ref.
   assert x.rawType.kind in {tyRef, tyPtr}
   assert y.rawType == x.rawType.base
-  genericAssign(cast[ppointer](x.value)[], y.value, y.rawType)
+  genericAssign(cast[PPointer](x.value)[], y.value, y.rawType)
 
 proc getInt*(x: Any): int =
   ## Retrieves the `int` value out of `x`. `x` needs to represent an `int`.
@@ -629,7 +629,7 @@ iterator elements*(x: Any): int =
   of 4: u = ze64(cast[ptr int32](p)[])
   of 8: u = cast[ptr int64](p)[]
   else:
-    let a = cast[pbyteArray](p)
+    let a = cast[PbyteArray](p)
     for i in 0 .. typ.size*8-1:
       if (ze(a[i div 8]) and (1 shl (i mod 8))) != 0:
         yield i + typ.node.len
@@ -659,5 +659,5 @@ proc inclSetElement*(x: Any, elem: int) =
     var a = cast[ptr int64](p)
     a[] = a[] or (1'i64 shl e)
   else:
-    var a = cast[pbyteArray](p)
+    var a = cast[PbyteArray](p)
     a[e shr 3] = toU8(a[e shr 3] or (1 shl (e and 7)))
