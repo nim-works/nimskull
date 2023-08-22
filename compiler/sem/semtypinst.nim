@@ -802,7 +802,7 @@ proc replaceTypeVarsInBody*(c: PContext, pt: TIdTable, n: PNode): PNode =
   ## the generic AST `n`, with unbound type variables being ignored. Generic
   ## types are not instantiated and static expression not evaluated.
   ##
-  ## Use this procedure instead of ``instantiateTypesInBody`` when its not
+  ## Use this procedure instead of ``instantiateTypesInBody`` when it's not
   ## guaranteed whether all type variables have been resolved.
   template lookup(t: PType): PType = PType(idTableGet(pt, t))
 
