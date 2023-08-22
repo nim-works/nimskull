@@ -57,16 +57,13 @@ from compiler/ast/report_enums import ReportKind
 import std/options as stdoptions
 
 type
-  CodeFragment = object
-    ## The state required for generating code in multiple steps.
-    ## `CodeFragment` helps when generating code for multiple procedures in
-    ## an interleaved manner.
-    prc: PProc
-    code: seq[TInstr]
-    debug: seq[TLineInfo]
+  PartialProc = object
+    ## The in-progress body of a procedure.
+    sym: PSym
+    body: Body
 
-  PartialTbl = Table[int, CodeFragment]
-    ## Maps the symbol ID of a partial procedure to the in-progress fragment
+  PartialTbl = Table[int, PartialProc]
+    ## Maps the symbol ID of a partial procedure to its in-progress body
 
   GenCtx = object
     ## State of the orchestrator.
@@ -121,11 +118,6 @@ proc registerProc(c: var GenCtx, prc: PSym): FunctionIndex =
   setLinkIndex(c, prc, idx)
   result = FunctionIndex(idx)
 
-proc appendCode(c: var CodeGenCtx, f: CodeFragment) =
-  ## Copies the code from the fragment to the end of the global code buffer
-  c.code.add(f.code)
-  c.debug.add(f.debug)
-
 proc generateCodeForProc(c: var CodeGenCtx, idgen: IdGenerator, s: PSym,
                          body: sink MirFragment): CodeInfo =
   ## Generates and the bytecode for the procedure `s` with body `body`. The
@@ -137,22 +129,6 @@ proc generateCodeForProc(c: var CodeGenCtx, idgen: IdGenerator, s: PSym,
   if r.isOk:
     result = r.unsafeGet
   else:
-    c.config.localReport(vmGenDiagToLegacyReport(r.takeErr))
-
-proc genStmt(c: var CodeGenCtx, f: var CodeFragment, stmt: CgNode) =
-  ## Generates and emits the code for a statement into the fragment `f`.
-  template swapState() =
-    swap(c.code, f.code)
-    swap(c.debug, f.debug)
-    swap(c.prc, f.prc)
-
-  # in order to generate code into the fragment, the fragment's state is
-  # swapped with `c`'s
-  swapState()
-  let r = genStmt(c, stmt)
-  swapState() # swap back
-
-  if unlikely(r.isErr):
     c.config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
 proc declareGlobal(c: var GenCtx, sym: PSym) =
@@ -202,13 +178,8 @@ proc processEvent(c: var GenCtx, mlist: ModuleList, discovery: var DiscoveryData
   of bekModule:
     discard "nothing to do"
   of bekPartial:
-    let p = addr mgetOrPut(partial, evt.sym.id, CodeFragment())
-    if p.prc == nil:
-      # it's a fragment that was just started
-      p.prc = PProc(sym: evt.sym)
-
-    let stmt = generateIR(c.graph, idgen, evt.sym, evt.body)
-    genStmt(c.gen, p[], stmt)
+    let p = addr mgetOrPut(partial, evt.sym.id, PartialProc(sym: evt.sym))
+    discard merge(p.body): generateIR(c.graph, idgen, evt.sym, evt.body)
   of bekProcedure:
     # a complete procedure became available
     let r = generateCodeForProc(c.gen, idgen, evt.sym, evt.body)
@@ -228,23 +199,23 @@ proc generateAliveProcs(c: var GenCtx, config: BackendConfig,
   for evt in process(c.graph, mlist, discovery, MagicsToKeep, config):
     processEvent(c, mlist, discovery, partial, evt)
 
-  # finish the partial procedures:
-  for s, frag in partial.mpairs:
+  # generate the bytecode for the partial procedures:
+  for _, p in partial.mpairs:
     let
-      start = c.gen.code.len
-      rc = frag.prc.regInfo.len
+      id = registerProc(c, p.sym)
+      r  = genProc(c.gen, p.sym, move p.body)
 
-    c.gen.appendCode(frag)
-    c.gen.gABC(unknownLineInfo, opcRet)
+    if r.isOk:
+      fillProcEntry(c.functions[id.LinkIndex]): r.unsafeGet
+    else:
+      c.gen.config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
-    let id = registerProc(c, frag.prc.sym)
-    fillProcEntry(c.functions[id.LinkIndex]): (start: start, regCount: rc)
-
-    frag.prc.sym.ast[bodyPos] = newNode(nkStmtList)
+    # mark as non-empty:
+    p.sym.ast[bodyPos] = newNode(nkStmtList)
 
     # the fragment isn't used beyond this point anymore, so it can be freed
     # already
-    reset(frag)
+    reset(p)
 
 proc generateCodeForMain(c: var GenCtx, config: BackendConfig,
                          modules: var ModuleList): FunctionIndex =

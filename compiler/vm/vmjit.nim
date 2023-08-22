@@ -200,17 +200,18 @@ proc generateMirCode(c: var TCtx, n: PNode;
     generateCode(c.graph, selectOptions(c), n, result[0], result[1])
 
 proc generateIR(c: var TCtx, tree: sink MirTree,
-                source: sink SourceMap): CgNode {.inline.} =
+                source: sink SourceMap): Body {.inline.} =
   if tree.len > 0: generateIR(c.graph, c.idgen, c.module, tree, source)
-  else:            newNode(cnkEmpty)
+  else:            Body(code: newNode(cnkEmpty))
 
-template runCodeGen(c: var TCtx, cg: var CodeGenCtx, n: CgNode,
+template runCodeGen(c: var TCtx, cg: var CodeGenCtx, b: Body,
                     body: untyped): untyped =
   ## Prepares the code generator's context and then executes `body`. A
   ## delimiting 'eof' instruction is emitted at the end.
   swapState(c, cg)
+  let info = b.code.info
   let r = body
-  cg.gABC(n, opcEof)
+  cg.gABC(info, opcEof)
   swapState(c, cg)
   r
 
@@ -226,12 +227,11 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   register(c.linking, jit.discovery)
 
   let
-    n = generateIR(c, tree, sourceMap)
+    body = generateIR(c, tree, sourceMap)
     start = c.code.len
 
   # generate the bytecode:
-  jit.gen.prc = PProc()
-  let r = runCodeGen(c, jit.gen, n): genStmt(jit.gen, n)
+  let r = runCodeGen(c, jit.gen, body): genStmt(jit.gen, body)
 
   if unlikely(r.isErr):
     rewind(jit.discovery)
@@ -239,7 +239,7 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
 
   updateEnvironment(c, jit.discovery)
 
-  result = VmGenResult.ok: (start: start, regCount: jit.gen.prc.regInfo.len)
+  result = VmGenResult.ok: (start: start, regCount: r.get)
 
 proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   ## Generates and emits code for the standalone expression `n`
@@ -264,12 +264,11 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   register(c.linking, jit.discovery)
 
   let
-    n = generateIR(c, tree, sourceMap)
+    body = generateIR(c, tree, sourceMap)
     start = c.code.len
 
   # generate the bytecode:
-  jit.gen.prc = PProc()
-  let r = runCodeGen(c, jit.gen, n): genExpr(jit.gen, n)
+  let r = runCodeGen(c, jit.gen, body): genExpr(jit.gen, body)
 
   if unlikely(r.isErr):
     rewind(jit.discovery)
@@ -277,7 +276,7 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
 
   updateEnvironment(c, jit.discovery)
 
-  result = VmGenResult.ok: (start: start, regCount: jit.gen.prc.regInfo.len)
+  result = VmGenResult.ok: (start: start, regCount: r.get)
 
 proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   c.removeLastEof()

@@ -126,14 +126,16 @@ type
     label: PSym
     fixups: seq[TPosition]
 
-  PProc* = ref object
+  BProc = object
     blocks: seq[TBlock]
       ## blocks; temp data structure
-    sym*: PSym
+    sym: PSym
+    body: Body
+      ## the full body of the current procedure/statement/expression
     bestEffort: TLineInfo
       ## the source-code position to point to for internal failures where
       ## no line information is directly available
-    regInfo*: seq[RegInfo]
+    regInfo: seq[RegInfo]
 
     addressTaken: IntSet
       ## the set of locations (identified by their symbol id) that have their
@@ -150,7 +152,7 @@ type
   CodeGenCtx* = object
     ## Bundles all input, output, and other contextual data needed for the
     ## code generator
-    prc*: PProc
+    prc: BProc
 
     # immutable input parameters:
     graph*: ModuleGraph
@@ -264,7 +266,7 @@ proc genLit(c: var TCtx; n: CgNode; lit: int; dest: var TDest)
 proc genTypeLit(c: var TCtx; info: CgNode, t: PType; dest: var TDest)
 proc genType(c: var TCtx, typ: PType): int
 func fitsRegister(t: PType): bool
-func local(prc: PProc, sym: PSym): TDest {.inline.}
+func local(prc: BProc, sym: PSym): TDest {.inline.}
 proc genRegLoad(c: var TCtx, n: CgNode, dest, src: TRegister) {.inline.}
 proc genRegLoad(c: var TCtx, n: CgNode, typ: PType, dest, src: TRegister)
 
@@ -424,7 +426,7 @@ const
 template inUse(x: RegInfo): bool =
   x.refCount > 0
 
-proc getFreeRegister(c: PProc; k: TSlotKind; start: int): TRegister =
+proc getFreeRegister(c: var BProc; k: TSlotKind; start: int): TRegister =
   # we prefer the same slot kind here for efficiency. Unfortunately for
   # discardable return types we may not know the desired type. This can happen
   # for e.g. mNAdd[Multiple]:
@@ -485,7 +487,7 @@ proc makeHandleReg(cc: var TCtx, r, loc: TRegister) =
   #      that handle registers keep their location registers from being reused
   #      during the lifetime of the handle. Once vmgen gets a IR, register
   #      lifetime management can be properly implemented
-  template c: PProc = cc.prc
+  template c: BProc = cc.prc
   let fk = c.regInfo[loc].kind
   internalAssert cc.config, fk != slotEmpty, ""
 
@@ -1068,7 +1070,7 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
 
 template isGlobal(s: PSym): bool = sfGlobal in s.flags
 
-func local(prc: PProc, sym: PSym): TDest {.inline.} =
+func local(prc: BProc, sym: PSym): TDest {.inline.} =
   ## Returns the register associated with the local variable `sym` (or -1 if
   ## `sym` is not a local)
   prc.locals.getOrDefault(sym.id, -1)
@@ -1106,7 +1108,7 @@ proc genRegLoad(c: var TCtx, n: CgNode, dest, src: TRegister) {.inline.} =
 proc genCheckedObjAccessAux(c: var TCtx; n: CgNode): TRegister
 proc genSym(c: var TCtx, n: CgNode, dest: var TDest, load = true)
 
-func usesRegister(p: PProc, s: PSym): bool =
+func usesRegister(p: BProc, s: PSym): bool =
   ## Returns whether the location identified by `s` is backed by a register
   ## (that is, whether the value is stored in a register directly)
   fitsRegister(s.typ) and s.id notin p.addressTaken
@@ -1600,7 +1602,7 @@ proc whichAsgnOpc(n: CgNode; requiresCopy = true): TOpcode =
     opcAsgnComplex
     #(if requiresCopy: opcAsgnComplex else: opcFastAsgnComplex)
 
-func usesRegister(p: PProc, n: CgNode): bool =
+func usesRegister(p: BProc, n: CgNode): bool =
   ## Analyses and returns whether the value of the location named by l-value
   ## expression `n` is stored in a register instead of a memory location
   # XXX: instead of using a separate analysis, compute and return this as part
@@ -2124,7 +2126,7 @@ proc genDeref(c: var TCtx, n: CgNode, dest: var TDest; load = true) =
       c.genRegLoad(n, dest, dest)
     c.freeTemp(tmp)
 
-func setSlot(p: PProc; v: PSym): TRegister {.discardable.} =
+func setSlot(p: var BProc; v: PSym): TRegister {.discardable.} =
   # XXX generate type initialization here?
   result = getFreeRegister(p, if v.kind == skLet: slotFixedLet else: slotFixedVar, start = 1)
   p.locals[v.id] = result
@@ -3095,16 +3097,20 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
      cnkBinding:
     unreachable(n.kind)
 
-proc initProc(c: TCtx, owner: PSym): BProc =
+proc initProc(c: TCtx, owner: PSym, body: sink Body): BProc =
   ## `owner` is the procedure the body belongs to, or nil, if its something
   ## standalone.
-  result = BProc(sym: owner)
+  result = BProc(sym: owner, body: body)
   result.bestEffort =
     if owner != nil: owner.info
     else:            c.module.info
 
-proc genStmt*(c: var TCtx; n: CgNode): Result[void, VmGenDiag] =
-  analyseIfAddressTaken(n, c.prc.addressTaken)
+  # analyse what locals require indirections:
+  analyseIfAddressTaken(result.body.code, result.addressTaken)
+
+proc genStmt*(c: var TCtx; body: Body): Result[int, VmGenDiag] =
+  c.prc = initProc(c, nil, body)
+  let n = c.prc.body.code
 
   var d: TDest = -1
   try:
@@ -3113,11 +3119,12 @@ proc genStmt*(c: var TCtx; n: CgNode): Result[void, VmGenDiag] =
     return typeof(result).err(move e.diag)
 
   c.config.internalAssert(d < 0, n.info, "VM problem: dest register is set")
-  result = typeof(result).ok()
+  result = typeof(result).ok(c.prc.regInfo.len)
 
-proc genExpr*(c: var TCtx; n: CgNode): Result[void, VmGenDiag] =
+proc genExpr*(c: var TCtx; body: sink Body): Result[int, VmGenDiag] =
   ## Generates and emits the code for a standalone expression.
-  analyseIfAddressTaken(n, c.prc.addressTaken)
+  c.prc = initProc(c, nil, body)
+  let n = c.prc.body.code
 
   var d: TDest = -1
   try:
@@ -3133,10 +3140,10 @@ proc genExpr*(c: var TCtx; n: CgNode): Result[void, VmGenDiag] =
   # directly return the value
   c.gABC(n, opcRet, d)
 
-  result = typeof(result).ok()
+  result = typeof(result).ok(c.prc.regInfo.len)
 
 
-proc genParams(prc: PProc; s: PSym) =
+proc genParams(prc: var BProc; s: PSym) =
   let
     params = s.routineSignature.n
 
@@ -3246,16 +3253,10 @@ proc prepareParameters(c: var TCtx, info: CgNode) =
   for i in 2..<typ.n.len:
     setupParam(c, typ.n[i].sym)
 
-proc genProcBody(c: var TCtx; s: PSym, body: CgNode): int =
-    assert s.kind in routineKinds - {skTemplate}
-
-    var p = PProc(blocks: @[], sym: s)
-    let oldPrc = c.prc
-    c.prc = p
-
-    # collect which locations have their address taken or a view to them
-    # created:
-    analyseIfAddressTaken(body, p.addressTaken)
+proc genProcBody(c: var TCtx): int =
+    let
+      s    = c.prc.sym
+      body = c.prc.body.code
 
     # iterate over the parameters and allocate space for them:
     genParams(c.prc, s)
@@ -3303,17 +3304,18 @@ proc genProcBody(c: var TCtx; s: PSym, body: CgNode): int =
     c.gABC(body, opcRet)
 
     result = c.prc.regInfo.len
-    c.prc = oldPrc
 
-proc genProc*(c: var TCtx; s: PSym, body: CgNode): VmGenResult =
+proc genProc*(c: var TCtx; s: PSym, body: sink Body): VmGenResult =
   # thanks to the jmp we can add top level statements easily and also nest
   # procs easily:
   let
     start = c.code.len+1 # skip the jump instruction
-    procStart = c.xjmp(body, opcJmp, 0)
+    procStart = c.xjmp(body.code, opcJmp, 0)
+
+  c.prc = initProc(c, s, body)
 
   let regCount = tryOrReturn:
-    c.genProcBody(s, body)
+    c.genProcBody()
 
   c.patch(procStart)
   c.optimizeJumps(start)
@@ -3334,7 +3336,7 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
     of vmGenDiagTooLargeOffset: adVmGenTooLargeOffset
     of vmGenDiagCannotCallMethod: adVmGenCannotCallMethod
     of vmGenDiagCannotCast: adVmGenCannotCast
-  
+
   {.cast(uncheckedAssign).}: # discriminants on both sides lead to saddness
     result =
       case diag.kind
@@ -3362,4 +3364,3 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
       of vmGenDiagTooManyRegistersRequired,
           vmGenDiagCannotFindBreakTarget:
         AstDiagVmGenError(kind: kind)
- 

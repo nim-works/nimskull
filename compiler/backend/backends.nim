@@ -375,7 +375,7 @@ proc process(body: var MirFragment, ctx: PSym, graph: ModuleGraph,
   injectDestructorCalls(graph, idgen, ctx, body.tree, body.source)
 
 proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                  code: sink MirFragment): CgNode =
+                  code: sink MirFragment): Body =
   ## Translates the MIR code provided by `code` into ``CgNode`` IR and,
   ## if enabled, echoes the result.
   result = generateIR(graph, idgen, owner, code.tree, code.source)

@@ -70,12 +70,12 @@ proc echoMir*(config: ConfigRef, owner: PSym, tree: MirTree) =
     writeBody(config, "-- MIR: " & owner.name.s):
       config.writeln(print(tree))
 
-proc echoOutput*(config: ConfigRef, owner: PSym, body: CgNode) =
+proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
   ## If requested via the define, renders the output IR `body` and writes the
   ## result out through ``config.writeLine``.
   if config.getStrDefine("nimShowMirOutput") == owner.name.s:
     writeBody(config, "-- output AST: " & owner.name.s):
-      config.writeln(treeRepr(body))
+      config.writeln(treeRepr(body.code))
 
 proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
                        outermost: bool) =
@@ -168,7 +168,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
   apply(body, prepared)
 
 proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                   body: PNode, options: set[GenOption]): CgNode =
+                   body: PNode, options: set[GenOption]): Body =
   ## Legacy routine. Translates the body `body` of the procedure `owner` to
   ## MIR code, and the MIR code to ``CgNode`` IR.
   echoInput(graph.config, owner, body)

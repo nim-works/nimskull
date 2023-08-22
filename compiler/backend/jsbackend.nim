@@ -14,6 +14,7 @@ import
   ],
   compiler/backend/[
     backends,
+    cgir,
     jsgen
   ],
   compiler/front/[
@@ -74,7 +75,7 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
       partial[evt.sym.id] = p
 
     let body = generateIR(graph, bmod.idgen, evt.sym, evt.body)
-    genStmt(p, body)
+    genStmt(p, merge(p.fullBody, body))
 
     processLate(g, discovery)
   of bekProcedure:

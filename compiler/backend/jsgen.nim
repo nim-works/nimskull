@@ -124,6 +124,8 @@ type
   PProc* = ref TProc
   TProc* = object
     prc: PSym
+    fullBody*: Body
+      ## the procedure's full body
     locals, body: Rope
     options: TOptions
     module: BModule
@@ -2334,9 +2336,10 @@ proc finishProc*(p: PProc): string =
   #  echo "END   generated code for: " & prc.name.s
 
 proc genProc*(g: PGlobals, module: BModule, prc: PSym,
-              transformedBody: CgNode): Rope =
+              body: sink Body): Rope =
   var p = startProc(g, module, prc)
-  p.nested: genStmt(p, transformedBody)
+  p.fullBody = body
+  p.nested: genStmt(p, p.fullBody.code)
   result = finishProc(p)
 
 proc genStmt(p: PProc, n: CgNode) =
@@ -2523,11 +2526,12 @@ proc genHeader*(): Rope =
     var lastJSError = null;
   """.unindent.format(VersionAsString))
 
-proc genTopLevelStmt*(globals: PGlobals, m: BModule, n: CgNode) =
-  m.config.internalAssert(m.module != nil, n.info, "genTopLevelStmt")
+proc genTopLevelStmt*(globals: PGlobals, m: BModule, body: sink Body) =
+  m.config.internalAssert(m.module != nil, body.code.info, "genTopLevelStmt")
   var p = newInitProc(globals, m)
+  p.fullBody = body
   p.unique = globals.unique
-  genStmt(p, n)
+  genStmt(p, p.fullBody.code)
   p.g.code.add(p.locals)
   p.g.code.add(p.body)
 
