@@ -466,6 +466,7 @@ type
     rsemDiscardingVoid
     rsemDiscardingProc
     rsemInvalidControlFlow
+    rsemExpectedLabel
     rsemContinueCannotHaveLabel
     rsemUseOrDiscard
     rsemUseOrDiscardExpr

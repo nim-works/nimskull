@@ -1190,6 +1190,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         if r.sym.isNil: r.ast.render else: r.symstr
       ]
 
+    of rsemExpectedLabel:
+      result = "expected the name of a label, but got: " & r.ast.render
+
     of rsemContinueCannotHaveLabel:
       result = "'continue' cannot have a label"
 
@@ -3279,7 +3282,9 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemFoldDivByZero,
       adSemFoldCannotComputeOffset,
       adSemExpectedIdentifierQuoteLimit,
-      adSemExpectedRangeType:
+      adSemExpectedRangeType,
+      adSemExpectedLabel,
+      adSemContinueCannotHaveLabel:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
@@ -3305,6 +3310,13 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         ast: diag.wrongNode,
         typeMismatch: @[typeMismatch(diag.wrongNode[0].typ,
                                      diag.wrongNode.typ)])
+  of adSemInvalidControlFlow:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemInvalidControlFlow,
+        ast: diag.wrongNode,
+        sym: diag.label)
   of adSemUseOrDiscardExpr:
     semRep = SemReport(
         location: some diag.undiscarded.info, # xxx: location override

@@ -1138,6 +1138,9 @@ type
     adSemInvalidExpression
     adSemExpectedNonemptyPattern
     # semstmts
+    adSemInvalidControlFlow
+    adSemExpectedLabel
+    adSemContinueCannotHaveLabel
     adSemUseOrDiscardExpr
     adSemAmbiguousIdent
     adSemCannotConvertToRange  # TODO: this should probably mention float?
@@ -1330,7 +1333,9 @@ type
         adSemInvalidRangeConversion,
         adSemFoldCannotComputeOffset,
         adSemExpectedIdentifierQuoteLimit,
-        adSemExpectedRangeType:
+        adSemExpectedRangeType,
+        adSemExpectedLabel,
+        adSemContinueCannotHaveLabel:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode
@@ -1498,6 +1503,8 @@ type
     of adSemDefNameSym:
       defNameSym*: PSym
       defNameSymData*: AdSemDefNameSym
+    of adSemInvalidControlFlow:
+      label*: PSym
 
   AdSemDefNameSymKind* = enum
     adSemDefNameSymExpectedKindMismatch

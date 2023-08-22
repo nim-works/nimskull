@@ -26,34 +26,43 @@ proc semDiscard(c: PContext, n: PNode): PNode =
       # tyProc is disallowed to prevent ``discard foo`` to be valid, when ``discard foo()`` is meant.
       localReport(c.config, n, reportSem rsemDiscardingProc)
 
-proc semBreakOrContinue(c: PContext, n: PNode): PNode =
-  result = n
+proc semBreakStmt(c: PContext, n: PNode): ElaborateAst =
+  result.initWith(n)
   checkSonsLen(n, 1, c.config)
-  if n[0].kind != nkEmpty:
-    if n.kind != nkContinueStmt:
-      var s: PSym
-      case n[0].kind:
-        of nkIdent: s = lookUp(c, n[0])
-        of nkSym: s = n[0].sym
-        else:
-          semReportIllformedAst(c.config, n, {nkIdent, nkSym})
+  case n[0].kind
+  of nkIdent, nkSym:
+    let s = getGenSym(c, lookUp(c, n[0]))
+    result[0] = newSymNode(s, n[0].info)
 
-      s = getGenSym(c, s)
+    case s.kind
+    of skError:
+      result[0] = s.ast
+    of skLabel:
+      # make sure the label is okay to use:
       if s.kind == skLabel and s.owner.id == c.p.owner.id:
-        var x = newSymNode(s)
-        x.info = n.info
         incl(s.flags, sfUsed)
-        n[0] = x
-        suggestSym(c.graph, x.info, s, c.graph.usageSym)
+        suggestSym(c.graph, n.info, s, c.graph.usageSym)
       else:
-        localReport(c.config, n.info, reportSym(rsemInvalidControlFlow, s))
-
+        # a label not part of the current context
+        result.diag = PAstDiag(kind: adSemInvalidControlFlow, label: s)
     else:
-      localReport(c.config, n, reportSem rsemContinueCannotHaveLabel)
-  elif (c.p.nestedLoopCounter <= 0) and
-       ((c.p.nestedBlockCounter <= 0) or n.kind == nkContinueStmt):
+      result[0] = c.config.newError(result[0]):
+        PAstDiag(kind: adSemExpectedLabel)
+  of nkEmpty:
+    result[0] = n[0]
+    if c.p.nestedLoopCounter <= 0 and c.p.nestedBlockCounter <= 0:
+      # nothing to break out of
+      result.diag = PAstDiag(kind: adSemInvalidControlFlow)
+  else:
+    result[0] = c.config.newError(n[0], PAstDiag(kind: adSemExpectedLabel))
 
-    localReport(c.config, n, reportSem rsemInvalidControlFlow)
+proc semContinueStmt(c: PContext, n: PNode): PNode =
+  if n[0].kind != nkEmpty:
+    c.config.newError(n, PAstDiag(kind: adSemContinueCannotHaveLabel))
+  elif c.p.nestedLoopCounter <= 0:
+    c.config.newError(n, PAstDiag(kind: adSemInvalidControlFlow))
+  else:
+    n
 
 proc semAsm(c: PContext, n: PNode): PNode =
   checkSonsLen(n, 2, c.config)
