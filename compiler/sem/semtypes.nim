@@ -278,6 +278,38 @@ proc semDistinct(c: PContext, n: PNode, prev: PType): PType =
 
 from std/sequtils import mapIt
 
+proc fixupTypeVars(c: PContext, n: var PNode): bool =
+  ## Takes AST that is produced by the generic pre-pass as input and:
+  ## 1. makes sure all unresolved type variables are referenced via their
+  ##    *symbol*. Necesary because the pre-pass leaves those as raw identifiers
+  ##    in some cases.
+  ## 2. computes whether unresolved type variables are referenced
+  ##
+  ## If there are no type variables, 'false' is returned and the AST remains
+  ## unchanged.
+  case n.kind
+  of nkSym:
+    if isUnresolvedSym(n.sym):
+      n.typ = n.sym.typ
+      result = true
+  of nkIdent, nkAccQuoted:
+    let (ident, err) = considerQuotedIdent(c, n)
+    assert err == nil, "should have been handled in semgnrc"
+
+    var amb = false
+    let sym = searchInScopes(c, ident, amb)
+    if sym != nil and isUnresolvedSym(sym):
+      # replace with the symbol of the type variable
+      n = newSymNode(sym, n.info)
+      result = true
+  of nkWithoutSons - {nkSym, nkIdent}:
+    discard "nothing to do"
+  of nkWithSons - {nkAccQuoted}:
+    for i in 0..<n.len:
+      let r = fixupTypeVars(c, n[i])
+      # propagate upwards whether a type var was fixed:
+      result = result or r
+
 proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
   assert isRange(n)
   checkSonsLen(n, 3, c.config)
@@ -290,16 +322,35 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
   if (n[1].kind == nkEmpty) or (n[2].kind == nkEmpty):
     localReport(c.config, n, reportSem rsemRangeIsEmpty)
 
+  # run the pre-pass for generic statements first: we don't know
+  # whether or not the expression references type variables
+  var range = [semGenericStmt(c, n[1]), semGenericStmt(c, n[2])]
+
+  for it in range.mitems:
+    if fixupTypeVars(c, it):
+      if it.kind != nkSym:
+        # the expression needs a type, and since its a dependent one, a
+        # ``tyFromExpr`` is used
+        it.typ = makeTypeFromExpr(c, it.copyTree)
+
+      # make sure the expression later takes the correct path through
+      # ``replaceTypeVarsN``:
+      it = makeStaticExpr(c, it)
+      result.flags.incl tfUnresolved
+    else:
+      # the expression must be constant
+      let e = semExprWithType(c, it)
+      it = evalConstExpr(c, e)
+
+    result.n.add it
+
   let
-    range = [semExprWithType(c, n[1]), semExprWithType(c, n[2])]
     rangeT = range.mapIt(it.typ.skipTypes({tyStatic}).skipIntLit(c.idgen))
-    hasUnknownTypes = c.inGenericContext > 0 and
-                       tyFromExpr in {rangeT[0].kind, rangeT[1].kind}
+    hasUnknownTypes = tyFromExpr in {rangeT[0].kind, rangeT[1].kind}
 
   if not hasUnknownTypes:
     if not sameType(rangeT[0].skipTypes({tyRange}), rangeT[1].skipTypes({tyRange})):
-      # XXX: should this cascade and what about the follow-on statements like
-      #      the for loop, etc below?
+      # XXX: errors from the previous analysis need to be taken into account
       let r = typeMismatch(c.config, n.info, rangeT[0], rangeT[1], n)
       if r.kind == nkError:
         localReport(c.config, r)
@@ -311,13 +362,6 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
 
     elif enumHasHoles(rangeT[0]):
       localReport(c.config, n.info, reportTyp(rsemExpectedUnholyEnum, rangeT[0]))
-
-  for i in 0..1:
-    if hasUnresolvedArgs(c, range[i]):
-      result.n.add makeStaticExpr(c, range[i])
-      result.flags.incl tfUnresolved
-    else:
-      result.n.add semConstExpr(c, range[i])
 
   if (result.n[0].kind in {nkFloatLit..nkFloat64Lit} and result.n[0].floatVal.isNaN) or
       (result.n[1].kind in {nkFloatLit..nkFloat64Lit} and result.n[1].floatVal.isNaN):
@@ -360,10 +404,35 @@ proc semArrayIndex(c: PContext, n: PNode): PType =
   if isRange(n):
     result = semRangeAux(c, n, nil)
   else:
-    let e = semExprWithType(c, n)
-    if e.typ.kind == tyFromExpr:
-      result = makeRangeWithStaticExpr(c, e.typ.n)
-    elif e.kind in {nkIntLit..nkUInt64Lit}:
+    # the expression may depend on type variables, meaning that we have to
+    # treat it as generic first
+    # XXX: only run the generics pre-pass if the possibiltiy of unresolved type
+    #      variables being used actually exists. At the time of writing,
+    #      ``inGenericContext`` cannot be used for this, as it is not increased
+    #      for implicitly and explicitly generic routines
+    var e = semGenericStmt(c, n)
+    if fixupTypeVars(c, e):
+      # an expression that references type variables
+      if e.kind == nkSym:
+        if e.typ.kind == tyStatic:
+          result = makeRangeWithStaticExpr(c, e)
+          result.flags.incl tfUnresolved
+        else:
+          # a type variable is used directly as the index type (e.g.,
+          # ``array[T, ...]``). Don't create a range, but use the type
+          # directly
+          result = e.typ
+      else:
+        # the type of the expression depends on the expression itself; signal
+        # this via a ``tyFromExpr``
+        e.typ = makeTypeFromExpr(c, copyTree(e))
+        result = makeRangeWithStaticExpr(c, e)
+        result.flags.incl tfUnresolved
+      return
+
+    # an expression that doesn't reference type variables
+    e = semExprWithType(c, e)
+    if e.kind in {nkIntLit..nkUInt64Lit}:
       if e.intVal < 0:
         localReport(c.config, n.info,
           SemReport(
@@ -372,30 +441,6 @@ proc semArrayIndex(c: PContext, n: PNode): PType =
             got: toInt128 e.intVal))
 
       result = makeRangeType(c, 0, e.intVal-1, n.info, e.typ)
-    elif e.kind == nkSym and e.typ.kind == tyStatic:
-      if e.sym.ast != nil:
-        return semArrayIndex(c, e.sym.ast)
-      if not isOrdinalType(e.typ.lastSon):
-        let info = if n.safeLen > 1: n[1].info else: n.info
-        localReport(c.config, info, reportTyp(
-          rsemExpectedOrdinal, e.typ.lastSon))
-
-      result = makeRangeWithStaticExpr(c, e)
-      if c.inGenericContext > 0:
-        result.flags.incl tfUnresolved
-
-    elif e.kind in (nkCallKinds + {nkBracketExpr}) and hasUnresolvedArgs(c, e):
-      if not isOrdinalType(e.typ.skipTypes({tyStatic, tyAlias, tyGenericInst, tySink})):
-        localReport(c.config, n[1].info, reportTyp(
-          rsemExpectedOrdinal, e.typ))
-      # This is an int returning call, depending on an
-      # yet unknown generic param (see tgenericshardcases).
-      # We are going to construct a range type that will be
-      # properly filled-out in semtypinst (see how tyStaticExpr
-      # is handled there).
-      result = makeRangeWithStaticExpr(c, e)
-    elif e.kind == nkIdent:
-      result = e.typ.skipTypes({tyTypeDesc})
     else:
       let x = semConstExpr(c, e)
       if x.kind in {nkIntLit..nkUInt64Lit}:
@@ -413,7 +458,7 @@ proc semArray(c: PContext, n: PNode, prev: PType): PType =
     var indxB = indx
     if indxB.kind in {tyGenericInst, tyAlias, tySink}: indxB = lastSon(indxB)
     if indxB.kind notin {tyGenericParam, tyStatic, tyFromExpr}:
-      if indxB.skipTypes({tyRange}).kind in {tyUInt, tyUInt64}:
+      if indxB.skipTypes({tyRange}).kind in {tyUInt, tyUInt64, tyFromExpr}:
         discard
       elif not isOrdinalType(indxB):
         localReport(c.config, n[1].info, reportTyp(

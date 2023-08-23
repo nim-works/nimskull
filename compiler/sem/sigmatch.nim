@@ -828,8 +828,12 @@ proc tryResolvingStaticExpr(c: var TCandidate, n: PNode,
   # Here, N-1 will be initially nkStaticExpr that can be evaluated only after
   # N is bound to a concrete value during the matching of the first param.
   # This proc is used to evaluate such static expressions.
-  let instantiated = replaceTypesInBody(c.c, c.bindings, n, nil,
-                                        allowMetaTypes = allowUnresolved)
+  let instantiated =
+    if allowUnresolved:
+      replaceTypeVarsInBody(c.c, c.bindings, n)
+    else:
+      instantiateTypesInBody(c.c, c.bindings, n, nil)
+
   result = c.c.semExpr(c.c, instantiated)
 
 proc inferStaticParam*(c: var TCandidate, lhs: PNode, rhs: BiggestInt): bool =

@@ -127,7 +127,7 @@ block trefs:
 
 
 
-block tsharedcases:
+block tgenericshardcases:
   proc typeNameLen(x: typedesc): int {.compileTime.} =
     result = x.name.len
   macro selectType(a, b: typedesc): typedesc =
@@ -161,7 +161,33 @@ block tsharedcases:
 
     doAssert f2.data3[0] is float
 
+block tgenericshardcases_2:
+  # typdesc-using procedures must be properly resolved inside array range
+  # expressions that invoke them with late-bound typedescs
+  proc typeNameLen(x: typedesc): int =
+    x.name.len
 
+  proc f(t: typedesc, arr: array[typeNameLen(t), int]): int =
+    result = arr.len
+
+  type MyType = object # only provides the name
+
+  var arr: array[6, int]
+  doAssert f(MyType, arr) == 6
+
+  static:
+    # check that a length mismatch is detected and rejected:
+    var arr2: array[4, int]
+    doAssert: not compiles(f(MyType, arr2))
+
+block complex_expression_in_array_index_type_position:
+  func someValue(): int = 2
+
+  proc f(fnc: static[proc(): int], arr: array[fnc() + 2, int]): int =
+    result = arr.len
+
+  var arr: array[4, int]
+  doAssert f(someValue, arr) == 4
 
 block tmap_auto:
   let x = map(@[1, 2, 3], x => x+10)

@@ -1,5 +1,5 @@
 discard """
-  errormsg: "\'vectFunc\' doesn't have a concrete type, due to unspecified generic parameters."
+  errormsg: "type mismatch: got <proc (x: vector[vectFunc.T]): vector[vectFunc.T], vector[3]>"
   line: 36
   description: '''
     . From https://github.com/nim-lang/Nim/issues/6137
