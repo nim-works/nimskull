@@ -1358,11 +1358,11 @@ proc tb(tree: TreeWithSource, cl: var TranslateCl, start: NodePosition): CgNode 
 
 
 proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                  tree: sink MirTree, sourceMap: sink SourceMap): CgNode =
+                  tree: sink MirTree, sourceMap: sink SourceMap): Body =
   ## Generates the ``CgNode`` IR corresponding to the input MIR code (`tree`),
   ## using `idgen` for provide new IDs when creating symbols. `sourceMap`
   ## must be the ``SourceMap`` corresponding to `tree` and is used as the
   ## provider for source position information
   var cl = TranslateCl(graph: graph, idgen: idgen, cache: graph.cache,
                        owner: owner)
-  tb(TreeWithSource(tree: tree, map: sourceMap), cl, NodePosition 0)
+  Body(code: tb(TreeWithSource(tree: tree, map: sourceMap), cl, NodePosition 0))

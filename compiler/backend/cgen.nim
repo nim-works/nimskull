@@ -805,8 +805,9 @@ proc allPathsAsgnResult(n: CgNode): InitResultEnum =
 proc isNoReturn(m: BModule; s: PSym): bool {.inline.} =
   sfNoReturn in s.flags and m.config.exc != excGoto
 
-proc startProc*(m: BModule, prc: PSym; procBody: CgNode = nil): BProc =
+proc startProc*(m: BModule, prc: PSym; procBody: sink Body): BProc =
   var p = newProc(prc, m)
+  p.body = procBody
   assert(prc.ast != nil)
   fillProcLoc(m, prc) # ensure that a loc exists
   if m.procs[prc].params.len == 0:
@@ -833,8 +834,8 @@ proc startProc*(m: BModule, prc: PSym; procBody: CgNode = nil): BProc =
       # global is either 'nil' or points to valid memory and so the RC operation
       # succeeds without touching not-initialized memory.
       if sfNoInit in prc.flags: discard
-      elif procBody != nil and
-           allPathsAsgnResult(procBody) == InitSkippable: discard
+      elif p.body.code != nil and
+           allPathsAsgnResult(p.body.code) == InitSkippable: discard
       else:
         resetLoc(p, p.params[0])
       if skipTypes(res.typ, abstractInst).kind == tyArray:
@@ -919,11 +920,11 @@ proc finishProc*(p: BProc, prc: PSym): string =
 
   result = generatedProc
 
-proc genProc*(m: BModule, prc: PSym, procBody: CgNode): Rope =
+proc genProc*(m: BModule, prc: PSym, procBody: sink Body): Rope =
   ## Generates the code for the procedure `prc`, where `procBody` is the code
   ## of the body with all applicable lowerings and transformation applied.
   let p = startProc(m, prc, procBody)
-  genStmts(p, procBody)
+  genStmts(p, p.body.code)
   result = finishProc(p, prc)
 
 proc genProcPrototype(m: BModule, sym: PSym) =

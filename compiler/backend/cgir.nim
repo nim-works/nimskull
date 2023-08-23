@@ -164,6 +164,11 @@ type
   # future direction: move to a single-sequence-based, data-oriented design
   # for the code-generator IR
 
+  Body* = object
+    ## A self-contained CG IR fragment. This is usually the full body of a
+    ## procedure.
+    code*: CgNode
+
 func len*(n: CgNode): int {.inline.} =
   n.kids.len
 
@@ -212,3 +217,22 @@ proc newOp*(kind: CgNodeKind; info: TLineInfo, typ: PType,
             opr: sink CgNode): CgNode =
   result = CgNode(kind: kind, info: info, typ: typ)
   result.operand = opr
+
+proc merge*(dest: var Body, source: Body): CgNode =
+  ## Merges `source` into `dest` by appending the former to the latter.
+  ## Returns the node representing the code from `source` after it
+  ## was merged.
+  result = source.code
+
+  if dest.code == nil:
+    # make things easier by supporting `dest` being uninitialized
+    dest.code = source.code
+  elif source.code.kind != cnkEmpty:
+    case dest.code.kind
+    of cnkEmpty:
+      dest.code = source.code
+    of cnkStmtList:
+      dest.code.kids.add source.code
+    else:
+      dest.code = newStmt(cnkStmtList, dest.code.info,
+                          [dest.code, source.code])

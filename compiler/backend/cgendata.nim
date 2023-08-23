@@ -177,6 +177,7 @@ type
     withinBlockLeaveActions*: int ## complex to explain
     sigConflicts*: CountTable[string]
 
+    body*: Body               ## the procedure's full body
     locals*: SymbolMap[TLoc]  ## the locs for all locals of the procedure
 
   TTypeSeq* = seq[PType]

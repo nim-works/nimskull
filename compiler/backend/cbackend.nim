@@ -84,7 +84,7 @@ type
   InlineProc = object
     ## Information about an inline procedure.
     sym: PSym
-    body: CgNode
+    body: Body
       ## the fully processed body of the procedure
 
     deps: PackedSet[uint32]
@@ -223,12 +223,12 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
 
     var p = getOrDefault(partial, evt.sym)
     if p == nil:
-      p = startProc(g.modules[evt.module.int], evt.sym)
+      p = startProc(g.modules[evt.module.int], evt.sym, Body())
       partial[evt.sym] = p
 
     let body = generateIR(g.graph, bmod.idgen, evt.sym, evt.body)
     # emit into the procedure:
-    genStmts(p, body)
+    genStmts(p, merge(p.body, body))
 
     processLate(bmod, discovery, inl, evt.module, inlineId)
   of bekProcedure:
@@ -243,7 +243,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
 
     # we can't generate with ``genProc`` because we still need to output
     # the mangled names
-    genStmts(p, body)
+    genStmts(p, p.body.code)
     writeMangledLocals(p)
     let r = finishProc(p, evt.sym)
 
@@ -272,7 +272,7 @@ proc emit(m: BModule, inl: InliningData, prc: InlineProc, r: var Rope) =
   for dep in prc.deps.items:
     emit(m, inl, inl.inlineProcs[dep], r)
 
-  assert prc.body != nil, "missing body"
+  assert prc.body.code != nil, "missing body"
   # conservatively emit a prototype for all procedures to make sure that
   # recursive procedures work:
   genProcPrototype(m, prc.sym)
@@ -317,10 +317,6 @@ proc generateHeader(g: BModuleList, inl: InliningData, data: DiscoveryData,
 proc generateCodeForMain(m: BModule, modules: ModuleList) =
   ## Generates and emits the C code for the program's or library's entry
   ## point.
-  let p = newProc(nil, m)
-  # we don't want error or stack-trace code in the main procedure:
-  p.flags.incl nimErrorFlagDisabled
-  p.options = {}
 
   # generate the body:
   let body = newNode(nkStmtList)
@@ -332,7 +328,13 @@ proc generateCodeForMain(m: BModule, modules: ModuleList) =
     generateTeardown(m.g.graph, modules, body)
 
   # now generate the C code for the body:
-  genStmts(p, canonicalize(m.g.graph, m.idgen, m.module, body, {}))
+  let p = newProc(nil, m)
+  # we don't want error or stack-trace code in the main procedure:
+  p.flags.incl nimErrorFlagDisabled
+  p.options = {}
+  p.body = canonicalize(m.g.graph, m.idgen, m.module, body, {})
+
+  genStmts(p, p.body.code)
   var code: string
   code.add(p.s(cpsLocals))
   code.add(p.s(cpsInit))
