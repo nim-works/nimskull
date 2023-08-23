@@ -659,7 +659,7 @@ proc procTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
     result = f.allowsNil
   else: discard
 
-proc typeRangeRel(f, a: PType): TTypeRelation {.noinline.} =
+proc typeRangeRel(f: PType, lo, hi: PNode, a: PType): TTypeRelation {.noinline.} =
   template checkRange[T](a0, a1, f0, f1: T): TTypeRelation =
     if a0 == f0 and a1 == f1:
       isEqual
@@ -672,9 +672,9 @@ proc typeRangeRel(f, a: PType): TTypeRelation {.noinline.} =
       isNone
 
   if f.isOrdinalType:
-    checkRange(firstOrd(nil, a), lastOrd(nil, a), firstOrd(nil, f), lastOrd(nil, f))
+    checkRange(firstOrd(nil, a), lastOrd(nil, a), getOrdValue(lo), getOrdValue(hi))
   else:
-    checkRange(firstFloat(a), lastFloat(a), firstFloat(f), lastFloat(f))
+    checkRange(firstFloat(a), lastFloat(a), getFloatValue(lo), getFloatValue(hi))
 
 
 proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
@@ -1174,22 +1174,30 @@ typeRel can be used to establish various relationships between types:
     elif skipTypes(a, {tyRange}).kind == f.kind:
       result = isSubtype
   of tyRange:
+    var base = f.base
+    if base.kind == tyFromExpr:
+      # `f`'s underlying type depends on some type variables. The type needs
+      # to be computed first
+      base = tryResolvingStaticExpr(c, base.n).typ.skipTypes({tyStatic})
+
     if a.kind == f.kind:
       if f.base.kind == tyNone:
         return isGeneric
 
-      result = typeRel(c, base(f), base(a), flags)
+      result = typeRel(c, base, base(a), flags)
       # bugfix: accept integer conversions here
       #if result < isGeneric: result = isNone
       if result notin {isNone, isGeneric}:
         # resolve any late-bound static expressions
         # that may appear in the range:
-        for i in 0..1:
-          if f.n[i].kind == nkStaticExpr:
-            f.n[i] = tryResolvingStaticExpr(c, f.n[i])
-        result = typeRangeRel(f, a)
+        var r = [f.n[0], f.n[1]]
+        for it in r.mitems:
+          if it.kind == nkStaticExpr:
+            it = tryResolvingStaticExpr(c, it)
+
+        result = typeRangeRel(base, r[0], r[1], a)
     else:
-      let f = skipTypes(f, {tyRange})
+      let f = skipTypes(base, {tyRange})
       if f.kind == a.kind and (f.kind != tyEnum or sameEnumTypes(f, a)):
         result = isIntConv
       elif isConvertibleToRange(f, a):

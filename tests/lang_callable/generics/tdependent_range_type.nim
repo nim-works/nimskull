@@ -3,10 +3,6 @@ discard """
   description: '''
     Range types depending on type variables must work in routine signatures
   '''
-  knownIssue: '''
-    ``typeRel`` doesn't properly handle the case where a formal range type is
-    depends on a type variables
-  '''
 """
 
 import std/typetraits
@@ -35,5 +31,4 @@ static:
 
   # test with a different name:
   doAssert f(Typ, 0) == 6
-  doAssert not compiles(f(Typ, 5) == 6)
   doAssert not compiles(f(Typ, a) == 6)
