@@ -991,6 +991,53 @@ when false:
     of tyFloat64: greater({tyFloat128})
     else: discard
 
+proc compareInvocationArguments(c: var TCandidate, f, a: PType,
+                                flags: TTypeRelFlags): TTypeRelation =
+  ## Given two type applications that apply to the same generic type, matches
+  ## each argument from the `a` against the corresponding one of `f` and
+  ## returns the accumulated result.
+  assert f.kind in {tyGenericInst, tyGenericInvocation}
+  assert a.kind in {tyGenericInst, tyGenericInvocation}
+  assert f.base == a.base
+  let
+    base = a.base
+    nextFlags = flags + {trNoCovariance}
+    len =
+      case a.kind
+      of tyGenericInst:       a.len - 1
+      of tyGenericInvocation: a.len
+      else:                   unreachable()
+
+  var hasCovariance = false
+  result = isEqual # until proven otherwise
+
+  for i in 1..<len:
+    let
+      ff = f[i]
+      aa = a[i]
+      res = typeRel(c, ff, aa, nextFlags)
+
+    if res != isNone and res != isEqual:
+      result = isGeneric
+
+    if res notin {isEqual, isGeneric}:
+      if trNoCovariance notin flags and ff.kind == aa.kind:
+        let paramFlags = base[i-1].flags
+        hasCovariance =
+          if tfCovariant in paramFlags:
+            if tfWeakCovariant in paramFlags:
+              isCovariantPtr(c, ff, aa)
+            else:
+              ff.kind notin {tyRef, tyPtr} and res == isSubtype
+          else:
+            tfContravariant in paramFlags and
+              typeRel(c, aa, ff, flags) == isSubtype
+        if hasCovariance:
+          continue
+
+      result = isNone
+      break
+
 proc typeRel(c: var TCandidate, f, aOrig: PType,
              flags: TTypeRelFlags = {}): TTypeRelation =
   ##[
@@ -1506,37 +1553,8 @@ typeRel can be used to establish various relationships between types:
 
     if a.kind == tyGenericInst:
       if roota.base == rootf.base:
-        let nextFlags = flags + {trNoCovariance}
-        var hasCovariance = false
-        # YYYY
-        result = isEqual
-
-        for i in 1..<rootf.len-1:
-          let
-            ff = rootf[i]
-            aa = roota[i]
-            res = typeRel(c, ff, aa, nextFlags)
-          
-          if res != isNone and res != isEqual:
-            result = isGeneric
-          
-          if res notin {isEqual, isGeneric}:
-            if trNoCovariance notin flags and ff.kind == aa.kind:
-              let paramFlags = rootf.base[i-1].flags
-              hasCovariance =
-                if tfCovariant in paramFlags:
-                  if tfWeakCovariant in paramFlags:
-                    isCovariantPtr(c, ff, aa)
-                  else:
-                    ff.kind notin {tyRef, tyPtr} and res == isSubtype
-                else:
-                  tfContravariant in paramFlags and
-                    typeRel(c, aa, ff, flags) == isSubtype
-              if hasCovariance:
-                continue
-
-            return isNone
-        if prev.isNil():
+        result = compareInvocationArguments(c, rootf, roota, flags)
+        if result != isNone and prev.isNil():
           put(c, f, a)
       else:
         let fKind = rootf.lastSon.kind
