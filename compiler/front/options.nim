@@ -21,7 +21,7 @@ when not FileSystemCaseSensitive:
 from terminal import isatty
 from times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
-
+import tables
 from compiler/ast/ast_types import
   TNodeKind,  # used in conversion from `ParsedNode` to `PNode`
   TNodeFlag,  # used in conversion from `ParsedNode` to `PNode`
@@ -312,6 +312,7 @@ type
 
     when defined(nimDebugUnreportedErrors):
       unreportedErrors*: OrderedTable[NodeId, PNode]
+    fileIdxTbl*: TableRef[string, FileIndex]
 
 template `[]`*(conf: ConfigRef, idx: FileIndex): TFileInfo =
   conf.m.fileInfos[idx.uint32]
@@ -933,6 +934,7 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
     maxLoopIterationsVM: 10_000_000,
     vmProfileData: newProfileData(),
     spellSuggestMax: spellSuggestSecretSauce,
+    fileIdxTbl: newTable[string, FileIndex]()
   )
   initConfigRefCommon(result)
 
@@ -1162,16 +1164,12 @@ proc canonicalCase(path: var string) =
   else: toLowerAscii(path)
 
 proc fileInfoKnown*(conf: ConfigRef; filename: AbsoluteFile): bool =
-  var
-    canon: AbsoluteFile
-  try:
-    canon = canonicalizePath(conf, filename)
-  except OSError:
-    canon = filename
-  canon.string.canonicalCase
-  result = conf.m.filenameToIndexTbl.hasKey(canon.string)
+  result = conf.fileIdxTbl.hasKey(filename.string)
 
 proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile; isKnownFile: var bool): FileIndex =
+  let hasKey = conf.fileIdxTbl.hasKey(filename.string)
+  if hasKey:
+    return conf.fileIdxTbl[filename.string]
   var
     canon: AbsoluteFile
     pseudoPath = false
@@ -1197,6 +1195,8 @@ proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile; isKnownFile: var bool
     conf.m.fileInfos.add(newFileInfo(canon, if pseudoPath: RelativeFile filename
                                             else: relativeTo(canon, conf.projectPath)))
     conf.m.filenameToIndexTbl[canon2] = result
+  if not hasKey:
+    conf.fileIdxTbl[filename.string] = result
 
 proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile): FileIndex =
   var dummy: bool
