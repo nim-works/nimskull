@@ -317,36 +317,36 @@ template `[]`*(conf: ConfigRef, idx: FileIndex): TFileInfo =
   conf.m.fileInfos[idx.uint32]
 
 template passField(fieldname, fieldtype: untyped): untyped =
-  proc `fieldname`*(conf: ConfigRef): fieldtype =
+  template `fieldname`*(conf: ConfigRef): fieldtype =
     conf.active.fieldname
 
-  proc `fieldname=`*(conf: ConfigRef, val: fieldtype) =
+  template `fieldname=`*(conf: ConfigRef, val: fieldtype) =
     conf.active.fieldname = val
 
 template passSetField(fieldname, fieldtype, itemtype: untyped): untyped =
   passField(fieldname, fieldtype)
 
-  proc incl*(conf: ConfigRef, item: itemtype | fieldtype) =
+  template incl*(conf: ConfigRef, item: itemtype | fieldtype) =
     conf.active.fieldname.incl item
 
-  proc excl*(conf: ConfigRef, item: itemtype | fieldtype) =
+  template excl*(conf: ConfigRef, item: itemtype | fieldtype) =
     conf.active.fieldname.excl item
 
 template passStrTableField(fieldname: untyped): untyped =
   passField(fieldname, StringTableRef)
 
-  proc `fieldname Set`*(conf: ConfigRef, key: string, value: string) =
+  template `fieldname Set`*(conf: ConfigRef, key: string, value: string) =
     conf.active.fieldname[key] = value
 
-  proc `fieldname Get`*(conf: ConfigRef, key: string): string =
+  template `fieldname Get`*(conf: ConfigRef, key: string): string =
     conf.active.fieldname[key]
 
-  proc `fieldname Del`*(conf: ConfigRef, key: string) =
+  template `fieldname Del`*(conf: ConfigRef, key: string) =
     conf.active.fieldname.del key
 
 template passSeqField(fieldname, itemtype: untyped): untyped =
   passField(fieldname, seq[itemtype])
-  proc `fieldname Add`*(conf: ConfigRef, item: itemtype | seq[itemtype]) =
+  template `fieldname Add`*(conf: ConfigRef, item: itemtype | seq[itemtype]) =
     conf.active.fieldname.add item
 
 passField backend,            TBackend
