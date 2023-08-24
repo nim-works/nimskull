@@ -451,8 +451,8 @@ proc skipToObject(t: PType; skipped: var SkippedPtr): PType =
 
 proc isSubtypeOfGenericInstance(c: var TCandidate; a, f: PType, fGenericOrigin: PType): int =
   ## Computes whether the resolved object-like type `a` is a subtype of `f`,
-  ## where `f` is a ``tyGenericInst``. The inheritance depth is returned,
-  ## or, if the types are not related, -1.
+  ## where `f` is a ``tyGenericInst`` or ``tyGenericInvocation``. The
+  ## inheritance depth is returned, or, if the types are not related, -1.
   ##
   ## In case of a subtype relationship existing, the unbound generic parameters
   ## of `f` are bound to the respective parameters of `a`.
@@ -655,11 +655,6 @@ proc typeRangeRel(f: PType, lo, hi: PNode, a: PType): TTypeRelation {.noinline.}
   else:
     checkRange(firstFloat(a), lastFloat(a), getFloatValue(lo), getFloatValue(hi))
 
-proc getBound(c: TCandidate, t: PType): PType =
-  result = PType(idTableGet(c.bindings, t))
-  while result != nil and isMetaType(result):
-    result = PType(idTableGet(c.bindings, result))
-
 proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
   var
     c = m.c
@@ -695,7 +690,7 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
         typeParamName = ff.base[i-1].sym.name
         typ = ff[i]
         param: PSym
-        alreadyBound = getBound(m, typ)
+        alreadyBound = PType(idTableGet(m.bindings, typ))
 
       if alreadyBound != nil: typ = alreadyBound
 
@@ -1078,7 +1073,7 @@ typeRel can be used to establish various relationships between types:
 
       case f.kind
       of tyGenericParam:
-        var prev = getBound(c, f)
+        var prev = PType(idTableGet(c.bindings, f))
         if prev != nil:
           candidate = prev
       of tyFromExpr:
@@ -1648,12 +1643,20 @@ typeRel can be used to establish various relationships between types:
     else:
       # XXX: to not ignore phantom types, this branch should only be taken
       #      when `f` is not a phantom type
-      # bind the arguments to the parameters and then match against the body
+      # match against the generic body, but before doing so, replace the type
+      # variables therein with the arguments provided to the invocation. For
+      # example, given the body ``Body[T] = (T, T)`` and invocation
+      # ``Body[A]``, the resulting type would be ``(A, A)``.
+      var bindings: TIdTable
+      initIdTable(bindings)
+      # prepare the parameter-to-argument bindings
       for i in 1..<f.len:
-        idTablePut(c.bindings, f.base[i-1], f[i])
+        idTablePut(bindings, f.base[i-1], f[i])
 
-      # structural types and anything else uses "match against the generic body"
-      result = typeRel(c, body, a, flags)
+      # XXX: since we're forwarding the arguments here, the constraints on the
+      #      body's parameters are ignored...
+      let other = replaceTypeParamsInType(c.c, bindings, body)
+      result = typeRel(c, other, a, flags)
   of tyAnd:
     considerPreviousT:
       result = isEqual
@@ -1843,7 +1846,7 @@ typeRel can be used to establish various relationships between types:
     elif a.kind == tyEmpty:
       result = isGeneric
     elif x.kind == tyGenericParam:
-      result = typeRel(c, x, a, flags)
+      result = isGeneric
     else:
       result = typeRel(c, x, a, flags) # check if it fits
       if result > isGeneric: result = isGeneric
@@ -1884,10 +1887,7 @@ typeRel can be used to establish various relationships between types:
       else:
         result = isNone
     elif prev.kind == tyStatic:
-      if prev.n == nil:
-        # must be a forwarded parameter
-        result = typeRel(c, prev, a, flags)
-      elif aOrig.kind == tyStatic:
+      if aOrig.kind == tyStatic:
         result = typeRel(c, prev.lastSon, a, flags)
         if result != isNone and prev.n != nil:
           if not exprStructuralEquivalent(prev.n, aOrig.n):
