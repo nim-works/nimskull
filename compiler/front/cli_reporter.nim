@@ -490,6 +490,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
       result.add("; routine: ", r.symstr)
 
+    of rsemUnavailableLocation:
+      result = ("accessed location '$1' doesn't exist in the current " &
+               "compile-time context") % [r.ast.render]
+
     of rsemIllegalCallconvCapture:
       let s = r.symbols[0]
       let owner = r.symbols[1]
@@ -3284,7 +3288,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemExpectedIdentifierQuoteLimit,
       adSemExpectedRangeType,
       adSemExpectedLabel,
-      adSemContinueCannotHaveLabel:
+      adSemContinueCannotHaveLabel,
+      adSemUnavailableLocation:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,

@@ -32,6 +32,7 @@ import
   ],
   compiler/sem/[
     passes,
+    semcomptime,
     transf
   ],
   compiler/utils/[
@@ -545,6 +546,11 @@ proc evalConstExprAux(module: PSym, idgen: IdGenerator, g: ModuleGraph,
                       mode: TEvalMode): PNode =
   addInNimDebugUtils(g.config, "evalConstExprAux", prc, n, result)
   setupGlobalCtx(module, g, idgen)
+
+  # check whether the code accesses unavailable locations:
+  if (let r = check(n); r != nil):
+    # it does
+    return g.config.newError(r, PAstDiag(kind: adSemUnavailableLocation))
 
   let
     c = PEvalContext(g.vm)

@@ -1113,6 +1113,8 @@ type
     # vm
     adVmError
     adVmQuit
+    # semcomptime
+    adSemUnavailableLocation
     # semcall
     adSemRawTypeMismatch
     adSemExpressionCannotBeCalled
@@ -1335,7 +1337,8 @@ type
         adSemExpectedIdentifierQuoteLimit,
         adSemExpectedRangeType,
         adSemExpectedLabel,
-        adSemContinueCannotHaveLabel:
+        adSemContinueCannotHaveLabel,
+        adSemUnavailableLocation:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode
