@@ -995,3 +995,54 @@ block static_argument_in_generic_or_template:
     doAssert p[2]() == 2
 
   templ()
+
+block generic_type_expression:
+  # invocation of generic types in routine signatures where the body of the
+  # generic type contains a type expression dependent on a generic parameter
+  # must work
+  type
+    GetParam[B] = B.param # <- this is the relevant part
+    Nested[A] = seq[GetParam[A]] # test with one layer of indirection
+
+    Other[param] = (int,) # only used for providing `param`
+
+  static:
+    proc f[T](x: T, y: Nested[T]) = discard
+
+    var x: Other[float]
+
+    f(x, default(seq[float]))
+    # negative test: passing something that is not of type ``seq[float]``
+    # doesn't work
+    doAssert(not compiles(f(x, 0)))
+
+    # also test with the `is` operator:
+    doAssert seq[float] is    Nested[Other[float]]
+    doAssert seq[float] isnot Nested[Other[int]]
+
+block generic_range_type:
+  # invocations of generic range types in routine signatures must work and
+  # resolve to the correct types during parameter type matching
+  type Range[N: static int] = range[0 .. (N + 2)]
+
+  proc f[A: static int](rng: Range[A]): int =
+    result = typeof(rng).high.int
+
+  # test with non-range:
+  doAssert f[3](0) == 5
+  # test with range:
+  var a: range[7..10]
+  doAssert f[6](a) == 8
+  # negative test: make sure that range types not overlapping are rejected
+  doAssert not compiles(f[3](b) == 5)
+
+block type_inference_from_nested_invocation:
+  # inference of generic parameters also works with generic invocations used
+  # as arguments to generic invocations
+  type Type[B] = (B,)
+
+  proc f[T](p: Type[Type[T]]): string =
+    result = name(T)
+
+  var x: (Type[string],)
+  doAssert f(x) == "string"

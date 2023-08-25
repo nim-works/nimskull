@@ -118,6 +118,7 @@ type
 proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType
 proc replaceTypeVarsS(cl: var TReplTypeVars, s: PSym): PSym
 proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode
+proc replaceTypeVarsInBody*(c: PContext, pt: TIdTable, n: PNode): PNode
 
 proc initLayeredTypeMap*(pt: TIdTable): LayeredIdTable =
   result = LayeredIdTable()
@@ -776,6 +777,88 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
         # Invalidate the type size as we may alter its structure
         result.size = -1
         result.n = replaceObjBranches(cl, result.n)
+
+proc replaceTypeParamsInType*(c: PContext, pt: TIdTable, t: PType): PType =
+  ## Replaces with their bound type, if a binding exists, type parameters in
+  ## the type `t`. Only type parameters inside the *types* and attached AST
+  ## of ``tyRange``s and ``tyTypeFrom`` are replaced -- the AST of, for
+  ## example, named tuple types or object types is not adjusted.
+  ##
+  ## `t` is not modified directly. Instead, an exact replica (which includes
+  ## the type ID) is first created prior to something being replaced. If
+  ## nothing is replaced, the returned type is exactly `t`.
+  ##
+  ## If something was replaced, the returned type is **not** a proper
+  ## instantiated one and thus must not be used in contexts where a
+  ## proper type is expected.
+  template update(i: int, with: PType) =
+    let w = with
+    if result[i] != w:
+      if result == t: # copy on write
+        result = t.exactReplica
+      result[i] = w
+
+  const AndOrNot = {tyAnd, tyOr, tyNot}
+
+  case t.kind
+  of tyGenericParam, tyStatic:
+    # a type variable -> replace it with the currently bound type
+    result = PType(idTableGet(pt, t))
+    if result == nil:
+      result = t
+  of tyGenericInvocation:
+    # update the arguments:
+    result = t
+    for i in 1..<t.len:
+      update(i): replaceTypeParamsInType(c, pt, t[i])
+
+  of tyTypeDesc, tyArray, tySet, tySink, tyTuple, tyVar, tyLent,
+     tyPtr, tyRef, tySequence, tyOpenArray, tyVarargs, tyUncheckedArray,
+     tyOrdinal, tyDistinct, AndOrNot:
+    # types that can contain type variables and don't require special handling
+    result = t
+    # update type parameters:
+    for i in 0..<t.len:
+      update(i): replaceTypeParamsInType(c, pt, t[i])
+
+  of tyProc, tyObject:
+    # types that can have 'nil' elements
+    result = t
+    # update type parameters:
+    for i in 0..<t.len:
+      if t[i] != nil:
+        update(i): replaceTypeParamsInType(c, pt, t[i])
+
+  of tyRange:
+    # their attached AST defines range type, meaning that we have to update
+    # it
+    let
+      n    = replaceTypeVarsInBody(c, pt, t.n)
+      base = replaceTypeParamsInType(c, pt, t.base)
+    if n == t.n and base == t.base:
+      result = t # nothing changed
+    else:
+      result = t.exactReplica
+      result[0] = base
+      result.n = n
+  of tyFromExpr:
+    # has no type parameters, but does have AST that contains type
+    # variables
+    let n = replaceTypeVarsInBody(c, pt, t.n)
+    if n == t.n:
+      result = t # nothing changed
+    else:
+      result = t.exactReplica
+      result.n = n
+  of tyGenericInst, tyInferred, tyTypeClasses - AndOrNot, tyError:
+    # resolved types and meta types that don't contain type variables
+    result = t
+  of IntegralTypes, tyVoid, tyPointer, tyString, tyCstring,
+     tyForward, tyNone, tyEmpty, tyAlias, tyNil, tyUntyped, tyTyped:
+    # non-parametric types (i.e., types that cannot contain type variables)
+    result = t
+  of tyGenericBody:
+    unreachable("shouldn't reach here")
 
 proc initTypeVars*(p: PContext, typeMap: LayeredIdTable, info: TLineInfo;
                    owner: PSym): TReplTypeVars =

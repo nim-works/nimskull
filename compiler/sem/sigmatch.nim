@@ -433,7 +433,7 @@ proc skipToObject(t: PType; skipped: var SkippedPtr): PType =
   while r != nil:
     case r.kind
     of tyGenericInvocation:
-      r = r[0]
+      r = r.base.lastSon
     of tyRef:
       inc ptrs
       skipped = skippedRef
@@ -442,42 +442,21 @@ proc skipToObject(t: PType; skipped: var SkippedPtr): PType =
       inc ptrs
       skipped = skippedPtr
       r = r.lastSon
-    of tyGenericBody, tyGenericInst, tyAlias, tySink:
+    of tyGenericInst, tyAlias, tySink:
+      # note: don't skip ``tyGenericBody`` here
       r = r.lastSon
     else:
       break
   if r.kind == tyObject and ptrs <= 1: result = r
 
-proc isGenericSubtype(c: var TCandidate; a, f: PType, d: var int, fGenericOrigin: PType): bool =
-  assert f.kind in {tyGenericInst, tyGenericInvocation, tyGenericBody}
-  var askip = skippedNone
-  var fskip = skippedNone
-  var t = a.skipToObject(askip)
-  let r = f.skipToObject(fskip)
-  if r.isNil(): return false
-  var depth = 0
-  var last = a
-  # XXX sameObjectType can return false here. Need to investigate
-  # why that is but sameObjectType does way too much work here anyway.
-  while t != nil and r.sym != t.sym and askip == fskip:
-    t = t[0]
-    if t.isNil(): break
-    last = t
-    t = t.skipToObject(askip)
-    inc depth
-  if t != nil and askip == fskip:
-    genericParamPut(c, last, fGenericOrigin)
-    d = depth
-    result = true
-
 proc isSubtypeOfGenericInstance(c: var TCandidate; a, f: PType, fGenericOrigin: PType): int =
   ## Computes whether the resolved object-like type `a` is a subtype of `f`,
-  ## where `f` is a ``tyGenericInst``. The inheritance depth is returned,
-  ## or, if the types are not related, -1.
+  ## where `f` is a ``tyGenericInst`` or ``tyGenericInvocation``. The
+  ## inheritance depth is returned, or, if the types are not related, -1.
   ##
   ## In case of a subtype relationship existing, the unbound generic parameters
   ## of `f` are bound to the respective parameters of `a`.
-  assert f.kind == tyGenericInst
+  assert f.kind in {tyGenericInst, tyGenericInvocation}
   var
     askip = skippedNone
     fskip = skippedNone
@@ -499,7 +478,7 @@ proc isSubtypeOfGenericInstance(c: var TCandidate; a, f: PType, fGenericOrigin: 
          (let roota = a.skipGenericAlias; roota.base == f.base):
       # formal might still contain unresovled generic parameters, in which case
       # the ID comparison won't work as an equality check
-      for i in 1..<f.len-1:
+      for i in 1..<a.len-1:
         # don't bind generic parameters yet; binding must only happen in
         # case of a match
         if typeRel(c, f[i], roota[i], {trDontBind}) < isGeneric:
@@ -675,7 +654,6 @@ proc typeRangeRel(f: PType, lo, hi: PNode, a: PType): TTypeRelation {.noinline.}
     checkRange(firstOrd(nil, a), lastOrd(nil, a), getOrdValue(lo), getOrdValue(hi))
   else:
     checkRange(firstFloat(a), lastFloat(a), getFloatValue(lo), getFloatValue(hi))
-
 
 proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
   var
@@ -990,6 +968,53 @@ when false:
     of tyFloat32: greater({tyFloat64, tyFloat128})
     of tyFloat64: greater({tyFloat128})
     else: discard
+
+proc compareInvocationArguments(c: var TCandidate, f, a: PType,
+                                flags: TTypeRelFlags): TTypeRelation =
+  ## Given two type applications that apply to the same generic type, matches
+  ## each argument from the `a` against the corresponding one of `f` and
+  ## returns the accumulated result.
+  assert f.kind in {tyGenericInst, tyGenericInvocation}
+  assert a.kind in {tyGenericInst, tyGenericInvocation}
+  assert f.base == a.base
+  let
+    base = a.base
+    nextFlags = flags + {trNoCovariance}
+    len =
+      case a.kind
+      of tyGenericInst:       a.len - 1
+      of tyGenericInvocation: a.len
+      else:                   unreachable()
+
+  var hasCovariance = false
+  result = isEqual # until proven otherwise
+
+  for i in 1..<len:
+    let
+      ff = f[i]
+      aa = a[i]
+      res = typeRel(c, ff, aa, nextFlags)
+
+    if res != isNone and res != isEqual:
+      result = isGeneric
+
+    if res notin {isEqual, isGeneric}:
+      if trNoCovariance notin flags and ff.kind == aa.kind:
+        let paramFlags = base[i-1].flags
+        hasCovariance =
+          if tfCovariant in paramFlags:
+            if tfWeakCovariant in paramFlags:
+              isCovariantPtr(c, ff, aa)
+            else:
+              ff.kind notin {tyRef, tyPtr} and res == isSubtype
+          else:
+            tfContravariant in paramFlags and
+              typeRel(c, aa, ff, flags) == isSubtype
+        if hasCovariance:
+          continue
+
+      result = isNone
+      break
 
 proc typeRel(c: var TCandidate, f, aOrig: PType,
              flags: TTypeRelFlags = {}): TTypeRelation =
@@ -1506,37 +1531,8 @@ typeRel can be used to establish various relationships between types:
 
     if a.kind == tyGenericInst:
       if roota.base == rootf.base:
-        let nextFlags = flags + {trNoCovariance}
-        var hasCovariance = false
-        # YYYY
-        result = isEqual
-
-        for i in 1..<rootf.len-1:
-          let
-            ff = rootf[i]
-            aa = roota[i]
-            res = typeRel(c, ff, aa, nextFlags)
-          
-          if res != isNone and res != isEqual:
-            result = isGeneric
-          
-          if res notin {isEqual, isGeneric}:
-            if trNoCovariance notin flags and ff.kind == aa.kind:
-              let paramFlags = rootf.base[i-1].flags
-              hasCovariance =
-                if tfCovariant in paramFlags:
-                  if tfWeakCovariant in paramFlags:
-                    isCovariantPtr(c, ff, aa)
-                  else:
-                    ff.kind notin {tyRef, tyPtr} and res == isSubtype
-                else:
-                  tfContravariant in paramFlags and
-                    typeRel(c, aa, ff, flags) == isSubtype
-              if hasCovariance:
-                continue
-
-            return isNone
-        if prev.isNil():
+        result = compareInvocationArguments(c, rootf, roota, flags)
+        if result != isNone and prev.isNil():
           put(c, f, a)
       else:
         let fKind = rootf.lastSon.kind
@@ -1597,88 +1593,70 @@ typeRel can be used to establish various relationships between types:
         result = typeRel(c, ff, a, flags)
 
   of tyGenericInvocation:
-    var x = a.skipGenericAlias
-    let concpt = f[0].skipTypes({tyGenericBody})
-
-    # XXX: This is very hacky. It should be moved back into liftTypeParam
-    if x.kind in {tyGenericInst, tyArray} and
-      c.calleeSym != nil and
-      c.calleeSym.kind in {skProc, skFunc} and c.call != nil:
-      let inst = prepareMetatypeForSigmatch(c.c, c.bindings, c.call.info, f)
-      #echo "inferred ", typeToString(inst), " for ", f
-      return typeRel(c, inst, a, flags)
+    # a generic invocation represents an unresolved type application
+    let
+      x = a.skipGenericAlias
+      # XXX: ^^ this means argument phantom types are ignored
+      body = f.base.lastSon
+    var sp: SkippedPtr
 
     if x.kind == tyGenericInvocation:
-      if f[0] == x[0]:
+      # an unresolved type application is matched against another unresolved
+      # type application
+      if f.base == x.base:
         for i in 1..<f.len:
           let tr = typeRel(c, f[i], x[i], flags)
           if tr <= isSubtype: return
         result = isGeneric
-    elif x.kind == tyGenericInst and f[0] == x[0] and
-          x.len - 1 == f.len:
-      for i in 1..<f.len:
-        c.c.graph.config.internalAssert(x[i].kind != tyGenericParam, "wrong instantiated type!")
-
-        if typeRel(c, f[i], x[i], flags) <= isSubtype:
-          # Workaround for https://github.com/nim-lang/nim/issues/4589
-          if f[i].kind != tyTypeDesc:
-            return
-
+      # XXX: what about nested invocations (i.e., generic aliases)?
+    elif x.kind == tyGenericInst and f.base == x.base:
+      # a resolved type application is matched against an unresolved one where
+      # both are for the same generic type -> the arguments have to match
+      result = compareInvocationArguments(c, f, x, flags)
+    elif x.kind == tyGenericBody and f.base == x:
+      # this is a special case to support:
+      #   proc f[T](a: typedesc[Generic[T]])
+      #   f[int](Generic)
+      # XXX: this seems like a really bad idea, why should that work? The
+      #      procedure wants a typedesc for an instantiated type, but it gets
+      #      an (unlifted) composite-type-class
       result = isGeneric
-    else:
-      var
-        askip = skippedNone
-        fskip = skippedNone
-        depth = -1
-      let
-        genericBody = f[0]
-        aobj = x.skipToObject(askip)
-        fobj = genericBody.lastSon.skipToObject(fskip)
-      
-      if fobj != nil and aobj != nil and askip == fskip:
-        depth = isObjectSubtype(c, aobj, fobj, f)
-      
-      result = typeRel(c, genericBody, x, flags)
-      
-      if result != isNone:
-        # see tests/generics/tgeneric3.nim for an example that triggers this
-        # piece of code:
-        #
-        # proc internalFind[T,D](n: PNode[T,D], key: T): ref TItem[T,D]
-        # proc internalPut[T,D](ANode: ref TNode[T,D], Akey: T, Avalue: D,
-        #                       Oldvalue: var D): ref TNode[T,D]
-        # var root = internalPut[int, int](nil, 312, 312, oldvalue)
-        # var it1 = internalFind(root, 312) # cannot instantiate: 'D'
-        #
-        # we steal the generic parameters from the tyGenericBody:
-        for i in 1..<f.len:
-          let x = PType(idTableGet(c.bindings, genericBody[i-1]))
-          if x.isNil():
-            discard "maybe fine (for e.g. a==tyNil)"
-          else:
-            c.c.graph.config.internalAssert(
-              x.kind notin {tyGenericInvocation, tyGenericParam},
-              "wrong instantiated type!")
-            let key = f[i]
-            let old = PType(idTableGet(c.bindings, key))
-            if old.isNil():
-              put(c, key, x)
-            elif typeRel(c, old, x, flags + {trDontBind}) == isNone:
-              return isNone
-
-      if result == isNone:
-        # Here object inheriting from generic/specialized generic object
-        # crossing path with metatypes/aliases, so we need to separate them
-        # by checking sym.id
-        let genericSubtype = isGenericSubtype(c, x, f, depth, f)
-        if not (genericSubtype and aobj.sym.id != fobj.sym.id) and aOrig.kind != tyGenericBody:
-          depth = -1
-
-      if depth >= 0:
+    elif body.skipTypes({tyPtr, tyRef}).kind == tyObject and
+         x.skipToObject(sp) != nil:
+      # if its not the same object type, there can still be a subtype
+      # relationship
+      let depth = isSubtypeOfGenericInstance(c, x, f, f)
+      case depth
+      of -1:
+        result = isNone
+      of 0:
+        unreachable("already handled by the ``x.kind == tyGenericInst`` branch")
+      else:
         c.inheritancePenalty += depth
-        # bug #4863: We still need to bind generic alias crap, so
-        # we cannot return immediately:
-        result = if depth == 0: isGeneric else: isSubtype
+        result = isSubtype
+
+    elif x.kind == tyGenericInst and
+         body.kind notin {tyAnd, tyOr, tyGenericInvocation}:
+      # the formal invocation is not a generic alias and both `f` and
+      # `a` are not applications to the same generic type -> no match.
+      result = isNone
+    else:
+      # XXX: to not ignore phantom types, this branch should only be taken
+      #      when `f` is not a phantom type
+      # match against the generic body, but before doing so, replace the type
+      # variables therein with the arguments provided to the invocation. For
+      # example, given the body ``Body[T] = (T, T)`` and invocation
+      # ``Body[A]``, the resulting type would be ``(A, A)``.
+      var bindings: TIdTable
+      initIdTable(bindings)
+      # prepare the parameter-to-argument bindings
+      for i in 1..<f.len:
+        idTablePut(bindings, f.base[i-1], f[i])
+
+      # XXX: since we're forwarding the arguments here, the constraints on the
+      #      body's parameters are ignored...
+      let other = replaceTypeParamsInType(c.c, bindings, body)
+      result = typeRel(c, other, a, flags)
   of tyAnd:
     considerPreviousT:
       result = isEqual
