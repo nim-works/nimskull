@@ -1365,9 +1365,15 @@ proc liftParamType(c: PContext, procKind: TSymKind, genericParams: PNode,
       return
 
     if body.lastSon.kind == tyUserTypeClass:
-      let expanded = instGenericContainer(c, info, paramType,
-                                          allowMetaTypes = true)
-      result = recurse(expanded, true)
+      # turn the user-type-class invocation into a ``tyUserTypeClassInst``,
+      # making handling of the type easier for ``typeRel``
+      result = copyType(paramType, nextTypeId(c.idgen), body.owner)
+      result.kind = tyUserTypeClassInst
+      # an unresolved ``tyUserTypeClassInst`` currently expects the
+      # ``tyUserTypeClass`` as the last element
+      result.sons.add body.lastSon
+
+      result = recurse(result, true)
 
   of tyUserTypeClasses, tyBuiltInTypeClass, tyCompositeTypeClass,
      tyAnd, tyOr, tyNot:
