@@ -1195,8 +1195,8 @@ proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile; isKnownFile: var bool
     conf.m.fileInfos.add(newFileInfo(canon, if pseudoPath: RelativeFile filename
                                             else: relativeTo(canon, conf.projectPath)))
     conf.m.filenameToIndexTbl[canon2] = result
-  if not hasKey:
-    conf.fileIdxTbl[filename.string] = result
+
+  conf.fileIdxTbl[filename.string] = result
 
 proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile): FileIndex =
   var dummy: bool
