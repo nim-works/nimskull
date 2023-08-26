@@ -888,7 +888,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "empty 'asm' statement"
 
     of rsemLinePragmaExpectsTuple:
-      result = "tuple expected"
+      result = "a tuple value of the form '(string, int, int)' is expected," &
+               " but got: '" & r.ast.render & "'"
 
     of rsemRaisesPragmaExpectsObject:
       result = "invalid type for raises/tags list"

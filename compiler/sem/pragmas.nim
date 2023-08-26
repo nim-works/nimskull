@@ -826,23 +826,27 @@ proc pragmaLine(c: PContext, n: PNode): PNode =
   if n.kind in nkPragmaCallKinds and n.len == 2:
     n[1] = c.semConstExpr(c, n[1])
     let a = n[1]
-    if a.kind in {nkPar, nkTupleConstr}:
+    if a.kind == nkTupleConstr and a.len == 3:
       # unpack the tuple
-      var x = a[0]
-      var y = a[1]
-      if x.kind == nkExprColonExpr: x = x[1]
-      if y.kind == nkExprColonExpr: y = y[1]
-      if x.kind != nkStrLit:
-        result = c.config.newError(n,
-                    PAstDiag(kind: adSemStringLiteralExpected))
-      elif y.kind != nkIntLit:
-        result = c.config.newError(n, PAstDiag(kind: adSemIntLiteralExpected))
+      let
+        path = a[0].skipColon
+        line = a[1].skipColon
+        col  = a[2].skipColon
+
+      if path.kind == nkStrLit and line.kind == nkIntLit and
+         col.kind == nkIntLit:
+        n.info = newLineInfo(fileInfoIdx(c.config, AbsoluteFile(path.strVal)),
+                             line.intVal.int,
+                             col.intVal.int)
       else:
-        n.info.fileIndex = fileInfoIdx(c.config, AbsoluteFile(x.strVal))
-        n.info.line = uint16(y.intVal)
-    else:
-      result = c.config.newError(
-        n, PAstDiag(kind: adSemLinePragmaExpectsTuple))
+        n[1] = c.config.newError(
+          a, PAstDiag(kind: adSemLinePragmaExpectsTuple))
+    elif a.kind != nkError:
+      n[1] = c.config.newError(
+        a, PAstDiag(kind: adSemLinePragmaExpectsTuple))
+
+    if n[1].kind == nkError:
+      result = c.config.wrapError(n)
   else:
     # sensible default:
     n.info = getInfoContext(c.config, -1)
