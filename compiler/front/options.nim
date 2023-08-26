@@ -1167,9 +1167,9 @@ proc fileInfoKnown*(conf: ConfigRef; filename: AbsoluteFile): bool =
   result = conf.fileIdxTbl.hasKey(filename.string)
 
 proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile; isKnownFile: var bool): FileIndex =
-  let hasKey = conf.fileIdxTbl.hasKey(filename.string)
-  if hasKey:
-    return conf.fileIdxTbl[filename.string]
+  result = conf.fileIdxTbl.getOrDefault(filename.string, InvalidFileIdx)
+  if result != InvalidFileIdx:
+    return
   var
     canon: AbsoluteFile
     pseudoPath = false
