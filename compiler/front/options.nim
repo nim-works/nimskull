@@ -95,8 +95,8 @@ type
     writtenSemReports*: ReportSet
     lastError*: TLineInfo
     filenameToIndexTbl*: Table[string, FileIndex]
-    rawPathToIndexTbl*: TableRef[string, FileIndex] ## maps non-canonicalized paths 
-    ## of known-files to the corresponding file index
+    rawPathToIndexTbl*: Table[string, FileIndex] ## maps non-canonicalized
+    ## paths of known-files to the corresponding file index
     fileInfos*: seq[TFileInfo] ## Information about all known source files
     ## is stored in this field - full/relative paths, list of line etc.
     ## (For full list see `TFileInfo`)
