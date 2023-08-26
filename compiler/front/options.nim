@@ -114,7 +114,7 @@ proc initMsgConfig*(): MsgConfig =
   result.fileInfos = @[]
   result.errorOutputs = {eStdOut, eStdErr}
   result.filenameToIndexTbl["???"] = FileIndex(-1)
-  result.rawPathToIndexTbl = newTable[string, FileIndex]()
+  result.rawPathToIndexTbl = initTable[string, FileIndex]()
 
 func incl*(s: var ReportSet, id: NodeId) = s.ids.incl uint32(id)
 func contains*(s: var ReportSet, id: NodeId): bool = s.ids.contains uint32(id)
