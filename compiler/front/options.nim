@@ -21,7 +21,7 @@ when not FileSystemCaseSensitive:
 from terminal import isatty
 from times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
-import tables
+
 from compiler/ast/ast_types import
   TNodeKind,  # used in conversion from `ParsedNode` to `PNode`
   TNodeFlag,  # used in conversion from `ParsedNode` to `PNode`
@@ -95,6 +95,8 @@ type
     writtenSemReports*: ReportSet
     lastError*: TLineInfo
     filenameToIndexTbl*: Table[string, FileIndex]
+    rawPathToIndexTbl*: TableRef[string, FileIndex] ## maps non-canonicalized paths 
+    ## of known-files to the corresponding file index
     fileInfos*: seq[TFileInfo] ## Information about all known source files
     ## is stored in this field - full/relative paths, list of line etc.
     ## (For full list see `TFileInfo`)
@@ -112,6 +114,7 @@ proc initMsgConfig*(): MsgConfig =
   result.fileInfos = @[]
   result.errorOutputs = {eStdOut, eStdErr}
   result.filenameToIndexTbl["???"] = FileIndex(-1)
+  result.rawPathToIndexTbl = newTable[string, FileIndex]()
 
 func incl*(s: var ReportSet, id: NodeId) = s.ids.incl uint32(id)
 func contains*(s: var ReportSet, id: NodeId): bool = s.ids.contains uint32(id)
@@ -312,7 +315,6 @@ type
 
     when defined(nimDebugUnreportedErrors):
       unreportedErrors*: OrderedTable[NodeId, PNode]
-    fileIdxTbl*: TableRef[string, FileIndex]
 
 template `[]`*(conf: ConfigRef, idx: FileIndex): TFileInfo =
   conf.m.fileInfos[idx.uint32]
@@ -934,7 +936,6 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
     maxLoopIterationsVM: 10_000_000,
     vmProfileData: newProfileData(),
     spellSuggestMax: spellSuggestSecretSauce,
-    fileIdxTbl: newTable[string, FileIndex]()
   )
   initConfigRefCommon(result)
 
@@ -1164,10 +1165,17 @@ proc canonicalCase(path: var string) =
   else: toLowerAscii(path)
 
 proc fileInfoKnown*(conf: ConfigRef; filename: AbsoluteFile): bool =
-  result = conf.fileIdxTbl.hasKey(filename.string)
+  var
+    canon: AbsoluteFile
+  try:
+    canon = canonicalizePath(conf, filename)
+  except OSError:
+    canon = filename
+  canon.string.canonicalCase
+  result = conf.m.filenameToIndexTbl.hasKey(canon.string)
 
 proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile; isKnownFile: var bool): FileIndex =
-  result = conf.fileIdxTbl.getOrDefault(filename.string, InvalidFileIdx)
+  result = conf.m.rawPathToIndexTbl.getOrDefault(filename.string, InvalidFileIdx)
   if result != InvalidFileIdx:
     return
   var
@@ -1196,7 +1204,7 @@ proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile; isKnownFile: var bool
                                             else: relativeTo(canon, conf.projectPath)))
     conf.m.filenameToIndexTbl[canon2] = result
 
-  conf.fileIdxTbl[filename.string] = result
+  conf.m.rawPathToIndexTbl[filename.string] = result
 
 proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile): FileIndex =
   var dummy: bool
