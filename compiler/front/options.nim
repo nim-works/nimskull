@@ -95,8 +95,8 @@ type
     writtenSemReports*: ReportSet
     lastError*: TLineInfo
     filenameToIndexTbl*: Table[string, FileIndex]
-    rawPathToIndexTbl*: TableRef[string, FileIndex] ## maps non-canonicalized paths 
-    ## of known-files to the corresponding file index
+    rawPathToIndexTbl*: Table[string, FileIndex] ## maps non-canonicalized
+    ## paths of known-files to the corresponding file index
     fileInfos*: seq[TFileInfo] ## Information about all known source files
     ## is stored in this field - full/relative paths, list of line etc.
     ## (For full list see `TFileInfo`)
@@ -114,7 +114,7 @@ proc initMsgConfig*(): MsgConfig =
   result.fileInfos = @[]
   result.errorOutputs = {eStdOut, eStdErr}
   result.filenameToIndexTbl["???"] = FileIndex(-1)
-  result.rawPathToIndexTbl = newTable[string, FileIndex]()
+  result.rawPathToIndexTbl = initTable[string, FileIndex]()
 
 func incl*(s: var ReportSet, id: NodeId) = s.ids.incl uint32(id)
 func contains*(s: var ReportSet, id: NodeId): bool = s.ids.contains uint32(id)
