@@ -44,7 +44,7 @@ template assertImpl(cond: bool, msg: string, expr: string, enabled: static[bool]
       ploc = $loc
     bind instantiationInfo
     mixin failedAssertImpl
-    {.line.}:
+    {.line: instantiationInfo(fullPaths = true).}:
       if not cond:
         failedAssertImpl(ploc & " `" & expr & "` " & msg)
 
