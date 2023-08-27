@@ -1,5 +1,5 @@
 discard """
-  errormsg: "cannot evaluate at compile time: size"
+  errormsg: "accessed location 'size' doesn't exist in the current compile-time context"
   line: 16
 """
 

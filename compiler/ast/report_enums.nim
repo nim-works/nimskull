@@ -580,6 +580,7 @@ type
     rsemCannotCreateImplicitOpenarray
     rsemCannotAssignToDiscriminantWithCustomDestructor
     rsemUnavailableTypeBound
+    rsemUnavailableLocation
 
     # Identifier Lookup
     rsemUndeclaredIdentifier

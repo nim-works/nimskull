@@ -2157,14 +2157,7 @@ proc checkCanEval(c: TCtx; n: CgNode) =
     # Defining importc'ed variables is allowed and since `checkCanEval` is
     # also used by `genVarSection`, don't fail here
     return
-  if s.kind in {skVar, skTemp, skLet, skParam, skResult} and
-      not s.isOwnedBy(c.prc.sym) and s.owner != c.module and
-      c.mode notin {emRepl, emStandalone}:
-    # little hack ahead for bug #12612: assume gensym'ed variables
-    # are in the right scope:
-    if sfGenSym in s.flags and c.prc.sym == nil: discard
-    else: cannotEval(c, n)
-  elif s.kind in {skProc, skFunc, skConverter, skMethod,
+  if s.kind in {skProc, skFunc, skConverter, skMethod,
                   skIterator} and sfForward in s.flags:
     cannotEval(c, n)
 
@@ -2455,25 +2448,6 @@ proc importcCond*(c: TCtx; s: PSym): bool {.inline.} =
     if s.kind in routineKinds:
       return getBody(c.graph, s).kind == nkEmpty
 
-func local(c: TCtx, n: CgNode): TRegister =
-  ## Looks up and returns the register that stores the local named by symbol
-  ## node `n`.
-  let local = c.prc.local(n.sym)
-  if local >= 0:
-    result = local
-  else:
-    # TODO: semantic analysis currently makes it the responsibility of the
-    #       code-generators to check whether an enitity (a local in this
-    #       case) is accesible in the current context. For example:
-    #
-    #         var a = 0
-    #         const b = a # `a` isn't really in scope
-    #
-    #       is not rejected by sem, so we have to reject it here (i.e. the
-    #       ``cannotEval``). See tests/t99bott for an example that triggers
-    #       it
-    cannotEval(c, n)
-
 proc useGlobal(c: var TCtx, n: CgNode): int =
     ## Resolves the global identified by symbol node `n` to the ID that
     ## identifies it at run-time. If using the global is illegal (because
@@ -2509,7 +2483,7 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
     else:
       c.gABx(n, opcLdGlobal, dest, pos)
   else:
-      let local = local(c, n)
+      let local = local(c.prc, s)
       internalAssert(c.config, c.prc.regInfo[local].kind < slotSomeTemp)
       if usesRegister(c.prc, s) or not load or not fitsRegister(s.typ):
         if dest.isUnset:
@@ -2537,7 +2511,7 @@ proc genSymAddr(c: var TCtx, n: CgNode, dest: var TDest) =
     c.gABC(n, opcAddr, dest, tmp)
     c.freeTemp(tmp)
   else:
-    let local = local(c, n)
+    let local = local(c.prc, s)
     c.gABC(n, opcAddr, dest, local)
 
 proc genArrAccessOpcode(c: var TCtx; n: CgNode; dest: var TDest; opc: TOpcode; load = true) =
@@ -2827,7 +2801,6 @@ proc genLvalue(c: var TCtx, n: CgNode, dest: var TDest) =
 
 proc genDef(c: var TCtx; a: CgNode) =
         let s = a[0].sym
-        checkCanEval(c, a[0])
         assert not s.isGlobal
         if true:
           let reg = setSlot(c.prc, s)

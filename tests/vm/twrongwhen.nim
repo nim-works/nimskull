@@ -1,5 +1,5 @@
 discard """
-  errormsg: "cannot evaluate at compile time: x"
+  errormsg: "accessed location 'x' doesn't exist in the current compile-time context"
   line: 7
 """
 

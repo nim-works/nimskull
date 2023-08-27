@@ -502,6 +502,7 @@ func astDiagToLegacyReportKind*(
     assert vmEvent.isSome
     astDiagVmToLegacyReportKind(vmEvent.unsafeGet)
   of adVmQuit: rvmQuit
+  of adSemUnavailableLocation: rsemUnavailableLocation
   of adSemRawTypeMismatch: rsemRawTypeMismatch
   of adSemExpressionCannotBeCalled: rsemExpressionCannotBeCalled
   of adSemCallTypeMismatch: rsemCallTypeMismatch
