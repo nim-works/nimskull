@@ -95,6 +95,8 @@ type
     writtenSemReports*: ReportSet
     lastError*: TLineInfo
     filenameToIndexTbl*: Table[string, FileIndex]
+    rawPathToIndexTbl*: Table[string, FileIndex] ## maps non-canonicalized
+    ## paths of known-files to the corresponding file index
     fileInfos*: seq[TFileInfo] ## Information about all known source files
     ## is stored in this field - full/relative paths, list of line etc.
     ## (For full list see `TFileInfo`)
@@ -112,6 +114,7 @@ proc initMsgConfig*(): MsgConfig =
   result.fileInfos = @[]
   result.errorOutputs = {eStdOut, eStdErr}
   result.filenameToIndexTbl["???"] = FileIndex(-1)
+  result.rawPathToIndexTbl = initTable[string, FileIndex]()
 
 func incl*(s: var ReportSet, id: NodeId) = s.ids.incl uint32(id)
 func contains*(s: var ReportSet, id: NodeId): bool = s.ids.contains uint32(id)
@@ -1172,6 +1175,9 @@ proc fileInfoKnown*(conf: ConfigRef; filename: AbsoluteFile): bool =
   result = conf.m.filenameToIndexTbl.hasKey(canon.string)
 
 proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile; isKnownFile: var bool): FileIndex =
+  result = conf.m.rawPathToIndexTbl.getOrDefault(filename.string, InvalidFileIdx)
+  if result != InvalidFileIdx:
+    return
   var
     canon: AbsoluteFile
     pseudoPath = false
@@ -1197,6 +1203,8 @@ proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile; isKnownFile: var bool
     conf.m.fileInfos.add(newFileInfo(canon, if pseudoPath: RelativeFile filename
                                             else: relativeTo(canon, conf.projectPath)))
     conf.m.filenameToIndexTbl[canon2] = result
+
+  conf.m.rawPathToIndexTbl[filename.string] = result
 
 proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile): FileIndex =
   var dummy: bool
