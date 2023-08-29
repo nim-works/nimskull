@@ -1423,8 +1423,12 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
   # and then 'isType' is false; this is of course all terrible design
   checkMinSonsLen(n, 1, c.config)
   result = newProcType(c, n.info, prev)
-  var check = initIntSet()
-  var counter = 0
+  var
+    check = initIntSet()
+    counter = 0
+    untypedParamPos = 0 ## the first untyped param, if one exists at all, used
+                        ## to enforce: all params following an untyped param
+                        ## must be untyped
 
   for i in 1..<n.len:
     var a = n[i]
@@ -1454,6 +1458,17 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
             c.config,
             a[^2].info,
             reportTyp(rsemMisplacedMagicType, typ))
+
+      template isUntyped(t: PType): bool =
+        t.kind == tyUntyped or
+          t.kind == tyVarargs and t.len > 0 and t[0].kind == tyUntyped
+
+      if untypedParamPos == 0:
+        if typ.isUntyped:
+          untypedParamPos = i
+      elif not isUntyped(typ):
+        localReport(c.config, a[^2],
+                    reportTyp(rsemUntypedParamsFollwedByMoreSpecificType, typ))
 
     if hasDefault:
       def = a[^1]

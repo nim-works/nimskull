@@ -1595,6 +1595,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemAlignRequiresPowerOfTwo:
       result = "power of two expected"
 
+    of rsemUntypedParamsFollwedByMoreSpecificType:
+      result = "non-untyped param must not appear after an untyped param"
+
     of rsemNoReturnHasReturn:
       result = "???"
 
