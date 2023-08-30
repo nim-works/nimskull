@@ -1464,7 +1464,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
           t.kind == tyVarargs and t.len > 0 and t[0].kind == tyUntyped
 
       if untypedParamPos == 0:
-        if typ.isUntyped:
+        if isUntyped(typ):
           untypedParamPos = i
       elif not isUntyped(typ):
         localReport(c.config, a[^2],
