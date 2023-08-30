@@ -5446,8 +5446,8 @@ Typed vs untyped parameters
 ---------------------------
 
 An `untyped` parameter means that symbol lookups and type resolution is not
-performed before the expression is passed to the template. This means that
-*undeclared* identifiers, for example, can be passed to the template:
+performed before the expression is passed to the template. This allows
+*undeclared* identifiers, for example, to be passed to the template:
 
 .. code-block:: nim
     :test: "nim c $1"
@@ -5477,6 +5477,10 @@ template. For historical reasons, templates can be explicitly annotated with
 an `immediate` pragma and then these templates do not take part in
 overloading resolution and the parameters' types are *ignored* by the
 compiler. Explicit immediate templates are now deprecated.
+
+An `untyped` parameter may not be followed by a parameter(s) of a more specific
+type -- presently this generates a warning, but in the future this will be an
+error.
 
 **Note**: For historical reasons, `stmt` was an alias for `typed` and
 `expr` was an alias for `untyped`, but they are removed.

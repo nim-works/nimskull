@@ -777,6 +777,7 @@ type
     rsemSuspiciousEnumConv     = "EnumConv"
     rsemUnsafeSetLen           = "UnsafeSetLen"
     rsemUnsafeDefault          = "UnsafeDefault"
+    rsemUntypedParamsFollwedByMoreSpecificType
     rsemBindDeprecated
     rsemObservableStores       = "ObservableStores"
     rsemUseOfGc                = "GcMem" # last !
