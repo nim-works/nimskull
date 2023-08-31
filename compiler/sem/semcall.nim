@@ -281,6 +281,7 @@ proc semGenericArgs(c: PContext, n: PNode): PNode =
         result[i] = evaluated
       else:
         # sigmatch expects the non-type generic arugments to use ``tyStatic``
+        let opr = copyTree(evaluated)
         opr.typ = newTypeS(tyStatic, c)
         opr.typ.sons = @[evaluated.typ]
         opr.typ.n = evaluated
