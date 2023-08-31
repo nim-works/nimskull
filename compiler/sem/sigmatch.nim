@@ -1752,22 +1752,8 @@ typeRel can be used to establish various relationships between types:
 
   of tyCompositeTypeClass:
     considerPreviousT:
-      let
-        roota = a.skipGenericAlias
-        rootf = f.lastSon.skipGenericAlias
-      if a.kind == tyGenericInst and roota.base == rootf.base:
-        for i in 1..<rootf.len-1:
-          let
-            ff = rootf[i]
-            aa = roota[i]
-          result = typeRel(c, ff, aa, flags)
-          if result == isNone:
-            return
-          if ff.kind == tyRange and result != isEqual:
-            return isNone
-      else:
-        result = typeRel(c, rootf.lastSon, a, flags)
-      if result != isNone:
+      assert f.lastSon.kind == tyGenericInvocation
+      if typeRel(c, f.lastSon, a, flags) != isNone:
         put(c, f, a)
         result = isGeneric
 

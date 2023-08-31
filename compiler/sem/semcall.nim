@@ -450,20 +450,15 @@ proc inferWithMetatype(c: PContext, formal: PType,
     if formal.kind == tyCompositeTypeClass:
       # passing the composite type-class to ``generateTypeInstance`` would
       # get us the matched source type, which is not what we want here
-      # (especially in the presense of ``distinct``s). We want the instantiated
-      # base type.
+      # (especially in the presense of ``distinct``s); we want the
+      # result of applying the invocation
       doAssert formal[0].kind == tyGenericBody
-      let inst = formal[1] ## the fully instantiated meta type
-      assert inst.kind == tyGenericInst
+      doAssert formal[1].kind == tyGenericInvocation
 
-      var invocation = newTypeS(tyGenericInvocation, c)
-      invocation.sons = @[formal[0]] # don't propagte the flags
-      # add the instance arguments as the invocation parameters:
-      for i in 1..<inst.len-1:
-        invocation.rawAddSon(inst[i])
-
-      # evaluate the invocation:
-      result.typ = generateTypeInstance(c, m.bindings, arg.info, invocation)
+      # `typeRel` populated the type environment (`m.bindings`) with the
+      # types bound to the type variables used in the invocation -- we can
+      # directly instantiate it
+      result.typ = generateTypeInstance(c, m.bindings, arg.info, formal[1])
     else:
       result.typ = generateTypeInstance(c, m.bindings, arg.info, formal)
   else:

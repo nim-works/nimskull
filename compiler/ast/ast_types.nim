@@ -512,10 +512,11 @@ type
 
     tyCompositeTypeClass
       ## Type such as seq[Number]
-      ## The notes for tyUserTypeClassInst apply here as well
+      ## Similar to ``tyUserTypeClassInst``, this type will also bind
+      ## types.
       ## sons[0]: the original expression used by the user.
-      ## sons[1]: fully expanded and instantiated meta type
-      ## (potentially following aliases)
+      ## sons[1]: the lifted meta-type to match against (at present, this is
+      ##          always a ``tyGenericInvocation``)
 
     tyInferred
       ## In the initial state `base` stores a type class constraining
