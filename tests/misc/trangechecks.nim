@@ -46,3 +46,11 @@ echo expected == 4
 var
   x45 = "hello".cstring
   p = x45.len.int32
+
+static:
+  # test that out-of-range errors with arguments to `range` parameters can
+  # be detected with ``compiles``
+  proc f(x: range[1..4]) =
+    discard
+
+  doAssert not compiles(f(0))
