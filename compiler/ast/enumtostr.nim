@@ -34,9 +34,8 @@ proc genEnumToStrProc*(t: PType; info: TLineInfo; g: ModuleGraph; idgen: IdGener
     assert(t.n[i].kind == nkSym)
     let field = t.n[i].sym
     let val = if field.ast == nil: field.name.s else: field.ast.strVal
-    caseStmt.add newTree(nkOfBranch, newSymNode(field),
+    caseStmt.add newTree(nkOfBranch, newIntTypeNode(field.position, t),
       newTree(nkStmtList, newTree(nkFastAsgn, newSymNode(res), newStrNode(val, info))))
-    #newIntTypeNode(nkIntLit, field.position, t)
 
   let body = newTreeI(nkStmtList, info): caseStmt
 
