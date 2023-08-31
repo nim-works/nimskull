@@ -1146,8 +1146,7 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
     if n.typ != nil and typeAllowed(n.typ, skConst, c) != nil: return
 
     var call = newNodeIT(nkCall, n.info, n.typ)
-    call.add(n[0])
-    for i in 1..<n.len:
+    for i in 0..<n.len:
       let a = getConstExpr(c.module, n[i], c.idgen, c.graph)
       if a == nil or a.kind == nkError:
         return n
@@ -1179,9 +1178,10 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
   ## value or an error.
   inc c.p.inStaticContext
   openScope(c)
-  let a = semExprWithType(c, n)
+  var a = semExprWithType(c, n)
   closeScope(c)
   dec c.p.inStaticContext
+  a = foldInAst(c.module, a, c.idgen, c.graph)
   if a.kind == nkError or a.findUnresolvedStatic != nil:
     return a
 
@@ -2766,6 +2766,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   try:
     result = semExpr(c, n, flags)
     if result != nil and efNoSem2Check notin flags:
+      result = foldInAst(c.module, result, c.idgen, c.graph)
       trackStmt(c, c.module, result, isTopLevel = false)
     if c.config.errorCounter != oldErrorCount and
        result != nil and result.kind != nkError:

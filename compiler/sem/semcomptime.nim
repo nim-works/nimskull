@@ -48,17 +48,6 @@ proc checkAux(c: var CheckCtx, n: PNode): PNode =
     # an ``except Error as e`` branch also introduces a local
     if isInfixAs(n[0]):
       c.defs.incl n[0][2].sym.id
-
-  of nkCallKinds:
-    # XXX: the ``len`` call for an arrays is uncondtionally folded away later,
-    #      which means that it's okay for the argument expression to reference
-    #      locals not declared in the current context. Until folding happens
-    #      earlier, we skip the call here
-    if n[0].kind == nkSym and n[0].sym.magic == mLengthArray:
-      return
-
-    for it in n.items:
-      check(it)
   of callableDefs, nkNimNodeLit, nkTypeSection, nkConstSection,
      nkTypeOfExpr, nkMixinStmt, nkBindStmt, nkImportStmt, nkImportExceptStmt,
      nkFromStmt, nkExportStmt:
@@ -73,7 +62,7 @@ proc checkAux(c: var CheckCtx, n: PNode): PNode =
       check(it)
 
 proc check*(n: PNode): PNode =
-  ## Given the untransformed AST `n` of a freestanding expression/statement,
+  ## Given the constant-folded AST `n` of a freestanding expression/statement,
   ## looks for access of locals that aren't available in the current compile-
   ## time context. Example:
   ##

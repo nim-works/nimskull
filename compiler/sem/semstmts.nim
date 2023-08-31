@@ -925,6 +925,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
     if not hasError and sfCompileTime in v.flags:
       var x = newNodeI(result.kind, v.info)
       x.add producedDecl
+      x = foldInAst(c.module, x, c.idgen, c.graph)
       setupCompileTimeVar(c.module, c.idgen, c.graph, x)
 
     if v.flags * {sfGlobal, sfThread} == {sfGlobal}:
@@ -2306,6 +2307,7 @@ proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   pushProcCon(c, s)
   addResult(c, n, n.typ[0])
   s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
+  s.ast[bodyPos] = foldInAst(c.module, s.ast[bodyPos], c.idgen, c.graph)
   trackProc(c, s, s.ast[bodyPos])
   popProcCon(c)
   popOwner(c)
@@ -2798,6 +2800,7 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
         pushProcCon(c, s)
         addResult(c, result, s.typ[0])
         s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
+        s.ast[bodyPos] = foldInAst(c.module, s.ast[bodyPos], c.idgen, c.graph)
         trackProc(c, s, s.ast[bodyPos])
         popProcCon(c)
       elif efOperand notin flags:
@@ -2811,6 +2814,7 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
         maybeAddResult(c, s, result)
         # semantic checking also needed with importc in case used in VM
         s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
+        s.ast[bodyPos] = foldInAst(c.module, s.ast[bodyPos], c.idgen, c.graph)
         # unfortunately we cannot skip this step when in 'system.compiles'
         # context as it may even be evaluated in 'system.compiles':
         trackProc(c, s, s.ast[bodyPos])
@@ -3059,6 +3063,7 @@ proc semMacroDef(c: PContext, n: PNode): PNode =
     pushProcCon(c, s)
     addResult(c, s.ast, nimNodeType)
     result[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
+    result[bodyPos] = foldInAst(c.module, result[bodyPos], c.idgen, c.graph)
     trackProc(c, s, result[bodyPos])
     popProcCon(c)
 
@@ -3276,9 +3281,10 @@ proc semStaticStmt(c: PContext, n: PNode): PNode =
   #writeStackTrace()
   inc c.p.inStaticContext
   openScope(c)
-  let a = semStmt(c, n[0], {})
+  var a = semStmt(c, n[0], {})
   closeScope(c)
   dec c.p.inStaticContext
+  a = foldInAst(c.module, a, c.idgen, c.graph)
   result = shallowCopy(n)
   result[0] = a
 
