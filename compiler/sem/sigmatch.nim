@@ -1652,9 +1652,12 @@ typeRel can be used to establish various relationships between types:
         if matched != nil: isGeneric
         else:              isNone
     elif x.kind == tyGenericInst and
-         body.kind notin {tyAnd, tyOr, tyGenericInvocation}:
+         body.kind notin {tyAnd, tyOr, tyGenericInvocation, tyDistinct}:
       # the formal invocation is not a generic alias and both `f` and
       # `a` are not applications to the same generic type -> no match.
+      # An exception is ``tyDistinct``: for the "coerce distincts" mode to
+      # work, we have match the instance against the meta-instantiated
+      # body (i.e., the branch below)
       result = isNone
     else:
       # XXX: to not ignore phantom types, this branch should only be taken
