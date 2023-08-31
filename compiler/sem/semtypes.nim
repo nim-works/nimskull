@@ -1324,11 +1324,8 @@ proc liftParamType(c: PContext, procKind: TSymKind, genericParams: PNode,
       result.rawAddSon paramType.lastSon
       return addImplicitGeneric(c, result, paramTypId, info, genericParams, paramName)
 
-    let x = instGenericContainer(c, paramType.sym.info, result,
-                                  allowMetaTypes = true)
+    let x = result
     result = newTypeWithSons(c, tyCompositeTypeClass, @[paramType, x])
-    #result = newTypeS(tyCompositeTypeClass, c)
-    #for i in 0..<x.len: result.rawAddSon(x[i])
     result = addImplicitGeneric(c, result, paramTypId, info, genericParams, paramName)
 
   of tyGenericInst:

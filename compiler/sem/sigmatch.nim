@@ -658,7 +658,12 @@ proc typeRangeRel(f: PType, lo, hi: PNode, a: PType): TTypeRelation {.noinline.}
 proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
   var
     c = m.c
-    typeClass = ff.skipTypes({tyUserTypeClassInst})
+    typeClass =
+      case ff.kind
+      of tyUserTypeClassInst: ff.lastSon
+      of tyGenericInvocation: ff.base.lastSon
+      of tyUserTypeClass:     ff
+      else:                   unreachable()
     body = typeClass.n[3]
     matchedConceptContext: TMatchedConcept
     prevMatchedConcept = c.matchedConcept
@@ -684,8 +689,8 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
 
   var typeParams: seq[(PSym, PType)]
 
-  if ff.kind == tyUserTypeClassInst:
-    for i in 1..<(ff.len - 1):
+  if ff.kind in {tyUserTypeClassInst, tyGenericInvocation}:
+    for i in 1..<(ff.len - ord(ff.kind == tyUserTypeClassInst)):
       var
         typeParamName = ff.base[i-1].sym.name
         typ = ff[i]
@@ -772,7 +777,7 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
   for p in typeParams:
     put(m, p[1], p[0].typ)
 
-  if ff.kind == tyUserTypeClassInst:
+  if ff.kind in {tyUserTypeClassInst, tyGenericInvocation}:
     result = generateTypeInstance(c, m.bindings, typeClass.sym.info, ff)
   else:
     result = ff.exactReplica
@@ -1635,10 +1640,24 @@ typeRel can be used to establish various relationships between types:
         c.inheritancePenalty += depth
         result = isSubtype
 
+    elif body.kind == tyUserTypeClass:
+      # the formal type is a generic user-type-class that wasn't lifted into
+      # a ``tyUserTypeClassInst``
+      let matched = matchUserTypeClass(c, f, aOrig)
+      # XXX: there's no point in binding the resolved type-class to the
+      #      invocation, as the latter is not necessarily unique and
+      #      the resolved type-class can thus not be reliably retrieved
+      #      later...
+      result =
+        if matched != nil: isGeneric
+        else:              isNone
     elif x.kind == tyGenericInst and
-         body.kind notin {tyAnd, tyOr, tyGenericInvocation}:
+         body.kind notin {tyAnd, tyOr, tyGenericInvocation, tyDistinct}:
       # the formal invocation is not a generic alias and both `f` and
       # `a` are not applications to the same generic type -> no match.
+      # An exception is ``tyDistinct``: for the "coerce distincts" mode to
+      # work, we have match the instance against the meta-instantiated
+      # body (i.e., the branch below)
       result = isNone
     else:
       # XXX: to not ignore phantom types, this branch should only be taken
@@ -1752,22 +1771,8 @@ typeRel can be used to establish various relationships between types:
 
   of tyCompositeTypeClass:
     considerPreviousT:
-      let
-        roota = a.skipGenericAlias
-        rootf = f.lastSon.skipGenericAlias
-      if a.kind == tyGenericInst and roota.base == rootf.base:
-        for i in 1..<rootf.len-1:
-          let
-            ff = rootf[i]
-            aa = roota[i]
-          result = typeRel(c, ff, aa, flags)
-          if result == isNone:
-            return
-          if ff.kind == tyRange and result != isEqual:
-            return isNone
-      else:
-        result = typeRel(c, rootf.lastSon, a, flags)
-      if result != isNone:
+      assert f.lastSon.kind == tyGenericInvocation
+      if typeRel(c, f.lastSon, a, flags) != isNone:
         put(c, f, a)
         result = isGeneric
 

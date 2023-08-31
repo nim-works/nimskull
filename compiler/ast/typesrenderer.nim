@@ -206,7 +206,7 @@ proc typeToString*(typ: PType, prefer: TPreferedDesc = preferName): string =
           result = typeToString(t.lastSon)
         of tyCompositeTypeClass:
           # avoids showing `A[any]` in `proc fun(a: A)` with `A = object[T]`
-          result = typeToString(t.lastSon.lastSon)
+          result = typeToString(t[0])
         else:
           result = t.sym.name.s
         if prefer == preferMixed and result != t.sym.name.s:

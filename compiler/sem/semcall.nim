@@ -450,20 +450,15 @@ proc inferWithMetatype(c: PContext, formal: PType,
     if formal.kind == tyCompositeTypeClass:
       # passing the composite type-class to ``generateTypeInstance`` would
       # get us the matched source type, which is not what we want here
-      # (especially in the presense of ``distinct``s). We want the instantiated
-      # base type.
+      # (especially in the presense of ``distinct``s); we want the
+      # result of applying the invocation
       doAssert formal[0].kind == tyGenericBody
-      let inst = formal[1] ## the fully instantiated meta type
-      assert inst.kind == tyGenericInst
+      doAssert formal[1].kind == tyGenericInvocation
 
-      var invocation = newTypeS(tyGenericInvocation, c)
-      invocation.sons = @[formal[0]] # don't propagte the flags
-      # add the instance arguments as the invocation parameters:
-      for i in 1..<inst.len-1:
-        invocation.rawAddSon(inst[i])
-
-      # evaluate the invocation:
-      result.typ = generateTypeInstance(c, m.bindings, arg.info, invocation)
+      # `typeRel` populated the type environment (`m.bindings`) with the
+      # types bound to the type variables used in the invocation -- we can
+      # directly instantiate it
+      result.typ = generateTypeInstance(c, m.bindings, arg.info, formal[1])
     else:
       result.typ = generateTypeInstance(c, m.bindings, arg.info, formal)
   else:
@@ -702,7 +697,7 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
   call.add(newIdentNode(fn.name, fn.info))
   for i in 1..<fn.typ.n.len:
     let param = fn.typ.n[i]
-    const desiredTypes = abstractVar + {tyCompositeTypeClass} - {tyTypeDesc, tyDistinct}
+    const desiredTypes = abstractVar - {tyTypeDesc, tyDistinct}
     #[
       # We only want the type not any modifiers such as `ptr`, `var`, `ref` ...
       # tyCompositeTypeClass is here for
@@ -711,7 +706,24 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
       proc `$`(f: Foo): string {.borrow.}
       # We want to skip `Foo` to get `int`
     ]#
-    let t = skipTypes(param.typ, desiredTypes)
+    var t = param.typ
+    # skip types from the `desiredTypes` set + composite-type-classes:
+    while true:
+      case t.kind
+      of desiredTypes:
+        t = t.lastSon
+      of tyCompositeTypeClass:
+        # replace type parameters in the invocation's generic type and then
+        # resume with the generic type
+        let invoc = t.lastSon
+        var bindings: TIdTable
+        initIdTable(bindings)
+        for j in 1..<invoc.len:
+          idTablePut(bindings, invoc.base[j-1], invoc[j])
+
+        t = replaceTypeParamsInType(c, bindings, invoc.base.lastSon)
+      else:
+        break
     if t.kind == tyDistinct or param.typ.kind == tyDistinct: hasDistinct = true
     var x: PType
     if param.typ.kind == tyVar:
