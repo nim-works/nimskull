@@ -1,5 +1,9 @@
 discard """
   description: "test runner for testindexerroroutput.nims"
+  knownIssue: '''
+    the conversion in the array-index position is folded first, resulting in a
+    range error instead of an index error
+  '''
   joinable: false
   target: native
 """

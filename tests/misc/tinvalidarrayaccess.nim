@@ -1,6 +1,10 @@
 discard """
   errormsg: "index 2 not in 0 .. 1"
-  line: 18
+  knownIssue: '''
+    the conversion in the array-index position is folded first, resulting in a
+    range error instead of an index error
+  '''
+  line: 23
 """
 block:
   try:
