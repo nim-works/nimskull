@@ -697,7 +697,7 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
   call.add(newIdentNode(fn.name, fn.info))
   for i in 1..<fn.typ.n.len:
     let param = fn.typ.n[i]
-    const desiredTypes = abstractVar + {tyCompositeTypeClass} - {tyTypeDesc, tyDistinct}
+    const desiredTypes = abstractVar - {tyTypeDesc, tyDistinct}
     #[
       # We only want the type not any modifiers such as `ptr`, `var`, `ref` ...
       # tyCompositeTypeClass is here for
@@ -706,7 +706,24 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
       proc `$`(f: Foo): string {.borrow.}
       # We want to skip `Foo` to get `int`
     ]#
-    let t = skipTypes(param.typ, desiredTypes)
+    var t = param.typ
+    # skip types from the `desiredTypes` set + composite-type-classes:
+    while true:
+      case t.kind
+      of desiredTypes:
+        t = t.lastSon
+      of tyCompositeTypeClass:
+        # replace type parameters in the invocation's generic type and then
+        # resume with the generic type
+        let invoc = t.lastSon
+        var bindings: TIdTable
+        initIdTable(bindings)
+        for j in 1..<invoc.len:
+          idTablePut(bindings, invoc.base[j-1], invoc[j])
+
+        t = replaceTypeParamsInType(c, bindings, invoc.base.lastSon)
+      else:
+        break
     if t.kind == tyDistinct or param.typ.kind == tyDistinct: hasDistinct = true
     var x: PType
     if param.typ.kind == tyVar:
