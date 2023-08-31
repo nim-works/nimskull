@@ -751,10 +751,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemInvalidBooldefine:
       result = "{.booldefine.} const was set to an invalid bool: '" & r.str & "'"
 
-    of rsemSemfoldInvalidConversion:
-      result = "conversion from $1 to $2 is invalid" % [
-        typeToString(r.actualType()), typeToString(r.formalType())]
-
     of rsemIllformedAst:
       result = "illformed AST: " & render(r.ast)
 
@@ -3311,14 +3307,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       reportInst: diag.instLoc.toReportLineInfo,
       kind: kind,
       ast: n)
-  of adSemInvalidRangeConversion:
-    semRep = SemReport(
-        location: some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemSemfoldInvalidConversion,
-        ast: diag.wrongNode,
-        typeMismatch: @[typeMismatch(diag.wrongNode[0].typ,
-                                     diag.wrongNode.typ)])
   of adSemInvalidControlFlow:
     semRep = SemReport(
         location: some diag.location,

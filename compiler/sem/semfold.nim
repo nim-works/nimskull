@@ -791,7 +791,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
   #    if a == nil: return nil
   #    result[i][1] = a
   #  incl(result.flags, nfAllConst)
-  of nkPar, nkTupleConstr:
+  of nkTupleConstr:
     # tuple constructor
     result = copyNode(n)
     if (n.len > 0) and (n[0].kind == nkExprColonExpr):
@@ -808,20 +808,6 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
         if a == nil: return nil
         result.add a
     incl(result.flags, nfAllConst)
-  of nkChckRangeF, nkChckRange64, nkChckRange:
-    let a = getConstExpr(m, n[0], idgen, g)
-    if a == nil: return
-    if leValueConv(n[1], a) and leValueConv(a, n[2]):
-      # a <= x and x <= b
-      result = foldConv(n, a, idgen, g, check=false)
-    else:
-      result = g.config.newError(n,
-                                 PAstDiag(kind: adSemInvalidRangeConversion))
-  of nkStringToCString, nkCStringToString:
-    let a = getConstExpr(m, n[0], idgen, g)
-    if a == nil: return
-    result = a
-    result.typ = n.typ
   of nkHiddenStdConv, nkHiddenSubConv, nkConv:
     let a = getConstExpr(m, n[1], idgen, g)
     if a == nil: return
