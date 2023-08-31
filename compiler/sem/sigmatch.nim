@@ -658,7 +658,12 @@ proc typeRangeRel(f: PType, lo, hi: PNode, a: PType): TTypeRelation {.noinline.}
 proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
   var
     c = m.c
-    typeClass = ff.skipTypes({tyUserTypeClassInst})
+    typeClass =
+      case ff.kind
+      of tyUserTypeClassInst: ff.lastSon
+      of tyGenericInvocation: ff.base.lastSon
+      of tyUserTypeClass:     ff
+      else:                   unreachable()
     body = typeClass.n[3]
     matchedConceptContext: TMatchedConcept
     prevMatchedConcept = c.matchedConcept
@@ -684,8 +689,8 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
 
   var typeParams: seq[(PSym, PType)]
 
-  if ff.kind == tyUserTypeClassInst:
-    for i in 1..<(ff.len - 1):
+  if ff.kind in {tyUserTypeClassInst, tyGenericInvocation}:
+    for i in 1..<(ff.len - ord(ff.kind == tyUserTypeClassInst)):
       var
         typeParamName = ff.base[i-1].sym.name
         typ = ff[i]
@@ -772,7 +777,7 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
   for p in typeParams:
     put(m, p[1], p[0].typ)
 
-  if ff.kind == tyUserTypeClassInst:
+  if ff.kind in {tyUserTypeClassInst, tyGenericInvocation}:
     result = generateTypeInstance(c, m.bindings, typeClass.sym.info, ff)
   else:
     result = ff.exactReplica
@@ -1635,6 +1640,17 @@ typeRel can be used to establish various relationships between types:
         c.inheritancePenalty += depth
         result = isSubtype
 
+    elif body.kind == tyUserTypeClass:
+      # the formal type is a generic user-type-class that wasn't lifted into
+      # a ``tyUserTypeClassInst``
+      let matched = matchUserTypeClass(c, f, aOrig)
+      # XXX: there's no point in binding the resolved type-class to the
+      #      invocation, as the latter is not necessarily unique and
+      #      the resolved type-class can thus not be reliably retrieved
+      #      later...
+      result =
+        if matched != nil: isGeneric
+        else:              isNone
     elif x.kind == tyGenericInst and
          body.kind notin {tyAnd, tyOr, tyGenericInvocation}:
       # the formal invocation is not a generic alias and both `f` and
