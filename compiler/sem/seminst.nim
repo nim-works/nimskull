@@ -140,8 +140,7 @@ proc sideEffectsCheck(c: PContext, s: PSym) =
         {sfNoSideEffect, sfSideEffect}:
       localReport(s.info, errXhasSideEffects, s.name.s)
 
-proc instGenericContainer(c: PContext, info: TLineInfo, header: PType,
-                          allowMetaTypes = false): PType =
+proc instGenericContainer(c: PContext, info: TLineInfo, header: PType): PType =
   internalAssert(
     c.config,
     header.kind == tyGenericInvocation,
@@ -157,7 +156,6 @@ proc instGenericContainer(c: PContext, info: TLineInfo, header: PType,
 
   cl.info = info
   cl.c = c
-  cl.allowMetaTypes = allowMetaTypes
 
   # We must add all generic params in scope, because the generic body
   # may include tyFromExpr nodes depending on these generic params.
