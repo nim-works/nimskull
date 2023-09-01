@@ -1046,3 +1046,42 @@ block type_inference_from_nested_invocation:
 
   var x: (Type[string],)
   doAssert f(x) == "string"
+
+block isnot_in_record_when:
+  # the `is` operator used inside ``when`` conditions of generic objects
+  # must work even if used in an argument context
+  type Object[A] = object
+    when not(A is (string | float)):
+      a: int
+    elif not(A is float):
+      b: string
+    else:
+      c: float
+
+  proc f[T](x: T): Object[T] =
+    when T is int:
+      result.a = 1
+    elif T is string:
+      result.b = "2"
+    else:
+      result.c = 3.0
+
+  doAssert f(0).a == 1
+  doAssert f("").b == "2"
+  doAssert f(0.0).c == 3.0
+
+block typed_macro_in_generic_object_when:
+  # semantic macros (those not operating on syntax only) are
+  # used in ``when`` conditions of generic object when the
+  # type is instantiated
+  macro m(x: static int): int =
+    result = quote: `x`
+
+  type Object[N: static int] = object
+    when m(N) == 1:
+      val: int
+
+  var o1 = Object[0]()
+  doAssert not compiles(o1.val)
+  var o2 = Object[1](val: 2)
+  doAssert o2.val == 2

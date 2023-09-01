@@ -280,37 +280,24 @@ proc replaceObjBranches(cl: TReplTypeVars, n: PNode): PNode =
     discard
   of nkRecWhen:
     var branch: PNode = nil              # the branch to take
-    for i in 0 ..< n.len:
-      var it = n[i]
-      if it == nil:
-        cl.c.config.globalReport(reportAst(
-          rsemIllformedAst, n, str = "subnode at idx $1 is 'nil'" % [$i]))
-
+    for it in n.items:
       case it.kind
       of nkElifBranch:
-        checkSonsLen(it, 2, cl.c.config)
-        var cond = it[0]
-        var e = cl.c.semConstExpr(cl.c, cond)
-        cl.c.config.internalAssert(e.kind == nkIntLit, e.info):
-          "ReplaceTypeVarsN: when condition not a bool"
-
-        if e.intVal != 0 and branch == nil: branch = it[1]
+        let e = cl.c.semConstBoolExpr(cl.c, it[0])
+        if e.kind == nkIntLit and e.intVal != 0 and branch == nil:
+          branch = it[1]
       of nkElse:
-        checkSonsLen(it, 1, cl.c.config)
         if branch == nil:
           branch = it[0]
       else:
-        cl.c.config.globalReport(reportAst(
-          rsemIllformedAst,  n,
-          str = "Expected else or elif for subnode at idx $1, but found $2" % [
-            $i, $it.kind]))
+        unreachable(it.kind)
     if branch != nil:
       result = replaceObjBranches(cl, branch)
     else:
       result = newNodeI(nkRecList, n.info)
   else:
-    for i in 0..<n.len:
-      n[i] = replaceObjBranches(cl, n[i])
+    for it in n.sons.mitems:
+      it = replaceObjBranches(cl, it)
 
 proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
   ## Replaces references to unresolved types in AST associated with types (i.e.:
@@ -333,28 +320,21 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
       result = newNodeI(nkRecList, n.info)
   of nkRecWhen:
     var branch: PNode = nil              # the branch to take
-    for i in 0..<n.len:
-      var it = n[i]
-      if it == nil:
-        cl.c.config.globalReport(reportAst(
-          rsemIllformedAst, n,
-          str = "subnode at idx $1 is 'nil'" % [$i]))
+    for it in n.items:
       case it.kind
       of nkElifBranch:
-        checkSonsLen(it, 2, cl.c.config)
-        var cond = prepareNode(cl, it[0])
-        var e = cl.c.semConstExpr(cl.c, cond)
-        cl.c.config.internalAssert(e.kind == nkIntLit, e.info):
-          "ReplaceTypeVarsN: when condition not a bool"
-        if e.intVal != 0 and branch == nil: branch = it[1]
+        let e = cl.c.semConstBoolExpr(cl.c, prepareNode(cl, it[0]))
+        # note: `e` may not be an int literal in case of cascading
+        # errors
+        if e.kind == nkIntLit and e.intVal != 0 and branch == nil:
+          branch = it[1]
       of nkElse:
-        checkSonsLen(it, 1, cl.c.config)
         if branch == nil: branch = it[0]
       else:
-        cl.c.config.globalReport(reportAst(
-          rsemIllformedAst, n,
-          str = "Expected else or elif for subnode at idx $1, but found $2" % [
-            $i, $it.kind]))
+        # should have already been rejected when first analysing the record
+        # structure
+        unreachable(it.kind)
+
     if branch != nil:
       result = replaceTypeVarsN(cl, branch)
     else:

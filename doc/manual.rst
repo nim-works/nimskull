@@ -3084,10 +3084,24 @@ exceptions:
   translated by the compiler, the other statements are not checked for
   semantics! However, each condition is checked for semantics.
 
-The `when` statement enables conditional compilation techniques. As
-a special syntactic extension, the `when` construct is also available
+The `when` statement enables conditional compilation techniques.
+
+When statement inside `object`
+------------------------------
+
+As a special syntactic extension, the `when` construct is also available
 within `object` definitions.
 
+At which point the `when` construct is evaluated and collapsed depends on
+whether the object has generic parameters:
+* if it does not, the conditions are evaluated and a branch is chosen
+  when inside the definition
+* it it does, all condition expressions are treated as generic expressions
+  that are only instantiated, and a branch chosen, when the object type is
+  instantiated
+
+Same as for `when` statements outside of `object` definitions, each condition
+is checked for semantics and evaluated.
 
 When nimvm statement
 --------------------
