@@ -105,11 +105,9 @@ type
     typeMap*: LayeredIdTable  # map PType to PType
     symMap*: TIdTable         # map PSym to PSym
     localCache*: TIdTable     # local cache for remembering already replaced
-                              # types during instantiation of meta types
-                              # (they are not stored in the global cache)
+                              # types. Used as a work-around for instantiation
+                              # cache issues
     info*: TLineInfo
-    allowMetaTypes*: bool     # allow types such as seq[Number]
-                              # i.e. the result contains unresolved generics
     skipTypedesc*: bool       # whether we should skip typeDescs
     isReturnType*: bool
     owner*: PSym              # where this instantiation comes from
@@ -141,8 +139,7 @@ template put(typeMap: LayeredIdTable, key, value: PType) =
 
 template checkMetaInvariants(cl: TReplTypeVars, t: PType) = # noop code
   when false:
-    if t != nil and tfHasMeta in t.flags and
-       cl.allowMetaTypes == false:
+    if t != nil and tfHasMeta in t.flags:
       echo "UNEXPECTED META ", t.id, " ", instantiationInfo(-1)
       debug t
       writeStackTrace()
@@ -365,10 +362,8 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
   of nkStaticExpr:
     var n = prepareNode(cl, n)
     n = reResolveCallsWithTypedescParams(cl.c, n)
-    result = if cl.allowMetaTypes: n
-             else: cl.c.semExpr(cl.c, n)
-    if not cl.allowMetaTypes:
-      assert result.kind notin nkCallKinds
+    result = cl.c.semExpr(cl.c, n)
+    assert result.kind notin nkCallKinds
   else:
     if n.len > 0:
       newSons(result, n.len)
@@ -425,37 +420,27 @@ proc replaceTypeVarsS(cl: var TReplTypeVars, s: PSym): PSym =
 proc lookupTypeVar(cl: var TReplTypeVars, t: PType): PType =
   result = cl.typeMap.lookup(t)
   if result == nil:
-    if cl.allowMetaTypes or tfRetType in t.flags: return
+    if tfRetType in t.flags: return
     cl.c.config.localReport(t.sym.info, reportTyp(rsemCannotInstantiate, t))
     result = errorType(cl.c)
     # In order to prevent endless recursions, we must remember
     # this bad lookup and replace it with errorType everywhere.
     # These code paths are only active in "nim check"
     cl.typeMap.put(t, result)
-  elif result.kind == tyGenericParam and not cl.allowMetaTypes:
+  elif result.kind == tyGenericParam:
     cl.c.config.internalError("substitution with generic parameter")
 
 proc instCopyType*(cl: var TReplTypeVars, t: PType): PType =
-  # XXX: relying on allowMetaTypes is a kludge
-  if cl.allowMetaTypes:
-    result = t.exactReplica
-  else:
+  if true:
     result = copyType(t, nextTypeId(cl.c.idgen), t.owner)
     copyTypeProps(cl.c.graph, cl.c.idgen.module, result, t)
-    #cl.typeMap.topLayer.idTablePut(result, t)
 
-  if cl.allowMetaTypes: return
   result.flags.incl tfFromGeneric
   if not (t.kind in tyMetaTypes or
          (t.kind == tyStatic and t.n == nil)):
     result.flags.excl tfInstClearedFlags
   else:
     result.flags.excl tfHasAsgn
-  when false:
-    if newDestructors:
-      result.assignment = nil
-      result.destructor = nil
-      result.sink = nil
 
 proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   # tyGenericInvocation[A, tyGenericInvocation[A, B]]
@@ -464,10 +449,7 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   cl.c.config.internalAssert(body.kind == tyGenericBody, cl.info, "no generic body")
   var header = t
   # search for some instantiation here:
-  if cl.allowMetaTypes:
-    result = PType(idTableGet(cl.localCache, t))
-  else:
-    result = searchInstTypes(cl.c.graph, t)
+  result = searchInstTypes(cl.c.graph, t)
 
   if result != nil and sameFlags(result, t):
     when defined(reportCacheHits):
@@ -502,10 +484,7 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   # ugh need another pass for deeply recursive generic types (e.g. PActor)
   # we need to add the candidate here, before it's fully instantiated for
   # recursive instantions:
-  if not cl.allowMetaTypes:
-    cacheTypeInst(cl.c, result)
-  else:
-    idTablePut(cl.localCache, t, result)
+  cacheTypeInst(cl.c, result)
 
   let oldSkipTypedesc = cl.skipTypedesc
   cl.skipTypedesc = true
@@ -543,7 +522,7 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   if newbody.isGenericAlias: newbody = newbody.skipGenericAlias
   rawAddSon(result, newbody)
   checkPartialConstructedType(cl.c.config, cl.info, newbody)
-  if not cl.allowMetaTypes:
+  if true:
     let dc = cl.c.graph.getAttachedOp(newbody, attachedDeepCopy)
     if dc != nil and sfFromGeneric notin dc.flags:
       # 'deepCopy' needs to be instantiated for
@@ -659,7 +638,6 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
     #result = replaceTypeVarsT(cl, lastSon(t))
 
   of tyFromExpr:
-    if cl.allowMetaTypes: return
     # This assert is triggered when a tyFromExpr was created in a cyclic
     # way. You should break the cycle at the point of creation by introducing
     # a call such as: `n.typ = makeTypeFromExpr(c, n.copyTree)`
@@ -712,18 +690,15 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
     propagateToOwner(result, result.lastSon)
 
   of tyGenericInst:
-    # do nothing for ``tyGenericInst`` instances. Concrete ones don't need any
-    # replacing, and meta ones are handled at the callsite
-    doAssert(cl.allowMetaTypes or not containsGenericType(t))
+    # this must be a fully resolved concrete type
+    doAssert(not containsGenericType(t))
     result = t
 
   else:
     if containsGenericType(t):
-      #if not cl.allowMetaTypes:
       bailout()
       result = instCopyType(cl, t)
       result.size = -1 # needs to be recomputed
-      #if not cl.allowMetaTypes:
       idTablePut(cl.localCache, t, result)
 
       for i in 0..<result.len:

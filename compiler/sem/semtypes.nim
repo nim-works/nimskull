@@ -1744,8 +1744,7 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
 
         result = newOrPrevType(tyError, prev, c)
       else:
-        result = instGenericContainer(c, n.info, result,
-                                      allowMetaTypes = false)
+        result = instGenericContainer(c, n.info, result)
 
   # special check for generic object with
   # generic/partial specialized parent
