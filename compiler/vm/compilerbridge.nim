@@ -109,7 +109,11 @@ proc logBytecode(c: TCtx, owner: PSym, start: int) =
   ## into text that is then written to the standard output.
   const Symbol = "expandVmListing"
   if owner != nil and c.config.isDefined(Symbol):
-    if c.config.getDefined(Symbol) == owner.name.s:
+    let name = c.config.getDefined(Symbol)
+    # if no value is specified for the conditional sym (i.e.,
+    # ``--define:expandVmListing``), `name` is 'true', which we interpret
+    # as "log everything"
+    if name == "true" or name == owner.name.s:
       let listing = codeListing(c, start)
       c.config.msgWrite: renderCodeListing(c.config, owner, listing)
 
