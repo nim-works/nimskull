@@ -944,7 +944,9 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
           if e.kind != nkIntLit: discard "don't report followup error"
           elif e.intVal != 0 and branch == nil: branch = it[1]
         else:
-          it[0] = forceBool(c, semExprWithType(c, it[0]))
+          it[0] = semGenericStmt(c, it[0])
+          # ensure that all type variables have their symbol bound:
+          discard fixupTypeVars(c, it[0])
       of nkElse:
         checkSonsLen(it, 1, c.config)
         if branch == nil: branch = it[0]
