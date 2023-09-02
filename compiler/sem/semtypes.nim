@@ -23,6 +23,30 @@ proc newConstraint(c: PContext, k: TTypeKind): PType =
   result.flags.incl tfCheckedForDestructor
   result.addSonSkipIntLit(newTypeS(k, c), c.idgen)
 
+proc reportMeta(c: PContext; info: TLineInfo; t: PType) =
+  ## Reports errors for using the meta type `t`.
+  # XXX: instead of happening here, "pretty-printing" the error should be
+  #      responsibility of the renderer
+  assert t.isMetaType
+
+  proc checkMeta(c: PContext, info: TLineInfo, t: PType) =
+    if t != nil and t.isMetaType:
+      if t.kind == tyBuiltInTypeClass and t.len == 1 and t[0].kind == tyProc:
+        localReport(c.config, info, reportTyp(
+          rsemProcIsNotAConcreteType, t))
+      else:
+        localReport(c.config, info, reportTyp(
+          rsemTIsNotAConcreteType, t))
+
+  case t.kind
+  of tySequence, tySet, tyArray, tyOpenArray, tyVar, tyLent, tyPtr, tyRef,
+      tyProc, tyGenericInvocation, tyGenericInst, tyAlias, tySink:
+    let start = ord(t.kind in {tyGenericInvocation, tyGenericInst})
+    for i in start..<t.len:
+      checkMeta(c, info, t[i])
+  else:
+    checkMeta(c, info, t)
+
 proc semEnum(c: PContext, n: PNode, prev: PType): PType =
   if n.len == 0: return newConstraint(c, tyEnum)
   elif n.len == 1:
@@ -584,7 +608,6 @@ proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =
 proc semTuple(c: PContext, n: PNode, prev: PType): PType =
   # TODO: replace with a node returning variant that can in band errors
   addInNimDebugUtils(c.config, "semTuple", n, prev, result)
-  var typ: PType
   result = newOrPrevType(tyTuple, prev, c)
   result.n = newNodeI(nkRecList, n.info)
   var check = initIntSet()
@@ -597,10 +620,15 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
         str = "Expected identDefs for node, but found " & $a.kind))
 
     checkMinSonsLen(a, 3, c.config)
-    if a[^2].kind != nkEmpty:
-      typ = semTypeNode(c, a[^2], nil)
-    else:
+    var typ = semTypeNode(c, a[^2], nil)
+    if typ.isNil:
       localReport(c.config, a, reportSem rsemTypeExpected)
+      typ = errorType(c)
+    elif prev != nil and c.inGenericContext == 0 and typ.isMetaType:
+      # only disallow meta types for tuple constructors where the
+      # resulting type is directly assigned a name (i.e.,
+      # ``type Tup = tuple[...]``)
+      reportMeta(c, a[^2].info, typ)
       typ = errorType(c)
 
     if a[^1].kind != nkEmpty:
@@ -984,12 +1012,14 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
     else: a = newNodeI(nkEmpty, n.info)
     if n[^1].kind != nkEmpty:
       localReport(c.config, n[^1], reportSem rsemInitHereNotAllowed)
-    var typ: PType
-    if n[^2].kind == nkEmpty:
+    var typ = semTypeNode(c, n[^2], nil)
+    if typ.isNil:
       localReport(c.config, n, reportSem rsemTypeExpected)
       typ = errorType(c)
+    elif c.inGenericContext == 0 and typ.isMetaType:
+      reportMeta(c, n[^2].info, typ)
+      typ = errorType(c)
     else:
-      typ = semTypeNode(c, n[^2], nil)
       propagateToOwner(rectype, typ)
     var fieldOwner = if c.inGenericContext > 0: c.getCurrOwner
                      else: rectype.sym

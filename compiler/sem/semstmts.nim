@@ -1832,6 +1832,12 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
       for e in ifErrorWalkErrors(c.config, name[1]):
         localReport(c.config, e)
 
+    if typeDef[1].kind != nkEmpty:
+      # the type is generic. So that the right-side pass can easily
+      # detect forwarded generic types, we mark the ``tyForward``
+      # type
+      s.typ.flags.incl tfHasMeta
+
     if sfForward in s.flags:
       # check if the symbol already exists:
       let pkg = c.module.owner
@@ -1967,13 +1973,8 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       openScope(c)
       pushOwner(c, s)
       if s.magic == mNone: s.typ.kind = tyGenericBody
-      # XXX for generic type aliases this is not correct! We need the
-      # underlying Id really:
-      #
-      # type
-      #   TGObj[T] = object
-      #   TAlias[T] = TGObj[T]
-      #
+      # exclude the meta-flag included during the left-side pass:
+      s.typ.flags.excl tfHasMeta
       s.typ.n = semGenericParamList(c, a[1], s.typ)
       a[1] = s.typ.n
       s.typ.size = -1 # could not be computed properly
@@ -2062,35 +2063,6 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       obj.typ = st.lastSon
       st.lastSon.sym = obj
 
-proc checkForMetaFields(c: PContext; n: PNode) =
-  proc checkMeta(c: PContext; n: PNode; t: PType) =
-    if t != nil and t.isMetaType and tfGenericTypeParam notin t.flags:
-      if t.kind == tyBuiltInTypeClass and t.len == 1 and t[0].kind == tyProc:
-        localReport(c.config, n.info, reportTyp(
-          rsemProcIsNotAConcreteType, t))
-      else:
-        localReport(c.config, n.info, reportTyp(
-          rsemTIsNotAConcreteType, t))
-
-  if n.isNil: return
-  case n.kind
-  of nkRecList, nkRecCase:
-    for s in n: checkForMetaFields(c, s)
-  of nkOfBranch, nkElse:
-    checkForMetaFields(c, n.lastSon)
-  of nkSym:
-    let t = n.sym.typ
-    case t.kind
-    of tySequence, tySet, tyArray, tyOpenArray, tyVar, tyLent, tyPtr, tyRef,
-       tyProc, tyGenericInvocation, tyGenericInst, tyAlias, tySink:
-      let start = ord(t.kind in {tyGenericInvocation, tyGenericInst})
-      for i in start..<t.len:
-        checkMeta(c, n, t[i])
-    else:
-      checkMeta(c, n, t)
-  else:
-    internalAssert(c.config, false, $n.kind)
-
 proc typeSectionFinalPass(c: PContext, n: PNode) =
   for i in 0..<n.len:
     var a = n[i]
@@ -2123,8 +2095,6 @@ proc typeSectionFinalPass(c: PContext, n: PNode) =
               assignType(s.typ, t)
               s.typ.itemId = t.itemId     # same id
         checkConstructedType(c.config, s.info, s.typ)
-        if s.typ.kind in {tyObject, tyTuple} and not s.typ.n.isNil:
-          checkForMetaFields(c, s.typ.n)
 
         # fix bug #5170, bug #17162, bug #15526: ensure locally scoped types get a unique name:
         if s.typ.kind in {tyEnum, tyRef, tyObject} and not isTopLevel(c):
