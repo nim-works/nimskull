@@ -3093,10 +3093,10 @@ As a special syntactic extension, the `when` construct is also available
 within `object` definitions.
 
 At which point the `when` construct is evaluated and collapsed depends on
-whether the object has generic parameters:
-* if it does not, the conditions are evaluated and a branch is chosen
+whether the object is *generic*:
+* if it is not, the conditions are evaluated and a branch is chosen
   when inside the definition
-* it it does, all condition expressions are treated as generic expressions
+* if it is, all condition expressions are treated as generic expressions
   that are only instantiated, and a branch chosen, when the object type is
   instantiated
 
