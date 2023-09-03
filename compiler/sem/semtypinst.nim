@@ -98,9 +98,6 @@ type
     c*: PContext
     typeMap*: LayeredIdTable  # map PType to PType
     symMap*: TIdTable         # map PSym to PSym
-    localCache*: TIdTable     # local cache for remembering already replaced
-                              # types. Used as a work-around for instantiation
-                              # cache issues
     info*: TLineInfo
     skipTypedesc*: bool       # whether we should skip typeDescs
     isReturnType*: bool
@@ -653,7 +650,6 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
   of tyUserTypeClassInst:
     bailout()
     result = instCopyType(cl, t)
-    idTablePut(cl.localCache, t, result)
     for i in 1..<result.len:
       result[i] = replaceTypeVarsT(cl, result[i])
     propagateToOwner(result, result.lastSon)
@@ -668,7 +664,6 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
       bailout()
       result = instCopyType(cl, t)
       result.size = -1 # needs to be recomputed
-      idTablePut(cl.localCache, t, result)
 
       for i in 0..<result.len:
         if result[i] != nil:
@@ -807,7 +802,6 @@ proc replaceTypeParamsInType*(c: PContext, pt: TIdTable, t: PType): PType =
 proc initTypeVars*(p: PContext, typeMap: LayeredIdTable, info: TLineInfo;
                    owner: PSym): TReplTypeVars =
   initIdTable(result.symMap)
-  initIdTable(result.localCache)
   result.typeMap = typeMap
   result.info = info
   result.c = p
