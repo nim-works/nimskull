@@ -773,6 +773,15 @@ proc semConstBoolExpr(c: PContext, n: PNode): PNode =
 proc semGenericStmt(c: PContext, n: PNode): PNode
 proc semConceptBody(c: PContext, n: PNode): PNode
 
+proc newAnonSym(c: PContext, kind: TSymKind, info: TLineInfo): PSym =
+  ## creates an anonymous symbol of the given `kind`
+  let id =
+    case kind
+    of skType: getIdent(c.cache, "AnonType")
+    else:      c.cache.idAnon
+  result = newSym(kind, id, nextSymId c.idgen, getCurrOwner(c), info)
+  result.flags.incl sfAnon
+
 include semtypes, semtempl, semgnrc, semstmts, semexprs
 
 proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =

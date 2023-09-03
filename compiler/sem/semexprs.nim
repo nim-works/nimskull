@@ -2571,9 +2571,6 @@ proc expectString(c: PContext, n: PNode): string =
   else:
     localReport(c.config, n, reportSem rsemStringLiteralExpected)
 
-proc newAnonSym(c: PContext; kind: TSymKind, info: TLineInfo): PSym =
-  result = newSym(kind, c.cache.idAnon, nextSymId c.idgen, getCurrOwner(c), info)
-
 proc semExpandToAst(c: PContext, n: PNode): PNode =
   let macroCall = n[1]
 
