@@ -982,5 +982,6 @@ proc getConstExprError*(m: PSym, n: PNode, idgen: IdGenerator,
                         g: ModuleGraph): PNode =
   ## If `n` is an error, returns the error. Otherwise returns the folded
   ## value, or nil, if `n` isn't constant.
-  if n.kind == nkError: n
-  else:                 getConstExpr(m, n, idgen, g)
+  case n.kind
+  of nkError: n
+  else:       getConstExpr(m, n, idgen, g)
