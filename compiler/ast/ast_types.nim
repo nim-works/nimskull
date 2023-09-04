@@ -1221,7 +1221,6 @@ type
     adSemInvalidBoolDefine
     adSemFoldOverflow       # xxx: remove 'Fold' from name?
     adSemFoldDivByZero      # xxx: remove 'Fold' from name?
-    adSemInvalidRangeConversion
     adSemFoldCannotComputeOffset
     adSemCompilerOptionInvalid
     adSemCompilerOptionArgInvalid
@@ -1333,7 +1332,6 @@ type
         adSemExpectedObjectType,
         adSemFoldOverflow,
         adSemFoldDivByZero,
-        adSemInvalidRangeConversion,
         adSemFoldCannotComputeOffset,
         adSemExpectedIdentifierQuoteLimit,
         adSemExpectedRangeType,

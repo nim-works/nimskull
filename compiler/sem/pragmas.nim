@@ -41,6 +41,7 @@ import
   ],
   compiler/sem/[
     semdata,
+    semfold,
     lookups
   ],
   compiler/backend/[
@@ -375,8 +376,10 @@ proc expectDynlibNode(c: PContext, n: PNode): PNode =
     # For the OpenGL wrapper we support:
     # {.dynlib: myGetProcAddr(...).}
     result = c.semExpr(c, n[1])
-    if result.kind == nkSym and result.sym.kind == skConst:
-      result = result.sym.ast # look it up
+    # this is AST that later gets passed to code generation, so we have to
+    # perform constant folding
+    result = foldInAst(c.module, result, c.idgen, c.graph)
+    # XXX: sempass2 is missing here...
     if result.typ == nil or result.typ.kind notin {tyPointer, tyString, tyProc}:
       result = c.config.newError(n, PAstDiag(kind: adSemStringLiteralExpected))
 

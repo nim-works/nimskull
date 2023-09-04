@@ -42,6 +42,65 @@ from compiler/front/msgs import internalError
 
 from system/memory import nimCStrLen
 
+type
+  Folded = object
+    ## Helper type for tracking/passing contextual state during constant
+    ## folding.
+    node: PNode     ## the AST of the processed expression/statement
+    i: int          ## where to insert the next node
+    wasCopied: bool ## whether a copy was created. If it was, the node can
+                    ## be modified
+    hasError: bool
+
+const
+  ExpressionNodes = nkCallKinds + nkLiterals + {
+    nkSym, nkEmpty, nkNimNodeLit, nkNilLit,
+
+    nkRange, nkBracket, nkCurly, nkObjConstr, nkTupleConstr,
+
+    nkDotExpr, nkCheckedFieldExpr, nkBracketExpr, nkHiddenDeref, nkDerefExpr,
+    nkAddr, nkHiddenAddr,
+
+    nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv,
+    nkTypeOfExpr,
+
+    nkIfExpr, nkBlockExpr, nkStmtListExpr, nkError}
+    ## apart from the call node kinds, nodes that appear exclusively in
+    ## expression contexts
+
+func fromAst(n: PNode, num: int): Folded =
+  result = Folded(node: n, i: num, hasError: false)
+
+proc prepareWrite(f: var Folded) =
+  if not f.wasCopied:
+    let orig = f.node
+    f.node = shallowCopy(orig)
+    f.wasCopied = true
+    # only copy the nodes up-to `num`, the rest
+    # are copied manually
+    for i in 0..<f.i:
+      f.node[i] = orig[i]
+
+proc add(x: var Folded, y: sink Folded) =
+  ## Appends `y` to `x` and propagates the const-ness.
+  if x.node[x.i] != y.node:
+    prepareWrite(x)
+    x.node[x.i] = y.node
+
+  inc x.i
+  # propagate the error flag
+  x.hasError = x.hasError or y.hasError
+
+proc add(f: var Folded, n: PNode) =
+  ## Appends `n` to `f`, where `n` is known to be constant.
+  if f.node[f.i] != n:
+    prepareWrite(f)
+    f.node[f.i] = n
+
+  inc f.i
+  # propagate the error flag
+  f.hasError = f.hasError or n.isError
+
 proc errorType*(g: ModuleGraph): PType =
   ## creates a type representing an error state
   result = newType(tyError, nextTypeId(g.idgen), g.owners[^1])
@@ -78,7 +137,6 @@ proc newStrNodeT*(strVal: string, n: PNode; g: ModuleGraph): PNode =
 proc getConstExpr*(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode
   # evaluates the constant expression or returns nil if it is no constant
   # expression
-proc evalOp*(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): PNode
 
 proc checkInRange(conf: ConfigRef; n: PNode, res: Int128): bool =
   res in firstOrd(conf, n.typ)..lastOrd(conf, n.typ)
@@ -156,7 +214,7 @@ proc pickIntRange(a, b: PType): PType =
 proc isIntRangeOrLit(t: PType): bool =
   result = isIntRange(t) or isIntLit(t)
 
-proc evalOp(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
+proc evalOp*(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
   # b and c may be nil
   result = nil
   case m
@@ -733,7 +791,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
   #    if a == nil: return nil
   #    result[i][1] = a
   #  incl(result.flags, nfAllConst)
-  of nkPar, nkTupleConstr:
+  of nkTupleConstr:
     # tuple constructor
     result = copyNode(n)
     if (n.len > 0) and (n[0].kind == nkExprColonExpr):
@@ -750,20 +808,6 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
         if a == nil: return nil
         result.add a
     incl(result.flags, nfAllConst)
-  of nkChckRangeF, nkChckRange64, nkChckRange:
-    let a = getConstExpr(m, n[0], idgen, g)
-    if a == nil: return
-    if leValueConv(n[1], a) and leValueConv(a, n[2]):
-      # a <= x and x <= b
-      result = foldConv(n, a, idgen, g, check=false)
-    else:
-      result = g.config.newError(n,
-                                 PAstDiag(kind: adSemInvalidRangeConversion))
-  of nkStringToCString, nkCStringToString:
-    let a = getConstExpr(m, n[0], idgen, g)
-    if a == nil: return
-    result = a
-    result.typ = n.typ
   of nkHiddenStdConv, nkHiddenSubConv, nkConv:
     let a = getConstExpr(m, n[1], idgen, g)
     if a == nil: return
@@ -794,3 +838,150 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
       result = getConstExpr(m, n[i], idgen, g)
   else:
     discard # xxx: should we return nil for nkError?
+
+proc foldInAstAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Folded
+
+proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Folded =
+  ## Folds the sub-expressions of `n` and, if possible, `n` itself. If
+  ## `wantValue` is 'true', statements part of the expression are not
+  ## processed and constants are always inlined, regardless of complexity.
+  ##
+  ## For simplicity, `n` doesn't have to be an expression.
+  result = Folded(node: n, i: 0)
+
+  # first step: fold the sub-expressions
+  case n.kind
+  of nkEmpty, nkLiterals, nkNimNodeLit, nkNilLit:
+    # short-circuit the following ``getConstExpr`` call, so that no
+    # unnecessary copy of the node is created
+    return
+  of nkSym:
+    discard "may be folded away"
+  of nkTypeOfExpr:
+    # XXX: could be folded into an ``nkType`` here...
+    discard
+  of nkBracket, nkCurly, nkTupleConstr, nkRange, nkAddr, nkHiddenAddr,
+     nkHiddenDeref, nkDerefExpr, nkBracketExpr, nkCallKinds, nkIfExpr,
+     nkElifExpr, nkElseExpr, nkElse, nkElifBranch:
+    for it in n.items:
+      result.add foldConstExprAux(m, it, idgen, g)
+  of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv, nkBlockExpr:
+    # the first slot only holds the type/label, which we don't need to traverse
+    # into / fold
+    result.add n[0]
+    result.add foldConstExprAux(m, n[1], idgen, g)
+  of nkDotExpr:
+    # don't traverse into the field node
+    result.add foldConstExprAux(m, n[0], idgen, g)
+    result.add n[1]
+  of nkCheckedFieldExpr:
+    # only the first sub-node is relevant
+    let x = foldConstExprAux(m, n[0], idgen, g)
+    if x.node.kind notin {nkDotExpr, nkError}:
+      # collapse away checked-field expressions where the wrapped
+      # node is not a dot-expression anymore
+      return x
+
+    result.add x
+    for i in 1..<n.len:
+      result.add n[i]
+  of nkObjConstr:
+    result.add n[0] # skip the type slot
+    for i in 1..<n.len:
+      result.add foldConstExprAux(m, n[i], idgen, g)
+  of nkStmtListExpr:
+    for i in 0..<n.len-1:
+      result.add foldInAstAux(m, n[i], idgen, g)
+    # the last node is an expression
+    result.add foldConstExprAux(m, n[^1], idgen, g)
+  of nkExprColonExpr:
+    # comes here from tuple/object constructions
+    result.add n[0]
+    result.add foldConstExprAux(m, n[1], idgen, g)
+    return
+  of nkError:
+    # XXX: this should become an internal error once errors are properly
+    #      wrapped everywhere
+    result.hasError = true
+  else:
+    # this is either something statement-like (coming from ``void`` arguments
+    # to procedures) or type AST (coming from ``typedesc`` arguments)
+    result = foldInAstAux(m, n, idgen, g)
+    return
+
+  if result.hasError:
+    # don't attempt folding if the AST contains errors
+    return
+
+  # constants can be inlined here, but only if they cannot result in a cast
+  # in the back-end (e.g. ``cast[pointer](someProc)``). In addition, so as to
+  # not interfere with the documentation generator, statement-list expressions
+  # are not folded if they have a comment in the first position
+  let exprIsPointerCast = n.kind in {nkCast, nkConv, nkHiddenStdConv} and
+                          n.typ != nil and
+                          n.typ.kind == tyPointer
+  if not exprIsPointerCast and
+     not (n.kind == nkStmtListExpr and n[0].kind == nkCommentStmt):
+    var cnst = getConstExpr(m, result.node, idgen, g)
+    # we inline constants if they are not complex constants:
+    if cnst != nil and not dontInlineConstant(n, cnst):
+      result.node = cnst
+      result.hasError = cnst.kind == nkError
+
+proc foldInAstAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Folded =
+  ## Folds all constant expression in the statement or expression `n`.
+  case n.kind
+  of ExpressionNodes:
+    result = foldConstExprAux(m, n, idgen, g)
+  of callableDefs, nkTypeSection, nkConstSection, nkMixinStmt, nkBindStmt,
+     nkPragma, nkImportStmt, nkExportStmt, nkFromStmt, nkImportExceptStmt,
+     nkBreakStmt, nkContinueStmt:
+    # skip declarative nodes and control-flow statements that don't contain
+    # fold-able expressions
+    result = Folded(node: n)
+  of nkStmtList, nkIfStmt, nkCaseStmt, nkWhileStmt, nkWhenStmt, nkTryStmt,
+     nkDefer, nkLetSection, nkVarSection, nkYieldStmt, nkReturnStmt,
+     nkDiscardStmt, nkRaiseStmt, nkAsmStmt, nkAsgn, nkFastAsgn, nkFinally,
+     nkElifBranch, nkElse, nkOfBranch:
+    # something that's either a statement or not evaluatable. We still
+    # want to process the sub-nodes
+    result = Folded(node: n)
+    for it in n.items:
+      result.add foldInAstAux(m, it, idgen, g)
+
+  of nkPragmaBlock, nkBlockStmt:
+    result = fromAst(n, n.len - 1)
+    result.add foldInAstAux(m, n[^1], idgen, g)
+  of nkForStmt:
+    # don't process the symbol slots
+    result = fromAst(n, n.len - 2)
+    result.add foldInAstAux(m, n[^2], idgen, g)
+    result.add foldInAstAux(m, n[^1], idgen, g)
+  of nkIdentDefs, nkVarTuple, nkExceptBranch:
+    # don't process the symbol slots
+    result = fromAst(n, n.len - 1)
+    result.add foldInAstAux(m, n[^1], idgen, g)
+  else:
+    # XXX: type AST reaches here, but ideally this catch-all branch
+    #      wouldn't be needed
+    result = Folded(node: n)
+
+proc foldInAst*(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): PNode =
+  ## Performs constant folding on all expressions appearing in the statement or
+  ## expression `n`. If nothing changed, `n` is returned, a new AST otherwise.
+  if n.kind == nkError:
+    return n # already an error -> nothing to do
+
+  let f = foldInAstAux(m, n, idgen, g)
+  if f.hasError:
+    result = g.config.wrapError(f.node)
+  else:
+    result = f.node
+
+proc getConstExprError*(m: PSym, n: PNode, idgen: IdGenerator,
+                        g: ModuleGraph): PNode =
+  ## If `n` is an error, returns the error. Otherwise returns the folded
+  ## value, or nil, if `n` isn't constant.
+  case n.kind
+  of nkError: n
+  else:       getConstExpr(m, n, idgen, g)

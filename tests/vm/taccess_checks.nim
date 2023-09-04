@@ -82,7 +82,7 @@ static:
 
 static:
   var s = newSeq[int](4)
-  let p = cast[ptr array[5, int]](addr s[0])
+  let p = cast[ptr array[6, int]](addr s[0])
   # XXX: should report a `VMAccessOutOfBounds` but actually reports a
   #      `VMAccessTypeMismatch`. See `tsafety_checks_issues2`
   let v = p[][5] #[tt.Error

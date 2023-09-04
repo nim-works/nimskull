@@ -142,7 +142,7 @@ proc genContainerOf(c: var TLiftCtx; objType: PType, field, x: PSym): PNode =
 
   let minusExpr = genBuiltin(c, mSubI, "-", castExpr1)
   minusExpr.typ = intType
-  minusExpr.add offsetOf
+  minusExpr.add foldOffsetOf(c.g.config, offsetOf, offsetOf)
 
   let objPtr = makePtrType(objType.owner, objType, c.idgen)
   result = newTreeIT(nkCast, c.info, objPtr):
@@ -632,7 +632,8 @@ proc atomicRefOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
     addDestructorCall(c, elemType, actions, genDeref(tmp, nkDerefExpr))
     var alignOf = genBuiltin(c, mAlignOf, "alignof", newNodeIT(nkType, c.info, elemType))
     alignOf.typ = getSysType(c.g, c.info, tyInt)
-    actions.add callCodegenProc(c.g, "nimRawDispose", c.info, tmp, alignOf)
+    actions.add callCodegenProc(c.g, "nimRawDispose", c.info, tmp,
+                                foldAlignOf(c.g.config, alignOf, alignOf))
   else:
     addDestructorCall(c, elemType, newNodeI(nkStmtList, c.info), genDeref(tmp, nkDerefExpr))
     actions.add callCodegenProc(c.g, "nimDestroyAndDispose", c.info, tmp)

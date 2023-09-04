@@ -1,10 +1,10 @@
 discard """
-  nimout: "tcheckedfield1.nim(39, 6) Warning: cannot prove that field 'x.s' is accessible [ProveField]"
+  matrix: "--hints:off"
+  nimout: "tcheckedfield1.nim(52, 6) Warning: cannot prove that field 'x.s' is accessible [ProveField]\n"
+  nimoutfull: true
   action: run
   output: "abc abc"
 """
-
-import strutils
 
 {.warning[ProveField]: on.}
 {.experimental: "notnil".}
@@ -26,7 +26,7 @@ proc getData(x: PList not nil) =
 
 var head: PList
 
-proc processList() =
+proc processList() {.used.} =
   var it = head
   while it != nil:
     getData(it)

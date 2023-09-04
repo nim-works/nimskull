@@ -35,14 +35,12 @@ import
   ],
   compiler/utils/[
     debugutils,
-    astrepr,
     idioms
   ],
   compiler/sem/[
     varpartitions,
     typeallowed,
     guards,
-    semfold,
     semdata,
     nilcheck,
   ]
@@ -946,11 +944,7 @@ proc trackCall(tracked: PEffects; n: PNode) =
   if n.typ != nil:
     if tracked.owner.kind != skMacro and n.typ.skipTypes(abstractVar).kind != tyOpenArray:
       createTypeBoundOps(tracked, n.typ, n.info)
-  let asConstExpr = getConstExpr(tracked.ownerModule, n, tracked.c.idgen, tracked.graph)
-  if asConstExpr.isError:
-    track(tracked, asConstExpr)     # will emit errors
-    return
-  elif asConstExpr == nil:
+  if true:
     if a.kind == nkCast and a[1].typ.kind == tyProc:
       a = a[1]
     # XXX: in rare situations, templates and macros will reach here after

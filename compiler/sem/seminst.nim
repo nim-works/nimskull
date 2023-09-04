@@ -115,6 +115,7 @@ proc instantiateBody(c: PContext, n, params: PNode, result, orig: PSym) =
       b = semProcBody(c, b)
     result.ast[bodyPos] = hloBody(c, b)
     excl(result.flags, sfForward)
+    result.ast[bodyPos] = foldInAst(c.module, result.ast[bodyPos], c.idgen, c.graph)
     trackProc(c, result, result.ast[bodyPos])
     dec c.inGenericInst
 

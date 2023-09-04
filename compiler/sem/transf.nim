@@ -11,8 +11,6 @@
 ## to ease the work of the code generators. Does some transformations:
 ##
 ## * inlines iterators
-## * inlines constants
-## * performs constant folding
 ## * converts "continue" to "break"; disambiguates "break"
 ## * introduces method dispatchers
 ## * performs lambda lifting for closure support
@@ -1042,6 +1040,7 @@ proc commonOptimizations*(g: ModuleGraph; idgen: IdGenerator; c: PSym, n: PNode)
       result.add(a)
     if result.len == 2: result = result[1]
   else:
+    # XXX: consider using ``foldInAst`` at the callsite
     var cnst = getConstExpr(c, n, idgen, g)
     # we inline constants if they are not complex constants:
     if cnst != nil and not dontInlineConstant(n, cnst):
@@ -1186,13 +1185,15 @@ proc transform(c: PTransf, n: PNode): PNode =
       result[1] = transformSymAux(c, a)
     else:
       result = n
+  of nkOfBranch:
+    result = shallowCopy(n)
+    # don't transform the label nodes:
+    for i in 0..<n.len-1:
+      result[i] = n[i]
+
+    result[^1] = transform(c, n[^1])
   of nkExceptBranch:
     result = transformExceptBranch(c, n)
-  of nkCheckedFieldExpr:
-    result = transformSons(c, n)
-    if result[0].kind != nkDotExpr:
-      # simplfied beyond a dot expression --> simplify further.
-      result = result[0]
   of nkNimNodeLit:
     # do not transform the content of a ``NimNode`` literal
     result = n
@@ -1200,17 +1201,6 @@ proc transform(c: PTransf, n: PNode): PNode =
     result = transformSons(c, n)
   when false:
     if oldDeferAnchor != nil: c.deferAnchor = oldDeferAnchor
-
-  # Constants can be inlined here, but only if they cannot result in a cast
-  # in the back-end (e.g. var p: pointer = someProc)
-  let exprIsPointerCast = n.kind in {nkCast, nkConv, nkHiddenStdConv} and
-                          n.typ != nil and
-                          n.typ.kind == tyPointer
-  if not exprIsPointerCast:
-    var cnst = getConstExpr(c.module, result, c.idgen, c.graph)
-    # we inline constants if they are not complex constants:
-    if cnst != nil and not dontInlineConstant(n, cnst):
-      result = cnst # do not miss an optimization
 
 proc processTransf(c: PTransf, n: PNode, owner: PSym): PNode =
   # Note: For interactive mode we cannot call 'passes.skipCodegen' and skip

@@ -344,7 +344,6 @@ type
     # means and how to reproduce it in the example code.
     rsemSemfoldOverflow
     rsemSemfoldDivByZero
-    rsemSemfoldInvalidConversion
     rsemInvalidIntdefine
     rsemInvalidBooldefine
 

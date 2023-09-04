@@ -596,7 +596,6 @@ func astDiagToLegacyReportKind*(
   of adSemInvalidBoolDefine: rsemInvalidBooldefine
   of adSemFoldOverflow: rsemSemfoldOverflow
   of adSemFoldDivByZero: rsemSemfoldDivByZero
-  of adSemInvalidRangeConversion: rsemSemfoldInvalidConversion
   of adSemFoldCannotComputeOffset: rsemCantComputeOffsetof
   of adSemDefNameSym: rsemExpectedIdentifier
   of adSemCompilerOptionInvalid: rsemCompilerOptionInvalid

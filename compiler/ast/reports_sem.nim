@@ -160,7 +160,6 @@ type
       of rsemTypeMismatch,
          rsemSuspiciousEnumConv,
          rsemTypeKindMismatch,
-         rsemSemfoldInvalidConversion,
          rsemCannotConvertTypes,
          rsemImplicitObjConv,
          rsemIllegalConversion,
