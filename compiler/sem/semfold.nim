@@ -77,7 +77,7 @@ proc prepareWrite(f: var Folded) =
     f.node = shallowCopy(orig)
     f.wasCopied = true
     # only copy the nodes up-to `num`, the rest
-    # is copied manually
+    # are copied manually
     for i in 0..<f.i:
       f.node[i] = orig[i]
 

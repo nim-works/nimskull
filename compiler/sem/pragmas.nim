@@ -376,7 +376,7 @@ proc expectDynlibNode(c: PContext, n: PNode): PNode =
     # For the OpenGL wrapper we support:
     # {.dynlib: myGetProcAddr(...).}
     result = c.semExpr(c, n[1])
-    # this is AST that later gets passed to code generation, so we have
+    # this is AST that later gets passed to code generation, so we have to
     # perform constant folding
     result = foldInAst(c.module, result, c.idgen, c.graph)
     # XXX: sempass2 is missing here...
