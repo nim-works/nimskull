@@ -458,9 +458,8 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
 
   # not cached yet
   result = newType(tyGenericInst, nextTypeId(cl.c.idgen), t[0].owner)
-  # make sure the 'not-nil' flag (which is essentialy a type modifier) is
-  # already present on the instance prior to caching
-  result.flags = header.flags * {tfNotNil}
+  # inherit the flags relevant to type equality before recursing:
+  result.flags = header.flags * eqTypeFlags
   # be careful not to propagate unnecessary flags here (don't use rawAddSon)
   result.sons = @[header[0]]
 
