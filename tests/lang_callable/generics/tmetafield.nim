@@ -1,10 +1,10 @@
 discard """
-  cmd: "nim check $options $file"
+  cmd: "nim check $options --hints:off $file"
   action: "reject"
+  nimoutfull: true
   nimout: '''
-tmetafield.nim(26, 5) Error: 'proc' is not a concrete type; for a callback without parameters use 'proc()'
-tmetafield.nim(27, 5) Error: 'Foo' is not a concrete type
-tmetafield.nim(29, 5) Error: invalid type: 'proc' in this context: 'TBaseMed' for var
+tmetafield.nim(26, 13) Error: 'proc' is not a concrete type; for a callback without parameters use 'proc()'
+tmetafield.nim(27, 14) Error: 'Foo' is not a concrete type
 '''
 """
 

@@ -1,6 +1,6 @@
 discard """
-  errormsg: "cannot instantiate: 'GenericNodeObj[T]'; Maybe generic arguments are missing?"
-  line: 21
+  errormsg: "'GenericNodeObj' is not a concrete type"
+  line: 14
 """
 # bug #2509
 type
