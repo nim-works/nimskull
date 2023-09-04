@@ -4,7 +4,7 @@ discard """
     the conversion in the array-index position is folded first, resulting in a
     range error instead of an index error
   '''
-  line: 23
+  line: 22
 """
 block:
   try:
