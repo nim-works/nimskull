@@ -170,6 +170,7 @@ proc resetForBackend*(g: ModuleGraph) =
     a.clear()
   g.methodsPerType.clear()
   g.enumToStringProcs.clear()
+  g.transformed.setLen(0)
 
 const
   cb64 = [
