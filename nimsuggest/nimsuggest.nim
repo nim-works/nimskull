@@ -230,6 +230,7 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
 
   conf.ideCmd = cmd
   if cmd == ideUse and conf.suggestVersion != 0:
+    graph.vm = nil # discard the VM and JIT state
     graph.resetAllModules()
   var isKnownFile = true
   let dirtyIdx = fileInfoIdx(conf, file, isKnownFile)
@@ -251,6 +252,9 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
     let modIdx = graph.parentModule(dirtyIdx)
     graph.markDirty dirtyIdx
     graph.markClientsDirty dirtyIdx
+    # partially recompiling the project means that that VM and JIT state
+    # would become stale, which we prevent by discarding all of it:
+    graph.vm = nil
     if conf.ideCmd != ideMod:
       if isKnownFile:
         graph.compileProject(modIdx)
