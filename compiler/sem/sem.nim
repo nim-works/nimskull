@@ -537,7 +537,7 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
   #      not the expression is constant), but it is inconsitent with the
   #      above, where errors are treated as "not a constant expression"
   result = foldInAst(c.module, e, c.idgen, c.graph)
-  if (let f = getConstExpr2(c.module, result, c.idgen, c.graph); f != nil):
+  if (let f = getConstExprError(c.module, result, c.idgen, c.graph); f != nil):
     return f
 
   proc containsUnresolvedTypeVar(n: PNode): bool {.nimcall.} =
@@ -602,7 +602,7 @@ proc evalConstExpr(c: PContext, n: PNode): PNode =
   # the expression. This is a bit more efficient than doing it the other way
   # around
   result = foldInAst(c.module, n, c.idgen, c.graph)
-  if (let f = getConstExpr2(c.module, result, c.idgen, c.graph); f != nil):
+  if (let f = getConstExprError(c.module, result, c.idgen, c.graph); f != nil):
     # constant folding was successful or resulted in an error
     return f
 
