@@ -100,6 +100,8 @@ type
     emittedTypeInfo*: Table[string, FileIndex]
 
     libs*: seq[seq[TLib]] ## indexed by ``LibId``
+    transformed*: seq[Table[int32, PNode]] ## the cached transformed routine
+                                           ## bodies for all modules
 
     startupPackedConfig*: PackedConfig
     packageSyms*: TStrTable
@@ -500,6 +502,7 @@ proc newModuleGraph*(cache: IdentCache; config: ConfigRef): ModuleGraph =
   result.deps = initIntSet()
   result.ifaces = @[]
   result.importStack = @[]
+  result.transformed = @[]
   result.inclToMod = initTable[FileIndex, FileIndex]()
   result.config = config
   result.cache = cache
@@ -522,6 +525,7 @@ proc resetAllModules*(g: ModuleGraph) =
   g.deps = initIntSet()
   g.ifaces = @[]
   g.importStack = @[]
+  g.transformed = @[]
   g.inclToMod = initTable[FileIndex, FileIndex]()
   g.usageSym = nil
   g.owners = @[]
@@ -635,6 +639,21 @@ proc getBody*(g: ModuleGraph; s: PSym): PNode {.inline.} =
       result = loadProcBody(g.config, g.cache, g.packed, s)
       s.ast[bodyPos] = result
   assert result != nil
+
+proc getTransformed*(g: ModuleGraph, prc: PSym): PNode =
+  ## Retrieves the cached tranformed body for `prc`. If none exists, 'nil' is
+  ## returned.
+  if prc.itemId.module < g.transformed.len:
+    g.transformed[prc.itemId.module].getOrDefault(prc.itemId.item, nil)
+  else:
+    nil
+
+proc setTransformed*(g: ModuleGraph, prc: PSym, body: PNode) =
+  ## Sets the transformed body for `prc`, overwriting the previously cached
+  ## version, if one exists.
+  if prc.itemId.module >= g.transformed.len:
+    g.transformed.setLen(prc.itemId.module + 1)
+  g.transformed[prc.itemId.module][prc.itemId.item] = body
 
 proc moduleFromRodFile*(g: ModuleGraph; fileIdx: FileIndex;
                         cachedModules: var seq[FileIndex]): PSym =
