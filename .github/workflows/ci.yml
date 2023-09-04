@@ -115,7 +115,7 @@ jobs:
     runs-on: ${{ matrix.target.runner }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -150,7 +150,7 @@ jobs:
     runs-on: ${{ matrix.target.runner }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -198,7 +198,7 @@ jobs:
     runs-on: ${{ matrix.target.runner }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -217,7 +217,7 @@ jobs:
     runs-on: ${{ fromJson(needs.pre_run.outputs.shared_builder).runner }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -329,7 +329,7 @@ jobs:
     runs-on: ${{ matrix.target.runner }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -390,7 +390,7 @@ jobs:
     runs-on: ${{ fromJSON(needs.pre_run.outputs.shared_builder).runner }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
