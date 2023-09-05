@@ -743,69 +743,14 @@ proc sameTuple(a, b: PType, c: var TSameTypeClosure): bool =
     elif a.n != b.n and (a.n == nil or b.n == nil) and IgnoreTupleFields notin c.flags:
       result = false
 
-template ifFastObjectTypeCheckFailed(a, b: PType, body: untyped) =
-  if tfFromGeneric notin a.flags + b.flags:
-    # fast case: id comparison suffices:
-    result = a.id == b.id
-  else:
-    # expensive structural equality test; however due to the way generic and
-    # objects work, if one of the types does **not** contain tfFromGeneric,
-    # they cannot be equal. The check ``a.sym.id == b.sym.id`` checks
-    # for the same origin and is essential because we don't want "pure"
-    # structural type equivalence:
-    #
-    # type
-    #   TA[T] = object
-    #   TB[T] = object
-    # --> TA[int] != TB[int]
-    if tfFromGeneric in a.flags * b.flags and a.sym.id == b.sym.id:
-      # ok, we need the expensive structural check
-      body
-
 proc sameObjectTypes*(a, b: PType): bool =
-  # specialized for efficiency (sigmatch uses it)
-  ifFastObjectTypeCheckFailed(a, b):
-    var c = initSameTypeClosure()
-    result = sameTypeAux(a, b, c)
+  result = a.id == b.id
 
 proc sameDistinctTypes*(a, b: PType): bool {.inline.} =
-  result = sameObjectTypes(a, b)
+  result = a.id == b.id
 
 proc sameEnumTypes*(a, b: PType): bool {.inline.} =
   result = a.id == b.id
-
-proc sameObjectTree(a, b: PNode, c: var TSameTypeClosure): bool =
-  if a == b:
-    result = true
-  elif a != nil and b != nil and a.kind == b.kind:
-    var x = a.typ
-    var y = b.typ
-    if IgnoreTupleFields in c.flags:
-      if x != nil: x = skipTypes(x, {tyRange, tyGenericInst, tyAlias})
-      if y != nil: y = skipTypes(y, {tyRange, tyGenericInst, tyAlias})
-    if sameTypeOrNilAux(x, y, c):
-      case a.kind
-      of nkSym:
-        # same symbol as string is enough:
-        result = a.sym.name.id == b.sym.name.id
-      of nkIdent: result = a.ident.id == b.ident.id
-      of nkCharLit..nkInt64Lit: result = a.intVal == b.intVal
-      of nkFloatLit..nkFloat64Lit: result = a.floatVal == b.floatVal
-      of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
-      of nkEmpty, nkNilLit, nkType: result = true
-      else:
-        if a.len == b.len:
-          for i in 0..<a.len:
-            if not sameObjectTree(a[i], b[i], c): return
-          result = true
-
-proc sameObjectStructures(a, b: PType, c: var TSameTypeClosure): bool =
-  # check base types:
-  if a.len != b.len: return
-  for i in 0..<a.len:
-    if not sameTypeOrNilAux(a[i], b[i], c): return
-  if not sameObjectTree(a.n, b.n, c): return
-  result = true
 
 proc sameChildrenAux(a, b: PType, c: var TSameTypeClosure): bool =
   if a.len != b.len: return false
@@ -890,15 +835,11 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
       cycleCheck()
       result = sameTypeAux(a[0], b[0], c)
   of tyObject:
-    ifFastObjectTypeCheckFailed(a, b):
-      cycleCheck()
-      result = sameObjectStructures(a, b, c) and sameFlags(a, b)
+    result = sameObjectTypes(a, b)
   of tyDistinct:
     cycleCheck()
     if c.cmp == dcEq:
-      if sameFlags(a, b):
-        ifFastObjectTypeCheckFailed(a, b):
-          result = sameTypeAux(a[0], b[0], c)
+      result = sameDistinctTypes(a, b)
     else:
       result = sameTypeAux(a[0], b[0], c) and sameFlags(a, b)
   of tyEnum, tyForward:

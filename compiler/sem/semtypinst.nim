@@ -10,9 +10,6 @@
 ## This module does the instantiation of generic types.
 
 import
-  std/[
-    strutils
-  ],
   compiler/ast/[
     ast,
     astalgo,
@@ -64,26 +61,23 @@ proc checkConstructedType*(conf: ConfigRef; info: TLineInfo, typ: PType) =
       if t[0].kind != tyObject or tfFinal in t[0].flags:
         localReport(info, errInheritanceOnlyWithNonFinalObjects)
 
-proc searchInstTypes*(g: ModuleGraph; key: PType): PType =
+proc searchInstTypes(g: ModuleGraph; key: PType): PType =
   let genericTyp = key[0]
   if not (genericTyp.kind == tyGenericBody and
       genericTyp.sym != nil): return
 
   for inst in typeInstCacheItems(g, genericTyp.sym):
     if inst.id == key.id: return inst
-    if inst.len < key.len:
-      # XXX: This happens for prematurely cached
-      # types such as Channel[empty]. Why?
-      # See the notes for PActor in handleGenericInvocation
-      return
+    assert inst.len >= key.len
     if not sameFlags(inst, key):
       continue
 
     block matchType:
-      for j in 1..high(key.sons):
-        # XXX sameType is not really correct for nested generics?
+      # compare the arguments. If all are equal, we've got a cache hit,
+      # otherwise we don't
+      for j in 1..<key.len:
         if not compareTypes(inst[j], key[j],
-                            flags = {ExactGenericParams, PickyCAliases}):
+                            flags = {PickyCAliases}):
           break matchType
 
       return inst
@@ -104,9 +98,6 @@ type
     c*: PContext
     typeMap*: LayeredIdTable  # map PType to PType
     symMap*: TIdTable         # map PSym to PSym
-    localCache*: TIdTable     # local cache for remembering already replaced
-                              # types. Used as a work-around for instantiation
-                              # cache issues
     info*: TLineInfo
     skipTypedesc*: bool       # whether we should skip typeDescs
     isReturnType*: bool
@@ -423,72 +414,72 @@ proc instCopyType*(cl: var TReplTypeVars, t: PType): PType =
     result.flags.excl tfHasAsgn
 
 proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
-  # tyGenericInvocation[A, tyGenericInvocation[A, B]]
-  # is difficult to handle:
-  var body = t[0]
+  ## Evaluates a type application (a ``tyGenericInvocation``) and returns
+  ## the resulting ``tyGenericInst``. The result is cached, and evaluating
+  ## the type application again won't create a new instance, but will instead
+  ## return the cached instance.
+  let body = t.base
   cl.c.config.internalAssert(body.kind == tyGenericBody, cl.info, "no generic body")
   var header = t
-  # search for some instantiation here:
-  result = searchInstTypes(cl.c.graph, t)
-
-  if result != nil and sameFlags(result, t):
-    when defined(reportCacheHits):
-      echo "Generic instantiation cached ", typeToString(result), " for ", typeToString(t)
-    return
-  for i in 1..<t.len:
-    var x = t[i]
-    if x.kind in {tyGenericParam}:
-      x = lookupTypeVar(cl, x)
-      if x != nil:
-        if header == t: header = instCopyType(cl, t)
-        header[i] = x
-        propagateToOwner(header, x)
-    else:
-      propagateToOwner(header, x)
-
-  if header != t:
-    # search again after first pass:
-    result = searchInstTypes(cl.c.graph, header)
-    if result != nil and sameFlags(result, t):
-      when defined(reportCacheHits):
-        echo "Generic instantiation cached ", typeToString(result), " for ",
-          typeToString(t), " header ", typeToString(header)
-      return
-  else:
-    header = instCopyType(cl, t)
-
-  result = newType(tyGenericInst, nextTypeId(cl.c.idgen), t[0].owner)
-  result.flags = header.flags
-  # be careful not to propagate unnecessary flags here (don't use rawAddSon)
-  result.sons = @[header[0]]
-  # ugh need another pass for deeply recursive generic types (e.g. PActor)
-  # we need to add the candidate here, before it's fully instantiated for
-  # recursive instantions:
-  cacheTypeInst(cl.c, result)
 
   let oldSkipTypedesc = cl.skipTypedesc
   cl.skipTypedesc = true
 
-  cl.typeMap = newTypeMapLayer(cl)
-
+  # instantiate all invocation arguments:
   for i in 1..<t.len:
-    let x = replaceTypeVarsT(cl, header[i])
-    assert x.kind != tyGenericInvocation
-    header[i] = x
-    propagateToOwner(header, x)
-    cl.typeMap.put(body[i-1], x)
+    let it = t[i]
+    var x =
+      if it.kind == tyGenericParam:
+        lookupTypeVar(cl, it)
+      else:
+        replaceTypeVarsT(cl, it)
+
+    if x.kind == tyTypeDesc:
+      # we want the unwrapped type in argument positions
+      x = x.base
+
+    if x != it:
+      if header == t:
+        # optimization: only create a copy when something changes. We only
+        # use the header for the cache lookup, so an exact replica suffices
+        header = exactReplica(t)
+      header[i] = x
+      propagateToOwner(header, x)
+
+  cl.skipTypedesc = oldSkipTypedesc
+
+  # search the instance cache for the type:
+  result = searchInstTypes(cl.c.graph, header)
+  if result != nil:
+    when defined(reportCacheHits):
+      echo "Generic instantiation cached ", typeToString(result), " for ",
+        typeToString(t), " header ", typeToString(header)
+    return
+
+  # not cached yet
+  result = newType(tyGenericInst, nextTypeId(cl.c.idgen), t[0].owner)
+  # inherit the flags relevant to type equality before recursing:
+  result.flags = header.flags * eqTypeFlags
+  # be careful not to propagate unnecessary flags here (don't use rawAddSon)
+  result.sons = @[header[0]]
 
   for i in 1..<t.len:
     # if one of the params is not concrete, we cannot do anything
     # but we already raised an error!
     rawAddSon(result, header[i], propagateHasAsgn = false)
 
-  if body.kind == tyError:
-    return
+  # cache the incomplete instance *before* instantiating the body, so that
+  # recursive instantiation works
+  cacheTypeInst(cl.c, result)
+
+  cl.typeMap = newTypeMapLayer(cl)
+
+  for i in 1..<t.len:
+    # bind the arguments to the body's parameters
+    cl.typeMap.put(body[i-1], header[i])
 
   let bbody = lastSon body
   var newbody = replaceTypeVarsT(cl, bbody)
-  cl.skipTypedesc = oldSkipTypedesc
   newbody.flags = newbody.flags + (t.flags + body.flags - tfInstClearedFlags)
   result.flags = result.flags + newbody.flags - tfInstClearedFlags
 
@@ -587,15 +578,9 @@ proc propagateFieldFlags(t: PType, n: PNode) =
 proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
   template bailout =
     if cl.recursionLimit > 100:
-      # bail out, see bug #2509. But note this caching is in general wrong,
-      # look at this example where TwoVectors should not share the generic
-      # instantiations (bug #3112):
-
-      # type
-      #   Vector[N: static[int]] = array[N, float64]
-      #   TwoVectors[Na, Nb: static[int]] = (Vector[Na], Vector[Nb])
-      result = PType(idTableGet(cl.localCache, t))
-      if result != nil: return result
+      # too nested instantiation
+      cl.c.config.localReport(cl.info, reportTyp(rsemCannotInstantiate, t))
+      return errorType(cl.c)
     inc cl.recursionLimit
 
   result = t
@@ -664,7 +649,6 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
   of tyUserTypeClassInst:
     bailout()
     result = instCopyType(cl, t)
-    idTablePut(cl.localCache, t, result)
     for i in 1..<result.len:
       result[i] = replaceTypeVarsT(cl, result[i])
     propagateToOwner(result, result.lastSon)
@@ -679,7 +663,6 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
       bailout()
       result = instCopyType(cl, t)
       result.size = -1 # needs to be recomputed
-      idTablePut(cl.localCache, t, result)
 
       for i in 0..<result.len:
         if result[i] != nil:
@@ -818,7 +801,6 @@ proc replaceTypeParamsInType*(c: PContext, pt: TIdTable, t: PType): PType =
 proc initTypeVars*(p: PContext, typeMap: LayeredIdTable, info: TLineInfo;
                    owner: PSym): TReplTypeVars =
   initIdTable(result.symMap)
-  initIdTable(result.localCache)
   result.typeMap = typeMap
   result.info = info
   result.c = p

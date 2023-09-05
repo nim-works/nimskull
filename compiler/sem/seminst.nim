@@ -151,7 +151,6 @@ proc instGenericContainer(c: PContext, info: TLineInfo, header: PType): PType =
     cl: TReplTypeVars
 
   initIdTable(cl.symMap)
-  initIdTable(cl.localCache)
   cl.typeMap = LayeredIdTable()
   initIdTable(cl.typeMap.topLayer)
 
@@ -224,7 +223,6 @@ proc instantiateProcType(c: PContext, pt: TIdTable,
     # twrong_field_caching requires these 'resetIdTable' calls:
     if i > 1:
       resetIdTable(cl.symMap)
-      resetIdTable(cl.localCache)
 
     # take a note of the original type. If't a free type or static parameter
     # we'll need to keep it unbound for the `fitNode` operation below...
@@ -291,7 +289,6 @@ proc instantiateProcType(c: PContext, pt: TIdTable,
     addDecl(c, param)
 
   resetIdTable(cl.symMap)
-  resetIdTable(cl.localCache)
   cl.isReturnType = true
   result[0] = replaceTypeVarsT(cl, result[0])
   cl.isReturnType = false

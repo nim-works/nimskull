@@ -223,11 +223,6 @@ func genDiscriminator(conf: ConfigRef, typ: PType): VmType =
 
   VmType(kind: akDiscriminator, sizeInBytes: uint(sizeInBytes), alignment: uint8(exponent), numBits: numBits)
 
-
-func addObjectType(c: var TypeInfoCache): PVmType =
-  result = PVmType(kind: akObject)
-  c.types.add(result)
-
 type GenClosure* = object
   queue: seq[(PVmType, PType)]
   tmpFields: seq[PVmType]
@@ -239,56 +234,12 @@ type GenResult = object
   existing: PVmType
   typ: VmType
 
-func skipTypesGetInst(t: PType): tuple[inst: PType, concrete: PType] =
-  ## Skips all types who's kind matches `skipTypeSet`. Returns the first
-  ## non-skipped type together with the surrounding `tyGenericInst`, if one
-  ## exists (nil otherwise)
-  var t = t
-  while t.kind in skipTypeSet:
-    {.cast(noSideEffect).}:
-      # erroneously inferred side-effect
-      result.inst =
-        if t.kind == tyGenericInst: t
-        else: nil
-
-    t = t.lastSon
-
-  {.cast(noSideEffect).}:
-    # erroneously inferred side-effect
-    result.concrete = t
-
-func getOrAddKnownInstType(c: var TypeInfoCache, inst: PType): (PVmType, bool) =
-  let typeId = inst.lastSon.sym.itemId
-  let insts = addr c.genericInsts.mgetOrPut(typeId, @[])
-  for (lhs, typ) in insts[].items:
-    assert lhs.kind == tyGenericInst
-    assert lhs.len - 2 == inst.len - 2
-    block inner:
-      # Compare all arguments
-      for i in 1..<lhs.len - 1:
-        {.cast(noSideEffect).}:
-          # XXX: sameType reads from the global variable `eqTypeFlags`. It's
-          #      only mutated at the start of compilation, so casting away
-          #      the side-effect should pose little risk
-          if not sameType(lhs[i], inst[i]):
-            break inner
-
-      # found a match
-      return (typ, true)
-
-  # instantiation not yet known
-  let r = c.addObjectType()
-  insts[].add((inst, r))
-
-  result = (r, false)
-
-
 func genTuple(c: var TypeInfoCache, t: PType, cl: var GenClosure): GenResult
 
 func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVmType, existed: bool] =
   ## The heart of `PType` -> `VmType` translation. Looks up or creates types
   ## and adds mappings to `lut` if they don't exist already
-  let (inst, t) = t.skipTypesGetInst()
+  let t = t.skipTypes(skipTypeSet)
   let typ = getAtomicType(c, cl.conf, t)
   if typ.isSome():
     return (typ.unsafeGet, true)
@@ -323,24 +274,16 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVm
     res.typ.routineSig = c.makeSignatureId(t)
 
   of tyObject:
-    if inst == nil:
+    if true:
       # if the `t` is not in the cache, we've got a new object type
 
-      # object types are special. They're creation gets deferred in order to not
+      # object types are special. Their creation gets deferred such as to not
       # run into cyclic dependency issues. With some clever tricks and by using
       # some form of resumeable functions we could get around the deferred
       # creation in some cases, but the added complexity is likely not worth it
 
-      result.typ = c.addObjectType()
-    else:
-      # Two `tyGenericInst` that refer to same type (e.g. `A[int]` and
-      # `A[int]`) don't necessarily have the same item id, so we have to keep
-      # track of all known instantiation and manually check if a VmType was
-      # already generated for `inst`
-
-      let (typ, exists) = getOrAddKnownInstType(c, inst)
-      if exists: res.existing = typ
-      else: result.typ = typ
+      result.typ = PVmType(kind: akObject)
+      c.types.add(result.typ)
 
   of tyTuple:
     res = genTuple(c, t, cl)
@@ -379,7 +322,6 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVm
     # XXX: do these two even reach here? `cgen` has logic for them, but maybe
     #      that's a historic leftover?
     assert t.isResolvedUserTypeClass
-    assert inst == nil
 
     # XXX: maybe it's not a good idea to add all user-type class instances to
     #      the cache?
