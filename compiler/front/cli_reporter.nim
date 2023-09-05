@@ -3273,6 +3273,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemVarForOutParamNeeded,
       adSemExprHasNoAddress,
       adSemConstExprExpected,
+      adSemExpectedObjectForOf,
       adSemDisallowedNilDeref,
       adSemCannotReturnTypeless,
       adSemExpectedValueForYield,
@@ -3295,6 +3296,14 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind,
         ast: diag.wrongNode)
+  of adSemCannotBeOfSubtype:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemCannotBeOfSubtype,
+        ast: diag.wrongNode,
+        typeMismatch: @[typeMismatch(diag.wrongNode[2].typ,
+                                     diag.wrongNode[1].typ)])
   of adSemFieldAssignmentInvalid:
     let n = diag.wrongNode
     let kind =
