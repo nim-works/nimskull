@@ -1206,6 +1206,8 @@ type
     adSemExpectedOrdinal
     adSemConstExprExpected
     adSemExpectedRangeType
+    adSemExpectedObjectForOf
+    adSemCannotBeOfSubtype
     # semobjconstr
     adSemFieldAssignmentInvalid
     adSemFieldNotAccessible
@@ -1320,6 +1322,8 @@ type
         adSemVarForOutParamNeeded,
         adSemExprHasNoAddress,
         adSemConstExprExpected,
+        adSemExpectedObjectForOf,
+        adSemCannotBeOfSubtype,
         adSemDisallowedNilDeref,
         adSemCannotReturnTypeless,
         adSemExpectedValueForYield,
