@@ -1277,28 +1277,28 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
   incl(result.flags, nfTransf)
 
 proc transformBody*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; cache: bool): PNode =
-  assert prc.kind in routineKinds - {skMacro}
+  assert prc.kind in routineKinds
 
-  if prc.transformedBody != nil:
-    result = prc.transformedBody
+  result = g.getTransformed(prc)
+  if result != nil:
+    discard "already transformed"
   elif nfTransf in getBody(g, prc).flags or prc.kind in {skTemplate}:
     result = getBody(g, prc)
   else:
-    prc.transformedBody = newNode(nkEmpty) # protects from recursion
+    g.setTransformed(prc, g.emptyNode) # protects from recursion
     result = transformBody(g, idgen, prc, getBody(g, prc))
 
-    if cache:
-      prc.transformedBody = result
-    else:
-      prc.transformedBody = nil
-    # XXX Rodfile support for transformedBody!
+    g.setTransformed(prc):
+      if cache: result
+      else:     nil
 
 proc transformBodyWithCache*(g: ModuleGraph, idgen: IdGenerator, prc: PSym): PNode =
   ## Fetches the cached transformed body of `prc`, transforming it if not
   ## available, new transforms are not cached
   assert prc.kind in routineKinds - {skTemplate, skMacro}
-  if prc.transformedBody != nil:
-    result = prc.transformedBody
+  result = g.getTransformed(prc)
+  if result != nil:
+    discard "already transformed"
   elif nfTransf in getBody(g, prc).flags:
     # the AST was already transformed:
     result = getBody(g, prc)
