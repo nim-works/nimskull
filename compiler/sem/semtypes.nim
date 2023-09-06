@@ -1804,8 +1804,6 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
   if tx != result and tx.kind == tyObject:
     if tx[0] != nil:
       semObjectTypeForInheritedGenericInst(c, n, tx)
-    var position = 0
-    recomputeFieldPositions(tx, tx.n, position)
 
 proc maybeAliasType(c: PContext; typeExpr, prev: PType): PType =
   if typeExpr.kind in {tyObject, tyEnum, tyDistinct, tyForward, tyGenericBody} and prev != nil:
