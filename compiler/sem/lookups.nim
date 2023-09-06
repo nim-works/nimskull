@@ -1196,8 +1196,19 @@ proc fieldVisible*(c: PContext, f: PSym): bool {.inline.} =
       if fmoduleId == module.id: return true
     if f.kind == skField:
       var symObj = f.owner
+      let genericOwner =
+        if sfFromGeneric in f.owner.flags:
+          f.owner.owner
+        else:
+          nil
+
       if symObj.typ.kind in {tyRef, tyPtr}:
         symObj = symObj.typ[0].sym
+      # go through all scopes and check whether access to the object is
+      # allowed. The generic owner test is needed for the "access to all
+      # instances of generic object type allowed" feature to work
       for scope in allScopes(c.currentScope):
         for sym in scope.allowPrivateAccess:
-          if symObj.id == sym.id: return true
+          if symObj.id == sym.id or
+             (genericOwner != nil and genericOwner.id == sym.id):
+            return true

@@ -46,10 +46,8 @@ template main =
         e.he1 == 2
         e.he1 += 3
         e.he1 == 5
-        # xxx caveat: this currently compiles but in future, we may want
-        # to make `privateAccess E[int]` only affect a specific instantiation;
-        # note that `privateAccess E` does work to cover all instantiations.
-        var e2 = E[float](he1: 1)
+        # the fields of a different type instance are not accessible:
+        not compiles(E[float](he1: 1))
 
     block:
       assertAll:
