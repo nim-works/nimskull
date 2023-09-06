@@ -1048,54 +1048,12 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
 
       styleCheckDef(c.config, f)
     if a.kind != nkEmpty: father.add a
-  of nkSym:
-    # This branch only valid during generic object
-    # inherited from generic/partial specialized parent second check.
-    # There is no branch validity check here
-    if containsOrIncl(check, n.sym.name.id):
-      localReport(c.config, n.info, reportSym(rsemRedefinitionOf, n.sym))
-
-    father.add n
   of nkEmpty:
     if father.kind in {nkElse, nkOfBranch}:
       father.add n
   else:
     semReportIllformedAst(c.config, n, "?")
 
-proc addInheritedFieldsAux(c: PContext, check: var IntSet, pos: var int,
-                           n: PNode) =
-  case n.kind
-  of nkRecCase:
-    c.config.internalAssert(n[0].kind == nkSym, n.info, "addInheritedFieldsAux")
-    addInheritedFieldsAux(c, check, pos, n[0])
-    for i in 1..<n.len:
-      case n[i].kind
-      of nkOfBranch, nkElse:
-        addInheritedFieldsAux(c, check, pos, lastSon(n[i]))
-      else:
-        internalError(c.config, n.info, "addInheritedFieldsAux(record case branch)")
-  of nkRecList, nkRecWhen, nkElifBranch, nkElse:
-    for i in int(n.kind == nkElifBranch)..<n.len:
-      addInheritedFieldsAux(c, check, pos, n[i])
-  of nkSym:
-    incl(check, n.sym.name.id)
-    inc(pos)
-  else:
-    internalError(c.config, n.info, "addInheritedFieldsAux()")
-
-proc skipGenericInvocation(t: PType): PType {.inline.} =
-  result = t
-  if result.kind == tyGenericInvocation:
-    result = result[0]
-  while result.kind in {tyGenericInst, tyGenericBody, tyRef, tyPtr, tyAlias, tySink}:
-    result = lastSon(result)
-
-proc addInheritedFields(c: PContext, check: var IntSet, pos: var int,
-                        obj: PType) =
-  assert obj.kind == tyObject, $obj.kind
-  if (obj.len > 0) and (obj[0] != nil):
-    addInheritedFields(c, check, pos, obj[0].skipGenericInvocation)
-  addInheritedFieldsAux(c, check, pos, obj.n)
 
 proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType =
   if n.len == 0:
@@ -1111,12 +1069,12 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
     case base.kind
     of tyObject:
       if tfFinal notin base.flags:
-        # we only check fields duplication of object inherited from
-        # concrete object. If inheriting from generic object or partial
-        # specialized object, there will be second check after instantiation
-        # located in semGeneric.
+        # we only check field duplication for objects inheriting from
+        # concrete objects. If inheriting from a generic object or partially
+        # specialized object, the duplication check is performed during
+        # instantiation
         if realBase.skipTypes(skipPtrs).kind == tyObject:
-          addInheritedFields(c, check, pos, base)
+          pos += addInheritedFields(check, base)
 
         if base.sym != nil and base.sym.magic == mException and
            sfSystemModule notin c.module.flags:
@@ -1154,7 +1112,7 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
     result.n = newNodeI(nkRecList, n.info)
   else:
     # partial object so add things to the check
-    addInheritedFields(c, check, pos, result)
+    pos += addInheritedFields(check, result)
   semRecordNodeAux(c, n[2], check, pos, result.n, result)
   if n[0].kind != nkEmpty:
     # dummy symbol for `pragma`:
@@ -1699,30 +1657,6 @@ proc semGenericParamInInvocation(c: PContext, n: PNode): PType =
   result = semTypeNode(c, n, nil)
   n.typ = makeTypeDesc(c, result)
 
-proc semObjectTypeForInheritedGenericInst(c: PContext, n: PNode, t: PType) =
-  var
-    check = initIntSet()
-    pos = 0
-  let base = skipToObject(t.base)
-  case base.kind
-  of tyObject:
-    if tfFinal notin base.flags:
-      addInheritedFields(c, check, pos, base)
-    else:
-      localReport(c.config, n.info,
-        reportTyp(rsemExpectNonFinalForBase, t.base))
-  of tyError:
-    discard
-  else:
-    # can only happen for generic objects like, for example, ``object of T``
-    # XXX: this should ideally be disallowed through (enforced) constraints on
-    #      the generic parameter
-    localReport(c.config, n.info,
-      reportTyp(rsemExpectObjectForBase, t.base))
-
-  var newf = newNodeI(nkRecList, n.info)
-  semRecordNodeAux(c, t.n, check, pos, newf, t)
-
 proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
   if s.typ == nil:
     localReport(c.config, n.info, reportSym(
@@ -1801,9 +1735,6 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
       rsemIllegalRecursion, result[0]))
 
     return errorType(c)
-  if tx != result and tx.kind == tyObject:
-    if tx[0] != nil:
-      semObjectTypeForInheritedGenericInst(c, n, tx)
 
 proc maybeAliasType(c: PContext; typeExpr, prev: PType): PType =
   if typeExpr.kind in {tyObject, tyEnum, tyDistinct, tyForward, tyGenericBody} and prev != nil:

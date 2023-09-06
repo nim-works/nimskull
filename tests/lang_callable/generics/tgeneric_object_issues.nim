@@ -64,3 +64,19 @@ block wrong_field_positions_for_indirect_instance:
     result.field = x # `field` had a position value of '4'
 
   discard test("str")
+
+block duplicate_field_name_in_generic:
+  # duplicate field names that can only be detected when instantiating an
+  # object type weren't detected for indirectly created instantations
+  type
+    Base = object of RootObj
+      a: int
+
+    Sub[T] = object of T
+      a: int
+
+  proc indirect[T](): Sub[T] =
+    discard
+
+  reject:
+    indirect[Base]()
