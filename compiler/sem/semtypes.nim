@@ -1102,35 +1102,48 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
     return newConstraint(c, tyObject)
   var check = initIntSet()
   var pos = 0
-  var base, realBase: PType = nil
+  var realBase: PType = nil
   # n[0] contains the pragmas (if any). We process these later...
   checkSonsLen(n, 3, c.config)
   if n[1].kind != nkEmpty:
     realBase = semTypeNode(c, n[1][0], nil)
-    base = skipTypesOrNil(realBase, skipPtrs)
-    if base.isNil:
-      localReport(c.config, n, reportSem rsemExpectObjectForBase)
-    else:
-      var concreteBase = skipGenericInvocation(base)
-      if concreteBase.kind in {tyObject, tyGenericParam,
-        tyGenericInvocation} and tfFinal notin concreteBase.flags:
+    let base = skipToObject(realBase)
+    case base.kind
+    of tyObject:
+      if tfFinal notin base.flags:
         # we only check fields duplication of object inherited from
         # concrete object. If inheriting from generic object or partial
         # specialized object, there will be second check after instantiation
         # located in semGeneric.
-        if concreteBase.kind == tyObject:
-          if concreteBase.sym != nil and concreteBase.sym.magic == mException and
-              sfSystemModule notin c.module.flags:
-            localReport(c.config, n.info, reportSem(rsemInheritFromException))
+        if realBase.skipTypes(skipPtrs).kind == tyObject:
+          addInheritedFields(c, check, pos, base)
 
-          addInheritedFields(c, check, pos, concreteBase)
+        if base.sym != nil and base.sym.magic == mException and
+           sfSystemModule notin c.module.flags:
+          localReport(c.config, n.info, reportSem(rsemInheritFromException))
       else:
-        if concreteBase.kind != tyError:
-          localReport(c.config, n[1].info, reportTyp(
-            rsemExpectNonFinalForBase, realBase))
-
-        base = nil
+        localReport(c.config, n[1].info):
+          reportTyp(rsemExpectNonFinalForBase, realBase)
         realBase = nil
+    of tyGenericParam:
+      # the base is a generic parameter (e.g., ``object of T``)
+      discard "figured out later"
+    of tyError:
+      # don't cascade errors
+      realBase = nil
+    elif base.isMetaType:
+      if c.inGenericContext > 0:
+        discard "okay, handled during instantiation"
+      else:
+        localReport(c.config, n[1].info):
+          reportTyp(rsemTIsNotAConcreteType, realBase)
+        realBase = nil
+    else:
+      # not something that can be inherited from
+      localReport(c.config, n[1].info):
+        reportTyp(rsemExpectObjectForBase, realBase)
+      realBase = nil
+
   c.config.internalAssert(n.kind == nkObjectTy, n.info, "semObjectNode")
   result = newOrPrevType(tyObject, prev, c)
   rawAddSon(result, realBase)
@@ -1152,7 +1165,7 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
     for e in ifErrorWalkErrors(c.config, n[0]):
       localReport(c.config, e)
 
-  if base == nil and tfInheritable notin result.flags:
+  if realBase == nil and tfInheritable notin result.flags:
     incl(result.flags, tfFinal)
 
   if c.inGenericContext == 0 and computeRequiresInit(c, result):
@@ -1690,20 +1703,22 @@ proc semObjectTypeForInheritedGenericInst(c: PContext, n: PNode, t: PType) =
   var
     check = initIntSet()
     pos = 0
-  let
-    realBase = t[0]
-    base = skipTypesOrNil(realBase, skipPtrs)
-  if base.isNil:
-    localReport(c.config, n.info, reportTyp(rsemIllegalRecursion, t))
-
-  else:
-    let concreteBase = skipGenericInvocation(base)
-    if concreteBase.kind == tyObject and tfFinal notin concreteBase.flags:
-      addInheritedFields(c, check, pos, concreteBase)
+  let base = skipToObject(t.base)
+  case base.kind
+  of tyObject:
+    if tfFinal notin base.flags:
+      addInheritedFields(c, check, pos, base)
     else:
-      if concreteBase.kind != tyError:
-        localReport(c.config, n.info, reportTyp(
-          rsemExpectNonFinalForBase, concreteBase))
+      localReport(c.config, n.info,
+        reportTyp(rsemExpectNonFinalForBase, t.base))
+  of tyError:
+    discard
+  else:
+    # can only happen for generic objects like, for example, ``object of T``
+    # XXX: this should ideally be disallowed through (enforced) constraints on
+    #      the generic parameter
+    localReport(c.config, n.info,
+      reportTyp(rsemExpectObjectForBase, t.base))
 
   var newf = newNodeI(nkRecList, n.info)
   semRecordNodeAux(c, t.n, check, pos, newf, t)

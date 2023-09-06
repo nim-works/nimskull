@@ -1,5 +1,5 @@
 discard """
-  errormsg: "inheritance only works with non-final objects"
+  errormsg: "cannot inherit from a type that is not an object type"
   line: 7
 """
 # bug #1691
