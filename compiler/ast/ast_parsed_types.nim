@@ -175,6 +175,7 @@ type
     pnkExportStmt
     pnkExportExceptStmt
     pnkConstSection
+    pnkTypeSection
     pnkLetSection
     pnkVarSection
     pnkProcDef
@@ -184,7 +185,6 @@ type
     pnkIteratorDef
     pnkMacroDef
     pnkTemplateDef
-    pnkTypeSection
     pnkTypeDef
     pnkEnumTy
     pnkEnumFieldDef
