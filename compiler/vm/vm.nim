@@ -113,6 +113,9 @@ type
       #      syscall variants and the data in embedded sub-objects. While on
       #      the subject it's possible that quit could be considered a syscall,
       #      one that doesn't expect resuming.
+    yrkGorge
+      ## "syscall" of gorge, the VM expects the code executing it to handle the
+      ## gorge, capture the result, and then resume execution
 
   YieldReason* = object
     ## The result of a single execution step (i.e. a call to ``execute``)
@@ -128,6 +131,11 @@ type
       entry*: FunctionIndex   ## the entry of the procedure that is a stub
     of yrkEcho:
       strs*: seq[string]      ## strings to be echo'd, at least one item
+    of yrkGorge:
+      cmd*:    string
+      input*:  string
+      cache*:  string
+      resReg*: TRegister
 
 const
   traceCode = defined(nimVMDebugExecute)
@@ -2642,24 +2650,35 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         discard "don't run staticExec for 'nim suggest'"
         regs[ra].strVal = ""
       else:
-        when defined(nimcore):
-          checkHandle(regs[rb])
-          checkHandle(regs[rc])
-          checkHandle(regs[rd])
-          regs[ra].strVal = opGorge($regs[rb].strVal,
-                                        $regs[rc].strVal, $regs[rd].strVal,
-                                        c.debug[pc], c.config)[0]
-        else:
-          regs[ra].strVal = ""
-          # TODO: this is neither an internal error nor should ``globalReport``
-          #       be used to report it. As an improvement, it could be
-          #       treated as a normal VM error. ``opcGorge`` implements a part
-          #       of the compiler's compile-time interface, so it should be
-          #       eventually moved out of the VM via either callbacks or a
-          #       better mechanism for "system calls"
-          globalReport(c.config, c.debug[pc], InternalReport(
-            kind: rintNotUsingNimcore,
-            msg: "VM is not built with 'gorge' support"))
+        checkHandle(regs[rb])
+        checkHandle(regs[rc])
+        checkHandle(regs[rd])
+        result = YieldReason(kind:   yrkGorge,
+                             cmd:    $regs[rb].strVal,
+                             input:  $regs[rc].strVal,
+                             cache:  $regs[rd].strVal,
+                             resReg: instr.regA)
+        inc pc
+        return
+        # upon resuming the gorge'd value should be in `ra`
+        # when defined(nimcore):
+        #   checkHandle(regs[rb])
+        #   checkHandle(regs[rc])
+        #   checkHandle(regs[rd])
+        #   regs[ra].strVal = opGorge($regs[rb].strVal,
+        #                                 $regs[rc].strVal, $regs[rd].strVal,
+        #                                 c.debug[pc], c.config)[0]
+        # else:
+        #   regs[ra].strVal = ""
+        #   # TODO: this is neither an internal error nor should ``globalReport``
+        #   #       be used to report it. As an improvement, it could be
+        #   #       treated as a normal VM error. ``opcGorge`` implements a part
+        #   #       of the compiler's compile-time interface, so it should be
+        #   #       eventually moved out of the VM via either callbacks or a
+        #   #       better mechanism for "system calls"
+        #   globalReport(c.config, c.debug[pc], InternalReport(
+        #     kind: rintNotUsingNimcore,
+        #     msg: "VM is not built with 'gorge' support"))
 
     of opcParseExprToAst, opcParseStmtToAst:
       decodeBC(rkNimNode)

@@ -40,6 +40,7 @@ import
     idioms
   ],
   compiler/vm/[
+    gorgeimpl,
     vmcompilerserdes,
     vmdef,
     vmhooks,
@@ -394,6 +395,10 @@ proc execute(jit: var JitState, c: var TCtx, start: int, frame: sink TStackFrame
       localReport(c.config, InternalReport(msg: r.strs.join(""),
                                            kind: rintEchoMessage))
       # after echo continue executing, hence no `break`
+    of yrkGorge:
+      # vm yield with a gorge, we need to gorge and then set the result
+      c.sframes[^1].slots[r.resReg].strVal = opGorge(r.cmd, r.input, r.cache, source(c, thread), c.config)[0]
+      # after gorge continue executing, hence no `break`
 
   dispose(c, thread)
 
