@@ -1206,6 +1206,8 @@ type
     adSemExpectedOrdinal
     adSemConstExprExpected
     adSemExpectedRangeType
+    adSemExpectedObjectForOf
+    adSemCannotBeOfSubtype
     # semobjconstr
     adSemFieldAssignmentInvalid
     adSemFieldNotAccessible
@@ -1320,6 +1322,8 @@ type
         adSemVarForOutParamNeeded,
         adSemExprHasNoAddress,
         adSemConstExprExpected,
+        adSemExpectedObjectForOf,
+        adSemCannotBeOfSubtype,
         adSemDisallowedNilDeref,
         adSemCannotReturnTypeless,
         adSemExpectedValueForYield,
@@ -1613,7 +1617,6 @@ type
     of routineKinds - {skMacro}:
       #procInstCache*: seq[PInstantiation]
       gcUnsafetyReason*: PSym  ## for better error messages regarding gcsafe
-      transformedBody*: PNode  ## cached body after transf pass
     of skMacro:
       internal*: PType ## the internal signature that the macro has in a
                        ## compile-time evaluation context. Can be used to

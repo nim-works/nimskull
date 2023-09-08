@@ -864,6 +864,10 @@ proc myOpen(graph: ModuleGraph; module: PSym;
   if module.position >= graph.libs.len:
     graph.libs.setLen(module.position + 1)
 
+  if module.position < graph.transformed.len:
+    # discard the cached transformed bodies
+    graph.transformed[module.position].reset()
+
   c.semConstExpr = semConstExpr
   c.semExpr = semExpr
   c.semTryExpr = tryExpr

@@ -316,20 +316,22 @@ proc semBindSym(c: PContext, n: PNode): PNode =
 proc semShallowCopy(c: PContext, n: PNode, flags: TExprFlags): PNode
 
 proc semOf(c: PContext, n: PNode): PNode =
-  if n.len == 3:
-    n[1] = semExprWithType(c, n[1])
-    n[2] = semExprWithType(c, n[2])
-    #restoreOldStyleType(n[1])
-    #restoreOldStyleType(n[2])
+  ## Ensures that the 'of' operation `n` is valid and attempts to it, returning
+  ## either a boolean literal, an error, or the original expression. The
+  ## provided AST is expected to be typed and free of errors.
+  assert n.len == 3
+  assert n[1].kind != nkError
+  assert n[2].kind != nkError
+  if true:
     let a = skipTypes(n[1].typ, abstractPtrs)
     let b = skipTypes(n[2].typ, abstractPtrs)
     let x = skipTypes(n[1].typ, abstractPtrs-{tyTypeDesc})
     let y = skipTypes(n[2].typ, abstractPtrs-{tyTypeDesc})
 
     if x.kind == tyTypeDesc or y.kind != tyTypeDesc:
-      localReport(c.config, n, reportSem rsemExpectedObjectForOf)
+      result = newError(c.config, n, PAstDiag(kind: adSemExpectedObjectOfType))
     elif b.kind != tyObject or a.kind != tyObject:
-      localReport(c.config, n, reportSem rsemExpectedObjectForOf)
+      result = newError(c.config, n, PAstDiag(kind: adSemExpectedObjectOfType))
     else:
       let diff = inheritanceDiff(a, b)
       # | returns: 0 iff `a` == `b`
@@ -339,27 +341,19 @@ proc semOf(c: PContext, n: PNode): PNode =
       if diff <= 0:
         # optimize to true:
         localReport(c.config, n, reportSem rsemConditionAlwaysTrue)
-        result = newIntNode(nkIntLit, 1)
+        result = newIntTypeNode(1, n.typ)
         result.info = n.info
-        result.typ = getSysType(c.graph, n.info, tyBool)
-        return result
       elif diff == high(int):
         if commonSuperclass(a, b) == nil:
-          localReport(c.config, n.info, SemReport(
-            kind: rsemCannotBeOfSubtype,
-            typeMismatch: @[typeMismatch(actual = a, formal = b)]))
-
+          result = newError(c.config, n, PAstDiag(kind: adSemCannotBeOfSubtype))
         else:
+          # optimize to 'false':
           localReport(c.config, n, reportSem rsemConditionAlwaysFalse)
-          result = newIntNode(nkIntLit, 0)
+          result = newIntTypeNode(0, n.typ)
           result.info = n.info
-          result.typ = getSysType(c.graph, n.info, tyBool)
-  else:
-    localReport(c.config, n.info, semReportCountMismatch(
-      rsemWrongNumberOfArguments, expected = 2, got = n.len - 1, node = n))
-
-  n.typ = getSysType(c.graph, n.info, tyBool)
-  result = n
+      else:
+        # can only be evaluated at run-time
+        result = n
 
 proc semPrivateAccess(c: PContext, n: PNode): PNode =
   let t = n[1].typ[0].toObjectFromRefPtrGeneric

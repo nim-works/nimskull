@@ -471,9 +471,6 @@ type
     # future work: split everything related to the *production* of types into
     # a type placed in ``vmtypegen``
     lut*: Table[ItemId, PVmType] ## `PType`-id -> `PVmType` mappings
-    genericInsts*: Table[ItemId, seq[(PType, PVmType)]] ##
-      ## 'generic type' -> 'known instantiations' mappings. Needed to make
-      ## sure that all same instantations map to the same VmType
 
     structs*: TypeTable ## All structural types created by ``vmtypegen``
 
