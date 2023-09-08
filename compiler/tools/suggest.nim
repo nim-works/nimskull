@@ -514,6 +514,9 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
 
     if conf.ideCmd == ideDef:
       findDefinition(g, info, s, usageSym)
+    elif conf.ideCmd == ideDus and s != nil:
+      if isTracked(info, conf.m.trackPos, s.name.s.len):
+        suggestResult(conf, symToSuggest(g, s, isLocal=false, ideDef, info, 100, PrefixMatch.None, false, 0))
     elif conf.ideCmd == ideHighlight and info.fileIndex == conf.m.trackPos.fileIndex:
       suggestResult(conf, symToSuggest(g, s, isLocal=false, ideHighlight, info, 100, PrefixMatch.None, false, 0))
     elif conf.ideCmd == ideOutline and isDecl:
