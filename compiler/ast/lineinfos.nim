@@ -26,6 +26,10 @@ type
     col*: int16
     fileIndex*: FileIndex
 
+  FileLinePar* = tuple
+    fileIndex: typeof(TLineInfo.fileIndex)
+    line: typeof(TLineInfo.line)
+
   LineColPair* = tuple
     line: typeof(TLineInfo.line)
     col: typeof(TLineInfo.col)
