@@ -1775,7 +1775,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
   when defined(nimsuggest):
     if c.config.cmd == cmdIdeTools:
       suggestExpr(c, n)
-      if exactEquals(c.config.m.trackPos, n[1].info): suggestExprNoCheck(c, n)
+      if c.config.m.trackPos == n[1].info: suggestExprNoCheck(c, n)
 
   let s = qualifiedLookUp(c, n, {checkAmbiguity, checkUndeclared, checkModule})
   if s.isError:

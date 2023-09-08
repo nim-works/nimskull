@@ -315,11 +315,7 @@ proc errorActions(
     elif eh == doRaise:
       result = (doRaise, false)
 
-
 proc `==`*(a, b: TLineInfo): bool =
-  result = a.line == b.line and a.fileIndex == b.fileIndex
-
-proc exactEquals*(a, b: TLineInfo): bool =
   result = a.fileIndex == b.fileIndex and a.line == b.line and a.col == b.col
 
 proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
