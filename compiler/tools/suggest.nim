@@ -201,7 +201,6 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   result.filePath = toFullPath(g.config, infox)
   result.line = toLinenumber(infox)
   result.column = toColumn(infox)
-  result.version = g.config.suggestVersion
   result.tokenLen = if section != ideHighlight:
                       s.name.s.len
                     else:

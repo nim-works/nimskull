@@ -651,7 +651,6 @@ proc processCmdLine*(pass: TCmdLinePass, argv: openArray[string]; conf: ConfigRe
         gMode = mepc
         conf.verbosity = compVerbosityMin  # Port number gotta be first.
       of "debug": conf.incl optIdeDebug
-      of "v2": conf.suggestVersion = 0
       of "tester":
         gMode = mstdin
         gEmitEof = true
@@ -772,7 +771,6 @@ else:
 
 
     proc mockCmdLine(pass: TCmdLinePass, argv: openArray[string]; conf: ConfigRef) =
-      conf.suggestVersion = 0
       let a = unixToNativePath(project)
       if dirExists(a) and not fileExists(a.addFileExt("nim")):
         conf.projectName = findProjectNimFile(conf, a)
