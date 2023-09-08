@@ -389,7 +389,7 @@ proc suggestFieldAccess(c: PContext, n, field: PNode, outputs: var Suggestions) 
   var typ = n.typ
   var pm: PrefixMatch
   when defined(nimsuggest):
-    if n.kind == nkSym and n.sym.kind == skError and c.config.suggestVersion == 0:
+    if n.kind == nkSym and n.sym.kind == skError:
       # consider 'foo.|' where 'foo' is some not imported module.
       let fullPath = findModule(c.config, n.sym.name.s, toFullPath(c.config, n.info))
       if fullPath.isEmpty:
@@ -482,16 +482,6 @@ when defined(nimsuggest):
       if infoB.infoToInt == infoAsInt: return
     s.allUsages.add(info)
 
-proc findUsages(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym) =
-  if g.config.suggestVersion == 1:
-    if usageSym == nil and isTracked(info, g.config.m.trackPos, s.name.s.len):
-      usageSym = s
-      suggestResult(g.config, symToSuggest(g, s, isLocal=false, ideUse, info, 100, PrefixMatch.None, false, 0))
-    elif s == usageSym:
-      if g.config.lastLineInfo != info:
-        suggestResult(g.config, symToSuggest(g, s, isLocal=false, ideUse, info, 100, PrefixMatch.None, false, 0))
-      g.config.lastLineInfo = info
-
 when defined(nimsuggest):
   proc listUsages*(g: ModuleGraph; s: PSym) =
     #echo "usages ", s.allUsages.len
@@ -518,20 +508,13 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
   ## misnamed: should be 'symDeclared'
   let conf = g.config
   when defined(nimsuggest):
-    if conf.suggestVersion == 0:
-      if s.allUsages.len == 0:
-        s.allUsages = @[info]
-      else:
-        s.addNoDup(info)
+    if s.allUsages.len == 0:
+      s.allUsages = @[info]
+    else:
+      s.addNoDup(info)
 
-    if conf.ideCmd == ideUse:
-      findUsages(g, info, s, usageSym)
-    elif conf.ideCmd == ideDef:
+    if conf.ideCmd == ideDef:
       findDefinition(g, info, s, usageSym)
-    elif conf.ideCmd == ideDus and s != nil:
-      if isTracked(info, conf.m.trackPos, s.name.s.len):
-        suggestResult(conf, symToSuggest(g, s, isLocal=false, ideDef, info, 100, PrefixMatch.None, false, 0))
-      findUsages(g, info, s, usageSym)
     elif conf.ideCmd == ideHighlight and info.fileIndex == conf.m.trackPos.fileIndex:
       suggestResult(conf, symToSuggest(g, s, isLocal=false, ideHighlight, info, 100, PrefixMatch.None, false, 0))
     elif conf.ideCmd == ideOutline and isDecl:
