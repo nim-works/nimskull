@@ -405,7 +405,7 @@ proc instantiateRecord(cl: var TReplTypeVars, names: var IntSet, pos: var int,
 
       if containsOrIncl(names, s.name.id):
         # a field with the same name already exists
-        localReport(cl.c.config, cl.info):
+        localReport(cl.c.config, n.info):
           SemReport(kind: rsemRedefinitionOf, sym: s)
 
   of nkRecList:
