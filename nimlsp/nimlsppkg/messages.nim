@@ -468,7 +468,11 @@ jsonSchema:
     triggerCharacters ?: string[]
     resolveProvider ?: bool
 
+<<<<<<< HEAD
   MarkedStringOption: # deprecated
+=======
+  MarkedStringOption:
+>>>>>>> 19a04042ad (tool: LSP support)
     language: string
     value: string
 
@@ -513,6 +517,7 @@ jsonSchema:
     location: Location
     containerName ?: string
 
+<<<<<<< HEAD
   DocumentSymbol:
     name: string
     detail ?: string
@@ -522,6 +527,8 @@ jsonSchema:
     selectionRange: Range
     children ?: DocumentSymbol[]
 
+=======
+>>>>>>> 19a04042ad (tool: LSP support)
   CodeActionParams:
     textDocument: TextDocumentIdentifier
     "range": Range

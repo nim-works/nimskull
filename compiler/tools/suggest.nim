@@ -452,6 +452,7 @@ proc isTracked*(current, trackPos: TLineInfo, tokenLen: int): bool =
       current.line == trackPos.line:
     let col = trackPos.col
     if col >= current.col and col <= current.col + tokenLen - 1:
+    if col >= current.col and col <= current.col + tokenLen - 1:
       return true
 
 proc findTrackedNode(n: PNode; trackPos: TLineInfo): PSym =

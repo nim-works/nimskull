@@ -1,6 +1,10 @@
 import std/[json, parseutils, streams, strformat,
+<<<<<<< HEAD
             strutils, os]
 from std/uri import decodeUrl, parseUri
+=======
+            strutils]
+>>>>>>> 19a04042ad (tool: LSP support)
 when defined(debugCommunication):
   import logger
 
@@ -10,6 +14,7 @@ type
   MalformedFrame* = object of BaseProtocolError
   UnsupportedEncoding* = object of BaseProtocolError
 
+<<<<<<< HEAD
   UriParseError* = object of Defect
     uri*: string
 
@@ -62,6 +67,8 @@ proc parseId*(node: JsonNode): string =
   else:
     ""
 
+=======
+>>>>>>> 19a04042ad (tool: LSP support)
 proc skipWhitespace(x: string, pos: int): int =
   result = pos
   while result < x.len and x[result] in Whitespace:
