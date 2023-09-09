@@ -57,5 +57,8 @@ proc dump*(conf: ConfigRef, pd: ProfileData): string =
       break
     result.add  "  " & align($int(infoMax.time * 1e6), 10) &
                        align($int(infoMax.count), 10) & "  " &
-                       toMsgFilename(conf, newLineInfo(flMax.fileIndex, flMax.line.int, 0)) & "\n"
+                       toMsgFilename(conf, newLineInfo(flMax.fileIndex,
+                                                       flMax.line.int,
+                                                       -1)) &
+                       "\n"
     data.del flMax
