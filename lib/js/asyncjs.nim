@@ -80,7 +80,8 @@ proc replaceReturn(node: var NimNode) =
     var son = node[z]
     let jsResolve = ident("jsResolve")
     if son.kind == nnkReturnStmt:
-      let value = if son[0].kind != nnkEmpty: nnkCall.newTree(jsResolve, son[0]) else: jsResolve
+      let value = if son[0].kind != nnkEmpty: nnkCall.newTree(jsResolve, son[0])
+                  else: nnkCall.newTree(jsResolve)
       node[z] = nnkReturnStmt.newTree(value)
     elif son.kind == nnkAsgn and son[0].kind == nnkIdent and $son[0] == "result":
       node[z] = nnkAsgn.newTree(son[0], nnkCall.newTree(jsResolve, son[1]))
@@ -119,7 +120,7 @@ proc generateJsasync(arg: NimNode): NimNode =
     var resolve: NimNode
     if isVoid:
       resolve = quote:
-        var `jsResolve` {.importjs: "undefined".}: Future[void]
+        proc `jsResolve`: Future[void] {.importjs: "(undefined)", used.}
     else:
       resolve = quote:
         proc jsResolve[T](a: T): Future[T] {.importjs: "#", used.}
@@ -132,7 +133,7 @@ proc generateJsasync(arg: NimNode): NimNode =
 
   if len(code) > 0 and isVoid:
     var voidFix = quote:
-      return `jsResolve`
+      return `jsResolve`()
     result.body.add(voidFix)
 
   let asyncPragma = quote:
