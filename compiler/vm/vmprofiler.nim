@@ -48,7 +48,7 @@ proc dump*(conf: ConfigRef, pd: ProfileData): string =
   result = "\nprof:     µs    #instr  location\n"
   for i in 0..<32:
     var infoMax: ProfileInfo
-    var flMax: FileLinePar
+    var flMax: SourceLinePosition
     for fl, info in data:
       if info.time > infoMax.time:
         infoMax = info
