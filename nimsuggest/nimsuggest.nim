@@ -241,8 +241,6 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
   conf.m.trackPos = newLineInfo(dirtyIdx, line, col)
   conf.m.trackPosAttached = false
   conf.errorCounter = 0
-  if conf.suggestVersion == 1:
-    graph.usageSym = nil
   if not isKnownFile:
     graph.compileProject(dirtyIdx)
   if conf.suggestVersion == 0 and conf.ideCmd in {ideUse, ideDus} and
@@ -259,7 +257,7 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
       if isKnownFile:
         graph.compileProject(modIdx)
   if conf.ideCmd in {ideUse, ideDus}:
-    let u = if conf.suggestVersion != 1: graph.symFromInfo(conf.m.trackPos) else: graph.usageSym
+    let u = graph.symFromInfo(conf.m.trackPos)
     if u != nil:
       listUsages(graph, u)
     else:
@@ -731,8 +729,8 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]) 
   myLog(conf, "START " & conf.projectFull.string)
 
   var graph = newModuleGraph(cache, conf)
-  graph.onMarkUsed = proc (g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; isDecl: bool) =
-    suggestSym(g, info, s, usageSym, isDecl)
+  graph.onMarkUsed = proc (g: ModuleGraph; info: TLineInfo; s: PSym; isDecl: bool) =
+    suggestSym(g, info, s, isDecl)
   graph.onSymImport = graph.onMarkUsed # same callback
   if self.loadConfigsAndProcessCmdLine(cache, conf, graph, argv):
     # defaulting to customizing for the C backend matches what

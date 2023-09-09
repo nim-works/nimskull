@@ -1028,7 +1028,7 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
     for i in 0..<n.len-2:
       var f = semIdentWithPragma(c, skField, n[i], {sfExported})
       let info = getIdentLineInfo(n[i])
-      suggestSym(c.graph, info, f, c.graph.usageSym)
+      suggestSym(c.graph, info, f)
       f.typ = typ
       f.position = pos
       f.options = c.config.options

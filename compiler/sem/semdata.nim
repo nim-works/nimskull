@@ -1165,7 +1165,7 @@ proc markUsed*(c: PContext; info: TLineInfo; s: PSym) =
     if sfError in s.flags: userError(conf, info, s)
   when defined(nimsuggest):
     if c.graph.onMarkUsed != nil:
-      c.graph.onMarkUsed(c.graph, info, s, c.graph.usageSym, false)
+      c.graph.onMarkUsed(c.graph, info, s, false)
   if {optStyleHint, optStyleError} * conf.globalOptions != {}:
     styleCheckUse(conf, info, s)
   markOwnerModuleAsUsed(c, s)

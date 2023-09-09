@@ -436,7 +436,7 @@ proc semTemplSymbol(c: PContext, n: PNode, s: PSym; isField: bool): PNode =
       result = newSymNode(s, n.info)
     # Issue #12832
     when defined(nimsuggest):
-      suggestSym(c.graph, n.info, s, c.graph.usageSym, false)
+      suggestSym(c.graph, n.info, s, false)
     # field access (dot expr) will be handled by builtinFieldAccess
     if not isField and {optStyleHint, optStyleError} * c.config.globalOptions != {}:
       styleCheckUse(c.config, n.info, s)

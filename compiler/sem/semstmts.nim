@@ -41,7 +41,7 @@ proc semBreakStmt(c: PContext, n: PNode): ElaborateAst =
       # make sure the label is okay to use:
       if s.kind == skLabel and s.owner.id == c.p.owner.id:
         incl(s.flags, sfUsed)
-        suggestSym(c.graph, n.info, s, c.graph.usageSym)
+        suggestSym(c.graph, n.info, s)
       else:
         # a label not part of the current context
         result.diag = PAstDiag(kind: adSemInvalidControlFlow, label: s)
@@ -352,7 +352,7 @@ proc semIdentDef(c: PContext, n: PNode, kind: TSymKind): PSym =
   result.options = c.config.options
 
   let info = getIdentLineInfo(n)
-  suggestSym(c.graph, info, result, c.graph.usageSym)
+  suggestSym(c.graph, info, result)
 
 proc checkNilableOrError(c: PContext; def: PNode): PNode =
   ## checks if a symbol node is nilable, on success returns def, else nkError
@@ -2513,7 +2513,7 @@ proc semRoutineName(c: PContext, n: PNode, kind: TSymKind; allowAnon = true): PN
     if c.isTopLevel:
       incl(s.flags, sfGlobal)
 
-    suggestSym(c.graph, getIdentLineInfo(n), s, c.graph.usageSym)
+    suggestSym(c.graph, getIdentLineInfo(n), s)
     styleCheckDef(c.config, s)
   else:
     # XXX: this should be the resonsibility of the macro sanitizer instead
@@ -2717,7 +2717,7 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     if not comesFromShadowScope:
       excl(proto.flags, sfForward)
       incl(proto.flags, sfWasForwarded)
-    suggestSym(c.graph, s.info, proto, c.graph.usageSym)
+    suggestSym(c.graph, s.info, proto)
     closeScope(c)         # close scope with wrong parameter symbols
     openScope(c)          # open scope for old (correct) parameter symbols
     if proto.ast[genericParamsPos].isGenericParams:
