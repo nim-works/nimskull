@@ -166,7 +166,7 @@ type
     count*: int
 
   ProfileData* = ref object
-    data*: TableRef[FileLinePar, ProfileInfo]
+    data*: TableRef[SourceLinePosition, ProfileInfo]
 
   StdOrrKind* = enum
     stdOrrStdout
