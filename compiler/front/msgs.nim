@@ -342,9 +342,6 @@ proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
 
     info = context.info
 
-proc addSourceLine(conf: ConfigRef; fileIdx: FileIndex, line: string) =
-  conf[fileIdx].lines.add line
-
 proc numLines*(conf: ConfigRef, fileIdx: FileIndex): int =
   ## xxx there's an off by 1 error that should be fixed; if a file ends with "foo" or "foo\n"
   ## it will return same number of lines (ie, a trailing empty line is discounted)
@@ -352,7 +349,7 @@ proc numLines*(conf: ConfigRef, fileIdx: FileIndex): int =
   if result == 0:
     try:
       for line in lines(toFullPathConsiderDirty(conf, fileIdx).string):
-        addSourceLine conf, fileIdx, line
+        conf[fileIdx].lines.add line
     except IOError:
       discard
     result = conf[fileIdx].lines.len
