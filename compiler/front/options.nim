@@ -774,7 +774,7 @@ template newPackageCache*(): untyped =
                    modeCaseSensitive)
 
 proc newProfileData(): ProfileData =
-  ProfileData(data: newTable[FileLinePar, ProfileInfo]())
+  ProfileData(data: newTable[SourceLinePosition, ProfileInfo]())
 
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 
