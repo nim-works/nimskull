@@ -173,6 +173,7 @@ type
     pnkExportExceptStmt
     pnkTypeSection
     pnkConstSection
+    pnkTypeSection
     pnkLetSection
     pnkVarSection
     pnkProcDef

@@ -2321,7 +2321,7 @@ proc parseAll(p: var Parser): ParsedNode =
     if p.tok.indent != 0:
       p.invalidIndentation()
 
-proc parseTopLevelStmt(p: var Parser): ParsedNode =
+proc parseTopLevelStmt*(p: var Parser): ParsedNode =
   ## Implements an iterator which, when called repeatedly, returns the next
   ## top-level statement or emptyNode if end of stream.
   result = p.emptyNode
