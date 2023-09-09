@@ -282,13 +282,15 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   c.removeLastEof()
 
   let body =
-    if s.kind == skMacro:
+    if isCompileTimeProc(s) and not defined(nimsuggest):
+      # no need to go through the transformation cache
       transformBody(c.graph, c.idgen, s, s.ast[bodyPos])
     else:
-      # watch out! While compile-time only procedures don't need to be cached
-      # here, we still need to retrieve their already cached body (if one
-      # exists). Lifted inner procedures would otherwise not work.
-      transformBody(c.graph, c.idgen, s, cache = not isCompileTimeProc(s))
+      # watch out! Since transforming a procedure body permanently alters
+      # the state of inner procedures, we need to both cache and later
+      # retrieve the transformed body for non-compile-only routines or
+      # when in suggest mode
+      transformBody(c.graph, c.idgen, s, cache = true)
 
   echoInput(c.config, s, body)
   var (tree, sourceMap) = generateCode(c.graph, s, selectOptions(c), body)

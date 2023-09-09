@@ -1113,6 +1113,12 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
   else:
     # partial object so add things to the check
     pos += addInheritedFields(check, result)
+    if not incompleteType(result):
+      # this record AST represents the final addition to the object; the
+      # size can be computed now
+      result.size = szUncomputedSize
+      result.align = szUncomputedSize
+
   semRecordNodeAux(c, n[2], check, pos, result.n, result)
   if n[0].kind != nkEmpty:
     # dummy symbol for `pragma`:
