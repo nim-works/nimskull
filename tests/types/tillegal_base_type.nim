@@ -88,11 +88,11 @@ block:
   discard A[Object]() #[tt.Error
            ^ inheritance only works with non-final objects; for Object to be inheritable it must be 'object of RootObj' instead of 'object']#
   discard B[Object]() #[tt.Error
-           ^ inheritance only works with non-final objects; for GenericRef[tinvalid_base_type.Object] to be inheritable it must be 'object of RootObj' instead of 'object']#
+           ^ inheritance only works with non-final objects; for GenericRef[tillegal_base_type.Object] to be inheritable it must be 'object of RootObj' instead of 'object']#
   discard C[Object]() #[tt.Error
-           ^ inheritance only works with non-final objects; for Wrapper[tinvalid_base_type.Object] to be inheritable it must be 'object of RootObj' instead of 'object']#
+           ^ inheritance only works with non-final objects; for Wrapper[tillegal_base_type.Object] to be inheritable it must be 'object of RootObj' instead of 'object']#
   discard D[Object]() #[tt.Error
-           ^ inheritance only works with non-final objects; for Wrapper[GenericRef[tinvalid_base_type.Object]] to be inheritable it must be 'object of RootObj' instead of 'object']#
+           ^ inheritance only works with non-final objects; for Wrapper[GenericRef[tillegal_base_type.Object]] to be inheritable it must be 'object of RootObj' instead of 'object']#
   discard E[Object]() #[tt.Error
            ^ inheritance only works with non-final objects; for Wrapper[ptr Object] to be inheritable it must be 'object of RootObj' instead of 'object']#
 
