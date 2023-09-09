@@ -1807,6 +1807,10 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
         s = semIdentDef(c, name[1], skType)
         s.typ = newTypeS(tyObject, c)
         s.typ.sym = s
+        # until the type is completed, the size and alignment are treated as
+        # unknown
+        s.typ.size = szUnknownSize
+        s.typ.align = szUnknownSize
         s.flags.incl sfForward
         c.graph.packageTypes.strTableAdd s
         addInterfaceDecl(c, s)
