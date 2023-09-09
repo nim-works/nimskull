@@ -179,7 +179,7 @@ proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet): 
       else:
         rawImportSymbol(c, s, fromMod, importSet)
       if c.graph.onSymImport != nil:
-        c.graph.onSymImport(c.graph, n.info, s, c.graph.usageSym, false)
+        c.graph.onSymImport(c.graph, n.info, s, false)
   else:
     result =
       newSym(skError, ident, nextSymId(c.idgen), getCurrOwner(c), n.info)
@@ -332,7 +332,7 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
       localReport(c.config, n.info, reportSym(rsemDeprecated, realModule))
 
     if c.graph.onSymImport != nil:
-      c.graph.onSymImport(c.graph, n.info, result, c.graph.usageSym, false)
+      c.graph.onSymImport(c.graph, n.info, result, false)
 
     importStmtResult.add:
       case result.kind

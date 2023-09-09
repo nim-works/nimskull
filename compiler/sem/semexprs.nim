@@ -3246,7 +3246,7 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
           elif labl.owner == nil:
             labl.owner = c.p.owner
 
-          suggestSym(c.graph, lablNode.info, labl, c.graph.usageSym)
+          suggestSym(c.graph, lablNode.info, labl)
           styleCheckDef(c.config, labl)
 
           lablNode

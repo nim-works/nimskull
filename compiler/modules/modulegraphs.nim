@@ -120,7 +120,7 @@ type
     vm*: RootRef # unfortunately the 'vm' state is shared project-wise, this will
                  # be clarified in later compiler implementations.
     doStopCompile*: proc(): bool {.closure.}
-    usageSym*: PSym # for nimsuggest
+    forwardedSym*: PSym # for nimsuggest
     owners*: seq[PSym]
     methods*: seq[tuple[methods: seq[PSym], dispatcher: PSym]] # needs serialization!
     systemModule*: PSym
@@ -158,8 +158,7 @@ type
                  close: TPassClose,
                  isFrontend: bool]
   
-  SuggestCallback* = proc (graph: ModuleGraph, info: TLineInfo, s: PSym,
-                          usageSym: var PSym, isDecl: bool)
+  SuggestCallback* = proc (graph: ModuleGraph, info: TLineInfo, s: PSym, isDecl: bool)
     ## callback is used to decouple regular compiler code from suggest tool
 
 proc resetForBackend*(g: ModuleGraph) =
@@ -528,7 +527,6 @@ proc resetAllModules*(g: ModuleGraph) =
   g.importStack = @[]
   g.transformed = @[]
   g.inclToMod = initTable[FileIndex, FileIndex]()
-  g.usageSym = nil
   g.owners = @[]
   g.methods = @[]
   initStrTable(g.compilerprocs)
