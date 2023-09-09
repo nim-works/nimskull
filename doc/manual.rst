@@ -1681,6 +1681,10 @@ the `instanceof` operator in Java.
   assert(student of Student) # is true
   assert(student of Person) # also true
 
+For convenience, the type specified as the one to inherit from can be a `ref T`
+or `ptr T` type, where `T` must be an `object` type that is not final. This is
+equivalent to specifying the `T` type as the base type directly.
+
 Object fields that should be visible from outside the defining module have to
 be marked by `*`. In contrast to tuples, different object types are
 never *equivalent*, they are nominal types whereas tuples are structural.
