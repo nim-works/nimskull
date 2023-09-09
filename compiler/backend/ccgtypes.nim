@@ -46,8 +46,7 @@ proc mangleParamName(c: ConfigRef; s: PSym): Rope =
   ## we cannot use 'sigConflicts' here since we don't have access to a BProc.
   ## Fortunately C's scoping rules are sane enough so that that doesn't
   ## cause any trouble.
-  result = s.extname
-  if result == "":
+  if true:
     var res = s.name.s.mangle
     if isKeyword(s.name) or c.cppDefines.contains(res):
       res.add "_0"
@@ -57,8 +56,7 @@ proc mangleParamName(c: ConfigRef; s: PSym): Rope =
 proc mangleLocalName(p: BProc; s: PSym): Rope =
   assert s.kind in skLocalVars+{skTemp}
   #assert sfGlobal notin s.flags
-  result = s.extname
-  if result == "":
+  if true:
     var key: string
     shallowCopy(key, s.name.s.mangle)
     let counter = p.sigConflicts.getOrDefault(key)

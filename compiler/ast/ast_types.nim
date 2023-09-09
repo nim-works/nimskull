@@ -1064,6 +1064,7 @@ type
     # pragmas
     adSemInvalidPragma
     adSemIllegalCustomPragma
+    adSemExternalIfaceNotAllowed
     adSemStringLiteralExpected
     adSemIntLiteralExpected
     adSemOnOrOffExpected
@@ -1341,7 +1342,8 @@ type
         adSemExpectedRangeType,
         adSemExpectedLabel,
         adSemContinueCannotHaveLabel,
-        adSemUnavailableLocation:
+        adSemUnavailableLocation,
+        adSemExternalIfaceNotAllowed:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode

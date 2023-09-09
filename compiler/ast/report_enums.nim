@@ -655,6 +655,9 @@ type
     rsemPropositionExpected
     rsemIllegalCustomPragma
       ## supplied pragma is not a legal custom pragma, and cannot be attached
+    rsemExternalIfaceNotAllowed
+      ## a external interface specification was used with a local variable or
+      ## parameter
     rsemNoReturnHasReturn
       ## a routine marked as no return, has a return type
     rsemImplicitPragmaError
