@@ -38,14 +38,14 @@ type
     wUncheckedAssign = "uncheckedAssign",
 
     wImmediate = "immediate", wConstructor = "constructor", wDestructor = "destructor",
-    wDelegator = "delegator", wOverride = "override", wImportCompilerProc = "importCompilerProc",
+    wOverride = "override", wImportCompilerProc = "importCompilerProc",
     wImportc = "importc", wImportJs = "importjs", wExportc = "exportc",
     wExportNims = "exportnims",
     wIncompleteStruct = "incompleteStruct", # deprecated
     wCompleteStruct = "completeStruct", wRequiresInit = "requiresInit", wAlign = "align",
     wNodecl = "nodecl", wPure = "pure", wSideEffect = "sideEffect", wHeader = "header",
     wNoSideEffect = "noSideEffect", wGcSafe = "gcsafe", wNoreturn = "noreturn",
-    wNosinks = "nosinks", wMerge = "merge", wLib = "lib", wDynlib = "dynlib",
+    wNosinks = "nosinks", wLib = "lib", wDynlib = "dynlib",
     wCompilerProc = "compilerproc", wCore = "core", wProcVar = "procvar",
     wBase = "base", wUsed = "used", wFatal = "fatal", wError = "error", wWarning = "warning",
     wHint = "hint",
@@ -67,7 +67,6 @@ type
     wSinkInference = "sinkInference", wWarnings = "warnings",
     wHints = "hints", wOptimization = "optimization", wRaises = "raises",
     wWrites = "writes", wReads = "reads", wSize = "size", wEffects = "effects", wTags = "tags",
-    wDeadCodeElimUnused = "deadCodeElim",  # deprecated, dead code elim always happens
     wSafecode = "safecode", wPackage = "package",
     wNoRewrite = "norewrite", wNoDestroy = "nodestroy", wPragma = "pragma",
     wCompileTime = "compileTime", wNoInit = "noinit", wPassc = "passc", wPassl = "passl",
@@ -78,7 +77,7 @@ type
     wWrite = "write", wGensym = "gensym", wInject = "inject", wDirty = "dirty",
     wInheritable = "inheritable", wThreadVar = "threadvar", wEmit = "emit",
     wAsmNoStackFrame = "asmNoStackFrame", wImplicitStatic = "implicitStatic",
-    wGlobal = "global", wCodegenDecl = "codegenDecl", wUnchecked = "unchecked",
+    wGlobal = "global", wCodegenDecl = "codegenDecl",
     wGuard = "guard", wLocks = "locks", wExplain = "explain",
 
     wAuto = "auto", wBool = "bool", wCatch = "catch", wChar = "char",
