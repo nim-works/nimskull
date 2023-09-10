@@ -1691,7 +1691,7 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
     setCaseContextIdx(c, i)
     var x = n[i]
     when defined(nimsuggest):
-      if c.config.ideCmd == ideSug and exactEquals(c.config.m.trackPos, x.info) and caseTyp.kind == tyEnum:
+      if c.config.ideCmd == ideSug and c.config.m.trackPos == x.info and caseTyp.kind == tyEnum:
         suggestEnum(c, x, caseTyp)
     case x.kind
     of nkOfBranch:

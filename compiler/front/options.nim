@@ -166,7 +166,7 @@ type
     count*: int
 
   ProfileData* = ref object
-    data*: TableRef[TLineInfo, ProfileInfo]
+    data*: TableRef[SourceLinePosition, ProfileInfo]
 
   StdOrrKind* = enum
     stdOrrStdout
@@ -774,7 +774,7 @@ template newPackageCache*(): untyped =
                    modeCaseSensitive)
 
 proc newProfileData(): ProfileData =
-  ProfileData(data: newTable[TLineInfo, ProfileInfo]())
+  ProfileData(data: newTable[SourceLinePosition, ProfileInfo]())
 
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 

@@ -469,17 +469,12 @@ proc isTracked*(current, trackPos: TLineInfo, tokenLen: int): bool =
       return true
 
 when defined(nimsuggest):
-  # Since TLineInfo defined a == operator that doesn't include the column,
-  # we map TLineInfo to a unique int here for this lookup table:
-  proc infoToInt(info: TLineInfo): int64 =
-    info.fileIndex.int64 + info.line.int64 shl 32 + info.col.int64 shl 48
 
   proc addNoDup(s: PSym; info: TLineInfo) =
     # ensure nothing gets too slow:
     if s.allUsages.len > 500: return
-    let infoAsInt = info.infoToInt
     for infoB in s.allUsages:
-      if infoB.infoToInt == infoAsInt: return
+      if infoB == info: return
     s.allUsages.add(info)
 
 proc findUsages(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym) =
@@ -496,7 +491,7 @@ when defined(nimsuggest):
   proc listUsages*(g: ModuleGraph; s: PSym) =
     #echo "usages ", s.allUsages.len
     for info in s.allUsages:
-      let x = if info == s.info and info.col == s.info.col: ideDef else: ideUse
+      let x = if info == s.info: ideDef else: ideUse
       suggestResult(g.config, symToSuggest(g, s, isLocal=false, x, info, 100, PrefixMatch.None, false, 0))
 
 proc findDefinition(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym) =
@@ -608,7 +603,7 @@ proc suggestExprNoCheck*(c: PContext, n: PNode) =
     suggestQuit()
 
 proc suggestExpr*(c: PContext, n: PNode) =
-  if exactEquals(c.config.m.trackPos, n.info): suggestExprNoCheck(c, n)
+  if c.config.m.trackPos == n.info: suggestExprNoCheck(c, n)
 
 proc suggestDecl*(c: PContext, n: PNode; s: PSym) =
   let attached = c.config.m.trackPosAttached
