@@ -238,12 +238,11 @@ proc `$`*(suggest: Suggest): string =
     result.add(sep)
     when defined(nimsuggest) and not defined(noDocgen) and not defined(leanCompiler):
       result.add(suggest.doc.escape)
-    if suggest.version == 0:
+    result.add(sep)
+    result.add($suggest.quality)
+    if suggest.section == ideSug:
       result.add(sep)
-      result.add($suggest.quality)
-      if suggest.section == ideSug:
-        result.add(sep)
-        result.add($suggest.prefix)
+      result.add($suggest.prefix)
 
 proc suggestResult(conf: ConfigRef; s: Suggest) =
   if not isNil(conf.suggestionResultHook):
