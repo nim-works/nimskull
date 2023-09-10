@@ -151,7 +151,6 @@ type
     doc*: string                ## Unescaped documentation string
     forth*: string              ## type
     quality*: range[0..100]     ## matching quality
-    isGlobal*: bool             ## is a global variable
     contextFits*: bool          ## type/non-type context matches
     prefix*: PrefixMatch
     symkind*: byte

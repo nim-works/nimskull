@@ -160,7 +160,6 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   new(result)
   result.section = section
   result.quality = quality
-  result.isGlobal = sfGlobal in s.flags
   result.prefix = prefix
   result.contextFits = inTypeContext == (s.kind in {skType, skGenericParam})
   result.scope = scope
@@ -211,12 +210,7 @@ proc `$`*(suggest: Suggest): string =
   result = $suggest.section
   result.add(sep)
   if suggest.section == ideHighlight:
-    if suggest.symkind.TSymKind == skVar and suggest.isGlobal:
-      result.add("skGlobalVar")
-    elif suggest.symkind.TSymKind == skLet and suggest.isGlobal:
-      result.add("skGlobalLet")
-    else:
-      result.add($suggest.symkind.TSymKind)
+    result.add($suggest.symkind.TSymKind)
     result.add(sep)
     result.add($suggest.line)
     result.add(sep)
