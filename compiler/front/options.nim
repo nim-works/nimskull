@@ -158,7 +158,7 @@ type
     scope*:int
     localUsages*, globalUsages*: int # usage counters
     tokenLen*: int
-    version*: int
+
   Suggestions* = seq[Suggest]
 
   ProfileInfo* = object
@@ -292,7 +292,6 @@ type
     cCompilerPath*: string
     toCompile*: CfileList         # (*)
     suggestionResultHook*: proc (result: Suggest) {.closure.}
-    suggestVersion*: int
     suggestMaxResults*: int
     lastLineInfo*: TLineInfo
     writelnHook*: proc(
