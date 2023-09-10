@@ -73,18 +73,18 @@ const
     ## common pragmas for declarations, to a good approximation
   procPragmas* = declPragmas + {FirstCallConv..LastCallConv,
     wMagic, wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
-    wCompilerProc, wCore, wProcVar, wVarargs, wCompileTime, wMerge,
+    wCompilerProc, wCore, wProcVar, wVarargs, wCompileTime,
     wBorrow, wImportCompilerProc, wThread,
     wAsmNoStackFrame, wDiscardable, wNoInit, wCodegenDecl,
-    wGensym, wInject, wRaises, wEffectsOf, wTags, wLocks, wDelegator, wGcSafe,
+    wGensym, wInject, wRaises, wEffectsOf, wTags, wLocks, wGcSafe,
     wStackTrace, wLineTrace, wNoDestroy}
   converterPragmas* = procPragmas
   methodPragmas* = procPragmas+{wBase}-{wOverride}
   templatePragmas* = {wDeprecated, wError, wGensym, wInject, wDirty,
-    wDelegator, wExportNims, wUsed, wPragma}
+    wExportNims, wUsed, wPragma}
   macroPragmas* = declPragmas + {FirstCallConv..LastCallConv,
     wMagic, wNoSideEffect, wCompilerProc, wCore,
-    wDiscardable, wGensym, wInject, wDelegator}
+    wDiscardable, wGensym, wInject}
   iteratorPragmas* = declPragmas + {FirstCallConv..LastCallConv, wNoSideEffect, wSideEffect,
     wMagic, wBorrow,
     wDiscardable, wGensym, wInject, wRaises, wEffectsOf,
@@ -98,7 +98,6 @@ const
     wLineDir, wStackTrace, wLineTrace, wOptimization, wHint, wWarning, wError,
     wFatal, wDefine, wUndef, wCompile, wLink, wPush, wPop,
     wPassl, wPassc, wLocalPassc,
-    wDeadCodeElimUnused,  # deprecated, always on
     wDebugger, wProfiler,
     wDeprecated,
     wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit,
@@ -1189,9 +1188,6 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
       of wGlobal:
         result = noVal(c, it)
         sym.flags.incl {sfGlobal, sfPure}
-      of wMerge:
-        # only supported for backwards compat, doesn't do anything anymore
-        result = noVal(c, it)
       of wHeader:
         let path = getStrLitNode(c, it) # the path or an error
         if path.isError:
@@ -1463,9 +1459,6 @@ proc applyStmtPragma(c: PContext, owner: PSym, it: PNode, k: TSpecialWord): PNod
   ## is ill-formed (e.g. missing arguments) or the evaluation failed, an error
   ## is returned.
   case k
-  of wDeadCodeElimUnused:
-    # TODO: the pragma is a no-op. Either reinstate or remove it
-    result = noVal(c, it)
   of wUsed:
     result = noVal(c, it)
     # XXX: an escaping mutation if the the pragma is used inside a ``compiles``

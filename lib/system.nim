@@ -989,25 +989,25 @@ proc newStringOfCap*(cap: Natural): string {.
   ## be achieved with the `&` operator or with `add`.
 
 proc `&`*(x: string, y: char): string {.
-  magic: "ConStrStr", noSideEffect, merge.}
+  magic: "ConStrStr", noSideEffect.}
   ## Concatenates `x` with `y`.
   ##
   ## .. code-block:: Nim
   ##   assert("ab" & 'c' == "abc")
 proc `&`*(x, y: char): string {.
-  magic: "ConStrStr", noSideEffect, merge.}
+  magic: "ConStrStr", noSideEffect.}
   ## Concatenates characters `x` and `y` into a string.
   ##
   ## .. code-block:: Nim
   ##   assert('a' & 'b' == "ab")
 proc `&`*(x, y: string): string {.
-  magic: "ConStrStr", noSideEffect, merge.}
+  magic: "ConStrStr", noSideEffect.}
   ## Concatenates strings `x` and `y`.
   ##
   ## .. code-block:: Nim
   ##   assert("ab" & "cd" == "abcd")
 proc `&`*(x: char, y: string): string {.
-  magic: "ConStrStr", noSideEffect, merge.}
+  magic: "ConStrStr", noSideEffect.}
   ## Concatenates `x` with `y`.
   ##
   ## .. code-block:: Nim
