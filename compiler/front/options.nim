@@ -158,7 +158,7 @@ type
     scope*:int
     localUsages*, globalUsages*: int # usage counters
     tokenLen*: int
-    version*: int
+
   Suggestions* = seq[Suggest]
 
   ProfileInfo* = object

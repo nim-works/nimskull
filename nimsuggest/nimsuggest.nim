@@ -654,6 +654,7 @@ proc processCmdLine*(pass: TCmdLinePass, argv: openArray[string]; conf: ConfigRe
         gMode = mepc
         conf.verbosity = compVerbosityMin  # Port number gotta be first.
       of "debug": conf.incl optIdeDebug
+      of "v2": discard
       of "tester":
         gMode = mstdin
         gEmitEof = true
