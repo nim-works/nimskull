@@ -1,5 +1,5 @@
-# this is a copy paste implementation of github.com/krux02/ast_pattern_matching
-# Please provide bugfixes upstream first before adding them here.
+## Implements pattern matching for ``NimNode`` AST. This module is copied
+## from https://github.com/krux02/ast-pattern-matching.
 
 import macros, strutils, tables
 
