@@ -212,6 +212,32 @@ proc checkVersion(outs: Stream) =
     if version != NimVersion:
       outs.notify("window/showMessage", create(ShowMessageParams, MessageType.Warning.int, message = "Current Nim version does not match the one NimLSP is built against " & version & " != " & NimVersion).JsonNode)
 
+proc createMarkupContent(label: string; content: string): MarkupContent =
+  let label = "```nim\n" & label & "\n```\n"
+  var 
+    c: string
+    isCodeBlock = false
+  const BlockStart = ".. code-block::"
+  const BlockLen = BlockStart.len + 1
+  for line in splitLines(content, true):
+    let isCodeBlockStart = line.startsWith(BlockStart)
+    if isCodeBlockStart:
+      isCodeBlock = true
+      if line.endsWith("Nim\n") or line.endsWith("nim\n") or 
+         line.len == BlockLen:
+        c.add "```nim\n"
+      else:
+        c.add "```\n"
+    elif isCodeBlock and line.strip() == "":
+      c.add "```\n"
+      isCodeBlock = false
+    else:
+      c.add line
+  if isCodeBlock:
+    # single code block and ends without trailing line
+    c.add "```\n"
+  result = create(MarkupContent, "markdown", label & c)
+
 proc main(ins: Stream, outs: Stream) =
   checkVersion(outs)
   var message: JsonNode
@@ -344,17 +370,8 @@ proc main(ins: Stream, outs: Stream) =
                       create(Position, req.rawLine, req.rawChar),
                       create(Position, req.rawLine, req.rawChar + suggestions[0].qualifiedPath[^1].len)
                     ))
-                  markedString = create(MarkedStringOption, "nim", label)
-                if suggestions[0].doc != "":
-                  resp = create(Hover,
-                    @[
-                      markedString,
-                      create(MarkedStringOption, "", suggestions[0].doc),
-                    ],
-                    rangeopt
-                  ).JsonNode
-                else:
-                  resp = create(Hover, markedString, rangeopt).JsonNode;
+                  markupContent = createMarkupContent(label, suggestions[0].doc)
+                resp = create(Hover, markupContent, rangeopt).JsonNode;
                 outs.respond(message, resp)
           of "textDocument/references":
             textDocumentRequest(message, ReferenceParams, req):

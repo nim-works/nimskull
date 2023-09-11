@@ -468,7 +468,7 @@ jsonSchema:
     triggerCharacters ?: string[]
     resolveProvider ?: bool
 
-  MarkedStringOption:
+  MarkedStringOption: # deprecated
     language: string
     value: string
 
