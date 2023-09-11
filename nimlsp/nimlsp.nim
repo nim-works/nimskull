@@ -371,8 +371,8 @@ proc main(ins: Stream, outs: Stream) =
                       create(Position, req.rawLine, req.rawChar + suggestions[0].qualifiedPath[^1].len)
                     ))
                   markupContent = createMarkupContent(label, suggestions[0].doc)
-                resp = create(Hover, markupContent, rangeopt).JsonNode;
-                outs.respond(message, resp)
+                resp = create(Hover, markupContent, rangeopt).JsonNode
+              outs.respond(message, resp)
           of "textDocument/references":
             textDocumentRequest(message, ReferenceParams, req):
               debugLog "Running equivalent of: use ", req.fileuri, " ", req.filestash, "(",
