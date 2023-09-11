@@ -1,5 +1,6 @@
 import std/[json, parseutils, streams, strformat,
-            strutils]
+            strutils, os]
+from std/uri import decodeUrl, parseUri
 when defined(debugCommunication):
   import logger
 
@@ -8,6 +9,58 @@ type
 
   MalformedFrame* = object of BaseProtocolError
   UnsupportedEncoding* = object of BaseProtocolError
+
+  UriParseError* = object of Defect
+    uri*: string
+
+proc pathToUri*(path: string): string =
+  # This is a modified copy of encodeUrl in the uri module. This doesn't encode
+  # the / character, meaning a full file path can be passed in without breaking
+  # it.
+  result = newStringOfCap(path.len + path.len shr 2) # assume 12% non-alnum-chars
+  when defined(windows):
+    result.add '/'
+  for c in path:
+    case c
+    # https://tools.ietf.org/html/rfc3986#section-2.3
+    of 'a'..'z', 'A'..'Z', '0'..'9', '-', '.', '_', '~', '/': result.add c
+    of '\\':
+      when defined(windows):
+        result.add '/'
+      else:
+        result.add '%'
+        result.add toHex(ord(c), 2)
+    else:
+      result.add '%'
+      result.add toHex(ord(c), 2)
+
+proc uriToPath*(uri: string): string =
+  ## Convert an RFC 8089 file URI to a native, platform-specific, absolute path.
+  #let startIdx = when defined(windows): 8 else: 7
+  #normalizedPath(uri[startIdx..^1])
+  let parsed = parseUri(uri)
+  if parsed.scheme != "file":
+    var e = newException(UriParseError, &"Invalid scheme: {parsed.scheme}, only \"file\" is supported")
+    e.uri = uri
+    raise e
+  if parsed.hostname != "":
+    var e = newException(UriParseError, &"Invalid hostname: {parsed.hostname}, only empty hostname is supported")
+    e.uri = uri
+    raise e
+  return normalizedPath(
+    when defined(windows):
+      parsed.path[1..^1]
+    else:
+      parsed.path).decodeUrl
+
+proc parseId*(node: JsonNode): string =
+  if node == nil: return
+  if node.kind == JString:
+    node.getStr
+  elif node.kind == JInt:
+    $node.getInt
+  else:
+    ""
 
 proc skipWhitespace(x: string, pos: int): int =
   result = pos

@@ -1,5 +1,5 @@
 import std/[algorithm, hashes, os, osproc, sets,
-            streams, strformat, strutils, tables, uri]
+            streams, strformat, strutils, tables]
 
 import nimlsppkg/[baseprotocol, logger, suggestlib, utfmapping]
 include nimlsppkg/[messages, messageenums]
@@ -19,17 +19,7 @@ const
   # This is used to explicitly set the default source path
   explicitSourcePath {.strdefine.} = getCurrentCompilerExe().parentDir.parentDir
 
-type
-  UriParseError* = object of Defect
-    uri: string
-
 var nimpath = explicitSourcePath
-
-infoLog("Version: ", version)
-infoLog("explicitSourcePath: ", explicitSourcePath)
-for i in 1..paramCount():
-  infoLog("Argument ", i, ": ", paramStr(i))
-
 var
   gotShutdown = false
   initialized = false
@@ -72,55 +62,6 @@ template textDocumentNotification(message: typed; kind: typed; name, body: untyp
         body
       else:
         debugLog("Unable to parse data as ", kind)
-
-proc pathToUri(path: string): string =
-  # This is a modified copy of encodeUrl in the uri module. This doesn't encode
-  # the / character, meaning a full file path can be passed in without breaking
-  # it.
-  result = newStringOfCap(path.len + path.len shr 2) # assume 12% non-alnum-chars
-  when defined(windows):
-    result.add '/'
-  for c in path:
-    case c
-    # https://tools.ietf.org/html/rfc3986#section-2.3
-    of 'a'..'z', 'A'..'Z', '0'..'9', '-', '.', '_', '~', '/': result.add c
-    of '\\':
-      when defined(windows):
-        result.add '/'
-      else:
-        result.add '%'
-        result.add toHex(ord(c), 2)
-    else:
-      result.add '%'
-      result.add toHex(ord(c), 2)
-
-proc uriToPath(uri: string): string =
-  ## Convert an RFC 8089 file URI to a native, platform-specific, absolute path.
-  #let startIdx = when defined(windows): 8 else: 7
-  #normalizedPath(uri[startIdx..^1])
-  let parsed = uri.parseUri
-  if parsed.scheme != "file":
-    var e = newException(UriParseError, &"Invalid scheme: {parsed.scheme}, only \"file\" is supported")
-    e.uri = uri
-    raise e
-  if parsed.hostname != "":
-    var e = newException(UriParseError, &"Invalid hostname: {parsed.hostname}, only empty hostname is supported")
-    e.uri = uri
-    raise e
-  return normalizedPath(
-    when defined(windows):
-      parsed.path[1..^1]
-    else:
-      parsed.path).decodeUrl
-
-proc parseId(node: JsonNode): string =
-  if node == nil: return
-  if node.kind == JString:
-    node.getStr
-  elif node.kind == JInt:
-    $node.getInt
-  else:
-    ""
 
 proc respond(outs: Stream, request: JsonNode, data: JsonNode) =
   let resp = create(ResponseMessage, "2.0", parseId(request["id"]), some(data), none(ResponseError)).JsonNode
@@ -177,26 +118,6 @@ proc getProjectFile(file: string): string =
 
 template getNimsuggest(fileuri: string): Nimsuggest =
   projectFiles[openFiles[fileuri].projectFile].nimsuggest
-
-if paramCount() == 1:
-  case paramStr(1):
-    of "--help":
-      echo "Usage: nimlsp [OPTION | PATH]\n"
-      echo "--help, shows this message"
-      echo "--version, shows only the version"
-      echo "PATH, path to the Nim source directory, defaults to \"", nimpath, "\""
-      quit 0
-    of "--version":
-      echo "nimlsp v", version
-      when defined(debugLogging): echo "Compiled with debug logging"
-      when defined(debugCommunication): echo "Compiled with communication logging"
-      quit 0
-    else: nimpath = expandFilename(paramStr(1))
-if not fileExists(nimpath / "config/nim.cfg"):
-  stderr.write &"""Unable to find "config/nim.cfg" in "{nimpath
-  }". Supply the Nim project folder by adding it as an argument.
-"""
-  quit 1
 
 proc checkVersion(outs: Stream) =
   let
@@ -694,7 +615,32 @@ proc main(ins: Stream, outs: Stream) =
       warnLog "Got exception: ", e.msg
       continue
 
-var
-  ins = newFileStream(stdin)
-  outs = newFileStream(stdout)
-main(ins, outs)
+when isMainModule:
+  infoLog("Version: ", version)
+  infoLog("explicitSourcePath: ", explicitSourcePath)
+  for i in 1..paramCount():
+    infoLog("Argument ", i, ": ", paramStr(i))
+  if paramCount() == 1:
+    case paramStr(1):
+      of "--help":
+        echo "Usage: nimlsp [OPTION | PATH]\n"
+        echo "--help, shows this message"
+        echo "--version, shows only the version"
+        echo "PATH, path to the Nim source directory, defaults to \"", nimpath, "\""
+        quit 0
+      of "--version":
+        echo "nimlsp v", version
+        when defined(debugLogging): echo "Compiled with debug logging"
+        when defined(debugCommunication): echo "Compiled with communication logging"
+        quit 0
+      else: nimpath = expandFilename(paramStr(1))
+  if not fileExists(nimpath / "config/nim.cfg"):
+    stderr.write &"""Unable to find "config/nim.cfg" in "{nimpath
+    }". Supply the Nim project folder by adding it as an argument.
+  """
+    quit 1
+  
+  var
+    ins = newFileStream(stdin)
+    outs = newFileStream(stdout)
+  main(ins, outs)
