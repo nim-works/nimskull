@@ -513,6 +513,15 @@ jsonSchema:
     location: Location
     containerName ?: string
 
+  DocumentSymbol:
+    name: string
+    detail ?: string
+    kind: int # SymbolKind
+    tags ?: int[] # SymbolTag[]
+    "range": Range
+    selectionRange: Range
+    children ?: DocumentSymbol[]
+
   CodeActionParams:
     textDocument: TextDocumentIdentifier
     "range": Range

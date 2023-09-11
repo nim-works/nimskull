@@ -175,11 +175,12 @@ proc parsedNodeToSugget(n: ParsedNode; moduleName: string): Suggest =
   if n.kind in {pnkError, pnkEmpty}: return
   if n.kind notin {pnkConstSection..pnkTypeDef, pnkIdentDefs}: return
   new(result)
-  let token = getToken(n)
+  var token = getToken(n)
   var name = ""
 
   if n.kind in {pnkProcDef..pnkTypeDef, pnkIdentDefs}:
     var node: ParsedNode = getSymNode(n[0])
+    token = getToken(node)
     if node.kind != pnkError:
       name = getName(node)
 
@@ -187,6 +188,7 @@ proc parsedNodeToSugget(n: ParsedNode; moduleName: string): Suggest =
     result.qualifiedPath = @[moduleName, name]
   result.line = token.line.int
   result.column = token.col.int
+  result.tokenLen = name.len
   result.symkind = byte pnkToSymKind(n.kind)
 
 proc outline(graph: ModuleGraph; file: AbsoluteFile; fileIdx: FileIndex) =

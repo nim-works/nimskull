@@ -410,19 +410,20 @@ proc main(ins: Stream, outs: Stream) =
                 for sym in syms.sortedByIt((it.line,it.column,it.quality)):
                   if sym.qualifiedPath.len != 2:
                     continue
-                  resp.add create(
-                    SymbolInformation,
+                  resp.add create(DocumentSymbol,
                     sym.qualifiedPath[^1],
+                    some(sym.forth),
                     nimSymToLSPKind(sym.symKind).int,
-                    some(false),
-                    create(Location,
-                    "file://" & pathToUri(sym.filepath),
-                      create(Range,
+                    none(seq[int]),
+                    create(Range,
                         create(Position, sym.line-1, sym.column),
-                        create(Position, sym.line-1, sym.column + sym.qualifiedPath[^1].len)
-                      )
-                    ),
-                    none(string)
+                        create(Position, sym.line-1, sym.column + sym.tokenLen)
+                      ),
+                    create(Range,
+                        create(Position, sym.line-1, sym.column),
+                        create(Position, sym.line-1, sym.column + sym.tokenLen)
+                      ),
+                    none(seq[DocumentSymbol])
                   ).JsonNode
               outs.respond(message, resp)
           of "textDocument/signatureHelp":
