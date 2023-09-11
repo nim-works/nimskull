@@ -6,16 +6,6 @@ include nimlsppkg/[messages, messageenums]
 
 
 const
-  version = block:
-    var version = "0.0.0"
-    let nimbleFile = staticRead(currentSourcePath().parentDir / "nimlsp.nimble")
-    for line in nimbleFile.splitLines:
-      let keyval = line.split('=')
-      if keyval.len == 2:
-        if keyval[0].strip == "version":
-          version = keyval[1].strip(chars = Whitespace + {'"'})
-          break
-    version
   # This is used to explicitly set the default source path
   explicitSourcePath {.strdefine.} = getCurrentCompilerExe().parentDir.parentDir
 
@@ -617,7 +607,6 @@ proc main(ins: Stream, outs: Stream) =
       continue
 
 when isMainModule:
-  infoLog("Version: ", version)
   infoLog("explicitSourcePath: ", explicitSourcePath)
   for i in 1..paramCount():
     infoLog("Argument ", i, ": ", paramStr(i))
@@ -626,14 +615,9 @@ when isMainModule:
       of "--help":
         echo "Usage: nimlsp [OPTION | PATH]\n"
         echo "--help, shows this message"
-        echo "--version, shows only the version"
         echo "PATH, path to the Nim source directory, defaults to \"", nimpath, "\""
         quit 0
-      of "--version":
-        echo "nimlsp v", version
-        when defined(debugLogging): echo "Compiled with debug logging"
-        when defined(debugCommunication): echo "Compiled with communication logging"
-        quit 0
+
       else: nimpath = expandFilename(paramStr(1))
   if not fileExists(nimpath / "config/nim.cfg"):
     stderr.write &"""Unable to find "config/nim.cfg" in "{nimpath
