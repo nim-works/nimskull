@@ -236,6 +236,19 @@ proc createMarkupContent(label: string; content: string): MarkupContent =
   if isCodeBlock:
     # single code block and ends without trailing line
     c.add "```\n"
+  # admonition labels
+  c = multiReplace(c, 
+    (".. attention::", "**attention**"),
+    (".. caution::", "**caution**"),
+    (".. danger::", "**danger**"),
+    (".. error::", "**error**"),
+    (".. hint::", "**hint**"),
+    (".. important::", "**important**"),
+    (".. note::", "**note**"),
+    (".. seealso::", "**seealso**"),
+    (".. tip::", "**tip**"),
+    (".. warning::", "**warning**"),
+  )
   result = create(MarkupContent, "markdown", label & c)
 
 proc main(ins: Stream, outs: Stream) =
