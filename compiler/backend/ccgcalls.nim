@@ -100,10 +100,10 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         if d.k notin {locTemp, locNone}:
           reportObservableStore(p, le, ri)
 
-        if d.k == locNone: getTemp(p, typ[0], d, needsInit=true)
-        elif d.k notin {locTemp} and not hasNoInit(ri):
-          # reset before pass as 'result' var:
-          discard "resetLoc(p, d)"
+        # resetting the result location is the responsibility of the called
+        # procedure
+        if d.k == locNone:
+          getTemp(p, typ[0], d)
         pl.add(addrLoc(p.config, d))
         pl.add(~");$n")
         line(p, cpsStmts, pl)
@@ -333,11 +333,10 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
         if d.k notin {locTemp, locNone}:
           reportObservableStore(p, le, ri)
 
+        # resetting the result location is the responsibility of the called
+        # procedure
         if d.k == locNone:
-          getTemp(p, typ[0], d, needsInit=true)
-        elif d.k notin {locTemp} and not hasNoInit(ri):
-          # reset before pass as 'result' var:
-          discard "resetLoc(p, d)"
+          getTemp(p, typ[0], d)
         pl.add(addrLoc(p.config, d))
         genCallPattern()
         exitCall(p, ri[0], canRaise)
