@@ -198,6 +198,13 @@ proc parsedNodeToSugget(n: ParsedNode; moduleName: string): Suggest =
     token = getToken(node)
     if node.kind != pnkError:
       name = getName(node)
+      # special cases
+      # if n.kind in pnkRoutineDefs and node.kind == pnkAccQuoted:
+      #   let identsLen = n[paramsPos].sons.len
+      #   for i in countup(1, identsLen - 1):
+      #     name.add getName(n[paramsPos][i][1])
+      #     if i != identsLen - 1:
+      #       name.add ","
 
   if name != "":
     result.qualifiedPath = @[moduleName, name]
