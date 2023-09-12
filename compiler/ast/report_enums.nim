@@ -605,7 +605,6 @@ type
     rsemRawTypeMismatch
 
     rsemCannotConvertTypes
-    rsemUnresolvedGenericParameter
     rsemCannotCreateFlowVarOfType
     rsemTypeNotAllowed
 
