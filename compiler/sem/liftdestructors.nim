@@ -820,6 +820,31 @@ proc fillBody(c: var TLiftCtx; t: PType; body, x, y: PNode) =
      tyGenericInst, tyAlias, tySink:
     fillBody(c, lastSon(t), body, x, y)
 
+proc bindPseudoOp(g: ModuleGraph, c: PContext, idgen: IdGenerator,
+                  kind: TTypeAttachedOp, typ: PType, info: TLineInfo) =
+  ## If the `kind` slot is not alread filled, assigns a pseudo-operator to the
+  ## slot of `typ`'s originating-from generic type.
+  assert tfFromGeneric in typ.flags
+  if c == nil or kind == attachedDeepCopy:
+    # without a ``PContext``, we cannot create a pseudo-op, but it's also not
+    # necessary, as a ``PContext`` is only missing for types created outside of
+    # semantic analysis.
+    # ``=deepCopy`` operators are currently not implicitly lifted like the
+    # others, so we don't block the generic type's slot
+    return
+
+  # attach to the generic type, not to the ``tyGenericBody``
+  let generic = typ.typeInst[0].lastSon
+  if getAttachedOp(g, generic, kind) == nil:
+    # no custom operator is bound to the `kind` slot for the generic type;
+    # block it
+    let
+      name = g.cache.getIdent(AttachedOpToStr[kind])
+      op   = newSym(skProc, name, nextSymId c.idgen, typ.owner, info)
+    # mark the symbol as anonymous, making it possible to later detect it
+    op.flags.incl sfAnon
+    setAttachedOp(g, c.idgen.module, generic, kind, op)
+
 proc produceSymDistinctType(g: ModuleGraph; c: PContext; typ: PType;
                             kind: TTypeAttachedOp; info: TLineInfo;
                             idgen: IdGenerator): PSym =
@@ -829,6 +854,10 @@ proc produceSymDistinctType(g: ModuleGraph; c: PContext; typ: PType;
     discard produceSym(g, c, baseType, kind, info, idgen)
   result = getAttachedOp(g, baseType, kind)
   setAttachedOp(g, idgen.module, typ, kind, result)
+
+  if tfFromGeneric in typ.flags:
+    # block the generic type's operator slot
+    bindPseudoOp(g, c, idgen, kind, typ, info)
 
 proc symPrototype(g: ModuleGraph; typ: PType; owner: PSym; kind: TTypeAttachedOp;
               info: TLineInfo; idgen: IdGenerator): PSym =
@@ -879,6 +908,11 @@ proc produceSym(g: ModuleGraph; c: PContext; typ: PType; kind: TTypeAttachedOp;
   result = getAttachedOp(g, typ, kind)
   if result == nil:
     result = symPrototype(g, typ, typ.owner, kind, info, idgen)
+
+  if typ.kind in {tyObject, tyEnum} and tfFromGeneric in typ.flags:
+    # for nominal types (``tyDistinct`` is handled separately), block
+    # the operator slot of the generic type
+    bindPseudoOp(g, c, idgen, kind, typ, info)
 
   var a = TLiftCtx(info: info, g: g, kind: kind, c: c, asgnForType: typ, idgen: idgen,
                    fn: result)
