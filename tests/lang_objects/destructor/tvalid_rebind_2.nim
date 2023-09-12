@@ -1,7 +1,7 @@
 discard """
   targets: "c js vm"
   description: '''
-    Ensure that its possible to explicitly bind a type-bound operator to
+    Ensure that it's possible to explicitly bind a type-bound operator to
     both the generic type and a specific instance thereof
   '''
 """
