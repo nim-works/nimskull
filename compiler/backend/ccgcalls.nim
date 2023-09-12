@@ -237,7 +237,7 @@ proc openArrayLoc(p: BProc, formalType: PType, n: CgNode): Rope =
     else: internalError(p.config, "openArrayLoc: " & typeToString(a.t))
 
 proc literalsNeedsTmp(p: BProc, a: TLoc): TLoc =
-  getTemp(p, a.lode.typ, result, needsInit=false)
+  getTemp(p, a.lode.typ, result)
   genAssignment(p, result, a)
 
 proc genArgStringToCString(p: BProc, n: CgNode): Rope {.inline.} =
