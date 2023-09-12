@@ -2009,9 +2009,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemOnOrOffExpected:
       result = "'on' or 'off' expected"
 
-    of rsemUnresolvedGenericParameter:
-      result = "unresolved generic parameter"
-
     of rsemRawTypeMismatch:
       result = "type mismatch"
 
