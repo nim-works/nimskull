@@ -120,7 +120,7 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         exitCall(p, ri[0], canRaise)
       else:
         var tmp: TLoc
-        getTemp(p, typ[0], tmp, needsInit=true)
+        getTemp(p, typ[0], tmp)
         var list: TLoc
         initLoc(list, locCall, d.lode, OnUnknown)
         list.r = pl
