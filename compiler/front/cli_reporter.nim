@@ -1822,6 +1822,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemIllegalCustomPragma:
       result = "cannot attach a custom pragma to '$1'" % r.symstr
 
+    of rsemExternalLocalNotAllowed:
+      result = "parameters and local 'let'/'var' cannot be part of an" &
+               " external interface"
+
     of rsemCallingConventionMismatch:
       assert false, "REMOVE"
 
@@ -3290,7 +3294,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemExpectedRangeType,
       adSemExpectedLabel,
       adSemContinueCannotHaveLabel,
-      adSemUnavailableLocation:
+      adSemUnavailableLocation,
+      adSemExternalLocalNotAllowed:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
