@@ -393,6 +393,7 @@ proc main(ins: Stream, outs: Stream) =
               debugLog "Found outlines: ", syms[0..<min(syms.len, 10)],
                         if syms.len > 10: &" and {syms.len-10} more" else: ""
               var resp: JsonNode
+              var flags = newSeq[int]()
               if syms.len == 0:
                 resp = newJNull()
               else:
@@ -400,11 +401,14 @@ proc main(ins: Stream, outs: Stream) =
                 for sym in syms.sortedByIt((it.line,it.column,it.quality)):
                   if sym.qualifiedPath.len != 2:
                     continue
+                  flags.setLen(0)
+                  for f in sym.flags:
+                    flags.add f.int
                   resp.add create(DocumentSymbol,
                     sym.qualifiedPath[^1],
                     some(sym.forth),
                     nimSymToLSPKind(sym.symKind).int,
-                    none(seq[int]),
+                    some(flags),
                     create(Range,
                         create(Position, sym.line-1, sym.column),
                         create(Position, sym.line-1, sym.column + sym.tokenLen)

@@ -171,6 +171,16 @@ proc getName(node: ParsedNode): string =
       result.add t.ident.s
     result.add "`"
 
+proc processFlags(sug: Suggest; n: ParsedNode) =
+  var
+    identDeprecated: bool
+    colonDeprecated: bool
+  for s in n.sons:
+    identDeprecated = s.kind == pnkIdent and getName(s) == "deprecated"
+    colonDeprecated = s.kind == pnkExprColonExpr and getName(s[0]) == "deprecated" 
+    if identDeprecated or colonDeprecated:
+      sug.flags.incl SuggestFlag.deprecated
+
 proc parsedNodeToSugget(n: ParsedNode; moduleName: string): Suggest =
   if n.kind in {pnkError, pnkEmpty}: return
   if n.kind notin {pnkConstSection..pnkTypeDef, pnkIdentDefs}: return
@@ -179,6 +189,11 @@ proc parsedNodeToSugget(n: ParsedNode; moduleName: string): Suggest =
   var name = ""
 
   if n.kind in {pnkProcDef..pnkTypeDef, pnkIdentDefs}:
+    if n.kind in pnkRoutineDefs and n[pragmasPos].kind == pnkPragma:
+      processFlags(result, n[pragmasPos])
+    elif n[0].kind == pnkPragmaExpr and n[0][^1].kind == pnkPragma:
+      processFlags(result, n[0][^1])
+
     var node: ParsedNode = getSymNode(n[0])
     token = getToken(node)
     if node.kind != pnkError:
