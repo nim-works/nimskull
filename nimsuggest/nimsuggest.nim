@@ -63,7 +63,7 @@ from compiler/ast/reports import Report,
 
 from compiler/front/main import customizeForBackend
 
-from compiler/tools/suggest import isTracked, listUsages, suggestSym, `$`
+from compiler/tools/suggest import findTrackedSym, executeCmd, listUsages, suggestSym, `$`
 
 when defined(windows):
   import winlean
@@ -204,20 +204,6 @@ proc listEpc(): SexpNode =
     methodDesc.add(docstring)
     result.add(methodDesc)
 
-proc findNode(n: PNode; trackPos: TLineInfo): PSym =
-  #echo "checking node ", n.info
-  if n.kind == nkSym:
-    if isTracked(n.info, trackPos, n.sym.name.s.len): return n.sym
-  else:
-    for i in 0 ..< safeLen(n):
-      let res = findNode(n[i], trackPos)
-      if res != nil: return res
-
-proc symFromInfo(graph: ModuleGraph; trackPos: TLineInfo): PSym =
-  let m = graph.getModule(trackPos.fileIndex)
-  if m != nil and m.ast != nil:
-    result = findNode(m.ast, trackPos)
-
 proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
              graph: ModuleGraph) =
   let conf = graph.config
@@ -227,33 +213,9 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
       dirtyfile.string & "[" & $line & ":" & $col & "]"
   )
 
-  conf.ideCmd = cmd
-  var isKnownFile = true
-  let dirtyIdx = fileInfoIdx(conf, file, isKnownFile)
-
-  if not dirtyfile.isEmpty: msgs.setDirtyFile(conf, dirtyIdx, dirtyfile)
-  else: msgs.setDirtyFile(conf, dirtyIdx, AbsoluteFile"")
-
-  conf.m.trackPos = newLineInfo(dirtyIdx, line, col)
-  conf.m.trackPosAttached = false
-  conf.errorCounter = 0
-  if not isKnownFile:
-    graph.compileProject(dirtyIdx)
-  if conf.ideCmd in {ideUse, ideDus} and
-      dirtyfile.isEmpty:
-    discard "no need to recompile anything"
-  else:
-    let modIdx = graph.parentModule(dirtyIdx)
-    graph.markDirty dirtyIdx
-    graph.markClientsDirty dirtyIdx
-    # partially recompiling the project means that that VM and JIT state
-    # would become stale, which we prevent by discarding all of it:
-    graph.vm = nil
-    if conf.ideCmd != ideMod:
-      if isKnownFile:
-        graph.compileProject(modIdx)
+  executeCmd(cmd, file, dirtyfile, line, col, graph)
   if conf.ideCmd in {ideUse, ideDus}:
-    let u = graph.symFromInfo(conf.m.trackPos)
+    let u = graph.findTrackedSym()
     if u != nil:
       listUsages(graph, u)
     else:
