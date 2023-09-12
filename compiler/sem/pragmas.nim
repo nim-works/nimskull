@@ -167,8 +167,8 @@ func isLocal(s: PSym): bool =
   #      processing
   s.kind in skLocalVars and sfGlobal notin s.flags and s.owner.kind != skModule
 
-proc disallowedExternalIfaceSpec(c: PContext, n: PNode): PNode =
-  c.config.newError(n, PAstDiag(kind: adSemExternalIfaceNotAllowed))
+proc disallowedExternalLocal(c: PContext, n: PNode): PNode =
+  c.config.newError(n, PAstDiag(kind: adSemExternalLocalNotAllowed))
 
 proc pragmaAsm*(c: PContext, n: PNode): tuple[marker: char, err: PNode] =
   ## Gets the marker out of an asm stmts pragma list
@@ -1075,7 +1075,7 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
       case k
       of wExportc:
         if isLocal(sym):
-          return disallowedExternalIfaceSpec(c, it)
+          return disallowedExternalLocal(c, it)
 
         let extLit = semExternName(c.config, getOptionalStrLit(c, it, "$1"))
 
@@ -1089,7 +1089,7 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         incl(sym.flags, sfUsed) # avoid wrong hints
       of wImportc:
         if isLocal(sym):
-          return disallowedExternalIfaceSpec(c, it)
+          return disallowedExternalLocal(c, it)
 
         let nameLit = semExternName(c.config, getOptionalStrLit(c, it, "$1"))
         case nameLit.kind
@@ -1117,7 +1117,7 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
           result = it
       of wExtern:
         if isLocal(sym):
-          return disallowedExternalIfaceSpec(c, it)
+          return disallowedExternalLocal(c, it)
 
         let name = semExternName(c.config, getStrLitNode(c, it))
         result =
@@ -1132,7 +1132,7 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         incl(sym.flags, sfDirty)
       of wImportJs:
         if isLocal(sym):
-          return disallowedExternalIfaceSpec(c, it)
+          return disallowedExternalLocal(c, it)
 
         # note: don't use ``semExternName`` here. The operand is *not* an
         # external name, but rather a *pattern* string
@@ -1180,7 +1180,7 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
             c.config.newError(it, PAstDiag(kind: adSemAlignRequiresPowerOfTwo))
       of wNodecl:
         if isLocal(sym):
-          result = disallowedExternalIfaceSpec(c, it)
+          result = disallowedExternalLocal(c, it)
         else:
           result = noVal(c, it)
           incl(sym.extFlags, exfNoDecl)
@@ -1219,7 +1219,7 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         result = noVal(c, it)
       of wHeader:
         if isLocal(sym):
-          return disallowedExternalIfaceSpec(c, it)
+          return disallowedExternalLocal(c, it)
 
         let path = getStrLitNode(c, it) # the path or an error
         if path.isError:
@@ -1252,7 +1252,7 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         incl(sym.flags, sfWasForwarded)
       of wDynlib:
         if isLocal(sym):
-          result = disallowedExternalIfaceSpec(c, it)
+          result = disallowedExternalLocal(c, it)
         else:
           result = processDynLib(c, it, sym)
       of wCompilerProc, wCore:
