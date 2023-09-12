@@ -93,3 +93,29 @@ doAssert(sizeof(PtrTable) == 2*sizeof(int)+sizeof(pointer)*2*100)
 
 main()
 echo "ok"
+
+block generic_deep_copy_using_instantiated_for_type:
+  # when a generic ``=deepCopy`` implementation used the type instance it
+  # is instatatied for in its body, an "unresolved generic parameter"
+  # error would occur, when the generic type also had other generic type-bound
+  # operators attached
+  type Generic[T] = object
+    x: T
+
+  var numDestroy {.global.} = 0
+
+  proc `=destroy`[T](x: var Generic[T]) =
+    inc numDestroy
+
+  proc `=deepCopy`[T](x: ref Generic[T]): ref Generic[T] =
+    var v = Generic[T]() # <- forces the generic `=destroy` operator to be
+                         #    instantiated
+    result = x
+    # `v` is destroyed here, incrementing `numDestroy` by one
+
+  let v = new(Generic[int]) # <- the deep-copy operator is instantiated here
+
+  # make sure the operator really works:
+  let other = deepCopy(v)
+  doAssert v == other
+  doAssert numDestroy == 1

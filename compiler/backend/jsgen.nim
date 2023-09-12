@@ -1703,7 +1703,7 @@ proc genDef(p: PProc, it: CgNode) =
     assert it[0].kind == cnkSym
     let v = it[0].sym
     let name = mangleName(p.module, v)
-    if exfNoDecl notin v.extFlags and sfImportc notin v.flags:
+    if true:
       genLineDir(p, it)
       genVarInit(p, v, name, it[1])
 

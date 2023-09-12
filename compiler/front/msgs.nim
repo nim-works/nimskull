@@ -442,6 +442,7 @@ func astDiagToLegacyReportKind*(
   of adSemCannotImportItself: rsemCannotImportItself
   of adSemInvalidPragma: rsemInvalidPragma
   of adSemIllegalCustomPragma: rsemIllegalCustomPragma
+  of adSemExternalLocalNotAllowed: rsemExternalLocalNotAllowed
   of adSemStringLiteralExpected: rsemStringLiteralExpected
   of adSemIntLiteralExpected: rsemIntLiteralExpected
   of adSemOnOrOffExpected: rsemOnOrOffExpected

@@ -159,6 +159,16 @@ proc illegalCustomPragma*(c: PContext; n: PNode, s: PSym): PNode =
     n,
     PAstDiag(kind: adSemIllegalCustomPragma, customPragma: s))
 
+func isLocal(s: PSym): bool =
+  ## Returns whether `s` is a parameter or local `var`/`let`.
+  # XXX: ideally, we could rely on ``sfGlobal``, but for declarations
+  #      outside of routines, the flag is currently only included after pragma
+  #      processing
+  s.kind in skLocalVars and sfGlobal notin s.flags and s.owner.kind != skModule
+
+proc disallowedExternalLocal(c: PContext, n: PNode): PNode =
+  c.config.newError(n, PAstDiag(kind: adSemExternalLocalNotAllowed))
+
 proc pragmaAsm*(c: PContext, n: PNode): tuple[marker: char, err: PNode] =
   ## Gets the marker out of an asm stmts pragma list
   ## Returns ` as the default marker if no other markers are found
@@ -1063,6 +1073,9 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
       let k = whichPragma(it)
       case k
       of wExportc:
+        if isLocal(sym):
+          return disallowedExternalLocal(c, it)
+
         let extLit = semExternName(c.config, getOptionalStrLit(c, it, "$1"))
 
         result =
@@ -1074,6 +1087,9 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
 
         incl(sym.flags, sfUsed) # avoid wrong hints
       of wImportc:
+        if isLocal(sym):
+          return disallowedExternalLocal(c, it)
+
         let nameLit = semExternName(c.config, getOptionalStrLit(c, it, "$1"))
         case nameLit.kind
         of nkError:
@@ -1099,6 +1115,9 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
           processImportCompilerProc(c, sym, name)
           result = it
       of wExtern:
+        if isLocal(sym):
+          return disallowedExternalLocal(c, it)
+
         let name = semExternName(c.config, getStrLitNode(c, it))
         result =
           if name.isError:
@@ -1111,6 +1130,9 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         assert sym.kind == skTemplate
         incl(sym.flags, sfDirty)
       of wImportJs:
+        if isLocal(sym):
+          return disallowedExternalLocal(c, it)
+
         # note: don't use ``semExternName`` here. The operand is *not* an
         # external name, but rather a *pattern* string
         let nameLit = getOptionalStrLit(c, it, "$1")
@@ -1156,8 +1178,11 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
           else:
             c.config.newError(it, PAstDiag(kind: adSemAlignRequiresPowerOfTwo))
       of wNodecl:
-        result = noVal(c, it)
-        incl(sym.extFlags, exfNoDecl)
+        if isLocal(sym):
+          result = disallowedExternalLocal(c, it)
+        else:
+          result = noVal(c, it)
+          incl(sym.extFlags, exfNoDecl)
       of wPure, wAsmNoStackFrame:
         result = noVal(c, it)
         incl(sym.flags, sfPure)
@@ -1189,6 +1214,9 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         result = noVal(c, it)
         sym.flags.incl {sfGlobal, sfPure}
       of wHeader:
+        if isLocal(sym):
+          return disallowedExternalLocal(c, it)
+
         let path = getStrLitNode(c, it) # the path or an error
         if path.isError:
           return path
@@ -1219,7 +1247,10 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         result = noVal(c, it)
         incl(sym.flags, sfWasForwarded)
       of wDynlib:
-        result = processDynLib(c, it, sym)
+        if isLocal(sym):
+          result = disallowedExternalLocal(c, it)
+        else:
+          result = processDynLib(c, it, sym)
       of wCompilerProc, wCore:
         result = noVal(c, it)           # compilerproc may not get a string!
         cppDefine(c.graph.config, sym.name.s)

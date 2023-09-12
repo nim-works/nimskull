@@ -410,7 +410,7 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
         let tmp = defaultValueExpr(p, t, a.lode.info)
         genAssignment(p, a, tmp)
 
-proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
+proc constructLoc(p: BProc, loc: var TLoc; doInitObj = true) =
   let kind = mapTypeChooser(loc)
   case mapType(p.config, loc.t, kind)
   of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
@@ -424,11 +424,8 @@ proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
   of ctNimStr, ctNimSeq:
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
   of ctArray, ctStruct, ctNimOpenArray:
-    if not isTemp:
-      # don't use nimZeroMem for temporary values for performance if we can
-      # avoid it
-      linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-              [addrLoc(p.config, loc), getTypeDesc(p.module, loc.t, kind)])
+    linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
+            [addrLoc(p.config, loc), getTypeDesc(p.module, loc.t, kind)])
 
     if doInitObj:
       genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
@@ -436,9 +433,9 @@ proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
     unreachable()
 
 proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  # we always want to clear out the destination, so pass `false` for
-  # ``isTemp``
-  constructLoc(p, loc, false, doInitObj)
+  # resetting the loc is achieved by constructing a new empty value inside
+  # it
+  constructLoc(p, loc, doInitObj)
 
 proc initLocalVar(p: BProc, v: PSym, immediateAsgn: bool) =
   if sfNoInit notin v.flags:
@@ -452,7 +449,7 @@ proc initLocalVar(p: BProc, v: PSym, immediateAsgn: bool) =
     if not immediateAsgn:
       constructLoc(p, p.locals[v])
 
-proc getTemp(p: BProc, t: PType, result: var TLoc; needsInit=false) =
+proc getTemp(p: BProc, t: PType, result: var TLoc) =
   inc(p.labels)
   result.r = "T" & rope(p.labels) & "_"
   linefmt(p, cpsLocals, "$1 $2;$n", [getTypeDesc(p.module, t, skVar), result.r])
@@ -460,7 +457,6 @@ proc getTemp(p: BProc, t: PType, result: var TLoc; needsInit=false) =
   result.lode = lodeTyp t
   result.storage = OnStack
   result.flags = {}
-  constructLoc(p, result, not needsInit)
   when false:
     # XXX Introduce a compiler switch in order to detect these easily.
     if getSize(p.config, t) > 1024 * 1024:

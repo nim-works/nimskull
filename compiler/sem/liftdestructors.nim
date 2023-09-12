@@ -31,6 +31,7 @@ import
     msgs
   ],
   compiler/utils/[
+    idioms
   ],
   compiler/sem/[
     semdata,
@@ -1010,7 +1011,9 @@ proc inst(g: ModuleGraph; c: PContext; t: PType; kind: TTypeAttachedOp; idgen: I
         patchBody(g, c, opInst.ast, info, a.idgen)
       setAttachedOp(g, idgen.module, t, kind, opInst)
     else:
-      localReport(g.config, info, reportSem(rsemUnresolvedGenericParameter))
+      # the type's associated ``tyGenericInst`` type was not set properly.
+      # This hints at an issue in the ``semtypinst`` module.
+      unreachable()
 
 proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInfo;
                         idgen: IdGenerator) =
