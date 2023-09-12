@@ -181,7 +181,7 @@ proc processFlags(sug: Suggest; n: ParsedNode) =
     if identDeprecated or colonDeprecated:
       sug.flags.incl SuggestFlag.deprecated
 
-proc parsedNodeToSugget(n: ParsedNode; moduleName: string): Suggest =
+proc parsedNodeToSugget(n: ParsedNode; module: PSym): Suggest =
   if n.kind in {pnkError, pnkEmpty}: return
   if n.kind notin {pnkConstSection..pnkTypeDef, pnkIdentDefs}: return
   new(result)
@@ -207,24 +207,24 @@ proc parsedNodeToSugget(n: ParsedNode; moduleName: string): Suggest =
       #       name.add ","
 
   if name != "":
-    result.qualifiedPath = @[moduleName, name]
+    result.qualifiedPath = @[module.name.s, name]
   result.line = token.line.int
   result.column = token.col.int
   result.tokenLen = name.len
   result.symkind = byte pnkToSymKind(n.kind)
 
-proc outline(graph: ModuleGraph; file: AbsoluteFile; fileIdx: FileIndex) =
+proc outline(graph: ModuleGraph; fileIdx: FileIndex) =
   let conf = graph.config
   var parser: Parser
   var sug: Suggest
   var parsedNode: ParsedNode
   var s: ParsedNode
-  let m = splitFile(file.string)
+  let m = graph.getModule fileIdx
   const Sections = {pnkTypeSection, pnkConstSection, pnkLetSection, pnkVarSection}
   template suggestIt(parsedNode: ParsedNode) =
-    sug = parsedNodeToSugget(parsedNode, m.name)
+    sug = parsedNodeToSugget(parsedNode, m)
     if sug != nil:
-      sug.filepath = file.string
+      sug.filepath = toFullPath(conf, fileIdx)
       conf.suggestionResultHook(sug)
   if setupParser(parser, fileIdx, graph.cache, conf):
     while true:
@@ -258,9 +258,8 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int,
   if conf.ideCmd in {ideUse, ideDus} and
       dirtyfile.isEmpty:
     needCompile = false
-  if conf.ideCmd == ideOutline:
+  if conf.ideCmd == ideOutline and isKnownFile:
     needCompile = false
-    outline(graph, file, dirtyIdx)
 
   if needCompile:
     if not isKnownFile:
@@ -283,6 +282,8 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int,
       listUsages(graph, u)
     else:
       stderr.writeLine "found no symbol at position: " & (conf $ conf.m.trackPos)
+  elif conf.ideCmd == ideOutline:
+    outline(graph, dirtyIdx)
 
 proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
       dirtyfile: AbsoluteFile, line, col: int): seq[Suggest] =
