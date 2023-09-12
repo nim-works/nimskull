@@ -824,9 +824,12 @@ proc bindPseudoOp(g: ModuleGraph, c: PContext, idgen: IdGenerator,
   ## If the `kind` slot is not alread filled, assigns a pseudo-operator to the
   ## slot of `typ`'s originating-from generic type.
   assert tfFromGeneric in typ.flags
-  if c == nil:
-    # we cannot create a pseudo-op, but it's also not necessary, as only types
-    # created outside of semantic analysis reach here
+  if c == nil or kind == attachedDeepCopy:
+    # without a ``PContext``, we cannot create a pseudo-op, but it's also not
+    # necessary, as a ``PContext`` is only missing for types created outside of
+    # semantic analysis.
+    # ``=deepCopy`` operators are currently not implicitly lifted like the
+    # others, so we don't block the generic type's slot
     return
 
   # attach to the generic type, not to the ``tyGenericBody``
