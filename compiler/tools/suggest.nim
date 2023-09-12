@@ -30,7 +30,6 @@
 ## - In any case, sorting also considers scoping information. Local variables
 ##   get high priority.
 
-# included from sigmatch.nim
 
 import
   std/[
@@ -77,7 +76,6 @@ when defined(nimsuggest):
 const
   sep = '\t'
 
-#template sectionSuggest(): expr = "##begin\n" & getStackTrace() & "##end\n"
 
 template origModuleName(m: PSym): string = m.name.s
 
@@ -313,7 +311,6 @@ proc suggestSymList(c: PContext, list, f: PNode; info: TLineInfo, outputs: var S
   for i in 0..<list.len:
     if list[i].kind == nkSym:
       suggestField(c, list[i].sym, f, info, outputs)
-    #else: InternalError(list.info, "getSymFromList")
 
 proc suggestObject(c: PContext, n, f: PNode; info: TLineInfo, outputs: var Suggestions) =
   case n.kind
@@ -478,7 +475,6 @@ when defined(nimsuggest):
 
 when defined(nimsuggest):
   proc listUsages*(g: ModuleGraph; s: PSym) =
-    #echo "usages ", s.allUsages.len
     for info in s.allUsages:
       let x = if info == s.info: ideDef else: ideUse
       suggestResult(g.config, symToSuggest(g, s, isLocal=false, x, info, 100, PrefixMatch.None, false, 0))

@@ -15,12 +15,6 @@ when not defined(nimcore):
 import std/[strutils, os, parseopt, parseutils, sequtils, net, rdstdin]
 import experimental/sexp
 import std/options as std_options
-
-# Do NOT import suggest. It will lead to weird bugs with
-# suggestionResultHook, because suggest.nim is included by sigmatch.
-# So we import that one instead.
-
-
 import
   compiler/ast/[
     idents,
