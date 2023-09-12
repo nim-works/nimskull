@@ -115,7 +115,7 @@ block generic_deep_copy_using_instantiated_for_type:
 
   let v = new(Generic[int]) # <- the deep-copy operator is instantiated here
 
-  # make sure the operatore really works:
+  # make sure the operator really works:
   let other = deepCopy(v)
   doAssert v == other
   doAssert numDestroy == 1
