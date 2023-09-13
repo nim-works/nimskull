@@ -485,7 +485,6 @@ proc execCmd(cmd: string; graph: ModuleGraph; cachedMsgs: CachedMsgs) =
     sentinel()
     quit()
   of "debug": toggle optIdeDebug
-  of "terse": toggle optIdeTerse
   of "known": conf.ideCmd = ideKnown
   of "project": conf.ideCmd = ideProject
   else: err()

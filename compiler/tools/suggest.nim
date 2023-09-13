@@ -170,27 +170,26 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
       if u.fileIndex == info.fileIndex: inc c
     result.localUsages = c
   result.symkind = byte s.kind
-  if optIdeTerse notin g.config.globalOptions:
-    result.qualifiedPath = @[]
-    if not isLocal and s.kind != skModule:
-      let ow = s.owner
-      if ow != nil and ow.kind != skModule and ow.owner != nil:
-        let ow2 = ow.owner
-        result.qualifiedPath.add(ow2.origModuleName)
-      if ow != nil:
-        result.qualifiedPath.add(ow.origModuleName)
-    if s.name.s[0] in OpChars + {'[', '{', '('} or
-       s.name.id in ord(wAddr)..ord(wYield):
-      result.qualifiedPath.add('`' & s.name.s & '`')
-    else:
-      result.qualifiedPath.add(s.name.s)
+  result.qualifiedPath = @[]
+  if not isLocal and s.kind != skModule:
+    let ow = s.owner
+    if ow != nil and ow.kind != skModule and ow.owner != nil:
+      let ow2 = ow.owner
+      result.qualifiedPath.add(ow2.origModuleName)
+    if ow != nil:
+      result.qualifiedPath.add(ow.origModuleName)
+  if s.name.s[0] in OpChars + {'[', '{', '('} or
+      s.name.id in ord(wAddr)..ord(wYield):
+    result.qualifiedPath.add('`' & s.name.s & '`')
+  else:
+    result.qualifiedPath.add(s.name.s)
 
-    if s.typ != nil:
-      result.forth = typeToString(s.typ)
-    else:
-      result.forth = ""
-    when defined(nimsuggest) and not defined(noDocgen) and not defined(leanCompiler):
-      result.doc = extractDocComment(g, s)
+  if s.typ != nil:
+    result.forth = typeToString(s.typ)
+  else:
+    result.forth = ""
+  when defined(nimsuggest) and not defined(noDocgen) and not defined(leanCompiler):
+    result.doc = extractDocComment(g, s)
   let infox =
     if useSuppliedInfo or section in {ideUse, ideHighlight, ideOutline}:
       info
