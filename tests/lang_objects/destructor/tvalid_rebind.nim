@@ -4,7 +4,6 @@ discard """
     Ensure that it's possible to explicitly bind a type-bound operator to
     both the generic type and a specific instance thereof
   '''
-  knownIssue: "No copy of the type is created for ``Phantom[int]``"
 """
 
 type
