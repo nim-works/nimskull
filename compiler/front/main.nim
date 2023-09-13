@@ -56,7 +56,6 @@ import
   compiler/vm/[
     compilerbridge, # Configuration file evaluation, `nim e`
     vmbackend,      # VM code generation
-    vmprofiler
   ]
 
 import compiler/ic/[
@@ -686,7 +685,7 @@ proc mainCommand*(graph: ModuleGraph) =
                            srcCodeOrigin: instLoc()))
 
   if optProfileVM in conf.globalOptions:
-    conf.writeln cmdOutUserProf, conf.dump(conf.vmProfileData)
+    conf.writeln cmdOutUserProf, dumpVmProfilerData(graph)
 
   if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
     if conf.isEnabled(rintSuccessX):

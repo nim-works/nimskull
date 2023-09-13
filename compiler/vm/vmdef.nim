@@ -734,9 +734,24 @@ type
                              ## instruction during cleanup. -1 indicates that
                              ## no clean-up is happening
 
+  ProfileInfo* = object
+    ## Profiler data for a single procedure.
+    time*: float ## the time spent on executing instructions (exclusive)
+    count*: int  ## the number of instruction executed (exclusive)
+
+  SourceLinePosition* = tuple
+    ## Identifies a line in a source file. Only intended for use by
+    ## the profiler.
+    fileIndex: typeof(TLineInfo.fileIndex)
+    line: typeof(TLineInfo.line)
+
   Profiler* = object
+    # XXX: move this type to the ``vmprofiler`` module once possible
     tEnter*: float
     sframe*: StackFrameIndex   ## The current stack frame
+
+    data*: TableRef[SourceLinePosition, ProfileInfo]
+    # XXX: use a ``Table`` instead of a ``TableRef``
 
 func `<`*(a, b: FieldIndex): bool {.borrow.}
 func `<=`*(a, b: FieldIndex): bool {.borrow.}
@@ -866,6 +881,7 @@ proc initCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
     loopIterations: g.config.maxLoopIterationsVM,
     comesFromHeuristic: unknownLineInfo,
     callbacks: @[],
+    profiler: Profiler(data: newTable[SourceLinePosition, ProfileInfo]()),
     cache: cache,
     config: g.config,
     graph: g,
