@@ -28,7 +28,7 @@ proc leaveImpl(prof: var Profiler, c: TCtx) {.noinline.} =
   while frameIdx >= 0:
     let frame = c.sframes[frameIdx]
     if frame.prc != nil:
-      let li = frame.prc.info
+      let li = (frame.prc.info.fileIndex, frame.prc.info.line)
       if li notin data:
         data[li] = ProfileInfo()
       data[li].time += tLeave - prof.tEnter
@@ -48,7 +48,7 @@ proc dump*(conf: ConfigRef, pd: ProfileData): string =
   result = "\nprof:     µs    #instr  location\n"
   for i in 0..<32:
     var infoMax: ProfileInfo
-    var flMax: TLineInfo
+    var flMax: SourceLinePosition
     for fl, info in data:
       if info.time > infoMax.time:
         infoMax = info
@@ -57,5 +57,8 @@ proc dump*(conf: ConfigRef, pd: ProfileData): string =
       break
     result.add  "  " & align($int(infoMax.time * 1e6), 10) &
                        align($int(infoMax.count), 10) & "  " &
-                       conf.toFileLineCol(flMax) & "\n"
+                       toMsgFilename(conf, newLineInfo(flMax.fileIndex,
+                                                       flMax.line.int,
+                                                       -1)) &
+                       "\n"
     data.del flMax

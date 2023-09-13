@@ -6949,8 +6949,8 @@ in C).
 
 nodecl pragma
 -------------
-The `nodecl` pragma can be applied to almost any symbol (variable, proc,
-type, etc.) and is sometimes useful for interoperability with C:
+The `nodecl` pragma can be applied to the symbol of procedures, types,
+globals, and constants and is sometimes useful for interoperability with C:
 It tells Nim that it should not generate a declaration for the symbol in
 the C code. For example:
 
@@ -6967,8 +6967,9 @@ However, the `header` pragma is often the better alternative.
 Header pragma
 -------------
 The `header` pragma is very similar to the `nodecl` pragma: It can be
-applied to almost any symbol and specifies that it should not be declared
-and instead, the generated code should contain an `#include`:c:\:
+applied to the symbol of procedures, types, globals, and constants and
+specifies that it should not be declared and instead, the generated code
+should contain an `#include`:c:\:
 
 .. code-block:: Nim
   type
@@ -7344,9 +7345,9 @@ are documented here.
 
 Importc pragma
 --------------
-The `importc` pragma provides a means to import a proc or a variable
-from C. The optional argument is a string containing the C identifier. If
-the argument is missing, the C name is the Nim identifier *exactly as
+The `importc` pragma provides a means to import a procecdure, type, or global
+variable from C. The optional argument is a string containing the C identifier.
+If the argument is missing, the C name is the Nim identifier *exactly as
 spelled*:
 
 .. code-block::
@@ -7375,7 +7376,7 @@ is available and a literal dollar sign must be written as ``$$``.
 
 Exportc pragma
 --------------
-The `exportc` pragma provides a means to export a type, a variable, or a
+The `exportc` pragma provides a means to export a type, global, or a
 procedure to C. Enums and constants can't be exported. The optional argument
 is a string containing the C identifier. If the argument is missing, the C
 name is the Nim identifier *exactly as spelled*:
@@ -7412,6 +7413,7 @@ mangling. The string literal passed to `extern` can be a format string:
 In the example, the external name of `p` is set to `prefixp`. Only ``$1``
 is available and a literal dollar sign must be written as ``$$``.
 
+Only the name mangling of procedures, globals, and constants can be changed.
 
 Bycopy pragma
 -------------
@@ -7471,7 +7473,7 @@ a static error. Usage with inheritance should be defined and documented.
 
 Dynlib pragma for import
 ------------------------
-With the `dynlib` pragma, a procedure or a variable can be imported from
+With the `dynlib` pragma, a procedure or global variable can be imported from
 a dynamic library (``.dll`` files for Windows, ``lib*.so`` files for UNIX).
 The non-optional argument has to be the name of the dynamic library:
 

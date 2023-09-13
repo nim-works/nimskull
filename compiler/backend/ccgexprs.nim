@@ -135,7 +135,6 @@ proc genSetNode(p: BProc, n: CgNode): Rope =
 
 proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
   assert d.k != locNone
-  #  getTemp(p, d.t, d)
 
   case a.t.skipTypes(abstractVar).kind
   of tyOpenArray, tyVarargs:
@@ -909,8 +908,9 @@ proc genStrAppend(p: BProc, e: CgNode, d: var TLoc) =
   p.s(cpsStmts).add appends
 
 proc genDefault(p: BProc; n: CgNode; d: var TLoc) =
-  if d.k == locNone: getTemp(p, n.typ, d, needsInit=true)
-  else: resetLoc(p, d)
+  if d.k == locNone:
+    getTemp(p, n.typ, d)
+  resetLoc(p, d)
 
 proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool; doInitObj = true) =
   var sizeExpr = sizeExpr
@@ -952,7 +952,7 @@ proc genNewSeqOfCap(p: BProc; e: CgNode; d: var TLoc) =
   var a: TLoc
   initLocExpr(p, e[1], a)
   block:
-    if d.k == locNone: getTemp(p, e.typ, d, needsInit=false)
+    if d.k == locNone: getTemp(p, e.typ, d)
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = ($4*) #newSeqPayload($2, sizeof($3), NIM_ALIGNOF($3));$n",
       [d.rdLoc, a.rdLoc, getTypeDesc(p.module, seqtype.lastSon),
       getSeqPayloadType(p.module, seqtype),

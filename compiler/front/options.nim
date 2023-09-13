@@ -158,7 +158,7 @@ type
     scope*:int
     localUsages*, globalUsages*: int # usage counters
     tokenLen*: int
-    version*: int
+
   Suggestions* = seq[Suggest]
 
   ProfileInfo* = object
@@ -166,7 +166,7 @@ type
     count*: int
 
   ProfileData* = ref object
-    data*: TableRef[TLineInfo, ProfileInfo]
+    data*: TableRef[SourceLinePosition, ProfileInfo]
 
   StdOrrKind* = enum
     stdOrrStdout
@@ -292,7 +292,6 @@ type
     cCompilerPath*: string
     toCompile*: CfileList         # (*)
     suggestionResultHook*: proc (result: Suggest) {.closure.}
-    suggestVersion*: int
     suggestMaxResults*: int
     lastLineInfo*: TLineInfo
     writelnHook*: proc(
@@ -774,7 +773,7 @@ template newPackageCache*(): untyped =
                    modeCaseSensitive)
 
 proc newProfileData(): ProfileData =
-  ProfileData(data: newTable[TLineInfo, ProfileInfo]())
+  ProfileData(data: newTable[SourceLinePosition, ProfileInfo]())
 
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 

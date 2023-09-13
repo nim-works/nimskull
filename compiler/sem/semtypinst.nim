@@ -622,12 +622,6 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   rawAddSon(result, newbody)
   checkPartialConstructedType(cl.c.config, cl.info, newbody)
   if true:
-    let dc = cl.c.graph.getAttachedOp(newbody, attachedDeepCopy)
-    if dc != nil and sfFromGeneric notin dc.flags:
-      # 'deepCopy' needs to be instantiated for
-      # generics *when the type is constructed*:
-      cl.c.graph.setAttachedOp(cl.c.module.position, newbody, attachedDeepCopy,
-          cl.c.instTypeBoundOp(cl.c, dc, result, cl.info, attachedDeepCopy, 1))
     if newbody.typeInst == nil:
       # doAssert newbody.typeInst == nil
       newbody.typeInst = result
@@ -640,6 +634,14 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
           discard
         else:
           newbody.lastSon.typeInst = result
+
+    let dc = cl.c.graph.getAttachedOp(newbody, attachedDeepCopy)
+    if dc != nil and sfFromGeneric notin dc.flags:
+      # 'deepCopy' needs to be instantiated for generics *when the type is
+      # constructed* but *after* the type's `typeInst` field is set:
+      cl.c.graph.setAttachedOp(cl.c.module.position, newbody, attachedDeepCopy,
+          cl.c.instTypeBoundOp(cl.c, dc, result, cl.info, attachedDeepCopy, 1))
+
     # DESTROY: adding object|opt for opt[topttree.Tree]
     # sigmatch: Formal opt[=destroy.T] real opt[topttree.Tree]
     # adding myseq for myseq[system.int]

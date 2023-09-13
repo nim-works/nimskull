@@ -15,12 +15,6 @@ when not defined(nimcore):
 import std/[strutils, os, parseopt, parseutils, sequtils, net, rdstdin]
 import experimental/sexp
 import std/options as std_options
-
-# Do NOT import suggest. It will lead to weird bugs with
-# suggestionResultHook, because suggest.nim is included by sigmatch.
-# So we import that one instead.
-
-
 import
   compiler/ast/[
     idents,
@@ -85,7 +79,6 @@ Options:
   --epc                   use emacs epc mode
   --debug                 enable debug output
   --log                   enable verbose logging to nimsuggest.log file
-  --v1                    use version 1 of the protocol; for backwards compatibility
   --refresh               perform automatic refreshes to keep the analysis precise
   --maxresults:N          limit the number of suggestions to N
   --tester                implies --stdin and outputs a line
@@ -229,9 +222,6 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
   )
 
   conf.ideCmd = cmd
-  if cmd == ideUse and conf.suggestVersion != 0:
-    graph.vm = nil # discard the VM and JIT state
-    graph.resetAllModules()
   var isKnownFile = true
   let dirtyIdx = fileInfoIdx(conf, file, isKnownFile)
 
@@ -241,11 +231,9 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
   conf.m.trackPos = newLineInfo(dirtyIdx, line, col)
   conf.m.trackPosAttached = false
   conf.errorCounter = 0
-  if conf.suggestVersion == 1:
-    graph.usageSym = nil
   if not isKnownFile:
     graph.compileProject(dirtyIdx)
-  if conf.suggestVersion == 0 and conf.ideCmd in {ideUse, ideDus} and
+  if conf.ideCmd in {ideUse, ideDus} and
       dirtyfile.isEmpty:
     discard "no need to recompile anything"
   else:
@@ -259,7 +247,7 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
       if isKnownFile:
         graph.compileProject(modIdx)
   if conf.ideCmd in {ideUse, ideDus}:
-    let u = if conf.suggestVersion != 1: graph.symFromInfo(conf.m.trackPos) else: graph.usageSym
+    let u = graph.symFromInfo(conf.m.trackPos)
     if u != nil:
       listUsages(graph, u)
     else:
@@ -659,8 +647,7 @@ proc processCmdLine*(pass: TCmdLinePass, argv: openArray[string]; conf: ConfigRe
         gMode = mepc
         conf.verbosity = compVerbosityMin  # Port number gotta be first.
       of "debug": conf.incl optIdeDebug
-      of "v2": conf.suggestVersion = 0
-      of "v1": conf.suggestVersion = 1
+      of "v2": discard
       of "tester":
         gMode = mstdin
         gEmitEof = true
@@ -781,7 +768,6 @@ else:
 
 
     proc mockCmdLine(pass: TCmdLinePass, argv: openArray[string]; conf: ConfigRef) =
-      conf.suggestVersion = 0
       let a = unixToNativePath(project)
       if dirExists(a) and not fileExists(a.addFileExt("nim")):
         conf.projectName = findProjectNimFile(conf, a)
