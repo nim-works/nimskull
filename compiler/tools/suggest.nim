@@ -479,6 +479,7 @@ proc findTrackedNode(n: PNode; trackPos: TLineInfo): PSym =
 proc findTrackedSym*(g: ModuleGraph;): PSym =
   let m = g.getModule(g.config.m.trackPos.fileIndex)
   if m != nil and m.ast != nil:
+    # xxx: the node finding should be specialized per symbol kind
     result = findTrackedNode(m.ast, g.config.m.trackPos)
 
 proc executeCmd*(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
