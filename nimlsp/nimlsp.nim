@@ -406,7 +406,7 @@ proc main(ins: Stream, outs: Stream) =
                     flags.add f.int
                   resp.add create(DocumentSymbol,
                     sym.qualifiedPath[^1],
-                    some(sym.forth),
+                    some(symKindToString(sym.symKind)),
                     nimSymToLSPKind(sym.symKind).int,
                     some(flags),
                     create(Range,

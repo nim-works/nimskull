@@ -181,7 +181,7 @@ proc processFlags(sug: Suggest; n: ParsedNode) =
     if identDeprecated or colonDeprecated:
       sug.flags.incl SuggestFlag.deprecated
 
-proc parsedNodeToSugget(n: ParsedNode; module: PSym): Suggest =
+proc parsedNodeToSugget(n: ParsedNode; originKind: ParsedNodeKind; module: PSym): Suggest =
   if n.kind in {pnkError, pnkEmpty}: return
   if n.kind notin {pnkConstSection..pnkTypeDef, pnkIdentDefs}: return
   new(result)
@@ -211,7 +211,7 @@ proc parsedNodeToSugget(n: ParsedNode; module: PSym): Suggest =
   result.line = token.line.int
   result.column = token.col.int
   result.tokenLen = name.len
-  result.symkind = byte pnkToSymKind(n.kind)
+  result.symkind = byte pnkToSymKind(originKind)
 
 proc outline(graph: ModuleGraph; fileIdx: FileIndex) =
   let conf = graph.config
@@ -221,8 +221,8 @@ proc outline(graph: ModuleGraph; fileIdx: FileIndex) =
   var s: ParsedNode
   let m = graph.getModule fileIdx
   const Sections = {pnkTypeSection, pnkConstSection, pnkLetSection, pnkVarSection}
-  template suggestIt(parsedNode: ParsedNode) =
-    sug = parsedNodeToSugget(parsedNode, m)
+  template suggestIt(parsedNode: ParsedNode; originKind: ParsedNodeKind) =
+    sug = parsedNodeToSugget(parsedNode, originKind, m)
     if sug != nil:
       sug.filepath = toFullPath(conf, fileIdx)
       conf.suggestionResultHook(sug)
@@ -234,9 +234,9 @@ proc outline(graph: ModuleGraph; fileIdx: FileIndex) =
 
       if parsedNode.kind in Sections:
         for node in parsedNode.sons:
-          suggestIt(node)
+          suggestIt(node, parsedNode.kind)
       else:
-        suggestIt(parsedNode)
+        suggestIt(parsedNode, parsedNode.kind)
     closeParser(parser)
 
 proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int,

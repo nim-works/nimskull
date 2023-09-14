@@ -75,6 +75,23 @@ func nimSymDetails*(suggest: Suggest): string =
   of skVar: "var of " & suggest.forth
   else: suggest.forth
 
+func symKindToString*(suggest: byte): string =
+  case TSymKind(suggest)
+    of skConst: discard
+    of skEnumField: discard
+    of skIterator: result = "iterator"
+    of skConverter: result = "converter"
+    of skLet: result = "let"
+    of skMacro: result = "macro"
+    of skMethod: result = "method"
+    of skProc: result = "proc"
+    of skTemplate: result = "template"
+    of skType: discard
+    of skVar: result = "var"
+    of skFunc: result = "func"
+    of skLabel: result = "label"
+    of skUnknown: result = "unkown"
+    else: result = ""
 
 template createFullCommand(command: untyped) =
   proc command*(nimsuggest: NimSuggest, file: string, dirtyfile = "",
