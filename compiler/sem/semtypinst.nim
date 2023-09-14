@@ -433,7 +433,7 @@ proc instantiateRecord(cl: var TReplTypeVars, names: var IntSet, pos: var int,
       of nkElifBranch:
         # replace the type variables (if any) in the expression and then
         # evaluate it
-        var e = cl.c.semConstBoolExpr(cl.c, prepareNode(cl, it[0]))
+        let e = cl.c.semConstBoolExpr(cl.c, prepareNode(cl, it[0]))
         # XXX: proper error propagation is missing
         if e.kind == nkIntLit and e.intVal != 0 and branch == nil:
           branch = it[1]
