@@ -1036,11 +1036,8 @@ proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInf
     canon = skipped
   else:
     # structural types use canonicalization
-    let h = sighashes.hashType(skipped, {CoType, CoDistinct})
-    canon = g.canonTypes.getOrDefault(h)
-    if canon == nil:
-      g.canonTypes[h] = skipped
-      canon = skipped
+    canon = g.canonTypes.mgetOrPut(hashType(skipped, {CoType, CoDistinct}),
+                                   skipped)
 
   # multiple cases are to distinguish here:
   # 1. we don't know yet if 'typ' has a nontrival destructor.
