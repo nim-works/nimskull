@@ -489,8 +489,8 @@ proc executeCmd*(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
   var isKnownFile = true
   let dirtyIdx = fileInfoIdx(conf, file, isKnownFile)
 
-  if not dirtyfile.isEmpty: msgs.setDirtyFile(conf, dirtyIdx, dirtyfile)
-  else: msgs.setDirtyFile(conf, dirtyIdx, AbsoluteFile"")
+  if dirtyfile.isEmpty: msgs.setDirtyFile(conf, dirtyIdx, AbsoluteFile"")
+  else: msgs.setDirtyFile(conf, dirtyIdx, dirtyfile)
 
   conf.m.trackPos = newLineInfo(dirtyIdx, line, col)
   conf.m.trackPosAttached = false
