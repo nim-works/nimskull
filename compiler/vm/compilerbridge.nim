@@ -46,6 +46,7 @@ import
     vmjit,
     vmlegacy,
     vmops,
+    vmprofiler,
     vmtypegen,
     vmutils,
     vm
@@ -654,6 +655,14 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph;
   c.vm.templInstCounter = templInstCounter
 
   result = evalMacroCall(c.jit, c.vm, call, args, sym)
+
+proc dumpVmProfilerData*(graph: ModuleGraph): string =
+  ## Dumps the profiler data collected by the profiler of the VM instance
+  ## associated with `graph` to a string.
+  let c = PEvalContext(graph.vm)
+  result =
+    if c != nil: dump(graph.config, c.vm.profiler)
+    else:        ""
 
 # ----------- the VM-related compilerapi -----------
 

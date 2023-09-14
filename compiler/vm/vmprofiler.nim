@@ -24,27 +24,26 @@ proc enter*(prof: var Profiler, c: TCtx, sframe: StackFrameIndex) {.inline.} =
 proc leaveImpl(prof: var Profiler, c: TCtx) {.noinline.} =
   let tLeave = cpuTime()
   var frameIdx = prof.sframe
-  var data = c.config.vmProfileData.data
   while frameIdx >= 0:
     let frame = c.sframes[frameIdx]
     if frame.prc != nil:
       let li = (frame.prc.info.fileIndex, frame.prc.info.line)
-      if li notin data:
-        data[li] = ProfileInfo()
-      data[li].time += tLeave - prof.tEnter
+      if li notin prof.data:
+        prof.data[li] = ProfileInfo()
+      prof.data[li].time += tLeave - prof.tEnter
       if frameIdx == prof.sframe:
-        inc data[li].count
+        inc prof.data[li].count
     dec frameIdx
 
 proc leave*(prof: var Profiler, c: TCtx) {.inline.} =
   if optProfileVM in c.config.globalOptions:
     leaveImpl(prof, c)
 
-proc dump*(conf: ConfigRef, pd: ProfileData): string =
-  ## constructs a string containing a report of vm exectuion based on the given
-  ## `ProfileData`. The report is formatted and ready to print to console or
-  ## similar interface.
-  var data = pd.data
+proc dump*(conf: ConfigRef, prof: Profiler): string =
+  ## Constructs a string containing a report of VM execution based on the
+  ## data collected by `prof`. The report is formatted and ready to print to
+  ## console or similar interface.
+  var data = prof.data
   result = "\nprof:     µs    #instr  location\n"
   for i in 0..<32:
     var infoMax: ProfileInfo

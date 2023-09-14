@@ -161,13 +161,6 @@ type
 
   Suggestions* = seq[Suggest]
 
-  ProfileInfo* = object
-    time*: float
-    count*: int
-
-  ProfileData* = ref object
-    data*: TableRef[SourceLinePosition, ProfileInfo]
-
   StdOrrKind* = enum
     stdOrrStdout
     stdOrrStderr
@@ -303,7 +296,6 @@ type
     writeHook*: proc(conf: ConfigRef, output: string, flags: MsgFlags) {.closure.}
     structuredReportHook*: ReportHook
     astDiagToLegacyReport*: proc(conf: ConfigRef, d: PAstDiag): Report
-    vmProfileData*: ProfileData
     setMsgFormat*: proc(config: ConfigRef, fmt: MsgFormatKind) {.closure.}
       ## callback that sets the message format for legacy reporting, needs to
       ## set before CLI handling, because reports are just that awful
@@ -772,9 +764,6 @@ template newPackageCache*(): untyped =
                  else:
                    modeCaseSensitive)
 
-proc newProfileData(): ProfileData =
-  ProfileData(data: newTable[SourceLinePosition, ProfileInfo]())
-
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 
 const defaultHackController = HackController(
@@ -933,7 +922,6 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
     ),
     suggestMaxResults: 10_000,
     maxLoopIterationsVM: 10_000_000,
-    vmProfileData: newProfileData(),
     spellSuggestMax: spellSuggestSecretSauce,
   )
   initConfigRefCommon(result)

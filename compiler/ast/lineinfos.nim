@@ -26,12 +26,6 @@ type
     col*: int16
     fileIndex*: FileIndex
 
-  SourceLinePosition* = tuple
-    ## Identifies a line in a source file. Only intended for use by
-    ## the profiler.
-    fileIndex: typeof(TLineInfo.fileIndex)
-    line: typeof(TLineInfo.line)
-
   LineColPair* = tuple
     line: typeof(TLineInfo.line)
     col: typeof(TLineInfo.col)
