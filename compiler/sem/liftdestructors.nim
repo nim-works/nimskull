@@ -1026,11 +1026,18 @@ proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInf
   let skipped = orig.skipTypes({tyGenericInst, tyAlias, tySink})
   if isEmptyContainer(skipped) or skipped.kind == tyStatic: return
 
-  let h = sighashes.hashType(skipped, {CoType, CoDistinct})
-  var canon = g.canonTypes.getOrDefault(h)
-  if canon == nil:
-    g.canonTypes[h] = skipped
+  var canon: PType
+  if skipped.kind == tyObject:
+    # for nominal types, the type itself is already the canonical one (each one
+    # is unique)
+    # XXX: ^^ at present, this is only true for object types. Phantom
+    #      ``tyDistinct`` and ``tyEnum`` types still don't have unique
+    #      instances
     canon = skipped
+  else:
+    # structural types use canonicalization
+    canon = g.canonTypes.mgetOrPut(hashType(skipped, {CoType, CoDistinct}),
+                                   skipped)
 
   # multiple cases are to distinguish here:
   # 1. we don't know yet if 'typ' has a nontrival destructor.

@@ -10,6 +10,9 @@
 ## This module does the instantiation of generic types.
 
 import
+  std/[
+    intsets
+  ],
   compiler/ast/[
     ast,
     astalgo,
@@ -36,7 +39,7 @@ import
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_sem import reportAst,
-  reportTyp
+  reportTyp, SemReport
 from compiler/ast/report_enums import ReportKind
 
 const tfInstClearedFlags = {tfHasMeta, tfUnresolved}
@@ -60,6 +63,34 @@ proc checkConstructedType*(conf: ConfigRef; info: TLineInfo, typ: PType) =
     if t.kind == tyObject and t[0] != nil:
       if t[0].kind != tyObject or tfFinal in t[0].flags:
         localReport(info, errInheritanceOnlyWithNonFinalObjects)
+
+func addInheritedFieldsAux(check: var IntSet, pos: var int, n: PNode) =
+  case n.kind
+  of nkRecCase:
+    addInheritedFieldsAux(check, pos, n[0])
+    for _, it in branches(n):
+      case it.kind
+      of nkOfBranch, nkElse:
+        addInheritedFieldsAux(check, pos, it[^1])
+      else:
+        unreachable()
+  of nkRecList:
+    for it in n.items:
+      addInheritedFieldsAux(check, pos, it)
+  of nkSym:
+    incl(check, n.sym.name.id)
+    inc(pos)
+  else:
+    unreachable()
+
+func addInheritedFields*(check: var IntSet, obj: PType): int =
+  ## Counts the number of fields in `obj` (and its base types) and returns it.
+  ## In addition, adds the IDs of all field names in `obj` and its base types
+  ## to `check`.
+  assert obj.kind == tyObject, $obj.kind
+  if (obj.len > 0) and (obj.base != nil):
+    result += addInheritedFields(check, obj.base.skipTypes(skipPtrs))
+  addInheritedFieldsAux(check, result, obj.n)
 
 proc searchInstTypes(g: ModuleGraph; key: PType): PType =
   let genericTyp = key[0]
@@ -264,32 +295,6 @@ proc reResolveCallsWithTypedescParams(c: PContext, n: PNode): PNode =
 
   return n
 
-proc replaceObjBranches(cl: TReplTypeVars, n: PNode): PNode =
-  result = n
-  case n.kind
-  of nkNone..nkNilLit:
-    discard
-  of nkRecWhen:
-    var branch: PNode = nil              # the branch to take
-    for it in n.items:
-      case it.kind
-      of nkElifBranch:
-        let e = cl.c.semConstBoolExpr(cl.c, it[0])
-        if e.kind == nkIntLit and e.intVal != 0 and branch == nil:
-          branch = it[1]
-      of nkElse:
-        if branch == nil:
-          branch = it[0]
-      else:
-        unreachable(it.kind)
-    if branch != nil:
-      result = replaceObjBranches(cl, branch)
-    else:
-      result = newNodeI(nkRecList, n.info)
-  else:
-    for it in n.sons.mitems:
-      it = replaceObjBranches(cl, it)
-
 proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
   ## Replaces references to unresolved types in AST associated with types (i.e.:
   ## the AST that is stored in the ``TType.n`` field).
@@ -309,27 +314,10 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
     if result.sym.typ.kind == tyVoid:
       # don't add the 'void' field
       result = newNodeI(nkRecList, n.info)
-  of nkRecWhen:
-    var branch: PNode = nil              # the branch to take
-    for it in n.items:
-      case it.kind
-      of nkElifBranch:
-        let e = cl.c.semConstBoolExpr(cl.c, prepareNode(cl, it[0]))
-        # note: `e` may not be an int literal in case of cascading
-        # errors
-        if e.kind == nkIntLit and e.intVal != 0 and branch == nil:
-          branch = it[1]
-      of nkElse:
-        if branch == nil: branch = it[0]
-      else:
-        # should have already been rejected when first analysing the record
-        # structure
-        unreachable(it.kind)
+  of nkRecWhen, nkRecCase:
+    # the nodes are only part of object-type AST
+    unreachable(n.kind)
 
-    if branch != nil:
-      result = replaceTypeVarsN(cl, branch)
-    else:
-      result = newNodeI(nkRecList, n.info)
   of nkStaticExpr:
     var n = prepareNode(cl, n)
     n = reResolveCallsWithTypedescParams(cl.c, n)
@@ -388,6 +376,81 @@ proc replaceTypeVarsS(cl: var TReplTypeVars, s: PSym): PSym =
   if result.kind != skType:
     result.ast = replaceTypeVarsN(cl, s.ast)
 
+proc instantiateRecord(cl: var TReplTypeVars, names: var IntSet, pos: var int,
+                       n: PNode, owner: PSym): PNode =
+  ## Traverses the pre-processed AST of a generic object type and produces
+  ## the instantiated AST.
+  template recurse(n: PNode): PNode =
+    instantiateRecord(cl, names, pos, n, owner)
+
+  case n.kind
+  of nkSym:
+    # a single field
+    let t = replaceTypeVarsT(cl, n.sym.typ)
+    if t.kind == tyVoid:
+      # don't add 'void' fields to objects
+      result = newNodeI(nkRecList, n.info)
+    else:
+      let s = copySym(n.sym, nextSymId cl.c.idgen)
+      s.typ = t
+      s.flags.incl sfFromGeneric
+      s.owner = owner
+      s.position = pos
+      propagateToOwner(owner.typ, t)
+      inc pos
+
+      result = copyNode(n)
+      result.sym = s
+      result.typ = s.typ
+
+      if containsOrIncl(names, s.name.id):
+        # a field with the same name already exists
+        localReport(cl.c.config, n.info):
+          SemReport(kind: rsemRedefinitionOf, sym: s)
+
+  of nkRecList:
+    result = copyNode(n)
+    for it in n.items:
+      let r = recurse(it)
+      if r.kind != nkRecList or r.len > 0:
+        # eliminate empty sub nodes by not adding them
+        result.add(r)
+
+  of nkRecCase:
+    result = shallowCopy(n)
+    result[0] = recurse(n[0]) # discriminator
+    for i in 1..<n.len:
+      let branch = n[i]
+      # leave the labels as is, only the last node needs to be
+      # instantiated
+      result[i] = copyTreeWithoutNode(branch, branch[^1])
+      result[i].add recurse(branch[^1])
+  of nkRecWhen:
+    # select the active branch (or nothing)
+    var branch = PNode(nil)
+    for i, it in n.pairs:
+      case it.kind
+      of nkElifBranch:
+        # replace the type variables (if any) in the expression and then
+        # evaluate it
+        let e = cl.c.semConstBoolExpr(cl.c, prepareNode(cl, it[0]))
+        # XXX: proper error propagation is missing
+        if e.kind == nkIntLit and e.intVal != 0 and branch == nil:
+          branch = it[1]
+      of nkElse:
+        if branch == nil:
+          branch = it[0]
+      else:
+        unreachable(it.kind)
+
+    if branch != nil:
+      result = recurse(branch)
+    else:
+      # no branch was selected; the 'when' is collapsed to nothing
+      result = newNodeI(nkRecList, n.info)
+  else:
+    unreachable()
+
 proc lookupTypeVar(cl: var TReplTypeVars, t: PType): PType =
   result = cl.typeMap.lookup(t)
   if result == nil:
@@ -412,6 +475,71 @@ proc instCopyType*(cl: var TReplTypeVars, t: PType): PType =
     result.flags.excl tfInstClearedFlags
   else:
     result.flags.excl tfHasAsgn
+
+proc instantiate(cl: var TReplTypeVars, t: PType): PType =
+  ## Instatiates the body of a parametric type.
+  case t.kind
+  of tyRef, tyPtr:
+    if tfRefsAnonObj in t.flags:
+      # this is a ``ref|ptr object`` type
+      result = instCopyType(cl, t)
+      result[^1] = instantiate(cl, t[^1])
+      propagateToOwner(result, result[^1])
+    else:
+      # a structural type
+      result = replaceTypeVarsT(cl, t)
+  of tyObject:
+    # create a proper instance of the type. A new instance is created
+    # even if the body doesn't contain any type parameters, so that
+    # phantom types work properly
+    var
+      names = initIntSet()
+      pos   = 0
+
+    result = instCopyType(cl, t)
+
+    if t.len > 0 and t.base != nil:
+      # the base may be something depending on type variables
+      var base = replaceTypeVarsT(cl, t.base).skipTypes({tyAlias})
+      let skipped = skipToObject(base)
+
+      if skipped.kind == tyError:
+        base = nil
+      elif skipped.kind != tyObject:
+        # the base is not an object type
+        localReport(cl.c.config, cl.info):
+          SemReport(kind: rsemExpectObjectForBase)
+        base = nil
+      elif tfFinal in skipped.flags:
+        localReport(cl.c.config, cl.info):
+          SemReport(kind: rsemExpectNonFinalForBase, typ: base)
+        base = nil
+      elif base.kind in {tyPtr, tyRef}:
+        # if the replaced-with type is a direct ref/ptr, we skip it
+        base = base[^1]
+
+      result[0] = base
+      if base != nil:
+        propagateToOwner(result, base)
+        # add the fields to check:
+        pos = addInheritedFields(names, skipped)
+
+    # --- setup the symbol:
+    result.sym = copySym(t.sym, nextSymId cl.c.idgen)
+    result.sym.flags.incl sfFromGeneric
+    result.sym.owner = t.sym   # the owner is the generic type
+    result.sym.ast = t.sym.ast # points to the original AST
+    result.sym.typ = result
+
+    # --- instantiate the record AST:
+    result.n = instantiateRecord(cl, names, pos, t.n, result.sym)
+    result.size = szUncomputedSize # size needs to be recomputed now
+
+    if cl.c.computeRequiresInit(cl.c, result):
+      result.flags.incl tfRequiresInit
+  else:
+    # XXX: these types also need new symbols...
+    result = replaceTypeVarsT(cl, t)
 
 proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   ## Evaluates a type application (a ``tyGenericInvocation``) and returns
@@ -479,7 +607,7 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
     cl.typeMap.put(body[i-1], header[i])
 
   let bbody = lastSon body
-  var newbody = replaceTypeVarsT(cl, bbody)
+  var newbody = instantiate(cl, bbody)
   newbody.flags = newbody.flags + (t.flags + body.flags - tfInstClearedFlags)
   result.flags = result.flags + newbody.flags - tfInstClearedFlags
 
@@ -655,7 +783,7 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
       result[i] = replaceTypeVarsT(cl, result[i])
     propagateToOwner(result, result.lastSon)
 
-  of tyGenericInst:
+  of tyGenericInst, tyObject:
     # this must be a fully resolved concrete type
     doAssert(not containsGenericType(t))
     result = t
@@ -668,19 +796,7 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
 
       for i in 0..<result.len:
         if result[i] != nil:
-          if result[i].kind == tyGenericBody:
-            localReport(cl.c.config, if t.sym.isNil: cl.info else: t.sym.info):
-              block:
-                var r = reportTyp(rsemCannotInstantiate, result[i])
-                r.ownerSym = t.owner
-                r
-
-          var r = replaceTypeVarsT(cl, result[i])
-          if result.kind == tyObject:
-            # carefully coded to not skip the precious tyGenericInst:
-            let r2 = r.skipTypes({tyAlias, tySink})
-            if r2.kind in {tyPtr, tyRef}:
-              r = skipTypes(r2, {tyPtr, tyRef})
+          let r = replaceTypeVarsT(cl, result[i])
           result[i] = r
           if result.kind != tyArray or i != 0:
             propagateToOwner(result, r)
@@ -691,10 +807,8 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
         let idx = result[0]
         internalAssert(cl.c.config, idx.kind != tyStatic, "[FIXME]")
 
-      of tyObject, tyTuple:
+      of tyTuple:
         propagateFieldFlags(result, result.n)
-        if result.kind == tyObject and cl.c.computeRequiresInit(cl.c, result):
-          result.flags.incl tfRequiresInit
 
       of tyProc:
         eraseVoidParams(result)
@@ -704,19 +818,6 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
         result[0] = result[0].skipTypes({tyStatic, tyDistinct})
 
       else: discard
-    else:
-      # If this type doesn't refer to a generic type we may still want to run it
-      # trough replaceObjBranches in order to resolve any pending nkRecWhen nodes
-      result = t
-
-      # Slow path, we have some work to do
-      if t.kind == tyRef and t.len > 0 and t[0].kind == tyObject and t[0].n != nil:
-        discard replaceObjBranches(cl, t[0].n)
-
-      elif result.n != nil and t.kind == tyObject:
-        # Invalidate the type size as we may alter its structure
-        result.size = -1
-        result.n = replaceObjBranches(cl, result.n)
 
 proc replaceTypeParamsInType*(c: PContext, pt: TIdTable, t: PType): PType =
   ## Replaces with their bound type, if a binding exists, type parameters in
@@ -887,22 +988,6 @@ when false:
     result = replaceTypeVarsN(cl, n)
     popInfoContext(p.config)
 
-proc recomputeFieldPositions*(t: PType; obj: PNode; currPosition: var int) =
-  if t != nil and t.len > 0 and t[0] != nil:
-    let b = skipTypes(t[0], skipPtrs)
-    recomputeFieldPositions(b, b.n, currPosition)
-  case obj.kind
-  of nkRecList:
-    for i in 0..<obj.len: recomputeFieldPositions(nil, obj[i], currPosition)
-  of nkRecCase:
-    recomputeFieldPositions(nil, obj[0], currPosition)
-    for i in 1..<obj.len:
-      recomputeFieldPositions(nil, lastSon(obj[i]), currPosition)
-  of nkSym:
-    obj.sym.position = currPosition
-    inc currPosition
-  else: discard "cannot happen"
-
 proc generateTypeInstance*(p: PContext, pt: TIdTable, info: TLineInfo,
                            t: PType): PType =
   ## Produces the instantiated type for the generic type `t`, using the
@@ -918,10 +1003,6 @@ proc generateTypeInstance*(p: PContext, pt: TIdTable, info: TLineInfo,
   pushInfoContext(p.config, info)
   result = replaceTypeVarsT(cl, t)
   popInfoContext(p.config)
-  let objType = result.skipTypes(abstractInst)
-  if objType.kind == tyObject:
-    var position = 0
-    recomputeFieldPositions(objType, objType.n, position)
 
 template generateTypeInstance*(p: PContext, pt: TIdTable, arg: PNode,
                                t: PType): untyped =

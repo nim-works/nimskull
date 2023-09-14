@@ -607,9 +607,10 @@ proc toObjectFromRefPtrGeneric*(typ: PType): PType =
   result = typ
   while true:
     case result.kind
-    of tyGenericBody: result = result.lastSon
-    of tyRef, tyPtr, tyGenericInst, tyGenericInvocation, tyAlias: result = result[0]
-      # automatic dereferencing is deep, refs #18298.
+    of tyGenericInvocation:
+      result = result[0]
+    of tyRef, tyPtr, tyGenericInst, tyAlias, tyGenericBody:
+      result = result[^1]
     else: break
   assert result.sym != nil
 

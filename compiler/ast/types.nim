@@ -1098,6 +1098,41 @@ proc containsCompileTimeOnly*(t: PType): bool =
       return true
   return false
 
+proc skipToObject*(t: PType; numIndirectsAllowed = 1): PType {.inline.} =
+  ## Tries to skip to the underlying ``tyObject`` of a type that is used
+  ## as an object's base type. Unresolved generic invocations are
+  ## traversed in simple cases. Either the ``tyObject`` type or the first
+  ## encountered type that couldn't be traversed is returned.
+  ##
+  ## `numIndirectsAllowed` specifies the number of ``ptr`` and ``ref``
+  ## types to skip before bailing out.
+  case t.kind
+  of tyAlias, tyGenericInst:
+    skipToObject(t.lastSon, numIndirectsAllowed)
+  of tyRef, tyPtr:
+    # only skip ``ref``/``ptr`` indirections if allowed
+    if numIndirectsAllowed > 0:
+      skipToObject(t.lastSon, numIndirectsAllowed - 1)
+    else:
+      t
+  of tyGenericInvocation:
+    # also skip through invocations
+    let body = t.base.lastSon
+    if body.kind == tyObject or tfRefsAnonObj in body.flags:
+      skipToObject(body, numIndirectsAllowed)
+    elif body.kind in {tyGenericInvocation, tyGenericParam}:
+      var x = skipToObject(body, numIndirectsAllowed)
+      if x.kind == tyGenericParam:
+        # special case: for a ``type Typ[A] = A`` invoked through
+        # ``Typ[Other[T]]``, we traverse ``Other[T]`` instead of
+        # returning ``A``
+        x = skipToObject(t[1 + x.sym.position], numIndirectsAllowed)
+      x
+    else:
+      t # too complex; needs to be figured out by the caller
+  else:
+    t
+
 proc safeSkipTypes*(t: PType, kinds: TTypeKinds): PType =
   ## same as 'skipTypes' but with a simple cycle detector.
   result = t
