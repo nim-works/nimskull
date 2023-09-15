@@ -2634,34 +2634,6 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
                                      c.module, c.config)
     of opcGorge:
       unreachable("no longer an opcode/magic")
-      # decodeBC(akString)
-      # inc pc
-      # let rd = c.code[pc].regA
-      # checkHandle(regs[ra])
-      # if defined(nimsuggest) or c.config.cmd == cmdCheck or
-      #    vmopsDanger notin c.config.features:
-      #   discard "don't run staticExec for 'nim suggest'"
-      #   regs[ra].strVal = ""
-      # else:
-        # upon resuming the gorge'd value should be in `ra`
-        # when defined(nimcore):
-        #   checkHandle(regs[rb])
-        #   checkHandle(regs[rc])
-        #   checkHandle(regs[rd])
-        #   regs[ra].strVal = opGorge($regs[rb].strVal,
-        #                                 $regs[rc].strVal, $regs[rd].strVal,
-        #                                 c.debug[pc], c.config)[0]
-        # else:
-        #   regs[ra].strVal = ""
-        #   # TODO: this is neither an internal error nor should ``globalReport``
-        #   #       be used to report it. As an improvement, it could be
-        #   #       treated as a normal VM error. ``opcGorge`` implements a part
-        #   #       of the compiler's compile-time interface, so it should be
-        #   #       eventually moved out of the VM via either callbacks or a
-        #   #       better mechanism for "system calls"
-        #   globalReport(c.config, c.debug[pc], InternalReport(
-        #     kind: rintNotUsingNimcore,
-        #     msg: "VM is not built with 'gorge' support"))
 
     of opcParseExprToAst, opcParseStmtToAst:
       decodeBC(rkNimNode)
