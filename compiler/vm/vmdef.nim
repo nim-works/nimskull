@@ -750,8 +750,7 @@ type
     tEnter*: float
     sframe*: StackFrameIndex   ## The current stack frame
 
-    data*: TableRef[SourceLinePosition, ProfileInfo]
-    # XXX: use a ``Table`` instead of a ``TableRef``
+    data*: Table[SourceLinePosition, ProfileInfo]
 
 func `<`*(a, b: FieldIndex): bool {.borrow.}
 func `<=`*(a, b: FieldIndex): bool {.borrow.}
@@ -881,7 +880,6 @@ proc initCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
     loopIterations: g.config.maxLoopIterationsVM,
     comesFromHeuristic: unknownLineInfo,
     callbacks: @[],
-    profiler: Profiler(data: newTable[SourceLinePosition, ProfileInfo]()),
     cache: cache,
     config: g.config,
     graph: g,
