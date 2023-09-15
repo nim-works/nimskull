@@ -74,19 +74,19 @@ proc semAsm(c: PContext, n: PNode): PNode =
     result[0] = err
     result = c.config.wrapError(result)
 
-proc semWhile(c: PContext, n: PNode; flags: TExprFlags): PNode =
-  result = n
+proc semWhile(c: PContext, n: PNode; flags: TExprFlags): ElaborateAst =
+  result.initWith(n)
   checkSonsLen(n, 2, c.config)
   openScope(c)
-  n[0] = forceBool(c, semExprWithType(c, n[0]))
+  result[0] = forceBool(c, semExprWithType(c, n[0]))
   inc(c.p.nestedLoopCounter)
-  n[1] = semStmt(c, n[1], flags)
+  result[1] = semStmt(c, n[1], flags)
   dec(c.p.nestedLoopCounter)
   closeScope(c)
-  if n[1].typ == c.enforceVoidContext:
+  if result[1].typ == c.enforceVoidContext:
     result.typ = c.enforceVoidContext
   elif efInTypeof in flags:
-    result.typ = n[1].typ
+    result.typ = result[1].typ
 
 proc semProc(c: PContext, n: PNode): PNode
 

@@ -3830,7 +3830,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkConstSection: result = semConstLetOrVar(c, n, skConst)
   of nkTypeSection: result = semTypeSection(c, n)
   of nkDiscardStmt: result = semDiscard(c, n)
-  of nkWhileStmt: result = semWhile(c, n, flags)
+  of nkWhileStmt: result = c.config.extract(semWhile(c, n, flags))
   of nkTryStmt, nkHiddenTryStmt: result = semTry(c, n, flags)
   of nkBreakStmt: result = c.config.extract(semBreakStmt(c, n))
   of nkContinueStmt: result = semContinueStmt(c, n)
