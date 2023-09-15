@@ -64,7 +64,6 @@ from std/md5 import getMD5
 from std/times import getTime
 from std/hashes import hash
 from std/osproc import nil
-from std/options as std_options import some
 from system/formatfloat import writeFloatToBufferSprintf
 
 from compiler/modules/modulegraphs import `$`
@@ -395,6 +394,12 @@ iterator compileTimeOps*(): Override =
 
 iterator gorgeOps*(): Override =
   ## Special operations for executing external programs at compile time.
+  for op in ["stdlib.system.gorge", "stdlib.system.staticExec"]:
+    override op, proc (a: VmArgs) {.nimcall.} =
+      let (output, _) = opGorge(getString(a, 0), getString(a, 1),
+                                getString(a, 2), a.currentLineInfo, a.config)
+      writeResult(output)
+
   override "stdlib.system.gorgeEx", proc (a: VmArgs) {.nimcall.} =
     let ret = opGorge(getString(a, 0), getString(a, 1), getString(a, 2),
                       a.currentLineInfo, a.config)

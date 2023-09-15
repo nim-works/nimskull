@@ -19,12 +19,12 @@ block gorge:
     relOutput = gorge(execName)
     absOutput = gorge(getScriptDir() / execName)
 
-  doAssert relOutput == "gorge test"
-  doAssert absOutput == "gorge test"
+  doAssert relOutput == "gorge test", relOutput
+  doAssert absOutput == "gorge test", absOutput
 
 block gorgeEx:
   const
     execName = when defined(windows): "tgorgeex.bat" else: "./tgorgeex.sh"
     res = gorgeEx(execName)
-  doAssert res.output == "gorgeex test"
-  doAssert res.exitCode == 1
+  doAssert res.output == "gorgeex test", res.output
+  doAssert res.exitCode == 1, $res.exitCode
