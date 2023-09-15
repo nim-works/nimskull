@@ -348,7 +348,8 @@ proc main() =
   if not nimsug.fileExists():
     # xxx: ideally compiling a test binary should be done in `koch`
     const args = "c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest"
-    discard execShellCmd(getCurrentCompilerExe() & " " & args)
+    let cmd = getCurrentCompilerExe() & " " & args
+    doAssert execShellCmd(getCurrentCompilerExe() & " " & args) == 0, cmd
 
   doAssert nimsug.fileExists, nimsug
   var failures = 0
