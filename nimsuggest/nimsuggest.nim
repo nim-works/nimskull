@@ -114,6 +114,14 @@ proc writelnToChannel(line: string) =
 proc sugResultHook(s: Suggest) =
   results.send(s)
 
+proc log(s: string) =
+  ## Appends `s` as new line to the `nimsuggest.log` file in the user's home
+  ## directory. 
+  var f: File
+  if open(f, getHomeDir() / "nimsuggest.log", fmAppend):
+    f.writeLine(s)
+    close(f)
+
 proc myLog(conf: ConfigRef, s: string, flags: MsgFlags = {}) =
   if gLogging:
     log(s)

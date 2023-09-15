@@ -272,12 +272,6 @@ proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
       when defined(windows):
         flushFile(stderr)
 
-proc log*(s: string) =
-  var f: File
-  if open(f, getHomeDir() / "nimsuggest.log", fmAppend):
-    f.writeLine(s)
-    close(f)
-
 proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
   if conf.isDefined("nimDebug"):
     quitOrRaise(conf)
