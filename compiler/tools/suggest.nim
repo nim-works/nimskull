@@ -245,8 +245,6 @@ proc `$`*(suggest: Suggest): string =
 proc suggestResult(conf: ConfigRef; s: Suggest) =
   if not isNil(conf.suggestionResultHook):
     conf.suggestionResultHook(s)
-  else:
-    conf.suggestWriteln($s)
 
 proc produceOutput(a: var Suggestions; conf: ConfigRef) =
   if conf.ideCmd in {ideSug, ideCon}:
@@ -258,9 +256,6 @@ proc produceOutput(a: var Suggestions; conf: ConfigRef) =
   if not isNil(conf.suggestionResultHook):
     for s in a:
       conf.suggestionResultHook(s)
-  else:
-    for s in a:
-      conf.suggestWriteln($s)
 
 proc filterSym(s: PSym; prefix: PNode; res: var PrefixMatch): bool {.inline.} =
   proc prefixMatch(s: PSym; n: PNode): PrefixMatch =
