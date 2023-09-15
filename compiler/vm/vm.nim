@@ -53,7 +53,6 @@ import
   ],
   compiler/vm/[
     vmprofiler,
-    gorgeimpl,
     vmchecks,
     vmcompilerserdes,
     vmdef,
@@ -69,7 +68,6 @@ import
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_sem import SemReport
-from compiler/ast/reports_internal import InternalReport
 from compiler/ast/report_enums import ReportKind
 
 # xxx: `Report` is faaaar too wide a type for what the VM needs, even with all
