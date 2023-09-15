@@ -113,9 +113,6 @@ type
       #      syscall variants and the data in embedded sub-objects. While on
       #      the subject it's possible that quit could be considered a syscall,
       #      one that doesn't expect resuming.
-    yrkGorge
-      ## "syscall" of gorge, the VM expects the code executing it to handle the
-      ## gorge, capture the result, and then resume execution
 
   YieldReason* = object
     ## The result of a single execution step (i.e. a call to ``execute``)
@@ -131,11 +128,6 @@ type
       entry*: FunctionIndex   ## the entry of the procedure that is a stub
     of yrkEcho:
       strs*: seq[string]      ## strings to be echo'd, at least one item
-    of yrkGorge:
-      cmd*:    string
-      input*:  string
-      cache*:  string
-      resReg*: TRegister
 
 const
   traceCode = defined(nimVMDebugExecute)
@@ -2641,25 +2633,16 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       regs[ra].strVal = opSlurp($regs[rb].strVal, c.debug[pc],
                                      c.module, c.config)
     of opcGorge:
-      decodeBC(akString)
-      inc pc
-      let rd = c.code[pc].regA
-      checkHandle(regs[ra])
-      if defined(nimsuggest) or c.config.cmd == cmdCheck or
-         vmopsDanger notin c.config.features:
-        discard "don't run staticExec for 'nim suggest'"
-        regs[ra].strVal = ""
-      else:
-        checkHandle(regs[rb])
-        checkHandle(regs[rc])
-        checkHandle(regs[rd])
-        result = YieldReason(kind:   yrkGorge,
-                             cmd:    $regs[rb].strVal,
-                             input:  $regs[rc].strVal,
-                             cache:  $regs[rd].strVal,
-                             resReg: instr.regA)
-        inc pc
-        return
+      unreachable("no longer an opcode/magic")
+      # decodeBC(akString)
+      # inc pc
+      # let rd = c.code[pc].regA
+      # checkHandle(regs[ra])
+      # if defined(nimsuggest) or c.config.cmd == cmdCheck or
+      #    vmopsDanger notin c.config.features:
+      #   discard "don't run staticExec for 'nim suggest'"
+      #   regs[ra].strVal = ""
+      # else:
         # upon resuming the gorge'd value should be in `ra`
         # when defined(nimcore):
         #   checkHandle(regs[rb])

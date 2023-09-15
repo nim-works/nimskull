@@ -395,6 +395,16 @@ iterator compileTimeOps*(): Override =
 
 iterator gorgeOps*(): Override =
   ## Special operations for executing external programs at compile time.
+  override "stdlib.system.gorge", proc (a: VmArgs) {.nimcall.} =
+    let (output, _) = opGorge(getString(a, 0), getString(a, 1),
+                              getString(a, 2), a.currentLineInfo, a.config)
+    writeResult(output)
+
+  override "stdlib.system.staticExec", proc (a: VmArgs) {.nimcall.} =
+    let (output, _) = opGorge(getString(a, 0), getString(a, 1),
+                              getString(a, 2), a.currentLineInfo, a.config)
+    writeResult(output)
+
   override "stdlib.system.gorgeEx", proc (a: VmArgs) {.nimcall.} =
     let ret = opGorge(getString(a, 0), getString(a, 1), getString(a, 2),
                       a.currentLineInfo, a.config)

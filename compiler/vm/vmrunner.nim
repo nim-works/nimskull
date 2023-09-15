@@ -441,10 +441,6 @@ proc main*(args: seq[string]): int =
       c.config.localReport(InternalReport(msg: r.strs.join(""),
                                           kind: rintEchoMessage))
       continueExecution = true # after echoing, we then resume
-    of yrkGorge:
-      # vm yield with a gorge, we need to gorge and then set the result
-      c.sframes[^1].slots[r.resReg].strVal = opGorge(r.cmd, r.input, r.cache, source(c, thread), c.config)[0]
-      continueExecution = true # after gorging, we then resume
 
   dispose(c, thread)
 
