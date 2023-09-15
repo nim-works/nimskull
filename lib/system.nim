@@ -2548,6 +2548,7 @@ proc `[]=`*(s: var string; i: BackwardsIndex; x: char) {.inline.} =
 
 proc slurp*(filename: string): string {.magic: "Slurp".}
   ## This is an alias for `staticRead <#staticRead,string>`_.
+  ## to be deprecated, use `staticRead`
 
 proc staticRead*(filename: string): string {.magic: "Slurp".}
   ## Compile-time `readFile <io.html#readFile,string>`_ proc for easy
@@ -2561,41 +2562,52 @@ proc staticRead*(filename: string): string {.magic: "Slurp".}
   ##
   ## `slurp <#slurp,string>`_ is an alias for `staticRead`.
 
-proc gorge*(command: string, input = "", cache = ""): string {.
-  magic: "StaticExec".} = discard
-  ## This is an alias for `staticExec <#staticExec,string,string,string>`_.
+when defined(nimskullReworkStaticExec):
+  proc gorge*(command: string, input = "", cache = ""): string {.
+    compileTime, deprecated: "use staticExec".} = discard
+    ## This is an alias for `staticExec <#staticExec,string,string,string>`_.
 
-proc staticExec*(command: string, input = "", cache = ""): string {.
-  magic: "StaticExec".} = discard
-  ## Executes an external process at compile-time and returns its text output
-  ## (stdout + stderr).
-  ##
-  ## If `input` is not an empty string, it will be passed as a standard input
-  ## to the executed program.
-  ##
-  ## .. code-block:: Nim
-  ##     const buildInfo = "Revision " & staticExec("git rev-parse HEAD") &
-  ##                       "\nCompiled on " & staticExec("uname -v")
-  ##
-  ## `gorge <#gorge,string,string,string>`_ is an alias for `staticExec`.
-  ##
-  ## Note that you can use this proc inside a pragma like
-  ## `passc <manual.html#implementation-specific-pragmas-passc-pragma>`_ or
-  ## `passl <manual.html#implementation-specific-pragmas-passl-pragma>`_.
-  ##
-  ## If `cache` is not empty, the results of `staticExec` are cached within
-  ## the `nimcache` directory. Use `--forceBuild` to get rid of this caching
-  ## behaviour then. `command & input & cache` (the concatenated string) is
-  ## used to determine whether the entry in the cache is still valid. You can
-  ## use versioning information for `cache`:
-  ##
-  ## .. code-block:: Nim
-  ##     const stateMachine = staticExec("dfaoptimizer", "input", "0.8.0")
+  proc staticExec*(command: string, input = "", cache = ""): string {.
+    compileTime.} = discard
+    ## Executes an external process at compile-time and returns its text output
+    ## (stdout + stderr).
+    ##
+    ## If `input` is not an empty string, it will be passed as a standard input
+    ## to the executed program.
+    ##
+    ## .. code-block:: Nim
+    ##     const buildInfo = "Revision " & staticExec("git rev-parse HEAD") &
+    ##                       "\nCompiled on " & staticExec("uname -v")
+    ##
+    ## `gorge <#gorge,string,string,string>`_ is an alias for `staticExec`.
+    ##
+    ## Note that you can use this proc inside a pragma like
+    ## `passc <manual.html#implementation-specific-pragmas-passc-pragma>`_ or
+    ## `passl <manual.html#implementation-specific-pragmas-passl-pragma>`_.
+    ##
+    ## If `cache` is not empty, the results of `staticExec` are cached within
+    ## the `nimcache` directory. Use `--forceBuild` to get rid of this caching
+    ## behaviour then. `command & input & cache` (the concatenated string) is
+    ## used to determine whether the entry in the cache is still valid. You can
+    ## use versioning information for `cache`:
+    ##
+    ## .. code-block:: Nim
+    ##     const stateMachine = staticExec("dfaoptimizer", "input", "0.8.0")
+    ## 
+    ## Deprecate/Replace with variant that returns the exit code and output
+else:
+  proc gorge*(command: string, input = "", cache = ""): string {.
+    magic: "StaticExec".} = discard
+    ## kept for bootstrapping
+
+  proc staticExec*(command: string, input = "", cache = ""): string {.
+    magic: "StaticExec".} = discard
+    ## kept for bootstrapping
 
 proc gorgeEx*(command: string, input = "", cache = ""): tuple[output: string,
                                                               exitCode: int] =
   ## Similar to `gorge <#gorge,string,string,string>`_ but also returns the
-  ## precious exit code.
+  ## exit code.
   discard
 
 
