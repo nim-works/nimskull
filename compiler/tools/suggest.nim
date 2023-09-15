@@ -55,6 +55,7 @@ import
     options,
   ],
   compiler/modules/[
+    modules,
     modulegraphs,
   ],
   compiler/sem/[
@@ -65,7 +66,8 @@ import
   compiler/utils/[
     prefixmatches,
     astrepr,
-    debugutils
+    debugutils,
+    pathutils
   ]
 
 
@@ -463,6 +465,52 @@ proc isTracked*(current, trackPos: TLineInfo, tokenLen: int): bool =
     let col = trackPos.col
     if col >= current.col and col <= current.col + tokenLen - 1:
       return true
+
+proc findTrackedNode(n: PNode; trackPos: TLineInfo): PSym =
+  if n.kind == nkSym:
+    if isTracked(n.info, trackPos, n.sym.name.s.len): return n.sym
+  else:
+    for i in 0 ..< safeLen(n):
+      let res = findTrackedNode(n[i], trackPos)
+      if res != nil: return res
+
+proc findTrackedSym*(g: ModuleGraph;): PSym =
+  let m = g.getModule(g.config.m.trackPos.fileIndex)
+  if m != nil and m.ast != nil:
+    # xxx: the node finding should be specialized per symbol kind
+    result = findTrackedNode(m.ast, g.config.m.trackPos)
+
+proc executeCmd*(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
+             graph: ModuleGraph) =
+  ## executes the given suggest command, `cmd`, for a given `file`, at the
+  ## position described by `line` and `col`umn. If `dirtyFile` is non-empty,
+  ## then its contents are used as part of the analysis.
+  let conf = graph.config
+  conf.ideCmd = cmd
+  var isKnownFile = true
+  let dirtyIdx = fileInfoIdx(conf, file, isKnownFile)
+
+  if dirtyfile.isEmpty: msgs.setDirtyFile(conf, dirtyIdx, AbsoluteFile"")
+  else: msgs.setDirtyFile(conf, dirtyIdx, dirtyfile)
+
+  conf.m.trackPos = newLineInfo(dirtyIdx, line, col)
+  conf.m.trackPosAttached = false
+  conf.errorCounter = 0
+  if not isKnownFile:
+    graph.compileProject(dirtyIdx)
+  if conf.ideCmd in {ideUse, ideDus} and
+      dirtyfile.isEmpty:
+    discard "no need to recompile anything"
+  else:
+    let modIdx = graph.parentModule(dirtyIdx)
+    graph.markDirty dirtyIdx
+    graph.markClientsDirty dirtyIdx
+    # partially recompiling the project means that that VM and JIT state
+    # would become stale, which we prevent by discarding all of it:
+    graph.vm = nil
+    if conf.ideCmd != ideMod:
+      if isKnownFile:
+        graph.compileProject(modIdx)
 
 when defined(nimsuggest):
 
