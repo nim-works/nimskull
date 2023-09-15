@@ -64,7 +64,6 @@ from std/md5 import getMD5
 from std/times import getTime
 from std/hashes import hash
 from std/osproc import nil
-from std/options as std_options import some
 from system/formatfloat import writeFloatToBufferSprintf
 
 from compiler/modules/modulegraphs import `$`
