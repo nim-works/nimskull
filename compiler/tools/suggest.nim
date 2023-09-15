@@ -484,9 +484,9 @@ proc findTrackedSym*(g: ModuleGraph;): PSym =
 
 proc executeCmd*(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
              graph: ModuleGraph) =
-  ## executes the given suggest command for a given file,
-  ## at the position described by line and column.
-  ## If dirtyFile is non-empty, then its contents are used as part of the analysis.
+  ## executes the given suggest command, `cmd`, for a given `file`, at the
+  ## position described by `line` and `col`umn. If `dirtyFile` is non-empty,
+  ## then its contents are used as part of the analysis.
   let conf = graph.config
   conf.ideCmd = cmd
   var isKnownFile = true
