@@ -346,6 +346,7 @@ proc runTest(filename: string): int =
 proc main() =
   let nimsug = "bin" / addFileExt("nimsuggest_testing", ExeExt)
   if not nimsug.fileExists():
+    # xxx: ideally compiling a test binary should be done in `koch`
     const args = "c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest"
     discard execShellCmd(getCurrentCompilerExe() & " " & args)
 
