@@ -1,5 +1,6 @@
 import
   std/[
+    algorithm,
     times,
     strutils,
     tables
@@ -43,21 +44,29 @@ proc dump*(conf: ConfigRef, prof: Profiler): string =
   ## Constructs a string containing a report of VM execution based on the
   ## data collected by `prof`. The report is formatted and ready to print to
   ## console or similar interface.
-  var data = prof.data
-  result = "\nprof:     µs    #instr  location\n"
-  for i in 0..<32:
-    var infoMax: ProfileInfo
-    var flMax: SourceLinePosition
-    for fl, info in data:
-      if info.time > infoMax.time:
-        infoMax = info
-        flMax = fl
-    if infoMax.count == 0:
-      break
-    result.add  "  " & align($int(infoMax.time * 1e6), 10) &
-                       align($int(infoMax.count), 10) & "  " &
-                       toMsgFilename(conf, newLineInfo(flMax.fileIndex,
-                                                       flMax.line.int,
-                                                       -1)) &
-                       "\n"
-    data.del flMax
+  const MaxEntries = 32
+  var entries: seq[(SourceLinePosition, ProfileInfo)]
+
+  proc compare(a: auto, b: ProfileInfo): int =
+    let t1 = a[1].time
+    if   t1 > b.time: -1
+    elif t1 < b.time: +1
+    else:              0
+
+  # collect the entries with the most time spent:
+  for line, info in prof.data.pairs:
+    let pos = lowerBound(entries, info, compare)
+    if pos < MaxEntries:
+      entries.insert((line, info), pos)
+      # discard excess entries:
+      entries.setLen(max(entries.len, MaxEntries))
+
+  # render the entries to a string:
+  result = "prof:     µs    #instr  location\n"
+  for (pos, info) in entries.items:
+    result.add "  "
+    result.add align($int(info.time * 1e6), 10)
+    result.add align($int(info.count), 10)
+    result.add "  "
+    result.add toMsgFilename(conf, pos.fileIndex)
+    result.add "\n"
