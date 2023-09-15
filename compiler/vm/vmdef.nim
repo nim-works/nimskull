@@ -721,18 +721,18 @@ type
   StackFrameIndex* = int
 
   TStackFrame* = object
-    prc*: PSym              ## current prc; proc that is evaluated
-    slots*: seq[TFullReg]   ## parameters passed to the proc + locals;
-                            ## parameters come first
+    prc*: PSym                 # current prc; proc that is evaluated
+    slots*: seq[TFullReg]      # parameters passed to the proc + locals;
+                              # parameters come first
 
     comesFrom*: int
-    safePoints*: seq[int]   ## used for exception handling
-                            # XXX 'break' should perform cleanup actions
-                            # What does the C backend do for it?
+    safePoints*: seq[int]      # used for exception handling
+                              # XXX 'break' should perform cleanup actions
+                              # What does the C backend do for it?
 
-    savedPC*: PrgCtr        ## remembers the program counter of the ``Ret``
-                            ## instruction during cleanup. -1 indicates that
-                            ## no clean-up is happening
+    savedPC*: PrgCtr         ## remembers the program counter of the ``Ret``
+                             ## instruction during cleanup. -1 indicates that
+                             ## no clean-up is happening
 
   Profiler* = object
     tEnter*: float
