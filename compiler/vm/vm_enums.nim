@@ -118,7 +118,6 @@ type
     opcNctPut, opcNctLen, opcNctGet, opcNctHasNext, opcNctNext, opcNodeId,
 
     opcSlurp,
-    opcGorge,                 ## deprecated to be removed
     opcParseExprToAst,
     opcParseStmtToAst,
     opcNGetLineInfo, opcNSetLineInfo,
