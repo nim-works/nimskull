@@ -905,7 +905,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
           kind: vmTraceMin,
           pc: pc))
 
-    c.profiler.enter(c, tos)
+    c.profiler.enter()
     case instr.opcode
     of opcEof:
       # XXX: eof shouldn't be used to return a register
@@ -3036,7 +3036,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       #createStr regs[ra]
       regs[ra].strVal = typ.typeToString(preferExported)
 
-    c.profiler.leave(c)
+    c.profiler.leave(c.sframes)
 
     inc pc
 
