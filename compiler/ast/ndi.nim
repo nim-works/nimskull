@@ -20,7 +20,6 @@ import
     options
   ],
   compiler/utils/[
-    ropes,
     pathutils
   ]
 
