@@ -12,36 +12,56 @@
 
 import
   compiler/ast/[
-    ast
+    ast,
+    lineinfos
   ],
   compiler/front/[
     msgs,
     options
   ],
   compiler/utils/[
-    ropes,
     pathutils
   ]
 
 type
+  Mapping = tuple
+    info: TLineInfo ## the source code position where the symbol is defined
+    orig: PIdent ## the user-defined name
+    name: string ## the mangled name
+
+    id: int      ## optional ID value. Only meant for debugging and not
+                 ## written to the file
+
   NdiFile* = object
     enabled: bool
     f: File
     buf: string
     filename: AbsoluteFile
-    syms: seq[tuple[s: PSym, name: string]]
+    mappings: seq[Mapping]
 
-proc doWrite(f: var NdiFile; s: PSym; name: string, conf: ConfigRef) =
+proc doWrite(f: var NdiFile; m: Mapping, conf: ConfigRef) =
   f.buf.setLen 0
-  f.buf.addInt s.info.line.int
+  f.buf.addInt m.info.line.int
   f.buf.add "\t"
-  f.buf.addInt s.info.col.int
-  f.f.write(s.name.s, "\t")
-  f.f.writeRope(name)
-  f.f.writeLine("\t", toFullPath(conf, s.info), "\t", f.buf)
+  f.buf.addInt m.info.col.int
+  f.f.write(m.orig.s, "\t")
+  f.f.write(m.name)
+  f.f.writeLine("\t", toFullPath(conf, m.info), "\t", f.buf)
 
-template writeMangledName*(f: NdiFile; s: PSym; name: string, conf: ConfigRef) =
-  if f.enabled: f.syms.add (s, name)
+template writeMangledName*(f: NdiFile; info: TLineInfo, orig: PIdent, n: string,
+                           conf: ConfigRef; id = 0) =
+  ## If `f` is enabled, registers a symbol-to-name mapping entry where
+  ## `info` is the definition's source position, `orig` the user-provided
+  ## symbol name, and `n` the mangled name. Nothing is written to disk yet.
+  ##
+  ## `id` is an additional value meant for debugging purposes that is stored
+  ## toghether with the mapping but is not written to the file.
+  if f.enabled: f.mappings.add (info, orig, n, id)
+
+template writeMangledName*(f: NdiFile; s: PSym; n: string, conf: ConfigRef) =
+  ## Same as the other ``writeMangledName`` overload, but takes the
+  ## ``TLineInfo`` and ``PIdent`` from the symbol `s`.
+  writeMangledName(f, s.info, s.name, n, conf, s.id)
 
 proc open*(f: var NdiFile; filename: AbsoluteFile; conf: ConfigRef) =
   f.enabled = not filename.isEmpty
@@ -53,8 +73,8 @@ proc close*(f: var NdiFile, conf: ConfigRef) =
   if f.enabled:
     f.f = open(f.filename.string, fmWrite, 8000)
     doAssert f.f != nil, f.filename.string
-    for (s, name) in f.syms:
-      doWrite(f, s, name, conf)
+    for m in f.mappings.items:
+      doWrite(f, m, conf)
     close(f.f)
-    f.syms.reset
+    f.mappings.reset
     f.filename.reset
