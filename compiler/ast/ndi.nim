@@ -30,6 +30,9 @@ type
     orig: PIdent ## the user-defined name
     name: string ## the mangled name
 
+    id: int      ## optional ID value. Only meant for debugging and not
+                 ## written to the file
+
   NdiFile* = object
     enabled: bool
     f: File
@@ -47,16 +50,19 @@ proc doWrite(f: var NdiFile; m: Mapping, conf: ConfigRef) =
   f.f.writeLine("\t", toFullPath(conf, m.info), "\t", f.buf)
 
 template writeMangledName*(f: NdiFile; info: TLineInfo, orig: PIdent, n: string,
-                           conf: ConfigRef) =
+                           conf: ConfigRef; id = 0) =
   ## If `f` is enabled, registers a symbol-to-name mapping entry where
   ## `info` is the definition's source position, `orig` the user-provided
   ## symbol name, and `n` the mangled name. Nothing is written to disk yet.
-  if f.enabled: f.mappings.add (info, orig, n)
+  ##
+  ## `id` is an additional value meant for debugging purposes that is stored
+  ## toghether with the mapping but is not written to the file.
+  if f.enabled: f.mappings.add (info, orig, n, id)
 
 template writeMangledName*(f: NdiFile; s: PSym; n: string, conf: ConfigRef) =
   ## Same as the other ``writeMangledName`` overload, but takes the
   ## ``TLineInfo`` and ``PIdent`` from the symbol `s`.
-  writeMangledName(f, s.info, s.name, n, conf)
+  writeMangledName(f, s.info, s.name, n, conf, s.id)
 
 proc open*(f: var NdiFile; filename: AbsoluteFile; conf: ConfigRef) =
   f.enabled = not filename.isEmpty
