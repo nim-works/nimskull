@@ -2630,8 +2630,6 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       checkHandle(regs[rb])
       regs[ra].strVal = opSlurp($regs[rb].strVal, c.debug[pc],
                                      c.module, c.config)
-    of opcGorge:
-      unreachable("no longer an opcode/magic")
 
     of opcParseExprToAst, opcParseStmtToAst:
       decodeBC(rkNimNode)
