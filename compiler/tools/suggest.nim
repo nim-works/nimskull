@@ -162,15 +162,17 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   result.quality = quality
   result.isGlobal = sfGlobal in s.flags
   result.prefix = prefix
-  result.contextFits = inTypeContext == (s.kind in {skType, skGenericParam})
+  if section in {ideSug, ideCon}:
+    result.contextFits = inTypeContext == (s.kind in {skType, skGenericParam})
   result.scope = scope
   result.name = addr s.name.s
   when defined(nimsuggest):
-    result.globalUsages = s.allUsages.len
-    var c = 0
-    for u in s.allUsages:
-      if u.fileIndex == info.fileIndex: inc c
-    result.localUsages = c
+    if section in {ideSug, ideCon}:
+      result.globalUsages = s.allUsages.len
+      var c = 0
+      for u in s.allUsages:
+        if u.fileIndex == info.fileIndex: inc c
+      result.localUsages = c
   result.symkind = byte s.kind
   if optIdeTerse notin g.config.globalOptions:
     result.qualifiedPath = @[]
@@ -192,7 +194,8 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
     else:
       result.forth = ""
     when defined(nimsuggest) and not defined(noDocgen) and not defined(leanCompiler):
-      result.doc = extractDocComment(g, s)
+      if section in {ideSug, ideCon, ideDef, ideChk}:
+        result.doc = extractDocComment(g, s)
   let infox =
     if useSuppliedInfo or section in {ideUse, ideHighlight, ideOutline}:
       info
@@ -201,10 +204,10 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   result.filePath = toFullPath(g.config, infox)
   result.line = toLinenumber(infox)
   result.column = toColumn(infox)
-  result.tokenLen = if section != ideHighlight:
-                      s.name.s.len
-                    else:
-                      getTokenLenFromSource(g.config, s.name.s, infox)
+  if section in {ideHighlight}:
+    result.tokenLen = getTokenLenFromSource(g.config, s.name.s, infox)
+  else:
+    result.tokenLen = s.name.s.len
 
 proc `$`*(suggest: Suggest): string =
   result = $suggest.section
