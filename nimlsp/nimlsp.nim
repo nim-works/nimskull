@@ -1,46 +1,15 @@
 import std/[algorithm, hashes, os, osproc, sets,
-<<<<<<< HEAD
             streams, strformat, strutils, tables]
-=======
-            streams, strformat, strutils, tables, uri]
->>>>>>> 19a04042ad (tool: LSP support)
 
 import nimlsppkg/[baseprotocol, logger, suggestlib, utfmapping]
 include nimlsppkg/[messages, messageenums]
 
 
 const
-<<<<<<< HEAD
   # This is used to explicitly set the default source path
   explicitSourcePath {.strdefine.} = getCurrentCompilerExe().parentDir.parentDir
 
 var nimpath = explicitSourcePath
-=======
-  version = block:
-    var version = "0.0.0"
-    let nimbleFile = staticRead(currentSourcePath().parentDir / "nimlsp.nimble")
-    for line in nimbleFile.splitLines:
-      let keyval = line.split('=')
-      if keyval.len == 2:
-        if keyval[0].strip == "version":
-          version = keyval[1].strip(chars = Whitespace + {'"'})
-          break
-    version
-  # This is used to explicitly set the default source path
-  explicitSourcePath {.strdefine.} = getCurrentCompilerExe().parentDir.parentDir
-
-type
-  UriParseError* = object of Defect
-    uri: string
-
-var nimpath = explicitSourcePath
-
-infoLog("Version: ", version)
-infoLog("explicitSourcePath: ", explicitSourcePath)
-for i in 1..paramCount():
-  infoLog("Argument ", i, ": ", paramStr(i))
-
->>>>>>> 19a04042ad (tool: LSP support)
 var
   gotShutdown = false
   initialized = false
@@ -84,58 +53,6 @@ template textDocumentNotification(message: typed; kind: typed; name, body: untyp
       else:
         debugLog("Unable to parse data as ", kind)
 
-<<<<<<< HEAD
-=======
-proc pathToUri(path: string): string =
-  # This is a modified copy of encodeUrl in the uri module. This doesn't encode
-  # the / character, meaning a full file path can be passed in without breaking
-  # it.
-  result = newStringOfCap(path.len + path.len shr 2) # assume 12% non-alnum-chars
-  when defined(windows):
-    result.add '/'
-  for c in path:
-    case c
-    # https://tools.ietf.org/html/rfc3986#section-2.3
-    of 'a'..'z', 'A'..'Z', '0'..'9', '-', '.', '_', '~', '/': result.add c
-    of '\\':
-      when defined(windows):
-        result.add '/'
-      else:
-        result.add '%'
-        result.add toHex(ord(c), 2)
-    else:
-      result.add '%'
-      result.add toHex(ord(c), 2)
-
-proc uriToPath(uri: string): string =
-  ## Convert an RFC 8089 file URI to a native, platform-specific, absolute path.
-  #let startIdx = when defined(windows): 8 else: 7
-  #normalizedPath(uri[startIdx..^1])
-  let parsed = uri.parseUri
-  if parsed.scheme != "file":
-    var e = newException(UriParseError, &"Invalid scheme: {parsed.scheme}, only \"file\" is supported")
-    e.uri = uri
-    raise e
-  if parsed.hostname != "":
-    var e = newException(UriParseError, &"Invalid hostname: {parsed.hostname}, only empty hostname is supported")
-    e.uri = uri
-    raise e
-  return normalizedPath(
-    when defined(windows):
-      parsed.path[1..^1]
-    else:
-      parsed.path).decodeUrl
-
-proc parseId(node: JsonNode): string =
-  if node == nil: return
-  if node.kind == JString:
-    node.getStr
-  elif node.kind == JInt:
-    $node.getInt
-  else:
-    ""
-
->>>>>>> 19a04042ad (tool: LSP support)
 proc respond(outs: Stream, request: JsonNode, data: JsonNode) =
   let resp = create(ResponseMessage, "2.0", parseId(request["id"]), some(data), none(ResponseError)).JsonNode
   outs.sendJson resp
@@ -192,29 +109,6 @@ proc getProjectFile(file: string): string =
 template getNimsuggest(fileuri: string): Nimsuggest =
   projectFiles[openFiles[fileuri].projectFile].nimsuggest
 
-<<<<<<< HEAD
-=======
-if paramCount() == 1:
-  case paramStr(1):
-    of "--help":
-      echo "Usage: nimlsp [OPTION | PATH]\n"
-      echo "--help, shows this message"
-      echo "--version, shows only the version"
-      echo "PATH, path to the Nim source directory, defaults to \"", nimpath, "\""
-      quit 0
-    of "--version":
-      echo "nimlsp v", version
-      when defined(debugLogging): echo "Compiled with debug logging"
-      when defined(debugCommunication): echo "Compiled with communication logging"
-      quit 0
-    else: nimpath = expandFilename(paramStr(1))
-if not fileExists(nimpath / "config/nim.cfg"):
-  stderr.write &"""Unable to find "config/nim.cfg" in "{nimpath
-  }". Supply the Nim project folder by adding it as an argument.
-"""
-  quit 1
-
->>>>>>> 19a04042ad (tool: LSP support)
 proc checkVersion(outs: Stream) =
   let
     nimoutputTuple =
@@ -229,7 +123,6 @@ proc checkVersion(outs: Stream) =
     if version != NimVersion:
       outs.notify("window/showMessage", create(ShowMessageParams, MessageType.Warning.int, message = "Current Nim version does not match the one NimLSP is built against " & version & " != " & NimVersion).JsonNode)
 
-<<<<<<< HEAD
 proc createMarkupContent(label: string; content: string): MarkupContent =
   let label = "```nim\n" & label & "\n```\n"
   var 
@@ -269,8 +162,6 @@ proc createMarkupContent(label: string; content: string): MarkupContent =
   )
   result = create(MarkupContent, "markdown", label & c)
 
-=======
->>>>>>> 19a04042ad (tool: LSP support)
 proc main(ins: Stream, outs: Stream) =
   checkVersion(outs)
   var message: JsonNode
@@ -403,24 +294,9 @@ proc main(ins: Stream, outs: Stream) =
                       create(Position, req.rawLine, req.rawChar),
                       create(Position, req.rawLine, req.rawChar + suggestions[0].qualifiedPath[^1].len)
                     ))
-<<<<<<< HEAD
                   markupContent = createMarkupContent(label, suggestions[0].doc)
                 resp = create(Hover, markupContent, rangeopt).JsonNode
               outs.respond(message, resp)
-=======
-                  markedString = create(MarkedStringOption, "nim", label)
-                if suggestions[0].doc != "":
-                  resp = create(Hover,
-                    @[
-                      markedString,
-                      create(MarkedStringOption, "", suggestions[0].doc),
-                    ],
-                    rangeopt
-                  ).JsonNode
-                else:
-                  resp = create(Hover, markedString, rangeopt).JsonNode;
-                outs.respond(message, resp)
->>>>>>> 19a04042ad (tool: LSP support)
           of "textDocument/references":
             textDocumentRequest(message, ReferenceParams, req):
               debugLog "Running equivalent of: use ", req.fileuri, " ", req.filestash, "(",
@@ -517,10 +393,7 @@ proc main(ins: Stream, outs: Stream) =
               debugLog "Found outlines: ", syms[0..<min(syms.len, 10)],
                         if syms.len > 10: &" and {syms.len-10} more" else: ""
               var resp: JsonNode
-<<<<<<< HEAD
               var flags = newSeq[int]()
-=======
->>>>>>> 19a04042ad (tool: LSP support)
               if syms.len == 0:
                 resp = newJNull()
               else:
@@ -528,7 +401,6 @@ proc main(ins: Stream, outs: Stream) =
                 for sym in syms.sortedByIt((it.line,it.column,it.quality)):
                   if sym.qualifiedPath.len != 2:
                     continue
-<<<<<<< HEAD
                   flags.setLen(0)
                   for f in sym.flags:
                     flags.add f.int
@@ -545,25 +417,8 @@ proc main(ins: Stream, outs: Stream) =
                         create(Position, sym.line-1, sym.column),
                         create(Position, sym.line-1, sym.column + sym.tokenLen)
                       ),
-                    none(seq[DocumentSymbol])
-=======
-                  resp.add create(
-                    SymbolInformation,
-                    sym.qualifiedPath[^1],
-                    nimSymToLSPKind(sym.symKind).int,
-                    some(false),
-                    create(Location,
-                    "file://" & pathToUri(sym.filepath),
-                      create(Range,
-                        create(Position, sym.line-1, sym.column),
-                        create(Position, sym.line-1, sym.column + sym.qualifiedPath[^1].len)
-                      )
-                    ),
-                    none(string)
->>>>>>> 19a04042ad (tool: LSP support)
-                  ).JsonNode
-              outs.respond(message, resp)
-          of "textDocument/signatureHelp":
+                    none(seq[DocumentSymbol])).JsonNode
+                outs.respond(message, resp)
             textDocumentRequest(message, TextDocumentPositionParams, req):
               debugLog "Running equivalent of: con ", req.filePath, " ", req.filestash, "(",
                 req.rawLine + 1, ":",
@@ -753,7 +608,6 @@ proc main(ins: Stream, outs: Stream) =
       warnLog "Got exception: ", e.msg
       continue
 
-<<<<<<< HEAD
 when isMainModule:
   infoLog("explicitSourcePath: ", explicitSourcePath)
   for i in 1..paramCount():
@@ -777,9 +631,3 @@ when isMainModule:
     ins = newFileStream(stdin)
     outs = newFileStream(stdout)
   main(ins, outs)
-=======
-var
-  ins = newFileStream(stdin)
-  outs = newFileStream(stdout)
-main(ins, outs)
->>>>>>> 19a04042ad (tool: LSP support)

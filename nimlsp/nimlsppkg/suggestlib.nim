@@ -75,7 +75,6 @@ func nimSymDetails*(suggest: Suggest): string =
   of skVar: "var of " & suggest.forth
   else: suggest.forth
 
-<<<<<<< HEAD
 func symKindToString*(suggest: byte): string =
   case TSymKind(suggest)
     of skConst: discard
@@ -93,8 +92,6 @@ func symKindToString*(suggest: byte): string =
     of skLabel: result = "label"
     of skUnknown: result = "unkown"
     else: result = ""
-=======
->>>>>>> 19a04042ad (tool: LSP support)
 
 template createFullCommand(command: untyped) =
   proc command*(nimsuggest: NimSuggest, file: string, dirtyfile = "",

@@ -112,9 +112,6 @@ type
     Text = 1,
     Read = 2,
     Write = 3
-<<<<<<< HEAD
 
   SymbolTag* {.pure.} = enum
     Deprecated = 1
-=======
->>>>>>> 19a04042ad (tool: LSP support)

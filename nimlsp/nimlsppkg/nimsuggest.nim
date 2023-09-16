@@ -20,13 +20,11 @@ import
   compiler/front/[
     options,
     optionsprocessor,
-    # commands,
     msgs,
     cmdlinehelper,
     cli_reporter
   ],
   compiler/utils/[
-    # prefixmatches,
     pathutils
   ],
   compiler/sem/[
@@ -42,7 +40,7 @@ from compiler/ast/reports import Report,
 
 from compiler/front/main import customizeForBackend
 
-from compiler/tools/suggest import isTracked, listUsages, suggestSym, `$`
+from compiler/tools/suggest import findTrackedSym, executeCmd, listUsages, suggestSym, `$`
 
 export Suggest
 export IdeCmd
@@ -125,19 +123,6 @@ proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
 
   retval.doStopCompile = proc (): bool = false
   return NimSuggest(graph: retval, idle: 0, cachedMsgs: @[])
-
-proc findNode(n: PNode; trackPos: TLineInfo): PSym =
-  if n.kind == nkSym:
-    if isTracked(n.info, trackPos, n.sym.name.s.len): return n.sym
-  else:
-    for i in 0 ..< safeLen(n):
-      let res = findNode(n[i], trackPos)
-      if res != nil: return res
-
-proc symFromInfo(graph: ModuleGraph; trackPos: TLineInfo; moduleIdx: FileIndex): PSym =
-  let m = graph.getModule(moduleIdx)
-  if m != nil and m.ast != nil:
-    result = findNode(m.ast, trackPos)
 
 proc getSymNode(node: ParsedNode): ParsedNode =
   result = node
@@ -262,22 +247,9 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int,
     needCompile = false
 
   if needCompile:
-    if not isKnownFile:
-      moduleIdx = dirtyIdx
-      # stderr.writeLine "Compile unknown module: " & toFullPath(conf, moduleIdx)
-      discard graph.compileModule(moduleIdx, {})
-    else:
-      moduleIdx = graph.parentModule(dirtyIdx)
-      # stderr.writeLine "Compile known module: " & toFullPath(conf, moduleIdx)
-      graph.markDirty dirtyIdx
-      graph.markClientsDirty dirtyIdx
-      # partially recompiling the project means that that VM and JIT state
-      # would become stale, which we prevent by discarding all of it:
-      graph.vm = nil
-      if conf.ideCmd != ideMod:
-        discard graph.compileModule(moduleIdx, {})
+    executeCmd(cmd, file, dirtyfile, line, col, graph)
   if conf.ideCmd in {ideUse, ideDus}:
-    let u = graph.symFromInfo(conf.m.trackPos, moduleIdx)
+    let u = graph.findTrackedSym()
     if u != nil:
       listUsages(graph, u)
     else:
