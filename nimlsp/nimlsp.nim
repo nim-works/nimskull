@@ -16,6 +16,10 @@ var
   projectFiles = initTable[string, tuple[nimsuggest: NimSuggest, openFiles: OrderedSet[string]]]()
   openFiles = initTable[string, tuple[projectFile: string, fingerTable: seq[seq[tuple[u16pos, offset: int]]]]]()
 
+template location(req: untyped): string =
+  let lineCol = "(" & $(req.rawLine() + 1) & ":" & $openFiles.col(req) & ")"
+  req.filePath & lineCol
+
 template fileuri(p: untyped): string =
   p["textDocument"]["uri"].getStr
 
@@ -178,12 +182,10 @@ proc main(ins: Stream, outs: Stream) =
           continue
         case message["method"].getStr:
           of "shutdown":
-            debugLog "Got shutdown request, answering"
             let resp = newJNull()
             outs.respond(message, resp)
             gotShutdown = true
           of "initialize":
-            debugLog "Got initialize request, answering"
             initialized = true
             let resp = create(InitializeResult, create(ServerCapabilities,
               textDocumentSync = some(create(TextDocumentSyncOptions,
@@ -223,9 +225,7 @@ proc main(ins: Stream, outs: Stream) =
             outs.respond(message,resp)
           of "textDocument/completion":
             textDocumentRequest(message, CompletionParams, req):
-              debugLog "Running equivalent of: sug ", req.filePath, " ", req.filestash, "(",
-                req.rawLine + 1, ":",
-                openFiles.col(req), ")"
+              debugLog location(req)
               let suggestions = getNimsuggest(req.fileuri).sug(req.filePath, dirtyfile = req.filestash,
                 req.rawLine + 1,
                 openFiles.col(req)
@@ -270,9 +270,7 @@ proc main(ins: Stream, outs: Stream) =
               outs.respond(message, completionItems)
           of "textDocument/hover":
             textDocumentRequest(message, TextDocumentPositionParams, req):
-              debugLog "Running equivalent of: def ", req.filePath, " ", req.filestash, "(",
-                req.rawLine + 1, ":",
-                openFiles.col(req), ")"
+              debugLog location(req)
               let suggestions = getNimsuggest(req.fileuri).def(req.filePath, dirtyfile = req.filestash,
                 req.rawLine + 1,
                 openFiles.col(req)
@@ -299,9 +297,7 @@ proc main(ins: Stream, outs: Stream) =
               outs.respond(message, resp)
           of "textDocument/references":
             textDocumentRequest(message, ReferenceParams, req):
-              debugLog "Running equivalent of: use ", req.fileuri, " ", req.filestash, "(",
-                req.rawLine + 1, ":",
-                openFiles.col(req), ")"
+              debugLog location(req)
               let suggestions = getNimsuggest(req.fileuri).use(req.filePath, dirtyfile = req.filestash,
                 req.rawLine + 1,
                 openFiles.col(req)
@@ -325,9 +321,7 @@ proc main(ins: Stream, outs: Stream) =
                 outs.respond(message, response)
           of "textDocument/rename":
             textDocumentRequest(message, RenameParams, req):
-              debugLog "Running equivalent of: use ", req.fileuri, " ", req.filestash, "(",
-                req.rawLine + 1, ":",
-                openFiles.col(req), ")"
+              debugLog location(req)
               let suggestions = getNimsuggest(req.fileuri).use(req.filePath, dirtyfile = req.filestash,
                 req.rawLine + 1,
                 openFiles.col(req)
@@ -357,9 +351,7 @@ proc main(ins: Stream, outs: Stream) =
                 outs.respond(message, resp)
           of "textDocument/definition":
             textDocumentRequest(message, TextDocumentPositionParams, req):
-              debugLog "Running equivalent of: def ", req.fileuri, " ", req.filestash, "(",
-                req.rawLine + 1, ":",
-                openFiles.col(req), ")"
+              debugLog location(req)
               let declarations = getNimsuggest(req.fileuri).def(req.filePath, dirtyfile = req.filestash,
                 req.rawLine + 1,
                 openFiles.col(req)
@@ -421,9 +413,7 @@ proc main(ins: Stream, outs: Stream) =
                 outs.respond(message, resp)
           of "textDocument/signatureHelp":
             textDocumentRequest(message, TextDocumentPositionParams, req):
-              debugLog "Running equivalent of: con ", req.filePath, " ", req.filestash, "(",
-                req.rawLine + 1, ":",
-                openFiles.col(req), ")"
+              debugLog location(req)
               let suggestions = getNimsuggest(req.fileuri).con(req.filePath, dirtyfile = req.filestash, req.rawLine + 1, req.rawChar)
               var signatures = newSeq[SignatureInformation]()
               for suggestion in suggestions:
