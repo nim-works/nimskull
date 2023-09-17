@@ -1,12 +1,16 @@
+## Implements a simple time profiler for the VM.
+
 import
   std/[
     algorithm,
+    hashes,
     times,
     strutils,
     tables
   ],
   compiler/ast/[
-    lineinfos,
+    ast_types,
+    lineinfos
   ],
   compiler/front/[
     options,
@@ -16,36 +20,44 @@ import
     vmdef
   ]
 
+from compiler/ast/ast import id
 
-proc enter*(prof: var Profiler, c: TCtx, sframe: StackFrameIndex) {.inline.} =
-  if optProfileVM in c.config.globalOptions:
+func hash(s: PSym): Hash {.inline.} =
+  hash(s.id)
+
+proc enter*(prof: var Profiler) {.inline.} =
+  if prof.enabled:
     prof.tEnter = cpuTime()
-    prof.sframe = sframe
 
-proc leaveImpl(prof: var Profiler, c: TCtx) {.noinline.} =
-  let tLeave = cpuTime()
-  var frameIdx = prof.sframe
-  while frameIdx >= 0:
-    let frame = c.sframes[frameIdx]
-    if frame.prc != nil:
-      let li = (frame.prc.info.fileIndex, frame.prc.info.line)
-      if li notin prof.data:
-        prof.data[li] = ProfileInfo()
-      prof.data[li].time += tLeave - prof.tEnter
-      if frameIdx == prof.sframe:
-        inc prof.data[li].count
-    dec frameIdx
+proc leaveImpl(prof: var Profiler, frames: openArray[TStackFrame]) {.noinline.} =
+  # note: the implementation is kept in a separate noinline procedure in
+  # order to reduce the instruction-cache pressure when profiling is disabled
+  let diff = cpuTime()
 
-proc leave*(prof: var Profiler, c: TCtx) {.inline.} =
-  if optProfileVM in c.config.globalOptions:
-    leaveImpl(prof, c)
+  for i in 0..<frames.len:
+    let prc = frames[i].prc
+    if prc != nil:
+      if prc notin prof.data:
+        prof.data[prc] = ProfileInfo()
+      prof.data[prc].time += diff
+      # for the active frame, increment the number of samples taken
+      if i == frames.high:
+        inc prof.data[prc].count
+
+proc leave*(prof: var Profiler, frames: openArray[TStackFrame]) {.inline.} =
+  ## If profiling is enabled, ends a measurement, updating the collected data.
+  ## The data of the profiler entries associated with the `frames` is updated
+  ## with the measured time, and the "number of samples" counter of the current
+  ## active frame (last entry in the list) is incremented by one.
+  if prof.enabled:
+    leaveImpl(prof, frames)
 
 proc dump*(conf: ConfigRef, prof: Profiler): string =
-  ## Constructs a string containing a report of VM execution based on the
-  ## data collected by `prof`. The report is formatted and ready to print to
-  ## console or similar interface.
+  ## Constructs a string containing a report of VM execution based on the given
+  ## `prof`. The report is formatted and ready to print to console or
+  ## similar interface.
   const MaxEntries = 32
-  var entries: seq[(SourceLinePosition, ProfileInfo)]
+  var entries: seq[(TLineInfo, ProfileInfo)]
 
   proc compare(a: auto, b: ProfileInfo): int =
     let t1 = a[1].time
@@ -54,12 +66,12 @@ proc dump*(conf: ConfigRef, prof: Profiler): string =
     else:              0
 
   # collect the entries with the most time spent:
-  for line, info in prof.data.pairs:
+  for sym, info in prof.data.pairs:
     let pos = lowerBound(entries, info, compare)
     if pos < MaxEntries:
-      entries.insert((line, info), pos)
+      entries.insert((sym.info, info), pos)
       # discard excess entries:
-      entries.setLen(max(entries.len, MaxEntries))
+      entries.setLen(min(entries.len, MaxEntries))
 
   # render the entries to a string:
   result = "prof:     µs    #instr  location\n"
@@ -68,5 +80,5 @@ proc dump*(conf: ConfigRef, prof: Profiler): string =
     result.add align($int(info.time * 1e6), 10)
     result.add align($int(info.count), 10)
     result.add "  "
-    result.add toMsgFilename(conf, pos.fileIndex)
+    result.add toFileLineCol(conf, pos)
     result.add "\n"

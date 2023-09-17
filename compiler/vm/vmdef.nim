@@ -736,21 +736,17 @@ type
 
   ProfileInfo* = object
     ## Profiler data for a single procedure.
-    time*: float ## the time spent on executing instructions (exclusive)
-    count*: int  ## the number of instruction executed (exclusive)
-
-  SourceLinePosition* = tuple
-    ## Identifies a line in a source file. Only intended for use by
-    ## the profiler.
-    fileIndex: typeof(TLineInfo.fileIndex)
-    line: typeof(TLineInfo.line)
+    time*: float ## the time spent on executing instructions (inclusive)
+    count*: int  ## the number of instructions executed (exclusive)
 
   Profiler* = object
     # XXX: move this type to the ``vmprofiler`` module once possible
-    tEnter*: float
-    sframe*: StackFrameIndex   ## The current stack frame
+    enabled*: bool ## whether profiling is enabled
+    tEnter*: float ## the point-in-time when the active measurment started
 
-    data*: Table[SourceLinePosition, ProfileInfo]
+    data*: Table[PSym, ProfileInfo]
+      ## maps the symbol of a procedure to the associated data gathered by the
+      ## profiler
 
 func `<`*(a, b: FieldIndex): bool {.borrow.}
 func `<=`*(a, b: FieldIndex): bool {.borrow.}
@@ -892,6 +888,8 @@ proc initCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
 
   result.typeInfoCache.init()
   result.memory.allocator.byteType = result.typeInfoCache.charType
+
+  result.profiler.enabled = optProfileVM in g.config.globalOptions
 
 func refresh*(c: var TCtx, module: PSym; idgen: IdGenerator) =
   addInNimDebugUtils(c.config, "refresh")
