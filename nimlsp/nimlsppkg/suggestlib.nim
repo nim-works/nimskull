@@ -18,6 +18,15 @@ proc `$`*(suggest: Suggest): string =
   }, filePath: {suggest.filePath}, line: {suggest.line}, column: {suggest.column
   }, doc: {suggest.doc}, quality: {suggest.quality}, prefix: {suggest.prefix})"""
 
+template ellipsis(s: string): string =
+  if s.len > 0: "..." else: ""
+
+proc logFormat*(sug: Suggest): string =
+  &"""(section: {sug.section}, symKind: {TSymKind(sug.symkind)},
+  qualifiedPath: {sug.qualifiedPath.join(".")}, forth: {sug.forth},
+  filePath: {sug.filePath.ellipsis()}, line: {sug.line}, column: {sug.column},
+  doc: {sug.doc.ellipsis()}, quality: {sug.quality}, prefix: {sug.prefix})"""
+
 func collapseByIdentifier*(suggest: Suggest): string =
   ## Function to create an identifier that can be used to remove duplicates in a list
   fmt"{suggest.qualifiedPath[^1]}__{suggest.symKind.TSymKind}"

@@ -1,5 +1,5 @@
 import std/[algorithm, hashes, os, osproc, sets,
-            streams, strformat, strutils, tables]
+            streams, strformat, strutils, tables, logging]
 import nimlsppkg/[baseprotocol, logger, suggestlib, utfmapping, utils]
 include nimlsppkg/[messages, messageenums]
 
@@ -15,9 +15,17 @@ var
   projectFiles = initTable[string, tuple[nimsuggest: NimSuggest, openFiles: OrderedSet[string]]]()
   openFiles = initTable[string, tuple[projectFile: string, fingerTable: seq[seq[tuple[u16pos, offset: int]]]]]()
 
+proc debugSuggests(suggests: seq[Suggest]) =
+  for sug in suggests:
+    debug logFormat(sug)
+  flushLog()
+
 template location(req: untyped): string =
   let lineCol = "(" & $(req.rawLine() + 1) & ":" & $openFiles.col(req) & ")"
   req.filePath & lineCol
+
+template uriAndStash(req: untyped): string =
+  "uri: " &  req.fileuri & "stash: " & req.filestash
 
 template fileuri(p: untyped): string =
   p["textDocument"]["uri"].getStr
@@ -158,9 +166,8 @@ proc main(ins: Stream, outs: Stream) =
                 req.rawLine + 1,
                 openFiles.col(req)
               )
-              debugLog "Found suggestions: ",
-                suggestions[0 ..< min(suggestions.len, 10)],
-                if suggestions.len > 10: &" and {suggestions.len-10} more" else: ""
+              debugLog "Found suggestions: " & $suggestions.len
+              debugSuggests(suggestions[0 ..< min(suggestions.len, 10)])
               var
                 completionItems = newJarray()
                 seenLabels: CountTable[string]
@@ -203,9 +210,8 @@ proc main(ins: Stream, outs: Stream) =
                 req.rawLine + 1,
                 openFiles.col(req)
               )
-              debugLog "Found suggestions: ",
-                suggestions[0 ..< min(suggestions.len, 10)],
-                if suggestions.len > 10: &" and {suggestions.len-10} more" else: ""
+              debugLog "Found suggestions: " & $suggestions.len
+              debugSuggests(suggestions[0 ..< min(suggestions.len, 10)])
               var resp: JsonNode
               if suggestions.len == 0:
                 resp = newJNull()
@@ -230,9 +236,8 @@ proc main(ins: Stream, outs: Stream) =
                 req.rawLine + 1,
                 openFiles.col(req)
               )
-              debugLog "Found suggestions: ",
-                suggestions[0 ..< min(suggestions.len, 10)],
-                if suggestions.len > 10: &" and {suggestions.len-10} more" else: ""
+              debugLog "Found suggestions: " & $suggestions.len
+              debugSuggests(suggestions[0 ..< min(suggestions.len, 10)])
               var response = newJarray()
               for suggestion in suggestions:
                 if suggestion.section == ideUse or req["context"]["includeDeclaration"].getBool:
@@ -254,9 +259,8 @@ proc main(ins: Stream, outs: Stream) =
                 req.rawLine + 1,
                 openFiles.col(req)
               )
-              debugLog "Found suggestions: ",
-                suggestions[0..<min(suggestions.len, 10)],
-                if suggestions.len > 10: &" and {suggestions.len-10} more" else: ""
+              debugLog "Found suggestions: " & $suggestions.len
+              debugSuggests(suggestions[0..<min(suggestions.len, 10)])
               var resp: JsonNode
               if suggestions.len == 0:
                 resp = newJNull()
@@ -284,9 +288,8 @@ proc main(ins: Stream, outs: Stream) =
                 req.rawLine + 1,
                 openFiles.col(req)
               )
-              debugLog "Found suggestions: ",
-                declarations[0..<min(declarations.len, 10)],
-                if declarations.len > 10: &" and {declarations.len-10} more" else: ""
+              debugLog "Found suggestions: " & $declarations.len
+              debugSuggests(declarations[0..<min(declarations.len, 10)])
               var resp: JsonNode
               if declarations.len == 0:
                 resp = newJNull()
@@ -303,15 +306,14 @@ proc main(ins: Stream, outs: Stream) =
               outs.respond(message, resp)
           of "textDocument/documentSymbol":
             textDocumentRequest(message, DocumentSymbolParams, req):
-              debugLog "Running equivalent of: outline ", req.fileuri,
-                        " ", req.filestash
+              debugLog req.uriAndStash()
               let projectFile = openFiles[req.fileuri].projectFile
               let syms = getNimsuggest(req.fileuri).outline(
                 req.filePath,
                 dirtyfile = req.filestash
               )
-              debugLog "Found outlines: ", syms[0..<min(syms.len, 10)],
-                        if syms.len > 10: &" and {syms.len-10} more" else: ""
+              debugLog "Found outlines: " & $syms.len
+              debugSuggests(syms[0..<min(syms.len, 10)])
               var resp: JsonNode
               var flags = newSeq[int]()
               if syms.len == 0:
@@ -382,7 +384,7 @@ proc main(ins: Stream, outs: Stream) =
               let
                 file = open(req.filestash, fmWrite)
                 projectFile = getProjectFile(uriToPath(req.fileuri))
-              debugLog "New document: ", req.fileuri, " stash: ", req.filestash
+              debugLog req.uriAndStash()
               openFiles[req.fileuri] = (
                 projectFile: projectFile,
                 fingerTable: @[]
@@ -400,7 +402,7 @@ proc main(ins: Stream, outs: Stream) =
           of "textDocument/didChange":
             textDocumentNotification(message, DidChangeTextDocumentParams, req):
               let file = open(req.filestash, fmWrite)
-              debugLog "Got document change for URI: ", req.fileuri, " saving to ", req.filestash
+              debugLog req.uriAndStash()
               openFiles[req.fileuri].fingerTable = @[]
               for line in req["contentChanges"][0]["text"].getStr.splitLines:
                 openFiles[req.fileuri].fingerTable.add line.createUTFMapping()
@@ -412,7 +414,7 @@ proc main(ins: Stream, outs: Stream) =
           of "textDocument/didClose":
             textDocumentNotification(message, DidCloseTextDocumentParams, req):
               let projectFile = getProjectFile(uriToPath(req.fileuri))
-              debugLog "Got document close for URI: ", req.fileuri, " copied to ", req.filestash
+              debugLog req.uriAndStash()
               removeFile(req.filestash)
               projectFiles[projectFile].openFiles.excl(req.fileuri)
               if projectFiles[projectFile].openFiles.len == 0:
@@ -424,17 +426,15 @@ proc main(ins: Stream, outs: Stream) =
             textDocumentNotification(message, DidSaveTextDocumentParams, req):
               if req["text"].isSome:
                 let file = open(req.filestash, fmWrite)
-                debugLog "Got document save for URI: ", req.fileuri, " saving to ", req.filestash
+                debugLog req.uriAndStash()
                 openFiles[req.fileuri].fingerTable = @[]
                 for line in req["text"].unsafeGet.getStr.splitLines:
                   openFiles[req.fileuri].fingerTable.add line.createUTFMapping()
                   file.writeLine line
                 file.close()
-              debugLog "fileuri: ", req.fileuri, ", project file: ", openFiles[req.fileuri].projectFile, ", dirtyfile: ", req.filestash
               let diagnostics = getNimsuggest(req.fileuri).chk(req.filePath, dirtyfile = req.filestash)
-              debugLog "Got diagnostics: ",
-                diagnostics[0..<min(diagnostics.len, 10)],
-                if diagnostics.len > 10: &" and {diagnostics.len-10} more" else: ""
+              debugLog "Got diagnostics: " & $diagnostics.len
+              debugSuggests(diagnostics[0..<min(diagnostics.len, 10)])
               var response: seq[Diagnostic]
               for diagnostic in diagnostics:
                 if diagnostic.line == 0:
@@ -466,9 +466,8 @@ proc main(ins: Stream, outs: Stream) =
               let projectFile = openFiles[req.fileuri].projectFile
               for f in projectFiles[projectFile].openFiles.items:
                 let diagnostics = getNimsuggest(f).chk(req.filePath, dirtyfile = req.filestash)
-                debugLog "Got diagnostics: ",
-                  diagnostics[0 ..< min(diagnostics.len, 10)],
-                  if diagnostics.len > 10: &" and {diagnostics.len-10} more" else: ""
+                debugLog "Got diagnostics: " & $diagnostics.len
+                debugSuggests(diagnostics[0 ..< min(diagnostics.len, 10)])
 
                 var response: seq[Diagnostic]
                 for diagnostic in diagnostics:

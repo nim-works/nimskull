@@ -6,6 +6,9 @@ discard existsOrCreateDir(storage)
 let rollingLog = newRollingFileLogger(storage / "nimlsp.log")
 addHandler(rollingLog)
 
+template flushLog*() =
+  flushFile rollingLog.file
+
 template debugLog*(args: varargs[string, `$`]) =
   when defined(debugLogging):
     debug join(args)
