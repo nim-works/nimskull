@@ -109,11 +109,12 @@ func hash(x: PSym): int = hash(x.id)
 
 proc writeMangledLocals(p: BProc) =
   ## Writes the mangled names of `p`'s locals to the module's NDI file.
-  for it in p.locals.items:
-    # writing out mangled names for compiler-inserted variables (temporaries)
-    # is not necessary (lode is guaranteed to be a symbol)
-    if it.lode.sym.kind != skTemp:
-      writeMangledName(p.module.ndi, it.lode.sym, it.r, p.config)
+  for i, it in p.locals.pairs:
+    # only write a mapping for locals that have both a user-provided
+    # and mangled name (compile-time-only parameters don't have one)
+    if p.body[i].name != nil and it.r.len > 0:
+      writeMangledName(p.module.ndi, it.lode.info, p.body[i].name, it.r,
+                       p.config)
 
 func registerInline(g: var InliningData, prc: PSym): uint32 =
   ## If not already registered, registers the inline procedure `prc` with
@@ -416,10 +417,6 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
         s = it.sym
         m = g.modules[moduleId(s)]
       writeMangledName(m.ndi, s, it.name, g.config)
-      # parameters:
-      for p in it.params.items:
-        if p.k != locNone: # not all parameters have locs
-          writeMangledName(m.ndi, s, p.r, g.config)
 
     template write(loc: TLoc) =
       let s = loc.lode.sym
