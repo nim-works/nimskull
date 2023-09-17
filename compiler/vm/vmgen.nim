@@ -3080,7 +3080,7 @@ proc initProc(c: TCtx, owner: PSym, body: sink Body): BProc =
   # analyse what locals require indirections:
   analyseIfAddressTaken(result.body.code, result.addressTaken)
 
-proc genStmt*(c: var TCtx; body: Body): Result[int, VmGenDiag] =
+proc genStmt*(c: var TCtx; body: sink Body): Result[int, VmGenDiag] =
   c.prc = initProc(c, nil, body)
   let n = c.prc.body.code
 
