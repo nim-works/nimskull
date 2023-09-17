@@ -11,7 +11,8 @@ import
     syntaxes,
     parser,
     ast_parsed_types,
-    ast_types
+    ast_types,
+    report_enums
   ],
   compiler/modules/[
     modules,
@@ -57,6 +58,7 @@ proc defaultStructuredReportHook(conf: ConfigRef, report: Report): TErrorHandlin
 
 proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
   var retval: ModuleGraph
+  var cachedMsgs: CachedMsgs = @[]
   proc mockCommand(graph: ModuleGraph) =
     retval = graph
     let conf = graph.config
@@ -71,7 +73,10 @@ proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
     # do not print errors, but log them
     conf.writelnHook = proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       discard
-    conf.structuredReportHook = defaultStructuredReportHook
+    conf.structuredReportHook = proc (conf: ConfigRef, report: Report): TErrorHandling =
+      if report.kind notin {rsemProcessing, rsemProcessingStmt}:
+        # pre-filter to save memory
+        cachedMsgs.add(report)
 
     # compile the project before showing any input so that we already
     # can answer questions right away:
@@ -122,7 +127,7 @@ proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
     mockCommand(graph)
 
   retval.doStopCompile = proc (): bool = false
-  return NimSuggest(graph: retval, idle: 0, cachedMsgs: @[])
+  return NimSuggest(graph: retval, idle: 0, cachedMsgs: cachedMsgs)
 
 proc getSymNode(node: ParsedNode): ParsedNode =
   result = node
@@ -271,17 +276,19 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
     retval.add(Suggest(section: ideProject,
         filePath: string conf.projectFull))
   else:
-    # if conf.ideCmd == ideChk:
-    #   for cm in nimsuggest.cachedMsgs: errorHook(conf, cm.info, cm.msg, cm.sev)
+    template addReport(report: Report) =
+      let loc = report.location()
+      if stdOptions.isSome(loc):
+        let info = loc.get()
+        retval.add(Suggest(section: ideChk, filePath: toFullPath(conf,info),
+          line: toLinenumber(info), column: toColumn(info), 
+          forth: $severity(conf, report)))
+
     if conf.ideCmd == ideChk:
+      for cm in nimsuggest.cachedMsgs: addReport(cm)
+      nimsuggest.cachedMsgs.setLen 0
       conf.structuredReportHook = proc (conf: ConfigRef, report: Report): TErrorHandling =
-        let loc = report.location()
-        if stdOptions.isSome(loc):
-          let info = loc.get()
-          retval.add(Suggest(section: ideChk, filePath: toFullPath(conf,
-                  info),
-            line: toLinenumber(info), column: toColumn(info), 
-            forth: $severity(conf, report)))
+        addReport(report)
         return doNothing
     else:
       conf.structuredReportHook = defaultStructuredReportHook
