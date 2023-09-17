@@ -523,7 +523,6 @@ type
   VmGenDiagKind* = enum
     # has no extra data
     vmGenDiagTooManyRegistersRequired
-    vmGenDiagCannotFindBreakTarget
     # has ast data
     vmGenDiagNotUnused
     vmGenDiagCannotEvaluateAtComptime
@@ -574,8 +573,7 @@ type
       of vmGenDiagNotUnused,
           vmGenDiagCannotEvaluateAtComptime:
         ast*: PNode
-      of vmGenDiagTooManyRegistersRequired,
-          vmGenDiagCannotFindBreakTarget:
+      of vmGenDiagTooManyRegistersRequired:
         discard
 
   VmEventKind* = enum

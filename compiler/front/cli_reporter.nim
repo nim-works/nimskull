@@ -3003,9 +3003,6 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
     else:
       assert false
 
-  of rvmCannotFindBreakTarget:
-    result = "VM problem: cannot find 'break' target"
-
   of rvmNotUnused:
     result = "not unused"
 
