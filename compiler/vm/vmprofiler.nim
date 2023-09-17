@@ -32,17 +32,18 @@ proc enter*(prof: var Profiler) {.inline.} =
 proc leaveImpl(prof: var Profiler, frames: openArray[TStackFrame]) {.noinline.} =
   # note: the implementation is kept in a separate noinline procedure in
   # order to reduce the instruction-cache pressure when profiling is disabled
-  let diff = cpuTime()
+  let diff = cpuTime() - prof.tEnter
 
   for i in 0..<frames.len:
     let prc = frames[i].prc
     if prc != nil:
-      if prc notin prof.data:
-        prof.data[prc] = ProfileInfo()
-      prof.data[prc].time += diff
+      # ensure that an entry exists:
+      let data = addr prof.data.mgetOrPut(prc, ProfileInfo())
+      # update the time spent within the procedure:
+      data.time += diff
       # for the active frame, increment the number of samples taken
       if i == frames.high:
-        inc prof.data[prc].count
+        inc data.count
 
 proc leave*(prof: var Profiler, frames: openArray[TStackFrame]) {.inline.} =
   ## If profiling is enabled, ends a measurement, updating the collected data.
