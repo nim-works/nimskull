@@ -1177,9 +1177,9 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
   ## at compile-time, producing either the AST representation of the resulting
   ## value or an error.
   openScope(c)
-  pushStaticContext(c)
+  pushWrapperContext(c, isStatic=true)
   var a = semExprWithType(c, n)
-  popStaticContext(c)
+  popWrapperContext(c)
   closeScope(c)
   a = foldInAst(c.module, a, c.idgen, c.graph)
   if a.kind == nkError or a.findUnresolvedStatic != nil:

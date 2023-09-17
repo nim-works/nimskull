@@ -1056,9 +1056,9 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
       block:
         # don't evaluate here since the type compatibility check below may add
         # a converter
-        pushStaticContext(c)
+        pushWrapperContext(c, isStatic=true)
         let temp = semExprWithType(c, defInitPart)
-        popStaticContext(c)
+        popWrapperContext(c)
 
         case temp.kind
         of nkSymChoices:
@@ -3253,9 +3253,9 @@ proc semStaticStmt(c: PContext, n: PNode): PNode =
   #echo "semStaticStmt"
   #writeStackTrace()
   openScope(c)
-  pushStaticContext(c)
+  pushWrapperContext(c, isStatic=true)
   var a = semStmt(c, n[0], {})
-  popStaticContext(c)
+  popWrapperContext(c)
   closeScope(c)
   a = foldInAst(c.module, a, c.idgen, c.graph)
   result = shallowCopy(n)

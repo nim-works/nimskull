@@ -80,11 +80,11 @@ type
       ## read:
       ##  - semexprs: for setting the context value for label symbols
     inStaticContext*: bool
-      ## whether we're in a ``static`` block/expression or in an statement/
-      ## expression intended for compile-time evaluation
+      ## whether we're in a ``static`` block/expression or in the initializer
+      ## expression of a constant
       ##
       ## written:
-      ##  - semdata: when pushing a static context (``pushStaticContext``)
+      ##  - semdata: when pushing a static context (``pushWrapperContext``)
       ## read:
       ##  - semBindSym: whether to resolve the binding or not
       ##  - evalAtCompileTime: whether the procedure should be eagerly
@@ -1062,13 +1062,20 @@ proc inCompileTimeOnlyContext*(c: PContext): bool =
   ## at compile-time
   c.p.inStaticContext or sfCompileTime in c.p.owner.flags
 
-proc pushStaticContext*(c: PContext) =
-  # in order to not interfere with context-owner-based checks, we inherit
-  # the owner of the enclosing context
+proc pushWrapperContext*(c: PContext, isStatic: bool) =
+  ## Pushes a new ``TProcCon`` to the context stack. This is intended for
+  ## contexts that don't represent a nested procedure, but that execution-
+  ## phase-wise not part of the enclosing procedure (e.g., compile-time
+  ## contexts).
+  ##
+  ## The owner of the enclosing ``TProcCon`` is used as the owner of the new
+  ## context. If `isStatic` is 'true', the created context is marked as
+  ## being static, otherwise the property is inherited from the enclosing
+  ## context.
   pushProcCon(c, c.p.owner)
-  c.p.inStaticContext = true
+  c.p.inStaticContext = c.p.next.inStaticContext or isStatic
 
-proc popStaticContext*(c: PContext) =
+proc popWrapperContext*(c: PContext) =
   popProcCon(c)
 
 proc pushCaseContext*(c: PContext, caseNode: PNode) =
