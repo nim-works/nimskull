@@ -905,7 +905,10 @@ proc recoverContext(c: PContext) =
   # requires far less code.
   c.currentScope = c.topLevelScope
   while getCurrOwner(c).kind != skModule: popOwner(c)
-  while c.p != nil and c.p.owner.kind != skModule: c.p = c.p.next
+  while c.p != nil and c.p.next != nil: c.p = c.p.next
+  # sanity check: the recovered context needs to be that of the module's top-
+  # level code
+  assert c.p == nil or c.p.owner.kind == skModule
 
 proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
   ## Entry point for the semantic analysis pass, this proc is part of the
