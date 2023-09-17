@@ -2379,6 +2379,13 @@ proc genProc*(g: PGlobals, module: BModule, prc: PSym,
   p.nested: genStmt(p, p.fullBody.code)
   result = finishProc(p)
 
+proc genPartial*(p: PProc, n: CgNode) =
+  ## Generates the JavaScript code for `n` and appends the result to `p`. This
+  ## is intended for CG IR that wasn't already available when calling
+  ## `startProc`.
+  synchronize(p.locals, p.fullBody.locals)
+  genStmt(p, n)
+
 proc genStmt(p: PProc, n: CgNode) =
   var r: TCompRes
   gen(p, n, r)

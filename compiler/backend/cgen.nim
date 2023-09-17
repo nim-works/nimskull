@@ -945,6 +945,13 @@ proc genProc*(m: BModule, prc: PSym, procBody: sink Body): Rope =
   genStmts(p, p.body.code)
   result = finishProc(p, prc)
 
+proc genPartial*(p: BProc, n: CgNode) =
+  ## Generates the C code for `n` and appends the result to `p`. This
+  ## is intended for CG IR that wasn't already available when calling
+  ## `startProc`.
+  synchronize(p.locals, p.body.locals)
+  genStmts(p, n)
+
 proc genProcPrototype(m: BModule, sym: PSym) =
   useHeader(m, sym)
   if exfNoDecl in sym.extFlags: return

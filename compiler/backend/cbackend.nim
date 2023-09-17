@@ -229,7 +229,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
 
     let body = generateIR(g.graph, bmod.idgen, evt.sym, evt.body)
     # emit into the procedure:
-    genStmts(p, merge(p.body, body))
+    genPartial(p, merge(p.body, body))
 
     processLate(bmod, discovery, inl, evt.module, inlineId)
   of bekProcedure:
