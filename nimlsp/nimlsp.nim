@@ -162,7 +162,7 @@ proc main(ins: Stream, outs: Stream) =
           of "textDocument/completion":
             textDocumentRequest(message, CompletionParams, req):
               debugLog location(req)
-              let suggestions = getNimsuggest(req.fileuri).sug(req.filePath, dirtyfile = req.filestash,
+              let suggestions = getNimsuggest(req.fileuri).sug(req.filePath, req.filestash,
                 req.rawLine + 1,
                 openFiles.col(req)
               )
@@ -206,7 +206,7 @@ proc main(ins: Stream, outs: Stream) =
           of "textDocument/hover":
             textDocumentRequest(message, TextDocumentPositionParams, req):
               debugLog location(req)
-              let suggestions = getNimsuggest(req.fileuri).def(req.filePath, dirtyfile = req.filestash,
+              let suggestions = getNimsuggest(req.fileuri).def(req.filePath, req.filestash,
                 req.rawLine + 1,
                 openFiles.col(req)
               )
@@ -232,7 +232,7 @@ proc main(ins: Stream, outs: Stream) =
           of "textDocument/references":
             textDocumentRequest(message, ReferenceParams, req):
               debugLog location(req)
-              let suggestions = getNimsuggest(req.fileuri).use(req.filePath, dirtyfile = req.filestash,
+              let suggestions = getNimsuggest(req.fileuri).use(req.filePath, req.filestash,
                 req.rawLine + 1,
                 openFiles.col(req)
               )
@@ -255,7 +255,7 @@ proc main(ins: Stream, outs: Stream) =
           of "textDocument/rename":
             textDocumentRequest(message, RenameParams, req):
               debugLog location(req)
-              let suggestions = getNimsuggest(req.fileuri).use(req.filePath, dirtyfile = req.filestash,
+              let suggestions = getNimsuggest(req.fileuri).use(req.filePath, req.filestash,
                 req.rawLine + 1,
                 openFiles.col(req)
               )
@@ -284,7 +284,7 @@ proc main(ins: Stream, outs: Stream) =
           of "textDocument/definition":
             textDocumentRequest(message, TextDocumentPositionParams, req):
               debugLog location(req)
-              let declarations = getNimsuggest(req.fileuri).def(req.filePath, dirtyfile = req.filestash,
+              let declarations = getNimsuggest(req.fileuri).def(req.filePath, req.filestash,
                 req.rawLine + 1,
                 openFiles.col(req)
               )
@@ -310,7 +310,7 @@ proc main(ins: Stream, outs: Stream) =
               let projectFile = openFiles[req.fileuri].projectFile
               let syms = getNimsuggest(req.fileuri).outline(
                 req.filePath,
-                dirtyfile = req.filestash
+                req.filestash
               )
               debugLog "Found outlines: " & $syms.len
               debugSuggests(syms[0..<min(syms.len, 10)])
@@ -344,7 +344,7 @@ proc main(ins: Stream, outs: Stream) =
           of "textDocument/signatureHelp":
             textDocumentRequest(message, TextDocumentPositionParams, req):
               debugLog location(req)
-              let suggestions = getNimsuggest(req.fileuri).con(req.filePath, dirtyfile = req.filestash, req.rawLine + 1, req.rawChar)
+              let suggestions = getNimsuggest(req.fileuri).con(req.filePath, req.filestash, req.rawLine + 1, req.rawChar)
               var signatures = newSeq[SignatureInformation]()
               for suggestion in suggestions:
                 var label = suggestion.qualifiedPath.join(".")
@@ -410,7 +410,7 @@ proc main(ins: Stream, outs: Stream) =
               file.close()
 
               # Notify nimsuggest about a file modification.
-              discard getNimsuggest(req.fileuri).mod(req.filePath, dirtyfile = req.filestash)
+              discard getNimsuggest(req.fileuri).mod(req.filePath, req.filestash)
           of "textDocument/didClose":
             textDocumentNotification(message, DidCloseTextDocumentParams, req):
               let projectFile = getProjectFile(uriToPath(req.fileuri))
@@ -432,7 +432,7 @@ proc main(ins: Stream, outs: Stream) =
                   openFiles[req.fileuri].fingerTable.add line.createUTFMapping()
                   file.writeLine line
                 file.close()
-              let diagnostics = getNimsuggest(req.fileuri).chk(req.filePath, dirtyfile = req.filestash)
+              let diagnostics = getNimsuggest(req.fileuri).chk(req.filePath, req.filestash)
               debugLog "Got diagnostics: " & $diagnostics.len
               debugSuggests(diagnostics[0..<min(diagnostics.len, 10)])
               var response: seq[Diagnostic]
@@ -465,7 +465,7 @@ proc main(ins: Stream, outs: Stream) =
               # Invoke chk on all open files.
               let projectFile = openFiles[req.fileuri].projectFile
               for f in projectFiles[projectFile].openFiles.items:
-                let diagnostics = getNimsuggest(f).chk(req.filePath, dirtyfile = req.filestash)
+                let diagnostics = getNimsuggest(f).chk(req.filePath, req.filestash)
                 debugLog "Got diagnostics: " & $diagnostics.len
                 debugSuggests(diagnostics[0 ..< min(diagnostics.len, 10)])
 
