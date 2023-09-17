@@ -102,6 +102,13 @@ proc createMarkupContent(label: string; content: string): MarkupContent =
   let label = "```nim\n" & label & "\n```\n"
   result = create(MarkupContent, "markdown", label & rstToMarkdown(content))
 
+proc createMarkupContent(sug: Suggest): MarkupContent =
+  var label = sug.qualifiedPath.join(".")
+  if sug.forth != "":
+    label &= ": "
+    label &= sug.forth
+  createMarkupContent(label, sug.doc)
+
 proc main(ins: Stream, outs: Stream) =
   # checkVersion(outs) xxx: enable when deployment seperately
   var message: JsonNode
@@ -188,8 +195,9 @@ proc main(ins: Stream, outs: Stream) =
                   completionItems.add create(CompletionItem,
                     label = suggestion.qualifiedPath[^1].strip(chars = {'`'}),
                     kind = some(nimSymToLSPKind(suggestion).int),
+                    tags = some(suggestion.flags.mapIt(it.int)),
                     detail = detail,
-                    documentation = some(suggestion.doc),
+                    documentation = some(createMarkupContent(suggestion)),
                     deprecated = none(bool),
                     preselect = none(bool),
                     sortText = some(fmt"{i:04}"),
@@ -216,17 +224,13 @@ proc main(ins: Stream, outs: Stream) =
               if suggestions.len == 0:
                 resp = newJNull()
               else:
-                var label = suggestions[0].qualifiedPath.join(".")
-                if suggestions[0].forth != "":
-                  label &= ": "
-                  label &= suggestions[0].forth
                 let
                   rangeopt =
                     some(create(Range,
                       create(Position, req.rawLine, req.rawChar),
                       create(Position, req.rawLine, req.rawChar + suggestions[0].qualifiedPath[^1].len)
                     ))
-                  markupContent = createMarkupContent(label, suggestions[0].doc)
+                  markupContent = createMarkupContent(suggestions[0])
                 resp = create(Hover, markupContent, rangeopt).JsonNode
               outs.respond(message, resp)
           of "textDocument/references":
@@ -312,7 +316,6 @@ proc main(ins: Stream, outs: Stream) =
               debugLog "Found outlines: " & $syms.len
               debugSuggests(syms[0..<min(syms.len, 10)])
               var resp: JsonNode
-              var flags = newSeq[int]()
               if syms.len == 0:
                 resp = newJNull()
               else:
@@ -320,14 +323,11 @@ proc main(ins: Stream, outs: Stream) =
                 for sym in syms.sortedByIt((it.line,it.column,it.quality)):
                   if sym.qualifiedPath.len != 2:
                     continue
-                  flags.setLen(0)
-                  for f in sym.flags:
-                    flags.add f.int
                   resp.add create(DocumentSymbol,
                     sym.qualifiedPath[^1],
                     some(symKindToString(sym.symKind)),
                     nimSymToLSPKind(sym.symKind).int,
-                    some(flags),
+                    some(sym.flags.mapIt(it.int)),
                     create(Range,
                         create(Position, sym.line-1, sym.column),
                         create(Position, sym.line-1, sym.column + sym.tokenLen)

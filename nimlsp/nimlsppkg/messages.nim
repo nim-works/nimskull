@@ -450,6 +450,7 @@ jsonSchema:
   CompletionItem:
     label: string
     kind ?: int # CompletionItemKind
+    tags ?: int[] # CompletionItemTag[]
     detail ?: string
     documentation ?: string or MarkupContent
     deprecated ?: bool
