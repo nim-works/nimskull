@@ -1939,7 +1939,6 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.gABC(n, opcTypeTrait, dest, tmp)
     c.freeTemp(tmp)
   of mSlurp: genUnaryABC(c, n, dest, opcSlurp)
-  of mStaticExec: unreachable("no longer a magic")
   of mNLen: genUnaryABI(c, n, dest, opcLenSeq, nimNodeFlag)
   of mGetImpl: genUnaryABC(c, n, dest, opcGetImpl)
   of mGetImplTransf: genUnaryABC(c, n, dest, opcGetImplTransf)

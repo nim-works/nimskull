@@ -145,10 +145,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]):
 when not defined(selftest):
   var conf = newConfigRef(cli_reporter.reportHook)
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
-  conf.writeHook =
-    proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
-      msgs.msgWrite(conf, msg, flags)
-
+  conf.writeHook = msgs.msgWrite
   conf.writelnHook =
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       conf.writeHook(conf, msg & "\n", flags)

@@ -55,10 +55,6 @@ proc flushDot*(conf: ConfigRef) =
 
 const gCmdLineInfo* = newLineInfo(commandLineIdx, 1, 1)
 
-proc suggestWriteln*(conf: ConfigRef; s: string) =
-  if eStdOut in conf.m.errorOutputs:
-    writelnHook(conf, s)
-
 proc msgQuit*(x: int8) = quit x
 proc msgQuit*(x: string) = quit x
 

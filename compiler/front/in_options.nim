@@ -39,7 +39,6 @@ type
     optEmbedOrigSrc           ## embed the original source in the generated
                               ## code also: generate header file
     optIdeDebug               ## idetools: debug mode
-    optIdeTerse               ## idetools: use terse descriptions
     optExcessiveStackTrace    ## fully qualified module filenames
     optShowAllMismatches      ## show all overloading resolution candidates
     optWholeProject           ## for 'doc': output any dependency
