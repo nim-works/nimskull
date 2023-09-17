@@ -39,7 +39,7 @@ proc semBreakStmt(c: PContext, n: PNode): ElaborateAst =
       result[0] = s.ast
     of skLabel:
       # make sure the label is okay to use:
-      if s.kind == skLabel and s.context == c.p.context and
+      if s.kind == skLabel and s.context == c.executionCons.high and
          s.owner.id == c.p.owner.id:
         incl(s.flags, sfUsed)
         suggestSym(c.graph, n.info, s, c.graph.usageSym)
@@ -51,7 +51,7 @@ proc semBreakStmt(c: PContext, n: PNode): ElaborateAst =
         PAstDiag(kind: adSemExpectedLabel)
   of nkEmpty:
     result[0] = n[0]
-    if c.p.nestedLoopCounter <= 0 and c.p.nestedBlockCounter <= 0:
+    if c.execCon.nestedLoopCounter <= 0 and c.execCon.nestedBlockCounter <= 0:
       # nothing to break out of
       result.diag = PAstDiag(kind: adSemInvalidControlFlow)
   else:
@@ -60,7 +60,7 @@ proc semBreakStmt(c: PContext, n: PNode): ElaborateAst =
 proc semContinueStmt(c: PContext, n: PNode): PNode =
   if n[0].kind != nkEmpty:
     c.config.newError(n, PAstDiag(kind: adSemContinueCannotHaveLabel))
-  elif c.p.nestedLoopCounter <= 0:
+  elif c.execCon.nestedLoopCounter <= 0:
     c.config.newError(n, PAstDiag(kind: adSemInvalidControlFlow))
   else:
     n
@@ -80,9 +80,9 @@ proc semWhile(c: PContext, n: PNode; flags: TExprFlags): ElaborateAst =
   checkSonsLen(n, 2, c.config)
   openScope(c)
   result[0] = forceBool(c, semExprWithType(c, n[0]))
-  inc(c.p.nestedLoopCounter)
+  inc(c.execCon.nestedLoopCounter)
   result[1] = semStmt(c, n[1], flags)
-  dec(c.p.nestedLoopCounter)
+  dec(c.execCon.nestedLoopCounter)
   closeScope(c)
   if result[1].typ == c.enforceVoidContext:
     result.typ = c.enforceVoidContext
@@ -1056,9 +1056,9 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
       block:
         # don't evaluate here since the type compatibility check below may add
         # a converter
-        pushWrapperContext(c, isStatic=true)
+        pushExecCon(c, isStatic=true)
         let temp = semExprWithType(c, defInitPart)
-        popWrapperContext(c)
+        popExecCon(c)
 
         case temp.kind
         of nkSymChoices:
@@ -1592,7 +1592,7 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
     if result.isError:
       return
 
-  inc(c.p.nestedLoopCounter)
+  inc(c.execCon.nestedLoopCounter)
   openScope(c)
   block:
     var body = semExprBranch(c, n[^1], flags)
@@ -1603,7 +1603,7 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result[^1] = body
 
   closeScope(c)
-  dec(c.p.nestedLoopCounter)
+  dec(c.execCon.nestedLoopCounter)
 
   if hasError:
     result = c.config.wrapError(result)
@@ -3253,9 +3253,9 @@ proc semStaticStmt(c: PContext, n: PNode): PNode =
   #echo "semStaticStmt"
   #writeStackTrace()
   openScope(c)
-  pushWrapperContext(c, isStatic=true)
+  pushExecCon(c, isStatic=true)
   var a = semStmt(c, n[0], {})
-  popWrapperContext(c)
+  popExecCon(c)
   closeScope(c)
   a = foldInAst(c.module, a, c.idgen, c.graph)
   result = shallowCopy(n)

@@ -1154,7 +1154,7 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
 
     # only attempt to fold the expression if doing so doesn't affect
     # compile-time state
-    if not c.p.inStaticContext or sfNoSideEffect in callee.flags:
+    if not c.execCon.inStaticContext or sfNoSideEffect in callee.flags:
       if sfCompileTime in callee.flags:
         result = evalStaticExpr(c.module, c.idgen, c.graph, call, c.p.owner)
         result =
@@ -1177,9 +1177,9 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
   ## at compile-time, producing either the AST representation of the resulting
   ## value or an error.
   openScope(c)
-  pushWrapperContext(c, isStatic=true)
+  pushExecCon(c, isStatic=true)
   var a = semExprWithType(c, n)
-  popWrapperContext(c)
+  popExecCon(c)
   closeScope(c)
   a = foldInAst(c.module, a, c.idgen, c.graph)
   if a.kind == nkError or a.findUnresolvedStatic != nil:
@@ -2755,6 +2755,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   let oldErrorOutputs = c.config.m.errorOutputs
   if efExplain notin flags: c.config.m.errorOutputs = {}
   let oldContextLen = msgs.getInfoContextLen(c.config)
+  let oldExecConsLen = c.executionCons.len
 
   let oldInGenericContext = c.inGenericContext
   let oldInUnrolledContext = c.inUnrolledContext
@@ -2779,6 +2780,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   c.inUnrolledContext = oldInUnrolledContext
   c.inGenericInst = oldInGenericInst
   c.p = oldProcCon
+  setLen(c.executionCons, oldExecConsLen)
   msgs.setInfoContextLen(c.config, oldContextLen)
   setLen(c.graph.owners, oldOwnerLen)
   c.currentScope = oldScope
@@ -3224,7 +3226,7 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result = n
   of nkBlockExpr, nkBlockStmt:
     checkSonsLen(n, 2, c.config)
-    inc(c.p.nestedBlockCounter)
+    inc(c.execCon.nestedBlockCounter)
     openScope(c) # BUGFIX: label is in the scope of block!
 
     # handle the label
@@ -3246,7 +3248,7 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
 
           # the symbol might be a pre-existing one coming from a template or
           # macro, meaning that we always have to set the context value here:
-          labl.context = c.p.context
+          labl.context = c.executionCons.high
 
           suggestSym(c.graph, lablNode.info, labl, c.graph.usageSym)
           styleCheckDef(c.config, labl)
@@ -3274,7 +3276,7 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
       result = c.config.wrapError(result)
 
     closeScope(c)  
-    dec(c.p.nestedBlockCounter)
+    dec(c.execCon.nestedBlockCounter)
   else:
     c.config.internalError:
       "expected block expresssion or statement, got: " & $n.kind

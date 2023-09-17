@@ -95,9 +95,9 @@ proc branchVals(c: PContext, caseNode: PNode, caseIdx: int,
         result.excl(val)
 
 proc findUsefulCaseContext(c: PContext, discrimator: PNode): (PNode, int) =
-  for i in countdown(c.p.caseContext.high, 0):
+  for i in countdown(c.execCon.caseContext.high, 0):
     let
-      (caseNode, index) = c.p.caseContext[i]
+      (caseNode, index) = c.execCon.caseContext[i]
       skipped = caseNode[0].skipHidden
     if skipped.kind == nkSym and skipped.sym == discrimator.sym:
       return (caseNode, index)

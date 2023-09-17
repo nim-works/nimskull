@@ -1629,11 +1629,8 @@ type
       bitsize*: int
       alignment*: int # for alignment
     of skLabel:
-      context*: int           ## disambiguates the context (e.g., the procedure)
-                              ## the label is part of. If the `context` value
-                              ## of a label differs from that of the current
-                              ## context, the label is not part of the current
-                              ## context
+      context*: int           ## the ID (i.e., index) of the execution context
+                              ## this label is part of
     else: nil
     magic*: TMagic
     typ*: PType

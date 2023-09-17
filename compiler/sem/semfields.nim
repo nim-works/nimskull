@@ -141,7 +141,7 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
       let r = typeMismatch(c.config, calli.info, tupleTypeA, tupleTypeB, calli)
       if r.kind == nkError:
         localReport(c.config, r)
-  inc(c.p.nestedLoopCounter)
+  inc(c.execCon.nestedLoopCounter)
   if tupleTypeA.kind == tyTuple:
     var loopBody = n[^1]
     for i in 0..<tupleTypeA.len:
@@ -165,7 +165,7 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
       semForObjectFields(fc, t.n, n, stmts)
       if t[0] == nil: break
       t = skipTypes(t[0], skipPtrs)
-  dec(c.p.nestedLoopCounter)
+  dec(c.execCon.nestedLoopCounter)
   # for TR macros this 'while true: ...; break' loop is pretty bad, so
   # we avoid it now if we can:
   if containsNode(stmts, {nkBreakStmt}):

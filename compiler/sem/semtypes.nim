@@ -1648,7 +1648,7 @@ proc semStmtListType(c: PContext, n: PNode, prev: PType): PType =
     result = nil
 
 proc semBlockType(c: PContext, n: PNode, prev: PType): PType =
-  inc(c.p.nestedBlockCounter)
+  inc(c.execCon.nestedBlockCounter)
   checkSonsLen(n, 2, c.config)
   openScope(c)
   if n[0].kind notin {nkEmpty, nkSym}:
@@ -1657,7 +1657,7 @@ proc semBlockType(c: PContext, n: PNode, prev: PType): PType =
   n[1].typ = result
   n.typ = result
   closeScope(c)
-  dec(c.p.nestedBlockCounter)
+  dec(c.execCon.nestedBlockCounter)
 
 proc semGenericParamInInvocation(c: PContext, n: PNode): PType =
   result = semTypeNode(c, n, nil)
