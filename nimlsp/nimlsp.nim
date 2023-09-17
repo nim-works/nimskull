@@ -167,7 +167,7 @@ proc createMarkupContent(label: string; content: string): MarkupContent =
   result = create(MarkupContent, "markdown", label & c)
 
 proc main(ins: Stream, outs: Stream) =
-  checkVersion(outs)
+  # checkVersion(outs) xxx: enable when deployment seperately
   var message: JsonNode
   var frame: string
   while true:
