@@ -419,6 +419,7 @@ proc main(ins: Stream, outs: Stream) =
                       ),
                     none(seq[DocumentSymbol])).JsonNode
                 outs.respond(message, resp)
+          of "textDocument/signatureHelp":
             textDocumentRequest(message, TextDocumentPositionParams, req):
               debugLog "Running equivalent of: con ", req.filePath, " ", req.filestash, "(",
                 req.rawLine + 1, ":",
