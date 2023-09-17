@@ -25,6 +25,9 @@
 ## accessing the temporary introduce for the parameter's argument.
 
 import
+  std/[
+    tables
+  ],
   compiler/ast/[
     ast_types,
     ast_idgen,
@@ -46,9 +49,6 @@ import
   compiler/modules/[
     magicsys,
     modulegraphs
-  ],
-  compiler/sem/[
-    lowerings
   ],
   compiler/utils/[
     containers,
@@ -102,10 +102,16 @@ type
 
     owner: PSym
 
-    tempMap: SeqMap[TempId, PSym]
-      ## maps a ``TempId`` to ``PSym`` created for it
+    tempMap: SeqMap[TempId, LocalId]
+      ## maps a ``TempId`` to the ID of the local created for it
+    localsMap: Table[int, LocalId]
+      ## maps a sybmol ID to the corresponding local. Needed because normal
+      ## local variables reach here as ``PSym``s
     labelMap: SeqMap[uint32, PSym]
       ## maps a block-label name to the ``PSym`` created for it
+
+    locals: Store[LocalId, Local]
+      ## the in-progress list of all locals in the translated body
 
     params: Values
 
@@ -136,7 +142,10 @@ type
     pos: uint32 ## the index of the currently pointed to node
     origin {.cursor.}: PNode ## the source node
 
-template isFilled(x: ref): bool = not x.isNil
+template isFilled(x: LocalId): bool =
+  # '0' is a valid ID, but this procedure is only used for
+  # temporaries, which can never map to the result variable
+  x.int != 0
 
 template `^^`(s, i: untyped): untyped =
   # XXX: copied from ``system.nim`` because it's not exported
@@ -353,10 +362,16 @@ proc wrapArg(stmts: sink seq[CgNode], info: TLineInfo, val: sink CgNode): CgNode
     result = newExpr(cnkStmtListExpr, info, val.typ, stmts)
     result.add val
 
-proc newTemp(cl: var TranslateCl, info: TLineInfo, typ: PType): PSym =
+func newTemp(cl: var TranslateCl, typ: PType): LocalId =
   ## Creates and returns a new ``skTemp`` symbol
-  newSym(skTemp, cl.cache.getIdent(genPrefix),
-         cl.idgen.nextSymId(), cl.owner, info, typ)
+  cl.locals.add(Local(typ: typ, isImmutable: false))
+
+proc initLocal(s: PSym): Local =
+  ## Inits a ``Local`` with the data from `s`.
+  result = Local(typ: s.typ, flags: s.flags, isImmutable: (s.kind == skLet),
+                 name: s.name)
+  if s.kind in {skVar, skLet, skForVar}:
+    result.alignment = s.alignment.uint32
 
 func findBranch(c: ConfigRef, rec: PNode, field: PIdent): int =
   ## Computes the 0-based position of the branch that `field` is part of. Only
@@ -492,7 +507,7 @@ func isSimple(n: CgNode): bool =
   var n = n
   while true:
     case n.kind
-    of cnkSym, cnkLiterals:
+    of cnkSym, cnkLiterals, cnkLocal:
       return true
     of cnkFieldAccess:
       # ``cnkCheckedFieldAccess`` is deliberately not included here because it
@@ -534,30 +549,32 @@ proc useLvalueRef(n: CgNode, mutable: bool, cl: var TranslateCl,
     typ = makeVarType(cl.owner, locExpr.typ, cl.idgen,
                       (if mutable: tyVar else: tyLent))
 
-    sym = newTemp(cl, n.info, typ)
+    tmp = newTemp(cl, typ)
 
   # for the "undo conversion" logic to work, the expression needs to end in a
   # conversion. Creating a view from the location *after* lvalue conversion
   # would break this, so instead, a view is created from the unconverted
   # location and the conversion is applied at each usage site
   stmts.add newStmt(cnkDef, n.info,
-                     [newSymNode(sym),
+                     [newLocalRef(tmp, n.info, typ),
                       newOp(cnkHiddenAddr, n.info, typ, locExpr)]
                    )
 
   if locExpr != conv:
     # a conversion exists. Rewrite the conversion operation to apply to the
     # dereferenced view
-    conv.operand = newOp(cnkDerefView, n.info, locExpr.typ, newSymNode(sym))
+    conv.operand = newOp(cnkDerefView, n.info, locExpr.typ,
+                         newLocalRef(tmp, n.info, typ))
     result = n
   else:
-    result = newOp(cnkDerefView, n.info, n.typ, newSymNode(sym))
+    result = newOp(cnkDerefView, n.info, n.typ,
+                   newLocalRef(tmp, n.info, typ))
 
 proc useTemporary(n: CgNode, cl: var TranslateCl, stmts: var seq[CgNode]): CgNode =
-  let sym = newTemp(cl, n.info, n.typ)
+  let tmp = newTemp(cl, n.typ)
 
-  stmts.add newStmt(cnkDef, n.info, [newSymNode(sym), n])
-  result = newSymNode(sym)
+  stmts.add newStmt(cnkDef, n.info, [newLocalRef(tmp, n.info, n.typ), n])
+  result = newLocalRef(tmp, n.info, n.typ)
 
 proc flattenExpr*(expr: CgNode, stmts: var seq[CgNode]): CgNode =
   ## A copy of `flattenExpr <ast/trees.html#PNode,seq[PNode]>`_ adjusted for
@@ -618,7 +635,9 @@ proc canUseView*(n: CgNode): bool =
 
     of cnkSym:
       # don't use a view if the location is part of a constant
-      return n.sym.kind in {skVar, skLet, skForVar, skResult, skParam, skTemp}
+      return n.sym.kind != skConst
+    of cnkLocal:
+      return true
     of cnkDerefView, cnkDeref:
       return true
     of cnkCall:
@@ -754,10 +773,14 @@ proc tbConv(cl: TranslateCl, n: CgNode, info: TLineInfo, dest: PType): CgNode =
 
 proc tbSingle(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
   case n.kind
-  of mnkProc, mnkConst, mnkParam, mnkGlobal, mnkLocal:
+  of mnkProc, mnkConst, mnkGlobal:
     newSymNode(n.sym, info)
+  of mnkLocal, mnkParam:
+    # paramaters are treated like locals in the code generators
+    assert n.sym.id in cl.localsMap
+    newLocalRef(cl.localsMap[n.sym.id], info, n.sym.typ)
   of mnkTemp:
-    newSymNode(cl.tempMap[n.temp], info)
+    newLocalRef(cl.tempMap[n.temp], info, n.typ)
   of mnkLiteral:
     translateLit(n.lit)
   of mnkType:
@@ -765,7 +788,7 @@ proc tbSingle(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
   else:
     unreachable("not an atom: " & $n.kind)
 
-proc tbExceptItem(tree: TreeWithSource, cl: TranslateCl, cr: var TreeCursor
+proc tbExceptItem(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor
                  ): CgNode =
   let n {.cursor.} = get(tree, cr)
   case n.kind
@@ -776,9 +799,11 @@ proc tbExceptItem(tree: TreeWithSource, cl: TranslateCl, cr: var TreeCursor
     # the infix expression (``type as x``) signals that the except-branch is
     # a matcher for an imported exception. We translate the infix to a
     # ``cnkBinding`` node and let the code generators take care of it
+    let id = cl.locals.add initLocal(n.node[2].sym)
+    cl.localsMap[n.node[2].sym.id] = id
     newTree(cnkBinding, cr.info):
       [newNode(cnkType, n.node[1].info, n.node[1].typ),
-       newSymNode(n.node[2].sym, n.node[2].info)]
+       newLocalRef(id, n.node[2].info, n.node[2].typ)]
   of mnkType:  newTypeNode(cr.info, n.typ)
   else:        unreachable()
 
@@ -794,36 +819,42 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
   var def: CgNode
 
   case entity.kind
-  of SymbolLike:
-    def = tbSingle(entity, cl, info)
-    case def.sym.kind
-    of skVar, skLet, skForVar:
-      discard "pass through"
-    of skParam, routineKinds:
-      # the 'def' of params and procedures only has meaning at the MIR level;
-      # the code generators don't care about them
-      def = newEmpty()
-    else:
-      unreachable()
+  of mnkLocal:
+    # translate the ``PSym`` to a ``Local`` and establish a mapping
+    let
+      sym = entity.sym
+      id = cl.locals.add initLocal(sym)
 
+    assert sym.id notin cl.localsMap, "re-definition of local"
+    cl.localsMap[sym.id] = id
+
+    def = newLocalRef(id, info, entity.typ)
+  of mnkParam, mnkProc:
+    # ignore 'def's for both parameters and procedures
+    def = newEmpty()
+  of mnkGlobal:
+    # XXX: defs for globals reaching here implies that the MIR code wasn't
+    #      sufficiently lowered. This should be a hard error, but the
+    #      ``--expandArc`` feature currently on this being possible, so we
+    #      allow it for now
+    def = newEmpty()
   of mnkTemp:
-    # for temporaries, we create an ``skTemp`` symbol and associate it with
-    # the ``TempId`` so that it can be looked up later
+    # MIR temporaries are like normal locals, with the difference that they
+    # are created ad-hoc and don't have any extra information attached
     assert entity.typ != nil
-    let sym = newTemp(cl, info, entity.typ)
+    let tmp = cl.locals.add Local(typ: entity.typ)
 
     assert entity.temp notin cl.tempMap, "re-definition of temporary"
-    cl.tempMap[entity.temp] = sym
+    cl.tempMap[entity.temp] = tmp
 
-    def = newSymNode(sym, info)
+    def = newLocalRef(tmp, info, entity.typ)
   else:
     unreachable()
 
   leave(tree, cr)
 
   case def.kind
-  of cnkSym:
-    assert def.sym.kind in {skVar, skLet, skForVar, skTemp}
+  of cnkLocal:
     if cl.inArgBlock > 0:
       # if we're inside an arg-block, the var section is generated later and
       # placed at an earlier position. We just produce an assignment to the
@@ -1356,7 +1387,6 @@ proc tb(tree: TreeWithSource, cl: var TranslateCl, start: NodePosition): CgNode 
          "start must point to the start of expression or statement"
   tbMulti(tree, cl, cr)
 
-
 proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
                   tree: sink MirTree, sourceMap: sink SourceMap): Body =
   ## Generates the ``CgNode`` IR corresponding to the input MIR code (`tree`),
@@ -1365,4 +1395,33 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
   ## provider for source position information
   var cl = TranslateCl(graph: graph, idgen: idgen, cache: graph.cache,
                        owner: owner)
-  Body(code: tb(TreeWithSource(tree: tree, map: sourceMap), cl, NodePosition 0))
+  if owner.kind in routineKinds:
+    # setup the locals and associated mappings for the parameters
+    template add(v: PSym) =
+      let s = v
+      cl.localsMap[s.id] = cl.locals.add initLocal(s)
+
+    let sig =
+      if owner.kind == skMacro: owner.internal
+      else:                     owner.typ
+
+    # result variable:
+    if sig[0].isEmptyType():
+      # always reserve a slot for the result variable, even if the latter is
+      # not present
+      discard cl.locals.add(Local())
+    else:
+      add(owner.ast[resultPos].sym)
+
+    # normal parameters:
+    for i in 1..<sig.len:
+      add(sig.n[i].sym)
+
+    if sig.callConv == ccClosure:
+      # environment parameter
+      add(owner.ast[paramsPos][^1].sym)
+
+  result = Body()
+  result.code = tb(TreeWithSource(tree: tree, map: sourceMap), cl,
+                  NodePosition 0)
+  result.locals = cl.locals
