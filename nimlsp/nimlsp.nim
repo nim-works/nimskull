@@ -308,10 +308,7 @@ proc main(ins: Stream, outs: Stream) =
             textDocumentRequest(message, DocumentSymbolParams, req):
               debugLog req.uriAndStash()
               let projectFile = openFiles[req.fileuri].projectFile
-              let syms = getNimsuggest(req.fileuri).outline(
-                req.filePath,
-                req.filestash
-              )
+              let syms = getNimsuggest(req.fileuri).outline(req.filePath, req.filestash)
               debugLog "Found outlines: " & $syms.len
               debugSuggests(syms[0..<min(syms.len, 10)])
               var resp: JsonNode
@@ -385,10 +382,7 @@ proc main(ins: Stream, outs: Stream) =
                 file = open(req.filestash, fmWrite)
                 projectFile = getProjectFile(uriToPath(req.fileuri))
               debugLog req.uriAndStash()
-              openFiles[req.fileuri] = (
-                projectFile: projectFile,
-                fingerTable: @[]
-              )
+              openFiles[req.fileuri] = (projectFile: projectFile, fingerTable: @[])
 
               if projectFile notin projectFiles:
                 debugLog "Initialising with project file: ", projectFile
