@@ -133,8 +133,3 @@ when isMainModule:
     echo "outline:" & f
     let syms = graph.outline(f, f)
     echo "outline: symbols(" & $syms.len & ")"
-
-  var suggestions = graph.sug(currentSourcePath, currentSourcePath, 86, 16)
-  echo "Got ", suggestions.len, " suggestions"
-  for suggestion in suggestions:
-    echo suggestion
