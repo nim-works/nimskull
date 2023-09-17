@@ -47,6 +47,9 @@ proc treeRepr*(n: CgNode): string =
       result.add n.sym.name.s
       result.add " id: "
       result.add $n.sym.itemId
+    of cnkLocal:
+      result.add "local: "
+      result.add $n.local.int
     of cnkMagic:
       result.add "magic: "
       result.add $n.magic
