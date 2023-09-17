@@ -73,6 +73,9 @@ for i in 1..<output.len - 1:
     path: string
   doAssert scanf(output[i], "$s$i$s$i$s$w.nim($i,$s$i)$s$.",
                  time, num, path, line, col)
+  # since we do not mock the ``cpuTime`` procedure, we can only check whether
+  # the value is within a reasonable range
+  doAssert time in 1..100000
   doAssert num == 1 # one sample is taken within each procedure
   doAssert path == "tvmprofiler"
   # check that the line + column are correct:
