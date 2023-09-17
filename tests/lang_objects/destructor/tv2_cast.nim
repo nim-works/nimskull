@@ -6,66 +6,66 @@ destroying O1'''
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:main1 --expandArc:main2 --expandArc:main3 --hints:off --assertions:off $file'''
   nimout: '''--expandArc: main
 var data
-var :tmp
-var :tmp_1
+var :local_2
+var :local_3
 try:
-  var :tmp_2 = encode(
-      var :tmp_3 = newString(100)
-      :tmp = :tmp_3
-      cast[seq[byte]](:tmp))
-  :tmp_1 = :tmp_2
-  var :tmp_4 = cast[string](:tmp_1)
-  =copy(data, :tmp_4)
+  var :local_5 = encode(
+      var :local_4 = newString(100)
+      :local_2 = :local_4
+      cast[seq[byte]](:local_2))
+  :local_3 = :local_5
+  var :local_6 = cast[string](:local_3)
+  =copy(data, :local_6)
 finally:
-  =destroy(:tmp_1)
-  =destroy_1(:tmp)
+  =destroy(:local_3)
+  =destroy_1(:local_2)
   =destroy_1(data)
 -- end of expandArc ------------------------
 --expandArc: main1
 var s
 var data
-var :tmp
+var :local_3
 try:
   s = newString(100)
-  var :tmp_1 = encode(toOpenArrayByte(s, 0, -(len(s), 1)))
-  :tmp = :tmp_1
-  var :tmp_2 = cast[string](:tmp)
-  =copy(data, :tmp_2)
+  var :local_4 = encode(toOpenArrayByte(s, 0, -(len(s), 1)))
+  :local_3 = :local_4
+  var :local_5 = cast[string](:local_3)
+  =copy(data, :local_5)
 finally:
-  =destroy(:tmp)
+  =destroy(:local_3)
   =destroy_1(data)
   =destroy_1(s)
 -- end of expandArc ------------------------
 --expandArc: main2
 var s
 var data
-var :tmp
+var :local_3
 try:
   s = newSeq(100)
-  var :tmp_1 = encode(s)
-  :tmp = :tmp_1
-  var :tmp_2 = cast[string](:tmp)
-  =copy(data, :tmp_2)
+  var :local_4 = encode(s)
+  :local_3 = :local_4
+  var :local_5 = cast[string](:local_3)
+  =copy(data, :local_5)
 finally:
-  =destroy(:tmp)
+  =destroy(:local_3)
   =destroy_1(data)
   =destroy(s)
 -- end of expandArc ------------------------
 --expandArc: main3
 var data
-var :tmp
-var :tmp_1
+var :local_2
+var :local_3
 try:
-  var :tmp_2 = encode(
-      var :tmp_3 = newSeq(100)
-      :tmp = :tmp_3
-      :tmp)
-  :tmp_1 = :tmp_2
-  var :tmp_4 = cast[string](:tmp_1)
-  =copy(data, :tmp_4)
+  var :local_5 = encode(
+      var :local_4 = newSeq(100)
+      :local_2 = :local_4
+      :local_2)
+  :local_3 = :local_5
+  var :local_6 = cast[string](:local_3)
+  =copy(data, :local_6)
 finally:
-  =destroy(:tmp_1)
-  =destroy(:tmp)
+  =destroy(:local_3)
+  =destroy(:local_2)
   =destroy_1(data)
 -- end of expandArc ------------------------'''
 """
