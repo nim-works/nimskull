@@ -8,6 +8,7 @@ include nimlsppkg/[messages, messageenums]
 const
   # This is used to explicitly set the default source path
   explicitSourcePath {.strdefine.} = getCurrentCompilerExe().parentDir.parentDir
+  VerionMisMatch = "Current Nim version #1 does not match the one NimLSP is built against #2"
 
 var nimpath = explicitSourcePath
 var
@@ -114,9 +115,10 @@ template getNimsuggest(fileuri: string): Nimsuggest =
   projectFiles[openFiles[fileuri].projectFile].nimsuggest
 
 proc checkVersion(outs: Stream) =
+  # xxx: usable when the server deployment seperately
   let
     nimoutputTuple =
-      execCmdEx("nim --version", options = {osproc.poEvalCommand, osproc.poUsePath})
+      execCmdEx("nim --version", options = {poEvalCommand, poUsePath})
   if nimoutputTuple.exitcode == 0:
     let
       nimoutput = nimoutputTuple.output
@@ -125,7 +127,10 @@ proc checkVersion(outs: Stream) =
       #hashStart = nimoutput.find("git hash") + 10
       #hash = nimoutput[hashStart..nimoutput.find("\n", hashStart)]
     if version != NimVersion:
-      outs.notify("window/showMessage", create(ShowMessageParams, MessageType.Warning.int, message = "Current Nim version does not match the one NimLSP is built against " & version & " != " & NimVersion).JsonNode)
+      let 
+        text = VerionMisMatch % [version, NimVersion]
+        msg = create(ShowMessageParams, MessageType.Warning.int, message = text)
+      outs.notify("window/showMessage", msg.JsonNode)
 
 proc createMarkupContent(label: string; content: string): MarkupContent =
   let label = "```nim\n" & label & "\n```\n"
