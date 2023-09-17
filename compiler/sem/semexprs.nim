@@ -1154,7 +1154,7 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
 
     # only attempt to fold the expression if doing so doesn't affect
     # compile-time state
-    if c.p.inStaticContext == 0 or sfNoSideEffect in callee.flags:
+    if not c.p.inStaticContext or sfNoSideEffect in callee.flags:
       if sfCompileTime in callee.flags:
         result = evalStaticExpr(c.module, c.idgen, c.graph, call, c.p.owner)
         result =
@@ -1176,11 +1176,11 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
   ## Semantically analyzes an expression explicitly requested to be evaluated
   ## at compile-time, producing either the AST representation of the resulting
   ## value or an error.
-  inc c.p.inStaticContext
   openScope(c)
+  pushStaticContext(c)
   var a = semExprWithType(c, n)
+  popStaticContext(c)
   closeScope(c)
-  dec c.p.inStaticContext
   a = foldInAst(c.module, a, c.idgen, c.graph)
   if a.kind == nkError or a.findUnresolvedStatic != nil:
     return a
@@ -2759,7 +2759,6 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   let oldInGenericContext = c.inGenericContext
   let oldInUnrolledContext = c.inUnrolledContext
   let oldInGenericInst = c.inGenericInst
-  let oldInStaticContext = c.p.inStaticContext
   let oldProcCon = c.p
   c.generics = @[]
   var err: string
@@ -2780,7 +2779,6 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   c.inUnrolledContext = oldInUnrolledContext
   c.inGenericInst = oldInGenericInst
   c.p = oldProcCon
-  c.p.inStaticContext = oldInStaticContext
   msgs.setInfoContextLen(c.config, oldContextLen)
   setLen(c.graph.owners, oldOwnerLen)
   c.currentScope = oldScope

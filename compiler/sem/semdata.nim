@@ -60,6 +60,7 @@ type
   POptionEntry* = ref TOptionEntry
   PProcCon* = ref TProcCon
   TProcCon* {.acyclic.} = object ## procedure context; also used for top-level
+                                 ## statements and compile-time expressions/
                                  ## statements
     owner*: PSym              ## the symbol this context belongs to
     resultSym*: PSym          ## the result symbol (if we are in a proc)
@@ -71,16 +72,16 @@ type
     caseContext*: seq[tuple[n: PNode, idx: int]]
     localBindStmts*: seq[PNode]
 
-    inStaticContext*: int
-      ## > 0 if we are inside a ``static`` block/expression or initializer
-      ## expression of a ``const``
+    inStaticContext*: bool
+      ## whether we're in a ``static`` block/expression or in an statement/
+      ## expression intended for compile-time evaluation
       ##
       ## written:
-      ##  - semexprs: save/restore in ``tryExpr``, inc/dec in ``semStaticExpr``
-      ##  - semstmts: inc/dec around ``semConst`` and ``semStaticStmt``
+      ##  - semdata: when pushing a static context (``pushStaticContext``)
       ## read:
       ##  - semBindSym: whether to resolve the binding or not
-      ##  - inCompileTimeOnlyContext
+      ##  - evalAtCompileTime: whether the procedure should be eagerly
+      ##                       evaluated with the VM
 
   TMatchedConcept* = object
     candidateType*: PType
@@ -1053,7 +1054,16 @@ proc isTopLevelInsideDeclaration*(c: PContext, sym: PSym): bool {.inline.} =
 proc inCompileTimeOnlyContext*(c: PContext): bool =
   ## Returns whether the current analysis happens for code that can only run
   ## at compile-time
-  c.p.inStaticContext > 0 or sfCompileTime in c.p.owner.flags
+  c.p.inStaticContext or sfCompileTime in c.p.owner.flags
+
+proc pushStaticContext*(c: PContext) =
+  # in order to not interfere with context-owner-based checks, we inherit
+  # the owner of the enclosing context
+  pushProcCon(c, c.p.owner)
+  c.p.inStaticContext = true
+
+proc popStaticContext*(c: PContext) =
+  popProcCon(c)
 
 proc pushCaseContext*(c: PContext, caseNode: PNode) =
   c.p.caseContext.add((caseNode, 0))

@@ -1047,8 +1047,6 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
   var hasError = false
 
   let defPart = n[0]
-  
-  inc c.p.inStaticContext
 
   # expansion of the init part
   let
@@ -1057,7 +1055,9 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
       block:
         # don't evaluate here since the type compatibility check below may add
         # a converter
+        pushStaticContext(c)
         let temp = semExprWithType(c, defInitPart)
+        popStaticContext(c)
 
         case temp.kind
         of nkSymChoices:
@@ -1302,8 +1302,6 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
   if hasError:
     # wrap the result if there is an embedded error
     result = c.config.wrapError(result)
-
-  dec c.p.inStaticContext
 
 
 proc semConstLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
@@ -3253,11 +3251,11 @@ proc semPragmaBlock(c: PContext, n: PNode): PNode =
 proc semStaticStmt(c: PContext, n: PNode): PNode =
   #echo "semStaticStmt"
   #writeStackTrace()
-  inc c.p.inStaticContext
   openScope(c)
+  pushStaticContext(c)
   var a = semStmt(c, n[0], {})
+  popStaticContext(c)
   closeScope(c)
-  dec c.p.inStaticContext
   a = foldInAst(c.module, a, c.idgen, c.graph)
   result = shallowCopy(n)
   result[0] = a
