@@ -8,7 +8,7 @@ include nimlsppkg/[messages, messageenums]
 const
   # This is used to explicitly set the default source path
   explicitSourcePath {.strdefine.} = getCurrentCompilerExe().parentDir.parentDir
-  VerionMisMatch = "Current Nim version #1 does not match the one NimLSP is built against #2"
+  VerionMisMatch = "Current Nim version $1 does not match the one NimLSP is built against $2"
 
 var nimpath = explicitSourcePath
 var
