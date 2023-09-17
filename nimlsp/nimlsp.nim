@@ -448,7 +448,6 @@ proc main(ins: Stream, outs: Stream) =
           continue
         case message["method"].getStr:
           of "exit":
-            debugLog "Exiting"
             if gotShutdown:
               quit 0
             else:
