@@ -72,6 +72,13 @@ type
     caseContext*: seq[tuple[n: PNode, idx: int]]
     localBindStmts*: seq[PNode]
 
+    context*: int
+      ## provides the value for the ``TSym.context`` field of label symbols.
+      ##
+      ## written:
+      ##  - semdata: when creating a proc context
+      ## read:
+      ##  - semexprs: for setting the context value for label symbols
     inStaticContext*: bool
       ## whether we're in a ``static`` block/expression or in an statement/
       ## expression intended for compile-time evaluation
@@ -745,10 +752,9 @@ proc lastOptionEntry*(c: PContext): POptionEntry =
 
 proc pushProcCon*(c: PContext, owner: PSym) {.inline.} =
   c.config.internalAssert(owner != nil, "owner is nil")
-  var x: PProcCon
-  new(x)
-  x.owner = owner
-  x.next = c.p
+  var x = PProcCon(owner: owner, next: c.p)
+  if c.p != nil:
+    x.context = c.p.context + 1
   c.p = x
 
 proc popProcCon*(c: PContext) {.inline.} = c.p = c.p.next

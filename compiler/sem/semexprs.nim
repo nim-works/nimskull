@@ -3244,6 +3244,10 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
           elif labl.owner == nil:
             labl.owner = c.p.owner
 
+          # the symbol might be a pre-existing one coming from a template or
+          # macro, meaning that we always have to set the context value here:
+          labl.context = c.p.context
+
           suggestSym(c.graph, lablNode.info, labl, c.graph.usageSym)
           styleCheckDef(c.config, labl)
 

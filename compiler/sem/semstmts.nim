@@ -39,7 +39,8 @@ proc semBreakStmt(c: PContext, n: PNode): ElaborateAst =
       result[0] = s.ast
     of skLabel:
       # make sure the label is okay to use:
-      if s.kind == skLabel and s.owner.id == c.p.owner.id:
+      if s.kind == skLabel and s.context == c.p.context and
+         s.owner.id == c.p.owner.id:
         incl(s.flags, sfUsed)
         suggestSym(c.graph, n.info, s, c.graph.usageSym)
       else:
