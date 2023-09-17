@@ -126,7 +126,7 @@ type
     prc: PSym
     fullBody*: Body
       ## the procedure's full body
-    locals, body: Rope
+    defs, body: Rope
     options: TOptions
     module: BModule
     g: PGlobals
@@ -359,7 +359,7 @@ proc getTemp(p: PProc, defineInLocals: bool = true): Rope =
   inc(p.unique)
   result = "Temporary$1" % [rope(p.unique)]
   if defineInLocals:
-    p.locals.add(p.indentLine("var $1;$n" % [result]))
+    p.defs.add(p.indentLine("var $1;$n" % [result]))
 
 type
   TMagicFrmt = array[0..1, string]
@@ -2312,7 +2312,7 @@ proc finishProc*(p: PProc): string =
             [ returnType,
               name,
               header,
-              optionalLine(p.locals),
+              optionalLine(p.defs),
               optionalLine(resultAsgn),
               optionalLine(genProcBody(p, prc)),
               optionalLine(p.indentLine(returnStmt))])
@@ -2323,7 +2323,7 @@ proc finishProc*(p: PProc): string =
     def = "\Lfunction $#($#) {$n$#$#$#$#" %
             [ name,
               header,
-              optionalLine(p.locals),
+              optionalLine(p.defs),
               optionalLine(resultAsgn),
               optionalLine(genProcBody(p, prc)),
               optionalLine(p.indentLine(returnStmt))]
@@ -2532,7 +2532,7 @@ proc genTopLevelStmt*(globals: PGlobals, m: BModule, body: sink Body) =
   p.fullBody = body
   p.unique = globals.unique
   genStmt(p, p.fullBody.code)
-  p.g.code.add(p.locals)
+  p.g.code.add(p.defs)
   p.g.code.add(p.body)
 
 proc wholeCode*(globals: PGlobals): Rope =
