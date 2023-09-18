@@ -77,6 +77,10 @@ proc notify(outs: Stream, notification: string, data: JsonNode) =
   let resp = create(NotificationMessage, "2.0", notification, some(data)).JsonNode
   outs.sendJson resp
 
+proc publishDiagnostics(outs: Stream, uri:string, diagnostics: seq[Diagnostic]) =
+  let data = create(PublishDiagnosticsParams, uri, diagnostics).JsonNode
+  notify(outs, "textDocument/publishDiagnostics", data)
+
 template getNimsuggest(fileuri: string): Nimsuggest =
   projectFiles[openFiles[fileuri].projectFile].nimsuggest
 
@@ -447,13 +451,13 @@ proc main(ins: Stream, outs: Stream) =
               let diagnostics = getNimsuggest(req.fileuri).chk(req.filePath, req.filestash)
               debugLog "Got diagnostics: " & $diagnostics.len
               debugSuggests(diagnostics[0..<min(diagnostics.len, 10)])
-              var response = newSeq[Diagnostic]()
+              var data = newSeq[Diagnostic]()
               for diagnostic in diagnostics:
                 if diagnostic.line == 0:
                   continue
                 if diagnostic.filePath != uriToPath(req.fileuri):
                   continue
-                response.add createDiagnostic(diagnostic)
+                data.add createDiagnostic(diagnostic)
 
               # Invoke chk on other open files.
               let projectFile = openFiles[req.fileuri].projectFile
@@ -462,18 +466,16 @@ proc main(ins: Stream, outs: Stream) =
                 let diagnostics = getNimsuggest(f).chk(req.filePath, req.filestash)
                 debugLog "Got diagnostics: " & $diagnostics.len
                 debugSuggests(diagnostics[0 ..< min(diagnostics.len, 10)])
-
+                var data = newSeq[Diagnostic]()
                 for diagnostic in diagnostics:
                   if diagnostic.line == 0:
                     continue
                   if diagnostic.filePath != uriToPath(f):
                     continue
-                  response.add createDiagnostic(diagnostic)
+                  data.add createDiagnostic(diagnostic)
+                outs.publishDiagnostics(f, data)
 
-              let resp = create(PublishDiagnosticsParams,
-                req.fileuri,
-                response).JsonNode
-              outs.notify("textDocument/publishDiagnostics", resp)
+              outs.publishDiagnostics(req.fileuri, data)
           else:
             let msg = "Unknown notification method: " & message["method"].getStr
             warnLog msg
