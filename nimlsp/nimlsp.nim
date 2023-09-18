@@ -45,7 +45,7 @@ template rawChar(p: untyped): int =
 template col(openFiles: typeof openFiles; p: untyped): int =
   openFiles[p.fileuri].fingerTable[p.rawLine].utf16to8(p.rawChar)
 
-template textDocumentRequest(message: typed; kind: typed; name, body: untyped): untyped =
+template textDocumentRequest(message, kind: typed; name, body: untyped): untyped =
   if message.hasKey("params"):
     let p = message["params"]
     var name = kind(p)
@@ -54,32 +54,35 @@ template textDocumentRequest(message: typed; kind: typed; name, body: untyped): 
     else:
       debugLog("Unable to parse data as ", kind)
 
-template textDocumentNotification(message: typed; kind: typed; name, body: untyped): untyped =
+template textDocumentNotification(message, kind: typed; name, body: untyped): untyped =
   if message.hasKey("params"):
     var p = message["params"]
     var name = kind(p)
     if p.isValid(kind, allowExtra = false):
-      if "languageId" notin name["textDocument"] or name["textDocument"]["languageId"].getStr == "nim":
+      if "languageId" notin name["textDocument"] or 
+       name["textDocument"]["languageId"].getStr == "nim":
         body
       else:
         debugLog("Unable to parse data as ", kind)
 
-proc respond(outs: Stream, request: JsonNode, data: JsonNode) =
-  let resp = create(ResponseMessage, "2.0", parseId(request["id"]), some(data), none(ResponseError)).JsonNode
-  outs.sendJson resp
+proc respond(outs: Stream, req: JsonNode, data: JsonNode) =
+  let id = parseId(req["id"])
+  let resp = create(ResponseMessage, "2.0", id, some(data), none(ResponseError))
+  outs.sendJson resp.JsonNode
 
-proc error(outs: Stream, request: JsonNode, errorCode: ErrorCode, message: string, data: JsonNode) =
-  let err = some(create(ResponseError, ord(errorCode), message, data))
-  let resp = create(ResponseMessage, "2.0", parseId(request{"id"}), none(JsonNode), err).JsonNode
-  outs.sendJson resp
+proc error(outs: Stream, req: JsonNode, code: ErrorCode, msg: string, data: JsonNode) =
+  let err = some(create(ResponseError, ord(code), msg, data))
+  let id = parseId(req{"id"})
+  let resp = create(ResponseMessage, "2.0", id, none(JsonNode), err)
+  outs.sendJson resp.JsonNode
 
 proc notify(outs: Stream, notification: string, data: JsonNode) =
-  let resp = create(NotificationMessage, "2.0", notification, some(data)).JsonNode
-  outs.sendJson resp
+  let resp = create(NotificationMessage, "2.0", notification, some(data))
+  outs.sendJson resp.JsonNode
 
 proc publishDiagnostics(outs: Stream, uri:string, diagnostics: seq[Diagnostic]) =
-  let data = create(PublishDiagnosticsParams, uri, diagnostics).JsonNode
-  notify(outs, "textDocument/publishDiagnostics", data)
+  let data = create(PublishDiagnosticsParams, uri, diagnostics)
+  notify(outs, "textDocument/publishDiagnostics", data.JsonNode)
 
 template getNimsuggest(fileuri: string): Nimsuggest =
   projectFiles[openFiles[fileuri].projectFile].nimsuggest
@@ -267,13 +270,13 @@ proc main(ins: Stream, outs: Stream) =
               debugLog "Found suggestions: " & $suggestions.len
               debugSuggests(suggestions[0 ..< min(suggestions.len, 10)])
               var response = newJarray()
-              for suggestion in suggestions:
-                if suggestion.section == ideUse or req["context"]["includeDeclaration"].getBool:
+              for sug in suggestions:
+                if sug.section == ideUse or req["context"]["includeDeclaration"].getBool:
                   response.add create(Location,
-                    "file://" & pathToUri(suggestion.filepath),
+                    "file://" & pathToUri(sug.filepath),
                     create(Range,
-                      create(Position, suggestion.line-1, suggestion.column),
-                      create(Position, suggestion.line-1, suggestion.column + suggestion.qualifiedPath[^1].len)
+                      create(Position, sug.line-1, sug.column),
+                      create(Position, sug.line-1, sug.column + sug.qualifiedPath[^1].len)
                     )
                   ).JsonNode
               if response.len == 0:
@@ -294,13 +297,13 @@ proc main(ins: Stream, outs: Stream) =
                 resp = newJNull()
               else:
                 var textEdits = newJObject()
-                for suggestion in suggestions:
-                  let uri = "file://" & pathToUri(suggestion.filepath)
+                for sug in suggestions:
+                  let uri = "file://" & pathToUri(sug.filepath)
                   if uri notin textEdits:
                     textEdits[uri] = newJArray()
                   textEdits[uri].add create(TextEdit, create(Range,
-                      create(Position, suggestion.line-1, suggestion.column),
-                      create(Position, suggestion.line-1, suggestion.column + suggestion.qualifiedPath[^1].len)
+                      create(Position, sug.line-1, sug.column),
+                      create(Position, sug.line-1, sug.column + sug.qualifiedPath[^1].len)
                     ),
                     req["newName"].getStr
                   ).JsonNode
@@ -323,12 +326,12 @@ proc main(ins: Stream, outs: Stream) =
                 resp = newJNull()
               else:
                 resp = newJarray()
-                for declaration in declarations:
+                for decl in declarations:
                   resp.add create(Location,
-                    "file://" & pathToUri(declaration.filepath),
+                    "file://" & pathToUri(decl.filepath),
                     create(Range,
-                      create(Position, declaration.line-1, declaration.column),
-                      create(Position, declaration.line-1, declaration.column + declaration.qualifiedPath[^1].len)
+                      create(Position, decl.line-1, decl.column),
+                      create(Position, decl.line-1, decl.column + decl.qualifiedPath[^1].len)
                     )
                   ).JsonNode
               outs.respond(message, resp)
@@ -364,7 +367,8 @@ proc main(ins: Stream, outs: Stream) =
           of "textDocument/signatureHelp":
             textDocumentRequest(message, TextDocumentPositionParams, req):
               debugLog location(req)
-              let suggestions = getNimsuggest(req.fileuri).con(req.filePath, req.filestash, req.rawLine + 1, req.rawChar)
+              let suggestions = getNimsuggest(req.fileuri).con(req.filePath, req.filestash,
+               req.rawLine + 1, req.rawChar)
               var signatures = newSeq[SignatureInformation]()
               for suggestion in suggestions:
                 var label = suggestion.qualifiedPath.join(".")
@@ -409,7 +413,8 @@ proc main(ins: Stream, outs: Stream) =
 
               if projectFile notin projectFiles:
                 debugLog "Initialising with project file: ", projectFile
-                projectFiles[projectFile] = (nimsuggest: initNimsuggest(projectFile, nimpath), openFiles: initOrderedSet[string]())
+                projectFiles[projectFile] = (nimsuggest: initNimsuggest(projectFile, nimpath),
+                 openFiles: initOrderedSet[string]())
               projectFiles[projectFile].openFiles.incl(req.fileuri)
 
               for line in req["textDocument"]["text"].getStr.splitLines:

@@ -485,7 +485,7 @@ proc executeCmd*(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
   conf.m.trackPosAttached = false
   conf.errorCounter = 0
   if not isKnownFile:
-    graph.compileProject(dirtyIdx)
+    discard graph.compileModule(dirtyIdx, {})
   if conf.ideCmd in {ideUse, ideDus} and
       dirtyfile.isEmpty:
     discard "no need to recompile anything"
@@ -498,7 +498,7 @@ proc executeCmd*(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
     graph.vm = nil
     if conf.ideCmd != ideMod:
       if isKnownFile:
-        graph.compileProject(modIdx)
+        discard graph.compileModule(dirtyIdx, {})
 
 when defined(nimsuggest):
 

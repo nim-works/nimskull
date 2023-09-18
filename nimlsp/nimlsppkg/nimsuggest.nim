@@ -54,8 +54,8 @@ type
     idle: int
     cachedMsgs: CachedMsgs
 
-proc defaultStructuredReportHook(conf: ConfigRef, report: Report): TErrorHandling =
-  discard
+proc defaultReportHook(conf: ConfigRef, report: Report): TErrorHandling =
+  doNothing
 
 proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
   var retval: ModuleGraph
@@ -87,6 +87,7 @@ proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
     else:
       conf.projectName = a
   proc reportHook(conf: ConfigRef, report: Report): TErrorHandling =
+    result = doNothing
     if report.kind notin {rsemProcessing, rsemProcessingStmt}:
       # pre-filter to save memory
       cachedMsgs.add(report)
@@ -255,17 +256,17 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
   elif conf.ideCmd == ideProject:
     retval.add(Suggest(section: ideProject, filePath: string conf.projectFull))
   else:
-    var s: HashSet[int]
+    # var s: HashSet[int]
     template addReport(report: Report) =
       let loc = report.location()
       if stdOptions.isSome(loc):
         let info = loc.get()
-        let h = hash(report)
-        if h notin s:
-          s.incl h
-          retval.add(Suggest(section: ideChk, filePath: toFullPath(conf,info),
-            line: toLinenumber(info), column: toColumn(info),
-            doc: conf.reportShort(report), forth: $severity(conf, report)))
+        # let h = hash(report)
+        # if h notin s:
+        #   s.incl h
+        retval.add(Suggest(section: ideChk, filePath: toFullPath(conf,info),
+          line: toLinenumber(info), column: toColumn(info),
+          doc: conf.reportShort(report), forth: $severity(conf, report)))
 
     if conf.ideCmd == ideChk:
       for cm in nimsuggest.cachedMsgs: addReport(cm)
@@ -282,6 +283,6 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
         else: discard
 
     else:
-      conf.structuredReportHook = defaultStructuredReportHook
+      conf.structuredReportHook = defaultReportHook
     executeNoHooks(conf.ideCmd, file, dirtyfile, line, col, nimsuggest.graph)
   return retval
