@@ -453,7 +453,7 @@ proc main(ins: Stream, outs: Stream) =
               for diagnostic in diagnostics:
                 if diagnostic.line == 0:
                   continue
-                if diagnostic.filePath != req.filePath:
+                if diagnostic.filePath != uriToPath(req.fileuri):
                   continue
                 response.add createDiagnostic(diagnostic)
 
