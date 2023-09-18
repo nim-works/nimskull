@@ -262,14 +262,23 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
       if stdOptions.isSome(loc):
         let info = loc.get()
         retval.add(Suggest(section: ideChk, filePath: toFullPath(conf,info),
-          line: toLinenumber(info), column: toColumn(info), 
-          forth: $severity(conf, report)))
+          line: toLinenumber(info), column: toColumn(info),
+          doc: conf.reportShort(report), forth: $severity(conf, report)))
 
     if conf.ideCmd == ideChk:
       for cm in nimsuggest.cachedMsgs: addReport(cm)
       nimsuggest.cachedMsgs.setLen 0
       conf.structuredReportHook = proc (conf: ConfigRef, report: Report): TErrorHandling =
-        addReport(report)
+        case report.category
+          of repParser, repLexer, repSem, repVM:
+            if report.category == repSem and
+              report.kind in {rsemProcessing, rsemProcessingStmt}:
+              # skip processing statements
+              return
+            let info = report.location().get(unknownLineInfo)
+            addReport(report)
+          else: discard
+        
         return doNothing
     else:
       conf.structuredReportHook = defaultStructuredReportHook

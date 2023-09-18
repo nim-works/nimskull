@@ -331,7 +331,6 @@ proc main(ins: Stream, outs: Stream) =
           of "textDocument/documentSymbol":
             textDocumentRequest(message, DocumentSymbolParams, req):
               debugLog req.uriAndStash()
-              let projectFile = openFiles[req.fileuri].projectFile
               let syms = getNimsuggest(req.fileuri).outline(req.filePath, req.filestash)
               debugLog "Found outlines: " & $syms.len
               debugSuggests(syms[0..<min(syms.len, 10)])
@@ -449,7 +448,7 @@ proc main(ins: Stream, outs: Stream) =
               let diagnostics = getNimsuggest(req.fileuri).chk(req.filePath, req.filestash)
               debugLog "Got diagnostics: " & $diagnostics.len
               debugSuggests(diagnostics[0..<min(diagnostics.len, 10)])
-              var response: seq[Diagnostic]
+              var response = newSeq[Diagnostic]()
               for diagnostic in diagnostics:
                 if diagnostic.line == 0:
                   continue
@@ -464,7 +463,7 @@ proc main(ins: Stream, outs: Stream) =
                 debugLog "Got diagnostics: " & $diagnostics.len
                 debugSuggests(diagnostics[0 ..< min(diagnostics.len, 10)])
 
-                var response: seq[Diagnostic]
+                var response = newSeq[Diagnostic]()
                 for diagnostic in diagnostics:
                   if diagnostic.line == 0:
                     continue
