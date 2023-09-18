@@ -71,13 +71,6 @@ proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
     add(conf.searchPaths, conf.libpath)
 
     conf.setErrorMaxHighMaybe
-    # do not print errors, but log them
-    conf.writelnHook = proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
-      discard
-    conf.structuredReportHook = proc (conf: ConfigRef, report: Report): TErrorHandling =
-      if report.kind notin {rsemProcessing, rsemProcessingStmt}:
-        # pre-filter to save memory
-        cachedMsgs.add(report)
 
     # compile the project before showing any input so that we already
     # can answer questions right away:
@@ -86,8 +79,6 @@ proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
 
   proc mockCmdLine(pass: TCmdLinePass, argv: openArray[string];
         conf: ConfigRef) =
-    conf.writeHook = proc(conf: ConfigRef, s: string, flags: MsgFlags) = discard
-    
     let a = unixToNativePath(project)
     if dirExists(a) and not fileExists(a.addFileExt("nim")):
       conf.projectName = findProjectNimFile(conf, a)
@@ -95,13 +86,19 @@ proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
       if conf.projectName.len == 0: conf.projectName = a
     else:
       conf.projectName = a
+  proc reportHook(conf: ConfigRef, report: Report): TErrorHandling =
+    if report.kind notin {rsemProcessing, rsemProcessingStmt}:
+      # pre-filter to save memory
+      cachedMsgs.add(report)
   let
     cache = newIdentCache()
-    conf = newConfigRef(cli_reporter.reportHook)
+    conf = newConfigRef(reportHook)
     self = NimProg(
       suggestMode: true,
       processCmdLine: mockCmdLine
     )
+  conf.writeHook = proc(conf: ConfigRef, s: string, flags: MsgFlags) = discard
+  conf.writelnHook = proc(conf: ConfigRef, s: string, flags: MsgFlags) = discard
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   self.initDefinesProg(conf, "nimsuggest")
 
