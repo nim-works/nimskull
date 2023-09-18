@@ -84,6 +84,12 @@ proc publishDiagnostics(outs: Stream, uri:string, diagnostics: seq[Diagnostic]) 
   let data = create(PublishDiagnosticsParams, uri, diagnostics)
   notify(outs, "textDocument/publishDiagnostics", data.JsonNode)
 
+proc createRange(line, col, length: int): Range =
+  create(Range,
+    create(Position, line, col),
+    create(Position, line, col + length)
+  )
+
 template getNimsuggest(fileuri: string): Nimsuggest =
   projectFiles[openFiles[fileuri].projectFile].nimsuggest
 
@@ -148,7 +154,8 @@ proc main(ins: Stream, outs: Stream) =
       if isValid(message, RequestMessage):
         debugLog "Got valid Request message of type ", message["method"].getStr
         if not initialized and message["method"].getStr != "initialize":
-          outs.error(message, ServerNotInitialized, "Unable to accept requests before being initialized", newJNull())
+          const msg = "Unable to accept requests before being initialized"
+          outs.error(message, ServerNotInitialized, msg, newJNull())
           continue
         case message["method"].getStr:
           of "shutdown":
@@ -252,11 +259,8 @@ proc main(ins: Stream, outs: Stream) =
                 resp = newJNull()
               else:
                 let
-                  rangeopt =
-                    some(create(Range,
-                      create(Position, req.rawLine, req.rawChar),
-                      create(Position, req.rawLine, req.rawChar + suggestions[0].qualifiedPath[^1].len)
-                    ))
+                  length = suggestions[0].qualifiedPath[^1].len
+                  rangeopt = some(createRange(req.rawLine, req.rawChar, length))
                   markupContent = createMarkupContent(suggestions[0])
                 resp = create(Hover, markupContent, rangeopt).JsonNode
               outs.respond(message, resp)
@@ -274,10 +278,7 @@ proc main(ins: Stream, outs: Stream) =
                 if sug.section == ideUse or req["context"]["includeDeclaration"].getBool:
                   response.add create(Location,
                     "file://" & pathToUri(sug.filepath),
-                    create(Range,
-                      create(Position, sug.line-1, sug.column),
-                      create(Position, sug.line-1, sug.column + sug.qualifiedPath[^1].len)
-                    )
+                    createRange(sug.line-1, sug.column, sug.qualifiedPath[^1].len)
                   ).JsonNode
               if response.len == 0:
                 outs.respond(message, newJNull())
@@ -301,10 +302,8 @@ proc main(ins: Stream, outs: Stream) =
                   let uri = "file://" & pathToUri(sug.filepath)
                   if uri notin textEdits:
                     textEdits[uri] = newJArray()
-                  textEdits[uri].add create(TextEdit, create(Range,
-                      create(Position, sug.line-1, sug.column),
-                      create(Position, sug.line-1, sug.column + sug.qualifiedPath[^1].len)
-                    ),
+                  textEdits[uri].add create(TextEdit,
+                    createRange(sug.line-1, sug.column, sug.qualifiedPath[^1].len),
                     req["newName"].getStr
                   ).JsonNode
                 resp = create(WorkspaceEdit,
@@ -329,10 +328,7 @@ proc main(ins: Stream, outs: Stream) =
                 for decl in declarations:
                   resp.add create(Location,
                     "file://" & pathToUri(decl.filepath),
-                    create(Range,
-                      create(Position, decl.line-1, decl.column),
-                      create(Position, decl.line-1, decl.column + decl.qualifiedPath[^1].len)
-                    )
+                    createRange(decl.line-1,  decl.column, decl.qualifiedPath[^1].len)
                   ).JsonNode
               outs.respond(message, resp)
           of "textDocument/documentSymbol":
@@ -354,14 +350,8 @@ proc main(ins: Stream, outs: Stream) =
                     some(symKindToString(sym.symKind)),
                     nimSymToLSPKind(sym.symKind).int,
                     some(sym.flags.mapIt(it.int)),
-                    create(Range,
-                        create(Position, sym.line-1, sym.column),
-                        create(Position, sym.line-1, sym.column + sym.tokenLen)
-                      ),
-                    create(Range,
-                        create(Position, sym.line-1, sym.column),
-                        create(Position, sym.line-1, sym.column + sym.tokenLen)
-                      ),
+                    createRange(sym.line-1, sym.column, sym.tokenLen),
+                    createRange(sym.line-1, sym.column, sym.tokenLen),
                     none(seq[DocumentSymbol])).JsonNode
                 outs.respond(message, resp)
           of "textDocument/signatureHelp":
