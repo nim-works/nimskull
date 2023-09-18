@@ -271,16 +271,16 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
       for cm in nimsuggest.cachedMsgs: addReport(cm)
       nimsuggest.cachedMsgs.setLen 0
       conf.structuredReportHook = proc (conf: ConfigRef, report: Report): TErrorHandling =
+        result = doNothing
         case report.category
-          of repParser, repLexer, repSem, repVM:
-            if report.category == repSem and
-              report.kind in {rsemProcessing, rsemProcessingStmt}:
-              # skip processing statements
-              return
-            addReport(report)
-          else: discard
-        
-        return doNothing
+        of repParser, repLexer, repSem, repVM:
+          if report.category == repSem and
+            report.kind in {rsemProcessing, rsemProcessingStmt}:
+            # skip processing statements
+            return
+          addReport(report)
+        else: discard
+
     else:
       conf.structuredReportHook = defaultStructuredReportHook
     executeNoHooks(conf.ideCmd, file, dirtyfile, line, col, nimsuggest.graph)
