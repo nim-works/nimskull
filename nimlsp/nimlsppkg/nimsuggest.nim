@@ -255,8 +255,7 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
   if conf.ideCmd == ideKnown:
     retval.add(Suggest(section: ideKnown, quality: ord(fileInfoKnown(conf, file))))
   elif conf.ideCmd == ideProject:
-    retval.add(Suggest(section: ideProject,
-        filePath: string conf.projectFull))
+    retval.add(Suggest(section: ideProject, filePath: string conf.projectFull))
   else:
     template addReport(report: Report) =
       let loc = report.location()
@@ -274,6 +273,5 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
         return doNothing
     else:
       conf.structuredReportHook = defaultStructuredReportHook
-    executeNoHooks(conf.ideCmd, file, dirtyfile, line, col,
-            nimsuggest.graph)
+    executeNoHooks(conf.ideCmd, file, dirtyfile, line, col, nimsuggest.graph)
   return retval

@@ -109,6 +109,26 @@ proc createMarkupContent(sug: Suggest): MarkupContent =
     label &= sug.forth
   createMarkupContent(label, sug.doc)
 
+proc createDiagnostic(sug: Suggest): Diagnostic =
+  let
+    message = sug.doc
+    endcolumn = sug.column + message.rfind('\'') - message.find('\'') - 1
+  result = create(Diagnostic,
+    create(Range,
+      create(Position, sug.line-1, sug.column),
+      create(Position, sug.line-1, max(sug.column, endcolumn))
+    ),
+    some(case sug.forth:
+      of "Error": DiagnosticSeverity.Error.int
+      of "Hint": DiagnosticSeverity.Hint.int
+      of "Warning": DiagnosticSeverity.Warning.int
+      else: DiagnosticSeverity.Error.int),
+    none(int),
+    some("nimsuggest chk"),
+    message,
+    none(seq[DiagnosticRelatedInformation])
+  )
+
 proc main(ins: Stream, outs: Stream) =
   # checkVersion(outs) xxx: enable when deployment seperately
   var message: JsonNode
@@ -433,28 +453,9 @@ proc main(ins: Stream, outs: Stream) =
               for diagnostic in diagnostics:
                 if diagnostic.line == 0:
                   continue
-
                 if diagnostic.filePath != req.filePath:
                   continue
-                # Try to guess the size of the identifier
-                let
-                  message = diagnostic.doc
-                  endcolumn = diagnostic.column + message.rfind('\'') - message.find('\'') - 1
-                response.add create(Diagnostic,
-                  create(Range,
-                    create(Position, diagnostic.line-1, diagnostic.column),
-                    create(Position, diagnostic.line-1, max(diagnostic.column, endcolumn))
-                  ),
-                  some(case diagnostic.forth:
-                    of "Error": DiagnosticSeverity.Error.int
-                    of "Hint": DiagnosticSeverity.Hint.int
-                    of "Warning": DiagnosticSeverity.Warning.int
-                    else: DiagnosticSeverity.Error.int),
-                  none(int),
-                  some("nimsuggest chk"),
-                  message,
-                  none(seq[DiagnosticRelatedInformation])
-                )
+                response.add createDiagnostic(diagnostic)
 
               # Invoke chk on all open files.
               let projectFile = openFiles[req.fileuri].projectFile
@@ -467,30 +468,9 @@ proc main(ins: Stream, outs: Stream) =
                 for diagnostic in diagnostics:
                   if diagnostic.line == 0:
                     continue
-
                   if diagnostic.filePath != uriToPath(f):
                     continue
-                  # Try to guess the size of the identifier
-                  let
-                    message = diagnostic.doc
-                    endcolumn = diagnostic.column + message.rfind('\'') - message.find('\'') - 1
-
-                  response.add create(
-                    Diagnostic,
-                    create(Range,
-                      create(Position, diagnostic.line-1, diagnostic.column),
-                      create(Position, diagnostic.line-1, max(diagnostic.column, endcolumn))
-                    ),
-                    some(case diagnostic.forth:
-                      of "Error": DiagnosticSeverity.Error.int
-                      of "Hint": DiagnosticSeverity.Hint.int
-                      of "Warning": DiagnosticSeverity.Warning.int
-                      else: DiagnosticSeverity.Error.int),
-                    none(int),
-                    some("nimsuggest chk"),
-                    message,
-                    none(seq[DiagnosticRelatedInformation])
-                  )
+                  response.add createDiagnostic(diagnostic)
                 let resp = create(PublishDiagnosticsParams, f, response).JsonNode
                 outs.notify("textDocument/publishDiagnostics", resp)
               let resp = create(PublishDiagnosticsParams,
