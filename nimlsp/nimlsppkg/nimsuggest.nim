@@ -275,7 +275,6 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
               report.kind in {rsemProcessing, rsemProcessingStmt}:
               # skip processing statements
               return
-            let info = report.location().get(unknownLineInfo)
             addReport(report)
           else: discard
         

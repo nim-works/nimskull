@@ -421,7 +421,6 @@ proc main(ins: Stream, outs: Stream) =
                 openFiles[req.fileuri].fingerTable.add line.createUTFMapping()
                 file.writeLine line
               file.close()
-
               # Notify nimsuggest about a file modification.
               discard getNimsuggest(req.fileuri).mod(req.filePath, req.filestash)
           of "textDocument/didClose":
@@ -456,22 +455,21 @@ proc main(ins: Stream, outs: Stream) =
                   continue
                 response.add createDiagnostic(diagnostic)
 
-              # Invoke chk on all open files.
+              # Invoke chk on other open files.
               let projectFile = openFiles[req.fileuri].projectFile
               for f in projectFiles[projectFile].openFiles.items:
+                if f == req.fileuri: continue
                 let diagnostics = getNimsuggest(f).chk(req.filePath, req.filestash)
                 debugLog "Got diagnostics: " & $diagnostics.len
                 debugSuggests(diagnostics[0 ..< min(diagnostics.len, 10)])
 
-                var response = newSeq[Diagnostic]()
                 for diagnostic in diagnostics:
                   if diagnostic.line == 0:
                     continue
                   if diagnostic.filePath != uriToPath(f):
                     continue
                   response.add createDiagnostic(diagnostic)
-                let resp = create(PublishDiagnosticsParams, f, response).JsonNode
-                outs.notify("textDocument/publishDiagnostics", resp)
+
               let resp = create(PublishDiagnosticsParams,
                 req.fileuri,
                 response).JsonNode
