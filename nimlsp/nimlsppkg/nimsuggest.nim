@@ -1,7 +1,7 @@
 when not defined(nimcore):
   {.error: "nimcore MUST be defined for Nim's core tooling".}
 
-import std/[os, net]
+import std/[os, net, sets]
 import std/options as stdOptions
 import
   compiler/ast/[
@@ -37,7 +37,8 @@ import
 from compiler/ast/reports import Report,
   category,
   kind,
-  location
+  location,
+  hash
 
 from compiler/front/main import customizeForBackend
 
@@ -257,13 +258,17 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
   elif conf.ideCmd == ideProject:
     retval.add(Suggest(section: ideProject, filePath: string conf.projectFull))
   else:
+    var s: HashSet[int]
     template addReport(report: Report) =
       let loc = report.location()
       if stdOptions.isSome(loc):
         let info = loc.get()
-        retval.add(Suggest(section: ideChk, filePath: toFullPath(conf,info),
-          line: toLinenumber(info), column: toColumn(info),
-          doc: conf.reportShort(report), forth: $severity(conf, report)))
+        let h = hash(report)
+        if h notin s:
+          s.incl h
+          retval.add(Suggest(section: ideChk, filePath: toFullPath(conf,info),
+            line: toLinenumber(info), column: toColumn(info),
+            doc: conf.reportShort(report), forth: $severity(conf, report)))
 
     if conf.ideCmd == ideChk:
       for cm in nimsuggest.cachedMsgs: addReport(cm)
