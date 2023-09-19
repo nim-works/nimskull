@@ -241,23 +241,26 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int,
     let dirtyIdx = fileInfoIdx(conf, file)
     outline(graph, dirtyIdx)
 
-proc fetchCachedReports*(nimsuggest: NimSuggest, file: AbsoluteFile): seq[Suggest] =
-  let rLen = nimsuggest.cachedMsgs.len
+proc reportToSuggest(conf: ConfigRef, info: TLineInfo, r: Report): Suggest =
+  Suggest(section: ideChk, filePath: toFullPath(conf, info),
+    line: toLinenumber(info), column: toColumn(info),
+    doc: conf.reportShort(r), forth: $severity(conf, r))
+
+proc fetchCachedReports*(ins: NimSuggest, file: AbsoluteFile): seq[Suggest] =
+  let rLen = ins.cachedMsgs.len
   if rLen == 0: return
-  let conf = nimsuggest.graph.config
+  let conf = ins.graph.config
   let fileIdx = fileInfoIdx(conf, file)
   var outs: seq[int] = @[]
-  for i, report in nimsuggest.cachedMsgs:
+  for i, report in ins.cachedMsgs:
     let loc = report.location()
     if stdOptions.isSome(loc):
       let info = loc.get()
       if info.fileIndex == fileIdx:
         outs.add i
-        result.add(Suggest(section: ideChk, filePath: toFullPath(conf,info),
-          line: toLinenumber(info), column: toColumn(info),
-          doc: conf.reportShort(report), forth: $severity(conf, report)))
+        result.add(reportToSuggest(conf, info, report))
   for i in countdown(outs.len - 1, 0):
-    nimsuggest.cachedMsgs.delete(outs[i])
+    ins.cachedMsgs.delete(outs[i])
 
 proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
       dirtyfile: AbsoluteFile, line, col: int): seq[Suggest] =
@@ -276,9 +279,7 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
       let loc = report.location()
       if stdOptions.isSome(loc):
         let info = loc.get()
-        retval.add(Suggest(section: ideChk, filePath: toFullPath(conf,info),
-          line: toLinenumber(info), column: toColumn(info),
-          doc: conf.reportShort(report), forth: $severity(conf, report)))
+        retval.add(reportToSuggest(conf, info, report))
 
     if conf.ideCmd == ideChk:
       conf.structuredReportHook = proc (conf: ConfigRef, report: Report): TErrorHandling =
