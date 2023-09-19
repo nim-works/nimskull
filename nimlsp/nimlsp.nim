@@ -367,7 +367,8 @@ proc main(ins: Stream, outs: Stream) =
                   label &= suggestion.forth
                 signatures.add create(SignatureInformation,
                   label = label,
-                  documentation = some(suggestion.doc),
+                  documentation = some(rstToMarkdown(suggestion.doc)),
+                  # TODO: fill parameters info
                   parameters = none(seq[ParameterInformation])
                 )
               let resp = create(SignatureHelp,
