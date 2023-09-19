@@ -124,6 +124,9 @@ createFileOnlyCommand(known)
 proc `mod`*(nimsuggest: NimSuggest, file: string, dirtyfile = ""): seq[Suggest] =
   nimsuggest.runCmd(ideMod, AbsoluteFile file, AbsoluteFile dirtyfile, 0, 0)
 
+proc fetchCachedReports*(nimsuggest: NimSuggest, file: string): seq[Suggest] =
+  nimsuggest.fetchCachedReports(AbsoluteFile file)
+
 when isMainModule:
   import os, sequtils, algorithm
   const PkgDir = currentSourcePath.parentDir.parentDir

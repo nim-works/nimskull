@@ -1,7 +1,7 @@
 when not defined(nimcore):
   {.error: "nimcore MUST be defined for Nim's core tooling".}
 
-import std/[os, net, sets]
+import std/[os, net]
 import std/options as stdOptions
 import
   compiler/ast/[
@@ -37,8 +37,7 @@ import
 from compiler/ast/reports import Report,
   category,
   kind,
-  location,
-  hash
+  location
 
 from compiler/front/main import customizeForBackend
 
@@ -207,7 +206,6 @@ proc outline(graph: ModuleGraph; fileIdx: FileIndex) =
   var parser: Parser
   var sug: Suggest
   var parsedNode: ParsedNode
-  var s: ParsedNode
   let name = toFilename(conf, fileIdx)
 
   const Sections = {pnkTypeSection, pnkConstSection, pnkLetSection, pnkVarSection}
@@ -243,6 +241,24 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int,
     let dirtyIdx = fileInfoIdx(conf, file)
     outline(graph, dirtyIdx)
 
+proc fetchCachedReports*(nimsuggest: NimSuggest, file: AbsoluteFile): seq[Suggest] =
+  let rLen = nimsuggest.cachedMsgs.len
+  if rLen == 0: return
+  let conf = nimsuggest.graph.config
+  let fileIdx = fileInfoIdx(conf, file)
+  var outs: seq[int] = @[]
+  for i, report in nimsuggest.cachedMsgs:
+    let loc = report.location()
+    if stdOptions.isSome(loc):
+      let info = loc.get()
+      if info.fileIndex == fileIdx:
+        outs.add i
+        result.add(Suggest(section: ideChk, filePath: toFullPath(conf,info),
+          line: toLinenumber(info), column: toColumn(info),
+          doc: conf.reportShort(report), forth: $severity(conf, report)))
+  for i in countdown(outs.len - 1, 0):
+    nimsuggest.cachedMsgs.delete(outs[i])
+
 proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
       dirtyfile: AbsoluteFile, line, col: int): seq[Suggest] =
   var retval: seq[Suggest] = @[]
@@ -256,21 +272,15 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
   elif conf.ideCmd == ideProject:
     retval.add(Suggest(section: ideProject, filePath: string conf.projectFull))
   else:
-    # var s: HashSet[int]
     template addReport(report: Report) =
       let loc = report.location()
       if stdOptions.isSome(loc):
         let info = loc.get()
-        # let h = hash(report)
-        # if h notin s:
-        #   s.incl h
         retval.add(Suggest(section: ideChk, filePath: toFullPath(conf,info),
           line: toLinenumber(info), column: toColumn(info),
           doc: conf.reportShort(report), forth: $severity(conf, report)))
 
     if conf.ideCmd == ideChk:
-      for cm in nimsuggest.cachedMsgs: addReport(cm)
-      nimsuggest.cachedMsgs.setLen 0
       conf.structuredReportHook = proc (conf: ConfigRef, report: Report): TErrorHandling =
         result = doNothing
         case report.category

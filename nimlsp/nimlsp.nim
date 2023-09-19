@@ -6,7 +6,7 @@ include nimlsppkg/[messages, messageenums]
 const
   # This is used to explicitly set the default source path
   explicitSourcePath {.strdefine.} = getCurrentCompilerExe().parentDir.parentDir
-  VerionMisMatch = "Current Nim version $1 does not match the one NimLSP is built against $2"
+  VerionMisMatch = "Current Nim version $1 does not match the NimLSP is built against $2"
 
 var
   nimpath = explicitSourcePath
@@ -411,6 +411,17 @@ proc main(ins: Stream, outs: Stream) =
                 openFiles[req.fileuri].fingerTable.add line.createUTFMapping()
                 file.writeLine line
               file.close()
+              let diagnostics = getNimsuggest(req.fileuri).fetchCachedReports(req.filePath)
+              debugLog "Got cached diagnostics: " & $diagnostics.len
+              debugSuggests(diagnostics[0..<min(diagnostics.len, 10)])
+              var data = newSeq[Diagnostic]()
+              for diagnostic in diagnostics:
+                if diagnostic.line == 0:
+                  continue
+                if diagnostic.filePath != uriToPath(req.fileuri):
+                  continue
+                data.add createDiagnostic(diagnostic)
+              outs.publishDiagnostics(req.fileuri, data)
           of "textDocument/didChange":
             textDocumentNotification(message, DidChangeTextDocumentParams, req):
               let file = open(req.filestash, fmWrite)
