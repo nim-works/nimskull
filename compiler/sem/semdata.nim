@@ -68,6 +68,12 @@ type
     mapping*: TIdTable
     localBindStmts*: seq[PNode]
 
+  ExecutionConFlag* = enum
+    ecfStatic   ## the context is that of a ``static`` block/expression or of
+                ## a `const`'s initializer
+    ecfExplicit ## the context is explicit. Sub-compilation (``compiles``)
+                ## always picks the closest explicit context
+
   ExecutionCon* = object
     ## Stores information about an abstract execution context, that is the
     ## context in which analyzed code will later be run in.
@@ -83,16 +89,9 @@ type
     caseContext*: seq[tuple[n: PNode, idx: int]]
       ## the stack of enclosing ``nkCastStmt`` nodes
 
-    inStaticContext*: bool
-      ## whether we're in a ``static`` block/expression or in the initializer
-      ## expression of a constant
-      ##
-      ## written:
-      ##  - semdata: when pushing a execution context (``pushExecCon``)
-      ## read:
-      ##  - semBindSym: whether to resolve the binding or not
-      ##  - evalAtCompileTime: whether the procedure should be eagerly
-      ##                       evaluated with the VM
+    flags*: set[ExecutionConFlag]
+      ## additional flags describing the context. Initialized once when
+      ## creating an ``ExecutionCon`` and only queried after that.
 
   TMatchedConcept* = object
     candidateType*: PType
@@ -761,10 +760,9 @@ proc popOwner*(c: PContext) =
 proc lastOptionEntry*(c: PContext): POptionEntry =
   result = c.optionStack[^1]
 
-proc pushExecCon*(c: PContext, isStatic: bool) {.inline.} =
-  ## Pushes a new ``ExecutionCon`` to the stack, with ``isStatic``
-  ## indicating whether it's a static context.
-  c.executionCons.add ExecutionCon(inStaticContext: isStatic)
+proc pushExecCon*(c: PContext, flags: set[ExecutionConFlag]) {.inline.} =
+  ## Pushes a new ``ExecutionCon`` to the stack.
+  c.executionCons.add ExecutionCon(flags: flags)
 
 proc popExecCon*(c: PContext) {.inline.} =
   ## Pops the top-most ``ExecutionCon`` from the stack.
@@ -780,7 +778,7 @@ proc pushProcCon*(c: PContext, owner: PSym) {.inline.} =
   c.p = x
 
   # a procedure always starts a new execution context
-  pushExecCon(c, isStatic=false)
+  pushExecCon(c, {ecfExplicit})
 
 proc popProcCon*(c: PContext) {.inline.} =
   popExecCon(c)
@@ -1087,7 +1085,7 @@ proc isTopLevelInsideDeclaration*(c: PContext, sym: PSym): bool {.inline.} =
 proc inCompileTimeOnlyContext*(c: PContext): bool =
   ## Returns whether the current analysis happens for code that can only run
   ## at compile-time
-  c.execCon.inStaticContext or sfCompileTime in c.p.owner.flags
+  ecfStatic in c.execCon.flags or sfCompileTime in c.p.owner.flags
 
 proc pushCaseContext*(c: PContext, caseNode: PNode) =
   c.execCon.caseContext.add((caseNode, 0))

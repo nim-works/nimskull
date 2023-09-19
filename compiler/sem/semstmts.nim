@@ -1056,7 +1056,7 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
       block:
         # don't evaluate here since the type compatibility check below may add
         # a converter
-        pushExecCon(c, isStatic=true)
+        pushExecCon(c, {ecfStatic})
         let temp = semExprWithType(c, defInitPart)
         popExecCon(c)
 
@@ -3253,7 +3253,7 @@ proc semStaticStmt(c: PContext, n: PNode): PNode =
   #echo "semStaticStmt"
   #writeStackTrace()
   openScope(c)
-  pushExecCon(c, isStatic=true)
+  pushExecCon(c, {ecfStatic, ecfExplicit})
   var a = semStmt(c, n[0], {})
   popExecCon(c)
   closeScope(c)

@@ -529,7 +529,7 @@ proc hasCycle(n: PNode): bool =
 
 proc tryConstExpr(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "tryConstExpr", n, result)
-  pushExecCon(c, isStatic=false)
+  pushExecCon(c, {})
   let e = semExprWithType(c, n)
   popExecCon(c)
   if e.isError:
@@ -631,7 +631,7 @@ proc semConstExpr(c: PContext, n: PNode): PNode =
   # TODO: propagate the error upwards instead of reporting it here. Also
   #       remove the error correction -- that should be done at the callsite,
   #       if needed
-  pushExecCon(c, isStatic=false)
+  pushExecCon(c, {})
   let e = semExprWithType(c, n)
   popExecCon(c)
   if e.isError:

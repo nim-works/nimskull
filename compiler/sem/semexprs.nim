@@ -1154,7 +1154,7 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
 
     # only attempt to fold the expression if doing so doesn't affect
     # compile-time state
-    if not c.execCon.inStaticContext or sfNoSideEffect in callee.flags:
+    if ecfStatic notin c.execCon.flags or sfNoSideEffect in callee.flags:
       if sfCompileTime in callee.flags:
         result = evalStaticExpr(c.module, c.idgen, c.graph, call, c.p.owner)
         result =
@@ -1177,7 +1177,7 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
   ## at compile-time, producing either the AST representation of the resulting
   ## value or an error.
   openScope(c)
-  pushExecCon(c, isStatic=true)
+  pushExecCon(c, {ecfStatic, ecfExplicit})
   var a = semExprWithType(c, n)
   popExecCon(c)
   closeScope(c)
@@ -2799,12 +2799,29 @@ proc semCompiles(c: PContext, n: PNode, flags: TExprFlags): PNode =
   #      defensively, as inclusion of nkError nodes may mutate the original AST
   #      that was passed in via the compiles call.
 
+  # the AST is analyzed as if appearing within the closest explicit execution
+  # context
+  var saveStack: seq[ExecutionCon]
+  block:
+    # backup the frames that are implicit
+    var i = c.executionCons.high
+    while i >= 0 and ecfExplicit notin c.executionCons[i].flags:
+      saveStack.add(move c.executionCons[i])
+      dec i
+
+    c.executionCons.setLen(i + 1)
+
   let
     exprVal = tryExpr(c, n[1], flags)
     didCompile = exprVal != nil and exprVal.kind != nkError
       ## this is the one place where we don't propagate nkError, wrapping the
       ## parent because this is a `compiles` call and should not leak across
       ## the AST boundary
+
+  # restore the original execution context stack. The items were saved in
+  # reverse, so we need to restore them in reverse order
+  for i in countdown(saveStack.high, 0):
+    c.executionCons.add(move saveStack[i])
 
   result = newIntNode(nkIntLit, ord(didCompile))
   result.info = n.info
