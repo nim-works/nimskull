@@ -82,6 +82,8 @@ Status  LSP Command
 ☑ DONE  textDocument/signatureHelp
 ☑ DONE  textDocument/publishDiagnostics
 ☐ TODO  workspace/symbol
+☐ TODO  `$/progress<https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workDoneProgress>`
+☐ TODO  `textDocument/codeAction<https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_codeAction>`
 ======  ================================
 
 
