@@ -203,10 +203,10 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   result.filePath = toFullPath(g.config, infox)
   result.line = toLinenumber(infox)
   result.column = toColumn(infox)
-  if section in {ideHighlight}:
-    result.tokenLen = getTokenLenFromSource(g.config, s.name.s, infox)
-  else:
-    result.tokenLen = s.name.s.len
+  result.tokenLen = if section != ideHighlight:
+                      s.name.s.len
+                    else:
+                      getTokenLenFromSource(g.config, s.name.s, infox)
 
 proc `$`*(suggest: Suggest): string =
   result = $suggest.section
