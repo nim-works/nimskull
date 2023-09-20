@@ -70,6 +70,10 @@ proc respond(outs: Stream, req: JsonNode, data: JsonNode) =
   let resp = create(ResponseMessage, "2.0", id, some(data), none(ResponseError))
   outs.sendJson resp.JsonNode
 
+proc request(outs: Stream, id: string, meth: string, data: JsonNode) =
+  let resp = create(RequestMessage, "2.0", id, meth, some(data))
+  outs.sendJson resp.JsonNode
+
 proc error(outs: Stream, req: JsonNode, code: ErrorCode, msg: string, data: JsonNode) =
   let err = some(create(ResponseError, ord(code), msg, data))
   let id = parseId(req{"id"})
@@ -83,6 +87,25 @@ proc notify(outs: Stream, notification: string, data: JsonNode) =
 proc publishDiagnostics(outs: Stream, uri:string, diagnostics: seq[Diagnostic]) =
   let data = create(PublishDiagnosticsParams, uri, diagnostics)
   notify(outs, "textDocument/publishDiagnostics", data.JsonNode)
+
+proc workDoneProgressCreate(id: string, token: string) =
+  # https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#serverInitiatedProgress
+  let data = create(WorkDoneProgressCreateParams, token)
+  outs.request(id, "window/workDoneProgress/create", data.JsonNode)
+
+proc progressBegin(outs: Stream, title: string, cancellable = none(bool),
+   message = none(string), percentage = none(int)) =
+  let data = create(WorkDoneProgressBegin, "begin", title, cancellable, message, percentage)
+  outs.notify("$/progress", data.JsonNode)
+
+proc progressReport(outs: Stream, cancellable = none(bool),
+   message = none(string), percentage = none(int)) =
+  let data = create(WorkDoneProgressReport, "report", cancellable, message, percentage)
+  outs.notify("$/progress", data.JsonNode)
+
+proc progressEnd(outs: Stream, message = none(string)) =
+  let data = create(WorkDoneProgressEnd, "end", message)
+  outs.notify("$/progress", data.JsonNode)
 
 proc createRange(line, col, length: int): Range =
   create(Range,
@@ -163,6 +186,7 @@ proc main(ins: Stream, outs: Stream) =
             outs.respond(message, resp)
             gotShutdown = true
           of "initialize":
+            # xxx handle InitializeParams
             initialized = true
             let resp = create(InitializeResult, create(ServerCapabilities,
               textDocumentSync = some(create(TextDocumentSyncOptions,
@@ -401,7 +425,6 @@ proc main(ins: Stream, outs: Stream) =
                 projectFile = getProjectFile(uriToPath(req.fileuri))
               debugLog req.uriAndStash()
               openFiles[req.fileuri] = (projectFile: projectFile, fingerTable: @[])
-
               if projectFile notin projectFiles:
                 debugLog "Initialising with project file: ", projectFile
                 projectFiles[projectFile] = (nimsuggest: initNimsuggest(projectFile, nimpath),

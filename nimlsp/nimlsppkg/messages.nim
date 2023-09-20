@@ -604,3 +604,22 @@ jsonSchema:
     textDocument: TextDocumentIdentifier
     position: Position
     newName: string
+
+  WorkDoneProgressCreateParams:
+    token: int or string
+  
+  WorkDoneProgressBegin:
+    kind: string
+    title: string
+    cancellable ?: bool
+    message ?: string
+    percentage ?: int
+
+  WorkDoneProgressReport:
+    kind: string
+    cancellable ?: bool
+    message ?: string
+    percentage ?: int # 0 .. 100
+
+  WorkDoneProgressEnd:
+    message ?: string
