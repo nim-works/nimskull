@@ -193,7 +193,7 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   else:
     result.forth = ""
   when defined(nimsuggest) and not defined(noDocgen) and not defined(leanCompiler):
-    if section in {ideSug, ideCon, ideDef, ideChk}:
+    if section != ideHighlight:
       result.doc = extractDocComment(g, s)
   let infox =
     if useSuppliedInfo or section in {ideUse, ideHighlight, ideOutline}:
