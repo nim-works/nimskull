@@ -376,6 +376,17 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
       loop[0] = newIntTypeNode(1, c.graph.getSysType(info, tyBool))
       loop[0].info = info
 
+      # XXX: we need to help ``closureiters`` (which doesn't support 'yield' in
+      #      if conditions...) here and unpack complex condition expressions;
+      #      'yield' in 'while' conditions would not work otherwise
+      var preamble = PNode(nil)
+      if cond.kind in {nkStmtListExpr, nkStmtList}:
+        preamble = newNodeI(nkStmtList, info, cond.len - 1)
+        for i in 0..<preamble.len:
+          preamble[i] = cond[i]
+
+        cond = cond[^1]
+
       let exit =
         newTreeI(nkIfStmt, info,
           newTreeI(nkElifBranch, info,
@@ -392,7 +403,9 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
         body = newTreeI(nkBlockStmt, n[1].info):
           [newSymNode(newLabel(c, body)), body]
 
-      loop[1] = newTree(nkStmtList, [exit, body])
+      loop[1] =
+        if preamble.isNil: newTree(nkStmtList, [exit, body])
+        else:              newTree(nkStmtList, [preamble, exit, body])
 
     result = newTreeI(nkBlockStmt, n.info):
       [newSymNode(labl), loop]
