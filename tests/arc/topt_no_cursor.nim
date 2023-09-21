@@ -95,7 +95,7 @@ try:
     block label_1:
       while true:
         if not(<(i, L)):
-          break
+          break label_1
         block label_2:
           var splitted
           try:
@@ -125,7 +125,7 @@ try:
     block label_1:
       while true:
         if not(<(i, L)):
-          break
+          break label_1
         block label_2:
           var :tmp_1
           var sym = a_cursor[i]

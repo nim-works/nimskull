@@ -30,7 +30,7 @@ block label:
       block label_1:
         while true:
           if not(readLine(f, res)):
-            break
+            break label_1
           block label_2:
             var x_cursor = res
             echo([x_cursor])
