@@ -44,8 +44,7 @@ type
     ## is that temporaries are allowed to be elided (by an optimization pass,
     ## for example) if it's deemed to have no effect on the codes' semantics
   LabelId* = distinct uint32
-    ## ID of a label, used to identify a block (``mnkBlock``). The default
-    ## value is empty state and means "absence of label"
+    ## ID of a label, used to identify a block (``mnkBlock``).
 
   MirNodeKind* = enum
     ## Users of ``MirNodeKind`` should not depend on the absolute or relative
@@ -224,11 +223,8 @@ type
               ## Once control-flow reaches the end of a ``block``, it is
               ## transferred to the next statement/operation following the
               ## block
-    mnkBreak  ## if a non-nil label is provided, transfers control-flow to the
-              ## statement/operation following after the ``block`` with the
-              ## given label. If no label is provided, control-flow is
-              ## transferred to the exit of the enclosing ``repeat`` (it is
-              ## required that there exists one)
+    mnkBreak  ## transfers control-flow to the statement/operation following
+              ## after the ``block`` with the given label
     mnkReturn ## if the code-fragment represents the body of a procedure,
               ## transfers control-flow back to the caller
 
@@ -289,11 +285,8 @@ type
     of mnkOpParam:
       param*: uint32 ## the 0-based index of the enclosing region's parameter
     of mnkBlock, mnkBreak:
-      label*: LabelId ## for a block, its label. A block always must always
-                      ## have a valid label ('none' is disallowed).
-                      ## for a break, the label of the block to break out of.
-                      ## May be 'none', in which case it means "exit the
-                      ## enclosing 'repeat'"
+      label*: LabelId ## for a block, the label that identifies the block;
+                      ## for a break, the label of the block to break out of
     of mnkEnd:
       start*: MirNodeKind ## the kind of the corresponding start node
     of mnkPNode:
@@ -375,20 +368,8 @@ const
   SymbolLike* = {mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal}
     ## Nodes for which the `sym` field is available
 
-  NoLabel* = LabelId(0)
-
 func `==`*(a, b: TempId): bool {.borrow.}
 func `==`*(a, b: LabelId): bool {.borrow.}
-
-func isSome*(x: LabelId): bool {.inline.} =
-  x.uint32 != 0
-
-func isNone*(x: LabelId): bool {.inline.} =
-  x.uint32 == 0
-
-template `[]`*(x: LabelId): uint32 =
-  assert x.uint32 != 0
-  uint32(x) - 1
 
 # make ``NodeInstance`` available to be used with ``OptIndex``:
 template indexLike*(_: typedesc[NodeInstance]) = discard

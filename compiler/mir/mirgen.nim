@@ -271,7 +271,7 @@ func nextTempId(c: var TCtx): TempId =
   inc c.numTemps
 
 func nextLabel(c: var TCtx): LabelId =
-  result = LabelId(c.numLabels + 1)
+  result = LabelId(c.numLabels)
   inc c.numLabels
 
 # ----------- CodeFragment API -------------
@@ -1676,20 +1676,15 @@ proc gen(c: var TCtx, n: PNode) =
     gen(c, n.lastSon)
   of nkBreakStmt:
     var id: LabelId
-    case n[0].kind
-    of nkSym:
+    block search:
       let sym = n[0].sym
       # find the block with the matching label and use its ``LabelId``:
       for b in c.blocks.items:
         if b.label.id == sym.id:
           id = b.id
-          break
+          break search
 
-      assert id.isSome, "break target missing"
-    of nkEmpty:
-      id = NoLabel
-    else:
-      unreachable()
+      unreachable "break target missing"
 
     c.stmts.add MirNode(kind: mnkBreak, label: id)
   of nkVarSection, nkLetSection:
