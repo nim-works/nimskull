@@ -117,7 +117,6 @@ type
     pnkPostfix
     pnkExprEqExpr
     pnkExprColonExpr
-    pnkVarTuple
     pnkPar
     pnkSqrBracket
     pnkCurly
@@ -183,9 +182,10 @@ type
     pnkIteratorDef
     pnkMacroDef
     pnkTemplateDef
+    pnkIdentDefs
     pnkConstDef
     pnkTypeDef
-    pnkIdentDefs
+    pnkVarTuple
     pnkEnumTy
     pnkEnumFieldDef
     pnkObjectTy
