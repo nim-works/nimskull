@@ -1113,10 +1113,10 @@ func usesRegister(p: BProc, s: PSym): bool =
   ## (that is, whether the value is stored in a register directly)
   fitsRegister(s.typ) and s.id notin p.addressTaken
 
-proc genNew(c: var TCtx; n: CgNode) =
-  let dest = c.genLvalue(n[1])
+proc genNew(c: var TCtx; n: CgNode, dest: var TDest) =
+  prepare(c, dest, n, n.typ)
   c.gABx(n, opcNew, dest,
-         c.genType(n[1].typ.skipTypes(abstractVar-{tyTypeDesc})))
+         c.genType(n.typ.skipTypes(abstractInst-{tyTypeDesc})))
   c.freeTemp(dest)
 
 proc genNewSeq(c: var TCtx; n: CgNode) =
@@ -1694,8 +1694,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mIsolate:
     genCall(c, n, dest)
   of mNew:
-    unused(c, n, dest)
-    c.genNew(n)
+    c.genNew(n, dest)
   of mNewSeq:
     unused(c, n, dest)
     c.genNewSeq(n)

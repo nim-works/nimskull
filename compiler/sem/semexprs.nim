@@ -1019,7 +1019,7 @@ proc fixVarArgumentsAndAnalyse(c: PContext, n: PNode): PNode =
 
   var hasError = false
 
-  if magic in {mNew, mNewSeq}:
+  if magic == mNewSeq:
     # XXX: this check doesn't really fit here. ``magicsAfterOverloadResolution``
     #       would be a better place for it
     # bug #5113: disallow newSeq(result) where result is a 'var T':

@@ -936,13 +936,11 @@ proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool; doInitObj
     # set the object type:
     genObjectInit(p, cpsStmts, bt, a, constructRefObj)
 
-proc genNew(p: BProc, e: CgNode) =
-  var a: TLoc
-  initLocExpr(p, e[1], a)
+proc genNew(p: BProc, e: CgNode, a: var TLoc) =
   # 'genNew' also handles 'unsafeNew':
-  if e.len == 3:
+  if e.len == 2:
     var se: TLoc
-    initLocExpr(p, e[2], se)
+    initLocExpr(p, e[1], se)
     rawGenNew(p, a, se.rdLoc, needsInit = true)
   else:
     rawGenNew(p, a, "", needsInit = true)
@@ -1792,7 +1790,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mFinished: genBreakState(p, e, d)
   of mEnumToStr: genCall(p, e, d)
   of mOf: genOf(p, e, d)
-  of mNew: genNew(p, e)
+  of mNew: genNew(p, e, d)
   of mNewSeqOfCap: genNewSeqOfCap(p, e, d)
   of mSizeOf:
     let t = e[1].typ.skipTypes({tyTypeDesc})
