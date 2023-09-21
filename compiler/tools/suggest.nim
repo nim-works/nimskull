@@ -162,15 +162,17 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   result.quality = quality
   result.isGlobal = sfGlobal in s.flags
   result.prefix = prefix
-  result.contextFits = inTypeContext == (s.kind in {skType, skGenericParam})
+  if section in {ideSug, ideCon}:
+    result.contextFits = inTypeContext == (s.kind in {skType, skGenericParam})
   result.scope = scope
   result.name = addr s.name.s
   when defined(nimsuggest):
-    result.globalUsages = s.allUsages.len
-    var c = 0
-    for u in s.allUsages:
-      if u.fileIndex == info.fileIndex: inc c
-    result.localUsages = c
+    if section in {ideSug, ideCon}:
+      result.globalUsages = s.allUsages.len
+      var c = 0
+      for u in s.allUsages:
+        if u.fileIndex == info.fileIndex: inc c
+      result.localUsages = c
   result.symkind = byte s.kind
   result.qualifiedPath = @[]
   if not isLocal and s.kind != skModule:
@@ -191,7 +193,8 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   else:
     result.forth = ""
   when defined(nimsuggest) and not defined(noDocgen) and not defined(leanCompiler):
-    result.doc = extractDocComment(g, s)
+    if section != ideHighlight:
+      result.doc = extractDocComment(g, s)
   let infox =
     if useSuppliedInfo or section in {ideUse, ideHighlight, ideOutline}:
       info
