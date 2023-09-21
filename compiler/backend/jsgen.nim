@@ -109,7 +109,6 @@ type
   TBlock = object
     id: int                  # the ID of the label; positive means that it
                              # has been used (i.e. the label should be emitted)
-    isLoop: bool             # whether it's a 'block' or 'while'
 
   PGlobals* = ref object
     typeInfo, constants*, code*: Rope
@@ -709,16 +708,9 @@ proc genLineDir(p: PProc, n: CgNode) =
 proc genRepeatStmt(p: PProc, n: CgNode) =
   internalAssert p.config, isEmptyType(n.typ)
   genLineDir(p, n)
-  inc(p.unique)
-  setLen(p.blocks, p.blocks.len + 1)
-  p.blocks[^1].id = -p.unique
-  p.blocks[^1].isLoop = true
-  let labl = p.unique.rope
-  lineF(p, "Label$1: while (true) {$n", [labl])
+  lineF(p, "while (true) {$n")
   p.nested: genStmt(p, n[0])
-  lineF(p, "}$n", [labl])
-  setLen(p.blocks, p.blocks.len - 1)
-
+  lineF(p, "}$n")
 
 proc genTry(p: PProc, n: CgNode) =
   # code to generate:
@@ -908,17 +900,12 @@ proc genBlock(p: PProc, n: CgNode) =
 proc genBreakStmt(p: PProc, n: CgNode) =
   var idx: int
   genLineDir(p, n)
-  if n[0].kind != cnkEmpty:
-    # named break?
+  if true:
     assert(n[0].kind == cnkSym)
     let sym = n[0].sym
     assert(sym.kind == skLabel)
     idx = sym.position-1
-  else:
-    # an unnamed 'break' can only break a loop after 'transf' pass:
-    idx = p.blocks.len - 1
-    while idx >= 0 and not p.blocks[idx].isLoop: dec idx
-    p.config.internalAssert(idx >= 0 and p.blocks[idx].isLoop, n.info, "no loop to break")
+
   p.blocks[idx].id = abs(p.blocks[idx].id) # label is used
   lineF(p, "break Label$1;$n", [rope(p.blocks[idx].id)])
 

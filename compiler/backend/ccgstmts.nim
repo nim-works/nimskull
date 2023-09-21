@@ -94,11 +94,6 @@ proc stmtBlock(p: BProc, n: CgNode) =
   genStmts(p, n)
   endBlock(p)
 
-template preserveBreakIdx(body: untyped): untyped =
-  var oldBreakIdx = p.breakIdx
-  body
-  p.breakIdx = oldBreakIdx
-
 proc blockLeaveActions(p: BProc, howManyTrys, howManyExcepts: int) =
   # Called by return and break stmts.
   # Deals with issues faced when jumping out of try/except/finally stmts.
@@ -312,14 +307,13 @@ proc genRepeatStmt(p: BProc, t: CgNode) =
   inc(p.withinLoop)
   genLineDir(p, t)
 
-  preserveBreakIdx:
+  if true:
     var loopBody = t[0]
     if loopBody.stmtsContainPragma(wComputedGoto) and
        hasComputedGoto in CC[p.config.cCompiler].props:
       genComputedGoto(p, loopBody)
     else:
-      p.breakIdx = startBlock(p, "while (1) {$n")
-      p.blocks[p.breakIdx].isLoop = true
+      startBlock(p, "while (1) {$n")
       genStmts(p, loopBody)
 
       if optProfiler in p.options:
@@ -330,28 +324,20 @@ proc genRepeatStmt(p: BProc, t: CgNode) =
   dec(p.withinLoop)
 
 proc genBlock(p: BProc, n: CgNode) =
-  preserveBreakIdx:
-    p.breakIdx = startBlock(p)
-    if n[0].kind != cnkEmpty:
-      # named block?
-      assert(n[0].kind == cnkSym)
-      var sym = n[0].sym
-      sym.position = p.breakIdx+1
-    genStmts(p, n[1])
-    endBlock(p)
+  assert n[0].kind == cnkSym
+  let
+    breakIdx = startBlock(p)
+    sym = n[0].sym
+  sym.position = breakIdx + 1
+  genStmts(p, n[1])
+  endBlock(p)
 
 proc genBreakStmt(p: BProc, t: CgNode) =
-  var idx = p.breakIdx
-  if t[0].kind != cnkEmpty:
-    # named break?
-    assert(t[0].kind == cnkSym)
-    var sym = t[0].sym
-    doAssert(sym.kind == skLabel)
-    idx = sym.position-1
-  else:
-    # an unnamed 'break' can only break a loop after 'transf' pass:
-    while idx >= 0 and not p.blocks[idx].isLoop: dec idx
-    p.config.internalAssert(idx >= 0 and p.blocks[idx].isLoop, t.info, "no loop to break")
+  assert(t[0].kind == cnkSym)
+  let sym = t[0].sym
+  doAssert(sym.kind == skLabel)
+  let idx = sym.position-1
+
   let label = assignLabel(p.blocks[idx])
   blockLeaveActions(p,
     p.nestedTryStmts.len - p.blocks[idx].nestedTryStmts,

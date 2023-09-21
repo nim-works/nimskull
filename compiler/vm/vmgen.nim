@@ -650,9 +650,8 @@ proc genRepeat(c: var TCtx; n: CgNode) =
   #   jmp lab1
   # lab2:
   let lab1 = c.genLabel
-  withBlock(nil):
-    c.gen(n[0])
-    c.jmpBack(n, lab1)
+  c.gen(n[0])
+  c.jmpBack(n, lab1)
 
 proc genBlock(c: var TCtx; n: CgNode) =
   let oldRegisterCount = c.prc.regInfo.len
@@ -672,15 +671,12 @@ proc genBlock(c: var TCtx; n: CgNode) =
 
 proc genBreak(c: var TCtx; n: CgNode) =
   let lab1 = c.xjmp(n, opcJmp)
-  if n[0].kind == cnkSym:
-    #echo cast[int](n[0].sym)
+  block search:
     for i in countdown(c.prc.blocks.len-1, 0):
       if c.prc.blocks[i].label == n[0].sym:
         c.prc.blocks[i].fixups.add lab1
-        return
+        break search
     fail(n.info, vmGenDiagCannotFindBreakTarget)
-  else:
-    c.prc.blocks[c.prc.blocks.high].fixups.add lab1
 
 proc genIf(c: var TCtx, n: CgNode) =
   #  if (!expr1) goto lab1;
