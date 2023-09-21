@@ -117,9 +117,6 @@ type
     pnkPostfix
     pnkExprEqExpr
     pnkExprColonExpr
-    pnkIdentDefs
-    pnkConstDef
-    pnkVarTuple
     pnkPar
     pnkSqrBracket
     pnkCurly
@@ -174,6 +171,7 @@ type
     pnkIncludeStmt
     pnkExportStmt
     pnkExportExceptStmt
+    pnkTypeSection
     pnkConstSection
     pnkLetSection
     pnkVarSection
@@ -184,8 +182,10 @@ type
     pnkIteratorDef
     pnkMacroDef
     pnkTemplateDef
-    pnkTypeSection
+    pnkIdentDefs
+    pnkConstDef
     pnkTypeDef
+    pnkVarTuple
     pnkEnumTy
     pnkEnumFieldDef
     pnkObjectTy
@@ -265,6 +265,8 @@ const
   pnkFloatKinds* = {pnkFloatLit..pnkFloat128Lit}
   pnkIntKinds* = {pnkCharLit..pnkUInt64Lit}
   pnkStrKinds* = {pnkStrLit..pnkTripleStrLit}
+  pnkDeclarativeDefs* = {pnkProcDef, pnkFuncDef, pnkMethodDef, pnkIteratorDef, pnkConverterDef}
+  pnkRoutineDefs* = pnkDeclarativeDefs + {pnkMacroDef, pnkTemplateDef}
 
 func len*(node: ParsedNode): int =
   ## Number of sons of the parsed node
