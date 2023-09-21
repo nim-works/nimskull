@@ -1240,26 +1240,11 @@ proc genVarSection(c: var TCtx, n: PNode) =
 
 
 proc genWhile(c: var TCtx, n: PNode) =
-  ## Generates the code for a ``nkWhile`` node. Because no conditional loops
-  ## exist in the MIR, the the condition is translated to a ``break`` statement
-  ## inside an ``if``
-  c.stmts.add MirNode(kind: mnkRepeat)
-
-  scope(c.stmts):
-    # don't emit a branch for ``while true: ...``
-    if not isTrue(n[0]):
-      forward(c): genx(c, n[0]) => notOp(c) # condition
-      c.stmts.subTree MirNode(kind: mnkIf):
-        c.stmts.add MirNode(kind: mnkBreak)
-
-    # use a nested scope for the body. This is important for scope finalizers,
-    # as exiting the loop via the ``break`` emitted above (i.e. the loop
-    # condition is false) must not run the finalizers (if present) for the
-    # loop's body
+  ## Generates the code for a ``nkWhile`` node.
+  assert isTrue(n[0]), "`n` wasn't properly stransformed"
+  c.stmts.subTree MirNode(kind: mnkRepeat):
     scope(c.stmts):
       c.gen(n[1])
-
-  c.stmts.add endNode(mnkRepeat)
 
 proc genBlock(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for a ``block`` expression or statement

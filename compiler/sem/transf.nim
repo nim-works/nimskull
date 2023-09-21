@@ -355,21 +355,53 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
   if c.inlining > 0:
     result = transformSons(c, n)
   else:
+    # transform a while loop with an arbitrary condition expression into a
+    # ``while true`` loop, as those are much easier to process for data-flow
+    # analysis and the closure-iterator transformation
     let labl = newLabel(c, n)
     c.breakSyms.add(labl)
 
-    var body = shallowCopy(n)
-    for i in 0..<n.len-1:
-      body[i] = transform(c, n[i])
-    body[^1] = transformLoopBody(c, n[^1])
+    let info = n[0].info
+    var
+      loop = shallowCopy(n)
+      cond = transform(c, n[0])
+
+    # build the transformed loop
+    if isTrue(cond):
+      # the condition is already statically 'true', no condition handling is
+      # needed
+      loop[0] = cond
+      loop[1] = transformLoopBody(c, n[1])
+    else:
+      loop[0] = newIntTypeNode(1, c.graph.getSysType(info, tyBool))
+      loop[0].info = info
+
+      let exit =
+        newTreeI(nkIfStmt, info,
+          newTreeI(nkElifBranch, info,
+            newTreeI(nkCall, info,
+              newSymNode(c.graph.getSysMagic(info, "not", mNot)),
+              cond),
+            newTreeI(nkBreakStmt, info, newSymNode(labl, info))))
+
+      var body = transformLoopBody(c, n[1])
+      # use a nested scope for the body. This is important for the clean-up
+      # semantics, as exiting the loop via the ``break`` used by the exit
+      # handling must not run finalizers (if present) for the loop's body
+      if body.kind != nkBlockStmt:
+        body = newTreeI(nkBlockStmt, n[1].info):
+          [newSymNode(newLabel(c, body)), body]
+
+      loop[1] = newTree(nkStmtList, [exit, body])
 
     result = newTreeI(nkBlockStmt, n.info):
-      [newSymNode(labl), body]
+      [newSymNode(labl), loop]
     discard c.breakSyms.pop
 
 proc transformBreak(c: PTransf, n: PNode): PNode =
   result = transformSons(c, n)
-  if n[0].kind == nkEmpty and c.breakSyms.len > 0:
+  if n[0].kind == nkEmpty:
+    assert c.breakSyms.len > 0
     let labl = c.breakSyms[^1]
     result[0] = newSymNode(labl)
 
