@@ -550,7 +550,7 @@ proc parsedNodeToSugget(n: ParsedNode; originKind: ParsedNodeKind; module: strin
               name.add ","
   else:
     name.add "("
-    for c in n.sons:
+    for c in n.items:
       if c.kind == pnkEmpty: break
       name.add getName(c) & ","
     name.add ")"
