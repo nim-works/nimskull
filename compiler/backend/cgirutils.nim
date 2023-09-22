@@ -164,8 +164,9 @@ proc render(c: var RenderCtx, body: Body, ind: int, n: CgNode,
   of cnkLocal:
     let name = body[n.local].name
     if name.isNil:
-      # has no user-provided name
-      res.add ":local_"
+      # has no user-provided name. These are usually auxiliary locals, so
+      # the "aux" prefix is used
+      res.add ":aux_"
       res.addInt n.local.int
 
     renderSymbol(c, name, Symbol(kind: 1, id: n.local.int),

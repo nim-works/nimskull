@@ -3,7 +3,7 @@ discard """
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:sio --hint:Performance:off $file'''
   nimout: '''--expandArc: main
 
-var :local_2
+var :aux_2
 try:
   var x_cursor = ("hi", 5)
   block label:
@@ -12,11 +12,11 @@ try:
       break label
     x_cursor = [type node](("string here", 80))
   echo([
-    var :local_4 = $(x_cursor)
-    :local_2 = :local_4
-    :local_2])
+    var :aux_4 = $(x_cursor)
+    :aux_2 = :aux_4
+    :aux_2])
 finally:
-  =destroy(:local_2)
+  =destroy(:aux_2)
 -- end of expandArc ------------------------
 --expandArc: sio
 

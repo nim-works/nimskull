@@ -11,36 +11,36 @@ doing shady stuff...
   cmd: '''nim c --gc:arc --expandArc:newTarget --expandArc:delete --expandArc:p1 --expandArc:tt --hint:Performance:off --assertions:off --expandArc:extractConfig --expandArc:mergeShadowScope --expandArc:check $file'''
   nimout: '''--expandArc: newTarget
 
-var :local_3
-var :local_4
-var :local_5
+var :aux_3
+var :aux_4
+var :aux_5
 var splat
 splat = splitFile(path)
 result = (
-  :local_3 = splat.dir
+  :aux_3 = splat.dir
   wasMoved(splat.dir)
-  :local_3,
-  :local_4 = splat.name
+  :aux_3,
+  :aux_4 = splat.name
   wasMoved(splat.name)
-  :local_4,
-  :local_5 = splat.ext
+  :aux_4,
+  :aux_5 = splat.ext
   wasMoved(splat.ext)
-  :local_5)
+  :aux_5)
 =destroy(splat)
 -- end of expandArc ------------------------
 --expandArc: delete
 
 var sibling
-var :local_3 = target[].parent[].left
-=copy(sibling, :local_3)
+var :aux_3 = target[].parent[].left
+=copy(sibling, :aux_3)
 var saved
-var :local_5 = sibling[].right
-=copy(saved, :local_5)
-var :local_6 = sibling[].right
-var :local_7 = saved[].left
-=copy(:local_6, :local_7)
-var :local_8 = sibling[].parent
-=sink(:local_8, saved)
+var :aux_5 = sibling[].right
+=copy(saved, :aux_5)
+var :aux_6 = sibling[].right
+var :aux_7 = saved[].left
+=copy(:aux_6, :aux_7)
+var :aux_8 = sibling[].parent
+=sink(:aux_8, saved)
 =destroy(sibling)
 -- end of expandArc ------------------------
 --expandArc: p1
@@ -49,38 +49,38 @@ var lresult
 lresult = @([123])
 var lvalue
 var lnext
-var :local_4
-:local_4 = (lresult, ";")
-lvalue = :local_4[0]
-wasMoved(:local_4[0])
-lnext = :local_4[1]
-wasMoved(:local_4[1])
+var :aux_4
+:aux_4 = (lresult, ";")
+lvalue = :aux_4[0]
+wasMoved(:aux_4[0])
+lnext = :aux_4[1]
+wasMoved(:aux_4[1])
 result.value = move(lvalue)
-=destroy(:local_4)
+=destroy(:aux_4)
 =destroy_1(lnext)
 =destroy_2(lvalue)
 -- end of expandArc ------------------------
 --expandArc: tt
 
-var :local_5
-var :local_6
+var :aux_5
+var :aux_6
 var a
-var :local_3
+var :aux_3
 try:
   var it_cursor = x
   a = (
-    :local_5 = default()
-    =copy(:local_5, it_cursor.key)
-    :local_5,
-    :local_6 = default()
-    =copy(:local_6, it_cursor.val)
-    :local_6)
+    :aux_5 = default()
+    =copy(:aux_5, it_cursor.key)
+    :aux_5,
+    :aux_6 = default()
+    =copy(:aux_6, it_cursor.val)
+    :aux_6)
   echo([
-    var :local_7 = $(a)
-    :local_3 = :local_7
-    :local_3])
+    var :aux_7 = $(a)
+    :aux_3 = :aux_7
+    :aux_3])
 finally:
-  =destroy(:local_3)
+  =destroy(:aux_3)
   =destroy_1(a)
 -- end of expandArc ------------------------
 --expandArc: extractConfig
@@ -102,8 +102,8 @@ try:
             var line = a_cursor[i]
             splitted = split(line, " ", -1)
             if ==(splitted[0], "opt"):
-              var :local_7 = splitted[1]
-              =copy(lan_ip, :local_7)
+              var :aux_7 = splitted[1]
+              =copy(lan_ip, :aux_7)
             echo([lan_ip])
             echo([splitted[1]])
           finally:
@@ -115,8 +115,8 @@ finally:
 
 var shadowScope
 try:
-  var :local_3 = c[].currentScope
-  =copy(shadowScope, :local_3)
+  var :aux_3 = c[].currentScope
+  =copy(shadowScope, :aux_3)
   rawCloseScope(c)
   block label:
     var a_cursor = shadowScope[].symbols
@@ -127,13 +127,13 @@ try:
         if not(<(i, L)):
           break
         block label_2:
-          var :local_9
+          var :aux_9
           var sym = a_cursor[i]
           addInterfaceDecl(c,
-            var :local_8 = sym
-            :local_9 = default()
-            =copy_1(:local_9, :local_8)
-            :local_9)
+            var :aux_8 = sym
+            :aux_9 = default()
+            =copy_1(:aux_9, :aux_8)
+            :aux_9)
         inc(i, 1)
 finally:
   =destroy(shadowScope)
@@ -145,35 +145,35 @@ try:
   this[].isValid = fileExists(this[].value)
   block label:
     if dirExists(this[].value):
-      var :local_4
+      var :aux_4
       par = [type node]((
-        var :local_3 = this[].value
-        :local_4 = default()
-        =copy(:local_4, :local_3)
-        :local_4, ""))
+        var :aux_3 = this[].value
+        :aux_4 = default()
+        =copy(:aux_4, :aux_3)
+        :aux_4, ""))
       break label
-    var :local_6
-    var :local_7
-    var :local_8
+    var :aux_6
+    var :aux_7
+    var :aux_8
     par = [type node]((parentDir(this[].value),
-      :local_7 = splitPath(
-        var :local_5 = this[].value
-        :local_6 = default()
-        =copy(:local_6, :local_5)
-        :local_6)
-      :local_8 = :local_7.tail
-      wasMoved(:local_7.tail)
-      :local_8))
-    =destroy(:local_7)
+      :aux_7 = splitPath(
+        var :aux_5 = this[].value
+        :aux_6 = default()
+        =copy(:aux_6, :aux_5)
+        :aux_6)
+      :aux_8 = :aux_7.tail
+      wasMoved(:aux_7.tail)
+      :aux_8))
+    =destroy(:aux_7)
   block label_1:
     if dirExists(par.dir):
-      var :local_9 = this[].matchDirs
-      var :local_10 = getSubDirs(par.dir, par.front)
-      =sink(:local_9, :local_10)
+      var :aux_9 = this[].matchDirs
+      var :aux_10 = getSubDirs(par.dir, par.front)
+      =sink(:aux_9, :aux_10)
       break label_1
-    var :local_11 = this[].matchDirs
-    var :local_12 = []
-    =sink(:local_11, :local_12)
+    var :aux_11 = this[].matchDirs
+    var :aux_12 = []
+    =sink(:aux_11, :aux_12)
 finally:
   =destroy(par)
 -- end of expandArc ------------------------'''

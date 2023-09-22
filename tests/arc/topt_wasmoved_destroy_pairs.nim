@@ -31,28 +31,28 @@ try:
         if not(<(i, b_1)):
           break
         block label_2:
-          var :local_9
+          var :aux_9
           var i_1_cursor = i
           if ==(i_1_cursor, 2):
             return
           add(a,
-            :local_9 = default()
-            =copy(:local_9, x)
-            :local_9)
+            :aux_9 = default()
+            =copy(:aux_9, x)
+            :aux_9)
           inc(i, 1)
   block label_3:
     if cond:
-      var :local_10
+      var :aux_10
       add(a,
-        :local_10 = x
+        :aux_10 = x
         wasMoved(x)
-        :local_10)
+        :aux_10)
       break label_3
-    var :local_11
+    var :aux_11
     add(b,
-      :local_11 = x
+      :aux_11 = x
       wasMoved(x)
-      :local_11)
+      :aux_11)
 finally:
   =destroy(x)
   =destroy_1(b)
