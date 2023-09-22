@@ -211,13 +211,15 @@ proc outline(graph: ModuleGraph; fileIdx: FileIndex) =
   var parser: Parser
   var sug: Suggest
   var parsedNode: ParsedNode
-  let name = toFilename(conf, fileIdx)
+  let name = splitFile(toFilename(conf, fileIdx)).name
 
   const Sections = {pnkTypeSection, pnkConstSection, pnkLetSection}
   template suggestIt(parsedNode: ParsedNode; originKind: ParsedNodeKind) =
     sug = parsedNodeToSugget(parsedNode, originKind, name)
     if sug != nil:
-      sug.filepath = toFullPath(conf, fileIdx)
+      sug.section = ideOutline
+      sug.quality = 100
+      sug.filePath = toFullPath(conf, fileIdx)
       conf.suggestionResultHook(sug)
 
   if setupParser(parser, fileIdx, graph.cache, conf):
