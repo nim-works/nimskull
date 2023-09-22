@@ -167,8 +167,10 @@ func setLen*[I; T](x: var OrdinalSeq[I, T], len: int) {.inline.} =
   setLen(base(x), len)
 
 func synchronize*[I; A; B](x: var OrdinalSeq[I, A], s: Store[I, B]) =
-  ## Synchronizes the number of elements `x` has with that of `s`. Behaviour
-  ## is undefined when `s` has less elements than `x`.
+  ## Synchronizes the number of elements `x` has with that of `s`.
+  ##
+  ## `s` must be larger than or equal in size to `x`: if this is
+  ## not the case, behaviour is undefined.
   assert x.len <= s.data.len
   x.setLen(s.data.len)
 
