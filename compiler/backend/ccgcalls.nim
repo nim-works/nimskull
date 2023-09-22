@@ -37,12 +37,10 @@ proc reportObservableStore(p: BProc; le, ri: CgNode) =
         # this must be a global -> the mutation escapes
         return true
       of cnkLocal:
-        if inTryStmt and sfUsedInFinallyOrExcept in p.body[n.local].flags:
-          # it is also an observable store if the location is used
-          # in 'except' or 'finally'
-          return true
-        # we don't own the location so it escapes
-        return false
+        # if the local is used within an 'except' or 'finally', a mutation of
+        # it through a procedure that eventually raises is also an observable
+        # store
+        return inTryStmt and sfUsedInFinallyOrExcept in p.body[n.local].flags
       of cnkFieldAccess, cnkBracketAccess, cnkCheckedFieldAccess:
         n = n[0]
       of cnkObjUpConv, cnkObjDownConv, cnkHiddenConv, cnkConv:
