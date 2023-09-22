@@ -88,7 +88,7 @@ proc publishDiagnostics(outs: Stream, uri:string, diagnostics: seq[Diagnostic]) 
   let data = create(PublishDiagnosticsParams, uri, diagnostics)
   notify(outs, "textDocument/publishDiagnostics", data.JsonNode)
 
-proc workDoneProgressCreate(id: string, token: string) =
+proc workDoneProgressCreate(outs: Stream, id: string, token: string) =
   # https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#serverInitiatedProgress
   let data = create(WorkDoneProgressCreateParams, token)
   outs.request(id, "window/workDoneProgress/create", data.JsonNode)

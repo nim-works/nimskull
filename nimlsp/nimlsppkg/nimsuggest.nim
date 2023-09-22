@@ -171,29 +171,34 @@ proc processFlags(sug: Suggest; n: ParsedNode) =
 
 proc parsedNodeToSugget(n: ParsedNode; originKind: ParsedNodeKind; module: string): Suggest =
   if n.kind in {pnkError, pnkEmpty}: return
-  if n.kind notin {pnkConstSection..pnkTypeDef, pnkIdentDefs}: return
+  if n.kind notin {pnkProcDef..pnkVarTuple}: return
   new(result)
   var token = getToken(n)
   var name = ""
 
-  if n.kind in {pnkProcDef..pnkTypeDef, pnkIdentDefs}:
-    if n.kind in pnkRoutineDefs and n[pragmasPos].kind == pnkPragma:
-      processFlags(result, n[pragmasPos])
-    elif n[0].kind == pnkPragmaExpr and n[0][^1].kind == pnkPragma:
-      processFlags(result, n[0][^1])
+  if n.kind in pnkRoutineDefs and n[pragmasPos].kind == pnkPragma:
+    processFlags(result, n[pragmasPos])
+  elif n[0].kind == pnkPragmaExpr and n[0][^1].kind == pnkPragma:
+    processFlags(result, n[0][^1])
 
+  if n.kind != pnkVarTuple:
     var node: ParsedNode = getSymNode(n[0])
     token = getToken(node)
     if node.kind != pnkError:
       name = getName(node)
-      # special cases
-      # if n.kind in pnkRoutineDefs and node.kind == pnkAccQuoted:
-      #   let identsLen = n[paramsPos].sons.len
-      #   for i in countup(1, identsLen - 1):
-      #     name.add getName(n[paramsPos][i][1])
-      #     if i != identsLen - 1:
-      #       name.add ","
-
+      when false:
+        if n.kind in pnkRoutineDefs and node.kind == pnkAccQuoted:
+          let identsLen = n[paramsPos].sons.len
+          for i in countup(1, identsLen - 1):
+            name.add getName(n[paramsPos][i][1])
+            if i != identsLen - 1:
+              name.add ","
+  else:
+    name.add "("
+    for c in n.sons:
+      if c.kind == pnkEmpty: break
+      name.add getName(c) & ","
+    name.add ")"
   if name != "":
     result.qualifiedPath = @[module, name]
   result.line = token.line.int
@@ -208,12 +213,13 @@ proc outline(graph: ModuleGraph; fileIdx: FileIndex) =
   var parsedNode: ParsedNode
   let name = toFilename(conf, fileIdx)
 
-  const Sections = {pnkTypeSection, pnkConstSection, pnkLetSection, pnkVarSection}
+  const Sections = {pnkTypeSection, pnkConstSection, pnkLetSection}
   template suggestIt(parsedNode: ParsedNode; originKind: ParsedNodeKind) =
     sug = parsedNodeToSugget(parsedNode, originKind, name)
     if sug != nil:
       sug.filepath = toFullPath(conf, fileIdx)
       conf.suggestionResultHook(sug)
+
   if setupParser(parser, fileIdx, graph.cache, conf):
     while true:
       parsedNode = parser.parseTopLevelStmt()

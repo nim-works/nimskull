@@ -622,4 +622,5 @@ jsonSchema:
     percentage ?: int # 0 .. 100
 
   WorkDoneProgressEnd:
+    kind: string
     message ?: string
