@@ -527,8 +527,9 @@ proc parsedNodeToSugget(n: ParsedNode; originKind: ParsedNodeKind; module: strin
   if n.kind in {pnkError, pnkEmpty}: return
   if n.kind notin {pnkProcDef..pnkVarTuple}: return
   new(result)
-  var token = getToken(n)
-  var name = ""
+  var
+    token = getToken(n)
+    name  = ""
 
   if n.kind in pnkRoutineDefs and n[pragmasPos].kind == pnkPragma:
     processFlags(result, n[pragmasPos])
