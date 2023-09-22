@@ -482,11 +482,11 @@ proc findTrackedSym*(g: ModuleGraph;): PSym =
     result = findTrackedNode(m.ast, g.config.m.trackPos)
 
 proc getSymNode(node: ParsedNode): ParsedNode =
-  result = node
-  if result.kind == pnkPostfix:
-    result = result[^1]
-  elif result.kind == pnkPragmaExpr:
-    result = getSymNode(result[0])
+  case node.kind
+  of pnkPostfix:    node[^1]
+  of pnkPragmaExpr: getSymNode(node[0])
+  of pnkIdent:      node
+  else:             unreachable(node.kind)
 
 proc pnkToSymKind(kind: ParsedNodeKind): TSymKind =
   result = skUnknown
