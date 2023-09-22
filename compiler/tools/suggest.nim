@@ -582,10 +582,10 @@ proc outline*(graph: ModuleGraph; fileIdx: FileIndex) =
   if setupParser(parser, fileIdx, graph.cache, conf):
     while true:
       parsedNode = parser.parseTopLevelStmt()
-      if parsedNode.kind == pnkEmpty:
+      case parsedNode.kind
+      of pnkEmpty:
         break
-
-      if parsedNode.kind in Sections:
+      of Sections:
         for node in parsedNode.sons:
           suggestIt(node, parsedNode.kind)
       else:
