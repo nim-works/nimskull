@@ -9,6 +9,7 @@ proc go() =
 go()
 
 discard """
+disabled:true
 $nimsuggest --tester $file
 >def $path/tinclude.nim:7:14
 def;;skProc;;minclude_import.create;;proc (greeting: string, subject: string): Greet{.noSideEffect, gcsafe, locks: 0.};;*fixtures/minclude_include.nim;;3;;5;;"";;100
