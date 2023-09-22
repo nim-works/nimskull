@@ -975,7 +975,7 @@ proc trackCall(tracked: PEffects; n: PNode) =
     if a.kind != nkSym or a.sym.magic notin {mFinished}:
       for i in 1..<n.len:
         trackOperandForIndirectCall(tracked, n[i], op, i, a)
-    if a.kind == nkSym and a.sym.magic in {mNew, mNewSeq}:
+    if a.kind == nkSym and a.sym.magic == mNewSeq:
       # may not look like an assignment, but it is:
       let arg = n[1]
       initVarViaNew(tracked, arg)

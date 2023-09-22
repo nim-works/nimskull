@@ -1757,16 +1757,20 @@ proc genConstant*(g: PGlobals, m: BModule, c: PSym) =
   # all constants need a name:
   g.names[c.id] = name
 
-proc genNew(p: PProc, n: CgNode) =
-  var a: TCompRes
-  gen(p, n[1], a)
-  var t = skipTypes(n[1].typ, abstractVar)[0]
-  if mapType(t) == etyObject:
-    lineF(p, "$1 = $2;$n", [a.rdLoc, createVar(p, t, false)])
-  elif a.typ == etyBaseIndex:
-    lineF(p, "$1 = [$3]; $2 = 0;$n", [a.address, a.res, createVar(p, t, false)])
+proc genNew(p: PProc, n: CgNode, r: var TCompRes) =
+  ## Updates `r` with the result of a ``new`` magic invocation.
+  let t = skipTypes(n.typ, abstractInst)
+  assert t.kind == tyRef
+
+  r.kind = resVal
+  r.typ = mapType(t)
+  if r.typ == etyObject:
+    # the underlying type has reference semantics already, no
+    # boxing is needed
+    r.res = createVar(p, t.base, false)
   else:
-    lineF(p, "$1 = [[$2], 0];$n", [a.rdLoc, createVar(p, t, false)])
+    r.address = "[$1]" % createVar(p, t.base, false)
+    r.res = "0"
 
 proc genNewSeq(p: PProc, n: CgNode) =
   var x, y: TCompRes
@@ -1963,7 +1967,7 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
       gen(p, n[1], x)
       r.res = "($# == null && $# === 0)" % [x.address, x.res]
   of mEnumToStr: genRepr(p, n, r)
-  of mNew: genNew(p, n)
+  of mNew: genNew(p, n, r)
   of mChr: gen(p, n[1], r)
   of mArrToSeq:
     # only array literals doesn't need copy
