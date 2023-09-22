@@ -216,15 +216,17 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
   )
 
   executeCmd(cmd, file, dirtyfile, line, col, graph)
-  if conf.ideCmd in {ideUse, ideDus}:
+  case conf.ideCmd
+  of ideUse, ideDus:
     let u = graph.findTrackedSym()
     if u != nil:
       listUsages(graph, u)
     else:
       localReport(conf, conf.m.trackPos, reportSem(rsemSugNoSymbolAtPosition))
-  elif conf.ideCmd == ideOutline:
+  of ideOutline:
     let dirtyIdx = fileInfoIdx(conf, file)
     outline(graph, dirtyIdx)
+  else: discard
 
 proc execute(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
              graph: ModuleGraph) =

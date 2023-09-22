@@ -71,7 +71,8 @@ import
     prefixmatches,
     astrepr,
     debugutils,
-    pathutils
+    pathutils,
+    idioms,
   ]
 
 
@@ -489,20 +490,19 @@ proc getSymNode(node: ParsedNode): ParsedNode =
   else:             unreachable(node.kind)
 
 proc pnkToSymKind(kind: ParsedNodeKind): TSymKind =
-  result = skUnknown
   case kind
-  of pnkConstSection, pnkConstDef: result = skConst
-  of pnkLetSection: result = skLet
-  of pnkVarSection: result = skVar
-  of pnkProcDef: result = skProc
-  of pnkFuncDef: result = skFunc
-  of pnkMethodDef: result = skMethod
-  of pnkConverterDef: result = skConverter
-  of pnkIteratorDef: result = skIterator
-  of pnkMacroDef: result = skMacro
-  of pnkTemplateDef: result = skTemplate
-  of pnkTypeDef, pnkTypeSection: result = skType
-  else: discard
+  of pnkConstSection, pnkConstDef:  skConst
+  of pnkLetSection:                 skLet
+  of pnkVarSection:                 skVar
+  of pnkProcDef:                    skProc
+  of pnkFuncDef:                    skFunc
+  of pnkMethodDef:                  skMethod
+  of pnkConverterDef:               skConverter
+  of pnkIteratorDef:                skIterator
+  of pnkMacroDef:                   skMacro
+  of pnkTemplateDef:                skTemplate
+  of pnkTypeDef, pnkTypeSection:    skType
+  else:                             skUnknown
 
 proc getName(node: ParsedNode): string =
   if node.kind == pnkIdent:
@@ -525,7 +525,7 @@ proc processFlags(sug: Suggest; n: ParsedNode) =
 
 proc parsedNodeToSugget(n: ParsedNode; originKind: ParsedNodeKind; module: string): Suggest =
   if n.kind in {pnkError, pnkEmpty}: return
-  if n.kind notin {pnkProcDef..pnkVarTuple}: return
+  if n.kind notin pnkEntityDefs: return
   new(result)
   var
     token = getToken(n)
