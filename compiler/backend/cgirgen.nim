@@ -835,8 +835,8 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
   of mnkGlobal:
     # XXX: defs for globals reaching here implies that the MIR code wasn't
     #      sufficiently lowered. This should be a hard error, but the
-    #      ``--expandArc`` feature currently on this being possible, so we
-    #      allow it for now
+    #      ``--expandArc`` feature currently relies on this being possible, so
+    #      we allow it for now
     def = newEmpty()
   of mnkTemp:
     # MIR temporaries are like normal locals, with the difference that they
