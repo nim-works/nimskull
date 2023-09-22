@@ -672,7 +672,8 @@ proc genBreak(c: var TCtx; n: CgNode) =
       if c.prc.blocks[i].label == n[0].sym:
         c.prc.blocks[i].fixups.add lab1
         return
-    fail(n.info, vmGenDiagCannotFindBreakTarget)
+    # the corresponding block seems to be missing?
+    unreachable("break target is missing")
   else:
     c.prc.blocks[c.prc.blocks.high].fixups.add lab1
 
@@ -3290,7 +3291,6 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
   let kind =
     case diag.kind
     of vmGenDiagTooManyRegistersRequired: adVmGenTooManyRegistersRequired
-    of vmGenDiagCannotFindBreakTarget: adVmGenCannotFindBreakTarget
     of vmGenDiagNotUnused: adVmGenNotUnused
     of vmGenDiagCannotEvaluateAtComptime: adVmGenCannotEvaluateAtComptime
     of vmGenDiagMissingImportcCompleteStruct: adVmGenMissingImportcCompleteStruct
@@ -3324,6 +3324,5 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
         AstDiagVmGenError(
           kind: kind,
           ast: diag.ast)
-      of vmGenDiagTooManyRegistersRequired,
-          vmGenDiagCannotFindBreakTarget:
+      of vmGenDiagTooManyRegistersRequired:
         AstDiagVmGenError(kind: kind)

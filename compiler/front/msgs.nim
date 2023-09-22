@@ -398,7 +398,6 @@ func astDiagVmGenToLegacyReportKind*(
   case diag
   of adVmGenMissingImportcCompleteStruct: rvmMissingImportcCompleteStruct
   of adVmGenTooManyRegistersRequired: rvmTooManyRegistersRequired
-  of adVmGenCannotFindBreakTarget: rvmCannotFindBreakTarget
   of adVmGenNotUnused: rvmNotUnused
   of adVmGenTooLargeOffset: rvmTooLargetOffset
   of adVmGenCodeGenUnhandledMagic: rvmCannotGenerateCode

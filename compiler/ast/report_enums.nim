@@ -225,7 +225,6 @@ type
     rvmOpcParseExpectedExpression
     rvmTooManyRegistersRequired
     rvmMissingImportcCompleteStruct
-    rvmCannotFindBreakTarget
     rvmNotUnused
     rvmUserError
     rvmTooLargetOffset
