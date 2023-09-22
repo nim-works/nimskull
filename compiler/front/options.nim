@@ -140,6 +140,9 @@ type
 
   CfileList* = seq[Cfile]
 
+  SuggestFlag* {.pure.} = enum
+    deprecated = 1
+
   Suggest* = ref object
     section*: IdeCmd
     qualifiedPath*: seq[string]
@@ -158,6 +161,7 @@ type
     scope*:int
     localUsages*, globalUsages*: int # usage counters
     tokenLen*: int
+    flags*: set[SuggestFlag]
 
   Suggestions* = seq[Suggest]
 

@@ -57,7 +57,7 @@ from compiler/ast/reports import Report,
 
 from compiler/front/main import customizeForBackend
 
-from compiler/tools/suggest import findTrackedSym, executeCmd, listUsages, suggestSym, `$`
+from compiler/tools/suggest import findTrackedSym, executeCmd, listUsages, outline, suggestSym, `$`
 
 when defined(windows):
   import winlean
@@ -222,6 +222,9 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
       listUsages(graph, u)
     else:
       localReport(conf, conf.m.trackPos, reportSem(rsemSugNoSymbolAtPosition))
+  elif conf.ideCmd == ideOutline:
+    let dirtyIdx = fileInfoIdx(conf, file)
+    outline(graph, dirtyIdx)
 
 proc execute(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
              graph: ModuleGraph) =
