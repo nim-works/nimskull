@@ -1325,7 +1325,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
     # the MIR code wouldn't be very useful, so we turn it into backend IR
     # first, which we then render to text
     # XXX: this needs a deeper rethink
-    let n = generateIR(g, idgen, owner, tree, sourceMap).code
+    let n = generateIR(g, idgen, owner, tree, sourceMap)
     g.config.msgWrite("--expandArc: " & owner.name.s & "\n")
     g.config.msgWrite(render(n))
     g.config.msgWrite("\n-- end of expandArc ------------------------\n")

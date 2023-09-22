@@ -138,7 +138,7 @@ proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
 
   case a.t.skipTypes(abstractVar).kind
   of tyOpenArray, tyVarargs:
-    if reifiedOpenArray(a.lode):
+    if reifiedOpenArray(p, a.lode):
       linefmt(p, cpsStmts, "$1.Field0 = $2.Field0; $1.Field1 = $2.Field1;$n",
         [rdLoc(d), a.rdLoc])
     else:
@@ -177,7 +177,7 @@ proc genAssignment(p: BProc, dest, src: TLoc) =
     # HACK: ``cgirgen`` elides to-openArray-conversion operations, so we
     #       need to reconstruct that information here. Remove this case
     #       once ``cgirgen`` no longer elides the operations
-    if reifiedOpenArray(dest.lode):
+    if reifiedOpenArray(p, dest.lode):
       genOpenArrayConv(p, dest, src)
     else:
       linefmt(p, cpsStmts, "$1 = $2;$n", [rdLoc(dest), rdLoc(src)])
@@ -486,7 +486,7 @@ proc unaryArith(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
 proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
   let
     src = e.operand
-    mt = mapType(p.config, src.typ, mapTypeChooser(src))
+    mt = mapType(p.config, src.typ, mapTypeChooser(p, src))
   if mt in {ctArray, ctPtrToArray} and lfEnforceDeref notin d.flags:
     # XXX the amount of hacks for C's arrays is incredible, maybe we should
     # simply wrap them in a struct? --> Losing auto vectorization then?
@@ -528,7 +528,7 @@ proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
       putIntoDest(p, d, e, "(*$1)" % [rdLoc(a)], a.storage)
 
 proc genAddr(p: BProc, e: CgNode, mutate: bool, d: var TLoc) =
-  if mapType(p.config, e.operand.typ, mapTypeChooser(e.operand)) == ctArray:
+  if mapType(p.config, e.operand.typ, mapTypeChooser(p, e.operand)) == ctArray:
     expr(p, e.operand, d)
   else:
     var a: TLoc
@@ -736,7 +736,7 @@ proc genBoundsCheck(p: BProc; arr, a, b: TLoc) =
   let ty = skipTypes(arr.t, abstractVarRange)
   case ty.kind
   of tyOpenArray, tyVarargs:
-    if reifiedOpenArray(arr.lode):
+    if reifiedOpenArray(p, arr.lode):
       linefmt(p, cpsStmts,
         "if ($2-$1 != -1 && " &
         "((NU)($1) >= (NU)($3.Field1) || (NU)($2) >= (NU)($3.Field1))){ #raiseIndexError(); $4}$n",
@@ -763,7 +763,7 @@ proc genOpenArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   var a, b: TLoc
   initLocExpr(p, x, a)
   initLocExpr(p, y, b)
-  if not reifiedOpenArray(x):
+  if not reifiedOpenArray(p, x):
     # emit range check:
     if optBoundsCheck in p.options:
       linefmt(p, cpsStmts, "if ((NU)($1) >= (NU)($2Len_0)){ #raiseIndexError2($1,$2Len_0-1); $3}$n",
@@ -1326,7 +1326,7 @@ proc genArrayLen(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
       else:
         putIntoDest(p, d, e, ropecg(p.module, "($2)-($1)+1", [rdLoc(b), rdLoc(c)]))
     else:
-      if not reifiedOpenArray(a):
+      if not reifiedOpenArray(p, a):
         if op == mHigh: unaryExpr(p, e, d, "($1Len_0-1)")
         else: unaryExpr(p, e, d, "$1Len_0")
       else:
@@ -1687,7 +1687,7 @@ proc skipAddr(n: CgNode): CgNode =
 proc genWasMoved(p: BProc; n: CgNode) =
   var a: TLoc
   let n1 = n[1].skipAddr
-  if p.withinBlockLeaveActions > 0 and notYetAlive(n1):
+  if p.withinBlockLeaveActions > 0 and notYetAlive(p, n1):
     discard
   else:
     initLocExpr(p, n1, a)
@@ -2107,8 +2107,8 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
         useConst(p.module, sym)
         putLocIntoDest(p, d, p.module.consts[sym])
     of skVar, skForVar, skLet:
-      if {sfGlobal, sfThread} * sym.flags != {}:
-        genVarPrototype(p.module, n)
+      assert sfGlobal in sym.flags
+      genVarPrototype(p.module, n)
 
       if sfThread in sym.flags:
         accessThreadLocalVar(p, sym)
@@ -2117,26 +2117,11 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
           putIntoDest(p, d, loc.lode, "NimTV_->" & loc.r)
         else:
           putLocIntoDest(p, d, p.module.globals[sym])
-      elif sfGlobal in sym.flags:
+      else:
         putLocIntoDest(p, d, p.module.globals[sym])
-      else: # must be a local then
-        putLocIntoDest(p, d, p.locals[sym])
-    of skResult:
-      # the 'result' location is either a parameter or local
-      if p.params[0].k != locNone:
-        putLocIntoDest(p, d, p.params[0])
-      else:
-        putLocIntoDest(p, d, p.locals[sym])
-    of skTemp:
-      putLocIntoDest(p, d, p.locals[sym])
-    of skParam:
-      if sym.position + 1 < p.params.len:
-        putLocIntoDest(p, d, p.params[sym.position + 1])
-      else:
-        # must be the hidden environment parameter (which is treated as a
-        # local)
-        putLocIntoDest(p, d, p.locals[sym])
     else: internalError(p.config, n.info, "expr(" & $sym.kind & "); unknown symbol")
+  of cnkLocal:
+    putLocIntoDest(p, d, p.locals[n.local])
   of cnkStrLit:
     putDataIntoDest(p, d, n, genLiteral(p, n))
   of cnkIntLit, cnkUIntLit, cnkFloatLit, cnkNilLit:
@@ -2202,7 +2187,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkClosureConstr: genClosure(p, n, d)
   of cnkEmpty: discard
   of cnkRepeatStmt: genRepeatStmt(p, n)
-  of cnkDef: genDef(p, n)
+  of cnkDef: genSingleVar(p, n[0], n[1])
   of cnkCaseStmt: genCase(p, n)
   of cnkReturnStmt: genReturnStmt(p, n)
   of cnkBreakStmt: genBreakStmt(p, n)

@@ -15,6 +15,8 @@ import
     idioms
   ]
 
+from compiler/ast/ast import id
+
 proc treeRepr*(n: CgNode): string =
   ## Renders the tree representation of `n` to text.
   proc treeRepr(n: CgNode, indent: int, result: var string) {.nimcall.} =
@@ -47,6 +49,9 @@ proc treeRepr*(n: CgNode): string =
       result.add n.sym.name.s
       result.add " id: "
       result.add $n.sym.itemId
+    of cnkLocal:
+      result.add "local: "
+      result.add $n.local.int
     of cnkMagic:
       result.add "magic: "
       result.add $n.magic
@@ -69,26 +74,49 @@ proc treeRepr*(n: CgNode): string =
   treeRepr(n, 0, result)
 
 type
+  Symbol = object
+    ## The common denomitator for representing all kinds of symbols in a way
+    ## that makes them comparable, at least within a procedure.
+    kind: uint8 ## the name-space
+    id: int     ## the ID within the name-space
+
   RenderCtx = object
-    syms: seq[PSym]
+    syms: seq[tuple[name: PIdent, sym: Symbol]]
       ## remembers the already-rendered symbols. Used to provide unique names.
 
-proc disambiguate(c: var RenderCtx, s: PSym): int =
+proc disambiguate(c: var RenderCtx, name: PIdent, s: Symbol): int =
   ## Computes and returns a number to append to the symbol name in order to
   ## make it unique in the output. This way, multiple different symbols sharing
   ## the same name can be disambiguated.
   result = 0
   for it in c.syms.items:
-    if it == s:
+    if it.sym == s:
       return
-    elif it.name.id == s.name.id: # same name?
+    elif it.name.id == name.id: # same name?
       inc result
 
-  c.syms.add s # remember the symbol
+  c.syms.add (name, s) # remember the symbol
 
-proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
+proc renderSymbol(c: var RenderCtx, name: PIdent, s: Symbol, flags: TSymFlags,
+                  res: var string) =
+  ## Appends the textual representation for the given symbol to `res`. `name`
+  ## may be 'nil', in which case only the '_cursor' postfix, if required, is
+  ## rendered.
+  if name != nil:
+    res.add name.s
+    let postfix = disambiguate(c, name, s)
+    if postfix > 0:
+      res.add "_" & $postfix
+
+  # the rendered code is currently used for the ``--expandArc`` debug feature,
+  # so we also highlight cursor locations
+  if sfCursor in flags:
+    res.add "_cursor"
+
+proc render(c: var RenderCtx, body: Body, ind: int, n: CgNode,
+            res: var string) =
   template add(s: var string, n: CgNode) =
-    render(c, ind, n, res)
+    render(c, body, ind, n, res)
 
   template indent(extra = 1) =
     if res.len > 0 and res[^1] == ' ':
@@ -127,15 +155,22 @@ proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
   of cnkAstLit:
     res.add "<ast>"
   of cnkSym:
-    res.add n.sym.name.s
-    let postfix = disambiguate(c, n.sym)
-    if postfix > 0 and n.sym.magic == mNone:
-      res.add "_" & $postfix
+    let s = n.sym
+    if s.magic == mNone:
+      renderSymbol(c, s.name, Symbol(kind: 0, id: n.sym.id), s.flags, res)
+    else:
+      # magics are never cursors nor do they need disambiguation
+      res.add s.name.s
+  of cnkLocal:
+    let name = body[n.local].name
+    if name.isNil:
+      # has no user-provided name. These are usually auxiliary locals, so
+      # the "aux" prefix is used
+      res.add ":aux_"
+      res.addInt n.local.int
 
-    # the rendered code is currently used for the ``--expandArc``, so we also
-    # highlight cursor locals
-    if sfCursor in n.sym.flags:
-      res.add "_cursor"
+    renderSymbol(c, name, Symbol(kind: 1, id: n.local.int),
+                 body[n.local].flags, res)
   of cnkMagic:
     # cut off the 'm' prefix and use lower-case for the first character
     var name = substr($n.magic, 1)
@@ -272,7 +307,7 @@ proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
   of cnkRepeatStmt:
     res.add "while true:"
     indent()
-    render(c, ind + 1, n[0], res)
+    render(c, body, ind + 1, n[0], res)
   of cnkBlockStmt:
     if n[0].kind == cnkEmpty:
       res.add "block:"
@@ -281,13 +316,13 @@ proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
       res.add n[0]
       res.add ":"
     indent()
-    render(c, ind + 1, n[1], res)
+    render(c, body, ind + 1, n[1], res)
   of cnkIfStmt:
     res.add "if "
     res.add n[0]
     res.add ':'
     indent()
-    render(c, ind + 1, n[1], res)
+    render(c, body, ind + 1, n[1], res)
   of cnkCaseStmt:
     res.add "case "
     res.add n[0]
@@ -301,23 +336,23 @@ proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
 
       res.add ":"
       indent()
-      render(c, ind + 1, n[i][^1], res)
+      render(c, body, ind + 1, n[i][^1], res)
   of cnkTryStmt:
     res.add "try:"
     indent()
-    render(c, ind + 1, n[0], res)
+    render(c, body, ind + 1, n[0], res)
     for i in 1..<n.len:
       case n[i].kind
       of cnkExcept:
         newLine()
         res.add "except:"
         indent()
-        render(c, ind + 1, n[i][^1], res)
+        render(c, body, ind + 1, n[i][^1], res)
       of cnkFinally:
         newLine()
         res.add "finally:"
         indent()
-        render(c, ind + 1, n[i][0], res)
+        render(c, body, ind + 1, n[i][0], res)
       else:
         unreachable()
   of cnkStmtListExpr:
@@ -330,9 +365,9 @@ proc render(c: var RenderCtx, ind: int, n: CgNode, res: var string) =
   of cnkInvalid, cnkExcept, cnkFinally, cnkBranch:
     unreachable(n.kind)
 
-proc render*(n: CgNode): string =
-  ## Renders `n` to human-readable code that tries to emulate the shape of the
-  ## high-level language. The output is meant for debugging and tracing and is
-  ## not guaranteed to have a stable format.
+proc render*(body: Body): string =
+  ## Renders `body` to human-readable code that tries to emulate the shape
+  ## of the high-level language. The output is meant for debugging and tracing
+  ## and is not guaranteed to have a stable format.
   var c = RenderCtx()
-  render(c, 0, n, result)
+  render(c, body, 0, body.code, result)

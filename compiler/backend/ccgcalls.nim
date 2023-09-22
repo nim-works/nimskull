@@ -34,14 +34,13 @@ proc reportObservableStore(p: BProc; le, ri: CgNode) =
       # do NOT follow ``cnkDerefView`` here!
       case n.kind
       of cnkSym:
-        # we don't own the location so it escapes:
-        if n.sym.owner != p.prc:
-          return true
-        elif inTryStmt and sfUsedInFinallyOrExcept in n.sym.flags:
-          # it is also an observable store if the location is used
-          # in 'except' or 'finally'
-          return true
-        return false
+        # this must be a global -> the mutation escapes
+        return true
+      of cnkLocal:
+        # if the local is used within an 'except' or 'finally', a mutation of
+        # it through a procedure that eventually raises is also an observable
+        # store
+        return inTryStmt and sfUsedInFinallyOrExcept in p.body[n.local].flags
       of cnkFieldAccess, cnkBracketAccess, cnkCheckedFieldAccess:
         n = n[0]
       of cnkObjUpConv, cnkObjDownConv, cnkHiddenConv, cnkConv:
@@ -134,11 +133,11 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
 
 proc genBoundsCheck(p: BProc; arr, a, b: TLoc)
 
-proc reifiedOpenArray(n: CgNode): bool {.inline.} =
+proc reifiedOpenArray(p: BProc, n: CgNode): bool {.inline.} =
   var x = n
   while x.kind in {cnkAddr, cnkHiddenAddr, cnkHiddenConv, cnkDerefView}:
     x = x.operand
-  if x.kind == cnkSym and x.sym.kind == skParam:
+  if x.kind == cnkLocal and p.locals[x.local].k == locParam:
     result = false
   else:
     result = true
@@ -165,7 +164,7 @@ proc genOpenArraySlice(p: BProc; q: CgNode; formalType, destType: PType): (Rope,
         [rdLoc(a), rdLoc(b), intLiteral(first), dest],
         lengthExpr)
   of tyOpenArray, tyVarargs:
-    if reifiedOpenArray(q[1]):
+    if reifiedOpenArray(p, q[1]):
       result = ("($3*)($1.Field0)+($2)" % [rdLoc(a), rdLoc(b), dest],
                 lengthExpr)
     else:
@@ -208,7 +207,7 @@ proc openArrayLoc(p: BProc, formalType: PType, n: CgNode): Rope =
     initLocExpr(p, if n.kind == cnkHiddenConv: n.operand else: n, a)
     case skipTypes(a.t, abstractVar+{tyStatic}).kind
     of tyOpenArray, tyVarargs:
-      if reifiedOpenArray(n):
+      if reifiedOpenArray(p, n):
         result = "$1.Field0, $1.Field1" % [rdLoc(a)]
       else:
         result = "$1, $1Len_0" % [rdLoc(a)]
@@ -368,9 +367,9 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
     genCallPattern()
     exitCall(p, ri[0], canRaise)
 
-proc notYetAlive(n: CgNode): bool {.inline.} =
+proc notYetAlive(p: BProc, n: CgNode): bool {.inline.} =
   let r = getRoot(n)
-  result = r != nil and r.locId == 0
+  result = r != nil and r.kind == cnkLocal and p.locals[r.local].k == locNone
 
 proc isInactiveDestructorCall(p: BProc, e: CgNode): bool =
   #[ Consider this example.
@@ -390,7 +389,7 @@ proc isInactiveDestructorCall(p: BProc, e: CgNode): bool =
   the 'let args = ...' statement. We exploit this to generate better
   code for 'return'. ]#
   result = e.len == 2 and e[0].kind == cnkSym and
-    e[0].sym.name.s == "=destroy" and notYetAlive(e[1].operand)
+    e[0].sym.name.s == "=destroy" and notYetAlive(p, e[1].operand)
 
 proc genAsgnCall(p: BProc, le, ri: CgNode, d: var TLoc) =
   if p.withinBlockLeaveActions > 0 and isInactiveDestructorCall(p, ri):
