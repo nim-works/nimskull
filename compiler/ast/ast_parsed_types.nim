@@ -269,7 +269,7 @@ const
   pnkLambdaKinds* = {pnkLambda, pnkDo}
   pnkRoutineDefs* = pnkDeclarativeDefs + {pnkMacroDef, pnkTemplateDef}
   pnkCallableDefs* = pnkLambdaKinds + pnkRoutineDefs
-  pnkEntityDefs* = pnkCallableDefs + {pnkIdentDefs, pnkVarTuple, pnkConstDef, nkForStmt}
+  pnkEntityDefs* = pnkCallableDefs + {pnkIdentDefs, pnkVarTuple, pnkConstDef, pnkForStmt}
 
 func len*(node: ParsedNode): int =
   ## Number of sons of the parsed node
