@@ -554,6 +554,7 @@ proc parsedNodeToSugget(n: ParsedNode; originKind: ParsedNodeKind; module: strin
       if c.kind == pnkEmpty: break
       name.add getName(c) & ","
     name.add ")"
+
   if name != "":
     result.qualifiedPath = @[module, name]
   result.line = token.line.int
