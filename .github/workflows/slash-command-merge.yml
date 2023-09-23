@@ -52,7 +52,7 @@ jobs:
             }
 
             let [ body, body_tail ] = pr_info.body.split(/^---\s*$/m, 2);
-            body = body.replace(/<\!--.*?-->/sg, "");
+            body = body.replace(/<\!--.*?-->/s, "");
             body = body.trimEnd();
             body_tail = body_tail?.trimEnd() || '';
             // Only runs when the PR is still open and is not staged for merging.
