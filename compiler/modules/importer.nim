@@ -294,7 +294,10 @@ proc transformImportAs(c: PContext; n: PNode): tuple[node: PNode, importHidden: 
     ret.node = n.processPragma
   return ret
 
-proc myImportModule(c: PContext, n: var PNode, info: TLineInfo, importStmtResult: PNode): PSym =
+proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
+                    importStmtResult: PNode): PSym =
+  ## `info` provides the source position (which may be different from the one
+  ## of `n`) to use for symbol suggestions.
   let transf = transformImportAs(c, n)
   n = transf.node
   let f = checkModuleName(c.config, n)
