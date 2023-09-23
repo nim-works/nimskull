@@ -5,11 +5,11 @@ def;;skModule;;minclude_types;;*;;$file;;15;;15;;"";;100
 >def $2
 def;;skModule;;minclude_types;;*;;$file;;16;;15;;"";;100
 >def $3
-def;;skModule;;minclude_import;;*;;$file;;18;;10;;"";;100
+def;;skModule;;minclude_import;;*;;$file;;19;;10;;"";;100
 >def $4
-def;;skModule;;minclude_types;;*;;$file;;21;;13;;"";;100
+def;;skModule;;minclude_types;;*;;$file;;22;;13;;"";;100
 >def $5
-def;;skModule;;mstrutils;;*;;$file;;22;;15;;"";;100
+def;;skModule;;mstrutils;;*;;$file;;23;;15;;"";;100
 """
 
 import fixtures/[minclude_import, minclud#[!]#e_types]
