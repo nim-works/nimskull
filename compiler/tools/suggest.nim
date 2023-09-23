@@ -484,10 +484,10 @@ proc findTrackedSym*(g: ModuleGraph;): PSym =
 
 proc getSymNode(node: ParsedNode): ParsedNode =
   case node.kind
-  of pnkPostfix:    node[^1]
-  of pnkPragmaExpr: getSymNode(node[0])
-  of pnkIdent:      node
-  else:             unreachable(node.kind)
+  of pnkPostfix:                  node[^1]
+  of pnkPragmaExpr:               getSymNode(node[0])
+  of pnkIdent, pnkAccQuoted:      node
+  else:                           unreachable(node.kind)
 
 proc pnkToSymKind(kind: ParsedNodeKind): TSymKind =
   case kind
@@ -525,7 +525,7 @@ proc processFlags(sug: Suggest; n: ParsedNode) =
 
 proc parsedNodeToSugget(n: ParsedNode; originKind: ParsedNodeKind; module: string): Suggest =
   if n.kind in {pnkError, pnkEmpty}: return
-  if n.kind notin pnkEntityDefs: return
+  if n.kind notin pnkDeclarations: return
   new(result)
   var
     token = getToken(n)
