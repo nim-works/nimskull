@@ -9,6 +9,7 @@ def;;skModule;;minclude_import;;*;;$file;;13;;10;;"";;100
 """
 import fixtures/[minclude_import, minclud#[!]#e_types]
 import fixtures/[minclude_types as typ#[!]#es]
+# test with multi-line import statements:
 import
   fixtures/[
     minclu#[!]#de_import
