@@ -366,7 +366,7 @@ proc main(ins: Stream, outs: Stream) =
                 resp = newJNull()
               else:
                 resp = newJarray()
-                for sym in syms.sortedByIt((it.line,it.column,it.quality)):
+                for sym in syms.sortedByIt((it.line,it.column)):
                   if sym.qualifiedPath.len != 2:
                     continue
                   resp.add create(DocumentSymbol,
