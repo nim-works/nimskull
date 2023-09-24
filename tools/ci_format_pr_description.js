@@ -34,13 +34,13 @@ exports.lineWrapPRdescription = (text, maxLineLength) =>
           : getSegments(/(`+).*?\1/g, line)
               // Treat codespans as single words:
               .flatMap( ([isCodeSpan, segment]) => isCodeSpan ? segment : segment.split(' ') )
-              .reduce(([newLine, lineLength], word) =>
-                newLine
+              .reduce(([wrappedLine, lineLength], word) =>
+                wrappedLine
                 // Don't touch trailing spaces:
                 ? word.length > 0 && lineLength + 1 + word.length > maxLineLength
-                  ? [newLine + '\n' + word, word.length]
-                  : [newLine + ' ' + word, lineLength + 1 + word.length]
-                : [newLine + word, lineLength + word.length]
+                  ? [wrappedLine + '\n' + word, word.length]
+                  : [wrappedLine + ' ' + word, lineLength + 1 + word.length]
+                : [wrappedLine + word, lineLength + word.length]
               , ['', 0])[0]
         ).join('\n')
     ).join('')
