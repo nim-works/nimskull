@@ -149,6 +149,8 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
                   inTypeContext: bool; scope: int;
                   useSuppliedInfo = false): Suggest =
   new(result)
+  if sfDeprecated in s.flags:
+    result.flags.incl SuggestFlag.deprecated
   result.section = section
   result.quality = quality
   result.isGlobal = sfGlobal in s.flags
