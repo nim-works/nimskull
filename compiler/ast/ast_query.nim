@@ -126,7 +126,7 @@ const
   defaultAlignment* = -1
   defaultOffset* = -1
 
-  FakeVarParams* = {mNew, mInc, mDec, mIncl, mExcl,
+  FakeVarParams* = {mInc, mDec, mIncl, mExcl,
     mSetLengthStr, mSetLengthSeq, mAppendStrCh, mAppendStrStr, mSwap,
     mAppendSeqElem, mNewSeq, mReset, mShallowCopy, mDeepCopy, mMove,
     mWasMoved}

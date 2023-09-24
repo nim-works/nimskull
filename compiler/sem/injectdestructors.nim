@@ -1196,31 +1196,6 @@ proc lowerBranchSwitch(buf: var MirNodeSeq, body: MirTree, graph: ModuleGraph,
 
   buf.add endNode(mnkRegion)
 
-proc lowerNew(tree: MirTree, g: ModuleGraph, c: var Changeset) =
-  ## Lower calls to the ``new(x)`` into a ``=destroy(x); new(x)``
-  for i, n in tree.pairs:
-    if n.kind == mnkMagic and n.magic == mNew:
-      c.seek(i)
-      c.replaceMulti(buf):
-        buf.subTree MirNode(kind: mnkRegion):
-          let typ = skipTypes(tree[operand(tree, Operation(i), 0)].typ,
-                              skipAliases + {tyVar})
-          # first destroy the previous value
-          genDestroy(buf, g, typ, opParamNode(0, typ))
-
-          # re-insert the call to ``new``
-          argBlock(buf):
-            chain(buf): opParam(0, typ) => tag(ekReassign) => name()
-
-            # add the remaining arguments (if any)
-            for j in 1..<numArgs(tree, Operation i):
-              let typ = tree[operand(tree, Operation i, j)].typ
-              chain(buf): opParam(buf, j.uint32, typ) => arg()
-
-          chain(buf): emit(n) => voidOut() # use the original 'new' operator
-
-      c.remove() # remove the ``mnkVoid`` node
-
 proc reportDiagnostics(g: ModuleGraph, tree: MirTree, sourceMap: SourceMap,
                        owner: PSym, diags: var seq[LocalDiag]) =
   ## Reports all diagnostics in `diags` as ``SemReport``s and clear the list
@@ -1301,11 +1276,6 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
 
     let destructors = computeDestructors(tree, actx.cfg, values, entities)
 
-    # only inject destructors for calls to ``new`` if destructor-based
-    # ref-counting is used
-    if g.config.selectedGC in {gcArc, gcOrc}:
-      lowerNew(tree, g, changes)
-
     rewriteAssignments(
       tree, actx,
       AnalysisResults(v: cursor(values),
@@ -1325,7 +1295,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
     # the MIR code wouldn't be very useful, so we turn it into backend IR
     # first, which we then render to text
     # XXX: this needs a deeper rethink
-    let n = generateIR(g, idgen, owner, tree, sourceMap).code
+    let n = generateIR(g, idgen, owner, tree, sourceMap)
     g.config.msgWrite("--expandArc: " & owner.name.s & "\n")
     g.config.msgWrite(render(n))
     g.config.msgWrite("\n-- end of expandArc ------------------------\n")

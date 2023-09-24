@@ -529,7 +529,9 @@ proc hasCycle(n: PNode): bool =
 
 proc tryConstExpr(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "tryConstExpr", n, result)
+  pushExecCon(c, {})
   let e = semExprWithType(c, n)
+  popExecCon(c)
   if e.isError:
     return
 
@@ -629,8 +631,9 @@ proc semConstExpr(c: PContext, n: PNode): PNode =
   # TODO: propagate the error upwards instead of reporting it here. Also
   #       remove the error correction -- that should be done at the callsite,
   #       if needed
-
+  pushExecCon(c, {})
   let e = semExprWithType(c, n)
+  popExecCon(c)
   if e.isError:
     localReport(c.config, e)
     return n
@@ -903,6 +906,7 @@ proc recoverContext(c: PContext) =
   c.currentScope = c.topLevelScope
   while getCurrOwner(c).kind != skModule: popOwner(c)
   while c.p != nil and c.p.owner.kind != skModule: c.p = c.p.next
+  c.executionCons.setLen(1)
 
 proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
   ## Entry point for the semantic analysis pass, this proc is part of the

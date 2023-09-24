@@ -1009,7 +1009,7 @@ type
                                           # | TODO: these enum values duplicate
                                           # |       `VmGenDiagKind` vmgen enum
     adVmGenTooManyRegistersRequired       # |       defined in the `vmdef`
-    adVmGenCannotFindBreakTarget          # |       module. There should be a
+                                          # |       module. There should be a
     adVmGenNotUnused                      # |       way to cross-reference data
                                           # |       without introducing direct
                                           # |       import or type
@@ -1026,8 +1026,7 @@ type
 
   AstDiagVmGenError* = object
     case kind*: AstDiagVmGenKind:
-      of adVmGenTooManyRegistersRequired,
-          adVmGenCannotFindBreakTarget:
+      of adVmGenTooManyRegistersRequired:
         discard
       of adVmGenNotUnused,
           adVmGenCannotEvaluateAtComptime:
@@ -1629,6 +1628,9 @@ type
       guard*: PSym
       bitsize*: int
       alignment*: int # for alignment
+    of skLabel:
+      context*: int           ## the ID (i.e., index) of the execution context
+                              ## this label is part of
     else: nil
     magic*: TMagic
     typ*: PType

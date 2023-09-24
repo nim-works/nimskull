@@ -55,6 +55,7 @@ import
     options
   ],
   compiler/utils/[
+    containers,
     idioms
   ],
   compiler/vm/[
@@ -126,6 +127,12 @@ type
     label: PSym
     fixups: seq[TPosition]
 
+  LocalLoc = object
+    ## The current state for a local.
+    reg: TRegister   ## the register that holds either the handle or value
+    isIndirect: bool ## whether the local uses a handle while its value
+                     ## would fit it into a register
+
   BProc = object
     blocks: seq[TBlock]
       ## blocks; temp data structure
@@ -137,17 +144,8 @@ type
       ## no line information is directly available
     regInfo: seq[RegInfo]
 
-    addressTaken: IntSet
-      ## the set of locations (identified by their symbol id) that have their
-      ## address taken or a view of them created. This information is used to
-      ## decide whether a full VM memory location is required, or if the
-      ## value can be stored in a register directly
-
-    # XXX: the value's type should be `TRegister`, but we need a sentinel
-    #      value (-1) for `getOrDefault`, so it has to be `int`
-    locals: Table[int, int]
-      ## symbol-id -> register index. Used for looking up the corresponding
-      ## register slot of each local (including parameters and `result`)
+    locals: OrdinalSeq[LocalId, LocalLoc]
+      ## current state of all locals
 
   CodeGenCtx* = object
     ## Bundles all input, output, and other contextual data needed for the
@@ -266,19 +264,21 @@ proc genLit(c: var TCtx; n: CgNode; lit: int; dest: var TDest)
 proc genTypeLit(c: var TCtx; info: CgNode, t: PType; dest: var TDest)
 proc genType(c: var TCtx, typ: PType): int
 func fitsRegister(t: PType): bool
-func local(prc: BProc, sym: PSym): TDest {.inline.}
 proc genRegLoad(c: var TCtx, n: CgNode, dest, src: TRegister) {.inline.}
 proc genRegLoad(c: var TCtx, n: CgNode, typ: PType, dest, src: TRegister)
 
 template isUnset(x: TDest): bool = x < 0
 
+template `[]`(p: BProc, id: LocalId): LocalLoc =
+  ## Convenience shorthand.
+  p.locals[id]
 
 proc routineSignature(s: PSym): PType {.inline.} =
   ## Returns the signature type of the routine `s`
   if s.kind == skMacro: s.internal
   else:                 s.typ
 
-func underlyingLoc(n: CgNode): PSym =
+func underlyingLoc(n: CgNode): CgNode =
   ## Computes and returns the symbol of the complete location (i.e., a location
   ## not part of a compound location) that l-value expression `n` names. If no
   ## complete location is named, ``nil`` is returned.
@@ -291,34 +291,28 @@ func underlyingLoc(n: CgNode): PSym =
     of cnkStmtListExpr: root = root[^1]
     else:               break
 
-  result =
-    if root.kind == cnkSym: root.sym
-    else:                  nil
+  result = root
 
-func analyseIfAddressTaken(n: CgNode, locs: var IntSet) =
-  ## Recursively traverses the tree `n` and collects the symbols IDs of all
-  ## complete locations of which the address is taken. Note that this analysis
-  ## doesn't rely on the ``sfAddrTaken`` flag (because it's not reliable).
-  # TODO: turn this into a MIR analysis. Doing so will simplify the code, make
-  #       it less error-prone, and likely also faster
+func analyseIfAddressTaken(n: CgNode, prc: var BProc) =
+  ## Recursively traverses the tree `n` and marks locals of which the address is
+  ## taken as requiring indirection.
   case n.kind
   of cnkHiddenAddr, cnkAddr:
     # the nodes we're interested
     let loc = underlyingLoc(n.operand)
-    if loc != nil:
-      # we're only interested in locals
-      if sfGlobal notin loc.flags:
-        locs.incl(loc.id)
+    # we're only interested in locals
+    if loc.kind == cnkLocal:
+      prc[loc.local].isIndirect = true
     else:
       # the operand expression must still be anaylsed
-      analyseIfAddressTaken(n.operand, locs)
+      analyseIfAddressTaken(n.operand, prc)
   of cnkAtoms:
     discard "ignore"
   of cnkWithOperand - {cnkHiddenAddr, cnkAddr}:
-    analyseIfAddressTaken(n.operand, locs)
+    analyseIfAddressTaken(n.operand, prc)
   of cnkWithItems:
     for it in n.items:
-      analyseIfAddressTaken(it, locs)
+      analyseIfAddressTaken(it, prc)
 
 
 func isNimNode(t: PType): bool =
@@ -676,7 +670,9 @@ proc genBreak(c: var TCtx; n: CgNode) =
       if c.prc.blocks[i].label == n[0].sym:
         c.prc.blocks[i].fixups.add lab1
         break search
-    fail(n.info, vmGenDiagCannotFindBreakTarget)
+
+    # the corresponding block seems to be missing?
+    unreachable("break target is missing")
 
 proc genIf(c: var TCtx, n: CgNode) =
   #  if (!expr1) goto lab1;
@@ -973,19 +969,15 @@ proc writeBackResult(c: var TCtx, info: CgNode) =
   ## If the result value fits into a register but is not stored in one
   ## (because it has its address taken, etc.), emits the code for storing it
   ## back into a register. `info` is only used to provide line information.
-  if not isEmptyType(c.prc.sym.routineSignature[0]):
-    let
-      res = c.prc.sym.ast[resultPos]
-      typ = res.typ
-
-    if fitsRegister(typ) and not isDirectView(typ) and
-       res.sym.id in c.prc.addressTaken:
+  let typ = c.prc.body[resultId].typ
+  if not isEmptyType(typ) and fitsRegister(typ) and not isDirectView(typ) and
+     c.prc[resultId].isIndirect:
       # a write-back is required. Load the value into temporary register and
       # then do a register move
       let
         tmp = c.getTemp(typ)
-        dest = local(c.prc, res.sym)
-      c.genRegLoad(info, res.typ, tmp, dest)
+        dest = c.prc[resultId].reg
+      c.genRegLoad(info, typ, tmp, dest)
       c.gABC(info, opcFastAsgnComplex, dest, tmp)
       c.freeTemp(tmp)
 
@@ -1066,11 +1058,6 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
 
 template isGlobal(s: PSym): bool = sfGlobal in s.flags
 
-func local(prc: BProc, sym: PSym): TDest {.inline.} =
-  ## Returns the register associated with the local variable `sym` (or -1 if
-  ## `sym` is not a local)
-  prc.locals.getOrDefault(sym.id, -1)
-
 proc genField(c: TCtx; n: CgNode): TRegister =
   assert n.kind == cnkSym and n.sym.kind == skField
 
@@ -1104,15 +1091,15 @@ proc genRegLoad(c: var TCtx, n: CgNode, dest, src: TRegister) {.inline.} =
 proc genCheckedObjAccessAux(c: var TCtx; n: CgNode): TRegister
 proc genSym(c: var TCtx, n: CgNode, dest: var TDest, load = true)
 
-func usesRegister(p: BProc, s: PSym): bool =
+func usesRegister(p: BProc, s: LocalId): bool =
   ## Returns whether the location identified by `s` is backed by a register
   ## (that is, whether the value is stored in a register directly)
-  fitsRegister(s.typ) and s.id notin p.addressTaken
+  fitsRegister(p.body[s].typ) and not p[s].isIndirect
 
-proc genNew(c: var TCtx; n: CgNode) =
-  let dest = c.genLvalue(n[1])
+proc genNew(c: var TCtx; n: CgNode, dest: var TDest) =
+  prepare(c, dest, n, n.typ)
   c.gABx(n, opcNew, dest,
-         c.genType(n[1].typ.skipTypes(abstractVar-{tyTypeDesc})))
+         c.genType(n.typ.skipTypes(abstractInst-{tyTypeDesc})))
   c.freeTemp(dest)
 
 proc genNewSeq(c: var TCtx; n: CgNode) =
@@ -1604,9 +1591,11 @@ func usesRegister(p: BProc, n: CgNode): bool =
   # XXX: instead of using a separate analysis, compute and return this as part
   #      of ``genLValue`` and
   case n.kind
+  of cnkLocal:
+    usesRegister(p, n.local)
   of cnkSym:
     let s = n.sym
-    not s.isGlobal and usesRegister(p, s)
+    not s.isGlobal and fitsRegister(s.typ)
   of cnkDeref, cnkDerefView, cnkFieldAccess, cnkBracketAccess, cnkCheckedFieldAccess,
      cnkConv, cnkObjDownConv, cnkObjUpConv:
     false
@@ -1690,8 +1679,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mIsolate:
     genCall(c, n, dest)
   of mNew:
-    unused(c, n, dest)
-    c.genNew(n)
+    c.genNew(n, dest)
   of mNewSeq:
     unused(c, n, dest)
     c.genNewSeq(n)
@@ -2121,10 +2109,9 @@ proc genDeref(c: var TCtx, n: CgNode, dest: var TDest; load = true) =
       c.genRegLoad(n, dest, dest)
     c.freeTemp(tmp)
 
-func setSlot(p: var BProc; v: PSym): TRegister {.discardable.} =
-  # XXX generate type initialization here?
-  result = getFreeRegister(p, if v.kind == skLet: slotFixedLet else: slotFixedVar, start = 1)
-  p.locals[v.id] = result
+func setSlot(p: var BProc; v: LocalId): TRegister {.discardable.} =
+  result = getFreeRegister(p, slotFixedVar, start = 1)
+  p[v].reg = result
 
 func cannotEval(c: TCtx; n: CgNode) {.noinline, noreturn.} =
   # best-effort translation to ``PNode`` for improved error messages
@@ -2258,6 +2245,8 @@ func isPtrView(n: CgNode): bool =
   case n.kind
   of cnkSym:
     sfGlobal in n.sym.flags
+  of cnkLocal:
+    false
   of cnkFieldAccess, cnkBracketAccess, cnkCheckedFieldAccess:
     true
   of cnkHiddenAddr, cnkCall:
@@ -2293,22 +2282,26 @@ proc genAsgnSource(c: var TCtx, n: CgNode, wantsPtr: bool): TRegister =
       c.gABC(n, opcAddr, result, tmp)
       c.freeTemp(tmp)
 
-proc genSymAsgn(c: var TCtx, le, ri: CgNode) =
-  ## Generates and emits the code for an assignment where the RHS is a symbol
-  ## node.
-  let s = le.sym
+proc genAsgnToGlobal(c: var TCtx, le, ri: CgNode) =
+  ## Generates and emits the code for an assignment where the LHS is the symbol
+  ## of a global location.
   var dest = noDest
   # we're only interested in the *handle* (i.e. identity) of the location, so
   # don't load it
   c.genSym(le, dest, load=false)
 
-  if sfGlobal in s.flags:
+  if true:
     # global views use pointers internally
     let b = genAsgnSource(c, ri, wantsPtr=true)
     c.gABC(le, opcWrLoc, dest, b)
     c.freeTemp(b)
-  else:
-    if usesRegister(c.prc, s):
+
+  c.freeTemp(dest)
+
+proc genAsgnToLocal(c: var TCtx, le, ri: CgNode) =
+  let dest = c.prc[le.local].reg
+  if true:
+    if usesRegister(c.prc, le.local):
       # if the location is backed by a register (i.e., is not in stored
       # in a memory cell), we don't use a temporary register + assignment
       # but directly write to the destination register
@@ -2325,12 +2318,10 @@ proc genSymAsgn(c: var TCtx, le, ri: CgNode) =
       # an assignment is required to the local. Views are always stored as
       # handles in this case, so a register move is used for assigning them
       let
-        opc = (if isDirectView(s.typ): opcFastAsgnComplex else: opcWrLoc)
+        opc = (if isDirectView(le.typ): opcFastAsgnComplex else: opcWrLoc)
         b = c.genx(ri)
       c.gABC(le, opc, dest, b)
       c.freeTemp(b)
-
-  c.freeTemp(dest)
 
 proc genDerefView(c: var TCtx, n: CgNode, dest: var TDest; load = true) =
   ## Generates and emits the code for a view dereference, where `n` is the
@@ -2428,7 +2419,9 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
     genAsgn(c, le.operand, ri, requiresCopy)
   of cnkSym:
     checkCanEval(c, le)
-    genSymAsgn(c, le, ri)
+    genAsgnToGlobal(c, le, ri)
+  of cnkLocal:
+    genAsgnToLocal(c, le, ri)
   else:
     unreachable(le.kind)
 
@@ -2463,9 +2456,11 @@ proc useGlobal(c: var TCtx, n: CgNode): int =
 
 proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
   ## Generates and emits the code for loading either the value or handle of
-  ## the location named by symbol node `n` into the `dest` register.
-  let s = n.sym
-  if s.isGlobal:
+  ## the location named by symbol or local node `n` into the `dest` register.
+  case n.kind
+  of cnkSym:
+    # a global location
+    let s = n.sym
     let pos = useGlobal(c, n)
     if dest.isUnset:
       dest = c.getTemp(s.typ)
@@ -2477,10 +2472,10 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
       c.freeTemp(cc)
     else:
       c.gABx(n, opcLdGlobal, dest, pos)
-  else:
-      let local = local(c.prc, s)
+  of cnkLocal:
+      let local = c.prc[n.local].reg
       internalAssert(c.config, c.prc.regInfo[local].kind < slotSomeTemp)
-      if usesRegister(c.prc, s) or not load or not fitsRegister(s.typ):
+      if usesRegister(c.prc, n.local) or not load or not fitsRegister(n.typ):
         if dest.isUnset:
           dest = local
         else:
@@ -2488,26 +2483,28 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
           # register copy, which is exactly what we need here
           c.gABC(n, opcFastAsgnComplex, dest, local)
       else:
-        prepare(c, dest, s.typ)
+        prepare(c, dest, n.typ)
         c.genRegLoad(n, dest, local)
+  else:
+    unreachable()
 
 proc genSymAddr(c: var TCtx, n: CgNode, dest: var TDest) =
   ## Generates and emits the code for taking the address of the location
-  ## identified by the symbol node `n`.
-  let s = n.sym
-  if dest.isUnset:
-    dest = c.getTemp(s.typ)
-
-  if s.isGlobal:
+  ## identified by the symbol or local node `n`.
+  assert dest != noDest
+  case n.kind
+  of cnkSym:
     let
       pos = useGlobal(c, n)
       tmp = c.getTemp(slotTempComplex)
     c.gABx(n, opcLdGlobal, tmp, pos)
     c.gABC(n, opcAddr, dest, tmp)
     c.freeTemp(tmp)
-  else:
-    let local = local(c.prc, s)
+  of cnkLocal:
+    let local = c.prc[n.local].reg
     c.gABC(n, opcAddr, dest, local)
+  else:
+    unreachable()
 
 proc genArrAccessOpcode(c: var TCtx; n: CgNode; dest: var TDest; opc: TOpcode; load = true) =
   let
@@ -2678,7 +2675,7 @@ proc genAddr(c: var TCtx, src, n: CgNode, dest: var TDest) =
   ## `n`. `src` provides the type information of the destination, plus the line
   ## information to use.
   case n.kind
-  of cnkSym:
+  of cnkSym, cnkLocal:
     prepare(c, dest, src.typ)
     genSymAddr(c, n, dest)
   of cnkFieldAccess:
@@ -2750,7 +2747,7 @@ proc genLvalue(c: var TCtx, n: CgNode, dest: var TDest) =
   ## Note that in the case of locals backed by registers, `dest` will store
   ## its value instead of a handle.
   case n.kind
-  of cnkSym:
+  of cnkSym, cnkLocal:
     c.genSym(n, dest, load=false)
   of cnkFieldAccess:
     genFieldAccess(c, n, dest, load=false)
@@ -2795,8 +2792,9 @@ proc genLvalue(c: var TCtx, n: CgNode, dest: var TDest) =
     unreachable(n.kind)
 
 proc genDef(c: var TCtx; a: CgNode) =
-        let s = a[0].sym
-        assert not s.isGlobal
+        let
+          s   = a[0].local
+          typ = a[0].typ
         if true:
           let reg = setSlot(c.prc, s)
           if a[1].kind == cnkEmpty:
@@ -2805,16 +2803,16 @@ proc genDef(c: var TCtx; a: CgNode) =
             let opc = if usesRegister(c.prc, s): opcLdNullReg
                       else: opcLdNull
 
-            c.gABx(a, opc, reg, c.genType(s.typ))
+            c.gABx(a, opc, reg, c.genType(typ))
           else:
             # XXX: checking for views here is wrong but necessary
-            if not usesRegister(c.prc, s) and not isDirectView(s.typ):
+            if not usesRegister(c.prc, s) and not isDirectView(typ):
               # only setup a memory location if the local uses one
-              c.gABx(a, opcLdNull, reg, c.genType(s.typ))
+              c.gABx(a, opcLdNull, reg, c.genType(typ))
 
             # views and locals backed by registers don't need explicit
             # initialization logic here -- the assignment takes care of that
-            genSymAsgn(c, a[0], a[1])
+            genAsgnToLocal(c, a[0], a[1])
 
 proc genArrayConstr(c: var TCtx, n: CgNode, dest: var TDest) =
   if dest.isUnset: dest = c.getTemp(n.typ)
@@ -2933,7 +2931,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     let s = n.sym
     checkCanEval(c, n)
     case s.kind
-    of skVar, skForVar, skTemp, skLet, skParam, skResult:
+    of skVar, skForVar, skLet:
       genSym(c, n, dest)
     of skProc, skFunc, skConverter, skMacro, skMethod, skIterator:
       if importcCond(c, s) and lookup(c.linking.callbackKeys, s) == -1:
@@ -2952,6 +2950,8 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
         c.gABx(n, opcLdCmplxConst, dest, idx)
     else:
       unreachable(s.kind)
+  of cnkLocal:
+    genSym(c, n, dest)
   of cnkCall:
     let magic = getMagic(n)
     if magic != mNone:
@@ -3072,11 +3072,12 @@ proc initProc(c: TCtx, owner: PSym, body: sink Body): BProc =
   result.bestEffort =
     if owner != nil: owner.info
     else:            c.module.info
+  result.locals.synchronize(result.body.locals)
 
   # analyse what locals require indirections:
-  analyseIfAddressTaken(result.body.code, result.addressTaken)
+  analyseIfAddressTaken(result.body.code, result)
 
-proc genStmt*(c: var TCtx; body: Body): Result[int, VmGenDiag] =
+proc genStmt*(c: var TCtx; body: sink Body): Result[int, VmGenDiag] =
   c.prc = initProc(c, nil, body)
   let n = c.prc.body.code
 
@@ -3111,19 +3112,19 @@ proc genExpr*(c: var TCtx; body: sink Body): Result[int, VmGenDiag] =
   result = typeof(result).ok(c.prc.regInfo.len)
 
 
-proc genParams(prc: var BProc; s: PSym) =
+proc genParams(prc: var BProc; signature: PType) =
+  ## Allocates the registers for the parameters and associates them with the
+  ## corresponding locs.
   let
-    params = s.routineSignature.n
+    params = signature.n
+    isClosure = signature.callConv == ccClosure
 
-  setLen(prc.regInfo, max(params.len, 1))
+  # closure procedures have an additional, hidden parameter
+  prc.regInfo.newSeq(params.len + ord(isClosure))
 
-  if not isEmptyType(s.routineSignature[0]):
-    prc.locals[s.ast[resultPos].sym.id] = 0
-    prc.regInfo[0] = RegInfo(refCount: 1, kind: slotFixedVar)
-
-  for i in 1..<params.len:
-    prc.locals[params[i].sym.id] = i
-    prc.regInfo[i] = RegInfo(refCount: 1, kind: slotFixedLet)
+  for i, it in prc.regInfo.mpairs:
+    it = RegInfo(refCount: 1, kind: slotFixedVar)
+    prc[LocalId i].reg = i
 
 proc finalJumpTarget(c: var TCtx; pc, diff: int) =
   internalAssert(
@@ -3199,9 +3200,9 @@ proc prepareParameters(c: var TCtx, info: CgNode) =
   ## to a VM memory location at the start of the procedure.
   let typ = c.prc.sym.routineSignature # the procedure's type
 
-  template setupParam(c: var TCtx, s: PSym) =
-    if fitsRegister(s.typ) and s.id in c.prc.addressTaken:
-      transitionToLocation(c, info, s.typ, local(c.prc, s))
+  template setupParam(c: var TCtx, typ: PType, loc: LocalLoc) =
+    if fitsRegister(typ) and loc.isIndirect:
+      transitionToLocation(c, info, typ, loc.reg)
 
   if typ.n.len > 1: # does it have more than zero parameters?
     # if getReturnType(c.prc.sym).skipTypes(abstractInst).kind == tyLent:
@@ -3215,43 +3216,34 @@ proc prepareParameters(c: var TCtx, info: CgNode) =
     # XXX: the above is correct, but the expection that to-be-borrowed-from
     #      parameters use pass-by-handle isn't met yet. For now, what this
     #      means is that ``proc borrow(x: int): lent int`` won't work
-    setupParam(c, typ.n[1].sym)
+    setupParam(c, typ[1], c.prc[LocalId(1)])
 
   # setup the remaining parameters:
   for i in 2..<typ.n.len:
-    setupParam(c, typ.n[i].sym)
+    setupParam(c, typ[i], c.prc[LocalId(i)])
 
 proc genProcBody(c: var TCtx): int =
     let
       s    = c.prc.sym
       body = c.prc.body.code
 
-    # iterate over the parameters and allocate space for them:
-    genParams(c.prc, s)
-
-    if s.routineSignature.callConv == ccClosure:
-      # reserve a slot for the hidden environment parameter and register the
-      # mapping
-      c.prc.regInfo.add RegInfo(refCount: 1, kind: slotFixedLet)
-      c.prc.locals[s.ast[paramsPos][^1].sym.id] = c.prc.regInfo.high
+    genParams(c.prc, s.routineSignature)
 
     # setup the result register, if necessary. Watch out for macros! Their
     # result register is setup at the start of macro evaluation
     # XXX: initializing the ``result`` of a macro should be handled through
     #      inserting the necessary code either in ``sem` or here
-    let rt = s.routineSignature[0]
+    let rt = c.prc.body[resultId].typ
     if not isEmptyType(rt) and fitsRegister(rt):
       # initialize the register holding the result
-      let r = s.ast[resultPos].sym
-
       if s.kind == skMacro:
-        if r.id in c.prc.addressTaken:
+        if c.prc[resultId].isIndirect:
           # the result variable for macros is currently initialized from outside
           # the VM, so we can't use ``opcLdNull`` here
-          transitionToLocation(c, body, rt, local(c.prc, r))
+          transitionToLocation(c, body, rt, c.prc[resultId].reg)
       else:
         let opcode =
-          if r.id in c.prc.addressTaken:
+          if c.prc[resultId].isIndirect:
             # the result variable has its address taken or a reference/view
             # to it created -> we need a VM memory location. In order for this
             # to be opaque to the callsite, a write-back is injected before
@@ -3261,8 +3253,8 @@ proc genProcBody(c: var TCtx): int =
             opcLdNullReg
 
         # only setup a location/register if the procedure's result is not a view:
-        if not isDirectView(r.typ):
-          gABx(c, body, opcode, local(c.prc, r), c.genType(r.typ))
+        if not isDirectView(rt):
+          gABx(c, body, opcode, c.prc[resultId].reg, c.genType(rt))
 
     prepareParameters(c, body)
     gen(c, body)
@@ -3295,7 +3287,6 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
   let kind =
     case diag.kind
     of vmGenDiagTooManyRegistersRequired: adVmGenTooManyRegistersRequired
-    of vmGenDiagCannotFindBreakTarget: adVmGenCannotFindBreakTarget
     of vmGenDiagNotUnused: adVmGenNotUnused
     of vmGenDiagCannotEvaluateAtComptime: adVmGenCannotEvaluateAtComptime
     of vmGenDiagMissingImportcCompleteStruct: adVmGenMissingImportcCompleteStruct
@@ -3329,6 +3320,5 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
         AstDiagVmGenError(
           kind: kind,
           ast: diag.ast)
-      of vmGenDiagTooManyRegistersRequired,
-          vmGenDiagCannotFindBreakTarget:
+      of vmGenDiagTooManyRegistersRequired:
         AstDiagVmGenError(kind: kind)

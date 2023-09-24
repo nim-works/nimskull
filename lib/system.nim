@@ -265,14 +265,6 @@ proc typeof*(x: untyped; mode = typeOfIter): typedesc {.
 
 const ThisIsSystem = true
 
-when compileOption("gc", "refc"):
-  # TODO: obsolete magic definition; remove after the next csource update.
-  #       The magic is unrelated to refc, but since only the csource
-  #       compiler still supports and uses refc, we can use its presense as
-  #       a way it to identify the csources compiler
-  proc internalNew*[T](a: var ref T) {.magic: "New", noSideEffect.}
-    ## Leaked implementation detail. Do not use.
-
 proc wasMoved*[T](obj: var T) {.magic: "WasMoved", noSideEffect.} =
   ## Resets an object `obj` to its initial (binary zero) value to signify
   ## it was "moved" and to signify its destructor should do nothing and
@@ -566,16 +558,29 @@ when defined(js) or defined(nimdoc):
     JsRoot* = ref object of RootObj
       ## Root type of the JavaScript object hierarchy
 
-proc unsafeNew*[T](a: var ref T, size: Natural) {.magic: "New", noSideEffect.}
-  ## Creates a new object of type `T` and returns a safe (traced)
-  ## reference to it in `a`.
-  ##
-  ## This is **unsafe** as it allocates an object of the passed `size`.
-  ## This should only be used for optimization purposes when you know
-  ## what you're doing!
-  ##
-  ## See also:
-  ## * `new <#new,ref.T,proc(ref.T)>`_
+when defined(nimskullNoMagicNewAssign):
+  proc unsafeNew[T: ref](size: Natural): T {.magic: "New", noSideEffect.}
+
+  template unsafeNew*[T: ref](a: var T, size: Natural) =
+    ## Creates a new object of `T`'s underlying object type and returns a
+    ## safe (traced) reference to it in `a`.
+    ##
+    ## This is **unsafe** as it allocates an object of the passed `size`.
+    ## This should only be used for optimization purposes when you know
+    ## what you're doing!
+    a = unsafeNew[T](size)
+
+else:
+  proc unsafeNew*[T](a: var ref T, size: Natural) {.magic: "New", noSideEffect.}
+    ## Creates a new object of type `T` and returns a safe (traced)
+    ## reference to it in `a`.
+    ##
+    ## This is **unsafe** as it allocates an object of the passed `size`.
+    ## This should only be used for optimization purposes when you know
+    ## what you're doing!
+    ##
+    ## See also:
+    ## * `new <#new,ref.T,proc(ref.T)>`_
 
 proc sizeof*[T](x: T): int {.magic: "SizeOf", noSideEffect.}
   ## Returns the size of `x` in bytes.
@@ -830,9 +835,28 @@ template `isnot`*(x, y: untyped): untyped = not (x is y)
 
 template owned*(t: typedesc): typedesc {.deprecated.} = t
 
-when true:
-  template unown*(x: typed): untyped {.deprecated.} = x
+template unown*(x: typed): untyped {.deprecated.} = x
 
+when defined(nimskullNoMagicNewAssign):
+  proc new[T: ref](): T {.magic: "New", noSideEffect.}
+
+  template new*[T: ref](a: var T) =
+    ## Creates a new object of `T`'s underlying object type and returns
+    ## a safe (traced) reference to it in `a`.
+    a = new[T]()
+
+  proc new*(t: typedesc): auto =
+    ## Creates a new object of type `T` and returns a safe (traced)
+    ## reference to it as result value.
+    ##
+    ## When `T` is a ref type then the resulting type will be `T`,
+    ## otherwise it will be `ref T`.
+    when t is ref:
+      result = new[t]()
+    else:
+      result = new[ref t]()
+
+else:
   proc new*[T](a: var ref T) {.magic: "New", noSideEffect.}
     ## Creates a new object of type `T` and returns a safe (traced)
     ## reference to it in `a`.

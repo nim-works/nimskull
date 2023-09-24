@@ -754,16 +754,13 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
     # use the canonical form:
     genDefault(c, n.typ)
   of mNew:
-    # ``new`` has 2 variants. The standard one with a single argument, and the
-    # unsafe version that also takes an extra ``size`` argument
-    assert n.len == 3 or n.len == 2
+    # ``new`` has 2 variants. The standard one with zero arguments, and the
+    # unsafe version that takes a ``size`` argument
+    assert n.len == 1 or n.len == 2
     argBlock(c.stmts):
-      # the first argument is the location storing the ``ref``. A new value is
-      # assigned to it by ``new``, so the 'out' tag is used
-      chain(c): genArgExpression(c, n[0].typ[1], n[1]) => outOp() => name()
-      if n.len == 3:
+      if n.len == 2:
         # the size argument
-        chain(c): genArgExpression(c, n[0].typ[2], n[2]) => arg()
+        chain(c): genArgExpression(c, n[0].typ[1], n[1]) => arg()
 
     magicCall(c, m, typeOrVoid(c, n.typ))
   of mWasMoved:

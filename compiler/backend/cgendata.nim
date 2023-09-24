@@ -175,7 +175,8 @@ type
     sigConflicts*: CountTable[string]
 
     body*: Body               ## the procedure's full body
-    locals*: SymbolMap[TLoc]  ## the locs for all locals of the procedure
+    locals*: OrdinalSeq[LocalId, TLoc]
+      ## the locs for all locals of the procedure
 
   TTypeSeq* = seq[PType]
   TypeCache* = Table[SigHash, Rope]
@@ -368,7 +369,8 @@ proc hash(n: ConstrTree): Hash =
     of cnkWithItems:
       for it in n.items:
         result = result !& hashTree(it)
-    of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic, cnkWithOperand:
+    of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic,
+       cnkWithOperand, cnkLocal:
       unreachable()
     result = !$result
 
@@ -398,7 +400,7 @@ proc `==`(a, b: ConstrTree): bool =
             if not treesEquivalent(a[i], b[i]): return
           result = true
       of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic,
-         cnkWithOperand:
+         cnkWithOperand, cnkLocal:
         # nodes that cannot appear in construction trees
         unreachable()
 

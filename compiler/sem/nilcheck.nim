@@ -551,10 +551,8 @@ proc checkCall(n, ctx, map): Check =
             storeDependants(ctx, result.map, child, MaybeNil)
 
   if n[0].kind == nkSym and n[0].sym.magic == mNew:
-    # new hidden deref?
-    var value = if n[1].kind == nkHiddenDeref: n[1][0] else: n[1]
-    let b = ctx.index(value)
-    result.map.store(ctx, b, Safe, TAssign, value.info, value)
+    # special case for ``new``: the result is always non-nil regardless of
+    # what the type says
     result.nilability = Safe
   else:
     # echo "n ", n, " ", n.typ.isNil

@@ -70,16 +70,11 @@ import
     pathutils
   ]
 
-
-
 when defined(nimsuggest):
   import compiler/sem/passes, compiler/utils/pathutils # importer
 
 const
   sep = '\t'
-
-
-template origModuleName(m: PSym): string = m.name.s
 
 proc findDocComment(n: PNode): PNode =
   if n == nil: return nil
@@ -162,24 +157,26 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   result.quality = quality
   result.isGlobal = sfGlobal in s.flags
   result.prefix = prefix
-  result.contextFits = inTypeContext == (s.kind in {skType, skGenericParam})
+  if section in {ideSug, ideCon}:
+    result.contextFits = inTypeContext == (s.kind in {skType, skGenericParam})
   result.scope = scope
   result.name = addr s.name.s
   when defined(nimsuggest):
-    result.globalUsages = s.allUsages.len
-    var c = 0
-    for u in s.allUsages:
-      if u.fileIndex == info.fileIndex: inc c
-    result.localUsages = c
+    if section in {ideSug, ideCon}:
+      result.globalUsages = s.allUsages.len
+      var c = 0
+      for u in s.allUsages:
+        if u.fileIndex == info.fileIndex: inc c
+      result.localUsages = c
   result.symkind = byte s.kind
   result.qualifiedPath = @[]
   if not isLocal and s.kind != skModule:
     let ow = s.owner
     if ow != nil and ow.kind != skModule and ow.owner != nil:
       let ow2 = ow.owner
-      result.qualifiedPath.add(ow2.origModuleName)
+      result.qualifiedPath.add(ow2.name.s)
     if ow != nil:
-      result.qualifiedPath.add(ow.origModuleName)
+      result.qualifiedPath.add(ow.name.s)
   if s.name.s[0] in OpChars + {'[', '{', '('} or
       s.name.id in ord(wAddr)..ord(wYield):
     result.qualifiedPath.add('`' & s.name.s & '`')
@@ -191,7 +188,8 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   else:
     result.forth = ""
   when defined(nimsuggest) and not defined(noDocgen) and not defined(leanCompiler):
-    result.doc = extractDocComment(g, s)
+    if section != ideHighlight:
+      result.doc = extractDocComment(g, s)
   let infox =
     if useSuppliedInfo or section in {ideUse, ideHighlight, ideOutline}:
       info
@@ -529,12 +527,6 @@ proc findDefinition(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym
       suggestQuit()
     else:
       usageSym = s
-
-proc ensureIdx[T](x: var T, y: int) =
-  if x.len <= y: x.setLen(y+1)
-
-proc ensureSeq[T](x: var seq[T]) =
-  if x == nil: newSeq(x, 0)
 
 proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; isDecl=true) {.inline.} =
   ## misnamed: should be 'symDeclared'
