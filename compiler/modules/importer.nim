@@ -294,7 +294,10 @@ proc transformImportAs(c: PContext; n: PNode): tuple[node: PNode, importHidden: 
     ret.node = n.processPragma
   return ret
 
-proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
+proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
+                    importStmtResult: PNode): PSym =
+  ## `info` provides the source position (which may be different from the one
+  ## of `n`) to use for symbol suggestions.
   let transf = transformImportAs(c, n)
   n = transf.node
   let f = checkModuleName(c.config, n)
@@ -332,7 +335,7 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
       localReport(c.config, n.info, reportSym(rsemDeprecated, realModule))
 
     if c.graph.onSymImport != nil:
-      c.graph.onSymImport(c.graph, n.info, result, c.graph.usageSym, false)
+      c.graph.onSymImport(c.graph, info, result, c.graph.usageSym, false)
 
     importStmtResult.add:
       case result.kind
@@ -353,10 +356,10 @@ proc afterImport(c: PContext, m: PSym) =
   else:
     discard
 
-proc impMod(c: PContext; it: PNode; importStmtResult: PNode): PNode =
+proc impMod(c: PContext; it: PNode; info: TLineInfo; importStmtResult: PNode): PNode =
   result = it
   let
-    m = myImportModule(c, result, importStmtResult)
+    m = myImportModule(c, result, info, importStmtResult)
     hasError = m.isError
 
   if m != nil:
@@ -397,9 +400,9 @@ proc evalImport*(c: PContext, n: PNode): PNode =
           else:
             x
 
-        hasError = impMod(c, imp, result).kind == nkError or hasError
+        hasError = impMod(c, imp, x.info, result).kind == nkError or hasError
     else:
-      hasError = impMod(c, it, result).kind == nkError
+      hasError = impMod(c, it, it.info, result).kind == nkError
 
   if hasError:
     result = c.config.wrapError(result)
@@ -409,7 +412,7 @@ proc evalFrom*(c: PContext, n: PNode): PNode =
   #       how they work, far too much mutation
   checkMinSonsLen(n, 2, c.config)
   result = newNodeI(nkFromStmt, n.info)
-  let m = myImportModule(c, n[0], result)
+  let m = myImportModule(c, n[0], n[0].info, result)
   var hasError = m.isError
   if m != nil:
     n[0] = newSymNode(m)
@@ -452,7 +455,7 @@ proc readExceptSet(c: PContext, n: PNode): IntSet =
 proc evalImportExcept*(c: PContext, n: PNode): PNode =
   checkMinSonsLen(n, 2, c.config)
   result = newNodeI(nkImportExceptStmt, n.info)
-  let m = myImportModule(c, n[0], result)
+  let m = myImportModule(c, n[0], n[0].info, result)
   var hasError = m.isError
 
   if m != nil:
