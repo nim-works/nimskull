@@ -5,7 +5,6 @@ import
     report_enums,
     ast_types,
     lineinfos,
-    reports_base,
     reports_base_sem,
   ],
   compiler/sem/[
