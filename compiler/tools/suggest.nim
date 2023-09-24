@@ -528,12 +528,6 @@ proc findDefinition(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym
     else:
       usageSym = s
 
-proc ensureIdx[T](x: var T, y: int) =
-  if x.len <= y: x.setLen(y+1)
-
-proc ensureSeq[T](x: var seq[T]) =
-  if x == nil: newSeq(x, 0)
-
 proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; isDecl=true) {.inline.} =
   ## misnamed: should be 'symDeclared'
   let conf = g.config
