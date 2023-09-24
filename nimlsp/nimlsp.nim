@@ -377,7 +377,7 @@ proc main(ins: Stream, outs: Stream) =
                     createRange(sym.line-1, sym.column, sym.tokenLen),
                     createRange(sym.line-1, sym.column, sym.tokenLen),
                     none(seq[DocumentSymbol])).JsonNode
-                outs.respond(message, resp)
+              outs.respond(message, resp)
           of "textDocument/signatureHelp":
             textDocumentRequest(message, TextDocumentPositionParams, req):
               debugLog location(req)
