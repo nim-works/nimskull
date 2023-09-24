@@ -334,7 +334,7 @@ proc main(ins: Stream, outs: Stream) =
                   some(textEdits),
                   none(seq[TextDocumentEdit])
                 ).JsonNode
-                outs.respond(message, resp)
+              outs.respond(message, resp)
           of "textDocument/definition":
             textDocumentRequest(message, TextDocumentPositionParams, req):
               debugLog location(req)
