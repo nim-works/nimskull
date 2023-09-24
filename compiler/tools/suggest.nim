@@ -70,16 +70,11 @@ import
     pathutils
   ]
 
-
-
 when defined(nimsuggest):
   import compiler/sem/passes, compiler/utils/pathutils # importer
 
 const
   sep = '\t'
-
-
-template origModuleName(m: PSym): string = m.name.s
 
 proc findDocComment(n: PNode): PNode =
   if n == nil: return nil
@@ -179,9 +174,9 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
     let ow = s.owner
     if ow != nil and ow.kind != skModule and ow.owner != nil:
       let ow2 = ow.owner
-      result.qualifiedPath.add(ow2.origModuleName)
+      result.qualifiedPath.add(ow2.name.s)
     if ow != nil:
-      result.qualifiedPath.add(ow.origModuleName)
+      result.qualifiedPath.add(ow.name.s)
   if s.name.s[0] in OpChars + {'[', '{', '('} or
       s.name.id in ord(wAddr)..ord(wYield):
     result.qualifiedPath.add('`' & s.name.s & '`')
