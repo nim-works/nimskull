@@ -53,9 +53,9 @@ jobs:
 
 
             function getSegments(rex, str) {
-              var segments = [];
-              var lastIndex = 0;
-              var match;
+              let segments = [];
+              let lastIndex = 0;
+              let match;
               rex.lastIndex = 0; // In case there's a dangling previous search
               while (match = rex.exec(str)) {
                 if (match.index > lastIndex) {
