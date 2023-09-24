@@ -15,6 +15,10 @@ jobs:
     name: Trim description and merge
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            tools/ci_format_pr_description.js
       - id: pr-data
         name: Get PR data and trim PR body
         uses: actions/github-script@v6
@@ -51,50 +55,10 @@ jobs:
               return;
             }
 
-
-            function getSegments(rex, str) {
-              let segments = [];
-              let lastIndex = 0;
-              let match;
-              rex.lastIndex = 0; // In case there's a dangling previous search
-              while (match = rex.exec(str)) {
-                if (match.index > lastIndex) {
-                  segments.push([false, str.substring(lastIndex, match.index)]);
-                }
-                segments.push([true, match[0]]);
-                lastIndex = match.index + match[0].length;
-              }
-              if (lastIndex < str.length) {
-                segments.push([false, str.substring(lastIndex)]);
-              }
-              return segments;
-            }
-
-            const textWrapPRdescription = (text, maxLineLength) =>
-              getSegments(/(?:^ {0,3}(```|~~~)[^]*?^ {0,3}\1 *$)|^(?:\n {4,}.*)+/gm, text)
-                .map( ([isCodeBlock, segment]) =>
-                  isCodeBlock
-                  ? segment // Don't touch code blocks
-                  : segment.split('\n').map(line =>
-                      line.length <= maxLineLength
-                      ? line // Line isn't too long, nothing to do
-                      : getSegments(/(`+).*?\1/g, line)
-                          // Treat codespans as single words:
-                          .flatMap( ([isCodeSpan, segment]) => isCodeSpan ? segment : segment.split(' ') )
-                          .reduce(([newLine, lineLength], word) =>
-                            newLine
-                            // Don't touch trailing spaces:
-                            ? word.length > 0 && lineLength + 1 + word.length > maxLineLength
-                              ? [newLine + '\n' + word, word.length]
-                              : [newLine + ' ' + word, lineLength + 1 + word.length]
-                            : [newLine + word, lineLength + word.length]
-                          , ['', 0])[0]
-                    ).join('\n')
-                ).join('')
-
+            const formatPR = require('../../tools/ci_format_pr_description.js');
 
             let [ body, body_tail ] = pr_info.body.split(/^---\s*$/m, 2);
-            body = textWrapPRdescription(body, 72);
+            body = formatPR.lineWrapPRdescription(body, 72);
             body = body.trimEnd();
             body_tail = body_tail?.trimEnd() || '';
             // Only runs when the PR is still open and is not staged for merging.
