@@ -151,6 +151,7 @@ proc compileModule*(graph: ModuleGraph; fileIdx: FileIndex; flags: TSymFlags, fr
     initStrTables(graph, result)
     result.ast = nil
     processModuleAux("import(dirty)")
+    graph.markClientsDirty(fileIdx)
 
 
 proc importModule*(graph: ModuleGraph; s: PSym, fileIdx: FileIndex): PSym =
