@@ -1,6 +1,3 @@
-<!--- The Pull Request (=PR) message is what will get automatically used as
-the commit message when the PR is merged. Make sure that no line is longer
-than 72 characters -->
 
 ## Summary
 * what changed and how?
@@ -14,7 +11,8 @@ than 72 characters -->
 Fixes full_issue_url
 
 ---
-<!-- Note: section break (`---`) onwards is not in CI merge commit -->
+<!--- Anything before this section break (`---`) will be used as
+the commit message when the PR is merged. -->
 
 ## Notes for Reviewers
 * leave additional context for reviewers
