@@ -530,7 +530,7 @@ proc testTools(cmd: string) =
   nimexecFold("Run nimsuggest tests", "r nimsuggest/tester")
   let nodeJS = findNodeJs()
   if nodeJS.len > 0:
-    execFold("Run PR description format tests", "node tools/ci_format_pr_description.js")
+    execFold("Run PR description format tests", nodeJs & " tools/ci_format_pr_description.js")
   else:
     echo "Skipped PR description format tests: No nodeJS executable found."
 
