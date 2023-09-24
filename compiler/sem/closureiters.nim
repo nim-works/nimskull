@@ -1241,7 +1241,7 @@ type
   PreprocessContext = object
     finallys: seq[PNode]
     config: ConfigRef
-    blocks: seq[(PNode, int)]
+    blocks: seq[tuple[label: PSym, fin: int]]
     idgen: IdGenerator
   FreshVarsContext = object
     tab: Table[int, PSym]
@@ -1306,9 +1306,8 @@ proc preprocess(c: var PreprocessContext; n: PNode): PNode =
       discard c.finallys.pop()
 
   of nkBlockStmt:
-    c.blocks.add((n, c.finallys.len))
-    for i in 0 ..< n.len:
-      result[i] = preprocess(c, n[i])
+    c.blocks.add((n[0].sym, c.finallys.len))
+    result[1] = preprocess(c, n[1])
     discard c.blocks.pop()
 
   of nkBreakStmt:
@@ -1317,9 +1316,8 @@ proc preprocess(c: var PreprocessContext; n: PNode): PNode =
       var fin = -1
       block search:
         for i in countdown(c.blocks.high, 0):
-          if c.blocks[i][0][0].kind == nkSym and
-              c.blocks[i][0][0].sym == n[0].sym:
-            fin = c.blocks[i][1]
+          if c.blocks[i].label == n[0].sym:
+            fin = c.blocks[i].fin
             break search
 
         unreachable("missing break target")
