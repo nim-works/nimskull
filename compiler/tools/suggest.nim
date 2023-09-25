@@ -34,11 +34,8 @@
 import
   std/[
     algorithm,
-    intsets,
     parseutils,
-    sets,
     strutils,
-    tables,
   ],
   compiler/ast/[
     ast,
@@ -65,7 +62,6 @@ import
   ],
   compiler/utils/[
     prefixmatches,
-    astrepr,
     debugutils,
     pathutils
   ]

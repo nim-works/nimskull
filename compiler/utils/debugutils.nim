@@ -41,7 +41,6 @@ from compiler/utils/astrepr import treeRepr,
 
 when defined(nimCompilerStacktraceHints):
   from std/stackframes import setFrameMsg
-  from strutils import `%`
 
 type
   # xxx: compiler execution tracing is a general thing, not semantic analysis
