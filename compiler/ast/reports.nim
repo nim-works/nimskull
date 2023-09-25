@@ -18,7 +18,7 @@
 ## `compilerDebugCompilerReportStatistics`: output stats of counts for various
 ##                                          report kinds
 
-import std/[options]
+import std/[options, hashes]
 
 import
   compiler/ast/[
@@ -308,3 +308,8 @@ func actualType*(r: SemReport): PType = r.typeMismatch[0].actualType
 func formalType*(r: SemReport): PType = r.typeMismatch[0].formalType
 func formalTypeKind*(r: SemReport): set[TTypeKind] = r.typeMismatch[0].formalTypeKind
 func symstr*(r: SemReport | VMReport): string = r.sym.name.s
+func hash*(x: Report): Hash =
+  var h: Hash = 0
+  h = h !& hash(x.location().get(unknownLineInfo))
+  h = h !& x.kind.int
+  result = !$h
