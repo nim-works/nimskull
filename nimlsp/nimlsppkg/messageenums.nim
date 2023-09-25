@@ -115,3 +115,18 @@ type
 
   SymbolTag* {.pure.} = enum
     Deprecated = 1
+
+  CodeActionKind* {.pure.} = enum
+    Empty = ""
+    QuickFix = "quickfix"
+    Refactor = "refactor"
+    RefactorExtract = "refactor.extract"
+    RefactorInline = "refactor.inline"
+    RefactorRewrite = "refactor.rewrite"
+    Source = "source"
+    SourceOrganizeImports = "source.organizeImports"
+    SourceFixAll = "source.fixAll"
+
+  CodeActionTriggerKind* {.pure.} = enum
+    Invoked = 1
+    Automatic = 2

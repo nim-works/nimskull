@@ -296,7 +296,9 @@ jsonSchema:
 
   TextDocumentAndStaticRegistrationOptions extends TextDocumentRegistrationOptions:
     id ?: string
-
+  CodeActionOptions:
+    codeActionKinds ?: int[] # CodeActionKind
+    resolveProvider ?: bool 
   ServerCapabilities:
     textDocumentSync ?: TextDocumentSyncOptions or int or float
     hoverProvider ?: bool
@@ -309,7 +311,7 @@ jsonSchema:
     documentHighlightProvider ?: bool
     documentSymbolProvider ?: bool
     workspaceSymbolProvider ?: bool
-    codeActionProvider ?: bool
+    codeActionProvider ?: bool or CodeActionOptions
     codeLensProvider ?: CodeLensOptions
     documentFormattingProvider ?: bool
     documentRangeFormattingProvider ?: bool
@@ -530,6 +532,21 @@ jsonSchema:
 
   CodeActionContext:
     diagnostics: Diagnostic[]
+    only ?: int[] # CodeActionKind
+    triggerKind ?: int # CodeActionTriggerKind
+
+  CodeActionDisabled:
+    reason: string
+
+  CodeAction:
+    title: string
+    kind ?: int # CodeActionKind
+    diagnostics ?: Diagnostic[]
+    isPreferred ?: bool
+    disabled ?: CodeActionDisabled
+    edit ?: WorkspaceEdit
+    command ?: Command
+    data ?: any
 
   CodeLensParams:
     textDocument: TextDocumentIdentifier
