@@ -543,7 +543,9 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
     elif conf.ideCmd == ideHighlight and info.fileIndex == conf.m.trackPos.fileIndex:
       suggestResult(conf, symToSuggest(g, s, isLocal=false, ideHighlight, info, 100, PrefixMatch.None, false, 0))
     elif conf.ideCmd == ideOutline and isDecl:
-      if sfGenSym in s.flags: return
+      if s.kind == skTemp or sfGenSym in s.flags: return
+      if "`gensym" in s.name.s: return
+      if s.owner.kind == skModule and s.owner.position != conf.m.trackPos.fileIndex.int32: return
       # if a module is included then the info we have is inside the include and
       # we need to walk up the owners until we find the outer most module,
       # which will be the last skModule prior to an skPackage.
