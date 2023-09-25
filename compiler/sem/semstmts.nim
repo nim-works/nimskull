@@ -3107,7 +3107,8 @@ proc semRoutineDef(c: PContext, n: PNode): PNode =
     of skTemplate:  semTemplateDef(c, result)
     of skMacro:     semMacroDef(c, result)
     else:           unreachable(kind)
-  suggestSym(c.graph, result[namePos].info, result[namePos].sym, c.graph.usageSym)
+  if result.kind != nkError:
+    suggestSym(c.graph, result[namePos].info, result[namePos].sym, c.graph.usageSym)
 
 proc evalInclude(c: PContext, n: PNode): PNode =
   proc incMod(c: PContext, n, it, includeStmtResult: PNode) {.nimcall.} =
