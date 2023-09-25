@@ -2512,7 +2512,6 @@ proc semRoutineName(c: PContext, n: PNode, kind: TSymKind; allowAnon = true): PN
     if c.isTopLevel:
       incl(s.flags, sfGlobal)
 
-    suggestSym(c.graph, getIdentLineInfo(n), s, c.graph.usageSym)
     styleCheckDef(c.config, s)
   else:
     # XXX: this should be the resonsibility of the macro sanitizer instead
@@ -3108,6 +3107,7 @@ proc semRoutineDef(c: PContext, n: PNode): PNode =
     of skTemplate:  semTemplateDef(c, result)
     of skMacro:     semMacroDef(c, result)
     else:           unreachable(kind)
+  suggestSym(c.graph, result[namePos].info, result[namePos].sym, c.graph.usageSym)
 
 proc evalInclude(c: PContext, n: PNode): PNode =
   proc incMod(c: PContext, n, it, includeStmtResult: PNode) {.nimcall.} =
