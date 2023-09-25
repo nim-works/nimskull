@@ -1238,7 +1238,7 @@ proc genVarSection(c: var TCtx, n: PNode) =
 
 proc genWhile(c: var TCtx, n: PNode) =
   ## Generates the code for a ``nkWhile`` node.
-  assert isTrue(n[0]), "`n` wasn't properly stransformed"
+  assert isTrue(n[0]), "`n` wasn't properly transformed"
   c.stmts.subTree MirNode(kind: mnkRepeat):
     scope(c.stmts):
       c.gen(n[1])
