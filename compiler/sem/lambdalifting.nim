@@ -848,7 +848,8 @@ proc ensureEnvParam*(graph: ModuleGraph, idgen: IdGenerator, prc: PSym) =
 
 # ------------------- iterator transformation --------------------------------
 
-proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator; owner: PSym): PNode =
+proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator;
+                  owner, breakLabel: PSym): PNode =
   # problem ahead: the iterator could be invoked indirectly, but then
   # we don't know what environment to create here:
   #
@@ -935,8 +936,7 @@ proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator; owner: PSym):
   let elifBranch = newNodeI(nkElifBranch, body.info)
   elifBranch.add(bs)
 
-  let br = newNodeI(nkBreakStmt, body.info)
-  br.add(g.emptyNode)
+  let br = newTreeI(nkBreakStmt, body.info, newSymNode(breakLabel, body.info))
 
   elifBranch.add(br)
   ibs.add(elifBranch)

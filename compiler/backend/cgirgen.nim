@@ -107,7 +107,7 @@ type
     localsMap: Table[int, LocalId]
       ## maps a sybmol ID to the corresponding local. Needed because normal
       ## local variables reach here as ``PSym``s
-    labelMap: SeqMap[uint32, PSym]
+    labelMap: SeqMap[LabelId, PSym]
       ## maps a block-label name to the ``PSym`` created for it
 
     locals: Store[LocalId, Local]
@@ -909,7 +909,7 @@ proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
   of mnkBlock:
     let sym = newSym(skLabel, cl.cache.getIdent("label"), cl.idgen.nextSymId(),
                      cl.owner, info)
-    cl.labelMap[n.label[]] = sym
+    cl.labelMap[n.label] = sym
 
     result = newStmt(cnkBlockStmt, info,
                      newSymNode(sym), # the label
@@ -946,11 +946,7 @@ proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
 
     leave(tree, cr)
   of mnkBreak:
-    let label =
-      if n.label.isSome: newSymNode(cl.labelMap[n.label[]])
-      else:              newEmpty()
-
-    result = newStmt(cnkBreakStmt, info, [label])
+    result = newStmt(cnkBreakStmt, info, [newSymNode(cl.labelMap[n.label])])
   of mnkReturn:
     result = newNode(cnkReturnStmt, info)
   of mnkPNode:

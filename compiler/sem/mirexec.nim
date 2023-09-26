@@ -305,15 +305,10 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
 
     of mnkBreak:
       let label = n.label
-      var target: NodePosition
-      if label.isNone:
-        # unnamed break - exit the enclosing loop
-        target = findParent(tree, i, mnkRepeat)
-      else:
-        # goto the exit of the block with the matching label
-        target = findParent(tree, i, mnkBlock)
-        while tree[target].label != label:
-          target = findParent(tree, target-1, mnkBlock)
+      # goto the exit of the block with the matching label
+      var target = findParent(tree, i, mnkBlock)
+      while tree[target].label != label:
+        target = findParent(tree, target-1, mnkBlock)
 
       goto i, findEnd(tree, target)
     of mnkReturn:

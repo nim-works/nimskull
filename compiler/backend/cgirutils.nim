@@ -283,11 +283,8 @@ proc render(c: var RenderCtx, body: Body, ind: int, n: CgNode,
     res.add "discard "
     res.add n[0]
   of cnkBreakStmt:
-    if n[0].kind == cnkEmpty:
-      res.add "break"
-    else:
-      res.add "break "
-      res.add n[0]
+    res.add "break "
+    res.add n[0]
   of cnkRaiseStmt:
     if n[0].kind == cnkEmpty:
       res.add "raise"

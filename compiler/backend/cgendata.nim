@@ -142,7 +142,6 @@ type
     label*: Rope              ## generated text for the label
                               ## nil if label is not used
     sections*: TCProcSections ## the code belonging
-    isLoop*: bool             ## whether block is a loop
     nestedTryStmts*: int16    ## how many try statements is it nested into
     nestedExceptStmts*: int16 ## how many except statements is it nested into
     frameLen*: int16
@@ -166,8 +165,6 @@ type
                               ## bool is true when are in the except part of a try block
     labels*: Natural          ## for generating unique labels in the C proc
     blocks*: seq[TBlock]      ## nested blocks
-    breakIdx*: int            ## the block that will be exited
-                              ## with a regular break
     options*: TOptions        ## options that should be used for code
                               ## generation; this is the same as prc.options
                               ## unless prc == nil

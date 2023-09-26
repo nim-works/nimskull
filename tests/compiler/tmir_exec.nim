@@ -167,20 +167,22 @@ block:
   # test CFG creation for ``while true: break``
   let tree = @[
     MirNode(kind: mnkStmtList),
+    MirNode(kind: mnkBlock, label: LabelId(0)),
     MirNode(kind: mnkRepeat),
-    MirNode(kind: mnkBreak, label: NoLabel),
+    MirNode(kind: mnkBreak, label: LabelId(0)),
+    MirNode(kind: mnkEnd),
     MirNode(kind: mnkEnd),
     MirNode(kind: mnkReturn),
     MirNode(kind: mnkEnd)]
   let cfg = computeCfg(tree)
 
   doAssert cfg == parseCfg("""
-    0: join -> 1
-    goto 1  -> 2
-    loop 0  -> 3
-    1: join -> 3
-    goto 2  -> 4
-    2: join -> 6
+    0: join -> 2
+    goto 1  -> 3
+    loop 0  -> 4
+    1: join -> 5
+    goto 2  -> 6
+    2: join -> 8
   """)
 
 # -------------- test for the traversal routines
