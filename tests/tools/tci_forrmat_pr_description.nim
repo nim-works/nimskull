@@ -3,7 +3,7 @@ description: "Test the PR description formatter"
 target: js
 """
 
-import jsffi
+import std/jsffi
 
 let formatPR = require "../../tools/ci_format_pr_description.js"
 
