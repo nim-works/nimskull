@@ -24,7 +24,6 @@ import std/[json, os, strutils, parseopt, osproc, times]
   # Using `std/os` instead of `os` to fail early if config isn't set up properly.
   # If this fails with: `Error: cannot open file: std/os`, see
   # https://github.com/nim-lang/Nim/pull/14291 for explanation + how to fix.
-import ../compiler/utils/nodejs
 
 import kochdocs
 import deps
@@ -528,12 +527,6 @@ proc testTools(cmd: string) =
   # of rebuilding is this won't affect bin/nimsuggest when running runCI locally
   nimexecFold("build nimsuggest_testing", "c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest")
   nimexecFold("Run nimsuggest tests", "r nimsuggest/tester")
-  let nodeJS = findNodeJs()
-  if nodeJS.len > 0:
-    execFold("Run PR description format tests", nodeJs & " tools/ci_format_pr_description.js")
-  else:
-    echo "Skipped PR description format tests: No nodeJS executable found."
-
 
 
 proc runCI(cmd: string) =
