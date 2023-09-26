@@ -542,22 +542,10 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
         suggestResult(conf, symToSuggest(g, s, isLocal=false, ideDef, info, 100, PrefixMatch.None, false, 0))
     elif conf.ideCmd == ideHighlight and info.fileIndex == conf.m.trackPos.fileIndex:
       suggestResult(conf, symToSuggest(g, s, isLocal=false, ideHighlight, info, 100, PrefixMatch.None, false, 0))
-    elif conf.ideCmd == ideOutline and isDecl:
+    elif conf.ideCmd == ideOutline and isDecl and info.fileIndex == conf.m.trackPos.fileIndex:
       if s.kind == skTemp or sfGenSym in s.flags: return
       if "`gensym" in s.name.s: return
-      if s.owner.kind == skModule and s.owner.position != conf.m.trackPos.fileIndex.int32: return
-      # if a module is included then the info we have is inside the include and
-      # we need to walk up the owners until we find the outer most module,
-      # which will be the last skModule prior to an skPackage.
-      var
-        parentFileIndex = info.fileIndex # assume we're in the correct module
-        parentModule = s.owner
-      while parentModule != nil and parentModule.kind == skModule:
-        parentFileIndex = parentModule.info.fileIndex
-        parentModule = parentModule.owner
-
-      if parentFileIndex == conf.m.trackPos.fileIndex:
-        suggestResult(conf, symToSuggest(g, s, isLocal=false, ideOutline, info, 100, PrefixMatch.None, false, 0))
+      suggestResult(conf, symToSuggest(g, s, isLocal=false, ideOutline, info, 100, PrefixMatch.None, false, 0))
 
 proc safeSemExpr*(c: PContext, n: PNode): PNode =
   # use only for idetools support!
