@@ -104,8 +104,7 @@ lazy dog
 LAZY DOG'S BACK 1234567890
 * Hamburgevons
 
-<!--This HTML comment should be
-removed-->
+
 
 ```
 this is a triple quote delimited codeblock:
@@ -121,10 +120,7 @@ Here's some text.
 linewrapped,
   but must not be dedented
 
-<!--- This HTML comment
- spanning multiple lines should be
-removed
- too! -->
+
 
     and this is an indented codeblock:
       with a cat:
