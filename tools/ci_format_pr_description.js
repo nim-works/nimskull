@@ -23,7 +23,9 @@ function getSegments(regex, str) {
   return segments;
 }
 
-exports.lineWrapPRdescription = (text, maxLineLength) =>
+exports.formatPRdescription = (text, maxLineLength) =>
+  // Returns `text` stripped of HTML comments and linewrapped,
+  // respecting codeblocks and codespans
   getSegments(/(?:^ {0,3}(```|~~~)[^]*?^ {0,3}\1 *$)|^(?:\n {4,}.*)+/gm, text)
   .map( ([isCodeBlock, segment]) =>
     isCodeBlock

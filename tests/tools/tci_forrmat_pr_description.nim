@@ -7,7 +7,7 @@ import jsffi
 
 let formatPR = require "../../tools/ci_format_pr_description.js"
 
-proc lineWrapPRdescription(formatPR: JSObject, str: cstring, maxLineLength: int): cstring {.importjs.}
+proc formatPRdescription(formatPR: JSObject, str: cstring, maxLineLength: int): cstring {.importjs.}
 
 let testingText = cstring"""Lorem ipsum dolor sit amet, consectetur i adipiscing elit. Nullam blandit mauris id venenatis tincidunt. Vestibulum at gravida sapien. Mauris tellus augue, aliquet sed laoreet blandit, pulvinar sed felis. Phasellus nec est vitae enim blandit facilisis.
 Vestibulum fermentum ligula sit amet volutpat fermentum. Sed in faucibus orci. Pellentesque a dui ex. Curabitur sollicitudin, nulla id dignissim lacinia, odio mauris blandit nisi, eget auctor arcu odio nec est.
@@ -164,6 +164,6 @@ the next line is indented
   and it should stay this way
 """
 
-echo formatPR.lineWrapPRdescription(testingText, 41)
-assert formatPR.lineWrapPRdescription(testingText, 41) == testingTextWrapped
+echo formatPR.formatPRdescription(testingText, 41)
+assert formatPR.formatPRdescription(testingText, 41) == testingTextWrapped
 

@@ -58,7 +58,7 @@ jobs:
             const formatPR = require('../../tools/ci_format_pr_description.js');
 
             let [ body, body_tail ] = pr_info.body.split(/^---\s*$/m, 2);
-            body = formatPR.lineWrapPRdescription(body, 72);
+            body = formatPR.formatPRdescription(body, 72);
             body = body.trimEnd();
             body_tail = body_tail?.trimEnd() || '';
             // Only runs when the PR is still open and is not staged for merging.
