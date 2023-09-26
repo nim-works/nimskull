@@ -297,7 +297,7 @@ jsonSchema:
   TextDocumentAndStaticRegistrationOptions extends TextDocumentRegistrationOptions:
     id ?: string
   CodeActionOptions:
-    codeActionKinds ?: int[] # CodeActionKind
+    codeActionKinds ?: string[] # CodeActionKind
     resolveProvider ?: bool 
   ServerCapabilities:
     textDocumentSync ?: TextDocumentSyncOptions or int or float

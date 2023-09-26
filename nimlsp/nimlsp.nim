@@ -211,7 +211,10 @@ proc main(ins: Stream, outs: Stream) =
               documentHighlightProvider = none(bool), #?: bool
               documentSymbolProvider = some(true), #?: bool
               workspaceSymbolProvider = none(bool), #?: bool
-              codeActionProvider = none(bool), #?: bool
+              codeActionProvider = some(create(CodeActionOptions,
+                codeActionKinds = some(@[$CodeActionKind.QuickFix]),
+                resolveProvider = none(bool)
+              )), #?: bool
               codeLensProvider = none(CodeLensOptions), #?: CodeLensOptions
               documentFormattingProvider = none(bool), #?: bool
               documentRangeFormattingProvider = none(bool), #?: bool
