@@ -1,5 +1,6 @@
 discard """
 description: "Test the PR description formatter"
+joinable: false
 target: js
 """
 
