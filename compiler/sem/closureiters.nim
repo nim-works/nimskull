@@ -1029,10 +1029,7 @@ proc transformStateAssignments(ctx: var Ctx, n: PNode): PNode =
   of nkGotoState:
     result = newNodeI(nkStmtList, n.info)
     result.add(ctx.newStateAssgn(stateFromGotoState(n)))
-
-    let breakState = newNodeI(nkBreakStmt, n.info)
-    breakState.add(newSymNode(ctx.stateLoopLabel))
-    result.add(breakState)
+    result.add(newBreakStmt(n.info, ctx.stateLoopLabel))
 
   else:
     for i in 0..<n.len:

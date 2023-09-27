@@ -393,7 +393,7 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
             newTreeI(nkCall, info,
               newSymNode(c.graph.getSysMagic(info, "not", mNot)),
               cond),
-            newTreeI(nkBreakStmt, info, newSymNode(labl, info))))
+            newBreakStmt(info, labl)))
 
       var body = transformLoopBody(c, n[1])
       # use a nested scope for the body. This is important for the clean-up
@@ -412,11 +412,12 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
     discard c.breakSyms.pop
 
 proc transformBreak(c: PTransf, n: PNode): PNode =
-  result = transformSons(c, n)
   if n[0].kind == nkEmpty:
-    assert c.breakSyms.len > 0
-    let labl = c.breakSyms[^1]
-    result[0] = newSymNode(labl)
+    # turn into a labeled break, using the break label stack
+    result = newBreakStmt(n.info, c.breakSyms[^1])
+  else:
+    # already a labeled break
+    result = transformSons(c, n)
 
 proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
   case n.kind
@@ -1145,8 +1146,8 @@ proc transform(c: PTransf, n: PNode): PNode =
       # disable the original 'defer' statement:
       n.kind = nkEmpty
   of nkContinueStmt:
-    let labl = c.contSyms[^1]
-    result = newTreeI(nkBreakStmt, n.info): newSymNode(labl)
+    # transform into a break out of the loop's inner block
+    result = newBreakStmt(n.info, c.contSyms[^1])
   of nkBreakStmt: result = transformBreak(c, n)
   of nkCallKinds:
     result = transformCall(c, n)
