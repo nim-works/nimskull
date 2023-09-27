@@ -88,7 +88,8 @@ proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
       conf.projectName = a
   proc reportHook(conf: ConfigRef, report: Report): TErrorHandling =
     result = doNothing
-    if report.kind notin {rsemProcessing, rsemProcessingStmt}:
+    if report.kind notin {rsemProcessing, rsemProcessingStmt} and
+       conf.isEnabled(report.kind):
       # pre-filter to save memory
       if containsOrIncl(reported, hash(report)): return
       cachedMsgs.add(report)
@@ -190,7 +191,8 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
             report.kind in {rsemProcessing, rsemProcessingStmt}:
             # skip processing statements
             return
-          addReport(report)
+          if conf.isEnabled(report.kind):
+            addReport(report)
         else: discard
 
     else:
