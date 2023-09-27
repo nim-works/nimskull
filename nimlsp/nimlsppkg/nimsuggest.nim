@@ -142,7 +142,7 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int,
 proc reportToSuggest(conf: ConfigRef, info: TLineInfo, r: Report): Suggest =
   Suggest(section: ideChk, filePath: toFullPath(conf, info),
     line: toLinenumber(info), column: toColumn(info),
-    doc: conf.reportShort(r), forth: $severity(conf, r))
+    doc: conf.reportShort(r), forth: $severity(conf, r), scope: r.kind.int)
 
 proc fetchCachedReports*(ins: NimSuggest, file: AbsoluteFile): seq[Suggest] =
   let rLen = ins.cachedMsgs.len

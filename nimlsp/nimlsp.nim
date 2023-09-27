@@ -159,7 +159,7 @@ proc createDiagnostic(sug: Suggest): Diagnostic =
       of "Hint": DiagnosticSeverity.Hint.int
       of "Warning": DiagnosticSeverity.Warning.int
       else: DiagnosticSeverity.Error.int),
-    none(int),
+    some(sug.scope),
     some("nimsuggest chk"),
     message,
     none(seq[DiagnosticRelatedInformation])
@@ -404,6 +404,14 @@ proc main(ins: Stream, outs: Stream) =
                 activeParameter = some(0)
               ).JsonNode
               outs.respond(message, resp)
+          of "textDocument/codeAction":
+            textDocumentRequest(message, CodeActionParams, req):
+              debugLog $message["range"]
+              for ele in message["params"]["context"]["diagnostics"].getElems:
+                let kind = ReportKind(ele["code"].getInt())
+                stderr.writeLine $kind
+              # (Command | CodeAction)[] | null
+              outs.respond(message, newJNull())
           else:
             let msg = "Unknown request method: " & message["method"].getStr
             debugLog msg

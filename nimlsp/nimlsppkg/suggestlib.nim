@@ -7,8 +7,11 @@ export NimSuggest
 export initNimSuggest
 import
   compiler/ast/[
-    ast
+    ast,
+    report_enums
   ]
+
+export ReportKind
 
 proc stopNimSuggest*(nimsuggest: NimSuggest): int = 42
 
