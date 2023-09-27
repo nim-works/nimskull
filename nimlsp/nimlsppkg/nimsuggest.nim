@@ -53,6 +53,7 @@ type
     graph: ModuleGraph
     idle: int
     cachedMsgs: CachedMsgs
+    reported: HashSet[int]
 
 proc defaultReportHook(conf: ConfigRef, report: Report): TErrorHandling =
   doNothing
@@ -60,6 +61,7 @@ proc defaultReportHook(conf: ConfigRef, report: Report): TErrorHandling =
 proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
   var retval: ModuleGraph
   var cachedMsgs: CachedMsgs = @[]
+  var reported = default(HashSet[int])
   proc mockCommand(graph: ModuleGraph) =
     retval = graph
     let conf = graph.config
@@ -90,6 +92,7 @@ proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
     result = doNothing
     if report.kind notin {rsemProcessing, rsemProcessingStmt}:
       # pre-filter to save memory
+      if containsOrIncl(reported, hash(report)): return
       cachedMsgs.add(report)
   let
     cache = newIdentCache()
@@ -126,7 +129,7 @@ proc initNimSuggest*(project: string, nimPath: string = ""): NimSuggest =
     mockCommand(graph)
 
   retval.doStopCompile = proc (): bool = false
-  return NimSuggest(graph: retval, idle: 0, cachedMsgs: cachedMsgs)
+  return NimSuggest(graph: retval, idle: 0, cachedMsgs: cachedMsgs, reported: reported)
 
 proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int,
              graph: ModuleGraph) =
@@ -173,11 +176,10 @@ proc runCmd*(nimsuggest: NimSuggest, cmd: IdeCmd, file,
   elif conf.ideCmd == ideProject:
     retval.add(Suggest(section: ideProject, filePath: string conf.projectFull))
   else:
-    var reports = default(HashSet[int])
     template addReport(report: Report) =
       let loc = report.location()
       if stdOptions.isSome(loc):
-        if containsOrIncl(reports, hash(report)): return
+        if containsOrIncl(nimsuggest.reported, hash(report)): return
         let info = loc.get()
         retval.add(reportToSuggest(conf, info, report))
 
