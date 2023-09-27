@@ -8,8 +8,6 @@ import
     idents,
     lineinfos,
     ast,
-    syntaxes,
-    parser,
     ast_parsed_types,
     ast_types,
     report_enums
