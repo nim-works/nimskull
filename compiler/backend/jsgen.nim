@@ -897,12 +897,12 @@ proc genBlock(p: PProc, n: CgNode) =
     var sym = n[0].sym
     sym.position = idx+1
   let labl = p.unique
-  lineF(p, "Label$1: do {$n", [labl.rope])
+  lineF(p, "Label$1: {$n", [labl.rope])
   setLen(p.blocks, idx + 1)
   p.blocks[idx].id = - p.unique # negative because it isn't used yet
   genStmt(p, n[1])
   setLen(p.blocks, idx)
-  lineF(p, "} while (false);$n", [labl.rope])
+  lineF(p, "}$n", [labl.rope])
 
 proc genBreakStmt(p: PProc, n: CgNode) =
   var idx: int
@@ -2252,9 +2252,9 @@ proc genProcBody(p: PProc, prc: PSym): Rope =
   else:
     result = ""
   if p.beforeRetNeeded:
-    result.add p.indentLine(~"BeforeRet: do {$n")
+    result.add p.indentLine(~"BeforeRet: {$n")
     result.add p.body
-    result.add p.indentLine(~"} while (false);$n")
+    result.add p.indentLine(~"}$n")
   else:
     result.add(p.body)
   if prc.typ.callConv == ccSysCall:
