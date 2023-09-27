@@ -543,8 +543,8 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
     elif conf.ideCmd == ideHighlight and info.fileIndex == conf.m.trackPos.fileIndex:
       suggestResult(conf, symToSuggest(g, s, isLocal=false, ideHighlight, info, 100, PrefixMatch.None, false, 0))
     elif conf.ideCmd == ideOutline and isDecl and info.fileIndex == conf.m.trackPos.fileIndex:
-      if s.kind == skTemp or sfGenSym in s.flags: return
-      if "`gensym" in s.name.s: return
+      if s.kind == skTemp or {sfGenSym, sfTemplateParam} * s.flags != {}: return
+      if "`gensym" in s.name.s: return # prevent constant in template show up
       suggestResult(conf, symToSuggest(g, s, isLocal=false, ideOutline, info, 100, PrefixMatch.None, false, 0))
 
 proc safeSemExpr*(c: PContext, n: PNode): PNode =
