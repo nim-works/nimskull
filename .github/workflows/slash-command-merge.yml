@@ -55,7 +55,7 @@ jobs:
               return;
             }
 
-            const formatPR = require('../../tools/ci_format_pr_description.js');
+            const formatPR = require('./tools/ci_format_pr_description.js');
 
             let [ body, body_tail ] = pr_info.body.split(/^---\s*$/m, 2);
             body = formatPR.formatPRdescription(body, 72);
