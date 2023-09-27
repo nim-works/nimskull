@@ -319,20 +319,30 @@ proc newLabel(c: PTransf, n: PNode): PSym =
   result.name = getIdent(c.graph.cache, genPrefix)
 
 proc transformBlock(c: PTransf, n: PNode): PNode =
-  var labl: PSym
+  result = shallowCopy(n)
   if c.inlining > 0:
-    labl = newLabel(c, n[0])
+    # all blocks that reach here are labeled. We still need to ensure that
+    # unique symbols are used, so introduce both a copy and associated
+    # mapping
+    let labl = copySym(n[0].sym, nextSymId c.idgen)
+    labl.info = n[0].sym.info
+    labl.owner = getCurrOwner(c)
     idNodeTablePut(c.transCon.mapping, n[0].sym, newSymNode(labl))
+
+    result[0] = newSymNode(labl, n[0].info)
+    # the breaks in the AST were all already transformed
+    result[1] = transform(c, n[1])
   else:
-    labl =
+    let labl =
       if n[0].kind != nkEmpty:
         n[0].sym  # already named block? -> Push symbol on the stack
       else:
         newLabel(c, n)
-  c.breakSyms.add(labl)
-  result = transformSons(c, n)
-  discard c.breakSyms.pop
-  result[0] = newSymNode(labl)
+
+    result[0] = newSymNode(labl, n[0].info)
+    c.breakSyms.add(labl)
+    result[1] = transform(c, n[1])
+    discard c.breakSyms.pop
 
 proc transformLoopBody(c: PTransf, n: PNode): PNode =
   # What if it contains "continue" and "break"? "break" needs
