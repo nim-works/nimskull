@@ -88,27 +88,25 @@ finally:
 var lan_ip
 try:
   lan_ip = ""
+  var a_cursor = txt
+  var i = 0
+  var L = len(a_cursor)
   block label:
-    var a_cursor = txt
-    var i = 0
-    var L = len(a_cursor)
-    block label_1:
-      while true:
-        if not(<(i, L)):
-          break label_1
-        block label_2:
-          var splitted
-          try:
-            var line = a_cursor[i]
-            splitted = split(line, " ", -1)
-            if ==(splitted[0], "opt"):
-              var :aux_7 = splitted[1]
-              =copy(lan_ip, :aux_7)
-            echo([lan_ip])
-            echo([splitted[1]])
-          finally:
-            =destroy(splitted)
-        inc(i, 1)
+    while true:
+      if not(<(i, L)):
+        break label
+      var splitted
+      try:
+        var line = a_cursor[i]
+        splitted = split(line, " ", -1)
+        if ==(splitted[0], "opt"):
+          var :aux_7 = splitted[1]
+          =copy(lan_ip, :aux_7)
+        echo([lan_ip])
+        echo([splitted[1]])
+      finally:
+        =destroy(splitted)
+      inc(i, 1)
 finally:
   =destroy_1(lan_ip)
 --expandArc: mergeShadowScope
@@ -118,23 +116,21 @@ try:
   var :aux_3 = c[].currentScope
   =copy(shadowScope, :aux_3)
   rawCloseScope(c)
+  var a_cursor = shadowScope[].symbols
+  var i = 0
+  var L = len(a_cursor)
   block label:
-    var a_cursor = shadowScope[].symbols
-    var i = 0
-    var L = len(a_cursor)
-    block label_1:
-      while true:
-        if not(<(i, L)):
-          break label_1
-        block label_2:
-          var :aux_9
-          var sym = a_cursor[i]
-          addInterfaceDecl(c,
-            var :aux_8 = sym
-            :aux_9 = default()
-            =copy_1(:aux_9, :aux_8)
-            :aux_9)
-        inc(i, 1)
+    while true:
+      if not(<(i, L)):
+        break label
+      var :aux_9
+      var sym = a_cursor[i]
+      addInterfaceDecl(c,
+        var :aux_8 = sym
+        :aux_9 = default()
+        =copy_1(:aux_9, :aux_8)
+        :aux_9)
+      inc(i, 1)
 finally:
   =destroy(shadowScope)
 -- end of expandArc ------------------------

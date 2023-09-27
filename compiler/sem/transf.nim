@@ -319,20 +319,30 @@ proc newLabel(c: PTransf, n: PNode): PSym =
   result.name = getIdent(c.graph.cache, genPrefix)
 
 proc transformBlock(c: PTransf, n: PNode): PNode =
-  var labl: PSym
+  result = shallowCopy(n)
   if c.inlining > 0:
-    labl = newLabel(c, n[0])
+    # all blocks that reach here are labeled. We still need to ensure that
+    # unique symbols are used, so introduce both a copy and associated
+    # mapping
+    let labl = copySym(n[0].sym, nextSymId c.idgen)
+    labl.info = n[0].sym.info
+    labl.owner = getCurrOwner(c)
     idNodeTablePut(c.transCon.mapping, n[0].sym, newSymNode(labl))
+
+    result[0] = newSymNode(labl, n[0].info)
+    # the breaks in the AST were all already transformed
+    result[1] = transform(c, n[1])
   else:
-    labl =
+    let labl =
       if n[0].kind != nkEmpty:
         n[0].sym  # already named block? -> Push symbol on the stack
       else:
         newLabel(c, n)
-  c.breakSyms.add(labl)
-  result = transformSons(c, n)
-  discard c.breakSyms.pop
-  result[0] = newSymNode(labl)
+
+    result[0] = newSymNode(labl, n[0].info)
+    c.breakSyms.add(labl)
+    result[1] = transform(c, n[1])
+    discard c.breakSyms.pop
 
 proc transformLoopBody(c: PTransf, n: PNode): PNode =
   # What if it contains "continue" and "break"? "break" needs
@@ -393,7 +403,7 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
             newTreeI(nkCall, info,
               newSymNode(c.graph.getSysMagic(info, "not", mNot)),
               cond),
-            newTreeI(nkBreakStmt, info, newSymNode(labl, info))))
+            newBreakStmt(info, labl)))
 
       var body = transformLoopBody(c, n[1])
       # use a nested scope for the body. This is important for the clean-up
@@ -412,11 +422,12 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
     discard c.breakSyms.pop
 
 proc transformBreak(c: PTransf, n: PNode): PNode =
-  result = transformSons(c, n)
   if n[0].kind == nkEmpty:
-    assert c.breakSyms.len > 0
-    let labl = c.breakSyms[^1]
-    result[0] = newSymNode(labl)
+    # turn into a labeled break, using the break label stack
+    result = newBreakStmt(n.info, c.breakSyms[^1])
+  else:
+    # already a labeled break
+    result = transformSons(c, n)
 
 proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
   case n.kind
@@ -1145,8 +1156,8 @@ proc transform(c: PTransf, n: PNode): PNode =
       # disable the original 'defer' statement:
       n.kind = nkEmpty
   of nkContinueStmt:
-    let labl = c.contSyms[^1]
-    result = newTreeI(nkBreakStmt, n.info): newSymNode(labl)
+    # transform into a break out of the loop's inner block
+    result = newBreakStmt(n.info, c.contSyms[^1])
   of nkBreakStmt: result = transformBreak(c, n)
   of nkCallKinds:
     result = transformCall(c, n)
