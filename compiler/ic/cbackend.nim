@@ -189,7 +189,7 @@ proc generateCode*(g: ModuleGraph) =
   # make sure that, at least, the main module comes last (the other modules
   # are closed in the wrong order):
   for i, pos in mlist.modulesClosed.pairs:
-    if pos == g.config.projectMainIdx2:
+    if pos == g.config.projectMainIdx:
       # move to the end:
       delete(mlist.modulesClosed, i)
       mlist.modulesClosed.add(pos)

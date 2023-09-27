@@ -256,7 +256,6 @@ type
     inputMode*: ProjectInputMode    ## how the main module is sourced
     lastMsgWasDot*: set[StdOrrKind] ## the last compiler message was a single '.'
     projectMainIdx*: FileIndex      ## the canonical path id of the main module
-    projectMainIdx2*: FileIndex     ## consider merging with projectMainIdx
     commandLineSrcIdx*: FileIndex   ## used by `commands` to base paths off for
                                     ## path, lib, and other additions; default
                                     ## to `lineinfos.commandLineIdx` and
