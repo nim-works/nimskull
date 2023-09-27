@@ -211,6 +211,8 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
     instID: instID[],
     idgen: idgen
   )
+  if args.kind == nkError:
+    return args # xxx: not the best way to do it, but this signals a mismatch
   let body = tmpl.ast[bodyPos]
   if isAtom(body):
     result = newNodeI(nkPar, body.info)
