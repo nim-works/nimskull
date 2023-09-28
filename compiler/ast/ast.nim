@@ -516,6 +516,9 @@ template transitionSymKindCommon*(k: TSymKind) =
   when defined(nimsuggest):
     s.allUsages = obj.allUsages
 
+proc transitionSymKindCommon*(s: PSym, kind: TSymKind) =
+  transitionSymKindCommon(kind)
+
 proc transitionGenericParamToType*(s: PSym) =
   transitionSymKindCommon(skType)
 

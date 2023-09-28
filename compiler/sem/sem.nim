@@ -432,7 +432,7 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
         n
       else:
         let recoverySym = copySym(n.sym, nextSymId c.idgen)
-        recoverySym.transitionRoutineSymKind(kind)
+        recoverySym.transitionSymKindCommon(kind)
         recoverySym.owner = currOwner
         c.config.makeError(n, recoverySym, ExpectedKindMismatch)
   of nkIdent, nkAccQuoted:
