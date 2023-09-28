@@ -431,9 +431,7 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
         n.sym.owner = currOwner # xxx: modifying the sym owner is suss
         n
       else:
-        let recoverySym = copySym(n.sym, nextSymId c.idgen)
-        recoverySym.transitionSymKindCommon(kind)
-        recoverySym.owner = currOwner
+        let recoverySym = newSym(kind, n.sym.name, nextSymId c.idgen, currOwner, info)
         c.config.makeError(n, recoverySym, ExpectedKindMismatch)
   of nkIdent, nkAccQuoted:
     # xxx: sym choices qualify here, but shouldn't those be errors in
