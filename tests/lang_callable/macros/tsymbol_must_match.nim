@@ -57,3 +57,9 @@ replaceName(nskMacro):
   template t() = #[tt.Error
           ^ (SemSymbolKindMismatch)]#
     discard
+
+macro t1(): untyped =
+  let a = genSym(ident = "a")
+  result = newVarStmt(a, newLit 1)
+
+t1()
