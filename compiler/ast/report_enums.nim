@@ -758,7 +758,6 @@ type
     rsemWarnGcUnsafeListing    = "GcUnsafe2"
     rsemProveInit              = "ProveInit"
     rsemUninit                 = "Uninit"
-    rsemWarnUnsafeCode         = "UnsafeCode"
     rsemImplicitCstringConvert = "CStringConv"
     rsemHoleEnumConvert        = "HoleEnumConv"
     rsemAnyEnumConvert         = "AnyEnumConv"

@@ -2088,9 +2088,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemMissingMethodDispatcher:
       result = "'" & r.ast.render & "' lacks a dispatcher"
 
-    of rsemWarnUnsafeCode:
-      result = "not GC-safe: '$1'" % r.ast.render
-
     of rsemImplicitCstringConvert:
       result = "implicit conversion to 'cstring' from a non-const location: " &
         ("$1; this will become a compile time error in the future" % r.ast.render)
