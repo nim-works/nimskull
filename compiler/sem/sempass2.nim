@@ -887,11 +887,6 @@ proc trackBlock(tracked: PEffects, n: PNode) =
   else:
     track(tracked, n)
 
-proc cstringCheck(tracked: PEffects; n: PNode) =
-  if n[0].typ.kind == tyCstring and (let a = skipConv(n[1]);
-      a.typ.kind == tyString and a.kind notin {nkStrLit..nkTripleStrLit}):
-    localReport(tracked.config, n.info, reportAst(rsemWarnUnsafeCode, n))
-
 proc checkLe(c: PEffects; a, b: PNode) =
   case proveLe(c.guards, a, b)
   of impUnknown:
@@ -1175,7 +1170,6 @@ proc track(tracked: PEffects, n: PNode) =
     addAsgnFact(tracked.guards, n[0], n[1])
     notNilCheck(tracked, n[1], n[0].typ)
     discriminantAsgnCheck(tracked, n)
-    when false: cstringCheck(tracked, n)
     if tracked.owner.kind != skMacro:
       createTypeBoundOps(tracked, n[0].typ, n.info)
     if n[0].kind != nkSym or not isLocalVar(tracked, n[0].sym):
