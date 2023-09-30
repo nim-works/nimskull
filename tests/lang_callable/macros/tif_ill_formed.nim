@@ -2,17 +2,16 @@ discard """
   description: '''
     Ensure that ill-formed if-statement AST created by macros is detected
   '''
-  cmd: "nim check $options $file"
+  cmd: "nim check --msgFormat:sexp --filenames=canonical --hints:off $options $file"
+  nimoutformat: sexp
   action: reject
-  nimout: '''
-tif_ill_formed.nim(13, 15) Error: illformed AST:  else: <<0th child missing for nkElseExpr >>
-'''
 """
 import std/macros
 
 macro t1(): untyped =
   result =
     nnkIfStmt.newTree(
-      newNimNode(nnkElseExpr))
+      newNimNode(nnkElseExpr)) #[tt.Error
+               ^ (SemIllformedAst)]#
 
 t1()
