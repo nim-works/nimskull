@@ -59,7 +59,8 @@ replaceName(nskMacro):
     discard
 
 macro t1(): untyped =
-  let a = genSym(ident = "a")
-  result = newVarStmt(a, newLit 1)
+  let b = genSym(nskLet, ident = "a")#[tt.Error
+               ^ (SemSymbolKindMismatch)]#
+  result = newProc(b)
 
 t1()
