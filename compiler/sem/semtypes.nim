@@ -690,6 +690,7 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
   else:
     let sym = newSymGNode(kind, n, c)
     if sym.kind == nkError:
+      # XXX: replace with propagating the error
       localReport(c.config, sym)
     result = getDefNameSymOrRecover(sym)
 
