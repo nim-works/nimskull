@@ -12,6 +12,6 @@ macro t1(): untyped =
   result =
     nnkIfStmt.newTree(
       newNimNode(nnkElseExpr)) #[tt.Error
-               ^ (SemIllformedAst)]#
+               ^ illformed AST:  else: <<0th child missing for nkElseExpr >>]#
 
 t1()
