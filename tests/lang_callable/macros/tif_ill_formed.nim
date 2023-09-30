@@ -8,9 +8,8 @@ tif_ill_formed.nim(13, 15) Error: illformed AST:  else: <<0th child missing for 
 import std/macros
 
 macro t1(): untyped =
-  result = newTree(nnkIfStmt)
-  result.add(
-    newNimNode(nnkElseExpr)
-  )
+  result =
+    nnkIfStmt.newTree(
+      newNimNode(nnkElseExpr))
 
 t1()
