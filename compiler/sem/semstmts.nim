@@ -164,6 +164,7 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
       if it[0].isError:
         hasError = true
     else:
+      hasError = true
       semReportIllformedAst(
         c.config, it,
         "Expected one or two subnodes for if statement, but found " & $it.len)
