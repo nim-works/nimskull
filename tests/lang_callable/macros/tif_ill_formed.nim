@@ -1,4 +1,7 @@
 discard """
+  description: '''
+    Ensure that ill-formed if-statement AST created by macros is detected
+  '''
   cmd: "nim check $options $file"
   action: reject
   nimout: '''
