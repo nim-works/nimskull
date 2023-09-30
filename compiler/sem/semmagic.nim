@@ -333,10 +333,10 @@ proc semOf(c: PContext, n: PNode): PNode =
     elif b.kind != tyObject or a.kind != tyObject:
       result = newError(c.config, n, PAstDiag(kind: adSemExpectedObjectOfType))
     else:
-      let diff = inheritanceDiff(a, b)
+      let diff = inheritanceDiff(b, a)
       # | returns: 0 iff `a` == `b`
-      # | returns: -x iff `a` is the x'th direct superclass of `b`
-      # | returns: +x iff `a` is the x'th direct subclass of `b`
+      # | returns: -x iff `a` is the x'th direct subclass of `b`
+      # | returns: +x iff `a` is the x'th direct superclass of `b`
       # | returns: `maxint` iff `a` and `b` are not compatible at all
       if diff <= 0:
         # optimize to true:

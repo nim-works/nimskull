@@ -689,7 +689,7 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
       result = newTreeI(nkStmtList, n.info):
         [st, n]
 
-  of nkCast, nkHiddenStdConv, nkHiddenSubConv, nkConv, nkObjDownConv,
+  of nkCast, nkHiddenStdConv, nkHiddenSubConv, nkConv, nkObjUpConv,
       nkDerefExpr, nkHiddenDeref:
     var ns = false
     for i in ord(n.kind == nkCast)..<n.len:

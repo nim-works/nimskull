@@ -1987,7 +1987,9 @@ proc genStmtList(p: BProc, n: CgNode) =
   genStmtListExprImpl:
     genStmts(p, n[^1])
 
-proc upConv(p: BProc, n: CgNode, d: var TLoc) =
+proc downConv(p: BProc, n: CgNode, d: var TLoc) =
+  ## Generates and emits the code for the ``cnkObjDownConv`` (conversion to
+  ## sub-type) expression `n`.
   var a: TLoc
   initLocExpr(p, n.operand, a)
   let dest = skipTypes(n.typ, abstractPtrs)
@@ -2012,9 +2014,11 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
     putIntoDest(p, d, n, "(*($1*) ($2))" %
                         [getTypeDesc(p.module, dest), addrLoc(p.config, a)], a.storage)
 
-proc downConv(p: BProc, n: CgNode, d: var TLoc) =
+proc upConv(p: BProc, n: CgNode, d: var TLoc) =
+  ## Generates and emits the code for the ``cnkObjUpConv`` (conversion to
+  ## super-type/base-type) expression `n`.
   var arg = n.operand
-  while arg.kind == cnkObjDownConv: arg = arg.operand
+  while arg.kind == cnkObjUpConv: arg = arg.operand
 
   let dest = skipTypes(n.typ, abstractPtrs)
   let src = skipTypes(arg.typ, abstractPtrs)
@@ -2034,7 +2038,7 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
     var a: TLoc
     initLocExpr(p, arg, a)
     var r = rdLoc(a) & (if isRef: "->Sup" else: ".Sup")
-    for i in 2..abs(inheritanceDiff(dest, src)): r.add(".Sup")
+    for i in 2..inheritanceDiff(src, dest): r.add(".Sup")
     putIntoDest(p, d, n, if isRef: "&" & r else: r, a.storage)
 
 proc exprComplexConst(p: BProc, n: CgNode, d: var TLoc) =
