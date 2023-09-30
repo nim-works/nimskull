@@ -933,14 +933,14 @@ proc inheritanceDiff*(a, b: PType): int =
     x = skipTypes(x, skipPtrs)
     if sameObjectTypes(x, b): return
     x = x[0]
-    dec(result)
+    inc(result)
   var y = b
   result = 0
   while y != nil:
     y = skipTypes(y, skipPtrs)
     if sameObjectTypes(y, a): return
     y = y[0]
-    inc(result)
+    dec(result)
   result = high(int)
 
 proc commonSuperclass*(a, b: PType): PType =
@@ -1038,7 +1038,7 @@ proc compatibleEffectsAux(se, re: PNode): bool =
   for r in items(re):
     block search:
       for s in items(se):
-        if safeInheritanceDiff(r.typ, s.typ) <= 0:
+        if safeInheritanceDiff(s.typ, r.typ) <= 0:
           break search
       return false
   result = true

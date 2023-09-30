@@ -522,7 +522,7 @@ proc catches(tracked: PEffects, e: PType) =
   var i = tracked.bottom
   while i < L:
     # r supertype of e?
-    if safeInheritanceDiff(tracked.graph.excType(tracked.exc[i]), e) <= 0:
+    if safeInheritanceDiff(e, tracked.graph.excType(tracked.exc[i])) <= 0:
       tracked.exc[i] = tracked.exc[L-1]
       dec L
     else:
@@ -1410,10 +1410,10 @@ proc track(tracked: PEffects, n: PNode) =
 proc subtypeRelation(g: ModuleGraph; spec, real: PNode): bool =
   if spec.typ.kind == tyOr:
     for t in spec.typ.sons:
-      if safeInheritanceDiff(g.excType(real), t) <= 0:
+      if safeInheritanceDiff(t, g.excType(real)) <= 0:
         return true
   else:
-    return safeInheritanceDiff(g.excType(real), spec.typ) <= 0
+    return safeInheritanceDiff(spec.typ, g.excType(real)) <= 0
 
 proc checkRaisesSpec(
     g: ModuleGraph,

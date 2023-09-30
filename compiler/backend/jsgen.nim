@@ -2185,7 +2185,7 @@ proc genConv(p: PProc, n: CgNode, r: var TCompRes) =
     # TODO: What types must we handle here?
     discard
 
-proc upConv(p: PProc, n: CgNode, r: var TCompRes) =
+proc downConv(p: PProc, n: CgNode, r: var TCompRes) =
   gen(p, n.operand, r)        # XXX
 
 proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes) =
@@ -2514,8 +2514,8 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkBracketAccess: genArrayAccess(p, n, r)
   of cnkFieldAccess: genFieldAccess(p, n, r)
   of cnkCheckedFieldAccess: genCheckedFieldOp(p, n, takeAddr=false, r)
-  of cnkObjDownConv: gen(p, n.operand, r)
-  of cnkObjUpConv: upConv(p, n, r)
+  of cnkObjDownConv: downConv(p, n, r)
+  of cnkObjUpConv: gen(p, n.operand, r)
   of cnkCast: genCast(p, n, r)
   of cnkStringToCString: convStrToCStr(p, n, r)
   of cnkCStringToString: convCStrToStr(p, n, r)
