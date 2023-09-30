@@ -688,7 +688,10 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
       c.config.semReportIllformedAst(
         n, "Expected two nodes for postfix expression, but found " & $n.len)
   else:
-    result = getDefNameSymOrRecover(newSymGNode(kind, n, c))
+    let sym = newSymGNode(kind, n, c)
+    if sym.kind == nkError:
+      localReport(c.config, sym)
+    result = getDefNameSymOrRecover(sym)
 
 proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
                         allowed: TSymFlags): PSym =
