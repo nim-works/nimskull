@@ -108,6 +108,9 @@ type
                    ##      record-case part of an object should be its own
                    ##      dedicated object type, which can then be addressed
                    ##      as a normal field
+    mnkPathConv  ## an handle conversion. That is, a conversion that produces a
+                 ## *handle*, and not a new *value*. At present, this operator
+                 ## also applies to first-class handles, like ``ref``.
 
     mnkAddr   ## ``addr(x)``; creates a first-class unsafe alias/handle (i.e.
               ## pointer) from the input lvalue `x`
@@ -126,10 +129,10 @@ type
     # XXX: ``mnkDerefView`` is not used for ``openArray`` right now, due to
     #      the latter's interactions with ``var`` and ``lent``
 
-    mnkStdConv    ## ``stdConv(x)``; a standard conversion. Depending on the
-                  ## source and target type, lvalue-ness is preserved
-    mnkConv       ## ``conv(x)``; a conversion. Depending on the source and
-                  ## target type, lvalue-ness is preserved
+    mnkStdConv    ## ``stdConv(x)``; a standard conversion.Produce a new value.
+                  ## Also used for to-slice (``openArray``) conversions, in
+                  ## which case the semantics are still fuzzy.
+    mnkConv       ## ``conv(x)``; a conversion. Produces a new value.
     # XXX: distinguishing between ``stdConv`` and ``conv`` is only done to
     #      make ``cgirgen`` a bit more efficient. Further progress should focus
     #      on removing the need for it
@@ -339,7 +342,7 @@ const
   InputNodes* = {mnkProc..mnkNone, mnkArgBlock}
     ## Nodes that can appear in the position of inputs/operands but that
     ## themselves don't have any operands
-  InOutNodes* = {mnkMagic, mnkCall, mnkPathNamed..mnkPathVariant, mnkConstr,
+  InOutNodes* = {mnkMagic, mnkCall, mnkPathNamed..mnkPathConv, mnkConstr,
                  mnkObjConstr, mnkView, mnkTag, mnkCast, mnkDeref, mnkAddr,
                  mnkDerefView, mnkStdConv, mnkConv}
     ## Operations that act as both input and output
@@ -357,8 +360,8 @@ const
 
   SingleInputNodes* = {mnkAddr, mnkDeref, mnkDerefView, mnkCast, mnkConv,
                        mnkStdConv, mnkPathNamed, mnkPathPos, mnkPathVariant,
-                       mnkTag, mnkIf, mnkCase, mnkRaise, mnkVoid} +
-                      ArgumentNodes
+                       mnkPathConv, mnkTag, mnkIf, mnkCase, mnkRaise,
+                       mnkVoid} + ArgumentNodes
     ## Operators and statements that must not have argument-blocks as input
 
   StmtNodes* = {mnkScope, mnkRepeat, mnkTry, mnkBlock, mnkBreak, mnkReturn,
