@@ -1245,6 +1245,12 @@ proc genWhile(c: var TCtx, n: PNode) =
 
 proc genBlock(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for a ``block`` expression or statement
+  if sfUsed notin n[0].sym.flags:
+    # if the label is never used, it means that the block is only used for
+    # scoping. Omit emitting an ``mnkBlock`` and just use a scope
+    scope(c.stmts): c.genWithDest(n[1], dest)
+    return
+
   let id = nextLabel(c)
 
   # push the block to the stack:

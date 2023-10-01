@@ -936,9 +936,7 @@ proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator;
   let elifBranch = newNodeI(nkElifBranch, body.info)
   elifBranch.add(bs)
 
-  let br = newTreeI(nkBreakStmt, body.info, newSymNode(breakLabel, body.info))
-
-  elifBranch.add(br)
+  elifBranch.add(newBreakStmt(body.info, breakLabel))
   ibs.add(elifBranch)
 
   loopBody[1] = ibs

@@ -696,10 +696,10 @@ proc wrapInHiddenAddr(cl: TranslateCl, n: CgNode): CgNode =
   result =
     if n.typ.skipTypes(abstractInst).kind != tyVar:
       newOp(cnkHiddenAddr, n.info, makeVarType(cl.owner, n.typ, cl.idgen), n)
-    elif inner.kind == cnkObjDownConv and
+    elif inner.kind == cnkObjUpConv and
          inner.operand.typ.kind != tyVar:
-      # TODO: ``nkHiddenSubConv`` nodes for objects (which are later
-      #       transformed into ``nkObjDownConv`` nodes) are in some cases
+      # TODO: ``nkHiddenSubConv`` nodes for objects (which later result
+      #       in ``cnkObjUpConv`` nodes) are in some cases
       #       incorrectly typed as ``var`` somewhere in the compiler
       #       (presumably during sem). Fix the underlying problem and remove
       #       the special case here

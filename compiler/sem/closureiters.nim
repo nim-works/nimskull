@@ -689,7 +689,7 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
       result = newTreeI(nkStmtList, n.info):
         [st, n]
 
-  of nkCast, nkHiddenStdConv, nkHiddenSubConv, nkConv, nkObjDownConv,
+  of nkCast, nkHiddenStdConv, nkHiddenSubConv, nkConv, nkObjUpConv,
       nkDerefExpr, nkHiddenDeref:
     var ns = false
     for i in ord(n.kind == nkCast)..<n.len:
@@ -1029,10 +1029,7 @@ proc transformStateAssignments(ctx: var Ctx, n: PNode): PNode =
   of nkGotoState:
     result = newNodeI(nkStmtList, n.info)
     result.add(ctx.newStateAssgn(stateFromGotoState(n)))
-
-    let breakState = newNodeI(nkBreakStmt, n.info)
-    breakState.add(newSymNode(ctx.stateLoopLabel))
-    result.add(breakState)
+    result.add(newBreakStmt(n.info, ctx.stateLoopLabel))
 
   else:
     for i in 0..<n.len:

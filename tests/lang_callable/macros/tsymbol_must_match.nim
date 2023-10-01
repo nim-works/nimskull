@@ -57,3 +57,12 @@ replaceName(nskMacro):
   template t() = #[tt.Error
           ^ (SemSymbolKindMismatch)]#
     discard
+
+macro t1(): untyped =
+  # test that an error is correctly reported when inserting the wrong symbol
+  # into a non-routine definition
+  let b = genSym(nskLet, ident = "a")#[tt.Error
+               ^ (SemSymbolKindMismatch)]#
+  result = newVarStmt(b, newLit 1)
+
+t1()

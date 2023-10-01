@@ -522,7 +522,7 @@ proc catches(tracked: PEffects, e: PType) =
   var i = tracked.bottom
   while i < L:
     # r supertype of e?
-    if safeInheritanceDiff(tracked.graph.excType(tracked.exc[i]), e) <= 0:
+    if safeInheritanceDiff(e, tracked.graph.excType(tracked.exc[i])) <= 0:
       tracked.exc[i] = tracked.exc[L-1]
       dec L
     else:
@@ -887,11 +887,6 @@ proc trackBlock(tracked: PEffects, n: PNode) =
   else:
     track(tracked, n)
 
-proc cstringCheck(tracked: PEffects; n: PNode) =
-  if n[0].typ.kind == tyCstring and (let a = skipConv(n[1]);
-      a.typ.kind == tyString and a.kind notin {nkStrLit..nkTripleStrLit}):
-    localReport(tracked.config, n.info, reportAst(rsemWarnUnsafeCode, n))
-
 proc checkLe(c: PEffects; a, b: PNode) =
   case proveLe(c.guards, a, b)
   of impUnknown:
@@ -1175,7 +1170,6 @@ proc track(tracked: PEffects, n: PNode) =
     addAsgnFact(tracked.guards, n[0], n[1])
     notNilCheck(tracked, n[1], n[0].typ)
     discriminantAsgnCheck(tracked, n)
-    when false: cstringCheck(tracked, n)
     if tracked.owner.kind != skMacro:
       createTypeBoundOps(tracked, n[0].typ, n.info)
     if n[0].kind != nkSym or not isLocalVar(tracked, n[0].sym):
@@ -1416,10 +1410,10 @@ proc track(tracked: PEffects, n: PNode) =
 proc subtypeRelation(g: ModuleGraph; spec, real: PNode): bool =
   if spec.typ.kind == tyOr:
     for t in spec.typ.sons:
-      if safeInheritanceDiff(g.excType(real), t) <= 0:
+      if safeInheritanceDiff(t, g.excType(real)) <= 0:
         return true
   else:
-    return safeInheritanceDiff(g.excType(real), spec.typ) <= 0
+    return safeInheritanceDiff(spec.typ, g.excType(real)) <= 0
 
 proc checkRaisesSpec(
     g: ModuleGraph,

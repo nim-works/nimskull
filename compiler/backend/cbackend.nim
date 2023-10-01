@@ -445,7 +445,7 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
     # XXX: the header is just a normal C file artifact of ``generateCode``,
     #      don't store it with ``BModuleList``
     g.generatedHeader = generateHeader(g, inl, discovery,
-                                       mlist[graph.config.projectMainIdx2].sym)
+                                       mlist[graph.config.projectMainIdx].sym)
 
   # not pretty, but here's the earliest point where we know about the set of
   # all actually-used dynamic libraries

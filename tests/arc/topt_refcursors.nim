@@ -8,18 +8,16 @@ block label:
   while true:
     if not(not(==(it_cursor, nil))):
       break label
-    block label_1:
-      echo([it_cursor[].s])
-      it_cursor = it_cursor[].ri
+    echo([it_cursor[].s])
+    it_cursor = it_cursor[].ri
 var jt_cursor = root
-block label_2:
+block label_1:
   while true:
     if not(not(==(jt_cursor, nil))):
-      break label_2
-    block label_3:
-      var ri_1_cursor = jt_cursor[].ri
-      echo([jt_cursor[].s])
-      jt_cursor = ri_1_cursor
+      break label_1
+    var ri_1_cursor = jt_cursor[].ri
+    echo([jt_cursor[].s])
+    jt_cursor = ri_1_cursor
 -- end of expandArc ------------------------'''
 """
 

@@ -20,24 +20,22 @@ finally:
 -- end of expandArc ------------------------
 --expandArc: sio
 
-block label:
-  var filename_cursor = "debug.txt"
-  var f = open(filename_cursor, 0, 8000)
+var filename_cursor = "debug.txt"
+var f = open(filename_cursor, 0, 8000)
+try:
+  var res
   try:
-    var res
-    try:
-      res = newStringOfCap(80)
-      block label_1:
-        while true:
-          if not(readLine(f, res)):
-            break label_1
-          block label_2:
-            var x_cursor = res
-            echo([x_cursor])
-    finally:
-      =destroy(res)
+    res = newStringOfCap(80)
+    block label:
+      while true:
+        if not(readLine(f, res)):
+          break label
+        var x_cursor = res
+        echo([x_cursor])
   finally:
-    close(f)
+    =destroy(res)
+finally:
+  close(f)
 -- end of expandArc ------------------------'''
 """
 

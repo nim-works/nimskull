@@ -164,15 +164,20 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
       if it[0].isError:
         hasError = true
     else:
-      semReportIllformedAst(
-        c.config, it,
-        "Expected one or two subnodes for if statement, but found " & $it.len)
+      hasError = true
+      result[i] = c.config.newError(it, PAstDiag(kind: adSemIllformedAst))
 
   if hasError:
     result = c.config.wrapError(result)
   elif isEmptyType(typ) or typ.kind in {tyNil, tyUntyped} or
       (not hasElse and efInTypeof notin flags):
     for it in n:
+      # transition the branch to its statement variant:
+      case it.kind
+      of nkElifExpr: it.transitionSonsKind(nkElifBranch)
+      of nkElseExpr: it.transitionSonsKind(nkElse)
+      else:          discard "already correct"
+
       it[^1] = discardCheck(c, it[^1], flags)
       if it[^1].isError:
         return wrapError(c.config, result)
@@ -181,6 +186,12 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
     if typ == c.enforceVoidContext: result.typ = c.enforceVoidContext
   else:
     for it in n:
+      # transition the branch to its expression variant:
+      case it.kind
+      of nkElifBranch: it.transitionSonsKind(nkElifExpr)
+      of nkElse:       it.transitionSonsKind(nkElseExpr)
+      else:            discard "already correct"
+
       let j = it.len-1
       if not endsInNoReturn(it[j]):
         it[j] = fitNode(c, typ, it[j], it[j].info)

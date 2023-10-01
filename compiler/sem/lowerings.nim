@@ -75,6 +75,12 @@ proc newFastMoveStmt*(g: ModuleGraph, le, ri: PNode): PNode =
      newTreeIT(nkCall, ri.info, ri.typ,
        newSymNode(getSysMagic(g, ri.info, "move", mMove)), ri)]
 
+proc newBreakStmt*(info: TLineInfo, label: PSym): PNode =
+  ## Generates the AST for labeled break and marks `label` as used.
+  result = newTreeI(nkBreakStmt, info, newSymNode(label, info))
+  # mark the label as used:
+  label.flags.incl sfUsed
+
 proc lowerTupleUnpacking*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner: PSym): PNode =
   assert n.kind == nkVarTuple
   let value = n.lastSon

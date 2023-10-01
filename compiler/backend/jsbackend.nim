@@ -151,7 +151,7 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
     globals.code.add finishProc(p)
 
   # wrap up:
-  let main = modules[graph.config.projectMainIdx2]
+  let main = modules[graph.config.projectMainIdx]
   reset(modules) # we don't need the data anymore
 
   generateCodeForMain(globals, graph, main, mlist)
