@@ -41,7 +41,7 @@ from compiler/ast/reports_debug import DebugReport
 
 var reported: seq[Report]
 
-proc hook(conf: ConfigRef, report: Report): TErrorHandling =
+proc hook(conf: ConfigRef, report: Report, rh: TErrorHandling): TErrorHandling =
   reported.add report
   return doNothing
 

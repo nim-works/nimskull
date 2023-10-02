@@ -276,10 +276,10 @@ proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
       if stackTraceAvailable():
         discard conf.report(InternalReport(
           kind: rintStackTrace,
-          trace: getStackTraceEntries()))
+          trace: getStackTraceEntries()), doNothing)
       else:
         discard conf.report(InternalReport(
-          kind: rintMissingStackTrace))
+          kind: rintMissingStackTrace), doNothing)
   quit 1
 
 proc errorActions(
@@ -594,11 +594,11 @@ func astDiagToLegacyReportKind*(diag: PAstDiag): ReportKind {.inline.} =
   else:
     astDiagToLegacyReportKind(diag.kind)
 
-proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
+proc report*(conf: ConfigRef, node: PNode, rh: TErrorHandling): TErrorHandling =
   ## Write out report from the nkError node
   # xxx: legacy report temporarily here until we can rip it out
   assert node.kind == nkError
-  return conf.report(conf.astDiagToLegacyReport(conf, node.diag))
+  return conf.report(conf.astDiagToLegacyReport(conf, node.diag), rh)
 
 proc handleReport*(
     conf: ConfigRef,
@@ -614,7 +614,7 @@ proc handleReport*(
     handleReport(conf, wrap(rep.vmReport.trace[]), reportFrom)
 
   let
-    userAction = conf.report(rep)
+    userAction = conf.report(rep, eh)
     (action, trace) =
       case userAction
       of doDefault:

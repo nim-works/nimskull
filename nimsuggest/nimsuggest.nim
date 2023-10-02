@@ -126,7 +126,7 @@ proc myLog(conf: ConfigRef, s: string, flags: MsgFlags = {}) =
   if gLogging:
     log(s)
 
-proc reportHook(conf: ConfigRef, report: Report): TErrorHandling =
+proc reportHook(conf: ConfigRef, report: Report, rh: TErrorHandling): TErrorHandling =
   result = doNothing
   case report.category
   of repCmd, repDebug, repInternal, repExternal:
@@ -231,7 +231,8 @@ proc execute(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
 
   else:
     graph.config.structuredReportHook =
-      proc(conf: ConfigRef, report: Report): TErrorHandling = doNothing
+      proc(c: ConfigRef, r: Report, rh: TErrorHandling): TErrorHandling =
+        doNothing
     graph.config.writeHook = myLog
 
   executeNoHooks(cmd, file, dirtyfile, line, col, graph)
@@ -481,7 +482,7 @@ proc execCmd(cmd: string; graph: ModuleGraph; cachedMsgs: CachedMsgs) =
   else:
     if conf.ideCmd == ideChk:
       for cm in cachedMsgs:
-        discard nimsuggest.reportHook(conf, cm)
+        discard nimsuggest.reportHook(conf, cm, doNothing)
 
     execute(conf.ideCmd, AbsoluteFile orig, AbsoluteFile dirtyfile, line, col, graph)
   sentinel()
@@ -529,10 +530,10 @@ proc mainThread(graph: ModuleGraph) =
         proc (conf: ConfigRef, s: string, flags: MsgFlags = {}) = discard
       cachedMsgs.setLen 0
       conf.structuredReportHook =
-          proc (conf: ConfigRef, report: Report): TErrorHandling =
-            if report.kind notin {rsemProcessing, rsemProcessingStmt}:
+          proc (c: ConfigRef, r: Report, rh: TErrorHandling): TErrorHandling =
+            if r.kind notin {rsemProcessing, rsemProcessingStmt}:
               # pre-filter to save memory
-              cachedMsgs.add(report)
+              cachedMsgs.add(r)
 
       conf.suggestionResultHook = proc (s: Suggest) = discard
       recompileFullProject(graph)
@@ -557,7 +558,7 @@ proc mainCommand(graph: ModuleGraph) =
   # do not print errors, but log them
   conf.writelnHook = myLog
   conf.structuredReportHook =
-    proc(conf: ConfigRef, report: Report): TErrorHandling =
+    proc(conf: ConfigRef, report: Report, rh: TErrorHandling): TErrorHandling =
       doNothing
 
   # compile the project before showing any input so that we already

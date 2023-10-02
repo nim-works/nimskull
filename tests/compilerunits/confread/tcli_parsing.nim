@@ -24,7 +24,7 @@ import
 
 var reported: seq[Report]
 
-proc hook(conf: ConfigRef, report: Report): TErrorHandling =
+proc hook(conf: ConfigRef, report: Report, rh: TErrorHandling): TErrorHandling =
   reported.add report
   return doNothing
 

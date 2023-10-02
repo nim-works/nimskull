@@ -369,7 +369,7 @@ proc parseCode*(code: string, cache: IdentCache, config: ConfigRef,
   let oldHook = config.structuredReportHook
 
   config.structuredReportHook = proc(
-      conf: ConfigRef, report: Report
+      conf: ConfigRef, report: Report, rh: TErrorHandling
   ): TErrorHandling =
     # @haxscramper: QUESTION This check might be affected by current severity
     # configurations, maybe it makes sense to do a hack-in that would
@@ -378,7 +378,7 @@ proc parseCode*(code: string, cache: IdentCache, config: ConfigRef,
         conf.severity(report) == rsevError:
       raise TemporaryExceptionHack(report: report)
     else:
-      return oldHook(conf, report)
+      return oldHook(conf, report, rh)
 
   try:
     let ast = parseString(code, cache, config, filename, line).toPNode()

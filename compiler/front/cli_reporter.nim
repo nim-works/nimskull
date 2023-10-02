@@ -3984,7 +3984,7 @@ proc legacyReportBridge*(conf: ConfigRef, diag: PAstDiag): Report =
   # TODO: will use conf soon
   astDiagToLegacyReport(conf, diag)
 
-proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
+proc reportHook*(conf: ConfigRef, r: Report, rh: TErrorHandling): TErrorHandling =
   ## Default implementation of the report hook. Dispatches into
   ## `reportBody` for report, which then calls respective (for each report
   ## category) `reportBody` overloads defined above

@@ -136,7 +136,7 @@ proc sexp*(t: PSym): SexpNode =
   ])
 
 
-proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
+proc reportHook*(conf: ConfigRef, r: Report, rh: TErrorHandling): TErrorHandling =
   writeConf = conf
   let wkind = conf.writabilityKind(r)
 

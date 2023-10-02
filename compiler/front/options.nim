@@ -184,7 +184,7 @@ type
              ## argument
     pimFile  ## the main module is a file
 
-  ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
+  ReportHook* = proc(c: ConfigRef, r: Report, rh: TErrorHandling): TErrorHandling {.closure.}
 
   HackController* = object
     ## additional configuration switches to control the behavior of the
@@ -542,12 +542,12 @@ proc getReportHook*(conf: ConfigRef): ReportHook =
   ## Get active report hook
   conf.structuredReportHook
 
-proc report*(conf: ConfigRef, inReport: Report): TErrorHandling =
+proc report*(conf: ConfigRef, inReport: Report, rh: TErrorHandling): TErrorHandling =
   ## Write `inReport`
   assert inReport.kind != repNone, "Cannot write out empty report"
   assert(conf.structuredReportHook != nil,
          "Cannot write report with empty report hook")
-  return conf.structuredReportHook(conf, inReport)
+  return conf.structuredReportHook(conf, inReport, rh)
 
 proc canReport*(conf: ConfigRef, id: NodeId): bool =
   ## Check whether report with given ID can actually be written out, or it
@@ -561,16 +561,16 @@ proc canReport*(conf: ConfigRef, node: PNode): bool =
   true # xxx: short circuit this nonsense
 
 template report*[R: ReportTypes](
-    conf: ConfigRef, inReport: R): TErrorHandling =
+    conf: ConfigRef, inReport: R, rh: TErrorHandling): TErrorHandling =
   ## Pass structured report object into `conf.structuredReportHook`,
   ## converting to `Report` variant and updaing instantiation info.
-  report(conf, wrap(inReport, instLoc()))
+  report(conf, wrap(inReport, instLoc()), rh)
 
 template report*[R: ReportTypes](
-    conf: ConfigRef, tinfo: TLineInfo, inReport: R): TErrorHandling =
+    conf: ConfigRef, tinfo: TLineInfo, inReport: R, rh: TErrorHandling): TErrorHandling =
   ## Write out new report, updating it's location info using `tinfo` and
   ## it's instantiation info with `instantiationInfo()` of the template.
-  report(conf, wrap(inReport, instLoc(), tinfo))
+  report(conf, wrap(inReport, instLoc(), tinfo), rh)
 
 # REFACTOR: we shouldn't need to dig into the internalReport and query severity
 #           directly

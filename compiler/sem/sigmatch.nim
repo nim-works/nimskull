@@ -748,7 +748,7 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
   # match data. When nkError is implemented this needs to be removed.
   let tmpHook = c.config.getReportHook()
   c.config.setReportHook(
-    proc(conf: ConfigRef, report: Report): TErrorHandling =
+    proc(conf: ConfigRef, report: Report, rh: TErrorHandling): TErrorHandling =
       if report.category == repSem:
         diagnostics.add report.semReport
   )

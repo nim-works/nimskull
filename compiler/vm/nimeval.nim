@@ -184,7 +184,7 @@ proc destroyInterpreter*(i: Interpreter) =
 
 proc registerErrorHook*(
     i: Interpreter,
-    hook: proc (config: ConfigRef, report: Report): TErrorHandling {.gcsafe.}
+    hook: proc (config: ConfigRef, report: Report, rh: TErrorHandling): TErrorHandling {.gcsafe.}
   ) =
   i.graph.config.structuredReportHook = hook
 

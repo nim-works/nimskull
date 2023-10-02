@@ -2734,7 +2734,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     # Remove the error hook so nimsuggest doesn't report errors there
     let tempHook = c.graph.config.structuredReportHook
     c.graph.config.structuredReportHook =
-      proc(conf: ConfigRef, report: Report): TErrorHandling = discard
+      proc(conf: ConfigRef, report: Report, rh: TErrorHandling): TErrorHandling = discard
 
   let oldErrorCount = c.config.errorCounter
   let oldErrorMax = c.config.errorMax
