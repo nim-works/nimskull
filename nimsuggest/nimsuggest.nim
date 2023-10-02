@@ -127,7 +127,11 @@ proc myLog(conf: ConfigRef, s: string, flags: MsgFlags = {}) =
     log(s)
 
 proc reportHook(conf: ConfigRef, report: Report, rh: TErrorHandling): TErrorHandling =
-  result = doNothing
+  result = case rh
+  of doRaise:
+    doRaise
+  else:
+    doNothing
   case report.category
   of repCmd, repDebug, repInternal, repExternal:
     myLog(conf, $report)
@@ -558,12 +562,19 @@ proc mainCommand(graph: ModuleGraph) =
   # do not print errors, but log them
   conf.writelnHook = myLog
   conf.structuredReportHook =
-    proc(conf: ConfigRef, report: Report, rh: TErrorHandling): TErrorHandling =
-      doNothing
+    proc(conf: ConfigRef, r: Report, rh: TErrorHandling): TErrorHandling =
+      if rh != doNothing: myLog(conf, $r)
+      case rh
+      of doRaise:
+        doRaise
+      else:
+        doNothing
 
+  myLog(conf, "Begin compiling project")
   # compile the project before showing any input so that we already
   # can answer questions right away:
   compileProject(graph)
+  myLog(conf, "End compiling project")
 
   open(requests)
   open(results)
