@@ -535,7 +535,7 @@ proc hasCom(n: PNode): bool =
   if n.isNil: return false
   if n.comment.len > 0: return true
   case n.kind
-  of nkEmpty..nkNilLit: discard
+  of nkWithoutSons: discard
   else:
     for i in 0..<n.len:
       if hasCom(n[i]): return true
