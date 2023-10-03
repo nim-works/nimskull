@@ -3700,6 +3700,12 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       kind: rsemExpectedOrdinal,
       ast: diag.wrongNode,
       typ: diag.nonOrdTyp)
+  of adSemForExpectedIterator:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemForExpectsIterator,
+      ast: diag.wrongNode)
   of adSemRecursiveDependencyIterator:
     semRep = SemReport(
       location: some diag.location,

@@ -1144,6 +1144,7 @@ type
     # semstmts
     adSemInvalidControlFlow
     adSemExpectedLabel
+    adSemForExpectedIterator
     adSemContinueCannotHaveLabel
     adSemUseOrDiscardExpr
     adSemAmbiguousIdent
@@ -1343,6 +1344,7 @@ type
         adSemExpectedLabel,
         adSemContinueCannotHaveLabel,
         adSemUnavailableLocation,
+        adSemForExpectedIterator,
         adSemExternalLocalNotAllowed:
       discard
     of adSemExpectedIdentifierInExpr:

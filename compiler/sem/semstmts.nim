@@ -1636,10 +1636,12 @@ proc isTrivalStmtExpr(n: PNode): bool =
   result = true
 
 proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
+  addInNimDebugUtils(c.config, "semFor", n, result, flags)
   checkMinSonsLen(n, 3, c.config)
   openScope(c)
   result = n
   n[^2] = semExprNoDeref(c, n[^2], {efWantIterator})
+  var hasError = n[^2].kind == nkError
   var call = n[^2]
   if call.kind == nkStmtListExpr and isTrivalStmtExpr(call):
     call = call.lastSon
@@ -1648,28 +1650,31 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if isCallExpr and call[0].kind == nkSym and
       call[0].sym.magic in {mFields, mFieldPairs}:
     result = semForFields(c, n, call[0].sym.magic)
-  elif isCallExpr and isClosureIterator(call[0].typ.skipTypes(abstractInst)):
-    # first class iterator:
-    result = semForVars(c, n, flags)
-  elif not isCallExpr or call[0].kind != nkSym or
-      call[0].sym.kind != skIterator:
-    if n.len == 3:
-      n[^2] = implicitIterator(c, "items", n[^2])
-    elif n.len == 4:
-      n[^2] = implicitIterator(c, "pairs", n[^2])
-    else:
-      localReport(c.config, n[^2], reportSem(rsemForExpectsIterator))
-    result = semForVars(c, n, flags)
   else:
+    if isCallExpr and isClosureIterator(call[0].typ.skipTypes(abstractInst)):
+      # first class iterator:
+      discard
+    elif not isCallExpr or call[0].kind != nkSym or
+        call[0].sym.kind != skIterator:
+      if n.len == 3:
+        n[^2] = implicitIterator(c, "items", n[^2])
+        hasError = n[^2].isError or hasError
+      elif n.len == 4:
+        n[^2] = implicitIterator(c, "pairs", n[^2])
+        hasError = n[^2].isError or hasError
+      else:
+        hasError = true
+        n[^2] = c.config.newError(n[^2], PAstDiag(kind: adSemForExpectedIterator))
     result = semForVars(c, n, flags)
-  if result.kind == nkError:
-    discard # do nothing
+  if hasError or result.kind == nkError:
+    hasError = true
   elif n[^1].typ == c.enforceVoidContext:
     # propagate any enforced VoidContext:
     result.typ = c.enforceVoidContext
   elif efInTypeof in flags:
     result.typ = result.lastSon.typ
   closeScope(c)
+  if hasError: result = c.config.wrapError(result)
 
 proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
