@@ -1,4 +1,6 @@
-# Test ill formed AST will not causes crash and subsequent errors
+# Ensure that AST not having the correct number of nodes doesn't cause
+# crashes. This a regression test for `checkSonsMinLen` and
+# `checkSonsLen` not aborting analysis.
 
 import std/macros
 
