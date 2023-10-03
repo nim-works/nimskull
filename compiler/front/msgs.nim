@@ -600,10 +600,10 @@ proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
   assert node.kind == nkError
   return conf.report(conf.astDiagToLegacyReport(conf, node.diag))
 
-proc fillReport(r: var Report, reportFrom: InstantiationInfo) =
+proc fillReport(c: ConfigRef, r: var Report, reportFrom: InstantiationInfo) =
   r.reportFrom = toReportLineInfo(reportFrom)
   if r.category in { repSem, repVM } and r.location.isSome():
-    r.context = conf.getContext(r.location.get())
+    r.context = c.getContext(r.location.get())
 
 proc handleReport*(
     conf: ConfigRef,
@@ -611,7 +611,7 @@ proc handleReport*(
     reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing) {.noinline.} =
   var rep = r
-  fillReport(rep, reportFrom)
+  fillReport(conf, rep, reportFrom)
   if rep.category == repVM and rep.vmReport.trace != nil:
     handleReport(conf, wrap(rep.vmReport.trace[]), reportFrom)
 
@@ -661,7 +661,7 @@ proc reportAndForceRaise*(
   ## always call `raiseRecoverableError` except if `doAbort` was returned
   ## by the `structuredReportHook`.
   var rep = r
-  fillReport(rep, reportFrom)
+  fillReport(conf, rep, reportFrom)
 
   if rep.category == repVM and rep.vmReport.trace != nil:
     reportAndForceRaise(conf, wrap(rep.vmReport.trace[]), reportFrom)
