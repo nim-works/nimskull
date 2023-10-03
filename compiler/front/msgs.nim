@@ -654,6 +654,26 @@ template globalReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(
     conf, wrap(report, instLoc()), instLoc(), doRaise)
 
+proc reportAndForceRaise*(
+  conf: ConfigRef, r: Report, reportFrom: InstantiationInfo) =
+  var rep = r
+  rep.reportFrom = toReportLineInfo(reportFrom)
+  if rep.category in { repSem, repVM } and rep.location.isSome():
+    rep.context = conf.getContext(rep.location.get())
+
+  if rep.category == repVM and rep.vmReport.trace != nil:
+    reportAndForceRaise(conf, wrap(rep.vmReport.trace[]), reportFrom)
+  let
+    userAction = conf.report(rep)
+  case userAction
+  of doAbort:   quit 1
+  else: raiseRecoverableError("report")
+
+template reportAndForceRaise*(
+  conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
+  reportAndForceRaise(
+    conf, wrap(report, instLoc(), info), instLoc())
+
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   {.line.}:
     handleReport(
