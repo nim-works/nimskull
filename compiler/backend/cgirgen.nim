@@ -764,8 +764,8 @@ proc handleSpecialConv(c: ConfigRef, n: CgNode, info: TLineInfo,
     result = nil
 
 proc tbConv(cl: TranslateCl, n: CgNode, info: TLineInfo, dest: PType): CgNode =
-  ## Generates the IR for an expression that performs a type conversion for
-  ## `n` to type `dest`
+  ## Generates the ``CgNode`` IR for an ``mnkPathConv`` operation (handle
+  ## conversion).
   result = handleSpecialConv(cl.graph.config, n, info, dest)
   if result == nil:
     # no special conversion is used
@@ -1150,7 +1150,7 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
   of mnkCast:
     toValues newOp(cnkCast, info, n.typ, prev.single)
   of mnkConv:
-    toValues tbConv(cl, prev.single, info, n.typ)
+    toValues newOp(cnkConv, info, n.typ, prev.single)
   of mnkStdConv:
     let
       opr = prev.single
@@ -1214,6 +1214,8 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
 
   of mnkPathArray:
     toValues newExpr(cnkBracketAccess, info, n.typ, move prev.list)
+  of mnkPathConv:
+    toValues tbConv(cl, prev.single, info, n.typ)
   of mnkAddr:
     toValues newOp(cnkAddr, info, n.typ, prev.single)
   of mnkDeref:
