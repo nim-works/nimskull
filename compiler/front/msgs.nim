@@ -659,7 +659,7 @@ template globalReport*(conf: ConfigRef, report: ReportTypes) =
 proc reportAndForceRaise*(
   conf: ConfigRef, r: Report, reportFrom: InstantiationInfo) =
   ## always call `raiseRecoverableError` except if `doAbort` was returned
-  ## by the structuredReportHook.
+  ## by the `structuredReportHook`.
   var rep = r
   fillReport(rep, reportFrom)
 
