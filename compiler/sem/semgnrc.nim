@@ -278,6 +278,9 @@ proc semGenericStmt(c: PContext, n: PNode,
       of skMacro:
         if macroToExpand(s) and sc.safeLen <= 1:
           result = semMacroExpr(c, n, s, {efNoSemCheck})
+          result =
+            if result.kind == nkError: n # an error means a "mismatch"
+            else:                      semGenericStmt(c, result, flags, ctx)
           result = semGenericStmt(c, result, flags, ctx)
           if result.isError: return
         else:
@@ -287,7 +290,9 @@ proc semGenericStmt(c: PContext, n: PNode,
       of skTemplate:
         if macroToExpand(s) and sc.safeLen <= 1:
           result = semTemplateExpr(c, n, s, {efNoSemCheck})
-          result = semGenericStmt(c, result, flags, ctx)
+          result =
+            if result.kind == nkError: n # an error means a "mismatch"
+            else:                      semGenericStmt(c, result, flags, ctx)
           if result.isError: return
         else:
           n[0] = sc
