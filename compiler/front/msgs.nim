@@ -663,11 +663,11 @@ proc reportAndForceRaise*(
 
   if rep.category == repVM and rep.vmReport.trace != nil:
     reportAndForceRaise(conf, wrap(rep.vmReport.trace[]), reportFrom)
-  let
-    userAction = conf.report(rep)
-  case userAction
-  of doAbort:   quit 1
-  else: raiseRecoverableError("report")
+  case conf.report(rep)
+  of doAbort:
+    quit 1
+  of doRaise, doDefault, doNothing:
+    raiseRecoverableError("report")
 
 template reportAndForceRaise*(
   conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
