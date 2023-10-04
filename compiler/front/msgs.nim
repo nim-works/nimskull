@@ -600,10 +600,12 @@ proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
   assert node.kind == nkError
   return conf.report(conf.astDiagToLegacyReport(conf, node.diag))
 
-proc fillReport(c: ConfigRef, r: var Report, reportFrom: InstantiationInfo) =
+proc fillReportAndHandleVmReport(c: ConfigRef, r: var Report, reportFrom: InstantiationInfo) =
   r.reportFrom = toReportLineInfo(reportFrom)
   if r.category in { repSem, repVM } and r.location.isSome():
     r.context = c.getContext(r.location.get())
+  if r.category == repVM and r.vmReport.trace != nil:
+    handleReport(conf, wrap(r.vmReport.trace[]), reportFrom)
 
 proc handleReport*(
     conf: ConfigRef,
@@ -611,9 +613,7 @@ proc handleReport*(
     reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing) {.noinline.} =
   var rep = r
-  fillReport(conf, rep, reportFrom)
-  if rep.category == repVM and rep.vmReport.trace != nil:
-    handleReport(conf, wrap(rep.vmReport.trace[]), reportFrom)
+  fillReportAndHandleVmReport(conf, rep, reportFrom)
 
   let
     userAction = conf.report(rep)
@@ -662,10 +662,8 @@ proc reportAndForceRaise*(
   ## (`doAbort`) by the structured report hook, always raises a recoverable
   ## error.
   var rep = r
-  fillReport(conf, rep, reportFrom)
+  fillReportAndHandleVmReport(conf, rep, reportFrom)
 
-  if rep.category == repVM and rep.vmReport.trace != nil:
-    reportAndForceRaise(conf, wrap(rep.vmReport.trace[]), reportFrom)
   case conf.report(rep)
   of doAbort:
     quit 1
