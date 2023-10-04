@@ -620,7 +620,7 @@ proc handleReport*(
     reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing) {.noinline.} =
   var rep = r
-  fillReportAndHandleVmReport(conf, rep, reportFrom)
+  fillReportAndHandleVmTrace(conf, rep, reportFrom)
 
   let
     userAction = conf.report(rep)
