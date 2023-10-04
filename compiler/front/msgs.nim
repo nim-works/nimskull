@@ -664,7 +664,7 @@ template globalReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(
     conf, wrap(report, instLoc()), instLoc(), doRaise)
 
-proc reportAndForceRaise*(
+proc reportAndFail*(
   conf: ConfigRef, r: Report, reportFrom: InstantiationInfo) =
   ## Similar to `handleReport`, but, unless overridden with aborting
   ## (`doAbort`) by the structured report hook, always raises a recoverable
@@ -672,15 +672,25 @@ proc reportAndForceRaise*(
   var rep = r
   fillReportAndHandleVmTrace(conf, rep, reportFrom)
 
-  case conf.report(rep)
+  let userAction = conf.report(rep)
+  case userAction
   of doAbort:
     quit 1
-  of doRaise, doDefault, doNothing:
+  of doDefault:
+    let (action, trace) = errorActions(conf, rep, userAction)
+    case action
+    of doAbort:
+      quit 1
+    of doRaise, doNothing:
+      raiseRecoverableError("report")
+    of doDefault:
+      unreachable()
+  of doRaise, doNothing:
     raiseRecoverableError("report")
 
-template reportAndForceRaise*(
+template reportAndFail*(
   conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
-  reportAndForceRaise(
+  reportAndFail(
     conf, wrap(report, instLoc(), info), instLoc())
 
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
