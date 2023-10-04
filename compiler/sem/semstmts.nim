@@ -1658,13 +1658,11 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
         call[0].sym.kind != skIterator:
       if n.len == 3:
         n[^2] = implicitIterator(c, "items", n[^2])
-        hasError = n[^2].isError or hasError
       elif n.len == 4:
         n[^2] = implicitIterator(c, "pairs", n[^2])
-        hasError = n[^2].isError or hasError
       else:
-        hasError = true
         n[^2] = c.config.newError(n[^2], PAstDiag(kind: adSemForExpectedIterator))
+      hasError = n[^2].isError or hasError
     result = semForVars(c, n, flags)
   if hasError or result.kind == nkError:
     hasError = true
