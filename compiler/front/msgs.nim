@@ -669,7 +669,7 @@ proc reportAndForceRaise*(
   ## (`doAbort`) by the structured report hook, always raises a recoverable
   ## error.
   var rep = r
-  fillReportAndHandleVmReport(conf, rep, reportFrom)
+  fillReportAndHandleVmTrace(conf, rep, reportFrom)
 
   case conf.report(rep)
   of doAbort:
