@@ -13,5 +13,5 @@ t1()
 discard """
 $nimsuggest --tester $file
 >chk $1
-chk;;skUnknown;;;;Error;;$file;;10;;23;;"illformed AST: ()";;0
+chk;;skUnknown;;;;Error;;$file;;8;;12;;"illformed AST: ()";;0
 """
