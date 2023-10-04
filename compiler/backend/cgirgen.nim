@@ -32,7 +32,6 @@ import
     ast_types,
     ast_idgen,
     ast_query,
-    idents,
     lineinfos,
     types
   ],
@@ -57,6 +56,7 @@ import
   ]
 
 from compiler/ast/ast import newSym, newType, rawAddSon
+from compiler/ast/idents import whichKeyword
 from compiler/sem/semdata import makeVarType
 
 # TODO: move the procedure somewhere common
@@ -97,7 +97,6 @@ type
 
   TranslateCl = object
     graph: ModuleGraph
-    cache: IdentCache
     idgen: IdGenerator
 
     owner: PSym
@@ -107,8 +106,8 @@ type
     localsMap: Table[int, LocalId]
       ## maps a sybmol ID to the corresponding local. Needed because normal
       ## local variables reach here as ``PSym``s
-    labelMap: SeqMap[LabelId, PSym]
-      ## maps a block-label name to the ``PSym`` created for it
+    blocks: seq[LabelId]
+      ## the stack of enclosing blocks for the currently processed node
 
     locals: Store[LocalId, Local]
       ## the in-progress list of all locals in the translated body
@@ -246,6 +245,9 @@ func newTypeNode(info: TLineInfo, typ: PType): CgNode =
 
 func newSymNode(s: PSym; info = unknownLineInfo): CgNode =
   CgNode(kind: cnkSym, info: info, typ: s.typ, sym: s)
+
+func newLabelNode(blk: BlockId; info = unknownLineInfo): CgNode =
+  CgNode(kind: cnkLabel, info: info, label: blk)
 
 proc newExpr(kind: CgNodeKind, info: TLineInfo, typ: PType,
              kids: sink seq[CgNode]): CgNode =
@@ -907,13 +909,11 @@ proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
     result = newStmt(cnkRepeatStmt, info, body())
     leave(tree, cr)
   of mnkBlock:
-    let sym = newSym(skLabel, cl.cache.getIdent("label"), cl.idgen.nextSymId(),
-                     cl.owner, info)
-    cl.labelMap[n.label] = sym
-
+    cl.blocks.add n.label # push the label to the stack
     result = newStmt(cnkBlockStmt, info,
-                     newSymNode(sym), # the label
+                     newLabelNode(cl.blocks.high.BlockId, info),
                      body())
+    cl.blocks.setLen(cl.blocks.len - 1) # pop block from the stack
     leave(tree, cr)
   of mnkTry:
     result = newStmt(cnkTryStmt, info, [body()])
@@ -946,7 +946,12 @@ proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
 
     leave(tree, cr)
   of mnkBreak:
-    result = newStmt(cnkBreakStmt, info, [newSymNode(cl.labelMap[n.label])])
+    # find the stack index of the enclosing 'block' identified by the break's
+    # label; we use the index as the ID
+    var idx = cl.blocks.high
+    while idx >= 0 and cl.blocks[idx] != n.label:
+      dec idx
+    result = newStmt(cnkBreakStmt, info, [newLabelNode(BlockId idx, info)])
   of mnkReturn:
     result = newNode(cnkReturnStmt, info)
   of mnkPNode:
@@ -1391,8 +1396,7 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
   ## using `idgen` for provide new IDs when creating symbols. `sourceMap`
   ## must be the ``SourceMap`` corresponding to `tree` and is used as the
   ## provider for source position information
-  var cl = TranslateCl(graph: graph, idgen: idgen, cache: graph.cache,
-                       owner: owner)
+  var cl = TranslateCl(graph: graph, idgen: idgen, owner: owner)
   if owner.kind in routineKinds:
     # setup the locals and associated mappings for the parameters
     template add(v: PSym) =

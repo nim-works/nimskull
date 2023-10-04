@@ -123,10 +123,6 @@ type
                    ## register storing the backing location
     kind: TSlotKind
 
-  TBlock = object
-    label: PSym
-    fixups: seq[TPosition]
-
   LocalLoc = object
     ## The current state for a local.
     reg: TRegister   ## the register that holds either the handle or value
@@ -134,8 +130,9 @@ type
                      ## would fit it into a register
 
   BProc = object
-    blocks: seq[TBlock]
-      ## blocks; temp data structure
+    blocks: seq[seq[TPosition]]
+      ## for each block, the jump instructions targeting the block's exit.
+      ## These need to be patched once the code for the block is generated
     sym: PSym
     body: Body
       ## the full body of the current procedure/statement/expression
@@ -591,17 +588,6 @@ template withTemp(tmp, n, typ, body: untyped) {.dirty.} =
   body
   c.freeTemp(tmp)
 
-proc popBlock(c: var TCtx; oldLen: int) =
-  for f in c.prc.blocks[oldLen].fixups:
-    c.patch(f)
-  c.prc.blocks.setLen(oldLen)
-
-template withBlock(labl: PSym; body: untyped) {.dirty.} =
-  var oldLen {.gensym.} = c.prc.blocks.len
-  c.prc.blocks.add TBlock(label: labl, fixups: @[])
-  body
-  popBlock(c, oldLen)
-
 proc gen(c: var TCtx; n: CgNode; dest: var TDest)
 proc gen(c: var TCtx; n: CgNode; dest: TRegister) =
   var d: TDest = dest
@@ -649,8 +635,14 @@ proc genRepeat(c: var TCtx; n: CgNode) =
 
 proc genBlock(c: var TCtx; n: CgNode) =
   let oldRegisterCount = c.prc.regInfo.len
-  withBlock(n[0].sym):
-    c.gen(n[1])
+
+  c.prc.blocks.add @[] # push a new block
+  c.gen(n[1])
+  # fixup the jumps:
+  for pos in c.prc.blocks[^1].items:
+    c.patch(pos)
+  # pop the block again:
+  c.prc.blocks.setLen(c.prc.blocks.len - 1)
 
   for i in oldRegisterCount..<c.prc.regInfo.len:
       when not defined(release):
@@ -665,14 +657,7 @@ proc genBlock(c: var TCtx; n: CgNode) =
 
 proc genBreak(c: var TCtx; n: CgNode) =
   let lab1 = c.xjmp(n, opcJmp)
-  block search:
-    for i in countdown(c.prc.blocks.len-1, 0):
-      if c.prc.blocks[i].label == n[0].sym:
-        c.prc.blocks[i].fixups.add lab1
-        break search
-
-    # the corresponding block seems to be missing?
-    unreachable("break target is missing")
+  c.prc.blocks[n[0].label.int].add lab1
 
 proc genIf(c: var TCtx, n: CgNode) =
   #  if (!expr1) goto lab1;
@@ -3062,7 +3047,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkPragmaStmt, cnkAsmStmt, cnkEmitStmt:
     unused(c, n, dest)
   of cnkInvalid, cnkMagic, cnkRange, cnkExcept, cnkFinally, cnkBranch,
-     cnkBinding:
+     cnkBinding, cnkLabel:
     unreachable(n.kind)
 
 proc initProc(c: TCtx, owner: PSym, body: sink Body): BProc =

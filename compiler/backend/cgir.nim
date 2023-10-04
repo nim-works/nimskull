@@ -33,6 +33,7 @@ type
     cnkAstLit        ## a ``NimNode`` literal
 
     cnkSym
+    cnkLabel         ## name of a block
     cnkLocal         ## reference to a local
     # future direction: split up ``cnkSym`` in the way the MIR does it
     cnkMagic         ## name of a magic procedure. Only valid in the callee
@@ -164,6 +165,10 @@ type
     name*: PIdent
       ## either the user-defined name or 'nil'
 
+  BlockId* = distinct uint32
+    ## Identifies a block within another block -- the IDs are **not** unique
+    ## within a ``Body``. An outermost block has ID 0, a block within the
+    ## block ID 1, etc.
   LocalId* = distinct uint32
     ## Identifies a local within a procedure.
 
@@ -182,6 +187,7 @@ type
     of cnkAstLit:     astLit*: PNode
     of cnkSym:        sym*: PSym
     of cnkMagic:      magic*: TMagic
+    of cnkLabel:      label*: BlockId
     of cnkLocal:      local*: LocalId
     of cnkPragmaStmt: pragma*: TSpecialWord
     of cnkWithOperand: operand*: CgNode
@@ -258,6 +264,7 @@ func newLocalRef*(id: LocalId, info: TLineInfo, typ: PType): CgNode =
   CgNode(kind: cnkLocal, info: info, typ: typ, local: id)
 
 proc `==`*(x, y: LocalId): bool {.borrow.}
+proc `==`*(x, y: BlockId): bool {.borrow.}
 
 proc merge*(dest: var Body, source: Body): CgNode =
   ## Merges `source` into `dest` by appending the former to the latter.
