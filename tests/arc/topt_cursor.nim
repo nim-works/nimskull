@@ -6,10 +6,10 @@ discard """
 var :aux_2
 try:
   var x_cursor = ("hi", 5)
-  block label:
+  block :label_0:
     if cond:
       x_cursor = [type node](("different", 54))
-      break label
+      break :label_0
     x_cursor = [type node](("string here", 80))
   echo([
     var :aux_4 = $(x_cursor)
@@ -26,10 +26,10 @@ try:
   var res
   try:
     res = newStringOfCap(80)
-    block label:
+    block :label_0:
       while true:
         if not(readLine(f, res)):
-          break label
+          break :label_0
         var x_cursor = res
         echo([x_cursor])
   finally:

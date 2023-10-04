@@ -49,6 +49,9 @@ proc treeRepr*(n: CgNode): string =
       result.add n.sym.name.s
       result.add " id: "
       result.add $n.sym.itemId
+    of cnkLabel:
+      result.add "label: "
+      result.addInt n.label.int
     of cnkLocal:
       result.add "local: "
       result.add $n.local.int
@@ -161,6 +164,9 @@ proc render(c: var RenderCtx, body: Body, ind: int, n: CgNode,
     else:
       # magics are never cursors nor do they need disambiguation
       res.add s.name.s
+  of cnkLabel:
+    res.add ":label_"
+    res.addInt n.label.int
   of cnkLocal:
     let name = body[n.local].name
     if name.isNil:

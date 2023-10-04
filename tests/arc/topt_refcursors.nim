@@ -4,17 +4,17 @@ discard """
   nimout: '''--expandArc: traverse
 
 var it_cursor = root
-block label:
+block :label_0:
   while true:
     if not(not(==(it_cursor, nil))):
-      break label
+      break :label_0
     echo([it_cursor[].s])
     it_cursor = it_cursor[].ri
 var jt_cursor = root
-block label_1:
+block :label_0:
   while true:
     if not(not(==(jt_cursor, nil))):
-      break label_1
+      break :label_0
     var ri_1_cursor = jt_cursor[].ri
     echo([jt_cursor[].s])
     jt_cursor = ri_1_cursor

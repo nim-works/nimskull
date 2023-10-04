@@ -28,18 +28,23 @@ proc inExceptBlockLen(p: BProc): int =
   for x in p.nestedTryStmts:
     if x.inExcept: result.inc
 
-proc startBlockInternal(p: BProc): int {.discardable.} =
+proc startBlockInternal(p: BProc, blk: int) =
   inc(p.labels)
-  result = p.blocks.len
+  let result = p.blocks.len
   setLen(p.blocks, result + 1)
   p.blocks[result].id = p.labels
+  p.blocks[result].blk = blk
   p.blocks[result].nestedTryStmts = p.nestedTryStmts.len.int16
   p.blocks[result].nestedExceptStmts = p.inExceptBlockLen.int16
 
 template startBlock(p: BProc, start: FormatStr = "{$n",
-                args: varargs[Rope]): int =
+                args: varargs[Rope]) =
   lineCg(p, cpsStmts, start, args)
-  startBlockInternal(p)
+  startBlockInternal(p, 0)
+
+template startBlock(p: BProc, id: BlockId) =
+  lineCg(p, cpsStmts, "{$n", [])
+  startBlockInternal(p, id.int + 1)
 
 proc endBlock(p: BProc)
 
@@ -315,19 +320,17 @@ proc genRepeatStmt(p: BProc, t: CgNode) =
   dec(p.withinLoop)
 
 proc genBlock(p: BProc, n: CgNode) =
-  assert n[0].kind == cnkSym
-  let
-    breakIdx = startBlock(p)
-    sym = n[0].sym
-  sym.position = breakIdx + 1
+  startBlock(p, n[0].label)
   genStmts(p, n[1])
   endBlock(p)
 
 proc genBreakStmt(p: BProc, t: CgNode) =
-  assert(t[0].kind == cnkSym)
-  let sym = t[0].sym
-  doAssert(sym.kind == skLabel)
-  let idx = sym.position-1
+  assert t[0].kind == cnkLabel
+  var idx = p.blocks.high
+  # search for the ``TBlock`` that corresponds to the label. `blk` stores the
+  # ID offset by 1, which has to be accounted for here
+  while idx >= 0 and p.blocks[idx].blk != (t[0].label.int + 1):
+    dec idx
 
   let label = assignLabel(p.blocks[idx])
   blockLeaveActions(p,

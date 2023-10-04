@@ -2208,7 +2208,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkRaiseStmt: genRaiseStmt(p, n)
   of cnkPragmaStmt: discard
   of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkExcept,
-     cnkFinally, cnkBranch:
+     cnkFinally, cnkBranch, cnkLabel:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 
 proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =
