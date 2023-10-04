@@ -606,7 +606,8 @@ proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
   assert node.kind == nkError
   return conf.report(conf.astDiagToLegacyReport(conf, node.diag))
 
-proc fillReportAndHandleVmReport(c: ConfigRef, r: var Report, reportFrom: InstantiationInfo) =
+proc fillReportAndHandleVmTrace(c: ConfigRef, r: var Report,
+                                reportFrom: InstantiationInfo) =
   r.reportFrom = toReportLineInfo(reportFrom)
   if r.category in { repSem, repVM } and r.location.isSome():
     r.context = c.getContext(r.location.get())
