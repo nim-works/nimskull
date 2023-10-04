@@ -611,6 +611,7 @@ proc fillReportAndHandleVmTrace(c: ConfigRef, r: var Report,
   r.reportFrom = toReportLineInfo(reportFrom)
   if r.category in { repSem, repVM } and r.location.isSome():
     r.context = c.getContext(r.location.get())
+
   if r.category == repVM and r.vmReport.trace != nil:
     handleReport(c, wrap(r.vmReport.trace[]), reportFrom)
 
