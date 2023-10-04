@@ -41,6 +41,12 @@ from compiler/ast/reports_sem import SemReport
 export InstantiationInfo
 export TErrorHandling
 
+proc handleReport*(
+    conf: ConfigRef,
+    r: Report,
+    reportFrom: InstantiationInfo,
+    eh: TErrorHandling = doNothing) {.noinline.}
+
 template toStdOrrKind(stdOrr): untyped =
   if stdOrr == stdout: stdOrrStdout else: stdOrrStderr
 
@@ -605,7 +611,7 @@ proc fillReportAndHandleVmReport(c: ConfigRef, r: var Report, reportFrom: Instan
   if r.category in { repSem, repVM } and r.location.isSome():
     r.context = c.getContext(r.location.get())
   if r.category == repVM and r.vmReport.trace != nil:
-    handleReport(conf, wrap(r.vmReport.trace[]), reportFrom)
+    handleReport(c, wrap(r.vmReport.trace[]), reportFrom)
 
 proc handleReport*(
     conf: ConfigRef,
