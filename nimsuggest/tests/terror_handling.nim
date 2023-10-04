@@ -5,10 +5,7 @@
 import std/macros
 
 macro t1(): untyped =
-  result = newNimNode(nnkForStmt)
-  result.add(ident("i")) 
-  result.add newNimNode(nnkCall)
-  result.add nnkDiscardStmt.newTree(newEmptyNode())
+  newNimNode(nnkCall) # an call AST with not enough sub-nodes
 
 t1()
 
