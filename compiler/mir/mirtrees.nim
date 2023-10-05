@@ -358,10 +358,10 @@ const
     ## Node kinds only allowed in an output context directly inside an
     ## arg-block
 
-  SingleInputNodes* = {mnkAddr, mnkDeref, mnkDerefView, mnkCast, mnkConv,
-                       mnkStdConv, mnkPathNamed, mnkPathPos, mnkPathVariant,
-                       mnkPathConv, mnkTag, mnkIf, mnkCase, mnkRaise,
-                       mnkVoid} + ArgumentNodes
+  SingleInputNodes* = {mnkAddr, mnkDeref, mnkView, mnkDerefView, mnkCast,
+                       mnkConv, mnkStdConv, mnkPathNamed, mnkPathPos,
+                       mnkPathVariant, mnkPathConv, mnkTag, mnkIf, mnkCase,
+                       mnkRaise, mnkVoid} + ArgumentNodes
     ## Operators and statements that must not have argument-blocks as input
 
   StmtNodes* = {mnkScope, mnkRepeat, mnkTry, mnkBlock, mnkBreak, mnkReturn,
@@ -617,10 +617,14 @@ func numArgs*(tree: MirTree, op: Operation): int =
   else:
     unreachable("no arg-block is used")
 
-func unaryOperand*(tree: MirTree, op: Operation): OpValue =
-  # XXX: a 'def' node is not an operation
+func operand*(tree: MirTree, op: Operation|OpValue|NodePosition): OpValue =
+  ## Returns the index (``OpValue``) of operand for the single-input node at
+  ## `op`.
   assert tree[op].kind in SingleInputNodes + DefNodes
-  result = OpValue getStart(tree, NodePosition(op) - 1)
+  let pos =
+    when op is NodePosition: op
+    else:                    NodePosition(op)
+  OpValue getStart(tree, pos - 1)
 
 func hasInput*(tree: MirTree, op: Operation): bool =
   # XXX: a 'def' node is not an operation

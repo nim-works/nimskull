@@ -329,7 +329,7 @@ func getDefEntity(tree: MirTree, n: NodePosition): NodePosition =
 func skipTag(tree: MirTree, n: Operation): OpValue =
   ## Returns the input to the tag operation `n`
   assert tree[n].kind == mnkTag
-  unaryOperand(tree, n)
+  tree.operand(n)
 
 # --------- compute routines ---------------
 
@@ -434,7 +434,7 @@ func solveOwnership(tree: MirTree, cfg: ControlFlowGraph, values: var Values,
   for i, n in tree.pairs:
     case n.kind
     of ConsumeCtx:
-      let opr = unaryOperand(tree, Operation i)
+      let opr = tree.operand(i)
 
       if values.owned(opr) in {unknown, weak} and hasDestructor(tree[opr].typ):
         # unresolved onwership status and has a destructors
@@ -880,7 +880,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       # passing a value to the ``raise`` operation or as the initial value of
       # a temporary used for tuple unpacking also requires consuming it
       let
-        opr = unaryOperand(tree, Operation i)
+        opr = tree.operand(i)
         typ = tree[opr].typ
 
       if tree[opr].kind == mnkNone or not hasDestructor(typ):
@@ -905,7 +905,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         user = Operation(findEnd(tree, parent(tree, i)) + 1) ## the consumer
         # XXX: 'consume' is not an operation -- it's an argument sink. It
         #      might make sense to introduce a new type for those
-        val = unaryOperand(tree, Operation i)
+        val = tree.operand(i)
 
       case tree[user].kind
       of mnkConstr, mnkObjConstr, mnkCall, mnkMagic:
