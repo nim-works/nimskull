@@ -1664,8 +1664,8 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
         n[^2] = c.config.newError(n[^2], PAstDiag(kind: adSemForExpectedIterator))
       hasError = n[^2].isError or hasError
     result = semForVars(c, n, flags)
-  if hasError or result.kind == nkError:
-    hasError = true
+  if result.kind == nkError:
+    discard # do nothing
   elif n[^1].typ == c.enforceVoidContext:
     # propagate any enforced VoidContext:
     result.typ = c.enforceVoidContext
