@@ -1672,7 +1672,8 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
   elif efInTypeof in flags:
     result.typ = result.lastSon.typ
   closeScope(c)
-  if hasError: result = c.config.wrapError(result)
+  if result.kind != nkError and hasError:
+    result = c.config.wrapError(result)
 
 proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
