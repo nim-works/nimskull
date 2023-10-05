@@ -510,6 +510,7 @@ func astDiagToLegacyReportKind*(
   of adSemExpectedNonemptyPattern: rsemExpectedNonemptyPattern
   of adSemInvalidControlFlow: rsemInvalidControlFlow
   of adSemExpectedLabel: rsemExpectedLabel
+  of adSemForExpectedIterator: rsemForExpectsIterator
   of adSemContinueCannotHaveLabel: rsemContinueCannotHaveLabel
   of adSemUseOrDiscardExpr: rsemUseOrDiscardExpr
   of adSemCannotConvertToRange: rsemCannotConvertToRange
