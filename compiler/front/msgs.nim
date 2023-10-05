@@ -41,6 +41,12 @@ from compiler/ast/reports_sem import SemReport
 export InstantiationInfo
 export TErrorHandling
 
+proc handleReport*(
+    conf: ConfigRef,
+    r: Report,
+    reportFrom: InstantiationInfo,
+    eh: TErrorHandling = doNothing) {.noinline.}
+
 template toStdOrrKind(stdOrr): untyped =
   if stdOrr == stdout: stdOrrStdout else: stdOrrStderr
 
@@ -600,18 +606,22 @@ proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
   assert node.kind == nkError
   return conf.report(conf.astDiagToLegacyReport(conf, node.diag))
 
+proc fillReportAndHandleVmTrace(c: ConfigRef, r: var Report,
+                                reportFrom: InstantiationInfo) =
+  r.reportFrom = toReportLineInfo(reportFrom)
+  if r.category in { repSem, repVM } and r.location.isSome():
+    r.context = c.getContext(r.location.get())
+
+  if r.category == repVM and r.vmReport.trace != nil:
+    handleReport(c, wrap(r.vmReport.trace[]), reportFrom)
+
 proc handleReport*(
     conf: ConfigRef,
     r: Report,
     reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing) {.noinline.} =
   var rep = r
-  rep.reportFrom = toReportLineInfo(reportFrom)
-  if rep.category in { repSem, repVM } and rep.location.isSome():
-    rep.context = conf.getContext(rep.location.get())
-
-  if rep.category == repVM and rep.vmReport.trace != nil:
-    handleReport(conf, wrap(rep.vmReport.trace[]), reportFrom)
+  fillReportAndHandleVmTrace(conf, rep, reportFrom)
 
   let
     userAction = conf.report(rep)
@@ -653,6 +663,34 @@ template globalReport*(
 template globalReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(
     conf, wrap(report, instLoc()), instLoc(), doRaise)
+
+proc reportAndFail*(
+  conf: ConfigRef, r: Report, reportFrom: InstantiationInfo) =
+  ## Similar to `handleReport`, but, unless overridden with aborting
+  ## (`doAbort`) by the structured report hook, always raises a recoverable
+  ## error.
+  var rep = r
+  fillReportAndHandleVmTrace(conf, rep, reportFrom)
+
+  case conf.report(rep)
+  of doAbort:
+    quit(conf, false)
+  of doDefault:
+    let (action, trace) = errorActions(conf, rep, doRaise)
+    case action
+    of doAbort:
+      quit(conf, trace)
+    of doRaise, doNothing:
+      raiseRecoverableError("report")
+    of doDefault:
+      unreachable()
+  of doRaise, doNothing:
+    raiseRecoverableError("report")
+
+template reportAndFail*(
+  conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
+  reportAndFail(
+    conf, wrap(report, instLoc(), info), instLoc())
 
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   {.line.}:
