@@ -672,15 +672,14 @@ proc reportAndFail*(
   var rep = r
   fillReportAndHandleVmTrace(conf, rep, reportFrom)
 
-  let userAction = conf.report(rep)
-  case userAction
+  case conf.report(rep)
   of doAbort:
-    quit 1
+    quit(conf, false)
   of doDefault:
-    let (action, trace) = errorActions(conf, rep, userAction)
+    let (action, trace) = errorActions(conf, rep, doRaise)
     case action
     of doAbort:
-      quit 1
+      quit(conf, trace)
     of doRaise, doNothing:
       raiseRecoverableError("report")
     of doDefault:
