@@ -1057,8 +1057,8 @@ proc transformExceptBranch(c: PTransf, n: PNode): PNode =
     # -> getCurrentException()
     let excCall = callCodegenProc(c.graph, "getCurrentException")
     # -> (excType)
-    let convNode = newTreeIT(nkHiddenSubConv, n[1].info, excTypeNode.typ.toRef(c.idgen)):
-      [newNodeI(nkEmpty, n.info), excCall]
+    let convNode = newTreeIT(nkObjDownConv, n[1].info, excTypeNode.typ.toRef(c.idgen)):
+      [excCall]
     # -> let exc = ...
     let identDefs = newTreeI(nkIdentDefs, n[1].info):
       [n[0][2], newNodeI(nkEmpty, n.info), convNode]

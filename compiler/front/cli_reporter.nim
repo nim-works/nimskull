@@ -3286,7 +3286,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemExpectedLabel,
       adSemContinueCannotHaveLabel,
       adSemUnavailableLocation,
-      adSemExternalLocalNotAllowed:
+      adSemExternalLocalNotAllowed,
+      adSemForExpectedIterator:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,

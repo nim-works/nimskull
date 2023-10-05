@@ -613,9 +613,9 @@ func undoConversions(buf: var MirNodeSeq, tree: MirTree, src: OpValue) =
   ## the conversions in *reverse*. ``cgirgen`` detects this pattern and removes
   ## the conversions that cancel each other out.
   var p = NodePosition(src)
-  while tree[p].kind in {mnkStdConv, mnkConv}:
+  while tree[p].kind == mnkPathConv:
     p = previous(tree, p)
-    buf.add MirNode(kind: mnkConv, typ: tree[p].typ)
+    buf.add MirNode(kind: mnkPathConv, typ: tree[p].typ)
 
 template voidCallWithArgs(buf: var MirNodeSeq, body: untyped) =
   argBlock(buf):

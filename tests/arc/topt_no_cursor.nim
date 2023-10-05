@@ -91,10 +91,10 @@ try:
   var a_cursor = txt
   var i = 0
   var L = len(a_cursor)
-  block label:
+  block :label_0:
     while true:
       if not(<(i, L)):
-        break label
+        break :label_0
       var splitted
       try:
         var line = a_cursor[i]
@@ -119,10 +119,10 @@ try:
   var a_cursor = shadowScope[].symbols
   var i = 0
   var L = len(a_cursor)
-  block label:
+  block :label_0:
     while true:
       if not(<(i, L)):
-        break label
+        break :label_0
       var :aux_9
       var sym = a_cursor[i]
       addInterfaceDecl(c,
@@ -139,7 +139,7 @@ finally:
 var par
 try:
   this[].isValid = fileExists(this[].value)
-  block label:
+  block :label_0:
     if dirExists(this[].value):
       var :aux_4
       par = [type node]((
@@ -147,7 +147,7 @@ try:
         :aux_4 = default()
         =copy(:aux_4, :aux_3)
         :aux_4, ""))
-      break label
+      break :label_0
     var :aux_6
     var :aux_7
     var :aux_8
@@ -161,12 +161,12 @@ try:
       wasMoved(:aux_7.tail)
       :aux_8))
     =destroy(:aux_7)
-  block label_1:
+  block :label_0:
     if dirExists(par.dir):
       var :aux_9 = this[].matchDirs
       var :aux_10 = getSubDirs(par.dir, par.front)
       =sink(:aux_9, :aux_10)
-      break label_1
+      break :label_0
     var :aux_11 = this[].matchDirs
     var :aux_12 = []
     =sink(:aux_11, :aux_12)

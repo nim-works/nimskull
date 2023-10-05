@@ -139,6 +139,9 @@ type
   BProc* = ref TCProc
   TBlock* = object
     id*: int                  ## the ID of the label; positive means that it
+    blk*: int                 ## the ``BlockId`` + 1 of the block.
+                              ## '0' if the ``TBlock`` doesn't correspond to a
+                              ## ``cnkBlockStmt``
     label*: Rope              ## generated text for the label
                               ## nil if label is not used
     sections*: TCProcSections ## the code belonging
@@ -370,7 +373,7 @@ proc hash(n: ConstrTree): Hash =
       for it in n.items:
         result = result !& hashTree(it)
     of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic,
-       cnkWithOperand, cnkLocal:
+       cnkWithOperand, cnkLocal, cnkLabel:
       unreachable()
     result = !$result
 
@@ -400,7 +403,7 @@ proc `==`(a, b: ConstrTree): bool =
             if not treesEquivalent(a[i], b[i]): return
           result = true
       of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic,
-         cnkWithOperand, cnkLocal:
+         cnkWithOperand, cnkLocal, cnkLabel:
         # nodes that cannot appear in construction trees
         unreachable()
 

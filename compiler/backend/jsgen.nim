@@ -106,10 +106,6 @@ type
                             # might be nil.
                             # (see `maybeMakeTemp`)
 
-  TBlock = object
-    id: int                  # the ID of the label; positive means that it
-                             # has been used (i.e. the label should be emitted)
-
   PGlobals* = ref object
     typeInfo, constants*, code*: Rope
     typeInfoGenerated: IntSet
@@ -147,7 +143,9 @@ type
     g: PGlobals
     beforeRetNeeded: bool
     unique: int    # for temp identifier generation
-    blocks: seq[TBlock]
+    blocks: seq[int]
+      ## the stack of enclosing blocks, indexed by ``BlockId``. Each entry
+      ## stores the number to use for the label name
     extraIndent: int
 
     locals: OrdinalSeq[LocalId, Loc]
@@ -890,31 +888,16 @@ proc genCaseJS(p: PProc, n: CgNode) =
 
 proc genBlock(p: PProc, n: CgNode) =
   inc(p.unique)
-  let idx = p.blocks.len
-  if n[0].kind != cnkEmpty:
-    # named block?
-    p.config.internalAssert(n[0].kind == cnkSym, n.info, "genBlock")
-    var sym = n[0].sym
-    sym.position = idx+1
   let labl = p.unique
   lineF(p, "Label$1: {$n", [labl.rope])
-  setLen(p.blocks, idx + 1)
-  p.blocks[idx].id = - p.unique # negative because it isn't used yet
+  p.blocks.add labl # push a new block
   genStmt(p, n[1])
-  setLen(p.blocks, idx)
+  p.blocks.setLen(p.blocks.len - 1) # pop the block from the stack
   lineF(p, "}$n", [labl.rope])
 
 proc genBreakStmt(p: PProc, n: CgNode) =
-  var idx: int
   genLineDir(p, n)
-  if true:
-    assert(n[0].kind == cnkSym)
-    let sym = n[0].sym
-    assert(sym.kind == skLabel)
-    idx = sym.position-1
-
-  p.blocks[idx].id = abs(p.blocks[idx].id) # label is used
-  lineF(p, "break Label$1;$n", [rope(p.blocks[idx].id)])
+  lineF(p, "break Label$1;$n", [$p.blocks[n[0].label.int]])
 
 proc genAsmOrEmitStmt(p: PProc, n: CgNode) =
   genLineDir(p, n)
@@ -2547,7 +2530,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkRaiseStmt: genRaiseStmt(p, n)
   of cnkPragmaStmt: discard
   of cnkInvalid, cnkMagic, cnkRange, cnkBinding, cnkExcept, cnkFinally,
-     cnkBranch, cnkAstLit:
+     cnkBranch, cnkAstLit, cnkLabel:
     internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =

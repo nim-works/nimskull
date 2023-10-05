@@ -1538,7 +1538,7 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
   of nkBracketExpr:
     genBracketExpr(c, n)
   of nkObjDownConv, nkObjUpConv:
-    eval(c): genx(c, n[0], consume) => convOp(n.typ)
+    eval(c): genx(c, n[0], consume) => pathConv(n.typ)
   of nkAddr:
     eval(c): genx(c, n[0]) => addrOp(n.typ)
   of nkHiddenAddr:
@@ -1571,7 +1571,12 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
   of nkHiddenStdConv:
     eval(c): genx(c, n[1], consume) => stdConvOp(n.typ)
   of nkHiddenSubConv, nkConv:
-    eval(c): genx(c, n[1], consume) => convOp(n.typ)
+    if compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct, {IgnoreTupleFields}):
+      # it's an lvalue-preserving conversion
+      eval(c): genx(c, n[1], consume) => pathConv(n.typ)
+    else:
+      # it's a conversion that produces a new rvalue
+      eval(c): genx(c, n[1], consume) => convOp(n.typ)
   of nkLambdaKinds:
     procLit(c, n[namePos].sym)
   of nkChckRangeF, nkChckRange64, nkChckRange:

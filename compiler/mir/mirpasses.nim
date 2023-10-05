@@ -53,8 +53,8 @@ func isRvalue(tree: MirTree, a: OpValue): bool {.inline.} =
   ## doesn't have a name and cannot be assigned to. Only checks the
   ## immediate operator that yield the value.
   tree[a].kind in { mnkNone, mnkProc, mnkType, mnkLiteral, mnkConstr,
-                    mnkObjConstr, mnkCall, mnkStdConv, mnkCast, mnkAddr,
-                    mnkView }
+                    mnkObjConstr, mnkCall, mnkStdConv, mnkConv, mnkCast,
+                    mnkAddr, mnkView }
 
 func isArgBlock(tree: MirTree, n: NodePosition): bool =
   ## Returns whether the node `n` is the end-node of an arg-block.
@@ -66,16 +66,16 @@ func getRoot(tree: MirTree, n: OpValue): NodePosition =
   ## - the name of a location (e.g., ``a`` in ``a.b.c``)
   ## - an r-value (e.g., ``call()`` in ``call().b.c``)
   const PathNodes = { mnkPathArray, mnkPathNamed, mnkPathPos, mnkPathVariant,
-                      mnkConv }
+                      mnkPathConv }
     ## all operations that (can) take an lvalue as input and produce
-    ## lvalue
+    ## an lvalue
 
   var i = n
   while tree[i].kind in PathNodes:
     case tree[i].kind
     of mnkPathNamed, mnkPathPos, mnkPathVariant:
       i = OpValue(NodePosition(i) - 1)
-    of mnkConv:
+    of mnkPathConv:
       i = unaryOperand(tree, Operation(i))
     of mnkPathArray:
       i = operand(tree, Operation(i), 0)
@@ -357,7 +357,7 @@ proc fixupCallArguments(tree: MirTree, config: ConfigRef,
       while true:
         case tree[x].kind
         of mnkAddr, mnkView, mnkDeref, mnkDerefView, mnkConv, mnkStdConv,
-           mnkTag:
+           mnkTag, mnkPathConv:
           x = unaryOperand(tree, x)
         of mnkPathNamed, mnkPathPos, mnkPathVariant:
           result.add NodePosition(x)

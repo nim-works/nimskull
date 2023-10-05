@@ -242,6 +242,12 @@ func pathVariant*(s: var MirNodeSeq, objType: PType, field: PSym, val: var EValu
   s.add MirNode(kind: mnkPathVariant, typ: objType, field: field)
   val.typ = objType
 
+func pathConv*(s: var MirNodeSeq, typ: PType, val: var EValue) =
+  ## Emits an ``mnkPathConv`` node, representing a handle-conversion to
+  ## `typ`.
+  s.add MirNode(kind: mnkPathConv, typ: typ)
+  val.typ = typ
+
 func unaryMagicCall*(s: var MirNodeSeq, m: TMagic, typ: PType, val: var EValue) =
   assert typ != nil
   s.add MirNode(kind: mnkMagic, typ: typ, magic: m)
@@ -324,6 +330,7 @@ genValueAdapter1(viewOp, typ)
 genValueAdapter1(derefOp, typ)
 genValueAdapter1(derefViewOp, typ)
 genValueAdapter1(pathObj, field)
+genValueAdapter1(pathConv, typ)
 genValueAdapter2(pathPos, typ, pos)
 genValueAdapter2(pathVariant, typ, field)
 genValueAdapter2(unaryMagicCall, m, typ)

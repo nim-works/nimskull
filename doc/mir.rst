@@ -151,8 +151,8 @@ in memory:
   out-op    = "void" | "raise" | "init" | "fastAsgn" | "asgn" | "switch" |
               "asm" | "emit" | def | if-stmt | case-stmt | region
   in-out-op = "magic" | "call" | "pathNamed" | "pathPos" | "pathArray" |
-              "pathVariant" | "constr" | obj-constr | "cast" | "deref" |
-              "addr" | "stdConv" | "conv" | "view" | "derefView"
+              "pathVariant" | "pathConv" | "constr" | obj-constr | "cast" |
+              "deref" | "addr" | "stdConv" | "conv" | "view" | "derefView"
 
   sequence = in-op, {in-out-op}, out-op
 
