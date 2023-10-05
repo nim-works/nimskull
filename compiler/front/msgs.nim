@@ -621,24 +621,38 @@ proc handleReport*(
     r: Report,
     reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing) {.noinline.} =
+  ## Prepares the report `r` and passes it to the active report hook.
+  ## `eh` is currently only a suggestion, and it is sometimes ignored depending
+  ## on the currently active configuration.
   var rep = r
   fillReportAndHandleVmTrace(conf, rep, reportFrom)
 
-  let
-    userAction = conf.report(rep)
-    (action, trace) =
-      case userAction
-      of doDefault:
-        errorActions(conf, rep, eh)
-      else:
-        (userAction, false)
+  let userAction = conf.report(rep)
+  # ``errorActions`` also increments the error counter, so make sure to always
+  # call it
+  var (action, trace) = errorActions(conf, rep, eh)
 
+  # decide what to do, based on the hook-provided action and the computed
+  # action. The more severe handling out of the two wins
+  case userAction
+  of doAbort:
+    # a hook-requested abort always overrides the computed handling
+    (action, trace) = (doAbort, false)
+  of doRaise:
+    case action
+    of doRaise, doAbort:
+      discard "a hook-requested raise doesn't override an abort"
+    of doNothing, doDefault:
+      (action, trace) = (doRaise, false)
+  of doNothing, doDefault:
+    discard "use the computed strategy"
+
+  # now perform the selected action:
   case action
   of doAbort:   quit(conf, trace)
   of doRaise:   raiseRecoverableError("report")
   of doNothing: discard
-  of doDefault: assert(
-    false,
+  of doDefault: unreachable(
     "Default error handing action must be turned into ignore/raise/abort")
 
 template globalAssert*(
@@ -664,34 +678,6 @@ template globalReport*(
 template globalReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(
     conf, wrap(report, instLoc()), instLoc(), doRaise)
-
-proc reportAndFail*(
-  conf: ConfigRef, r: Report, reportFrom: InstantiationInfo) =
-  ## Similar to `handleReport`, but, unless overridden with aborting
-  ## (`doAbort`) by the structured report hook, always raises a recoverable
-  ## error.
-  var rep = r
-  fillReportAndHandleVmTrace(conf, rep, reportFrom)
-
-  case conf.report(rep)
-  of doAbort:
-    quit(conf, false)
-  of doDefault:
-    let (action, trace) = errorActions(conf, rep, doRaise)
-    case action
-    of doAbort:
-      quit(conf, trace)
-    of doRaise, doNothing:
-      raiseRecoverableError("report")
-    of doDefault:
-      unreachable()
-  of doRaise, doNothing:
-    raiseRecoverableError("report")
-
-template reportAndFail*(
-  conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
-  reportAndFail(
-    conf, wrap(report, instLoc(), info), instLoc())
 
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   {.line.}:
@@ -752,19 +738,18 @@ proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
         wrap(intRep, instLoc, info)
 
   conf.handleReport(rep, instLoc, doAbort)
+  unreachable("not aborted")
 
 template internalError*(
     conf: ConfigRef,
     info: TLineInfo,
     fail: string,
   ): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
+  ## Causes an internal error. Always ends the currently executing routine.
   doInternalUnreachable(conf, info, fail, instLoc())
 
 template internalError*(conf: ConfigRef, fail: string): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
+  ## Causes an internal error. Always ends the currently executing routine.
   doInternalUnreachable(conf, unknownLineInfo, fail, instLoc())
 
 proc doInternalAssert*(conf: ConfigRef,
@@ -782,17 +767,18 @@ proc doInternalAssert*(conf: ConfigRef,
         wrap(intRep, instLoc, info)
 
   conf.handleReport(rep, instLoc, doAbort)
+  unreachable("not aborted")
 
 template internalAssert*(
     conf: ConfigRef, condition: bool, info: TLineInfo, failMsg: string = "") =
-  ## Causes an internal error if the provided condition evaluates to false; but
-  ## does not necessarily raise/end the currently executing routine.
+  ## Causes an internal error if the provided condition evaluates to false.
+  ## Always ends the currently executing routine.
   if not condition:
     doInternalAssert(conf, instLoc(), failMsg, info)
 
 template internalAssert*(conf: ConfigRef, condition: bool, failMsg = "") =
-  ## Causes an internal error if the provided condition evaluates to false; but
-  ## does not necessarily raise/end the currently executing routine.
+  ## Causes an internal error if the provided condition evaluates to false.
+  ## Always ends the currently executing routine.
   if not condition:
     doInternalAssert(conf, instLoc(), failMsg)
 

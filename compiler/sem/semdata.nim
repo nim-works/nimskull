@@ -1065,13 +1065,13 @@ proc markIndirect*(c: PContext, s: PSym) {.inline.} =
 
 proc checkSonsLen*(n: PNode, length: int; conf: ConfigRef) =
   if n.len != length:
-    conf.reportAndFail(n.info, reportAst(
+    conf.globalReport(n.info, reportAst(
       rsemIllformedAst, n,
       str = "Expected $1 elements, but found $2" % [$length, $n.len]))
 
 proc checkMinSonsLen*(n: PNode, length: int; conf: ConfigRef) =
   if n.len < length:
-    conf.reportAndFail(n.info, reportAst(
+    conf.globalReport(n.info, reportAst(
       rsemIllformedAst, n,
       str = "Expected at least $1 elements, but found $2" % [$length, $n.len]))
 
