@@ -565,10 +565,7 @@ proc firstFloat*(t: PType): BiggestFloat =
      tyStatic, tyInferred, tyUserTypeClasses:
     firstFloat(lastSon(t))
   else:
-    newPartialConfigRef().localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for firstFloat(" & $t.kind & ')')
-    NaN
+    unreachable("invalid kind for firstFloat(" & $t.kind & ')')
 
 proc lastFloat*(t: PType): BiggestFloat =
   case t.kind
@@ -582,10 +579,7 @@ proc lastFloat*(t: PType): BiggestFloat =
      tyStatic, tyInferred, tyUserTypeClasses:
     lastFloat(lastSon(t))
   else:
-    newPartialConfigRef().localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for firstFloat(" & $t.kind & ')')
-    NaN
+    unreachable("invalid kind for firstFloat(" & $t.kind & ')')
 
 proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
   case t.kind
@@ -601,10 +595,7 @@ proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
      tyStatic, tyInferred, tyUserTypeClasses:
     floatRangeCheck(x, lastSon(t))
   else:
-    newPartialConfigRef().localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for floatRangeCheck(" & $t.kind & ')')
-    false
+    unreachable("invalid kind for floatRangeCheck(" & $t.kind & ')')
 
 # -------------- type equality -----------------------------------------------
 

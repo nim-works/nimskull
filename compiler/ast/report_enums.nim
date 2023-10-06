@@ -71,15 +71,10 @@ type
     repNone
 
     #--------------------------  Internal reports  ---------------------------#
-    # Internal reports being
+    # Internal reports begin
     # fatal errors begin
-    rintUnknown ## Unknown internal report kind
-    rintFatal ## Explicitly fatal compiler error
-
     rintUnreachable ## State in the compiler code that must not be reached
     rintAssert ## Failed internal assert in the compiler
-
-    rintIce ## Internal compilation error
     # fatal end
 
     # errors being
@@ -909,7 +904,7 @@ type
 
   ExternalReportKind* = range[rextCmdRequiresFile .. rextPath]
 
-  InternalReportKind* = range[rintUnknown .. rintEchoMessage]
+  InternalReportKind* = range[rintUnreachable .. rintEchoMessage]
 
 
 const
@@ -972,8 +967,8 @@ const
   repInternalKinds*: ReportKinds = {
     low(InternalReportKind) .. high(InternalReportKind)}
 
-  rintFatalKinds* = {rintUnknown .. rintIce} ## Fatal internal compilation
-                                             ## reports
+  rintFatalKinds* = {rintUnreachable .. rintAssert} ## Fatal internal compilation
+                                                ## reports
   rintErrorKinds* = {rintCannotOpenFile .. rintNotImplemented}
   rintWarningKinds* = {rintWarnCannotOpenFile .. rintWarnFileChanged}
   rintHintKinds* = {rintSource .. rintSuccessX}
