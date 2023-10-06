@@ -167,7 +167,7 @@ proc deltaTrace(stopProc, indent: string, entries: seq[StackTraceEntry])
 template semIdeForTemplateOrGenericCheck(conf, n, requiresCheck) =
   # we check quickly if the node is where the cursor is
   when defined(nimsuggest):
-    if conf.m.trackPos.col != -1 and
+    if conf.ideCmd in {ideSug, ideCon} and
        n.info.fileIndex == conf.m.trackPos.fileIndex and
        n.info.line == conf.m.trackPos.line:
       requiresCheck = true
