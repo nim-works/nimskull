@@ -15,11 +15,11 @@ discard """
 $nimsuggest --tester $file
 >outline $1
 outline;;skProc;;toutline_generic.generic;;*;;4;;5;;"";;100
-outline;;skTemplate;;toutline_generic.templ;;*;;9;;9;;"";;100
+outline;;skTemplate;;toutline_generic.templ;;*;;8;;9;;"";;100
 
 >outline $2
 outline;;skProc;;toutline_generic.generic;;*;;4;;5;;"";;100
-outline;;skTemplate;;toutline_generic.templ;;*;;9;;9;;"";;100
+outline;;skTemplate;;toutline_generic.templ;;*;;8;;9;;"";;100
 
 >outline $path/toutline_generic.nim
 outline;;skProc;;toutline_generic.generic;;*;;4;;5;;"";;100
