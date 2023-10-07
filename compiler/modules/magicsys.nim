@@ -181,6 +181,20 @@ func getMagicEqForType*(t: PType): TMagic =
   else:
     unreachable(t.kind)
 
+func getMagicLeForType*(t: PType): TMagic =
+  ## Returns the ``mLeX`` magic for the given type `t`.
+  case t.kind
+  of tyInt, tyInt8, tyInt16, tyInt32, tyInt64,
+     tyUInt, tyUInt8, tyUInt16, tyUInt32, tyUInt64:
+    mLeI
+  of tyEnum:   mLeEnum
+  of tyBool:   mLeB
+  of tyString: mLeStr
+  of tyChar:   mLeCh
+  of tySet:    mLeSet
+  else:
+    unreachable(t.kind)
+
 proc getMagicEqSymForType*(g: ModuleGraph; t: PType; info: TLineInfo): PSym =
   let magic = getMagicEqForType(t)
   result = getSysMagic(g, info, "==", magic)
