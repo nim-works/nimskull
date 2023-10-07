@@ -117,7 +117,7 @@ type
     opcNccValue, opcNccInc, opcNcsAdd, opcNcsIncl, opcNcsLen, opcNcsAt,
     opcNctPut, opcNctLen, opcNctGet, opcNctHasNext, opcNctNext, opcNodeId,
 
-    opcSlurp,
+    opcSlurp,          ## deprecated to be removed
     opcParseExprToAst,
     opcParseStmtToAst,
     opcNGetLineInfo, opcNSetLineInfo,

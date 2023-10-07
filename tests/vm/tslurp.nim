@@ -1,4 +1,4 @@
-import os
+import std/os
 
 template getScriptDir(): string =
   parentDir(instantiationInfo(-1, true).filename)

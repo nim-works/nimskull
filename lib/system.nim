@@ -2570,23 +2570,21 @@ proc `[]=`*[Idx, T](a: var array[Idx, T]; i: BackwardsIndex; x: T) {.inline.} =
 proc `[]=`*(s: var string; i: BackwardsIndex; x: char) {.inline.} =
   s[s.len - int(i)] = x
 
-proc slurp*(filename: string): string {.magic: "Slurp".}
-  ## This is an alias for `staticRead <#staticRead,string>`_.
-  ## to be deprecated, use `staticRead`
-
-proc staticRead*(filename: string): string {.magic: "Slurp".}
-  ## Compile-time `readFile <io.html#readFile,string>`_ proc for easy
-  ## `resource`:idx: embedding:
-  ##
-  ## The maximum file size limit that `staticRead` and `slurp` can read is
-  ## near or equal to the *free* memory of the device you are using to compile.
-  ##
-  ## .. code-block:: Nim
-  ##     const myResource = staticRead"mydatafile.bin"
-  ##
-  ## `slurp <#slurp,string>`_ is an alias for `staticRead`.
-
 when defined(nimskullReworkStaticExec):
+  proc slurp*(filename: string): string {.compileTime,
+    deprecated: "use staticRead".} = discard
+    ## This is an alias for `staticRead <#staticRead,string>`_.
+
+  proc staticRead*(filename: string): string {.compileTime.} = discard
+    ## Compile-time `readFile <io.html#readFile,string>`_ proc for easy
+    ## `resource`:idx: embedding:
+    ##
+    ## The maximum file size limit that `staticRead` and `slurp` can read is
+    ## near or equal to the *free* memory of the device you are using to compile.
+    ##
+    ## .. code-block:: Nim
+    ##     const myResource = staticRead"mydatafile.bin"
+
   proc gorge*(command: string, input = "", cache = ""): string {.
     compileTime, deprecated: "use staticExec".} = discard
     ## This is an alias for `staticExec <#staticExec,string,string,string>`_.
@@ -2620,6 +2618,12 @@ when defined(nimskullReworkStaticExec):
     ## 
     ## Deprecate/Replace with variant that returns the exit code and output
 else:
+  proc slurp*(filename: string): string {.magic: "Slurp".} = discard
+    ## kept for bootstrapping
+
+  proc staticRead*(filename: string): string {.magic: "Slurp".} = discard
+    ## kept for bootstrapping
+
   proc gorge*(command: string, input = "", cache = ""): string {.
     magic: "StaticExec".} = discard
     ## kept for bootstrapping
