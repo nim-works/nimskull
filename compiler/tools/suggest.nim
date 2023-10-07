@@ -529,7 +529,7 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
   let conf = g.config
   when defined(nimsuggest):
     if conf.ideCmd in {ideNone, ideUse, ideDus, ideSug, ideCon}:
-      # used in ideSug, ideCon for sorting results
+      # used by `ideSug` and `ideCon` for sorting results
       if s.allUsages.len == 0:
         s.allUsages = @[info]
       else:
