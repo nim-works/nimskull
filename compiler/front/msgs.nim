@@ -703,27 +703,9 @@ template localReport*(conf: ConfigRef, report: Report) =
 
 # xxx: `internalError` and `internalAssert` in conjunction with `handleReport`,
 #      and the whole concept of "reports" indicating error handling action at a
-#      callsite, is *terrible*. Since neither will necessarily raise/end
-#      execution of the current routine, which may lead to NPEs and the like.
-
-template internalError*(
-    conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
-  conf.handleReport(
-    wrap(InternalReport(kind: repKind, msg: fail), instLoc()),
-    instLoc(),
-    doAbort)
-
-template internalError*(
-    conf: ConfigRef, info: TLineInfo,
-    repKind: InternalReportKind, fail: string): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
-  conf.handleReport(
-    wrap(InternalReport(kind: repKind, msg: fail), instLoc(), info),
-    instLoc(),
-    doAbort)
+#      callsite, is *terrible*. While it will result in the compiler exiting,
+#      it is currently implemented very indirectly, through
+#      ``isCompilerFatal``.
 
 proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
                             instLoc: InstantiationInfo) {.noreturn, inline.} =

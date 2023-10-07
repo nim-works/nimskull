@@ -2632,15 +2632,6 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
     of rintCannotOpenFile, rintWarnCannotOpenFile:
       result = "cannot open file: $1" % r.file
 
-    of rintUnknown:
-      result = "unknown"
-
-    of rintFatal:
-      result = "fatal"
-
-    of rintIce:
-      result = r.msg
-
     of rintNotUsingNimcore:
       result = "Nim tooling must be built using -d:nimcore"
 
