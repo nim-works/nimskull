@@ -528,10 +528,12 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
   ## misnamed: should be 'symDeclared'
   let conf = g.config
   when defined(nimsuggest):
-    if s.allUsages.len == 0:
-      s.allUsages = @[info]
-    else:
-      s.addNoDup(info)
+    if conf.ideCmd in {ideUse, ideDus, ideSug, ideCon}:
+      # used in ideSug, ideCon for sorting results
+      if s.allUsages.len == 0:
+        s.allUsages = @[info]
+      else:
+        s.addNoDup(info)
 
     if conf.ideCmd == ideDef:
       findDefinition(g, info, s, usageSym)
