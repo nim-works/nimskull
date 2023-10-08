@@ -3981,17 +3981,8 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## `reportBody` for report, which then calls respective (for each report
   ## category) `reportBody` overloads defined above
   assertKind r
-  let wkind = conf.writabilityKind(r)
-  # debug reports can be both enabled and force enabled. So adding a case here
-  # is not really useful, since report writability kind does not necessarily
-  # dictate how it is written, just whether it can/must/cannot be written.
-  # xxx: the above convoluted comment brought to you by _glaring_ design flaws!
-  if wkind == writeDisabled:
-    return
-  else:
-    if wkind == writeForceEnabled:
-      echo conf.reportFull(r)
-    elif r.kind == rsemProcessing and conf.hintProcessingDots:
+  if true:
+    if r.kind == rsemProcessing and conf.hintProcessingDots:
       # xxx: the report hook is handling processing dots output, why? this whole
       #      infrastructure is overwrought. seriously, they're not hints, they're
       #      progress indicators.
