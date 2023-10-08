@@ -164,21 +164,20 @@ proc deltaTrace(stopProc, indent: string, entries: seq[StackTraceEntry])
     echo:
       "$1| $2 $3($4)" % [indent, $e.procname, $e.filename, $e.line]
 
-template semIdeForTemplateOrGenericCheck(conf, n, requiresCheck) =
-  # we check quickly if the node is where the cursor is
+template semIdeForTemplateOrGenericCheck(conf, n, cursorInBody) =
+  # use only for idetools support; detecting cursor in generic or template body
+  # if so call `semIdeForTemplateOrGeneric` for semantic checking
   when defined(nimsuggest):
-    if conf.ideCmd in {ideSug, ideCon} and
+    if conf.ideCmd in IdeLocCmds and
        n.info.fileIndex == conf.m.trackPos.fileIndex and
        n.info.line == conf.m.trackPos.line:
-      requiresCheck = true
+      cursorInBody = true
 
 template semIdeForTemplateOrGeneric(c: PContext; n: PNode;
-                                    requiresCheck: bool) =
-  # use only for idetools support; this is pretty slow so generics and
-  # templates perform some quick check whether the cursor is actually in
-  # the generic or template.
+                                    cursorInBody: bool) =
+  # provide incomplete information for idetools support in generic or template
   when defined(nimsuggest):
-    if c.config.cmd == cmdIdeTools and requiresCheck:
+    if c.config.cmd == cmdIdeTools and cursorInBody:
       #if optIdeDebug in gGlobalOptions:
       #  echo "passing to safeSemExpr: ", renderTree(n)
       discard safeSemExpr(c, n)
