@@ -2626,9 +2626,6 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         raiseVmError(VmEvent(
           kind: vmEvtNodeNotASymbol, ast: regs[rb].nimNode))
 
-    of opcSlurp:
-      unreachable("no longer an opcode/magic")
-
     of opcParseExprToAst, opcParseStmtToAst:
       decodeBC(rkNimNode)
 

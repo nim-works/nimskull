@@ -1839,7 +1839,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mDefault: genDefault(p, e, d)
   of mEcho: genEcho(p, e[1].skipConv)
   of mArrToSeq: genArrToSeq(p, e, d)
-  of mNLen..mNError, mSlurp..mQuoteAst:
+  of mNLen..mNError, mStatic..mQuoteAst:
     localReport(p.config, e.info, reportSym(
       rsemConstExpressionExpected, e[0].sym))
 
