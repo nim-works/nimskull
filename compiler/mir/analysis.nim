@@ -257,22 +257,22 @@ func computeValuesAndEffects*(body: MirTree): Values =
       # the result is always owned
       start: Owned.yes
     of mnkAddr, mnkView, mnkPathPos, mnkPathVariant:
-      inheritDecay(i, i - 1)
+      inheritDecay(i, NodePosition body.operand(i))
     of mnkPathArray:
       # inherit from the first operand (i.e. the array-like value)
       inheritDecay(i, NodePosition operand(body, Operation(i), 0))
     of mnkPathNamed:
-      inheritDecay(i, i - 1)
+      inheritDecay(i, NodePosition body.operand(i))
       if sfCursor in n.field.flags:
         # any lvalue derived from a cursor location is non-owning
         result.values[OpValue i].owns = Owned.no
     of mnkPathConv:
-      inherit(i, i - 1)
+      inherit(i, NodePosition body.operand(i))
 
     of mnkArgBlock:
       num.add stack.len.uint16 # remember the current top-of-stack
     of mnkTag:
-      stack.add Effect(kind: n.effect, loc: OpValue(i - 1))
+      stack.add Effect(kind: n.effect, loc: body.operand(i))
     of mnkEnd:
       if n.start == mnkArgBlock:
         popEffects(Operation(i+1))
@@ -332,7 +332,7 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
         return true
 
     of ConsumeCtx:
-      let opr = unaryOperand(tree, Operation i)
+      let opr = tree.operand(i)
       if v.owned(opr) == Owned.yes:
         if isPartOf(tree, loc, toLvalue opr) == yes:
           # the location's value is consumed and it becomes empty. No operation
@@ -402,13 +402,13 @@ func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
         return false
 
     of UseContext - {mnkDefUnpack}:
-      if overlaps(tree, loc, toLvalue unaryOperand(tree, Operation i)) != no:
+      if overlaps(tree, loc, toLvalue tree.operand(Operation i)) != no:
         return false
 
     of DefNodes:
       # passing a value to a 'def' is also a use
       if hasInput(tree, Operation i) and
-         overlaps(tree, loc, toLvalue unaryOperand(tree, Operation i)) != no:
+         overlaps(tree, loc, toLvalue tree.operand(Operation i)) != no:
         return false
 
     else:
@@ -513,7 +513,7 @@ func computeAliveOp*[T: PSym | TempId](
         result = alive
 
   of ConsumeCtx:
-    let opr = unaryOperand(tree, op)
+    let opr = tree.operand(op)
     if values.owned(opr) == Owned.yes and sameLocation(opr):
       # the location's value is consumed
       result = dead
