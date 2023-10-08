@@ -742,7 +742,7 @@ type
     mDefined, mDeclared, mDeclaredInScope, mCompiles, mArrGet, mArrPut, mAsgn,
     mLow, mHigh, mSizeOf, mAlignOf, mOffsetOf, mTypeTrait,
     mIs, mOf, mAddr, mType, mTypeOf,
-    mPlugin, mEcho, mShallowCopy, mSlurp,
+    mPlugin, mEcho, mShallowCopy,
     mStatic,
     mParseExprToAst, mParseStmtToAst, mExpandToAst, mQuoteAst,
     mInc, mDec, mOrd,

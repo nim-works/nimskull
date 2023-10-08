@@ -2009,7 +2009,7 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mDefault: genDefault(p, n, r)
   of mWasMoved: genReset(p, n)
   of mEcho: genEcho(p, n, r)
-  of mNLen..mNError, mSlurp:
+  of mNLen..mNError:
     localReport(p.config, n.info, reportSym(
       rsemConstExpressionExpected, n[0].sym))
 

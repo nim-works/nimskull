@@ -399,6 +399,7 @@ type
     # compiler interfacing:
     graph*: ModuleGraph
     config*: ConfigRef
+    currentModule*: PSym ## module currently being compiled
     cache*: IdentCache
     idgen*: IdGenerator
 
