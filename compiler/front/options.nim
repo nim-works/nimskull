@@ -307,7 +307,8 @@ type
       unreportedErrors*: OrderedTable[NodeId, PNode]
 
 const 
-  IdeLocCmds* = {ideSug, ideCon, ideDef, ideUse, ideDus, ideHighlight} ## source location awared IDE commands 
+  IdeLocCmds* = {ideSug, ideCon, ideDef, ideUse, ideDus}
+    ## source location awared IDE commands
 
 template `[]`*(conf: ConfigRef, idx: FileIndex): TFileInfo =
   conf.m.fileInfos[idx.uint32]
