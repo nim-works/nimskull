@@ -585,6 +585,14 @@ iterator subNodes*(tree: MirTree, n: NodePosition): NodePosition =
     yield n
     n = sibling(tree, n)
 
+iterator pathOps*(tree: MirTree, n: NodePosition): lent MirNode =
+  ## Returns all sub-nodes of an ``mnkPath`` tree in order of appearance.
+  assert tree[n].kind == mnkPath
+  var n = n + 1
+  while tree[n].kind != mnkEnd:
+    yield tree[n]
+    inc n
+
 # XXX: ``lpairs`` is not at all related to the mid-end IR. The ``pairs``
 #      iterator from the stdlib should be changed to use ``lent`` instead
 iterator lpairs*[T](x: seq[T]): (int, lent T) =
