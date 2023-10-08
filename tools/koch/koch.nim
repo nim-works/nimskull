@@ -66,7 +66,9 @@ Boot options:
                            for bootstrapping
 
 Commands for core developers:
-  runCI                    runs continuous integration (CI), eg: github actions
+  runCI                    bootstrap the compiler and build tools for release,
+                           in the context of continuous integration (CI),
+                           e.g.: github actions
   docs [options]           generates the full documentation
   csource -d:danger        builds the C sources for installation
   pdf                      builds the PDF documentation
@@ -529,32 +531,13 @@ proc testTools(cmd: string) =
   nimexecFold("Run nimsuggest tests", "r nimsuggest/tester")
 
 
-proc runCI(cmd: string) =
-  doAssert cmd.len == 0, cmd # avoid silently ignoring
-  echo "runCI: ", cmd
-  echo hostInfo()
-  # boot without -d:nimHasLibFFI to make sure this still works
-  # `--lib:lib` is needed for bootstrap on openbsd, for reasons described in
-  # https://github.com/nim-lang/Nim/pull/14291 (`getAppFilename` bugsfor older nim on openbsd).
-  kochExecFold("Boot in release mode", "boot -d:release -d:nimStrictMode --lib:lib")
-
-  let batchParam = "--batch:$1" % "NIM_TESTAMENT_BATCH".getEnv("_")
-  buildTools()
-  ## run tests
-  nimexecFold("Test nimscript", "e tests/test_nimscript.nims")
-  when defined(windows):
-    nimexecFold("Compile tester", "c --usenimcache -d:posix --compileOnly testament/testament")
-
-  # main bottleneck here
-  # xxx: even though this is the main bottleneck, we could speedup the rest via batching with `--batch`.
-  # BUG: with initOptParser, `--batch:'' all` interprets `all` as the argument of --batch, pending bug #14343
-  nimexecFold("Run tester", "c -r --putenv:NIM_TESTAMENT_REMOTE_NETWORKING:1 -d:nimStrictMode testament/testament $# all" % batchParam)
-
-  testTools(cmd)
-
-  when not defined(bsd):
-    # the BSDs are overwhelmed already, so only run this test on the other machines:
-    kochExecFold("Boot Nim ORC", "boot -d:release --gc:orc --lib:lib")
+proc runCI() =
+  ## Builds the compiler and tooling in the context of continuous integration
+  ## (=CI).
+  # enable strict mode in CI, which turns some warnings and hints into
+  # errors. In addition, don't abort after the first error
+  kochExec("boot -d:danger -d:nimStrictMode --errorMax:3")
+  buildTools("-d:nimStrictMode --errorMax:3")
 
 proc valgrind(cmd: string) =
   # somewhat hacky: '=' sign means "pass to valgrind" else "pass to Nim"
@@ -634,7 +617,7 @@ when isMainModule:
       of "distrohelper": geninstall()
       of "install": install(op.cmdLineRest)
       of "installdeps": installDeps(op.cmdLineRest)
-      of "runci": runCI(op.cmdLineRest)
+      of "runci": runCI()
       of "test", "tests": tests(op.cmdLineRest)
       of "testtools": testTools(op.cmdLineRest)
       of "temp": temp(op.cmdLineRest)
