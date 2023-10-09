@@ -9,7 +9,7 @@ template templ() =
   var x = 0 #[!]#
   return # <- when no cursor is provided, this triggered `x` being reported
 
-# try both with and without a specified cursor position
+# try both with and without a specified cursor position, they should be the same
 
 discard """
 $nimsuggest --tester $file
