@@ -309,6 +309,10 @@ type
     when defined(nimDebugUnreportedErrors):
       unreportedErrors*: OrderedTable[NodeId, PNode]
 
+const 
+  IdeLocCmds* = {ideSug, ideCon, ideDef, ideUse, ideDus}
+    ## IDE commands requiring source locations, related `MsgConfig.trackPos`
+
 template `[]`*(conf: ConfigRef, idx: FileIndex): TFileInfo =
   conf.m.fileInfos[idx.uint32]
 
