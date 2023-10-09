@@ -1773,7 +1773,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # work without now. template/tsymchoicefield doesn't like an early exit
   # here at all!
   when defined(nimsuggest):
-    if c.config.cmd == cmdIdeTools:
+    if c.config.ideCmd in {ideSug, ideCon, ideDef}:
       suggestExpr(c, n)
       if c.config.m.trackPos == n[1].info: suggestExprNoCheck(c, n)
 
@@ -3549,7 +3549,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   addInNimDebugUtils(c.config, "semExpr", n, result, flags)
 
   result = n
-  if c.config.cmd == cmdIdeTools: suggestExpr(c, n)
+  if c.config.ideCmd in {ideSug, ideCon, ideDef}: suggestExpr(c, n)
   if nfSem in n.flags: return
   case n.kind
   of nkIdent, nkAccQuoted:

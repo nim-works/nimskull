@@ -2040,7 +2040,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
   result = nil
   inc c.inTypeContext
 
-  if c.config.cmd == cmdIdeTools: suggestExpr(c, n)
+  if c.config.ideCmd in {ideSug, ideCon, ideDef}: suggestExpr(c, n)
   case n.kind
   of nkEmpty: result = n.typ
   of nkTypeOfExpr:
