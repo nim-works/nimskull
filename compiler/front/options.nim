@@ -308,7 +308,7 @@ type
 
 const 
   IdeLocCmds* = {ideSug, ideCon, ideDef, ideUse, ideDus}
-    ## source location awared IDE commands
+    ## IDE commands requiring source locations, related `MsgConfig.trackPos`
 
 template `[]`*(conf: ConfigRef, idx: FileIndex): TFileInfo =
   conf.m.fileInfos[idx.uint32]
