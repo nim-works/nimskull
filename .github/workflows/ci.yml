@@ -123,7 +123,7 @@ jobs:
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
       - name: Build release binaries
-        run: ./koch.py runCI
+        run: ./koch.py all-strict
 
       - name: Upload workspace to artifacts
         uses: ./.github/actions/upload-compiler

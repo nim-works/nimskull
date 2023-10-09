@@ -66,9 +66,8 @@ Boot options:
                            for bootstrapping
 
 Commands for core developers:
-  runCI                    bootstrap the compiler and build tools for release,
-                           in the context of continuous integration (CI),
-                           e.g.: github actions
+  all-strict               bootstrap the compiler and build tools for release,
+                           using strict mode for compiling
   docs [options]           generates the full documentation
   csource -d:danger        builds the C sources for installation
   pdf                      builds the PDF documentation
@@ -244,12 +243,12 @@ type
     Windows
     Unix
 
-proc buildReleaseBinaries() =
+proc buildReleaseBinaries(args = "") =
   ## Build binaries needed for creating a release
   # Boot the compiler
-  kochExec("boot -d:danger")
+  kochExec("boot -d:danger " & args)
   # Build the tools
-  buildTools()
+  buildTools(args)
 
 proc binArchive(target: BinArchiveTarget, args: string) =
   ## Builds binary archive for `target`
@@ -530,15 +529,6 @@ proc testTools(cmd: string) =
   nimexecFold("build nimsuggest_testing", "c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest")
   nimexecFold("Run nimsuggest tests", "r nimsuggest/tester")
 
-
-proc runCI() =
-  ## Builds the compiler and tooling in the context of continuous integration
-  ## (=CI).
-  # enable strict mode in CI, which turns some warnings and hints into
-  # errors. In addition, don't abort after the first error
-  kochExec("boot -d:danger -d:nimStrictMode --errorMax:3")
-  buildTools("-d:nimStrictMode --errorMax:3")
-
 proc valgrind(cmd: string) =
   # somewhat hacky: '=' sign means "pass to valgrind" else "pass to Nim"
   let args = parseCmdLine(cmd)
@@ -604,6 +594,9 @@ when isMainModule:
     of cmdArgument:
       case normalize(op.key)
       of "all": buildReleaseBinaries()
+      of "all-strict":
+        # when using strict mode, don't abort after the first error
+        buildReleaseBinaries("-d:nimStrictMode --errorMax:3")
       of "boot": boot(op.cmdLineRest)
       of "clean": clean(op.cmdLineRest)
       of "doc", "docs": buildDocs(op.cmdLineRest)
@@ -617,7 +610,6 @@ when isMainModule:
       of "distrohelper": geninstall()
       of "install": install(op.cmdLineRest)
       of "installdeps": installDeps(op.cmdLineRest)
-      of "runci": runCI()
       of "test", "tests": tests(op.cmdLineRest)
       of "testtools": testTools(op.cmdLineRest)
       of "temp": temp(op.cmdLineRest)
