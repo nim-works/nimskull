@@ -614,7 +614,9 @@ proc suggestExprNoCheck*(c: PContext, n: PNode) =
     suggestQuit()
 
 proc suggestExpr*(c: PContext, n: PNode) =
-  if c.config.m.trackPos == n.info: suggestExprNoCheck(c, n)
+  if c.config.ideCmd in {ideSug, ideCon, ideDef} and 
+     c.config.m.trackPos == n.info: 
+    suggestExprNoCheck(c, n)
 
 proc suggestDecl*(c: PContext, n: PNode; s: PSym) =
   let attached = c.config.m.trackPosAttached
