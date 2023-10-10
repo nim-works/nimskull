@@ -117,7 +117,6 @@ type
     opcNccValue, opcNccInc, opcNcsAdd, opcNcsIncl, opcNcsLen, opcNcsAt,
     opcNctPut, opcNctLen, opcNctGet, opcNctHasNext, opcNctNext, opcNodeId,
 
-    opcSlurp,
     opcParseExprToAst,
     opcParseStmtToAst,
     opcNGetLineInfo, opcNSetLineInfo,

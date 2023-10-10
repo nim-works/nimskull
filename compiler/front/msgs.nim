@@ -609,7 +609,6 @@ proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
 
 proc fillReportAndHandleVmTrace(c: ConfigRef, r: var Report,
                                 reportFrom: InstantiationInfo) =
-  r.reportFrom = toReportLineInfo(reportFrom)
   if r.category in { repSem, repVM } and r.location.isSome():
     r.context = c.getContext(r.location.get())
 
@@ -621,24 +620,63 @@ proc handleReport*(
     r: Report,
     reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing) {.noinline.} =
+  ## Takes the report `r` and handles it. If the report is "enabled" according
+  ## to the active configuration, it is passed to the active report hook and,
+  ## if the report corresponds to an error, error handling is performed.
+  ## `eh` is currently only a suggestion, and it is sometimes ignored depending
+  ## on the currently active configuration.
   var rep = r
-  fillReportAndHandleVmTrace(conf, rep, reportFrom)
+  rep.reportFrom = toReportLineInfo(reportFrom)
 
-  let
+  if not conf.isEnabled(rep):
+    # the report is disabled -> neither invoke the report hook nor perform
+    # error handling
+    return
+
+  var userAction = doNothing
+  case writabilityKind(conf, rep)
+  of writeDisabled:
+    discard "don't invoke the hook"
+  of writeEnabled:
+    # go through the report hook
+    fillReportAndHandleVmTrace(conf, rep, reportFrom)
     userAction = conf.report(rep)
-    (action, trace) =
-      case userAction
-      of doDefault:
-        errorActions(conf, rep, eh)
-      else:
-        (userAction, false)
+  of writeForceEnabled:
+    # also go through the report hook, but temporarily override ``writeln``
+    # with something that always echoes something
+    fillReportAndHandleVmTrace(conf, rep, reportFrom)
+    let oldHook = conf.writelnHook
+    conf.writelnHook = proc (conf: ConfigRef, msg: string, flags: MsgFlags) =
+      echo msg
 
+    userAction = conf.report(rep)
+    conf.writelnHook = oldHook
+
+  # ``errorActions`` also increments the error counter, so make sure to always
+  # call it
+  var (action, trace) = errorActions(conf, rep, eh)
+
+  # decide what to do, based on the hook-provided action and the computed
+  # action. The more severe handling out of the two wins
+  case userAction
+  of doAbort:
+    # a hook-requested abort always overrides the computed handling
+    (action, trace) = (doAbort, false)
+  of doRaise:
+    case action
+    of doRaise, doAbort:
+      discard "a hook-requested raise doesn't override an abort"
+    of doNothing, doDefault:
+      (action, trace) = (doRaise, false)
+  of doNothing, doDefault:
+    discard "use the computed strategy"
+
+  # now perform the selected action:
   case action
   of doAbort:   quit(conf, trace)
   of doRaise:   raiseRecoverableError("report")
   of doNothing: discard
-  of doDefault: assert(
-    false,
+  of doDefault: unreachable(
     "Default error handing action must be turned into ignore/raise/abort")
 
 template globalAssert*(
@@ -665,34 +703,6 @@ template globalReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(
     conf, wrap(report, instLoc()), instLoc(), doRaise)
 
-proc reportAndFail*(
-  conf: ConfigRef, r: Report, reportFrom: InstantiationInfo) =
-  ## Similar to `handleReport`, but, unless overridden with aborting
-  ## (`doAbort`) by the structured report hook, always raises a recoverable
-  ## error.
-  var rep = r
-  fillReportAndHandleVmTrace(conf, rep, reportFrom)
-
-  case conf.report(rep)
-  of doAbort:
-    quit(conf, false)
-  of doDefault:
-    let (action, trace) = errorActions(conf, rep, doRaise)
-    case action
-    of doAbort:
-      quit(conf, trace)
-    of doRaise, doNothing:
-      raiseRecoverableError("report")
-    of doDefault:
-      unreachable()
-  of doRaise, doNothing:
-    raiseRecoverableError("report")
-
-template reportAndFail*(
-  conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
-  reportAndFail(
-    conf, wrap(report, instLoc(), info), instLoc())
-
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   {.line.}:
     handleReport(
@@ -717,27 +727,9 @@ template localReport*(conf: ConfigRef, report: Report) =
 
 # xxx: `internalError` and `internalAssert` in conjunction with `handleReport`,
 #      and the whole concept of "reports" indicating error handling action at a
-#      callsite, is *terrible*. Since neither will necessarily raise/end
-#      execution of the current routine, which may lead to NPEs and the like.
-
-template internalError*(
-    conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
-  conf.handleReport(
-    wrap(InternalReport(kind: repKind, msg: fail), instLoc()),
-    instLoc(),
-    doAbort)
-
-template internalError*(
-    conf: ConfigRef, info: TLineInfo,
-    repKind: InternalReportKind, fail: string): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
-  conf.handleReport(
-    wrap(InternalReport(kind: repKind, msg: fail), instLoc(), info),
-    instLoc(),
-    doAbort)
+#      callsite, is *terrible*. While it will result in the compiler exiting,
+#      it is currently implemented very indirectly, through
+#      ``isCompilerFatal``.
 
 proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
                             instLoc: InstantiationInfo) {.noreturn, inline.} =
@@ -752,19 +744,18 @@ proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
         wrap(intRep, instLoc, info)
 
   conf.handleReport(rep, instLoc, doAbort)
+  unreachable("not aborted")
 
 template internalError*(
     conf: ConfigRef,
     info: TLineInfo,
     fail: string,
   ): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
+  ## Causes an internal error. Always ends the currently executing routine.
   doInternalUnreachable(conf, info, fail, instLoc())
 
 template internalError*(conf: ConfigRef, fail: string): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
+  ## Causes an internal error. Always ends the currently executing routine.
   doInternalUnreachable(conf, unknownLineInfo, fail, instLoc())
 
 proc doInternalAssert*(conf: ConfigRef,
@@ -782,17 +773,18 @@ proc doInternalAssert*(conf: ConfigRef,
         wrap(intRep, instLoc, info)
 
   conf.handleReport(rep, instLoc, doAbort)
+  unreachable("not aborted")
 
 template internalAssert*(
     conf: ConfigRef, condition: bool, info: TLineInfo, failMsg: string = "") =
-  ## Causes an internal error if the provided condition evaluates to false; but
-  ## does not necessarily raise/end the currently executing routine.
+  ## Causes an internal error if the provided condition evaluates to false.
+  ## Always ends the currently executing routine.
   if not condition:
     doInternalAssert(conf, instLoc(), failMsg, info)
 
 template internalAssert*(conf: ConfigRef, condition: bool, failMsg = "") =
-  ## Causes an internal error if the provided condition evaluates to false; but
-  ## does not necessarily raise/end the currently executing routine.
+  ## Causes an internal error if the provided condition evaluates to false.
+  ## Always ends the currently executing routine.
   if not condition:
     doInternalAssert(conf, instLoc(), failMsg)
 

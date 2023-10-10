@@ -66,7 +66,8 @@ Boot options:
                            for bootstrapping
 
 Commands for core developers:
-  runCI                    runs continuous integration (CI), eg: github actions
+  all-strict               bootstrap the compiler and build tools for release,
+                           using strict mode for compiling
   docs [options]           generates the full documentation
   csource -d:danger        builds the C sources for installation
   pdf                      builds the PDF documentation
@@ -242,12 +243,12 @@ type
     Windows
     Unix
 
-proc buildReleaseBinaries() =
+proc buildReleaseBinaries(args = "") =
   ## Build binaries needed for creating a release
   # Boot the compiler
-  kochExec("boot -d:danger")
+  kochExec("boot -d:danger " & args)
   # Build the tools
-  buildTools()
+  buildTools(args)
 
 proc binArchive(target: BinArchiveTarget, args: string) =
   ## Builds binary archive for `target`
@@ -528,34 +529,6 @@ proc testTools(cmd: string) =
   nimexecFold("build nimsuggest_testing", "c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest")
   nimexecFold("Run nimsuggest tests", "r nimsuggest/tester")
 
-
-proc runCI(cmd: string) =
-  doAssert cmd.len == 0, cmd # avoid silently ignoring
-  echo "runCI: ", cmd
-  echo hostInfo()
-  # boot without -d:nimHasLibFFI to make sure this still works
-  # `--lib:lib` is needed for bootstrap on openbsd, for reasons described in
-  # https://github.com/nim-lang/Nim/pull/14291 (`getAppFilename` bugsfor older nim on openbsd).
-  kochExecFold("Boot in release mode", "boot -d:release -d:nimStrictMode --lib:lib")
-
-  let batchParam = "--batch:$1" % "NIM_TESTAMENT_BATCH".getEnv("_")
-  buildTools()
-  ## run tests
-  nimexecFold("Test nimscript", "e tests/test_nimscript.nims")
-  when defined(windows):
-    nimexecFold("Compile tester", "c --usenimcache -d:posix --compileOnly testament/testament")
-
-  # main bottleneck here
-  # xxx: even though this is the main bottleneck, we could speedup the rest via batching with `--batch`.
-  # BUG: with initOptParser, `--batch:'' all` interprets `all` as the argument of --batch, pending bug #14343
-  nimexecFold("Run tester", "c -r --putenv:NIM_TESTAMENT_REMOTE_NETWORKING:1 -d:nimStrictMode testament/testament $# all" % batchParam)
-
-  testTools(cmd)
-
-  when not defined(bsd):
-    # the BSDs are overwhelmed already, so only run this test on the other machines:
-    kochExecFold("Boot Nim ORC", "boot -d:release --gc:orc --lib:lib")
-
 proc valgrind(cmd: string) =
   # somewhat hacky: '=' sign means "pass to valgrind" else "pass to Nim"
   let args = parseCmdLine(cmd)
@@ -621,6 +594,9 @@ when isMainModule:
     of cmdArgument:
       case normalize(op.key)
       of "all": buildReleaseBinaries()
+      of "all-strict":
+        # when using strict mode, don't abort after the first error
+        buildReleaseBinaries("-d:nimStrictMode --errorMax:3")
       of "boot": boot(op.cmdLineRest)
       of "clean": clean(op.cmdLineRest)
       of "doc", "docs": buildDocs(op.cmdLineRest)
@@ -634,7 +610,6 @@ when isMainModule:
       of "distrohelper": geninstall()
       of "install": install(op.cmdLineRest)
       of "installdeps": installDeps(op.cmdLineRest)
-      of "runci": runCI(op.cmdLineRest)
       of "test", "tests": tests(op.cmdLineRest)
       of "testtools": testTools(op.cmdLineRest)
       of "temp": temp(op.cmdLineRest)

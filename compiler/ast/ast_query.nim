@@ -617,8 +617,7 @@ proc isSinkType*(t: PType): bool {.inline.} =
   t.kind == tySink
 
 const magicsThatCanRaise* = {
-  mNone, mSlurp, mParseExprToAst, mParseStmtToAst, mEcho,
-  mChckRange }
+  mNone, mParseExprToAst, mParseStmtToAst, mEcho, mChckRange }
 
 proc canRaiseConservative*(fn: PNode): bool =
   if fn.kind == nkSym and fn.sym.magic notin magicsThatCanRaise:

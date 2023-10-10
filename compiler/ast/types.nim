@@ -35,9 +35,6 @@ import
     modulegraphs,
   ]
 
-# TODO: switch to internalError/Assert or better yet emit the appropriate
-#       diagnostic/event/telemetry data instead, then drop this dependency
-from compiler/ast/reports_internal import InternalReport
 from compiler/ast/report_enums import ReportKind
 
 from compiler/ast/reports_sem import SemReport,
@@ -565,10 +562,7 @@ proc firstFloat*(t: PType): BiggestFloat =
      tyStatic, tyInferred, tyUserTypeClasses:
     firstFloat(lastSon(t))
   else:
-    newPartialConfigRef().localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for firstFloat(" & $t.kind & ')')
-    NaN
+    unreachable("invalid kind for firstFloat(" & $t.kind & ')')
 
 proc lastFloat*(t: PType): BiggestFloat =
   case t.kind
@@ -582,10 +576,7 @@ proc lastFloat*(t: PType): BiggestFloat =
      tyStatic, tyInferred, tyUserTypeClasses:
     lastFloat(lastSon(t))
   else:
-    newPartialConfigRef().localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for firstFloat(" & $t.kind & ')')
-    NaN
+    unreachable("invalid kind for firstFloat(" & $t.kind & ')')
 
 proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
   case t.kind
@@ -601,10 +592,7 @@ proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
      tyStatic, tyInferred, tyUserTypeClasses:
     floatRangeCheck(x, lastSon(t))
   else:
-    newPartialConfigRef().localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for floatRangeCheck(" & $t.kind & ')')
-    false
+    unreachable("invalid kind for floatRangeCheck(" & $t.kind & ')')
 
 # -------------- type equality -----------------------------------------------
 
