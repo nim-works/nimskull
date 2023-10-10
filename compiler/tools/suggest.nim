@@ -73,7 +73,7 @@ const
   sep = '\t'
 
 proc findDocComment(n: PNode): PNode =
-  if n == nil or n.kind == nkError: return nil
+  if n == nil: return nil
   if n.comment.len > 0: return n
   if n.kind in {nkStmtList, nkStmtListExpr, nkObjectTy, nkRecList} and n.len > 0:
     result = findDocComment(n[0])
@@ -543,7 +543,6 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
     elif conf.ideCmd == ideHighlight and info.fileIndex == conf.m.trackPos.fileIndex:
       suggestResult(conf, symToSuggest(g, s, isLocal=false, ideHighlight, info, 100, PrefixMatch.None, false, 0))
     elif conf.ideCmd == ideOutline and isDecl and info.fileIndex == conf.m.trackPos.fileIndex:
-      if s.kind == skTemp or {sfGenSym, sfTemplateParam} * s.flags != {}: return
       if "`gensym" in s.name.s: return # prevent constant in template show up
       suggestResult(conf, symToSuggest(g, s, isLocal=false, ideOutline, info, 100, PrefixMatch.None, false, 0))
 

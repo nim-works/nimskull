@@ -502,8 +502,6 @@ proc wrongRedefinition*(
                         conflictsWith: PSym) =
   ## Emit a redefinition error if in non-interactive mode
   if c.config.cmd != cmdInteractive:
-    if sfTemplateParam in (s.flags + conflictsWith.flags):
-      return
     c.config.localReport(info, reportSymbols(
       rsemRedefinitionOf, @[s, conflictsWith]))
 
