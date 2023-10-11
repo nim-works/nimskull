@@ -32,6 +32,10 @@ import
     passaux,
   ]
 
+from compiler/ast/reports_sem import reportSem
+from compiler/ast/report_enums import ReportCategory,
+  ReportKind
+
 from compiler/ast/reports import Report,
   category,
   kind,
@@ -138,7 +142,7 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int,
     if u != nil:
       listUsages(graph, u)
     else:
-      stderr.writeLine "found no symbol at position: " & (conf $ conf.m.trackPos)
+      localReport(conf, conf.m.trackPos, reportSem(rsemSugNoSymbolAtPosition))
 
 proc reportToSuggest(conf: ConfigRef, info: TLineInfo, r: Report): Suggest =
   Suggest(section: ideChk, filePath: toFullPath(conf, info),
