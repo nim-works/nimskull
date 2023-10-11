@@ -3,9 +3,10 @@ discard """
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:sio --hint:Performance:off $file'''
   nimout: '''--expandArc: main
 
+var x_cursor
 var :aux_2
 try:
-  var x_cursor = ("hi", 5)
+  x_cursor = ("hi", 5)
   block :label_0:
     if cond:
       x_cursor = [type node](("different", 54))
