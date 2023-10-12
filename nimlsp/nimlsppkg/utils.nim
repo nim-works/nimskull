@@ -42,7 +42,6 @@ proc getProjectFile*(file: string): string =
 
 proc rstToMarkdown*(content: string): string =
   var 
-    c: string
     isCodeBlock = false
   const BlockStart = ".. code-block::"
   const BlockLen = BlockStart.len + 1
@@ -52,19 +51,19 @@ proc rstToMarkdown*(content: string): string =
       isCodeBlock = true
       if line.endsWith("Nim\n") or line.endsWith("nim\n") or 
          line.len == BlockLen:
-        c.add "```nim\n"
+        result.add "```nim\n"
       else:
-        c.add "```\n"
+        result.add "```\n"
     elif isCodeBlock and line.strip() == "":
-      c.add "```\n"
+      result.add "```\n"
       isCodeBlock = false
     else:
-      c.add line
+      result.add line
   if isCodeBlock:
     # single code block and ends without trailing line
-    c.add "```\n"
+    result.add "```\n"
   # admonition labels
-  c = multiReplace(c, 
+  result = multiReplace(result, 
     (".. attention::", "**attention**"),
     (".. caution::", "**caution**"),
     (".. danger::", "**danger**"),
