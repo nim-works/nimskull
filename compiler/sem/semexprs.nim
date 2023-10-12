@@ -1948,11 +1948,12 @@ proc semDeref(c: PContext, n: PNode): PNode =
         else:
           nil # xxx: should probably be an error type; derefing a non-ptr/ref
 
-    case derefTarget.kind
+    result[0] = semmedTarget
+
+    case semmedTarget.kind
     of nkError:
       result = c.config.wrapError(result)
     else:
-      result[0] = semmedTarget
       result.typ = derefType
 
       if isTargetConstNil:
