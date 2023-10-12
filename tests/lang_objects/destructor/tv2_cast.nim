@@ -9,13 +9,11 @@ var data
 var :aux_2
 var :aux_3
 try:
-  var :aux_5 = encode(
-      var :aux_4 = newString(100)
-      :aux_2 = :aux_4
+  :aux_3 = encode(
+      :aux_2 = newString(100)
       cast[seq[byte]](:aux_2))
-  :aux_3 = :aux_5
-  var :aux_6 = cast[string](:aux_3)
-  =copy(data, :aux_6)
+  var :aux_4 = cast[string](:aux_3)
+  =copy(data, :aux_4)
 finally:
   =destroy(:aux_3)
   =destroy_1(:aux_2)
@@ -27,10 +25,9 @@ var data
 var :aux_3
 try:
   s = newString(100)
-  var :aux_4 = encode(toOpenArrayByte(s, 0, -(len(s), 1)))
-  :aux_3 = :aux_4
-  var :aux_5 = cast[string](:aux_3)
-  =copy(data, :aux_5)
+  :aux_3 = encode(toOpenArrayByte(s, 0, -(len(s), 1)))
+  var :aux_4 = cast[string](:aux_3)
+  =copy(data, :aux_4)
 finally:
   =destroy(:aux_3)
   =destroy_1(data)
@@ -42,10 +39,9 @@ var data
 var :aux_3
 try:
   s = newSeq(100)
-  var :aux_4 = encode(s)
-  :aux_3 = :aux_4
-  var :aux_5 = cast[string](:aux_3)
-  =copy(data, :aux_5)
+  :aux_3 = encode(s)
+  var :aux_4 = cast[string](:aux_3)
+  =copy(data, :aux_4)
 finally:
   =destroy(:aux_3)
   =destroy_1(data)
@@ -56,13 +52,11 @@ var data
 var :aux_2
 var :aux_3
 try:
-  var :aux_5 = encode(
-      var :aux_4 = newSeq(100)
-      :aux_2 = :aux_4
+  :aux_3 = encode(
+      :aux_2 = newSeq(100)
       :aux_2)
-  :aux_3 = :aux_5
-  var :aux_6 = cast[string](:aux_3)
-  =copy(data, :aux_6)
+  var :aux_4 = cast[string](:aux_3)
+  =copy(data, :aux_4)
 finally:
   =destroy(:aux_3)
   =destroy(:aux_2)
