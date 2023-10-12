@@ -60,25 +60,24 @@ result.value = move(lvalue)
 --expandArc: tt
 
 var it_cursor
+var a
+var :aux_4
 var :aux_5
 var :aux_6
-var a
-var :aux_3
 try:
   it_cursor = x
   a = (
+    :aux_4 = default()
+    =copy(:aux_4, it_cursor.key)
+    :aux_4,
     :aux_5 = default()
-    =copy(:aux_5, it_cursor.key)
-    :aux_5,
-    :aux_6 = default()
-    =copy(:aux_6, it_cursor.val)
-    :aux_6)
+    =copy(:aux_5, it_cursor.val)
+    :aux_5)
   echo([
-    var :aux_7 = $(a)
-    :aux_3 = :aux_7
-    :aux_3])
+    :aux_6 = $(a)
+    :aux_6])
 finally:
-  =destroy(:aux_3)
+  =destroy(:aux_6)
   =destroy_1(a)
 -- end of expandArc ------------------------
 --expandArc: extractConfig

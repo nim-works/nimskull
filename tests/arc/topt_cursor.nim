@@ -4,7 +4,7 @@ discard """
   nimout: '''--expandArc: main
 
 var x_cursor
-var :aux_2
+var :aux_3
 try:
   x_cursor = ("hi", 5)
   block :label_0:
@@ -13,11 +13,10 @@ try:
       break :label_0
     x_cursor = [type node](("string here", 80))
   echo([
-    var :aux_4 = $(x_cursor)
-    :aux_2 = :aux_4
-    :aux_2])
+    :aux_3 = $(x_cursor)
+    :aux_3])
 finally:
-  =destroy(:aux_2)
+  =destroy(:aux_3)
 -- end of expandArc ------------------------
 --expandArc: sio
 
