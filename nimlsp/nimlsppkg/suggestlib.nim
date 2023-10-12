@@ -67,7 +67,8 @@ func nimSymToLSPKind*(suggest: byte): SymbolKind =
   of skType: SymbolKind.Class
   of skVar: SymbolKind.Variable
   of skFunc: SymbolKind.Function
-  else: SymbolKind.Function
+  of skLabel: SymbolKind.Key
+  else: SymbolKind.Field
 
 func nimSymDetails*(suggest: Suggest): string =
   case suggest.symKind.TSymKind:
