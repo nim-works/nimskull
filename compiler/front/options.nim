@@ -143,8 +143,7 @@ type
   Suggest* = ref object
     section*: IdeCmd
     qualifiedPath*: seq[string]
-    name*: ptr string           ## not used beyond sorting purposes; name is
-                                ## also part of 'qualifiedPath'
+    name*: string               ## display name
     filePath*: string
     line*: int                  ## Starts at 1
     column*: int                ## Starts at 0
