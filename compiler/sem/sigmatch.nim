@@ -3126,7 +3126,9 @@ proc matches*(c: PContext, n: PNode, m: var TCandidate) =
 
   if m.magic in {mArrGet, mArrPut}:
     m.state = csMatch
-    m.call = n
+    # in case of a match, the top-level call node needs to be modifiable
+    m.call = copyNode(n)
+    m.call.sons = n.sons
 
     # Note the following doesn't work as it would produce ambiguities.
     # We hack system.nim instead: https://github.com/nim-lang/nim/issues/8049.
