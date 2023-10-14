@@ -1795,7 +1795,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mOffsetOf:
     var dotExpr: CgNode
     case e[1].kind
-    of cnkFieldAccess:
+    of cnkFieldAccess, cnkTupleAccess:
       dotExpr = e[1]
     of cnkCheckedFieldAccess:
       dotExpr = e[1][0]
@@ -1804,8 +1804,8 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     let t = dotExpr[0].typ.skipTypes({tyTypeDesc})
     let tname = getTypeDesc(p.module, t, skVar)
     let member =
-      if t.kind == tyTuple:
-        "Field" & rope(dotExpr[1].sym.position)
+      if dotExpr.kind == cnkTupleAccess:
+        "Field" & rope(dotExpr[1].intVal)
       else: p.fieldName(dotExpr[1].sym)
     putIntoDest(p,d,e, "((NI)offsetof($1, $2))" % [tname, member])
   of mChr: genSomeCast(p, e, d)
