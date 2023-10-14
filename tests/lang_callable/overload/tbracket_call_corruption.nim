@@ -6,7 +6,7 @@ proc op(x: int) =
   discard
 
 template overload(x: untyped) =
-  # this is the overload that is picked. It's definition has to come
+  # this is the overload that is picked. Its definition has to come
   # first, so that it's processed first during overload resolution
   op(x) # this failed with an "expected `int` but got `T`" error
 
