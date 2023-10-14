@@ -168,7 +168,7 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
       if i < len - 1: genericParams.add(", ")
     if len > 0: genericParams.add "]"
     result.name.add genericParams
-  elif s.kind == skType:
+  elif s.kind == skType and s.typ.isMetaType:
     let len = s.typ.sons.len - 1
     var genericParams = if len > 0: "[" else: ""
     for i in 0 ..< len:
