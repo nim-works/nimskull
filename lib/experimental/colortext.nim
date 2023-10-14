@@ -700,27 +700,18 @@ template coloredResult*(indentationStep: int = 2): untyped =
   ##
   ##       aux(node)
   ##
-  ## Injected procs
+  ## Injected routines
   ##
+  ## - `addf(string, varargs)`
   ## - `add(string)`, `add(string, string)`
   ## - `addIndent(int)`, `addi(int, string)`
-  ## - `endResult()` - return colored result. Required for proper work
-  ##   of the code in the compile-time context, otherwise modification
-  ##   of the  `addr result` does not work properly.
-  static:
-    when not declared(result):
-      {.error: "'coloredResult' template can only be called inside of the procedure returning 'ColText' as a result, or other environment that has `var result: ColText` defined."}
+  when not declared(result):
+    {.error: "'coloredResult' template can only be called in an environment " &
+             "where a `result` variable is available"}
 
   var outPtr {.used.}: ptr ColText = addr result
 
-  template endResult(): untyped {.used.} =
-    when nimvm:
-      return outPtr[]
-
-    else:
-      return
-
-  proc addf(format: string, args: varargs[ColText, toColText]) =
+  template addf(format: string, args: varargs[untyped]) {.used.} =
     outPtr[].addf(format, args)
 
   template add(arg: untyped): untyped {.used.} = outPtr[].add arg
