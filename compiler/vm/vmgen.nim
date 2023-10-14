@@ -1581,8 +1581,8 @@ func usesRegister(p: BProc, n: CgNode): bool =
   of cnkSym:
     let s = n.sym
     not s.isGlobal and fitsRegister(s.typ)
-  of cnkDeref, cnkDerefView, cnkFieldAccess, cnkBracketAccess, cnkCheckedFieldAccess,
-     cnkConv, cnkObjDownConv, cnkObjUpConv:
+  of cnkDeref, cnkDerefView, cnkFieldAccess, cnkArrayAccess, cnkTupleAccess,
+     cnkCheckedFieldAccess, cnkConv, cnkObjDownConv, cnkObjUpConv:
     false
   of cnkStmtListExpr:
     usesRegister(p, n.lastSon)
@@ -2231,7 +2231,7 @@ func isPtrView(n: CgNode): bool =
     sfGlobal in n.sym.flags
   of cnkLocal:
     false
-  of cnkFieldAccess, cnkBracketAccess, cnkCheckedFieldAccess:
+  of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess:
     true
   of cnkHiddenAddr, cnkCall:
     false
@@ -2339,19 +2339,27 @@ proc genDerefView(c: var TCtx, n: CgNode, dest: var TDest; load = true) =
 
 proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
   case le.kind
-  of cnkBracketAccess:
-    let typ = le[0].typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind
-    let dest = c.genx(le[0])
-    let idx = if typ != tyTuple: c.genIndex(le[1], le[0].typ) else: le[1].intVal
-    let tmp = c.genAsgnSource(ri, wantsPtr = true)
-    let opc = if typ in {tyString, tyCstring}: opcWrStrIdx
-              elif typ == tyTuple: opcWrObj
-              else: opcWrArr
+  of cnkArrayAccess:
+    let
+      typ = le[0].typ.skipTypes(abstractVar).kind
+      dest = c.genx(le[0])
+      idx = c.genIndex(le[1], le[0].typ)
+      tmp = c.genAsgnSource(ri, wantsPtr = true)
+      opc =
+        case typ
+        of tyString, tyCstring: opcWrStrIdx
+        else:                   opcWrArr
 
     c.gABC(le, opc, dest, idx, tmp)
     c.freeTemp(tmp)
-    if typ != tyTuple:
-      c.freeTemp(idx)
+    c.freeTemp(idx)
+    c.freeTemp(dest)
+  of cnkTupleAccess:
+    let
+      dest = c.genx(le[0])
+      tmp = c.genAsgnSource(ri, wantsPtr = true)
+    c.gABC(le, opcWrObj, dest, le[1].intVal.TRegister, tmp)
+    c.freeTemp(tmp)
     c.freeTemp(dest)
   of cnkCheckedFieldAccess:
     let objR = genCheckedObjAccessAux(c, le)
@@ -2526,15 +2534,13 @@ proc genFieldAccessAux(c: var TCtx; n: CgNode; a, b: TRegister, dest: var TDest;
     c.gABC(n, opcLdObj, dest, a, b)
     c.makeHandleReg(dest, a)
 
-proc genFieldAccess(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
+proc genFieldAccess(c: var TCtx; n: CgNode; pos: int, dest: var TDest;
+                    load = true) =
   ## Generates and emits the code for a dot-expression `n` (i.e. field access).
   ## The resulting value/handle is stored to `dest`.
-  assert n.kind == cnkFieldAccess
-  let
-    a = c.genx(n[0])
-    b = genField(c, n[1])
-
-  genFieldAccessAux(c, n, a, b, dest, load)
+  assert n.kind in {cnkFieldAccess, cnkTupleAccess}
+  let a = c.genx(n[0])
+  genFieldAccessAux(c, n, a, pos, dest, load)
   c.freeTemp(a)
 
 proc genFieldAddr(c: var TCtx, n, obj: CgNode, fieldPos: int, dest: TDest) =
@@ -2620,8 +2626,7 @@ proc genCheckedObjAccess(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
   c.freeTemp(objR)
 
 proc genArrAccess(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
-  let arrayType = n[0].typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind
-  case arrayType
+  case n[0].typ.skipTypes(abstractVar).kind
   of tyString, tyCstring:
     if load:
       # no need to pass `load`; the result of a string access is always
@@ -2631,22 +2636,16 @@ proc genArrAccess(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
       # use the ``opcLdArr`` operation to get a handle to the ``char``
       # location
       genArrAccessOpcode(c, n, dest, opcLdArr, load=false)
-  of tyTuple:
-    let a = genx(c, n[0])
-    genFieldAccessAux(c, n, a, n[1].intVal, dest, load)
-    c.freeTemp(a)
   of tyArray, tySequence, tyOpenArray, tyVarargs, tyUncheckedArray:
     genArrAccessOpcode(c, n, dest, opcLdArr, load)
   else:
     unreachable()
 
-proc genBracketAddr(c: var TCtx, n: CgNode, dest: var TDest) =
+proc genArrayAddr(c: var TCtx, n: CgNode, dest: var TDest) =
   ## Generates the code for loading the address of a bracket expression (i.e.
   ## ``addr x[0]``)
   assert not dest.isUnset
-  case n[0].typ.skipTypes(abstractInst-{tyTypeDesc}).kind
-  of tyTuple:
-    genFieldAddr(c, n, n[0], n[1].intVal.int, dest)
+  case n[0].typ.skipTypes(abstractInst).kind
   of tyString, tyCstring:
     genArrAccessOpcode(c, n, dest, opcLdStrIdxAddr)
   of tyArray, tySequence, tyOpenArray, tyVarargs:
@@ -2665,9 +2664,12 @@ proc genAddr(c: var TCtx, src, n: CgNode, dest: var TDest) =
   of cnkFieldAccess:
     prepare(c, dest, src.typ)
     genFieldAddr(c, n, n[0], genField(c, n[1]), dest)
-  of cnkBracketAccess:
+  of cnkArrayAccess:
     prepare(c, dest, src.typ)
-    genBracketAddr(c, n, dest)
+    genArrayAddr(c, n, dest)
+  of cnkTupleAccess:
+    prepare(c, dest, src.typ)
+    genFieldAddr(c, n, n[0], n[1].intVal.TRegister, dest)
   of cnkCheckedFieldAccess:
     prepare(c, dest, src.typ)
 
@@ -2734,11 +2736,13 @@ proc genLvalue(c: var TCtx, n: CgNode, dest: var TDest) =
   of cnkSym, cnkLocal:
     c.genSym(n, dest, load=false)
   of cnkFieldAccess:
-    genFieldAccess(c, n, dest, load=false)
+    genFieldAccess(c, n, genField(c, n[1]), dest, load=false)
   of cnkCheckedFieldAccess:
     genCheckedObjAccess(c, n, dest, load=false)
-  of cnkBracketAccess:
+  of cnkArrayAccess:
     genArrAccess(c, n, dest, load=false)
+  of cnkTupleAccess:
+    genFieldAccess(c, n, n[1].intVal.int, dest, load=false)
   of cnkConv:
     # if a conversion reaches here, it must be an l-value conversion. They
     # don't map to any bytecode, so we skip them
@@ -2977,9 +2981,10 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkAsgn, cnkFastAsgn:
     unused(c, n, dest)
     genAsgn(c, n[0], n[1], n.kind == cnkAsgn)
-  of cnkFieldAccess: genFieldAccess(c, n, dest)
+  of cnkFieldAccess: genFieldAccess(c, n, genField(c, n[1]), dest)
   of cnkCheckedFieldAccess: genCheckedObjAccess(c, n, dest)
-  of cnkBracketAccess: genArrAccess(c, n, dest)
+  of cnkArrayAccess: genArrAccess(c, n, dest)
+  of cnkTupleAccess: genFieldAccess(c, n, n[1].intVal.int, dest)
   of cnkDeref: genDeref(c, n, dest)
   of cnkAddr: genAddr(c, n, n.operand, dest)
   of cnkDerefView:
