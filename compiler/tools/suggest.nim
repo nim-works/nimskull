@@ -106,7 +106,7 @@ proc cmpSuggestions(a, b: Suggest): int =
   cf globalUsages
   # if all is equal, sort alphabetically for deterministic output,
   # independent of hashing order:
-  result = cmp(a.name[], b.name[])
+  result = cmp(a.name[0], b.name[0])
 
 proc getTokenLenFromSource(conf: ConfigRef; ident: string; info: TLineInfo): int =
   let
@@ -158,7 +158,24 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   if section in {ideSug, ideCon}:
     result.contextFits = inTypeContext == (s.kind in {skType, skGenericParam})
   result.scope = scope
-  result.name = addr s.name.s
+  result.name = s.name.s
+  if isGenericRoutineStrict(s):
+    let params = s.ast[genericParamsPos]
+    let len = params.safeLen
+    var genericParams = if len > 0: "[" else: ""
+    for i in 0 ..< len:
+      genericParams.add getPIdent(params[i]).s
+      if i < len - 1: genericParams.add(", ")
+    if len > 0: genericParams.add "]"
+    result.name.add genericParams
+  elif s.kind == skType:
+    let len = s.typ.sons.len - 1
+    var genericParams = if len > 0: "[" else: ""
+    for i in 0 ..< len:
+      genericParams.add typeToString(s.typ.sons[i])
+      if i < len - 1: genericParams.add(", ")
+    if len > 0: genericParams.add "]"
+    result.name.add genericParams
   when defined(nimsuggest):
     if section in {ideSug, ideCon}:
       result.globalUsages = s.allUsages.len
@@ -180,7 +197,7 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
     result.qualifiedPath.add('`' & s.name.s & '`')
   else:
     result.qualifiedPath.add(s.name.s)
-
+  
   if s.typ != nil:
     result.forth = typeToString(s.typ)
   else:

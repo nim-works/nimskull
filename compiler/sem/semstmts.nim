@@ -364,7 +364,8 @@ proc semIdentDef(c: PContext, n: PNode, kind: TSymKind): PSym =
   result.options = c.config.options
 
   let info = getIdentLineInfo(n)
-  suggestSym(c.graph, info, result, c.graph.usageSym)
+  if kind != skType:
+    suggestSym(c.graph, info, result, c.graph.usageSym)
 
 proc checkNilableOrError(c: PContext; def: PNode): PNode =
   ## checks if a symbol node is nilable, on success returns def, else nkError
@@ -2118,6 +2119,9 @@ proc typeSectionFinalPass(c: PContext, n: PNode) =
         # fix bug #5170, bug #17162, bug #15526: ensure locally scoped types get a unique name:
         if s.typ.kind in {tyEnum, tyRef, tyObject} and not isTopLevel(c):
           incl(s.flags, sfGenSym)
+    when defined(nimsuggest):
+      if c.config.cmd == cmdIdeTools:
+        suggestSym(c.graph, s.info, s, c.graph.usageSym)
 
 proc semTypeSection(c: PContext, n: PNode): PNode =
   ## Processes a type section. This must be done in separate passes, in order

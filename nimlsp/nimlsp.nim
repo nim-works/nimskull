@@ -373,7 +373,7 @@ proc main(ins: Stream, outs: Stream) =
                   if sym.qualifiedPath.len != 2:
                     continue
                   resp.add create(DocumentSymbol,
-                    sym.qualifiedPath[^1],
+                    sym.name,
                     some(symKindToString(sym.symKind)),
                     nimSymToLSPKind(sym.symKind).int,
                     some(sym.flags.mapIt(it.int)),
