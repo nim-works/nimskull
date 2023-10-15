@@ -388,7 +388,15 @@ proc typeToString*(typ: PType, prefer: TPreferedDesc = preferName): string =
                  else: "proc "
               else:
                 "proc "
-      if tfUnresolved in t.flags: result.add "[*missing parameters*]"
+      if isGenericRoutineStrict(t.owner):
+        let params = t.owner.ast[genericParamsPos]
+        let len = params.safeLen
+        var genericParams = if len > 0: "[" else: ""
+        for i in 0 ..< len:
+          genericParams.add getPIdent(params[i]).s
+          if i < len - 1: genericParams.add(", ")
+        if len > 0: genericParams.add "]"
+        result.add genericParams
       result.add "("
       for i in 1..<t.len:
         if t.n != nil and i < t.n.len and t.n[i].kind == nkSym:
