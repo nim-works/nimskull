@@ -2536,8 +2536,8 @@ proc genFieldAccessAux(c: var TCtx; n: CgNode; a, b: TRegister, dest: var TDest;
 
 proc genFieldAccess(c: var TCtx; n: CgNode; pos: int, dest: var TDest;
                     load = true) =
-  ## Generates and emits the code for a dot-expression `n` (i.e. field access).
-  ## The resulting value/handle is stored to `dest`.
+  ## Generates and emits the code for the record-like access `n`. The handle
+  ## value is written to the `dest` register.
   assert n.kind in {cnkFieldAccess, cnkTupleAccess}
   let a = c.genx(n[0])
   genFieldAccessAux(c, n, a, pos, dest, load)
