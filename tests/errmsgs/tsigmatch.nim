@@ -24,11 +24,11 @@ tsigmatch.nim(132, 11) Error: type mismatch: got <proc (s: string): string{.noSi
 but expected one of:
 proc foo[T, S](op: proc (x: T): S {.cdecl.}): auto
   first type mismatch at position: 1
-  required type for op: proc (x: T): S{.cdecl.}
+  required type for op: proc [T, S](x: T): S{.cdecl.}
   but expression 'fun' is of type: proc (s: string): string{.noSideEffect, gcsafe, locks: 0.}
 proc foo[T, S](op: proc (x: T): S {.safecall.}): auto
   first type mismatch at position: 1
-  required type for op: proc (x: T): S{.safecall.}
+  required type for op: proc [T, S](x: T): S{.safecall.}
   but expression 'fun' is of type: proc (s: string): string{.noSideEffect, gcsafe, locks: 0.}
 
 expression: foo(fun)

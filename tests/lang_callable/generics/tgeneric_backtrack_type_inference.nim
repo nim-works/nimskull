@@ -1,5 +1,5 @@
 discard """
-  errormsg: "type mismatch: got <proc (x: vector[vectFunc.T]): vector[vectFunc.T], vector[3]>"
+  errormsg: "type mismatch: got <proc [T](x: vector[vectFunc.T]): vector[vectFunc.T], vector[3]>"
   line: 36
   description: '''
     . From https://github.com/nim-lang/Nim/issues/6137
