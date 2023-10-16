@@ -25,7 +25,7 @@ tproc_type_inference_2.nim(77, 9) Error: type mismatch: got <proc [A](a: A)>
 but expected one of:
 proc call(x: proc (a: int | float))
   first type mismatch at position: 1
-  required type for x: proc [x:type](a: int or float){.closure.}
+  required type for x: proc (a: int or float){.closure.}
   but expression 'generic' is of type: proc [A](a: A)
 
 expression: call(generic)
