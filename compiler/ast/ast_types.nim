@@ -819,6 +819,8 @@ type
     mChckRange
       ## chckRange(v, lower, upper); conversion + range check -- returns
       ## either the type-converted value or raises a defect
+    mSamePayload
+      ## returns whether both seq/string operands share the same payload
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const
