@@ -1866,6 +1866,12 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     linefmt(p, cpsStmts, "$1 = ($2)($3);$n", [a.r, typ, rdLoc(b)])
   of mChckRange:
     genRangeChck(p, e, d)
+  of mSamePayload:
+    var a, b: TLoc
+    initLocExpr(p, e[1], a)
+    initLocExpr(p, e[2], b)
+    # compare the payloads:
+    putIntoDest(p, d, e, "($1.p == $2.p)" % [rdLoc(a), rdLoc(b)])
   else:
     when defined(debugMagics):
       echo p.prc.name.s, " ", p.prc.id, " ", p.prc.flags, " ", p.prc.ast[genericParamsPos].kind
