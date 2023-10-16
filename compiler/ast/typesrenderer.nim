@@ -388,7 +388,7 @@ proc typeToString*(typ: PType, prefer: TPreferedDesc = preferName): string =
                  else: "proc "
               else:
                 "proc "
-      if isGenericRoutineStrict(t.owner) and tfUnresolved in t.flags:
+      if tfUnresolved in t.flags:
         result.add renderTree(t.owner.ast[genericParamsPos])
       result.add "("
       for i in 1..<t.len:
