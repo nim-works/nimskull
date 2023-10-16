@@ -5,44 +5,44 @@ discard """
     type matching
   '''
   cmd: "nim check $options --hints:off $file"
-  nimout: '''tproc_type_inference_2.nim(61, 9) Error: type mismatch: got <proc [A](a: A)>
+  nimout: '''tproc_type_inference_2.nim(61, 9) Error: type mismatch: got <proc (a: A)>
 but expected one of:
 proc call[T](x: proc (a: T))
   first type mismatch at position: 1
-  required type for x: proc [T](a: T){.closure.}
-  but expression 'generic' is of type: proc [A](a: A)
+  required type for x: proc (a: T){.closure.}
+  but expression 'generic' is of type: proc (a: A)
 
 expression: call(generic)
-tproc_type_inference_2.nim(70, 9) Error: type mismatch: got <proc [A](a: A)>
+tproc_type_inference_2.nim(70, 9) Error: type mismatch: got <proc (a: A)>
 but expected one of:
 proc call[T](x: proc (a: Container[T]))
   first type mismatch at position: 1
-  required type for x: proc [T](a: Container[call.T]){.closure.}
-  but expression 'generic' is of type: proc [A](a: A)
+  required type for x: proc (a: Container[call.T]){.closure.}
+  but expression 'generic' is of type: proc (a: A)
 
 expression: call(generic)
-tproc_type_inference_2.nim(77, 9) Error: type mismatch: got <proc [A](a: A)>
+tproc_type_inference_2.nim(77, 9) Error: type mismatch: got <proc (a: A)>
 but expected one of:
 proc call(x: proc (a: int | float))
   first type mismatch at position: 1
   required type for x: proc (a: int or float){.closure.}
-  but expression 'generic' is of type: proc [A](a: A)
+  but expression 'generic' is of type: proc (a: A)
 
 expression: call(generic)
-tproc_type_inference_2.nim(88, 7) Error: type mismatch: got <proc [A](a: A, b: int)>
+tproc_type_inference_2.nim(88, 7) Error: type mismatch: got <proc (a: A, b: int)>
 but expected one of:
 proc call[T](x: proc (a: T; b: T))
   first type mismatch at position: 1
-  required type for x: proc [T](a: T, b: T){.closure.}
-  but expression 'generic' is of type: proc [A](a: A, b: int)
+  required type for x: proc (a: T, b: T){.closure.}
+  but expression 'generic' is of type: proc (a: A, b: int)
 
 expression: call(generic)
-tproc_type_inference_2.nim(97, 7) Error: type mismatch: got <proc [A](a: A, b: A)>
+tproc_type_inference_2.nim(97, 7) Error: type mismatch: got <proc (a: A, b: A)>
 but expected one of:
 proc call[T](x: proc (a: T; b: int))
   first type mismatch at position: 1
-  required type for x: proc [T](a: T, b: int){.closure.}
-  but expression 'generic' is of type: proc [A](a: A, b: A)
+  required type for x: proc (a: T, b: int){.closure.}
+  but expression 'generic' is of type: proc (a: A, b: A)
 
 expression: call(generic)'''
 """

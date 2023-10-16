@@ -651,7 +651,8 @@ type
     tfPacked
     tfHasStatic
     tfGenericTypeParam
-    tfImplicitTypeParam  ## generic or concept inferred from formal parameter
+    tfImplicitTypeParam ## the type parameter was lifted from the routine's
+                        ## formal parameters
     tfInferrableStatic
     tfConceptMatchedTypeSym
     tfExplicit        ## for typedescs, marks types explicitly prefixed with the

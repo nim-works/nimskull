@@ -154,24 +154,6 @@ proc rangeToStr(n: PNode): string =
   assert(n.kind == nkRange)
   result = valueToString(n[0]) & ".." & valueToString(n[1])
 
-proc genericParamsToStr*(n: PNode): string =
-  ## Returns generic parameters string representation, implicit type parameters
-  ## are excluded.
-  let len = n.safeLen
-  var implicitTypeCount = 0
-  var gp = newSeqOfCap[PIdent](len)
-  for i in 0 ..< len:
-    if tfImplicitTypeParam in n[i].sym.typ.flags:
-      inc implicitTypeCount
-      continue
-    gp.add getPIdent(n[i])
-  if implicitTypeCount != len:
-    result.add "["
-    for i, id in gp:
-      result.add id.s
-      if i < gp.len - 1: result.add(", ")
-    result.add "]"
-
 const
   preferToResolveSymbols = {preferName, preferTypeName, preferModuleInfo,
   preferGenericArg, preferResolved, preferMixed}
@@ -406,8 +388,8 @@ proc typeToString*(typ: PType, prefer: TPreferedDesc = preferName): string =
                  else: "proc "
               else:
                 "proc "
-      if isGenericRoutineStrict(t.owner):
-        result.add genericParamsToStr(t.owner.ast[genericParamsPos])
+      if isGenericRoutineStrict(t.owner) and tfUnresolved in t.flags:
+        result.add renderTree(t.owner.ast[genericParamsPos])
       result.add "("
       for i in 1..<t.len:
         if t.n != nil and i < t.n.len and t.n[i].kind == nkSym:
