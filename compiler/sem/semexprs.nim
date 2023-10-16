@@ -52,7 +52,7 @@ proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
 
   if result.typ != nil:
     # XXX tyGenericInst here?
-    if result.typ.kind == tyProc and hasUnresolvedParams(result, {efOperand}):
+    if result.typ.kind == tyProc and hasUnresolvedParams(result):
       result = c.config.newError(n, PAstDiag(kind: adSemProcHasNoConcreteType))
     elif result.typ.kind in {tyVar, tyLent}:
       result = newDeref(result)
