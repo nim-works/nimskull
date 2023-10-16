@@ -55,9 +55,10 @@ type
                      ## field with a value
 
     cnkFieldAccess
-    cnkBracketAccess
-    # future direction: split ``cnkBracketAccess`` into ``cnkArrayAccess`` (for
-    # array-like operands) and ``cnkTupleAccess`` (for tuples).
+    cnkArrayAccess
+    cnkTupleAccess
+    # future direction: merge ``cnkFieldAccess`` and ``cnkTupleAccess`` into a
+    # single node (field access by position).
     cnkCheckedFieldAccess
     # future direction: lower object access checks eariler (e.g., during the
     # MIR phase) and then remove ``cnkCheckedFieldAccess``

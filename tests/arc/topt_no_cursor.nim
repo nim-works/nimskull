@@ -14,14 +14,14 @@ doing shady stuff...
 var splat
 splat = splitFile(path)
 result = (
-  var :aux_3 = splat.dir
-  wasMoved(splat.dir)
+  var :aux_3 = splat[0]
+  wasMoved(splat[0])
   :aux_3,
-  var :aux_4 = splat.name
-  wasMoved(splat.name)
+  var :aux_4 = splat[1]
+  wasMoved(splat[1])
   :aux_4,
-  var :aux_5 = splat.ext
-  wasMoved(splat.ext)
+  var :aux_5 = splat[2]
+  wasMoved(splat[2])
   :aux_5)
 =destroy(splat)
 -- end of expandArc ------------------------
@@ -68,10 +68,10 @@ try:
   it_cursor = x
   a = (
     :aux_4 = default()
-    =copy(:aux_4, it_cursor.key)
+    =copy(:aux_4, it_cursor[0])
     :aux_4,
     :aux_5 = default()
-    =copy(:aux_5, it_cursor.val)
+    =copy(:aux_5, it_cursor[1])
     :aux_5)
   echo([
     :aux_6 = $(a)
@@ -150,14 +150,14 @@ try:
         var :aux_6 = default()
         =copy(:aux_6, :aux_5)
         :aux_6)
-      var :aux_8 = :aux_7.tail
-      wasMoved(:aux_7.tail)
+      var :aux_8 = :aux_7[1]
+      wasMoved(:aux_7[1])
       :aux_8))
     =destroy(:aux_7)
   block :label_0:
-    if dirExists(par.dir):
+    if dirExists(par[0]):
       var :aux_9 = this[].matchDirs
-      var :aux_10 = getSubDirs(par.dir, par.front)
+      var :aux_10 = getSubDirs(par[0], par[1])
       =sink(:aux_9, :aux_10)
       break :label_0
     var :aux_11 = this[].matchDirs

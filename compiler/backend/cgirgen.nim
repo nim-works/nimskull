@@ -510,15 +510,15 @@ func isSimple(n: CgNode): bool =
     case n.kind
     of cnkSym, cnkLiterals, cnkLocal:
       return true
-    of cnkFieldAccess:
+    of cnkFieldAccess, cnkTupleAccess:
       # ``cnkCheckedFieldAccess`` is deliberately not included here because it
       # means the location is part of a variant-object-branch
       n = n[0]
-    of cnkBracketAccess:
-      if n[0].typ.skipTypes(abstractVarRange).kind in {tyTuple, tyArray} and
+    of cnkArrayAccess:
+      if n[0].typ.skipTypes(abstractInst).kind == tyArray and
           n[1].kind in cnkLiterals:
-        # tuple access and arrays indexed by a constant value are
-        # allowed -- they always name the same location
+        # arrays indexed by a constant value are allowed -- they always name
+        # the same location
         n = n[0]
       else:
         return false
@@ -594,7 +594,7 @@ proc flattenExpr*(expr: CgNode, stmts: var seq[CgNode]): CgNode =
     # we're looking for expression nodes that represent side-effect free
     # operations
     case it.kind
-    of cnkFieldAccess, cnkCheckedFieldAccess, cnkBracketAccess:
+    of cnkFieldAccess, cnkCheckedFieldAccess, cnkArrayAccess, cnkTupleAccess:
       it = forward(it, it[0])
     of cnkHiddenAddr, cnkAddr, cnkDeref, cnkDerefView, cnkCStringToString,
        cnkStringToCString, cnkObjDownConv, cnkObjUpConv, cnkConv,
@@ -622,7 +622,7 @@ proc canUseView*(n: CgNode): bool =
   var n {.cursor.} = n
   while true:
     case n.kind
-    of cnkBracketAccess, cnkCheckedFieldAccess, cnkFieldAccess:
+    of cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess, cnkFieldAccess:
       n = n[0]
     of cnkAddr, cnkHiddenAddr, cnkObjUpConv, cnkObjDownConv:
       n = n.operand
@@ -1207,20 +1207,11 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
       toValues newExpr(cnkFieldAccess, info, n.typ, [prev.single, newSymNode(n.field)])
 
   of mnkPathPos:
-    # try to use a field access where possible
-    # TODO: once added, always use a ``cnkTupleAccess`` here
-    let t = prev.single.typ.skipTypes(abstractInst + tyUserTypeClasses)
-    if t.n != nil:
-      # it's a named tuple
-      toValues newExpr(cnkFieldAccess, info, n.typ,
-        [prev.single, newSymNode(t.n.sons[n.position].sym)])
-    else:
-      # a tuple with unnamed fields
-      toValues newExpr(cnkBracketAccess, info, n.typ,
-        [prev.single, CgNode(kind: cnkIntLit, intVal: n.position.BiggestInt)])
+    toValues newExpr(cnkTupleAccess, info, n.typ,
+      [prev.single, CgNode(kind: cnkIntLit, intVal: n.position.BiggestInt)])
 
   of mnkPathArray:
-    toValues newExpr(cnkBracketAccess, info, n.typ, move prev.list)
+    toValues newExpr(cnkArrayAccess, info, n.typ, move prev.list)
   of mnkPathConv:
     toValues tbConv(cl, prev.single, info, n.typ)
   of mnkAddr:
