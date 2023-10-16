@@ -391,12 +391,19 @@ proc typeToString*(typ: PType, prefer: TPreferedDesc = preferName): string =
       if isGenericRoutineStrict(t.owner):
         let params = t.owner.ast[genericParamsPos]
         let len = params.safeLen
-        var genericParams = if len > 0: "[" else: ""
+        var implicitTypeCount = 0
+        var gp = newSeqOfCap[PIdent](len)
         for i in 0 ..< len:
-          genericParams.add getPIdent(params[i]).s
-          if i < len - 1: genericParams.add(", ")
-        if len > 0: genericParams.add "]"
-        result.add genericParams
+          if tfImplicitTypeParam in params[i].sym.typ.flags:
+            inc implicitTypeCount
+            continue
+          gp.add getPIdent(params[i])
+        if implicitTypeCount != len:
+          result.add "["
+          for i, id in gp:
+            result.add id.s
+            if i < len - 1: result.add(", ")
+          result.add "]"
       result.add "("
       for i in 1..<t.len:
         if t.n != nil and i < t.n.len and t.n[i].kind == nkSym:
