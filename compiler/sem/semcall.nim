@@ -102,7 +102,6 @@ proc maybeResemArgs*(c: PContext, n: PNode, startIdx: int = 1): seq[PNode] =
       if arg.typ.isNil: # and arg.kind notin {nkStmtList, nkDo}:
         # XXX we really need to 'tryExpr' here!
         arg = c.semOperand(c, n[i][1])
-        arg = n[i][1]
         n[i].typ = arg.typ
         n[i][1] = arg
     of nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch:

@@ -275,10 +275,8 @@ proc argTypeToString(arg: PNode; prefer: TPreferedDesc): string =
     for i in 1 ..< arg.len:
       result.add(" | ")
       result.add typeToString(arg[i].typ, prefer)
-
   elif arg.typ == nil:
     result = "void"
-
   else:
     result = arg.typ.typeToString(prefer)
 
@@ -288,17 +286,17 @@ proc describeArgs(conf: ConfigRef, args: seq[PNode]; prefer = preferName): strin
     if arg.kind == nkExprEqExpr:
       result.add renderTree(arg[0])
       result.add ": "
-      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
-        assert false, (
+      if arg.typ.isNil and arg[1].kind notin {nkStmtList, nkDo}:
+        assert false, ($arg.id.int & " " & $arg.kind & " " &
           "call `semcall.maybeResemArgs` on report construciton site - " &
             "this is a temporary hack that is necessary to actually provide " &
             "proper types for error reports.")
-
     else:
-      if arg.typ.isNil and arg.kind notin {
-           nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch
-      }:
-        assert false, "call `semcall.maybeResemArgs` on report construction site"
+      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo, nkElse,
+                                           nkOfBranch, nkElifBranch,
+                                           nkExceptBranch}:
+        assert false, ($arg.id.int & " " & $arg.kind & " " &
+                  " call `semcall.maybeResemArgs` on report construction site")
 
     if arg.typ != nil and arg.typ.kind == tyError:
       return
