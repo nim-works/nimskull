@@ -171,4 +171,3 @@ when false:
   proc fun1(a1: MyInt, a2: Mystring) = discard
   proc fun1(a1: float, a2: Mystring) = discard
   fun1(Mystring.default, "asdf")
-
