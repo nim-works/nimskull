@@ -202,7 +202,7 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
                     else:
                       getTokenLenFromSource(g.config, s.name.s, infox)
 
-proc `$`*(suggest: Suggest): string =
+proc toSuggestMsg*(suggest: Suggest): string =
   result = $suggest.section
   result.add(sep)
   if suggest.section == ideHighlight:
