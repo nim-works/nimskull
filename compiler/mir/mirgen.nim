@@ -796,38 +796,6 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
     argBlock(c.stmts):
       chain(c): argExpr(c, n[1]) => tag(ekMutate) => name()
     magicCall(c, m, typeOrVoid(c, n.typ))
-  of mMove:
-    # there exist two different types of ``mMove`` magic calls:
-    # 1. normal move calls: ``move(x)``
-    # 2. special move calls inserted by ``liftdestructors``, used for ``seq``s
-    #    and ``string``s: ``move(dst, src, stmt)``
-    case n.len
-    of 2:
-      # the first version
-      genCall(c, n)
-    of 4:
-      # HACK: the ``stmt`` statement is not always evaluated, so treating it as
-      #       a ``void`` argument is wrong. We also can't lower the call here
-      #       already, since we don't have access to the ``seq``s
-      #       implementation details and the lowering is also only required for
-      #       the C target.
-      #       Treating the statement as a ``void`` argument only works because,
-      #       at the time of writing this comment, there are no MIR passes that
-      #       inspect code in which a special ``move`` occurs.
-      #       A more proper solution is to add a new magic (something like
-      #       ``mMoveSeq``) that then gets lowered into the expected
-      #       comparision + destructor call by a MIR pass that is only enabled
-      #       for the C target
-
-      argBlock(c.stmts):
-        chain(c): argExpr(c, n[1]) => tag(ekReassign) => name()
-        chain(c): argExpr(c, n[2]) => arg()
-
-        gen(c, n[3])
-        chain(c): genEmpty(c, n[3]) => arg()
-      magicCall(c, m, typeOrVoid(c, n.typ))
-    else:
-      unreachable()
   of mNewSeq:
     # XXX: the first parameter is actually an ``out`` parameter -- the
     #      ``ekReassign`` effect could be used
@@ -846,7 +814,8 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
       magicCall(c, m, typeOrVoid(c, n.typ))
     else:
       genCall(c, n)
-  of mLtI, mSubI, mLengthSeq, mLengthStr, mAccessEnv, mAccessTypeField:
+  of mNot, mLtI, mSubI, mLengthSeq, mLengthStr, mAccessEnv, mAccessTypeField,
+     mSamePayload:
     if n[0].typ == nil:
       # simple translation. None of the arguments need to be passed by lvalue
       argBlock(c.stmts):
