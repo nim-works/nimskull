@@ -158,6 +158,10 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
                   inTypeContext: bool; scope: int;
                   useSuppliedInfo = false): Suggest =
   new(result)
+  if sfDeprecated in s.flags:
+    result.flags.incl SuggestFlag.deprecated
+  if sfGlobal in s.flags:
+    result.flags.incl SuggestFlag.isGlobal
   result.section = section
   result.quality = quality
   result.prefix = prefix
@@ -210,7 +214,13 @@ proc `$`*(suggest: Suggest): string =
   result = $suggest.section
   result.add(sep)
   if suggest.section == ideHighlight:
-    result.add($suggest.symkind.TSymKind)
+    let isGlobal = SuggestFlag.isGlobal in suggest.flags
+    if suggest.symkind.TSymKind == skVar and isGlobal:
+      result.add("skGlobalVar")
+    elif suggest.symkind.TSymKind == skLet and isGlobal:
+      result.add("skGlobalLet")
+    else:
+      result.add($suggest.symkind.TSymKind)
     result.add(sep)
     result.add($suggest.line)
     result.add(sep)
