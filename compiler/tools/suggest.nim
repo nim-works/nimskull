@@ -107,7 +107,7 @@ proc cmpSuggestions(a, b: Suggest): int =
   cf globalUsages
   # if all is equal, sort alphabetically for deterministic output,
   # independent of hashing order:
-  result = cmp(a.name[0], b.name[0])
+  result = cmp(a.name, b.name)
 
 proc getTokenLenFromSource(conf: ConfigRef; ident: string; info: TLineInfo): int =
   let
