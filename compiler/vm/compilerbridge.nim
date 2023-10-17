@@ -46,6 +46,7 @@ import
     vmjit,
     vmlegacy,
     vmops,
+    vmprofiler,
     vmtypegen,
     vmutils,
     vm
@@ -172,8 +173,7 @@ proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
     dest.initLocReg(typ, c.memory)
     c.serialize(n, dest.handle)
   of tyProc:
-    # XXX: a hack required to uphold some expectations. For example,
-    #      `genEnumCaseStmt` would fail without this. Procedural types as
+    # XXX: a hack required to uphold some expectations. Procedural types as
     #      static macro arguments are underspecified
     let pt =
       if t.callConv == ccClosure and n.kind == nkSym:
@@ -654,6 +654,14 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph;
   c.vm.templInstCounter = templInstCounter
 
   result = evalMacroCall(c.jit, c.vm, call, args, sym)
+
+proc dumpVmProfilerData*(graph: ModuleGraph): string =
+  ## Dumps the profiler data collected by the profiler of the VM instance
+  ## associated with `graph` to a string.
+  let c = PEvalContext(graph.vm)
+  result =
+    if c != nil: dump(graph.config, c.vm.profiler)
+    else:        ""
 
 # ----------- the VM-related compilerapi -----------
 

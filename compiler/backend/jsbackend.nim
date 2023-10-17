@@ -71,11 +71,11 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
   of bekPartial:
     var p = partial.getOrDefault(evt.sym.id)
     if p == nil:
-      p = startProc(g, bmod, evt.sym)
+      p = startProc(g, bmod, evt.sym, Body())
       partial[evt.sym.id] = p
 
     let body = generateIR(graph, bmod.idgen, evt.sym, evt.body)
-    genStmt(p, merge(p.fullBody, body))
+    genPartial(p, merge(p.fullBody, body))
 
     processLate(g, discovery)
   of bekProcedure:
@@ -151,7 +151,7 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
     globals.code.add finishProc(p)
 
   # wrap up:
-  let main = modules[graph.config.projectMainIdx2]
+  let main = modules[graph.config.projectMainIdx]
   reset(modules) # we don't need the data anymore
 
   generateCodeForMain(globals, graph, main, mlist)

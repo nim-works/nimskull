@@ -25,11 +25,13 @@
 ## accessing the temporary introduce for the parameter's argument.
 
 import
+  std/[
+    tables
+  ],
   compiler/ast/[
     ast_types,
     ast_idgen,
     ast_query,
-    idents,
     lineinfos,
     types
   ],
@@ -47,9 +49,6 @@ import
     magicsys,
     modulegraphs
   ],
-  compiler/sem/[
-    lowerings
-  ],
   compiler/utils/[
     containers,
     idioms,
@@ -57,6 +56,7 @@ import
   ]
 
 from compiler/ast/ast import newSym, newType, rawAddSon
+from compiler/ast/idents import whichKeyword
 from compiler/sem/semdata import makeVarType
 
 # TODO: move the procedure somewhere common
@@ -97,31 +97,35 @@ type
 
   TranslateCl = object
     graph: ModuleGraph
-    cache: IdentCache
     idgen: IdGenerator
 
     owner: PSym
 
-    tempMap: SeqMap[TempId, PSym]
-      ## maps a ``TempId`` to ``PSym`` created for it
-    labelMap: SeqMap[uint32, PSym]
-      ## maps a block-label name to the ``PSym`` created for it
+    tempMap: SeqMap[TempId, LocalId]
+      ## maps a ``TempId`` to the ID of the local created for it
+    localsMap: Table[int, LocalId]
+      ## maps a sybmol ID to the corresponding local. Needed because normal
+      ## local variables reach here as ``PSym``s
+    blocks: seq[LabelId]
+      ## the stack of enclosing blocks for the currently processed node
+
+    locals: Store[LocalId, Local]
+      ## the in-progress list of all locals in the translated body
 
     params: Values
 
-    # While in the MIR only a ``mnkScope`` opens a new scope, in ``CgPNode``-IR
-    # both ``cnkStmtList`` and ``cnkStmtListExpr`` do - the latter being used by
-    # the arg-block translation. A 'def'-like can appear inside an arg-block
-    # and the defined entity be used outside of it, which would thus result
-    # in the definition being placed in an ``cnkStmtListExpr``, producing
-    # semantically invalid code that later results in code-gen errors.
-    # To solve the problem, if a 'def'-like appears nested inside an arg-block,
-    # only an assignment (if necessary) is produced and the symbol node is
-    # added to the `def` list, which is then used to create a var section that
-    # is prepended to the statement list produced for the current enclosing
-    # ``mnkScope``
-    inArgBlock: int ## keeps track of the current arg-block nesting
-    defs: seq[CgNode]
+    # a 'def' in the MIR means that the the local starts to exists and that it
+    # is accessible in all connected basic blocks part of the enclosing
+    # ``mnkScope``. The ``CgNode`` IR doesn't use same notion of scope,
+    # so for now, all 'def's (without the initial values) within nested
+    # control-flow-related trees are moved to the start of the enclosing
+    # ``mnkScope``.
+    inUnscoped: bool
+      ## whether the currently proceesed statement/expression is part of an
+      ## unscoped control-flow context
+    defs: seq[tuple[local: LocalId, info: TLineInfo]]
+      ## the stack of locals for which the ``cnkDef`` needs to be inserted
+      ## later
 
   TreeWithSource = object
     ## Combines a ``MirTree`` with its associated ``SourceMap`` for
@@ -136,7 +140,10 @@ type
     pos: uint32 ## the index of the currently pointed to node
     origin {.cursor.}: PNode ## the source node
 
-template isFilled(x: ref): bool = not x.isNil
+template isFilled(x: LocalId): bool =
+  # '0' is a valid ID, but this procedure is only used for
+  # temporaries, which can never map to the result variable
+  x.int != 0
 
 template `^^`(s, i: untyped): untyped =
   # XXX: copied from ``system.nim`` because it's not exported
@@ -237,6 +244,9 @@ func newTypeNode(info: TLineInfo, typ: PType): CgNode =
 
 func newSymNode(s: PSym; info = unknownLineInfo): CgNode =
   CgNode(kind: cnkSym, info: info, typ: s.typ, sym: s)
+
+func newLabelNode(blk: BlockId; info = unknownLineInfo): CgNode =
+  CgNode(kind: cnkLabel, info: info, label: blk)
 
 proc newExpr(kind: CgNodeKind, info: TLineInfo, typ: PType,
              kids: sink seq[CgNode]): CgNode =
@@ -353,10 +363,16 @@ proc wrapArg(stmts: sink seq[CgNode], info: TLineInfo, val: sink CgNode): CgNode
     result = newExpr(cnkStmtListExpr, info, val.typ, stmts)
     result.add val
 
-proc newTemp(cl: var TranslateCl, info: TLineInfo, typ: PType): PSym =
+func newTemp(cl: var TranslateCl, typ: PType): LocalId =
   ## Creates and returns a new ``skTemp`` symbol
-  newSym(skTemp, cl.cache.getIdent(genPrefix),
-         cl.idgen.nextSymId(), cl.owner, info, typ)
+  cl.locals.add(Local(typ: typ, isImmutable: false))
+
+proc initLocal(s: PSym): Local =
+  ## Inits a ``Local`` with the data from `s`.
+  result = Local(typ: s.typ, flags: s.flags, isImmutable: (s.kind == skLet),
+                 name: s.name)
+  if s.kind in {skVar, skLet, skForVar}:
+    result.alignment = s.alignment.uint32
 
 func findBranch(c: ConfigRef, rec: PNode, field: PIdent): int =
   ## Computes the 0-based position of the branch that `field` is part of. Only
@@ -492,17 +508,17 @@ func isSimple(n: CgNode): bool =
   var n = n
   while true:
     case n.kind
-    of cnkSym, cnkLiterals:
+    of cnkSym, cnkLiterals, cnkLocal:
       return true
-    of cnkFieldAccess:
+    of cnkFieldAccess, cnkTupleAccess:
       # ``cnkCheckedFieldAccess`` is deliberately not included here because it
       # means the location is part of a variant-object-branch
       n = n[0]
-    of cnkBracketAccess:
-      if n[0].typ.skipTypes(abstractVarRange).kind in {tyTuple, tyArray} and
+    of cnkArrayAccess:
+      if n[0].typ.skipTypes(abstractInst).kind == tyArray and
           n[1].kind in cnkLiterals:
-        # tuple access and arrays indexed by a constant value are
-        # allowed -- they always name the same location
+        # arrays indexed by a constant value are allowed -- they always name
+        # the same location
         n = n[0]
       else:
         return false
@@ -534,30 +550,32 @@ proc useLvalueRef(n: CgNode, mutable: bool, cl: var TranslateCl,
     typ = makeVarType(cl.owner, locExpr.typ, cl.idgen,
                       (if mutable: tyVar else: tyLent))
 
-    sym = newTemp(cl, n.info, typ)
+    tmp = newTemp(cl, typ)
 
   # for the "undo conversion" logic to work, the expression needs to end in a
   # conversion. Creating a view from the location *after* lvalue conversion
   # would break this, so instead, a view is created from the unconverted
   # location and the conversion is applied at each usage site
   stmts.add newStmt(cnkDef, n.info,
-                     [newSymNode(sym),
+                     [newLocalRef(tmp, n.info, typ),
                       newOp(cnkHiddenAddr, n.info, typ, locExpr)]
                    )
 
   if locExpr != conv:
     # a conversion exists. Rewrite the conversion operation to apply to the
     # dereferenced view
-    conv.operand = newOp(cnkDerefView, n.info, locExpr.typ, newSymNode(sym))
+    conv.operand = newOp(cnkDerefView, n.info, locExpr.typ,
+                         newLocalRef(tmp, n.info, typ))
     result = n
   else:
-    result = newOp(cnkDerefView, n.info, n.typ, newSymNode(sym))
+    result = newOp(cnkDerefView, n.info, n.typ,
+                   newLocalRef(tmp, n.info, typ))
 
 proc useTemporary(n: CgNode, cl: var TranslateCl, stmts: var seq[CgNode]): CgNode =
-  let sym = newTemp(cl, n.info, n.typ)
+  let tmp = newTemp(cl, n.typ)
 
-  stmts.add newStmt(cnkDef, n.info, [newSymNode(sym), n])
-  result = newSymNode(sym)
+  stmts.add newStmt(cnkDef, n.info, [newLocalRef(tmp, n.info, n.typ), n])
+  result = newLocalRef(tmp, n.info, n.typ)
 
 proc flattenExpr*(expr: CgNode, stmts: var seq[CgNode]): CgNode =
   ## A copy of `flattenExpr <ast/trees.html#PNode,seq[PNode]>`_ adjusted for
@@ -576,7 +594,7 @@ proc flattenExpr*(expr: CgNode, stmts: var seq[CgNode]): CgNode =
     # we're looking for expression nodes that represent side-effect free
     # operations
     case it.kind
-    of cnkFieldAccess, cnkCheckedFieldAccess, cnkBracketAccess:
+    of cnkFieldAccess, cnkCheckedFieldAccess, cnkArrayAccess, cnkTupleAccess:
       it = forward(it, it[0])
     of cnkHiddenAddr, cnkAddr, cnkDeref, cnkDerefView, cnkCStringToString,
        cnkStringToCString, cnkObjDownConv, cnkObjUpConv, cnkConv,
@@ -604,7 +622,7 @@ proc canUseView*(n: CgNode): bool =
   var n {.cursor.} = n
   while true:
     case n.kind
-    of cnkBracketAccess, cnkCheckedFieldAccess, cnkFieldAccess:
+    of cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess, cnkFieldAccess:
       n = n[0]
     of cnkAddr, cnkHiddenAddr, cnkObjUpConv, cnkObjDownConv:
       n = n.operand
@@ -618,7 +636,9 @@ proc canUseView*(n: CgNode): bool =
 
     of cnkSym:
       # don't use a view if the location is part of a constant
-      return n.sym.kind in {skVar, skLet, skForVar, skResult, skParam, skTemp}
+      return n.sym.kind != skConst
+    of cnkLocal:
+      return true
     of cnkDerefView, cnkDeref:
       return true
     of cnkCall:
@@ -677,10 +697,10 @@ proc wrapInHiddenAddr(cl: TranslateCl, n: CgNode): CgNode =
   result =
     if n.typ.skipTypes(abstractInst).kind != tyVar:
       newOp(cnkHiddenAddr, n.info, makeVarType(cl.owner, n.typ, cl.idgen), n)
-    elif inner.kind == cnkObjDownConv and
+    elif inner.kind == cnkObjUpConv and
          inner.operand.typ.kind != tyVar:
-      # TODO: ``nkHiddenSubConv`` nodes for objects (which are later
-      #       transformed into ``nkObjDownConv`` nodes) are in some cases
+      # TODO: ``nkHiddenSubConv`` nodes for objects (which later result
+      #       in ``cnkObjUpConv`` nodes) are in some cases
       #       incorrectly typed as ``var`` somewhere in the compiler
       #       (presumably during sem). Fix the underlying problem and remove
       #       the special case here
@@ -704,7 +724,8 @@ proc genObjConv(n: CgNode, a, b, t: PType): CgNode =
 # forward declarations:
 proc tbSeq(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor): Values
 
-proc tbStmt(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor): CgNode {.inline.}
+proc tbStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
+            cr: var TreeCursor): CgNode
 proc tbList(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor): CgNode
 
 proc tbScope(tree: TreeWithSource, cl: var TranslateCl, n: MirNode, cr: var TreeCursor): CgNode
@@ -745,8 +766,8 @@ proc handleSpecialConv(c: ConfigRef, n: CgNode, info: TLineInfo,
     result = nil
 
 proc tbConv(cl: TranslateCl, n: CgNode, info: TLineInfo, dest: PType): CgNode =
-  ## Generates the IR for an expression that performs a type conversion for
-  ## `n` to type `dest`
+  ## Generates the ``CgNode`` IR for an ``mnkPathConv`` operation (handle
+  ## conversion).
   result = handleSpecialConv(cl.graph.config, n, info, dest)
   if result == nil:
     # no special conversion is used
@@ -754,10 +775,14 @@ proc tbConv(cl: TranslateCl, n: CgNode, info: TLineInfo, dest: PType): CgNode =
 
 proc tbSingle(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
   case n.kind
-  of mnkProc, mnkConst, mnkParam, mnkGlobal, mnkLocal:
+  of mnkProc, mnkConst, mnkGlobal:
     newSymNode(n.sym, info)
+  of mnkLocal, mnkParam:
+    # paramaters are treated like locals in the code generators
+    assert n.sym.id in cl.localsMap
+    newLocalRef(cl.localsMap[n.sym.id], info, n.sym.typ)
   of mnkTemp:
-    newSymNode(cl.tempMap[n.temp], info)
+    newLocalRef(cl.tempMap[n.temp], info, n.typ)
   of mnkLiteral:
     translateLit(n.lit)
   of mnkType:
@@ -765,7 +790,7 @@ proc tbSingle(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
   else:
     unreachable("not an atom: " & $n.kind)
 
-proc tbExceptItem(tree: TreeWithSource, cl: TranslateCl, cr: var TreeCursor
+proc tbExceptItem(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor
                  ): CgNode =
   let n {.cursor.} = get(tree, cr)
   case n.kind
@@ -776,9 +801,11 @@ proc tbExceptItem(tree: TreeWithSource, cl: TranslateCl, cr: var TreeCursor
     # the infix expression (``type as x``) signals that the except-branch is
     # a matcher for an imported exception. We translate the infix to a
     # ``cnkBinding`` node and let the code generators take care of it
+    let id = cl.locals.add initLocal(n.node[2].sym)
+    cl.localsMap[n.node[2].sym.id] = id
     newTree(cnkBinding, cr.info):
       [newNode(cnkType, n.node[1].info, n.node[1].typ),
-       newSymNode(n.node[2].sym, n.node[2].info)]
+       newLocalRef(id, n.node[2].info, n.node[2].typ)]
   of mnkType:  newTypeNode(cr.info, n.typ)
   else:        unreachable()
 
@@ -794,41 +821,46 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
   var def: CgNode
 
   case entity.kind
-  of SymbolLike:
-    def = tbSingle(entity, cl, info)
-    case def.sym.kind
-    of skVar, skLet, skForVar:
-      discard "pass through"
-    of skParam, routineKinds:
-      # the 'def' of params and procedures only has meaning at the MIR level;
-      # the code generators don't care about them
-      def = newEmpty()
-    else:
-      unreachable()
+  of mnkLocal:
+    # translate the ``PSym`` to a ``Local`` and establish a mapping
+    let
+      sym = entity.sym
+      id = cl.locals.add initLocal(sym)
 
+    assert sym.id notin cl.localsMap, "re-definition of local"
+    cl.localsMap[sym.id] = id
+
+    def = newLocalRef(id, info, entity.typ)
+  of mnkParam, mnkProc:
+    # ignore 'def's for both parameters and procedures
+    def = newEmpty()
+  of mnkGlobal:
+    # XXX: defs for globals reaching here implies that the MIR code wasn't
+    #      sufficiently lowered. This should be a hard error, but the
+    #      ``--expandArc`` feature currently relies on this being possible, so
+    #      we allow it for now
+    def = newEmpty()
   of mnkTemp:
-    # for temporaries, we create an ``skTemp`` symbol and associate it with
-    # the ``TempId`` so that it can be looked up later
+    # MIR temporaries are like normal locals, with the difference that they
+    # are created ad-hoc and don't have any extra information attached
     assert entity.typ != nil
-    let sym = newTemp(cl, info, entity.typ)
+    let tmp = cl.locals.add Local(typ: entity.typ)
 
     assert entity.temp notin cl.tempMap, "re-definition of temporary"
-    cl.tempMap[entity.temp] = sym
+    cl.tempMap[entity.temp] = tmp
 
-    def = newSymNode(sym, info)
+    def = newLocalRef(tmp, info, entity.typ)
   else:
     unreachable()
 
   leave(tree, cr)
 
   case def.kind
-  of cnkSym:
-    assert def.sym.kind in {skVar, skLet, skForVar, skTemp}
-    if cl.inArgBlock > 0:
-      # if we're inside an arg-block, the var section is generated later and
-      # placed at an earlier position. We just produce an assignment to the
-      # entity here (if the def has an input)
-      cl.defs.add newStmt(cnkDef, info, [def, newEmpty()])
+  of cnkLocal:
+    if cl.inUnscoped:
+      # add the local to the list of moved definitions and only emit an
+      # assignment
+      cl.defs.add (def.local, info)
       result =
         case prev.kind
         of vkNone:   newEmpty(info)
@@ -858,10 +890,20 @@ proc translateNode(n: PNode): CgNode =
     # cannot reach here
     unreachable(n.kind)
 
+proc tbBody(tree: TreeWithSource, cl: var TranslateCl,
+            cr: var TreeCursor): CgNode =
+  ## Generates the ``CgNode`` tree for the body of a construct that implies
+  ## some form of control-flow.
+  let prev = cl.inUnscoped
+  # assume the body is unscoped until stated otherwise
+  cl.inUnscoped = true
+  result = tbStmt(tree, cl, get(tree, cr), cr)
+  cl.inUnscoped = prev
+
 proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
                   cr: var TreeCursor): CgNode =
   template body(): CgNode =
-    tbStmt(tree, cl, cr)
+    tbBody(tree, cl, cr)
 
   let info = cr.info ## the source information of `n`
 
@@ -876,13 +918,11 @@ proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
     result = newStmt(cnkRepeatStmt, info, body())
     leave(tree, cr)
   of mnkBlock:
-    let sym = newSym(skLabel, cl.cache.getIdent("label"), cl.idgen.nextSymId(),
-                     cl.owner, info)
-    cl.labelMap[n.label[]] = sym
-
+    cl.blocks.add n.label # push the label to the stack
     result = newStmt(cnkBlockStmt, info,
-                     newSymNode(sym), # the label
+                     newLabelNode(cl.blocks.high.BlockId, info),
                      body())
+    cl.blocks.setLen(cl.blocks.len - 1) # pop block from the stack
     leave(tree, cr)
   of mnkTry:
     result = newStmt(cnkTryStmt, info, [body()])
@@ -915,11 +955,12 @@ proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
 
     leave(tree, cr)
   of mnkBreak:
-    let label =
-      if n.label.isSome: newSymNode(cl.labelMap[n.label[]])
-      else:              newEmpty()
-
-    result = newStmt(cnkBreakStmt, info, [label])
+    # find the stack index of the enclosing 'block' identified by the break's
+    # label; we use the index as the ID
+    var idx = cl.blocks.high
+    while idx >= 0 and cl.blocks[idx] != n.label:
+      dec idx
+    result = newStmt(cnkBreakStmt, info, [newLabelNode(BlockId idx, info)])
   of mnkReturn:
     result = newNode(cnkReturnStmt, info)
   of mnkPNode:
@@ -940,10 +981,6 @@ proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl,
                   cr: var TreeCursor): CgNode {.inline.} =
   tbSingleStmt(tree, cl, get(tree, cr), cr)
 
-proc tbStmt(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor
-           ): CgNode {.inline.} =
-  tbStmt(tree, cl, get(tree, cr), cr)
-
 proc tbCaseStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
                 prev: sink Values, cr: var TreeCursor): CgNode =
   result = newStmt(cnkCaseStmt, cr.info, [prev.single])
@@ -955,7 +992,7 @@ proc tbCaseStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
       for x in 0..<br.len:
         result[^1].add translateLit(get(tree, cr).lit)
 
-    result[^1].add tbStmt(tree, cl, cr)
+    result[^1].add tbBody(tree, cl, cr)
     leave(tree, cr)
 
   leave(tree, cr)
@@ -981,7 +1018,7 @@ proc tbOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
     newStmt(cnkFastAsgn, cr.info, [prev[0], prev[1]])
   of mnkIf:
     assert prev.kind == vkSingle
-    let n = newStmt(cnkIfStmt, cr.info, [prev.single, tbStmt(tree, cl, cr)])
+    let n = newStmt(cnkIfStmt, cr.info, [prev.single, tbBody(tree, cl, cr)])
     leave(tree, cr)
 
     n
@@ -1011,8 +1048,6 @@ proc tbArgBlock(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor
   var stmts: seq[CgNode]
   result = Values(kind: vkMulti)
 
-  inc cl.inArgBlock
-
   while true:
     case tree[cr].kind
     of InputNodes:
@@ -1037,7 +1072,6 @@ proc tbArgBlock(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor
       unreachable(tree[cr].kind)
 
   leave(tree, cr)
-  dec cl.inArgBlock
 
   assert stmts.len == 0, "argument block has trailing statements"
 
@@ -1123,7 +1157,7 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
   of mnkCast:
     toValues newOp(cnkCast, info, n.typ, prev.single)
   of mnkConv:
-    toValues tbConv(cl, prev.single, info, n.typ)
+    toValues newOp(cnkConv, info, n.typ, prev.single)
   of mnkStdConv:
     let
       opr = prev.single
@@ -1173,20 +1207,13 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
       toValues newExpr(cnkFieldAccess, info, n.typ, [prev.single, newSymNode(n.field)])
 
   of mnkPathPos:
-    # try to use a field access where possible
-    # TODO: once added, always use a ``cnkTupleAccess`` here
-    let t = prev.single.typ.skipTypes(abstractInst + tyUserTypeClasses)
-    if t.n != nil:
-      # it's a named tuple
-      toValues newExpr(cnkFieldAccess, info, n.typ,
-        [prev.single, newSymNode(t.n.sons[n.position].sym)])
-    else:
-      # a tuple with unnamed fields
-      toValues newExpr(cnkBracketAccess, info, n.typ,
-        [prev.single, CgNode(kind: cnkIntLit, intVal: n.position.BiggestInt)])
+    toValues newExpr(cnkTupleAccess, info, n.typ,
+      [prev.single, CgNode(kind: cnkIntLit, intVal: n.position.BiggestInt)])
 
   of mnkPathArray:
-    toValues newExpr(cnkBracketAccess, info, n.typ, move prev.list)
+    toValues newExpr(cnkArrayAccess, info, n.typ, move prev.list)
+  of mnkPathConv:
+    toValues tbConv(cl, prev.single, info, n.typ)
   of mnkAddr:
     toValues newOp(cnkAddr, info, n.typ, prev.single)
   of mnkDeref:
@@ -1261,17 +1288,26 @@ proc tbScope(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
              cr: var TreeCursor): CgNode =
   let
     prev = cl.defs.len
+    prevInUnscoped = cl.inUnscoped
+
+  # a scope is entered, meaning that we're no longer in an unscoped context
+  cl.inUnscoped = false
 
   var stmts: seq[CgNode]
   tbList(tree, cl, stmts, cr)
 
   if cl.defs.len > prev:
-    # create a var section for the collected symbols
+    # insert all the lifted defs at the start
     for i in countdown(cl.defs.high, prev):
-      stmts.insert(move cl.defs[i], 0)
+      let (local, info) = cl.defs[i]
+      stmts.insert newStmt(cnkDef, info, [
+        newLocalRef(local, info, cl.locals[local].typ),
+        newEmpty()])
 
     # "pop" the elements that were added as part of this scope:
     cl.defs.setLen(prev)
+
+  cl.inUnscoped = prevInUnscoped
 
   result = toSingleNode(stmts)
 
@@ -1337,7 +1373,10 @@ proc tbMulti(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor): CgN
   # insert the var section for the collected defs at the start:
   if cl.defs.len > 0:
     for i in countdown(cl.defs.high, 0):
-      nodes.insert(cl.defs[i], 0)
+      let (local, info) = cl.defs[i]
+      nodes.insert newStmt(cnkDef, info, [
+        newLocalRef(local, info, cl.locals[local].typ),
+        newEmpty()])
 
   case nodes.len
   of 0: newEmpty()
@@ -1356,13 +1395,40 @@ proc tb(tree: TreeWithSource, cl: var TranslateCl, start: NodePosition): CgNode 
          "start must point to the start of expression or statement"
   tbMulti(tree, cl, cr)
 
-
 proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
                   tree: sink MirTree, sourceMap: sink SourceMap): Body =
   ## Generates the ``CgNode`` IR corresponding to the input MIR code (`tree`),
   ## using `idgen` for provide new IDs when creating symbols. `sourceMap`
   ## must be the ``SourceMap`` corresponding to `tree` and is used as the
   ## provider for source position information
-  var cl = TranslateCl(graph: graph, idgen: idgen, cache: graph.cache,
-                       owner: owner)
-  Body(code: tb(TreeWithSource(tree: tree, map: sourceMap), cl, NodePosition 0))
+  var cl = TranslateCl(graph: graph, idgen: idgen, owner: owner)
+  if owner.kind in routineKinds:
+    # setup the locals and associated mappings for the parameters
+    template add(v: PSym) =
+      let s = v
+      cl.localsMap[s.id] = cl.locals.add initLocal(s)
+
+    let sig =
+      if owner.kind == skMacro: owner.internal
+      else:                     owner.typ
+
+    # result variable:
+    if sig[0].isEmptyType():
+      # always reserve a slot for the result variable, even if the latter is
+      # not present
+      discard cl.locals.add(Local())
+    else:
+      add(owner.ast[resultPos].sym)
+
+    # normal parameters:
+    for i in 1..<sig.len:
+      add(sig.n[i].sym)
+
+    if sig.callConv == ccClosure:
+      # environment parameter
+      add(owner.ast[paramsPos][^1].sym)
+
+  result = Body()
+  result.code = tb(TreeWithSource(tree: tree, map: sourceMap), cl,
+                  NodePosition 0)
+  result.locals = cl.locals

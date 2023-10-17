@@ -165,13 +165,6 @@ type
 
   Suggestions* = seq[Suggest]
 
-  ProfileInfo* = object
-    time*: float
-    count*: int
-
-  ProfileData* = ref object
-    data*: TableRef[TLineInfo, ProfileInfo]
-
   StdOrrKind* = enum
     stdOrrStdout
     stdOrrStderr
@@ -267,7 +260,6 @@ type
     inputMode*: ProjectInputMode    ## how the main module is sourced
     lastMsgWasDot*: set[StdOrrKind] ## the last compiler message was a single '.'
     projectMainIdx*: FileIndex      ## the canonical path id of the main module
-    projectMainIdx2*: FileIndex     ## consider merging with projectMainIdx
     commandLineSrcIdx*: FileIndex   ## used by `commands` to base paths off for
                                     ## path, lib, and other additions; default
                                     ## to `lineinfos.commandLineIdx` and
@@ -296,7 +288,6 @@ type
     cCompilerPath*: string
     toCompile*: CfileList         # (*)
     suggestionResultHook*: proc (result: Suggest) {.closure.}
-    suggestVersion*: int
     suggestMaxResults*: int
     lastLineInfo*: TLineInfo
     writelnHook*: proc(
@@ -307,8 +298,10 @@ type
     ## textual output from the compiler goes through this callback.
     writeHook*: proc(conf: ConfigRef, output: string, flags: MsgFlags) {.closure.}
     structuredReportHook*: ReportHook
+      ## callback that is invoked when an enabled report is passed to report
+      ## handling. The callback is meant to handle rendering/displaying of
+      ## the report
     astDiagToLegacyReport*: proc(conf: ConfigRef, d: PAstDiag): Report
-    vmProfileData*: ProfileData
     setMsgFormat*: proc(config: ConfigRef, fmt: MsgFormatKind) {.closure.}
       ## callback that sets the message format for legacy reporting, needs to
       ## set before CLI handling, because reports are just that awful
@@ -319,6 +312,10 @@ type
 
     when defined(nimDebugUnreportedErrors):
       unreportedErrors*: OrderedTable[NodeId, PNode]
+
+const 
+  IdeLocCmds* = {ideSug, ideCon, ideDef, ideUse, ideDus}
+    ## IDE commands requiring source locations, related `MsgConfig.trackPos`
 
 template `[]`*(conf: ConfigRef, idx: FileIndex): TFileInfo =
   conf.m.fileInfos[idx.uint32]
@@ -720,26 +717,16 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
     ## evaluation` context. `sem` and `semexprs` in particular will clear
     ## `conf.m.errorOutputs` as a signal for this. For more details see the
     ## comment for `MsgConfig.errorOutputs`.
-  if (
-    (conf.isEnabled(r) and r.category == repDebug and compTimeCtx)
+  if r.category == repDebug and compTimeCtx:
     # Force write of the report messages using regular stdout if compTimeCtx
     # is enabled
-  ):
-    return writeForceEnabled
-
-  elif (
-    # Not explicitly enabled
-    not conf.isEnabled(r)
-  ) or (
+    writeForceEnabled
+  elif compTimeCtx:
     # Or we are in the special hack mode for `compiles()` processing
-    compTimeCtx
-  ):
-
     # Return without writing
-    return writeDisabled
-
+    writeDisabled
   else:
-    return writeEnabled
+    writeEnabled
 
 const
   oldExperimentalFeatures* = {dotOperators, callOperator}
@@ -776,9 +763,6 @@ template newPackageCache*(): untyped =
                    modeCaseInsensitive
                  else:
                    modeCaseSensitive)
-
-proc newProfileData(): ProfileData =
-  ProfileData(data: newTable[TLineInfo, ProfileInfo]())
 
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 
@@ -938,7 +922,6 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
     ),
     suggestMaxResults: 10_000,
     maxLoopIterationsVM: 10_000_000,
-    vmProfileData: newProfileData(),
     spellSuggestMax: spellSuggestSecretSauce,
   )
   initConfigRefCommon(result)

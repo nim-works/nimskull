@@ -6,66 +6,60 @@ destroying O1'''
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:main1 --expandArc:main2 --expandArc:main3 --hints:off --assertions:off $file'''
   nimout: '''--expandArc: main
 var data
-var :tmp
-var :tmp_1
+var :aux_2
+var :aux_3
 try:
-  var :tmp_2 = encode(
-      var :tmp_3 = newString(100)
-      :tmp = :tmp_3
-      cast[seq[byte]](:tmp))
-  :tmp_1 = :tmp_2
-  var :tmp_4 = cast[string](:tmp_1)
-  =copy(data, :tmp_4)
+  :aux_3 = encode(
+      :aux_2 = newString(100)
+      cast[seq[byte]](:aux_2))
+  var :aux_4 = cast[string](:aux_3)
+  =copy(data, :aux_4)
 finally:
-  =destroy(:tmp_1)
-  =destroy_1(:tmp)
+  =destroy(:aux_3)
+  =destroy_1(:aux_2)
   =destroy_1(data)
 -- end of expandArc ------------------------
 --expandArc: main1
 var s
 var data
-var :tmp
+var :aux_3
 try:
   s = newString(100)
-  var :tmp_1 = encode(toOpenArrayByte(s, 0, -(len(s), 1)))
-  :tmp = :tmp_1
-  var :tmp_2 = cast[string](:tmp)
-  =copy(data, :tmp_2)
+  :aux_3 = encode(toOpenArrayByte(s, 0, -(len(s), 1)))
+  var :aux_4 = cast[string](:aux_3)
+  =copy(data, :aux_4)
 finally:
-  =destroy(:tmp)
+  =destroy(:aux_3)
   =destroy_1(data)
   =destroy_1(s)
 -- end of expandArc ------------------------
 --expandArc: main2
 var s
 var data
-var :tmp
+var :aux_3
 try:
   s = newSeq(100)
-  var :tmp_1 = encode(s)
-  :tmp = :tmp_1
-  var :tmp_2 = cast[string](:tmp)
-  =copy(data, :tmp_2)
+  :aux_3 = encode(s)
+  var :aux_4 = cast[string](:aux_3)
+  =copy(data, :aux_4)
 finally:
-  =destroy(:tmp)
+  =destroy(:aux_3)
   =destroy_1(data)
   =destroy(s)
 -- end of expandArc ------------------------
 --expandArc: main3
 var data
-var :tmp
-var :tmp_1
+var :aux_2
+var :aux_3
 try:
-  var :tmp_2 = encode(
-      var :tmp_3 = newSeq(100)
-      :tmp = :tmp_3
-      :tmp)
-  :tmp_1 = :tmp_2
-  var :tmp_4 = cast[string](:tmp_1)
-  =copy(data, :tmp_4)
+  :aux_3 = encode(
+      :aux_2 = newSeq(100)
+      :aux_2)
+  var :aux_4 = cast[string](:aux_3)
+  =copy(data, :aux_4)
 finally:
-  =destroy(:tmp_1)
-  =destroy(:tmp)
+  =destroy(:aux_3)
+  =destroy(:aux_2)
   =destroy_1(data)
 -- end of expandArc ------------------------'''
 """

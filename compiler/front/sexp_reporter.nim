@@ -138,11 +138,7 @@ proc sexp*(t: PSym): SexpNode =
 
 proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   writeConf = conf
-  let wkind = conf.writabilityKind(r)
-
-  if wkind == writeDisabled:
-    return
-  else:
+  if true:
     var s = newSList()
     s.add newSSymbol(multiReplace($r.kind, {
       "rsem": "Sem",
@@ -174,7 +170,4 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       of repBackend:  s.addFields(r.backendReport, f)
       of repExternal: s.addFields(r.externalReport, f)
 
-    if wkind == writeForceEnabled:
-      echo s.toLine().toString(conf.useColor)
-    else:
-      conf.writeln(s.toLine().toString(conf.useColor))
+    conf.writeln(s.toLine().toString(conf.useColor))

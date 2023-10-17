@@ -71,15 +71,10 @@ type
     repNone
 
     #--------------------------  Internal reports  ---------------------------#
-    # Internal reports being
+    # Internal reports begin
     # fatal errors begin
-    rintUnknown ## Unknown internal report kind
-    rintFatal ## Explicitly fatal compiler error
-
     rintUnreachable ## State in the compiler code that must not be reached
     rintAssert ## Failed internal assert in the compiler
-
-    rintIce ## Internal compilation error
     # fatal end
 
     # errors being
@@ -225,7 +220,6 @@ type
     rvmOpcParseExpectedExpression
     rvmTooManyRegistersRequired
     rvmMissingImportcCompleteStruct
-    rvmCannotFindBreakTarget
     rvmNotUnused
     rvmUserError
     rvmTooLargetOffset
@@ -605,7 +599,6 @@ type
     rsemRawTypeMismatch
 
     rsemCannotConvertTypes
-    rsemUnresolvedGenericParameter
     rsemCannotCreateFlowVarOfType
     rsemTypeNotAllowed
 
@@ -655,6 +648,8 @@ type
     rsemPropositionExpected
     rsemIllegalCustomPragma
       ## supplied pragma is not a legal custom pragma, and cannot be attached
+    rsemExternalLocalNotAllowed
+      ## a local is specified to be part of an external interface
     rsemNoReturnHasReturn
       ## a routine marked as no return, has a return type
     rsemImplicitPragmaError
@@ -758,7 +753,6 @@ type
     rsemWarnGcUnsafeListing    = "GcUnsafe2"
     rsemProveInit              = "ProveInit"
     rsemUninit                 = "Uninit"
-    rsemWarnUnsafeCode         = "UnsafeCode"
     rsemImplicitCstringConvert = "CStringConv"
     rsemHoleEnumConvert        = "HoleEnumConv"
     rsemAnyEnumConvert         = "AnyEnumConv"
@@ -910,7 +904,7 @@ type
 
   ExternalReportKind* = range[rextCmdRequiresFile .. rextPath]
 
-  InternalReportKind* = range[rintUnknown .. rintEchoMessage]
+  InternalReportKind* = range[rintUnreachable .. rintEchoMessage]
 
 
 const
@@ -973,8 +967,8 @@ const
   repInternalKinds*: ReportKinds = {
     low(InternalReportKind) .. high(InternalReportKind)}
 
-  rintFatalKinds* = {rintUnknown .. rintIce} ## Fatal internal compilation
-                                             ## reports
+  rintFatalKinds* = {rintUnreachable .. rintAssert} ## Fatal internal compilation
+                                                ## reports
   rintErrorKinds* = {rintCannotOpenFile .. rintNotImplemented}
   rintWarningKinds* = {rintWarnCannotOpenFile .. rintWarnFileChanged}
   rintHintKinds* = {rintSource .. rintSuccessX}

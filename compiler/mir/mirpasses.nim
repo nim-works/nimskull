@@ -53,8 +53,8 @@ func isRvalue(tree: MirTree, a: OpValue): bool {.inline.} =
   ## doesn't have a name and cannot be assigned to. Only checks the
   ## immediate operator that yield the value.
   tree[a].kind in { mnkNone, mnkProc, mnkType, mnkLiteral, mnkConstr,
-                    mnkObjConstr, mnkCall, mnkStdConv, mnkCast, mnkAddr,
-                    mnkView }
+                    mnkObjConstr, mnkCall, mnkStdConv, mnkConv, mnkCast,
+                    mnkAddr, mnkView }
 
 func isArgBlock(tree: MirTree, n: NodePosition): bool =
   ## Returns whether the node `n` is the end-node of an arg-block.
@@ -66,17 +66,15 @@ func getRoot(tree: MirTree, n: OpValue): NodePosition =
   ## - the name of a location (e.g., ``a`` in ``a.b.c``)
   ## - an r-value (e.g., ``call()`` in ``call().b.c``)
   const PathNodes = { mnkPathArray, mnkPathNamed, mnkPathPos, mnkPathVariant,
-                      mnkConv }
+                      mnkPathConv }
     ## all operations that (can) take an lvalue as input and produce
-    ## lvalue
+    ## an lvalue
 
   var i = n
   while tree[i].kind in PathNodes:
     case tree[i].kind
-    of mnkPathNamed, mnkPathPos, mnkPathVariant:
-      i = OpValue(NodePosition(i) - 1)
-    of mnkConv:
-      i = unaryOperand(tree, Operation(i))
+    of mnkPathNamed, mnkPathPos, mnkPathVariant, mnkPathConv:
+      i = tree.operand(i)
     of mnkPathArray:
       i = operand(tree, Operation(i), 0)
     of AllNodeKinds - PathNodes:
@@ -89,7 +87,7 @@ func getOpChain(tree: MirTree, a: OpValue): LvalueExpr {.inline.} =
   (getRoot(tree, a), NodePosition a)
 
 func skipTag(tree: MirTree, a: OpValue): OpValue {.inline.} =
-  if tree[a].kind == mnkTag: OpValue(NodePosition(a) - 1)
+  if tree[a].kind == mnkTag: tree.operand(a)
   else:                      a
 
 func skipOpParam(tree: MirTree, n: OpValue): OpValue =
@@ -133,7 +131,7 @@ func rawNext(iter: var ArgIter, tree: MirTree): NodePosition =
 
 func next(iter: var ArgIter, tree: MirTree): OpValue {.inline.} =
   ## Returns the next operand node.
-  OpValue(rawNext(iter, tree) - 1)
+  tree.operand(rawNext(iter, tree))
 
 func hasNext(iter: ArgIter): bool {.inline.} =
   iter.pos != NodePosition(-1)
@@ -165,7 +163,7 @@ iterator uses(tree: MirTree, start, last: NodePosition): OpValue =
     let kind = tree[i].kind
     if kind in UseContext + ArgumentNodes or
        (kind in DefNodes and i.int > 0 and hasInput(tree, Operation i)):
-      yield skipTag(tree, unaryOperand(tree, Operation(i)))
+      yield skipTag(tree, tree.operand(i))
 
     dec i
 
@@ -181,7 +179,7 @@ iterator potentialMutations(tree: MirTree, start, last: NodePosition): OpValue =
     # all ``mnkTag`` nodes currently imply some sort of mutation/change
     if tree[i].kind in {mnkTag, mnkAddr} or
        (tree[i].kind == mnkView and tree[i].typ.kind == tyVar):
-      yield OpValue(i - 1)
+      yield tree.operand(i)
 
     inc i
 
@@ -357,11 +355,11 @@ proc fixupCallArguments(tree: MirTree, config: ConfigRef,
       while true:
         case tree[x].kind
         of mnkAddr, mnkView, mnkDeref, mnkDerefView, mnkConv, mnkStdConv,
-           mnkTag:
-          x = unaryOperand(tree, x)
+           mnkTag, mnkPathConv:
+          x = tree.operand(x)
         of mnkPathNamed, mnkPathPos, mnkPathVariant:
           result.add NodePosition(x)
-          x = unaryOperand(tree, x)
+          x = tree.operand(x)
         of mnkPathArray:
           result.add NodePosition(x)
           x = operand(tree, x, 0)
@@ -440,7 +438,7 @@ proc fixupCallArguments(tree: MirTree, config: ConfigRef,
         #   mutations
         # If either is the case, we need to introduce a shallow copy and use
         # that as the argument
-        let val = skipTag(tree, unaryOperand(tree, Operation arg))
+        let val = skipTag(tree, tree.operand(arg))
 
         # 1. an r-value is unique, meaning that we know that a temporary is
         #    not needed
@@ -458,9 +456,11 @@ proc fixupCallArguments(tree: MirTree, config: ConfigRef,
           # analysed as part of the ``potentialMutations`` loop below)
           var iter2 = iter
           while iter2.hasNext:
-            let arg2 = rawNext(iter2, tree)
-            if tree[arg2].kind == mnkName and tree[arg2 - 1].kind == mnkTag:
-              if maybeSameMutableLocation(tree, val, OpValue(arg2 - 2)):
+            let
+              arg2   = rawNext(iter2, tree)
+              argVal = tree.operand(arg2)
+            if tree[arg2].kind == mnkName and tree[argVal].kind == mnkTag:
+              if maybeSameMutableLocation(tree, val, tree.operand(argVal)):
                 needsTemp = true
                 break checkIfArgNeedsTemp
 

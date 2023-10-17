@@ -42,6 +42,7 @@ import
     msgs
   ],
   compiler/utils/[
+    containers,
     platform,
     nversion,
     bitsets,
@@ -333,10 +334,34 @@ include ccgtypes
 
 # ------------------------------ Manager of temporaries ------------------
 
-template mapTypeChooser(n: CgNode): TSymKind =
-  (if n.kind == cnkSym: n.sym.kind else: skVar)
+func mapTypeChooser(p: BProc, n: CgNode): TSymKind =
+  case n.kind
+  of cnkSym:
+    n.sym.kind
+  of cnkLocal:
+    if n.local == resultId:
+      skResult
+    elif p.locals[n.local].k == locParam:
+      skParam
+    else:
+      skVar
+  else:
+    skVar
 
-template mapTypeChooser(a: TLoc): TSymKind = mapTypeChooser(a.lode)
+func mapTypeChooser(a: TLoc): TSymKind =
+  let n = a.lode
+  case n.kind
+  of cnkSym:
+    n.sym.kind
+  of cnkLocal:
+    if n.local == resultId:
+      skResult
+    elif a.k == locParam:
+      skParam
+    else:
+      skVar
+  else:
+    skVar
 
 proc addrLoc(conf: ConfigRef; a: TLoc): Rope =
   result = a.r
@@ -410,7 +435,7 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
         let tmp = defaultValueExpr(p, t, a.lode.info)
         genAssignment(p, a, tmp)
 
-proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
+proc constructLoc(p: BProc, loc: var TLoc; doInitObj = true) =
   let kind = mapTypeChooser(loc)
   case mapType(p.config, loc.t, kind)
   of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
@@ -424,11 +449,8 @@ proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
   of ctNimStr, ctNimSeq:
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
   of ctArray, ctStruct, ctNimOpenArray:
-    if not isTemp:
-      # don't use nimZeroMem for temporary values for performance if we can
-      # avoid it
-      linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-              [addrLoc(p.config, loc), getTypeDesc(p.module, loc.t, kind)])
+    linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
+            [addrLoc(p.config, loc), getTypeDesc(p.module, loc.t, kind)])
 
     if doInitObj:
       genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
@@ -436,12 +458,12 @@ proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
     unreachable()
 
 proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  # we always want to clear out the destination, so pass `false` for
-  # ``isTemp``
-  constructLoc(p, loc, false, doInitObj)
+  # resetting the loc is achieved by constructing a new empty value inside
+  # it
+  constructLoc(p, loc, doInitObj)
 
-proc initLocalVar(p: BProc, v: PSym, immediateAsgn: bool) =
-  if sfNoInit notin v.flags:
+proc initLocalVar(p: BProc, v: LocalId, immediateAsgn: bool) =
+  if sfNoInit notin p.body[v].flags:
     # we know it is a local variable and thus on the stack!
     # If ``not immediateAsgn`` it is not initialized in a binding like
     # ``var v = X`` and thus we need to init it.
@@ -452,7 +474,7 @@ proc initLocalVar(p: BProc, v: PSym, immediateAsgn: bool) =
     if not immediateAsgn:
       constructLoc(p, p.locals[v])
 
-proc getTemp(p: BProc, t: PType, result: var TLoc; needsInit=false) =
+proc getTemp(p: BProc, t: PType, result: var TLoc) =
   inc(p.labels)
   result.r = "T" & rope(p.labels) & "_"
   linefmt(p, cpsLocals, "$1 $2;$n", [getTypeDesc(p.module, t, skVar), result.r])
@@ -460,7 +482,6 @@ proc getTemp(p: BProc, t: PType, result: var TLoc; needsInit=false) =
   result.lode = lodeTyp t
   result.storage = OnStack
   result.flags = {}
-  constructLoc(p, result, not needsInit)
   when false:
     # XXX Introduce a compiler switch in order to detect these easily.
     if getSize(p.config, t) > 1024 * 1024:
@@ -479,36 +500,26 @@ proc getIntTemp(p: BProc, result: var TLoc) =
   result.lode = lodeTyp getSysType(p.module.g.graph, unknownLineInfo, tyInt)
   result.flags = {}
 
-proc localVarDecl(p: BProc; n: CgNode): Rope =
-  let s = n.sym
-  let loc = initLoc(locLocalVar, n, mangleLocalName(p, s), OnStack)
-  if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
-    result.addf("NIM_ALIGN($1) ", [rope(s.alignment)])
-  result.add getTypeDesc(p.module, s.typ, skVar)
+proc localVarDecl(p: BProc; n: CgNode, decl: Local): Rope =
+  let loc = initLoc(locLocalVar, n, mangleLocalName(p, decl.name, n.local),
+                    OnStack)
+
+  if decl.alignment > 0:
+    result.addf("NIM_ALIGN($1) ", [$decl.alignment])
+
+  result.add getTypeDesc(p.module, decl.typ, skVar)
   if true:
-    if sfRegister in s.flags: result.add(" register")
-    #elif skipTypes(s.typ, abstractInst).kind in GcTypeKinds:
-    #  decl.add(" GC_GUARD")
-    if sfVolatile in s.flags: result.add(" volatile")
-    if sfNoalias in s.flags: result.add(" NIM_NOALIAS")
+    if sfRegister in decl.flags: result.add(" register")
+    if sfVolatile in decl.flags: result.add(" volatile")
+    if sfNoalias  in decl.flags: result.add(" NIM_NOALIAS")
     result.add(" ")
     result.add(loc.r)
 
-  # XXX: inline procedure are generated multiple times, so the symbol can
-  #      already have a non-zero ``locId``
-  if s notin p.locals:
-    p.locals.forcePut(s, loc)
-  else:
-    # XXX: finally blocks are duplicated by the code generator, so we have to
-    #      be lenient here and allow the local already existing. This is a bad
-    #      idea, however; if finally clauses are implemented via code
-    #      duplication, then that duplication needs to happen prior to code
-    #      generation
-    p.locals.assign(s, loc)
+  p.locals[n.local] = loc
 
 proc assignLocalVar(p: BProc, n: CgNode) =
   let nl = if optLineDir in p.config.options: "" else: "\L"
-  let decl = localVarDecl(p, n) & ";" & nl
+  let decl = localVarDecl(p, n, p.body[n.local]) & ";" & nl
   line(p, cpsLocals, decl)
 
 include ccgthreadvars
@@ -684,20 +695,21 @@ proc closureSetup(p: BProc, prc: PSym) =
   # prc.ast[paramsPos].last contains the type we're after:
   var ls = lastSon(prc.ast[paramsPos])
   p.config.internalAssert(ls.kind == nkSym, prc.info, "closure generation failed")
-  var env = ls.sym
-  #echo "created environment: ", env.id, " for ", prc.name.s
-  assignLocalVar(p, toSymNode(ls))
+  var env = ls.sym.position + 1 # parameters start at ID 1
+
+  let n = newLocalRef(LocalId(env), ls.info, ls.typ)
+  assignLocalVar(p, n)
   # generate cast assignment:
   linefmt(p, cpsStmts, "$1 = ($2) ClE_0;$n",
-          [rdLoc(p.locals[env]), getTypeDesc(p.module, env.typ)])
+          [rdLoc(p.locals[n.local]), getTypeDesc(p.module, ls.typ)])
 
 func containsResult(n: CgNode): bool =
   result = false
   case n.kind
-  of cnkAtoms - {cnkSym}:
+  of cnkAtoms - {cnkLocal}:
     discard "ignore"
-  of cnkSym:
-    if n.sym.kind == skResult:
+  of cnkLocal:
+    if n.local == resultId:
       result = true
   of cnkWithOperand:
     result = containsResult(n.operand)
@@ -738,7 +750,7 @@ proc allPathsAsgnResult(n: CgNode): InitResultEnum =
       result = allPathsAsgnResult(it)
       if result != Unknown: return result
   of cnkAsgn, cnkFastAsgn:
-    if n[0].kind == cnkSym and n[0].sym.kind == skResult:
+    if n[0].kind == cnkLocal and n[0].local == resultId:
       if not containsResult(n[1]): result = InitSkippable
       else: result = InitRequired
     elif containsResult(n):
@@ -774,11 +786,11 @@ proc allPathsAsgnResult(n: CgNode): InitResultEnum =
     result = allPathsAsgnResult(n[0])
     # a 'repeat' loop is always executed at least once
     if result == InitSkippable: result = Unknown
-  of cnkAtoms - {cnkSym, cnkReturnStmt}:
+  of cnkAtoms - {cnkLocal, cnkReturnStmt}:
     result = Unknown
-  of cnkSym:
+  of cnkLocal:
     # some path reads from 'result' before it was written to!
-    if n.sym.kind == skResult: result = InitRequired
+    if n.local == resultId: result = InitRequired
   of cnkTryStmt:
     # We need to watch out for the following problem:
     # try:
@@ -814,19 +826,21 @@ proc startProc*(m: BModule, prc: PSym; procBody: sink Body): BProc =
     # if a prototype was emitted, the parameter list already exists
     m.procs[prc].params = prepareParameters(m, prc.typ)
 
+  synchronize(p.locals, p.body.locals)
+
   if sfPure notin prc.flags and prc.typ[0] != nil:
     m.config.internalAssert(resultPos < prc.ast.len, prc.info, "proc has no result symbol")
     let
-      res = prc.ast[resultPos].sym # get result symbol
-      resNode = newSymNode(res)
+      res = resultId
+      resNode = newLocalRef(res, prc.info, prc.typ[0])
     if not isInvalidReturnType(m.config, prc.typ[0]):
-      if sfNoInit in prc.flags: incl(res.flags, sfNoInit)
       # declare the result symbol:
       assignLocalVar(p, resNode)
-      initLocalVar(p, res, immediateAsgn=false)
+      if sfNoInit notin prc.flags:
+        initLocalVar(p, res, immediateAsgn=false)
     else:
-      p.params[0] = initResultParamLoc(p.config, resNode)
-      scopeMangledParam(p, res)
+      p.locals[res] = initResultParamLoc(p.config, resNode)
+      scopeMangledParam(p, p.body[res].name)
       # We simplify 'unsureAsgn(result, nil); unsureAsgn(result, x)'
       # to 'unsureAsgn(result, x)'
       # Sketch why this is correct: If 'result' points to a stack location
@@ -837,10 +851,14 @@ proc startProc*(m: BModule, prc: PSym; procBody: sink Body): BProc =
       elif p.body.code != nil and
            allPathsAsgnResult(p.body.code) == InitSkippable: discard
       else:
-        resetLoc(p, p.params[0])
-      if skipTypes(res.typ, abstractInst).kind == tyArray:
+        resetLoc(p, p.locals[res])
+      if skipTypes(resNode.typ, abstractInst).kind == tyArray:
         #incl(res.locFlags, lfIndirect)
-        p.params[0].storage = OnUnknown
+        p.locals[res].storage = OnUnknown
+
+  # setup the locs for the parameters:
+  for i in 1..<m.procs[prc].params.len:
+    p.locals[LocalId(i)] = m.procs[prc].params[i]
 
   # for now, we treat all compilerprocs as being able to run in a boot
   # environment where the error flag is not yet accessible. This is not quite
@@ -857,7 +875,7 @@ proc startProc*(m: BModule, prc: PSym; procBody: sink Body): BProc =
   for i in 1..<prc.typ.n.len:
     let param = prc.typ.n[i].sym
     if p.params[i].k == locNone: continue
-    scopeMangledParam(p, param)
+    scopeMangledParam(p, param.name)
   closureSetup(p, prc)
 
   if sfPure notin prc.flags and optStackTrace in prc.options:
@@ -881,7 +899,7 @@ proc finishProc*(p: BProc, prc: PSym): string =
 
   if sfPure notin prc.flags and not isInvalidReturnType(p.config, prc.typ[0]):
     returnStmt = ropecg(p.module, "\treturn $1;$n",
-                        [rdLoc(p.locals[prc.ast[resultPos].sym])])
+                        [rdLoc(p.locals[resultId])])
 
   var generatedProc: Rope
   generatedProc.genCLineDir prc.info, p.config
@@ -926,6 +944,13 @@ proc genProc*(m: BModule, prc: PSym, procBody: sink Body): Rope =
   let p = startProc(m, prc, procBody)
   genStmts(p, p.body.code)
   result = finishProc(p, prc)
+
+proc genPartial*(p: BProc, n: CgNode) =
+  ## Generates the C code for `n` and appends the result to `p`. This
+  ## is intended for CG IR that wasn't already available when calling
+  ## `startProc`.
+  synchronize(p.locals, p.body.locals)
+  genStmts(p, n)
 
 proc genProcPrototype(m: BModule, sym: PSym) =
   useHeader(m, sym)

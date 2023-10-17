@@ -111,7 +111,7 @@ proc newModule(graph: ModuleGraph; fileIdx: FileIndex): PSym =
 
 proc compileModule*(graph: ModuleGraph; fileIdx: FileIndex; flags: TSymFlags, fromModule: PSym = nil): PSym =
   var flags = flags
-  if fileIdx == graph.config.projectMainIdx2: flags.incl sfMainModule
+  if fileIdx == graph.config.projectMainIdx: flags.incl sfMainModule
   result = graph.getModule(fileIdx)
 
   template processModuleAux(moduleStatus) =
@@ -200,7 +200,6 @@ proc compileProject*(graph: ModuleGraph; projectFileIdx = InvalidFileIdx) =
 
   let systemFileIdx = fileInfoIdx(conf, conf.libpath / RelativeFile"system.nim")
   let projectFile = if projectFileIdx == InvalidFileIdx: conf.projectMainIdx else: projectFileIdx
-  conf.projectMainIdx2 = projectFile
 
   let packSym = getPackage(graph, projectFile)
   graph.config.mainPackageId = packSym.getnimblePkgId

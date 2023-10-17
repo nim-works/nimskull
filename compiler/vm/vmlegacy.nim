@@ -21,7 +21,6 @@ func vmGenDiagToLegacyReportKind(diag: VmGenDiagKind): ReportKind {.inline.} =
   case diag
   of vmGenDiagMissingImportcCompleteStruct: rvmMissingImportcCompleteStruct
   of vmGenDiagTooManyRegistersRequired: rvmTooManyRegistersRequired
-  of vmGenDiagCannotFindBreakTarget: rvmCannotFindBreakTarget
   of vmGenDiagNotUnused: rvmNotUnused
   of vmGenDiagTooLargeOffset: rvmTooLargetOffset
   of vmGenDiagCodeGenUnhandledMagic: rvmCannotGenerateCode

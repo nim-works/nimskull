@@ -26,7 +26,6 @@ import std/compilesettings
 proc parseTest(filename: string; epcMode=false): Test =
   const cursorMarker = "#[!]#"
   let nimsug = "bin" / addFileExt("nimsuggest_testing", ExeExt)
-  doAssert nimsug.fileExists, nimsug
   const libpath = querySetting(libPath)
   result.filename = filename
   result.dest = getTempDir() / extractFilename(filename)
@@ -255,7 +254,7 @@ proc runEpcTest(filename: string): int =
   for cmd in s.startup:
     if not runCmd(cmd, s.dest):
       quit "invalid command: " & cmd
-  let epccmd = s.cmd.replace("--tester", "--epc --v2 --log")
+  let epccmd = s.cmd.replace("--tester", "--epc --log")
   let cl = parseCmdLine(epccmd)
   var p = startProcess(command=cl[0], args=cl[1 .. ^1],
                        options={poStdErrToStdOut, poUsePath,
@@ -345,6 +344,14 @@ proc runTest(filename: string): int =
   result = report.len
 
 proc main() =
+  let nimsug = "bin" / addFileExt("nimsuggest_testing", ExeExt)
+  if not nimsug.fileExists():
+    # xxx: ideally compiling a test binary should be done in `koch`
+    const args = "c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest"
+    let cmd = getCurrentCompilerExe() & " " & args
+    doAssert execShellCmd(getCurrentCompilerExe() & " " & args) == 0, cmd
+
+  doAssert nimsug.fileExists, nimsug
   var failures = 0
   if os.paramCount() > 0:
     let x = os.paramStr(1)

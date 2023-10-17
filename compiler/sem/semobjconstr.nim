@@ -95,9 +95,9 @@ proc branchVals(c: PContext, caseNode: PNode, caseIdx: int,
         result.excl(val)
 
 proc findUsefulCaseContext(c: PContext, discrimator: PNode): (PNode, int) =
-  for i in countdown(c.p.caseContext.high, 0):
+  for i in countdown(c.execCon.caseContext.high, 0):
     let
-      (caseNode, index) = c.p.caseContext[i]
+      (caseNode, index) = c.execCon.caseContext[i]
       skipped = caseNode[0].skipHidden
     if skipped.kind == nkSym and skipped.sym == discrimator.sym:
       return (caseNode, index)
@@ -339,11 +339,6 @@ proc checkConstructTypeAux(c: PContext,
     let base = t[0]
     if base == nil: break
     t = skipTypes(base, skipPtrs)
-    if t.kind != tyObject:
-      # XXX: This is not supposed to happen, but apparently
-      # there are some issues in semtypinst. Luckily, it
-      # seems to affect only `computeRequiresInit`.
-      return
     constrCtx.needsFullInit = constrCtx.needsFullInit or
                               tfNeedsFullInit in t.flags
 

@@ -98,15 +98,17 @@ proc isDeepConstExpr*(n: CgNode): bool =
   else:
     result = false
 
-proc getRoot*(n: CgNode): PSym =
+proc getRoot*(n: CgNode): CgNode =
   ## ``getRoot`` takes a *path* ``n``. A path is an lvalue expression
   ## like ``obj.x[i].y``. The *root* of a path is the symbol that can be
   ## determined as the owner; ``obj`` in the example.
   case n.kind
   of cnkSym:
-    if n.sym.kind in {skVar, skResult, skTemp, skLet, skForVar, skParam}:
-      result = n.sym
-  of cnkFieldAccess, cnkBracketAccess, cnkCheckedFieldAccess:
+    if n.sym.kind in {skVar, skLet, skForVar}:
+      result = n
+  of cnkLocal:
+    result = n
+  of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess:
     result = getRoot(n[0])
   of cnkDerefView, cnkDeref, cnkObjUpConv, cnkObjDownConv, cnkHiddenAddr,
      cnkAddr, cnkHiddenConv, cnkConv:
@@ -124,14 +126,15 @@ proc isLValue*(n: CgNode): bool =
   of cnkEmpty:
     n.typ.kind == tyVar
   of cnkSym:
-    (n.sym.kind == skParam and n.sym.typ.kind in {tyVar, tySink}) or
-      n.sym.kind in {skVar, skResult, skTemp}
+    n.sym.kind == skVar
+  of cnkLocal:
+    # treat all locals as lvalues, even parameters
+    true
   of cnkFieldAccess:
     let t = skipTypes(n[0].typ, abstractInst-{tyTypeDesc})
     t.kind in {tyVar, tySink, tyPtr, tyRef} or
-      ((n[1].kind != cnkSym or sfDiscriminant notin n[1].sym.flags) and
-       isLValue(n[0]))
-  of cnkBracketAccess:
+      (not isDiscriminantField(n) and isLValue(n[0]))
+  of cnkArrayAccess, cnkTupleAccess:
     let t = skipTypes(n[0].typ, abstractInst-{tyTypeDesc})
     t.kind in {tyVar, tySink, tyPtr, tyRef} or isLValue(n[0])
   of cnkHiddenConv, cnkConv:
@@ -144,7 +147,7 @@ proc isLValue*(n: CgNode): bool =
       false
   of cnkDerefView:
     let n0 = n.operand
-    n0.typ.kind != tyLent or (n0.kind == cnkSym and n0.sym.kind == skResult)
+    n0.typ.kind != tyLent or (n0.kind == cnkLocal and n0.local == resultId)
   of cnkDeref, cnkHiddenAddr:
     true
   of cnkObjUpConv, cnkObjDownConv:

@@ -1019,7 +1019,7 @@ proc fixVarArgumentsAndAnalyse(c: PContext, n: PNode): PNode =
 
   var hasError = false
 
-  if magic in {mNew, mNewSeq}:
+  if magic == mNewSeq:
     # XXX: this check doesn't really fit here. ``magicsAfterOverloadResolution``
     #       would be a better place for it
     # bug #5113: disallow newSeq(result) where result is a 'var T':
@@ -1154,7 +1154,7 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
 
     # only attempt to fold the expression if doing so doesn't affect
     # compile-time state
-    if c.p.inStaticContext == 0 or sfNoSideEffect in callee.flags:
+    if ecfStatic notin c.execCon.flags or sfNoSideEffect in callee.flags:
       if sfCompileTime in callee.flags:
         result = evalStaticExpr(c.module, c.idgen, c.graph, call, c.p.owner)
         result =
@@ -1176,11 +1176,11 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
   ## Semantically analyzes an expression explicitly requested to be evaluated
   ## at compile-time, producing either the AST representation of the resulting
   ## value or an error.
-  inc c.p.inStaticContext
   openScope(c)
+  pushExecCon(c, {ecfStatic, ecfExplicit})
   var a = semExprWithType(c, n)
+  popExecCon(c)
   closeScope(c)
-  dec c.p.inStaticContext
   a = foldInAst(c.module, a, c.idgen, c.graph)
   if a.kind == nkError or a.findUnresolvedStatic != nil:
     return a
@@ -1775,7 +1775,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
   when defined(nimsuggest):
     if c.config.cmd == cmdIdeTools:
       suggestExpr(c, n)
-      if exactEquals(c.config.m.trackPos, n[1].info): suggestExprNoCheck(c, n)
+      if c.config.m.trackPos == n[1].info: suggestExprNoCheck(c, n)
 
   let s = qualifiedLookUp(c, n, {checkAmbiguity, checkUndeclared, checkModule})
   if s.isError:
@@ -1948,11 +1948,12 @@ proc semDeref(c: PContext, n: PNode): PNode =
         else:
           nil # xxx: should probably be an error type; derefing a non-ptr/ref
 
-    case derefTarget.kind
+    result[0] = semmedTarget
+
+    case semmedTarget.kind
     of nkError:
       result = c.config.wrapError(result)
     else:
-      result[0] = semmedTarget
       result.typ = derefType
 
       if isTargetConstNil:
@@ -2755,11 +2756,11 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   let oldErrorOutputs = c.config.m.errorOutputs
   if efExplain notin flags: c.config.m.errorOutputs = {}
   let oldContextLen = msgs.getInfoContextLen(c.config)
+  let oldExecConsLen = c.executionCons.len
 
   let oldInGenericContext = c.inGenericContext
   let oldInUnrolledContext = c.inUnrolledContext
   let oldInGenericInst = c.inGenericInst
-  let oldInStaticContext = c.p.inStaticContext
   let oldProcCon = c.p
   c.generics = @[]
   var err: string
@@ -2780,7 +2781,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   c.inUnrolledContext = oldInUnrolledContext
   c.inGenericInst = oldInGenericInst
   c.p = oldProcCon
-  c.p.inStaticContext = oldInStaticContext
+  setLen(c.executionCons, oldExecConsLen)
   msgs.setInfoContextLen(c.config, oldContextLen)
   setLen(c.graph.owners, oldOwnerLen)
   c.currentScope = oldScope
@@ -2799,12 +2800,29 @@ proc semCompiles(c: PContext, n: PNode, flags: TExprFlags): PNode =
   #      defensively, as inclusion of nkError nodes may mutate the original AST
   #      that was passed in via the compiles call.
 
+  # the AST is analyzed as if appearing within the closest explicit execution
+  # context
+  var saveStack: seq[ExecutionCon]
+  block:
+    # backup the frames that are implicit
+    var i = c.executionCons.high
+    while i >= 0 and ecfExplicit notin c.executionCons[i].flags:
+      saveStack.add(move c.executionCons[i])
+      dec i
+
+    c.executionCons.setLen(i + 1)
+
   let
     exprVal = tryExpr(c, n[1], flags)
     didCompile = exprVal != nil and exprVal.kind != nkError
       ## this is the one place where we don't propagate nkError, wrapping the
       ## parent because this is a `compiles` call and should not leak across
       ## the AST boundary
+
+  # restore the original execution context stack. The items were saved in
+  # reverse, so we need to restore them in reverse order
+  for i in countdown(saveStack.high, 0):
+    c.executionCons.add(move saveStack[i])
 
   result = newIntNode(nkIntLit, ord(didCompile))
   result.info = n.info
@@ -3226,7 +3244,7 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result = n
   of nkBlockExpr, nkBlockStmt:
     checkSonsLen(n, 2, c.config)
-    inc(c.p.nestedBlockCounter)
+    inc(c.execCon.nestedBlockCounter)
     openScope(c) # BUGFIX: label is in the scope of block!
 
     # handle the label
@@ -3245,6 +3263,10 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
             addDecl(c, labl)
           elif labl.owner == nil:
             labl.owner = c.p.owner
+
+          # the symbol might be a pre-existing one coming from a template or
+          # macro, meaning that we always have to set the context value here:
+          labl.context = c.executionCons.high
 
           suggestSym(c.graph, lablNode.info, labl, c.graph.usageSym)
           styleCheckDef(c.config, labl)
@@ -3272,7 +3294,7 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
       result = c.config.wrapError(result)
 
     closeScope(c)  
-    dec(c.p.nestedBlockCounter)
+    dec(c.execCon.nestedBlockCounter)
   else:
     c.config.internalError:
       "expected block expresssion or statement, got: " & $n.kind
@@ -3830,7 +3852,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkConstSection: result = semConstLetOrVar(c, n, skConst)
   of nkTypeSection: result = semTypeSection(c, n)
   of nkDiscardStmt: result = semDiscard(c, n)
-  of nkWhileStmt: result = semWhile(c, n, flags)
+  of nkWhileStmt: result = c.config.extract(semWhile(c, n, flags))
   of nkTryStmt, nkHiddenTryStmt: result = semTry(c, n, flags)
   of nkBreakStmt: result = c.config.extract(semBreakStmt(c, n))
   of nkContinueStmt: result = semContinueStmt(c, n)

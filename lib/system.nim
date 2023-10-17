@@ -265,14 +265,6 @@ proc typeof*(x: untyped; mode = typeOfIter): typedesc {.
 
 const ThisIsSystem = true
 
-when compileOption("gc", "refc"):
-  # TODO: obsolete magic definition; remove after the next csource update.
-  #       The magic is unrelated to refc, but since only the csource
-  #       compiler still supports and uses refc, we can use its presense as
-  #       a way it to identify the csources compiler
-  proc internalNew*[T](a: var ref T) {.magic: "New", noSideEffect.}
-    ## Leaked implementation detail. Do not use.
-
 proc wasMoved*[T](obj: var T) {.magic: "WasMoved", noSideEffect.} =
   ## Resets an object `obj` to its initial (binary zero) value to signify
   ## it was "moved" and to signify its destructor should do nothing and
@@ -566,16 +558,29 @@ when defined(js) or defined(nimdoc):
     JsRoot* = ref object of RootObj
       ## Root type of the JavaScript object hierarchy
 
-proc unsafeNew*[T](a: var ref T, size: Natural) {.magic: "New", noSideEffect.}
-  ## Creates a new object of type `T` and returns a safe (traced)
-  ## reference to it in `a`.
-  ##
-  ## This is **unsafe** as it allocates an object of the passed `size`.
-  ## This should only be used for optimization purposes when you know
-  ## what you're doing!
-  ##
-  ## See also:
-  ## * `new <#new,ref.T,proc(ref.T)>`_
+when defined(nimskullNoMagicNewAssign):
+  proc unsafeNew[T: ref](size: Natural): T {.magic: "New", noSideEffect.}
+
+  template unsafeNew*[T: ref](a: var T, size: Natural) =
+    ## Creates a new object of `T`'s underlying object type and returns a
+    ## safe (traced) reference to it in `a`.
+    ##
+    ## This is **unsafe** as it allocates an object of the passed `size`.
+    ## This should only be used for optimization purposes when you know
+    ## what you're doing!
+    a = unsafeNew[T](size)
+
+else:
+  proc unsafeNew*[T](a: var ref T, size: Natural) {.magic: "New", noSideEffect.}
+    ## Creates a new object of type `T` and returns a safe (traced)
+    ## reference to it in `a`.
+    ##
+    ## This is **unsafe** as it allocates an object of the passed `size`.
+    ## This should only be used for optimization purposes when you know
+    ## what you're doing!
+    ##
+    ## See also:
+    ## * `new <#new,ref.T,proc(ref.T)>`_
 
 proc sizeof*[T](x: T): int {.magic: "SizeOf", noSideEffect.}
   ## Returns the size of `x` in bytes.
@@ -830,9 +835,28 @@ template `isnot`*(x, y: untyped): untyped = not (x is y)
 
 template owned*(t: typedesc): typedesc {.deprecated.} = t
 
-when true:
-  template unown*(x: typed): untyped {.deprecated.} = x
+template unown*(x: typed): untyped {.deprecated.} = x
 
+when defined(nimskullNoMagicNewAssign):
+  proc new[T: ref](): T {.magic: "New", noSideEffect.}
+
+  template new*[T: ref](a: var T) =
+    ## Creates a new object of `T`'s underlying object type and returns
+    ## a safe (traced) reference to it in `a`.
+    a = new[T]()
+
+  proc new*(t: typedesc): auto =
+    ## Creates a new object of type `T` and returns a safe (traced)
+    ## reference to it as result value.
+    ##
+    ## When `T` is a ref type then the resulting type will be `T`,
+    ## otherwise it will be `ref T`.
+    when t is ref:
+      result = new[t]()
+    else:
+      result = new[ref t]()
+
+else:
   proc new*[T](a: var ref T) {.magic: "New", noSideEffect.}
     ## Creates a new object of type `T` and returns a safe (traced)
     ## reference to it in `a`.
@@ -989,25 +1013,25 @@ proc newStringOfCap*(cap: Natural): string {.
   ## be achieved with the `&` operator or with `add`.
 
 proc `&`*(x: string, y: char): string {.
-  magic: "ConStrStr", noSideEffect, merge.}
+  magic: "ConStrStr", noSideEffect.}
   ## Concatenates `x` with `y`.
   ##
   ## .. code-block:: Nim
   ##   assert("ab" & 'c' == "abc")
 proc `&`*(x, y: char): string {.
-  magic: "ConStrStr", noSideEffect, merge.}
+  magic: "ConStrStr", noSideEffect.}
   ## Concatenates characters `x` and `y` into a string.
   ##
   ## .. code-block:: Nim
   ##   assert('a' & 'b' == "ab")
 proc `&`*(x, y: string): string {.
-  magic: "ConStrStr", noSideEffect, merge.}
+  magic: "ConStrStr", noSideEffect.}
   ## Concatenates strings `x` and `y`.
   ##
   ## .. code-block:: Nim
   ##   assert("ab" & "cd" == "abcd")
 proc `&`*(x: char, y: string): string {.
-  magic: "ConStrStr", noSideEffect, merge.}
+  magic: "ConStrStr", noSideEffect.}
   ## Concatenates `x` with `y`.
   ##
   ## .. code-block:: Nim
@@ -2546,56 +2570,72 @@ proc `[]=`*[Idx, T](a: var array[Idx, T]; i: BackwardsIndex; x: T) {.inline.} =
 proc `[]=`*(s: var string; i: BackwardsIndex; x: char) {.inline.} =
   s[s.len - int(i)] = x
 
-proc slurp*(filename: string): string {.magic: "Slurp".}
-  ## This is an alias for `staticRead <#staticRead,string>`_.
+when defined(nimskullReworkStaticExec):
+  proc slurp*(filename: string): string {.compileTime,
+    deprecated: "use staticRead".} = discard
+    ## This is an alias for `staticRead <#staticRead,string>`_.
 
-proc staticRead*(filename: string): string {.magic: "Slurp".}
-  ## Compile-time `readFile <io.html#readFile,string>`_ proc for easy
-  ## `resource`:idx: embedding:
-  ##
-  ## The maximum file size limit that `staticRead` and `slurp` can read is
-  ## near or equal to the *free* memory of the device you are using to compile.
-  ##
-  ## .. code-block:: Nim
-  ##     const myResource = staticRead"mydatafile.bin"
-  ##
-  ## `slurp <#slurp,string>`_ is an alias for `staticRead`.
+  proc staticRead*(filename: string): string {.compileTime.} = discard
+    ## Compile-time `readFile <io.html#readFile,string>`_ proc for easy
+    ## `resource`:idx: embedding:
+    ##
+    ## The maximum file size limit that `staticRead` and `slurp` can read is
+    ## near or equal to the *free* memory of the device you are using to compile.
+    ##
+    ## .. code-block:: Nim
+    ##     const myResource = staticRead"mydatafile.bin"
 
-proc gorge*(command: string, input = "", cache = ""): string {.
-  magic: "StaticExec".} = discard
-  ## This is an alias for `staticExec <#staticExec,string,string,string>`_.
+  proc gorge*(command: string, input = "", cache = ""): string {.
+    compileTime, deprecated: "use staticExec".} = discard
+    ## This is an alias for `staticExec <#staticExec,string,string,string>`_.
 
-proc staticExec*(command: string, input = "", cache = ""): string {.
-  magic: "StaticExec".} = discard
-  ## Executes an external process at compile-time and returns its text output
-  ## (stdout + stderr).
-  ##
-  ## If `input` is not an empty string, it will be passed as a standard input
-  ## to the executed program.
-  ##
-  ## .. code-block:: Nim
-  ##     const buildInfo = "Revision " & staticExec("git rev-parse HEAD") &
-  ##                       "\nCompiled on " & staticExec("uname -v")
-  ##
-  ## `gorge <#gorge,string,string,string>`_ is an alias for `staticExec`.
-  ##
-  ## Note that you can use this proc inside a pragma like
-  ## `passc <manual.html#implementation-specific-pragmas-passc-pragma>`_ or
-  ## `passl <manual.html#implementation-specific-pragmas-passl-pragma>`_.
-  ##
-  ## If `cache` is not empty, the results of `staticExec` are cached within
-  ## the `nimcache` directory. Use `--forceBuild` to get rid of this caching
-  ## behaviour then. `command & input & cache` (the concatenated string) is
-  ## used to determine whether the entry in the cache is still valid. You can
-  ## use versioning information for `cache`:
-  ##
-  ## .. code-block:: Nim
-  ##     const stateMachine = staticExec("dfaoptimizer", "input", "0.8.0")
+  proc staticExec*(command: string, input = "", cache = ""): string {.
+    compileTime.} = discard
+    ## Executes an external process at compile-time and returns its text output
+    ## (stdout + stderr).
+    ##
+    ## If `input` is not an empty string, it will be passed as a standard input
+    ## to the executed program.
+    ##
+    ## .. code-block:: Nim
+    ##     const buildInfo = "Revision " & staticExec("git rev-parse HEAD") &
+    ##                       "\nCompiled on " & staticExec("uname -v")
+    ##
+    ## `gorge <#gorge,string,string,string>`_ is an alias for `staticExec`.
+    ##
+    ## Note that you can use this proc inside a pragma like
+    ## `passc <manual.html#implementation-specific-pragmas-passc-pragma>`_ or
+    ## `passl <manual.html#implementation-specific-pragmas-passl-pragma>`_.
+    ##
+    ## If `cache` is not empty, the results of `staticExec` are cached within
+    ## the `nimcache` directory. Use `--forceBuild` to get rid of this caching
+    ## behaviour then. `command & input & cache` (the concatenated string) is
+    ## used to determine whether the entry in the cache is still valid. You can
+    ## use versioning information for `cache`:
+    ##
+    ## .. code-block:: Nim
+    ##     const stateMachine = staticExec("dfaoptimizer", "input", "0.8.0")
+    ## 
+    ## Deprecate/Replace with variant that returns the exit code and output
+else:
+  proc slurp*(filename: string): string {.magic: "Slurp".} = discard
+    ## kept for bootstrapping
+
+  proc staticRead*(filename: string): string {.magic: "Slurp".} = discard
+    ## kept for bootstrapping
+
+  proc gorge*(command: string, input = "", cache = ""): string {.
+    magic: "StaticExec".} = discard
+    ## kept for bootstrapping
+
+  proc staticExec*(command: string, input = "", cache = ""): string {.
+    magic: "StaticExec".} = discard
+    ## kept for bootstrapping
 
 proc gorgeEx*(command: string, input = "", cache = ""): tuple[output: string,
                                                               exitCode: int] =
   ## Similar to `gorge <#gorge,string,string,string>`_ but also returns the
-  ## precious exit code.
+  ## exit code.
   discard
 
 

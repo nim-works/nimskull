@@ -15,6 +15,10 @@ jobs:
     name: Trim description and merge
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            tools/ci_format_pr_description.js
       - id: pr-data
         name: Get PR data and trim PR body
         uses: actions/github-script@v6
@@ -51,7 +55,10 @@ jobs:
               return;
             }
 
+            const formatPR = require('./tools/ci_format_pr_description.js');
+
             let [ body, body_tail ] = pr_info.body.split(/^---\s*$/m, 2);
+            body = formatPR.formatPRdescription(body, 72);
             body = body.trimEnd();
             body_tail = body_tail?.trimEnd() || '';
             // Only runs when the PR is still open and is not staged for merging.
@@ -110,7 +117,7 @@ jobs:
       - if: steps.pr-data.outputs.run
         id: token
         name: Create app token for merges
-        uses: tibdex/github-app-token@v1
+        uses: tibdex/github-app-token@v2
         with:
           app_id: ${{ secrets.CHORE_APP_ID }}
           private_key: ${{ secrets.CHORE_APP_KEY }}

@@ -126,7 +126,7 @@ const
   defaultAlignment* = -1
   defaultOffset* = -1
 
-  FakeVarParams* = {mNew, mInc, mDec, mIncl, mExcl,
+  FakeVarParams* = {mInc, mDec, mIncl, mExcl,
     mSetLengthStr, mSetLengthSeq, mAppendStrCh, mAppendStrStr, mSwap,
     mAppendSeqElem, mNewSeq, mReset, mShallowCopy, mDeepCopy, mMove,
     mWasMoved}
@@ -617,8 +617,7 @@ proc isSinkType*(t: PType): bool {.inline.} =
   t.kind == tySink
 
 const magicsThatCanRaise* = {
-  mNone, mSlurp, mStaticExec, mParseExprToAst, mParseStmtToAst, mEcho,
-  mChckRange }
+  mNone, mParseExprToAst, mParseStmtToAst, mEcho, mChckRange }
 
 proc canRaiseConservative*(fn: PNode): bool =
   if fn.kind == nkSym and fn.sym.magic notin magicsThatCanRaise:

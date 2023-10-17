@@ -53,7 +53,6 @@ import
   ],
   compiler/vm/[
     vmprofiler,
-    gorgeimpl,
     vmchecks,
     vmcompilerserdes,
     vmdef,
@@ -69,7 +68,6 @@ import
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_sem import SemReport
-from compiler/ast/reports_internal import InternalReport
 from compiler/ast/report_enums import ReportKind
 
 # xxx: `Report` is faaaar too wide a type for what the VM needs, even with all
@@ -907,7 +905,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
           kind: vmTraceMin,
           pc: pc))
 
-    c.profiler.enter(c, tos)
+    c.profiler.enter()
     case instr.opcode
     of opcEof:
       # XXX: eof shouldn't be used to return a register
@@ -2028,6 +2026,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
                  heap: addr c.heap,
                  graph: c.graph,
                  config: c.config,
+                 currentModule: c.module,
                  cache: c.cache,
                  idgen: c.idgen))
       of ckDefault:
@@ -2627,40 +2626,6 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         raiseVmError(VmEvent(
           kind: vmEvtNodeNotASymbol, ast: regs[rb].nimNode))
 
-    of opcSlurp:
-      decodeB(akString)
-      checkHandle(regs[rb])
-      regs[ra].strVal = opSlurp($regs[rb].strVal, c.debug[pc],
-                                     c.module, c.config)
-    of opcGorge:
-      decodeBC(akString)
-      inc pc
-      let rd = c.code[pc].regA
-      checkHandle(regs[ra])
-      if defined(nimsuggest) or c.config.cmd == cmdCheck or
-         vmopsDanger notin c.config.features:
-        discard "don't run staticExec for 'nim suggest'"
-        regs[ra].strVal = ""
-      else:
-        when defined(nimcore):
-          checkHandle(regs[rb])
-          checkHandle(regs[rc])
-          checkHandle(regs[rd])
-          regs[ra].strVal = opGorge($regs[rb].strVal,
-                                        $regs[rc].strVal, $regs[rd].strVal,
-                                        c.debug[pc], c.config)[0]
-        else:
-          regs[ra].strVal = ""
-          # TODO: this is neither an internal error nor should ``globalReport``
-          #       be used to report it. As an improvement, it could be
-          #       treated as a normal VM error. ``opcGorge`` implements a part
-          #       of the compiler's compile-time interface, so it should be
-          #       eventually moved out of the VM via either callbacks or a
-          #       better mechanism for "system calls"
-          globalReport(c.config, c.debug[pc], InternalReport(
-            kind: rintNotUsingNimcore,
-            msg: "VM is not built with 'gorge' support"))
-
     of opcParseExprToAst, opcParseStmtToAst:
       decodeBC(rkNimNode)
 
@@ -3064,7 +3029,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       #createStr regs[ra]
       regs[ra].strVal = typ.typeToString(preferExported)
 
-    c.profiler.leave(c)
+    c.profiler.leave(c.sframes)
 
     inc pc
 

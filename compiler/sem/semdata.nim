@@ -63,24 +63,35 @@ type
                                  ## statements
     owner*: PSym              ## the symbol this context belongs to
     resultSym*: PSym          ## the result symbol (if we are in a proc)
-    nestedLoopCounter*: int   ## whether we are in a loop or not
-    nestedBlockCounter*: int  ## whether we are in a block or not
     next*: PProcCon           ## used for stacking procedure contexts
     mappingExists*: bool
     mapping*: TIdTable
-    caseContext*: seq[tuple[n: PNode, idx: int]]
     localBindStmts*: seq[PNode]
 
-    inStaticContext*: int
-      ## > 0 if we are inside a ``static`` block/expression or initializer
-      ## expression of a ``const``
-      ##
-      ## written:
-      ##  - semexprs: save/restore in ``tryExpr``, inc/dec in ``semStaticExpr``
-      ##  - semstmts: inc/dec around ``semConst`` and ``semStaticStmt``
-      ## read:
-      ##  - semBindSym: whether to resolve the binding or not
-      ##  - inCompileTimeOnlyContext
+  ExecutionConFlag* = enum
+    ecfStatic   ## the context is that of a ``static`` block/expression or of
+                ## a `const`'s initializer
+    ecfExplicit ## the context is explicit. Sub-compilation (``compiles``)
+                ## always picks the closest explicit context
+
+  ExecutionCon* = object
+    ## Stores information about an abstract execution context, that is the
+    ## context in which analyzed code will later be run in.
+    ##
+    ## In most cases all code within the body of a procedure will be run
+    ## in the same context (i.e., at run-time, when executing the procedure).
+    ## However, the code placed in, for example, a ``static`` block, while
+    ## analysed as part of the procedure, is executed at compile-time,
+    ## separately from the other code.
+    nestedLoopCounter*: int   ## whether we are in a loop or not
+    nestedBlockCounter*: int  ## whether we are in a block or not
+
+    caseContext*: seq[tuple[n: PNode, idx: int]]
+      ## the stack of enclosing ``nkCastStmt`` nodes
+
+    flags*: set[ExecutionConFlag]
+      ## additional flags describing the context. Initialized once when
+      ## creating an ``ExecutionCon`` and only queried after that.
 
   TMatchedConcept* = object
     candidateType*: PType
@@ -177,6 +188,13 @@ type
     # xxx: semtempl for example has a specialized context, maybe we should pull
     #      this out too? it's not straightfoward, but even an attempt will
     #      clean things up
+    executionCons*: seq[ExecutionCon]
+      ## the stack of execution contexts. Only the last item represents the
+      ## active context.
+      ##
+      ## written: when pushing/popping a new procedure context, or when
+      ##          analysing a nested out-of-phase expression/statement
+      ## read: all over sem
 
     # type related contexts
     matchedConcept*: ptr TMatchedConcept
@@ -710,8 +728,7 @@ proc setIntLitType*(c: PContext; result: PNode) =
     else:
       result.typ = getSysType(c.graph, result.info, tyInt64)
   else:
-    c.config.internalError(
-      result.info, rintUnreachable, "invalid int size")
+    c.config.internalError(result.info, "invalid int size")
 
 proc makeInstPair*(s: PSym, inst: PInstantiation): TInstantiationPair =
   result.genericSym = s
@@ -742,15 +759,29 @@ proc popOwner*(c: PContext) =
 proc lastOptionEntry*(c: PContext): POptionEntry =
   result = c.optionStack[^1]
 
+proc pushExecCon*(c: PContext, flags: set[ExecutionConFlag]) {.inline.} =
+  ## Pushes a new ``ExecutionCon`` to the stack.
+  c.executionCons.add ExecutionCon(flags: flags)
+
+proc popExecCon*(c: PContext) {.inline.} =
+  ## Pops the top-most ``ExecutionCon`` from the stack.
+  c.executionCons.setLen(c.executionCons.len - 1)
+
+template execCon*(c: PContext): ExecutionCon =
+  ## Returns the current execution context.
+  c.executionCons[^1]
+
 proc pushProcCon*(c: PContext, owner: PSym) {.inline.} =
   c.config.internalAssert(owner != nil, "owner is nil")
-  var x: PProcCon
-  new(x)
-  x.owner = owner
-  x.next = c.p
+  var x = PProcCon(owner: owner, next: c.p)
   c.p = x
 
-proc popProcCon*(c: PContext) {.inline.} = c.p = c.p.next
+  # a procedure always starts a new execution context
+  pushExecCon(c, {ecfExplicit})
+
+proc popProcCon*(c: PContext) {.inline.} =
+  popExecCon(c)
+  c.p = c.p.next
 
 proc put*(p: PProcCon; key, val: PSym) =
   if not p.mappingExists:
@@ -1053,16 +1084,16 @@ proc isTopLevelInsideDeclaration*(c: PContext, sym: PSym): bool {.inline.} =
 proc inCompileTimeOnlyContext*(c: PContext): bool =
   ## Returns whether the current analysis happens for code that can only run
   ## at compile-time
-  c.p.inStaticContext > 0 or sfCompileTime in c.p.owner.flags
+  ecfStatic in c.execCon.flags or sfCompileTime in c.p.owner.flags
 
 proc pushCaseContext*(c: PContext, caseNode: PNode) =
-  c.p.caseContext.add((caseNode, 0))
+  c.execCon.caseContext.add((caseNode, 0))
 
 proc popCaseContext*(c: PContext) =
-  discard pop(c.p.caseContext)
+  discard pop(c.execCon.caseContext)
 
 proc setCaseContextIdx*(c: PContext, idx: int) =
-  c.p.caseContext[^1].idx = idx
+  c.execCon.caseContext[^1].idx = idx
 
 template addExport*(c: PContext; s: PSym) =
   ## convenience to export a symbol from the current module

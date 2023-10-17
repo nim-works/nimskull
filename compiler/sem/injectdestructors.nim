@@ -329,7 +329,7 @@ func getDefEntity(tree: MirTree, n: NodePosition): NodePosition =
 func skipTag(tree: MirTree, n: Operation): OpValue =
   ## Returns the input to the tag operation `n`
   assert tree[n].kind == mnkTag
-  unaryOperand(tree, n)
+  tree.operand(n)
 
 # --------- compute routines ---------------
 
@@ -434,7 +434,7 @@ func solveOwnership(tree: MirTree, cfg: ControlFlowGraph, values: var Values,
   for i, n in tree.pairs:
     case n.kind
     of ConsumeCtx:
-      let opr = unaryOperand(tree, Operation i)
+      let opr = tree.operand(i)
 
       if values.owned(opr) in {unknown, weak} and hasDestructor(tree[opr].typ):
         # unresolved onwership status and has a destructors
@@ -613,9 +613,9 @@ func undoConversions(buf: var MirNodeSeq, tree: MirTree, src: OpValue) =
   ## the conversions in *reverse*. ``cgirgen`` detects this pattern and removes
   ## the conversions that cancel each other out.
   var p = NodePosition(src)
-  while tree[p].kind in {mnkStdConv, mnkConv}:
+  while tree[p].kind == mnkPathConv:
     p = previous(tree, p)
-    buf.add MirNode(kind: mnkConv, typ: tree[p].typ)
+    buf.add MirNode(kind: mnkPathConv, typ: tree[p].typ)
 
 template voidCallWithArgs(buf: var MirNodeSeq, body: untyped) =
   argBlock(buf):
@@ -880,7 +880,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       # passing a value to the ``raise`` operation or as the initial value of
       # a temporary used for tuple unpacking also requires consuming it
       let
-        opr = unaryOperand(tree, Operation i)
+        opr = tree.operand(i)
         typ = tree[opr].typ
 
       if tree[opr].kind == mnkNone or not hasDestructor(typ):
@@ -905,7 +905,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         user = Operation(findEnd(tree, parent(tree, i)) + 1) ## the consumer
         # XXX: 'consume' is not an operation -- it's an argument sink. It
         #      might make sense to introduce a new type for those
-        val = unaryOperand(tree, Operation i)
+        val = tree.operand(i)
 
       case tree[user].kind
       of mnkConstr, mnkObjConstr, mnkCall, mnkMagic:
@@ -1006,37 +1006,6 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
       result = ord(x.pos) - ord(y.pos)
   )
 
-  # second pass: if at least one entity in a scope needs its destructor call
-  # placed in a ``finally`` clause, all others in the same scope do too, as the
-  # order-of-destruction would be violated otherwise
-  for pos, scope in entries.items:
-    if scope in needsFinally:
-      # if the destroy call has to be placed inside a ``finally`` clause, we
-      # first need to move the 'def' from its current position to the start of
-      # the scope, as it'd be otherwise located inside the ``try``'s body
-      # (which would render the entity unavailable inside the ``finally``
-      # clause)
-      assert tree[pos].kind == mnkDef
-      c.seek(pos)
-      if hasInput(tree, Operation pos):
-        # replace the 'def' with an initializing assignment if it has an
-        # input:
-        c.replaceMulti(buf):
-          buf.subTree MirNode(kind: mnkRegion):
-            argBlock(buf):
-              let e = getDefEntity(tree, pos) # the entity (e.g. local)
-              chain(buf): emit(tree[e]) => name()
-              chain(buf): opParam(0, tree[e].typ) => arg()
-            buf.add MirNode(kind: mnkInit)
-
-      else:
-        c.remove()
-
-      # insert the 'def' at the start of the scope:
-      c.seek(scope + 1)
-      c.insert(NodeInstance pos, buf):
-        buf.add toOpenArray(tree, pos.int, pos.int+2)
-
   iterator scopeItems(e: seq[DestroyEntry]): Slice[int] {.inline.} =
     ## Partitions `e` using the `scope` field and yields the slice of each
     ## partition
@@ -1052,7 +1021,7 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
           scopePos = e[i].scope
           start = i
 
-  # third pass: inject the destructors and place them inside a ``finally``
+  # second pass: inject the destructors and place them inside a ``finally``
   # clause if necessary
   for s in scopeItems(entries):
     let
@@ -1062,8 +1031,7 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
         ## the node to inherit the origin information from
 
     if useFinally:
-      # at the start of the scope (after the 'def's previously moved there),
-      # insert the start nodes of a 'try' and a 'stmtList':
+      # start a 'finally' at the beginning of the scope:
       c.seek(scopeStart + 1)
       c.insert(source, buf):
         buf.add MirNode(kind: mnkTry, len: 1)
@@ -1196,31 +1164,6 @@ proc lowerBranchSwitch(buf: var MirNodeSeq, body: MirTree, graph: ModuleGraph,
 
   buf.add endNode(mnkRegion)
 
-proc lowerNew(tree: MirTree, g: ModuleGraph, c: var Changeset) =
-  ## Lower calls to the ``new(x)`` into a ``=destroy(x); new(x)``
-  for i, n in tree.pairs:
-    if n.kind == mnkMagic and n.magic == mNew:
-      c.seek(i)
-      c.replaceMulti(buf):
-        buf.subTree MirNode(kind: mnkRegion):
-          let typ = skipTypes(tree[operand(tree, Operation(i), 0)].typ,
-                              skipAliases + {tyVar})
-          # first destroy the previous value
-          genDestroy(buf, g, typ, opParamNode(0, typ))
-
-          # re-insert the call to ``new``
-          argBlock(buf):
-            chain(buf): opParam(0, typ) => tag(ekReassign) => name()
-
-            # add the remaining arguments (if any)
-            for j in 1..<numArgs(tree, Operation i):
-              let typ = tree[operand(tree, Operation i, j)].typ
-              chain(buf): opParam(buf, j.uint32, typ) => arg()
-
-          chain(buf): emit(n) => voidOut() # use the original 'new' operator
-
-      c.remove() # remove the ``mnkVoid`` node
-
 proc reportDiagnostics(g: ModuleGraph, tree: MirTree, sourceMap: SourceMap,
                        owner: PSym, diags: var seq[LocalDiag]) =
   ## Reports all diagnostics in `diags` as ``SemReport``s and clear the list
@@ -1301,11 +1244,6 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
 
     let destructors = computeDestructors(tree, actx.cfg, values, entities)
 
-    # only inject destructors for calls to ``new`` if destructor-based
-    # ref-counting is used
-    if g.config.selectedGC in {gcArc, gcOrc}:
-      lowerNew(tree, g, changes)
-
     rewriteAssignments(
       tree, actx,
       AnalysisResults(v: cursor(values),
@@ -1325,7 +1263,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
     # the MIR code wouldn't be very useful, so we turn it into backend IR
     # first, which we then render to text
     # XXX: this needs a deeper rethink
-    let n = generateIR(g, idgen, owner, tree, sourceMap).code
+    let n = generateIR(g, idgen, owner, tree, sourceMap)
     g.config.msgWrite("--expandArc: " & owner.name.s & "\n")
     g.config.msgWrite(render(n))
     g.config.msgWrite("\n-- end of expandArc ------------------------\n")

@@ -319,20 +319,30 @@ proc newLabel(c: PTransf, n: PNode): PSym =
   result.name = getIdent(c.graph.cache, genPrefix)
 
 proc transformBlock(c: PTransf, n: PNode): PNode =
-  var labl: PSym
+  result = shallowCopy(n)
   if c.inlining > 0:
-    labl = newLabel(c, n[0])
+    # all blocks that reach here are labeled. We still need to ensure that
+    # unique symbols are used, so introduce both a copy and associated
+    # mapping
+    let labl = copySym(n[0].sym, nextSymId c.idgen)
+    labl.info = n[0].sym.info
+    labl.owner = getCurrOwner(c)
     idNodeTablePut(c.transCon.mapping, n[0].sym, newSymNode(labl))
+
+    result[0] = newSymNode(labl, n[0].info)
+    # the breaks in the AST were all already transformed
+    result[1] = transform(c, n[1])
   else:
-    labl =
+    let labl =
       if n[0].kind != nkEmpty:
         n[0].sym  # already named block? -> Push symbol on the stack
       else:
         newLabel(c, n)
-  c.breakSyms.add(labl)
-  result = transformSons(c, n)
-  discard c.breakSyms.pop
-  result[0] = newSymNode(labl)
+
+    result[0] = newSymNode(labl, n[0].info)
+    c.breakSyms.add(labl)
+    result[1] = transform(c, n[1])
+    discard c.breakSyms.pop
 
 proc transformLoopBody(c: PTransf, n: PNode): PNode =
   # What if it contains "continue" and "break"? "break" needs
@@ -355,23 +365,69 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
   if c.inlining > 0:
     result = transformSons(c, n)
   else:
+    # transform a while loop with an arbitrary condition expression into a
+    # ``while true`` loop, as those are much easier to process for data-flow
+    # analysis and the closure-iterator transformation
     let labl = newLabel(c, n)
     c.breakSyms.add(labl)
 
-    var body = shallowCopy(n)
-    for i in 0..<n.len-1:
-      body[i] = transform(c, n[i])
-    body[^1] = transformLoopBody(c, n[^1])
+    let info = n[0].info
+    var
+      loop = shallowCopy(n)
+      cond = transform(c, n[0])
+
+    # build the transformed loop
+    if isTrue(cond):
+      # the condition is already statically 'true', no condition handling is
+      # needed
+      loop[0] = cond
+      loop[1] = transformLoopBody(c, n[1])
+    else:
+      loop[0] = newIntTypeNode(1, c.graph.getSysType(info, tyBool))
+      loop[0].info = info
+
+      # XXX: we need to help ``closureiters`` (which doesn't support 'yield' in
+      #      if conditions...) here and unpack complex condition expressions;
+      #      'yield' in 'while' conditions would not work otherwise
+      var preamble = PNode(nil)
+      if cond.kind in {nkStmtListExpr, nkStmtList}:
+        preamble = newNodeI(nkStmtList, info, cond.len - 1)
+        for i in 0..<preamble.len:
+          preamble[i] = cond[i]
+
+        cond = cond[^1]
+
+      let exit =
+        newTreeI(nkIfStmt, info,
+          newTreeI(nkElifBranch, info,
+            newTreeI(nkCall, info,
+              newSymNode(c.graph.getSysMagic(info, "not", mNot)),
+              cond),
+            newBreakStmt(info, labl)))
+
+      var body = transformLoopBody(c, n[1])
+      # use a nested scope for the body. This is important for the clean-up
+      # semantics, as exiting the loop via the ``break`` used by the exit
+      # handling must not run finalizers (if present) for the loop's body
+      if body.kind != nkBlockStmt:
+        body = newTreeI(nkBlockStmt, n[1].info):
+          [newSymNode(newLabel(c, body)), body]
+
+      loop[1] =
+        if preamble.isNil: newTree(nkStmtList, [exit, body])
+        else:              newTree(nkStmtList, [preamble, exit, body])
 
     result = newTreeI(nkBlockStmt, n.info):
-      [newSymNode(labl), body]
+      [newSymNode(labl), loop]
     discard c.breakSyms.pop
 
 proc transformBreak(c: PTransf, n: PNode): PNode =
-  result = transformSons(c, n)
-  if n[0].kind == nkEmpty and c.breakSyms.len > 0:
-    let labl = c.breakSyms[^1]
-    result[0] = newSymNode(labl)
+  if n[0].kind == nkEmpty:
+    # turn into a labeled break, using the break label stack
+    result = newBreakStmt(n.info, c.breakSyms[^1])
+  else:
+    # already a labeled break
+    result = transformSons(c, n)
 
 proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
   case n.kind
@@ -708,7 +764,8 @@ proc transformFor(c: PTransf, n: PNode): PNode =
     result[1] = n
     result[1][^1] = transformLoopBody(c, n[^1])
     result[1][^2] = transform(c, n[^2])
-    result[1] = lambdalifting.liftForLoop(c.graph, result[1], c.idgen, getCurrOwner(c))
+    result[1] = lambdalifting.liftForLoop(c.graph, result[1], c.idgen,
+                                          getCurrOwner(c), labl)
     discard c.breakSyms.pop
   else:
     var stmtList = newNodeI(nkStmtList, n.info)
@@ -1000,8 +1057,8 @@ proc transformExceptBranch(c: PTransf, n: PNode): PNode =
     # -> getCurrentException()
     let excCall = callCodegenProc(c.graph, "getCurrentException")
     # -> (excType)
-    let convNode = newTreeIT(nkHiddenSubConv, n[1].info, excTypeNode.typ.toRef(c.idgen)):
-      [newNodeI(nkEmpty, n.info), excCall]
+    let convNode = newTreeIT(nkObjDownConv, n[1].info, excTypeNode.typ.toRef(c.idgen)):
+      [excCall]
     # -> let exc = ...
     let identDefs = newTreeI(nkIdentDefs, n[1].info):
       [n[0][2], newNodeI(nkEmpty, n.info), convNode]
@@ -1099,8 +1156,8 @@ proc transform(c: PTransf, n: PNode): PNode =
       # disable the original 'defer' statement:
       n.kind = nkEmpty
   of nkContinueStmt:
-    let labl = c.contSyms[^1]
-    result = newTreeI(nkBreakStmt, n.info): newSymNode(labl)
+    # transform into a break out of the loop's inner block
+    result = newBreakStmt(n.info, c.contSyms[^1])
   of nkBreakStmt: result = transformBreak(c, n)
   of nkCallKinds:
     result = transformCall(c, n)

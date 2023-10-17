@@ -135,11 +135,10 @@ proc genSetNode(p: BProc, n: CgNode): Rope =
 
 proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
   assert d.k != locNone
-  #  getTemp(p, d.t, d)
 
   case a.t.skipTypes(abstractVar).kind
   of tyOpenArray, tyVarargs:
-    if reifiedOpenArray(a.lode):
+    if reifiedOpenArray(p, a.lode):
       linefmt(p, cpsStmts, "$1.Field0 = $2.Field0; $1.Field1 = $2.Field1;$n",
         [rdLoc(d), a.rdLoc])
     else:
@@ -178,7 +177,7 @@ proc genAssignment(p: BProc, dest, src: TLoc) =
     # HACK: ``cgirgen`` elides to-openArray-conversion operations, so we
     #       need to reconstruct that information here. Remove this case
     #       once ``cgirgen`` no longer elides the operations
-    if reifiedOpenArray(dest.lode):
+    if reifiedOpenArray(p, dest.lode):
       genOpenArrayConv(p, dest, src)
     else:
       linefmt(p, cpsStmts, "$1 = $2;$n", [rdLoc(dest), rdLoc(src)])
@@ -487,7 +486,7 @@ proc unaryArith(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
 proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
   let
     src = e.operand
-    mt = mapType(p.config, src.typ, mapTypeChooser(src))
+    mt = mapType(p.config, src.typ, mapTypeChooser(p, src))
   if mt in {ctArray, ctPtrToArray} and lfEnforceDeref notin d.flags:
     # XXX the amount of hacks for C's arrays is incredible, maybe we should
     # simply wrap them in a struct? --> Losing auto vectorization then?
@@ -529,7 +528,7 @@ proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
       putIntoDest(p, d, e, "(*$1)" % [rdLoc(a)], a.storage)
 
 proc genAddr(p: BProc, e: CgNode, mutate: bool, d: var TLoc) =
-  if mapType(p.config, e.operand.typ, mapTypeChooser(e.operand)) == ctArray:
+  if mapType(p.config, e.operand.typ, mapTypeChooser(p, e.operand)) == ctArray:
     expr(p, e.operand, d)
   else:
     var a: TLoc
@@ -569,7 +568,7 @@ proc lookupFieldAgain(p: BProc, ty: PType; field: PSym; r: var Rope;
   assert r != ""
   while ty != nil:
     ty = ty.skipTypes(skipPtrs)
-    assert(ty.kind in {tyTuple, tyObject})
+    assert ty.kind == tyObject
     result = lookupInRecord(ty.n, field.name)
     if result != nil:
       if resTyp != nil: resTyp[] = ty
@@ -584,12 +583,8 @@ proc genRecordField(p: BProc, e: CgNode, d: var TLoc) =
   var r = rdLoc(a)
   var f = e[1].sym
   let ty = skipTypes(a.t, abstractInst + tyUserTypeClasses)
-  if ty.kind == tyTuple:
-    # we found a unique tuple type which lacks field information
-    # so we use Field$i
-    r.addf(".Field$1", [rope(f.position)])
-    putIntoDest(p, d, e, r, a.storage)
-  else:
+  p.config.internalAssert(ty.kind == tyObject, e[0].info)
+  if true:
     var rtyp: PType
     let field = lookupFieldAgain(p, ty, f, r, addr rtyp)
     ensureObjectFields(p.module, field, rtyp)
@@ -737,7 +732,7 @@ proc genBoundsCheck(p: BProc; arr, a, b: TLoc) =
   let ty = skipTypes(arr.t, abstractVarRange)
   case ty.kind
   of tyOpenArray, tyVarargs:
-    if reifiedOpenArray(arr.lode):
+    if reifiedOpenArray(p, arr.lode):
       linefmt(p, cpsStmts,
         "if ($2-$1 != -1 && " &
         "((NU)($1) >= (NU)($3.Field1) || (NU)($2) >= (NU)($3.Field1))){ #raiseIndexError(); $4}$n",
@@ -764,7 +759,7 @@ proc genOpenArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   var a, b: TLoc
   initLocExpr(p, x, a)
   initLocExpr(p, y, b)
-  if not reifiedOpenArray(x):
+  if not reifiedOpenArray(p, x):
     # emit range check:
     if optBoundsCheck in p.options:
       linefmt(p, cpsStmts, "if ((NU)($1) >= (NU)($2Len_0)){ #raiseIndexError2($1,$2Len_0-1); $3}$n",
@@ -800,16 +795,14 @@ proc genSeqElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   putIntoDest(p, d, n,
               ropecg(p.module, "$1$3[$2]", [rdLoc(a), rdCharLoc(b), dataField(p)]), a.storage)
 
-proc genBracketExpr(p: BProc; n: CgNode; d: var TLoc) =
-  var ty = skipTypes(n[0].typ, abstractVarRange + tyUserTypeClasses)
-  if ty.kind in {tyRef, tyPtr}: ty = skipTypes(ty.lastSon, abstractVarRange)
+proc genArrayLikeElem(p: BProc; n: CgNode; d: var TLoc) =
+  let ty = skipTypes(n[0].typ, abstractVar + tyUserTypeClasses)
   case ty.kind
   of tyUncheckedArray: genUncheckedArrayElem(p, n, n[0], n[1], d)
   of tyArray: genArrayElem(p, n, n[0], n[1], d)
   of tyOpenArray, tyVarargs: genOpenArrayElem(p, n, n[0], n[1], d)
   of tySequence, tyString: genSeqElem(p, n, n[0], n[1], d)
   of tyCstring: genCStringElem(p, n, n[0], n[1], d)
-  of tyTuple: genTupleElem(p, n, d)
   else: internalError(p.config, n.info, "expr(nkBracketExpr, " & $ty.kind & ')')
   discard getTypeDesc(p.module, n.typ)
 
@@ -909,8 +902,9 @@ proc genStrAppend(p: BProc, e: CgNode, d: var TLoc) =
   p.s(cpsStmts).add appends
 
 proc genDefault(p: BProc; n: CgNode; d: var TLoc) =
-  if d.k == locNone: getTemp(p, n.typ, d, needsInit=true)
-  else: resetLoc(p, d)
+  if d.k == locNone:
+    getTemp(p, n.typ, d)
+  resetLoc(p, d)
 
 proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool; doInitObj = true) =
   var sizeExpr = sizeExpr
@@ -936,13 +930,11 @@ proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool; doInitObj
     # set the object type:
     genObjectInit(p, cpsStmts, bt, a, constructRefObj)
 
-proc genNew(p: BProc, e: CgNode) =
-  var a: TLoc
-  initLocExpr(p, e[1], a)
+proc genNew(p: BProc, e: CgNode, a: var TLoc) =
   # 'genNew' also handles 'unsafeNew':
-  if e.len == 3:
+  if e.len == 2:
     var se: TLoc
-    initLocExpr(p, e[2], se)
+    initLocExpr(p, e[1], se)
     rawGenNew(p, a, se.rdLoc, needsInit = true)
   else:
     rawGenNew(p, a, "", needsInit = true)
@@ -952,7 +944,7 @@ proc genNewSeqOfCap(p: BProc; e: CgNode; d: var TLoc) =
   var a: TLoc
   initLocExpr(p, e[1], a)
   block:
-    if d.k == locNone: getTemp(p, e.typ, d, needsInit=false)
+    if d.k == locNone: getTemp(p, e.typ, d)
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = ($4*) #newSeqPayload($2, sizeof($3), NIM_ALIGNOF($3));$n",
       [d.rdLoc, a.rdLoc, getTypeDesc(p.module, seqtype.lastSon),
       getSeqPayloadType(p.module, seqtype),
@@ -1326,7 +1318,7 @@ proc genArrayLen(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
       else:
         putIntoDest(p, d, e, ropecg(p.module, "($2)-($1)+1", [rdLoc(b), rdLoc(c)]))
     else:
-      if not reifiedOpenArray(a):
+      if not reifiedOpenArray(p, a):
         if op == mHigh: unaryExpr(p, e, d, "($1Len_0-1)")
         else: unaryExpr(p, e, d, "$1Len_0")
       else:
@@ -1687,7 +1679,7 @@ proc skipAddr(n: CgNode): CgNode =
 proc genWasMoved(p: BProc; n: CgNode) =
   var a: TLoc
   let n1 = n[1].skipAddr
-  if p.withinBlockLeaveActions > 0 and notYetAlive(n1):
+  if p.withinBlockLeaveActions > 0 and notYetAlive(p, n1):
     discard
   else:
     initLocExpr(p, n1, a)
@@ -1792,7 +1784,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mFinished: genBreakState(p, e, d)
   of mEnumToStr: genCall(p, e, d)
   of mOf: genOf(p, e, d)
-  of mNew: genNew(p, e)
+  of mNew: genNew(p, e, d)
   of mNewSeqOfCap: genNewSeqOfCap(p, e, d)
   of mSizeOf:
     let t = e[1].typ.skipTypes({tyTypeDesc})
@@ -1803,7 +1795,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mOffsetOf:
     var dotExpr: CgNode
     case e[1].kind
-    of cnkFieldAccess:
+    of cnkFieldAccess, cnkTupleAccess:
       dotExpr = e[1]
     of cnkCheckedFieldAccess:
       dotExpr = e[1][0]
@@ -1812,8 +1804,8 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     let t = dotExpr[0].typ.skipTypes({tyTypeDesc})
     let tname = getTypeDesc(p.module, t, skVar)
     let member =
-      if t.kind == tyTuple:
-        "Field" & rope(dotExpr[1].sym.position)
+      if dotExpr.kind == cnkTupleAccess:
+        "Field" & rope(dotExpr[1].intVal)
       else: p.fieldName(dotExpr[1].sym)
     putIntoDest(p,d,e, "((NI)offsetof($1, $2))" % [tname, member])
   of mChr: genSomeCast(p, e, d)
@@ -1841,7 +1833,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mDefault: genDefault(p, e, d)
   of mEcho: genEcho(p, e[1].skipConv)
   of mArrToSeq: genArrToSeq(p, e, d)
-  of mNLen..mNError, mSlurp..mQuoteAst:
+  of mNLen..mNError, mStatic..mQuoteAst:
     localReport(p.config, e.info, reportSym(
       rsemConstExpressionExpected, e[0].sym))
 
@@ -1989,7 +1981,9 @@ proc genStmtList(p: BProc, n: CgNode) =
   genStmtListExprImpl:
     genStmts(p, n[^1])
 
-proc upConv(p: BProc, n: CgNode, d: var TLoc) =
+proc downConv(p: BProc, n: CgNode, d: var TLoc) =
+  ## Generates and emits the code for the ``cnkObjDownConv`` (conversion to
+  ## sub-type) expression `n`.
   var a: TLoc
   initLocExpr(p, n.operand, a)
   let dest = skipTypes(n.typ, abstractPtrs)
@@ -2014,9 +2008,11 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
     putIntoDest(p, d, n, "(*($1*) ($2))" %
                         [getTypeDesc(p.module, dest), addrLoc(p.config, a)], a.storage)
 
-proc downConv(p: BProc, n: CgNode, d: var TLoc) =
+proc upConv(p: BProc, n: CgNode, d: var TLoc) =
+  ## Generates and emits the code for the ``cnkObjUpConv`` (conversion to
+  ## super-type/base-type) expression `n`.
   var arg = n.operand
-  while arg.kind == cnkObjDownConv: arg = arg.operand
+  while arg.kind == cnkObjUpConv: arg = arg.operand
 
   let dest = skipTypes(n.typ, abstractPtrs)
   let src = skipTypes(arg.typ, abstractPtrs)
@@ -2036,7 +2032,7 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
     var a: TLoc
     initLocExpr(p, arg, a)
     var r = rdLoc(a) & (if isRef: "->Sup" else: ".Sup")
-    for i in 2..abs(inheritanceDiff(dest, src)): r.add(".Sup")
+    for i in 2..inheritanceDiff(src, dest): r.add(".Sup")
     putIntoDest(p, d, n, if isRef: "&" & r else: r, a.storage)
 
 proc exprComplexConst(p: BProc, n: CgNode, d: var TLoc) =
@@ -2107,8 +2103,8 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
         useConst(p.module, sym)
         putLocIntoDest(p, d, p.module.consts[sym])
     of skVar, skForVar, skLet:
-      if {sfGlobal, sfThread} * sym.flags != {}:
-        genVarPrototype(p.module, n)
+      assert sfGlobal in sym.flags
+      genVarPrototype(p.module, n)
 
       if sfThread in sym.flags:
         accessThreadLocalVar(p, sym)
@@ -2117,26 +2113,11 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
           putIntoDest(p, d, loc.lode, "NimTV_->" & loc.r)
         else:
           putLocIntoDest(p, d, p.module.globals[sym])
-      elif sfGlobal in sym.flags:
+      else:
         putLocIntoDest(p, d, p.module.globals[sym])
-      else: # must be a local then
-        putLocIntoDest(p, d, p.locals[sym])
-    of skResult:
-      # the 'result' location is either a parameter or local
-      if p.params[0].k != locNone:
-        putLocIntoDest(p, d, p.params[0])
-      else:
-        putLocIntoDest(p, d, p.locals[sym])
-    of skTemp:
-      putLocIntoDest(p, d, p.locals[sym])
-    of skParam:
-      if sym.position + 1 < p.params.len:
-        putLocIntoDest(p, d, p.params[sym.position + 1])
-      else:
-        # must be the hidden environment parameter (which is treated as a
-        # local)
-        putLocIntoDest(p, d, p.locals[sym])
     else: internalError(p.config, n.info, "expr(" & $sym.kind & "); unknown symbol")
+  of cnkLocal:
+    putLocIntoDest(p, d, p.locals[n.local])
   of cnkStrLit:
     putDataIntoDest(p, d, n, genLiteral(p, n))
   of cnkIntLit, cnkUIntLit, cnkFloatLit, cnkNilLit:
@@ -2187,7 +2168,8 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     else:
       let mutate = n.kind == cnkHiddenAddr and n.typ.kind == tyVar
       genAddr(p, n, mutate, d)
-  of cnkBracketAccess: genBracketExpr(p, n, d)
+  of cnkArrayAccess: genArrayLikeElem(p, n, d)
+  of cnkTupleAccess: genTupleElem(p, n, d)
   of cnkDeref, cnkDerefView: genDeref(p, n, d)
   of cnkFieldAccess: genRecordField(p, n, d)
   of cnkCheckedFieldAccess: genCheckedRecordField(p, n, d)
@@ -2202,7 +2184,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkClosureConstr: genClosure(p, n, d)
   of cnkEmpty: discard
   of cnkRepeatStmt: genRepeatStmt(p, n)
-  of cnkDef: genDef(p, n)
+  of cnkDef: genSingleVar(p, n[0], n[1])
   of cnkCaseStmt: genCase(p, n)
   of cnkReturnStmt: genReturnStmt(p, n)
   of cnkBreakStmt: genBreakStmt(p, n)
@@ -2221,7 +2203,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkRaiseStmt: genRaiseStmt(p, n)
   of cnkPragmaStmt: discard
   of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkExcept,
-     cnkFinally, cnkBranch:
+     cnkFinally, cnkBranch, cnkLabel:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 
 proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =

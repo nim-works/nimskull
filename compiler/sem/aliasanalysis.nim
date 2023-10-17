@@ -75,14 +75,13 @@ proc compareLvalues(body: MirTree, a, b: NodePosition,
     a = a + 1
     b = b + 1
 
-  const IgnoreSet = {mnkStdConv, mnkConv, mnkAddr, mnkView}
-    ## we can skip all conversions, since we know that they must be lvalue
-    ## conversions; ``compareLvalues`` is only used for lvalues, which
-    ## can't result from non-lvalue conversions.
+  const IgnoreSet = {mnkPathConv, mnkStdConv, mnkAddr, mnkView}
+    ## We skip l-value conversions, since they don't change the location.
     ## Both the 'addr' and 'view' operatio create a first-class handle to
-    ## the reference location, so we also skip them. This allows for ``a.x``
+    ## the referenced location, so we also skip them. This allows for ``a.x``
     ## to be treated as refering to same location as ``a.x.addr`` (which is
-    ## correct)
+    ## correct). For to-openArray conversions, this is the case too, so
+    ## ``mnkStdConv`` is also included here.
 
   var overlaps = yes # until proven otherwise
   while overlaps != no and a <= lastA and b <= lastB:

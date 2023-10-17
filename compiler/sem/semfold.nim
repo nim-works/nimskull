@@ -961,6 +961,9 @@ proc foldInAstAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Folded
     # don't process the symbol slots
     result = fromAst(n, n.len - 1)
     result.add foldInAstAux(m, n[^1], idgen, g)
+  of nkElifExpr, nkElseExpr:
+    # must not exist in statement AST
+    unreachable(n.kind)
   else:
     # XXX: type AST reaches here, but ideally this catch-all branch
     #      wouldn't be needed

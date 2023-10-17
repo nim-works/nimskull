@@ -139,10 +139,12 @@ type
   BProc* = ref TCProc
   TBlock* = object
     id*: int                  ## the ID of the label; positive means that it
+    blk*: int                 ## the ``BlockId`` + 1 of the block.
+                              ## '0' if the ``TBlock`` doesn't correspond to a
+                              ## ``cnkBlockStmt``
     label*: Rope              ## generated text for the label
                               ## nil if label is not used
     sections*: TCProcSections ## the code belonging
-    isLoop*: bool             ## whether block is a loop
     nestedTryStmts*: int16    ## how many try statements is it nested into
     nestedExceptStmts*: int16 ## how many except statements is it nested into
     frameLen*: int16
@@ -166,8 +168,6 @@ type
                               ## bool is true when are in the except part of a try block
     labels*: Natural          ## for generating unique labels in the C proc
     blocks*: seq[TBlock]      ## nested blocks
-    breakIdx*: int            ## the block that will be exited
-                              ## with a regular break
     options*: TOptions        ## options that should be used for code
                               ## generation; this is the same as prc.options
                               ## unless prc == nil
@@ -178,7 +178,8 @@ type
     sigConflicts*: CountTable[string]
 
     body*: Body               ## the procedure's full body
-    locals*: SymbolMap[TLoc]  ## the locs for all locals of the procedure
+    locals*: OrdinalSeq[LocalId, TLoc]
+      ## the locs for all locals of the procedure
 
   TTypeSeq* = seq[PType]
   TypeCache* = Table[SigHash, Rope]
@@ -371,7 +372,8 @@ proc hash(n: ConstrTree): Hash =
     of cnkWithItems:
       for it in n.items:
         result = result !& hashTree(it)
-    of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic, cnkWithOperand:
+    of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic,
+       cnkWithOperand, cnkLocal, cnkLabel:
       unreachable()
     result = !$result
 
@@ -401,7 +403,7 @@ proc `==`(a, b: ConstrTree): bool =
             if not treesEquivalent(a[i], b[i]): return
           result = true
       of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic,
-         cnkWithOperand:
+         cnkWithOperand, cnkLocal, cnkLabel:
         # nodes that cannot appear in construction trees
         unreachable()
 

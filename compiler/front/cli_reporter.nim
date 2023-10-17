@@ -1822,6 +1822,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemIllegalCustomPragma:
       result = "cannot attach a custom pragma to '$1'" % r.symstr
 
+    of rsemExternalLocalNotAllowed:
+      result = "parameters and local 'let'/'var' cannot be part of an" &
+               " external interface"
+
     of rsemCallingConventionMismatch:
       assert false, "REMOVE"
 
@@ -2005,9 +2009,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemOnOrOffExpected:
       result = "'on' or 'off' expected"
 
-    of rsemUnresolvedGenericParameter:
-      result = "unresolved generic parameter"
-
     of rsemRawTypeMismatch:
       result = "type mismatch"
 
@@ -2086,9 +2087,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemMissingMethodDispatcher:
       result = "'" & r.ast.render & "' lacks a dispatcher"
-
-    of rsemWarnUnsafeCode:
-      result = "not GC-safe: '$1'" % r.ast.render
 
     of rsemImplicitCstringConvert:
       result = "implicit conversion to 'cstring' from a non-const location: " &
@@ -2634,15 +2632,6 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
     of rintCannotOpenFile, rintWarnCannotOpenFile:
       result = "cannot open file: $1" % r.file
 
-    of rintUnknown:
-      result = "unknown"
-
-    of rintFatal:
-      result = "fatal"
-
-    of rintIce:
-      result = r.msg
-
     of rintNotUsingNimcore:
       result = "Nim tooling must be built using -d:nimcore"
 
@@ -3002,9 +2991,6 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
     else:
       assert false
 
-  of rvmCannotFindBreakTarget:
-    result = "VM problem: cannot find 'break' target"
-
   of rvmNotUnused:
     result = "not unused"
 
@@ -3290,7 +3276,9 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemExpectedRangeType,
       adSemExpectedLabel,
       adSemContinueCannotHaveLabel,
-      adSemUnavailableLocation:
+      adSemUnavailableLocation,
+      adSemExternalLocalNotAllowed,
+      adSemForExpectedIterator:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
@@ -3993,17 +3981,8 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## `reportBody` for report, which then calls respective (for each report
   ## category) `reportBody` overloads defined above
   assertKind r
-  let wkind = conf.writabilityKind(r)
-  # debug reports can be both enabled and force enabled. So adding a case here
-  # is not really useful, since report writability kind does not necessarily
-  # dictate how it is written, just whether it can/must/cannot be written.
-  # xxx: the above convoluted comment brought to you by _glaring_ design flaws!
-  if wkind == writeDisabled:
-    return
-  else:
-    if wkind == writeForceEnabled:
-      echo conf.reportFull(r)
-    elif r.kind == rsemProcessing and conf.hintProcessingDots:
+  if true:
+    if r.kind == rsemProcessing and conf.hintProcessingDots:
       # xxx: the report hook is handling processing dots output, why? this whole
       #      infrastructure is overwrought. seriously, they're not hints, they're
       #      progress indicators.

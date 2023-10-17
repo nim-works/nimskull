@@ -117,15 +117,11 @@ const
     ## if an lvalue is used as an operand to these operators, the value stored
     ## in the named location is considered to be consumed (ownership over it
     ## transfered to the operation)
-  UseContext* = {mnkArg, mnkDeref, mnkDerefView, mnkCast, mnkVoid, mnkIf,
-                 mnkCase} + ConsumeCtx
+  UseContext* = {mnkArg, mnkDeref, mnkDerefView, mnkStdConv, mnkConv, mnkCast,
+                 mnkVoid, mnkIf, mnkCase} + ConsumeCtx
     ## using an lvalue as the operand to one of these operators means that
     ## the content of the location is observed (when control-flow reaches the
-    ## operator). In other words, applying the operator result in a read
-    # FIXME: none-lvalue-conversions also count as reads, but because no
-    #        distinction is being made between lvalue- and value-conversions
-    #        at the MIR level, they're currently not considered. This is an
-    #        issue and it needs to be fixed
+    ## operator). In other words, applying the operator results in a read
 
   OpsWithEffects = {mnkCall, mnkMagic, mnkAsgn, mnkFastAsgn, mnkSwitch,
                     mnkInit, mnkRegion}
@@ -135,9 +131,10 @@ const
 func hash(x: Operation): Hash {.borrow.}
 
 func skipConversions(tree: MirTree, val: OpValue): OpValue =
-  ## Returns the value without conversions applied
+  ## Returns the producing operation after skipping handle-only
+  ## conversions.
   var p = NodePosition(val)
-  while tree[p].kind in {mnkStdConv, mnkConv}:
+  while tree[p].kind == mnkPathConv:
     p = previous(tree, p)
 
   result = OpValue(p)
@@ -256,22 +253,26 @@ func computeValuesAndEffects*(body: MirTree): Values =
         if directViewType(n.typ) != noView: Owned.no
         else: Owned.weak
     of mnkStdConv, mnkConv:
-      inherit(i, i - 1)
+      # non-lvalue conversions produces a new unique value, meaning that
+      # the result is always owned
+      start: Owned.yes
     of mnkAddr, mnkView, mnkPathPos, mnkPathVariant:
-      inheritDecay(i, i - 1)
+      inheritDecay(i, NodePosition body.operand(i))
     of mnkPathArray:
       # inherit from the first operand (i.e. the array-like value)
       inheritDecay(i, NodePosition operand(body, Operation(i), 0))
     of mnkPathNamed:
-      inheritDecay(i, i - 1)
+      inheritDecay(i, NodePosition body.operand(i))
       if sfCursor in n.field.flags:
         # any lvalue derived from a cursor location is non-owning
         result.values[OpValue i].owns = Owned.no
+    of mnkPathConv:
+      inherit(i, NodePosition body.operand(i))
 
     of mnkArgBlock:
       num.add stack.len.uint16 # remember the current top-of-stack
     of mnkTag:
-      stack.add Effect(kind: n.effect, loc: OpValue(i - 1))
+      stack.add Effect(kind: n.effect, loc: body.operand(i))
     of mnkEnd:
       if n.start == mnkArgBlock:
         popEffects(Operation(i+1))
@@ -331,7 +332,7 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
         return true
 
     of ConsumeCtx:
-      let opr = unaryOperand(tree, Operation i)
+      let opr = tree.operand(i)
       if v.owned(opr) == Owned.yes:
         if isPartOf(tree, loc, toLvalue opr) == yes:
           # the location's value is consumed and it becomes empty. No operation
@@ -401,13 +402,13 @@ func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
         return false
 
     of UseContext - {mnkDefUnpack}:
-      if overlaps(tree, loc, toLvalue unaryOperand(tree, Operation i)) != no:
+      if overlaps(tree, loc, toLvalue tree.operand(Operation i)) != no:
         return false
 
     of DefNodes:
       # passing a value to a 'def' is also a use
       if hasInput(tree, Operation i) and
-         overlaps(tree, loc, toLvalue unaryOperand(tree, Operation i)) != no:
+         overlaps(tree, loc, toLvalue tree.operand(Operation i)) != no:
         return false
 
     else:
@@ -512,7 +513,7 @@ func computeAliveOp*[T: PSym | TempId](
         result = alive
 
   of ConsumeCtx:
-    let opr = unaryOperand(tree, op)
+    let opr = tree.operand(op)
     if values.owned(opr) == Owned.yes and sameLocation(opr):
       # the location's value is consumed
       result = dead
@@ -603,14 +604,13 @@ proc doesGlobalEscape*(tree: MirTree, scope: Slice[NodePosition],
 
 func isConsumed*(tree: MirTree, val: OpValue): bool =
   ## Computes if `val` is definitely consumed. This is the case if it's
-  ## directly used in a consume context, ignoring lvalue conversions
+  ## directly used in a consume context, ignoring handle conversions.
   var dest = NodePosition(val)
   while true:
     dest = sibling(tree, dest)
 
     case tree[dest].kind
-    of mnkConv, mnkStdConv:
-      # XXX: only lvalue conversions should be skipped
+    of mnkPathConv:
       discard "skip conversions"
     of ConsumeCtx:
       return true

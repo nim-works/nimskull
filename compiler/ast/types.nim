@@ -35,9 +35,6 @@ import
     modulegraphs,
   ]
 
-# TODO: switch to internalError/Assert or better yet emit the appropriate
-#       diagnostic/event/telemetry data instead, then drop this dependency
-from compiler/ast/reports_internal import InternalReport
 from compiler/ast/report_enums import ReportKind
 
 from compiler/ast/reports_sem import SemReport,
@@ -565,10 +562,7 @@ proc firstFloat*(t: PType): BiggestFloat =
      tyStatic, tyInferred, tyUserTypeClasses:
     firstFloat(lastSon(t))
   else:
-    newPartialConfigRef().localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for firstFloat(" & $t.kind & ')')
-    NaN
+    unreachable("invalid kind for firstFloat(" & $t.kind & ')')
 
 proc lastFloat*(t: PType): BiggestFloat =
   case t.kind
@@ -582,10 +576,7 @@ proc lastFloat*(t: PType): BiggestFloat =
      tyStatic, tyInferred, tyUserTypeClasses:
     lastFloat(lastSon(t))
   else:
-    newPartialConfigRef().localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for firstFloat(" & $t.kind & ')')
-    NaN
+    unreachable("invalid kind for firstFloat(" & $t.kind & ')')
 
 proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
   case t.kind
@@ -601,10 +592,7 @@ proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
      tyStatic, tyInferred, tyUserTypeClasses:
     floatRangeCheck(x, lastSon(t))
   else:
-    newPartialConfigRef().localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for floatRangeCheck(" & $t.kind & ')')
-    false
+    unreachable("invalid kind for floatRangeCheck(" & $t.kind & ')')
 
 # -------------- type equality -----------------------------------------------
 
@@ -933,14 +921,14 @@ proc inheritanceDiff*(a, b: PType): int =
     x = skipTypes(x, skipPtrs)
     if sameObjectTypes(x, b): return
     x = x[0]
-    dec(result)
+    inc(result)
   var y = b
   result = 0
   while y != nil:
     y = skipTypes(y, skipPtrs)
     if sameObjectTypes(y, a): return
     y = y[0]
-    inc(result)
+    dec(result)
   result = high(int)
 
 proc commonSuperclass*(a, b: PType): PType =
@@ -1038,7 +1026,7 @@ proc compatibleEffectsAux(se, re: PNode): bool =
   for r in items(re):
     block search:
       for s in items(se):
-        if safeInheritanceDiff(r.typ, s.typ) <= 0:
+        if safeInheritanceDiff(s.typ, r.typ) <= 0:
           break search
       return false
   result = true
@@ -1097,6 +1085,41 @@ proc containsCompileTimeOnly*(t: PType): bool =
     if t[i] != nil and isCompileTimeOnly(t[i]):
       return true
   return false
+
+proc skipToObject*(t: PType; numIndirectsAllowed = 1): PType {.inline.} =
+  ## Tries to skip to the underlying ``tyObject`` of a type that is used
+  ## as an object's base type. Unresolved generic invocations are
+  ## traversed in simple cases. Either the ``tyObject`` type or the first
+  ## encountered type that couldn't be traversed is returned.
+  ##
+  ## `numIndirectsAllowed` specifies the number of ``ptr`` and ``ref``
+  ## types to skip before bailing out.
+  case t.kind
+  of tyAlias, tyGenericInst:
+    skipToObject(t.lastSon, numIndirectsAllowed)
+  of tyRef, tyPtr:
+    # only skip ``ref``/``ptr`` indirections if allowed
+    if numIndirectsAllowed > 0:
+      skipToObject(t.lastSon, numIndirectsAllowed - 1)
+    else:
+      t
+  of tyGenericInvocation:
+    # also skip through invocations
+    let body = t.base.lastSon
+    if body.kind == tyObject or tfRefsAnonObj in body.flags:
+      skipToObject(body, numIndirectsAllowed)
+    elif body.kind in {tyGenericInvocation, tyGenericParam}:
+      var x = skipToObject(body, numIndirectsAllowed)
+      if x.kind == tyGenericParam:
+        # special case: for a ``type Typ[A] = A`` invoked through
+        # ``Typ[Other[T]]``, we traverse ``Other[T]`` instead of
+        # returning ``A``
+        x = skipToObject(t[1 + x.sym.position], numIndirectsAllowed)
+      x
+    else:
+      t # too complex; needs to be figured out by the caller
+  else:
+    t
 
 proc safeSkipTypes*(t: PType, kinds: TTypeKinds): PType =
   ## same as 'skipTypes' but with a simple cycle detector.

@@ -77,7 +77,7 @@ proc methodCall*(n: PNode; conf: ConfigRef): PNode =
     result[0].sym = disp
     # change the arguments to up/downcasts to fit the dispatcher's parameters:
     for i in 1..<result.len:
-      result[i] = genConv(result[i], disp.typ[i], true, conf)
+      result[i] = genConv(result[i], disp.typ[i], false, conf)
   else:
     localReport(conf, n.info, reportAst(
       rsemMissingMethodDispatcher, result[0]))
@@ -105,7 +105,7 @@ proc sameMethodBucket(a, b: PSym; multiMethods: bool): MethodResult =
       if aa.kind == tyObject and result != Invalid:
         result = Yes
     elif aa.kind == tyObject and bb.kind == tyObject and (i == 1 or multiMethods):
-      let diff = inheritanceDiff(bb, aa)
+      let diff = inheritanceDiff(aa, bb)
       if diff < 0:
         if result != Invalid:
           result = Yes
@@ -236,7 +236,7 @@ proc cmpSignatures(a, b: PSym, relevantCols: IntSet): int =
     if contains(relevantCols, col):
       var aa = skipTypes(a.typ[col], skipPtrs)
       var bb = skipTypes(b.typ[col], skipPtrs)
-      var d = inheritanceDiff(aa, bb)
+      var d = inheritanceDiff(bb, aa)
       if (d != high(int)) and d != 0:
         return d
 
@@ -298,7 +298,7 @@ proc genDispatcher(g: ModuleGraph; methods: seq[PSym], relevantCols: IntSet) =
     call.add newSymNode(curr)
     for col in 1..<paramLen:
       call.add genConv(newSymNode(base.typ.n[col].sym),
-                           curr.typ[col], false, g.config)
+                           curr.typ[col], true, g.config)
     var ret: PNode
     if retTyp != nil:
       var a = newNodeI(nkFastAsgn, base.info)

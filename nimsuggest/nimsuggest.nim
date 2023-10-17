@@ -15,12 +15,6 @@ when not defined(nimcore):
 import std/[strutils, os, parseopt, parseutils, sequtils, net, rdstdin]
 import experimental/sexp
 import std/options as std_options
-
-# Do NOT import suggest. It will lead to weird bugs with
-# suggestionResultHook, because suggest.nim is included by sigmatch.
-# So we import that one instead.
-
-
 import
   compiler/ast/[
     idents,
@@ -63,7 +57,7 @@ from compiler/ast/reports import Report,
 
 from compiler/front/main import customizeForBackend
 
-from compiler/tools/suggest import isTracked, listUsages, suggestSym, `$`
+from compiler/tools/suggest import findTrackedSym, executeCmd, listUsages, suggestSym, `$`
 
 when defined(windows):
   import winlean
@@ -85,7 +79,6 @@ Options:
   --epc                   use emacs epc mode
   --debug                 enable debug output
   --log                   enable verbose logging to nimsuggest.log file
-  --v1                    use version 1 of the protocol; for backwards compatibility
   --refresh               perform automatic refreshes to keep the analysis precise
   --maxresults:N          limit the number of suggestions to N
   --tester                implies --stdin and outputs a line
@@ -120,6 +113,14 @@ proc writelnToChannel(line: string) =
 
 proc sugResultHook(s: Suggest) =
   results.send(s)
+
+proc log(s: string) =
+  ## Appends `s` as new line to the `nimsuggest.log` file in the user's home
+  ## directory. 
+  var f: File
+  if open(f, getHomeDir() / "nimsuggest.log", fmAppend):
+    f.writeLine(s)
+    close(f)
 
 proc myLog(conf: ConfigRef, s: string, flags: MsgFlags = {}) =
   if gLogging:
@@ -205,20 +206,6 @@ proc listEpc(): SexpNode =
     methodDesc.add(docstring)
     result.add(methodDesc)
 
-proc findNode(n: PNode; trackPos: TLineInfo): PSym =
-  #echo "checking node ", n.info
-  if n.kind == nkSym:
-    if isTracked(n.info, trackPos, n.sym.name.s.len): return n.sym
-  else:
-    for i in 0 ..< safeLen(n):
-      let res = findNode(n[i], trackPos)
-      if res != nil: return res
-
-proc symFromInfo(graph: ModuleGraph; trackPos: TLineInfo): PSym =
-  let m = graph.getModule(trackPos.fileIndex)
-  if m != nil and m.ast != nil:
-    result = findNode(m.ast, trackPos)
-
 proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
              graph: ModuleGraph) =
   let conf = graph.config
@@ -228,38 +215,9 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
       dirtyfile.string & "[" & $line & ":" & $col & "]"
   )
 
-  conf.ideCmd = cmd
-  if cmd == ideUse and conf.suggestVersion != 0:
-    graph.vm = nil # discard the VM and JIT state
-    graph.resetAllModules()
-  var isKnownFile = true
-  let dirtyIdx = fileInfoIdx(conf, file, isKnownFile)
-
-  if not dirtyfile.isEmpty: msgs.setDirtyFile(conf, dirtyIdx, dirtyfile)
-  else: msgs.setDirtyFile(conf, dirtyIdx, AbsoluteFile"")
-
-  conf.m.trackPos = newLineInfo(dirtyIdx, line, col)
-  conf.m.trackPosAttached = false
-  conf.errorCounter = 0
-  if conf.suggestVersion == 1:
-    graph.usageSym = nil
-  if not isKnownFile:
-    graph.compileProject(dirtyIdx)
-  if conf.suggestVersion == 0 and conf.ideCmd in {ideUse, ideDus} and
-      dirtyfile.isEmpty:
-    discard "no need to recompile anything"
-  else:
-    let modIdx = graph.parentModule(dirtyIdx)
-    graph.markDirty dirtyIdx
-    graph.markClientsDirty dirtyIdx
-    # partially recompiling the project means that that VM and JIT state
-    # would become stale, which we prevent by discarding all of it:
-    graph.vm = nil
-    if conf.ideCmd != ideMod:
-      if isKnownFile:
-        graph.compileProject(modIdx)
+  executeCmd(cmd, file, dirtyfile, line, col, graph)
   if conf.ideCmd in {ideUse, ideDus}:
-    let u = if conf.suggestVersion != 1: graph.symFromInfo(conf.m.trackPos) else: graph.usageSym
+    let u = graph.findTrackedSym()
     if u != nil:
       listUsages(graph, u)
     else:
@@ -497,7 +455,6 @@ proc execCmd(cmd: string; graph: ModuleGraph; cachedMsgs: CachedMsgs) =
     sentinel()
     quit()
   of "debug": toggle optIdeDebug
-  of "terse": toggle optIdeTerse
   of "known": conf.ideCmd = ideKnown
   of "project": conf.ideCmd = ideProject
   else: err()
@@ -659,8 +616,7 @@ proc processCmdLine*(pass: TCmdLinePass, argv: openArray[string]; conf: ConfigRe
         gMode = mepc
         conf.verbosity = compVerbosityMin  # Port number gotta be first.
       of "debug": conf.incl optIdeDebug
-      of "v2": conf.suggestVersion = 0
-      of "v1": conf.suggestVersion = 1
+      of "v2": discard
       of "tester":
         gMode = mstdin
         gEmitEof = true
@@ -781,7 +737,6 @@ else:
 
 
     proc mockCmdLine(pass: TCmdLinePass, argv: openArray[string]; conf: ConfigRef) =
-      conf.suggestVersion = 0
       let a = unixToNativePath(project)
       if dirExists(a) and not fileExists(a.addFileExt("nim")):
         conf.projectName = findProjectNimFile(conf, a)

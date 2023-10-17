@@ -3,41 +3,39 @@ discard """
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:sio --hint:Performance:off $file'''
   nimout: '''--expandArc: main
 
-var :tmp
+var x_cursor
+var :aux_3
 try:
-  var x_cursor = ("hi", 5)
-  block label:
+  x_cursor = ("hi", 5)
+  block :label_0:
     if cond:
       x_cursor = [type node](("different", 54))
-      break label
+      break :label_0
     x_cursor = [type node](("string here", 80))
   echo([
-    var :tmp_1 = $(x_cursor)
-    :tmp = :tmp_1
-    :tmp])
+    :aux_3 = $(x_cursor)
+    :aux_3])
 finally:
-  =destroy(:tmp)
+  =destroy(:aux_3)
 -- end of expandArc ------------------------
 --expandArc: sio
 
-block label:
-  var filename_cursor = "debug.txt"
-  var f = open(filename_cursor, 0, 8000)
+var filename_cursor = "debug.txt"
+var f = open(filename_cursor, 0, 8000)
+try:
+  var res
   try:
-    var res
-    try:
-      res = newStringOfCap(80)
-      block label_1:
-        while true:
-          if not(readLine(f, res)):
-            break
-          block label_2:
-            var x_cursor = res
-            echo([x_cursor])
-    finally:
-      =destroy(res)
+    res = newStringOfCap(80)
+    block :label_0:
+      while true:
+        if not(readLine(f, res)):
+          break :label_0
+        var x_cursor = res
+        echo([x_cursor])
   finally:
-    close(f)
+    =destroy(res)
+finally:
+  close(f)
 -- end of expandArc ------------------------'''
 """
 

@@ -44,8 +44,7 @@ type
     ## is that temporaries are allowed to be elided (by an optimization pass,
     ## for example) if it's deemed to have no effect on the codes' semantics
   LabelId* = distinct uint32
-    ## ID of a label, used to identify a block (``mnkBlock``). The default
-    ## value is empty state and means "absence of label"
+    ## ID of a label, used to identify a block (``mnkBlock``).
 
   MirNodeKind* = enum
     ## Users of ``MirNodeKind`` should not depend on the absolute or relative
@@ -109,6 +108,9 @@ type
                    ##      record-case part of an object should be its own
                    ##      dedicated object type, which can then be addressed
                    ##      as a normal field
+    mnkPathConv  ## an handle conversion. That is, a conversion that produces a
+                 ## *handle*, and not a new *value*. At present, this operator
+                 ## also applies to first-class handles, like ``ref``.
 
     mnkAddr   ## ``addr(x)``; creates a first-class unsafe alias/handle (i.e.
               ## pointer) from the input lvalue `x`
@@ -127,10 +129,10 @@ type
     # XXX: ``mnkDerefView`` is not used for ``openArray`` right now, due to
     #      the latter's interactions with ``var`` and ``lent``
 
-    mnkStdConv    ## ``stdConv(x)``; a standard conversion. Depending on the
-                  ## source and target type, lvalue-ness is preserved
-    mnkConv       ## ``conv(x)``; a conversion. Depending on the source and
-                  ## target type, lvalue-ness is preserved
+    mnkStdConv    ## ``stdConv(x)``; a standard conversion.Produce a new value.
+                  ## Also used for to-slice (``openArray``) conversions, in
+                  ## which case the semantics are still fuzzy.
+    mnkConv       ## ``conv(x)``; a conversion. Produces a new value.
     # XXX: distinguishing between ``stdConv`` and ``conv`` is only done to
     #      make ``cgirgen`` a bit more efficient. Further progress should focus
     #      on removing the need for it
@@ -224,11 +226,8 @@ type
               ## Once control-flow reaches the end of a ``block``, it is
               ## transferred to the next statement/operation following the
               ## block
-    mnkBreak  ## if a non-nil label is provided, transfers control-flow to the
-              ## statement/operation following after the ``block`` with the
-              ## given label. If no label is provided, control-flow is
-              ## transferred to the exit of the enclosing ``repeat`` (it is
-              ## required that there exists one)
+    mnkBreak  ## transfers control-flow to the statement/operation following
+              ## after the ``block`` with the given label
     mnkReturn ## if the code-fragment represents the body of a procedure,
               ## transfers control-flow back to the caller
 
@@ -289,11 +288,8 @@ type
     of mnkOpParam:
       param*: uint32 ## the 0-based index of the enclosing region's parameter
     of mnkBlock, mnkBreak:
-      label*: LabelId ## for a block, its label. A block always must always
-                      ## have a valid label ('none' is disallowed).
-                      ## for a break, the label of the block to break out of.
-                      ## May be 'none', in which case it means "exit the
-                      ## enclosing 'repeat'"
+      label*: LabelId ## for a block, the label that identifies the block;
+                      ## for a break, the label of the block to break out of
     of mnkEnd:
       start*: MirNodeKind ## the kind of the corresponding start node
     of mnkPNode:
@@ -346,7 +342,7 @@ const
   InputNodes* = {mnkProc..mnkNone, mnkArgBlock}
     ## Nodes that can appear in the position of inputs/operands but that
     ## themselves don't have any operands
-  InOutNodes* = {mnkMagic, mnkCall, mnkPathNamed..mnkPathVariant, mnkConstr,
+  InOutNodes* = {mnkMagic, mnkCall, mnkPathNamed..mnkPathConv, mnkConstr,
                  mnkObjConstr, mnkView, mnkTag, mnkCast, mnkDeref, mnkAddr,
                  mnkDerefView, mnkStdConv, mnkConv}
     ## Operations that act as both input and output
@@ -362,10 +358,10 @@ const
     ## Node kinds only allowed in an output context directly inside an
     ## arg-block
 
-  SingleInputNodes* = {mnkAddr, mnkDeref, mnkDerefView, mnkCast, mnkConv,
-                       mnkStdConv, mnkPathNamed, mnkPathPos, mnkPathVariant,
-                       mnkTag, mnkIf, mnkCase, mnkRaise, mnkVoid} +
-                      ArgumentNodes
+  SingleInputNodes* = {mnkAddr, mnkDeref, mnkView, mnkDerefView, mnkCast,
+                       mnkConv, mnkStdConv, mnkPathNamed, mnkPathPos,
+                       mnkPathVariant, mnkPathConv, mnkTag, mnkIf, mnkCase,
+                       mnkRaise, mnkVoid} + ArgumentNodes
     ## Operators and statements that must not have argument-blocks as input
 
   StmtNodes* = {mnkScope, mnkRepeat, mnkTry, mnkBlock, mnkBreak, mnkReturn,
@@ -375,20 +371,8 @@ const
   SymbolLike* = {mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal}
     ## Nodes for which the `sym` field is available
 
-  NoLabel* = LabelId(0)
-
 func `==`*(a, b: TempId): bool {.borrow.}
 func `==`*(a, b: LabelId): bool {.borrow.}
-
-func isSome*(x: LabelId): bool {.inline.} =
-  x.uint32 != 0
-
-func isNone*(x: LabelId): bool {.inline.} =
-  x.uint32 == 0
-
-template `[]`*(x: LabelId): uint32 =
-  assert x.uint32 != 0
-  uint32(x) - 1
 
 # make ``NodeInstance`` available to be used with ``OptIndex``:
 template indexLike*(_: typedesc[NodeInstance]) = discard
@@ -633,10 +617,14 @@ func numArgs*(tree: MirTree, op: Operation): int =
   else:
     unreachable("no arg-block is used")
 
-func unaryOperand*(tree: MirTree, op: Operation): OpValue =
-  # XXX: a 'def' node is not an operation
+func operand*(tree: MirTree, op: Operation|OpValue|NodePosition): OpValue =
+  ## Returns the index (``OpValue``) of operand for the single-input node at
+  ## `op`.
   assert tree[op].kind in SingleInputNodes + DefNodes
-  result = OpValue getStart(tree, NodePosition(op) - 1)
+  let pos =
+    when op is NodePosition: op
+    else:                    NodePosition(op)
+  OpValue getStart(tree, pos - 1)
 
 func hasInput*(tree: MirTree, op: Operation): bool =
   # XXX: a 'def' node is not an operation

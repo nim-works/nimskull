@@ -28,18 +28,23 @@ proc inExceptBlockLen(p: BProc): int =
   for x in p.nestedTryStmts:
     if x.inExcept: result.inc
 
-proc startBlockInternal(p: BProc): int {.discardable.} =
+proc startBlockInternal(p: BProc, blk: int) =
   inc(p.labels)
-  result = p.blocks.len
+  let result = p.blocks.len
   setLen(p.blocks, result + 1)
   p.blocks[result].id = p.labels
+  p.blocks[result].blk = blk
   p.blocks[result].nestedTryStmts = p.nestedTryStmts.len.int16
   p.blocks[result].nestedExceptStmts = p.inExceptBlockLen.int16
 
 template startBlock(p: BProc, start: FormatStr = "{$n",
-                args: varargs[Rope]): int =
+                args: varargs[Rope]) =
   lineCg(p, cpsStmts, start, args)
-  startBlockInternal(p)
+  startBlockInternal(p, 0)
+
+template startBlock(p: BProc, id: BlockId) =
+  lineCg(p, cpsStmts, "{$n", [])
+  startBlockInternal(p, id.int + 1)
 
 proc endBlock(p: BProc)
 
@@ -93,11 +98,6 @@ proc stmtBlock(p: BProc, n: CgNode) =
   startBlock(p)
   genStmts(p, n)
   endBlock(p)
-
-template preserveBreakIdx(body: untyped): untyped =
-  var oldBreakIdx = p.breakIdx
-  body
-  p.breakIdx = oldBreakIdx
 
 proc blockLeaveActions(p: BProc, howManyTrys, howManyExcepts: int) =
   # Called by return and break stmts.
@@ -155,31 +155,22 @@ proc genGotoVar(p: BProc; value: CgNode) =
 
 proc genBracedInit(p: BProc, n: CgNode; isConst: bool; optionalType: PType): Rope
 
-proc genSingleVar(p: BProc, v: PSym; vn, value: CgNode) =
-  if sfGoto in v.flags:
+proc genSingleVar(p: BProc, vn, value: CgNode) =
+  ## Generates and emits the C code for the definition statement of a local.
+  let v = vn.local
+
+  if sfGoto in p.body[v].flags:
     # translate 'var state {.goto.} = X' into 'goto LX':
     genGotoVar(p, value)
     return
 
-  assert {sfGlobal, sfThread} * v.flags == {}
   let imm = isAssignedImmediately(p.config, value)
   assignLocalVar(p, vn)
   initLocalVar(p, v, imm)
 
   if value.kind != cnkEmpty:
     genLineDir(p, vn)
-    # we have a parameter aliasing issue here: passing `p.locals[v]`
-    # as the parameter directly would be an aliasing rule violation.
-    # Since the initializer expression cannot reference `v` itself,
-    # it's safe to temporarily move the loc out of ``p.locals``
-    var loc = move p.locals[v]
-    loadInto(p, vn, value, loc)
-    p.locals.assign(v, loc) # put it back
-
-proc genDef(p: BProc, a: CgNode) =
-  assert a.kind == cnkDef
-  let v = a[0].sym
-  genSingleVar(p, v, a[0], a[1])
+    loadInto(p, vn, value, p.locals[v])
 
 proc genIf(p: BProc, n: CgNode) =
   #  if (expr1)
@@ -312,14 +303,13 @@ proc genRepeatStmt(p: BProc, t: CgNode) =
   inc(p.withinLoop)
   genLineDir(p, t)
 
-  preserveBreakIdx:
+  if true:
     var loopBody = t[0]
     if loopBody.stmtsContainPragma(wComputedGoto) and
        hasComputedGoto in CC[p.config.cCompiler].props:
       genComputedGoto(p, loopBody)
     else:
-      p.breakIdx = startBlock(p, "while (1) {$n")
-      p.blocks[p.breakIdx].isLoop = true
+      startBlock(p, "while (1) {$n")
       genStmts(p, loopBody)
 
       if optProfiler in p.options:
@@ -330,28 +320,18 @@ proc genRepeatStmt(p: BProc, t: CgNode) =
   dec(p.withinLoop)
 
 proc genBlock(p: BProc, n: CgNode) =
-  preserveBreakIdx:
-    p.breakIdx = startBlock(p)
-    if n[0].kind != cnkEmpty:
-      # named block?
-      assert(n[0].kind == cnkSym)
-      var sym = n[0].sym
-      sym.position = p.breakIdx+1
-    genStmts(p, n[1])
-    endBlock(p)
+  startBlock(p, n[0].label)
+  genStmts(p, n[1])
+  endBlock(p)
 
 proc genBreakStmt(p: BProc, t: CgNode) =
-  var idx = p.breakIdx
-  if t[0].kind != cnkEmpty:
-    # named break?
-    assert(t[0].kind == cnkSym)
-    var sym = t[0].sym
-    doAssert(sym.kind == skLabel)
-    idx = sym.position-1
-  else:
-    # an unnamed 'break' can only break a loop after 'transf' pass:
-    while idx >= 0 and not p.blocks[idx].isLoop: dec idx
-    p.config.internalAssert(idx >= 0 and p.blocks[idx].isLoop, t.info, "no loop to break")
+  assert t[0].kind == cnkLabel
+  var idx = p.blocks.high
+  # search for the ``TBlock`` that corresponds to the label. `blk` stores the
+  # ID offset by 1, which has to be accounted for here
+  while idx >= 0 and p.blocks[idx].blk != (t[0].label.int + 1):
+    dec idx
+
   let label = assignLabel(p.blocks[idx])
   blockLeaveActions(p,
     p.nestedTryStmts.len - p.blocks[idx].nestedTryStmts,
@@ -595,7 +575,7 @@ proc genCase(p: BProc, t: CgNode) =
     genCaseGeneric(p, t, "if ($1 >= $2 && $1 <= $3) goto $4;$n",
                          "if ($1 == $2) goto $3;$n")
   else:
-    if t[0].kind == cnkSym and sfGoto in t[0].sym.flags:
+    if t[0].kind == cnkLocal and sfGoto in p.body[t[0].local].flags:
       genGotoForCase(p, t)
     else:
       genOrdinalCase(p, t)
@@ -725,7 +705,7 @@ proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
         var a: TLoc
         initLocExpr(p, it, a)
         res.add(rdLoc(a))
-      of skVar, skLet, skForVar, skParam, skResult, skTemp:
+      of skVar, skLet, skForVar:
         # make sure the C type description is available:
         discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
         var a: TLoc
@@ -741,6 +721,10 @@ proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
         res.add(p.fieldName(sym))
       else:
         unreachable(sym.kind)
+    of cnkLocal:
+      # make sure the C type description is available:
+      discard getTypeDesc(p.module, skipTypes(it.typ, abstractPtrs))
+      res.add(rdLoc(p.locals[it.local]))
     of cnkType:
       res.add(getTypeDesc(p.module, it.typ))
     else:
@@ -825,7 +809,7 @@ proc asgnFieldDiscriminant(p: BProc, e: CgNode) =
   genAssignment(p, a, tmp)
 
 proc genAsgn(p: BProc, e: CgNode) =
-  if e[0].kind == cnkSym and sfGoto in e[0].sym.flags:
+  if e[0].kind == cnkLocal and sfGoto in p.body[e[0].local].flags:
     genLineDir(p, e)
     genGotoVar(p, e[1])
   elif optFieldCheck in p.options and isDiscriminantField(e[0]):

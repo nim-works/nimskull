@@ -11,36 +11,33 @@ doing shady stuff...
   cmd: '''nim c --gc:arc --expandArc:newTarget --expandArc:delete --expandArc:p1 --expandArc:tt --hint:Performance:off --assertions:off --expandArc:extractConfig --expandArc:mergeShadowScope --expandArc:check $file'''
   nimout: '''--expandArc: newTarget
 
-var :tmp
-var :tmp_1
-var :tmp_2
 var splat
 splat = splitFile(path)
 result = (
-  :tmp = splat.dir
-  wasMoved(splat.dir)
-  :tmp,
-  :tmp_1 = splat.name
-  wasMoved(splat.name)
-  :tmp_1,
-  :tmp_2 = splat.ext
-  wasMoved(splat.ext)
-  :tmp_2)
+  var :aux_3 = splat[0]
+  wasMoved(splat[0])
+  :aux_3,
+  var :aux_4 = splat[1]
+  wasMoved(splat[1])
+  :aux_4,
+  var :aux_5 = splat[2]
+  wasMoved(splat[2])
+  :aux_5)
 =destroy(splat)
 -- end of expandArc ------------------------
 --expandArc: delete
 
 var sibling
-var :tmp = target[].parent[].left
-=copy(sibling, :tmp)
+var :aux_3 = target[].parent[].left
+=copy(sibling, :aux_3)
 var saved
-var :tmp_1 = sibling[].right
-=copy(saved, :tmp_1)
-var :tmp_2 = sibling[].right
-var :tmp_3 = saved[].left
-=copy(:tmp_2, :tmp_3)
-var :tmp_4 = sibling[].parent
-=sink(:tmp_4, saved)
+var :aux_5 = sibling[].right
+=copy(saved, :aux_5)
+var :aux_6 = sibling[].right
+var :aux_7 = saved[].left
+=copy(:aux_6, :aux_7)
+var :aux_8 = sibling[].parent
+=sink(:aux_8, saved)
 =destroy(sibling)
 -- end of expandArc ------------------------
 --expandArc: p1
@@ -49,38 +46,38 @@ var lresult
 lresult = @([123])
 var lvalue
 var lnext
-var :tmp
-:tmp = (lresult, ";")
-lvalue = :tmp[0]
-wasMoved(:tmp[0])
-lnext = :tmp[1]
-wasMoved(:tmp[1])
+var :aux_4
+:aux_4 = (lresult, ";")
+lvalue = :aux_4[0]
+wasMoved(:aux_4[0])
+lnext = :aux_4[1]
+wasMoved(:aux_4[1])
 result.value = move(lvalue)
-=destroy(:tmp)
+=destroy(:aux_4)
 =destroy_1(lnext)
 =destroy_2(lvalue)
 -- end of expandArc ------------------------
 --expandArc: tt
 
-var :tmp
-var :tmp_1
+var it_cursor
 var a
-var :tmp_2
+var :aux_4
+var :aux_5
+var :aux_6
 try:
-  var it_cursor = x
+  it_cursor = x
   a = (
-    :tmp = default()
-    =copy(:tmp, it_cursor.key)
-    :tmp,
-    :tmp_1 = default()
-    =copy(:tmp_1, it_cursor.val)
-    :tmp_1)
+    :aux_4 = default()
+    =copy(:aux_4, it_cursor[0])
+    :aux_4,
+    :aux_5 = default()
+    =copy(:aux_5, it_cursor[1])
+    :aux_5)
   echo([
-    var :tmp_3 = $(a)
-    :tmp_2 = :tmp_3
-    :tmp_2])
+    :aux_6 = $(a)
+    :aux_6])
 finally:
-  =destroy(:tmp_2)
+  =destroy(:aux_6)
   =destroy_1(a)
 -- end of expandArc ------------------------
 --expandArc: extractConfig
@@ -88,53 +85,49 @@ finally:
 var lan_ip
 try:
   lan_ip = ""
-  block label:
-    var a_cursor = txt
-    var i = 0
-    var L = len(a_cursor)
-    block label_1:
-      while true:
-        if not(<(i, L)):
-          break
-        block label_2:
-          var splitted
-          try:
-            var line = a_cursor[i]
-            splitted = split(line, " ", -1)
-            if ==(splitted[0], "opt"):
-              var :tmp = splitted[1]
-              =copy(lan_ip, :tmp)
-            echo([lan_ip])
-            echo([splitted[1]])
-          finally:
-            =destroy(splitted)
-        inc(i, 1)
+  var a_cursor = txt
+  var i = 0
+  var L = len(a_cursor)
+  block :label_0:
+    while true:
+      if not(<(i, L)):
+        break :label_0
+      var line
+      var splitted
+      try:
+        line = a_cursor[i]
+        splitted = split(line, " ", -1)
+        if ==(splitted[0], "opt"):
+          var :aux_7 = splitted[1]
+          =copy(lan_ip, :aux_7)
+        echo([lan_ip])
+        echo([splitted[1]])
+      finally:
+        =destroy(splitted)
+      inc(i, 1)
 finally:
   =destroy_1(lan_ip)
 --expandArc: mergeShadowScope
 
 var shadowScope
 try:
-  var :tmp = c[].currentScope
-  =copy(shadowScope, :tmp)
+  var :aux_3 = c[].currentScope
+  =copy(shadowScope, :aux_3)
   rawCloseScope(c)
-  block label:
-    var a_cursor = shadowScope[].symbols
-    var i = 0
-    var L = len(a_cursor)
-    block label_1:
-      while true:
-        if not(<(i, L)):
-          break
-        block label_2:
-          var :tmp_1
-          var sym = a_cursor[i]
-          addInterfaceDecl(c,
-            var :tmp_2 = sym
-            :tmp_1 = default()
-            =copy_1(:tmp_1, :tmp_2)
-            :tmp_1)
-        inc(i, 1)
+  var a_cursor = shadowScope[].symbols
+  var i = 0
+  var L = len(a_cursor)
+  block :label_0:
+    while true:
+      if not(<(i, L)):
+        break :label_0
+      var sym = a_cursor[i]
+      addInterfaceDecl(c,
+        var :aux_8 = sym
+        var :aux_9 = default()
+        =copy_1(:aux_9, :aux_8)
+        :aux_9)
+      inc(i, 1)
 finally:
   =destroy(shadowScope)
 -- end of expandArc ------------------------
@@ -143,37 +136,33 @@ finally:
 var par
 try:
   this[].isValid = fileExists(this[].value)
-  block label:
+  block :label_0:
     if dirExists(this[].value):
-      var :tmp
       par = [type node]((
-        var :tmp_1 = this[].value
-        :tmp = default()
-        =copy(:tmp, :tmp_1)
-        :tmp, ""))
-      break label
-    var :tmp_2
-    var :tmp_3
-    var :tmp_4
+        var :aux_3 = this[].value
+        var :aux_4 = default()
+        =copy(:aux_4, :aux_3)
+        :aux_4, ""))
+      break :label_0
     par = [type node]((parentDir(this[].value),
-      :tmp_3 = splitPath(
-        var :tmp_5 = this[].value
-        :tmp_2 = default()
-        =copy(:tmp_2, :tmp_5)
-        :tmp_2)
-      :tmp_4 = :tmp_3.tail
-      wasMoved(:tmp_3.tail)
-      :tmp_4))
-    =destroy(:tmp_3)
-  block label_1:
-    if dirExists(par.dir):
-      var :tmp_6 = this[].matchDirs
-      var :tmp_7 = getSubDirs(par.dir, par.front)
-      =sink(:tmp_6, :tmp_7)
-      break label_1
-    var :tmp_8 = this[].matchDirs
-    var :tmp_9 = []
-    =sink(:tmp_8, :tmp_9)
+      var :aux_7 = splitPath(
+        var :aux_5 = this[].value
+        var :aux_6 = default()
+        =copy(:aux_6, :aux_5)
+        :aux_6)
+      var :aux_8 = :aux_7[1]
+      wasMoved(:aux_7[1])
+      :aux_8))
+    =destroy(:aux_7)
+  block :label_0:
+    if dirExists(par[0]):
+      var :aux_9 = this[].matchDirs
+      var :aux_10 = getSubDirs(par[0], par[1])
+      =sink(:aux_9, :aux_10)
+      break :label_0
+    var :aux_11 = this[].matchDirs
+    var :aux_12 = []
+    =sink(:aux_11, :aux_12)
 finally:
   =destroy(par)
 -- end of expandArc ------------------------'''

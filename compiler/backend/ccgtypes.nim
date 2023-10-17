@@ -46,36 +46,33 @@ proc mangleParamName(c: ConfigRef; s: PSym): Rope =
   ## we cannot use 'sigConflicts' here since we don't have access to a BProc.
   ## Fortunately C's scoping rules are sane enough so that that doesn't
   ## cause any trouble.
-  result = s.extname
-  if result == "":
+  if true:
     var res = s.name.s.mangle
     if isKeyword(s.name) or c.cppDefines.contains(res):
       res.add "_0"
 
     result = res.rope
 
-proc mangleLocalName(p: BProc; s: PSym): Rope =
-  assert s.kind in skLocalVars+{skTemp}
-  #assert sfGlobal notin s.flags
-  result = s.extname
-  if result == "":
-    var key: string
-    shallowCopy(key, s.name.s.mangle)
+proc mangleLocalName(p: BProc; name: PIdent, id: LocalId): Rope =
+  if name.isNil:
+    # use the ID prefixed by an underscore, which is guaranteed to be a unique
+    # name within the procedure
+    result = "_" & $id.int
+  else:
+    # mangle the user-defiend name, also accounting for shadowed names
+    var key = name.s.mangle
     let counter = p.sigConflicts.getOrDefault(key)
-    result = key.rope
-    if s.kind == skTemp:
-      # speed up conflict search for temps (these are quite common):
-      if counter != 0: result.add "_" & rope(counter+1)
-    elif counter != 0 or isKeyword(s.name) or p.module.g.config.cppDefines.contains(key):
+    result = key
+    if counter != 0 or isKeyword(name) or p.module.g.config.cppDefines.contains(key):
       result.add "_" & rope(counter+1)
     p.sigConflicts.inc(key)
 
-proc scopeMangledParam(p: BProc; param: PSym) =
+proc scopeMangledParam(p: BProc; name: PIdent) =
   ## parameter generation doesn't have access to a ``BProc``, so we have to
   ## remember these parameter names are already in scope to be able to
   ## generate unique identifiers reliably (consider that ``var a = a`` is
   ## even an idiom in Nim).
-  var key = param.name.s.mangle
+  var key = name.s.mangle
   p.sigConflicts.inc(key)
 
 const
@@ -207,7 +204,7 @@ proc addAbiCheck(m: BModule, t: PType, name: Rope) =
 
 proc initResultParamLoc(conf: ConfigRef; param: CgNode): TLoc =
   result = initLoc(locParam, param, "Result", OnStack)
-  let t = param.sym.typ
+  let t = param.typ
   if mapReturnType(conf, t) != ctArray and isInvalidReturnType(conf, t):
     incl(result.flags, lfIndirect)
     result.storage = OnUnknown
@@ -371,7 +368,7 @@ proc prepareParameters(m: BModule, t: PType): seq[TLoc] =
       else:
         OnStack
 
-    result[i] = initLoc(locParam, toSymNode(params[i]),
+    result[i] = initLoc(locParam, newLocalRef(LocalId(i), param.info, param.typ),
                         mangleParamName(m.config, param), storage)
 
     if ccgIntroducedPtr(m.config, param, t[0]):

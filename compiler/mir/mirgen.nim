@@ -271,7 +271,7 @@ func nextTempId(c: var TCtx): TempId =
   inc c.numTemps
 
 func nextLabel(c: var TCtx): LabelId =
-  result = LabelId(c.numLabels + 1)
+  result = LabelId(c.numLabels)
   inc c.numLabels
 
 # ----------- CodeFragment API -------------
@@ -754,16 +754,13 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
     # use the canonical form:
     genDefault(c, n.typ)
   of mNew:
-    # ``new`` has 2 variants. The standard one with a single argument, and the
-    # unsafe version that also takes an extra ``size`` argument
-    assert n.len == 3 or n.len == 2
+    # ``new`` has 2 variants. The standard one with zero arguments, and the
+    # unsafe version that takes a ``size`` argument
+    assert n.len == 1 or n.len == 2
     argBlock(c.stmts):
-      # the first argument is the location storing the ``ref``. A new value is
-      # assigned to it by ``new``, so the 'out' tag is used
-      chain(c): genArgExpression(c, n[0].typ[1], n[1]) => outOp() => name()
-      if n.len == 3:
+      if n.len == 2:
         # the size argument
-        chain(c): genArgExpression(c, n[0].typ[2], n[2]) => arg()
+        chain(c): genArgExpression(c, n[0].typ[1], n[1]) => arg()
 
     magicCall(c, m, typeOrVoid(c, n.typ))
   of mWasMoved:
@@ -1240,29 +1237,20 @@ proc genVarSection(c: var TCtx, n: PNode) =
 
 
 proc genWhile(c: var TCtx, n: PNode) =
-  ## Generates the code for a ``nkWhile`` node. Because no conditional loops
-  ## exist in the MIR, the the condition is translated to a ``break`` statement
-  ## inside an ``if``
-  c.stmts.add MirNode(kind: mnkRepeat)
-
-  scope(c.stmts):
-    # don't emit a branch for ``while true: ...``
-    if not isTrue(n[0]):
-      forward(c): genx(c, n[0]) => notOp(c) # condition
-      c.stmts.subTree MirNode(kind: mnkIf):
-        c.stmts.add MirNode(kind: mnkBreak)
-
-    # use a nested scope for the body. This is important for scope finalizers,
-    # as exiting the loop via the ``break`` emitted above (i.e. the loop
-    # condition is false) must not run the finalizers (if present) for the
-    # loop's body
+  ## Generates the code for a ``nkWhile`` node.
+  assert isTrue(n[0]), "`n` wasn't properly transformed"
+  c.stmts.subTree MirNode(kind: mnkRepeat):
     scope(c.stmts):
       c.gen(n[1])
 
-  c.stmts.add endNode(mnkRepeat)
-
 proc genBlock(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for a ``block`` expression or statement
+  if sfUsed notin n[0].sym.flags:
+    # if the label is never used, it means that the block is only used for
+    # scoping. Omit emitting an ``mnkBlock`` and just use a scope
+    scope(c.stmts): c.genWithDest(n[1], dest)
+    return
+
   let id = nextLabel(c)
 
   # push the block to the stack:
@@ -1550,7 +1538,7 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
   of nkBracketExpr:
     genBracketExpr(c, n)
   of nkObjDownConv, nkObjUpConv:
-    eval(c): genx(c, n[0], consume) => convOp(n.typ)
+    eval(c): genx(c, n[0], consume) => pathConv(n.typ)
   of nkAddr:
     eval(c): genx(c, n[0]) => addrOp(n.typ)
   of nkHiddenAddr:
@@ -1583,7 +1571,12 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
   of nkHiddenStdConv:
     eval(c): genx(c, n[1], consume) => stdConvOp(n.typ)
   of nkHiddenSubConv, nkConv:
-    eval(c): genx(c, n[1], consume) => convOp(n.typ)
+    if compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct, {IgnoreTupleFields}):
+      # it's an lvalue-preserving conversion
+      eval(c): genx(c, n[1], consume) => pathConv(n.typ)
+    else:
+      # it's a conversion that produces a new rvalue
+      eval(c): genx(c, n[1], consume) => convOp(n.typ)
   of nkLambdaKinds:
     procLit(c, n[namePos].sym)
   of nkChckRangeF, nkChckRange64, nkChckRange:
@@ -1691,20 +1684,15 @@ proc gen(c: var TCtx, n: PNode) =
     gen(c, n.lastSon)
   of nkBreakStmt:
     var id: LabelId
-    case n[0].kind
-    of nkSym:
+    block search:
       let sym = n[0].sym
       # find the block with the matching label and use its ``LabelId``:
       for b in c.blocks.items:
         if b.label.id == sym.id:
           id = b.id
-          break
+          break search
 
-      assert id.isSome, "break target missing"
-    of nkEmpty:
-      id = NoLabel
-    else:
-      unreachable()
+      unreachable "break target missing"
 
     c.stmts.add MirNode(kind: mnkBreak, label: id)
   of nkVarSection, nkLetSection:

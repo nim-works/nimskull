@@ -27,13 +27,12 @@ Should be transformed to:
 .. code-block:: nim
 
     STATE0:
-      if a > 0:
-        echo "hi"
-        :state = 1 # Next state
-        return a # yield
-      else:
+      if not (a > 0):
         :state = 2 # Next state
         break :stateLoop # Proceed to the next state
+      echo "hi"
+      :state = 1 # Next state
+      return a # yield
     STATE1:
       dec a
       :state = 0 # Next state
@@ -156,7 +155,8 @@ import
     ast,
     idents,
     renderer,
-    lineinfos
+    lineinfos,
+    trees
   ],
   compiler/modules/[
     magicsys,
@@ -169,6 +169,9 @@ import
   compiler/sem/[
     lowerings,
     lambdalifting
+  ],
+  compiler/utils/[
+    idioms,
   ]
 
 type
@@ -180,7 +183,6 @@ type
     curExcSym: PSym # Current exception
 
     states: seq[tuple[label: int, body: PNode]] # The resulting states
-    blockLevel: int # Temp used to transform break and continue stmts
     stateLoopLabel: PSym # Label to break on, when jumping between states.
     exitStateIdx: int # index of the last state
     tempVarId: int # unique name counter
@@ -281,41 +283,15 @@ proc hasYields(n: PNode): bool =
         result = true
         break
 
-proc transformBreaksAndContinuesInWhile(ctx: var Ctx, n: PNode, before, after: PNode): PNode =
-  result = n
-  case n.kind
-  of nkSkip:
-    discard
-  of nkWhileStmt: discard # Do not recurse into nested whiles
-  of nkContinueStmt:
-    result = before
-  of nkBlockStmt:
-    inc ctx.blockLevel
-    result[1] = ctx.transformBreaksAndContinuesInWhile(result[1], before, after)
-    dec ctx.blockLevel
-  of nkBreakStmt:
-    if ctx.blockLevel == 0:
-      result = after
-  else:
-    for i in 0..<n.len:
-      n[i] = ctx.transformBreaksAndContinuesInWhile(n[i], before, after)
-
 proc transformBreaksInBlock(ctx: var Ctx, n: PNode, label, after: PNode): PNode =
   result = n
   case n.kind
   of nkSkip:
     discard
-  of nkBlockStmt, nkWhileStmt:
-    inc ctx.blockLevel
-    result[1] = ctx.transformBreaksInBlock(result[1], label, after)
-    dec ctx.blockLevel
   of nkBreakStmt:
-    if n[0].kind == nkEmpty:
-      if ctx.blockLevel == 0:
-        result = after
-    else:
-      if label.kind == nkSym and n[0].sym == label.sym:
-        result = after
+    assert n[0].kind == nkSym
+    if label.kind == nkSym and n[0].sym == label.sym:
+      result = after
   else:
     for i in 0..<n.len:
       n[i] = ctx.transformBreaksInBlock(n[i], label, after)
@@ -713,7 +689,7 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
       result = newTreeI(nkStmtList, n.info):
         [st, n]
 
-  of nkCast, nkHiddenStdConv, nkHiddenSubConv, nkConv, nkObjDownConv,
+  of nkCast, nkHiddenStdConv, nkHiddenSubConv, nkConv, nkObjUpConv,
       nkDerefExpr, nkHiddenDeref:
     var ns = false
     for i in ord(n.kind == nkCast)..<n.len:
@@ -766,23 +742,9 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
       result.add(n)
 
   of nkWhileStmt:
-    var condNeedsSplit = false
-    n[0] = ctx.lowerStmtListExprs(n[0], condNeedsSplit)
+    assert isTrue(n[0])
     var bodyNeedsSplit = false
     n[1] = ctx.lowerStmtListExprs(n[1], bodyNeedsSplit)
-
-    if condNeedsSplit or bodyNeedsSplit:
-      needsSplit = true
-
-      if condNeedsSplit:
-        let (st, ex) = exprToStmtList(n[0])
-        let brk = newTree(nkBreakStmt, ctx.g.emptyNode)
-        let branch = newTree(nkElifBranch, ctx.g.newNotCall(ex), brk)
-        let check = newTree(nkIfStmt, branch)
-        let newBody = newTree(nkStmtList, st, check, n[1])
-
-        n[0] = boolLit(ctx, n[0].info, true)
-        n[1] = newBody
 
   of nkDotExpr, nkCheckedFieldExpr:
     var ns = false
@@ -916,33 +878,21 @@ proc transformClosureIteratorBody(ctx: var Ctx, n: PNode, gotoOut: PNode): PNode
       n.add(elseBranch)
 
   of nkWhileStmt:
-    # while e:
+    # while true:
     #   s
     # ->
     # BEGIN_STATE:
-    #   if e:
-    #     s
-    #     goto BEGIN_STATE
-    #   else:
-    #     goto OUT
-
+    #   s
+    #   goto BEGIN_STATE
+    assert isTrue(n[0])
     result = newNodeI(nkGotoState, n.info)
 
     let s = newNodeI(nkStmtList, n.info)
     discard ctx.newState(s, result)
 
     var body = addGotoOut(n[1], result)
-
-    body = ctx.transformBreaksAndContinuesInWhile(body, result, gotoOut)
     body = ctx.transformClosureIteratorBody(body, result)
-
-    let elifBranch = newTreeI(nkElifBranch, n.info):
-      [n[0], body]
-    let elseBranch = newTreeI(nkElse, n.info):
-      gotoOut
-    let ifNode = newTreeI(nkIfStmt, n.info):
-      [elifBranch, elseBranch]
-    s.add(ifNode)
+    s.add(body)
 
   of nkBlockStmt:
     result[1] = addGotoOut(result[1], gotoOut)
@@ -1079,10 +1029,7 @@ proc transformStateAssignments(ctx: var Ctx, n: PNode): PNode =
   of nkGotoState:
     result = newNodeI(nkStmtList, n.info)
     result.add(ctx.newStateAssgn(stateFromGotoState(n)))
-
-    let breakState = newNodeI(nkBreakStmt, n.info)
-    breakState.add(newSymNode(ctx.stateLoopLabel))
-    result.add(breakState)
+    result.add(newBreakStmt(n.info, ctx.stateLoopLabel))
 
   else:
     for i in 0..<n.len:
@@ -1291,7 +1238,7 @@ type
   PreprocessContext = object
     finallys: seq[PNode]
     config: ConfigRef
-    blocks: seq[(PNode, int)]
+    blocks: seq[tuple[label: PSym, fin: int]]
     idgen: IdGenerator
   FreshVarsContext = object
     tab: Table[int, PSym]
@@ -1355,27 +1302,24 @@ proc preprocess(c: var PreprocessContext; n: PNode): PNode =
     if f.kind == nkFinally:
       discard c.finallys.pop()
 
-  of nkWhileStmt, nkBlockStmt:
-    c.blocks.add((n, c.finallys.len))
-    for i in 0 ..< n.len:
-      result[i] = preprocess(c, n[i])
+  of nkBlockStmt:
+    c.blocks.add((n[0].sym, c.finallys.len))
+    result[1] = preprocess(c, n[1])
     discard c.blocks.pop()
 
   of nkBreakStmt:
-    if c.blocks.len == 0:
-      discard
-    else:
+    assert c.blocks.len > 0
+    if true:
       var fin = -1
-      if n[0].kind == nkEmpty:
-        fin = c.blocks[^1][1]
-      elif n[0].kind == nkSym:
+      block search:
         for i in countdown(c.blocks.high, 0):
-          if c.blocks[i][0].kind == nkBlockStmt and c.blocks[i][0][0].kind == nkSym and
-              c.blocks[i][0][0].sym == n[0].sym:
-            fin = c.blocks[i][1]
-            break
+          if c.blocks[i].label == n[0].sym:
+            fin = c.blocks[i].fin
+            break search
 
-      if fin >= 0:
+        unreachable("missing break target")
+
+      if true:
         result = newNodeI(nkStmtList, n.info)
         for i in countdown(c.finallys.high, fin):
           var vars = FreshVarsContext(tab: initTable[int, PSym](), config: c.config, info: n.info, idgen: c.idgen)

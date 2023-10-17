@@ -164,19 +164,20 @@ proc deltaTrace(stopProc, indent: string, entries: seq[StackTraceEntry])
     echo:
       "$1| $2 $3($4)" % [indent, $e.procname, $e.filename, $e.line]
 
-template semIdeForTemplateOrGenericCheck(conf, n, requiresCheck) =
-  # we check quickly if the node is where the cursor is
+template semIdeForTemplateOrGenericCheck(conf, n, cursorInBody) =
+  # use only for idetools support; detecting cursor in generic or template body
+  # if so call `semIdeForTemplateOrGeneric` for semantic checking
   when defined(nimsuggest):
-    if n.info.fileIndex == conf.m.trackPos.fileIndex and n.info.line == conf.m.trackPos.line:
-      requiresCheck = true
+    if conf.ideCmd in IdeLocCmds and
+       n.info.fileIndex == conf.m.trackPos.fileIndex and
+       n.info.line == conf.m.trackPos.line:
+      cursorInBody = true
 
 template semIdeForTemplateOrGeneric(c: PContext; n: PNode;
-                                    requiresCheck: bool) =
-  # use only for idetools support; this is pretty slow so generics and
-  # templates perform some quick check whether the cursor is actually in
-  # the generic or template.
+                                    cursorInBody: bool) =
+  # provide incomplete information for idetools support in generic or template
   when defined(nimsuggest):
-    if c.config.cmd == cmdIdeTools and requiresCheck:
+    if c.config.cmd == cmdIdeTools and cursorInBody:
       #if optIdeDebug in gGlobalOptions:
       #  echo "passing to safeSemExpr: ", renderTree(n)
       discard safeSemExpr(c, n)
@@ -431,9 +432,11 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
         n.sym.owner = currOwner # xxx: modifying the sym owner is suss
         n
       else:
-        let recoverySym = copySym(n.sym, nextSymId c.idgen)
-        recoverySym.transitionRoutineSymKind(kind)
-        recoverySym.owner = currOwner
+        # a symbol with the wrong kind is transplanted into a definition
+        # position. Create a new symbol instead of a copy in order to prevent
+        # follow-up errors due to the symbol's flags, type, etc.
+        let recoverySym = newSym(kind, n.sym.name, nextSymId c.idgen,
+                                 currOwner, info)
         c.config.makeError(n, recoverySym, ExpectedKindMismatch)
   of nkIdent, nkAccQuoted:
     # xxx: sym choices qualify here, but shouldn't those be errors in
@@ -529,7 +532,9 @@ proc hasCycle(n: PNode): bool =
 
 proc tryConstExpr(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "tryConstExpr", n, result)
+  pushExecCon(c, {})
   let e = semExprWithType(c, n)
+  popExecCon(c)
   if e.isError:
     return
 
@@ -629,8 +634,9 @@ proc semConstExpr(c: PContext, n: PNode): PNode =
   # TODO: propagate the error upwards instead of reporting it here. Also
   #       remove the error correction -- that should be done at the callsite,
   #       if needed
-
+  pushExecCon(c, {})
   let e = semExprWithType(c, n)
+  popExecCon(c)
   if e.isError:
     localReport(c.config, e)
     return n
@@ -903,6 +909,7 @@ proc recoverContext(c: PContext) =
   c.currentScope = c.topLevelScope
   while getCurrOwner(c).kind != skModule: popOwner(c)
   while c.p != nil and c.p.owner.kind != skModule: c.p = c.p.next
+  c.executionCons.setLen(1)
 
 proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
   ## Entry point for the semantic analysis pass, this proc is part of the

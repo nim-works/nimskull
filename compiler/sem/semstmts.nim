@@ -39,7 +39,8 @@ proc semBreakStmt(c: PContext, n: PNode): ElaborateAst =
       result[0] = s.ast
     of skLabel:
       # make sure the label is okay to use:
-      if s.kind == skLabel and s.owner.id == c.p.owner.id:
+      if s.kind == skLabel and s.context == c.executionCons.high and
+         s.owner.id == c.p.owner.id:
         incl(s.flags, sfUsed)
         suggestSym(c.graph, n.info, s, c.graph.usageSym)
       else:
@@ -50,7 +51,7 @@ proc semBreakStmt(c: PContext, n: PNode): ElaborateAst =
         PAstDiag(kind: adSemExpectedLabel)
   of nkEmpty:
     result[0] = n[0]
-    if c.p.nestedLoopCounter <= 0 and c.p.nestedBlockCounter <= 0:
+    if c.execCon.nestedLoopCounter <= 0 and c.execCon.nestedBlockCounter <= 0:
       # nothing to break out of
       result.diag = PAstDiag(kind: adSemInvalidControlFlow)
   else:
@@ -59,7 +60,7 @@ proc semBreakStmt(c: PContext, n: PNode): ElaborateAst =
 proc semContinueStmt(c: PContext, n: PNode): PNode =
   if n[0].kind != nkEmpty:
     c.config.newError(n, PAstDiag(kind: adSemContinueCannotHaveLabel))
-  elif c.p.nestedLoopCounter <= 0:
+  elif c.execCon.nestedLoopCounter <= 0:
     c.config.newError(n, PAstDiag(kind: adSemInvalidControlFlow))
   else:
     n
@@ -74,19 +75,19 @@ proc semAsm(c: PContext, n: PNode): PNode =
     result[0] = err
     result = c.config.wrapError(result)
 
-proc semWhile(c: PContext, n: PNode; flags: TExprFlags): PNode =
-  result = n
+proc semWhile(c: PContext, n: PNode; flags: TExprFlags): ElaborateAst =
+  result.initWith(n)
   checkSonsLen(n, 2, c.config)
   openScope(c)
-  n[0] = forceBool(c, semExprWithType(c, n[0]))
-  inc(c.p.nestedLoopCounter)
-  n[1] = semStmt(c, n[1], flags)
-  dec(c.p.nestedLoopCounter)
+  result[0] = forceBool(c, semExprWithType(c, n[0]))
+  inc(c.execCon.nestedLoopCounter)
+  result[1] = semStmt(c, n[1], flags)
+  dec(c.execCon.nestedLoopCounter)
   closeScope(c)
-  if n[1].typ == c.enforceVoidContext:
+  if result[1].typ == c.enforceVoidContext:
     result.typ = c.enforceVoidContext
   elif efInTypeof in flags:
-    result.typ = n[1].typ
+    result.typ = result[1].typ
 
 proc semProc(c: PContext, n: PNode): PNode
 
@@ -163,15 +164,20 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
       if it[0].isError:
         hasError = true
     else:
-      semReportIllformedAst(
-        c.config, it,
-        "Expected one or two subnodes for if statement, but found " & $it.len)
+      hasError = true
+      result[i] = c.config.newError(it, PAstDiag(kind: adSemIllformedAst))
 
   if hasError:
     result = c.config.wrapError(result)
   elif isEmptyType(typ) or typ.kind in {tyNil, tyUntyped} or
       (not hasElse and efInTypeof notin flags):
     for it in n:
+      # transition the branch to its statement variant:
+      case it.kind
+      of nkElifExpr: it.transitionSonsKind(nkElifBranch)
+      of nkElseExpr: it.transitionSonsKind(nkElse)
+      else:          discard "already correct"
+
       it[^1] = discardCheck(c, it[^1], flags)
       if it[^1].isError:
         return wrapError(c.config, result)
@@ -180,6 +186,12 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
     if typ == c.enforceVoidContext: result.typ = c.enforceVoidContext
   else:
     for it in n:
+      # transition the branch to its expression variant:
+      case it.kind
+      of nkElifBranch: it.transitionSonsKind(nkElifExpr)
+      of nkElse:       it.transitionSonsKind(nkElseExpr)
+      else:            discard "already correct"
+
       let j = it.len-1
       if not endsInNoReturn(it[j]):
         it[j] = fitNode(c, typ, it[j], it[j].info)
@@ -1047,8 +1059,6 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
   var hasError = false
 
   let defPart = n[0]
-  
-  inc c.p.inStaticContext
 
   # expansion of the init part
   let
@@ -1057,7 +1067,9 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
       block:
         # don't evaluate here since the type compatibility check below may add
         # a converter
+        pushExecCon(c, {ecfStatic})
         let temp = semExprWithType(c, defInitPart)
+        popExecCon(c)
 
         case temp.kind
         of nkSymChoices:
@@ -1302,8 +1314,6 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
   if hasError:
     # wrap the result if there is an embedded error
     result = c.config.wrapError(result)
-
-  dec c.p.inStaticContext
 
 
 proc semConstLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
@@ -1593,7 +1603,7 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
     if result.isError:
       return
 
-  inc(c.p.nestedLoopCounter)
+  inc(c.execCon.nestedLoopCounter)
   openScope(c)
   block:
     var body = semExprBranch(c, n[^1], flags)
@@ -1604,7 +1614,7 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result[^1] = body
 
   closeScope(c)
-  dec(c.p.nestedLoopCounter)
+  dec(c.execCon.nestedLoopCounter)
 
   if hasError:
     result = c.config.wrapError(result)
@@ -1625,10 +1635,12 @@ proc isTrivalStmtExpr(n: PNode): bool =
   result = true
 
 proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
+  addInNimDebugUtils(c.config, "semFor", n, result, flags)
   checkMinSonsLen(n, 3, c.config)
   openScope(c)
   result = n
   n[^2] = semExprNoDeref(c, n[^2], {efWantIterator})
+  var hasError = n[^2].kind == nkError
   var call = n[^2]
   if call.kind == nkStmtListExpr and isTrivalStmtExpr(call):
     call = call.lastSon
@@ -1637,21 +1649,21 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if isCallExpr and call[0].kind == nkSym and
       call[0].sym.magic in {mFields, mFieldPairs}:
     result = semForFields(c, n, call[0].sym.magic)
-  elif isCallExpr and isClosureIterator(call[0].typ.skipTypes(abstractInst)):
-    # first class iterator:
-    result = semForVars(c, n, flags)
-  elif not isCallExpr or call[0].kind != nkSym or
-      call[0].sym.kind != skIterator:
-    if n.len == 3:
-      n[^2] = implicitIterator(c, "items", n[^2])
-    elif n.len == 4:
-      n[^2] = implicitIterator(c, "pairs", n[^2])
-    else:
-      localReport(c.config, n[^2], reportSem(rsemForExpectsIterator))
-    result = semForVars(c, n, flags)
   else:
+    if isCallExpr and isClosureIterator(call[0].typ.skipTypes(abstractInst)):
+      # first class iterator:
+      discard
+    elif not isCallExpr or call[0].kind != nkSym or
+        call[0].sym.kind != skIterator:
+      if n.len == 3:
+        n[^2] = implicitIterator(c, "items", n[^2])
+      elif n.len == 4:
+        n[^2] = implicitIterator(c, "pairs", n[^2])
+      else:
+        n[^2] = c.config.newError(n[^2], PAstDiag(kind: adSemForExpectedIterator))
+      hasError = n[^2].isError or hasError
     result = semForVars(c, n, flags)
-  if result.kind == nkError:
+  if hasError or result.kind == nkError:
     discard # do nothing
   elif n[^1].typ == c.enforceVoidContext:
     # propagate any enforced VoidContext:
@@ -1659,6 +1671,8 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
   elif efInTypeof in flags:
     result.typ = result.lastSon.typ
   closeScope(c)
+  if result.kind != nkError and hasError:
+    result = c.config.wrapError(result)
 
 proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
@@ -1691,7 +1705,7 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
     setCaseContextIdx(c, i)
     var x = n[i]
     when defined(nimsuggest):
-      if c.config.ideCmd == ideSug and exactEquals(c.config.m.trackPos, x.info) and caseTyp.kind == tyEnum:
+      if c.config.ideCmd == ideSug and c.config.m.trackPos == x.info and caseTyp.kind == tyEnum:
         suggestEnum(c, x, caseTyp)
     case x.kind
     of nkOfBranch:
@@ -3253,11 +3267,11 @@ proc semPragmaBlock(c: PContext, n: PNode): PNode =
 proc semStaticStmt(c: PContext, n: PNode): PNode =
   #echo "semStaticStmt"
   #writeStackTrace()
-  inc c.p.inStaticContext
   openScope(c)
+  pushExecCon(c, {ecfStatic, ecfExplicit})
   var a = semStmt(c, n[0], {})
+  popExecCon(c)
   closeScope(c)
-  dec c.p.inStaticContext
   a = foldInAst(c.module, a, c.idgen, c.graph)
   result = shallowCopy(n)
   result[0] = a

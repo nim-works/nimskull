@@ -416,7 +416,9 @@ proc hasDisabledAsgn*(g: ModuleGraph; t: PType): bool =
 proc copyTypeProps*(g: ModuleGraph; module: int; dest, src: PType) =
   for k in low(TTypeAttachedOp)..high(TTypeAttachedOp):
     let op = getAttachedOp(g, src, k)
-    if op != nil:
+    # the ``sfAnon`` flag signals that the operator is a pseudo-operator, and
+    # those are not inherited/copied
+    if op != nil and sfAnon notin op.flags:
       setAttachedOp(g, module, dest, k, op)
 
 proc loadCompilerProc*(g: ModuleGraph; name: string): PSym =

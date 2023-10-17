@@ -41,6 +41,12 @@ from compiler/ast/reports_sem import SemReport
 export InstantiationInfo
 export TErrorHandling
 
+proc handleReport*(
+    conf: ConfigRef,
+    r: Report,
+    reportFrom: InstantiationInfo,
+    eh: TErrorHandling = doNothing) {.noinline.}
+
 template toStdOrrKind(stdOrr): untyped =
   if stdOrr == stdout: stdOrrStdout else: stdOrrStderr
 
@@ -54,10 +60,6 @@ proc flushDot*(conf: ConfigRef) =
     write(stdOrr, "\n")
 
 const gCmdLineInfo* = newLineInfo(commandLineIdx, 1, 1)
-
-proc suggestWriteln*(conf: ConfigRef; s: string) =
-  if eStdOut in conf.m.errorOutputs:
-    writelnHook(conf, s)
 
 proc msgQuit*(x: int8) = quit x
 proc msgQuit*(x: string) = quit x
@@ -272,12 +274,6 @@ proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
       when defined(windows):
         flushFile(stderr)
 
-proc log*(s: string) =
-  var f: File
-  if open(f, getHomeDir() / "nimsuggest.log", fmAppend):
-    f.writeLine(s)
-    close(f)
-
 proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
   if conf.isDefined("nimDebug"):
     quitOrRaise(conf)
@@ -315,13 +311,6 @@ proc errorActions(
     elif eh == doRaise:
       result = (doRaise, false)
 
-
-proc `==`*(a, b: TLineInfo): bool =
-  result = a.line == b.line and a.fileIndex == b.fileIndex
-
-proc exactEquals*(a, b: TLineInfo): bool =
-  result = a.fileIndex == b.fileIndex and a.line == b.line and a.col == b.col
-
 proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
   ## Get list of context context entries from the current message context
   ## information. Context messages can later be used in the
@@ -342,9 +331,6 @@ proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
 
     info = context.info
 
-proc addSourceLine(conf: ConfigRef; fileIdx: FileIndex, line: string) =
-  conf[fileIdx].lines.add line
-
 proc numLines*(conf: ConfigRef, fileIdx: FileIndex): int =
   ## xxx there's an off by 1 error that should be fixed; if a file ends with "foo" or "foo\n"
   ## it will return same number of lines (ie, a trailing empty line is discounted)
@@ -352,7 +338,7 @@ proc numLines*(conf: ConfigRef, fileIdx: FileIndex): int =
   if result == 0:
     try:
       for line in lines(toFullPathConsiderDirty(conf, fileIdx).string):
-        addSourceLine conf, fileIdx, line
+        conf[fileIdx].lines.add line
     except IOError:
       discard
     result = conf[fileIdx].lines.len
@@ -418,7 +404,6 @@ func astDiagVmGenToLegacyReportKind*(
   case diag
   of adVmGenMissingImportcCompleteStruct: rvmMissingImportcCompleteStruct
   of adVmGenTooManyRegistersRequired: rvmTooManyRegistersRequired
-  of adVmGenCannotFindBreakTarget: rvmCannotFindBreakTarget
   of adVmGenNotUnused: rvmNotUnused
   of adVmGenTooLargeOffset: rvmTooLargetOffset
   of adVmGenCodeGenUnhandledMagic: rvmCannotGenerateCode
@@ -452,6 +437,7 @@ func astDiagToLegacyReportKind*(
   of adSemCannotImportItself: rsemCannotImportItself
   of adSemInvalidPragma: rsemInvalidPragma
   of adSemIllegalCustomPragma: rsemIllegalCustomPragma
+  of adSemExternalLocalNotAllowed: rsemExternalLocalNotAllowed
   of adSemStringLiteralExpected: rsemStringLiteralExpected
   of adSemIntLiteralExpected: rsemIntLiteralExpected
   of adSemOnOrOffExpected: rsemOnOrOffExpected
@@ -524,6 +510,7 @@ func astDiagToLegacyReportKind*(
   of adSemExpectedNonemptyPattern: rsemExpectedNonemptyPattern
   of adSemInvalidControlFlow: rsemInvalidControlFlow
   of adSemExpectedLabel: rsemExpectedLabel
+  of adSemForExpectedIterator: rsemForExpectsIterator
   of adSemContinueCannotHaveLabel: rsemContinueCannotHaveLabel
   of adSemUseOrDiscardExpr: rsemUseOrDiscardExpr
   of adSemCannotConvertToRange: rsemCannotConvertToRange
@@ -620,34 +607,76 @@ proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
   assert node.kind == nkError
   return conf.report(conf.astDiagToLegacyReport(conf, node.diag))
 
+proc fillReportAndHandleVmTrace(c: ConfigRef, r: var Report,
+                                reportFrom: InstantiationInfo) =
+  if r.category in { repSem, repVM } and r.location.isSome():
+    r.context = c.getContext(r.location.get())
+
+  if r.category == repVM and r.vmReport.trace != nil:
+    handleReport(c, wrap(r.vmReport.trace[]), reportFrom)
+
 proc handleReport*(
     conf: ConfigRef,
     r: Report,
     reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing) {.noinline.} =
+  ## Takes the report `r` and handles it. If the report is "enabled" according
+  ## to the active configuration, it is passed to the active report hook and,
+  ## if the report corresponds to an error, error handling is performed.
+  ## `eh` is currently only a suggestion, and it is sometimes ignored depending
+  ## on the currently active configuration.
   var rep = r
   rep.reportFrom = toReportLineInfo(reportFrom)
-  if rep.category in { repSem, repVM } and rep.location.isSome():
-    rep.context = conf.getContext(rep.location.get())
 
-  if rep.category == repVM and rep.vmReport.trace != nil:
-    handleReport(conf, wrap(rep.vmReport.trace[]), reportFrom)
+  if not conf.isEnabled(rep):
+    # the report is disabled -> neither invoke the report hook nor perform
+    # error handling
+    return
 
-  let
+  var userAction = doNothing
+  case writabilityKind(conf, rep)
+  of writeDisabled:
+    discard "don't invoke the hook"
+  of writeEnabled:
+    # go through the report hook
+    fillReportAndHandleVmTrace(conf, rep, reportFrom)
     userAction = conf.report(rep)
-    (action, trace) =
-      case userAction
-      of doDefault:
-        errorActions(conf, rep, eh)
-      else:
-        (userAction, false)
+  of writeForceEnabled:
+    # also go through the report hook, but temporarily override ``writeln``
+    # with something that always echoes something
+    fillReportAndHandleVmTrace(conf, rep, reportFrom)
+    let oldHook = conf.writelnHook
+    conf.writelnHook = proc (conf: ConfigRef, msg: string, flags: MsgFlags) =
+      echo msg
 
+    userAction = conf.report(rep)
+    conf.writelnHook = oldHook
+
+  # ``errorActions`` also increments the error counter, so make sure to always
+  # call it
+  var (action, trace) = errorActions(conf, rep, eh)
+
+  # decide what to do, based on the hook-provided action and the computed
+  # action. The more severe handling out of the two wins
+  case userAction
+  of doAbort:
+    # a hook-requested abort always overrides the computed handling
+    (action, trace) = (doAbort, false)
+  of doRaise:
+    case action
+    of doRaise, doAbort:
+      discard "a hook-requested raise doesn't override an abort"
+    of doNothing, doDefault:
+      (action, trace) = (doRaise, false)
+  of doNothing, doDefault:
+    discard "use the computed strategy"
+
+  # now perform the selected action:
   case action
   of doAbort:   quit(conf, trace)
   of doRaise:   raiseRecoverableError("report")
   of doNothing: discard
-  of doDefault: assert(
-    false,
+  of doDefault: unreachable(
     "Default error handing action must be turned into ignore/raise/abort")
 
 template globalAssert*(
@@ -698,27 +727,9 @@ template localReport*(conf: ConfigRef, report: Report) =
 
 # xxx: `internalError` and `internalAssert` in conjunction with `handleReport`,
 #      and the whole concept of "reports" indicating error handling action at a
-#      callsite, is *terrible*. Since neither will necessarily raise/end
-#      execution of the current routine, which may lead to NPEs and the like.
-
-template internalError*(
-    conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
-  conf.handleReport(
-    wrap(InternalReport(kind: repKind, msg: fail), instLoc()),
-    instLoc(),
-    doAbort)
-
-template internalError*(
-    conf: ConfigRef, info: TLineInfo,
-    repKind: InternalReportKind, fail: string): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
-  conf.handleReport(
-    wrap(InternalReport(kind: repKind, msg: fail), instLoc(), info),
-    instLoc(),
-    doAbort)
+#      callsite, is *terrible*. While it will result in the compiler exiting,
+#      it is currently implemented very indirectly, through
+#      ``isCompilerFatal``.
 
 proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
                             instLoc: InstantiationInfo) {.noreturn, inline.} =
@@ -733,19 +744,18 @@ proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
         wrap(intRep, instLoc, info)
 
   conf.handleReport(rep, instLoc, doAbort)
+  unreachable("not aborted")
 
 template internalError*(
     conf: ConfigRef,
     info: TLineInfo,
     fail: string,
   ): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
+  ## Causes an internal error. Always ends the currently executing routine.
   doInternalUnreachable(conf, info, fail, instLoc())
 
 template internalError*(conf: ConfigRef, fail: string): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
+  ## Causes an internal error. Always ends the currently executing routine.
   doInternalUnreachable(conf, unknownLineInfo, fail, instLoc())
 
 proc doInternalAssert*(conf: ConfigRef,
@@ -763,17 +773,18 @@ proc doInternalAssert*(conf: ConfigRef,
         wrap(intRep, instLoc, info)
 
   conf.handleReport(rep, instLoc, doAbort)
+  unreachable("not aborted")
 
 template internalAssert*(
     conf: ConfigRef, condition: bool, info: TLineInfo, failMsg: string = "") =
-  ## Causes an internal error if the provided condition evaluates to false; but
-  ## does not necessarily raise/end the currently executing routine.
+  ## Causes an internal error if the provided condition evaluates to false.
+  ## Always ends the currently executing routine.
   if not condition:
     doInternalAssert(conf, instLoc(), failMsg, info)
 
 template internalAssert*(conf: ConfigRef, condition: bool, failMsg = "") =
-  ## Causes an internal error if the provided condition evaluates to false; but
-  ## does not necessarily raise/end the currently executing routine.
+  ## Causes an internal error if the provided condition evaluates to false.
+  ## Always ends the currently executing routine.
   if not condition:
     doInternalAssert(conf, instLoc(), failMsg)
 

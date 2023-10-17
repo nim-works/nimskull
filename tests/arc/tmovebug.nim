@@ -557,15 +557,16 @@ type
 
 proc newWrapper(): ref Wrapper =
   new(result)
-  result
+  result = result
 
 
 proc newWrapper2(a: int): ref Wrapper =
   new(result)
-  if a > 0:
-    result
-  else:
-    new(Wrapper)
+  result =
+    if a > 0:
+      result
+    else:
+      new(Wrapper)
 
 
 let w1 = newWrapper()

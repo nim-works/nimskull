@@ -683,6 +683,15 @@ proc untype(arg: NimNode): NimNode =
     for n in arg:
       result.add untype(n)
 
+template materialize(val: untyped, name: untyped) =
+  ## Helper template for ``check``. Captures `val` and makes it accessible
+  ## through a template named `name`.
+  when val is typedesc:
+    template name(): untyped = val
+  else:
+    let tmp = val
+    template name(): untyped = tmp
+
 macro check*(conditions: untyped): untyped =
   ## Verify if a statement or a list of statements is true.
   ## A helpful error message and set checkpoints are printed out on
@@ -711,30 +720,27 @@ macro check*(conditions: untyped): untyped =
                     ">=", "<", ">", "!=", "is", "isnot"]:
 
       for i in 1 ..< exp.len:
-        if exp[i].kind notin nnkLiterals:
-          let argStr = exp[i].toStrLit
-          let paramAst = exp[i]
-          if exp[i].kind == nnkIdent:
-            result.printOuts.add newCall(bindSym"print", argStr, paramAst)
-          if exp[i].kind in nnkCallKinds + {nnkDotExpr, nnkBracketExpr, nnkPar} and
-                  (exp[i].typeKind notin {ntyTypeDesc} or $exp[0] notin ["is", "isnot"]):
-            let callVar = genSym(nskVar, "c")
-            result.assigns.add newVarStmt(callVar, paramAst)
-            result.check[i] = callVar
-            result.printOuts.add newCall(bindSym"print", argStr, callVar)
-          if exp[i].kind == nnkExprEqExpr:
-            # ExprEqExpr
-            #   Ident "v"
-            #   IntLit 2
-            result.check[i] = exp[i][1]
-          if exp[i].typeKind notin {ntyTypeDesc}:
-            let arg = genSym(nskVar, "p")
-            result.assigns.add newVarStmt(arg, paramAst)
-            result.printOuts.add newCall(bindSym"print", argStr, arg)
-            if exp[i].kind != nnkExprEqExpr:
-              result.check[i] = arg
-            else:
-              result.check[i][1] = arg
+        let argAst = exp[i]
+        case exp[i].kind
+        of nnkLiterals:
+          discard "literals are pure; they can be used as is"
+        of nnkExprEqExpr:
+          # named argument:
+          # ExprEqExpr
+          #   Ident "v"
+          #   IntLit 2
+          result.check[i] = exp[i][1]
+        else:
+          # the argument expression might have side-effects or be impure,
+          # meaning that it cannot be duplicated without changing -- it has to
+          # be materialized into a temporary
+          let access = genSym(nskTemplate, "c")
+          result.assigns.add newCall(bindSym"materialize", argAst, access)
+          # ``materialize`` injects a template with the given `access` symbol.
+          # Invoking the template then yields the value
+          result.check[i] = newCall(access)
+          result.printOuts.add:
+            newCall(bindSym"print", toStrLit(argAst), newCall(access))
 
   case checked.kind
   of nnkCallKinds:

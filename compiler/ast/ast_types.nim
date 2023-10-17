@@ -742,7 +742,8 @@ type
     mDefined, mDeclared, mDeclaredInScope, mCompiles, mArrGet, mArrPut, mAsgn,
     mLow, mHigh, mSizeOf, mAlignOf, mOffsetOf, mTypeTrait,
     mIs, mOf, mAddr, mType, mTypeOf,
-    mPlugin, mEcho, mShallowCopy, mSlurp, mStaticExec, mStatic,
+    mPlugin, mEcho, mShallowCopy,
+    mStatic,
     mParseExprToAst, mParseStmtToAst, mExpandToAst, mQuoteAst,
     mInc, mDec, mOrd,
     mNew, mNewSeq, mNewSeqOfCap,
@@ -1008,7 +1009,7 @@ type
                                           # | TODO: these enum values duplicate
                                           # |       `VmGenDiagKind` vmgen enum
     adVmGenTooManyRegistersRequired       # |       defined in the `vmdef`
-    adVmGenCannotFindBreakTarget          # |       module. There should be a
+                                          # |       module. There should be a
     adVmGenNotUnused                      # |       way to cross-reference data
                                           # |       without introducing direct
                                           # |       import or type
@@ -1025,8 +1026,7 @@ type
 
   AstDiagVmGenError* = object
     case kind*: AstDiagVmGenKind:
-      of adVmGenTooManyRegistersRequired,
-          adVmGenCannotFindBreakTarget:
+      of adVmGenTooManyRegistersRequired:
         discard
       of adVmGenNotUnused,
           adVmGenCannotEvaluateAtComptime:
@@ -1064,6 +1064,7 @@ type
     # pragmas
     adSemInvalidPragma
     adSemIllegalCustomPragma
+    adSemExternalLocalNotAllowed
     adSemStringLiteralExpected
     adSemIntLiteralExpected
     adSemOnOrOffExpected
@@ -1143,6 +1144,7 @@ type
     # semstmts
     adSemInvalidControlFlow
     adSemExpectedLabel
+    adSemForExpectedIterator
     adSemContinueCannotHaveLabel
     adSemUseOrDiscardExpr
     adSemAmbiguousIdent
@@ -1341,7 +1343,9 @@ type
         adSemExpectedRangeType,
         adSemExpectedLabel,
         adSemContinueCannotHaveLabel,
-        adSemUnavailableLocation:
+        adSemUnavailableLocation,
+        adSemForExpectedIterator,
+        adSemExternalLocalNotAllowed:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode
@@ -1626,6 +1630,9 @@ type
       guard*: PSym
       bitsize*: int
       alignment*: int # for alignment
+    of skLabel:
+      context*: int           ## the ID (i.e., index) of the execution context
+                              ## this label is part of
     else: nil
     magic*: TMagic
     typ*: PType

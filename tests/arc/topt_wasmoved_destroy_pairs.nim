@@ -7,10 +7,10 @@ var a
 var b
 var x
 x = f()
-block label:
+block :label_0:
   if cond:
     add(a, x)
-    break label
+    break :label_0
   add(b, x)
 =destroy(b)
 =destroy(a)
@@ -22,37 +22,32 @@ var b
 var x
 try:
   x = f()
-  block label:
-    var a_1 = 0
-    var b_1 = 4
-    var i = a_1
-    block label_1:
-      while true:
-        if not(<(i, b_1)):
-          break
-        block label_2:
-          var :tmp
-          var i_1_cursor = i
-          if ==(i_1_cursor, 2):
-            return
-          add(a,
-            :tmp = default()
-            =copy(:tmp, x)
-            :tmp)
-          inc(i, 1)
-  block label_3:
-    if cond:
-      var :tmp_1
+  var a_1 = 0
+  var b_1 = 4
+  var i = a_1
+  block :label_0:
+    while true:
+      if not(<(i, b_1)):
+        break :label_0
+      var i_1_cursor = i
+      if ==(i_1_cursor, 2):
+        return
       add(a,
-        :tmp_1 = x
+        var :aux_9 = default()
+        =copy(:aux_9, x)
+        :aux_9)
+      inc(i, 1)
+  block :label_0:
+    if cond:
+      add(a,
+        var :aux_10 = x
         wasMoved(x)
-        :tmp_1)
-      break label_3
-    var :tmp_2
+        :aux_10)
+      break :label_0
     add(b,
-      :tmp_2 = x
+      var :aux_11 = x
       wasMoved(x)
-      :tmp_2)
+      :aux_11)
 finally:
   =destroy(x)
   =destroy_1(b)

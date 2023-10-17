@@ -4,10 +4,16 @@
 ## change.
 
 import
+  std/[
+    options
+  ],
   compiler/ast/[
     ast_types,
     lineinfos,
     wordrecg
+  ],
+  compiler/utils/[
+    containers
   ]
 
 type
@@ -27,6 +33,8 @@ type
     cnkAstLit        ## a ``NimNode`` literal
 
     cnkSym
+    cnkLabel         ## name of a block
+    cnkLocal         ## reference to a local
     # future direction: split up ``cnkSym`` in the way the MIR does it
     cnkMagic         ## name of a magic procedure. Only valid in the callee
                      ## slot of ``cnkCall`` nodes
@@ -47,9 +55,10 @@ type
                      ## field with a value
 
     cnkFieldAccess
-    cnkBracketAccess
-    # future direction: split ``cnkBracketAccess`` into ``cnkArrayAccess`` (for
-    # array-like operands) and ``cnkTupleAccess`` (for tuples).
+    cnkArrayAccess
+    cnkTupleAccess
+    # future direction: merge ``cnkFieldAccess`` and ``cnkTupleAccess`` into a
+    # single node (field access by position).
     cnkCheckedFieldAccess
     # future direction: lower object access checks eariler (e.g., during the
     # MIR phase) and then remove ``cnkCheckedFieldAccess``
@@ -141,6 +150,29 @@ const
   cnkLiterals* = {cnkIntLit, cnkUIntLit, cnkFloatLit, cnkStrLit}
 
 type
+  Local* = object
+    ## Static information about a local variable. Initialized prior to code
+    ## generation and only read (but not written) by the code generators.
+    typ*: PType
+    alignment*: uint32
+    flags*: TSymFlags
+    isImmutable*: bool
+      ## whether the local is expected to not be mutated, from a high-level
+      ## language perspective. Note that this doesn't meant that it really
+      ## isn't mutated, rather this information is intended to help the
+      ## the code generators optimize
+    # future direction: merge `flags` and `isImmutable` into a single set of
+    # flags
+    name*: PIdent
+      ## either the user-defined name or 'nil'
+
+  BlockId* = distinct uint32
+    ## Identifies a block within another block -- the IDs are **not** unique
+    ## within a ``Body``. An outermost block has ID 0, a block within the
+    ## block ID 1, etc.
+  LocalId* = distinct uint32
+    ## Identifies a local within a procedure.
+
   CgNode* = ref object
     ## Code-generator node
     origin*: PNode
@@ -156,6 +188,8 @@ type
     of cnkAstLit:     astLit*: PNode
     of cnkSym:        sym*: PSym
     of cnkMagic:      magic*: TMagic
+    of cnkLabel:      label*: BlockId
+    of cnkLocal:      local*: LocalId
     of cnkPragmaStmt: pragma*: TSpecialWord
     of cnkWithOperand: operand*: CgNode
     of cnkWithItems:
@@ -167,7 +201,12 @@ type
   Body* = object
     ## A self-contained CG IR fragment. This is usually the full body of a
     ## procedure.
+    locals*: Store[LocalId, Local] ## all locals belonging to the body
     code*: CgNode
+
+const
+  resultId* = LocalId(0)
+    ## the ID of the local representing the ``result`` variable
 
 func len*(n: CgNode): int {.inline.} =
   n.kids.len
@@ -199,6 +238,10 @@ iterator sliceIt*[T](x: seq[T], lo, hi: Natural): (int, lent T) =
     yield (i, x[i])
     inc i
 
+template `[]`*(b: Body, id: LocalId): Local =
+  ## Convenience shortcut.
+  b.locals[id]
+
 proc newStmt*(kind: CgNodeKind, info: TLineInfo,
               kids: varargs[CgNode]): CgNode =
   result = CgNode(kind: kind, info: info)
@@ -218,16 +261,42 @@ proc newOp*(kind: CgNodeKind; info: TLineInfo, typ: PType,
   result = CgNode(kind: kind, info: info, typ: typ)
   result.operand = opr
 
+func newLocalRef*(id: LocalId, info: TLineInfo, typ: PType): CgNode =
+  CgNode(kind: cnkLocal, info: info, typ: typ, local: id)
+
+proc `==`*(x, y: LocalId): bool {.borrow.}
+proc `==`*(x, y: BlockId): bool {.borrow.}
+
 proc merge*(dest: var Body, source: Body): CgNode =
   ## Merges `source` into `dest` by appending the former to the latter.
   ## Returns the node representing the code from `source` after it
   ## was merged.
+  # merge the locals:
+  let offset = dest.locals.merge(source.locals)
+
+  proc update(n: CgNode, offset: uint32) {.nimcall.} =
+    ## Offsets the ID of all references-to-``Local`` in `n` by `offset`.
+    case n.kind
+    of cnkLocal:
+      n.local.uint32 += offset
+    of cnkAtoms - {cnkLocal}:
+      discard "nothing to do"
+    of cnkWithOperand:
+      update(n.operand, offset)
+    of cnkWithItems:
+      for it in n.items:
+        update(it, offset)
+
   result = source.code
 
   if dest.code == nil:
     # make things easier by supporting `dest` being uninitialized
     dest.code = source.code
   elif source.code.kind != cnkEmpty:
+    # update references to locals in source's code:
+    update(source.code, offset.get(LocalId(0)).uint32)
+
+    # merge the code fragments:
     case dest.code.kind
     of cnkEmpty:
       dest.code = source.code

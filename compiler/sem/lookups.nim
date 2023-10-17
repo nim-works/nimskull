@@ -782,20 +782,6 @@ proc lookUp*(c: PContext, n: PNode): PSym =
   when false:
     if result.kind == skStub: loadStub(result)
 
-proc errorExpectedIdentifier(
-    c: PContext, ident: PIdent, n: PNode, exp: PNode = nil
-  ): PSym {.inline.} =
-  ## create an error symbol for non-identifier in identifier position within an
-  ## expression (`exp`). non-nil `exp` leads to better error messages.
-  let ast =
-    if exp.isNil:
-      c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifier))
-    else:
-      c.config.newError(exp):
-        PAstDiag(kind: adSemExpectedIdentifierInExpr, notIdent: n)
-
-  result = newQualifiedLookUpError(c, ident, n.info, ast)
-
 proc errorUndeclaredIdentifierWithHint*(
     c: PContext; n: PNode; name: string,
     candidates: seq[SemSpellCandidate] = @[]
@@ -865,21 +851,8 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       amb = false
       (ident, errNode) = considerQuotedIdent(c, n)
 
-    if isNotFound(c.cache, ident):
-      let
-        wrongNode =
-          if n.kind == nkAccQuoted and n.len == 1:
-            n[0]
-          else:
-            n
-        errExprCtx =
-          if n != wrongNode:
-            n
-          else:
-            nil
-          ## expression within which the error occurred
-        
-      result = errorExpectedIdentifier(c, ident, wrongNode, errExprCtx)
+    if errNode != nil:
+      result = newQualifiedLookUpError(c, ident, n.info, errNode)
     elif checkModule in flags:
       result = searchInScopes(c, ident, amb)
       # xxx: search in scopes can return an skError -- this happens because
@@ -1196,8 +1169,19 @@ proc fieldVisible*(c: PContext, f: PSym): bool {.inline.} =
       if fmoduleId == module.id: return true
     if f.kind == skField:
       var symObj = f.owner
+      let genericOwner =
+        if sfFromGeneric in f.owner.flags:
+          f.owner.owner
+        else:
+          nil
+
       if symObj.typ.kind in {tyRef, tyPtr}:
         symObj = symObj.typ[0].sym
+      # go through all scopes and check whether access to the object is
+      # allowed. The generic owner test is needed for the "access to all
+      # instances of generic object type allowed" feature to work
       for scope in allScopes(c.currentScope):
         for sym in scope.allowPrivateAccess:
-          if symObj.id == sym.id: return true
+          if symObj.id == sym.id or
+             (genericOwner != nil and genericOwner.id == sym.id):
+            return true

@@ -399,6 +399,7 @@ type
     # compiler interfacing:
     graph*: ModuleGraph
     config*: ConfigRef
+    currentModule*: PSym ## module currently being compiled
     cache*: IdentCache
     idgen*: IdGenerator
 
@@ -523,7 +524,6 @@ type
   VmGenDiagKind* = enum
     # has no extra data
     vmGenDiagTooManyRegistersRequired
-    vmGenDiagCannotFindBreakTarget
     # has ast data
     vmGenDiagNotUnused
     vmGenDiagCannotEvaluateAtComptime
@@ -574,8 +574,7 @@ type
       of vmGenDiagNotUnused,
           vmGenDiagCannotEvaluateAtComptime:
         ast*: PNode
-      of vmGenDiagTooManyRegistersRequired,
-          vmGenDiagCannotFindBreakTarget:
+      of vmGenDiagTooManyRegistersRequired:
         discard
 
   VmEventKind* = enum
@@ -734,9 +733,19 @@ type
                              ## instruction during cleanup. -1 indicates that
                              ## no clean-up is happening
 
+  ProfileInfo* = object
+    ## Profiler data for a single procedure.
+    time*: float ## the time spent on executing instructions (inclusive)
+    count*: int  ## the number of instructions executed (exclusive)
+
   Profiler* = object
-    tEnter*: float
-    sframe*: StackFrameIndex   ## The current stack frame
+    # XXX: move this type to the ``vmprofiler`` module once possible
+    enabled*: bool ## whether profiling is enabled
+    tEnter*: float ## the point-in-time when the active measurment started
+
+    data*: Table[PSym, ProfileInfo]
+      ## maps the symbol of a procedure to the associated data gathered by the
+      ## profiler
 
 func `<`*(a, b: FieldIndex): bool {.borrow.}
 func `<=`*(a, b: FieldIndex): bool {.borrow.}
@@ -878,6 +887,8 @@ proc initCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
 
   result.typeInfoCache.init()
   result.memory.allocator.byteType = result.typeInfoCache.charType
+
+  result.profiler.enabled = optProfileVM in g.config.globalOptions
 
 func refresh*(c: var TCtx, module: PSym; idgen: IdGenerator) =
   addInNimDebugUtils(c.config, "refresh")
