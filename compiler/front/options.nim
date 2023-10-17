@@ -140,6 +140,10 @@ type
 
   CfileList* = seq[Cfile]
 
+  SuggestFlag* {.pure.} = enum
+    deprecated = 1
+    isGlobal = 2
+
   Suggest* = ref object
     section*: IdeCmd
     qualifiedPath*: seq[string]
@@ -151,13 +155,13 @@ type
     doc*: string                ## Unescaped documentation string
     forth*: string              ## type
     quality*: range[0..100]     ## matching quality
-    isGlobal*: bool             ## is a global variable
     contextFits*: bool          ## type/non-type context matches
     prefix*: PrefixMatch
     symkind*: byte
     scope*:int
     localUsages*, globalUsages*: int # usage counters
     tokenLen*: int
+    flags*: set[SuggestFlag]
 
   Suggestions* = seq[Suggest]
 
