@@ -62,3 +62,7 @@ void2[:int, int](x = 1, y = 2)
 1.void2[:int, int](2)
 1.void2[:int, int](y = 2)
 
+
+discard cast[int](1)
+discard cast[:int](1)
+
