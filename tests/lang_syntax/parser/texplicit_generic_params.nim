@@ -2,9 +2,14 @@ discard """
   description: "Test explicit generic params with the various call syntaxes"
 """
 
+proc null[]() = discard
 proc void0[T]() = discard
 proc void1[X](x: X) = discard
 proc void2[X, Y](x: X, y: Y) = discard
+
+
+null[]()
+null[:]()
 
 
 void0[int]()
