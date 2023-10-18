@@ -43,6 +43,7 @@ import
     lexer,
     lineinfos,
     linter,
+    renderer,
     types,
     typesrenderer,
     wordrecg,
@@ -158,14 +159,7 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   result.scope = scope
   result.name = s.name.s
   if isGenericRoutineStrict(s):
-    let params = s.ast[genericParamsPos]
-    let len = params.safeLen
-    var genericParams = if len > 0: "[" else: ""
-    for i in 0 ..< len:
-      genericParams.add getPIdent(params[i]).s
-      if i < len - 1: genericParams.add(", ")
-    if len > 0: genericParams.add "]"
-    result.name.add genericParams
+    result.name.add renderTree(s.ast[genericParamsPos])
   elif s.kind == skType and s.typ.isMetaType:
     let len = s.typ.sons.len - 1
     var genericParams = if len > 0: "[" else: ""

@@ -44,7 +44,7 @@ from compiler/ast/reports import Report,
 
 from compiler/front/main import customizeForBackend
 
-from compiler/tools/suggest import findTrackedSym, executeCmd, listUsages, suggestSym, `$`
+from compiler/tools/suggest import findTrackedSym, executeCmd, listUsages, suggestSym
 
 export Suggest
 export IdeCmd
