@@ -452,7 +452,9 @@ proc executeCmd*(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
       dirtyfile.isEmpty:
     discard "no need to recompile anything"
   else:
-    let modIdx = graph.parentModule(dirtyIdx)
+    var modIdx = graph.parentModule(dirtyIdx)
+    if modIdx == InvalidFileIdx:
+      modIdx = dirtyIdx
     graph.markDirty dirtyIdx
     graph.markClientsDirty dirtyIdx
     # partially recompiling the project means that that VM and JIT state
