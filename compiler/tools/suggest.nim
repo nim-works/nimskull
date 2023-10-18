@@ -495,15 +495,20 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
     else:
       s.addNoDup(info)
 
-    if conf.ideCmd == ideDef:
+    case conf.ideCmd
+    of ideDef:
       findDefinition(g, info, s, usageSym)
-    elif conf.ideCmd == ideDus and s != nil:
-      if isTracked(info, conf.m.trackPos, s.name.s.len):
+    of ideDus:
+      if s != nil and isTracked(info, conf.m.trackPos, s.name.s.len):
         suggestResult(conf, symToSuggest(g, s, isLocal=false, ideDef, info, 100, PrefixMatch.None, false, 0))
-    elif conf.ideCmd == ideHighlight and info.fileIndex == conf.m.trackPos.fileIndex:
-      suggestResult(conf, symToSuggest(g, s, isLocal=false, ideHighlight, info, 100, PrefixMatch.None, false, 0))
-    elif conf.ideCmd == ideOutline and isDecl and info.fileIndex == conf.m.trackPos.fileIndex:
-      suggestResult(conf, symToSuggest(g, s, isLocal=false, ideOutline, info, 100, PrefixMatch.None, false, 0))
+    of ideHighlight:
+      if info.fileIndex == conf.m.trackPos.fileIndex:
+        suggestResult(conf, symToSuggest(g, s, isLocal=false, ideHighlight, info, 100, PrefixMatch.None, false, 0))
+    of ideOutline:
+      if isDecl and info.fileIndex == conf.m.trackPos.fileIndex:
+        suggestResult(conf, symToSuggest(g, s, isLocal=false, ideOutline, info, 100, PrefixMatch.None, false, 0))
+    else:
+      discard
 
 proc safeSemExpr*(c: PContext, n: PNode): PNode =
   # use only for idetools support!
