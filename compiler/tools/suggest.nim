@@ -195,7 +195,7 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
     result.qualifiedPath.add('`' & s.name.s & '`')
   else:
     result.qualifiedPath.add(s.name.s)
-  
+
   if s.typ != nil:
     result.forth = typeToString(s.typ)
   else:
