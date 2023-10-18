@@ -1737,7 +1737,8 @@ typeRel can be used to establish various relationships between types:
                              not effectiveArgType.isEmptyContainer
       if typeClassMatches or
         (targetKind in {tyProc, tyPointer} and effectiveArgType.kind == tyNil):
-        put(c, f, a)
+        if doBind:
+          put(c, f, a)
         return isGeneric
       else:
         return isNone
