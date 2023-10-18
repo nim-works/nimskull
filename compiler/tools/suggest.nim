@@ -199,6 +199,12 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
                     else:
                       getTokenLenFromSource(g.config, s.name.s, infox)
 
+template symToSuggestGlobal(g: ModuleGraph; s: PSym, section: IdeCmd,
+                            info: TLineInfo;
+                            useSuppliedInfo = false): Suggest =
+  symToSuggest(g, s, isLocal = false, section, info, 100,
+               PrefixMatch.None, inTypeContext = false, 0, useSuppliedInfo)
+
 proc suggestResult(conf: ConfigRef; s: Suggest) =
   if not isNil(conf.suggestionResultHook):
     conf.suggestionResultHook(s)
@@ -475,12 +481,12 @@ when defined(nimsuggest):
   proc listUsages*(g: ModuleGraph; s: PSym) =
     for info in s.allUsages:
       let x = if info == s.info: ideDef else: ideUse
-      suggestResult(g.config, symToSuggest(g, s, isLocal=false, x, info, 100, PrefixMatch.None, false, 0))
+      suggestResult(g.config, symToSuggestGlobal(g, s, x, info))
 
 proc findDefinition(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym) =
   if s.isNil: return
   if isTracked(info, g.config.m.trackPos, s.name.s.len) or (s == usageSym and sfForward notin s.flags):
-    suggestResult(g.config, symToSuggest(g, s, isLocal=false, ideDef, info, 100, PrefixMatch.None, false, 0, useSuppliedInfo = s == usageSym))
+    suggestResult(g.config, symToSuggestGlobal(g, s, ideDef, info, s == usageSym))
     if sfForward notin s.flags:
       suggestQuit()
     else:
@@ -500,13 +506,13 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
       findDefinition(g, info, s, usageSym)
     of ideDus:
       if s != nil and isTracked(info, conf.m.trackPos, s.name.s.len):
-        suggestResult(conf, symToSuggest(g, s, isLocal=false, ideDef, info, 100, PrefixMatch.None, false, 0))
+        suggestResult(conf, symToSuggestGlobal(g, s,  ideDef, info))
     of ideHighlight:
       if info.fileIndex == conf.m.trackPos.fileIndex:
-        suggestResult(conf, symToSuggest(g, s, isLocal=false, ideHighlight, info, 100, PrefixMatch.None, false, 0))
+        suggestResult(conf, symToSuggestGlobal(g, s, ideHighlight, info))
     of ideOutline:
       if isDecl and info.fileIndex == conf.m.trackPos.fileIndex:
-        suggestResult(conf, symToSuggest(g, s, isLocal=false, ideOutline, info, 100, PrefixMatch.None, false, 0))
+        suggestResult(conf, symToSuggestGlobal(g, s, ideOutline, info))
     else:
       discard
 
