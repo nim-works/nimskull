@@ -59,14 +59,14 @@ func writeUInt*(h: LocHandle, val: BiggestInt) {.inline.} =
 
 # TODO: rename to writeIntBits
 func writeInt*(r: var VmMemoryRegion, val: BiggestInt) {.inline.} =
-  assert int8(r.len) in {1, 2, 4, 8}
+  assert int8(r.len) in {1'i8, 2, 4, 8}
   # TODO: use `reinterpretWrite` here
   copyMem(addr r[0], unsafeAddr val, r.len)
 
 
 func readIntBits*(r: VmMemoryRegion): BiggestInt {.inline.} =
   let l = r.len
-  assert int8(l) in {1, 2, 4, 8}
+  assert int8(l) in {1'i8, 2, 4, 8}
   result = 0
   copyMem(addr result, unsafeAddr r[0], r.len)
 
