@@ -174,8 +174,8 @@ objectDecl = 'object' pragma? ('of' typeDesc)? COMMENT? objectPart
 conceptParam = ('var' | 'out')? symbol
 conceptDecl = 'concept' conceptParam ^* ',' (pragma)? ('of' typeDesc ^* ',')?
               &IND{>} stmt
-typeDef = identWithPragmaDot genericParamList? '=' optInd typeDefAux
-            indAndComment? / identVisDot genericParamList? pragma '=' optInd typeDefAux
+typeDef = identWithPragmaDot '=' optInd typeDefAux
+            indAndComment? / identVisDot genericParamList? pragma? '=' optInd typeDefAux
             indAndComment?
 varTuple = '(' optInd identWithPragma ^+ comma optPar ')' '=' optInd expr
 colonBody = colcom stmt postExprBlocks?
