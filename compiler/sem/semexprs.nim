@@ -52,7 +52,7 @@ proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
 
   if result.typ != nil:
     # XXX tyGenericInst here?
-    if result.typ.kind == tyProc and hasUnresolvedParams(result, {efOperand}):
+    if result.typ.kind == tyProc and hasUnresolvedParams(result):
       result = c.config.newError(n, PAstDiag(kind: adSemProcHasNoConcreteType))
     elif result.typ.kind in {tyVar, tyLent}:
       result = newDeref(result)
@@ -1068,28 +1068,6 @@ proc fixVarArgumentsAndAnalyse(c: PContext, n: PNode): PNode =
 
 include semmagic
 
-proc fixupTypeAfterEval(c: PContext, evaluated, eOrig: PNode): PNode =
-  # recompute the types as 'eval' isn't guaranteed to construct types nor
-  # that the types are sound:
-  # XXX: `fixupTypeAfterEval` is not really needed anymore
-  when true:
-    if eOrig.typ.kind in {tyUntyped, tyTyped, tyTypeDesc}:
-      # XXX: is this case still used now?
-      result = semExprWithType(c, evaluated)
-    else:
-      result = evaluated
-  else:
-    result = semExprWithType(c, evaluated)
-    #result = fitNode(c, e.typ, result) inlined with special case:
-    let arg = result
-    result = indexTypesMatch(c, eOrig.typ, arg.typ, arg)
-    if result == nil:
-      result = arg
-      # for 'tcnstseq' we support [] to become 'seq'
-      if eOrig.typ.skipTypes(abstractInst).kind == tySequence and
-         isArrayConstr(arg):
-        arg.typ = eOrig.typ
-
 proc evalAtCompileTime(c: PContext, n: PNode): PNode =
   result = n
   if n.kind notin nkCallKinds or n[0].kind != nkSym: return
@@ -1157,16 +1135,8 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
     if ecfStatic notin c.execCon.flags or sfNoSideEffect in callee.flags:
       if sfCompileTime in callee.flags:
         result = evalStaticExpr(c.module, c.idgen, c.graph, call, c.p.owner)
-        result =
-          case result.kind
-          of nkError: result
-          else:       fixupTypeAfterEval(c, result, n)
       else:
         result = evalConstExpr(c.module, c.idgen, c.graph, call)
-        result =
-          case result.kind
-          of nkError: n # not a constant expression
-          else:       fixupTypeAfterEval(c, result, n)
     else:
       result = n
     #if result != n:
@@ -1186,11 +1156,6 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
     return a
 
   result = evalStaticExpr(c.module, c.idgen, c.graph, a, c.p.owner)
-  case result.kind
-  of nkError:
-    discard # result is already set
-  else:
-    result = fixupTypeAfterEval(c, result, a)
 
 proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
                                      flags: TExprFlags): PNode =
@@ -1948,11 +1913,12 @@ proc semDeref(c: PContext, n: PNode): PNode =
         else:
           nil # xxx: should probably be an error type; derefing a non-ptr/ref
 
-    case derefTarget.kind
+    result[0] = semmedTarget
+
+    case semmedTarget.kind
     of nkError:
       result = c.config.wrapError(result)
     else:
-      result[0] = semmedTarget
       result.typ = derefType
 
       if isTargetConstNil:

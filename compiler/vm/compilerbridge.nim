@@ -173,8 +173,7 @@ proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
     dest.initLocReg(typ, c.memory)
     c.serialize(n, dest.handle)
   of tyProc:
-    # XXX: a hack required to uphold some expectations. For example,
-    #      `genEnumCaseStmt` would fail without this. Procedural types as
+    # XXX: a hack required to uphold some expectations. Procedural types as
     #      static macro arguments are underspecified
     let pt =
       if t.callConv == ccClosure and n.kind == nkSym:

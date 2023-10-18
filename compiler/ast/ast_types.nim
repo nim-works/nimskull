@@ -651,7 +651,8 @@ type
     tfPacked
     tfHasStatic
     tfGenericTypeParam
-    tfImplicitTypeParam
+    tfImplicitTypeParam ## the type parameter was lifted from the routine's
+                        ## formal parameters
     tfInferrableStatic
     tfConceptMatchedTypeSym
     tfExplicit        ## for typedescs, marks types explicitly prefixed with the
@@ -819,6 +820,8 @@ type
     mChckRange
       ## chckRange(v, lower, upper); conversion + range check -- returns
       ## either the type-converted value or raises a defect
+    mSamePayload
+      ## returns whether both seq/string operands share the same payload
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const

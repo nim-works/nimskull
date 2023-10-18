@@ -445,22 +445,8 @@ proc hasEmpty(typ: PType): bool =
     for s in typ.sons:
       result = result or hasEmpty(s)
 
-proc hasUnresolvedParams(n: PNode; flags: TExprFlags): bool =
+proc hasUnresolvedParams(n: PNode): bool =
   result = tfUnresolved in n.typ.flags
-  when false:
-    case n.kind
-    of nkSym:
-      result = isGenericRoutineStrict(n.sym)
-    of nkSymChoices:
-      for ch in n:
-        if hasUnresolvedParams(ch, flags):
-          return true
-      result = false
-    else:
-      result = false
-    if efOperand in flags:
-      if tfUnresolved notin n.typ.flags:
-        result = false
 
 proc makeDeref(n: PNode): PNode =
   var t = n.typ

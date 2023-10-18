@@ -29,26 +29,23 @@ try:
     while true:
       if not(<(i, b_1)):
         break :label_0
-      var :aux_9
       var i_1_cursor = i
       if ==(i_1_cursor, 2):
         return
       add(a,
-        :aux_9 = default()
+        var :aux_9 = default()
         =copy(:aux_9, x)
         :aux_9)
       inc(i, 1)
   block :label_0:
     if cond:
-      var :aux_10
       add(a,
-        :aux_10 = x
+        var :aux_10 = x
         wasMoved(x)
         :aux_10)
       break :label_0
-    var :aux_11
     add(b,
-      :aux_11 = x
+      var :aux_11 = x
       wasMoved(x)
       :aux_11)
 finally:

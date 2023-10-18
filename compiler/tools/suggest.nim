@@ -69,9 +69,6 @@ import
 when defined(nimsuggest):
   import compiler/sem/passes, compiler/utils/pathutils # importer
 
-const
-  sep = '\t'
-
 proc findDocComment(n: PNode): PNode =
   if n == nil: return nil
   if n.comment.len > 0: return n
@@ -151,9 +148,10 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   new(result)
   if sfDeprecated in s.flags:
     result.flags.incl SuggestFlag.deprecated
+  if sfGlobal in s.flags:
+    result.flags.incl SuggestFlag.isGlobal
   result.section = section
   result.quality = quality
-  result.isGlobal = sfGlobal in s.flags
   result.prefix = prefix
   if section in {ideSug, ideCon}:
     result.contextFits = inTypeContext == (s.kind in {skType, skGenericParam})
@@ -217,44 +215,6 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
                       s.name.s.len
                     else:
                       getTokenLenFromSource(g.config, s.name.s, infox)
-
-proc `$`*(suggest: Suggest): string =
-  result = $suggest.section
-  result.add(sep)
-  if suggest.section == ideHighlight:
-    if suggest.symkind.TSymKind == skVar and suggest.isGlobal:
-      result.add("skGlobalVar")
-    elif suggest.symkind.TSymKind == skLet and suggest.isGlobal:
-      result.add("skGlobalLet")
-    else:
-      result.add($suggest.symkind.TSymKind)
-    result.add(sep)
-    result.add($suggest.line)
-    result.add(sep)
-    result.add($suggest.column)
-    result.add(sep)
-    result.add($suggest.tokenLen)
-  else:
-    result.add($suggest.symkind.TSymKind)
-    result.add(sep)
-    if suggest.qualifiedPath.len != 0:
-      result.add(suggest.qualifiedPath.join("."))
-    result.add(sep)
-    result.add(suggest.forth)
-    result.add(sep)
-    result.add(suggest.filePath)
-    result.add(sep)
-    result.add($suggest.line)
-    result.add(sep)
-    result.add($suggest.column)
-    result.add(sep)
-    when defined(nimsuggest) and not defined(noDocgen) and not defined(leanCompiler):
-      result.add(suggest.doc.escape)
-    result.add(sep)
-    result.add($suggest.quality)
-    if suggest.section == ideSug:
-      result.add(sep)
-      result.add($suggest.prefix)
 
 proc suggestResult(conf: ConfigRef; s: Suggest) =
   if not isNil(conf.suggestionResultHook):

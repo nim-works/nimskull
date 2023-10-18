@@ -114,19 +114,18 @@ type
 
     params: Values
 
-    # While in the MIR only a ``mnkScope`` opens a new scope, in ``CgPNode``-IR
-    # both ``cnkStmtList`` and ``cnkStmtListExpr`` do - the latter being used by
-    # the arg-block translation. A 'def'-like can appear inside an arg-block
-    # and the defined entity be used outside of it, which would thus result
-    # in the definition being placed in an ``cnkStmtListExpr``, producing
-    # semantically invalid code that later results in code-gen errors.
-    # To solve the problem, if a 'def'-like appears nested inside an arg-block,
-    # only an assignment (if necessary) is produced and the symbol node is
-    # added to the `def` list, which is then used to create a var section that
-    # is prepended to the statement list produced for the current enclosing
-    # ``mnkScope``
-    inArgBlock: int ## keeps track of the current arg-block nesting
-    defs: seq[CgNode]
+    # a 'def' in the MIR means that the the local starts to exists and that it
+    # is accessible in all connected basic blocks part of the enclosing
+    # ``mnkScope``. The ``CgNode`` IR doesn't use same notion of scope,
+    # so for now, all 'def's (without the initial values) within nested
+    # control-flow-related trees are moved to the start of the enclosing
+    # ``mnkScope``.
+    inUnscoped: bool
+      ## whether the currently proceesed statement/expression is part of an
+      ## unscoped control-flow context
+    defs: seq[tuple[local: LocalId, info: TLineInfo]]
+      ## the stack of locals for which the ``cnkDef`` needs to be inserted
+      ## later
 
   TreeWithSource = object
     ## Combines a ``MirTree`` with its associated ``SourceMap`` for
@@ -511,15 +510,15 @@ func isSimple(n: CgNode): bool =
     case n.kind
     of cnkSym, cnkLiterals, cnkLocal:
       return true
-    of cnkFieldAccess:
+    of cnkFieldAccess, cnkTupleAccess:
       # ``cnkCheckedFieldAccess`` is deliberately not included here because it
       # means the location is part of a variant-object-branch
       n = n[0]
-    of cnkBracketAccess:
-      if n[0].typ.skipTypes(abstractVarRange).kind in {tyTuple, tyArray} and
+    of cnkArrayAccess:
+      if n[0].typ.skipTypes(abstractInst).kind == tyArray and
           n[1].kind in cnkLiterals:
-        # tuple access and arrays indexed by a constant value are
-        # allowed -- they always name the same location
+        # arrays indexed by a constant value are allowed -- they always name
+        # the same location
         n = n[0]
       else:
         return false
@@ -595,7 +594,7 @@ proc flattenExpr*(expr: CgNode, stmts: var seq[CgNode]): CgNode =
     # we're looking for expression nodes that represent side-effect free
     # operations
     case it.kind
-    of cnkFieldAccess, cnkCheckedFieldAccess, cnkBracketAccess:
+    of cnkFieldAccess, cnkCheckedFieldAccess, cnkArrayAccess, cnkTupleAccess:
       it = forward(it, it[0])
     of cnkHiddenAddr, cnkAddr, cnkDeref, cnkDerefView, cnkCStringToString,
        cnkStringToCString, cnkObjDownConv, cnkObjUpConv, cnkConv,
@@ -623,7 +622,7 @@ proc canUseView*(n: CgNode): bool =
   var n {.cursor.} = n
   while true:
     case n.kind
-    of cnkBracketAccess, cnkCheckedFieldAccess, cnkFieldAccess:
+    of cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess, cnkFieldAccess:
       n = n[0]
     of cnkAddr, cnkHiddenAddr, cnkObjUpConv, cnkObjDownConv:
       n = n.operand
@@ -725,7 +724,8 @@ proc genObjConv(n: CgNode, a, b, t: PType): CgNode =
 # forward declarations:
 proc tbSeq(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor): Values
 
-proc tbStmt(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor): CgNode {.inline.}
+proc tbStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
+            cr: var TreeCursor): CgNode
 proc tbList(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor): CgNode
 
 proc tbScope(tree: TreeWithSource, cl: var TranslateCl, n: MirNode, cr: var TreeCursor): CgNode
@@ -857,11 +857,10 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
 
   case def.kind
   of cnkLocal:
-    if cl.inArgBlock > 0:
-      # if we're inside an arg-block, the var section is generated later and
-      # placed at an earlier position. We just produce an assignment to the
-      # entity here (if the def has an input)
-      cl.defs.add newStmt(cnkDef, info, [def, newEmpty()])
+    if cl.inUnscoped:
+      # add the local to the list of moved definitions and only emit an
+      # assignment
+      cl.defs.add (def.local, info)
       result =
         case prev.kind
         of vkNone:   newEmpty(info)
@@ -891,10 +890,20 @@ proc translateNode(n: PNode): CgNode =
     # cannot reach here
     unreachable(n.kind)
 
+proc tbBody(tree: TreeWithSource, cl: var TranslateCl,
+            cr: var TreeCursor): CgNode =
+  ## Generates the ``CgNode`` tree for the body of a construct that implies
+  ## some form of control-flow.
+  let prev = cl.inUnscoped
+  # assume the body is unscoped until stated otherwise
+  cl.inUnscoped = true
+  result = tbStmt(tree, cl, get(tree, cr), cr)
+  cl.inUnscoped = prev
+
 proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
                   cr: var TreeCursor): CgNode =
   template body(): CgNode =
-    tbStmt(tree, cl, cr)
+    tbBody(tree, cl, cr)
 
   let info = cr.info ## the source information of `n`
 
@@ -972,10 +981,6 @@ proc tbSingleStmt(tree: TreeWithSource, cl: var TranslateCl,
                   cr: var TreeCursor): CgNode {.inline.} =
   tbSingleStmt(tree, cl, get(tree, cr), cr)
 
-proc tbStmt(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor
-           ): CgNode {.inline.} =
-  tbStmt(tree, cl, get(tree, cr), cr)
-
 proc tbCaseStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
                 prev: sink Values, cr: var TreeCursor): CgNode =
   result = newStmt(cnkCaseStmt, cr.info, [prev.single])
@@ -987,7 +992,7 @@ proc tbCaseStmt(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
       for x in 0..<br.len:
         result[^1].add translateLit(get(tree, cr).lit)
 
-    result[^1].add tbStmt(tree, cl, cr)
+    result[^1].add tbBody(tree, cl, cr)
     leave(tree, cr)
 
   leave(tree, cr)
@@ -1013,7 +1018,7 @@ proc tbOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
     newStmt(cnkFastAsgn, cr.info, [prev[0], prev[1]])
   of mnkIf:
     assert prev.kind == vkSingle
-    let n = newStmt(cnkIfStmt, cr.info, [prev.single, tbStmt(tree, cl, cr)])
+    let n = newStmt(cnkIfStmt, cr.info, [prev.single, tbBody(tree, cl, cr)])
     leave(tree, cr)
 
     n
@@ -1043,8 +1048,6 @@ proc tbArgBlock(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor
   var stmts: seq[CgNode]
   result = Values(kind: vkMulti)
 
-  inc cl.inArgBlock
-
   while true:
     case tree[cr].kind
     of InputNodes:
@@ -1069,7 +1072,6 @@ proc tbArgBlock(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor
       unreachable(tree[cr].kind)
 
   leave(tree, cr)
-  dec cl.inArgBlock
 
   assert stmts.len == 0, "argument block has trailing statements"
 
@@ -1205,20 +1207,11 @@ proc tbInOut(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
       toValues newExpr(cnkFieldAccess, info, n.typ, [prev.single, newSymNode(n.field)])
 
   of mnkPathPos:
-    # try to use a field access where possible
-    # TODO: once added, always use a ``cnkTupleAccess`` here
-    let t = prev.single.typ.skipTypes(abstractInst + tyUserTypeClasses)
-    if t.n != nil:
-      # it's a named tuple
-      toValues newExpr(cnkFieldAccess, info, n.typ,
-        [prev.single, newSymNode(t.n.sons[n.position].sym)])
-    else:
-      # a tuple with unnamed fields
-      toValues newExpr(cnkBracketAccess, info, n.typ,
-        [prev.single, CgNode(kind: cnkIntLit, intVal: n.position.BiggestInt)])
+    toValues newExpr(cnkTupleAccess, info, n.typ,
+      [prev.single, CgNode(kind: cnkIntLit, intVal: n.position.BiggestInt)])
 
   of mnkPathArray:
-    toValues newExpr(cnkBracketAccess, info, n.typ, move prev.list)
+    toValues newExpr(cnkArrayAccess, info, n.typ, move prev.list)
   of mnkPathConv:
     toValues tbConv(cl, prev.single, info, n.typ)
   of mnkAddr:
@@ -1295,17 +1288,26 @@ proc tbScope(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
              cr: var TreeCursor): CgNode =
   let
     prev = cl.defs.len
+    prevInUnscoped = cl.inUnscoped
+
+  # a scope is entered, meaning that we're no longer in an unscoped context
+  cl.inUnscoped = false
 
   var stmts: seq[CgNode]
   tbList(tree, cl, stmts, cr)
 
   if cl.defs.len > prev:
-    # create a var section for the collected symbols
+    # insert all the lifted defs at the start
     for i in countdown(cl.defs.high, prev):
-      stmts.insert(move cl.defs[i], 0)
+      let (local, info) = cl.defs[i]
+      stmts.insert newStmt(cnkDef, info, [
+        newLocalRef(local, info, cl.locals[local].typ),
+        newEmpty()])
 
     # "pop" the elements that were added as part of this scope:
     cl.defs.setLen(prev)
+
+  cl.inUnscoped = prevInUnscoped
 
   result = toSingleNode(stmts)
 
@@ -1371,7 +1373,10 @@ proc tbMulti(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor): CgN
   # insert the var section for the collected defs at the start:
   if cl.defs.len > 0:
     for i in countdown(cl.defs.high, 0):
-      nodes.insert(cl.defs[i], 0)
+      let (local, info) = cl.defs[i]
+      nodes.insert newStmt(cnkDef, info, [
+        newLocalRef(local, info, cl.locals[local].typ),
+        newEmpty()])
 
   case nodes.len
   of 0: newEmpty()

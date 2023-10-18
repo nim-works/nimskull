@@ -108,7 +108,7 @@ proc getRoot*(n: CgNode): CgNode =
       result = n
   of cnkLocal:
     result = n
-  of cnkFieldAccess, cnkBracketAccess, cnkCheckedFieldAccess:
+  of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess:
     result = getRoot(n[0])
   of cnkDerefView, cnkDeref, cnkObjUpConv, cnkObjDownConv, cnkHiddenAddr,
      cnkAddr, cnkHiddenConv, cnkConv:
@@ -134,7 +134,7 @@ proc isLValue*(n: CgNode): bool =
     let t = skipTypes(n[0].typ, abstractInst-{tyTypeDesc})
     t.kind in {tyVar, tySink, tyPtr, tyRef} or
       (not isDiscriminantField(n) and isLValue(n[0]))
-  of cnkBracketAccess:
+  of cnkArrayAccess, cnkTupleAccess:
     let t = skipTypes(n[0].typ, abstractInst-{tyTypeDesc})
     t.kind in {tyVar, tySink, tyPtr, tyRef} or isLValue(n[0])
   of cnkHiddenConv, cnkConv:

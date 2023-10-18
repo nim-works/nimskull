@@ -201,7 +201,7 @@ proc render(c: var RenderCtx, body: Body, ind: int, n: CgNode,
     res.add n[0]
     res.add '.'
     res.add n[1]
-  of cnkBracketAccess:
+  of cnkArrayAccess, cnkTupleAccess:
     res.add n[0]
     res.add '['
     res.add n[1]
