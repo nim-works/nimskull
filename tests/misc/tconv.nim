@@ -43,6 +43,10 @@ reject:
 reject:
     const x = FloatRange(NaN)
 
+reject:
+    # test with an implicit conversion without a ``const``
+    var x: FloatRange = -1 # implicit conversion required
+
 block:
     const x = float32(NaN)
 

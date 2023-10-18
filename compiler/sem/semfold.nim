@@ -485,7 +485,7 @@ proc getAppType(n: PNode; g: ModuleGraph): PNode =
   else:
     result = newStrNodeT("console", n, g)
 
-proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph; check = false): PNode =
+proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
   let dstTyp = skipTypes(n.typ, abstractRange - {tyTypeDesc})
   let srcTyp = skipTypes(a.typ, abstractRange - {tyTypeDesc})
 
@@ -519,18 +519,21 @@ proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph; check = false): P
       of FloatLike:                   toInt128(getFloat(a))
       else:                           unreachable(srcTyp.kind)
 
-    if check and not rangeCheck(n, val, g):
+    if not rangeCheck(n, val, g):
       result = rangeError(n, a, g)
     else:
       result = newIntNodeT(val, n, idgen, g)
   of FloatLike:
-    case srcTyp.kind
-    of IntegerLike, tyEnum, tyBool:
-      result = newFloatNodeT(toFloat64(getOrdValue(a)), n, g)
-    of FloatLike:
-      result = newFloatNodeT(a.floatVal, n, g)
+    let val =
+      case srcTyp.kind
+      of IntegerLike, tyEnum, tyBool: toFloat64(getOrdValue(a))
+      of FloatLike:                   a.floatVal
+      else:                           unreachable(srcTyp.kind)
+
+    if floatRangeCheck(val, n.typ):
+      result = newFloatNodeT(val, n, g)
     else:
-      unreachable(srcTyp.kind)
+      result = rangeError(n, a, g)
   of tyOpenArray, tyVarargs, tyProc, tyPointer:
     discard
   else:
@@ -811,7 +814,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
   of nkHiddenStdConv, nkHiddenSubConv, nkConv:
     let a = getConstExpr(m, n[1], idgen, g)
     if a == nil: return
-    result = foldConv(n, a, idgen, g, check=true)
+    result = foldConv(n, a, idgen, g)
   of nkDerefExpr, nkHiddenDeref:
     let a = getConstExpr(m, n[0], idgen, g)
     if a != nil and a.kind == nkNilLit:
