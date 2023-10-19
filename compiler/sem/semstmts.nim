@@ -2800,7 +2800,8 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
         result[bodyPos] = semGenericStmt(c, n[bodyPos])
         closeScope(c)
         if s.magic == mNone:
-          fixupInstantiatedSymbols(c, s)
+          if not fixupInstantiatedSymbols(c, s):
+            hasError = true
       if s.kind == skMethod: semMethodPrototype(c, s, result)
       popProcCon(c)
   else:

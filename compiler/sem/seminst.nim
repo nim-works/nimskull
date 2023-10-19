@@ -119,15 +119,20 @@ proc instantiateBody(c: PContext, n, params: PNode, result, orig: PSym) =
     trackProc(c, result, result.ast[bodyPos])
     dec c.inGenericInst
 
-proc fixupInstantiatedSymbols(c: PContext, s: PSym) =
+proc fixupInstantiatedSymbols(c: PContext, s: PSym): bool =
+  result = true
   for i in 0..<c.generics.len:
     if c.generics[i].genericSym.id == s.id:
-      var oldPrc = c.generics[i].inst.sym
+      var 
+        oldPrc = c.generics[i].inst.sym
+        n = oldPrc.ast
+      if n.kind == nkError:
+        result = false
+        continue
       pushProcCon(c, oldPrc)
       pushOwner(c, oldPrc)
       pushInfoContext(c.config, oldPrc.info)
       openScope(c)
-      var n = oldPrc.ast
       n[bodyPos] = copyTree(getBody(c.graph, s))
       instantiateBody(c, n, oldPrc.typ.n, oldPrc, s)
       closeScope(c)
