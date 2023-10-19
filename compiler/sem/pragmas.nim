@@ -109,7 +109,7 @@ const
     wRaises, wLocks, wTags, wEffectsOf,
     wGcSafe, wCodegenDecl, wNoInit, wCompileTime}
   typePragmas* = declPragmas + {wMagic, wAcyclic,
-    wPure, wHeader, wCompilerProc, wCore, wFinal, wSize, wShallow,
+    wPure, wHeader, wCompilerProc, wCore, wFinal, wSize,
     wIncompleteStruct, wCompleteStruct, wByCopy, wByRef,
     wInheritable, wGensym, wInject, wRequiresInit, wUnion, wPacked,
     wBorrow, wGcSafe, wExplain, wPackage}
@@ -1309,10 +1309,6 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         result = noVal(c, it)
         assert sym.typ != nil
         incl(sym.typ.flags, tfAcyclic)
-      of wShallow:
-        result = noVal(c, it)
-        assert sym.typ != nil
-        incl(sym.typ.flags, tfShallow)
       of wThread:
         result = noVal(c, it)
         sym.flags.incl {sfThread, sfProcvar}

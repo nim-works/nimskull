@@ -614,7 +614,6 @@ type
     tfFinal,          ## is the object final?
     tfInheritable,    ## is the object inheritable?
     tfEnumHasHoles,   ## enum cannot be mapped into a range
-    tfShallow,        ## type can be shallow copied on assignment
     tfThread,         ## proc type is marked as ``thread``; alias for ``gcsafe``
     tfFromGeneric,    ## type is an instantiation of a generic; this is needed
                       ## because for instantiations of objects, structural
