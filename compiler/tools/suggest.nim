@@ -43,6 +43,7 @@ import
     lexer,
     lineinfos,
     linter,
+    renderer,
     types,
     typesrenderer,
     wordrecg,
@@ -103,7 +104,7 @@ proc cmpSuggestions(a, b: Suggest): int =
   cf globalUsages
   # if all is equal, sort alphabetically for deterministic output,
   # independent of hashing order:
-  result = cmp(a.name[], b.name[])
+  result = cmp(a.name, b.name)
 
 proc getTokenLenFromSource(conf: ConfigRef; ident: string; info: TLineInfo): int =
   let
@@ -156,7 +157,9 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   if section in {ideSug, ideCon}:
     result.contextFits = inTypeContext == (s.kind in {skType, skGenericParam})
   result.scope = scope
-  result.name = addr s.name.s
+  result.name = s.name.s
+  if isGenericRoutineStrict(s):
+    result.name.add renderTree(s.ast[genericParamsPos])
   when defined(nimsuggest):
     if section in {ideSug, ideCon}:
       result.globalUsages = s.allUsages.len
