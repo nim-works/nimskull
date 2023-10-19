@@ -138,6 +138,15 @@ proc fixupInstantiatedSymbols(c: PContext, s: PSym) =
       pushOwner(c, oldPrc)
       pushInfoContext(c.config, oldPrc.info)
       openScope(c)
+      # also add the instantiated symbols of the generic parameters
+      # to the scope:
+      for j, it in s.ast[genericParamsPos].pairs:
+        let
+          orig = it.sym
+          typ  = c.generics[i].inst.concreteTypes[j]
+        addDecl(c, instantiateGenericParam(c, orig.typ, typ, orig.name,
+                                           orig.info))
+
       var n = oldPrc.ast
       n[bodyPos] = copyTree(getBody(c.graph, s))
       instantiateBody(c, n, oldPrc.typ.n, oldPrc, s)
