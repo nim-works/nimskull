@@ -472,10 +472,10 @@ template copyNodeImpl(dst, src, processSonsStmt) =
   case src.kind
   of nkIntLiterals:
     dst.intVal = src.intVal
-    dst.intLitBase= src.intLitBase
+    dst.intLitBase = src.intLitBase
   of nkFloatLiterals:
     dst.floatVal = src.floatVal
-    dst.floatLitBase= src.floatLitBase
+    dst.floatLitBase = src.floatLitBase
   of nkSym: dst.sym = src.sym
   of nkIdent: dst.ident = src.ident
   of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
