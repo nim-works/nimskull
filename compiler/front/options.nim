@@ -462,7 +462,6 @@ template changedOpts(conf: ConfigRef, body: untyped) =
     body
     let after = conf.localOptions
     let removed = (optHints in before) and (optHints notin after)
-
   else:
     body
 
