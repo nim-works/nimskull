@@ -1533,8 +1533,9 @@ type
         discard
 
   TNode*{.final, acyclic.} = object # on a 32bit machine, this takes 32 bytes
+                                    # on a 64bit machine, this takes 40 bytes
     typ*: PType
-    id*: NodeId
+    id*: NodeId  # placed after `typ` field to save space due to field alignment
     info*: TLineInfo
     flags*: TNodeFlags
     case kind*: TNodeKind
