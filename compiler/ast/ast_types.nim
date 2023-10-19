@@ -1541,7 +1541,7 @@ type
       floatVal*: BiggestFloat
       floatLitBase*: NumericalBase
         # Once case branches can share fields this can be unified with
-        # intLitKind above
+        # intLitBase above
     of nkStrLit..nkTripleStrLit:
       strVal*: string
     of nkSym:
