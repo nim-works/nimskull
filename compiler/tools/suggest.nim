@@ -208,9 +208,9 @@ template symToSuggestGlobal(g: ModuleGraph; s: PSym, section: IdeCmd,
   symToSuggest(g, s, isLocal = false, section, info, 100,
                PrefixMatch.None, inTypeContext = false, 0, useSuppliedInfo)
 
-proc suggestResult(conf: ConfigRef; s: Suggest) =
-  if not isNil(conf.suggestionResultHook):
-    conf.suggestionResultHook(s)
+proc suggestResult(g: ModuleGraph; s: Suggest) =
+  if not isNil(g.config.suggestionResultHook):
+    g.config.suggestionResultHook(s)
 
 proc produceOutput(a: var Suggestions; conf: ConfigRef) =
   if conf.ideCmd in {ideSug, ideCon}:
@@ -474,7 +474,6 @@ proc executeCmd*(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
         graph.compileProject(modIdx)
 
 when defined(nimsuggest):
-
   proc addNoDup(s: PSym; info: TLineInfo) =
     # ensure nothing gets too slow:
     if s.allUsages.len > 500: return
@@ -482,16 +481,15 @@ when defined(nimsuggest):
       if infoB == info: return
     s.allUsages.add(info)
 
-when defined(nimsuggest):
   proc listUsages*(g: ModuleGraph; s: PSym) =
     for info in s.allUsages:
       let x = if info == s.info: ideDef else: ideUse
-      suggestResult(g.config, symToSuggestGlobal(g, s, x, info))
+      suggestResult(g, symToSuggestGlobal(g, s, x, info))
 
 proc findDefinition(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym) =
   if s.isNil: return
   if isTracked(info, g.config.m.trackPos, s.name.s.len) or (s == usageSym and sfForward notin s.flags):
-    suggestResult(g.config, symToSuggestGlobal(g, s, ideDef, info, s == usageSym))
+    suggestResult(g, symToSuggestGlobal(g, s, ideDef, info, s == usageSym))
     if sfForward notin s.flags:
       suggestQuit()
     else:
@@ -499,25 +497,24 @@ proc findDefinition(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym
 
 proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; isDecl=true) {.inline.} =
   ## misnamed: should be 'symDeclared'
-  let conf = g.config
   when defined(nimsuggest):
     if s.allUsages.len == 0:
       s.allUsages = @[info]
     else:
       s.addNoDup(info)
 
-    case conf.ideCmd
+    case g.config.ideCmd
     of ideDef:
       findDefinition(g, info, s, usageSym)
     of ideDus:
-      if s != nil and isTracked(info, conf.m.trackPos, s.name.s.len):
-        suggestResult(conf, symToSuggestGlobal(g, s,  ideDef, info))
+      if s != nil and isTracked(info, g.config.m.trackPos, s.name.s.len):
+        suggestResult(g, symToSuggestGlobal(g, s,  ideDef, info))
     of ideHighlight:
-      if info.fileIndex == conf.m.trackPos.fileIndex:
-        suggestResult(conf, symToSuggestGlobal(g, s, ideHighlight, info))
+      if info.fileIndex == g.config.m.trackPos.fileIndex:
+        suggestResult(g, symToSuggestGlobal(g, s, ideHighlight, info))
     of ideOutline:
-      if isDecl and info.fileIndex == conf.m.trackPos.fileIndex:
-        suggestResult(conf, symToSuggestGlobal(g, s, ideOutline, info))
+      if isDecl and info.fileIndex == g.config.m.trackPos.fileIndex:
+        suggestResult(g, symToSuggestGlobal(g, s, ideOutline, info))
     else:
       discard
 
