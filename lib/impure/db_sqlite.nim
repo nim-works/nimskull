@@ -235,7 +235,8 @@ proc tryExec*(db: DbConn, query: SqlQuery,
   var stmt: sqlite3.PStmt
   if prepare_v2(db, q.cstring, q.len.cint, stmt, nil) == SQLITE_OK:
     let x = step(stmt)
-    if x in {SQLITE_DONE, SQLITE_ROW}:
+    case x
+    of SQLITE_DONE, SQLITE_ROW:
       result = finalize(stmt) == SQLITE_OK
     else:
       discard finalize(stmt)
@@ -244,7 +245,8 @@ proc tryExec*(db: DbConn, query: SqlQuery,
 proc tryExec*(db: DbConn, stmtName: SqlPrepared): bool {.
               tags: [ReadDbEffect, WriteDbEffect].} =
     let x = step(stmtName.PStmt)
-    if x in {SQLITE_DONE, SQLITE_ROW}:
+    case x
+    of SQLITE_DONE, SQLITE_ROW:
       result = true
     else:
       discard finalize(stmtName.PStmt)

@@ -243,8 +243,6 @@ func fail(
   magic: TMagic,
   loc:   InstantiationInfo = instLoc()
   ) {.noinline, noreturn.} =
-  assert kind in {vmGenDiagMissingImportcCompleteStruct,
-                  vmGenDiagCodeGenUnhandledMagic}, "Diag needs magic field"
   raiseVmGenError(
     VmGenDiag(kind: kind, magic: magic),
     info,

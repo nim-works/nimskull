@@ -104,7 +104,7 @@ proc cmpSuggestions(a, b: Suggest): int =
   cf globalUsages
   # if all is equal, sort alphabetically for deterministic output,
   # independent of hashing order:
-  result = cmp(a.name[0], b.name[0])
+  result = cmp(a.name, b.name)
 
 proc getTokenLenFromSource(conf: ConfigRef; ident: string; info: TLineInfo): int =
   let
@@ -209,6 +209,12 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
                       s.name.s.len
                     else:
                       getTokenLenFromSource(g.config, s.name.s, infox)
+
+template symToSuggestGlobal(g: ModuleGraph; s: PSym, section: IdeCmd,
+                            info: TLineInfo;
+                            useSuppliedInfo = false): Suggest =
+  symToSuggest(g, s, isLocal = false, section, info, 100,
+               PrefixMatch.None, inTypeContext = false, 0, useSuppliedInfo)
 
 proc suggestResult(conf: ConfigRef; s: Suggest) =
   if not isNil(conf.suggestionResultHook):
@@ -488,12 +494,12 @@ when defined(nimsuggest):
   proc listUsages*(g: ModuleGraph; s: PSym) =
     for info in s.allUsages:
       let x = if info == s.info: ideDef else: ideUse
-      suggestResult(g.config, symToSuggest(g, s, isLocal=false, x, info, 100, PrefixMatch.None, false, 0))
+      suggestResult(g.config, symToSuggestGlobal(g, s, x, info))
 
 proc findDefinition(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym) =
   if s.isNil: return
   if isTracked(info, g.config.m.trackPos, s.name.s.len) or (s == usageSym and sfForward notin s.flags):
-    suggestResult(g.config, symToSuggest(g, s, isLocal=false, ideDef, info, 100, PrefixMatch.None, false, 0, useSuppliedInfo = s == usageSym))
+    suggestResult(g.config, symToSuggestGlobal(g, s, ideDef, info, s == usageSym))
     if sfForward notin s.flags:
       suggestQuit()
     else:
@@ -508,16 +514,20 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
     else:
       s.addNoDup(info)
 
-    if conf.ideCmd == ideDef:
+    case conf.ideCmd
+    of ideDef:
       findDefinition(g, info, s, usageSym)
-    elif conf.ideCmd == ideDus and s != nil:
-      if isTracked(info, conf.m.trackPos, s.name.s.len):
-        suggestResult(conf, symToSuggest(g, s, isLocal=false, ideDef, info, 100, PrefixMatch.None, false, 0))
-    elif conf.ideCmd == ideHighlight and info.fileIndex == conf.m.trackPos.fileIndex:
-      suggestResult(conf, symToSuggest(g, s, isLocal=false, ideHighlight, info, 100, PrefixMatch.None, false, 0))
-    elif conf.ideCmd == ideOutline and isDecl and info.fileIndex == conf.m.trackPos.fileIndex:
-      if "`gensym" in s.name.s: return # prevent constant in template show up
-      suggestResult(conf, symToSuggest(g, s, isLocal=false, ideOutline, info, 100, PrefixMatch.None, false, 0))
+    of ideDus:
+      if s != nil and isTracked(info, conf.m.trackPos, s.name.s.len):
+        suggestResult(conf, symToSuggestGlobal(g, s,  ideDef, info))
+    of ideHighlight:
+      if info.fileIndex == conf.m.trackPos.fileIndex:
+        suggestResult(conf, symToSuggestGlobal(g, s, ideHighlight, info))
+    of ideOutline:
+      if isDecl and info.fileIndex == conf.m.trackPos.fileIndex:
+        suggestResult(conf, symToSuggestGlobal(g, s, ideOutline, info))
+    else:
+      discard
 
 proc safeSemExpr*(c: PContext, n: PNode): PNode =
   # use only for idetools support!

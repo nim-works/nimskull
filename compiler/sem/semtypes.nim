@@ -2081,7 +2081,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
       let (op, err) = considerQuotedIdent(c, n[0])
       if err != nil:
         localReport(c.config, err)
-      if op.id in {ord(wAnd), ord(wOr)} or op.s == "|":
+      if op.id == ord(wAnd) or op.id == ord(wOr) or op.s == "|":
         checkSonsLen(n, 3, c.config)
         var
           t1 = semTypeNode(c, n[1], nil)
