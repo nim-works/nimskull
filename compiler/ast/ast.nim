@@ -17,7 +17,6 @@ import
     ast_idgen,        # Per module Id generation
     ast_query,        # querying/reading the ast
     ast_parsed_types, # Data types for the parsed node
-    numericbase       # NumericalBase
   ],
   compiler/front/[
     in_options
