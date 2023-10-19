@@ -49,7 +49,7 @@ doAssert not compiles(test({1}, {'2'}))
 doAssert test(range[0..1](0), range[3..4](3)) == 8
 doAssert test((ptr int)(nil), (ptr float)(nil)) == 9
 doAssert test((ref int)(nil), (ref float)(nil)) == 10
-doAssert not compiles(test(@[1], @[""]))
+doAssert not compiles(test(@[1], @[""])) # == 11
 doAssert test((proc(a: int))(nil), (proc(a: float))(nil)) == 12
-doAssert not compiles(test1(arr1, arr2))
+doAssert not compiles(test1(arr1, arr2)) # == 13
 doAssert not compiles(test1((ptr UncheckedArray[int])(nil), (ptr UncheckedArray[float])(nil)))
