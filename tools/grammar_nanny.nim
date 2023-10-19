@@ -4,7 +4,7 @@
 import std / [strutils, sets]
 
 import
-  compiler/ast/[llstream, lexer, idents, lineinfos, reports],
+  compiler/ast/[llstream, lexer, idents, lineinfos, reports, reports_internal],
   compiler/utils/[pathutils],
   compiler/front/[options, msgs, cli_reporter]
 
