@@ -62,8 +62,7 @@ const
   
   PtrLikeKinds*: TTypeKinds = {tyPointer, tyPtr} # for VM
   
-  PersistentNodeFlags*: TNodeFlags = {nfBase2, nfBase8, nfBase16,
-                                      nfDotSetter, nfDotField, nfLL,
+  PersistentNodeFlags*: TNodeFlags = {nfDotSetter, nfDotField, nfLL,
                                       nfFromTemplate, nfDefaultRefsParam}
   
   namePos*          = 0 ## Name of the type/proc-like node
@@ -82,8 +81,6 @@ const
                         ## on info
   firstArgPos*      = 3 ## Error first 0..n additional nodes depends on
                         ## error kind
-
-  nfAllFieldsSet* = nfBase2
 
   nkCallKinds* = {nkCall, nkInfix, nkPrefix, nkPostfix,
                   nkCommand, nkCallStrLit, nkHiddenCallConv}
