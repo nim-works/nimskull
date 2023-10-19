@@ -617,7 +617,7 @@ proc treeRepr*(
     else:
       addi indent, rconf.formatKind(typ.kind) + style.kind
       if trfShowTypeSym notin rconf and typ.sym != nil:
-        # If the name is not show in verbose manner as a field, print it
+        # If the name is not shown in verbose manner as a field, print it
         # beforehand as a regular string.
         add " \""
         add typ.sym.name.s + style.identLit
