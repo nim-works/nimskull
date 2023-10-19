@@ -199,6 +199,8 @@ proc buildTool(toolname, args: string) =
   copyFile(dest="bin" / splitFile(toolname).name.exe, source=toolname.exe)
 
 proc buildTools(args: string = "") =
+  nimCompileFold("Compile dust", "tools/dust/dust.nim",
+                 options = "-d:release $# $#" % [defineSourceMetadata(), args])
   bundleNimsuggest(args)
   nimCompileFold("Compile nimgrep", "tools/nimgrep.nim",
                  options = "-d:release " & defineSourceMetadata() & " " & args)
