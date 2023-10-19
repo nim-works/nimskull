@@ -604,8 +604,6 @@ type
     nfDotField  ## the call can use a dot operator
     nfDotSetter ## the call can use a setter dot operarator
     nfExplicitCall ## `x.y()` was used instead of x.y
-    nfIsRef     ## this node is a 'ref' node; used for the VM
-    nfIsPtr     ## this node is a 'ptr' node; used for the VM
     nfFromTemplate ## a top-level node returned from a template
     nfDefaultParam ## an automatically inserter default parameter
     nfDefaultRefsParam ## a default param value references another parameter
@@ -1535,8 +1533,8 @@ type
         discard
 
   TNode*{.final, acyclic.} = object # on a 32bit machine, this takes 32 bytes
-    id*: NodeId
     typ*: PType
+    id*: NodeId
     info*: TLineInfo
     flags*: TNodeFlags
     case kind*: TNodeKind
