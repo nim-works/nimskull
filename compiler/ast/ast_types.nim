@@ -1209,6 +1209,7 @@ type
     # semobjconstr
     adSemFieldAssignmentInvalid
     adSemFieldNotAccessible
+    adSemObjectRequiresFieldInit
     adSemObjectRequiresFieldInitNoDefault
     adSemExpectedObjectType
     adSemExpectedObjectOfType
@@ -1482,7 +1483,8 @@ type
       wrongFldInfo*: TLineInfo
     of adSemFieldNotAccessible:
       inaccessible*: PSym
-    of adSemObjectRequiresFieldInitNoDefault:
+    of adSemObjectRequiresFieldInit,
+       adSemObjectRequiresFieldInitNoDefault:
       missing*: seq[PSym]
       objTyp*: PType
     of adSemDistinctDoesNotHaveDefaultValue:
