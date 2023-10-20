@@ -347,7 +347,7 @@ proc hashBodyTree(graph: ModuleGraph, c: var MD5Context, n: PNode) =
     return
   c &= char(n.kind)
   case n.kind
-  of nkEmpty, nkNilLit, nkType: discard
+  of nkEmpty, nkNilLit, nkType, nkCommentStmt: discard
   of nkIdent:
     c &= n.ident.s
   of nkSym:

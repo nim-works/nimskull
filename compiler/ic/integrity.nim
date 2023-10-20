@@ -71,7 +71,7 @@ proc checkNode(c: var CheckedContext; tree: PackedTree; n: NodePos) =
   if tree[n.int].typeId != nilItemId:
     checkType(c, tree[n.int].typeId)
   case n.kind
-  of nkEmpty, nkNilLit, nkType, nkNilRodNode:
+  of nkEmpty, nkNilLit, nkType, nkCommentStmt, nkNilRodNode:
     discard
   of nkIdent:
     assert c.g.packed[c.thisModule].fromDisk.strings.hasLitId n.litId
