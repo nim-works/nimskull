@@ -17,7 +17,7 @@ proc cyclicTreeAux(n: PNode, visited: var seq[PNode]): bool =
   for v in visited:
     if v == n: return true
   case n.kind
-  of nkEmpty..nkNilLit:
+  of nkEmpty..nkNilLit, nkCommentStmt:
     discard
   of nkError:
     visited.add(n)
@@ -81,6 +81,7 @@ proc sameTree*(a, b: PNode): bool =
       result = sameFloatIgnoreNan(a.floatVal, b.floatVal) and
                a.floatLitBase == b.floatLitBase
     of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
+    of nkCommentStmt: result = a.comment == b.comment
     of nkEmpty, nkNilLit, nkType: result = true
     else:
       if a.len == b.len:

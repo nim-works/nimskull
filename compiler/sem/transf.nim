@@ -308,7 +308,7 @@ proc transformConstSection(c: PTransf, v: PNode): PNode =
 
 proc hasContinue(n: PNode): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkForStmt, nkWhileStmt: discard
+  of nkEmpty..nkNilLit, nkCommentStmt, nkForStmt, nkWhileStmt: discard
   of nkContinueStmt: result = true
   else:
     for i in 0..<n.len:
@@ -433,7 +433,7 @@ proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
   case n.kind
   of nkSym:
     result = transformSym(c, n)
-  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit:
+  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit, nkCommentStmt:
     # nothing to be done for leaves:
     result = n
   of callableDefs:

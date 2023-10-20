@@ -116,7 +116,7 @@ proc sexp*(node: PNode): SexpNode =
   result = newSList()
   result.add newSSymbol(($node.kind)[2 ..^ 1])
   case node.kind
-  of nkNone, nkEmpty, nkType:   discard
+  of nkNone, nkEmpty, nkType, nkCommentStmt: discard
   of nkCharLit..nkUInt64Lit:    result.add sexp(node.intVal)
   of nkFloatLit..nkFloat128Lit: result.add sexp(node.floatVal)
   of nkStrLit..nkTripleStrLit:  result.add sexp(node.strVal)

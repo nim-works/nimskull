@@ -256,7 +256,8 @@ const
     {nkFloatLit..nkFloat128Lit} +
     {nkStrLit..nkTripleStrLit} +
     {nkNilLit} +
-    {nkError}
+    {nkError} +
+    {nkCommentStmt}
 
   nkWithSons* = {low(TNodeKind) .. high(TNodeKind)} - nkWithoutSons
 
@@ -1548,7 +1549,7 @@ type
       sym*: PSym
     of nkIdent:
       ident*: PIdent
-    of nkEmpty, nkNone, nkType, nkNilLit:
+    of nkEmpty, nkNone, nkType, nkNilLit, nkCommentStmt:
       discard
     of nkError:
       diag*: PAstDiag
