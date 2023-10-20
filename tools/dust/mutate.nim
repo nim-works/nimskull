@@ -4,7 +4,7 @@ import
 import spec
 import hashing
 
-proc node(k: TNodeKind): PNode = PNode(kind: k)
+proc node(k: TNodeKind): PNode = newNode(k)
 
 type
   Transformer = proc (n: PNode): PNode
@@ -15,15 +15,15 @@ proc transform*(n: PNode; fn: Transformer): PNode =
   if result.isNil:
     result = shallowCopy n
     for i, child in pairs(n):
-      result.sons[i] = transform(child, fn)
+      result[i] = transform(child, fn)
 
 proc rebuild*(n: PNode; fn: Transformer): PNode =
   assert not n.isNil
   result = fn(n)
-  if cast[uint](result) == cast[uint](n):
+  if result == n:
     result = shallowCopy n
     if n.kind in nkWithSons:
-      result.sons.setLen 0
+      result.setLen 0
       for child in items(n):
         let rebuilt = rebuild(child, fn)
         if not rebuilt.isNil:
