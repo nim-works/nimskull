@@ -10,6 +10,21 @@
 ## This module implements the instantiation of generic procs.
 ## included from sem.nim
 
+proc instantiateGenericParam(c: PContext, orig, t: PType,
+                             name: PIdent, info: TLineInfo): PSym =
+  ## Produces a new symbol representing the instantiated generic parameter.
+  ## `orig` is the original generic parameter's type, `t` the instantiated
+  ## type, `name` the name to use for symbol, and `info` is the line
+  ## information to use for the symbol.
+  let symKind =
+    case orig.kind
+    of tyStatic: skConst
+    else:        skType
+  result = newSym(symKind, name, nextSymId(c.idgen), getCurrOwner(c), info)
+  result.flags.incl {sfUsed, sfFromGeneric}
+  result.typ = t
+  if t.kind == tyStatic:
+    result.ast = t.n
 
 iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable): PSym =
   internalAssert(
@@ -25,9 +40,6 @@ iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable): PSym 
 
     var q = a.sym
     if q.typ.kind in {tyTypeDesc, tyGenericParam, tyStatic}+tyTypeClasses:
-      let symKind = if q.typ.kind == tyStatic: skConst else: skType
-      var s = newSym(symKind, q.name, nextSymId(c.idgen), getCurrOwner(c), q.info)
-      s.flags.incl {sfUsed, sfFromGeneric}
       var t = PType(idTableGet(pt, q.typ))
       if t == nil:
         if tfRetType in q.typ.flags:
@@ -35,20 +47,19 @@ iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable): PSym 
           # later by semAsgn in return type inference scenario
           t = q.typ
         else:
-          localReport(c.config, a.info, reportSym(rsemCannotInstantiate, s))
+          localReport(c.config, a.info, reportTyp(rsemCannotInstantiate, q.typ))
 
           t = errorType(c)
       elif t.kind == tyGenericParam:
-        localReport(c.config, a.info, reportSym(rsemCannotInstantiate, q))
+        localReport(c.config, a.info, reportTyp(rsemCannotInstantiate, q.typ))
 
         t = errorType(c)
       elif t.kind == tyGenericInvocation:
         #t = instGenericContainer(c, a, t)
         t = generateTypeInstance(c, pt, a, t)
         #t = ReplaceTypeVarsT(cl, t)
-      s.typ = t
-      if t.kind == tyStatic: s.ast = t.n
-      yield s
+
+      yield instantiateGenericParam(c, q.typ, t, q.name, a.info)
 
 proc sameInstantiation(a, b: TInstantiation): bool =
   if a.concreteTypes.len == b.concreteTypes.len:
@@ -127,6 +138,15 @@ proc fixupInstantiatedSymbols(c: PContext, s: PSym) =
       pushOwner(c, oldPrc)
       pushInfoContext(c.config, oldPrc.info)
       openScope(c)
+      # also add the instantiated symbols of the generic parameters
+      # to the scope:
+      for j, it in s.ast[genericParamsPos].pairs:
+        let
+          orig = it.sym
+          typ  = c.generics[i].inst.concreteTypes[j]
+        addDecl(c, instantiateGenericParam(c, orig.typ, typ, orig.name,
+                                           orig.info))
+
       var n = oldPrc.ast
       n[bodyPos] = copyTree(getBody(c.graph, s))
       instantiateBody(c, n, oldPrc.typ.n, oldPrc, s)
