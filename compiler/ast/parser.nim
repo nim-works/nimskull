@@ -591,11 +591,11 @@ proc setOrTableConstr(p: var Parser): ParsedNode =
   p.eat(tkCurlyRi) # skip '}'
 
 proc parseCast(p: var Parser): ParsedNode =
-  #| castExpr = 'cast' ('[' optInd typeDesc optPar ']' '(' optInd expr optPar ')') /
+  #| castExpr = 'cast' (('['|'[:') optInd typeDesc optPar ']' '(' optInd expr optPar ')') /
   #                    ('(' optInd exprColonEqExpr optPar ')')
   result = p.newNodeConsumingTok(pnkCast)
   case p.tok.tokType
-  of tkBracketLe:
+  of tkBracketLe, tkBracketLeColon:
     p.getTok
     p.optInd(result)
     result.add parseTypeDesc(p)
@@ -830,7 +830,7 @@ proc primarySuffix(p: var Parser, r: ParsedNode,
   #| primarySuffix = '(' (exprColonEqExpr comma?)* ')'
   #|       | '.' optInd symbol ('[:' exprList ']' ( '(' exprColonEqExpr ')' )?)? generalizedLit?
   #|       | DOTLIKEOP optInd symbol generalizedLit?
-  #|       | '[' optInd exprColonEqExprList optPar ']'
+  #|       | ('['|'[:') optInd exprColonEqExprList optPar ']'
   #|       | '{' optInd exprColonEqExprList optPar '}'
   #|       | &( '`'|IDENT|literal|'cast'|'addr'|'type') expr # command syntax
   result = r
@@ -859,7 +859,7 @@ proc primarySuffix(p: var Parser, r: ParsedNode,
     of tkDot:
       # progress guaranteed
       result = p.parseGStrLit(p.dotExpr(result))
-    of tkBracketLe:
+    of tkBracketLe, tkBracketLeColon:
       # progress guaranteed
       if p.tok.strongSpaceA > 0:
         result = p.commandExpr(result, mode, startTok)
