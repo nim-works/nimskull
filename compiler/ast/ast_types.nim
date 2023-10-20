@@ -604,8 +604,6 @@ type
     nfDotField  ## the call can use a dot operator
     nfDotSetter ## the call can use a setter dot operarator
     nfExplicitCall ## `x.y()` was used instead of x.y
-    nfIsRef     ## this node is a 'ref' node; used for the VM
-    nfIsPtr     ## this node is a 'ptr' node; used for the VM
     nfFromTemplate ## a top-level node returned from a template
     nfDefaultParam ## an automatically inserter default parameter
     nfDefaultRefsParam ## a default param value references another parameter
@@ -651,7 +649,8 @@ type
     tfPacked
     tfHasStatic
     tfGenericTypeParam
-    tfImplicitTypeParam
+    tfImplicitTypeParam ## the type parameter was lifted from the routine's
+                        ## formal parameters
     tfInferrableStatic
     tfConceptMatchedTypeSym
     tfExplicit        ## for typedescs, marks types explicitly prefixed with the
@@ -742,7 +741,7 @@ type
     mDefined, mDeclared, mDeclaredInScope, mCompiles, mArrGet, mArrPut, mAsgn,
     mLow, mHigh, mSizeOf, mAlignOf, mOffsetOf, mTypeTrait,
     mIs, mOf, mAddr, mType, mTypeOf,
-    mPlugin, mEcho, mShallowCopy, mSlurp,
+    mPlugin, mEcho, mShallowCopy,
     mStatic,
     mParseExprToAst, mParseStmtToAst, mExpandToAst, mQuoteAst,
     mInc, mDec, mOrd,
@@ -819,6 +818,8 @@ type
     mChckRange
       ## chckRange(v, lower, upper); conversion + range check -- returns
       ## either the type-converted value or raises a defect
+    mSamePayload
+      ## returns whether both seq/string operands share the same payload
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const
@@ -1532,8 +1533,9 @@ type
         discard
 
   TNode*{.final, acyclic.} = object # on a 32bit machine, this takes 32 bytes
-    id*: NodeId
+                                    # on a 64bit machine, this takes 40 bytes
     typ*: PType
+    id*: NodeId  # placed after `typ` field to save space due to field alignment
     info*: TLineInfo
     flags*: TNodeFlags
     case kind*: TNodeKind

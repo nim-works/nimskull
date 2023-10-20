@@ -10,73 +10,61 @@
 import std/macros
 from std/typetraits import OrdinalEnum, HoleyEnum
 
+macro enumFullRange(a: typed): untyped =
+  newNimNode(nnkCurly).add(a.getType[1][1..^1])
+
 # xxx `genEnumCaseStmt` needs tests and runnableExamples
 
-macro genEnumCaseStmt*(typ: typedesc, argSym: typed, default: typed,
-            userMin, userMax: static[int], normalizer: static[proc(s :string): string]): untyped =
-  # Generates a case stmt, which assigns the correct enum field given
-  # a normalized string comparison to the `argSym` input.
-  # string normalization is done using passed normalizer.
-  # NOTE: for an enum with fields Foo, Bar, ... we cannot generate
-  # `of "Foo".nimIdentNormalize: Foo`.
-  # This will fail, if the enum is not defined at top level (e.g. in a block).
-  # Thus we check for the field value of the (possible holed enum) and convert
-  # the integer value to the generic argument `typ`.
-  let typ = typ.getTypeInst[1]
-  let impl = typ.getImpl[2]
-  expectKind impl, nnkEnumTy
-  let normalizerNode = quote: `normalizer`
-  expectKind normalizerNode, nnkSym
-  result = nnkCaseStmt.newTree(newCall(normalizerNode, argSym))
-  # stores all processed field strings to give error msg for ambiguous enums
-  var foundFields: seq[string] = @[]
-  var fStr = "" # string of current field
-  var fNum = BiggestInt(0) # int value of current field
-  for f in impl:
-    case f.kind
-    of nnkEmpty: continue # skip first node of `enumTy`
-    of nnkSym, nnkIdent: fStr = f.strVal
-    of nnkAccQuoted:
-      fStr = ""
-      for ch in f:
-        fStr.add ch.strVal
-    of nnkEnumFieldDef:
-      case f[1].kind
-      of nnkStrLit: fStr = f[1].strVal
-      of nnkTupleConstr:
-        fStr = f[1][1].strVal
-        fNum = f[1][0].intVal
-      of nnkIntLit:
-        fStr = f[0].strVal
-        fNum = f[1].intVal
-      else:
-        let fAst = f[0].getImpl
-        if fAst.kind == nnkStrLit:
-          fStr = fAst.strVal
-        else:
-          error("Invalid tuple syntax!", f[1])
-    else: error("Invalid node for enum type `" & $f.kind & "`!", f)
-    # add field if string not already added
-    if fNum >= userMin and fNum <= userMax:
-      fStr = normalizer(fStr)
-      if fStr notin foundFields:
-        result.add nnkOfBranch.newTree(newLit fStr,  nnkCall.newTree(typ, newLit fNum))
-        foundFields.add fStr
-      else:
-        error("Ambiguous enums cannot be parsed, field " & $fStr &
-          " appears multiple times!", f)
-    inc fNum
-  # finally add else branch to raise or use default
+macro genEnumCaseStmtAux(argSym, normalizer, default, list: typed): untyped =
+  ## Invoked by ``genEnumCaseStmt`` to produce the actual case
+  ## statement. `argSym`, `normalizer`, and `default` are passed through,
+  ## while `list` is a list of tuples with the enum values + associated string
+  ## values.
+  expectKind list, nnkBracket
+
+  var seen: seq[string]
+    ## already added fields. Used for detecting duplicate names.
+
+  result = nnkCaseStmt.newTree(newCall(normalizer, argSym))
+  for it in list.items:
+    expectKind it, nnkTupleConstr
+
+    let fStr = it[1].strVal
+    if fStr notin seen:
+      result.add nnkOfBranch.newTree(it[1], it[0])
+      seen.add fStr
+    else:
+      error("Ambiguous enums cannot be parsed, field " & $fStr &
+            " appears multiple times!", it[1])
+
+  # finally, add a branch for the default case:
   if default == nil:
+    # no default value is provided -> raise
     let raiseStmt = quote do:
       raise newException(ValueError, "Invalid enum value: " & $`argSym`)
     result.add nnkElse.newTree(raiseStmt)
   else:
-    expectKind(default, nnkSym)
+    expectKind default, nnkSym
     result.add nnkElse.newTree(default)
 
-macro enumFullRange(a: typed): untyped =
-  newNimNode(nnkCurly).add(a.getType[1][1..^1])
+  result = nnkStmtListExpr.newTree(result)
+
+template genEnumCaseStmt*(typ: typedesc[enum], arg: typed, default: typed,
+                          userMin, userMax: static[int],
+                          normalizer: typed): untyped =
+  ## Generates a case statement yielding the enum value corresponding the
+  ## normalized value of `arg`. String normalization is done using passed
+  ## normalizer. Only enum values in the provide range are considered.
+  proc collect(): seq[(typ, string)] =
+    # go over all enum values in the provided range and fetch their string
+    # value
+    for it in enumFullRange(typ):
+      if ord(it) in userMin..userMax:
+        result.add (it, normalizer($it))
+
+  # the macro needs the collapsed value expression, which is achieved
+  # by using a ``static`` expression
+  genEnumCaseStmtAux(arg, normalizer, default, static(collect()))
 
 macro enumNames(a: typed): untyped =
   # this could be exported too; in particular this could be useful for enum with holes.

@@ -140,24 +140,27 @@ type
 
   CfileList* = seq[Cfile]
 
+  SuggestFlag* {.pure.} = enum
+    deprecated = 1
+    isGlobal = 2
+
   Suggest* = ref object
     section*: IdeCmd
     qualifiedPath*: seq[string]
-    name*: ptr string           ## not used beyond sorting purposes; name is
-                                ## also part of 'qualifiedPath'
+    name*: string               ## display name
     filePath*: string
     line*: int                  ## Starts at 1
     column*: int                ## Starts at 0
     doc*: string                ## Unescaped documentation string
     forth*: string              ## type
     quality*: range[0..100]     ## matching quality
-    isGlobal*: bool             ## is a global variable
     contextFits*: bool          ## type/non-type context matches
     prefix*: PrefixMatch
     symkind*: byte
     scope*:int
     localUsages*, globalUsages*: int # usage counters
     tokenLen*: int
+    flags*: set[SuggestFlag]
 
   Suggestions* = seq[Suggest]
 
@@ -294,6 +297,9 @@ type
     ## textual output from the compiler goes through this callback.
     writeHook*: proc(conf: ConfigRef, output: string, flags: MsgFlags) {.closure.}
     structuredReportHook*: ReportHook
+      ## callback that is invoked when an enabled report is passed to report
+      ## handling. The callback is meant to handle rendering/displaying of
+      ## the report
     astDiagToLegacyReport*: proc(conf: ConfigRef, d: PAstDiag): Report
     setMsgFormat*: proc(config: ConfigRef, fmt: MsgFormatKind) {.closure.}
       ## callback that sets the message format for legacy reporting, needs to
@@ -305,6 +311,10 @@ type
 
     when defined(nimDebugUnreportedErrors):
       unreportedErrors*: OrderedTable[NodeId, PNode]
+
+const 
+  IdeLocCmds* = {ideSug, ideCon, ideDef, ideUse, ideDus}
+    ## IDE commands requiring source locations, related `MsgConfig.trackPos`
 
 template `[]`*(conf: ConfigRef, idx: FileIndex): TFileInfo =
   conf.m.fileInfos[idx.uint32]
@@ -706,26 +716,16 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
     ## evaluation` context. `sem` and `semexprs` in particular will clear
     ## `conf.m.errorOutputs` as a signal for this. For more details see the
     ## comment for `MsgConfig.errorOutputs`.
-  if (
-    (conf.isEnabled(r) and r.category == repDebug and compTimeCtx)
+  if r.category == repDebug and compTimeCtx:
     # Force write of the report messages using regular stdout if compTimeCtx
     # is enabled
-  ):
-    return writeForceEnabled
-
-  elif (
-    # Not explicitly enabled
-    not conf.isEnabled(r)
-  ) or (
+    writeForceEnabled
+  elif compTimeCtx:
     # Or we are in the special hack mode for `compiles()` processing
-    compTimeCtx
-  ):
-
     # Return without writing
-    return writeDisabled
-
+    writeDisabled
   else:
-    return writeEnabled
+    writeEnabled
 
 const
   oldExperimentalFeatures* = {dotOperators, callOperator}

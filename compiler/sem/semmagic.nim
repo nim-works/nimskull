@@ -406,6 +406,12 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
       prc = getToStringProc(c.graph, n[1].typ.skipTypes(abstractRange))
     result = n
     result[0] = newSymNode(prc, info)
+  of mInSet:
+    result = n
+    # report warnings for ``in``/``contains`` calls where the element value
+    # requires an implicit conversion. This is usually not what one wants
+    if n[2].kind in {nkHiddenSubConv, nkHiddenStdConv}:
+      localReport(c.config, n[2], SemReport(kind: rsemSuspiciousContainsConv))
   of mIsPartOf: result = semIsPartOf(c, n, flags)
   of mTypeTrait: result = semTypeTraits(c, n)
   of mAstToStr:

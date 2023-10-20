@@ -388,7 +388,8 @@ proc typeToString*(typ: PType, prefer: TPreferedDesc = preferName): string =
                  else: "proc "
               else:
                 "proc "
-      if tfUnresolved in t.flags: result.add "[*missing parameters*]"
+      if tfUnresolved in t.flags:
+        result.add renderTree(t.owner.ast[genericParamsPos])
       result.add "("
       for i in 1..<t.len:
         if t.n != nil and i < t.n.len and t.n[i].kind == nkSym:

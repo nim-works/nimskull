@@ -728,8 +728,7 @@ proc setIntLitType*(c: PContext; result: PNode) =
     else:
       result.typ = getSysType(c.graph, result.info, tyInt64)
   else:
-    c.config.internalError(
-      result.info, rintUnreachable, "invalid int size")
+    c.config.internalError(result.info, "invalid int size")
 
 proc makeInstPair*(s: PSym, inst: PInstantiation): TInstantiationPair =
   result.genericSym = s

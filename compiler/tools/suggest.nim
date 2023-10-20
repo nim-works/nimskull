@@ -43,6 +43,7 @@ import
     lexer,
     lineinfos,
     linter,
+    renderer,
     types,
     typesrenderer,
     wordrecg,
@@ -68,9 +69,6 @@ import
 
 when defined(nimsuggest):
   import compiler/sem/passes, compiler/utils/pathutils # importer
-
-const
-  sep = '\t'
 
 proc findDocComment(n: PNode): PNode =
   if n == nil: return nil
@@ -106,7 +104,7 @@ proc cmpSuggestions(a, b: Suggest): int =
   cf globalUsages
   # if all is equal, sort alphabetically for deterministic output,
   # independent of hashing order:
-  result = cmp(a.name[], b.name[])
+  result = cmp(a.name, b.name)
 
 proc getTokenLenFromSource(conf: ConfigRef; ident: string; info: TLineInfo): int =
   let
@@ -149,14 +147,19 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
                   inTypeContext: bool; scope: int;
                   useSuppliedInfo = false): Suggest =
   new(result)
+  if sfDeprecated in s.flags:
+    result.flags.incl SuggestFlag.deprecated
+  if sfGlobal in s.flags:
+    result.flags.incl SuggestFlag.isGlobal
   result.section = section
   result.quality = quality
-  result.isGlobal = sfGlobal in s.flags
   result.prefix = prefix
   if section in {ideSug, ideCon}:
     result.contextFits = inTypeContext == (s.kind in {skType, skGenericParam})
   result.scope = scope
-  result.name = addr s.name.s
+  result.name = s.name.s
+  if isGenericRoutineStrict(s):
+    result.name.add renderTree(s.ast[genericParamsPos])
   when defined(nimsuggest):
     if section in {ideSug, ideCon}:
       result.globalUsages = s.allUsages.len
@@ -199,43 +202,11 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
                     else:
                       getTokenLenFromSource(g.config, s.name.s, infox)
 
-proc `$`*(suggest: Suggest): string =
-  result = $suggest.section
-  result.add(sep)
-  if suggest.section == ideHighlight:
-    if suggest.symkind.TSymKind == skVar and suggest.isGlobal:
-      result.add("skGlobalVar")
-    elif suggest.symkind.TSymKind == skLet and suggest.isGlobal:
-      result.add("skGlobalLet")
-    else:
-      result.add($suggest.symkind.TSymKind)
-    result.add(sep)
-    result.add($suggest.line)
-    result.add(sep)
-    result.add($suggest.column)
-    result.add(sep)
-    result.add($suggest.tokenLen)
-  else:
-    result.add($suggest.symkind.TSymKind)
-    result.add(sep)
-    if suggest.qualifiedPath.len != 0:
-      result.add(suggest.qualifiedPath.join("."))
-    result.add(sep)
-    result.add(suggest.forth)
-    result.add(sep)
-    result.add(suggest.filePath)
-    result.add(sep)
-    result.add($suggest.line)
-    result.add(sep)
-    result.add($suggest.column)
-    result.add(sep)
-    when defined(nimsuggest) and not defined(noDocgen) and not defined(leanCompiler):
-      result.add(suggest.doc.escape)
-    result.add(sep)
-    result.add($suggest.quality)
-    if suggest.section == ideSug:
-      result.add(sep)
-      result.add($suggest.prefix)
+template symToSuggestGlobal(g: ModuleGraph; s: PSym, section: IdeCmd,
+                            info: TLineInfo;
+                            useSuppliedInfo = false): Suggest =
+  symToSuggest(g, s, isLocal = false, section, info, 100,
+               PrefixMatch.None, inTypeContext = false, 0, useSuppliedInfo)
 
 proc suggestResult(conf: ConfigRef; s: Suggest) =
   if not isNil(conf.suggestionResultHook):
@@ -490,7 +461,9 @@ proc executeCmd*(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
       dirtyfile.isEmpty:
     discard "no need to recompile anything"
   else:
-    let modIdx = graph.parentModule(dirtyIdx)
+    var modIdx = graph.parentModule(dirtyIdx)
+    if modIdx == InvalidFileIdx:
+      modIdx = dirtyIdx
     graph.markDirty dirtyIdx
     graph.markClientsDirty dirtyIdx
     # partially recompiling the project means that that VM and JIT state
@@ -513,12 +486,12 @@ when defined(nimsuggest):
   proc listUsages*(g: ModuleGraph; s: PSym) =
     for info in s.allUsages:
       let x = if info == s.info: ideDef else: ideUse
-      suggestResult(g.config, symToSuggest(g, s, isLocal=false, x, info, 100, PrefixMatch.None, false, 0))
+      suggestResult(g.config, symToSuggestGlobal(g, s, x, info))
 
 proc findDefinition(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym) =
   if s.isNil: return
   if isTracked(info, g.config.m.trackPos, s.name.s.len) or (s == usageSym and sfForward notin s.flags):
-    suggestResult(g.config, symToSuggest(g, s, isLocal=false, ideDef, info, 100, PrefixMatch.None, false, 0, useSuppliedInfo = s == usageSym))
+    suggestResult(g.config, symToSuggestGlobal(g, s, ideDef, info, s == usageSym))
     if sfForward notin s.flags:
       suggestQuit()
     else:
@@ -535,26 +508,20 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
       else:
         s.addNoDup(info)
 
-    if conf.ideCmd == ideDef:
+    case conf.ideCmd
+    of ideDef:
       findDefinition(g, info, s, usageSym)
-    elif conf.ideCmd == ideDus and s != nil:
-      if isTracked(info, conf.m.trackPos, s.name.s.len):
-        suggestResult(conf, symToSuggest(g, s, isLocal=false, ideDef, info, 100, PrefixMatch.None, false, 0))
-    elif conf.ideCmd == ideHighlight and info.fileIndex == conf.m.trackPos.fileIndex:
-      suggestResult(conf, symToSuggest(g, s, isLocal=false, ideHighlight, info, 100, PrefixMatch.None, false, 0))
-    elif conf.ideCmd == ideOutline and isDecl:
-      # if a module is included then the info we have is inside the include and
-      # we need to walk up the owners until we find the outer most module,
-      # which will be the last skModule prior to an skPackage.
-      var
-        parentFileIndex = info.fileIndex # assume we're in the correct module
-        parentModule = s.owner
-      while parentModule != nil and parentModule.kind == skModule:
-        parentFileIndex = parentModule.info.fileIndex
-        parentModule = parentModule.owner
-
-      if parentFileIndex == conf.m.trackPos.fileIndex:
-        suggestResult(conf, symToSuggest(g, s, isLocal=false, ideOutline, info, 100, PrefixMatch.None, false, 0))
+    of ideDus:
+      if s != nil and isTracked(info, conf.m.trackPos, s.name.s.len):
+        suggestResult(conf, symToSuggestGlobal(g, s,  ideDef, info))
+    of ideHighlight:
+      if info.fileIndex == conf.m.trackPos.fileIndex:
+        suggestResult(conf, symToSuggestGlobal(g, s, ideHighlight, info))
+    of ideOutline:
+      if isDecl and info.fileIndex == conf.m.trackPos.fileIndex:
+        suggestResult(conf, symToSuggestGlobal(g, s, ideOutline, info))
+    else:
+      discard
 
 proc safeSemExpr*(c: PContext, n: PNode): PNode =
   # use only for idetools support!

@@ -35,11 +35,6 @@ from compiler/ast/reports_sem import reportStr,
   reportSymbols,
   reportTyp
 
-# TODO: at least use internalAssert/Error better still have its own data type
-#       for diag/event/telemetry
-from compiler/ast/reports_internal import InternalReport
-# from compiler/ast/report_enums import ReportKind
-
 export createMagic
 
 proc nilOrSysInt*(g: ModuleGraph): PType = g.sysTypes[tyInt]
@@ -102,19 +97,14 @@ proc getSysType*(g: ModuleGraph; info: TLineInfo; kind: TTypeKind): PType =
     of tyPointer: result = sysTypeFromName("pointer")
     of tyNil: result = newSysType(g, tyNil, g.config.target.ptrSize)
     else:
-      g.config.localReport InternalReport(
-        kind: rintUnreachable, msg: "request for typekind: " & $kind)
+      g.config.internalError("request for typekind: " & $kind)
     g.sysTypes[kind] = result
   if result.kind != kind:
     if kind == tyFloat64 and result.kind == tyFloat: discard # because of aliasing
     else:
-      g.config.localReport InternalReport(
-        kind: rintUnreachable,
-        msg: "wanted: " & $kind & " got: " & $result.kind)
+      g.config.internalError("wanted: " & $kind & " got: " & $result.kind)
   if result == nil:
-    g.config.localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "type not found: " & $kind)
+    g.config.internalError("type not found: " & $kind)
 
 proc resetSysTypes*(g: ModuleGraph) =
   g.systemModule = nil

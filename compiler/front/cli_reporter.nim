@@ -275,10 +275,8 @@ proc argTypeToString(arg: PNode; prefer: TPreferedDesc): string =
     for i in 1 ..< arg.len:
       result.add(" | ")
       result.add typeToString(arg[i].typ, prefer)
-
   elif arg.typ == nil:
     result = "void"
-
   else:
     result = arg.typ.typeToString(prefer)
 
@@ -288,17 +286,17 @@ proc describeArgs(conf: ConfigRef, args: seq[PNode]; prefer = preferName): strin
     if arg.kind == nkExprEqExpr:
       result.add renderTree(arg[0])
       result.add ": "
-      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
-        assert false, (
+      if arg.typ.isNil and arg[1].kind notin {nkStmtList, nkDo}:
+        assert false, ($arg.id.int & " " & $arg.kind & " " &
           "call `semcall.maybeResemArgs` on report construciton site - " &
             "this is a temporary hack that is necessary to actually provide " &
             "proper types for error reports.")
-
     else:
-      if arg.typ.isNil and arg.kind notin {
-           nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch
-      }:
-        assert false, "call `semcall.maybeResemArgs` on report construction site"
+      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo, nkElse,
+                                           nkOfBranch, nkElifBranch,
+                                           nkExceptBranch}:
+        assert false, ($arg.id.int & " " & $arg.kind & " " &
+                  " call `semcall.maybeResemArgs` on report construction site")
 
     if arg.typ != nil and arg.typ.kind == tyError:
       return
@@ -1502,6 +1500,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemSuspiciousEnumConv:
       result = "suspicious code: enum to enum conversion"
 
+    of rsemSuspiciousContainsConv:
+      result = "suspicious code: element value in `in` or `contains` " &
+               "call requires implicit conversion. This could result in run-" &
+               "time range defects"
+
     of rsemStringOrIdentNodeExpected:
       result = "string or ident node expected"
 
@@ -2631,15 +2634,6 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
 
     of rintCannotOpenFile, rintWarnCannotOpenFile:
       result = "cannot open file: $1" % r.file
-
-    of rintUnknown:
-      result = "unknown"
-
-    of rintFatal:
-      result = "fatal"
-
-    of rintIce:
-      result = r.msg
 
     of rintNotUsingNimcore:
       result = "Nim tooling must be built using -d:nimcore"
@@ -3990,17 +3984,8 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## `reportBody` for report, which then calls respective (for each report
   ## category) `reportBody` overloads defined above
   assertKind r
-  let wkind = conf.writabilityKind(r)
-  # debug reports can be both enabled and force enabled. So adding a case here
-  # is not really useful, since report writability kind does not necessarily
-  # dictate how it is written, just whether it can/must/cannot be written.
-  # xxx: the above convoluted comment brought to you by _glaring_ design flaws!
-  if wkind == writeDisabled:
-    return
-  else:
-    if wkind == writeForceEnabled:
-      echo conf.reportFull(r)
-    elif r.kind == rsemProcessing and conf.hintProcessingDots:
+  if true:
+    if r.kind == rsemProcessing and conf.hintProcessingDots:
       # xxx: the report hook is handling processing dots output, why? this whole
       #      infrastructure is overwrought. seriously, they're not hints, they're
       #      progress indicators.

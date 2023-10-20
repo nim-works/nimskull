@@ -41,7 +41,7 @@ proc reportObservableStore(p: BProc; le, ri: CgNode) =
         # it through a procedure that eventually raises is also an observable
         # store
         return inTryStmt and sfUsedInFinallyOrExcept in p.body[n.local].flags
-      of cnkFieldAccess, cnkBracketAccess, cnkCheckedFieldAccess:
+      of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess:
         n = n[0]
       of cnkObjUpConv, cnkObjDownConv, cnkHiddenConv, cnkConv:
         n = n.operand

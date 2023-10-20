@@ -2026,6 +2026,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
                  heap: addr c.heap,
                  graph: c.graph,
                  config: c.config,
+                 currentModule: c.module,
                  cache: c.cache,
                  idgen: c.idgen))
       of ckDefault:
@@ -2624,12 +2625,6 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       else:
         raiseVmError(VmEvent(
           kind: vmEvtNodeNotASymbol, ast: regs[rb].nimNode))
-
-    of opcSlurp:
-      decodeB(akString)
-      checkHandle(regs[rb])
-      regs[ra].strVal = opSlurp($regs[rb].strVal, c.debug[pc],
-                                     c.module, c.config)
 
     of opcParseExprToAst, opcParseStmtToAst:
       decodeBC(rkNimNode)

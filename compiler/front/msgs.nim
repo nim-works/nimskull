@@ -609,7 +609,6 @@ proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
 
 proc fillReportAndHandleVmTrace(c: ConfigRef, r: var Report,
                                 reportFrom: InstantiationInfo) =
-  r.reportFrom = toReportLineInfo(reportFrom)
   if r.category in { repSem, repVM } and r.location.isSome():
     r.context = c.getContext(r.location.get())
 
@@ -621,13 +620,38 @@ proc handleReport*(
     r: Report,
     reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing) {.noinline.} =
-  ## Prepares the report `r` and passes it to the active report hook.
+  ## Takes the report `r` and handles it. If the report is "enabled" according
+  ## to the active configuration, it is passed to the active report hook and,
+  ## if the report corresponds to an error, error handling is performed.
   ## `eh` is currently only a suggestion, and it is sometimes ignored depending
   ## on the currently active configuration.
   var rep = r
-  fillReportAndHandleVmTrace(conf, rep, reportFrom)
+  rep.reportFrom = toReportLineInfo(reportFrom)
 
-  let userAction = conf.report(rep)
+  if not conf.isEnabled(rep):
+    # the report is disabled -> neither invoke the report hook nor perform
+    # error handling
+    return
+
+  var userAction = doNothing
+  case writabilityKind(conf, rep)
+  of writeDisabled:
+    discard "don't invoke the hook"
+  of writeEnabled:
+    # go through the report hook
+    fillReportAndHandleVmTrace(conf, rep, reportFrom)
+    userAction = conf.report(rep)
+  of writeForceEnabled:
+    # also go through the report hook, but temporarily override ``writeln``
+    # with something that always echoes something
+    fillReportAndHandleVmTrace(conf, rep, reportFrom)
+    let oldHook = conf.writelnHook
+    conf.writelnHook = proc (conf: ConfigRef, msg: string, flags: MsgFlags) =
+      echo msg
+
+    userAction = conf.report(rep)
+    conf.writelnHook = oldHook
+
   # ``errorActions`` also increments the error counter, so make sure to always
   # call it
   var (action, trace) = errorActions(conf, rep, eh)
@@ -703,27 +727,9 @@ template localReport*(conf: ConfigRef, report: Report) =
 
 # xxx: `internalError` and `internalAssert` in conjunction with `handleReport`,
 #      and the whole concept of "reports" indicating error handling action at a
-#      callsite, is *terrible*. Since neither will necessarily raise/end
-#      execution of the current routine, which may lead to NPEs and the like.
-
-template internalError*(
-    conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
-  conf.handleReport(
-    wrap(InternalReport(kind: repKind, msg: fail), instLoc()),
-    instLoc(),
-    doAbort)
-
-template internalError*(
-    conf: ConfigRef, info: TLineInfo,
-    repKind: InternalReportKind, fail: string): untyped =
-  ## Causes an internal error; but does not necessarily raise/end the currently
-  ## executing routine.
-  conf.handleReport(
-    wrap(InternalReport(kind: repKind, msg: fail), instLoc(), info),
-    instLoc(),
-    doAbort)
+#      callsite, is *terrible*. While it will result in the compiler exiting,
+#      it is currently implemented very indirectly, through
+#      ``isCompilerFatal``.
 
 proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
                             instLoc: InstantiationInfo) {.noreturn, inline.} =
