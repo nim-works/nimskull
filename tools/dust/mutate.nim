@@ -23,7 +23,7 @@ proc rebuild*(n: PNode; fn: Transformer): PNode =
   result = fn(n)
   if cast[uint](result) == cast[uint](n):
     result = shallowCopy n
-    if n.kind notin unsunny:
+    if n.kind in nkWithSons:
       result.sons.setLen 0
       for child in items(n):
         let rebuilt = rebuild(child, fn)

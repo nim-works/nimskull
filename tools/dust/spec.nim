@@ -7,12 +7,6 @@ import
 
 import hashing
 
-const
-  unsunny* = {nkCharLit..nkUInt64Lit} +
-             {nkFloatLit..nkFloat128Lit} +
-             {nkStrLit..nkTripleStrLit} +
-             {nkSym, nkIdent}
-
 type
   Attempt = object
     node: PNode
@@ -38,7 +32,7 @@ proc pop*(remains: var Remains): PNode =
 proc size*(n: PNode): int =
   assert not n.isNil
   result = 1
-  if n.kind notin unsunny:
+  if n.kind in nkWithSons:
     for child in items(n.sons):
       inc result, size(child)
 
