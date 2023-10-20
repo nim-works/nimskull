@@ -500,9 +500,6 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
         hasError = true
         break
 
-  if initResult == initFull:
-    incl result.flags, nfAllFieldsSet
-
   # wrap in an error see #17437
   if hasError:
     result = wrapError(c.config, result)

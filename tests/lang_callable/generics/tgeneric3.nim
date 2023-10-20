@@ -15,7 +15,7 @@ import std/strutils
 
 type
   PNode[T,D] = ref TNode[T,D]
-  TItem[T,D] {.acyclic, pure, final, shallow.} = object
+  TItem[T,D] {.acyclic, pure, final.} = object
         key: T
         value: D
         node: PNode[T,D]
@@ -23,7 +23,7 @@ type
           val_set: bool
 
   TItems[T,D] = seq[ref TItem[T,D]]
-  TNode[T,D] {.acyclic, pure, final, shallow.} = object
+  TNode[T,D] {.acyclic, pure, final.} = object
         slots: TItems[T,D]
         left: PNode[T,D]
         count: int32
