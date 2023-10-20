@@ -77,6 +77,7 @@ proc sameTree*(a, b: PNode): bool =
     of nkCharLit..nkUInt64Lit: result = a.intVal == b.intVal
     of nkFloatLit..nkFloat64Lit: result = sameFloatIgnoreNan(a.floatVal, b.floatVal)
     of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
+    of nkCommentStmt: result = a.comment == b.comment
     of nkEmpty, nkNilLit, nkType: result = true
     else:
       if a.len == b.len:
