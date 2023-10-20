@@ -457,9 +457,6 @@ proc executeCmd*(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
   conf.errorCounter = 0
   if not isKnownFile:
     graph.compileProject(dirtyIdx)
-  if conf.ideCmd in {ideUse, ideDus} and
-      dirtyfile.isEmpty:
-    discard "no need to recompile anything"
   else:
     var modIdx = graph.parentModule(dirtyIdx)
     if modIdx == InvalidFileIdx:
