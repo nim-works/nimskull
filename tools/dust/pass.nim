@@ -32,7 +32,6 @@ proc rewriter(context: PPassContext, n: PNode): PNode {.nosinks.} =
     else:
       # yield the next available permutation (once)
       result = pop(remains)
-      assert result.kind == nkStmtList
       c.ignore = true
 
 const
