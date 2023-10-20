@@ -1,5 +1,4 @@
 import
-  compiler / modules / modulegraphs,
   compiler / ast / [ lineinfos, renderer, ast, astalgo, ]
 
 import spec
