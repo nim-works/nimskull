@@ -297,7 +297,6 @@ proc mapTypeToAstX(cache: IdentCache; t: PType; info: TLineInfo;
   of tyFloat: result = atomicType("float", mFloat)
   of tyFloat32: result = atomicType("float32", mFloat32)
   of tyFloat64: result = atomicType("float64", mFloat64)
-  of tyFloat128: result = atomicType("float128", mFloat128)
   of tyUInt: result = atomicType("uint", mUInt)
   of tyUInt8: result = atomicType("uint8", mUInt8)
   of tyUInt16: result = atomicType("uint16", mUInt16)

@@ -475,7 +475,7 @@ proc nodeToHighlightedHtml(d: PDoc; n: PNode; result: var string;
     of tkIntLit..tkUInt64Lit:
       dispA(d.conf, result, "<span class=\"DecNumber\">$1</span>",
             "\\spanDecNumber{$1}", [escLit])
-    of tkFloatLit..tkFloat128Lit:
+    of tkFloatLit..tkFloat64Lit:
       dispA(d.conf, result, "<span class=\"FloatNumber\">$1</span>",
             "\\spanFloatNumber{$1}", [escLit])
     of tkSymbol:

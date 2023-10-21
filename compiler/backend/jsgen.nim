@@ -229,7 +229,7 @@ proc mapType(typ: PType; indirect = false): TJSTypeKind =
     result = mapType(t[0], indirect)
   of tyInt..tyInt64, tyUInt..tyUInt64, tyChar: result = etyInt
   of tyBool: result = etyBool
-  of tyFloat..tyFloat128: result = etyFloat
+  of tyFloat..tyFloat64: result = etyFloat
   of tySet: result = etyObject # map a set to a table
   of tyString, tySequence: result = etySeq
   of tyObject, tyArray, tyTuple, tyOpenArray, tyVarargs, tyUncheckedArray:
@@ -1548,7 +1548,7 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
       result = putToSeq("0n", indirect)
     else:
       result = putToSeq("0", indirect)
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     result = putToSeq("0.0", indirect)
   of tyRange, tyGenericInst, tyAlias, tySink, tyLent:
     result = createVar(p, lastSon(typ), indirect)
@@ -1809,7 +1809,7 @@ proc genRepr(p: PProc, n: CgNode, r: var TCompRes) =
     genReprAux(p, n, r, "reprChar")
   of tyBool:
     genReprAux(p, n, r, "reprBool")
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     genReprAux(p, n, r, "reprFloat")
   of tyString:
     genReprAux(p, n, r, "reprStr")

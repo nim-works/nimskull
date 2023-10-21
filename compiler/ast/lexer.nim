@@ -77,7 +77,7 @@ type
     tkUIntLit = "tkUIntLit", tkUInt8Lit = "tkUInt8Lit", tkUInt16Lit = "tkUInt16Lit",
     tkUInt32Lit = "tkUInt32Lit", tkUInt64Lit = "tkUInt64Lit",
     tkFloatLit = "tkFloatLit", tkFloat32Lit = "tkFloat32Lit",
-    tkFloat64Lit = "tkFloat64Lit", tkFloat128Lit = "tkFloat128Lit",
+    tkFloat64Lit = "tkFloat64Lit",
     tkStrLit = "tkStrLit", tkRStrLit = "tkRStrLit", tkTripleStrLit = "tkTripleStrLit",
     tkGStrLit = "tkGStrLit", tkGTripleStrLit = "tkGTripleStrLit", tkCharLit = "tkCharLit",
     tkCustomLit = "tkCustomLit",
@@ -516,7 +516,7 @@ proc getNumber(L: var Lexer, result: var Token) =
   const
     baseCodeChars = {'X', 'x', 'o', 'b', 'B'}
     literalishChars = baseCodeChars + {'A'..'F', 'a'..'f', '0'..'9', '_', '\''}
-    floatTypes = {tkFloatLit, tkFloat32Lit, tkFloat64Lit, tkFloat128Lit}
+    floatTypes = {tkFloatLit, tkFloat32Lit, tkFloat64Lit}
   result.tokType = tkIntLit   # int literal until we know better
   result.literal = ""
   result.base = base10
@@ -586,7 +586,6 @@ proc getNumber(L: var Lexer, result: var Token) =
       case suffixAsLower
       of "f", "f32": result.tokType = tkFloat32Lit
       of "d", "f64": result.tokType = tkFloat64Lit
-      of "f128": result.tokType = tkFloat128Lit
       of "i8": result.tokType = tkInt8Lit
       of "i16": result.tokType = tkInt16Lit
       of "i32": result.tokType = tkInt32Lit

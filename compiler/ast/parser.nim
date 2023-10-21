@@ -764,7 +764,6 @@ proc identOrLiteral(p: var Parser, mode: PrimaryMode): ParsedNode =
   of tkFloatLit:     result = p.newLitNode(pnkFloatLit,     p.tok); p.getTok
   of tkFloat32Lit:   result = p.newLitNode(pnkFloat32Lit,   p.tok); p.getTok
   of tkFloat64Lit:   result = p.newLitNode(pnkFloat64Lit,   p.tok); p.getTok
-  of tkFloat128Lit:  result = p.newLitNode(pnkFloat128Lit,  p.tok); p.getTok
   of tkStrLit:       result = p.newLitNode(pnkStrLit,       p.tok); p.getTok
   of tkRStrLit:      result = p.newLitNode(pnkRStrLit,      p.tok); p.getTok
   of tkTripleStrLit: result = p.newLitNode(pnkTripleStrLit, p.tok); p.getTok

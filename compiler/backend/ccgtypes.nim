@@ -220,7 +220,7 @@ proc getSimpleTypeDesc(m: BModule, typ: PType): Rope =
   const
     NumericalTypeToStr: array[tyInt..tyUInt64, string] = [
       "NI", "NI8", "NI16", "NI32", "NI64",
-      "NF", "NF32", "NF64", "NF128",
+      "NF", "NF32", "NF64",
       "NU", "NU8", "NU16", "NU32", "NU64"]
   case typ.kind
   of tyPointer:

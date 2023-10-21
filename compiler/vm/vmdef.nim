@@ -485,9 +485,9 @@ type
       ## size and alignment information for atoms where this information is
       ## the same for every instance
 
-    # XXX: if `tyBool..tyFloat128` would only include all numeric types (plus
+    # XXX: if `tyBool..tyFloat64` would only include all numeric types (plus
     #      bool and char), we could use the `numericTypes` below instead
-    #numericTypes*: array[tyBool..tyFloat128, PVmType] ## A lookup table for all numeric types (ints/float)
+    #numericTypes*: array[tyBool..tyFloat64, PVmType] ## A lookup table for all numeric types (ints/float)
     boolType*: PVmType
     charType*: PVmType
     stringType*: PVmType
@@ -495,7 +495,6 @@ type
     nodeType*: PVmType
     emptyType*: PVmType
 
-    # TODO: merge these arrays into one. Handle `tyFloat128` somehow
     intTypes*: array[tyInt..tyInt64, PVmType]
     uintTypes*: array[tyUInt..tyUInt64, PVmType]
     floatTypes*: array[tyFloat..tyFloat64, PVmType]

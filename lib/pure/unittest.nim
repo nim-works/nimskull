@@ -668,7 +668,7 @@ proc untype(arg: NimNode): NimNode =
   of nnkCharLit..nnkUInt64Lit:
     result = newNimNode(arg.kind, arg)
     result.intVal = arg.intVal
-  of nnkFloatLit..nnkFloat128Lit:
+  of nnkFloatLit..nnkFloat64Lit:
     result = newNimNode(arg.kind, arg)
     result.floatVal = arg.floatVal
   of nnkStrLit..nnkTripleStrLit:

@@ -118,7 +118,7 @@ proc sexp*(node: PNode): SexpNode =
   case node.kind
   of nkNone, nkEmpty, nkType, nkCommentStmt: discard
   of nkCharLit..nkUInt64Lit:    result.add sexp(node.intVal)
-  of nkFloatLit..nkFloat128Lit: result.add sexp(node.floatVal)
+  of nkFloatLit..nkFloat64Lit:  result.add sexp(node.floatVal)
   of nkStrLit..nkTripleStrLit:  result.add sexp(node.strVal)
   of nkSym:                     result.add newSSymbol(node.sym.name.s)
   of nkIdent:                   result.add newSSymbol(node.ident.s)
