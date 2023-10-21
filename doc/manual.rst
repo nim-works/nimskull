@@ -5071,7 +5071,7 @@ Type classes
 
 A type class is a special pseudo-type that can be used to match against
 types in the context of overload resolution or the `is` operator.
-Nim supports the following built-in type classes:
+|NimSkull| supports the following built-in type classes:
 
 ==================   ===================================================
 type class           matches
@@ -5084,10 +5084,16 @@ type class           matches
 `ref`                any `ref` type
 `ptr`                any `ptr` type
 `var`                any `var` type
+`lent`               any `lent` type
 `distinct`           any distinct type
+`range`              any `range` type
+`Ordinal`            any ordinal type (including `distinct` ordinal types)
 `array`              any array type
 `set`                any set type
 `seq`                any seq type
+`openArray`          any type *matching* an `openArray`
+`varargs`            any type *matching* a `varargs`
+`UncheckedArray`     any `UncheckedArray` type
 `auto`               any type
 ==================   ===================================================
 
