@@ -67,6 +67,10 @@ proc liftTypeClass(c: PContext, typ: PType, prev: PType,
       # add the generic type, but don't propagate the flags
       result.sons = @[typ]
 
+  of tySink:
+    if isMagic:
+      localReport(c.config, info, SemReport(kind: rsemSinkIsNotATypeClass))
+      result = newOrPrevType(tyError, prev, c)
   else:
     discard
 
