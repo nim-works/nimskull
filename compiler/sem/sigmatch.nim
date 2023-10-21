@@ -1211,9 +1211,6 @@ typeRel can be used to establish various relationships between types:
       base = tryResolvingStaticExpr(c, base.n).typ.skipTypes({tyStatic})
 
     if a.kind == f.kind:
-      if f.base.kind == tyNone:
-        return isGeneric
-
       result = typeRel(c, base, base(a), flags)
       # bugfix: accept integer conversions here
       #if result < isGeneric: result = isNone
@@ -1381,10 +1378,8 @@ typeRel can be used to establish various relationships between types:
           a[0]
         else:
           a
-      
-      if f[0].kind == tyNone:
-        result = isGeneric
-      else:
+
+      if true:
         result = typeRel(c, f[0], x, flags)
         if result < isGeneric:
           result = isNone
@@ -1733,15 +1728,30 @@ typeRel can be used to establish various relationships between types:
         effectiveArgType = a.skipTypes({tyRange, tyGenericInst,
                                         tyBuiltInTypeClass, tyAlias,
                                         tySink})
-        typeClassMatches = targetKind == effectiveArgType.kind and
-                             not effectiveArgType.isEmptyContainer
-      if typeClassMatches or
-        (targetKind in {tyProc, tyPointer} and effectiveArgType.kind == tyNil):
-        if doBind:
-          put(c, f, a)
-        return isGeneric
+
+      if targetKind == effectiveArgType.kind and
+         not effectiveArgType.isEmptyContainer:
+        # same type kind -> match
+        result = isGeneric
       else:
-        return isNone
+        case targetKind
+        of tyOrdinal, tyOpenArray, tyVarargs:
+          # these type classes of these act the same as if using, for example,
+          # ``openArray[T]``. The generic type is already stored as the base
+          # type -- but don't bind anything
+          result = typeRel(c, f.base, a, {trDontBind})
+        of tyRange:
+          if a.kind == tyRange:
+            result = isGeneric
+        of tyProc, tyPointer:
+          # XXX: ^^ this should also include non-nil refs and ptrs
+          if effectiveArgType.kind == tyNil:
+            result = isGeneric
+        else:
+          discard "no match"
+
+      if result != isNone and doBind:
+        put(c, f, a)
 
   of tyUserTypeClassInst, tyUserTypeClass:
     if f.isResolvedUserTypeClass:
