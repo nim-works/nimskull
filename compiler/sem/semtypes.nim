@@ -47,6 +47,29 @@ proc reportMeta(c: PContext; info: TLineInfo; t: PType) =
   else:
     checkMeta(c, info, t)
 
+proc liftTypeClass(c: PContext, typ: PType, prev: PType,
+                   info: TLineInfo): PType =
+  ## Lifts a type class type from "bare" symbols of built-in types. If there's
+  ## nothing to lift returns the `typ`. `prev` is the type to re-use -- it may
+  ## be `nil`.
+  result = typ
+
+  let isMagic = typ.sym != nil and typ.sym.magic != mNone
+
+  case result.kind
+  of tyOrdinal, tyRange, tySequence, tySet, tyArray, tyLent, tyOpenArray,
+     tyVarargs, tyUncheckedArray:
+    if isMagic:
+      # this is the "raw", uninstantiated magic type -> it's
+      # a built-in type class
+      result = newOrPrevType(tyBuiltInTypeClass, prev, c)
+      result.flags.incl tfCheckedForDestructor
+      # add the generic type, but don't propagate the flags
+      result.sons = @[typ]
+
+  else:
+    discard
+
 proc semEnum(c: PContext, n: PNode, prev: PType): PType =
   if n.len == 0: return newConstraint(c, tyEnum)
   elif n.len == 1:
@@ -2256,12 +2279,16 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
       c.config.internalAssert s.typ.base.kind != tyNone and prev == nil
       result = s.typ.base
     elif prev == nil:
-      result = s.typ
+      result = liftTypeClass(c, s.typ, nil, n.info)
     else:
-      let alias = maybeAliasType(c, s.typ, prev)
-      if alias != nil:
-        result = alias
+      let lifted = liftTypeClass(c, s.typ, prev, n.info)
+      if lifted != s.typ:
+        result = lifted
       else:
+        let alias = maybeAliasType(c, s.typ, prev)
+        if alias != nil:
+          return alias
+
         assignType(prev, s.typ)
         # bugfix: keep the fresh id for aliases to integral types:
         if s.typ.kind notin {tyBool, tyChar, tyInt..tyInt64, tyFloat..tyFloat128,
@@ -2277,14 +2304,20 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
         else:
           c.config.internalAssert s.typ.base.kind != tyNone and prev == nil
           s.typ.base
-      let alias = maybeAliasType(c, t, prev)
-      if alias != nil:
-        result = alias
+
+      let lifted = liftTypeClass(c, t, prev, n.info)
+      if lifted != t:
+        result = lifted
       elif prev == nil:
         result = t
       else:
-        assignType(prev, t)
-        result = prev
+        let alias = maybeAliasType(c, t, prev)
+        if alias != nil:
+          result = alias
+        else:
+          assignType(prev, t)
+          result = prev
+
       markUsed(c, n.info, n.sym)
     else:
       if s.kind != skError:

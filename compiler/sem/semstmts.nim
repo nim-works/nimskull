@@ -1983,9 +1983,9 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       s.typ.n = semGenericParamList(c, a[1], s.typ)
       a[1] = s.typ.n
       s.typ.size = -1 # could not be computed properly
-      # we fill it out later. For magic generics like 'seq', it won't be filled
-      # so we use tyNone instead of nil to not crash for strange conversions
-      # like: mydata.seq
+      # we fill it out later. For magic generics like 'typdesc', it won't be
+      # filled so we use tyNone instead of nil to not crash for expressions like
+      # ``static type``
       rawAddSon(s.typ, newTypeS(tyNone, c))
       s.ast = a
       inc c.inGenericContext
