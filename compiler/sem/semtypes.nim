@@ -2466,7 +2466,6 @@ proc processMagicType(c: PContext, m: PSym) =
     setMagicType(c.config, m, tyVarargs, szUncomputedSize)
   of mRange:
     setMagicIntegral(c.config, m, tyRange, szUncomputedSize)
-    rawAddSon(m.typ, newTypeS(tyNone, c))
   of mSet:
     setMagicIntegral(c.config, m, tySet, szUncomputedSize)
   of mUncheckedArray:
@@ -2482,7 +2481,6 @@ proc processMagicType(c: PContext, m: PSym) =
     c.graph.sysTypes[tySequence] = m.typ
   of mOrdinal:
     setMagicIntegral(c.config, m, tyOrdinal, szUncomputedSize)
-    rawAddSon(m.typ, newTypeS(tyNone, c))
   of mPNimrodNode:
     m.typ.flags.incl {tfTriggersCompileTime, tfCheckedForDestructor}
   of mException: discard
