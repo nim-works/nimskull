@@ -37,19 +37,17 @@ proc test[A, B: proc](a: A, b: B): int = 12
 proc test1[A, B: openArray](a: A, b: B): int = 13
 proc test1[A, B: UncheckedArray](a: ptr A, b: ptr B): int = 14
 
-# XXX: not all built-in type classes work properly at the moment
-
 doAssert test(Distinct1(1), Distinct2(1)) == 1
 doAssert test(a, b) == 2
 doAssert test1(1, 'c') == 3
-doAssert not compiles(test(arr1, arr2))
+doAssert test(arr1, arr2) == 4
 doAssert test((1,), ("",)) == 5
 doAssert test(Object1(), Object2()) == 6
-doAssert not compiles(test({1}, {'2'}))
+doAssert test({1}, {'2'}) == 7
 doAssert test(range[0..1](0), range[3..4](3)) == 8
 doAssert test((ptr int)(nil), (ptr float)(nil)) == 9
 doAssert test((ref int)(nil), (ref float)(nil)) == 10
-doAssert not compiles(test(@[1], @[""])) # == 11
+doAssert test(@[1], @[""]) == 11
 doAssert test((proc(a: int))(nil), (proc(a: float))(nil)) == 12
-doAssert not compiles(test1(arr1, arr2)) # == 13
-doAssert not compiles(test1((ptr UncheckedArray[int])(nil), (ptr UncheckedArray[float])(nil)))
+doAssert test1(arr1, arr2) == 13
+doAssert test1((ptr UncheckedArray[int])(nil), (ptr UncheckedArray[float])(nil)) == 14
