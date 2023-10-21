@@ -3754,6 +3754,14 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       kind: kind,
       ast: diag.wrongNode,
       sym: diag.inaccessible)
+  of adSemObjectRequiresFieldInit:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemObjectRequiresFieldInit,
+      ast: diag.wrongNode,
+      symbols: diag.missing,
+      typ: diag.objTyp)
   of adSemObjectRequiresFieldInitNoDefault:
     semRep = SemReport(
       location: some diag.location,
