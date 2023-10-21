@@ -186,8 +186,10 @@ proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
   var
     a = arg
     x = a.mutableSkipConv
-  if (x.kind == nkCurly and formal.kind == tySet and formal.base.kind != tyGenericParam) or
-    (x.kind in {nkPar, nkTupleConstr}) and formal.kind notin {tyUntyped, tyBuiltInTypeClass}:
+  if x.kind in {nkCurly, nkPar, nkTupleConstr} and
+     formal.kind notin {tyUntyped, tyBuiltInTypeClass}:
+    # XXX: ^^ the test for ``tyBuiltInTypeClass`` is a hack. It can be removed
+    #      once ``fitNode`` is no longer used for meta return types
     x = changeType(c, x, formal, check=true)
 
     if x.isError:
