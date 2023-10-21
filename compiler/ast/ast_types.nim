@@ -566,6 +566,13 @@ const
   tyMetaTypes* = {tyGenericParam, tyTypeDesc, tyUntyped} + tyTypeClasses
   tyUserTypeClasses* = {tyUserTypeClass, tyUserTypeClassInst}
 
+  tyBuiltInTypeClasses* = {tyDistinct, tyEnum, tyOrdinal, tyArray, tyObject,
+                           tyTuple, tySet, tyRange, tyPtr, tyRef, tyVar,
+                           tySequence, tyProc, tyOpenArray, tyLent, tyVarargs,
+                           tyUncheckedArray}
+    ## the type kinds that may appear as the child of a
+    ## ``tyBuiltInTypeClass``
+
   # TODO: Remove tyTypeDesc from each abstractX and (where necessary)
   # replace with typedescX
   abstractInst* = {tyGenericInst, tyDistinct, tyOrdinal, tyTypeDesc, tyAlias,

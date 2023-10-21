@@ -1237,6 +1237,25 @@ template shouldHaveMeta(t) =
   c.config.internalAssert tfHasMeta in t.flags
   # result.lastSon.flags.incl tfHasMeta
 
+proc getTypeIdent(cache: IdentCache, typ: PType): PIdent =
+  ## Returns the identifier for built-in types that may be used as
+  ## type classes.
+  case typ.kind
+  of tyObject:    cache.getIdent($wObject)
+  of tyEnum:      cache.getIdent($wEnum)
+  of tyTuple:     cache.getIdent($wTuple)
+  of tyProc:      cache.getIdent($wProc)
+  of tyDistinct:  cache.getIdent($wDistinct)
+  of tyVar:       cache.getIdent($wVar)
+  of tyPtr:       cache.getIdent($wPtr)
+  of tyRef:       cache.getIdent($wRef)
+  of tySequence, tyOrdinal, tyRange, tySet, tyLent, tyArray, tyOpenArray,
+      tyVarargs, tyUncheckedArray:
+    # these use a symbol, take the identifier from there
+    typ.sym.name
+  of {low(TTypeKind)..high(TTypeKind)} - tyBuiltInTypeClasses:
+    unreachable(typ.kind)
+
 proc addImplicitGeneric(c: PContext; typeClass: PType, typId: PIdent;
                         info: TLineInfo; genericParams: PNode;
                         paramName: string): PType =
@@ -1323,17 +1342,7 @@ proc liftParamType(c: PContext, procKind: TSymKind, genericParams: PNode,
 
   of tySequence, tySet, tyArray, tyOpenArray,
      tyVar, tyLent, tyPtr, tyRef, tyProc:
-    # XXX: this is a bit strange, but proc(s: seq)
-    # produces tySequence(tyGenericParam, tyNone).
-    # This also seems to be true when creating aliases
-    # like: type myseq = distinct seq.
-    # Maybe there is another better place to associate
-    # the seq type class with the seq identifier.
-    if paramType.kind == tySequence and paramType.lastSon.kind == tyNone:
-      let typ = c.newTypeWithSons(tyBuiltInTypeClass,
-                                  @[newTypeS(paramType.kind, c)])
-      result = addImplicitGeneric(c, typ, paramTypId, info, genericParams, paramName)
-    else:
+    if true:
       for i in 0..<paramType.len:
         if paramType[i] == paramType:
           globalReport(c.config, info, reportTyp(rsemIllegalRecursion, paramType))
@@ -1410,6 +1419,11 @@ proc liftParamType(c: PContext, procKind: TSymKind, genericParams: PNode,
 
   of tyUserTypeClasses, tyBuiltInTypeClass, tyCompositeTypeClass,
      tyAnd, tyOr, tyNot:
+    if not anon and paramTypId == nil and paramType.kind == tyBuiltInTypeClass:
+      # for efficiency, built-in type-classes don't use a symbol by
+      # default. We fetch the identifier here.
+      paramTypId = getTypeIdent(c.cache, paramType.base)
+
     result = addImplicitGeneric(c,
         copyType(paramType, nextTypeId c.idgen, getCurrOwner(c)), paramTypId,
         info, genericParams, paramName)
