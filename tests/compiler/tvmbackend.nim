@@ -84,7 +84,7 @@ block:
   let sym = PSym(kind: skProc, magic: mSlice, name: PIdent(s: "slice"),
                  typ: typ,  offset: 1, position: 2)
   let typ2 = PType(kind: tyString, flags: {tfVarargs}, sons: @[typ],
-                   n: PNode(kind: nkStrLit, flags: {nfBase2}, typ: typ),
+                   n: PNode(kind: nkStrLit, flags: {nfAllConst}, typ: typ),
                    sym: sym)
 
   let typeInfo = VmTypeInfo(nimType: typ2, internal: vmTyp2)

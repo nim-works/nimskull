@@ -91,10 +91,7 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
     # in the AST that would confuse it (bug #9432), but only if we are not in a
     # "declarative" context (bug #9235).
     if c.isDeclarative:
-      var res = copyNode(c, templ, actual)
-      for i in 0..<templ.len:
-        evalTemplateAux(templ[i], actual, c, res)
-      result.add res
+      result.add copyNode(c, templ, actual)
     else:
       result.add newNodeI(nkEmpty, templ.info)
   of nkError:

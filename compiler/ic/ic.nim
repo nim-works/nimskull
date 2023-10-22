@@ -446,7 +446,7 @@ proc toPackedNode*(n: PNode; ir: var PackedTree; c: var PackedEncoder; m: var Pa
     return
   let info = toPackedInfo(n.info, c, m)
   case n.kind
-  of nkNone, nkEmpty, nkNilLit, nkType:
+  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt:
     ir.nodes.add PackedNode(kind: n.kind, flags: n.flags, operand: 0,
                             typeId: storeTypeLater(n.typ, c, m), info: info)
   of nkIdent:

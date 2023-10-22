@@ -483,14 +483,6 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   var hasError = constructionError or missedFields
     ## needed to split error detect/report for better msgs
 
-  # It's possible that the object was not fully initialized while
-  # specifying a .requiresInit. pragma:
-  if missedFields:
-    localReport(c.config, result.info, reportSymbols(
-      rsemObjectRequiresFieldInit,
-      constrCtx.missingFields,
-      typ = t))
-
   if not hasError:
     # we're not tracking the error nodes and thus have to look for
     # them here
@@ -500,9 +492,13 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
         hasError = true
         break
 
-  if initResult == initFull:
-    incl result.flags, nfAllFieldsSet
-
-  # wrap in an error see #17437
-  if hasError:
+  # It's possible that the object was not fully initialized while
+  # specifying a .requiresInit. pragma:
+  if missedFields:
+    result = newError(c.config, result):
+      PAstDiag(kind: adSemObjectRequiresFieldInit,
+               missing: constrCtx.missingFields,
+               objTyp: t)
+  elif hasError:
+    # wrap in an error see #17437
     result = wrapError(c.config, result)

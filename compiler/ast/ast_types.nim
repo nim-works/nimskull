@@ -1,4 +1,4 @@
-import compiler/ast/lineinfos
+import compiler/ast/[lineinfos, numericbase]
 import std/[hashes]
 
 from compiler/ast/idents import PIdent, TIdent
@@ -256,7 +256,8 @@ const
     {nkFloatLit..nkFloat128Lit} +
     {nkStrLit..nkTripleStrLit} +
     {nkNilLit} +
-    {nkError}
+    {nkError} +
+    {nkCommentStmt}
 
   nkWithSons* = {low(TNodeKind) .. high(TNodeKind)} - nkWithoutSons
 
@@ -590,10 +591,6 @@ type
   TTypeKinds* = set[TTypeKind]
 
   TNodeFlag* = enum
-    nfNone,
-    nfBase2,    ## nfBase10 is default, so not needed
-    nfBase8,
-    nfBase16,
     nfAllConst, ## used to mark complex expressions constant; easy to get rid of
                 ## but unfortunately it has measurable impact for compilation
                 ## efficiency
@@ -605,7 +602,7 @@ type
     nfDotSetter ## the call can use a setter dot operarator
     nfExplicitCall ## `x.y()` was used instead of x.y
     nfFromTemplate ## a top-level node returned from a template
-    nfDefaultParam ## an automatically inserter default parameter
+    nfDefaultParam ## an automatically inserted default parameter
     nfDefaultRefsParam ## a default param value references another parameter
                        ## the flag is applied to proc default values and to calls
     nfHasComment ## node has a comment
@@ -618,7 +615,6 @@ type
     tfFinal,          ## is the object final?
     tfInheritable,    ## is the object inheritable?
     tfEnumHasHoles,   ## enum cannot be mapped into a range
-    tfShallow,        ## type can be shallow copied on assignment
     tfThread,         ## proc type is marked as ``thread``; alias for ``gcsafe``
     tfFromGeneric,    ## type is an instantiation of a generic; this is needed
                       ## because for instantiations of objects, structural
@@ -1214,6 +1210,7 @@ type
     # semobjconstr
     adSemFieldAssignmentInvalid
     adSemFieldNotAccessible
+    adSemObjectRequiresFieldInit
     adSemObjectRequiresFieldInitNoDefault
     adSemExpectedObjectType
     adSemExpectedObjectOfType
@@ -1487,7 +1484,8 @@ type
       wrongFldInfo*: TLineInfo
     of adSemFieldNotAccessible:
       inaccessible*: PSym
-    of adSemObjectRequiresFieldInitNoDefault:
+    of adSemObjectRequiresFieldInit,
+       adSemObjectRequiresFieldInitNoDefault:
       missing*: seq[PSym]
       objTyp*: PType
     of adSemDistinctDoesNotHaveDefaultValue:
@@ -1541,15 +1539,19 @@ type
     case kind*: TNodeKind
     of nkCharLit..nkUInt64Lit:
       intVal*: BiggestInt
+      intLitBase*: NumericalBase
     of nkFloatLit..nkFloat128Lit:
       floatVal*: BiggestFloat
+      floatLitBase*: NumericalBase
+        # Once case branches can share fields this can be unified with
+        # intLitBase above
     of nkStrLit..nkTripleStrLit:
       strVal*: string
     of nkSym:
       sym*: PSym
     of nkIdent:
       ident*: PIdent
-    of nkEmpty, nkNone, nkType, nkNilLit:
+    of nkEmpty, nkNone, nkType, nkNilLit, nkCommentStmt:
       discard
     of nkError:
       diag*: PAstDiag

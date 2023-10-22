@@ -32,7 +32,7 @@ exprList = expr ^+ comma
 exprColonEqExprList = exprColonEqExpr (comma exprColonEqExpr)* (comma)?
 qualifiedIdent = symbol ('.' optInd symbol)?
 setOrTableConstr = '{' ((exprColonEqExpr comma)* | ':' ) '}'
-castExpr = 'cast' ('[' optInd typeDesc optPar ']' '(' optInd expr optPar ')') /
+castExpr = 'cast' (('['|'[:') optInd typeDesc optPar ']' '(' optInd expr optPar ')') /
 parKeyw = 'discard' | 'include' | 'if' | 'while' | 'case' | 'try'
         | 'finally' | 'except' | 'for' | 'block' | 'const' | 'let'
         | 'when' | 'var' | 'mixin'
@@ -58,7 +58,7 @@ arrayConstr = '[' optInd (exprColonEqExpr comma?)* optPar ']'
 primarySuffix = '(' (exprColonEqExpr comma?)* ')'
       | '.' optInd symbol ('[:' exprList ']' ( '(' exprColonEqExpr ')' )?)? generalizedLit?
       | DOTLIKEOP optInd symbol generalizedLit?
-      | '[' optInd exprColonEqExprList optPar ']'
+      | ('['|'[:') optInd exprColonEqExprList optPar ']'
       | '{' optInd exprColonEqExprList optPar '}'
       | &( '`'|IDENT|literal|'cast'|'addr'|'type') expr # command syntax
 pragma = '{.' optInd (exprColonEqExpr comma?)* optPar ('.}' | '}')

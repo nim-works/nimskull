@@ -521,15 +521,6 @@ proc semTemplateExpr(c: PContext, n: PNode, s: PSym,
 proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
                   flags: TExprFlags = {}): PNode
 
-proc hasCycle(n: PNode): bool =
-  # xxx: this isn't used, we should consider reinstating this?
-  incl n.flags, nfNone
-  for i in 0..<n.safeLen:
-    if nfNone in n[i].flags or hasCycle(n[i]):
-      result = true
-      break
-  excl n.flags, nfNone
-
 proc tryConstExpr(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "tryConstExpr", n, result)
   pushExecCon(c, {})

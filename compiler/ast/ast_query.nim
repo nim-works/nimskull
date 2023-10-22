@@ -62,8 +62,7 @@ const
   
   PtrLikeKinds*: TTypeKinds = {tyPointer, tyPtr} # for VM
   
-  PersistentNodeFlags*: TNodeFlags = {nfBase2, nfBase8, nfBase16,
-                                      nfDotSetter, nfDotField, nfLL,
+  PersistentNodeFlags*: TNodeFlags = {nfDotSetter, nfDotField, nfLL,
                                       nfFromTemplate, nfDefaultRefsParam}
   
   namePos*          = 0 ## Name of the type/proc-like node
@@ -82,8 +81,6 @@ const
                         ## on info
   firstArgPos*      = 3 ## Error first 0..n additional nodes depends on
                         ## error kind
-
-  nfAllFieldsSet* = nfBase2
 
   nkCallKinds* = {nkCall, nkInfix, nkPrefix, nkPostfix,
                   nkCommand, nkCallStrLit, nkHiddenCallConv}
@@ -345,7 +342,7 @@ proc containsNode*(n: PNode, kinds: TNodeKinds): bool =
 
 proc hasSubnodeWith*(n: PNode, kind: TNodeKind): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkFormalParams:
+  of nkEmpty..nkNilLit, nkFormalParams, nkCommentStmt:
     result = n.kind == kind
   of nkError:
     result = hasSubnodeWith(n.diag.wrongNode, kind)
@@ -543,7 +540,7 @@ iterator pairs*(n: PNode): tuple[i: int, n: PNode] =
   for i in 0..<n.safeLen: yield (i, n[i])
 
 proc isAtom*(n: PNode): bool {.inline.} =
-  result = n.kind >= nkNone and n.kind <= nkNilLit
+  n.kind in nkNone..nkNilLit or n.kind == nkCommentStmt
 
 proc isEmptyType*(t: PType): bool {.inline.} =
   ## 'void' and 'typed' types are often equivalent to 'nil' these days:

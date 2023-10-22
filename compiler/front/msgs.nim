@@ -574,6 +574,7 @@ func astDiagToLegacyReportKind*(
   of adSemReturnNotAllowed: rsemReturnNotAllowed
   of adSemFieldAssignmentInvalid: rsemFieldAssignmentInvalid
   of adSemFieldNotAccessible: rsemFieldNotAccessible
+  of adSemObjectRequiresFieldInit: rsemObjectRequiresFieldInit
   of adSemObjectRequiresFieldInitNoDefault: rsemObjectRequiresFieldInitNoDefault
   of adSemExpectedObjectType: rsemExpectedObjectType
   of adSemExpectedObjectOfType: rsemExpectedObjectType

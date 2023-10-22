@@ -17,7 +17,6 @@ import
     ast_idgen,        # Per module Id generation
     ast_query,        # querying/reading the ast
     ast_parsed_types, # Data types for the parsed node
-    numericbase       # NumericalBase
   ],
   compiler/front/[
     in_options
@@ -471,12 +470,16 @@ template copyNodeImpl(dst, src, processSonsStmt) =
       echo "GOES TO ", dst.id
       writeStackTrace()
   case src.kind
-  of nkCharLit..nkUInt64Lit: dst.intVal = src.intVal
-  of nkFloatLiterals: dst.floatVal = src.floatVal
+  of nkIntLiterals:
+    dst.intVal = src.intVal
+    dst.intLitBase = src.intLitBase
+  of nkFloatLiterals:
+    dst.floatVal = src.floatVal
+    dst.floatLitBase = src.floatLitBase
   of nkSym: dst.sym = src.sym
   of nkIdent: dst.ident = src.ident
   of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
-  of nkEmpty, nkNone, nkNilLit, nkType: discard "no children"
+  of nkEmpty, nkNone, nkNilLit, nkType, nkCommentStmt: discard "no children"
   of nkError: dst.diag = src.diag # do cheap copies
   of nkWithSons: processSonsStmt
 
@@ -641,13 +644,6 @@ proc toHumanStr*(kind: TTypeKind): string =
   ## strips leading `tk`
   result = toHumanStrImpl(kind, 2)
 
-proc setBaseFlags*(n: PNode, base: NumericalBase) =
-  case base
-  of base10: discard
-  of base2: incl(n.flags, nfBase2)
-  of base8: incl(n.flags, nfBase8)
-  of base16: incl(n.flags, nfBase16)
-
 func toTNodeKind*(kind: ParsedNodeKind): TNodeKind {.inline.} =
   case kind
   of pnkError: nkError
@@ -808,11 +804,11 @@ proc toPNode*(parsed: ParsedNode): PNode =
 
   of pnkFloatKinds:
     result.floatVal = parsed.lit.fNumber
-    result.setBaseFlags(parsed.lit.base)
+    result.floatLitBase = parsed.lit.base
 
   of pnkIntKinds - { pnkCharLit }:
     result.intVal = parsed.lit.iNumber
-    result.setBaseFlags(parsed.lit.base)
+    result.intLitBase = parsed.lit.base
 
   of pnkCharLit:
     result.intVal = ord(parsed.lit.literal[0])
