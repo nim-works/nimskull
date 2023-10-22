@@ -1,9 +1,9 @@
 discard """
   targets: "c js vm"
-  description: "
+  description: '''
     Ensure that enum values stored as usigned integers are properly read as
     such
-  "
+  '''
 """
 
 type
