@@ -106,6 +106,27 @@ const
 
   nkSymChoices* = {nkClosedSymChoice, nkOpenSymChoice}
 
+  nkTypeExprs* = {
+    nkTypeOfExpr,
+    nkObjectTy,
+    nkTupleTy,
+    nkTupleClassTy,
+    nkTypeClassTy,
+    nkStaticTy,
+    nkRefTy,
+    nkPtrTy,
+    nkVarTy,
+    nkConstTy,
+    nkMutableTy,
+    nkDistinctTy,
+    nkProcTy,
+    nkIteratorTy,
+    nkSharedTy,
+    nkEnumTy,
+    nkStmtListType,
+    nkBlockType
+  }
+
   # TODO: replace with `nk*Literals`, see above
   nkIntKinds*   = nkIntLiterals
   nkFloatKinds* = nkFloatLiterals
