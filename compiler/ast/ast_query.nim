@@ -48,11 +48,11 @@ const
     tyBool, tyChar, tyEnum, tyArray, tyObject,
     tySet, tyTuple, tyRange, tyPtr, tyRef, tyVar, tyLent, tySequence, tyProc,
     tyPointer,
-    tyOpenArray, tyString, tyCstring, tyInt..tyInt64, tyFloat..tyFloat128,
+    tyOpenArray, tyString, tyCstring, tyInt..tyInt64, tyFloat..tyFloat64,
     tyUInt..tyUInt64}
   
   IntegralTypes* = {tyBool, tyChar, tyEnum, tyInt..tyInt64,
-    tyFloat..tyFloat128, tyUInt..tyUInt64} # weird name because it contains tyFloat
+    tyFloat..tyFloat64, tyUInt..tyUInt64} # weird name because it contains tyFloat
   
   ConstantDataTypes*: TTypeKinds = {tyArray, tySet,
                                     tyTuple, tySequence}
@@ -90,7 +90,7 @@ const
   nkPragmaCallKinds* = {nkExprColonExpr, nkCall, nkCallStrLit}
 
   nkIntLiterals*   = {nkCharLit..nkUInt64Lit}
-  nkFloatLiterals* = {nkFloatLit..nkFloat128Lit}
+  nkFloatLiterals* = {nkFloatLit..nkFloat64Lit}
   nkStrLiterals*   = {nkStrLit..nkTripleStrLit}
   # TODO: include `nkNilLit` as it's a literal, not the same as `nnkLiterals`
   nkLiterals*      = nkIntLiterals + nkFloatLiterals + nkStrLiterals

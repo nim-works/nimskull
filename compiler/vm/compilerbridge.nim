@@ -155,8 +155,8 @@ proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
     assert n.kind in nkCharLit..nkUInt64Lit
     dest.ensureKind(rkInt, c.memory)
     dest.intVal = n.intVal
-  of tyFloat..tyFloat128:
-    assert n.kind in nkFloatLit..nkFloat128Lit
+  of tyFloat..tyFloat64:
+    assert n.kind in nkFloatLit..nkFloat64Lit
     dest.ensureKind(rkFloat, c.memory)
     dest.floatVal = n.floatVal
   of tyNil, tyPtr, tyPointer:

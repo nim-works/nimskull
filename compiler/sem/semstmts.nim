@@ -321,7 +321,7 @@ proc fitRemoveHiddenConv(c: PContext, typ: PType, n: PNode): PNode =
   of nkHiddenStdConv, nkHiddenSubConv:
     let r1 = result[1]
     if r1.kind in {nkCharLit..nkUInt64Lit} and
-       typ.skipTypes(abstractRange).kind in {tyFloat..tyFloat128}:
+       typ.skipTypes(abstractRange).kind in {tyFloat..tyFloat64}:
       result = newFloatNode(nkFloatLit, BiggestFloat r1.intVal)
       result.info = n.info
       result.typ = typ
@@ -1678,7 +1678,7 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   of tyRange:
     if skipTypes(caseTyp[0], abstractInst).kind in shouldChckCovered:
       chckCovered = true
-  of tyFloat..tyFloat128, tyString:
+  of tyFloat..tyFloat64, tyString:
     # xxx: possible case statement macro bug, as it'll be skipped here
     discard
   else:

@@ -73,3 +73,4 @@ proc initDefines*(symbols: StringTableRef) =
 
   defineSymbol("nimskullReworkStaticExec")
   defineSymbol("nimskullNoMagicNewAssign")
+  defineSymbol("nimskullNoFloat128")

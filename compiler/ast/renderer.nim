@@ -986,7 +986,6 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
   of nkFloatLit: put(g, tkFloatLit, atom(g, n))
   of nkFloat32Lit: put(g, tkFloat32Lit, atom(g, n))
   of nkFloat64Lit: put(g, tkFloat64Lit, atom(g, n))
-  of nkFloat128Lit: put(g, tkFloat128Lit, atom(g, n))
   of nkStrLit: put(g, tkStrLit, atom(g, n))
   of nkRStrLit: put(g, tkRStrLit, atom(g, n))
   of nkCharLit: put(g, tkCharLit, atom(g, n))

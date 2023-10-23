@@ -66,13 +66,12 @@ type
     akFloat = 36,       ## float
     akFloat32 = 37,     ## float32
     akFloat64 = 38,     ## float64
-    akFloat128 = 39,    ## float128
-    akUInt = 40,        ## uint
-    akUInt8 = 41,       ## uint8
-    akUInt16 = 42,      ## uin16
-    akUInt32 = 43,      ## uint32
-    akUInt64 = 44,      ## uint64
-#    akOpt = 44+18       ## the builtin 'opt' type.
+    akUInt = 39,        ## uint
+    akUInt8 = 40,       ## uint8
+    akUInt16 = 41,      ## uin16
+    akUInt32 = 42,      ## uint32
+    akUInt64 = 43,      ## uint64
+#    akOpt = 43+18       ## the builtin 'opt' type.
 
   Any* = object
     ## A type that can represent any nim value.

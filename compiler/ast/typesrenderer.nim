@@ -145,7 +145,7 @@ proc valueToString(a: PNode): string =
   ## Returns `int`, `float`, or `string` literals from the node, otherwise returns `<invalid value>`.
   case a.kind
   of nkCharLit..nkUInt64Lit: result = $a.intVal
-  of nkFloatLit..nkFloat128Lit: result = $a.floatVal
+  of nkFloatLit..nkFloat64Lit: result = $a.floatVal
   of nkStrLit..nkTripleStrLit: result = a.strVal
   else: result = "<invalid value>"
 
@@ -165,7 +165,7 @@ const
     "set[$1]", "range[$1]", "ptr ", "ref ", "var ", "seq[$1]", "proc",
     "pointer", "OpenArray[$1]", "string", "cstring", "Forward",
     "int", "int8", "int16", "int32", "int64",
-    "float", "float32", "float64", "float128",
+    "float", "float32", "float64",
     "uint", "uint8", "uint16", "uint32", "uint64",
     "sink",
     "lent ", "varargs[$1]", "UncheckedArray[$1]", "Error Type",
@@ -200,7 +200,7 @@ proc typeToString*(typ: PType, prefer: TPreferedDesc = preferName): string =
         result = typeToString(t[0])
       elif prefer in {preferResolved, preferMixed}:
         case t.kind
-        of IntegralTypes + {tyFloat..tyFloat128} + {tyString, tyCstring}:
+        of IntegralTypes + {tyFloat..tyFloat64} + {tyString, tyCstring}:
           result = typeToStr[t.kind]
         of tyGenericBody:
           result = typeToString(t.lastSon)

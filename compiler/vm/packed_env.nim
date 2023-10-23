@@ -338,7 +338,7 @@ func storeData*(enc: var DataEncoder, e: var PackedEnv, n: PNode) =
     of EmbeddedInts:  (pdkIntLit, cast[uint32](n.intVal))
     of ExternalInts:  (pdkInt,    e.getLitId(n.intVal).uint32)
 
-    of nkFloatLit..nkFloat128Lit: (pdkFloat,  e.getLitId(n.floatVal).uint32)
+    of nkFloatLit..nkFloat64Lit:  (pdkFloat,  e.getLitId(n.floatVal).uint32)
     of nkStrLit..nkTripleStrLit:  (pdkString, e.getLitId(n.strVal).uint32)
     of nkNilLit:                  (pdkPtr,    0'u32)
 
@@ -677,7 +677,7 @@ proc loadNode(dec: var TypeInfoDecoder, ps: PackedEnv, id: NodeId): (PNode, int3
     discard "do nothing"
   of nkCharLit..nkUInt64Lit:
     r.intVal = ps.numbers[n.operand.LitId]
-  of nkFloatLit..nkFloat128Lit:
+  of nkFloatLit..nkFloat64Lit:
     # use a `cast` to preserve the bit representation:
     r.floatVal = cast[BiggestFloat](ps.numbers[n.operand.LitId])
   of nkStrLit..nkTripleStrLit:

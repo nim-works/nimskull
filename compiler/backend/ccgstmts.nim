@@ -571,7 +571,7 @@ proc genCase(p: BProc, t: CgNode) =
   case skipTypes(t[0].typ, abstractVarRange).kind
   of tyString:
     genStringCase(p, t)
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     genCaseGeneric(p, t, "if ($1 >= $2 && $1 <= $3) goto $4;$n",
                          "if ($1 == $2) goto $3;$n")
   else:

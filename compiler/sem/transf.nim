@@ -603,7 +603,7 @@ proc transformConv(c: PTransf, n: PNode): PNode =
         [transform(c, n[1]),
          newIntTypeNode(firstOrd(c.graph.config, rangeDest), rangeDest),
          newIntTypeNode(lastOrd(c.graph.config, rangeDest), rangeDest)]
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     # XXX int64 -> float conversion?
     let rangeDest = skipTypes(n.typ, abstractVar)
     if rangeDest.kind == tyRange:

@@ -285,7 +285,7 @@ proc translateLit*(val: PNode): CgNode =
       unreachable(val.typ.skipTypes(abstractRange).kind)
   of nkFloatLiterals:
     case val.typ.skipTypes(abstractRange).kind
-    of tyFloat, tyFloat64, tyFloat128:
+    of tyFloat, tyFloat64:
       node(cnkFloatLit, floatVal, val.floatVal)
     of tyFloat32:
       # all code-generators need to do this at one point, so we help them out

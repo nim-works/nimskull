@@ -552,7 +552,7 @@ proc lengthOrd*(conf: ConfigRef; t: PType): Int128 =
 
 proc firstFloat*(t: PType): BiggestFloat =
   case t.kind
-  of tyFloat..tyFloat128: -Inf
+  of tyFloat..tyFloat64: -Inf
   of tyRange:
     assert(t.n != nil)        # range directly given:
     assert(t.n.kind == nkRange)
@@ -566,7 +566,7 @@ proc firstFloat*(t: PType): BiggestFloat =
 
 proc lastFloat*(t: PType): BiggestFloat =
   case t.kind
-  of tyFloat..tyFloat128: Inf
+  of tyFloat..tyFloat64: Inf
   of tyVar: lastFloat(t[0])
   of tyRange:
     assert(t.n != nil)        # range directly given:
@@ -582,7 +582,7 @@ proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
   case t.kind
   # This needs to be special cased since NaN is never
   # part of firstFloat(t)..lastFloat(t)
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     true
   of tyRange:
     x in firstFloat(t)..lastFloat(t)
@@ -1138,7 +1138,7 @@ proc classify*(t: PType): OrdinalType =
     result = NoneLike
   else:
     case skipTypes(t, abstractVarRange).kind
-    of tyFloat..tyFloat128: result = FloatLike
+    of tyFloat..tyFloat64: result = FloatLike
     of tyInt..tyInt64, tyUInt..tyUInt64, tyBool, tyChar, tyEnum:
       result = IntLike
     else: result = NoneLike

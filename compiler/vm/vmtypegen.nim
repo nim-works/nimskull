@@ -326,13 +326,6 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVm
     # XXX: maybe it's not a good idea to add all user-type class instances to
     #      the cache?
     res.existing = c.genType(t.lastSon(), cl).typ
-  of tyFloat128:
-    # XXX: introducing an error path just for float128 seems excessive, even
-    #      more so when float128 seems to be almost never used. sem should
-    #      reject this instead, but for now we just raise an internal compiler
-    #      error
-    # XXX: could also use `globalReport`, but it's not side-effect free
-    doAssert false, "float128 not supported by the VM"
   else:
     unreachable()
 

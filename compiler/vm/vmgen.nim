@@ -404,7 +404,7 @@ proc getSlotKind(t: PType): TSlotKind =
     slotTempInt
   of tyString, tyCstring:
     slotTempStr
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     slotTempFloat
   else:
     slotTempComplex
@@ -800,12 +800,12 @@ proc genBranchLit(c: var TCtx, n: CgNode, t: PType): int =
       n.kids.toOpenArray(0, n.kids.high - 1) # -1 for the branch body
 
     case t.kind
-    of IntegralTypes-{tyFloat..tyFloat128}:
+    of IntegralTypes-{tyFloat..tyFloat64}:
       cnst = VmConstant(kind: cnstSliceListInt)
       cnst.intSlices.fillSliceList(values):
         it.intVal
 
-    of tyFloat..tyFloat128:
+    of tyFloat..tyFloat64:
       cnst = VmConstant(kind: cnstSliceListFloat)
       cnst.floatSlices.fillSliceList(values):
         it.floatVal
@@ -1561,7 +1561,7 @@ proc whichAsgnOpc(n: CgNode; requiresCopy = true): TOpcode =
   case n.typ.skipTypes(IrrelevantTypes + {tyRange}).kind
   of tyBool, tyChar, tyInt..tyInt64, tyUInt..tyUInt64:
     opcAsgnInt
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     opcAsgnFloat
   else:
     # XXX: always require a copy, fastAsgn is broken in the VM

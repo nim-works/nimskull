@@ -379,7 +379,7 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
       if r.kind == nkError:
         localReport(c.config, r)
 
-    elif not isOrdinalType(rangeT[0]) and rangeT[0].kind notin {tyFloat..tyFloat128} or
+    elif not isOrdinalType(rangeT[0]) and rangeT[0].kind notin {tyFloat..tyFloat64} or
         rangeT[0].kind == tyBool:
       localReport(c.config, n.info, reportTyp(
         rsemExpectedOrdinalOrFloat, rangeT[0]))
@@ -896,7 +896,7 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
   case typ.kind
   of shouldChckCovered:
     chckCovered = true
-  of tyFloat..tyFloat128, tyError:
+  of tyFloat..tyFloat64, tyError:
     discard
   of tyRange:
     if skipTypes(typ[0], abstractInst).kind in shouldChckCovered:
@@ -2264,7 +2264,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
       else:
         assignType(prev, s.typ)
         # bugfix: keep the fresh id for aliases to integral types:
-        if s.typ.kind notin {tyBool, tyChar, tyInt..tyInt64, tyFloat..tyFloat128,
+        if s.typ.kind notin {tyBool, tyChar, tyInt..tyInt64, tyFloat..tyFloat64,
                              tyUInt..tyUInt64}:
           prev.itemId = s.typ.itemId
         result = prev
@@ -2383,7 +2383,6 @@ proc processMagicType(c: PContext, m: PSym) =
   of mFloat: setMagicIntegral(c.config, m, tyFloat, c.config.target.floatSize)
   of mFloat32: setMagicIntegral(c.config, m, tyFloat32, 4)
   of mFloat64: setMagicIntegral(c.config, m, tyFloat64, 8)
-  of mFloat128: setMagicIntegral(c.config, m, tyFloat128, 16)
   of mBool: setMagicIntegral(c.config, m, tyBool, 1)
   of mChar: setMagicIntegral(c.config, m, tyChar, 1)
   of mString:

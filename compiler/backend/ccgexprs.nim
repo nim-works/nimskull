@@ -164,7 +164,7 @@ proc genAssignment(p: BProc, dest, src: TLoc) =
   # the assignment operation in C.
   case mapType(p.config, dest.t, skVar)
   of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
-     ctFloat, ctFloat32, ctFloat64, ctFloat128,
+     ctFloat, ctFloat32, ctFloat64,
      ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64,
      ctStruct, ctPtrToArray, ctPtr, ctNimStr, ctNimSeq, ctProc,
      ctCString:
@@ -1562,7 +1562,7 @@ proc genSomeCast(p: BProc, e: CgNode, d: var TLoc) =
           [getTypeDesc(p.module, e.typ), rdCharLoc(a)], a.storage)
 
 proc genCast(p: BProc, e: CgNode, d: var TLoc) =
-  const ValueTypes = {tyFloat..tyFloat128, tyTuple, tyObject, tyArray}
+  const ValueTypes = {tyFloat..tyFloat64, tyTuple, tyObject, tyArray}
   let
     src = e.operand
     destt = skipTypes(e.typ, abstractRange)
@@ -1602,7 +1602,7 @@ proc genRangeChck(p: BProc, n: CgNode, d: var TLoc) =
       let raiser =
         case skipTypes(n.typ, abstractVarRange).kind
         of tyUInt..tyUInt64, tyChar: "raiseRangeErrorU"
-        of tyFloat..tyFloat128: "raiseRangeErrorF"
+        of tyFloat..tyFloat64: "raiseRangeErrorF"
         else: "raiseRangeErrorI"
       discard cgsym(p.module, raiser)
 
@@ -2210,7 +2210,7 @@ proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =
   case t.kind
   of tyBool: result = rope"NIM_FALSE"
   of tyEnum, tyChar, tyInt..tyInt64, tyUInt..tyUInt64: result = rope"0"
-  of tyFloat..tyFloat128: result = rope"0.0"
+  of tyFloat..tyFloat64: result = rope"0.0"
   of tyCstring, tyVar, tyLent, tyPointer, tyPtr, tyUntyped,
      tyTyped, tyTypeDesc, tyStatic, tyRef, tyNil:
     result = rope"NIM_NIL"
