@@ -56,10 +56,10 @@ proc liftTypeClass(c: PContext, typ: PType, prev: PType,
 
   let isMagic = typ.sym != nil and typ.sym.magic != mNone
 
-  case result.kind
-  of tyOrdinal, tyRange, tySequence, tySet, tyArray, tyLent, tyOpenArray,
-     tyVarargs, tyUncheckedArray:
-    if isMagic:
+  if isMagic:
+    case result.kind
+    of tyOrdinal, tyRange, tySequence, tySet, tyArray, tyLent, tyOpenArray,
+       tyVarargs, tyUncheckedArray:
       # this is the "raw", uninstantiated magic type -> it's
       # a built-in type class
       result = newOrPrevType(tyBuiltInTypeClass, prev, c)
@@ -67,12 +67,11 @@ proc liftTypeClass(c: PContext, typ: PType, prev: PType,
       # add the generic type, but don't propagate the flags
       result.sons = @[typ]
 
-  of tySink:
-    if isMagic:
+    of tySink:
       localReport(c.config, info, SemReport(kind: rsemSinkIsNotATypeClass))
       result = newOrPrevType(tyError, prev, c)
-  else:
-    discard
+    else:
+      discard
 
 proc semEnum(c: PContext, n: PNode, prev: PType): PType =
   if n.len == 0: return newConstraint(c, tyEnum)
