@@ -1,7 +1,7 @@
 discard """
 description: "Ensure discard checks are done for try expressions"
 errormsg: "expression '1' is of type 'int literal(1)' and has to be used (or discarded)"
-line: 11
+line: 14
 """
 
 ## This was originally introduced as a regression test, where
