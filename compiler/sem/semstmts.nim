@@ -141,9 +141,9 @@ proc discardCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
             case m[^1].kind
             of nkFinally:
               m[^2]
-            of skipForDiscardable - nkFinally:
-              m.lastSon
-            of nkAllNodeKinds - skipForDiscardable:
+            of nkExceptBranch:
+              m[^1]
+            of nkAllNodeKinds - {nkFinally, nkExceptBranch}:
               unreachable()
         else:
           m = m.lastSon
