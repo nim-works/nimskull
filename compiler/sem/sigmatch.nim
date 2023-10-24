@@ -1736,7 +1736,7 @@ typeRel can be used to establish various relationships between types:
       else:
         case targetKind
         of tyOrdinal, tyOpenArray, tyVarargs:
-          # these type classes of these act the same as if using, for example,
+          # the type classes of these act the same as if using, for example,
           # ``openArray[T]``. The generic type is already stored as the base
           # type -- but don't bind anything
           result = typeRel(c, f.base, a, {trDontBind})
