@@ -264,6 +264,7 @@ proc typeToString*(typ: PType, prefer: TPreferedDesc = preferName): string =
     of tyBuiltInTypeClass:
       result = case t.base.kind
         of tyVar: "var"
+        of tyLent: "lent"
         of tyRef: "ref"
         of tyPtr: "ptr"
         of tySequence: "seq"
@@ -271,11 +272,16 @@ proc typeToString*(typ: PType, prefer: TPreferedDesc = preferName): string =
         of tySet: "set"
         of tyRange: "range"
         of tyDistinct: "distinct"
+        of tyOrdinal: "Ordinal"
         of tyProc: "proc"
+        of tyEnum: "enum"
         of tyObject: "object"
         of tyTuple: "tuple"
         of tyOpenArray: "openArray"
-        else: typeToStr[t.base.kind]
+        of tyVarargs: "varargs"
+        of tyUncheckedArray: "UncheckedArray"
+        of {low(TTypeKind)..high(TTypeKind)} - tyBuiltInTypeClasses:
+          "<illegal type: " & $t.base.kind & ">"
     of tyInferred:
       let concrete = t.previouslyInferred
       if concrete != nil: result = typeToString(concrete)

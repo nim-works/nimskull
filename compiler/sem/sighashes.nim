@@ -239,6 +239,9 @@ proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
   of tyArray:
     c &= char(t.kind)
     for i in 0..<t.len: c.hashType(t[i], flags-{CoIgnoreRange})
+  of tyBuiltInTypeClass:
+    c &= char(t.kind)
+    c &= char(t[0].kind)
   else:
     c &= char(t.kind)
     for i in 0..<t.len: c.hashType(t[i], flags)

@@ -24,7 +24,8 @@ import
     options
   ],
   compiler/utils/[
-    pathutils
+    pathutils,
+    idioms
   ],
   experimental/[
     results
@@ -305,7 +306,28 @@ proc mapTypeToAstX(cache: IdentCache; t: PType; info: TLineInfo;
   of tyVarargs: result = mapTypeToBracket("varargs", mVarargs, t, info)
   of tyProxy: result = atomicType("error", mNone)
   of tyBuiltInTypeClass:
-    result = mapTypeToBracket("builtinTypeClass", mNone, t, info)
+    # the type stored in the type class is not necessarily
+    # valid. We need to manually map the type.
+    result = newNodeIT(nkBracketExpr, info, t)
+    result.add atomicTypeX(cache, "builtinTypeClass", mNone, t, info, idgen)
+    template elem(kind): PNode =
+      newNodeIT(kind, info, t.base)
+    result.add:
+      case t.base.kind
+      of tyDistinct: elem(nkDistinctTy)
+      of tyEnum:     elem(nkEnumTy)
+      of tyObject:   elem(nkObjectTy)
+      of tyTuple:    elem(nkTupleClassTy)
+      of tyVar:      elem(nkVarTy)
+      of tyProc:     elem(nkProcTy)
+      of tyPtr:      elem(nkPtrTy)
+      of tyRef:      elem(nkRefTy)
+      of tyOrdinal, tyArray, tySet, tyRange, tySequence, tyOpenArray, tyLent,
+         tyVarargs, tyUncheckedArray:
+        # use the symbol of the type stored in the type class
+        newSymNode(t.base.sym, info)
+      of {low(TTypeKind)..high(TTypeKind)} - tyBuiltInTypeClasses:
+        unreachable(t.base.kind)
   of tyUserTypeClass, tyUserTypeClassInst:
     if t.isResolvedUserTypeClass:
       result = mapTypeToAst(t.lastSon, info)

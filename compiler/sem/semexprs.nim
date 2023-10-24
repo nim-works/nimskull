@@ -1665,11 +1665,12 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
       n.typ = s.typ
       return n
   of skType:
-    markUsed(c, n.info, s)
     if s.typ.kind == tyStatic and s.typ.base.kind != tyNone and s.typ.n != nil:
+      markUsed(c, n.info, s)
       return s.typ.n
     result = newSymNode(s, n.info)
-    result.typ = makeTypeDesc(c, s.typ)
+    # ``semTypeNode`` will mark the symbol as used
+    result.typ = makeTypeDesc(c, semTypeNode(c, result, nil))
   of skField:
     # old code, not sure if it's live code:
     markUsed(c, n.info, s)

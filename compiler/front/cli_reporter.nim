@@ -761,6 +761,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         result = "type expected, but got symbol '$1' of kind '$2'" %
           [r.sym.name.s, r.sym.kind.toHumanStr]
 
+    of rsemSinkIsNotATypeClass:
+      result = "'sink' cannot be used as a type class"
+
     of rsemCyclicDependency:
       result = "recursive dependency: '$1'" % r.symstr
 
