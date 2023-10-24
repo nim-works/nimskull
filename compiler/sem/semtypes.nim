@@ -2296,11 +2296,9 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     elif s.kind == skParam and s.typ.kind == tyTypeDesc:
       c.config.internalAssert s.typ.base.kind != tyNone and prev == nil
       result = s.typ.base
-    elif prev == nil:
-      result = liftTypeClass(c, s.typ, nil, n.info)
     else:
       let lifted = liftTypeClass(c, s.typ, prev, n.info)
-      if lifted != s.typ:
+      if lifted != s.typ or prev == nil:
         result = lifted
       else:
         let alias = maybeAliasType(c, s.typ, prev)
@@ -2324,10 +2322,8 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
           s.typ.base
 
       let lifted = liftTypeClass(c, t, prev, n.info)
-      if lifted != t:
+      if lifted != t or prev == nil:
         result = lifted
-      elif prev == nil:
-        result = t
       else:
         let alias = maybeAliasType(c, t, prev)
         if alias != nil:
