@@ -135,7 +135,18 @@ proc discardCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
     elif n.typ.kind != tyError and c.config.cmd != cmdInteractive:
       var m = n
       while m.kind in skipForDiscardable:
-        m = m.lastSon
+        case m.kind
+        of nkTryStmt:
+          m =
+            case m[^1].kind
+            of nkFinally:
+              m[^2]
+            of skipForDiscardable - nkFinally:
+              m.lastSon
+            of nkAllNodeKinds - skipForDiscardable:
+              unreachable()
+        else:
+          m = m.lastSon
 
       result = newError(c.config, n,
         PAstDiag(kind: adSemUseOrDiscardExpr, undiscarded: m))
@@ -296,16 +307,15 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
     if n[0].isError:
       return wrapError(c.config, n)
     for i in 1 ..< n.len:
-      n[i][^1] = discardCheck(c, n[i][^1], flags)
-      if n[i][^1].isError:
+      n[i] = discardCheck(c, n[i], flags)
+      if n[i].isError:
         return wrapError(c.config, n)
-
     if typ == c.enforceVoidContext:
       result.typ = c.enforceVoidContext
   else:
     if n.lastSon.kind == nkFinally:
-      n[^1][^1] = discardCheck(c, n[^1][^1], flags)
-      if n[^1][^1].isError:
+      n[^1] = discardCheck(c, n[^1], flags)
+      if n[^1].isError:
         return wrapError(c.config, n)
     n[0] = fitNode(c, typ, n[0], n[0].info)
     for i in 1..last:
