@@ -307,15 +307,15 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
     if n[0].isError:
       return wrapError(c.config, n)
     for i in 1 ..< n.len:
-      n[i] = discardCheck(c, n[i], flags)
-      if n[i].isError:
+      n[i][^1] = discardCheck(c, n[i][^1], flags)
+      if n[i][^1].isError:
         return wrapError(c.config, n)
     if typ == c.enforceVoidContext:
       result.typ = c.enforceVoidContext
   else:
     if n.lastSon.kind == nkFinally:
-      n[^1] = discardCheck(c, n[^1], flags)
-      if n[^1].isError:
+      n[^1][^1] = discardCheck(c, n[^1][^1], flags)
+      if n[^1][^1].isError:
         return wrapError(c.config, n)
     n[0] = fitNode(c, typ, n[0], n[0].info)
     for i in 1..last:
