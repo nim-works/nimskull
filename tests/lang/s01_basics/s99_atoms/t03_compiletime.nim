@@ -9,8 +9,8 @@ echo outside of static
 
 # Given this is a specification I don't think it is an appropriate place to
 # start a lenghtly introduction to what "compile time is", but considering it is
-# a *fundamental* part of the nim language it would not hurt to start with some
-# definitions before going into concrete details.
+# a *fundamental* part of the Nimskull language it would not hurt to start with
+# some definitions before going into concrete details.
 
 static:
   ## This code will be executed *during compilation* of the project

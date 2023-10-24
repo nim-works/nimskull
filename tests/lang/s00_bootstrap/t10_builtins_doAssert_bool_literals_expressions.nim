@@ -16,8 +16,8 @@ block builtin_assert:
   doAssert true
 
 block tuatologies:
-  ## `true == true` is evaluated as true, the assertion is succesful
+  ## `true == true` is evaluated as true, the assertion is successful
   doAssert true == true
 
-  ## `false == false` is evaluated as true, the assertion is succesful
+  ## `false == false` is evaluated as true, the assertion is successful
   doAssert false == false
