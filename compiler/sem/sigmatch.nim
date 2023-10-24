@@ -1743,10 +1743,10 @@ typeRel can be used to establish various relationships between types:
         of tyRange:
           if a.kind == tyRange:
             result = isGeneric
-        of tyArray:
-          # XXX: empty array types match for the array type class, but this is
-          #      inconsistent with, for example, sequence types
-          if a.kind == tyArray:
+        of tyArray, tySet:
+          # XXX: ``seq`` types weren't and still aren't included here, but for
+          #      consistency, they probably should
+          if a.kind == targetKind:
             result = isGeneric
         of tyProc, tyPointer:
           # XXX: ^^ this should also include non-nil refs and ptrs
