@@ -2413,7 +2413,7 @@ proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
       else:
         n[0]
 
-    result.add takeImplicitAddr(c, t, unwrappedValue)
+    result[0] = takeImplicitAddr(c, t, unwrappedValue)
     hasError = result[0].isError
   of tyTuple:
     # first, check if the tuple contains a *direct* view-type. If it does, the
@@ -2451,7 +2451,6 @@ proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
           else:
             useAddr tupleConstr[i]
 
-      result.add n[0]
     elif containsView:
       # the tuple contains a view type but the expression is not a literal
       # tuple constructor
@@ -2460,14 +2459,12 @@ proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
       #        with return type ``(int, (int, var int))``, but ``x`` is not
       #        for ``(int, var int)``?
       hasError = true
-      result.add newError(c.config, n[0],
+      result[0] = newError(c.config, n[0],
                           PAstDiag(kind: adSemYieldExpectedTupleConstr,
                                     tupleTyp: t))
-    else:
-      result.add n[0]
 
   else:
-    result.add n[0]
+    discard
 
   if hasError:
     result = c.config.wrapError(result)
