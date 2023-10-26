@@ -2158,13 +2158,46 @@ proc asgnToResultVar(c: PContext, n: PNode): PNode {.inline.} =
     discard
 
 template resultTypeIsInferrable(typ: PType): untyped =
-  typ.isMetaType and typ.kind != tyTypeDesc
+  typ.isMetaType and typ.kind != tyTypeDesc and
+    (typ.kind notin tyUserTypeClasses or not typ.isResolvedUserTypeClass)
 
 proc goodLineInfo(arg: PNode): TLineInfo =
   if arg.kind == nkStmtListExpr and arg.len > 0:
     goodLineInfo(arg[^1])
   else:
     arg.info
+
+proc inferResultType(c: PContext, formal: PType, res: PSym, n: PNode): PNode =
+  ## Given the typed expression AST `n`, and the meta-type `formal`, infers
+  ## the concrete result type. On success, the expression with the
+  ## inferred type is returned and the return type of the current routine
+  ## is updated -- if `res` is not nil, it's type is updated too.
+  ## On failure, or if `n` is an error already, the error is returned
+  ## and the return type is inferred as an error type.
+  var typ: PType
+  if formal.kind == tyUntyped:
+    # special handling for 'auto': no meta-type inference and resolved
+    # concepts are skipped
+    result = n
+    typ =
+      if n.typ.kind in tyUserTypeClasses and n.typ.isResolvedUserTypeClass:
+        n.typ[^1]
+      else:
+        n.typ
+  else:
+    result = inferWithMetatype(c, formal, n)
+    typ = result.typ
+
+  if not result.isError:
+    let typ = typeAllowedOrError(typ, skResult, c, n)
+    if typ.isError:
+      result = typ.n
+
+  # update the return type of the routine and, optionally, the type of the
+  # result symbol
+  c.p.owner.typ[0] = result.typ
+  if res != nil:
+    res.typ = result.typ
 
 proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
   checkSonsLen(n, 2, c.config)
@@ -2248,36 +2281,18 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
         lhs = a
         rhs = semExprWithType(c, n[1], {})
 
-      # set the rhs slot already -- it might be changed into an error later
-      result[1] = rhs
-
-      if lhs.kind == nkSym and lhs.sym.kind == skResult and rhs.kind != nkError:
+      if lhs.kind == nkSym and lhs.sym.kind == skResult:
+        # an assignment to the result variable forces a void context:
         result.typ = c.enforceVoidContext
-        if c.p.owner.kind != skMacro and resultTypeIsInferrable(lhs.sym.typ):
-          let rhsTyp =
-            if rhs.typ.kind in tyUserTypeClasses and
-                rhs.typ.isResolvedUserTypeClass:
-              rhs.typ.lastSon
-            else:
-              rhs.typ
-
-          if cmpTypes(c, lhs.typ, rhsTyp) in {isGeneric, isEqual}:
-            c.config.internalAssert c.p.resultSym != nil
-            # Make sure the type is valid for the result variable
-            let typ = typeAllowedOrError(rhsTyp, skResult, c, rhs, {})
-            if typ.isError:
-              result[1] = typ.n
-              hasError = true
-
-            c.p.resultSym.typ = rhsTyp
-            c.p.owner.typ[0] = rhsTyp
-          else:
-            result[1] = typeMismatch(c.config, n.info, lhs.typ, rhsTyp, rhs)
-            hasError = true
-
-      if not hasError:
+        if resultTypeIsInferrable(lhs.sym.typ):
+          c.config.internalAssert c.p.resultSym != nil
+          result[1] = inferResultType(c, lhs.sym.typ, lhs.sym, rhs)
+        else:
+          result[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))
+      else:
         result[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))
-        hasError = result[1].isError
+
+      hasError = result[1].isError
 
   if hasError:
     result = c.config.wrapError(result)
