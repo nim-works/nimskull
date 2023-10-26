@@ -246,7 +246,7 @@ type
 
     sym*: PSym
     retValDesc*: PVmType ## the return value type (may be empty)
-    envParamType*: PVmType ## the type of the hidden environment parameter
+    isClosure*: bool     ## whether the closure calling convention is used
     sig*: RoutineSigId
 
     case kind*: CallableKind

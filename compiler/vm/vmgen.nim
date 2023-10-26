@@ -995,18 +995,31 @@ proc genProcLit(c: var TCtx, n: CgNode, s: PSym; dest: var TDest) =
   c.gABx(n, opcWrProc, dest, idx)
 
 proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
-  # bug #10901: do not produce code for wrong call expressions:
-  if n[0].typ.isNil: return
-
   if not isEmptyType(n.typ):
     prepare(c, dest, n, n.typ)
 
   let
     fntyp = skipTypes(n[0].typ, abstractInst)
-    x = c.prc.getTempRange(n.len, slotTempUnknown)
+    regCount = n.len + ord(fntyp.callConv == ccClosure)
+    x = c.prc.getTempRange(regCount, slotTempUnknown)
 
-  # the procedure to call:
-  c.gen(n[0], x+0)
+  # generate the code for the callee:
+  if fntyp.callConv == ccClosure:
+    # unpack the closure (a tuple): the proc goes into the callee
+    # slot, while the environment pointer goes into the last argument
+    # slot
+    let
+      tmp = c.genx(n[0])
+      tmp2 = c.getTemp(slotTempComplex)
+    c.gABC(n[0], opcLdObj, x+0, tmp, 0)
+    # use a full assignment in order for the environment to stay alive during
+    # the call
+    c.gABC(n[0], opcLdObj, tmp2, tmp, 1)
+    c.gABC(n[0], opcAsgnComplex, x+n.len, tmp2)
+    c.freeTemp(tmp2)
+    c.freeTemp(tmp)
+  else:
+    c.gen(n[0], x+0)
 
   # varargs need 'opcSetType' for the FFI support:
   for i in 1..<n.len:
@@ -1038,7 +1051,7 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
     c.gABC(n, opcIndCall, 0, x, n.len)
   else:
     c.gABC(n, opcIndCallAsgn, dest, x, n.len)
-  c.freeTempRange(x, n.len)
+  c.freeTempRange(x, regCount)
 
 template isGlobal(s: PSym): bool = sfGlobal in s.flags
 

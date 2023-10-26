@@ -1977,25 +1977,20 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
     of opcIndCall, opcIndCallAsgn:
       # dest = call regStart, n; where regStart = fn, arg1, ...
       let rb = instr.regB
-      let rc = instr.regC
 
       checkHandle(regs[rb])
-
-      let h = regs[rb].handle
-      let (fPtr, isClosure) =
-        case h.typ.kind
-        of akCallable: (deref(h).callableVal, false)
-        of akClosure: (deref(h).closureVal.fnc, true)
-        else:
-          assert false # vmgen issue
-          (default(VmFunctionPtr), false)
+      let fPtr = deref(regs[rb].handle).callableVal
 
       if unlikely(fPtr.isNil):
         raiseVmError(VmEvent(kind: vmEvtNilAccess))
 
-      let entry = c.functions[int toFuncIndex(fPtr)]
-      assert entry.sig == h.typ.routineSig
-      let retType = entry.retValDesc
+      let entry {.cursor.} = c.functions[int toFuncIndex(fPtr)]
+      assert entry.sig == regs[rb].handle.typ.routineSig
+      let
+        retType = entry.retValDesc
+        # if the called procedure uses the .closure calling convention, there
+        # must an additional hidden argument slot
+        rc = instr.regC + ord(entry.isClosure)
 
       let prc = entry.sym
       case entry.kind:
@@ -2045,7 +2040,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         if newPc < pc: handleJmpBack()
         #echo "new pc ", newPc, " calling: ", prc.name.s
         var newFrame = TStackFrame(prc: prc, comesFrom: pc, savedPC: -1)
-        newFrame.slots.newSeq(regCount+ord(isClosure))
+        newFrame.slots.newSeq(regCount)
         if instr.opcode == opcIndCallAsgn:
           checkHandle(regs[ra])
           # the destination might be a temporary complex location (`ra` is an
@@ -2056,29 +2051,8 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
           # the duration of the call and move it back when the call returns
           newFrame.slots[0] = move regs[ra]
 
-        for i in 1..rc-1:
+        for i in 1..<rc:
           newFrame.slots[i].fastAsgnComplex(regs[rb+i])
-
-        let envPType = entry.envParamType
-        if isClosure:
-          let env = deref(h).closureVal.env
-          if not env.isNil:
-            # slots[rc] = closure env
-            assert envPType != noneType # vmgen should've prevented this
-            # TODO: also check if the env type is valid
-            if c.heap.isValid(env):
-              newFrame.slots[rc].initLocReg(envPType, c.memory)
-              deref(newFrame.slots[rc].handle).refVal.asgnRef(env, c.memory, reset=false)
-            else:
-              # Since the closure env is protected from to the guest, it
-              # should not be possible that it becomes invalid.
-              raiseVmError(VmEvent(
-                kind: vmEvtErrInternal,
-                msg:  "closure env is invalid"))
-
-          else:
-            assert envPType == noneType # A programming error that should have
-                                        # already been caught by `opcWrClosure`
 
         pushFrame(newFrame)
         # -1 for the following 'inc pc'

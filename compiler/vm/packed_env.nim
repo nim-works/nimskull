@@ -145,7 +145,8 @@ type
     types*: seq[PackedVmType]
 
     globals*: seq[VmTypeId] ## All globals. Only their types are stored
-    functions*: seq[tuple[sym: uint32, sig: RoutineSigId, t1, t2: VmTypeId, kind: CallableKind, a, b: uint32]]
+    functions*: seq[tuple[sym: uint32, sig: RoutineSigId, t1: VmTypeId,
+                          isClosure: bool, kind: CallableKind, a, b: uint32]]
     callbacks*: seq[string]
 
     code*: seq[TInstr]
@@ -798,7 +799,7 @@ proc loadEnv*(dst: var TCtx, src: PackedEnv) =
     # stack trace entries
     var f = FuncTableEntry(sym: nimSym, sig: x.sig,
                            retValDesc: dst.types[x.t1],
-                           envParamType: dst.types[x.t2],
+                           isClosure: x.isClosure,
                            kind: x.kind)
     case x.kind
     of ckDefault:
@@ -860,14 +861,13 @@ func storeEnv*(enc: var PackedEncoder, dst: var PackedEnv, c: TCtx) =
     let
       d = dst.storeDbgSym(x.sym)
       t1 = enc.typeMap[x.retValDesc]
-      t2 = enc.typeMap[x.envParamType]
 
     let (a, b) =
       case x.kind
       of ckCallback: (x.cbOffset.uint32, 0'u32)
       of ckDefault:  (x.start.uint32, x.regCount.uint32)
 
-    (d, x.sig, t1, t2, x.kind, a, b)
+    (d, x.sig, t1, x.isClosure, x.kind, a, b)
 
   dst.code = c.code
 
