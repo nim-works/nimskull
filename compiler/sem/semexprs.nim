@@ -2378,7 +2378,7 @@ proc semProcBody(c: PContext, n: PNode): PNode =
     result = discardCheck(c, result, {})
 
   if c.p.owner.kind notin {skMacro, skTemplate} and
-     c.p.resultSym != nil and c.p.resultSym.typ.isMetaType:
+     c.p.resultSym != nil and resultTypeIsInferrable(c.p.resultSym.typ):
     if isEmptyType(result.typ):
       # we inferred a 'void' return type:
       c.p.resultSym.typ = errorType(c)
