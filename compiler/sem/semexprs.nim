@@ -2399,7 +2399,7 @@ proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
   ## is a tuple type that contains views. Also introduces ``nkHiddenAddr``
   ## where needed
   addInNimDebugUtils(c.config, "semYieldVarResult", n, result)
-  result = copyNode(n)
+  result = n # n is a production already
 
   let t = skipTypes(restype, {tyGenericInst, tyAlias, tySink})
   var hasError = false
@@ -2478,19 +2478,17 @@ proc semYield(c: PContext, n: PNode): PNode =
     result = shallowCopy(n)
     result[0] = semExprWithType(c, n[0])
 
-    var iterType = c.p.owner.typ
-    let restype = iterType[0]
+    let restype = c.p.owner.typ[0]
     if restype != nil:
-      if restype.kind != tyUntyped:
+      if resultTypeIsInferrable(restype):
+        # note: resultSym is nil if the iterator is not a closure iterator
+        result[0] = inferResultType(c, restype, c.p.resultSym, result[0])
+      else:
         result[0] = fitNode(c, restype, result[0], n.info)
 
-      if resultTypeIsInferrable(restype):
-        let inferred = result[0].typ
-        iterType[0] = inferred
-        if c.p.resultSym != nil:
-          c.p.resultSym.typ = inferred
-
-      result = semYieldVarResult(c, result, restype)
+      # the result type might have changed, meaning that it needs to be queried
+      # again
+      result = semYieldVarResult(c, result, c.p.owner.typ[0])
     else:
       result = c.config.newError(result, PAstDiag(kind: adSemCannotReturnTypeless))
 
