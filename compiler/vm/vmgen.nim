@@ -2065,7 +2065,9 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
       state = c.getTemp(n.typ)  # XXX: also wrong
       imm = c.getTemp(n.typ)    # XXX: this one too
 
-    c.gABC(n, opcAccessEnv, env, tmp)
+    # load the env reference and dereference it:
+    c.gABC(n, opcLdObj, env, tmp, 1)
+    c.gABC(n, opcLdDeref, env, env)
 
     # load the state value into a register. The :state field is always
     # located at position 0
@@ -2908,19 +2910,29 @@ proc genTupleConstr(c: var TCtx, n: CgNode, dest: var TDest) =
       c.freeTemp(tmp)
 
 proc genClosureConstr(c: var TCtx, n: CgNode, dest: var TDest) =
-  if dest.isUnset: dest = c.getTemp(n.typ)
-
-  c.gABx(n, opcLdNull, dest, c.genType(n.typ))
+  prepare(c, dest, n, n.typ)
   let tmp = c.genx(n[0])
-  if n[1].kind == cnkNilLit:
-    # no environment
-    c.gABC(n, opcWrClosure, dest, tmp, dest)
-  else:
-    let envTmp = c.genx(n[1])
-    c.gABC(n, opcWrClosure, dest, tmp, envTmp)
-    c.freeTemp(envTmp)
-
+  c.gABC(n, opcWrObj, dest, 0, tmp)
   c.freeTemp(tmp)
+
+  let typ = c.typeInfoCache.types.find(c.typeInfoCache.rootRef)
+  # the type of the environment value is wrong, the VM expects
+  # the value to be of ``RootRef`` type. We're correcting this
+  # here by emitting a conversion
+  if n[1].kind == cnkNilLit:
+    let tmp = c.getTemp(slotTempComplex)
+    c.gABx(n[1], opcLdNull, tmp, typ)
+    c.gABC(n[1], opcWrObj, dest, 1, tmp)
+    c.freeTemp(tmp)
+  else:
+    let
+      envTmp = c.genx(n[1])
+      tmp2 = c.getTemp(slotTempComplex)
+    c.gABC(n[1], opcObjConv, tmp2, envTmp)
+    c.gABx(n[1], opcObjConv, 0, typ)
+    c.gABC(n[1], opcWrObj, dest, 1, tmp2)
+    c.freeTemp(tmp2)
+    c.freeTemp(envTmp)
 
 proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   when defined(nimCompilerStacktraceHints):
