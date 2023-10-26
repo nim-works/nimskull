@@ -2157,10 +2157,6 @@ proc asgnToResultVar(c: PContext, n: PNode): PNode {.inline.} =
   else:
     discard
 
-template resultTypeIsInferrable(typ: PType): untyped =
-  typ.isMetaType and typ.kind != tyTypeDesc and
-    (typ.kind notin tyUserTypeClasses or not typ.isResolvedUserTypeClass)
-
 proc goodLineInfo(arg: PNode): TLineInfo =
   if arg.kind == nkStmtListExpr and arg.len > 0:
     goodLineInfo(arg[^1])

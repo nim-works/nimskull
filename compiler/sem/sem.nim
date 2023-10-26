@@ -655,6 +655,10 @@ when not defined(nimHasSinkInference):
 
 include hlo, seminst, semcall
 
+template resultTypeIsInferrable(typ: PType): untyped =
+  typ.isMetaType and typ.kind != tyTypeDesc and
+    (typ.kind notin tyUserTypeClasses or not typ.isResolvedUserTypeClass)
+
 proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
                        s: PSym, flags: TExprFlags): PNode =
   ## Semantically check the output of a macro.
@@ -706,7 +710,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       else:
         result.typ = makeTypeDesc(c, typ)
     else:
-      if s.ast[genericParamsPos] != nil and retType.isMetaType:
+      if s.ast.isGenericRoutine and retType.isMetaType:
         # The return type may depend on the Macro arguments
         # e.g. template foo(T: typedesc): seq[T]
         # We will instantiate the return type here, because
@@ -719,7 +723,12 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
                                        macroResult.info, retType)
 
       result = semExpr(c, result, flags)
-      result = fitNode(c, retType, result, result.info)
+      if resultTypeIsInferrable(retType):
+        # this is a "return type inference" scenario. There's no return type
+        # to infer, but the expression still needs to use the proper type
+        result = inferWithMetatype(c, retType, result)
+      else:
+        result = fitNode(c, retType, result, result.info)
   dec(c.config.evalTemplateCounter)
   discard c.friendModules.pop()
 
