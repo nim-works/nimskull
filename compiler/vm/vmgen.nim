@@ -1005,19 +1005,25 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
 
   # generate the code for the callee:
   if fntyp.callConv == ccClosure:
-    # unpack the closure (a tuple): the proc goes into the callee
+    # unpack the closure (i.e., tuple): the proc goes into the callee
     # slot, while the environment pointer goes into the last argument
     # slot
-    let
-      tmp = c.genx(n[0])
-      tmp2 = c.getTemp(slotTempComplex)
-    c.gABC(n[0], opcLdObj, x+0, tmp, 0)
-    # use a full assignment in order for the environment to stay alive during
-    # the call
-    c.gABC(n[0], opcLdObj, tmp2, tmp, 1)
-    c.gABC(n[0], opcAsgnComplex, x+n.len, tmp2)
-    c.freeTemp(tmp2)
-    c.freeTemp(tmp)
+    if n[0].kind == cnkClosureConstr:
+      # optimization: don't allocate a temporary but place the values into
+      # the respective registers directly
+      c.gen(n[0][0], x+0)
+      c.gen(n[0][1], x+n.len)
+    else:
+      let
+        tmp = c.genx(n[0])
+        tmp2 = c.getTemp(slotTempComplex)
+      c.gABC(n[0], opcLdObj, x+0, tmp, 0)
+      # use a full assignment in order for the environment to stay alive during
+      # the call
+      c.gABC(n[0], opcLdObj, tmp2, tmp, 1)
+      c.gABC(n[0], opcAsgnComplex, x+n.len, tmp2)
+      c.freeTemp(tmp2)
+      c.freeTemp(tmp)
   else:
     c.gen(n[0], x+0)
 
