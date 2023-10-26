@@ -2919,10 +2919,11 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
         of nkError:
           arg = operand
         else:
-          n[a][1] = operand
-          n[a].typ = n[a][1].typ
-
-          arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a][1])
+          arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+          if arg != nil and arg.kind != nkError and
+             not (arg.kind == nkSym and arg.sym.isError):
+            n[a][1] = operand
+            n[a].typ = n[a][1].typ
 
       m.error.firstMismatch.kind = kTypeMismatch
 
@@ -3001,8 +3002,9 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
             of nkError:
               arg = operand
             else:
-              n[a] = operand
-              arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a])
+              arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+              if arg != nil and arg.kind != nkError:
+                n[a] = operand
 
           if arg.isNil or                 # valid argumet
              container.isNil:             # container must exist
@@ -3067,11 +3069,12 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
             of nkError:
               arg = operand
             else:
-              n[a] = operand
-              arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a])
-              
+              arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+
               if arg.isNil(): # invalid arg
                 noMatch()
+              elif arg.kind != nkError:
+                n[a] = operand
 
           if m.baseTypeMatch or
              (formal.typ.kind == tyVarargs and arg.kind == nkError): # var args
