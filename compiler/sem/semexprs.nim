@@ -2473,31 +2473,35 @@ proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
     result = c.config.wrapError(result)
 
 proc semYield(c: PContext, n: PNode): PNode =
-  result = n
   checkSonsLen(n, 1, c.config)
   if c.p.owner == nil or c.p.owner.kind != skIterator:
     localReport(c.config, n, reportSem rsemUnexpectedYield)
+    result = n
   elif n[0].kind != nkEmpty:
-    n[0] = semExprWithType(c, n[0]) # check for type compatibility:
+    result = shallowCopy(n)
+    result[0] = semExprWithType(c, n[0])
+
     var iterType = c.p.owner.typ
     let restype = iterType[0]
     if restype != nil:
       if restype.kind != tyUntyped:
-        n[0] = fitNode(c, restype, n[0], n.info)
-      c.config.internalAssert(n[0].typ != nil, n.info, "semYield")
+        result[0] = fitNode(c, restype, result[0], n.info)
 
       if resultTypeIsInferrable(restype):
-        let inferred = n[0].typ
+        let inferred = result[0].typ
         iterType[0] = inferred
         if c.p.resultSym != nil:
           c.p.resultSym.typ = inferred
 
-      result = semYieldVarResult(c, n, restype)
+      result = semYieldVarResult(c, result, restype)
     else:
       result = c.config.newError(result, PAstDiag(kind: adSemCannotReturnTypeless))
 
   elif c.p.owner.typ[0] != nil:
-    result = c.config.newError(result, PAstDiag(kind: adSemExpectedValueForYield))
+    result = c.config.newError(n, PAstDiag(kind: adSemExpectedValueForYield))
+  else:
+    # empty yield and void return type
+    result = n
 
 proc semDefined(c: PContext, n: PNode): PNode =
   checkSonsLen(n, 2, c.config)
