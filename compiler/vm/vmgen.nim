@@ -3270,6 +3270,13 @@ proc genProcBody(c: var TCtx): int =
           gABx(c, body, opcode, c.prc[resultId].reg, c.genType(rt))
 
     prepareParameters(c, body)
+    if s.routineSignature.callConv == ccClosure:
+      # convert the environment reference to the expected type, the caller
+      # may pass it as a super type
+      let env = TRegister(s.routineSignature.n.len)
+      c.gABC(body, opcObjConv, env, env)
+      c.gABx(body, opcObjConv, 0, c.genType(c.prc.body[LocalId env].typ))
+
     gen(c, body)
 
     # generate final 'return' statement:
