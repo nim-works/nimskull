@@ -112,11 +112,6 @@ type
     akSeq
     akRef
     akCallable # TODO: rename to akProcedural or akFuncHandle
-    akClosure # XXX: closures could also be represented as an akObject
-              #      with two fields. Few problems: You'd need the concept of a
-              #      dynamically typed ref (easy); the guest must be prevented
-              #      from modifying the closure's fields (possible); extra
-              #      detection logic in `opcIndCall` is required
 
     akDiscriminator
 
@@ -194,7 +189,7 @@ type
       #       `akPtr`/`akRef`
       seqElemStride*: int
       seqElemType*: PVmType
-    of akCallable, akClosure:
+    of akCallable:
       routineSig*: RoutineSigId
     of akDiscriminator:
       # A discriminator consists of two things: the value as seen by the guest
@@ -256,10 +251,6 @@ type
     of ckCallback:
       cbOffset*: int ## the index into the callback list
 
-  VmClosure* = object
-    fnc*: VmFunctionPtr
-    env*: HeapSlotHandle
-
   VmMemPointer* = distinct ptr UncheckedArray[byte]
     ## A pointer into a memory region managed by the VM (i.e. guest memory)
   VmMemoryRegion* = openArray[byte]
@@ -306,7 +297,6 @@ type
     seqVal*: VmSeq ## akSeq
     refVal*: HeapSlotHandle ## akRef
     callableVal*: VmFunctionPtr ## akCallable
-    closureVal*: VmClosure ## akClosure
 
     nodeVal*: PNode ## akPNode
 
@@ -809,7 +799,6 @@ proc init*(cache: var TypeInfoCache) =
   setInfo(akPtr, ptr Atom)
   setInfo(akRef, HeapSlotHandle)
   setInfo(akCallable, VmFunctionPtr)
-  setInfo(akClosure, VmClosure)
   setInfo(akPNode, PNode)
 
   # Add a `nil` at index '0' so that type-id '0' means none/nil/invalid

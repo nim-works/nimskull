@@ -440,7 +440,7 @@ proc loadSliceList*[T: SliceListType](p: PackedEnv, id: uint32): seq[Slice[T]] =
 func numFields(t: PVmType): int =
   case t.kind
   of akInt, akFloat, akPNode: 0
-  of akPtr, akRef, akSeq, akString, akSet, akDiscriminator, akCallable, akClosure: 1
+  of akPtr, akRef, akSeq, akString, akSet, akDiscriminator, akCallable: 1
   of akArray: 1
   of akObject: 1 + t.objFields.len
 
@@ -468,7 +468,7 @@ func storeVmType(enc: var PackedEncoder, dst: var PackedEnv, t: PVmType): Packed
 
     of akSet:                 (t.setLength.uint32, 0'u32)
     of akDiscriminator:       (t.numBits.uint32, 0'u32)
-    of akCallable, akClosure: (t.routineSig.uint32, 0'u32)
+    of akCallable:            (t.routineSig.uint32, 0'u32)
     of akArray:               (t.elementCount.uint32, enc.typeMap[t.elementType])
     of akObject:              (t.relFieldStart, t.branches.len.uint32)
     of akInt, akFloat, akPNode:
@@ -516,7 +516,7 @@ func loadVmType(s: PackedEnv, types: seq[PVmType],
     t.elementCount = firstField.offset.int
     t.elementType = types[firstField.typId]
     t.elementStride = alignedSize(t.elementType).int
-  of akCallable, akClosure:
+  of akCallable:
     t.routineSig = firstField.offset.RoutineSigId
   of akObject:
     t.relFieldStart = firstField.offset

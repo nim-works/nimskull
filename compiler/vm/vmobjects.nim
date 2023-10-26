@@ -680,10 +680,6 @@ func resetLocation*(mm: var VmMemoryManager, loc: var VmMemoryRegion, typ: PVmTy
   of akRef:
     if not a.refVal.isNil:
       mm.heap.heapDecRef(mm.allocator, a.refVal)
-  of akClosure:
-    let e = a.closureVal.env
-    if not e.isNil:
-      mm.heap.heapDecRef(mm.allocator, e)
   of akDiscriminator:
     # The caller has to make sure to never use `resetLocation` on
     # a discriminator outside the context of object resetting
@@ -716,11 +712,6 @@ func asgnRef*(dst: var HeapSlotHandle, src: HeapSlotHandle, mm: var VmMemoryMana
 
   dst = src
 
-func asgnClosure*(dst: var VmClosure, src: VmClosure, mm: var VmMemoryManager, reset: static[bool]) {.inline.} =
-  asgnRef(dst.env, src.env, mm, reset)
-  dst.fnc = src.fnc
-
-
 proc copyToLocation*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: VmMemoryRegion, typ: PVmType, reset: static[bool] = true) =
   ## Deep-copy the value with type `typ` at location `src` to `dest`. The
   ## source and destination location must not overlap in memory
@@ -747,8 +738,6 @@ proc copyToLocation*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: VmM
     asgnRef(dstAtom.refVal, srcAtom.refVal, mm, reset)
   of akCallable:
     dstAtom.callableVal = srcAtom.callableVal
-  of akClosure:
-    asgnClosure(dstAtom.closureVal, srcAtom.closureVal, mm, reset)
   of akDiscriminator:
     safeCopyMem(dest, src.subView(0, size), size)
   of akPNode:

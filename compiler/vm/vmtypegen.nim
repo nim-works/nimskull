@@ -54,7 +54,7 @@ func hash(t: VmType): Hash =
     of akSeq:                 hash(t.seqElemType)
     of akPtr, akRef:          hash(t.targetType)
     of akSet:                 hash(t.setLength)
-    of akCallable, akClosure: hash(t.routineSig.int)
+    of akCallable:            hash(t.routineSig.int)
     of akDiscriminator:       hash(t.numBits)
     of akArray:               hash(t.elementCount) !& hash(t.elementType)
     of akObject:
@@ -80,7 +80,7 @@ func `==`(a, b: VmType): bool =
   of akSeq:                 cmpField(seqElemType)
   of akPtr, akRef:          cmpField(targetType)
   of akSet:                 cmpField(setLength)
-  of akCallable, akClosure: cmpField(routineSig)
+  of akCallable:            cmpField(routineSig)
   of akDiscriminator:
     # XXX: just testing for `numBits` means that `a: range[0..2]` and
     #      `b: range[0..3]` are treated as the same type!

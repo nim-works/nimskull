@@ -1117,7 +1117,8 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
           toSlice(deref(dest).seqVal, dTyp.seqElemType, c.allocator)
         of akArray:
           toSlice(dest)
-        of akInt, akFloat, akSet, akPtr, akRef, akObject, akPNode, akCallable, akClosure, akDiscriminator:
+        of akInt, akFloat, akSet, akPtr, akRef, akObject, akPNode, akCallable,
+           akDiscriminator:
           unreachable(dTyp.kind)
 
       if idx <% slice.len:
@@ -1212,71 +1213,10 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       # vmgen, it's always valid here
 
       let handle = regs[ra].handle
-      assert handle.typ.kind in {akCallable, akClosure}
-
+      assert handle.typ.kind == akCallable
       assert handle.typ.routineSig == c.functions[fncIdx.int].sig
 
-      # XXX: as a direct consequence of the state of vmgen, opcWrProc and
-      #      opcWrClosure are both implemented in a rather hacky way
-
-      case handle.typ.kind
-      of akCallable:
-        deref(handle).callableVal = toFuncPtr(fncIdx)
-      of akClosure:
-        # XXX: once function pointers are stored in registers, we won't need
-        # any special handling regarding the ptr/closure difference
-        deref(handle).closureVal.fnc = toFuncPtr(fncIdx)
-      else:
-        assert false # vmgen issue
-
-    of opcWrClosure:
-      let rb = instr.regB
-      let rc = instr.regC
-
-      # No need to validate the handle. Due to the usage of `opcWrClosure` in
-      # vmgen, it's always valid here
-
-      let h = regs[ra].handle
-      assert h.typ.kind == akClosure # vmgen issue
-
-      let env: HeapSlotHandle =
-        if rc == ra:
-          # Use nil environment
-          0
-        else:
-          # rc holds the environment ref
-          assert regs[rc].handle.typ.kind == akRef # vmgen issue
-          deref(regs[rc].handle).refVal
-
-      let fPtr =
-        case regs[rb].handle.typ.kind
-        of akCallable: deref(regs[rb].handle).callableVal
-        of akClosure: deref(regs[rb].handle).closureVal.fnc
-        else: assert false; default(VmFunctionPtr) # vmgen issue
-
-      assert fPtr.isNil or env == 0 or
-             c.functions[fPtr.toFuncIndex.int].envParamType != nil,
-             "environment must not be nil" # vmgen issue
-
-      deref(h).closureVal.asgnClosure(
-        VmClosure(fnc: fPtr, env: env),
-        c.memory,
-        reset=true)
-    of opcAccessEnv:
-      # a = b.env[]
-      decodeB(rkHandle)
-      checkHandle(regs[rb])
-
-      # XXX: the implementation works for now, but is going to run into issues
-      #      once the ``mAccessEnv`` magic reaches ``vmgen``. The
-      #      ``opcAccessEnv`` needs to only load the ``ref`` value, not
-      #      dereference it already
-      let env = regs[instr.regB].atomVal.closureVal.env
-      if env.isNil:
-        raiseVmError(VmEvent(kind: vmEvtNilAccess))
-      else:
-        regs[ra].setHandle(c.heap.tryDeref(env, noneType).value())
-
+      deref(handle).callableVal = toFuncPtr(fncIdx)
     of opcAddr:
       # the operation expects a handle as input and turns it into an address
       decodeB(rkAddress)
@@ -1574,7 +1514,6 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
           case a.handle.typ.kind
           of akRef:      cmpF(refVal)
           of akCallable: cmpF(callableVal)
-          of akClosure:  cmpF(closureVal)
           else: unreachable() # vmgen issue
         of rkNimNode:
           assert b.kind == rkNimNode
@@ -2411,8 +2350,6 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
           res = atom.ptrVal == nil
         of akCallable:
           res = atom.callableVal.isNil
-        of akClosure:
-          res = atom.closureVal.fnc.isNil
         of akInt, akFloat, akSet, akObject, akArray, akPNode, akDiscriminator:
           unreachable(regs[rb].kind)
       of rkNimNode:
