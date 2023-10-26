@@ -1756,8 +1756,39 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mLtF64: genBinaryABC(c, n, dest, opcLtFloat)
   of mLePtr, mLeU: genBinaryABC(c, n, dest, opcLeu)
   of mLtPtr, mLtU: genBinaryABC(c, n, dest, opcLtu)
-  of mEqProc, mEqRef:
+  of mEqRef:
     genBinaryABC(c, n, dest, opcEqRef)
+  of mEqProc:
+    # XXX: lower this as a MIR pass
+    if skipTypes(n[1].typ, abstractInst).callConv == ccClosure:
+      prepare(c, dest, n.typ)
+      # compare both tuple elements:
+      let
+        a = c.genx(n[1])
+        b = c.genx(n[2])
+        fieldA = c.getTemp(slotTempComplex)
+        fieldB = c.getTemp(slotTempComplex)
+
+      # load the prc fields:
+      c.gABC(n, opcLdObj, fieldA, a, 0)
+      c.gABC(n, opcLdObj, fieldB, b, 0)
+      # ``dest = fieldA == fieldB``
+      c.gABC(n, opcEqRef, dest, fieldA, fieldB)
+      # ``if not dest: goto end``
+      let jmp = c.xjmp(n, opcFJmp, dest)
+      # load the env fields:
+      c.gABC(n, opcLdObj, fieldA, a, 1)
+      c.gABC(n, opcLdObj, fieldB, b, 1)
+      # ``dest = fieldA == fieldB``
+      c.gABC(n, opcEqRef, dest, fieldA, fieldB)
+      c.patch(jmp)
+
+      c.freeTemp(fieldB)
+      c.freeTemp(fieldA)
+      c.freeTemp(b)
+      c.freeTemp(a)
+    else:
+      genBinaryABC(c, n, dest, opcEqRef)
   of mXor: genBinaryABC(c, n, dest, opcXor)
   of mNot: genUnaryABC(c, n, dest, opcNot)
   of mUnaryMinusI, mUnaryMinusI64:
@@ -1823,7 +1854,20 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.gABC(n, if m == mSetLengthStr: opcSetLenStr else: opcSetLenSeq, d, tmp)
     c.freeTemp(tmp)
     c.freeTemp(d)
-  of mIsNil: genUnaryABC(c, n, dest, opcIsNil)
+  of mIsNil:
+    # XXX: lower this earlier
+    if skipTypes(n[1].typ, abstractInst).callConv == ccClosure:
+      # test wether the procedure address is nil
+      prepare(c, dest, n.typ)
+      let
+        tmp = c.genx(n[1])
+        tmp2 = c.getTemp(slotTempComplex)
+      c.gABC(n, opcLdObj, tmp2, tmp, 0) # load the field handle
+      c.gABC(n, opcIsNil, dest, tmp2)
+      c.freeTemp(tmp2)
+      c.freeTemp(tmp)
+    else:
+      genUnaryABC(c, n, dest, opcIsNil)
   of mParseBiggestFloat:
     if dest.isUnset: dest = c.getTemp(n.typ)
     var
