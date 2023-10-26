@@ -108,7 +108,7 @@ proc initProcEntry*(linker: LinkerData, config: ConfigRef,
     else:
       let rTyp = prc.getReturnType()
       if not isEmptyType(rTyp):
-        tc.getOrCreate(config, rTyp, cl)
+        tc.getOrCreate(config, rTyp, false, cl)
       else:
         noneType
 

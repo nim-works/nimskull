@@ -181,9 +181,10 @@ const
   noDest = TDest(-1)
   slotSomeTemp* = slotTempUnknown
 
-proc getOrCreate*(c: var TCtx, typ: PType): PVmType {.inline.} =
+proc getOrCreate*(c: var TCtx, typ: PType;
+                  noClosure = false): PVmType {.inline.} =
   var cl: GenClosure
-  getOrCreate(c.typeInfoCache, c.config, typ, cl)
+  getOrCreate(c.typeInfoCache, c.config, typ, noClosure, cl)
 
 func raiseVmGenError(diag: sink VmGenDiag) {.noinline, noreturn.} =
   raise (ref VmGenError)(diag: diag)
@@ -257,7 +258,7 @@ template tryOrReturn(code): untyped =
 # forward declarations
 proc genLit(c: var TCtx; n: CgNode; lit: int; dest: var TDest)
 proc genTypeLit(c: var TCtx; info: CgNode, t: PType; dest: var TDest)
-proc genType(c: var TCtx, typ: PType): int
+proc genType(c: var TCtx, typ: PType; noClosure = false): int
 func fitsRegister(t: PType): bool
 proc genRegLoad(c: var TCtx, n: CgNode, dest, src: TRegister) {.inline.}
 proc genRegLoad(c: var TCtx, n: CgNode, typ: PType, dest, src: TRegister)
@@ -873,10 +874,10 @@ proc genCase(c: var TCtx; n: CgNode) =
         c.gen(branch[0])
   for endPos in endings: c.patch(endPos)
 
-proc genType(c: var TCtx; typ: PType): int =
+proc genType(c: var TCtx; typ: PType; noClosure = false): int =
   ## Returns the ID of `typ`'s corresponding `VmType` as an `int`. The
   ## `VmType` is created first if it doesn't exist already
-  let t = c.getOrCreate(typ)
+  let t = c.getOrCreate(typ, noClosure)
   # XXX: `getOrCreate` doesn't return the id directly yet. Once it does, the
   #      linear search below can be removed
   result = c.typeInfoCache.types.find(t)
@@ -990,7 +991,7 @@ proc genProcLit(c: var TCtx, n: CgNode, s: PSym; dest: var TDest) =
 
   let idx = c.linking.symToIndexTbl[s.id].int
 
-  c.gABx(n, opcLdNull, dest, c.genType(s.typ))
+  c.gABx(n, opcLdNull, dest, c.genType(s.typ, noClosure=true))
   c.gABx(n, opcWrProc, dest, idx)
 
 proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =

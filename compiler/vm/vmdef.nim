@@ -499,6 +499,12 @@ type
     uintTypes*: array[tyUInt..tyUInt64, PVmType]
     floatTypes*: array[tyFloat..tyFloat64, PVmType]
 
+    rootRef*: PVmType
+      ## the VM type corresponding to ``ref RootObj``.
+      # XXX: this is a temporary workaround, the type cache shouldn't need to
+      #      know nor care about ``RootObj``. Can be removed once closure types
+      #      are lowered earlier
+
   FunctionIndex* = distinct int
 
   # XXX: TCtx's contents should be separated into five parts (separate object
