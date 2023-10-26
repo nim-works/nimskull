@@ -5,7 +5,7 @@ Language elements that can affect control flow of code execution.
 All these should not be tested here but later:
 - `try` and `defer`, advanced/syntatic sugar based constructs
 - `proc` are used but not defined under `basics`
-- `case` tightly relate to `enum`s and shouldn't be handled here
+- `case` tightly relates to `enum`s and shouldn't be handled here
 - `when` is an advanced concept for conditional compilation
 
 # Old Description
