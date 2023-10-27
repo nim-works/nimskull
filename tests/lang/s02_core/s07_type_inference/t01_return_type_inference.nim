@@ -1,6 +1,6 @@
 discard """
   description: '''
-    The specified return type of a non-generic routines may be generic, in
+    The specified return type of non-generic routines may be generic, in
     which case the concrete type is inferred from the body.
   '''
 """
