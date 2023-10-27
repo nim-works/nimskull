@@ -1252,7 +1252,9 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   assert n.kind in nkCallKinds
 
-  let prc = n[0]
+  var callee = PNode(nil)
+    ## the analysed AST from the callee position
+
   case n[0].kind
   of nkDotExpr:
     # the callee position is a dotExpr (`a.b`) which could be:
@@ -1272,12 +1274,8 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
       result.flags.incl nfExplicitCall
       for i in 1..<n.len: result.add n[i]
       return semExpr(c, result, flags)
-    of nkError:
-      result = n
-      result[0] = n0
-      return wrapError(c.config, result)
     else:
-      n[0] = n0
+      callee = n0
   of nkBracketExpr:
     # this might be a call of a generic routine with explicit generic
     # arguments
@@ -1305,37 +1303,47 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
       return semDirectOp(c, n, flags)
     else:
       # it must be some subscript-like operation
-      n[0] = semExpr(c, n[0], {efInCall})
+      callee = semExpr(c, n[0], {efInCall})
   else:
     # the callee position is an ident/accQuoted or a more complex expression
-    n[0] = semExpr(c, n[0], {efInCall})
-    if n[0] != nil and n[0].isErrorLike:
-      result = wrapError(c.config, n)
-      return
+    callee = semExpr(c, n[0], {efInCall})
 
-  if n[0].typ != nil and n[0].typ.kind in {tyVar, tyLent}:
+  # error handling:
+  if callee.kind == nkError:
+    result = copyNodeWithKids(n)
+    result.flags = n.flags
+    result[0] = callee
+    return wrapError(c.config, result)
+  elif callee.typ == nil:
+    # use 'void' as the type. This makes the dispatching below easier
+    callee.typ = c.voidType
+
+  if callee.typ.kind in {tyVar, tyLent}:
     # the callee is a view; dereference it first
-    n[0] = newDeref(n[0])
+    callee = newDeref(callee)
 
   # Code beyond this point handles:
   # - callable field (dotExpr) or symbol
   # - object construction or conversion
   # - call operator fallback
 
-  let t = n[0].typ.skipTypesOrNil(abstractInst-{tyTypeDesc, tyDistinct})
+  let
+    t    = callee.typ.skipTypes(abstractInst-{tyTypeDesc, tyDistinct})
+    orig = n
+    n    = copyNodeWithKids(n) # setup the production
 
-  if t != nil:
-    if t.kind in {tyProc, tyTypeDesc} and semOpAux(c, n):
-      result = wrapError(c.config, n)
-      return
+  n[0] = callee
 
-    case t.kind
-    of tyNone:
+  case t.kind
+  of tyNone:
       # the callee is symbol choice -- switch to direct op processing. A symbol
       # choice reaching here means that the callee expression was wrapped in an
       # ``nkPar``
       return semDirectOp(c, n, flags)
-    of tyProc:
+  of tyProc:
+      if semOpAux(c, n):
+        return wrapError(c.config, n)
+
       # This is a proc variable, apply normal overload resolution
       let m = resolveIndirectCall(c, n, t)
       if m.state != csMatch:
@@ -1361,19 +1369,16 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
       else:
         result = m.call
         instGenericConvertersSons(c, result, m)
-    of tyTypeDesc:
+  of tyTypeDesc:
       result =
         if n.len == 1:
           semObjConstr(c, n, flags)
         else:
           semConv(c, n)
-    else:
-      discard
-
-  if result.isNil:
+  else:
     # Now that nkSym does not imply an iteration over the proc/iterator space,
-    # the old `prc` (which is likely an nkIdent) has to be restored:
-    n[0] = prc
+    # the original callee (which is likely an nkIdent) has to be restored:
+    n[0] = orig[0]
 
     # there is a call operator overload and we need to try it, save it here
     let callOpr = overloadedCallOpr(c, n)

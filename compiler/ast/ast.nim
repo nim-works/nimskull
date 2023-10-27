@@ -488,6 +488,12 @@ proc copyNode*(src: PNode): PNode =
   copyNodeImpl(result, src):
     discard
 
+proc copyNodeWithKids*(src: PNode): PNode =
+  ## Creates a shallow copy of `src`, meaning that a copy of `src` is
+  ## created without deep-copying the tree.
+  copyNodeImpl(result, src):
+    result.sons = src.sons
+
 template transitionNodeKindCommon(k: TNodeKind) =
   let obj {.inject.} = n[]
   when defined(useNodeIds):
