@@ -663,7 +663,6 @@ func toTNodeKind*(kind: ParsedNodeKind): TNodeKind {.inline.} =
   of pnkFloatLit: nkFloatLit
   of pnkFloat32Lit: nkFloat32Lit
   of pnkFloat64Lit: nkFloat64Lit
-  of pnkFloat128Lit: nkFloat128Lit
   of pnkStrLit: nkStrLit
   of pnkRStrLit: nkRStrLit
   of pnkTripleStrLit: nkTripleStrLit

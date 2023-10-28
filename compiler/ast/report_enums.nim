@@ -680,6 +680,7 @@ type
     rsemIllformedAst
     rsemInitHereNotAllowed
     rsemTypeExpected
+    rsemSinkIsNotATypeClass
     rsemGenericTypeExpected
     rsemTypeInvalid
     rsemWrongIdent

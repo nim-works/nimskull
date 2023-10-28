@@ -447,7 +447,8 @@ proc inferWithMetatype(c: PContext, formal: PType,
     #      used by ``semConv``), it makes more sense to return both the fitted
     #      node *and* the inferred formal type, and let the callsite handle it
     #      from there
-    if formal.kind == tyCompositeTypeClass:
+    case formal.kind
+    of tyCompositeTypeClass:
       # passing the composite type-class to ``generateTypeInstance`` would
       # get us the matched source type, which is not what we want here
       # (especially in the presense of ``distinct``s); we want the
@@ -459,6 +460,11 @@ proc inferWithMetatype(c: PContext, formal: PType,
       # types bound to the type variables used in the invocation -- we can
       # directly instantiate it
       result.typ = generateTypeInstance(c, m.bindings, arg.info, formal[1])
+    of tyGenericInst:
+      # special case: an instance of a generic type class (e.g.,
+      # ``type Tc[T] = T | int``). Use the type bound to the instance
+      result.typ = PType(idTableGet(m.bindings, formal))
+      c.config.internalAssert(result.typ != nil, arg.info)
     else:
       result.typ = generateTypeInstance(c, m.bindings, arg.info, formal)
   else:

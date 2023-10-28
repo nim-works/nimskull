@@ -15,9 +15,9 @@ block builtin_assert:
   ## If the expression is evaluated as true then the assertion is successful
   doAssert true
 
-block tuatologies:
-  ## `true == true` is evaluated as true, the assertion is succesful
+block tautologies:
+  ## `true == true` is evaluated as true, the assertion is successful
   doAssert true == true
 
-  ## `false == false` is evaluated as true, the assertion is succesful
+  ## `false == false` is evaluated as true, the assertion is successful
   doAssert false == false

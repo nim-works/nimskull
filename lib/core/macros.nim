@@ -51,8 +51,9 @@ type
     nnkType, nnkCharLit, nnkIntLit, nnkInt8Lit,
     nnkInt16Lit, nnkInt32Lit, nnkInt64Lit, nnkUIntLit, nnkUInt8Lit,
     nnkUInt16Lit, nnkUInt32Lit, nnkUInt64Lit, nnkFloatLit,
-    nnkFloat32Lit, nnkFloat64Lit, nnkFloat128Lit, nnkStrLit, nnkRStrLit,
-    nnkTripleStrLit, nnkNilLit,
+    nnkFloat32Lit, nnkFloat64Lit,
+    nnkStrLit = skipEnumValue(nimskullNoFloat128, nnkFloat64Lit)
+    nnkRStrLit, nnkTripleStrLit, nnkNilLit,
     nnkDotCall = skipEnumValue(nimHasNkComesFromNodeRemoved, nnkNilLit)
     nnkCommand, nnkCall, nnkCallStrLit, nnkInfix,
     nnkPrefix, nnkPostfix, nnkHiddenCallConv,
@@ -124,8 +125,9 @@ type
     ntySequence, ntyProc, ntyPointer, ntyOpenArray,
     ntyString, ntyCString, ntyForward, ntyInt,
     ntyInt8, ntyInt16, ntyInt32, ntyInt64,
-    ntyFloat, ntyFloat32, ntyFloat64, ntyFloat128,
-    ntyUInt, ntyUInt8, ntyUInt16, ntyUInt32, ntyUInt64,
+    ntyFloat, ntyFloat32, ntyFloat64,
+    ntyUInt = skipEnumValue(nimskullNoFloat128, ntyFloat64)
+    ntyUInt8, ntyUInt16, ntyUInt32, ntyUInt64,
     ntyUnused1 = skipEnumValue(nimHasTyOwnedRemoved, ntyUInt64),
     ntyUnused2,
     ntyVarargs,
@@ -711,12 +713,6 @@ proc newLit*(f: float64): NimNode =
   ## Produces a new float literal node.
   result = newNimNode(nnkFloat64Lit)
   result.floatVal = f
-
-when declared(float128):
-  proc newLit*(f: float128): NimNode =
-    ## Produces a new float literal node.
-    result = newNimNode(nnkFloat128Lit)
-    result.floatVal = f
 
 proc newLit*(arg: enum): NimNode =
   result = newCall(

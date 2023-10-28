@@ -355,7 +355,6 @@ typedef signed char NI8;
 typedef signed short int NI16;
 typedef signed int NI32;
 typedef __int64 NI64;
-/* XXX: Float128? */
 typedef unsigned char NU8;
 typedef unsigned short int NU16;
 typedef unsigned int NU32;
@@ -406,7 +405,6 @@ typedef __INT64_TYPE__ NI64;
 #else
 typedef long long int NI64;
 #endif
-/* XXX: Float128? */
 #ifdef __UINT8_TYPE__
 typedef __UINT8_TYPE__ NU8;
 #else

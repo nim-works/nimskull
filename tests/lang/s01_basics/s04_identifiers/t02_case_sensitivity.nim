@@ -1,13 +1,13 @@
 discard """
 description: '''
-Shows nim's partial case sensitivity at play:
+Shows Nimskull's partial case sensitivity at play:
 - first letter of an identifier is matched as case sensitive
 - remaining are not
 - underscores are ignored
 '''
 """
 
-# Nim's identifier match can be understood as:
+# Nimskull's identifier match can be understood as:
 # ```
 # proc sameIdentifier(a, b: string): bool =
 #   a[0] == b[0] and

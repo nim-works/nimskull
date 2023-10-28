@@ -135,7 +135,18 @@ proc discardCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
     elif n.typ.kind != tyError and c.config.cmd != cmdInteractive:
       var m = n
       while m.kind in skipForDiscardable:
-        m = m.lastSon
+        case m.kind
+        of nkTryStmt:
+          m =
+            case m[^1].kind
+            of nkFinally:
+              m[^2]
+            of nkExceptBranch:
+              m[^1]
+            of nkAllNodeKinds - {nkFinally, nkExceptBranch}:
+              unreachable()
+        else:
+          m = m.lastSon
 
       result = newError(c.config, n,
         PAstDiag(kind: adSemUseOrDiscardExpr, undiscarded: m))
@@ -299,7 +310,6 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
       n[i][^1] = discardCheck(c, n[i][^1], flags)
       if n[i][^1].isError:
         return wrapError(c.config, n)
-
     if typ == c.enforceVoidContext:
       result.typ = c.enforceVoidContext
   else:
@@ -321,7 +331,7 @@ proc fitRemoveHiddenConv(c: PContext, typ: PType, n: PNode): PNode =
   of nkHiddenStdConv, nkHiddenSubConv:
     let r1 = result[1]
     if r1.kind in {nkCharLit..nkUInt64Lit} and
-       typ.skipTypes(abstractRange).kind in {tyFloat..tyFloat128}:
+       typ.skipTypes(abstractRange).kind in {tyFloat..tyFloat64}:
       result = newFloatNode(nkFloatLit, BiggestFloat r1.intVal)
       result.info = n.info
       result.typ = typ
@@ -1679,7 +1689,7 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   of tyRange:
     if skipTypes(caseTyp[0], abstractInst).kind in shouldChckCovered:
       chckCovered = true
-  of tyFloat..tyFloat128, tyString:
+  of tyFloat..tyFloat64, tyString:
     # xxx: possible case statement macro bug, as it'll be skipped here
     discard
   else:
@@ -1984,9 +1994,9 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       s.typ.n = semGenericParamList(c, a[1], s.typ)
       a[1] = s.typ.n
       s.typ.size = -1 # could not be computed properly
-      # we fill it out later. For magic generics like 'seq', it won't be filled
-      # so we use tyNone instead of nil to not crash for strange conversions
-      # like: mydata.seq
+      # we fill it out later. For magic generics like 'typdesc', it won't be
+      # filled so we use tyNone instead of nil to not crash for expressions like
+      # ``static type``
       rawAddSon(s.typ, newTypeS(tyNone, c))
       s.ast = a
       inc c.inGenericContext

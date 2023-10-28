@@ -124,7 +124,7 @@ type
   TCTypeKind* = enum          ## describes the type kind of a C type
     ctVoid, ctChar, ctBool,
     ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
-    ctFloat, ctFloat32, ctFloat64, ctFloat128,
+    ctFloat, ctFloat32, ctFloat64,
     ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64,
     ctArray, ctPtrToArray, ctStruct, ctPtr, ctNimStr, ctNimSeq, ctProc,
     ctNimOpenArray,

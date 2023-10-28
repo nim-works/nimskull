@@ -53,7 +53,7 @@ type
     hasError: bool
 
 const
-  ExpressionNodes = nkCallKinds + nkLiterals + {
+  ExpressionNodes = nkCallKinds + nkLiterals + nkTypeExprs + {
     nkSym, nkEmpty, nkNimNodeLit, nkNilLit,
 
     nkRange, nkBracket, nkCurly, nkObjConstr, nkTupleConstr,
@@ -62,7 +62,6 @@ const
     nkAddr, nkHiddenAddr,
 
     nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv,
-    nkTypeOfExpr,
 
     nkIfExpr, nkBlockExpr, nkStmtListExpr, nkError}
     ## apart from the call node kinds, nodes that appear exclusively in
@@ -200,7 +199,7 @@ proc ordinalValToString(a: PNode; g: ModuleGraph): string =
     unreachable("non-ordinals never make it here")
 
 proc isFloatRange(t: PType): bool {.inline.} =
-  result = t.kind == tyRange and t[0].kind in {tyFloat..tyFloat128}
+  result = t.kind == tyRange and t[0].kind in {tyFloat..tyFloat64}
 
 proc isIntRange(t: PType): bool {.inline.} =
   result = t.kind == tyRange and t[0].kind in {
@@ -420,11 +419,11 @@ proc leValueConv*(a, b: PNode): bool =
   of nkCharLit..nkUInt64Lit:
     case b.kind
     of nkCharLit..nkUInt64Lit: result = a.getInt <= b.getInt
-    of nkFloatLit..nkFloat128Lit: result = a.intVal <= round(b.floatVal).int
+    of nkFloatLit..nkFloat64Lit: result = a.intVal <= round(b.floatVal).int
     else: result = false #internalError(a.info, "leValueConv")
-  of nkFloatLit..nkFloat128Lit:
+  of nkFloatLit..nkFloat64Lit:
     case b.kind
-    of nkFloatLit..nkFloat128Lit: result = a.floatVal <= b.floatVal
+    of nkFloatLit..nkFloat64Lit: result = a.floatVal <= b.floatVal
     of nkCharLit..nkUInt64Lit: result = a.floatVal <= toFloat64(b.getInt)
     else: result = false # internalError(a.info, "leValueConv")
   else: result = false # internalError(a.info, "leValueConv")
@@ -860,15 +859,14 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
     return
   of nkSym:
     discard "may be folded away"
-  of nkTypeOfExpr:
-    # XXX: could be folded into an ``nkType`` here...
-    discard
+  of nkTypeExprs - {nkStmtListType, nkBlockType}:
+    result.node = newNodeIT(nkType, n.info, n.typ)
   of nkBracket, nkCurly, nkTupleConstr, nkRange, nkAddr, nkHiddenAddr,
      nkHiddenDeref, nkDerefExpr, nkBracketExpr, nkCallKinds, nkIfExpr,
      nkElifExpr, nkElseExpr, nkElse, nkElifBranch:
     for it in n.items:
       result.add foldConstExprAux(m, it, idgen, g)
-  of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv, nkBlockExpr:
+  of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv, nkBlockExpr, nkBlockType:
     # the first slot only holds the type/label, which we don't need to traverse
     # into / fold
     result.add n[0]
@@ -892,7 +890,7 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
     result.add n[0] # skip the type slot
     for i in 1..<n.len:
       result.add foldConstExprAux(m, n[i], idgen, g)
-  of nkStmtListExpr:
+  of nkStmtListExpr, nkStmtListType:
     for i in 0..<n.len-1:
       result.add foldInAstAux(m, n[i], idgen, g)
     # the last node is an expression

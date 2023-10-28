@@ -75,7 +75,6 @@ type
     nkFloatLit            ## a floating point literal
     nkFloat32Lit
     nkFloat64Lit
-    nkFloat128Lit
     nkStrLit              ## a string literal ""
     nkRStrLit             ## a raw string literal r""
     nkTripleStrLit        ## a triple string literal """
@@ -253,7 +252,7 @@ const
     {nkIdent, nkSym} +
     {nkType} +
     {nkCharLit..nkUInt64Lit} +
-    {nkFloatLit..nkFloat128Lit} +
+    {nkFloatLit..nkFloat64Lit} +
     {nkStrLit..nkTripleStrLit} +
     {nkNilLit} +
     {nkError} +
@@ -268,7 +267,7 @@ const
     nkCharLit,
     nkIntLit, nkInt8Lit, nkInt16Lit, nkInt32Lit, nkInt64Lit,
     nkUIntLit, nkUInt8Lit, nkUInt16Lit, nkUInt32Lit, nkUInt64Lit,
-    nkFloatLit, nkFloat32Lit, nkFloat64Lit, nkFloat128Lit,
+    nkFloatLit, nkFloat32Lit, nkFloat64Lit, nkFloat64Lit,
     nkStrLit, nkRStrLit, nkTripleStrLit,
     nkNilLit,
 
@@ -492,7 +491,7 @@ type
     tyPointer, tyOpenArray,
     tyString, tyCstring, tyForward,
     tyInt, tyInt8, tyInt16, tyInt32, tyInt64, # signed integers
-    tyFloat, tyFloat32, tyFloat64, tyFloat128,
+    tyFloat, tyFloat32, tyFloat64,
     tyUInt, tyUInt8, tyUInt16, tyUInt32, tyUInt64,
     tySink, tyLent,
     tyVarargs,
@@ -565,6 +564,13 @@ const
 
   tyMetaTypes* = {tyGenericParam, tyTypeDesc, tyUntyped} + tyTypeClasses
   tyUserTypeClasses* = {tyUserTypeClass, tyUserTypeClassInst}
+
+  tyBuiltInTypeClasses* = {tyDistinct, tyEnum, tyOrdinal, tyArray, tyObject,
+                           tyTuple, tySet, tyRange, tyPtr, tyRef, tyVar,
+                           tySequence, tyProc, tyOpenArray, tyLent, tyVarargs,
+                           tyUncheckedArray}
+    ## the type kinds that may appear as the child of a
+    ## ``tyBuiltInTypeClass``
 
   # TODO: Remove tyTypeDesc from each abstractX and (where necessary)
   # replace with typedescX
@@ -785,7 +791,7 @@ type
     mOrdinal,
     mInt, mInt8, mInt16, mInt32, mInt64,
     mUInt, mUInt8, mUInt16, mUInt32, mUInt64,
-    mFloat, mFloat32, mFloat64, mFloat128,
+    mFloat, mFloat32, mFloat64,
     mBool, mChar, mString, mCstring,
     mPointer, mNil, mExpr, mStmt, mTypeDesc,
     mVoidType, mPNimrodNode, mDeepCopy,
@@ -1540,7 +1546,7 @@ type
     of nkCharLit..nkUInt64Lit:
       intVal*: BiggestInt
       intLitBase*: NumericalBase
-    of nkFloatLit..nkFloat128Lit:
+    of nkFloatLit..nkFloat64Lit:
       floatVal*: BiggestFloat
       floatLitBase*: NumericalBase
         # Once case branches can share fields this can be unified with

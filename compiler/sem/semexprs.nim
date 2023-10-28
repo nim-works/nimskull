@@ -1587,7 +1587,7 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
     markUsed(c, n.info, s)
     let typ = skipTypes(s.typ, abstractInst-{tyTypeDesc})
     case typ.kind
-    of  tyNil, tyChar, tyInt..tyInt64, tyFloat..tyFloat128,
+    of  tyNil, tyChar, tyInt..tyInt64, tyFloat..tyFloat64,
         tyTuple, tySet, tyUInt..tyUInt64:
       if s.magic == mNone: result = inlineConst(c, n, s)
       else: result = newSymNode(s, n.info)
@@ -1665,11 +1665,12 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
       n.typ = s.typ
       return n
   of skType:
-    markUsed(c, n.info, s)
     if s.typ.kind == tyStatic and s.typ.base.kind != tyNone and s.typ.n != nil:
+      markUsed(c, n.info, s)
       return s.typ.n
     result = newSymNode(s, n.info)
-    result.typ = makeTypeDesc(c, s.typ)
+    # ``semTypeNode`` will mark the symbol as used
+    result.typ = makeTypeDesc(c, semTypeNode(c, result, nil))
   of skField:
     # old code, not sure if it's live code:
     markUsed(c, n.info, s)
@@ -2156,14 +2157,43 @@ proc asgnToResultVar(c: PContext, n: PNode): PNode {.inline.} =
   else:
     discard
 
-template resultTypeIsInferrable(typ: PType): untyped =
-  typ.isMetaType and typ.kind != tyTypeDesc
-
 proc goodLineInfo(arg: PNode): TLineInfo =
   if arg.kind == nkStmtListExpr and arg.len > 0:
     goodLineInfo(arg[^1])
   else:
     arg.info
+
+proc inferResultType(c: PContext, formal: PType, res: PSym, n: PNode): PNode =
+  ## Given the typed expression AST `n`, and the meta-type `formal`, infers
+  ## the concrete result type. On success, the expression with the
+  ## inferred type is returned and the return type of the current routine
+  ## is updated -- if `res` is not nil, it's type is updated too.
+  ## On failure, or if `n` is an error already, the error is returned
+  ## and the return type is inferred as an error type.
+  var typ: PType
+  if formal.kind == tyUntyped:
+    # special handling for 'auto': no meta-type inference and resolved
+    # concepts are skipped
+    result = n
+    typ =
+      if n.typ.kind in tyUserTypeClasses and n.typ.isResolvedUserTypeClass:
+        n.typ[^1]
+      else:
+        n.typ
+  else:
+    result = inferWithMetatype(c, formal, n)
+    typ = result.typ
+
+  if not result.isError:
+    let typ = typeAllowedOrError(typ, skResult, c, n)
+    if typ.isError:
+      result = typ.n
+
+  # update the return type of the routine and, optionally, the type of the
+  # result symbol
+  c.p.owner.typ[0] = result.typ
+  if res != nil:
+    res.typ = result.typ
 
 proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
   checkSonsLen(n, 2, c.config)
@@ -2247,36 +2277,18 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
         lhs = a
         rhs = semExprWithType(c, n[1], {})
 
-      # set the rhs slot already -- it might be changed into an error later
-      result[1] = rhs
-
-      if lhs.kind == nkSym and lhs.sym.kind == skResult and rhs.kind != nkError:
+      if lhs.kind == nkSym and lhs.sym.kind == skResult:
+        # an assignment to the result variable forces a void context:
         result.typ = c.enforceVoidContext
-        if c.p.owner.kind != skMacro and resultTypeIsInferrable(lhs.sym.typ):
-          let rhsTyp =
-            if rhs.typ.kind in tyUserTypeClasses and
-                rhs.typ.isResolvedUserTypeClass:
-              rhs.typ.lastSon
-            else:
-              rhs.typ
-
-          if cmpTypes(c, lhs.typ, rhsTyp) in {isGeneric, isEqual}:
-            c.config.internalAssert c.p.resultSym != nil
-            # Make sure the type is valid for the result variable
-            let typ = typeAllowedOrError(rhsTyp, skResult, c, rhs, {})
-            if typ.isError:
-              result[1] = typ.n
-              hasError = true
-
-            c.p.resultSym.typ = rhsTyp
-            c.p.owner.typ[0] = rhsTyp
-          else:
-            result[1] = typeMismatch(c.config, n.info, lhs.typ, rhsTyp, rhs)
-            hasError = true
-
-      if not hasError:
+        if resultTypeIsInferrable(lhs.sym.typ):
+          c.config.internalAssert c.p.resultSym != nil
+          result[1] = inferResultType(c, lhs.sym.typ, lhs.sym, rhs)
+        else:
+          result[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))
+      else:
         result[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))
-        hasError = result[1].isError
+
+      hasError = result[1].isError
 
   if hasError:
     result = c.config.wrapError(result)
@@ -2362,7 +2374,7 @@ proc semProcBody(c: PContext, n: PNode): PNode =
     result = discardCheck(c, result, {})
 
   if c.p.owner.kind notin {skMacro, skTemplate} and
-     c.p.resultSym != nil and c.p.resultSym.typ.isMetaType:
+     c.p.resultSym != nil and resultTypeIsInferrable(c.p.resultSym.typ):
     if isEmptyType(result.typ):
       # we inferred a 'void' return type:
       c.p.resultSym.typ = errorType(c)
@@ -2383,7 +2395,7 @@ proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
   ## is a tuple type that contains views. Also introduces ``nkHiddenAddr``
   ## where needed
   addInNimDebugUtils(c.config, "semYieldVarResult", n, result)
-  result = copyNode(n)
+  result = n # n is a production already
 
   let t = skipTypes(restype, {tyGenericInst, tyAlias, tySink})
   var hasError = false
@@ -2397,7 +2409,7 @@ proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
       else:
         n[0]
 
-    result.add takeImplicitAddr(c, t, unwrappedValue)
+    result[0] = takeImplicitAddr(c, t, unwrappedValue)
     hasError = result[0].isError
   of tyTuple:
     # first, check if the tuple contains a *direct* view-type. If it does, the
@@ -2435,7 +2447,6 @@ proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
           else:
             useAddr tupleConstr[i]
 
-      result.add n[0]
     elif containsView:
       # the tuple contains a view type but the expression is not a literal
       # tuple constructor
@@ -2444,44 +2455,44 @@ proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
       #        with return type ``(int, (int, var int))``, but ``x`` is not
       #        for ``(int, var int)``?
       hasError = true
-      result.add newError(c.config, n[0],
+      result[0] = newError(c.config, n[0],
                           PAstDiag(kind: adSemYieldExpectedTupleConstr,
                                     tupleTyp: t))
-    else:
-      result.add n[0]
 
   else:
-    result.add n[0]
+    discard
 
   if hasError:
     result = c.config.wrapError(result)
 
 proc semYield(c: PContext, n: PNode): PNode =
-  result = n
   checkSonsLen(n, 1, c.config)
   if c.p.owner == nil or c.p.owner.kind != skIterator:
     localReport(c.config, n, reportSem rsemUnexpectedYield)
+    result = n
   elif n[0].kind != nkEmpty:
-    n[0] = semExprWithType(c, n[0]) # check for type compatibility:
-    var iterType = c.p.owner.typ
-    let restype = iterType[0]
+    result = shallowCopy(n)
+    result[0] = semExprWithType(c, n[0])
+
+    let restype = c.p.owner.typ[0]
     if restype != nil:
-      if restype.kind != tyUntyped:
-        n[0] = fitNode(c, restype, n[0], n.info)
-      c.config.internalAssert(n[0].typ != nil, n.info, "semYield")
-
       if resultTypeIsInferrable(restype):
-        let inferred = n[0].typ
-        iterType[0] = inferred
-        if c.p.resultSym != nil:
-          c.p.resultSym.typ = inferred
+        # note: resultSym is nil if the iterator is not a closure iterator
+        result[0] = inferResultType(c, restype, c.p.resultSym, result[0])
+      else:
+        result[0] = fitNode(c, restype, result[0], n.info)
 
-      result = semYieldVarResult(c, n, restype)
+      # the result type might have changed, meaning that it needs to be queried
+      # again
+      result = semYieldVarResult(c, result, c.p.owner.typ[0])
     else:
       result = c.config.newError(result, PAstDiag(kind: adSemCannotReturnTypeless))
 
   elif c.p.owner.typ[0] != nil:
-    result = c.config.newError(result, PAstDiag(kind: adSemExpectedValueForYield))
+    result = c.config.newError(n, PAstDiag(kind: adSemExpectedValueForYield))
+  else:
+    # empty yield and void return type
+    result = n
 
 proc semDefined(c: PContext, n: PNode): PNode =
   checkSonsLen(n, 2, c.config)
@@ -3592,8 +3603,6 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     # handle `nkFloatLit` here to keep raw information of the float literal;
     # not sure why though, also why not do that for int?
     if result.typ == nil: result.typ = getSysType(c.graph, n.info, tyFloat64)
-  of nkFloat128Lit:
-    if result.typ == nil: result.typ = getSysType(c.graph, n.info, tyFloat128)
   of nkStrLit..nkTripleStrLit:
     if result.typ == nil: result.typ = getSysType(c.graph, n.info, tyString)
   of nkCharLit:

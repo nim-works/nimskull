@@ -761,6 +761,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         result = "type expected, but got symbol '$1' of kind '$2'" %
           [r.sym.name.s, r.sym.kind.toHumanStr]
 
+    of rsemSinkIsNotATypeClass:
+      result = "'sink' cannot be used as a type class"
+
     of rsemCyclicDependency:
       result = "recursive dependency: '$1'" % r.symstr
 
@@ -2576,8 +2579,8 @@ const
   CommitMessage = "Source hash: $1\n" &
     "Source date: $2\n"
 
-  Usage = slurp"../doc/basicopt.txt".replace(" //", "   ")
-  AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") %
+  Usage = staticRead"../doc/basicopt.txt".replace(" //", "   ")
+  AdvancedUsage = staticRead"../doc/advopt.txt".replace(" //", "   ") %
     genFeatureDesc(Feature)
 
 

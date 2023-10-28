@@ -654,7 +654,7 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
       dest.strVal = $uint64(src.intVal)
     of tyBool:
       dest.strVal = if src.intVal == 0: "false" else: "true"
-    of tyFloat..tyFloat128:
+    of tyFloat..tyFloat64:
       dest.strVal = $src.floatVal
     of tyString:
       dest.strVal = src.strVal

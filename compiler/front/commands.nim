@@ -371,8 +371,8 @@ const
   ]
   CommitMessageTemplate = "Source hash: $1\n" &
                   "Source date: $2\n"
-  Usage = slurp"../doc/basicopt.txt".replace(" //", "   ")
-  AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") %
+  Usage = staticRead"../doc/basicopt.txt".replace(" //", "   ")
+  AdvancedUsage = staticRead"../doc/advopt.txt".replace(" //", "   ") %
     typeof(Feature).toSeq.mapIt($it).join("|") # '|' separated features
 
 proc showMsg*(conf: ConfigRef, msg: string) =
