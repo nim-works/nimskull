@@ -30,7 +30,8 @@ import
     mirgen
   ],
   compiler/modules/[
-    modulegraphs
+    modulegraphs,
+    magicsys
   ],
   compiler/utils/[
     containers
@@ -271,6 +272,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
            gen: CodeGenCtx(config: g.config, graph: g, mode: emStandalone))
 
   c.gen.typeInfoCache.init()
+  c.gen.typeInfoCache.initRootRef(g.config, g.getCompilerProc("RootObj").typ)
 
   # register the extra ops so that code generation isn't performed for the
   # corresponding procs:

@@ -70,7 +70,7 @@ block:
 
   env.globals = @[typId2]
   env.functions =
-    @[(4'u32, RoutineSigId(18), typId1, typId2, ckCallback, 3'u32, 2'u32)]
+    @[(4'u32, RoutineSigId(18), typId1, false, ckCallback, 3'u32, 2'u32)]
   env.callbacks = @["cb1", "cb2"]
 
   env.code = @[TInstr(14), TInstr(15)]

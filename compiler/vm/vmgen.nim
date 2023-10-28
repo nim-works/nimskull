@@ -181,9 +181,10 @@ const
   noDest = TDest(-1)
   slotSomeTemp* = slotTempUnknown
 
-proc getOrCreate*(c: var TCtx, typ: PType): PVmType {.inline.} =
+proc getOrCreate*(c: var TCtx, typ: PType;
+                  noClosure = false): PVmType {.inline.} =
   var cl: GenClosure
-  getOrCreate(c.typeInfoCache, c.config, typ, cl)
+  getOrCreate(c.typeInfoCache, c.config, typ, noClosure, cl)
 
 func raiseVmGenError(diag: sink VmGenDiag) {.noinline, noreturn.} =
   raise (ref VmGenError)(diag: diag)
@@ -257,7 +258,7 @@ template tryOrReturn(code): untyped =
 # forward declarations
 proc genLit(c: var TCtx; n: CgNode; lit: int; dest: var TDest)
 proc genTypeLit(c: var TCtx; info: CgNode, t: PType; dest: var TDest)
-proc genType(c: var TCtx, typ: PType): int
+proc genType(c: var TCtx, typ: PType; noClosure = false): int
 func fitsRegister(t: PType): bool
 proc genRegLoad(c: var TCtx, n: CgNode, dest, src: TRegister) {.inline.}
 proc genRegLoad(c: var TCtx, n: CgNode, typ: PType, dest, src: TRegister)
@@ -873,10 +874,10 @@ proc genCase(c: var TCtx; n: CgNode) =
         c.gen(branch[0])
   for endPos in endings: c.patch(endPos)
 
-proc genType(c: var TCtx; typ: PType): int =
+proc genType(c: var TCtx; typ: PType; noClosure = false): int =
   ## Returns the ID of `typ`'s corresponding `VmType` as an `int`. The
   ## `VmType` is created first if it doesn't exist already
-  let t = c.getOrCreate(typ)
+  let t = c.getOrCreate(typ, noClosure)
   # XXX: `getOrCreate` doesn't return the id directly yet. Once it does, the
   #      linear search below can be removed
   result = c.typeInfoCache.types.find(t)
@@ -990,22 +991,41 @@ proc genProcLit(c: var TCtx, n: CgNode, s: PSym; dest: var TDest) =
 
   let idx = c.linking.symToIndexTbl[s.id].int
 
-  c.gABx(n, opcLdNull, dest, c.genType(s.typ))
+  c.gABx(n, opcLdNull, dest, c.genType(s.typ, noClosure=true))
   c.gABx(n, opcWrProc, dest, idx)
 
 proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
-  # bug #10901: do not produce code for wrong call expressions:
-  if n[0].typ.isNil: return
-
   if not isEmptyType(n.typ):
     prepare(c, dest, n, n.typ)
 
   let
     fntyp = skipTypes(n[0].typ, abstractInst)
-    x = c.prc.getTempRange(n.len, slotTempUnknown)
+    regCount = n.len + ord(fntyp.callConv == ccClosure)
+    x = c.prc.getTempRange(regCount, slotTempUnknown)
 
-  # the procedure to call:
-  c.gen(n[0], x+0)
+  # generate the code for the callee:
+  if fntyp.callConv == ccClosure:
+    # unpack the closure (i.e., tuple): the proc goes into the callee
+    # slot, while the environment pointer goes into the last argument
+    # slot
+    if n[0].kind == cnkClosureConstr:
+      # optimization: don't allocate a temporary but place the values into
+      # the respective registers directly
+      c.gen(n[0][0], x+0)
+      c.gen(n[0][1], x+n.len)
+    else:
+      let
+        tmp = c.genx(n[0])
+        tmp2 = c.getTemp(slotTempComplex)
+      c.gABC(n[0], opcLdObj, x+0, tmp, 0)
+      # use a full assignment in order for the environment to stay alive during
+      # the call
+      c.gABC(n[0], opcLdObj, tmp2, tmp, 1)
+      c.gABC(n[0], opcAsgnComplex, x+n.len, tmp2)
+      c.freeTemp(tmp2)
+      c.freeTemp(tmp)
+  else:
+    c.gen(n[0], x+0)
 
   # varargs need 'opcSetType' for the FFI support:
   for i in 1..<n.len:
@@ -1037,7 +1057,7 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
     c.gABC(n, opcIndCall, 0, x, n.len)
   else:
     c.gABC(n, opcIndCallAsgn, dest, x, n.len)
-  c.freeTempRange(x, n.len)
+  c.freeTempRange(x, regCount)
 
 template isGlobal(s: PSym): bool = sfGlobal in s.flags
 
@@ -1742,8 +1762,39 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mLtF64: genBinaryABC(c, n, dest, opcLtFloat)
   of mLePtr, mLeU: genBinaryABC(c, n, dest, opcLeu)
   of mLtPtr, mLtU: genBinaryABC(c, n, dest, opcLtu)
-  of mEqProc, mEqRef:
+  of mEqRef:
     genBinaryABC(c, n, dest, opcEqRef)
+  of mEqProc:
+    # XXX: lower this as a MIR pass
+    if skipTypes(n[1].typ, abstractInst).callConv == ccClosure:
+      prepare(c, dest, n.typ)
+      # compare both tuple elements:
+      let
+        a = c.genx(n[1])
+        b = c.genx(n[2])
+        fieldA = c.getTemp(slotTempComplex)
+        fieldB = c.getTemp(slotTempComplex)
+
+      # load the prc fields:
+      c.gABC(n, opcLdObj, fieldA, a, 0)
+      c.gABC(n, opcLdObj, fieldB, b, 0)
+      # ``dest = fieldA == fieldB``
+      c.gABC(n, opcEqRef, dest, fieldA, fieldB)
+      # ``if not dest: goto end``
+      let jmp = c.xjmp(n, opcFJmp, dest)
+      # load the env fields:
+      c.gABC(n, opcLdObj, fieldA, a, 1)
+      c.gABC(n, opcLdObj, fieldB, b, 1)
+      # ``dest = fieldA == fieldB``
+      c.gABC(n, opcEqRef, dest, fieldA, fieldB)
+      c.patch(jmp)
+
+      c.freeTemp(fieldB)
+      c.freeTemp(fieldA)
+      c.freeTemp(b)
+      c.freeTemp(a)
+    else:
+      genBinaryABC(c, n, dest, opcEqRef)
   of mXor: genBinaryABC(c, n, dest, opcXor)
   of mNot: genUnaryABC(c, n, dest, opcNot)
   of mUnaryMinusI, mUnaryMinusI64:
@@ -1809,7 +1860,20 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.gABC(n, if m == mSetLengthStr: opcSetLenStr else: opcSetLenSeq, d, tmp)
     c.freeTemp(tmp)
     c.freeTemp(d)
-  of mIsNil: genUnaryABC(c, n, dest, opcIsNil)
+  of mIsNil:
+    # XXX: lower this earlier
+    if skipTypes(n[1].typ, abstractInst).callConv == ccClosure:
+      # test wether the procedure address is nil
+      prepare(c, dest, n.typ)
+      let
+        tmp = c.genx(n[1])
+        tmp2 = c.getTemp(slotTempComplex)
+      c.gABC(n, opcLdObj, tmp2, tmp, 0) # load the field handle
+      c.gABC(n, opcIsNil, dest, tmp2)
+      c.freeTemp(tmp2)
+      c.freeTemp(tmp)
+    else:
+      genUnaryABC(c, n, dest, opcIsNil)
   of mParseBiggestFloat:
     if dest.isUnset: dest = c.getTemp(n.typ)
     var
@@ -2051,7 +2115,9 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
       state = c.getTemp(n.typ)  # XXX: also wrong
       imm = c.getTemp(n.typ)    # XXX: this one too
 
-    c.gABC(n, opcAccessEnv, env, tmp)
+    # load the env reference and dereference it:
+    c.gABC(n, opcLdObj, env, tmp, 1)
+    c.gABC(n, opcLdDeref, env, env)
 
     # load the state value into a register. The :state field is always
     # located at position 0
@@ -2894,19 +2960,29 @@ proc genTupleConstr(c: var TCtx, n: CgNode, dest: var TDest) =
       c.freeTemp(tmp)
 
 proc genClosureConstr(c: var TCtx, n: CgNode, dest: var TDest) =
-  if dest.isUnset: dest = c.getTemp(n.typ)
-
-  c.gABx(n, opcLdNull, dest, c.genType(n.typ))
+  prepare(c, dest, n, n.typ)
   let tmp = c.genx(n[0])
-  if n[1].kind == cnkNilLit:
-    # no environment
-    c.gABC(n, opcWrClosure, dest, tmp, dest)
-  else:
-    let envTmp = c.genx(n[1])
-    c.gABC(n, opcWrClosure, dest, tmp, envTmp)
-    c.freeTemp(envTmp)
-
+  c.gABC(n, opcWrObj, dest, 0, tmp)
   c.freeTemp(tmp)
+
+  let typ = c.typeInfoCache.types.find(c.typeInfoCache.rootRef)
+  # the type of the environment value is wrong, the VM expects
+  # the value to be of ``RootRef`` type. We're correcting this
+  # here by emitting a conversion
+  if n[1].kind == cnkNilLit:
+    let tmp = c.getTemp(slotTempComplex)
+    c.gABx(n[1], opcLdNull, tmp, typ)
+    c.gABC(n[1], opcWrObj, dest, 1, tmp)
+    c.freeTemp(tmp)
+  else:
+    let
+      envTmp = c.genx(n[1])
+      tmp2 = c.getTemp(slotTempComplex)
+    c.gABC(n[1], opcObjConv, tmp2, envTmp)
+    c.gABx(n[1], opcObjConv, 0, typ)
+    c.gABC(n[1], opcWrObj, dest, 1, tmp2)
+    c.freeTemp(tmp2)
+    c.freeTemp(envTmp)
 
 proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   when defined(nimCompilerStacktraceHints):
@@ -3244,6 +3320,13 @@ proc genProcBody(c: var TCtx): int =
           gABx(c, body, opcode, c.prc[resultId].reg, c.genType(rt))
 
     prepareParameters(c, body)
+    if s.routineSignature.callConv == ccClosure:
+      # convert the environment reference to the expected type, the caller
+      # may pass it as a super type
+      let env = TRegister(s.routineSignature.n.len)
+      c.gABC(body, opcObjConv, env, env)
+      c.gABx(body, opcObjConv, 0, c.genType(c.prc.body[LocalId env].typ))
+
     gen(c, body)
 
     # generate final 'return' statement:

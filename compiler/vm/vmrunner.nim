@@ -122,15 +122,6 @@ proc loadConst(s: PackedEnv, idx: int, dst: LocHandle,
     else:#of pckProc:
       deref(dst).callableVal = toFuncPtr(n.pos.FunctionIndex)
 
-  of akClosure:
-    case n.kind
-    of pdkPtr:
-      # must be nil
-      assert n.pos == 0
-    else: # of pckProc:
-      let fncPtr = toFuncPtr(n.pos.FunctionIndex)
-      deref(dst).closureVal = VmClosure(fnc: fncPtr, env: 0)
-
   of akObject:
     assert n.kind == pdkObj
     let L = n.pos.int

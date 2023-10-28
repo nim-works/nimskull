@@ -63,12 +63,15 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
 proc deserializeObject(c: TCtx, m: VmMemoryRegion, vt: PVmType, f, con: PType, info: TLineInfo): PNode
 
 proc deserializeRef*(c: TCtx, slot: HeapSlotHandle, vt: PVmType; f, con: PType, info: TLineInfo): PNode =
-  ## In case that `con` is not none, deserialize the object as `con` and not
-  ## as the type it was originally created with
-  assert vt.kind == akRef
+  ## Produces the construction AST for the `ref` value represented by `slot`.
+  ## If the heap slot is inaccessible or its type not compatible with `vt`,
+  ## an error is returned. For the 'nil' slot, a nil literal is returned.
+  ##
+  ## When `vt` is not ``noneType``, the value is deserialized as if it were of
+  ## type `vt`. Otherwise the full value is deserialized.
   assert con.kind == tyRef
 
-  let r = c.heap.tryDeref(slot, vt.targetType)
+  let r = c.heap.tryDeref(slot, vt)
 
   result =
     if r.isOk:
@@ -78,11 +81,12 @@ proc deserializeRef*(c: TCtx, slot: HeapSlotHandle, vt: PVmType; f, con: PType, 
       let conBase = base.skipTypes(abstractInst)
 
       if conBase.kind == tyObject:
-        # Don't deserialize the target as the type it was created with, but
-        # rather with the type of the handle
+        let t =
+          if vt == noneType: src.typ
+          else:              vt
 
         # pass the unskipped base type
-        c.deserializeObject(src.byteView(), vt.targetType, f, conBase, info)
+        c.deserializeObject(src.byteView(), t, f, conBase, info)
       else:
         c.config.newError(
           wrongNode(base),
@@ -305,7 +309,7 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
   of tyRef:
     if t.sym == nil or t.sym.magic != mPNimrodNode:
       # FIXME: cyclic references will lead to infinite recursion
-      result = deserializeRef(c, atom.refVal, vt, formal, t, info)
+      result = deserializeRef(c, atom.refVal, vt.targetType, formal, t, info)
     else:
       assert vt.kind == akPNode
 
@@ -318,8 +322,26 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
         result = newTreeIT(nkNimNodeLit, info, formal): atom.nodeVal
 
   of tyProc:
-    case vt.kind
-    of akCallable:
+    case t.callConv
+    of ccClosure:
+      # closures are stored as a ``(prc, env)`` tuple
+      assert vt.kind == akObject
+      let
+        fieldA = cast[ptr Atom](addr m[vt.objFields[0].offset])
+        fieldB = cast[ptr Atom](addr m[vt.objFields[1].offset])
+
+      if fieldA.callableVal.isNil:
+        result = newNode(nkNilLit)
+      else:
+        let prc = c.functions[int toFuncIndex(fieldA.callableVal)].sym
+        result = newTree(nkClosure, [newSymNode(prc), nil])
+        result[1] =
+          if fieldB.refVal.isNil:
+            newNode(nkNilLit)
+          else:
+            let t = getEnvParam(prc).typ
+            c.deserializeRef(fieldB.refVal, noneType, t, t, info)
+    else:
       if not atom.callableVal.isNil:
         let entry = c.functions[int toFuncIndex(atom.callableVal)]
         # XXX: the effects list of the prc.typ and `formal` can be different.
@@ -327,25 +349,6 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
         result = newSymNode(entry.sym)
       else:
         result = newNode(nkNilLit)
-
-    of akClosure:
-      if atom.closureVal.fnc.isNil:
-        result = newNode(nkNilLit)
-      else:
-        let entry = c.functions[int toFuncIndex(atom.closureVal.fnc)]
-        result = newNode(nkClosure)
-        result.add(newSymNode(entry.sym))
-
-        let env =
-          if atom.closureVal.env.isNil:
-            newNode(nkNilLit)
-          else:
-            let t = entry.sym.getEnvParam().typ
-            c.deserializeRef(atom.closureVal.env, entry.envParamType, t, t, info)
-
-        result.sons.add(env)
-    else:
-      unreachable()
 
     result.typ = formal
     result.info = info
@@ -520,14 +523,15 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
   of tyProc:
     case t.callConv
     of ccClosure:
-      assert dest.typ.kind == akClosure
+      assert dest.typ.kind == akObject
       case n.kind
       of nkNilLit: discard "nothing to do"
       of nkClosure:
         assert n[0].kind == nkSym
-        let fnc = toFuncPtr(c.lookupProc(n[0].sym))
+        deref(dest.getFieldHandle(FieldPosition 0)).callableVal =
+          toFuncPtr(c.lookupProc(n[0].sym))
 
-        let env =
+        deref(dest.getFieldHandle(FieldPosition 1)).refVal =
           if n[1].kind == nkNilLit:
             # TODO: use a constant instead
             HeapSlotHandle(0)
@@ -541,8 +545,6 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
               # we wan't to fill the object, so pass the object type (not the
               # ref-type, i.e. `nEnvTyp`)
             e
-
-        deref(dest).closureVal = VmClosure(fnc: fnc, env: env)
       else: unreachable(n.kind)
     else:
       assert n.kind == nkSym
