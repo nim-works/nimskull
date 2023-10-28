@@ -5,45 +5,24 @@ description: '''
 '''
 """
 
-# This test was originally found via `sequtils.toSeq`, hence the extract from
-# that part of the standard library is used below.
+# ``test`` has to be an overloaded routine, where the overload with the non-
+# untyped parameter has to be defined **first**
 
-proc toSeqBuiltin[T](arg: cstring): seq[T] {.inline.} =
-  let len = arg.len
-  result.newSeq(len)
-  var i = 0
-  while i < len:
-    result[i] = arg[i]
-    inc i
+proc test(arg: string) =
+  discard
 
-template toSeqBuiltin[T](arg: untyped): untyped =
-  var tmp: seq[T] = @[]
+template test(arg: untyped) =
   for it in arg:
-    tmp.add it
-  tmp
+    discard
 
-template toSeq*(arg: untyped): untyped =
-  mixin items
-  when compiles(typeof(items(arg))):
-    # arg is something that supports the ``items`` iterator:
-    toSeqBuiltin[typeof(items(arg))](arg)
-  elif compiles(typeof(arg())):
-    # arg must be the symbol of an iterator:
-    toSeqBuiltin[typeof(arg())](arg())
-  else:
-    # arg must be an iterator invocation expression itself:
-    toSeqBuiltin[typeof(arg)](arg)
+# two overloads of ``test2`` have to exist, with one being an iterator while
+# the other is not. The return types don't matter as long as the non-iterator
+# doesn't return anything that matches `string` or something for which an
+# ``items`` iterator exists.
+iterator test2(): int =
+  yield 0
 
-iterator match[T](x: seq[T], v: T): T =
-  for item in x:
-    if item == v:
-      yield v
+proc test2(): bool =
+  discard
 
-proc match[T](x: seq[T], v: T): bool =
-  v in x
-
-proc main() =
-  let x = @[1, 1, 2, 3]
-  echo toSeq x.match(1)
-
-main()
+test(test2())
