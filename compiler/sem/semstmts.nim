@@ -474,17 +474,20 @@ proc makeDeref(n: PNode): PNode =
     result.add a
     t = skipTypes(baseTyp, {tyGenericInst, tyAlias, tySink})
 
-proc setVarType(c: PContext; v: PSym, typ: PType) =
+proc setSymType(c: PContext; n: PNode, v: PSym, typ: PType): PNode =
+  ## Sets the type of `v` to `typ`. If `v` already has a type assigned that
+  ## is not the same as `typ`, an ``nkError`` is returned -- a symbol node
+  ## otherwise. `n` is the node to use as the wrong node.
   if v.typ != nil and not sameTypeOrNil(v.typ, typ):
-    localReport(
-      c.config, v.info,
-      SemReport(
-        kind: rsemDifferentTypeForReintroducedSymbol,
-        sym: v,
-        typeMismatch: @[typeMismatch(
-          actual = typ, formal = v.typ)]))
-
-  v.typ = typ
+    c.config.newError(
+      n,
+      PAstDiag(
+        kind: adSemDifferentTypeForReintroducedSymbol,
+        reintrod: v,
+        foundTyp: typ))
+  else:
+    v.typ = typ
+    newSymNode(v)
 
 proc newSymChoiceUseQualifierReport(n: PNode): SemReport =
   assert n.kind in nkSymChoices
@@ -895,20 +898,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
       v.transitionToError(v.ast)
 
     # set the symbol type and add the symbol to the production
-    producedDecl[i] =
-      if v.typ != nil and not sameTypeOrNil(v.typ, vTyp):
-        hasError = true
-
-        c.config.newError(
-          r,
-          PAstDiag(
-            kind: adSemDifferentTypeForReintroducedSymbol,
-            reintrod: v,
-            foundTyp: vTyp))
-      else:
-        v.typ = vTyp
-
-        newSymNode(v)
+    producedDecl[i] = setSymType(c, r, v, vTyp)
 
     case def.kind
     of nkEmpty:
@@ -1255,20 +1245,7 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
       v.transitionToError(v.ast)
 
     # set the symbol type and add the symbol to the production
-    producedDecl[i] =
-      if v.typ != nil and not sameTypeOrNil(v.typ, vTyp):
-        hasError = true
-
-        c.config.newError(
-          r,
-          PAstDiag(
-            kind: adSemDifferentTypeForReintroducedSymbol,
-            reintrod: v,
-            foundTyp: vTyp))
-      else:
-        v.typ = vTyp
-
-        newSymNode(v)
+    producedDecl[i] = setSymType(c, r, v, vTyp)
 
     if producedDecl[i].isError:
       hasError = true
