@@ -209,3 +209,14 @@ block dont_consider_symbols_from_operands:
   # introduced by the template expansion. Since `1` matches ``float32`` and
   # ``float64`` equally well, this lead to an "ambiguous call" error
   doAssert test((define(); 1)) == 1
+
+
+block ensure_overload_mismatch_does_not_impact_subsequent_overload_candidates:
+  ## Test semantic analysis of one possible, but mismatched, overload doesn't
+  ## impact the analysis of successive overloads.
+
+  # it's important that the non-matching overload is defined first
+  proc overload(x, y: string): int = 1
+  proc overload(x, y: int): int = 2
+
+  doAssert overload(typeof(0)(1), 2) == 2
