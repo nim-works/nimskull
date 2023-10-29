@@ -457,9 +457,6 @@ proc executeCmd*(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
   conf.errorCounter = 0
   if not isKnownFile:
     graph.compileProject(dirtyIdx)
-  if conf.ideCmd in {ideUse, ideDus} and
-      dirtyfile.isEmpty:
-    discard "no need to recompile anything"
   else:
     var modIdx = graph.parentModule(dirtyIdx)
     if modIdx == InvalidFileIdx:
@@ -501,10 +498,12 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
   ## misnamed: should be 'symDeclared'
   let conf = g.config
   when defined(nimsuggest):
-    if s.allUsages.len == 0:
-      s.allUsages = @[info]
-    else:
-      s.addNoDup(info)
+    if conf.ideCmd in {ideNone, ideUse, ideDus, ideSug, ideCon}:
+      # used by `ideSug` and `ideCon` for sorting results
+      if s.allUsages.len == 0:
+        s.allUsages = @[info]
+      else:
+        s.addNoDup(info)
 
     case conf.ideCmd
     of ideDef:
