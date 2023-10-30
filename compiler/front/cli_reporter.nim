@@ -1443,8 +1443,14 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemDisallowedNilDeref:
       result = "nil dereference is not allowed"
 
+    of rsemCannotDeref:
+      result = "the built-in dereference operator is only available for" &
+               " 'ptr' and 'ref' types"
+
     of rsemInvalidTupleSubscript:
-      result = "invalid index value for tuple subscript"
+      result = ("invalid index value ($1) for tuple subscript. Tuple has " &
+                "$2 element(s)") % [$r.countMismatch.got,
+                                    $r.countMismatch.expected]
 
     of rsemLocalEscapesStackFrame:
       result = "'$1' escapes its stack frame; context: '$2'" % [r.symstr, r.ast.render]
@@ -3267,6 +3273,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemConstExprExpected,
       adSemExpectedObjectForOf,
       adSemDisallowedNilDeref,
+      adSemCannotDeref,
       adSemCannotReturnTypeless,
       adSemExpectedValueForYield,
       adSemNamedExprExpected,
@@ -3290,6 +3297,14 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind,
         ast: diag.wrongNode)
+  of adSemInvalidTupleSubscript:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemInvalidTupleSubscript,
+        ast: diag.wrongNode,
+        countMismatch: (expected: diag.tupleLen,
+                        got: diag.tupleIndex))
   of adSemCannotBeOfSubtype:
     semRep = SemReport(
         location: some diag.location,

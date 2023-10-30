@@ -644,14 +644,15 @@ proc explicitGenericSym(c: PContext, n: PNode, s: PSym): PNode =
   newInst.typ.flags.excl tfUnresolved
   newSymNode(newInst, info)
 
-proc explicitGenericInstantiation(c: PContext, n: PNode): PNode =
+proc explicitGenericInstantiation(c: PContext, a: PNode, n: PNode): PNode =
+  ## Resolves the instantiation expression `n` to a single symbol or symbol
+  ## choice. `a` is the symbol-like node denoting the overloads to consider.
   assert n.kind == nkBracketExpr
   # analyse the operands first
   let args = semGenericArgs(c, n)
   if args.kind == nkError:
     return args
 
-  let a = n[0]
   case a.kind
   of nkSym:
     # common case; check the only candidate has the right
