@@ -90,6 +90,8 @@ from compiler/ast/report_enums import ReportKind
 #   returns safe
 # each check returns its nilability and map
 
+{.pragma: debug, used, deprecated: "do not use in final build".}
+
 type
   SeqOfDistinct[T, U] = distinct seq[U]
 
@@ -286,7 +288,7 @@ proc history(map: NilMap, index: ExprIndex): seq[SemNilHistory] =
 
 
 proc symbol(n: PNode): Symbol
-func `$`(map: NilMap): string {.used.}
+func `$`(map: NilMap): string {.debug.}
 proc reverseDirect(map: NilMap): NilMap
 proc checkBranch(n: PNode, ctx: NilCheckerContext, map: NilMap): Check
 proc hasUnstructuredControlFlowJump(n: PNode): bool
@@ -352,7 +354,7 @@ proc namedSetsDebugInfo(ctx: NilCheckerContext, map: NilMap): string =
   result.add("\n")
 
 proc namedMapAndSetsDebugInfo(ctx: NilCheckerContext,
-                              map: NilMap): string {.used.} =
+                              map: NilMap): string {.debug.} =
   result = namedMapDebugInfo(ctx, map) & namedSetsDebugInfo(ctx, map)
 
 
