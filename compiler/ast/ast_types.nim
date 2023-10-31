@@ -1193,6 +1193,8 @@ type
     adSemCallIndirectTypeMismatch
     adSemSystemNeeds
     adSemDisallowedNilDeref
+    adSemCannotDeref
+    adSemInvalidTupleSubscript
     adSemLocalEscapesStackFrame
     adSemImplicitAddrIsNotFirstParam
     adSemCannotAssignTo
@@ -1331,6 +1333,7 @@ type
         adSemExpectedObjectForOf,
         adSemCannotBeOfSubtype,
         adSemDisallowedNilDeref,
+        adSemCannotDeref,
         adSemCannotReturnTypeless,
         adSemExpectedValueForYield,
         adSemNamedExprExpected,
@@ -1472,6 +1475,9 @@ type
       ordRange*: PType
     of adSemExpectedOrdinal:
       nonOrdTyp*: PType
+    of adSemInvalidTupleSubscript:
+      tupleIndex*: int
+      tupleLen*: int
     of adSemRecursiveDependencyIterator:
       recurrCallee*: PSym
     of adSemCallIndirectTypeMismatch:

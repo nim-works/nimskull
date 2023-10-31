@@ -559,6 +559,8 @@ func astDiagToLegacyReportKind*(
   of adSemCallIndirectTypeMismatch: rsemCallIndirectTypeMismatch
   of adSemSystemNeeds: rsemSystemNeeds
   of adSemDisallowedNilDeref: rsemDisallowedNilDeref
+  of adSemCannotDeref: rsemCannotDeref
+  of adSemInvalidTupleSubscript: rsemInvalidTupleSubscript
   of adSemLocalEscapesStackFrame: rsemLocalEscapesStackFrame
   of adSemImplicitAddrIsNotFirstParam: rsemImplicitAddrIsNotFirstParam
   of adSemCannotAssignTo: rsemCannotAssignTo

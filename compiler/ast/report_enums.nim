@@ -532,6 +532,7 @@ type
     rsemRecursiveDependencyIterator
     rsemIllegalNimvmContext
     rsemDisallowedNilDeref
+    rsemCannotDeref
     rsemInvalidTupleSubscript
     rsemLocalEscapesStackFrame
     rsemImplicitAddrIsNotFirstParam

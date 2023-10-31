@@ -76,7 +76,7 @@ proc semArrGet(c: PContext; n: PNode; flags: TExprFlags): PNode =
       result.add(n[i])
     result = semSubscript(c, result, flags)
 
-  if result.isNil:
+  if result.kind == nkCall:
     let x = copyTree(n)
     x[0] = newIdentNode(getIdent(c.cache, "[]"), n.info)
     result = bracketNotFoundError(c, x)
