@@ -1891,7 +1891,11 @@ proc applyTypeSectionPragmas(c: PContext; pragmas, operand: PNode): PNode =
       discard "builtin pragma"
     else:
       let (ident, err) = considerQuotedIdent(c, key)
-      if strTableGet(c.userPragmas, ident) != nil:
+      if err != nil:
+        # XXX: use nkError instead (or don't report an error yet and allow a
+        #      macro to recover)
+        localReport(c.config, err)
+      elif strTableGet(c.userPragmas, ident) != nil:
         discard "User-defined pragma"
       else:
         var amb = false
