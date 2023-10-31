@@ -87,9 +87,6 @@ proc writeln*(conf: ConfigRef, dest: static[CmdOutputKind], msg: string) =
 # temporary home for formatting output during early cli/config phase; this
 # should move to a better suited module.
 
-const
-  pathFmtStr = "$#($#, $#)" ## filename(line, column)
-
 func stylize*(str: string, color: ForegroundColor, styles: set[Style] = {}): string =
   if str.len == 0:
     result = str

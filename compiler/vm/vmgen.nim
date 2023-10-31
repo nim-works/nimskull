@@ -1147,18 +1147,6 @@ proc genBinaryABC(c: var TCtx; n: CgNode; dest: var TDest; opc: TOpcode) =
   c.freeTemp(tmp)
   c.freeTemp(tmp2)
 
-proc genBinaryABCD(c: var TCtx; n: CgNode; dest: var TDest; opc: TOpcode) =
-  prepare(c, dest, n, n.typ)
-  let
-    tmp = c.genx(n[1])
-    tmp2 = c.genx(n[2])
-    tmp3 = c.genx(n[3])
-  c.gABC(n, opc, dest, tmp, tmp2)
-  c.gABC(n, opc, tmp3)
-  c.freeTemp(tmp)
-  c.freeTemp(tmp2)
-  c.freeTemp(tmp3)
-
 proc genNarrow(c: var TCtx; n: CgNode; dest: TDest) =
   let t = skipTypes(n.typ, abstractVar-{tyTypeDesc})
   # uint is uint64 in the VM, we we only need to mask the result for

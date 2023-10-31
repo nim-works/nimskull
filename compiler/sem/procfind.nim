@@ -45,12 +45,10 @@ proc equalGenericParams(procA, procB: PNode): bool =
   result = true
 
 proc searchForProcAux(c: PContext, scope: PScope, fn: PSym): PSym =
-  const flags = {ExactGenericParams, ExactTypeDescValues,
-                 ExactConstraints, IgnoreCC}
   var it: TIdentIter
   result = initIdentIter(it, scope.symbols, fn.name)
   while result != nil:
-    if result.kind == fn.kind: #and sameType(result.typ, fn.typ, flags):
+    if result.kind == fn.kind:
       case equalParams(result.typ.n, fn.typ.n)
       of paramsEqual:
         if (sfExported notin result.flags) and (sfExported in fn.flags):

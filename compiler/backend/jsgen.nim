@@ -1070,7 +1070,6 @@ proc genFieldAddr(p: PProc, n: CgNode, r: var TCompRes) =
 proc genFieldAccess(p: PProc, n: CgNode, r: var TCompRes) =
   gen(p, n[0], r)
   r.typ = mapType(n.typ)
-  let otyp = skipTypes(n[0].typ, abstractVarRange)
 
   template mkTemp(i: int) =
     if r.typ == etyBaseIndex:

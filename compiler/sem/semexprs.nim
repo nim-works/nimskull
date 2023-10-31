@@ -680,17 +680,6 @@ proc changeType(c: PContext, n: PNode, newType: PType, check: bool): PNode =
     result = c.config.wrapError(result)
 
 
-proc arrayConstrType(c: PContext, n: PNode): PType =
-  var typ = newTypeS(tyArray, c)
-  rawAddSon(typ, nil)     # index type
-  if n.len == 0:
-    rawAddSon(typ, newTypeS(tyEmpty, c)) # needs an empty basetype!
-  else:
-    var t = skipTypes(n[0].typ, {tyGenericInst, tyVar, tyLent, tyOrdinal, tyAlias, tySink})
-    addSonSkipIntLit(typ, t, c.idgen)
-  typ[0] = makeRangeType(c, 0, n.len - 1, n.info)
-  result = typ
-
 proc semArrayElementIndex(c: PContext, n: PNode, formalIdx: PType
                          ): tuple[n: PNode, val: Int128] =
   ## Analyses the array element expression `n`, producing either the
@@ -2744,7 +2733,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   let oldInGenericInst = c.inGenericInst
   let oldProcCon = c.p
   c.generics = @[]
-  var err: string
+
   try:
     result = semExpr(c, n, flags)
     if result != nil and efNoSem2Check notin flags:

@@ -959,7 +959,6 @@ proc transformExpandToAst(c: PTransf, n: PNode): PNode =
 
   let
     call = n[1]
-    fntyp = call[0].typ ## the signature of the macro/template
     nimNodeTyp = sysTypeFromName(c.graph, n.info, "NimNode")
 
   result = copyNode(n)

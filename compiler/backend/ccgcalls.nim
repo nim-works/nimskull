@@ -55,9 +55,6 @@ proc reportObservableStore(p: BProc; le, ri: CgNode) =
      locationEscapes(p, le, p.nestedTryStmts.len > 0):
     localReport(p.config, le.info, reportSem rsemObservableStores)
 
-proc hasNoInit(call: CgNode): bool {.inline.} =
-  result = call[0].kind == cnkSym and sfNoInit in call[0].sym.flags
-
 proc isHarmlessStore(p: BProc; canRaise: bool; d: TLoc): bool =
   if d.k in {locTemp, locNone} or not canRaise:
     result = true

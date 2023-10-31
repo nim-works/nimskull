@@ -237,17 +237,6 @@ proc execute(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
 
   executeNoHooks(cmd, file, dirtyfile, line, col, graph)
 
-proc executeEpc(cmd: IdeCmd, args: SexpNode;
-                graph: ModuleGraph) =
-  let
-    file = AbsoluteFile args[0].getStr
-    line = args[1].getNum
-    column = args[2].getNum
-  var dirtyfile = AbsoluteFile""
-  if len(args) > 3:
-    dirtyfile = AbsoluteFile args[3].getStr("")
-  execute(cmd, file, dirtyfile, int(line), int(column), graph)
-
 proc returnEpc(socket: Socket, uid: BiggestInt, s: SexpNode|string,
                returnSymbol = "return") =
   let response = $convertSexp([newSSymbol(returnSymbol), uid, s])
@@ -336,10 +325,6 @@ proc toEpc(client: Socket; uid: BiggestInt) {.gcsafe.} =
     else:
       list.add sexp(res)
   returnEpc(client, uid, list)
-
-template setVerbosity(level: typed) =
-  gVerbosity = level
-  conf.notes = NotesVerbosity[gVerbosity]
 
 proc connectToNextFreePort(server: Socket, host: string): Port =
   server.bindAddr(Port(0), host)

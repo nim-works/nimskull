@@ -57,10 +57,6 @@ proc child*(node: SourceNode): Child =
   Child(kind: cSourceNode, node: node)
 
 
-proc newSourceNode(line: int, column: int, path: string, node: SourceNode, name: string = ""): SourceNode =
-  SourceNode(line: line, column: column, source: path, name: name, children: @[child(node)])
-
-
 proc newSourceNode(line: int, column: int, path: string, s: string, name: string = ""): SourceNode =
   SourceNode(line: line, column: column, source: path, name: name, children: @[child(s)])
 

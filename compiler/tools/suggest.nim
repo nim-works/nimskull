@@ -499,8 +499,8 @@ proc findDefinition(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym
 
 proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; isDecl=true) {.inline.} =
   ## misnamed: should be 'symDeclared'
-  let conf = g.config
   when defined(nimsuggest):
+    let conf = g.config
     if s.allUsages.len == 0:
       s.allUsages = @[info]
     else:
