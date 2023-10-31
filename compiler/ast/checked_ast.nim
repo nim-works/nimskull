@@ -110,7 +110,7 @@ func initWith*(x: var CheckedAst, n: sink PNode) =
   assert n.kind != nkError
   x.n = n
 
-func assign(x: var CheckedAst, n: sink PNode) {.inline.} =
+func assign*(x: var CheckedAst, n: sink PNode) {.inline.} =
   ## Assigns the tree `n` to `x`. The behaviour is undefined if `n` is either
   ## an error error or contains one.
   assert n != nil
