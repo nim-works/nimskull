@@ -29,7 +29,8 @@ import
 from compiler/ast/reports_sem import reportSym
 from compiler/ast/report_enums import ReportKind
 
-proc equalGenericParams(procA, procB: PNode): bool =
+proc equalGenericParams(procA, procB: PNode): bool {.used.} =
+  # currently unused, but might be used again
   if procA.len != procB.len: return false
   for i in 0..<procA.len:
     if procA[i].kind != nkSym:

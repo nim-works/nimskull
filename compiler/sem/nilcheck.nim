@@ -286,7 +286,7 @@ proc history(map: NilMap, index: ExprIndex): seq[SemNilHistory] =
 
 
 proc symbol(n: PNode): Symbol
-func `$`(map: NilMap): string
+func `$`(map: NilMap): string {.used.}
 proc reverseDirect(map: NilMap): NilMap
 proc checkBranch(n: PNode, ctx: NilCheckerContext, map: NilMap): Check
 proc hasUnstructuredControlFlowJump(n: PNode): bool
@@ -311,6 +311,7 @@ proc symbol(n: PNode): Symbol =
   # echo "symbol ", n, " ", n.kind, " ", result.int
 
 func `$`(map: NilMap): string =
+  # intended for debugging
   var now = map
   var stack: seq[NilMap] = @[]
   while not now.isNil:
@@ -350,7 +351,8 @@ proc namedSetsDebugInfo(ctx: NilCheckerContext, map: NilMap): string =
     result.add("} ")
   result.add("\n")
 
-proc namedMapAndSetsDebugInfo(ctx: NilCheckerContext, map: NilMap): string =
+proc namedMapAndSetsDebugInfo(ctx: NilCheckerContext,
+                              map: NilMap): string {.used.} =
   result = namedMapDebugInfo(ctx, map) & namedSetsDebugInfo(ctx, map)
 
 

@@ -251,7 +251,7 @@ template declareClosures =
   proc compilerMsgHandler(
       filename: string, line, col: int,
       msgKind: rst.MsgKind, arg: string
-    ) {.gcsafe.} =
+    ) {.gcsafe, used.} =
     # translate msg kind:
     {.gcsafe.}:
       globalReport(conf, newLineInfo(
@@ -275,7 +275,7 @@ template declareClosures =
             of mwRstStyle:                rbackRstRstStyle
       ))
 
-  proc docgenFindFile(s: string): string {.gcsafe.} =
+  proc docgenFindFile(s: string): string {.gcsafe, used.} =
     result = options.findFile(conf, s).string
     if result.len == 0:
       result = getCurrentDir() / s

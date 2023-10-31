@@ -411,9 +411,9 @@ template changed(conf: ConfigRef, s: ConfNoteSet, body: untyped) =
   # Template for debugging purposes - single place to track all changes in
   # the enabled note sets.
   when defined(debug):
-    let before = conf.active.noteSets[s]
+    let before {.used.} = conf.active.noteSets[s]
     body
-    let after = conf.active.noteSets[s]
+    let after {.used.} = conf.active.noteSets[s]
 
     # let n = rintMsgOrigin
     # if (n in before) != (n in after):
@@ -461,7 +461,7 @@ template changedOpts(conf: ConfigRef, body: untyped) =
     let before = conf.localOptions
     body
     let after = conf.localOptions
-    let removed = (optHints in before) and (optHints notin after)
+    let removed {.used.} = (optHints in before) and (optHints notin after)
 
   else:
     body

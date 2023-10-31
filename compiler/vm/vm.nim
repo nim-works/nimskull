@@ -332,7 +332,7 @@ template decodeBC(k: TRegisterKind) {.dirty.} =
   let rc = instr.regC
   ensureKind(k)
 
-template decodeBC(k: AtomKind) {.dirty.} =
+template decodeBC(k: AtomKind) {.dirty, used.} =
   let rb = instr.regB
   let rc = instr.regC
   ensureAtomKind(k)
@@ -346,7 +346,7 @@ template decodeBImm(k: TRegisterKind) {.dirty.} =
   let imm = instr.regC - byteExcess
   ensureKind(k)
 
-template decodeBImm(k: AtomKind) {.dirty.} =
+template decodeBImm(k: AtomKind) {.dirty, used.} =
   let rb = instr.regB
   let imm = instr.regC - byteExcess
   ensureAtomKind(k)
@@ -360,7 +360,7 @@ template decodeBx(k: TRegisterKind) {.dirty.} =
   let rbx = instr.regBx - wordExcess
   ensureKind(k)
 
-template decodeBx(k: AtomKind) {.dirty.} =
+template decodeBx(k: AtomKind) {.dirty, used.} =
   let rbx = instr.regBx - wordExcess
   ensureAtomKind(k)
 
