@@ -390,7 +390,7 @@ proc argsToStr(x: SexpNode): string =
   let line = x[1].getNum
   let col = x[2].getNum
   let dirty = x[3].getStr
-  result = x[0].getStr.escape
+  result = file.escape
   if dirty.len > 0:
     result.add ';'
     result.add dirty.escape
