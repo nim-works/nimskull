@@ -305,13 +305,6 @@ func applySource(frag: var CodeFragment, sp: var SourceProvider) =
   if frag.nodes.len > frag.source.len:
     apply(frag, prepareForUse(sp))
 
-func addWithSource(frag: var CodeFragment, sp: var SourceProvider,
-                   n: sink MirNode, src: PNode) =
-  ## Adds `n` to `frag` and associates the node with `src`
-  applySource(frag, sp)
-  frag.nodes.add n
-  frag.source.add sp.store.add(src)
-
 template useSource(frag: var CodeFragment, sp: var SourceProvider,
                    origin: PNode) =
   ## Pushes `origin` to be used as the source for the rest of the scope that
@@ -485,7 +478,6 @@ proc genAndOr(c: var TCtx, n: PNode, dest: Destination) =
   #       into a single one before and the logic here adjusted to handle them.
   #       With the aforementioned transformation, the previously mentioned
   #       example would become: ``or(a, b, c)``
-  let label = nextLabel(c)
   genAsgn(c, dest, n[1]) # the left-hand side
 
   # condition:

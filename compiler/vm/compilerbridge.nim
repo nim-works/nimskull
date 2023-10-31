@@ -99,9 +99,6 @@ type
 
     oldErrorCount: int
 
-# to prevent endless recursion in macro instantiation
-const evalMacroLimit = 1000
-
 # prevent a default `$` implementation from being generated
 func `$`(e: ExecErrorReport): string {.error.}
 

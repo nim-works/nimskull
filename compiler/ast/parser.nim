@@ -541,11 +541,8 @@ proc exprColonEqExprList(p: var Parser, kind: range[pnkPar..pnkSqrBracket],
   p.exprColonEqExprListAux(endTok, result)
 
 proc dotExpr(p: var Parser, a: ParsedNode): ParsedNode =
-  let dotTok = p.tok
   result = p.newNodeConsumingTok(pnkDotExpr, @[a])
   p.optInd(result)
-  # result.add a
-  let yTok = p.tok
   result.add p.parseSymbol(smAfterDot)
   if p.tok.tokType == tkBracketLeColon and p.tok.strongSpaceA <= 0:
     # rewrite 'x.y[:z]()' to 'y[z](x)'
@@ -1702,7 +1699,6 @@ proc parseGenericParam(p: var Parser): ParsedNode =
   while true:
     case p.tok.tokType
     of tkIn, tkOut:
-      let x = p.lex.cache.getIdent(if p.tok.tokType == tkIn: "in" else: "out")
       a = p.newNodeConsumingTok(pnkPrefix, @[p.newIdentNode(p.tok)])
       a.add parseSymbol(p)
     of tkSymbol, tkAccent:
@@ -1841,7 +1837,6 @@ proc parseEnum(p: var Parser): ParsedNode =
   # progress guaranteed
   while true:
     let
-      symTok = p.tok
       a = parseSymbol(p)
     if a.kind == pnkEmpty: return
 

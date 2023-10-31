@@ -373,11 +373,6 @@ proc main*(args: seq[string]): int =
 
   let
     entryPoint = c.functions[lr.unsafeGet.int]
-    cb = proc (c: TCtx, r: TFullReg): PNode =
-      c.config.internalAssert(r.kind == rkInt):
-        "expected int return value" # either the executable is malformed or
-                                    # there's an issue with the code-generator
-      newIntNode(nkIntLit, r.intVal)
 
   # setup the starting frame:
   var frame = TStackFrame(prc: entryPoint.sym)

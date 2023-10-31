@@ -81,7 +81,6 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
   var
     counter, x: BiggestInt
     e: PSym
-    base: PType
     identToReplace: ptr PNode
   counter = 0
   result = newOrPrevType(tyEnum, prev, c)
@@ -884,15 +883,6 @@ proc toLiterals*(vals: IntSet, t: PType): seq[PNode] =
       else:
         result.add newIntNode(nkIntLit, BiggestInt(val))
 
-
-proc toEnumFields(vals: IntSet, t: PType): seq[PSym] =
-  block:
-    let t = t.skipTypes(abstractRange)
-    assert(t.kind in {tyEnum, tyBool}, $t.kind)
-
-  for node in toLiterals(vals, t):
-    result.add node.sym
-
 proc missingInts(c: PContext, n: PNode): IntSet =
   var coveredCases = initIntSet()
   for i in 1..<n.len:
@@ -904,9 +894,6 @@ proc missingInts(c: PContext, n: PNode): IntSet =
 
 proc formatMissingBranches(c: PContext, n: PNode): seq[PNode] =
   toLiterals(missingInts(c, n) , n[0].typ)
-
-proc formatMissingEnums(c: PContext, n: PNode): seq[PSym] =
-  toEnumFields(missingInts(c, n) , n[0].typ)
 
 proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
                    father: PNode, rectype: PType) =
@@ -1843,7 +1830,7 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
   addInNimDebugUtils(c.config, "semTypeClass", n, prev, result)
   # if n.len == 0: return newConstraint(c, tyTypeClass)
   let
-    pragmas = n[1]
+    # the first slot stores the pragmas
     inherited = n[2]
 
   result = newOrPrevType(tyUserTypeClass, prev, c)
@@ -1851,7 +1838,6 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
   let owner = getCurrOwner(c)
   var
     candidateTypeSlot = newTypeWithSons(owner, tyAlias, @[c.errorType], c.idgen)
-    cycleDetector = initIntSet()
   result.sons = @[candidateTypeSlot]
   result.n = n
 
@@ -1905,7 +1891,11 @@ proc applyTypeSectionPragmas(c: PContext; pragmas, operand: PNode): PNode =
       discard "builtin pragma"
     else:
       let (ident, err) = considerQuotedIdent(c, key)
-      if strTableGet(c.userPragmas, ident) != nil:
+      if err != nil:
+        # XXX: use nkError instead (or don't report an error yet and allow a
+        #      macro to recover)
+        localReport(c.config, err)
+      elif strTableGet(c.userPragmas, ident) != nil:
         discard "User-defined pragma"
       else:
         var amb = false

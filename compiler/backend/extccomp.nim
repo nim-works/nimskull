@@ -810,10 +810,6 @@ proc linkViaResponseFile(conf: ConfigRef; cmd: string) =
   finally:
     removeFile(linkerArgs)
 
-proc getObjFilePath(conf: ConfigRef, f: Cfile): string =
-  if noAbsolutePaths(conf): f.obj.extractFilename
-  else: f.obj.string
-
 proc displayProgressCC(conf: ConfigRef, path, compileCmd: string): string =
   if conf.hasHint(rcmdCompiling):
     conf.localReport CmdReport(

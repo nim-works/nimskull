@@ -69,6 +69,9 @@ import
 
 when defined(nimsuggest):
   import compiler/sem/passes, compiler/utils/pathutils # importer
+else:
+  # prevent warnings from routines only used by nimsuggest
+  {.push hint[XDeclaredButNotUsed]: off.}
 
 proc findDocComment(n: PNode): PNode =
   if n == nil: return nil
@@ -499,8 +502,8 @@ proc findDefinition(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym
 
 proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; isDecl=true) {.inline.} =
   ## misnamed: should be 'symDeclared'
-  let conf = g.config
   when defined(nimsuggest):
+    let conf = g.config
     if s.allUsages.len == 0:
       s.allUsages = @[info]
     else:

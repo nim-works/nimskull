@@ -294,10 +294,6 @@ func getAliveRange(entities: EntityDict, name: EntityName, exists: var bool
     # ``info.def`` for the start and not ``info.scope.b``
     result = info.def .. info.scope.b
 
-func paramType(p: PSym, i: Natural): PType =
-  assert p.kind in routineKinds
-  p.typ[1 + i]
-
 proc getVoidType(g: ModuleGraph): PType {.inline.} =
   g.getSysType(unknownLineInfo, tyVoid)
 
@@ -1129,7 +1125,6 @@ proc lowerBranchSwitch(buf: var MirNodeSeq, body: MirTree, graph: ModuleGraph,
 
     let
       boolTyp = graph.getSysType(unknownLineInfo, tyBool)
-      voidTyp = graph.getSysType(unknownLineInfo, tyVoid)
 
     # XXX: comparing the discrimant values here means that the branch is
     #      destroyed even if the branch doesn't change. This differs from

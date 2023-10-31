@@ -1171,22 +1171,6 @@ proc getPrecedence*(tok: Token): int =
   of tkOr, tkXor, tkPtr, tkRef: result = 3
   else: return -10
 
-proc newlineFollows(L: Lexer): bool =
-  var pos = L.bufpos
-  while true:
-    case L.buf[pos]
-    of ' ', '\t':
-      inc(pos)
-    of CR, LF:
-      result = true
-      break
-    of '#':
-      inc(pos)
-      if L.buf[pos] == '#': inc(pos)
-      if L.buf[pos] != '[': return true
-    else:
-      break
-
 proc skipMultiLineComment(L: var Lexer; tok: var Token; start: int;
                           isDoc: bool) =
   var pos = start
@@ -1524,21 +1508,6 @@ proc rawGetTok*(L: var Lexer, tok: var Token) =
         L.handleDiag(lexDiagInvalidToken, $c)
         inc(L.bufpos)
   atTokenEnd()
-
-proc getIndentWidth(fileIdx: FileIndex, inputstream: PLLStream;
-                     cache: IdentCache; config: ConfigRef): int =
-  var lex: Lexer
-  var tok: Token
-  initToken(tok)
-  openLexer(lex, fileIdx, inputstream, cache, config)
-  var prevToken = tkEof
-  while tok.tokType != tkEof:
-    rawGetTok(lex, tok)
-    if tok.indent > 0 and prevToken in {tkColon, tkEquals, tkType, tkConst, tkLet, tkVar, tkUsing}:
-      result = tok.indent
-      if result > 0: break
-    prevToken = tok.tokType
-  closeLexer(lex)
 
 proc getPrecedence*(ident: PIdent): int =
   ## assumes ident is binary operator already

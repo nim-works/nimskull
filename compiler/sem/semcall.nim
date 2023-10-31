@@ -560,10 +560,6 @@ proc semResolvedCall(c: PContext, x: TCandidate,
   result.typ = finalCallee.typ[0]
   result = updateDefaultParams(c.config, result)
 
-proc canDeref(n: PNode): bool {.inline.} =
-  result = n.len >= 2 and (let t = n[1].typ;
-    t != nil and t.skipTypes({tyGenericInst, tyAlias, tySink}).kind in {tyPtr, tyRef})
-
 proc semOverloadedCall(c: PContext, n: PNode,
                        filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
   addInNimDebugUtils(c.config, "semOverloadedCall", n, result)

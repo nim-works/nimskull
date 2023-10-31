@@ -147,23 +147,6 @@ proc wrapErrorAndUpdate(c: ConfigRef, n: PNode, s: PSym): PNode =
   result = c.wrapError(n)
   s.ast = result
 
-proc deltaTrace(stopProc, indent: string, entries: seq[StackTraceEntry])
-  {.inline.} =
-  # find the actual StackTraceEntry index based on the name
-  let endsWith = entries.len - 1
-  var startFrom = 0
-  for i in countdown(endsWith, 0):
-    let e = entries[i]
-    if i != endsWith and $e.procname == stopProc: # found the previous
-      startFrom = i + 1
-      break                                       # skip the rest
-
-  # print the trace oldest (startFrom) to newest (endsWith)
-  for i in startFrom..endsWith:
-    let e = entries[i]
-    echo:
-      "$1| $2 $3($4)" % [indent, $e.procname, $e.filename, $e.line]
-
 template semIdeForTemplateOrGenericCheck(conf, n, cursorInBody) =
   # use only for idetools support; detecting cursor in generic or template body
   # if so call `semIdeForTemplateOrGeneric` for semantic checking

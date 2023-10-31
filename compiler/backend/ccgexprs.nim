@@ -2123,17 +2123,17 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     putIntoDest(p, d, n, genLiteral(p, n))
   of cnkCall:
     genLineDir(p, n) # may be redundant, it is generated in fixupCall as well
-    let op = n[0]
+    let m = getCalleeMagic(n[0])
     if n.typ.isNil:
       # discard the value:
       var a: TLoc
-      if (let m = getCalleeMagic(n[0]); m != mNone):
+      if m != mNone:
         genMagicExpr(p, n, a, m)
       else:
         genCall(p, n, a)
     else:
       # load it into 'd':
-      if (let m = getCalleeMagic(n[0]); m != mNone):
+      if m != mNone:
         genMagicExpr(p, n, d, m)
       else:
         genCall(p, n, d)

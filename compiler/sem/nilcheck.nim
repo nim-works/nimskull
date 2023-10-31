@@ -90,6 +90,8 @@ from compiler/ast/report_enums import ReportKind
 #   returns safe
 # each check returns its nilability and map
 
+{.pragma: debug, used, deprecated: "do not use in final build".}
+
 type
   SeqOfDistinct[T, U] = distinct seq[U]
 
@@ -115,18 +117,10 @@ func high[T, U](a: SeqOfDistinct[T, U]): T =
 proc setLen[T, U](a: var SeqOfDistinct[T, U], length: T) =
   ((seq[U])(a)).setLen(length.Natural)
 
-
-proc newSeqOfDistinct[T, U](length: T = 0.T): SeqOfDistinct[T, U] =
-  (SeqOfDistinct[T, U])(newSeq[U](length.int))
-
 func newSeqOfDistinct[T, U](length: int = 0): SeqOfDistinct[T, U] =
   # newSeqOfDistinct(length.T)
   # ? newSeqOfDistinct[T, U](length.T)
   (SeqOfDistinct[T, U])(newSeq[U](length))
-
-iterator items[T, U](a: SeqOfDistinct[T, U]): U =
-  for element in (seq[U])(a):
-    yield element
 
 iterator pairs[T, U](a: SeqOfDistinct[T, U]): (T, U) =
   for i, element in (seq[U])(a):
@@ -294,7 +288,7 @@ proc history(map: NilMap, index: ExprIndex): seq[SemNilHistory] =
 
 
 proc symbol(n: PNode): Symbol
-func `$`(map: NilMap): string
+func `$`(map: NilMap): string {.debug.}
 proc reverseDirect(map: NilMap): NilMap
 proc checkBranch(n: PNode, ctx: NilCheckerContext, map: NilMap): Check
 proc hasUnstructuredControlFlowJump(n: PNode): bool
@@ -319,6 +313,7 @@ proc symbol(n: PNode): Symbol =
   # echo "symbol ", n, " ", n.kind, " ", result.int
 
 func `$`(map: NilMap): string =
+  # intended for debugging
   var now = map
   var stack: seq[NilMap] = @[]
   while not now.isNil:
@@ -358,7 +353,8 @@ proc namedSetsDebugInfo(ctx: NilCheckerContext, map: NilMap): string =
     result.add("} ")
   result.add("\n")
 
-proc namedMapAndSetsDebugInfo(ctx: NilCheckerContext, map: NilMap): string =
+proc namedMapAndSetsDebugInfo(ctx: NilCheckerContext,
+                              map: NilMap): string {.debug.} =
   result = namedMapDebugInfo(ctx, map) & namedSetsDebugInfo(ctx, map)
 
 
@@ -388,10 +384,6 @@ proc index(ctx: NilCheckerContext, n: PNode): ExprIndex =
     return noExprIndex
     #
   #ctx.symbolIndices[symbol(n)]
-
-
-proc aliasSet(ctx: NilCheckerContext, map: NilMap, n: PNode): IntSet =
-  result = map.sets[map.setIndices[ctx.index(n)]]
 
 proc aliasSet(ctx: NilCheckerContext, map: NilMap, index: ExprIndex): IntSet =
   result = map.sets[map.setIndices[index]]
@@ -567,7 +559,6 @@ proc derefWarning(n, ctx, map; kind: Nilability) =
   if n.info in ctx.warningLocations:
     return
   ctx.warningLocations.incl(n.info)
-  var a: seq[SemNilHistory]
   var rep = SemReport(
     kind: rsemStrictNotNilExpr, nilIssue: kind, ast: n)
 
@@ -759,8 +750,6 @@ proc checkIf(n, ctx, map): Check =
   # it is
   # If(Elif, Elif, Else)
 
-  var mapCondition = checkCondition(n.sons[0].sons[0], ctx, mapIf, false, true)
-
   # the state of the conditions: negating conditions before the current one
   var layerHistory = newNilMap(mapIf)
   # the state after branch effects
@@ -897,7 +886,6 @@ proc checkIsNil(n, ctx, map; isElse: bool = false): Check =
   ## check isNil calls
   ## update the map depending on if it is not isNil or isNil
   result.map = newNilMap(map)
-  let value = n[1]
   result.map.store(ctx, ctx.index(n[1]), if not isElse: Nil else: Safe, TArg, n.info, n)
 
 proc infix(ctx: NilCheckerContext, l: PNode, r: PNode, magic: TMagic): PNode =
@@ -1347,10 +1335,6 @@ proc preVisit(ctx: NilCheckerContext, s: PSym, body: PNode, conf: ConfigRef) =
   # echo ctx.dependants
 
 proc checkNil*(s: PSym; body: PNode; conf: ConfigRef, idgen: IdGenerator) =
-  let line = s.ast.info.line
-  let fileIndex = s.ast.info.fileIndex.int
-  var filename = conf.m.fileInfos[fileIndex].fullPath.string
-
   var context = NilCheckerContext(config: conf, idgen: idgen)
   context.preVisit(s, body, conf)
   var map = newNilMap(nil, context.symbolIndices.len)

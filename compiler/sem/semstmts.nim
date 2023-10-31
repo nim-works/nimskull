@@ -396,26 +396,6 @@ proc checkNilableOrError(c: PContext; def: PNode): PNode =
     # xxx: maybe assert instead
     discard
 
-proc checkNilable(c: PContext; v: PSym) =
-  if {sfGlobal, sfImportc} * v.flags == {sfGlobal} and v.typ.requiresInit:
-    if v.astdef.isNil:
-      localReport(c.config, v.info, reportSym(rsemProveInit, v))
-
-    elif tfNotNil in v.typ.flags and
-         not v.astdef.typ.isNil and
-         tfNotNil notin v.astdef.typ.flags:
-      localReport(c.config, v.info, reportSym(rsemProveInit, v))
-
-#include liftdestructors
-
-proc addToVarSection(c: PContext; result: PNode; orig, identDefs: PNode) =
-  if result.kind == nkStmtList:
-    let o = copyNode(orig)
-    o.add identDefs
-    result.add o
-  else:
-    result.add identDefs
-
 proc isDiscardUnderscore(v: PSym): bool =
   if v.name.s == "_":
     v.flags.incl(sfGenSym)
@@ -443,7 +423,7 @@ proc semUsing(c: PContext; n: PNode): PNode =
         strTableIncl(c.signatures, v)
     else:
       localReport(c.config, a, reportSem rsemUsingRequiresType)
-    var def: PNode
+
     if a[^1].kind != nkEmpty:
       localReport(c.config, a, reportSem rsemUsingDisallowsAssign)
 
@@ -488,12 +468,6 @@ proc setSymType(c: PContext; n: PNode, v: PSym, typ: PType): PNode =
   else:
     v.typ = typ
     newSymNode(v)
-
-proc newSymChoiceUseQualifierReport(n: PNode): SemReport =
-  assert n.kind in nkSymChoices
-  result = reportAst(rsemAmbiguousIdent, n, sym = n[0].sym)
-  for child in n:
-    result.symbols.add child.sym
 
 proc newSymChoiceUseQualifierDiag(n: PNode): PAstDiag =
   assert n.kind in nkSymChoices

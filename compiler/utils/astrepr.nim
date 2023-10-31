@@ -320,7 +320,7 @@ template genFields(res: ColText, indent: int, rconf: TReprConf): untyped =
       res.add text
 
   proc field(name: string, cond: TReprFlag, text = default ColText,
-             rc = rconf) =
+             rc = rconf) {.used.} =
     if rc.packed():
       hfield(name, cond, text, rc)
     else:
