@@ -8,6 +8,8 @@ import std/times
 import std/os
 import std/parseopt
 
+from std/strutils import endsWith
+
 import
   compiler / ast / [
     idents,
@@ -15,7 +17,7 @@ import
   ],
   compiler / front / [
       cmdlinehelper,
-      commands,
+      # commands,
       condsyms,
       msgs,
       options,
@@ -27,6 +29,10 @@ import
   ],
   compiler / utils / pathutils
 
+from compiler / front / commands import procSwitchResultToEvents,
+                                        cliEventLogger,
+                                        showMsg
+
 const
   NimCfg* {.strdefine.} = "nim".addFileExt "cfg"
 
@@ -36,6 +42,25 @@ template excludeAllNotes(config: ConfigRef; n: typed) =
     config.mainPackageNotes.excl n
   when compiles(config.foreignPackageNotes):
     config.foreignPackageNotes.excl n
+
+proc processArgument(pass: TCmdLinePass; p: OptParser;
+                     argsCount: var int; config: ConfigRef): bool =
+  if argsCount == 0:
+    if p.key.endsWith(".nim"):
+      config.setCmd cmdCompileToC
+      config.projectName = unixToNativePath(p.key)
+      config.arguments = cmdLineRest(p)
+      result = true
+    elif pass != passCmd2: setCommandEarly(config, p.key)
+  else:
+    if pass == passCmd1: config.commandArgs.add p.key
+    if argsCount == 1:
+      # support UNIX style filenames everywhere for portable build scripts:
+      if config.projectName.len == 0 and config.inputMode == pimFile:
+        config.projectName = unixToNativePath(p.key)
+      config.arguments = cmdLineRest(p)
+      result = true
+  inc argsCount
 
 proc cmdLine(pass: TCmdLinePass, cmd: openArray[string]; config: ConfigRef) =
   ## parse the command-line into the config
@@ -85,7 +110,7 @@ proc helpOnError(config: ConfigRef) =
     Usage = """
   dust [options] [projectfile]
 
-  Options: Same options that the Nim compiler supports.
+  Options: Same options that the Nimskull compiler supports.
   """
   showMsg(config, Usage)
   msgQuit 0

@@ -20,7 +20,8 @@ import
   compiler / utils / [ astrepr, pathutils, ]
 
 # legacy reports stupidity
-from compiler/ast/reports import Report, location, kind
+from compiler / ast / reports import Report, location, kind
+from compiler / front / cli_reporter import reportFull
 
 import std/options as std_options # due to legacy reports stupidity
 
@@ -71,7 +72,8 @@ proc dust*(filename: AbsoluteFile) =
   proc uhoh(config: ConfigRef, rep: Report): TErrorHandling =
     ## capture the first error
     if config.severity(rep) == rsevError:
-      if std_options.unsafeGet(rep.location).fileIndex == config.projectMainIdx:
+      if std_options.isSome(rep.location) and
+         std_options.unsafeGet(rep.location).fileIndex == config.projectMainIdx:
         if errorKind == repNone:
           errorKind = rep.kind
         elif errorKind == rep.kind:

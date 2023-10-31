@@ -68,11 +68,4 @@ proc next*(remains: Remains): PNode =
   if len(remains) > 0:
     result = remains.attempts[^1].node
 
-proc massageMessage*(s: string): string =
-  result = s.splitLines()[0]
-  for c in [';', ':']:
-    let i = find(result, c)
-    if i != -1:
-      result = result[0 .. i - 1]
-
 export `$`
