@@ -532,12 +532,12 @@ proc genAddr(p: BProc, e: CgNode, mutate: bool, d: var TLoc) =
     expr(p, e.operand, d)
   else:
     var a: TLoc
+    initLoc(a, locNone, e.operand, OnUnknown)
+    a.flags.incl lfPreferAddr
     if mutate:
-      initLoc(a, locNone, e.operand, OnUnknown)
       a.flags.incl lfPrepareForMutation
-      expr(p, e.operand, a)
-    else:
-      initLocExpr(p, e.operand, a)
+
+    expr(p, e.operand, a)
     putIntoDest(p, d, e, addrLoc(p.config, a), a.storage)
 
 template inheritLocation(d: var TLoc, a: TLoc) =
@@ -1997,9 +1997,10 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
               [nilCheck, r, genTypeInfo2Name(p.module, dest), raiseInstr(p)])
 
   if n.operand.typ.kind != tyObject:
-    if n.isLValue:
+    if lfPreferAddr in d.flags:
       putIntoDest(p, d, n,
-                "(*(($1*) (&($2))))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
+                "(($1*) (&($2)))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
+      d.flags.incl lfIndirect
     else:
       putIntoDest(p, d, n,
                 "(($1) ($2))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
@@ -2016,17 +2017,17 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
   let dest = skipTypes(n.typ, abstractPtrs)
   let src = skipTypes(arg.typ, abstractPtrs)
   discard getTypeDesc(p.module, src)
-  let isRef = skipTypes(arg.typ, abstractInst).kind in {tyRef, tyPtr, tyVar, tyLent}
-  if isRef and d.k == locNone and n.typ.skipTypes(abstractInst).kind in {tyRef, tyPtr} and n.isLValue:
-    # it can happen that we end up generating '&&x->Sup' here, so we pack
-    # the '&x->Sup' into a temporary and then those address is taken
-    # (see bug #837). However sometimes using a temporary is not correct:
-    # init(TFigure(my)) # where it is passed to a 'var TFigure'. We test
-    # this by ensuring the destination is also a pointer:
+  let isRef = skipTypes(n.typ, abstractInst).kind in {tyRef, tyPtr}
+  if isRef and d.k == locNone and lfPreferAddr in d.flags:
+    # the address of the converted reference (i.e., pointer) is requested,
+    # and since ``&&x->Sup`` is not valid, we take the address of the source
+    # expression and then cast the pointer:
     var a: TLoc
     initLocExpr(p, arg, a)
     putIntoDest(p, d, n,
-              "(*(($1*) (&($2))))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
+              "(($1*) (&($2)))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
+    # an indirection is used:
+    d.flags.incl lfIndirect
   else:
     var a: TLoc
     initLocExpr(p, arg, a)

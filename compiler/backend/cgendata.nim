@@ -77,6 +77,8 @@ type
                              ## ptr array due to C array limitations.
                              ## See #1181, #6422, #11171
     lfPrepareForMutation     ## string location is about to be mutated
+    lfPreferAddr             ## on empty locs, signals that an address instead
+                             ## of a value is preferred (but not required)
 
   TLoc* = object
     k*: TLocKind              ## kind of location
