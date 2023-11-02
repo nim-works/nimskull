@@ -165,19 +165,57 @@ template semIdeForTemplateOrGeneric(c: PContext; n: PNode;
       #  echo "passing to safeSemExpr: ", renderTree(n)
       discard safeSemExpr(c, n)
 
-proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
-  var
-    a = arg
-    x = a.mutableSkipConv
-  if x.kind in {nkCurly, nkPar, nkTupleConstr} and formal.kind != tyUntyped:
-    x = changeType(c, x, formal, check=true)
+proc fitNodePostMatch(c: PContext, n: PNode): PNode =
+  ## Performs post-processing on the result of a ``paramTypesMatch``
+  ## invocation. This processing is required for the expression AST to be
+  ## proper typed AST!
+  case n.kind
+  of nkHiddenSubConv, nkHiddenStdConv:
+    if n.typ.kind in {tyVar, tyLent}:
+      # drop the modifier
+      # XXX: this is a workaround. ``sigmatch`` shouldn't produce these
+      #      conversions in the first place
+      n.typ = n.typ.base
 
-    if x.isError:
-      result = c.config.wrapError(a)
-      return
+    if n[1].kind in {nkCurly, nkTupleConstr, nkNilLit}:
+      # special handling for these nodes: the conversion is treated as an
+      # instruction to re-type the expression
+      let x = changeType(c, n[1], n.typ, check=true)
+      if x.isError:
+        # keep the conversion
+        n[1] = x
+        c.config.wrapError(n)
+      else:
+        x # skip the conversion node; it was applied
+    elif n.typ.kind == tyTuple and n[1].typ.skipTypes({tySink}).kind == tyTuple:
+      # conversion between named/unnamed tuples -> apply the type directly
+      n[1].typ = n.typ
+      n[1]
+    elif n.typ.kind in {tyOpenArray, tyVarargs, tySequence} and
+         n[1].typ.isEmptyContainer:
+      # fixup empty container types
+      let
+        arg = n[1].typ
+        elem = elemType(n.typ)
+        typ = copyType(arg.skipTypes({tyGenericInst, tyAlias}),
+                       nextTypeId(c.idgen), arg.owner)
+        # XXX: ^^ the type skipping looks dangerous
 
-  result = a
-  result = skipHiddenSubConv(result, c.graph, c.idgen)
+      copyTypeProps(c.graph, c.idgen.module, typ, arg)
+      typ[ord(arg.kind == tyArray)] = elem
+      propagateToOwner(typ, elem)
+      n[1].typ = typ
+
+      if n.typ.kind in {tyOpenArray, tyVarargs}:
+        # don't drop the conversion just yet, later processing still needs it
+        n
+      else:
+        n[1] # the conversion was applied; drop it
+    else:
+      # something else; keep the conversion
+      n
+  else:
+    n
 
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
@@ -208,7 +246,7 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
         result = copyTree(arg)
         result.typ = formal
     else:
-      result = fitNodePostMatch(c, formal, result)
+      result = fitNodePostMatch(c, result)
 
 proc fitNodeConsiderViewType(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
   let a = fitNode(c, formal, arg, info)

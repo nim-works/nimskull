@@ -301,7 +301,7 @@ proc instantiateProcType(c: PContext, pt: TIdTable,
         # the only way the default value might be inserted).
         param.ast = errorNode(c, def)
       else:
-        param.ast = fitNodePostMatch(c, typeToFit, converted)
+        param.ast = fitNodePostMatch(c, converted)
       param.typ = result[i]
 
     result.n[i] = newSymNode(param)

@@ -1217,23 +1217,6 @@ proc takeType*(formal, arg: PType; g: ModuleGraph; idgen: IdGenerator): PType =
   else:
     result = arg
 
-proc skipHiddenSubConv*(n: PNode; g: ModuleGraph; idgen: IdGenerator): PNode =
-  if n.kind == nkHiddenSubConv:
-    # param: openArray[string] = []
-    # [] is an array constructor of length 0 of type string!
-    let formal = n.typ
-    result = n[1]
-    let arg = result.typ
-    let dest = takeType(formal, arg, g, idgen)
-    if dest == arg and formal.kind != tyUntyped:
-      #echo n.info, " came here for ", formal.typeToString
-      result = n
-    else:
-      result = copyTree(result)
-      result.typ = dest
-  else:
-    result = n
-
 proc getProcConvMismatch*(
     c: ConfigRef, f, a: PType, rel = isNone
   ): (set[ProcConvMismatch], TTypeRelation) =

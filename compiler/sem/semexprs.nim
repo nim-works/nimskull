@@ -822,38 +822,27 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     if hasError:
       result = c.config.wrapError(result)
 
-proc isArrayConstr(n: PNode): bool {.inline.} =
-  n.kind == nkBracket and n.typ.skipTypes(abstractInst).kind == tyArray
-
 proc fixAbstractType(c: PContext, n: PNode): PNode =
-  assert n != nil
+  ## Takes the production AST of a call and performs the post-match node
+  ## fitting on it. Errors are passed through.
+  # XXX: the procedure's name doesn't make much sense anymore...
+  addInNimDebugUtils(c.config, "fixAbstractType", n, result)
+  result = n # `n` is already a production
 
-  var hasError = false
-
-  result = n
   case n.kind
-  of nkError:
-    discard   # we'll just return below
-  else:
+  of nkCallKinds:
+    # fit all argument expressions
+    var hasError = false
     for i in 1..<n.len:
-      let it = n[i]
-      # do not get rid of nkHiddenSubConv for OpenArrays, codegen needs it:
-      if it.kind == nkHiddenSubConv and
-          skipTypes(it.typ, abstractVar).kind notin {tyOpenArray, tyVarargs}:
-        if skipTypes(it[1].typ, abstractVar).kind in {tyNil, tyTuple, tySet} or
-            it[1].isArrayConstr:
-          var s = skipTypes(it.typ, abstractVar)
-          
-          if s.kind != tyUntyped:
-            it[1] = changeType(c, it[1], s, check=true)
-          
-            if it[1].isError:
-              hasError = true
+      result[i] = fitNodePostMatch(c, n[i])
+      hasError = hasError or result[i].isError
 
-          n[i] = it[1]
-  
-  if hasError and result.kind != nkError:
-    result = c.config.wrapError(n)
+    if hasError:
+      result = c.config.wrapError(result)
+  of nkError:
+    discard # already set above
+  else:
+    unreachable(n.kind)
 
 proc isAssignable(c: PContext, n: PNode; isUnsafeAddr=false): TAssignableResult =
   result = parampatterns.isAssignable(c.p.owner, n, isUnsafeAddr)
@@ -2303,7 +2292,6 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
   if hasError:
     result = c.config.wrapError(result)
   else:
-    result = fixAbstractType(c, result)
     result = asgnToResultVar(c, result)
 
 proc semReturn(c: PContext, n: PNode): PNode =
