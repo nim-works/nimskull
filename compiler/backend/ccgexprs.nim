@@ -1999,7 +1999,8 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
   if n.operand.typ.kind != tyObject:
     if lfWantLvalue in d.flags:
       putIntoDest(p, d, n,
-                "(($1*) (&($2)))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
+                "(($1*) ($2))" % [getTypeDesc(p.module, n.typ),
+                                  addrLoc(p.config, a)], a.storage)
       d.flags.incl lfIndirect
     else:
       putIntoDest(p, d, n,
@@ -2023,7 +2024,9 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
     # and since ``&&x->Sup`` is not valid, we take the address of the source
     # expression and then cast the pointer:
     putIntoDest(p, d, n,
-              "(($1*) (&($2)))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
+                "(($1*) ($2))" % [getTypeDesc(p.module, n.typ),
+                                  addrLoc(p.config, a)],
+                a.storage)
     # an indirection is used:
     d.flags.incl lfIndirect
   else:
