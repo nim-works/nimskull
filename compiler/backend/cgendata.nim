@@ -77,6 +77,8 @@ type
                              ## ptr array due to C array limitations.
                              ## See #1181, #6422, #11171
     lfPrepareForMutation     ## string location is about to be mutated
+    lfWantLvalue             ## on empty locs, signals that a C lvalue is
+                             ## expected
 
   TLoc* = object
     k*: TLocKind              ## kind of location

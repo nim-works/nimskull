@@ -532,12 +532,12 @@ proc genAddr(p: BProc, e: CgNode, mutate: bool, d: var TLoc) =
     expr(p, e.operand, d)
   else:
     var a: TLoc
+    initLoc(a, locNone, e.operand, OnUnknown)
+    a.flags.incl lfWantLvalue
     if mutate:
-      initLoc(a, locNone, e.operand, OnUnknown)
       a.flags.incl lfPrepareForMutation
-      expr(p, e.operand, a)
-    else:
-      initLocExpr(p, e.operand, a)
+
+    expr(p, e.operand, a)
     putIntoDest(p, d, e, addrLoc(p.config, a), a.storage)
 
 template inheritLocation(d: var TLoc, a: TLoc) =
@@ -1682,14 +1682,14 @@ proc genWasMoved(p: BProc; n: CgNode) =
   if p.withinBlockLeaveActions > 0 and notYetAlive(p, n1):
     discard
   else:
-    initLocExpr(p, n1, a)
+    initLocExpr(p, n1, a, {lfWantLvalue})
     resetLoc(p, a)
     #linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
     #  [addrLoc(p.config, a), getTypeDesc(p.module, a.t)])
 
 proc genMove(p: BProc; n: CgNode; d: var TLoc) =
   var a: TLoc
-  initLocExpr(p, n[1], a)
+  initLocExpr(p, n[1], a, {lfWantLvalue})
   if true:
     if d.k == locNone: getTemp(p, n.typ, d)
     genAssignment(p, d, a)
@@ -1984,7 +1984,7 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
   ## Generates and emits the code for the ``cnkObjDownConv`` (conversion to
   ## sub-type) expression `n`.
   var a: TLoc
-  initLocExpr(p, n.operand, a)
+  initLocExpr(p, n.operand, a, d.flags * {lfWantLvalue})
   let dest = skipTypes(n.typ, abstractPtrs)
   if optObjCheck in p.options and not isObjLackingTypeField(dest):
     var nilCheck = ""
@@ -1996,10 +1996,12 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
       linefmt(p, cpsStmts, "if ($1 && !#isObj($2, $3)){ #raiseObjectConversionError(); $4}$n",
               [nilCheck, r, genTypeInfo2Name(p.module, dest), raiseInstr(p)])
 
-  if n.operand.typ.kind != tyObject:
-    if n.isLValue:
+  if n.operand.typ.skipTypes(abstractInst).kind != tyObject:
+    if lfWantLvalue in d.flags:
       putIntoDest(p, d, n,
-                "(*(($1*) (&($2))))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
+                "(($1*) ($2))" % [getTypeDesc(p.module, n.typ),
+                                  addrLoc(p.config, a)], a.storage)
+      d.flags.incl lfIndirect
     else:
       putIntoDest(p, d, n,
                 "(($1) ($2))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
@@ -2010,26 +2012,24 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
 proc upConv(p: BProc, n: CgNode, d: var TLoc) =
   ## Generates and emits the code for the ``cnkObjUpConv`` (conversion to
   ## super-type/base-type) expression `n`.
-  var arg = n.operand
-  while arg.kind == cnkObjUpConv: arg = arg.operand
+  var a: TLoc
+  initLocExpr(p, n.operand, a, d.flags * {lfWantLvalue})
 
   let dest = skipTypes(n.typ, abstractPtrs)
-  let src = skipTypes(arg.typ, abstractPtrs)
+  let src = skipTypes(n.operand.typ, abstractPtrs)
   discard getTypeDesc(p.module, src)
-  let isRef = skipTypes(arg.typ, abstractInst).kind in {tyRef, tyPtr, tyVar, tyLent}
-  if isRef and d.k == locNone and n.typ.skipTypes(abstractInst).kind in {tyRef, tyPtr} and n.isLValue:
-    # it can happen that we end up generating '&&x->Sup' here, so we pack
-    # the '&x->Sup' into a temporary and then those address is taken
-    # (see bug #837). However sometimes using a temporary is not correct:
-    # init(TFigure(my)) # where it is passed to a 'var TFigure'. We test
-    # this by ensuring the destination is also a pointer:
-    var a: TLoc
-    initLocExpr(p, arg, a)
+  let isRef = skipTypes(n.typ, abstractInst).kind in {tyRef, tyPtr}
+  if isRef and d.k == locNone and lfWantLvalue in d.flags:
+    # the address of the converted reference (i.e., pointer) is requested,
+    # and since ``&&x->Sup`` is not valid, we take the address of the source
+    # expression and then cast the pointer:
     putIntoDest(p, d, n,
-              "(*(($1*) (&($2))))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
+                "(($1*) ($2))" % [getTypeDesc(p.module, n.typ),
+                                  addrLoc(p.config, a)],
+                a.storage)
+    # an indirection is used:
+    d.flags.incl lfIndirect
   else:
-    var a: TLoc
-    initLocExpr(p, arg, a)
     var r = rdLoc(a) & (if isRef: "->Sup" else: ".Sup")
     for i in 2..inheritanceDiff(src, dest): r.add(".Sup")
     putIntoDest(p, d, n, if isRef: "&" & r else: r, a.storage)

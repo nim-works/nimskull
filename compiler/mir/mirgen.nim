@@ -1498,8 +1498,15 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
 
   of nkBracketExpr:
     genBracketExpr(c, n)
-  of nkObjDownConv, nkObjUpConv:
+  of nkObjDownConv:
     eval(c): genx(c, n[0], consume) => pathConv(n.typ)
+  of nkObjUpConv:
+    # discard conversions in the same direction that are used as the operand
+    var arg = n[0]
+    while arg.kind == nkObjUpConv:
+      arg = arg[0]
+
+    eval(c): genx(c, arg, consume) => pathConv(n.typ)
   of nkAddr:
     eval(c): genx(c, n[0]) => addrOp(n.typ)
   of nkHiddenAddr:
