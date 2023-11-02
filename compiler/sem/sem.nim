@@ -165,6 +165,46 @@ template semIdeForTemplateOrGeneric(c: PContext; n: PNode;
       #  echo "passing to safeSemExpr: ", renderTree(n)
       discard safeSemExpr(c, n)
 
+proc applyConversion(c: PContext, conv, n: PNode): tuple[n: PNode, keep: bool] =
+  ## Applies the implicit conversion `conv` to the expression AST `n`, returning
+  ## the resulting AST (which may be the same as `n`) and whether the conversion
+  ## needs to be kept. The `n` AST is mutated directly.
+  case n.kind
+  of nkCurly, nkTupleConstr, nkNilLit:
+    # special handling for these nodes: the conversion is treated as an
+    # instruction to re-type the expression
+    (changeType(c, n, conv.typ, check=true), false)
+  of nkStmtListExpr:
+    let tmp = applyConversion(c, conv, n[^1])
+    n[^1] = tmp.n
+    n.typ = tmp.n.typ
+
+    if tmp.n.kind == nkError:
+      (c.config.wrapError(n), false)
+    else:
+      (n, tmp.keep)
+  else:
+    if conv.typ.kind in {tySet, tyTuple}:
+      # apply the type directly and drop the conversion
+      n.typ = conv.typ
+    elif conv.typ.kind in {tyOpenArray, tyVarargs, tySequence} and
+          n.typ.isEmptyContainer:
+      # fixup empty container types
+      let
+        arg = n.typ
+        elem = elemType(conv.typ)
+        typ = copyType(arg.skipTypes({tyGenericInst, tyAlias}),
+                      nextTypeId(c.idgen), arg.owner)
+        # XXX: ^^ the type skipping looks dangerous
+
+      copyTypeProps(c.graph, c.idgen.module, typ, arg)
+      typ[ord(arg.kind == tyArray)] = elem
+      propagateToOwner(typ, elem)
+      n.typ = typ
+
+    # keep to-openArray conversions, later processing still needs them
+    (n, conv.typ.kind notin {tySequence, tyTuple, tySet})
+
 proc fitNodePostMatch(c: PContext, n: PNode): PNode =
   ## Performs post-processing on the result of a ``paramTypesMatch``
   ## invocation. This processing is required for the expression AST to be
@@ -177,43 +217,11 @@ proc fitNodePostMatch(c: PContext, n: PNode): PNode =
       #      conversions in the first place
       n.typ = n.typ.base
 
-    if n[1].kind in {nkCurly, nkTupleConstr, nkNilLit}:
-      # special handling for these nodes: the conversion is treated as an
-      # instruction to re-type the expression
-      let x = changeType(c, n[1], n.typ, check=true)
-      if x.isError:
-        # keep the conversion
-        n[1] = x
-        c.config.wrapError(n)
-      else:
-        x # skip the conversion node; it was applied
-    elif n.typ.kind == tyTuple and n[1].typ.skipTypes({tySink}).kind == tyTuple:
-      # conversion between named/unnamed tuples -> apply the type directly
-      n[1].typ = n.typ
-      n[1]
-    elif n.typ.kind in {tyOpenArray, tyVarargs, tySequence} and
-         n[1].typ.isEmptyContainer:
-      # fixup empty container types
-      let
-        arg = n[1].typ
-        elem = elemType(n.typ)
-        typ = copyType(arg.skipTypes({tyGenericInst, tyAlias}),
-                       nextTypeId(c.idgen), arg.owner)
-        # XXX: ^^ the type skipping looks dangerous
-
-      copyTypeProps(c.graph, c.idgen.module, typ, arg)
-      typ[ord(arg.kind == tyArray)] = elem
-      propagateToOwner(typ, elem)
-      n[1].typ = typ
-
-      if n.typ.kind in {tyOpenArray, tyVarargs}:
-        # don't drop the conversion just yet, later processing still needs it
-        n
-      else:
-        n[1] # the conversion was applied; drop it
+    let (r, keep) = applyConversion(c, n, n[1])
+    if keep:
+      n # keep the existing conversion
     else:
-      # something else; keep the conversion
-      n
+      r
   of nkHiddenCallConv:
     # the argument of an injected hidden call conversion needs to be fitted
     # to!
