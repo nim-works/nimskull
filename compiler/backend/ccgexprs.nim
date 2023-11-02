@@ -1682,14 +1682,14 @@ proc genWasMoved(p: BProc; n: CgNode) =
   if p.withinBlockLeaveActions > 0 and notYetAlive(p, n1):
     discard
   else:
-    initLocExpr(p, n1, a)
+    initLocExpr(p, n1, a, {lfWantLvalue})
     resetLoc(p, a)
     #linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
     #  [addrLoc(p.config, a), getTypeDesc(p.module, a.t)])
 
 proc genMove(p: BProc; n: CgNode; d: var TLoc) =
   var a: TLoc
-  initLocExpr(p, n[1], a)
+  initLocExpr(p, n[1], a, {lfWantLvalue})
   if true:
     if d.k == locNone: getTemp(p, n.typ, d)
     genAssignment(p, d, a)
