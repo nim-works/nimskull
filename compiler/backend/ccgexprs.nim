@@ -1996,7 +1996,7 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
       linefmt(p, cpsStmts, "if ($1 && !#isObj($2, $3)){ #raiseObjectConversionError(); $4}$n",
               [nilCheck, r, genTypeInfo2Name(p.module, dest), raiseInstr(p)])
 
-  if n.operand.typ.kind != tyObject:
+  if n.operand.typ.skipTypes(abstractInst).kind != tyObject:
     if lfWantLvalue in d.flags:
       putIntoDest(p, d, n,
                 "(($1*) ($2))" % [getTypeDesc(p.module, n.typ),
