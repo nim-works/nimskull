@@ -42,20 +42,29 @@ from compiler/ast/report_enums import ReportKind
 proc genConv(n: PNode, d: PType, downcast: bool; conf: ConfigRef): PNode =
   var dest = skipTypes(d, abstractPtrs)
   var source = skipTypes(n.typ, abstractPtrs)
+
+  proc wrapConv(kind: TNodeKind, n: PNode, d: PType): PNode =
+    # this makes sure that a pre-existing hidden address operation is applied
+    # to the conversion and not the other way around
+    if n.kind == nkHiddenAddr:
+      assert d.kind == tyVar
+      newTreeIT(nkHiddenAddr, n.info, d):
+        newTreeIT(kind, n.info, d.base, [n[0]])
+    else:
+      newTreeIT(kind, n.info, d, [n])
+
   if (source.kind == tyObject) and (dest.kind == tyObject):
     var diff = inheritanceDiff(dest, source)
     if diff == high(int):
       # no subtype relation, nothing to do
       result = n
     elif diff < 0:
-      result = newNodeIT(nkObjUpConv, n.info, d)
-      result.add n
+      result = wrapConv(nkObjUpConv, n, d)
       if downcast:
         internalError(conf, n.info, "cgmeth.genConv: no upcast allowed")
 
     elif diff > 0:
-      result = newNodeIT(nkObjDownConv, n.info, d)
-      result.add n
+      result = wrapConv(nkObjDownConv, n, d)
       if not downcast:
         internalError(conf, n.info, "cgmeth.genConv: no downcast allowed")
     else:
