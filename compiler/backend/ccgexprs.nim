@@ -533,7 +533,7 @@ proc genAddr(p: BProc, e: CgNode, mutate: bool, d: var TLoc) =
   else:
     var a: TLoc
     initLoc(a, locNone, e.operand, OnUnknown)
-    a.flags.incl lfPreferAddr
+    a.flags.incl lfWantLvalue
     if mutate:
       a.flags.incl lfPrepareForMutation
 
@@ -1997,7 +1997,7 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
               [nilCheck, r, genTypeInfo2Name(p.module, dest), raiseInstr(p)])
 
   if n.operand.typ.kind != tyObject:
-    if lfPreferAddr in d.flags:
+    if lfWantLvalue in d.flags:
       putIntoDest(p, d, n,
                 "(($1*) (&($2)))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
       d.flags.incl lfIndirect
@@ -2018,7 +2018,7 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
   let src = skipTypes(arg.typ, abstractPtrs)
   discard getTypeDesc(p.module, src)
   let isRef = skipTypes(n.typ, abstractInst).kind in {tyRef, tyPtr}
-  if isRef and d.k == locNone and lfPreferAddr in d.flags:
+  if isRef and d.k == locNone and lfWantLvalue in d.flags:
     # the address of the converted reference (i.e., pointer) is requested,
     # and since ``&&x->Sup`` is not valid, we take the address of the source
     # expression and then cast the pointer:
