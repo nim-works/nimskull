@@ -973,7 +973,6 @@ proc fixVarArgumentsAndAnalyse(c: PContext, n: PNode): PNode =
   ## Note that not all ``var`` parameters are considered, certain magics are
   ## ignored during this fixup
   addInNimDebugUtils(c.config, "fixVarArgumentsAndAnalyse", n, result)
-  checkMinSonsLen(n, 1, c.config)
 
   if n.isError:
     return n
