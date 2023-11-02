@@ -6,7 +6,7 @@ discard """
   '''
 """
 
-# it's important for `Base` to be both a generic ref type
+# it's important for `Base` to be both a generic and a ref type
 type
   Base[T] = ref object of RootObj
   Sub     = ref object of Base[int]
