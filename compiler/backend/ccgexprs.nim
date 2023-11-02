@@ -1984,7 +1984,7 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
   ## Generates and emits the code for the ``cnkObjDownConv`` (conversion to
   ## sub-type) expression `n`.
   var a: TLoc
-  initLocExpr(p, n.operand, a)
+  initLocExpr(p, n.operand, a, d.flags * {lfWantLvalue})
   let dest = skipTypes(n.typ, abstractPtrs)
   if optObjCheck in p.options and not isObjLackingTypeField(dest):
     var nilCheck = ""
@@ -2011,26 +2011,22 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
 proc upConv(p: BProc, n: CgNode, d: var TLoc) =
   ## Generates and emits the code for the ``cnkObjUpConv`` (conversion to
   ## super-type/base-type) expression `n`.
-  var arg = n.operand
-  while arg.kind == cnkObjUpConv: arg = arg.operand
+  var a: TLoc
+  initLocExpr(p, n.operand, a, d.flags * {lfWantLvalue})
 
   let dest = skipTypes(n.typ, abstractPtrs)
-  let src = skipTypes(arg.typ, abstractPtrs)
+  let src = skipTypes(n.operand.typ, abstractPtrs)
   discard getTypeDesc(p.module, src)
   let isRef = skipTypes(n.typ, abstractInst).kind in {tyRef, tyPtr}
   if isRef and d.k == locNone and lfWantLvalue in d.flags:
     # the address of the converted reference (i.e., pointer) is requested,
     # and since ``&&x->Sup`` is not valid, we take the address of the source
     # expression and then cast the pointer:
-    var a: TLoc
-    initLocExpr(p, arg, a)
     putIntoDest(p, d, n,
               "(($1*) (&($2)))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
     # an indirection is used:
     d.flags.incl lfIndirect
   else:
-    var a: TLoc
-    initLocExpr(p, arg, a)
     var r = rdLoc(a) & (if isRef: "->Sup" else: ".Sup")
     for i in 2..inheritanceDiff(src, dest): r.add(".Sup")
     putIntoDest(p, d, n, if isRef: "&" & r else: r, a.storage)
