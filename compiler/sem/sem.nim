@@ -214,6 +214,11 @@ proc fitNodePostMatch(c: PContext, n: PNode): PNode =
     else:
       # something else; keep the conversion
       n
+  of nkHiddenCallConv:
+    # the argument of an injected hidden call conversion needs to be fitted
+    # to!
+    n[1] = fitNodePostMatch(c, n[1])
+    n
   else:
     n
 
