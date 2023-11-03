@@ -9,9 +9,9 @@ try:
   x_cursor = ("hi", 5)
   block :label_0:
     if cond:
-      x_cursor = [type node](("different", 54))
+      x_cursor = ("different", 54)
       break :label_0
-    x_cursor = [type node](("string here", 80))
+    x_cursor = ("string here", 80)
   echo([
     :aux_3 = $(x_cursor)
     :aux_3])
