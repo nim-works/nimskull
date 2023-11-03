@@ -48,7 +48,7 @@ else:
 
   block: # general test
     echo "t 0-0"
-    for kind, key, val in parseopt.getopt():
+    for kind, key, val in parseopt.getopt(@[]):
       echo "kind: ", kind, "\tkey:val  --  ", key, ":", val
 
     # pass custom cmdline arguments
