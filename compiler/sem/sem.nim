@@ -211,12 +211,6 @@ proc fitNodePostMatch(c: PContext, n: PNode): PNode =
   ## proper typed AST!
   case n.kind
   of nkHiddenSubConv, nkHiddenStdConv:
-    if n.typ.kind in {tyVar, tyLent}:
-      # drop the modifier
-      # XXX: this is a workaround. ``sigmatch`` shouldn't produce these
-      #      conversions in the first place
-      n.typ = n.typ.base
-
     let (r, keep) = applyConversion(c, n, n[1])
     if keep:
       n # keep the existing conversion
