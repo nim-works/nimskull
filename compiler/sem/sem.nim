@@ -187,8 +187,8 @@ proc applyConversion(c: PContext, conv, n: PNode): tuple[n: PNode, keep: bool] =
     if conv.typ.kind in {tySet, tyTuple}:
       # apply the type directly and drop the conversion
       n.typ = conv.typ
-    elif conv.typ.kind in {tyOpenArray, tyVarargs, tySequence} and
-          n.typ.isEmptyContainer:
+    elif conv.typ.kind in {tyOpenArray, tyVarargs, tySequence, tyArray} and
+         n.typ.isEmptyContainer:
       # fixup empty container types
       let
         arg = n.typ
@@ -203,7 +203,7 @@ proc applyConversion(c: PContext, conv, n: PNode): tuple[n: PNode, keep: bool] =
       n.typ = typ
 
     # keep to-openArray conversions, later processing still needs them
-    (n, conv.typ.kind notin {tySequence, tyTuple, tySet})
+    (n, conv.typ.kind notin {tySequence, tyArray, tyTuple, tySet})
 
 proc fitNodePostMatch(c: PContext, n: PNode): PNode =
   ## Performs post-processing on the result of a ``paramTypesMatch``
