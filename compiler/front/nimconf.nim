@@ -107,7 +107,6 @@ type
   CancelConfigProcessing = object of CatchableError
     ## internal error used to halt processing
 
-
 # ---------------- configuration file parser -----------------------------
 # we use Nim's lexer here to save space and work
 
@@ -502,4 +501,10 @@ proc loadConfigs*(
                              stopOnError: stopOnError)
   parser.loadConfigs(cfg, cache)
 
-  
+proc readConfigFile*(
+  filename: AbsoluteFile, cache: IdentCache,
+  conf: ConfigRef, evtHandler: NimConfEvtWriter
+): bool {.inline.} =
+  var parser = NimConfParser(config: conf, cfgEvtWriter: evtHandler,
+                             stopOnError: true)
+  parser.readConfigFile(filename, cache)
