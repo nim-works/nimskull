@@ -691,22 +691,13 @@ proc wrapInHiddenAddr(cl: TranslateCl, n: CgNode): CgNode =
   ## Restores the ``cnkHiddenAddr`` around lvalue expressions passed to ``var``
   ## parameters. The code-generators operating on ``CgNode``-IR depend on the
   ## hidden addr to be present
-  let inner =
-    if n.kind == cnkStmtListExpr: n[^1] else: n
-
-  result =
-    if n.typ.skipTypes(abstractInst).kind != tyVar:
-      newOp(cnkHiddenAddr, n.info, makeVarType(cl.owner, n.typ, cl.idgen), n)
-    elif inner.kind == cnkObjUpConv and
-         inner.operand.typ.kind != tyVar:
-      # TODO: ``nkHiddenSubConv`` nodes for objects (which later result
-      #       in ``cnkObjUpConv`` nodes) are in some cases
-      #       incorrectly typed as ``var`` somewhere in the compiler
-      #       (presumably during sem). Fix the underlying problem and remove
-      #       the special case here
-      newOp(cnkHiddenAddr, n.info, n.typ, n)
-    else:
-      n
+  if n.typ.skipTypes(abstractInst).kind != tyVar:
+    newOp(cnkHiddenAddr, n.info, makeVarType(cl.owner, n.typ, cl.idgen), n)
+  else:
+    # XXX: is this case ever reached? It should not be. Raw ``var`` values
+    #      must never be passed directly to ``var`` parameters at the MIR
+    #      level
+    n
 
 proc genObjConv(n: CgNode, a, b, t: PType): CgNode =
   ## Depending on the relationship between `a` and `b`, wraps `n` in either an
