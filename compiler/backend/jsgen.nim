@@ -2522,8 +2522,11 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkFastAsgn: genFastAsgn(p, n)
   of cnkVoidStmt:
     genLineDir(p, n)
-    gen(p, n[0], r)
-    r.res = "var _ = " & r.res
+    var a: TCompRes
+    gen(p, n[0], a)
+    # the expression might be something not usable as an expression (e.g.,
+    # object construction), so use a var statement
+    lineF(p, "var _ = $1;$n", [rdLoc(a)])
   of cnkAsmStmt, cnkEmitStmt: genAsmOrEmitStmt(p, n)
   of cnkTryStmt: genTry(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)
