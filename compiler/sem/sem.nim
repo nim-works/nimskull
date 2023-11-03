@@ -702,13 +702,13 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
         retType = generateTypeInstance(c, paramTypes,
                                        macroResult.info, retType)
 
-      result = semExpr(c, result, flags)
+      result = semExprWithType(c, result, flags)
       if resultTypeIsInferrable(retType):
         # this is a "return type inference" scenario. There's no return type
         # to infer, but the expression still needs to use the proper type
         result = inferWithMetatype(c, retType, result)
       else:
-        result = fitNode(c, retType, result, result.info)
+        result = fitNodeConsiderViewType(c, retType, result, result.info)
   dec(c.config.evalTemplateCounter)
   discard c.friendModules.pop()
 
