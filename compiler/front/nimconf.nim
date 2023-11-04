@@ -505,6 +505,7 @@ proc readConfigFile*(
   filename: AbsoluteFile, cache: IdentCache,
   conf: ConfigRef, evtHandler: NimConfEvtWriter
 ): bool {.inline.} =
+  # created and exported for `nimph`
   var parser = NimConfParser(config: conf, cfgEvtWriter: evtHandler,
                              stopOnError: true)
   parser.readConfigFile(filename, cache)
