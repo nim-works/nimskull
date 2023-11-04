@@ -770,7 +770,6 @@ type
     rsemResultUsed             = "ResultUsed"
     rsemGenericMethodsDeprecated
     rsemSuspiciousEnumConv     = "EnumConv"
-    rsemSuspiciousContainsConv = "ContainsConv"
     rsemUnsafeSetLen           = "UnsafeSetLen"
     rsemUnsafeDefault          = "UnsafeDefault"
     rsemUntypedParamsFollwedByMoreSpecificType
