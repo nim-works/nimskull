@@ -77,15 +77,10 @@ proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
     writeBody(config, "-- output AST: " & owner.name.s):
       config.writeln(treeRepr(body.code))
 
-proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
-                       outermost: bool) =
+proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap) =
   ## Removes definitions of non-pure globals from `body`, replacing them with
   ## as assignment if necessary. The correct symbols for globals of which
   ## copies were introduced during ``transf`` are also restored here.
-  ##
-  ## If `outermost` is true, only definitions in the outermost scope will be
-  ## removed. This is a hack, but it's currently required for turning
-  ## module-level AST into a procedure in a mostly transparent way.
   proc restoreGlobal(s: PSym): PSym {.nimcall.} =
     ## If the global `s` is a duplicate that was introduced in order to make
     ## the code temporarily semantically correct, restores the original
@@ -107,7 +102,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
     case n.kind
     of DefNodes:
       let def = i + 1
-      if body[def].kind == mnkGlobal and (not outermost or depth == 1):
+      if body[def].kind == mnkGlobal and depth == 1:
         let
           sym = restoreGlobal(body[def].sym)
           typ = sym.typ
@@ -147,7 +142,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap,
       inc i, 2 # skip the whole sub-tree ('def', name, and 'end' node)
     of mnkGlobal:
       # remove the temporary duplicates of nested globals again:
-      if not outermost and depth > 1:
+      if depth > 1:
         let s = restoreGlobal(n.sym)
         if s != n.sym:
           changes.seek(i)

@@ -171,9 +171,7 @@ func discoverGlobalsAndRewrite(data: var DiscoveryData, tree: var MirTree,
     else:
       inc i
 
-  # at the moment, nothing depends on non-outermost defs of globals, so we
-  # can rewrite all defs in one go:
-  rewriteGlobalDefs(tree, source, outermost = false)
+  rewriteGlobalDefs(tree, source)
 
 func register(linker: var LinkerData, data: DiscoveryData) =
   ## Registers the newly discovered entities in the link table, but doesn't
