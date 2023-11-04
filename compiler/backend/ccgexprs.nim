@@ -1370,6 +1370,17 @@ proc rdSetElemLoc(conf: ConfigRef; a: TLoc, typ: PType): Rope =
   if firstOrd(conf, setType) != 0:
     result = "($1- $2)" % [result, rope(firstOrd(conf, setType))]
 
+proc fewCmps(conf: ConfigRef; s: CgNode): bool =
+  # this function estimates whether it is better to emit code
+  # for constructing the set or generating a bunch of comparisons directly
+  if s.kind != cnkSetConstr: return false
+  if (getSize(conf, s.typ) <= conf.target.intSize) and isDeepConstExpr(s):
+    result = false            # it is better to emit the set generation code
+  elif elemType(s.typ).kind in {tyInt, tyInt16..tyInt64}:
+    result = true             # better not emit the set if int is basetype!
+  else:
+    result = s.len <= 8  # 8 seems to be a good value
+
 template binaryExprIn(p: BProc, e: CgNode, a, b, d: var TLoc, frmt: string) =
   putIntoDest(p, d, e, frmt % [rdLoc(a), rdSetElemLoc(p.config, b, a.t)])
 
@@ -1390,11 +1401,36 @@ template binaryStmtInExcl(p: BProc, e: CgNode, d: var TLoc, frmt: string) =
 
 proc genInOp(p: BProc, e: CgNode, d: var TLoc) =
   var a, b, x, y: TLoc
-  assert e[1].typ != nil
-  assert e[2].typ != nil
-  initLocExpr(p, e[1], a)
-  initLocExpr(p, e[2], b)
-  genInExprAux(p, e, a, b, d)
+  if (e[1].kind == cnkSetConstr) and fewCmps(p.config, e[1]):
+    # a set constructor but not a constant set:
+    # do not emit the set, but generate a bunch of comparisons
+    let ea = e[2]
+    initLocExpr(p, ea, a)
+    initLoc(b, locExpr, e, OnUnknown)
+    if e[1].len > 0:
+      b.r = rope("(")
+      for i in 0..<e[1].len:
+        let it = e[1][i]
+        if it.kind == cnkRange:
+          initLocExpr(p, it[0], x)
+          initLocExpr(p, it[1], y)
+          b.r.addf("$1 >= $2 && $1 <= $3",
+               [rdCharLoc(a), rdCharLoc(x), rdCharLoc(y)])
+        else:
+          initLocExpr(p, it, x)
+          b.r.addf("$1 == $2", [rdCharLoc(a), rdCharLoc(x)])
+        if i < e[1].len - 1: b.r.add(" || ")
+      b.r.add(")")
+    else:
+      # handle the case of an empty set
+      b.r = rope("0")
+    putIntoDest(p, d, e, b.r)
+  else:
+    assert(e[1].typ != nil)
+    assert(e[2].typ != nil)
+    initLocExpr(p, e[1], a)
+    initLocExpr(p, e[2], b)
+    genInExprAux(p, e, a, b, d)
 
 proc genSetOp(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   const
