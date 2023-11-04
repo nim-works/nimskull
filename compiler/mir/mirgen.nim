@@ -713,105 +713,82 @@ proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
       unreachable()
 
 proc genInSetOp(c: var TCtx, n: PNode): EValue =
-  ## Generates and emits the IR for the ``mInSet`` magic call `n`. The
-  ## operation has special semantics for some operand expressions.
-  let se = n[1] # the set operand
-  let fewCmps =
-    if se.kind != nkCurly:
-      false # not a set construction
-    elif (getSize(c.graph.config, se.typ) <= c.graph.config.target.intSize and
-          isDeepConstExpr(se)):
-      false # small enough constant should emit the set construction
-    elif elemType(se.typ).kind in {tyInt, tyInt16..tyInt64}:
-      true # signed integer sets should always use comparisons
-    else:
-      se.len <= 8 # small set expressions should also use comparisons
+  ## Generates and emits the IR for the ``mInSet`` magic call `n`. If
+  ## the element operand is a range check, it is integrated into the
+  ## operation, meaning that no defect will be raised if the operand is
+  ## not in the expected range.
+  case n[2].kind
+  of nkChckRange, nkChckRange64:
+    # turn
+    #   chkRange(a, b, c) in d
+    # into
+    #   b <= a and a <= c and a in d
+    # but make sure that 'd' is still always evaluated
+    let
+      se = n[1]
+      x  = n[2]
+      elemTyp = x.typ.skipTypes(abstractRange)
+      leOp = getMagicLeForType(elemTyp) # less-equal op
+      res = getTemp(c, n.typ) # the temporary to write the result to
 
-  if fewCmps:
-    # use a chain of comparisons, but with the range check skipped. Dropping
-    # the range check allows for code that would fail with a "normal"
-    # ``contains`` call!
-    let x =
-      case n[2].kind
-      of nkChckRange, nkChckRange64: n[2][0]
-      else:                          n[2]
-
-    let res = getTemp(c, n.typ)
-    # all set construction arguments are always evaluated, regardless of
-    # whether they're actually used. A region is used to achieve this, but
-    # we forward literals (they don't have side-effects) in order to reduce
-    # the amount of MIR code
+    # we use a region in order to ensure that all operands are only evaluated
+    # once
     argBlock(c.stmts):
       # the evaluation order is reversed here: the second operand comes
       # first
-      chain(c): genx(c, x) => arg()
+      chain(c): genx(c, x[0]) => arg()
+      chain(c): genx(c, x[1]) => arg()
+      chain(c): genx(c, x[2]) => arg()
 
-      for it in se.items:
-        template emit(n: PNode) =
-          # literals are forwarded
-          if n.kind notin nkLiterals:
-            chain(c): genx(c, n) => arg()
-
-        if it.kind == nkRange:
-          emit(it[0])
-          emit(it[1])
-        else:
-          emit(it)
-
-    var i = 0'u32
-    template emit(n: PNode) =
-      if n.kind in nkLiterals:
-        chain(c): genx(c, n) => arg()
+      if se.kind == nkCurly:
+        # don't pass the set construction as an argument, as that would
+        # always materialize it, preventing optimizations. Literals are
+        # forwarded (they don't have side-effects) in order to reduce
+        # the amount of MIR code
+        for it in se.items:
+          if it.kind notin {nkRange} + nkLiterals:
+            chain(c): genx(c, it) => arg()
       else:
-        # use the corresponding region parameter:
-        chain(c): opParam(1 + i, n.typ) => arg()
-        inc i
+        chain(c): genx(c, n[1]) => arg()
 
-    let
-      elemTyp = x.typ.skipTypes(abstractRange)
-      leOp = getMagicLeForType(elemTyp) # less-equal op
-      eqOp = getMagicEqForType(elemTyp) # equal op
-
-    # manually generate a chain of ``or`` operations by nesting ``if``
-    # statements
     c.stmts.subTree MirNode(kind: mnkRegion):
-      for it in se.items:
-        # generated: ``if not tmp``:
-        forward(c): temp(n.typ, res) => notOp(c)
-        c.stmts.add MirNode(kind: mnkIf)
-        c.stmts.add MirNode(kind: mnkStmtList)
-        if it.kind == nkRange:
-          # generate: ``tmp = bitand(a <= x, x <= b)``
+      # generate: ``if x <= a:``
+      argBlock(c.stmts):
+        chain(c): genx(c, x[1]) => arg()
+        chain(c): opParam(0, x.typ) => arg()
+      forward(c): magicCall(leOp, n.typ)
+      c.stmts.subTree MirNode(kind: mnkIf):
+        c.stmts.subTree MirNode(kind: mnkStmtList):
+          # generate: ``if x <= b:``
           argBlock(c.stmts):
-            chain(c): temp(n.typ, res) => outOp() => name()
-            argBlock(c.stmts):
+            chain(c): opParam(0, x.typ) => arg()
+            chain(c): genx(c, x[2]) => arg()
+          forward(c): magicCall(leOp, n.typ)
+          c.stmts.subTree MirNode(kind: mnkIf):
+            c.stmts.subTree MirNode(kind: mnkStmtList):
+              # generate: ``tmp = x in ...``
               argBlock(c.stmts):
-                emit(it[0])
-                chain(c): opParam(0, x.typ) => arg()
-              chain(c): magicCall(leOp, n.typ) => arg()
-              argBlock(c.stmts):
-                chain(c): opParam(0, x.typ) => arg()
-                emit(it[1])
-              chain(c): magicCall(leOp, n.typ) => arg()
-            chain(c): magicCall(mBitandI, n.typ) => arg()
-          c.stmts.add MirNode(kind: mnkAsgn)
-        else:
-          # generate: ``tmp = x == y``
-          argBlock(c.stmts):
-            chain(c): temp(n.typ, res) => outOp() => name()
-            argBlock(c.stmts):
-              emit(it)
-              chain(c): opParam(0, x.typ) => arg()
-            chain(c): magicCall(eqOp, n.typ) => arg()
-          c.stmts.add MirNode(kind: mnkAsgn)
-
-      # close the opened blocks:
-      for _ in 0..<se.len:
-        c.stmts.add endNode(mnkStmtList)
-        c.stmts.add endNode(mnkIf)
-
-    # no special handling is required for an empty set constructions, the
-    # default bool value ('false') is correct
+                chain(c): temp(n.typ, res) => outOp() => name()
+                argBlock(c.stmts):
+                  if se.kind == nkCurly:
+                    argBlock(c.stmts):
+                      # emit a set construction
+                      var i = 0
+                      for it in se.items:
+                        if it.kind in nkLiterals + {nkRange}:
+                          chain(c): genx(c, it) => arg()
+                        else:
+                          # use the corresponding region parameter:
+                          chain(c): opParam(uint32(3 + i), n.typ) => arg()
+                          inc i
+                    chain(c): constr(se.typ) => arg()
+                  else:
+                    # forward the region parameter:
+                    chain(c): opParam(3, n.typ) => arg()
+                  # the 'in' element operand:
+                  chain(c): opParam(0, x.typ) => arg()
+                chain(c): magicCall(mInSet, n.typ) => arg()
+              c.stmts.add MirNode(kind: mnkInit)
 
     # generate: ``tmp``
     c.tempNode(n.typ, res)
