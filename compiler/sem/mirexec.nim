@@ -555,7 +555,6 @@ iterator traverseReverse*(tree: MirTree, c: ControlFlowGraph,
 
   exit = false
 
-  var trace = ""
   # move the program counter to the CFG instruction that marks the start of the
   # basic block `start` is located inside. While doing so, collect the loops
   # the start position is located inside:

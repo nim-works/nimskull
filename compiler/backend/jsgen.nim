@@ -229,7 +229,7 @@ proc mapType(typ: PType; indirect = false): TJSTypeKind =
     result = mapType(t[0], indirect)
   of tyInt..tyInt64, tyUInt..tyUInt64, tyChar: result = etyInt
   of tyBool: result = etyBool
-  of tyFloat..tyFloat128: result = etyFloat
+  of tyFloat..tyFloat64: result = etyFloat
   of tySet: result = etyObject # map a set to a table
   of tyString, tySequence: result = etySeq
   of tyObject, tyArray, tyTuple, tyOpenArray, tyVarargs, tyUncheckedArray:
@@ -476,7 +476,7 @@ proc maybeMakeTempAssignable(p: PProc, n: CgNode; x: TCompRes): tuple[a, tmp: Ro
     if x.tmpLoc != "" and (mapType(n.typ) == etyBaseIndex or n.kind in {cnkDerefView, cnkDeref}):
       b = "$1[0][$1[1]]" % [x.tmpLoc]
       result = (a: a, tmp: b)
-    elif x.tmpLoc != "" and n.kind == cnkBracketAccess:
+    elif x.tmpLoc != "" and n.kind == cnkArrayAccess:
       # genArrayAddr
       var
         address, index: TCompRes
@@ -973,7 +973,7 @@ proc genAsgnAux(p: PProc, x, y: CgNode, noCopyNeeded: bool) =
   var xtyp = mapType(x.typ)
 
   # disable `[]=` for cstring
-  if x.kind == cnkBracketAccess and x[0].typ.skipTypes(abstractInst).kind == tyCstring:
+  if x.kind == cnkArrayAccess and x[0].typ.skipTypes(abstractInst).kind == tyCstring:
     localReport(p.config, x.info, reportSem rsemUnexpectedArrayAssignForCstring)
 
   gen(p, x, a)
@@ -1055,11 +1055,14 @@ proc genFieldAddr(p: PProc, n: CgNode, r: var TCompRes) =
   r.typ = etyBaseIndex
   let b = if n.kind == cnkHiddenAddr: n.operand else: n
   gen(p, b[0], a)
-  if skipTypes(b[0].typ, abstractVarRange).kind == tyTuple:
+  case b.kind
+  of cnkTupleAccess:
     r.res = makeJSString("Field" & $getFieldPosition(p, b[1]))
-  else:
+  of cnkFieldAccess:
     p.config.internalAssert(b[1].kind == cnkSym, b[1].info, "genFieldAddr")
     r.res = makeJSString(ensureMangledName(p, b[1].sym))
+  else:
+    unreachable(n.kind)
   internalAssert p.config, a.typ != etyBaseIndex
   r.address = a.res
   r.kind = resExpr
@@ -1067,7 +1070,6 @@ proc genFieldAddr(p: PProc, n: CgNode, r: var TCompRes) =
 proc genFieldAccess(p: PProc, n: CgNode, r: var TCompRes) =
   gen(p, n[0], r)
   r.typ = mapType(n.typ)
-  let otyp = skipTypes(n[0].typ, abstractVarRange)
 
   template mkTemp(i: int) =
     if r.typ == etyBaseIndex:
@@ -1079,14 +1081,17 @@ proc genFieldAccess(p: PProc, n: CgNode, r: var TCompRes) =
       else:
         r.address = "$1[0]" % [r.res]
         r.res = "$1[1]" % [r.res]
-  if otyp.kind == tyTuple:
+  case n.kind
+  of cnkTupleAccess:
     r.res = ("$1.Field$2") %
         [r.res, getFieldPosition(p, n[1]).rope]
     mkTemp(0)
-  else:
+  of cnkFieldAccess:
     p.config.internalAssert(n[1].kind == cnkSym, n[1].info, "genFieldAccess")
     r.res = "$1.$2" % [r.res, ensureMangledName(p, n[1].sym)]
     mkTemp(1)
+  else:
+    unreachable(n.kind)
   r.kind = resExpr
 
 proc genAddr(p: PProc, n: CgNode, r: var TCompRes)
@@ -1165,14 +1170,14 @@ proc genArrayAddr(p: PProc, n: CgNode, r: var TCompRes) =
   r.kind = resExpr
 
 proc genArrayAccess(p: PProc, n: CgNode, r: var TCompRes) =
-  var ty = skipTypes(n[0].typ, abstractVarRange)
-  if ty.kind in {tyRef, tyPtr, tyLent}: ty = skipTypes(ty.lastSon, abstractVarRange)
-  case ty.kind
-  of tyArray, tyOpenArray, tySequence, tyString, tyCstring, tyVarargs:
-    genArrayAddr(p, n, r)
-  of tyTuple:
-    genFieldAddr(p, n, r)
-  else: internalError(p.config, n.info, "expr(nkBracketExpr, " & $ty.kind & ')')
+  let ty = skipTypes(n[0].typ, abstractVar)
+  internalAssert(p.config,
+                 ty.kind in {tyArray, tyOpenArray, tySequence, tyString,
+                             tyCstring, tyVarargs},
+                 n.info,
+                 "got " & $ty.kind)
+
+  genArrayAddr(p, n, r)
   r.typ = mapType(n.typ)
   p.config.internalAssert(r.res != "", n.info, "genArrayAccess")
   if ty.kind == tyCstring:
@@ -1239,17 +1244,10 @@ proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
     addrLoc(mangledName(p, n.sym, n.info), n.sym, r)
   of cnkCheckedFieldAccess:
     genCheckedFieldOp(p, n, takeAddr=true, r)
-  of cnkFieldAccess:
+  of cnkFieldAccess, cnkTupleAccess:
     genFieldAddr(p, n, r)
-  of cnkBracketAccess:
-    let kind = skipTypes(n[0].typ, abstractVarRange).kind
-    case kind
-    of tyArray, tyOpenArray, tySequence, tyString, tyCstring, tyVarargs:
-      genArrayAddr(p, n, r)
-    of tyTuple:
-      genFieldAddr(p, n, r)
-    else:
-      internalError(p.config, n[0].info, "expr(nkBracketExpr, " & $kind & ')')
+  of cnkArrayAccess:
+    genArrayAddr(p, n, r)
   of cnkDerefView, cnkDeref:
     # attemping to take the address of a deref expression -> skip both the
     # addr and deref
@@ -1549,7 +1547,7 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
       result = putToSeq("0n", indirect)
     else:
       result = putToSeq("0", indirect)
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     result = putToSeq("0.0", indirect)
   of tyRange, tyGenericInst, tyAlias, tySink, tyLent:
     result = createVar(p, lastSon(typ), indirect)
@@ -1810,7 +1808,7 @@ proc genRepr(p: PProc, n: CgNode, r: var TCompRes) =
     genReprAux(p, n, r, "reprChar")
   of tyBool:
     genReprAux(p, n, r, "reprBool")
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     genReprAux(p, n, r, "reprFloat")
   of tyString:
     genReprAux(p, n, r, "reprStr")
@@ -2009,7 +2007,7 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mDefault: genDefault(p, n, r)
   of mWasMoved: genReset(p, n)
   of mEcho: genEcho(p, n, r)
-  of mNLen..mNError, mSlurp:
+  of mNLen..mNError:
     localReport(p.config, n.info, reportSym(
       rsemConstExpressionExpected, n[0].sym))
 
@@ -2494,7 +2492,8 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       gen(p, n.operand, r)
     else:
       genDeref(p, n, r)
-  of cnkBracketAccess: genArrayAccess(p, n, r)
+  of cnkArrayAccess: genArrayAccess(p, n, r)
+  of cnkTupleAccess: genFieldAccess(p, n, r)
   of cnkFieldAccess: genFieldAccess(p, n, r)
   of cnkCheckedFieldAccess: genCheckedFieldOp(p, n, takeAddr=false, r)
   of cnkObjDownConv: downConv(p, n, r)

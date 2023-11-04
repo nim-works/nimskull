@@ -294,10 +294,6 @@ func getAliveRange(entities: EntityDict, name: EntityName, exists: var bool
     # ``info.def`` for the start and not ``info.scope.b``
     result = info.def .. info.scope.b
 
-func paramType(p: PSym, i: Natural): PType =
-  assert p.kind in routineKinds
-  p.typ[1 + i]
-
 proc getVoidType(g: ModuleGraph): PType {.inline.} =
   g.getSysType(unknownLineInfo, tyVoid)
 
@@ -1006,37 +1002,6 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
       result = ord(x.pos) - ord(y.pos)
   )
 
-  # second pass: if at least one entity in a scope needs its destructor call
-  # placed in a ``finally`` clause, all others in the same scope do too, as the
-  # order-of-destruction would be violated otherwise
-  for pos, scope in entries.items:
-    if scope in needsFinally:
-      # if the destroy call has to be placed inside a ``finally`` clause, we
-      # first need to move the 'def' from its current position to the start of
-      # the scope, as it'd be otherwise located inside the ``try``'s body
-      # (which would render the entity unavailable inside the ``finally``
-      # clause)
-      assert tree[pos].kind == mnkDef
-      c.seek(pos)
-      if hasInput(tree, Operation pos):
-        # replace the 'def' with an initializing assignment if it has an
-        # input:
-        c.replaceMulti(buf):
-          buf.subTree MirNode(kind: mnkRegion):
-            argBlock(buf):
-              let e = getDefEntity(tree, pos) # the entity (e.g. local)
-              chain(buf): emit(tree[e]) => name()
-              chain(buf): opParam(0, tree[e].typ) => arg()
-            buf.add MirNode(kind: mnkInit)
-
-      else:
-        c.remove()
-
-      # insert the 'def' at the start of the scope:
-      c.seek(scope + 1)
-      c.insert(NodeInstance pos, buf):
-        buf.add toOpenArray(tree, pos.int, pos.int+2)
-
   iterator scopeItems(e: seq[DestroyEntry]): Slice[int] {.inline.} =
     ## Partitions `e` using the `scope` field and yields the slice of each
     ## partition
@@ -1052,7 +1017,7 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
           scopePos = e[i].scope
           start = i
 
-  # third pass: inject the destructors and place them inside a ``finally``
+  # second pass: inject the destructors and place them inside a ``finally``
   # clause if necessary
   for s in scopeItems(entries):
     let
@@ -1062,8 +1027,7 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
         ## the node to inherit the origin information from
 
     if useFinally:
-      # at the start of the scope (after the 'def's previously moved there),
-      # insert the start nodes of a 'try' and a 'stmtList':
+      # start a 'finally' at the beginning of the scope:
       c.seek(scopeStart + 1)
       c.insert(source, buf):
         buf.add MirNode(kind: mnkTry, len: 1)
@@ -1161,7 +1125,6 @@ proc lowerBranchSwitch(buf: var MirNodeSeq, body: MirTree, graph: ModuleGraph,
 
     let
       boolTyp = graph.getSysType(unknownLineInfo, tyBool)
-      voidTyp = graph.getSysType(unknownLineInfo, tyVoid)
 
     # XXX: comparing the discrimant values here means that the branch is
     #      destroyed even if the branch doesn't change. This differs from

@@ -50,7 +50,6 @@ type
     tyFloat,
     tyFloat32,
     tyFloat64,
-    tyFloat128,
     tyUInt,
     tyUInt8,
     tyUInt16,

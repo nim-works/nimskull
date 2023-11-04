@@ -147,36 +147,20 @@ proc wrapErrorAndUpdate(c: ConfigRef, n: PNode, s: PSym): PNode =
   result = c.wrapError(n)
   s.ast = result
 
-proc deltaTrace(stopProc, indent: string, entries: seq[StackTraceEntry])
-  {.inline.} =
-  # find the actual StackTraceEntry index based on the name
-  let endsWith = entries.len - 1
-  var startFrom = 0
-  for i in countdown(endsWith, 0):
-    let e = entries[i]
-    if i != endsWith and $e.procname == stopProc: # found the previous
-      startFrom = i + 1
-      break                                       # skip the rest
-
-  # print the trace oldest (startFrom) to newest (endsWith)
-  for i in startFrom..endsWith:
-    let e = entries[i]
-    echo:
-      "$1| $2 $3($4)" % [indent, $e.procname, $e.filename, $e.line]
-
-template semIdeForTemplateOrGenericCheck(conf, n, requiresCheck) =
-  # we check quickly if the node is where the cursor is
+template semIdeForTemplateOrGenericCheck(conf, n, cursorInBody) =
+  # use only for idetools support; detecting cursor in generic or template body
+  # if so call `semIdeForTemplateOrGeneric` for semantic checking
   when defined(nimsuggest):
-    if n.info.fileIndex == conf.m.trackPos.fileIndex and n.info.line == conf.m.trackPos.line:
-      requiresCheck = true
+    if conf.ideCmd in IdeLocCmds and
+       n.info.fileIndex == conf.m.trackPos.fileIndex and
+       n.info.line == conf.m.trackPos.line:
+      cursorInBody = true
 
 template semIdeForTemplateOrGeneric(c: PContext; n: PNode;
-                                    requiresCheck: bool) =
-  # use only for idetools support; this is pretty slow so generics and
-  # templates perform some quick check whether the cursor is actually in
-  # the generic or template.
+                                    cursorInBody: bool) =
+  # provide incomplete information for idetools support in generic or template
   when defined(nimsuggest):
-    if c.config.cmd == cmdIdeTools and requiresCheck:
+    if c.config.cmd == cmdIdeTools and cursorInBody:
       #if optIdeDebug in gGlobalOptions:
       #  echo "passing to safeSemExpr: ", renderTree(n)
       discard safeSemExpr(c, n)
@@ -185,8 +169,7 @@ proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
   var
     a = arg
     x = a.mutableSkipConv
-  if (x.kind == nkCurly and formal.kind == tySet and formal.base.kind != tyGenericParam) or
-    (x.kind in {nkPar, nkTupleConstr}) and formal.kind notin {tyUntyped, tyBuiltInTypeClass}:
+  if x.kind in {nkCurly, nkPar, nkTupleConstr} and formal.kind != tyUntyped:
     x = changeType(c, x, formal, check=true)
 
     if x.isError:
@@ -520,15 +503,6 @@ proc semTemplateExpr(c: PContext, n: PNode, s: PSym,
 proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
                   flags: TExprFlags = {}): PNode
 
-proc hasCycle(n: PNode): bool =
-  # xxx: this isn't used, we should consider reinstating this?
-  incl n.flags, nfNone
-  for i in 0..<n.safeLen:
-    if nfNone in n[i].flags or hasCycle(n[i]):
-      result = true
-      break
-  excl n.flags, nfNone
-
 proc tryConstExpr(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "tryConstExpr", n, result)
   pushExecCon(c, {})
@@ -661,6 +635,10 @@ when not defined(nimHasSinkInference):
 
 include hlo, seminst, semcall
 
+template resultTypeIsInferrable(typ: PType): untyped =
+  typ.isMetaType and typ.kind != tyTypeDesc and
+    (typ.kind notin tyUserTypeClasses or not typ.isResolvedUserTypeClass)
+
 proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
                        s: PSym, flags: TExprFlags): PNode =
   ## Semantically check the output of a macro.
@@ -712,7 +690,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       else:
         result.typ = makeTypeDesc(c, typ)
     else:
-      if s.ast[genericParamsPos] != nil and retType.isMetaType:
+      if s.ast.isGenericRoutine and retType.isMetaType:
         # The return type may depend on the Macro arguments
         # e.g. template foo(T: typedesc): seq[T]
         # We will instantiate the return type here, because
@@ -725,7 +703,12 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
                                        macroResult.info, retType)
 
       result = semExpr(c, result, flags)
-      result = fitNode(c, retType, result, result.info)
+      if resultTypeIsInferrable(retType):
+        # this is a "return type inference" scenario. There's no return type
+        # to infer, but the expression still needs to use the proper type
+        result = inferWithMetatype(c, retType, result)
+      else:
+        result = fitNode(c, retType, result, result.info)
   dec(c.config.evalTemplateCounter)
   discard c.friendModules.pop()
 

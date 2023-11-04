@@ -71,7 +71,7 @@ proc checkNode(c: var CheckedContext; tree: PackedTree; n: NodePos) =
   if tree[n.int].typeId != nilItemId:
     checkType(c, tree[n.int].typeId)
   case n.kind
-  of nkEmpty, nkNilLit, nkType, nkNilRodNode:
+  of nkEmpty, nkNilLit, nkType, nkCommentStmt, nkNilRodNode:
     discard
   of nkIdent:
     assert c.g.packed[c.thisModule].fromDisk.strings.hasLitId n.litId
@@ -79,7 +79,7 @@ proc checkNode(c: var CheckedContext; tree: PackedTree; n: NodePos) =
     checkLocalSym(c, tree.nodes[n.int].operand)
   of directIntLit:
     discard
-  of externIntLit, nkFloatLit..nkFloat128Lit:
+  of externIntLit, nkFloatLit..nkFloat64Lit:
     assert c.g.packed[c.thisModule].fromDisk.numbers.hasLitId n.litId
   of nkStrLit..nkTripleStrLit:
     assert c.g.packed[c.thisModule].fromDisk.strings.hasLitId n.litId

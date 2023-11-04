@@ -34,7 +34,7 @@ listing fields for typeof(x)
 a: int
 b: float
 typeDesc[range[1 .. 5]]; ntyTypeDesc; typeDesc[range[1, 5]]; typeDesc[range[1 .. 5]]
-typeDesc[range]; ntyTypeDesc; typeDesc[range[T]]; typeDesc[range]'''
+typeDesc[builtinTypeClass[range]]; ntyTypeDesc; typeDesc[builtinTypeClass[range]]; typeDesc[builtinTypeClass[range]]'''
 """
 
 import macros, typetraits

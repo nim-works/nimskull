@@ -77,7 +77,7 @@ type
     tkUIntLit = "tkUIntLit", tkUInt8Lit = "tkUInt8Lit", tkUInt16Lit = "tkUInt16Lit",
     tkUInt32Lit = "tkUInt32Lit", tkUInt64Lit = "tkUInt64Lit",
     tkFloatLit = "tkFloatLit", tkFloat32Lit = "tkFloat32Lit",
-    tkFloat64Lit = "tkFloat64Lit", tkFloat128Lit = "tkFloat128Lit",
+    tkFloat64Lit = "tkFloat64Lit",
     tkStrLit = "tkStrLit", tkRStrLit = "tkRStrLit", tkTripleStrLit = "tkTripleStrLit",
     tkGStrLit = "tkGStrLit", tkGTripleStrLit = "tkGTripleStrLit", tkCharLit = "tkCharLit",
     tkCustomLit = "tkCustomLit",
@@ -516,7 +516,7 @@ proc getNumber(L: var Lexer, result: var Token) =
   const
     baseCodeChars = {'X', 'x', 'o', 'b', 'B'}
     literalishChars = baseCodeChars + {'A'..'F', 'a'..'f', '0'..'9', '_', '\''}
-    floatTypes = {tkFloatLit, tkFloat32Lit, tkFloat64Lit, tkFloat128Lit}
+    floatTypes = {tkFloatLit, tkFloat32Lit, tkFloat64Lit}
   result.tokType = tkIntLit   # int literal until we know better
   result.literal = ""
   result.base = base10
@@ -586,7 +586,6 @@ proc getNumber(L: var Lexer, result: var Token) =
       case suffixAsLower
       of "f", "f32": result.tokType = tkFloat32Lit
       of "d", "f64": result.tokType = tkFloat64Lit
-      of "f128": result.tokType = tkFloat128Lit
       of "i8": result.tokType = tkInt8Lit
       of "i16": result.tokType = tkInt16Lit
       of "i32": result.tokType = tkInt32Lit
@@ -1172,22 +1171,6 @@ proc getPrecedence*(tok: Token): int =
   of tkOr, tkXor, tkPtr, tkRef: result = 3
   else: return -10
 
-proc newlineFollows(L: Lexer): bool =
-  var pos = L.bufpos
-  while true:
-    case L.buf[pos]
-    of ' ', '\t':
-      inc(pos)
-    of CR, LF:
-      result = true
-      break
-    of '#':
-      inc(pos)
-      if L.buf[pos] == '#': inc(pos)
-      if L.buf[pos] != '[': return true
-    else:
-      break
-
 proc skipMultiLineComment(L: var Lexer; tok: var Token; start: int;
                           isDoc: bool) =
   var pos = start
@@ -1525,21 +1508,6 @@ proc rawGetTok*(L: var Lexer, tok: var Token) =
         L.handleDiag(lexDiagInvalidToken, $c)
         inc(L.bufpos)
   atTokenEnd()
-
-proc getIndentWidth(fileIdx: FileIndex, inputstream: PLLStream;
-                     cache: IdentCache; config: ConfigRef): int =
-  var lex: Lexer
-  var tok: Token
-  initToken(tok)
-  openLexer(lex, fileIdx, inputstream, cache, config)
-  var prevToken = tkEof
-  while tok.tokType != tkEof:
-    rawGetTok(lex, tok)
-    if tok.indent > 0 and prevToken in {tkColon, tkEquals, tkType, tkConst, tkLet, tkVar, tkUsing}:
-      result = tok.indent
-      if result > 0: break
-    prevToken = tok.tokType
-  closeLexer(lex)
 
 proc getPrecedence*(ident: PIdent): int =
   ## assumes ident is binary operator already

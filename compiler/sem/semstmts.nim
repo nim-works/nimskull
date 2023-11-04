@@ -135,7 +135,18 @@ proc discardCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
     elif n.typ.kind != tyError and c.config.cmd != cmdInteractive:
       var m = n
       while m.kind in skipForDiscardable:
-        m = m.lastSon
+        case m.kind
+        of nkTryStmt:
+          m =
+            case m[^1].kind
+            of nkFinally:
+              m[^2]
+            of nkExceptBranch:
+              m[^1]
+            of nkAllNodeKinds - {nkFinally, nkExceptBranch}:
+              unreachable()
+        else:
+          m = m.lastSon
 
       result = newError(c.config, n,
         PAstDiag(kind: adSemUseOrDiscardExpr, undiscarded: m))
@@ -299,7 +310,6 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
       n[i][^1] = discardCheck(c, n[i][^1], flags)
       if n[i][^1].isError:
         return wrapError(c.config, n)
-
     if typ == c.enforceVoidContext:
       result.typ = c.enforceVoidContext
   else:
@@ -321,7 +331,7 @@ proc fitRemoveHiddenConv(c: PContext, typ: PType, n: PNode): PNode =
   of nkHiddenStdConv, nkHiddenSubConv:
     let r1 = result[1]
     if r1.kind in {nkCharLit..nkUInt64Lit} and
-       typ.skipTypes(abstractRange).kind in {tyFloat..tyFloat128}:
+       typ.skipTypes(abstractRange).kind in {tyFloat..tyFloat64}:
       result = newFloatNode(nkFloatLit, BiggestFloat r1.intVal)
       result.info = n.info
       result.typ = typ
@@ -386,26 +396,6 @@ proc checkNilableOrError(c: PContext; def: PNode): PNode =
     # xxx: maybe assert instead
     discard
 
-proc checkNilable(c: PContext; v: PSym) =
-  if {sfGlobal, sfImportc} * v.flags == {sfGlobal} and v.typ.requiresInit:
-    if v.astdef.isNil:
-      localReport(c.config, v.info, reportSym(rsemProveInit, v))
-
-    elif tfNotNil in v.typ.flags and
-         not v.astdef.typ.isNil and
-         tfNotNil notin v.astdef.typ.flags:
-      localReport(c.config, v.info, reportSym(rsemProveInit, v))
-
-#include liftdestructors
-
-proc addToVarSection(c: PContext; result: PNode; orig, identDefs: PNode) =
-  if result.kind == nkStmtList:
-    let o = copyNode(orig)
-    o.add identDefs
-    result.add o
-  else:
-    result.add identDefs
-
 proc isDiscardUnderscore(v: PSym): bool =
   if v.name.s == "_":
     v.flags.incl(sfGenSym)
@@ -433,7 +423,7 @@ proc semUsing(c: PContext; n: PNode): PNode =
         strTableIncl(c.signatures, v)
     else:
       localReport(c.config, a, reportSem rsemUsingRequiresType)
-    var def: PNode
+
     if a[^1].kind != nkEmpty:
       localReport(c.config, a, reportSem rsemUsingDisallowsAssign)
 
@@ -444,22 +434,8 @@ proc hasEmpty(typ: PType): bool =
     for s in typ.sons:
       result = result or hasEmpty(s)
 
-proc hasUnresolvedParams(n: PNode; flags: TExprFlags): bool =
+proc hasUnresolvedParams(n: PNode): bool =
   result = tfUnresolved in n.typ.flags
-  when false:
-    case n.kind
-    of nkSym:
-      result = isGenericRoutineStrict(n.sym)
-    of nkSymChoices:
-      for ch in n:
-        if hasUnresolvedParams(ch, flags):
-          return true
-      result = false
-    else:
-      result = false
-    if efOperand in flags:
-      if tfUnresolved notin n.typ.flags:
-        result = false
 
 proc makeDeref(n: PNode): PNode =
   var t = n.typ
@@ -478,23 +454,20 @@ proc makeDeref(n: PNode): PNode =
     result.add a
     t = skipTypes(baseTyp, {tyGenericInst, tyAlias, tySink})
 
-proc setVarType(c: PContext; v: PSym, typ: PType) =
+proc setSymType(c: PContext; n: PNode, v: PSym, typ: PType): PNode =
+  ## Sets the type of `v` to `typ`. If `v` already has a type assigned that
+  ## is not the same as `typ`, an ``nkError`` is returned -- a symbol node
+  ## otherwise. `n` is the node to use as the wrong node.
   if v.typ != nil and not sameTypeOrNil(v.typ, typ):
-    localReport(
-      c.config, v.info,
-      SemReport(
-        kind: rsemDifferentTypeForReintroducedSymbol,
-        sym: v,
-        typeMismatch: @[typeMismatch(
-          actual = typ, formal = v.typ)]))
-
-  v.typ = typ
-
-proc newSymChoiceUseQualifierReport(n: PNode): SemReport =
-  assert n.kind in nkSymChoices
-  result = reportAst(rsemAmbiguousIdent, n, sym = n[0].sym)
-  for child in n:
-    result.symbols.add child.sym
+    c.config.newError(
+      n,
+      PAstDiag(
+        kind: adSemDifferentTypeForReintroducedSymbol,
+        reintrod: v,
+        foundTyp: typ))
+  else:
+    v.typ = typ
+    newSymNode(v)
 
 proc newSymChoiceUseQualifierDiag(n: PNode): PAstDiag =
   assert n.kind in nkSymChoices
@@ -899,20 +872,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
       v.transitionToError(v.ast)
 
     # set the symbol type and add the symbol to the production
-    producedDecl[i] =
-      if v.typ != nil and not sameTypeOrNil(v.typ, vTyp):
-        hasError = true
-
-        c.config.newError(
-          r,
-          PAstDiag(
-            kind: adSemDifferentTypeForReintroducedSymbol,
-            reintrod: v,
-            foundTyp: vTyp))
-      else:
-        v.typ = vTyp
-
-        newSymNode(v)
+    producedDecl[i] = setSymType(c, r, v, vTyp)
 
     case def.kind
     of nkEmpty:
@@ -1259,20 +1219,7 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
       v.transitionToError(v.ast)
 
     # set the symbol type and add the symbol to the production
-    producedDecl[i] =
-      if v.typ != nil and not sameTypeOrNil(v.typ, vTyp):
-        hasError = true
-
-        c.config.newError(
-          r,
-          PAstDiag(
-            kind: adSemDifferentTypeForReintroducedSymbol,
-            reintrod: v,
-            foundTyp: vTyp))
-      else:
-        v.typ = vTyp
-
-        newSymNode(v)
+    producedDecl[i] = setSymType(c, r, v, vTyp)
 
     if producedDecl[i].isError:
       hasError = true
@@ -1692,7 +1639,7 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   of tyRange:
     if skipTypes(caseTyp[0], abstractInst).kind in shouldChckCovered:
       chckCovered = true
-  of tyFloat..tyFloat128, tyString:
+  of tyFloat..tyFloat64, tyString:
     # xxx: possible case statement macro bug, as it'll be skipped here
     discard
   else:
@@ -1997,9 +1944,9 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       s.typ.n = semGenericParamList(c, a[1], s.typ)
       a[1] = s.typ.n
       s.typ.size = -1 # could not be computed properly
-      # we fill it out later. For magic generics like 'seq', it won't be filled
-      # so we use tyNone instead of nil to not crash for strange conversions
-      # like: mydata.seq
+      # we fill it out later. For magic generics like 'typdesc', it won't be
+      # filled so we use tyNone instead of nil to not crash for expressions like
+      # ``static type``
       rawAddSon(s.typ, newTypeS(tyNone, c))
       s.ast = a
       inc c.inGenericContext

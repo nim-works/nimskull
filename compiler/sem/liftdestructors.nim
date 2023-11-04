@@ -478,12 +478,6 @@ proc newSeqCall(c: var TLiftCtx; x, y: PNode): PNode =
   lenCall.typ = getSysType(c.g, x.info, tyInt)
   result.add lenCall
 
-proc setLenStrCall(c: var TLiftCtx; x, y: PNode): PNode =
-  let lenCall = genBuiltin(c, mLengthStr, "len", y)
-  lenCall.typ = getSysType(c.g, x.info, tyInt)
-  result = genBuiltin(c, mSetLengthStr, "setLen", x) # genAddr(g, x))
-  result.add lenCall
-
 proc setLenSeqCall(c: var TLiftCtx; t: PType; x, y: PNode): PNode =
   let lenCall = genBuiltin(c, mLengthSeq, "len", y)
   lenCall.typ = getSysType(c.g, x.info, tyInt)
@@ -515,11 +509,18 @@ proc fillSeqOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
     body.add setLenSeqCall(c, t, x, y)
     forallElements(c, t, body, x, y)
   of attachedSink:
-    let moveCall = genBuiltin(c, mMove, "move", x)
-    moveCall.add y
     doAssert t.destructor != nil
-    moveCall.add destructorCall(c, t.destructor, x)
-    body.add moveCall
+    # generate:
+    #   if not samePayload(x, y):
+    #     =destroy(x)
+    #   x = y
+    let eq = genBuiltin(c, mSamePayload, "samePayload", x)
+    eq.add y
+    eq.typ = getSysType(c.g, x.info, tyBool)
+    let nt = genBuiltin(c, mNot, "not", eq)
+    nt.typ = eq.typ
+    body.add genIf(c, nt, destructorCall(c, t.destructor, x))
+    body.add newAsgnStmt(x, y)
   of attachedDestructor:
     # destroy all elements:
     forallElements(c, t, body, x, y)
@@ -550,11 +551,7 @@ proc useSeqOrStrOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
     body.add newHookCall(c, t.assignment, x, y)
   of attachedSink:
     # we always inline the move for better performance:
-    let moveCall = genBuiltin(c, mMove, "move", x)
-    moveCall.add y
-    doAssert t.destructor != nil
-    moveCall.add destructorCall(c, t.destructor, x)
-    body.add moveCall
+    fillSeqOp(c, t, body, x, y)
     # alternatively we could do this:
     when false:
       doAssert t.asink != nil
@@ -574,11 +571,7 @@ proc fillStrOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   of attachedAsgn, attachedDeepCopy:
     body.add callCodegenProc(c.g, "nimAsgnStrV2", c.info, genAddr(c, x), y)
   of attachedSink:
-    let moveCall = genBuiltin(c, mMove, "move", x)
-    moveCall.add y
-    doAssert t.destructor != nil
-    moveCall.add destructorCall(c, t.destructor, x)
-    body.add moveCall
+    fillSeqOp(c, t, body, x, y)
   of attachedDestructor:
     body.add genBuiltin(c, mDestroy, "destroy", x)
   of attachedTrace:

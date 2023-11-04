@@ -33,6 +33,9 @@ import
     mirtrees,
     sourcemaps,
   ],
+  compiler/modules/[
+    magicsys
+  ],
   compiler/sem/[
     transf
   ],
@@ -204,10 +207,21 @@ proc generateIR(c: var TCtx, tree: sink MirTree,
   if tree.len > 0: generateIR(c.graph, c.idgen, c.module, tree, source)
   else:            Body(code: newNode(cnkEmpty))
 
+proc setupRootRef(c: var TCtx) =
+  ## Sets up if the ``RootRef`` type for the type info cache. This
+  ## is a temporary workaround, refer to the documentation of the
+  ## ``rootRef`` field.
+  if c.typeInfoCache.rootRef == nil:
+    let t = c.graph.getCompilerProc("RootObj")
+    # the``RootObj`` type may not be available yet
+    if t != nil:
+      c.typeInfoCache.initRootRef(c.graph.config, t.typ)
+
 template runCodeGen(c: var TCtx, cg: var CodeGenCtx, b: Body,
                     body: untyped): untyped =
   ## Prepares the code generator's context and then executes `body`. A
   ## delimiting 'eof' instruction is emitted at the end.
+  setupRootRef(c)
   swapState(c, cg)
   let info = b.code.info
   let r = body

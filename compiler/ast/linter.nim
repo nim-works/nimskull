@@ -50,10 +50,6 @@ proc identLen*(line: string, start: int): int =
   while start+result < line.len and line[start+result] in Letters:
     inc result
 
-proc `=~`(s: string, a: openArray[string]): bool =
-  for x in a:
-    if s.startsWith(x): return true
-
 const 
   skContainers = {skModule, skPackage}
   skSingletonDef = {skType, skGenericParam}
@@ -227,10 +223,6 @@ proc styleCheckUse*(conf: ConfigRef; info: TLineInfo; s: PSym) =
   let newName = s.name.s
   let badName = differs(conf, info, newName)
   if badName.len > 0:
-    # special rules for historical reasons
-    let forceHint =
-      (badName == "nnkArgList" and newName == "nnkArglist") or
-      (badName == "nnkArglist" and newName == "nnkArgList")
     conf.localReport(info, SemReport(
       sym: s,
       info: info,

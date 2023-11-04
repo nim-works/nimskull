@@ -57,13 +57,14 @@ from compiler/ast/reports import Report,
 
 from compiler/front/main import customizeForBackend
 
-from compiler/tools/suggest import findTrackedSym, executeCmd, listUsages, suggestSym, `$`
+from compiler/tools/suggest import findTrackedSym, executeCmd, listUsages, suggestSym
 
 when defined(windows):
   import winlean
 else:
   import posix
 
+const sep = '\t'
 const DummyEof = "!EOF!"
 const Usage = """
 Nimsuggest - Tool to give every editor IDE like capabilities for Nim
@@ -236,17 +237,6 @@ proc execute(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
 
   executeNoHooks(cmd, file, dirtyfile, line, col, graph)
 
-proc executeEpc(cmd: IdeCmd, args: SexpNode;
-                graph: ModuleGraph) =
-  let
-    file = AbsoluteFile args[0].getStr
-    line = args[1].getNum
-    column = args[2].getNum
-  var dirtyfile = AbsoluteFile""
-  if len(args) > 3:
-    dirtyfile = AbsoluteFile args[3].getStr("")
-  execute(cmd, file, dirtyfile, int(line), int(column), graph)
-
 proc returnEpc(socket: Socket, uid: BiggestInt, s: SexpNode|string,
                returnSymbol = "return") =
   let response = $convertSexp([newSSymbol(returnSymbol), uid, s])
@@ -261,6 +251,45 @@ template checkSanity(client, sizeHex, size, messageBuffer: typed) =
   if client.recv(messageBuffer, size) != size:
     raise newException(ValueError, "didn't get all the bytes")
 
+proc toSuggestMsg(suggest: Suggest): string =
+  result = $suggest.section
+  result.add(sep)
+  if suggest.section == ideHighlight:
+    let isGlobal = SuggestFlag.isGlobal in suggest.flags
+    if suggest.symkind.TSymKind == skVar and isGlobal:
+      result.add("skGlobalVar")
+    elif suggest.symkind.TSymKind == skLet and isGlobal:
+      result.add("skGlobalLet")
+    else:
+      result.add($suggest.symkind.TSymKind)
+    result.add(sep)
+    result.add($suggest.line)
+    result.add(sep)
+    result.add($suggest.column)
+    result.add(sep)
+    result.add($suggest.tokenLen)
+  else:
+    result.add($suggest.symkind.TSymKind)
+    result.add(sep)
+    if suggest.qualifiedPath.len != 0:
+      result.add(suggest.qualifiedPath.join("."))
+    result.add(sep)
+    result.add(suggest.forth)
+    result.add(sep)
+    result.add(suggest.filePath)
+    result.add(sep)
+    result.add($suggest.line)
+    result.add(sep)
+    result.add($suggest.column)
+    result.add(sep)
+    when defined(nimsuggest) and not defined(noDocgen) and not defined(leanCompiler):
+      result.add(suggest.doc.escape)
+    result.add(sep)
+    result.add($suggest.quality)
+    if suggest.section == ideSug:
+      result.add(sep)
+      result.add($suggest.prefix)
+
 proc toStdout() {.gcsafe.} =
   while true:
     let res = results.recv()
@@ -269,7 +298,7 @@ proc toStdout() {.gcsafe.} =
     of ideMsg: echo res.doc
     of ideKnown: echo res.quality == 1
     of ideProject: echo res.filePath
-    else: echo res
+    else: echo toSuggestMsg(res)
 
 proc toSocket(stdoutSocket: Socket) {.gcsafe.} =
   while true:
@@ -279,7 +308,7 @@ proc toSocket(stdoutSocket: Socket) {.gcsafe.} =
     of ideMsg: stdoutSocket.send(res.doc & "\c\L")
     of ideKnown: stdoutSocket.send($(res.quality == 1) & "\c\L")
     of ideProject: stdoutSocket.send(res.filePath & "\c\L")
-    else: stdoutSocket.send($res & "\c\L")
+    else: stdoutSocket.send(toSuggestMsg(res) & "\c\L")
 
 proc toEpc(client: Socket; uid: BiggestInt) {.gcsafe.} =
   var list = newSList()
@@ -296,10 +325,6 @@ proc toEpc(client: Socket; uid: BiggestInt) {.gcsafe.} =
     else:
       list.add sexp(res)
   returnEpc(client, uid, list)
-
-template setVerbosity(level: typed) =
-  gVerbosity = level
-  conf.notes = NotesVerbosity[gVerbosity]
 
 proc connectToNextFreePort(server: Socket, host: string): Port =
   server.bindAddr(Port(0), host)
@@ -365,7 +390,7 @@ proc argsToStr(x: SexpNode): string =
   let line = x[1].getNum
   let col = x[2].getNum
   let dirty = x[3].getStr
-  result = x[0].getStr.escape
+  result = file.escape
   if dirty.len > 0:
     result.add ';'
     result.add dirty.escape

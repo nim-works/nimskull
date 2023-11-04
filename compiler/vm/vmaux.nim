@@ -108,18 +108,11 @@ proc initProcEntry*(linker: LinkerData, config: ConfigRef,
     else:
       let rTyp = prc.getReturnType()
       if not isEmptyType(rTyp):
-        tc.getOrCreate(config, rTyp, cl)
+        tc.getOrCreate(config, rTyp, false, cl)
       else:
         noneType
 
-  # Create the env parameter type (if an env param exists)
-  result.envParamType =
-    if (let envP = getEnvParam(prc); envP != nil):
-      tc.getOrCreate(config, envP.typ, cl)
-    else:
-      noneType
-
-  assert result.envParamType == noneType or result.envParamType.kind == akRef
+  result.isClosure = prc.typ.callConv == ccClosure
 
 proc initProcEntry*(c: var TCtx, prc: PSym): FuncTableEntry {.inline.} =
   ## Convenience wrapper around

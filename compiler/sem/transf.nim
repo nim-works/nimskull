@@ -308,7 +308,7 @@ proc transformConstSection(c: PTransf, v: PNode): PNode =
 
 proc hasContinue(n: PNode): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkForStmt, nkWhileStmt: discard
+  of nkEmpty..nkNilLit, nkCommentStmt, nkForStmt, nkWhileStmt: discard
   of nkContinueStmt: result = true
   else:
     for i in 0..<n.len:
@@ -433,7 +433,7 @@ proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
   case n.kind
   of nkSym:
     result = transformSym(c, n)
-  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit:
+  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit, nkCommentStmt:
     # nothing to be done for leaves:
     result = n
   of callableDefs:
@@ -603,7 +603,7 @@ proc transformConv(c: PTransf, n: PNode): PNode =
         [transform(c, n[1]),
          newIntTypeNode(firstOrd(c.graph.config, rangeDest), rangeDest),
          newIntTypeNode(lastOrd(c.graph.config, rangeDest), rangeDest)]
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     # XXX int64 -> float conversion?
     let rangeDest = skipTypes(n.typ, abstractVar)
     if rangeDest.kind == tyRange:
@@ -959,7 +959,6 @@ proc transformExpandToAst(c: PTransf, n: PNode): PNode =
 
   let
     call = n[1]
-    fntyp = call[0].typ ## the signature of the macro/template
     nimNodeTyp = sysTypeFromName(c.graph, n.info, "NimNode")
 
   result = copyNode(n)

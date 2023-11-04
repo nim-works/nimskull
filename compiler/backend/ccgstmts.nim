@@ -571,7 +571,7 @@ proc genCase(p: BProc, t: CgNode) =
   case skipTypes(t[0].typ, abstractVarRange).kind
   of tyString:
     genStringCase(p, t)
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     genCaseGeneric(p, t, "if ($1 >= $2 && $1 <= $3) goto $4;$n",
                          "if ($1 == $2) goto $3;$n")
   else:
@@ -821,9 +821,9 @@ proc genAsgn(p: BProc, e: CgNode) =
     var a: TLoc
     discard getTypeDesc(p.module, le.typ.skipTypes(skipPtrs), skVar)
     initLoc(a, locNone, le, OnUnknown)
-    a.flags.incl {lfEnforceDeref, lfPrepareForMutation}
+    a.flags.incl {lfEnforceDeref, lfPrepareForMutation, lfWantLvalue}
     expr(p, le, a)
-    a.flags.excl lfPrepareForMutation
+    a.flags.excl {lfPrepareForMutation, lfWantLvalue}
     assert(a.t != nil)
     genLineDir(p, ri)
     loadInto(p, le, ri, a)

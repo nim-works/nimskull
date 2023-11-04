@@ -320,7 +320,7 @@ template genFields(res: ColText, indent: int, rconf: TReprConf): untyped =
       res.add text
 
   proc field(name: string, cond: TReprFlag, text = default ColText,
-             rc = rconf) =
+             rc = rconf) {.used.} =
     if rc.packed():
       hfield(name, cond, text, rc)
     else:
@@ -858,7 +858,7 @@ proc treeRepr*(
         add $n.intVal + style.number
         postLiteral()
 
-      of nkFloatLit .. nkFloat128Lit:
+      of nkFloatLit .. nkFloat64Lit:
         add " "
         add $n.floatVal + style.floatLit
         postLiteral()
@@ -1060,7 +1060,7 @@ proc treeRepr*(
       add $n.lit.iNumber + style.number
       postLiteral()
 
-    of pnkFloatLit .. pnkFloat128Lit:
+    of pnkFloatLit .. pnkFloat64Lit:
       add " "
       add $n.lit.fNumber + style.floatLit
       postLiteral()

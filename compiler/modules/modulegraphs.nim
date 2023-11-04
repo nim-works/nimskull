@@ -599,7 +599,7 @@ proc parentModule*(g: ModuleGraph; fileIdx: FileIndex): FileIndex =
   if fileIdx.int32 >= 0 and fileIdx.int32 < g.ifaces.len and g.ifaces[fileIdx.int32].module != nil:
     result = fileIdx
   else:
-    result = g.inclToMod.getOrDefault(fileIdx)
+    result = g.inclToMod.getOrDefault(fileIdx, InvalidFileIdx)
 
 proc markDirty*(g: ModuleGraph; fileIdx: FileIndex) =
   let m = g.getModule fileIdx

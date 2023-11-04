@@ -70,6 +70,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: tree:0
 
         # reprotest will manipulate the time which may cause bootstrapping
         # source download to fail due to SSL errors. Download this beforehand

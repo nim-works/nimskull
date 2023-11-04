@@ -80,17 +80,6 @@ proc writeConfigEvent(conf: ConfigRef,
 
   let
     showKindSuffix = conf.hasHint(rintErrKind)
-    pathInfo =
-      case evt.kind
-      of cekParseExpectedX, cekParseExpectedCloseX, cekParseExpectedIdent,
-           cekInvalidDirective, cekWriteConfig, cekProgressPathAdded:
-        evt.location
-      of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag:
-        evt.lexerDiag.location
-      of cekFlagError:
-        evt.flagInfo
-      of cekProgressConfStart:
-        unknownLineInfo
     useColor = if conf.cmd == cmdIdeTools: false else: conf.useColor()
     msgKindTxt =
       case evt.kind

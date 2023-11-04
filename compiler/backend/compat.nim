@@ -108,7 +108,7 @@ proc getRoot*(n: CgNode): CgNode =
       result = n
   of cnkLocal:
     result = n
-  of cnkFieldAccess, cnkBracketAccess, cnkCheckedFieldAccess:
+  of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess:
     result = getRoot(n[0])
   of cnkDerefView, cnkDeref, cnkObjUpConv, cnkObjDownConv, cnkHiddenAddr,
      cnkAddr, cnkHiddenConv, cnkConv:
@@ -117,49 +117,6 @@ proc getRoot*(n: CgNode): CgNode =
     if getMagic(n) == mSlice:
       result = getRoot(n[1])
   else: discard
-
-proc isLValue*(n: CgNode): bool =
-  ## Duplicate of `isLValue <compiler/sem/parampatters.html#isLvalue,PNode>`_,
-  ## but simplified to the needs of the C code generator.
-  # XXX: remove this as soon as possible
-  case n.kind
-  of cnkEmpty:
-    n.typ.kind == tyVar
-  of cnkSym:
-    n.sym.kind == skVar
-  of cnkLocal:
-    # treat all locals as lvalues, even parameters
-    true
-  of cnkFieldAccess:
-    let t = skipTypes(n[0].typ, abstractInst-{tyTypeDesc})
-    t.kind in {tyVar, tySink, tyPtr, tyRef} or
-      (not isDiscriminantField(n) and isLValue(n[0]))
-  of cnkBracketAccess:
-    let t = skipTypes(n[0].typ, abstractInst-{tyTypeDesc})
-    t.kind in {tyVar, tySink, tyPtr, tyRef} or isLValue(n[0])
-  of cnkHiddenConv, cnkConv:
-    if skipTypes(n.typ, abstractPtrs-{tyTypeDesc}).kind in
-        {tyOpenArray, tyTuple, tyObject}:
-      isLValue(n.operand)
-    elif compareTypes(n.typ, n.operand.typ, dcEqIgnoreDistinct):
-      isLValue(n.operand)
-    else:
-      false
-  of cnkDerefView:
-    let n0 = n.operand
-    n0.typ.kind != tyLent or (n0.kind == cnkLocal and n0.local == resultId)
-  of cnkDeref, cnkHiddenAddr:
-    true
-  of cnkObjUpConv, cnkObjDownConv:
-    isLValue(n.operand)
-  of cnkCheckedFieldAccess:
-    isLValue(n[0])
-  of cnkCall:
-    (getMagic(n) == mSlice and isLValue(n[1])) or n.typ.kind in {tyVar}
-  of cnkStmtListExpr:
-    isLValue(n[^1])
-  else:
-    false
 
 proc canRaiseConservative*(fn: CgNode): bool =
   ## Duplicate of `canRaiseConservative <ast_query.html#canRaiseConservative,PNode>`_.

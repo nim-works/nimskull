@@ -15,24 +15,24 @@ type
   ## interpreted. For example, a ``ParamId`` could be the index of the
   ## parameter or it could be an index into a list of symbols.
 
-  LocalId = distinct uint32
+  LocalId {.used.} = distinct uint32
     ## Identifies a local inside a code fragment
-  GlobalId = distinct uint32
+  GlobalId {.used.} = distinct uint32
     ## Identifies a global inside a code fragment
-  ConstId = distinct uint32
+  ConstId {.used.} = distinct uint32
     ## Identifies a named constant inside a code fragment
-  ParamId = distinct uint32
+  ParamId {.used.} = distinct uint32
     ## Identifies a parameter of the code fragment
-  FieldId = distinct uint32
+  FieldId {.used.} = distinct uint32
     ## Identifies the field of a record type
-  ProcedureId = distinct uint32
+  ProcedureId {.used.} = distinct uint32
     ## Identifies a procedure
-  LiteralId = distinct uint32
+  LiteralId {.used.} = distinct uint32
     ## Identifies a literal
 
-  TypeInstance = distinct uint32
+  TypeInstance {.used.} = distinct uint32
     ## Refers to an existing type instance
-  TypeId = distinct uint32
+  TypeId {.used.} = distinct uint32
     ## The ID of a type instance or nil
 
 type

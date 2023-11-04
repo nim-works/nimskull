@@ -46,7 +46,7 @@ proc shouldProcess(g: PGen): bool =
 template closeImpl(body: untyped) {.dirty.} =
   var g = PGen(p)
   let useWarning = sfMainModule notin g.module.flags
-  let groupedToc = true
+  let groupedToc {.used.} = true
   if shouldProcess(g):
     finishGenerateDoc(g.doc)
     body

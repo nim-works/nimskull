@@ -559,6 +559,8 @@ func astDiagToLegacyReportKind*(
   of adSemCallIndirectTypeMismatch: rsemCallIndirectTypeMismatch
   of adSemSystemNeeds: rsemSystemNeeds
   of adSemDisallowedNilDeref: rsemDisallowedNilDeref
+  of adSemCannotDeref: rsemCannotDeref
+  of adSemInvalidTupleSubscript: rsemInvalidTupleSubscript
   of adSemLocalEscapesStackFrame: rsemLocalEscapesStackFrame
   of adSemImplicitAddrIsNotFirstParam: rsemImplicitAddrIsNotFirstParam
   of adSemCannotAssignTo: rsemCannotAssignTo
@@ -574,6 +576,7 @@ func astDiagToLegacyReportKind*(
   of adSemReturnNotAllowed: rsemReturnNotAllowed
   of adSemFieldAssignmentInvalid: rsemFieldAssignmentInvalid
   of adSemFieldNotAccessible: rsemFieldNotAccessible
+  of adSemObjectRequiresFieldInit: rsemObjectRequiresFieldInit
   of adSemObjectRequiresFieldInitNoDefault: rsemObjectRequiresFieldInitNoDefault
   of adSemExpectedObjectType: rsemExpectedObjectType
   of adSemExpectedObjectOfType: rsemExpectedObjectType

@@ -76,7 +76,7 @@ type
     col: int                    ## column the symbol has been declared/used in
     flags: set[NonTerminalFlag] ## the nonterminal's flags
     rule: Peg                   ## the rule that the symbol refers to
-  Peg* {.shallow.} = object ## type that represents a PEG
+  Peg* = object ## type that represents a PEG
     case kind: PegKind
     of pkEmpty..pkWhitespace: nil
     of pkTerminal, pkTerminalIgnoreCase, pkTerminalIgnoreStyle: term: string

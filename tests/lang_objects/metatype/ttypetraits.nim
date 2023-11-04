@@ -252,7 +252,7 @@ block genericParams:
 # bug 13095
 
 type
-  CpuStorage[T] {.shallow.} = ref object
+  CpuStorage[T] = ref object
     when supportsCopyMem(T):
       raw_buffer*: ptr UncheckedArray[T] # 8 bytes
       memalloc*: pointer                 # 8 bytes

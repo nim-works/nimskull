@@ -187,7 +187,7 @@ proc rangeCheckAnalysis(c: var AliveContext; g: PackedModuleGraph; tree: PackedT
       let raiser =
         case loadTypeKind(n.typ, c, g, abstractVarRange)
         of tyUInt..tyUInt64, tyChar: "raiseRangeErrorU"
-        of tyFloat..tyFloat128: "raiseRangeErrorF"
+        of tyFloat..tyFloat64: "raiseRangeErrorF"
         else: "raiseRangeErrorI"
       c.requestCompilerProc(g, raiser)
 

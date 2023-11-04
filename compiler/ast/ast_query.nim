@@ -48,11 +48,11 @@ const
     tyBool, tyChar, tyEnum, tyArray, tyObject,
     tySet, tyTuple, tyRange, tyPtr, tyRef, tyVar, tyLent, tySequence, tyProc,
     tyPointer,
-    tyOpenArray, tyString, tyCstring, tyInt..tyInt64, tyFloat..tyFloat128,
+    tyOpenArray, tyString, tyCstring, tyInt..tyInt64, tyFloat..tyFloat64,
     tyUInt..tyUInt64}
   
   IntegralTypes* = {tyBool, tyChar, tyEnum, tyInt..tyInt64,
-    tyFloat..tyFloat128, tyUInt..tyUInt64} # weird name because it contains tyFloat
+    tyFloat..tyFloat64, tyUInt..tyUInt64} # weird name because it contains tyFloat
   
   ConstantDataTypes*: TTypeKinds = {tyArray, tySet,
                                     tyTuple, tySequence}
@@ -62,9 +62,7 @@ const
   
   PtrLikeKinds*: TTypeKinds = {tyPointer, tyPtr} # for VM
   
-  PersistentNodeFlags*: TNodeFlags = {nfBase2, nfBase8, nfBase16,
-                                      nfDotSetter, nfDotField,
-                                      nfIsRef, nfIsPtr, nfLL,
+  PersistentNodeFlags*: TNodeFlags = {nfDotSetter, nfDotField, nfLL,
                                       nfFromTemplate, nfDefaultRefsParam}
   
   namePos*          = 0 ## Name of the type/proc-like node
@@ -84,8 +82,6 @@ const
   firstArgPos*      = 3 ## Error first 0..n additional nodes depends on
                         ## error kind
 
-  nfAllFieldsSet* = nfBase2
-
   nkCallKinds* = {nkCall, nkInfix, nkPrefix, nkPostfix,
                   nkCommand, nkCallStrLit, nkHiddenCallConv}
   nkIdentKinds* = {nkIdent, nkSym, nkAccQuoted, nkOpenSymChoice,
@@ -94,7 +90,7 @@ const
   nkPragmaCallKinds* = {nkExprColonExpr, nkCall, nkCallStrLit}
 
   nkIntLiterals*   = {nkCharLit..nkUInt64Lit}
-  nkFloatLiterals* = {nkFloatLit..nkFloat128Lit}
+  nkFloatLiterals* = {nkFloatLit..nkFloat64Lit}
   nkStrLiterals*   = {nkStrLit..nkTripleStrLit}
   # TODO: include `nkNilLit` as it's a literal, not the same as `nnkLiterals`
   nkLiterals*      = nkIntLiterals + nkFloatLiterals + nkStrLiterals
@@ -109,6 +105,27 @@ const
     ## of these can introduce new symbols
 
   nkSymChoices* = {nkClosedSymChoice, nkOpenSymChoice}
+
+  nkTypeExprs* = {
+    nkTypeOfExpr,
+    nkObjectTy,
+    nkTupleTy,
+    nkTupleClassTy,
+    nkTypeClassTy,
+    nkStaticTy,
+    nkRefTy,
+    nkPtrTy,
+    nkVarTy,
+    nkConstTy,
+    nkMutableTy,
+    nkDistinctTy,
+    nkProcTy,
+    nkIteratorTy,
+    nkSharedTy,
+    nkEnumTy,
+    nkStmtListType,
+    nkBlockType
+  }
 
   # TODO: replace with `nk*Literals`, see above
   nkIntKinds*   = nkIntLiterals
@@ -346,7 +363,7 @@ proc containsNode*(n: PNode, kinds: TNodeKinds): bool =
 
 proc hasSubnodeWith*(n: PNode, kind: TNodeKind): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkFormalParams:
+  of nkEmpty..nkNilLit, nkFormalParams, nkCommentStmt:
     result = n.kind == kind
   of nkError:
     result = hasSubnodeWith(n.diag.wrongNode, kind)
@@ -544,7 +561,7 @@ iterator pairs*(n: PNode): tuple[i: int, n: PNode] =
   for i in 0..<n.safeLen: yield (i, n[i])
 
 proc isAtom*(n: PNode): bool {.inline.} =
-  result = n.kind >= nkNone and n.kind <= nkNilLit
+  n.kind in nkNone..nkNilLit or n.kind == nkCommentStmt
 
 proc isEmptyType*(t: PType): bool {.inline.} =
   ## 'void' and 'typed' types are often equivalent to 'nil' these days:
@@ -617,8 +634,7 @@ proc isSinkType*(t: PType): bool {.inline.} =
   t.kind == tySink
 
 const magicsThatCanRaise* = {
-  mNone, mSlurp, mParseExprToAst, mParseStmtToAst, mEcho,
-  mChckRange }
+  mNone, mParseExprToAst, mParseStmtToAst, mEcho, mChckRange }
 
 proc canRaiseConservative*(fn: PNode): bool =
   if fn.kind == nkSym and fn.sym.magic notin magicsThatCanRaise:

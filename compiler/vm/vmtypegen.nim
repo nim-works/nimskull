@@ -54,7 +54,7 @@ func hash(t: VmType): Hash =
     of akSeq:                 hash(t.seqElemType)
     of akPtr, akRef:          hash(t.targetType)
     of akSet:                 hash(t.setLength)
-    of akCallable, akClosure: hash(t.routineSig.int)
+    of akCallable:            hash(t.routineSig.int)
     of akDiscriminator:       hash(t.numBits)
     of akArray:               hash(t.elementCount) !& hash(t.elementType)
     of akObject:
@@ -80,7 +80,7 @@ func `==`(a, b: VmType): bool =
   of akSeq:                 cmpField(seqElemType)
   of akPtr, akRef:          cmpField(targetType)
   of akSet:                 cmpField(setLength)
-  of akCallable, akClosure: cmpField(routineSig)
+  of akCallable:            cmpField(routineSig)
   of akDiscriminator:
     # XXX: just testing for `numBits` means that `a: range[0..2]` and
     #      `b: range[0..3]` are treated as the same type!
@@ -236,9 +236,13 @@ type GenResult = object
 
 func genTuple(c: var TypeInfoCache, t: PType, cl: var GenClosure): GenResult
 
-func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVmType, existed: bool] =
+func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure;
+             noClosure = false): tuple[typ: PVmType, existed: bool] =
   ## The heart of `PType` -> `VmType` translation. Looks up or creates types
-  ## and adds mappings to `lut` if they don't exist already
+  ## and adds mappings to `lut` if they don't exist already.
+  ##
+  ## If `noClosure` is 'true', a proc type with ``.closure`` calling
+  ## convention is treated as a procedure type instead of a closure.
   let t = t.skipTypes(skipTypeSet)
   let typ = getAtomicType(c, cl.conf, t)
   if typ.isSome():
@@ -266,12 +270,32 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVm
                      seqElemType: genType(c, t[0], cl).typ)
 
   of tyProc:
-    let kind =
-      if t.callConv == ccClosure: akClosure
-      else: akCallable
+    if t.callConv == ccClosure and not noClosure:
+      # a closure is represented as a ``tuple[prc: proc, env: RootRef]``.
+      # Manually create one.
+      let
+        start = cl.tmpFields.len
+        (prcTyp, _) = c.genType(t, cl, noClosure=true)
 
-    res.typ = VmType(kind: kind)
-    res.typ.routineSig = c.makeSignatureId(t)
+      cl.tmpFields.add prcTyp
+      cl.tmpFields.add c.rootRef
+
+      var hcode = hash(akObject)
+      hcode = hcode !& hash(cl.tmpFields[start + 0])
+      hcode = hcode !& hash(cl.tmpFields[start + 1])
+
+      let id = c.types.get(c.structs, cl.tmpFields.subView(start, 2), hcode)
+      if id != 0:
+        res.existing = c.types[id]
+      else:
+        res.typ = VmType(kind: akObject)
+        res.typ.objFields.newSeq(2)
+        res.typ.objFields[0].typ = cl.tmpFields[start + 0]
+        res.typ.objFields[1].typ = cl.tmpFields[start + 1]
+
+      cl.tmpFields.setLen(start)
+    else:
+      res.typ = VmType(kind: akCallable, routineSig: c.makeSignatureId(t))
 
   of tyObject:
     if true:
@@ -326,13 +350,6 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVm
     # XXX: maybe it's not a good idea to add all user-type class instances to
     #      the cache?
     res.existing = c.genType(t.lastSon(), cl).typ
-  of tyFloat128:
-    # XXX: introducing an error path just for float128 seems excessive, even
-    #      more so when float128 seems to be almost never used. sem should
-    #      reject this instead, but for now we just raise an internal compiler
-    #      error
-    # XXX: could also use `globalReport`, but it's not side-effect free
-    doAssert false, "float128 not supported by the VM"
   else:
     unreachable()
 
@@ -376,7 +393,8 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVm
         cl.sizeQueue.add(result.typ)
 
   # add a lookup entry from the `PType` ID to the `VmType`
-  c.lut[t.itemId] = result.typ
+  if t.kind != tyProc:
+    c.lut[t.itemId] = result.typ
 
 
 func genTuple(c: var TypeInfoCache, t: PType, cl: var GenClosure): GenResult =
@@ -698,9 +716,7 @@ func calcSizeAndAlign(t: var VmType): SizeAlignTuple =
   t.sizeInBytes = result[0]
   t.alignment = result[1]
 
-func genAllTypes(c: var TypeInfoCache, typ: PType, cl: var GenClosure): PVmType =
-  result = genType(c, typ, cl).typ
-
+func genAllTypes(c: var TypeInfoCache, cl: var GenClosure) =
   # generate all queued object types
   var i = 0
   while i < cl.queue.len:
@@ -726,17 +742,19 @@ proc getOrCreate*(
   c: var TypeInfoCache,
   conf: ConfigRef,
   typ: PType,
+  noClosure: bool,
   cl: var GenClosure): PVmType {.inline.} =
   ## Lookup or create the `VmType` corresponding to `typ`. If a new type is
   ## created, the `PType` -> `PVmType` mapping is cached
   cl.queue.setLen(0)
   cl.conf = conf
 
-  genAllTypes(c, typ, cl)
+  result = genType(c, typ, cl, noClosure).typ
+  genAllTypes(c, cl)
 
-proc getOrCreate*(c: var TCtx, typ: PType): PVmType {.inline.} =
+proc getOrCreate*(c: var TCtx, typ: PType; noClosure = false): PVmType {.inline.} =
   var cl: GenClosure
-  getOrCreate(c.typeInfoCache, c.config, typ, cl)
+  getOrCreate(c.typeInfoCache, c.config, typ, noClosure, cl)
 
 
 func lookup*(c: TypeInfoCache, conf: ConfigRef, typ: PType): Option[PVmType] =
@@ -792,3 +810,15 @@ func makeSignatureId*(c: var TypeInfoCache, typ: PType): RoutineSigId =
   if result == c.nextSigId:
     # a table entry was just created:
     inc int(c.nextSigId)
+
+proc initRootRef*(c: var TypeInfoCache, config: ConfigRef, root: PType) =
+  ## Sets up the ``rootRef`` field for `c`. `root` must be the ``PType`` for
+  ## the ``RootObj`` type.
+  var
+    cl = GenClosure()
+    typ = VmType(kind: akRef,
+                 targetType: getOrCreate(c, config, root, false, cl))
+  (typ.sizeInBytes, typ.alignment) = c.staticInfo[akRef]
+
+  let (id, _) = c.types.getOrIncl(c.structs, hash(typ), typ)
+  c.rootRef = c.types[id]

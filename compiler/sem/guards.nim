@@ -58,7 +58,6 @@ const
   someSub = {mSubI, mSubF64, mPred}
   someMul = {mMulI, mMulF64}
   someDiv = {mDivI, mDivF64}
-  someMod = {mModI}
   someMax = {mMaxI}
   someMin = {mMinI}
   someBinaryOp = someAdd+someSub+someMul+someMax+someMin

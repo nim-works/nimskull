@@ -99,9 +99,6 @@ type
 
     oldErrorCount: int
 
-# to prevent endless recursion in macro instantiation
-const evalMacroLimit = 1000
-
 # prevent a default `$` implementation from being generated
 func `$`(e: ExecErrorReport): string {.error.}
 
@@ -155,8 +152,8 @@ proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
     assert n.kind in nkCharLit..nkUInt64Lit
     dest.ensureKind(rkInt, c.memory)
     dest.intVal = n.intVal
-  of tyFloat..tyFloat128:
-    assert n.kind in nkFloatLit..nkFloat128Lit
+  of tyFloat..tyFloat64:
+    assert n.kind in nkFloatLit..nkFloat64Lit
     dest.ensureKind(rkFloat, c.memory)
     dest.floatVal = n.floatVal
   of tyNil, tyPtr, tyPointer:
@@ -173,21 +170,22 @@ proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
     dest.initLocReg(typ, c.memory)
     c.serialize(n, dest.handle)
   of tyProc:
-    # XXX: a hack required to uphold some expectations. For example,
-    #      `genEnumCaseStmt` would fail without this. Procedural types as
-    #      static macro arguments are underspecified
-    let pt =
-      if t.callConv == ccClosure and n.kind == nkSym:
-        # Force the location to be of non-closure type. This breaks other
-        # assumptions!
-        n.sym.typ
+    let val =
+      if t.callConv == ccClosure:
+        # do what ``transf`` would do and turn the expression into a closure
+        # construction
+        case n.kind
+        of nkSym:
+          newTreeIT(nkClosure, n.info, t, [n, newNode(nkNilLit)])
+        of nkClosure, nkNilLit:
+          n
+        else:
+          unreachable()
       else:
-        t
+        n
 
-    let typ = c.getOrCreate(pt)
-    dest.initLocReg(typ, c.memory)
-    c.serialize(n, dest.handle, pt)
-
+    dest.initLocReg(c.getOrCreate(t), c.memory)
+    c.serialize(val, dest.handle)
   else:
     if t.kind == tyRef and t.sym != nil and t.sym.magic == mPNimrodNode:
       # A NimNode

@@ -140,24 +140,27 @@ type
 
   CfileList* = seq[Cfile]
 
+  SuggestFlag* {.pure.} = enum
+    deprecated = 1
+    isGlobal = 2
+
   Suggest* = ref object
     section*: IdeCmd
     qualifiedPath*: seq[string]
-    name*: ptr string           ## not used beyond sorting purposes; name is
-                                ## also part of 'qualifiedPath'
+    name*: string               ## display name
     filePath*: string
     line*: int                  ## Starts at 1
     column*: int                ## Starts at 0
     doc*: string                ## Unescaped documentation string
     forth*: string              ## type
     quality*: range[0..100]     ## matching quality
-    isGlobal*: bool             ## is a global variable
     contextFits*: bool          ## type/non-type context matches
     prefix*: PrefixMatch
     symkind*: byte
     scope*:int
     localUsages*, globalUsages*: int # usage counters
     tokenLen*: int
+    flags*: set[SuggestFlag]
 
   Suggestions* = seq[Suggest]
 
@@ -309,6 +312,10 @@ type
     when defined(nimDebugUnreportedErrors):
       unreportedErrors*: OrderedTable[NodeId, PNode]
 
+const 
+  IdeLocCmds* = {ideSug, ideCon, ideDef, ideUse, ideDus}
+    ## IDE commands requiring source locations, related `MsgConfig.trackPos`
+
 template `[]`*(conf: ConfigRef, idx: FileIndex): TFileInfo =
   conf.m.fileInfos[idx.uint32]
 
@@ -404,9 +411,9 @@ template changed(conf: ConfigRef, s: ConfNoteSet, body: untyped) =
   # Template for debugging purposes - single place to track all changes in
   # the enabled note sets.
   when defined(debug):
-    let before = conf.active.noteSets[s]
+    let before {.used.} = conf.active.noteSets[s]
     body
-    let after = conf.active.noteSets[s]
+    let after {.used.} = conf.active.noteSets[s]
 
     # let n = rintMsgOrigin
     # if (n in before) != (n in after):
@@ -454,7 +461,7 @@ template changedOpts(conf: ConfigRef, body: untyped) =
     let before = conf.localOptions
     body
     let after = conf.localOptions
-    let removed = (optHints in before) and (optHints notin after)
+    let removed {.used.} = (optHints in before) and (optHints notin after)
 
   else:
     body

@@ -532,6 +532,7 @@ type
     rsemRecursiveDependencyIterator
     rsemIllegalNimvmContext
     rsemDisallowedNilDeref
+    rsemCannotDeref
     rsemInvalidTupleSubscript
     rsemLocalEscapesStackFrame
     rsemImplicitAddrIsNotFirstParam
@@ -680,6 +681,7 @@ type
     rsemIllformedAst
     rsemInitHereNotAllowed
     rsemTypeExpected
+    rsemSinkIsNotATypeClass
     rsemGenericTypeExpected
     rsemTypeInvalid
     rsemWrongIdent
@@ -768,6 +770,7 @@ type
     rsemResultUsed             = "ResultUsed"
     rsemGenericMethodsDeprecated
     rsemSuspiciousEnumConv     = "EnumConv"
+    rsemSuspiciousContainsConv = "ContainsConv"
     rsemUnsafeSetLen           = "UnsafeSetLen"
     rsemUnsafeDefault          = "UnsafeDefault"
     rsemUntypedParamsFollwedByMoreSpecificType

@@ -391,6 +391,14 @@ iterator compileTimeOps*(): Override =
 
   override "stdlib.os.getCurrentCompilerExe", proc (a: VmArgs) {.nimcall.} =
     setResult(a, getAppFilename())
+  
+  # xxx: not really a compile-time query, but runs at compiletime and unlike
+  #      osOps it directly impacts compilation
+  for op in ["stdlib.system.slurp", "stdlib.system.staticRead"]:
+    override op, proc (a: VmArgs) {.nimcall.} =
+      let output = opSlurp(getString(a, 0), a.currentLineInfo, a.currentModule,
+                           a.config)
+      writeResult(output)
 
 iterator gorgeOps*(): Override =
   ## Special operations for executing external programs at compile time.

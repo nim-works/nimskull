@@ -275,10 +275,8 @@ proc argTypeToString(arg: PNode; prefer: TPreferedDesc): string =
     for i in 1 ..< arg.len:
       result.add(" | ")
       result.add typeToString(arg[i].typ, prefer)
-
   elif arg.typ == nil:
     result = "void"
-
   else:
     result = arg.typ.typeToString(prefer)
 
@@ -288,17 +286,17 @@ proc describeArgs(conf: ConfigRef, args: seq[PNode]; prefer = preferName): strin
     if arg.kind == nkExprEqExpr:
       result.add renderTree(arg[0])
       result.add ": "
-      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
-        assert false, (
+      if arg.typ.isNil and arg[1].kind notin {nkStmtList, nkDo}:
+        assert false, ($arg.id.int & " " & $arg.kind & " " &
           "call `semcall.maybeResemArgs` on report construciton site - " &
             "this is a temporary hack that is necessary to actually provide " &
             "proper types for error reports.")
-
     else:
-      if arg.typ.isNil and arg.kind notin {
-           nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch
-      }:
-        assert false, "call `semcall.maybeResemArgs` on report construction site"
+      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo, nkElse,
+                                           nkOfBranch, nkElifBranch,
+                                           nkExceptBranch}:
+        assert false, ($arg.id.int & " " & $arg.kind & " " &
+                  " call `semcall.maybeResemArgs` on report construction site")
 
     if arg.typ != nil and arg.typ.kind == tyError:
       return
@@ -762,6 +760,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       else:
         result = "type expected, but got symbol '$1' of kind '$2'" %
           [r.sym.name.s, r.sym.kind.toHumanStr]
+
+    of rsemSinkIsNotATypeClass:
+      result = "'sink' cannot be used as a type class"
 
     of rsemCyclicDependency:
       result = "recursive dependency: '$1'" % r.symstr
@@ -1442,8 +1443,14 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemDisallowedNilDeref:
       result = "nil dereference is not allowed"
 
+    of rsemCannotDeref:
+      result = "the built-in dereference operator is only available for" &
+               " 'ptr' and 'ref' types"
+
     of rsemInvalidTupleSubscript:
-      result = "invalid index value for tuple subscript"
+      result = ("invalid index value ($1) for tuple subscript. Tuple has " &
+                "$2 element(s)") % [$r.countMismatch.got,
+                                    $r.countMismatch.expected]
 
     of rsemLocalEscapesStackFrame:
       result = "'$1' escapes its stack frame; context: '$2'" % [r.symstr, r.ast.render]
@@ -1501,6 +1508,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemSuspiciousEnumConv:
       result = "suspicious code: enum to enum conversion"
+
+    of rsemSuspiciousContainsConv:
+      result = "suspicious code: element value in `in` or `contains` " &
+               "call requires implicit conversion. This could result in run-" &
+               "time range defects"
 
     of rsemStringOrIdentNodeExpected:
       result = "string or ident node expected"
@@ -2561,23 +2573,6 @@ proc presentFailedCandidates(
 
   result = (prefer, candidates)
 
-proc genFeatureDesc[T: enum](t: typedesc[T]): string {.compileTime.} =
-  result = ""
-  for f in T:
-    if result.len > 0: result.add "|"
-    result.add $f
-
-const
-  HelpMessage = "Nim Compiler Version $1 [$2: $3]\n" &
-      "Copyright (c) 2006-" & copyrightYear & " by Andreas Rumpf\n"
-  CommitMessage = "Source hash: $1\n" &
-    "Source date: $2\n"
-
-  Usage = slurp"../doc/basicopt.txt".replace(" //", "   ")
-  AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") %
-    genFeatureDesc(Feature)
-
-
 proc reportBody*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
   case InternalReportKind(r.kind):
@@ -2878,7 +2873,6 @@ proc reportShort*(conf: ConfigRef, r: BackendReport): string =
 
 proc reportBody*(conf: ConfigRef, r: VMReport): string =
   proc render(n: PNode, rf = defaultRenderFlags): string = renderTree(n, rf)
-  proc render(t: PType): string = typeToString(t)
 
   case VMReportKind(r.kind)
   of rvmUserError:
@@ -3261,6 +3255,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemConstExprExpected,
       adSemExpectedObjectForOf,
       adSemDisallowedNilDeref,
+      adSemCannotDeref,
       adSemCannotReturnTypeless,
       adSemExpectedValueForYield,
       adSemNamedExprExpected,
@@ -3284,6 +3279,14 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind,
         ast: diag.wrongNode)
+  of adSemInvalidTupleSubscript:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemInvalidTupleSubscript,
+        ast: diag.wrongNode,
+        countMismatch: (expected: diag.tupleLen,
+                        got: diag.tupleIndex))
   of adSemCannotBeOfSubtype:
     semRep = SemReport(
         location: some diag.location,
@@ -3751,6 +3754,14 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       kind: kind,
       ast: diag.wrongNode,
       sym: diag.inaccessible)
+  of adSemObjectRequiresFieldInit:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemObjectRequiresFieldInit,
+      ast: diag.wrongNode,
+      symbols: diag.missing,
+      typ: diag.objTyp)
   of adSemObjectRequiresFieldInitNoDefault:
     semRep = SemReport(
       location: some diag.location,

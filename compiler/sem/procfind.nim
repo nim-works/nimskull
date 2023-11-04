@@ -29,7 +29,8 @@ import
 from compiler/ast/reports_sem import reportSym
 from compiler/ast/report_enums import ReportKind
 
-proc equalGenericParams(procA, procB: PNode): bool =
+proc equalGenericParams(procA, procB: PNode): bool {.used.} =
+  # currently unused, but might be used again
   if procA.len != procB.len: return false
   for i in 0..<procA.len:
     if procA[i].kind != nkSym:
@@ -45,12 +46,10 @@ proc equalGenericParams(procA, procB: PNode): bool =
   result = true
 
 proc searchForProcAux(c: PContext, scope: PScope, fn: PSym): PSym =
-  const flags = {ExactGenericParams, ExactTypeDescValues,
-                 ExactConstraints, IgnoreCC}
   var it: TIdentIter
   result = initIdentIter(it, scope.symbols, fn.name)
   while result != nil:
-    if result.kind == fn.kind: #and sameType(result.typ, fn.typ, flags):
+    if result.kind == fn.kind:
       case equalParams(result.typ.n, fn.typ.n)
       of paramsEqual:
         if (sfExported notin result.flags) and (sfExported in fn.flags):
