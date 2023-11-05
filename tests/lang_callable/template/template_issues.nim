@@ -297,10 +297,10 @@ block: # bug #12595
 
   test()
 
-block: # https://github.com/nim-works/nimskull/issues/1015
-  proc takeInt(i: int) = discard
+block static_parameter_with_default:
+  # using a `static` template parameter as the argument to a conversion
+  # crashed the compiler
+  template x(b: static[bool] = false) =
+    discard int(b)
 
-  template x(b: static[bool] = false): untyped =
-    takeInt b.int
-
-  x()
+  x() # the default value for the parameter must be used
