@@ -2520,9 +2520,13 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
     genLineDir(p, n)
     var a: TCompRes
     gen(p, n[0], a)
-    # the expression might be something not usable as an expression (e.g.,
-    # object construction), so use a var statement
-    lineF(p, "var _ = $1;$n", [rdLoc(a)])
+    # wrap the expressions in parentheses so that they're not ambiguous with
+    # statements
+    if a.typ == etyBaseIndex:
+      # make sure to evaluate both the address and index
+      lineF(p, "($1); ($2);$n", [a.address, a.res])
+    else:
+      lineF(p, "($1);$n", [a.res])
   of cnkAsmStmt, cnkEmitStmt: genAsmOrEmitStmt(p, n)
   of cnkTryStmt: genTry(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)
