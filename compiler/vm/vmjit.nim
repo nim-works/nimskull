@@ -146,9 +146,9 @@ func removeLastEof(c: var TCtx) =
     c.debug.setLen(last)
 
 func discoverGlobalsAndRewrite(data: var DiscoveryData, tree: var MirTree,
-                               source: var SourceMap) =
+                               source: var SourceMap, rewrite: bool) =
   ## Scans `tree` for definitions of globals, registers them with the `data`,
-  ## and rewrites their definitions into assignments.
+  ## and rewrites their definitions into assignments (if `rewrite` is true).
 
   # scan the body for definitions of globals:
   var i = NodePosition 0
@@ -171,7 +171,11 @@ func discoverGlobalsAndRewrite(data: var DiscoveryData, tree: var MirTree,
     else:
       inc i
 
-  rewriteGlobalDefs(tree, source)
+  if rewrite:
+    rewriteGlobalDefs(tree, source, patch=true)
+  else:
+    # the globals still need to be patched
+    patchGlobals(tree, source)
 
 func register(linker: var LinkerData, data: DiscoveryData) =
   ## Registers the newly discovered entities in the link table, but doesn't
@@ -233,7 +237,7 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
 
   # `n` is expected to have been put through ``transf`` already
   var (tree, sourceMap) = generateMirCode(c, n, isStmt = true)
-  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
+  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap, true)
   applyPasses(tree, sourceMap, c.module, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
   register(c.linking, jit.discovery)
@@ -270,7 +274,7 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   #        const c = block: (var x = 0; x)
   #
   #     If `c` is defined at the top-level, then `x` is a "global" variable
-  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
+  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap, false)
   applyPasses(tree, sourceMap, c.module, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
   register(c.linking, jit.discovery)
@@ -309,11 +313,11 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   echoMir(c.config, s, tree)
   # XXX: lifted globals are currently not extracted from the procedure and,
   #      for the most part, behave like normal locals. The call to
-  #      ``discoverGlobalsAndRewrite`` makes sure that at least ``vmgen``
-  #      doesn't have to be concerned with that, but eventually it needs
-  #      to be decided how lifted globals should work in compile-time and
-  #      interpreted contexts
-  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
+  #      ``discoverGlobalsAndRewrite`` plus the MIR -> ``CgNode`` translation
+  #      make sure that at least ``vmgen`` doesn't have to be concerned with
+  #      that, but eventually it needs to be decided how lifted globals should
+  #      work in compile-time and interpreted contexts
+  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap, false)
   applyPasses(tree, sourceMap, s, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
   register(c.linking, jit.discovery)
