@@ -296,3 +296,11 @@ block: # bug #12595
     discard {i: ""}
 
   test()
+
+block: # https://github.com/nim-works/nimskull/issues/1015
+  proc takeInt(i: int) = discard
+
+  template x(b: static[bool] = false): untyped =
+    takeInt b.int
+
+  x()

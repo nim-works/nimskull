@@ -17,7 +17,8 @@ import
     idents,
     renderer,
     errorhandling,
-    errorreporting
+    errorreporting,
+    types
   ],
   compiler/front/[
     options,
@@ -56,7 +57,14 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
     of nkArgList:
       for y in items(x): result.add(y)
     else:
-      result.add copyTree(x)
+      var x = copyTree(x)
+      if x.typ != nil:
+        case x.typ.kind
+        of tyStatic:
+          x.typ = x.typ.base
+        else:
+          discard
+      result.add x
 
   case templ.kind
   of nkSym:
