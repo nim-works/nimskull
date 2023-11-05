@@ -856,9 +856,9 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
   leave(tree, cr)
 
   case def.kind
-  of cnkLocal, cnkSym:
+  of cnkLocal:
     if cl.inUnscoped:
-      # add the local/global to the list of moved definitions and only emit
+      # add the local to the list of moved definitions and only emit
       # an assignment
       cl.defs.add copyTree(def)
       result =
@@ -872,15 +872,27 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
         of vkNone:   [def, newEmpty()]
         of vkSingle: [def, prev.single]
         of vkMulti:  unreachable()
-    else:
-      # there are no defs for globals in the ``CgNode`` IR, so we
-      # emit an assignment that has the equivalent behaviour (in
-      # terms of initialization)
-      result = newStmt(cnkAsgn, info):
-        case prev.kind
-        of vkNone:   [def, newDefaultCall(info, def.typ)]
-        of vkSingle: [def, prev.single]
-        of vkMulti:  unreachable()
+  of cnkSym:
+    # there are no defs for globals in the ``CgNode`` IR, so we
+    # emit an assignment that has the equivalent behaviour (in
+    # terms of initialization)
+    case prev.kind
+    of vkNone:
+      if sfImportc in def.sym.flags:
+        # for imported globals, the 'def' only means that the symbol becomes
+        # known to us, not that it starts its lifetime here -> don't
+        # initialize or move it
+        result = newEmpty()
+      elif cl.inUnscoped:
+        # move the default initialization to the start of the scope
+        cl.defs.add def
+        result = newEmpty()
+      else:
+        result = newStmt(cnkAsgn, info, [def, newDefaultCall(info, def.typ)])
+    of vkSingle:
+      result = newStmt(cnkAsgn, info, [def, prev.single])
+    of vkMulti:
+      unreachable()
   of cnkEmpty:
     result = def
   else:
