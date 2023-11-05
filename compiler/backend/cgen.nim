@@ -584,6 +584,11 @@ proc initLocExpr(p: BProc, e: CgNode, result: var TLoc) =
   initLoc(result, locNone, e, OnUnknown)
   expr(p, e, result)
 
+proc initLocExpr(p: BProc, e: CgNode, result: var TLoc, flags: set[LocFlag]) =
+  initLoc(result, locNone, e, OnUnknown)
+  result.flags = flags
+  expr(p, e, result)
+
 proc initLocExprSingleUse(p: BProc, e: CgNode, result: var TLoc) =
   initLoc(result, locNone, e, OnUnknown)
   if e.kind == cnkCall and getCalleeMagic(e[0]) == mNone:

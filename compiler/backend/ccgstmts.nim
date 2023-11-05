@@ -821,9 +821,9 @@ proc genAsgn(p: BProc, e: CgNode) =
     var a: TLoc
     discard getTypeDesc(p.module, le.typ.skipTypes(skipPtrs), skVar)
     initLoc(a, locNone, le, OnUnknown)
-    a.flags.incl {lfEnforceDeref, lfPrepareForMutation}
+    a.flags.incl {lfEnforceDeref, lfPrepareForMutation, lfWantLvalue}
     expr(p, le, a)
-    a.flags.excl lfPrepareForMutation
+    a.flags.excl {lfPrepareForMutation, lfWantLvalue}
     assert(a.t != nil)
     genLineDir(p, ri)
     loadInto(p, le, ri, a)
