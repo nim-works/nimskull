@@ -2518,8 +2518,15 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkFastAsgn: genFastAsgn(p, n)
   of cnkVoidStmt:
     genLineDir(p, n)
-    gen(p, n[0], r)
-    r.res = "var _ = " & r.res
+    var a: TCompRes
+    gen(p, n[0], a)
+    # wrap the expressions in parentheses so that they're not ambiguous with
+    # statements
+    if a.typ == etyBaseIndex:
+      # make sure to evaluate both the address and index
+      lineF(p, "($1); ($2);$n", [a.address, a.res])
+    else:
+      lineF(p, "($1);$n", [a.res])
   of cnkAsmStmt, cnkEmitStmt: genAsmOrEmitStmt(p, n)
   of cnkTryStmt: genTry(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)
