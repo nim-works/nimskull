@@ -1154,6 +1154,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemArrayExpectsPositiveRange:
       result = "Array length can't be negative, but was " & $r.countMismatch.got
 
+    of rsemObjectDoesNotHaveDefaultValue:
+      result = "The type '$1' requires an initial value" % r.typ.render
+
     of rsemDistinctDoesNotHaveDefaultValue:
       result = "The $1 distinct type doesn't have a default value." % r.typ.render
 
@@ -3770,13 +3773,14 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       ast: diag.wrongNode,
       symbols: diag.missing,
       typ: diag.objTyp)
-  of adSemDistinctDoesNotHaveDefaultValue:
+  of adSemObjectDoesNotHaveDefaultValue,
+     adSemDistinctDoesNotHaveDefaultValue:
     semRep = SemReport(
       location: some diag.location,
       reportInst: diag.instLoc.toReportLineInfo,
       kind: kind,
       ast: diag.wrongNode,
-      typ: diag.distinctTyp)
+      typ: diag.typWithoutDefault)
   of adSemExpectedObjectOfType:
     semRep = SemReport(
       location: some diag.location,
