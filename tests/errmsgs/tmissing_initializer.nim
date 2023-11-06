@@ -1,5 +1,5 @@
 discard """
-  errormsg: "The type 'Obj' doesn't have a default value"
+  errormsg: "The type 'Obj' requires an initial value"
   line: 8
 """
 

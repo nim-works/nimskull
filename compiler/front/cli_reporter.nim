@@ -1155,7 +1155,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "Array length can't be negative, but was " & $r.countMismatch.got
 
     of rsemObjectDoesNotHaveDefaultValue:
-      result = "The type '$1' doesn't have a default value" % r.typ.render
+      result = "The type '$1' requires an initial value" % r.typ.render
 
     of rsemDistinctDoesNotHaveDefaultValue:
       result = "The $1 distinct type doesn't have a default value." % r.typ.render
