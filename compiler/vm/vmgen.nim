@@ -1345,9 +1345,7 @@ proc genObjConv(c: var TCtx, n: CgNode, dest: var TDest) =
   prepare(c, dest, n.typ)
   let
     tmp = genx(c, n.operand)
-    desttyp = n.typ.skipTypes(IrrelevantTypes + {tyVar, tyLent})
-  # XXX: var and lent in conversions should not end up here -- fix-up
-  #      the conversions in ``mirgen``
+    desttyp = n.typ.skipTypes(IrrelevantTypes)
 
   case desttyp.kind
   of tyRef, tyObject:
