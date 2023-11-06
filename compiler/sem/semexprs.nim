@@ -1121,7 +1121,7 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
 
     # only attempt to fold the expression if doing so doesn't affect
     # compile-time state
-    if ecfStatic notin c.execCon.flags or sfNoSideEffect in callee.flags:
+    if not inCompileTimeOnlyContext(c) or sfNoSideEffect in callee.flags:
       if sfCompileTime in callee.flags:
         result = evalStaticExpr(c.module, c.idgen, c.graph, call, c.p.owner)
       else:
