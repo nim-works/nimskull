@@ -136,6 +136,8 @@ proc indexTypesMatch(c: PContext, f, a: PType, arg: PNode): PNode
 proc semStaticExpr(c: PContext, n: PNode): PNode
 proc semStaticType(c: PContext, childNode: PNode, prev: PType): PType
 proc semTypeOf(c: PContext; n: PNode): PNode
+proc semAnnotation(c: PContext, pragmas: ptr PNode, n: PNode,
+                   flags: TExprFlags): PNode
 proc computeRequiresInit(c: PContext, t: PType): bool
 proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode
 proc hasUnresolvedArgs(c: PContext, n: PNode): bool
@@ -502,6 +504,7 @@ proc semTemplateExpr(c: PContext, n: PNode, s: PSym,
                      flags: TExprFlags = {}): PNode
 proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
                   flags: TExprFlags = {}): PNode
+proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode
 
 proc tryConstExpr(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "tryConstExpr", n, result)

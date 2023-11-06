@@ -354,7 +354,7 @@ ProcDef
       Ident "s"
       Ident "string"
       Empty
-  Empty
+  Pragma
   Empty
   StmtList
     ReturnStmt
