@@ -29,7 +29,7 @@ block tuple_type:
   # note: `v` being an unnamed tuple is deliberate, as it is
   # intended to ensure that the implicit conversion in the template
   # doesn't cause problems
-  var v: (int,) = (0,)
+  var v: Tuple = (0,)
   # test full assignment and read access:
   borrowVar(v) = (x: 1)
   doAssert borrowVar(v) == (x: 1)
