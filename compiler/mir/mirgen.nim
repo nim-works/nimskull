@@ -793,7 +793,7 @@ proc genInSetOp(c: var TCtx, n: PNode): EValue =
     # generate: ``tmp``
     c.tempNode(n.typ, res)
   else:
-    # the operation eligible for being turned into not an ``if`` chain. Emit a
+    # the operation is not eligible for being turned into an ``if`` chain. Emit a
     # generic magic call
     genCall(c, n)
 
