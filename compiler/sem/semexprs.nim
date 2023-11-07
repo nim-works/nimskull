@@ -954,20 +954,15 @@ proc analyseIfAddressTaken(n: PNode) =
     incl(n.sym.flags, sfAddrTaken)
 
 proc passToVarParameter(c: PContext, n: PNode): PNode =
-  ## Analyses the lvalue expression `n` that is meant to be passed to a ``var``
-  ## parameter, wrapping it in an ``nkHiddenAddr`` node, if necessary
-  # only create a mutable reference (i.e. ``nkHiddenAddr``) if the source isn't
-  # one already
-  if n.typ.skipTypes(abstractInst).kind != tyVar:
+  ## Returns `n` wrapped in an ``nkHiddenAddr`` node and marks the symbol of
+  ## the underlying location, if one exists, with ``sfAddrTaken``.
+  if n.typ.kind != tyVar:
     analyseIfAddressTaken(n)
-    result = newHiddenAddrTaken(c, n)
-  elif n.kind in {nkHiddenSubConv, nkHiddenStdConv}:
-    # this happens when passing a sub-type to super-type parameter or something
-    # that is implictly convertible to an ``openArray`` to an ``openArray``
-    # parameter
-    result = newHiddenAddrTaken(c, n)
+    newHiddenAddrTaken(c, n)
   else:
-    result = n
+    # only allowed when trying a concept
+    c.config.internalAssert(c.matchedConcept != nil, n.info)
+    n
 
 proc analyseIfAddressTakenInCall(n: PNode) =
   ## Performs the "is address taken" analysis for all immediate arguments of
@@ -1121,7 +1116,7 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
 
     # only attempt to fold the expression if doing so doesn't affect
     # compile-time state
-    if ecfStatic notin c.execCon.flags or sfNoSideEffect in callee.flags:
+    if not inCompileTimeOnlyContext(c) or sfNoSideEffect in callee.flags:
       if sfCompileTime in callee.flags:
         result = evalStaticExpr(c.module, c.idgen, c.graph, call, c.p.owner)
       else:

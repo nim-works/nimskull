@@ -1673,13 +1673,12 @@ proc genVarInit(p: PProc, typ: PType, varName: string, storage: StorageFlags,
     s: Rope
 
   if n.kind == cnkEmpty:
-    let isIndirect = stfIndirect in storage
-    if not isIndirect and
-      typ.kind in {tyVar, tyPtr, tyLent, tyRef} and mapType(typ) == etyBaseIndex:
+    if mapType(typ) == etyBaseIndex and (stfBoxed notin storage):
       lineF(p, "var $1 = null;$n", [varName])
       lineF(p, "var $1_Idx = 0;$n", [varName])
     else:
-      lineF(p, "var $1 = $2;$n", [varName, createVar(p, typ, isIndirect)])
+      let val = createVar(p, typ, stfIndirect in storage)
+      lineF(p, "var $1 = $2;$n", [varName, val])
   else:
     gen(p, n, a)
     case mapType(typ)
@@ -2293,10 +2292,7 @@ proc finishProc*(p: PProc): string =
     let
       loc {.cursor.} = p.locals[resultId]
       mname = loc.name
-    let returnAddress = not isIndirect(loc) and
-      loc.typ.kind in {tyVar, tyPtr, tyLent, tyRef} and
-        mapType(loc.typ) == etyBaseIndex
-    if returnAddress:
+    if mapType(loc.typ) == etyBaseIndex and (stfBoxed notin loc.storage):
       resultAsgn = p.indentLine(("var $# = null;$n") % [mname])
       resultAsgn.add p.indentLine("var $#_Idx = 0;$n" % [mname])
     else:
@@ -2304,7 +2300,7 @@ proc finishProc*(p: PProc): string =
       resultAsgn = p.indentLine(("var $# = $#;$n") % [mname, resVar])
     var a: TCompRes
     accessLoc(mname, loc, a)
-    if returnAddress:
+    if a.typ == etyBaseIndex:
       returnStmt = "return [$#, $#];$n" % [a.address, a.res]
     else:
       returnStmt = "return $#;$n" % [a.res]
@@ -2522,8 +2518,15 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkFastAsgn: genFastAsgn(p, n)
   of cnkVoidStmt:
     genLineDir(p, n)
-    gen(p, n[0], r)
-    r.res = "var _ = " & r.res
+    var a: TCompRes
+    gen(p, n[0], a)
+    # wrap the expressions in parentheses so that they're not ambiguous with
+    # statements
+    if a.typ == etyBaseIndex:
+      # make sure to evaluate both the address and index
+      lineF(p, "($1); ($2);$n", [a.address, a.res])
+    else:
+      lineF(p, "($1);$n", [a.res])
   of cnkAsmStmt, cnkEmitStmt: genAsmOrEmitStmt(p, n)
   of cnkTryStmt: genTry(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)

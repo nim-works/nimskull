@@ -580,6 +580,7 @@ func astDiagToLegacyReportKind*(
   of adSemObjectRequiresFieldInitNoDefault: rsemObjectRequiresFieldInitNoDefault
   of adSemExpectedObjectType: rsemExpectedObjectType
   of adSemExpectedObjectOfType: rsemExpectedObjectType
+  of adSemObjectDoesNotHaveDefaultValue: rsemObjectDoesNotHaveDefaultValue
   of adSemDistinctDoesNotHaveDefaultValue: rsemDistinctDoesNotHaveDefaultValue
   of adSemFoldRangeCheckForLiteralConversionFailed: rsemCantConvertLiteralToRange
   of adSemIndexOutOfBoundsStatic: rsemStaticOutOfBounds

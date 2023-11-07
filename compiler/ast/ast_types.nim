@@ -1222,6 +1222,7 @@ type
     adSemObjectRequiresFieldInitNoDefault
     adSemExpectedObjectType
     adSemExpectedObjectOfType
+    adSemObjectDoesNotHaveDefaultValue
     adSemDistinctDoesNotHaveDefaultValue
     # semfold
     adSemFoldRangeCheckForLiteralConversionFailed
@@ -1500,8 +1501,9 @@ type
        adSemObjectRequiresFieldInitNoDefault:
       missing*: seq[PSym]
       objTyp*: PType
-    of adSemDistinctDoesNotHaveDefaultValue:
-      distinctTyp*: PType
+    of adSemObjectDoesNotHaveDefaultValue,
+       adSemDistinctDoesNotHaveDefaultValue:
+      typWithoutDefault*: PType
     of adSemExpectedObjectOfType:
       expectedObjTyp*: PType
     of adSemFoldRangeCheckForLiteralConversionFailed:

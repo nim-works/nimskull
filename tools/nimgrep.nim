@@ -1158,7 +1158,7 @@ when defined(posix):
   useWriteStyled = terminal.isatty(stdout)
   # that should be before option processing to allow override of useWriteStyled
 
-for kind, key, val in getopt():
+for kind, key, val in commandLineParams().getopt():
   case kind
   of cmdArgument:
     if options.contains(optStdin):
