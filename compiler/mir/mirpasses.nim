@@ -306,16 +306,10 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
 
     if useTemp:
       # inject the write-to-temporary:
-      let insert =
-        if tree[source].kind == mnkObjConstr:
-          findEnd(tree, NodePosition source)
-        else:
-          NodePosition(source)
-
+      let insert = tree.sibling(NodePosition source)
       let temp = MirNode(kind: mnkTemp, typ: tree[source].typ,
                          temp: changes.getTemp())
-      changes.seek(insert + 1)
-      changes.insert(NodeInstance source, buf):
+      changes.insert(insert, NodeInstance source, buf):
         buf.subTree MirNode(kind: mnkDef):
           buf.add temp
         buf.add temp
@@ -474,8 +468,7 @@ proc fixupCallArguments(tree: MirTree, config: ConfigRef,
         if needsTemp:
           let temp = MirNode(kind: mnkTemp, typ: tree[arg].typ,
                              temp: changes.getTemp())
-          changes.seek(arg)
-          changes.insert(NodeInstance arg, buf):
+          changes.insert(arg, NodeInstance arg, buf):
             buf.subTree MirNode(kind: mnkDef):
               buf.add temp
             buf.add temp
@@ -501,8 +494,7 @@ proc lowerSwap(tree: MirTree, changes: var Changeset) =
     let
       typ = tree[operand(tree, Operation i, 0)].typ
       temp = MirNode(kind: mnkTemp, typ: typ, temp: changes.getTemp())
-    changes.seek(i)
-    changes.replaceMulti(buf):
+    changes.replaceMulti(tree, i, buf):
       buf.subTree MirNode(kind: mnkRegion):
         # the temporary doesn't need to own the value, so use ``DefCursor``
         buf.add opParamNode(0, typ)
@@ -517,7 +509,8 @@ proc lowerSwap(tree: MirTree, changes: var Changeset) =
           chain(buf): opParam(1, typ) => tag(ekReassign) => name()
           chain(buf): emit(temp) => arg()
         buf.add MirNode(kind: mnkFastAsgn)
-    changes.remove() # remove the 'void' sink
+    # remove the 'void' sink
+    changes.remove(tree, tree.sibling(i))
 
 proc applyPasses*(tree: var MirTree, source: var SourceMap, prc: PSym,
                   config: ConfigRef, target: TargetBackend) =

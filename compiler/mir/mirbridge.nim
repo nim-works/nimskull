@@ -107,18 +107,17 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
         let
           sym = restoreGlobal(body[def].sym)
           typ = sym.typ
-        changes.seek(i)
         if depth > 1:
           # don't rewrite the def, but still patch the symbol if requested
           if patch:
-            changes.seek(i + 1)
-            changes.replace: MirNode(kind: mnkGlobal, sym: sym, typ: typ)
+            changes.replace(body, i + 1):
+              MirNode(kind: mnkGlobal, sym: sym, typ: typ)
         # HACK: ``vmjit`` currently passes us expressions where a 'def' can
         #       be the very first node, something that ``hasInput`` doesn't
         #       support. We thus have to guard against i == 0
         elif i.int > 0 and hasInput(body, Operation i):
           # the global has a starting value
-          changes.replaceMulti(buf):
+          changes.replaceMulti(body, i, buf):
             let tmp = changes.getTemp()
             buf.subTree MirNode(kind: mnkDef):
               # assign to a temporary first, and then assign the temporary to the
@@ -135,7 +134,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
           #      it's just meant to make some tests work
           # the location doesn't have an explicit starting value. Initialize
           # it to the type's default value.
-          changes.replaceMulti(buf):
+          changes.replaceMulti(body, i, buf):
             argBlock(buf):
               chain(buf): symbol(mnkGlobal, sym) => tag(ekReassign) => name()
               argBlock(buf): discard
@@ -143,7 +142,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
             buf.add MirNode(kind: mnkInit)
         else:
           # just remove the def:
-          changes.remove()
+          changes.remove(body, i)
 
       inc i, 2 # skip the whole sub-tree ('def', name, and 'end' node)
     of mnkGlobal:
@@ -151,8 +150,8 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
       if patch and depth > 1:
         let s = restoreGlobal(n.sym)
         if s != n.sym:
-          changes.seek(i)
-          changes.replace: MirNode(kind: mnkGlobal, sym: s, typ: s.typ)
+          changes.replace(body, i):
+            MirNode(kind: mnkGlobal, sym: s, typ: s.typ)
 
     of mnkScope:
       inc depth

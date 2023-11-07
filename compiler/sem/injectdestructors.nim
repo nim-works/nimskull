@@ -717,18 +717,18 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
     relation = compareLvalues(tree, toLvalue(ar.v[], source),
                               toLvalue(ar.v[], dest))
 
-  c.seek(NodePosition asgn)
+    pos = NodePosition asgn
 
   if relation.isSame:
     # a self-assignment. We can't remove the arg-block (it might have
     # side-effects), so the assignment is replaced with a
     # no-op instead
-    c.replaceMulti(buf):
+    c.replaceMulti(tree, pos, buf):
       buf.subTree MirNode(kind: mnkRegion): discard
 
   elif owned(ar.v[], source) == Owned.yes:
     # we own the source value -> sink
-    c.replaceMulti(buf):
+    c.replaceMulti(tree, pos, buf):
       let fromLvalue = isNamed(tree, ar.v[], source)
 
       if tree[asgn].kind != mnkInit and
@@ -784,7 +784,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 
   else:
     # we don't own the source value -> copy
-    c.replaceMulti(buf):
+    c.replaceMulti(tree, pos, buf):
       # copies to locals or globals can't introduce cyclic structures, as
       # those are standlone and not part of any other structure
       let maybeCyclic =
@@ -797,7 +797,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                 maybeCyclic)
 
 proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
-                typ: PType, src: OpValue, c: var Changeset) =
+                typ: PType, at: NodePosition, src: OpValue, c: var Changeset) =
   ## Injects the ownership-transfer related logic needed for when a value is
   ## consumed. Since the value is not passed by reference to the ``sink``
   ## parameter, the source location has to be reset, as it'd otherwise contain
@@ -816,7 +816,7 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 
     let tmp = c.getTemp()
 
-    c.insert(NodeInstance src, buf):
+    c.insert(at, NodeInstance src, buf):
       buf.subTree MirNode(kind: mnkRegion):
         buf.add opParamNode(0, typ)
         buf.genDefTemp(tmp, typ)
@@ -831,11 +831,11 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       buf.add MirNode(kind: mnkTemp, typ: typ, temp: tmp)
 
 proc insertCopy(tree: MirTree, graph: ModuleGraph, typ: PType,
-                maybeCyclic: bool, c: var Changeset) =
+                maybeCyclic: bool, at: NodePosition, c: var Changeset) =
   ## Generates a call to the `typ`'s ``=copy`` hook that uses the contextual
   ## input as the source value
   let tmp = c.getTemp()
-  c.insert(NodeInstance c.position, buf):
+  c.insert(at, NodeInstance at, buf):
     buf.subTree MirNode(kind: mnkRegion):
       argBlock(buf): discard
       buf.add MirNode(kind: mnkMagic, typ: typ, magic: mDefault)
@@ -883,12 +883,11 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         # for values without destructors 'consume' is a no-op
         continue
 
-      c.seek(i)
       case ar.v[].owned(opr)
       of Owned.yes:
-        consumeArg(tree, ctx, ar, typ, opr, c)
+        consumeArg(tree, ctx, ar, typ, i, opr, c)
       of Owned.no:
-        insertCopy(tree, ctx.graph, tree[opr].typ, maybeCyclic = true, c)
+        insertCopy(tree, ctx.graph, tree[opr].typ, maybeCyclic = true, i, c)
       of Owned.unknown, Owned.weak:
         unreachable()
 
@@ -906,10 +905,9 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       case tree[user].kind
       of mnkConstr, mnkObjConstr, mnkCall, mnkMagic:
         # a consume in a non-assignment context:
-        c.seek(i)
         case ar.v[].owned(val)
         of Owned.yes:
-          consumeArg(tree, ctx, ar, typ, val, c)
+          consumeArg(tree, ctx, ar, typ, i, val, c)
         of Owned.no:
           let op = getOp(ctx.graph, typ, attachedAsgn)
           if sfError in op.flags:
@@ -921,7 +919,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
             diags.add LocalDiag(pos: NodePosition val,
                                 kind: ldkPassCopyToSink)
 
-          insertCopy(tree, ctx.graph, typ, maybeCyclic = true, c)
+          insertCopy(tree, ctx.graph, typ, maybeCyclic = true, i, c)
         else:
           unreachable("un-collapsed ownership status")
 
@@ -1028,13 +1026,12 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
 
     if useFinally:
       # start a 'finally' at the beginning of the scope:
-      c.seek(scopeStart + 1)
-      c.insert(source, buf):
+      c.insert(scopeStart + 1, source, buf):
         buf.add MirNode(kind: mnkTry, len: 1)
         buf.add MirNode(kind: mnkStmtList)
 
-    c.seek findEnd(tree, scopeStart) # seek to the scope's end node
-    c.insert(source, buf):
+    # insert at the scope's end node
+    c.insert(findEnd(tree, scopeStart), source, buf):
       if useFinally:
         buf.add endNode(mnkStmtList) # close the body of the 'try' clause
         buf.subTree MirNode(kind: mnkFinally):
@@ -1076,9 +1073,7 @@ proc injectTemporaries(tree: MirTree, c: var Changeset) =
       # only locations can be destroyed, so we assign the value to a
       # temporary. The destructor injection pass takes care of the rest then
       let tmp = c.getTemp()
-      c.seek(i)
-      c.skip(1)
-      c.insert(NodeInstance i, buf):
+      c.insert(tree.sibling(i), NodeInstance i, buf):
         buf.genDefTemp(tmp, n.typ)
         buf.add MirNode(kind: mnkTemp, typ: n.typ, temp: tmp)
 
@@ -1218,8 +1213,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
     if g.config.backend != backendNimVm:
       for i, n in tree.pairs:
         if n.kind == mnkSwitch:
-          changes.seek(i)
-          changes.replaceMulti(buf):
+          changes.replaceMulti(tree, i, buf):
             lowerBranchSwitch(buf, tree, g, idgen, Operation i)
 
     apply(changes)
