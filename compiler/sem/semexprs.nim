@@ -822,11 +822,10 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     if hasError:
       result = c.config.wrapError(result)
 
-proc fixAbstractType(c: PContext, n: PNode): PNode =
-  ## Takes the production AST of a call and performs the post-match node
-  ## fitting on it. Errors are passed through.
-  # XXX: the procedure's name doesn't make much sense anymore...
-  addInNimDebugUtils(c.config, "fixAbstractType", n, result)
+proc fitArgTypesPostMatch(c: PContext, n: PNode): PNode =
+  ## Takes the production AST of a call and performs the post-match type
+  ## fitting on the argument nodes. Errors are passed through.
+  addInNimDebugUtils(c.config, "fitArgTypesPostMatch", n, result)
   result = n # `n` is already a production
 
   case n.kind
@@ -1185,7 +1184,7 @@ proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
   else:
     semFinishOperands(c, result)
     activate(c, result)
-    result = fixAbstractType(c, result)
+    result = fitArgTypesPostMatch(c, result)
     result = fixVarArgumentsAndAnalyse(c, result)
     if callee.magic != mNone:
       result = magicsAfterOverloadResolution(c, result, flags)
@@ -1395,7 +1394,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
         else:
           afterCallActions(c, result, flags)
     else:
-      result = fixAbstractType(c, result)
+      result = fitArgTypesPostMatch(c, result)
       result = fixVarArgumentsAndAnalyse(c, result)
   else:
     discard
@@ -2071,8 +2070,6 @@ proc propertyWriteAccess(c: PContext, n, a: PNode): PNode =
 
   if result != nil:
     result = afterCallActions(c, result, {})
-    #fixAbstractType(c, result)
-    #analyseIfAddressTakenInCall(c, result)
 
 proc takeImplicitAddr(c: PContext, formal: PType, n: PNode): PNode =
   ## See RFC #7373, calls returning 'var T' are assumed to
@@ -2882,7 +2879,7 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
       if callee.magic == mNone:
         semFinishOperands(c, result)
       activate(c, result)
-      result = fixAbstractType(c, result)
+      result = fitArgTypesPostMatch(c, result)
       result = fixVarArgumentsAndAnalyse(c, result)
       if callee.magic != mNone:
         result = magicsAfterOverloadResolution(c, result, flags)
