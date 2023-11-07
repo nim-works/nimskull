@@ -1403,13 +1403,8 @@ proc genInOp(p: BProc, e: CgNode, d: var TLoc) =
   var a, b, x, y: TLoc
   if (e[1].kind == cnkSetConstr) and fewCmps(p.config, e[1]):
     # a set constructor but not a constant set:
-    # do not emit the set, but generate a bunch of comparisons; and if we do
-    # so, we skip the unnecessary range check: This is a semantical extension
-    # that code now relies on. :-/ XXX
-    let ea = if getMagic(e[2]) == mChckRange:
-               e[2][1]
-             else:
-               e[2]
+    # do not emit the set, but generate a bunch of comparisons
+    let ea = e[2]
     initLocExpr(p, ea, a)
     initLoc(b, locExpr, e, OnUnknown)
     if e[1].len > 0:

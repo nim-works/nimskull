@@ -1512,11 +1512,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemSuspiciousEnumConv:
       result = "suspicious code: enum to enum conversion"
 
-    of rsemSuspiciousContainsConv:
-      result = "suspicious code: element value in `in` or `contains` " &
-               "call requires implicit conversion. This could result in run-" &
-               "time range defects"
-
     of rsemStringOrIdentNodeExpected:
       result = "string or ident node expected"
 
