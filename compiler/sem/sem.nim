@@ -165,19 +165,64 @@ template semIdeForTemplateOrGeneric(c: PContext; n: PNode;
       #  echo "passing to safeSemExpr: ", renderTree(n)
       discard safeSemExpr(c, n)
 
-proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
-  var
-    a = arg
-    x = a.mutableSkipConv
-  if x.kind in {nkCurly, nkPar, nkTupleConstr} and formal.kind != tyUntyped:
-    x = changeType(c, x, formal, check=true)
+proc applyConversion(c: PContext, conv, n: PNode): tuple[n: PNode, keep: bool] =
+  ## Applies the implicit conversion `conv` to the expression AST `n`, returning
+  ## the resulting AST (which may be the same as `n`) and whether the conversion
+  ## needs to be kept. The `n` AST is mutated directly.
+  case n.kind
+  of nkCurly, nkTupleConstr, nkNilLit:
+    # special handling for these nodes: the conversion is treated as an
+    # instruction to re-type the expression
+    (changeType(c, n, conv.typ, check=true), false)
+  of nkStmtListExpr:
+    let tmp = applyConversion(c, conv, n[^1])
+    n[^1] = tmp.n
+    n.typ = tmp.n.typ
 
-    if x.isError:
-      result = c.config.wrapError(a)
-      return
+    if tmp.n.kind == nkError:
+      (c.config.wrapError(n), false)
+    else:
+      (n, tmp.keep)
+  else:
+    if conv.typ.kind in {tySet, tyTuple}:
+      # apply the type directly and drop the conversion
+      n.typ = conv.typ
+    elif conv.typ.kind in {tyOpenArray, tyVarargs, tySequence, tyArray} and
+         n.typ.isEmptyContainer:
+      # fixup empty container types
+      let
+        arg = n.typ
+        elem = elemType(conv.typ)
+        typ = copyType(arg.skipTypes({tyGenericInst, tyAlias}),
+                      nextTypeId(c.idgen), arg.owner)
+        # XXX: ^^ the type skipping looks dangerous
 
-  result = a
-  result = skipHiddenSubConv(result, c.graph, c.idgen)
+      copyTypeProps(c.graph, c.idgen.module, typ, arg)
+      typ[ord(arg.kind == tyArray)] = elem
+      propagateToOwner(typ, elem)
+      n.typ = typ
+
+    # keep to-openArray conversions, later processing still needs them
+    (n, conv.typ.kind notin {tySequence, tyArray, tyTuple, tySet})
+
+proc fitNodePostMatch(c: PContext, n: PNode): PNode =
+  ## Performs post-processing on the result of a ``paramTypesMatch``
+  ## invocation. This processing is required for the expression AST to be
+  ## proper typed AST!
+  case n.kind
+  of nkHiddenSubConv, nkHiddenStdConv:
+    let (r, keep) = applyConversion(c, n, n[1])
+    if keep:
+      n # keep the existing conversion
+    else:
+      r
+  of nkHiddenCallConv:
+    # the argument of an injected hidden call conversion needs to be fitted
+    # to!
+    n[1] = fitNodePostMatch(c, n[1])
+    n
+  else:
+    n
 
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
@@ -208,7 +253,7 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
         result = copyTree(arg)
         result.typ = formal
     else:
-      result = fitNodePostMatch(c, formal, result)
+      result = fitNodePostMatch(c, result)
 
 proc fitNodeConsiderViewType(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
   let a = fitNode(c, formal, arg, info)

@@ -138,13 +138,13 @@ try:
   this[].isValid = fileExists(this[].value)
   block :label_0:
     if dirExists(this[].value):
-      par = [type node]((
+      par = (
         var :aux_3 = this[].value
         var :aux_4 = default()
         =copy(:aux_4, :aux_3)
-        :aux_4, ""))
+        :aux_4, "")
       break :label_0
-    par = [type node]((parentDir(this[].value),
+    par = (parentDir(this[].value),
       var :aux_7 = splitPath(
         var :aux_5 = this[].value
         var :aux_6 = default()
@@ -152,7 +152,7 @@ try:
         :aux_6)
       var :aux_8 = :aux_7[1]
       wasMoved(:aux_7[1])
-      :aux_8))
+      :aux_8)
     =destroy(:aux_7)
   block :label_0:
     if dirExists(par[0]):

@@ -1200,40 +1200,6 @@ proc isEmptyContainer*(t: PType): bool =
   else:
     false
 
-proc takeType*(formal, arg: PType; g: ModuleGraph; idgen: IdGenerator): PType =
-  # param: openArray[string] = []
-  # [] is an array constructor of length 0 of type string!
-  if arg.kind == tyNil:
-    # and not (formal.kind == tyProc and formal.callConv == ccClosure):
-    result = formal
-  elif formal.kind in {tyOpenArray, tyVarargs, tySequence} and
-      arg.isEmptyContainer:
-    let a = copyType(arg.skipTypes({tyGenericInst, tyAlias}), nextTypeId(idgen), arg.owner)
-    copyTypeProps(g, idgen.module, a, arg)
-    a[ord(arg.kind == tyArray)] = formal[0]
-    result = a
-  elif formal.kind in {tyTuple, tySet} and arg.kind == formal.kind:
-    result = formal
-  else:
-    result = arg
-
-proc skipHiddenSubConv*(n: PNode; g: ModuleGraph; idgen: IdGenerator): PNode =
-  if n.kind == nkHiddenSubConv:
-    # param: openArray[string] = []
-    # [] is an array constructor of length 0 of type string!
-    let formal = n.typ
-    result = n[1]
-    let arg = result.typ
-    let dest = takeType(formal, arg, g, idgen)
-    if dest == arg and formal.kind != tyUntyped:
-      #echo n.info, " came here for ", formal.typeToString
-      result = n
-    else:
-      result = copyTree(result)
-      result.typ = dest
-  else:
-    result = n
-
 proc getProcConvMismatch*(
     c: ConfigRef, f, a: PType, rel = isNone
   ): (set[ProcConvMismatch], TTypeRelation) =

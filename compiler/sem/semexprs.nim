@@ -822,38 +822,26 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     if hasError:
       result = c.config.wrapError(result)
 
-proc isArrayConstr(n: PNode): bool {.inline.} =
-  n.kind == nkBracket and n.typ.skipTypes(abstractInst).kind == tyArray
+proc fitArgTypesPostMatch(c: PContext, n: PNode): PNode =
+  ## Takes the production AST of a call and performs the post-match type
+  ## fitting on the argument nodes. Errors are passed through.
+  addInNimDebugUtils(c.config, "fitArgTypesPostMatch", n, result)
+  result = n # `n` is already a production
 
-proc fixAbstractType(c: PContext, n: PNode): PNode =
-  assert n != nil
-
-  var hasError = false
-
-  result = n
   case n.kind
-  of nkError:
-    discard   # we'll just return below
-  else:
+  of nkCallKinds:
+    # fit all argument expressions
+    var hasError = false
     for i in 1..<n.len:
-      let it = n[i]
-      # do not get rid of nkHiddenSubConv for OpenArrays, codegen needs it:
-      if it.kind == nkHiddenSubConv and
-          skipTypes(it.typ, abstractVar).kind notin {tyOpenArray, tyVarargs}:
-        if skipTypes(it[1].typ, abstractVar).kind in {tyNil, tyTuple, tySet} or
-            it[1].isArrayConstr:
-          var s = skipTypes(it.typ, abstractVar)
-          
-          if s.kind != tyUntyped:
-            it[1] = changeType(c, it[1], s, check=true)
-          
-            if it[1].isError:
-              hasError = true
+      result[i] = fitNodePostMatch(c, n[i])
+      hasError = hasError or result[i].isError
 
-          n[i] = it[1]
-  
-  if hasError and result.kind != nkError:
-    result = c.config.wrapError(n)
+    if hasError:
+      result = c.config.wrapError(result)
+  of nkError:
+    discard # already set above
+  else:
+    unreachable(n.kind)
 
 proc isAssignable(c: PContext, n: PNode; isUnsafeAddr=false): TAssignableResult =
   result = parampatterns.isAssignable(c.p.owner, n, isUnsafeAddr)
@@ -984,7 +972,6 @@ proc fixVarArgumentsAndAnalyse(c: PContext, n: PNode): PNode =
   ## Note that not all ``var`` parameters are considered, certain magics are
   ## ignored during this fixup
   addInNimDebugUtils(c.config, "fixVarArgumentsAndAnalyse", n, result)
-  checkMinSonsLen(n, 1, c.config)
 
   if n.isError:
     return n
@@ -1197,7 +1184,7 @@ proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
   else:
     semFinishOperands(c, result)
     activate(c, result)
-    result = fixAbstractType(c, result)
+    result = fitArgTypesPostMatch(c, result)
     result = fixVarArgumentsAndAnalyse(c, result)
     if callee.magic != mNone:
       result = magicsAfterOverloadResolution(c, result, flags)
@@ -1407,7 +1394,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
         else:
           afterCallActions(c, result, flags)
     else:
-      result = fixAbstractType(c, result)
+      result = fitArgTypesPostMatch(c, result)
       result = fixVarArgumentsAndAnalyse(c, result)
   else:
     discard
@@ -2083,8 +2070,6 @@ proc propertyWriteAccess(c: PContext, n, a: PNode): PNode =
 
   if result != nil:
     result = afterCallActions(c, result, {})
-    #fixAbstractType(c, result)
-    #analyseIfAddressTakenInCall(c, result)
 
 proc takeImplicitAddr(c: PContext, formal: PType, n: PNode): PNode =
   ## See RFC #7373, calls returning 'var T' are assumed to
@@ -2298,7 +2283,6 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
   if hasError:
     result = c.config.wrapError(result)
   else:
-    result = fixAbstractType(c, result)
     result = asgnToResultVar(c, result)
 
 proc semReturn(c: PContext, n: PNode): PNode =
@@ -2895,7 +2879,7 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
       if callee.magic == mNone:
         semFinishOperands(c, result)
       activate(c, result)
-      result = fixAbstractType(c, result)
+      result = fitArgTypesPostMatch(c, result)
       result = fixVarArgumentsAndAnalyse(c, result)
       if callee.magic != mNone:
         result = magicsAfterOverloadResolution(c, result, flags)
