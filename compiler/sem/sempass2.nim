@@ -922,9 +922,9 @@ proc objConvCheck(config: ConfigRef, n: PNode) =
   case n.kind
   of nkHiddenSubConv:
     if n.typ.skipTypes({tyGenericInst, tyAlias, tySink}).kind == tyObject:
-      # the result of an implicit conversion to a base (i.e. parent) type
-      # where the result value is read as a whole. Information is lost in
-      # this case, so a warning is reported
+      # the result of an implicit, narrowing object conversion is read as
+      # a whole (e.g., passed to a non-var parameter, assigned somewhere,
+      # etc.). Information is lost in this case, so a warning is reported
       localReport(config, n[1], SemReport(
         kind: rsemImplicitObjConv,
         typeMismatch: @[typeMismatch(formal = n.typ, actual = n[1].typ)]))

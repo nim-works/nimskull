@@ -565,6 +565,7 @@ type
     rsemRuntimeDiscriminantRequiresElif
     rsemObjectRequiresFieldInit
     rsemObjectRequiresFieldInitNoDefault
+    rsemObjectDoesNotHaveDefaultValue
     rsemDistinctDoesNotHaveDefaultValue
     rsemExpectedModuleNameForImportExcept
     rsemCannotExport

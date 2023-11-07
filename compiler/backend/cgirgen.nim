@@ -123,9 +123,9 @@ type
     inUnscoped: bool
       ## whether the currently proceesed statement/expression is part of an
       ## unscoped control-flow context
-    defs: seq[tuple[local: LocalId, info: TLineInfo]]
-      ## the stack of locals for which the ``cnkDef`` needs to be inserted
-      ## later
+    defs: seq[CgNode]
+      ## the stack of locals/globals for which the ``cnkDef``/assignemnt needs
+      ## to be inserted later
 
   TreeWithSource = object
     ## Combines a ``MirTree`` with its associated ``SourceMap`` for
@@ -366,6 +366,10 @@ proc wrapArg(stmts: sink seq[CgNode], info: TLineInfo, val: sink CgNode): CgNode
 func newTemp(cl: var TranslateCl, typ: PType): LocalId =
   ## Creates and returns a new ``skTemp`` symbol
   cl.locals.add(Local(typ: typ, isImmutable: false))
+
+proc newDefaultCall(info: TLineInfo, typ: PType): CgNode =
+  ## Produces the tree for a ``default`` magic call.
+  newExpr(cnkCall, info, typ, [newMagicNode(mDefault, info)])
 
 proc initLocal(s: PSym): Local =
   ## Inits a ``Local`` with the data from `s`.
@@ -826,11 +830,7 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
     # ignore 'def's for both parameters and procedures
     def = newEmpty()
   of mnkGlobal:
-    # XXX: defs for globals reaching here implies that the MIR code wasn't
-    #      sufficiently lowered. This should be a hard error, but the
-    #      ``--expandArc`` feature currently relies on this being possible, so
-    #      we allow it for now
-    def = newEmpty()
+    def = newSymNode(entity.sym, info)
   of mnkTemp:
     # MIR temporaries are like normal locals, with the difference that they
     # are created ad-hoc and don't have any extra information attached
@@ -849,20 +849,41 @@ proc tbDef(tree: TreeWithSource, cl: var TranslateCl, prev: sink Values,
   case def.kind
   of cnkLocal:
     if cl.inUnscoped:
-      # add the local to the list of moved definitions and only emit an
-      # assignment
-      cl.defs.add (def.local, info)
+      # add the local to the list of moved definitions and only emit
+      # an assignment
+      cl.defs.add copyTree(def)
       result =
         case prev.kind
         of vkNone:   newEmpty(info)
         of vkSingle: newStmt(cnkAsgn, info, [def, prev.single])
         of vkMulti:  unreachable()
-    else:
+    elif def.kind == cnkLocal:
       result = newStmt(cnkDef, info):
         case prev.kind
         of vkNone:   [def, newEmpty()]
         of vkSingle: [def, prev.single]
         of vkMulti:  unreachable()
+  of cnkSym:
+    # there are no defs for globals in the ``CgNode`` IR, so we
+    # emit an assignment that has the equivalent behaviour (in
+    # terms of initialization)
+    case prev.kind
+    of vkNone:
+      if sfImportc in def.sym.flags:
+        # for imported globals, the 'def' only means that the symbol becomes
+        # known to us, not that it starts its lifetime here -> don't
+        # initialize or move it
+        result = newEmpty()
+      elif cl.inUnscoped:
+        # move the default initialization to the start of the scope
+        cl.defs.add def
+        result = newEmpty()
+      else:
+        result = newStmt(cnkAsgn, info, [def, newDefaultCall(info, def.typ)])
+    of vkSingle:
+      result = newStmt(cnkAsgn, info, [def, prev.single])
+    of vkMulti:
+      unreachable()
   of cnkEmpty:
     result = def
   else:
@@ -1275,6 +1296,18 @@ proc tbList(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor): CgNo
   tbList(tree, cl, stmts, cr)
   result = toSingleNode(stmts)
 
+proc genDefFor(sym: sink CgNode): CgNode =
+  ## Produces the statement tree of a definition for the given symbol-like
+  ## node. Globals use an assignment.
+  case sym.kind
+  of cnkLocal:
+    newStmt(cnkDef, sym.info, [sym, newEmpty()])
+  of cnkSym:
+    # emulate the default-initialization behaviour
+    newStmt(cnkAsgn, sym.info, [sym, newDefaultCall(sym.info, sym.typ)])
+  else:
+    unreachable()
+
 proc tbScope(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
              cr: var TreeCursor): CgNode =
   let
@@ -1290,10 +1323,7 @@ proc tbScope(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
   if cl.defs.len > prev:
     # insert all the lifted defs at the start
     for i in countdown(cl.defs.high, prev):
-      let (local, info) = cl.defs[i]
-      stmts.insert newStmt(cnkDef, info, [
-        newLocalRef(local, info, cl.locals[local].typ),
-        newEmpty()])
+      stmts.insert genDefFor(move cl.defs[i])
 
     # "pop" the elements that were added as part of this scope:
     cl.defs.setLen(prev)
@@ -1364,10 +1394,7 @@ proc tbMulti(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor): CgN
   # insert the var section for the collected defs at the start:
   if cl.defs.len > 0:
     for i in countdown(cl.defs.high, 0):
-      let (local, info) = cl.defs[i]
-      nodes.insert newStmt(cnkDef, info, [
-        newLocalRef(local, info, cl.locals[local].typ),
-        newEmpty()])
+      nodes.insert genDefFor(move cl.defs[i])
 
   case nodes.len
   of 0: newEmpty()
