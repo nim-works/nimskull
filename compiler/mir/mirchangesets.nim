@@ -6,9 +6,6 @@
 ## ``Changeset``. This allows for recording changes independent of each other
 ## concurrently and later apply the changes all at once.
 ##
-## A cursor-like API is used. One has to first move the ``Changeset`` to the
-## position that the to-be-recorded change applies to via ``seek``.
-##
 ## Before applying a ``Changeset`` to a ``MirTree``, it has to be prepared via
 ## a call to ``prepare`` first, after which the ``Changeset`` is sealed an no
 ## further changes can be recorded. ``prepare`` is responsible from normalizing
@@ -60,24 +57,11 @@ type
                    ## The source information is only relevant for insertions
 
   Changeset* = object
-    # TODO: split ``Changeset`` into two parts:
-    #       1. the core ``Changeset`` - stores the rows and the node buffer
-    #       2. an object storing the data needed to build the changeset (e.g.
-    #          ``Cursor``, ``ChangeBuilder``, etc.)
-    tree: MirTree
-      ## stored in the changeset so that it's not required to pass the tree to
-      ## each ``Changeset`` routine
-    # TODO: `tree` needs to either become a view as soon as possible, or the
-    #       API of ``Changeset`` adjusted in a way that it's no longer required
-    #       for the tree to be stored as part of ``Changeset``. The full copy
-    #       is not acceptable
-
+    ## Represents a set of changes to be applied to a ``MirTree``.
     nodes: seq[MirNode]
     rows: seq[Row]
 
     numTemps: uint32 ## the number of existing temporaries
-
-    pos: NodePosition ## the cursor position
 
   PreparedChangeset* = object
     nodes: seq[MirNode]
@@ -110,8 +94,7 @@ func addSingle(s: var MirNodeSeq, n: sink MirNode): HOslice[NodeIndex] =
 
 func initChangeset*(tree: MirTree): Changeset =
   ## Initializes a new ``Changeset`` instance. Until the resulting
-  ## ``Changeset`` is applied, the associated tree must not be modified
-  result.tree = tree # warning: this creates a full copy
+  ## ``Changeset`` is applied, the associated tree must not be modified.
 
   # count the number of existing temporaries:
   for i, n in tree.pairs:
@@ -124,39 +107,30 @@ func getTemp*(c: var Changeset): TempId =
   result = TempId(c.numTemps)
   inc c.numTemps
 
-template position*(cs: Changeset): NodePosition =
-  ## The current position of the cursor
-  cs.pos
+func replace*(c: var Changeset, tree: MirTree, at: NodePosition,
+              with: sink MirNode) =
+  ## Records replacing the node or sub-tree at `at` with `with`.
+  let next = sibling(tree, at)
+  c.rows.add row(at, next, c.nodes.addSingle(with), at)
 
-func seek*(c: var Changeset, dest: NodePosition) {.inline.} =
-  ## Moves the internal cursor position to `dest`
-  assert c.pos in c.tree
-  c.pos = dest
+func insert*(c: var Changeset, at: NodePosition, n: sink MirNode,
+             source: NodeInstance) =
+  ## Records the insertion of `n` at `at`, using `source` as the
+  ## inserted node's origin.
+  c.rows.add row(at, at, c.nodes.addSingle(n), source.NodePosition)
 
-func replace*(c: var Changeset, n: sink MirNode) =
-  ## Records a change that replaces the node at the current cursor position
-  ## with `n`, inheriting it origin information. If the cursor points to a
-  ## sub-tree, the whole sub-tree is replaced
-  let next = sibling(c.tree, c.pos)
-  c.rows.add row(c.pos, next, c.nodes.addSingle(n), c.pos)
-  c.pos = next
-
-func insert*(c: var Changeset, n: sink MirNode, source: NodeInstance) =
-  ## Inserts `n` at the current cursor position, using `source` as the
-  ## inserted node's origin
-  c.rows.add row(c.pos, c.pos, c.nodes.addSingle(n), source.NodePosition)
-
-template insert*(c: var Changeset, source: NodeInstance, name: untyped,
-                 body: untyped) =
-  ## Records an insertion at the current cursor position, providing direct
+template insert*(c: var Changeset, at: NodePosition, source: NodeInstance,
+                 name: untyped, body: untyped) =
+  ## Records an insertion at the `at` position, providing direct
   ## access to the internal node buffer inside `body` via an injected variable
   ## of the name `name`. `source` is the node to inherit the source/origin
   ## information from
   block:
     let
       start = c.nodes.len.NodeIndex
-      # evaluate `source` before `body`, as the latter might change what
-      # `source` evaluates to:
+      # evaluate `at` and `source` before `body`, as the latter might change
+      # what `source` evaluates to:
+      pos = at
       i = NodePosition source
 
     var name: MirNodeSeq
@@ -164,36 +138,30 @@ template insert*(c: var Changeset, source: NodeInstance, name: untyped,
     body
     swap(c.nodes, name)
 
-    c.rows.add row(c.pos, c.pos, span(start, c.nodes.len.NodeIndex), i)
+    c.rows.add row(pos, pos, span(start, c.nodes.len.NodeIndex), i)
 
-template replaceMulti*(c: var Changeset, name, body: untyped) =
-  ## Records a repacement of the node or sub-tree at the current cursor
+template replaceMulti*(c: var Changeset, tree: MirTree, at: NodePosition,
+                       name, body: untyped) =
+  ## Records a replacement of the node or sub-tree at the `at`
   ## position, providing direct access to the internal node buffer
-  ## inside `body` via an injected variable of the name `name`
-  # TODO: rename to ``replace`` once the sem bug that currently prevents this
-  #       is fixed
+  ## inside `body` via an injected variable of the name `name`.
   block:
-    let start = c.nodes.len.NodeIndex
+    let
+      start = c.nodes.len.NodeIndex
+      pos = at # prevent double evaluation
+      next = sibling(tree, pos)
     var name: MirTree
     swap(c.nodes, name)
     body
     swap(c.nodes, name)
 
-    let next = sibling(c.tree, c.pos)
-    c.rows.add row(c.pos, next, span(start, c.nodes.len.NodeIndex), c.pos)
-    c.pos = next
+    c.rows.add row(pos, next, span(start, c.nodes.len.NodeIndex), pos)
 
-func remove*(c: var Changeset) =
-  ## Records the removal of the currently pointed to sub-tree
-  let next = sibling(c.tree, c.pos)
-  # use an empty source slice
-  c.rows.add row(c.pos, next, empty(HOslice[NodeIndex]))
-  c.pos = next
-
-func skip*(c: var Changeset, num: Natural) =
-  # Skips `num` sub-trees
-  for _ in 0..<num:
-    c.pos = sibling(c.tree, c.pos)
+func remove*(c: var Changeset, tree: MirTree, at: NodePosition) =
+  ## Records the removal of the node or sub-tree at `at`.
+  let next = sibling(tree, at)
+  # a removal is recorded as replacing a slice with nothing
+  c.rows.add row(at, next, empty(HOslice[NodeIndex]))
 
 func prepare*(c: sink Changeset, sourceMap: SourceMap): PreparedChangeset =
   ## Prepares `c` for being applied
