@@ -480,6 +480,92 @@ proc copyExcept(n: PNode, i: int): PNode {.inline.} =
   for j in 0..<n.len:
     if j != i: result.add(n[j])
 
+proc tryMacroPragma(c: PContext, pragmas: ptr PNode, i: int,
+                    operand: PNode, flags: TExprFlags): PNode =
+  ## If the `i`-th pragma in the `pragmas` list is a macro/template pragma,
+  ## applies it to the untyped `operand` AST and returns the transform (or an
+  ## error). `nil` is returned otherwise.
+  ##
+  ## `pragmas` needs to point to the ``nkPragma`` AST within the `operand`
+  ## AST. `flags` are the flags passed to the after-call expansion.
+  ##
+  ## Example:
+  ##
+  ## ..code-block:: nim
+  ##
+  ##   let l {.m(a, b), rest.} # the operand AST
+  ##   # is transformed into
+  ##   m(a, b, let l {.rest.})
+  ##
+  let n = pragmas[]
+  assert n.kind == nkPragma
+  let
+    prag         = n[i]
+    isCallSyntax = prag.kind in nkPragmaCallKinds and prag.len >= 1
+    key =
+      if isCallSyntax: prag[0]
+      else:            prag
+
+  # we only want to process macro pragmas (ast transforms)
+  # xxx: @saem: this dance to filter through them is another sign that pragmas
+  #      shouldn't be associated to symbols as the syntax hints
+  if whichPragma(prag) == wInvalid and key.kind in nkIdentKinds:
+    # a custom pragma as opposed to a built-in
+    let (ident, err) = considerQuotedIdent(c, key)
+    if err != nil:
+      # XXX: replace with propagating ``nkError``. As it is now, an erroneous
+      #      ``nkAccQuoted`` will not disable following macro pragmas if
+      #      errorMax > 1!
+      localReport(c.config, n)
+      return
+    elif strTableGet(c.userPragmas, ident) != nil:
+      return # User defined pragma
+    else:
+      var amb = false
+      let sym = searchInScopes(c, ident, amb)
+      if sym != nil and sfCustomPragma in sym.flags:
+        return # User custom pragma
+  else:
+    return
+
+  var x = newNodeI(nkCall, key.info)
+  x.add(key)
+
+  if isCallSyntax:
+    # pass pragma arguments to the macro too:
+    for j in 1..<prag.len:
+      x.add prag[j]
+
+  # drop the pragma from the list, this prevents getting caught in endless
+  # recursion when the nkCall is semanticized
+  pragmas[] = copyExcept(n, i)
+  # leave the pragma list as is, even if empty
+
+  x.add(operand) # the definition AST the pragma appears on
+
+  # recursion assures that this works for multiple macro annotations too:
+  let r = semOverloadedCall(c, x, {skMacro, skTemplate}, {efNoUndeclared})
+  if r.isNil:
+    # restore the old list of pragmas since we couldn't process this one
+    pragmas[] = n
+    # no matching macro was found but there's always a possibility this may
+    # be a .pragma. template instead
+  else:
+    result = afterCallActions(c, r, flags)
+
+proc semAnnotation(c: PContext, pragmas: ptr PNode, n: PNode,
+                   flags: TExprFlags): PNode =
+  ## Applies the first macro pragma in the `pragmas` list of `operand`,
+  ## producing the transform. If no transformation is applied, `nil` is
+  ## returned. `pragmas` needs to point to the ``nkPragma`` AST within
+  ## `operand`.
+  for i in 0..<pragmas[].len:
+    result = tryMacroPragma(c, pragmas, i, n, flags)
+    if result != nil:
+      # always return the expanded-to-AST, even if it's an error. The
+      # remaining annotations are processed by the following sem check
+      break
+
 proc semConstLetOrVarAnnotation(c: PContext, n: PNode): PNode =
   ## analyses normalized const, let, or var section for pragma annotations and
   ## applies the first macro pragma producing the transform wrapped in an
@@ -502,89 +588,8 @@ proc semConstLetOrVarAnnotation(c: PContext, n: PNode): PNode =
   if pragExpr.kind != nkPragmaExpr:
     # no pragmas, return unevaluated `n`
     return n
-  
-  let pragmas = pragExpr[1] # get the pragma node
-  
-  for i, prag in pragmas.pairs:
-    let key = if prag.kind in nkPragmaCallKinds and prag.len >= 0:
-                prag[0]
-              else:
-                prag
 
-    # we only want to process macro pragmas (ast transforms)
-    # xxx: this dance to filter through them is another sign that pragmas
-    #      shouldn't be associated to symbols as the syntax hints
-    if whichPragma(prag) == wInvalid and key.kind in nkIdentKinds:
-      # a custom pragma as opposed to a built-in
-      let (ident, err) = considerQuotedIdent(c, key)
-
-      if err != nil:
-        # TODO convert to nkError
-        localReport(c.config, err)
-      elif strTableGet(c.userPragmas, ident) != nil:
-        continue # User defined pragma
-      else:
-        var amb = false
-        let sym = searchInScopes(c, ident, amb)
-        if sym != nil and sfCustomPragma in sym.flags:
-          continue # User custom pragma
-    else:
-      # not a custom pragma, we can ignore it
-      continue
-
-    # transform `let l {.m, rest.}` to `m(do: let l {.rest.})` and let the
-    # semantic checker deal with the it:
-    var x = newNodeI(nkCall, key.info)
-    x.add(key)
-
-    if prag.kind in nkPragmaCallKinds and prag.len > 1:
-      # pass pragma arguments to the macro too:
-      for j in 1..<prag.len:
-        x.add prag[j]
-    
-    # Drop the pragma from the list, this prevents getting caught in endless
-    # recursion when the nkCall is semanticized
-    n[0][0][1] = copyExcept(pragmas, i)
-    # leave the pragma list as is, even if empty
-
-    x.add(n)
-
-    # recursion assures that this works for multiple macro annotations too:
-    var r = semOverloadedCall(c, x, {skMacro, skTemplate}, {efNoUndeclared})
-    if r.isNil:
-      # Restore the old list of pragmas since we couldn't process this one
-      n[0][0][1] = pragmas
-      # No matching macro was found but there's always a possibility this may
-      # be a .pragma. template instead
-      continue
-
-    # TODO: temporarily handle nkError here, rather than proper propagation
-    case r.kind
-    of nkError:
-      localReport(c.config, r)
-      return # the rest is likely too broken, don't bother continuing
-    of nkCall:
-      doAssert r[0].kind == nkSym
-
-      let m = r[0].sym
-
-      case m.kind
-      of skMacro: result = semMacroExpr(c, r, m, {})
-      of skTemplate: result = semTemplateExpr(c, r, m, {})
-      else:
-        n[0][0][1] = pragmas # restore the originals
-        continue # we need to keep looking for macros pragmas
-
-      doAssert result != nil,
-        "a macro/template pragma must produce a non-nil result"
-
-      # the macro/template can entirely transform the node, so return the
-      # result and let the caller sem it again
-      break
-    else:
-      # TODO: set result to an error
-      discard
-
+  result = semAnnotation(c, addr pragExpr[1], n, {})
   result =
     if result.isNil:
       n
@@ -1788,7 +1793,7 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
     s.typ = newTypeS(tyForward, c)
     s.typ.sym = s             # process pragmas:
     if name.kind == nkPragmaExpr:
-      let rewritten = applyTypeSectionPragmas(c, name[1], typeDef)
+      let rewritten = semAnnotation(c, addr name[1], typeDef, {efNoSemCheck})
       if rewritten != nil:
         typeSection[i] = rewritten
         typeDefLeftSidePass(c, typeSection, i)
@@ -2142,75 +2147,11 @@ proc addResult(c: PContext, n: PNode, t: PType) =
 
 
 proc semProcAnnotation(c: PContext, prc: PNode): PNode =
-  var n = prc[pragmasPos]
+  let n = prc[pragmasPos]
   if n == nil or n.kind == nkEmpty: return
-  for i in 0..<n.len:
-    let it = n[i]
-    let key = if it.kind in nkPragmaCallKinds and it.len >= 1: it[0] else: it
-
-    # we only want to process macro pragmas (ast transforms)
-    # xxx: this dance to filter through them is another sign that pragmas
-    #      shouldn't be associated to symbols as the syntax hints
-    if whichPragma(it) == wInvalid and key.kind in nkIdentKinds:
-      let (ident, err) = considerQuotedIdent(c, key)
-      if err != nil:
-        localReport(c.config, err)
-      if strTableGet(c.userPragmas, ident) != nil:
-        continue # User defined pragma
-      else:
-        var amb = false
-        let sym = searchInScopes(c, ident, amb)
-        if sym != nil and sfCustomPragma in sym.flags:
-          continue # User custom pragma
-    else:
-      # Not a custom pragma
-      continue
-
-    # we transform `proc p {.m, rest.}` into `m(do: proc p {.rest.})` and
-    # let the semantic checker deal with it:
-    var x = newNodeI(nkCall, key.info)
-    x.add(key)
-
-    if it.kind in nkPragmaCallKinds and it.len > 1:
-      # pass pragma arguments to the macro too:
-      for i in 1..<it.len:
-        x.add(it[i])
-
-    # Drop the pragma from the list, this prevents getting caught in endless
-    # recursion when the nkCall is semanticized
-    prc[pragmasPos] = copyExcept(n, i)
-    if prc[pragmasPos].kind != nkEmpty and prc[pragmasPos].len == 0:
-      prc[pragmasPos] = c.graph.emptyNode
-
-    x.add(prc)
-
-    # recursion assures that this works for multiple macro annotations too:
-    var r = semOverloadedCall(c, x, {skMacro, skTemplate}, {efNoUndeclared})
-    if r == nil:
-      # Restore the old list of pragmas since we couldn't process this
-      prc[pragmasPos] = n
-      # No matching macro was found but there's always the possibility this may
-      # be a .pragma. template instead
-      continue
-
-    # XXX: temporarily handle nkError here, rather than proper propagation.
-    #      this should be refactored over time.
-    if r.kind == nkError:
-      localReport(c.config, r)
-      return # the rest is likely too broken, don't bother continuing
-
-    doAssert r[0].kind == nkSym
-    let m = r[0].sym
-    case m.kind
-    of skMacro: result = semMacroExpr(c, r, m, {})
-    of skTemplate: result = semTemplateExpr(c, r, m, {})
-    else:
-      prc[pragmasPos] = n
-      continue
-
-    doAssert result != nil
-
-    return # breaks the loop on the first macro pragma, then we'll reprocess
+  # we transform `proc p {.m, rest.}` into `m(do: proc p {.rest.})` and
+  # let the semantic checker deal with it:
+  result = semAnnotation(c, addr prc[pragmasPos], prc, {})
 
 proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   ## used for resolving 'auto' in lambdas based on their callsite
@@ -3031,9 +2972,8 @@ proc semRoutineDef(c: PContext, n: PNode): PNode =
   # before doing anything else, attempt to apply macro or template pragmas:
   result = semProcAnnotation(c, n)
   if result != nil:
-    # the definition was rewritten (or an error occured) and the result is
-    # already sem-checked
-    return
+    # the definition was rewritten, sem-check the result and return
+    return semExpr(c, result, {})
 
   let kind =
     case n.kind
