@@ -84,33 +84,3 @@ block:
 
   proc a {.bar.} = discard # works
   proc b {.bar, foo.} = discard # doesn't
-
-block recover_from_wrong_accent_quote_with_template:
-  # ensure that template pragma can recover from an accented quote that
-  # fails to evaluate
-  template drop(x: untyped): untyped =
-    # transforms the applied-to-definition into a discard statement
-    discard
-
-  # XXX: a dirty template is currently required for the accent quote to
-  #      use the parameter
-  template templ(a: untyped) {.dirty.} =
-    # the accent-quote being illformed must not cause an error, as
-    # the template transforms the whole definition away
-    proc p() {.`a`, drop.} =
-      discard
-
-  # pass something to the template that can't be used as part of an accented
-  # quote
-  templ(call())
-
-block recover_from_wrong_accent_quote_with_macro:
-  # same as the above test, but using a macro
-  macro drop(x: untyped): untyped =
-    discard
-
-  template templ(a: untyped) {.dirty.} =
-    proc p() {.`a`, drop.} =
-      discard
-
-  templ(call())

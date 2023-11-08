@@ -513,8 +513,10 @@ proc tryMacroPragma(c: PContext, pragmas: ptr PNode, i: int,
     # a custom pragma as opposed to a built-in
     let (ident, err) = considerQuotedIdent(c, key)
     if err != nil:
-      # don't report the error yet, a macro/template pragma could
-      # still make the AST well-formed
+      # XXX: replace with propagating ``nkError``. As it is now, an erroneous
+      #      ``nkAccQuoted`` will not disable following macro pragmas if
+      #      errorMax > 1!
+      localReport(c.config, n)
       return
     elif strTableGet(c.userPragmas, ident) != nil:
       return # User defined pragma
