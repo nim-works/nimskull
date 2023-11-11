@@ -436,7 +436,7 @@ func solveOwnership(tree: MirTree, cfg: ControlFlowGraph, values: var Values,
         # unresolved onwership status and has a destructors
         values.setOwned(opr):
           computeOwnership(tree, cfg, values, entities,
-                           values.toLvalue(opr), i)
+                           values.toLvalue(opr), i+1)
 
     else:
       discard "nothing to do"

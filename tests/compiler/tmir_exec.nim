@@ -81,8 +81,8 @@ proc parse2(str: string): Program =
   var
     nameToId: Table[int, uint32]
 
-  func parseOp2(input: string, r: var POpcode, start: int): int =
-    for e, s in [def: "def", use: "use"]:
+  func parseOp2(input: string, r: var Opcode, start: int): int =
+    for e, s in items({opDef: "def", opUse: "use"}):
       if input.substr(start).startsWith(s):
         r = e
         result = s.len
@@ -103,7 +103,6 @@ proc parse2(str: string): Program =
     var
       name: int
       op: Opcode
-      op2: POpcode
 
     if scanf(line, "$s$i$s:$sjoin", name):
       code.add PInstr(op: cflow)
@@ -118,10 +117,17 @@ proc parse2(str: string): Program =
       code.add PInstr(op: cflow)
       cfgCode.add Instr(op: op)
       cfgCode[^1].dest = getId(name)
-    elif scanf(line, "$s${parseOp2} :$i", op2, name):
-      code.add PInstr(op: op2, id: name)
+    elif scanf(line, "$s${parseOp2} :$i", op, name):
+      cfgCode.add Instr(op: op)
+      case op
+      of opUse:
+        code.add PInstr(op: use, id: name)
+      of opDef:
+        code.add PInstr(op: def, id: name)
+      else:
+        doAssert false
+
       result.map[name] = NodePosition(code.high)
-      continue
     else:
       raise ValueError.newException("syntax error in line: " & line)
 
@@ -135,6 +141,7 @@ func `==`(a, b: Instr): bool =
     case a.op
     of opFork, opGoto, opLoop: a.dest == b.dest
     of opJoin:                 a.id == b.id
+    of DataFlowOps:            a.node == b.node
 
 func `==`(a, b: ControlFlowGraph): bool =
   ## Compares two CFGs for structural equality. Differing join IDs are ignored
@@ -156,6 +163,8 @@ func `==`(a, b: ControlFlowGraph): bool =
         a.map[an.dest] == b.map[bn.dest]
       of opJoin:
         a.map[an.id] == b.map[bn.id]
+      of DataFlowOps:
+        true
 
     if not result:
       return
@@ -199,16 +208,20 @@ func isConnected(p: Program, defId, useId: int): bool =
     exit = false
 
   result = false
-  for i, _ in traverseReverse(tree, p.cfg, NodePosition(0)..NodePosition(tree.high), p.map[useId], exit):
+  for op, i in traverseReverse(p.cfg, NodePosition(0)..NodePosition(tree.high), p.map[useId], exit):
     doAssert not visited[int i]
     visited[int i] = true
 
-    case p.code[int i].op
-    of def:
+    debugEcho "data-flow: ", op, " at ", int i
+
+    case op
+    of opDef:
       if p.code[int i].id == defId:
         result = true
-    of use, cflow:
+    of opUse:
       discard "ignore"
+    else:
+      doAssert false, "unexpected data-flow instruction"
 
 proc useChain(p: Program, defId, start: int): seq[int] =
   ## Computes and returns the 'use's connected to the 'use' with ID `start`.
@@ -220,21 +233,23 @@ proc useChain(p: Program, defId, start: int): seq[int] =
     visited = newSeq[bool](p.code.len)
     exit = false
 
-  for i, _ in traverseReverse(tree, p.cfg, NodePosition(0)..NodePosition(tree.high), p.map[start], exit):
+  for op, i in traverseReverse(p.cfg, NodePosition(0)..NodePosition(tree.high), p.map[start], exit):
     doAssert not visited[int i],
              "instruction already visited; either the algorithm or CFG is broken"
     visited[int i] = true
 
+    debugEcho "data-flow: ", op, " at ", int i
+
     let instr = p.code[int i]
-    case instr.op
-    of def:
+    case op
+    of opDef:
       if instr.id == defId:
         # found the def; quit the path
         exit = true
-    of use:
+    of opUse:
       result.add instr.id
-    of cflow:
-      discard "ignore"
+    else:
+      doAssert false, "unexpected data-flow instruction"
 
 block infinite_loop:
   # while true:

@@ -371,6 +371,23 @@ const
   SymbolLike* = {mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal}
     ## Nodes for which the `sym` field is available
 
+  # --- semantics-focused sets:
+
+  ConsumeCtx* = {mnkConsume, mnkRaise, mnkDefUnpack}
+    ## if an lvalue is used as an operand to these operators, the value stored
+    ## in the named location is considered to be consumed (ownership over it
+    ## transfered to the operation)
+  UseContext* = {mnkArg, mnkDeref, mnkDerefView, mnkStdConv, mnkConv, mnkCast,
+                 mnkVoid, mnkIf, mnkCase} + ConsumeCtx
+    ## using an lvalue as the operand to one of these operators means that
+    ## the content of the location is observed (when control-flow reaches the
+    ## operator). In other words, applying the operator results in a read
+  OpsWithEffects* = {mnkCall, mnkMagic, mnkAsgn, mnkFastAsgn, mnkSwitch,
+                     mnkInit, mnkRegion}
+    ## the set of operations that can have lvalue-parameterized or general
+    ## effects
+
+
 func `==`*(a, b: TempId): bool {.borrow.}
 func `==`*(a, b: LabelId): bool {.borrow.}
 
@@ -652,6 +669,25 @@ iterator subNodes*(tree: MirTree, n: NodePosition): NodePosition =
   for _ in 0..<L:
     yield r
     r = sibling(tree, r)
+
+iterator effects*(tree: MirTree, n: NodePosition): (EffectKind, OpValue) =
+  ## For an effectful operation, returns in an unspecified order all lvalue
+  ## effects together with their applying-to operand.
+  let prev = n - 1
+  if tree[prev].kind == mnkEnd and tree[prev].start == mnkArgBlock:
+    var pos = prev - 1
+    while tree[pos].kind != mnkArgBlock:
+      if tree[pos].kind in ArgumentNodes:
+        let arg = tree.operand(pos)
+        if tree[arg].kind == mnkTag:
+          yield (tree[arg].effect, tree.operand(arg))
+
+      pos = previous(tree, pos)
+
+  else:
+    # no argument block is used, so no effects are be specified -> nothing
+    # to do
+    discard
 
 # XXX: ``lpairs`` is not at all related to the mid-end IR. The ``pairs``
 #      iterator from the stdlib should be changed to use ``lent`` instead
