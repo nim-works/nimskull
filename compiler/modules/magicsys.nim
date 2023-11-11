@@ -89,7 +89,6 @@ proc getSysType*(g: ModuleGraph; info: TLineInfo; kind: TTypeKind): PType =
     of tyFloat: result = sysTypeFromName("float")
     of tyFloat32: result = sysTypeFromName("float32")
     of tyFloat64: result = sysTypeFromName("float64")
-    of tyFloat128: result = sysTypeFromName("float128")
     of tyBool: result = sysTypeFromName("bool")
     of tyChar: result = sysTypeFromName("char")
     of tyString: result = sysTypeFromName("string")
@@ -178,6 +177,20 @@ func getMagicEqForType*(t: PType): TMagic =
   of tyChar:   mEqCh
   of tySet:    mEqSet
   of tyProc:   mEqProc
+  else:
+    unreachable(t.kind)
+
+func getMagicLeForType*(t: PType): TMagic =
+  ## Returns the ``mLeX`` magic for the given type `t`.
+  case t.kind
+  of tyInt, tyInt8, tyInt16, tyInt32, tyInt64,
+     tyUInt, tyUInt8, tyUInt16, tyUInt32, tyUInt64:
+    mLeI
+  of tyEnum:   mLeEnum
+  of tyBool:   mLeB
+  of tyString: mLeStr
+  of tyChar:   mLeCh
+  of tySet:    mLeSet
   else:
     unreachable(t.kind)
 

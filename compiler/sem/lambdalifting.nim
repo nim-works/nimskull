@@ -427,8 +427,8 @@ proc detectCapturedVars(n: PNode; owner: PSym; c: var DetectionPass) =
 
       c.usedInner.add s
 
-  of nkWithoutSons - nkSym, nkTypeSection, nkCommentStmt,
-     nkTypeOfExpr, nkMixinStmt, nkBindStmt, routineDefs - nkIteratorDef:
+  of nkWithoutSons - nkSym, nkTypeSection, nkTypeOfExpr,
+     nkMixinStmt, nkBindStmt, routineDefs - nkIteratorDef:
     discard
   of nkLambdaKinds, nkIteratorDef:
     if n.typ != nil:

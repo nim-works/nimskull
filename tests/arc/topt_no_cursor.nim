@@ -11,20 +11,17 @@ doing shady stuff...
   cmd: '''nim c --gc:arc --expandArc:newTarget --expandArc:delete --expandArc:p1 --expandArc:tt --hint:Performance:off --assertions:off --expandArc:extractConfig --expandArc:mergeShadowScope --expandArc:check $file'''
   nimout: '''--expandArc: newTarget
 
-var :aux_3
-var :aux_4
-var :aux_5
 var splat
 splat = splitFile(path)
 result = (
-  :aux_3 = splat.dir
-  wasMoved(splat.dir)
+  var :aux_3 = splat[0]
+  wasMoved(splat[0])
   :aux_3,
-  :aux_4 = splat.name
-  wasMoved(splat.name)
+  var :aux_4 = splat[1]
+  wasMoved(splat[1])
   :aux_4,
-  :aux_5 = splat.ext
-  wasMoved(splat.ext)
+  var :aux_5 = splat[2]
+  wasMoved(splat[2])
   :aux_5)
 =destroy(splat)
 -- end of expandArc ------------------------
@@ -62,25 +59,25 @@ result.value = move(lvalue)
 -- end of expandArc ------------------------
 --expandArc: tt
 
+var it_cursor
+var a
+var :aux_4
 var :aux_5
 var :aux_6
-var a
-var :aux_3
 try:
-  var it_cursor = x
+  it_cursor = x
   a = (
+    :aux_4 = default()
+    =copy(:aux_4, it_cursor[0])
+    :aux_4,
     :aux_5 = default()
-    =copy(:aux_5, it_cursor.key)
-    :aux_5,
-    :aux_6 = default()
-    =copy(:aux_6, it_cursor.val)
-    :aux_6)
+    =copy(:aux_5, it_cursor[1])
+    :aux_5)
   echo([
-    var :aux_7 = $(a)
-    :aux_3 = :aux_7
-    :aux_3])
+    :aux_6 = $(a)
+    :aux_6])
 finally:
-  =destroy(:aux_3)
+  =destroy(:aux_6)
   =destroy_1(a)
 -- end of expandArc ------------------------
 --expandArc: extractConfig
@@ -95,9 +92,10 @@ try:
     while true:
       if not(<(i, L)):
         break :label_0
+      var line
       var splitted
       try:
-        var line = a_cursor[i]
+        line = a_cursor[i]
         splitted = split(line, " ", -1)
         if ==(splitted[0], "opt"):
           var :aux_7 = splitted[1]
@@ -123,11 +121,10 @@ try:
     while true:
       if not(<(i, L)):
         break :label_0
-      var :aux_9
       var sym = a_cursor[i]
       addInterfaceDecl(c,
         var :aux_8 = sym
-        :aux_9 = default()
+        var :aux_9 = default()
         =copy_1(:aux_9, :aux_8)
         :aux_9)
       inc(i, 1)
@@ -141,30 +138,26 @@ try:
   this[].isValid = fileExists(this[].value)
   block :label_0:
     if dirExists(this[].value):
-      var :aux_4
-      par = [type node]((
+      par = (
         var :aux_3 = this[].value
-        :aux_4 = default()
+        var :aux_4 = default()
         =copy(:aux_4, :aux_3)
-        :aux_4, ""))
+        :aux_4, "")
       break :label_0
-    var :aux_6
-    var :aux_7
-    var :aux_8
-    par = [type node]((parentDir(this[].value),
-      :aux_7 = splitPath(
+    par = (parentDir(this[].value),
+      var :aux_7 = splitPath(
         var :aux_5 = this[].value
-        :aux_6 = default()
+        var :aux_6 = default()
         =copy(:aux_6, :aux_5)
         :aux_6)
-      :aux_8 = :aux_7.tail
-      wasMoved(:aux_7.tail)
-      :aux_8))
+      var :aux_8 = :aux_7[1]
+      wasMoved(:aux_7[1])
+      :aux_8)
     =destroy(:aux_7)
   block :label_0:
-    if dirExists(par.dir):
+    if dirExists(par[0]):
       var :aux_9 = this[].matchDirs
-      var :aux_10 = getSubDirs(par.dir, par.front)
+      var :aux_10 = getSubDirs(par[0], par[1])
       =sink(:aux_9, :aux_10)
       break :label_0
     var :aux_11 = this[].matchDirs

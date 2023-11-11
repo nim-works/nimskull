@@ -196,7 +196,7 @@ proc reprAux(result: var string, p: pointer, typ: PNimType,
     add(result, reprChar(cast[char](p)))
   of tyBool:
     add(result, reprBool(cast[bool](p)))
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     add(result, reprFloat(cast[float](p)))
   of tyString:
     var fp: int

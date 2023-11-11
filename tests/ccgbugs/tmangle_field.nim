@@ -12,5 +12,5 @@ import parseopt
 type foo* {.importc: "foo", nodecl.} = object
   key* {.importc: "key".}: cint
 
-for kind, key, value in parseopt.getopt():
+for kind, key, value in parseopt.getopt(@[]):
   discard

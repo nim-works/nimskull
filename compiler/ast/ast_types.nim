@@ -1,4 +1,4 @@
-import compiler/ast/lineinfos
+import compiler/ast/[lineinfos, numericbase]
 import std/[hashes]
 
 from compiler/ast/idents import PIdent, TIdent
@@ -75,7 +75,6 @@ type
     nkFloatLit            ## a floating point literal
     nkFloat32Lit
     nkFloat64Lit
-    nkFloat128Lit
     nkStrLit              ## a string literal ""
     nkRStrLit             ## a raw string literal r""
     nkTripleStrLit        ## a triple string literal """
@@ -253,10 +252,11 @@ const
     {nkIdent, nkSym} +
     {nkType} +
     {nkCharLit..nkUInt64Lit} +
-    {nkFloatLit..nkFloat128Lit} +
+    {nkFloatLit..nkFloat64Lit} +
     {nkStrLit..nkTripleStrLit} +
     {nkNilLit} +
-    {nkError}
+    {nkError} +
+    {nkCommentStmt}
 
   nkWithSons* = {low(TNodeKind) .. high(TNodeKind)} - nkWithoutSons
 
@@ -267,7 +267,7 @@ const
     nkCharLit,
     nkIntLit, nkInt8Lit, nkInt16Lit, nkInt32Lit, nkInt64Lit,
     nkUIntLit, nkUInt8Lit, nkUInt16Lit, nkUInt32Lit, nkUInt64Lit,
-    nkFloatLit, nkFloat32Lit, nkFloat64Lit, nkFloat128Lit,
+    nkFloatLit, nkFloat32Lit, nkFloat64Lit, nkFloat64Lit,
     nkStrLit, nkRStrLit, nkTripleStrLit,
     nkNilLit,
 
@@ -491,7 +491,7 @@ type
     tyPointer, tyOpenArray,
     tyString, tyCstring, tyForward,
     tyInt, tyInt8, tyInt16, tyInt32, tyInt64, # signed integers
-    tyFloat, tyFloat32, tyFloat64, tyFloat128,
+    tyFloat, tyFloat32, tyFloat64,
     tyUInt, tyUInt8, tyUInt16, tyUInt32, tyUInt64,
     tySink, tyLent,
     tyVarargs,
@@ -565,6 +565,13 @@ const
   tyMetaTypes* = {tyGenericParam, tyTypeDesc, tyUntyped} + tyTypeClasses
   tyUserTypeClasses* = {tyUserTypeClass, tyUserTypeClassInst}
 
+  tyBuiltInTypeClasses* = {tyDistinct, tyEnum, tyOrdinal, tyArray, tyObject,
+                           tyTuple, tySet, tyRange, tyPtr, tyRef, tyVar,
+                           tySequence, tyProc, tyOpenArray, tyLent, tyVarargs,
+                           tyUncheckedArray}
+    ## the type kinds that may appear as the child of a
+    ## ``tyBuiltInTypeClass``
+
   # TODO: Remove tyTypeDesc from each abstractX and (where necessary)
   # replace with typedescX
   abstractInst* = {tyGenericInst, tyDistinct, tyOrdinal, tyTypeDesc, tyAlias,
@@ -590,10 +597,6 @@ type
   TTypeKinds* = set[TTypeKind]
 
   TNodeFlag* = enum
-    nfNone,
-    nfBase2,    ## nfBase10 is default, so not needed
-    nfBase8,
-    nfBase16,
     nfAllConst, ## used to mark complex expressions constant; easy to get rid of
                 ## but unfortunately it has measurable impact for compilation
                 ## efficiency
@@ -604,10 +607,8 @@ type
     nfDotField  ## the call can use a dot operator
     nfDotSetter ## the call can use a setter dot operarator
     nfExplicitCall ## `x.y()` was used instead of x.y
-    nfIsRef     ## this node is a 'ref' node; used for the VM
-    nfIsPtr     ## this node is a 'ptr' node; used for the VM
     nfFromTemplate ## a top-level node returned from a template
-    nfDefaultParam ## an automatically inserter default parameter
+    nfDefaultParam ## an automatically inserted default parameter
     nfDefaultRefsParam ## a default param value references another parameter
                        ## the flag is applied to proc default values and to calls
     nfHasComment ## node has a comment
@@ -620,7 +621,6 @@ type
     tfFinal,          ## is the object final?
     tfInheritable,    ## is the object inheritable?
     tfEnumHasHoles,   ## enum cannot be mapped into a range
-    tfShallow,        ## type can be shallow copied on assignment
     tfThread,         ## proc type is marked as ``thread``; alias for ``gcsafe``
     tfFromGeneric,    ## type is an instantiation of a generic; this is needed
                       ## because for instantiations of objects, structural
@@ -651,7 +651,8 @@ type
     tfPacked
     tfHasStatic
     tfGenericTypeParam
-    tfImplicitTypeParam
+    tfImplicitTypeParam ## the type parameter was lifted from the routine's
+                        ## formal parameters
     tfInferrableStatic
     tfConceptMatchedTypeSym
     tfExplicit        ## for typedescs, marks types explicitly prefixed with the
@@ -742,7 +743,7 @@ type
     mDefined, mDeclared, mDeclaredInScope, mCompiles, mArrGet, mArrPut, mAsgn,
     mLow, mHigh, mSizeOf, mAlignOf, mOffsetOf, mTypeTrait,
     mIs, mOf, mAddr, mType, mTypeOf,
-    mPlugin, mEcho, mShallowCopy, mSlurp,
+    mPlugin, mEcho, mShallowCopy,
     mStatic,
     mParseExprToAst, mParseStmtToAst, mExpandToAst, mQuoteAst,
     mInc, mDec, mOrd,
@@ -790,7 +791,7 @@ type
     mOrdinal,
     mInt, mInt8, mInt16, mInt32, mInt64,
     mUInt, mUInt8, mUInt16, mUInt32, mUInt64,
-    mFloat, mFloat32, mFloat64, mFloat128,
+    mFloat, mFloat32, mFloat64,
     mBool, mChar, mString, mCstring,
     mPointer, mNil, mExpr, mStmt, mTypeDesc,
     mVoidType, mPNimrodNode, mDeepCopy,
@@ -819,6 +820,8 @@ type
     mChckRange
       ## chckRange(v, lower, upper); conversion + range check -- returns
       ## either the type-converted value or raises a defect
+    mSamePayload
+      ## returns whether both seq/string operands share the same payload
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const
@@ -1190,6 +1193,8 @@ type
     adSemCallIndirectTypeMismatch
     adSemSystemNeeds
     adSemDisallowedNilDeref
+    adSemCannotDeref
+    adSemInvalidTupleSubscript
     adSemLocalEscapesStackFrame
     adSemImplicitAddrIsNotFirstParam
     adSemCannotAssignTo
@@ -1213,9 +1218,11 @@ type
     # semobjconstr
     adSemFieldAssignmentInvalid
     adSemFieldNotAccessible
+    adSemObjectRequiresFieldInit
     adSemObjectRequiresFieldInitNoDefault
     adSemExpectedObjectType
     adSemExpectedObjectOfType
+    adSemObjectDoesNotHaveDefaultValue
     adSemDistinctDoesNotHaveDefaultValue
     # semfold
     adSemFoldRangeCheckForLiteralConversionFailed
@@ -1327,6 +1334,7 @@ type
         adSemExpectedObjectForOf,
         adSemCannotBeOfSubtype,
         adSemDisallowedNilDeref,
+        adSemCannotDeref,
         adSemCannotReturnTypeless,
         adSemExpectedValueForYield,
         adSemNamedExprExpected,
@@ -1468,6 +1476,9 @@ type
       ordRange*: PType
     of adSemExpectedOrdinal:
       nonOrdTyp*: PType
+    of adSemInvalidTupleSubscript:
+      tupleIndex*: int
+      tupleLen*: int
     of adSemRecursiveDependencyIterator:
       recurrCallee*: PSym
     of adSemCallIndirectTypeMismatch:
@@ -1486,11 +1497,13 @@ type
       wrongFldInfo*: TLineInfo
     of adSemFieldNotAccessible:
       inaccessible*: PSym
-    of adSemObjectRequiresFieldInitNoDefault:
+    of adSemObjectRequiresFieldInit,
+       adSemObjectRequiresFieldInitNoDefault:
       missing*: seq[PSym]
       objTyp*: PType
-    of adSemDistinctDoesNotHaveDefaultValue:
-      distinctTyp*: PType
+    of adSemObjectDoesNotHaveDefaultValue,
+       adSemDistinctDoesNotHaveDefaultValue:
+      typWithoutDefault*: PType
     of adSemExpectedObjectOfType:
       expectedObjTyp*: PType
     of adSemFoldRangeCheckForLiteralConversionFailed:
@@ -1532,22 +1545,27 @@ type
         discard
 
   TNode*{.final, acyclic.} = object # on a 32bit machine, this takes 32 bytes
-    id*: NodeId
+                                    # on a 64bit machine, this takes 40 bytes
     typ*: PType
+    id*: NodeId  # placed after `typ` field to save space due to field alignment
     info*: TLineInfo
     flags*: TNodeFlags
     case kind*: TNodeKind
     of nkCharLit..nkUInt64Lit:
       intVal*: BiggestInt
-    of nkFloatLit..nkFloat128Lit:
+      intLitBase*: NumericalBase
+    of nkFloatLit..nkFloat64Lit:
       floatVal*: BiggestFloat
+      floatLitBase*: NumericalBase
+        # Once case branches can share fields this can be unified with
+        # intLitBase above
     of nkStrLit..nkTripleStrLit:
       strVal*: string
     of nkSym:
       sym*: PSym
     of nkIdent:
       ident*: PIdent
-    of nkEmpty, nkNone, nkType, nkNilLit:
+    of nkEmpty, nkNone, nkType, nkNilLit, nkCommentStmt:
       discard
     of nkError:
       diag*: PAstDiag

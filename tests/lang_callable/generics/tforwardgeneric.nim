@@ -26,3 +26,12 @@ proc print[T](t: T) =
 
 echo bar()
 
+block unresolved_generic_param_in_body:
+  # instantiating a forwarded generic proc before its body is
+  # present led to the generic parameters in the instantiated body to not be
+  # properly resolved
+  proc forwarded[T]()
+  forwarded[int]()
+
+  proc forwarded[T]() = # complete the definition
+    doAssert ($T) == "int"

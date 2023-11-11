@@ -54,13 +54,6 @@ type
 
     opcWrProc # deref(a) = functions[Bx]
 
-    # TODO: instead of the a == c hack, use the surplus 8bit of the instruction
-    #       word that are currently unused as a boolean
-    opcWrClosure # a = (b, c)
-    # If a == c, treat the env as nil
-    opcAccessEnv ## a = b.env[]; loads a handle to the cell holding the
-                 ## environment
-
     opcAddInt,
     opcAddImmInt,
     opcSubInt,
@@ -117,7 +110,6 @@ type
     opcNccValue, opcNccInc, opcNcsAdd, opcNcsIncl, opcNcsLen, opcNcsAt,
     opcNctPut, opcNctLen, opcNctGet, opcNctHasNext, opcNctNext, opcNodeId,
 
-    opcSlurp,
     opcParseExprToAst,
     opcParseStmtToAst,
     opcNGetLineInfo, opcNSetLineInfo,

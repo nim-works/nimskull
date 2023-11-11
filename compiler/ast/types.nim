@@ -552,7 +552,7 @@ proc lengthOrd*(conf: ConfigRef; t: PType): Int128 =
 
 proc firstFloat*(t: PType): BiggestFloat =
   case t.kind
-  of tyFloat..tyFloat128: -Inf
+  of tyFloat..tyFloat64: -Inf
   of tyRange:
     assert(t.n != nil)        # range directly given:
     assert(t.n.kind == nkRange)
@@ -566,7 +566,7 @@ proc firstFloat*(t: PType): BiggestFloat =
 
 proc lastFloat*(t: PType): BiggestFloat =
   case t.kind
-  of tyFloat..tyFloat128: Inf
+  of tyFloat..tyFloat64: Inf
   of tyVar: lastFloat(t[0])
   of tyRange:
     assert(t.n != nil)        # range directly given:
@@ -582,7 +582,7 @@ proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
   case t.kind
   # This needs to be special cased since NaN is never
   # part of firstFloat(t)..lastFloat(t)
-  of tyFloat..tyFloat128:
+  of tyFloat..tyFloat64:
     true
   of tyRange:
     x in firstFloat(t)..lastFloat(t)
@@ -851,9 +851,7 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
       result = a.sym.position == b.sym.position
   of tyBuiltInTypeClass:
     assert a.len == 1
-    assert a[0].len == 0
     assert b.len == 1
-    assert b[0].len == 0
     result = a[0].kind == b[0].kind
   of tyGenericInvocation, tyGenericBody, tySequence, tyOpenArray, tySet, tyRef,
      tyPtr, tyVar, tyLent, tySink, tyUncheckedArray, tyArray, tyProc, tyVarargs,
@@ -1138,7 +1136,7 @@ proc classify*(t: PType): OrdinalType =
     result = NoneLike
   else:
     case skipTypes(t, abstractVarRange).kind
-    of tyFloat..tyFloat128: result = FloatLike
+    of tyFloat..tyFloat64: result = FloatLike
     of tyInt..tyInt64, tyUInt..tyUInt64, tyBool, tyChar, tyEnum:
       result = IntLike
     else: result = NoneLike
@@ -1201,40 +1199,6 @@ proc isEmptyContainer*(t: PType): bool =
     isEmptyContainer(t.lastSon)
   else:
     false
-
-proc takeType*(formal, arg: PType; g: ModuleGraph; idgen: IdGenerator): PType =
-  # param: openArray[string] = []
-  # [] is an array constructor of length 0 of type string!
-  if arg.kind == tyNil:
-    # and not (formal.kind == tyProc and formal.callConv == ccClosure):
-    result = formal
-  elif formal.kind in {tyOpenArray, tyVarargs, tySequence} and
-      arg.isEmptyContainer:
-    let a = copyType(arg.skipTypes({tyGenericInst, tyAlias}), nextTypeId(idgen), arg.owner)
-    copyTypeProps(g, idgen.module, a, arg)
-    a[ord(arg.kind == tyArray)] = formal[0]
-    result = a
-  elif formal.kind in {tyTuple, tySet} and arg.kind == formal.kind:
-    result = formal
-  else:
-    result = arg
-
-proc skipHiddenSubConv*(n: PNode; g: ModuleGraph; idgen: IdGenerator): PNode =
-  if n.kind == nkHiddenSubConv:
-    # param: openArray[string] = []
-    # [] is an array constructor of length 0 of type string!
-    let formal = n.typ
-    result = n[1]
-    let arg = result.typ
-    let dest = takeType(formal, arg, g, idgen)
-    if dest == arg and formal.kind != tyUntyped:
-      #echo n.info, " came here for ", formal.typeToString
-      result = n
-    else:
-      result = copyTree(result)
-      result.typ = dest
-  else:
-    result = n
 
 proc getProcConvMismatch*(
     c: ConfigRef, f, a: PType, rel = isNone

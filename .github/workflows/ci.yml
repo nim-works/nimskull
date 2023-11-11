@@ -43,7 +43,7 @@ jobs:
 
     steps:
       - id: run_cond
-        uses: fkirc/skip-duplicate-actions@v5.3.0
+        uses: fkirc/skip-duplicate-actions@v5.3.1
         with:
           # Cancel CI on outdated commits
           cancel_others: true
@@ -118,12 +118,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: tree:0
 
       - name: Enable annotations
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
       - name: Build release binaries
-        run: ./koch.py all
+        run: ./koch.py all-strict
 
       - name: Upload workspace to artifacts
         uses: ./.github/actions/upload-compiler
@@ -153,11 +154,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: tree:0
 
       - uses: ./.github/actions/download-compiler
 
       - name: Install NodeJS
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: "16"
 
@@ -201,6 +203,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: tree:0
 
       - uses: ./.github/actions/download-compiler
 
@@ -220,6 +223,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: tree:0
 
       - uses: ./.github/actions/download-compiler
 
@@ -332,6 +336,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: tree:0
 
       - uses: ./.github/actions/download-compiler
 
@@ -393,6 +398,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          filter: tree:0
 
       - uses: ./.github/actions/download-compiler
 

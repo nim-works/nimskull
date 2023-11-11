@@ -50,7 +50,6 @@ let exp: int
     add "1" + fgRed
     addi 2, "2"
     add "]"
-    endResult()
 
   let col = reesc($colres())
   let want = r"[    0\e[31m1\e[39m    2]"

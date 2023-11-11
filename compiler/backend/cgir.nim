@@ -55,9 +55,10 @@ type
                      ## field with a value
 
     cnkFieldAccess
-    cnkBracketAccess
-    # future direction: split ``cnkBracketAccess`` into ``cnkArrayAccess`` (for
-    # array-like operands) and ``cnkTupleAccess`` (for tuples).
+    cnkArrayAccess
+    cnkTupleAccess
+    # future direction: merge ``cnkFieldAccess`` and ``cnkTupleAccess`` into a
+    # single node (field access by position).
     cnkCheckedFieldAccess
     # future direction: lower object access checks eariler (e.g., during the
     # MIR phase) and then remove ``cnkCheckedFieldAccess``
@@ -172,9 +173,9 @@ type
   LocalId* = distinct uint32
     ## Identifies a local within a procedure.
 
-  CgNode* = ref object
-    ## Code-generator node
-    origin*: PNode
+  CgNode* {.acyclic.} = ref object
+    ## A node in the tree structure representing code during the code
+    ## generation stage. The "CG" prefix is short for "code generation".
     info*: TLineInfo
     typ*: PType
     case kind*: CgNodeKind

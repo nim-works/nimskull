@@ -3,20 +3,20 @@ discard """
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:sio --hint:Performance:off $file'''
   nimout: '''--expandArc: main
 
-var :aux_2
+var x_cursor
+var :aux_3
 try:
-  var x_cursor = ("hi", 5)
+  x_cursor = ("hi", 5)
   block :label_0:
     if cond:
-      x_cursor = [type node](("different", 54))
+      x_cursor = ("different", 54)
       break :label_0
-    x_cursor = [type node](("string here", 80))
+    x_cursor = ("string here", 80)
   echo([
-    var :aux_4 = $(x_cursor)
-    :aux_2 = :aux_4
-    :aux_2])
+    :aux_3 = $(x_cursor)
+    :aux_3])
 finally:
-  =destroy(:aux_2)
+  =destroy(:aux_3)
 -- end of expandArc ------------------------
 --expandArc: sio
 

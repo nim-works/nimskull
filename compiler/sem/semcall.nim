@@ -102,7 +102,6 @@ proc maybeResemArgs*(c: PContext, n: PNode, startIdx: int = 1): seq[PNode] =
       if arg.typ.isNil: # and arg.kind notin {nkStmtList, nkDo}:
         # XXX we really need to 'tryExpr' here!
         arg = c.semOperand(c, n[i][1])
-        arg = n[i][1]
         n[i].typ = arg.typ
         n[i][1] = arg
     of nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch:
@@ -448,7 +447,8 @@ proc inferWithMetatype(c: PContext, formal: PType,
     #      used by ``semConv``), it makes more sense to return both the fitted
     #      node *and* the inferred formal type, and let the callsite handle it
     #      from there
-    if formal.kind == tyCompositeTypeClass:
+    case formal.kind
+    of tyCompositeTypeClass:
       # passing the composite type-class to ``generateTypeInstance`` would
       # get us the matched source type, which is not what we want here
       # (especially in the presense of ``distinct``s); we want the
@@ -460,6 +460,11 @@ proc inferWithMetatype(c: PContext, formal: PType,
       # types bound to the type variables used in the invocation -- we can
       # directly instantiate it
       result.typ = generateTypeInstance(c, m.bindings, arg.info, formal[1])
+    of tyGenericInst:
+      # special case: an instance of a generic type class (e.g.,
+      # ``type Tc[T] = T | int``). Use the type bound to the instance
+      result.typ = PType(idTableGet(m.bindings, formal))
+      c.config.internalAssert(result.typ != nil, arg.info)
     else:
       result.typ = generateTypeInstance(c, m.bindings, arg.info, formal)
   else:
@@ -555,10 +560,6 @@ proc semResolvedCall(c: PContext, x: TCandidate,
   result.typ = finalCallee.typ[0]
   result = updateDefaultParams(c.config, result)
 
-proc canDeref(n: PNode): bool {.inline.} =
-  result = n.len >= 2 and (let t = n[1].typ;
-    t != nil and t.skipTypes({tyGenericInst, tyAlias, tySink}).kind in {tyPtr, tyRef})
-
 proc semOverloadedCall(c: PContext, n: PNode,
                        filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
   addInNimDebugUtils(c.config, "semOverloadedCall", n, result)
@@ -639,14 +640,15 @@ proc explicitGenericSym(c: PContext, n: PNode, s: PSym): PNode =
   newInst.typ.flags.excl tfUnresolved
   newSymNode(newInst, info)
 
-proc explicitGenericInstantiation(c: PContext, n: PNode): PNode =
+proc explicitGenericInstantiation(c: PContext, a: PNode, n: PNode): PNode =
+  ## Resolves the instantiation expression `n` to a single symbol or symbol
+  ## choice. `a` is the symbol-like node denoting the overloads to consider.
   assert n.kind == nkBracketExpr
   # analyse the operands first
   let args = semGenericArgs(c, n)
   if args.kind == nkError:
     return args
 
-  let a = n[0]
   case a.kind
   of nkSym:
     # common case; check the only candidate has the right

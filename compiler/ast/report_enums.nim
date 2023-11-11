@@ -532,6 +532,7 @@ type
     rsemRecursiveDependencyIterator
     rsemIllegalNimvmContext
     rsemDisallowedNilDeref
+    rsemCannotDeref
     rsemInvalidTupleSubscript
     rsemLocalEscapesStackFrame
     rsemImplicitAddrIsNotFirstParam
@@ -564,6 +565,7 @@ type
     rsemRuntimeDiscriminantRequiresElif
     rsemObjectRequiresFieldInit
     rsemObjectRequiresFieldInitNoDefault
+    rsemObjectDoesNotHaveDefaultValue
     rsemDistinctDoesNotHaveDefaultValue
     rsemExpectedModuleNameForImportExcept
     rsemCannotExport
@@ -680,6 +682,7 @@ type
     rsemIllformedAst
     rsemInitHereNotAllowed
     rsemTypeExpected
+    rsemSinkIsNotATypeClass
     rsemGenericTypeExpected
     rsemTypeInvalid
     rsemWrongIdent

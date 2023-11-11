@@ -102,7 +102,6 @@ type
     pnkFloatLit
     pnkFloat32Lit
     pnkFloat64Lit
-    pnkFloat128Lit
     pnkStrLit
     pnkRStrLit
     pnkTripleStrLit
@@ -241,7 +240,7 @@ type
       of pnkIdent:
         startToken*: ParsedToken
       of pnkCharLit..pnkUInt64Lit,
-          pnkFloatLit..pnkFloat128Lit,
+          pnkFloatLit..pnkFloat64Lit,
           pnkStrLit..pnkTripleStrLit,
           pnkNilLit,
           pnkCustomLit:
@@ -262,7 +261,7 @@ const
   pnkParsedKindsWithSons* = {pnkCall..pnkUsingStmt}
   pnkCallKinds* = {pnkCall, pnkInfix, pnkPrefix, pnkPostfix,
                   pnkCommand, pnkCallStrLit}
-  pnkFloatKinds* = {pnkFloatLit..pnkFloat128Lit}
+  pnkFloatKinds* = {pnkFloatLit..pnkFloat64Lit}
   pnkIntKinds* = {pnkCharLit..pnkUInt64Lit}
   pnkStrKinds* = {pnkStrLit..pnkTripleStrLit}
   pnkDeclarativeDefs* = {pnkProcDef, pnkFuncDef, pnkMethodDef, pnkIteratorDef, pnkConverterDef}
@@ -341,7 +340,7 @@ proc getToken*(n: ParsedNode): ParsedToken =
   of pnkIdent:
     n.startToken
   of pnkCharLit..pnkUInt64Lit,
-      pnkFloatLit..pnkFloat128Lit,
+      pnkFloatLit..pnkFloat64Lit,
       pnkStrLit..pnkTripleStrLit,
       pnkNilLit,
       pnkCustomLit:
@@ -375,7 +374,7 @@ func info*(p: ParsedNode): TLineInfo {.inline.} =
               line: p.startToken.line,
               col: p.startToken.col)
   of pnkCharLit..pnkUInt64Lit,
-      pnkFloatLit..pnkFloat128Lit,
+      pnkFloatLit..pnkFloat64Lit,
       pnkStrLit..pnkTripleStrLit,
       pnkNilLit,
       pnkCustomLit:

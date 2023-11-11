@@ -145,7 +145,8 @@ type
     types*: seq[PackedVmType]
 
     globals*: seq[VmTypeId] ## All globals. Only their types are stored
-    functions*: seq[tuple[sym: uint32, sig: RoutineSigId, t1, t2: VmTypeId, kind: CallableKind, a, b: uint32]]
+    functions*: seq[tuple[sym: uint32, sig: RoutineSigId, t1: VmTypeId,
+                          isClosure: bool, kind: CallableKind, a, b: uint32]]
     callbacks*: seq[string]
 
     code*: seq[TInstr]
@@ -338,7 +339,7 @@ func storeData*(enc: var DataEncoder, e: var PackedEnv, n: PNode) =
     of EmbeddedInts:  (pdkIntLit, cast[uint32](n.intVal))
     of ExternalInts:  (pdkInt,    e.getLitId(n.intVal).uint32)
 
-    of nkFloatLit..nkFloat128Lit: (pdkFloat,  e.getLitId(n.floatVal).uint32)
+    of nkFloatLit..nkFloat64Lit:  (pdkFloat,  e.getLitId(n.floatVal).uint32)
     of nkStrLit..nkTripleStrLit:  (pdkString, e.getLitId(n.strVal).uint32)
     of nkNilLit:                  (pdkPtr,    0'u32)
 
@@ -439,7 +440,7 @@ proc loadSliceList*[T: SliceListType](p: PackedEnv, id: uint32): seq[Slice[T]] =
 func numFields(t: PVmType): int =
   case t.kind
   of akInt, akFloat, akPNode: 0
-  of akPtr, akRef, akSeq, akString, akSet, akDiscriminator, akCallable, akClosure: 1
+  of akPtr, akRef, akSeq, akString, akSet, akDiscriminator, akCallable: 1
   of akArray: 1
   of akObject: 1 + t.objFields.len
 
@@ -467,7 +468,7 @@ func storeVmType(enc: var PackedEncoder, dst: var PackedEnv, t: PVmType): Packed
 
     of akSet:                 (t.setLength.uint32, 0'u32)
     of akDiscriminator:       (t.numBits.uint32, 0'u32)
-    of akCallable, akClosure: (t.routineSig.uint32, 0'u32)
+    of akCallable:            (t.routineSig.uint32, 0'u32)
     of akArray:               (t.elementCount.uint32, enc.typeMap[t.elementType])
     of akObject:              (t.relFieldStart, t.branches.len.uint32)
     of akInt, akFloat, akPNode:
@@ -515,7 +516,7 @@ func loadVmType(s: PackedEnv, types: seq[PVmType],
     t.elementCount = firstField.offset.int
     t.elementType = types[firstField.typId]
     t.elementStride = alignedSize(t.elementType).int
-  of akCallable, akClosure:
+  of akCallable:
     t.routineSig = firstField.offset.RoutineSigId
   of akObject:
     t.relFieldStart = firstField.offset
@@ -600,7 +601,7 @@ func storeNode(enc: var TypeInfoEncoder, ps: var PackedEnv, n: PNode): NodeId =
   var hasSons = false
   let item =
     case n.kind
-    of nkEmpty, nkType, nkNilLit: 0'i32 # zero children
+    of nkEmpty, nkType, nkNilLit, nkCommentStmt: 0'i32 # zero children
     of nkIdent: ps.getLitId(n.ident.s).int32
     of nkSym:   enc.storeSymLater(ps, n.sym).int32
     of nkIntKinds:   ps.getLitId(n.intVal).int32
@@ -673,11 +674,11 @@ proc loadNode(dec: var TypeInfoDecoder, ps: PackedEnv, id: NodeId): (PNode, int3
                 typ: loadType(dec, ps, n.typeId))
 
   case n.kind
-  of nkEmpty, nkType, nkNilLit:
+  of nkEmpty, nkType, nkNilLit, nkCommentStmt:
     discard "do nothing"
   of nkCharLit..nkUInt64Lit:
     r.intVal = ps.numbers[n.operand.LitId]
-  of nkFloatLit..nkFloat128Lit:
+  of nkFloatLit..nkFloat64Lit:
     # use a `cast` to preserve the bit representation:
     r.floatVal = cast[BiggestFloat](ps.numbers[n.operand.LitId])
   of nkStrLit..nkTripleStrLit:
@@ -798,7 +799,7 @@ proc loadEnv*(dst: var TCtx, src: PackedEnv) =
     # stack trace entries
     var f = FuncTableEntry(sym: nimSym, sig: x.sig,
                            retValDesc: dst.types[x.t1],
-                           envParamType: dst.types[x.t2],
+                           isClosure: x.isClosure,
                            kind: x.kind)
     case x.kind
     of ckDefault:
@@ -860,14 +861,13 @@ func storeEnv*(enc: var PackedEncoder, dst: var PackedEnv, c: TCtx) =
     let
       d = dst.storeDbgSym(x.sym)
       t1 = enc.typeMap[x.retValDesc]
-      t2 = enc.typeMap[x.envParamType]
 
     let (a, b) =
       case x.kind
       of ckCallback: (x.cbOffset.uint32, 0'u32)
       of ckDefault:  (x.start.uint32, x.regCount.uint32)
 
-    (d, x.sig, t1, t2, x.kind, a, b)
+    (d, x.sig, t1, x.isClosure, x.kind, a, b)
 
   dst.code = c.code
 

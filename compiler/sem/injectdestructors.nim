@@ -294,10 +294,6 @@ func getAliveRange(entities: EntityDict, name: EntityName, exists: var bool
     # ``info.def`` for the start and not ``info.scope.b``
     result = info.def .. info.scope.b
 
-func paramType(p: PSym, i: Natural): PType =
-  assert p.kind in routineKinds
-  p.typ[1 + i]
-
 proc getVoidType(g: ModuleGraph): PType {.inline.} =
   g.getSysType(unknownLineInfo, tyVoid)
 
@@ -721,18 +717,18 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
     relation = compareLvalues(tree, toLvalue(ar.v[], source),
                               toLvalue(ar.v[], dest))
 
-  c.seek(NodePosition asgn)
+    pos = NodePosition asgn
 
   if relation.isSame:
     # a self-assignment. We can't remove the arg-block (it might have
     # side-effects), so the assignment is replaced with a
     # no-op instead
-    c.replaceMulti(buf):
+    c.replaceMulti(tree, pos, buf):
       buf.subTree MirNode(kind: mnkRegion): discard
 
   elif owned(ar.v[], source) == Owned.yes:
     # we own the source value -> sink
-    c.replaceMulti(buf):
+    c.replaceMulti(tree, pos, buf):
       let fromLvalue = isNamed(tree, ar.v[], source)
 
       if tree[asgn].kind != mnkInit and
@@ -788,7 +784,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 
   else:
     # we don't own the source value -> copy
-    c.replaceMulti(buf):
+    c.replaceMulti(tree, pos, buf):
       # copies to locals or globals can't introduce cyclic structures, as
       # those are standlone and not part of any other structure
       let maybeCyclic =
@@ -801,7 +797,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                 maybeCyclic)
 
 proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
-                typ: PType, src: OpValue, c: var Changeset) =
+                typ: PType, at: NodePosition, src: OpValue, c: var Changeset) =
   ## Injects the ownership-transfer related logic needed for when a value is
   ## consumed. Since the value is not passed by reference to the ``sink``
   ## parameter, the source location has to be reset, as it'd otherwise contain
@@ -820,7 +816,7 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 
     let tmp = c.getTemp()
 
-    c.insert(NodeInstance src, buf):
+    c.insert(at, NodeInstance src, buf):
       buf.subTree MirNode(kind: mnkRegion):
         buf.add opParamNode(0, typ)
         buf.genDefTemp(tmp, typ)
@@ -835,11 +831,11 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       buf.add MirNode(kind: mnkTemp, typ: typ, temp: tmp)
 
 proc insertCopy(tree: MirTree, graph: ModuleGraph, typ: PType,
-                maybeCyclic: bool, c: var Changeset) =
+                maybeCyclic: bool, at: NodePosition, c: var Changeset) =
   ## Generates a call to the `typ`'s ``=copy`` hook that uses the contextual
   ## input as the source value
   let tmp = c.getTemp()
-  c.insert(NodeInstance c.position, buf):
+  c.insert(at, NodeInstance at, buf):
     buf.subTree MirNode(kind: mnkRegion):
       argBlock(buf): discard
       buf.add MirNode(kind: mnkMagic, typ: typ, magic: mDefault)
@@ -887,12 +883,11 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         # for values without destructors 'consume' is a no-op
         continue
 
-      c.seek(i)
       case ar.v[].owned(opr)
       of Owned.yes:
-        consumeArg(tree, ctx, ar, typ, opr, c)
+        consumeArg(tree, ctx, ar, typ, i, opr, c)
       of Owned.no:
-        insertCopy(tree, ctx.graph, tree[opr].typ, maybeCyclic = true, c)
+        insertCopy(tree, ctx.graph, tree[opr].typ, maybeCyclic = true, i, c)
       of Owned.unknown, Owned.weak:
         unreachable()
 
@@ -910,10 +905,9 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       case tree[user].kind
       of mnkConstr, mnkObjConstr, mnkCall, mnkMagic:
         # a consume in a non-assignment context:
-        c.seek(i)
         case ar.v[].owned(val)
         of Owned.yes:
-          consumeArg(tree, ctx, ar, typ, val, c)
+          consumeArg(tree, ctx, ar, typ, i, val, c)
         of Owned.no:
           let op = getOp(ctx.graph, typ, attachedAsgn)
           if sfError in op.flags:
@@ -925,7 +919,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
             diags.add LocalDiag(pos: NodePosition val,
                                 kind: ldkPassCopyToSink)
 
-          insertCopy(tree, ctx.graph, typ, maybeCyclic = true, c)
+          insertCopy(tree, ctx.graph, typ, maybeCyclic = true, i, c)
         else:
           unreachable("un-collapsed ownership status")
 
@@ -1006,37 +1000,6 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
       result = ord(x.pos) - ord(y.pos)
   )
 
-  # second pass: if at least one entity in a scope needs its destructor call
-  # placed in a ``finally`` clause, all others in the same scope do too, as the
-  # order-of-destruction would be violated otherwise
-  for pos, scope in entries.items:
-    if scope in needsFinally:
-      # if the destroy call has to be placed inside a ``finally`` clause, we
-      # first need to move the 'def' from its current position to the start of
-      # the scope, as it'd be otherwise located inside the ``try``'s body
-      # (which would render the entity unavailable inside the ``finally``
-      # clause)
-      assert tree[pos].kind == mnkDef
-      c.seek(pos)
-      if hasInput(tree, Operation pos):
-        # replace the 'def' with an initializing assignment if it has an
-        # input:
-        c.replaceMulti(buf):
-          buf.subTree MirNode(kind: mnkRegion):
-            argBlock(buf):
-              let e = getDefEntity(tree, pos) # the entity (e.g. local)
-              chain(buf): emit(tree[e]) => name()
-              chain(buf): opParam(0, tree[e].typ) => arg()
-            buf.add MirNode(kind: mnkInit)
-
-      else:
-        c.remove()
-
-      # insert the 'def' at the start of the scope:
-      c.seek(scope + 1)
-      c.insert(NodeInstance pos, buf):
-        buf.add toOpenArray(tree, pos.int, pos.int+2)
-
   iterator scopeItems(e: seq[DestroyEntry]): Slice[int] {.inline.} =
     ## Partitions `e` using the `scope` field and yields the slice of each
     ## partition
@@ -1052,7 +1015,7 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
           scopePos = e[i].scope
           start = i
 
-  # third pass: inject the destructors and place them inside a ``finally``
+  # second pass: inject the destructors and place them inside a ``finally``
   # clause if necessary
   for s in scopeItems(entries):
     let
@@ -1062,15 +1025,13 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
         ## the node to inherit the origin information from
 
     if useFinally:
-      # at the start of the scope (after the 'def's previously moved there),
-      # insert the start nodes of a 'try' and a 'stmtList':
-      c.seek(scopeStart + 1)
-      c.insert(source, buf):
+      # start a 'finally' at the beginning of the scope:
+      c.insert(scopeStart + 1, source, buf):
         buf.add MirNode(kind: mnkTry, len: 1)
         buf.add MirNode(kind: mnkStmtList)
 
-    c.seek findEnd(tree, scopeStart) # seek to the scope's end node
-    c.insert(source, buf):
+    # insert at the scope's end node
+    c.insert(findEnd(tree, scopeStart), source, buf):
       if useFinally:
         buf.add endNode(mnkStmtList) # close the body of the 'try' clause
         buf.subTree MirNode(kind: mnkFinally):
@@ -1112,9 +1073,7 @@ proc injectTemporaries(tree: MirTree, c: var Changeset) =
       # only locations can be destroyed, so we assign the value to a
       # temporary. The destructor injection pass takes care of the rest then
       let tmp = c.getTemp()
-      c.seek(i)
-      c.skip(1)
-      c.insert(NodeInstance i, buf):
+      c.insert(tree.sibling(i), NodeInstance i, buf):
         buf.genDefTemp(tmp, n.typ)
         buf.add MirNode(kind: mnkTemp, typ: n.typ, temp: tmp)
 
@@ -1161,7 +1120,6 @@ proc lowerBranchSwitch(buf: var MirNodeSeq, body: MirTree, graph: ModuleGraph,
 
     let
       boolTyp = graph.getSysType(unknownLineInfo, tyBool)
-      voidTyp = graph.getSysType(unknownLineInfo, tyVoid)
 
     # XXX: comparing the discrimant values here means that the branch is
     #      destroyed even if the branch doesn't change. This differs from
@@ -1255,8 +1213,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
     if g.config.backend != backendNimVm:
       for i, n in tree.pairs:
         if n.kind == mnkSwitch:
-          changes.seek(i)
-          changes.replaceMulti(buf):
+          changes.replaceMulti(tree, i, buf):
             lowerBranchSwitch(buf, tree, g, idgen, Operation i)
 
     apply(changes)

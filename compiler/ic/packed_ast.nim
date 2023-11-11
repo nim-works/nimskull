@@ -139,7 +139,9 @@ proc addModuleId*(tree: var PackedTree; s: ModuleId; info: PackedLineInfo) =
 proc addSymDef*(tree: var PackedTree; s: SymId; info: PackedLineInfo) =
   tree.nodes.add PackedNode(kind: nkSym, operand: int32(s), info: info)
 
-proc isAtom*(tree: PackedTree; pos: int): bool {.inline.} = tree.nodes[pos].kind <= nkNilLit
+proc isAtom*(tree: PackedTree; pos: int): bool {.inline.} =
+  let kind = tree.nodes[pos].kind
+  kind <= nkNilLit or kind == nkCommentStmt
 
 proc copyTree*(dest: var PackedTree; tree: PackedTree; n: NodePos) =
   # and this is why the IR is superior. We can copy subtrees
@@ -177,7 +179,7 @@ proc prepare*(dest: var PackedTree; source: PackedTree; sourcePos: NodePos): Pat
 
 proc patch*(tree: var PackedTree; pos: PatchPos) =
   let pos = pos.int
-  assert tree.nodes[pos].kind > nkNilLit
+  assert not isAtom(tree, pos)
   let distance = int32(tree.nodes.len - pos)
   tree.nodes[pos].operand = distance
 
@@ -187,7 +189,7 @@ proc `[]`*(tree: PackedTree; i: int): lent PackedNode {.inline.} =
   tree.nodes[i]
 
 proc nextChild(tree: PackedTree; pos: var int) {.inline.} =
-  if tree.nodes[pos].kind > nkNilLit:
+  if not isAtom(tree, pos):
     assert tree.nodes[pos].operand > 0
     inc pos, tree.nodes[pos].operand
   else:
@@ -195,7 +197,7 @@ proc nextChild(tree: PackedTree; pos: var int) {.inline.} =
 
 iterator sonsReadonly*(tree: PackedTree; n: NodePos): NodePos =
   var pos = n.int
-  assert tree.nodes[pos].kind > nkNilLit
+  assert not isAtom(tree, pos)
   let last = pos + tree.nodes[pos].operand
   inc pos
   while pos < last:
@@ -216,7 +218,7 @@ iterator isons*(dest: var PackedTree; tree: PackedTree;
 
 iterator sonsFrom1*(tree: PackedTree; n: NodePos): NodePos =
   var pos = n.int
-  assert tree.nodes[pos].kind > nkNilLit
+  assert not isAtom(tree, pos)
   let last = pos + tree.nodes[pos].operand
   inc pos
   if pos < last:
@@ -230,7 +232,7 @@ iterator sonsWithoutLast2*(tree: PackedTree; n: NodePos): NodePos =
   for child in sonsReadonly(tree, n):
     inc count
   var pos = n.int
-  assert tree.nodes[pos].kind > nkNilLit
+  assert not isAtom(tree, pos)
   let last = pos + tree.nodes[pos].operand
   inc pos
   while pos < last and count > 2:
@@ -250,12 +252,12 @@ template parent*(n: NodePos): NodePos = parentImpl(tree, n)
 
 proc hasXsons*(tree: PackedTree; n: NodePos; x: int): bool =
   var count = 0
-  if tree.nodes[n.int].kind > nkNilLit:
+  if not isAtom(tree, n.int):
     for child in sonsReadonly(tree, n): inc count
   result = count == x
 
 proc hasAtLeastXsons*(tree: PackedTree; n: NodePos; x: int): bool =
-  if tree.nodes[n.int].kind > nkNilLit:
+  if not isAtom(tree, n.int):
     var count = 0
     for child in sonsReadonly(tree, n):
       inc count
@@ -296,7 +298,7 @@ proc sons3*(tree: PackedTree; n: NodePos): (NodePos, NodePos, NodePos) =
   result = (NodePos a, NodePos b, NodePos c)
 
 proc ithSon*(tree: PackedTree; n: NodePos; i: int): NodePos =
-  if tree.nodes[n.int].kind > nkNilLit:
+  if not isAtom(tree, n.int):
     var count = 0
     for child in sonsReadonly(tree, n):
       if count == i: return child

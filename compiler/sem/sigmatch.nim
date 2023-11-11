@@ -244,7 +244,7 @@ proc sumGeneric(t: PType): int =
     of tyGenericParam, tyUntyped, tyTyped: break
     of tyAlias, tySink: t = t.lastSon
     of tyBool, tyChar, tyEnum, tyObject, tyPointer,
-        tyString, tyCstring, tyInt..tyInt64, tyFloat..tyFloat128,
+        tyString, tyCstring, tyInt..tyInt64, tyFloat..tyFloat64,
         tyUInt..tyUInt64, tyCompositeTypeClass:
       return isvar
     else:
@@ -377,10 +377,10 @@ proc isConvertibleToRange(f, a: PType): bool =
     #of tyUInt: result = isIntLit(a) or a.kind in {tyUInt8, tyUInt16, tyUInt32, tyUInt}
     #of tyUInt64: result = isIntLit(a) or a.kind in {tyUInt8, tyUInt16, tyUInt32, tyUInt, tyUInt64}
     else: result = false
-  elif f.kind in {tyFloat..tyFloat128}:
+  elif f.kind in {tyFloat..tyFloat64}:
     # `isIntLit` is correct and should be used above as well, see PR:
     # https://github.com/nim-lang/Nim/pull/11197
-    result = isIntLit(a) or a.kind in {tyFloat..tyFloat128}
+    result = isIntLit(a) or a.kind in {tyFloat..tyFloat64}
 
 proc handleFloatRange(f, a: PType): TTypeRelation =
   if a.kind == f.kind:
@@ -391,7 +391,7 @@ proc handleFloatRange(f, a: PType): TTypeRelation =
     if k == f.kind: result = isSubrange
     elif isFloatLit(ab): result = isFromIntLit
     elif isIntLit(ab): result = isConvertible
-    elif k >= tyFloat and k <= tyFloat128:
+    elif k >= tyFloat and k <= tyFloat64:
       # conversion to "float32" is not as good:
       if f.kind == tyFloat32: result = isConvertible
       else: result = isIntConv
@@ -970,8 +970,8 @@ when false:
     of tyUInt16: greater({tyUInt, tyUInt32, tyUInt64})
     of tyUInt32: greater({tyUInt64})
 
-    of tyFloat32: greater({tyFloat64, tyFloat128})
-    of tyFloat64: greater({tyFloat128})
+    of tyFloat32: greater({tyFloat64})
+    of tyFloat64: greater({})
     else: discard
 
 proc compareInvocationArguments(c: var TCandidate, f, a: PType,
@@ -1211,9 +1211,6 @@ typeRel can be used to establish various relationships between types:
       base = tryResolvingStaticExpr(c, base.n).typ.skipTypes({tyStatic})
 
     if a.kind == f.kind:
-      if f.base.kind == tyNone:
-        return isGeneric
-
       result = typeRel(c, base, base(a), flags)
       # bugfix: accept integer conversions here
       #if result < isGeneric: result = isNone
@@ -1245,7 +1242,6 @@ typeRel can be used to establish various relationships between types:
   of tyFloat:    result = handleFloatRange(f, a)
   of tyFloat32:  result = handleFloatRange(f, a)
   of tyFloat64:  result = handleFloatRange(f, a)
-  of tyFloat128: result = handleFloatRange(f, a)
   of tyVar, tyLent:
     result =
       if aOrig.kind == f.kind:
@@ -1381,10 +1377,8 @@ typeRel can be used to establish various relationships between types:
           a[0]
         else:
           a
-      
-      if f[0].kind == tyNone:
-        result = isGeneric
-      else:
+
+      if true:
         result = typeRel(c, f[0], x, flags)
         if result < isGeneric:
           result = isNone
@@ -1733,14 +1727,35 @@ typeRel can be used to establish various relationships between types:
         effectiveArgType = a.skipTypes({tyRange, tyGenericInst,
                                         tyBuiltInTypeClass, tyAlias,
                                         tySink})
-        typeClassMatches = targetKind == effectiveArgType.kind and
-                             not effectiveArgType.isEmptyContainer
-      if typeClassMatches or
-        (targetKind in {tyProc, tyPointer} and effectiveArgType.kind == tyNil):
-        put(c, f, a)
-        return isGeneric
+
+      if targetKind == effectiveArgType.kind and
+         not effectiveArgType.isEmptyContainer:
+        # same type kind -> match
+        result = isGeneric
       else:
-        return isNone
+        case targetKind
+        of tyOrdinal, tyOpenArray, tyVarargs:
+          # the type classes of these act the same as if using, for example,
+          # ``openArray[T]``. The generic type is already stored as the base
+          # type -- but don't bind anything
+          result = typeRel(c, f.base, a, {trDontBind})
+        of tyRange:
+          if a.kind == tyRange:
+            result = isGeneric
+        of tyArray, tySet:
+          # XXX: ``seq`` types weren't and still aren't included here, but for
+          #      consistency, they probably should
+          if a.kind == targetKind:
+            result = isGeneric
+        of tyProc, tyPointer:
+          # XXX: ^^ this should also include non-nil refs and ptrs
+          if effectiveArgType.kind == tyNil:
+            result = isGeneric
+        else:
+          discard "no match"
+
+      if result != isNone and doBind:
+        put(c, f, a)
 
   of tyUserTypeClassInst, tyUserTypeClass:
     if f.isResolvedUserTypeClass:
@@ -1999,15 +2014,20 @@ proc getInstantiatedType(c: PContext, arg: PNode, m: TCandidate,
 
 proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
                   c: PContext): PNode =
+  const SkipSet = {tySink, tyVar, tyLent}
+  # don't produce conversions to `var` or `lent` types
+  # here. An implicit address-of operation will later be
+  # inserted to ensure proper typing
+
   result = newNodeI(kind, arg.info)
   result.typ =
     if containsGenericType(f):
       if not m.hasFauxMatch:
-        getInstantiatedType(c, arg, m, f).skipTypes({tySink})
+        getInstantiatedType(c, arg, m, f).skipTypes(SkipSet)
       else:
         errorType(c)
     else:
-      f.skipTypes({tySink})
+      f.skipTypes(SkipSet)
 
   c.graph.config.internalAssert(result.typ != nil, arg.info, "implicitConv")
 
@@ -3126,7 +3146,9 @@ proc matches*(c: PContext, n: PNode, m: var TCandidate) =
 
   if m.magic in {mArrGet, mArrPut}:
     m.state = csMatch
-    m.call = n
+    # in case of a match, the top-level call node needs to be modifiable
+    m.call = copyNode(n)
+    m.call.sons = n.sons
 
     # Note the following doesn't work as it would produce ambiguities.
     # We hack system.nim instead: https://github.com/nim-lang/nim/issues/8049.

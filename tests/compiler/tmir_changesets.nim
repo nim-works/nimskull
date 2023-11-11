@@ -16,11 +16,9 @@ proc temp(x: int): MirNode =
 func `==`(a: TempId, b: int): bool =
   a.int == b
 
-func seek(c: var Changeset, i: int) =
-  c.seek NodePosition(i)
-
-func insert(c: var Changeset, n: sink MirNode) =
-  c.insert(n, NodeInstance(0)) # inherit the origin information from node 0
+func insert(c: var Changeset, i: int, n: sink MirNode) =
+  # inherit the origin information from node 0
+  c.insert(NodePosition i, n, NodeInstance 0)
 
 func `==`(a, b: MirNode): bool =
   if a.kind != b.kind:
@@ -48,6 +46,14 @@ template test(input, output: typed, body: untyped) =
       c {.inject.} = initChangeset(tree)
       sourceMap = setupSourceMap(tree)
 
+    template replace(c: Changeset, i: int, n: MirNode) {.inject.} =
+      # for convenience
+      replace(c, tree, NodePosition i, n)
+
+    template remove(c: Changeset, i: int) {.inject.} =
+      # for convenience
+      remove(c, tree, NodePosition i)
+
     body
 
     let pc = prepare(c, sourceMap)
@@ -62,51 +68,41 @@ block insert_same_position:
   ## applied in recording-order
   test([temp(0), temp(1), temp(2)],
        [temp(3), temp(4), temp(5), temp(6), temp(1), temp(2)]):
-    c.seek 1
-    c.insert temp(4)
-    c.insert temp(5)
-    c.seek 0
-    c.replace temp(3)
-    c.seek 1
-    c.insert temp(6)
+    c.insert  1, temp(4)
+    c.insert  1, temp(5)
+    c.replace 0, temp(3)
+    c.insert  1, temp(6)
 
 block insert_at_end:
   test([temp(0), temp(1)],
        [temp(0), temp(1), temp(2)]):
-    c.seek 2
-    c.insert temp(2)
+    c.insert 2, temp(2)
 
 block insert_replace_same_position:
   # Replacing a node and inserting at the same position has to work. The
   # insertion always happens first...
   test([temp(0), temp(1), temp(2)],
        [temp(0), temp(3), temp(4), temp(2)]):
-    c.seek 1
-    c.replace temp(4)
-    c.seek 1 # `replace` moves the cursor, so we have to move it back
-    c.insert temp(3)
+    c.replace 1, temp(4)
+    c.insert  1, temp(3)
 
   # ... independent of the order
   test([temp(0), temp(1), temp(2)],
        [temp(0), temp(3), temp(4), temp(2)]):
-    c.seek 1
-    c.insert temp(3)
-    c.replace temp(4)
+    c.insert  1, temp(3)
+    c.replace 1, temp(4)
 
 block insert_remove_same_position:
   # Similar to the test above, but uses ``remove`` instead of ``replace``
   test([temp(0), temp(1), temp(2)],
        [temp(0), temp(3), temp(2)]):
-    c.seek 1
-    c.remove()
-    c.seek 1 # ``remove`` moves the cursor, so we have to move it back
-    c.insert temp(3)
+    c.remove 1
+    c.insert 1, temp(3)
 
   test([temp(0), temp(1), temp(2)],
        [temp(0), temp(3), temp(2)]):
-    c.seek 1
-    c.insert temp(3)
-    c.remove()
+    c.insert 1, temp(3)
+    c.remove 1
 
 block insert_shared_start:
   # ``replace``/``remove`` operations are allowed to share their start node
@@ -118,28 +114,20 @@ block insert_shared_start:
   tree.add temp(3)
 
   test(tree, [temp(0), temp(1), temp(2), temp(3)]):
-    c.seek 1
-    c.replace temp(2)
-    c.seek 1
-    c.insert temp(1)
+    c.replace 1, temp(2)
+    c.insert  1, temp(1)
 
   test(tree, [temp(0), temp(1), temp(2), temp(3)]):
-    c.seek 1
-    c.insert temp(1)
-    c.seek 1
-    c.replace temp(2)
+    c.insert  1, temp(1)
+    c.replace 1, temp(2)
 
   test(tree, [temp(0), temp(1), temp(3)]):
-    c.seek 1
-    c.remove()
-    c.seek 1
-    c.insert temp(1)
+    c.remove 1
+    c.insert 1, temp(1)
 
   test(tree, [temp(0), temp(1), temp(3)]):
-    c.seek 1
-    c.insert temp(1)
-    c.seek 1
-    c.remove()
+    c.insert 1, temp(1)
+    c.remove 1
 
 block insert_shared_end:
   # ``replace``/``remove`` operations are allowed to share their end node
@@ -151,25 +139,17 @@ block insert_shared_end:
   tree.add temp(3)
 
   test(tree, [temp(0), temp(1), temp(2), temp(3)]):
-    c.seek 1
-    c.replace temp(1)
-    c.seek 3
-    c.insert temp(2)
+    c.replace 1, temp(1)
+    c.insert  3, temp(2)
 
   test(tree, [temp(0), temp(1), temp(2), temp(3)]):
-    c.seek 3
-    c.insert temp(2)
-    c.seek 1
-    c.replace temp(1)
+    c.insert  3, temp(2)
+    c.replace 1, temp(1)
 
   test(tree, [temp(0), temp(2), temp(3)]):
-    c.seek 1
-    c.remove()
-    c.seek 3
-    c.insert temp(2)
+    c.remove 1
+    c.insert 3, temp(2)
 
   test(tree, [temp(0), temp(2), temp(3)]):
-    c.seek 3
-    c.insert temp(2)
-    c.seek 1
-    c.remove()
+    c.insert 3, temp(2)
+    c.remove 1

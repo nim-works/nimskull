@@ -2465,7 +2465,7 @@ proc rawCreateDir(dir: string): bool {.noWeirdTarget.} =
     let res = mkdir(dir, 0o777)
     if res == 0'i32:
       result = true
-    elif errno in {EEXIST, ENOSYS}:
+    elif errno == EEXIST or errno == ENOSYS:
       result = false
     else:
       raiseOSError(osLastError(), dir)

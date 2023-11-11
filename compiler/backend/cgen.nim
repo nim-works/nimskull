@@ -439,7 +439,7 @@ proc constructLoc(p: BProc, loc: var TLoc; doInitObj = true) =
   let kind = mapTypeChooser(loc)
   case mapType(p.config, loc.t, kind)
   of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
-     ctFloat, ctFloat32, ctFloat64, ctFloat128,
+     ctFloat, ctFloat32, ctFloat64,
      ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64:
     # numeric type
     linefmt(p, cpsStmts, "$1 = 0;$n", [rdLoc(loc)])
@@ -582,6 +582,11 @@ proc raiseExit(p: BProc)
 
 proc initLocExpr(p: BProc, e: CgNode, result: var TLoc) =
   initLoc(result, locNone, e, OnUnknown)
+  expr(p, e, result)
+
+proc initLocExpr(p: BProc, e: CgNode, result: var TLoc, flags: set[LocFlag]) =
+  initLoc(result, locNone, e, OnUnknown)
+  result.flags = flags
   expr(p, e, result)
 
 proc initLocExprSingleUse(p: BProc, e: CgNode, result: var TLoc) =
@@ -776,7 +781,7 @@ proc allPathsAsgnResult(n: CgNode): InitResultEnum =
     if containsResult(n[0]): return InitRequired
     result = InitSkippable
     var exhaustive = skipTypes(n[0].typ,
-        abstractVarRange-{tyTypeDesc}).kind notin {tyFloat..tyFloat128, tyString}
+        abstractVarRange-{tyTypeDesc}).kind notin {tyFloat..tyFloat64, tyString}
     for i in 1..<n.len:
       let it = n[i]
       allPathsInBranch(it.lastSon)

@@ -17,7 +17,8 @@ import
     idents,
     renderer,
     errorhandling,
-    errorreporting
+    errorreporting,
+    types
   ],
   compiler/front/[
     options,
@@ -56,7 +57,14 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
     of nkArgList:
       for y in items(x): result.add(y)
     else:
-      result.add copyTree(x)
+      var x = copyTree(x)
+      if x.typ != nil:
+        case x.typ.kind
+        of tyStatic:
+          x.typ = x.typ.base
+        else:
+          discard
+      result.add x
 
   case templ.kind
   of nkSym:
@@ -91,10 +99,7 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
     # in the AST that would confuse it (bug #9432), but only if we are not in a
     # "declarative" context (bug #9235).
     if c.isDeclarative:
-      var res = copyNode(c, templ, actual)
-      for i in 0..<templ.len:
-        evalTemplateAux(templ[i], actual, c, res)
-      result.add res
+      result.add copyNode(c, templ, actual)
     else:
       result.add newNodeI(nkEmpty, templ.info)
   of nkError:

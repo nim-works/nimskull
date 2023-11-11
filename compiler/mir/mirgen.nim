@@ -305,13 +305,6 @@ func applySource(frag: var CodeFragment, sp: var SourceProvider) =
   if frag.nodes.len > frag.source.len:
     apply(frag, prepareForUse(sp))
 
-func addWithSource(frag: var CodeFragment, sp: var SourceProvider,
-                   n: sink MirNode, src: PNode) =
-  ## Adds `n` to `frag` and associates the node with `src`
-  applySource(frag, sp)
-  frag.nodes.add n
-  frag.source.add sp.store.add(src)
-
 template useSource(frag: var CodeFragment, sp: var SourceProvider,
                    origin: PNode) =
   ## Pushes `origin` to be used as the source for the rest of the scope that
@@ -485,7 +478,6 @@ proc genAndOr(c: var TCtx, n: PNode, dest: Destination) =
   #       into a single one before and the logic here adjusted to handle them.
   #       With the aforementioned transformation, the previously mentioned
   #       example would become: ``or(a, b, c)``
-  let label = nextLabel(c)
   genAsgn(c, dest, n[1]) # the left-hand side
 
   # condition:
@@ -720,6 +712,91 @@ proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
     else:
       unreachable()
 
+proc genInSetOp(c: var TCtx, n: PNode): EValue =
+  ## Generates and emits the IR for the ``mInSet`` magic call `n`. If
+  ## the element operand is a range check, it is integrated into the
+  ## operation, meaning that no defect will be raised if the operand is
+  ## not in the expected range.
+  case n[2].kind
+  of nkChckRange, nkChckRange64:
+    # turn
+    #   chkRange(a, b, c) in d
+    # into
+    #   b <= a and a <= c and a in d
+    # but make sure that 'd' is still always evaluated
+    let
+      se = n[1]
+      x  = n[2]
+      elemTyp = x.typ.skipTypes(abstractRange)
+      leOp = getMagicLeForType(elemTyp) # less-equal op
+      res = getTemp(c, n.typ) # the temporary to write the result to
+
+    # we use a region in order to ensure that all operands are only evaluated
+    # once
+    argBlock(c.stmts):
+      # the evaluation order is reversed here: the second operand comes
+      # first
+      chain(c): genx(c, x[0]) => arg()
+      chain(c): genx(c, x[1]) => arg()
+      chain(c): genx(c, x[2]) => arg()
+
+      if se.kind == nkCurly:
+        # don't pass the set construction as an argument, as that would
+        # always materialize it, preventing optimizations. Literals are
+        # forwarded (they don't have side-effects) in order to reduce
+        # the amount of MIR code
+        for it in se.items:
+          if it.kind notin {nkRange} + nkLiterals:
+            chain(c): genx(c, it) => arg()
+      else:
+        chain(c): genx(c, n[1]) => arg()
+
+    c.stmts.subTree MirNode(kind: mnkRegion):
+      # generate: ``if x <= a:``
+      argBlock(c.stmts):
+        chain(c): genx(c, x[1]) => arg()
+        chain(c): opParam(0, x.typ) => arg()
+      forward(c): magicCall(leOp, n.typ)
+      c.stmts.subTree MirNode(kind: mnkIf):
+        c.stmts.subTree MirNode(kind: mnkStmtList):
+          # generate: ``if x <= b:``
+          argBlock(c.stmts):
+            chain(c): opParam(0, x.typ) => arg()
+            chain(c): genx(c, x[2]) => arg()
+          forward(c): magicCall(leOp, n.typ)
+          c.stmts.subTree MirNode(kind: mnkIf):
+            c.stmts.subTree MirNode(kind: mnkStmtList):
+              # generate: ``tmp = x in ...``
+              argBlock(c.stmts):
+                chain(c): temp(n.typ, res) => outOp() => name()
+                argBlock(c.stmts):
+                  if se.kind == nkCurly:
+                    argBlock(c.stmts):
+                      # emit a set construction
+                      var i = 0
+                      for it in se.items:
+                        if it.kind in nkLiterals + {nkRange}:
+                          chain(c): genx(c, it) => arg()
+                        else:
+                          # use the corresponding region parameter:
+                          chain(c): opParam(uint32(3 + i), n.typ) => arg()
+                          inc i
+                    chain(c): constr(se.typ) => arg()
+                  else:
+                    # forward the region parameter:
+                    chain(c): opParam(3, n.typ) => arg()
+                  # the 'in' element operand:
+                  chain(c): opParam(0, x.typ) => arg()
+                chain(c): magicCall(mInSet, n.typ) => arg()
+              c.stmts.add MirNode(kind: mnkInit)
+
+    # generate: ``tmp``
+    c.tempNode(n.typ, res)
+  else:
+    # the operation is not eligible for being turned into an ``if`` chain. Emit a
+    # generic magic call
+    genCall(c, n)
+
 proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
   ## Generates the MIR code for the magic call expression/statement `n`. `m` is
   ## the magic's enum value and must match with that of the callee.
@@ -787,6 +864,8 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
     #       detected as such, because ``canonicalExpr`` doesn't consider
     #       ``runnableExamples``
     genEmpty(c, n)
+  of mInSet:
+    genInSetOp(c, n)
 
   # magics that use incomplete symbols (most of them are generated by
   # ``liftdestructors``):
@@ -796,38 +875,6 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
     argBlock(c.stmts):
       chain(c): argExpr(c, n[1]) => tag(ekMutate) => name()
     magicCall(c, m, typeOrVoid(c, n.typ))
-  of mMove:
-    # there exist two different types of ``mMove`` magic calls:
-    # 1. normal move calls: ``move(x)``
-    # 2. special move calls inserted by ``liftdestructors``, used for ``seq``s
-    #    and ``string``s: ``move(dst, src, stmt)``
-    case n.len
-    of 2:
-      # the first version
-      genCall(c, n)
-    of 4:
-      # HACK: the ``stmt`` statement is not always evaluated, so treating it as
-      #       a ``void`` argument is wrong. We also can't lower the call here
-      #       already, since we don't have access to the ``seq``s
-      #       implementation details and the lowering is also only required for
-      #       the C target.
-      #       Treating the statement as a ``void`` argument only works because,
-      #       at the time of writing this comment, there are no MIR passes that
-      #       inspect code in which a special ``move`` occurs.
-      #       A more proper solution is to add a new magic (something like
-      #       ``mMoveSeq``) that then gets lowered into the expected
-      #       comparision + destructor call by a MIR pass that is only enabled
-      #       for the C target
-
-      argBlock(c.stmts):
-        chain(c): argExpr(c, n[1]) => tag(ekReassign) => name()
-        chain(c): argExpr(c, n[2]) => arg()
-
-        gen(c, n[3])
-        chain(c): genEmpty(c, n[3]) => arg()
-      magicCall(c, m, typeOrVoid(c, n.typ))
-    else:
-      unreachable()
   of mNewSeq:
     # XXX: the first parameter is actually an ``out`` parameter -- the
     #      ``ekReassign`` effect could be used
@@ -846,7 +893,8 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
       magicCall(c, m, typeOrVoid(c, n.typ))
     else:
       genCall(c, n)
-  of mLtI, mSubI, mLengthSeq, mLengthStr, mAccessEnv, mAccessTypeField:
+  of mNot, mLtI, mSubI, mLengthSeq, mLengthStr, mAccessEnv, mAccessTypeField,
+     mSamePayload:
     if n[0].typ == nil:
       # simple translation. None of the arguments need to be passed by lvalue
       argBlock(c.stmts):
@@ -1537,8 +1585,15 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
 
   of nkBracketExpr:
     genBracketExpr(c, n)
-  of nkObjDownConv, nkObjUpConv:
+  of nkObjDownConv:
     eval(c): genx(c, n[0], consume) => pathConv(n.typ)
+  of nkObjUpConv:
+    # discard conversions in the same direction that are used as the operand
+    var arg = n[0]
+    while arg.kind == nkObjUpConv:
+      arg = arg[0]
+
+    eval(c): genx(c, arg, consume) => pathConv(n.typ)
   of nkAddr:
     eval(c): genx(c, n[0]) => addrOp(n.typ)
   of nkHiddenAddr:

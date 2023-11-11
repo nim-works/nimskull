@@ -87,9 +87,6 @@ proc writeln*(conf: ConfigRef, dest: static[CmdOutputKind], msg: string) =
 # temporary home for formatting output during early cli/config phase; this
 # should move to a better suited module.
 
-const
-  pathFmtStr = "$#($#, $#)" ## filename(line, column)
-
 func stylize*(str: string, color: ForegroundColor, styles: set[Style] = {}): string =
   if str.len == 0:
     result = str
@@ -371,8 +368,8 @@ const
   ]
   CommitMessageTemplate = "Source hash: $1\n" &
                   "Source date: $2\n"
-  Usage = slurp"../doc/basicopt.txt".replace(" //", "   ")
-  AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") %
+  Usage = staticRead"../doc/basicopt.txt".replace(" //", "   ")
+  AdvancedUsage = staticRead"../doc/advopt.txt".replace(" //", "   ") %
     typeof(Feature).toSeq.mapIt($it).join("|") # '|' separated features
 
 proc showMsg*(conf: ConfigRef, msg: string) =

@@ -243,40 +243,44 @@ template reportHere*[R: ReportTypes](report: R): R =
 
     tmp
 
+template `in`[T](val: T, r: typedesc[range]): bool =
+  let v = val
+  v >= low(r) and v <= high(r)
+
 func wrap*(rep: sink LexerReport): Report =
-  assert rep.kind in repLexerKinds, $rep.kind
+  assert rep.kind in LexerReportKind, $rep.kind
   Report(category: repLexer, lexReport: rep)
 
 func wrap*(rep: sink ParserReport): Report =
-  assert rep.kind in repParserKinds, $rep.kind
+  assert rep.kind in ParserReportKind, $rep.kind
   Report(category: repParser, parserReport: rep)
 
 func wrap*(rep: sink VMReport): Report =
-  assert rep.kind in repVMKinds, $rep.kind
+  assert rep.kind in VMReportKind, $rep.kind
   Report(category: repVM, vmReport: rep)
 
 func wrap*(rep: sink SemReport): Report =
-  assert rep.kind in repSemKinds, $rep.kind
+  assert rep.kind in SemReportKind, $rep.kind
   Report(category: repSem, semReport: rep)
 
 func wrap*(rep: sink BackendReport): Report =
-  assert rep.kind in repBackendKinds, $rep.kind
+  assert rep.kind in BackendReportKind, $rep.kind
   Report(category: repBackend, backendReport: rep)
 
 func wrap*(rep: sink CmdReport): Report =
-  assert rep.kind in repCmdKinds, $rep.kind
+  assert rep.kind in CmdReportKind, $rep.kind
   Report(category: repCmd, cmdReport: rep)
 
 func wrap*(rep: sink DebugReport): Report =
-  assert rep.kind in repDebugKinds, $rep.kind
+  assert rep.kind in DebugReportKind, $rep.kind
   Report(category: repDebug, debugreport: rep)
 
 func wrap*(rep: sink InternalReport): Report =
-  assert rep.kind in repInternalKinds, $rep.kind
+  assert rep.kind in InternalReportKind, $rep.kind
   Report(category: repInternal, internalReport: rep)
 
 func wrap*(rep: sink ExternalReport): Report =
-  assert rep.kind in repExternalKinds, $rep.kind
+  assert rep.kind in ExternalReportKind, $rep.kind
   Report(category: repExternal, externalReport: rep)
 
 func wrap*[R: ReportTypes](rep: sink R, iinfo: InstantiationInfo): Report =

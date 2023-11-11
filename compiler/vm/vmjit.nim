@@ -33,6 +33,9 @@ import
     mirtrees,
     sourcemaps,
   ],
+  compiler/modules/[
+    magicsys
+  ],
   compiler/sem/[
     transf
   ],
@@ -143,9 +146,9 @@ func removeLastEof(c: var TCtx) =
     c.debug.setLen(last)
 
 func discoverGlobalsAndRewrite(data: var DiscoveryData, tree: var MirTree,
-                               source: var SourceMap) =
+                               source: var SourceMap, rewrite: bool) =
   ## Scans `tree` for definitions of globals, registers them with the `data`,
-  ## and rewrites their definitions into assignments.
+  ## and rewrites their definitions into assignments (if `rewrite` is true).
 
   # scan the body for definitions of globals:
   var i = NodePosition 0
@@ -168,9 +171,11 @@ func discoverGlobalsAndRewrite(data: var DiscoveryData, tree: var MirTree,
     else:
       inc i
 
-  # at the moment, nothing depends on non-outermost defs of globals, so we
-  # can rewrite all defs in one go:
-  rewriteGlobalDefs(tree, source, outermost = false)
+  if rewrite:
+    rewriteGlobalDefs(tree, source, patch=true)
+  else:
+    # the globals still need to be patched
+    patchGlobals(tree, source)
 
 func register(linker: var LinkerData, data: DiscoveryData) =
   ## Registers the newly discovered entities in the link table, but doesn't
@@ -204,10 +209,21 @@ proc generateIR(c: var TCtx, tree: sink MirTree,
   if tree.len > 0: generateIR(c.graph, c.idgen, c.module, tree, source)
   else:            Body(code: newNode(cnkEmpty))
 
+proc setupRootRef(c: var TCtx) =
+  ## Sets up if the ``RootRef`` type for the type info cache. This
+  ## is a temporary workaround, refer to the documentation of the
+  ## ``rootRef`` field.
+  if c.typeInfoCache.rootRef == nil:
+    let t = c.graph.getCompilerProc("RootObj")
+    # the``RootObj`` type may not be available yet
+    if t != nil:
+      c.typeInfoCache.initRootRef(c.graph.config, t.typ)
+
 template runCodeGen(c: var TCtx, cg: var CodeGenCtx, b: Body,
                     body: untyped): untyped =
   ## Prepares the code generator's context and then executes `body`. A
   ## delimiting 'eof' instruction is emitted at the end.
+  setupRootRef(c)
   swapState(c, cg)
   let info = b.code.info
   let r = body
@@ -221,7 +237,7 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
 
   # `n` is expected to have been put through ``transf`` already
   var (tree, sourceMap) = generateMirCode(c, n, isStmt = true)
-  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
+  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap, true)
   applyPasses(tree, sourceMap, c.module, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
   register(c.linking, jit.discovery)
@@ -258,7 +274,7 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   #        const c = block: (var x = 0; x)
   #
   #     If `c` is defined at the top-level, then `x` is a "global" variable
-  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
+  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap, false)
   applyPasses(tree, sourceMap, c.module, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
   register(c.linking, jit.discovery)
@@ -297,11 +313,11 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   echoMir(c.config, s, tree)
   # XXX: lifted globals are currently not extracted from the procedure and,
   #      for the most part, behave like normal locals. The call to
-  #      ``discoverGlobalsAndRewrite`` makes sure that at least ``vmgen``
-  #      doesn't have to be concerned with that, but eventually it needs
-  #      to be decided how lifted globals should work in compile-time and
-  #      interpreted contexts
-  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap)
+  #      ``discoverGlobalsAndRewrite`` plus the MIR -> ``CgNode`` translation
+  #      make sure that at least ``vmgen`` doesn't have to be concerned with
+  #      that, but eventually it needs to be decided how lifted globals should
+  #      work in compile-time and interpreted contexts
+  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap, false)
   applyPasses(tree, sourceMap, s, c.config, targetVm)
   discoverFrom(jit.discovery, MagicsToKeep, tree)
   register(c.linking, jit.discovery)

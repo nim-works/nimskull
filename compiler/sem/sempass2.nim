@@ -814,7 +814,7 @@ proc trackCase(tracked: PEffects, n: PNode) =
   let oldState = tracked.init.len
   let oldFacts = tracked.guards.s.len
   let stringCase = n[0].typ != nil and skipTypes(n[0].typ,
-        abstractVarRange-{tyTypeDesc}).kind in {tyFloat..tyFloat128, tyString}
+        abstractVarRange-{tyTypeDesc}).kind in {tyFloat..tyFloat64, tyString}
   let interesting = not stringCase and interestingCaseExpr(n[0]) and
         tracked.config.hasWarn(rsemProveField)
   var inter: TIntersection = @[]
@@ -918,6 +918,30 @@ proc checkRange(c: PEffects; value: PNode; typ: PType) =
     checkLe(c, lowBound, value)
     checkLe(c, value, highBound)
 
+proc objConvCheck(config: ConfigRef, n: PNode) =
+  case n.kind
+  of nkHiddenSubConv:
+    if n.typ.skipTypes({tyGenericInst, tyAlias, tySink}).kind == tyObject:
+      # the result of an implicit, narrowing object conversion is read as
+      # a whole (e.g., passed to a non-var parameter, assigned somewhere,
+      # etc.). Information is lost in this case, so a warning is reported
+      localReport(config, n[1], SemReport(
+        kind: rsemImplicitObjConv,
+        typeMismatch: @[typeMismatch(formal = n.typ, actual = n[1].typ)]))
+    objConvCheck(config, n[^1])
+  of nkStmtListExpr, nkIfExpr, nkBlockExpr, nkElifExpr, nkElseExpr,
+     nkExceptBranch:
+    objConvCheck(config, n[^1])
+  of nkCaseStmt:
+    for i in 1..<n.len:
+      objConvCheck(config, n[i][^1])
+  of nkTryStmt, nkHiddenTryStmt:
+    for it in n.items:
+      if it.kind != nkFinally:
+        objConvCheck(config, it)
+  else:
+    discard
+
 proc trackCall(tracked: PEffects; n: PNode) =
   template gcsafeAndSideeffectCheck() =
     if notGcSafe(op) and not importedFromC(a):
@@ -994,6 +1018,7 @@ proc trackCall(tracked: PEffects; n: PNode) =
     if a.kind != nkSym or a.sym.magic != mRunnableExamples:
       for i in 0..<n.safeLen:
         track(tracked, n[i])
+        objConvCheck(tracked.config, n[i])
 
   if a.kind == nkSym and a.sym.name.s.len > 0 and a.sym.name.s[0] == '=' and
         tracked.owner.kind != skMacro:
@@ -1169,6 +1194,7 @@ proc track(tracked: PEffects, n: PNode) =
     dec tracked.leftPartOfAsgn
     addAsgnFact(tracked.guards, n[0], n[1])
     notNilCheck(tracked, n[1], n[0].typ)
+    objConvCheck(tracked.config, n[1])
     discriminantAsgnCheck(tracked, n)
     if tracked.owner.kind != skMacro:
       createTypeBoundOps(tracked, n[0].typ, n.info)
@@ -1198,6 +1224,7 @@ proc track(tracked: PEffects, n: PNode) =
           initVar(tracked, child[i])
           addAsgnFact(tracked.guards, child[i], last)
           notNilCheck(tracked, last, child[i].typ)
+          objConvCheck(tracked.config, last)
       elif child.kind == nkVarTuple and last.kind != nkEmpty:
         for i in 0..<child.len-1:
           if child[i].kind == nkEmpty or
@@ -1207,6 +1234,7 @@ proc track(tracked: PEffects, n: PNode) =
           if last.kind in {nkPar, nkTupleConstr}:
             addAsgnFact(tracked.guards, child[i], last[i])
             notNilCheck(tracked, last[i], child[i].typ)
+            objConvCheck(tracked.config, last[i])
       # since 'var (a, b): T = ()' is not even allowed, there is always type
       # inference for (a, b) and thus no nil checking is necessary.
   of nkConstSection:
@@ -1291,6 +1319,7 @@ proc track(tracked: PEffects, n: PNode) =
       if x.kind == nkExprColonExpr:
         if x[0].kind == nkSym:
           notNilCheck(tracked, x[1], x[0].sym.typ)
+          objConvCheck(tracked.config, x[1])
         checkForSink(tracked.config, tracked.c.idgen, tracked.owner, x[1])
       else:
         checkForSink(tracked.config, tracked.c.idgen, tracked.owner, x)
@@ -1304,6 +1333,7 @@ proc track(tracked: PEffects, n: PNode) =
     for i in 0..<n.len:
       track(tracked, n[i])
       notNilCheck(tracked, n[i].skipColon, n[i].typ)
+      objConvCheck(tracked.config, n[i].skipColon)
       if tracked.owner.kind != skMacro:
         if n[i].kind == nkExprColonExpr:
           createTypeBoundOps(tracked, n[i][0].typ, n.info)
@@ -1347,14 +1377,6 @@ proc track(tracked: PEffects, n: PNode) =
         not allowCStringConv(n[1]):
       localReport(tracked.config, n.info, reportAst(
         rsemImplicitCstringConvert, n[1]))
-    elif n.kind == nkHiddenSubConv and
-         n.typ.skipTypes(abstractVar).kind == tyObject and
-         t.kind != tyVar:
-      # an implicit conversion to a base (i.e. parent) type where the result is
-      # immutable. Since information is lost in this case, a warning is reported
-      localReport(tracked.config, n[1], SemReport(
-        kind: rsemImplicitObjConv,
-        typeMismatch: @[typeMismatch(formal = n.typ, actual = n[1].typ)]))
 
     if t.kind == tyEnum:
       if tfEnumHasHoles in t.flags:
@@ -1383,6 +1405,7 @@ proc track(tracked: PEffects, n: PNode) =
   of nkBracket:
     for i in 0..<n.safeLen:
       track(tracked, n[i])
+      objConvCheck(tracked.config, n[i])
       checkForSink(tracked.config, tracked.c.idgen, tracked.owner, n[i])
     if tracked.owner.kind != skMacro:
       createTypeBoundOps(tracked, n.typ, n.info)

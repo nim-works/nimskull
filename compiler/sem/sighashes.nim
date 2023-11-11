@@ -239,6 +239,9 @@ proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
   of tyArray:
     c &= char(t.kind)
     for i in 0..<t.len: c.hashType(t[i], flags-{CoIgnoreRange})
+  of tyBuiltInTypeClass:
+    c &= char(t.kind)
+    c &= char(t[0].kind)
   else:
     c &= char(t.kind)
     for i in 0..<t.len: c.hashType(t[i], flags)
@@ -347,7 +350,7 @@ proc hashBodyTree(graph: ModuleGraph, c: var MD5Context, n: PNode) =
     return
   c &= char(n.kind)
   case n.kind
-  of nkEmpty, nkNilLit, nkType: discard
+  of nkEmpty, nkNilLit, nkType, nkCommentStmt: discard
   of nkIdent:
     c &= n.ident.s
   of nkSym:

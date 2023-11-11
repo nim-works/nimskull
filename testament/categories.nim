@@ -573,8 +573,4 @@ proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
       runs.setLen(0) # prepare for the next test
       inc testsRun
     if testsRun == 0:
-      const allowedDirs = ["deps", "htmldocs", "pkgs"]
-        # `pkgs` because bug #16556 creates `pkgs` dirs and this can affect some users
-        # that try an old version of choosenim.
-      doAssert cat.string in allowedDirs,
-        "Invalid category specified: '$#' not in allow list: $#" % [cat.string, $allowedDirs]
+      echo "No tests found in ",cat.string

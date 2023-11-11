@@ -53,7 +53,7 @@ type
     hasError: bool
 
 const
-  ExpressionNodes = nkCallKinds + nkLiterals + {
+  ExpressionNodes = nkCallKinds + nkLiterals + nkTypeExprs + {
     nkSym, nkEmpty, nkNimNodeLit, nkNilLit,
 
     nkRange, nkBracket, nkCurly, nkObjConstr, nkTupleConstr,
@@ -62,7 +62,6 @@ const
     nkAddr, nkHiddenAddr,
 
     nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv,
-    nkTypeOfExpr,
 
     nkIfExpr, nkBlockExpr, nkStmtListExpr, nkError}
     ## apart from the call node kinds, nodes that appear exclusively in
@@ -198,21 +197,6 @@ proc ordinalValToString(a: PNode; g: ModuleGraph): string =
     g.config.internalError(a.info, "ordinalValToString")
   else:
     unreachable("non-ordinals never make it here")
-
-proc isFloatRange(t: PType): bool {.inline.} =
-  result = t.kind == tyRange and t[0].kind in {tyFloat..tyFloat128}
-
-proc isIntRange(t: PType): bool {.inline.} =
-  result = t.kind == tyRange and t[0].kind in {
-      tyInt..tyInt64, tyUInt8..tyUInt32}
-
-proc pickIntRange(a, b: PType): PType =
-  if isIntRange(a): result = a
-  elif isIntRange(b): result = b
-  else: result = a
-
-proc isIntRangeOrLit(t: PType): bool =
-  result = isIntRange(t) or isIntLit(t)
 
 proc evalOp*(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
   # b and c may be nil
@@ -420,11 +404,11 @@ proc leValueConv*(a, b: PNode): bool =
   of nkCharLit..nkUInt64Lit:
     case b.kind
     of nkCharLit..nkUInt64Lit: result = a.getInt <= b.getInt
-    of nkFloatLit..nkFloat128Lit: result = a.intVal <= round(b.floatVal).int
+    of nkFloatLit..nkFloat64Lit: result = a.intVal <= round(b.floatVal).int
     else: result = false #internalError(a.info, "leValueConv")
-  of nkFloatLit..nkFloat128Lit:
+  of nkFloatLit..nkFloat64Lit:
     case b.kind
-    of nkFloatLit..nkFloat128Lit: result = a.floatVal <= b.floatVal
+    of nkFloatLit..nkFloat64Lit: result = a.floatVal <= b.floatVal
     of nkCharLit..nkUInt64Lit: result = a.floatVal <= toFloat64(b.getInt)
     else: result = false # internalError(a.info, "leValueConv")
   else: result = false # internalError(a.info, "leValueConv")
@@ -485,7 +469,7 @@ proc getAppType(n: PNode; g: ModuleGraph): PNode =
   else:
     result = newStrNodeT("console", n, g)
 
-proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph; check = false): PNode =
+proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
   let dstTyp = skipTypes(n.typ, abstractRange - {tyTypeDesc})
   let srcTyp = skipTypes(a.typ, abstractRange - {tyTypeDesc})
 
@@ -519,18 +503,21 @@ proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph; check = false): P
       of FloatLike:                   toInt128(getFloat(a))
       else:                           unreachable(srcTyp.kind)
 
-    if check and not rangeCheck(n, val, g):
+    if not rangeCheck(n, val, g):
       result = rangeError(n, a, g)
     else:
       result = newIntNodeT(val, n, idgen, g)
   of FloatLike:
-    case srcTyp.kind
-    of IntegerLike, tyEnum, tyBool:
-      result = newFloatNodeT(toFloat64(getOrdValue(a)), n, g)
-    of FloatLike:
-      result = newFloatNodeT(a.floatVal, n, g)
+    let val =
+      case srcTyp.kind
+      of IntegerLike, tyEnum, tyBool: toFloat64(getOrdValue(a))
+      of FloatLike:                   a.floatVal
+      else:                           unreachable(srcTyp.kind)
+
+    if floatRangeCheck(val, n.typ):
+      result = newFloatNodeT(val, n, g)
     else:
-      unreachable(srcTyp.kind)
+      result = rangeError(n, a, g)
   of tyOpenArray, tyVarargs, tyProc, tyPointer:
     discard
   else:
@@ -811,7 +798,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
   of nkHiddenStdConv, nkHiddenSubConv, nkConv:
     let a = getConstExpr(m, n[1], idgen, g)
     if a == nil: return
-    result = foldConv(n, a, idgen, g, check=true)
+    result = foldConv(n, a, idgen, g)
   of nkDerefExpr, nkHiddenDeref:
     let a = getConstExpr(m, n[0], idgen, g)
     if a != nil and a.kind == nkNilLit:
@@ -857,15 +844,14 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
     return
   of nkSym:
     discard "may be folded away"
-  of nkTypeOfExpr:
-    # XXX: could be folded into an ``nkType`` here...
-    discard
+  of nkTypeExprs - {nkStmtListType, nkBlockType}:
+    result.node = newNodeIT(nkType, n.info, n.typ)
   of nkBracket, nkCurly, nkTupleConstr, nkRange, nkAddr, nkHiddenAddr,
      nkHiddenDeref, nkDerefExpr, nkBracketExpr, nkCallKinds, nkIfExpr,
      nkElifExpr, nkElseExpr, nkElse, nkElifBranch:
     for it in n.items:
       result.add foldConstExprAux(m, it, idgen, g)
-  of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv, nkBlockExpr:
+  of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv, nkBlockExpr, nkBlockType:
     # the first slot only holds the type/label, which we don't need to traverse
     # into / fold
     result.add n[0]
@@ -889,7 +875,7 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
     result.add n[0] # skip the type slot
     for i in 1..<n.len:
       result.add foldConstExprAux(m, n[i], idgen, g)
-  of nkStmtListExpr:
+  of nkStmtListExpr, nkStmtListType:
     for i in 0..<n.len-1:
       result.add foldInAstAux(m, n[i], idgen, g)
     # the last node is an expression

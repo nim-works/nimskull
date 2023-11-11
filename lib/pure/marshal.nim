@@ -122,7 +122,7 @@ proc storeAny(s: Stream, a: Any, stored: var IntSet) =
         inc(i)
       s.write("]")
   of akInt..akInt64, akUInt..akUInt64: s.write($getBiggestInt(a))
-  of akFloat..akFloat128: s.write($getBiggestFloat(a))
+  of akFloat..akFloat64: s.write($getBiggestFloat(a))
 
 proc loadAny(p: var JsonParser, a: Any, t: var Table[BiggestInt, pointer]) =
   case a.kind
@@ -254,7 +254,7 @@ proc loadAny(p: var JsonParser, a: Any, t: var Table[BiggestInt, pointer]) =
       next(p)
       return
     raiseParseErr(p, "int expected")
-  of akFloat..akFloat128:
+  of akFloat..akFloat64:
     if p.kind == jsonFloat:
       setBiggestFloat(a, getFloat(p))
       next(p)
