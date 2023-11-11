@@ -50,6 +50,7 @@ type
     ## Users of ``MirNodeKind`` should not depend on the absolute or relative
     ## order between the enum values
     # when adding new enum values, make sure to adjust the sets below
+    mnkNone
 
     # entity names:
     mnkProc   ## procedure
@@ -57,40 +58,34 @@ type
     mnkGlobal ## global location
     mnkParam  ## parameter
     mnkLocal  ## local location
-    mnkTemp   ## temporary; Semantics-wise, a ``mnkTemp`` is the same as a
-              ## ``mnkLocal``, but a different namespace is used (``TempId``
-              ## vs. ``PSym``). This allows for cheap introduction of locals
+    mnkTemp   ## temporary; works the same as a ``mnkLocal`` but uses a
+              ## separate namespace. This currently allows for cheap ad-hoc
+              ## introduction of new locals
 
-    mnkOpParam ## references a parameter of the enclosing region
-               ## XXX: see if it's possible to merge this with ``mnkParam``,
-               ##      by treating a procedure's body as a region itself
+    mnkField  ## declarative node only allowed in special contexts
 
     mnkLiteral ## literal data. Currently represented via a ``PNode``
+    # future direction: split into IntLit, FloatLit, and StrLit and store the
+    # values in a separate table (so that MirNode gets smaller)
     mnkType    ## a type literal
 
-    mnkNone    ## the "nothing" value. Represents the absence of a value.
-               ## To ease the back-to-``PNode`` translation, this node is
-               ## currently allowed to have a non-nil type.
+    # future direction:
+    # store the type of the destination within each def, assignment, etc. and
+    # then remove the type field from ``MirNode``
 
-    mnkDef       ## defines an entity and, if the entity is a location, starts
-                 ## its lifetime (if the entity is a location). If the entity
-                 ## is a location, the ``def`` can be either a *sink* or a
-                 ## statement -- it must be a statement otherwise
-    mnkDefCursor ## starts the lifetime of a location that is non-owning. The
-                 ## location may or may not contain a value and is not
-                 ## responsible for destroying it
-                 ## inputs: either a single value (no arg-block) or none
-    mnkDefUnpack ## starts the lifetime of a location that owns a *tuple*
-                 ## value but is not responsible for destroying it, as all
-                 ## sub-values are moved out of it
-                 ## **Warning**: this is a hack and it should be relied on as
-                 ## little as possible. It's a workaround to support the
-                 ## temporary tuple values introduced for destructuring.
+    mnkDef       ## marks the start of existence of a local, global, procedure,
+                 ## or temporary. Supports an optional intial value (except for
+                 ## procedure definitions)
+    mnkDefCursor ## marks the start of existence of a non-owning location
+    # future direction: remove this distinction and perform all decision (e.g.,
+    # injecting destructors) making requiring knowledge of locations' ownership
+    # in ``mirgen``
 
     mnkFastAsgn ## ``fastAsgn(dst, src)``; assigns the `src` value to the location
                 ## named by the lvalue `dst`. Neither the previous value in the
                 ## destination location nor the source value are mutated in any
                 ## way. No transfer of ownership happens.
+    # future direction: same as with DefCursor, remove FastAsgn
     mnkAsgn     ## ``asgn(dst, src)``; assigns the `src` value to the location
                 ##  named by `dst`, also transferring onwership.
     mnkInit     ## ``init(dst, src)``; similar to `asgn`, but with the
@@ -102,12 +97,18 @@ type
 
     mnkPathNamed ## access of a named field in a record
     mnkPathPos   ## access of a field in record via its position
+    # future direction: merge ``mnkPathPos`` with ``mnkPathNamed``. This first
+    # requires a dedicated MIR type representation.
     mnkPathArray ## ``pathArray(x, i)``; array-like access
+    # future direction: separate access of run-time arrays (i.e., strings and
+    # seqs) into a dedicated operation
     mnkPathVariant ## access a field inside a tagged union
                    ## XXX: this is likely only a temporary solution. Each
                    ##      record-case part of an object should be its own
                    ##      dedicated object type, which can then be addressed
                    ##      as a normal field
+    # future direction: merge ``mnkPathVariant`` into ``mnkPathNamed`` once the
+    # MIR's record type structure supports this
     mnkPathConv  ## an handle conversion. That is, a conversion that produces a
                  ## *handle*, and not a new *value*. At present, this operator
                  ## also applies to first-class handles, like ``ref``.
@@ -130,14 +131,13 @@ type
     #      the latter's interactions with ``var`` and ``lent``
 
     mnkStdConv    ## ``stdConv(x)``; a standard conversion.Produce a new value.
-                  ## Also used for to-slice (``openArray``) conversions, in
-                  ## which case the semantics are still fuzzy.
     mnkConv       ## ``conv(x)``; a conversion. Produces a new value.
     # XXX: distinguishing between ``stdConv`` and ``conv`` is only done to
     #      make ``cgirgen`` a bit more efficient. Further progress should focus
     #      on removing the need for it
     mnkCast       ## ``cast(x)``; produces a new *instance* of the input value
                   ## with a different type
+    mnkToSlice    ## conversion to openArray
 
     mnkCall   ## ``call(p, ...)``; transfers control-flow (i.e. calls) the
               ## procedure that `p` evaluates to and passes the provided
@@ -154,18 +154,15 @@ type
               ## has the result of the tag operation as input as having the
               ## specified effect on the location named by l-value `x`
 
-    # XXX: ``mnkObjConstr`` could be implemented as a user-op (which would
-    #      remove the need for ``mnkField``) at the cost of a larger amount
-    #      of nodes
-    mnkConstr     ## ``constr(...)``; constructs a new compound value made up of
-                  ## the input values. Whether the resulting value is owned
-                  ## depends on whether one the context it's used in
+    mnkConstr     ## ``constr(...)``; constructs a new aggregate value or set
+                  ## value made up of the input values. Whether the resulting
+                  ## value is owned depends on whether one the context it's
+                  ## used in
     mnkObjConstr  ## ``objConstr(...)``; either heap-allocates and initializes
-                  ## a new managed location, or constructs a new compound value
+                  ## a new managed location, or constructs a new aggregate value
                   ## with named fields
 
-    # the following three are argument sinks. They must only appear directly
-    # inside an ``mnkArgBlock``
+    # TODO: update the argument node documentation to reflect reality
     mnkArg    ## binds either an instance of the input value or the value
               ## itself to an argument
     mnkName   ## binds an lvalue to an argument
@@ -178,22 +175,6 @@ type
 
     mnkVoid   ## the 'void' sink. Discards the input value without doing
               ## anything else with it
-
-    mnkField  ## may only appear as a sub-node to ``mnkObjConstr``. Identifies
-              ## the record field the corresponding argument is assigned to
-
-    mnkArgBlock ## an argument block groups the operands to an operation
-                ## together, and is required whenever an operation takes more
-                ## than one operand -- whether an argumnet block is required for
-                ## when there's only a single operand depends on the
-                ## corresponding operation
-    mnkRegion ## a region is something that accepts arguments (provided by a
-              ## mandatory arg-block) and performs some logic that is required
-              ## to only have the effects described by the argument tags. This
-              ## also includes control-flow effects, e.g. raising an exception
-              ## that is not handled inside the region. Right now, definitions
-              ## inside a region are allowed, but this might change in the
-              ## future
 
     mnkStmtList ## groups statements together
     mnkScope  ## the only way to introduce a scope. Scopes can be nested and
@@ -241,6 +222,10 @@ type
 
     mnkEnd    ## marks the physical end of a sub-tree. Has no semantic
               ## meaning -- it's only required to know where a sub-tree ends
+    # future direction: replace the End node with storing the number of sub-
+    # nodes of a sub-tree on the node itself. This will require significant
+    # structural changes, as not all node kinds are able to use the length
+    # field at the moment
 
     mnkPNode ## depending on the context, either statement or something else.
              ## If it appears as a statement, it is expected to not have any
@@ -285,8 +270,6 @@ type
       #      about general effect ouf-of-band is likely required to properly
       #      support this
       magic*: TMagic
-    of mnkOpParam:
-      param*: uint32 ## the 0-based index of the enclosing region's parameter
     of mnkBlock, mnkBreak:
       label*: LabelId ## for a block, the label that identifies the block;
                       ## for a break, the label of the block to break out of
@@ -322,71 +305,61 @@ type
     ## refers to a ``MirNode`` that represents an operation
   OpValue* = distinct uint32
     ## refers to a value an operation produces
+  # TODO: some of the distinctions aren't as useful anymore; clean them up
 
 const
   AllNodeKinds* = {low(MirNodeKind)..high(MirNodeKind)}
     ## Convenience set containing all existing node kinds
 
-  DefNodes* = {mnkDef, mnkDefCursor, mnkDefUnpack}
+  DefNodes* = {mnkDef, mnkDefCursor}
     ## Node kinds that represent definition statements (i.e. something that
     ## introduces a named entity)
 
-  SubTreeNodes* = {mnkObjConstr, mnkArgBlock, mnkRegion, mnkStmtList, mnkScope,
-                   mnkIf..mnkBlock, mnkBranch } + DefNodes
-    ## Nodes that mark the start of a sub-tree. They're always matched with a
-    ## corrsponding ``mnkEnd`` node
+  AtomNodes* = {mnkNone..mnkType, mnkBreak, mnkReturn}
+    ## Nodes that don't support sub nodes.
 
-  AtomNodes* = AllNodeKinds - SubTreeNodes
-    ## Nodes that aren't sub-trees
+  SubTreeNodes* = AllNodeKinds - AtomNodes - {mnkEnd}
+    ## Nodes that start a sub-tree. They're always matched with an ``mnkEnd``
+    ## node.
 
-  InputNodes* = {mnkProc..mnkNone, mnkArgBlock}
-    ## Nodes that can appear in the position of inputs/operands but that
-    ## themselves don't have any operands
-  InOutNodes* = {mnkMagic, mnkCall, mnkPathNamed..mnkPathConv, mnkConstr,
-                 mnkObjConstr, mnkView, mnkTag, mnkCast, mnkDeref, mnkAddr,
-                 mnkDerefView, mnkStdConv, mnkConv}
-    ## Operations that act as both input and output
-  SourceNodes* = InputNodes + InOutNodes
-    ## Nodes than can appear in the position of inputs/operands
-
-  OutputNodes* = {mnkRaise, mnkFastAsgn..mnkInit, mnkSwitch, mnkVoid, mnkIf,
-                  mnkCase, mnkRegion, mnkAsm, mnkEmit} + DefNodes
-    ## Node kinds that are allowed in every output context
-    # TODO: maybe rename to SinkNodes
+  SingleOperandNodes* = {mnkPathNamed, mnkPathPos, mnkPathVariant, mnkPathConv,
+                         mnkAddr, mnkDeref, mnkView, mnkDerefView, mnkStdConv,
+                         mnkConv, mnkCast, mnkToSlice, mnkRaise, mnkTag, mnkArg,
+                         mnkName, mnkConsume, mnkVoid}
+    ## Nodes that start sub-trees but that always have a single sub node.
 
   ArgumentNodes* = {mnkArg, mnkName, mnkConsume}
-    ## Node kinds only allowed in an output context directly inside an
-    ## arg-block
-
-  SingleInputNodes* = {mnkAddr, mnkDeref, mnkView, mnkDerefView, mnkCast,
-                       mnkConv, mnkStdConv, mnkPathNamed, mnkPathPos,
-                       mnkPathVariant, mnkPathConv, mnkTag, mnkIf, mnkCase,
-                       mnkRaise, mnkVoid} + ArgumentNodes
-    ## Operators and statements that must not have argument-blocks as input
+    ## Nodes only allowed in argument contexts.
 
   StmtNodes* = {mnkScope, mnkRepeat, mnkTry, mnkBlock, mnkBreak, mnkReturn,
-                mnkPNode} + DefNodes
-    ## Nodes that act as statements syntax-wise
+                mnkPNode, mnkInit, mnkAsgn, mnkSwitch, mnkFastAsgn,
+                mnkVoid} + DefNodes
+    ## Nodes that always act as statements syntax-wise.
 
   SymbolLike* = {mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal}
     ## Nodes for which the `sym` field is available
 
   # --- semantics-focused sets:
 
-  ConsumeCtx* = {mnkConsume, mnkRaise, mnkDefUnpack}
+  Atoms* = {mnkNone .. mnkType}
+    ## Nodes that may be appear in atom-expecting slots.
+
+  ConsumeCtx* = {mnkConsume, mnkRaise}
     ## if an lvalue is used as an operand to these operators, the value stored
     ## in the named location is considered to be consumed (ownership over it
     ## transfered to the operation)
+    ## XXX: possibly not useful anymore
   UseContext* = {mnkArg, mnkDeref, mnkDerefView, mnkStdConv, mnkConv, mnkCast,
-                 mnkVoid, mnkIf, mnkCase} + ConsumeCtx
+                 mnkToSlice, mnkVoid, mnkIf, mnkCase} + ConsumeCtx
     ## using an lvalue as the operand to one of these operators means that
     ## the content of the location is observed (when control-flow reaches the
     ## operator). In other words, applying the operator results in a read
+    ## XXX: this set too
   OpsWithEffects* = {mnkCall, mnkMagic, mnkAsgn, mnkFastAsgn, mnkSwitch,
-                     mnkInit, mnkRegion}
+                     mnkInit}
     ## the set of operations that can have lvalue-parameterized or general
     ## effects
-
+    ## XXX: this set too
 
 func `==`*(a, b: TempId): bool {.borrow.}
 func `==`*(a, b: LabelId): bool {.borrow.}
@@ -543,117 +516,30 @@ func findParent*(tree: MirTree, start: NodePosition,
   while tree[result].kind != kind:
     result = parent(tree, result)
 
-func operand*(tree: MirTree, op: Operation, opr: Natural): OpValue =
-  ## Returns the `opr`th operand to the operation `op`. It is expected that
-  ## the operation has at least `opr` + 1 operands
-  let prev = NodePosition(op) - 1
-  if tree[prev].kind == mnkEnd and tree[prev].start == mnkArgBlock:
-    # start at the first sub-node of the argument block:
-    var pos = parent(tree, prev) + 1
-    # skip the sub-nodes until we've reached the `opr`-th arg node
-    var i = 0
-    while pos < prev:
-      if tree[pos].kind in ArgumentNodes:
-        if i == opr:
-          # return the input, not the 'arg' node itself
-          return OpValue getStart(tree, pos - 1)
-        inc i
+func operand*(tree: MirTree, n: NodePosition, opr: Natural): OpValue =
+  ## Returns the `opr`-th operand to the sub-tree at `n`. It is expected that
+  ## the operation has at least `opr` + 1 operands.
+  assert tree[n].kind in SubTreeNodes
+  var n = n + 1
+  for i in 0..<opr:
+    n = tree.sibling(n)
+  result = OpValue n
 
-      pos = sibling(tree, pos)
-
-    unreachable("argument out of bounds: " & $opr)
-  else:
-    # there exists only a single operand
-    assert opr == 0
-    result = OpValue getStart(tree, prev)
-
-func operands*(tree: MirTree, op: Operation, slice: Slice[int],
-               result: var openArray[OpValue]) =
-  ## Collects the operands of `op` identified by `slice` to `result`
-  assert slice.len == result.len
-  let prev = NodePosition(op) - 1
-  if tree[prev].kind == mnkEnd and tree[prev].start == mnkArgBlock:
-    # start at the first sub-node of the argument block:
-    var pos = parent(tree, prev) + 1
-    # skip the sub-nodes until we've reached the `opr`-th arg node
-    var i = 0
-    while pos < prev:
-      if tree[pos].kind in ArgumentNodes:
-        if i >= slice.a:
-          # return the input, not the 'arg' node itself
-          result[i - slice.a] = OpValue getStart(tree, pos - 1)
-        if i == slice.b:
-          return
-
-        inc i
-
-      pos = sibling(tree, pos)
-
-    unreachable("argument out of bounds: " & $slice)
-  else:
-    # there exists only a single operand
-    assert slice.a == 0 and slice.b == 0
-    result[0] = OpValue getStart(tree, prev)
-
-func fetchArgs*(tree: MirTree, op: Operation, result: var openArray[NodePosition]) =
-  ## Collects all operands of `op` to `result`. The length of `result` must
-  ## match the number of operands
-  let prev = NodePosition(op) - 1
-  if tree[prev].kind == mnkEnd and tree[prev].start == mnkArgBlock:
-    var pos = prev - 1
-    # `pos` now points to the last argument sink inside the arg-block
-    var i = result.high
-    while tree[pos].kind != mnkArgBlock:
-      if tree[pos].kind in ArgumentNodes:
-        assert i >= 0, "not enough space for all argument nodes"
-        # return the input, not the 'arg' node itself
-        result[i] = pos
-        dec i
-
-      pos = previous(tree, pos)
-
-    assert i == -1, "not enough arguments"
-
-  else:
-    # there exists only a single operand
-    assert result.len == 1
-    result[0] = prev
-
-func numArgs*(tree: MirTree, op: Operation): int =
-  ## Computes the number of arguments in the argument-block used as the input
-  ## to `op`
-  let prev = NodePosition(op) - 1
-  if tree[prev].kind == mnkEnd and tree[prev].start == mnkArgBlock:
-    var pos = prev - 1
-    while tree[pos].kind != mnkArgBlock:
-      if tree[pos].kind in ArgumentNodes:
-        inc result
-
-      pos = previous(tree, pos)
-
-  else:
-    unreachable("no arg-block is used")
+func numArgs*(tree: MirTree, n: NodePosition): int =
+  ## Computes the number of arguments in the call tree.
+  var n = n + 1
+  while tree[n].kind != mnkEnd:
+    inc result
+    n = tree.sibling(n)
 
 func operand*(tree: MirTree, op: Operation|OpValue|NodePosition): OpValue =
-  ## Returns the index (``OpValue``) of operand for the single-input node at
-  ## `op`.
-  assert tree[op].kind in SingleInputNodes + DefNodes
+  ## Returns the index (``OpValue``) of the operand for the single-input node
+  ## at `op`.
+  assert tree[op].kind in SingleOperandNodes, $tree[op].kind
   let pos =
     when op is NodePosition: op
     else:                    NodePosition(op)
-  OpValue getStart(tree, pos - 1)
-
-func hasInput*(tree: MirTree, op: Operation): bool =
-  # XXX: a 'def' node is not an operation
-  assert tree[op].kind in DefNodes
-  let node = tree[NodePosition(op)-1]
-  case node.kind
-  # exclude sub-tree nodes here so that a dynamic operation appearing as the
-  # first child-node of, for example, an arg-block is not treated as having an
-  # input
-  of SourceNodes - SubTreeNodes: true
-  of mnkEnd:      node.start in SourceNodes
-  else:           false
+  result = OpValue(pos + 1)
 
 iterator pairs*(tree: MirTree): (NodePosition, lent MirNode) =
   var i = 0
@@ -664,30 +550,17 @@ iterator pairs*(tree: MirTree): (NodePosition, lent MirNode) =
 
 iterator subNodes*(tree: MirTree, n: NodePosition): NodePosition =
   ## Iterates over and yields all direct child nodes of `n`
-  let L = tree[n].len
   var r = n + 1
-  for _ in 0..<L:
+  while tree[r].kind != mnkEnd:
     yield r
     r = sibling(tree, r)
 
 iterator effects*(tree: MirTree, n: NodePosition): (EffectKind, OpValue) =
   ## For an effectful operation, returns in an unspecified order all lvalue
   ## effects together with their applying-to operand.
-  let prev = n - 1
-  if tree[prev].kind == mnkEnd and tree[prev].start == mnkArgBlock:
-    var pos = prev - 1
-    while tree[pos].kind != mnkArgBlock:
-      if tree[pos].kind in ArgumentNodes:
-        let arg = tree.operand(pos)
-        if tree[arg].kind == mnkTag:
-          yield (tree[arg].effect, tree.operand(arg))
-
-      pos = previous(tree, pos)
-
-  else:
-    # no argument block is used, so no effects are be specified -> nothing
-    # to do
-    discard
+  for arg in subNodes(tree, n):
+    if tree[arg+1].kind == mnkTag:
+      yield (tree[arg+1].effect, OpValue(arg + 2))
 
 # XXX: ``lpairs`` is not at all related to the mid-end IR. The ``pairs``
 #      iterator from the stdlib should be changed to use ``lent`` instead
