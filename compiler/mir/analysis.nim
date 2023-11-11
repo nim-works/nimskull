@@ -43,6 +43,7 @@
 
 import
   std/[
+    hashes,
     tables
   ],
   compiler/ast/[
@@ -58,8 +59,7 @@ import
     typeallowed
   ],
   compiler/utils/[
-    containers,
-    idioms
+    containers
   ],
   experimental/[
     dod_helpers
@@ -82,9 +82,18 @@ type
                             ## ``ValueInfo`` is invalid)
     owns: Owned             ## whether the handle owns its value
 
+  Effect = object
+    kind: EffectKind
+    loc: OpValue ## the lvalue the effect applies to
+
+  EffectMap = object
+    ## Accelerator structure that maps each operation to its lvalue effects.
+    list: seq[Effect]
+    map: Table[Operation, Slice[uint32]]
+
   Values* = object
-    ## Stores information about the result of all abstract values within the
-    ## MIR body.
+    ## Stores information about the produced values plus the lvalue effects of
+    ## operations
     values: OrdinalSeq[OpValue, ValueInfo]
     # XXX: `values` currently stores an entry for each *node*. Not every node
     #      represents an operation and we're also not interested in the value
@@ -92,6 +101,7 @@ type
     #      A ``Table`` could be used, but that would make lookup less
     #      efficient (although less used memory could also mean better memory
     #      locality)
+    effects: EffectMap
 
   AliveState = enum
     unchanged
@@ -103,37 +113,31 @@ type
          op: Operation): AliveState {.nimcall, noSideEffect.}
 
 const
-  ConsumeCtx* = {mnkConsume}
+  ConsumeCtx* = {mnkConsume, mnkRaise, mnkDefUnpack}
     ## if an lvalue is used as an operand to these operators, the value stored
     ## in the named location is considered to be consumed (ownership over it
     ## transfered to the operation)
-  UseContext* = {mnkMaterialize, mnkDeref, mnkDerefView, mnkStdConv, mnkConv,
-                 mnkCast, mnkDrop, mnkIf, mnkCase}
+  UseContext* = {mnkArg, mnkDeref, mnkDerefView, mnkStdConv, mnkConv, mnkCast,
+                 mnkVoid, mnkIf, mnkCase} + ConsumeCtx
     ## using an lvalue as the operand to one of these operators means that
     ## the content of the location is observed (when control-flow reaches the
-    ## operator). In other words, applying the operator results in a *read*
+    ## operator). In other words, applying the operator results in a read
+
+  OpsWithEffects = {mnkCall, mnkMagic, mnkAsgn, mnkFastAsgn, mnkSwitch,
+                    mnkInit, mnkRegion}
+    ## the set of operations that can have lvalue-parameterized or general
+    ## effects
+
+func hash(x: Operation): Hash {.borrow.}
 
 func skipConversions(tree: MirTree, val: OpValue): OpValue =
-  ## If `val` is a path node that only represents handle conversions, returns
-  ## the node's operand -- `val` otherwise.
-  if tree[val].kind == mnkPath:
-    var p = NodePosition(val) + 1
-    while tree[p].kind == mnkPathConv:
-      inc p
+  ## Returns the producing operation after skipping handle-only
+  ## conversions.
+  var p = NodePosition(val)
+  while tree[p].kind == mnkPathConv:
+    p = previous(tree, p)
 
-    # if we're at the end of the tree, all items were conversion nodes
-    if tree[p].kind == mnkEnd:
-      tree.operand(val)
-    else:
-      val
-  else:
-    val
-
-func skipMaterialize(tree: MirTree, val: OpValue): OpValue =
-  ## If `val` is a ``mnkMaterialize`` node, returns its operand, `val`
-  ## otherwise.
-  if tree[val].kind == mnkMaterialize: tree.operand(val)
-  else:                                val
+  result = OpValue(p)
 
 template getRoot*(v: Values, val: OpValue): OpValue =
   OpValue v.values[val].root[]
@@ -148,31 +152,62 @@ func toLvalue*(v: Values, val: OpValue): LvalueExpr {.inline.} =
   (NodePosition v.values[val].root[],
    NodePosition val)
 
+iterator effects(v: Values, op: Operation): lent Effect =
+  ## Yields all location-related effects of the given operation `op` in the
+  ## order they were registered
+  let s = v.effects.map.getOrDefault(op, 1.uint32..0.uint32)
+  for i in s:
+    yield v.effects.list[i]
+
 func decayed(x: ValueInfo): ValueInfo {.inline.} =
   ## Turns 'weak' ownership into 'no' ownership
   result = x
   if result.owns == Owned.weak:
     result.owns = Owned.no
 
+func add(m: var EffectMap, op: Operation, effects: openArray[Effect]) =
+  ## Registers `effects` with `op` in the map `m`
+  let start = m.list.len
+  m.list.add effects
+  m.map[op] = start.uint32 .. m.list.high.uint32
+
 func computeValuesAndEffects*(body: MirTree): Values =
   ## Creates a ``Values`` dictionary with all operation effects collected and
   ## (static) value roots computed. Value ownership is already computed where it
   ## is possible to do so by just taking the static operation sequences into
   ## account (i.e. no control- or data-flow analysis is performed)
+  var
+    stack: seq[Effect]
+    # more than 65K nested effects seems unlikely
+    num: seq[uint16]
+
   result.values.newSeq(body.len)
 
-  template inherit(i: NodePosition, source: OpValue) =
-    result.values[OpValue i] = result.values[source]
+  template inherit(i, source: NodePosition) =
+    result.values[OpValue i] = result.values[OpValue source]
 
-  template inheritDecay(i: NodePosition, source: OpValue) =
-    result.values[OpValue i] = decayed result.values[source]
+  template inheritDecay(i, source: NodePosition) =
+    result.values[OpValue i] = decayed result.values[OpValue source]
 
-  # we're doing two things here:
+  template popEffects(op: Operation) =
+    let v = num.pop().int
+    if v < stack.len:
+      result.effects.add op, toOpenArray(stack, v, stack.high)
+      stack.setLen(v)
+
+  # we're doing three things here:
   # 1. propagate the value root
   # 2. propagate ownership status
+  # 3. collect the lvalue effects for operations
   #
   # This is done in a single forward iteration over all nodes in the code
   # fragment -- nodes that don't represent operations are ignored.
+  # Effects are collected by looking for 'tag' operations. Each occurrence of
+  # an 'arg-block' node starts a new "frame". When a 'tag' operation is
+  # encountered, the corresponding ``Effect`` information is added to the
+  # frame. At the end of the 'arg-block', the frame is popped and the effects
+  # collected as part of it are registered to the arg-block's corresponding
+  # operation
 
   for i, n in body.pairs:
     template start(owned: Owned) =
@@ -180,6 +215,13 @@ func computeValuesAndEffects*(body: MirTree): Values =
         ValueInfo(root: someOpt(NodeInstance i), owns: owned)
 
     case n.kind
+    of mnkOpParam:
+      # XXX: the body of regions are not yet analysed (they're skipped over).
+      #      Once they are, the ownership status of an `opParam` depends on
+      #      the corresponding argument. Values coming from 'name' and 'arg'
+      #      arguments are not owned, but for those coming from 'consume'
+      #      arguments, it depends (i.e. ``unknown``)
+      start: Owned.no
     of mnkDeref, mnkDerefView, mnkConst, mnkType, mnkNone, mnkCast:
       start: Owned.no
     of mnkLiteral, mnkProc:
@@ -200,6 +242,10 @@ func computeValuesAndEffects*(body: MirTree): Values =
       start:
         if n.typ.skipTypes(abstractInst).kind == tyRef: Owned.yes
         else: Owned.weak
+      # ``mnkObjConstr`` is a sub-tree, so in order to keep the inheriting
+      # logic simple, the 'end' node for the sub-tree uses the same
+      # ``ValueInfo`` as the start node
+      inherit(findEnd(body, i), i)
     of mnkCall, mnkMagic:
       # we currently can't reason about which location(s) views alias, so
       # we always treat values accessed through them as not owned
@@ -210,37 +256,28 @@ func computeValuesAndEffects*(body: MirTree): Values =
       # non-lvalue conversions produces a new unique value, meaning that
       # the result is always owned
       start: Owned.yes
-    of mnkAddr, mnkView:
-      inheritDecay(i, body.operand(i))
-    of mnkMaterialize, mnkMaterializeL:
-      inherit(i, body.operand(i))
-    of mnkPath:
-      # compute the value owership of the value after projection
-      var val = result.values[body.operand(i)]
-      for it in pathOps(body, i):
-        case it.kind
-        of mnkPathNamed:
-          if sfCursor in it.field.flags:
-            # a value derived from a cursor location is not owned
-            val.owns = Owned.no
-            break
-          else:
-            val = decayed(val)
-        of mnkPathArray, mnkPathPos, mnkPathVariant:
-          val = decayed(val)
-        of mnkPathConv:
-          discard "ownership doesn't decay for handle conversions"
-        of AllNodeKinds - PathNodes:
-          unreachable()
+    of mnkAddr, mnkView, mnkPathPos, mnkPathVariant:
+      inheritDecay(i, NodePosition body.operand(i))
+    of mnkPathArray:
+      # inherit from the first operand (i.e. the array-like value)
+      inheritDecay(i, NodePosition operand(body, Operation(i), 0))
+    of mnkPathNamed:
+      inheritDecay(i, NodePosition body.operand(i))
+      if sfCursor in n.field.flags:
+        # any lvalue derived from a cursor location is non-owning
+        result.values[OpValue i].owns = Owned.no
+    of mnkPathConv:
+      inherit(i, NodePosition body.operand(i))
 
-      result.values[OpValue i] = val
-    of EffectNodes:
-      # don't propagate across effect nodes for now
-      start: Owned.no
-    of ArgumentNodes:
-      # XXX: implementation is missing
-      discard "not implemented yet"
-    of AllNodeKinds - ValueNodes:
+    of mnkArgBlock:
+      num.add stack.len.uint16 # remember the current top-of-stack
+    of mnkTag:
+      stack.add Effect(kind: n.effect, loc: body.operand(i))
+    of mnkEnd:
+      if n.start == mnkArgBlock:
+        popEffects(Operation(i+1))
+
+    of AllNodeKinds - InOutNodes - InputNodes - {mnkEnd}:
       discard "leave uninitialized"
 
 func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
@@ -265,21 +302,29 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
   var exit = false
   for i, n in traverseReverse(tree, cfg, span, pos, exit):
     case n.kind
-    of mnkMutate, mnkReassign:
-      if overlaps(tree.operand(i)):
-        # consider ``a.b = x`` (A) and ``a.b.c.d.e = y`` (B). If the
-        # analysed l-value expression is ``a.b.c`` then both A and B mutate
-        # it (either fully or partially). If traversal reaches what's
-        # possibly a mutation of the analysed location, it means that the
-        # location needs to be treated as being alive at `pos`, so we can
-        # return already
-        return true
+    of OpsWithEffects:
+      # iterate over the effects and look for the ones involving the analysed
+      # location
+      for effect in effects(v, Operation i):
+        case effect.kind
+        of ekMutate, ekReassign:
+          if overlaps(effect.loc):
+            # consider ``a.b = x`` (A) and ``a.b.c.d.e = y`` (B). If the
+            # analysed l-value expression is ``a.b.c`` then both A and B mutate
+            # it (either fully or partially). If traversal reaches what's
+            # possibly a mutation of the analysed location, it means that the
+            # location needs to be treated as being alive at `pos`, so we can
+            # return already
+            return true
 
-    of mnkKill:
-      if isPartOf(tree, loc, toLvalue tree.operand(i)) == yes:
-        exit = true
+        of ekKill:
+          if isPartOf(tree, loc, toLvalue effect.loc) == yes:
+            exit = true
+            break
 
-    of mnkCall:
+        of ekInvalidate:
+          discard
+
       if tree[loc.root].kind == mnkGlobal and
          n.kind == mnkCall and geMutateGlobal in n.effects:
         # an unspecified global is mutated and we're analysing a location
@@ -320,39 +365,50 @@ func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   var state: TraverseState
   for i, n in traverse(tree, cfg, span, pos, state):
     case n.kind
-    of mnkReassign:
-      let cmp = compareLvalues(tree, loc, toLvalue tree.operand(i))
-      if isAPartOfB(cmp) == yes:
-        # the location is reassigned -> all operations coming after will
-        # observe a different value
-        state.exit = true
-      elif isBPartOfA(cmp) != no:
-        # the location is partially written to -> the relevant values is
-        # observed
-        return false
+    of OpsWithEffects:
+      for effect in effects(values, Operation i):
+        let cmp = compareLvalues(tree, loc, toLvalue effect.loc)
+        case effect.kind
+        of ekReassign:
+          if isAPartOfB(cmp) == yes:
+            # the location is reassigned -> all operations coming after will
+            # observe a different value
+            state.exit = true
+            break
+          elif isBPartOfA(cmp) != no:
+            # the location is partially written to -> the relevant values is
+            # observed
+            return false
 
-    of mnkMutate:
-      if overlaps(tree, loc, toLvalue tree.operand(i)) != no:
-        # the location is partially written to
-        return false
+        of ekMutate:
+          if cmp.overlaps != no:
+            # the location is partially written to
+            return false
 
-    of mnkKill:
-      let cmp = compareLvalues(tree, loc, toLvalue tree.operand(i))
-      if isAPartOfB(cmp) == yes:
-        # the location is definitely killed, it no longer stores the value
-        # we're interested in
-        state.exit = true
+        of ekKill:
+          if isAPartOfB(cmp) == yes:
+            # the location is definitely killed, it no longer stores the value
+            # we're interested in
+            state.exit = true
+            break
 
-    of mnkCall:
+        of ekInvalidate:
+          discard
+
       if tree[loc.root].kind == mnkGlobal and
          n.kind == mnkCall and geMutateGlobal in n.effects:
         # an unspecified global is mutated and we're analysing a location
         # derived from a global -> assume that it's a read/use
         return false
 
-    of UseContext:
-      if overlaps(tree, loc, toLvalue tree.operand(i)) != no:
-        # a read is connected to the analysed one
+    of UseContext - {mnkDefUnpack}:
+      if overlaps(tree, loc, toLvalue tree.operand(Operation i)) != no:
+        return false
+
+    of DefNodes:
+      # passing a value to a 'def' is also a use
+      if hasInput(tree, Operation i) and
+         overlaps(tree, loc, toLvalue tree.operand(Operation i)) != no:
         return false
 
     else:
@@ -377,21 +433,24 @@ func isLastWrite*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   var state: TraverseState
   for i, n in traverse(tree, cfg, span, pos, state):
     case n.kind
-    of mnkReassign, mnkMutate, mnkInvalidate:
-      # note: it's no known what happens to the location when it is
-      # invalidated, so ``mnkInvalidate`` is also included here
-      if overlaps(tree, loc, toLvalue tree.operand(i)) != no:
-        return (false, false, false)
+    of OpsWithEffects:
+      for effect in effects(values, Operation i):
+        let cmp = compareLvalues(tree, loc, toLvalue effect.loc)
+        case effect.kind
+        of ekReassign, ekMutate, ekInvalidate:
+          # note: since we don't know what happens to the location when it is
+          # invalidated, the effect is also included here
+          if cmp.overlaps != no:
+            return (false, false, false)
 
-    of mnkKill:
-      let cmp = compareLvalues(tree, loc, toLvalue tree.operand(i))
-      if isAPartOfB(cmp) == yes:
-        state.exit = true
+        of ekKill:
+          if isAPartOfB(cmp) == yes:
+            state.exit = true
+            break
 
-      # partially killing the analysed location is not considered to be a
-      # write
+          # partially killing the analysed location is not considered to be a
+          # write
 
-    of mnkCall:
       if tree[loc.root].kind == mnkGlobal and
          n.kind == mnkCall and geMutateGlobal in n.effects:
         # an unspecified global is mutated and we're analysing a location
@@ -424,20 +483,26 @@ func computeAliveOp*[T: PSym | TempId](
     isAnalysedLoc(tree[skipConversions(tree, val)], loc)
 
   case n.kind
-  of mnkMutate, mnkReassign:
-    if isRootOf(tree.operand(op)):
-      # the analysed location or one derived from it is mutated
-      return alive
+  of OpsWithEffects:
+    # iterate over the lvalue effects of the processed operation and check
+    # whether one of them affects the state of `loc`. If one does, further
+    # iteration is not required, as the underlying locations of the operands
+    # must not alias with each other.
+    for effect in effects(values, op):
+      case effect.kind
+      of ekMutate, ekReassign:
+        if isRootOf(effect.loc):
+          # the analysed location or one derived from it is mutated
+          return alive
 
-  of mnkKill:
-    if sameLocation(tree.operand(op)):
-      # the location is killed
-      return dead
+      of ekKill:
+        if sameLocation(effect.loc):
+          # the location is killed
+          return dead
 
-  of mnkInvalidate:
-    discard "cannot be reasoned about here"
+      of ekInvalidate:
+        discard "cannot be reasoned about here"
 
-  of mnkCall:
     when T is PSym:
       # XXX: testing the symbol's flags is okay for now, but a different
       #      approach has to be used once moving away from storing ``PSym``s
@@ -449,8 +514,7 @@ func computeAliveOp*[T: PSym | TempId](
 
   of ConsumeCtx:
     let opr = tree.operand(op)
-    if values.owned(opr) == Owned.yes and
-       sameLocation(tree.skipMaterialize(opr)):
+    if values.owned(opr) == Owned.yes and sameLocation(opr):
       # the location's value is consumed
       result = dead
 
@@ -540,21 +604,14 @@ proc doesGlobalEscape*(tree: MirTree, scope: Slice[NodePosition],
 
 func isConsumed*(tree: MirTree, val: OpValue): bool =
   ## Computes if `val` is definitely consumed. This is the case if it's
-  ## directly used in a consume context, ignoring type-only conversions
-  ## that don't change the location.
-  var target = tree.user(val)
+  ## directly used in a consume context, ignoring handle conversions.
+  var dest = NodePosition(val)
   while true:
-    case tree[target].kind
-    of mnkPath:
-      # if the path is a projection that only changes the type (lvalue
-      # conversion), it is skipped
-      for it in pathOps(tree, target):
-        if it.kind != mnkPathConv:
-          # not only an lvalue conversion -> the value is not consumed
-          # directly
-          return false
+    dest = sibling(tree, dest)
 
-      target = tree.user(OpValue target)
+    case tree[dest].kind
+    of mnkPathConv:
+      discard "skip conversions"
     of ConsumeCtx:
       return true
     else:
