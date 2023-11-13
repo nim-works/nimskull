@@ -21,7 +21,7 @@ jobs:
             tools/ci_format_pr_description.js
       - id: pr-data
         name: Get PR data and trim PR body
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const pull_id = context.payload.client_payload.pull_request.node_id;
@@ -126,7 +126,7 @@ jobs:
         # https://github.com/cli/cli/issues/7213 is solved.
       - if: steps.pr-data.outputs.run
         name: Queue for merging
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const pull_id = context.payload.client_payload.pull_request.node_id;
