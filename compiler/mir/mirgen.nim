@@ -436,6 +436,38 @@ template buildMagicCall(c: var TCtx, m: TMagic, t: PType, body: untyped) =
   c.subTree MirNode(kind: mnkMagic, magic: m, typ: t):
     body
 
+func needsOwningLocation(tree: MirTree, n: NodePosition, sink: bool): bool =
+  ## Computes for the expression at `n` whether it need to be assigned to a
+  ## full location.
+  case tree[n].kind
+  of mnkCall, mnkMagic, mnkView, mnkToSlice:
+    # slices and view don't strictly need a full location
+    true
+  of mnkObjConstr:
+    if tree[n].typ.skipTypes(abstractInst).kind == tyRef:
+      # ref constructions always need to be destroyed
+      true
+    else:
+      sink
+  else:
+    # depends on whether it's used in a sink context
+    sink
+
+func captureInTemp(c: var TCtx, start: int, sink: bool): Value =
+  ## Wraps the expression starting at `start` in the staging buffer in a
+  ## temporary, removing the expression from the buffer. `sink` identifies
+  ## whether the temporary is intended for use in a sink context.
+  let def =
+    if needsOwningLocation(c.staging.nodes, NodePosition start, sink):
+      mnkDef
+    else:
+      mnkDefCursor
+
+  result = c.allocTemp(c.staging.nodes[start].typ)
+  c.stmts.subTree def:
+    c.stmts.use result
+    c.commit(start)
+
 proc genUse(c: var TCtx, n: PNode): EValue =
   # TODO: document
   let start = c.staging.len
@@ -448,19 +480,7 @@ proc genUse(c: var TCtx, n: PNode): EValue =
     result = EValue(node: move c.staging.nodes[start])
     c.staging.nodes.setLen(start)
   else:
-    let tmp = c.allocTemp(n.typ)
-    # TODO: consolidate with ``genRd``
-    let def =
-      case c.staging.nodes[start].kind
-      of mnkCall, mnkMagic, mnkView, mnkToSlice:
-        mnkDef
-      else:
-        mnkDefCursor
-    c.stmts.subTree def:
-      c.stmts.add tmp.node
-      # move the expression into the definition statement:
-      c.commit(start)
-    result = tmp
+    result = captureInTemp(c, start, sink=false)
 
 proc genRd(c: var TCtx, n: PNode; consume=false): EValue =
   ## Generates the MIR code for the expression `n`. Makes sure that the run-
@@ -480,20 +500,7 @@ proc genRd(c: var TCtx, n: PNode; consume=false): EValue =
   # a mutation) by later optimization passes
 
   if needsTemp:
-    result = c.allocTemp(n.typ)
-    # we only want an owning location if the source expression produces
-    # a value that needs to be taken ownership of
-    let def =
-      case kind
-      of mnkCall, mnkMagic, mnkView, mnkToSlice:
-        mnkDef
-      of mnkConstr, mnkObjConstr:
-        if consume: mnkDef
-        else:       mnkDefCursor
-      else:         mnkDefCursor
-    c.stmts.subTree def:
-      c.stmts.add result.node
-      c.commit(start)
+    result = captureInTemp(c, start, consume)
   else:
     result = Value(node: c.staging.nodes[start])
     c.staging.nodes.setLen(start)
@@ -701,18 +708,7 @@ proc genArgExpression(c: var TCtx, n: PNode, sink: bool): EValue =
       needsTemp = true
 
   if needsTemp:
-    result = c.allocTemp(n.typ)
-    let def =
-      case k
-      of mnkCall, mnkMagic:
-        mnkDef
-      else:
-        if sink: mnkDef
-        else:    mnkDefCursor
-
-    c.stmts.subTree def:
-      c.stmts.add result.node
-      c.commit(start)
+    result = captureInTemp(c, start, sink)
   else:
     result = Value(node: move c.staging.nodes[start])
     c.staging.nodes.setLen(start)
@@ -1141,6 +1137,23 @@ proc genReturn(c: var TCtx, n: PNode) =
 
   c.stmts.add MirNode(kind: mnkReturn)
 
+proc genAsgnSource(c: var TCtx, e: PNode, sink: bool) =
+  ## Generates the MIR code for the right-hand side of an assignment.
+  ## The value is captured in a temporary if necessary for proper
+  ## destruction.
+  let start = c.staging.len
+  genx(c, e, sink)
+  if not sink and
+     needsOwningLocation(c.staging.nodes, NodePosition start, false):
+    # the expression produces some value that requires ownership being
+    # taken of but the receiver doesn't support holding those. Assign the
+    # value to an owning temporary (which can be destroyed later) first
+    let tmp = c.allocTemp(e.typ)
+    c.stmts.subTree mnkDef:
+      c.stmts.add tmp.node
+      c.commit(start)
+    c.use tmp
+
 proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
   assert dest.isSome
   let owns = dfOwns in dest.flags
@@ -1156,7 +1169,7 @@ proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
     of dkFrag: c.use EValue(node: dest.mnode)
     else:      unreachable()
 
-    c.genx(rhs, consume = owns) # rhs
+    c.genAsgnSource(rhs, sink = owns) # rhs
 
 proc unwrap(c: var TCtx, n: PNode): PNode =
   ## If `n` is a statement-list expression, generates the code for all
@@ -1220,12 +1233,12 @@ proc genAsgn(c: var TCtx, isFirst: bool, lhs, rhs: PNode) =
 
     c.buildStmt kind:
       genPath(c, lhs)
-      genx(c, rhs, consume=not isCursor)
+      genAsgnSource(c, rhs, sink=not isCursor)
 
 proc genFastAsgn(c: var TCtx, lhs, rhs: PNode) =
   c.buildStmt mnkFastAsgn:
     genPath(c, lhs)
-    genx(c, rhs)
+    genAsgnSource(c, rhs, sink=false)
 
 proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
   ## Generates the 'def' construct for the entity provided by the symbol node
@@ -1247,22 +1260,7 @@ proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
 
     # the initializer is optional
     if val.kind != nkEmpty:
-      # XXX: merge this code with ``genUse``, ``genRd``, and
-      #      ``genArgExpression`` somehow (a good path could be returning
-      #      something from ``genx`` again)
-      # FIXME: this same handling needs to be applied for assignments to
-      #         cursor too!
-      let start = c.staging.len
-      genx(c, val, sfCursor notin s.flags)
-      if sfCursor in s.flags and
-         c.staging.nodes[start].kind in {mnkCall, mnkMagic}:
-        # the expression produces some value that requires ownership being
-        # taken of but the receiver doesn't support holding those
-        let tmp = c.allocTemp(val.typ)
-        c.stmts.subTree mnkDef:
-          c.stmts.add tmp.node
-          c.commit(start)
-        c.use tmp
+      genAsgnSource(c, val, (sfCursor notin s.flags))
     else:
       c.staging.add MirNode(kind: mnkNone)
 
