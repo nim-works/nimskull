@@ -505,12 +505,13 @@ proc genRd(c: var TCtx, n: PNode; consume=false): EValue =
     result = Value(node: c.staging.nodes[start])
     c.staging.nodes.setLen(start)
 
+proc genPath(c: var TCtx, n: PNode; sink = false)
 
 proc genOp(c: var TCtx, k: MirNodeKind, t: PType, n: PNode) =
   assert t != nil
-  let v = genUse(c, n)
   c.subTree MirNode(kind: k, typ: t):
-    c.use v
+    # XXX: we don't want a path, we want an lvalue (which could be a path)
+    genPath(c, n)
 
 template buildOp(c: var TCtx, k: MirNodeKind, t: PType, body: untyped) =
   assert t != nil
@@ -581,8 +582,6 @@ proc genAndOr(c: var TCtx, n: PNode, dest: Destination) =
     c.stmts.use v
     c.stmts.subTree mnkStmtList:
       genAsgn(c, dest, n[2]) # the right-hand side
-
-proc genPath(c: var TCtx, n: PNode; sink = false)
 
 proc genBracketExpr(c: var TCtx, n: PNode) =
   let typ = n[0].typ.skipTypes(abstractInstTypeClass - {tyTypeDesc})
@@ -1126,7 +1125,7 @@ proc genRaise(c: var TCtx, n: PNode) =
   assert n.kind == nkRaiseStmt
   c.buildStmt mnkRaise:
     if n[0].kind != nkEmpty:
-      c.use genArgExpression(c, n[0], true)
+      genPath(c, n[0], true)
     else:
       c.staging.add MirNode(kind: mnkNone)
 
@@ -1725,14 +1724,12 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
   of nkDotExpr, nkObjUpConv, nkObjDownConv, nkBracketExpr:
     genPath(c, n)
   of nkAddr:
-    c.buildOp mnkAddr, n.typ:
-      genPath(c, n[0])
+    c.genOp mnkAddr, n.typ, n[0]
   of nkHiddenAddr:
     case classifyBackendView(n.typ)
     of bvcSingle:
       # a view into the source operand is created
-      c.buildOp mnkView, n.typ:
-        genPath(c, n[0])
+      c.genOp mnkView, n.typ, n[0]
     of bvcSequence:
       # XXX: we need to encode in the MIR the fact that a slice that may be
       #      used for mutation is created here, otherwise the
@@ -1744,36 +1741,37 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
       c.genOp mnkAddr, n.typ, n[0]
 
   of nkDerefExpr:
-    c.genOp mnkDeref, n.typ, n[0]
+    c.buildOp mnkDeref, n.typ:
+      c.use genUse(c, n[0])
   of nkHiddenDeref:
     case classifyBackendView(n[0].typ)
     of bvcSingle:
       # it's a deref of a view
-      c.genOp mnkDerefView, n.typ, n[0]
+      c.buildOp mnkDerefView, n.typ:
+        c.use genUse(c, n[0])
     of bvcSequence:
       # it's a no-op
       genx(c, n[0])
     of bvcNone:
       # it's a ``ref`` or ``ptr`` deref
-      c.genOp mnkDeref, n.typ, n[0]
+      c.buildOp mnkDeref, n.typ:
+        c.use genUse(c, n[0])
 
   of nkHiddenStdConv:
     case n.typ.skipTypes(abstractVar).kind
     of tyOpenArray:
-      c.buildOp mnkToSlice, n.typ:
-        genPath(c, n[1])
+      c.genOp mnkToSlice, n.typ, n[1]
     else:
       c.genOp mnkStdConv, n.typ, n[1]
   of nkHiddenSubConv, nkConv:
     if compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct, {IgnoreTupleFields}):
       # it's an lvalue-preserving conversion
-      c.subTree MirNode(kind: mnkPathConv, typ: n.typ):
+      c.buildOp mnkPathConv, n.typ:
         genPath(c, n[1], consume)
     elif n.typ.skipTypes(abstractVar).kind == tyOpenArray:
       # to-openArray conversion also reach here as ``nkHiddenSubConv``
       # sometimes
-      c.buildOp mnkToSlice, n.typ:
-        genPath(c, n[1])
+      c.genOp mnkToSlice, n.typ, n[1]
     else:
       # it's a conversion that produces a new rvalue
       c.genOp mnkConv, n.typ, n[1]
