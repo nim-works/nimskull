@@ -180,6 +180,11 @@ type
               ## **Note**: the transfer of ownership happens when the
               ## value is bound to the argument, not when control-flow reaches
               ## the target operation
+    # future direction: prior to the move-analyser pass, ``Consume`` encodes a
+    # *request* rather than a *fact*. This needs to be changed; the AST -> MIR
+    # translation needs to make that the argument to a ``sink`` parameter can
+    # *always* be consumed. ``Consume`` always meaning "consume" will
+    # make data-flow analysis significantly simpler
 
     mnkVoid   ## the 'void' sink. Discards the input value without doing
               ## anything else with it
@@ -314,6 +319,9 @@ type
   OpValue* = distinct uint32
     ## refers to a value an operation produces
   # TODO: some of the distinctions aren't as useful anymore; clean them up
+
+  ArgKinds = range[mnkArg..mnkConsume]
+    ## helper type to make writing exhaustive case statement easier
 
 const
   AllNodeKinds* = {low(MirNodeKind)..high(MirNodeKind)}
@@ -563,13 +571,14 @@ iterator subNodes*(tree: MirTree, n: NodePosition): NodePosition =
     yield r
     r = sibling(tree, r)
 
-iterator effects*(tree: MirTree, n: NodePosition): (EffectKind, OpValue) =
-  ## For an effectful operation, returns in an unspecified order all lvalue
-  ## effects together with their applying-to operand.
-  for arg in subNodes(tree, n):
-    if tree[arg+1].kind == mnkTag:
-      yield (tree[arg+1].effect, OpValue(arg + 2))
-
+iterator arguments*(tree: MirTree, n: NodePosition): (ArgKinds, OpValue) =
+  ## Returns the argument kinds together with the operand node (or tag tree).
+  assert tree[n].kind in {mnkCall, mnkMagic}
+  # skip the callee for calls
+  var n = n + 1 + ord(tree[n].kind == mnkCall)
+  while tree[n].kind != mnkEnd:
+    yield (ArgKinds(tree[n].kind), tree.operand(n))
+    n = tree.sibling(n)
 
 func findDef*(tree: MirTree, n: NodePosition): NodePosition =
   ## Finds and returns the first definition for the name of the temporary
