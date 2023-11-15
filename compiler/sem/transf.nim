@@ -400,7 +400,7 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
       let exit =
         newTreeI(nkIfStmt, info,
           newTreeI(nkElifBranch, info,
-            newTreeI(nkCall, info,
+            newTreeIT(nkCall, info, cond.typ,
               newSymNode(c.graph.getSysMagic(info, "not", mNot)),
               cond),
             newBreakStmt(info, labl)))
