@@ -461,19 +461,19 @@ func sibling*(tree: MirTree, n: NodePosition): NodePosition =
     discard
 
 func previous*(tree: MirTree, n: NodePosition): NodePosition =
-  ## Computes the index of the previous sibling node of `x`
-  # TODO: should return a option. Not all nodes have predecessors
+  ## Computes the index of `n`'s the preceding sibling node. If there
+  ## is none, returns the index of the parent node.
   var i = n - 1
 
-  var depth = ord(tree[n].kind == mnkEnd)
+  var depth = ord(tree[i].kind == mnkEnd)
   while depth > 0:
-    let kind = tree[i].kind
-    # to be more efficient, we don't use branching. We're incrementing
-    # `depth` whenever we encounter the start of a sub-tree and decrement
-    # it when an 'end' node is encountered
-    depth += ord(kind == mnkEnd) - ord(kind in SubTreeNodes)
-
     dec i
+    let kind = tree[i].kind
+
+    # to be more efficient, we don't use branching. We're incrementing
+    # `depth` whenever we encounter the end of a sub-tree and decrement
+    # it when a start of one is encountered
+    depth += ord(kind == mnkEnd) - ord(kind in SubTreeNodes)
 
   assert ord(i) >= 0
   result = i
