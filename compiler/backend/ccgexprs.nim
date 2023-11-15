@@ -1718,7 +1718,8 @@ proc genDestroy(p: BProc; n: CgNode) =
     else: discard "nothing to do"
 
 proc genSlice(p: BProc; e: CgNode; d: var TLoc) =
-  let (x, y) = genOpenArraySlice(p, e, e.typ, e.typ.lastSon)
+  let (x, y) = genOpenArraySlice(p, e, e.typ,
+                                 e.typ.skipTypes(abstractVar).base)
   if d.k == locNone: getTemp(p, e.typ, d)
   linefmt(p, cpsStmts, "$1.Field0 = $2; $1.Field1 = $3;$n", [rdLoc(d), x, y])
   when false:
