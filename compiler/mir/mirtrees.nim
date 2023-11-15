@@ -570,6 +570,27 @@ iterator effects*(tree: MirTree, n: NodePosition): (EffectKind, OpValue) =
     if tree[arg+1].kind == mnkTag:
       yield (tree[arg+1].effect, OpValue(arg + 2))
 
+
+func findDef*(tree: MirTree, n: NodePosition): NodePosition =
+  ## Finds and returns the first definition for the name of the temporary
+  ## at node `n`. No control-flow analysis is performed.
+  let expected = tree[n].temp
+  # first, unwind until the closest statement
+  var n = n
+  while tree[n].kind notin StmtNodes:
+    n = tree.parent(n)
+
+  # then search for the definition statement
+  while n > NodePosition 0:
+    if tree[n].kind in DefNodes:
+      let name = tree.operand(n, 0)
+      if tree[name].kind in {mnkTemp, mnkAlias} and tree[name].temp == expected:
+        return n
+
+    n = tree.previous(n)
+
+  unreachable("no corresponding def found")
+
 # XXX: ``lpairs`` is not at all related to the mid-end IR. The ``pairs``
 #      iterator from the stdlib should be changed to use ``lent`` instead
 iterator lpairs*[T](x: seq[T]): (int, lent T) =
