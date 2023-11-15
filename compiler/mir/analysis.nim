@@ -11,10 +11,10 @@
 ## Each location that is not allocated via ``new`` or ``alloc`` is owned by a
 ## single handle (the name of a local, global, etc.), but can be aliased
 ## through both pointers and views. Once the owning handle goes out of scope,
-## the lifetime of the corresponding locatins ends, irrespective of whether an
+## the lifetime of the corresponding locatins ends, regardless of whether an
 ## unsafe alias (pointer) of it still exists.
 ##
-## Instead of assigning a unique ID to each value/lvalue, they're identified
+## Instead of assigning a unique ID to each expression, they're identified
 ## via the operation sequence that produces them (stored as a ``NodePosition``
 ## tuple). While the comparision is not as efficient as an equality test
 ## between two integers, it is still relatively cheap, and, in addition, also
@@ -40,6 +40,8 @@
 ## said to come before B and B to come after A. Not all operations are
 ## connected to each other through control-flow however, in which case the
 ## aforementioned relationship doesn't exist.
+##
+## TODO: update the doc comment, large parts of it are outdated
 
 import
   std/[
@@ -55,19 +57,16 @@ import
   compiler/sem/[
     aliasanalysis,
     mirexec,
-    typeallowed
   ],
   compiler/utils/[
     containers
-  ],
-  experimental/[
-    dod_helpers
   ]
 
 import std/packedsets
 
 type
   Owned* {.pure.} = enum
+    # TODO: remove ``Owned`` and use a ``PackedSet`` instead
     no
     yes
     weak ## values derived from compound values (e.g. ``object``, ``tuple``,
@@ -76,21 +75,9 @@ type
          ## them can't
     unknown
 
-  ValueInfo = object
-    root: opt(NodeInstance) ## the root of the value (or 'none' if the
-                            ## ``ValueInfo`` is invalid)
-    owns: Owned             ## whether the handle owns its value
-
   Values* = object
-    ## Stores information about the produced values plus the lvalue effects of
-    ## operations
-    values: OrdinalSeq[OpValue, ValueInfo]
-    # XXX: `values` currently stores an entry for each *node*. Not every node
-    #      represents an operation and we're also not interested in the value
-    #      of every operation, only of those that appear in specific contexts.
-    #      A ``Table`` could be used, but that would make lookup less
-    #      efficient (although less used memory could also mean better memory
-    #      locality)
+    ## Stores information about MIR expressions.
+    status: Table[OpValue, Owned]
 
   AliveState = enum
     unchanged
@@ -110,120 +97,24 @@ func skipConversions(tree: MirTree, val: OpValue): OpValue =
 
   result = OpValue(p)
 
-template getRoot*(v: Values, val: OpValue): OpValue =
-  OpValue v.values[val].root[]
-
 template owned*(v: Values, val: OpValue): Owned =
-  v.values[val].owns
+  v.status[val]
 
 func setOwned*(v: var Values, val: OpValue, owns: Owned) {.inline.} =
-  v.values[val].owns = owns
-
-func toLvalue*(v: Values, val: OpValue): LvalueExpr {.inline.} =
-  (NodePosition v.values[val].root[],
-   NodePosition val)
-
-func decayed(x: ValueInfo): ValueInfo {.inline.} =
-  ## Turns 'weak' ownership into 'no' ownership
-  result = x
-  if result.owns == Owned.weak:
-    result.owns = Owned.no
-
-func computeValuesAndEffects*(body: MirTree): Values =
-  ## Creates a ``Values`` dictionary with all operation effects collected and
-  ## (static) value roots computed. Value ownership is already computed where it
-  ## is possible to do so by just taking the static operation sequences into
-  ## account (i.e. no control- or data-flow analysis is performed)
-  result.values.newSeq(body.len)
-
-  template inherit(i, source: NodePosition) =
-    result.values[OpValue i] = result.values[OpValue source]
-
-  template inheritDecay(i, source: NodePosition) =
-    result.values[OpValue i] = decayed result.values[OpValue source]
-
-  # we're doing three things here:
-  # 1. propagate the value root
-  # 2. propagate ownership status
-  #
-  # This is done in a single forward iteration over all nodes in the code
-  # fragment -- nodes that don't represent operations are ignored.
-  # XXX: this is all going to change.
-
-  for i, n in body.pairs:
-    template start(owned: Owned) =
-      result.values[OpValue i] =
-        ValueInfo(root: someOpt(NodeInstance i), owns: owned)
-
-    case n.kind
-    of mnkOpParam:
-      # XXX: the body of regions are not yet analysed (they're skipped over).
-      #      Once they are, the ownership status of an `opParam` depends on
-      #      the corresponding argument. Values coming from 'name' and 'arg'
-      #      arguments are not owned, but for those coming from 'consume'
-      #      arguments, it depends (i.e. ``unknown``)
-      start: Owned.no
-    of mnkDeref, mnkDerefView, mnkConst, mnkType, mnkNone, mnkCast:
-      start: Owned.no
-    of mnkLiteral, mnkProc:
-      # literals are always owned (each instance can be mutated without
-      # impacting the others). Because of their copy-on-write mechanism,
-      # this also includes string literals
-      start: Owned.yes
-    of mnkTemp, mnkLocal, mnkGlobal, mnkParam:
-      # more context is required to know whether the value is owned
-      start: Owned.unknown
-    of mnkConstr:
-      # the result of a ``seq`` construction via ``constr`` is essentially a
-      # non-owning view into constant data
-      start:
-        if n.typ.skipTypes(abstractInst).kind == tySequence: Owned.no
-        else: Owned.weak
-    of mnkObjConstr:
-      start:
-        if n.typ.skipTypes(abstractInst).kind == tyRef: Owned.yes
-        else: Owned.weak
-      # ``mnkObjConstr`` is a sub-tree, so in order to keep the inheriting
-      # logic simple, the 'end' node for the sub-tree uses the same
-      # ``ValueInfo`` as the start node
-      inherit(findEnd(body, i), i)
-    of mnkCall, mnkMagic:
-      # we currently can't reason about which location(s) views alias, so
-      # we always treat values accessed through them as not owned
-      start:
-        if directViewType(n.typ) != noView: Owned.no
-        else: Owned.weak
-    of mnkStdConv, mnkConv:
-      # non-lvalue conversions produces a new unique value, meaning that
-      # the result is always owned
-      start: Owned.yes
-    of mnkAddr, mnkView, mnkPathPos, mnkPathVariant:
-      inheritDecay(i, NodePosition body.operand(i))
-    of mnkPathArray:
-      # inherit from the first operand (i.e. the array-like value)
-      inheritDecay(i, NodePosition operand(body, Operation(i), 0))
-    of mnkPathNamed:
-      inheritDecay(i, NodePosition body.operand(i))
-      if sfCursor in n.field.flags:
-        # any lvalue derived from a cursor location is non-owning
-        result.values[OpValue i].owns = Owned.no
-    of mnkPathConv:
-      inherit(i, NodePosition body.operand(i))
-
-    of AllNodeKinds - InOutNodes - InputNodes + {mnkTag, mnkArgBlock}:
-      discard "leave uninitialized"
+  v.status[val] = owns
 
 func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
-             span: Slice[NodePosition], loc: LvalueExpr,
-             pos: NodePosition): bool =
-  ## Computes if the location named by `loc` does contain a value at `pos`
-  ## (i.e. is alive). The performed data-flow analysis only considers code
-  ## inside `span`
-  template toLvalue(val: OpValue): LvalueExpr =
-    toLvalue(v, val)
+             span: Slice[InstrPos], loc: Path,
+             start: InstrPos): bool =
+  ## Computes if the location named by `loc` does contain a value (i.e., is
+  ## alive) when the DFG instruction at `start` is reached (but not executed).
+  ## The performed data-flow analysis only considers DFG instructions inside
+  ## `span`.
+  template path(val: OpValue): Path =
+    computePath(tree, NodePosition val)
 
   template overlaps(val: OpValue): bool =
-    overlaps(tree, loc, toLvalue val) != no
+    overlaps(tree, loc, path(val)) != no
 
   # this is a reverse data-flow problem. We follow all control-flow paths from
   # `pos` backwards until either there's no path left to follow or one of them
@@ -233,7 +124,7 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
   # somewhere else)
 
   var exit = false
-  for op, n in traverseReverse(cfg, span, pos, exit):
+  for op, n in traverseReverse(cfg, span, start, exit):
     case op
     of opDef, opMutate:
       if overlaps(n):
@@ -246,7 +137,7 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
         return true
 
     of opKill:
-      if isPartOf(tree, loc, toLvalue n) == yes:
+      if isPartOf(tree, loc, path n) == yes:
         exit = true
 
     of opInvalidate:
@@ -260,7 +151,7 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
 
     of opConsume:
       if v.owned(n) == Owned.yes:
-        if isPartOf(tree, loc, toLvalue n) == yes:
+        if isPartOf(tree, loc, path n) == yes:
           # the location's value is consumed and it becomes empty. No operation
           # coming before the current one can change that, so we can stop
           # traversing the current path
@@ -275,7 +166,7 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
   result = false
 
 func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
-                 span: Slice[NodePosition], loc: LvalueExpr, pos: NodePosition
+                 span: Slice[InstrPos], loc: Path, start: InstrPos
                 ): bool =
   ## Performs data-flow analysis to compute whether the value that `loc`
   ## evaluates to at `pos` is *not* observed by operations that have a
@@ -285,14 +176,14 @@ func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   ## underlying *location* is accessed, but rather the *value* it stores. If a
   ## new value is assigned to the underlying location which is then accessed
   ## after, it won't cause the analysis to return false
-  template toLvalue(val: OpValue): LvalueExpr =
-    toLvalue(values, val)
+  template path(val: OpValue): Path =
+    computePath(tree, NodePosition val)
 
   var state: TraverseState
-  for op, n in traverse(tree, cfg, span, pos, state):
+  for op, n in traverse(tree, cfg, span, start, state):
     case op
     of opDef:
-      let cmp = compareLvalues(tree, loc, toLvalue n)
+      let cmp = compare(tree, loc, path n)
       if isAPartOfB(cmp) == yes:
         # the location is reassigned -> all operations coming after will
         # observe a different value
@@ -303,12 +194,12 @@ func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
         return false
 
     of opMutate:
-      if overlaps(tree, loc, toLvalue n) != no:
+      if overlaps(tree, loc, path n) != no:
         # the location is partially written to
         return false
 
     of opKill:
-      let cmp = compareLvalues(tree, loc, toLvalue n)
+      let cmp = compare(tree, loc, path n)
       if isAPartOfB(cmp) == yes:
         # the location is definitely killed, it no longer stores the value
         # we're interested in
@@ -324,7 +215,7 @@ func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
         return false
 
     of opUse, opConsume:
-      if overlaps(tree, loc, toLvalue n) != no:
+      if overlaps(tree, loc, path n) != no:
         # value is observed -> not the last read
         return false
 
@@ -335,7 +226,7 @@ func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   result = true
 
 func isLastWrite*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
-                  span: Slice[NodePosition], loc: LvalueExpr, pos: NodePosition
+                  span: Slice[InstrPos], loc: Path, start: InstrPos
                  ): tuple[result, exits, escapes: bool] =
   ## Computes if the location `loc` is not reassigned to or modified while it
   ## still contains the value it contains at `pos`. In other words, computes
@@ -344,20 +235,20 @@ func isLastWrite*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   ##
   ## In addition, whether the `pos` is connected to a structured or
   ## unstructured exit of `span` is also returned
-  template toLvalue(val: OpValue): LvalueExpr =
-    toLvalue(values, val)
+  template path(val: OpValue): Path =
+    computePath(tree, NodePosition val)
 
   var state: TraverseState
-  for op, n in traverse(tree, cfg, span, pos, state):
+  for op, n in traverse(tree, cfg, span, start, state):
     case op
     of opDef, opMutate, opInvalidate:
       # note: since we don't know what happens to the location when it is
       # invalidated, the ``opInvalidate`` is also included here
-      if overlaps(tree, loc, toLvalue n) != no:
+      if overlaps(tree, loc, path n) != no:
         return (false, false, false)
 
     of opKill:
-      let cmp = compareLvalues(tree, loc, toLvalue n)
+      let cmp = compare(tree, loc, path n)
       if isAPartOfB(cmp) == yes:
         state.exit = true
 
@@ -390,7 +281,7 @@ func computeAliveOp*[T: PSym | TempId](
       {.error.}
 
   template isRootOf(val: OpValue): bool =
-    isAnalysedLoc(tree[values.getRoot(val)], loc)
+    isAnalysedLoc(tree[getRoot(tree, NodePosition val)], loc)
 
   template sameLocation(val: OpValue): bool =
     isAnalysedLoc(tree[skipConversions(tree, val)], loc)
@@ -427,7 +318,7 @@ func computeAliveOp*[T: PSym | TempId](
     discard
 
 func computeAlive*[T](tree: MirTree, cfg: ControlFlowGraph, values: Values,
-                      span: Slice[NodePosition], loc: T, hasInitialValue: bool,
+                      span: Slice[InstrPos], loc: T,
                       op: static ComputeAliveProc[T]
                      ): tuple[alive, escapes: bool] =
   ## Computes whether the location is alive when `span` is exited via either
@@ -450,11 +341,6 @@ func computeAlive*[T](tree: MirTree, cfg: ControlFlowGraph, values: Values,
     of unchanged:
       discard
 
-  if exit and hasInitialValue:
-    # an unstructured exit is connected to the start of the span and the
-    # location starts initialized
-    return (true, true)
-
   # check if the location is alive at the structured exit of the span
   for opc, n in traverseReverse(cfg, span, span.b + 1, exit):
     case op(tree, values, loc, opc, n)
@@ -467,10 +353,10 @@ func computeAlive*[T](tree: MirTree, cfg: ControlFlowGraph, values: Values,
     of unchanged:
       discard
 
-  result = (exit and hasInitialValue, false)
+  result = (false, false)
 
-proc doesGlobalEscape*(tree: MirTree, scope: Slice[NodePosition],
-                       start: NodePosition, s: PSym): bool =
+proc doesGlobalEscape*(tree: MirTree, scope: Slice[InstrPos],
+                       start: InstrPos, s: PSym): bool =
   ## Computes if the global `s` potentially "escapes". A global escapes if it
   ## is not declared at module scope and is used inside a procedure that is
   ## then called outside the analysed global's scope. Example:
@@ -506,18 +392,3 @@ proc doesGlobalEscape*(tree: MirTree, scope: Slice[NodePosition],
   #      to detect and report it during semantic analysis instead -- the
   #      required DFA is not as simple there as it is with the MIR however
   result = false
-
-func isConsumed*(tree: MirTree, val: OpValue): bool =
-  ## Computes if `val` is definitely consumed. This is the case if it's
-  ## directly used in a consume context, ignoring handle conversions.
-  var dest = NodePosition(val)
-  while true:
-    dest = sibling(tree, dest)
-
-    case tree[dest].kind
-    of mnkPathConv:
-      discard "skip conversions"
-    of ConsumeCtx:
-      return true
-    else:
-      return false
