@@ -247,8 +247,7 @@ type
              ## If it appears as a statement, it is expected to not have any
              ## obsersvable effects
              ## XXX: eventually, everything that currently requires
-             ##      ``mnkPNode`` (for example, ``nkAsmStmt``, emit, etc.)
-             ##      should be expressable directly in the IR
+             ##      ``mnkPNode`` should be expressable directly in the IR
 
   EffectKind* = enum
     ekMutate    ## the value in the location is mutated
@@ -334,7 +333,7 @@ const
     ## Node kinds that represent definition statements (i.e. something that
     ## introduces a named entity)
 
-  AtomNodes* = {mnkNone..mnkType, mnkBreak, mnkReturn}
+  AtomNodes* = {mnkNone..mnkType, mnkBreak, mnkReturn, mnkPNode}
     ## Nodes that don't support sub nodes.
 
   SubTreeNodes* = AllNodeKinds - AtomNodes - {mnkEnd}
