@@ -525,8 +525,22 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
     if instr.op == opJoin:
       result.map[instr.id] = InstrPos(i)
 
+func rangeFor*(cfg: ControlFlowGraph, span: Slice[NodePosition]
+              ): Slice[InstrPos] =
+  ## Computes the span of data-/control-flow instructions that correspond to
+  ## statements/expressions within `span`.
+  result.a = lowerBound(cfg, span.a)
+  result.b = upperBound(cfg, span.b) - 1
+
+iterator instructions*(cfg: ControlFlowGraph): (InstrPos, Opcode, OpValue) =
+  ## Returns all data-flow operations in order of appearance together with
+  ## their position.
+  for i, it in cfg.instructions.pairs:
+    if it.op in DataFlowOps - {opMutateGlobal}:
+      yield (InstrPos i, it.op, it.val)
+
 iterator traverse*(tree: MirTree, c: ControlFlowGraph,
-                   span: Slice[NodePosition], start: NodePosition,
+                   span: Slice[InstrPos], start: InstrPos,
                    state: var TraverseState): (Opcode, OpValue) =
   ## Starts at `start` and traverses/yields all basic blocks inside `span`
   ## in control-flow order. That is, except for in the context of loops, each
@@ -541,9 +555,8 @@ iterator traverse*(tree: MirTree, c: ControlFlowGraph,
   ## of ``TraverseState`` for more information.
   assert start in span
   var
-    pc = lowerBound(c, start)
-    start = pc
-    last = upperBound(c, span.b) - 1 # TODO: verify
+    pc = start
+    last = span.b
     queue: seq[InstrPos]
     visited: PackedSet[JoinId]
 
@@ -564,7 +577,7 @@ iterator traverse*(tree: MirTree, c: ControlFlowGraph,
     ## it to the execution queue, effectively starting a new thread. Records
     ## an escape otherwise
     let dst = c.map[target]
-    if c[dst].node in span:
+    if dst in span:
       queue.incl dst
     else:
       state.escapes = true
@@ -673,7 +686,7 @@ func processJoin(id: JoinId, s: var ExecState, c: ControlFlowGraph) {.inline.} =
     s.time = s.visited[id]
 
 iterator traverseReverse*(c: ControlFlowGraph,
-                          span: Slice[NodePosition], start: NodePosition,
+                          span: Slice[InstrPos], start: InstrPos,
                           exit: var bool): (Opcode, OpValue) =
   ## Starts at `start - 1` and visits and returns all basic blocks inside
   ## `span` in post-order.
@@ -693,17 +706,13 @@ iterator traverseReverse*(c: ControlFlowGraph,
       start..start-1 # `span` is empty
 
   s.visited.newSeq(c.map.len)
-  s.pc = upperBound(c, span.b) - 1
-  # start activity *after* the start position is reached so that
-  # the start node itself is not yielded
+  s.pc = span.b
   s.top = high(Time)
   s.time = s.top
   s.bottom = s.time
 
   let
-    start = upperBound(c, start - 1)
-      ## the first instruction associated with the input `start`
-    fin   = lowerBound(c, span.a)
+    fin = span.a
       ## abstract control-flow reaching this instructions means "end reached"
 
   exit = false
@@ -784,7 +793,7 @@ iterator traverseReverse*(c: ControlFlowGraph,
 
   exit = s.active
 
-iterator traverseFromExits*(c: ControlFlowGraph, span: Slice[NodePosition],
+iterator traverseFromExits*(c: ControlFlowGraph, span: Slice[InstrPos],
                             exit: var bool): (Opcode, OpValue) =
   ## Similar to ``traverseReverse``, but starts traversal at each unstructured
   ## exit of `span`. Here, unstructured exit means that the control-flow leaves
@@ -798,19 +807,17 @@ iterator traverseFromExits*(c: ControlFlowGraph, span: Slice[NodePosition],
   const EntryTime = high(Time)
   var s: ExecState
 
-  s.pc = upperBound(c, s.i) - 1
+  let fin = span.a
+  s.pc = span.b
   s.visited.newSeq(c.map.len)
-
   s.time = 0 # start as disabled
   s.top = EntryTime
   s.bottom = EntryTime
 
-  let fin = lowerBound(c, span.a) # TODO: verify
-
   exit = false
 
   template exits(target: JoinId): bool =
-    c[c.map[target]].node notin span
+    c.map[target] notin span
 
   # for the most part similar to the loop in ``traverseReverse``, but with
   # special handling for jumps outside of `span`
