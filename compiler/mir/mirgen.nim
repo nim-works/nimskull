@@ -1586,7 +1586,9 @@ proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
         #      really correct, but it makes the logic here simpler, and
         #      the whole facility is unsafe enough that one should not depend
         #      on these kind of details
-        c.use genRd(c, it)
+        # don't capture values of symbols, emit and asm both expect the symbol
+        # as-written to be embedded
+        c.use genUse(c, it)
 
 proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for assigning the value resulting from
