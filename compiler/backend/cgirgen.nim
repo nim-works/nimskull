@@ -722,7 +722,7 @@ proc defToIr(tree: TreeWithSource, cl: var TranslateCl,
         case arg.kind
         of cnkEmpty: arg
         else:        newStmt(cnkAsgn, info, [def, arg])
-    elif def.kind == cnkLocal:
+    else:
       result = newStmt(cnkDef, info, [def, arg])
   of cnkSym:
     # there are no defs for globals in the ``CgNode`` IR, so we
@@ -742,6 +742,9 @@ proc defToIr(tree: TreeWithSource, cl: var TranslateCl,
       else:
         result = newStmt(cnkAsgn, info, [def, newDefaultCall(info, def.typ)])
     else:
+      if sfImportc notin def.sym.flags and cl.inUnscoped:
+        # default intialization is required at the start of the scope
+        cl.defs.add def
       result = newStmt(cnkAsgn, info, [def, arg])
   of cnkEmpty:
     result = def
