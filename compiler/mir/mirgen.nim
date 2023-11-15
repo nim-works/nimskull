@@ -1666,6 +1666,9 @@ proc genPath(c: var TCtx, n: PNode; sink = false) =
       # it's a ``ref`` or ``ptr`` deref
       c.subTree MirNode(kind: mnkDeref, typ: n.typ):
         c.use genRd(c, n[0])
+  of nkStmtListExpr:
+    let x = unwrap(c, n)
+    genPath(c, x)
   else:
     # expected a path element but got something else, e.g., ``call().x``
     c.use genRd(c, n, sink)
