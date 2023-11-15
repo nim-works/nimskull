@@ -1260,7 +1260,11 @@ proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
 
     # the initializer is optional
     if val.kind != nkEmpty:
-      genAsgnSource(c, val, (sfCursor notin s.flags))
+      # XXX: some closure types are erroneously reported as having no
+      #      destructor, which would lead to memory leaks if the
+      #      expression is a closure construction. As a work around,
+      #      a missing destructor disables the sink context
+      genAsgnSource(c, val, (sfCursor notin s.flags) and hasDestructor(s.typ))
     else:
       c.staging.add MirNode(kind: mnkNone)
 
