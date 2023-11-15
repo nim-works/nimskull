@@ -145,7 +145,10 @@ type
     #      on removing the need for it
     mnkCast       ## ``cast(x)``; produces a new *instance* of the input value
                   ## with a different type
-    mnkToSlice    ## conversion to openArray
+    mnkToSlice    ## creates an openArray from the full sequence specified as
+                  ## the operand
+    # future direction: also use to ``ToSlice`` for creating sub-slices (i.e.,
+    # ``toOpenArray``)
 
     mnkCall   ## ``call(p, ...)``; transfers control-flow (i.e. calls) the
               ## procedure that `p` evaluates to and passes the provided
