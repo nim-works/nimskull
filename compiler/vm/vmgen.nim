@@ -1927,15 +1927,14 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.freeTemp(tmp)
   of mEcho:
     unused(c, n, dest)
-    let n = n[1].skipConv
-    if n.kind == cnkArrayConstr:
-      # can happen for nim check, see bug #9609
-      let x = c.prc.getTempRange(n.len, slotTempUnknown)
-      for i in 0..<n.len:
-        var r: TRegister = x+i
-        c.gen(n[i], r)
-      c.gABC(n, opcEcho, x, n.len)
-      c.freeTempRange(x, n.len)
+    let
+      numArgs = n.len - 2
+      x = c.prc.getTempRange(numArgs, slotTempUnknown)
+    for i in 0..<numArgs:
+      var r: TRegister = x+i
+      c.gen(n[i + 2], r)
+    c.gABC(n, opcEcho, x, numArgs)
+    c.freeTempRange(x, numArgs)
   of mAppendStrCh:
     unused(c, n, dest)
     genBinaryStmtVar(c, n, opcAddStrCh)

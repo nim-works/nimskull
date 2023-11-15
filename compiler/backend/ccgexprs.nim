@@ -807,16 +807,19 @@ proc genArrayLikeElem(p: BProc; n: CgNode; d: var TLoc) =
   discard getTypeDesc(p.module, n.typ)
 
 proc genEcho(p: BProc, n: CgNode) =
-  # this unusual way of implementing it ensures that e.g. ``echo("hallo", 45)``
-  # is threadsafe.
-  internalAssert p.config, n.kind == cnkArrayConstr
-  block:
-    if n.len == 0:
-      linefmt(p, cpsStmts, "#echoBinSafe(NIM_NIL, $1);$n", [n.len])
-    else:
+  ## Generates and emits the code for the magic echo call.
+  if n.len == 1:
+    linefmt(p, cpsStmts, "#echoBinSafe(NIM_NIL, 0);$n", [])
+  else:
+    # allocate a temporary array and fill it with the arguments:
+    var tmp: TLoc
+    getTemp(p, n[1].typ, tmp) # the first argument stores the type to use
+    for i in 2..<n.len:
       var a: TLoc
-      initLocExpr(p, n, a)
-      linefmt(p, cpsStmts, "#echoBinSafe($1, $2);$n", [a.rdLoc, n.len])
+      initLocExpr(p, n[i], a)
+      linefmt(p, cpsStmts, "$1[$2] = $3;$n", [rdLoc(tmp), i-2, rdLoc(a)])
+
+    linefmt(p, cpsStmts, "#echoBinSafe($1, $2);$n", [rdLoc(tmp), n.len-2])
 
 proc strLoc(p: BProc; d: TLoc): Rope =
   result = byRefLoc(p, d)
@@ -1819,7 +1822,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
 
     genCall(p, e, d)
   of mDefault: genDefault(p, e, d)
-  of mEcho: genEcho(p, e[1].skipConv)
+  of mEcho: genEcho(p, e)
   of mArrToSeq: genArrToSeq(p, e, d)
   of mNLen..mNError, mStatic..mQuoteAst:
     localReport(p.config, e.info, reportSym(

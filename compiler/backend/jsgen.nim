@@ -1480,12 +1480,10 @@ proc genCall(p: PProc, n: CgNode, r: var TCompRes) =
       r.typ = t
 
 proc genEcho(p: PProc, n: CgNode, r: var TCompRes) =
-  let n = n[1].skipConv
-  internalAssert p.config, n.kind == cnkArrayConstr
   useMagic(p, "toJSStr") # Used in rawEcho
   useMagic(p, "rawEcho")
   r.res.add("rawEcho(")
-  for i in 0..<n.len:
+  for i in 2..<n.len:
     let it = n[i]
     if it.typ.isCompileTimeOnly: continue
     if i > 0: r.res.add(", ")
