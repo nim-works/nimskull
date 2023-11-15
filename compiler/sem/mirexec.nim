@@ -705,21 +705,17 @@ iterator traverseReverse*(c: ControlFlowGraph,
   s.bottom = s.time
 
   let
-    start = lowerBound(c, start - 1)
-      ## the first executed instruction
-    fin   = lowerBound(c, span.a) # TODO: verify
+    start = upperBound(c, start - 1)
+      ## the first instruction associated with the input `start`
+    fin   = lowerBound(c, span.a)
       ## abstract control-flow reaching this instructions means "end reached"
-
-  # dump s.pc
-  # dump start
-  # dump fin
 
   exit = false
 
   # move the program counter to the DFG instruction that marks the start of the
   # basic block `start` is located inside. While doing so, collect the loops
   # the start position is located inside:
-  while s.pc > start:
+  while s.pc >= start:
     let instr = c[s.pc]
     case instr.op
     of opLoop:
@@ -768,7 +764,7 @@ iterator traverseReverse*(c: ControlFlowGraph,
       # prevent the first half of the basic block we started inside to be
       # returned:
       let adjusted =
-        if prev > start: start + 1
+        if prev >= start: start
         else:             fin
 
       while s.pc >= adjusted and c[s.pc].op in DataFlowOps and not exit:
@@ -781,20 +777,14 @@ iterator traverseReverse*(c: ControlFlowGraph,
         exit = false
         s.time = 0 # disable execution
 
-      if s.pc == start:
-        # we've reached the start position, so set the time to what it was at
-        # the start
-        s.time = high(Time)
-        dec s.pc
-
     else:
       while s.pc >= fin and c[s.pc].op in DataFlowOps:
         dec s.pc
 
-      if s.pc <= start and prev >= start:
-        # we've reached the start position, so set the time to what it was at
-        # the start
-        s.time = high(Time)
+    if s.pc < start and prev >= start:
+      # we've crossed the start position, so set the time to what it was at
+      # the start
+      s.time = high(Time)
 
   exit = s.active
 
