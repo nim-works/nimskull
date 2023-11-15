@@ -40,7 +40,7 @@ func `$`(n: MirNode): string =
     result.add ", lit: "
     {.cast(noSideEffect).}:
       result.add renderTree(n.lit)
-  of mnkTemp:
+  of mnkTemp, mnkAlias:
     result.add ", temp: "
     result.add $ord(n.temp)
   of mnkPathPos:

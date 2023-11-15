@@ -61,6 +61,8 @@ type
     mnkTemp   ## temporary; works the same as a ``mnkLocal`` but uses a
               ## separate namespace. This currently allows for cheap ad-hoc
               ## introduction of new locals
+    mnkAlias  ## local run-time handle. This is essentially a ``var T`` or
+              ## ``lent T`` local
 
     mnkField  ## declarative node only allowed in special contexts
 
@@ -77,9 +79,15 @@ type
                  ## or temporary. Supports an optional intial value (except for
                  ## procedure definitions)
     mnkDefCursor ## marks the start of existence of a non-owning location
-    # future direction: remove this distinction and perform all decision (e.g.,
-    # injecting destructors) making requiring knowledge of locations' ownership
-    # in ``mirgen``
+    # future direction: remove this distinction and perform all related decision
+    # making (e.g., injecting destructors) requiring knowledge of locations'
+    # ownership in ``mirgen``. There's only going to be the ``Def`` kind
+    mnkDefUnpack ## intermediate hack required by destructor injection. Don't
+                 ## use
+    mnkBind      ## introduces an alias that may only be used for read access.
+                 ## The source expression must not be empty
+    mnkBindMut   ## introduces an alias that may be used for write access.
+                 ## The source expression must not be empty
 
     mnkFastAsgn ## ``fastAsgn(dst, src)``; assigns the `src` value to the location
                 ## named by the lvalue `dst`. Neither the previous value in the
@@ -257,7 +265,7 @@ type
       field*: PSym
     of mnkLiteral:
       lit*: PNode
-    of mnkTemp:
+    of mnkTemp, mnkAlias:
       temp*: TempId
     of mnkPathPos:
       position*: uint32 ## the 0-based position of the field
@@ -311,7 +319,7 @@ const
   AllNodeKinds* = {low(MirNodeKind)..high(MirNodeKind)}
     ## Convenience set containing all existing node kinds
 
-  DefNodes* = {mnkDef, mnkDefCursor}
+  DefNodes* = {mnkDef, mnkDefCursor, mnkDefUnpack, mnkBind, mnkBindMut}
     ## Node kinds that represent definition statements (i.e. something that
     ## introduces a named entity)
 

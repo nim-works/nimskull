@@ -612,11 +612,13 @@ proc transformConv(c: PTransf, n: PNode): PNode =
     else:
       result = transformSons(c, n)
   of tyOpenArray, tyVarargs:
-    result = transform(c, n[1])
-    #result = transformSons(c, n)
-    result.typ = n[1].typ
-    #echo n.info, " came here and produced ", typeToString(result.typ),
-    #   " from ", typeToString(n.typ), " and ", typeToString(n[1].typ)
+    result = transformSons(c, n)
+    if dest.kind == tyVarargs:
+      # XXX: for simpler handling in ``mirgen``, to-vararg conversions are
+      #      changed into to-openArray conversions here. This needs to be
+      #      removed again once the MIR uses its own type representation
+      result.typ = copyType(dest, c.idgen.nextTypeId(), getCurrOwner(c))
+      result.typ.kind = tyOpenArray
   of tyCstring:
     if source.kind == tyString:
       result = newTreeIT(nkStringToCString, n.info, n.typ): transform(c, n[1])
