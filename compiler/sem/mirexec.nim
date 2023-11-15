@@ -121,8 +121,6 @@ type
     pc: InstrPos
       ## the program counter. Points to the CFG instruction that is executed
       ## next
-    i: NodePosition
-      ## points to the next item to yield
 
   ClosureEnv = object
     ## The working state of the data-flow graph creation.
@@ -640,7 +638,6 @@ func processJoin(id: JoinId, s: var ExecState, c: ControlFlowGraph) {.inline.} =
 
       # jump to the end of the loop:
       s.pc = p
-      s.i = c[p].node
       # remember the current `top` and prevent blocks already visited during
       # the first pass from being visited again by setting `top` to the current
       # time:
@@ -699,7 +696,6 @@ iterator traverseReverse*(c: ControlFlowGraph,
   s.pc = upperBound(c, span.b) - 1
   # start activity *after* the start position is reached so that
   # the start node itself is not yielded
-  s.i = start - 1
   s.top = high(Time)
   s.time = s.top
   s.bottom = s.time
@@ -802,7 +798,6 @@ iterator traverseFromExits*(c: ControlFlowGraph, span: Slice[NodePosition],
   const EntryTime = high(Time)
   var s: ExecState
 
-  s.i = span.b
   s.pc = upperBound(c, s.i) - 1
   s.visited.newSeq(c.map.len)
 
