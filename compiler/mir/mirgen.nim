@@ -449,7 +449,14 @@ proc genUse(c: var TCtx, n: PNode): EValue =
     c.staging.nodes.setLen(start)
   else:
     let tmp = c.allocTemp(n.typ)
-    c.stmts.subTree mnkDef:
+    # TODO: consolidate with ``genRd``
+    let def =
+      case c.staging.nodes[start].kind
+      of mnkCall, mnkMagic, mnkView, mnkToSlice:
+        mnkDef
+      else:
+        mnkDefCursor
+    c.stmts.subTree def:
       c.stmts.add tmp.node
       # move the expression into the definition statement:
       c.commit(start)
