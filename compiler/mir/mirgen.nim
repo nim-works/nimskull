@@ -140,10 +140,6 @@ type
 
     sp: SourceProvider
 
-    tmpMap: Table[ItemId, TempId]
-      ## maps the ID of ``skTemp`` symbols to the ``TempId`` used to refer to
-      ## them in output
-
     numTemps: int  ## provides the ID for temporaries
     numLabels: int ## provides the ID to use for the next label
 
@@ -408,7 +404,11 @@ proc genEmpty(c: var TCtx, n: PNode): EValue =
   result = EValue(typ: c.graph.getSysType(n.info, tyVoid))
 
 func nameNode(s: PSym): MirNode =
-  if sfGlobal in s.flags:
+  if s.kind == skTemp:
+    # temporaries are always locals, even if marked with the ``sfGlobal``
+    # flag
+    MirNode(kind: mnkLocal, typ: s.typ, sym: s)
+  elif sfGlobal in s.flags:
     MirNode(kind: mnkGlobal, typ: s.typ, sym: s)
   elif s.kind == skParam:
     MirNode(kind: mnkParam, typ: s.typ, sym: s)
@@ -1156,10 +1156,7 @@ proc genLocDef(c: var TCtx, n: PNode) =
   c.stmts.subTree MirNode(kind: selectDefKind(s)):
     case s.kind
     of skTemp:
-      let id = nextTempId(c)
-      c.tmpMap[s.itemId] = id
-
-      c.stmts.add MirNode(kind: mnkTemp, typ: s.typ, temp: id)
+      c.stmts.add MirNode(kind: mnkLocal, typ: s.typ, sym: s)
     else:
       let kind =
         if sfGlobal in s.flags: mnkGlobal
@@ -1549,10 +1546,8 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
   of nkSym:
     let s = n.sym
     case s.kind
-    of skVar, skForVar, skLet, skResult, skParam, skConst:
+    of skVar, skForVar, skLet, skResult, skParam, skConst, skTemp:
       genLocation(c, n)
-    of skTemp:
-      tempNode(c, s.typ, c.tmpMap[s.itemId])
     of skProc, skFunc, skConverter, skMethod, skIterator:
       procLit(c, s)
     else:
