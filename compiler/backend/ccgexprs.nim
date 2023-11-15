@@ -151,7 +151,7 @@ proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
     linefmt(p, cpsStmts, "$1.Field0 = $2; $1.Field1 = $3;$n",
       [rdLoc(d), rdLoc(a), rope(lengthOrd(p.config, a.t))])
   of tyString:
-    if skipTypes(a.t, abstractInst).kind in {tyVar}:
+    if skipTypes(d.t, abstractInst).kind in {tyVar}:
       linefmt(p, cpsStmts, "#nimPrepareStrMutationV2($1);$n", [byRefLoc(p, a)])
 
     linefmt(p, cpsStmts, "$1.Field0 = $2$3; $1.Field1 = $4;$n",
