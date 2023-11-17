@@ -68,7 +68,7 @@ proc echoMir*(config: ConfigRef, owner: PSym, tree: MirTree) =
   ## through ``config.writeln``.
   if config.getStrDefine("nimShowMir") == owner.name.s:
     writeBody(config, "-- MIR: " & owner.name.s):
-      config.writeln(print(tree))
+      config.writeln(treeRepr(tree))
 
 proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
   ## If requested via the define, renders the output IR `body` and writes the

@@ -210,7 +210,7 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string) =
       body
 
   case nodes[i].kind
-  of LvalueExprKinds + RvalueExprKinds:
+  of LvalueExprKinds + Atoms:
     valueToStr(nodes, i, result)
   of mnkAddr:
     tree "addr ":
