@@ -167,7 +167,7 @@ func discoverGlobalsAndRewrite(data: var DiscoveryData, tree: var MirTree,
             g
         data.registerGlobal(s)
 
-      i = findEnd(tree, i) + 1 # skip the def's body
+      i = sibling(tree, i)
     else:
       inc i
 
