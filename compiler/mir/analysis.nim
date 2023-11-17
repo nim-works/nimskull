@@ -88,14 +88,11 @@ type
     proc(tree: MirTree, values: Values, loc: T, op: Opcode,
          n: OpValue): AliveState {.nimcall, noSideEffect.}
 
-func skipConversions(tree: MirTree, val: OpValue): OpValue =
-  ## Returns the producing operation after skipping handle-only
-  ## conversions.
-  var p = NodePosition(val)
-  while tree[p].kind == mnkPathConv:
-    p = previous(tree, p)
-
-  result = OpValue(p)
+func skipConversions*(tree: MirTree, val: OpValue): OpValue =
+  ## Returns the expression after skipping handle-only conversions.
+  result = val
+  while tree[result].kind == mnkPathConv:
+    result = tree.operand(result)
 
 template owned*(v: Values, val: OpValue): Owned =
   v.status[val]
