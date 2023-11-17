@@ -300,8 +300,8 @@ iterator deps*(tree: MirTree; includeMagics: set[TMagic]): PSym =
     let n {.cursor.} = tree[i]
     case n.kind
     of mnkDef:
-      # make sure to not process the entity inside a 'def'
-      i = sibling(tree, i)
+      # skip over the name slot:
+      i = NodePosition tree.operand(i, 1)
       continue
     of mnkProc:
       # XXX: `includeMagics` is a workaround. Magics should either lowered
