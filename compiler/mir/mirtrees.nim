@@ -349,9 +349,10 @@ const
   ArgumentNodes* = {mnkArg, mnkName, mnkConsume}
     ## Nodes only allowed in argument contexts.
 
-  StmtNodes* = {mnkScope, mnkRepeat, mnkTry, mnkBlock, mnkBreak, mnkReturn,
-                mnkPNode, mnkInit, mnkAsgn, mnkSwitch, mnkFastAsgn,
-                mnkVoid} + DefNodes
+  StmtNodes* = {mnkScope, mnkStmtList, mnkIf, mnkCase, mnkRepeat, mnkTry,
+                mnkBlock, mnkBreak, mnkReturn, mnkRaise, mnkPNode, mnkInit,
+                mnkAsgn, mnkSwitch, mnkFastAsgn, mnkVoid, mnkRaise, mnkEmit,
+                mnkAsm} + DefNodes
     ## Nodes that always act as statements syntax-wise.
 
   SymbolLike* = {mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal}
@@ -359,7 +360,7 @@ const
 
   # --- semantics-focused sets:
 
-  Atoms* = {mnkNone .. mnkType}
+  Atoms* = {mnkNone .. mnkType} - {mnkField}
     ## Nodes that may be appear in atom-expecting slots.
 
   ConsumeCtx* = {mnkConsume, mnkRaise}
