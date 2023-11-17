@@ -379,6 +379,13 @@ const
     ## effects
     ## XXX: this set too
 
+  LvalueExprKinds* = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathVariant,
+                      mnkPathConv, mnkDeref, mnkDerefView, mnkTemp, mnkAlias,
+                      mnkLocal, mnkParam, mnkConst, mnkGlobal}
+  RvalueExprKinds* = {mnkLiteral, mnkType, mnkProc, mnkConv, mnkStdConv, mnkCast}
+  ExprKinds* =       {mnkCall, mnkMagic, mnkConstr, mnkObjConstr} +
+                     LvalueExprKinds + RvalueExprKinds
+
 func `==`*(a, b: TempId): bool {.borrow.}
 func `==`*(a, b: LabelId): bool {.borrow.}
 

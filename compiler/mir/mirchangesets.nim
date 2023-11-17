@@ -113,6 +113,10 @@ func replace*(c: var Changeset, tree: MirTree, at: NodePosition,
   let next = sibling(tree, at)
   c.rows.add row(at, next, c.nodes.addSingle(with), at)
 
+func replaceSingle*(c: var Changeset, at: NodePosition, with: sink MirNode) =
+  ## Replaces the single node at `at` with `with`.
+  c.rows.add row(at, at+1, c.nodes.addSingle(with), at)
+
 func insert*(c: var Changeset, at: NodePosition, n: sink MirNode,
              source: NodeInstance) =
   ## Records the insertion of `n` at `at`, using `source` as the
