@@ -35,6 +35,7 @@ import
   ],
   compiler/mir/[
     mirtrees,
+    mirconstr,
     sourcemaps
   ],
   compiler/utils/[
@@ -102,11 +103,6 @@ func initChangeset*(tree: MirTree): Changeset =
        (let ent = child(tree, i, 0); ent.kind == mnkTemp):
       result.numTemps = max(ent.temp.uint32 + 1, result.numTemps)
 
-func getTemp*(c: var Changeset): TempId =
-  ## Allocates a slot for new temporary and returns its ID
-  result = TempId(c.numTemps)
-  inc c.numTemps
-
 func replace*(c: var Changeset, tree: MirTree, at: NodePosition,
               with: sink MirNode) =
   ## Records replacing the node or sub-tree at `at` with `with`.
@@ -123,6 +119,10 @@ func insert*(c: var Changeset, at: NodePosition, n: sink MirNode,
   ## inserted node's origin.
   c.rows.add row(at, at, c.nodes.addSingle(n), source.NodePosition)
 
+func initBuilder(c: var Changeset): MirBuilder =
+  swap(c.nodes, result.buffer)
+  swap(c.numTemps, result.numTemps)
+
 template insert*(c: var Changeset, at: NodePosition, source: NodeInstance,
                  name: untyped, body: untyped) =
   ## Records an insertion at the `at` position, providing direct
@@ -137,10 +137,10 @@ template insert*(c: var Changeset, at: NodePosition, source: NodeInstance,
       pos = at
       i = NodePosition source
 
-    var name: MirNodeSeq
-    swap(c.nodes, name)
+    var name = initBuilder(c)
     body
-    swap(c.nodes, name)
+    swap(c.nodes, name.buffer)
+    swap(c.numTemps, name.numTemps)
 
     c.rows.add row(pos, pos, span(start, c.nodes.len.NodeIndex), i)
 
@@ -154,10 +154,11 @@ template replaceMulti*(c: var Changeset, tree: MirTree, at: NodePosition,
       start = c.nodes.len.NodeIndex
       pos = at # prevent double evaluation
       next = sibling(tree, pos)
-    var name: MirTree
-    swap(c.nodes, name)
+
+    var name = initBuilder(c)
     body
-    swap(c.nodes, name)
+    swap(c.nodes, name.buffer)
+    swap(c.numTemps, name.numTemps)
 
     c.rows.add row(pos, next, span(start, c.nodes.len.NodeIndex), pos)
 
