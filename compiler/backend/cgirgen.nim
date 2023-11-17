@@ -514,7 +514,9 @@ proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
   of mnkType:
     newTypeNode(info, n.typ)
   of mnkNone:
-    newEmpty(info)
+    # type arguments do use `mnkNone` in some situtations, so keep
+    # the type
+    CgNode(kind: cnkEmpty, info: info, typ: n.typ)
   else:
     unreachable("not an atom: " & $n.kind)
 

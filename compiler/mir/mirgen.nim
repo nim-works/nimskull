@@ -760,7 +760,7 @@ proc genArgs(c: var TCtx, n: PNode) =
       if i < fntyp.len: fntyp[i]
       else:             n[i].typ
 
-    if t.kind == tyTypeDesc:
+    if t.kind == tyTypeDesc and goGenTypeExpr in c.options:
       # generation of type expressions is requested. It's important that this
       # branch comes before the ``isCompileTimeOnly`` one, as a ``tyTypeDesc``
       # is treated as a compile-time-only type and would be omitted then
