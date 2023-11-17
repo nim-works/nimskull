@@ -100,7 +100,8 @@ func initChangeset*(tree: MirTree): Changeset =
   # count the number of existing temporaries:
   for i, n in tree.pairs:
     if n.kind in DefNodes and
-       (let ent = child(tree, i, 0); ent.kind == mnkTemp):
+       (let ent = child(tree, i, 0);
+        ent.kind in {mnkTemp, mnkAlias}):
       result.numTemps = max(ent.temp.uint32 + 1, result.numTemps)
 
 func replace*(c: var Changeset, tree: MirTree, at: NodePosition,
