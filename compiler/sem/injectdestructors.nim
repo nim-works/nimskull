@@ -176,7 +176,8 @@ import
     mirchangesets,
     mirconstr,
     mirtrees,
-    sourcemaps
+    sourcemaps,
+    utils
   ],
   compiler/modules/[
     magicsys,
@@ -200,11 +201,6 @@ import
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_sem import SemReport
 from compiler/ast/report_enums import ReportKind
-
-# XXX: we shouldn't need to be concerned with rendering backend-
-#      IR to text here
-from compiler/backend/cgirutils import render
-from compiler/backend/cgirgen import generateIR
 
 type
   AnalyseCtx = object
@@ -1221,11 +1217,6 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
     apply(changes)
 
   if g.config.arcToExpand.hasKey(owner.name.s):
-    # due to some parts of it being very declarative, rendering and echoing
-    # the MIR code wouldn't be very useful, so we turn it into backend IR
-    # first, which we then render to text
-    # XXX: this needs a deeper rethink
-    let n = generateIR(g, idgen, owner, tree, sourceMap)
     g.config.msgWrite("--expandArc: " & owner.name.s & "\n")
-    g.config.msgWrite(render(n))
+    g.config.msgWrite(render(tree))
     g.config.msgWrite("\n-- end of expandArc ------------------------\n")
