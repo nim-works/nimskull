@@ -1733,11 +1733,11 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
       # a view into the source operand is created
       c.genOp mnkView, n.typ, n[0]
     of bvcSequence:
-      # XXX: we need to encode in the MIR the fact that a slice that may be
-      #      used for mutation is created here, otherwise the
-      #      ``prepareMutation`` injection is not going to work
-      # the addr operation is a no-op
+      # the addr operation itself is a no-op, but the operation needs to be
+      # re-typed
+      let start = c.staging.len
       genx(c, n[0])
+      c.staging.nodes[start].typ = n.typ
     of bvcNone:
       # a normal address-of operation
       c.genOp mnkAddr, n.typ, n[0]

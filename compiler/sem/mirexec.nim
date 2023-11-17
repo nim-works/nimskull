@@ -210,17 +210,22 @@ func emitForUse(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
   case tree[source].kind
   of mnkCall, mnkMagic, mnkConstr, mnkObjConstr:
     emitForArgs(env, tree, at, source)
-  of mnkConv, mnkStdConv, mnkDeref, mnkDerefView, mnkCast:
+  of mnkConv, mnkStdConv, mnkCast, mnkDeref, mnkDerefView:
     # a read is performed on the source operand (if it's an lvalue)
     op opUse, tree.operand(source)
-  of mnkAddr, mnkToSlice, mnkView:
-    # these operations don't actually read their operand location, rather
-    # they create a run-time handle. Since those handles aren't tracked
-    # however, the operations creating them are conservatively treated as a
-    # use
-    # XXX: using mutate for ``mnkToSlice``/``mnkView`` is not correct, as
-    #      there are also immutable slices/views
+  of mnkAddr:
+    # ``addr`` doesn't actually read its operand location, rather
+    # it create a run-time handle (i.e., pointer) to them. Since those
+    # handles aren't tracked however, the operation is conservatively
+    # treated as a mutation
     op opMutate, tree.operand(source)
+  of mnkView, mnkToSlice:
+    # if the created view supports mutation, treat the creation as a
+    # mutation itself
+    if tree[source].typ.kind == tyVar:
+      op opMutate, tree.operand(source)
+    else:
+      op opUse, tree.operand(source)
   of mnkPathArray, mnkPathNamed, mnkPathConv, mnkPathPos, mnkPathVariant,
      SymbolLike, mnkTemp, mnkAlias:
     # an read is performed on an lvalue
