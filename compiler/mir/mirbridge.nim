@@ -110,24 +110,18 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
         if depth > 1:
           # don't rewrite the def, but still patch the symbol if requested
           if patch:
-            changes.replace(body, i + 1):
+            changes.replace(body, NodePosition body.operand(i, 0)):
               MirNode(kind: mnkGlobal, sym: sym, typ: typ)
         # HACK: ``vmjit`` currently passes us expressions where a 'def' can
         #       be the very first node, something that ``hasInput`` doesn't
         #       support. We thus have to guard against i == 0
-        elif i.int > 0 and hasInput(body, Operation i):
+        elif i.int > 0 and body[body.operand(i, 1)].kind != mnkNone:
           # the global has a starting value
           changes.replaceMulti(body, i, buf):
-            let tmp = changes.getTemp()
-            buf.subTree MirNode(kind: mnkDef):
-              # assign to a temporary first, and then assign the temporary to the
-              # global
-              buf.add MirNode(kind: mnkTemp, temp: tmp, typ: typ)
-
-            argBlock(buf):
-              chain(buf): symbol(mnkGlobal, sym) => tag(ekReassign) => name()
-              chain(buf): temp(typ, tmp) => consume()
-            buf.add MirNode(kind: mnkInit)
+            let val = buf.inline(body, NodePosition body.operand(i, 1))
+            buf.subTree mnkInit:
+              buf.use symbol(mnkGlobal, sym)
+              buf.use val
         elif {sfImportc, sfNoInit} * sym.flags == {} and
              {exfDynamicLib, exfNoDecl} * sym.extFlags == {}:
           # XXX: ^^ re-think this condition from first principles. Right now,
@@ -135,11 +129,10 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
           # the location doesn't have an explicit starting value. Initialize
           # it to the type's default value.
           changes.replaceMulti(body, i, buf):
-            argBlock(buf):
-              chain(buf): symbol(mnkGlobal, sym) => tag(ekReassign) => name()
-              argBlock(buf): discard
-              chain(buf): magicCall(mDefault, typ) => consume()
-            buf.add MirNode(kind: mnkInit)
+            buf.subTree mnkInit:
+              buf.use symbol(mnkGlobal, sym)
+              buf.buildMagicCall mDefault, typ:
+                discard
         else:
           # just remove the def:
           changes.remove(body, i)
