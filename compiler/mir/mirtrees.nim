@@ -566,6 +566,21 @@ func operand*(tree: MirTree, op: Operation|OpValue|NodePosition): OpValue =
     else:                    NodePosition(op)
   result = OpValue(pos + 1)
 
+func argument*(tree: MirTree, n: NodePosition, i: Natural): OpValue =
+  ## Returns the `i`-th argument in the call-like tree at `n`, skipping
+  ## tag nodes. It is expected that the call has at least `i` + 1
+  ## arguments.
+  assert tree[n].kind in {mnkCall, mnkMagic}
+  var n = n + 1 + ord(tree[n].kind == mnkCall)
+  for _ in 0..<i:
+    n = tree.sibling(n)
+  n = NodePosition tree.operand(n)
+  # skip the tag node if one exists
+  if tree[n].kind == mnkTag:
+    tree.operand(n)
+  else:
+    OpValue n
+
 iterator pairs*(tree: MirTree): (NodePosition, lent MirNode) =
   var i = 0
   let L = tree.len
