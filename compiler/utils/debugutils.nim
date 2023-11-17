@@ -595,7 +595,7 @@ template traceStepImpl*(
     outputTrace(p.c, CompilerTrace(
       kind: compilerTraceStep,
       semstep: it,
-      instLoc: instLoc())
+      instLoc: params.info)
     )
 
 template traceEnterIt*(
