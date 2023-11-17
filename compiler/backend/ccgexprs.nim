@@ -1884,6 +1884,14 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     initLocExpr(p, e[2], b)
     # compare the payloads:
     putIntoDest(p, d, e, "($1.p == $2.p)" % [rdLoc(a), rdLoc(b)])
+  of mCopyInternal:
+    # copy the content of the type field from b to a
+    var a, b: TLoc
+    var check: Rope
+    initLocExpr(p, e[1].operand, a)
+    initLocExpr(p, e[2], b)
+    linefmt(p, cpsStmts, "$1 = $2;$n", [rdMType(p, a, check),
+                                        rdMType(p, b, check)])
   else:
     when defined(debugMagics):
       echo p.prc.name.s, " ", p.prc.id, " ", p.prc.flags, " ", p.prc.ast[genericParamsPos].kind

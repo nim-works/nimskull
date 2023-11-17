@@ -887,11 +887,9 @@ proc symPrototype(g: ModuleGraph; typ: PType; owner: PSym; kind: TTypeAttachedOp
   result.flags.incl {sfFromGeneric, sfGeneratedOp}
 
 proc genTypeFieldCopy(c: var TLiftCtx; t: PType; body, x, y: PNode) =
-  let xx = genBuiltin(c, mAccessTypeField, "accessTypeField", x)
-  let yy = genBuiltin(c, mAccessTypeField, "accessTypeField", y)
-  xx.typ = getSysType(c.g, c.info, tyPointer)
-  yy.typ = xx.typ
-  body.add newAsgnStmt(xx, yy)
+  let call = genBuiltin(c, mCopyInternal, "copyInternal", x)
+  call.add y
+  body.add call
 
 proc produceSym(g: ModuleGraph; c: PContext; typ: PType; kind: TTypeAttachedOp;
               info: TLineInfo; idgen: IdGenerator): PSym =

@@ -989,15 +989,14 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         c.emitByVal  argExpr(c, n[2])
     else:
       genCall(c, n)
-  of mInc, mSetLengthStr:
+  of mInc, mSetLengthStr, mCopyInternal:
     if n[0].typ == nil:
       c.buildMagicCall m, typeOrVoid(c, n.typ):
         c.emitByName genByNameArg(c, n[1]), ekMutate
         c.emitByVal  argExpr(c, n[2])
     else:
       genCall(c, n)
-  of mNot, mLtI, mSubI, mLengthSeq, mLengthStr, mAccessEnv, mAccessTypeField,
-     mSamePayload:
+  of mNot, mLtI, mSubI, mLengthSeq, mLengthStr, mAccessEnv, mSamePayload:
     if n[0].typ == nil:
       # simple translation. None of the arguments need to be passed by lvalue
       c.buildMagicCall m, n.typ:
