@@ -5,62 +5,64 @@ discard """
 destroying O1'''
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:main1 --expandArc:main2 --expandArc:main3 --hints:off --assertions:off $file'''
   nimout: '''--expandArc: main
-var data
-var :aux_2
-var :aux_3
-try:
-  :aux_3 = encode(
-      :aux_2 = newString(100)
-      cast[seq[byte]](:aux_2))
-  var :aux_4 = cast[string](:aux_3)
-  =copy(data, :aux_4)
-finally:
-  =destroy(:aux_3)
-  =destroy_1(:aux_2)
-  =destroy_1(data)
+scope:
+  try:
+    def _0: string = newString(arg 100)
+    def_cursor _1: seq[byte] = cast _0
+    def _2: openArray[byte] = toOpenArray _1
+    def _3: seq[byte] = encode(arg _2)
+    def data: string
+    def _4: string = cast _3
+    =copy(name data, arg _4)
+  finally:
+    =destroy(name data)
+    =destroy(name _3)
+    =destroy(name _0)
 -- end of expandArc ------------------------
 --expandArc: main1
-var s
-var data
-var :aux_3
-try:
-  s = newString(100)
-  :aux_3 = encode(toOpenArrayByte(s, 0, -(len(s), 1)))
-  var :aux_4 = cast[string](:aux_3)
-  =copy(data, :aux_4)
-finally:
-  =destroy(:aux_3)
-  =destroy_1(data)
-  =destroy_1(s)
+scope:
+  try:
+    def s: string = newString(arg 100)
+    def_cursor _0: string = s
+    def _1: int = len(arg _0)
+    def _2: int = -(arg _1, arg 1)
+    def _3: openArray[byte] = toOpenArrayByte(name s, arg 0, arg _2)
+    def _4: seq[byte] = encode(arg _3)
+    def data: string
+    def _5: string = cast _4
+    =copy(name data, arg _5)
+  finally:
+    =destroy(name data)
+    =destroy(name _4)
+    =destroy(name s)
 -- end of expandArc ------------------------
 --expandArc: main2
-var s
-var data
-var :aux_3
-try:
-  s = newSeq(100)
-  :aux_3 = encode(s)
-  var :aux_4 = cast[string](:aux_3)
-  =copy(data, :aux_4)
-finally:
-  =destroy(:aux_3)
-  =destroy_1(data)
-  =destroy(s)
+scope:
+  try:
+    def s: seq[byte] = newSeq(arg 100)
+    def _0: openArray[byte] = toOpenArray s
+    def _1: seq[byte] = encode(arg _0)
+    def data: string
+    def _2: string = cast _1
+    =copy(name data, arg _2)
+  finally:
+    =destroy(name data)
+    =destroy(name _1)
+    =destroy(name s)
 -- end of expandArc ------------------------
 --expandArc: main3
-var data
-var :aux_2
-var :aux_3
-try:
-  :aux_3 = encode(
-      :aux_2 = newSeq(100)
-      :aux_2)
-  var :aux_4 = cast[string](:aux_3)
-  =copy(data, :aux_4)
-finally:
-  =destroy(:aux_3)
-  =destroy(:aux_2)
-  =destroy_1(data)
+scope:
+  try:
+    def _0: seq[byte] = newSeq(arg 100)
+    def _1: openArray[byte] = toOpenArray _0
+    def _2: seq[byte] = encode(arg _1)
+    def data: string
+    def _3: string = cast _2
+    =copy(name data, arg _3)
+  finally:
+    =destroy(name data)
+    =destroy(name _2)
+    =destroy(name _0)
 -- end of expandArc ------------------------'''
 """
 
