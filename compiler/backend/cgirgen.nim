@@ -180,7 +180,7 @@ func newMagicNode(magic: TMagic, info: TLineInfo): CgNode =
   CgNode(kind: cnkMagic, info: info, magic: magic)
 
 func get(t: TreeWithSource, cr: var TreeCursor): lent MirNode {.inline.} =
-  cr.origin = sourceFor(t.map, cr.pos.NodeInstance)
+  cr.origin = t.map[t.tree[cr.pos].info]
   result = t.tree[cr.pos]
 
   inc cr.pos

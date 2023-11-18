@@ -202,7 +202,9 @@ proc generateMirCode(c: var TCtx, n: PNode;
     # fragment
     result = generateCode(c.graph, c.module, selectOptions(c), n)
   else:
-    generateCode(c.graph, selectOptions(c), n, result[0], result[1])
+    var buf: MirBuffer
+    generateCode(c.graph, selectOptions(c), n, buf, result[1])
+    result[0] = finish(buf)
 
 proc generateIR(c: var TCtx, tree: sink MirTree,
                 source: sink SourceMap): Body {.inline.} =
