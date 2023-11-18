@@ -53,3 +53,19 @@ block t9442:
 block: # bug #12229
   proc foo(T: typedesc) = discard
   foo(ref)
+
+block wrong_finished_result:
+  # assigning the result of a ``finished`` call to a local yielded wrong
+  # results
+
+  iterator iter() {.closure.} =
+    return
+
+  proc test() =
+    let x = iter
+    x() # run to completion
+    var f = finished(x)
+    # placing the ``finished`` call within the assertion made the test work
+    doAssert f
+
+  test()

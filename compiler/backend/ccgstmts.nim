@@ -130,22 +130,6 @@ proc blockLeaveActions(p: BProc, howManyTrys, howManyExcepts: int) =
     for i in countdown(howManyExcepts-1, 0):
       linefmt(p, cpsStmts, "#popCurrentException();$n", [])
 
-proc genBreakState(p: BProc, n: CgNode, d: var TLoc) =
-  ## Generates the code for the ``mFinished`` magic, which tests if a
-  ## closure iterator is in the "finished" state (i.e. the internal
-  ## ``state`` field has a value < 0)
-  var a: TLoc
-  initLoc(d, locExpr, n, OnUnknown)
-
-  let arg = n[1]
-  if arg.kind == cnkClosureConstr:
-    initLocExpr(p, arg[1], a)
-    d.r = "(((NI*) $1)[1] < 0)" % [rdLoc(a)]
-  else:
-    initLocExpr(p, arg, a)
-    # the environment is guaranteed to contain the 'state' field at offset 1:
-    d.r = "((((NI*) $1.ClE_0)[1]) < 0)" % [rdLoc(a)]
-
 proc genGotoVar(p: BProc; value: CgNode) =
   case value.kind
   of cnkIntLit, cnkUIntLit:

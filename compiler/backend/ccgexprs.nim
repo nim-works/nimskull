@@ -1722,6 +1722,25 @@ proc genSlice(p: BProc; e: CgNode; d: var TLoc) =
     localReport(p.config, e.info, "invalid context for 'toOpenArray'; " &
       "'toOpenArray' is only valid within a call expression")
 
+proc genBreakState(p: BProc, n: CgNode, d: var TLoc) =
+  ## Generates the code for the ``mFinished`` magic, which tests if a
+  ## closure iterator is in the "finished" state (i.e. the internal
+  ## ``state`` field has a value < 0).
+  var
+    a: TLoc
+    r: string
+
+  let arg = n[1]
+  if arg.kind == cnkClosureConstr:
+    initLocExpr(p, arg[1], a)
+    r = "(((NI*) $1)[1] < 0)" % [rdLoc(a)]
+  else:
+    initLocExpr(p, arg, a)
+    # the environment is guaranteed to contain the 'state' field at offset 1:
+    r = "((((NI*) $1.ClE_0)[1]) < 0)" % [rdLoc(a)]
+
+  putIntoDest(p, d, n, r)
+
 proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   case op
   of mNot..mUnaryMinusF64: unaryArith(p, e, d, op)
