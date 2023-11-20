@@ -12,10 +12,8 @@
 ## the internal representation of the ``Changeset`` and is required for the
 ## later application to work.
 ##
-## Applying the ``PreparedChangeset`` is done via ``apply`` -- updating the
-## ``MirTree``'s corresponding ``SourceMap`` via ``updateSourceMap``. For
-## efficiency, ``apply`` consumes the changeset, so it is advised to call
-## ``updateSourceMap`` first.
+## Applying the ``PreparedChangeset`` is done via ``apply``. This integrates
+## all recorded changes into the applied to tree,.
 ##
 ## Order of application
 ## --------------------
@@ -51,11 +49,6 @@ type
     orig: HOslice[NodeIndex] ## the slice of nodes this change affects
     src:  HOslice[NodeIndex] ## a slice in the buffer of staged nodes
 
-    source: uint32 ## the meaning depends on whether or not this row is part
-                   ## of a ``PrepareChangeset``. If it is, `source` is a
-                   ## ``SourceId``, otherwise it's a ``NodeInstance``.
-                   ## The source information is only relevant for insertions
-
   Changeset* = object
     ## Represents a set of changes to be applied to a ``MirTree``.
     nodes: seq[MirNode]
@@ -81,16 +74,20 @@ func span[T](a, b: T): HOslice[T] {.inline.} =
 func empty[T](x: typedesc[HOslice[T]]): HOslice[T] {.inline.} =
   HOslice[T](a: default(T), b: default(T))
 
-func row(start, fin: NodePosition, src: HOslice[NodeIndex];
-         source = NodePosition(0)): Row {.inline.} =
+func row(start, fin: NodePosition, src: HOslice[NodeIndex]): Row {.inline.} =
   ## Convenience constructor for ``Row``
   Row(orig: span(NodeIndex(start), NodeIndex(fin)),
-      src: src,
-      source: source.uint32)
+      src: src)
 
 func addSingle(s: var MirNodeSeq, n: sink MirNode): HOslice[NodeIndex] =
   s.add n
   result = single(s.high.NodeIndex)
+
+func updateInfo(nodes: var MirNodeSeq, start: int, id: SourceId) =
+  ## Sets the `info` field for all nodes in the ``start..^1`` slice to
+  ## `id`.
+  for i in start..<nodes.len:
+    nodes[i].info = id
 
 func initChangeset*(tree: MirTree): Changeset =
   ## Initializes a new ``Changeset`` instance. Until the resulting
@@ -111,15 +108,14 @@ func replace*(c: var Changeset, tree: MirTree, at: NodePosition,
               with: sink MirNode) =
   ## Records replacing the node or sub-tree at `at` with `with`.
   let next = sibling(tree, at)
-  c.rows.add row(at, next, c.nodes.addSingle(with), at)
+  c.rows.add row(at, next, c.nodes.addSingle(with))
 
-func insert*(c: var Changeset, at: NodePosition, n: sink MirNode,
-             source: NodeInstance) =
-  ## Records the insertion of `n` at `at`, using `source` as the
-  ## inserted node's origin.
-  c.rows.add row(at, at, c.nodes.addSingle(n), source.NodePosition)
+func insert*(c: var Changeset, at: NodePosition, n: sink MirNode) =
+  ## Records the insertion of `n` at `at`. The ``info`` field on the node
+  ## is not modified.
+  c.rows.add row(at, at, c.nodes.addSingle(n))
 
-template insert*(c: var Changeset, at: NodePosition, source: NodeInstance,
+template insert*(c: var Changeset, tree: MirTree, at, source: NodePosition,
                  name: untyped, body: untyped) =
   ## Records an insertion at the `at` position, providing direct
   ## access to the internal node buffer inside `body` via an injected variable
@@ -131,14 +127,15 @@ template insert*(c: var Changeset, at: NodePosition, source: NodeInstance,
       # evaluate `at` and `source` before `body`, as the latter might change
       # what `source` evaluates to:
       pos = at
-      i = NodePosition source
+      info = tree[source].info
 
     var name: MirNodeSeq
     swap(c.nodes, name)
     body
     swap(c.nodes, name)
 
-    c.rows.add row(pos, pos, span(start, c.nodes.len.NodeIndex), i)
+    updateInfo(c.nodes, start.int, info)
+    c.rows.add row(pos, pos, span(start, c.nodes.len.NodeIndex))
 
 template replaceMulti*(c: var Changeset, tree: MirTree, at: NodePosition,
                        name, body: untyped) =
@@ -149,13 +146,15 @@ template replaceMulti*(c: var Changeset, tree: MirTree, at: NodePosition,
     let
       start = c.nodes.len.NodeIndex
       pos = at # prevent double evaluation
+      info = tree[pos].info
       next = sibling(tree, pos)
     var name: MirTree
     swap(c.nodes, name)
     body
     swap(c.nodes, name)
 
-    c.rows.add row(pos, next, span(start, c.nodes.len.NodeIndex), pos)
+    updateInfo(c.nodes, start.int, info)
+    c.rows.add row(pos, next, span(start, c.nodes.len.NodeIndex))
 
 func remove*(c: var Changeset, tree: MirTree, at: NodePosition) =
   ## Records the removal of the node or sub-tree at `at`.
@@ -163,7 +162,7 @@ func remove*(c: var Changeset, tree: MirTree, at: NodePosition) =
   # a removal is recorded as replacing a slice with nothing
   c.rows.add row(at, next, empty(HOslice[NodeIndex]))
 
-func prepare*(c: sink Changeset, sourceMap: SourceMap): PreparedChangeset =
+func prepare*(c: sink Changeset): PreparedChangeset =
   ## Prepares `c` for being applied
 
   # applying the changes can be done much more efficiently if they are ordered
@@ -181,14 +180,6 @@ func prepare*(c: sink Changeset, sourceMap: SourceMap): PreparedChangeset =
     result.diff -= row.orig.len
     result.diff += row.src.len
     result.stagingSize = max(result.stagingSize, result.diff)
-
-  # the `source` column of each row currently refers to the node to inherit
-  # the source information from (but only if the row represents an insertion
-  # or removal). Since the source-information attachments will become stale
-  # once the source mappings are modified, `source` is translated to the
-  # ``SourceId`` here already
-  for r in c.rows.mitems:
-    r.source = sourceMap[r.source.NodeInstance].uint32
 
   result.nodes = move c.nodes
   result.rows = move c.rows
@@ -264,18 +255,6 @@ iterator apply[T](s: var seq[T], diff, stagingSize: int, rows: seq[Row]): tuple[
   if diff != stagingSize:
     # resize to the correct number of items
     s.setLen(oldLen + diff)
-
-func updateSourceMap*(m: var SourceMap, c: PreparedChangeset) =
-  ## Updates the source mappings stored by `m` according to the changes
-  ## recorded in `c`
-  if c.rows.len == 0:
-    # nothing to do
-    return
-
-  for row, writePos in apply(m.map, c.diff, c.stagingSize, c.rows):
-    # insert the new source mappings when performing insertions or replacements
-    for p in row.src.items:
-      m.map[writePos + (p - row.src.a)] = SourceId(row.source)
 
 func apply*(tree: var MirTree, c: sink PreparedChangeset) =
   ## Applies the changeset `c` to the `tree`, modifying the tree in-place. The

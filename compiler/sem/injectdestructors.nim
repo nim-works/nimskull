@@ -816,7 +816,7 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 
     let tmp = c.getTemp()
 
-    c.insert(at, NodeInstance src, buf):
+    c.insert(tree, at, NodePosition src, buf):
       buf.subTree MirNode(kind: mnkRegion):
         buf.add opParamNode(0, typ)
         buf.genDefTemp(tmp, typ)
@@ -835,7 +835,7 @@ proc insertCopy(tree: MirTree, graph: ModuleGraph, typ: PType,
   ## Generates a call to the `typ`'s ``=copy`` hook that uses the contextual
   ## input as the source value
   let tmp = c.getTemp()
-  c.insert(at, NodeInstance at, buf):
+  c.insert(tree, at, at, buf):
     buf.subTree MirNode(kind: mnkRegion):
       argBlock(buf): discard
       buf.add MirNode(kind: mnkMagic, typ: typ, magic: mDefault)
@@ -1021,17 +1021,17 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
     let
       scopeStart = entries[s.a].scope
       useFinally = scopeStart in needsFinally
-      source = NodeInstance scopeStart
+      source = scopeStart
         ## the node to inherit the origin information from
 
     if useFinally:
       # start a 'finally' at the beginning of the scope:
-      c.insert(scopeStart + 1, source, buf):
+      c.insert(tree, scopeStart + 1, source, buf):
         buf.add MirNode(kind: mnkTry, len: 1)
         buf.add MirNode(kind: mnkStmtList)
 
     # insert at the scope's end node
-    c.insert(findEnd(tree, scopeStart), source, buf):
+    c.insert(tree, findEnd(tree, scopeStart), source, buf):
       if useFinally:
         buf.add endNode(mnkStmtList) # close the body of the 'try' clause
         buf.subTree MirNode(kind: mnkFinally):
@@ -1073,7 +1073,7 @@ proc injectTemporaries(tree: MirTree, c: var Changeset) =
       # only locations can be destroyed, so we assign the value to a
       # temporary. The destructor injection pass takes care of the rest then
       let tmp = c.getTemp()
-      c.insert(tree.sibling(i), NodeInstance i, buf):
+      c.insert(tree, tree.sibling(i), i, buf):
         buf.genDefTemp(tmp, n.typ)
         buf.add MirNode(kind: mnkTemp, typ: n.typ, temp: tmp)
 
@@ -1158,7 +1158,7 @@ proc reportDiagnostics(g: ModuleGraph, tree: MirTree, sourceMap: SourceMap,
                        owner: PSym, diags: var seq[LocalDiag]) =
   ## Reports all diagnostics in `diags` as ``SemReport``s and clear the list
   for diag in diags.items:
-    let ast = sourceMap.sourceFor(diag.pos.NodeInstance)
+    let ast = sourceMap[tree[diag.pos].info]
     let rep =
       case diag.kind
       of ldkUnavailableTypeBound:
@@ -1189,10 +1189,8 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
   ## usage are also reported here.
 
   template apply(c: Changeset) =
-    ## Applies the changeset to both the
-    let prepared = prepare(c, sourceMap)
-    updateSourceMap(sourceMap, prepared)
-    apply(tree, prepared)
+    ## Applies the changeset `c` to `tree`.
+    apply(tree, prepare(c))
 
   # apply the first batch of passes:
   block:

@@ -146,8 +146,8 @@ template add[T](x: Deque[T], elem: T) =
 func append*(dest: var MirFragment, src: sink MirFragment) =
   ## Appends the code from `src` to `dest`. No check whether the resulting
   ## code is semantically valid is performed
+  dest.source.merge(src.tree, src.source)
   dest.tree.add src.tree
-  dest.source.append src.source
 
 # ----- private and public API for ``Queue`` -----
 
@@ -382,23 +382,6 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
 
 # ------- handling of lifted globals ---------
 
-func add(frag: var MirFragment, origin: PNode, node: sink MirNode) =
-  assert frag.tree.len == frag.source.map.len
-  frag.source.map.add(frag.source.source.add(origin))
-  frag.tree.add node
-
-proc updateWithSource(f: var MirFragment, origin: PNode) =
-  ## Sets `origin` as the source node of all MIR nodes that have no source
-  ## information associated yet.
-  # TODO: replace this with using the routines from ``mirgen``, once they're
-  #       sufficiently generalized
-  let
-    id = f.source.source.add(origin)
-    start = f.source.map.len
-  f.source.map.setLen(f.tree.len)
-  for i in start..<f.tree.len:
-    f.source.map[i] = id
-
 proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
                                 graph: ModuleGraph,
                                 options: set[GenOption]): tuple[init, deinit: MirFragment] =
@@ -407,15 +390,19 @@ proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
   ## not-yet-seen globals, and is at the same time used for discarding
   ## the identdefs for globals that were already processed.
 
-  func prepare(f: var MirFragment, n: PNode) {.nimcall.} =
+  func prepare(buf: var MirBuffer, m: var SourceMap, n: PNode) {.nimcall.} =
     # the fragments need to be wrapped in scopes; some MIR passes depend
     # on this
-    if f.tree.len == 0:
-      f.add(n): MirNode(kind: mnkScope)
+    if buf.len == 0:
+      buf.add(m.add(n)): MirNode(kind: mnkScope)
 
-  func finish(f: var MirFragment, n: PNode) {.nimcall.} =
-    if f.tree.len > 0:
-      f.add(n): MirNode(kind: mnkEnd, start: mnkScope)
+  func finish(buf: sink MirBuffer, m: var SourceMap, n: PNode
+             ): MirTree {.nimcall.} =
+    if buf.len > 0:
+      buf.add(m.add(n)): MirNode(kind: mnkEnd, start: mnkScope)
+    result = finish(buf)
+
+  var init, deinit: MirBuffer
 
   # lifted globals can appear re-appear in the identdefs list for two reasons:
   # - the definition appears in the body of a for-loop using an inline iterator
@@ -439,38 +426,39 @@ proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
 
       # generate the MIR code for an initializing assignment:
       block:
-        template r: MirFragment = result.init
+        template add(origin: PNode, n: MirNode) =
+          add(init, result.init.source.add(origin), n)
 
-        prepare(r, graph.emptyNode)
-        r.add(it): MirNode(kind: mnkArgBlock)
-        r.add(it[0]): MirNode(kind: mnkGlobal, sym: s, typ: s.typ)
-        r.add(it[0]): MirNode(kind: mnkTag, typ: s.typ)
-        r.add(it[0]): MirNode(kind: mnkName, typ: s.typ)
+        prepare(init, result.init.source, graph.emptyNode)
+        add(it): MirNode(kind: mnkArgBlock)
+        add(it[0]): MirNode(kind: mnkGlobal, sym: s, typ: s.typ)
+        add(it[0]): MirNode(kind: mnkTag, typ: s.typ)
+        add(it[0]): MirNode(kind: mnkName, typ: s.typ)
         if it[2].kind == nkEmpty:
           # no explicit initializer expression means that the default value
           # should be used
           # XXX: ^^ it'd make sense to instead let semantic analysis ensure this
           #      (i.e. by placing a ``default(T)`` in the initializer slot)
-          r.add(it[2]): MirNode(kind: mnkArgBlock)
-          r.add(it[2]): MirNode(kind: mnkEnd, start: mnkArgBlock)
-          r.add(it[2]): MirNode(kind: mnkMagic, magic: mDefault, typ: s.typ)
+          add(it[2]): MirNode(kind: mnkArgBlock)
+          add(it[2]): MirNode(kind: mnkEnd, start: mnkArgBlock)
+          add(it[2]): MirNode(kind: mnkMagic, magic: mDefault, typ: s.typ)
         else:
-          generateCode(graph, options, it[2], r.tree, r.source)
+          generateCode(graph, options, it[2], init, result.init.source)
 
-        r.add(it[2]): MirNode(kind: mnkConsume, typ: s.typ)
-        r.add(it): MirNode(kind: mnkEnd, start: mnkArgBlock)
-        r.add(it): MirNode(kind: mnkInit)
+        add(it[2]): MirNode(kind: mnkConsume, typ: s.typ)
+        add(it): MirNode(kind: mnkEnd, start: mnkArgBlock)
+        add(it): MirNode(kind: mnkInit)
 
       # if the global requires one, emit a destructor call into the deinit
       # fragment:
       if hasDestructor(s.typ):
-        prepare(result.deinit, graph.emptyNode)
-        genDestroy(result.deinit.tree, graph, s.typ):
+        prepare(deinit, result.deinit.source, graph.emptyNode)
+        genDestroy(deinit.nodes, graph, s.typ):
           MirNode(kind: mnkGlobal, sym: s, typ: s.typ)
-        updateWithSource(result.deinit, it[0])
+        apply(deinit, result.deinit.source.add(it[0]))
 
-  finish(result.init, graph.emptyNode)
-  finish(result.deinit, graph.emptyNode)
+  result.init.tree = finish(init, result.init.source, graph.emptyNode)
+  result.deinit.tree = finish(deinit, result.deinit.source, graph.emptyNode)
 
 # ----- dynlib handling -----
 
@@ -491,7 +479,8 @@ proc genLoadLib(graph: ModuleGraph, buf: var MirNodeSeq, loc, name: MirNode) =
   forward(buf): magicCall(mIsNil, graph.getSysType(unknownLineInfo, tyBool))
 
 proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
-                 name: PSym, path: PNode, dest: var MirFragment) =
+                 name: PSym, path: PNode,
+                 dest: var MirBuffer, source: var SourceMap) =
   ## Emits the MIR code for loading a dynamic library to `dest`, with `name`
   ## being the symbol of the location that stores the handle and `path` the
   ## expression used with the ``.dynlib`` pragma.
@@ -500,7 +489,7 @@ proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
     voidTyp   = graph.getSysType(path.info, tyVoid)
     nameNode  = MirNode(kind: mnkGlobal, sym: name, typ: name.typ)
 
-  template buf: MirNodeSeq = dest.tree
+  template buf: MirNodeSeq = dest.nodes
 
   if path.kind in nkStrKinds:
     # the library name is known at compile-time
@@ -539,8 +528,8 @@ proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
     # computing the string and assigning it to a temporary
     argBlock(buf):
       chain(buf): temp(strType, nameTemp) => tag(ekReassign) => name()
-      updateWithSource(dest, path)
-      generateCode(graph, conf.options, path, buf, dest.source)
+      apply(dest, source.add(path))
+      generateCode(graph, conf.options, path, dest, source)
       buf.add MirNode(kind: mnkConsume, typ: strType)
     buf.add MirNode(kind: mnkInit)
 
@@ -576,7 +565,8 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
 
   # the scope makes sure that locals are destroyed once loading the
   # procedure has finished
-  result.tree.add MirNode(kind: mnkScope)
+  var buf: MirBuffer
+  buf.nodes.add MirNode(kind: mnkScope)
 
   if path.kind in nkCallKinds and path.typ != nil and
      path.typ.kind in {tyPointer, tyProc}:
@@ -584,35 +574,36 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
     path[^1] = extname # update to the correct name
     # XXX: ^^ maybe sem should do this instead...
 
-    argBlock(result.tree):
-      chain(result.tree): emit(dest) => tag(ekReassign) => name()
-      updateWithSource(result, path)
-      generateCode(graph, conf.options, path, result.tree, result.source)
-      result.tree.add MirNode(kind: mnkArg, typ: dest.typ)
-    chain(result.tree): magicCall(mAsgnDynlibVar, voidTyp) => voidOut()
+    argBlock(buf.nodes):
+      chain(buf.nodes): emit(dest) => tag(ekReassign) => name()
+      apply(buf, result.source.add(path))
+      generateCode(graph, conf.options, path, buf, result.source)
+      buf.nodes.add MirNode(kind: mnkArg, typ: dest.typ)
+    chain(buf.nodes): magicCall(mAsgnDynlibVar, voidTyp) => voidOut()
   else:
     # the imported procedure is identified by the symbol's external name and
     # the built-in proc loading logic is to be used
 
     if not data.seen.containsOrIncl(lib.name.id):
       # the library hasn't been loaded yet
-      genLibSetup(graph, conf, lib.name, path, result)
+      genLibSetup(graph, conf, lib.name, path, buf, result.source)
       if path.kind in nkStrKinds: # only register statically-known dependencies
         data.libs.add sym.annex
       data.globals.add lib.name # register the global
 
     # generate the code for ``sym = cast[typ](nimGetProcAddr(lib, extname))``
-    argBlock(result.tree):
-      chain(result.tree): emit(dest) => tag(ekReassign) => name()
-      argBlock(result.tree):
-        chain(result.tree): procLit(loadProc) => arg()
-        chain(result.tree): symbol(mnkGlobal, lib.name) => arg()
-        chain(result.tree): literal(extname) => arg()
-      chain(result.tree): callOp(loadProc.typ[0]) => arg()
-    chain(result.tree): magicCall(mAsgnDynlibVar, voidTyp) => voidOut()
+    argBlock(buf.nodes):
+      chain(buf.nodes): emit(dest) => tag(ekReassign) => name()
+      argBlock(buf.nodes):
+        chain(buf.nodes): procLit(loadProc) => arg()
+        chain(buf.nodes): symbol(mnkGlobal, lib.name) => arg()
+        chain(buf.nodes): literal(extname) => arg()
+      chain(buf.nodes): callOp(loadProc.typ[0]) => arg()
+    chain(buf.nodes): magicCall(mAsgnDynlibVar, voidTyp) => voidOut()
 
-  result.tree.add endNode(mnkScope)
-  updateWithSource(result, path)
+  buf.nodes.add endNode(mnkScope)
+  apply(buf, result.source.add(path))
+  result.tree = finish(buf)
 
 # ----- discovery and queueing logic -----
 

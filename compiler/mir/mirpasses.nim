@@ -309,7 +309,7 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
       let insert = tree.sibling(NodePosition source)
       let temp = MirNode(kind: mnkTemp, typ: tree[source].typ,
                          temp: changes.getTemp())
-      changes.insert(insert, NodeInstance source, buf):
+      changes.insert(tree, insert, NodePosition source, buf):
         buf.subTree MirNode(kind: mnkDef):
           buf.add temp
         buf.add temp
@@ -468,7 +468,7 @@ proc fixupCallArguments(tree: MirTree, config: ConfigRef,
         if needsTemp:
           let temp = MirNode(kind: mnkTemp, typ: tree[arg].typ,
                              temp: changes.getTemp())
-          changes.insert(arg, NodeInstance arg, buf):
+          changes.insert(tree, arg, arg, buf):
             buf.subTree MirNode(kind: mnkDef):
               buf.add temp
             buf.add temp
@@ -521,9 +521,7 @@ proc applyPasses*(tree: var MirTree, source: var SourceMap, prc: PSym,
     block:
       var c {.inject.} = initChangeset(tree)
       body
-      let p = prepare(c, source)
-      updateSourceMap(source, p)
-      apply(tree, p)
+      apply(tree, prepare(c))
 
   if target == targetC:
     batch:

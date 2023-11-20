@@ -18,7 +18,7 @@ func `==`(a: TempId, b: int): bool =
 
 func insert(c: var Changeset, i: int, n: sink MirNode) =
   # inherit the origin information from node 0
-  c.insert(NodePosition i, n, NodeInstance 0)
+  c.insert(NodePosition i, n)
 
 func `==`(a, b: MirNode): bool =
   if a.kind != b.kind:
@@ -33,8 +33,7 @@ func `==`(a, b: MirNode): bool =
 
 func setupSourceMap(tree: MirTree): SourceMap =
   ## Sets up a minimal ``SourceMap`` instance for the given tree
-  let id = result.source.add PNode()
-  result.map.setLen(tree.len)
+  discard result.add(PNode())
 
 template test(input, output: typed, body: untyped) =
   ## Helper template to simplify writing test cases
@@ -56,8 +55,7 @@ template test(input, output: typed, body: untyped) =
 
     body
 
-    let pc = prepare(c, sourceMap)
-    apply(tree, pc)
+    apply(tree, prepare(c))
     {.line.}:
       doAssert tree == output
 
