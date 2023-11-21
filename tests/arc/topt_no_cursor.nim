@@ -7,8 +7,9 @@ doing shady stuff...
 192.168.0.1
 192.168.0.1
 192.168.0.1
-192.168.0.1'''
-  cmd: '''nim c --gc:arc --expandArc:newTarget --expandArc:delete --expandArc:p1 --expandArc:tt --hint:Performance:off --assertions:off --expandArc:extractConfig --expandArc:mergeShadowScope --expandArc:check $file'''
+192.168.0.1
+0'''
+  cmd: '''nim c --gc:arc --expandArc:newTarget --expandArc:delete --expandArc:p1 --expandArc:tt --hint:Performance:off --assertions:off --expandArc:extractConfig --expandArc:mergeShadowScope --expandArc:check --expandArc:treturn $file'''
   nimout: '''--expandArc: newTarget
 
 var splat
@@ -130,6 +131,21 @@ try:
       inc(i, 1)
 finally:
   =destroy(shadowScope)
+-- end of expandArc ------------------------
+--expandArc: treturn
+
+var :aux_2
+try:
+  if ==(len(x), 2):
+    result = x
+    wasMoved(x)
+    return
+  echo([
+    :aux_2 = $(len(x))
+    :aux_2])
+finally:
+  =destroy(:aux_2)
+  =destroy(x)
 -- end of expandArc ------------------------
 --expandArc: check
 
@@ -368,6 +384,16 @@ proc mergeShadowScope*(c: PContext) =
     c.addInterfaceDecl(sym)
 
 mergeShadowScope(PContext(currentScope: Scope(parent: Scope())))
+
+proc treturn(x: sink string): string =
+  if x.len == 2:
+    result = x # last use of `x` -- it can be moved
+    return
+
+  # further uses don't affect whether the above can use a move
+  echo x.len
+
+discard treturn("")
 
 type
   Foo = ref object
