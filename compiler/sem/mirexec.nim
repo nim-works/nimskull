@@ -901,6 +901,6 @@ proc render*(c: ControlFlowGraph, map: SourceMap): string =
     of opGoto, opFork, opLoop:
       result.add $n.op & " " & $n.dest
     of DataFlowOps:
-      result.add $n.op & ": " & renderTree(map.sourceFor(n.node.NodeInstance))
+      result.add $n.op
 
     result.add " -> " & $ord(n.node) & "\n"

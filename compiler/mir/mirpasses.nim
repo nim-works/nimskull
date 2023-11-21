@@ -152,7 +152,7 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
       changes.replaceMulti(tree, pos, bu):
         tmp = bu.allocTemp(tree[source].typ)
         bu.use tmp
-      changes.insert(tree.sibling(i), NodeInstance i, bu):
+      changes.insert(tree, tree.sibling(i), i, bu):
         bu.subTree tree[i].kind:
           bu.emitFrom(tree, pos)
           bu.use tmp
@@ -188,9 +188,7 @@ proc applyPasses*(tree: var MirTree, source: var SourceMap, prc: PSym,
     block:
       var c {.inject.} = initChangeset(tree)
       body
-      let p = prepare(c, source)
-      updateSourceMap(source, p)
-      apply(tree, p)
+      apply(tree, prepare(c))
 
   if target == targetC:
     batch:

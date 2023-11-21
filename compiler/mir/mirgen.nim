@@ -15,24 +15,22 @@
 ## Origin information
 ## ==================
 ##
-## Each generated ``MirNode`` is associated with the ``PNode`` it originated
-## (referred to as "source information") from. Setting the ``PNode`` to use
-## as the origin is done by using the ``useSource`` template. It overrides the
-## active source information until the end of the scope it is called inside --
-## all nodes without explicitly attached source information added till
-## the end of the scope will store the provided ``PNode`` as their origin.
+## Each produced ``MirNode`` is associated with the ``PNode`` it originated
+## from (referred to as "source information"). The ``PNode`` is registered in
+## the ``SourceMap``, with the resulting ``SourceId`` then assigned to the
+## nodes associated with the AST.
 ##
-## The source information is set/attached lazily because:
-## 1. it allows for adding the attachments in a batch, reducing the amount of
-##    checks and potentially also ``seq`` resizings
-## 2. it decouples adding nodes from attaching source information to them,
-##    making changes to how source information is stored/attached a bit
-##    simpler
+## In order to reduce the amount manual bookkeeping and to improve the
+## ergonomics of producing MIR node sequences, assigning the ``SourceId``
+## is decoupled from the initial production. ``SourceProvider`` keeps track of
+## the currently processed AST node and manages setting the ``info`` field on
+## nodes.
 ##
-## A downside of the current implementation is that it's easy to forget
-## explicitly overriding the used source information. While this won't impact
-## the generated code, it'll impact the AST / line-information shown in e.g.
-## reports.
+## Changing the active AST node is done via calling the ``useSource`` routine,
+## which will apply the previous AST node as the origin to all MIR nodes
+## added to a ``MirBuffer`` since the last call to ``useSource``. When
+## the scope ``useSource`` is called in is exited, the previous AST node is
+## restored as the active origin, allowing for arbitrary nesting.
 ##
 
 import
@@ -98,15 +96,14 @@ type
                 ## label
     id: LabelId ## the block's internal label ID
 
-  CodeFragment = object
-    ## A MIR code fragment that doesn't imply any further semantic meaning. The
-    ## code is not required to be complete (i.e. grammatically valid).
-    nodes: MirNodeSeq
-    source: seq[SourceId]
-      ## the ``SourceId`` for each ``MirNode` in `nodes`. The association
-      ## happens via their respective index in the ``seq``s. During
-      ## construction, `source` is allowed to temporarily have less items
-      ## than `nodes`
+  MirBuffer* = object
+    ## Accumulates in-progress MIR code and keeps track of additional state
+    ## needed when building MIR code sequences.
+    nodes*: MirNodeSeq
+    # XXX: `nodes` should not be exported, but for convenience it currently
+    #      is
+    cursor: int
+      ## points to the first node that hasn't had its ``info`` set up yet
 
   SourceProvider = object
     ## Stores the active origin and the in-progress database of origin
@@ -116,7 +113,7 @@ type
       ## the ``PNode`` to use as the origin for emitted ``MirNode``s (if none
       ## is explicitly provided). If `id` is 'none', no database entry exists
       ## for the ``PNode`` yet
-    store: Store[SourceId, PNode]
+    map: SourceMap
       ## the in-progress database of origin ``PNode``s
 
   GenOption* = enum
@@ -127,11 +124,11 @@ type
 
   TCtx = object
     # output:
-    stmts: CodeFragment
+    stmts: MirBuffer
 
     # working state:
-    staging: CodeFragment ## intermediate buffer for partially generated MIR
-                          ## code
+    staging: MirBuffer ## intermediate buffer for partially generated MIR
+                       ## code
 
     blocks: seq[Block] ## the stack of active ``block``s. Used for looking up
                        ## break targets
@@ -258,13 +255,21 @@ func nextLabel(c: var TCtx): LabelId =
   result = LabelId(c.numLabels)
   inc c.numLabels
 
-# ----------- CodeFragment API -------------
-# XXX: the ``CodeFragment`` API is going to be removed
+# ----------- MirBuffer API -------------
 
-func len(c: CodeFragment): int {.inline.} =
-  c.nodes.len
+func len*(b: MirBuffer): int {.inline.} =
+  b.nodes.len
 
-template add(f: var CodeFragment, n: MirNode) =
+func add*(b: var MirBuffer, info: SourceId, n: sink MirNode) {.inline.} =
+  ## Sets `info` as `n`'s origin information and appends the node to the
+  ## buffer. This operation is only allowed when all already buffered nodes
+  ## have had the origin information assigned too.
+  assert b.cursor == b.nodes.len
+  n.info = info
+  b.nodes.add n
+  inc b.cursor
+
+template add(f: var MirBuffer, n: MirNode) =
   f.nodes.add n
 
 template subTree(f: var MirNodeSeq, n: MirNode, body: untyped) =
@@ -274,33 +279,32 @@ template subTree(f: var MirNodeSeq, n: MirNode, body: untyped) =
   body
   f.add endNode(tmp.kind)
 
-template subTree(f: var CodeFragment, n: MirNode, body: untyped) =
+template subTree(f: var MirBuffer, n: MirNode, body: untyped) =
   f.nodes.subTree n:
     body
 
-func apply(frag: var CodeFragment, id: SourceId) =
+func apply*(frag: var MirBuffer, id: SourceId) =
   ## Associates all nodes added since the previous call to ``apply`` with the
-  ## origin information identified by `id`
-  assert frag.nodes.len > frag.source.len
-  let start = frag.source.len
-  frag.source.setLen(frag.nodes.len)
+  ## origin information identified by `id`.
+  assert frag.nodes.len > frag.cursor
+  for i in frag.cursor..<frag.nodes.len:
+    frag.nodes[i].info = id
 
-  for i in start..<frag.source.len:
-    frag.source[i] = id
+  frag.cursor = frag.nodes.len
 
 func prepareForUse(sp: var SourceProvider): SourceId =
   if sp.active.id.isNone:
-    sp.active.id = someOpt sp.store.add(sp.active.n)
+    sp.active.id = someOpt sp.map.add(sp.active.n)
 
   result = sp.active.id[]
 
-func applySource(frag: var CodeFragment, sp: var SourceProvider) =
+func applySource(frag: var MirBuffer, sp: var SourceProvider) =
   ## Associates all ``MirNode``s that don't yet have a source association with
   ## the currently active source information
-  if frag.nodes.len > frag.source.len:
+  if frag.nodes.len > frag.cursor:
     apply(frag, prepareForUse(sp))
 
-template useSource(frag: var CodeFragment, sp: var SourceProvider,
+template useSource(frag: var MirBuffer, sp: var SourceProvider,
                    origin: PNode) =
   ## Pushes `origin` to be used as the source for the rest of the scope that
   ## ``useSource`` is used inside. When the scope is left, the previous origin
@@ -317,6 +321,12 @@ template useSource(frag: var CodeFragment, sp: var SourceProvider,
     applySource(frag, sp)
     swap(prev, sp.active)
 
+func finish*(buf: sink MirBuffer): MirTree =
+  ## Returns `buf`'s finished tree.
+  assert buf.nodes.len == buf.cursor,
+         "not all nodes have origin information attached"
+  result = move buf.nodes
+  
 # -------------- builder routines -------------
 
 func commit(c: var TCtx, start: int) =
@@ -334,7 +344,7 @@ func commit(c: var TCtx, start: int) =
   # remove the moved-over nodes from the staging buffer:
   c.staging.nodes.setLen(start)
 
-template subTree(f: var CodeFragment, k: MirNodeKind, body: untyped) =
+template subTree(f: var MirBuffer, k: MirNodeKind, body: untyped) =
   f.subTree MirNode(kind: k):
     body
 
@@ -346,11 +356,11 @@ template subTree(f: var TCtx, n: MirNode, body: untyped) =
   f.staging.subTree n:
     body
 
-template scope(f: var CodeFragment, body: untyped) =
+template scope(f: var MirBuffer, body: untyped) =
   f.subTree mnkScope:
     body
 
-func use(f: var CodeFragment, val: EValue) =
+func use(f: var MirBuffer, val: EValue) =
   assert val.node.kind != mnkNone
   f.add val.node
 
@@ -2014,17 +2024,16 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
 
 
 proc generateCode*(graph: ModuleGraph, options: set[GenOption], n: PNode,
-                   code: var MirTree, source: var SourceMap) =
+                   code: var MirBuffer, source: var SourceMap) =
   ## Generates MIR code that is semantically equivalent to the expression or
   ## statement `n`, appending the resulting code and the corresponding origin
   ## information to `code` and `source`, respectively.
-  assert code.len == source.map.len, "source map doesn't match with code"
+  assert code.cursor == code.nodes.len, "missing origin associations"
   var c = TCtx(context: skUnknown, graph: graph, options: options)
 
   template swapState() =
-    swap(c.sp.store, source.source)
-    swap(c.stmts.source, source.map)
-    swap(c.stmts.nodes, code)
+    swap(c.sp.map, source)
+    swap(c.stmts, code)
 
   # for the duration of ``generateCode`` we move the state into ``TCtx``
   swapState()
@@ -2047,7 +2056,7 @@ proc generateCode*(graph: ModuleGraph, options: set[GenOption], n: PNode,
     let v = genUse(c, n)
     c.stmts.use v
 
-  assert c.stmts.nodes.len == c.stmts.source.len
+  assert c.stmts.nodes.len == c.stmts.cursor
   assert c.staging.nodes.len == 0, "nodes were not commited"
 
   # move the state back into the output parameters:
@@ -2093,7 +2102,7 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, options: set[GenOption],
   # set the origin information for the 'end' node added above:
   apply(c.stmts, prepareForUse(c.sp))
 
-  assert c.stmts.nodes.len == c.stmts.source.len
+  assert c.stmts.nodes.len == c.stmts.cursor
 
   result[0] = move c.stmts.nodes
-  result[1] = SourceMap(source: move c.sp.store, map: move c.stmts.source)
+  result[1] = move c.sp.map

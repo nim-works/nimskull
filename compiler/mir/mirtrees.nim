@@ -35,6 +35,12 @@ type
   TypeId {.used.} = distinct uint32
     ## The ID of a type instance or nil
 
+  SourceId* = distinct range[0'u32 .. high(uint32)-1]
+    ## The ID of a source-mapping that's stored separately from the MIR nodes.
+
+# make ``SourceId`` available for use with ``OptIndex``:
+template indexLike*(_: typedesc[SourceId]) = discard
+
 type
   ## Different to the ID types above, how and what the following ID types
   ## represent is dictated by the MIR
@@ -264,7 +270,9 @@ type
 
   MirNode* = object
     typ*: PType ## must be non-nil for operators, inputs, and sinks
-
+    info*: SourceId
+      ## non-critical meta-data associated with the node (e.g., origin
+      ## information)
     case kind*: MirNodeKind
     of mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal:
       sym*: PSym
@@ -387,6 +395,7 @@ const
   ExprKinds* =       {mnkCall, mnkMagic, mnkConstr, mnkObjConstr} +
                      LvalueExprKinds + RvalueExprKinds
 
+func `==`*(a, b: SourceId): bool {.borrow.}
 func `==`*(a, b: TempId): bool {.borrow.}
 func `==`*(a, b: LabelId): bool {.borrow.}
 

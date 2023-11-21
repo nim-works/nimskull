@@ -738,7 +738,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
             tmp = bu.allocTemp(tree[source].typ)
             bu.use tmp
 
-          c.insert(tree.sibling(stmt), NodeInstance stmt, bu):
+          c.insert(tree, tree.sibling(stmt), stmt, bu):
             # the value is only accessible through the source expression, a
             # destructive move is not required
             let a = bu.bindMut(tree, dest)
@@ -792,7 +792,7 @@ proc expandDef(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
     #   bind _1 = a.b
     #   =copy(name x, arg _1)
     c.replace(tree, source): MirNode(kind: mnkNone)
-    c.insert(tree.sibling(at), NodeInstance source, bu):
+    c.insert(tree, tree.sibling(at), source, bu):
       let
         a = bu.bindMut(tree, dest)
         b = bu.inline(tree, source)
@@ -808,10 +808,10 @@ proc expandDef(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       #   def x = _1
       #   wasMoved(name x)
       var tmp, clear: Value
-      c.insert(at, NodeInstance source, bu):
+      c.insert(tree, at, source, bu):
         (tmp, clear) = bu.destructiveMoveOperands(tree, source)
       c.replace(tree, source): tmp.node
-      c.insert(tree.sibling(at), NodeInstance source, bu):
+      c.insert(tree, tree.sibling(at), source, bu):
         genWasMoved(bu, ctx.graph, clear)
   else:
     unreachable()
@@ -839,7 +839,7 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       # cannot happen *after* the statement. The source location's value is
       # first assigned to a temporary and then the source is reset
       var tmp: Value
-      c.insert(stmt, NodeInstance src, bu):
+      c.insert(tree, stmt, NodePosition src, bu):
         let v = bu.bindMut(tree, NodePosition src)
         tmp = bu.materialize(v)
         genWasMoved(bu, ctx.graph, v)
@@ -849,7 +849,7 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         bu.use tmp
     else:
       # the reset can happen after the statement
-      c.insert(tree.sibling(stmt), NodeInstance src, bu):
+      c.insert(tree, tree.sibling(stmt), NodePosition src, bu):
         let v = bu.bindMut(tree, NodePosition src)
         genWasMoved(bu, ctx.graph, v)
 
@@ -1029,17 +1029,17 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
     let
       scopeStart = entries[s.a].scope
       useFinally = scopeStart in needsFinally
-      source = NodeInstance scopeStart
+      source = scopeStart
         ## the node to inherit the origin information from
 
     if useFinally:
       # start a 'finally' at the beginning of the scope:
-      c.insert(scopeStart + 1, source, buf):
+      c.insert(tree, scopeStart + 1, source, buf):
         buf.add MirNode(kind: mnkTry, len: 1)
         buf.add MirNode(kind: mnkStmtList)
 
     # insert at the scope's end node
-    c.insert(findEnd(tree, scopeStart), source, buf):
+    c.insert(tree, findEnd(tree, scopeStart), source, buf):
       if useFinally:
         buf.add endNode(mnkStmtList) # close the body of the 'try' clause
         buf.subTree MirNode(kind: mnkFinally):
@@ -1130,7 +1130,7 @@ proc reportDiagnostics(g: ModuleGraph, tree: MirTree, sourceMap: SourceMap,
                        owner: PSym, diags: var seq[LocalDiag]) =
   ## Reports all diagnostics in `diags` as ``SemReport``s and clear the list
   for diag in diags.items:
-    let ast = sourceMap.sourceFor(diag.pos.NodeInstance)
+    let ast = sourceMap[tree[diag.pos].info]
     let rep =
       case diag.kind
       of ldkUnavailableTypeBound:
@@ -1161,10 +1161,8 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
   ## usage are also reported here.
 
   template apply(c: Changeset) =
-    ## Applies the changeset to both the
-    let prepared = prepare(c, sourceMap)
-    updateSourceMap(sourceMap, prepared)
-    apply(tree, prepared)
+    ## Applies the changeset `c` to `tree`.
+    apply(tree, prepare(c))
 
   # apply the first batch of passes:
   block:

@@ -156,9 +156,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
 
     inc i
 
-  let prepared = prepare(changes, sourceMap)
-  updateSourceMap(sourceMap, prepared)
-  apply(body, prepared)
+  apply(body, prepare(changes))
 
 proc patchGlobals*(body: var MirTree, sourceMap: var SourceMap) =
   # Restores the correct symbol for all globals duplicated during
