@@ -226,13 +226,20 @@ type
     ## Entity dictionary. Stores all entities relevant to destructor
     ## injection and the move analyser
 
+  DestroyEntry = tuple
+    scope: NodePosition ## the position of the enclosing 'scope' node
+    pos: NodePosition   ## the position of the 'def' belonging to the entity
+                        ## that requires destruction
+    needsFinally: bool  ## whether the destructor needs to be placed in a
+                        ## 'finally' clause
+
   AnalysisResults = object
     ## Bundled-up immutable state needed for assignment rewriting. Since
     ## they're immutable, ``Cursor``s are used in order to not copy
     # XXX: ideally, views types (i.e. ``lent``) would be used here
     v: Cursor[Values]
     entities: Cursor[EntityDict]
-    destroy: Cursor[seq[(NodePosition, bool)]]
+    destroy: Cursor[seq[DestroyEntry]]
 
   LocalDiagKind = enum
     ldkPassCopyToSink       ## a copy is introduced in a consume context
@@ -483,7 +490,7 @@ func requiresDestruction(tree: MirTree, cfg: ControlFlowGraph, values: Values,
     else:         demNone
 
 func computeDestructors(tree: MirTree, cfg: ControlFlowGraph, values: Values,
-                        entities: EntityDict): seq[(NodePosition, bool)] =
+                        entities: EntityDict): seq[DestroyEntry] =
   ## Computes and collects which locations present in `entities` need to be
   ## destroyed at the exit of their enclosing scope in order to prevent the
   ## values they still store from staying alive.
@@ -491,12 +498,17 @@ func computeDestructors(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   ## Special handling is required if the scope is exited via unstructured
   ## control-flow while the location is still alive (its value is then said
   ## to "escape")
+  var needsFinally: PackedSet[NodePosition]
+
   for _, info in entities.pairs:
     let
       def = info.def ## the position of the entity's definition
       start = sibling(tree, def)
       entity = tree[getDefEntity(tree, def)]
       scope = start .. info.scope.b
+      scopeStart = info.scope.a - 1
+
+    assert tree[scopeStart].kind == mnkScope
 
     if entity.kind == mnkGlobal and
        doesGlobalEscape(tree, scope, start, entity.sym):
@@ -506,11 +518,18 @@ func computeDestructors(tree: MirTree, cfg: ControlFlowGraph, values: Values,
 
     case requiresDestruction(tree, cfg, values, scope, Operation def, entity)
     of demNormal:
-      result.add (def, false)
+      result.add (scopeStart, def, false)
     of demFinally:
-      result.add (def, true)
+      needsFinally.incl scopeStart
+      result.add (scopeStart, def, true)
     of demNone:
       discard
+
+  # second pass: if at least one destructor call in a scope needs to use a
+  # finalizer, all do. Update the entries accordingly
+  for it in result.mitems:
+    if it.scope in needsFinally:
+      it.needsFinally = true
 
 # --------- analysis routines --------------
 
@@ -584,8 +603,8 @@ func needsReset(tree: MirTree, cfg: ControlFlowGraph, ar: AnalysisResults,
       # check if there exists a destructor call that would observe the
       # location's value:
       for it in ar.destroy[].items:
-        if def == it[0]:
-          if (it[1] and res.escapes) or res.exits:
+        if def == it.pos:
+          if (it.needsFinally and res.escapes) or res.exits:
             # there exists a destructor call for the location -> the current
             # value is observed
             return true
@@ -947,17 +966,12 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 
 # --------- destructor injection -------------
 
-type DestroyEntry = tuple
-  pos: NodePosition   ## the position of the 'def' belonging to the entity that
-                      ## requires destruction
-  scope: NodePosition ## the position of the enclosing 'scope'
-
 proc injectDestructorsInner(buf: var MirTree, orig: MirTree, graph: ModuleGraph,
                             entries: openArray[DestroyEntry]) =
   ## Generates a destructor call for each item in `entries`, using `buf` as the
   ## output.
-  for pos, _ in ritems(entries):
-    let def = getDefEntity(orig, pos)
+  for it in ritems(entries):
+    let def = getDefEntity(orig, it.pos)
     let t =
       case orig[def].kind
       of SymbolLike: orig[def].sym.typ
@@ -967,7 +981,7 @@ proc injectDestructorsInner(buf: var MirTree, orig: MirTree, graph: ModuleGraph,
     genDestroy(buf, graph, t.skipTypes(skipAliases), orig[def])
 
 proc injectDestructors(tree: MirTree, graph: ModuleGraph,
-                       destroy: seq[(NodePosition, bool)], c: var Changeset) =
+                       destroy: seq[DestroyEntry], c: var Changeset) =
   ## Injects a destructor call for each entity in the `destroy` list, in the
   ## entities reverse order they are defined. That is the entity defined last
   ## is destroyed first
@@ -976,19 +990,14 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
     return
 
   var
+    entries = destroy
     needsFinally: PackedSet[NodePosition]
-    entries: seq[DestroyEntry]
 
-  # first pass: setup the `entries` list and collect the scopes that need to
-  # be wrapped in a ``finally``
-  for pos, escapes in destroy.items:
-    assert tree[pos].kind == mnkDef
-    let scopeStart = findParent(tree, pos, mnkScope)
-
-    if escapes:
-      needsFinally.incl scopeStart
-
-    entries.add (pos: pos, scope: scopeStart)
+  # first pass: gather which scopes need to be wrapped in a ``finally``
+  for it in destroy.items:
+    assert tree[it.scope].kind == mnkScope
+    if it.needsFinally:
+      needsFinally.incl it.scope
 
   # sort the entries by scope (first-order) and position (second-order) in
   # ascending order. Do this before moving the definitions, as `entries` would

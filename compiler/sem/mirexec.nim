@@ -394,6 +394,7 @@ iterator traverse*(tree: MirTree, c: ControlFlowGraph,
       i = c[pc].node - 1
     else:
       # no more threads left -> exit
+      i = span.b + 1 # move pc past the end
       break
 
   template push(target: JoinId) =
