@@ -22,9 +22,8 @@
 import
   std/[
     algorithm,
+    options,
     packedsets,
-    sets,
-    tables
   ],
   compiler/ast/[
     ast_types
@@ -142,93 +141,106 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
   ## 1. a control-flow graph needs to materialize all edges for a given `tree`
   ## 2. the amount of allocations/bookkeeping necessary to do so
   ##
-  ## The most amount of bookkeeping is required for finalizers and exception.
-
+  ## The most amount of bookkeeping is required for finalizers and exceptions.
   type
-    FinalizerState = object
-      span: Slice[NodePosition]
-      next: seq[NodePosition] ## the exits registered to the finalizer
-
     ClosureEnv = object
-      ## Using a real closure (i.e. ``.closure``) would be a bit too costly,
-      ## so a manual implementation is used instead
       instrs: seq[Instr]
-      finalizers: seq[FinalizerState]
-      joins: Table[NodePosition, JoinId]
+      ifs: seq[InstrPos]
+        ## stack of instruction positions for the currently open
+        ## structured control-flow blocks (if, loop, and regions).
+      blocks: seq[tuple[label: LabelId, hidden: bool]]
+        ## stack of targets for forward, mergin control-flow. `label` and
+        ## `hidden` are mutually exclusive.
+      exits: seq[tuple[instr: InstrPos, id: uint32, inTry: uint32]]
+        ## unstructured exits. An `id` of ``high(uint32)`` means that it's
+        ## exceptional control-flow.
 
-    JoinPoint = object
-      id: JoinId
-      node: NodePosition
-      isNew: bool
+      inTry: uint32
+      numJoins: int
 
-  func considerFinalizer(target: NodePosition,
-                         f: var FinalizerState): NodePosition =
-    ## Redirects a jump to `target` through a finalizer if one is active and
-    ## the jump crosses its boundary
-    if target in f.span:
-      target
-    else:
-      if target notin f.next:
-        f.next.incl target
+  const
+    RaiseLabel = high(uint32)
+    ExitLabel = 0'u32
 
-      f.span.b
+  template emit(opc: Opcode, n: NodePosition): InstrPos =
+    env.instrs.add Instr(op: opc, node: n)
+    env.instrs.high.InstrPos
 
-  func addJoin(env: var ClosureEnv, dest: NodePosition): JoinPoint =
-    let
-      nextId = env.joins.len.JoinId
-      id = env.joins.mgetOrPut(dest, nextId)
+  template join(pos: NodePosition): JoinId =
+    let id = JoinId env.numJoins
+    inc env.numJoins
+    env.instrs.add Instr(op: opJoin, node: pos, id: id)
+    id
 
-    JoinPoint(id: id, node: dest, isNew: id == nextId)
+  proc findBlock(env: ClosureEnv, label: LabelId, hidden = false): uint32 =
+    var i = env.blocks.high
+    # search for the unstructured control-flow target for `lbl`
+    while i >= 0 and (env.blocks[i].label != label or
+                      env.blocks[i].hidden != hidden):
+      dec i
 
-  func addEdge(env: var ClosureEnv, a, b: NodePosition,
-               isLoop: bool): JoinPoint =
-    let target =
-      if isLoop:
-        assert a > b, "a loop CFG edge must describe backwards control-flow"
-        # a loop edge can't cross the boundary of a finalizer
-        b
+    assert i >= 0, "invalid exit"
+    result = uint32(i + 1)
+
+  template findHidden(): uint32 = findBlock(env, default(LabelId), true)
+
+  template exit(opc: Opcode, pos: NodePosition, blk: uint32) =
+    env.exits.add (emit(opc, pos), blk, env.inTry)
+
+  template push(opc: Opcode, pos: NodePosition) =
+    env.ifs.add emit(opc, pos)
+
+  proc pop(env: var ClosureEnv, p: NodePosition) =
+    let start = env.ifs.pop()
+    case env.instrs[start].op
+    of opJoin:
+      let id = env.instrs[start].id
+      env.instrs.add Instr(op: opLoop, node: p, dest: id)
+    of opFork, opGoto, opLoop:
+      let id = join(p)
+      env.instrs[start].dest = id
+
+  iterator updateTargets(env: var ClosureEnv, n: NodePosition,
+                         update: var bool): auto {.inline.} =
+    ## Yields all exits that are part of the active 'try' statement. If
+    ## `update` is 'true' when control is given back to the iterator, the exit
+    ## is removed from the list and the destination of the associated
+    ## instruction set to `n`.
+    var
+      id = none(JoinId) # only create a 'join' if really needed
+      i = 0
+    while i < env.exits.len:
+      if env.exits[i].inTry >= env.inTry:
+        update = false
+        yield env.exits[i]
+
+        if update:
+          if id.isNone:
+            id = some(join n)
+
+          env.instrs[env.exits[i].instr].dest = id.unsafeGet
+          del(env.exits, i)
+        else:
+          inc i
       else:
-        assert a < b, "a non-loop CFG edge must describe forward control-flow"
-        if env.finalizers.len > 0: considerFinalizer(b, env.finalizers[^1])
-        else:                      b
+        inc i
 
-    addJoin(env, target)
+  template open(label: LabelId) =
+    env.blocks.add (label, false)
+  template openHidden() =
+    env.blocks.add (default(LabelId), true)
 
-  func commit(env: var ClosureEnv, p: JoinPoint) =
-    ## Adds a 'join' instruction using the info from `p`, but only if it's a
-    ## new join point (i.e. one that has no other sources yet)
-    if p.isNew:
-      env.instrs.add Instr(node: p.node, op: opJoin, id: p.id)
+  proc close(env: var ClosureEnv, i: NodePosition) =
+    var upd = false
+    for exit in updateTargets(env, i, upd):
+      upd = exit.id == env.blocks.len.uint32
+    discard env.blocks.pop()
 
   var
-    env: ClosureEnv
-    handlers: seq[NodePosition]
+    env = ClosureEnv()
+    finallyExits: seq[tuple[id: uint32, inTry: uint32]]
 
-  template goto(a, b: NodePosition) =
-    let
-      x = a
-      p = env.addEdge(x, b, isLoop=false)
-
-    env.instrs.add Instr(op: opGoto, node: x, dest: p.id)
-    commit(env, p)
-
-  template fork(a, b: NodePosition) =
-    let
-      x = a
-      p = env.addEdge(x, b, isLoop=false)
-
-    env.instrs.add Instr(op: opFork, node: x, dest: p.id)
-    commit(env, p)
-
-  template loop(a, b: NodePosition) =
-    let
-      x = a
-      p = env.addEdge(x, b, isLoop=true)
-
-    commit(env, p) # the 'join' comes first
-    env.instrs.add Instr(op: opLoop, node: x, dest: p.id)
-
-  let exit = NodePosition(tree.len)
+  # open NoLabel, true # the unstructured exit of the whole tree
 
   for i, n in tree.pairs:
     case n.kind
@@ -237,98 +249,106 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
         # the control-flow graph only encodes procedure-local control-flow, so
         # a procedure call that might raise an exception is treated as forking
         # to the closest handler
-        fork(i):
-          if handlers.len > 0: handlers[^1]
-          else:                exit
+        exit opFork, i, RaiseLabel
 
     of mnkMagic:
       if n.magic in magicsThatCanRaise:
-        fork(i):
-          if handlers.len > 0: handlers[^1]
-          else:                exit
+        exit opFork, i, RaiseLabel
 
     of mnkIf:
-      fork i, findEnd(tree, i)
+      push opFork, i
     of mnkBranch:
-      if n.len > 0:
-        # only fork if the branch has a condition (i.e. it's not a "catch-all"
-        # branch)
-        fork i, sibling(tree, i)
-
+      # optimization: the first branch doesn't use a CFG edge
+      if tree[i-1].kind notin {mnkCase, mnkExcept}:
+        pop(env, i)
     of mnkRegion:
       # a region is specified to have no obsersvable control-flow effects, so
       # we effectively skip it. The control-flow instructions for the
       # intra-region control-flow are still generated -- by default, they're
       # just skipped over
-      goto i, findEnd(tree, i)
+      push opGoto, i
     of mnkRepeat:
-      # add a loop-edge between the end of the 'repeat' block and its start
-      loop findEnd(tree, i), i
+      # add a 'join' for the 'loop' that is emitted at the end of the repeat
+      discard join(i)
+      env.ifs.add env.instrs.high.InstrPos
+    of mnkBlock:
+      open n.label
+    of mnkCase:
+      openHidden() # for the branch exits
+      # fork to all branches except the the first one:
+      for _ in 0..<tree[i].len-1:
+        push opFork, i
     of mnkTry:
-      if n.len > 0:
-        let first = childIdx(tree, i, 1) # position of the first attachement
-        # register the exception handler:
-        if tree[first].kind == mnkExcept:
-          handlers.add first
-
-        # register the finalizer:
-        if n.len == 2 or tree[first].kind == mnkFinally:
-          env.finalizers.add FinalizerState(span: i .. childIdx(tree, i, n.len))
-
-      let body = childIdx(tree, i, 0)
-      assert tree[body].kind in SubTreeNodes
-      # the body of the 'try' goes to the end of the 'try-except-finally'
-      # block on exit:
-      goto findEnd(tree, body), findEnd(tree, i)
+      openHidden()
+      inc env.inTry
     of mnkExcept:
-      assert handlers[^1] == i
-      # pop the handler so that it doesn't apply to itself
-      handlers.setLen(handlers.len - 1)
+      # first, add a structured exit for the tried statement (which
+      # immediately precedes the handler):
+      exit opGoto, i-1, findHidden()
+      # set the join point for all exits targeting the 'raise' label:
+      var upd = false
+      for exit in updateTargets(env, i, upd):
+        upd = exit.id == RaiseLabel
+
+      # fork to the exception matchers:
+      for _ in 0..<tree[i].len-1:
+        push opFork, i
     of mnkFinally:
-      # pop the finalizer so that it doesn't apply to itself
-      let finalizer = env.finalizers.pop()
-      assert finalizer.span.b == i
+      if not (tree[i-1].kind == mnkEnd and tree[i-1].start == mnkExcept):
+        # this is a finally clause for a try statement without an exception
+        # handler. We need the structured exit for the tried statement to
+        # know where to resume at the end of the clause
+        exit opGoto, i-1, findHidden()
 
-      let e = findEnd(tree, i)
-      # where control-flow continues after exiting the finalizer depends on
-      # the jumps it intercepted. We represent this in the CFG by emitting a
-      # 'fork' instruction targeting the destination of each intercepted jump
-      for x in 0..<finalizer.next.len - 1:
-        fork(e, finalizer.next[x])
+      let start = finallyExits.len
 
-      # the last target needs to be linked via a 'goto' instruction, as the
-      # finalizer must not be exited via fallthrough. No `next` targets being
-      # present is valid and means that the finalizer is unused (control-flow
-      # never enters it)
-      if finalizer.next.len > 0:
-        goto(e, finalizer.next[^1])
+      var upd = false
+      for exit in updateTargets(env, i, upd):
+        upd = true
+        # make sure that the list stays sorted while deduplicating exits:
+        var ins = start
+        while ins < finallyExits.len and finallyExits[ins].id < exit.id:
+          inc ins
 
+        if ins == finallyExits.len or finallyExits[ins].id != exit.id:
+          # the exit is not part of the surrounding 'try', so subtract 1
+          finallyExits.insert((exit.id, env.inTry-1), ins)
+
+      # the code inside the finally clause is control-flow wise not part of
+      # the 'try'
+      dec env.inTry
     of mnkBreak:
-      let label = n.label
-      # goto the exit of the block with the matching label
-      var target = findParent(tree, i, mnkBlock)
-      while tree[target].label != label:
-        target = findParent(tree, target-1, mnkBlock)
-
-      goto i, findEnd(tree, target)
+      exit opGoto, i, findBlock(env, n.label)
     of mnkReturn:
-      goto i, exit
+      exit opGoto, i, ExitLabel
     of mnkRaise:
-      # when raising an exception, control-flow is transferred to the enclosing
-      # handler. If none exists in the current tree (i.e. procedure), it's
-      # treated the same as a return
-      goto(i):
-        if handlers.len > 0: handlers[^1]
-        else:                exit
-
+      exit opGoto, i, RaiseLabel # go to closest handler
     of mnkEnd:
       case n.start
       of mnkBranch:
         # XXX: the goto is redundant/unnecessary if the body doesn't have a
         #      structured exit
-        # only create an edge for the exit branches that are not the last one
+        # only create an edge for branches that are not the last one
         if tree[i+1].kind != mnkEnd:
-          goto i, parentEnd(tree, i)
+          exit opGoto, i, findHidden()
+      of mnkIf, mnkRegion, mnkRepeat:
+        pop(env, i)
+
+      # unstructured exits:
+      of mnkBlock, mnkCase:
+        close(env, i)
+      of mnkTry:
+        close(env, i)
+
+        if not (tree[i-1].kind == mnkEnd and tree[i-1].start == mnkFinally):
+          # if no finally clause exists, we need to patch the ``inTry``
+          # values for the exits. Effictively, the exits in a 'try' without
+          # a 'finally' clause become part of the surrounding 'try' (if any)
+          dec env.inTry
+          for exit in env.exits.mitems:
+            exit.inTry = min(exit.inTry, env.inTry)
+
+      # handlers and finally:
       of mnkExcept:
         # after a structured exit of the handler, control-flow continues after
         # the code section it is attached to. Node-wise, this is the ``end``
@@ -339,24 +359,48 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
         if tree[i+1].kind == mnkFinally:
           # only add an edge if the there's a finalizer -- no edge is needed
           # if there's none
-          goto i, parentEnd(tree, i)
+          exit opGoto, i, findHidden()
+      of mnkFinally:
+        # search for the start of the relevant exits:
+        var start = finallyExits.len
+        while start > 0 and finallyExits[start-1].inTry == env.inTry:
+          dec start
+
+        # where control-flow continues after exiting the finalizer depends on
+        # the jumps it intercepts. We represent this in the CFG by emitting a
+        # 'fork' instruction targeting the destination of each intercepted jump
+        for x in start..<finallyExits.len-1:
+          exit opFork, i, finallyExits[x].id
+
+        # the last target needs to be linked via a 'goto' instruction, as the
+        # finalizer must not be exited via fallthrough. The finally clause
+        # having no exits is valid: it means that the finalizer is unused
+        # (control-flow never enters it)
+        if start < finallyExits.len:
+          exit opGoto, i, finallyExits[^1].id
+
+        finallyExits.setLen(start)
       else:
         discard
 
     else:
       discard "not relevant"
 
-  swap(env.instrs, result.instructions)
+  assert env.inTry == 0
 
-  assert result.map.len <= 1
-  # to make the edge creation above simpler, the instructions are not added in
-  # the correct order, meaning that we have to sort them here:
-  sort(result.instructions, proc(a, b: auto): int = ord(a.node) - ord(b.node))
+  if env.exits.len > 0:
+    let id = join tree.len.NodePosition
+    # all unhandled exits (including raise exits) that reach here exit the
+    # processed tree:
+    for it in env.exits.items:
+      env.instrs[it.instr].dest = id
+
+  swap(env.instrs, result.instructions)
 
   # looking up the position of the ``opcJoin`` instruction that defines a given
   # join point is a very common operation, so we cache this information for
   # efficiency
-  result.map.newSeq(env.joins.len)
+  result.map.newSeq(env.numJoins)
   for i, instr in result.instructions.lpairs:
     if instr.op == opJoin:
       result.map[instr.id] = InstrPos(i)
