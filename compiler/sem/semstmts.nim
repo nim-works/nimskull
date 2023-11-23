@@ -1590,17 +1590,18 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
   addInNimDebugUtils(c.config, "semFor", n, result, flags)
   checkMinSonsLen(n, 3, c.config)
   openScope(c)
-  result = n
-  n[^2] = semExprNoDeref(c, n[^2], {efWantIterator})
-  var hasError = n[^2].kind == nkError
-  var call = n[^2]
+  result = copyNodeWithKids(n)
+  var
+    call = semExprNoDeref(c, n[^2], {efWantIterator})
+    hasError = call.kind == nkError
+  result[^2] = call
   if call.kind == nkStmtListExpr and isTrivalStmtExpr(call):
     call = call.lastSon
-    n[^2] = call
+    result[^2] = call
   let isCallExpr = call.kind in nkCallKinds
   if isCallExpr and call[0].kind == nkSym and
       call[0].sym.magic in {mFields, mFieldPairs}:
-    result = semForFields(c, n, call[0].sym.magic)
+    result = semForFields(c, result, call[0].sym.magic)
   else:
     if isCallExpr and isClosureIterator(call[0].typ.skipTypes(abstractInst)):
       # first class iterator:
@@ -1608,16 +1609,17 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
     elif not isCallExpr or call[0].kind != nkSym or
         call[0].sym.kind != skIterator:
       if n.len == 3:
-        n[^2] = implicitIterator(c, "items", n[^2])
+        result[^2] = implicitIterator(c, "items", result[^2])
       elif n.len == 4:
-        n[^2] = implicitIterator(c, "pairs", n[^2])
+        result[^2] = implicitIterator(c, "pairs", result[^2])
       else:
-        n[^2] = c.config.newError(n[^2], PAstDiag(kind: adSemForExpectedIterator))
-      hasError = n[^2].isError or hasError
-    result = semForVars(c, n, flags)
+        result[^2] = c.config.newError(n[^2],
+                                PAstDiag(kind: adSemForExpectedIterator))
+      hasError = result[^2].isError or hasError
+    result = semForVars(c, result, flags)
   if hasError or result.kind == nkError:
     discard # do nothing
-  elif n[^1].typ == c.enforceVoidContext:
+  elif result[^1].typ == c.enforceVoidContext:
     # propagate any enforced VoidContext:
     result.typ = c.enforceVoidContext
   elif efInTypeof in flags:
