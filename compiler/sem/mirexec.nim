@@ -148,9 +148,10 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
       ifs: seq[InstrPos]
         ## stack of instruction positions for the currently open
         ## structured control-flow blocks (if, loop, and regions).
-      blocks: seq[tuple[label: LabelId, hidden: bool]]
-        ## stack of targets for forward, mergin control-flow. `label` and
-        ## `hidden` are mutually exclusive.
+      blocks: seq[Option[LabelId]]
+        ## stack of targets for forward, merging control-flow. No label
+        ## means that it's a *hidden* block (such as the one opened by a
+        ## ``try`` statement)
       exits: seq[tuple[instr: InstrPos, id: uint32, inTry: uint32]]
         ## unstructured exits. An `id` of ``high(uint32)`` means that it's
         ## exceptional control-flow.
@@ -172,17 +173,16 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
     env.instrs.add Instr(op: opJoin, node: pos, id: id)
     id
 
-  proc findBlock(env: ClosureEnv, label: LabelId, hidden = false): uint32 =
+  proc findBlock(env: ClosureEnv, label: Option[LabelId]): uint32 =
     var i = env.blocks.high
-    # search for the unstructured control-flow target for `lbl`
-    while i >= 0 and (env.blocks[i].label != label or
-                      env.blocks[i].hidden != hidden):
+    # search for the unstructured control-flow target for `label`
+    while i >= 0 and env.blocks[i] != label:
       dec i
 
     assert i >= 0, "invalid exit"
     result = uint32(i + 1)
 
-  template findHidden(): uint32 = findBlock(env, default(LabelId), true)
+  template findHidden(): uint32 = findBlock(env, none(LabelId))
 
   template exit(opc: Opcode, pos: NodePosition, blk: uint32) =
     env.exits.add (emit(opc, pos), blk, env.inTry)
@@ -226,9 +226,9 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
         inc i
 
   template open(label: LabelId) =
-    env.blocks.add (label, false)
+    env.blocks.add some(label)
   template openHidden() =
-    env.blocks.add (default(LabelId), true)
+    env.blocks.add none(LabelId)
 
   proc close(env: var ClosureEnv, i: NodePosition) =
     var upd = false
@@ -318,7 +318,7 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
       # the 'try'
       dec env.inTry
     of mnkBreak:
-      exit opGoto, i, findBlock(env, n.label)
+      exit opGoto, i, findBlock(env, some n.label)
     of mnkReturn:
       exit opGoto, i, ExitLabel
     of mnkRaise:
