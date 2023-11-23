@@ -2762,7 +2762,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
   template noMatchAux() =
     m.state = csNoMatch
     m.error.firstMismatch.pos = a
-    m.error.firstMismatch.arg = n[a]
+    m.error.firstMismatch.arg = operand
     m.error.firstMismatch.formal = formal
     return
 
@@ -2826,8 +2826,10 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
     f = if m.callee.kind != tyGenericBody: 1
         else: 0
       ## index to iterate over formal parameters
+    operand: PNode
+      ## current prepared operand/argument 
     arg: PNode
-      ## current prepared argument
+      ## current prepared and param type matched argument
     formalLen = m.callee.n.len
     formal = if formalLen > 1: m.callee.n[1].sym else: nil
       ## current routine parameter
@@ -2844,6 +2846,8 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
       
       formal = m.callee.n[f].sym
       incl(marker, formal.position)
+
+      operand = n[a] # initialize to current arg in case of early `noMatch`
 
       case n[a].kind
       of nkHiddenStdConv:
@@ -2911,9 +2915,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
 
         arg = n[a][1]
       else:
-        let operand = prepareOperand(c, formal.typ, n[a][1])
-          ## analysed operand, if it's an error the issue is based on the
-          ## formal type and not the actual callsite operand.
+        operand = prepareOperand(c, formal.typ, n[a][1])
 
         case operand.kind
         of nkError:
@@ -2966,7 +2968,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
             # xxx: maybe this should be an internal error?
             noMatch()
           else:
-            let operand = prepareOperand(c, n[a])
+            operand = prepareOperand(c, n[a])
 
             m.call.add:
               case skipTypes(operand.typ, abstractVar-{tyTypeDesc}).kind
@@ -2996,7 +2998,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
           of nkError:
             arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a])
           else:
-            let operand = prepareOperand(c, formal.typ, n[a])
+            operand = prepareOperand(c, formal.typ, n[a])
 
             case operand.kind
             of nkError:
@@ -3063,7 +3065,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
           of nkError:
             arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a])
           else:
-            let operand = prepareOperand(c, formal.typ, n[a])
+            operand = prepareOperand(c, formal.typ, n[a])
 
             case operand.kind
             of nkError:
