@@ -336,6 +336,8 @@ proc generateOutput(conf: ConfigRef, r: CompilerTrace): string =
               result.add render(s.candidate.calleeSym)
             field("call")
             result.add render(s.candidate.call)
+            field("to node")
+            result.add render(s.node)
   of compilerTraceLine:
     let ind = repeat("  ", r.ctraceData.level)
     var
@@ -856,6 +858,7 @@ template addInNimDebugUtils*(c: ConfigRef;
     template leaveMsg(indentLevel: int) =
       traceLeaveIt(loc, stepParams(c, stepNodeSigMatch, indentLevel, action)):
         it.candidate = toDebugCallableCandidate(res)
+        it.node = n # to track mutations
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
