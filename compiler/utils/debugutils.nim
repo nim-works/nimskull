@@ -493,7 +493,7 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
         if indentLevel != 0: # print a delta stack
           # try to print only the part of the stacktrace since the last time,
           # this is done by looking for any previous calls in `debugUtilsStack`
-          {.line.}: # stops the template showing up in the StackTraceEntries
+          {.line:instantiationInfo(-2, true).}: # stops the template showing up in the StackTraceEntries
             let
               stopProc =
                 if indentLevel == 1: prcname  # we're the only ones
