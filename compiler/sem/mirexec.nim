@@ -145,7 +145,7 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
   type
     ClosureEnv = object
       instrs: seq[Instr]
-      ifs: seq[InstrPos]
+      structStack: seq[InstrPos]
         ## stack of instruction positions for the currently open
         ## structured control-flow blocks (if, loop, and regions).
       blocks: seq[Option[LabelId]]
@@ -188,10 +188,10 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
     env.exits.add (emit(opc, pos), blk, env.inTry)
 
   template push(opc: Opcode, pos: NodePosition) =
-    env.ifs.add emit(opc, pos)
+    env.structStack.add emit(opc, pos)
 
   proc pop(env: var ClosureEnv, p: NodePosition) =
-    let start = env.ifs.pop()
+    let start = env.structStack.pop()
     case env.instrs[start].op
     of opJoin:
       let id = env.instrs[start].id
@@ -270,7 +270,7 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
     of mnkRepeat:
       # add a 'join' for the 'loop' that is emitted at the end of the repeat
       discard join(i)
-      env.ifs.add env.instrs.high.InstrPos
+      env.structStack.add env.instrs.high.InstrPos
     of mnkBlock:
       open n.label
     of mnkCase:
