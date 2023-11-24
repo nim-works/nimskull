@@ -6,7 +6,7 @@ discard """
   target: native
 """
 
-import std/[strutils, strscans, macros]
+import std/[strutils, strscans, macros, tables]
 
 include compiler/sem/mirexec
 
@@ -170,10 +170,10 @@ block:
     MirNode(kind: mnkBlock, label: LabelId(0)),
     MirNode(kind: mnkRepeat),
     MirNode(kind: mnkBreak, label: LabelId(0)),
-    MirNode(kind: mnkEnd),
-    MirNode(kind: mnkEnd),
+    MirNode(kind: mnkEnd, start: mnkRepeat),
+    MirNode(kind: mnkEnd, start: mnkBlock),
     MirNode(kind: mnkReturn),
-    MirNode(kind: mnkEnd)]
+    MirNode(kind: mnkEnd, start: mnkStmtList)]
   let cfg = computeCfg(tree)
 
   doAssert cfg == parseCfg("""
