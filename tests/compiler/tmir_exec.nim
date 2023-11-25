@@ -25,7 +25,7 @@ type
     id: int
 
   Program = object
-    cfg: ControlFlowGraph
+    cfg: DataFlowGraph
     code: seq[PInstr]
     map: Table[int, NodePosition]
       ## maps a def/use ID the position of the corresponding instruction
@@ -37,7 +37,7 @@ func parseOp(input: string, r: var Opcode, start: int): int =
       result = s.len
       break
 
-proc parseCfg(str: string): ControlFlowGraph =
+proc parseCfg(str: string): DataFlowGraph =
   ## Creat a CFG object from its text representation
   var
     list: seq[Instr]
@@ -74,7 +74,7 @@ proc parseCfg(str: string): ControlFlowGraph =
 
     list[^1].node = NodePosition(val)
 
-  result = ControlFlowGraph(instructions: list, map: map)
+  result = DataFlowGraph(instructions: list, map: map)
 
 proc parse2(str: string): Program =
   ## Parses a ``Program`` object from its text representation
@@ -144,8 +144,8 @@ func `==`(a, b: Instr): bool =
     of opJoin:                 a.id == b.id
     of DataFlowOps:            a.node == b.node
 
-func `==`(a, b: ControlFlowGraph): bool =
-  ## Compares two CFGs for structural equality. Differing join IDs are ignored
+func `==`(a, b: DataFlowGraph): bool =
+  ## Compares two DFGs for structural equality. Differing join IDs are ignored
   ## as long as they point to the same instruction
   if a.instructions.len != b.instructions.len:
     return false
@@ -184,7 +184,7 @@ block:
     MirNode(kind: mnkEnd, start: mnkBlock),
     MirNode(kind: mnkReturn),
     MirNode(kind: mnkEnd, start: mnkStmtList)]
-  let cfg = computeCfg(tree)
+  let cfg = computeDfg(tree)
 
   doAssert cfg == parseCfg("""
     0: join -> 2

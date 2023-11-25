@@ -1,6 +1,6 @@
 ## This module implements various data-flow related analysis for MIR code.
 ## They're based on the ``mirexec`` traversal algorithms and require a
-## ``Values`` dictionary and a ``ControlFlowGraph`` object, both
+## ``Values`` dictionary and a ``DataFlowGraph`` object, both
 ## corresponding to the code fragment (i.e. ``MirTree``) that is analysed.
 ##
 ## A ``Values`` dictionary stores information about the result of operations,
@@ -213,7 +213,7 @@ func computeValuesAndEffects*(body: MirTree): Values =
     of AllNodeKinds - InOutNodes - InputNodes + {mnkTag, mnkArgBlock}:
       discard "leave uninitialized"
 
-func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
+func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
              span: Slice[NodePosition], loc: LvalueExpr,
              pos: NodePosition): bool =
   ## Computes if the location named by `loc` does contain a value at `pos`
@@ -274,7 +274,7 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
   # no mutation is directly connected to `pos`. The location is not alive
   result = false
 
-func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
+func isLastRead*(tree: MirTree, cfg: DataFlowGraph, values: Values,
                  span: Slice[NodePosition], loc: LvalueExpr, pos: NodePosition
                 ): bool =
   ## Performs data-flow analysis to compute whether the value in `loc`
@@ -334,7 +334,7 @@ func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   # no further read of the value is connected to `pos`
   result = true
 
-func isLastWrite*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
+func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, values: Values,
                   span: Slice[NodePosition], loc: LvalueExpr, pos: NodePosition
                  ): tuple[result, exits, escapes: bool] =
   ## Computes whether the location `loc` is reassigned or modified on any paths
@@ -427,7 +427,7 @@ func computeAliveOp*[T: PSym | TempId](
   else:
     discard
 
-func computeAlive*[T](tree: MirTree, cfg: ControlFlowGraph, values: Values,
+func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph, values: Values,
                       span: Slice[NodePosition], loc: T,
                       op: static ComputeAliveProc[T]
                      ): tuple[alive, escapes: bool] =

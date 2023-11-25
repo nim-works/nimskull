@@ -8,14 +8,14 @@
 ## questions such as: "is point A connected to point B?", "is X initialized on
 ## all paths?", etc.
 ##
-## A DFG is built via the `computeCfg <#computeCfg,MirTree>`_ routine. Instead
+## A DFG is built via the `computeDfg <#computeDfg,MirTree>`_ routine. Instead
 ## of a pointer-based graph structure, the graph is represented as a sequence
 ## of instructions encoding all data- and control-flow relevant properties
 ## for a piece of code.
 
 # XXX: with a small to medium amount of work, the algorithms and
-#      ``ControlFlowGraph`` can be generalized to work independent from the
-#      MIR. The current ``computeCfg`` would be moved to somewhere else
+#      ``DataFlowGraph`` can be generalized to work independent from the
+#      MIR. The current ``computeDfg`` would be moved to somewhere else
 
 import
   std/[
@@ -71,7 +71,7 @@ type
     of opUse, opDef, opConsume, opInvalidate, opMutate, opKill, opMutateGlobal:
       val: OpValue
 
-  ControlFlowGraph* = object
+  DataFlowGraph* = object
     ## Encodes the data-flow graph of a local program as a sequence of
     ## control- and data-flow instructions.
     instructions: seq[Instr]
@@ -143,17 +143,17 @@ func incl[T](s: var seq[T], v: sink T) =
 func compare(a: Instr, b: NodePosition): int =
   ord(a.node) - ord(b)
 
-template lowerBound(c: ControlFlowGraph, node: NodePosition): InstrPos =
+template lowerBound(c: DataFlowGraph, node: NodePosition): InstrPos =
   lowerBound(c.instructions, node, compare).InstrPos
 
-template upperBound(c: ControlFlowGraph, node: NodePosition): InstrPos =
+template upperBound(c: DataFlowGraph, node: NodePosition): InstrPos =
   upperBound(c.instructions, node, compare).InstrPos
 
-func `[]`(c: ControlFlowGraph, pc: SomeInteger): lent Instr {.inline.} =
+func `[]`(c: DataFlowGraph, pc: SomeInteger): lent Instr {.inline.} =
   c.instructions[pc]
 
-func computeCfg*(tree: MirTree): ControlFlowGraph =
-  ## Computes the control-flow graph for the given `tree`. This is a very
+func computeDfg*(tree: MirTree): DataFlowGraph =
+  ## Computes the data-flow graph for the given `tree`. This is an
   ## expensive operation! The high cost is due to two essential reasons:
   ##
   ## 1. a control-flow graph needs to materialize all edges for a given `tree`
@@ -473,7 +473,7 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
     if instr.op == opJoin:
       result.map[instr.id] = InstrPos(i)
 
-iterator traverse*(c: ControlFlowGraph,
+iterator traverse*(c: DataFlowGraph,
                    span: Slice[NodePosition], start: NodePosition,
                    state: var TraverseState): (Opcode, OpValue) =
   ## Starts at the data-flow operation closest to `start` and traverses/yields
@@ -569,7 +569,7 @@ template step(s: var ExecState) =
   # remember the lowest time value we've reached so far:
   s.bottom = min(s.bottom, s.time)
 
-func processJoin(id: JoinId, s: var ExecState, c: ControlFlowGraph) {.inline.} =
+func processJoin(id: JoinId, s: var ExecState, c: DataFlowGraph) {.inline.} =
   ## Processes a 'join' instruction in the context of reverse traversal
 
   if s.loops.len > 0 and s.loops[^1].start == id:
@@ -620,7 +620,7 @@ func processJoin(id: JoinId, s: var ExecState, c: ControlFlowGraph) {.inline.} =
     s.visited[id] = max(s.time, s.visited[id])
     s.time = s.visited[id]
 
-iterator traverseReverse*(c: ControlFlowGraph,
+iterator traverseReverse*(c: DataFlowGraph,
                           span: Slice[NodePosition], start: NodePosition,
                           exit: var bool): (Opcode, OpValue) =
   ## Starts at `start - 1` and visits and returns all data-flow operations
@@ -733,7 +733,7 @@ iterator traverseReverse*(c: ControlFlowGraph,
 
   exit = s.active
 
-iterator traverseFromExits*(c: ControlFlowGraph, span: Slice[NodePosition],
+iterator traverseFromExits*(c: DataFlowGraph, span: Slice[NodePosition],
                             exit: var bool): (Opcode, OpValue) =
   ## Similar to ``traverseReverse``, but starts traversal at each unstructured
   ## exit of `span`. Here, unstructured exit means that the control-flow leaves
@@ -814,7 +814,7 @@ iterator traverseFromExits*(c: ControlFlowGraph, span: Slice[NodePosition],
   exit = s.active
 
 
-func `$`*(c: ControlFlowGraph): string =
+func `$`*(c: DataFlowGraph): string =
   ## Renders the instructions of `c` as a human-readable text representation
   for i, n in c.instructions.pairs:
     case n.op
