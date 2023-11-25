@@ -4,9 +4,9 @@
 ## corresponding to the code fragment (i.e. ``MirTree``) that is analysed.
 ##
 ## A ``Values`` dictionary stores information about the result of operations,
-## namely, whether the value is owned and, for lvalues, the root. It also
-## stores the lvalue effects of operations. An instance of the dictionary is
-## created and initialized via the ``computeValuesAndEffects`` procedure.
+## namely, whether the value is owned and, for lvalues, the root. An instance
+## of the dictionary is created and initialized via the ``computeValues``
+## procedure.
 ##
 ## Each location that is not allocated via ``new`` or ``alloc`` is owned by a
 ## single handle (the name of a local, global, etc.), but can be aliased
@@ -26,7 +26,7 @@
 ## aliases are not detected.
 ##
 ## ..note:: implementing this is possible. A second step after
-##          ``computeValuesAndEffects`` could perform an abstract execution of
+##          ``computeValues`` could perform an abstract execution of
 ##          the MIR code to produce a conservative set of possible handles for
 ##          each pointer-like dereferencing operation. The analysis routines
 ##          would then compare the analysed handle with each set element,
@@ -129,11 +129,11 @@ func decayed(x: ValueInfo): ValueInfo {.inline.} =
   if result.owns == Owned.weak:
     result.owns = Owned.no
 
-func computeValuesAndEffects*(body: MirTree): Values =
-  ## Creates a ``Values`` dictionary with all operation effects collected and
-  ## (static) value roots computed. Value ownership is already computed where it
-  ## is possible to do so by just taking the static operation sequences into
-  ## account (i.e. no control- or data-flow analysis is performed)
+func computeValues*(body: MirTree): Values =
+  ## Creates a ``Values`` dictionary storing static information about lvalue
+  ## expressions. Value ownership is already computed where it is possible
+  ## to do so by just taking the static operation sequences into account (i.e.,
+  ## no control- or data-flow analysis is performed)
   result.values.newSeq(body.len)
 
   template inherit(i, source: NodePosition) =

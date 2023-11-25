@@ -47,7 +47,7 @@
 ## code-fragment is created and initialized. For all arguments that appear in
 ## a consume context (e.g. passed to ``sink`` argument, assignment source)
 ## and for which the ownership status could not be resolved to either 'yes' or
-## 'no' by ``analysis.computeValuesAndEffects``, a data-flow analysis is
+## 'no' by ``analysis.computeValues``, a data-flow analysis is
 ## performed to figure out the status (see ``solveOwnership``).
 ##
 ## Using the now resolved ownership status of all expressions, the next
@@ -405,7 +405,7 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, values: Values,
   case tree[lval.root].kind
   of mnkObjConstr, mnkConstr, mnkMagic, mnkCall:
     # all values derived from a constructor-operation that reach here are
-    # guaranteed to own (see ``analyser.computeValuesAndEffects``).
+    # guaranteed to own (see ``analyser.computeValues``).
     Owned.yes
   of mnkLocal, mnkParam, mnkGlobal, mnkTemp:
     # only entities that are relevant for destructor injection have an entry in
@@ -1234,7 +1234,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
       actx = AnalyseCtx(graph: g, cfg: computeDfg(tree))
       entities = initEntityDict(tree)
 
-    var values = computeValuesAndEffects(tree)
+    var values = computeValues(tree)
     solveOwnership(tree, actx.cfg, values, entities)
 
     let destructors = computeDestructors(tree, actx.cfg, values, entities)
