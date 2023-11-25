@@ -443,7 +443,7 @@ func solveOwnership(tree: MirTree, cfg: ControlFlowGraph, values: var Values,
         # unresolved onwership status and has a destructors
         values.setOwned(opr):
           computeOwnership(tree, cfg, values, entities,
-                           values.toLvalue(opr), i)
+                           values.toLvalue(opr), i + 1)
 
     else:
       discard "nothing to do"
@@ -459,8 +459,8 @@ type DestructionMode = enum
 func requiresDestruction(tree: MirTree, cfg: ControlFlowGraph, values: Values,
                          span: Slice[NodePosition], def: Operation,
                          entity: MirNode): DestructionMode =
-  template computeAlive(loc: untyped, hasInit: bool, op: untyped): untyped =
-    computeAlive(tree, cfg, values, span, loc, hasInit, op)
+  template computeAlive(loc: untyped, op: untyped): untyped =
+    computeAlive(tree, cfg, values, span, loc, op)
 
   # XXX: a 'def' is not an operation. It defines an entity, optionally with a
   #      starting value, but doesn't produce a value itself
@@ -469,15 +469,13 @@ func requiresDestruction(tree: MirTree, cfg: ControlFlowGraph, values: Values,
     case entity.kind
     of mnkParam, mnkLocal, mnkGlobal:
       # ``sink`` parameter locations always start with an initial value
-      computeAlive(entity.sym, (entity.kind == mnkParam or hasInput(tree, def)),
-                   computeAliveOp[PSym])
+      computeAlive(entity.sym, computeAliveOp[PSym])
 
     of mnkTemp:
       # unpacked tuples don't need to be destroyed because all elements are
       # moved out of them
       if tree[def].kind != mnkDefUnpack:
-        computeAlive(entity.temp, hasInput(tree, def),
-                     computeAliveOp[TempId])
+        computeAlive(entity.temp, computeAliveOp[TempId])
       else:
         (alive: false, escapes: false)
 
@@ -503,7 +501,7 @@ func computeDestructors(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   for _, info in entities.pairs:
     let
       def = info.def ## the position of the entity's definition
-      start = sibling(tree, def)
+      start = info.def
       entity = tree[getDefEntity(tree, def)]
       scope = start .. info.scope.b
       scopeStart = info.scope.a - 1
@@ -593,7 +591,8 @@ func needsReset(tree: MirTree, cfg: ControlFlowGraph, ar: AnalysisResults,
     return true
 
   let res = isLastWrite(tree, cfg, ar.v[], aliveRange,
-                        toLvalue(ar.v[], OpValue src), NodePosition(src) + 1)
+                        toLvalue(ar.v[], OpValue src), NodePosition(src) + 2)
+  # +1 to get to the write context, another +1 to skip it
 
   if res.result:
     if res.escapes or res.exits:
