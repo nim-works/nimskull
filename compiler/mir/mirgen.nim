@@ -758,7 +758,7 @@ proc genArgs(c: var TCtx, n: PNode) =
 
 proc genCall(c: var TCtx, n: PNode) =
   ## Generates and emits the MIR code for a call expression.
-  let fntyp = n[0].typ
+  let fntyp = n[0].typ.skipTypes(abstractInst)
   var effects: set[GeneralEffect]
   if canRaiseConservative(n[0]):
     effects.incl geRaises
