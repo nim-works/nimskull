@@ -248,12 +248,13 @@ func isPure(tree: MirTree, n: NodePosition): bool =
     # sink parameters are mutable and thus not pure
     tree[n].typ.kind != tySink
   of mnkTemp, mnkConst, mnkLiteral, mnkProc, mnkType:
-    # * 'let' symbols are excluded here, as while they're not directly
-    #   mutable, they're allowed to be moved out of (which is a mutation) by
-    #   later optimization passes
-    # * during the translation phase, the name of a temporary is a pure
-    #   expression
+    # note: during the translation phase, the name of a temporary is a pure
+    # expression
     true
+  of mnkLocal:
+    # let bindings are pure, but only if they don't have a destructor (in
+    # which case they're movable)
+    tree[n].sym.kind in {skLet, skForVar} and not hasDestructor(tree[n].typ)
   of mnkPathNamed, mnkPathPos:
     isPure(tree, NodePosition tree.operand(n))
   of mnkPathArray:
