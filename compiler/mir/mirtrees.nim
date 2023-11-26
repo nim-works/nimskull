@@ -391,7 +391,8 @@ const
   LvalueExprKinds* = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathVariant,
                       mnkPathConv, mnkDeref, mnkDerefView, mnkTemp, mnkAlias,
                       mnkLocal, mnkParam, mnkConst, mnkGlobal}
-  RvalueExprKinds* = {mnkLiteral, mnkType, mnkProc, mnkConv, mnkStdConv, mnkCast}
+  RvalueExprKinds* = {mnkLiteral, mnkType, mnkProc, mnkConv, mnkStdConv,
+                      mnkCast, mnkAddr, mnkView, mnkToSlice}
   ExprKinds* =       {mnkCall, mnkMagic, mnkConstr, mnkObjConstr} +
                      LvalueExprKinds + RvalueExprKinds
 

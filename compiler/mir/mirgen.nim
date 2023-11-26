@@ -255,6 +255,22 @@ func nextLabel(c: var TCtx): LabelId =
   result = LabelId(c.numLabels)
   inc c.numLabels
 
+func isPure(tree: MirTree, n: NodePosition): bool =
+  ## Returns whether the expression at `n` is a pure expression.
+  case tree[n].kind
+  of mnkParam:
+    # sink parameters are mutable and thus not pure
+    tree[n].typ.kind != tySink
+  of mnkTemp, mnkConst, mnkLiteral, mnkProc, mnkType:
+    # * 'let' symbols are excluded here, as while they're not directly
+    #   mutable, they're allowed to be moved out of (which is a mutation) by
+    #   later optimization passes
+    # * during the translation phase, the name of a temporary is a pure
+    #   expression
+    true
+  else:
+    false
+
 # ----------- MirBuffer API -------------
 
 func len*(b: MirBuffer): int {.inline.} =
@@ -484,9 +500,7 @@ proc genUse(c: var TCtx, n: PNode): EValue =
   # emit the expression into the staging buffer:
   genx(c, n)
 
-  if start + 1 == c.staging.len:
-    # only a single node is in the buffer. It must be an atom,
-    # meaning that it can be used directly
+  if c.staging.nodes[start].kind in Atoms:
     result = EValue(node: move c.staging.nodes[start])
     c.staging.nodes.setLen(start)
   else:
@@ -499,21 +513,12 @@ proc genRd(c: var TCtx, n: PNode; consume=false): EValue =
   let start = c.staging.len
   genx(c, n)
 
-  let kind = c.staging.nodes[start].kind
-
-  let needsTemp =
-    start + 1 > c.staging.len or
-      kind notin {mnkParam, mnkConst, mnkTemp, mnkLiteral, mnkProc}
-  # parameters and constants are true immutable locations, so they don't
-  # need to be captured. 'let' symbols are excluded here, as while their
-  # not directly mutable, they're allowed to be moved out of (which is
-  # a mutation) by later optimization passes
-
-  if needsTemp:
-    result = captureInTemp(c, start, consume)
-  else:
+  if isPure(c.staging.nodes, start):
     result = Value(node: c.staging.nodes[start])
     c.staging.nodes.setLen(start)
+  else:
+    # either an rvalue or some non-pure lvalue -> capture
+    result = captureInTemp(c, start, consume)
 
 proc genPath(c: var TCtx, n: PNode; sink = false)
 
@@ -705,16 +710,13 @@ proc genArgExpression(c: var TCtx, n: PNode, sink: bool): EValue =
   let start = c.staging.len
   genx(c, n, consume = sink)
 
-  let k = c.staging.nodes[start].kind
-  var needsTemp = start + 1 > c.staging.len
-  if not needsTemp:
-    # XXX: this condition is quite hard to read and parse, find a way
-    #      to make it clearer
-    if (k in {mnkParam, mnkConst} and sink) or
-        k notin {mnkParam, mnkConst, mnkTemp, mnkLiteral, mnkProc}:
-      # we do want an owned value, so a copy by way of assignment is
-      # also introduced for parameters and constants
-      needsTemp = true
+  let needsTemp =
+    if sink:
+      # only literals can be passed directly to sink parameters
+      c.staging.nodes[start].kind notin {mnkProc, mnkLiteral}
+    else:
+      # all non-pure expressions need to be captured
+      not isPure(c.staging.nodes, start)
 
   if needsTemp:
     result = captureInTemp(c, start, sink)

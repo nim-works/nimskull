@@ -594,7 +594,7 @@ func isOwned(tree: MirTree, v: Values, n: NodePosition): Owned =
     Owned.no
   of mnkLiteral, mnkProc, mnkType:
     Owned.yes
-  of mnkConv, mnkStdConv, mnkCast:
+  of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice:
     # the result of these operations is not an owned value
     Owned.no
   of mnkConstr, mnkCall, mnkMagic, mnkObjConstr:
