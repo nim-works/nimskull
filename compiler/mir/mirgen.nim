@@ -1605,6 +1605,13 @@ proc genPath(c: var TCtx, n: PNode; sink = false) =
   of nkObjDownConv:
     c.buildOp mnkPathConv, n.typ:
       genPath(c, n[0], sink)
+  of nkHiddenSubConv, nkConv:
+    if compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct, {IgnoreTupleFields}):
+      # it's an lvalue-preserving conversion
+      c.buildOp mnkPathConv, n.typ:
+        genPath(c, n[1], sink)
+    else:
+      c.use genRd(c, n)
   of nkDerefExpr:
     # the dereference ends the path/projection. We don't know
     # where the path is going to be used, so a read is always
