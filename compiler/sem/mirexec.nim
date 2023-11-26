@@ -174,8 +174,7 @@ func dfaOp(env: var ClosureEnv, opc: Opcode, n: NodePosition, v: OpValue) =
 func dfaOp(env: var ClosureEnv, opc: Opcode, tree: MirTree, n: NodePosition,
            v: OpValue) {.inline.} =
   ## Only adds an instruction if the operand is something an lvalue.
-  # XXX: use the inverse set instead
-  if tree[v].kind notin {mnkProc, mnkLiteral}:
+  if tree[v].kind in LvalueExprKinds:
     dfaOp(env, opc, n, v)
 
 func emit(env: var ClosureEnv, opc: Opcode, n: NodePosition): InstrPos =
@@ -185,6 +184,23 @@ func emit(env: var ClosureEnv, opc: Opcode, n: NodePosition): InstrPos =
 func exit(env: var ClosureEnv, opc: Opcode, pos: NodePosition, blk: uint32) =
   env.exits.add (emit(env, opc, pos), blk, env.inTry)
 
+func emitForValue(env: var ClosureEnv, tree: MirTree, at: NodePosition,
+                  source: OpValue) =
+  ## Emits the 'use' operations for all usages appearing within the value
+  ## expression `source`.
+  case tree[source].kind
+  of mnkPathPos, mnkPathNamed, mnkPathConv, mnkPathVariant:
+    emitForValue(env, tree, at, tree.operand(source))
+  of mnkPathArray:
+    emitForValue(env, tree, at, tree.operand(NodePosition source, 0))
+    env.dfaOp(opUse, tree, at, tree.operand(NodePosition source, 1))
+  of mnkDeref, mnkDerefView:
+    env.dfaOp(opUse, tree, at, tree.operand(source))
+  of Atoms:
+    discard "handled, or not, at the callsite"
+  of AllNodeKinds - LvalueExprKinds - Atoms:
+    unreachable(tree[source].kind)
+
 func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
   template op(o: Opcode, v: OpValue) =
     env.dfaOp(o, tree, at, v)
@@ -192,15 +208,20 @@ func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
   for it in subNodes(tree, source):
     case tree[it].kind
     of mnkArg:
+      emitForValue(env, tree, at, tree.operand(it))
       op opUse, tree.operand(it)
     of mnkConsume:
+      emitForValue(env, tree, at, tree.operand(it))
       op opConsume, tree.operand(it)
-    of mnkName, mnkField:
+    of mnkName:
+      emitForValue(env, tree, at, tree.skip(tree.operand(it), mnkTag))
+    of mnkField:
       discard
     else:
+      emitForValue(env, tree, at, OpValue it)
       op opUse, OpValue it
 
-func emitForUse(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
+func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
                 consume: bool) =
   ## Emits the data- and control-flow instructions corresponding to the
   ## expression at `source`.
@@ -210,10 +231,12 @@ func emitForUse(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
   case tree[source].kind
   of mnkCall, mnkMagic, mnkConstr, mnkObjConstr:
     emitForArgs(env, tree, at, source)
-  of mnkConv, mnkStdConv, mnkCast, mnkDeref, mnkDerefView:
+  of mnkConv, mnkStdConv, mnkCast:
+    emitForValue(env, tree, at, tree.operand(source))
     # a read is performed on the source operand (if it's an lvalue)
     op opUse, tree.operand(source)
   of mnkAddr:
+    emitForValue(env, tree, at, tree.operand(source))
     # ``addr`` doesn't actually read its operand location, rather
     # it create a run-time handle (i.e., pointer) to them. Since those
     # handles aren't tracked however, the operation is conservatively
@@ -222,18 +245,19 @@ func emitForUse(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
   of mnkView, mnkToSlice:
     # if the created view supports mutation, treat the creation as a
     # mutation itself
+    emitForValue(env, tree, at, tree.operand(source))
     if tree[source].typ.kind == tyVar:
       op opMutate, tree.operand(source)
     else:
       op opUse, tree.operand(source)
-  of mnkPathArray, mnkPathNamed, mnkPathConv, mnkPathPos, mnkPathVariant,
-     SymbolLike, mnkTemp, mnkAlias:
-    # an read is performed on an lvalue
+  of LvalueExprKinds:
+    # a read is performed on an lvalue
+    emitForValue(env, tree, at, OpValue source)
     if consume:
       op opConsume, OpValue source
     else:
       op opUse, OpValue source
-  of mnkNone, mnkLiteral:
+  of mnkNone, mnkLiteral, mnkProc:
     discard "okay, ignore"
   else:
     # TODO: make this branch exhaustive
@@ -269,7 +293,8 @@ func emitForDef(env: var ClosureEnv, tree: MirTree, n: NodePosition, consume: bo
   let
     dest   = tree.operand(n, 0)
     source = tree.operand(n, 1)
-  emitForUse(env, tree, n, NodePosition source, consume)
+  emitForValue(env, tree, n, dest)
+  emitForExpr(env, tree, n, NodePosition source, consume)
   # defs with an empty initializer have no data- or control-flow properties.
   # Parameter definitions are an exception.
   if tree[dest].kind == mnkParam or tree[source].kind != mnkNone:
@@ -497,14 +522,16 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
 
     of mnkAsgn, mnkInit:
       emitForDef(env, tree, i, true)
-    of mnkFastAsgn:
+    of mnkFastAsgn, mnkSwitch:
       emitForDef(env, tree, i, false)
     of mnkDef, mnkDefUnpack:
       emitForDef(env, tree, i, true)
     of mnkDefCursor:
       emitForDef(env, tree, i, false)
+    of mnkBindMut, mnkBind:
+      emitForValue(env, tree, i, tree.operand(i, 1))
     of mnkVoid:
-      emitForUse(env, tree, i, NodePosition tree.operand(i), false)
+      emitForExpr(env, tree, i, NodePosition tree.operand(i), false)
     of mnkEmit, mnkAsm:
       emitForArgs(env, tree, i, i)
 

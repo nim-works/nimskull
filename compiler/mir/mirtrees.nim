@@ -592,6 +592,11 @@ func argument*(tree: MirTree, n: NodePosition, i: Natural): OpValue =
   else:
     OpValue n
 
+func skip*(tree: MirTree, n: OpValue, kind: MirNodeKind): OpValue =
+  ## If `n` is of `kind`, return its operand node, `n` otherwise.
+  if tree[n].kind == kind: tree.operand(n)
+  else:                    n
+
 iterator pairs*(tree: MirTree): (NodePosition, lent MirNode) =
   var i = 0
   let L = tree.len
