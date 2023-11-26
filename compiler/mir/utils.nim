@@ -135,25 +135,6 @@ proc singleToStr(n: MirNode, result: var string) =
 proc singleToStr(tree: MirTree, i: var int, result: var string) =
   singleToStr(next(tree, i), result)
 
-proc argToStr(tree: MirTree, i: var int, result: var string) =
-  var n {.cursor.} = next(tree, i)
-  case n.kind
-  of mnkArg:     result.add "arg "
-  of mnkName:    result.add "name "
-  of mnkConsume: result.add "consume "
-  of AllNodeKinds - ArgumentNodes:
-    result.add "<error: " & $n.kind & ">"
-
-  n = next(tree, i)
-  if n.kind == mnkTag:
-    singleToStr(tree, i, result)
-    inc i # skip the tag's end node
-  else:
-    # must be an atom node
-    singleToStr(n, result)
-
-  inc i # skip the end node
-
 proc valueToStr(nodes: MirTree, i: var int, result: var string) =
   template tree(start: string, body: untyped) =
     result.add start
@@ -192,6 +173,24 @@ proc valueToStr(nodes: MirTree, i: var int, result: var string) =
     singleToStr(n, result)
   else:
     result.add "<error: " & $n.kind & ">"
+
+proc argToStr(tree: MirTree, i: var int, result: var string) =
+  var n {.cursor.} = next(tree, i)
+  case n.kind
+  of mnkArg:     result.add "arg "
+  of mnkName:    result.add "name "
+  of mnkConsume: result.add "consume "
+  of AllNodeKinds - ArgumentNodes:
+    result.add "<error: " & $n.kind & ">"
+
+  if tree[i].kind == mnkTag:
+    discard next(tree, i)
+    valueToStr(tree, i, result)
+    inc i # skip the tag's end node
+  else:
+    valueToStr(tree, i, result)
+
+  inc i # skip the end node
 
 proc exprToStr(nodes: MirTree, i: var int, result: var string) =
   template tree(start: string, body: untyped) =

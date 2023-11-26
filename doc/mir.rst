@@ -48,17 +48,17 @@ Semantics
         | <Type>
         | LVALUE
 
-  OPERAND = <Literal>
-          | <Proc>
-          | <Type>
-          | <None>    # special operand only allowed in some contexts
-          | NAME
+  CALL_ARG = Arg VALUE                    # pass-by-value argument
+           | Arg <none>                   # argument that's going to be omitted
+                                          # later
+           | Name LVALUE                  # pass-by-name argument where the
+                                          # lvalue is only used for reading
+           | Name (Tag <Effect> LVALUE)   # pass-by-name argument where the
+                                          # lvalue is used for mutation
+           | Consume VALUE                # pass-by-value argument, but
+                                          # the value is consumed (i.e., moved)
 
-  CALL_ARG = Arg OPERAND                       # pass-by-value argument
-           | Name ((Tag <Effect> NAME) | NAME) # pass-by-name argument
-           | Consume OPERAND                   # pass-by-value argument, but
-                                               # the value is consumed
-  CONSTR_ARG = Arg OPERAND
+  CONSTR_ARG = Arg VALUE
              | Consume OPERAND
 
   RVALUE = Call <Proc> CALL_ARG ...      # a static call of the provided

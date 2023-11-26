@@ -622,13 +622,18 @@ proc argToIr(tree: TreeWithSource, cl: var TranslateCl,
   assert n.kind in ArgumentNodes, "argument node expected: " & $n.kind
   # the inner node may be a tag node
   n = tree.get(cr)
-  if n.kind == mnkTag:
-    # it is one
-    result = (true, atomToIr(tree, cl, cr))
+  case n.kind
+  of mnkTag:
+    # it is one, the expression must be an lvalue
+    result = (true, lvalueToIr(tree, cl, cr))
     leave(tree, cr)
-  else:
-    # it is not, only an atom node follows
+  of mnkLiteral, mnkType, mnkProc, mnkNone:
+    # not a tag but an atom
     result = (false, atomToIr(n, cl, cr.info))
+  of LvalueExprKinds:
+    result = (false, lvalueToIr(tree, cl, n, cr))
+  else:
+    unreachable("not a valid argument expression")
 
   leave(tree, cr)
 
