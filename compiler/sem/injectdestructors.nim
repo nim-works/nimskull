@@ -731,7 +731,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
           # XXX: this is going to become cleaner once `mirgen` handles most of
           #      the sink-related transformations
           var tmp: Value
-          c.replaceSingle(stmt, MirNode(kind: mnkDef))
+          c.changeTree(tree, stmt, MirNode(kind: mnkDef))
           c.replaceMulti(tree, dest, bu):
             # replace the destination operand with the name of a newly
             # allocated temporary

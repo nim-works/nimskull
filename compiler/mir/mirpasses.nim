@@ -147,7 +147,7 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
       # rewrite the assignment into a definition-of-temporary and then assign
       # the temporary to the correct location
       let pos = NodePosition tree.operand(i, 0)
-      changes.replaceSingle(i): MirNode(kind: mnkDef)
+      changes.changeTree(tree, i): MirNode(kind: mnkDef)
       var tmp: Value
       changes.replaceMulti(tree, pos, bu):
         tmp = bu.allocTemp(tree[source].typ)

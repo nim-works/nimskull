@@ -103,9 +103,18 @@ func replace*(c: var Changeset, tree: MirTree, at: NodePosition,
   with.info = tree[at].info
   c.rows.add row(at, next, c.nodes.addSingle(with))
 
-func replaceSingle*(c: var Changeset, at: NodePosition, with: sink MirNode) =
-  ## Replaces the single node at `at` with `with`.
+func changeTree*(c: var Changeset, tree: MirTree, at: NodePosition,
+                 with: sink MirNode) =
+  ## Replaces the sub-tree at `at` with `with` while keeping all child trees.
+  ## The origin information is taken from the replaced node.
+  let
+    e = tree.findEnd(at)
+    with2 = MirNode(kind: mnkEnd, start: with.kind, info: tree[e].info)
+
+  with.info = tree[at].info
   c.rows.add row(at, at+1, c.nodes.addSingle(with))
+  # the end node needs to be replaced too
+  c.rows.add row(e, e+1, c.nodes.addSingle(with2))
 
 func insert*(c: var Changeset, at: NodePosition, n: sink MirNode) =
   ## Records the insertion of `n` at `at`. The ``info`` field on the node
