@@ -555,19 +555,22 @@ proc lvalueToIr(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
   case n.kind
   of SymbolLike, mnkTemp, mnkAlias:
     return atomToIr(n, cl, info)
-  of mnkPathVariant:
-    let arg = recurse()
-    if arg.kind == cnkCheckedFieldAccess:
+  of mnkPathNamed, mnkPathVariant:
+    let
+      next {.cursor.} = tree.get(cr)
+      arg = lvalueToIr(tree, cl, next, cr)
+
+    if next.kind == mnkPathVariant:
+      # a variant access or field access of a variant access promotes the
+      # inner access to a checked field access
+      # XXX: integrating field checks into the MIR will make the handling
+      #      here obsolete
       result = addToVariantAccess(cl, arg, n.field, info)
-    else:
+    elif n.kind == mnkPathVariant:
       # the node's ``typ`` is the type of the enclosing object not of the
       # discriminant, so we have to explicitly use the field's type here
       result = newExpr(cnkFieldAccess, info, n.field.typ,
                        [arg, newSymNode(n.field)])
-  of mnkPathNamed:
-    let arg = recurse()
-    if arg.kind == cnkCheckedFieldAccess:
-      result = addToVariantAccess(cl, arg, n.field, info)
     else:
       result = newExpr(cnkFieldAccess, info, n.typ, [arg, newSymNode(n.field)])
   of mnkPathPos:

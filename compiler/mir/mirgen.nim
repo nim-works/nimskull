@@ -1591,6 +1591,9 @@ proc genPath(c: var TCtx, n: PNode; sink = false) =
         genPath(c, n[0])
     else:
       unreachable(typ.kind)
+  of nkCheckedFieldExpr:
+    c.subTree MirNode(kind: mnkPathNamed, typ: n.typ, field: n[0][1].sym):
+      genVariantAccess(c, n)
   of nkObjUpConv:
     # discard conversions in the same direction that are used as the operand
     var arg = n[0]
@@ -1602,9 +1605,6 @@ proc genPath(c: var TCtx, n: PNode; sink = false) =
   of nkObjDownConv:
     c.buildOp mnkPathConv, n.typ:
       genPath(c, n[0], sink)
-  of nkCheckedFieldExpr:
-    {.warning: "missing implementation".}
-    genPath(c, n[0])
   of nkDerefExpr:
     # the dereference ends the path/projection. We don't know
     # where the path is going to be used, so a read is always
