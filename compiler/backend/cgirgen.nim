@@ -194,13 +194,6 @@ proc newExpr(kind: CgNodeKind, info: TLineInfo, typ: PType,
   result = CgNode(kind: kind, info: info, typ: typ)
   result.kids = kids
 
-proc newStmt(kind: CgNodeKind, info: TLineInfo,
-             kids: sink seq[CgNode]): CgNode =
-  ## Variant of ``newStmt`` optimized for passing a pre-existing child
-  ## node sequence.
-  result = CgNode(kind: kind, info: info)
-  result.kids = kids
-
 proc translateLit*(val: PNode): CgNode =
   ## Translates an ``mnkLiteral`` node to a ``CgNode``.
   ## Note that the MIR not only uses ``mnkLiteral`` for "real" literals, but
