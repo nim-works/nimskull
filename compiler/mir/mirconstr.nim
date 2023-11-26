@@ -21,10 +21,30 @@ type
     ## Legacy alias. Don't use it for new code.
     ## TODO: replace all remaining usages and then remove the type
 
+  Fragment* = object
+    ## Identifies a fragment (usually a sub-tree) within the staging buffer.
+    s: Slice[NodeIndex]
+    typ*: PType
+
+  MirBuffer = object
+    ## Accumulates in-progress MIR code and keeps track of additional state
+    ## needed when building MIR code sequences.
+    nodes*: MirNodeSeq
+      # XXX: should not be exported
+    cursor: int
+      ## points to the first node that hasn't had its ``info`` set up yet
+
   MirBuilder* = object
     ## Holds the state needed for building MIR trees and allocating
-    ## temporaries.
-    buffer*: MirNodeSeq
+    ## temporaries. A double-buffering scheme is used.
+    front*: MirBuffer
+      ## the front buffer, targeted by all add/subTree operations. By default,
+      ## this is the "final" buffer
+    back: MirBuffer
+      ## by default, this the "staging" buffer
+    swapped: bool
+      ## whether the buffers were swapped. If 'true', `front` holds the
+      ## staging buffer
 
     numTemps*: uint32
       ## tracks the number of existing temporaries. Used for allocating new
@@ -33,8 +53,6 @@ type
     # XXX: the internal fields are currently exported for the integration
     #      with changesets to work, but future refactorings should focus
     #      on making them hidden
-
-
 
 func typ*(val: Value): PType =
   assert val.node.kind != mnkNone, "uninitialized"
@@ -67,22 +85,152 @@ func alias*(typ: PType, id: TempId): Value =
 func symbol*(kind: range[mnkConst..mnkLocal], sym: PSym): Value =
   Value(node: MirNode(kind: kind, typ: sym.typ, sym: sym))
 
-# --------- MirBuilder interface -----------
+# --------- MirBuffer interface ----------
 
-func add*(bu: var MirBuilder, n: sink MirNode) =
+func len*(b: MirBuffer): int {.inline.} =
+  b.nodes.len
+
+func apply(buf: var MirBuffer, id: SourceId) =
+  ## Associates all nodes added since the previous call to ``apply`` with the
+  ## origin information identified by `id`.
+  for i in buf.cursor..<buf.nodes.len:
+    buf.nodes[i].info = id
+
+  buf.cursor = buf.nodes.len
+
+template add(b: var MirBuffer, n: MirNode) =
+  b.nodes.add n
+
+func moveTo(`from`, to: var MirBuffer, start: int) =
+  ## Moves the nodes starting from `from` starting at `start` into `to`.
+  let
+    num = `from`.len - start
+    offset = to.len
+
+  assert num > 0, "nothing to commit"
+  # first resize the destination buffer, then *move* all elements over
+  to.nodes.setLen(offset + num)
+  for i in start..<`from`.nodes.len:
+    to.nodes[offset + i - start] = move `from`.nodes[i]
+
+  # adjust the destination buffer's cursor:
+  to.cursor += max(0, `from`.cursor - start)
+  # remove the moved-over nodes from the staging buffer:
+  `from`.nodes.setLen(start)
+  # adjust the source buffer's cursor:
+  `from`.cursor = min(`from`.cursor, `from`.len)
+
+# --------- low-level/internal MirBuilder interface -----------
+
+func hasUnassigned*(bu: MirBuilder): bool =
+  ## Returns whether nodes with unassigned ``info`` fields exist in the
+  ## buffers.
+  bu.front.cursor != bu.front.len or bu.back.cursor != bu.back.len
+
+func staging*(bu: var MirBuilder): var MirNodeSeq {.inline.} =
+  ## Provides access to the staging buffer.
+  if bu.swapped:
+    result = bu.front.nodes
+  else:
+    result = bu.back.nodes
+
+func popSingle*(bu: var MirBuilder, f: Fragment): Value =
+  ## Retrieves the topmost atom node identified by `v` from the staging
+  ## buffer.
+  func aux(s: var MirBuffer, start: int): Value {.inline.} =
+    assert start == s.nodes.high, "doesn't point to the staging buffer's top"
+    result = Value(node: s.nodes.pop())
+    # adjust the cursor:
+    s.cursor = min(s.cursor, s.nodes.len)
+
+  if bu.swapped:
+    result = aux(bu.front, f.s.a.int)
+  else:
+    result = aux(bu.back, f.s.a.int)
+
+func swap(bu: var MirBuilder, doSwap: bool) =
+  if doSwap:
+    swap(bu.front, bu.back)
+    bu.swapped = not bu.swapped
+
+template push*(bu: var MirBuilder, body: untyped): Fragment =
+  ## Makes the staging buffer the active one and runs `body`. The pushed but
+  ## not-yet-popped fragment is returned.
+  let
+    doSwap = not bu.swapped
+    start =
+      if doSwap: bu.back.len
+      else:      bu.front.len
+
+  swap(bu, doSwap)
+  body
+  swap(bu, doSwap)
+
+  Fragment(s: NodeIndex(start) .. NodeIndex(bu.staging.high),
+           typ: bu.staging[start].typ)
+
+func pop*(bu: var MirBuilder, f: Fragment) =
+  ## Moves the expression/statement identified by `v` from the top of the
+  ## staging buffer to the final buffer.
+  if bu.swapped:
+    assert f.s.b.int == bu.front.len - 1
+    bu.front.moveTo(bu.back, f.s.a.int)
+  else:
+    assert f.s.b.int == bu.back.len - 1
+    bu.back.moveTo(bu.front, f.s.a.int)
+
+template withFront*(bu: var MirBuilder, body: untyped) =
+  ## Runs `body` with the final buffer as the front buffer.
+  let doSwap = bu.swapped
+  swap(bu, doSwap)
+  body
+  swap(bu, doSwap)
+
+template buildStmt*(bu: var MirBuilder, body: untyped) =
+  ## A shortcut for ``push`` + ``pop``.
+  let v = bu.push(body)
+  bu.pop(v)
+
+template buildStmt*(bu: var MirBuilder, k: MirNodeKind, body: untyped) =
+  ## Similar to `buildStmt <#buildStmt,TCtx,untyped>`_, but also starts a sub-
+  ## tree of kind `k`.
+  bu.buildStmt:
+    bu.subTree MirNode(kind: k):
+      body
+
+template pos*(f: Fragment): NodePosition =
+  ## Returns the fragment's starting position in the staging buffer.
+  NodePosition(f.s.a)
+
+# ------ higher-level MirBuilder interface ------
+
+func apply*(bu: var MirBuilder, id: SourceId) =
+  ## Sets `id` as the source/info ID for all nodes that haven't had an ID
+  ## assigned yet.
+  bu.front.apply(id)
+  bu.back.apply(id)
+
+func add*(bu: var MirBuilder, n: sink MirNode) {.inline.} =
   ## Emits `n` to the node buffers.
-  bu.buffer.add n
+  bu.front.add n
+
+func add*(bu: var MirBuilder, id: SourceId, n: sink MirNode) =
+  ## Adds `n` to the front buffer and sets the node's source/info ID to
+  ## `id`. All preceding nodes are required to have their IDs set already.
+  assert bu.front.nodes.len == bu.front.cursor
+  n.info = id
+  bu.front.add n
 
 func emitFrom*(bu: var MirBuilder, tree: MirTree, n: NodePosition) =
   ## Emits the sub-tree at `n` within `tree` into `bu`'s node buffer.
-  bu.buffer.add toOpenArray(tree, int n, int tree.sibling(n)-1)
+  bu.front.nodes.add toOpenArray(tree, int n, int tree.sibling(n)-1)
 
 template subTree*(bu: var MirBuilder, n: MirNode, body: untyped) =
-  let start = bu.buffer.len
+  let start = bu.front.len
   bu.add n
   body
   # note: don't use `n.kind` here as that would evaluate `n` twice
-  bu.add endNode(bu.buffer[start].kind)
+  bu.add endNode(bu.front.nodes[start].kind)
 
 template subTree*(bu: var MirBuilder, k: MirNodeKind, body: untyped) =
   bu.subTree MirNode(kind: k):
@@ -196,3 +344,14 @@ func materialize*(bu: var MirBuilder, loc: Value): Value =
   bu.subTree MirNode(kind: mnkDefCursor):
     bu.use result
     bu.use loc
+
+func finish*(bu: sink MirBuilder): MirTree =
+  ## Consumes `bu` and returns the finished tree.
+  if bu.swapped:
+    swap(bu.front, bu.back)
+    bu.swapped = false
+
+  assert bu.front.len == bu.front.cursor,
+         "not all nodes have origin information attached"
+  assert bu.back.len == 0, "staging buffer is not empty"
+  result = move bu.front.nodes

@@ -116,8 +116,8 @@ func insert*(c: var Changeset, at: NodePosition, n: sink MirNode) =
   ## is not modified.
   c.rows.add row(at, at, c.nodes.addSingle(n))
 
-func initBuilder(c: var Changeset): MirBuilder =
-  swap(c.nodes, result.buffer)
+func initBuilder(c: var Changeset, info: SourceId): MirBuilder =
+  swap(c.nodes, result.front.nodes)
   swap(c.numTemps, result.numTemps)
 
 template insert*(c: var Changeset, tree: MirTree, at, source: NodePosition,
@@ -134,9 +134,9 @@ template insert*(c: var Changeset, tree: MirTree, at, source: NodePosition,
       pos = at
       info = tree[source].info
 
-    var name = initBuilder(c)
+    var name = initBuilder(c, info)
     body
-    swap(c.nodes, name.buffer)
+    swap(c.nodes, name.front.nodes)
     swap(c.numTemps, name.numTemps)
 
     updateInfo(c.nodes, start.int, info)
@@ -154,9 +154,9 @@ template replaceMulti*(c: var Changeset, tree: MirTree, at: NodePosition,
       info = tree[pos].info
       next = sibling(tree, pos)
 
-    var name = initBuilder(c)
+    var name = initBuilder(c, info)
     body
-    swap(c.nodes, name.buffer)
+    swap(c.nodes, name.front.nodes)
     swap(c.numTemps, name.numTemps)
 
     updateInfo(c.nodes, start.int, info)

@@ -390,19 +390,20 @@ proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
   ## not-yet-seen globals, and is at the same time used for discarding
   ## the identdefs for globals that were already processed.
 
-  func prepare(buf: var MirBuffer, m: var SourceMap, n: PNode) {.nimcall.} =
+  func prepare(bu: var MirBuilder, m: var SourceMap, n: PNode) {.nimcall.} =
     # the fragments need to be wrapped in scopes; some MIR passes depend
     # on this
-    if buf.len == 0:
-      buf.add(m.add(n)): MirNode(kind: mnkScope)
+    if bu.front.len == 0:
+      bu.add(m.add(n)): MirNode(kind: mnkScope)
 
-  func finish(buf: sink MirBuffer, m: var SourceMap, n: PNode
+  func finish(bu: sink MirBuilder, m: var SourceMap, n: PNode
              ): MirTree {.nimcall.} =
-    if buf.len > 0:
-      buf.add(m.add(n)): MirNode(kind: mnkEnd, start: mnkScope)
-    result = finish(buf)
+    if bu.front.len > 0:
+      bu.add endNode(mnkScope)
+      bu.apply(m.add(n))
+    result = finish(bu)
 
-  var init, deinit: MirBuffer
+  var init, deinit: MirBuilder
 
   # lifted globals can appear re-appear in the identdefs list for two reasons:
   # - the definition appears in the body of a for-loop using an inline iterator
@@ -424,41 +425,30 @@ proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
         # logic ahead
         continue
 
-      {.warning: "missing implementation".}
-      #[
       # generate the MIR code for an initializing assignment:
-      block:
-        template add(origin: PNode, n: MirNode) =
-          add(init, result.init.source.add(origin), n)
-
-        prepare(init, result.init.source, graph.emptyNode)
-        add(it): MirNode(kind: mnkArgBlock)
-        add(it[0]): MirNode(kind: mnkGlobal, sym: s, typ: s.typ)
-        add(it[0]): MirNode(kind: mnkTag, typ: s.typ)
-        add(it[0]): MirNode(kind: mnkName, typ: s.typ)
+      prepare(init, result.init.source, graph.emptyNode)
+      init.buildStmt mnkInit:
+        init.apply(result.init.source.add(it))
+        init.use symbol(mnkGlobal, s)
+        init.apply(result.init.source.add(it[0]))
         if it[2].kind == nkEmpty:
           # no explicit initializer expression means that the default value
           # should be used
-          # XXX: ^^ it'd make sense to instead let semantic analysis ensure this
-          #      (i.e. by placing a ``default(T)`` in the initializer slot)
-          add(it[2]): MirNode(kind: mnkArgBlock)
-          add(it[2]): MirNode(kind: mnkEnd, start: mnkArgBlock)
-          add(it[2]): MirNode(kind: mnkMagic, magic: mDefault, typ: s.typ)
+          # XXX: ^^ it'd make sense to instead let semantic analysis ensure
+          #      this (i.e. by placing a ``default(T)`` in the initializer
+          #      slot)
+          init.buildMagicCall mDefault, s.typ:
+            discard
+          init.apply(result.init.source.add(it[2]))
         else:
           generateCode(graph, options, it[2], init, result.init.source)
-
-        add(it[2]): MirNode(kind: mnkConsume, typ: s.typ)
-        add(it): MirNode(kind: mnkEnd, start: mnkArgBlock)
-        add(it): MirNode(kind: mnkInit)
 
       # if the global requires one, emit a destructor call into the deinit
       # fragment:
       if hasDestructor(s.typ):
         prepare(deinit, result.deinit.source, graph.emptyNode)
-        genDestroy(deinit.nodes, graph, s.typ):
-          MirNode(kind: mnkGlobal, sym: s, typ: s.typ)
-        apply(deinit, result.deinit.source.add(it[0]))
-      ]#
+        genDestroy(deinit, graph, symbol(mnkGlobal, s))
+        deinit.apply(result.deinit.source.add(it[0]))
 
   result.init.tree = finish(init, result.init.source, graph.emptyNode)
   result.deinit.tree = finish(deinit, result.deinit.source, graph.emptyNode)
@@ -524,10 +514,11 @@ proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
     let
       strType = graph.getSysType(path.info, tyString)
 
-    # TODO: implement this properly
-    var src: SourceMap
-    let nameTemp = bu.wrapTemp(strType):
-      generateCode(graph, conf.options, path, bu, src)
+    let nameTemp = bu.allocTemp(strType)
+    bu.buildStmt mnkDef:
+      bu.use nameTemp
+      bu.apply(source.add(path))
+      generateCode(graph, conf.options, path, bu, source)
 
     let cond = genLoadLib(graph, bu, nameNode, nameTemp)
     bu.subTree mnkIf:
@@ -569,12 +560,15 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
     path[^1] = extname # update to the correct name
     # XXX: ^^ maybe sem should do this instead...
 
-    let tmp = bu.wrapTemp(dest.typ):
+    let tmp = bu.allocTemp(dest.typ)
+    bu.buildStmt mnkDef:
+      bu.use tmp
+      bu.apply(result.source.add(path))
       generateCode(graph, conf.options, path, bu, result.source)
     bu.subTree mnkVoid:
       bu.buildMagicCall mAsgnDynlibVar, voidTyp:
         bu.emitByName(dest, ekReassign)
-        bu.use tmp
+        bu.emitByVal(tmp)
   else:
     # the imported procedure is identified by the symbol's external name and
     # the built-in proc loading logic is to be used
@@ -598,7 +592,8 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
         bu.emitByVal tmp
 
   bu.add endNode(mnkScope)
-  swap(result.tree, bu.buffer)
+  bu.apply(result.source.add(path))
+  result.tree = finish(bu)
 
 # ----- discovery and queueing logic -----
 
