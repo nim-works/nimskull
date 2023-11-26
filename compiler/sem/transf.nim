@@ -1029,8 +1029,11 @@ proc transformCall(c: PTransf, n: PNode): PNode =
   elif magic == mAddr:
     result = newTreeIT(nkAddr, n.info, n.typ): n[1]
     result = transformAddr(c, result)
-  elif magic in {mTypeOf, mRunnableExamples}:
+  elif magic == mTypeOf:
     result = n
+  elif magic == mRunnableExamples:
+    # discard runnable-example blocks that reach here
+    result = c.graph.emptyNode
   elif magic == mProcCall:
     # but do not change to its dispatcher:
     result = transformSons(c, n[1])

@@ -910,14 +910,6 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     c.buildMagicCall m, n.typ:
       for i in 1..<n.len:
         c.arg n[i]
-  of mRunnableExamples:
-    # omit the ``runnableExamples`` call. The callsite of ``genMagic`` expects
-    # that we emit something, so we emit an ``mnkEmpty`` node
-    # TODO: call to ``runnableExamples`` shouldn't reach into ``mirgen``. If
-    #       they do, it means that simple expression might sometimes not be
-    #       detected as such, because ``canonicalExpr`` doesn't consider
-    #       ``runnableExamples``
-    discard
   of mInSet:
     genInSetOp(c, n)
   of mEcho:
