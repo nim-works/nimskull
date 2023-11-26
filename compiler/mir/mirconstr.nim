@@ -9,6 +9,9 @@ import
   ],
   compiler/utils/[
     idioms
+  ],
+  experimental/[
+    dod_helpers
   ]
 
 type
@@ -16,6 +19,8 @@ type
     # TODO: document
     node*: MirNode
     # TODO: `node` should be hidden
+    info: opt(SourceId)
+      ## the source ID associated with the node, or none
 
   EValue* = Value
     ## Legacy alias. Don't use it for new code.
@@ -45,6 +50,10 @@ type
     swapped: bool
       ## whether the buffers were swapped. If 'true', `front` holds the
       ## staging buffer
+
+    currentSourceId: SourceId
+      ## the ID of the meta-data to associate with all added nodes (that
+      ## don't have an explicitly assigned source ID)
 
     numTemps*: uint32
       ## tracks the number of existing temporaries. Used for allocating new
@@ -103,6 +112,7 @@ template add(b: var MirBuffer, n: MirNode) =
 
 func moveTo(`from`, to: var MirBuffer, start: int) =
   ## Moves the nodes starting from `from` starting at `start` into `to`.
+  assert to.cursor == to.len
   let
     num = `from`.len - start
     offset = to.len
@@ -148,6 +158,8 @@ func popSingle*(bu: var MirBuilder, f: Fragment): Value =
   else:
     result = aux(bu.back, f.s.a.int)
 
+  result.info = someOpt bu.currentSourceId
+
 func swap(bu: var MirBuilder, doSwap: bool) =
   if doSwap:
     swap(bu.front, bu.back)
@@ -174,9 +186,11 @@ func pop*(bu: var MirBuilder, f: Fragment) =
   ## staging buffer to the final buffer.
   if bu.swapped:
     assert f.s.b.int == bu.front.len - 1
+    bu.back.apply(bu.currentSourceId)
     bu.front.moveTo(bu.back, f.s.a.int)
   else:
     assert f.s.b.int == bu.back.len - 1
+    bu.front.apply(bu.currentSourceId)
     bu.back.moveTo(bu.front, f.s.a.int)
 
 template withFront*(bu: var MirBuilder, body: untyped) =
@@ -204,11 +218,22 @@ template pos*(f: Fragment): NodePosition =
 
 # ------ higher-level MirBuilder interface ------
 
-func apply*(bu: var MirBuilder, id: SourceId) =
-  ## Sets `id` as the source/info ID for all nodes that haven't had an ID
-  ## assigned yet.
-  bu.front.apply(id)
-  bu.back.apply(id)
+func initBuilder*(id: SourceId, buf: sink MirNodeSeq = @[]): MirBuilder =
+  ## Initializes a ``MirBuilder`` with the given `id` and `buf` as the final
+  ## buffer's initial content.
+  MirBuilder(currentSourceId: id,
+             front: MirBuffer(cursor: buf.len, nodes: buf))
+
+func setSource*(bu: var MirBuilder, id: SourceId) =
+  ## Sets `id` as the active source/info ID. All nodes added after a call to
+  ## ``setSource`` will use `id` for their ``info`` field.
+  let prev = bu.currentSourceId
+  if id != prev:
+    # flush the buffers:
+    bu.front.apply(prev)
+    bu.back.apply(prev)
+    # now change the active ID
+    bu.currentSourceId = id
 
 func add*(bu: var MirBuilder, n: sink MirNode) {.inline.} =
   ## Emits `n` to the node buffers.
@@ -216,14 +241,18 @@ func add*(bu: var MirBuilder, n: sink MirNode) {.inline.} =
 
 func add*(bu: var MirBuilder, id: SourceId, n: sink MirNode) =
   ## Adds `n` to the front buffer and sets the node's source/info ID to
-  ## `id`. All preceding nodes are required to have their IDs set already.
-  assert bu.front.nodes.len == bu.front.cursor
+  ## `id`, ignoring the active ID set via ``setSource``.
+  # the cursor is moved, so a flush has to be performed first
+  bu.front.apply(bu.currentSourceId)
   n.info = id
   bu.front.add n
+  inc bu.front.cursor
 
 func emitFrom*(bu: var MirBuilder, tree: MirTree, n: NodePosition) =
-  ## Emits the sub-tree at `n` within `tree` into `bu`'s node buffer.
+  ## Emits the sub-tree at `n` within `tree` into `bu`'s front buffer.
+  bu.front.apply(bu.currentSourceId)
   bu.front.nodes.add toOpenArray(tree, int n, int tree.sibling(n)-1)
+  bu.front.cursor = bu.front.len
 
 template subTree*(bu: var MirBuilder, n: MirNode, body: untyped) =
   let start = bu.front.len
@@ -247,15 +276,19 @@ template scope*(bu: var MirBuilder, body: untyped) =
 proc allocTemp*(bu: var MirBuilder, t: PType; alias = false): Value =
   ## Allocates a new temporary or alias and returns it.
   let kind = if alias: mnkAlias
-             else: mnkTemp
+             else:     mnkTemp
   {.cast(uncheckedAssign).}:
     result = Value(node: MirNode(kind: kind, typ: t,
                                   temp: TempId bu.numTemps))
   inc bu.numTemps
+  result.info = someOpt bu.currentSourceId
 
-template use*(bu: var MirBuilder, val: Value) =
+func use*(bu: var MirBuilder, val: sink Value) {.inline.} =
   ## Emits a use of `val`.
-  bu.add val.node
+  if val.info.isSome:
+    bu.add val.info[], val.node
+  else:
+    bu.add val.node
 
 template wrapTemp*(bu: var MirBuilder, t: PType,
                   body: untyped): Value =
@@ -351,7 +384,7 @@ func finish*(bu: sink MirBuilder): MirTree =
     swap(bu.front, bu.back)
     bu.swapped = false
 
-  assert bu.front.len == bu.front.cursor,
-         "not all nodes have origin information attached"
   assert bu.back.len == 0, "staging buffer is not empty"
+  # make sure all nodes have their info IDs assigned:
+  apply(bu.front, bu.currentSourceId)
   result = move bu.front.nodes

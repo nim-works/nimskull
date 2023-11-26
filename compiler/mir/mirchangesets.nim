@@ -84,12 +84,6 @@ func addSingle(s: var MirNodeSeq, n: sink MirNode): HOslice[NodeIndex] =
   s.add n
   result = single(s.high.NodeIndex)
 
-func updateInfo(nodes: var MirNodeSeq, start: int, id: SourceId) =
-  ## Sets the `info` field for all nodes in the ``start..^1`` slice to
-  ## `id`.
-  for i in start..<nodes.len:
-    nodes[i].info = id
-
 func initChangeset*(tree: MirTree): Changeset =
   ## Initializes a new ``Changeset`` instance. Until the resulting
   ## ``Changeset`` is applied, the associated tree must not be modified.
@@ -103,8 +97,10 @@ func initChangeset*(tree: MirTree): Changeset =
 
 func replace*(c: var Changeset, tree: MirTree, at: NodePosition,
               with: sink MirNode) =
-  ## Records replacing the node or sub-tree at `at` with `with`.
+  ## Records replacing the node or sub-tree at `at` with `with`. The origin
+  ## information is taken from the replaced node.
   let next = sibling(tree, at)
+  with.info = tree[at].info
   c.rows.add row(at, next, c.nodes.addSingle(with))
 
 func replaceSingle*(c: var Changeset, at: NodePosition, with: sink MirNode) =
@@ -117,8 +113,15 @@ func insert*(c: var Changeset, at: NodePosition, n: sink MirNode) =
   c.rows.add row(at, at, c.nodes.addSingle(n))
 
 func initBuilder(c: var Changeset, info: SourceId): MirBuilder =
-  swap(c.nodes, result.front.nodes)
+  ## Internal routines for setting up a builder. Must be paired with a
+  ## ``finishBuilder`` call.
+  result = initBuilder(info, move c.nodes)
   swap(c.numTemps, result.numTemps)
+
+func finishBuilder(c: var Changeset, bu: sink MirBuilder) =
+  # move the ID counter and buffer back into the changeset
+  swap(c.numTemps, bu.numTemps)
+  c.nodes = finish(bu)
 
 template insert*(c: var Changeset, tree: MirTree, at, source: NodePosition,
                  name: untyped, body: untyped) =
@@ -136,10 +139,8 @@ template insert*(c: var Changeset, tree: MirTree, at, source: NodePosition,
 
     var name = initBuilder(c, info)
     body
-    swap(c.nodes, name.front.nodes)
-    swap(c.numTemps, name.numTemps)
+    finishBuilder(c, name)
 
-    updateInfo(c.nodes, start.int, info)
     c.rows.add row(pos, pos, span(start, c.nodes.len.NodeIndex))
 
 template replaceMulti*(c: var Changeset, tree: MirTree, at: NodePosition,
@@ -156,10 +157,8 @@ template replaceMulti*(c: var Changeset, tree: MirTree, at: NodePosition,
 
     var name = initBuilder(c, info)
     body
-    swap(c.nodes, name.front.nodes)
-    swap(c.numTemps, name.numTemps)
+    finishBuilder(c, name)
 
-    updateInfo(c.nodes, start.int, info)
     c.rows.add row(pos, next, span(start, c.nodes.len.NodeIndex))
 
 func remove*(c: var Changeset, tree: MirTree, at: NodePosition) =

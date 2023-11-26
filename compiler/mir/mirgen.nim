@@ -59,9 +59,6 @@ import
   compiler/utils/[
     containers,
     idioms
-  ],
-  experimental/[
-    dod_helpers
   ]
 
 type
@@ -100,7 +97,7 @@ type
     ## Stores the active origin and the in-progress database of origin
     ## ``PNode``s. Both are needed together in most cases, hence their bundling
     ## into an object
-    active: tuple[n: PNode, id: opt(SourceId)]
+    active: tuple[n: PNode, id: SourceId]
       ## the ``PNode`` to use as the origin for emitted ``MirNode``s (if none
       ## is explicitly provided). If `id` is 'none', no database entry exists
       ## for the ``PNode`` yet
@@ -256,33 +253,24 @@ func isPure(tree: MirTree, n: NodePosition): bool =
 
 # ----------- SourceProvider API -------------
 
-func prepareForUse(sp: var SourceProvider): SourceId =
-  if sp.active.id.isNone:
-    sp.active.id = someOpt sp.map.add(sp.active.n)
-
-  result = sp.active.id[]
-
-func applySource(bu: var MirBuilder, sp: var SourceProvider) =
-  ## Associates all ``MirNode``s that don't yet have a source association with
-  ## the currently active source information
-  if bu.hasUnassigned:
-    apply(bu, prepareForUse(sp))
-
 template useSource(bu: var MirBuilder, sp: var SourceProvider,
                    origin: PNode) =
   ## Pushes `origin` to be used as the source for the rest of the scope that
-  ## ``useSource`` is used inside. When the scope is left, the previous origin
-  ## is restored
-  applySource(bu, sp)
+  ## ``useSource`` is used inside. When the scope is exited, the previous
+  ## origin is restored.
+  let x = origin
+  var prev =
+    if sp.active.n != x: (x, sp.map.add(x))
+    else:                (x, sp.active.id)
 
-  # setup the new source information and swap it with the active one
-  var prev = (origin, noneOpt(SourceId))
+  # set the new source information on the builder and make it the
+  # active one:
+  bu.setSource(prev[1])
   swap(prev, sp.active)
 
   defer:
-    # apply the still active source information first and then restore the
-    # the source information that was previously active:
-    applySource(bu, sp)
+    # switch back to the previous source information:
+    bu.setSource(prev[1])
     swap(prev, sp.active)
 
 # -------------- builder/convenience routines -------------
@@ -1938,7 +1926,6 @@ proc generateCode*(graph: ModuleGraph, options: set[GenOption], n: PNode,
   ## Generates MIR code that is semantically equivalent to the expression or
   ## statement `n`, appending the resulting code and the corresponding origin
   ## information to `code` and `source`, respectively.
-  assert not hasUnassigned(builder), "missing origin associations"
   var c = TCtx(context: skUnknown, graph: graph, options: options)
 
   template swapState() =
@@ -1988,7 +1975,7 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, options: set[GenOption],
 
   var c = TCtx(context: owner.kind, graph: graph, options: options,
                userOptions: owner.options)
-  c.sp = SourceProvider(active: (body, noneOpt(SourceId)))
+  c.sp.active = (body, c.sp.map.add(body))
 
   c.add MirNode(kind: mnkScope)
   if owner.kind in routineKinds:
@@ -2003,11 +1990,7 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, options: set[GenOption],
           c.add MirNode(kind: mnkNone)
 
   gen(c, body)
-
   c.add endNode(mnkScope)
-
-  # set the origin information for the 'end' node added above:
-  apply(c.builder, prepareForUse(c.sp))
 
   result[0] = finish(move c.builder)
   result[1] = move c.sp.map

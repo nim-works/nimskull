@@ -366,6 +366,8 @@ proc process*(prc: var Procedure, graph: ModuleGraph, idgen: IdGenerator) =
 
   applyPasses(prc.body.tree, prc.body.source, prc.sym, graph.config, target)
 
+  echoMir(graph.config, prc.sym, prc.body.tree)
+
 proc process(body: var MirFragment, ctx: PSym, graph: ModuleGraph,
              idgen: IdGenerator) =
   ## Applies all applicable MIR passes to the fragment `body`. `ctx`
@@ -399,8 +401,8 @@ proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
   func finish(bu: sink MirBuilder, m: var SourceMap, n: PNode
              ): MirTree {.nimcall.} =
     if bu.front.len > 0:
+      bu.setSource(m.add(n))
       bu.add endNode(mnkScope)
-      bu.apply(m.add(n))
     result = finish(bu)
 
   var init, deinit: MirBuilder
@@ -427,10 +429,11 @@ proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
 
       # generate the MIR code for an initializing assignment:
       prepare(init, result.init.source, graph.emptyNode)
+      init.setSource(result.init.source.add(it))
       init.buildStmt mnkInit:
-        init.apply(result.init.source.add(it))
+        init.setSource(result.init.source.add(it[0]))
         init.use symbol(mnkGlobal, s)
-        init.apply(result.init.source.add(it[0]))
+        init.setSource(result.init.source.add(it[2]))
         if it[2].kind == nkEmpty:
           # no explicit initializer expression means that the default value
           # should be used
@@ -439,7 +442,6 @@ proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
           #      slot)
           init.buildMagicCall mDefault, s.typ:
             discard
-          init.apply(result.init.source.add(it[2]))
         else:
           generateCode(graph, options, it[2], init, result.init.source)
 
@@ -447,8 +449,8 @@ proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
       # fragment:
       if hasDestructor(s.typ):
         prepare(deinit, result.deinit.source, graph.emptyNode)
+        deinit.setSource(result.deinit.source.add(it[0]))
         genDestroy(deinit, graph, symbol(mnkGlobal, s))
-        deinit.apply(result.deinit.source.add(it[0]))
 
   result.init.tree = finish(init, result.init.source, graph.emptyNode)
   result.deinit.tree = finish(deinit, result.deinit.source, graph.emptyNode)
@@ -517,7 +519,6 @@ proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
     let nameTemp = bu.allocTemp(strType)
     bu.buildStmt mnkDef:
       bu.use nameTemp
-      bu.apply(source.add(path))
       generateCode(graph, conf.options, path, bu, source)
 
     let cond = genLoadLib(graph, bu, nameNode, nameTemp)
@@ -542,7 +543,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
 
   extname.typ = graph.getSysType(lib.path.info, tyCstring)
 
-  var bu: MirBuilder
+  var bu = initBuilder(result.source.add(path))
 
   let dest =
     if sym.kind in routineKinds:
@@ -563,7 +564,6 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
     let tmp = bu.allocTemp(dest.typ)
     bu.buildStmt mnkDef:
       bu.use tmp
-      bu.apply(result.source.add(path))
       generateCode(graph, conf.options, path, bu, result.source)
     bu.subTree mnkVoid:
       bu.buildMagicCall mAsgnDynlibVar, voidTyp:
@@ -592,7 +592,6 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
         bu.emitByVal tmp
 
   bu.add endNode(mnkScope)
-  bu.apply(result.source.add(path))
   result.tree = finish(bu)
 
 # ----- discovery and queueing logic -----
