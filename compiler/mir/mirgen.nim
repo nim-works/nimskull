@@ -419,14 +419,18 @@ proc genEmpty(c: var TCtx, n: PNode): EValue =
   result = EValue(typ: c.graph.getSysType(n.info, tyVoid))
 
 func nameNode(s: PSym): MirNode =
-  if sfGlobal in s.flags:
-    MirNode(kind: mnkGlobal, typ: s.typ, sym: s)
-  elif s.kind == skParam:
-    MirNode(kind: mnkParam, typ: s.typ, sym: s)
-  elif s.kind == skConst:
+  case s.kind
+  of skConst:
     MirNode(kind: mnkConst, typ: s.typ, sym: s)
-  elif s.kind in {skVar, skLet, skForVar, skResult}:
+  of skParam:
+    MirNode(kind: mnkParam, typ: s.typ, sym: s)
+  of skResult:
     MirNode(kind: mnkLocal, typ: s.typ, sym: s)
+  of skVar, skLet, skForVar:
+    if sfGlobal in s.flags:
+      MirNode(kind: mnkGlobal, typ: s.typ, sym: s)
+    else:
+      MirNode(kind: mnkLocal, typ: s.typ, sym: s)
   else:
     unreachable(s.kind)
 
