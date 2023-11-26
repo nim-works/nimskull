@@ -409,7 +409,8 @@ func computeOwnership(tree: MirTree, cfg: ControlFlowGraph, values: Values,
     #       visit it first
     var exists = false
     let aliveRange = entities.getAliveRange(toName(tree[lval.root]), exists)
-    if exists and isLastRead(tree, cfg, values, aliveRange, lval, start):
+    if exists and not isCursor(tree, lval) and
+       isLastRead(tree, cfg, values, aliveRange, lval, start):
       Owned.yes
     else:
       Owned.no
