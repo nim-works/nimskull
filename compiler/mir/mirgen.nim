@@ -134,6 +134,12 @@ type
   Value = EValue
   # TODO: move this alias to ``mirconstr``
 
+  ExprKind = enum
+    Literal
+    Lvalue
+    Rvalue         # non-owning rvalue that can only be copied
+    OwnedRvalue    # rvalue that requires destruction
+
 const
   abstractInstTypeClass = abstractInst + tyUserTypeClasses
   # TODO: this set shouldn't be needed. ``tyUserTypeClass`` and
@@ -361,29 +367,42 @@ template buildMagicCall(c: var TCtx, m: TMagic, t: PType, body: untyped) =
   c.subTree MirNode(kind: mnkMagic, magic: m, typ: t):
     body
 
-func needsOwningLocation(tree: MirTree, n: NodePosition, sink: bool): bool =
-  ## Computes for the expression at `n` whether it need to be assigned to a
-  ## full location.
+func detectKind(tree: MirTree, n: NodePosition, sink: bool): ExprKind =
+  ## Detects the kind of expression `n` (with the originating from AST `e`)
+  ## represents. `sink` informs whether expression is used in a sink context.
   case tree[n].kind
-  of mnkCall, mnkMagic, mnkView, mnkToSlice:
-    # slices and view don't strictly need a full location
-    true
-  of mnkObjConstr:
-    if tree[n].typ.skipTypes(abstractInst).kind == tyRef:
-      # ref constructions always need to be destroyed
-      true
+  of mnkCall, mnkMagic:
+    if hasDestructor(tree[n].typ):
+      OwnedRvalue
     else:
-      sink
-  else:
-    # depends on whether it's used in a sink context
-    sink
+      Rvalue
+  of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice:
+    Rvalue
+  of mnkObjConstr:
+    if tree[n].typ.skipTypes(abstractInst).kind == tyRef or
+       (sink and hasDestructor(tree[n].typ)):
+      # the result of ref constructions always needs to be destroyed
+      OwnedRvalue
+    else:
+      Rvalue
+  of mnkConstr:
+    if sink and hasDestructor(tree[n].typ):
+      OwnedRvalue
+    else:
+      Rvalue
+  of LvalueExprKinds:
+    Lvalue
+  of mnkLiteral, mnkProc, mnkType:
+    Literal
+  of AllNodeKinds - ExprKinds:
+    unreachable(tree[n].kind)
 
 func captureInTemp(c: var TCtx, f: Fragment, sink: bool): Value =
   ## Pops the expression `f` from the staging buffer and wraps it in a new
   ## temporary. `sink` signals whether the temporary is intended for use
   ## in a sink context.
   let def =
-    if needsOwningLocation(c.builder.staging, f.pos, sink):
+    if sink or detectKind(c.builder.staging, f.pos, sink) == OwnedRvalue:
       mnkDef
     else:
       mnkDefCursor
@@ -1047,7 +1066,7 @@ proc genAsgnSource(c: var TCtx, e: PNode, sink: bool) =
   let f = c.builder.push: genx(c, e, sink)
 
   if not sink and
-     needsOwningLocation(c.builder.staging, f.pos, false):
+     detectKind(c.builder.staging, f.pos, false) == OwnedRvalue:
     # the expression produces some value that requires ownership being
     # taken of but the receiver doesn't support holding those. Assign the
     # value to an owning temporary (which can be destroyed later) first
