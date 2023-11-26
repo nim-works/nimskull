@@ -1586,7 +1586,7 @@ proc genPath(c: var TCtx, n: PNode; sink = false) =
     of tyTuple:
       # always use lookup-by-position for tuples, even when they're accessed
       # with via name
-      c.subTree MirNode(kind: mnkPathPos, typ: n.typ,
+      c.subTree MirNode(kind: mnkPathPos, typ: typ[sym.position],
                         position: sym.position.uint32):
         genPath(c, n[0])
     else:
