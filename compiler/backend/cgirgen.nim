@@ -894,13 +894,13 @@ proc stmtToIr(tree: TreeWithSource, cl: var TranslateCl,
   of mnkAsm:
     let n = newStmt(cnkAsmStmt, cr.info)
     while tree[cr].kind != mnkEnd:
-      n.add atomToIr(tree, cl, cr)
+      n.add valueToIr(tree, cl, cr)
     leave(tree, cr)
     result = n
   of mnkEmit:
     let n = newStmt(cnkEmitStmt, cr.info)
     while tree[cr].kind != mnkEnd:
-      n.add atomToIr(tree, cl, cr)
+      n.add valueToIr(tree, cl, cr)
     leave(tree, cr)
     result = n
   of mnkCall, mnkMagic:
