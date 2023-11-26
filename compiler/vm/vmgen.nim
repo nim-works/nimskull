@@ -676,9 +676,6 @@ proc genIf(c: var TCtx, n: CgNode) =
       c.gen(it[1]) # then part
       c.patch(elsePos)
 
-func isTemp(c: TCtx; dest: TDest): bool =
-  result = dest >= 0 and c.prc.regInfo[dest].kind >= slotTempUnknown
-
 # XXX `rawGenLiteral` should be a func, but can't due to `internalAssert`
 proc rawGenLiteral(c: var TCtx, val: sink VmConstant): int =
   result = c.constants.len
@@ -2303,10 +2300,10 @@ proc genAsgnSource(c: var TCtx, n: CgNode, wantsPtr: bool): TRegister =
     # expects:
     if not wantsPtr and isPtr:
       # produce a handle by dereferencing the pointer
-      # note: we can reuse the register because we know it's a temporary
-      # one
-      assert c.isTemp(result)
-      c.gABC(n, opcLdDeref, result, result)
+      let tmp = result
+      result = c.getTemp(n.typ)
+      c.gABC(n, opcLdDeref, result, tmp)
+      c.freeTemp(tmp)
     elif wantsPtr and not isPtr:
       # turn the handle into an address. The register can't be reused
       # because it might be non-temporary one
@@ -2352,7 +2349,7 @@ proc genAsgnToLocal(c: var TCtx, le, ri: CgNode) =
       # handles in this case, so a register move is used for assigning them
       let
         opc = (if isDirectView(le.typ): opcFastAsgnComplex else: opcWrLoc)
-        b = c.genx(ri)
+        b = genAsgnSource(c, ri, wantsPtr = false)
       c.gABC(le, opc, dest, b)
       c.freeTemp(b)
 
