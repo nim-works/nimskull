@@ -1895,14 +1895,23 @@ proc gen(c: var TCtx, n: PNode) =
 
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
-      # XXX: the current meaning of discard is "use a value and extend the
-      #      lifetime of a temporary", but its meaning could be changed to
-      #      "forcefully end the lifetime of a value"
-      let val = genUse(c, n[0])
-      if val.node.kind in {mnkLocal, mnkGlobal, mnkParam}:
-        # only emit a discard if the expression is something useable
-        c.buildStmt mnkVoid:
-          c.use val
+      let f = c.builder.push: genx(c, n[0])
+      case detectKind(c.builder.staging, f.pos, false)
+      of Rvalue, OwnedRvalue:
+        # extend the lifetime of the value
+        # XXX: while not not possible at the moment, in the future, the
+        #      discard statement could destroy the temporary right away
+        let tmp = c.allocTemp(f.typ)
+        c.subTree mnkDef:
+          c.use tmp
+          c.builder.pop(f)
+      of Lvalue:
+        c.subTree mnkVoid:
+          c.builder.pop(f)
+      of Literal:
+        # the expression no side-effects nor does it constitute as use
+        # of a location, omit
+        discard c.builder.popSingle(f)
 
   of nkNilLit:
     # a 'nil' literals can be used as a statement, in which case it is treated
