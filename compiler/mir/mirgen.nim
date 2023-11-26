@@ -257,6 +257,28 @@ func isPure(tree: MirTree, n: NodePosition): bool =
   else:
     false
 
+func isStable(tree: MirTree, n: NodePosition): bool =
+  ## Returns whether the run-time address of the lvalue expression `n` is
+  ## always the same and whether the expression is side-effect free.
+  case tree[n].kind
+  of mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp, mnkAlias:
+    true
+  of mnkPathArray:
+    let arr = NodePosition tree.operand(n, 0)
+    tree[arr].typ.skipTypes(abstractInst).kind in {tyArray, tyUncheckedArray} and
+      isPure(tree, NodePosition tree.operand(n, 1)) and
+      isStable(tree, arr)
+  of mnkPathNamed, mnkPathPos:
+    isStable(tree, NodePosition tree.operand(n))
+  of mnkPathConv, mnkPathVariant:
+    # conversions and variant access can raise
+    false
+  of mnkDeref, mnkDerefView:
+    # a pure target means that the pointer is always the same
+    isPure(tree, NodePosition tree.operand(n))
+  of AllNodeKinds - LvalueExprKinds:
+    unreachable(tree[n].kind)
+
 # ----------- SourceProvider API -------------
 
 template useSource(bu: var MirBuilder, sp: var SourceProvider,
@@ -303,19 +325,16 @@ template emitByVal(c: var TCtx, val: EValue) =
   ## Emits a pass-by-value argument sub-tree with `val`.
   c.builder.emitByVal(val)
 
-proc emitByName(c: var TCtx, val: EValue) =
-  ## Emits a pass-by-name argument sub-tree with `val`.
-  c.subTree mnkName:
-    c.use val
-
 proc emitByConsume(c: var TCtx, val: EValue) =
   ## Emits a pass-by-consume argument sub-tree with `val`.
   c.subTree MirNode(kind: mnkConsume):
     c.use val
 
-template emitByName(c: var TCtx, val: EValue, effect: EffectKind) =
+template emitByName(c: var TCtx, eff: EffectKind, body: untyped) =
   ## Emits a pass-by-name argument sub-tree with `val`.
-  c.builder.emitByName(val, effect)
+  c.subTree mnkName:
+    c.subTree MirNode(kind: mnkTag, effect: eff):
+      body
 
 proc empty(c: var TCtx, n: PNode): MirNode =
   MirNode(kind: mnkNone, typ: n.typ)
@@ -412,6 +431,16 @@ func captureInTemp(c: var TCtx, f: Fragment, sink: bool): Value =
     c.subTree def:
       c.use result
       c.builder.pop(f)
+
+func captureName(c: var TCtx, f: Fragment, mutable: bool): Value =
+  ## Pops the expression `f` from the staging buffer and assigns it to an
+  ## alias. The alias is returned.
+  let res = c.allocTemp(f.typ, alias=true)
+  withFront c.builder:
+    c.subTree (if mutable: mnkBindMut else: mnkBind):
+      c.add res.node
+      c.builder.pop(f)
+  res
 
 proc genUse(c: var TCtx, n: PNode): EValue =
   # TODO: document
@@ -633,24 +662,22 @@ proc genArgExpression(c: var TCtx, n: PNode, sink: bool): EValue =
   else:
     result = c.builder.popSingle(f)
 
-proc genByNameArg(c: var TCtx, n: PNode; mutable = true): EValue =
-  ## Generates the code for expression `n`. The address/name of the expression
-  ## is captured (but not its value), with `mutable` denoting whether the
-  ## address is going to be used for mutation of the underlying location.
-  case n.kind
-  of nkSym:
-    # emit the symbol directly, without going through a temporary
-    EValue(node: nameNode(n.sym))
-  of nkHiddenAddr:
-    genByNameArg(c, n[0], mutable)
+proc genLvalueOperand(c: var TCtx, n: PNode; mutable = true) =
+  ## Generates the code for lvalue expression `n`. If the expression is either
+  ## not pure or has side-effects, its address/name is captured, with
+  ## `mutable` denoting whether the address is going to be used for mutation
+  ## of the underlying location.
+  let
+    n = if n.kind == nkHiddenAddr: n[0] else: n
+    f = c.builder.push: genx(c, n)
+
+  if isStable(c.builder.staging, f.pos):
+    # the expression can be used directly. We're already in a staging
+    # buffer context, so do nothing
+    discard f
   else:
-    # something more complex, bind the address to an alias and return
-    # that
-    let res = c.allocTemp(n.typ, alias=true)
-    c.buildStmt (if mutable: mnkBindMut else: mnkBind):
-      c.add res.node
-      genx(c, n)
-    res
+    # capture the address via an alias
+    c.use captureName(c, f, mutable)
 
 proc genArg(c: var TCtx, formal: PType, n: PNode) =
   ## Generates and emits the MIR code for an argument expression plus the
@@ -662,7 +689,7 @@ proc genArg(c: var TCtx, formal: PType, n: PNode) =
       # it's not a pass-by-name parameter
       c.emitByVal genArgExpression(c, n, sink=false)
     else:
-      c.emitByName genByNameArg(c, n, true), ekMutate
+      c.emitByName ekMutate, genLvalueOperand(c, n, true)
   of tySink:
     c.emitByConsume genArgExpression(c, n, sink=true)
   else:
@@ -710,9 +737,18 @@ proc genArgs(c: var TCtx, n: PNode) =
          classifyBackendView(fntyp[0]) != bvcNone:
       # the procedure returns a view, but the first parameter is not something
       # that resembles a handle. We need to make sure that the first argument
-      # (which the view could be created from), is passed by reference in that
-      # case.
-      c.emitByName genByNameArg(c, n[i], false)
+      # (which the view could be created from), is passed by reference
+      c.subTree mnkName:
+        let x = c.builder.push: genx(c, n[i])
+        case detectKind(c.builder.staging, x.pos, false)
+        of OwnedRvalue, Rvalue, Literal:
+          c.use captureInTemp(c, x, false)
+        of Lvalue:
+          if isStable(c.builder.staging, x.pos):
+            discard x
+          else:
+            c.use captureName(c, x, false)
+
     else:
       genArg(c, t, n[i])
 
@@ -866,7 +902,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     # ``wasMoved`` has an effect that is not encoded by the parameter's type
     # (it kills the location), so we need to manually translate it
     c.buildMagicCall m, typeOrVoid(c, n.typ):
-      c.emitByName genByNameArg(c, n[1]), ekKill
+      c.emitByName ekKill, genLvalueOperand(c, n[1])
   of mConStrStr:
     # the `mConStrStr` magic is very special. Nested calls to it are flattened
     # into a single call in ``transf``. It can't be passed on to ``genCall``
@@ -902,20 +938,20 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     # ``mDestroy`` magic calls might be incomplete symbols, so we have to
     # translate them manually
     c.buildMagicCall m, typeOrVoid(c, n.typ):
-      c.emitByName genByNameArg(c, n[1]), ekMutate
+      c.emitByName ekMutate, genLvalueOperand(c, n[1])
   of mNewSeq:
     # XXX: the first parameter is actually an ``out`` parameter -- the
     #      ``ekReassign`` effect could be used
     if n[0].typ == nil:
       c.buildMagicCall m, typeOrVoid(c, n.typ):
-        c.emitByName genByNameArg(c, n[1]), ekMutate
+        c.emitByName ekMutate, genLvalueOperand(c, n[1])
         c.emitByVal  argExpr(c, n[2])
     else:
       genCall(c, n)
   of mInc, mSetLengthStr, mCopyInternal:
     if n[0].typ == nil:
       c.buildMagicCall m, typeOrVoid(c, n.typ):
-        c.emitByName genByNameArg(c, n[1]), ekMutate
+        c.emitByName ekMutate, genLvalueOperand(c, n[1])
         c.emitByVal  argExpr(c, n[2])
     else:
       genCall(c, n)
