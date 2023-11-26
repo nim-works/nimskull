@@ -94,7 +94,8 @@ proc treeRepr*(tree: MirTree, pos = NodePosition(0)): string =
             inc i
             break
           else:
-            line repeat("  ", indent+1), "loose end: ", nodes[i].start
+            line repeat("  ", indent+1), "loose end: ", nodes[i].start,
+                 " expected: ", n.kind
             inc i
         else:
           aux(result, nodes, indent+1, sub, i)
