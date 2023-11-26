@@ -2,6 +2,9 @@
 ## `applyPasses <#applyPasses>`_ procedure.
 
 import
+  std/[
+    tables
+  ],
   compiler/ast/[
     ast_query,
     ast_types,
@@ -14,7 +17,8 @@ import
     sourcemaps
   ],
   compiler/sem/[
-    aliasanalysis
+    aliasanalysis,
+    mirexec
   ],
   compiler/utils/[
     idioms
@@ -179,6 +183,155 @@ proc lowerSwap(tree: MirTree, changes: var Changeset) =
       bu.asgn a, b
       bu.asgn b, temp
 
+proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
+  ## Where safe (i.e., observable program behaviour does not change), elides
+  ## temporaries in a backend-agnostice way. This is an optimization.
+  const Ignore = IntegralTypes + {tyPtr, tyPointer, tyRef, tyVar, tyLent,
+                                  tyOpenArray}
+    ## ignored by the optimization pass. These are types where a copy is
+    ## faster than creating a reference
+  var ct = initCountTable[uint32]()
+
+  # first pass: gather all single-use temporaries that are created from
+  # lvalues and are eligible for elimination.
+  var i = NodePosition 0
+  while i.int < tree.len:
+    case tree[i].kind
+    of mnkDef, mnkDefCursor:
+      let e = NodePosition tree.operand(i, 1)
+      if tree[i, 0].kind == mnkTemp and
+         tree[i, 0].typ.skipTypes(abstractInst).kind notin Ignore and
+         tree[e].kind in LvalueExprKinds and
+         tree[getRoot(tree, e)].kind notin {mnkConst, mnkTemp}:
+        # definition of a temporary into which an lvalue is assigned. Elision
+        # is disabled for:
+        # * projections of temporaries; the projected temporary might be
+        #   elided itself, which could lead to evaluation order issues
+        # * constants; works around code generator issues
+        ct[tree[i, 0].temp.uint32] = 1
+
+      i = e # skip to the source expression
+    of mnkTemp:
+      let id = tree[i].temp
+      if hasKey(ct, id.uint32):
+        ct.inc(id.uint32)
+      inc i
+    else:
+      inc i
+
+  if ct.len == 0:
+    # no temporaries are used at all -> nothing to do
+    return
+
+  proc overlaps(tree: MirTree, a: Path, b: OpValue): auto {.nimcall.} =
+    overlaps(tree, a, computePath(tree, NodePosition b))
+
+  proc findUse(tree: MirTree, cfg: ControlFlowGraph, p: Path, start: InstrPos,
+               e: TempId): NodePosition {.nimcall.} =
+    ## Conservative data-flow analysis that computes whether the `p` might be
+    ## modified. If there are no modifications of `p` between `start`
+    ## (inclusive) and the use of `e`, the the usage of `e` is returned --
+    ## -1 otherwise.
+    let all = cfg.rangeFor(NodePosition(0) .. NodePosition(tree.len))
+    var s: TraverseState
+    for op, n in traverse(tree, cfg, all, start, s):
+      case op
+      of opUse:
+        if tree[n].kind == mnkTemp and tree[n].temp == e:
+          # the searched-for temporary is used and there was no mutation of
+          # `p` so far -> not modified
+          return NodePosition(n)
+      of opConsume, opDef, opMutate, opKill, opInvalidate:
+        if tree[n].kind == mnkTemp and tree[n].temp == e:
+          # the searched-for temporary is mutated or consumed itself
+          return NodePosition(-1)
+
+        case tree[p.root].kind
+        of mnkDeref:
+          # a location is mutated through a pointer indirection. Assume that
+          # the pointer points into the location that `p` identifies
+          return NodePosition(-1)
+        of mnkDerefView:
+          # view dereferences are fine, as a mutable view cannot alias
+          # a path that's used for reading
+          discard
+        elif overlaps(tree, p, n) != no:
+          return NodePosition(-1)
+      of opMutateGlobal:
+        if tree[p.root].kind == mnkGlobal:
+          return NodePosition(-1)
+      else:
+        discard
+
+    # either the data-flow graph creation logic is wrong or there's a bug in
+    # the optimizer
+    unreachable("temporary is not a single-use temporary")
+
+  # second pass: find the point-of-definition for each single-use temporary,
+  # check whether their source lvalue is mutated prior to the only usage of
+  # the temporary, and if it's not, elide the temporary.
+  let cfg = computeCfg(tree)
+  for i, op, n in instructions(cfg):
+    if op == opDef and tree[n].kind == mnkTemp and
+       ct.getOrDefault(tree[n].temp.uint32, 0) == 2:
+      # definition of a single-use temporary that might be elidable. Look for
+      # potential mutations of the lvalue
+      let
+        n   = NodePosition n
+        def = tree.parent(n)
+        p   = computePath(tree, NodePosition tree.operand(def, 1))
+        pos = findUse(tree, cfg, p, i + 1, tree[n].temp)
+
+      if pos == NodePosition(-1):
+        # the copy is necessary
+        continue
+
+      var expr = pos # the expression the usage is part of
+      while (let p = tree.parent(expr); tree[p].kind notin StmtNodes):
+        expr = p
+
+      var elide = false
+      case tree[expr].kind
+      of LvalueExprKinds:
+        # usage in an lvalue expression -> the temporary can be elided
+        elide = true
+      of RvalueExprKinds:
+        elide = true
+      of mnkConstr, mnkObjConstr:
+        # if the lvalue doesn't overlap with the assignment destination, the
+        # temporary can be elided
+        let stmt = tree.parent(expr)
+        elide = tree[stmt].kind in {mnkInit, mnkDef, mnkDefCursor} or
+                overlaps(tree, p, tree.operand(stmt, 0)) == no
+      of mnkMagic, mnkCall:
+        # the lvalue overlapping with a mutable argument disable the elision,
+        # as eliding the temporary would be obersvable when the backend decides
+        # to use pass-by-reference for the immutable parameter
+        elide = true # unless proven otherwise
+        for k, arg in arguments(tree, expr):
+          if tree[arg].kind == mnkTag and
+             overlaps(tree, p, tree.operand(arg)) != no:
+            elide = false
+            break
+
+        if elide:
+          # the lvalue must also not overlap with the call-result destination
+          elide = overlaps(tree, p, tree.operand(tree.parent(expr), 0)) == no
+      else:
+        unreachable(tree[expr].kind)
+
+      if elide:
+        # XXX: lvalue expression can currently have side-effects, so
+        #      forwarding the expression would change behaviour. Instead, the
+        #      temporary is turned into an alias
+        let
+          alias = MirNode(kind: mnkAlias, typ: tree[n].typ, temp: tree[n].temp)
+          def = tree.parent(n)
+
+        changes.changeTree(tree, def): MirNode(kind: mnkBind)
+        changes.replace(tree, n): alias
+        changes.replace(tree, pos): alias
+
 proc applyPasses*(tree: var MirTree, source: var SourceMap, prc: PSym,
                   config: ConfigRef, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
@@ -198,3 +351,7 @@ proc applyPasses*(tree: var MirTree, source: var SourceMap, prc: PSym,
 
   batch:
     lowerSwap(tree, c)
+
+  # eliminate temporaries after all other passes
+  batch:
+    eliminateTemporaries(tree, c)
