@@ -1629,7 +1629,7 @@ proc genPath(c: var TCtx, n: PNode; sink = false) =
       c.subTree MirNode(kind: mnkDerefView, typ: n.typ):
         c.use genRd(c, n[0])
     of bvcSequence:
-      c.use genUse(c, n[0])
+      genPath(c, n[0])
     of bvcNone:
       # it's a ``ref`` or ``ptr`` deref
       c.subTree MirNode(kind: mnkDeref, typ: n.typ):
