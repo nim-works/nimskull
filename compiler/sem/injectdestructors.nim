@@ -374,7 +374,7 @@ func initEntityDict(tree: MirTree, cfg: ControlFlowGraph): EntityDict =
         # don't include the def statement itself in the scope, so that the
         # statement's control-flow effects don't interfere...
         var scope = cfg.rangeFor((i+1) .. scope.b)
-        if entity.kind == mnkParam or tree[tree.operand(i, 1)].kind != mnkNone:
+        if entity.kind == mnkParam or tree[i, 1].kind != mnkNone:
           # ... but make sure that the 'def' instruction is included
           # XXX: not pretty, but works for now. Explicit start and end
           #      instruction delimiting the lifetime of locations in the

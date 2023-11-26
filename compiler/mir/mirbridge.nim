@@ -115,7 +115,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
         # HACK: ``vmjit`` currently passes us expressions where a 'def' can
         #       be the very first node, something that ``hasInput`` doesn't
         #       support. We thus have to guard against i == 0
-        elif i.int > 0 and body[body.operand(i, 1)].kind != mnkNone:
+        elif i.int > 0 and body[i, 1].kind != mnkNone:
           # the global has a starting value
           changes.replaceMulti(body, i, buf):
             let val = buf.inline(body, NodePosition body.operand(i, 1))

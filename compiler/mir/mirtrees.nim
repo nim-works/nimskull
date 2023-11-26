@@ -530,8 +530,8 @@ func childIdx*(tree: MirTree, n: NodePosition, index: int): NodePosition =
   for _ in 0..<index:
     result = sibling(tree, result)
 
-func child*(tree: MirTree, n: NodePosition, index: int): lent MirNode =
-  ## Similar to ``childIndex`` but returns the node directly
+func `[]`*(tree: MirTree, n: NodePosition, index: int): lent MirNode =
+  ## Returns the `index`-th child node of sub-tree `n`.
   tree[childIdx(tree, n, index)]
 
 func getStart*(tree: MirTree, n: NodePosition): NodePosition =
