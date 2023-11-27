@@ -57,6 +57,10 @@ type
 
   DataFlowOpcode = range[opUse..opMutateGlobal]
 
+const
+  DataFlowOps = {opUse .. opMutateGlobal}
+
+type
   # TODO: make both types distinct
   InstrPos = int32
   JoinId = uint32
@@ -68,7 +72,7 @@ type
       dest: JoinId
     of opJoin:
       id: JoinId
-    of opUse, opDef, opConsume, opInvalidate, opMutate, opKill, opMutateGlobal:
+    of DataFlowOps:
       val: OpValue
 
   DataFlowGraph* = object
@@ -127,9 +131,6 @@ type
     pc: InstrPos
       ## the program counter. Points to the CFG instruction that is executed
       ## next
-
-const
-  DataFlowOps = {opUse .. opMutateGlobal}
 
 func incl[T](s: var seq[T], v: sink T) =
   ## If not present already, adds `v` to the sorted ``seq`` `s`
