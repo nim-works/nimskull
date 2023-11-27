@@ -267,7 +267,7 @@ func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
 
         # partially consuming the location does *not* change the alive state
 
-    else:
+    of opUse:
       discard "not relevant"
 
   # no mutation is directly connected to `start`. The location is not alive
@@ -326,9 +326,6 @@ func isLastRead*(tree: MirTree, cfg: DataFlowGraph, values: Values,
       if overlaps(tree, loc, toLvalue n) != no:
         # value is observed -> not the last read
         return false
-
-    else:
-      discard
 
   # no further read of the value is connected to `start`
   result = true

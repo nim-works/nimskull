@@ -491,7 +491,7 @@ func find*(dfg: DataFlowGraph, n: NodePosition): InstrPos =
   lowerBound(dfg, n)
 
 iterator traverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
-                   state: var TraverseState): (Opcode, OpValue) =
+                   state: var TraverseState): (DataFlowOpcode, OpValue) =
   ## Starts at the data-flow operation closest to `start` and traverses/yields
   ## all data-flow operations inside `span` in control-flow order. Outside of
   ## loops, this means that an operation is visited *before* operations that
@@ -636,7 +636,7 @@ func processJoin(id: JoinId, s: var ExecState, c: DataFlowGraph) {.inline.} =
     s.time = s.visited[id]
 
 iterator traverseReverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
-                          exit: var bool): (Opcode, OpValue) =
+                          exit: var bool): (DataFlowOpcode, OpValue) =
   ## Starts at `start - 1` and visits and returns all data-flow operations
   ## inside `span` in post-order.
   ##
@@ -744,7 +744,7 @@ iterator traverseReverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
   exit = s.active
 
 iterator traverseFromExits*(c: DataFlowGraph, span: Subgraph,
-                            exit: var bool): (Opcode, OpValue) =
+                            exit: var bool): (DataFlowOpcode, OpValue) =
   ## Similar to ``traverseReverse``, but starts traversal at each unstructured
   ## exit of `span`. Here, unstructured exit means that the control-flow leaves
   ## `span` via a 'goto' or 'fork'.
