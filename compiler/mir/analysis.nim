@@ -1,12 +1,12 @@
 ## This module implements various data-flow related analysis for MIR code.
 ## They're based on the ``mirexec`` traversal algorithms and require a
-## ``Values`` dictionary and a ``ControlFlowGraph`` object, both
+## ``Values`` dictionary and a ``DataFlowGraph`` object, both
 ## corresponding to the code fragment (i.e. ``MirTree``) that is analysed.
 ##
 ## A ``Values`` dictionary stores information about the result of operations,
-## namely, whether the value is owned and, for lvalues, the root. It also
-## stores the lvalue effects of operations. An instance of the dictionary is
-## created and initialized via the ``computeValuesAndEffects`` procedure.
+## namely, whether the value is owned and, for lvalues, the root. An instance
+## of the dictionary is created and initialized via the ``computeValues``
+## procedure.
 ##
 ## Each location that is not allocated via ``new`` or ``alloc`` is owned by a
 ## single handle (the name of a local, global, etc.), but can be aliased
@@ -26,7 +26,7 @@
 ## aliases are not detected.
 ##
 ## ..note:: implementing this is possible. A second step after
-##          ``computeValuesAndEffects`` could perform an abstract execution of
+##          ``computeValues`` could perform an abstract execution of
 ##          the MIR code to produce a conservative set of possible handles for
 ##          each pointer-like dereferencing operation. The analysis routines
 ##          would then compare the analysed handle with each set element,
@@ -43,7 +43,6 @@
 
 import
   std/[
-    hashes,
     tables
   ],
   compiler/ast/[
@@ -82,15 +81,6 @@ type
                             ## ``ValueInfo`` is invalid)
     owns: Owned             ## whether the handle owns its value
 
-  Effect = object
-    kind: EffectKind
-    loc: OpValue ## the lvalue the effect applies to
-
-  EffectMap = object
-    ## Accelerator structure that maps each operation to its lvalue effects.
-    list: seq[Effect]
-    map: Table[Operation, Slice[uint32]]
-
   Values* = object
     ## Stores information about the produced values plus the lvalue effects of
     ## operations
@@ -101,7 +91,6 @@ type
     #      A ``Table`` could be used, but that would make lookup less
     #      efficient (although less used memory could also mean better memory
     #      locality)
-    effects: EffectMap
 
   AliveState = enum
     unchanged
@@ -109,26 +98,8 @@ type
     alive
 
   ComputeAliveProc[T] =
-    proc(tree: MirTree, values: Values, loc: T, n: MirNode,
-         op: Operation): AliveState {.nimcall, noSideEffect.}
-
-const
-  ConsumeCtx* = {mnkConsume, mnkRaise, mnkDefUnpack}
-    ## if an lvalue is used as an operand to these operators, the value stored
-    ## in the named location is considered to be consumed (ownership over it
-    ## transfered to the operation)
-  UseContext* = {mnkArg, mnkDeref, mnkDerefView, mnkStdConv, mnkConv, mnkCast,
-                 mnkVoid, mnkIf, mnkCase} + ConsumeCtx
-    ## using an lvalue as the operand to one of these operators means that
-    ## the content of the location is observed (when control-flow reaches the
-    ## operator). In other words, applying the operator results in a read
-
-  OpsWithEffects = {mnkCall, mnkMagic, mnkAsgn, mnkFastAsgn, mnkSwitch,
-                    mnkInit, mnkRegion}
-    ## the set of operations that can have lvalue-parameterized or general
-    ## effects
-
-func hash(x: Operation): Hash {.borrow.}
+    proc(tree: MirTree, values: Values, loc: T, op: Opcode,
+         n: OpValue): AliveState {.nimcall, noSideEffect.}
 
 func skipConversions(tree: MirTree, val: OpValue): OpValue =
   ## Returns the producing operation after skipping handle-only
@@ -152,35 +123,17 @@ func toLvalue*(v: Values, val: OpValue): LvalueExpr {.inline.} =
   (NodePosition v.values[val].root[],
    NodePosition val)
 
-iterator effects(v: Values, op: Operation): lent Effect =
-  ## Yields all location-related effects of the given operation `op` in the
-  ## order they were registered
-  let s = v.effects.map.getOrDefault(op, 1.uint32..0.uint32)
-  for i in s:
-    yield v.effects.list[i]
-
 func decayed(x: ValueInfo): ValueInfo {.inline.} =
   ## Turns 'weak' ownership into 'no' ownership
   result = x
   if result.owns == Owned.weak:
     result.owns = Owned.no
 
-func add(m: var EffectMap, op: Operation, effects: openArray[Effect]) =
-  ## Registers `effects` with `op` in the map `m`
-  let start = m.list.len
-  m.list.add effects
-  m.map[op] = start.uint32 .. m.list.high.uint32
-
-func computeValuesAndEffects*(body: MirTree): Values =
-  ## Creates a ``Values`` dictionary with all operation effects collected and
-  ## (static) value roots computed. Value ownership is already computed where it
-  ## is possible to do so by just taking the static operation sequences into
-  ## account (i.e. no control- or data-flow analysis is performed)
-  var
-    stack: seq[Effect]
-    # more than 65K nested effects seems unlikely
-    num: seq[uint16]
-
+func computeValues*(body: MirTree): Values =
+  ## Creates a ``Values`` dictionary storing static information about lvalue
+  ## expressions. Value ownership is already computed where it is possible
+  ## to do so by just taking the static operation sequences into account (i.e.,
+  ## no control- or data-flow analysis is performed)
   result.values.newSeq(body.len)
 
   template inherit(i, source: NodePosition) =
@@ -189,25 +142,13 @@ func computeValuesAndEffects*(body: MirTree): Values =
   template inheritDecay(i, source: NodePosition) =
     result.values[OpValue i] = decayed result.values[OpValue source]
 
-  template popEffects(op: Operation) =
-    let v = num.pop().int
-    if v < stack.len:
-      result.effects.add op, toOpenArray(stack, v, stack.high)
-      stack.setLen(v)
-
   # we're doing three things here:
   # 1. propagate the value root
   # 2. propagate ownership status
-  # 3. collect the lvalue effects for operations
   #
   # This is done in a single forward iteration over all nodes in the code
   # fragment -- nodes that don't represent operations are ignored.
-  # Effects are collected by looking for 'tag' operations. Each occurrence of
-  # an 'arg-block' node starts a new "frame". When a 'tag' operation is
-  # encountered, the corresponding ``Effect`` information is added to the
-  # frame. At the end of the 'arg-block', the frame is popped and the effects
-  # collected as part of it are registered to the arg-block's corresponding
-  # operation
+  # XXX: this is all going to change.
 
   for i, n in body.pairs:
     template start(owned: Owned) =
@@ -269,18 +210,10 @@ func computeValuesAndEffects*(body: MirTree): Values =
     of mnkPathConv:
       inherit(i, NodePosition body.operand(i))
 
-    of mnkArgBlock:
-      num.add stack.len.uint16 # remember the current top-of-stack
-    of mnkTag:
-      stack.add Effect(kind: n.effect, loc: body.operand(i))
-    of mnkEnd:
-      if n.start == mnkArgBlock:
-        popEffects(Operation(i+1))
-
-    of AllNodeKinds - InOutNodes - InputNodes - {mnkEnd}:
+    of AllNodeKinds - InOutNodes - InputNodes + {mnkTag, mnkArgBlock}:
       discard "leave uninitialized"
 
-func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
+func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
              span: Slice[NodePosition], loc: LvalueExpr,
              pos: NodePosition): bool =
   ## Computes if the location named by `loc` does contain a value at `pos`
@@ -300,41 +233,34 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
   # somewhere else)
 
   var exit = false
-  for i, n in traverseReverse(tree, cfg, span, pos, exit):
-    case n.kind
-    of OpsWithEffects:
-      # iterate over the effects and look for the ones involving the analysed
-      # location
-      for effect in effects(v, Operation i):
-        case effect.kind
-        of ekMutate, ekReassign:
-          if overlaps(effect.loc):
-            # consider ``a.b = x`` (A) and ``a.b.c.d.e = y`` (B). If the
-            # analysed l-value expression is ``a.b.c`` then both A and B mutate
-            # it (either fully or partially). If traversal reaches what's
-            # possibly a mutation of the analysed location, it means that the
-            # location needs to be treated as being alive at `pos`, so we can
-            # return already
-            return true
+  for op, n in traverseReverse(cfg, span, pos, exit):
+    case op
+    of opDef, opMutate:
+      if overlaps(n):
+        # consider ``a.b = x`` (A) and ``a.b.c.d.e = y`` (B). If the
+        # analysed l-value expression is ``a.b.c`` then both A and B mutate
+        # it (either fully or partially). If traversal reaches what's
+        # possibly a mutation of the analysed location, it means that the
+        # location needs to be treated as being alive at `pos`, so we can
+        # return already
+        return true
 
-        of ekKill:
-          if isPartOf(tree, loc, toLvalue effect.loc) == yes:
-            exit = true
-            break
+    of opKill:
+      if isPartOf(tree, loc, toLvalue n) == yes:
+        exit = true
 
-        of ekInvalidate:
-          discard
+    of opInvalidate:
+      discard
 
-      if tree[loc.root].kind == mnkGlobal and
-         n.kind == mnkCall and geMutateGlobal in n.effects:
+    of opMutateGlobal:
+      if tree[loc.root].kind == mnkGlobal:
         # an unspecified global is mutated and we're analysing a location
         # derived from a global -> assume the analysed global is mutated
         return true
 
-    of ConsumeCtx:
-      let opr = tree.operand(i)
-      if v.owned(opr) == Owned.yes:
-        if isPartOf(tree, loc, toLvalue opr) == yes:
+    of opConsume:
+      if v.owned(n) == Owned.yes:
+        if isPartOf(tree, loc, toLvalue n) == yes:
           # the location's value is consumed and it becomes empty. No operation
           # coming before the current one can change that, so we can stop
           # traversing the current path
@@ -348,13 +274,13 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
   # no mutation is directly connected to `pos`. The location is not alive
   result = false
 
-func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
+func isLastRead*(tree: MirTree, cfg: DataFlowGraph, values: Values,
                  span: Slice[NodePosition], loc: LvalueExpr, pos: NodePosition
                 ): bool =
-  ## Performs data-flow analysis to compute whether the value that `loc`
-  ## evaluates to at `pos` is *not* observed by operations that have a
-  ## control-flow dependency on the operation/statement at `pos` and
-  ## are located inside `span`.
+  ## Performs data-flow analysis to compute whether the value in `loc`
+  ## is observed on any paths starting from and including `pos`. If it is
+  ## observed, 'false' is returned, 'true' otherwise. Only operations within
+  ## `span` are considered.
   ## It's important to note that this analysis does not test whether the
   ## underlying *location* is accessed, but rather the *value* it stores. If a
   ## new value is assigned to the underlying location which is then accessed
@@ -363,52 +289,43 @@ func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
     toLvalue(values, val)
 
   var state: TraverseState
-  for i, n in traverse(tree, cfg, span, pos, state):
-    case n.kind
-    of OpsWithEffects:
-      for effect in effects(values, Operation i):
-        let cmp = compareLvalues(tree, loc, toLvalue effect.loc)
-        case effect.kind
-        of ekReassign:
-          if isAPartOfB(cmp) == yes:
-            # the location is reassigned -> all operations coming after will
-            # observe a different value
-            state.exit = true
-            break
-          elif isBPartOfA(cmp) != no:
-            # the location is partially written to -> the relevant values is
-            # observed
-            return false
+  for op, n in traverse(cfg, span, pos, state):
+    case op
+    of opDef:
+      let cmp = compareLvalues(tree, loc, toLvalue n)
+      if isAPartOfB(cmp) == yes:
+        # the location is reassigned -> all operations coming after will
+        # observe a different value
+        state.exit = true
+      elif isBPartOfA(cmp) != no:
+        # the location is partially written to -> the relevant values is
+        # observed
+        return false
 
-        of ekMutate:
-          if cmp.overlaps != no:
-            # the location is partially written to
-            return false
+    of opMutate:
+      if overlaps(tree, loc, toLvalue n) != no:
+        # the location is partially written to
+        return false
 
-        of ekKill:
-          if isAPartOfB(cmp) == yes:
-            # the location is definitely killed, it no longer stores the value
-            # we're interested in
-            state.exit = true
-            break
+    of opKill:
+      let cmp = compareLvalues(tree, loc, toLvalue n)
+      if isAPartOfB(cmp) == yes:
+        # the location is definitely killed, it no longer stores the value
+        # we're interested in
+        state.exit = true
 
-        of ekInvalidate:
-          discard
+    of opInvalidate:
+      discard
 
-      if tree[loc.root].kind == mnkGlobal and
-         n.kind == mnkCall and geMutateGlobal in n.effects:
+    of opMutateGlobal:
+      if tree[loc.root].kind == mnkGlobal:
         # an unspecified global is mutated and we're analysing a location
         # derived from a global -> assume that it's a read/use
         return false
 
-    of UseContext - {mnkDefUnpack}:
-      if overlaps(tree, loc, toLvalue tree.operand(Operation i)) != no:
-        return false
-
-    of DefNodes:
-      # passing a value to a 'def' is also a use
-      if hasInput(tree, Operation i) and
-         overlaps(tree, loc, toLvalue tree.operand(Operation i)) != no:
+    of opUse, opConsume:
+      if overlaps(tree, loc, toLvalue n) != no:
+        # value is observed -> not the last read
         return false
 
     else:
@@ -417,13 +334,14 @@ func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   # no further read of the value is connected to `pos`
   result = true
 
-func isLastWrite*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
+func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, values: Values,
                   span: Slice[NodePosition], loc: LvalueExpr, pos: NodePosition
                  ): tuple[result, exits, escapes: bool] =
-  ## Computes if the location `loc` is not reassigned to or modified while it
-  ## still contains the value it contains at `pos`. In other words, computes
-  ## whether a reassignment or mutation that has a control-flow dependency on
-  ## `pos` and is located inside `span` observes the current value.
+  ## Computes whether the location `loc` is reassigned or modified on any paths
+  ## starting from and including `pos`, returning 'false' if yes and 'true' if
+  ## not. In other words, computes whether a reassignment or mutation that has
+  ## a control-flow dependency on `pos` and is located inside `span` observes
+  ## the current value.
   ##
   ## In addition, whether the `pos` is connected to a structured or
   ## unstructured exit of `span` is also returned
@@ -431,28 +349,24 @@ func isLastWrite*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
     toLvalue(values, val)
 
   var state: TraverseState
-  for i, n in traverse(tree, cfg, span, pos, state):
-    case n.kind
-    of OpsWithEffects:
-      for effect in effects(values, Operation i):
-        let cmp = compareLvalues(tree, loc, toLvalue effect.loc)
-        case effect.kind
-        of ekReassign, ekMutate, ekInvalidate:
-          # note: since we don't know what happens to the location when it is
-          # invalidated, the effect is also included here
-          if cmp.overlaps != no:
-            return (false, false, false)
+  for op, n in traverse(cfg, span, pos, state):
+    case op
+    of opDef, opMutate, opInvalidate:
+      # note: since we don't know what happens to the location when it is
+      # invalidated, the ``opInvalidate`` is also included here
+      if overlaps(tree, loc, toLvalue n) != no:
+        return (false, false, false)
 
-        of ekKill:
-          if isAPartOfB(cmp) == yes:
-            state.exit = true
-            break
+    of opKill:
+      let cmp = compareLvalues(tree, loc, toLvalue n)
+      if isAPartOfB(cmp) == yes:
+        state.exit = true
 
-          # partially killing the analysed location is not considered to be a
-          # write
+      # partially killing the analysed location is not considered to be a
+      # write
 
-      if tree[loc.root].kind == mnkGlobal and
-         n.kind == mnkCall and geMutateGlobal in n.effects:
+    of opMutateGlobal:
+      if tree[loc.root].kind == mnkGlobal:
         # an unspecified global is mutated and we're analysing a location
         # derived from a global
         return (false, false, false)
@@ -463,7 +377,7 @@ func isLastWrite*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   result = (true, state.exit, state.escapes)
 
 func computeAliveOp*[T: PSym | TempId](
-  tree: MirTree, values: Values, loc: T, n: MirNode, op: Operation): AliveState =
+  tree: MirTree, values: Values, loc: T, op: Opcode, n: OpValue): AliveState =
   ## Computes the state of `loc` at the *end* of the given operation. The
   ## operands are expected to *not* alias with each other. The analysis
   ## result will be wrong if they do
@@ -482,47 +396,39 @@ func computeAliveOp*[T: PSym | TempId](
   template sameLocation(val: OpValue): bool =
     isAnalysedLoc(tree[skipConversions(tree, val)], loc)
 
-  case n.kind
-  of OpsWithEffects:
-    # iterate over the lvalue effects of the processed operation and check
-    # whether one of them affects the state of `loc`. If one does, further
-    # iteration is not required, as the underlying locations of the operands
-    # must not alias with each other.
-    for effect in effects(values, op):
-      case effect.kind
-      of ekMutate, ekReassign:
-        if isRootOf(effect.loc):
-          # the analysed location or one derived from it is mutated
-          return alive
+  case op
+  of opMutate, opDef:
+    if isRootOf(n):
+      # the analysed location or one derived from it is mutated
+      return alive
 
-      of ekKill:
-        if sameLocation(effect.loc):
-          # the location is killed
-          return dead
+  of opKill:
+    if sameLocation(n):
+      # the location is killed
+      return dead
 
-      of ekInvalidate:
-        discard "cannot be reasoned about here"
+  of opInvalidate:
+    discard "cannot be reasoned about here"
 
+  of opMutateGlobal:
     when T is PSym:
       # XXX: testing the symbol's flags is okay for now, but a different
       #      approach has to be used once moving away from storing ``PSym``s
       #      in ``MirNodes``
-      if sfGlobal in loc.flags and
-          n.kind == mnkCall and geMutateGlobal in n.effects:
+      if sfGlobal in loc.flags:
         # the operation mutates global state and we're analysing a global
         result = alive
 
-  of ConsumeCtx:
-    let opr = tree.operand(op)
-    if values.owned(opr) == Owned.yes and sameLocation(opr):
+  of opConsume:
+    if values.owned(n) == Owned.yes and sameLocation(n):
       # the location's value is consumed
       result = dead
 
   else:
     discard
 
-func computeAlive*[T](tree: MirTree, cfg: ControlFlowGraph, values: Values,
-                      span: Slice[NodePosition], loc: T, hasInitialValue: bool,
+func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph, values: Values,
+                      span: Slice[NodePosition], loc: T,
                       op: static ComputeAliveProc[T]
                      ): tuple[alive, escapes: bool] =
   ## Computes whether the location is alive when `span` is exited via either
@@ -534,8 +440,8 @@ func computeAlive*[T](tree: MirTree, cfg: ControlFlowGraph, values: Values,
   # on it "kills" it (it no longer contains a value)
 
   var exit = false
-  for i, n in traverseFromExits(tree, cfg, span, exit):
-    case op(tree, values, loc, n, Operation i)
+  for opc, n in traverseFromExits(cfg, span, exit):
+    case op(tree, values, loc, opc, n)
     of dead:
       exit = true
     of alive:
@@ -545,14 +451,9 @@ func computeAlive*[T](tree: MirTree, cfg: ControlFlowGraph, values: Values,
     of unchanged:
       discard
 
-  if exit and hasInitialValue:
-    # an unstructured exit is connected to the start of the span and the
-    # location starts initialized
-    return (true, true)
-
   # check if the location is alive at the structured exit of the span
-  for i, n in traverseReverse(tree, cfg, span, span.b + 1, exit):
-    case op(tree, values, loc, n, Operation i)
+  for opc, n in traverseReverse(cfg, span, span.b + 1, exit):
+    case op(tree, values, loc, opc, n)
     of dead:
       exit = true
     of alive:
@@ -562,7 +463,7 @@ func computeAlive*[T](tree: MirTree, cfg: ControlFlowGraph, values: Values,
     of unchanged:
       discard
 
-  result = (exit and hasInitialValue, false)
+  result = (false, false)
 
 proc doesGlobalEscape*(tree: MirTree, scope: Slice[NodePosition],
                        start: NodePosition, s: PSym): bool =

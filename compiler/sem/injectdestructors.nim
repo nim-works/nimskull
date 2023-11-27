@@ -47,7 +47,7 @@
 ## code-fragment is created and initialized. For all arguments that appear in
 ## a consume context (e.g. passed to ``sink`` argument, assignment source)
 ## and for which the ownership status could not be resolved to either 'yes' or
-## 'no' by ``analysis.computeValuesAndEffects``, a data-flow analysis is
+## 'no' by ``analysis.computeValues``, a data-flow analysis is
 ## performed to figure out the status (see ``solveOwnership``).
 ##
 ## Using the now resolved ownership status of all expressions, the next
@@ -114,7 +114,7 @@
 ## Fixing this would require for the temporary injection pass to check if
 ## the consume is connected to the call on all control-flow paths and only
 ## then omit the temporary. A clean solution that introduces no duplication of
-## logic would be to use the ``ControlFlowGraph`` for this, but it is not yet
+## logic would be to use the ``DataFlowGraph`` for this, but it is not yet
 ## available at that point.
 ##
 ## #2, #3, and #4 are variations of the same problem. Consume-argument handling
@@ -206,7 +206,7 @@ from compiler/backend/cgirgen import generateIR
 
 type
   AnalyseCtx = object
-    cfg: ControlFlowGraph
+    cfg: DataFlowGraph
     graph: ModuleGraph
 
   EntityName = object
@@ -399,13 +399,13 @@ func initEntityDict(tree: MirTree): EntityDict =
     else:
       discard
 
-func computeOwnership(tree: MirTree, cfg: ControlFlowGraph, values: Values,
+func computeOwnership(tree: MirTree, cfg: DataFlowGraph, values: Values,
                       entities: EntityDict, lval: LvalueExpr, pos: NodePosition
                      ): Owned =
   case tree[lval.root].kind
   of mnkObjConstr, mnkConstr, mnkMagic, mnkCall:
     # all values derived from a constructor-operation that reach here are
-    # guaranteed to own (see ``analyser.computeValuesAndEffects``).
+    # guaranteed to own (see ``analyser.computeValues``).
     Owned.yes
   of mnkLocal, mnkParam, mnkGlobal, mnkTemp:
     # only entities that are relevant for destructor injection have an entry in
@@ -428,7 +428,7 @@ func computeOwnership(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   else:
     unreachable()
 
-func solveOwnership(tree: MirTree, cfg: ControlFlowGraph, values: var Values,
+func solveOwnership(tree: MirTree, cfg: DataFlowGraph, values: var Values,
                     entities: EntityDict) =
   ## Ensures that the ownership status of values used in a consume context is
   ## certain (i.e. either owned or not owned)
@@ -443,7 +443,7 @@ func solveOwnership(tree: MirTree, cfg: ControlFlowGraph, values: var Values,
         # unresolved onwership status and has a destructors
         values.setOwned(opr):
           computeOwnership(tree, cfg, values, entities,
-                           values.toLvalue(opr), i)
+                           values.toLvalue(opr), i + 1)
 
     else:
       discard "nothing to do"
@@ -456,11 +456,11 @@ type DestructionMode = enum
   demFinally ## the location contains a value when the scope is exited via
              ## unstructured control-flow
 
-func requiresDestruction(tree: MirTree, cfg: ControlFlowGraph, values: Values,
+func requiresDestruction(tree: MirTree, cfg: DataFlowGraph, values: Values,
                          span: Slice[NodePosition], def: Operation,
                          entity: MirNode): DestructionMode =
-  template computeAlive(loc: untyped, hasInit: bool, op: untyped): untyped =
-    computeAlive(tree, cfg, values, span, loc, hasInit, op)
+  template computeAlive(loc: untyped, op: untyped): untyped =
+    computeAlive(tree, cfg, values, span, loc, op)
 
   # XXX: a 'def' is not an operation. It defines an entity, optionally with a
   #      starting value, but doesn't produce a value itself
@@ -469,15 +469,13 @@ func requiresDestruction(tree: MirTree, cfg: ControlFlowGraph, values: Values,
     case entity.kind
     of mnkParam, mnkLocal, mnkGlobal:
       # ``sink`` parameter locations always start with an initial value
-      computeAlive(entity.sym, (entity.kind == mnkParam or hasInput(tree, def)),
-                   computeAliveOp[PSym])
+      computeAlive(entity.sym, computeAliveOp[PSym])
 
     of mnkTemp:
       # unpacked tuples don't need to be destroyed because all elements are
       # moved out of them
       if tree[def].kind != mnkDefUnpack:
-        computeAlive(entity.temp, hasInput(tree, def),
-                     computeAliveOp[TempId])
+        computeAlive(entity.temp, computeAliveOp[TempId])
       else:
         (alive: false, escapes: false)
 
@@ -489,7 +487,7 @@ func requiresDestruction(tree: MirTree, cfg: ControlFlowGraph, values: Values,
     elif r.alive: demNormal
     else:         demNone
 
-func computeDestructors(tree: MirTree, cfg: ControlFlowGraph, values: Values,
+func computeDestructors(tree: MirTree, cfg: DataFlowGraph, values: Values,
                         entities: EntityDict): seq[DestroyEntry] =
   ## Computes and collects which locations present in `entities` need to be
   ## destroyed at the exit of their enclosing scope in order to prevent the
@@ -503,7 +501,7 @@ func computeDestructors(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   for _, info in entities.pairs:
     let
       def = info.def ## the position of the entity's definition
-      start = sibling(tree, def)
+      start = info.def
       entity = tree[getDefEntity(tree, def)]
       scope = start .. info.scope.b
       scopeStart = info.scope.a - 1
@@ -533,7 +531,7 @@ func computeDestructors(tree: MirTree, cfg: ControlFlowGraph, values: Values,
 
 # --------- analysis routines --------------
 
-func isAlive(tree: MirTree, cfg: ControlFlowGraph, v: Values,
+func isAlive(tree: MirTree, cfg: DataFlowGraph, v: Values,
              entities: EntityDict, val: Lvalue): bool =
   ## Computes if `val` refers to a location that contains a value at the point
   ## in time where `val` is computed
@@ -561,7 +559,7 @@ func isAlive(tree: MirTree, cfg: ControlFlowGraph, v: Values,
     # stores a value
     true
 
-func needsReset(tree: MirTree, cfg: ControlFlowGraph, ar: AnalysisResults,
+func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
                 src: Lvalue): bool =
   ## Computes whether a reset needs to be injected for `src` in order to
   ## prevent the current value the underlying location contains from being
@@ -593,7 +591,8 @@ func needsReset(tree: MirTree, cfg: ControlFlowGraph, ar: AnalysisResults,
     return true
 
   let res = isLastWrite(tree, cfg, ar.v[], aliveRange,
-                        toLvalue(ar.v[], OpValue src), NodePosition(src) + 1)
+                        toLvalue(ar.v[], OpValue src), NodePosition(src) + 2)
+  # +1 to get to the write context, another +1 to skip it
 
   if res.result:
     if res.escapes or res.exits:
@@ -1232,10 +1231,10 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
       diags: seq[LocalDiag]
 
     let
-      actx = AnalyseCtx(graph: g, cfg: computeCfg(tree))
+      actx = AnalyseCtx(graph: g, cfg: computeDfg(tree))
       entities = initEntityDict(tree)
 
-    var values = computeValuesAndEffects(tree)
+    var values = computeValues(tree)
     solveOwnership(tree, actx.cfg, values, entities)
 
     let destructors = computeDestructors(tree, actx.cfg, values, entities)
