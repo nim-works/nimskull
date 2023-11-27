@@ -220,7 +220,7 @@ type
 
   EntityInfo = object
     def: NodePosition ## the position of the 'def' for the entity
-    scope: Slice[NodePosition] ## the scope the entity is defined in
+    scope: Subgraph   ## the data-flow subgraph during which the entity exists
 
   EntityDict = Table[EntityName, EntityInfo]
     ## Entity dictionary. Stores all entities relevant to destructor
@@ -270,9 +270,6 @@ iterator ritems[T](x: openArray[T]): lent T =
     yield x[i]
     dec i
 
-func conv[A, B](x: Slice[A], _: typedesc[B]): Slice[B] {.inline.} =
-  B(x.a) .. B(x.b)
-
 func hash(x: EntityName): int =
   result = 0 !& x.a[0] !& x.a[1]
   result = !$result
@@ -287,19 +284,15 @@ func toName(n: MirNode): EntityName =
     of mnkTemp:    n.temp.int
     else:          unreachable(n.kind)
 
-func getAliveRange(entities: EntityDict, name: EntityName, exists: var bool
-                  ): Slice[NodePosition] =
-  ## Returns the maximum lifespan of the entity with the given `name`.
-  ## `exists` is used to output whether there exists an entity with the given
-  ## `name` in `entities`
+func getAliveGraph(entities: EntityDict, name: EntityName, exists: var bool
+                  ): Subgraph =
+  ## Returns the data-flow sub-graph during which the entity `name` exists.
+  ## `exists` is set to whether the entity is present in the dictionary.
   let info =
-    entities.getOrDefault(name, EntityInfo(scope: conv(1..0, NodePosition)))
+    entities.getOrDefault(name, EntityInfo(def: NodePosition(-1)))
 
-  exists = info.scope.a <= info.scope.b
-  if exists:
-    # the entity is not alive before its definition, hence the usage of
-    # ``info.def`` for the start and not ``info.scope.b``
-    result = info.def .. info.scope.b
+  exists = info.def != NodePosition(-1)
+  result = info.scope
 
 proc getVoidType(g: ModuleGraph): PType {.inline.} =
   g.getSysType(unknownLineInfo, tyVoid)
@@ -363,7 +356,7 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
 
   #result.pos = p
 
-func initEntityDict(tree: MirTree): EntityDict =
+func initEntityDict(tree: MirTree, dfg: DataFlowGraph): EntityDict =
   ## Collects the names of all analysable locations relevant to destructor
   ## injection and the move analyser. This includes: locals, temporaries, sink
   ## parameters and, with some restrictions, globals.
@@ -394,7 +387,8 @@ func initEntityDict(tree: MirTree): EntityDict =
         # XXX: a ``doAssert`` is only used here in order to always catch
         #      duplicate symbols incorrectly getting past ``transf``
         doAssert re notin result, "entity appears in a 'def' multiple times"
-        result[re] = EntityInfo(def: i, scope: scope)
+        # don't include the data-flow operations preceding the def
+        result[re] = EntityInfo(def: i, scope: subgraphFor(dfg, i .. scope.b))
 
     else:
       discard
@@ -419,9 +413,10 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, values: Values,
     #       pseudo-use at the end of the body and make all procedure exits
     #       visit it first
     var exists = false
-    let aliveRange = entities.getAliveRange(toName(tree[lval.root]), exists)
+    let subgraph = entities.getAliveGraph(toName(tree[lval.root]), exists)
 
-    if exists and isLastRead(tree, cfg, values, aliveRange, lval, pos):
+    if exists and isLastRead(tree, cfg, values, subgraph, lval,
+                             cfg.find(pos)):
       Owned.yes
     else:
       Owned.no
@@ -457,8 +452,8 @@ type DestructionMode = enum
              ## unstructured control-flow
 
 func requiresDestruction(tree: MirTree, cfg: DataFlowGraph, values: Values,
-                         span: Slice[NodePosition], def: Operation,
-                         entity: MirNode): DestructionMode =
+                         span: Subgraph, def: Operation, entity: MirNode
+                        ): DestructionMode =
   template computeAlive(loc: untyped, op: untyped): untyped =
     computeAlive(tree, cfg, values, span, loc, op)
 
@@ -503,13 +498,12 @@ func computeDestructors(tree: MirTree, cfg: DataFlowGraph, values: Values,
       def = info.def ## the position of the entity's definition
       start = info.def
       entity = tree[getDefEntity(tree, def)]
-      scope = start .. info.scope.b
-      scopeStart = info.scope.a - 1
+      scope = info.scope
+      scopeStart = findParent(tree, def, mnkScope)
 
-    assert tree[scopeStart].kind == mnkScope
 
     if entity.kind == mnkGlobal and
-       doesGlobalEscape(tree, scope, start, entity.sym):
+       doesGlobalEscape(tree, scope, cfg.find(start), entity.sym):
       # TODO: handle escaping globals. Either report a warning, an error, or
       #       defer destruction of the global to the end of the program
       discard
@@ -545,14 +539,20 @@ func isAlive(tree: MirTree, cfg: DataFlowGraph, v: Values,
       # XXX: the way the ``result`` variable is detected here is a hack. It
       #      should be treated as any other local in the context of the MIR
       if tree[root].kind in SymbolLike and tree[root].sym.kind == skResult:
-        NodePosition(0) .. NodePosition(tree.high)
+        cfg.subgraphFor(NodePosition(0) .. NodePosition(tree.high))
       else:
         var exists: bool
-        let s = entities.getAliveRange(toName(tree[root]), exists)
+        let s = entities.getAliveGraph(toName(tree[root]), exists)
         if exists: s
         else:      return true # not something we can analyse -> assume alive
 
-    isAlive(tree, cfg, v, scope, (NodePosition root, pos), pos)
+    let start = cfg.find(pos)
+    # if the location is not assigned an initial value on definition, `start`
+    # may come before the alive subgraph
+    if start <= scope.a:
+      false # the location cannot be alive
+    else:
+      isAlive(tree, cfg, v, scope, (NodePosition root, pos), start)
   else:
     # something that we can't analyse (e.g. a dereferenced pointer). We have
     # to be conservative and assume that the location the lvalue names already
@@ -582,21 +582,22 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
   if tree[root].kind in SymbolLike and tree[root].sym.kind == skResult:
     return true
 
-  var exists = false
-  let aliveRange = ar.entities[].getAliveRange(toName(tree[root]), exists)
+  let info = getOrDefault(ar.entities[], toName(tree[root]),
+                          EntityInfo(def: NodePosition(-1)))
 
-  if not exists:
-    # the entity needs can't be reasoned about in the current context -> assume
-    # that it needs to be reset
+  if info.def == NodePosition(-1):
+    # the location is not local to the current context -> assume that it needs
+    # to be reset
     return true
 
-  let res = isLastWrite(tree, cfg, ar.v[], aliveRange,
-                        toLvalue(ar.v[], OpValue src), NodePosition(src) + 2)
+  let res = isLastWrite(tree, cfg, ar.v[], info.scope,
+                        toLvalue(ar.v[], OpValue src),
+                        cfg.find(NodePosition(src) + 2))
   # +1 to get to the write context, another +1 to skip it
 
   if res.result:
     if res.escapes or res.exits:
-      let def = aliveRange.a
+      let def = info.def
       assert tree[def].kind in DefNodes
 
       # check if there exists a destructor call that would observe the
@@ -1232,7 +1233,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
 
     let
       actx = AnalyseCtx(graph: g, cfg: computeDfg(tree))
-      entities = initEntityDict(tree)
+      entities = initEntityDict(tree, actx.cfg)
 
     var values = computeValues(tree)
     solveOwnership(tree, actx.cfg, values, entities)

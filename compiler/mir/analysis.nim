@@ -214,11 +214,10 @@ func computeValues*(body: MirTree): Values =
       discard "leave uninitialized"
 
 func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
-             span: Slice[NodePosition], loc: LvalueExpr,
-             pos: NodePosition): bool =
-  ## Computes if the location named by `loc` does contain a value at `pos`
-  ## (i.e. is alive). The performed data-flow analysis only considers code
-  ## inside `span`
+             span: Subgraph, loc: LvalueExpr, start: InstrPos): bool =
+  ## Computes whether the location named by `loc` does contain a value (i.e.,
+  ## is alive) when the data-flow operation at `start` is reached (but not
+  ## executed). Only the `span` sub-graph is considered by the analysis.
   template toLvalue(val: OpValue): LvalueExpr =
     toLvalue(v, val)
 
@@ -226,14 +225,14 @@ func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
     overlaps(tree, loc, toLvalue val) != no
 
   # this is a reverse data-flow problem. We follow all control-flow paths from
-  # `pos` backwards until either there's no path left to follow or one of them
+  # `start` backwards until either there's no path left to follow or one of them
   # reaches a potential mutation of `loc`, in which case the underlying location
   # is considered to be alive. A path is not followed further if it reaches an
   # operation that "kills" the `loc` (removes its value, e.g. by moving it
   # somewhere else)
 
   var exit = false
-  for op, n in traverseReverse(cfg, span, pos, exit):
+  for op, n in traverseReverse(cfg, span, start, exit):
     case op
     of opDef, opMutate:
       if overlaps(n):
@@ -241,7 +240,7 @@ func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
         # analysed l-value expression is ``a.b.c`` then both A and B mutate
         # it (either fully or partially). If traversal reaches what's
         # possibly a mutation of the analysed location, it means that the
-        # location needs to be treated as being alive at `pos`, so we can
+        # location needs to be treated as being alive at `start`, so we can
         # return already
         return true
 
@@ -271,16 +270,16 @@ func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
     else:
       discard "not relevant"
 
-  # no mutation is directly connected to `pos`. The location is not alive
+  # no mutation is directly connected to `start`. The location is not alive
   result = false
 
 func isLastRead*(tree: MirTree, cfg: DataFlowGraph, values: Values,
-                 span: Slice[NodePosition], loc: LvalueExpr, pos: NodePosition
+                 span: Subgraph, loc: LvalueExpr, start: InstrPos
                 ): bool =
-  ## Performs data-flow analysis to compute whether the value in `loc`
-  ## is observed on any paths starting from and including `pos`. If it is
-  ## observed, 'false' is returned, 'true' otherwise. Only operations within
-  ## `span` are considered.
+  ## Performs data-flow analysis to compute whether the value that `loc`
+  ## evaluates to when `start` is reached (but not executed) is *not*
+  ## observed by operations that have a control-flow dependency on the
+  ## operation/statement at `start` and are located inside `span`.
   ## It's important to note that this analysis does not test whether the
   ## underlying *location* is accessed, but rather the *value* it stores. If a
   ## new value is assigned to the underlying location which is then accessed
@@ -289,7 +288,7 @@ func isLastRead*(tree: MirTree, cfg: DataFlowGraph, values: Values,
     toLvalue(values, val)
 
   var state: TraverseState
-  for op, n in traverse(cfg, span, pos, state):
+  for op, n in traverse(cfg, span, start, state):
     case op
     of opDef:
       let cmp = compareLvalues(tree, loc, toLvalue n)
@@ -331,25 +330,25 @@ func isLastRead*(tree: MirTree, cfg: DataFlowGraph, values: Values,
     else:
       discard
 
-  # no further read of the value is connected to `pos`
+  # no further read of the value is connected to `start`
   result = true
 
 func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, values: Values,
-                  span: Slice[NodePosition], loc: LvalueExpr, pos: NodePosition
+                  span: Subgraph, loc: LvalueExpr, start: InstrPos
                  ): tuple[result, exits, escapes: bool] =
   ## Computes whether the location `loc` is reassigned or modified on any paths
-  ## starting from and including `pos`, returning 'false' if yes and 'true' if
-  ## not. In other words, computes whether a reassignment or mutation that has
-  ## a control-flow dependency on `pos` and is located inside `span` observes
-  ## the current value.
+  ## starting from and including `start`, returning 'false' if yes and 'true'
+  ## if not. In other words, computes whether a reassignment or mutation that
+  ## has a control-flow dependency on `start` and is located inside `span`
+  ## observes the current value.
   ##
-  ## In addition, whether the `pos` is connected to a structured or
+  ## In addition, whether the `start` is connected to a structured or
   ## unstructured exit of `span` is also returned
   template toLvalue(val: OpValue): LvalueExpr =
     toLvalue(values, val)
 
   var state: TraverseState
-  for op, n in traverse(cfg, span, pos, state):
+  for op, n in traverse(cfg, span, start, state):
     case op
     of opDef, opMutate, opInvalidate:
       # note: since we don't know what happens to the location when it is
@@ -428,8 +427,7 @@ func computeAliveOp*[T: PSym | TempId](
     discard
 
 func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph, values: Values,
-                      span: Slice[NodePosition], loc: T,
-                      op: static ComputeAliveProc[T]
+                      span: Subgraph, loc: T, op: static ComputeAliveProc[T]
                      ): tuple[alive, escapes: bool] =
   ## Computes whether the location is alive when `span` is exited via either
   ## structured or unstructured control-flow. A location is considered alive
@@ -465,8 +463,8 @@ func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph, values: Values,
 
   result = (false, false)
 
-proc doesGlobalEscape*(tree: MirTree, scope: Slice[NodePosition],
-                       start: NodePosition, s: PSym): bool =
+proc doesGlobalEscape*(tree: MirTree, scope: Subgraph, start: InstrPos,
+                       s: PSym): bool =
   ## Computes if the global `s` potentially "escapes". A global escapes if it
   ## is not declared at module scope and is used inside a procedure that is
   ## then called outside the analysed global's scope. Example:
