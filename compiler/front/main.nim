@@ -505,7 +505,7 @@ proc mainCommand*(graph: ModuleGraph) =
 
   ## command prepass
   if conf.cmd == cmdCrun: conf.incl {optRun, optUseNimcache}
-  if conf.cmd notin cmdBackends + {cmdTcc, cmdNimscript}:
+  if conf.cmd notin cmdBackends + {cmdTcc, cmdNimscript, cmdInteractive}:
     customizeForBackend(graph, conf, backendC)
   if conf.outDir.isEmpty:
     # doc like commands can generate a lot of files (especially with --project)
@@ -660,7 +660,9 @@ proc mainCommand*(graph: ModuleGraph) =
     wantMainModule(conf)
     commandView(graph)
     #msgWriteln(conf, "Beware: Indentation tokens depend on the parser's state!")
-  of cmdInteractive: commandInteractive(graph)
+  of cmdInteractive:
+    customizeForBackened(graph, conf, backendNimVm)
+    commandInteractive(graph)
   of cmdNimscript:
     if conf.inputMode == pimFile and not fileExists(conf.projectFull):
       localReport(conf, InternalReport(
