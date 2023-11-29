@@ -181,7 +181,7 @@ jobs:
           brew update
 
       - name: Run tester
-        run: ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' all
+        run: ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' --tryFailing all
 
       - name: Print all test errors
         if: failure()
