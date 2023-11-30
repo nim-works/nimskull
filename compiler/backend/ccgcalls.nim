@@ -147,7 +147,7 @@ proc genOpenArraySlice(p: BProc; q: CgNode; formalType, destType: PType): (Rope,
   # but first produce the required index checks:
   if optBoundsCheck in p.options:
     genBoundsCheck(p, a, b, c)
-  let ty = skipTypes(a.t, abstractVar+{tyPtr})
+  let ty = skipTypes(a.t, abstractVar+{tyPtr, tyRef, tyLent})
   let dest = getTypeDesc(p.module, destType)
   let lengthExpr = "($1)-($2)+1" % [rdLoc(c), rdLoc(b)]
   case ty.kind
