@@ -1257,6 +1257,9 @@ proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
     # underlying type is not possible, so we simply skip the conversion and
     # apply the operation to the source expression
     genAddr(p, n.operand, r)
+  of cnkObjUpConv, cnkObjDownConv:
+    # object up-/down-conversions are no-ops
+    genAddr(p, n.operand, r)
   of cnkStmtListExpr:
     for i in 0..<n.len-1:
       genStmt(p, n[i])

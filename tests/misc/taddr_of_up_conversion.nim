@@ -1,8 +1,5 @@
 discard """
   targets: "c js vm"
-  knownIssue.js: '''
-    jsgen handling for taking the address of up-conversions is missing
-  '''
   description: "Ensure that taking the address of up-conversions works"
 """
 
