@@ -1676,10 +1676,7 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
       else:
         consume
 
-    if n.typ.skipTypes(abstractRange).kind == tySequence and n.len == 0:
-      genLit(c, n)
-    else:
-      genArrayConstr(c, n, consume)
+    genArrayConstr(c, n, consume)
   of nkCurly:
     # a ``set``-constructor never owns
     genSetConstr(c, n)

@@ -2157,9 +2157,10 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     else:
       genSetConstr(p, n, d)
   of cnkArrayConstr:
-    if isDeepConstExpr(n) and n.len != 0:
+    let kind = skipTypes(n.typ, abstractVarRange).kind
+    if isDeepConstExpr(n) and (kind == tySequence or n.len != 0):
       exprComplexConst(p, n, d)
-    elif skipTypes(n.typ, abstractVarRange).kind == tySequence:
+    elif kind == tySequence:
       genSeqConstr(p, n, d)
     else:
       genArrayConstr(p, n, d)
