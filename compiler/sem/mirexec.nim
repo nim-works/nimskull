@@ -62,8 +62,12 @@ const
 
 type
   # TODO: make both types distinct
-  InstrPos = int32
+  InstrPos* = int32
   JoinId = uint32
+
+  Subgraph* = Slice[InstrPos]
+    ## Represents a sub-graph within the data-flow graph. Internally, this is
+    ## a span of instructions.
 
   Instr = object
     node: NodePosition
@@ -474,9 +478,20 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
     if instr.op == opJoin:
       result.map[instr.id] = InstrPos(i)
 
-iterator traverse*(c: DataFlowGraph,
-                   span: Slice[NodePosition], start: NodePosition,
-                   state: var TraverseState): (Opcode, OpValue) =
+func subgraphFor*(dfg: DataFlowGraph, span: Slice[NodePosition]): Subgraph =
+  ## Computes a reference to the sub-graph encompassing the `span` of MIR
+  ## instructions.
+  result.a = lowerBound(dfg, span.a)
+  result.b = upperBound(dfg, span.b) - 1
+
+func find*(dfg: DataFlowGraph, n: NodePosition): InstrPos =
+  ## Returns the first data-/control-flow operation associated with `n`.
+  ## If none are associated with `n`, the closest following (in terms of
+  ## attached-to node position) operation is returned.
+  lowerBound(dfg, n)
+
+iterator traverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
+                   state: var TraverseState): (DataFlowOpcode, OpValue) =
   ## Starts at the data-flow operation closest to `start` and traverses/yields
   ## all data-flow operations inside `span` in control-flow order. Outside of
   ## loops, this means that an operation is visited *before* operations that
@@ -489,11 +504,10 @@ iterator traverse*(c: DataFlowGraph,
   ## `state` is used for bi-directional communication -- see the documentation
   ## of ``TraverseState`` for more information.
   var
-    last = upperBound(c, span.b) - 1
     pc =
-      if start in span: lowerBound(c, start)
-      else:             last + 1 # disable execution
-    start = pc
+      if start in span: start
+      else:             span.b + 1 # disable execution
+    last = span.b
     queue: seq[InstrPos]
     visited: PackedSet[JoinId]
 
@@ -514,7 +528,7 @@ iterator traverse*(c: DataFlowGraph,
     ## it to the execution queue, effectively starting a new thread. Records
     ## an escape otherwise
     let dst = c.map[target]
-    if c[dst].node in span:
+    if dst in span:
       queue.incl dst
     else:
       state.escapes = true
@@ -558,7 +572,7 @@ iterator traverse*(c: DataFlowGraph,
   assert queue.len <= 1
 
   # don't set `exit` to true if nothing was traversed
-  state.exit = pc > last and start <= last
+  state.exit = pc > last and start in span
 
 template active(s: ExecState): bool =
   # if a thread is selected and it's either the or derived from the main
@@ -621,9 +635,8 @@ func processJoin(id: JoinId, s: var ExecState, c: DataFlowGraph) {.inline.} =
     s.visited[id] = max(s.time, s.visited[id])
     s.time = s.visited[id]
 
-iterator traverseReverse*(c: DataFlowGraph,
-                          span: Slice[NodePosition], start: NodePosition,
-                          exit: var bool): (Opcode, OpValue) =
+iterator traverseReverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
+                          exit: var bool): (DataFlowOpcode, OpValue) =
   ## Starts at `start - 1` and visits and returns all data-flow operations
   ## inside `span` in post-order.
   ##
@@ -642,15 +655,11 @@ iterator traverseReverse*(c: DataFlowGraph,
       start..start-1 # `span` is empty
 
   let
-    start = lowerBound(c, start)
-      ## the first instruction associated with the input `start`
-    fin   = lowerBound(c, span.a)
+    fin = span.a
       ## abstract control-flow reaching this instructions means "end reached"
 
   s.visited.newSeq(c.map.len)
-  s.pc = upperBound(c, span.b) - 1
-  # start activity *after* the start position is reached so that
-  # the start node itself is not yielded
+  s.pc = span.b
   s.top = high(Time)
   s.time = s.top
   s.bottom = s.time
@@ -734,8 +743,8 @@ iterator traverseReverse*(c: DataFlowGraph,
 
   exit = s.active
 
-iterator traverseFromExits*(c: DataFlowGraph, span: Slice[NodePosition],
-                            exit: var bool): (Opcode, OpValue) =
+iterator traverseFromExits*(c: DataFlowGraph, span: Subgraph,
+                            exit: var bool): (DataFlowOpcode, OpValue) =
   ## Similar to ``traverseReverse``, but starts traversal at each unstructured
   ## exit of `span`. Here, unstructured exit means that the control-flow leaves
   ## `span` via a 'goto' or 'fork'.
@@ -748,10 +757,9 @@ iterator traverseFromExits*(c: DataFlowGraph, span: Slice[NodePosition],
   const EntryTime = high(Time)
   var s: ExecState
 
-  let fin = lowerBound(c, span.a)
-  s.pc = upperBound(c, span.b) - 1
+  let fin = span.a
+  s.pc = span.b
   s.visited.newSeq(c.map.len)
-
   s.time = 0 # start as disabled
   s.top = EntryTime
   s.bottom = EntryTime
@@ -759,7 +767,7 @@ iterator traverseFromExits*(c: DataFlowGraph, span: Slice[NodePosition],
   exit = false
 
   template exits(target: JoinId): bool =
-    c[c.map[target]].node notin span
+    c.map[target] notin span
 
   # for the most part similar to the loop in ``traverseReverse``, but with
   # special handling for jumps out of `span`
