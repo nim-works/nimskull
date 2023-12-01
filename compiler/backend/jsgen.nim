@@ -2374,7 +2374,7 @@ proc genCast(p: PProc, n: CgNode, r: var TCompRes) =
   if toUint and (fromInt or fromUint):
     let trimmer = unsignedTrimmer(dest.size)
     r.res = "($1 $2)" % [r.res, trimmer]
-  elif toInt:
+  elif toInt and (fromInt or fromUint):
     if fromInt:
       return
     elif fromUint:
@@ -2389,13 +2389,23 @@ proc genCast(p: PProc, n: CgNode, r: var TCompRes) =
           of 4: "0xfffffffe"
           else: ""
         r.res = "($1 - ($2 $3))" % [rope minuend, r.res, trimmer]
-  elif (src.kind == tyPtr and mapType(src) == etyObject) and dest.kind == tyPointer:
-    r.address = r.res
-    r.res = ~"null"
-    r.typ = etyBaseIndex
-  elif (dest.kind == tyPtr and mapType(dest) == etyObject) and src.kind == tyPointer:
-    r.res = r.address
-    r.typ = etyObject
+  elif dest.kind == tyPointer:
+    # cast into pointer
+    if r.typ == etyBaseIndex:
+      discard "already a fat pointer, do nothing"
+    else:
+      r.address = r.res
+      r.res = ~"null"
+      r.typ = etyBaseIndex
+  elif src.kind == tyPointer:
+    # cast from pointer
+    let d = mapType(dest)
+    if d == etyBaseIndex:
+      discard "already a fat pointer, do nothing"
+    else:
+      r.res = r.address
+      r.address = "" # clear out the address
+      r.typ = d
 
 proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   r.typ = etyNone
