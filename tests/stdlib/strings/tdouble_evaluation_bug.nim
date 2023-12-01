@@ -4,9 +4,6 @@ discard """
     Regression test for a double-evaluation bug involving assignment to or
     creating view of string characters
   '''
-  knownIssue.js: '''
-    double evaluation bug with arguments to ``swap``
-  '''
 """
 
 block:
