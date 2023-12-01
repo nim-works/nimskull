@@ -890,19 +890,9 @@ proc analyseIfAddressTaken(n: PNode) =
   ## flag.
   ## XXX: the exact meaning of "address taken" is rather fuzzy at the moment,
   ##      and the whole thing is likely not a good idea in the first place.
-  ##      For locations, only ``guards.nim`` and the JS code-generator make use
-  ##      of ``sfAddrTaken``, with both attaching slightly different meaning to
-  ##      it, it seems. The JS code-generator uses the flag to know whether the
-  ##      location has to be stored in a way that allows for indirectly
-  ##      mutating it, and is generally only interested in whether the *whole*
-  ##      location either has its address taken or is passed to a 'var'
-  ##      parameter (e.g. it depends on the flag being present for ``x`` in
-  ##      ``addr x``, but for ``addr x.y`` it does not). It's likely a better
-  ##      idea to let the JS code-generator perform its own analysis instead of
-  ##      relying on ``sfAddrTaken``
-  ##      For ``guards``, it *seems* like the ``sfAddrTaken`` information is
-  ##      used to know whether a fact cannot be made untrue through an
-  ##      undetectable indirect mutation
+  ##      For locations, only ``guards.nim`` makes use of ``sfAddrTaken``.
+  ##      There, the presense of the flag is used to decide whether a fact
+  ##      cannot change through an undetectable indirect mutation.
   ##
   ## XXX: including the flag here has the additional issue of letting AST that
   ##      might turn out erroneous (e.g. ``(var i = 0; discard addr(i); error)``)
