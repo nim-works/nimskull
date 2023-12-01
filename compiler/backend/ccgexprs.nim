@@ -2157,6 +2157,8 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     else:
       genSetConstr(p, n, d)
   of cnkArrayConstr:
+    # XXX: constructions of empty seqs should be lifted into C constants too,
+    #      but that currently causes collisions and thus C compiler errors  
     if isDeepConstExpr(n) and n.len != 0:
       exprComplexConst(p, n, d)
     elif skipTypes(n.typ, abstractVarRange).kind == tySequence:

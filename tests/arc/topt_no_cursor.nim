@@ -178,7 +178,7 @@ try:
       break :label_0
     var :aux_11 = this[].matchDirs
     var :aux_12 = []
-    =sink(:aux_11, :aux_12)
+    =copy_1(:aux_11, :aux_12)
 finally:
   =destroy(par)
 -- end of expandArc ------------------------'''
