@@ -1,10 +1,9 @@
 discard """
 description: '''
 Mutating variable while passing it to the procedure
-arguments works differently on various GCs.
+arguments works differently on different backends.
 '''
-knownIssue: "https://github.com/nim-lang/Nim/issues/18099"
-matrix: "; --gc:orc"
+knownIssue.c js: "https://github.com/nim-lang/Nim/issues/18099"
 """
 
 

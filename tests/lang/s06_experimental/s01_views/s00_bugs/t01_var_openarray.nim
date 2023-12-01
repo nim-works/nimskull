@@ -1,10 +1,9 @@
 discard """
 description: '''
-`var openarray` must either generate a proper error message or be allowed,
-currently fails with codegen error
+`var openarray` is allowed as the type of a `var` binding, but it's unclear
+whether this is going to stay
 '''
-knownIssue: "var openarray fails with C codegen error"
-
+knownIssue.vm: "`toOpenArray` is not yet supported"
 """
 
 {.experimental: "views".}

@@ -1,7 +1,6 @@
 discard """
   description: "Tests for the serialization/deserialization"
   targets: "c js"
-  knownIssue.js: "Fails due to code-gen issues"
 """
 
 # This test file tests four things:

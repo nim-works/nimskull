@@ -1,9 +1,7 @@
 discard """
   cmd: "nim c --threads:on -d:ssl $file"
   knownIssue: "this test exemplifies stupidity"
-  disabled: "openbsd"
-  disabled: "freebsd"
-  disabled: "windows"
+  disabled: true
 """
 
 #[

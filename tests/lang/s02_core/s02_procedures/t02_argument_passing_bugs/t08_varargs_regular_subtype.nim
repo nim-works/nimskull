@@ -1,10 +1,8 @@
 discard """
 description: '''
-The https://github.com/nim-lang/Nim/issues/4799 is supposedly fixed, but seems
-like making it a non-ref object results in compiler crash.
+A `varargs` parameter accepts subtypes, both `ref` and non-`ref` object
+types, although it's not clear whether the latter should continue to work
 '''
-knownIssue: "varargs of plain object subtypes crashes the compiler"
-
 """
 
 block original:
