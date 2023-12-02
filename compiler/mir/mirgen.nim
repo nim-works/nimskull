@@ -466,13 +466,27 @@ proc genRd(c: var TCtx, n: PNode; consume=false): EValue =
     # either an rvalue or some non-pure lvalue -> capture
     result = captureInTemp(c, f, consume)
 
-proc genPath(c: var TCtx, n: PNode; sink = false)
+proc genOperand(c: var TCtx, n: PNode; sink = false) =
+  ## Translates expression AST `n` to a MIR operand expression. `sink` signals
+  ## whether the result is used in a sink context -- the flag is propagated
+  ## through conversions such that in ``A(B(C(x: ...)))`` the object
+  ## construction produces an owning value.
+  c.builder.useSource(c.sp, n)
+  let f = c.builder.push: genx(c, n, sink)
+  case detectKind(c.builder.staging, f.pos, sink)
+  of OwnedRvalue, Rvalue:
+    let tmp = captureInTemp(c, f, sink)
+    c.use tmp
+  of Lvalue, Literal:
+    # nothing to do, the nodes are already in the staging buffer
+    # note: literals are not valid in a context where an lvalue is required
+    #       (e.g., as the operand to an ``addr`` operation)
+    discard f
 
 proc genOp(c: var TCtx, k: MirNodeKind, t: PType, n: PNode) =
   assert t != nil
   c.subTree MirNode(kind: k, typ: t):
-    # XXX: we don't want a path, we want an lvalue (which could be a path)
-    genPath(c, n)
+    genOperand(c, n)
 
 template buildOp(c: var TCtx, k: MirNodeKind, t: PType, body: untyped) =
   assert t != nil
@@ -549,11 +563,11 @@ proc genBracketExpr(c: var TCtx, n: PNode) =
     # due to all the type-related modifications done by ``transf``, it's safer
     # to lookup query the type from the tuple instead of using `n.typ`
     c.subTree MirNode(kind: mnkPathPos, typ: typ[i], position: i.uint32):
-      genPath(c, n[0])
+      genOperand(c, n[0])
   of tyArray, tySequence, tyOpenArray, tyVarargs, tyUncheckedArray, tyString,
      tyCstring:
     c.buildOp mnkPathArray, elemType(typ):
-      genPath(c, n[0])
+      genOperand(c, n[0])
       c.use genRd(c, n[1])
   else: unreachable()
 
@@ -580,7 +594,7 @@ proc genVariantAccess(c: var TCtx, n: PNode) =
     c.add MirNode(kind: mnkPathVariant, typ: access[0].typ,
                   field: inCall[2].sym)
 
-  genPath(c, access[0])
+  genOperand(c, access[0])
 
   # close the open sub trees:
   for i in 1..<n.len:
@@ -1076,7 +1090,7 @@ proc genRaise(c: var TCtx, n: PNode) =
   assert n.kind == nkRaiseStmt
   c.buildStmt mnkRaise:
     if n[0].kind != nkEmpty:
-      genPath(c, n[0], true)
+      genOperand(c, n[0], true)
     else:
       c.add MirNode(kind: mnkNone)
 
@@ -1117,7 +1131,7 @@ proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
   c.buildStmt kind:
     # left-hand side:
     case dest.kind
-    of dkGen:  genPath(c, dest.node)
+    of dkGen:  genOperand(c, dest.node)
     of dkFrag: c.use EValue(node: dest.mnode)
     else:      unreachable()
 
@@ -1185,12 +1199,12 @@ proc genAsgn(c: var TCtx, isFirst: bool, lhs, rhs: PNode) =
         else:       mnkAsgn
 
     c.buildStmt kind:
-      genPath(c, lhs)
+      genOperand(c, lhs)
       genAsgnSource(c, rhs, sink=not isCursor)
 
 proc genFastAsgn(c: var TCtx, lhs, rhs: PNode) =
   c.buildStmt mnkFastAsgn:
-    genPath(c, lhs)
+    genOperand(c, lhs)
     genAsgnSource(c, rhs, sink=false)
 
 proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
@@ -1278,7 +1292,7 @@ proc genVarTuple(c: var TCtx, n: PNode) =
 
       # generate the assignment:
       c.buildStmt mnkInit:
-        genPath(c, lhs)
+        genOperand(c, lhs)
         c.subTree MirNode(kind: mnkPathPos, typ: lhs.sym.typ,
                           position: i.uint32):
           c.use val
@@ -1302,7 +1316,7 @@ proc genVarSection(c: var TCtx, n: PNode) =
         else:
           # no intializer expression -> assign the default value
           c.buildStmt mnkInit:
-            genPath(c, a[0])
+            genOperand(c, a[0])
             c.buildMagicCall mDefault, a[0].typ:
               discard
       else:
@@ -1535,7 +1549,7 @@ proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
         c.add MirNode(kind: mnkLiteral, lit: it, typ: it.sym.typ)
       else:
         # emit and asm statements support lvalue operands
-        genPath(c, it)
+        genOperand(c, it)
 
 proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for assigning the value resulting from
@@ -1556,90 +1570,6 @@ proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination) =
   else:
     # not a complex expression
     unreachable(n.kind)
-
-
-proc genPath(c: var TCtx, n: PNode; sink = false) =
-  ## Prefers a name or path. `sink` tells whether the result is used in a
-  ## sink context -- the flag is propagated through conversions such that
-  ## in ``A(B(C(x: ...)))`` the object construction produces an owning
-  ## value.
-  case n.kind
-  of nkSym:
-    let s = n.sym
-    case s.kind
-    of skVar, skForVar, skLet, skResult, skParam, skConst, skTemp:
-      c.add nameNode(s)
-    else:
-      unreachable()
-  of nkBracketExpr:
-    genBracketExpr(c, n)
-  of nkDotExpr:
-    let
-      typ = n[0].typ.skipTypes(abstractInstTypeClass)
-      sym = n[1].sym
-
-    assert sym.kind == skField
-
-    case typ.kind
-    of tyObject:
-      c.subTree MirNode(kind: mnkPathNamed, typ: n.typ, field: sym):
-        genPath(c, n[0])
-    of tyTuple:
-      # always use lookup-by-position for tuples, even when they're accessed
-      # with via name
-      c.subTree MirNode(kind: mnkPathPos, typ: typ[sym.position],
-                        position: sym.position.uint32):
-        genPath(c, n[0])
-    else:
-      unreachable(typ.kind)
-  of nkCheckedFieldExpr:
-    c.subTree MirNode(kind: mnkPathNamed, typ: n.typ, field: n[0][1].sym):
-      genVariantAccess(c, n)
-  of nkObjUpConv:
-    # discard conversions in the same direction that are used as the operand
-    var arg = n[0]
-    while arg.kind == nkObjUpConv:
-      arg = arg[0]
-
-    c.buildOp mnkPathConv, n.typ:
-      genPath(c, arg, sink)
-  of nkObjDownConv:
-    c.buildOp mnkPathConv, n.typ:
-      genPath(c, n[0], sink)
-  of nkHiddenSubConv, nkConv:
-    if compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct, {IgnoreTupleFields}):
-      # it's an lvalue-preserving conversion
-      c.buildOp mnkPathConv, n.typ:
-        genPath(c, n[1], sink)
-    else:
-      c.use genRd(c, n)
-  of nkDerefExpr:
-    # the dereference ends the path/projection. We don't know
-    # where the path is going to be used, so a read is always
-    # performed on the operand
-    c.buildOp mnkDeref, n.typ:
-      c.use genRd(c, n[0])
-  of nkHiddenDeref:
-    # TODO: this needs a rethink. Duplicating the hidden deref code is
-    #       not acceptable, but using a procedure also doesn't seem
-    #       right
-    case classifyBackendView(n[0].typ)
-    of bvcSingle:
-      # it's a deref of a view
-      c.subTree MirNode(kind: mnkDerefView, typ: n.typ):
-        c.use genRd(c, n[0])
-    of bvcSequence:
-      genPath(c, n[0])
-    of bvcNone:
-      # it's a ``ref`` or ``ptr`` deref
-      c.subTree MirNode(kind: mnkDeref, typ: n.typ):
-        c.use genRd(c, n[0])
-  of nkStmtListExpr:
-    let x = unwrap(c, n)
-    genPath(c, x)
-  else:
-    # expected a path element but got something else, e.g., ``call().x``
-    c.use genRd(c, n, sink)
 
 proc genx(c: var TCtx, n: PNode, consume: bool) =
   ## Generate and emits the raw MIR code for the given expression `n` into
@@ -1675,10 +1605,42 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
     #      2. the exceptional control-flow is hidden to the MIR
     #      3. the code generator emitting the checks relies on the
     #         structured control-flow constructs that are currently in use
+    #      4. lvalue expression cannot be treated as side-effect free
     #      The field check logic needs to be emitted here.
-    genPath(c, n)
-  of nkDotExpr, nkObjUpConv, nkObjDownConv, nkBracketExpr:
-    genPath(c, n)
+    c.subTree MirNode(kind: mnkPathNamed, typ: n.typ, field: n[0][1].sym):
+      genVariantAccess(c, n)
+  of nkDotExpr:
+    let
+      typ = n[0].typ.skipTypes(abstractInstTypeClass)
+      sym = n[1].sym
+
+    assert sym.kind == skField
+
+    case typ.kind
+    of tyObject:
+      c.subTree MirNode(kind: mnkPathNamed, typ: n.typ, field: sym):
+        genOperand(c, n[0])
+    of tyTuple:
+      # always use lookup-by-position for tuples, even when they're accessed
+      # with via name
+      c.subTree MirNode(kind: mnkPathPos, typ: typ[sym.position],
+                        position: sym.position.uint32):
+        genOperand(c, n[0])
+    else:
+      unreachable(typ.kind)
+  of nkBracketExpr:
+    genBracketExpr(c, n)
+  of nkObjDownConv:
+    c.buildOp mnkPathConv, n.typ:
+      genOperand(c, n[0], consume)
+  of nkObjUpConv:
+    # discard conversions in the same direction that are used as the operand
+    var arg = n[0]
+    while arg.kind == nkObjUpConv:
+      arg = arg[0]
+
+    c.buildOp mnkPathConv, n.typ:
+      genOperand(c, arg, consume)
   of nkAddr:
     c.genOp mnkAddr, n.typ, n[0]
   of nkHiddenAddr:
@@ -1697,21 +1659,23 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
       c.genOp mnkAddr, n.typ, n[0]
 
   of nkDerefExpr:
+    # it's not know where the path is going to be used, so the target is
+    # always captured when not pure
     c.buildOp mnkDeref, n.typ:
-      c.use genUse(c, n[0])
+      c.use genRd(c, n[0])
   of nkHiddenDeref:
     case classifyBackendView(n[0].typ)
     of bvcSingle:
       # it's a deref of a view
       c.buildOp mnkDerefView, n.typ:
-        c.use genUse(c, n[0])
+        c.use genRd(c, n[0])
     of bvcSequence:
       # it's a no-op
       genx(c, n[0])
     of bvcNone:
       # it's a ``ref`` or ``ptr`` deref
       c.buildOp mnkDeref, n.typ:
-        c.use genUse(c, n[0])
+        c.use genRd(c, n[0])
 
   of nkHiddenStdConv:
     case n.typ.skipTypes(abstractVar).kind
@@ -1723,7 +1687,7 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
     if compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct, {IgnoreTupleFields}):
       # it's an lvalue-preserving conversion
       c.buildOp mnkPathConv, n.typ:
-        genPath(c, n[1], consume)
+        genOperand(c, n[1], consume)
     elif n.typ.skipTypes(abstractVar).kind == tyOpenArray:
       # to-openArray conversion also reach here as ``nkHiddenSubConv``
       # sometimes
@@ -1870,7 +1834,7 @@ proc gen(c: var TCtx, n: PNode) =
             # first
             genVariantAccess(c, n[0])
           else:
-            genPath(c, x[0])
+            genOperand(c, x[0])
 
         c.use genUse(c, n[1])
         # c.staging.add MirNode(kind: mnkField, field: x[1].sym)
