@@ -2026,8 +2026,9 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
     r.kind = resExpr
   of mMove:
     genMove(p, n, r)
-  of mAccessEnv:
-    unaryExpr(p, n, r, "accessEnv", "accessEnv($1)")
+  # XXX: access env
+  # of mAccessEnv:
+  #   unaryExpr(p, n, r, "accessEnv", "accessEnv($1)")
   of mFinished:
     # access the ``:state`` field of the environment and check if its value is
     # less than zero

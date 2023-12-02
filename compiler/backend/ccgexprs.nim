@@ -1861,7 +1861,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mWasMoved: genWasMoved(p, e)
   of mMove: genMove(p, e, d)
   of mDestroy: genDestroy(p, e)
-  of mAccessEnv: unaryExpr(p, e, d, "$1.ClE_0")
   of mAccessTypeField: genAccessTypeField(p, e, d)
   of mSlice: genSlice(p, e, d)
   of mTrace: discard "no code to generate"
@@ -2194,7 +2193,15 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
       let mutate = n.kind == cnkHiddenAddr and n.typ.kind == tyVar
       genAddr(p, n, mutate, d)
   of cnkArrayAccess: genArrayLikeElem(p, n, d)
-  of cnkTupleAccess: genTupleElem(p, n, d)
+  of cnkTupleAccess:
+    if n[0].typ.skipTypes(abstractInst).kind == tyProc:
+      # XXX: temporary workaround. Closures should be normal tuples at this
+      #      stage
+      var a: TLoc
+      initLocExpr(p, n[0], a)
+      putIntoDest(p, d, n, "$1.ClE_0" % [rdLoc(a)])
+    else:
+      genTupleElem(p, n, d)
   of cnkDeref, cnkDerefView: genDeref(p, n, d)
   of cnkFieldAccess: genRecordField(p, n, d)
   of cnkCheckedFieldAccess: genCheckedRecordField(p, n, d)
