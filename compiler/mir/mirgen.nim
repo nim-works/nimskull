@@ -451,6 +451,7 @@ func captureName(c: var TCtx, f: Fragment, mutable: bool): Value =
 
 proc genUse(c: var TCtx, n: PNode): EValue =
   # TODO: document
+  c.builder.useSource(c.sp, n)
   # emit the expression into the staging buffer:
   let f = c.builder.push: genx(c, n)
 
@@ -463,6 +464,7 @@ proc genRd(c: var TCtx, n: PNode; consume=false): EValue =
   ## Generates the MIR code for the expression `n`. Makes sure that the run-
   ## time value of the expression is *captured* by assigning it to a
   ## temporary.
+  c.builder.useSource(c.sp, n)
   let f = c.builder.push: genx(c, n)
 
   if c.builder.staging[f.pos].kind in Atoms and
