@@ -6,7 +6,7 @@ discard """
 """
 
 proc test() =
-  # test that the intial assignment works
+  # test that the initial assignment works
   var x = default(pointer)
   doAssert x == nil
 
