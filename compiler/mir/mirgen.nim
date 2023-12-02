@@ -1858,10 +1858,7 @@ proc gen(c: var TCtx, n: PNode) =
         # extend the lifetime of the value
         # XXX: while not not possible at the moment, in the future, the
         #      discard statement could destroy the temporary right away
-        let tmp = c.allocTemp(f.typ)
-        c.subTree mnkDef:
-          c.use tmp
-          c.builder.pop(f)
+        discard captureInTemp(c, f, false)
       of Lvalue:
         c.subTree mnkVoid:
           c.builder.pop(f)
