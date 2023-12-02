@@ -223,11 +223,12 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
     # no temporaries are used at all -> nothing to do
     return
 
-  proc overlaps(tree: MirTree, a: Path, b: OpValue): auto {.nimcall.} =
-    overlaps(tree, a, computePath(tree, NodePosition b))
+  template overlaps(a: Path, typ: PType, b: OpValue): bool =
+    let x = NodePosition b
+    overlapsConservative(tree, a, computePath(tree, x), typ, tree[x].typ)
 
-  proc findUse(tree: MirTree, cfg: ControlFlowGraph, p: Path, start: InstrPos,
-               e: TempId): NodePosition {.nimcall.} =
+  proc findUse(tree: MirTree, cfg: ControlFlowGraph, p: Path, typ: PType,
+               start: InstrPos, e: TempId): NodePosition {.nimcall.} =
     ## Conservative data-flow analysis that computes whether the `p` might be
     ## modified. If there are no modifications of `p` between `start`
     ## (inclusive) and the use of `e`, the the usage of `e` is returned --
@@ -242,20 +243,10 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
           # `p` so far -> not modified
           return NodePosition(n)
       of opConsume, opDef, opMutate, opKill, opInvalidate:
-        if tree[n].kind == mnkTemp and tree[n].temp == e:
-          # the searched-for temporary is mutated or consumed itself
-          return NodePosition(-1)
-
-        case tree[p.root].kind
-        of mnkDeref:
-          # a location is mutated through a pointer indirection. Assume that
-          # the pointer points into the location that `p` identifies
-          return NodePosition(-1)
-        of mnkDerefView:
-          # view dereferences are fine, as a mutable view cannot alias
-          # a path that's used for reading
-          discard
-        elif overlaps(tree, p, n) != no:
+        if (tree[n].kind == mnkTemp and tree[n].temp == e) or
+           overlaps(p, typ, n):
+          # either the searched-for temporary is mutated or consumed itself,
+          # or the lvalue is mutated/consumed
           return NodePosition(-1)
       of opMutateGlobal:
         if tree[p.root].kind == mnkGlobal:
@@ -280,7 +271,8 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         n   = NodePosition n
         def = tree.parent(n)
         p   = computePath(tree, NodePosition tree.operand(def, 1))
-        pos = findUse(tree, cfg, p, i + 1, tree[n].temp)
+        typ = tree[n].typ
+        pos = findUse(tree, cfg, p, typ, i + 1, tree[n].temp)
 
       if pos == NodePosition(-1):
         # the copy is necessary
@@ -302,21 +294,20 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         # temporary can be elided
         let stmt = tree.parent(expr)
         elide = tree[stmt].kind in {mnkInit, mnkDef, mnkDefCursor} or
-                overlaps(tree, p, tree.operand(stmt, 0)) == no
+                not overlaps(p, typ, tree.operand(stmt, 0))
       of mnkMagic, mnkCall:
         # the lvalue overlapping with a mutable argument disable the elision,
         # as eliding the temporary would be obersvable when the backend decides
         # to use pass-by-reference for the immutable parameter
         elide = true # unless proven otherwise
         for k, arg in arguments(tree, expr):
-          if tree[arg].kind == mnkTag and
-             overlaps(tree, p, tree.operand(arg)) != no:
+          if tree[arg].kind == mnkTag and overlaps(p, typ, tree.operand(arg)):
             elide = false
             break
 
         if elide:
           # the lvalue must also not overlap with the call-result destination
-          elide = overlaps(tree, p, tree.operand(tree.parent(expr), 0)) == no
+          elide = not overlaps(p, typ, tree.operand(tree.parent(expr), 0))
       else:
         unreachable(tree[expr].kind)
 
