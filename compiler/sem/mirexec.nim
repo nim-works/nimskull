@@ -525,8 +525,17 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
 
     of mnkAsgn, mnkInit:
       emitForDef(env, tree, i, true)
-    of mnkFastAsgn, mnkSwitch:
+    of mnkFastAsgn:
       emitForDef(env, tree, i, false)
+    of mnkSwitch:
+      # the switch statement invalidates the destination rather than
+      # reassigning it (i.e., ``opDef``)
+      let
+        dest   = tree.operand(i, 0)
+        source = tree.operand(i, 1)
+      emitForValue(env, tree, i, dest)
+      emitForExpr(env, tree, i, NodePosition source, false)
+      dfaOp env, opInvalidate, i, dest
     of mnkDef, mnkDefUnpack:
       emitForDef(env, tree, i, true)
     of mnkDefCursor:
