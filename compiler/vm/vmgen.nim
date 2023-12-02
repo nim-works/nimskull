@@ -2841,15 +2841,30 @@ proc genDef(c: var TCtx; a: CgNode) =
           s   = a[0].local
           typ = a[0].typ
         if true:
-          let reg = setSlot(c.prc, s)
           if a[1].kind == cnkEmpty:
             # no initializer; only setup the register (and memory location,
             # if used)
+            let reg = setSlot(c.prc, s)
             let opc = if usesRegister(c.prc, s): opcLdNullReg
                       else: opcLdNull
 
             c.gABx(a, opc, reg, c.genType(typ))
+          elif classifyBackendView(typ) == bvcSequence:
+            # XXX: either a shallow copy or construction of an ``openArray``
+            #      should take place here instead, but both are things not yet
+            #      supported by the VM
+            let src = genx(c, a[1])
+            if c.prc.regInfo[src].kind in {slotFixedVar, slotFixedLet}:
+              # the register cannot be reused. However, since the source must
+              # outlive the slice, copying the handle is fine
+              let dst = setSlot(c.prc, s)
+              c.gABC(a, opcFastAsgnComplex, dst, src)
+            else:
+              # promote to local
+              c.prc.regInfo[src].kind = slotFixedLet
+              c.prc[a[0].local].reg = src
           else:
+            let reg = setSlot(c.prc, s)
             # XXX: checking for views here is wrong but necessary
             if not usesRegister(c.prc, s) and not isDirectView(typ):
               # only setup a memory location if the local uses one
