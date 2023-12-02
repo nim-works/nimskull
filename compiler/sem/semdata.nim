@@ -953,6 +953,14 @@ proc makePtrType*(owner: PSym, baseType: PType; idgen: IdGenerator): PType =
 proc makePtrType*(c: PContext, baseType: PType): PType =
   makePtrType(getCurrOwner(c), baseType, c.idgen)
 
+proc makeRefType*(conf: ConfigRef, typ: PType; idgen: IdGenerator): PType =
+  ## Creates a ``ref <typ>`` type.
+  result = newType(tyRef, nextTypeId(idgen), typ.owner)
+  rawAddSon(result, typ)
+  # refs only have custom assignment logic with arc/orc
+  if conf.selectedGC in {gcArc, gcOrc}:
+    result.flags.incl tfHasAsgn
+
 proc makeTypeWithModifier*(c: PContext,
                            modifier: TTypeKind,
                            baseType: PType): PType =
