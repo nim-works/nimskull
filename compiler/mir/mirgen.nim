@@ -1097,7 +1097,7 @@ proc genRaise(c: var TCtx, n: PNode) =
   assert n.kind == nkRaiseStmt
   c.buildStmt mnkRaise:
     if n[0].kind != nkEmpty:
-      genOperand(c, n[0], true)
+      genArgExpression(c, n[0], sink=true)
     else:
       c.add MirNode(kind: mnkNone)
 
