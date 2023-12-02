@@ -136,7 +136,7 @@ proc genSetNode(p: BProc, n: CgNode): Rope =
 proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
   assert d.k != locNone
 
-  case a.t.skipTypes(abstractVar).kind
+  case a.t.skipTypes(abstractVar + tyUserTypeClasses).kind
   of tyOpenArray, tyVarargs:
     if reifiedOpenArray(p, a.lode):
       linefmt(p, cpsStmts, "$1.Field0 = $2.Field0; $1.Field1 = $2.Field1;$n",
