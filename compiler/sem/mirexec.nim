@@ -283,7 +283,7 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
 
     if tree[source].kind == mnkCall:
       # global mutation and control-flow effects:
-      if geRaises in tree[source].effects:
+      if geMutateGlobal in tree[source].effects:
         env.instrs.add Instr(op: opMutateGlobal, node: at)
       if geRaises in tree[source].effects:
         exit env, opFork, at, RaiseLabel
