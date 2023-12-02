@@ -869,7 +869,7 @@ proc genInSetOp(c: var TCtx, n: PNode) =
                 c.use sv
                 c.subTree MirNode(kind: mnkConstr, typ: se.typ):
                   for it in se.items:
-                    c.emitByVal genRd(c, it)
+                    c.emitOperandTree it, false
             else:
               sv = genRd(c, se)
 
@@ -1052,7 +1052,7 @@ proc genTupleConstr(c: var TCtx, n: PNode, isConsume: bool) =
 
 proc genClosureConstr(c: var TCtx, n: PNode, isConsume: bool) =
   c.buildTree mnkConstr, n.typ:
-    c.emitByVal genRd(c, n[0].skipConv) # the procedure
+    c.emitOperandTree n[0].skipConv, false # the procedure
     # transf wraps the procedure operand in a conversion that we don't
     # need
 
@@ -1690,9 +1690,9 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
       c.genOp mnkConv, n.typ, n[0]
     else:
       c.buildMagicCall mChckRange, n.typ:
-        c.emitByVal genRd(c, n[0])
-        c.emitByVal genRd(c, n[1])
-        c.emitByVal genRd(c, n[2])
+        c.emitOperandTree n[0], false
+        c.emitOperandTree n[1], false
+        c.emitOperandTree n[2], false
   of nkStringToCString, nkCStringToString:
     # undo the transformation done by ``transf``
     c.genOp mnkStdConv, n.typ, n[0]
