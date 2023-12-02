@@ -227,15 +227,15 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
     let x = NodePosition b
     overlapsConservative(tree, a, computePath(tree, x), typ, tree[x].typ)
 
-  proc findUse(tree: MirTree, cfg: ControlFlowGraph, p: Path, typ: PType,
+  proc findUse(tree: MirTree, dfg: DataFlowGraph, p: Path, typ: PType,
                start: InstrPos, e: TempId): NodePosition {.nimcall.} =
     ## Conservative data-flow analysis that computes whether the `p` might be
     ## modified. If there are no modifications of `p` between `start`
     ## (inclusive) and the use of `e`, the the usage of `e` is returned --
     ## -1 otherwise.
-    let all = cfg.rangeFor(NodePosition(0) .. NodePosition(tree.len))
+    let all = dfg.subgraphFor(NodePosition(0) .. NodePosition(tree.len))
     var s: TraverseState
-    for op, n in traverse(tree, cfg, all, start, s):
+    for op, n in traverse(dfg, all, start, s):
       case op
       of opUse:
         if tree[n].kind == mnkTemp and tree[n].temp == e:
@@ -251,8 +251,6 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
       of opMutateGlobal:
         if tree[p.root].kind == mnkGlobal:
           return NodePosition(-1)
-      else:
-        discard
 
     # either the data-flow graph creation logic is wrong or there's a bug in
     # the optimizer
@@ -261,8 +259,8 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
   # second pass: find the point-of-definition for each single-use temporary,
   # check whether their source lvalue is mutated prior to the only usage of
   # the temporary, and if it's not, elide the temporary.
-  let cfg = computeCfg(tree)
-  for i, op, n in instructions(cfg):
+  let dfg = computeDfg(tree)
+  for i, op, n in instructions(dfg):
     if op == opDef and tree[n].kind == mnkTemp and
        ct.getOrDefault(tree[n].temp.uint32, 0) == 2:
       # definition of a single-use temporary that might be elidable. Look for
@@ -272,7 +270,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         def = tree.parent(n)
         p   = computePath(tree, NodePosition tree.operand(def, 1))
         typ = tree[n].typ
-        pos = findUse(tree, cfg, p, typ, i + 1, tree[n].temp)
+        pos = findUse(tree, dfg, p, typ, i + 1, tree[n].temp)
 
       if pos == NodePosition(-1):
         # the copy is necessary
