@@ -62,11 +62,6 @@ import
   ]
 
 type
-  DestinationKind = enum
-    dkNone ## no destination
-    dkFrag ## an lvalue expression
-    dkGen  ## an lvalue expression that is generated in-place
-
   DestFlag = enum
     ## Extra information about an assignment destination. The flags are used to
     ## decide which kind of assignment to use
@@ -76,14 +71,9 @@ type
   Destination = object
     ## Stores the information necessary to generate the code for an assignment
     ## to some lvalue expression
-    case kind: DestinationKind
-    of dkNone:
-      discard
-    of dkFrag:
-      mnode: MirNode
-      source: PNode
-    of dkGen:
-      node {.cursor.}: PNode
+    case isSome: bool
+    of false: discard
+    of true:  val: Value
 
     flags: set[DestFlag]
 
@@ -215,17 +205,14 @@ func selectDefKind(s: PSym): range[mnkDef..mnkDefCursor] =
   if sfCursor in s.flags: mnkDefCursor
   else:                   mnkDef
 
-func isSome(x: Destination): bool {.inline.} =
-  x.kind != dkNone
-
-func initDestination(n: PNode, isFirst: bool): Destination =
+func initDestination(v: sink Value, isFirst, sink: bool): Destination =
   var flags: set[DestFlag]
   if isFirst:
     flags.incl dfEmpty
-  if not isCursor(n):
+  if sink:
     flags.incl dfOwns
 
-  Destination(kind: dkGen, node: n, flags: flags)
+  Destination(isSome: true, val: v, flags: flags)
 
 proc typeOrVoid(g: ModuleGraph, t: PType): PType =
   ## Returns `t` if it's not 'nil' - the ``void`` type otherwise
@@ -515,11 +502,6 @@ template buildTree(c: var TCtx, k: MirNodeKind, t: PType, body: untyped) =
   c.subTree MirNode(kind: k, typ: t):
     body
 
-template withSource(c: var TCtx, src: PNode, body: untyped) =
-  block:
-    c.builder.useSource(c.sp, src)
-    body
-
 proc genAndOr(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates the code for an ``and|or`` operation:
   ##
@@ -543,12 +525,11 @@ proc genAndOr(c: var TCtx, n: PNode, dest: Destination) =
   genAsgn(c, dest, n[1]) # the left-hand side
 
   # condition:
-  var v = EValue(node: dest.mnode)
+  var v = dest.val
   if n[0].sym.magic == mOr:
     v = c.wrapTemp n.typ:
       c.buildMagicCall mNot, n.typ:
-        c.withSource(dest.source):
-          c.emitByVal v
+        c.emitByVal v
 
   c.subTree mnkIf:
     c.use v
@@ -898,7 +879,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
   of mAnd, mOr:
     let tmp = getTemp(c, n.typ)
     withFront c.builder:
-      genAndOr(c, n, Destination(kind: dkFrag, mnode: tmp.node, source: n))
+      genAndOr(c, n, Destination(isSome: true, val: tmp))
     c.use tmp
   of mDefault:
     # use the canonical form:
@@ -1129,13 +1110,8 @@ proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
       else:                     mnkAsgn
     else:                       mnkFastAsgn
   c.buildStmt kind:
-    # left-hand side:
-    case dest.kind
-    of dkGen:  genOperand(c, dest.node)
-    of dkFrag: c.use EValue(node: dest.mnode)
-    else:      unreachable()
-
-    c.genAsgnSource(rhs, sink = owns) # rhs
+    c.use dest.val
+    c.genAsgnSource(rhs, sink = owns)
 
 proc unwrap(c: var TCtx, n: PNode): PNode =
   ## If `n` is a statement-list expression, generates the code for all
@@ -1150,7 +1126,7 @@ proc unwrap(c: var TCtx, n: PNode): PNode =
     result = canonicalExpr(result.lastSon)
     assert result.kind != nkStmtListExpr
 
-proc genAsgn(c: var TCtx, isFirst: bool, lhs, rhs: PNode) =
+proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
   ## Generates the code for an assignment. `isFirst` indicates if this is the
   ## first assignment to the location named by `lhs`.
   ##
@@ -1162,50 +1138,38 @@ proc genAsgn(c: var TCtx, isFirst: bool, lhs, rhs: PNode) =
   # l-value expression:
   let
     lhs = unwrap(c, lhs)
-    isCursor = isCursor(lhs)
+    sink = sink and not isCursor(lhs)
+    rhs = canonicalExpr(rhs)
 
-  func isSimple(n: PNode): bool =
-    ## Computes if the l-value expression `n` always names the same valid
-    ## location
-    var n {.cursor.} = n
-    while true:
-      case n.kind
-      of nkSym:
-        return true
-      of nkDotExpr:
-        # ``nkCheckedFieldExpr`` is deliberately not included here because it
-        # means the location is part of a variant-object-branch
-        n = n[0]
-      of nkBracketExpr:
-        if n[0].typ.skipTypes(abstractVarRange).kind in {tyTuple, tyArray} and
-           n[1].kind in nkLiterals:
-          # tuple access and arrays indexed by a constant value are
-          # allowed -- they always name the same location
-          n = n[0]
+  case rhs.kind
+  of ComplexExprs, nkStmtListExpr:
+    # optimization: forward the destination. For example:
+    #   x = if cond: a else: b
+    # becomes:
+    #   if cond: x = a
+    #   else:    x = b
+    let
+      f = c.builder.push: genx(c, lhs)
+      dest =
+        if c.builder.staging[f.pos].kind in Atoms:
+          # names are always stable, so no capture is needed
+          c.builder.popSingle(f)
         else:
-          return false
-      else:
-        return false
+          captureName(c, f, true)
 
-  if isSimple(lhs):
-    # the rhs cannot change the location the lhs names, so we can assign
-    # directly
-    genWithDest(c, rhs, initDestination(lhs, isFirst))
+    genWithDest(c, rhs, initDestination(dest, isFirst, sink))
   else:
     let kind =
-      if isCursor:  mnkFastAsgn
-      else:
+      if sink:
         if isFirst: mnkInit
         else:       mnkAsgn
+      else:         mnkFastAsgn
 
     c.buildStmt kind:
-      genOperand(c, lhs)
-      genAsgnSource(c, rhs, sink=not isCursor)
-
-proc genFastAsgn(c: var TCtx, lhs, rhs: PNode) =
-  c.buildStmt mnkFastAsgn:
-    genOperand(c, lhs)
-    genAsgnSource(c, rhs, sink=false)
+      # ``genLvalueOperand`` ensures that unstable or raising lvalue
+      # expressions are captured
+      genLvalueOperand(c, lhs)
+      genAsgnSource(c, rhs, sink)
 
 proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
   ## Generates the 'def' construct for the entity provided by the symbol node
@@ -1273,7 +1237,7 @@ proc genVarTuple(c: var TCtx, n: PNode) =
 
       case lhs.kind
       of nkSym:     genLocInit(c, lhs, rhs)
-      of nkDotExpr: genAsgn(c, true, lhs, rhs) # part of a closure environment
+      of nkDotExpr: genAsgn(c, true, true, lhs, rhs) # closure field
       else:         unreachable(lhs.kind)
 
   else:
@@ -1312,7 +1276,7 @@ proc genVarSection(c: var TCtx, n: PNode) =
         # initialization of a variable that was lifted into a closure
         # environment
         if a[2].kind != nkEmpty:
-          genAsgn(c, false, a[0], a[2])
+          genAsgn(c, false, true, a[0], a[2])
         else:
           # no intializer expression -> assign the default value
           c.buildStmt mnkInit:
@@ -1362,7 +1326,7 @@ proc genBranch(c: var TCtx, n: PNode, dest: Destination) =
 
   # if the branch ends in a no-return statement, it has no type. We generate a
   # normal statement (without an assignment to `dest`) in that case
-  if dest.kind != dkNone and not n.typ.isEmptyType():
+  if dest.isSome and not n.typ.isEmptyType():
     genWithDest(c, n, dest)
   else:
     gen(c, n)
@@ -1757,8 +1721,7 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
 
     withFront c.builder:
       genComplexExpr(c, n):
-        Destination(kind: dkFrag, mnode: tmp.node, source: n,
-                    flags: {dfOwns, dfEmpty})
+        Destination(isSome: true, val: tmp, flags: {dfOwns, dfEmpty})
 
     c.use tmp
   else:
@@ -1839,7 +1802,7 @@ proc gen(c: var TCtx, n: PNode) =
         genAsgnSource(c, n[1], false) # the source operand
     else:
       # a normal assignment
-      genAsgn(c, false, n[0], n[1])
+      genAsgn(c, false, true, n[0], n[1])
 
   of nkFastAsgn:
     # for non-destructor-using types, ``nkFastAsgn`` means bitwise copy
@@ -1849,11 +1812,8 @@ proc gen(c: var TCtx, n: PNode) =
     #      insert ``nkFastAsgn`` as aggresively as it does now and instead
     #      let the move-analyser and cursor-inference take care of optimizing
     #      the copies away
-    if hasDestructor(n[0].typ):
-      genAsgn(c, false, n[0], n[1])
-    else:
-      genFastAsgn(c, n[0], n[1])
-
+    let sink = hasDestructor(n[0].typ)
+    genAsgn(c, false, sink, n[0], n[1])
   of nkCallKinds:
     # calls are expressions, the void statement allows using them as
     # statements
