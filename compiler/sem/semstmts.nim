@@ -257,10 +257,19 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
           isImported = semExceptBranchType(a[0][1])
           symbolNode = newSymGNode(skLet, a[0][2], c)
           symbol = getDefNameSymOrRecover(symbolNode)
-        symbol.typ = if isImported: a[0][1].typ
-                     else: a[0][1].typ.toRef(c.idgen)
+        symbol.typ =
+          if isImported or
+             a[0][1].typ.skipTypes({tyGenericInst, tyAlias}).kind == tyRef:
+            a[0][1].typ
+          else:
+            makeRefType(c.config, a[0][1].typ, c.idgen)
+
         if symbolNode.kind == nkError:
           localReport(c.config, symbolNode)
+        else:
+          # propagate the symbol's type to the node
+          symbolNode.typ = symbol.typ
+
         addDecl(c, symbol)
         # Overwrite symbol in AST with the symbol in the symbol table.
         a[0][2] = symbolNode

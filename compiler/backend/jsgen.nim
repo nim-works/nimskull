@@ -1880,8 +1880,14 @@ proc genOf(p: PProc, n: CgNode, r: var TCompRes) =
   r.kind = resExpr
 
 proc genDefault(p: PProc, n: CgNode; r: var TCompRes) =
-  r.res = createVar(p, n.typ, indirect = false)
+  r.typ = mapType(n.typ)
   r.kind = resExpr
+  case r.typ
+  of etyBaseIndex:
+    r.address = "null"
+    r.res = "0"
+  else:
+    r.res = createVar(p, n.typ, indirect = false)
 
 proc genReset(p: PProc, n: CgNode) =
   var x: TCompRes

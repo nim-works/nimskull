@@ -1056,12 +1056,11 @@ proc transformCall(c: PTransf, n: PNode): PNode =
 
 proc transformExceptBranch(c: PTransf, n: PNode): PNode =
   if n[0].isInfixAs() and not isImportedException(n[0][1].typ, c.graph.config):
-    let excTypeNode = n[0][1]
     # Generating `let exc = (excType)(getCurrentException())`
     # -> getCurrentException()
     let excCall = callCodegenProc(c.graph, "getCurrentException")
     # -> (excType)
-    let convNode = newTreeIT(nkObjDownConv, n[1].info, excTypeNode.typ.toRef(c.idgen)):
+    let convNode = newTreeIT(nkObjDownConv, n[1].info, n[0][2].typ):
       [excCall]
     # -> let exc = ...
     let identDefs = newTreeI(nkIdentDefs, n[1].info):
