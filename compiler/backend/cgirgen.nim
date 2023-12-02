@@ -601,7 +601,7 @@ proc valueToIr(tree: TreeWithSource, cl: var TranslateCl,
                cr: var TreeCursor): CgNode =
   let n {.cursor.} = tree.get(cr)
   case n.kind
-  of SymbolLike, mnkTemp, mnkAlias, mnkLiteral:
+  of SymbolLike, mnkTemp, mnkAlias, mnkLiteral, mnkType:
     atomToIr(n, cl, cr.info)
   of mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathConv, mnkPathVariant,
      mnkDeref, mnkDerefView:
