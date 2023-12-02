@@ -1,6 +1,6 @@
 discard """
   output: ''''''
-  cmd: '''nim c --gc:arc --expandArc:main --expandArc:tfor --hint:Performance:off $file'''
+  cmd: '''nim c --gc:arc --expandArc:main --expandArc:tfor --expandArc:texit --hint:Performance:off $file'''
   nimout: '''--expandArc: main
 
 scope:
@@ -68,6 +68,22 @@ scope:
     =destroy(name x)
     =destroy(name b)
     =destroy(name a)
+-- end of expandArc ------------------------
+--expandArc: texit
+var str
+var x
+try:
+  x = $(cond)
+  if cond:
+    return
+  str = $(cond)
+  if not(cond):
+    result = str
+    wasMoved(str)
+    return
+finally:
+  =destroy(x)
+  =destroy(str)
 -- end of expandArc ------------------------'''
 """
 
@@ -103,3 +119,19 @@ proc tfor(cond: bool) =
     b.add x
 
 tfor(false)
+
+proc texit(cond: bool): string =
+  var str: string
+  let x = $cond # starts initialized and requires destruction
+
+  if cond:
+    return # make sure `x` escapes
+
+  str = $cond # start `str`'s lifetime
+
+  if not cond:
+    result = str # `str` can be moved (str's lifetime ends)
+    return # unstructured exit
+  # there are no unstructured exits of `str`'s scope where `str` is alive
+
+discard texit(false)

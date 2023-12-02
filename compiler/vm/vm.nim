@@ -665,39 +665,7 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
     else:
       unreachable(styp.kind)
   else:
-    let desttyp = skipTypes(desttyp, abstractVarRange)
-    case desttyp.kind
-    of tyOpenArray:
-      assert dt[1].kind == akSeq
-
-      let srckind = srctyp.skipTypes(abstractRange).kind
-      case srckind
-      of tySequence:
-        # XXX: `asgnComplex` is wrong and leads to `experimental:views`
-        #      more or less not working at all for VM code. Since
-        #      first-class openArray usage is probably very rare, I believe
-        #      it's okay for now.
-        asgnValue(c.memory, dest, src)
-      of tyArray, tyString:
-        let
-          t = dt[1].seqElemType
-          L = arrayLen(src.handle)
-
-        deref(dest.handle).seqVal.newVmSeq(dt[1], L, c.memory)
-
-        let sd =
-          if srckind == tyArray: src.handle.rawPointer
-          else:                  src.strVal.data.rawPointer
-        let dd = deref(dest.handle).seqVal.data
-
-        # XXX: does the same thing as `asgnComplex` above and is thus
-        #      equally wrong
-        arrayCopy(c.memory, byteView(dd, t, L), byteView(sd, t, L), L, t, false)
-      else:
-        unreachable() # vmgen issue
-
-    else:
-      unreachable(desttyp.kind)
+    unreachable(desttyp.kind)
 
 proc opNumConv(dest: var TFullReg, src: TFullReg, info: uint16) =
   ## Perform a conversion between two numeric values. The source value is

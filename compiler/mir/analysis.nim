@@ -1,12 +1,12 @@
 ## This module implements various data-flow related analysis for MIR code.
 ## They're based on the ``mirexec`` traversal algorithms and require a
-## ``Values`` dictionary and a ``ControlFlowGraph`` object, both
+## ``Values`` dictionary and a ``DataFlowGraph`` object, both
 ## corresponding to the code fragment (i.e. ``MirTree``) that is analysed.
 ##
 ## A ``Values`` dictionary stores information about the result of operations,
-## namely, whether the value is owned and, for lvalues, the root. It also
-## stores the lvalue effects of operations. An instance of the dictionary is
-## created and initialized via the ``computeValuesAndEffects`` procedure.
+## namely, whether the value is owned and, for lvalues, the root. An instance
+## of the dictionary is created and initialized via the ``computeValues``
+## procedure.
 ##
 ## Each location that is not allocated via ``new`` or ``alloc`` is owned by a
 ## single handle (the name of a local, global, etc.), but can be aliased
@@ -26,7 +26,7 @@
 ## aliases are not detected.
 ##
 ## ..note:: implementing this is possible. A second step after
-##          ``computeValuesAndEffects`` could perform an abstract execution of
+##          ``computeValues`` could perform an abstract execution of
 ##          the MIR code to produce a conservative set of possible handles for
 ##          each pointer-like dereferencing operation. The analysis routines
 ##          would then compare the analysed handle with each set element,
@@ -100,13 +100,11 @@ template owned*(v: Values, val: OpValue): Owned =
 func setOwned*(v: var Values, val: OpValue, owns: Owned) {.inline.} =
   v.status[val] = owns
 
-func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
-             span: Slice[InstrPos], loc: Path,
-             start: InstrPos): bool =
-  ## Computes if the location named by `loc` does contain a value (i.e., is
-  ## alive) when the DFG instruction at `start` is reached (but not executed).
-  ## The performed data-flow analysis only considers DFG instructions inside
-  ## `span`.
+func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
+             span: Subgraph, loc: Path, start: InstrPos): bool =
+  ## Computes whether the location named by `loc` does contain a value (i.e.,
+  ## is alive) when the data-flow operation at `start` is reached (but not
+  ## executed). Only the `span` sub-graph is considered by the analysis.
   template path(val: OpValue): Path =
     computePath(tree, NodePosition val)
 
@@ -114,7 +112,7 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
     overlaps(tree, loc, path(val)) != no
 
   # this is a reverse data-flow problem. We follow all control-flow paths from
-  # `pos` backwards until either there's no path left to follow or one of them
+  # `start` backwards until either there's no path left to follow or one of them
   # reaches a potential mutation of `loc`, in which case the underlying location
   # is considered to be alive. A path is not followed further if it reaches an
   # operation that "kills" the `loc` (removes its value, e.g. by moving it
@@ -129,7 +127,7 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
         # analysed l-value expression is ``a.b.c`` then both A and B mutate
         # it (either fully or partially). If traversal reaches what's
         # possibly a mutation of the analysed location, it means that the
-        # location needs to be treated as being alive at `pos`, so we can
+        # location needs to be treated as being alive at `start`, so we can
         # return already
         return true
 
@@ -156,19 +154,19 @@ func isAlive*(tree: MirTree, cfg: ControlFlowGraph, v: Values,
 
         # partially consuming the location does *not* change the alive state
 
-    else:
+    of opUse:
       discard "not relevant"
 
-  # no mutation is directly connected to `pos`. The location is not alive
+  # no mutation is directly connected to `start`. The location is not alive
   result = false
 
-func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
-                 span: Slice[InstrPos], loc: Path, start: InstrPos
+func isLastRead*(tree: MirTree, cfg: DataFlowGraph, values: Values,
+                 span: Subgraph, loc: Path, start: InstrPos
                 ): bool =
   ## Performs data-flow analysis to compute whether the value that `loc`
-  ## evaluates to at `pos` is *not* observed by operations that have a
-  ## control-flow dependency on the operation/statement at `pos` and
-  ## are located inside `span`.
+  ## evaluates to when `start` is reached (but not executed) is *not*
+  ## observed by operations that have a control-flow dependency on the
+  ## operation/statement at `start` and are located inside `span`.
   ## It's important to note that this analysis does not test whether the
   ## underlying *location* is accessed, but rather the *value* it stores. If a
   ## new value is assigned to the underlying location which is then accessed
@@ -177,7 +175,7 @@ func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
     computePath(tree, NodePosition val)
 
   var state: TraverseState
-  for op, n in traverse(tree, cfg, span, start, state):
+  for op, n in traverse(cfg, span, start, state):
     case op
     of opDef:
       let cmp = compare(tree, loc, path n)
@@ -216,27 +214,25 @@ func isLastRead*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
         # value is observed -> not the last read
         return false
 
-    else:
-      discard
-
-  # no further read of the value is connected to `pos`
+  # no further read of the value is connected to `start`
   result = true
 
-func isLastWrite*(tree: MirTree, cfg: ControlFlowGraph, values: Values,
-                  span: Slice[InstrPos], loc: Path, start: InstrPos
+func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, values: Values,
+                  span: Subgraph, loc: Path, start: InstrPos
                  ): tuple[result, exits, escapes: bool] =
-  ## Computes if the location `loc` is not reassigned to or modified while it
-  ## still contains the value it contains at `pos`. In other words, computes
-  ## whether a reassignment or mutation that has a control-flow dependency on
-  ## `pos` and is located inside `span` observes the current value.
+  ## Computes whether the location `loc` is reassigned or modified on any paths
+  ## starting from and including `start`, returning 'false' if yes and 'true'
+  ## if not. In other words, computes whether a reassignment or mutation that
+  ## has a control-flow dependency on `start` and is located inside `span`
+  ## observes the current value.
   ##
-  ## In addition, whether the `pos` is connected to a structured or
+  ## In addition, whether the `start` is connected to a structured or
   ## unstructured exit of `span` is also returned
   template path(val: OpValue): Path =
     computePath(tree, NodePosition val)
 
   var state: TraverseState
-  for op, n in traverse(tree, cfg, span, start, state):
+  for op, n in traverse(cfg, span, start, state):
     case op
     of opDef, opMutate, opInvalidate:
       # note: since we don't know what happens to the location when it is
@@ -314,9 +310,8 @@ func computeAliveOp*[T: PSym | TempId](
   else:
     discard
 
-func computeAlive*[T](tree: MirTree, cfg: ControlFlowGraph, values: Values,
-                      span: Slice[InstrPos], loc: T,
-                      op: static ComputeAliveProc[T]
+func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph, values: Values,
+                      span: Subgraph, loc: T, op: static ComputeAliveProc[T]
                      ): tuple[alive, escapes: bool] =
   ## Computes whether the location is alive when `span` is exited via either
   ## structured or unstructured control-flow. A location is considered alive
@@ -352,8 +347,8 @@ func computeAlive*[T](tree: MirTree, cfg: ControlFlowGraph, values: Values,
 
   result = (false, false)
 
-proc doesGlobalEscape*(tree: MirTree, scope: Slice[InstrPos],
-                       start: InstrPos, s: PSym): bool =
+proc doesGlobalEscape*(tree: MirTree, scope: Subgraph, start: InstrPos,
+                       s: PSym): bool =
   ## Computes if the global `s` potentially "escapes". A global escapes if it
   ## is not declared at module scope and is used inside a procedure that is
   ## then called outside the analysed global's scope. Example:

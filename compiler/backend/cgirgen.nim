@@ -233,13 +233,6 @@ proc translateLit*(val: PNode): CgNode =
     node(cnkAstLit, astLit, val[0])
   of nkRange:
     node(cnkRange, kids, @[translateLit(val[0]), translateLit(val[1])])
-  of nkBracket:
-    assert val.len == 0
-    # XXX: ``mirgen`` having to generate ``mnkLiteral``s for empty seq
-    #      construction expressions is bad design. Fully constant
-    #      construction expresssion should probably be lifted into proper
-    #      constants during ``transf``
-    newNode(cnkArrayConstr, val.info, val.typ)
   of nkSym:
     # special case for raw symbols used with emit and asm statements
     assert val.sym.kind == skField

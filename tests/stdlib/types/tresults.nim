@@ -1,7 +1,6 @@
 discard """
   description: "Tests for the std/experimental/results module"
   targets: "c js vm"
-  knownIssue.js: "code-gen issue that seems to be related to sink parameters"
   knownIssue.vm: "code-gen issues"
 """
 

@@ -1,8 +1,8 @@
 discard """
 description: '''
-C codegen error when trying to borrow from the literal. Should be a
-nim compilation error.
+Borrowing from a literal value is disallowed and results in a semantic error.
 '''
+action: reject
 knownIssue: "codegen-fail on literal value borrow"
 
 """

@@ -151,6 +151,8 @@ type
     locals: OrdinalSeq[LocalId, Loc]
       ## stores all relevant code generator state for the procedure's
       ## locals
+    addrTaken: PackedSet[LocalId]
+      ## locals that have their address taken at some point
 
 const
   sfModuleInit* = sfMainModule
@@ -162,6 +164,41 @@ const
 
 # forward declarations:
 proc setupLocalLoc(p: PProc, id: LocalId, kind: TSymKind; name = "")
+
+func analyseIfAddressTaken(n: CgNode, addrTaken: var PackedSet[LocalId]) =
+  ## Recursively traverses the tree `n` and includes the IDs of all locals
+  ## that have their address taken in `addrTaken`.
+  proc skipAllConv(n: CgNode): CgNode {.nimcall.} =
+    var n {.cursor.} = n
+    while true:
+      case n.kind
+      of cnkConv, cnkHiddenConv, cnkObjDownConv, cnkObjUpConv:
+        n = n.operand
+      of cnkStmtListExpr:
+        n = n[^1]
+      else:
+        break
+
+    result = n
+
+  case n.kind
+  of cnkHiddenAddr, cnkAddr:
+    let x = skipAllConv(n.operand)
+    # we're only interested in locals. Since the code generator ignores the
+    # ``tyLent`` type, creating a ``lent T`` view doesn't count as taking the
+    # address
+    if x.kind == cnkLocal and n.typ.kind != tyLent:
+      addrTaken.incl x.local
+    else:
+      # the operand expression must still be anaylsed
+      analyseIfAddressTaken(n.operand, addrTaken)
+  of cnkAtoms:
+    discard "ignore"
+  of cnkWithOperand - {cnkHiddenAddr, cnkAddr}:
+    analyseIfAddressTaken(n.operand, addrTaken)
+  of cnkWithItems:
+    for it in n.items:
+      analyseIfAddressTaken(it, addrTaken)
 
 template config*(p: PProc): ConfigRef = p.module.config
 
@@ -1257,6 +1294,9 @@ proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
     # underlying type is not possible, so we simply skip the conversion and
     # apply the operation to the source expression
     genAddr(p, n.operand, r)
+  of cnkObjUpConv, cnkObjDownConv:
+    # object up-/down-conversions are no-ops
+    genAddr(p, n.operand, r)
   of cnkStmtListExpr:
     for i in 0..<n.len-1:
       genStmt(p, n[i])
@@ -1611,10 +1651,11 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
 
 template returnType: untyped = ~""
 
-proc storage(flags: TSymFlags, kind: TSymKind): StorageFlags =
+proc storage(flags: TSymFlags, kind: TSymKind, addrTaken: bool): StorageFlags =
   ## Computes and returns based on `flags` and `kind` the storage flags
-  ## for a location.
-  if {sfAddrTaken, sfGlobal} * flags != {}:
+  ## for a location. `addrTaken` signals whether the location has its address
+  ## taken at some point.
+  if sfGlobal in flags or addrTaken:
     if kind != skParam:
       result.incl stfBoxed
 
@@ -1628,7 +1669,8 @@ proc setupLocalLoc(p: PProc, id: LocalId, kind: TSymKind; name = "") =
   ## mangled name.
   var loc = Loc(name: mangleName(p.fullBody[id], id),
                 typ: p.fullBody[id].typ,
-                storage: storage(p.fullBody[id].flags, kind))
+                storage: storage(p.fullBody[id].flags, kind,
+                                 id in p.addrTaken))
 
   if name != "":
     # override with the provided name
@@ -1717,7 +1759,8 @@ proc genConstant*(g: PGlobals, m: BModule, c: PSym) =
   if exfNoDecl notin c.extFlags:
     var p = newInitProc(g, m)
     #genLineDir(p, c.ast)
-    genVarInit(p, c.typ, name, storage(c.flags, skConst), translate(c.ast))
+    genVarInit(p, c.typ, name, storage(c.flags, skConst, false),
+               translate(c.ast))
     g.constants.add(p.body)
 
   # all constants need a name:
@@ -2254,6 +2297,8 @@ proc startProc*(g: PGlobals, module: BModule, prc: PSym, body: sink Body): PProc
   p.fullBody = body
 
   synchronize(p.locals, p.fullBody.locals)
+  if p.fullBody.code != nil:
+    analyseIfAddressTaken(p.fullBody.code, p.addrTaken)
 
   # make sure the procedure has a mangled name:
   discard ensureMangledName(p, prc)
@@ -2352,6 +2397,7 @@ proc genPartial*(p: PProc, n: CgNode) =
   ## is intended for CG IR that wasn't already available when calling
   ## `startProc`.
   synchronize(p.locals, p.fullBody.locals)
+  analyseIfAddressTaken(p.fullBody.code, p.addrTaken)
   genStmt(p, n)
 
 proc genStmt(p: PProc, n: CgNode) =
@@ -2374,7 +2420,7 @@ proc genCast(p: PProc, n: CgNode, r: var TCompRes) =
   if toUint and (fromInt or fromUint):
     let trimmer = unsignedTrimmer(dest.size)
     r.res = "($1 $2)" % [r.res, trimmer]
-  elif toInt:
+  elif toInt and (fromInt or fromUint):
     if fromInt:
       return
     elif fromUint:
@@ -2389,13 +2435,23 @@ proc genCast(p: PProc, n: CgNode, r: var TCompRes) =
           of 4: "0xfffffffe"
           else: ""
         r.res = "($1 - ($2 $3))" % [rope minuend, r.res, trimmer]
-  elif (src.kind == tyPtr and mapType(src) == etyObject) and dest.kind == tyPointer:
-    r.address = r.res
-    r.res = ~"null"
-    r.typ = etyBaseIndex
-  elif (dest.kind == tyPtr and mapType(dest) == etyObject) and src.kind == tyPointer:
-    r.res = r.address
-    r.typ = etyObject
+  elif dest.kind == tyPointer:
+    # cast into pointer
+    if r.typ == etyBaseIndex:
+      discard "already a fat pointer, do nothing"
+    else:
+      r.address = r.res
+      r.res = ~"null"
+      r.typ = etyBaseIndex
+  elif src.kind == tyPointer:
+    # cast from pointer
+    let d = mapType(dest)
+    if d == etyBaseIndex:
+      discard "already a fat pointer, do nothing"
+    else:
+      r.res = r.address
+      r.address = "" # clear out the address
+      r.typ = d
 
 proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   r.typ = etyNone
@@ -2553,6 +2609,7 @@ proc genTopLevelStmt*(globals: PGlobals, m: BModule, body: sink Body) =
   var p = newInitProc(globals, m)
   p.fullBody = body
   p.unique = globals.unique
+  analyseIfAddressTaken(p.fullBody.code, p.addrTaken)
   genStmt(p, p.fullBody.code)
   p.g.code.add(p.defs)
   p.g.code.add(p.body)

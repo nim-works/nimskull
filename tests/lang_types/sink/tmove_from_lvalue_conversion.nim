@@ -1,13 +1,8 @@
 discard """
   targets: "c js vm"
-  matrix: "--gc:orc"
   description: '''
     Destrutively moving from an up- or down converted `ref` value passed as a
     `sink` parameter must work
-  '''
-  knownIssue.js vm: '''
-    Destructor-using refs (read, arc/orc support) are not yet implemented for
-    the JS/VM
   '''
 """
 

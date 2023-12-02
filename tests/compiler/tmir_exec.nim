@@ -1,17 +1,17 @@
 discard """
   description: '''
-    Tests for the control-flow graph creation as well as the traversal
+    Tests for the data-flow graph creation as well as the traversal
     algorithms implemented by the ``mirexec.nim``
   '''
   target: native
 """
 
-import std/[strutils, strscans, macros]
+import std/[strutils, strscans, macros, tables]
 
 include compiler/sem/mirexec
 
 ## To make the tests easier to understand and write, we use mini programs
-## where the control-flow instruction are interleaved with 'def'/'use'
+## where the control-flow instructions are interleaved with 'def'/'use'
 ## instructions that we later use to comprehend which paths were traversed and
 ## in what order
 
@@ -25,9 +25,9 @@ type
     id: int
 
   Program = object
-    cfg: ControlFlowGraph
+    cfg: DataFlowGraph
     code: seq[PInstr]
-    map: Table[int, NodePosition]
+    map: Table[int, InstrPos]
       ## maps a def/use ID the position of the corresponding instruction
 
 func parseOp(input: string, r: var Opcode, start: int): int =
@@ -37,7 +37,7 @@ func parseOp(input: string, r: var Opcode, start: int): int =
       result = s.len
       break
 
-proc parseCfg(str: string): ControlFlowGraph =
+proc parseCfg(str: string): DataFlowGraph =
   ## Creat a CFG object from its text representation
   var
     list: seq[Instr]
@@ -74,7 +74,7 @@ proc parseCfg(str: string): ControlFlowGraph =
 
     list[^1].node = NodePosition(val)
 
-  result = ControlFlowGraph(instructions: list, map: map)
+  result = DataFlowGraph(instructions: list, map: map)
 
 proc parse2(str: string): Program =
   ## Parses a ``Program`` object from its text representation
@@ -118,7 +118,6 @@ proc parse2(str: string): Program =
       cfgCode.add Instr(op: op)
       cfgCode[^1].dest = getId(name)
     elif scanf(line, "$s${parseOp2} :$i", op, name):
-      cfgCode.add Instr(op: op)
       case op
       of opUse:
         code.add PInstr(op: use, id: name)
@@ -126,8 +125,11 @@ proc parse2(str: string): Program =
         code.add PInstr(op: def, id: name)
       else:
         doAssert false
-
-      result.map[name] = NodePosition(code.high)
+      # the `val` field of the DFG instruction is used for storing the index
+      # of the actual program instruction
+      cfgCode.add Instr(op: DataFlowOpcode(op), val: OpValue code.high)
+      # associate the name with the DFG instruction:
+      result.map[name] = cfgCode.high.InstrPos
     else:
       raise ValueError.newException("syntax error in line: " & line)
 
@@ -143,8 +145,8 @@ func `==`(a, b: Instr): bool =
     of opJoin:                 a.id == b.id
     of DataFlowOps:            a.node == b.node
 
-func `==`(a, b: ControlFlowGraph): bool =
-  ## Compares two CFGs for structural equality. Differing join IDs are ignored
+func `==`(a, b: DataFlowGraph): bool =
+  ## Compares two DFGs for structural equality. Differing join IDs are ignored
   ## as long as they point to the same instruction
   if a.instructions.len != b.instructions.len:
     return false
@@ -179,11 +181,11 @@ block:
     MirNode(kind: mnkBlock, label: LabelId(0)),
     MirNode(kind: mnkRepeat),
     MirNode(kind: mnkBreak, label: LabelId(0)),
-    MirNode(kind: mnkEnd),
-    MirNode(kind: mnkEnd),
+    MirNode(kind: mnkEnd, start: mnkRepeat),
+    MirNode(kind: mnkEnd, start: mnkBlock),
     MirNode(kind: mnkReturn),
-    MirNode(kind: mnkEnd)]
-  let cfg = computeCfg(tree)
+    MirNode(kind: mnkEnd, start: mnkStmtList)]
+  let cfg = computeDfg(tree)
 
   doAssert cfg == parseCfg("""
     0: join -> 2
@@ -203,16 +205,14 @@ func isConnected(p: Program, defId, useId: int): bool =
   ## the 'def' with id `defId`. Also validates that each instruction is really
   ## only visited once.
   var
-    tree = newSeq[MirNode](p.code.len)
     visited = newSeq[bool](p.code.len)
     exit = false
+    span = InstrPos(0) .. InstrPos(p.cfg.instructions.high)
 
   result = false
-  for op, i in traverseReverse(p.cfg, NodePosition(0)..NodePosition(tree.high), p.map[useId], exit):
+  for op, i in traverseReverse(p.cfg, span, p.map[useId], exit):
     doAssert not visited[int i]
     visited[int i] = true
-
-    debugEcho "data-flow: ", op, " at ", int i
 
     case op
     of opDef:
@@ -227,13 +227,12 @@ proc useChain(p: Program, defId, start: int): seq[int] =
   ## Computes and returns the 'use's connected to the 'use' with ID `start`.
   ## Reaching `defId` breaks the chain. The list is sorted in post-order.
   ## Also validates that each instruction is really only visited once.
-  # TODO: remove `tree` once traversal is separated from the MIR
   var
-    tree = newSeq[MirNode](p.code.len)
     visited = newSeq[bool](p.code.len)
     exit = false
+    span = InstrPos(0) .. InstrPos(p.cfg.instructions.high)
 
-  for op, i in traverseReverse(p.cfg, NodePosition(0)..NodePosition(tree.high), p.map[start], exit):
+  for op, i in traverseReverse(p.cfg, span, p.map[start], exit):
     doAssert not visited[int i],
              "instruction already visited; either the algorithm or CFG is broken"
     visited[int i] = true

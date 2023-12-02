@@ -47,7 +47,7 @@
 ## code-fragment is created and initialized. For all arguments that appear in
 ## a consume context (e.g. passed to ``sink`` argument, assignment source)
 ## and for which the ownership status could not be resolved to either 'yes' or
-## 'no' by ``analysis.computeValuesAndEffects``, a data-flow analysis is
+## 'no' by ``analysis.computeValues``, a data-flow analysis is
 ## performed to figure out the status (see ``solveOwnership``).
 ##
 ## Using the now resolved ownership status of all expressions, the next
@@ -116,7 +116,7 @@
 ## Fixing this would require for the temporary injection pass to check if
 ## the consume is connected to the call on all control-flow paths and only
 ## then omit the temporary. A clean solution that introduces no duplication of
-## logic would be to use the ``ControlFlowGraph`` for this, but it is not yet
+## logic would be to use the ``DataFlowGraph`` for this, but it is not yet
 ## available at that point.
 ##
 ## #2, #3, and #4 are variations of the same problem. Consume-argument handling
@@ -204,7 +204,7 @@ from compiler/ast/report_enums import ReportKind
 
 type
   AnalyseCtx = object
-    cfg: ControlFlowGraph
+    cfg: DataFlowGraph
     graph: ModuleGraph
 
   EntityName = object
@@ -218,13 +218,18 @@ type
 
   EntityInfo = object
     def: NodePosition ## the position of the 'def' for the entity
-    scope: Slice[InstrPos]
-      ## the span of instruction covering the location's alive range (but not
-      ## more)
+    scope: Subgraph   ## the data-flow subgraph during which the entity exists
 
   EntityDict = Table[EntityName, EntityInfo]
     ## Entity dictionary. Stores all entities relevant to destructor
     ## injection and the move analyser
+
+  DestroyEntry = tuple
+    scope: NodePosition ## the position of the enclosing 'scope' node
+    pos: NodePosition   ## the position of the 'def' belonging to the entity
+                        ## that requires destruction
+    needsFinally: bool  ## whether the destructor needs to be placed in a
+                        ## 'finally' clause
 
   AnalysisResults = object
     ## Bundled-up immutable state needed for assignment rewriting. Since
@@ -232,7 +237,7 @@ type
     # XXX: ideally, view types (i.e. ``lent``) would be used here
     v: Cursor[Values]
     entities: Cursor[EntityDict]
-    destroy: Cursor[seq[(NodePosition, bool)]]
+    destroy: Cursor[seq[DestroyEntry]]
 
   LocalDiagKind = enum
     ldkPassCopyToSink       ## a copy is introduced in a consume context
@@ -274,18 +279,15 @@ func toName(n: MirNode): EntityName =
     of mnkTemp:    n.temp.int
     else:          unreachable(n.kind)
 
-func getAliveRange(entities: EntityDict, name: EntityName, exists: var bool
-                  ): Slice[InstrPos] =
-  ## Returns the maximum span of data-/control-flow instructions that happen
-  ## during the existence of the entity with the given `name`.
-  ## `exists` is set to whether an entity with the given `name` is present
-  ## in `entities`.
+func getAliveGraph(entities: EntityDict, name: EntityName, exists: var bool
+                  ): Subgraph =
+  ## Returns the data-flow sub-graph during which the entity `name` exists.
+  ## `exists` is set to whether the entity is present in the dictionary.
   let info =
     entities.getOrDefault(name, EntityInfo(def: NodePosition(-1)))
 
   exists = info.def != NodePosition(-1)
-  if exists:
-    result = info.scope
+  result = info.scope
 
 proc getVoidType(g: ModuleGraph): PType {.inline.} =
   g.getSysType(unknownLineInfo, tyVoid)
@@ -339,7 +341,7 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
 
   #result.pos = p
 
-func initEntityDict(tree: MirTree, cfg: ControlFlowGraph): EntityDict =
+func initEntityDict(tree: MirTree, dfg: DataFlowGraph): EntityDict =
   ## Collects the names of all analysable locations relevant to destructor
   ## injection and the move analyser. This includes: locals, temporaries, sink
   ## parameters and, with some restrictions, globals.
@@ -370,21 +372,13 @@ func initEntityDict(tree: MirTree, cfg: ControlFlowGraph): EntityDict =
         # XXX: a ``doAssert`` is only used here in order to always catch
         #      duplicate symbols incorrectly getting past ``transf``
         doAssert re notin result, "entity appears in a 'def' multiple times"
-        # don't include the def statement itself in the scope, so that the
-        # statement's control-flow effects don't interfere...
-        var scope = cfg.rangeFor((i+1) .. scope.b)
-        if entity.kind == mnkParam or tree[i, 1].kind != mnkNone:
-          # ... but make sure that the 'def' instruction is included
-          # XXX: not pretty, but works for now. Explicit start and end
-          #      instruction delimiting the lifetime of locations in the
-          #      DFG are going to allow for a cleaner solution
-          scope.a -= 1
-        result[re] = EntityInfo(def: i, scope: scope)
+        # don't include the data-flow operations preceding the def
+        result[re] = EntityInfo(def: i, scope: subgraphFor(dfg, i .. scope.b))
 
     else:
       discard
 
-func computeOwnership(tree: MirTree, cfg: ControlFlowGraph, values: Values,
+func computeOwnership(tree: MirTree, cfg: DataFlowGraph, values: Values,
                       entities: EntityDict, lval: Path, start: InstrPos
                      ): Owned =
   case tree[lval.root].kind
@@ -407,7 +401,7 @@ func computeOwnership(tree: MirTree, cfg: ControlFlowGraph, values: Values,
     #       pseudo-use at the end of the body and make all procedure exits
     #       visit it first
     var exists = false
-    let aliveRange = entities.getAliveRange(toName(tree[lval.root]), exists)
+    let aliveRange = entities.getAliveGraph(toName(tree[lval.root]), exists)
     if exists and not isCursor(tree, lval) and
        isLastRead(tree, cfg, values, aliveRange, lval, start):
       Owned.yes
@@ -416,7 +410,7 @@ func computeOwnership(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   else:
     unreachable()
 
-func solveOwnership(tree: MirTree, cfg: ControlFlowGraph, values: var Values,
+func solveOwnership(tree: MirTree, cfg: DataFlowGraph, values: var Values,
                     entities: EntityDict) =
   ## Computes for all lvalues used in consume context whether they're owning
   ## or not. `values` is updated with the results.
@@ -428,7 +422,7 @@ func solveOwnership(tree: MirTree, cfg: ControlFlowGraph, values: var Values,
         # unresolved onwership status and has a destructors
         values.setOwned(opr):
           computeOwnership(tree, cfg, values, entities,
-                           computePath(tree, NodePosition opr), i+1)
+                           computePath(tree, NodePosition opr), i + 1)
       else:
         # later analysis expects the status to be set for all lvalues
         # appearing in consume contexts. Use `no`, but `yes` would work
@@ -446,9 +440,9 @@ type DestructionMode = enum
   demFinally ## the location contains a value when the scope is exited via
              ## unstructured control-flow
 
-func requiresDestruction(tree: MirTree, cfg: ControlFlowGraph, values: Values,
-                         span: Slice[InstrPos], def: NodePosition,
-                         entity: MirNode): DestructionMode =
+func requiresDestruction(tree: MirTree, cfg: DataFlowGraph, values: Values,
+                         span: Subgraph, def: NodePosition, entity: MirNode
+                        ): DestructionMode =
   template computeAlive(loc, op: untyped): untyped =
     computeAlive(tree, cfg, values, span, loc, op)
 
@@ -471,8 +465,8 @@ func requiresDestruction(tree: MirTree, cfg: ControlFlowGraph, values: Values,
     elif r.alive: demNormal
     else:         demNone
 
-func computeDestructors(tree: MirTree, cfg: ControlFlowGraph, values: Values,
-                        entities: EntityDict): seq[(NodePosition, bool)] =
+func computeDestructors(tree: MirTree, cfg: DataFlowGraph, values: Values,
+                        entities: EntityDict): seq[DestroyEntry] =
   ## Computes and collects which locations present in `entities` need to be
   ## destroyed at the exit of their enclosing scope in order to prevent the
   ## values they still store from staying alive.
@@ -480,10 +474,13 @@ func computeDestructors(tree: MirTree, cfg: ControlFlowGraph, values: Values,
   ## Special handling is required if the scope is exited via unstructured
   ## control-flow while the location is still alive (its value is then said
   ## to "escape")
+  var needsFinally: PackedSet[NodePosition]
+
   for _, info in entities.pairs:
     let
       def = info.def ## the position of the entity's definition
       entity = tree[getDefEntity(tree, def)]
+      scopeStart = findParent(tree, def, mnkScope)
 
     if entity.kind == mnkGlobal and
        doesGlobalEscape(tree, info.scope, info.scope.a, entity.sym):
@@ -493,15 +490,22 @@ func computeDestructors(tree: MirTree, cfg: ControlFlowGraph, values: Values,
 
     case requiresDestruction(tree, cfg, values, info.scope, def, entity)
     of demNormal:
-      result.add (def, false)
+      result.add (scopeStart, def, false)
     of demFinally:
-      result.add (def, true)
+      needsFinally.incl scopeStart
+      result.add (scopeStart, def, true)
     of demNone:
       discard
 
+  # second pass: if at least one destructor call in a scope needs to use a
+  # finalizer, all do. Update the entries accordingly
+  for it in result.mitems:
+    if it.scope in needsFinally:
+      it.needsFinally = true
+
 # --------- analysis routines --------------
 
-func isAlive(tree: MirTree, cfg: ControlFlowGraph, v: Values,
+func isAlive(tree: MirTree, cfg: DataFlowGraph, v: Values,
              entities: EntityDict, val: Path, at: InstrPos): bool =
   ## Computes if `val` refers to a location that contains a value when
   ## `at` in the DFG is reached.
@@ -513,22 +517,26 @@ func isAlive(tree: MirTree, cfg: ControlFlowGraph, v: Values,
       # XXX: the way the ``result`` variable is detected here is a hack. It
       #      should be treated as any other local in the context of the MIR
       if tree[root].kind in SymbolLike and tree[root].sym.kind == skResult:
-        cfg.rangeFor(NodePosition(0) .. NodePosition(tree.high))
+        cfg.subgraphFor(NodePosition(0) .. NodePosition(tree.high))
       else:
         var exists: bool
-        let s = entities.getAliveRange(toName(tree[root]), exists)
+        let s = entities.getAliveGraph(toName(tree[root]), exists)
         if exists: s
         else:      return true # not something we can analyse -> assume alive
 
-    if at-1 in scope: isAlive(tree, cfg, v, scope, val, at)
-    else:             false
+    # if the location is not assigned an initial value on definition, `start`
+    # may come before the alive subgraph
+    if at <= scope.a:
+      false # the location cannot be alive
+    else:
+      isAlive(tree, cfg, v, scope, val, at)
   else:
     # something that we can't analyse (e.g. a dereferenced pointer). We have
     # to be conservative and assume that the location the lvalue names already
     # stores a value
     true
 
-func needsReset(tree: MirTree, cfg: ControlFlowGraph, ar: AnalysisResults,
+func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
                 src: Path, at: InstrPos): bool =
   ## Computes whether a reset needs to be injected for `src` in order to
   ## prevent the current value the underlying location contains from being
@@ -555,8 +563,8 @@ func needsReset(tree: MirTree, cfg: ControlFlowGraph, ar: AnalysisResults,
                           EntityInfo(def: NodePosition -1))
 
   if info.def == NodePosition(-1):
-    # the entity needs can't be reasoned about in the current context -> assume
-    # that it needs to be reset
+    # the location is not local to the current context -> assume that it needs
+    # to be reset
     return true
 
   let res = isLastWrite(tree, cfg, ar.v[], info.scope, src, at)
@@ -569,8 +577,8 @@ func needsReset(tree: MirTree, cfg: ControlFlowGraph, ar: AnalysisResults,
       # check if there exists a destructor call that would observe the
       # location's value:
       for it in ar.destroy[].items:
-        if def == it[0]:
-          if (it[1] and res.escapes) or res.exits:
+        if def == it.pos:
+          if (it.needsFinally and res.escapes) or res.exits:
             # there exists a destructor call for the location -> the current
             # value is observed
             return true
@@ -954,17 +962,12 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 
 # --------- destructor injection -------------
 
-type DestroyEntry = tuple
-  pos: NodePosition   ## the position of the 'def' belonging to the entity that
-                      ## requires destruction
-  scope: NodePosition ## the position of the enclosing 'scope'
-
 proc injectDestructorsInner(bu: var MirBuilder, orig: MirTree, graph: ModuleGraph,
                             entries: openArray[DestroyEntry]) =
   ## Generates a destructor call for each item in `entries`, using `buf` as the
   ## output.
-  for pos, _ in ritems(entries):
-    let def = getDefEntity(orig, pos)
+  for it in ritems(entries):
+    let def = getDefEntity(orig, it.pos)
     let t =
       case orig[def].kind
       of SymbolLike: orig[def].sym.typ
@@ -975,7 +978,7 @@ proc injectDestructorsInner(bu: var MirBuilder, orig: MirTree, graph: ModuleGrap
       bu.emitByName(Value(node: orig[def]), ekMutate)
 
 proc injectDestructors(tree: MirTree, graph: ModuleGraph,
-                       destroy: seq[(NodePosition, bool)], c: var Changeset) =
+                       destroy: seq[DestroyEntry], c: var Changeset) =
   ## Injects a destructor call for each entity in the `destroy` list, in the
   ## entities reverse order they are defined. That is the entity defined last
   ## is destroyed first
@@ -984,19 +987,14 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
     return
 
   var
+    entries = destroy
     needsFinally: PackedSet[NodePosition]
-    entries: seq[DestroyEntry]
 
-  # first pass: setup the `entries` list and collect the scopes that need to
-  # be wrapped in a ``finally``
-  for pos, escapes in destroy.items:
-    assert tree[pos].kind == mnkDef
-    let scopeStart = findParent(tree, pos, mnkScope)
-
-    if escapes:
-      needsFinally.incl scopeStart
-
-    entries.add (pos: pos, scope: scopeStart)
+  # first pass: gather which scopes need to be wrapped in a ``finally``
+  for it in destroy.items:
+    assert tree[it.scope].kind == mnkScope
+    if it.needsFinally:
+      needsFinally.incl it.scope
 
   # sort the entries by scope (first-order) and position (second-order) in
   # ascending order. Do this before moving the definitions, as `entries` would
@@ -1199,7 +1197,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
       diags: seq[LocalDiag]
 
     let
-      actx = AnalyseCtx(graph: g, cfg: computeCfg(tree))
+      actx = AnalyseCtx(graph: g, cfg: computeDfg(tree))
       entities = initEntityDict(tree, actx.cfg)
 
     var values: Values

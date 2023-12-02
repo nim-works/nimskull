@@ -1338,6 +1338,13 @@ proc genToStr(c: var TCtx, n, arg: CgNode, dest: var TDest) =
   c.gABx(n, opcConv, tmp, c.genTypeInfo(arg.typ.skipTypes(Skip)))
   c.freeTemp(tmp)
 
+proc genToSlice(c: var TCtx, val: TRegister, typ: PType, info: TLineInfo,
+                dest: TRegister) =
+  let L = c.getTemp(c.graph.getSysType(info, tyInt))
+  c.gABC(info, opcLenSeq, L, val) # fetch the length of the input array
+  c.gABC(info, opcSetLenSeq, dest, L) # resize the destination
+  c.gABC(info, opcArrCopy, dest, val, L) # copy the contents
+
 proc genObjConv(c: var TCtx, n: CgNode, dest: var TDest) =
   prepare(c, dest, n.typ)
   let
@@ -2911,16 +2918,13 @@ proc genObjConstr(c: var TCtx, n: CgNode, dest: var TDest) =
         opcode = opcWrObj
         let
           le = it[0].sym.typ
-          ri = it[1].typ
-        if le.kind == tyOpenArray and not sameType(le, ri):
-          # XXX: this is a hack to make `tests/vm/tconst_views` work for now.
-          #      `transf` removes `nkHiddenStdConv` for array/seq to openArray
-          #      conversions, which we could have otherwise relied on
+        if le.kind == tyOpenArray:
+          # XXX: once the to-slice operator is passed to ``vmgen``, integrate
+          #      the conversion into ``genAsgnSource``
           let tmp2 = c.getFullTemp(it[0], le)
-          c.gABx(n, opcConv, tmp2, c.genTypeInfo(le))
-          c.gABx(n, opcConv, tmp, c.genTypeInfo(ri))
+          c.genToSlice(tmp, le, it[1].info, tmp2)
           c.freeTemp(tmp)
-          tmp = tmp2
+          tmp = TRegister(tmp2)
       else:
         tmp = c.genDiscrVal(it[0], it[1], n.typ)
         opcode = opcInitDisc

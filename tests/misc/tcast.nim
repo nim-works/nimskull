@@ -1,4 +1,7 @@
 discard """
+  targets: c js vm
+  knownIssue.vm: "Casting from pointer to proc is not yet supported"
+  knownIssue.js: "Casting the `nil` value into an `int` doesn't work"
   output: '''
 Hello World
 Hello World'''

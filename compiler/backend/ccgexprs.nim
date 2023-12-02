@@ -729,7 +729,9 @@ proc genCStringElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
               ropecg(p.module, "$1[$2]", [rdLoc(a), rdCharLoc(b)]), a.storage)
 
 proc genBoundsCheck(p: BProc; arr, a, b: TLoc) =
-  let ty = skipTypes(arr.t, abstractVarRange)
+  # types that map to C pointers need to be skipped here too, since no
+  # dereference is generated for ``ptr array`` and the like
+  let ty = skipTypes(arr.t, abstractVarRange + {tyPtr, tyRef, tyLent})
   case ty.kind
   of tyOpenArray, tyVarargs:
     if reifiedOpenArray(p, arr.lode):
@@ -753,7 +755,10 @@ proc genBoundsCheck(p: BProc; arr, a, b: TLoc) =
       "if ($2-$1 != -1 && " &
       "((NU)($1) >= (NU)$3 || (NU)($2) >= (NU)$3)){ #raiseIndexError(); $4}$n",
       [rdLoc(a), rdLoc(b), lenExpr(p, arr), raiseInstr(p)])
-  else: discard
+  of tyUncheckedArray, tyCstring:
+    discard "no checks are used"
+  else:
+    unreachable(ty.kind)
 
 proc genOpenArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   var a, b: TLoc
@@ -2168,6 +2173,8 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     else:
       genSetConstr(p, n, d)
   of cnkArrayConstr:
+    # XXX: constructions of empty seqs should be lifted into C constants too,
+    #      but that currently causes collisions and thus C compiler errors  
     if isDeepConstExpr(n) and n.len != 0:
       exprComplexConst(p, n, d)
     elif skipTypes(n.typ, abstractVarRange).kind == tySequence:

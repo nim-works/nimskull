@@ -1,23 +1,21 @@
-## This module implements algorithms for traversing a control-flow graph (=CFG)
-## in forward or backward direction. In the abstract, it means visiting the
-## nodes in topological-order (forward) or post-order (backward), with special
-## handling for loops.
+## Implements a data-flow graph (=DFG) representation plus algorithms for
+## traversing the graph in both forward or backward direction. In the
+## abstract, this means visiting the nodes in topological-order (forward)
+## or post-order (backward), with special handling for loops.
 ##
 ## In the compiler, this is mainly used for control- and/or data-flow
-## analysis, meant to propagate properties through the graph or to to answer
+## analysis, meant to propagate properties through the graph or to answer
 ## questions such as: "is point A connected to point B?", "is X initialized on
 ## all paths?", etc.
 ##
-## Before traversing a control-flow graph, one has to be created via
-## ``computeCfg`` first. Instead of a pointer-based graph structure, the graph
-## is represented via a linear list of instruction.
-##
-## TODO: expand this section with how the algorithms used by for- and backward
-##       traversal work
+## A DFG is built via the `computeDfg <#computeDfg,MirTree>`_ routine. Instead
+## of a pointer-based graph structure, the graph is represented as a sequence
+## of instructions encoding all data- and control-flow relevant properties
+## for a piece of code.
 
 # XXX: with a small to medium amount of work, the algorithms and
-#      ``ControlFlowGraph`` can be generalized to work independent from the
-#      MIR. The current ``computeCfg`` would be moved to somewhere else
+#      ``DataFlowGraph`` can be generalized to work independent from the
+#      MIR. The current ``computeDfg`` would be moved to somewhere else
 
 import
   std/[
@@ -39,23 +37,37 @@ from compiler/ast/ast_query import magicsThatCanRaise
 
 type
   Opcode* = enum
+    ## The opcode of a data-/control-flow instruction, representing edges and
+    ## nodes in the graph.
     opFork ## branching control-flow that cannot introduce a cycle
     opGoto ## unconditional jump that cannot introduce a cycle
     opLoop ## unconditional jump to the start of a loop. The start of a cycle
     opJoin ## a join point for control-flow
 
-    opUse
-    opDef
-    opMutate
-    opConsume
-    opInvalidate
-    opKill
+    opUse         ## use of a value
+    opDef         ## definition of a value
+    opKill        ## end-of-life for a value
+    opInvalidate  ## all information gathered about a value becomes invalid
+    opMutate      ## mutation of a value. Can be viewed as a combined 'use' +
+                  ## 'def'
+    opConsume     ## a value is consumed. Counts as either a 'use' or a 'use'
+                  ## + 'kill', depending on the context
 
     opMutateGlobal ## an unspecified global is mutated
 
+  DataFlowOpcode = range[opUse..opMutateGlobal]
+
+const
+  DataFlowOps = {opUse .. opMutateGlobal}
+
+type
   # TODO: make both types distinct
   InstrPos* = int32
   JoinId = uint32
+
+  Subgraph* = Slice[InstrPos]
+    ## Represents a sub-graph within the data-flow graph. Internally, this is
+    ## a span of instructions.
 
   Instr = object
     node: NodePosition
@@ -64,14 +76,16 @@ type
       dest: JoinId
     of opJoin:
       id: JoinId
-    of opUse, opDef, opConsume, opInvalidate, opMutate, opKill, opMutateGlobal:
+    of DataFlowOps:
       val: OpValue
 
-  ControlFlowGraph* = object
-    ## The control-flow graph is represented as a linear sequence of
-    ## instructions
+  DataFlowGraph* = object
+    ## Encodes the data-flow graph of a local program as a sequence of
+    ## control- and data-flow instructions.
     instructions: seq[Instr]
-    map: seq[InstrPos] ## joind ID -> instruction
+      ## sorted in ascending order by attached-to node position
+    map: seq[InstrPos]
+      ## join ID -> instruction
 
   TraverseState* = object
     exit*: bool     ## used to communicate to ``traverse`` that the active path
@@ -123,16 +137,16 @@ type
       ## next
 
   ClosureEnv = object
-    ## The working state of the data-flow graph creation.
     instrs: seq[Instr]
-    ifs: seq[InstrPos]
+    structStack: seq[InstrPos]
       ## stack of instruction positions for the currently open
       ## structured control-flow blocks (if, loop, and regions).
-    blocks: seq[tuple[label: LabelId, hidden: bool]]
-      ## stack of targets for forward, mergin control-flow. `label` and
-      ## `hidden` are mutually exclusive.
+    blocks: seq[Option[LabelId]]
+      ## stack of targets for forward, merging control-flow. No label
+      ## means that it's a *hidden* block (such as the one opened by a
+      ## ``try`` statement)
     exits: seq[tuple[instr: InstrPos, id: uint32, inTry: uint32]]
-      ## unstructured exits. An `id` of ``high(uint32)`` means that its
+      ## unstructured exits. An `id` of ``high(uint32)`` means that it's
       ## exceptional control-flow.
 
     inTry: uint32
@@ -141,8 +155,6 @@ type
 const
   RaiseLabel = high(uint32)
   ExitLabel = 0'u32
-
-  DataFlowOps = {opUse .. opMutateGlobal}
 
 func incl[T](s: var seq[T], v: sink T) =
   ## If not present already, adds `v` to the sorted ``seq`` `s`
@@ -156,13 +168,13 @@ func incl[T](s: var seq[T], v: sink T) =
 func compare(a: Instr, b: NodePosition): int =
   ord(a.node) - ord(b)
 
-template lowerBound(c: ControlFlowGraph, node: NodePosition): InstrPos =
+template lowerBound(c: DataFlowGraph, node: NodePosition): InstrPos =
   lowerBound(c.instructions, node, compare).InstrPos
 
-template upperBound(c: ControlFlowGraph, node: NodePosition): InstrPos =
+template upperBound(c: DataFlowGraph, node: NodePosition): InstrPos =
   upperBound(c.instructions, node, compare).InstrPos
 
-func `[]`(c: ControlFlowGraph, pc: SomeInteger): lent Instr {.inline.} =
+func `[]`(c: DataFlowGraph, pc: SomeInteger): lent Instr {.inline.} =
   c.instructions[pc]
 
 # ---- data-flow graph setup ----
@@ -305,8 +317,8 @@ func emitForDef(env: var ClosureEnv, tree: MirTree, n: NodePosition, consume: bo
     # effects and other mutation effects
     env.dfaOp opDef, n, dest
 
-func computeCfg*(tree: MirTree): ControlFlowGraph =
-  ## Computes the control-flow graph for the given `tree`. This is a very
+func computeDfg*(tree: MirTree): DataFlowGraph =
+  ## Computes the data-flow graph for the given `tree`. This is an
   ## expensive operation! The high cost is due to two essential reasons:
   ##
   ## 1. a control-flow graph needs to materialize all edges for a given `tree`
@@ -315,7 +327,8 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
   ## The most amount of bookkeeping is required for finalizers and exceptions.
 
   template emit(opc: Opcode, n: NodePosition): InstrPos =
-    env.emit(opc, n)
+    env.instrs.add Instr(op: opc, node: n)
+    env.instrs.high.InstrPos
 
   template join(pos: NodePosition): JoinId =
     let id = JoinId env.numJoins
@@ -323,26 +336,25 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
     env.instrs.add Instr(op: opJoin, node: pos, id: id)
     id
 
-  proc findBlock(env: ClosureEnv, label: LabelId, hidden = false): uint32 =
+  proc findBlock(env: ClosureEnv, label: Option[LabelId]): uint32 =
     var i = env.blocks.high
-    # search for the unstructured control-flow target for `lbl`
-    while i >= 0 and (env.blocks[i].label != label or
-                      env.blocks[i].hidden != hidden):
+    # search for the unstructured control-flow target for `label`
+    while i >= 0 and env.blocks[i] != label:
       dec i
 
     assert i >= 0, "invalid exit"
     result = uint32(i + 1)
 
-  template findHidden(): uint32 = findBlock(env, default(LabelId), true)
+  template findHidden(): uint32 = findBlock(env, none(LabelId))
 
   template exit(opc: Opcode, pos: NodePosition, blk: uint32) =
-    env.exit(opc, pos, blk)
+    env.exits.add (emit(opc, pos), blk, env.inTry)
 
   template push(opc: Opcode, pos: NodePosition) =
-    env.ifs.add emit(opc, pos)
+    env.structStack.add emit(opc, pos)
 
   proc pop(env: var ClosureEnv, p: NodePosition) =
-    let start = env.ifs.pop()
+    let start = env.structStack.pop()
     case env.instrs[start].op
     of opJoin:
       let id = env.instrs[start].id
@@ -379,9 +391,9 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
         inc i
 
   template open(label: LabelId) =
-    env.blocks.add (label, false)
+    env.blocks.add some(label)
   template openHidden() =
-    env.blocks.add (default(LabelId), true)
+    env.blocks.add none(LabelId)
 
   proc close(env: var ClosureEnv, i: NodePosition) =
     var upd = false
@@ -405,7 +417,7 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
     of mnkRepeat:
       # add a 'join' for the 'loop' that is emitted at the end of the repeat
       discard join(i)
-      env.ifs.add env.instrs.high.InstrPos
+      env.structStack.add env.instrs.high.InstrPos
     of mnkBlock:
       open n.label
     of mnkCase:
@@ -454,7 +466,7 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
       # the 'try'
       dec env.inTry
     of mnkBreak:
-      exit opGoto, i, findBlock(env, n.label)
+      exit opGoto, i, findBlock(env, some n.label)
     of mnkReturn:
       exit opGoto, i, ExitLabel
     of mnkRaise:
@@ -521,6 +533,7 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
 
         finallyExits.setLen(start)
       else:
+        # no control-flow or other effects
         discard
 
     of mnkAsgn, mnkInit:
@@ -569,37 +582,42 @@ func computeCfg*(tree: MirTree): ControlFlowGraph =
     if instr.op == opJoin:
       result.map[instr.id] = InstrPos(i)
 
-func rangeFor*(cfg: ControlFlowGraph, span: Slice[NodePosition]
-              ): Slice[InstrPos] =
-  ## Computes the span of data-/control-flow instructions that correspond to
-  ## statements/expressions within `span`.
-  result.a = lowerBound(cfg, span.a)
-  result.b = upperBound(cfg, span.b) - 1
+func subgraphFor*(dfg: DataFlowGraph, span: Slice[NodePosition]): Subgraph =
+  ## Computes a reference to the sub-graph encompassing the `span` of MIR
+  ## instructions.
+  result.a = lowerBound(dfg, span.a)
+  result.b = upperBound(dfg, span.b) - 1
 
-iterator instructions*(cfg: ControlFlowGraph): (InstrPos, Opcode, OpValue) =
+func find*(dfg: DataFlowGraph, n: NodePosition): InstrPos =
+  ## Returns the first data-/control-flow operation associated with `n`.
+  ## If none are associated with `n`, the closest following (in terms of
+  ## attached-to node position) operation is returned.
+  lowerBound(dfg, n)
+
+iterator instructions*(dfg: DataFlowGraph): (InstrPos, Opcode, OpValue) =
   ## Returns all data-flow operations in order of appearance together with
   ## their position.
-  for i, it in cfg.instructions.pairs:
+  for i, it in dfg.instructions.pairs:
     if it.op in DataFlowOps - {opMutateGlobal}:
       yield (InstrPos i, it.op, it.val)
 
-iterator traverse*(tree: MirTree, c: ControlFlowGraph,
-                   span: Slice[InstrPos], start: InstrPos,
-                   state: var TraverseState): (Opcode, OpValue) =
-  ## Starts at `start` and traverses/yields all basic blocks inside `span`
-  ## in control-flow order. That is, except for in the context of loops, each
-  ## basic block is yielded before those having a control-flow dependency on
-  ## it. Traversal begins at `start`, which is allowed to point inside a basic
-  ## block.
+iterator traverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
+                   state: var TraverseState): (DataFlowOpcode, OpValue) =
+  ## Starts at the data-flow operation closest to `start` and traverses/yields
+  ## all data-flow operations inside `span` in control-flow order. Outside of
+  ## loops, this means that an operation is visited *before* operations that
+  ## have a control-flow dependency on it. If `start` is not part of `span`,
+  ## nothing is returned and `state.exit` is set to 'false'.
   ##
   ## The same basic block may be yielded multiple times. This is not a general
   ## limitation, but rather because of a shortcut taken by the implementation.
   ##
   ## `state` is used for bi-directional communication -- see the documentation
   ## of ``TraverseState`` for more information.
-  assert start in span
   var
-    pc = start
+    pc =
+      if start in span: start
+      else:             span.b + 1 # disable execution
     last = span.b
     queue: seq[InstrPos]
     visited: PackedSet[JoinId]
@@ -630,8 +648,6 @@ iterator traverse*(tree: MirTree, c: ControlFlowGraph,
     ## Exit the current thread and continue with the next one in the queue
     resume()
 
-  # XXX: this loop can be optimized further. Instead of yielding each item
-  #      from separately, the basic block could be yielded as a slice instead
   while pc <= last:
       let instr = c[pc]
 
@@ -654,7 +670,7 @@ iterator traverse*(tree: MirTree, c: ControlFlowGraph,
           # which is generated for e.g. an ``else`` branch
           queue.delete(0)
       of DataFlowOps:
-        yield (instr.op, instr.val)
+        yield (DataFlowOpcode(instr.op), instr.val)
 
       inc pc
 
@@ -666,7 +682,8 @@ iterator traverse*(tree: MirTree, c: ControlFlowGraph,
 
   assert queue.len <= 1
 
-  state.exit = pc > last
+  # don't set `exit` to true if nothing was traversed
+  state.exit = pc > last and start in span
 
 template active(s: ExecState): bool =
   # if a thread is selected and it's either the or derived from the main
@@ -678,7 +695,7 @@ template step(s: var ExecState) =
   # remember the lowest time value we've reached so far:
   s.bottom = min(s.bottom, s.time)
 
-func processJoin(id: JoinId, s: var ExecState, c: ControlFlowGraph) {.inline.} =
+func processJoin(id: JoinId, s: var ExecState, c: DataFlowGraph) {.inline.} =
   ## Processes a 'join' instruction in the context of reverse traversal
 
   if s.loops.len > 0 and s.loops[^1].start == id:
@@ -729,11 +746,10 @@ func processJoin(id: JoinId, s: var ExecState, c: ControlFlowGraph) {.inline.} =
     s.visited[id] = max(s.time, s.visited[id])
     s.time = s.visited[id]
 
-iterator traverseReverse*(c: ControlFlowGraph,
-                          span: Slice[InstrPos], start: InstrPos,
-                          exit: var bool): (Opcode, OpValue) =
-  ## Starts at `start - 1` and visits and returns all basic blocks inside
-  ## `span` in post-order.
+iterator traverseReverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
+                          exit: var bool): (DataFlowOpcode, OpValue) =
+  ## Starts at `start - 1` and visits and returns all data-flow operations
+  ## inside `span` in post-order.
   ##
   ## `span` being empty is supported: nothing is returned in that case.
   ##
@@ -749,21 +765,20 @@ iterator traverseReverse*(c: ControlFlowGraph,
     else:
       start..start-1 # `span` is empty
 
+  let
+    fin = span.a
+      ## abstract control-flow reaching this instructions means "end reached"
+
   s.visited.newSeq(c.map.len)
   s.pc = span.b
   s.top = high(Time)
   s.time = s.top
   s.bottom = s.time
 
-  let
-    fin = span.a
-      ## abstract control-flow reaching this instructions means "end reached"
-
   exit = false
 
-  # move the program counter to the DFG instruction that marks the start of the
-  # basic block `start` is located inside. While doing so, collect the loops
-  # the start position is located inside:
+  # move the program counter to the DFG instruction coming before start. While
+  # doing so, collect the loops the start position is located inside:
   while s.pc >= start:
     let instr = c[s.pc]
     case instr.op
@@ -801,14 +816,13 @@ iterator traverseReverse*(c: ControlFlowGraph,
       of opJoin:
         processJoin(instr.id, s, c)
       of DataFlowOps:
+        # the end (in our case start) of the basic block is reached
         break
 
       dec s.pc
 
-    let prev = s.pc # for detecting whether the
+    let prev = s.pc # for detecting whether the `start` is crossed
 
-    # if they weren't visited yet, return all items in the current basic
-    # block:
     if s.active:
       # prevent the first half of the basic block we started inside to be
       # returned:
@@ -816,8 +830,10 @@ iterator traverseReverse*(c: ControlFlowGraph,
         if prev >= start: start
         else:             fin
 
+      # return all items in the current basic block, with `exit` (which may be
+      # set to true by the callsite) aborting the loop
       while s.pc >= adjusted and c[s.pc].op in DataFlowOps and not exit:
-        yield (c[s.pc].op, c[s.pc].val)
+        yield (DataFlowOpcode(c[s.pc].op), c[s.pc].val)
         dec s.pc
 
       step(s)
@@ -827,6 +843,7 @@ iterator traverseReverse*(c: ControlFlowGraph,
         s.time = 0 # disable execution
 
     else:
+      # inactive, skip all data-flow operations (i.e., the basic block)
       while s.pc >= fin and c[s.pc].op in DataFlowOps:
         dec s.pc
 
@@ -837,8 +854,8 @@ iterator traverseReverse*(c: ControlFlowGraph,
 
   exit = s.active
 
-iterator traverseFromExits*(c: ControlFlowGraph, span: Slice[InstrPos],
-                            exit: var bool): (Opcode, OpValue) =
+iterator traverseFromExits*(c: DataFlowGraph, span: Subgraph,
+                            exit: var bool): (DataFlowOpcode, OpValue) =
   ## Similar to ``traverseReverse``, but starts traversal at each unstructured
   ## exit of `span`. Here, unstructured exit means that the control-flow leaves
   ## `span` via a 'goto' or 'fork'.
@@ -864,7 +881,7 @@ iterator traverseFromExits*(c: ControlFlowGraph, span: Slice[InstrPos],
     c.map[target] notin span
 
   # for the most part similar to the loop in ``traverseReverse``, but with
-  # special handling for jumps outside of `span`
+  # special handling for jumps out of `span`
   while s.pc >= fin:
     # execute all instructions located at the end of the basic block (if we're
     # at the end of one):
@@ -888,6 +905,7 @@ iterator traverseFromExits*(c: ControlFlowGraph, span: Slice[InstrPos],
       of opJoin:
         processJoin(instr.id, s, c)
       of DataFlowOps:
+        # the end of a basic block is reached
         break
 
       dec s.pc
@@ -895,9 +913,9 @@ iterator traverseFromExits*(c: ControlFlowGraph, span: Slice[InstrPos],
     # if they weren't visited yet, return all items in the current basic
     # block:
     if s.active:
-      # we want to yield all nodes up to and including `next`
+      # return all data-flow operations from the current basic block:
       while s.pc >= fin and c[s.pc].op in DataFlowOps and not exit:
-        yield (c[s.pc].op, c[s.pc].val)
+        yield (DataFlowOpcode(c[s.pc].op), c[s.pc].val)
         dec s.pc
 
       # perform the time step. This has to happen *before* potentially setting
@@ -909,13 +927,14 @@ iterator traverseFromExits*(c: ControlFlowGraph, span: Slice[InstrPos],
         s.time = 0 # disable execution
 
     else:
-      while s.pc >= fin and c[s.pc].op in DataFlowOps and not exit:
+      # inactive, skip all data-flow operations (i.e., the basic block)
+      while s.pc >= fin and c[s.pc].op in DataFlowOps:
         dec s.pc
 
   exit = s.active
 
 
-func `$`*(c: ControlFlowGraph): string =
+func `$`*(c: DataFlowGraph): string =
   ## Renders the instructions of `c` as a human-readable text representation
   for i, n in c.instructions.pairs:
     case n.op
@@ -924,22 +943,6 @@ func `$`*(c: ControlFlowGraph): string =
     of opGoto, opFork, opLoop:
       result.add $n.op & " " & $n.dest
     of DataFlowOps:
-      result.add $n.op
-
-    result.add " -> " & $ord(n.node) & "\n"
-
-import compiler/ast/renderer
-import compiler/mir/sourcemaps
-
-proc render*(c: ControlFlowGraph, map: SourceMap): string =
-  ## Renders the instructions of `c` as a human-readable text representation
-  for i, n in c.instructions.pairs:
-    case n.op
-    of opJoin:
-      result.add $n.id & ": join"
-    of opGoto, opFork, opLoop:
-      result.add $n.op & " " & $n.dest
-    of DataFlowOps:
-      result.add $n.op
+      result.add $n.op & " " & $ord(n.val)
 
     result.add " -> " & $ord(n.node) & "\n"
