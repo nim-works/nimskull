@@ -213,25 +213,24 @@ func emitForValue(env: var ClosureEnv, tree: MirTree, at: NodePosition,
   of AllNodeKinds - LvalueExprKinds - Atoms:
     unreachable(tree[source].kind)
 
-func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
-  template op(o: Opcode, v: OpValue) =
-    env.dfaOp(o, tree, at, v)
+func emitLvalueOp(env: var ClosureEnv, opc: DataFlowOpcode, tree: MirTree,
+                  at: NodePosition, source: OpValue) =
+  emitForValue(env, tree, at, source)
+  env.dfaOp(opc, tree, at, source)
 
+func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
   for it in subNodes(tree, source):
     case tree[it].kind
     of mnkArg:
-      emitForValue(env, tree, at, tree.operand(it))
-      op opUse, tree.operand(it)
+      emitLvalueOp(env, opUse, tree, at, tree.operand(it))
     of mnkConsume:
-      emitForValue(env, tree, at, tree.operand(it))
-      op opConsume, tree.operand(it)
+      emitLvalueOp(env, opConsume, tree, at, tree.operand(it))
     of mnkName:
       emitForValue(env, tree, at, tree.skip(tree.operand(it), mnkTag))
     of mnkField:
       discard
     else:
-      emitForValue(env, tree, at, OpValue it)
-      op opUse, OpValue it
+      emitLvalueOp(env, opUse, tree, at, OpValue it)
 
 func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
                 consume: bool) =
@@ -244,31 +243,27 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
   of mnkCall, mnkMagic, mnkConstr, mnkObjConstr:
     emitForArgs(env, tree, at, source)
   of mnkConv, mnkStdConv, mnkCast:
-    emitForValue(env, tree, at, tree.operand(source))
     # a read is performed on the source operand (if it's an lvalue)
-    op opUse, tree.operand(source)
+    emitLvalueOp(env, opUse, tree, at, tree.operand(source))
   of mnkAddr:
-    emitForValue(env, tree, at, tree.operand(source))
     # ``addr`` doesn't actually read its operand location, rather
     # it create a run-time handle (i.e., pointer) to them. Since those
     # handles aren't tracked however, the operation is conservatively
     # treated as a mutation
-    op opMutate, tree.operand(source)
+    emitLvalueOp(env, opMutate, tree, at, tree.operand(source))
   of mnkView, mnkToSlice:
     # if the created view supports mutation, treat the creation as a
     # mutation itself
-    emitForValue(env, tree, at, tree.operand(source))
-    if tree[source].typ.kind == tyVar:
-      op opMutate, tree.operand(source)
-    else:
-      op opUse, tree.operand(source)
+    let opc =
+      if tree[source].typ.kind == tyVar: opMutate
+      else:                              opUse
+    emitLvalueOp(env, opc, tree, at, tree.operand(source))
   of LvalueExprKinds:
     # a read is performed on an lvalue
-    emitForValue(env, tree, at, OpValue source)
-    if consume:
-      op opConsume, OpValue source
-    else:
-      op opUse, OpValue source
+    let opc =
+      if consume: opConsume
+      else:       opUse
+    emitLvalueOp(env, opc, tree, at, OpValue source)
   of mnkNone, mnkLiteral, mnkProc:
     discard "okay, ignore"
   else:
@@ -408,7 +403,7 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
   for i, n in tree.pairs:
     case n.kind
     of mnkIf:
-      dfaOp env, opUse, tree, i, tree.operand(i, 0)
+      emitLvalueOp(env, opUse, tree, i, tree.operand(i, 0))
       push opFork, i
     of mnkBranch:
       # optimization: the first branch doesn't use a CFG edge
@@ -421,7 +416,7 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
     of mnkBlock:
       open n.label
     of mnkCase:
-      dfaOp env, opUse, tree, i, tree.operand(i, 0)
+      emitLvalueOp(env, opUse, tree, i, tree.operand(i, 0))
       openHidden() # for the branch exits
       # fork to all branches except the the first one:
       for _ in 0..<tree[i].len-1:
@@ -472,7 +467,7 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
     of mnkRaise:
       # raising an exception consumes it:
       if tree[tree.operand(i)].kind != mnkNone:
-        dfaOp env, opConsume, i, tree.operand(i)
+        emitLvalueOp(env, opConsume, tree, i, tree.operand(i))
 
       exit opGoto, i, RaiseLabel # go to closest handler
     of mnkEnd:
