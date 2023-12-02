@@ -650,15 +650,6 @@ proc genTypeExpr(c: var TCtx, n: PNode): EValue =
   else:
     unreachable("not a type expression")
 
-proc genCallee(c: var TCtx, n: PNode): EValue =
-  ## Generates and emits the code for a callee expression
-  if n.kind == nkSym and n.sym.kind in routineKinds:
-    c.builder.useSource(c.sp, n)
-    procLit(n.sym)
-  else:
-    # an indirect call
-    genRd(c, n)
-
 proc genArgExpression(c: var TCtx, n: PNode, sink: bool) =
   ## Generates and emits the code for an expression appearing in a call or
   ## construction argument position.
@@ -694,6 +685,15 @@ proc genLvalueOperand(c: var TCtx, n: PNode; mutable = true) =
   else:
     # capture the address via an alias
     c.use captureName(c, f, mutable)
+
+proc genCallee(c: var TCtx, n: PNode) =
+  ## Generates and emits the code for a callee expression.
+  if n.kind == nkSym and n.sym.kind in routineKinds:
+    c.builder.useSource(c.sp, n)
+    c.use procLit(n.sym)
+  else:
+    # an indirect call
+    genArgExpression(c, n, false)
 
 proc genArg(c: var TCtx, formal: PType, n: PNode) =
   ## Generates and emits the MIR code for an argument expression plus the
@@ -783,7 +783,7 @@ proc genCall(c: var TCtx, n: PNode) =
 
   c.subTree MirNode(kind: mnkCall, typ: typeOrVoid(c, fntyp[0]),
                     effects: effects):
-    c.use genCallee(c, n[0])
+    genCallee(c, n[0])
     genArgs(c, n)
 
 proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
@@ -791,11 +791,15 @@ proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
   ## expected to be a ``getAst`` expression that has been transformed to the
   ## internal representation. `kind` is the meta-routine's kind, and `fntyp`
   ## its signature.
-  assert kind in {skMacro, skTemplate}
-  if kind == skMacro:
-    c.use genCallee(c, n[1])
+  case kind
+  of skMacro:
+    genCallee(c, n[1])
+  of skTemplate:
+    # for late templates invocations, the callee template is an argument
+    c.subTree mnkArg:
+      genCallee(c, n[1])
   else:
-    c.emitByVal genCallee(c, n[1])
+    unreachable(kind)
 
   for i in 2..<n.len:
     let
