@@ -263,28 +263,26 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
     # TODO: make this branch exhaustive
     unreachable(tree[source].kind)
 
-  # the mutation effects (if any) take place *within* the called procedure.
+  # the effects on lvalues (if any) take place *within* the called procedure.
   # For the local data-flow, this is represented as taking place after the
   # callsite arguments are used but before the exceptional exit (if any)
   case tree[source].kind
-  of mnkCall:
-    # mutation effects:
-    for _, it in arguments(tree, source):
+  of mnkCall, mnkMagic:
+    # lvalue effects:
+    for k, it in arguments(tree, source):
       if tree[it].kind == mnkTag:
         op opMutate, tree.operand(it)
+      elif k == mnkName:
+        # the lvalue may be read from within the procedure
+        op opUse, it
 
-    # global mutation and control-flow effects:
-    if geRaises in tree[source].effects:
-      env.instrs.add Instr(op: opMutateGlobal, node: at)
-    if geRaises in tree[source].effects:
-      exit env, opFork, at, RaiseLabel
-  of mnkMagic:
-    # same as the call handling, but without the handling for side-effects
-    for _, it in arguments(tree, source):
-      if tree[it].kind == mnkTag:
-        op opMutate, tree.operand(it)
-
-    if tree[source].magic in magicsThatCanRaise:
+    if tree[source].kind == mnkCall:
+      # global mutation and control-flow effects:
+      if geRaises in tree[source].effects:
+        env.instrs.add Instr(op: opMutateGlobal, node: at)
+      if geRaises in tree[source].effects:
+        exit env, opFork, at, RaiseLabel
+    elif tree[source].magic in magicsThatCanRaise:
       exit env, opFork, at, RaiseLabel
   else:
     discard
