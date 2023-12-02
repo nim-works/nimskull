@@ -1066,10 +1066,14 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
     objType = body[target].typ
     typ = body[target].field.typ
 
-  let a = bu.bindMut(body, NodePosition target)
-  let b = bu.inline(body, NodePosition body.operand(NodePosition op, 1))
-
   assert body[target].kind == mnkPathVariant
+
+  let
+    a = bu.wrapMutAlias(typ):
+      # bind the discriminator lvalue, not the variant lvalue
+      bu.subTree MirNode(kind: mnkPathNamed, typ: typ, field: body[target].field):
+        bu.emitFrom(body, NodePosition body.operand(target))
+    b = bu.inline(body, NodePosition body.operand(NodePosition op, 1))
 
   # check if the object contains fields requiring destruction:
   if hasDestructor(objType):
@@ -1114,7 +1118,10 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
       bu.use val
       # ``=destroy`` call:
       bu.buildVoidCall(branchDestructor):
-        bu.emitByName(a, ekInvalidate)
+        # pass the original variant access to the destroy call
+        bu.subTree mnkName:
+          bu.subTree MirNode(kind: mnkTag, effect: ekInvalidate):
+            bu.emitFrom(body, NodePosition target)
 
   else:
     # the object doesn't need destruction, which means that neither does one

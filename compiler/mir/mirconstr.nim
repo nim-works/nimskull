@@ -300,6 +300,15 @@ template wrapTemp*(bu: var MirBuilder, t: PType,
     body
   val
 
+template wrapMutAlias*(bu: var MirBuilder, t: PType, body: untyped): Value =
+  ## Emits a ``mnkBind`` statement with `body` as the lvalue expression.
+  ## Returns the name of the alias.
+  let val = allocTemp(bu, t, true)
+  bu.subTree mnkBindMut:
+    bu.use val
+    body
+  val
+
 template buildMagicCall*(bu: var MirBuilder, m: TMagic, t: PType,
                          body: untyped) =
   bu.subTree MirNode(kind: mnkMagic, magic: m, typ: t):
