@@ -278,7 +278,7 @@ func computeAliveOp*[T: PSym | TempId](
       {.error.}
 
   template isRootOf(val: OpValue): bool =
-    isAnalysedLoc(tree[getRoot(tree, NodePosition val)], loc)
+    isAnalysedLoc(tree[getRoot(tree, val)], loc)
 
   template sameLocation(val: OpValue): bool =
     isAnalysedLoc(tree[skipConversions(tree, val)], loc)

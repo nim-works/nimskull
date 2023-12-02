@@ -198,7 +198,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
   while i.int < tree.len:
     case tree[i].kind
     of mnkDef, mnkDefCursor:
-      let e = NodePosition tree.operand(i, 1)
+      let e = tree.operand(i, 1)
       if tree[i, 0].kind == mnkTemp and
          tree[i, 0].typ.skipTypes(LocSkip).kind notin Ignore and
          tree[e].kind in LvalueExprKinds and
@@ -210,7 +210,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         # * constants; works around code generator issues
         ct[tree[i, 0].temp.uint32] = 1
 
-      i = e # skip to the source expression
+      i = NodePosition e # skip to the source expression
     of mnkTemp:
       let id = tree[i].temp
       if hasKey(ct, id.uint32):

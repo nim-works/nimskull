@@ -304,8 +304,7 @@ func isNamed(tree: MirTree, val: OpValue): bool =
   ## Returns whether `val` is an lvalue that names a location derived from
   ## a named entity. For example, ``local.a.b`` is such a location.
   ## TODO: update the doc comment
-  tree[tree.getRoot(NodePosition val)].kind in {mnkLocal, mnkGlobal, mnkParam,
-                                                mnkTemp}
+  tree[tree.getRoot(val)].kind in {mnkLocal, mnkGlobal, mnkParam, mnkTemp}
 
 func getDefEntity(tree: MirTree, n: NodePosition): NodePosition =
   assert tree[n].kind in DefNodes

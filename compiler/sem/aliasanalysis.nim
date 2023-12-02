@@ -97,15 +97,15 @@ func `[]`(p: Path, i: int): PathInstr =
   if p.shortLen > 0: p.short[p.shortLen - 1 - i]
   else:              p.long[^i]
 
-proc getRoot*(tree: MirTree, n: NodePosition): NodePosition =
+proc getRoot*(tree: MirTree, n: OpValue): OpValue =
   ## If `n` points doesn't point to a path expression, returns `n`, the root
   ## of the path otherwise. Aliases are followed.
   var pos = n
   while tree[pos].kind in PathOps:
-    pos = NodePosition tree.operand(pos, 0)
+    pos = tree.operand(NodePosition pos, 0)
 
   if tree[pos].kind == mnkAlias:
-    result = getRoot(tree, findDef(tree, pos))
+    result = getRoot(tree, tree.operand(findDef(tree, NodePosition pos), 1))
   else:
     result = pos
 
