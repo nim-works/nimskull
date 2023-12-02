@@ -187,7 +187,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
   ## Where safe (i.e., observable program behaviour does not change), elides
   ## temporaries in a backend-agnostice way. This is an optimization.
   const Ignore = IntegralTypes + {tyPtr, tyPointer, tyRef, tyVar, tyLent,
-                                  tyOpenArray}
+                                  tyOpenArray, tyProc}
     ## ignored by the optimization pass. These are types where a copy is
     ## faster than creating a reference
   var ct = initCountTable[uint32]()
