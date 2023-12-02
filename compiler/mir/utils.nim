@@ -243,7 +243,7 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string) =
       result.add ")"
   of mnkCall:
     tree "":
-      singleToStr(nodes, i, result) # callee
+      valueToStr(nodes, i, result) # callee
       result.add "("
       commaSeparated:
         argToStr(nodes, i, result)

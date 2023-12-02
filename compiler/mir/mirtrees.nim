@@ -582,7 +582,12 @@ func argument*(tree: MirTree, n: NodePosition, i: Natural): OpValue =
   ## tag nodes. It is expected that the call has at least `i` + 1
   ## arguments.
   assert tree[n].kind in {mnkCall, mnkMagic}
-  var n = n + 1 + ord(tree[n].kind == mnkCall)
+  var n =
+    if tree[n].kind == mnkCall:
+      tree.sibling(n + 1) # skip the callee
+    else:
+      n + 1
+
   for _ in 0..<i:
     n = tree.sibling(n)
   n = NodePosition tree.operand(n)
@@ -614,11 +619,13 @@ iterator subNodes*(tree: MirTree, n: NodePosition): NodePosition =
 iterator arguments*(tree: MirTree, n: NodePosition): (ArgKinds, OpValue) =
   ## Returns the argument kinds together with the operand node (or tag tree).
   assert tree[n].kind in {mnkCall, mnkMagic}
-  # skip the callee for calls
-  var n = n + 1 + ord(tree[n].kind == mnkCall)
-  while tree[n].kind != mnkEnd:
-    yield (ArgKinds(tree[n].kind), tree.operand(n))
-    n = tree.sibling(n)
+  var i = n + 1
+  if tree[n].kind == mnkCall:
+    i = sibling(tree, i) # skip the callee
+
+  while tree[i].kind != mnkEnd:
+    yield (ArgKinds(tree[i].kind), tree.operand(i))
+    i = tree.sibling(i)
 
 func findDef*(tree: MirTree, n: NodePosition): NodePosition =
   ## Finds and returns the first definition for the name of the temporary

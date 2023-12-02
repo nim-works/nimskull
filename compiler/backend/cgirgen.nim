@@ -644,7 +644,7 @@ proc callToIr(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
     result.add newMagicNode(n.magic, info)
   of mnkCall:
     result = newExpr(cnkCall, info, n.typ)
-    result.add atomToIr(tree, cl, cr) # the callee
+    result.add valueToIr(tree, cl, cr) # the callee
   else:
     unreachable(n.kind)
 
