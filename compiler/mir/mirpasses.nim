@@ -200,7 +200,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
     of mnkDef, mnkDefCursor:
       let e = NodePosition tree.operand(i, 1)
       if tree[i, 0].kind == mnkTemp and
-         tree[i, 0].typ.skipTypes(abstractInst).kind notin Ignore and
+         tree[i, 0].typ.skipTypes(LocSkip).kind notin Ignore and
          tree[e].kind in LvalueExprKinds and
          tree[getRoot(tree, e)].kind notin {mnkConst, mnkTemp}:
         # definition of a temporary into which an lvalue is assigned. Elision
