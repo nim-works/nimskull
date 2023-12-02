@@ -271,7 +271,12 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
     # lvalue effects:
     for k, it in arguments(tree, source):
       if tree[it].kind == mnkTag:
-        op opMutate, tree.operand(it)
+        let opr = tree.operand(it)
+        case tree[it].effect
+        of ekMutate:     op opMutate, opr
+        of ekReassign:   op opDef, opr
+        of ekKill:       op opKill, opr
+        of ekInvalidate: op opInvalidate, opr
       elif k == mnkName:
         # the lvalue may be read from within the procedure
         op opUse, it
