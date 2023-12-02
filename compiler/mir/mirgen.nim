@@ -1836,8 +1836,7 @@ proc gen(c: var TCtx, n: PNode) =
           else:
             genOperand(c, x[0])
 
-        c.use genUse(c, n[1])
-        # c.staging.add MirNode(kind: mnkField, field: x[1].sym)
+        genAsgnSource(c, n[1], false) # the source operand
     else:
       # a normal assignment
       genAsgn(c, false, n[0], n[1])
