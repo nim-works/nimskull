@@ -1483,10 +1483,11 @@ proc genEcho(p: PProc, n: CgNode, r: var TCompRes) =
   useMagic(p, "toJSStr") # Used in rawEcho
   useMagic(p, "rawEcho")
   r.res.add("rawEcho(")
+  # the first argument is a literal type that we don't need
   for i in 2..<n.len:
     let it = n[i]
     if it.typ.isCompileTimeOnly: continue
-    if i > 0: r.res.add(", ")
+    if i > 2: r.res.add(", ")
     genArgNoParam(p, it, r)
   r.res.add(")")
   r.kind = resExpr
