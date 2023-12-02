@@ -669,6 +669,11 @@ proc genArgExpression(c: var TCtx, n: PNode, sink: bool) =
   else:
     discard f
 
+proc emitOperandTree(c: var TCtx, n: PNode, sink: bool) =
+  ## Generates and emits the MIR tree for a call or construction argument.
+  c.subTree (if sink: mnkConsume else: mnkArg):
+    genArgExpression(c, n, sink)
+
 proc genLvalueOperand(c: var TCtx, n: PNode; mutable = true) =
   ## Generates the code for lvalue expression `n`. If the expression is either
   ## not pure or has side-effects, its address/name is captured, with
@@ -703,16 +708,13 @@ proc genArg(c: var TCtx, formal: PType, n: PNode) =
   of tyVar:
     if formal.base.kind in {tyOpenArray, tyVarargs}:
       # it's not a pass-by-name parameter
-      c.subTree mnkArg:
-        genArgExpression(c, n, sink=false)
+      c.emitOperandTree n, false
     else:
       c.emitByName ekMutate, genLvalueOperand(c, n, true)
   of tySink:
-    c.subTree mnkConsume:
-      genArgExpression(c, n, sink=true)
+    c.emitOperandTree n, true
   else:
-    c.subTree mnkArg:
-      genArgExpression(c, n, sink=false)
+    c.emitOperandTree n, false
 
 proc genArgs(c: var TCtx, n: PNode) =
   ## Emits the MIR code for the argument expressions (including the
@@ -893,10 +895,8 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
   ## through ``genCall``
   c.builder.useSource(c.sp, n)
 
-  proc arg(c: var TCtx, n: PNode) {.inline.} =
-    ## Generates an argument expression in a pass-by-value context.
-    c.subTree mnkArg:
-      genArgExpression(c, n, sink=false)
+  template arg(n: PNode) =
+    c.emitOperandTree n, false
 
   case m
   of mAnd, mOr:
@@ -915,7 +915,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     c.buildMagicCall m, typeOrVoid(c, n.typ):
       if n.len == 2:
         # the size argument
-        c.arg n[1]
+        arg n[1]
 
   of mWasMoved:
     # ``wasMoved`` has an effect that is not encoded by the parameter's type
@@ -928,7 +928,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     # since the number of arguments doesn't match with the number of parameters
     c.buildMagicCall m, n.typ:
       for i in 1..<n.len:
-        c.arg n[i]
+        arg n[i]
   of mInSet:
     genInSetOp(c, n)
   of mEcho:
@@ -941,7 +941,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
       if x.len > 0:
         c.emitByVal typeLit(x.typ)
       for it in x.items:
-        c.arg it
+        arg it
   of mAccessEnv:
     c.subTree MirNode(kind: mnkPathPos, typ: n.typ, position: 1):
       genOperand(c, n[1])
@@ -959,14 +959,14 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     if n[0].typ == nil:
       c.buildMagicCall m, typeOrVoid(c, n.typ):
         c.emitByName ekMutate, genLvalueOperand(c, n[1])
-        c.arg n[2]
+        arg n[2]
     else:
       genCall(c, n)
   of mInc, mSetLengthStr, mCopyInternal:
     if n[0].typ == nil:
       c.buildMagicCall m, typeOrVoid(c, n.typ):
         c.emitByName ekMutate, genLvalueOperand(c, n[1])
-        c.arg n[2]
+        arg n[2]
     else:
       genCall(c, n)
   of mNot, mLtI, mSubI, mLengthSeq, mLengthStr, mSamePayload:
@@ -974,7 +974,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
       # simple translation. None of the arguments need to be passed by lvalue
       c.buildMagicCall m, n.typ:
         for i in 1..<n.len:
-          c.arg n[i]
+          arg n[i]
 
     else:
       genCall(c, n)
@@ -1034,28 +1034,21 @@ proc genCallOrMagic(c: var TCtx, n: PNode) =
   else:
     genCall(c, n)
 
-template emitArg(c: var TCtx, consume: bool, body: untyped) =
-  c.subTree (if consume: mnkConsume else: mnkArg):
-    body
-
 proc genSetConstr(c: var TCtx, n: PNode) =
   c.buildTree mnkConstr, n.typ:
     for it in n.items:
-      c.subTree mnkArg:
-        genArgExpression(c, it, false)
+      c.emitOperandTree it, false
 
 proc genArrayConstr(c: var TCtx, n: PNode, isConsume: bool) =
   c.buildTree mnkConstr, n.typ:
     for it in n.items:
-      c.emitArg isConsume:
-        genArgExpression(c, it, isConsume)
+      c.emitOperandTree it, isConsume
 
 proc genTupleConstr(c: var TCtx, n: PNode, isConsume: bool) =
   assert n.typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind == tyTuple
   c.buildTree mnkConstr, n.typ:
     for it in n.items:
-      c.emitArg isConsume:
-        genArgExpression(c, it.skipColon, isConsume)
+      c.emitOperandTree skipColon(it), isConsume
 
 proc genClosureConstr(c: var TCtx, n: PNode, isConsume: bool) =
   c.buildTree mnkConstr, n.typ:
@@ -1063,7 +1056,7 @@ proc genClosureConstr(c: var TCtx, n: PNode, isConsume: bool) =
     # transf wraps the procedure operand in a conversion that we don't
     # need
 
-    c.emitArg isConsume: # the environment
+    c.subTree (if isConsume: mnkConsume else: mnkArg): # the environment
       if n[1].kind == nkNilLit:
         # it can happen that a ``nkNilLit`` has no type (i.e. its typ is nil) -
         # we ensure that the nil literal has the correct type
@@ -1090,8 +1083,7 @@ proc genObjConstr(c: var TCtx, n: PNode, isConsume: bool) =
         sfCursor notin field.flags
 
       c.add MirNode(kind: mnkField, field: field)
-      c.emitArg useConsume:
-        genArgExpression(c, it[1], useConsume)
+      c.emitOperandTree it[1], useConsume
 
 proc genRaise(c: var TCtx, n: PNode) =
   assert n.kind == nkRaiseStmt
