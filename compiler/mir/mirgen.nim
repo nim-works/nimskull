@@ -245,8 +245,19 @@ func isPure(tree: MirTree, n: NodePosition): bool =
   of mnkPathNamed, mnkPathPos:
     isPure(tree, NodePosition tree.operand(n))
   of mnkPathArray:
-    isPure(tree, NodePosition tree.operand(n, 0)) and
-    isPure(tree, NodePosition tree.operand(n, 1))
+    let arr = NodePosition tree.operand(n, 0)
+    case tree[arr].typ.skipTypes(abstractVar).kind
+    of tyArray:
+      # static array; pure when the array expression is pure and no index
+      # errors are possible
+      tree[n, 1].kind == mnkLiteral and isPure(tree, arr)
+    of tyUncheckedArray:
+      # no index errors are possible
+      isPure(tree, arr)
+    of tyString, tySequence, tyOpenArray, tyVarargs, tyCstring:
+      false # dynamically-sized arrays; index errors are possible
+    else:
+      unreachable(tree[arr].kind)
   else:
     false
 
@@ -258,9 +269,17 @@ func isStable(tree: MirTree, n: NodePosition): bool =
     true
   of mnkPathArray:
     let arr = NodePosition tree.operand(n, 0)
-    tree[arr].typ.skipTypes(abstractInst).kind in {tyArray, tyUncheckedArray} and
-      isPure(tree, NodePosition tree.operand(n, 1)) and
+    case tree[arr].typ.skipTypes(abstractVar).kind
+    of tyArray:
+      # static arrays; stable when no index errors are possible
+      tree[n, 1].kind == mnkLiteral and isStable(tree, arr)
+    of tyUncheckedArray:
+      # cannot raise
       isStable(tree, arr)
+    of tyString, tySequence, tyOpenArray, tyVarargs, tyCstring:
+      false # run-time arrays; could always raise
+    else:
+      unreachable()
   of mnkPathNamed, mnkPathPos:
     isStable(tree, NodePosition tree.operand(n))
   of mnkPathConv, mnkPathVariant:
