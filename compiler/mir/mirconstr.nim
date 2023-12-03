@@ -16,9 +16,7 @@ import
 
 type
   Value* = object
-    # TODO: document
-    node*: MirNode
-    # TODO: `node` should be hidden
+    node: MirNode
     info: opt(SourceId)
       ## the source ID associated with the node, or none
 

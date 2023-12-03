@@ -814,7 +814,8 @@ proc expandDef(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       var tmp, clear: Value
       c.insert(tree, at, source, bu):
         (tmp, clear) = bu.destructiveMoveOperands(tree, source)
-      c.replace(tree, source): tmp.node
+      c.replaceMulti(tree, source, bu):
+        bu.use tmp
       c.insert(tree, tree.sibling(at), source, bu):
         genWasMoved(bu, ctx.graph, clear)
 

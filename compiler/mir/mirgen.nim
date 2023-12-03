@@ -363,8 +363,9 @@ func nameNode(s: PSym): MirNode =
   else:
     unreachable(s.kind)
 
-template genLocation(c: var TCtx, n: PNode): Value =
-  Value(node: nameNode(n.sym))
+func genLocation(c: var TCtx, n: PNode): Value =
+  let f = c.builder.push: c.builder.add(nameNode(n.sym))
+  c.builder.popSingle(f)
 
 template allocTemp(c: var TCtx, typ: PType; alias=false): Value =
   ## Allocates a new ID for a temporary and returns the name.
