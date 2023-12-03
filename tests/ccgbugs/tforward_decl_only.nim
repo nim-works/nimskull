@@ -14,6 +14,14 @@ type AnotherType = object
 let x = AnotherType(f: newMyRefObject("hello"))
 echo $x.f
 
+# assigning the ref (outside of a var/let statement) must not pull in the
+# type definition
+proc test() =
+  var y: MyRefObject
+  y = newMyRefObject("abc")
+  doAssert $y == "abc"
+
+test()
 
 # bug #7363
 
