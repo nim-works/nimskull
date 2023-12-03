@@ -605,8 +605,14 @@ func isOwned(tree: MirTree, v: Values, n: NodePosition): Owned =
   of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice:
     # the result of these operations is not an owned value
     Owned.no
-  of mnkConstr, mnkCall, mnkMagic, mnkObjConstr:
+  of mnkCall, mnkMagic, mnkObjConstr:
     Owned.yes
+  of mnkConstr:
+    case tree[n].typ.skipTypes(abstractInst).kind
+    of tySequence:
+      Owned.no # sequence constructors are immutable constants
+    else:
+      Owned.yes
   of AllNodeKinds - ExprKinds:
     unreachable(tree[n].kind)
 

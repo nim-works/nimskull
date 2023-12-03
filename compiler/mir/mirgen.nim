@@ -416,7 +416,13 @@ func detectKind(tree: MirTree, n: NodePosition, sink: bool): ExprKind =
     else:
       Rvalue
   of mnkConstr:
-    if sink and hasDestructor(tree[n].typ):
+    # XXX: sequence constructions (i.e., constant ``seq``s) are allowed to be
+    #      lifted into constants at a later stage, which needs to be accounted
+    #      here by treating the values as non-owning. Performing all lifting-
+    #      into-constants here in ``mirgen`` is going to render this special-
+    #      casing obsolete
+    if sink and hasDestructor(tree[n].typ) and
+       tree[n].typ.skipTypes(abstractInst).kind != tySequence:
       OwnedRvalue
     else:
       Rvalue
