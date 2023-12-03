@@ -897,8 +897,6 @@ proc stmtToIr(tree: TreeWithSource, cl: var TranslateCl,
       n.add valueToIr(tree, cl, cr)
     leave(tree, cr)
     result = n
-  of mnkCall, mnkMagic:
-    result = callToIr(tree, cl, n, cr)
   of mnkStmtList:
     var list = newStmt(cnkStmtList, cr.info)
     while tree[cr].kind != mnkEnd:
