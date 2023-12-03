@@ -44,9 +44,6 @@ const
   LocSkip = abstractRange + tyUserTypeClasses
     ## types to skip to arrive at the underlying concrete value type
 
-func skipTag(tree: MirTree, n: NodePosition): NodePosition {.inline.} =
-  if tree[n].kind == mnkTag: NodePosition tree.operand(n)
-  else:                      n
 iterator search(tree: MirTree, kinds: static set[MirNodeKind]): NodePosition =
   ## Returns in order of appearance the positions of all nodes matching the
   ## given `kinds`.
@@ -132,17 +129,18 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
             # from and use that for the overlap analysis
             let def = tree.operand(findDef(tree, NodePosition it), 1)
             if tree[def].kind == mnkToSlice:
-              (true, NodePosition tree.operand(def))
+              (true, tree.operand(def))
             else:
-              (false, NodePosition 0)
+              (false, OpValue 0)
           else:
-            (false, NodePosition 0)
+            (false, OpValue 0)
         of mnkName:
-          (true, tree.skipTag(NodePosition it))
+          (true, tree.skip(it, mnkTag))
         of mnkConsume:
-          (false, NodePosition 0)
+          (false, OpValue 0)
 
-      if check and overlapsConservative(tree, path, computePath(tree, arg),
+      if check and overlapsConservative(tree, path,
+                                        computePath(tree, NodePosition arg),
                                         tree[dest].typ, tree[arg].typ):
         needsTemp = true
         break
