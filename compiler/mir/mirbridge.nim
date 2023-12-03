@@ -110,7 +110,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
         if depth > 1:
           # don't rewrite the def, but still patch the symbol if requested
           if patch:
-            changes.replace(body, NodePosition body.operand(i, 0)):
+            changes.replace(body, body.child(i, 0)):
               MirNode(kind: mnkGlobal, sym: sym, typ: typ)
         # HACK: ``vmjit`` currently passes us expressions where a 'def' can
         #       be the very first node, something that ``hasInput`` doesn't
@@ -118,7 +118,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
         elif i.int > 0 and body[i, 1].kind != mnkNone:
           # the global has a starting value
           changes.replaceMulti(body, i, buf):
-            let val = buf.inline(body, NodePosition body.operand(i, 1))
+            let val = buf.inline(body, body.child(i, 1))
             buf.subTree mnkInit:
               buf.use symbol(mnkGlobal, sym)
               buf.use val

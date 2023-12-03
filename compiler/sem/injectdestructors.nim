@@ -686,8 +686,8 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
   ## `stmt` is the assignment statement node and `pos` is the 'def' data-flow
   ## instruction corresponding to it.
   let
-    dest = NodePosition operand(tree, stmt, 0)
-    source = NodePosition operand(tree, stmt, 1)
+    dest       = tree.child(stmt, 0)
+    source     = tree.child(stmt, 1)
     sourcePath = computePath(tree, source)
     destPath   = computePath(tree, dest)
     relation   = compare(tree, sourcePath, destPath)
@@ -787,8 +787,8 @@ proc expandDef(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
   ## move. If the source can be moved out of non-destructively, nothing is
   ## changed. `src` is the data-flow instruction
   let
-    dest   = NodePosition tree.operand(at, 0)
-    source = NodePosition tree.operand(at, 1)
+    dest   = tree.child(at, 0)
+    source = tree.child(at, 1)
   case isOwned(tree, ar.v[], source)
   of false:
     # a copy is required. Transform ``def x = a.b`` into:
@@ -935,7 +935,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 
       case tree[stmt].kind
       of mnkDef, mnkDefUnpack:
-        let src = NodePosition tree.operand(stmt, 1)
+        let src = tree.child(stmt, 1)
         # ignore definitions with no initializer
         if tree[src].kind != mnkNone:
           if not isOwned(tree, ar.v[], src):
@@ -946,7 +946,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                                   pos: src)
           expandDef(tree, ctx, ar, stmt, i, c)
       of mnkAsgn, mnkInit:
-        let src = NodePosition tree.operand(stmt, 1)
+        let src = tree.child(stmt, 1)
         if not isOwned(tree, ar.v[], src):
           checkCopy(ctx.graph, tree, src, diags)
         expandAsgn(tree, ctx, ar, stmt, i, c)
@@ -1064,7 +1064,7 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
       # bind the discriminator lvalue, not the variant lvalue
       bu.subTree MirNode(kind: mnkPathNamed, typ: typ, field: body[target].field):
         bu.emitFrom(body, NodePosition body.operand(target))
-    b = bu.inline(body, NodePosition body.operand(stmt, 1))
+    b = bu.inline(body, body.child(stmt, 1))
 
   # check if the object contains fields requiring destruction:
   if hasDestructor(objType):

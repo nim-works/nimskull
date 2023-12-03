@@ -503,16 +503,22 @@ func findEnd*(tree: MirTree, n: NodePosition): NodePosition =
   assert tree[n].kind in SubTreeNodes
   result = sibling(tree, n) - 1
 
-func childIdx*(tree: MirTree, n: NodePosition, index: int): NodePosition =
+func child*(tree: MirTree, n: NodePosition, index: Natural): NodePosition =
   ## Returns the position of the child node at index `index`. `index` *must*
   ## refer to a valid sub-node -- no validation is performed
+  assert tree[n].kind in SubTreeNodes
   result = n + 1 # point `result` to the first child
   for _ in 0..<index:
     result = sibling(tree, result)
 
-func `[]`*(tree: MirTree, n: NodePosition, index: int): lent MirNode =
+func operand*(tree: MirTree, n: NodePosition, i: Natural): OpValue {.inline.} =
+  ## Returns the `i`-th operand to the sub-tree at `n`. It is expected that
+  ## the operation has at least `i` + 1 operands.
+  OpValue child(tree, n, i)
+
+func `[]`*(tree: MirTree, n: NodePosition, index: Natural): lent MirNode =
   ## Returns the `index`-th child node of sub-tree `n`.
-  tree[childIdx(tree, n, index)]
+  tree[child(tree, n, index)]
 
 func getStart*(tree: MirTree, n: NodePosition): NodePosition =
   ## If `n` refers to an ``end`` node, returns the corresponding start node --
@@ -531,15 +537,6 @@ func findParent*(tree: MirTree, start: NodePosition,
   result = start
   while tree[result].kind != kind:
     result = parent(tree, result)
-
-func operand*(tree: MirTree, n: NodePosition, opr: Natural): OpValue =
-  ## Returns the `opr`-th operand to the sub-tree at `n`. It is expected that
-  ## the operation has at least `opr` + 1 operands.
-  assert tree[n].kind in SubTreeNodes
-  var n = n + 1
-  for i in 0..<opr:
-    n = tree.sibling(n)
-  result = OpValue n
 
 func numArgs*(tree: MirTree, n: NodePosition): int =
   ## Computes the number of arguments in the call tree.

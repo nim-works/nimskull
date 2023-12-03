@@ -157,11 +157,11 @@ proc computePath*(tree: MirTree, at: NodePosition): Path =
     of mnkPathPos:
       add pikPos, pos
     of mnkPathArray:
-      add pikIndex, NodePosition tree.operand(pos, 1)
+      add pikIndex, tree.child(pos, 1)
     of mnkAlias:
       # skip to the path that the alias is created of
       pos = findDef(tree, pos)
-      pos = NodePosition tree.operand(pos, 1)
+      pos = tree.child(pos, 1)
       # continue collecting the path instructions
       continue
     of AllNodeKinds - PathOps - {mnkAlias}:

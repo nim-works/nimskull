@@ -150,7 +150,7 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
     if needsTemp:
       # rewrite the assignment into a definition-of-temporary and then assign
       # the temporary to the correct location
-      let pos = NodePosition tree.operand(i, 0)
+      let pos = tree.child(i, 0)
       changes.changeTree(tree, i): MirNode(kind: mnkDef)
       var tmp: Value
       changes.replaceMulti(tree, pos, bu):
@@ -273,7 +273,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
       let
         n   = NodePosition n
         def = tree.parent(n)
-        p   = computePath(tree, NodePosition tree.operand(def, 1))
+        p   = computePath(tree, tree.child(def, 1))
         typ = tree[n].typ
         pos = findUse(tree, dfg, p, typ, i + 1, tree[n].temp)
 
