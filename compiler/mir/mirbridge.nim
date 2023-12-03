@@ -102,7 +102,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
     let n {.cursor.} = body[i]
     case n.kind
     of DefNodes:
-      let def = i + 1
+      let def = body.child(i, 0)
       if body[def].kind == mnkGlobal:
         let
           sym = restoreGlobal(body[def].sym)
@@ -112,10 +112,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
           if patch:
             changes.replace(body, body.child(i, 0)):
               MirNode(kind: mnkGlobal, sym: sym, typ: typ)
-        # HACK: ``vmjit`` currently passes us expressions where a 'def' can
-        #       be the very first node, something that ``hasInput`` doesn't
-        #       support. We thus have to guard against i == 0
-        elif i.int > 0 and body[i, 1].kind != mnkNone:
+        elif body[i, 1].kind != mnkNone:
           # the global has a starting value
           changes.replaceMulti(body, i, buf):
             let val = buf.inline(body, body.child(i, 1))
@@ -137,7 +134,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
           # just remove the def:
           changes.remove(body, i)
 
-      inc i, 2 # skip the whole sub-tree ('def', name, and 'end' node)
+      i = body.child(i, 1) - 1 # skip the name node
     of mnkGlobal:
       # remove the temporary duplicates of nested globals again:
       if patch and depth > 1:
