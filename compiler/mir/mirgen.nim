@@ -121,9 +121,6 @@ type
 
     options: set[GenOption]
 
-  Value = EValue
-  # TODO: move this alias to ``mirconstr``
-
   ExprKind = enum
     Literal
     Lvalue
@@ -330,10 +327,10 @@ template scope(c: var TCtx, body: untyped) =
   c.builder.subTree mnkScope:
     body
 
-template use(c: var TCtx, val: EValue) =
+template use(c: var TCtx, val: Value) =
   c.builder.use(val)
 
-template emitByVal(c: var TCtx, val: EValue) =
+template emitByVal(c: var TCtx, val: Value) =
   ## Emits a pass-by-value argument sub-tree with `val`.
   c.builder.emitByVal(val)
 
@@ -366,8 +363,8 @@ func nameNode(s: PSym): MirNode =
   else:
     unreachable(s.kind)
 
-template genLocation(c: var TCtx, n: PNode): EValue =
-  EValue(node: nameNode(n.sym))
+template genLocation(c: var TCtx, n: PNode): Value =
+  Value(node: nameNode(n.sym))
 
 template allocTemp(c: var TCtx, typ: PType; alias=false): Value =
   ## Allocates a new ID for a temporary and returns the name.
@@ -380,7 +377,7 @@ proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination)
 proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode)
 proc genWithDest(c: var TCtx; n: PNode; dest: Destination)
 
-func getTemp(c: var TCtx, typ: PType): EValue =
+func getTemp(c: var TCtx, typ: PType): Value =
   ## Allocates a new temporary and emits a definition for it into the
   ## final buffer.
   assert typ != nil
@@ -459,7 +456,7 @@ func captureName(c: var TCtx, f: Fragment, mutable: bool): Value =
       c.builder.pop(f)
   res
 
-proc genUse(c: var TCtx, n: PNode): EValue =
+proc genUse(c: var TCtx, n: PNode): Value =
   # TODO: document
   c.builder.useSource(c.sp, n)
   # emit the expression into the staging buffer:
@@ -470,7 +467,7 @@ proc genUse(c: var TCtx, n: PNode): EValue =
   else:
     result = captureInTemp(c, f, sink=false)
 
-proc genRd(c: var TCtx, n: PNode; consume=false): EValue =
+proc genRd(c: var TCtx, n: PNode; consume=false): Value =
   ## Generates the MIR code for the expression `n`. Makes sure that the run-
   ## time value of the expression is *captured* by assigning it to a
   ## temporary.
@@ -511,7 +508,7 @@ template buildOp(c: var TCtx, k: MirNodeKind, t: PType, body: untyped) =
   c.subTree MirNode(kind: k, typ: t):
     body
 
-template wrapTemp(c: var TCtx, t: PType, body: untyped): EValue =
+template wrapTemp(c: var TCtx, t: PType, body: untyped): Value =
   ## Assigns the expression emitted by `body` to a temporary and
   ## returns the name of the latter.
   assert t != nil
@@ -612,7 +609,7 @@ proc genVariantAccess(c: var TCtx, n: PNode) =
   for i in 1..<n.len:
     c.add endNode(mnkPathVariant)
 
-proc genTypeExpr(c: var TCtx, n: PNode): EValue =
+proc genTypeExpr(c: var TCtx, n: PNode): Value =
   ## Generates the code for an expression that yields a type. These are only
   ## valid in metaprogramming contexts. If it's a static type expression, we
   ## evaluate it directly and store the result as a type literal in the MIR
@@ -874,7 +871,7 @@ proc genInSetOp(c: var TCtx, n: PNode) =
               c.emitByVal val
               c.emitByVal b
           c.subTree mnkStmtList:
-            var sv: EValue
+            var sv: Value
             if se.kind == nkCurly:
               sv = c.allocTemp(se.typ)
               c.subTree mnkDef:

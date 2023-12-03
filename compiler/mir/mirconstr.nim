@@ -22,10 +22,6 @@ type
     info: opt(SourceId)
       ## the source ID associated with the node, or none
 
-  EValue* = Value
-    ## Legacy alias. Don't use it for new code.
-    ## TODO: replace all remaining usages and then remove the type
-
   Fragment* = object
     ## Identifies a fragment (usually a sub-tree) within the staging buffer.
     s: Slice[NodeIndex]
