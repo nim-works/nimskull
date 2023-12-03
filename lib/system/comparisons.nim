@@ -80,7 +80,7 @@ proc `<=`*[T](x, y: set[T]): bool {.magic: "LeSet", noSideEffect.} =
 proc `<=`*(x, y: bool): bool {.magic: "LeB", noSideEffect.}
 proc `<=`*[T](x, y: ref T): bool {.magic: "LePtr", noSideEffect.}
 proc `<=`*(x, y: pointer): bool {.magic: "LePtr", noSideEffect.}
-proc `<=`*(x, y: cstring): bool {.magic: "LtPtr", noSideEffect.}
+proc `<=`*(x, y: cstring): bool {.magic: "LePtr", noSideEffect.}
 
 proc `<`*[Enum: enum](x, y: Enum): bool {.magic: "LtEnum", noSideEffect.}
 proc `<`*(x, y: string): bool {.magic: "LtStr", noSideEffect.} =
