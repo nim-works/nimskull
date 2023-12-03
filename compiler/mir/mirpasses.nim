@@ -235,6 +235,11 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
     ## -1 otherwise.
     let all = dfg.subgraphFor(NodePosition(0) .. NodePosition(tree.len))
     var s: TraverseState
+    # XXX: the analysis is using the wrong direction! We want to know
+    #      whether `p` is mutated on any paths connecting `start` and
+    #      the use of `e`, not whether a mutation of `p` is connected
+    #      to `start` -- the analysis needs to be rewritten to use
+    #      ``traverseReverse``.
     for op, n in traverse(dfg, all, start, s):
       case op
       of opUse:
