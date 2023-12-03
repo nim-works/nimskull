@@ -344,8 +344,6 @@ proc preprocess*(conf: BackendConfig, prc: PSym, graph: ModuleGraph,
   (result.body.tree, result.body.source) =
     generateCode(graph, prc, conf.options, body)
 
-  echoMir(graph.config, prc, result.body.tree)
-
 proc process*(prc: var Procedure, graph: ModuleGraph, idgen: IdGenerator) =
   ## Applies all applicable MIR passes to the procedure `prc`.
   rewriteGlobalDefs(prc.body.tree, prc.body.source, patch=false)

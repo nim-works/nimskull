@@ -64,9 +64,8 @@ type
     mnkGlobal ## global location
     mnkParam  ## parameter
     mnkLocal  ## local location
-    mnkTemp   ## temporary; works the same as a ``mnkLocal`` but uses a
-              ## separate namespace. This currently allows for cheap ad-hoc
-              ## introduction of new locals
+    mnkTemp   ## temporary introduced during the MIR phase. Has the same
+              ## semantics as ``mnkLocal``
     mnkAlias  ## local run-time handle. This is essentially a ``var T`` or
               ## ``lent T`` local
 
@@ -95,124 +94,100 @@ type
     mnkBindMut   ## introduces an alias that may be used for write access.
                  ## The source expression must not be empty
 
-    mnkFastAsgn ## ``fastAsgn(dst, src)``; assigns the `src` value to the location
-                ## named by the lvalue `dst`. Neither the previous value in the
-                ## destination location nor the source value are mutated in any
-                ## way. No transfer of ownership happens.
+    mnkFastAsgn ## assignment that cannot be rewritten into copy, move, or
+                ## hook call
     # future direction: same as with DefCursor, remove FastAsgn
-    mnkAsgn     ## ``asgn(dst, src)``; assigns the `src` value to the location
-                ##  named by `dst`, also transferring onwership.
-    mnkInit     ## ``init(dst, src)``; similar to `asgn`, but with the
-                ## guarantee that the destination contains no value prior
+    mnkAsgn     ## normal assignment; the destination might store a value
+                ## already. Whether the source is copied or moved depends
+                ## on the expression
+    mnkInit     ## similar to ``mnkAsgn``, but with the guarantee that the
+                ## destination is empty
 
-    mnkSwitch ## ``switch(x, y)``; changes the active branch of the record-case
-              ## identified by the result of the ``pathVariant`` operation used
-              ## as the `x` operand. `y` is the new discriminator value
+    mnkSwitch ## sets the value of a discriminator field, changing the active
+              ## branch, if necessary. The destination operand must be a
+              ## ``mnkPathVariant`` expression
 
     mnkPathNamed ## access of a named field in a record
     mnkPathPos   ## access of a field in record via its position
     # future direction: merge ``mnkPathPos`` with ``mnkPathNamed``. This first
     # requires a dedicated MIR type representation.
-    mnkPathArray ## ``pathArray(x, i)``; array-like access
-    # future direction: separate access of run-time arrays (i.e., strings and
-    # seqs) into a dedicated operation
-    mnkPathVariant ## access a field inside a tagged union
+    mnkPathArray ## access of an array-like (both dynamic and static) value
+                 ## with an integer index
+    mnkPathVariant ## access a tagged union
                    ## XXX: this is likely only a temporary solution. Each
                    ##      record-case part of an object should be its own
                    ##      dedicated object type, which can then be addressed
                    ##      as a normal field
     # future direction: merge ``mnkPathVariant`` into ``mnkPathNamed`` once the
     # MIR's record type structure supports this
-    mnkPathConv  ## an handle conversion. That is, a conversion that produces a
+    mnkPathConv  ## a handle conversion. That is, a conversion that produces a
                  ## *handle*, and not a new *value*. At present, this operator
                  ## also applies to first-class handles, like ``ref``.
 
-    mnkAddr   ## ``addr(x)``; creates a first-class unsafe alias/handle (i.e.
-              ## pointer) from the input lvalue `x`
-    mnkDeref  ## ``deref(x)``; dereferences the pointer-like `x` (this
-              ## *excludes* views), producing an lvalue that has same identity
-              ## as the pointed-to location
-              ## XXX: the possibility of invalid pointers (e.g. nil pointer) is
-              ##      currently ignored
+    mnkAddr   ## create a pointer from the provided lvalue
+    mnkDeref  ## dereference a ``ptr`` or ``ref`` value
 
-    # XXX: the exact semantics around views and their related operators are
-    #      not yet finalized. One should not rely on them too much at this
-    #      point
-    mnkView      ## ``view(x)``; creates a safe alias of the l-value 'x'
-    mnkDerefView ## ``derefView(x)``; dereferences a view, producing the lvalue
-                 ## named by it
-    # XXX: ``mnkDerefView`` is not used for ``openArray`` right now, due to
-    #      the latter's interactions with ``var`` and ``lent``
+    mnkView      ## create a first-class safe alias from an lvalue
+    mnkDerefView ## dereference a first-class safe alias
 
-    mnkStdConv    ## ``stdConv(x)``; a standard conversion.Produce a new value.
+    mnkStdConv    ## a standard conversion. Produce a new value.
     mnkConv       ## ``conv(x)``; a conversion. Produces a new value.
-    # XXX: distinguishing between ``stdConv`` and ``conv`` is only done to
-    #      make ``cgirgen`` a bit more efficient. Further progress should focus
-    #      on removing the need for it
-    mnkCast       ## ``cast(x)``; produces a new *instance* of the input value
-                  ## with a different type
-    mnkToSlice    ## creates an openArray from the full sequence specified as
+    # future direction: replace both conversion operators with ``NumberConv``.
+    # String-to-cstring conversion, and vice versa, should use magics, pointer
+    # conversion should use ``mnkCast``
+    mnkCast       ## cast the representation of a value into a different type
+    mnkToSlice    ## create an openArray from the full sequence specified as
                   ## the operand
     # future direction: also use to ``ToSlice`` for creating sub-slices (i.e.,
     # ``toOpenArray``)
 
-    mnkCall   ## ``call(p, ...)``; transfers control-flow (i.e. calls) the
-              ## procedure that `p` evaluates to and passes the provided
-              ## arguments
-    mnkMagic  ## ``magic(...)``; a call to a magic procedure
+    mnkCall   ## invoke a procedure and pass along the provided arguments.
+              ## Used for both static and dynamic calls
+    mnkMagic  ## invoke a magic procedure and pass along the provided arguments
+    # future direction: turn ``mnkMagic`` into something that appears in the
+    # callee slot. In addition, introduce a ``mnkCheckedCall`` node, for
+    # representing calls that can start unwinding
 
-    mnkRaise  ## ``raise(x)``; if `x` is a ``none`` node, reraises the
-              ## currently active exception. If `x` is a value, transfers the
-              ## ownership over it to the raise operation and transfers
-              ## control-flow to the respective exception handler
+    mnkRaise  ## if the operand is an ``mnkNone`` node, reraises the
+              ## currently active exception. Otherwise, set the operand value
+              ## as the active exception (via a move). Control-flow is
+              ## transfered to the closest exception handler. If none exists,
+              ## the program terminates
 
-    mnkTag    ## ``tag[T](x)``; must only appear directly as the input to
-              ## either a ``name`` sink. Marks evaluating the operator that
-              ## has the result of the tag operation as input as having the
-              ## specified effect on the location named by l-value `x`
+    mnkTag    ## must only appear as the immediate subnode to a ``mnkName``
+              ## tree. Describes what kind of mutation is applied to the
+              ## lvalue within the called procedure
 
-    mnkConstr     ## ``constr(...)``; constructs a new aggregate value or set
-                  ## value made up of the input values. Whether the resulting
-                  ## value is owned depends on whether one the context it's
-                  ## used in
-    mnkObjConstr  ## ``objConstr(...)``; either heap-allocates and initializes
-                  ## a new managed location, or constructs a new aggregate value
+    mnkConstr     ## constructs a either new aggregate value or set value made
+                  ## up of the input values. Whether the resulting value is
+                  ## owned depends on whether one the context it's used in
+    mnkObjConstr  ## either allocate a new managed heap cell and returns a
+                  ## ``ref`` to it, or or constructs a new aggregate value
                   ## with named fields
 
-    # TODO: update the argument node documentation to reflect reality
-    mnkArg    ## binds either an instance of the input value or the value
-              ## itself to an argument
-    mnkName   ## binds an lvalue to an argument
-    mnkConsume## similar to ``arg``, but also transfers ownership over the
-              ## value from the source to the operation taking the argument
-              ## as input. The source value *must* be an owned value.
-              ## **Note**: the transfer of ownership happens when the
-              ## value is bound to the argument, not when control-flow reaches
-              ## the target operation
-    # future direction: prior to the move-analyser pass, ``Consume`` encodes a
-    # *request* rather than a *fact*. This needs to be changed; the AST -> MIR
-    # translation needs to make that the argument to a ``sink`` parameter can
-    # *always* be consumed. ``Consume`` always meaning "consume" will
-    # make data-flow analysis significantly simpler
+    mnkArg    ## when used in a call: denotes an argument that may either be
+              ## passed by value or by name. Evaluation order is unspecified
+              ## when used in a construction: denotes a value that is copied
+              ## (shallow) into the aggregate value
+    mnkName   ## denotes an argument that is passed by name
+    mnkConsume## similar to ``mnkArg``, but moves (non-destructively) the
+              ## value into the aggregate or parameter
 
-    mnkVoid   ## the 'void' sink. Discards the input value without doing
-              ## anything else with it
+    mnkVoid   ## either a:
+              ## * syntactic statement node for representing void calls
+              ## * statement acting as a use of the given lvalue
 
-    mnkStmtList ## groups statements together
+    mnkStmtList ## a sequence of statements, grouped together as a single
+                ## statement
     mnkScope  ## the only way to introduce a scope. Scopes can be nested and
               ## dictate the lifetime of the locals that are directly enclosed
               ## by them
 
-    mnkIf     ## ``if(x)``; depending on the runtime value of `x`, transfers
-              ## control-flow to either the start or the end of the code, the
-              ## ``if`` spans
-    mnkCase   ## ``case(x)``; depending on the runtime value of `x`, transfers
-              ## control-flow to the start of one of its branches
-    mnkRepeat ## once control-flow reaches this statement, control-flow is
-              ## transfered to start of its body. Once control-flow reaches
-              ## the end of the body, it is transfered back to the start. In
-              ## other words, repeats its body an infinite number of times
-              # XXX: rename to ``mnkRepeat``?
+    mnkIf     ## depending on the run-time value of `x`, transfers control-
+              ## flow to either the start or the end of the spanned code
+    mnkCase   ## dispatches to one the its branches based on the run-time
+              ## value of the operand
+    mnkRepeat ## repeats the body indefinitely
     mnkTry    ## associates one one or more statements (the first sub-node)
               ## with: an exception handler, a finalizer, or both
     mnkExcept ## defines and attaches an exception handler to a ``try`` block.
@@ -236,14 +211,11 @@ type
 
     mnkBranch ## defines a branch of an ``mnkExcept`` or ``mnkCase``
 
-    mnkAsm    ## corresponds to the high-level ``asm`` statement. Takes an
-              ## argument block as input, but has itself no meaning at the MIR
-              ## level
-    mnkEmit   ## corresponds to the ``emit`` directive. In the context of the
-              ## MIR, has the same behaviour as ``mnkAsm``
+    mnkAsm    ## embeds backend-dependent code directly into the output
+    mnkEmit   ## embeds backend-dependent code directly into the output
 
-    mnkEnd    ## marks the physical end of a sub-tree. Has no semantic
-              ## meaning -- it's only required to know where a sub-tree ends
+    mnkEnd    ## marks the end of a sub-tree. Has no behaviour associated with
+              ## it -- it's only required to know where a sub-tree ends
     # future direction: replace the End node with storing the number of sub-
     # nodes of a sub-tree on the node itself. This will require significant
     # structural changes, as not all node kinds are able to use the length
@@ -269,7 +241,7 @@ type
     geRaises       ## the operation is a source of exceptional control-flow
 
   MirNode* = object
-    typ*: PType ## must be non-nil for operators, inputs, and sinks
+    typ*: PType ## non-nil for all expressions
     info*: SourceId
       ## non-critical meta-data associated with the node (e.g., origin
       ## information)
@@ -304,9 +276,6 @@ type
       effect*: EffectKind ## the effect that happens when the operator the
                           ## tagged value is passed to is executed
     else:
-      # XXX: now only used by ``mnkTry``, ``mnkCase``, and ``mnkObjConstr``. In
-      #      each case, the information is redundant. That is, the information
-      #      it stores can be compute from the tree itself
       len*: int
 
   MirTree* = seq[MirNode]
@@ -347,12 +316,6 @@ const
   ArgumentNodes* = {mnkArg, mnkName, mnkConsume}
     ## Nodes only allowed in argument contexts.
 
-  StmtNodes* = {mnkScope, mnkStmtList, mnkIf, mnkCase, mnkRepeat, mnkTry,
-                mnkBlock, mnkBreak, mnkReturn, mnkRaise, mnkPNode, mnkInit,
-                mnkAsgn, mnkSwitch, mnkFastAsgn, mnkVoid, mnkRaise, mnkEmit,
-                mnkAsm} + DefNodes
-    ## Nodes that always act as statements syntax-wise.
-
   SymbolLike* = {mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal}
     ## Nodes for which the `sym` field is available
 
@@ -361,22 +324,10 @@ const
   Atoms* = {mnkNone .. mnkType} - {mnkField}
     ## Nodes that may be appear in atom-expecting slots.
 
-  ConsumeCtx* = {mnkConsume, mnkRaise}
-    ## if an lvalue is used as an operand to these operators, the value stored
-    ## in the named location is considered to be consumed (ownership over it
-    ## transfered to the operation)
-    ## XXX: possibly not useful anymore
-  UseContext* = {mnkArg, mnkDeref, mnkDerefView, mnkStdConv, mnkConv, mnkCast,
-                 mnkToSlice, mnkVoid, mnkIf, mnkCase} + ConsumeCtx
-    ## using an lvalue as the operand to one of these operators means that
-    ## the content of the location is observed (when control-flow reaches the
-    ## operator). In other words, applying the operator results in a read
-    ## XXX: this set too
-  OpsWithEffects* = {mnkCall, mnkMagic, mnkAsgn, mnkFastAsgn, mnkSwitch,
-                     mnkInit}
-    ## the set of operations that can have lvalue-parameterized or general
-    ## effects
-    ## XXX: this set too
+  StmtNodes* = {mnkScope, mnkStmtList, mnkIf, mnkCase, mnkRepeat, mnkTry,
+                mnkBlock, mnkBreak, mnkReturn, mnkRaise, mnkPNode, mnkInit,
+                mnkAsgn, mnkSwitch, mnkFastAsgn, mnkVoid, mnkRaise, mnkEmit,
+                mnkAsm} + DefNodes
 
   LvalueExprKinds* = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathVariant,
                       mnkPathConv, mnkDeref, mnkDerefView, mnkTemp, mnkAlias,

@@ -52,6 +52,9 @@ type
                   ## 'def'
     opConsume     ## a value is consumed. Counts as either a 'use' or a 'use'
                   ## + 'kill', depending on the context
+    # future direction: change ``opConsume`` to always mean 'use' + 'kill'.
+    # The callsite should be fully responsible for handling sinks, rather
+    # than this being partially pushed into the DFG
 
     opMutateGlobal ## an unspecified global is mutated
 
@@ -185,7 +188,7 @@ func dfaOp(env: var ClosureEnv, opc: Opcode, n: NodePosition, v: OpValue) =
 
 func dfaOp(env: var ClosureEnv, opc: Opcode, tree: MirTree, n: NodePosition,
            v: OpValue) {.inline.} =
-  ## Only adds an instruction if the operand is something an lvalue.
+  ## Only emits an instruction if the operand is an lvalue.
   if tree[v].kind in LvalueExprKinds:
     dfaOp(env, opc, n, v)
 
@@ -259,15 +262,14 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
       else:                              opUse
     emitLvalueOp(env, opc, tree, at, tree.operand(source))
   of LvalueExprKinds:
-    # a read is performed on an lvalue
+    # a read or consume is performed on an lvalue
     let opc =
       if consume: opConsume
       else:       opUse
     emitLvalueOp(env, opc, tree, at, OpValue source)
   of mnkNone, mnkLiteral, mnkProc:
     discard "okay, ignore"
-  else:
-    # TODO: make this branch exhaustive
+  of AllNodeKinds - ExprKinds - {mnkNone} + {mnkType}:
     unreachable(tree[source].kind)
 
   # the effects on lvalues (if any) take place *within* the called procedure.

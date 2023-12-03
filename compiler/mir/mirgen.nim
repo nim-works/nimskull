@@ -1,9 +1,8 @@
-## ``mirgen`` is responsible for generating MIR code from ``PNode`` AST. The
-## input AST is expected to have already been transformed by ``transf``.
+## Implements the translation from AST to the MIR. The input AST is expected
+## to have already been transformed by ``transf``.
 ##
-## Operation wise, the input AST is traversed via recursing into statements and
-## expressions, ignoring declarative constructs that are not relevant to nor
-## representable with the MIR.
+## In terms of operation, the input AST is traversed via recursion, with
+## declarative constructs not relevant to the MIR being ignored.
 ##
 ## None of the MIR operations that imply structured control-flow produce a
 ## value, so the input expression that do (``if``, ``case``, ``block``, and
@@ -11,6 +10,30 @@
 ## clause is turned into an assignment to, depending on the context where
 ## they're used, either a temporary or existing lvalue expression. The latter
 ## are forwarded to the generation procedures via ``Destination``.
+##
+## For efficiency, ``MirBuilder`` double-buffering functionality is used for
+## emitting the trees. Statements are directly emitted into the final buffer
+## (after all their operands were emitted), while expressions are first
+## emitted into the staging buffer, with the callsite then deciding what to
+## do with them.
+##
+## The values of rvalue operations, calls, and construction are first captured
+## in temporaries (as the MIR doesn't support them being used as, e.g., call
+## arguments directly). Lvalues that have side-effects (e.g., index errors)
+## are captured (together with their side-effects) via MIR alias. In general,
+## all call arguments are first assigned to a temporary, except if the
+## expression is stable (in case of by-name arguments) or pure (in case of
+## non-sink by-value arguments).
+##
+## Pure expression are those that don't have side-effect and always refer to
+## the exact same value, whereas stable expression are those that don't have
+## side-effects and always refer to the same *location*.
+##
+## Whether a temporary is owning (that is, it needs to be destroyed later)
+## depends on both the value it captures and how its used. If the captured
+## value is coming from a call or construction of destructible value, the
+## temporary, otherwise its non-owning, except if used in a consuming
+## context (`sink` parameter or aggregate construction).
 ##
 ## Origin information
 ## ==================
@@ -70,7 +93,7 @@ type
 
   Destination = object
     ## Stores the information necessary to generate the code for an assignment
-    ## to some lvalue expression
+    ## to some destination.
     case isSome: bool
     of false: discard
     of true:  val: Value
@@ -102,8 +125,7 @@ type
 
   TCtx = object
     # working state:
-    builder: MirBuilder ## intermediate buffer for partially generated MIR
-                        ## code
+    builder: MirBuilder ## the builder for generating the MIR trees
 
     blocks: seq[Block] ## the stack of active ``block``s. Used for looking up
                        ## break targets
@@ -711,9 +733,9 @@ proc genCallee(c: var TCtx, n: PNode) =
     genArgExpression(c, n, false)
 
 proc genArg(c: var TCtx, formal: PType, n: PNode) =
-  ## Generates and emits the MIR code for an argument expression plus the
-  ## required argument sink. The `formal` type is needed for figuring out
-  ## how the argument is passed.
+  ## Generates and emits the MIR code for an argument expression, with the
+  ## MIR expression being wrapped in the correct argument node. The `formal`
+  ## type is needed for figuring out how the argument is passed.
   case formal.skipTypes(abstractRange-{tySink}).kind
   of tyVar:
     if formal.base.kind in {tyOpenArray, tyVarargs}:
@@ -752,7 +774,7 @@ proc genArgs(c: var TCtx, n: PNode) =
         c.emitByVal typeLit(n[i].typ)
     elif t.isCompileTimeOnly:
       # don't translate arguments to compile-time-only parameters. To ease the
-      # translation back to ``PNode``, we don't omit them completely but only
+      # translation to ``CgNode``, we don't omit them completely but only
       # replace them with a node holding their type
       c.subTree mnkArg:
         c.add empty(c, n[i])
@@ -807,7 +829,7 @@ proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
   of skMacro:
     genCallee(c, n[1])
   of skTemplate:
-    # for late templates invocations, the callee template is an argument
+    # for late template invocations, the callee template is an argument
     c.subTree mnkArg:
       genCallee(c, n[1])
   else:
@@ -1082,7 +1104,7 @@ proc genTupleConstr(c: var TCtx, n: PNode, isConsume: bool) =
 
 proc genClosureConstr(c: var TCtx, n: PNode, isConsume: bool) =
   c.buildTree mnkConstr, n.typ:
-    c.emitOperandTree n[0].skipConv, false # the procedure
+    c.emitOperandTree n[0].skipConv, false # the procedural value
     # transf wraps the procedure operand in a conversion that we don't
     # need
 

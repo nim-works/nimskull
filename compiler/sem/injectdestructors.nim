@@ -8,26 +8,14 @@
 #
 
 ## This module implements the following MIR passes:
-## - the pass for injecting temporaries for unconsumed rvalues that have
-##   destructors (``injectTemporaries``)
 ## - the 'switch' operation lowering (``lowerBranchSwitch``)
-## - the pass for rewriting assignments into call to the respective
+## - the pass for rewriting assignments into calls to the respective
 ##   lifetime-tracking hooks
-## - the pass for introducing copies for unowned values passed to ``sink``
-##   parameters
+## - the pass for injected ``wasMoved`` calls for consumed lvalues
 ## - the destructor (i.e. ``=destroy`` hook) injection
 ##
 ## Overview
 ## ========
-##
-## The injection of temporaries is required to prevent leaks. Only locations
-## can be destroyed, so if the result of a procedure call is a resource that
-## requires cleanup and is not directly consumed (by assigning it to a
-## location or passing it to a ``sink`` argument), it is materialized into a
-## temporary. The analysis of what requires destruction only takes entities
-## (globals, locals, temporaries, etc.) into account that are explicitly
-## defined in the code fragment (``MirTree``), so the changes performed by the
-## temporary injection have to be visible to it.
 ##
 ## An analysis pass is performed that collects all entities that require
 ## destruction into an ``EntityDict``. These are: locals, temporaries, ``sink``
@@ -40,15 +28,9 @@
 ##          Except for thread-local variables, the others are destroyed at the
 ##          end of the program.
 ##
-## As an optimization, only entities for which it can't be statically proven
-## that they don't contain a value at the end of their scope are collected.
-##
-## Next, an instance of a ``Values`` dictionary corresponding to the input
-## code-fragment is created and initialized. For all arguments that appear in
-## a consume context (e.g. passed to ``sink`` argument, assignment source)
-## and for which the ownership status could not be resolved to either 'yes' or
-## 'no' by ``analysis.computeValues``, a data-flow analysis is
-## performed to figure out the status (see ``solveOwnership``).
+## ``solveOwnership`` then computes for all lvalue expression appearing in
+## consume (e.g., argument to ``sink`` parameter) or sink contexts (source
+## lvalue in an assignment).
 ##
 ## Using the now resolved ownership status of all expressions, the next
 ## analysis step computes which locations need to be destroyed via a destructor
@@ -81,48 +63,6 @@
 ## the analysis will detect `var b = a` to be the last usage of `a`,
 ## subsequently turning the assignment into a move and thus making the
 ## assertion fail with an ``IndexDefect``.
-##
-## Escaping temporaries
-## ====================
-##
-## TODO: This problem is fixed now. Create tests and then remove this section
-##
-## There exists the general problem of both temporaries and rvalues escaping
-## in the context of consumed arguments. Consider:
-##
-## .. code-block::nim
-##
-##   proc f_sink(x: sink Obj, y: int) = discard
-##
-##   f_sink(create(), callThatRaises()) # 1
-##
-##   var x = Obj()
-##   f_sink(notLastUseOf x, callThatRaises()) # 2
-##
-##   var y = Obj()
-##   f_sink(lastUseOf y, callThatRaises()) # 3
-##
-##   var z = Obj()
-##   f_sink(lastUseOf z, callThatRaises()) # 4
-##   z = Obj()
-##
-## For #1, the temporary injection pass recognizes that the result of
-## ``create()`` is used in a consume context and thus doesn't inject a
-## temporary. This then causes the value to leak when ``callThatRaises()``
-## raises an exception. Note that the raising of an exception is only used
-## as an example -- the same issue is present with all other unstructured
-## control-flow (``return``, ``break``, etc.).
-##
-## Fixing this would require for the temporary injection pass to check if
-## the consume is connected to the call on all control-flow paths and only
-## then omit the temporary. A clean solution that introduces no duplication of
-## logic would be to use the ``DataFlowGraph`` for this, but it is not yet
-## available at that point.
-##
-## #2, #3, and #4 are variations of the same problem. Consume-argument handling
-## happens concurrently to destructor injection and a communication channel
-## between the two would be required in order to notify the destructor
-## injection pass about the introduced temporaries.
 
 # XXX: there exists an effect-related problem with the lifetime-tracking hooks
 #      (i.e. ``=copy``, ``=sink``, ``=destroy``). The assignment rewriting and,
@@ -303,9 +243,8 @@ proc getOp*(g: ModuleGraph, t: PType, kind: TTypeAttachedOp): PSym =
       result = getAttachedOp(g, canon, kind)
 
 func isNamed(tree: MirTree, val: OpValue): bool =
-  ## Returns whether `val` is an lvalue that names a location derived from
-  ## a named entity. For example, ``local.a.b`` is such a location.
-  ## TODO: update the doc comment
+  ## Returns whether `val` is the projection of a named location (or refers to
+  ## the named location itself).
   tree[tree.getRoot(val)].kind in {mnkLocal, mnkGlobal, mnkParam, mnkTemp}
 
 func getDefEntity(tree: MirTree, n: NodePosition): NodePosition =
@@ -583,8 +522,8 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
     # the presence of the value is observed -> a reset is required
     result = true
 
-func isOwned(tree: MirTree, v: Values, n: NodePosition): bool =
-  ## Returns whether expression `n` is owning.
+func isMoveable(tree: MirTree, v: Values, n: NodePosition): bool =
+  ## Returns whether the value of the expression `n` can be moved.
   case tree[n].kind:
   of LvalueExprKinds - {mnkDeref, mnkDerefView}:
     v.isOwned(OpValue n)
@@ -626,8 +565,8 @@ proc genDestroy*(bu: var MirBuilder, graph: ModuleGraph, target: Value) =
 
 proc genInjectedSink(bu: var MirBuilder, graph: ModuleGraph,
                      dest, source: Value) =
-  ## Generates either a call to the ``=sink`` hook, or (if none exists), a
-  ## sink emulated via a destructor-call + bitwise-copy.
+  ## Generates and emits either a call to the ``=sink`` hook, or (if none
+  ## exists), a sink emulated via a destructor-call + bitwise-copy.
   let op = getOp(graph, dest.typ, attachedSink)
   if op != nil:
     bu.buildVoidCall(op):
@@ -646,10 +585,10 @@ proc genSinkFromTemporary(bu: var MirBuilder, graph: ModuleGraph,
   genWasMoved(bu, graph, source)
   genInjectedSink(bu, graph, dest, tmp)
 
-proc genCopy(bu: var MirBuilder, graph: ModuleGraph,
-             dst, src: Value, maybeCyclic: bool) =
+proc genCopy(bu: var MirBuilder, graph: ModuleGraph, dst, src: Value,
+             maybeCyclic: bool) =
   ## Emits a ``=copy`` hook call with `dst`, `src`, and (if necessary)
-  ## `maybeCyclic` as the arguments
+  ## `maybeCyclic` as the arguments.
   let
     t  = dst.typ
     op = getOp(graph, t, attachedAsgn)
@@ -695,8 +634,8 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
   if relation.isSame:
     # a self-assignment -> elide
     c.remove(tree, stmt)
-  elif isOwned(tree, ar.v[], source):
-    # we own the source value -> sink
+  elif isMoveable(tree, ar.v[], source):
+    # a move is possible -> sink
     if true:
       let fromLvalue = isNamed(tree, OpValue source)
 
@@ -768,7 +707,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
           discard
 
   else:
-    # the source value isn't owned -> copy
+    # a move is not possible -> copy
     c.replaceMulti(tree, stmt, bu):
       # copies to locals or globals can't introduce cyclic structures, as
       # those are standlone and not part of any other structure
@@ -783,13 +722,13 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 proc expandDef(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                at: NodePosition, pos: InstrPos, c: var Changeset) =
   ## Depending on whether the source can be moved out of, either rewrites the
-  ## 'def' at `at` into a call to the ``=copy`` hook or into a destructive
-  ## move. If the source can be moved out of non-destructively, nothing is
-  ## changed. `src` is the data-flow instruction
+  ## 'def' at `at` into a call to the ``=copy`` hook call or into a
+  ## destructive move. If the source can be moved out of non-destructively,
+  ## nothing is changed. `pos` is the data-flow instruction
   let
     dest   = tree.child(at, 0)
     source = tree.child(at, 1)
-  case isOwned(tree, ar.v[], source)
+  case isMoveable(tree, ar.v[], source)
   of false:
     # a copy is required. Transform ``def x = a.b`` into:
     #   def x
@@ -857,8 +796,8 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         genWasMoved(bu, ctx.graph, v)
 
 proc isUsedForSink(tree: MirTree, stmt: NodePosition): bool =
-  ## Tests whether the definition statement is something produced for sink
-  ## parameter handling.
+  ## Computes whether the definition statement is something produced for
+  ## sink parameter handling.
   assert tree[stmt].kind in {mnkDef, mnkDefUnpack}
   let def = tree.operand(stmt, 0)
   if tree[def].kind != mnkTemp:
@@ -939,7 +878,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         let src = tree.child(stmt, 1)
         # ignore definitions with no initializer
         if tree[src].kind != mnkNone:
-          if not isOwned(tree, ar.v[], src):
+          if not isMoveable(tree, ar.v[], src):
             checkCopy(ctx.graph, tree, src, diags)
             # emit a warning for copies-to-sink
             if isUsedForSink(tree, stmt):
@@ -948,7 +887,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
           expandDef(tree, ctx, ar, stmt, i, c)
       of mnkAsgn, mnkInit:
         let src = tree.child(stmt, 1)
-        if not isOwned(tree, ar.v[], src):
+        if not isMoveable(tree, ar.v[], src):
           checkCopy(ctx.graph, tree, src, diags)
         expandAsgn(tree, ctx, ar, stmt, i, c)
       else:

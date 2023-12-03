@@ -2076,7 +2076,6 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
     r.kind = resExpr
   of mMove:
     genMove(p, n, r)
-  # XXX: access env
   # of mAccessEnv:
   #   unaryExpr(p, n, r, "accessEnv", "accessEnv($1)")
   of mFinished:

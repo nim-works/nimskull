@@ -1,28 +1,13 @@
-## Implements generating ``CgNode`` code from MIR code. Together with the
-## ``CgNode`` IR, this module is a work-in-progress.
-##
-## The translation is implemented via recursive application of the correct
-## translation procedure, where each procedure processes a sub-tree either
-## directly or via further recursion. Instead of one uber procedure, multiple
-## smaller ones that closely match the grammer are used. This allows for
-## validating that the input MIR code is grammatically correct with effectively
-## no overhead and without requiring extra contextual data or a separate pass.
+## Implements the translation from the MIR to the ``CgNode`` IR. All code
+## reaching the code generation phase passes through here.
 ##
 ## .. note::
-##   The `tb` prefix is an abbreviation of "translate back", but with the
-##   introduction of the code-generator IR, this doesn't make much sense
-##   anymore.
+##   The `tb` prefix that's still used in some places is an abbreviation of
+##   "translate back"
 ##
-## ===========
-## MIR regions
-## ===========
-##
-## There exists no equivalent to MIR regions in the ``CgNode`` IR, so a more
-## complex translation has to be used. At the start of the region, each
-## region argument is assigned to a temporary, using either a ``var`` /
-## ``lent`` view or shallow copy depending on the argument's mode and
-## type. A region parameter reference (``mnkOpParam``) is then translated to
-## accessing the temporary introduce for the parameter's argument.
+## .. note::
+##   The ``CgNode`` IR is slated for removal, with the MIR intended to take
+##   its place as the code-generator input.
 
 import
   std/[

@@ -1,37 +1,17 @@
 ## This module implements various data-flow related analysis for MIR code.
-## They're based on the ``mirexec`` traversal algorithms and require a
-## ``Values`` dictionary and a ``DataFlowGraph`` object, both
-## corresponding to the code fragment (i.e. ``MirTree``) that is analysed.
+## They're based on the ``mirexec`` traversal algorithms and a
+## ``DataFlowGraph`` object corresponding to the code fragment (i.e.,
+## ``MirTree``) that is analysed.
 ##
-## A ``Values`` dictionary stores information about the result of operations,
-## namely, whether the value is owned and, for lvalues, the root. An instance
-## of the dictionary is created and initialized via the ``computeValues``
-## procedure.
+## All analysis implemented here establish the relationship between two lvalues
+## purely by inspecting their paths. For example, ``a.b`` and ``a.b`` are
+## treated as equals, whereas ``a.b``/``c.d`` and ``a.b`` and ``x[].b`` are
+## not. This means that run-time aliasing (e.g., through pointers) is **not**
+## considered.
 ##
-## Each location that is not allocated via ``new`` or ``alloc`` is owned by a
-## single handle (the name of a local, global, etc.), but can be aliased
-## through both pointers and views. Once the owning handle goes out of scope,
-## the lifetime of the corresponding locatins ends, regardless of whether an
-## unsafe alias (pointer) of it still exists.
-##
-## Instead of assigning a unique ID to each expression, they're identified
-## via the operation sequence that produces them (stored as a ``NodePosition``
-## tuple). While the comparision is not as efficient as an equality test
-## between two integers, it is still relatively cheap, and, in addition, also
-## allows for part-of analysis without requiring complex algorithms or
-## data-structures.
-##
-## Do note that it is assumed that there only exists one handle for each
-## location -- pointers or views are not tracked. Reads or writes through
-## aliases are not detected.
-##
-## ..note:: implementing this is possible. A second step after
-##          ``computeValues`` could perform an abstract execution of
-##          the MIR code to produce a conservative set of possible handles for
-##          each pointer-like dereferencing operation. The analysis routines
-##          would then compare the analysed handle with each set element,
-##          optionally taking types into account in order to reduce the number
-##          of comparisons (i.e. by not comparing handles of differing type)
+## Analysis routine related to liveness take an additional ``Values``
+## instance as input, for knowing about what operation to collapse an
+## ``opConsume`` to.
 ##
 ## When a "before" or "after" relationship is mentioned in the context of
 ## operations, it doesn't refer to the relative memory location of the
@@ -40,8 +20,6 @@
 ## said to come before B and B to come after A. Not all operations are
 ## connected to each other through control-flow however, in which case the
 ## aforementioned relationship doesn't exist.
-##
-## TODO: update the doc comment, large parts of it are outdated
 
 import
   std/[
