@@ -491,8 +491,9 @@ proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
     newLocalRef(cl.tempMap[n.temp], info, n.typ)
   of mnkAlias:
     # the type of the node doesn't match the real one
-    let id = cl.tempMap[n.temp]
-    let typ = cl.locals[id].typ
+    let
+      id = cl.tempMap[n.temp]
+      typ = cl.locals[id].typ
     # the view is auto-dereferenced here for convenience
     newOp(cnkDerefView, info, typ.base, newLocalRef(id, info, typ))
   of mnkLiteral:
@@ -539,7 +540,7 @@ proc lvalueToIr(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
     lvalueToIr(tree, cl, tree.get(cr), cr)
 
   case n.kind
-  of SymbolLike, mnkTemp, mnkAlias:
+  of mnkLocal, mnkGlobal, mnkParam, mnkTemp, mnkAlias, mnkConst, mnkProc:
     return atomToIr(n, cl, info)
   of mnkPathNamed, mnkPathVariant:
     let
@@ -581,7 +582,7 @@ proc lvalueToIr(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
     result = newOp(cnkDeref, info, n.typ, atomToIr(tree, cl, cr))
   of mnkDerefView:
     result = newOp(cnkDerefView, info, n.typ, atomToIr(tree, cl, cr))
-  else:
+  of AllNodeKinds - LvalueExprKinds - {mnkProc}:
     unreachable(n.kind)
 
   leave(tree, cr)
@@ -592,15 +593,14 @@ proc lvalueToIr(tree: TreeWithSource, cl: var TranslateCl,
 
 proc valueToIr(tree: TreeWithSource, cl: var TranslateCl,
                cr: var TreeCursor): CgNode =
-  let n {.cursor.} = tree.get(cr)
-  case n.kind
+  case tree[cr].kind
   of SymbolLike, mnkTemp, mnkAlias, mnkLiteral, mnkType:
-    atomToIr(n, cl, cr.info)
+    atomToIr(tree, cl, cr)
   of mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathConv, mnkPathVariant,
      mnkDeref, mnkDerefView:
-    lvalueToIr(tree, cl, n, cr)
+    lvalueToIr(tree, cl, cr)
   else:
-    unreachable("not a value: " & $n.kind)
+    unreachable("not a value: " & $tree[cr].kind)
 
 proc argToIr(tree: TreeWithSource, cl: var TranslateCl,
              cr: var TreeCursor): (bool, CgNode) =
@@ -801,30 +801,34 @@ proc stmtToIr(tree: TreeWithSource, cl: var TranslateCl,
   template body(): CgNode =
     bodyToIr(tree, cl, cr)
 
-  # TODO: reduce the amount of boilerplate a bit
+  template to(kind: CgNodeKind, args: varargs[untyped]): CgNode =
+    let r = newStmt(kind, info, args)
+    leave(tree, cr)
+    r
+
+  template toList(k: CgNodeKind, body: untyped): CgNode =
+    let res {.inject.} = newStmt(k, info)
+    while tree[cr].kind != mnkEnd:
+      body
+    leave(tree, cr)
+    res
 
   case n.kind
   of DefNodes:
-    # a definition of an entity with no initial value
-    result = defToIr(tree, cl, n, cr)
+    defToIr(tree, cl, n, cr)
   of mnkAsgn, mnkInit, mnkSwitch:
-    result = newStmt(cnkAsgn, info, [lvalueToIr(tree, cl, cr), exprToIr(tree, cl, cr)])
-    leave(tree, cr)
+    to cnkAsgn, lvalueToIr(tree, cl, cr), exprToIr(tree, cl, cr)
   of mnkFastAsgn:
-    result = newStmt(cnkFastAsgn, info, [lvalueToIr(tree, cl, cr), exprToIr(tree, cl, cr)])
-    leave(tree, cr)
+    to cnkFastAsgn, lvalueToIr(tree, cl, cr), exprToIr(tree, cl, cr)
   of mnkRepeat:
-    result = newStmt(cnkRepeatStmt, info, body())
-    leave(tree, cr)
+    to cnkRepeatStmt, body()
   of mnkBlock:
     cl.blocks.add n.label # push the label to the stack
-    result = newStmt(cnkBlockStmt, info,
-                     newLabelNode(cl.blocks.high.BlockId, info),
-                     body())
+    let body = body()
     cl.blocks.setLen(cl.blocks.len - 1) # pop block from the stack
-    leave(tree, cr)
+    to cnkBlockStmt, newLabelNode(cl.blocks.len.BlockId, info), body
   of mnkTry:
-    result = newStmt(cnkTryStmt, info, [body()])
+    let res = newStmt(cnkTryStmt, info, [body()])
     assert n.len <= 2
 
     for _ in 0..<n.len:
@@ -841,71 +845,61 @@ proc stmtToIr(tree: TreeWithSource, cl: var TranslateCl,
             excpt.add tbExceptItem(tree, cl, cr)
 
           excpt.add body()
-          result.add excpt
+          res.add excpt
 
           leave(tree, cr)
 
       of mnkFinally:
-        result.add newTree(cnkFinally, cr.info, body())
+        res.add newTree(cnkFinally, cr.info, body())
       else:
         unreachable(it.kind)
 
       leave(tree, cr)
 
     leave(tree, cr)
+    res
   of mnkBreak:
     # find the stack index of the enclosing 'block' identified by the break's
     # label; we use the index as the ID
     var idx = cl.blocks.high
     while idx >= 0 and cl.blocks[idx] != n.label:
       dec idx
-    result = newStmt(cnkBreakStmt, info, [newLabelNode(BlockId idx, info)])
+    newStmt(cnkBreakStmt, info, [newLabelNode(BlockId idx, info)])
   of mnkReturn:
-    result = newNode(cnkReturnStmt, info)
+    newNode(cnkReturnStmt, info)
   of mnkPNode:
-    result = translateNode(n.node)
+    translateNode(n.node)
   of mnkVoid:
-    result = exprToIr(tree, cl, cr)
-    if result.typ.isEmptyType():
-      # a void call doesn't need to be discarded
+    var res = exprToIr(tree, cl, cr)
+    if res.typ.isEmptyType():
+      # a void expression doesn't need to be discarded
       discard
     else:
-      result = newStmt(cnkVoidStmt, cr.info, [result])
+      res = newStmt(cnkVoidStmt, info, [res])
     leave(tree, cr)
+    res
   of mnkIf:
-    result = newStmt(cnkIfStmt, cr.info, [valueToIr(tree, cl, cr), body()])
-    leave(tree, cr)
+    to cnkIfStmt, valueToIr(tree, cl, cr), body()
   of mnkRaise:
     # the operand can either be empty or an lvalue expression
-    let arg {.cursor.} = tree.get(cr)
-    result = newStmt(cnkRaiseStmt, cr.info):
-      case arg.kind
-      of mnkNone: atomToIr(arg, cl, cr.info)
-      else:       lvalueToIr(tree, cl, arg, cr)
-    leave(tree, cr)
+    to cnkRaiseStmt:
+      case tree[cr].kind
+      of mnkNone: atomToIr(tree, cl, cr)
+      else:       lvalueToIr(tree, cl, cr)
   of mnkCase:
-    result = caseToIr(tree, cl, n, cr)
+    caseToIr(tree, cl, n, cr)
   of mnkAsm:
-    let n = newStmt(cnkAsmStmt, cr.info)
-    while tree[cr].kind != mnkEnd:
-      n.add valueToIr(tree, cl, cr)
-    leave(tree, cr)
-    result = n
+    toList cnkAsmStmt:
+      res.add valueToIr(tree, cl, cr)
   of mnkEmit:
-    let n = newStmt(cnkEmitStmt, cr.info)
-    while tree[cr].kind != mnkEnd:
-      n.add valueToIr(tree, cl, cr)
-    leave(tree, cr)
-    result = n
+    toList cnkEmitStmt:
+      res.add valueToIr(tree, cl, cr)
   of mnkStmtList:
-    var list = newStmt(cnkStmtList, cr.info)
-    while tree[cr].kind != mnkEnd:
-      list.kids.addIfNotEmpty stmtToIr(tree, cl, cr)
-    leave(tree, cr)
-    result = list
+    toList cnkStmtList:
+      res.kids.addIfNotEmpty stmtToIr(tree, cl, cr)
   of mnkScope:
-    result = toSingleNode scopeToIr(tree, cl, cr)
-  else:
+    toSingleNode scopeToIr(tree, cl, cr)
+  of AllNodeKinds - StmtNodes:
     unreachable(n.kind)
 
 proc caseToIr(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
@@ -931,19 +925,28 @@ proc exprToIr(tree: TreeWithSource, cl: var TranslateCl,
   ## Moves the cursor to the next tree item.
   let n {.cursor.} = get(tree, cr)
   let info = cr.info
+
+  template op(kind: CgNodeKind, e: CgNode): CgNode =
+    let r = newOp(kind, info, n.typ, e)
+    leave(tree, cr)
+    r
+
+  template treeOp(k: CgNodeKind, body: untyped): CgNode =
+    let res {.inject.} = newExpr(k, info, n.typ)
+    while tree[cr].kind != mnkEnd:
+      body
+    leave(tree, cr)
+    res
+
   case n.kind
   of Atoms:
-    atomToIr(n, cl, cr.info)
-  of mnkCall, mnkMagic:
-    callToIr(tree, cl, n, cr)
+    atomToIr(n, cl, info)
+  of mnkPathVariant, mnkPathArray, mnkPathConv, mnkPathNamed, mnkPathPos:
+    lvalueToIr(tree, cl, n, cr)
   of mnkCast:
-    let res = newOp(cnkCast, info, n.typ, valueToIr(tree, cl, cr))
-    leave(tree, cr)
-    res
+    op cnkCast, valueToIr(tree, cl, cr)
   of mnkConv:
-    let res = newOp(cnkConv, info, n.typ, valueToIr(tree, cl, cr))
-    leave(tree, cr)
-    res
+    op cnkConv, valueToIr(tree, cl, cr)
   of mnkStdConv:
     let
       opr = valueToIr(tree, cl, cr)
@@ -977,34 +980,19 @@ proc exprToIr(tree: TreeWithSource, cl: var TranslateCl,
     let arg = valueToIr(tree, cl, cr)
     leave(tree, cr)
     arg
-  of mnkPathVariant, mnkPathArray, mnkPathConv, mnkPathNamed, mnkPathPos:
-    lvalueToIr(tree, cl, n, cr)
   of mnkAddr:
-    let res = newOp(cnkAddr, info, n.typ, lvalueToIr(tree, cl, cr))
-    leave(tree, cr)
-    res
+    op cnkAddr, lvalueToIr(tree, cl, cr)
   of mnkDeref:
-    let res = newOp(cnkDeref, info, n.typ, atomToIr(tree, cl, cr))
-    leave(tree, cr)
-    res
+    op cnkDeref, atomToIr(tree, cl, cr)
   of mnkView:
-    let res = newOp(cnkHiddenAddr, info, n.typ, lvalueToIr(tree, cl, cr))
-    leave(tree, cr)
-    res
+    op cnkHiddenAddr, lvalueToIr(tree, cl, cr)
   of mnkDerefView:
-    let res = newOp(cnkDerefView, info, n.typ, atomToIr(tree, cl, cr))
-    leave(tree, cr)
-    res
+    op cnkDerefView, atomToIr(tree, cl, cr)
   of mnkObjConstr:
     assert n.typ.skipTypes(abstractVarRange).kind in {tyObject, tyRef}
-    var node = newExpr(cnkObjConstr, info, n.typ)
-    for j in 0..<n.len:
-      let f {.cursor.} = get(tree, cr)
-      node.add newTree(cnkBinding, cr.info,
-                       [newSymNode(f.field), argToIr(tree, cl, cr)[1]])
-
-    leave(tree, cr)
-    node
+    treeOp cnkObjConstr:
+      let f = newSymNode(get(tree, cr).field)
+      res.add newTree(cnkBinding, cr.info, [f, argToIr(tree, cl, cr)[1]])
   of mnkConstr:
     let typ = n.typ.skipTypes(abstractVarRange)
 
@@ -1019,12 +1007,11 @@ proc exprToIr(tree: TreeWithSource, cl: var TranslateCl,
       else:
         unreachable(typ.kind)
 
-    let res = newExpr(kind, info, n.typ)
-    while tree[cr].kind != mnkEnd:
+    treeOp kind:
       res.add argToIr(tree, cl, cr)[1]
-    leave(tree, cr)
-    res
-  else:
+  of mnkCall, mnkMagic:
+    callToIr(tree, cl, n, cr)
+  of AllNodeKinds - ExprKinds - {mnkNone}:
     unreachable(n.kind)
 
 proc genDefFor(sym: sink CgNode): CgNode =
