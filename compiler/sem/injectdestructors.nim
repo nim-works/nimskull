@@ -378,17 +378,18 @@ func initEntityDict(tree: MirTree, dfg: DataFlowGraph): EntityDict =
     else:
       discard
 
-func computeOwnership(tree: MirTree, cfg: DataFlowGraph, values: Values,
-                      entities: EntityDict, lval: Path, start: InstrPos
-                     ): Owned =
+func computeOwnership(tree: MirTree, cfg: DataFlowGraph, entities: EntityDict,
+                      lval: Path, start: InstrPos): bool =
+  ## Computes for `lval` whether it can be moved from (i.e., ownership of the
+  ## value transferred) at the program position `start`.
   case tree[lval.root].kind
   of mnkDeref, mnkDerefView, mnkConst:
     # * derefs reaching here means that they couldn't be resolved
     # * handles to constant locations are never owning
-    Owned.no
+    false
   of mnkLiteral:
     # literals can be moved (although not destructively)
-    Owned.yes
+    true
   of mnkLocal, mnkParam, mnkGlobal, mnkTemp:
     # only entities that are relevant for destructor injection have an entry in
     # `entities`. Those that don't also can't be consumed (because we either
@@ -402,33 +403,22 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, values: Values,
     #       visit it first
     var exists = false
     let aliveRange = entities.getAliveGraph(toName(tree[lval.root]), exists)
-    if exists and not isCursor(tree, lval) and
-       isLastRead(tree, cfg, values, aliveRange, lval, start):
-      Owned.yes
-    else:
-      Owned.no
+    exists and not isCursor(tree, lval) and
+      isLastRead(tree, cfg, aliveRange, lval, start)
   else:
     unreachable()
 
-func solveOwnership(tree: MirTree, cfg: DataFlowGraph, values: var Values,
-                    entities: EntityDict) =
+func solveOwnership(tree: MirTree, cfg: DataFlowGraph,
+                    entities: EntityDict): Values =
   ## Computes for all lvalues used in consume context whether they're owning
-  ## or not. `values` is updated with the results.
+  ## or not. Returns a ``Values`` instance with the results.
   # search for 'consume' instructions and compute for their operands whether
   # it's a handle that owns the location's value
   for i, op, opr in cfg.instructions:
-    if op == opConsume:
-      if hasDestructor(tree[opr].typ):
-        # unresolved onwership status and has a destructors
-        values.setOwned(opr):
-          computeOwnership(tree, cfg, values, entities,
-                           computePath(tree, NodePosition opr), i + 1)
-      else:
-        # later analysis expects the status to be set for all lvalues
-        # appearing in consume contexts. Use `no`, but `yes` would work
-        # too
-        values.setOwned(opr): Owned.no
-
+    if op == opConsume and hasDestructor(tree[opr].typ) and
+       computeOwnership(tree, cfg, entities,
+                        computePath(tree, NodePosition opr), i + 1):
+      result.markOwned(opr)
     else:
       discard "nothing to do"
 
@@ -567,7 +557,7 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
     # to be reset
     return true
 
-  let res = isLastWrite(tree, cfg, ar.v[], info.scope, src, at)
+  let res = isLastWrite(tree, cfg, info.scope, src, at)
 
   if res.result:
     if res.escapes or res.exits:
@@ -593,26 +583,26 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
     # the presence of the value is observed -> a reset is required
     result = true
 
-func isOwned(tree: MirTree, v: Values, n: NodePosition): Owned =
+func isOwned(tree: MirTree, v: Values, n: NodePosition): bool =
   ## Returns whether expression `n` is owning.
   case tree[n].kind:
   of LvalueExprKinds - {mnkDeref, mnkDerefView}:
-    v.owned(OpValue n)
+    v.isOwned(OpValue n)
   of mnkDeref, mnkDerefView:
-    Owned.no
+    false
   of mnkLiteral, mnkProc, mnkType:
-    Owned.yes
+    true
   of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice:
     # the result of these operations is not an owned value
-    Owned.no
+    false
   of mnkCall, mnkMagic, mnkObjConstr:
-    Owned.yes
+    true
   of mnkConstr:
     case tree[n].typ.skipTypes(abstractInst).kind
     of tySequence:
-      Owned.no # sequence constructors are immutable constants
+      false # sequence constructors are immutable constants
     else:
-      Owned.yes
+      true
   of AllNodeKinds - ExprKinds:
     unreachable(tree[n].kind)
 
@@ -705,7 +695,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
   if relation.isSame:
     # a self-assignment -> elide
     c.remove(tree, stmt)
-  elif isOwned(tree, ar.v[], source) == Owned.yes:
+  elif isOwned(tree, ar.v[], source):
     # we own the source value -> sink
     if true:
       let fromLvalue = isNamed(tree, OpValue source)
@@ -800,7 +790,7 @@ proc expandDef(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
     dest   = NodePosition tree.operand(at, 0)
     source = NodePosition tree.operand(at, 1)
   case isOwned(tree, ar.v[], source)
-  of Owned.no:
+  of false:
     # a copy is required. Transform ``def x = a.b`` into:
     #   def x
     #   bind _1 = a.b
@@ -813,7 +803,7 @@ proc expandDef(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       # the destination can only be a cell-like location (local, global,
       # etc.), no cycle can possibly be introduced
       genCopy(bu, ctx.graph, a, b, false)
-  of Owned.yes:
+  of true:
     if isNamed(tree, OpValue source) and
        needsReset(tree, ctx.cfg, ar, computePath(tree, source), pos):
       # the value can be moved, but the location needs to be reset. Transform
@@ -827,8 +817,6 @@ proc expandDef(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       c.replace(tree, source): tmp.node
       c.insert(tree, tree.sibling(at), source, bu):
         genWasMoved(bu, ctx.graph, clear)
-  else:
-    unreachable()
 
 proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                 expr: NodePosition, src: OpValue, pos: InstrPos,
@@ -950,7 +938,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         let src = NodePosition tree.operand(stmt, 1)
         # ignore definitions with no initializer
         if tree[src].kind != mnkNone:
-          if isOwned(tree, ar.v[], src) == Owned.no:
+          if not isOwned(tree, ar.v[], src):
             checkCopy(ctx.graph, tree, src, diags)
             # emit a warning for copies-to-sink
             if isUsedForSink(tree, stmt):
@@ -959,7 +947,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
           expandDef(tree, ctx, ar, stmt, i, c)
       of mnkAsgn, mnkInit:
         let src = NodePosition tree.operand(stmt, 1)
-        if isOwned(tree, ar.v[], src) == Owned.no:
+        if not isOwned(tree, ar.v[], src):
           checkCopy(ctx.graph, tree, src, diags)
         expandAsgn(tree, ctx, ar, stmt, i, c)
       else:
@@ -1205,9 +1193,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
     let
       actx = AnalyseCtx(graph: g, cfg: computeDfg(tree))
       entities = initEntityDict(tree, actx.cfg)
-
-    var values: Values
-    solveOwnership(tree, actx.cfg, values, entities)
+      values = solveOwnership(tree, actx.cfg, entities)
 
     let destructors = computeDestructors(tree, actx.cfg, values, entities)
 

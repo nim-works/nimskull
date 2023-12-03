@@ -45,6 +45,7 @@
 
 import
   std/[
+    packedsets,
     tables
   ],
   compiler/ast/[
@@ -62,22 +63,11 @@ import
     containers
   ]
 
-import std/packedsets
-
 type
-  Owned* {.pure.} = enum
-    # TODO: remove ``Owned`` and use a ``PackedSet`` instead
-    no
-    yes
-    weak ## values derived from compound values (e.g. ``object``, ``tuple``,
-         ## etc.) that are weakly owned decay to no ownership. Rvalues are
-         ## weakly owned -- they can be consumed directly, but sub-values of
-         ## them can't
-    unknown
-
   Values* = object
     ## Stores information about MIR expressions.
-    status: Table[OpValue, Owned]
+    owned: PackedSet[OpValue]
+      ## all lvalue expressions that can be moved from
 
   AliveState = enum
     unchanged
@@ -94,11 +84,11 @@ func skipConversions*(tree: MirTree, val: OpValue): OpValue =
   while tree[result].kind == mnkPathConv:
     result = tree.operand(result)
 
-template owned*(v: Values, val: OpValue): Owned =
-  v.status[val]
+func isOwned*(v: Values, val: OpValue): bool {.inline.} =
+  val in v.owned
 
-func setOwned*(v: var Values, val: OpValue, owns: Owned) {.inline.} =
-  v.status[val] = owns
+func markOwned*(v: var Values, val: OpValue) {.inline.} =
+  v.owned.incl val
 
 func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
              span: Subgraph, loc: Path, start: InstrPos): bool =
@@ -145,7 +135,7 @@ func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
         return true
 
     of opConsume:
-      if v.owned(n) == Owned.yes:
+      if v.isOwned(n):
         if isPartOf(tree, loc, path n) == yes:
           # the location's value is consumed and it becomes empty. No operation
           # coming before the current one can change that, so we can stop
@@ -160,9 +150,8 @@ func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
   # no mutation is directly connected to `start`. The location is not alive
   result = false
 
-func isLastRead*(tree: MirTree, cfg: DataFlowGraph, values: Values,
-                 span: Subgraph, loc: Path, start: InstrPos
-                ): bool =
+func isLastRead*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph,
+                 loc: Path, start: InstrPos): bool =
   ## Performs data-flow analysis to compute whether the value that `loc`
   ## evaluates to when `start` is reached (but not executed) is *not*
   ## observed by operations that have a control-flow dependency on the
@@ -217,9 +206,8 @@ func isLastRead*(tree: MirTree, cfg: DataFlowGraph, values: Values,
   # no further read of the value is connected to `start`
   result = true
 
-func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, values: Values,
-                  span: Subgraph, loc: Path, start: InstrPos
-                 ): tuple[result, exits, escapes: bool] =
+func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph, loc: Path,
+                  start: InstrPos): tuple[result, exits, escapes: bool] =
   ## Computes whether the location `loc` is reassigned or modified on any paths
   ## starting from and including `start`, returning 'false' if yes and 'true'
   ## if not. In other words, computes whether a reassignment or mutation that
@@ -303,7 +291,7 @@ func computeAliveOp*[T: PSym | TempId](
         result = alive
 
   of opConsume:
-    if values.owned(n) == Owned.yes and sameLocation(n):
+    if values.isOwned(n) and sameLocation(n):
       # the location's value is consumed
       result = dead
 
