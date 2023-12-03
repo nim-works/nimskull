@@ -803,7 +803,6 @@ proc genAsgn(p: BProc, e: CgNode) =
     let le = e[0]
     let ri = e[1]
     var a: TLoc
-    discard getTypeDesc(p.module, le.typ.skipTypes(skipPtrs), skVar)
     initLoc(a, locNone, le, OnUnknown)
     a.flags.incl {lfEnforceDeref, lfPrepareForMutation, lfWantLvalue}
     expr(p, le, a)
