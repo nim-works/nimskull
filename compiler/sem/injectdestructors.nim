@@ -1047,13 +1047,13 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
                                toOpenArray(entries, s.a, s.b))
 
 proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
-                       idgen: IdGenerator, op: Operation) =
+                       idgen: IdGenerator, stmt: NodePosition) =
   ## Lowers a 'switch' operation into a simple discriminant assignment plus
   ## the logic for destroying the previous branch (if necessary)
-  assert body[op].kind == mnkSwitch
+  assert body[stmt].kind == mnkSwitch
 
   let
-    target = operand(body, NodePosition op, 0)
+    target = body.operand(stmt, 0)
     objType = body[target].typ
     typ = body[target].field.typ
 
@@ -1064,7 +1064,7 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
       # bind the discriminator lvalue, not the variant lvalue
       bu.subTree MirNode(kind: mnkPathNamed, typ: typ, field: body[target].field):
         bu.emitFrom(body, NodePosition body.operand(target))
-    b = bu.inline(body, NodePosition body.operand(NodePosition op, 1))
+    b = bu.inline(body, NodePosition body.operand(stmt, 1))
 
   # check if the object contains fields requiring destruction:
   if hasDestructor(objType):
@@ -1180,7 +1180,7 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
       for i, n in tree.pairs:
         if n.kind == mnkSwitch:
           changes.replaceMulti(tree, i, buf):
-            lowerBranchSwitch(buf, tree, g, idgen, Operation i)
+            lowerBranchSwitch(buf, tree, g, idgen, i)
 
     apply(changes)
 

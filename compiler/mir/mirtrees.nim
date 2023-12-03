@@ -313,22 +313,12 @@ type
   MirNodeSeq* = seq[MirNode]
     ## A buffer of MIR nodes without any further meaning
 
-  # XXX: some of the distinct types below have a super/sub-type relation to
-  #      each other, but this can't be expressed in the language right now
-  #      (without turning the types into empty ``object``s)
-
   NodeIndex* = uint32
-  NodeInstance* = distinct range[0'u32..high(uint32)-1]
-    ## refers to a node as just a node. Used to communicate that only the node
-    ## itself is of interest, not what it represents
   NodePosition* = distinct int32
     ## refers to a ``MirNode`` of which the position relative to other nodes
     ## has meaning. Uses a signed integer as the base
-  Operation* = distinct uint32
-    ## refers to a ``MirNode`` that represents an operation
   OpValue* = distinct uint32
-    ## refers to a value an operation produces
-  # TODO: some of the distinctions aren't as useful anymore; clean them up
+    ## refers to an node appearing in an expression/operand position
 
   ArgKinds = range[mnkArg..mnkConsume]
     ## helper type to make writing exhaustive case statement easier
@@ -400,9 +390,6 @@ func `==`*(a, b: SourceId): bool {.borrow.}
 func `==`*(a, b: TempId): bool {.borrow.}
 func `==`*(a, b: LabelId): bool {.borrow.}
 
-# make ``NodeInstance`` available to be used with ``OptIndex``:
-template indexLike*(_: typedesc[NodeInstance]) = discard
-
 # XXX: ideally, the arithmetic operations on ``NodePosition`` should not be
 #      exported. How the nodes are stored should be an implementation detail
 
@@ -418,21 +405,14 @@ template `dec`*(a: var NodePosition) =
 template `inc`*(a: var NodePosition) =
   inc int32(a)
 
-converter toOp*(x: OpValue): Operation {.inline.} =
-  ## For convenience, a converter is provided for this conversion. Each
-  ## ``OpValue`` is always backed by an ``Operation``
-  Operation(x)
-
 func `<`*(a, b: NodePosition): bool {.borrow, inline.}
 func `<=`*(a, b: NodePosition): bool {.borrow, inline.}
 func `==`*(a, b: NodePosition): bool {.borrow, inline.}
 
-func `==`*(a, b: Operation): bool {.borrow, inline.}
-
 func `in`*(p: NodePosition, tree: MirTree): bool {.inline.} =
   ord(p) >= 0 and ord(p) < tree.len
 
-template `[]`*(tree: MirTree, i: NodePosition | NodeInstance | Operation | OpValue): untyped =
+template `[]`*(tree: MirTree, i: NodePosition | OpValue): untyped =
   tree[ord(i)]
 
 func parent*(tree: MirTree, n: NodePosition): NodePosition =
@@ -568,7 +548,7 @@ func numArgs*(tree: MirTree, n: NodePosition): int =
     inc result
     n = tree.sibling(n)
 
-func operand*(tree: MirTree, op: Operation|OpValue|NodePosition): OpValue =
+func operand*(tree: MirTree, op: OpValue|NodePosition): OpValue =
   ## Returns the index (``OpValue``) of the operand for the single-input node
   ## at `op`.
   assert tree[op].kind in SingleOperandNodes, $tree[op].kind
