@@ -2,7 +2,6 @@ discard """
   targets: "c js vm"
   matrix: "--experimental:views"
   description: "Tests for assigning first-class openArrays to object fields"
-  knownIssue.c: "`cgen` produces illegal C code"
 """
 
 type Object[T] = object

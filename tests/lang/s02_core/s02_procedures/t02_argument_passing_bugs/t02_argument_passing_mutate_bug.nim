@@ -3,9 +3,9 @@ description: '''
 Mutating variable while passing it to the procedure
 arguments works differently on different backends.
 '''
-knownIssue.c js: "https://github.com/nim-lang/Nim/issues/18099"
 """
 
+# XXX: change the test to be more a proper specification test
 
 proc impl(a, b, c: int): (int, int, int) = (a, b, c)
 
@@ -20,18 +20,10 @@ block use_temporary:
 
 
 block fail_to_mutate_argument:
-  ## Mutating argument in-place reuses final value for all
-  ## arguments. Expected `(0, 1, 2)`, but right now `impl` returns
-  ## `(2, 2, 2)`
-  ##
-  ## Works correctly with ARC and ORC, fails on the default GC
   var i = 0
   doAssert impl(i, (inc i; i), (inc i; i)) == (0, 1, 2)
 
 block use_temporary:
-  ## Using proc with temporary values also does not work. Returns `(2, 1, 2)`
-  ##
-  ## Fails on both default and ARC/ORC GC
   var i = 0
   proc arg(): int = inc i; i
 
