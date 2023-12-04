@@ -267,15 +267,19 @@ template scope*(bu: var MirBuilder, body: untyped) =
   bu.subTree MirNode(kind: mnkScope):
     body
 
-proc allocTemp*(bu: var MirBuilder, t: PType; alias = false): Value =
+func allocTemp(bu: MirBuilder, t: PType; id: TempId, alias: bool): Value =
   ## Allocates a new temporary or alias and returns it.
   let kind = if alias: mnkAlias
              else:     mnkTemp
   {.cast(uncheckedAssign).}:
-    result = Value(node: MirNode(kind: kind, typ: t,
-                                  temp: TempId bu.numTemps))
+    result = Value(node: MirNode(kind: kind, typ: t, temp: id),
+                   info: someOpt bu.currentSourceId)
+
+template allocTemp*(bu: var MirBuilder, t: PType, alias = false): Value =
+  # XXX: the only purpose of this is to work around a ``strictFuncs`` bug
+  let id = TempId bu.numTemps
   inc bu.numTemps
-  result.info = someOpt bu.currentSourceId
+  allocTemp(bu, t, id, alias)
 
 func use*(bu: var MirBuilder, val: sink Value) {.inline.} =
   ## Emits a use of `val`.

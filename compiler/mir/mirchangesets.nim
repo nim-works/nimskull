@@ -110,7 +110,8 @@ func changeTree*(c: var Changeset, tree: MirTree, at: NodePosition,
     e = tree.findEnd(at)
     with2 = MirNode(kind: mnkEnd, start: with.kind, info: tree[e].info)
 
-  with.info = tree[at].info
+  {.cast(noSideEffect).}: # XXX: compiler bug workaround
+    with.info = tree[at].info
   c.rows.add row(at, at+1, c.nodes.addSingle(with))
   # the end node needs to be replaced too
   c.rows.add row(e, e+1, c.nodes.addSingle(with2))
