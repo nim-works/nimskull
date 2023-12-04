@@ -35,55 +35,56 @@ scope:
           while true:
             scope:
               def_cursor _0: int = i
-              def_cursor _1: int = b
-              def _2: bool = <(arg _0, arg _1)
-              def _3: bool = not(arg _2)
-              if _3:
+              def_cursor _1: bool = <(arg _0, arg b)
+              def_cursor _2: bool = not(arg _1)
+              if _2:
                 scope:
                   break L0
               scope:
                 scope:
                   def_cursor i: int = i
-                  def_cursor _4: int = i
-                  def _5: bool = ==(arg _4, arg 2)
-                  if _5:
+                  def_cursor _3: bool = ==(arg i, arg 2)
+                  if _3:
                     scope:
                       return
-                  def _6: seq[int]
-                  =copy(name _6, arg x)
-                  add(name a, consume _6)
+                  def _4: seq[int]
+                  =copy(name _4, arg x)
+                  add(name a, consume _4)
                 inc(name i, arg 1)
     block L1:
       if cond:
         scope:
-          def _7: seq[int] = x
+          def _5: seq[int] = x
           wasMoved(name x)
-          add(name a, consume _7)
+          add(name a, consume _5)
           break L1
       scope:
-        def _8: seq[int] = x
+        def _6: seq[int] = x
         wasMoved(name x)
-        add(name b, consume _8)
+        add(name b, consume _6)
   finally:
     =destroy(name x)
     =destroy(name b)
     =destroy(name a)
 -- end of expandArc ------------------------
 --expandArc: texit
-var str
-var x
-try:
-  x = $(cond)
-  if cond:
-    return
-  str = $(cond)
-  if not(cond):
-    result = str
-    wasMoved(str)
-    return
-finally:
-  =destroy(x)
-  =destroy(str)
+scope:
+  try:
+    def str: string
+    def x: string = $(arg cond)
+    if cond:
+      scope:
+        return
+    str = $(arg cond)
+    def_cursor _0: bool = not(arg cond)
+    if _0:
+      scope:
+        result = str
+        wasMoved(name str)
+        return
+  finally:
+    =destroy(name x)
+    =destroy(name str)
 -- end of expandArc ------------------------'''
 """
 

@@ -35,8 +35,8 @@ scope:
               while true:
                 scope:
                   def_cursor _1: File = f
-                  def _2: bool = readLine(arg _1, name res)
-                  def _3: bool = not(arg _2)
+                  def_cursor _2: bool = readLine(arg _1, name res)
+                  def_cursor _3: bool = not(arg _2)
                   if _3:
                     scope:
                       break L0
@@ -49,8 +49,8 @@ scope:
           =destroy(name res)
     finally:
       scope:
-        def_cursor _6: File = f
-        close(arg _6)
+        def_cursor _5: File = f
+        close(arg _5)
 -- end of expandArc ------------------------'''
 """
 

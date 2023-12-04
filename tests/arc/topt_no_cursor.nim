@@ -102,29 +102,28 @@ scope:
           while true:
             scope:
               def_cursor _1: int = i
-              def_cursor _2: int = L
-              def _3: bool = <(arg _1, arg _2)
-              def _4: bool = not(arg _3)
-              if _4:
+              def_cursor _2: bool = <(arg _1, arg L)
+              def_cursor _3: bool = not(arg _2)
+              if _3:
                 scope:
                   break L0
               scope:
                 scope:
                   try:
-                    def_cursor _5: int = i
-                    def line: lent string = borrow a[_5]
-                    def_cursor _6: string = line[]
-                    def splitted: seq[string] = split(arg _6, arg " ", arg -1)
-                    def_cursor _7: string = splitted[0]
-                    def _8: bool = ==(arg _7, arg "opt")
-                    if _8:
+                    def_cursor _4: int = i
+                    def line: lent string = borrow a[_4]
+                    def_cursor _5: string = line[]
+                    def splitted: seq[string] = split(arg _5, arg " ", arg -1)
+                    def_cursor _6: string = splitted[0]
+                    def_cursor _7: bool = ==(arg _6, arg "opt")
+                    if _7:
                       scope:
-                        def _11: string = splitted[1]
-                        =copy(name lan_ip, arg _11)
-                    def_cursor _9: string = lan_ip
+                        def _10: string = splitted[1]
+                        =copy(name lan_ip, arg _10)
+                    def_cursor _8: string = lan_ip
+                    echo(arg type(array[0..0, string]), arg _8)
+                    def_cursor _9: string = splitted[1]
                     echo(arg type(array[0..0, string]), arg _9)
-                    def_cursor _10: string = splitted[1]
-                    echo(arg type(array[0..0, string]), arg _10)
                   finally:
                     =destroy(name splitted)
                 inc(name i, arg 1)
@@ -135,8 +134,8 @@ scope:
 scope:
   try:
     def shadowScope: Scope
-    def _8: Scope = c[].currentScope
-    =copy(name shadowScope, arg _8)
+    def _7: Scope = c[].currentScope
+    =copy(name shadowScope, arg _7)
     rawCloseScope(arg c)
     scope:
       def_cursor _0: Scope = shadowScope
@@ -149,38 +148,44 @@ scope:
           while true:
             scope:
               def_cursor _2: int = i
-              def_cursor _3: int = L
-              def _4: bool = <(arg _2, arg _3)
-              def _5: bool = not(arg _4)
-              if _5:
+              def_cursor _3: bool = <(arg _2, arg L)
+              def_cursor _4: bool = not(arg _3)
+              if _4:
                 scope:
                   break L0
               scope:
                 scope:
-                  def_cursor _6: int = i
-                  def sym: lent Symbol = borrow a[_6]
-                  def _7: Symbol
-                  def _9: Symbol = sym[]
-                  =copy(name _7, arg _9)
-                  addInterfaceDecl(arg c, consume _7)
+                  def_cursor _5: int = i
+                  def sym: lent Symbol = borrow a[_5]
+                  def _6: Symbol
+                  def _8: Symbol = sym[]
+                  =copy(name _6, arg _8)
+                  addInterfaceDecl(arg c, consume _6)
                 inc(name i, arg 1)
   finally:
     =destroy(name shadowScope)
 -- end of expandArc ------------------------
 --expandArc: treturn
 
-var :aux_2
-try:
-  if ==(len(x), 2):
-    result = x
-    wasMoved(x)
-    return
-  echo([
-    :aux_2 = $(len(x))
-    :aux_2])
-finally:
-  =destroy(:aux_2)
-  =destroy(x)
+scope:
+  try:
+    def x: sink string
+    def_cursor _0: sink string = x
+    def_cursor _1: int = len(arg _0)
+    def_cursor _2: bool = ==(arg _1, arg 2)
+    if _2:
+      scope:
+        result = x
+        wasMoved(name x)
+        return
+    def_cursor _3: sink string = x
+    def_cursor _4: int = len(arg _3)
+    def _5: string = $(arg _4)
+    echo(arg type(array[0..0, string]), arg _5)
+  finally:
+    =destroy(name _5)
+    =destroy(name x)
+
 -- end of expandArc ------------------------
 --expandArc: check
 
@@ -191,7 +196,7 @@ scope:
     def _1: tuple[dir: string, front: string]
     block L0:
       def_cursor _2: string = this[].value
-      def _3: bool = dirExists(arg _2)
+      def_cursor _3: bool = dirExists(arg _2)
       if _3:
         scope:
           def _4: string
@@ -218,7 +223,7 @@ scope:
     def par: tuple[dir: string, front: string] = _1
     block L1:
       def_cursor _10: string = par.0
-      def _11: bool = dirExists(arg _10)
+      def_cursor _11: bool = dirExists(arg _10)
       if _11:
         scope:
           def_cursor _12: string = par.0
@@ -228,9 +233,9 @@ scope:
           =sink(name _18, arg _17)
           break L1
       scope:
-        def _19: seq[string] = []
-        bind_mut _20: seq[string] = this[].matchDirs
-        =sink(name _20, arg _19)
+        bind_mut _19: seq[string] = this[].matchDirs
+        def _20: seq[string] = construct ()
+        =copy(name _19, arg _20)
   finally:
     =destroy(name par)
 -- end of expandArc ------------------------'''

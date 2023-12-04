@@ -10,9 +10,9 @@ scope:
       while true:
         scope:
           def_cursor _0: Node = it
-          def _1: bool = ==(arg _0, arg nil)
-          def _2: bool = not(arg _1)
-          def _3: bool = not(arg _2)
+          def_cursor _1: bool = ==(arg _0, arg nil)
+          def_cursor _2: bool = not(arg _1)
+          def_cursor _3: bool = not(arg _2)
           if _3:
             scope:
               break L0
@@ -28,9 +28,9 @@ scope:
       while true:
         scope:
           def_cursor _7: Node = jt
-          def _8: bool = ==(arg _7, arg nil)
-          def _9: bool = not(arg _8)
-          def _10: bool = not(arg _9)
+          def_cursor _8: bool = ==(arg _7, arg nil)
+          def_cursor _9: bool = not(arg _8)
+          def_cursor _10: bool = not(arg _9)
           if _10:
             scope:
               break L1
