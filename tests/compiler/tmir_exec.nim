@@ -237,8 +237,6 @@ proc useChain(p: Program, defId, start: int): seq[int] =
              "instruction already visited; either the algorithm or CFG is broken"
     visited[int i] = true
 
-    debugEcho "data-flow: ", op, " at ", int i
-
     let instr = p.code[int i]
     case op
     of opDef:

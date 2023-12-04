@@ -336,7 +336,6 @@ func inline*(bu: var MirBuilder, tree: MirTree, fr: NodePosition): Value =
   ## Inlines the operand for non-mutating use. This is meant to be used for
   ## materialzing immutable arguments when inlining calls / expanding
   ## assignments.
-  # TODO: finish the implementation
   case tree[fr].kind
   of Atoms:
     result = Value(node: tree[fr])

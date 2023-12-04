@@ -480,7 +480,9 @@ func captureName(c: var TCtx, f: Fragment, mutable: bool): Value =
   res
 
 proc genUse(c: var TCtx, n: PNode): Value =
-  # TODO: document
+  ## Generates the MIR tree for expression `n`. If the expression is an
+  ## atom, the atom is returned, otherwise the value is captured in a
+  ## temporary and the name of the temporary is returned.
   c.builder.useSource(c.sp, n)
   # emit the expression into the staging buffer:
   let f = c.builder.push: genx(c, n)
@@ -1607,13 +1609,11 @@ proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination) =
 
 proc genx(c: var TCtx, n: PNode, consume: bool) =
   ## Generate and emits the raw MIR code for the given expression `n` into
-  ## the staging buffer.
+  ## the active buffer.
   ##
-  ## `consume` indicates whether the expression is used in a 'consume' context,
-  ## that is, whether ownership is requested over the resulting value. This
-  ## information is used to decide whether or not constructor expressions yield
-  ## a *unique* value (one that has single ownership over its content).
-  ## TODO: update the doc comment
+  ## `consume` signals whether aggregate constructions have to create owned
+  ## value (by consuming their elements) or not (by shallow-copying their
+  ## element).
   c.builder.useSource(c.sp, n)
 
   case n.kind
@@ -1995,8 +1995,8 @@ proc generateCode*(graph: ModuleGraph, options: set[GenOption], n: PNode,
     c.use genTypeExpr(c, n)
   else:
     c.builder.useSource(c.sp, n)
-    # TODO: restructure the ``mirgen`` API to use a dedicated procedure for
-    #       generating expression code
+    # XXX: restructure the ``mirgen`` API to use a dedicated procedure for
+    #      generating expression code
     let v = genUse(c, n)
     c.use v
 
