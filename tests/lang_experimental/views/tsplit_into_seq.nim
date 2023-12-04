@@ -4,7 +4,10 @@ asdf
 231
 231
 '''
-  cmd: "nim c --gc:orc $file"
+  knownIssue: '''
+    Assignments to ``openArray`` lvalues with side-effects (e.g.,
+    ``x[y] = ...``) are currently not supported by the C code generator
+  '''
 """
 
 {.experimental: "views".}
