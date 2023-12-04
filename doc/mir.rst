@@ -61,20 +61,24 @@ Semantics
   CONSTR_ARG = Arg VALUE
              | Consume OPERAND
 
-  RVALUE = Call <Proc> CALL_ARG ...      # a static call of the provided
+  CALL_EXPR = Call <Proc> CALL_ARG ...   # a static call of the provided
                                          # procedure with the given arguments
-         | Call LVALUE CALL_ARG ...      # indirect call
-         | Magic <Magic> CALL_ARG ...    # a call of a magic procedure (i.e.,
+            | Call LVALUE CALL_ARG ...   # indirect call
+            | Magic <Magic> CALL_ARG ... # a call of a magic procedure (i.e.,
                                          # a procedure that is either going to
                                          # be lowered into something else, or
                                          # one of which of which the behaviour
                                          # cannot be represented in the MIR)
+
+  RVALUE = CALL_EXPR
+         | Constr   CONSTR_ARG ...       # construct a tuple, closure, set, or
          | ObjConstr (<Field> CONSTR_ARG) ... # construct an `object` or
                                          # `ref object`
-         | Constr   CONSTR_ARG ...       # construct a tuple, closure, set, or
                                          # array
-         | StdConv  VALUE
-         | Conv     VALUE
+         | StdConv  VALUE                # number conversion or conversion
+                                         # between cstring and string
+         | Conv     VALUE                # same as `StdConv`. Only duplicate
+                                         # for legacy code generator reasons
          | Cast     VALUE                # reinterpret the value as a different
                                          # type
          | Addr     LVALUE               # create a pointer from the lvalue
@@ -99,6 +103,12 @@ Semantics
             | BindMut <Alias> LVALUE    # bind the lvalue to the given alias.
                                         # The alias may be used for mutations
                                         # (e.g., on the left of assignments)
+            | Void LVALUE               # evaluates the lvalue for side-effects
+                                        # and acts as a usage of the lvalue
+                                        # during data-flow analysis
+            | Void CALL_EXPR            # represents a void call. The called
+                                        # procedure or magic *must* have a
+                                        # `void`` return type
             | Asgn LVALUE FULL_VALUE    # normal assignment of the right value
                                         # to the left location
             | Init LVALUE FULL_VALUE    # initial assignment (the destination
