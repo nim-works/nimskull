@@ -143,7 +143,7 @@ git clone https://github.com/nim-works/nimskull.git
 cd nimskull
 ./koch.py boot -d:release
 ./koch.py tools -d:release
-**Optional** Build all nimSkull documentation
+ Build all nimSkull documentation
 ./koch.py docs -d: release
 ```
 
