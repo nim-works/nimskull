@@ -63,9 +63,10 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
                   evt: sink BackendEvent) =
   ## The orchestrator's event processor.
   let bmod = modules[evt.module]
-  prepare(g, modules, discovery)
 
   case evt.kind
+  of bekDiscovered:
+    prepare(g, modules, discovery)
   of bekModule:
     discard "nothing to do"
   of bekPartial:
