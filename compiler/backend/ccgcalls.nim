@@ -364,33 +364,7 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
     genCallPattern()
     exitCall(p, ri[0], canRaise)
 
-proc notYetAlive(p: BProc, n: CgNode): bool {.inline.} =
-  let r = getRoot(n)
-  result = r != nil and r.kind == cnkLocal and p.locals[r.local].k == locNone
-
-proc isInactiveDestructorCall(p: BProc, e: CgNode): bool =
-  #[ Consider this example.
-
-    var :tmpD_3281815
-    try:
-      if true:
-        return
-      let args_3280013 =
-        wasMoved_3281816(:tmpD_3281815)
-        `=_3280036`(:tmpD_3281815, [1])
-        :tmpD_3281815
-    finally:
-      `=destroy_3280027`(args_3280013)
-
-  We want to return early but the 'finally' section is traversed before
-  the 'let args = ...' statement. We exploit this to generate better
-  code for 'return'. ]#
-  result = e.len == 2 and e[0].kind == cnkSym and
-    e[0].sym.name.s == "=destroy" and notYetAlive(p, e[1].operand)
-
 proc genAsgnCall(p: BProc, le, ri: CgNode, d: var TLoc) =
-  if p.withinBlockLeaveActions > 0 and isInactiveDestructorCall(p, ri):
-    return
   if ri[0].typ.skipTypes({tyGenericInst, tyAlias, tySink}).callConv == ccClosure:
     genClosureCall(p, le, ri, d)
   else:
