@@ -168,8 +168,6 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
   ## The orchestrator's event processor.
   let bmod = g.modules[evt.module.int]
 
-  prepare(g, discovery)
-
   proc handleInline(inl: var InliningData, m: ModuleId, prc: PSym,
                     body: MirTree): Option[uint32] {.nimcall.} =
     ## Registers the dependency on inline procedure that `body` has
@@ -210,6 +208,8 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
     bmod.g.hooks.setLen(0)
 
   case evt.kind
+  of bekDiscovered:
+    prepare(g, discovery)
   of bekModule:
     # the code generator emits a call for setting up the TLS, which is a
     # procedure dependency that needs to be communicated

@@ -102,21 +102,11 @@ type
     additional: seq[tuple[m: FileIndex, prc: PSym]]
       # HACK: see documentation of the procedure that appends to this list
 
-  EventContext = object
-    ## The data that guides the post-event-processing actions.
-    start: int
-      ## the procedure progress indicator at the start of the current cycle
-    preIndirect: int
-      ## the procedure progress indicator before indirect dependencies were
-      ## discovered
-    fin: int
-      ## the procedure progress indicator prior to event processing
-
-    indirect: seq[tuple[m: FileIndex, index: int]]
-      ## the list of all indirect procedure dependencies that need to be
-      ## queued (stored as indices into the procedure list)
-
   BackendEventKind* = enum
+    bekDiscovered## new entities were discovered during MIR processing. This
+                 ## event is meant to be used for pre-processing of symbols
+                 ## and registration with the code generators, but no new
+                 ## entities must be raised during processing of this event
     bekModule    ## the initial set of alive entities for a module was
                  ## discovered
     bekPartial   ## a fragment of a procedure that's generated incrementally
@@ -132,7 +122,7 @@ type
       ## the symbol is attached to
 
     case kind*: BackendEventKind
-    of bekModule:
+    of bekDiscovered, bekModule:
       discard
     of bekPartial, bekProcedure, bekImported:
       sym*: PSym
@@ -183,11 +173,6 @@ func addProcessed[T](q: var Queue[T], item: sink T) =
   assert q.progress == q.data.len
   q.data.add item
   inc q.progress
-
-func rewind[T](q: var Queue[T], pos: int): int =
-  assert pos <= q.progress
-  result = q.progress
-  q.progress = pos
 
 func markProcessed[T](q: var Queue[T]): int =
   q.progress = q.data.len
@@ -684,12 +669,38 @@ func queue(iter: var ProcedureIter, prc: PSym, m: FileIndex) =
                                         prc.ast[bodyPos].kind != nkEmpty)):
     iter.queued.add (prc, m)
 
-func queueAll(iter: var ProcedureIter, data: var DiscoveryData,
-              origin: FileIndex) =
-  ## Queues all newly discovered procedures and marks the now queued ones as
-  ## processed/read.
+iterator queueAll(iter: var ProcedureIter, data: var DiscoveryData,
+                  origin: FileIndex): FileIndex =
+  ## Queues all newly discovered procedures and marks them as processed/read.
+  ## When a new batch of procedures becomes available, yields the ID of the
+  ## module the procedures were added from, allowing the callsite to pre-
+  ## preocess the symbols.
+  let start = data.constants.progress
+  # notify about all new entities (if there are any)
+  yield origin
+
+  # queue the procedures that the callsite was just notified about
   for _, it in visit(data.procedures):
     queue(iter, it, origin)
+
+  # support for the iterator's to not mark constants as processed
+  let fin = markProcessed(data.constants)
+
+  # then scan all constants, notify the callsite about new procedures, and
+  # queue all new procedures
+  for i in start..<fin:
+    let
+      c = data.constants.data[i]
+      m = moduleId(c).FileIndex
+    discoverFromValueAst(data, astdef(c))
+
+    if not isProcessed(data.procedures):
+      # only yield when there's something to do
+      yield m
+
+    # queue the procedures that the callsite was just notified about
+    for _, it in visit(data.procedures):
+      queue(iter, it, m)
 
 # ----- ``process`` iterator implementation -----
 
@@ -710,18 +721,6 @@ proc next(iter: var ProcedureIter, graph: ModuleGraph,
     # apply all MIR passes:
     process(result.prc, graph, idgen)
 
-func processConstants(data: var DiscoveryData): seq[(FileIndex, int)] =
-  ## Registers with `data` the procedures used by all un-processed constants
-  ## and marks the constants as processed.
-  assert data.procedures.isProcessed
-  for _, s in peek(data.constants):
-    discoverFromValueAst(data, astdef(s))
-    # the procedure needs to be queued from the context of the module `s` is
-    # attached to:
-    let m = moduleId(s).FileIndex
-    for i, _ in visit(data.procedures):
-      result.add (m, i)
-
 func processAdditional(iter: var ProcedureIter, data: var DiscoveryData) =
   ## Queues all extra dependencies registered with `data`.
   for m, s in data.additional.items:
@@ -731,45 +730,12 @@ func processAdditional(iter: var ProcedureIter, data: var DiscoveryData) =
 
   data.additional.setLen(0) # we've processed everything; reset
 
-func preActions(discovery: var DiscoveryData): EventContext =
-  ## Performs the actions required before emitting a ``BackendEvent``. New
-  ## entities need to be discovered, but they must not be queued for
-  ## processing yet -- the caller might still want to intercept / pre-process.
-  result.start = discovery.procedures.progress
-  result.preIndirect = discovery.procedures.markProcessed()
-  # discover the procedures referenced by the new constants:
-  result.indirect = processConstants(discovery)
-
-  # rewind the progress indicator so that all procedures marked as
-  # processed as part of this cycle appear as unprocessed again:
-  result.fin = discovery.procedures.rewind(result.start)
-
 func postActions(iter: var ProcedureIter, discovery: var DiscoveryData,
-                 m: FileIndex, ctx: sink EventContext) =
-  ## Queues for processing all procedures that were discovered (by both
-  ## ``progress`` and its caller) during the current event cycle.
-
-  # make sure that all new constants discovered as part of this cycle are
-  # marked as processed:
-  discard markProcessed(discovery.constants)
-
-  # now comes the complex part: all new procedures discovered as part of this
-  # cycle need to be queued for processing
-
-  # first come the direct procedure dependencies. They're associated with the
-  # provided module:
-  for i in ctx.start..<ctx.preIndirect:
-    queue(iter, discovery.procedures.data[i], m)
-
-  # then come the indirect procedure dependencies:
-  for moduleId, i in ctx.indirect.items:
-    queue(iter, discovery.procedures.data[i], moduleId)
-
-  # set the progress indicator to where it was prior to event processing:
-  discovery.procedures.progress = ctx.fin
-
-  # finally, queue all late dependencies raised by the event processor:
-  queueAll(iter, discovery, m)
+                 m: FileIndex) =
+  ## Queues for processing all procedures that were discovered during event
+  ## processing (i.e., by the iterator's callsite).
+  for _, it in visit(discovery.procedures):
+    queue(iter, it, m)
   processAdditional(iter, discovery)
 
 iterator process*(graph: ModuleGraph, modules: var ModuleList,
@@ -789,12 +755,8 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
   ## advised to implement ``BackendEvent`` processing with a dedicated
   ## procedure.
   ##
-  ## When control is passed to the caller, the `discovery.procedures` and
-  ## `discovery.constants` queues contain all new procedures and constants
-  ## that were discovered directly or indirectly for the entity that the
-  ## returned event is about. The `globals` and `threadvars` queues, while
-  ## possibly filled with new content, are not "drained" yet, and have the
-  ## same "read" position that the caller left them with.
+  ## At the callsite, no new entities must be registered with `discovery`
+  ## during processing of a ``bekDiscovered`` event.
   var
     iter = ProcedureIter(config: conf)
 
@@ -828,20 +790,25 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
     for s in m.structs.threadvars.items:
       register(discovery, threadvars, s)
 
-    let ctx = preActions(discovery)
     # inform the caller that the initial set of alive entities became
     # available:
+    for m in queueAll(iter, discovery, id):
+      yield BackendEvent(module: m, kind: bekDiscovered)
     yield BackendEvent(module: id, kind: bekModule)
-    postActions(iter, discovery, id, ctx)
+    postActions(iter, discovery, id)
 
   template reportBody(prc: PSym, m: FileIndex, evt: BackendEventKind,
                       frag: MirFragment) =
     ## Reports (i.e., yields an event) a procedure-related event.
     discoverFrom(discovery, noMagics, frag.tree)
 
-    let work = preActions(discovery)
+    # fire 'discovered' events for new procedures and also queue them for
+    # processing
+    for m2 in queueAll(iter, discovery, m):
+      yield BackendEvent(module: m2, kind: bekDiscovered)
+
     yield BackendEvent(module: m, kind: evt, sym: prc, body: frag)
-    postActions(iter, discovery, m, work)
+    postActions(iter, discovery, m)
 
   template reportProgress(prc: PSym, frag: MirFragment) =
     ## Applies the relevant passes to the fragment and notifies the caller
@@ -889,9 +856,8 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
     of true:
       # a procedure imported at run-time (i.e., a dynlib procedure)
       # first announce the procedure...
-      let ctx = preActions(discovery)
       yield BackendEvent(module: module, kind: bekImported, sym: prc.sym)
-      postActions(iter, discovery, module, ctx)
+      postActions(iter, discovery, module)
 
       # ... then produce and announce the loader fragment:
       var frag = produceLoader(graph, modules[module], discovery, conf, prc.sym)
