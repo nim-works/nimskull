@@ -951,13 +951,8 @@ proc genAsgnAux(p: PProc, x, y: CgNode, noCopyNeeded: bool) =
       lineF(p, "$1 = $2;$n", [a.rdLoc, b.rdLoc])
     else:
       useMagic(p, "nimCopy")
-      # supports proc getF(): var T
-      if x.kind in {cnkDerefView, cnkDeref} and x.operand.kind == cnkCall:
-          lineF(p, "nimCopy($1, $2, $3);$n",
-                [a.res, b.res, genTypeInfo(p, x.typ)])
-      else:
-        lineF(p, "$1 = nimCopy($1, $2, $3);$n",
-              [a.res, b.res, genTypeInfo(p, x.typ)])
+      lineF(p, "$1 = nimCopy($1, $2, $3);$n",
+            [a.res, b.res, genTypeInfo(p, x.typ)])
   of etyBaseIndex:
     if a.typ != etyBaseIndex or b.typ != etyBaseIndex:
       if y.kind == cnkCall:
@@ -1205,13 +1200,6 @@ proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
       genStmt(p, n[i])
 
     genAddr(p, n[^1], r)
-  of cnkCall:
-    if n.typ.kind == tyOpenArray:
-      # 'var openArray' for instance produces an 'addr' but this is harmless:
-      # namely toOpenArray(a, 1, 3)
-      gen(p, n, r)
-    else:
-      internalError(p.config, n.info, "genAddr: " & $n.kind)
   else:
     internalError(p.config, n.info, "genAddr: " & $n.kind)
 
@@ -1294,12 +1282,6 @@ proc genArg(p: PProc, n: CgNode, param: PSym, r: var TCompRes; emitted: ptr int 
     r.res.add(a.address)
     r.res.add(", ")
     r.res.add(a.res)
-    if emitted != nil: inc emitted[]
-  elif n.typ.kind in {tyVar, tyPtr, tyRef, tyLent} and
-      n.kind == cnkCall and mapType(param.typ) == etyBaseIndex:
-    # this fixes bug #5608:
-    let tmp = getTemp(p)
-    r.res.add("($1 = $2, $1[0]), $1[1]" % [tmp, a.rdLoc])
     if emitted != nil: inc emitted[]
   else:
     r.res.add(a.res)
@@ -2123,11 +2105,7 @@ proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes) =
     r.kind = resExpr
 
 proc convStrToCStr(p: PProc, n: CgNode, r: var TCompRes) =
-  # we do an optimization here as this is likely to slow down
-  # much of the code otherwise:
-  if n.operand.kind == cnkCStringToString:
-    gen(p, n.operand.operand, r)
-  else:
+  if true:
     gen(p, n.operand, r)
     p.config.internalAssert(r.res != "", n.info, "convStrToCStr")
     useMagic(p, "toJSStr")
@@ -2135,11 +2113,7 @@ proc convStrToCStr(p: PProc, n: CgNode, r: var TCompRes) =
     r.kind = resExpr
 
 proc convCStrToStr(p: PProc, n: CgNode, r: var TCompRes) =
-  # we do an optimization here as this is likely to slow down
-  # much of the code otherwise:
-  if n.operand.kind == cnkStringToCString:
-    gen(p, n.operand.operand, r)
-  else:
+  if true:
     gen(p, n.operand, r)
     p.config.internalAssert(r.res != "", n.info, "convCStrToStr")
     useMagic(p, "cstrToNimstr")

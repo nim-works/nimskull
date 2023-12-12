@@ -952,6 +952,7 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
     if n[0].kind == cnkClosureConstr:
       # optimization: don't allocate a temporary but place the values into
       # the respective registers directly
+      # XXX: dead code, but should be restored
       c.gen(n[0][0], x+0)
       c.gen(n[0][1], x+n.len)
     else:
@@ -1148,7 +1149,7 @@ proc genParseOp(c: var TCtx; n: CgNode; dest: var TDest,
   # register directly, so the used addr operation is skipped (if it hasn't
   # been eliminated by ``transf``)
   var x = n[2]
-  if x.kind in {cnkAddr, cnkHiddenAddr}:
+  if x.kind == cnkHiddenAddr:
     x = x.operand
 
   let
@@ -2749,12 +2750,6 @@ proc genLvalue(c: var TCtx, n: CgNode, dest: var TDest) =
       genLvalue(c, n.operand, dest)
   of cnkDeref:
     genDeref(c, n, dest, load=false)
-  of cnkCall:
-    # we only reach this case for ``HiddenAddr (DerefView (Call ...))``.
-    # Generate the call returning a view as is
-    # XXX: ``cgirgen`` should not emit these instead
-    assert isLocView(n.typ)
-    gen(c, n, dest)
   else:
     unreachable(n.kind)
 

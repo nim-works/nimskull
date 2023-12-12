@@ -1192,6 +1192,7 @@ proc genSeqConstr(p: BProc, n: CgNode, d: var TLoc) =
 proc genArrToSeq(p: BProc, n: CgNode, d: var TLoc) =
   var elem, a, arr: TLoc
   if n[1].kind == cnkArrayConstr:
+    # XXX: dead code, but kept as a reminder
     n[1].typ = n.typ
     genSeqConstr(p, n[1], d)
     return
@@ -1310,22 +1311,11 @@ template genDollar(p: BProc, n: CgNode, d: var TLoc, frmt: string) =
   genAssignment(p, d, a)
 
 proc genArrayLen(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
-  var a = e[1]
-  if a.kind == cnkHiddenAddr: a = a.operand
+  let a = e[1]
   var typ = skipTypes(a.typ, abstractVar + tyUserTypeClasses)
   case typ.kind
   of tyOpenArray, tyVarargs:
-    # Bug #9279, len(toOpenArray()) has to work:
-    if getMagic(a) == mSlice:
-      # magic: pass slice to openArray:
-      var b, c: TLoc
-      initLocExpr(p, a[2], b)
-      initLocExpr(p, a[3], c)
-      if op == mHigh:
-        putIntoDest(p, d, e, ropecg(p.module, "($2)-($1)", [rdLoc(b), rdLoc(c)]))
-      else:
-        putIntoDest(p, d, e, ropecg(p.module, "($2)-($1)+1", [rdLoc(b), rdLoc(c)]))
-    else:
+    if true:
       if not reifiedOpenArray(p, a):
         if op == mHigh: unaryExpr(p, e, d, "($1Len_0-1)")
         else: unaryExpr(p, e, d, "$1Len_0")
@@ -1412,6 +1402,8 @@ proc genInOp(p: BProc, e: CgNode, d: var TLoc) =
   if (e[1].kind == cnkSetConstr) and fewCmps(p.config, e[1]):
     # a set constructor but not a constant set:
     # do not emit the set, but generate a bunch of comparisons
+    # XXX: this is currently dead code, but it can be restored once set
+    #      literals are passed to the code generators as constants
     let ea = e[2]
     initLocExpr(p, ea, a)
     initLoc(b, locExpr, e, OnUnknown)
@@ -1677,7 +1669,8 @@ proc binaryFloatArith(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
     binaryArith(p, e, d, m)
 
 proc skipAddr(n: CgNode): CgNode =
-  result = if n.kind in {cnkAddr, cnkHiddenAddr}: n.operand else: n
+  if n.kind == cnkHiddenAddr: n.operand
+  else:                       n
 
 proc genWasMoved(p: BProc; n: CgNode) =
   var a: TLoc
@@ -1741,6 +1734,7 @@ proc genBreakState(p: BProc, n: CgNode, d: var TLoc) =
 
   let arg = n[1]
   if arg.kind == cnkClosureConstr:
+    # XXX: dead code, but kept as a reminder on what to eventually restore
     initLocExpr(p, arg[1], a)
     r = "(((NI*) $1)[1] < 0)" % [rdLoc(a)]
   else:
@@ -1858,7 +1852,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
       localReport(p.config, e.info, reportSem rsemRequiresDeepCopyEnabled)
 
     var a, b: TLoc
-    let x = if e[1].kind in {cnkAddr, cnkHiddenAddr}: e[1].operand else: e[1]
+    let x = if e[1].kind == cnkHiddenAddr: e[1].operand else: e[1]
     initLocExpr(p, x, a)
     initLocExpr(p, e[2], b)
     genDeepCopy(p, a, b)
