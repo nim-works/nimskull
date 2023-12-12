@@ -184,19 +184,9 @@ proc genOpenArraySlice(p: BProc; q: CgNode; formalType, destType: PType): (Rope,
     internalError(p.config, "openArrayLoc: " & typeToString(a.t))
 
 proc openArrayLoc(p: BProc, formalType: PType, n: CgNode): Rope =
-  var q = skipConv(n)
-  var skipped = false
-  while q.kind == cnkStmtListExpr and q.len > 0:
-    skipped = true
-    q = q.lastSon
+  let q = skipConv(n)
   if getMagic(q) == mSlice:
     # magic: pass slice to openArray:
-    if skipped:
-      q = skipConv(n)
-      while q.kind == cnkStmtListExpr and q.len > 0:
-        for i in 0..<q.len-1:
-          genStmts(p, q[i])
-        q = q.lastSon
     let (x, y) = genOpenArraySlice(p, q, formalType, n.typ[0])
     result = x & ", " & y
   else:

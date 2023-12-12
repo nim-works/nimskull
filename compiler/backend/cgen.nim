@@ -750,7 +750,7 @@ proc allPathsAsgnResult(n: CgNode): InitResultEnum =
 
   result = Unknown
   case n.kind
-  of cnkStmtList, cnkStmtListExpr:
+  of cnkStmtList:
     for it in n:
       result = allPathsAsgnResult(it)
       if result != Unknown: return result

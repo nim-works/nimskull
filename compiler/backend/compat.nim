@@ -160,10 +160,6 @@ proc toBitSet*(conf: ConfigRef; s: CgNode): TBitSet =
 
 proc flattenStmts*(n: CgNode): CgNode =
   ## Duplicate of `flattenStmts <trees.html#flattenStmts,PNode>`_
-  # XXX: this doesn't work as intended. The intention is to bring all 'def's
-  #      to the top so that they can be special cased, but
-  #      ``cnkStmtListExpr``s cannot be unnested, meaning that not all
-  #      'def's are brought to the top-level
   proc unnestStmts(n: CgNode, result: var CgNode) =
     case n.kind
     of cnkStmtList:

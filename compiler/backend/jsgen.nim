@@ -2560,14 +2560,9 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkCStringToString: convCStrToStr(p, n, r)
   of cnkEmpty: discard
   of cnkType: r.res = genTypeInfo(p, n.typ)
-  of cnkStmtList, cnkStmtListExpr:
-    # this shows the distinction is nice for backends and should be kept
-    # in the frontend
-    let isExpr = not isEmptyType(n.typ)
-    for i in 0..<n.len - isExpr.ord:
-      genStmt(p, n[i])
-    if isExpr:
-      gen(p, lastSon(n), r)
+  of cnkStmtList:
+    for it in n.items:
+      genStmt(p, it)
   of cnkBlockStmt: genBlock(p, n)
   of cnkIfStmt: genIf(p, n)
   of cnkRepeatStmt: genRepeatStmt(p, n)
@@ -2593,7 +2588,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkRaiseStmt: genRaiseStmt(p, n)
   of cnkPragmaStmt: discard
   of cnkInvalid, cnkMagic, cnkRange, cnkBinding, cnkExcept, cnkFinally,
-     cnkBranch, cnkAstLit, cnkLabel:
+     cnkBranch, cnkAstLit, cnkLabel, cnkStmtListExpr:
     internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =

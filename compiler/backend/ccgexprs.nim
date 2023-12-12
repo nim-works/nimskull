@@ -1996,19 +1996,9 @@ proc genArrayConstr(p: BProc, n: CgNode, d: var TLoc) =
       arr.r = "$1[$2]" % [rdLoc(d), intLiteral(i)]
       expr(p, n[i], arr)
 
-template genStmtListExprImpl(exprOrStmt) {.dirty.} =
-  #let hasNimFrame = magicsys.getCompilerProc("nimFrame") != nil
-  for i in 0..<n.len - 1:
-    genStmts(p, n[i])
-  if n.len > 0: exprOrStmt
-
-proc genStmtListExpr(p: BProc, n: CgNode, d: var TLoc) =
-  genStmtListExprImpl:
-    expr(p, n[^1], d)
-
 proc genStmtList(p: BProc, n: CgNode) =
-  genStmtListExprImpl:
-    genStmts(p, n[^1])
+  for i in 0..<n.len:
+    genStmts(p, n[i])
 
 proc downConv(p: BProc, n: CgNode, d: var TLoc) =
   ## Generates and emits the code for the ``cnkObjDownConv`` (conversion to
@@ -2213,7 +2203,6 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkFieldAccess: genRecordField(p, n, d)
   of cnkCheckedFieldAccess: genCheckedRecordField(p, n, d)
   of cnkBlockStmt: genBlock(p, n)
-  of cnkStmtListExpr: genStmtListExpr(p, n, d)
   of cnkStmtList: genStmtList(p, n)
   of cnkIfStmt: genIf(p, n)
   of cnkObjDownConv: downConv(p, n, d)
@@ -2242,7 +2231,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkRaiseStmt: genRaiseStmt(p, n)
   of cnkPragmaStmt: discard
   of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkExcept,
-     cnkFinally, cnkBranch, cnkLabel:
+     cnkFinally, cnkBranch, cnkLabel, cnkStmtListExpr:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 
 proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =

@@ -281,11 +281,8 @@ func underlyingLoc(n: CgNode): CgNode =
   var root {.cursor.} = n
   # skip nodes that don't change the location until we arrive at either one
   # that does, or a symbol
-  while true:
-    case root.kind
-    of cnkConv:         root = root.operand
-    of cnkStmtListExpr: root = root[^1]
-    else:               break
+  while root.kind == cnkConv:
+    root = root.operand
 
   result = root
 
@@ -1592,8 +1589,6 @@ func usesRegister(p: BProc, n: CgNode): bool =
   of cnkDeref, cnkDerefView, cnkFieldAccess, cnkArrayAccess, cnkTupleAccess,
      cnkCheckedFieldAccess, cnkConv, cnkObjDownConv, cnkObjUpConv:
     false
-  of cnkStmtListExpr:
-    usesRegister(p, n.lastSon)
   else:
     unreachable(n.kind)
 
@@ -2288,8 +2283,6 @@ func isPtrView(n: CgNode): bool =
     true
   of cnkHiddenAddr, cnkCall:
     false
-  of cnkStmtListExpr:
-    isPtrView(n.lastSon)
   else:
     unreachable(n.kind)
 
@@ -2769,11 +2762,6 @@ proc genAddr(c: var TCtx, src, n: CgNode, dest: var TDest) =
       c.freeTemp(tmp)
     else:
       unreachable()
-  of cnkStmtListExpr:
-    for i in 0..<n.len-1:
-      gen(c, n[i])
-
-    genAddr(c, src, n[^1], dest)
   else:
     unreachable(n.kind)
 
@@ -2824,11 +2812,6 @@ proc genLvalue(c: var TCtx, n: CgNode, dest: var TDest) =
     # XXX: ``cgirgen`` should not emit these instead
     assert isLocView(n.typ)
     gen(c, n, dest)
-  of cnkStmtListExpr:
-    for i in 0..<n.len-1:
-      gen(c, n[i])
-
-    genLvalue(c, n.lastSon, dest)
   else:
     unreachable(n.kind)
 
@@ -3094,9 +3077,6 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkStmtList:
     unused(c, n, dest)
     for x in n: gen(c, x)
-  of cnkStmtListExpr:
-    for i in 0..<n.len-1: gen(c, n[i])
-    gen(c, n[^1], dest)
   of cnkVoidStmt:
     unused(c, n, dest)
     gen(c, n[0])
@@ -3126,7 +3106,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkPragmaStmt, cnkAsmStmt, cnkEmitStmt:
     unused(c, n, dest)
   of cnkInvalid, cnkMagic, cnkRange, cnkExcept, cnkFinally, cnkBranch,
-     cnkBinding, cnkLabel:
+     cnkBinding, cnkLabel, cnkStmtListExpr:
     unreachable(n.kind)
 
 proc initProc(c: TCtx, owner: PSym, body: sink Body): BProc =
@@ -3161,7 +3141,14 @@ proc genExpr*(c: var TCtx; body: sink Body): Result[int, VmGenDiag] =
 
   var d: TDest = -1
   try:
-    c.gen(n, d)
+    if n.kind == cnkStmtListExpr:
+      # special case the expression here so that ``gen`` doesn't have to
+      for i in 0..<n.len-1:
+        c.gen(n[i])
+
+      c.gen(n[^1], d)
+    else:
+      c.gen(n, d)
   except VmGenError as e:
     return typeof(result).err(move e.diag)
 
