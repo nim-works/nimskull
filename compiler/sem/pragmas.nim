@@ -101,7 +101,7 @@ const
     wDebugger, wProfiler,
     wDeprecated,
     wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit,
-    wLinearScanEnd, wTrMacros, wEffects, wComputedGoto,
+    wTrMacros, wEffects, wComputedGoto,
     wExperimental, wUsed, wByRef, wCallconv}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
     wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
@@ -1585,7 +1585,7 @@ proc applyStmtPragma(c: PContext, owner: PSym, it: PNode, k: TSpecialWord): PNod
     c.config.options = tmp
   of wEmit:
     result = pragmaEmit(c, it)
-  of wLinearScanEnd, wComputedGoto:
+  of wComputedGoto:
     result = noVal(c, it)
   of wEffects:
     # is later processed in effect analysis:
