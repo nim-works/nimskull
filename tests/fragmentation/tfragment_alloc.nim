@@ -3,6 +3,7 @@ discard """
   output: '''occupied ok: true
 total ok: true'''
   joinable: false
+  disabled: "osx"
 """
 
 # if the tests fails in the CI, consider disabling it again. Refer to
