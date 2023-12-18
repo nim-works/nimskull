@@ -270,7 +270,7 @@ jobs:
 
     steps:
       - name: Download source archive
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: source archive
           path: source-archive
@@ -406,19 +406,19 @@ jobs:
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
       - name: Download binaries built from source archive
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: binaries from source archive
           path: binary-from-source
 
       - name: Download release package
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: release binaries
           path: release-binary
 
       - name: Download release source archive
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: source archive
           path: source-archive
