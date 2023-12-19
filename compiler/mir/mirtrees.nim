@@ -560,18 +560,18 @@ func findDef*(tree: MirTree, n: NodePosition): NodePosition =
   ## at node `n`. No control-flow analysis is performed.
   let expected = tree[n].temp
   # first, unwind until the closest statement
-  var n = n
-  while tree[n].kind notin StmtNodes:
-    n = tree.parent(n)
+  result = n
+  while tree[result].kind notin StmtNodes:
+    result = tree.parent(result)
 
   # then search for the definition statement
-  while n > NodePosition 0:
-    if tree[n].kind in DefNodes:
-      let name = tree.operand(n, 0)
+  while result > NodePosition 0:
+    if tree[result].kind in DefNodes:
+      let name = tree.operand(result, 0)
       if tree[name].kind in {mnkTemp, mnkAlias} and tree[name].temp == expected:
-        return n
+        return
 
-    n = tree.previous(n)
+    result = tree.previous(result)
 
   unreachable("no corresponding def found")
 

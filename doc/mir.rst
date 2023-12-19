@@ -67,8 +67,8 @@ Semantics
             | Magic <Magic> CALL_ARG ... # a call of a magic procedure (i.e.,
                                          # a procedure that is either going to
                                          # be lowered into something else, or
-                                         # one of which of which the behaviour
-                                         # cannot be represented in the MIR)
+                                         # one for which the behaviour cannot
+                                         # be represented in the MIR)
 
   RVALUE = CALL_EXPR
          | Constr   CONSTR_ARG ...       # construct a tuple, closure, set, or

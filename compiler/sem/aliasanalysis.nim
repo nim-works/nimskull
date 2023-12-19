@@ -98,7 +98,7 @@ func `[]`(p: Path, i: int): PathInstr =
   else:              p.long[^i]
 
 proc getRoot*(tree: MirTree, n: OpValue): OpValue =
-  ## If `n` points doesn't point to a path expression, returns `n`, the root
+  ## If `n` doesn't point to a path expression, returns `n`, the root
   ## of the path otherwise. Aliases are followed.
   var pos = n
   while tree[pos].kind in PathOps:
