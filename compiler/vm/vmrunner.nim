@@ -390,7 +390,7 @@ proc main*(args: seq[string]): int =
     of yrkDone:
       # on successful execution, the executable's main function returns the
       # value of ``programResult``, which we use as the runner's exit code
-      let reg = c.sframes[0].slots[r.reg.get]
+      let reg = thread[0].slots[r.reg.get]
       result = regToNode(c, reg, nil, TLineInfo()).intVal.int
     of yrkError:
       # an uncaught error occurred

@@ -348,7 +348,7 @@ proc execute(jit: var JitState, c: var TCtx, start: int, frame: sink TStackFrame
         "non-static stmt evaluation must produce a value, mode: " & $c.mode
       let reg =
         if r.reg.isSome:
-          c.sframes[0].slots[r.reg.get]
+          thread[0].slots[r.reg.get]
         else:
           TFullReg(kind: rkNone)
       result.initSuccess cb(c, reg)
@@ -671,8 +671,6 @@ proc execProc*(jit: var JitState, c: var TCtx; sym: PSym;
                args: openArray[PNode]): PNode =
   # XXX: `localReport` is still used here since execProc is only used by the
   # VM's compilerapi (`nimeval`) whose users don't know about nkError yet
-
-  c.loopIterations = c.config.maxLoopIterationsVM
   if sym.kind in routineKinds:
     if sym.typ.len-1 != args.len:
       localReport(c.config, sym.info, SemReport(
