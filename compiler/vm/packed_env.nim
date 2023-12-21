@@ -151,6 +151,8 @@ type
 
     code*: seq[TInstr]
     debug*: seq[uint32] # Packed version of `TCtx.debug`. Indices into `infos`
+    ehTable*: seq[HandlerTableEntry]
+    ehCode*: seq[EhInstr]
 
     # rtti related data:
     nimNodes: seq[PackedNodeLite]
@@ -874,6 +876,9 @@ func storeEnv*(enc: var PackedEncoder, dst: var PackedEnv, c: TCtx) =
   mapList(dst.debug, c.debug, d):
     dst.infos.getOrIncl(d).uint32
 
+  dst.ehTable = c.ehTable
+  dst.ehCode = c.ehCode
+
   mapList(dst.files, c.config.m.fileInfos, fi):
     fi.fullPath.string
 
@@ -906,6 +911,8 @@ proc writeToFile*(p: PackedEnv, file: AbsoluteFile): RodFileError =
   f.storePrim p.entryPoint
   f.storeSeq p.code
   f.storeSeq p.debug
+  f.storeSeq p.ehTable
+  f.storeSeq p.ehCode
 
   f.storeSection symsSection
   f.store p.infos
@@ -948,6 +955,8 @@ proc readFromFile*(p: var PackedEnv, file: AbsoluteFile): RodFileError =
   f.loadPrim p.entryPoint
   f.loadSeq p.code
   f.loadSeq p.debug
+  f.loadSeq p.ehTable
+  f.loadSeq p.ehCode
 
   f.loadSection symsSection
   f.load p.infos
