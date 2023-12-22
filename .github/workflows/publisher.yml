@@ -56,7 +56,8 @@ jobs:
           workflow_conclusion: success
           commit: ${{ github.event.after }}
           # Keep up-to-date with ci.yml
-          name: release binaries
+          name: release binaries.*
+          name_is_regexp: true
           path: release-staging
 
       - name: Download release manifest tool
