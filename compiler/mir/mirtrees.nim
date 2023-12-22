@@ -100,8 +100,10 @@ type
     mnkAsgn     ## normal assignment; the destination might store a value
                 ## already. Whether the source is copied or moved depends
                 ## on the expression
-    mnkInit     ## similar to ``mnkAsgn``, but with the guarantee that the
-                ## destination is empty
+    mnkInit     ## similar to ``mnkAsgn``, but makes the guarantee that the
+                ## destination contains no value (i.e., is not initialized).
+                ## "Not initialized" doesn't make any guarantees about the
+                ## destination's in-memory contents
 
     mnkSwitch ## sets the value of a discriminator field, changing the active
               ## branch, if necessary. The destination operand must be a
