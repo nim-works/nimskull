@@ -1874,7 +1874,6 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
   else:
     gen(c, n)
 
-
 proc generateCode*(graph: ModuleGraph, options: set[GenOption], n: PNode,
                    code: var MirBuffer, source: var SourceMap) =
   ## Generates MIR code that is semantically equivalent to the expression or
@@ -1894,11 +1893,12 @@ proc generateCode*(graph: ModuleGraph, options: set[GenOption], n: PNode,
     gen(c, n)
   elif n.typ.kind == tyTypeDesc:
     # FIXME: this shouldn't happen, but type expressions are sometimes
-    #        evaluated with the VM, such as the ``int`` in the type expression
-    #        ``static int``. While it makes to allow evaluating type expression
-    #        with the VM, in simple situtations like the example above, it's
-    #        simpler, faster, and more intuitive to either evaluate them directly
-    #        when analying the type expression or during ``semfold``
+    #        evaluated with the VM, such as a ``typeof(T.x)`` appearing as
+    #        a field type within a generic object definition. While it makes
+    #        sense to allow evaluating type expression with the VM, in simple
+    #        situtations like the example above, it's simpler, faster, and more
+    #        intuitive to either evaluate them directly when analying the type
+    #        expression or during ``semfold``
     discard genTypeExpr(c, n)
   else:
     discard genx(c, n)

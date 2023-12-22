@@ -279,15 +279,29 @@ proc semConv(c: PContext, n: PNode): PNode =
     else:
       targetType = targetType.base
   of tyStatic:
-    var evaluated = semStaticExpr(c, n[1])
-    if evaluated.kind == nkType or evaluated.typ.kind == tyTypeDesc:
-      result = n
-      result.typ = c.makeTypeDesc semStaticType(c, evaluated, nil)
-      return
-    elif targetType.base.kind == tyNone:
-      return evaluated
+    if targetType.base.kind == tyNone:
+      let evaluated = semStaticExpr(c, n[1])
+      # the meaning depends on the type of the operand
+      if evaluated.typ.kind == tyTypeDesc:
+        # a type construction, e.g.: ``static(int)``
+        result = newTreeI(nkStaticTy, n.info, evaluated)
+        result.typ = c.makeTypeDesc:
+          let typ = newTypeS(tyStatic, c)
+          typ.rawAddSon(evaluated.typ.base)
+          typ.flags.incl tfHasStatic
+          typ
+        return
+      else:
+        # an expression forcefully evaluated at compile-time,
+        # e.g.: ``static(x)``
+        return evaluated
     else:
-      targetType = targetType.base
+      # a coercion to a static type, e.g.: ``static[int](x)``. It's
+      # semantically equivalent to ``static(int(x))``
+      result.add newNodeIT(nkType, n[0].info, c.makeTypeDesc targetType.base)
+      result.add n[1]
+      result = newTreeI(nkStaticExpr, n.info, result)
+      return semExprWithType(c, result, {})
   else: discard
 
   maybeLiftType(targetType, c, n[0].info)
@@ -1113,10 +1127,13 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
   popExecCon(c)
   closeScope(c)
   a = foldInAst(c.module, a, c.idgen, c.graph)
-  if a.kind == nkError or a.findUnresolvedStatic != nil:
+  if a.typ.kind == tyTypeDesc or a.findUnresolvedStatic != nil:
     return a
 
-  result = evalStaticExpr(c.module, c.idgen, c.graph, a, c.p.owner)
+  result = getConstExprError(c.module, a, c.idgen, c.graph)
+  if result == nil:
+    # not something that's foldable, use the VM
+    result = evalStaticExpr(c.module, c.idgen, c.graph, a, c.p.owner)
 
 proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
                                      flags: TExprFlags): PNode =
