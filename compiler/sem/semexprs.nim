@@ -3774,7 +3774,10 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     n[0] = semExpr(c, n[0], flags)
   of nkCast: result = c.config.extract(semCast(c, n))
   of nkIfExpr, nkIfStmt: result = semIf(c, n, flags)
-  of nkHiddenStdConv, nkHiddenSubConv, nkConv, nkHiddenCallConv:
+  of nkConv:
+    checkSonsLen(n, 2, c.config)
+    result = semConv(c, n)
+  of nkHiddenStdConv, nkHiddenSubConv, nkHiddenCallConv:
     checkSonsLen(n, 2, c.config)
     considerGenSyms(c, n)
   of nkStringToCString, nkCStringToString, nkObjDownConv, nkObjUpConv:
