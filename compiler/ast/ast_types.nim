@@ -822,6 +822,9 @@ type
       ## either the type-converted value or raises a defect
     mSamePayload
       ## returns whether both seq/string operands share the same payload
+    mCopyInternal
+      ## copyInternal(a, b); copies backend-specific internal data stored
+      ## on non-pure objects from a to b
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const

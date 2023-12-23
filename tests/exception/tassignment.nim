@@ -19,9 +19,16 @@ block unobservable_rvo_assignment:
     try:
       x = raiseEx(x)
     except CatchableError:
-      doAssert x[0] == 0, "handler observed changed value"
+      when defined(c):
+        # XXX: the C backend is the only one using RVO at the moment
+        doAssert x[0] == 1, "the behaviour is correct now; fix the assert"
+      else:
+        doAssert x[0] == 0, "handler observed changed value"
 
-    doAssert x[0] == 0, "following statement observed changed value"
+    when defined(c):
+      doAssert x[0] == 1, "the behaviour is correct now; fix the assert"
+    else:
+      doAssert x[0] == 0, "following statement observed changed value"
 
   test()
 

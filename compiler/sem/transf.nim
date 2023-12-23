@@ -400,7 +400,7 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
       let exit =
         newTreeI(nkIfStmt, info,
           newTreeI(nkElifBranch, info,
-            newTreeI(nkCall, info,
+            newTreeIT(nkCall, info, cond.typ,
               newSymNode(c.graph.getSysMagic(info, "not", mNot)),
               cond),
             newBreakStmt(info, labl)))
@@ -612,11 +612,13 @@ proc transformConv(c: PTransf, n: PNode): PNode =
     else:
       result = transformSons(c, n)
   of tyOpenArray, tyVarargs:
-    result = transform(c, n[1])
-    #result = transformSons(c, n)
-    result.typ = n[1].typ
-    #echo n.info, " came here and produced ", typeToString(result.typ),
-    #   " from ", typeToString(n.typ), " and ", typeToString(n[1].typ)
+    result = transformSons(c, n)
+    if dest.kind == tyVarargs:
+      # XXX: for simpler handling in ``mirgen``, to-vararg conversions are
+      #      changed into to-openArray conversions here. This needs to be
+      #      removed again once the MIR uses its own type representation
+      result.typ = copyType(dest, c.idgen.nextTypeId(), getCurrOwner(c))
+      result.typ.kind = tyOpenArray
   of tyCstring:
     if source.kind == tyString:
       result = newTreeIT(nkStringToCString, n.info, n.typ): transform(c, n[1])
@@ -1027,8 +1029,11 @@ proc transformCall(c: PTransf, n: PNode): PNode =
   elif magic == mAddr:
     result = newTreeIT(nkAddr, n.info, n.typ): n[1]
     result = transformAddr(c, result)
-  elif magic in {mTypeOf, mRunnableExamples}:
+  elif magic == mTypeOf:
     result = n
+  elif magic == mRunnableExamples:
+    # discard runnable-example blocks that reach here
+    result = c.graph.emptyNode
   elif magic == mProcCall:
     # but do not change to its dispatcher:
     result = transformSons(c, n[1])

@@ -52,6 +52,9 @@ type
                   ## 'def'
     opConsume     ## a value is consumed. Counts as either a 'use' or a 'use'
                   ## + 'kill', depending on the context
+    # future direction: change ``opConsume`` to always mean 'use' + 'kill'.
+    # The callsite should be fully responsible for handling sinks, rather
+    # than this being partially pushed into the DFG
 
     opMutateGlobal ## an unspecified global is mutated
 
@@ -136,6 +139,26 @@ type
       ## the program counter. Points to the CFG instruction that is executed
       ## next
 
+  ClosureEnv = object
+    instrs: seq[Instr]
+    structStack: seq[InstrPos]
+      ## stack of instruction positions for the currently open
+      ## structured control-flow blocks (if, loop, and regions).
+    blocks: seq[Option[LabelId]]
+      ## stack of targets for forward, merging control-flow. No label
+      ## means that it's a *hidden* block (such as the one opened by a
+      ## ``try`` statement)
+    exits: seq[tuple[instr: InstrPos, id: uint32, inTry: uint32]]
+      ## unstructured exits. An `id` of ``high(uint32)`` means that it's
+      ## exceptional control-flow.
+
+    inTry: uint32
+    numJoins: int
+
+const
+  RaiseLabel = high(uint32)
+  ExitLabel = 0'u32
+
 func incl[T](s: var seq[T], v: sink T) =
   ## If not present already, adds `v` to the sorted ``seq`` `s`
   var i = 0
@@ -157,6 +180,140 @@ template upperBound(c: DataFlowGraph, node: NodePosition): InstrPos =
 func `[]`(c: DataFlowGraph, pc: SomeInteger): lent Instr {.inline.} =
   c.instructions[pc]
 
+# ---- data-flow graph setup ----
+
+func dfaOp(env: var ClosureEnv, opc: Opcode, n: NodePosition, v: OpValue) =
+  {.cast(uncheckedAssign).}:
+    env.instrs.add Instr(op: opc, node: n, val: v)
+
+func dfaOp(env: var ClosureEnv, opc: Opcode, tree: MirTree, n: NodePosition,
+           v: OpValue) {.inline.} =
+  ## Only emits an instruction if the operand is an lvalue.
+  if tree[v].kind in LvalueExprKinds:
+    dfaOp(env, opc, n, v)
+
+func emit(env: var ClosureEnv, opc: Opcode, n: NodePosition): InstrPos =
+  env.instrs.add Instr(op: opc, node: n)
+  env.instrs.high.InstrPos
+
+func exit(env: var ClosureEnv, opc: Opcode, pos: NodePosition, blk: uint32) =
+  env.exits.add (emit(env, opc, pos), blk, env.inTry)
+
+func emitForValue(env: var ClosureEnv, tree: MirTree, at: NodePosition,
+                  source: OpValue) =
+  ## Emits the 'use' operations for all usages appearing within the value
+  ## expression `source`.
+  case tree[source].kind
+  of mnkPathPos, mnkPathNamed, mnkPathConv, mnkPathVariant:
+    emitForValue(env, tree, at, tree.operand(source))
+  of mnkPathArray:
+    emitForValue(env, tree, at, tree.operand(NodePosition source, 0))
+    env.dfaOp(opUse, tree, at, tree.operand(NodePosition source, 1))
+  of mnkDeref, mnkDerefView:
+    env.dfaOp(opUse, tree, at, tree.operand(source))
+  of Atoms:
+    discard "handled, or not, at the callsite"
+  of AllNodeKinds - LvalueExprKinds - Atoms:
+    unreachable(tree[source].kind)
+
+func emitLvalueOp(env: var ClosureEnv, opc: DataFlowOpcode, tree: MirTree,
+                  at: NodePosition, source: OpValue) =
+  emitForValue(env, tree, at, source)
+  env.dfaOp(opc, tree, at, source)
+
+func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
+  for it in subNodes(tree, source):
+    case tree[it].kind
+    of mnkArg:
+      emitLvalueOp(env, opUse, tree, at, tree.operand(it))
+    of mnkConsume:
+      emitLvalueOp(env, opConsume, tree, at, tree.operand(it))
+    of mnkName:
+      emitForValue(env, tree, at, tree.skip(tree.operand(it), mnkTag))
+    of mnkField:
+      discard
+    else:
+      emitLvalueOp(env, opUse, tree, at, OpValue it)
+
+func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
+                consume: bool) =
+  ## Emits the data- and control-flow instructions corresponding to the
+  ## expression at `source`.
+  template op(o: Opcode, v: OpValue) =
+    env.dfaOp(o, tree, at, v)
+
+  case tree[source].kind
+  of mnkCall, mnkMagic, mnkConstr, mnkObjConstr:
+    emitForArgs(env, tree, at, source)
+  of mnkConv, mnkStdConv, mnkCast:
+    # a read is performed on the source operand (if it's an lvalue)
+    emitLvalueOp(env, opUse, tree, at, tree.operand(source))
+  of mnkAddr:
+    # ``addr`` doesn't actually read its operand location, rather
+    # it create a run-time handle (i.e., pointer) to them. Since those
+    # handles aren't tracked however, the operation is conservatively
+    # treated as a mutation
+    emitLvalueOp(env, opMutate, tree, at, tree.operand(source))
+  of mnkView, mnkToSlice:
+    # if the created view supports mutation, treat the creation as a
+    # mutation itself
+    let opc =
+      if tree[source].typ.kind == tyVar: opMutate
+      else:                              opUse
+    emitLvalueOp(env, opc, tree, at, tree.operand(source))
+  of LvalueExprKinds:
+    # a read or consume is performed on an lvalue
+    let opc =
+      if consume: opConsume
+      else:       opUse
+    emitLvalueOp(env, opc, tree, at, OpValue source)
+  of mnkNone, mnkLiteral, mnkProc:
+    discard "okay, ignore"
+  of AllNodeKinds - ExprKinds - {mnkNone} + {mnkType}:
+    unreachable(tree[source].kind)
+
+  # the effects on lvalues (if any) take place *within* the called procedure.
+  # For the local data-flow, this is represented as taking place after the
+  # callsite arguments are used but before the exceptional exit (if any)
+  case tree[source].kind
+  of mnkCall, mnkMagic:
+    # lvalue effects:
+    for k, it in arguments(tree, source):
+      if tree[it].kind == mnkTag:
+        let opr = tree.operand(it)
+        case tree[it].effect
+        of ekMutate:     op opMutate, opr
+        of ekReassign:   op opDef, opr
+        of ekKill:       op opKill, opr
+        of ekInvalidate: op opInvalidate, opr
+      elif k == mnkName:
+        # the lvalue may be read from within the procedure
+        op opUse, it
+
+    if tree[source].kind == mnkCall:
+      # global mutation and control-flow effects:
+      if geMutateGlobal in tree[source].effects:
+        env.instrs.add Instr(op: opMutateGlobal, node: at)
+      if geRaises in tree[source].effects:
+        exit env, opFork, at, RaiseLabel
+    elif tree[source].magic in magicsThatCanRaise:
+      exit env, opFork, at, RaiseLabel
+  else:
+    discard
+
+func emitForDef(env: var ClosureEnv, tree: MirTree, n: NodePosition, consume: bool) =
+  let
+    dest   = tree.operand(n, 0)
+    source = tree.operand(n, 1)
+  emitForValue(env, tree, n, dest)
+  emitForExpr(env, tree, n, NodePosition source, consume)
+  # defs with an empty initializer have no data- or control-flow properties.
+  # Parameter definitions are an exception.
+  if tree[dest].kind == mnkParam or tree[source].kind != mnkNone:
+    # the value re-assignment of the target takes place after the control-flow
+    # effects and other mutation effects
+    env.dfaOp opDef, n, dest
+
 func computeDfg*(tree: MirTree): DataFlowGraph =
   ## Computes the data-flow graph for the given `tree`. This is an
   ## expensive operation! The high cost is due to two essential reasons:
@@ -165,26 +322,6 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
   ## 2. the amount of allocations/bookkeeping necessary to do so
   ##
   ## The most amount of bookkeeping is required for finalizers and exceptions.
-  type
-    ClosureEnv = object
-      instrs: seq[Instr]
-      structStack: seq[InstrPos]
-        ## stack of instruction positions for the currently open
-        ## structured control-flow blocks (if, loop, and regions).
-      blocks: seq[Option[LabelId]]
-        ## stack of targets for forward, merging control-flow. No label
-        ## means that it's a *hidden* block (such as the one opened by a
-        ## ``try`` statement)
-      exits: seq[tuple[instr: InstrPos, id: uint32, inTry: uint32]]
-        ## unstructured exits. An `id` of ``high(uint32)`` means that it's
-        ## exceptional control-flow.
-
-      inTry: uint32
-      numJoins: int
-
-  const
-    RaiseLabel = high(uint32)
-    ExitLabel = 0'u32
 
   template emit(opc: Opcode, n: NodePosition): InstrPos =
     env.instrs.add Instr(op: opc, node: n)
@@ -261,16 +398,6 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
       upd = exit.id == env.blocks.len.uint32
     discard env.blocks.pop()
 
-  template dfaOp(opc: Opcode, n: NodePosition, v: OpValue) =
-    env.instrs.add Instr(op: opc, node: n, val: v)
-
-  template dfaNamed(opc: Opcode, n: NodePosition, v: OpValue) =
-    let x = v
-    # optimization: don't emit an instruction for rvalue expressions
-    if tree[x].kind notin {mnkType, mnkLiteral, mnkProc, mnkCall,
-                           mnkMagic, mnkConstr, mnkObjConstr}:
-      env.instrs.add Instr(op: opc, node: n, val: x)
-
   var
     env = ClosureEnv()
     finallyExits: seq[tuple[id: uint32, inTry: uint32]]
@@ -278,11 +405,11 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
   for i, n in tree.pairs:
     case n.kind
     of mnkIf:
-      dfaNamed opUse, i, tree.operand(i)
+      emitLvalueOp(env, opUse, tree, i, tree.operand(i, 0))
       push opFork, i
     of mnkBranch:
       # optimization: the first branch doesn't use a CFG edge
-      if tree[i-1].kind notin {mnkCase, mnkExcept}:
+      if tree[i-2].kind != mnkCase and tree[i-1].kind != mnkExcept:
         pop(env, i)
     of mnkRepeat:
       # add a 'join' for the 'loop' that is emitted at the end of the repeat
@@ -291,7 +418,7 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
     of mnkBlock:
       open n.label
     of mnkCase:
-      dfaNamed opUse, i, tree.operand(i)
+      emitLvalueOp(env, opUse, tree, i, tree.operand(i, 0))
       openHidden() # for the branch exits
       # fork to all branches except the the first one:
       for _ in 0..<tree[i].len-1:
@@ -342,7 +469,7 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
     of mnkRaise:
       # raising an exception consumes it:
       if tree[tree.operand(i)].kind != mnkNone:
-        dfaOp opConsume, i, tree.operand(i)
+        emitLvalueOp(env, opConsume, tree, i, tree.operand(i))
 
       exit opGoto, i, RaiseLabel # go to closest handler
     of mnkEnd:
@@ -353,7 +480,7 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
         # only create an edge for branches that are not the last one
         if tree[i+1].kind != mnkEnd:
           exit opGoto, i, findHidden()
-      of mnkIf, mnkRegion, mnkRepeat:
+      of mnkIf, mnkRepeat:
         pop(env, i)
 
       # unstructured exits:
@@ -403,58 +530,32 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
 
         finallyExits.setLen(start)
       else:
-        discard
-
-    # data-flow mixed with control-flow:
-    of OpsWithEffects:
-      # the argument effects take place when the operation is executed
-      for effect, op in effects(tree, i):
-        case effect
-        of ekReassign:
-          dfaNamed opDef, i, op
-        of ekMutate:
-          dfaNamed opMutate, i, op
-        of ekInvalidate:
-          dfaNamed opInvalidate, i, op
-        of ekKill:
-          dfaNamed opKill, i, op
-
-      case n.kind
-      of mnkCall:
-        if geMutateGlobal in n.effects:
-          env.instrs.add Instr(op: opMutateGlobal, node: i)
-
-        if geRaises in n.effects:
-          exit opFork, i, RaiseLabel
-      of mnkMagic:
-        if n.magic in magicsThatCanRaise:
-          exit opFork, i, RaiseLabel
-      of mnkRegion:
-        # a region is specified to have no obsersvable control-flow effects, so
-        # we effectively skip it. The control-flow instructions for the
-        # intra-region control-flow are still generated -- by default, they're
-        # just skipped over
-        push opGoto, i
-      else:
         # no control-flow or other effects
         discard
 
-    # pure data-flow instructions:
-    of UseContext - ConsumeCtx - {mnkIf, mnkCase}:
-      dfaNamed opUse, i, tree.operand(i)
-    of DefNodes - {mnkDefUnpack}:
+    of mnkAsgn, mnkInit:
+      emitForDef(env, tree, i, true)
+    of mnkFastAsgn:
+      emitForDef(env, tree, i, false)
+    of mnkSwitch:
+      # the switch statement invalidates the destination rather than
+      # reassigning it (i.e., ``opDef``)
       let
-        hasInput = hasInput(tree, Operation i)
-        entity   = OpValue(i + 1)
-      if hasInput:
-        # a 'def' counts as a use of the input too
-        dfaNamed opUse, i, tree.operand(i)
-      if hasInput or tree[entity].kind == mnkParam:
-        # 'def' statements to which an initial value is provided are
-        # also assignments. Parameters always start initialized
-        dfaNamed opDef, i, entity
-    of ConsumeCtx - {mnkRaise}:
-      dfaNamed opConsume, i, tree.operand(i)
+        dest   = tree.operand(i, 0)
+        source = tree.operand(i, 1)
+      emitForValue(env, tree, i, dest)
+      emitForExpr(env, tree, i, NodePosition source, false)
+      dfaOp env, opInvalidate, i, dest
+    of mnkDef, mnkDefUnpack:
+      emitForDef(env, tree, i, true)
+    of mnkDefCursor:
+      emitForDef(env, tree, i, false)
+    of mnkBindMut, mnkBind:
+      emitForValue(env, tree, i, tree.operand(i, 1))
+    of mnkVoid:
+      emitForExpr(env, tree, i, NodePosition tree.operand(i), false)
+    of mnkEmit, mnkAsm:
+      emitForArgs(env, tree, i, i)
 
     else:
       discard "not relevant"
@@ -489,6 +590,13 @@ func find*(dfg: DataFlowGraph, n: NodePosition): InstrPos =
   ## If none are associated with `n`, the closest following (in terms of
   ## attached-to node position) operation is returned.
   lowerBound(dfg, n)
+
+iterator instructions*(dfg: DataFlowGraph): (InstrPos, Opcode, OpValue) =
+  ## Returns all data-flow operations in order of appearance together with
+  ## their position.
+  for i, it in dfg.instructions.pairs:
+    if it.op in DataFlowOps - {opMutateGlobal}:
+      yield (InstrPos i, it.op, it.val)
 
 iterator traverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
                    state: var TraverseState): (DataFlowOpcode, OpValue) =

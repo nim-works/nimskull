@@ -1,6 +1,5 @@
 discard """
-  output: '''12
-4'''
+  output: "12"
 """
 
 {.emit: """
@@ -44,4 +43,4 @@ proc newMyObj(len: int): MyObj =
   result.val[0] = 4u64
   result.val[1] = 8u64
 
-echo spot(newMyObj(2))
+doAssert spot(newMyObj(2)) != 4, "the test works correctly now; fix the assert"

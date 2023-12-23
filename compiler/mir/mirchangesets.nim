@@ -33,6 +33,7 @@ import
   ],
   compiler/mir/[
     mirtrees,
+    mirconstr,
     sourcemaps
   ],
   compiler/utils/[
@@ -83,12 +84,6 @@ func addSingle(s: var MirNodeSeq, n: sink MirNode): HOslice[NodeIndex] =
   s.add n
   result = single(s.high.NodeIndex)
 
-func updateInfo(nodes: var MirNodeSeq, start: int, id: SourceId) =
-  ## Sets the `info` field for all nodes in the ``start..^1`` slice to
-  ## `id`.
-  for i in start..<nodes.len:
-    nodes[i].info = id
-
 func initChangeset*(tree: MirTree): Changeset =
   ## Initializes a new ``Changeset`` instance. Until the resulting
   ## ``Changeset`` is applied, the associated tree must not be modified.
@@ -96,24 +91,46 @@ func initChangeset*(tree: MirTree): Changeset =
   # count the number of existing temporaries:
   for i, n in tree.pairs:
     if n.kind in DefNodes and
-       (let ent = child(tree, i, 0); ent.kind == mnkTemp):
+       (let ent = tree[i, 0]; ent.kind in {mnkTemp, mnkAlias}):
       result.numTemps = max(ent.temp.uint32 + 1, result.numTemps)
-
-func getTemp*(c: var Changeset): TempId =
-  ## Allocates a slot for new temporary and returns its ID
-  result = TempId(c.numTemps)
-  inc c.numTemps
 
 func replace*(c: var Changeset, tree: MirTree, at: NodePosition,
               with: sink MirNode) =
-  ## Records replacing the node or sub-tree at `at` with `with`.
+  ## Records replacing the node or sub-tree at `at` with `with`. The origin
+  ## information is taken from the replaced node.
   let next = sibling(tree, at)
+  with.info = tree[at].info
   c.rows.add row(at, next, c.nodes.addSingle(with))
+
+func changeTree*(c: var Changeset, tree: MirTree, at: NodePosition,
+                 with: sink MirNode) =
+  ## Replaces the sub-tree at `at` with `with` while keeping all child trees.
+  ## The origin information is taken from the replaced node.
+  let
+    e = tree.findEnd(at)
+    with2 = MirNode(kind: mnkEnd, start: with.kind, info: tree[e].info)
+
+  {.cast(noSideEffect).}: # XXX: compiler bug workaround
+    with.info = tree[at].info
+  c.rows.add row(at, at+1, c.nodes.addSingle(with))
+  # the end node needs to be replaced too
+  c.rows.add row(e, e+1, c.nodes.addSingle(with2))
 
 func insert*(c: var Changeset, at: NodePosition, n: sink MirNode) =
   ## Records the insertion of `n` at `at`. The ``info`` field on the node
   ## is not modified.
   c.rows.add row(at, at, c.nodes.addSingle(n))
+
+func initBuilder(c: var Changeset, info: SourceId): MirBuilder =
+  ## Internal routines for setting up a builder. Must be paired with a
+  ## ``finishBuilder`` call.
+  result = initBuilder(info, move c.nodes)
+  swap(c.numTemps, result.numTemps)
+
+func finishBuilder(c: var Changeset, bu: sink MirBuilder) =
+  # move the ID counter and buffer back into the changeset
+  swap(c.numTemps, bu.numTemps)
+  c.nodes = finish(bu)
 
 template insert*(c: var Changeset, tree: MirTree, at, source: NodePosition,
                  name: untyped, body: untyped) =
@@ -129,12 +146,10 @@ template insert*(c: var Changeset, tree: MirTree, at, source: NodePosition,
       pos = at
       info = tree[source].info
 
-    var name: MirNodeSeq
-    swap(c.nodes, name)
+    var name = initBuilder(c, info)
     body
-    swap(c.nodes, name)
+    finishBuilder(c, name)
 
-    updateInfo(c.nodes, start.int, info)
     c.rows.add row(pos, pos, span(start, c.nodes.len.NodeIndex))
 
 template replaceMulti*(c: var Changeset, tree: MirTree, at: NodePosition,
@@ -148,12 +163,11 @@ template replaceMulti*(c: var Changeset, tree: MirTree, at: NodePosition,
       pos = at # prevent double evaluation
       info = tree[pos].info
       next = sibling(tree, pos)
-    var name: MirTree
-    swap(c.nodes, name)
-    body
-    swap(c.nodes, name)
 
-    updateInfo(c.nodes, start.int, info)
+    var name = initBuilder(c, info)
+    body
+    finishBuilder(c, name)
+
     c.rows.add row(pos, next, span(start, c.nodes.len.NodeIndex))
 
 func remove*(c: var Changeset, tree: MirTree, at: NodePosition) =

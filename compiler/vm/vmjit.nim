@@ -28,6 +28,7 @@ import
   ],
   compiler/mir/[
     mirbridge,
+    mirconstr,
     mirgen,
     mirpasses,
     mirtrees,
@@ -167,7 +168,7 @@ func discoverGlobalsAndRewrite(data: var DiscoveryData, tree: var MirTree,
             g
         data.registerGlobal(s)
 
-      i = findEnd(tree, i) + 1 # skip the def's body
+      i = sibling(tree, i)
     else:
       inc i
 
@@ -202,9 +203,9 @@ proc generateMirCode(c: var TCtx, n: PNode;
     # fragment
     result = generateCode(c.graph, c.module, selectOptions(c), n)
   else:
-    var buf: MirBuffer
-    generateCode(c.graph, selectOptions(c), n, buf, result[1])
-    result[0] = finish(buf)
+    var bu: MirBuilder
+    generateCode(c.graph, selectOptions(c), n, bu, result[1])
+    result[0] = finish(bu)
 
 proc generateIR(c: var TCtx, tree: sink MirTree,
                 source: sink SourceMap): Body {.inline.} =

@@ -68,7 +68,7 @@ proc echoMir*(config: ConfigRef, owner: PSym, tree: MirTree) =
   ## through ``config.writeln``.
   if config.getStrDefine("nimShowMir") == owner.name.s:
     writeBody(config, "-- MIR: " & owner.name.s):
-      config.writeln(print(tree))
+      config.writeln(treeRepr(tree))
 
 proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
   ## If requested via the define, renders the output IR `body` and writes the
@@ -102,7 +102,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
     let n {.cursor.} = body[i]
     case n.kind
     of DefNodes:
-      let def = i + 1
+      let def = body.child(i, 0)
       if body[def].kind == mnkGlobal:
         let
           sym = restoreGlobal(body[def].sym)
@@ -110,24 +110,15 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
         if depth > 1:
           # don't rewrite the def, but still patch the symbol if requested
           if patch:
-            changes.replace(body, i + 1):
+            changes.replace(body, body.child(i, 0)):
               MirNode(kind: mnkGlobal, sym: sym, typ: typ)
-        # HACK: ``vmjit`` currently passes us expressions where a 'def' can
-        #       be the very first node, something that ``hasInput`` doesn't
-        #       support. We thus have to guard against i == 0
-        elif i.int > 0 and hasInput(body, Operation i):
+        elif body[i, 1].kind != mnkNone:
           # the global has a starting value
           changes.replaceMulti(body, i, buf):
-            let tmp = changes.getTemp()
-            buf.subTree MirNode(kind: mnkDef):
-              # assign to a temporary first, and then assign the temporary to the
-              # global
-              buf.add MirNode(kind: mnkTemp, temp: tmp, typ: typ)
-
-            argBlock(buf):
-              chain(buf): symbol(mnkGlobal, sym) => tag(ekReassign) => name()
-              chain(buf): temp(typ, tmp) => consume()
-            buf.add MirNode(kind: mnkInit)
+            let val = buf.inline(body, body.child(i, 1))
+            buf.subTree mnkInit:
+              buf.use symbol(mnkGlobal, sym)
+              buf.use val
         elif {sfImportc, sfNoInit} * sym.flags == {} and
              {exfDynamicLib, exfNoDecl} * sym.extFlags == {}:
           # XXX: ^^ re-think this condition from first principles. Right now,
@@ -135,16 +126,15 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
           # the location doesn't have an explicit starting value. Initialize
           # it to the type's default value.
           changes.replaceMulti(body, i, buf):
-            argBlock(buf):
-              chain(buf): symbol(mnkGlobal, sym) => tag(ekReassign) => name()
-              argBlock(buf): discard
-              chain(buf): magicCall(mDefault, typ) => consume()
-            buf.add MirNode(kind: mnkInit)
+            buf.subTree mnkInit:
+              buf.use symbol(mnkGlobal, sym)
+              buf.buildMagicCall mDefault, typ:
+                discard
         else:
           # just remove the def:
           changes.remove(body, i)
 
-      inc i, 2 # skip the whole sub-tree ('def', name, and 'end' node)
+      i = body.child(i, 1) - 1 # skip the name node
     of mnkGlobal:
       # remove the temporary duplicates of nested globals again:
       if patch and depth > 1:

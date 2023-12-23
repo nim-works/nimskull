@@ -118,9 +118,7 @@ type
     slotTempPerm      ## slot is temporary but permanent (hack)
 
   RegInfo = object
-    refCount: uint16
-    locReg: uint16 ## if the register stores a handle, `locReg` is the
-                   ## register storing the backing location
+    inUse: bool
     kind: TSlotKind
 
   LocalLoc = object
@@ -281,11 +279,8 @@ func underlyingLoc(n: CgNode): CgNode =
   var root {.cursor.} = n
   # skip nodes that don't change the location until we arrive at either one
   # that does, or a symbol
-  while true:
-    case root.kind
-    of cnkConv:         root = root.operand
-    of cnkStmtListExpr: root = root[^1]
-    else:               break
+  while root.kind == cnkConv:
+    root = root.operand
 
   result = root
 
@@ -413,30 +408,27 @@ proc getSlotKind(t: PType): TSlotKind =
 const
   HighRegisterPressure = 40
 
-template inUse(x: RegInfo): bool =
-  x.refCount > 0
-
 proc getFreeRegister(c: var BProc; k: TSlotKind; start: int): TRegister =
   # we prefer the same slot kind here for efficiency. Unfortunately for
   # discardable return types we may not know the desired type. This can happen
   # for e.g. mNAdd[Multiple]:
   for i in start..c.regInfo.len-1:
     if c.regInfo[i].kind == k and not c.regInfo[i].inUse:
-      c.regInfo[i].refCount = 1
+      c.regInfo[i].inUse = true
       return TRegister(i)
 
   # if register pressure is high, we re-use more aggressively:
   if c.regInfo.len >= high(TRegister):
     for i in start..c.regInfo.len-1:
       if not c.regInfo[i].inUse:
-        c.regInfo[i] = RegInfo(refCount: 1, kind: k)
+        c.regInfo[i] = RegInfo(inUse: true, kind: k)
         return TRegister(i)
   if c.regInfo.len >= high(TRegister):
     fail(c.bestEffort, vmGenDiagTooManyRegistersRequired)
 
   result = TRegister(max(c.regInfo.len, start))
   c.regInfo.setLen int(result)+1
-  c.regInfo[result] = RegInfo(refCount: 1, kind: k)
+  c.regInfo[result] = RegInfo(inUse: true, kind: k)
 
 func getTemp(cc: var TCtx; kind: TSlotKind): TRegister {.inline.} =
   getFreeRegister(cc.prc, kind, start = 0)
@@ -456,60 +448,11 @@ proc getTemp(cc: var TCtx; tt: PType): TRegister =
       writeStackTrace()
       echo "end ----------------"
 
-proc makeHandleReg(cc: var TCtx, r, loc: TRegister) =
-  ## Mark register `r` as a register storing a handle into the location
-  ## stored in register `loc`
-
-  # XXX: vmgen depends on locations still existing after freeing the
-  #      corresponding register, which was made possible due to the VM using
-  #      `ref` types internally (PNode). With the new semantics, locations
-  #      are freed immediately once their corresponding register transitions
-  #      to another state, thus leading to issues with temporaries. Consider:
-  #      .. code-block::nim
-  #        newSeq[SomeObject](1)[0].field
-  #
-  #      Once the `[0]` expression is evaluated, the register holding the
-  #      `newSeq` result is released. If it's reused for holding `field`, the
-  #      location gets cleaned up, leading to the handle returned by `[0]`
-  #      turning invalid.
-  #
-  #      As a temporary fix, `vmgen` now uses ref counting for registers, so
-  #      that handle registers keep their location registers from being reused
-  #      during the lifetime of the handle. Once vmgen gets a IR, register
-  #      lifetime management can be properly implemented
-  template c: BProc = cc.prc
-  let fk = c.regInfo[loc].kind
-  internalAssert cc.config, fk != slotEmpty, ""
-
-  if c.regInfo[r].kind < slotTempUnknown:
-    # XXX: a hack inside a hack. `makeHandleReg` is sometimes called on
-    #      registers that store variables. Instead of finding out why and
-    #      properly fixing the issue, we simply don't apply the adjustment.
-    return
-
-  # If the src is a handle-into-temp itself, don't ref it, but use it's target
-  # as the source instead
-  let loc =
-    if fk == slotTempHandle: c.regInfo[loc].locReg
-    else: uint16(loc)
-
-  internalAssert cc.config, c.regInfo[r].refCount == 1
-  internalAssert cc.config, c.regInfo[loc].kind != slotTempHandle
-
-  c.regInfo[r].kind = slotTempHandle
-  c.regInfo[r].locReg = loc
-  inc c.regInfo[loc].refCount
-
 func freeTemp(c: var TCtx; r: TRegister) =
   case c.prc.regInfo[r].kind
-  of {slotSomeTemp..slotTempComplex}:
+  of slotSomeTemp..slotTempHandle:
     # this seems to cause https://github.com/nim-lang/Nim/issues/10647
-    dec c.prc.regInfo[r].refCount
-  of slotTempHandle:
-    let rI = addr c.prc.regInfo[r]
-    assert rI.refCount == 1
-    rI.refCount = 0
-    freeTemp(c, TRegister(rI.locReg))
+    c.prc.regInfo[r].inUse = false
   else:
     discard # do nothing
 
@@ -525,7 +468,8 @@ proc getTempRange(c: var BProc; n: int; kind: TSlotKind): TRegister =
           for j in i+1..i+n-1:
             if c.regInfo[j].inUse: break search
           result = TRegister(i)
-          for k in result..result+n-1: c.regInfo[k] = RegInfo(refCount: 1, kind: kind)
+          for k in result..result+n-1:
+            c.regInfo[k] = RegInfo(inUse: true, kind: kind)
           return
   if c.regInfo.len+n >= high(TRegister):
     fail(c.bestEffort, vmGenDiagTooManyRegistersRequired)
@@ -533,7 +477,7 @@ proc getTempRange(c: var BProc; n: int; kind: TSlotKind): TRegister =
   result = TRegister(c.regInfo.len)
   setLen c.regInfo, c.regInfo.len+n
   for k in result .. result + n - 1:
-    c.regInfo[k] = RegInfo(refCount: 1, kind: kind)
+    c.regInfo[k] = RegInfo(inUse: true, kind: kind)
 
 proc freeTempRange(c: var TCtx; start: TRegister, n: int) =
   for i in start .. start + n - 1:
@@ -675,9 +619,6 @@ proc genIf(c: var TCtx, n: CgNode) =
 
       c.gen(it[1]) # then part
       c.patch(elsePos)
-
-func isTemp(c: TCtx; dest: TDest): bool =
-  result = dest >= 0 and c.prc.regInfo[dest].kind >= slotTempUnknown
 
 # XXX `rawGenLiteral` should be a func, but can't due to `internalAssert`
 proc rawGenLiteral(c: var TCtx, val: sink VmConstant): int =
@@ -1011,6 +952,7 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
     if n[0].kind == cnkClosureConstr:
       # optimization: don't allocate a temporary but place the values into
       # the respective registers directly
+      # XXX: dead code, but should be restored
       c.gen(n[0][0], x+0)
       c.gen(n[0][1], x+n.len)
     else:
@@ -1207,7 +1149,7 @@ proc genParseOp(c: var TCtx; n: CgNode; dest: var TDest,
   # register directly, so the used addr operation is skipped (if it hasn't
   # been eliminated by ``transf``)
   var x = n[2]
-  if x.kind in {cnkAddr, cnkHiddenAddr}:
+  if x.kind == cnkHiddenAddr:
     x = x.operand
 
   let
@@ -1358,7 +1300,6 @@ proc genObjConv(c: var TCtx, n: CgNode, dest: var TDest) =
   of tyRef, tyObject:
     c.gABC(n, opcObjConv, dest, tmp)
     c.gABx(n, opcObjConv, 0, c.genType(desttyp))
-    c.makeHandleReg(dest, tmp)
   of tyPtr:
     c.gABC(n, opcFastAsgnComplex, dest, tmp) # register copy
     c.gABx(n, opcSetType, dest, c.genType(desttyp)) # set the new type
@@ -1595,8 +1536,6 @@ func usesRegister(p: BProc, n: CgNode): bool =
   of cnkDeref, cnkDerefView, cnkFieldAccess, cnkArrayAccess, cnkTupleAccess,
      cnkCheckedFieldAccess, cnkConv, cnkObjDownConv, cnkObjUpConv:
     false
-  of cnkStmtListExpr:
-    usesRegister(p, n.lastSon)
   else:
     unreachable(n.kind)
 
@@ -1934,15 +1873,14 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.freeTemp(tmp)
   of mEcho:
     unused(c, n, dest)
-    let n = n[1].skipConv
-    if n.kind == cnkArrayConstr:
-      # can happen for nim check, see bug #9609
-      let x = c.prc.getTempRange(n.len, slotTempUnknown)
-      for i in 0..<n.len:
-        var r: TRegister = x+i
-        c.gen(n[i], r)
-      c.gABC(n, opcEcho, x, n.len)
-      c.freeTempRange(x, n.len)
+    let
+      numArgs = n.len - 2
+      x = c.prc.getTempRange(numArgs, slotTempUnknown)
+    for i in 0..<numArgs:
+      var r: TRegister = x+i
+      c.gen(n[i + 2], r)
+    c.gABC(n, opcEcho, x, numArgs)
+    c.freeTempRange(x, numArgs)
   of mAppendStrCh:
     unused(c, n, dest)
     genBinaryStmtVar(c, n, opcAddStrCh)
@@ -2292,8 +2230,6 @@ func isPtrView(n: CgNode): bool =
     true
   of cnkHiddenAddr, cnkCall:
     false
-  of cnkStmtListExpr:
-    isPtrView(n.lastSon)
   else:
     unreachable(n.kind)
 
@@ -2311,10 +2247,10 @@ proc genAsgnSource(c: var TCtx, n: CgNode, wantsPtr: bool): TRegister =
     # expects:
     if not wantsPtr and isPtr:
       # produce a handle by dereferencing the pointer
-      # note: we can reuse the register because we know it's a temporary
-      # one
-      assert c.isTemp(result)
-      c.gABC(n, opcLdDeref, result, result)
+      let tmp = result
+      result = c.getTemp(n.typ)
+      c.gABC(n, opcLdDeref, result, tmp)
+      c.freeTemp(tmp)
     elif wantsPtr and not isPtr:
       # turn the handle into an address. The register can't be reused
       # because it might be non-temporary one
@@ -2360,7 +2296,7 @@ proc genAsgnToLocal(c: var TCtx, le, ri: CgNode) =
       # handles in this case, so a register move is used for assigning them
       let
         opc = (if isDirectView(le.typ): opcFastAsgnComplex else: opcWrLoc)
-        b = c.genx(ri)
+        b = genAsgnSource(c, ri, wantsPtr = false)
       c.gABC(le, opc, dest, b)
       c.freeTemp(b)
 
@@ -2572,7 +2508,6 @@ proc genArrAccessOpcode(c: var TCtx; n: CgNode; dest: var TDest; opc: TOpcode; l
     c.freeTemp(cc)
   else:
     c.gABC(n, opc, dest, a, b)
-    c.makeHandleReg(dest, a)
   c.freeTemp(a)
   c.freeTemp(b)
 
@@ -2589,7 +2524,6 @@ proc genFieldAccessAux(c: var TCtx; n: CgNode; a, b: TRegister, dest: var TDest;
     c.freeTemp(cc)
   else:
     c.gABC(n, opcLdObj, dest, a, b)
-    c.makeHandleReg(dest, a)
 
 proc genFieldAccess(c: var TCtx; n: CgNode; pos: int, dest: var TDest;
                     load = true) =
@@ -2678,7 +2612,6 @@ proc genCheckedObjAccess(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
     c.freeTemp(cc)
   else:
     c.gABC(n, opcLdObj, dest, objR, fieldPos)
-    c.makeHandleReg(dest, objR)
 
   c.freeTemp(objR)
 
@@ -2773,11 +2706,6 @@ proc genAddr(c: var TCtx, src, n: CgNode, dest: var TDest) =
       c.freeTemp(tmp)
     else:
       unreachable()
-  of cnkStmtListExpr:
-    for i in 0..<n.len-1:
-      gen(c, n[i])
-
-    genAddr(c, src, n[^1], dest)
   else:
     unreachable(n.kind)
 
@@ -2822,17 +2750,6 @@ proc genLvalue(c: var TCtx, n: CgNode, dest: var TDest) =
       genLvalue(c, n.operand, dest)
   of cnkDeref:
     genDeref(c, n, dest, load=false)
-  of cnkCall:
-    # we only reach this case for ``HiddenAddr (DerefView (Call ...))``.
-    # Generate the call returning a view as is
-    # XXX: ``cgirgen`` should not emit these instead
-    assert isLocView(n.typ)
-    gen(c, n, dest)
-  of cnkStmtListExpr:
-    for i in 0..<n.len-1:
-      gen(c, n[i])
-
-    genLvalue(c, n.lastSon, dest)
   else:
     unreachable(n.kind)
 
@@ -3098,9 +3015,6 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkStmtList:
     unused(c, n, dest)
     for x in n: gen(c, x)
-  of cnkStmtListExpr:
-    for i in 0..<n.len-1: gen(c, n[i])
-    gen(c, n[^1], dest)
   of cnkVoidStmt:
     unused(c, n, dest)
     gen(c, n[0])
@@ -3130,7 +3044,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkPragmaStmt, cnkAsmStmt, cnkEmitStmt:
     unused(c, n, dest)
   of cnkInvalid, cnkMagic, cnkRange, cnkExcept, cnkFinally, cnkBranch,
-     cnkBinding, cnkLabel:
+     cnkBinding, cnkLabel, cnkStmtListExpr:
     unreachable(n.kind)
 
 proc initProc(c: TCtx, owner: PSym, body: sink Body): BProc =
@@ -3165,7 +3079,14 @@ proc genExpr*(c: var TCtx; body: sink Body): Result[int, VmGenDiag] =
 
   var d: TDest = -1
   try:
-    c.gen(n, d)
+    if n.kind == cnkStmtListExpr:
+      # special case the expression here so that ``gen`` doesn't have to
+      for i in 0..<n.len-1:
+        c.gen(n[i])
+
+      c.gen(n[^1], d)
+    else:
+      c.gen(n, d)
   except VmGenError as e:
     return typeof(result).err(move e.diag)
 
@@ -3191,7 +3112,7 @@ proc genParams(prc: var BProc; signature: PType) =
   prc.regInfo.newSeq(params.len + ord(isClosure))
 
   for i, it in prc.regInfo.mpairs:
-    it = RegInfo(refCount: 1, kind: slotFixedVar)
+    it = RegInfo(inUse: true, kind: slotFixedVar)
     prc[LocalId i].reg = i
 
 proc finalJumpTarget(c: var TCtx; pc, diff: int) =
