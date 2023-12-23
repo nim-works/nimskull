@@ -545,7 +545,7 @@ template inheritLocation(d: var TLoc, a: TLoc) =
 
 proc genRecordFieldAux(p: BProc, e: CgNode, d, a: var TLoc) =
   initLocExpr(p, e[0], a)
-  internalAssert(p.config, e[1].kind == cnkSym, e.info, "genRecordFieldAux")
+  internalAssert(p.config, e[1].kind == cnkField, e.info, "genRecordFieldAux")
   d.inheritLocation(a)
   discard getTypeDesc(p.module, a.t) # fill the record's fields.loc
 
@@ -602,7 +602,7 @@ proc genFieldCheck(p: BProc, e: CgNode, obj: Rope, field: PSym) =
     let op = it[0].magic
     if op == mNot: it = it[1]
     let disc = it[2].skipConv
-    assert(disc.kind == cnkSym)
+    assert(disc.kind == cnkField)
     initLoc(test, locNone, it, OnStack)
     initLocExpr(p, it[1], u)
     initLoc(v, locExpr, disc, OnUnknown)
@@ -1950,8 +1950,7 @@ proc genTupleConstr(p: BProc, n: CgNode, d: var TLoc) =
       expr(p, it, rec)
 
 proc isConstClosure(n: CgNode): bool {.inline.} =
-  result = n[0].kind == cnkSym and isRoutine(n[0].sym) and
-      n[1].kind == cnkNilLit
+  n[0].kind == cnkProc and n[1].kind == cnkNilLit
 
 proc genClosure(p: BProc, n: CgNode, d: var TLoc) =
   assert n.kind == cnkClosureConstr
@@ -2097,36 +2096,35 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   p.currLineInfo = n.info
 
   case n.kind
-  of cnkSym:
-    var sym = n.sym
-    case sym.kind
-    of skProc, skConverter, skIterator, skFunc, skMethod:
-      if sfCompileTime in sym.flags:
-        localReport(p.config, n.info, reportSym(
-          rsemCannotCodegenCompiletimeProc, sym))
+  of cnkProc:
+    let sym = n.sym
+    if sfCompileTime in sym.flags:
+      localReport(p.config, n.info, reportSym(
+        rsemCannotCodegenCompiletimeProc, sym))
 
-      useProc(p.module, sym)
-      putIntoDest(p, d, n, p.module.procs[sym].name, OnStack)
-    of skConst:
-      if isSimpleConst(sym.typ):
-        putIntoDest(p, d, n, genLiteral(p, translate(sym.ast), sym.typ), OnStatic)
-      else:
-        useConst(p.module, sym)
-        putLocIntoDest(p, d, p.module.consts[sym])
-    of skVar, skForVar, skLet:
-      assert sfGlobal in sym.flags
-      genVarPrototype(p.module, n)
+    useProc(p.module, sym)
+    putIntoDest(p, d, n, p.module.procs[sym].name, OnStack)
+  of cnkConst:
+    let sym = n.sym
+    if isSimpleConst(sym.typ):
+      putIntoDest(p, d, n, genLiteral(p, translate(sym.ast), sym.typ), OnStatic)
+    else:
+      useConst(p.module, sym)
+      putLocIntoDest(p, d, p.module.consts[sym])
+  of cnkGlobal:
+    let sym = n.sym
+    assert sfGlobal in sym.flags
+    genVarPrototype(p.module, n)
 
-      if sfThread in sym.flags:
-        accessThreadLocalVar(p, sym)
-        if emulatedThreadVars(p.config):
-          let loc {.cursor.} = p.module.globals[sym]
-          putIntoDest(p, d, loc.lode, "NimTV_->" & loc.r)
-        else:
-          putLocIntoDest(p, d, p.module.globals[sym])
+    if sfThread in sym.flags:
+      accessThreadLocalVar(p, sym)
+      if emulatedThreadVars(p.config):
+        let loc {.cursor.} = p.module.globals[sym]
+        putIntoDest(p, d, loc.lode, "NimTV_->" & loc.r)
       else:
         putLocIntoDest(p, d, p.module.globals[sym])
-    else: internalError(p.config, n.info, "expr(" & $sym.kind & "); unknown symbol")
+    else:
+      putLocIntoDest(p, d, p.module.globals[sym])
   of cnkLocal:
     putLocIntoDest(p, d, p.locals[n.local])
   of cnkStrLit:
@@ -2223,7 +2221,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkRaiseStmt: genRaiseStmt(p, n)
   of cnkPragmaStmt: discard
   of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkExcept,
-     cnkFinally, cnkBranch, cnkLabel, cnkStmtListExpr:
+     cnkFinally, cnkBranch, cnkLabel, cnkStmtListExpr, cnkField:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 
 proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =
@@ -2418,8 +2416,8 @@ proc genBracedInit(p: BProc, n: CgNode; isConst: bool; optionalType: PType): Rop
         var symNode: CgNode
 
         case n.kind
-        of cnkNilLit, cnkSym:
-          # XXX: a cnkSym shouldn't reach here, but it does. Example that
+        of cnkNilLit, cnkProc:
+          # XXX: a cnkProc shouldn't reach here, but it does. Example that
           #      triggers it:
           #      .. code-block:: nim
           #        proc p() = discard
@@ -2430,7 +2428,7 @@ proc genBracedInit(p: BProc, n: CgNode; isConst: bool; optionalType: PType): Rop
           #      passing the expression to evaluation
           symNode = n
         of cnkClosureConstr:
-          p.config.internalAssert(n[0].kind == cnkSym, n.info)
+          p.config.internalAssert(n[0].kind == cnkProc, n.info)
           p.config.internalAssert(n[1].kind == cnkNilLit, n.info)
           symNode = n[0]
         else:
@@ -2439,7 +2437,7 @@ proc genBracedInit(p: BProc, n: CgNode; isConst: bool; optionalType: PType): Rop
         case symNode.kind
         of cnkNilLit:
           result = ~"{NIM_NIL,NIM_NIL}"
-        of cnkSym:
+        of cnkProc:
           var d: TLoc
           initLocExpr(p, symNode, d)
           result = "{(($1) $2),NIM_NIL}" % [getClosureType(p.module, typ, clHalfWithEnv), rdLoc(d)]

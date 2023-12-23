@@ -861,7 +861,7 @@ proc genAsmOrEmitStmt(p: PProc, n: CgNode) =
     case it.kind
     of cnkStrLit:
       p.body.add(it.strVal)
-    of cnkSym, cnkLocal:
+    of cnkProc, cnkConst, cnkGlobal, cnkLocal:
       # for backwards compatibility we don't deref syms here :-(
       if false:
         discard
@@ -996,7 +996,7 @@ proc genFastAsgn(p: PProc, n: CgNode) =
 proc getFieldPosition(p: PProc; f: CgNode): int =
   case f.kind
   of cnkIntLit: result = int(f.intVal)
-  of cnkSym:    result = f.sym.position
+  of cnkField:  result = f.sym.position
   else: internalError(p.config, f.info, "genFieldPosition")
 
 proc genFieldAddr(p: PProc, n: CgNode, r: var TCompRes) =
@@ -1008,7 +1008,7 @@ proc genFieldAddr(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkTupleAccess:
     r.res = makeJSString("Field" & $getFieldPosition(p, b[1]))
   of cnkFieldAccess:
-    p.config.internalAssert(b[1].kind == cnkSym, b[1].info, "genFieldAddr")
+    p.config.internalAssert(b[1].kind == cnkField, b[1].info, "genFieldAddr")
     r.res = makeJSString(ensureMangledName(p, b[1].sym))
   else:
     unreachable(n.kind)
@@ -1025,7 +1025,7 @@ proc genFieldAccess(p: PProc, n: CgNode, r: var TCompRes) =
     r.res = ("$1.Field$2") %
         [r.res, getFieldPosition(p, n[1]).rope]
   of cnkFieldAccess:
-    p.config.internalAssert(n[1].kind == cnkSym, n[1].info, "genFieldAccess")
+    p.config.internalAssert(n[1].kind == cnkField, n[1].info, "genFieldAccess")
     r.res = "$1.$2" % [r.res, ensureMangledName(p, n[1].sym)]
   else:
     unreachable(n.kind)
@@ -1175,7 +1175,7 @@ proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
   case n.kind
   of cnkLocal:
     addrLoc(p.locals[n.local].name, p.locals[n.local], r)
-  of cnkSym:
+  of cnkConst, cnkGlobal:
     addrLoc(mangledName(p, n.sym, n.info), n.sym, r)
   of cnkCheckedFieldAccess:
     genCheckedFieldOp(p, n, takeAddr=true, r)
@@ -1221,24 +1221,6 @@ proc accessLoc[T: Loc|PSym](name: string, s: T, r: var TCompRes) =
       r.res = "$1[0]" % [name]
     else:
       r.res = name
-
-proc genSym(p: PProc, n: CgNode, r: var TCompRes) =
-  var s = n.sym
-  case s.kind
-  of skVar, skLet, skForVar:
-    let name = mangledName(p, s, n.info)
-    accessLoc(name, s, r)
-  of skConst:
-    r.res = mangledName(p, s, n.info)
-  of skProc, skFunc, skConverter, skMethod, skIterator:
-    if sfCompileTime in s.flags:
-      localReport(p.config, n.info, reportSym(
-        rsemCannotCodegenCompiletimeProc, s))
-
-    r.res = ensureMangledName(p, s)
-  else:
-    unreachable()
-  r.kind = resVal
 
 proc genDeref(p: PProc, n: CgNode, r: var TCompRes) =
   let it = n.operand
@@ -2335,8 +2317,18 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   r.res = ""
 
   case n.kind
-  of cnkSym:
-    genSym(p, n, r)
+  of cnkProc:
+    let s = n.sym
+    if sfCompileTime in s.flags:
+      localReport(p.config, n.info, reportSym(
+        rsemCannotCodegenCompiletimeProc, s))
+
+    r.res = ensureMangledName(p, s)
+  of cnkConst:
+    r.res = mangledName(p, n.sym, n.info)
+  of cnkGlobal:
+    let s = n.sym
+    accessLoc(mangledName(p, s, n.info), s, r)
   of cnkLocal:
     accessLoc(p.locals[n.local].name, p.locals[n.local], r)
   of cnkIntLit, cnkUIntLit:
@@ -2388,7 +2380,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       genLineDir(p, n)
     if getCalleeMagic(n[0]) != mNone:
       genMagic(p, n, r)
-    elif n[0].kind == cnkSym and sfInfixCall in n[0].sym.flags and
+    elif n[0].kind == cnkProc and sfInfixCall in n[0].sym.flags and
         n.len >= 1:
       genInfixCall(p, n, r)
     else:
@@ -2458,7 +2450,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkRaiseStmt: genRaiseStmt(p, n)
   of cnkPragmaStmt: discard
   of cnkInvalid, cnkMagic, cnkRange, cnkBinding, cnkExcept, cnkFinally,
-     cnkBranch, cnkAstLit, cnkLabel, cnkStmtListExpr:
+     cnkBranch, cnkAstLit, cnkLabel, cnkStmtListExpr, cnkField:
     internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =

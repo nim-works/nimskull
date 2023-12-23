@@ -102,7 +102,7 @@ template `^^`(s, i: untyped): untyped =
 
 func getCalleeMagic(n: CgNode): TMagic =
   case n.kind
-  of cnkSym:   n.sym.magic
+  of cnkProc:  n.sym.magic
   of cnkMagic: n.magic
   else:        mNone
 
@@ -166,8 +166,9 @@ proc newTree(kind: CgNodeKind, info: TLineInfo, kids: varargs[CgNode]): CgNode =
 func newTypeNode(info: TLineInfo, typ: PType): CgNode =
   CgNode(kind: cnkType, info: info, typ: typ)
 
-func newSymNode(s: PSym; info = unknownLineInfo): CgNode =
-  CgNode(kind: cnkSym, info: info, typ: s.typ, sym: s)
+func newSymNode(kind: CgNodeKind, s: PSym; info = unknownLineInfo): CgNode =
+  {.cast(uncheckedAssign).}:
+    CgNode(kind: kind, info: info, typ: s.typ, sym: s)
 
 func newLabelNode(blk: BlockId; info = unknownLineInfo): CgNode =
   CgNode(kind: cnkLabel, info: info, label: blk)
@@ -221,7 +222,7 @@ proc translateLit*(val: PNode): CgNode =
   of nkSym:
     # special case for raw symbols used with emit and asm statements
     assert val.sym.kind == skField
-    node(cnkSym, sym, val.sym)
+    node(cnkField, sym, val.sym)
   else:
     unreachable("implement: " & $val.kind)
 
@@ -344,7 +345,7 @@ proc buildCheck(cl: var TranslateCl, recCase: PNode, pos: Natural,
     newExpr(cnkCall, info, getSysType(cl.graph, info, tyBool), [
       newMagicNode(mInSet, info),
       lit,
-      newSymNode(discr.sym)
+      newSymNode(cnkField, discr.sym)
     ])
 
   if invert:
@@ -383,7 +384,7 @@ proc addToVariantAccess(cl: var TranslateCl, dest: CgNode, field: PSym,
     check = buildCheck(cl, recCase, findBranch(cl.graph.config, recCase, field.name),
                        info)
 
-  node[1] = newSymNode(field)
+  node[1] = newSymNode(cnkField, field)
   node.typ = field.typ
 
   case dest.kind
@@ -466,8 +467,12 @@ proc convToIr(cl: TranslateCl, n: CgNode, info: TLineInfo, dest: PType): CgNode 
 
 proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
   case n.kind
-  of mnkProc, mnkConst, mnkGlobal:
-    newSymNode(n.sym, info)
+  of mnkProc:
+    newSymNode(cnkProc, n.sym, info)
+  of mnkConst:
+    newSymNode(cnkConst, n.sym, info)
+  of mnkGlobal:
+    newSymNode(cnkGlobal, n.sym, info)
   of mnkLocal, mnkParam:
     # paramaters are treated like locals in the code generators
     assert n.sym.id in cl.localsMap
@@ -542,9 +547,10 @@ proc lvalueToIr(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
       # the node's ``typ`` is the type of the enclosing object not of the
       # discriminant, so we have to explicitly use the field's type here
       result = newExpr(cnkFieldAccess, info, n.field.typ,
-                       [arg, newSymNode(n.field)])
+                       [arg, newSymNode(cnkField, n.field)])
     else:
-      result = newExpr(cnkFieldAccess, info, n.typ, [arg, newSymNode(n.field)])
+      result = newExpr(cnkFieldAccess, info, n.typ,
+                       [arg, newSymNode(cnkField, n.field)])
   of mnkPathPos:
     result = newExpr(cnkTupleAccess, info, n.typ,
                      [recurse(),
@@ -672,7 +678,7 @@ proc defToIr(tree: TreeWithSource, cl: var TranslateCl,
     # ignore 'def's for both parameters and procedures
     def = newEmpty()
   of mnkGlobal:
-    def = newSymNode(entity.sym, info)
+    def = newSymNode(cnkGlobal, entity.sym, info)
   of mnkTemp:
     # MIR temporaries are like normal locals, with the difference that they
     # are created ad-hoc and don't have any extra information attached
@@ -725,7 +731,7 @@ proc defToIr(tree: TreeWithSource, cl: var TranslateCl,
         else:        newStmt(cnkAsgn, info, [def, arg])
     else:
       result = newStmt(cnkDef, info, [def, arg])
-  of cnkSym:
+  of cnkGlobal:
     # there are no defs for globals in the ``CgNode`` IR, so we
     # emit an assignment that has the equivalent behaviour (in
     # terms of initialization)
@@ -976,7 +982,7 @@ proc exprToIr(tree: TreeWithSource, cl: var TranslateCl,
   of mnkObjConstr:
     assert n.typ.skipTypes(abstractVarRange).kind in {tyObject, tyRef}
     treeOp cnkObjConstr:
-      let f = newSymNode(get(tree, cr).field)
+      let f = newSymNode(cnkField, get(tree, cr).field)
       res.add newTree(cnkBinding, cr.info, [f, argToIr(tree, cl, cr)[1]])
   of mnkConstr:
     let typ = n.typ.skipTypes(abstractVarRange)
@@ -1005,7 +1011,7 @@ proc genDefFor(sym: sink CgNode): CgNode =
   case sym.kind
   of cnkLocal:
     newStmt(cnkDef, sym.info, [sym, newEmpty()])
-  of cnkSym:
+  of cnkGlobal:
     # emulate the default-initialization behaviour
     newStmt(cnkAsgn, sym.info, [sym, newDefaultCall(sym.info, sym.typ)])
   else:

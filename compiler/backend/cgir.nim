@@ -32,10 +32,12 @@ type
     cnkNilLit        ## the nil literal
     cnkAstLit        ## a ``NimNode`` literal
 
-    cnkSym
+    cnkField         ## reference to an object field's symbol
     cnkLabel         ## name of a block
+    cnkProc          ## name of a procedure
+    cnkConst         ## reference to a named, global constant
+    cnkGlobal        ## reference to a global location
     cnkLocal         ## reference to a local
-    # future direction: split up ``cnkSym`` in the way the MIR does it
     cnkMagic         ## name of a magic procedure. Only valid in the callee
                      ## slot of ``cnkCall`` nodes
 
@@ -186,12 +188,13 @@ type
     of cnkFloatLit:   floatVal*: BiggestFloat
     of cnkStrLit:     strVal*: string
     of cnkAstLit:     astLit*: PNode
-    of cnkSym:        sym*: PSym
     of cnkMagic:      magic*: TMagic
     of cnkLabel:      label*: BlockId
     of cnkLocal:      local*: LocalId
     of cnkPragmaStmt: pragma*: TSpecialWord
     of cnkWithOperand: operand*: CgNode
+    of cnkField, cnkProc, cnkConst, cnkGlobal:
+      sym*: PSym
     of cnkWithItems:
       kids*: seq[CgNode]
 

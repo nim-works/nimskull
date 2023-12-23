@@ -679,29 +679,13 @@ proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
     case it.kind
     of cnkStrLit:
       res.add(it.strVal)
-    of cnkSym:
-      var sym = it.sym
-      case sym.kind
-      of skProc, skFunc, skIterator, skMethod:
-        var a: TLoc
-        initLocExpr(p, it, a)
-        res.add(rdLoc(a))
-      of skVar, skLet, skForVar:
-        # make sure the C type description is available:
-        discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
-        var a: TLoc
-        initLocExpr(p, it, a)
-        res.add(rdLoc(a))
-      of skType:
-        res.add(getTypeDesc(p.module, sym.typ))
-      of skField:
+    of cnkField:
+        let sym = it.sym
         # special support for raw field symbols
         discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
         p.config.internalAssert(sym.locId != 0, it.info):
           "field's surrounding type not setup"
         res.add(p.fieldName(sym))
-      else:
-        unreachable(sym.kind)
     of cnkLocal:
       # make sure the C type description is available:
       discard getTypeDesc(p.module, skipTypes(it.typ, abstractPtrs))

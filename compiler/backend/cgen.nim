@@ -122,10 +122,7 @@ proc fillLoc(a: var TLoc, k: TLocKind, lode: CgNode, r: Rope, s: TStorageLoc) =
     if a.r == "": a.r = r
 
 proc t(a: TLoc): PType {.inline.} =
-  if a.lode.kind == cnkSym:
-    result = a.lode.sym.typ
-  else:
-    result = a.lode.typ
+  a.lode.typ
 
 proc lodeTyp(t: PType): CgNode =
   result = newNode(cnkEmpty, typ = t)
@@ -336,8 +333,14 @@ include ccgtypes
 
 func mapTypeChooser(p: BProc, n: CgNode): TSymKind =
   case n.kind
-  of cnkSym:
-    n.sym.kind
+  of cnkField:
+    skField
+  of cnkProc:
+    skProc
+  of cnkConst:
+    skConst
+  of cnkGlobal:
+    skVar
   of cnkLocal:
     if n.local == resultId:
       skResult
@@ -351,8 +354,14 @@ func mapTypeChooser(p: BProc, n: CgNode): TSymKind =
 func mapTypeChooser(a: TLoc): TSymKind =
   let n = a.lode
   case n.kind
-  of cnkSym:
-    n.sym.kind
+  of cnkField:
+    skField
+  of cnkProc:
+    skProc
+  of cnkConst:
+    skConst
+  of cnkGlobal:
+    skVar
   of cnkLocal:
     if n.local == resultId:
       skResult
@@ -527,7 +536,7 @@ include ccgthreadvars
 proc varInDynamicLib(m: BModule, sym: PSym)
 
 proc fillGlobalLoc*(m: BModule, s: PSym) =
-  let n = CgNode(kind: cnkSym, info: s.info, typ: s.typ, sym: s)
+  let n = CgNode(kind: cnkGlobal, info: s.info, typ: s.typ, sym: s)
   m.globals.put(s, initLoc(locGlobalVar, n, mangleName(m.g.graph, s), OnHeap))
 
 proc defineGlobalVar*(m: BModule, s: PSym) =

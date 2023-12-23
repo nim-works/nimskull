@@ -55,7 +55,7 @@ proc getOrdValue*(n: CgNode): Int128 =
 
 func getCalleeMagic*(callee: CgNode): TMagic {.inline.} =
   case callee.kind
-  of cnkSym:   callee.sym.magic
+  of cnkProc:  callee.sym.magic
   of cnkMagic: callee.magic
   else:        mNone
 
@@ -106,11 +106,11 @@ proc canRaiseConservative*(fn: CgNode): bool =
 
 proc canRaise*(fn: CgNode): bool =
   ## Duplicate of `canRaise <ast_query.html#canRaise,PNode>`_.
-  if fn.kind == cnkSym and (fn.sym.magic notin magicsThatCanRaise or
+  if fn.kind == cnkProc and (fn.sym.magic notin magicsThatCanRaise or
       {sfImportc, sfInfixCall} * fn.sym.flags == {sfImportc} or
       sfGeneratedOp in fn.sym.flags):
     result = false
-  elif fn.kind == cnkSym and fn.sym.magic == mEcho:
+  elif fn.kind == cnkProc and fn.sym.magic == mEcho:
     result = true
   elif fn.kind == cnkMagic:
     result = fn.magic in magicsThatCanRaise
@@ -153,11 +153,18 @@ proc flattenStmts*(n: CgNode): CgNode =
   if result.len == 1:
     result = result[0]
 
-proc toSymNode*(n: PNode): CgNode {.inline.} =
-  CgNode(kind: cnkSym, info: n.info, typ: n.typ, sym: n.sym)
-
 proc newSymNode*(s: PSym): CgNode {.inline.} =
-  CgNode(kind: cnkSym, info: s.info, typ: s.typ, sym: s)
+  let kind =
+    case s.kind
+    of skVar, skLet, skForVar: cnkGlobal
+    of skConst:                cnkConst
+    of skProcKinds:            cnkProc
+    of skField:                cnkField
+    else:
+      unreachable(s.kind)
+
+  {.cast(uncheckedAssign).}:
+    CgNode(kind: kind, info: s.info, typ: s.typ, sym: s)
 
 proc newStrNode*(str: sink string): CgNode {.inline.} =
   CgNode(kind: cnkStrLit, info: unknownLineInfo, strVal: str)

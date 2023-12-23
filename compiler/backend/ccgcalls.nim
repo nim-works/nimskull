@@ -15,7 +15,7 @@ proc canRaiseDisp(p: BProc; n: CgNode): bool =
   ## control-flow, otherwise 'false'. If panics are disabled, this also
   ## includes all routines that are not certain magics, compiler procs, or
   ## imported.
-  if n.kind == cnkSym and {sfNeverRaises, sfImportc, sfCompilerProc} * n.sym.flags != {}:
+  if n.kind == cnkProc and {sfNeverRaises, sfImportc, sfCompilerProc} * n.sym.flags != {}:
     result = false
   elif optPanics in p.config.globalOptions:
     # we know we can be strict:
@@ -33,8 +33,8 @@ proc reportObservableStore(p: BProc; le, ri: CgNode) =
     while true:
       # do NOT follow ``cnkDerefView`` here!
       case n.kind
-      of cnkSym:
-        # this must be a global -> the mutation escapes
+      of cnkGlobal:
+        # mutation of a global -> the mutation escapes
         return true
       of cnkLocal:
         # if the local is used within an 'except' or 'finally', a mutation of
@@ -69,7 +69,7 @@ proc exitCall(p: BProc, callee: CgNode, canRaise: bool) =
   ## Emits the exceptional control-flow related post-call logic.
   if p.config.exc == excGoto:
     if nimErrorFlagDisabled in p.flags:
-      if callee.kind == cnkSym and sfNoReturn in callee.sym.flags and
+      if callee.kind == cnkProc and sfNoReturn in callee.sym.flags and
          canRaiseConservative(callee):
         # when using goto-exceptions, noreturn doesn't map to "doesn't return"
         # at the C-level. In order to still support dispatching to wrapper
