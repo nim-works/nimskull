@@ -486,11 +486,8 @@ proc branchHasTooBigRange(b: CgNode): bool =
 
 proc ifSwitchSplitPoint(p: BProc, n: CgNode): int =
   for i in 1..<n.len:
-    var branch = n[i]
-    var stmtBlock = lastSon(branch)
-    if stmtBlock.stmtsContainPragma(wLinearScanEnd):
-      result = i
-    elif hasSwitchRange notin CC[p.config.cCompiler].props:
+    let branch = n[i]
+    if hasSwitchRange notin CC[p.config.cCompiler].props:
       if isOfBranch(branch) and branchHasTooBigRange(branch):
         result = i
 

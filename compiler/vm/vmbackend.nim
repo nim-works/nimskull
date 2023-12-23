@@ -170,12 +170,12 @@ proc prepare(c: var GenCtx, data: var DiscoveryData) =
 proc processEvent(c: var GenCtx, mlist: ModuleList, discovery: var DiscoveryData,
                   partial: var PartialTbl, evt: sink BackendEvent) =
   ## The orchestrator's event processor.
-  prepare(c, discovery)
-
   let idgen = mlist[evt.module].idgen
   c.gen.module = mlist[evt.module].sym
 
   case evt.kind
+  of bekDiscovered:
+    prepare(c, discovery)
   of bekModule:
     discard "nothing to do"
   of bekPartial:

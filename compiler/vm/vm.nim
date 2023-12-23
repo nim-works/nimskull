@@ -88,9 +88,19 @@ type
     ## includes things like the program counter, stack frames, active
     ## exception, etc.
     pc: int ## the program counter. Points to the instruction to execute next
-    frame: StackFrameIndex ## the index of the active stack frame
-    # TODO: as mentioned in the doc comment of the type, the actual stack frame
-    #       data (i.e. the ``slots`` seq) should also be moved here
+    sframes: seq[TStackFrame] ## stack frames
+    loopIterations: int
+      ## the number of remaining jumps backwards
+
+    # exception state:
+    currentException: HeapSlotHandle
+      ## the exception ref that's returned when querying the current exception
+    activeException: HeapSlotHandle
+      ## the exception that is currently in-flight (i.e. being raised), or
+      ## nil, if none is in-flight. Note that `activeException` is different
+      ## from `currentException`
+    activeExceptionTrace: VmRawStackTrace
+      ## the stack-trace of where the exception was raised from
 
   YieldReasonKind* = enum
     yrkDone
@@ -142,7 +152,7 @@ proc createStackTrace*(
   ## The amount of entries in the trace is limited to `recursionLimit`, further
   ## entries are skipped, though the entry function is always included in the
   ## trace
-  assert c.sframes.len > 0
+  assert thread.sframes.len > 0
 
   result = VmStackTrace()
   # Just leave the exceptions empty, they aren't used anyways
@@ -153,8 +163,8 @@ proc createStackTrace*(
     var count = 0
     var pc = thread.pc
     # create the stacktrace entries:
-    for i in countdown(c.sframes.high, 0):
-      let f {.cursor.} = c.sframes[i]
+    for i in countdown(thread.sframes.high, 0):
+      let f {.cursor.} = thread.sframes[i]
 
       if count < recursionLimit - 1 or i == 0:
         # The `i == 0` is to make sure that we're always including the
@@ -548,42 +558,42 @@ proc findExceptionHandler(c: TCtx, f: var TStackFrame, raisedType: PVmType):
 
   return (ExceptionGotoUnhandled, 0)
 
-proc resumeRaise(c: var TCtx): PrgCtr =
+proc resumeRaise(c: var TCtx, t: var VmThread): PrgCtr =
   ## Resume raising the active exception and returns the program counter
   ## (adjusted by -1) of the instruction to execute next. The stack is unwound
   ## until either an exception handler matching the active exception's type or
   ## a finalizer is found.
   let
-    raised = c.heap.tryDeref(c.activeException, noneType).value()
+    raised = c.heap.tryDeref(t.activeException, noneType).value()
     excType = raised.typ
 
   var
-    frame = c.sframes.len
+    frame = t.sframes.len
     jumpTo = (why: ExceptionGotoUnhandled, where: 0)
 
   # search for the first enclosing matching handler or finalizer:
   while jumpTo.why == ExceptionGotoUnhandled and frame > 0:
     dec frame
-    jumpTo = findExceptionHandler(c, c.sframes[frame], excType)
+    jumpTo = findExceptionHandler(c, t.sframes[frame], excType)
 
   case jumpTo.why:
   of ExceptionGotoHandler, ExceptionGotoFinally:
     # unwind till the frame of the handler or finalizer
-    for i in (frame+1)..<c.sframes.len:
-      cleanUpLocations(c.memory, c.sframes[i])
+    for i in (frame+1)..<t.sframes.len:
+      cleanUpLocations(c.memory, t.sframes[i])
 
-    c.sframes.setLen(frame + 1)
+    t.sframes.setLen(frame + 1)
 
     if jumpTo.why == ExceptionGotoHandler:
       # jumping to the handler means that the exception was handled. Clear
       # out the *active* exception (but not the *current* exception)
-      c.activeException.reset()
-      c.activeExceptionTrace.setLen(0)
+      t.activeException.reset()
+      t.activeExceptionTrace.setLen(0)
 
     result = jumpTo.where - 1 # -1 because of the increment at the end
   of ExceptionGotoUnhandled:
     # nobody handled this exception, error out.
-    reportException(c, c.activeExceptionTrace, raised)
+    reportException(c, t.activeExceptionTrace, raised)
 
 proc cleanUpOnReturn(c: TCtx; f: var TStackFrame): int =
   # Walk up the chain of safepoints and return the PC of the first `finally`
@@ -708,13 +718,13 @@ proc opNumConv(dest: var TFullReg, src: TFullReg, info: uint16) =
                                         msg: "illegal operand"))
 
 template handleJmpBack() {.dirty.} =
-  if c.loopIterations <= 0:
+  if t.loopIterations <= 0:
     if allowInfiniteLoops in c.features:
-      c.loopIterations = c.config.maxLoopIterationsVM
+      t.loopIterations = c.config.maxLoopIterationsVM
     else:
       raiseVmError(VmEvent(kind: vmEvtTooManyIterations))
 
-  dec(c.loopIterations)
+  dec(t.loopIterations)
 
 
 func setAddress(r: var TFullReg, p: VmMemPointer, typ: PVmType) =
@@ -789,44 +799,42 @@ template checkHandle(a: VmAllocator, handle: LocHandle) =
 when not defined(nimHasSinkInference):
   {.pragma: nosinks.}
 
-proc rawExecute(c: var TCtx, pc: var int): YieldReason =
+proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
   ## Runs the execution loop, starting in frame `tos` at program counter `pc`.
   ## In the case of an error, raises an exception of type `VmError`. If no
   ## fatal error occurred, the reason for why the loop was left plus extra
   ## data related to it is returned.
   ##
-  ## If the loop was exited due to an error, `pc` and `tos` will point to the
-  ## faulting instruction and the active stack-frame respectively.
-  ##
-  ## If the loop exits without errors, `pc` points to the last executed
-  ## instruction and `tos` refers to the stack-frame it executed on
+  ## If the loop was exited due to an error, `pc` will point to the faulting
+  ## instruction. If the loop exits without errors, `pc` points to the last
+  ## executed instruction.
 
   when defined(gcArc) or defined(gcOrc):
     # Use {.cursor.} as a way to get a shallow copy of the seq. This is safe,
     # since `slots` is never changed in length (no add/delete)
     var regs {.cursor.}: seq[TFullReg]
     template updateRegsAlias =
-      regs = c.sframes[^1].slots
+      regs = t.sframes[^1].slots
     updateRegsAlias
   else:
     var regs: seq[TFullReg] # alias to tos.slots for performance
     template updateRegsAlias =
-      shallowCopy(regs, c.sframes[^1].slots)
+      shallowCopy(regs, t.sframes[^1].slots)
     updateRegsAlias
 
   # alias templates to shorten common expressions:
-  template currFrame: untyped = c.sframes[^1]
+  template currFrame: untyped = t.sframes[^1]
   template tos: untyped =
     # tos = top-of-stack
-    c.sframes.high
+    t.sframes.high
 
   template pushFrame(p: TStackFrame) =
-    c.sframes.add(p)
+    t.sframes.add(p)
     updateRegsAlias()
 
   template popFrame() =
-    cleanUpLocations(c.memory, c.sframes[tos])
-    c.sframes.setLen(c.sframes.len - 1)
+    cleanUpLocations(c.memory, t.sframes[tos])
+    t.sframes.setLen(t.sframes.len - 1)
 
     updateRegsAlias()
 
@@ -879,10 +887,10 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       # XXX: eof shouldn't be used to return a register
       return YieldReason(kind: yrkDone, reg: none[TRegister]())
     of opcRet:
-      let newPc = c.cleanUpOnReturn(c.sframes[tos])
+      let newPc = c.cleanUpOnReturn(t.sframes[tos])
       # Perform any cleanup action before returning
       if newPc < 0:
-        pc = c.sframes[tos].comesFrom
+        pc = t.sframes[tos].comesFrom
         if tos == 0:
           # opcRet returns its value as indicated in the first operand
           return YieldReason(kind: yrkDone, reg: some(instr.regA))
@@ -893,7 +901,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
           # value or the destination handle) to the destination register on the
           # caller's frame
           let i = c.code[pc].regA
-          c.sframes[tos - 1].slots[i] = move regs[0]
+          t.sframes[tos - 1].slots[i] = move regs[0]
 
         popFrame()
       else:
@@ -1707,8 +1715,8 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
 
       assert templ.kind == skTemplate
 
-      let genSymOwner = if prevFrame > 0 and c.sframes[prevFrame].prc != nil:
-                          c.sframes[prevFrame].prc
+      let genSymOwner = if prevFrame > 0 and t.sframes[prevFrame].prc != nil:
+                          t.sframes[prevFrame].prc
                         else:
                           c.module
       var templCall = newNodeI(nkCall, c.debug[pc], rc)
@@ -1921,7 +1929,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
 
         c.callbacks[entry.cbOffset](
           VmArgs(ra: ra, rb: rb, rc: rc, slots: cast[ptr UncheckedArray[TFullReg]](addr regs[0]),
-                 currentExceptionPtr: addr c.currentExceptionA,
+                 currentExceptionPtr: addr t.currentException,
                  currentLineInfo: c.debug[pc],
                  typeCache: addr c.typeInfoCache,
                  mem: addr c.memory,
@@ -2039,7 +2047,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         inc pc, rbx
     of opcTry:
       let rbx = instr.regBx - wordExcess
-      c.sframes[tos].pushSafePoint(pc + rbx)
+      t.sframes[tos].pushSafePoint(pc + rbx)
       assert c.code[pc+rbx].opcode in {opcExcept, opcFinally}
     of opcExcept:
       # This opcode is never executed, it only holds information for the
@@ -2050,7 +2058,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       # executed _iff_ no exception was raised in the body of the `try`
       # statement hence the need to pop the safepoint here.
       doAssert(currFrame.savedPC < 0)
-      c.sframes[tos].popSafePoint()
+      t.sframes[tos].popSafePoint()
     of opcFinallyEnd:
       # The control flow may not resume at the next instruction since we may be
       # raising an exception or performing a cleanup.
@@ -2060,11 +2068,11 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         # resume clean-up
         pc = currFrame.savedPC - 1
         currFrame.savedPC = -1
-      elif c.activeException.isNotNil:
+      elif t.activeException.isNotNil:
         # the finally was entered through a raise -> resume. A return can abort
         # unwinding, thus an active exception is only considered when there's
         # no cleanup action in progress
-        pc = resumeRaise(c)
+        pc = resumeRaise(c, t)
         updateRegsAlias()
       else:
         discard "fall through"
@@ -2078,7 +2086,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       let raisedRef =
         if isReraise:
           # TODO: must raise a defect when there's no current exception
-          c.currentExceptionA
+          t.currentException
         else:
           assert regs[ra].handle.typ.kind == akRef
           regs[ra].atomVal.refVal
@@ -2089,25 +2097,25 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
 
       # Keep the exception alive during exception handling
       c.heap.heapIncRef(raisedRef)
-      if not c.currentExceptionA.isNil:
-        c.heap.heapDecRef(c.allocator, c.currentExceptionA)
+      if not t.currentException.isNil:
+        c.heap.heapDecRef(c.allocator, t.currentException)
 
-      c.currentExceptionA = raisedRef
-      c.activeException = raisedRef
+      t.currentException = raisedRef
+      t.activeException = raisedRef
 
       # gather the stack-trace for the exception:
       block:
         var pc = pc
-        c.activeExceptionTrace.setLen(c.sframes.len)
+        t.activeExceptionTrace.setLen(t.sframes.len)
 
-        for i, it in c.sframes.pairs:
+        for i, it in t.sframes.pairs:
           let p =
-            if i + 1 < c.sframes.len:
-              c.sframes[i+1].comesFrom
+            if i + 1 < t.sframes.len:
+              t.sframes[i+1].comesFrom
             else:
               pc
 
-          c.activeExceptionTrace[i] = (it.prc, p)
+          t.activeExceptionTrace[i] = (it.prc, p)
 
       let name = deref(raised.getFieldHandle(1.fpos))
       if not isReraise and name.strVal.len == 0:
@@ -2119,7 +2127,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         # raise
         name.strVal.asgnVmString(regs[rb].strVal, c.allocator)
 
-      pc = resumeRaise(c)
+      pc = resumeRaise(c, t)
       updateRegsAlias()
     of opcNew:
       let typ = c.types[instr.regBx - wordExcess]
@@ -2908,7 +2916,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       #createStr regs[ra]
       regs[ra].strVal = typ.typeToString(preferExported)
 
-    c.profiler.leave(c.sframes)
+    c.profiler.leave(t.sframes)
 
     inc pc
 
@@ -2917,20 +2925,18 @@ proc `=copy`*(x: var VmThread, y: VmThread) {.error.}
 proc initVmThread*(c: var TCtx, pc: int, frame: sink TStackFrame): VmThread =
   ## Sets up a ``VmThread`` instance that will start execution at `pc`.
   ## `frame` provides the initial stack frame.
-  ##
-  ## .. note:: due to an implementation limitation, there can currently only
-  ##           exist a single ``VmThread`` instance for a ``TCtx``
-  assert c.sframes.len == 0
   frame.savedPC = -1 # initialize the field here
-  c.sframes.add frame
-
-  result = VmThread(pc: pc, frame: 0)
+  VmThread(pc: pc,
+           loopIterations: c.config.maxLoopIterationsVM,
+           sframes: @[frame])
 
 proc dispose*(c: var TCtx, t: sink VmThread) =
-  ## Cleans up and frees all VM data owned by `t`
-  for f in c.sframes.mitems:
+  ## Cleans up and frees all VM data owned by `t`.
+  for f in t.sframes.mitems:
     c.memory.cleanUpLocations(f)
-  c.sframes.setLen(0)
+
+  if t.currentException.isNotNil:
+    c.heap.heapDecRef(c.allocator, t.currentException)
 
   # free heap slots that are pending cleanup
   cleanUpPending(c.memory)
@@ -2946,19 +2952,21 @@ proc execute*(c: var TCtx, thread: var VmThread): YieldReason {.inline.} =
     pc = thread.pc
 
   try:
-    result = rawExecute(c, pc)
+    result = rawExecute(c, thread, pc)
   except VmError as e:
     # an error occurred during execution
     result = YieldReason(kind: yrkError, error: move e.event)
   finally:
     thread.pc = pc
-    thread.frame = c.sframes.high
 
 template source*(c: TCtx, t: VmThread): TLineInfo =
   ## Gets the source-code information for the instruction the program counter
   ## of `t` currently points to
   c.debug[t.pc]
 
+template `[]`*(t: VmThread, i: Natural): TStackFrame =
+  ## Returns `t`'s stack frame at index `i`.
+  t.sframes[i]
 
 func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
   let kind =

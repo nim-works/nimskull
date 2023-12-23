@@ -98,26 +98,6 @@ proc isDeepConstExpr*(n: CgNode): bool =
   else:
     result = false
 
-proc getRoot*(n: CgNode): CgNode =
-  ## ``getRoot`` takes a *path* ``n``. A path is an lvalue expression
-  ## like ``obj.x[i].y``. The *root* of a path is the symbol that can be
-  ## determined as the owner; ``obj`` in the example.
-  case n.kind
-  of cnkSym:
-    if n.sym.kind in {skVar, skLet, skForVar}:
-      result = n
-  of cnkLocal:
-    result = n
-  of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess:
-    result = getRoot(n[0])
-  of cnkDerefView, cnkDeref, cnkObjUpConv, cnkObjDownConv, cnkHiddenAddr,
-     cnkAddr, cnkHiddenConv, cnkConv:
-    result = getRoot(n.operand)
-  of cnkCall:
-    if getMagic(n) == mSlice:
-      result = getRoot(n[1])
-  else: discard
-
 proc canRaiseConservative*(fn: CgNode): bool =
   ## Duplicate of `canRaiseConservative <ast_query.html#canRaiseConservative,PNode>`_.
   # ``mNone`` is also included in the set, therefore this check works even for
