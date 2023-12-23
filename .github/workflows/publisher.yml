@@ -79,6 +79,11 @@ jobs:
       - id: release-files
         name: Create release manifest
         run: |
+          # Move the release binaries to the current folder
+          for d in "release binaries "*; do
+            mv -v "$d"/* .
+          done
+
           # Github Artifacts strip executable permissions so it has to be set again
           chmod 755 release_manifest
           # Create a new release manifest
