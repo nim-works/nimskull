@@ -361,7 +361,7 @@ proc hash(n: ConstrTree): Hash =
     case n.kind
     of cnkEmpty, cnkNilLit, cnkType:
       discard
-    of cnkSym:
+    of cnkProc:
       result = result !& n.sym.id
     of cnkIntLit, cnkUIntLit:
       result = result !& hash(n.intVal)
@@ -375,7 +375,7 @@ proc hash(n: ConstrTree): Hash =
       for it in n.items:
         result = result !& hashTree(it)
     of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic,
-       cnkWithOperand, cnkLocal, cnkLabel:
+       cnkWithOperand, cnkLocal, cnkLabel, cnkField, cnkConst, cnkGlobal:
       unreachable()
     result = !$result
 
@@ -391,7 +391,7 @@ proc `==`(a, b: ConstrTree): bool =
       case a.kind
       of cnkEmpty, cnkNilLit, cnkType:
         result = true
-      of cnkSym:
+      of cnkProc:
         result = a.sym.id == b.sym.id
       of cnkIntLit, cnkUIntLit:
         result = a.intVal == b.intVal
@@ -405,7 +405,7 @@ proc `==`(a, b: ConstrTree): bool =
             if not treesEquivalent(a[i], b[i]): return
           result = true
       of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic,
-         cnkWithOperand, cnkLocal, cnkLabel:
+         cnkWithOperand, cnkLocal, cnkLabel, cnkField, cnkConst, cnkGlobal:
         # nodes that cannot appear in construction trees
         unreachable()
 

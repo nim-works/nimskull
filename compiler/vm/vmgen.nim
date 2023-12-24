@@ -1001,10 +1001,8 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
     c.gABC(n, opcIndCallAsgn, dest, x, n.len)
   c.freeTempRange(x, regCount)
 
-template isGlobal(s: PSym): bool = sfGlobal in s.flags
-
 proc genField(c: TCtx; n: CgNode): TRegister =
-  assert n.kind == cnkSym and n.sym.kind == skField
+  assert n.kind == cnkField
 
   let s = n.sym
   if s.position > high(typeof(result)):
@@ -1530,9 +1528,8 @@ func usesRegister(p: BProc, n: CgNode): bool =
   case n.kind
   of cnkLocal:
     usesRegister(p, n.local)
-  of cnkSym:
-    let s = n.sym
-    not s.isGlobal and fitsRegister(s.typ)
+  of cnkProc, cnkConst, cnkGlobal:
+    false
   of cnkDeref, cnkDerefView, cnkFieldAccess, cnkArrayAccess, cnkTupleAccess,
      cnkCheckedFieldAccess, cnkConv, cnkObjDownConv, cnkObjUpConv:
     false
@@ -2097,7 +2094,7 @@ func cannotEval(c: TCtx; n: CgNode) {.noinline, noreturn.} =
   # XXX: move this kind of error reporting outside of vmgen instead
   {.cast(noSideEffect).}:
     let ast =
-      if n.kind == cnkSym:
+      if n.kind in {cnkProc, cnkConst, cnkGlobal}:
         newSymNode(n.sym, n.info)
       else:
         nil # give up
@@ -2222,8 +2219,8 @@ func isPtrView(n: CgNode): bool =
   ## case for both globals that are direct views, and for direct views stored
   ## in compound types
   case n.kind
-  of cnkSym:
-    sfGlobal in n.sym.flags
+  of cnkConst, cnkGlobal:
+    true
   of cnkLocal:
     false
   of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess:
@@ -2402,7 +2399,7 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
     # these conversions don't result in a lvalue of different run-time type, so
     # they're skipped
     genAsgn(c, le.operand, ri, requiresCopy)
-  of cnkSym:
+  of cnkGlobal:
     checkCanEval(c, le)
     genAsgnToGlobal(c, le, ri)
   of cnkLocal:
@@ -2443,7 +2440,8 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
   ## Generates and emits the code for loading either the value or handle of
   ## the location named by symbol or local node `n` into the `dest` register.
   case n.kind
-  of cnkSym:
+  of cnkConst, cnkGlobal:
+    # FIXME: ``cnkConst`` needs dedicated handling
     # a global location
     let s = n.sym
     let pos = useGlobal(c, n)
@@ -2478,7 +2476,8 @@ proc genSymAddr(c: var TCtx, n: CgNode, dest: var TDest) =
   ## identified by the symbol or local node `n`.
   assert dest != noDest
   case n.kind
-  of cnkSym:
+  of cnkConst, cnkGlobal:
+    # FIXME: ``cnkConst`` needs dedicated handling
     let
       pos = useGlobal(c, n)
       tmp = c.getTemp(slotTempComplex)
@@ -2648,7 +2647,7 @@ proc genAddr(c: var TCtx, src, n: CgNode, dest: var TDest) =
   ## `n`. `src` provides the type information of the destination, plus the line
   ## information to use.
   case n.kind
-  of cnkSym, cnkLocal:
+  of cnkConst, cnkGlobal, cnkLocal:
     prepare(c, dest, src.typ)
     genSymAddr(c, n, dest)
   of cnkFieldAccess:
@@ -2718,7 +2717,7 @@ proc genLvalue(c: var TCtx, n: CgNode, dest: var TDest) =
   ## Note that in the case of locals backed by registers, `dest` will store
   ## its value instead of a handle.
   case n.kind
-  of cnkSym, cnkLocal:
+  of cnkConst, cnkGlobal, cnkLocal:
     c.genSym(n, dest, load=false)
   of cnkFieldAccess:
     genFieldAccess(c, n, genField(c, n[1]), dest, load=false)
@@ -2844,7 +2843,7 @@ proc genObjConstr(c: var TCtx, n: CgNode, dest: var TDest) =
     swap(refTemp, dest)
 
   for it in n.items:
-    assert it.kind == cnkBinding and it[0].kind == cnkSym
+    assert it.kind == cnkBinding and it[0].kind == cnkField
     if true:
       let idx = genField(c, it[0])
       var tmp: TRegister
@@ -2911,18 +2910,16 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     frameMsg c.config, n
 
   case n.kind
-  of cnkSym:
+  of cnkProc:
     let s = n.sym
     checkCanEval(c, n)
-    case s.kind
-    of skVar, skForVar, skLet:
-      genSym(c, n, dest)
-    of skProc, skFunc, skConverter, skMacro, skMethod, skIterator:
-      if importcCond(c, s) and lookup(c.linking.callbackKeys, s) == -1:
-        fail(n.info, vmGenDiagCannotImportc, sym = s)
+    if importcCond(c, s) and lookup(c.linking.callbackKeys, s) == -1:
+      fail(n.info, vmGenDiagCannotImportc, sym = s)
 
-      genProcLit(c, n, s, dest)
-    of skConst:
+    genProcLit(c, n, s, dest)
+  of cnkConst:
+      # XXX: integrate into ``genSym``
+      let s = n.sym
       if dest.isUnset: dest = c.getTemp(s.typ)
 
       if s.ast.kind in nkLiterals:
@@ -2932,15 +2929,13 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
         let idx = int c.linking.lookup(s)
         discard c.getOrCreate(s.typ)
         c.gABx(n, opcLdCmplxConst, dest, idx)
-    else:
-      unreachable(s.kind)
-  of cnkLocal:
+  of cnkGlobal, cnkLocal:
     genSym(c, n, dest)
   of cnkCall:
     let magic = getMagic(n)
     if magic != mNone:
       genMagic(c, n, dest, magic)
-    elif n[0].kind == cnkSym and n[0].sym.kind == skMethod and
+    elif n[0].kind == cnkProc and n[0].sym.kind == skMethod and
          c.mode != emStandalone:
         # XXX: detect and reject this earlier -- it's not a code
         #      generation error
@@ -3044,7 +3039,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkPragmaStmt, cnkAsmStmt, cnkEmitStmt:
     unused(c, n, dest)
   of cnkInvalid, cnkMagic, cnkRange, cnkExcept, cnkFinally, cnkBranch,
-     cnkBinding, cnkLabel, cnkStmtListExpr:
+     cnkBinding, cnkLabel, cnkStmtListExpr, cnkField:
     unreachable(n.kind)
 
 proc initProc(c: TCtx, owner: PSym, body: sink Body): BProc =

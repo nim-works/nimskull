@@ -39,7 +39,7 @@ proc treeRepr*(n: CgNode): string =
     of cnkPragmaStmt:
       result.add "pragma: "
       result.add $n.pragma
-    of cnkSym:
+    of cnkField, cnkProc, cnkConst, cnkGlobal:
       result.add "sym: "
       result.add n.sym.name.s
       result.add " id: "
