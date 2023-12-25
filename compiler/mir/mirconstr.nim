@@ -309,7 +309,8 @@ template wrapMutAlias*(bu: var MirBuilder, t: PType, body: untyped): Value =
 
 template buildMagicCall*(bu: var MirBuilder, m: TMagic, t: PType,
                          body: untyped) =
-  bu.subTree MirNode(kind: mnkMagic, magic: m, typ: t):
+  bu.subTree MirNode(kind: mnkCall, typ: t):
+    bu.add MirNode(kind: mnkMagic, magic: m)
     body
 
 template buildCall*(bu: var MirBuilder, prc: PSym, t: PType, d: untyped) =

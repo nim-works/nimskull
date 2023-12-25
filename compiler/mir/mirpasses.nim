@@ -54,12 +54,12 @@ iterator search(tree: MirTree, kinds: static set[MirNodeKind]): NodePosition =
     inc i
 
 iterator search(tree: MirTree, magic: static TMagic): NodePosition =
-  ## Returns in appearance order the positions of all ``mnkMagic`` nodes
-  ## that match `magic`.
+  ## Returns in appearance order the positions of all magic-call nodes
+  ## where the magic matches `magic`.
   var i = 0
   while i < tree.len:
     if tree[i].kind == mnkMagic and tree[i].magic == magic:
-      yield NodePosition(i)
+      yield tree.parent(NodePosition(i))
     inc i
 
 proc overlapsConservative(tree: MirTree, a, b: Path, typA, typB: PType): bool =
@@ -109,7 +109,8 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
   # anywhere in the source expression
   for i in search(tree, {mnkFastAsgn, mnkAsgn}):
     let source = tree.operand(i, 1)
-    if tree[source].kind != mnkCall or not eligibleForRvo(tree[source].typ):
+    if tree[source].kind != mnkCall or tree[source, 0].kind == mnkMagic or
+       not eligibleForRvo(tree[source].typ):
       # the return-value optimization is not used
       continue
 
@@ -296,7 +297,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         let stmt = tree.parent(expr)
         elide = tree[stmt].kind in {mnkInit, mnkDef, mnkDefCursor} or
                 not overlaps(p, typ, tree.operand(stmt, 0))
-      of mnkMagic, mnkCall:
+      of mnkCall:
         # the lvalue overlapping with a mutable argument disable the elision,
         # as eliding the temporary would be obersvable when the backend decides
         # to use pass-by-reference for the immutable parameter
