@@ -534,7 +534,7 @@ func isMoveable(tree: MirTree, v: Values, n: NodePosition): bool =
   of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice:
     # the result of these operations is not an owned value
     false
-  of mnkCall, mnkMagic, mnkObjConstr:
+  of mnkCall, mnkObjConstr:
     true
   of mnkConstr:
     case tree[n].typ.skipTypes(abstractInst).kind
@@ -775,8 +775,7 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                 pos + 1):
     let stmt = tree.parent(expr)
 
-    if (tree[expr].kind == mnkCall and geRaises in tree[expr].effects) or
-       (tree[expr].kind == mnkMagic and tree[expr].magic in magicsThatCanRaise):
+    if tree[expr].kind == mnkCall and geRaises in tree[expr].effects:
       # the consumer raises, meaning that resetting the consumed-from location
       # cannot happen *after* the statement. The source location's value is
       # first assigned to a temporary and then the source is reset

@@ -80,6 +80,9 @@ type
     # store the type of the destination within each def, assignment, etc. and
     # then remove the type field from ``MirNode``
 
+    mnkMagic  ## only allowed in a callee position. Refers to a magic
+              ## procedure
+
     mnkDef       ## marks the start of existence of a local, global, procedure,
                  ## or temporary. Supports an optional intial value (except for
                  ## procedure definitions)
@@ -145,9 +148,7 @@ type
 
     mnkCall   ## invoke a procedure and pass along the provided arguments.
               ## Used for both static and dynamic calls
-    mnkMagic  ## invoke a magic procedure and pass along the provided arguments
-    # future direction: turn ``mnkMagic`` into something that appears in the
-    # callee slot. In addition, introduce a ``mnkCheckedCall`` node, for
+    # future direction: introduce a ``mnkCheckedCall`` node, for
     # representing calls that can start unwinding
 
     mnkRaise  ## if the operand is an ``mnkNone`` node, reraises the
@@ -261,11 +262,6 @@ type
     of mnkCall:
       effects*: set[GeneralEffect]
     of mnkMagic:
-      # XXX: with the current design, a magic call cannot have general effects,
-      #      which is a problem, as magic calls can indeed have general effects
-      #      (such as raising an exception). The ability to store information
-      #      about general effect ouf-of-band is likely required to properly
-      #      support this
       magic*: TMagic
     of mnkBlock, mnkBreak:
       label*: LabelId ## for a block, the label that identifies the block;
@@ -302,7 +298,7 @@ const
     ## Node kinds that represent definition statements (i.e. something that
     ## introduces a named entity)
 
-  AtomNodes* = {mnkNone..mnkType, mnkBreak, mnkReturn, mnkPNode}
+  AtomNodes* = {mnkNone..mnkType, mnkMagic, mnkBreak, mnkReturn, mnkPNode}
     ## Nodes that don't support sub nodes.
 
   SubTreeNodes* = AllNodeKinds - AtomNodes - {mnkEnd}
@@ -336,7 +332,7 @@ const
                       mnkLocal, mnkParam, mnkConst, mnkGlobal}
   RvalueExprKinds* = {mnkLiteral, mnkType, mnkProc, mnkConv, mnkStdConv,
                       mnkCast, mnkAddr, mnkView, mnkToSlice}
-  ExprKinds* =       {mnkCall, mnkMagic, mnkConstr, mnkObjConstr} +
+  ExprKinds* =       {mnkCall, mnkConstr, mnkObjConstr} +
                      LvalueExprKinds + RvalueExprKinds
 
 func `==`*(a, b: SourceId): bool {.borrow.}
@@ -473,6 +469,10 @@ func `[]`*(tree: MirTree, n: NodePosition, index: Natural): lent MirNode =
   ## Returns the `index`-th child node of sub-tree `n`.
   tree[child(tree, n, index)]
 
+func `[]`*(tree: MirTree, n: OpValue, index: Natural): lent MirNode =
+  ## Returns the `index`-th child node of sub-tree `n`.
+  tree[child(tree, NodePosition n, index)]
+
 func getStart*(tree: MirTree, n: NodePosition): NodePosition =
   ## If `n` refers to an ``end`` node, returns the corresponding start node --
   ## `n` otherwise
@@ -511,13 +511,8 @@ func argument*(tree: MirTree, n: NodePosition, i: Natural): OpValue =
   ## Returns the `i`-th argument in the call-like tree at `n`, skipping
   ## tag nodes. It is expected that the call has at least `i` + 1
   ## arguments.
-  assert tree[n].kind in {mnkCall, mnkMagic}
-  var n =
-    if tree[n].kind == mnkCall:
-      tree.sibling(n + 1) # skip the callee
-    else:
-      n + 1
-
+  assert tree[n].kind == mnkCall
+  var n = tree.sibling(n + 1)
   for _ in 0..<i:
     n = tree.sibling(n)
   n = NodePosition tree.operand(n)
@@ -548,11 +543,8 @@ iterator subNodes*(tree: MirTree, n: NodePosition): NodePosition =
 
 iterator arguments*(tree: MirTree, n: NodePosition): (ArgKinds, OpValue) =
   ## Returns the argument kinds together with the operand node (or tag tree).
-  assert tree[n].kind in {mnkCall, mnkMagic}
-  var i = n + 1
-  if tree[n].kind == mnkCall:
-    i = sibling(tree, i) # skip the callee
-
+  assert tree[n].kind == mnkCall
+  var i = tree.sibling(n + 1) # skip the callee
   while tree[i].kind != mnkEnd:
     yield (ArgKinds(tree[i].kind), tree.operand(i))
     i = tree.sibling(i)

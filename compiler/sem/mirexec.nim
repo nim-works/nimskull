@@ -33,8 +33,6 @@ import
     idioms
   ]
 
-from compiler/ast/ast_query import magicsThatCanRaise
-
 type
   Opcode* = enum
     ## The opcode of a data-/control-flow instruction, representing edges and
@@ -230,7 +228,7 @@ func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
       emitLvalueOp(env, opConsume, tree, at, tree.operand(it))
     of mnkName:
       emitForValue(env, tree, at, tree.skip(tree.operand(it), mnkTag))
-    of mnkField:
+    of mnkField, mnkMagic:
       discard
     else:
       emitLvalueOp(env, opUse, tree, at, OpValue it)
@@ -243,7 +241,7 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
     env.dfaOp(o, tree, at, v)
 
   case tree[source].kind
-  of mnkCall, mnkMagic, mnkConstr, mnkObjConstr:
+  of mnkCall, mnkConstr, mnkObjConstr:
     emitForArgs(env, tree, at, source)
   of mnkConv, mnkStdConv, mnkCast:
     # a read is performed on the source operand (if it's an lvalue)
@@ -276,7 +274,7 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
   # For the local data-flow, this is represented as taking place after the
   # callsite arguments are used but before the exceptional exit (if any)
   case tree[source].kind
-  of mnkCall, mnkMagic:
+  of mnkCall:
     # lvalue effects:
     for k, it in arguments(tree, source):
       if tree[it].kind == mnkTag:
@@ -290,13 +288,11 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
         # the lvalue may be read from within the procedure
         op opUse, it
 
-    if tree[source].kind == mnkCall:
-      # global mutation and control-flow effects:
-      if geMutateGlobal in tree[source].effects:
-        env.instrs.add Instr(op: opMutateGlobal, node: at)
-      if geRaises in tree[source].effects:
-        exit env, opFork, at, RaiseLabel
-    elif tree[source].magic in magicsThatCanRaise:
+    # the potential mutation happens within the procedure, so the data-flow
+    # operation has to come before the fork
+    if geMutateGlobal in tree[source].effects:
+      env.instrs.add Instr(op: opMutateGlobal, node: at)
+    if geRaises in tree[source].effects:
       exit env, opFork, at, RaiseLabel
   else:
     discard

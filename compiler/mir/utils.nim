@@ -175,6 +175,17 @@ proc valueToStr(nodes: MirTree, i: var int, result: var string) =
   else:
     result.add "<error: " & $n.kind & ">"
 
+proc calleeToStr(tree: MirTree, i: var int, result: var string) =
+  case tree[i].kind
+  of mnkMagic:
+    # cut off the 'm' prefix and use a lowercase first character
+    var name = substr($tree[i].magic, 1)
+    name[0] = toLowerAscii(name[0])
+    result.add name
+    inc i
+  else:
+    valueToStr(tree, i, result)
+
 proc argToStr(tree: MirTree, i: var int, result: var string) =
   var n {.cursor.} = next(tree, i)
   case n.kind
@@ -243,16 +254,7 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string) =
       result.add ")"
   of mnkCall:
     tree "":
-      valueToStr(nodes, i, result) # callee
-      result.add "("
-      commaSeparated:
-        argToStr(nodes, i, result)
-      result.add ")"
-  of mnkMagic:
-    # cut off the 'm' prefix and use a lowercase first character
-    var name = substr($nodes[i].magic, 1)
-    name[0] = toLowerAscii(name[0])
-    tree name:
+      calleeToStr(nodes, i, result)
       result.add "("
       commaSeparated:
         argToStr(nodes, i, result)

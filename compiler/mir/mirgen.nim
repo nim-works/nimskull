@@ -414,14 +414,36 @@ template buildStmt(c: var TCtx, k: MirNodeKind, body: untyped) =
   c.builder.buildStmt(k, body)
 
 template buildMagicCall(c: var TCtx, m: TMagic, t: PType, body: untyped) =
-  c.subTree MirNode(kind: mnkMagic, magic: m, typ: t):
+  c.builder.buildMagicCall(m, t, body)
+
+template buildCheckedMagicCall(c: var TCtx, m: TMagic, t: PType,
+                               body: untyped) =
+  c.subTree MirNode(kind: mnkCall, typ: t, effects: {geRaises}):
+    c.add MirNode(kind: mnkMagic, magic: m)
+    body
+
+template buildDefectMagicCall(c: var TCtx, m: TMagic, t: PType,
+                              body: untyped) =
+  ## Builds and emits a call to the `m` magic with return type `t`. The call
+  ## is only marked as potentially raising if panics are not enabled.
+  ##
+  ## This template is meant to be used for ``Defect``-raising magic
+  ## procedures.
+  let effects =
+    if optPanics in c.graph.config.globalOptions:
+      {}
+    else:
+      {geRaises}
+
+  c.subTree MirNode(kind: mnkCall, typ: t, effects: effects):
+    c.add MirNode(kind: mnkMagic, magic: m)
     body
 
 func detectKind(tree: MirTree, n: NodePosition, sink: bool): ExprKind =
   ## Detects the kind of expression `n` (with the originating from AST `e`)
   ## represents. `sink` informs whether expression is used in a sink context.
   case tree[n].kind
-  of mnkCall, mnkMagic:
+  of mnkCall:
     if hasDestructor(tree[n].typ):
       OwnedRvalue
     else:
@@ -969,7 +991,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     # forward the wrapped arguments to the call; don't emit the intermediate array
     let x = n[1].skipConv
     assert x.kind == nkBracket
-    c.buildMagicCall m, typeOrVoid(c, n.typ):
+    c.buildCheckedMagicCall m, typeOrVoid(c, n.typ):
       # for the convenience of later transformations, the type of the would-be
       # array is passed along as the first argument
       if x.len > 0:
@@ -1741,7 +1763,7 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
       # unsigned types should be range checked, see: https://github.com/nim-works/nimskull/issues/574
       c.genOp mnkConv, n.typ, n[0]
     else:
-      c.buildMagicCall mChckRange, n.typ:
+      c.buildDefectMagicCall mChckRange, n.typ:
         c.emitOperandTree n[0], false
         c.emitOperandTree n[1], false
         c.emitOperandTree n[2], false

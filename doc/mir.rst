@@ -64,7 +64,7 @@ Semantics
   CALL_EXPR = Call <Proc> CALL_ARG ...   # a static call of the provided
                                          # procedure with the given arguments
             | Call LVALUE CALL_ARG ...   # indirect call
-            | Magic <Magic> CALL_ARG ... # a call of a magic procedure (i.e.,
+            | Call <Magic> CALL_ARG ...  # a call of a magic procedure (i.e.,
                                          # a procedure that is either going to
                                          # be lowered into something else, or
                                          # one for which the behaviour cannot
