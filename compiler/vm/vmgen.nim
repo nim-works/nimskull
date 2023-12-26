@@ -687,21 +687,6 @@ proc genLiteral(c: var TCtx, n: CgNode): int =
   of cnkStrLit:   toStringCnst(c, n.strVal)
   else:           unreachable(n.kind)
 
-proc genLiteral(c: var TCtx, n: PNode): int =
-  ## Create a constant, add it to the `c.constants` list and return
-  ## the index of where it's located there
-  case n.kind
-  of nkIdent, nkType, nkEmpty: toNodeCnst(c, n)
-  of nkCharLit..nkUInt64Lit: toIntCnst(c, n.intVal)
-  of nkFloatLit, nkFloat64Lit: toFloatCnst(c, n.floatVal)
-  of nkFloat32Lit: toFloatCnst(c, n.floatVal.float32.float64)
-  of nkStrLit..nkTripleStrLit: toStringCnst(c, n.strVal)
-  else:
-    # While we could treat `n` as a PNode constant in this, we don't, forcing
-    # explicit usage of `toNodeCnst` in order to prevent bugs
-    c.config.internalError(n.info, $n.kind)
-    0
-
 template fillSliceList[T](sl: var seq[Slice[T]], nodes: openArray[CgNode],
                           get: untyped) =
   sl.newSeq(nodes.len)
@@ -2440,8 +2425,21 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
   ## Generates and emits the code for loading either the value or handle of
   ## the location named by symbol or local node `n` into the `dest` register.
   case n.kind
-  of cnkConst, cnkGlobal:
-    # FIXME: ``cnkConst`` needs dedicated handling
+  of cnkConst:
+    let s = n.sym
+    prepare(c, dest, n.typ)
+
+    let pos = int c.linking.lookup(s)
+    if load and fitsRegister(n.typ):
+      let cc = c.getTemp(n.typ)
+      c.gABx(n, opcLdCmplxConst, cc, pos)
+      c.genRegLoad(n, dest, cc)
+      c.freeTemp(cc)
+    else:
+      c.gABx(n, opcLdCmplxConst, dest, pos)
+
+    discard genType(c, n.typ) # make sure the type exists
+  of cnkGlobal:
     # a global location
     let s = n.sym
     let pos = useGlobal(c, n)
@@ -2476,8 +2474,15 @@ proc genSymAddr(c: var TCtx, n: CgNode, dest: var TDest) =
   ## identified by the symbol or local node `n`.
   assert dest != noDest
   case n.kind
-  of cnkConst, cnkGlobal:
-    # FIXME: ``cnkConst`` needs dedicated handling
+  of cnkConst:
+    let
+      pos = int c.linking.lookup(n.sym)
+      tmp = c.getTemp(slotTempComplex)
+    c.gABx(n, opcLdCmplxConst, tmp, pos)
+    c.gABC(n, opcAddr, dest, tmp)
+    c.freeTemp(tmp)
+    discard genType(c, n.typ) # make sure the type exists
+  of cnkGlobal:
     let
       pos = useGlobal(c, n)
       tmp = c.getTemp(slotTempComplex)
@@ -2917,19 +2922,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
       fail(n.info, vmGenDiagCannotImportc, sym = s)
 
     genProcLit(c, n, s, dest)
-  of cnkConst:
-      # XXX: integrate into ``genSym``
-      let s = n.sym
-      if dest.isUnset: dest = c.getTemp(s.typ)
-
-      if s.ast.kind in nkLiterals:
-        let lit = genLiteral(c, s.ast)
-        c.genLit(n, lit, dest)
-      else:
-        let idx = int c.linking.lookup(s)
-        discard c.getOrCreate(s.typ)
-        c.gABx(n, opcLdCmplxConst, dest, idx)
-  of cnkGlobal, cnkLocal:
+  of cnkConst, cnkGlobal, cnkLocal:
     genSym(c, n, dest)
   of cnkCall:
     let magic = getMagic(n)
