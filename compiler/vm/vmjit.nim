@@ -161,22 +161,14 @@ func discoverGlobalsAndRewrite(data: var DiscoveryData, tree: var MirTree,
         # found a global definition; register it. Imported ones are
         # ignored -- ``vmgen`` will report an error when the global is
         # accessed
-        let s =
-          if g.owner.kind in {skVar, skLet, skForVar}:
-            g.owner # account for duplicated symbols (see ``transf.freshVar``)
-          else:
-            g
-        data.registerGlobal(s)
+        data.registerGlobal(g)
 
       i = sibling(tree, i)
     else:
       inc i
 
   if rewrite:
-    rewriteGlobalDefs(tree, source, patch=true)
-  else:
-    # the globals still need to be patched
-    patchGlobals(tree, source)
+    rewriteGlobalDefs(tree, source)
 
 func register(linker: var LinkerData, data: DiscoveryData) =
   ## Registers the newly discovered entities in the link table, but doesn't

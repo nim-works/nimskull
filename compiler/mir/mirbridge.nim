@@ -77,41 +77,25 @@ proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
     writeBody(config, "-- output AST: " & owner.name.s):
       config.writeln(treeRepr(body.code))
 
-proc restoreGlobal(s: PSym): PSym =
-    ## If the global `s` is a duplicate that was introduced in order to make
-    ## the code temporarily semantically correct, restores the original
-    ## symbol -- otherwise returns `s` as is.
-    ##
-    ## Refer to ``transf.freshVars`` for why this workaround exists.
-    if s.owner.kind in {skVar, skLet, skForVar}:
-      s.owner
-    else:
-      s
-
-proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
-                        patch: bool) =
+proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap) =
   ## Rewrites definitions of globals in the outermost scope into assignments.
-  ## If `patch` is true, also restores the correct symbol for globals that
-  ## were introduced in ``transf``.
+  # XXX: integrate the pass into ``mirgen`` once the dependency collection
+  #      also happens there
   var
     changes = initChangeset(body)
     depth   = 0
-    i       = NodePosition 0
 
-  while i.int < body.len:
-    let n {.cursor.} = body[i]
+  for i, n in body.pairs:
     case n.kind
     of DefNodes:
       let def = body.child(i, 0)
       if body[def].kind == mnkGlobal:
         let
-          sym = restoreGlobal(body[def].sym)
+          sym = body[def].sym
           typ = sym.typ
         if depth > 1:
-          # don't rewrite the def, but still patch the symbol if requested
-          if patch:
-            changes.replace(body, body.child(i, 0)):
-              MirNode(kind: mnkGlobal, sym: sym, typ: typ)
+          # don't rewrite the def
+          discard
         elif body[i, 1].kind != mnkNone:
           # the global has a starting value
           changes.replaceMulti(body, i, buf):
@@ -134,15 +118,6 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
           # just remove the def:
           changes.remove(body, i)
 
-      i = body.child(i, 1) - 1 # skip the name node
-    of mnkGlobal:
-      # remove the temporary duplicates of nested globals again:
-      if patch and depth > 1:
-        let s = restoreGlobal(n.sym)
-        if s != n.sym:
-          changes.replace(body, i):
-            MirNode(kind: mnkGlobal, sym: s, typ: s.typ)
-
     of mnkScope:
       inc depth
     of mnkEnd:
@@ -151,20 +126,7 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap;
     else:
       discard "ignore"
 
-    inc i
-
   apply(body, prepare(changes))
-
-proc patchGlobals*(body: var MirTree, sourceMap: var SourceMap) =
-  # Restores the correct symbol for all globals duplicated during
-  # ``transf``.
-  for i in 0..<body.len:
-    if body[i].kind == mnkGlobal:
-      let s = restoreGlobal(body[i].sym)
-      # use in-place patching; it's more efficient than going through
-      # a changeset
-      if s != body[i].sym:
-        body[i].sym = s
 
 proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
                    body: PNode, options: set[GenOption]): Body =

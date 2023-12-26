@@ -333,14 +333,11 @@ proc preprocess*(conf: BackendConfig, prc: PSym, graph: ModuleGraph,
 
 proc process*(prc: var Procedure, graph: ModuleGraph, idgen: IdGenerator) =
   ## Applies all applicable MIR passes to the procedure `prc`.
-  rewriteGlobalDefs(prc.body.tree, prc.body.source, patch=false)
+  rewriteGlobalDefs(prc.body.tree, prc.body.source)
 
   if shouldInjectDestructorCalls(prc.sym):
     injectDestructorCalls(graph, idgen, prc.sym,
                           prc.body.tree, prc.body.source)
-
-  # restore the correct symbols for globals:
-  patchGlobals(prc.body.tree, prc.body.source)
 
   let target =
     case graph.config.backend
