@@ -201,12 +201,10 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
       if tree[i, 0].kind == mnkTemp and
          tree[i, 0].typ.skipTypes(LocSkip).kind notin Ignore and
          tree[e].kind in LvalueExprKinds and
-         tree[getRoot(tree, e)].kind notin {mnkConst, mnkTemp}:
+         tree[getRoot(tree, e)].kind != mnkTemp:
         # definition of a temporary into which an lvalue is assigned. Elision
-        # is disabled for:
-        # * projections of temporaries; the projected temporary might be
-        #   elided itself, which could lead to evaluation order issues
-        # * constants; works around code generator issues
+        # is disabled for projections of temporaries; the projected temporary
+        # might be elided itself, which could lead to evaluation order issues
         ct[tree[i, 0].temp.uint32] = 1
 
       i = NodePosition e # skip to the source expression
