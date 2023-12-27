@@ -2501,7 +2501,7 @@ proc genArrAccessOpcode(c: var TCtx; n: CgNode; dest: var TDest; opc: TOpcode; l
     b = c.genIndex(n[1], n[0].typ)
 
   prepare(c, dest, n.typ)
-  if opc in {opcLdArrAddr, opcLdStrIdx, opcLdStrIdxAddr}:
+  if opc in {opcLdArrAddr, opcLdStrIdx}:
     # the result is already stored in a register; no special handling
     # required
     c.gABC(n, opc, dest, a, b)
@@ -2640,9 +2640,7 @@ proc genArrayAddr(c: var TCtx, n: CgNode, dest: var TDest) =
   ## ``addr x[0]``)
   assert not dest.isUnset
   case n[0].typ.skipTypes(abstractInst).kind
-  of tyString, tyCstring:
-    genArrAccessOpcode(c, n, dest, opcLdStrIdxAddr)
-  of tyArray, tySequence, tyOpenArray, tyVarargs:
+  of tyString, tyCstring, tyArray, tySequence, tyOpenArray, tyVarargs:
     genArrAccessOpcode(c, n, dest, opcLdArrAddr)
   else:
     unreachable()

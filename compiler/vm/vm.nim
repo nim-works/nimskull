@@ -1055,20 +1055,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         regs[ra].intVal = s[idx].ord
       else:
         raiseVmError(reportVmIdx(idx, s.len-1))
-    of opcLdStrIdxAddr:
-      # a = addr(b[c]); similar to opcLdArrAddr
-      decodeBC(rkAddress)
-      if regs[rc].intVal > high(int):
-        raiseVmError(reportVmIdx(regs[rc].intVal, high(int)))
-
-      checkHandle(regs[rb])
-
-      let idx = regs[rc].intVal.int
-      let s = regs[rb].atomVal.strVal
-      if idx <% s.len:
-        regs[ra].setAddress(s.data.applyOffset(uint idx), c.typeInfoCache.charType)
-      else:
-        raiseVmError(reportVmIdx(idx, s.len-1))
 
     of opcWrArr:
       # a[b] = c
