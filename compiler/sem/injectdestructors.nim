@@ -157,12 +157,15 @@ type
     a: array[2, int]
 
   EntityInfo = object
+    ## Information about a lifetime of an entity. The lifetime of an entity is
+    ## the time during which it can be *live* (i.e., store a value).
     def: NodePosition ## the position of the 'def' for the entity
     scope: Subgraph   ## the data-flow subgraph during which the entity exists
 
-  EntityDict = Table[EntityName, EntityInfo]
+  EntityDict = Table[EntityName, seq[EntityInfo]]
     ## Entity dictionary. Stores all entities relevant to destructor
-    ## injection and the move analyser
+    ## injection and the move analyser. A location may have more than one
+    ## lifetimes.
 
   DestroyEntry = tuple
     scope: NodePosition ## the position of the enclosing 'scope' node
@@ -219,15 +222,29 @@ func toName(n: MirNode): EntityName =
     of mnkTemp:    n.temp.int
     else:          unreachable(n.kind)
 
-func getAliveGraph(entities: EntityDict, name: EntityName, exists: var bool
-                  ): Subgraph =
-  ## Returns the data-flow sub-graph during which the entity `name` exists.
-  ## `exists` is set to whether the entity is present in the dictionary.
-  let info =
-    entities.getOrDefault(name, EntityInfo(def: NodePosition(-1)))
+func findScope(entities: EntityDict, name: EntityName, at: InstrPos,
+               exists: var bool): EntityInfo =
+  ## Returns the ``EntityInfo`` for `name` that encloses the data-flow
+  ## instruction at `at`. If `name` is present in `entities` but `at` is not
+  ## directly part of any lifetime, the ``EntityInfo`` for the lifetime
+  ## preceding `at` is returned.
+  ##
+  ## `exists` is updated to indicate whether a scope was found.
+  if name in entities:
+    let lifetimes {.cursor.} = entities[name]
+    # search for the upper bound:
+    var i = 0
+    while i < lifetimes.len and at >= lifetimes[i].scope.a:
+      inc i
 
-  exists = info.def != NodePosition(-1)
-  result = info.scope
+    if i - 1 >= 0:
+      result = lifetimes[i - 1]
+      exists = true
+    else:
+      exists = false
+  else:
+    exists = false
+
 
 proc getVoidType(g: ModuleGraph): PType {.inline.} =
   g.getSysType(unknownLineInfo, tyVoid)
@@ -307,12 +324,9 @@ func initEntityDict(tree: MirTree, dfg: DataFlowGraph): EntityDict =
           nil # not a location (e.g. a procedure)
 
       if t != nil and hasDestructor(t):
-        let re = toName(entity)
-        # XXX: a ``doAssert`` is only used here in order to always catch
-        #      duplicate symbols incorrectly getting past ``transf``
-        doAssert re notin result, "entity appears in a 'def' multiple times"
-        # don't include the data-flow operations preceding the def
-        result[re] = EntityInfo(def: i, scope: subgraphFor(dfg, i .. scope.b))
+        result.mgetOrPut(toName(entity), @[]).add:
+          # don't include the data-flow operations preceding the def
+          EntityInfo(def: i, scope: subgraphFor(dfg, i .. scope.b))
 
     else:
       discard
@@ -341,9 +355,9 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, entities: EntityDict,
     #       pseudo-use at the end of the body and make all procedure exits
     #       visit it first
     var exists = false
-    let aliveRange = entities.getAliveGraph(toName(tree[lval.root]), exists)
+    let info = entities.findScope(toName(tree[lval.root]), start, exists)
     exists and not isCursor(tree, lval) and
-      isLastRead(tree, cfg, aliveRange, lval, start)
+      isLastRead(tree, cfg, info.scope, lval, start)
   else:
     unreachable()
 
@@ -405,7 +419,12 @@ func computeDestructors(tree: MirTree, cfg: DataFlowGraph, values: Values,
   ## to "escape")
   var needsFinally: PackedSet[NodePosition]
 
-  for _, info in entities.pairs:
+  iterator items(x: EntityDict): lent EntityInfo =
+    for _, infos in x.pairs:
+      for it in infos.items:
+        yield it
+
+  for info in entities.items:
     let
       def = info.def ## the position of the entity's definition
       entity = tree[getDefEntity(tree, def)]
@@ -449,8 +468,8 @@ func isAlive(tree: MirTree, cfg: DataFlowGraph, v: Values,
         cfg.subgraphFor(NodePosition(0) .. NodePosition(tree.high))
       else:
         var exists: bool
-        let s = entities.getAliveGraph(toName(tree[root]), exists)
-        if exists: s
+        let info = entities.findScope(toName(tree[root]), at, exists)
+        if exists: info.scope
         else:      return true # not something we can analyse -> assume alive
 
     # if the location is not assigned an initial value on definition, `start`
@@ -488,10 +507,10 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
   if tree[root].kind in SymbolLike and tree[root].sym.kind == skResult:
     return true
 
-  let info = getOrDefault(ar.entities[], toName(tree[root]),
-                          EntityInfo(def: NodePosition -1))
+  var exists: bool
+  let info = findScope(ar.entities[], toName(tree[root]), at, exists)
 
-  if info.def == NodePosition(-1):
+  if not exists:
     # the location is not local to the current context -> assume that it needs
     # to be reset
     return true
