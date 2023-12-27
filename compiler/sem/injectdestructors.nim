@@ -157,14 +157,15 @@ type
     a: array[2, int]
 
   EntityInfo = object
-    ## Information about an entity's livetime.
+    ## Information about a lifetime of an entity. The lifetime of an entity is
+    ## the time during which it can be *live* (i.e., store a value).
     def: NodePosition ## the position of the 'def' for the entity
     scope: Subgraph   ## the data-flow subgraph during which the entity exists
 
   EntityDict = Table[EntityName, seq[EntityInfo]]
     ## Entity dictionary. Stores all entities relevant to destructor
-    ## injection and the move analyser. A location may be alive more than
-    ## once.
+    ## injection and the move analyser. A location may have more than one
+    ## lifetimes.
 
   DestroyEntry = tuple
     scope: NodePosition ## the position of the enclosing 'scope' node
@@ -225,19 +226,19 @@ func findScope(entities: EntityDict, name: EntityName, at: InstrPos,
                exists: var bool): EntityInfo =
   ## Returns the ``EntityInfo`` for `name` that encloses the data-flow
   ## instruction at `at`. If `name` is present in `entities` but `at` is not
-  ## directly part of any livetime, the ``EntityInfo`` for the livetime
+  ## directly part of any lifetime, the ``EntityInfo`` for the lifetime
   ## preceding `at` is returned.
   ##
   ## `exists` is updated to indicate whether a scope was found.
   if name in entities:
-    let livetimes {.cursor.} = entities[name]
+    let lifetimes {.cursor.} = entities[name]
     # search for the upper bound:
     var i = 0
-    while i < livetimes.len and at >= livetimes[i].scope.a:
+    while i < lifetimes.len and at >= lifetimes[i].scope.a:
       inc i
 
     if i - 1 >= 0:
-      result = livetimes[i - 1]
+      result = lifetimes[i - 1]
       exists = true
     else:
       exists = false
