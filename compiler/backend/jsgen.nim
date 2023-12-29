@@ -914,7 +914,7 @@ proc generateHeader(params: openArray[Loc]): string =
 const
   nodeKindsNeedNoCopy = cnkLiterals + {cnkStringToCString,
     cnkObjConstr, cnkTupleConstr, cnkArrayConstr,
-    cnkCStringToString, cnkCall}
+    cnkCStringToString, cnkCall, cnkCheckedCall}
 
 proc needsNoCopy(p: PProc; y: CgNode): bool =
   return y.kind in nodeKindsNeedNoCopy or
@@ -955,7 +955,7 @@ proc genAsgnAux(p: PProc, x, y: CgNode, noCopyNeeded: bool) =
             [a.res, b.res, genTypeInfo(p, x.typ)])
   of etyBaseIndex:
     if a.typ != etyBaseIndex or b.typ != etyBaseIndex:
-      if y.kind == cnkCall:
+      if y.kind in {cnkCall, cnkCheckedCall}:
         let tmp = p.getTemp(false)
         lineF(p, "var $1 = $4; $2 = $1[0]; $3 = $1[1];$n", [tmp, a.address, a.res, b.rdLoc])
       elif b.typ == etyBaseIndex:
@@ -2375,7 +2375,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       else:
         r.res.addFloatRoundtrip(f)
     r.kind = resExpr
-  of cnkCall:
+  of cnkCall, cnkCheckedCall:
     if isEmptyType(n.typ):
       genLineDir(p, n)
     if getCalleeMagic(n[0]) != mNone:

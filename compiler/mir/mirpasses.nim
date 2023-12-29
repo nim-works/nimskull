@@ -109,7 +109,7 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
   # anywhere in the source expression
   for i in search(tree, {mnkFastAsgn, mnkAsgn}):
     let source = tree.operand(i, 1)
-    if tree[source].kind != mnkCall or tree[source, 0].kind == mnkMagic or
+    if tree[source].kind notin CallKinds or tree[source, 0].kind == mnkMagic or
        not eligibleForRvo(tree[source].typ):
       # the return-value optimization is not used
       continue
@@ -295,7 +295,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         let stmt = tree.parent(expr)
         elide = tree[stmt].kind in {mnkInit, mnkDef, mnkDefCursor} or
                 not overlaps(p, typ, tree.operand(stmt, 0))
-      of mnkCall:
+      of CallKinds:
         # the lvalue overlapping with a mutable argument disable the elision,
         # as eliding the temporary would be obersvable when the backend decides
         # to use pass-by-reference for the immutable parameter

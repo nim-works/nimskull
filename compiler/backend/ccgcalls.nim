@@ -10,20 +10,6 @@
 
 ## included from cgen.nim
 
-proc canRaiseDisp(p: BProc; n: CgNode): bool =
-  ## 'true' if calling the callee expression `n` can exit via exceptional
-  ## control-flow, otherwise 'false'. If panics are disabled, this also
-  ## includes all routines that are not certain magics, compiler procs, or
-  ## imported.
-  if n.kind == cnkProc and {sfNeverRaises, sfImportc, sfCompilerProc} * n.sym.flags != {}:
-    result = false
-  elif optPanics in p.config.globalOptions:
-    # we know we can be strict:
-    result = canRaise(n)
-  else:
-    # we have to be *very* conservative:
-    result = canRaiseConservative(n)
-
 proc reportObservableStore(p: BProc; le, ri: CgNode) =
   ## Reports the ``rsemObservableStores`` hint when the called procedure can
   ## exit with an exception and `le` is something to which an assignment is
@@ -49,10 +35,7 @@ proc reportObservableStore(p: BProc; le, ri: CgNode) =
         # cannot analyse the location; assume the worst
         return true
 
-  # we use the weaker 'canRaise' here in order to prevent too many
-  # annoying warnings, see #14514
-  if le != nil and canRaise(ri[0]) and
-     locationEscapes(p, le, p.nestedTryStmts.len > 0):
+  if le != nil and locationEscapes(p, le, p.nestedTryStmts.len > 0):
     localReport(p.config, le.info, reportSem rsemObservableStores)
 
 proc isHarmlessStore(p: BProc; canRaise: bool; d: TLoc): bool =
@@ -82,7 +65,7 @@ proc exitCall(p: BProc, callee: CgNode, canRaise: bool) =
 
 proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
                callee, params: Rope) =
-  let canRaise = canRaiseDisp(p, ri[0])
+  let canRaise = ri.kind == cnkCheckedCall
   genLineDir(p, ri)
   var pl = callee & ~"(" & params
   # getUniqueType() is too expensive here:
@@ -93,7 +76,7 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
       # the destination is guaranteed to be either a temporary or an lvalue
       # that can be modified in-place
       if true:
-        if d.k notin {locTemp, locNone}:
+        if d.k notin {locTemp, locNone} and canRaise:
           reportObservableStore(p, le, ri)
 
         # resetting the result location is the responsibility of the called
@@ -268,14 +251,14 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
       lineF(p, cpsStmts, PatProc & ";$n", [rdLoc(op), pl, pl.addComma, rawProc])
 
   let rawProc = getClosureType(p.module, typ, clHalf)
-  let canRaise = canRaiseDisp(p, ri[0])
+  let canRaise = ri.kind == cnkCheckedCall
   if typ[0] != nil:
     if isInvalidReturnType(p.config, typ[0]):
       if ri.len > 1: pl.add(~", ")
       # the destination is guaranteed to be either a temporary or an lvalue
       # that can be modified in-place
       if true:
-        if d.k notin {locTemp, locNone}:
+        if d.k notin {locTemp, locNone} and canRaise:
           reportObservableStore(p, le, ri)
 
         # resetting the result location is the responsibility of the called

@@ -241,7 +241,7 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
     env.dfaOp(o, tree, at, v)
 
   case tree[source].kind
-  of mnkCall, mnkConstr, mnkObjConstr:
+  of mnkCall, mnkCheckedCall, mnkConstr, mnkObjConstr:
     emitForArgs(env, tree, at, source)
   of mnkConv, mnkStdConv, mnkCast:
     # a read is performed on the source operand (if it's an lvalue)
@@ -274,7 +274,7 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
   # For the local data-flow, this is represented as taking place after the
   # callsite arguments are used but before the exceptional exit (if any)
   case tree[source].kind
-  of mnkCall:
+  of mnkCall, mnkCheckedCall:
     # lvalue effects:
     for k, it in arguments(tree, source):
       if tree[it].kind == mnkTag:
@@ -292,7 +292,7 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
     # operation has to come before the fork
     if geMutateGlobal in tree[source].effects:
       env.instrs.add Instr(op: opMutateGlobal, node: at)
-    if geRaises in tree[source].effects:
+    if tree[source].kind == mnkCheckedCall:
       exit env, opFork, at, RaiseLabel
   else:
     discard

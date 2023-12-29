@@ -37,7 +37,7 @@ func `$`(n: MirNode): string =
   of mnkPathPos:
     result.add " position: "
     result.add $n.position
-  of mnkCall:
+  of mnkCall, mnkCheckedCall:
     result.add " effects: "
     result.add $n.effects
   of mnkMagic:
@@ -259,6 +259,13 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string) =
       commaSeparated:
         argToStr(nodes, i, result)
       result.add ")"
+  of mnkCheckedCall:
+    tree "":
+      calleeToStr(nodes, i, result)
+      result.add "("
+      commaSeparated:
+        argToStr(nodes, i, result)
+      result.add ") (raises)"
   else:
     # TODO: make this branch exhaustive
     result.add "<error: " & $nodes[i].kind & ">"

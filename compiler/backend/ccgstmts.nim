@@ -49,7 +49,8 @@ template startBlock(p: BProc, id: BlockId) =
 proc endBlock(p: BProc)
 
 proc loadInto(p: BProc, le, ri: CgNode, a: var TLoc) {.inline.} =
-  if ri.kind == cnkCall and getCalleeMagic(ri[0]) == mNone:
+  if ri.kind in {cnkCall, cnkCheckedCall} and
+     getCalleeMagic(ri[0]) == mNone:
     genAsgnCall(p, le, ri, a)
   else:
     # this is a hacky way to fix #1181 (tmissingderef)::
@@ -563,19 +564,15 @@ proc genCase(p: BProc, t: CgNode) =
 
 proc bodyCanRaise(p: BProc; n: CgNode): bool =
   case n.kind
-  of cnkCall:
-    result = canRaiseDisp(p, n[0])
-    if not result:
-      # also check the arguments:
-      for i in 1 ..< n.len:
-        if bodyCanRaise(p, n[i]): return true
+  of cnkCheckedCall:
+    result = true
   of cnkRaiseStmt:
     result = true
   of cnkAtoms:
     result = false
   of cnkWithOperand:
     result = bodyCanRaise(p, n.operand)
-  of cnkWithItems - {cnkCall, cnkRaiseStmt}:
+  of cnkWithItems - {cnkCheckedCall, cnkRaiseStmt}:
     for it in n.items:
       if bodyCanRaise(p, it): return true
     result = false

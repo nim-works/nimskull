@@ -70,6 +70,12 @@ Semantics
                                          # one for which the behaviour cannot
                                          # be represented in the MIR)
 
+  # checked calls have the same shape as normal calls. The difference is that
+  # the call has an exceptional exit (i.e., it might raise an exception)
+  CHECKED_CALL_EXPR = CheckedCall <Proc> CALL_ARG ...
+                    | CheckedCall LVALUE CALL_ARG ...
+                    | CheckedCall <Magic> CALL_ARG ...
+
   RVALUE = CALL_EXPR
          | Constr   CONSTR_ARG ...       # construct a tuple, closure, set, or
          | ObjConstr (<Field> CONSTR_ARG) ... # construct an `object` or

@@ -148,8 +148,7 @@ type
 
     mnkCall   ## invoke a procedure and pass along the provided arguments.
               ## Used for both static and dynamic calls
-    # future direction: introduce a ``mnkCheckedCall`` node, for
-    # representing calls that can start unwinding
+    mnkCheckedCall  ## invoke a magic procedure and pass along the provided arguments
 
     mnkRaise  ## if the operand is an ``mnkNone`` node, reraises the
               ## currently active exception. Otherwise, set the operand value
@@ -241,7 +240,6 @@ type
 
   GeneralEffect* = enum
     geMutateGlobal ## the operation mutates global state
-    geRaises       ## the operation is a source of exceptional control-flow
 
   MirNode* = object
     typ*: PType ## non-nil for all expressions
@@ -259,7 +257,7 @@ type
       temp*: TempId
     of mnkPathPos:
       position*: uint32 ## the 0-based position of the field
-    of mnkCall:
+    of mnkCall, mnkCheckedCall:
       effects*: set[GeneralEffect]
     of mnkMagic:
       magic*: TMagic
@@ -332,8 +330,10 @@ const
                       mnkLocal, mnkParam, mnkConst, mnkGlobal}
   RvalueExprKinds* = {mnkLiteral, mnkType, mnkProc, mnkConv, mnkStdConv,
                       mnkCast, mnkAddr, mnkView, mnkToSlice}
-  ExprKinds* =       {mnkCall, mnkConstr, mnkObjConstr} +
+  ExprKinds* =       {mnkCall, mnkCheckedCall, mnkConstr, mnkObjConstr} +
                      LvalueExprKinds + RvalueExprKinds
+
+  CallKinds* = {mnkCall, mnkCheckedCall}
 
 func `==`*(a, b: SourceId): bool {.borrow.}
 func `==`*(a, b: TempId): bool {.borrow.}
@@ -511,7 +511,7 @@ func argument*(tree: MirTree, n: NodePosition, i: Natural): OpValue =
   ## Returns the `i`-th argument in the call-like tree at `n`, skipping
   ## tag nodes. It is expected that the call has at least `i` + 1
   ## arguments.
-  assert tree[n].kind == mnkCall
+  assert tree[n].kind in CallKinds
   var n = tree.sibling(n + 1)
   for _ in 0..<i:
     n = tree.sibling(n)
@@ -543,7 +543,7 @@ iterator subNodes*(tree: MirTree, n: NodePosition): NodePosition =
 
 iterator arguments*(tree: MirTree, n: NodePosition): (ArgKinds, OpValue) =
   ## Returns the argument kinds together with the operand node (or tag tree).
-  assert tree[n].kind == mnkCall
+  assert tree[n].kind in CallKinds
   var i = tree.sibling(n + 1) # skip the callee
   while tree[i].kind != mnkEnd:
     yield (ArgKinds(tree[i].kind), tree.operand(i))

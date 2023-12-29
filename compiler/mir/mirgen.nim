@@ -418,7 +418,7 @@ template buildMagicCall(c: var TCtx, m: TMagic, t: PType, body: untyped) =
 
 template buildCheckedMagicCall(c: var TCtx, m: TMagic, t: PType,
                                body: untyped) =
-  c.subTree MirNode(kind: mnkCall, typ: t, effects: {geRaises}):
+  c.subTree MirNode(kind: mnkCheckedCall, typ: t):
     c.add MirNode(kind: mnkMagic, magic: m)
     body
 
@@ -429,13 +429,13 @@ template buildDefectMagicCall(c: var TCtx, m: TMagic, t: PType,
   ##
   ## This template is meant to be used for ``Defect``-raising magic
   ## procedures.
-  let effects =
+  let kind =
     if optPanics in c.graph.config.globalOptions:
-      {}
+      mnkCall
     else:
-      {geRaises}
+      mnkCheckedCall
 
-  c.subTree MirNode(kind: mnkCall, typ: t, effects: effects):
+  c.subTree MirNode(kind: kind, typ: t):
     c.add MirNode(kind: mnkMagic, magic: m)
     body
 
@@ -443,7 +443,7 @@ func detectKind(tree: MirTree, n: NodePosition, sink: bool): ExprKind =
   ## Detects the kind of expression `n` (with the originating from AST `e`)
   ## represents. `sink` informs whether expression is used in a sink context.
   case tree[n].kind
-  of mnkCall:
+  of mnkCall, mnkCheckedCall:
     if hasDestructor(tree[n].typ):
       OwnedRvalue
     else:
@@ -832,14 +832,17 @@ proc genArgs(c: var TCtx, n: PNode) =
 proc genCall(c: var TCtx, n: PNode) =
   ## Generates and emits the MIR code for a call expression.
   let fntyp = n[0].typ.skipTypes(abstractInst)
-  var effects: set[GeneralEffect]
-  if canRaiseConservative(n[0]):
-    effects.incl geRaises
+  let kind: range[mnkCall..mnkCheckedCall] =
+    if canRaise(optPanics in c.graph.config.globalOptions, n[0]):
+      mnkCheckedCall
+    else:
+      mnkCall
 
+  var effects: set[GeneralEffect]
   if tfNoSideEffect notin fntyp.flags:
     effects.incl geMutateGlobal
 
-  c.subTree MirNode(kind: mnkCall, typ: typeOrVoid(c, fntyp[0]),
+  c.subTree MirNode(kind: kind, typ: typeOrVoid(c, fntyp[0]),
                     effects: effects):
     genCallee(c, n[0])
     genArgs(c, n)
@@ -1088,8 +1091,8 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
       # rewrite ``getAst(macro(a, b, c))`` -> ``macro(a, b, c)``
       # treat a macro call as potentially raising and as modifying global
       # data. While not wrong, it is pessimistic
-      c.subTree MirNode(kind: mnkCall, typ: n.typ,
-                        effects: {geMutateGlobal, geRaises}):
+      c.subTree MirNode(kind: mnkCheckedCall, typ: n.typ,
+                        effects: {geMutateGlobal}):
         # we can use the internal signature
         genMacroCallArgs(c, n, skMacro, callee.sym.internal)
     else:

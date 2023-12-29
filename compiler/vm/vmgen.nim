@@ -2210,7 +2210,7 @@ func isPtrView(n: CgNode): bool =
     false
   of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess:
     true
-  of cnkHiddenAddr, cnkCall:
+  of cnkHiddenAddr, cnkCall, cnkCheckedCall:
     false
   else:
     unreachable(n.kind)
@@ -2922,7 +2922,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     genProcLit(c, n, s, dest)
   of cnkConst, cnkGlobal, cnkLocal:
     genSym(c, n, dest)
-  of cnkCall:
+  of cnkCall, cnkCheckedCall:
     let magic = getMagic(n)
     if magic != mNone:
       genMagic(c, n, dest, magic)
