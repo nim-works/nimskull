@@ -14,8 +14,8 @@ scope:
       scope:
         x =fast construct (arg "string here", arg 80)
     def_cursor _0: (string, int) = x
-    def _1: string = $(arg _0)
-    echo(arg type(array[0..0, string]), arg _1)
+    def _1: string = $(arg _0) (raises)
+    echo(arg type(array[0..0, string]), arg _1) (raises)
   finally:
     =destroy(name _1)
 -- end of expandArc ------------------------
@@ -25,7 +25,7 @@ scope:
   scope:
     def_cursor filename: string = "debug.txt"
     def_cursor _0: string = filename
-    def f: File = open(arg _0, arg fmRead, arg 8000)
+    def f: File = open(arg _0, arg fmRead, arg 8000) (raises)
     try:
       scope:
         try:
@@ -35,7 +35,7 @@ scope:
               while true:
                 scope:
                   def_cursor _1: File = f
-                  def_cursor _2: bool = readLine(arg _1, name res)
+                  def_cursor _2: bool = readLine(arg _1, name res) (raises)
                   def_cursor _3: bool = not(arg _2)
                   if _3:
                     scope:
@@ -44,13 +44,13 @@ scope:
                     scope:
                       def_cursor x: string = res
                       def_cursor _4: string = x
-                      echo(arg type(array[0..0, string]), arg _4)
+                      echo(arg type(array[0..0, string]), arg _4) (raises)
         finally:
           =destroy(name res)
     finally:
       scope:
         def_cursor _5: File = f
-        close(arg _5)
+        close(arg _5) (raises)
 -- end of expandArc ------------------------'''
 """
 
