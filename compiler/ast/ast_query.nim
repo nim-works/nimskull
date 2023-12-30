@@ -642,7 +642,7 @@ proc canRaiseConservative*(fn: PNode): bool =
   else:
     result = true
 
-proc canRaise*(fn: PNode): bool =
+proc canRaise(fn: PNode): bool =
   if fn.kind == nkSym and (fn.sym.magic notin magicsThatCanRaise or
       {sfImportc, sfInfixCall} * fn.sym.flags == {sfImportc} or
       sfGeneratedOp in fn.sym.flags):
@@ -657,6 +657,24 @@ proc canRaise*(fn: PNode): bool =
       result = fn.typ != nil and fn.typ.n != nil and ((fn.typ.n[0].len < effectListLen) or
         (fn.typ.n[0][exceptionEffects] != nil and
         fn.typ.n[0][exceptionEffects].safeLen > 0))
+
+proc canRaise*(panicsEnabled: bool, n: PNode): bool =
+  ## 'true' if a call with `n` as the callee can exit via exceptional control-
+  ## flow, otherwise 'false'. If panics are not enabled, this also includes
+  ## all routines that are not certain magics, compiler procs, or imported.
+  if n.kind == nkSym and ({sfNeverRaises, sfCompilerProc} * n.sym.flags != {}):
+    false
+  elif n.kind == nkSym and
+       {sfImportc, sfInfixCall} * n.sym.flags == {sfImportc}:
+    # imported JavaScript functions are excluded here, as they may raise
+    # imported exceptions
+    false
+  elif panicsEnabled:
+    # we know we can be strict:
+    canRaise(n)
+  else:
+    # we have to be *very* conservative:
+    canRaiseConservative(n)
 
 proc skipAddr*(n: PNode): PNode {.inline.} =
   if n.kind == nkHiddenAddr: n[0] else: n

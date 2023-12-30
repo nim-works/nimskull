@@ -1005,7 +1005,7 @@ proc checkTry(n, ctx, map): Check =
   #     newMap = childMap
   let tryCheck = check(n[0], ctx, currentMap)
   newMap = ctx.union(currentMap, tryCheck.map)
-  canRaise = n[0].canRaise
+  canRaise = canRaise(optPanics in ctx.config.globalOptions, n[0])
 
   var afterTryMap = newMap
   for a, branch in n:

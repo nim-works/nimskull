@@ -10,7 +10,7 @@ scope:
     def _0: string = newString(arg 100)
     def_cursor _1: seq[byte] = cast _0
     def_cursor _2: openArray[byte] = toOpenArray _1
-    def _3: seq[byte] = encode(arg _2)
+    def _3: seq[byte] = encode(arg _2) (raises)
     def data: string
     def _4: string = cast _3
     =copy(name data, arg _4)
@@ -28,7 +28,7 @@ scope:
     def_cursor _2: int = len(arg _1)
     def_cursor _3: int = -(arg _2, arg 1)
     def_cursor _4: openArray[byte] = slice(arg _0, arg 0, arg _3)
-    def _5: seq[byte] = encode(arg _4)
+    def _5: seq[byte] = encode(arg _4) (raises)
     def data: string
     def _6: string = cast _5
     =copy(name data, arg _6)
@@ -40,9 +40,9 @@ scope:
 --expandArc: main2
 scope:
   try:
-    def s: seq[byte] = newSeq(arg 100)
+    def s: seq[byte] = newSeq(arg 100) (raises)
     def_cursor _0: openArray[byte] = toOpenArray s
-    def _1: seq[byte] = encode(arg _0)
+    def _1: seq[byte] = encode(arg _0) (raises)
     def data: string
     def _2: string = cast _1
     =copy(name data, arg _2)
@@ -54,9 +54,9 @@ scope:
 --expandArc: main3
 scope:
   try:
-    def _0: seq[byte] = newSeq(arg 100)
+    def _0: seq[byte] = newSeq(arg 100) (raises)
     def_cursor _1: openArray[byte] = toOpenArray _0
-    def _2: seq[byte] = encode(arg _1)
+    def _2: seq[byte] = encode(arg _1) (raises)
     def data: string
     def _3: string = cast _2
     =copy(name data, arg _3)

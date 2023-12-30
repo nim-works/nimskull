@@ -6,7 +6,7 @@ discard """
 scope:
   def a: seq[seq[int]]
   def b: seq[seq[int]]
-  def x: seq[int] = f()
+  def x: seq[int] = f() (raises)
   block L0:
     if cond:
       scope:
@@ -25,7 +25,7 @@ scope:
   try:
     def a: seq[seq[int]]
     def b: seq[seq[int]]
-    def x: seq[int] = f()
+    def x: seq[int] = f() (raises)
     scope:
       def a: int = 0
       def b: int = 4

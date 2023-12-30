@@ -621,7 +621,8 @@ proc callToIr(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
               cr: var TreeCursor): CgNode =
   ## Translate a valid call-like tree to the CG IR.
   let info = cr.info
-  result = newExpr(cnkCall, info, n.typ)
+  result = newExpr((if n.kind == mnkCall: cnkCall else: cnkCheckedCall),
+                   info, n.typ)
   result.add: # the callee
     case tree[cr].kind
     of mnkMagic: newMagicNode(tree.get(cr).magic, info)
@@ -995,7 +996,7 @@ proc exprToIr(tree: TreeWithSource, cl: var TranslateCl,
 
     treeOp kind:
       res.add argToIr(tree, cl, cr)[1]
-  of mnkCall:
+  of mnkCall, mnkCheckedCall:
     callToIr(tree, cl, n, cr)
   of AllNodeKinds - ExprKinds - {mnkNone}:
     unreachable(n.kind)

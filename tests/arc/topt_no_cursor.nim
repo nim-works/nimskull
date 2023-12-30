@@ -13,7 +13,7 @@ doing shady stuff...
   nimout: '''--expandArc: newTarget
 
 scope:
-  def splat: tuple[dir: string, name: string, ext: string] = splitFile(arg path)
+  def splat: tuple[dir: string, name: string, ext: string] = splitFile(arg path) (raises)
   bind_mut _3: string = splat.0
   def _0: string = _3
   wasMoved(name _3)
@@ -33,20 +33,20 @@ scope:
   def_cursor _1: Node = _0[].parent
   def sibling: Node
   def _6: Node = _1[].left
-  =copy(name sibling, arg _6)
+  =copy(name sibling, arg _6) (raises)
   def_cursor _2: Node = sibling
   def saved: Node
   def _7: Node = _2[].right
-  =copy(name saved, arg _7)
+  =copy(name saved, arg _7) (raises)
   def_cursor _3: Node = sibling
   def_cursor _4: Node = saved
   bind_mut _8: Node = _3[].right
   def _9: Node = _4[].left
-  =copy(name _8, arg _9)
+  =copy(name _8, arg _9) (raises)
   def_cursor _5: Node = sibling
   bind_mut _10: Node = _5[].parent
-  =sink(name _10, arg saved)
-  =destroy(name sibling)
+  =sink(name _10, arg saved) (raises)
+  =destroy(name sibling) (raises)
 -- end of expandArc ------------------------
 --expandArc: p1
 
@@ -81,8 +81,8 @@ scope:
     =copy(name _1, arg _5)
     def a: (seq[int], seq[int]) = construct (consume _0, consume _1)
     def_cursor _2: (seq[int], seq[int]) = a
-    def _3: string = $(arg _2)
-    echo(arg type(array[0..0, string]), arg _3)
+    def _3: string = $(arg _2) (raises)
+    echo(arg type(array[0..0, string]), arg _3) (raises)
   finally:
     =destroy(name _3)
     =destroy(name a)
@@ -113,7 +113,7 @@ scope:
                     def_cursor _4: int = i
                     def line: lent string = borrow a[_4]
                     def_cursor _5: string = line[]
-                    def splitted: seq[string] = split(arg _5, arg " ", arg -1)
+                    def splitted: seq[string] = split(arg _5, arg " ", arg -1) (raises)
                     def_cursor _6: string = splitted[0]
                     def_cursor _7: bool = ==(arg _6, arg "opt")
                     if _7:
@@ -121,9 +121,9 @@ scope:
                         def _10: string = splitted[1]
                         =copy(name lan_ip, arg _10)
                     def_cursor _8: string = lan_ip
-                    echo(arg type(array[0..0, string]), arg _8)
+                    echo(arg type(array[0..0, string]), arg _8) (raises)
                     def_cursor _9: string = splitted[1]
-                    echo(arg type(array[0..0, string]), arg _9)
+                    echo(arg type(array[0..0, string]), arg _9) (raises)
                   finally:
                     =destroy(name splitted)
                 inc(name i, arg 1)
@@ -135,8 +135,8 @@ scope:
   try:
     def shadowScope: Scope
     def _7: Scope = c[].currentScope
-    =copy(name shadowScope, arg _7)
-    rawCloseScope(arg c)
+    =copy(name shadowScope, arg _7) (raises)
+    rawCloseScope(arg c) (raises)
     scope:
       def_cursor _0: Scope = shadowScope
       def_cursor a: seq[Symbol] = _0[].symbols
@@ -160,10 +160,10 @@ scope:
                   def _6: Symbol
                   def _8: Symbol = sym[]
                   =copy(name _6, arg _8)
-                  addInterfaceDecl(arg c, consume _6)
+                  addInterfaceDecl(arg c, consume _6) (raises)
                 inc(name i, arg 1)
   finally:
-    =destroy(name shadowScope)
+    =destroy(name shadowScope) (raises)
 -- end of expandArc ------------------------
 --expandArc: treturn
 
@@ -180,8 +180,8 @@ scope:
         return
     def_cursor _3: sink string = x
     def_cursor _4: int = len(arg _3)
-    def _5: string = $(arg _4)
-    echo(arg type(array[0..0, string]), arg _5)
+    def _5: string = $(arg _4) (raises)
+    echo(arg type(array[0..0, string]), arg _5) (raises)
   finally:
     =destroy(name _5)
     =destroy(name x)
@@ -192,11 +192,11 @@ scope:
 scope:
   try:
     def_cursor _0: string = this[].value
-    this[].isValid = fileExists(arg _0)
+    this[].isValid = fileExists(arg _0) (raises)
     def _1: tuple[dir: string, front: string]
     block L0:
       def_cursor _2: string = this[].value
-      def_cursor _3: bool = dirExists(arg _2)
+      def_cursor _3: bool = dirExists(arg _2) (raises)
       if _3:
         scope:
           def _4: string
@@ -207,11 +207,11 @@ scope:
       scope:
         try:
           def_cursor _5: string = this[].value
-          def _6: string = parentDir(arg _5)
+          def _6: string = parentDir(arg _5) (raises)
           def _7: string
           def _15: string = this[].value
           =copy(name _7, arg _15)
-          def _8: tuple[head: string, tail: string] = splitPath(consume _7)
+          def _8: tuple[head: string, tail: string] = splitPath(consume _7) (raises)
           bind_mut _16: string = _8.1
           def _9: string = _16
           wasMoved(name _16)
@@ -223,12 +223,12 @@ scope:
     def par: tuple[dir: string, front: string] = _1
     block L1:
       def_cursor _10: string = par.0
-      def_cursor _11: bool = dirExists(arg _10)
+      def_cursor _11: bool = dirExists(arg _10) (raises)
       if _11:
         scope:
           def_cursor _12: string = par.0
           def_cursor _13: string = par.1
-          def _17: seq[string] = getSubDirs(arg _12, arg _13)
+          def _17: seq[string] = getSubDirs(arg _12, arg _13) (raises)
           bind_mut _18: seq[string] = this[].matchDirs
           =sink(name _18, arg _17)
           break L1

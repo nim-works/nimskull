@@ -60,7 +60,8 @@ type
     long: seq[PathInstr]
 
 const
-  Roots = SymbolLike + {mnkTemp, mnkCall, mnkDeref, mnkDerefView}
+  Roots = SymbolLike + {mnkTemp, mnkCall, mnkCheckedCall, mnkDeref,
+                        mnkDerefView}
   PathOps = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathConv,
              mnkPathVariant}
 

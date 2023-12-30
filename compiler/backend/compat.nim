@@ -61,8 +61,10 @@ func getCalleeMagic*(callee: CgNode): TMagic {.inline.} =
 
 proc getMagic*(op: CgNode): TMagic {.inline.}  =
   case op.kind
-  of cnkCall: getCalleeMagic(op[0])
-  else:       mNone
+  of cnkCall, cnkCheckedCall:
+    getCalleeMagic(op[0])
+  else:
+    mNone
 
 proc isDiscriminantField*(n: CgNode): bool =
   case n.kind
@@ -103,25 +105,6 @@ proc canRaiseConservative*(fn: CgNode): bool =
   # ``mNone`` is also included in the set, therefore this check works even for
   # non-magic calls
   getCalleeMagic(fn) in magicsThatCanRaise
-
-proc canRaise*(fn: CgNode): bool =
-  ## Duplicate of `canRaise <ast_query.html#canRaise,PNode>`_.
-  if fn.kind == cnkProc and (fn.sym.magic notin magicsThatCanRaise or
-      {sfImportc, sfInfixCall} * fn.sym.flags == {sfImportc} or
-      sfGeneratedOp in fn.sym.flags):
-    result = false
-  elif fn.kind == cnkProc and fn.sym.magic == mEcho:
-    result = true
-  elif fn.kind == cnkMagic:
-    result = fn.magic in magicsThatCanRaise
-  else:
-    if fn.typ != nil and fn.typ.n != nil and fn.typ.n[0].kind == nkSym:
-      result = false
-    else:
-      result = fn.typ != nil and fn.typ.n != nil and
-        ((fn.typ.n[0].len < effectListLen) or
-         (fn.typ.n[0][exceptionEffects] != nil and
-          fn.typ.n[0][exceptionEffects].safeLen > 0))
 
 proc toBitSet*(conf: ConfigRef; s: CgNode): TBitSet =
   ## Duplicate of `toBitSet <nimsets.html#toBitSet,ConfigRef,PNode>`_

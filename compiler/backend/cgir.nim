@@ -39,10 +39,11 @@ type
     cnkGlobal        ## reference to a global location
     cnkLocal         ## reference to a local
     cnkMagic         ## name of a magic procedure. Only valid in the callee
-                     ## slot of ``cnkCall`` nodes
+                     ## slot of ``cnkCall`` and ``cnkCheckedCall`` nodes
 
     cnkCall          ## a procedure call. The first operand is the procedure,
                      ## the following operands the arguments
+    cnkCheckedCall   ## like ``cnkCall``, but the call might raise an exception
 
     # constructors:
     cnkTupleConstr   ## tuple constructor

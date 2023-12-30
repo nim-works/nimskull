@@ -2131,7 +2131,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     putDataIntoDest(p, d, n, genLiteral(p, n))
   of cnkIntLit, cnkUIntLit, cnkFloatLit, cnkNilLit:
     putIntoDest(p, d, n, genLiteral(p, n))
-  of cnkCall:
+  of cnkCall, cnkCheckedCall:
     genLineDir(p, n) # may be redundant, it is generated in fixupCall as well
     let m = getCalleeMagic(n[0])
     if n.typ.isNil:

@@ -19,7 +19,7 @@ scope:
           scope:
             def_cursor _4: Node = it
             def_cursor _5: string = _4[].s
-            echo(arg type(array[0..0, string]), arg _5)
+            echo(arg type(array[0..0, string]), arg _5) (raises)
             def_cursor _6: Node = it
             it =fast _6[].ri
   def_cursor jt: Node = root
@@ -39,7 +39,7 @@ scope:
             def_cursor ri: Node = _11[].ri
             def_cursor _12: Node = jt
             def_cursor _13: string = _12[].s
-            echo(arg type(array[0..0, string]), arg _13)
+            echo(arg type(array[0..0, string]), arg _13) (raises)
             jt =fast ri
 -- end of expandArc ------------------------'''
 """
