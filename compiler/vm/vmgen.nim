@@ -3006,6 +3006,12 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     gen(c, n[0])
   of cnkHiddenConv, cnkConv:
     genConv(c, n, n.operand, dest)
+  of cnkToSlice:
+    if n.len == 1:
+      gen(c, n[0], dest) # treated as a no-op
+    else:
+      # not yet supported
+      fail(n.info, vmGenDiagCodeGenUnhandledMagic, mSlice)
   of cnkObjDownConv, cnkObjUpConv:
     genObjConv(c, n, dest)
   of cnkDef:

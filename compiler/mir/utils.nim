@@ -231,7 +231,8 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string) =
       valueToStr(nodes, i, result)
   of mnkToSlice:
     tree "toOpenArray ":
-      valueToStr(nodes, i, result)
+      commaSeparated:
+        valueToStr(nodes, i, result)
   of mnkConv:
     tree "conv ":
       valueToStr(nodes, i, result)

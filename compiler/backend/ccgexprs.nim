@@ -1859,7 +1859,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mMove: genMove(p, e, d)
   of mDestroy: genDestroy(p, e)
   of mAccessTypeField: genAccessTypeField(p, e, d)
-  of mSlice: genSlice(p, e, d)
   of mTrace: discard "no code to generate"
   of mAsgnDynlibVar:
     # initialize the internal pointer for a dynlib global/procedure
@@ -2171,6 +2170,12 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkObjConstr: genObjConstr(p, n, d)
   of cnkCast: genCast(p, n, d)
   of cnkHiddenConv, cnkConv: genConv(p, n, d)
+  of cnkToSlice:
+    if n.len == 1:
+      # treated as a no-op here; the conversion is handled in ``genAssignment``
+      expr(p, n[0], d)
+    else:
+      genSlice(p, n, d)
   of cnkHiddenAddr, cnkAddr:
     if n.operand.kind in {cnkDerefView, cnkDeref}:
       # views and ``ref``s also map to pointers at the C level. We collapse

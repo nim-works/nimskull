@@ -119,9 +119,9 @@ proc reifiedOpenArray(p: BProc, n: CgNode): bool {.inline.} =
 
 proc genOpenArraySlice(p: BProc; q: CgNode; formalType, destType: PType): (Rope, Rope) =
   var a, b, c: TLoc
-  initLocExpr(p, q[1], a)
-  initLocExpr(p, q[2], b)
-  initLocExpr(p, q[3], c)
+  initLocExpr(p, q[0], a)
+  initLocExpr(p, q[1], b)
+  initLocExpr(p, q[2], c)
   # but first produce the required index checks:
   if optBoundsCheck in p.options:
     genBoundsCheck(p, a, b, c)
@@ -139,7 +139,7 @@ proc genOpenArraySlice(p: BProc; q: CgNode; formalType, destType: PType): (Rope,
         [rdLoc(a), rdLoc(b), intLiteral(first), dest],
         lengthExpr)
   of tyOpenArray, tyVarargs:
-    if reifiedOpenArray(p, q[1]):
+    if reifiedOpenArray(p, q[0]):
       result = ("($3*)($1.Field0)+($2)" % [rdLoc(a), rdLoc(b), dest],
                 lengthExpr)
     else:

@@ -1926,14 +1926,6 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mParseBiggestFloat:
     useMagic(p, "nimParseBiggestFloat")
     genCall(p, n, r)
-  of mSlice:
-    # arr.slice([begin[, end]]): 'end' is exclusive
-    var x, y, z: TCompRes
-    gen(p, n[1], x)
-    gen(p, n[2], y)
-    gen(p, n[3], z)
-    r.res = "($1.slice($2, $3 + 1))" % [x.rdLoc, y.rdLoc, z.rdLoc]
-    r.kind = resExpr
   of mMove:
     genMove(p, n, r)
   # of mAccessEnv:
@@ -2397,6 +2389,17 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkTupleConstr: genTupleConstr(p, n, r)
   of cnkObjConstr: genObjConstr(p, n, r)
   of cnkHiddenConv, cnkConv: genConv(p, n, r)
+  of cnkToSlice:
+    if n.len == 1:
+      gen(p, n[0], r)
+    else:
+      # arr.slice([begin[, end]]): 'end' is exclusive
+      var x, y, z: TCompRes
+      gen(p, n[0], x)
+      gen(p, n[1], y)
+      gen(p, n[2], z)
+      r.res = "($1.slice($2, $3 + 1))" % [x.rdLoc, y.rdLoc, z.rdLoc]
+      r.kind = resExpr
   of cnkAddr, cnkHiddenAddr:
     if n.typ.kind == tyLent or mapType(n.typ) != etyBaseIndex:
       # the operation doesn't produce an address-like value (e.g. because the

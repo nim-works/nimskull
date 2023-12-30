@@ -128,9 +128,9 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
              tree[it].typ.skipTypes(abstractVar).kind == tyOpenArray:
             # find the lvalue expression (if any) that the slice was created
             # from and use that for the overlap analysis
-            let def = tree.operand(findDef(tree, NodePosition it), 1)
+            let def = tree.child(findDef(tree, NodePosition it), 1)
             if tree[def].kind == mnkToSlice:
-              (true, tree.operand(def))
+              (true, tree.operand(def, 0))
             else:
               (false, OpValue 0)
           else:

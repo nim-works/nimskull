@@ -962,11 +962,8 @@ proc exprToIr(tree: TreeWithSource, cl: var TranslateCl,
 
     adjusted
   of mnkToSlice:
-    # the old code-generators depend on conversions to ``openArray`` to be
-    # omitted
-    let arg = valueToIr(tree, cl, cr)
-    leave(tree, cr)
-    arg
+    treeOp cnkToSlice:
+      res.add valueToIr(tree, cl, cr)
   of mnkAddr:
     op cnkAddr, lvalueToIr(tree, cl, cr)
   of mnkDeref:
