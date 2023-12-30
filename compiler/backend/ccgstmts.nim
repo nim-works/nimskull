@@ -138,7 +138,7 @@ proc genGotoVar(p: BProc; value: CgNode) =
   else:
     localReport(p.config, value.info, reportSem rsemExpectedLiteralForGoto)
 
-proc genBracedInit(p: BProc, n: CgNode; isConst: bool; optionalType: PType): Rope
+proc genBracedInit(p: BProc, n: CgNode; optionalType: PType): Rope
 
 proc genSingleVar(p: BProc, vn, value: CgNode) =
   ## Generates and emits the C code for the definition statement of a local.
