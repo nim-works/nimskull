@@ -84,6 +84,8 @@ type
     # context of code generation. Adjust the code generators so that they no
     # longer depend on ``cnkHiddenConv`` being different from ``cnkConv``, and
     # then remove the former
+    cnkToSlice       ## slice creation. Works the same as the corresponding
+                     ## MIR operation
 
     cnkObjDownConv   ## down conversion between `object` or `ref` types
     cnkObjUpConv     ## up conversion between `object` or `ref` types

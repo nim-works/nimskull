@@ -92,6 +92,11 @@ Semantics
                                          # lvalue
          | ToSlice  VALUE                # create an `openArray` slice of
                                          # the full sequence
+         | ToSlice  VALUE, VALUE, VALUE  # create an `openArray` slice from the
+                                         # first operand, starting at the lower
+                                         # bound (second parameter) and ending
+                                         # at the upper bound (inclusive, third
+                                         # parameter)
 
   FULL_VALUE = RVALUE | VALUE
 

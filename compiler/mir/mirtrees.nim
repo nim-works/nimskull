@@ -141,10 +141,14 @@ type
     # String-to-cstring conversion, and vice versa, should use magics, pointer
     # conversion should use ``mnkCast``
     mnkCast       ## cast the representation of a value into a different type
-    mnkToSlice    ## create an openArray from the full sequence specified as
-                  ## the operand
-    # future direction: also use to ``ToSlice`` for creating sub-slices (i.e.,
-    # ``toOpenArray``)
+    mnkToSlice    ## has to variants:
+                  ## * the 1 argument variant creates an openArray from the
+                  ##   full sequence specified as the operand
+                  ## * the 3 argument variant creates an openArray from the
+                  ##   sub-sequence specified by the sequence and lower and
+                  ##   upper bound
+    # XXX: consider using a separate operator for the slice-from-sub-sequence
+    #      operation
 
     mnkCall   ## invoke a procedure and pass along the provided arguments.
               ## Used for both static and dynamic calls
@@ -305,7 +309,7 @@ const
 
   SingleOperandNodes* = {mnkPathNamed, mnkPathPos, mnkPathVariant, mnkPathConv,
                          mnkAddr, mnkDeref, mnkView, mnkDerefView, mnkStdConv,
-                         mnkConv, mnkCast, mnkToSlice, mnkRaise, mnkTag, mnkArg,
+                         mnkConv, mnkCast, mnkRaise, mnkTag, mnkArg,
                          mnkName, mnkConsume, mnkVoid}
     ## Nodes that start sub-trees but that always have a single sub node.
 

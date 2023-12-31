@@ -252,13 +252,27 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
     # handles aren't tracked however, the operation is conservatively
     # treated as a mutation
     emitLvalueOp(env, opMutate, tree, at, tree.operand(source))
-  of mnkView, mnkToSlice:
+  of mnkView:
     # if the created view supports mutation, treat the creation as a
     # mutation itself
     let opc =
       if tree[source].typ.kind == tyVar: opMutate
       else:                              opUse
     emitLvalueOp(env, opc, tree, at, tree.operand(source))
+  of mnkToSlice:
+    # slices aren't tracked at the moment, so the mere creation of a slice is
+    # treated as a usage of the sequence. If the resulting openArray supports
+    # mutation, creation of the slice is treated as a mutation. To ensure the
+    # correct data-flow operation order for the mutation case, the lower/upper
+    # bound operands are treated as being evaluated (i.e., used) first
+    if numArgs(tree, source) == 3:
+      emitLvalueOp(env, opUse, tree, at, tree.operand(source, 1))
+      emitLvalueOp(env, opUse, tree, at, tree.operand(source, 2))
+
+    let opc =
+      if tree[source].typ.kind == tyVar: opMutate
+      else:                              opUse
+    emitLvalueOp(env, opc, tree, at, tree.operand(source, 0))
   of LvalueExprKinds:
     # a read or consume is performed on an lvalue
     let opc =
