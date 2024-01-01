@@ -82,6 +82,7 @@ type
     opcAddStrStr,
     opcAddSeqElem,
     opcRangeChck,
+    opcIndexChck, ## abort execution if the index is not in bounds
 
     opcArrCopy,
 

@@ -2057,6 +2057,13 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
       c.freeTemp(tmp0)
     else:
       dest = tmp0
+  of mChckIndex:
+    let
+      arr = c.genx(n[1])
+      idx = c.genIndex(n[2], n[1].typ)
+    c.gABC(n, opcIndexChck, 0, arr, idx)
+    c.freeTemp(idx)
+    c.freeTemp(arr)
   else:
     # mGCref, mGCunref, mFinished, etc.
     fail(n.info, vmGenDiagCodeGenUnhandledMagic, m)
