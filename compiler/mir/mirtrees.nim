@@ -92,10 +92,11 @@ type
     # ownership in ``mirgen``. There's only going to be the ``Def`` kind
     mnkDefUnpack ## intermediate hack required by destructor injection. Don't
                  ## use
-    mnkBind      ## introduces an alias that may only be used for read access.
-                 ## The source expression must not be empty
-    mnkBindMut   ## introduces an alias that may be used for write access.
-                 ## The source expression must not be empty
+    mnkBind      ## introduces an alias that may be used for read/write
+                 ## access, but not for direct assignments. The source
+                 ## expression must not be empty
+    mnkBindMut   ## introduces an alias that may be used for read/write access
+                 ## and assignments. The source expression must not be empty
 
     mnkFastAsgn ## assignment that cannot be rewritten into copy, move, or
                 ## hook call
