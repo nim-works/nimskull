@@ -4,7 +4,6 @@ discard """
     Regression test for ``toOpenArray`` calls not bound-checking dereferenced
     pointer-to-array values
   '''
-  knownIssue.js: "No bound checks are emitted for `toOpenArray`"
   knownIssue.vm: "`toOpenArray` is not yet supported"
 """
 
