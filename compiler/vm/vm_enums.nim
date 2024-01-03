@@ -53,6 +53,8 @@ type
 
     opcWrProc # deref(a) = functions[Bx]
 
+    opcReset   ## resets the memory location referenced by a
+
     opcAddInt,
     opcAddImmInt,
     opcSubInt,

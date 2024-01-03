@@ -1253,6 +1253,12 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           kind: vmEvtErrInternal,
           msg:  "opcWrDeref: regs[ra].kind: " & $r.kind))
 
+    of opcReset:
+      decodeBx()
+      checkHandle(regs[ra])
+      let loc = regs[ra].handle
+      resetLocation(c.memory, loc.byteView(), c.types[rbx])
+      safeZeroMem(loc.byteView(), loc.typ.sizeInBytes)
     of opcAddInt:
       decodeBC(rkInt)
       let

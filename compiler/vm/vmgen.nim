@@ -1809,19 +1809,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
       # the location uses a register -> load it with the empty value
       c.gABx(n, opcLdNullReg, dest, c.genType(typ))
     else:
-      let tmp = c.getTemp(typ)
-      if fitsRegister(typ):
-        # optimization: the location isn't backed by a register, but its value
-        # fits in one. Don't unnecessarily allocate a temporary memory location
-        c.gABx(n, opcLdNullReg, tmp, c.genType(typ))
-      else:
-        # FIXME: this is a very inefficient way of implementing ``reset``. We're
-        #        allocating a temporary location for just its zero
-        #        representation. A dedicated instruction is probably needed
-        c.gABx(n, opcLdNull, tmp, c.genType(typ))
-
-      c.gABC(n, opcWrLoc, dest, tmp)
-      c.freeTemp(tmp)
+      c.gABx(n, opcReset, dest, c.genType(typ))
 
     c.freeTemp(dest)
   of mDefault:
