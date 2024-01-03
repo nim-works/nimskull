@@ -1342,6 +1342,10 @@ proc genToSlice(c: var TCtx, n: CgNode, dest: TRegister, reified: bool) =
     else:
       # creating a full slice from a literal; simply load it into the
       # destination
+      if isEmpty(c.prc, dest):
+        # HACK: this is just bad. Assigning literals to temporaries at the
+        #       MIR level would make openArray handling quite a bit simpler
+        c.gABx(n, opcLdNull, dest, c.genType(n.typ))
       gen(c, n[0], dest)
   else:
     # not yet supported
