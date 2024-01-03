@@ -3244,6 +3244,11 @@ proc genProcBody(c: var TCtx): int =
         if not isDirectView(rt):
           gABx(c, body, opcode, c.prc[resultId].reg, c.genType(rt))
 
+    elif not isEmptyType(rt) and not isDirectView(rt):
+      # reset the result variable
+      # XXX: inserting the reset needs to happen via a MIR pass
+      c.gABx(body, opcReset, c.prc[resultId].reg, c.genType(rt))
+
     prepareParameters(c, body)
     if s.routineSignature.callConv == ccClosure:
       # convert the environment reference to the expected type, the caller
