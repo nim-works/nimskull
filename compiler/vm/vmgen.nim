@@ -107,6 +107,12 @@ type
                       # temporary slot usage. This is required for the parameter
                       # passing implementation.
     slotEmpty,        ## slot is unused
+    slotNoValue       ## for values that fit into registers: an uninitialized
+                      ## register
+                      ## for values that don't: a handle to memory location
+                      ## that's in the zero'ed state
+    # XXX: ^^ this is a hack. The makeup of the destination needs to be passed
+    #      along with `TDest`, not made part of the slot kind
     slotFixedVar,     ## slot is used for a fixed var/result (requires copy then)
     slotFixedLet,     ## slot is used for a fixed param/let
     slotTempUnknown,  ## slot but type unknown (argument of proc call)
@@ -530,6 +536,9 @@ proc prepare(c: var TCtx, dest: var TDest, n: CgNode, typ: PType) =
     # value doesn't fit into a register -> setup a temporary location
     c.gABx(n, opcLdNull, dest, c.genType(typ))
 
+func isEmpty(prc: BProc, reg: TRegister): bool =
+  prc.regInfo[reg].kind == slotNoValue
+
 template withTemp(tmp, n, typ, body: untyped) {.dirty.} =
   var tmp = getFullTemp(c, n, typ)
   body
@@ -939,7 +948,7 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
   # an intermediate temporary might be needed
   if isEmptyType(n.typ):
     unused(c, n, dest)
-  elif res.isUnset or n.kind == cnkCheckedCall:
+  elif res.isUnset or (n.kind == cnkCheckedCall and not isEmpty(c.prc, res)):
     # for potentially raising calls, disable in-place construction for the
     # return value
     # XXX: this needs to be the responsibility of the MIR phase instead
@@ -2821,6 +2830,9 @@ proc genDef(c: var TCtx; a: CgNode) =
             c.gABx(a, opc, reg, c.genType(typ))
           else:
             let reg = setSlot(c.prc, s)
+            # temporarily set the slot kind to something signaling that
+            # initialization is in progress:
+            c.prc.regInfo[reg].kind = slotNoValue
             # XXX: checking for views here is wrong but necessary
             if not usesRegister(c.prc, s) and not isDirectView(typ):
               # only setup a memory location if the local uses one
@@ -2829,6 +2841,7 @@ proc genDef(c: var TCtx; a: CgNode) =
             # views and locals backed by registers don't need explicit
             # initialization logic here -- the assignment takes care of that
             genAsgnToLocal(c, a[0], a[1])
+            c.prc.regInfo[reg].kind = slotFixedVar
 
 proc genArrayConstr(c: var TCtx, n: CgNode, dest: TRegister) =
   let intType = getSysType(c.graph, n.info, tyInt)
@@ -2853,7 +2866,7 @@ proc genSetConstr(c: var TCtx, n: CgNode, dest: var TDest) =
   #      removed
   if dest.isUnset:
     prepare(c, dest, n, n.typ)
-  else:
+  elif not isEmpty(c.prc, dest):
     # zero the destination
     c.gABx(n, opcReset, dest, c.genType(n.typ))
 
@@ -2880,12 +2893,11 @@ proc genObjConstr(c: var TCtx, n: CgNode, dest: TRegister) =
     c.gABx(n, opcNew, dest, c.genType(t))
     c.gABC(n, opcLdDeref, obj, dest)
   else:
-    # compared to array or tuple constructions, not all fields need to be set
-    # through an object construction. We need to ensure that the destination
-    # is empty
-    # XXX: this is unnecessary for initial assignments
     obj = dest
-    c.gABx(n, opcReset, obj, c.genType(t))
+    if not isEmpty(c.prc, obj):
+      # reset the destination first, the construction might not initialize all
+      # fields
+      c.gABx(n, opcReset, obj, c.genType(t))
 
   for it in n.items:
     assert it.kind == cnkBinding and it[0].kind == cnkField
