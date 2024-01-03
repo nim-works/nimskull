@@ -2081,18 +2081,13 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.freeTemp(env)
     c.freeTemp(tmp)
   of mChckRange:
+    gen(c, n[1], dest)
     let
-      tmp0 = c.genx(n[1])
       tmp1 = c.genx(n[2])
       tmp2 = c.genx(n[3])
-    c.gABC(n, opcRangeChck, tmp0, tmp1, tmp2)
+    c.gABC(n, opcRangeChck, dest, tmp1, tmp2)
     c.freeTemp(tmp1)
     c.freeTemp(tmp2)
-    if dest >= 0:
-      gABC(c, n, whichAsgnOpc(n), dest, tmp0)
-      c.freeTemp(tmp0)
-    else:
-      dest = tmp0
   else:
     # mGCref, mGCunref, mFinished, etc.
     fail(n.info, vmGenDiagCodeGenUnhandledMagic, m)
