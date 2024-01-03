@@ -170,6 +170,10 @@ const
     ## the set of types that are not relevant to the VM. ``tyTypeDesc``, while
     ## not relevant right now, is likely going to be in the future.
 
+  LvalueExprKinds = {cnkConst, cnkGlobal, cnkLocal, cnkArrayAccess,
+                     cnkTupleAccess, cnkFieldAccess, cnkCheckedFieldAccess,
+                     cnkObjUpConv, cnkObjDownConv, cnkDeref, cnkDerefView}
+
   MagicsToKeep* = {mNone, mIsolate, mNHint, mNWarning, mNError, mMinI, mMaxI,
                    mAbsI, mDotDot}
     ## the set of magics that are kept as normal procedure calls and thus need
@@ -567,6 +571,15 @@ proc clearDest(c: var TCtx; n: CgNode; dest: var TDest) {.inline.} =
 func isNotOpr(n: CgNode): bool {.inline.} =
   getMagic(n) == mNot
 
+proc whichAsgnOpc(t: PType): TOpcode {.used.} =
+  case t.skipTypes(IrrelevantTypes + {tyRange}).kind
+  of tyBool, tyChar, tyInt..tyInt64, tyUInt..tyUInt64:
+    opcAsgnInt
+  of tyFloat..tyFloat64:
+    opcAsgnFloat
+  else:
+    opcAsgnComplex
+
 proc genRepeat(c: var TCtx; n: CgNode) =
   # lab1:
   #   body
@@ -921,8 +934,18 @@ proc genProcLit(c: var TCtx, n: CgNode, s: PSym; dest: var TDest) =
   c.gABx(n, opcWrProc, dest, idx)
 
 proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
-  if not isEmptyType(n.typ):
-    prepare(c, dest, n, n.typ)
+  var res = dest
+  # an intermediate temporary might be needed
+  if isEmptyType(n.typ):
+    unused(c, n, dest)
+  elif res.isUnset or n.kind == cnkCheckedCall:
+    # for potentially raising calls, disable in-place construction for the
+    # return value
+    # XXX: this needs to be the responsibility of the MIR phase instead
+    res = noDest
+    prepare(c, res, n, n.typ)
+  else:
+    res = dest # in-place construction is safe
 
   let
     fntyp = skipTypes(n[0].typ, abstractInst)
@@ -980,10 +1003,25 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
     if i >= fntyp.len:
       internalAssert(c.config, tfVarargs in fntyp.flags)
       c.gABx(n, opcSetType, r, c.genType(n[i].typ))
-  if dest.isUnset:
+
+  if res.isUnset:
     c.gABC(n, opcIndCall, 0, x, n.len)
   else:
-    c.gABC(n, opcIndCallAsgn, dest, x, n.len)
+    c.gABC(n, opcIndCallAsgn, res, x, n.len)
+
+  if res != dest:
+    if dest.isUnset:
+      dest = res
+    else:
+      # copy the value to the actual destination
+      if fitsRegister(n.typ):
+        c.gABC(n, whichAsgnOpc(n.typ), dest, res)
+      elif isDirectView(n.typ):
+        c.gABC(n, opcFastAsgnComplex, dest ,res)
+      else:
+        c.gABC(n, opcWrLoc, dest, res)
+      c.freeTemp(res)
+
   c.freeTempRange(x, regCount)
 
 proc genField(c: TCtx; n: CgNode): TRegister =
@@ -1266,12 +1304,32 @@ proc genToStr(c: var TCtx, n, arg: CgNode, dest: var TDest) =
   c.gABx(n, opcConv, tmp, c.genTypeInfo(arg.typ.skipTypes(Skip)))
   c.freeTemp(tmp)
 
-proc genToSlice(c: var TCtx, val: TRegister, typ: PType, info: TLineInfo,
-                dest: TRegister) =
-  let L = c.getTemp(c.graph.getSysType(info, tyInt))
-  c.gABC(info, opcLenSeq, L, val) # fetch the length of the input array
-  c.gABC(info, opcSetLenSeq, dest, L) # resize the destination
-  c.gABC(info, opcArrCopy, dest, val, L) # copy the contents
+proc asgnOpenArray(c: var TCtx, n: CgNode, dest: TRegister) =
+  ## Emits an assignment of `n` to a location (`dest`) holding an
+  ## ``openArray``.
+  let
+    val = genx(c, n)
+    L = c.getTemp(c.graph.getSysType(n.info, tyInt))
+  c.gABC(n, opcLenSeq, L, val) # fetch the length of the input array
+  c.gABC(n, opcSetLenSeq, dest, L) # resize the destination
+  c.gABC(n, opcArrCopy, dest, val, L) # copy the contents
+  c.freeTemp(val)
+
+proc genToSlice(c: var TCtx, n: CgNode, dest: TRegister, reified: bool) =
+  if n.len == 1:
+    if reified:
+      # create a "real" slice. At the moment, this is just a seq
+      asgnOpenArray(c, n[0], dest)
+    elif n[0].kind in LvalueExprKinds:
+      var dest = TDest(dest)
+      genLvalue(c, n[0], dest)
+    else:
+      # creating a full slice from a literal; simply load it into the
+      # destination
+      gen(c, n[0], dest)
+  else:
+    # not yet supported
+    fail(n.info, vmGenDiagCodeGenUnhandledMagic, mSlice)
 
 proc genObjConv(c: var TCtx, n: CgNode, dest: var TDest) =
   prepare(c, dest, n.typ)
@@ -1493,17 +1551,6 @@ func fitsRegister(t: PType): bool =
 proc ldNullOpcode(t: PType): TOpcode =
   assert t != nil
   if fitsRegister(t): opcLdNullReg else: opcLdNull
-
-proc whichAsgnOpc(n: CgNode; requiresCopy = true): TOpcode =
-  case n.typ.skipTypes(IrrelevantTypes + {tyRange}).kind
-  of tyBool, tyChar, tyInt..tyInt64, tyUInt..tyUInt64:
-    opcAsgnInt
-  of tyFloat..tyFloat64:
-    opcAsgnFloat
-  else:
-    # XXX: always require a copy, fastAsgn is broken in the VM
-    opcAsgnComplex
-    #(if requiresCopy: opcAsgnComplex else: opcFastAsgnComplex)
 
 func usesRegister(p: BProc, n: CgNode): bool =
   ## Analyses and returns whether the value of the location named by l-value
@@ -2164,8 +2211,7 @@ proc genDiscrVal(c: var TCtx, discr, n: CgNode, oty: PType): TRegister =
     c.freeTemp(tmp2)
     c.freeTemp(bIReg)
 
-
-proc genAsgnSource(c: var TCtx, n: CgNode, wantsPtr: bool): TRegister
+proc putIntoLoc(c: var TCtx, e: CgNode, dest: TDest, idx: TRegister, wr, ld: TOpcode)
 
 proc genFieldAsgn(c: var TCtx, obj: TRegister; le, ri: CgNode) =
   c.config.internalAssert(le.kind == cnkFieldAccess)
@@ -2173,18 +2219,13 @@ proc genFieldAsgn(c: var TCtx, obj: TRegister; le, ri: CgNode) =
   let idx = c.genField(le[1])
   let s = le[1].sym
 
-  var tmp: TRegister
-
   if sfDiscriminant notin s.flags:
-    tmp = c.genAsgnSource(ri, wantsPtr = true)
-    c.gABC(le, opcWrObj, obj, idx, tmp)
+    putIntoLoc(c, ri, obj, idx, opcWrObj, opcLdObj)
   else:
     # Can't use `s.owner.typ` since it may be a `tyGenericBody`
-    tmp = c.genDiscrVal(le[1], ri, le[0].typ)
+    let tmp = c.genDiscrVal(le[1], ri, le[0].typ)
     c.gABC(le, opcSetDisc, obj, idx, tmp)
-
-
-  c.freeTemp(tmp)
+    c.freeTemp(tmp)
 
 func isPtrView(n: CgNode): bool =
   ## Analyses whether the expression `n` evaluates to a direct view that is
@@ -2203,72 +2244,96 @@ func isPtrView(n: CgNode): bool =
   else:
     unreachable(n.kind)
 
-proc genAsgnSource(c: var TCtx, n: CgNode, wantsPtr: bool): TRegister =
-  ## Generates and emits the code for evaluating the expression `n`, which
-  ## is the source operand to an assignment.
+proc putIntoLoc(c: var TCtx, e: CgNode, dest: TDest, idx: TRegister,
+                wr, ld: TOpcode) =
+  ## Generates and emits the code for assigning expression `e` to a memory
+  ## location. `dest` and `idx` represent the destination location, with `wr`
+  ## being the opcode for writing something to the location and `ld` the opcode
+  ## for loading a handle to the location.
   ##
-  ## Because there are two types of views (handle vs. address), special
-  ## handling is required when the source operand is a view. ``wantsPtr``
-  ## indicates which one the consumer expects.
-  result = c.genx(n)
-  if isLocView(n.typ):
-    let isPtr = isPtrView(n)
-    # if necessary, convert the view to the representation the destination
-    # expects:
-    if not wantsPtr and isPtr:
-      # produce a handle by dereferencing the pointer
-      let tmp = result
-      result = c.getTemp(n.typ)
-      c.gABC(n, opcLdDeref, result, tmp)
-      c.freeTemp(tmp)
-    elif wantsPtr and not isPtr:
-      # turn the handle into an address. The register can't be reused
-      # because it might be non-temporary one
-      let tmp = result
-      result = c.getTemp(n.typ)
-      c.gABC(n, opcAddr, result, tmp)
+  ## Converting single-location views (``var`` and ``lent``) to pointer values
+  ## is taken care of here, as well as handling `openArray` conversions.
+  template write(reg: TRegister) =
+    if wr == opcWrLoc:
+      # `idx` is unused
+      c.gABC(e, opcWrLoc, dest, reg)
+    else:
+      c.gABC(e, wr, dest, idx, reg)
+
+  template write(routine: untyped) =
+    if wr == opcWrLoc:
+      routine(c, e, dest)
+    else:
+      # dereference the destination first
+      let tmp = c.getTemp(slotTempComplex)
+      c.gABC(e, ld, tmp, dest, idx)
+      routine(c, e, tmp)
       c.freeTemp(tmp)
 
-proc genAsgnToGlobal(c: var TCtx, le, ri: CgNode) =
-  ## Generates and emits the code for an assignment where the LHS is the symbol
-  ## of a global location.
-  var dest = noDest
-  # we're only interested in the *handle* (i.e. identity) of the location, so
-  # don't load it
-  c.genSym(le, dest, load=false)
-
-  if true:
-    # global views use pointers internally
-    let b = genAsgnSource(c, ri, wantsPtr=true)
-    c.gABC(le, opcWrLoc, dest, b)
-    c.freeTemp(b)
-
-  c.freeTemp(dest)
+  if isLocView(e.typ) and not isPtrView(e):
+    # turn the handle into an address, as views are stored as pointer values
+    # in-memory
+    let
+      tmp = genx(c, e)
+      tmp2 = c.getTemp(e.typ)
+    c.gABC(e, opcAddr, tmp2, tmp)
+    write(tmp2)
+    c.freeTemp(tmp2)
+    c.freeTemp(tmp)
+  elif fitsRegisterConsiderView(e.typ):
+    let tmp = genx(c, e)
+    write(tmp)
+    c.freeTemp(tmp)
+  elif classifyBackendView(e.typ) == bvcSequence:
+    if e.kind == cnkToSlice:
+      genToSlice(c, e, dest, reified=true)
+    else:
+      # the value must be converted to the fixed openArray
+      # representation first
+      write(asgnOpenArray)
+  elif e.kind in LvalueExprKinds:
+    # the source value is stored in an in-memory location
+    let tmp = genLvalue(c, e)
+    write(tmp)
+    c.freeTemp(tmp)
+  else:
+    # some rvalue expression where the value doesn't fit into a register;
+    # load the expression directly into the location
+    write(gen)
 
 proc genAsgnToLocal(c: var TCtx, le, ri: CgNode) =
+  ## Generates and emits and assignment to a local variable. Local variables
+  ## differ from other location in that their value can be stored directly
+  ## in a register (although it doesn't have to).
   let dest = c.prc[le.local].reg
-  if true:
-    if usesRegister(c.prc, le.local):
-      # if the location is backed by a register (i.e., is not in stored
-      # in a memory cell), we don't use a temporary register + assignment
-      # but directly write to the destination register
-      # XXX: we can't. If the right-hand side is a call and it raises an
-      #      exception, the way the VM currently implements ``IndCallAsgn``
-      #      would result in the local's register becoming uninitialized. In
-      #      other words, we have to also use a temporary here, at least until
-      #      the VM no longer clears out the destination register
-      #gen(c, ri, local(c.prc, s))
-      let b = c.genx(ri)
-      c.gABC(le, whichAsgnOpc(le), dest, b)
-      c.freeTemp(b)
+  if isLocView(le.typ):
+    if isPtrView(ri):
+      # dereference first (i.e., turn the address into a handle)
+      let tmp = genx(c, ri)
+      c.gABC(le, opcLdDeref, dest, tmp)
+      c.freeTemp(tmp)
     else:
-      # an assignment is required to the local. Views are always stored as
-      # handles in this case, so a register move is used for assigning them
-      let
-        opc = (if isDirectView(le.typ): opcFastAsgnComplex else: opcWrLoc)
-        b = genAsgnSource(c, ri, wantsPtr = false)
-      c.gABC(le, opc, dest, b)
-      c.freeTemp(b)
+      # load the handle directly into the register:
+      gen(c, ri, dest)
+  elif classifyBackendView(le.typ) == bvcSequence:
+    # ``openArray``s are not reified when stored in locals
+    if ri.kind == cnkToSlice:
+      genToSlice(c, ri, dest, reified=false)
+    else:
+      gen(c, ri, dest)
+  elif usesRegister(c.prc, le.local):
+    gen(c, ri, dest)
+  elif fitsRegister(le.typ):
+    # the local is stored in-memory, a temporary register is needed
+    let tmp = genx(c, ri)
+    c.gABC(le, opcWrLoc, dest, tmp)
+    c.freeTemp(tmp)
+  elif ri.kind in LvalueExprKinds:
+    let tmp = genLvalue(c, ri)
+    c.gABC(le, opcWrLoc, dest, tmp)
+    c.freeTemp(tmp)
+  else:
+    gen(c, ri, dest)
 
 proc genDerefView(c: var TCtx, n: CgNode, dest: var TDest; load = true) =
   ## Generates and emits the code for a view dereference, where `n` is the
@@ -2307,22 +2372,20 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
       typ = le[0].typ.skipTypes(abstractVar).kind
       dest = c.genx(le[0])
       idx = c.genIndex(le[1], le[0].typ)
-      tmp = c.genAsgnSource(ri, wantsPtr = true)
-      opc =
-        case typ
-        of tyString, tyCstring: opcWrStrIdx
-        else:                   opcWrArr
 
-    c.gABC(le, opc, dest, idx, tmp)
-    c.freeTemp(tmp)
+    case typ
+    of tyString, tyCstring:
+      # the source value always fits into a register, so the `ld`
+      # opcode doesn't matter
+      putIntoLoc(c, ri, dest, idx, opcWrStrIdx, opcRet)
+    else:
+      putIntoLoc(c, ri, dest, idx, opcWrArr, opcLdArr)
+
     c.freeTemp(idx)
     c.freeTemp(dest)
   of cnkTupleAccess:
-    let
-      dest = c.genx(le[0])
-      tmp = c.genAsgnSource(ri, wantsPtr = true)
-    c.gABC(le, opcWrObj, dest, le[1].intVal.TRegister, tmp)
-    c.freeTemp(tmp)
+    let dest = c.genx(le[0])
+    putIntoLoc(c, ri, dest, le[1].intVal.TRegister, opcWrObj, opcLdObj)
     c.freeTemp(dest)
   of cnkCheckedFieldAccess:
     let objR = genCheckedObjAccessAux(c, le)
@@ -2335,23 +2398,20 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
     # c.freeTemp(idx) # BUGFIX: idx is an immediate (field position), not a register
     c.freeTemp(dest)
   of cnkDerefView:
-    # an assignment to a view's underlying location. The source cannot be a
-    # view, so using ``genAsgnSource`` is unnecessary
-    var dest = noDest
-    genDerefView(c, le.operand, dest, load=false) # we need a handle, hence ``false``
-    let tmp = c.genx(ri)
-
-    c.gABC(le, opcWrLoc, dest, tmp)
-    c.freeTemp(tmp)
-    c.freeTemp(dest)
+    # an assignment to a view's underlying location
+    if isPtrView(le.operand):
+      let dest = c.genx(le.operand)
+      putIntoLoc(c, ri, dest, 0, opcWrDeref, opcLdDeref)
+      c.freeTemp(dest)
+    else:
+      var dest = noDest
+      genDerefView(c, le.operand, dest, load=false)
+      putIntoLoc(c, ri, dest, 0, opcWrLoc, opcWrLoc)
+      c.freeTemp(dest)
   of cnkDeref:
-    # same as for ``nkHiddenDeref``, the source cannot be a view
-    let
-      dest = c.genx(le.operand)
-      tmp = c.genx(ri)
-    c.gABC(le, opcWrDeref, dest, 0, tmp)
+    let dest = c.genx(le.operand)
+    putIntoLoc(c, ri, dest, 0, opcWrDeref, opcLdDeref)
     c.freeTemp(dest)
-    c.freeTemp(tmp)
   of cnkObjDownConv, cnkObjUpConv:
     # assignment to an lvalue-converted object, ref, or ptr
     case le.typ.skipTypes(IrrelevantTypes).kind
@@ -2361,10 +2421,7 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
     of tyRef, tyObject:
       var dest = TDest(-1)
       genObjConv(c, le, dest)
-      let tmp = c.genx(ri)
-
-      c.gABC(le, opcWrLoc, dest, tmp)
-      c.freeTemp(tmp)
+      putIntoLoc(c, ri, dest, 0, opcWrLoc, opcWrLoc)
       c.freeTemp(dest)
     else:
       unreachable()
@@ -2374,7 +2431,10 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
     genAsgn(c, le.operand, ri, requiresCopy)
   of cnkGlobal:
     checkCanEval(c, le)
-    genAsgnToGlobal(c, le, ri)
+    var dest = noDest
+    c.genSym(le, dest, load=false)
+    putIntoLoc(c, ri, dest, 0, opcWrLoc, opcWrLoc)
+    c.freeTemp(dest)
   of cnkLocal:
     genAsgnToLocal(c, le, ri)
   else:
@@ -2756,20 +2816,6 @@ proc genDef(c: var TCtx; a: CgNode) =
                       else: opcLdNull
 
             c.gABx(a, opc, reg, c.genType(typ))
-          elif classifyBackendView(typ) == bvcSequence:
-            # XXX: either a shallow copy or construction of an ``openArray``
-            #      should take place here instead, but both are things not yet
-            #      supported by the VM
-            let src = genx(c, a[1])
-            if c.prc.regInfo[src].kind in {slotFixedVar, slotFixedLet}:
-              # the register cannot be reused. However, since the source must
-              # outlive the slice, copying the handle is fine
-              let dst = setSlot(c.prc, s)
-              c.gABC(a, opcFastAsgnComplex, dst, src)
-            else:
-              # promote to local
-              c.prc.regInfo[src].kind = slotFixedLet
-              c.prc[a[0].local].reg = src
           else:
             let reg = setSlot(c.prc, s)
             # XXX: checking for views here is wrong but necessary
@@ -2781,10 +2827,7 @@ proc genDef(c: var TCtx; a: CgNode) =
             # initialization logic here -- the assignment takes care of that
             genAsgnToLocal(c, a[0], a[1])
 
-proc genArrayConstr(c: var TCtx, n: CgNode, dest: var TDest) =
-  if dest.isUnset: dest = c.getTemp(n.typ)
-  c.gABx(n, opcLdNull, dest, c.genType(n.typ))
-
+proc genArrayConstr(c: var TCtx, n: CgNode, dest: TRegister) =
   let intType = getSysType(c.graph, n.info, tyInt)
   let seqType = n.typ.skipTypes(abstractVar-{tyTypeDesc})
   if seqType.kind == tySequence:
@@ -2798,15 +2841,19 @@ proc genArrayConstr(c: var TCtx, n: CgNode, dest: var TDest) =
     var tmp = getTemp(c, intType)
     c.gABx(n, opcLdNullReg, tmp, c.genType(intType))
     for x in n:
-      let a = c.genAsgnSource(x, wantsPtr = true)
-      c.gABC(n, opcWrArr, dest, tmp, a)
+      putIntoLoc(c, x, dest, tmp, opcWrArr, opcLdArr)
       c.gABI(n, opcAddImmInt, tmp, tmp, 1)
-      c.freeTemp(a)
     c.freeTemp(tmp)
 
 proc genSetConstr(c: var TCtx, n: CgNode, dest: var TDest) =
-  if dest.isUnset: dest = c.getTemp(n.typ)
-  c.gABx(n, opcLdNull, dest, c.genType(n.typ))
+  # XXX: use ``TRegister`` for `dest` once ``cnkCheckedFieldAccess`` is
+  #      removed
+  if dest.isUnset:
+    prepare(c, dest, n, n.typ)
+  else:
+    # zero the destination
+    c.gABx(n, opcReset, dest, c.genType(n.typ))
+
   # XXX: since `first` stays the same across the loop, we could invert
   #      the loop around `genSetElem`'s logic...
   let first = firstOrd(c.config, n.typ.skipTypes(abstractInst))
@@ -2822,57 +2869,39 @@ proc genSetConstr(c: var TCtx, n: CgNode, dest: var TDest) =
       c.gABC(n, opcIncl, dest, a)
       c.freeTemp(a)
 
-proc genObjConstr(c: var TCtx, n: CgNode, dest: var TDest) =
-  prepare(c, dest, n, n.typ)
+proc genObjConstr(c: var TCtx, n: CgNode, dest: TRegister) =
   let t = n.typ.skipTypes(abstractRange-{tyTypeDesc})
-  var refTemp: TDest
+  var obj: TRegister
   if t.kind == tyRef:
-    refTemp = c.getTemp(t[0]) # The temporary register to hold the
-                              # dereferenced location
+    obj = c.getTemp(slotTempComplex) # holds the dereferenced location
     c.gABx(n, opcNew, dest, c.genType(t))
-    c.gABC(n, opcLdDeref, refTemp, dest)
-    swap(refTemp, dest)
+    c.gABC(n, opcLdDeref, obj, dest)
+  else:
+    # compared to array or tuple constructions, not all fields need to be set
+    # through an object construction. We need to ensure that the destination
+    # is empty
+    # XXX: this is unnecessary for initial assignments
+    obj = dest
+    c.gABx(n, opcReset, obj, c.genType(t))
 
   for it in n.items:
     assert it.kind == cnkBinding and it[0].kind == cnkField
-    if true:
-      let idx = genField(c, it[0])
-      var tmp: TRegister
-      var opcode: TOpcode
-      if sfDiscriminant notin it[0].sym.flags:
-        tmp = c.genAsgnSource(it[1], wantsPtr = true)
-        opcode = opcWrObj
-        let
-          le = it[0].sym.typ
-        if le.kind == tyOpenArray:
-          # XXX: once the to-slice operator is passed to ``vmgen``, integrate
-          #      the conversion into ``genAsgnSource``
-          let tmp2 = c.getFullTemp(it[0], le)
-          c.genToSlice(tmp, le, it[1].info, tmp2)
-          c.freeTemp(tmp)
-          tmp = TRegister(tmp2)
-      else:
-        tmp = c.genDiscrVal(it[0], it[1], n.typ)
-        opcode = opcInitDisc
-      c.gABC(it[1], opcode, dest, idx, tmp)
+    let idx = genField(c, it[0])
+    if sfDiscriminant notin it[0].sym.flags:
+      putIntoLoc(c, it[1], obj, idx, opcWrObj, opcLdObj)
+    else:
+      let tmp = c.genDiscrVal(it[0], it[1], n.typ)
+      c.gABC(it[1], opcSetDisc, obj, idx, tmp)
       c.freeTemp(tmp)
 
   if t.kind == tyRef:
-    swap(refTemp, dest)
-    c.freeTemp(refTemp)
+    c.freeTemp(obj)
 
-proc genTupleConstr(c: var TCtx, n: CgNode, dest: var TDest) =
-  if dest.isUnset: dest = c.getTemp(n.typ)
-  if n.typ.kind != tyTypeDesc:
-    c.gABx(n, opcLdNull, dest, c.genType(n.typ))
-    # XXX x = (x.old, 22)  produces wrong code ... stupid self assignments
-    for i, it in n.pairs:
-      let tmp = c.genAsgnSource(it, wantsPtr = true)
-      c.gABC(it, opcWrObj, dest, i.TRegister, tmp)
-      c.freeTemp(tmp)
+proc genTupleConstr(c: var TCtx, n: CgNode, dest: TRegister) =
+  for i, it in n.pairs:
+    putIntoLoc(c, it, dest, i.TRegister, opcWrObj, opcLdObj)
 
-proc genClosureConstr(c: var TCtx, n: CgNode, dest: var TDest) =
-  prepare(c, dest, n, n.typ)
+proc genClosureConstr(c: var TCtx, n: CgNode, dest: TRegister) =
   let tmp = c.genx(n[0])
   c.gABC(n, opcWrObj, dest, 0, tmp)
   c.freeTemp(tmp)
@@ -2994,12 +3023,6 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     gen(c, n[0])
   of cnkHiddenConv, cnkConv:
     genConv(c, n, n.operand, dest)
-  of cnkToSlice:
-    if n.len == 1:
-      gen(c, n[0], dest) # treated as a no-op
-    else:
-      # not yet supported
-      fail(n.info, vmGenDiagCodeGenUnhandledMagic, mSlice)
   of cnkObjDownConv, cnkObjUpConv:
     genObjConv(c, n, dest)
   of cnkDef:
@@ -3024,7 +3047,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkPragmaStmt, cnkAsmStmt, cnkEmitStmt:
     unused(c, n, dest)
   of cnkInvalid, cnkMagic, cnkRange, cnkExcept, cnkFinally, cnkBranch,
-     cnkBinding, cnkLabel, cnkStmtListExpr, cnkField:
+     cnkBinding, cnkLabel, cnkStmtListExpr, cnkField, cnkToSlice:
     unreachable(n.kind)
 
 proc initProc(c: TCtx, owner: PSym, body: sink Body): BProc =
