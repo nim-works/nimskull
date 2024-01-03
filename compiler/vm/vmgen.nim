@@ -877,7 +877,7 @@ proc genRaise(c: var TCtx; n: CgNode) =
       typ = skipTypes(n[0].typ, abstractPtrs)
 
     # get the exception name
-    var name: TDest = c.getTemp(c.graph.getSysType(n.info, tyString))
+    var name = noDest
     c.genLit(n[0], c.toStringCnst(typ.sym.name.s), name)
 
     # XXX: using an ABxI encoding would make sense here...
@@ -911,13 +911,14 @@ proc genReturn(c: var TCtx; n: CgNode) =
 
 proc genLit(c: var TCtx; n: CgNode; lit: int; dest: var TDest) =
   ## `lit` is the index of a constant as returned by `genLiteral`
-
-  # opcLdConst is now always valid. We produce the necessary copy in the
-  # assignments now:
-  #var opc = opcLdConst
-  if dest.isUnset: dest = c.getTemp(n.typ)
-  #elif c.prc.regInfo[dest].kind == slotFixedVar: opc = opcAsgnConst
-  c.gABx(n, opcLdConst, dest, lit)
+  if dest.isUnset or c.prc.regInfo[dest].kind == slotTempUnknown or
+     fitsRegister(n.typ):
+    # load the literal into the *register*
+    prepare(c, dest, n.typ)
+    c.gABx(n, opcLdConst, dest, lit)
+  else:
+    # assign the literal to the destination *location* directly
+    c.gABx(n, opcAsgnConst, dest, lit)
 
 proc genLit(c: var TCtx; n: CgNode; dest: var TDest) =
   let lit = genLiteral(c, n)

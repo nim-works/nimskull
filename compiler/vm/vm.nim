@@ -2185,17 +2185,15 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         assert false
 
     of opcAsgnConst:
-      # XXX: currently unused, but might be revived
-      assert false
-      #[
+      # assign the constant to the destination
       decodeBx()
-      let cnst = c.constants[rbx]
-      if cnst.typ.kind in RegisterAtomKinds:
-        putIntoReg(regs[ra], cnst)
-      else:
-        regs[ra].initLocReg(cnst.typ, c.memory)
-        copyToLocation(regs[ra].handle, cnst, c.memory, false)
-      ]#
+      let cnst {.cursor.} = c.constants[rbx]
+      case cnst.kind
+      of cnstString:
+        # load the string literal directly into the destination
+        deref(regs[ra].handle).strVal.newVmString(cnst.strVal, c.allocator)
+      of cnstInt, cnstFloat, cnstNode, cnstSliceListInt..cnstSliceListStr:
+        raiseVmError(VmEvent(kind: vmEvtErrInternal, msg: "illegal constant"))
     of opcLdGlobal:
       let rb = instr.regBx - wordExcess
       let slot = c.globals[rb]
