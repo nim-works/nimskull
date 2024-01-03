@@ -2908,8 +2908,8 @@ proc genClosureConstr(c: var TCtx, n: CgNode, dest: TRegister) =
   # here by emitting a conversion
   if n[1].kind == cnkNilLit:
     let tmp = c.getTemp(slotTempComplex)
-    c.gABx(n[1], opcLdNull, tmp, typ)
-    c.gABC(n[1], opcWrObj, dest, 1, tmp)
+    c.gABC(n[1], opcLdObj, tmp, dest, 1)
+    c.gABx(n[1], opcReset, tmp, typ)
     c.freeTemp(tmp)
   else:
     let
