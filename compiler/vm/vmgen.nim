@@ -926,12 +926,12 @@ proc genLit(c: var TCtx; n: CgNode; dest: var TDest) =
 
 
 proc genProcLit(c: var TCtx, n: CgNode, s: PSym; dest: var TDest) =
-  if dest.isUnset:
-    dest = c.getTemp(s.typ)
-
   let idx = c.linking.symToIndexTbl[s.id].int
+  if dest.isUnset or c.prc.regInfo[dest].kind == slotTempUnknown:
+    # ``prepare`` wouldn't work here, as we need to use the internal type
+    if dest.isUnset: dest = c.getTemp(s.typ)
+    c.gABx(n, opcLdNull, dest, c.genType(s.typ, noClosure=true))
 
-  c.gABx(n, opcLdNull, dest, c.genType(s.typ, noClosure=true))
   c.gABx(n, opcWrProc, dest, idx)
 
 proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
@@ -986,7 +986,8 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
       continue
 
     var r: TRegister = x+i
-    if n[i].typ.skipTypes(abstractInst).kind == tyRef:
+    if n[i].typ.skipTypes(abstractInst).kind == tyRef and
+       n[i].kind != cnkNilLit:
       # ``ref`` values are always stored in VM memory, meaning that we're
       # getting a handle to it here. Lots of code is written under the
       # assumption that a ``ref`` is always uses pass-by-value (instead of
@@ -1278,7 +1279,12 @@ proc genConv(c: var TCtx; n, arg: CgNode; dest: var TDest) =
      a.kind == tyPointer:
     # don't do anything for conversions that don't change the run-time type
     # and lambda-lifting conversions
-    gen(c, arg, dest)
+    if fitsRegister(a):
+      gen(c, arg, dest)
+    else:
+      let tmp = genx(c, arg)
+      c.gABC(n, opcWrLoc, dest, tmp)
+      c.freeTemp(tmp)
   else:
     # a normal conversion that produces a new value of different type
     prepare(c, dest, n, n.typ)
@@ -1451,7 +1457,7 @@ proc genCastIntFloat(c: var TCtx; n: CgNode; dest: var TDest) =
     # supports casting nil literals to NilableTypes in VM
     # see #16024
     if dest.isUnset: dest = c.getTemp(n.typ)
-    let opcode = if fitsRegister(dst): opcLdNullReg else: opcLdNull
+    let opcode = if fitsRegister(dst): opcLdNullReg else: opcReset
     c.gABx(n, opcode, dest, c.genType(dst))
   else:
     # todo: support cast from tyInt to tyRef
@@ -1548,10 +1554,6 @@ func fitsRegister(t: PType): bool =
   let st = t.skipTypes(IrrelevantTypes + {tyRange})
   st.kind in { tyBool, tyInt..tyUInt64, tyChar, tyPtr, tyPointer} or
     (st.sym != nil and st.sym.magic == mPNimrodNode) # NimNode goes into register too
-
-proc ldNullOpcode(t: PType): TOpcode =
-  assert t != nil
-  if fitsRegister(t): opcLdNullReg else: opcLdNull
 
 func usesRegister(p: BProc, n: CgNode): bool =
   ## Analyses and returns whether the value of the location named by l-value
@@ -1791,10 +1793,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     if dest.isUnset:
       dest = tmp
     else:
-      assert c.prc.regInfo[dest].kind == slotTempUnknown
-      # XXX: this is shaky, and depends on the destination only being already
-      #      set in argument contexts
-      c.gABC(n, opcAsgnComplex, dest, tmp)
+      c.gABC(n, opcWrLoc, dest, tmp)
       c.freeTemp(tmp)
   of mInSet:
     let
@@ -1861,8 +1860,12 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
 
     c.freeTemp(dest)
   of mDefault:
-    if dest.isUnset: dest = c.getTemp(n.typ)
-    c.gABx(n, ldNullOpcode(n.typ), dest, c.genType(n.typ))
+    if fitsRegister(n.typ):
+      prepare(c, dest, n.typ)
+      c.gABx(n, opcLdNullReg, dest, c.genType(n.typ))
+    else:
+      assert dest != noDest
+      c.gABx(n, opcReset, dest, c.genType(n.typ))
   of mOf:
     if dest.isUnset: dest = c.getTemp(n.typ)
 
@@ -2041,15 +2044,19 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mDestroy, mTrace: discard "ignore calls to the default destructor"
   of mMove:
     let arg = n[1]
-    let a = c.genx(arg)
-    if dest.isUnset: dest = c.getTemp(arg.typ)
-    gABC(c, arg, whichAsgnOpc(arg, requiresCopy=false), dest, a)
+    if fitsRegister(n.typ):
+      gen(c, arg, dest)
+    else:
+      assert dest != noDest
+      let tmp = genLvalue(c, arg)
+      # perform a normal copy
+      c.gABC(n, opcWrLoc, dest, tmp)
+      c.freeTemp(tmp)
     # XXX use ldNullOpcode() here?
     # Don't zero out the arg for now #17199
     # c.gABx(n, opcLdNull, a, c.genType(arg.typ))
     # c.gABx(n, opcNodeToReg, a, a)
     # c.genAsgnPatch(arg, a)
-    c.freeTemp(a)
   of mNodeId:
     c.genUnaryABC(n, dest, opcNodeId)
   of mFinished:
@@ -2952,14 +2959,21 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     c.loadInt(n, dest, getInt(n))
   of cnkFloatLit, cnkStrLit: genLit(c, n, dest)
   of cnkNilLit:
-    if true:
-      let t = n.typ.skipTypes(abstractInst)
-      internalAssert(c.config,
+    let t = n.typ.skipTypes(abstractInst)
+    internalAssert(c.config,
         t.kind in {tyPtr, tyRef, tyPointer, tyNil, tyProc, tyCstring},
         n.info,
         $t.kind)
-      if dest.isUnset: dest = c.getTemp(t)
-      c.gABx(n, ldNullOpcode(t), dest, c.genType(n.typ))
+
+    if fitsRegister(t):
+      prepare(c, dest, t)
+      c.gABx(n, opcLdNullReg, dest, c.genType(n.typ))
+    elif dest.isUnset or c.prc.regInfo[dest].kind == slotTempUnknown:
+      prepare(c, dest, n, t)
+    elif not isEmpty(c.prc, dest):
+      # assigning the nil literal is identical with resetting the
+      # location
+      c.gABx(n, opcReset, dest, c.genType(n.typ))
   of cnkAstLit:
     # the VM does not copy the tree when loading a ``PNode`` constant (which
     # is correct). ``NimNode``s not marked with `nfSem` can be freely modified
