@@ -3016,12 +3016,6 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
   of rvmErrInternal:
     result = r.str
 
-  of rvmCallingNonRoutine:
-    result = "NimScript: attempt to call non-routine: " & r.symstr
-
-  of rvmGlobalError:
-    result = r.str
-
   of rvmOpcParseExpectedExpression:
     result = "expected expression, but got multiple statements"
 

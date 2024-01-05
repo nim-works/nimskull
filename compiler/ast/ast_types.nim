@@ -947,7 +947,6 @@ type
     adVmUserError
     adVmUnhandledException
     adVmCannotCast
-    adVmCallingNonRoutine
     adVmCannotModifyTypechecked
     adVmNilAccess
     adVmAccessOutOfBounds
@@ -998,7 +997,6 @@ type
       of adVmNotAField:
         sym*: PSym
       of adVmOpcParseExpectedExpression,
-          adVmCallingNonRoutine,
           adVmCannotModifyTypechecked,
           adVmAccessOutOfBounds,
           adVmAccessTypeMismatch,
