@@ -89,15 +89,11 @@ const NonMagics* = {mNewString, mNewStringOfCap, mNewSeq, mSetLengthSeq,
                     mAppendSeqElem, mEnumToStr, mExit, mParseBiggestFloat,
                     mDotDot, mEqCString, mIsolate}
   ## magics that are treated like normal procedures by the code generator.
-  ## This set only applies when using the new runtime.
 
 const
   sfTopLevel* = sfMainModule
     ## the procedure contains top-level code, which currently affects how
     ## emit, asm, and error handling works
-
-template `[]=`(x: CgNode, i: Natural, n: CgNode) =
-  x.kids[i] = n
 
 proc findPendingModule(m: BModule, s: PSym): BModule =
   let ms = s.itemId.module  #getModule(s)

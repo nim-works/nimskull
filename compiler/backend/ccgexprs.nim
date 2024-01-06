@@ -1346,16 +1346,6 @@ proc genArrayLen(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     else: putIntoDest(p, d, e, rope(lengthOrd(p.config, typ)))
   else: internalError(p.config, e.info, "genArrayLen()")
 
-proc makePtrType(baseType: PType; idgen: IdGenerator): PType =
-  result = newType(tyPtr, nextTypeId idgen, baseType.owner)
-  addSonSkipIntLit(result, baseType, idgen)
-
-proc makeAddr(n: CgNode; idgen: IdGenerator): CgNode =
-  if n.kind == cnkHiddenAddr:
-    result = n
-  else:
-    result = newOp(cnkHiddenAddr, n.info, makePtrType(n.typ, idgen), n)
-
 proc genSetLengthStr(p: BProc, e: CgNode, d: var TLoc) =
   binaryStmtAddr(p, e, d, "setLengthStrV2")
 
@@ -1778,7 +1768,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     binaryStmtAddr(p, e, d, "nimAddCharV1")
   of mAppendStrStr: genStrAppend(p, e, d)
   of mAppendSeqElem, mNewSeq, mSetLengthSeq:
-    e[1] = makeAddr(e[1], p.module.idgen)
     genCall(p, e, d)
   of mEqStr: genStrEquals(p, e, d)
   of mLeStr: binaryExpr(p, e, d, "(#cmpStrings($1, $2) <= 0)")
