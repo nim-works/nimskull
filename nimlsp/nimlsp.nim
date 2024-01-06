@@ -538,6 +538,7 @@ proc main(ins: Stream, outs: Stream) =
     except CatchableError as e:
       warnLog "Got exception: ", e.msg
       continue
+    sleep(16)
 
 when isMainModule:
   infoLog("explicitSourcePath: ", explicitSourcePath)
