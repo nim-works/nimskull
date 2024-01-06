@@ -197,7 +197,7 @@ proc generateAliveProcs(c: var GenCtx, config: BackendConfig,
   var
     partial: PartialTbl
 
-  for evt in process(c.graph, mlist, discovery, MagicsToKeep, config):
+  for evt in process(c.graph, mlist, discovery, config):
     processEvent(c, mlist, discovery, partial, evt)
 
   # generate the bytecode for the partial procedures:
@@ -265,7 +265,9 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   ## file
   let
     conf = g.config
-    bconf = BackendConfig(noImported: true, options: {goIsNimvm})
+    bconf = BackendConfig(noImported: true, tconfig:
+              TranslationConfig(options: {goIsNimvm},
+                                magicsToKeep: MagicsToKeep))
 
   var c =
     GenCtx(graph: g,

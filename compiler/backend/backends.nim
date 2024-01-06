@@ -42,6 +42,8 @@ import
     idioms
   ]
 
+export TranslationConfig
+
 type
   MirFragment* = object
     tree*: MirTree
@@ -64,7 +66,7 @@ type
   BackendConfig* = object
     ## Configuration state altering the operation of the ``process``
     ## iterator.
-    options*: set[GenOption]
+    tconfig*: TranslationConfig
       ## passed on to ``mirgen``. See ``mirgen.generateCode`` for more
       ## details
     noImported*: bool
@@ -277,7 +279,7 @@ func isEmpty*(tree: MirTree): bool =
 func isEmpty*(f: MirFragment): bool {.inline.} =
   isEmpty(f.tree)
 
-iterator deps*(tree: MirTree; includeMagics: set[TMagic]): PSym =
+iterator deps*(tree: MirTree): PSym =
   ## Returns all external entities (procedures, globals, etc.) that `tree`
   ## references *directly*, in an unspecified order.
   var i = NodePosition(0)
@@ -289,10 +291,7 @@ iterator deps*(tree: MirTree; includeMagics: set[TMagic]): PSym =
       i = NodePosition tree.operand(i, 1)
       continue
     of mnkProc:
-      # XXX: `includeMagics` is a workaround. Magics should either lowered
-      #      already or encoded as ``mnkMagic`` nodes when reaching here
-      if n.sym.magic == mNone or n.sym.magic in includeMagics:
-        yield n.sym
+      yield n.sym
     of mnkConst, mnkGlobal:
       yield n.sym
     else:
@@ -317,7 +316,8 @@ proc preprocess*(conf: BackendConfig, prc: PSym, graph: ModuleGraph,
   # extract the identdefs of lifted globals (which is the first step towards
   # actually lifting them into proper globals) and store them with the
   # result. Do note that this step modifies the potentially cached body.
-  extractGlobals(body, result.globals, isNimVm = goIsNimvm in conf.options)
+  extractGlobals(body, result.globals,
+                 isNimVm = goIsNimvm in conf.tconfig.options)
 
   if optCursorInference in graph.config.options and
       shouldInjectDestructorCalls(prc):
@@ -327,7 +327,7 @@ proc preprocess*(conf: BackendConfig, prc: PSym, graph: ModuleGraph,
   echoInput(graph.config, prc, body)
 
   (result.body.tree, result.body.source) =
-    generateCode(graph, prc, conf.options, body)
+    generateCode(graph, prc, conf.tconfig, body)
 
   echoMir(graph.config, prc, result.body.tree)
 
@@ -364,9 +364,9 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
 
 # ------- handling of lifted globals ---------
 
-proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
-                                graph: ModuleGraph,
-                                options: set[GenOption]): tuple[init, deinit: MirFragment] =
+proc produceFragmentsForGlobals(
+    data: var DiscoveryData, identdefs: seq[PNode], graph: ModuleGraph,
+    config: TranslationConfig): tuple[init, deinit: MirFragment] =
   ## Given a list of identdefs of lifted globals, produces the MIR code for
   ## initialzing and deinitializing the globals. `data` is updated with
   ## not-yet-seen globals, and is at the same time used for discarding
@@ -423,7 +423,7 @@ proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
           init.buildMagicCall mDefault, s.typ:
             discard
         else:
-          generateCode(graph, options, it[2], init, result.init.source)
+          generateCode(graph, config, it[2], init, result.init.source)
 
       # if the global requires one, emit a destructor call into the deinit
       # fragment:
@@ -499,7 +499,7 @@ proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
     let nameTemp = bu.allocTemp(strType)
     bu.buildStmt mnkDef:
       bu.use nameTemp
-      generateCode(graph, conf.options, path, bu, source)
+      generateCode(graph, conf.tconfig, path, bu, source)
 
     let cond = genLoadLib(graph, bu, nameNode, nameTemp)
     bu.subTree mnkIf:
@@ -544,7 +544,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
     let tmp = bu.allocTemp(dest.typ)
     bu.buildStmt mnkDef:
       bu.use tmp
-      generateCode(graph, conf.options, path, bu, result.source)
+      generateCode(graph, conf.tconfig, path, bu, result.source)
     bu.subTree mnkVoid:
       bu.buildMagicCall mAsgnDynlibVar, voidTyp:
         bu.emitByName(dest, ekReassign)
@@ -583,10 +583,10 @@ func includeIfUnseen(q: var Queue[PSym], marker: var IntSet, sym: PSym) =
 template register(data: var DiscoveryData, queue: untyped, s: PSym) =
   data.queue.includeIfUnseen(data.seen, s)
 
-func discoverFrom*(data: var DiscoveryData, noMagics: set[TMagic], body: MirTree) =
+func discoverFrom*(data: var DiscoveryData, body: MirTree) =
   ## Updates `data` with all not-yet-seen entities (except for globals) that
   ## `body` references.
-  for dep in deps(body, noMagics):
+  for dep in deps(body):
     case dep.kind
     of routineKinds:
       register(data, procedures, dep)
@@ -723,7 +723,7 @@ func postActions(iter: var ProcedureIter, discovery: var DiscoveryData,
   processAdditional(iter, discovery)
 
 iterator process*(graph: ModuleGraph, modules: var ModuleList,
-                  discovery: var DiscoveryData, noMagics: set[TMagic],
+                  discovery: var DiscoveryData,
                   conf: BackendConfig): BackendEvent =
   ## Implements discovery of alive entities (procedures, globals, constants,
   ## etc.) and applying the various transformations and MIR passes to
@@ -784,7 +784,7 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
   template reportBody(prc: PSym, m: FileIndex, evt: BackendEventKind,
                       frag: MirFragment) =
     ## Reports (i.e., yields an event) a procedure-related event.
-    discoverFrom(discovery, noMagics, frag.tree)
+    discoverFrom(discovery, frag.tree)
 
     # fire 'discovered' events for new procedures and also queue them for
     # processing
@@ -825,7 +825,7 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
         # produce the init/de-init code for the lifted globals:
         var (init, deinit) =
           produceFragmentsForGlobals(discovery, prc.globals, graph,
-                                     conf.options)
+                                     conf.tconfig)
 
         reportProgress(modules[module].preInit, init)
         reportProgress(modules[module].postDestructor, deinit)

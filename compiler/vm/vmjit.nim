@@ -65,13 +65,14 @@ type
     gen: CodeGenCtx
       ## code generator state
 
-func selectOptions(c: TCtx): set[GenOption] =
-  result = {goIsNimvm}
+func selectOptions(c: TCtx): TranslationConfig =
+  result = TranslationConfig(options: {goIsNimvm}, magicsToKeep: MagicsToKeep)
+  # include additional options based on the JIT's configuration
   if cgfAllowMeta in c.flags:
-    result.incl goGenTypeExpr
+    result.options.incl goGenTypeExpr
 
   if c.mode in {emConst, emOptimize, emStaticExpr, emStaticStmt}:
-    result.incl goIsCompileTime
+    result.options.incl goIsCompileTime
 
 func swapState(c: var TCtx, gen: var CodeGenCtx) =
   ## Swaps the values of the fields shared between ``TCtx`` and ``CodeGenCtx``.
@@ -234,7 +235,7 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   var (tree, sourceMap) = generateMirCode(c, n, isStmt = true)
   discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap, true)
   applyPasses(tree, sourceMap, c.module, c.config, targetVm)
-  discoverFrom(jit.discovery, MagicsToKeep, tree)
+  discoverFrom(jit.discovery, tree)
   register(c.linking, jit.discovery)
 
   let
@@ -271,7 +272,7 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   #     If `c` is defined at the top-level, then `x` is a "global" variable
   discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap, false)
   applyPasses(tree, sourceMap, c.module, c.config, targetVm)
-  discoverFrom(jit.discovery, MagicsToKeep, tree)
+  discoverFrom(jit.discovery, tree)
   register(c.linking, jit.discovery)
 
   let
@@ -314,7 +315,7 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   #      work in compile-time and interpreted contexts
   discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap, false)
   applyPasses(tree, sourceMap, s, c.config, targetVm)
-  discoverFrom(jit.discovery, MagicsToKeep, tree)
+  discoverFrom(jit.discovery, tree)
   register(c.linking, jit.discovery)
 
   let outBody = generateIR(c.graph, c.idgen, s, tree, sourceMap)

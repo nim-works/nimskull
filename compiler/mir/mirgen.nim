@@ -123,6 +123,14 @@ type
     goIsCompileTime ## whether the code is meant to be run at compile-time.
                     ## Affects handling of ``.compileTime`` globals
 
+  TranslationConfig* = object
+     ## Extra configuration for the AST -> MIR translation.
+     options*: set[GenOption]
+     magicsToKeep*: set[TMagic]
+      ## magic procedures that need to referenced via their symbols, either
+      ## because they're not really magic or because the symbol has
+      ## additional information
+
   TCtx = object
     # working state:
     builder: MirBuilder ## the builder for generating the MIR trees
@@ -141,7 +149,7 @@ type
     userOptions: set[TOption]
     graph: ModuleGraph
 
-    options: set[GenOption]
+    config: TranslationConfig
 
   ExprKind = enum
     Literal
@@ -751,7 +759,13 @@ proc genCallee(c: var TCtx, n: PNode) =
   ## Generates and emits the code for a callee expression.
   if n.kind == nkSym and n.sym.kind in routineKinds:
     c.builder.useSource(c.sp, n)
-    c.use procLit(n.sym)
+    let s = n.sym
+    if s.magic == mNone or s.magic in c.config.magicsToKeep:
+      # reference the procedure by symbol
+      c.use procLit(n.sym)
+    else:
+      # don't use a symbol
+      c.add MirNode(kind: mnkMagic, magic: s.magic)
   else:
     # an indirect call
     genArgExpression(c, n, false)
@@ -785,7 +799,7 @@ proc genArgs(c: var TCtx, n: PNode) =
       if i < fntyp.len: fntyp[i]
       else:             n[i].typ
 
-    if t.kind == tyTypeDesc and goGenTypeExpr in c.options:
+    if t.kind == tyTypeDesc and goGenTypeExpr in c.config.options:
       # generation of type expressions is requested. It's important that this
       # branch comes before the ``isCompileTimeOnly`` one, as a ``tyTypeDesc``
       # is treated as a compile-time-only type and would be omitted then
@@ -1304,7 +1318,7 @@ proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
 
   assert sym.kind in {skVar, skLet, skTemp, skForVar}
 
-  if sfCompileTime in sym.flags and goIsCompileTime notin c.options:
+  if sfCompileTime in sym.flags and goIsCompileTime notin c.config.options:
     # compile-time-only locations don't exist outside of compile-time
     # contexts, so omit their definitions
     return
@@ -1796,7 +1810,7 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
     c.genOp mnkCast, n.typ, n[1]
   of nkWhenStmt:
     # a ``when nimvm`` expression
-    genx(c, selectWhenBranch(n, goIsNimvm in c.options), consume)
+    genx(c, selectWhenBranch(n, goIsNimvm in c.config.options), consume)
   of nkPragmaBlock:
     genx(c, n.lastSon, consume)
   of nkStmtListExpr:
@@ -1965,7 +1979,7 @@ proc gen(c: var TCtx, n: PNode) =
     genAsmOrEmitStmt(c, mnkAsm, n)
   of nkWhenStmt:
     # a ``when nimvm`` statement
-    gen(c, selectWhenBranch(n, goIsNimvm in c.options))
+    gen(c, selectWhenBranch(n, goIsNimvm in c.config.options))
   else:
     unreachable(n.kind)
 
@@ -1991,12 +2005,12 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
   else:
     gen(c, n)
 
-proc generateCode*(graph: ModuleGraph, options: set[GenOption], n: PNode,
+proc generateCode*(graph: ModuleGraph, config: TranslationConfig, n: PNode,
                    builder: var MirBuilder, source: var SourceMap) =
   ## Generates MIR code that is semantically equivalent to the expression or
   ## statement `n`, appending the resulting code and the corresponding origin
   ## information to `code` and `source`, respectively.
-  var c = TCtx(context: skUnknown, graph: graph, options: options)
+  var c = TCtx(context: skUnknown, graph: graph, config: config)
 
   template swapState() =
     swap(c.sp.map, source)
@@ -2028,7 +2042,7 @@ proc generateCode*(graph: ModuleGraph, options: set[GenOption], n: PNode,
   # move the state back into the output parameters:
   swapState()
 
-proc generateCode*(graph: ModuleGraph, owner: PSym, options: set[GenOption],
+proc generateCode*(graph: ModuleGraph, owner: PSym, config: TranslationConfig,
                    body: PNode): tuple[code: MirTree, source: SourceMap] =
   ## Generates MIR code that is semantically equivalent to `body` plus the
   ## ``SourceMap`` that associates each ``MirNode`` with the ``PNode`` it
@@ -2044,7 +2058,7 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, options: set[GenOption],
   #      might no longer be present after the lambdalifting pass
   #assert nfTransf in body.flags, "transformed AST is expected as input"
 
-  var c = TCtx(context: owner.kind, graph: graph, options: options,
+  var c = TCtx(context: owner.kind, graph: graph, config: config,
                userOptions: owner.options)
   c.sp.active = (body, c.sp.map.add(body))
 
