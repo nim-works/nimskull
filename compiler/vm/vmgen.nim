@@ -170,11 +170,13 @@ const
     ## the set of types that are not relevant to the VM. ``tyTypeDesc``, while
     ## not relevant right now, is likely going to be in the future.
 
-  MagicsToKeep* = {mNone, mIsolate, mNHint, mNWarning, mNError, mMinI, mMaxI,
-                   mAbsI, mDotDot}
+  MagicsToKeep* = {mIsolate, mNHint, mNWarning, mNError, mMinI, mMaxI,
+                   mAbsI, mDotDot, mNGetType, mNSizeOf, mNLineInfo}
     ## the set of magics that are kept as normal procedure calls and thus need
-    ## an entry in the function table. For convenience, the ``mNone`` magic is
-    ## also included
+    ## an entry in the function table.
+    # XXX: mNGetType, mNGetSize, and mNLineInfo *are* real magics, but their
+    #      symbols must reach here for disambiguation. This needs to be solved
+    #      differently
 
   noDest = TDest(-1)
   slotSomeTemp* = slotTempUnknown
