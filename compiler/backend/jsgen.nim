@@ -157,7 +157,7 @@ const
   sfModuleInit* = sfMainModule
     ## the procedure is the 'init' procedure of a module
 
-  NonMagics* = { mDotDot }
+  NonMagics* = { mDotDot, mParseBiggestFloat, mExit }
     ## magics that are treated like normal procedures by the code
     ## generator
 
