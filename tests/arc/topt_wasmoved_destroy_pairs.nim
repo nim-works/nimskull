@@ -35,7 +35,7 @@ scope:
           while true:
             scope:
               def_cursor _0: int = i
-              def_cursor _1: bool = <(arg _0, arg b)
+              def_cursor _1: bool = ltI(arg _0, arg b)
               def_cursor _2: bool = not(arg _1)
               if _2:
                 scope:
@@ -43,7 +43,7 @@ scope:
               scope:
                 scope:
                   def_cursor i: int = i
-                  def_cursor _3: bool = ==(arg i, arg 2)
+                  def_cursor _3: bool = eqI(arg i, arg 2)
                   if _3:
                     scope:
                       return
@@ -71,11 +71,11 @@ scope:
 scope:
   try:
     def str: string
-    def x: string = $(arg cond)
+    def x: string = boolToStr(arg cond)
     if cond:
       scope:
         return
-    str = $(arg cond)
+    str = boolToStr(arg cond)
     def_cursor _0: bool = not(arg cond)
     if _0:
       scope:

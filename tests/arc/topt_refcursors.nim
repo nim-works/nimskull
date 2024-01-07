@@ -10,7 +10,7 @@ scope:
       while true:
         scope:
           def_cursor _0: Node = it
-          def_cursor _1: bool = ==(arg _0, arg nil)
+          def_cursor _1: bool = eqRef(arg _0, arg nil)
           def_cursor _2: bool = not(arg _1)
           def_cursor _3: bool = not(arg _2)
           if _3:
@@ -28,7 +28,7 @@ scope:
       while true:
         scope:
           def_cursor _7: Node = jt
-          def_cursor _8: bool = ==(arg _7, arg nil)
+          def_cursor _8: bool = eqRef(arg _7, arg nil)
           def_cursor _9: bool = not(arg _8)
           def_cursor _10: bool = not(arg _9)
           if _10:

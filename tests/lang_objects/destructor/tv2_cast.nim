@@ -24,8 +24,8 @@ scope:
   try:
     def s: string = newString(arg 100)
     def_cursor _0: string = s
-    def_cursor _1: int = len(arg _0)
-    def_cursor _2: int = -(arg _1, arg 1)
+    def_cursor _1: int = lengthStr(arg _0)
+    def_cursor _2: int = subI(arg _1, arg 1)
     def_cursor _3: openArray[byte] = toOpenArray s, 0, _2
     def _4: seq[byte] = encode(arg _3) (raises)
     def data: string

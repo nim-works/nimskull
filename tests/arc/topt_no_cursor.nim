@@ -52,7 +52,7 @@ scope:
 
 scope:
   def _0: array[0..0, int] = construct (consume 123)
-  def lresult: seq[int] = @(consume _0)
+  def lresult: seq[int] = arrToSeq(consume _0)
   def lvalue: seq[int]
   def lnext: string
   def _1: seq[int] = lresult
@@ -96,13 +96,13 @@ scope:
       def_cursor a: seq[string] = txt
       def i: int = 0
       def_cursor _0: seq[string] = a
-      def L: int = len(arg _0)
+      def L: int = lengthSeq(arg _0)
       block L0:
         scope:
           while true:
             scope:
               def_cursor _1: int = i
-              def_cursor _2: bool = <(arg _1, arg L)
+              def_cursor _2: bool = ltI(arg _1, arg L)
               def_cursor _3: bool = not(arg _2)
               if _3:
                 scope:
@@ -115,7 +115,7 @@ scope:
                     def_cursor _5: string = line[]
                     def splitted: seq[string] = split(arg _5, arg " ", arg -1) (raises)
                     def_cursor _6: string = splitted[0]
-                    def_cursor _7: bool = ==(arg _6, arg "opt")
+                    def_cursor _7: bool = eqStr(arg _6, arg "opt")
                     if _7:
                       scope:
                         def _10: string = splitted[1]
@@ -142,13 +142,13 @@ scope:
       def_cursor a: seq[Symbol] = _0[].symbols
       def i: int = 0
       def_cursor _1: seq[Symbol] = a
-      def L: int = len(arg _1)
+      def L: int = lengthSeq(arg _1)
       block L0:
         scope:
           while true:
             scope:
               def_cursor _2: int = i
-              def_cursor _3: bool = <(arg _2, arg L)
+              def_cursor _3: bool = ltI(arg _2, arg L)
               def_cursor _4: bool = not(arg _3)
               if _4:
                 scope:
@@ -171,15 +171,15 @@ scope:
   try:
     def x: sink string
     def_cursor _0: sink string = x
-    def_cursor _1: int = len(arg _0)
-    def_cursor _2: bool = ==(arg _1, arg 2)
+    def_cursor _1: int = lengthStr(arg _0)
+    def_cursor _2: bool = eqI(arg _1, arg 2)
     if _2:
       scope:
         result = x
         wasMoved(name x)
         return
     def_cursor _3: sink string = x
-    def_cursor _4: int = len(arg _3)
+    def_cursor _4: int = lengthStr(arg _3)
     def _5: string = $(arg _4) (raises)
     echo(arg type(array[0..0, string]), arg _5) (raises)
   finally:
