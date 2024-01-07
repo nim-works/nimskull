@@ -731,10 +731,6 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
   ## to `BackendEventKind <#BackendEventKind>`_ for more informations about the
   ## events).
   ##
-  ## `noMagics` is the set of magics that need to be treated as normal
-  ## procedure during discovery of alive procedures, and `conf` is additional
-  ## configuration that modifies some aspects of the processing.
-  ##
   ## The iterator is complex and contains multiple yield statements, so it's
   ## advised to implement ``BackendEvent`` processing with a dedicated
   ## procedure.
