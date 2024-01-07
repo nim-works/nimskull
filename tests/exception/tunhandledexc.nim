@@ -1,8 +1,9 @@
 discard """
-  cmd: "nim $target -d:release $options $file"
-  outputsub: '''tunhandledexc.nim(15)    genErrors
+  matrix: "-d:release"
+  outputsub: '''tunhandledexc.nim(16)    genErrors
 Error: unhandled exception: bla [ESomeOtherErr]'''
   exitcode: "1"
+  knownIssue.vm: "the stacktrace points to the wrong line"
 """
 type
   ESomething = object of Exception

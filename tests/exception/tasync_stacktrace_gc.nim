@@ -1,5 +1,4 @@
 discard """
-  matrix: "--gc:arc"
   description: '''
   . From https://github.com/nim-lang/Nim/issues/18620
     Stacktrace when using async with arc/orc is different than
@@ -9,6 +8,7 @@ discard """
     the stacktrace with arc/orc gives little help in finding out
     where the problem is.
   '''
+  knownIssue.js vm: "`getStackTraceEntries` is not yet supported"
 """
 
 proc hello() =

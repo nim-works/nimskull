@@ -7,7 +7,7 @@ B
 A'''
 """
 
-# bug #1742
+# bug https://github.com/nim-lang/nim/issues/1742
 
 import strutils
 let x = try: parseInt("133a")

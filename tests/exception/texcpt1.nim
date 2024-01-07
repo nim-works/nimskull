@@ -29,7 +29,7 @@ proc blah(): int =
 
 echo blah()
 
-# Issue #7845, raise generic exception
+# https://github.com/nim-lang/nim/issues/7845, raise generic exception
 var x: ref ESomethingGen[int]
 new(x)
 try:
