@@ -111,8 +111,6 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
     line(p, cpsStmts, pl)
     exitCall(p, ri[0], canRaise)
 
-proc genBoundsCheck(p: BProc; arr, a, b: TLoc)
-
 proc reifiedOpenArray(p: BProc, n: CgNode): bool {.inline.} =
   # all non-parameter openArrays are reified
   not(n.kind == cnkLocal and p.locals[n.local].k == locParam)
@@ -122,9 +120,6 @@ proc genOpenArraySlice(p: BProc; q: CgNode; formalType, destType: PType): (Rope,
   initLocExpr(p, q[0], a)
   initLocExpr(p, q[1], b)
   initLocExpr(p, q[2], c)
-  # but first produce the required index checks:
-  if optBoundsCheck in p.options:
-    genBoundsCheck(p, a, b, c)
   let ty = skipTypes(a.t, abstractVar+{tyPtr, tyRef, tyLent})
   let dest = getTypeDesc(p.module, destType)
   let lengthExpr = "($1)-($2)+1" % [rdLoc(c), rdLoc(b)]

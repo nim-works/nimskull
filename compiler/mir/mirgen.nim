@@ -79,6 +79,9 @@ import
   compiler/front/[
     options
   ],
+  compiler/sem/[
+    ast_analysis
+  ],
   compiler/utils/[
     containers,
     idioms
@@ -266,15 +269,10 @@ func isPure(tree: MirTree, n: NodePosition): bool =
   of mnkPathArray:
     let arr = NodePosition tree.operand(n, 0)
     case tree[arr].typ.skipTypes(abstractVar).kind
-    of tyArray:
-      # static array; pure when the array expression is pure and no index
-      # errors are possible
-      tree[n, 1].kind == mnkLiteral and isPure(tree, arr)
-    of tyUncheckedArray:
-      # no index errors are possible
-      isPure(tree, arr)
-    of tyString, tySequence, tyOpenArray, tyVarargs, tyCstring:
-      false # dynamically-sized arrays; index errors are possible
+    of tyArray, tyUncheckedArray, tyString, tySequence, tyOpenArray, tyVarargs,
+       tyCstring:
+      # pure when the both the array and index operands are pure
+      isPure(tree, tree.child(n, 1)) and isPure(tree, arr)
     else:
       unreachable(tree[arr].kind)
   else:
@@ -289,14 +287,13 @@ func isStable(tree: MirTree, n: NodePosition): bool =
   of mnkPathArray:
     let arr = NodePosition tree.operand(n, 0)
     case tree[arr].typ.skipTypes(abstractVar).kind
-    of tyArray:
-      # static arrays; stable when no index errors are possible
-      tree[n, 1].kind == mnkLiteral and isStable(tree, arr)
-    of tyUncheckedArray:
-      # cannot raise
-      isStable(tree, arr)
+    of tyArray, tyUncheckedArray:
+      # static arrays
+      isPure(tree, tree.child(n, 1)) and isStable(tree, arr)
     of tyString, tySequence, tyOpenArray, tyVarargs, tyCstring:
-      false # run-time arrays; could always raise
+      # run-time arrays; stable when neither the array nor index operand
+      # depends on mutable state
+      isPure(tree, tree.child(n, 1)) and isPure(tree, arr)
     else:
       unreachable()
   of mnkPathNamed, mnkPathPos:
@@ -528,6 +525,29 @@ proc genRd(c: var TCtx, n: PNode; consume=false): Value =
     # either an rvalue or some non-pure lvalue -> capture
     result = captureInTemp(c, f, consume)
 
+proc capture(c: var TCtx, n: PNode): Value =
+  ## If not a stable lvalue expression, captures the result of the
+  ## expression `n` in a temporary.
+  ## * rvalue expression are captured in temporaries
+  ## * lvalue expressions are captured as non-assignable aliases
+  ## * literals are not captured
+  const Skip = abstractInstTypeClass + {tyVar}
+  let f = c.builder.push: genx(c, n)
+  case detectKind(c.builder.staging, f.pos, sink=false)
+  of Rvalue, OwnedRvalue:
+    captureInTemp(c, f, sink=false)
+  of Literal:
+    c.builder.popSingle(f)
+  of Lvalue:
+    if c.builder.staging[f.pos].kind in Atoms:
+      # atoms are always stable and can thus be used directly
+      c.builder.popSingle(f)
+    elif n.typ.skipTypes(Skip).kind in {tyOpenArray, tyVarargs}:
+      # don't create an alias for openArrays, a copy of the view suffices
+      captureInTemp(c, f, sink=false)
+    else:
+      captureName(c, f, mutable=false)
+
 proc genOperand(c: var TCtx, n: PNode; sink = false) =
   ## Translates expression AST `n` to a MIR operand expression. `sink` signals
   ## whether the result is used in a sink context -- the flag is propagated
@@ -622,9 +642,23 @@ proc genBracketExpr(c: var TCtx, n: PNode) =
       genOperand(c, n[0])
   of tyArray, tySequence, tyOpenArray, tyVarargs, tyUncheckedArray, tyString,
      tyCstring:
-    c.buildOp mnkPathArray, elemType(typ):
-      genOperand(c, n[0])
-      c.use genRd(c, n[1])
+    if optBoundsCheck in c.userOptions and needsIndexCheck(n[0], n[1]):
+      let
+        arr = capture(c, n[0])
+        idx = genRd(c, n[1])
+
+      c.buildStmt mnkVoid:
+        c.buildDefectMagicCall mChckIndex, typeOrVoid(c, nil):
+          c.emitByVal arr
+          c.emitByVal idx
+
+      c.buildOp mnkPathArray, elemType(typ):
+        c.use arr
+        c.use idx
+    else:
+      c.buildOp mnkPathArray, elemType(typ):
+        genOperand(c, n[0])
+        c.use genRd(c, n[1])
   else: unreachable()
 
 proc genVariantAccess(c: var TCtx, n: PNode) =
@@ -1017,13 +1051,30 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         genx(c, n[1])
         c.userOptions = orig
   of mSlice:
-    c.buildTree mnkToSlice, n.typ:
-      # XXX: a HiddenStdConv erroneously ends up in the array position
-      #      sometimes, which would, if kept, lead to index errors when the
-      #      array doesn't start at index 0
-      genOperand(c, skipConv(n[1]))
-      genArgExpression(c, n[2], sink=false)
-      genArgExpression(c, n[3], sink=false)
+    # XXX: a HiddenStdConv erroneously ends up in the array position
+    #      sometimes, which would, if kept, lead to index errors when the
+    #      array doesn't start at index 0
+    let arr = skipConv(n[1])
+    if optBoundsCheck in c.userOptions and needsBoundCheck(arr, n[2], n[3]):
+      let
+        arr = capture(c, arr)
+        lo = genRd(c, n[2])
+        hi = genRd(c, n[3])
+      c.buildStmt mnkVoid:
+        c.buildDefectMagicCall mChckBounds, typeOrVoid(c, nil):
+          c.emitByVal arr
+          c.emitByVal lo
+          c.emitByVal hi
+
+      c.buildTree mnkToSlice, n.typ:
+        c.use arr
+        c.use lo
+        c.use hi
+    else:
+      c.buildTree mnkToSlice, n.typ:
+        genOperand(c, arr)
+        genArgExpression(c, n[2], sink=false)
+        genArgExpression(c, n[3], sink=false)
 
   # magics that use incomplete symbols (most of them are generated by
   # ``liftdestructors``):
