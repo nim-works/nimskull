@@ -526,7 +526,7 @@ proc genRd(c: var TCtx, n: PNode; consume=false): Value =
     result = captureInTemp(c, f, consume)
 
 proc capture(c: var TCtx, n: PNode): Value =
-  ## If not not a stable lvalue expression, captures the result of the
+  ## If not a stable lvalue expression, captures the result of the
   ## expression `n` in a temporary.
   ## * rvalue expression are captured in temporaries
   ## * lvalue expressions are captured as non-assignable aliases
