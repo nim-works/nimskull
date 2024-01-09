@@ -4,6 +4,7 @@ discard """
 Error: unhandled exception: bla [ESomeOtherErr]'''
   exitcode: "1"
   knownIssue.vm: "the stacktrace points to the wrong line"
+  knownIssue.js: "the output doesn't match the expectation"
 """
 type
   ESomething = object of Exception
