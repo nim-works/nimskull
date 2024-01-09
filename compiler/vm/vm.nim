@@ -1905,8 +1905,8 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           # setup register that will store the result
           if not loadEmptyReg(regs[ra], retType, c.debug[pc], c.memory):
             # allocating the destination location is the responsibility of
-            # ``vmgen``
-            discard
+            # ``vmgen``, but we still have to make sure its accessible
+            checkHandle(regs[ra])
 
         # We have to assume that the callback makes use of its parameters and
         # thus need to validate them here
@@ -1943,7 +1943,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         var newFrame = TStackFrame(prc: prc, comesFrom: pc, savedPC: -1)
         newFrame.slots.newSeq(regCount)
         if instr.opcode == opcIndCallAsgn:
-          checkHandle(regs[ra])
           # the destination might be a temporary complex location (`ra` is an
           # ``rkLocation`` register then). While we could use
           # ``fastAsgnComplex`` like we do with the arguments, it would mean
@@ -2961,7 +2960,6 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
     of vmEvtUserError: adVmUserError
     of vmEvtUnhandledException: adVmUnhandledException
     of vmEvtCannotCast: adVmCannotCast
-    of vmEvtCallingNonRoutine: adVmCallingNonRoutine
     of vmEvtCannotModifyTypechecked: adVmCannotModifyTypechecked
     of vmEvtNilAccess: adVmNilAccess
     of vmEvtAccessOutOfBounds: adVmAccessOutOfBounds
@@ -3031,7 +3029,6 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
           kind: kind,
           sym: evt.sym)
       of adVmOpcParseExpectedExpression,
-          adVmCallingNonRoutine,
           adVmCannotModifyTypechecked,
           adVmAccessOutOfBounds,
           adVmAccessTypeMismatch,

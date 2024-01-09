@@ -578,7 +578,6 @@ type
     vmEvtUserError
     vmEvtUnhandledException
     vmEvtCannotCast
-    vmEvtCallingNonRoutine
     vmEvtCannotModifyTypechecked
     vmEvtNilAccess
     vmEvtAccessOutOfBounds

@@ -226,13 +226,9 @@ type
     rvmUnhandledException
     rvmCannotGenerateCode
     rvmCannotCast
-    rvmGlobalError ## Error report that was declared as 'global' in the
-    ## VM - with current 'globalError-is-a-control-flow-mechanism' approach
-    ## this report is largely meaningless, and used only to raise exception.
     rvmCannotEvaluateAtComptime
     rvmCannotImportc
     rvmCannotCallMethod
-    rvmCallingNonRoutine
     rvmCannotModifyTypechecked
     rvmNilAccess
     rvmAccessOutOfBounds
