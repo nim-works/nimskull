@@ -717,8 +717,7 @@ proc execProc*(jit: var JitState, c: var TCtx; sym: PSym;
       if result.isError:
         result = nil
   else:
-    localReport(c.config, sym.info):
-      VMReport(kind: rvmCallingNonRoutine, sym: sym)
+    c.config.internalError(sym.info, "symbol doesn't represent a routine")
 
 # XXX: the compilerapi regarding globals (getGlobalValue/setGlobalValue)
 #      doesn't work the same as before. Previously, the returned PNode
