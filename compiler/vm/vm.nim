@@ -2960,7 +2960,6 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
     of vmEvtUserError: adVmUserError
     of vmEvtUnhandledException: adVmUnhandledException
     of vmEvtCannotCast: adVmCannotCast
-    of vmEvtCallingNonRoutine: adVmCallingNonRoutine
     of vmEvtCannotModifyTypechecked: adVmCannotModifyTypechecked
     of vmEvtNilAccess: adVmNilAccess
     of vmEvtAccessOutOfBounds: adVmAccessOutOfBounds
@@ -3030,7 +3029,6 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
           kind: kind,
           sym: evt.sym)
       of adVmOpcParseExpectedExpression,
-          adVmCallingNonRoutine,
           adVmCannotModifyTypechecked,
           adVmAccessOutOfBounds,
           adVmAccessTypeMismatch,
