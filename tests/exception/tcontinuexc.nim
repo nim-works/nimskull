@@ -1,5 +1,7 @@
 discard """
-  outputsub: "ECcaught"
+  outputsub: '''E
+C
+caught'''
   exitcode: "1"
 """
 type
@@ -17,8 +19,8 @@ try:
     try:
       genErrors("error!")
     except ESomething:
-      stdout.write("E")
-    stdout.write("C")
+      echo "E"
+    echo "C"
     raise newException(EsomeotherErr, "bla")
 finally:
   echo "caught"

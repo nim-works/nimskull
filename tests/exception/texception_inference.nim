@@ -1,7 +1,6 @@
 discard """
   output: '''good'''
-  joinable: false
-  cmd: "nim c --gc:orc -d:release $file"
+  matrix: "-d:release"
 """
 
 type

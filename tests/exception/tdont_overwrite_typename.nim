@@ -1,10 +1,9 @@
 discard """
-  targets: "c"
   output: '''Check passed
 Check passed'''
 """
 
-# bug #5628
+# bug https://github.com/nim-lang/nim/issues/5628
 
 proc checkException(ex: ref Exception) =
   doAssert(ex.name == cstring"ValueError")

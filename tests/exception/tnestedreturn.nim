@@ -1,5 +1,4 @@
 discard """
-  targets: "c"
   output: "A\nB\nC\n"
 """
 

@@ -1,6 +1,5 @@
 discard """
   description: "Tests to make sure that the Exception.name field is set"
-  targets: "c js"
 """
 
 template test(desc, body) {.dirty.} =
@@ -9,8 +8,6 @@ template test(desc, body) {.dirty.} =
     proc wrapper() =
       body
 
-    # TODO: once it's available in testament, use the VM target instead
-    static: wrapper()
     wrapper()
 
 
@@ -46,10 +43,12 @@ test "Name is set on raise if it was unset":
   except IOError as e:
     doAssert e.name == "IOError"
 
-
-# fails for the VM. See ``texception_name_vm_issue.nim``
-block no_override_empty:
+test "Don't override an explicitly empty name":
   try:
     raise (ref IOError)(name: "") # explicitly set name to an empty string
   except IOError as e:
-    doAssert e.name == ""
+    when defined(vm):
+      # see ``texception_name_vm_issue.nim``
+      doAssert e.name != "", "works now"
+    else:
+      doAssert e.name == ""
