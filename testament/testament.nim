@@ -10,12 +10,15 @@
 ## Testament runs tests for the compiler.
 
 import std/[
-  strutils, pegs, os, osproc, streams, json, parseopt, browsers,
+  pegs, os, osproc, streams, json, parseopt, browsers,
   terminal, algorithm, times, md5, intsets, macros, tables,
   options, sequtils, hashes
 ]
 import system/platforms
 import backend, htmlgen, specs
+# the ``contains`` overload for strings from strutils doesn't support NULL
+# chars...
+import std/strutils except contains
 from std/sugar import dup
 import compiler/utils/nodejs
 import lib/stdtest/testutils
@@ -189,6 +192,26 @@ let
   testamentData0 = TestamentData()
 
 # ----------------------------------------------------------------------------
+
+proc memcmp(a, b: pointer, len: csize_t): cint {.importc, header: "<string.h>".}
+
+{.push checks: off.} # for efficiency, omit all run-time checks
+
+proc contains(a, b: string): bool =
+  ## Returns whether `b` is part of `a`, but doesn't cut off strings at the first
+  ## NULL byte. If `b` is empty, 'true' is returned.
+  if b.len == 0:
+    return true
+
+  let c = b[0]
+  # search for `b`'s first character in `a`, then do a memcmp
+  for i in 0 .. (a.len - b.len):
+    if a[i] == c and memcmp(addr a[i], addr b[0], csize_t(b.len)) == 0:
+      return true
+
+  result = false
+
+{.pop.}
 
 proc trimUnitSep(x: var string) =
   let L = x.len
@@ -1087,7 +1110,7 @@ func nativeTarget(): TTarget {.inline.} =
 func defaultTargets(category: Category): set[TTarget] =
   const standardTargets = {nativeTarget()}
   case category.string
-  of "lang", "lang_callable":
+  of "lang", "lang_callable", "exception":
     {targetC, targetJs, targetVM}
   of "arc", "avr", "destructor", "distros", "dll", "gc", "osproc", "parallel",
      "realtimeGC", "threads", "views", "valgrind":

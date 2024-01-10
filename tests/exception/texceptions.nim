@@ -1,5 +1,4 @@
 discard """
-  matrix: "--exceptions:goto"
   output: '''
 
 BEFORE
@@ -14,6 +13,9 @@ BEFORE
 EXCEPT: IOError: hi
 FINALLY
 '''
+  knownIssue.vm: '''
+    Exception/finally handling is largely disfunctional in the VM
+  '''
 """
 
 echo ""
@@ -57,7 +59,8 @@ proc return_in_except =
     raise newException(IOError, "hi")
 
   except:
-    echo "EXCEPT: ", getCurrentException().name, ": ", getCurrentExceptionMsg()
+    let e = getCurrentException()
+    echo "EXCEPT: ", e.name, ": ", e.msg
     return
 
   finally:
@@ -66,7 +69,7 @@ proc return_in_except =
 try: return_in_except()
 except: echo "RECOVER"
 
-block: #10417
+block: # https://github.com/nim-lang/nim/issues/10417
   proc moo() {.noreturn.} = discard
 
   let bar =
@@ -84,10 +87,10 @@ block:
       try:
         raise newException(ValueError, "xx")
       except:
-        doAssert("xx" == getCurrentExceptionMsg())
+        doAssert("xx" == getCurrentException().msg)
         raise newException(KeyError, "yy")
     except:
-      doAssert("yy" == getCurrentExceptionMsg())
+      doAssert("yy" == getCurrentException().msg)
       result.add(1212)
     try:
       try:

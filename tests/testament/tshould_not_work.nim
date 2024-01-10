@@ -26,6 +26,8 @@ FAIL: tests/shouldfail/tnimoutfull.nim
 Failure: reMsgsDiffer
 FAIL: tests/shouldfail/toutput.nim
 Failure: reOutputsDiffer
+FAIL: tests/shouldfail/toutput_null_byte.nim
+Failure: reOutputsDiffer
 FAIL: tests/shouldfail/toutputsub.nim
 Failure: reOutputsDiffer
 FAIL: tests/shouldfail/treject.nim

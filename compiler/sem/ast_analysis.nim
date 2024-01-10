@@ -5,7 +5,12 @@ import
     ast_query,
     ast_types,
     types
+  ],
+  compiler/utils/[
+    idioms
   ]
+
+const instTypes = {tyGenericInst, tyAlias, tySink} + tyUserTypeClasses
 
 proc canUseView*(n: PNode): bool =
   ## Computes whether the expression `n` evaluates to something of which a
@@ -35,3 +40,36 @@ proc canUseView*(n: PNode): bool =
       return classifyBackendView(n.typ) != bvcNone
     else:
       return false
+
+proc needsIndexCheck*(arr, idx: PNode): bool =
+  ## Uses the expressions' type and shape to infer whether index checks are
+  ## required for an ``arr[idx]`` access.
+  case arr.typ.skipTypes(instTypes + {tyDistinct, tyVar}).kind
+  of tyArray:
+    # statement-list expressions are, at present, not checked at compile-
+    # time, so they're not skipped here
+    idx.kind notin nkIntLiterals
+  of tyUncheckedArray:
+    false
+  of tyString, tySequence, tyOpenArray, tyVarargs:
+    true
+  of tyCstring:
+    # XXX: depends on the targeted backend (i.e., index checks are used with
+    #      the JS and VM backend, but not with the C one)
+    true
+  else:
+    unreachable()
+
+proc needsBoundCheck*(arr, lo, hi: PNode): bool =
+  ## Uses the expression's type and shape to infer whether bound checks are
+  ## required for a ``toOpenArray(arr, lo, hi)`` call.
+  case arr.typ.skipTypes(instTypes + {tyDistinct, tyVar}).kind
+  of tyPtr, tyUncheckedArray:
+    false
+  of tyArray, tyString, tySequence, tyOpenArray, tyVarargs:
+    true
+  of tyCstring:
+    # XXX: depends on the targeted backend
+    true
+  else:
+    unreachable()

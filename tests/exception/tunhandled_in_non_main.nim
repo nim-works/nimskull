@@ -1,5 +1,4 @@
 discard """
-  targets: "c js vm"
   description: '''
     An unhandled exception not raised inside the main module must also
     terminate the program

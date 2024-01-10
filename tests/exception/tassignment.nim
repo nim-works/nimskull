@@ -1,5 +1,4 @@
 discard """
-  targets: "c js vm"
   description: '''
     Tests for assignments where an exception is raised during evaluation of
     the right-hand side

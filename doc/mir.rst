@@ -110,10 +110,14 @@ Semantics
             | DefCursor NAME            # definition of non-owning location
             | DefCursor NAME FULL_VALUE # same as above, but with initial
                                         # assignment
-            | Bind <Alias> LVALUE       # bind the lvalue to the given alias
+            | Bind <Alias> LVALUE       # bind the lvalue to the given alias.
+                                        # May be used for mutation, but must
+                                        # not be used as an assignment's
+                                        # destination or `Tag`'s operand
             | BindMut <Alias> LVALUE    # bind the lvalue to the given alias.
-                                        # The alias may be used for mutations
-                                        # (e.g., on the left of assignments)
+                                        # The alias may be used as an
+                                        # assignment's destination or as a
+                                        # `Tag`'s operand
             | Void LVALUE               # evaluates the lvalue for side-effects
                                         # and acts as a usage of the lvalue
                                         # during data-flow analysis

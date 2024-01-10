@@ -384,6 +384,11 @@ include jstypes
 proc gen(p: PProc, n: CgNode, r: var TCompRes)
 proc genStmt(p: PProc, n: CgNode)
 
+proc gen(p: PProc, n: CgNode): TCompRes {.inline.} =
+  ## Convenience procedure that returns instead of requiring a ``var``
+  ## parameter.
+  gen(p, n, result)
+
 proc useMagic(p: PProc, name: string) =
   if name.len == 0: return
   var s = magicsys.getCompilerProc(p.module.graph, name)
@@ -1092,19 +1097,12 @@ proc genArrayAddr(p: PProc, n: CgNode, r: var TCompRes) =
   gen(p, m[0], a)
   gen(p, m[1], b)
   #internalAssert p.config, a.typ != etyBaseIndex and b.typ != etyBaseIndex
-  let x, tmp = a.rdLoc
+  let x = a.rdLoc
   r.address = x
   var typ = skipTypes(m[0].typ, abstractPtrs)
   if typ.kind == tyArray:
     first = firstOrd(p.config, typ[0])
-  if optBoundsCheck in p.options:
-    useMagic(p, "chckIndx")
-    if first == 0: # save a couple chars
-      r.res = "chckIndx($1, 0, ($2).length - 1)" % [b.res, tmp]
-    else:
-      r.res = "chckIndx($1, $2, ($3).length + ($2) - 1) - ($2)" % [
-        b.res, rope(first), tmp]
-  elif first != 0:
+  if first != 0:
     r.res = "($1) - ($2)" % [b.res, rope(first)]
   else:
     r.res = b.res
@@ -1943,6 +1941,36 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
     r.kind = resExpr
   of mChckRange:
     genRangeChck(p, n, r)
+  of mChckIndex:
+    let
+      first = firstOrd(p.config, n[1].typ)
+      arr = gen(p, n[1])
+      idx = gen(p, n[2])
+
+    useMagic(p, "chckIndx")
+    if first == 0:
+      lineF(p, "(chckIndx($2, 0, ($1).length - 1));$n",
+            [rdLoc(arr), rdLoc(idx)])
+    else:
+      # can only be a statically-sized array
+      lineF(p, "(chckIndx($1, $2, $3));$n",
+            [rdLoc(idx), rope(first), rope(lastOrd(p.config, n[1].typ))])
+  of mChckBounds:
+    let
+      first = firstOrd(p.config, n[1].typ)
+      arr = gen(p, n[1])
+      lo = gen(p, n[2])
+      hi = gen(p, n[3])
+
+    useMagic(p, "chckBounds")
+    if first == 0:
+      lineF(p, "chckBounds($2, $3, 0, ($1).length - 1);$n",
+            [rdLoc(arr), rdLoc(lo), rdLoc(hi)])
+    else:
+      # can only be a statically-sized array
+      lineF(p, "(chckBounds($1, $2, $3, $4));$n",
+            [rdLoc(lo), rdLoc(hi), rope(first),
+             rope(lastOrd(p.config, n[1].typ))])
   else:
     genCall(p, n, r)
     #else internalError(p.config, e.info, 'genMagic: ' + magicToStr[op]);

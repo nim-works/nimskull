@@ -1003,10 +1003,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       let
         idx = regs[rc].intVal.int
         srcTyp = regs[rb].handle.typ
-        L = arrayLen(regs[rb].handle)
-
-      if unlikely(idx >=% L):
-        raiseVmError(reportVmIdx(idx, L-1))
 
       case srcTyp.kind
       of akString:
@@ -1028,9 +1024,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
       checkHandle(regs[rb])
       let src = regs[rb].handle
-
-      if unlikely(idx >=% arrayLen(src)):
-        raiseVmError(reportVmIdx(idx, arrayLen(src) - 1))
 
       case src.typ.kind
       of akString:
@@ -1083,7 +1076,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
            akDiscriminator:
           unreachable(dTyp.kind)
 
-      if idx <% slice.len:
+      if idx >= 0 and idx <% slice.len:
         checkHandle(regs[rc])
         writeLoc(slice[idx], regs[rc], c.memory)
       else:
@@ -1845,7 +1838,16 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
             regs[ra].toStr,
             "[" & regs[rb].toStr & ".." & regs[rc].toStr & "]"
           ]))
+    of opcIndexChck:
+      # raise an error if c is not within b's bounds
+      let
+        rb = instr.regB
+        idx = regs[instr.regC].intVal
+      checkHandle(regs[rb])
 
+      let len = arrayLen(regs[rb].handle)
+      if idx < 0 or idx >=% len:
+        raiseVmError(reportVmIdx(idx, len-1))
     of opcArrCopy:
       let rb = instr.regB
       let rc = instr.regC

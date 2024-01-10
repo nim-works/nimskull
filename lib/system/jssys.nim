@@ -172,6 +172,9 @@ proc raiseRangeError() {.compilerproc, noreturn.} =
 proc raiseIndexError(i, a, b: int) {.compilerproc, noreturn.} =
   raise newException(IndexDefect, formatErrorIndexBound(int(i), int(a), int(b)))
 
+proc raiseIndexError1() {.compilerproc, noreturn.} =
+  raise newException(IndexDefect, "index out of bounds")
+
 proc raiseFieldError2(f: string, discVal: string) {.compilerproc, noreturn.} =
   raise newException(FieldDefect, formatFieldDefect(f, discVal))
 
@@ -677,6 +680,10 @@ proc arrayConstr(len: int, value: JSRef, typ: PNimType): JSRef {.
 proc chckIndx(i, a, b: int): int {.compilerproc.} =
   if i >= a and i <= b: return i
   else: raiseIndexError(i, a, b)
+
+proc chckBounds(lo, hi, a, b: int) {.compilerproc.} =
+  if hi-lo != -1 and (hi-lo < -1 or lo < a or lo > b or hi > b or hi < a):
+    raiseIndexError1()
 
 proc chckRange(i, a, b: int): int {.compilerproc.} =
   if i >= a and i <= b: return i
