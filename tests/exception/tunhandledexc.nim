@@ -1,6 +1,6 @@
 discard """
   matrix: "-d:release"
-  outputsub: '''tunhandledexc.nim(16)    genErrors
+  outputsub: '''tunhandledexc.nim(17)    genErrors
 Error: unhandled exception: bla [ESomeOtherErr]'''
   exitcode: "1"
   knownIssue.vm: "the stacktrace points to the wrong line"
