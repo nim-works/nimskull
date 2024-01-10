@@ -3058,7 +3058,15 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkEmpty:
     unused(c, n, dest)
   of cnkStringToCString, cnkCStringToString:
-    gen(c, n.operand, dest)
+    let val = n.operand
+    if val.kind in LvalueExprKinds:
+      # loading the handle into dest is wrong, the value needs to be
+      # copied
+      let tmp = genLvalue(c, val)
+      c.gABC(n, opcWrLoc, dest, tmp)
+      c.freeTemp(tmp)
+    else:
+      gen(c, n.operand, dest)
   of cnkArrayConstr: genArrayConstr(c, n, dest)
   of cnkSetConstr: genSetConstr(c, n, dest)
   of cnkObjConstr: genObjConstr(c, n, dest)
