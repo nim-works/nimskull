@@ -118,13 +118,15 @@ proc generateCodeForMain(globals: PGlobals, graph: ModuleGraph, m: BModule,
   generateTeardown(graph, modules, body)
 
   let owner = m.module
-  genTopLevelStmt(globals, m, canonicalize(graph, m.idgen, owner, body, {}))
+  genTopLevelStmt(globals, m):
+    canonicalize(graph, m.idgen, owner, body, TranslationConfig())
 
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point into the JS backend. Generates the code for all modules and
   ## writes it to the output file.
   let
     globals = newGlobals()
+    bconf = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics))
 
   var
     modules: BModuleList
@@ -144,7 +146,7 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 
     modules[m.sym.position.FileIndex] = bmod
 
-  for evt in process(graph, mlist, discovery, NonMagics, BackendConfig()):
+  for evt in process(graph, mlist, discovery, bconf):
     processEvent(globals, graph, modules, discovery, partial, evt)
 
   # finish the partial procedures:

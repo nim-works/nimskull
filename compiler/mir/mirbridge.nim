@@ -129,12 +129,12 @@ proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap) =
   apply(body, prepare(changes))
 
 proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                   body: PNode, options: set[GenOption]): Body =
+                   body: PNode, config: TranslationConfig): Body =
   ## Legacy routine. Translates the body `body` of the procedure `owner` to
   ## MIR code, and the MIR code to ``CgNode`` IR.
   echoInput(graph.config, owner, body)
   # step 1: generate a ``MirTree`` from the input AST
-  let (tree, sourceMap) = generateCode(graph, owner, options, body)
+  let (tree, sourceMap) = generateCode(graph, owner, config, body)
   echoMir(graph.config, owner, tree)
 
   # step 2: generate the ``CgNode`` tree

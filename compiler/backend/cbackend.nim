@@ -182,7 +182,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
 
     # remember usages of inline procedures for the purpose of emitting
     # them later:
-    for dep in deps(body, NonMagics):
+    for dep in deps(body):
       if dep.kind in routineKinds and dep.typ.callConv == ccInline:
         dependOnInline(inl, m, result, dep)
 
@@ -333,7 +333,7 @@ proc generateCodeForMain(m: BModule, modules: ModuleList) =
   # we don't want error or stack-trace code in the main procedure:
   p.flags.incl nimErrorFlagDisabled
   p.options = {}
-  p.body = canonicalize(m.g.graph, m.idgen, m.module, body, {})
+  p.body = canonicalize(m.g.graph, m.idgen, m.module, body, TranslationConfig())
 
   genStmts(p, p.body.code)
   var code: string
@@ -388,7 +388,7 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
 
   # ----- main event processing -----
   let
-    config = BackendConfig()
+    config = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics))
 
   var
     inl:       InliningData
@@ -398,7 +398,7 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
   inl.inlined.newSeq(g.modules.len)
 
   # discover and generate code for all alive procedures:
-  for ac in process(graph, mlist, discovery, NonMagics, config):
+  for ac in process(graph, mlist, discovery, config):
     processEvent(g, inl, discovery, partial, ac)
 
   # finish the partial procedures:

@@ -100,12 +100,6 @@ template `^^`(s, i: untyped): untyped =
   # XXX: copied from ``system.nim`` because it's not exported
   (when i is BackwardsIndex: s.len - int(i) else: int(i))
 
-func getCalleeMagic(n: CgNode): TMagic =
-  case n.kind
-  of cnkProc:  n.sym.magic
-  of cnkMagic: n.magic
-  else:        mNone
-
 func newMagicNode(magic: TMagic, info: TLineInfo): CgNode =
   CgNode(kind: cnkMagic, info: info, magic: magic)
 
@@ -630,7 +624,8 @@ proc callToIr(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
 
   # the code generators currently require some magics to not have any
   # arguments wrapped in ``cnkHiddenAddr`` nodes
-  let noAddr = getCalleeMagic(result[0]) in FakeVarParams
+  let noAddr = result[0].kind == cnkMagic and
+               result[0].magic in FakeVarParams
 
   # translate the arguments:
   while tree[cr].kind != mnkEnd:
