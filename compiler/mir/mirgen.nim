@@ -127,7 +127,7 @@ type
      ## Extra configuration for the AST -> MIR translation.
      options*: set[GenOption]
      magicsToKeep*: set[TMagic]
-      ## magic procedures that need to referenced via their symbols, either
+      ## magic procedures that need to be referenced via their symbols, either
       ## because they're not really magic or because the symbol has
       ## additional information
 
