@@ -692,29 +692,6 @@ proc genArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   initLocExpr(p, y, b)
   var ty = skipTypes(a.t, abstractVarRange + abstractPtrs + tyUserTypeClasses)
   var first = intLiteral(firstOrd(p.config, ty))
-  # emit range check:
-  if optBoundsCheck in p.options and ty.kind != tyUncheckedArray:
-    if not isDeepConstExpr(y):
-      # semantic pass has already checked for const index expressions
-      if firstOrd(p.config, ty) == 0 and lastOrd(p.config, ty) >= 0:
-        if (firstOrd(p.config, b.t) < firstOrd(p.config, ty)) or
-           (lastOrd(p.config, b.t) > lastOrd(p.config, ty)):
-
-          linefmt(p, cpsStmts, "if ((NU)($1) > (NU)($2)){ #raiseIndexError2($1, $2); $3}$n",
-                  [rdCharLoc(b), intLiteral(lastOrd(p.config, ty)), raiseInstr(p)])
-      else:
-        linefmt(p, cpsStmts, "if ($1 < $2 || $1 > $3){ #raiseIndexError3($1, $2, $3); $4}$n",
-                [rdCharLoc(b), first, intLiteral(lastOrd(p.config, ty)), raiseInstr(p)])
-    else:
-      let idx = getOrdValue(y)
-      if idx < firstOrd(p.config, ty) or lastOrd(p.config, ty) < idx:
-        localReport(
-          p.config, x.info, SemReport(
-            kind: rsemStaticOutOfBounds,
-            indexSpec: (
-              usedIdx: idx,
-              minIdx: firstOrd(p.config, ty),
-              maxIdx: lastOrd(p.config, ty))))
 
   d.inheritLocation(a)
   putIntoDest(p, d, n,
@@ -760,22 +737,49 @@ proc genBoundsCheck(p: BProc; arr, a, b: TLoc) =
   else:
     unreachable(ty.kind)
 
+proc genIndexCheck(p: BProc; x: CgNode, arr, idx: TLoc) =
+  ## Emits the index check logic + subsequent raise operation. `x` is
+  ## the array expression the `arr` loc resulted from from.
+  let ty = arr.t.skipTypes(abstractVar + tyUserTypeClasses +
+                           {tyPtr, tyRef, tyLent, tyVar})
+  case ty.kind
+  of tyArray:
+    var first = intLiteral(firstOrd(p.config, ty))
+    if firstOrd(p.config, ty) == 0 and lastOrd(p.config, ty) >= 0:
+      if firstOrd(p.config, idx.t) < firstOrd(p.config, ty) or
+         lastOrd(p.config, idx.t) > lastOrd(p.config, ty):
+        linefmt(p, cpsStmts, "if ((NU)($1) > (NU)($2)){ #raiseIndexError2($1, $2); $3}$n",
+                [rdCharLoc(idx), intLiteral(lastOrd(p.config, ty)),
+                 raiseInstr(p)])
+    else:
+      linefmt(p, cpsStmts, "if ($1 < $2 || $1 > $3){ #raiseIndexError3($1, $2, $3); $4}$n",
+              [rdCharLoc(idx), first, intLiteral(lastOrd(p.config, ty)),
+               raiseInstr(p)])
+  of tySequence, tyString:
+    linefmt(p, cpsStmts,
+            "if ((NU)($1) >= (NU)$2){ #raiseIndexError2($1,$2-1); $3}$n",
+            [rdCharLoc(idx), lenExpr(p, arr), raiseInstr(p)])
+  of tyOpenArray, tyVarargs:
+    if reifiedOpenArray(p, x):
+      linefmt(p, cpsStmts, "if ((NU)($1) >= (NU)($2.Field1)){ #raiseIndexError2($1,$2.Field1-1); $3}$n",
+              [rdCharLoc(idx), rdLoc(arr), raiseInstr(p)])
+    else:
+      linefmt(p, cpsStmts, "if ((NU)($1) >= (NU)($2Len_0)){ #raiseIndexError2($1,$2Len_0-1); $3}$n",
+              [rdCharLoc(idx), rdLoc(arr), raiseInstr(p)])
+  of tyCstring:
+    discard "no bound checks"
+  else:
+    unreachable()
+
 proc genOpenArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   var a, b: TLoc
   initLocExpr(p, x, a)
   initLocExpr(p, y, b)
   if not reifiedOpenArray(p, x):
-    # emit range check:
-    if optBoundsCheck in p.options:
-      linefmt(p, cpsStmts, "if ((NU)($1) >= (NU)($2Len_0)){ #raiseIndexError2($1,$2Len_0-1); $3}$n",
-              [rdCharLoc(b), rdLoc(a), raiseInstr(p)]) # BUGFIX: ``>=`` and not ``>``!
     inheritLocation(d, a)
     putIntoDest(p, d, n,
                 ropecg(p.module, "$1[$2]", [rdLoc(a), rdCharLoc(b)]), a.storage)
   else:
-    if optBoundsCheck in p.options:
-      linefmt(p, cpsStmts, "if ((NU)($1) >= (NU)($2.Field1)){ #raiseIndexError2($1,$2.Field1-1); $3}$n",
-              [rdCharLoc(b), rdLoc(a), raiseInstr(p)]) # BUGFIX: ``>=`` and not ``>``!
     inheritLocation(d, a)
     putIntoDest(p, d, n,
                 ropecg(p.module, "$1.Field0[$2]", [rdLoc(a), rdCharLoc(b)]), a.storage)
@@ -786,11 +790,7 @@ proc genSeqElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   initLocExpr(p, y, b)
   var ty = skipTypes(a.t, abstractVarRange)
   if ty.kind in {tyRef, tyPtr}:
-    ty = skipTypes(ty.lastSon, abstractVarRange) # emit range check:
-  if optBoundsCheck in p.options:
-    linefmt(p, cpsStmts,
-            "if ((NU)($1) >= (NU)$2){ #raiseIndexError2($1,$2-1); $3}$n",
-            [rdCharLoc(b), lenExpr(p, a), raiseInstr(p)])
+    ty = skipTypes(ty.lastSon, abstractVarRange)
   if d.k == locNone: d.storage = OnHeap
   if skipTypes(a.t, abstractVar).kind in {tyRef, tyPtr}:
     a.r = ropecg(p.module, "(*$1)", [a.r])
@@ -1862,6 +1862,17 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     linefmt(p, cpsStmts, "$1 = ($2)($3);$n", [a.r, typ, rdLoc(b)])
   of mChckRange:
     genRangeChck(p, e, d)
+  of mChckIndex:
+    var arr, a: TLoc
+    initLocExpr(p, e[1], arr)
+    initLocExpr(p, e[2], a)
+    genIndexCheck(p, e[1], arr, a)
+  of mChckBounds:
+    var arr, a, b: TLoc
+    initLocExpr(p, e[1], arr)
+    initLocExpr(p, e[2], a)
+    initLocExpr(p, e[3], b)
+    genBoundsCheck(p, arr, a, b)
   of mSamePayload:
     var a, b: TLoc
     initLocExpr(p, e[1], a)

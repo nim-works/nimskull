@@ -1,10 +1,13 @@
 discard """
-output: '''
+  output: '''
 A
 B
 C
 D
 '''
+  knownIssue.vm: '''
+    Exception/finally handling is largely disfunctional in the VM
+  '''
 """
 # Test break in try statement:
 

@@ -820,6 +820,12 @@ type
     mChckRange
       ## chckRange(v, lower, upper); conversion + range check -- returns
       ## either the type-converted value or raises a defect
+    mChckIndex
+      ## chckIndex(arr, idx); raise an error when `idx` is not within `arr`'s
+      ## bounds
+    mChckBounds
+      ## chckBounds(arr, lo, hi); raise an error when `lo` and/or `hi` is not
+      ## within `arr`'s bounds
     mSamePayload
       ## returns whether both seq/string operands share the same payload
     mCopyInternal
@@ -947,7 +953,6 @@ type
     adVmUserError
     adVmUnhandledException
     adVmCannotCast
-    adVmCallingNonRoutine
     adVmCannotModifyTypechecked
     adVmNilAccess
     adVmAccessOutOfBounds
@@ -998,7 +1003,6 @@ type
       of adVmNotAField:
         sym*: PSym
       of adVmOpcParseExpectedExpression,
-          adVmCallingNonRoutine,
           adVmCannotModifyTypechecked,
           adVmAccessOutOfBounds,
           adVmAccessTypeMismatch,

@@ -528,9 +528,10 @@ proc prepare(c: var TCtx, dest: var TDest, n: CgNode, typ: PType) =
     # value doesn't fit into a register -> setup a temporary location
     c.gABx(n, opcLdNull, dest, c.genType(typ))
 
-template withTemp(tmp, n, typ, body: untyped) {.dirty.} =
-  var tmp = getFullTemp(c, n, typ)
+template withDest(tmp, body: untyped) {.dirty.} =
+  var tmp = noDest
   body
+  assert tmp != noDest, "destination was not set"
   c.freeTemp(tmp)
 
 proc gen(c: var TCtx; n: CgNode; dest: var TDest)
@@ -610,7 +611,7 @@ proc genIf(c: var TCtx, n: CgNode) =
   #  lab1:
   block:
       let it = n
-      withTemp(tmp, it[0], it[0].typ):
+      withDest(tmp):
         var elsePos: TPosition
         if isNotOpr(it[0]):
           c.gen(it[0][1], tmp)
@@ -781,7 +782,7 @@ proc genCase(c: var TCtx; n: CgNode) =
   #  Lend:
   let selType = n[0].typ.skipTypes(abstractVarRange)
   var endings: seq[TPosition] = @[]
-  withTemp(tmp, n[0], n[0].typ):
+  withDest(tmp):
     c.gen(n[0], tmp)
     # branch tmp, codeIdx
     # fjmp   elseLabel
@@ -2059,6 +2060,13 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
       c.freeTemp(tmp0)
     else:
       dest = tmp0
+  of mChckIndex:
+    let
+      arr = c.genx(n[1])
+      idx = c.genIndex(n[2], n[1].typ)
+    c.gABC(n, opcIndexChck, 0, arr, idx)
+    c.freeTemp(idx)
+    c.freeTemp(arr)
   else:
     # mGCref, mGCunref, mFinished, etc.
     fail(n.info, vmGenDiagCodeGenUnhandledMagic, m)

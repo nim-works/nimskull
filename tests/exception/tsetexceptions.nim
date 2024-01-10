@@ -1,6 +1,6 @@
 discard """
-  targets: "c js"
   joinable: false
+  knownIssue.vm: "`setCurrentException` is not supported"
 """
 
 # refs https://github.com/nim-lang/Nim/pull/18247#issuecomment-860877161
