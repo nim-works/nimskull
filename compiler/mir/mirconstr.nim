@@ -298,8 +298,17 @@ template wrapTemp*(bu: var MirBuilder, t: PType,
     body
   val
 
+template wrapAlias*(bu: var MirBuilder, t: PType, body: untyped): Value =
+  ## Emits an ``mnkBind`` statement with `body` as the lvalue expression.
+  ## Returns the name of the alias.
+  let val = allocTemp(bu, t, true)
+  bu.subTree mnkBind:
+    bu.use val
+    body
+  val
+
 template wrapMutAlias*(bu: var MirBuilder, t: PType, body: untyped): Value =
-  ## Emits a ``mnkBind`` statement with `body` as the lvalue expression.
+  ## Emits a ``mnkBindMut`` statement with `body` as the lvalue expression.
   ## Returns the name of the alias.
   let val = allocTemp(bu, t, true)
   bu.subTree mnkBindMut:
