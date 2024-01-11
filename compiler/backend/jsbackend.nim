@@ -29,6 +29,7 @@ import
   ],
   compiler/utils/[
     containers,
+    idioms,
     ropes
   ]
 
@@ -38,17 +39,15 @@ type
   BModuleList = SeqMap[FileIndex, BModule]
   PartialTable = Table[int, PProc]
 
-proc prepare(globals: PGlobals, modules: BModuleList, d: var DiscoveryData) =
-  ## Emits the definitions for all constants, globals, and threadvars
-  ## discovered while producing the current event.
-  for _, s in visit(d.constants):
-    genConstant(globals, modules[moduleId(s).FileIndex], s)
-
-  for _, s in visit(d.globals):
+proc prepare(globals: PGlobals, modules: BModuleList, s: PSym) =
+  ## Responds to the discovery of entity `s`.
+  case s.kind
+  of skProcKinds, skConst:
+    discard "nothing to forward declare or register"
+  of skVar, skLet, skForVar:
     defineGlobal(globals, modules[moduleId(s).FileIndex], s)
-
-  for _, s in visit(d.threadvars):
-    defineGlobal(globals, modules[moduleId(s).FileIndex], s)
+  else:
+    unreachable(s.kind)
 
 proc processLate(globals: PGlobals, discovery: var DiscoveryData) =
   # queue the late dependencies:
@@ -66,9 +65,12 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
 
   case evt.kind
   of bekDiscovered:
-    prepare(g, modules, discovery)
+    prepare(g, modules, evt.entity)
   of bekModule:
     discard "nothing to do"
+  of bekConstant:
+    let s = evt.cnst
+    genConstant(g, modules[moduleId(s).FileIndex], s)
   of bekPartial:
     var p = partial.getOrDefault(evt.sym.id)
     if p == nil:

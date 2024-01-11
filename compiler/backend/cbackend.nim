@@ -65,6 +65,7 @@ import
   ],
   compiler/utils/[
     containers,
+    idioms,
     pathutils,
     ropes
   ]
@@ -147,22 +148,22 @@ func dependOnInline(g: var InliningData, m: ModuleId, id: Option[uint32], dep: P
     # remember the dependency:
     g.inlineProcs[id.unsafeGet].deps.incl other
 
-proc prepare(g: BModuleList, d: var DiscoveryData) =
-  ## Emits the definitions for constants, globals, and threadvars discovered
-  ## as part of producing the current event.
-
-  # emit definitions for constants:
-  for _, s in visit(d.constants):
-    genConstDefinition(g.modules[moduleId(s)], s)
-
-  # emit definitions for the lifted globals we've discovered:
-  for _, s in visit(d.globals):
-    defineGlobalVar(g.modules[moduleId(s)], s)
-
-  for _, s in visit(d.threadvars):
+proc prepare(g: BModuleList, s: PSym) =
+  ## Responds to the discovery of entity `s`.
+  case s.kind
+  of skProcKinds, skConst:
+    # the definition is emitted once the body is available
+    discard "nothing to do"
+  of skVar, skLet, skForVar:
     let bmod = g.modules[moduleId(s)]
-    fillGlobalLoc(bmod, s)
-    declareThreadVar(bmod, s, sfImportc in s.flags)
+    # can be either a threadvar or normal global variable
+    if sfThread in s.flags:
+      fillGlobalLoc(bmod, s)
+      declareThreadVar(bmod, s, sfImportc in s.flags)
+    else:
+      defineGlobalVar(bmod, s)
+  else:
+    unreachable(s.kind)
 
 proc processEvent(g: BModuleList, inl: var InliningData, discovery: var DiscoveryData, partial: var Table[PSym, BProc], evt: sink BackendEvent) =
   ## The orchestrator's event processor.
@@ -209,7 +210,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
 
   case evt.kind
   of bekDiscovered:
-    prepare(g, discovery)
+    prepare(g, evt.entity)
   of bekModule:
     # the code generator emits a call for setting up the TLS, which is a
     # procedure dependency that needs to be communicated
@@ -218,6 +219,10 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
       dependOnCompilerProc(inl, discovery, evt.module, g.graph,
                            "initThreadVarsEmulation")
 
+  of bekConstant:
+    # emit the definition now that the body is available
+    let s = evt.cnst
+    genConstDefinition(g.modules[moduleId(s)], s)
   of bekPartial:
     # register inline dependencies:
     let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.tree)
