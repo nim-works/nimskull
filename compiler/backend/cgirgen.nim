@@ -31,7 +31,6 @@ import
     sourcemaps
   ],
   compiler/modules/[
-    magicsys,
     modulegraphs
   ],
   compiler/utils/[
@@ -43,9 +42,6 @@ import
 from compiler/ast/ast import newSym, newType, rawAddSon
 from compiler/ast/idents import whichKeyword
 from compiler/sem/semdata import makeVarType
-
-# TODO: move the procedure somewhere common
-from compiler/vm/vmaux import findRecCase
 
 type
   TranslateCl = object
@@ -95,10 +91,6 @@ template isFilled(x: LocalId): bool =
   # '0' is a valid ID, but this procedure is only used for
   # temporaries, which can never map to the result variable
   x.int != 0
-
-template `^^`(s, i: untyped): untyped =
-  # XXX: copied from ``system.nim`` because it's not exported
-  (when i is BackwardsIndex: s.len - int(i) else: int(i))
 
 func newMagicNode(magic: TMagic, info: TLineInfo): CgNode =
   CgNode(kind: cnkMagic, info: info, magic: magic)
@@ -220,24 +212,6 @@ proc translateLit*(val: PNode): CgNode =
   else:
     unreachable("implement: " & $val.kind)
 
-proc copySubTree[A, B](source: PNode, slice: HSlice[A, B], to: var CgNode) =
-  ## Translates all sub-nodes from the `slice` in `source` to ``CgNode`` and
-  ## appends them to the end of `to`.
-  let
-    a = source ^^ slice.a
-    b = source ^^ slice.b
-
-  if a > b:
-    return
-
-  # resize the node list first:
-  let start = to.len
-  to.kids.setLen(start + (b - a) + 1)
-
-  # then copy all nodes:
-  for i in a..b:
-    to[start + (i - a)] = translateLit(source[i])
-
 func addIfNotEmpty(stmts: var seq[CgNode], n: sink CgNode) =
   ## Only adds the node to the list if it's not an empty node. Used to prevent
   ## the creation of statement-list expression that only consist of empty
@@ -267,134 +241,6 @@ proc initLocal(s: PSym): Local =
                  name: s.name)
   if s.kind in {skVar, skLet, skForVar}:
     result.alignment = s.alignment.uint32
-
-func findBranch(c: ConfigRef, rec: PNode, field: PIdent): int =
-  ## Computes the 0-based position of the branch that `field` is part of. Only
-  ## the direct child nodes of `rec` are searched, nested record-cases are
-  ## ignored
-  assert rec.kind == nkRecCase
-  template cmpSym(s: PSym): bool =
-    s.name.id == field.id
-
-  for i, b in branches(rec):
-    assert b.kind in {nkOfBranch, nkElse}
-    case b.lastSon.kind
-    of nkSym:
-      if cmpSym(b.lastSon.sym):
-        return i
-
-    of nkRecList:
-      for it in b.lastSon.items:
-        let sym =
-          case it.kind
-          of nkSym: it.sym
-          of nkRecCase: it[0].sym
-          else: nil
-
-        if sym != nil and cmpSym(sym):
-          return i
-
-    of nkRecCase:
-      if cmpSym(b[0].sym):
-        return i
-
-    else:
-      unreachable()
-
-  unreachable("field is not part of the record-case")
-
-proc buildCheck(cl: var TranslateCl, recCase: PNode, pos: Natural,
-                info: TLineInfo): CgNode =
-  ## Builds the boolean expression testing if `discr` is part of the branch
-  ## with position `pos`
-  assert recCase.kind == nkRecCase
-  let
-    discr = recCase[0] ## the node holding the discriminant symbol
-    branch = recCase[1 + pos]
-    setType = newType(tySet, nextTypeId(cl.idgen), cl.owner)
-
-  rawAddSon(setType, discr.typ) # the set's element type
-
-  var
-    lit = newExpr(cnkSetConstr, info, setType)
-    invert = false
-
-  case branch.kind
-  of nkOfBranch:
-    # use the branch labels as the set to test against
-    copySubTree(branch, 0..^2, lit)
-  of nkElse:
-    # iterate over all branches except the ``else`` branch and collect their
-    # labels
-    for i in 1..<recCase.len-1:
-      let b = recCase[i]
-      copySubTree(b, 0..^2, lit)
-
-    invert = true
-  else:
-    unreachable()
-
-  # create a ``contains(lit, discr)`` expression:
-  let inExpr =
-    newExpr(cnkCall, info, getSysType(cl.graph, info, tyBool), [
-      newMagicNode(mInSet, info),
-      lit,
-      newSymNode(cnkField, discr.sym)
-    ])
-
-  if invert:
-    result =
-      newExpr(cnkCall, info, getSysType(cl.graph, info, tyBool), [
-        newMagicNode(mNot, info),
-        inExpr
-      ])
-  else:
-    result = inExpr
-
-proc addToVariantAccess(cl: var TranslateCl, dest: CgNode, field: PSym,
-                        info: TLineInfo): CgNode =
-  ## Appends a field access for a field inside a record branch to `dest`
-  ## (transforming it into a ``cnkCheckedFieldAccess`` if it isn't one already)
-  ## and returns the resulting expression
-  let node =
-    case dest.kind
-    of cnkFieldAccess: dest
-    of cnkCheckedFieldAccess: dest[0]
-    else: unreachable()
-
-  # TODO: generating a field check (i.e. ``cnkCheckedFieldAccess``) should not
-  #       be done by the code-generators, but instead happen at the MIR level as
-  #       a MIR pass. In other words, a MIR pass should insert an 'if' +
-  #       'raise' for each access to a field inside a record branch (but only
-  #       if ``optFieldCheck`` is enabled) and no ``cnkCheckedFieldAccess`` should
-  #       be generated here
-
-  assert node.kind == cnkFieldAccess
-
-  let
-    # the symbol of the discriminant is on the right-side of the dot-expr
-    discr = node[1].sym
-    recCase = findRecCase(node[0].typ.skipTypes(abstractInst+tyUserTypeClasses), discr)
-    check = buildCheck(cl, recCase, findBranch(cl.graph.config, recCase, field.name),
-                       info)
-
-  node[1] = newSymNode(cnkField, field)
-  node.typ = field.typ
-
-  case dest.kind
-  of cnkFieldAccess:
-    newExpr(cnkCheckedFieldAccess, info, field.typ, [node, check])
-  of cnkCheckedFieldAccess:
-    # a field is accessed that is inside a nested record-case. Don't wrap the
-    # ``cnkCheckedFieldAccess`` in another one -- append the check instead.
-    # While the order of the checks *should* be irrelevant, we still emit them
-    # in the order they were generated originally (i.e. innermost to outermost)
-    dest.kids.insert(check, 1)
-    # update the type of the expression:
-    dest.typ = field.typ
-    dest
-  else:
-    unreachable()
 
 proc wrapInHiddenAddr(cl: TranslateCl, n: CgNode): CgNode =
   ## Restores the ``cnkHiddenAddr`` around lvalue expressions passed to ``var``
@@ -526,25 +372,11 @@ proc lvalueToIr(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
   case n.kind
   of mnkLocal, mnkGlobal, mnkParam, mnkTemp, mnkAlias, mnkConst, mnkProc:
     return atomToIr(n, cl, info)
-  of mnkPathNamed, mnkPathVariant:
-    let
-      next {.cursor.} = tree.get(cr)
-      arg = lvalueToIr(tree, cl, next, cr)
-
-    if next.kind == mnkPathVariant:
-      # a variant access or field access of a variant access promotes the
-      # inner access to a checked field access
-      # XXX: integrating field checks into the MIR will make the handling
-      #      here obsolete
-      result = addToVariantAccess(cl, arg, n.field, info)
-    elif n.kind == mnkPathVariant:
-      # the node's ``typ`` is the type of the enclosing object not of the
-      # discriminant, so we have to explicitly use the field's type here
-      result = newExpr(cnkFieldAccess, info, n.field.typ,
-                       [arg, newSymNode(cnkField, n.field)])
-    else:
-      result = newExpr(cnkFieldAccess, info, n.typ,
-                       [arg, newSymNode(cnkField, n.field)])
+  of mnkPathNamed:
+    result = newExpr(cnkFieldAccess, info, n.typ,
+                     [recurse(), newSymNode(cnkField, n.field)])
+  of mnkPathVariant:
+    result = recurse()
   of mnkPathPos:
     result = newExpr(cnkTupleAccess, info, n.typ,
                      [recurse(),

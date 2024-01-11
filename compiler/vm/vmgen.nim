@@ -40,8 +40,7 @@ import
     renderer,
     types,
     ast,
-    lineinfos,
-    astmsgs,
+    lineinfos
   ],
   compiler/backend/[
     cgir
@@ -177,8 +176,8 @@ const
     ## not relevant right now, is likely going to be in the future.
 
   LvalueExprKinds = {cnkConst, cnkGlobal, cnkLocal, cnkArrayAccess,
-                     cnkTupleAccess, cnkFieldAccess, cnkCheckedFieldAccess,
-                     cnkObjUpConv, cnkObjDownConv, cnkDeref, cnkDerefView}
+                     cnkTupleAccess, cnkFieldAccess, cnkObjUpConv,
+                     cnkObjDownConv, cnkDeref, cnkDerefView}
 
   MagicsToKeep* = {mIsolate, mNHint, mNWarning, mNError, mMinI, mMaxI,
                    mAbsI, mDotDot, mNGetType, mNSizeOf, mNLineInfo}
@@ -1068,7 +1067,7 @@ proc genRegLoad(c: var TCtx, n: CgNode, typ: PType, dest, src: TRegister) =
 proc genRegLoad(c: var TCtx, n: CgNode, dest, src: TRegister) {.inline.} =
   genRegLoad(c, n, n.typ, dest, src)
 
-proc genCheckedObjAccessAux(c: var TCtx; n: CgNode): TRegister
+proc genFieldCheck(c: var TCtx; n: CgNode)
 proc genSym(c: var TCtx, n: CgNode, dest: var TDest, load = true)
 
 func usesRegister(p: BProc, s: LocalId): bool =
@@ -1582,7 +1581,7 @@ func usesRegister(p: BProc, n: CgNode): bool =
   of cnkProc, cnkConst, cnkGlobal:
     false
   of cnkDeref, cnkDerefView, cnkFieldAccess, cnkArrayAccess, cnkTupleAccess,
-     cnkCheckedFieldAccess, cnkConv, cnkObjDownConv, cnkObjUpConv:
+     cnkConv, cnkObjDownConv, cnkObjUpConv:
     false
   else:
     unreachable(n.kind)
@@ -2118,6 +2117,8 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.gABC(n, opcIndexChck, 0, arr, idx)
     c.freeTemp(idx)
     c.freeTemp(arr)
+  of mChckField:
+    genFieldCheck(c, n)
   else:
     # mGCref, mGCunref, mFinished, etc.
     fail(n.info, vmGenDiagCodeGenUnhandledMagic, m)
@@ -2263,7 +2264,7 @@ func isPtrView(n: CgNode): bool =
     true
   of cnkLocal:
     false
-  of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess:
+  of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess:
     true
   of cnkHiddenAddr, cnkCall, cnkCheckedCall:
     false
@@ -2413,11 +2414,6 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
     let dest = c.genx(le[0])
     putIntoLoc(c, ri, dest, le[1].intVal.TRegister, opcWrObj, opcLdObj)
     c.freeTemp(dest)
-  of cnkCheckedFieldAccess:
-    let objR = genCheckedObjAccessAux(c, le)
-    c.genFieldAsgn(objR, le[0], ri)
-    # c.freeTemp(idx) # BUGFIX, see nkDotExpr
-    c.freeTemp(objR)
   of cnkFieldAccess:
     let dest = c.genx(le[0])
     c.genFieldAsgn(dest, le, ri)
@@ -2617,81 +2613,29 @@ proc genFieldAddr(c: var TCtx, n, obj: CgNode, fieldPos: int, dest: TDest) =
   c.gABC(n, opcLdObjAddr, dest, obj, fieldPos)
   c.freeTemp(obj)
 
-proc genCheckedObjAccessAux(c: var TCtx; n: CgNode): TRegister =
-  internalAssert(
-    c.config,
-    n.kind == cnkCheckedFieldAccess,
-    "genCheckedObjAccessAux requires checked field node")
-
-  # ``cnkObjAccess`` to access the requested field
-  let accessExpr = n[0]
-  # the call to check if the discriminant is valid
-  var checkExpr = n[1]
-
-  let negCheck = checkExpr[0].magic == mNot
-  if negCheck:
-    checkExpr = checkExpr[^1]
-
-  # Discriminant symbol
-  let disc = checkExpr[2]
-  internalAssert(
-    c.config, disc.sym.kind == skField, "Discriminant symbol must be a field")
-
-  # Load the object in `dest`
-  result = c.genx(accessExpr[0])
-  # Load the discriminant
-  var discVal = c.getTemp(disc.typ)
-  var discValTemp = c.getTemp(disc.typ)
-  c.gABC(n, opcLdObj, discValTemp, result, genField(c, disc))
-  c.gABC(n, opcNodeToReg, discVal, discValTemp)
-  c.freeTemp(discValTemp)
-  # Check if its value is contained in the supplied set
-  let setLit = c.genx(checkExpr[1])
+proc genFieldCheck(c: var TCtx; n: CgNode) =
+  let negCheck = n[3].intVal == 1
+  # load the set
+  let setLit = c.genx(n[1])
+  # load the value
+  let discVal = c.genx(n[2])
+  # check if the value is contained in the supplied set
   var rs = c.getTemp(getSysType(c.graph, n.info, tyBool))
   c.gABC(n, opcContainsSet, rs, setLit, discVal)
   c.freeTemp(setLit)
   # If the check fails let the user know
   let lab1 = c.xjmp(n, if negCheck: opcFJmp else: opcTJmp, rs)
   c.freeTemp(rs)
-  let strType = getSysType(c.graph, n.info, tyString)
-  var msgReg: TDest = c.getTemp(strType)
-  var discrStrReg = c.getFullTemp(n, strType)
-  let fieldName = accessExpr[1].sym.name.s
-  let msg = genFieldDefect(c.config, fieldName, disc.sym)
-  c.genLit(accessExpr[1], toStringCnst(c, msg), msgReg)
+  var discrStrReg = c.getFullTemp(n, getSysType(c.graph, n.info, tyString))
+  let msgReg = c.genx(n[4])
   # repr for discriminator value
-  c.gABx(n, opcRepr, discrStrReg, c.genTypeInfo(disc.typ))
+  c.gABx(n, opcRepr, discrStrReg, c.genTypeInfo(n[2].typ))
   c.gABC(n, opcRepr, discrStrReg, discVal)
   c.gABC(n, opcInvalidField, msgReg, discrStrReg)
   c.freeTemp(discVal)
   c.freeTemp(msgReg)
   c.freeTemp(discrStrReg)
   c.patch(lab1)
-
-proc genCheckedObjAccess(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
-  let objR = genCheckedObjAccessAux(c, n)
-
-  let accessExpr = n[0]
-  # Field symbol
-  var field = accessExpr[1]
-  internalAssert(
-    c.config,
-    field.sym.kind == skField,
-    "Access expression must be a field, but found " & $field.sym.kind)
-
-  # Load the content now
-  if dest.isUnset: dest = c.getTemp(n.typ)
-  let fieldPos = genField(c, field)
-
-  if needsRegLoad():
-    var cc = c.getTemp(accessExpr.typ)
-    c.gABC(n, opcLdObj, cc, objR, fieldPos)
-    c.genRegLoad(n, dest, cc)
-    c.freeTemp(cc)
-  else:
-    c.gABC(n, opcLdObj, dest, objR, fieldPos)
-
-  c.freeTemp(objR)
 
 proc genArrAccess(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
   case n[0].typ.skipTypes(abstractVar).kind
@@ -2736,12 +2680,6 @@ proc genAddr(c: var TCtx, src, n: CgNode, dest: var TDest) =
   of cnkTupleAccess:
     prepare(c, dest, src.typ)
     genFieldAddr(c, n, n[0], n[1].intVal.TRegister, dest)
-  of cnkCheckedFieldAccess:
-    prepare(c, dest, src.typ)
-
-    let obj = genCheckedObjAccessAux(c, n)
-    c.gABC(src, opcLdObjAddr, dest, obj, genField(c, n[0][1]))
-    c.freeTemp(obj)
   of cnkDerefView:
     # taking the address of a view's or ``var`` parameter's underlying
     # location
@@ -2798,8 +2736,6 @@ proc genLvalue(c: var TCtx, n: CgNode, dest: var TDest) =
     c.genSym(n, dest, load=false)
   of cnkFieldAccess:
     genFieldAccess(c, n, genField(c, n[1]), dest, load=false)
-  of cnkCheckedFieldAccess:
-    genCheckedObjAccess(c, n, dest, load=false)
   of cnkArrayAccess:
     genArrAccess(c, n, dest, load=false)
   of cnkTupleAccess:
@@ -2875,12 +2811,8 @@ proc genArrayConstr(c: var TCtx, n: CgNode, dest: TRegister) =
       c.gABI(n, opcAddImmInt, tmp, tmp, 1)
     c.freeTemp(tmp)
 
-proc genSetConstr(c: var TCtx, n: CgNode, dest: var TDest) =
-  # XXX: use ``TRegister`` for `dest` once ``cnkCheckedFieldAccess`` is
-  #      removed
-  if dest.isUnset:
-    prepare(c, dest, n, n.typ)
-  elif not isEmpty(c.prc, dest):
+proc genSetConstr(c: var TCtx, n: CgNode, dest: TRegister) =
+  if not isEmpty(c.prc, dest):
     # zero the destination
     c.gABx(n, opcReset, dest, c.genType(n.typ))
 
@@ -3017,7 +2949,6 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     unused(c, n, dest)
     genAsgn(c, n[0], n[1], n.kind == cnkAsgn)
   of cnkFieldAccess: genFieldAccess(c, n, genField(c, n[1]), dest)
-  of cnkCheckedFieldAccess: genCheckedObjAccess(c, n, dest)
   of cnkArrayAccess: genArrAccess(c, n, dest)
   of cnkTupleAccess: genFieldAccess(c, n, n[1].intVal.int, dest)
   of cnkDeref: genDeref(c, n, dest)

@@ -593,23 +593,12 @@ proc genRecordField(p: BProc, e: CgNode, d: var TLoc) =
 
 proc genInExprAux(p: BProc, e: CgNode, a, b, d: var TLoc)
 
-proc genFieldCheck(p: BProc, e: CgNode, obj: Rope, field: PSym) =
+proc genFieldCheck(p: BProc, e: CgNode) =
   var test, u, v: TLoc
-  for i in 1..<e.len:
-    var it = e[i]
-    assert(it.kind == cnkCall)
-    assert(it[0].kind == cnkMagic)
-    let op = it[0].magic
-    if op == mNot: it = it[1]
-    let disc = it[2].skipConv
-    assert(disc.kind == cnkField)
-    initLoc(test, locNone, it, OnStack)
-    initLocExpr(p, it[1], u)
-    initLoc(v, locExpr, disc, OnUnknown)
-    v.r = obj
-    v.r.add(".")
-    v.r.add(p.fieldName(disc.sym))
-    genInExprAux(p, it, u, v, test)
+  if true:
+    initLocExpr(p, e[1], u)
+    initLocExpr(p, e[2], v)
+    genInExprAux(p, e, u, v, test)
     var msg = ""
     if optDeclaredLocs in p.config.globalOptions:
       # xxx this should be controlled by a separate flag, and
@@ -618,20 +607,24 @@ proc genFieldCheck(p: BProc, e: CgNode, obj: Rope, field: PSym) =
       # by encoding the file names separately from `file(line:col)`, essentially
       # passing around `TLineInfo` + the set of files in the project.
       msg.add toFileLineCol(p.config, e.info) & " "
-    msg.add genFieldDefect(p.config, field.name.s, disc.sym)
+    msg.add e[4].strVal
     let strLit = genStringLiteral(p.module, newStrNode(msg))
 
     ## discriminant check
     template fun(code) = linefmt(p, cpsStmts, code, [rdLoc(test)])
-    if op == mNot: fun("if ($1) ") else: fun("if (!($1)) ")
+    if e[3].intVal == 1:
+      # the third operand indicates whether the result needs to be inverted
+      fun("if ($1) ")
+    else:
+      fun("if (!($1)) ")
 
-    let base = disc.typ.skipTypes(abstractRange)
+    let base = v.t.skipTypes(abstractRange)
     var raiseProc, toStr: string
     # generate and emit the code for the failure case:
     case base.kind
     of tyEnum:
       # use the compiler-generated enum-to-string procedure
-      let prc = p.module.g.graph.getToStringProc(disc.typ)
+      let prc = p.module.g.graph.getToStringProc(v.t)
       p.module.extra.add prc # late dependency
 
       var tmp: TLoc
@@ -660,23 +653,6 @@ proc genFieldCheck(p: BProc, e: CgNode, obj: Rope, field: PSym) =
     discard cgsym(p.module, raiseProc) # make sure the compilerproc is generated
     linefmt(p, cpsStmts, "{ $1($3, $4); $2} $n",
             [raiseProc, raiseInstr(p), strLit, toStr])
-
-proc genCheckedRecordField(p: BProc, e: CgNode, d: var TLoc) =
-  assert e[0].kind == cnkFieldAccess
-  if optFieldCheck in p.options:
-    var a: TLoc
-    genRecordFieldAux(p, e[0], d, a)
-    let ty = skipTypes(a.t, abstractInst + tyUserTypeClasses)
-    var r = rdLoc(a)
-    let f = e[0][1].sym
-    let field = lookupFieldAgain(p, ty, f, r)
-    ensureObjectFields(p.module, field, ty)
-    # generate the checks:
-    genFieldCheck(p, e, r, field)
-    r.add(ropecg(p.module, ".$1", [p.fieldName(field)]))
-    putIntoDest(p, d, e[0], r, a.storage)
-  else:
-    genRecordField(p, e[0], d)
 
 proc genUncheckedArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   var a, b: TLoc
@@ -1137,8 +1113,6 @@ proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
     tmp2.r = r
     let field = lookupFieldAgain(p, ty, it[0].sym, tmp2.r)
     ensureObjectFields(p.module, field, ty)
-    if it.len == 3 and optFieldCheck in p.options:
-      genFieldCheck(p, it[2], r, field)
     tmp2.r.add(".")
     tmp2.r.add(p.fieldName(field))
     if useTemp:
@@ -1794,8 +1768,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     case e[1].kind
     of cnkFieldAccess, cnkTupleAccess:
       dotExpr = e[1]
-    of cnkCheckedFieldAccess:
-      dotExpr = e[1][0]
     else:
       internalError(p.config, e.info, "unknown ast")
     let t = dotExpr[0].typ.skipTypes({tyTypeDesc})
@@ -1873,6 +1845,8 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     initLocExpr(p, e[2], a)
     initLocExpr(p, e[3], b)
     genBoundsCheck(p, arr, a, b)
+  of mChckField:
+    genFieldCheck(p, e)
   of mSamePayload:
     var a, b: TLoc
     initLocExpr(p, e[1], a)
@@ -2196,7 +2170,6 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
       genTupleElem(p, n, d)
   of cnkDeref, cnkDerefView: genDeref(p, n, d)
   of cnkFieldAccess: genRecordField(p, n, d)
-  of cnkCheckedFieldAccess: genCheckedRecordField(p, n, d)
   of cnkBlockStmt: genBlock(p, n)
   of cnkStmtList: genStmtList(p, n)
   of cnkIfStmt: genIf(p, n)

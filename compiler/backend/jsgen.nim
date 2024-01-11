@@ -37,8 +37,7 @@ import
     idents,
     types,
     renderer,
-    lineinfos,
-    astmsgs,
+    lineinfos
   ],
   compiler/modules/[
     magicsys,
@@ -1042,51 +1041,18 @@ proc genFieldAccess(p: PProc, n: CgNode, r: var TCompRes) =
 
 proc genAddr(p: PProc, n: CgNode, r: var TCompRes)
 
-proc genCheckedFieldOp(p: PProc, n: CgNode, takeAddr: bool, r: var TCompRes) =
-  internalAssert p.config, n.kind == cnkCheckedFieldAccess
-  # nkDotExpr to access the requested field
-  let accessExpr = n[0]
-  # nkCall to check if the discriminant is valid
-  var checkExpr = n[1]
-
-  let negCheck = checkExpr[0].magic == mNot
-  if negCheck:
-    checkExpr = checkExpr[^1]
-
-  # Field symbol
-  var field = accessExpr[1].sym
-  internalAssert p.config, field.kind == skField
-  # Discriminant symbol
-  let disc = checkExpr[2].sym
-  internalAssert p.config, disc.kind == skField
-
-  var setx: TCompRes
-  gen(p, checkExpr[1], setx)
-
-  var obj: TCompRes
-  gen(p, accessExpr[0], obj)
-  # Avoid evaluating the LHS twice (one to read the discriminant and one to read
-  # the field)
-  let tmp = p.getTemp()
-  lineF(p, "var $1 = $2;$n", tmp, obj.res)
+proc genFieldCheck(p: PProc, e: CgNode) =
+  let
+    setx = gen(p, e[1])
+    val = gen(p, e[2])
+    invert = e[3].intVal == 1
 
   useMagic(p, "raiseFieldError2")
   useMagic(p, "makeNimstrLit")
   useMagic(p, "reprDiscriminant") # no need to offset by firstOrd unlike for cgen
-  let msg = genFieldDefect(p.config, field.name.s, disc)
-  lineF(p, "if ($1[$2.$3]$4undefined) { raiseFieldError2(makeNimstrLit($5), reprDiscriminant($2.$3, $6)); }$n",
-    setx.res, tmp, ensureMangledName(p, disc), if negCheck: ~"!==" else: ~"===",
-    makeJSString(msg), genTypeInfo(p, disc.typ))
-
-  let name = ensureMangledName(p, field)
-  if takeAddr:
-    r.typ = etyBaseIndex
-    r.res = makeJSString(name)
-    r.address = tmp
-  else:
-    r.typ = etyNone
-    r.res = "$1.$2" % [tmp, name]
-  r.kind = resExpr
+  lineF(p, "if ($1[$2]$3undefined) { raiseFieldError2(makeNimstrLit($4), reprDiscriminant($2, $5)); }$n",
+    setx.res, val.rdLoc, if invert: ~"!==" else: ~"===",
+    makeJSString(e[4].strVal), genTypeInfo(p, e[2].typ))
 
 proc genArrayAddr(p: PProc, n: CgNode, r: var TCompRes) =
   var
@@ -1175,8 +1141,6 @@ proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
     addrLoc(p.locals[n.local].name, p.locals[n.local], r)
   of cnkConst, cnkGlobal:
     addrLoc(mangledName(p, n.sym, n.info), n.sym, r)
-  of cnkCheckedFieldAccess:
-    genCheckedFieldOp(p, n, takeAddr=true, r)
   of cnkFieldAccess, cnkTupleAccess:
     genFieldAddr(p, n, r)
   of cnkArrayAccess:
@@ -1971,6 +1935,8 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
       lineF(p, "(chckBounds($1, $2, $3, $4));$n",
             [rdLoc(lo), rdLoc(hi), rope(first),
              rope(lastOrd(p.config, n[1].typ))])
+  of mChckField:
+    genFieldCheck(p, n)
   else:
     genCall(p, n, r)
     #else internalError(p.config, e.info, 'genMagic: ' + magicToStr[op]);
@@ -2445,7 +2411,6 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkArrayAccess: genArrayAccess(p, n, r)
   of cnkTupleAccess: genFieldAccess(p, n, r)
   of cnkFieldAccess: genFieldAccess(p, n, r)
-  of cnkCheckedFieldAccess: genCheckedFieldOp(p, n, takeAddr=false, r)
   of cnkObjDownConv: downConv(p, n, r)
   of cnkObjUpConv: gen(p, n.operand, r)
   of cnkCast: genCast(p, n, r)
