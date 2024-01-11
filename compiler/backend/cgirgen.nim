@@ -362,12 +362,17 @@ proc tbExceptItem(tree: TreeWithSource, cl: var TranslateCl, cr: var TreeCursor
 
 
 proc lvalueToIr(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
-                cr: var TreeCursor): CgNode =
+                cr: var TreeCursor; preferField = true): CgNode =
   ## Translates a MIR lvalue expression to the corresponding CG IR.
+  ## Due to tagged unions (currently) not being addressable at the type-
+  ## representation level, the exact meaning of ``mnkPathVariant`` is
+  ## context-dependent -- `preferField` disambiguates whether it should be
+  ## turned into a field access rather than a (pseudo) access of the tagged
+  ## union.
   let info = cr.info
 
   template recurse(): CgNode =
-    lvalueToIr(tree, cl, tree.get(cr), cr)
+    lvalueToIr(tree, cl, tree.get(cr), cr, false)
 
   case n.kind
   of mnkLocal, mnkGlobal, mnkParam, mnkTemp, mnkAlias, mnkConst, mnkProc:
@@ -376,7 +381,12 @@ proc lvalueToIr(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
     result = newExpr(cnkFieldAccess, info, n.typ,
                      [recurse(), newSymNode(cnkField, n.field)])
   of mnkPathVariant:
-    result = recurse()
+    if preferField:
+      result = newExpr(cnkFieldAccess, cr.info, n.field.typ,
+                      [recurse(), newSymNode(cnkField, n.field)])
+    else:
+      # variant access itself has no ``CgNode`` counterpart at the moment
+      result = recurse()
   of mnkPathPos:
     result = newExpr(cnkTupleAccess, info, n.typ,
                      [recurse(),
@@ -405,8 +415,8 @@ proc lvalueToIr(tree: TreeWithSource, cl: var TranslateCl, n: MirNode,
   leave(tree, cr)
 
 proc lvalueToIr(tree: TreeWithSource, cl: var TranslateCl,
-                cr: var TreeCursor): CgNode {.inline.} =
-  lvalueToIr(tree, cl, tree.get(cr), cr)
+                cr: var TreeCursor; preferField=true): CgNode {.inline.} =
+  lvalueToIr(tree, cl, tree.get(cr), cr, preferField)
 
 proc valueToIr(tree: TreeWithSource, cl: var TranslateCl,
                cr: var TreeCursor): CgNode =
@@ -528,7 +538,12 @@ proc defToIr(tree: TreeWithSource, cl: var TranslateCl,
   else:
     unreachable()
 
-  var arg = exprToIr(tree, cl, cr)
+  var arg =
+    if n.kind in {mnkBind, mnkBindMut} and tree[cr].kind in LvalueExprKinds:
+      # don't use the field interperation for variant access
+      lvalueToIr(tree, cl, cr, preferField=false)
+    else:
+      exprToIr(tree, cl, cr)
   leave(tree, cr)
   if n.kind in {mnkBind, mnkBindMut} and arg.typ.kind notin {tyVar, tyLent}:
     # wrap the operand in an address-of operation
