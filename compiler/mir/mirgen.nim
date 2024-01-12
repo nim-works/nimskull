@@ -650,7 +650,8 @@ proc genBracketExpr(c: var TCtx, n: PNode) =
       genOperand(c, n[0])
   of tyArray, tySequence, tyOpenArray, tyVarargs, tyUncheckedArray, tyString,
      tyCstring:
-    if optBoundsCheck in c.userOptions and needsIndexCheck(n[0], n[1]):
+    if optBoundsCheck in c.userOptions and
+       needsIndexCheck(c.graph.config, n[0], n[1]):
       let
         arr = capture(c, n[0])
         idx = genRd(c, n[1])

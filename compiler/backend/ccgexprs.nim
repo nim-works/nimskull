@@ -746,11 +746,9 @@ proc genIndexCheck(p: BProc; x: CgNode, arr, idx: TLoc) =
   of tyArray:
     var first = intLiteral(firstOrd(p.config, ty))
     if firstOrd(p.config, ty) == 0 and lastOrd(p.config, ty) >= 0:
-      if firstOrd(p.config, idx.t) < firstOrd(p.config, ty) or
-         lastOrd(p.config, idx.t) > lastOrd(p.config, ty):
-        linefmt(p, cpsStmts, "if ((NU)($1) > (NU)($2)){ #raiseIndexError2($1, $2); $3}$n",
-                [rdCharLoc(idx), intLiteral(lastOrd(p.config, ty)),
-                 raiseInstr(p)])
+      linefmt(p, cpsStmts, "if ((NU)($1) > (NU)($2)){ #raiseIndexError2($1, $2); $3}$n",
+              [rdCharLoc(idx), intLiteral(lastOrd(p.config, ty)),
+               raiseInstr(p)])
     else:
       linefmt(p, cpsStmts, "if ($1 < $2 || $1 > $3){ #raiseIndexError3($1, $2, $3); $4}$n",
               [rdCharLoc(idx), first, intLiteral(lastOrd(p.config, ty)),

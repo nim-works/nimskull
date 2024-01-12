@@ -6,8 +6,12 @@ import
     ast_types,
     types
   ],
+  compiler/front/[
+    options
+  ],
   compiler/utils/[
-    idioms
+    idioms,
+    int128
   ]
 
 const instTypes = {tyGenericInst, tyAlias, tySink} + tyUserTypeClasses
@@ -41,14 +45,18 @@ proc canUseView*(n: PNode): bool =
     else:
       return false
 
-proc needsIndexCheck*(arr, idx: PNode): bool =
+proc needsIndexCheck*(config: ConfigRef, arr, idx: PNode): bool =
   ## Uses the expressions' type and shape to infer whether index checks are
   ## required for an ``arr[idx]`` access.
   case arr.typ.skipTypes(instTypes + {tyDistinct, tyVar}).kind
   of tyArray:
     # statement-list expressions are, at present, not checked at compile-
     # time, so they're not skipped here
-    idx.kind notin nkIntLiterals
+    idx.kind notin nkIntLiterals and
+      # if all of the index operand's possible values are valid indices, no
+      # check is needed
+      (firstOrd(config, idx.typ) < firstOrd(config, arr.typ) or
+       lastOrd(config, idx.typ) > lastOrd(config, arr.typ))
   of tyUncheckedArray:
     false
   of tyString, tySequence, tyOpenArray, tyVarargs:
