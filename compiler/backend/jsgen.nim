@@ -408,7 +408,7 @@ proc getTemp(p: PProc, defineInLocals: bool = true): Rope =
 
 type
   TMagicFrmt = array[0..1, string]
-  TMagicOps = array[mAddI..mStrToStr, TMagicFrmt]
+  TMagicOps = array[mAddI..mUnaryMinusF64, TMagicFrmt]
 
 const # magic checked op; magic unchecked op;
   jsMagics: TMagicOps = [
@@ -466,14 +466,7 @@ const # magic checked op; magic unchecked op;
     mUnaryPlusI: ["", ""],
     mBitnotI: ["", ""],
     mUnaryPlusF64: ["", ""],
-    mUnaryMinusF64: ["", ""],
-    mCharToStr: ["nimCharToStr", "nimCharToStr"],
-    mBoolToStr: ["nimBoolToStr", "nimBoolToStr"],
-    mIntToStr: ["cstrToNimstr", "cstrToNimstr"],
-    mInt64ToStr: ["cstrToNimstr", "cstrToNimstr"],
-    mFloatToStr: ["cstrToNimstr", "cstrToNimstr"],
-    mCStrToStr: ["cstrToNimstr", "cstrToNimstr"],
-    mStrToStr: ["", ""]]
+    mUnaryMinusF64: ["", ""]]
 
 template binaryExpr(p: PProc, n: CgNode, r: var TCompRes, magic, frmt: string) =
   # $1 and $2 in the `frmt` string bind to lhs and rhs of the expr,
@@ -604,12 +597,6 @@ proc arithAux(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
   of mBitnotI: applyFormat("~($1)", "~($1)")
   of mUnaryPlusF64: applyFormat("+($1)", "+($1)")
   of mUnaryMinusF64: applyFormat("-($1)", "-($1)")
-  of mCharToStr: applyFormat("nimCharToStr($1)", "nimCharToStr($1)")
-  of mBoolToStr: applyFormat("nimBoolToStr($1)", "nimBoolToStr($1)")
-  of mIntToStr: applyFormat("cstrToNimstr(($1) + \"\")", "cstrToNimstr(($1) + \"\")")
-  of mInt64ToStr: applyFormat("cstrToNimstr(($1) + \"\")", "cstrToNimstr(($1) + \"\")")
-  of mCStrToStr: applyFormat("cstrToNimstr($1)", "cstrToNimstr($1)")
-  of mStrToStr, mIsolate: applyFormat("$1", "$1")
   else:
     assert false, $op
 
@@ -622,17 +609,11 @@ proc arith(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
     binaryUintExpr(p, n, r, "/")
     if n[1].typ.skipTypes(abstractRange).size == 8:
       r.res = "Math.trunc($1)" % [r.res]
-  of mDivI:
-    arithAux(p, n, r, op)
-  of mModI:
-    arithAux(p, n, r, op)
   of mShrI:
     var x, y: TCompRes
     gen(p, n[1], x)
     gen(p, n[2], y)
     r.res = "($1 >>> $2)" % [x.rdLoc, y.rdLoc]
-  of mCharToStr, mBoolToStr, mIntToStr, mInt64ToStr, mCStrToStr, mStrToStr, mEnumToStr:
-    arithAux(p, n, r, op)
   of mEqRef:
     if mapType(n[1].typ) != etyBaseIndex:
       arithAux(p, n, r, op)
@@ -1759,7 +1740,22 @@ proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes)
 proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   let op = getCalleeMagic(n[0])
   case op
-  of mAddI..mStrToStr: arith(p, n, r, op)
+  of mAddI..mUnaryMinusF64: arith(p, n, r, op)
+  of mCharToStr:
+    unaryExpr(p, n, r, "nimCharToStr", "nimCharToStr($1)")
+  of mBoolToStr:
+    unaryExpr(p, n, r, "nimBoolToStr", "nimBoolToStr($1)")
+  of mCStrToStr:
+    unaryExpr(p, n, r, "cstrToNimstr", "cstrToNimstr($1)")
+  of mIsolate:
+    let x = gen(p, n[1])
+    r.res = rdLoc(x)
+    r.typ = x.typ
+    r.kind = resExpr
+    # XXX: this implementation:
+    #      * has inconsistent behaviour with the other backends. There, a
+    #        procedure call is made (resulting in a full copy)
+    #      * is wrong: ``rdLoc`` dereferences pointers
   of mRepr: genRepr(p, n, r)
   of mAppendStrCh:
     binaryExpr(p, n, r, "addChar",
