@@ -68,7 +68,6 @@ proc getMagic*(op: CgNode): TMagic {.inline.}  =
 
 proc isDiscriminantField*(n: CgNode): bool =
   case n.kind
-  of cnkCheckedFieldAccess: sfDiscriminant in n[0][1].sym.flags
   of cnkFieldAccess:        sfDiscriminant in n[1].sym.flags
   else:                     false
 

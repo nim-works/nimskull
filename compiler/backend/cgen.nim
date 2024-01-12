@@ -30,7 +30,6 @@ import
     wordrecg,
     renderer,
     lineinfos,
-    astmsgs,
     ndi
   ],
   compiler/modules/[

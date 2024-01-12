@@ -54,3 +54,16 @@ block bound_checks:
 
   runTest:
     test(@[]) # provoke a bound-check failure
+
+block field_checks:
+  type WithVariant = object
+    case kind: bool
+    of true:  a: int
+    of false: b: int
+
+  proc test(a: WithVariant) =
+    var obj = Object() # obj stores an value that needs to be destroyed
+    discard a.a
+
+  runTest:
+    test(WithVariant(kind: false)) # provoke a field-check failure

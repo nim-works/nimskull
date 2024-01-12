@@ -826,6 +826,10 @@ type
     mChckBounds
       ## chckBounds(arr, lo, hi); raise an error when `lo` and/or `hi` is not
       ## within `arr`'s bounds
+    mChckField
+      ## chckField(valid, val, inverted, msg); raises an error when `val` is
+      ## not part of `valid`. `inverted` tells whether to invert the check
+      ## and `msg` is the error message
     mSamePayload
       ## returns whether both seq/string operands share the same payload
     mCopyInternal

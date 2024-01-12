@@ -62,9 +62,6 @@ type
     cnkTupleAccess
     # future direction: merge ``cnkFieldAccess`` and ``cnkTupleAccess`` into a
     # single node (field access by position).
-    cnkCheckedFieldAccess
-    # future direction: lower object access checks eariler (e.g., during the
-    # MIR phase) and then remove ``cnkCheckedFieldAccess``
 
     cnkDeref         ## dereference 'x'
     cnkAddr          ## address of 'x'

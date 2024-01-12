@@ -761,22 +761,10 @@ when false:
     call.add e
     expr(p, call, d)
 
-proc asgnFieldDiscriminant(p: BProc, e: CgNode) =
-  var a, tmp: TLoc
-  var dotExpr = e[0]
-  if dotExpr.kind == cnkCheckedFieldAccess: dotExpr = dotExpr[0]
-  initLocExpr(p, e[0], a)
-  getTemp(p, a.t, tmp)
-  expr(p, e[1], tmp)
-  genAssignment(p, a, tmp)
-
 proc genAsgn(p: BProc, e: CgNode) =
   if e[0].kind == cnkLocal and sfGoto in p.body[e[0].local].flags:
     genLineDir(p, e)
     genGotoVar(p, e[1])
-  elif optFieldCheck in p.options and isDiscriminantField(e[0]):
-    genLineDir(p, e)
-    asgnFieldDiscriminant(p, e)
   else:
     let le = e[0]
     let ri = e[1]
