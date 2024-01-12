@@ -507,8 +507,8 @@ proc defToIr(tree: TreeWithSource, cl: var TranslateCl,
     cl.localsMap[sym.id] = id
 
     def = newLocalRef(id, info, entity.typ)
-  of mnkParam, mnkProc:
-    # ignore 'def's for both parameters and procedures
+  of mnkParam:
+    # ignore 'def's for parameters
     def = newEmpty()
   of mnkGlobal:
     def = newSymNode(cnkGlobal, entity.sym, info)
