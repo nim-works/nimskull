@@ -2004,11 +2004,6 @@ proc gen(c: var TCtx, n: PNode) =
     # statements
     c.buildStmt mnkVoid:
       genCallOrMagic(c, n)
-  of nkProcDef, nkFuncDef, nkIteratorDef, nkMethodDef, nkConverterDef:
-    c.subTree mnkDef:
-      c.add procNode(n[namePos].sym)
-      c.add MirNode(kind: mnkNone)
-
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
       let f = c.builder.push: genx(c, n[0])
@@ -2030,7 +2025,7 @@ proc gen(c: var TCtx, n: PNode) =
     # a 'nil' literals can be used as a statement, in which case it is treated
     # as a ``discard``
     assert n.typ.isEmptyType()
-  of nkCommentStmt, nkTemplateDef, nkMacroDef, nkImportStmt,
+  of routineDefs, nkCommentStmt, nkImportStmt,
      nkImportExceptStmt, nkFromStmt, nkIncludeStmt, nkStaticStmt,
      nkExportStmt, nkExportExceptStmt, nkTypeSection, nkMixinStmt,
      nkBindStmt, nkConstSection, nkEmpty:
