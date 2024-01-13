@@ -321,9 +321,9 @@ func initEntityDict(tree: MirTree, dfg: DataFlowGraph): EntityDict =
         of mnkTemp:
           entity.typ
         else:
-          nil # not a location (e.g. a procedure)
+          unreachable()
 
-      if t != nil and hasDestructor(t):
+      if hasDestructor(t):
         result.mgetOrPut(toName(entity), @[]).add:
           # don't include the data-flow operations preceding the def
           EntityInfo(def: i, scope: subgraphFor(dfg, i .. scope.b))
