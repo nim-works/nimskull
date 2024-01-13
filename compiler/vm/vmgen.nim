@@ -90,17 +90,6 @@ type
   TPosition = distinct int
   TDest = range[-1..regAMask.int]
 
-  Loc = object
-    ## An encapsulation that associates the register storing the value with
-    ## the register storing the handle of the location it was loaded from.
-    ##
-    ## `Loc` is used for convenient write-back handling. A write-back is
-    ## necessary where an instruction operates on and modifies a register that
-    ## stores a simple value (e.g. int, float), and the modification needs to
-    ## be reflected at the memory location the value originated from
-    handleReg: TDest ## the register holding the handle to the location
-    val: TRegister   ## the register holding the loaded value
-
   TSlotKind = enum    # We try to re-use slots in a smart way to
                       # minimize allocations; however the VM supports arbitrary
                       # temporary slot usage. This is required for the parameter
@@ -1593,59 +1582,12 @@ proc genNoLoad(c: var TCtx, n: CgNode): tuple[reg: TRegister, isDirect: bool] =
   genLvalue(c, n, dest)
   result = (TRegister(dest), usesRegister(c.prc, n))
 
-proc genLoc(c: var TCtx, n: CgNode): Loc =
-  ## Generates and emits the code for evaluating the l-value expression `n`.
-  ## The returned ``Loc`` holds the register information.
-  assert fitsRegister(n.typ), "`genLoc` is not needed"
-
-  let (reg, isDirect) = genNoLoad(c, n)
-  if isDirect:
-    # the location is backed by a register. No write-back needs to be performed
-    # when the modification is done
-    result.handleReg = -1
-    result.val = reg
-  else:
-    # the location is backed by VM memory. Load its value and remember both
-    # registers
-    result.handleReg = reg
-    result.val = c.getTemp(n.typ)
-    genRegLoad(c, n, result.val, result.handleReg)
-
-proc finish(c: var TCtx, info: CgNode, loc: sink Loc) =
-  ## Wraps up the modification to `loc` by writing the register-stored
-  ## value back to the source memory location.
-  if loc.handleReg != -1:
-    # a write-back is required
-    c.gABC(info, opcWrLoc, loc.handleReg, loc.val)
-    c.freeTemp(loc.handleReg)
-
-  c.freeTemp(loc.val)
-
 proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   case m
   of mPred, mSubI:
     c.genAddSubInt(n, dest, opcSubInt)
   of mSucc, mAddI:
     c.genAddSubInt(n, dest, opcAddInt)
-  of mInc, mDec:
-    unused(c, n, dest)
-    let isUnsigned = n[1].typ.skipTypes(abstractVarRange).kind in {tyUInt..tyUInt64}
-    let opc = if not isUnsigned:
-                if m == mInc: opcAddInt else: opcSubInt
-              else:
-                if m == mInc: opcAddu else: opcSubu
-    let loc = genLoc(c, n[1])
-
-    if n[2].isInt8Lit and not isUnsigned:
-      c.gABI(n, succ(opc), loc.val, loc.val, n[2].intVal)
-    else:
-      let tmp = c.genx(n[2])
-      c.gABC(n, opc, loc.val, loc.val, tmp)
-      c.freeTemp(tmp)
-    c.genNarrow(n[1], loc.val)
-
-    # write back:
-    finish(c, n, loc)
   of mOrd, mChr: c.gen(n[1], dest)
   of mArrToSeq:
     prepare(c, dest, n, n.typ)
