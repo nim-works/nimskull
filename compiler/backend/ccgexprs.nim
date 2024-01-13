@@ -263,13 +263,6 @@ proc putIntoDest(p: BProc, d: var TLoc, n: CgNode, r: Rope; s=OnUnknown) =
     d.lode = n
     d.r = r
 
-proc binaryStmt(p: BProc, e: CgNode, d: var TLoc, op: string) =
-  var a, b: TLoc
-  if d.k != locNone: internalError(p.config, e.info, "binaryStmt")
-  initLocExpr(p, e[1], a)
-  initLocExpr(p, e[2], b)
-  lineCg(p, cpsStmts, "$1 $2 $3;$n", [rdLoc(a), op, rdLoc(b)])
-
 proc binaryStmtAddr(p: BProc, e: CgNode, d: var TLoc, cpname: string) =
   var a, b: TLoc
   if d.k != locNone: internalError(p.config, e.info, "binaryStmtAddr")
@@ -1714,27 +1707,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mAddI..mPred: binaryArithOverflow(p, e, d, op)
   of mGetTypeInfo: genGetTypeInfo(p, e, d)
   of mGetTypeInfoV2: genGetTypeInfoV2(p, e, d)
-  of mInc, mDec:
-    const opr: array[mInc..mDec, string] = ["+=", "-="]
-    const fun64: array[mInc..mDec, string] = ["nimAddInt64", "nimSubInt64"]
-    const fun: array[mInc..mDec, string] = ["nimAddInt","nimSubInt"]
-    let underlying = skipTypes(e[1].typ, {tyGenericInst, tyAlias, tySink, tyVar, tyLent, tyRange, tyDistinct})
-    if optOverflowCheck notin p.options or underlying.kind in {tyUInt..tyUInt64}:
-      binaryStmt(p, e, d, opr[op])
-    else:
-      var a, b: TLoc
-      assert(e[1].typ != nil)
-      assert(e[2].typ != nil)
-      initLocExpr(p, e[1], a)
-      initLocExpr(p, e[2], b)
-
-      let ranged = skipTypes(e[1].typ, {tyGenericInst, tyAlias, tySink, tyVar, tyLent, tyDistinct})
-      let res = binaryArithOverflowRaw(p, ranged, a, b,
-        if underlying.kind == tyInt64: fun64[op] else: fun[op])
-
-      putIntoDest(p, a, e[1], "($#)($#)" % [
-        getTypeDesc(p.module, ranged), res])
-
   of mConStrStr: genStrConcat(p, e, d)
   of mAppendStrCh:
     binaryStmtAddr(p, e, d, "nimAddCharV1")
