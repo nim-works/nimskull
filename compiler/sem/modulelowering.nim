@@ -173,6 +173,8 @@ proc createModuleOp(graph: ModuleGraph, idgen: IdGenerator, postfix: string,
                   nextSymId idgen, module, module.info, options)
   # the procedure doesn't return anything and doesn't have parameters:
   result.typ = newProcType(module.info, nextTypeId idgen, module)
+  # conservatively enable destructor injection:
+  result.flags = {sfInjectDestructors}
 
   # also set up a proper definition AST:
   result.ast = newProcNode(nkProcDef, module.info, body,
