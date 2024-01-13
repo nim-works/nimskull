@@ -20,9 +20,11 @@ type
     info: opt(SourceId)
       ## the source ID associated with the node, or none
 
+  NodeSlice = HOslice[NodeIndex]
+
   Fragment* = object
     ## Identifies a fragment (usually a sub-tree) within the staging buffer.
-    s: Slice[NodeIndex]
+    s: NodeSlice
     typ*: PType
 
   MirBuffer = object
@@ -138,6 +140,10 @@ func staging*(bu: var MirBuilder): var MirNodeSeq {.inline.} =
   else:
     result = bu.back.nodes
 
+func len*(f: Fragment): int =
+  ## The number of nodes in the fragment.
+  f.s.len
+
 func popSingle*(bu: var MirBuilder, f: Fragment): Value =
   ## Retrieves the topmost atom node identified by `v` from the staging
   ## buffer.
@@ -172,18 +178,21 @@ template push*(bu: var MirBuilder, body: untyped): Fragment =
   body
   swap(bu, doSwap)
 
-  Fragment(s: NodeIndex(start) .. NodeIndex(bu.staging.high),
-           typ: bu.staging[start].typ)
+  Fragment(s: NodeSlice(a: NodeIndex(start), b: NodeIndex(bu.staging.len)),
+           typ: if start < bu.staging.len:
+                  bu.staging[start].typ
+                else:
+                  nil)
 
 func pop*(bu: var MirBuilder, f: Fragment) =
   ## Moves the expression/statement identified by `v` from the top of the
   ## staging buffer to the final buffer.
   if bu.swapped:
-    assert f.s.b.int == bu.front.len - 1
+    assert f.s.b.int == bu.front.len
     bu.back.apply(bu.currentSourceId)
     bu.front.moveTo(bu.back, f.s.a.int)
   else:
-    assert f.s.b.int == bu.back.len - 1
+    assert f.s.b.int == bu.back.len
     bu.front.apply(bu.currentSourceId)
     bu.back.moveTo(bu.front, f.s.a.int)
 

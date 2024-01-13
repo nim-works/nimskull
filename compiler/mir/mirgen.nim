@@ -2021,9 +2021,13 @@ proc gen(c: var TCtx, n: PNode) =
     genAsgn(c, false, sink, n[0], n[1])
   of nkCallKinds:
     # calls are expressions, the void statement allows using them as
-    # statements
-    c.buildStmt mnkVoid:
-      genCallOrMagic(c, n)
+    # statements. The call might be a magic that expands to a statement,
+    # however
+    let f = c.builder.push: genCallOrMagic(c, n)
+    if f.len > 0:
+      withFront c.builder:
+        c.subTree mnkVoid:
+          c.builder.pop(f)
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
       let f = c.builder.push: genx(c, n[0])
