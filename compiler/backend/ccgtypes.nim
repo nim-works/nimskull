@@ -239,7 +239,7 @@ proc getSimpleTypeDesc(m: BModule, typ: PType): Rope =
   of tyStatic:
     m.config.internalAssert(typ.n != nil, "tyStatic for getSimpleTypeDesc")
     result = getSimpleTypeDesc(m, lastSon typ)
-  of tyGenericInst, tyAlias, tySink:
+  of tyGenericInst, tyAlias, tySink, tyEnum:
     result = getSimpleTypeDesc(m, lastSon typ)
   else: result = ""
 
