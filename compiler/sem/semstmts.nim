@@ -1622,7 +1622,7 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
       elif n.len == 4:
         result[^2] = implicitIterator(c, "pairs", result[^2])
       else:
-        result[^2] = c.config.newError(n[^2],
+        result[^2] = c.config.newError(call,
                                 PAstDiag(kind: adSemForExpectedIterator))
       hasError = result[^2].isError or hasError
     result = semForVars(c, result, flags)
