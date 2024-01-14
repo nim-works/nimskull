@@ -1628,8 +1628,10 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result = semForVars(c, result, flags)
   if hasError or result.kind == nkError:
     discard # do nothing
-  elif result[^1].typ == c.enforceVoidContext:
+  elif result.len > 0 and result[^1].typ == c.enforceVoidContext:
     # propagate any enforced VoidContext:
+    # NB: we check the result.len because we get an empty statement list in
+    #     case of doing a `semForFields` for an empty tuple or object type.
     result.typ = c.enforceVoidContext
   elif efInTypeof in flags:
     result.typ = result.lastSon.typ
