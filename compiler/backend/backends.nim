@@ -370,6 +370,24 @@ proc preprocess*(queue: var WorkQueue, graph: ModuleGraph, idgen: IdGenerator,
     queue.prepend(moduleId(prc).FileIndex):
       WorkItem(kind: wikProcessGlobals, globals: move globals)
 
+proc process(body: var MirFragment, prc: PSym, graph: ModuleGraph,
+             idgen: IdGenerator) =
+  ## Applies all applicable MIR passes to the `body`. `prc` is enclosing
+  ## procedure.
+  rewriteGlobalDefs(body.tree, body.source)
+
+  if shouldInjectDestructorCalls(prc):
+    injectDestructorCalls(graph, idgen, prc, body.tree, body.source)
+
+  let target =
+    case graph.config.backend
+    of backendC:       targetC
+    of backendJs:      targetJs
+    of backendNimVm:   targetVm
+    of backendInvalid: unreachable()
+
+  applyPasses(body.tree, body.source, prc, graph.config, target)
+
 proc translate*(prc: PSym, body: PNode, graph: ModuleGraph,
                 config: BackendConfig, idgen: IdGenerator): MirFragment =
   ## Translates `body` to MIR code, applies all applicable MIR passes, and
@@ -384,27 +402,7 @@ proc translate*(prc: PSym, body: PNode, graph: ModuleGraph,
   echoMir(graph.config, prc, result.tree)
 
   # now apply the passes:
-
-  rewriteGlobalDefs(result.tree, result.source)
-
-  if shouldInjectDestructorCalls(prc):
-    injectDestructorCalls(graph, idgen, prc, result.tree, result.source)
-
-  let target =
-    case graph.config.backend
-    of backendC:       targetC
-    of backendJs:      targetJs
-    of backendNimVm:   targetVm
-    of backendInvalid: unreachable()
-
-  applyPasses(result.tree, result.source, prc, graph.config, target)
-
-proc process(body: var MirFragment, ctx: PSym, graph: ModuleGraph,
-             idgen: IdGenerator) =
-  ## Applies all applicable MIR passes to the fragment `body`. `ctx`
-  ## represents the procedure in whose context the processing happens, and
-  ## is used for the purpose of error reporting and debug tracing.
-  injectDestructorCalls(graph, idgen, ctx, body.tree, body.source)
+  process(result, prc, graph, idgen)
 
 proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
                   code: sink MirFragment): Body =
