@@ -25,6 +25,7 @@ proc semAddrArg(c: PContext; n: PNode): PNode =
     result = newError(c.config, n, PAstDiag(kind: adSemExprHasNoAddress))
 
 proc semTypeOf(c: PContext; n: PNode): PNode =
+  addInNimDebugUtils(c.config, "semTypeOf", n, result)
   var m = BiggestInt 1 # typeOfIter
   if n.len == 3:
     let mode = semConstExpr(c, n[2])
