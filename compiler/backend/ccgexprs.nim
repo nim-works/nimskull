@@ -1817,6 +1817,16 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     genBoundsCheck(p, arr, a, b)
   of mChckField:
     genFieldCheck(p, e)
+  of mChckObj:
+    var a: TLoc
+    initLocExpr(p, e[1], a)
+    var nilCheck = ""
+    let r = rdMType(p, a, nilCheck)
+    assert nilCheck != "", "not a pointer-like value?"
+    # the nil-check is expected to have taken place already
+    linefmt(p, cpsStmts, "if (!#isObj($2, $3)){ #raiseObjectConversionError(); $4}$n",
+            [nilCheck, r, genTypeInfo2Name(p.module, e[2].typ),
+             raiseInstr(p)])
   of mSamePayload:
     var a, b: TLoc
     initLocExpr(p, e[1], a)
@@ -1940,15 +1950,6 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
   var a: TLoc
   initLocExpr(p, n.operand, a, d.flags * {lfWantLvalue})
   let dest = skipTypes(n.typ, abstractPtrs)
-  if optObjCheck in p.options and not isObjLackingTypeField(dest):
-    var nilCheck = ""
-    let r = rdMType(p, a, nilCheck)
-    if nilCheck != "":
-      # We only need to do a conversion check if it's a ref object.
-      # Since with non refs either a copy is done or a ptr to the element is passed,
-      # there is nothing dynamic with them and the compiler knows the error happens at semantic analysis.
-      linefmt(p, cpsStmts, "if ($1 && !#isObj($2, $3)){ #raiseObjectConversionError(); $4}$n",
-              [nilCheck, r, genTypeInfo2Name(p.module, dest), raiseInstr(p)])
 
   if n.operand.typ.skipTypes(abstractInst).kind != tyObject:
     if lfWantLvalue in d.flags:
