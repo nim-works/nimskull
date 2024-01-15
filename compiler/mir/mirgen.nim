@@ -753,9 +753,13 @@ proc genVariantAccess(c: var TCtx, n: PNode) =
             c.use x
 
 proc genObjConv(c: var TCtx, n: PNode, sink, dest: bool) =
-  ## Given an ``nkObjDownConv`` or ``nkObjUpConv`` AST, unwraps all . Only one
-  ## ``mnkPathConv`` is emitted, back-and-forth conversions are all dropped
-  ## (but checks are still generated for them).
+  ## Given an ``nkObjDownConv`` or ``nkObjUpConv`` AST, folding away all
+  ## immediately nested up- and down-conversion nodes. That is, only one
+  ## ``mnkPathConv`` is emitted.
+  ##
+  ## If conversion checks are enabled and required, at most one check is
+  ## emitted. The type used for the check is either the type most nested in
+  ## the hierarchy, or a sibling type (if a sibling conversion is present).
   let
     skipped = n.typ.skipTypes(abstractInst)
     # only ref and ptr types are checked during conversions, normal objects
@@ -770,15 +774,22 @@ proc genObjConv(c: var TCtx, n: PNode, sink, dest: bool) =
     start = start[0]
 
   var deepest = start.typ.skipTypes(skipPtrs)
-    ## the type most nested in the type hierarchy that's certain to be valid
+    ## the type most nested in the type hierarchy that's certain to be valid.
+    ## If a sibling conversion exists in the chain, this is the first
+    ## encountered sibling type
   if needsCheck:
     # walk the conversions again and look for the type deepest in the
     # hierarchy
     var x {.cursor.} = n
     while x.kind in {nkObjDownConv, nkObjUpConv}:
       let typ = x.typ.skipTypes(skipPtrs)
-      if inheritanceDiff(typ, deepest) > 0:
+      if (let rel = inheritanceDiff(typ, deepest); rel > 0):
         deepest = typ
+        if rel == high(typeof(rel)):
+          # whatever other types there are, a sibling conversion will always
+          # result in a run-time error
+          break
+
       x = x[0]
 
   if needsCheck and deepest != start.typ.skipTypes(skipPtrs):
