@@ -1831,13 +1831,26 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
     # are not
     if optObjCheck in c.userOptions and skipped.kind in {tyPtr, tyRef} and
        not isObjLackingTypeField(dest):
-      # emit an object check
-      let x = capture(c, n[0], consume)
-      c.buildStmt mnkVoid:
-        c.buildMagicCall mChckObj, typeOrVoid(c, nil):
-          c.emitByVal x
-          c.emitByVal typeLit(dest)
+      # emit an object check: ``if x != nil: chckObj(x, typ)``
+      let
+        x = capture(c, n[0], consume)
+        boolType = c.graph.getSysType(n.info, tyBool)
+      c.buildStmt mnkIf:
+        # the ``x != nil`` condtion:
+        c.wrapAndUse(boolType):
+          c.buildMagicCall mNot, boolType:
+            c.subTree mnkArg:
+              c.wrapAndUse(boolType):
+                c.buildMagicCall mIsNil, boolType:
+                  c.emitByVal x
 
+        # the ``chckObj`` call statement:
+        c.subTree mnkVoid:
+          c.buildMagicCall mChckObj, typeOrVoid(c, nil):
+            c.emitByVal x
+            c.emitByVal typeLit(dest)
+
+      # the actual conversion operation:
       c.buildOp mnkPathConv, n.typ:
         c.use x
     else:
