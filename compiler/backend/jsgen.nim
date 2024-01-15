@@ -1921,6 +1921,12 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
              rope(lastOrd(p.config, n[1].typ))])
   of mChckField:
     genFieldCheck(p, n)
+  of mChckObj:
+    let x = gen(p, n[1])
+    useMagic(p, "chckObj")
+    # the nil-check is expected to have taken place already
+    lineF(p, "chckObj($1.m_type, $2);$n",
+          [rdLoc(x), genTypeInfo(p, n[2].typ)])
   else:
     genCall(p, n, r)
     #else internalError(p.config, e.info, 'genMagic: ' + magicToStr[op]);
