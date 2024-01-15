@@ -20,6 +20,7 @@ import
     options
   ],
   compiler/mir/[
+    mirbodies,
     mirbridge,
     mirconstr,
     mirgen,
@@ -45,10 +46,6 @@ import
 export TranslationConfig
 
 type
-  MirFragment* = object
-    tree*: MirTree
-    source*: SourceMap
-
   BackendConfig* = object
     ## Configuration state altering the operation of the ``process``
     ## iterator.
@@ -120,7 +117,7 @@ type
     of bekPartial, bekProcedure, bekImported:
       sym*: PSym
         ## the symbol of the procedure the event is about
-      body*: MirFragment
+      body*: MirBody
 
   WorkItemKind = enum
     wikPreprocess
@@ -161,7 +158,7 @@ type
     of wikReport:
       evt: range[bekPartial..bekImported]
       fragSym: PSym
-      frag: MirFragment
+      frag: MirBody
 
   WorkQueue = object
     items: Deque[tuple[item: WorkItem, fr: FileIndex]]
@@ -178,12 +175,6 @@ func append(queue: var WorkQueue, m: FileIndex,
             item: sink WorkItem) {.inline.} =
   ## Adds `item` to the end of the queue.
   queue.items.addLast (item, m)
-
-func append*(dest: var MirFragment, src: sink MirFragment) =
-  ## Appends the code from `src` to `dest`. No check whether the resulting
-  ## code is semantically valid is performed
-  dest.source.merge(src.tree, src.source)
-  dest.tree.add src.tree
 
 # ----- private and public API for ``Queue`` -----
 
@@ -316,8 +307,8 @@ func isEmpty*(tree: MirTree): bool =
 
   result = true
 
-func isEmpty*(f: MirFragment): bool {.inline.} =
-  isEmpty(f.tree)
+func isEmpty*(f: MirBody): bool {.inline.} =
+  isEmpty(f.code)
 
 iterator deps*(tree: MirTree): PSym =
   ## Returns all external entities (procedures, globals, etc.) that `tree`
@@ -370,14 +361,14 @@ proc preprocess*(queue: var WorkQueue, graph: ModuleGraph, idgen: IdGenerator,
     queue.prepend(moduleId(prc).FileIndex):
       WorkItem(kind: wikProcessGlobals, globals: move globals)
 
-proc process(body: var MirFragment, prc: PSym, graph: ModuleGraph,
+proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
              idgen: IdGenerator) =
   ## Applies all applicable MIR passes to the `body`. `prc` is enclosing
   ## procedure.
-  rewriteGlobalDefs(body.tree, body.source)
+  rewriteGlobalDefs(body.code, body.source)
 
   if shouldInjectDestructorCalls(prc):
-    injectDestructorCalls(graph, idgen, prc, body.tree, body.source)
+    injectDestructorCalls(graph, idgen, prc, body)
 
   let target =
     case graph.config.backend
@@ -386,10 +377,10 @@ proc process(body: var MirFragment, prc: PSym, graph: ModuleGraph,
     of backendNimVm:   targetVm
     of backendInvalid: unreachable()
 
-  applyPasses(body.tree, body.source, prc, graph.config, target)
+  applyPasses(body, prc, graph.config, target)
 
 proc translate*(prc: PSym, body: PNode, graph: ModuleGraph,
-                config: BackendConfig, idgen: IdGenerator): MirFragment =
+                config: BackendConfig, idgen: IdGenerator): MirBody =
   ## Translates `body` to MIR code, applies all applicable MIR passes, and
   ## returns the result. `prc` is the enclosing procedure.
   if optCursorInference in graph.config.options and
@@ -398,24 +389,24 @@ proc translate*(prc: PSym, body: PNode, graph: ModuleGraph,
     computeCursors(prc, body, graph)
 
   echoInput(graph.config, prc, body)
-  (result.tree, result.source) = generateCode(graph, prc, config.tconfig, body)
-  echoMir(graph.config, prc, result.tree)
+  result = generateCode(graph, prc, config.tconfig, body)
+  echoMir(graph.config, prc, result)
 
   # now apply the passes:
   process(result, prc, graph, idgen)
 
-proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                  code: sink MirFragment): Body =
+proc generateIR*(graph: ModuleGraph, idgen: IdGenerator,
+                 owner: PSym, body: sink MirBody): Body =
   ## Translates the MIR code provided by `code` into ``CgNode`` IR and,
   ## if enabled, echoes the result.
-  result = generateIR(graph, idgen, owner, code.tree, code.source)
+  result = cgirgen.generateIR(graph, idgen, owner, body)
   echoOutput(graph.config, owner, result)
 
 # ------- handling of lifted globals ---------
 
 proc produceFragmentsForGlobals(
     data: var DiscoveryData, identdefs: seq[PNode], graph: ModuleGraph,
-    config: TranslationConfig): tuple[init, deinit: MirFragment] =
+    config: TranslationConfig): tuple[init, deinit: MirBody] =
   ## Given a list of identdefs of lifted globals, produces the MIR code for
   ## initialzing and deinitializing the globals. `data` is updated with
   ## not-yet-seen globals, and is at the same time used for discarding
@@ -481,8 +472,8 @@ proc produceFragmentsForGlobals(
         deinit.setSource(result.deinit.source.add(it[0]))
         genDestroy(deinit, graph, symbol(mnkGlobal, s))
 
-  result.init.tree = finish(init, result.init.source, graph.emptyNode)
-  result.deinit.tree = finish(deinit, result.deinit.source, graph.emptyNode)
+  result.init.code = finish(init, result.init.source, graph.emptyNode)
+  result.deinit.code = finish(deinit, result.deinit.source, graph.emptyNode)
 
 # ----- dynlib handling -----
 
@@ -558,7 +549,7 @@ proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
           bu.emitByVal nameTemp
 
 proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
-                   conf: BackendConfig, sym: PSym): MirFragment =
+                   conf: BackendConfig, sym: PSym): MirBody =
   ## Produces a MIR fragment with the load-at-run-time logic for procedure/
   ## variable `sym`. If not generated already, the loading logic for the
   ## necessary dynamic library is emitted into the fragment and the global
@@ -621,7 +612,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
         bu.emitByVal tmp
 
   bu.add endNode(mnkScope)
-  result.tree = finish(bu)
+  result.code = finish(bu)
 
 # ----- discovery and queueing logic -----
 
@@ -738,12 +729,12 @@ proc isTrivialProc(graph: ModuleGraph, prc: PSym): bool {.inline.} =
 
 proc pushProgress(queue: var WorkQueue, discovery: var DiscoveryData,
                   graph: ModuleGraph, idgen: IdGenerator,
-                  prc: PSym, frag: sink MirFragment, m: FileIndex) =
+                  prc: PSym, frag: sink MirBody, m: FileIndex) =
   ## Runs `frag` through MIR processing and, if `frag` is not empty, queues
   ## the step for reporting the progress.
   if not isEmpty(frag):
     process(frag, prc, graph, idgen)
-    discoverFrom(discovery, frag.tree)
+    discoverFrom(discovery, frag.code)
     # get the fragment out as soon as possible (hence ``prepend``):
     queue.prepend(m, WorkItem(kind: wikReport, evt: bekPartial,
                               fragSym: prc, frag: frag))
@@ -825,12 +816,12 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
     postActions(queue, discovery, id)
 
   template reportBody(prc: PSym, m: FileIndex, evt: BackendEventKind,
-                      frag: MirFragment) =
+                      frag: MirBody) =
     ## Reports a procedure-related event (by yielding it).
     yield BackendEvent(module: m, kind: evt, sym: prc, body: frag)
     postActions(queue, discovery, m)
 
-  template pushProgress(prc: PSym, frag: MirFragment, m: FileIndex) =
+  template pushProgress(prc: PSym, frag: MirBody, m: FileIndex) =
     pushProgress(queue, discovery, graph, modules[m].idgen, prc, frag, m)
 
   # generate the importing logic for all known dynlib globals:
@@ -861,7 +852,7 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
         frag = translate(item.prc, item.body, graph, conf,
                          modules[origin].idgen)
 
-      discoverFrom(discovery, frag.tree)
+      discoverFrom(discovery, frag.code)
 
       if item.prc.typ.callConv != ccInline:
         # non-inline procedure are registered as coming from the module

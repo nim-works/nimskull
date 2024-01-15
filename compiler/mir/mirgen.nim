@@ -69,6 +69,7 @@ import
     wordrecg
   ],
   compiler/mir/[
+    mirbodies,
     mirconstr,
     mirtrees,
     sourcemaps
@@ -2160,17 +2161,15 @@ proc generateCode*(graph: ModuleGraph, config: TranslationConfig, n: PNode,
   swapState()
 
 proc generateCode*(graph: ModuleGraph, owner: PSym, config: TranslationConfig,
-                   body: PNode): tuple[code: MirTree, source: SourceMap] =
-  ## Generates MIR code that is semantically equivalent to `body` plus the
-  ## ``SourceMap`` that associates each ``MirNode`` with the ``PNode`` it
-  ## originated from.
+                   body: PNode): MirBody =
+  ## Generates the full MIR body for the given AST `body`.
   ##
   ## `owner` it the symbol of the entity (module or procedure) that `body`
   ## belongs to. If the owner is a procedure, `body` is expected to be the
   ## full body of the procedure.
   ##
-  ## `isNimvm` indicates the branch of a ``when nimvm`` statement that code
-  ## should be generated code for
+  ## `config` provides additional configuration options that alter how some
+  ## AST is translated.
   # XXX: this assertion can currently not be used, as the ``nfTransf`` flag
   #      might no longer be present after the lambdalifting pass
   #assert nfTransf in body.flags, "transformed AST is expected as input"
@@ -2194,5 +2193,6 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, config: TranslationConfig,
   gen(c, body)
   c.add endNode(mnkScope)
 
-  result[0] = finish(move c.builder)
-  result[1] = move c.sp.map
+  # move the buffers into the result body
+  MirBody(source: move c.sp.map,
+          code: finish(move c.builder))
