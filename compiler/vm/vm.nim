@@ -1848,6 +1848,24 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       let len = arrayLen(regs[rb].handle)
       if idx < 0 or idx >=% len:
         raiseVmError(reportVmIdx(idx, len-1))
+    of opcObjChck:
+      # raise an error if ``not a of b``, where `a` must be a ref value. This
+      # is intended for conversion checks
+      # XXX: this operation is a bit too specific, and usage of it is also a
+      #      lot less common than that of the other checks. It should be
+      #      implemented in bytecode instead
+      decodeBx()
+      checkHandle(regs[ra])
+      let src = regs[ra].handle
+      assert src.typ.kind == akRef # vmgen issue
+
+      # XXX: this is missing support for pointers
+      let loc = c.heap.tryDeref(deref(src).refVal, noneType).value()
+      if getTypeRel(loc.typ, c.types[rbx]) notin {vtrSame, vtrSub}:
+        # an illegal down-conversion (assuming both types are related)
+        raiseVmError(VmEvent(
+          kind: vmEvtIllegalConv,
+          msg: "invalid object conversion"))
     of opcArrCopy:
       let rb = instr.regB
       let rc = instr.regC
@@ -2658,30 +2676,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       let src = regs[instr.regB].handle
       inc pc
       let desttyp = c.types[c.code[pc].regBx - wordExcess]
-
-      assert src.typ.kind == desttyp.kind
-      # perform a conversion check, if necessary
-      case desttyp.kind
-      of akRef:
-        # a ref up- or down conversion
-        assert src.typ.kind == akRef # vmgen issue
-        checkHandle(regs[instr.regB])
-
-        let refVal = deref(src).refVal
-
-        if isNotNil(refVal):
-          let loc = c.heap.tryDeref(refVal, noneType).value()
-          if getTypeRel(loc.typ, desttyp.targetType) notin {vtrSame, vtrSub}:
-            # an illegal up-conversion (assuming both types are related)
-            raiseVmError(VmEvent(
-              kind: vmEvtIllegalConv,
-              msg: "illegal up-conversion"))
-
-      of akObject:
-        # an object-to-object lvalue conversion
-        discard "no check necessary"
-      else:
-        unreachable(desttyp.kind)
 
       regs[ra].handle = src
       regs[ra].handle.typ = desttyp
