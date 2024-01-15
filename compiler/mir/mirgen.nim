@@ -569,7 +569,9 @@ proc capture(c: var TCtx, n: PNode; sink=false): Value =
       # don't create an alias for openArrays, a copy of the view suffices
       captureInTemp(c, f, sink=false)
     else:
-      captureName(c, f, mutable=false)
+      # if used in a sink context, the alias must support potentially
+      # destructive moves throught it, which requires a ``BindMut``
+      captureName(c, f, mutable=sink)
 
 proc genOperand(c: var TCtx, n: PNode; sink = false) =
   ## Translates expression AST `n` to a MIR operand expression. `sink` signals
@@ -750,6 +752,73 @@ proc genVariantAccess(c: var TCtx, n: PNode) =
           c.subTree MirNode(kind: mnkPathVariant, typ: x.typ, field: discr):
             c.use x
 
+proc genObjConv(c: var TCtx, n: PNode, sink, dest: bool) =
+  ## Given an ``nkObjDownConv`` or ``nkObjUpConv`` AST, unwraps all . Only one
+  ## ``mnkPathConv`` is emitted, back-and-forth conversions are all dropped
+  ## (but checks are still generated for them).
+  let
+    skipped = n.typ.skipTypes(abstractInst)
+    # only ref and ptr types are checked during conversions, normal objects
+    # are not
+    needsCheck = (optObjCheck in c.userOptions) and
+                 (skipped.kind in {tyPtr, tyRef}) and
+                 not isObjLackingTypeField(skipped.lastSon)
+
+  # find the first non-conversion node:
+  var start {.cursor.} = n
+  while start.kind in {nkObjDownConv, nkObjUpConv}:
+    start = start[0]
+
+  var deepest = start.typ.skipTypes(skipPtrs)
+    ## the type most nested in the type hierarchy that's certain to be valid
+  if needsCheck:
+    # walk the conversions again and look for the type deepest in the
+    # hierarchy
+    var x {.cursor.} = n
+    while x.kind in {nkObjDownConv, nkObjUpConv}:
+      let typ = x.typ.skipTypes(skipPtrs)
+      if inheritanceDiff(typ, deepest) > 0:
+        deepest = typ
+      x = x[0]
+
+  if needsCheck and deepest != start.typ.skipTypes(skipPtrs):
+    # we do need a check, but only for the most deeply nested type that is
+    # converted to
+    let val =
+      if dest:
+        genAlias(c, start, mutable=true)
+      elif sink:
+        capture(c, start, true)
+      else:
+        # if the result neither needs to be moved from nor assigned to, a
+        # cursor is enough
+        let f = c.builder.push: genx(c, start, false)
+        captureInTemp(c, f, false)
+
+    let boolType = c.graph.getSysType(n.info, tyBool)
+
+    c.buildStmt mnkIf:
+      # the ``x != nil`` condtion:
+      c.wrapAndUse(boolType):
+        c.buildMagicCall mNot, boolType:
+          c.subTree mnkArg:
+            c.wrapAndUse(boolType):
+              c.buildMagicCall mIsNil, boolType:
+                c.emitByVal val
+      # the check:
+      c.subTree mnkVoid:
+        c.buildMagicCall mChckObj, typeOrVoid(c, nil):
+          c.emitByVal val
+          c.emitByVal typeLit(deepest)
+
+    c.buildOp mnkPathConv, n.typ:
+      c.use val
+  else:
+    # skip all down- and up-conversion, the final conversion is all that
+    # matters
+    c.buildOp mnkPathConv, n.typ:
+      genOperand(c, start)
+
 proc genTypeExpr(c: var TCtx, n: PNode): Value =
   ## Generates the code for an expression that yields a type. These are only
   ## valid in metaprogramming contexts. If it's a static type expression, we
@@ -831,7 +900,13 @@ proc genLvalueOperand(c: var TCtx, n: PNode; mutable = true) =
   ## of the underlying location.
   let
     n = if n.kind == nkHiddenAddr: n[0] else: n
-    f = c.builder.push: genx(c, n)
+    f = c.builder.push:
+      if n.kind in {nkObjDownConv, nkObjUpConv}:
+        # XXX: super hacky, but currently required so that object conversions
+        #      pick the correct capture method when used as lvalue operands
+        genObjConv(c, n, sink=false, mutable)
+      else:
+        genx(c, n)
 
   if isStable(c.builder.staging, f.pos):
     # the expression can be used directly. We're already in a staging
@@ -1395,7 +1470,14 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
     # becomes:
     #   if cond: x = a
     #   else:    x = b
-    let dest = genAlias(c, lhs, true)
+    let
+      f = c.builder.push: genLvalueOperand(c, lhs, true)
+      dest =
+        if c.builder.staging[f.pos].kind in Atoms:
+          c.builder.popSingle(f)
+        else:
+          captureName(c, f, true)
+
     genWithDest(c, rhs, initDestination(dest, isFirst, sink))
   else:
     let kind =
@@ -1405,9 +1487,9 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
       else:         mnkFastAsgn
 
     c.buildStmt kind:
-      # ``genLvalueOperand`` ensures that unstable or raising lvalue
+      # ``genLvalueOperand`` ensures that unstable lvalue
       # expressions are captured
-      genLvalueOperand(c, lhs)
+      genLvalueOperand(c, lhs, true)
       genAsgnSource(c, rhs, sink)
 
 proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
@@ -1822,49 +1904,8 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
       unreachable(typ.kind)
   of nkBracketExpr:
     genBracketExpr(c, n)
-  of nkObjDownConv:
-    let
-      skipped = n.typ.skipTypes(abstractInst)
-      # the destination type is first stripped of all ptr/ref modifiers
-      dest = n.typ.skipTypes(abstractPtrs)
-    # only ref and ptr types are checked during conversions, normal objects
-    # are not
-    if optObjCheck in c.userOptions and skipped.kind in {tyPtr, tyRef} and
-       not isObjLackingTypeField(dest):
-      # emit an object check: ``if x != nil: chckObj(x, typ)``
-      let
-        x = capture(c, n[0], consume)
-        boolType = c.graph.getSysType(n.info, tyBool)
-      c.buildStmt mnkIf:
-        # the ``x != nil`` condtion:
-        c.wrapAndUse(boolType):
-          c.buildMagicCall mNot, boolType:
-            c.subTree mnkArg:
-              c.wrapAndUse(boolType):
-                c.buildMagicCall mIsNil, boolType:
-                  c.emitByVal x
-
-        # the ``chckObj`` call statement:
-        c.subTree mnkVoid:
-          c.buildMagicCall mChckObj, typeOrVoid(c, nil):
-            c.emitByVal x
-            c.emitByVal typeLit(dest)
-
-      # the actual conversion operation:
-      c.buildOp mnkPathConv, n.typ:
-        c.use x
-    else:
-      # no object check is used
-      c.buildOp mnkPathConv, n.typ:
-        genOperand(c, n[0], consume)
-  of nkObjUpConv:
-    # discard conversions in the same direction that are used as the operand
-    var arg = n[0]
-    while arg.kind == nkObjUpConv:
-      arg = arg[0]
-
-    c.buildOp mnkPathConv, n.typ:
-      genOperand(c, arg, consume)
+  of nkObjDownConv, nkObjUpConv:
+    genObjConv(c, n, consume, dest=false)
   of nkAddr:
     c.genOp mnkAddr, n.typ, n[0]
   of nkHiddenAddr:
