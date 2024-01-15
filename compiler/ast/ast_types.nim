@@ -830,6 +830,10 @@ type
       ## chckField(valid, val, inverted, msg); raises an error when `val` is
       ## not part of `valid`. `inverted` tells whether to invert the check
       ## and `msg` is the error message
+    mChckObj
+      ## chckObj(ptr_like, type); raises a conversion error when the dynamic
+      ## type of the object pointed to by `ptr_like` is unrelated to or a
+      ## super type of `type`
     mSamePayload
       ## returns whether both seq/string operands share the same payload
     mCopyInternal

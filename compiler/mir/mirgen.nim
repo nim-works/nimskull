@@ -547,17 +547,18 @@ proc genAlias(c: var TCtx, n: PNode, mutable: bool): Value =
   else:
     captureName(c, f, mutable)
 
-proc capture(c: var TCtx, n: PNode): Value =
+proc capture(c: var TCtx, n: PNode; sink=false): Value =
   ## If not a stable lvalue expression, captures the result of the
   ## expression `n` in a temporary.
-  ## * rvalue expression are captured in temporaries
+  ## * rvalue expression are captured in temporaries (with `sink` indicating
+  ##   whether an owned value is preferred)
   ## * lvalue expressions are captured as non-assignable aliases
   ## * literals are not captured
   const Skip = abstractInstTypeClass + {tyVar}
   let f = c.builder.push: genx(c, n)
-  case detectKind(c.builder.staging, f.pos, sink=false)
+  case detectKind(c.builder.staging, f.pos, sink)
   of Rvalue, OwnedRvalue:
-    captureInTemp(c, f, sink=false)
+    captureInTemp(c, f, sink)
   of Literal:
     c.builder.popSingle(f)
   of Lvalue:
@@ -1822,8 +1823,27 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
   of nkBracketExpr:
     genBracketExpr(c, n)
   of nkObjDownConv:
-    c.buildOp mnkPathConv, n.typ:
-      genOperand(c, n[0], consume)
+    let
+      skipped = n.typ.skipTypes(abstractInst)
+      # the destination type is first stripped of all ptr/ref modifiers
+      dest = n.typ.skipTypes(abstractPtrs)
+    # only ref and ptr types are checked during conversions, normal objects
+    # are not
+    if optObjCheck in c.userOptions and skipped.kind in {tyPtr, tyRef} and
+       not isObjLackingTypeField(dest):
+      # emit an object check
+      let x = capture(c, n[0], consume)
+      c.buildStmt mnkVoid:
+        c.buildMagicCall mChckObj, typeOrVoid(c, nil):
+          c.emitByVal x
+          c.emitByVal typeLit(dest)
+
+      c.buildOp mnkPathConv, n.typ:
+        c.use x
+    else:
+      # no object check is used
+      c.buildOp mnkPathConv, n.typ:
+        genOperand(c, n[0], consume)
   of nkObjUpConv:
     # discard conversions in the same direction that are used as the operand
     var arg = n[0]
