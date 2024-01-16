@@ -27,6 +27,7 @@ import
     modulelowering,
   ],
   compiler/mir/[
+    mirbodies,
     mirgen
   ],
   compiler/modules/[
@@ -121,7 +122,7 @@ proc registerProc(c: var GenCtx, prc: PSym): FunctionIndex =
   result = FunctionIndex(idx)
 
 proc generateCodeForProc(c: var CodeGenCtx, idgen: IdGenerator, s: PSym,
-                         body: sink MirFragment): CodeInfo =
+                         body: sink MirBody): CodeInfo =
   ## Generates and the bytecode for the procedure `s` with body `body`. The
   ## resulting bytecode is emitted into the global bytecode section.
   let
