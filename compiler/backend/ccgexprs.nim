@@ -1910,16 +1910,20 @@ proc genClosure(p: BProc, n: CgNode, d: var TLoc) =
     initLocExpr(p, n[1], b)
     internalAssert(p.config, n[0].skipConv.kind != cnkClosureConstr, n.info):
       "closure to closure created"
-    # tasyncawait.nim breaks with this optimization:
-    when false:
-      if d.k != locNone:
-        linefmt(p, cpsStmts, "$1.ClP_0 = $2; $1.ClE_0 = $3;$n",
-                [d.rdLoc, a.rdLoc, b.rdLoc])
-    else:
-      getTemp(p, n.typ, tmp)
+    # XXX: look into removing the intermediate temporary, it shouldn't be
+    #      needed anymore, as the MIR phase makes sure that in-place
+    #      construction always works
+    getTemp(p, n.typ, tmp)
+    if a.t.callConv == ccClosure:
+      # already a closure procedure; can assign directly
       linefmt(p, cpsStmts, "$1.ClP_0 = $2; $1.ClE_0 = $3;$n",
               [tmp.rdLoc, a.rdLoc, b.rdLoc])
-      putLocIntoDest(p, d, tmp)
+    else:
+      # cast the function pointer first
+      linefmt(p, cpsStmts, "$1.ClP_0 = ($4)($2); $1.ClE_0 = $3;$n",
+              [tmp.rdLoc, a.rdLoc, b.rdLoc,
+              getClosureType(p.module, n.typ, clHalfWithEnv)])
+    putLocIntoDest(p, d, tmp)
 
 proc genArrayConstr(p: BProc, n: CgNode, d: var TLoc) =
   var arr: TLoc
