@@ -735,6 +735,8 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
         let err = newError(c.config, result, PAstDiag(kind: adSemExpressionHasNoType))
         localReport(c.config, err)
         result = newSymNode(errorSym(c, result, err))
+      elif typ.kind == tyError and typ.n != nil and typ.n.kind == nkError:
+        result = typ.n
       else:
         result.typ = makeTypeDesc(c, typ)
     else:
