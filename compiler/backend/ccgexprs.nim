@@ -1270,10 +1270,7 @@ proc genAccessTypeField(p: BProc; e: CgNode; d: var TLoc) =
 template genDollar(p: BProc, n: CgNode, d: var TLoc, frmt: string) =
   var a: TLoc
   initLocExpr(p, n[1], a)
-  a.r = ropecg(p.module, frmt, [rdLoc(a)])
-  a.flags.excl lfIndirect # this flag should not be propagated here (not just for HCR)
-  if d.k == locNone: getTemp(p, n.typ, d)
-  genAssignment(p, d, a)
+  putIntoDest(p, d, n, ropecg(p.module, frmt, [rdLoc(a)]))
 
 proc genArrayLen(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   let a = e[1]
