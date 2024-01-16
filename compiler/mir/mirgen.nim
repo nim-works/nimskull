@@ -818,7 +818,7 @@ proc genObjConv(c: var TCtx, n: PNode, sink, dest: bool) =
                 c.emitByVal val
       # the check:
       c.subTree mnkVoid:
-        c.buildMagicCall mChckObj, typeOrVoid(c, nil):
+        c.buildDefectMagicCall mChckObj, typeOrVoid(c, nil):
           c.emitByVal val
           c.emitByVal typeLit(deepest)
 
