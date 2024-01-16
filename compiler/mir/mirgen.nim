@@ -273,7 +273,7 @@ func isPure(tree: MirTree, n: NodePosition): bool =
     # let bindings are pure, but only if they don't have a destructor (in
     # which case they're movable)
     tree[n].sym.kind in {skLet, skForVar} and not hasDestructor(tree[n].typ)
-  of mnkPathNamed, mnkPathPos, mnkPathVariant:
+  of mnkPathNamed, mnkPathPos, mnkPathConv, mnkPathVariant:
     isPure(tree, NodePosition tree.operand(n))
   of mnkPathArray:
     let arr = NodePosition tree.operand(n, 0)
@@ -285,6 +285,7 @@ func isPure(tree: MirTree, n: NodePosition): bool =
     else:
       unreachable(tree[arr].kind)
   else:
+    # TODO: make exhaustive
     false
 
 func isStable(tree: MirTree, n: NodePosition): bool =
@@ -305,11 +306,8 @@ func isStable(tree: MirTree, n: NodePosition): bool =
       isPure(tree, tree.child(n, 1)) and isPure(tree, arr)
     else:
       unreachable()
-  of mnkPathNamed, mnkPathPos, mnkPathVariant:
+  of mnkPathNamed, mnkPathPos, mnkPathConv, mnkPathVariant:
     isStable(tree, NodePosition tree.operand(n))
-  of mnkPathConv:
-    # conversions can raise
-    false
   of mnkDeref, mnkDerefView:
     # a pure target means that the pointer is always the same
     isPure(tree, NodePosition tree.operand(n))
