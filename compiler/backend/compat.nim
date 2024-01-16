@@ -37,7 +37,7 @@ func lastSon*(n: CgNode): CgNode {.inline.} =
 
 proc skipConv*(n: CgNode): CgNode {.inline.} =
   result = n
-  while result.kind in {cnkConv, cnkHiddenConv}:
+  while result.kind in {cnkConv, cnkHiddenConv, cnkLvalueConv}:
     result = result.operand
 
 func getInt*(n: CgNode): Int128 =

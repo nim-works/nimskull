@@ -296,7 +296,7 @@ proc convToIr(cl: TranslateCl, n: CgNode, info: TLineInfo, dest: PType): CgNode 
   result = handleSpecialConv(cl.graph.config, n, info, dest)
   if result == nil:
     # no special conversion is used
-    result = newOp(cnkConv, info, dest, n)
+    result = newOp(cnkLvalueConv, info, dest, n)
 
 proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
   case n.kind

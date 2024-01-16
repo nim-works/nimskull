@@ -2118,6 +2118,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkObjConstr: genObjConstr(p, n, d)
   of cnkCast: genCast(p, n, d)
   of cnkHiddenConv, cnkConv: genConv(p, n, d)
+  of cnkLvalueConv: expr(p, n.operand, d)
   of cnkToSlice:
     if n.len == 1:
       # treated as a no-op here; the conversion is handled in ``genAssignment``
