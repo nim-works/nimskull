@@ -203,30 +203,6 @@ func endsInNoReturn(n: PNode): bool =
     (it.kind in nkCallKinds and it[0].kind == nkSym and
      sfNoReturn in it[0].sym.flags)
 
-func canonicalExpr(n: PNode): PNode =
-  ## Returns the canonical expression, i.e. the expression without leading
-  ## pragma blocks or empty statement lists
-  func skipped(n: PNode): PNode =
-    case n.kind
-    of nkPragmaBlock:
-      n.lastSon
-    of nkStmtListExpr:
-      if stupidStmtListExpr(n):
-        # the statement-list expression is redundant (i.e. only has a single
-        # item or only leading empty nodes) -> skip it
-        n.lastSon
-      else:
-        # the list needs to be kept
-        n
-    else:
-      n
-
-  var n {.cursor.} = n
-  while (let it = skipped(n); it != n):
-    n = it
-
-  result = n
-
 func selectWhenBranch(n: PNode, isNimvm: bool): PNode =
   assert n.kind == nkWhen
   if isNimvm: n[0][1]
@@ -1362,15 +1338,15 @@ proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
 
 proc unwrap(c: var TCtx, n: PNode): PNode =
   ## If `n` is a statement-list expression, generates the code for all
-  ## statements and returns the unwrapped expression. Returns the canonicalized
-  ## `n` otherwise
-  result = canonicalExpr(n)
+  ## statements and returns the unwrapped expression. The unchanged `n` is
+  ## returned otherwise.
+  result = n
   if result.kind == nkStmtListExpr:
     withFront c.builder:
       for i in 0..<(result.len-1):
         gen(c, result[i])
 
-    result = canonicalExpr(result.lastSon)
+    result = result.lastSon
     assert result.kind != nkStmtListExpr
 
 proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
@@ -1386,7 +1362,6 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
   let
     lhs = unwrap(c, lhs)
     sink = sink and not isCursor(lhs)
-    rhs = canonicalExpr(rhs)
 
   case rhs.kind
   of ComplexExprs, nkStmtListExpr:
@@ -2106,7 +2081,6 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
   ## assigning the resulting value to the given destination `dest`. `dest` can
   ## be 'none', in which case `n` is required to be a statement
   if dest.isSome:
-    let n = canonicalExpr(n)
     assert not endsInNoReturn(n)
 
     case n.kind
