@@ -1267,14 +1267,6 @@ proc genAccessTypeField(p: BProc; e: CgNode; d: var TLoc) =
   # use the dynamic type stored at offset 0:
   putIntoDest(p, d, e, rdMType(p, a, nilCheck))
 
-template genDollar(p: BProc, n: CgNode, d: var TLoc, frmt: string) =
-  var a: TLoc
-  initLocExpr(p, n[1], a)
-  a.r = ropecg(p.module, frmt, [rdLoc(a)])
-  a.flags.excl lfIndirect # this flag should not be propagated here (not just for HCR)
-  if d.k == locNone: getTemp(p, n.typ, d)
-  genAssignment(p, d, a)
-
 proc genArrayLen(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   let a = e[1]
   var typ = skipTypes(a.typ, abstractVar + tyUserTypeClasses)
@@ -1717,9 +1709,9 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mLeStr: binaryExpr(p, e, d, "(#cmpStrings($1, $2) <= 0)")
   of mLtStr: binaryExpr(p, e, d, "(#cmpStrings($1, $2) < 0)")
   of mIsNil: genIsNil(p, e, d)
-  of mBoolToStr: genDollar(p, e, d, "#nimBoolToStr($1)")
-  of mCharToStr: genDollar(p, e, d, "#nimCharToStr($1)")
-  of mCStrToStr: genDollar(p, e, d, "#cstrToNimstr($1)")
+  of mBoolToStr: unaryExpr(p, e, d, "#nimBoolToStr($1)")
+  of mCharToStr: unaryExpr(p, e, d, "#nimCharToStr($1)")
+  of mCStrToStr: unaryExpr(p, e, d, "#cstrToNimstr($1)")
   of mStrToStr: expr(p, e[1], d)
   of mIsolate: genCall(p, e, d)
   of mFinished: genBreakState(p, e, d)
@@ -1920,16 +1912,20 @@ proc genClosure(p: BProc, n: CgNode, d: var TLoc) =
     initLocExpr(p, n[1], b)
     internalAssert(p.config, n[0].skipConv.kind != cnkClosureConstr, n.info):
       "closure to closure created"
-    # tasyncawait.nim breaks with this optimization:
-    when false:
-      if d.k != locNone:
-        linefmt(p, cpsStmts, "$1.ClP_0 = $2; $1.ClE_0 = $3;$n",
-                [d.rdLoc, a.rdLoc, b.rdLoc])
-    else:
-      getTemp(p, n.typ, tmp)
+    # XXX: look into removing the intermediate temporary, it shouldn't be
+    #      needed anymore, as the MIR phase makes sure that in-place
+    #      construction always works
+    getTemp(p, n.typ, tmp)
+    if a.t.callConv == ccClosure:
+      # already a closure procedure; can assign directly
       linefmt(p, cpsStmts, "$1.ClP_0 = $2; $1.ClE_0 = $3;$n",
               [tmp.rdLoc, a.rdLoc, b.rdLoc])
-      putLocIntoDest(p, d, tmp)
+    else:
+      # cast the function pointer first
+      linefmt(p, cpsStmts, "$1.ClP_0 = ($4)($2); $1.ClE_0 = $3;$n",
+              [tmp.rdLoc, a.rdLoc, b.rdLoc,
+              getClosureType(p.module, n.typ, clHalfWithEnv)])
+    putLocIntoDest(p, d, tmp)
 
 proc genArrayConstr(p: BProc, n: CgNode, d: var TLoc) =
   var arr: TLoc
@@ -2115,6 +2111,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkObjConstr: genObjConstr(p, n, d)
   of cnkCast: genCast(p, n, d)
   of cnkHiddenConv, cnkConv: genConv(p, n, d)
+  of cnkLvalueConv: expr(p, n.operand, d)
   of cnkToSlice:
     if n.len == 1:
       # treated as a no-op here; the conversion is handled in ``genAssignment``

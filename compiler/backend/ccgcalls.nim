@@ -29,7 +29,7 @@ proc reportObservableStore(p: BProc; le, ri: CgNode) =
         return inTryStmt and sfUsedInFinallyOrExcept in p.body[n.local].flags
       of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess:
         n = n[0]
-      of cnkObjUpConv, cnkObjDownConv, cnkHiddenConv, cnkConv:
+      of cnkObjUpConv, cnkObjDownConv, cnkLvalueConv:
         n = n.operand
       else:
         # cannot analyse the location; assume the worst

@@ -252,6 +252,7 @@ var
         trfPackedFields,
         trfSkipAuxError,
         trfShowKindTypes,
+        trfShowSymId,
         trfShowSymName,
         trfShowSymTypes,
         trfShowSymKind,

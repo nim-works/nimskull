@@ -16,6 +16,7 @@ import
     options
   ],
   compiler/mir/[
+    mirbodies,
     mirchangesets,
     mirconstr,
     mirtrees,
@@ -63,12 +64,12 @@ proc echoInput*(config: ConfigRef, owner: PSym, body: PNode) =
     writeBody(config, "-- input AST: " & owner.name.s):
       config.writeln(treeRepr(config, body, reprConfig))
 
-proc echoMir*(config: ConfigRef, owner: PSym, tree: MirTree) =
-  ## If requested via the define, renders the `tree` and writes the result out
+proc echoMir*(config: ConfigRef, owner: PSym, body: MirBody) =
+  ## If requested via the define, renders the `body` and writes the result out
   ## through ``config.writeln``.
   if config.getStrDefine("nimShowMir") == owner.name.s:
     writeBody(config, "-- MIR: " & owner.name.s):
-      config.writeln(treeRepr(tree))
+      config.writeln(treeRepr(body.code))
 
 proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
   ## If requested via the define, renders the output IR `body` and writes the
@@ -134,9 +135,9 @@ proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
   ## MIR code, and the MIR code to ``CgNode`` IR.
   echoInput(graph.config, owner, body)
   # step 1: generate a ``MirTree`` from the input AST
-  let (tree, sourceMap) = generateCode(graph, owner, config, body)
-  echoMir(graph.config, owner, tree)
+  let body = generateCode(graph, owner, config, body)
+  echoMir(graph.config, owner, body)
 
   # step 2: generate the ``CgNode`` tree
-  result = generateIR(graph, idgen, owner, tree, sourceMap)
+  result = generateIR(graph, idgen, owner, body)
   echoOutput(graph.config, owner, result)

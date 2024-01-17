@@ -69,6 +69,7 @@ import
     wordrecg
   ],
   compiler/mir/[
+    mirbodies,
     mirconstr,
     mirtrees,
     sourcemaps
@@ -201,30 +202,6 @@ func endsInNoReturn(n: PNode): bool =
   result = it.kind in nkLastBlockStmts or
     (it.kind in nkCallKinds and it[0].kind == nkSym and
      sfNoReturn in it[0].sym.flags)
-
-func canonicalExpr(n: PNode): PNode =
-  ## Returns the canonical expression, i.e. the expression without leading
-  ## pragma blocks or empty statement lists
-  func skipped(n: PNode): PNode =
-    case n.kind
-    of nkPragmaBlock:
-      n.lastSon
-    of nkStmtListExpr:
-      if stupidStmtListExpr(n):
-        # the statement-list expression is redundant (i.e. only has a single
-        # item or only leading empty nodes) -> skip it
-        n.lastSon
-      else:
-        # the list needs to be kept
-        n
-    else:
-      n
-
-  var n {.cursor.} = n
-  while (let it = skipped(n); it != n):
-    n = it
-
-  result = n
 
 func selectWhenBranch(n: PNode, isNimvm: bool): PNode =
   assert n.kind == nkWhen
@@ -1446,15 +1423,15 @@ proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
 
 proc unwrap(c: var TCtx, n: PNode): PNode =
   ## If `n` is a statement-list expression, generates the code for all
-  ## statements and returns the unwrapped expression. Returns the canonicalized
-  ## `n` otherwise
-  result = canonicalExpr(n)
+  ## statements and returns the unwrapped expression. The unchanged `n` is
+  ## returned otherwise.
+  result = n
   if result.kind == nkStmtListExpr:
     withFront c.builder:
       for i in 0..<(result.len-1):
         gen(c, result[i])
 
-    result = canonicalExpr(result.lastSon)
+    result = result.lastSon
     assert result.kind != nkStmtListExpr
 
 proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
@@ -1470,7 +1447,6 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
   let
     lhs = unwrap(c, lhs)
     sink = sink and not isCursor(lhs)
-    rhs = canonicalExpr(rhs)
 
   case rhs.kind
   of ComplexExprs, nkStmtListExpr:
@@ -2188,7 +2164,6 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
   ## assigning the resulting value to the given destination `dest`. `dest` can
   ## be 'none', in which case `n` is required to be a statement
   if dest.isSome:
-    let n = canonicalExpr(n)
     assert not endsInNoReturn(n)
 
     case n.kind
@@ -2243,17 +2218,15 @@ proc generateCode*(graph: ModuleGraph, config: TranslationConfig, n: PNode,
   swapState()
 
 proc generateCode*(graph: ModuleGraph, owner: PSym, config: TranslationConfig,
-                   body: PNode): tuple[code: MirTree, source: SourceMap] =
-  ## Generates MIR code that is semantically equivalent to `body` plus the
-  ## ``SourceMap`` that associates each ``MirNode`` with the ``PNode`` it
-  ## originated from.
+                   body: PNode): MirBody =
+  ## Generates the full MIR body for the given AST `body`.
   ##
   ## `owner` it the symbol of the entity (module or procedure) that `body`
   ## belongs to. If the owner is a procedure, `body` is expected to be the
   ## full body of the procedure.
   ##
-  ## `isNimvm` indicates the branch of a ``when nimvm`` statement that code
-  ## should be generated code for
+  ## `config` provides additional configuration options that alter how some
+  ## AST is translated.
   # XXX: this assertion can currently not be used, as the ``nfTransf`` flag
   #      might no longer be present after the lambdalifting pass
   #assert nfTransf in body.flags, "transformed AST is expected as input"
@@ -2277,5 +2250,6 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, config: TranslationConfig,
   gen(c, body)
   c.add endNode(mnkScope)
 
-  result[0] = finish(move c.builder)
-  result[1] = move c.sp.map
+  # move the buffers into the result body
+  MirBody(source: move c.sp.map,
+          code: finish(move c.builder))

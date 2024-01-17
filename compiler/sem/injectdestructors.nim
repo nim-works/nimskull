@@ -113,6 +113,7 @@ import
   ],
   compiler/mir/[
     analysis,
+    mirbodies,
     mirchangesets,
     mirconstr,
     mirtrees,
@@ -1091,16 +1092,16 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
   # generate the ``discriminant = newValue`` assignment:
   bu.asgn(a, b)
 
-proc reportDiagnostics(g: ModuleGraph, tree: MirTree, sourceMap: SourceMap,
+proc reportDiagnostics(g: ModuleGraph, body: MirBody,
                        owner: PSym, diags: var seq[LocalDiag]) =
   ## Reports all diagnostics in `diags` as ``SemReport``s and clear the list
   for diag in diags.items:
-    let ast = sourceMap[tree[diag.pos].info]
+    let ast = body.sourceFor(diag.pos)
     let rep =
       case diag.kind
       of ldkUnavailableTypeBound:
         SemReport(kind: rsemUnavailableTypeBound,
-                  typ: tree[diag.pos].typ,
+                  typ: body[diag.pos].typ,
                   str: AttachedOpToStr[diag.op],
                   ast: ast,
                   sym: owner)
@@ -1117,21 +1118,21 @@ func shouldInjectDestructorCalls*(owner: PSym): bool =
      (owner.kind != skIterator or not isInlineIterator(owner.typ))
 
 proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
-                            tree: var MirTree, sourceMap: var SourceMap) =
+                            body: var MirBody) =
   ## The ``injectdestructors`` pass entry point. The pass is made up of
-  ## multiple sub-passes, hence the mutable `tree` and `sourceMap` (as opposed
+  ## multiple sub-passes, hence the mutable `body` (as opposed
   ## to returning a ``Changeset``).
   ##
   ## For now, semantic errors and other diagnostics related to lifetime-hook
   ## usage are also reported here.
 
   template apply(c: Changeset) =
-    ## Applies the changeset `c` to `tree`.
-    apply(tree, prepare(c))
+    ## Applies the changeset `c` to `body`.
+    apply(body.code, prepare(c))
 
   # apply the first batch of passes:
   block:
-    var changes = initChangeset(tree)
+    var changes = initChangeset(body.code)
     # the VM implements branch switching itself - performing the lowering for
     # code meant to run in it would be harmful
     # FIXME: discriminant assignment lowering also needs to be disabled for
@@ -1143,41 +1144,41 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
     # TODO: make the branch-switch lowering a separate and standalone pass --
     #       it's not directly related to the rest of the processing here
     if g.config.backend != backendNimVm:
-      for i, n in tree.pairs:
+      for i, n in body.code.pairs:
         if n.kind == mnkSwitch:
-          changes.replaceMulti(tree, i, buf):
-            lowerBranchSwitch(buf, tree, g, idgen, i)
+          changes.replaceMulti(body.code, i, buf):
+            lowerBranchSwitch(buf, body.code, g, idgen, i)
 
     apply(changes)
 
   # apply the second batch of passes:
   block:
     var
-      changes = initChangeset(tree)
+      changes = initChangeset(body.code)
       diags: seq[LocalDiag]
 
     let
-      actx = AnalyseCtx(graph: g, cfg: computeDfg(tree))
-      entities = initEntityDict(tree, actx.cfg)
-      values = solveOwnership(tree, actx.cfg, entities)
+      actx = AnalyseCtx(graph: g, cfg: computeDfg(body.code))
+      entities = initEntityDict(body.code, actx.cfg)
+      values = solveOwnership(body.code, actx.cfg, entities)
 
-    let destructors = computeDestructors(tree, actx.cfg, values, entities)
+    let destructors = computeDestructors(body.code, actx.cfg, values, entities)
 
     rewriteAssignments(
-      tree, actx,
+      body.code, actx,
       AnalysisResults(v: cursor(values),
                       entities: cursor(entities),
                       destroy: cursor(destructors)),
       diags, changes)
 
     # turn the collected diagnostics into reports and report them:
-    reportDiagnostics(g, tree, sourceMap, owner, diags)
+    reportDiagnostics(g, body, owner, diags)
 
-    injectDestructors(tree, g, destructors, changes)
+    injectDestructors(body.code, g, destructors, changes)
 
     apply(changes)
 
   if g.config.arcToExpand.hasKey(owner.name.s):
     g.config.msgWrite("--expandArc: " & owner.name.s & "\n")
-    g.config.msgWrite(render(tree))
+    g.config.msgWrite(render(body.code))
     g.config.msgWrite("\n-- end of expandArc ------------------------\n")

@@ -11,6 +11,7 @@ import
     types
   ],
   compiler/mir/[
+    mirbodies,
     mirchangesets,
     mirconstr,
     mirtrees,
@@ -323,26 +324,26 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         changes.replace(tree, n): alias
         changes.replace(tree, pos): alias
 
-proc applyPasses*(tree: var MirTree, source: var SourceMap, prc: PSym,
-                  config: ConfigRef, target: TargetBackend) =
+proc applyPasses*(body: var MirBody, prc: PSym, config: ConfigRef,
+                  target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
   ## `prc`. `target` is the targeted backend and is used to enable/disable
   ## certain passes.
-  template batch(body: untyped) =
+  template batch(b: untyped) =
     block:
-      var c {.inject.} = initChangeset(tree)
-      body
-      apply(tree, prepare(c))
+      var c {.inject.} = initChangeset(body.code)
+      b
+      apply(body.code, prepare(c))
 
   if target == targetC:
     batch:
       # only the C code generator employs the return-value optimization (=RVO)
       # at the moment
-      preventRvo(tree, c)
+      preventRvo(body.code, c)
 
   batch:
-    lowerSwap(tree, c)
+    lowerSwap(body.code, c)
 
   # eliminate temporaries after all other passes
   batch:
-    eliminateTemporaries(tree, c)
+    eliminateTemporaries(body.code, c)

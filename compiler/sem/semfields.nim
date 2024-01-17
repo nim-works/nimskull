@@ -105,25 +105,30 @@ proc semForObjectFields(c: TFieldsCtx, typ, forLoop, father: PNode) =
     semReportIllformedAst(c.c.config, typ, {
       nkRecList, nkRecCase, nkNilLit, nkSym})
 
-proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
+proc semForFields(c: PContext, n, call: PNode, flags: TExprFlags): PNode =
   # so that 'break' etc. work as expected, we produce
   # a 'while true: stmt; break' loop ...
-  result = newNodeI(nkWhileStmt, n.info, 2)
+  let
+    m = call[0].sym.magic
+    info = n.info
+    semmedLoop = copyNodeWithKids(n)
+  semmedLoop[^2] = call
+  result = newNodeI(nkWhileStmt, info, 2)
+
   var trueSymbol = systemModuleSym(c.graph, getIdent(c.cache, "true"))
-  if trueSymbol == nil:
-    localReport(c.config, n.info, reportStr(rsemSystemNeeds, "true"))
+  if trueSymbol.isNil:
+    localReport(c.config, info, reportStr(rsemSystemNeeds, "true"))
     trueSymbol = newSym(
       skUnknown, getIdent(c.cache, "true"),
-      nextSymId c.idgen, getCurrOwner(c), n.info)
-    trueSymbol.typ = getSysType(c.graph, n.info, tyBool)
+      nextSymId c.idgen, getCurrOwner(c), info)
+    trueSymbol.typ = getSysType(c.graph, info, tyBool)
 
-  result[0] = newSymNode(trueSymbol, n.info)
-  var stmts = newNodeI(nkStmtList, n.info)
+  result[0] = newSymNode(trueSymbol, info)
+  var stmts = newNodeI(nkStmtList, info)
   result[1] = stmts
 
-  var call = n[^2]
   if n.len-2 != call.len - 1 + ord(m == mFieldPairs):
-    localReport(c.config, n.info, semReportCountMismatch(
+    localReport(c.config, info, semReportCountMismatch(
       rsemWrongNumberOfVariables,
       expected = call.len - 1 + ord(m == mFieldPairs),
       got = n.len - 2))
@@ -132,7 +137,7 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
   const skippedTypesForFields = abstractVar - {tyTypeDesc} + tyUserTypeClasses
   var tupleTypeA = skipTypes(call[1].typ, skippedTypesForFields)
   if tupleTypeA.kind notin {tyTuple, tyObject}:
-    localReport(c.config, n.info, reportSem(rsemNoObjectOrTupleType))
+    localReport(c.config, info, reportSem(rsemNoObjectOrTupleType))
     return result
   for i in 1..<call.len:
     let calli = call[i]
@@ -143,7 +148,7 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
         localReport(c.config, r)
   inc(c.execCon.nestedLoopCounter)
   if tupleTypeA.kind == tyTuple:
-    var loopBody = n[^1]
+    var loopBody = semmedLoop[^1]
     for i in 0..<tupleTypeA.len:
       openScope(c)
       var fc: TFieldInstCtx
@@ -151,7 +156,7 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
       fc.tupleIndex = i
       fc.c = c
       fc.replaceByFieldName = m == mFieldPairs
-      var body = instFieldLoopBody(fc, loopBody, n)
+      var body = instFieldLoopBody(fc, loopBody, semmedLoop)
       inc c.inUnrolledContext
       stmts.add(semStmt(c, body, {}))
       dec c.inUnrolledContext
@@ -162,17 +167,23 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
     fc.c = c
     var t = tupleTypeA
     while t.kind == tyObject:
-      semForObjectFields(fc, t.n, n, stmts)
+      semForObjectFields(fc, t.n, semmedLoop, stmts)
       if t[0] == nil: break
       t = skipTypes(t[0], skipPtrs)
   dec(c.execCon.nestedLoopCounter)
   # for TR macros this 'while true: ...; break' loop is pretty bad, so
   # we avoid it now if we can:
   if containsNode(stmts, {nkBreakStmt}):
-    var b = newNodeI(nkBreakStmt, n.info)
-    b.add(newNodeI(nkEmpty, n.info))
+    var b = newNodeI(nkBreakStmt, info)
+    b.add(newNodeI(nkEmpty, info))
     stmts.add(b)
   else:
     result = stmts
-  if containsNode(stmts, {nkError}):
+
+  if containsNode(result, {nkError}):
     result = c.config.wrapError(result)
+  elif semmedLoop[^1].typ == c.enforceVoidContext:
+    # propagate any enforced VoidContext:
+    result.typ = c.enforceVoidContext
+  elif result.len > 0 and efInTypeof in flags:
+    result.typ = result.lastSon.typ

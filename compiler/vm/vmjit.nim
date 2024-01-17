@@ -23,16 +23,15 @@ import
   ],
   compiler/backend/[
     backends,
-    cgir,
-    cgirgen
+    cgir
   ],
   compiler/mir/[
+    mirbodies,
     mirbridge,
     mirconstr,
     mirgen,
     mirpasses,
     mirtrees,
-    sourcemaps,
   ],
   compiler/modules/[
     magicsys
@@ -147,10 +146,12 @@ func removeLastEof(c: var TCtx) =
     c.code.setLen(last)
     c.debug.setLen(last)
 
-func discoverGlobalsAndRewrite(data: var DiscoveryData, tree: var MirTree,
-                               source: var SourceMap, rewrite: bool) =
+func discoverGlobalsAndRewrite(data: var DiscoveryData, body: var MirBody,
+                               rewrite: bool) =
   ## Scans `tree` for definitions of globals, registers them with the `data`,
   ## and rewrites their definitions into assignments (if `rewrite` is true).
+  template tree(): MirTree =
+    body.code
 
   # scan the body for definitions of globals:
   var i = NodePosition 0
@@ -169,7 +170,7 @@ func discoverGlobalsAndRewrite(data: var DiscoveryData, tree: var MirTree,
       inc i
 
   if rewrite:
-    rewriteGlobalDefs(tree, source)
+    rewriteGlobalDefs(tree, body.source)
 
 func register(linker: var LinkerData, data: DiscoveryData) =
   ## Registers the newly discovered entities in the link table, but doesn't
@@ -189,7 +190,7 @@ func register(linker: var LinkerData, data: DiscoveryData) =
     linker.symToIndexTbl[it.id] = LinkIndex(i)
 
 proc generateMirCode(c: var TCtx, n: PNode;
-                     isStmt = false): (MirTree, SourceMap) =
+                     isStmt = false): MirBody =
   ## Generates the initial MIR code for a standalone statement/expression.
   if isStmt:
     # we want statements wrapped in a scope, hence generating a proper
@@ -197,13 +198,11 @@ proc generateMirCode(c: var TCtx, n: PNode;
     result = generateCode(c.graph, c.module, selectOptions(c), n)
   else:
     var bu: MirBuilder
-    generateCode(c.graph, selectOptions(c), n, bu, result[1])
-    result[0] = finish(bu)
+    generateCode(c.graph, selectOptions(c), n, bu, result.source)
+    result.code = finish(bu)
 
-proc generateIR(c: var TCtx, tree: sink MirTree,
-                source: sink SourceMap): Body {.inline.} =
-  if tree.len > 0: generateIR(c.graph, c.idgen, c.module, tree, source)
-  else:            Body(code: newNode(cnkEmpty))
+proc generateIR(c: var TCtx, body: sink MirBody): Body =
+  backends.generateIR(c.graph, c.idgen, c.module, body)
 
 proc setupRootRef(c: var TCtx) =
   ## Sets up if the ``RootRef`` type for the type info cache. This
@@ -232,14 +231,14 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   c.removeLastEof()
 
   # `n` is expected to have been put through ``transf`` already
-  var (tree, sourceMap) = generateMirCode(c, n, isStmt = true)
-  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap, true)
-  applyPasses(tree, sourceMap, c.module, c.config, targetVm)
-  discoverFrom(jit.discovery, tree)
+  var mirBody = generateMirCode(c, n, isStmt = true)
+  discoverGlobalsAndRewrite(jit.discovery, mirBody, true)
+  applyPasses(mirBody, c.module, c.config, targetVm)
+  discoverFrom(jit.discovery, mirBody.code)
   register(c.linking, jit.discovery)
 
   let
-    body = generateIR(c, tree, sourceMap)
+    body = generateIR(c, mirBody)
     start = c.code.len
 
   # generate the bytecode:
@@ -262,7 +261,7 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   #      all expect statements). Ideally, dedicated support for
   #      expressions would be removed from the JIT.
 
-  var (tree, sourceMap) = generateMirCode(c, n)
+  var mirBody = generateMirCode(c, n)
   # constant expression outside of routines can currently also contain
   # definitions of globals...
   # XXX: they really should not, but that's up to sem. Example:
@@ -270,13 +269,13 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   #        const c = block: (var x = 0; x)
   #
   #     If `c` is defined at the top-level, then `x` is a "global" variable
-  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap, false)
-  applyPasses(tree, sourceMap, c.module, c.config, targetVm)
-  discoverFrom(jit.discovery, tree)
+  discoverGlobalsAndRewrite(jit.discovery, mirBody, false)
+  applyPasses(mirBody, c.module, c.config, targetVm)
+  discoverFrom(jit.discovery, mirBody.code)
   register(c.linking, jit.discovery)
 
   let
-    body = generateIR(c, tree, sourceMap)
+    body = generateIR(c, mirBody)
     start = c.code.len
 
   # generate the bytecode:
@@ -305,24 +304,28 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
       transformBody(c.graph, c.idgen, s, cache = true)
 
   echoInput(c.config, s, body)
-  var (tree, sourceMap) = generateCode(c.graph, s, selectOptions(c), body)
-  echoMir(c.config, s, tree)
+  var mirBody = generateCode(c.graph, s, selectOptions(c), body)
+  echoMir(c.config, s, mirBody)
   # XXX: lifted globals are currently not extracted from the procedure and,
   #      for the most part, behave like normal locals. The call to
   #      ``discoverGlobalsAndRewrite`` plus the MIR -> ``CgNode`` translation
   #      make sure that at least ``vmgen`` doesn't have to be concerned with
   #      that, but eventually it needs to be decided how lifted globals should
   #      work in compile-time and interpreted contexts
-  discoverGlobalsAndRewrite(jit.discovery, tree, sourceMap, false)
-  applyPasses(tree, sourceMap, s, c.config, targetVm)
-  discoverFrom(jit.discovery, tree)
+  discoverGlobalsAndRewrite(jit.discovery, mirBody, false)
+  applyPasses(mirBody, s, c.config, targetVm)
+  discoverFrom(jit.discovery, mirBody.code)
   register(c.linking, jit.discovery)
 
-  let outBody = generateIR(c.graph, c.idgen, s, tree, sourceMap)
+  let outBody = generateIR(c.graph, c.idgen, s, mirBody)
   echoOutput(c.config, s, outBody)
 
-  # generate the bytecode:
-  result = runCodeGen(c, jit.gen, outBody): genProc(jit.gen, s, outBody)
+  try:
+    # generate the bytecode:
+    result = runCodeGen(c, jit.gen, outBody): genProc(jit.gen, s, outBody)
+  except:
+    # echo render(tree)
+    raise
 
   if unlikely(result.isErr):
     rewind(jit.discovery)

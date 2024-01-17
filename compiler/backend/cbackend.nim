@@ -225,7 +225,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
     genConstDefinition(g.modules[moduleId(s)], s)
   of bekPartial:
     # register inline dependencies:
-    let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.tree)
+    let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.code)
 
     var p = getOrDefault(partial, evt.sym)
     if p == nil:
@@ -238,7 +238,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
 
     processLate(bmod, discovery, inl, evt.module, inlineId)
   of bekProcedure:
-    let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.tree)
+    let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.code)
 
     # mark the procedure as declared, first. This gets around an unnecessary
     # emit of the prototype in the case of self-recursion

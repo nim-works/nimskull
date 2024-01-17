@@ -122,6 +122,7 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode
 proc changeType(c: PContext; n: PNode, newType: PType, check: bool): PNode
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType
+proc semTypeNode2(c: PContext, n: PNode, prev: PType): PNode
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode
 proc semOpAux(c: PContext, n: PNode): bool
 proc semParamList(c: PContext, n, genericParams: PNode, kind: TSymKind): PType
@@ -730,13 +731,9 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       result = semExprWithType(c, result, flags)
     of tyTypeDesc:
       if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListType)
-      var typ = semTypeNode(c, result, nil)
-      if typ == nil:
-        let err = newError(c.config, result, PAstDiag(kind: adSemExpressionHasNoType))
-        localReport(c.config, err)
-        result = newSymNode(errorSym(c, result, err))
-      else:
-        result.typ = makeTypeDesc(c, typ)
+      result = semTypeNode2(c, result, nil)
+      if result.kind != nkError:
+        result.typ = makeTypeDesc(c, result.typ)
     else:
       if s.ast.isGenericRoutine and retType.isMetaType:
         # The return type may depend on the Macro arguments

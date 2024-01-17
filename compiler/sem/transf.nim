@@ -1244,6 +1244,17 @@ proc transform(c: PTransf, n: PNode): PNode =
   of nkNimNodeLit:
     # do not transform the content of a ``NimNode`` literal
     result = n
+  of nkStmtListExpr:
+    if stupidStmtListExpr(n):
+      # the statement-list expression is redundant (i.e. only has a single
+      # item or only leading empty nodes) -> skip it
+      result = transform(c, n.lastSon)
+    else:
+      # needs to be kept
+      result = transformSons(c, n)
+  of nkPragmaExpr:
+    # not needed in transformed AST -> drop it
+    result = transform(c, n.lastSon)
   else:
     result = transformSons(c, n)
   when false:
