@@ -261,6 +261,7 @@ proc maybeLiftType(t: var PType, c: PContext, info: TLineInfo) =
   if lifted != nil: t = lifted
 
 proc semConv(c: PContext, n: PNode): PNode =
+  addInNimDebugUtils(c.config, "semConv", n, result)
   if n.len != 2:
     result = c.config.newError(n,
                 PAstDiag(kind: adSemTypeConversionArgumentMismatch,
