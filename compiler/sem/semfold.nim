@@ -905,7 +905,7 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
   # are not folded if they have a comment in the first position
   let exprIsPointerCast = n.kind in {nkCast, nkConv, nkHiddenStdConv} and
                           n.typ != nil and
-                          n.typ.kind == tyPointer
+                          n.typ.kind in {tyPointer, tyProc}
   if not exprIsPointerCast and
      not (n.kind == nkStmtListExpr and n[0].kind == nkCommentStmt):
     var cnst = getConstExpr(m, result.node, idgen, g)

@@ -1463,6 +1463,11 @@ proc genCastIntFloat(c: var TCtx; n: CgNode; dest: var TDest) =
     if dest.isUnset: dest = c.getTemp(n.typ)
     let opcode = if fitsRegister(dst): opcLdNullReg else: opcReset
     c.gABx(n, opcode, dest, c.genType(dst))
+  elif dst.kind == tyProc and dst.callConv != ccClosure and
+       n.operand.kind == cnkProc:
+    # casting a procedure literal to another type. This is the same as just
+    # loading the literal
+    genProcLit(c, n, n.operand.sym, dest)
   else:
     # todo: support cast from tyInt to tyRef
     raiseVmGenError:
