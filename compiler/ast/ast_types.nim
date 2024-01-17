@@ -816,6 +816,8 @@ type
     mSymIsInstantiationOf, mNodeId, mPrivateAccess
 
     # magics only used internally:
+    mStrToCStr
+      ## the backend-dependent string-to-cstring conversion
     mAsgnDynlibVar
     mChckRange
       ## chckRange(v, lower, upper); conversion + range check -- returns

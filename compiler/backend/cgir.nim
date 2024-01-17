@@ -91,13 +91,6 @@ type
     cnkCast          ## reinterpret the bit-pattern of the operand as a
                      ## different type
 
-    # ---- special conversions kept for compatibility
-    cnkStringToCString ## string to cstring
-    cnkCStringToString ## cstring to string
-    # future direction: lower these coversion operations during the MIR
-    # phase and then remove the node kinds
-    # ---- end
-
     cnkStmtList
     cnkStmtListExpr
     # future direction: remove ``cnkStmtListExpr``. The code generators know
@@ -144,7 +137,7 @@ const
 
   cnkWithOperand*  = {cnkConv, cnkHiddenConv, cnkDeref, cnkAddr, cnkHiddenAddr,
                       cnkDerefView, cnkObjDownConv, cnkObjUpConv, cnkCast,
-                      cnkStringToCString, cnkCStringToString, cnkLvalueConv}
+                      cnkLvalueConv}
   cnkAtoms*        = {cnkInvalid..cnkMagic, cnkReturnStmt, cnkPragmaStmt}
     ## node kinds that denote leafs
   cnkWithItems*    = AllKinds - cnkWithOperand - cnkAtoms

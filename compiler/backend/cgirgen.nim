@@ -770,32 +770,7 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
   of mnkConv:
     op cnkConv, valueToIr(tree, cl, cr)
   of mnkStdConv:
-    let
-      opr = valueToIr(tree, cl, cr)
-      source = opr.typ.skipTypes(abstractVarRange)
-      dest = n.typ.skipTypes(abstractVarRange)
-
-    leave(tree, cr)
-
-    var adjusted: CgNode
-
-    case dest.kind
-    of tyCstring:
-      if source.kind == tyString:
-        adjusted = newOp(cnkStringToCString, info, n.typ): opr
-
-    of tyString:
-      if source.kind == tyCstring:
-        adjusted = newOp(cnkCStringToString, info, n.typ): opr
-
-    else:
-      discard
-
-    if adjusted == nil:
-      # no special conversion is used
-      adjusted = newOp(cnkHiddenConv, info, n.typ, opr)
-
-    adjusted
+    op cnkHiddenConv, valueToIr(tree, cl, cr)
   of mnkToSlice:
     treeOp cnkToSlice:
       res.add valueToIr(tree, cl, cr)

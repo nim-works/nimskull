@@ -1734,8 +1734,19 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     let t = skipTypes(n.typ, abstractVar-{tyTypeDesc})
     if t.kind in {tyUInt8..tyUInt32} or (t.kind == tyUInt and t.size < 8):
       c.gABC(n, opcNarrowU, dest, TRegister(t.size*8))
-  of mCharToStr, mBoolToStr, mIntToStr, mInt64ToStr, mFloatToStr, mCStrToStr, mStrToStr, mEnumToStr:
+  of mCharToStr, mBoolToStr, mIntToStr, mInt64ToStr, mFloatToStr, mStrToStr,
+     mEnumToStr:
     genToStr(c, n, n[1], dest)
+  of mCStrToStr, mStrToCStr:
+    let val = n[1]
+    if val.kind in LvalueExprKinds:
+      # loading the handle into dest is wrong, the value needs to be
+      # copied
+      let tmp = genLvalue(c, val)
+      c.gABC(n, opcWrLoc, dest, tmp)
+      c.freeTemp(tmp)
+    else:
+      gen(c, val, dest)
   of mEqStr, mEqCString: genBinaryABC(c, n, dest, opcEqStr)
   of mLeStr: genBinaryABC(c, n, dest, opcLeStr)
   of mLtStr: genBinaryABC(c, n, dest, opcLtStr)
@@ -2946,16 +2957,6 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     genDef(c, n)
   of cnkEmpty:
     unused(c, n, dest)
-  of cnkStringToCString, cnkCStringToString:
-    let val = n.operand
-    if val.kind in LvalueExprKinds:
-      # loading the handle into dest is wrong, the value needs to be
-      # copied
-      let tmp = genLvalue(c, val)
-      c.gABC(n, opcWrLoc, dest, tmp)
-      c.freeTemp(tmp)
-    else:
-      gen(c, n.operand, dest)
   of cnkArrayConstr: genArrayConstr(c, n, dest)
   of cnkSetConstr: genSetConstr(c, n, dest)
   of cnkObjConstr: genObjConstr(c, n, dest)
