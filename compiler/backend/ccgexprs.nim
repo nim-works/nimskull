@@ -1267,14 +1267,6 @@ proc genAccessTypeField(p: BProc; e: CgNode; d: var TLoc) =
   # use the dynamic type stored at offset 0:
   putIntoDest(p, d, e, rdMType(p, a, nilCheck))
 
-template genDollar(p: BProc, n: CgNode, d: var TLoc, frmt: string) =
-  var a: TLoc
-  initLocExpr(p, n[1], a)
-  a.r = ropecg(p.module, frmt, [rdLoc(a)])
-  a.flags.excl lfIndirect # this flag should not be propagated here (not just for HCR)
-  if d.k == locNone: getTemp(p, n.typ, d)
-  genAssignment(p, d, a)
-
 proc genArrayLen(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   let a = e[1]
   var typ = skipTypes(a.typ, abstractVar + tyUserTypeClasses)
@@ -1717,9 +1709,9 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mLeStr: binaryExpr(p, e, d, "(#cmpStrings($1, $2) <= 0)")
   of mLtStr: binaryExpr(p, e, d, "(#cmpStrings($1, $2) < 0)")
   of mIsNil: genIsNil(p, e, d)
-  of mBoolToStr: genDollar(p, e, d, "#nimBoolToStr($1)")
-  of mCharToStr: genDollar(p, e, d, "#nimCharToStr($1)")
-  of mCStrToStr: genDollar(p, e, d, "#cstrToNimstr($1)")
+  of mBoolToStr: unaryExpr(p, e, d, "#nimBoolToStr($1)")
+  of mCharToStr: unaryExpr(p, e, d, "#nimCharToStr($1)")
+  of mCStrToStr: unaryExpr(p, e, d, "#cstrToNimstr($1)")
   of mStrToStr: expr(p, e[1], d)
   of mIsolate: genCall(p, e, d)
   of mFinished: genBreakState(p, e, d)
