@@ -1,5 +1,5 @@
 discard """
-errormsg: "expression has no type:"
+errormsg: "type expected, but expression has no type"
 description: '''
 Return an error symbol if the macro output has not type and a typedes was
 expected.
