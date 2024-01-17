@@ -2331,7 +2331,7 @@ proc semTypeNode2(c: PContext, n: PNode, prev: PType): PNode =
   let typ = semTypeNode(c, n, prev)
   if typ.isNil:
     result = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
-  elif typ.kind == tyError and typ.n.kind == nkError:
+  elif typ.kind == tyError and typ.n != nil and typ.n.kind == nkError:
     result = typ.n
   else:
     # the type is either valid or an error type that doesn't store a
