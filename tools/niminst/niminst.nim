@@ -23,6 +23,7 @@ const
   csourcesReleaseFile = "csources-bundled-version"
   releaseFile = "release.json"
   archiveManifestFile = "archive.json"
+  archiveOutputFolder = "archive"
 
 type
   AppType = enum appConsole, appGUI
@@ -656,7 +657,7 @@ proc setupDist(c: var ConfigData) =
   when defined(windows):
     if c.innosetup.path.len == 0:
       c.innosetup.path = "iscc.exe"
-    let outcmd = if c.outdir.len == 0: "build" else: c.outdir
+    let outcmd = c.getOutputDir()
     let cmd = "$# $# /O$# $#" % [quoteShell(c.innosetup.path),
                                  c.innosetup.flags, outcmd, n]
     echo(cmd)
@@ -673,7 +674,7 @@ proc setupDist2(c: var ConfigData) =
   when defined(windows):
     if c.nsisSetup.path.len == 0:
       c.nsisSetup.path = "makensis.exe"
-    let outcmd = if c.outdir.len == 0: "build" else: c.outdir
+    let outcmd = c.getOutputDir()
     let cmd = "$# $# /O$# $#" % [quoteShell(c.nsisSetup.path),
                                  c.nsisSetup.flags, outcmd, n]
     echo(cmd)
@@ -818,7 +819,7 @@ type
 proc createArchiveDist(c: var ConfigData) =
   ## Create the archive distribution
   let proj = toLowerAscii(c.name) & "-" & c.version
-  let tmpDir = if c.outdir.len == 0: "build" else: c.outdir
+  let tmpDir = c.getOutputDir / archiveOutputFolder
 
   proc processFile(destFile, src: string) =
     let dest = tmpDir / destFile
