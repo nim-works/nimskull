@@ -74,8 +74,9 @@ type
     # makes sense, e.g. C). This could make ``cnkDerefView`` obsolete
 
     cnkConv          ## a type conversion
-    # future direction: introduce a dedicated operation for "l-value preserving
-    # conversions"
+    cnkLvalueConv    ## an lvalue-preserving conversion. The ones reaching
+                     ## into the code generators are usually discarded, but
+                     ## they're still required for proper typing
     cnkHiddenConv
     # future direction: the notion of "hidden" doesn't make any sense in the
     # context of code generation. Adjust the code generators so that they no
@@ -143,7 +144,7 @@ const
 
   cnkWithOperand*  = {cnkConv, cnkHiddenConv, cnkDeref, cnkAddr, cnkHiddenAddr,
                       cnkDerefView, cnkObjDownConv, cnkObjUpConv, cnkCast,
-                      cnkStringToCString, cnkCStringToString}
+                      cnkStringToCString, cnkCStringToString, cnkLvalueConv}
   cnkAtoms*        = {cnkInvalid..cnkMagic, cnkReturnStmt, cnkPragmaStmt}
     ## node kinds that denote leafs
   cnkWithItems*    = AllKinds - cnkWithOperand - cnkAtoms

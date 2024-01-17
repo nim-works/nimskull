@@ -166,7 +166,7 @@ const
 
   LvalueExprKinds = {cnkConst, cnkGlobal, cnkLocal, cnkArrayAccess,
                      cnkTupleAccess, cnkFieldAccess, cnkObjUpConv,
-                     cnkObjDownConv, cnkDeref, cnkDerefView}
+                     cnkObjDownConv, cnkDeref, cnkDerefView, cnkLvalueConv}
 
   MagicsToKeep* = {mIsolate, mNHint, mNWarning, mNError, mMinI, mMaxI,
                    mAbsI, mDotDot, mNGetType, mNSizeOf, mNLineInfo}
@@ -279,7 +279,7 @@ func underlyingLoc(n: CgNode): CgNode =
   var root {.cursor.} = n
   # skip nodes that don't change the location until we arrive at either one
   # that does, or a symbol
-  while root.kind == cnkConv:
+  while root.kind == cnkLvalueConv:
     root = root.operand
 
   result = root
@@ -1570,7 +1570,7 @@ func usesRegister(p: BProc, n: CgNode): bool =
   of cnkProc, cnkConst, cnkGlobal:
     false
   of cnkDeref, cnkDerefView, cnkFieldAccess, cnkArrayAccess, cnkTupleAccess,
-     cnkConv, cnkObjDownConv, cnkObjUpConv:
+     cnkLvalueConv, cnkObjDownConv, cnkObjUpConv:
     false
   else:
     unreachable(n.kind)
@@ -2389,7 +2389,7 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
       c.freeTemp(dest)
     else:
       unreachable()
-  of cnkConv, cnkHiddenConv:
+  of cnkLvalueConv:
     # these conversions don't result in a lvalue of different run-time type, so
     # they're skipped
     genAsgn(c, le.operand, ri, requiresCopy)
@@ -2643,7 +2643,7 @@ proc genAddr(c: var TCtx, src, n: CgNode, dest: var TDest) =
     genDeref(c, n, tmp, load=false)
     c.gABC(src, opcAddr, dest, tmp)
     c.freeTemp(tmp)
-  of cnkConv:
+  of cnkLvalueConv:
     # an l-value conversion. Take the address of the source expression
     genAddr(c, src, n.operand, dest)
   of cnkObjDownConv, cnkObjUpConv:
@@ -2682,9 +2682,9 @@ proc genLvalue(c: var TCtx, n: CgNode, dest: var TDest) =
     genArrAccess(c, n, dest, load=false)
   of cnkTupleAccess:
     genFieldAccess(c, n, n[1].intVal.int, dest, load=false)
-  of cnkConv:
-    # if a conversion reaches here, it must be an l-value conversion. They
-    # don't map to any bytecode, so we skip them
+  of cnkLvalueConv:
+    # lvalue conversion reaching here are only for distinct or tuple type
+    # conversions, which are irrelevant to the VM
     genLvalue(c, n.operand, dest)
   of cnkObjDownConv, cnkObjUpConv:
     # these conversions are *not* no-ops, as they produce a handle of different
@@ -2932,6 +2932,8 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     gen(c, n[0])
   of cnkHiddenConv, cnkConv:
     genConv(c, n, n.operand, dest)
+  of cnkLvalueConv:
+    gen(c, n.operand, dest)
   of cnkObjDownConv, cnkObjUpConv:
     genObjConv(c, n, dest)
   of cnkDef:

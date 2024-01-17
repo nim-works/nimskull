@@ -170,7 +170,7 @@ func analyseIfAddressTaken(n: CgNode, addrTaken: var PackedSet[LocalId]) =
     var n {.cursor.} = n
     while true:
       case n.kind
-      of cnkConv, cnkHiddenConv, cnkObjDownConv, cnkObjUpConv:
+      of cnkLvalueConv, cnkObjDownConv, cnkObjUpConv:
         n = n.operand
       of cnkStmtListExpr:
         n = n[^1]
@@ -1130,10 +1130,10 @@ proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
     # attemping to take the address of a deref expression -> skip both the
     # addr and deref
     gen(p, n.operand, r)
-  of cnkConv:
-    # an explicit lvalue conversion. Conversion between lvalues of different
-    # underlying type is not possible, so we simply skip the conversion and
-    # apply the operation to the source expression
+  of cnkLvalueConv:
+    # conversion between lvalues of different underlying type is not possible,
+    # so we simply skip the conversion and apply the operation to the source
+    # expression
     genAddr(p, n.operand, r)
   of cnkObjUpConv, cnkObjDownConv:
     # object up-/down-conversions are no-ops
@@ -2367,6 +2367,9 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkTupleConstr: genTupleConstr(p, n, r)
   of cnkObjConstr: genObjConstr(p, n, r)
   of cnkHiddenConv, cnkConv: genConv(p, n, r)
+  of cnkLvalueConv:
+    # non-object lvalue conversion are irrelevant to the JS backend
+    gen(p, n.operand, r)
   of cnkToSlice:
     if n.len == 1:
       gen(p, n[0], r)
