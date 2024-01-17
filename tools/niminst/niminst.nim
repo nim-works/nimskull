@@ -20,7 +20,7 @@ const
   makeFile = "makefile"
   installShFile = "install.sh"
   deinstallShFile = "deinstall.sh"
-  csourcesReleaseFile = "csources-release"
+  csourcesReleaseFile = "csources-bundled-version"
   releaseFile = "release.json"
   archiveManifestFile = "archive.json"
 
@@ -845,7 +845,7 @@ proc createArchiveDist(c: var ConfigData) =
 
     # Tag the source so koch.py knows to use it instead of cloning a fresh copy
     writeFile(tmpDir / csourcesReleaseFile, c.version)
-    processFile(bootstrapDist / csourcesReleaseFile, tmpDir / csourcesReleaseFile)
+    processFile(proj / "build" / csourcesReleaseFile, tmpDir / csourcesReleaseFile)
 
     processFile(proj / installShFile, installShFile)
     processFile(proj / deinstallShFile, deinstallShFile)
