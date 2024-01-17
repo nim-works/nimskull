@@ -1535,7 +1535,16 @@ proc semForVar(c: PContext, formal: PType, view: ViewTypeKind, n: PNode): PNode 
   else:
     semSingleForVar(c, formal, view, n)
 
-proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
+proc implicitIterator(c: PContext, it: string, arg: PNode): PNode =
+  result = newNodeI(nkCall, arg.info)
+  result.add(newIdentNode(getIdent(c.cache, it), arg.info))
+  if arg.typ != nil and arg.typ.kind in {tyVar, tyLent}:
+    result.add newDeref(arg)
+  else:
+    result.add arg
+  result = semExprNoDeref(c, result, {efWantIterator})
+
+proc semForVars(c: PContext, n, call: PNode; flags: TExprFlags): PNode =
   ## Semantically analyses a normal ``for`` statement
   addInNimDebugUtils(c.config, "semForVars", n, result, flags)
 
@@ -1547,10 +1556,29 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
   #
   #   for x, (y, z) in ...: ...
 
-  let formal = n[^2].typ
-  var hasError = false
+  result = copyNodeWithKids(n)
 
-  result = n
+  var hasError = call.kind == nkError
+  let isCallExpr = call.kind in nkCallKinds
+
+  result[^2] = call
+
+  if isCallExpr and isClosureIterator(call[0].typ.skipTypes(abstractInst)):
+    # first class iterator
+    discard
+  elif not isCallExpr or call[0].kind != nkSym or
+       call[0].sym.kind != skIterator:
+    if n.len == 3:
+      result[^2] = implicitIterator(c, "items", call)
+    elif n.len == 4:
+      result[^2] = implicitIterator(c, "pairs", call)
+    else:
+      result[^2] = c.config.newError(call,
+                              PAstDiag(kind: adSemForExpectedIterator))
+    hasError = result[^2].isError or hasError
+
+  let formal = result[^2].typ
+
   # ``n.len == 3`` means that there is one for loop variable and thus no
   # (direct) tuple unpacking. There can still be a ``nkVarTuple`` however
   if result.len == 3:
@@ -1558,7 +1586,7 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result[0] = semForVar(c, formal, noView, n[0])
   else:
     let typ = formal.skipTypes({tyGenericInst, tyAlias, tyLent, tyVar})
-    result = semForVarUnpacked(c, typ, inheritViewKind(formal, noView), n,
+    result = semForVarUnpacked(c, typ, inheritViewKind(formal, noView), result,
                                n.len - 2)
 
     if result.isError:
@@ -1567,7 +1595,7 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
   inc(c.execCon.nestedLoopCounter)
   openScope(c)
   block:
-    var body = semExprBranch(c, n[^1], flags)
+    var body = semExprBranch(c, result[^1], flags)
     if efInTypeof notin flags:
       body = discardCheck(c, body, flags)
       hasError = hasError or body.isError
@@ -1579,15 +1607,11 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
 
   if hasError:
     result = c.config.wrapError(result)
-
-proc implicitIterator(c: PContext, it: string, arg: PNode): PNode =
-  result = newNodeI(nkCall, arg.info)
-  result.add(newIdentNode(getIdent(c.cache, it), arg.info))
-  if arg.typ != nil and arg.typ.kind in {tyVar, tyLent}:
-    result.add newDeref(arg)
-  else:
-    result.add arg
-  result = semExprNoDeref(c, result, {efWantIterator})
+  elif result[^1].typ == c.enforceVoidContext:
+    # propagate any enforced VoidContext:
+    result.typ = c.enforceVoidContext
+  elif efInTypeof in flags:
+    result.typ = result.lastSon.typ
 
 proc isTrivalStmtExpr(n: PNode): bool =
   for i in 0..<n.len-1:
@@ -1599,45 +1623,20 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
   addInNimDebugUtils(c.config, "semFor", n, result, flags)
   checkMinSonsLen(n, 3, c.config)
   openScope(c)
-  result = copyNodeWithKids(n)
-  var
-    call = semExprNoDeref(c, n[^2], {efWantIterator})
-    hasError = call.kind == nkError
-  result[^2] = call
+
+  var call = semExprNoDeref(c, n[^2], {efWantIterator})
   if call.kind == nkStmtListExpr and isTrivalStmtExpr(call):
     call = call.lastSon
-    result[^2] = call
+
   let isCallExpr = call.kind in nkCallKinds
+
   if isCallExpr and call[0].kind == nkSym and
       call[0].sym.magic in {mFields, mFieldPairs}:
-    result = semForFields(c, result, call[0].sym.magic)
+    result = semForFields(c, n, call, flags)
   else:
-    if isCallExpr and isClosureIterator(call[0].typ.skipTypes(abstractInst)):
-      # first class iterator:
-      discard
-    elif not isCallExpr or call[0].kind != nkSym or
-        call[0].sym.kind != skIterator:
-      if n.len == 3:
-        result[^2] = implicitIterator(c, "items", result[^2])
-      elif n.len == 4:
-        result[^2] = implicitIterator(c, "pairs", result[^2])
-      else:
-        result[^2] = c.config.newError(call,
-                                PAstDiag(kind: adSemForExpectedIterator))
-      hasError = result[^2].isError or hasError
-    result = semForVars(c, result, flags)
-  if hasError or result.kind == nkError:
-    discard # do nothing
-  elif result.len > 0 and result[^1].typ == c.enforceVoidContext:
-    # propagate any enforced VoidContext:
-    # NB: we check the result.len because we get an empty statement list in
-    #     case of doing a `semForFields` for an empty tuple or object type.
-    result.typ = c.enforceVoidContext
-  elif efInTypeof in flags:
-    result.typ = result.lastSon.typ
+    result = semForVars(c, n, call, flags)
+
   closeScope(c)
-  if result.kind != nkError and hasError:
-    result = c.config.wrapError(result)
 
 proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
