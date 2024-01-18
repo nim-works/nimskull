@@ -41,8 +41,7 @@ import
   ],
   compiler/utils/[
     debugutils,
-    idioms,
-    astrepr
+    idioms
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
@@ -2920,10 +2919,11 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         of nkError:
           arg = operand
         else:
-          n[a][1] = operand
-          n[a].typ = n[a][1].typ
+          if formal.typ.kind != tyUntyped:
+            n[a][1] = operand
+            n[a].typ = n[a][1].typ
 
-          arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a][1])
+          arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
 
       m.error.firstMismatch.kind = kTypeMismatch
 
@@ -2982,7 +2982,8 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             
             if operand.isError:
               noMatchDueToError()
-            else:
+            elif operand.typ != nil and operand.typ.kind != tyUntyped:
+              # don't overwrite a potentially semmed/typed value in `n[a]`
               n[a] = operand
         elif formal != nil and formal.typ.kind == tyVarargs: # extra varargs
           m.error.firstMismatch.kind = kTypeMismatch
@@ -3002,8 +3003,9 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             of nkError:
               arg = operand
             else:
-              n[a] = operand
-              arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a])
+              if formal.typ.kind != tyUntyped:
+                n[a] = operand
+              arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
 
           if arg.isNil or                 # valid argumet
              container.isNil:             # container must exist
@@ -3068,8 +3070,9 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             of nkError:
               arg = operand
             else:
-              n[a] = operand
-              arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a])
+              if formal.typ.kind != tyUntyped:
+                n[a] = operand
+              arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
               
               if arg.isNil(): # invalid arg
                 noMatch()
