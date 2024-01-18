@@ -288,7 +288,7 @@ proc reResolveCallsWithTypedescParams(c: PContext, n: PNode): PNode =
       if isTypeParam(n[i]): needsFixing = true
     if needsFixing:
       n[0] = newSymNode(n[0].sym.owner)
-      return c.semOverloadedCall(c, n, {skProc, skFunc}, {})
+      return c.semOverloadedCall(c, n, n, {skProc, skFunc}, {})
 
   for i in 0..<n.safeLen:
     n[i] = reResolveCallsWithTypedescParams(c, n[i])

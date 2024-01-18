@@ -1144,10 +1144,10 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
     # to 'skIterator' anymore; skIterator is preferred in sigmatch already
     # for typeof support.
     # for ``typeof(countup(1,3))``, see ``tests/ttoseq``.
-    result = semOverloadedCall(c, n,
+    result = semOverloadedCall(c, n, copyNodeWithKids(n),
       {skProc, skFunc, skMethod, skConverter, skMacro, skTemplate, skIterator}, flags)
   else:
-    result = semOverloadedCall(c, n,
+    result = semOverloadedCall(c, n, copyNodeWithKids(n),
       {skProc, skFunc, skMethod, skConverter, skMacro, skTemplate}, flags)
 
   if result != nil and result.kind != nkError:
@@ -1175,7 +1175,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode
 proc resolveIndirectCall(c: PContext; n: PNode;
                          t: PType): TCandidate =
   initCandidate(c, result, t)
-  matches(c, n, result)
+  matches(c, n, copyNodeWithKids(n), result)
 
 proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
   if n.kind == nkError:

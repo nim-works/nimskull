@@ -619,7 +619,7 @@ type
     semConstBoolExpr*: proc (c: PContext, n: PNode): PNode {.nimcall.} # XXX bite the bullet
       ## read to break cyclic dependencies, init in sem during module open and
       ## read in pragmas
-    semOverloadedCall*: proc (c: PContext, n: PNode,
+    semOverloadedCall*: proc (c: PContext, n, nOrig: PNode,
                               filter: TSymKinds, flags: TExprFlags): PNode {.nimcall.}
       ## read to break cyclic dependencies, init in sem during module open and
       ## read in pragmas and semtypinst
