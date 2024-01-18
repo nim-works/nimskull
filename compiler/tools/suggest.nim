@@ -298,18 +298,18 @@ proc nameFits(c: PContext, s: PSym, n: PNode): bool =
   else: return false
   result = opr.id == s.name.id
 
-proc argsFit(c: PContext, candidate: PSym, n: PNode): bool =
+proc argsFit(c: PContext, candidate: PSym, n, nOrig: PNode): bool =
   case candidate.kind
   of OverloadableSyms:
     var m = newCallCandidate(c, candidate)
-    sigmatch.partialMatch(c, n, m)
+    sigmatch.partialMatch(c, n, nOrig, m)
     result = m.state != csNoMatch
   else:
     result = false
 
-proc suggestCall(c: PContext, n: PNode, outputs: var Suggestions) =
+proc suggestCall(c: PContext, n, nOrig: PNode, outputs: var Suggestions) =
   let info = n.info
-  wholeSymTab(filterSym(it, nil, pm) and nameFits(c, it, n) and argsFit(c, it, n),
+  wholeSymTab(filterSym(it, nil, pm) and nameFits(c, it, n) and argsFit(c, it, n, nOrig),
               ideCon)
 
 proc suggestVar(c: PContext, n: PNode, outputs: var Suggestions) =
@@ -572,7 +572,7 @@ proc suggestExprNoCheck*(c: PContext, n: PNode) =
         var x = safeSemExpr(c, n[i])
         if x.kind == nkEmpty or x.typ == nil or x.isErrorLike: break
         a.add x
-      suggestCall(c, a, outputs)
+      suggestCall(c, a, n, outputs)
     elif n.kind in nkIdentKinds:
       var x = safeSemExpr(c, n)
       if x.kind == nkEmpty or x.typ == nil or x.isErrorLike: x = n

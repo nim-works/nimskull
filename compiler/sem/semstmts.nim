@@ -221,7 +221,6 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
     elif not isException(typ):
       localReport(c.config, typeNode.info, reportAst(
         rsemCannotBeRaised, typeNode, typ = typ))
-
     if containsOrIncl(check, typ.id):
       localReport(c.config, typeNode.info, reportTyp(
         rsemExceptionAlreadyHandled, typ))
@@ -553,7 +552,7 @@ proc tryMacroPragma(c: PContext, pragmas: ptr PNode, i: int,
   x.add(operand) # the definition AST the pragma appears on
 
   # recursion assures that this works for multiple macro annotations too:
-  let r = semOverloadedCall(c, x, {skMacro, skTemplate}, {efNoUndeclared})
+  let r = semOverloadedCall(c, x, copyNodeWithKids(x), {skMacro, skTemplate}, {efNoUndeclared})
   if r.isNil:
     # restore the old list of pragmas since we couldn't process this one
     pragmas[] = n
