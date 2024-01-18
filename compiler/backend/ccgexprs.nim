@@ -1567,21 +1567,6 @@ proc genConv(p: BProc, e: CgNode, d: var TLoc) =
   else:
     genSomeCast(p, e, d)
 
-proc convStrToCStr(p: BProc, n: CgNode, d: var TLoc) =
-  var a: TLoc
-  initLocExpr(p, n.operand, a)
-  putIntoDest(p, d, n,
-              ropecg(p.module, "#nimToCStringConv($1)", [rdLoc(a)]),
-#                "($1 ? $1->data : (NCSTRING)\"\")" % [a.rdLoc],
-              a.storage)
-
-proc convCStrToStr(p: BProc, n: CgNode, d: var TLoc) =
-  var a: TLoc
-  initLocExpr(p, n.operand, a)
-  putIntoDest(p, d, n,
-              ropecg(p.module, "#cstrToNimstr($1)", [rdLoc(a)]),
-              a.storage)
-
 proc genStrEquals(p: BProc, e: CgNode, d: var TLoc) =
   var x: TLoc
   var a = e[1]
@@ -1713,6 +1698,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mCharToStr: unaryExpr(p, e, d, "#nimCharToStr($1)")
   of mCStrToStr: unaryExpr(p, e, d, "#cstrToNimstr($1)")
   of mStrToStr: expr(p, e[1], d)
+  of mStrToCStr: unaryExpr(p, e, d, "#nimToCStringConv($1)")
   of mIsolate: genCall(p, e, d)
   of mFinished: genBreakState(p, e, d)
   of mEnumToStr: genCall(p, e, d)
@@ -2142,8 +2128,6 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkIfStmt: genIf(p, n)
   of cnkObjDownConv: downConv(p, n, d)
   of cnkObjUpConv: upConv(p, n, d)
-  of cnkStringToCString: convStrToCStr(p, n, d)
-  of cnkCStringToString: convCStrToStr(p, n, d)
   of cnkClosureConstr: genClosure(p, n, d)
   of cnkEmpty: discard
   of cnkRepeatStmt: genRepeatStmt(p, n)

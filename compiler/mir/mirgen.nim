@@ -1878,9 +1878,12 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
         c.emitOperandTree n[0], false
         c.emitOperandTree n[1], false
         c.emitOperandTree n[2], false
-  of nkStringToCString, nkCStringToString:
-    # undo the transformation done by ``transf``
-    c.genOp mnkStdConv, n.typ, n[0]
+  of nkStringToCString:
+    c.buildMagicCall mStrToCStr, n.typ:
+      c.emitOperandTree n[0], false
+  of nkCStringToString:
+    c.buildMagicCall mCStrToStr, n.typ:
+      c.emitOperandTree n[0], false
   of nkBracket:
     let consume =
       if n.typ.skipTypes(abstractVarRange).kind == tySequence:

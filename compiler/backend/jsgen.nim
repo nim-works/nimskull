@@ -897,9 +897,9 @@ proc generateHeader(params: openArray[Loc]): string =
       result.add("_Idx")
 
 const
-  nodeKindsNeedNoCopy = cnkLiterals + {cnkStringToCString,
+  nodeKindsNeedNoCopy = cnkLiterals + {
     cnkObjConstr, cnkTupleConstr, cnkArrayConstr,
-    cnkCStringToString, cnkCall, cnkCheckedCall}
+    cnkCall, cnkCheckedCall}
 
 proc needsNoCopy(p: PProc; y: CgNode): bool =
   return y.kind in nodeKindsNeedNoCopy or
@@ -1747,6 +1747,8 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
     unaryExpr(p, n, r, "nimBoolToStr", "nimBoolToStr($1)")
   of mCStrToStr:
     unaryExpr(p, n, r, "cstrToNimstr", "cstrToNimstr($1)")
+  of mStrToCStr:
+    unaryExpr(p, n, r, "toJSStr", "toJSStr($1)")
   of mIsolate:
     let x = gen(p, n[1])
     r.res = rdLoc(x)
@@ -2054,22 +2056,6 @@ proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes) =
     gen(p, n[3], b)
     useMagic(p, "chckRange")
     r.res = "chckRange($1, $2, $3)" % [r.res, a.res, b.res]
-    r.kind = resExpr
-
-proc convStrToCStr(p: PProc, n: CgNode, r: var TCompRes) =
-  if true:
-    gen(p, n.operand, r)
-    p.config.internalAssert(r.res != "", n.info, "convStrToCStr")
-    useMagic(p, "toJSStr")
-    r.res = "toJSStr($1)" % [r.res]
-    r.kind = resExpr
-
-proc convCStrToStr(p: PProc, n: CgNode, r: var TCompRes) =
-  if true:
-    gen(p, n.operand, r)
-    p.config.internalAssert(r.res != "", n.info, "convCStrToStr")
-    useMagic(p, "cstrToNimstr")
-    r.res = "cstrToNimstr($1)" % [r.res]
     r.kind = resExpr
 
 proc genReturnStmt(p: PProc, n: CgNode) =
@@ -2401,8 +2387,6 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkObjDownConv: downConv(p, n, r)
   of cnkObjUpConv: gen(p, n.operand, r)
   of cnkCast: genCast(p, n, r)
-  of cnkStringToCString: convStrToCStr(p, n, r)
-  of cnkCStringToString: convCStrToStr(p, n, r)
   of cnkEmpty: discard
   of cnkType: r.res = genTypeInfo(p, n.typ)
   of cnkStmtList:
