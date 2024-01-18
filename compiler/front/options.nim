@@ -555,9 +555,11 @@ proc getReportHook*(conf: ConfigRef): ReportHook =
 proc report*(conf: ConfigRef, inReport: Report): TErrorHandling =
   ## Write `inReport`
   assert inReport.kind != repNone, "Cannot write out empty report"
-  assert(conf.structuredReportHook != nil,
-         "Cannot write report with empty report hook")
-  return conf.structuredReportHook(conf, inReport)
+  # TODO: use a no-op structuredHook in dust instead of nil
+  # assert(conf.structuredReportHook != nil,
+  #        "Cannot write report with empty report hook")
+  if conf.structuredReportHook != nil:
+    return conf.structuredReportHook(conf, inReport)
 
 proc canReport*(conf: ConfigRef, id: NodeId): bool =
   ## Check whether report with given ID can actually be written out, or it
