@@ -30,7 +30,7 @@ jobs:
 
       # Download the latest instance of artifacts from a build done previously
       - name: Download generated docs
-        uses: dawidd6/action-download-artifact@v2.28.0
+        uses: dawidd6/action-download-artifact@v3.0.0
         with:
           workflow: ci.yml
           workflow_conclusion: success
@@ -40,7 +40,7 @@ jobs:
           path: doc/html
 
       - name: Download generated source archive
-        uses: dawidd6/action-download-artifact@v2.28.0
+        uses: dawidd6/action-download-artifact@v3.0.0
         with:
           workflow: ci.yml
           workflow_conclusion: success
@@ -50,17 +50,18 @@ jobs:
           path: release-staging
 
       - name: Download generated release binaries
-        uses: dawidd6/action-download-artifact@v2.28.0
+        uses: dawidd6/action-download-artifact@v3.0.0
         with:
           workflow: ci.yml
           workflow_conclusion: success
           commit: ${{ github.event.after }}
           # Keep up-to-date with ci.yml
-          name: release binaries
+          name: release binaries.*
+          name_is_regexp: true
           path: release-staging
 
       - name: Download release manifest tool
-        uses: dawidd6/action-download-artifact@v2.28.0
+        uses: dawidd6/action-download-artifact@v3.0.0
         with:
           workflow: ci.yml
           workflow_conclusion: success
@@ -70,7 +71,7 @@ jobs:
           path: release-staging
 
       - name: Publish docs
-        uses: JamesIves/github-pages-deploy-action@v4.4.3
+        uses: JamesIves/github-pages-deploy-action@v4.5.0
         with:
           branch: gh-pages
           folder: doc/html
@@ -78,6 +79,11 @@ jobs:
       - id: release-files
         name: Create release manifest
         run: |
+          # Move the release binaries to the current folder
+          for d in "release binaries "*; do
+            mv -v "$d"/* .
+          done
+
           # Github Artifacts strip executable permissions so it has to be set again
           chmod 755 release_manifest
           # Create a new release manifest

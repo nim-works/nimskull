@@ -148,9 +148,10 @@ proc group(n: PNode, decl, imperative: var seq[PNode]) =
   of nkTemplateDef, nkMacroDef:
     # not relevant to the backend
     discard
-  of nkEmpty:
-    discard "drop empty node"
-  of nkNone, nkError:
+  of nkEmpty, nkError:
+    # errors were already reported earlier
+    discard "drop errors and empty nodes"
+  of nkNone:
     unreachable()
   of nkStmtList:
     # flatten statement lists
@@ -172,6 +173,8 @@ proc createModuleOp(graph: ModuleGraph, idgen: IdGenerator, postfix: string,
                   nextSymId idgen, module, module.info, options)
   # the procedure doesn't return anything and doesn't have parameters:
   result.typ = newProcType(module.info, nextTypeId idgen, module)
+  # conservatively enable destructor injection:
+  result.flags = {sfInjectDestructors}
 
   # also set up a proper definition AST:
   result.ast = newProcNode(nkProcDef, module.info, body,
@@ -433,6 +436,10 @@ proc myProcess(b: PPassContext, n: PNode): PNode =
 
 proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
   result = myProcess(b, n)
+  if graph.config.errorCounter != 0:
+    # a user error occured somewhere earlier. Code generation is now disabled
+    # anyway, so skip the processing
+    return
 
   if graph.backend == nil:
     graph.backend = ModuleListBackend()

@@ -371,7 +371,6 @@ func astDiagVmToLegacyReportKind*(
   of adVmUserError: rvmUserError
   of adVmUnhandledException: rvmUnhandledException
   of adVmCannotCast: rvmCannotCast
-  of adVmCallingNonRoutine: rvmCallingNonRoutine
   of adVmCannotModifyTypechecked: rvmCannotModifyTypechecked
   of adVmNilAccess: rvmNilAccess
   of adVmAccessOutOfBounds: rvmAccessOutOfBounds
@@ -580,6 +579,7 @@ func astDiagToLegacyReportKind*(
   of adSemObjectRequiresFieldInitNoDefault: rsemObjectRequiresFieldInitNoDefault
   of adSemExpectedObjectType: rsemExpectedObjectType
   of adSemExpectedObjectOfType: rsemExpectedObjectType
+  of adSemObjectDoesNotHaveDefaultValue: rsemObjectDoesNotHaveDefaultValue
   of adSemDistinctDoesNotHaveDefaultValue: rsemDistinctDoesNotHaveDefaultValue
   of adSemFoldRangeCheckForLiteralConversionFailed: rsemCantConvertLiteralToRange
   of adSemIndexOutOfBoundsStatic: rsemStaticOutOfBounds

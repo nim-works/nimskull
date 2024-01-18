@@ -1,9 +1,15 @@
 discard """
+  targets: c js vm
+  knownIssue.vm: "Casting from pointer to proc is not yet supported"
   output: '''
 Hello World
 Hello World'''
   joinable: false
 """
+
+# XXX: this test only works by accident for the JS backend; casting between
+#      ``ptr T`` and ``int`` isn't really supported...
+
 type MyProc = proc() {.cdecl.}
 type MyProc2 = proc() {.nimcall.}
 type MyProc3 = proc() #{.closure.} is implicit

@@ -49,7 +49,8 @@ template startBlock(p: BProc, id: BlockId) =
 proc endBlock(p: BProc)
 
 proc loadInto(p: BProc, le, ri: CgNode, a: var TLoc) {.inline.} =
-  if ri.kind == cnkCall and getCalleeMagic(ri[0]) == mNone:
+  if ri.kind in {cnkCall, cnkCheckedCall} and
+     getCalleeMagic(ri[0]) == mNone:
     genAsgnCall(p, le, ri, a)
   else:
     # this is a hacky way to fix #1181 (tmissingderef)::
@@ -130,22 +131,6 @@ proc blockLeaveActions(p: BProc, howManyTrys, howManyExcepts: int) =
     for i in countdown(howManyExcepts-1, 0):
       linefmt(p, cpsStmts, "#popCurrentException();$n", [])
 
-proc genBreakState(p: BProc, n: CgNode, d: var TLoc) =
-  ## Generates the code for the ``mFinished`` magic, which tests if a
-  ## closure iterator is in the "finished" state (i.e. the internal
-  ## ``state`` field has a value < 0)
-  var a: TLoc
-  initLoc(d, locExpr, n, OnUnknown)
-
-  let arg = n[1]
-  if arg.kind == cnkClosureConstr:
-    initLocExpr(p, arg[1], a)
-    d.r = "(((NI*) $1)[1] < 0)" % [rdLoc(a)]
-  else:
-    initLocExpr(p, arg, a)
-    # the environment is guaranteed to contain the 'state' field at offset 1:
-    d.r = "((((NI*) $1.ClE_0)[1]) < 0)" % [rdLoc(a)]
-
 proc genGotoVar(p: BProc; value: CgNode) =
   case value.kind
   of cnkIntLit, cnkUIntLit:
@@ -153,7 +138,7 @@ proc genGotoVar(p: BProc; value: CgNode) =
   else:
     localReport(p.config, value.info, reportSem rsemExpectedLiteralForGoto)
 
-proc genBracedInit(p: BProc, n: CgNode; isConst: bool; optionalType: PType): Rope
+proc genBracedInit(p: BProc, n: CgNode; optionalType: PType): Rope
 
 proc genSingleVar(p: BProc, vn, value: CgNode) =
   ## Generates and emits the C code for the definition statement of a local.
@@ -502,11 +487,8 @@ proc branchHasTooBigRange(b: CgNode): bool =
 
 proc ifSwitchSplitPoint(p: BProc, n: CgNode): int =
   for i in 1..<n.len:
-    var branch = n[i]
-    var stmtBlock = lastSon(branch)
-    if stmtBlock.stmtsContainPragma(wLinearScanEnd):
-      result = i
-    elif hasSwitchRange notin CC[p.config.cCompiler].props:
+    let branch = n[i]
+    if hasSwitchRange notin CC[p.config.cCompiler].props:
       if isOfBranch(branch) and branchHasTooBigRange(branch):
         result = i
 
@@ -582,19 +564,15 @@ proc genCase(p: BProc, t: CgNode) =
 
 proc bodyCanRaise(p: BProc; n: CgNode): bool =
   case n.kind
-  of cnkCall:
-    result = canRaiseDisp(p, n[0])
-    if not result:
-      # also check the arguments:
-      for i in 1 ..< n.len:
-        if bodyCanRaise(p, n[i]): return true
+  of cnkCheckedCall:
+    result = true
   of cnkRaiseStmt:
     result = true
   of cnkAtoms:
     result = false
   of cnkWithOperand:
     result = bodyCanRaise(p, n.operand)
-  of cnkWithItems - {cnkCall, cnkRaiseStmt}:
+  of cnkWithItems - {cnkCheckedCall, cnkRaiseStmt}:
     for it in n.items:
       if bodyCanRaise(p, it): return true
     result = false
@@ -698,29 +676,13 @@ proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
     case it.kind
     of cnkStrLit:
       res.add(it.strVal)
-    of cnkSym:
-      var sym = it.sym
-      case sym.kind
-      of skProc, skFunc, skIterator, skMethod:
-        var a: TLoc
-        initLocExpr(p, it, a)
-        res.add(rdLoc(a))
-      of skVar, skLet, skForVar:
-        # make sure the C type description is available:
-        discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
-        var a: TLoc
-        initLocExpr(p, it, a)
-        res.add(rdLoc(a))
-      of skType:
-        res.add(getTypeDesc(p.module, sym.typ))
-      of skField:
+    of cnkField:
+        let sym = it.sym
         # special support for raw field symbols
         discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
         p.config.internalAssert(sym.locId != 0, it.info):
           "field's surrounding type not setup"
         res.add(p.fieldName(sym))
-      else:
-        unreachable(sym.kind)
     of cnkLocal:
       # make sure the C type description is available:
       discard getTypeDesc(p.module, skipTypes(it.typ, abstractPtrs))
@@ -799,31 +761,18 @@ when false:
     call.add e
     expr(p, call, d)
 
-proc asgnFieldDiscriminant(p: BProc, e: CgNode) =
-  var a, tmp: TLoc
-  var dotExpr = e[0]
-  if dotExpr.kind == cnkCheckedFieldAccess: dotExpr = dotExpr[0]
-  initLocExpr(p, e[0], a)
-  getTemp(p, a.t, tmp)
-  expr(p, e[1], tmp)
-  genAssignment(p, a, tmp)
-
 proc genAsgn(p: BProc, e: CgNode) =
   if e[0].kind == cnkLocal and sfGoto in p.body[e[0].local].flags:
     genLineDir(p, e)
     genGotoVar(p, e[1])
-  elif optFieldCheck in p.options and isDiscriminantField(e[0]):
-    genLineDir(p, e)
-    asgnFieldDiscriminant(p, e)
   else:
     let le = e[0]
     let ri = e[1]
     var a: TLoc
-    discard getTypeDesc(p.module, le.typ.skipTypes(skipPtrs), skVar)
     initLoc(a, locNone, le, OnUnknown)
-    a.flags.incl {lfEnforceDeref, lfPrepareForMutation}
+    a.flags.incl {lfEnforceDeref, lfPrepareForMutation, lfWantLvalue}
     expr(p, le, a)
-    a.flags.excl lfPrepareForMutation
+    a.flags.excl {lfPrepareForMutation, lfWantLvalue}
     assert(a.t != nil)
     genLineDir(p, ri)
     loadInto(p, le, ri, a)

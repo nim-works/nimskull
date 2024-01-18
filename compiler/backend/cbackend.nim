@@ -65,6 +65,7 @@ import
   ],
   compiler/utils/[
     containers,
+    idioms,
     pathutils,
     ropes
   ]
@@ -147,28 +148,26 @@ func dependOnInline(g: var InliningData, m: ModuleId, id: Option[uint32], dep: P
     # remember the dependency:
     g.inlineProcs[id.unsafeGet].deps.incl other
 
-proc prepare(g: BModuleList, d: var DiscoveryData) =
-  ## Emits the definitions for constants, globals, and threadvars discovered
-  ## as part of producing the current event.
-
-  # emit definitions for constants:
-  for _, s in visit(d.constants):
-    genConstDefinition(g.modules[moduleId(s)], s)
-
-  # emit definitions for the lifted globals we've discovered:
-  for _, s in visit(d.globals):
-    defineGlobalVar(g.modules[moduleId(s)], s)
-
-  for _, s in visit(d.threadvars):
+proc prepare(g: BModuleList, s: PSym) =
+  ## Responds to the discovery of entity `s`.
+  case s.kind
+  of skProcKinds, skConst:
+    # the definition is emitted once the body is available
+    discard "nothing to do"
+  of skVar, skLet, skForVar:
     let bmod = g.modules[moduleId(s)]
-    fillGlobalLoc(bmod, s)
-    declareThreadVar(bmod, s, sfImportc in s.flags)
+    # can be either a threadvar or normal global variable
+    if sfThread in s.flags:
+      fillGlobalLoc(bmod, s)
+      declareThreadVar(bmod, s, sfImportc in s.flags)
+    else:
+      defineGlobalVar(bmod, s)
+  else:
+    unreachable(s.kind)
 
 proc processEvent(g: BModuleList, inl: var InliningData, discovery: var DiscoveryData, partial: var Table[PSym, BProc], evt: sink BackendEvent) =
   ## The orchestrator's event processor.
   let bmod = g.modules[evt.module.int]
-
-  prepare(g, discovery)
 
   proc handleInline(inl: var InliningData, m: ModuleId, prc: PSym,
                     body: MirTree): Option[uint32] {.nimcall.} =
@@ -184,7 +183,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
 
     # remember usages of inline procedures for the purpose of emitting
     # them later:
-    for dep in deps(body, NonMagics):
+    for dep in deps(body):
       if dep.kind in routineKinds and dep.typ.callConv == ccInline:
         dependOnInline(inl, m, result, dep)
 
@@ -210,6 +209,8 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
     bmod.g.hooks.setLen(0)
 
   case evt.kind
+  of bekDiscovered:
+    prepare(g, evt.entity)
   of bekModule:
     # the code generator emits a call for setting up the TLS, which is a
     # procedure dependency that needs to be communicated
@@ -218,9 +219,13 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
       dependOnCompilerProc(inl, discovery, evt.module, g.graph,
                            "initThreadVarsEmulation")
 
+  of bekConstant:
+    # emit the definition now that the body is available
+    let s = evt.cnst
+    genConstDefinition(g.modules[moduleId(s)], s)
   of bekPartial:
     # register inline dependencies:
-    let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.tree)
+    let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.code)
 
     var p = getOrDefault(partial, evt.sym)
     if p == nil:
@@ -233,7 +238,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
 
     processLate(bmod, discovery, inl, evt.module, inlineId)
   of bekProcedure:
-    let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.tree)
+    let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.code)
 
     # mark the procedure as declared, first. This gets around an unnecessary
     # emit of the prototype in the case of self-recursion
@@ -333,7 +338,7 @@ proc generateCodeForMain(m: BModule, modules: ModuleList) =
   # we don't want error or stack-trace code in the main procedure:
   p.flags.incl nimErrorFlagDisabled
   p.options = {}
-  p.body = canonicalize(m.g.graph, m.idgen, m.module, body, {})
+  p.body = canonicalize(m.g.graph, m.idgen, m.module, body, TranslationConfig())
 
   genStmts(p, p.body.code)
   var code: string
@@ -388,7 +393,7 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
 
   # ----- main event processing -----
   let
-    config = BackendConfig()
+    config = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics))
 
   var
     inl:       InliningData
@@ -398,7 +403,7 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
   inl.inlined.newSeq(g.modules.len)
 
   # discover and generate code for all alive procedures:
-  for ac in process(graph, mlist, discovery, NonMagics, config):
+  for ac in process(graph, mlist, discovery, config):
     processEvent(g, inl, discovery, partial, ac)
 
   # finish the partial procedures:

@@ -1154,6 +1154,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemArrayExpectsPositiveRange:
       result = "Array length can't be negative, but was " & $r.countMismatch.got
 
+    of rsemObjectDoesNotHaveDefaultValue:
+      result = "The type '$1' requires an initial value" % r.typ.render
+
     of rsemDistinctDoesNotHaveDefaultValue:
       result = "The $1 distinct type doesn't have a default value." % r.typ.render
 
@@ -1506,11 +1509,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemSuspiciousEnumConv:
       result = "suspicious code: enum to enum conversion"
-
-    of rsemSuspiciousContainsConv:
-      result = "suspicious code: element value in `in` or `contains` " &
-               "call requires implicit conversion. This could result in run-" &
-               "time range defects"
 
     of rsemStringOrIdentNodeExpected:
       result = "string or ident node expected"
@@ -2571,23 +2569,6 @@ proc presentFailedCandidates(
 
   result = (prefer, candidates)
 
-proc genFeatureDesc[T: enum](t: typedesc[T]): string {.compileTime.} =
-  result = ""
-  for f in T:
-    if result.len > 0: result.add "|"
-    result.add $f
-
-const
-  HelpMessage = "Nim Compiler Version $1 [$2: $3]\n" &
-      "Copyright (c) 2006-" & copyrightYear & " by Andreas Rumpf\n"
-  CommitMessage = "Source hash: $1\n" &
-    "Source date: $2\n"
-
-  Usage = staticRead"../doc/basicopt.txt".replace(" //", "   ")
-  AdvancedUsage = staticRead"../doc/advopt.txt".replace(" //", "   ") %
-    genFeatureDesc(Feature)
-
-
 proc reportBody*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
   case InternalReportKind(r.kind):
@@ -2888,7 +2869,6 @@ proc reportShort*(conf: ConfigRef, r: BackendReport): string =
 
 proc reportBody*(conf: ConfigRef, r: VMReport): string =
   proc render(n: PNode, rf = defaultRenderFlags): string = renderTree(n, rf)
-  proc render(t: PType): string = typeToString(t)
 
   case VMReportKind(r.kind)
   of rvmUserError:
@@ -3032,12 +3012,6 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
     result = "unhandled exception: value out of range"
 
   of rvmErrInternal:
-    result = r.str
-
-  of rvmCallingNonRoutine:
-    result = "NimScript: attempt to call non-routine: " & r.symstr
-
-  of rvmGlobalError:
     result = r.str
 
   of rvmOpcParseExpectedExpression:
@@ -3786,13 +3760,14 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       ast: diag.wrongNode,
       symbols: diag.missing,
       typ: diag.objTyp)
-  of adSemDistinctDoesNotHaveDefaultValue:
+  of adSemObjectDoesNotHaveDefaultValue,
+     adSemDistinctDoesNotHaveDefaultValue:
     semRep = SemReport(
       location: some diag.location,
       reportInst: diag.instLoc.toReportLineInfo,
       kind: kind,
       ast: diag.wrongNode,
-      typ: diag.distinctTyp)
+      typ: diag.typWithoutDefault)
   of adSemExpectedObjectOfType:
     semRep = SemReport(
       location: some diag.location,

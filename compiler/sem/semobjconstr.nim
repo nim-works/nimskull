@@ -352,7 +352,7 @@ proc initConstrContext(t: PType, initExpr: PNode): ObjConstrContext =
 proc computeRequiresInit(c: PContext, t: PType): bool =
   assert t.kind == tyObject
   var constrCtx = initConstrContext(t, newNode(nkObjConstr))
-  let initResult = checkConstructTypeAux(c, constrCtx)
+  discard checkConstructTypeAux(c, constrCtx)
   constrCtx.missingFields.len > 0
 
 proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode =
@@ -365,19 +365,23 @@ proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode =
   case objType.kind
   of tyObject:
     var constrCtx = initConstrContext(objType, newNodeI(nkObjConstr, n.info))
-    let initResult = checkConstructTypeAux(c, constrCtx)
+    discard checkConstructTypeAux(c, constrCtx)
     if constrCtx.missingFields.len > 0:
-      result = c.config.newError(
+      c.config.newError(
                   n,
                   PAstDiag(
                     kind: adSemObjectRequiresFieldInitNoDefault,
                     missing: constrCtx.missingFields,
                     objTyp: t))
+    else:
+      c.config.newError(n,
+                PAstDiag(kind: adSemObjectDoesNotHaveDefaultValue,
+                         typWithoutDefault: t))
 
   of tyDistinct:
-    result = c.config.newError(n,
+    c.config.newError(n,
                 PAstDiag(kind: adSemDistinctDoesNotHaveDefaultValue,
-                         distinctTyp: t))
+                         typWithoutDefault: t))
 
   else:
     unreachable "Must not enter here."

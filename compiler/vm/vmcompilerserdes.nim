@@ -423,56 +423,29 @@ proc marshalFields*(c: var TCtx, nodes: openArray[PNode], dest: LocHandle) =
 
     c.serialize(sub, dest.getFieldHandle(FieldPosition(p)))
 
-template fidx(x: SomeInteger): untyped =
-  rangeCheck(x >= 0)
-  FieldIndex(x)
-
-proc serializeObject*(c: var TCtx, dest: LocHandle, constr: PNode, ty: PType): int =
-  ## Serializes one `object`-type layer to `dest`, processing base types via
-  ## recursion. `constr` is the `nkObjConst` expression tree where each
-  ## successive symbol has a higher `position` value than the previous one
+proc serializeObject(c: var TCtx, dest: LocHandle, constr: PNode, ty: PType) =
+  ## Loads an `object`-value represented by the valid construction expression
+  ## `constr` into `dest`. The destination memory is expected to be in the
+  ## zero-initialized state.
   assert ty.kind == tyObject
-  let vt = dest.typ
-  result =
-    if vt.relFieldStart > 0:
-    let pt = ty[0].skipTypes(skipPtrs)
-    serializeObject(c, dest.getFieldHandle(fidx(0)), constr, pt)
-  else:
-    1 # skip the child at index 0 (constructor type expr)
+  # serialize every field value present in the construction expression. This
+  # works because only assignment to active fields are allowed in the
+  # expression (meaning that there's no possibility of in-memory overlap)
+  for i in 1..<constr.len:
+    let
+      n = constr[i]
+      lhs = n[0].sym
+      rhs = n[1]
+      loc = dest.getFieldHandle(fpos lhs.position)
 
-  if vt.branches.len == 0:
-    let start = fidx(if vt.relFieldStart > 0: 1 else: 0)
-    for i in start..<fidx(vt.objFields.len):
-      let n = constr[result]
-      assert n[0].kind == nkSym
-      assert n[0].sym.position == toFieldPos(vt, i).int
-      serialize(c, n[1], dest.getFieldHandle(i))
-      inc result
-  else:
-    # `deserializeObjectPart` made sure to only include active fields, so no
-    # extra logic is required here
-    let posHigh = totalFieldCount(vt) - 1
-    # Iterate the items in `constr` until either the end is reached or a field
-    # that's not part of this object is found
-    while result < constr.len and (let n = constr[result]; n[0].sym.position <= posHigh):
+    if sfDiscriminant in lhs.flags:
       let
-        s = n[0].sym
-        rhs = n[1]
-        p = s.position.fpos
-        idx = toFieldIndex(vt, p)
-        fLoc = dest.getFieldHandle(idx)
-
-      if sfDiscriminant notin s.flags:
-        c.serialize(rhs, fLoc)
-      else:
-        let recCase = findRecCase(ty, s)
-        assert recCase != nil
-        let b = findMatchingBranch(recCase, getInt(rhs))
-        assert b != -1
-
-        fLoc.writeDiscrField(dest.typ, idx, rhs.intVal.int, b)
-
-      inc result
+        (owner, idx) = getFieldAndOwner(dest.typ, fpos lhs.position)
+        b = findMatchingBranch(findRecCase(ty, lhs), getInt(rhs))
+      assert b != -1
+      loc.writeDiscrField(owner, idx, rhs.intVal.int, b)
+    else:
+      c.serialize(rhs, loc)
 
 proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
   ## Translates the given `PNode`-tree based data (`n`) into VM data, storing
@@ -553,10 +526,7 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
   of tyObject:
     assert n.kind == nkObjConstr
     assert dest.typ.kind == akObject
-
-    let L = serializeObject(c, dest, n, t)
-    assert L == n.sons.len
-
+    serializeObject(c, dest, n, t)
   of tyArray, tySequence, tyOpenArray:
     assert n.kind == nkBracket
     let slice =

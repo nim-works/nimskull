@@ -30,7 +30,6 @@ import
     wordrecg,
     renderer,
     lineinfos,
-    astmsgs,
     ndi
   ],
   compiler/modules/[
@@ -89,15 +88,11 @@ const NonMagics* = {mNewString, mNewStringOfCap, mNewSeq, mSetLengthSeq,
                     mAppendSeqElem, mEnumToStr, mExit, mParseBiggestFloat,
                     mDotDot, mEqCString, mIsolate}
   ## magics that are treated like normal procedures by the code generator.
-  ## This set only applies when using the new runtime.
 
 const
   sfTopLevel* = sfMainModule
     ## the procedure contains top-level code, which currently affects how
     ## emit, asm, and error handling works
-
-template `[]=`(x: CgNode, i: Natural, n: CgNode) =
-  x.kids[i] = n
 
 proc findPendingModule(m: BModule, s: PSym): BModule =
   let ms = s.itemId.module  #getModule(s)
@@ -122,10 +117,7 @@ proc fillLoc(a: var TLoc, k: TLocKind, lode: CgNode, r: Rope, s: TStorageLoc) =
     if a.r == "": a.r = r
 
 proc t(a: TLoc): PType {.inline.} =
-  if a.lode.kind == cnkSym:
-    result = a.lode.sym.typ
-  else:
-    result = a.lode.typ
+  a.lode.typ
 
 proc lodeTyp(t: PType): CgNode =
   result = newNode(cnkEmpty, typ = t)
@@ -336,8 +328,14 @@ include ccgtypes
 
 func mapTypeChooser(p: BProc, n: CgNode): TSymKind =
   case n.kind
-  of cnkSym:
-    n.sym.kind
+  of cnkField:
+    skField
+  of cnkProc:
+    skProc
+  of cnkConst:
+    skConst
+  of cnkGlobal:
+    skVar
   of cnkLocal:
     if n.local == resultId:
       skResult
@@ -351,8 +349,14 @@ func mapTypeChooser(p: BProc, n: CgNode): TSymKind =
 func mapTypeChooser(a: TLoc): TSymKind =
   let n = a.lode
   case n.kind
-  of cnkSym:
-    n.sym.kind
+  of cnkField:
+    skField
+  of cnkProc:
+    skProc
+  of cnkConst:
+    skConst
+  of cnkGlobal:
+    skVar
   of cnkLocal:
     if n.local == resultId:
       skResult
@@ -527,7 +531,7 @@ include ccgthreadvars
 proc varInDynamicLib(m: BModule, sym: PSym)
 
 proc fillGlobalLoc*(m: BModule, s: PSym) =
-  let n = CgNode(kind: cnkSym, info: s.info, typ: s.typ, sym: s)
+  let n = CgNode(kind: cnkGlobal, info: s.info, typ: s.typ, sym: s)
   m.globals.put(s, initLoc(locGlobalVar, n, mangleName(m.g.graph, s), OnHeap))
 
 proc defineGlobalVar*(m: BModule, s: PSym) =
@@ -584,9 +588,14 @@ proc initLocExpr(p: BProc, e: CgNode, result: var TLoc) =
   initLoc(result, locNone, e, OnUnknown)
   expr(p, e, result)
 
+proc initLocExpr(p: BProc, e: CgNode, result: var TLoc, flags: set[LocFlag]) =
+  initLoc(result, locNone, e, OnUnknown)
+  result.flags = flags
+  expr(p, e, result)
+
 proc initLocExprSingleUse(p: BProc, e: CgNode, result: var TLoc) =
   initLoc(result, locNone, e, OnUnknown)
-  if e.kind == cnkCall and getCalleeMagic(e[0]) == mNone:
+  if e.kind in {cnkCall, cnkCheckedCall} and getCalleeMagic(e[0]) == mNone:
     # We cannot check for tfNoSideEffect here because of mutable parameters.
     discard "bug #8202; enforce evaluation order for nested calls"
     # We may need to consider that 'f(g())' cannot be rewritten to 'tmp = g(); f(tmp)'
@@ -745,7 +754,7 @@ proc allPathsAsgnResult(n: CgNode): InitResultEnum =
 
   result = Unknown
   case n.kind
-  of cnkStmtList, cnkStmtListExpr:
+  of cnkStmtList:
     for it in n:
       result = allPathsAsgnResult(it)
       if result != Unknown: return result

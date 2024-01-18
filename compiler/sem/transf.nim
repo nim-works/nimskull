@@ -187,20 +187,7 @@ proc freshVar(c: PTransf; v: PSym): PNode =
     # don't introduce copies of symbols of globals. The processing
     # following after ``transf`` expects that the set of existing globals
     # stays unchanged
-    if v.owner.kind == skModule:
-      # HACK: a nested global. Not introducing a new global would cause the
-      #       resulting AST to be semantically invalid (and the
-      #       ``injectdestructors`` pass to rightfully complain). As a
-      #       workaround, we introduce a copy here, associate it with the
-      #       correct global via the `owner` field, and then restore the
-      #       proper global during the MIR phase...
-      let newVar = copySym(v, nextSymId(c.idgen))
-      newVar.owner = v
-      result = newSymNode(newVar)
-    else:
-      # a lifted global; don't introduce a copy
-      result = newSymNode(v)
-
+    result = newSymNode(v)
   elif owner.isIterator:
     result = freshVarForClosureIter(c.graph, v, c.idgen, owner)
   else:
@@ -400,7 +387,7 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
       let exit =
         newTreeI(nkIfStmt, info,
           newTreeI(nkElifBranch, info,
-            newTreeI(nkCall, info,
+            newTreeIT(nkCall, info, cond.typ,
               newSymNode(c.graph.getSysMagic(info, "not", mNot)),
               cond),
             newBreakStmt(info, labl)))
@@ -612,11 +599,13 @@ proc transformConv(c: PTransf, n: PNode): PNode =
     else:
       result = transformSons(c, n)
   of tyOpenArray, tyVarargs:
-    result = transform(c, n[1])
-    #result = transformSons(c, n)
-    result.typ = takeType(n.typ, n[1].typ, c.graph, c.idgen)
-    #echo n.info, " came here and produced ", typeToString(result.typ),
-    #   " from ", typeToString(n.typ), " and ", typeToString(n[1].typ)
+    result = transformSons(c, n)
+    if dest.kind == tyVarargs:
+      # XXX: for simpler handling in ``mirgen``, to-vararg conversions are
+      #      changed into to-openArray conversions here. This needs to be
+      #      removed again once the MIR uses its own type representation
+      result.typ = copyType(dest, c.idgen.nextTypeId(), getCurrOwner(c))
+      result.typ.kind = tyOpenArray
   of tyCstring:
     if source.kind == tyString:
       result = newTreeIT(nkStringToCString, n.info, n.typ): transform(c, n[1])
@@ -959,7 +948,6 @@ proc transformExpandToAst(c: PTransf, n: PNode): PNode =
 
   let
     call = n[1]
-    fntyp = call[0].typ ## the signature of the macro/template
     nimNodeTyp = sysTypeFromName(c.graph, n.info, "NimNode")
 
   result = copyNode(n)
@@ -1028,8 +1016,11 @@ proc transformCall(c: PTransf, n: PNode): PNode =
   elif magic == mAddr:
     result = newTreeIT(nkAddr, n.info, n.typ): n[1]
     result = transformAddr(c, result)
-  elif magic in {mTypeOf, mRunnableExamples}:
+  elif magic == mTypeOf:
     result = n
+  elif magic == mRunnableExamples:
+    # discard runnable-example blocks that reach here
+    result = c.graph.emptyNode
   elif magic == mProcCall:
     # but do not change to its dispatcher:
     result = transformSons(c, n[1])
@@ -1052,12 +1043,11 @@ proc transformCall(c: PTransf, n: PNode): PNode =
 
 proc transformExceptBranch(c: PTransf, n: PNode): PNode =
   if n[0].isInfixAs() and not isImportedException(n[0][1].typ, c.graph.config):
-    let excTypeNode = n[0][1]
     # Generating `let exc = (excType)(getCurrentException())`
     # -> getCurrentException()
     let excCall = callCodegenProc(c.graph, "getCurrentException")
     # -> (excType)
-    let convNode = newTreeIT(nkObjDownConv, n[1].info, excTypeNode.typ.toRef(c.idgen)):
+    let convNode = newTreeIT(nkObjDownConv, n[1].info, n[0][2].typ):
       [excCall]
     # -> let exc = ...
     let identDefs = newTreeI(nkIdentDefs, n[1].info):
@@ -1254,6 +1244,17 @@ proc transform(c: PTransf, n: PNode): PNode =
   of nkNimNodeLit:
     # do not transform the content of a ``NimNode`` literal
     result = n
+  of nkStmtListExpr:
+    if stupidStmtListExpr(n):
+      # the statement-list expression is redundant (i.e. only has a single
+      # item or only leading empty nodes) -> skip it
+      result = transform(c, n.lastSon)
+    else:
+      # needs to be kept
+      result = transformSons(c, n)
+  of nkPragmaExpr:
+    # not needed in transformed AST -> drop it
+    result = transform(c, n.lastSon)
   else:
     result = transformSons(c, n)
   when false:

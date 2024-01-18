@@ -181,7 +181,7 @@ jobs:
           brew update
 
       - name: Run tester
-        run: ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' all
+        run: ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' --tryFailing all
 
       - name: Print all test errors
         if: failure()
@@ -248,7 +248,7 @@ jobs:
           echo "metadata=build/source.json" >> $GITHUB_OUTPUT
 
       - name: Publish source archive to artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: source archive
           path: |
@@ -270,7 +270,7 @@ jobs:
 
     steps:
       - name: Download source archive
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: source archive
           path: source-archive
@@ -312,9 +312,9 @@ jobs:
           echo "metadata=$metadata" >> $GITHUB_OUTPUT
 
       - name: Upload release package to artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: binaries from source archive
+          name: binaries from source archive ${{ matrix.target.name }}
           path: |
             ${{ steps.package.outputs.archive }}
             ${{ steps.package.outputs.metadata }}
@@ -372,7 +372,7 @@ jobs:
 
       - name: Upload docs to artifacts
         if: matrix.target.shared_builder
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           # If this name is updated, tweak publisher.yml
           name: Generated docs
@@ -380,9 +380,9 @@ jobs:
           if-no-files-found: error
 
       - name: Upload release package to artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: release binaries
+          name: release binaries ${{ matrix.target.name }}
           path: |
             ${{ steps.package.outputs.archive }}
             ${{ steps.package.outputs.metadata }}
@@ -406,19 +406,22 @@ jobs:
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
       - name: Download binaries built from source archive
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: binaries from source archive
+          pattern: binaries from source archive*
           path: binary-from-source
+          merge-multiple: true
 
       - name: Download release package
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: release binaries
+          # Download all release binaries to the same folder
+          pattern: release binaries*
           path: release-binary
+          merge-multiple: true
 
       - name: Download release source archive
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: source archive
           path: source-archive
@@ -449,7 +452,7 @@ jobs:
 
       - name: Upload difference test result on failure
         if: failure() && steps.diff.outputs.result != ''
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: differences between binary from source archive and git
           path: ${{ steps.diff.outputs.result }}
@@ -469,7 +472,7 @@ jobs:
       # This allow the publisher to run the tool directly without having to
       # clone the compiler.
       - name: Upload release manifest tool
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: release manifest tool
           path: tools/release_manifest

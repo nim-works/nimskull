@@ -590,13 +590,6 @@ proc processCompile(conf: ConfigRef; filename: string) =
 const
   gcNames = @["destructors", "arc", "orc"]
 
-  cmdNames = @[
-    "c", "cc", "compile", "compiletoc",
-    "compiletooc", "js", "compiletojs", "r", "run", "check", "e",
-    "doc2", "doc", "doc2tex", "rst2html", "rst2tex", "jsondoc2",
-    "jsondoc", "ctags", "buildindex", "gendepend", "dump", "parse", "rod",
-    "secret", "nop", "help", "jsonscript",]
-
 type
   CompileOptArgCheckResult* = enum
     compileOptArgCheckSuccessTrue

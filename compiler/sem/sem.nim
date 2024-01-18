@@ -122,6 +122,7 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode
 proc changeType(c: PContext; n: PNode, newType: PType, check: bool): PNode
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType
+proc semTypeNode2(c: PContext, n: PNode, prev: PType): PNode
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode
 proc semOpAux(c: PContext, n: PNode): bool
 proc semParamList(c: PContext, n, genericParams: PNode, kind: TSymKind): PType
@@ -136,6 +137,8 @@ proc indexTypesMatch(c: PContext, f, a: PType, arg: PNode): PNode
 proc semStaticExpr(c: PContext, n: PNode): PNode
 proc semStaticType(c: PContext, childNode: PNode, prev: PType): PType
 proc semTypeOf(c: PContext; n: PNode): PNode
+proc semAnnotation(c: PContext, pragmas: ptr PNode, n: PNode,
+                   flags: TExprFlags): PNode
 proc computeRequiresInit(c: PContext, t: PType): bool
 proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode
 proc hasUnresolvedArgs(c: PContext, n: PNode): bool
@@ -146,23 +149,6 @@ proc wrapErrorAndUpdate(c: ConfigRef, n: PNode, s: PSym): PNode =
   ## an ``skError``.
   result = c.wrapError(n)
   s.ast = result
-
-proc deltaTrace(stopProc, indent: string, entries: seq[StackTraceEntry])
-  {.inline.} =
-  # find the actual StackTraceEntry index based on the name
-  let endsWith = entries.len - 1
-  var startFrom = 0
-  for i in countdown(endsWith, 0):
-    let e = entries[i]
-    if i != endsWith and $e.procname == stopProc: # found the previous
-      startFrom = i + 1
-      break                                       # skip the rest
-
-  # print the trace oldest (startFrom) to newest (endsWith)
-  for i in startFrom..endsWith:
-    let e = entries[i]
-    echo:
-      "$1| $2 $3($4)" % [indent, $e.procname, $e.filename, $e.line]
 
 template semIdeForTemplateOrGenericCheck(conf, n, cursorInBody) =
   # use only for idetools support; detecting cursor in generic or template body
@@ -182,19 +168,64 @@ template semIdeForTemplateOrGeneric(c: PContext; n: PNode;
       #  echo "passing to safeSemExpr: ", renderTree(n)
       discard safeSemExpr(c, n)
 
-proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
-  var
-    a = arg
-    x = a.mutableSkipConv
-  if x.kind in {nkCurly, nkPar, nkTupleConstr} and formal.kind != tyUntyped:
-    x = changeType(c, x, formal, check=true)
+proc applyConversion(c: PContext, conv, n: PNode): tuple[n: PNode, keep: bool] =
+  ## Applies the implicit conversion `conv` to the expression AST `n`, returning
+  ## the resulting AST (which may be the same as `n`) and whether the conversion
+  ## needs to be kept. The `n` AST is mutated directly.
+  case n.kind
+  of nkCurly, nkTupleConstr, nkNilLit:
+    # special handling for these nodes: the conversion is treated as an
+    # instruction to re-type the expression
+    (changeType(c, n, conv.typ, check=true), false)
+  of nkStmtListExpr:
+    let tmp = applyConversion(c, conv, n[^1])
+    n[^1] = tmp.n
+    n.typ = tmp.n.typ
 
-    if x.isError:
-      result = c.config.wrapError(a)
-      return
+    if tmp.n.kind == nkError:
+      (c.config.wrapError(n), false)
+    else:
+      (n, tmp.keep)
+  else:
+    if conv.typ.kind in {tySet, tyTuple}:
+      # apply the type directly and drop the conversion
+      n.typ = conv.typ
+    elif conv.typ.kind in {tyOpenArray, tyVarargs, tySequence, tyArray} and
+         n.typ.isEmptyContainer:
+      # fixup empty container types
+      let
+        arg = n.typ
+        elem = elemType(conv.typ)
+        typ = copyType(arg.skipTypes({tyGenericInst, tyAlias}),
+                      nextTypeId(c.idgen), arg.owner)
+        # XXX: ^^ the type skipping looks dangerous
 
-  result = a
-  result = skipHiddenSubConv(result, c.graph, c.idgen)
+      copyTypeProps(c.graph, c.idgen.module, typ, arg)
+      typ[ord(arg.kind == tyArray)] = elem
+      propagateToOwner(typ, elem)
+      n.typ = typ
+
+    # keep to-openArray conversions, later processing still needs them
+    (n, conv.typ.kind notin {tySequence, tyArray, tyTuple, tySet})
+
+proc fitNodePostMatch(c: PContext, n: PNode): PNode =
+  ## Performs post-processing on the result of a ``paramTypesMatch``
+  ## invocation. This processing is required for the expression AST to be
+  ## proper typed AST!
+  case n.kind
+  of nkHiddenSubConv, nkHiddenStdConv:
+    let (r, keep) = applyConversion(c, n, n[1])
+    if keep:
+      n # keep the existing conversion
+    else:
+      r
+  of nkHiddenCallConv:
+    # the argument of an injected hidden call conversion needs to be fitted
+    # to!
+    n[1] = fitNodePostMatch(c, n[1])
+    n
+  else:
+    n
 
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
@@ -225,7 +256,7 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
         result = copyTree(arg)
         result.typ = formal
     else:
-      result = fitNodePostMatch(c, formal, result)
+      result = fitNodePostMatch(c, result)
 
 proc fitNodeConsiderViewType(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
   let a = fitNode(c, formal, arg, info)
@@ -519,6 +550,7 @@ proc semTemplateExpr(c: PContext, n: PNode, s: PSym,
                      flags: TExprFlags = {}): PNode
 proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
                   flags: TExprFlags = {}): PNode
+proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode
 
 proc tryConstExpr(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "tryConstExpr", n, result)
@@ -699,13 +731,9 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       result = semExprWithType(c, result, flags)
     of tyTypeDesc:
       if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListType)
-      var typ = semTypeNode(c, result, nil)
-      if typ == nil:
-        let err = newError(c.config, result, PAstDiag(kind: adSemExpressionHasNoType))
-        localReport(c.config, err)
-        result = newSymNode(errorSym(c, result, err))
-      else:
-        result.typ = makeTypeDesc(c, typ)
+      result = semTypeNode2(c, result, nil)
+      if result.kind != nkError:
+        result.typ = makeTypeDesc(c, result.typ)
     else:
       if s.ast.isGenericRoutine and retType.isMetaType:
         # The return type may depend on the Macro arguments
@@ -719,13 +747,13 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
         retType = generateTypeInstance(c, paramTypes,
                                        macroResult.info, retType)
 
-      result = semExpr(c, result, flags)
+      result = semExprWithType(c, result, flags)
       if resultTypeIsInferrable(retType):
         # this is a "return type inference" scenario. There's no return type
         # to infer, but the expression still needs to use the proper type
         result = inferWithMetatype(c, retType, result)
       else:
-        result = fitNode(c, retType, result, result.info)
+        result = fitNodeConsiderViewType(c, retType, result, result.info)
   dec(c.config.evalTemplateCounter)
   discard c.friendModules.pop()
 

@@ -87,21 +87,6 @@ Commands for core developers:
 # Set the compiler source location to what is given by `koch.py`.
 nimSource = getEnv("KOCH_NIM_SOURCE")
 
-let
-  kochExe =
-    when defined(windows):
-      # Use the `cmd` wrapper for Windows to automate finding Python
-      nimSource / "koch.cmd"
-    else:
-      nimSource / "koch.py"
-    ## The path to `koch`'s launcher
-
-proc kochExec*(cmd: string) =
-  exec kochExe.quoteShell & " " & cmd
-
-proc kochExecFold*(desc, cmd: string) =
-  execFold(desc, kochExe.quoteShell & " " & cmd)
-
 template withDir(dir, body) =
   let old = getCurrentDir()
   try:
@@ -239,32 +224,6 @@ proc install(args: string) =
   geninstall()
   exec("sh ./install.sh $#" % args)
 
-type
-  BinArchiveTarget {.pure.} = enum
-    ## Target for the binary archive
-    Windows
-    Unix
-
-proc buildReleaseBinaries(args = "") =
-  ## Build binaries needed for creating a release
-  # Boot the compiler
-  kochExec("boot -d:danger " & args)
-  # Build the tools
-  buildTools(args)
-
-proc binArchive(target: BinArchiveTarget, args: string) =
-  ## Builds binary archive for `target`
-  buildReleaseBinaries()
-  # Build the binary archive
-  let binaryArgs =
-    case target
-    of Windows:
-      quoteShellCommand(["--format:zip", "--binaries:windows"])
-    of Unix:
-      quoteShellCommand(["--format:tar.zst", "--binaries:unix"])
-
-  archive(binaryArgs & " " & args)
-
 # -------------- boot ---------------------------------------------------------
 
 proc findStartNim: string =
@@ -394,47 +353,31 @@ proc clean(args: string) =
 
 # -------------- builds a release ---------------------------------------------
 
-proc winReleaseArch(arch: string) =
-  doAssert arch in ["32", "64"]
-  let cpu = if arch == "32": "i386" else: "amd64"
+type
+  BinArchiveTarget {.pure.} = enum
+    ## Target for the binary archive
+    Windows
+    Unix
 
-  template withMingw(path, body) =
-    let prevPath = getEnv("PATH")
-    putEnv("PATH", (if path.len > 0: path & PathSep else: "") & prevPath)
-    try:
-      body
-    finally:
-      putEnv("PATH", prevPath)
+proc buildReleaseBinaries(args = "") =
+  ## Build binaries needed for creating a release
+  # Boot the compiler
+  boot("-d:danger " & args)
+  # Build the tools
+  buildTools(args)
 
-  withMingw r"..\mingw" & arch & r"\bin":
-    # Rebuilding koch is necessary because it uses its pointer size to
-    # determine which mingw link to put in the NSIS installer.
-    inFold "winrelease koch":
-      nimexec "c --cpu:$# koch" % cpu
-    kochExecFold("winrelease boot", "boot -d:release --cpu:$#" % cpu)
-    kochExecFold("winrelease zip", "zip -d:release")
-    overwriteFile r"build\nim-$#.zip" % targetCompilerVersion(),
-             r"web\upload\download\nim-$#_x$#.zip" % [targetCompilerVersion(), arch]
+proc binArchive(target: BinArchiveTarget, args: string) =
+  ## Builds binary archive for `target`
+  buildReleaseBinaries()
+  # Build the binary archive
+  let binaryArgs =
+    case target
+    of Windows:
+      quoteShellCommand(["--format:zip", "--binaries:windows"])
+    of Unix:
+      quoteShellCommand(["--format:tar.zst", "--binaries:unix"])
 
-proc winRelease*() =
-  # Now used from "tools/winrelease" and not directly supported by koch
-  # anymore!
-  # Build -docs file:
-  when true:
-    inFold "winrelease buildDocs":
-      buildDocs("")
-    withDir "web/upload/" & targetCompilerVersion():
-      inFold "winrelease zipdocs":
-        exec "7z a -tzip docs-$#.zip *.html" % targetCompilerVersion()
-    overwriteFile "web/upload/$1/docs-$1.zip" % targetCompilerVersion(),
-                  "web/upload/download/docs-$1.zip" % targetCompilerVersion()
-  when true:
-    inFold "winrelease csource":
-      csource("-d:danger")
-  when sizeof(pointer) == 4:
-    winReleaseArch "32"
-  when sizeof(pointer) == 8:
-    winReleaseArch "64"
+  archive(binaryArgs & " " & args)
 
 # -------------- tests --------------------------------------------------------
 

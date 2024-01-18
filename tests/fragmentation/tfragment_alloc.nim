@@ -2,10 +2,13 @@
 discard """
   output: '''occupied ok: true
 total ok: true'''
-knownIssue: "https://github.com/nim-lang/Nim/issues/8509"
-knownIssue: "https://github.com/nim-lang/Nim/issues/7120"
-knownIssue: "https://github.com/nim-lang/Nim/issues/9421"
+  joinable: false
+  disabled: "osx"
 """
+
+# if the tests fails in the CI, consider disabling it again. Refer to
+# https://github.com/nim-lang/Nim/issues/8509 and
+# https://github.com/nim-lang/Nim/issues/9421 for more information.
 
 import strutils, data
 

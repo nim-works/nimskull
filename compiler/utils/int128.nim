@@ -60,9 +60,6 @@ template isNegative(arg: int32): bool =
 proc bitconcat(a, b: uint32): uint64 =
   (uint64(a) shl 32) or uint64(b)
 
-proc bitsplit(a: uint64): (uint32, uint32) =
-  (cast[uint32](a shr 32), cast[uint32](a))
-
 proc toInt64*(arg: Int128): int64 =
   if isNegative(arg):
     assert(arg.sdata(3) == -1, "out of range")
@@ -207,12 +204,6 @@ proc `==`*(a, b: Int128): bool =
   if a.udata[2] != b.udata[2]: return false
   if a.udata[3] != b.udata[3]: return false
   return true
-
-proc inplaceBitnot(a: var Int128) =
-  a.udata[0] = not a.udata[0]
-  a.udata[1] = not a.udata[1]
-  a.udata[2] = not a.udata[2]
-  a.udata[3] = not a.udata[3]
 
 proc bitnot*(a: Int128): Int128 =
   result.udata[0] = not a.udata[0]

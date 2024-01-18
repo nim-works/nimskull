@@ -405,14 +405,12 @@ iterator getopt*(p: var OptParser): tuple[kind: CmdLineKind, key,
     if p.kind == cmdEnd: break
     yield (p.kind, p.key, p.val)
 
-iterator getopt*(cmdline: seq[string] = @[],
-                  shortNoVal: set[char] = {}, longNoVal: seq[string] = @[]):
+iterator getopt*(cmdline: seq[string],
+                 shortNoVal: set[char] = {}, longNoVal: seq[string] = @[]):
             tuple[kind: CmdLineKind, key, val: string] =
   ## Convenience iterator for iterating over command line arguments.
   ##
-  ## This creates a new `OptParser<#OptParser>`_. If no command line
-  ## arguments are provided, the real command line as provided by the
-  ## `os` module is retrieved instead.
+  ## This creates a new `OptParser<#OptParser>`_.
   ##
   ## `shortNoVal` and `longNoVal` are used to specify which options
   ## do not take values. See the `documentation about these

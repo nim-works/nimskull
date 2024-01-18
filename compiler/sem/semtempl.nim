@@ -889,7 +889,6 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
       result.add newIdentNode(getIdent(c.c.cache, "[]="), n.info)
       for i in 0..<a.len: result.add(a[i])
       result.add(b)
-      let a0 = semTemplBody(c, a[0])
       result = semTemplBodySons(c, result)
     of nkCurlyExpr:
       result = newNodeI(nkCall, n.info)

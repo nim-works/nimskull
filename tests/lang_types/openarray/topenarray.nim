@@ -51,3 +51,22 @@ proc main =
 
 main()
 # static: main() # xxx bug #15952: Error: cannot generate code for: mSlice
+
+block array_modification_not_visible:
+  # modifications of an array through a ``var openArray`` parameter
+  # were not visible on the array if the ``openArray`` parameter was
+  # created via ``toOpenArray`` and the array was *potentially* modified
+  # during evaluation of the lower or upper bound argument expression
+  var arr = [1, 2]
+
+  proc mut(x: var openArray[int]) =
+    x[0] = 3
+
+  # modifying `arr` as part of either the lower or upper bound argument
+  # expression triggered the bug
+  mut(toOpenArray(arr, 0, (arr[0] = 4; 0)))
+  when defined(js):
+    # knownIssue
+    doAssert arr != [3, 2], "works now"
+  else:
+    doAssert arr == [3, 2]

@@ -37,7 +37,7 @@ func lastSon*(n: CgNode): CgNode {.inline.} =
 
 proc skipConv*(n: CgNode): CgNode {.inline.} =
   result = n
-  while result.kind in {cnkConv, cnkHiddenConv}:
+  while result.kind in {cnkConv, cnkHiddenConv, cnkLvalueConv}:
     result = result.operand
 
 func getInt*(n: CgNode): Int128 =
@@ -55,18 +55,19 @@ proc getOrdValue*(n: CgNode): Int128 =
 
 func getCalleeMagic*(callee: CgNode): TMagic {.inline.} =
   case callee.kind
-  of cnkSym:   callee.sym.magic
+  of cnkProc:  callee.sym.magic
   of cnkMagic: callee.magic
   else:        mNone
 
 proc getMagic*(op: CgNode): TMagic {.inline.}  =
   case op.kind
-  of cnkCall: getCalleeMagic(op[0])
-  else:       mNone
+  of cnkCall, cnkCheckedCall:
+    getCalleeMagic(op[0])
+  else:
+    mNone
 
 proc isDiscriminantField*(n: CgNode): bool =
   case n.kind
-  of cnkCheckedFieldAccess: sfDiscriminant in n[0][1].sym.flags
   of cnkFieldAccess:        sfDiscriminant in n[1].sym.flags
   else:                     false
 
@@ -98,93 +99,11 @@ proc isDeepConstExpr*(n: CgNode): bool =
   else:
     result = false
 
-proc getRoot*(n: CgNode): CgNode =
-  ## ``getRoot`` takes a *path* ``n``. A path is an lvalue expression
-  ## like ``obj.x[i].y``. The *root* of a path is the symbol that can be
-  ## determined as the owner; ``obj`` in the example.
-  case n.kind
-  of cnkSym:
-    if n.sym.kind in {skVar, skLet, skForVar}:
-      result = n
-  of cnkLocal:
-    result = n
-  of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess, cnkCheckedFieldAccess:
-    result = getRoot(n[0])
-  of cnkDerefView, cnkDeref, cnkObjUpConv, cnkObjDownConv, cnkHiddenAddr,
-     cnkAddr, cnkHiddenConv, cnkConv:
-    result = getRoot(n.operand)
-  of cnkCall:
-    if getMagic(n) == mSlice:
-      result = getRoot(n[1])
-  else: discard
-
-proc isLValue*(n: CgNode): bool =
-  ## Duplicate of `isLValue <compiler/sem/parampatters.html#isLvalue,PNode>`_,
-  ## but simplified to the needs of the C code generator.
-  # XXX: remove this as soon as possible
-  case n.kind
-  of cnkEmpty:
-    n.typ.kind == tyVar
-  of cnkSym:
-    n.sym.kind == skVar
-  of cnkLocal:
-    # treat all locals as lvalues, even parameters
-    true
-  of cnkFieldAccess:
-    let t = skipTypes(n[0].typ, abstractInst-{tyTypeDesc})
-    t.kind in {tyVar, tySink, tyPtr, tyRef} or
-      (not isDiscriminantField(n) and isLValue(n[0]))
-  of cnkArrayAccess, cnkTupleAccess:
-    let t = skipTypes(n[0].typ, abstractInst-{tyTypeDesc})
-    t.kind in {tyVar, tySink, tyPtr, tyRef} or isLValue(n[0])
-  of cnkHiddenConv, cnkConv:
-    if skipTypes(n.typ, abstractPtrs-{tyTypeDesc}).kind in
-        {tyOpenArray, tyTuple, tyObject}:
-      isLValue(n.operand)
-    elif compareTypes(n.typ, n.operand.typ, dcEqIgnoreDistinct):
-      isLValue(n.operand)
-    else:
-      false
-  of cnkDerefView:
-    let n0 = n.operand
-    n0.typ.kind != tyLent or (n0.kind == cnkLocal and n0.local == resultId)
-  of cnkDeref, cnkHiddenAddr:
-    true
-  of cnkObjUpConv, cnkObjDownConv:
-    isLValue(n.operand)
-  of cnkCheckedFieldAccess:
-    isLValue(n[0])
-  of cnkCall:
-    (getMagic(n) == mSlice and isLValue(n[1])) or n.typ.kind in {tyVar}
-  of cnkStmtListExpr:
-    isLValue(n[^1])
-  else:
-    false
-
 proc canRaiseConservative*(fn: CgNode): bool =
   ## Duplicate of `canRaiseConservative <ast_query.html#canRaiseConservative,PNode>`_.
   # ``mNone`` is also included in the set, therefore this check works even for
   # non-magic calls
   getCalleeMagic(fn) in magicsThatCanRaise
-
-proc canRaise*(fn: CgNode): bool =
-  ## Duplicate of `canRaise <ast_query.html#canRaise,PNode>`_.
-  if fn.kind == cnkSym and (fn.sym.magic notin magicsThatCanRaise or
-      {sfImportc, sfInfixCall} * fn.sym.flags == {sfImportc} or
-      sfGeneratedOp in fn.sym.flags):
-    result = false
-  elif fn.kind == cnkSym and fn.sym.magic == mEcho:
-    result = true
-  elif fn.kind == cnkMagic:
-    result = fn.magic in magicsThatCanRaise
-  else:
-    if fn.typ != nil and fn.typ.n != nil and fn.typ.n[0].kind == nkSym:
-      result = false
-    else:
-      result = fn.typ != nil and fn.typ.n != nil and
-        ((fn.typ.n[0].len < effectListLen) or
-         (fn.typ.n[0][exceptionEffects] != nil and
-          fn.typ.n[0][exceptionEffects].safeLen > 0))
 
 proc toBitSet*(conf: ConfigRef; s: CgNode): TBitSet =
   ## Duplicate of `toBitSet <nimsets.html#toBitSet,ConfigRef,PNode>`_
@@ -203,10 +122,6 @@ proc toBitSet*(conf: ConfigRef; s: CgNode): TBitSet =
 
 proc flattenStmts*(n: CgNode): CgNode =
   ## Duplicate of `flattenStmts <trees.html#flattenStmts,PNode>`_
-  # XXX: this doesn't work as intended. The intention is to bring all 'def's
-  #      to the top so that they can be special cased, but
-  #      ``cnkStmtListExpr``s cannot be unnested, meaning that not all
-  #      'def's are brought to the top-level
   proc unnestStmts(n: CgNode, result: var CgNode) =
     case n.kind
     of cnkStmtList:
@@ -220,11 +135,18 @@ proc flattenStmts*(n: CgNode): CgNode =
   if result.len == 1:
     result = result[0]
 
-proc toSymNode*(n: PNode): CgNode {.inline.} =
-  CgNode(kind: cnkSym, info: n.info, typ: n.typ, sym: n.sym)
-
 proc newSymNode*(s: PSym): CgNode {.inline.} =
-  CgNode(kind: cnkSym, info: s.info, typ: s.typ, sym: s)
+  let kind =
+    case s.kind
+    of skVar, skLet, skForVar: cnkGlobal
+    of skConst:                cnkConst
+    of skProcKinds:            cnkProc
+    of skField:                cnkField
+    else:
+      unreachable(s.kind)
+
+  {.cast(uncheckedAssign).}:
+    CgNode(kind: kind, info: s.info, typ: s.typ, sym: s)
 
 proc newStrNode*(str: sink string): CgNode {.inline.} =
   CgNode(kind: cnkStrLit, info: unknownLineInfo, strVal: str)

@@ -27,6 +27,7 @@ import
     modulelowering,
   ],
   compiler/mir/[
+    mirbodies,
     mirgen
   ],
   compiler/modules/[
@@ -34,7 +35,8 @@ import
     magicsys
   ],
   compiler/utils/[
-    containers
+    containers,
+    idioms
   ],
   compiler/vm/[
     packed_env,
@@ -120,7 +122,7 @@ proc registerProc(c: var GenCtx, prc: PSym): FunctionIndex =
   result = FunctionIndex(idx)
 
 proc generateCodeForProc(c: var CodeGenCtx, idgen: IdGenerator, s: PSym,
-                         body: sink MirFragment): CodeInfo =
+                         body: sink MirBody): CodeInfo =
   ## Generates and the bytecode for the procedure `s` with body `body`. The
   ## resulting bytecode is emitted into the global bytecode section.
   let
@@ -140,13 +142,15 @@ proc declareGlobal(c: var GenCtx, sym: PSym) =
     # link table
     setLinkIndex(c, sym, c.globals.add(getOrCreate(c.gen, sym.typ)))
 
-proc prepare(c: var GenCtx, data: var DiscoveryData) =
-  ## Registers with the link table all procedures, constants, globals,
-  ## and threadvars discovered as part of producing the currently
-  ## processed event.
+proc prepare(c: var GenCtx, i: int, it: PSym) =
+  ## Responds to the discovery of entity `s` (with index `i`). This means
+  ## registering it with the link table.
+  case it.kind
+  of skProcKinds:
+    # make space for table entry:
+    if i >= c.functions.len:
+      c.functions.setLen(i + 1)
 
-  c.functions.setLen(data.procedures.len)
-  for i, it in peek(data.procedures):
     let idx = LinkIndex(i)
     c.functions[idx] = c.initProcEntry(it)
     setLinkIndex(c, it, idx)
@@ -157,26 +161,24 @@ proc prepare(c: var GenCtx, data: var DiscoveryData) =
     if c.functions[idx].kind == ckCallback:
       it.extFlags.incl exfNoDecl
 
-  # register the constants with the link table:
-  for i, s in visit(data.constants):
-    setLinkIndex(c, s, LinkIndex(i))
-
-  for _, s in visit(data.globals):
-    declareGlobal(c, s)
-
-  for _, s in visit(data.threadvars):
-    declareGlobal(c, s)
+  of skConst:
+    setLinkIndex(c, it, LinkIndex(i))
+  of skVar, skLet, skForVar:
+    # global or threadvar
+    declareGlobal(c, it)
+  else:
+    unreachable(it.kind)
 
 proc processEvent(c: var GenCtx, mlist: ModuleList, discovery: var DiscoveryData,
                   partial: var PartialTbl, evt: sink BackendEvent) =
   ## The orchestrator's event processor.
-  prepare(c, discovery)
-
   let idgen = mlist[evt.module].idgen
   c.gen.module = mlist[evt.module].sym
 
   case evt.kind
-  of bekModule:
+  of bekDiscovered:
+    prepare(c, evt.entityId, evt.entity)
+  of bekModule, bekConstant:
     discard "nothing to do"
   of bekPartial:
     let p = addr mgetOrPut(partial, evt.sym.id, PartialProc(sym: evt.sym))
@@ -197,7 +199,7 @@ proc generateAliveProcs(c: var GenCtx, config: BackendConfig,
   var
     partial: PartialTbl
 
-  for evt in process(c.graph, mlist, discovery, MagicsToKeep, config):
+  for evt in process(c.graph, mlist, discovery, config):
     processEvent(c, mlist, discovery, partial, evt)
 
   # generate the bytecode for the partial procedures:
@@ -224,12 +226,11 @@ proc generateCodeForMain(c: var GenCtx, config: BackendConfig,
   let
     idgen = mainModule(modules).idgen
     prc = generateMainProcedure(c.graph, idgen, modules)
-  var p = preprocess(config, prc, c.graph, idgen)
-  process(p, c.graph, idgen)
+    body = translate(prc, prc.ast[bodyPos], c.graph, config, idgen)
 
   result = registerProc(c, prc)
 
-  let r = generateCodeForProc(c.gen, idgen, prc, p.body)
+  let r = generateCodeForProc(c.gen, idgen, prc, body)
   fillProcEntry(c.functions[result.LinkIndex], r)
 
 func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
@@ -265,7 +266,9 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   ## file
   let
     conf = g.config
-    bconf = BackendConfig(noImported: true, options: {goIsNimvm})
+    bconf = BackendConfig(noImported: true, tconfig:
+              TranslationConfig(options: {goIsNimvm},
+                                magicsToKeep: MagicsToKeep))
 
   var c =
     GenCtx(graph: g,

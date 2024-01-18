@@ -198,21 +198,6 @@ proc ordinalValToString(a: PNode; g: ModuleGraph): string =
   else:
     unreachable("non-ordinals never make it here")
 
-proc isFloatRange(t: PType): bool {.inline.} =
-  result = t.kind == tyRange and t[0].kind in {tyFloat..tyFloat64}
-
-proc isIntRange(t: PType): bool {.inline.} =
-  result = t.kind == tyRange and t[0].kind in {
-      tyInt..tyInt64, tyUInt8..tyUInt32}
-
-proc pickIntRange(a, b: PType): PType =
-  if isIntRange(a): result = a
-  elif isIntRange(b): result = b
-  else: result = a
-
-proc isIntRangeOrLit(t: PType): bool =
-  result = isIntRange(t) or isIntLit(t)
-
 proc evalOp*(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
   # b and c may be nil
   result = nil
@@ -920,7 +905,7 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
   # are not folded if they have a comment in the first position
   let exprIsPointerCast = n.kind in {nkCast, nkConv, nkHiddenStdConv} and
                           n.typ != nil and
-                          n.typ.kind == tyPointer
+                          n.typ.kind in {tyPointer, tyProc}
   if not exprIsPointerCast and
      not (n.kind == nkStmtListExpr and n[0].kind == nkCommentStmt):
     var cnst = getConstExpr(m, result.node, idgen, g)

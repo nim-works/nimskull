@@ -20,6 +20,7 @@ import
     options
   ],
   compiler/mir/[
+    mirbodies,
     mirbridge,
     mirconstr,
     mirgen,
@@ -42,39 +43,18 @@ import
     idioms
   ]
 
+export TranslationConfig
+
 type
-  MirFragment* = object
-    tree*: MirTree
-    source*: SourceMap
-
-  Procedure* = object
-    sym*: PSym
-    case isImported*: bool ## wether it's a .dynlib procedure
-    of false:
-      body*: MirFragment
-        ## the procedure's body
-
-      globals*: seq[PNode]
-        ## the unprocessed identdefs of globals defined as part of the
-        ## procedure's body. Due to how ``transf`` handles inlining, this
-        ## list can contain duplicates
-    of true:
-      discard
-
   BackendConfig* = object
     ## Configuration state altering the operation of the ``process``
     ## iterator.
-    options*: set[GenOption]
+    tconfig*: TranslationConfig
       ## passed on to ``mirgen``. See ``mirgen.generateCode`` for more
       ## details
     noImported*: bool
       ## if ``true``, indicates that a procedure with a body should not be
       ## treated as imported, even if it's marked as such
-
-  ProcedureIter = object
-    queued: Deque[tuple[prc: PSym, fr: FileIndex]]
-      ## procedures that are queued for code-generation
-    config: BackendConfig
 
   Queue*[T] = object
     ## Combines a sequence of items with a "read" cursor.
@@ -102,23 +82,15 @@ type
     additional: seq[tuple[m: FileIndex, prc: PSym]]
       # HACK: see documentation of the procedure that appends to this list
 
-  EventContext = object
-    ## The data that guides the post-event-processing actions.
-    start: int
-      ## the procedure progress indicator at the start of the current cycle
-    preIndirect: int
-      ## the procedure progress indicator before indirect dependencies were
-      ## discovered
-    fin: int
-      ## the procedure progress indicator prior to event processing
-
-    indirect: seq[tuple[m: FileIndex, index: int]]
-      ## the list of all indirect procedure dependencies that need to be
-      ## queued (stored as indices into the procedure list)
-
   BackendEventKind* = enum
+    bekDiscovered## a new entity was discovered during MIR processing. This
+                 ## event is meant to be used for pre-processing of symbols
+                 ## and registration with the code generators -- the
+                 ## environment must not be modified during processing of
+                 ## this event
     bekModule    ## the initial set of alive entities for a module was
                  ## discovered
+    bekConstant  ## a complete constant was processed and transformed
     bekPartial   ## a fragment of a procedure that's generated incrementally
                  ## became available
     bekProcedure ## a complete procedure was processed and transformed
@@ -132,22 +104,77 @@ type
       ## the symbol is attached to
 
     case kind*: BackendEventKind
+    of bekDiscovered:
+      entityId*: int
+        ## the position of the symbol within its ``DiscoveryData`` table
+      entity*: PSym
+        ## a reference to the discovered entity
     of bekModule:
       discard
+    of bekConstant:
+      cnst*: PSym
+        ## the symbol of the constant the event is about
     of bekPartial, bekProcedure, bekImported:
       sym*: PSym
         ## the symbol of the procedure the event is about
-      body*: MirFragment
+      body*: MirBody
 
-template add[T](x: Deque[T], elem: T) =
-  ## Convenience template for appending to a deque.
-  x.addLast elem
+  WorkItemKind = enum
+    wikPreprocess
+      ## run the internal pre-processing for a procedure
+    wikProcess
+      ## translate a procedure to the MIR, apply all passes, and report the
+      ## result
+    wikProcessConst
+      ## scan and translate a constant to its MIR representation
+    wikProcessGlobals
+      ## produce the init and deinit code for globals lifted from procedures
+    wikImported
+      ## report an imported procedure
+    wikReport
+      ## report that some fully-processed MIR fragment became available
+    wikReportConst
+      ## report that a fully-processed constant became available
 
-func append*(dest: var MirFragment, src: sink MirFragment) =
-  ## Appends the code from `src` to `dest`. No check whether the resulting
-  ## code is semantically valid is performed
-  dest.tree.add src.tree
-  dest.source.append src.source
+  WorkItem = object
+    ## For simpler processing and scheduling, much of the backend's pre
+    ## processing is split into discrete steps, which are added to a work
+    ## queue. `WorkItem` describes a step.
+    case kind: WorkItemKind
+    of wikPreprocess:
+      raw: PSym
+    of wikProcess:
+      prc: PSym
+      body: PNode
+    of wikProcessConst, wikReportConst:
+      cnst: PSym
+    of wikProcessGlobals:
+      globals: seq[PNode]
+        ## the unprocessed identdefs of globals lifted from a procedure's
+        ## body. Due to how ``transf`` handles inlining, this list can
+        ## contain duplicates
+    of wikImported:
+      imported: PSym
+    of wikReport:
+      evt: range[bekPartial..bekImported]
+      fragSym: PSym
+      frag: MirBody
+
+  WorkQueue = object
+    items: Deque[tuple[item: WorkItem, fr: FileIndex]]
+      ## the queued steps to run. Each item is associated with a module:
+      ## it indicate used for events reported to the caller
+    config: BackendConfig
+
+func prepend(queue: var WorkQueue, m: FileIndex,
+             item: sink WorkItem) {.inline.} =
+  ## Adds `item` to the beginning of the queue.
+  queue.items.addFirst (item, m)
+
+func append(queue: var WorkQueue, m: FileIndex,
+            item: sink WorkItem) {.inline.} =
+  ## Adds `item` to the end of the queue.
+  queue.items.addLast (item, m)
 
 # ----- private and public API for ``Queue`` -----
 
@@ -183,15 +210,6 @@ func addProcessed[T](q: var Queue[T], item: sink T) =
   assert q.progress == q.data.len
   q.data.add item
   inc q.progress
-
-func rewind[T](q: var Queue[T], pos: int): int =
-  assert pos <= q.progress
-  result = q.progress
-  q.progress = pos
-
-func markProcessed[T](q: var Queue[T]): int =
-  q.progress = q.data.len
-  result = q.progress
 
 func moduleId*(o: PIdObj): int32 {.inline.} =
   ## Returns the ID of the module `o` is *attached* to. Do note that in the
@@ -289,10 +307,10 @@ func isEmpty*(tree: MirTree): bool =
 
   result = true
 
-func isEmpty*(f: MirFragment): bool {.inline.} =
-  isEmpty(f.tree)
+func isEmpty*(f: MirBody): bool {.inline.} =
+  isEmpty(f.code)
 
-iterator deps*(tree: MirTree; includeMagics: set[TMagic]): PSym =
+iterator deps*(tree: MirTree): PSym =
   ## Returns all external entities (procedures, globals, etc.) that `tree`
   ## references *directly*, in an unspecified order.
   var i = NodePosition(0)
@@ -300,14 +318,11 @@ iterator deps*(tree: MirTree; includeMagics: set[TMagic]): PSym =
     let n {.cursor.} = tree[i]
     case n.kind
     of mnkDef:
-      # make sure to not process the entity inside a 'def'
-      i = sibling(tree, i)
+      # skip over the name slot:
+      i = NodePosition tree.operand(i, 1)
       continue
     of mnkProc:
-      # XXX: `includeMagics` is a workaround. Magics should either lowered
-      #      already or encoded as ``mnkMagic`` nodes when reaching here
-      if n.sym.magic == mNone or n.sym.magic in includeMagics:
-        yield n.sym
+      yield n.sym
     of mnkConst, mnkGlobal:
       yield n.sym
     else:
@@ -317,46 +332,43 @@ iterator deps*(tree: MirTree; includeMagics: set[TMagic]): PSym =
 
 # ----- procedure lowering and transformation -----
 
-proc preprocess*(conf: BackendConfig, prc: PSym, graph: ModuleGraph,
-                 idgen: IdGenerator): Procedure =
-  ## Transforms the body of the given procedure and translates it to MIR code.
-  ## No MIR passes are applied yet
+proc preprocess*(queue: var WorkQueue, graph: ModuleGraph, idgen: IdGenerator,
+                 prc: PSym, module: FileIndex) =
+  ## Runs the ``transf`` pass on the body of `prc` and queues the steps
+  ## needed for fully processing the procedure. `module` is the module the
+  ## step was queued from: it's used as the module the next processing is
+  ## queued from.
   if exfDynamicLib in prc.extFlags:
     # a procedure imported at runtime, it has no body
-    return Procedure(sym: prc, isImported: true)
-
-  result = Procedure(sym: prc, isImported: false)
+    queue.prepend(module, WorkItem(kind: wikImported, imported: prc))
+    return
 
   var body = transformBodyWithCache(graph, idgen, prc)
 
   # extract the identdefs of lifted globals (which is the first step towards
   # actually lifting them into proper globals) and store them with the
   # result. Do note that this step modifies the potentially cached body.
-  extractGlobals(body, result.globals, isNimVm = goIsNimvm in conf.options)
+  var globals: seq[PNode]
+  extractGlobals(body, globals,
+                 isNimVm = goIsNimvm in queue.config.tconfig.options)
 
-  if optCursorInference in graph.config.options and
-      shouldInjectDestructorCalls(prc):
-    # TODO: turn cursor inference into a MIR pass and remove this part
-    computeCursors(prc, body, graph)
+  queue.prepend(module, WorkItem(kind: wikProcess, prc: prc, body: body))
 
-  echoInput(graph.config, prc, body)
+  if globals.len > 0:
+    # processing the lifted globals has to happen *before* processing the
+    # procedure's body. In addition, the step is queued from the module
+    # the procedure is *attached* to, not the one it's queued from
+    queue.prepend(moduleId(prc).FileIndex):
+      WorkItem(kind: wikProcessGlobals, globals: move globals)
 
-  (result.body.tree, result.body.source) =
-    generateCode(graph, prc, conf.options, body)
+proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
+             idgen: IdGenerator) =
+  ## Applies all applicable MIR passes to the `body`. `prc` is enclosing
+  ## procedure.
+  rewriteGlobalDefs(body.code, body.source)
 
-  echoMir(graph.config, prc, result.body.tree)
-
-proc process*(prc: var Procedure, graph: ModuleGraph, idgen: IdGenerator) =
-  ## Applies all applicable MIR passes to the procedure `prc`.
-  rewriteGlobalDefs(prc.body.tree, prc.body.source, outermost = true)
-
-  if shouldInjectDestructorCalls(prc.sym):
-    injectDestructorCalls(graph, idgen, prc.sym,
-                          prc.body.tree, prc.body.source)
-
-  rewriteGlobalDefs(prc.body.tree, prc.body.source, outermost = false)
-  # XXX: ^^ this is a hack. See the documentation of the routine for more
-  #      details
+  if shouldInjectDestructorCalls(prc):
+    injectDestructorCalls(graph, idgen, prc, body)
 
   let target =
     case graph.config.backend
@@ -365,58 +377,55 @@ proc process*(prc: var Procedure, graph: ModuleGraph, idgen: IdGenerator) =
     of backendNimVm:   targetVm
     of backendInvalid: unreachable()
 
-  applyPasses(prc.body.tree, prc.body.source, prc.sym, graph.config, target)
+  applyPasses(body, prc, graph.config, target)
 
-proc process(body: var MirFragment, ctx: PSym, graph: ModuleGraph,
-             idgen: IdGenerator) =
-  ## Applies all applicable MIR passes to the fragment `body`. `ctx`
-  ## represents the procedure in whose context the processing happens, and
-  ## is used for the purpose of error reporting and debug tracing.
-  injectDestructorCalls(graph, idgen, ctx, body.tree, body.source)
+proc translate*(prc: PSym, body: PNode, graph: ModuleGraph,
+                config: BackendConfig, idgen: IdGenerator): MirBody =
+  ## Translates `body` to MIR code, applies all applicable MIR passes, and
+  ## returns the result. `prc` is the enclosing procedure.
+  if optCursorInference in graph.config.options and
+      shouldInjectDestructorCalls(prc):
+    # TODO: turn cursor inference into a MIR pass and remove this part
+    computeCursors(prc, body, graph)
 
-proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                  code: sink MirFragment): Body =
+  echoInput(graph.config, prc, body)
+  result = generateCode(graph, prc, config.tconfig, body)
+  echoMir(graph.config, prc, result)
+
+  # now apply the passes:
+  process(result, prc, graph, idgen)
+
+proc generateIR*(graph: ModuleGraph, idgen: IdGenerator,
+                 owner: PSym, body: sink MirBody): Body =
   ## Translates the MIR code provided by `code` into ``CgNode`` IR and,
   ## if enabled, echoes the result.
-  result = generateIR(graph, idgen, owner, code.tree, code.source)
+  result = cgirgen.generateIR(graph, idgen, owner, body)
   echoOutput(graph.config, owner, result)
 
 # ------- handling of lifted globals ---------
 
-func add(frag: var MirFragment, origin: PNode, node: sink MirNode) =
-  assert frag.tree.len == frag.source.map.len
-  frag.source.map.add(frag.source.source.add(origin))
-  frag.tree.add node
-
-proc updateWithSource(f: var MirFragment, origin: PNode) =
-  ## Sets `origin` as the source node of all MIR nodes that have no source
-  ## information associated yet.
-  # TODO: replace this with using the routines from ``mirgen``, once they're
-  #       sufficiently generalized
-  let
-    id = f.source.source.add(origin)
-    start = f.source.map.len
-  f.source.map.setLen(f.tree.len)
-  for i in start..<f.tree.len:
-    f.source.map[i] = id
-
-proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
-                                graph: ModuleGraph,
-                                options: set[GenOption]): tuple[init, deinit: MirFragment] =
+proc produceFragmentsForGlobals(
+    data: var DiscoveryData, identdefs: seq[PNode], graph: ModuleGraph,
+    config: TranslationConfig): tuple[init, deinit: MirBody] =
   ## Given a list of identdefs of lifted globals, produces the MIR code for
   ## initialzing and deinitializing the globals. `data` is updated with
   ## not-yet-seen globals, and is at the same time used for discarding
   ## the identdefs for globals that were already processed.
 
-  func prepare(f: var MirFragment, n: PNode) {.nimcall.} =
+  func prepare(bu: var MirBuilder, m: var SourceMap, n: PNode) {.nimcall.} =
     # the fragments need to be wrapped in scopes; some MIR passes depend
     # on this
-    if f.tree.len == 0:
-      f.add(n): MirNode(kind: mnkScope)
+    if bu.front.len == 0:
+      bu.add(m.add(n)): MirNode(kind: mnkScope)
 
-  func finish(f: var MirFragment, n: PNode) {.nimcall.} =
-    if f.tree.len > 0:
-      f.add(n): MirNode(kind: mnkEnd, start: mnkScope)
+  func finish(bu: sink MirBuilder, m: var SourceMap, n: PNode
+             ): MirTree {.nimcall.} =
+    if bu.front.len > 0:
+      bu.setSource(m.add(n))
+      bu.add endNode(mnkScope)
+    result = finish(bu)
+
+  var init, deinit: MirBuilder
 
   # lifted globals can appear re-appear in the identdefs list for two reasons:
   # - the definition appears in the body of a for-loop using an inline iterator
@@ -439,69 +448,59 @@ proc produceFragmentsForGlobals(data: var DiscoveryData, identdefs: seq[PNode],
         continue
 
       # generate the MIR code for an initializing assignment:
-      block:
-        template r: MirFragment = result.init
-
-        prepare(r, graph.emptyNode)
-        r.add(it): MirNode(kind: mnkArgBlock)
-        r.add(it[0]): MirNode(kind: mnkGlobal, sym: s, typ: s.typ)
-        r.add(it[0]): MirNode(kind: mnkTag, typ: s.typ)
-        r.add(it[0]): MirNode(kind: mnkName, typ: s.typ)
+      prepare(init, result.init.source, graph.emptyNode)
+      init.setSource(result.init.source.add(it))
+      init.buildStmt mnkInit:
+        init.setSource(result.init.source.add(it[0]))
+        init.use symbol(mnkGlobal, s)
+        init.setSource(result.init.source.add(it[2]))
         if it[2].kind == nkEmpty:
           # no explicit initializer expression means that the default value
           # should be used
-          # XXX: ^^ it'd make sense to instead let semantic analysis ensure this
-          #      (i.e. by placing a ``default(T)`` in the initializer slot)
-          r.add(it[2]): MirNode(kind: mnkArgBlock)
-          r.add(it[2]): MirNode(kind: mnkEnd, start: mnkArgBlock)
-          r.add(it[2]): MirNode(kind: mnkMagic, magic: mDefault, typ: s.typ)
+          # XXX: ^^ it'd make sense to instead let semantic analysis ensure
+          #      this (i.e. by placing a ``default(T)`` in the initializer
+          #      slot)
+          init.buildMagicCall mDefault, s.typ:
+            discard
         else:
-          generateCode(graph, options, it[2], r.tree, r.source)
-
-        r.add(it[2]): MirNode(kind: mnkConsume, typ: s.typ)
-        r.add(it): MirNode(kind: mnkEnd, start: mnkArgBlock)
-        r.add(it): MirNode(kind: mnkInit)
+          generateCode(graph, config, it[2], init, result.init.source)
 
       # if the global requires one, emit a destructor call into the deinit
       # fragment:
       if hasDestructor(s.typ):
-        prepare(result.deinit, graph.emptyNode)
-        genDestroy(result.deinit.tree, graph, s.typ):
-          MirNode(kind: mnkGlobal, sym: s, typ: s.typ)
-        updateWithSource(result.deinit, it[0])
+        prepare(deinit, result.deinit.source, graph.emptyNode)
+        deinit.setSource(result.deinit.source.add(it[0]))
+        genDestroy(deinit, graph, symbol(mnkGlobal, s))
 
-  finish(result.init, graph.emptyNode)
-  finish(result.deinit, graph.emptyNode)
+  result.init.code = finish(init, result.init.source, graph.emptyNode)
+  result.deinit.code = finish(deinit, result.deinit.source, graph.emptyNode)
 
 # ----- dynlib handling -----
 
-proc genLoadLib(graph: ModuleGraph, buf: var MirNodeSeq, loc, name: MirNode) =
+proc genLoadLib(graph: ModuleGraph, bu: var MirBuilder,
+                loc, name: Value): Value =
   ## Emits the MIR code for ``loc = nimLoadLibrary(name); loc.isNil``.
   let loadLib = graph.getCompilerProc("nimLoadLibrary")
 
-  argBlock(buf):
-    chain(buf): emit(loc) => tag(ekReassign) => name()
-    argBlock(buf):
-      chain(buf): procLit(loadLib) => arg()
-      chain(buf): emit(name) => arg()
-    chain(buf): callOp(loadLib.typ[0]) => consume()
-  buf.add MirNode(kind: mnkAsgn)
+  bu.subTree MirNode(kind: mnkAsgn):
+    bu.use loc
+    bu.buildCall loadLib, loadLib.typ[0]:
+      bu.emitByVal name
 
-  argBlock(buf):
-    chain(buf): emit(loc) => arg()
-  forward(buf): magicCall(mIsNil, graph.getSysType(unknownLineInfo, tyBool))
+  bu.wrapTemp(graph.getSysType(unknownLineInfo, tyBool)):
+    bu.buildMagicCall mIsNil, graph.getSysType(unknownLineInfo, tyBool):
+      bu.emitByVal loc
 
 proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
-                 name: PSym, path: PNode, dest: var MirFragment) =
+                 name: PSym, path: PNode,
+                 bu: var MirBuilder, source: var SourceMap) =
   ## Emits the MIR code for loading a dynamic library to `dest`, with `name`
   ## being the symbol of the location that stores the handle and `path` the
   ## expression used with the ``.dynlib`` pragma.
   let
     errorProc = graph.getCompilerProc("nimLoadLibraryError")
     voidTyp   = graph.getSysType(path.info, tyVoid)
-    nameNode  = MirNode(kind: mnkGlobal, sym: name, typ: name.typ)
-
-  template buf: MirNodeSeq = dest.tree
+    nameNode  = symbol(mnkGlobal, name)
 
   if path.kind in nkStrKinds:
     # the library name is known at compile-time
@@ -512,50 +511,45 @@ proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
 
     # generate an 'or' chain that tries every candidate until one is found
     # for which loading succeeds
-    buf.subTree MirNode(kind: mnkBlock, label: outer):
-      buf.add MirNode(kind: mnkStmtList) # manual, for less visual nesting
+    bu.subTree MirNode(kind: mnkBlock, label: outer):
+      bu.add MirNode(kind: mnkStmtList) # manual, for less visual nesting
       for candidate in candidates.items:
-        genLoadLib(graph, buf, nameNode):
-          MirNode(kind: mnkLiteral, lit: newStrNode(nkStrLit, candidate))
-        forward(buf): magicCall(mNot, graph.getSysType(path.info, tyBool))
-        buf.subTree MirNode(kind: mnkIf):
-          buf.add MirNode(kind: mnkBreak, label: outer)
+        var tmp = genLoadLib(graph, bu, nameNode):
+          literal(newStrNode(nkStrLit, candidate))
+
+        tmp = bu.wrapTemp(graph.getSysType(path.info, tyBool)):
+          bu.buildMagicCall mNot, graph.getSysType(path.info, tyBool):
+            bu.emitByVal tmp
+
+        bu.subTree mnkIf:
+          bu.use tmp
+          bu.add MirNode(kind: mnkBreak, label: outer)
 
       # if none of the candidates worked, a run-time error is reported:
-      argBlock(buf):
-        chain(buf): procLit(errorProc) => arg()
-        chain(buf): literal(path) => arg()
-      chain(buf): callOp(voidTyp) => voidOut()
-      buf.add endNode(mnkStmtList)
+      bu.subTree mnkVoid:
+        bu.buildCall errorProc, voidTyp:
+          bu.emitByVal literal(path)
+      bu.add endNode(mnkStmtList)
   else:
     # the name of the dynamic library to load the procedure from is only known
     # at run-time
     let
-      nameTemp = TempId(0) # we can allocate a temporary here by just using it
       strType = graph.getSysType(path.info, tyString)
 
-    buf.subTree MirNode(kind: mnkDef):
-      buf.add MirNode(kind: mnkTemp, typ: strType, temp: nameTemp)
+    let nameTemp = bu.allocTemp(strType)
+    bu.buildStmt mnkDef:
+      bu.use nameTemp
+      generateCode(graph, conf.tconfig, path, bu, source)
 
-    # computing the string and assigning it to a temporary
-    argBlock(buf):
-      chain(buf): temp(strType, nameTemp) => tag(ekReassign) => name()
-      updateWithSource(dest, path)
-      generateCode(graph, conf.options, path, buf, dest.source)
-      buf.add MirNode(kind: mnkConsume, typ: strType)
-    buf.add MirNode(kind: mnkInit)
-
-    genLoadLib(graph, buf, nameNode):
-      MirNode(kind: mnkTemp, typ: strType, temp: nameTemp)
-    buf.subTree MirNode(kind: mnkIf):
-      stmtList(buf):
-        argBlock(buf):
-          chain(buf): procLit(errorProc) => arg()
-          chain(buf): temp(strType, nameTemp) => arg()
-        chain(buf): callOp(voidTyp) => voidOut()
+    let cond = genLoadLib(graph, bu, nameNode, nameTemp)
+    bu.subTree mnkIf:
+      bu.use cond
+      bu.subTree mnkVoid:
+        bu.buildCall errorProc, voidTyp:
+          bu.emitByVal nameTemp
 
 proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
-                   conf: BackendConfig, sym: PSym): MirFragment =
+                   conf: BackendConfig, sym: PSym): MirBody =
   ## Produces a MIR fragment with the load-at-run-time logic for procedure/
   ## variable `sym`. If not generated already, the loading logic for the
   ## necessary dynamic library is emitted into the fragment and the global
@@ -569,15 +563,17 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
 
   extname.typ = graph.getSysType(lib.path.info, tyCstring)
 
+  var bu = initBuilder(result.source.add(path))
+
   let dest =
     if sym.kind in routineKinds:
-      MirNode(kind: mnkProc, typ: sym.typ, sym: sym)
+      procLit(sym)
     else:
-      MirNode(kind: mnkGlobal, typ: sym.typ, sym: sym)
+      symbol(mnkGlobal, sym)
 
   # the scope makes sure that locals are destroyed once loading the
   # procedure has finished
-  result.tree.add MirNode(kind: mnkScope)
+  bu.add MirNode(kind: mnkScope)
 
   if path.kind in nkCallKinds and path.typ != nil and
      path.typ.kind in {tyPointer, tyProc}:
@@ -585,35 +581,38 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
     path[^1] = extname # update to the correct name
     # XXX: ^^ maybe sem should do this instead...
 
-    argBlock(result.tree):
-      chain(result.tree): emit(dest) => tag(ekReassign) => name()
-      updateWithSource(result, path)
-      generateCode(graph, conf.options, path, result.tree, result.source)
-      result.tree.add MirNode(kind: mnkArg, typ: dest.typ)
-    chain(result.tree): magicCall(mAsgnDynlibVar, voidTyp) => voidOut()
+    let tmp = bu.allocTemp(dest.typ)
+    bu.buildStmt mnkDef:
+      bu.use tmp
+      generateCode(graph, conf.tconfig, path, bu, result.source)
+    bu.subTree mnkVoid:
+      bu.buildMagicCall mAsgnDynlibVar, voidTyp:
+        bu.emitByName(dest, ekReassign)
+        bu.emitByVal(tmp)
   else:
     # the imported procedure is identified by the symbol's external name and
     # the built-in proc loading logic is to be used
 
     if not data.seen.containsOrIncl(lib.name.id):
       # the library hasn't been loaded yet
-      genLibSetup(graph, conf, lib.name, path, result)
+      genLibSetup(graph, conf, lib.name, path, bu, result.source)
       if path.kind in nkStrKinds: # only register statically-known dependencies
         data.libs.add sym.annex
       data.globals.add lib.name # register the global
 
     # generate the code for ``sym = cast[typ](nimGetProcAddr(lib, extname))``
-    argBlock(result.tree):
-      chain(result.tree): emit(dest) => tag(ekReassign) => name()
-      argBlock(result.tree):
-        chain(result.tree): procLit(loadProc) => arg()
-        chain(result.tree): symbol(mnkGlobal, lib.name) => arg()
-        chain(result.tree): literal(extname) => arg()
-      chain(result.tree): callOp(loadProc.typ[0]) => arg()
-    chain(result.tree): magicCall(mAsgnDynlibVar, voidTyp) => voidOut()
+    let tmp = bu.wrapTemp(loadProc.typ[0]):
+      bu.buildCall loadProc, loadProc.typ[0]:
+        bu.emitByVal symbol(mnkGlobal, lib.name)
+        bu.emitByVal literal(extname)
 
-  result.tree.add endNode(mnkScope)
-  updateWithSource(result, path)
+    bu.subTree mnkVoid:
+      bu.buildMagicCall mAsgnDynlibVar, voidTyp:
+        bu.emitByName(dest, ekReassign)
+        bu.emitByVal tmp
+
+  bu.add endNode(mnkScope)
+  result.code = finish(bu)
 
 # ----- discovery and queueing logic -----
 
@@ -624,10 +623,10 @@ func includeIfUnseen(q: var Queue[PSym], marker: var IntSet, sym: PSym) =
 template register(data: var DiscoveryData, queue: untyped, s: PSym) =
   data.queue.includeIfUnseen(data.seen, s)
 
-func discoverFrom*(data: var DiscoveryData, noMagics: set[TMagic], body: MirTree) =
+func discoverFrom*(data: var DiscoveryData, body: MirTree) =
   ## Updates `data` with all not-yet-seen entities (except for globals) that
   ## `body` references.
-  for dep in deps(body, noMagics):
+  for dep in deps(body):
     case dep.kind
     of routineKinds:
       register(data, procedures, dep)
@@ -684,106 +683,85 @@ func discoverFromValueAst(data: var DiscoveryData, ast: PNode) =
   of nkWithoutSons - {nkSym}:
     discard "nothing to do"
 
-func queue(iter: var ProcedureIter, prc: PSym, m: FileIndex) =
+func queue(queue: var WorkQueue, prc: PSym, m: FileIndex) =
   ## If eligible for processing and code generation, adds `prc` to
-  ## `iter`'s queue.
+  ## `queue`'s queue.
   assert prc.kind in routineKinds
   if exfNoDecl notin prc.extFlags and
      (sfImportc notin prc.flags or
-      exfDynamicLib in prc.extFlags or (iter.config.noImported and
+      exfDynamicLib in prc.extFlags or (queue.config.noImported and
                                         prc.ast[bodyPos].kind != nkEmpty)):
-    iter.queued.add (prc, m)
+    queue.append(m, WorkItem(kind: wikPreprocess, raw: prc))
 
-func queueAll(iter: var ProcedureIter, data: var DiscoveryData,
-              origin: FileIndex) =
-  ## Queues all newly discovered procedures and marks the now queued ones as
-  ## processed/read.
-  for _, it in visit(data.procedures):
-    queue(iter, it, origin)
+iterator flush(queue: var WorkQueue, data: var DiscoveryData,
+               origin: FileIndex): BackendEvent =
+  ## Commits to all unprocessed entities in `env`. This means:
+  ## * for procedures to queue them for translation/code-generation
+  ## * for named constants to queue them for translation/code-generation
+  ##
+  ## In addition, a ``bekDiscovered`` event is raised (i.e., returned) for
+  ## every commited-to entity.
+  template event(i, it): untyped =
+    BackendEvent(module: origin, kind: bekDiscovered, entityId: i,
+                 entity: it)
+
+  for i, it in visit(data.procedures):
+    # report the procedure before queuing it
+    yield event(i, it)
+    queue(queue, it, origin)
+
+  for i, it in visit(data.constants):
+    yield event(i, it)
+    # constants are translated and reported *before* the finished procedure
+    # they were reported as part of is
+    queue.prepend(origin, WorkItem(kind: wikProcessConst, cnst: it))
+
+  for i, it in visit(data.globals):
+    yield event(i, it)
+
+  for i, it in visit(data.threadvars):
+    yield event(i, it)
 
 # ----- ``process`` iterator implementation -----
 
 proc isTrivialProc(graph: ModuleGraph, prc: PSym): bool {.inline.} =
   getBody(graph, prc).kind == nkEmpty
 
-proc next(iter: var ProcedureIter, graph: ModuleGraph,
-          modules: ModuleList): tuple[origin: FileIndex, prc: Procedure] =
-  ## Retrieves and transforms the procedure that is next in the queue.
-  let
-    (sym, origin) = iter.queued.popFirst()
-    idgen         = modules[moduleId(sym).FileIndex].idgen
+proc pushProgress(queue: var WorkQueue, discovery: var DiscoveryData,
+                  graph: ModuleGraph, idgen: IdGenerator,
+                  prc: PSym, frag: sink MirBody, m: FileIndex) =
+  ## Runs `frag` through MIR processing and, if `frag` is not empty, queues
+  ## the step for reporting the progress.
+  if not isEmpty(frag):
+    process(frag, prc, graph, idgen)
+    discoverFrom(discovery, frag.code)
+    # get the fragment out as soon as possible (hence ``prepend``):
+    queue.prepend(m, WorkItem(kind: wikReport, evt: bekPartial,
+                              fragSym: prc, frag: frag))
 
-  result.prc = preprocess(iter.config, sym, graph, idgen)
-  result.origin = origin
+    # mark the procedure as non-empty:
+    if prc.ast[bodyPos].kind == nkEmpty:
+      prc.ast[bodyPos] = newNode(nkStmtList)
 
-  if not result.prc.isImported:
-    # apply all MIR passes:
-    process(result.prc, graph, idgen)
-
-func processConstants(data: var DiscoveryData): seq[(FileIndex, int)] =
-  ## Registers with `data` the procedures used by all un-processed constants
-  ## and marks the constants as processed.
-  assert data.procedures.isProcessed
-  for _, s in peek(data.constants):
-    discoverFromValueAst(data, astdef(s))
-    # the procedure needs to be queued from the context of the module `s` is
-    # attached to:
-    let m = moduleId(s).FileIndex
-    for i, _ in visit(data.procedures):
-      result.add (m, i)
-
-func processAdditional(iter: var ProcedureIter, data: var DiscoveryData) =
+func processAdditional(queue: var WorkQueue, data: var DiscoveryData) =
   ## Queues all extra dependencies registered with `data`.
   for m, s in data.additional.items:
     if not data.seen.containsOrIncl(s.id):
       data.procedures.addProcessed(s)
-      queue(iter, s, m)
+      queue(queue, s, m)
 
   data.additional.setLen(0) # we've processed everything; reset
 
-func preActions(discovery: var DiscoveryData): EventContext =
-  ## Performs the actions required before emitting a ``BackendEvent``. New
-  ## entities need to be discovered, but they must not be queued for
-  ## processing yet -- the caller might still want to intercept / pre-process.
-  result.start = discovery.procedures.progress
-  result.preIndirect = discovery.procedures.markProcessed()
-  # discover the procedures referenced by the new constants:
-  result.indirect = processConstants(discovery)
-
-  # rewind the progress indicator so that all procedures marked as
-  # processed as part of this cycle appear as unprocessed again:
-  result.fin = discovery.procedures.rewind(result.start)
-
-func postActions(iter: var ProcedureIter, discovery: var DiscoveryData,
-                 m: FileIndex, ctx: sink EventContext) =
-  ## Queues for processing all procedures that were discovered (by both
-  ## ``progress`` and its caller) during the current event cycle.
-
-  # make sure that all new constants discovered as part of this cycle are
-  # marked as processed:
-  discard markProcessed(discovery.constants)
-
-  # now comes the complex part: all new procedures discovered as part of this
-  # cycle need to be queued for processing
-
-  # first come the direct procedure dependencies. They're associated with the
-  # provided module:
-  for i in ctx.start..<ctx.preIndirect:
-    queue(iter, discovery.procedures.data[i], m)
-
-  # then come the indirect procedure dependencies:
-  for moduleId, i in ctx.indirect.items:
-    queue(iter, discovery.procedures.data[i], moduleId)
-
-  # set the progress indicator to where it was prior to event processing:
-  discovery.procedures.progress = ctx.fin
-
-  # finally, queue all late dependencies raised by the event processor:
-  queueAll(iter, discovery, m)
-  processAdditional(iter, discovery)
+func postActions(queue: var WorkQueue, discovery: var DiscoveryData,
+                 m: FileIndex) =
+  ## Queues for processing all procedures that were discovered during event
+  ## processing (i.e., by the iterator's callsite).
+  for _, it in visit(discovery.procedures):
+    queue(queue, it, m)
+  processAdditional(queue, discovery)
 
 iterator process*(graph: ModuleGraph, modules: var ModuleList,
-                  discovery: var DiscoveryData, noMagics: set[TMagic],
+                  discovery: var DiscoveryData,
                   conf: BackendConfig): BackendEvent =
   ## Implements discovery of alive entities (procedures, globals, constants,
   ## etc.) and applying the various transformations and MIR passes to
@@ -791,22 +769,14 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
   ## to `BackendEventKind <#BackendEventKind>`_ for more informations about the
   ## events).
   ##
-  ## `noMagics` is the set of magics that need to be treated as normal
-  ## procedure during discovery of alive procedures, and `conf` is additional
-  ## configuration that modifies some aspects of the processing.
-  ##
   ## The iterator is complex and contains multiple yield statements, so it's
   ## advised to implement ``BackendEvent`` processing with a dedicated
   ## procedure.
   ##
-  ## When control is passed to the caller, the `discovery.procedures` and
-  ## `discovery.constants` queues contain all new procedures and constants
-  ## that were discovered directly or indirectly for the entity that the
-  ## returned event is about. The `globals` and `threadvars` queues, while
-  ## possibly filled with new content, are not "drained" yet, and have the
-  ## same "read" position that the caller left them with.
+  ## At the callsite, no new entities must be registered with `discovery`
+  ## during processing of a ``bekDiscovered`` event.
   var
-    iter = ProcedureIter(config: conf)
+    queue = WorkQueue(config: conf)
 
   # future direction: both the registered-from tracking and the support
   # for late dependencies are fundamentally workarounds. They can and
@@ -838,74 +808,96 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
     for s in m.structs.threadvars.items:
       register(discovery, threadvars, s)
 
-    let ctx = preActions(discovery)
     # inform the caller that the initial set of alive entities became
     # available:
+    for evt in flush(queue, discovery, id):
+      yield evt
     yield BackendEvent(module: id, kind: bekModule)
-    postActions(iter, discovery, id, ctx)
+    postActions(queue, discovery, id)
 
   template reportBody(prc: PSym, m: FileIndex, evt: BackendEventKind,
-                      frag: MirFragment) =
-    ## Reports (i.e., yields an event) a procedure-related event.
-    discoverFrom(discovery, noMagics, frag.tree)
-
-    let work = preActions(discovery)
+                      frag: MirBody) =
+    ## Reports a procedure-related event (by yielding it).
     yield BackendEvent(module: m, kind: evt, sym: prc, body: frag)
-    postActions(iter, discovery, m, work)
+    postActions(queue, discovery, m)
 
-  template reportProgress(prc: PSym, frag: MirFragment) =
-    ## Applies the relevant passes to the fragment and notifies the caller
-    ## about it.
-    if not isEmpty(frag):
-      process(frag, prc, graph, modules[module].idgen)
-      reportBody(prc, module, bekPartial, frag)
-
-      # mark the procedure as non-empty:
-      if prc.ast[bodyPos].kind == nkEmpty:
-        prc.ast[bodyPos] = newNode(nkStmtList)
+  template pushProgress(prc: PSym, frag: MirBody, m: FileIndex) =
+    pushProgress(queue, discovery, graph, modules[m].idgen, prc, frag, m)
 
   # generate the importing logic for all known dynlib globals:
   for _, it in all(discovery.globals):
     if exfDynamicLib in it.extFlags:
       let module = moduleId(it).FileIndex
       var frag = produceLoader(graph, modules[module], discovery, conf, it)
-      reportProgress(modules[module].dynlibInit, frag)
+      pushProgress(modules[module].dynlibInit, frag, module)
 
-  # process queued procedures until there are none left:
-  while iter.queued.len > 0:
-    let
-      (origin, prc) = next(iter, graph, modules)
-      module = moduleId(prc.sym).FileIndex
-        ## the module the procedure is *attached* to
+  # let the entities discovered while producing the loaders "bleed" over
+  # XXX: neither clean nor correct (the registered-from module will be wrong),
+  #      but it's the most simple solution. Dynlib loader fragments don't
+  #      reference inline procedures, so this is also only technically wrong
 
-    case prc.isImported
-    of false:
-      block:
-        # produce the init/de-init code for the lifted globals:
-        var (init, deinit) =
-          produceFragmentsForGlobals(discovery, prc.globals, graph,
-                                     conf.options)
+  # drain the queue until there's nothing left to do. This makes up the main
+  # processing
+  while queue.items.len > 0:
+    var (item, module) = queue.items.popFirst()
 
-        reportProgress(modules[module].preInit, init)
-        reportProgress(modules[module].postDestructor, deinit)
+    case item.kind
+    of wikPreprocess:
+      preprocess(queue, graph, modules[moduleId(item.raw).FileIndex].idgen,
+                 item.raw, module)
+      continue # nothing was discovered, skip the scan
+    of wikProcess:
+      let
+        origin = moduleId(item.prc).FileIndex # the attched-to module
+        frag = translate(item.prc, item.body, graph, conf,
+                         modules[origin].idgen)
 
-      # for inline procedures, use the context of the module the procedure
-      # was first seen in
-      let id =
-        if prc.sym.typ.callConv == ccInline: origin
-        else:                                module
+      discoverFrom(discovery, frag.code)
 
-      reportBody(prc.sym, id, bekProcedure, prc.body)
-    of true:
-      # a procedure imported at run-time (i.e., a dynlib procedure)
-      # first announce the procedure...
-      let ctx = preActions(discovery)
-      yield BackendEvent(module: module, kind: bekImported, sym: prc.sym)
-      postActions(iter, discovery, module, ctx)
+      if item.prc.typ.callConv != ccInline:
+        # non-inline procedure are registered as coming from the module
+        # they're attached to
+        module = origin
 
-      # ... then produce and announce the loader fragment:
-      var frag = produceLoader(graph, modules[module], discovery, conf, prc.sym)
-      reportProgress(modules[module].dynlibInit, frag)
+      queue.prepend(module, WorkItem(kind: wikReport, evt: bekProcedure,
+                                     fragSym: item.prc, frag: frag))
+    of wikProcessConst:
+      module = moduleId(item.cnst).FileIndex
+      # scan the constant for its dependencies
+      # future direction: the body of the constant (i.e., the value
+      # expression) will be transformed to its MIR representation here
+      discoverFromValueAst(discovery, item.cnst.ast)
+      # we cannot report (i.e., yield) right away, the discovered dependencies
+      # have to be reported first
+      queue.prepend(module, WorkItem(kind: wikReportConst, cnst: item.cnst))
+    of wikProcessGlobals:
+      # produce the init/de-init code for the lifted globals:
+      let (init, deinit) =
+        produceFragmentsForGlobals(discovery, item.globals, graph,
+                                   conf.tconfig)
+
+      pushProgress(modules[module].preInit, init, module)
+      pushProgress(modules[module].postDestructor, deinit, module)
+    of wikImported:
+      let s = item.imported
+      # it doesn't matter where the step was queued from, the procedure is
+      module = moduleId(s).FileIndex
+      # first report that an imported procedure became available...
+      yield BackendEvent(module: module, kind: bekImported, sym: s)
+      postActions(queue, discovery, module)
+
+      # ... then produce the loader code
+      let frag = produceLoader(graph, modules[module], discovery, conf, s)
+      pushProgress(modules[module].dynlibInit, frag, module)
+    of wikReport:
+      reportBody(item.fragSym, module, item.evt, item.frag)
+    of wikReportConst:
+      yield BackendEvent(module: module, kind: bekConstant, cnst: item.cnst)
+      postActions(queue, discovery, module)
+
+    # report and queue all discovered dependencies:
+    for evt in flush(queue, discovery, module):
+      yield evt
 
 # ----- API for interacting with ``DiscoveryData`` -----
 

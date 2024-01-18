@@ -81,7 +81,6 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
   var
     counter, x: BiggestInt
     e: PSym
-    base: PType
     identToReplace: ptr PNode
   counter = 0
   result = newOrPrevType(tyEnum, prev, c)
@@ -884,15 +883,6 @@ proc toLiterals*(vals: IntSet, t: PType): seq[PNode] =
       else:
         result.add newIntNode(nkIntLit, BiggestInt(val))
 
-
-proc toEnumFields(vals: IntSet, t: PType): seq[PSym] =
-  block:
-    let t = t.skipTypes(abstractRange)
-    assert(t.kind in {tyEnum, tyBool}, $t.kind)
-
-  for node in toLiterals(vals, t):
-    result.add node.sym
-
 proc missingInts(c: PContext, n: PNode): IntSet =
   var coveredCases = initIntSet()
   for i in 1..<n.len:
@@ -904,9 +894,6 @@ proc missingInts(c: PContext, n: PNode): IntSet =
 
 proc formatMissingBranches(c: PContext, n: PNode): seq[PNode] =
   toLiterals(missingInts(c, n) , n[0].typ)
-
-proc formatMissingEnums(c: PContext, n: PNode): seq[PSym] =
-  toEnumFields(missingInts(c, n) , n[0].typ)
 
 proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
                    father: PNode, rectype: PType) =
@@ -1843,7 +1830,7 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
   addInNimDebugUtils(c.config, "semTypeClass", n, prev, result)
   # if n.len == 0: return newConstraint(c, tyTypeClass)
   let
-    pragmas = n[1]
+    # the first slot stores the pragmas
     inherited = n[2]
 
   result = newOrPrevType(tyUserTypeClass, prev, c)
@@ -1851,7 +1838,6 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
   let owner = getCurrOwner(c)
   var
     candidateTypeSlot = newTypeWithSons(owner, tyAlias, @[c.errorType], c.idgen)
-    cycleDetector = initIntSet()
   result.sons = @[candidateTypeSlot]
   result.n = n
 
@@ -1897,53 +1883,12 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
     localReport(c.config, result.n[3])
   closeScope(c)
 
-proc applyTypeSectionPragmas(c: PContext; pragmas, operand: PNode): PNode =
-  for p in pragmas:
-    let key = if p.kind in nkPragmaCallKinds and p.len >= 1: p[0] else: p
-
-    if p.kind == nkEmpty or whichPragma(p) != wInvalid:
-      discard "builtin pragma"
-    else:
-      let (ident, err) = considerQuotedIdent(c, key)
-      if strTableGet(c.userPragmas, ident) != nil:
-        discard "User-defined pragma"
-      else:
-        var amb = false
-        let sym = searchInScopes(c, ident, amb)
-        # XXX: What to do here if amb is true?
-        if sym != nil and sfCustomPragma in sym.flags:
-          discard "Custom user pragma"
-        else:
-          # we transform ``(arg1, arg2: T) {.m, rest.}`` into ``m((arg1, arg2: T) {.rest.})`` and
-          # let the semantic checker deal with it:
-          var x = newNodeI(nkCall, key.info)
-          x.add(key)
-          if p.kind in nkPragmaCallKinds and p.len > 1:
-            # pass pragma arguments to the macro too:
-            for i in 1 ..< p.len:
-              x.add(p[i])
-          # Also pass the node the pragma has been applied to
-          x.add(operand.copyTreeWithoutNode(p))
-          # recursion assures that this works for multiple macro annotations too:
-          var r = semOverloadedCall(c, x, {skMacro, skTemplate}, {efNoUndeclared})
-          if r != nil:
-            if r.kind == nkError:
-              localReport(c.config, r)
-              return
-
-            doAssert r[0].kind == nkSym
-            let m = r[0].sym
-            case m.kind
-            of skMacro: return semMacroExpr(c, r, m, {efNoSemCheck})
-            of skTemplate: return semTemplateExpr(c, r, m, {efNoSemCheck})
-            else: doAssert(false, "cannot happen")
-
 proc semProcTypeWithScope(c: PContext, n: PNode,
                           prev: PType, kind: TSymKind): PType =
   checkSonsLen(n, 2, c.config)
 
   if n[1].kind != nkEmpty and n[1].len > 0:
-    let macroEval = applyTypeSectionPragmas(c, n[1], n)
+    let macroEval = semAnnotation(c, addr n[1], n, {efNoSemCheck})
     if macroEval != nil:
       return semTypeNode(c, macroEval, prev)
 
@@ -2386,7 +2331,7 @@ proc semTypeNode2(c: PContext, n: PNode, prev: PType): PNode =
   let typ = semTypeNode(c, n, prev)
   if typ.isNil:
     result = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
-  elif typ.kind == tyError and typ.n.kind == nkError:
+  elif typ.kind == tyError and typ.n != nil and typ.n.kind == nkError:
     result = typ.n
   else:
     # the type is either valid or an error type that doesn't store a

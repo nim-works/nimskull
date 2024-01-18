@@ -1,14 +1,16 @@
-## This module implements a simple alias analysis based on MIR operation
-## sequences, used to compute the relationship between two lvalues, i.e. if
-## the underlying locations potentially overlap or are part sub- or
-## super-locations of each other.
+## This module implements a simple MIR-path-based alias analysis. Path-based
+## means that the analysis is *local* and thus that pointer indirections are
+## not followed.
 ##
-## Only lvalues with statically know roots (derived from named locals, global,
-## etc.) are supported.
+## MIR aliases are followed, however. So that the comparison can be
+## implemented efficiently, the path expression is first compiled into a
+## ``Path`` object via `computePath <#computePath,MirTree,NodePosition>`_.
 ##
-## The main procedure is ``compareLvalues``: it performs the comparison and
-## returns the result as an opaque object ``CmpLocsResult``, which can then be
-## queried for the relationship between the two inputs.
+## Two compiled ``Path`` objects can then be passed to
+## `comparePaths <#comparePaths,MirTree,Path,Path>`_. Since there are
+## oftentimes multiple facts one wants to know about when comparing two paths,
+## ``comparePaths`` only gathers the necessary information for deriving all
+## the facts.
 ##
 ## Whether two lvalues refer to overlapping locations is not always statically
 ## known (e.g. when accessing an array with a value only known at run-time) --
@@ -29,17 +31,39 @@ type
   Ternary* = enum
     no, maybe, yes
 
-  LvalueExpr* = tuple[root, last: NodePosition]
-    # XXX: ``LvalueExpr`` fit well at one point, but it doesn't anymore. The
-    #      name ``Handle`` might be a better fit now
-
   CmpLocsResult* = object
     endA, endB: bool ## whether the `last` operation of the provided sequences
                      ## was reached
     overlaps: Ternary
 
+  PathInstrKind = enum
+    pikNamed
+    pikPos
+    pikIndex
+
+  PathInstr = object
+    kind: PathInstrKind
+    node: NodePosition
+      ## the node describing the operand
+
+  Path* = object
+    ## Acceleration structure for representing a path expression. This allows
+    ## for more efficient comparison of paths.
+    root*: NodePosition
+      ## the root node of the path.
+
+    short: array[6, PathInstr]
+      ## short-sequence-optimization: no dynamic sequence is allocated for
+      ## short paths (which many of them are).
+    shortLen: int
+      ## the number of items in `short`. Zero if the dynamic sequence is used.
+    long: seq[PathInstr]
+
 const
-  Roots = SymbolLike + {mnkTemp, mnkCall, mnkMagic, mnkDeref, mnkDerefView}
+  Roots = SymbolLike + {mnkTemp, mnkCall, mnkCheckedCall, mnkDeref,
+                        mnkDerefView}
+  PathOps = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathConv,
+             mnkPathVariant}
 
 func isSameRoot(an, bn: MirNode): bool =
   if an.kind != bn.kind:
@@ -64,75 +88,137 @@ func sameIndex*(a, b: MirNode): Ternary =
     else:
       no
 
-proc compareLvalues(body: MirTree, a, b: NodePosition,
-                    lastA, lastB: NodePosition): CmpLocsResult =
-  ## Performs the comparision and computes the information to later derive the
-  ## facts from (e.g. if A is a part B)
-  if not isSameRoot(body[a], body[b]):
-    return CmpLocsResult(overlaps: no)
+func len(p: Path): int =
+  if p.shortLen > 0: p.shortLen
+  else:              p.long.len
 
-  var
-    a = a + 1
-    b = b + 1
+func `[]`(p: Path, i: int): PathInstr =
+  # note: the instructions were added in reverse, which we account for
+  # here
+  if p.shortLen > 0: p.short[p.shortLen - 1 - i]
+  else:              p.long[^i]
 
-  const IgnoreSet = {mnkPathConv, mnkStdConv, mnkAddr, mnkView}
-    ## We skip l-value conversions, since they don't change the location.
-    ## Both the 'addr' and 'view' operatio create a first-class handle to
-    ## the referenced location, so we also skip them. This allows for ``a.x``
-    ## to be treated as refering to same location as ``a.x.addr`` (which is
-    ## correct). For to-openArray conversions, this is the case too, so
-    ## ``mnkStdConv`` is also included here.
+proc getRoot*(tree: MirTree, n: OpValue): OpValue =
+  ## If `n` doesn't point to a path expression, returns `n`, the root
+  ## of the path otherwise. Aliases are followed.
+  var pos = n
+  while tree[pos].kind in PathOps:
+    pos = tree.operand(NodePosition pos, 0)
 
-  var overlaps = yes # until proven otherwise
-  while overlaps != no and a <= lastA and b <= lastB:
-    while body[a].kind in IgnoreSet:
-      inc a
+  if tree[pos].kind == mnkAlias:
+    result = getRoot(tree, tree.operand(findDef(tree, NodePosition pos), 1))
+  else:
+    result = pos
 
-    while body[b].kind in IgnoreSet:
-      inc b
-
-    if a > lastA or b > lastB:
+func isCursor*(tree: MirTree, path: Path): bool =
+  ## Returns whether the path `n` denotes a cursor location.
+  # XXX: this is an intermediate solution. ``mirgen`` is going to handle
+  #      all cursor-related behaviour in the future, which will make this
+  #      procedure obsolete
+  for i in 0..<path.len:
+    if path[i].kind == pikNamed and sfCursor in tree[path[i].node].field.flags:
+      result = true
       break
 
-    let
-      an {.cursor.} = body[a]
-      bn {.cursor.} = body[b]
+proc computePath*(tree: MirTree, at: NodePosition): Path =
+  ## Computes the ``Path`` for the given expression. The expression not being
+  ## a path expression is allowed too.
+  ##
+  ## Locals view are followed as far as possible. Given:
+  ##   bind _1 = x.a
+  ##   y = _1.b
+  ## the collected path will be ``x.a.b``.
+  result = Path()
 
-    if an.kind != bn.kind:
+  var
+    isShort = true
+    i = 0
+
+  template add(k: PathInstrKind, p: NodePosition) =
+    let instr = PathInstr(kind: k, node: p)
+    if isShort:
+      if i == len(result.short):
+        # the short buffer would overflow
+        result.long = @(result.short)
+        result.long.add instr
+        isShort = false
+      else:
+        result.short[i] = instr
+        inc i
+    else:
+      result.long.add instr
+
+  var pos = at
+  while true:
+    case tree[pos].kind
+    of mnkPathNamed, mnkPathVariant:
+      add pikNamed, pos
+    of mnkPathConv:
+      discard "ignore"
+    of mnkPathPos:
+      add pikPos, pos
+    of mnkPathArray:
+      add pikIndex, tree.child(pos, 1)
+    of mnkAlias:
+      # skip to the path that the alias is created of
+      pos = findDef(tree, pos)
+      pos = tree.child(pos, 1)
+      # continue collecting the path instructions
+      continue
+    of AllNodeKinds - PathOps - {mnkAlias}:
+      # end of path
+      break
+
+    inc pos
+
+  result.root = pos
+  result.shortLen = if isShort: i else: 0
+
+proc compare*(body: MirTree, a, b: Path): CmpLocsResult =
+  ## Compares the paths `a` and `b` and returns the information to later
+  ## derive the facts from (e.g.: is A a part B).
+  if not isSameRoot(body[a.root], body[b.root]):
+    # no need to compare the paths if they don't share the same root
+    return
+
+  # now compare both paths:
+  var
+    overlaps = yes # until proven otherwise
+    i = 0
+
+  while i < min(a.len, b.len):
+    let
+      instrA = a[i]
+      instrB = b[i]
+
+    if instrA.kind != instrB.kind:
       overlaps = no
       break
 
-    case an.kind
-    of mnkPathNamed, mnkPathVariant:
-      if an.field.id != bn.field.id:
+    let
+      na = body[instrA.node]
+      nb = body[instrB.node]
+
+    case instrA.kind
+    of pikNamed:
+      if na.field != nb.field:
         overlaps = no
         break
 
-    of mnkPathPos:
-      if an.position != bn.position:
+    of pikPos:
+      if na.position != nb.position:
         overlaps = no
         break
 
-    of mnkPathArray:
-      # -1 = the arg-block end
-      # -2 = the arg node
-      # -3 = the operand
-      overlaps = sameIndex(body[a - 3], body[b - 3])
+    of pikIndex:
+      overlaps = sameIndex(na, nb)
       if overlaps == no:
         break
 
-    of ArgumentNodes:
-      # this happens when invoking a path operator with more than one
-      # operand. Skip to the end of the arg-block
-      a = parentEnd(body, a)
-      b = parentEnd(body, b)
-    else:
-      unreachable(an.kind)
+    inc i
 
-    inc a
-    inc b
-
-  result = CmpLocsResult(endA: a > lastA, endB: b > lastB, overlaps: overlaps)
+  result = CmpLocsResult(endA: i == a.len, endB: i == b.len,
+                         overlaps: overlaps)
 
 func isAPartOfB*(r: CmpLocsResult): Ternary {.inline.} =
   result = r.overlaps
@@ -153,15 +239,12 @@ func isSame*(r: CmpLocsResult): bool {.inline.} =
 template overlaps*(r: CmpLocsResult): Ternary =
   r.overlaps
 
-func compareLvalues*(tree: MirTree, ea, eb: LvalueExpr): CmpLocsResult {.inline.} =
-  result = compareLvalues(tree, ea.root, eb.root, ea.last, eb.last)
-
-func overlaps*(tree: MirTree, ea, eb: LvalueExpr): Ternary {.inline.} =
+func overlaps*(tree: MirTree, a, b: Path): Ternary {.inline.} =
   ## Convenience wrapper
-  compareLvalues(tree, ea.root, eb.root, ea.last, eb.last).overlaps
+  compare(tree, a, b).overlaps
 
-func isPartOf*(tree: MirTree, ea, eb: LvalueExpr): Ternary {.inline.} =
-  ## Computes if the location named by `ea` is part of `eb`. Also evaluates to
+func isPartOf*(tree: MirTree, a, b: Path): Ternary {.inline.} =
+  ## Computes if the location named by `a` is part of `b`. Also evaluates to
   ## 'yes' if both name the exact same location
-  let cmp =  compareLvalues(tree, ea.root, eb.root, ea.last, eb.last)
+  let cmp =  compare(tree, a, b)
   result = isAPartOfB(cmp)

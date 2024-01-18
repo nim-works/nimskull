@@ -628,9 +628,6 @@ func newVmSeq*(s: var VmSeq, typ: PVmType, numItems: Natural, mm: var VmMemoryMa
 
   s = VmSeq(data: newData, length: numItems)
 
-template fullCell(p: CellPtr, a: VmAllocator): untyped =
-  byteView(mapToCell(a, p))
-
 proc copyVmSeq*(dest: var VmSeq, src: VmSeq, typ: PVmType, mm: var VmMemoryManager) =
   if dest.length > 0:
     destroyVmSeq(dest, typ, mm)

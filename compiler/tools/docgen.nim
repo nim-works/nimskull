@@ -251,7 +251,7 @@ template declareClosures =
   proc compilerMsgHandler(
       filename: string, line, col: int,
       msgKind: rst.MsgKind, arg: string
-    ) {.gcsafe.} =
+    ) {.gcsafe, used.} =
     # translate msg kind:
     {.gcsafe.}:
       globalReport(conf, newLineInfo(
@@ -275,7 +275,7 @@ template declareClosures =
             of mwRstStyle:                rbackRstRstStyle
       ))
 
-  proc docgenFindFile(s: string): string {.gcsafe.} =
+  proc docgenFindFile(s: string): string {.gcsafe, used.} =
     result = options.findFile(conf, s).string
     if result.len == 0:
       result = getCurrentDir() / s
@@ -375,12 +375,6 @@ template dispA(conf: ConfigRef; dest: var string, xml, tex: string,
                args: openArray[string]) =
   if not conf.isLatexCmd: dest.addf(xml, args)
   else: dest.addf(tex, args)
-
-proc getVarIdx(varnames: openArray[string], id: string): int =
-  for i in 0..high(varnames):
-    if cmpIgnoreStyle(varnames[i], id) == 0:
-      return i
-  result = -1
 
 proc genComment(d: PDoc, n: PNode): PRstNode =
   if n.comment.len > 0:

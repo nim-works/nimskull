@@ -70,8 +70,6 @@ proc `<`(a, b: AbstractTime): bool {.borrow.}
 proc inc(x: var AbstractTime; diff = 1) {.borrow.}
 proc dec(x: var AbstractTime; diff = 1) {.borrow.}
 
-proc `$`(x: AbstractTime): string {.borrow.}
-
 type
   SubgraphFlag = enum
     isMutated, # graph might be mutated
@@ -545,10 +543,6 @@ const
 proc isConstSym(s: PSym): bool =
   result = s.kind in {skConst, skLet} or isConstParam(s)
 
-proc toString(n: PNode): string =
-  if n.kind == nkEmpty: result = "<empty>"
-  else: result = $n
-
 proc borrowFrom(c: var Partitions; dest: PSym; src: PNode) =
   let s = pathExpr(src, c.owner)
   if s == nil:
@@ -595,9 +589,6 @@ proc borrowingCall(c: var Partitions; destType: PType; n: PNode; i: int) =
       SemReport(kind: rsemCannotDetermineBorrowTarget))
 
 proc borrowingAsgn(c: var Partitions; dest, src: PNode) =
-  proc mutableParameter(n: PNode): bool {.inline.} =
-    result = n.kind == nkSym and n.sym.kind == skParam and n.sym.typ.kind == tyVar
-
   if dest.kind == nkSym:
     if directViewType(dest.typ) != noView:
       borrowFrom(c, dest.sym, src)

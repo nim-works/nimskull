@@ -1,6 +1,5 @@
 discard """
   targets: "c js vm"
-  knownIssue.vm: "internal VM crash at run-time"
 """
 
 # xxx move all tests under `main`

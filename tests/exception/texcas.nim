@@ -1,5 +1,4 @@
 discard """
-  targets: "c"
   output: '''
 Hello
 Hello
@@ -34,7 +33,7 @@ test[Exception]()
 test2()
 testTryAsExpr(5)
 
-# see bug #7115
+# bug https://github.com/nim-lang/nim/issues/7115
 doAssert(not compiles(
   try: 
     echo 1

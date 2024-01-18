@@ -816,12 +816,27 @@ type
     mSymIsInstantiationOf, mNodeId, mPrivateAccess
 
     # magics only used internally:
+    mStrToCStr
+      ## the backend-dependent string-to-cstring conversion
     mAsgnDynlibVar
     mChckRange
       ## chckRange(v, lower, upper); conversion + range check -- returns
       ## either the type-converted value or raises a defect
+    mChckIndex
+      ## chckIndex(arr, idx); raise an error when `idx` is not within `arr`'s
+      ## bounds
+    mChckBounds
+      ## chckBounds(arr, lo, hi); raise an error when `lo` and/or `hi` is not
+      ## within `arr`'s bounds
+    mChckField
+      ## chckField(valid, val, inverted, msg); raises an error when `val` is
+      ## not part of `valid`. `inverted` tells whether to invert the check
+      ## and `msg` is the error message
     mSamePayload
       ## returns whether both seq/string operands share the same payload
+    mCopyInternal
+      ## copyInternal(a, b); copies backend-specific internal data stored
+      ## on non-pure objects from a to b
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const
@@ -944,7 +959,6 @@ type
     adVmUserError
     adVmUnhandledException
     adVmCannotCast
-    adVmCallingNonRoutine
     adVmCannotModifyTypechecked
     adVmNilAccess
     adVmAccessOutOfBounds
@@ -995,7 +1009,6 @@ type
       of adVmNotAField:
         sym*: PSym
       of adVmOpcParseExpectedExpression,
-          adVmCallingNonRoutine,
           adVmCannotModifyTypechecked,
           adVmAccessOutOfBounds,
           adVmAccessTypeMismatch,
@@ -1222,6 +1235,7 @@ type
     adSemObjectRequiresFieldInitNoDefault
     adSemExpectedObjectType
     adSemExpectedObjectOfType
+    adSemObjectDoesNotHaveDefaultValue
     adSemDistinctDoesNotHaveDefaultValue
     # semfold
     adSemFoldRangeCheckForLiteralConversionFailed
@@ -1500,8 +1514,9 @@ type
        adSemObjectRequiresFieldInitNoDefault:
       missing*: seq[PSym]
       objTyp*: PType
-    of adSemDistinctDoesNotHaveDefaultValue:
-      distinctTyp*: PType
+    of adSemObjectDoesNotHaveDefaultValue,
+       adSemDistinctDoesNotHaveDefaultValue:
+      typWithoutDefault*: PType
     of adSemExpectedObjectOfType:
       expectedObjTyp*: PType
     of adSemFoldRangeCheckForLiteralConversionFailed:

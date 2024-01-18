@@ -31,9 +31,6 @@ when defined(windows) and defined(bcc):
   #endif
   """.}
 
-proc c_snprintf(s: cstring; n:uint; frmt: cstring): cint {.importc: "snprintf", header: "<stdio.h>", nodecl, varargs.}
-
-
 when not declared(signbit):
   proc c_signbit(x: SomeFloat): cint {.importc: "signbit", header: "<math.h>".}
   proc signbit*(x: SomeFloat): bool {.inline.} =

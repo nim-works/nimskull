@@ -13,6 +13,9 @@ finally1
 except2
 finally2
 '''
+  knownIssue.vm: '''
+    Exception/finally handling is largely disfunctional in the VM
+  '''
 """
 # Test return in try statement:
 
@@ -29,7 +32,7 @@ proc main: int =
 
 echo main() #OUT came here 3
 
-#bug 7204
+#bug https://github.com/nim-lang/nim/issues/7204
 proc nested_finally =
   try:
     raise newException(KeyError, "msg1")
@@ -38,7 +41,7 @@ proc nested_finally =
     try:
       raise newException(ValueError, "msg2")
     except:
-      echo getCurrentExceptionMsg()
+      echo getCurrentException().msg
     finally:
       echo "finally2"
   finally:
@@ -47,7 +50,7 @@ proc nested_finally =
 nested_finally()
 
 echo "-----------"
-#bug 7414
+#bug https://github.com/nim-lang/nim/issues/7414
 try:
   try:
     raise newException(Exception, "Hello")

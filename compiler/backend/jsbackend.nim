@@ -29,6 +29,7 @@ import
   ],
   compiler/utils/[
     containers,
+    idioms,
     ropes
   ]
 
@@ -38,17 +39,15 @@ type
   BModuleList = SeqMap[FileIndex, BModule]
   PartialTable = Table[int, PProc]
 
-proc prepare(globals: PGlobals, modules: BModuleList, d: var DiscoveryData) =
-  ## Emits the definitions for all constants, globals, and threadvars
-  ## discovered while producing the current event.
-  for _, s in visit(d.constants):
-    genConstant(globals, modules[moduleId(s).FileIndex], s)
-
-  for _, s in visit(d.globals):
+proc prepare(globals: PGlobals, modules: BModuleList, s: PSym) =
+  ## Responds to the discovery of entity `s`.
+  case s.kind
+  of skProcKinds, skConst:
+    discard "nothing to forward declare or register"
+  of skVar, skLet, skForVar:
     defineGlobal(globals, modules[moduleId(s).FileIndex], s)
-
-  for _, s in visit(d.threadvars):
-    defineGlobal(globals, modules[moduleId(s).FileIndex], s)
+  else:
+    unreachable(s.kind)
 
 proc processLate(globals: PGlobals, discovery: var DiscoveryData) =
   # queue the late dependencies:
@@ -63,11 +62,15 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
                   evt: sink BackendEvent) =
   ## The orchestrator's event processor.
   let bmod = modules[evt.module]
-  prepare(g, modules, discovery)
 
   case evt.kind
+  of bekDiscovered:
+    prepare(g, modules, evt.entity)
   of bekModule:
     discard "nothing to do"
+  of bekConstant:
+    let s = evt.cnst
+    genConstant(g, modules[moduleId(s).FileIndex], s)
   of bekPartial:
     var p = partial.getOrDefault(evt.sym.id)
     if p == nil:
@@ -117,13 +120,15 @@ proc generateCodeForMain(globals: PGlobals, graph: ModuleGraph, m: BModule,
   generateTeardown(graph, modules, body)
 
   let owner = m.module
-  genTopLevelStmt(globals, m, canonicalize(graph, m.idgen, owner, body, {}))
+  genTopLevelStmt(globals, m):
+    canonicalize(graph, m.idgen, owner, body, TranslationConfig())
 
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point into the JS backend. Generates the code for all modules and
   ## writes it to the output file.
   let
     globals = newGlobals()
+    bconf = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics))
 
   var
     modules: BModuleList
@@ -143,7 +148,7 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 
     modules[m.sym.position.FileIndex] = bmod
 
-  for evt in process(graph, mlist, discovery, NonMagics, BackendConfig()):
+  for evt in process(graph, mlist, discovery, bconf):
     processEvent(globals, graph, modules, discovery, partial, evt)
 
   # finish the partial procedures:

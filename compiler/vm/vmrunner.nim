@@ -251,7 +251,6 @@ func vmEventToLegacyReportKind(evt: VmEventKind): ReportKind {.inline.} =
   of vmEvtUserError: rvmUserError
   of vmEvtUnhandledException: rvmUnhandledException
   of vmEvtCannotCast: rvmCannotCast
-  of vmEvtCallingNonRoutine: rvmCallingNonRoutine
   of vmEvtCannotModifyTypechecked: rvmCannotModifyTypechecked
   of vmEvtNilAccess: rvmNilAccess
   of vmEvtAccessOutOfBounds: rvmAccessOutOfBounds
@@ -373,11 +372,6 @@ proc main*(args: seq[string]): int =
 
   let
     entryPoint = c.functions[lr.unsafeGet.int]
-    cb = proc (c: TCtx, r: TFullReg): PNode =
-      c.config.internalAssert(r.kind == rkInt):
-        "expected int return value" # either the executable is malformed or
-                                    # there's an issue with the code-generator
-      newIntNode(nkIntLit, r.intVal)
 
   # setup the starting frame:
   var frame = TStackFrame(prc: entryPoint.sym)
@@ -395,7 +389,7 @@ proc main*(args: seq[string]): int =
     of yrkDone:
       # on successful execution, the executable's main function returns the
       # value of ``programResult``, which we use as the runner's exit code
-      let reg = c.sframes[0].slots[r.reg.get]
+      let reg = thread[0].slots[r.reg.get]
       result = regToNode(c, reg, nil, TLineInfo()).intVal.int
     of yrkError:
       # an uncaught error occurred

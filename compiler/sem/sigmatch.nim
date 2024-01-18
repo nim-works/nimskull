@@ -2014,15 +2014,20 @@ proc getInstantiatedType(c: PContext, arg: PNode, m: TCandidate,
 
 proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
                   c: PContext): PNode =
+  const SkipSet = {tySink, tyVar, tyLent}
+  # don't produce conversions to `var` or `lent` types
+  # here. An implicit address-of operation will later be
+  # inserted to ensure proper typing
+
   result = newNodeI(kind, arg.info)
   result.typ =
     if containsGenericType(f):
       if not m.hasFauxMatch:
-        getInstantiatedType(c, arg, m, f).skipTypes({tySink})
+        getInstantiatedType(c, arg, m, f).skipTypes(SkipSet)
       else:
         errorType(c)
     else:
-      f.skipTypes({tySink})
+      f.skipTypes(SkipSet)
 
   c.graph.config.internalAssert(result.typ != nil, arg.info, "implicitConv")
 

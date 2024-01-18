@@ -499,8 +499,9 @@ type
 
   # XXX: TCtx's contents should be separated into five parts (separate object
   #      types):
-  #      - 'execution state': stack frames, program counter, etc.; everything
-  #        that makes up a single VM invocation. Mutated during execution
+  #      - (DONE) 'execution state': stack frames, program counter, etc.;
+  #        everything that makes up a single VM invocation. Mutated during
+  #        execution
   #      - 'shared execution state': allocator, managed slots, etc.; state that
   #        is shared across VM invocations. Mutated during execution
   #      - 'execution environment': types, globals, constants, functions, etc.;
@@ -577,7 +578,6 @@ type
     vmEvtUserError
     vmEvtUnhandledException
     vmEvtCannotCast
-    vmEvtCallingNonRoutine
     vmEvtCannotModifyTypechecked
     vmEvtNilAccess
     vmEvtAccessOutOfBounds
@@ -663,7 +663,6 @@ type
     code*: seq[TInstr]
     debug*: seq[TLineInfo]  # line info for every instruction; kept separate
                             # to not slow down interpretation
-    sframes*: seq[TStackFrame] ## The stack of the currently running code # XXX: rename to `stack`?
     globals*: seq[HeapSlotHandle] ## Stores each global's corresponding heap slot
     constants*: seq[VmConstant] ## constant data
     complexConsts*: seq[LocHandle] ## complex constants (i.e. everything that
@@ -685,22 +684,11 @@ type
     # XXX: ^^ should be made part of the JIT state but ``vmcompilerserdes``
     #      currently blocks that
 
-    # exception state:
-    # XXX: this is thread-local state and should thus not be part of the
-    #      global context
-    currentExceptionA*, currentExceptionB*: HeapSlotHandle
-    activeException*: HeapSlotHandle ## the exception that is currently
-      ## in-flight (i.e. being raised), or nil, if none is in-flight. Note that
-      ## `activeException` is different from `currentException`.
-    activeExceptionTrace*: VmRawStackTrace ##
-      ## the stack-trace of where the exception was raised from
-
     module*: PSym
     callsite*: PNode
     mode*: TEvalMode
     features*: TSandboxFlags
     traceActive*: bool
-    loopIterations*: int
     comesFromHeuristic*: TLineInfo # Heuristic for better macro stack traces
     callbacks*: seq[VmCallback]
     cache*: IdentCache
@@ -866,7 +854,6 @@ proc initCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
     globals: @[],
     constants: @[],
     module: module,
-    loopIterations: g.config.maxLoopIterationsVM,
     comesFromHeuristic: unknownLineInfo,
     callbacks: @[],
     cache: cache,
@@ -887,7 +874,6 @@ proc initCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
 func refresh*(c: var TCtx, module: PSym; idgen: IdGenerator) =
   addInNimDebugUtils(c.config, "refresh")
   c.module = module
-  c.loopIterations = c.config.maxLoopIterationsVM
   c.idgen = idgen
 
 const pseudoAtomKinds* = {akObject, akArray}

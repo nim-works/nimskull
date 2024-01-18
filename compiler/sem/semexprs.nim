@@ -261,6 +261,7 @@ proc maybeLiftType(t: var PType, c: PContext, info: TLineInfo) =
   if lifted != nil: t = lifted
 
 proc semConv(c: PContext, n: PNode): PNode =
+  addInNimDebugUtils(c.config, "semConv", n, result)
   if n.len != 2:
     result = c.config.newError(n,
                 PAstDiag(kind: adSemTypeConversionArgumentMismatch,
@@ -279,15 +280,29 @@ proc semConv(c: PContext, n: PNode): PNode =
     else:
       targetType = targetType.base
   of tyStatic:
-    var evaluated = semStaticExpr(c, n[1])
-    if evaluated.kind == nkType or evaluated.typ.kind == tyTypeDesc:
-      result = n
-      result.typ = c.makeTypeDesc semStaticType(c, evaluated, nil)
-      return
-    elif targetType.base.kind == tyNone:
-      return evaluated
+    if targetType.base.kind == tyNone:
+      let evaluated = semStaticExpr(c, n[1])
+      # the meaning depends on the type of the operand
+      if evaluated.typ.kind == tyTypeDesc:
+        # a type construction, e.g.: ``static(int)``
+        result = newTreeI(nkStaticTy, n.info, evaluated)
+        result.typ = c.makeTypeDesc:
+          let typ = newTypeS(tyStatic, c)
+          typ.rawAddSon(evaluated.typ.base)
+          typ.flags.incl tfHasStatic
+          typ
+        return
+      else:
+        # an expression forcefully evaluated at compile-time,
+        # e.g.: ``static(x)``
+        return evaluated
     else:
-      targetType = targetType.base
+      # a coercion to a static type, e.g.: ``static[int](x)``. It's
+      # semantically equivalent to ``static(int(x))``
+      result.add newNodeIT(nkType, n[0].info, c.makeTypeDesc targetType.base)
+      result.add n[1]
+      result = newTreeI(nkStaticExpr, n.info, result)
+      return semExprWithType(c, result, {})
   else: discard
 
   maybeLiftType(targetType, c, n[0].info)
@@ -680,17 +695,6 @@ proc changeType(c: PContext, n: PNode, newType: PType, check: bool): PNode =
     result = c.config.wrapError(result)
 
 
-proc arrayConstrType(c: PContext, n: PNode): PType =
-  var typ = newTypeS(tyArray, c)
-  rawAddSon(typ, nil)     # index type
-  if n.len == 0:
-    rawAddSon(typ, newTypeS(tyEmpty, c)) # needs an empty basetype!
-  else:
-    var t = skipTypes(n[0].typ, {tyGenericInst, tyVar, tyLent, tyOrdinal, tyAlias, tySink})
-    addSonSkipIntLit(typ, t, c.idgen)
-  typ[0] = makeRangeType(c, 0, n.len - 1, n.info)
-  result = typ
-
 proc semArrayElementIndex(c: PContext, n: PNode, formalIdx: PType
                          ): tuple[n: PNode, val: Int128] =
   ## Analyses the array element expression `n`, producing either the
@@ -833,38 +837,26 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     if hasError:
       result = c.config.wrapError(result)
 
-proc isArrayConstr(n: PNode): bool {.inline.} =
-  n.kind == nkBracket and n.typ.skipTypes(abstractInst).kind == tyArray
+proc fitArgTypesPostMatch(c: PContext, n: PNode): PNode =
+  ## Takes the production AST of a call and performs the post-match type
+  ## fitting on the argument nodes. Errors are passed through.
+  addInNimDebugUtils(c.config, "fitArgTypesPostMatch", n, result)
+  result = n # `n` is already a production
 
-proc fixAbstractType(c: PContext, n: PNode): PNode =
-  assert n != nil
-
-  var hasError = false
-
-  result = n
   case n.kind
-  of nkError:
-    discard   # we'll just return below
-  else:
+  of nkCallKinds:
+    # fit all argument expressions
+    var hasError = false
     for i in 1..<n.len:
-      let it = n[i]
-      # do not get rid of nkHiddenSubConv for OpenArrays, codegen needs it:
-      if it.kind == nkHiddenSubConv and
-          skipTypes(it.typ, abstractVar).kind notin {tyOpenArray, tyVarargs}:
-        if skipTypes(it[1].typ, abstractVar).kind in {tyNil, tyTuple, tySet} or
-            it[1].isArrayConstr:
-          var s = skipTypes(it.typ, abstractVar)
-          
-          if s.kind != tyUntyped:
-            it[1] = changeType(c, it[1], s, check=true)
-          
-            if it[1].isError:
-              hasError = true
+      result[i] = fitNodePostMatch(c, n[i])
+      hasError = hasError or result[i].isError
 
-          n[i] = it[1]
-  
-  if hasError and result.kind != nkError:
-    result = c.config.wrapError(n)
+    if hasError:
+      result = c.config.wrapError(result)
+  of nkError:
+    discard # already set above
+  else:
+    unreachable(n.kind)
 
 proc isAssignable(c: PContext, n: PNode; isUnsafeAddr=false): TAssignableResult =
   result = parampatterns.isAssignable(c.p.owner, n, isUnsafeAddr)
@@ -913,19 +905,9 @@ proc analyseIfAddressTaken(n: PNode) =
   ## flag.
   ## XXX: the exact meaning of "address taken" is rather fuzzy at the moment,
   ##      and the whole thing is likely not a good idea in the first place.
-  ##      For locations, only ``guards.nim`` and the JS code-generator make use
-  ##      of ``sfAddrTaken``, with both attaching slightly different meaning to
-  ##      it, it seems. The JS code-generator uses the flag to know whether the
-  ##      location has to be stored in a way that allows for indirectly
-  ##      mutating it, and is generally only interested in whether the *whole*
-  ##      location either has its address taken or is passed to a 'var'
-  ##      parameter (e.g. it depends on the flag being present for ``x`` in
-  ##      ``addr x``, but for ``addr x.y`` it does not). It's likely a better
-  ##      idea to let the JS code-generator perform its own analysis instead of
-  ##      relying on ``sfAddrTaken``
-  ##      For ``guards``, it *seems* like the ``sfAddrTaken`` information is
-  ##      used to know whether a fact cannot be made untrue through an
-  ##      undetectable indirect mutation
+  ##      For locations, only ``guards.nim`` makes use of ``sfAddrTaken``.
+  ##      There, the presense of the flag is used to decide whether a fact
+  ##      cannot change through an undetectable indirect mutation.
   ##
   ## XXX: including the flag here has the additional issue of letting AST that
   ##      might turn out erroneous (e.g. ``(var i = 0; discard addr(i); error)``)
@@ -965,20 +947,15 @@ proc analyseIfAddressTaken(n: PNode) =
     incl(n.sym.flags, sfAddrTaken)
 
 proc passToVarParameter(c: PContext, n: PNode): PNode =
-  ## Analyses the lvalue expression `n` that is meant to be passed to a ``var``
-  ## parameter, wrapping it in an ``nkHiddenAddr`` node, if necessary
-  # only create a mutable reference (i.e. ``nkHiddenAddr``) if the source isn't
-  # one already
-  if n.typ.skipTypes(abstractInst).kind != tyVar:
+  ## Returns `n` wrapped in an ``nkHiddenAddr`` node and marks the symbol of
+  ## the underlying location, if one exists, with ``sfAddrTaken``.
+  if n.typ.kind != tyVar:
     analyseIfAddressTaken(n)
-    result = newHiddenAddrTaken(c, n)
-  elif n.kind in {nkHiddenSubConv, nkHiddenStdConv}:
-    # this happens when passing a sub-type to super-type parameter or something
-    # that is implictly convertible to an ``openArray`` to an ``openArray``
-    # parameter
-    result = newHiddenAddrTaken(c, n)
+    newHiddenAddrTaken(c, n)
   else:
-    result = n
+    # only allowed when trying a concept
+    c.config.internalAssert(c.matchedConcept != nil, n.info)
+    n
 
 proc analyseIfAddressTakenInCall(n: PNode) =
   ## Performs the "is address taken" analysis for all immediate arguments of
@@ -1000,7 +977,6 @@ proc fixVarArgumentsAndAnalyse(c: PContext, n: PNode): PNode =
   ## Note that not all ``var`` parameters are considered, certain magics are
   ## ignored during this fixup
   addInNimDebugUtils(c.config, "fixVarArgumentsAndAnalyse", n, result)
-  checkMinSonsLen(n, 1, c.config)
 
   if n.isError:
     return n
@@ -1132,7 +1108,7 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
 
     # only attempt to fold the expression if doing so doesn't affect
     # compile-time state
-    if ecfStatic notin c.execCon.flags or sfNoSideEffect in callee.flags:
+    if not inCompileTimeOnlyContext(c) or sfNoSideEffect in callee.flags:
       if sfCompileTime in callee.flags:
         result = evalStaticExpr(c.module, c.idgen, c.graph, call, c.p.owner)
       else:
@@ -1152,10 +1128,13 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
   popExecCon(c)
   closeScope(c)
   a = foldInAst(c.module, a, c.idgen, c.graph)
-  if a.kind == nkError or a.findUnresolvedStatic != nil:
+  if a.typ.kind == tyTypeDesc or a.findUnresolvedStatic != nil:
     return a
 
-  result = evalStaticExpr(c.module, c.idgen, c.graph, a, c.p.owner)
+  result = getConstExprError(c.module, a, c.idgen, c.graph)
+  if result == nil:
+    # not something that's foldable, use the VM
+    result = evalStaticExpr(c.module, c.idgen, c.graph, a, c.p.owner)
 
 proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
                                      flags: TExprFlags): PNode =
@@ -1213,7 +1192,7 @@ proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
   else:
     semFinishOperands(c, result)
     activate(c, result)
-    result = fixAbstractType(c, result)
+    result = fitArgTypesPostMatch(c, result)
     result = fixVarArgumentsAndAnalyse(c, result)
     if callee.magic != mNone:
       result = magicsAfterOverloadResolution(c, result, flags)
@@ -1423,7 +1402,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
         else:
           afterCallActions(c, result, flags)
     else:
-      result = fixAbstractType(c, result)
+      result = fitArgTypesPostMatch(c, result)
       result = fixVarArgumentsAndAnalyse(c, result)
   else:
     discard
@@ -2099,8 +2078,6 @@ proc propertyWriteAccess(c: PContext, n, a: PNode): PNode =
 
   if result != nil:
     result = afterCallActions(c, result, {})
-    #fixAbstractType(c, result)
-    #analyseIfAddressTakenInCall(c, result)
 
 proc takeImplicitAddr(c: PContext, formal: PType, n: PNode): PNode =
   ## See RFC #7373, calls returning 'var T' are assumed to
@@ -2314,7 +2291,6 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
   if hasError:
     result = c.config.wrapError(result)
   else:
-    result = fixAbstractType(c, result)
     result = asgnToResultVar(c, result)
 
 proc semReturn(c: PContext, n: PNode): PNode =
@@ -2760,7 +2736,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   let oldInGenericInst = c.inGenericInst
   let oldProcCon = c.p
   c.generics = @[]
-  var err: string
+
   try:
     result = semExpr(c, n, flags)
     if result != nil and efNoSem2Check notin flags:
@@ -2911,7 +2887,7 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
       if callee.magic == mNone:
         semFinishOperands(c, result)
       activate(c, result)
-      result = fixAbstractType(c, result)
+      result = fitArgTypesPostMatch(c, result)
       result = fixVarArgumentsAndAnalyse(c, result)
       if callee.magic != mNone:
         result = magicsAfterOverloadResolution(c, result, flags)
@@ -3816,7 +3792,10 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     n[0] = semExpr(c, n[0], flags)
   of nkCast: result = c.config.extract(semCast(c, n))
   of nkIfExpr, nkIfStmt: result = semIf(c, n, flags)
-  of nkHiddenStdConv, nkHiddenSubConv, nkConv, nkHiddenCallConv:
+  of nkConv:
+    checkSonsLen(n, 2, c.config)
+    result = semConv(c, n)
+  of nkHiddenStdConv, nkHiddenSubConv, nkHiddenCallConv:
     checkSonsLen(n, 2, c.config)
     considerGenSyms(c, n)
   of nkStringToCString, nkCStringToString, nkObjDownConv, nkObjUpConv:
