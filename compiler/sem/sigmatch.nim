@@ -2826,8 +2826,10 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
     f = if m.callee.kind != tyGenericBody: 1
         else: 0
       ## index to iterate over formal parameters
+    operand: PNode
+      ## current prepared operand/argument 
     arg: PNode
-      ## current prepared argument
+      ## current prepared and param type matched argument
     formalLen = m.callee.n.len
     formal = if formalLen > 1: m.callee.n[1].sym else: nil
       ## current routine parameter
@@ -2844,6 +2846,8 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       
       formal = m.callee.n[f].sym
       incl(marker, formal.position)
+
+      operand = n[a] # initialize to current arg in case of early `noMatch`
 
       case n[a].kind
       of nkHiddenStdConv:
@@ -2911,9 +2915,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
         arg = n[a][1]
       else:
-        let operand = prepareOperand(c, formal.typ, n[a][1], nOrig[a][1])
-          ## analysed operand, if it's an error the issue is based on the
-          ## formal type and not the actual callsite operand.
+        operand = prepareOperand(c, formal.typ, n[a][1], nOrig[a][1])
 
         case operand.kind
         of nkError:
@@ -2935,7 +2937,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         # xxx: eventually track down if/when this happens and fix
         arg = arg.sym.ast
       else:
-        checkConstraint(n[a][1])  # will update `m` with info
+        checkConstraint(operand)  # will update `m` with info
 
       if m.baseTypeMatch or (arg.isError and container.isNil):
         #assert(container.isNil())
@@ -2966,7 +2968,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             # xxx: maybe this should be an internal error?
             noMatch()
           else:
-            let operand = prepareOperand(c, n[a])
+            operand = prepareOperand(c, n[a])
 
             m.call.add:
               case skipTypes(operand.typ, abstractVar-{tyTypeDesc}).kind
@@ -2997,7 +2999,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           of nkError:
             arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a])
           else:
-            let operand = prepareOperand(c, formal.typ, n[a], nOrig[a])
+            operand = prepareOperand(c, formal.typ, n[a], nOrig[a])
 
             case operand.kind
             of nkError:
@@ -3017,7 +3019,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           if arg.isError:
             noMatchDueToError()
           elif m.baseTypeMatch: # match type in `varargs[T]`
-            checkConstraint(n[a])
+            checkConstraint(operand)
           else:
             noMatch()
         else:
@@ -3064,7 +3066,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           of nkError:
             arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a])
           else:
-            let operand = prepareOperand(c, formal.typ, n[a], nOrig[a])
+            operand = prepareOperand(c, formal.typ, n[a], nOrig[a])
 
             case operand.kind
             of nkError:
@@ -3114,7 +3116,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           if arg.kind == nkError:
             noMatchDueToError()
 
-        checkConstraint(n[a])
+        checkConstraint(operand)
 
     if m.state == csMatch and
        not (m.calleeSym != nil and m.calleeSym.kind in {skTemplate, skMacro}):
