@@ -169,7 +169,7 @@ type
   LocalId* = distinct uint32
     ## Identifies a local within a procedure.
 
-  CgNode* {.acyclic.} = ref object
+  CgNode* = ref object
     ## A node in the tree structure representing code during the code
     ## generation stage. The "CG" prefix is short for "code generation".
     info*: TLineInfo

@@ -59,7 +59,7 @@ type
 
   POptionEntry* = ref TOptionEntry
   PProcCon* = ref TProcCon
-  TProcCon* {.acyclic.} = object ## procedure context; also used for top-level
+  TProcCon* = object ## procedure context; also used for top-level
                                  ## statements
     owner*: PSym              ## the symbol this context belongs to
     resultSym*: PSym          ## the result symbol (if we are in a proc)

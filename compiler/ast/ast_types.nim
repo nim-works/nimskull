@@ -901,7 +901,7 @@ type
 
 
 type
-  TIdObj* {.acyclic.} = object of RootObj
+  TIdObj* = object of RootObj
     itemId*: ItemId
   PIdObj* = ref TIdObj
 
@@ -1256,7 +1256,7 @@ type
     adSemDeprecatedCompilerOptArg   # warning promoted to error
 
   PAstDiag* = ref TAstDiag
-  TAstDiag* {.acyclic.} = object
+  TAstDiag* = object
     # xxx: consider splitting storage type vs message
     # xxx: consider breaking up diag into smaller types
     # xxx: try to shrink the int/int128 etc types for counts/ordinals
@@ -1561,7 +1561,7 @@ type
           adSemDefNameSymIllformedAst:
         discard
 
-  TNode*{.final, acyclic.} = object # on a 32bit machine, this takes 32 bytes
+  TNode*{.final.} = object # on a 32bit machine, this takes 32 bytes
                                     # on a 64bit machine, this takes 40 bytes
     typ*: PType
     id*: NodeId  # placed after `typ` field to save space due to field alignment
@@ -1642,7 +1642,7 @@ type
 
   PInstantiation* = ref TInstantiation
 
-  TScope* {.acyclic.} = object
+  TScope* = object
     depthLevel*: int
     symbols*: TStrTable
     parent*: PScope
@@ -1650,7 +1650,7 @@ type
 
   PScope* = ref TScope
 
-  TSym* {.acyclic.} = object of TIdObj # Keep in sync with PackedSym
+  TSym* = object of TIdObj # Keep in sync with PackedSym
     ## proc and type instantiations are cached in the generic symbol
     case kind*: TSymKind
     of routineKinds - {skMacro}:
@@ -1728,7 +1728,7 @@ type
     attachedTrace,
     attachedDeepCopy
 
-  TType* {.acyclic.} = object of TIdObj
+  TType*  = object of TIdObj
     ## types are identical only if they have the same id; there may be multiple
     ## copies of a type in memory! Keep in sync with PackedType
     kind*: TTypeKind          ## kind of type

@@ -207,6 +207,16 @@ proc listEpc(): SexpNode =
     methodDesc.add(docstring)
     result.add(methodDesc)
 
+proc runGc() =
+  ## Runs a GC collection pass. This procedure will also collect any cycles assuming ORC is in use.
+  ##
+  ## When nimsuggest is being used as a library, no GC mode change will be performed.
+  when isMainModule and defined(gcOrc):
+    GC_enableOrc()
+  GC_fullCollect()
+  when isMainModule and defined(gcOrc):
+    GC_disableOrc()
+
 proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
              graph: ModuleGraph) =
   let conf = graph.config
@@ -217,6 +227,7 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
   )
 
   executeCmd(cmd, file, dirtyfile, line, col, graph)
+  runGc() # prune cycles
   if conf.ideCmd in {ideUse, ideDus}:
     let u = graph.findTrackedSym()
     if u != nil:
@@ -516,7 +527,7 @@ proc recompileFullProject(graph: ModuleGraph) =
   resetSystemArtifacts(graph)
   graph.vm = nil
   graph.resetAllModules()
-  GC_fullCollect()
+  runGc()
   compileProject(graph)
   #echo GC_getStatistics()
 
@@ -722,6 +733,15 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]) 
     mainCommand(graph)
 
 when isMainModule:
+  when defined(gcOrc):
+    # Compilation is currently very taxing on ORC due to frequent
+    # creations and destructions of ref objects with potential cycles.
+    #
+    # Disable ORC to reduce overhead from the cycle collector. Nimsuggest
+    # will manually run cycle collection at strategic location instead to
+    # minimize GC overhead within hotspots.
+    GC_disableOrc()
+
   let argv = getExecArgs()
   let conf = newConfigRef(cli_reporter.reportHook)
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
