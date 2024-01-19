@@ -25,7 +25,7 @@ proc init() =
   # ^    |              ^    |
   # + -- +              + -- +
 
-  b = nil # remove the stack root, which marks A as a potential cycle root
+  a = nil # remove the stack root, which marks A as a potential cycle root
   # 'A' is now the root of a garbage cycle
 
 GC_disableOrc() # disable the cycle collector
