@@ -2698,7 +2698,9 @@ when compileOption("rangechecks"):
     ## Helper for performing user-defined range checks.
     ## Such checks will be performed only when the `rangechecks`
     ## compile-time option is enabled.
-    if not cond: sysFatal(RangeDefect, "range check failed")
+    if not cond:
+      {.cast(noSideEffect).}:
+        sysFatal(RangeDefect, "range check failed")
 else:
   template rangeCheck*(cond) = discard
 

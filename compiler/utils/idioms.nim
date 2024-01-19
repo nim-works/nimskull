@@ -33,7 +33,8 @@ func unreachableImpl(str: string, loc: IInfo) {.noinline, noreturn.} =
     if str.len > 0: " unreachable: "
     else:           " unreachable"
   msg.add str
-  raiseAssert(msg)
+  {.cast(noSideEffect).}:
+    raiseAssert(msg)
 
 func unreachableImpl(e: enum, loc: IInfo) {.noinline, noreturn.} =
   ## A bit more efficient than ``unreachable($e)``, due to the stringication
