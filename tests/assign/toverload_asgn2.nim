@@ -1,7 +1,7 @@
 discard """
   output: '''i value 88
 2aa'''
-    knownIssue: "possible issue where result is not treated as var Concrete in passAround"
+  knownIssue.c js vm: "possible issue where result is not treated as var Concrete in passAround"
 """
 
 import moverload_asgn2

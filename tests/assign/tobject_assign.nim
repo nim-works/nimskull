@@ -3,6 +3,9 @@ discard """
     Regression test for assigning to an uninitialized `seq` slot that
     has a type header
   '''
+  knownIssue.vm: '''
+  Cannot 'importc' proc 'localtime' in 'times.nim' at compile time
+  '''
 """
 
 # bug https://github.com/nim-lang/nim/issues/16706

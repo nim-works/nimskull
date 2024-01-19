@@ -1110,7 +1110,8 @@ func nativeTarget(): TTarget {.inline.} =
 func defaultTargets(category: Category): set[TTarget] =
   const standardTargets = {nativeTarget()}
   case category.string
-  of "lang", "lang_callable", "exception":
+  of "alias", "align", "ambsym", "arithm", "assert", "assign", "exception",
+     "lang", "lang_callable":
     {targetC, targetJs, targetVM}
   of "arc", "avr", "destructor", "distros", "dll", "gc", "osproc", "parallel",
      "realtimeGC", "threads", "views", "valgrind":
