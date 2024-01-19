@@ -99,7 +99,9 @@ proc newPipeOutStream*[T](s: sink (ref T)): owned PipeOutStream[T] =
   assert s.readDataImpl != nil
 
   new(result)
-  for dest, src in fields((ref T)(result)[], s[]):
+  # XXX: feel free to suggest a better name
+  let parentAlias = (ref T) result
+  for dest, src in fields(parentAlias[], s[]):
     dest = src
   wasMoved(s[])
   if result.readLineImpl != nil:
