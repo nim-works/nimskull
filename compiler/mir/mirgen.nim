@@ -545,7 +545,7 @@ proc capture(c: var TCtx, n: PNode; sink=false): Value =
       captureInTemp(c, f, sink=false)
     else:
       # if used in a sink context, the alias must support potentially
-      # destructive moves throught it, which requires a ``BindMut``
+      # destructive moves through it, which requires a ``BindMut``
       captureName(c, f, mutable=sink)
 
 proc genOperand(c: var TCtx, n: PNode; sink = false) =
