@@ -1183,10 +1183,8 @@ elif not defined(useNimRtl):
       discard fcntl(data.pErrorPipe[writeIdx], F_SETFD, FD_CLOEXEC)
 
       if (poUsePath in data.options):
-        when defined(uClibc) or defined(linux) or defined(haiku):
-          # uClibc environment (OpenWrt included) doesn't have the full execvpe
-          let exe = findExe(data.sysCommand)
-          discard execve(exe.cstring, data.sysArgs, data.sysEnv)
+        when not defined(macosx):
+          discard execvpe(data.sysCommand.cstring, data.sysArgs, data.sysEnv)
         else:
           # MacOSX doesn't have execvpe, so we need workaround.
           # On MacOSX we can arrive here only from fork, so this is safe:
