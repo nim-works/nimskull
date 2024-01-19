@@ -1423,6 +1423,7 @@ proc symForVar(c: PContext, n: PNode): PSym =
   let
     hasPragma = n.kind == nkPragmaExpr
     resultNode = newSymGNode(skForVar, (if hasPragma: n[0] else: n), c)
+    semmedNode = if hasPragma: copyNodeWithKids(n) else: resultNode
 
   result = getDefNameSymOrRecover(resultNode)
   styleCheckDef(c.config, result)
@@ -1430,13 +1431,14 @@ proc symForVar(c: PContext, n: PNode): PSym =
   if hasPragma:
     let pragma = pragmaDecl(c, result, n[1], forVarPragmas)
     if pragma.kind == nkError:
-      n[1] = pragma
+      semmedNode[0] = resultNode
+      semmedNode[1] = pragma
 
-  if resultNode.kind == nkError or hasPragma and n[1].kind == nkError:
+  if resultNode.kind == nkError or hasPragma and semmedNode[1].kind == nkError:
     result = newSym(skError, result.name, nextSymId(c.idgen), result.owner,
                     n.info)
     result.typ = c.errorType
-    result.ast = c.config.wrapError(n)
+    result.ast = c.config.wrapError(semmedNode)
 
 proc semSingleForVar(c: PContext, formal: PType, view: ViewTypeKind, n: PNode): PNode =
   ## Semantically analyses a single definition of a variable in the context of
@@ -1445,7 +1447,7 @@ proc semSingleForVar(c: PContext, formal: PType, view: ViewTypeKind, n: PNode): 
 
   let v = symForVar(c, n)
   if v.kind == skError:
-    return c.config.wrapError(n)
+    return v.ast
 
   if getCurrOwner(c).kind == skModule:
     incl(v.flags, sfGlobal)
