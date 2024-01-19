@@ -99,9 +99,11 @@ proc newPipeOutStream*[T](s: sink (ref T)): owned PipeOutStream[T] =
   assert s.readDataImpl != nil
 
   new(result)
-  for dest, src in fields((ref T)(result)[], s[]):
-    dest = src
-  wasMoved(s[])
+  # XXX: feel free to suggest a better name
+  let parentAlias = (ref T) result
+  # FIXME: doing it this way breaks RTTI as the type information is copied
+  # from the source, making `result of PipeOutStream[T]` fails
+  parentAlias[] = move(s[])
   if result.readLineImpl != nil:
     result.baseReadLineImpl = result.readLineImpl
     result.readLineImpl = posReadLine[T]
