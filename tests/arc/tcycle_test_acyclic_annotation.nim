@@ -16,10 +16,10 @@ proc init() =
   # create two cycles and link them together via `Bridge`
   var a = Cycle(self: Cycle())
   a.self.self = a
-  var b = Cycle(self: Cycle())
-  b.self.self = b
+  var c = Cycle(self: Cycle())
+  c.self.self = c
 
-  b.self.bridge = Bridge(other: a)
+  a.self.bridge = Bridge(other: c)
   # the following structure now exists:
   # A -> B -> Bridge -> C -> D
   # ^    |              ^    |
