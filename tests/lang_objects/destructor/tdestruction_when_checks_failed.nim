@@ -67,3 +67,13 @@ block field_checks:
 
   runTest:
     test(WithVariant(kind: false)) # provoke a field-check failure
+
+block object_conversion_checks:
+  type A = ref object of RootObj
+
+  proc test(a: RootRef) =
+    var obj = Object() # obj stores a value that needs to be destroyed
+    discard A(a)
+
+  runTest:
+    test(RootRef()) # provoke a object-conversion-check failure

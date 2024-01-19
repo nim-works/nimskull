@@ -250,7 +250,7 @@ func isPure(tree: MirTree, n: NodePosition): bool =
     # let bindings are pure, but only if they don't have a destructor (in
     # which case they're movable)
     tree[n].sym.kind in {skLet, skForVar} and not hasDestructor(tree[n].typ)
-  of mnkPathNamed, mnkPathPos, mnkPathVariant:
+  of mnkPathNamed, mnkPathPos, mnkPathConv, mnkPathVariant:
     isPure(tree, NodePosition tree.operand(n))
   of mnkPathArray:
     let arr = NodePosition tree.operand(n, 0)
@@ -262,6 +262,7 @@ func isPure(tree: MirTree, n: NodePosition): bool =
     else:
       unreachable(tree[arr].kind)
   else:
+    # TODO: make exhaustive
     false
 
 func isStable(tree: MirTree, n: NodePosition): bool =
@@ -282,11 +283,8 @@ func isStable(tree: MirTree, n: NodePosition): bool =
       isPure(tree, tree.child(n, 1)) and isPure(tree, arr)
     else:
       unreachable()
-  of mnkPathNamed, mnkPathPos, mnkPathVariant:
+  of mnkPathNamed, mnkPathPos, mnkPathConv, mnkPathVariant:
     isStable(tree, NodePosition tree.operand(n))
-  of mnkPathConv:
-    # conversions can raise
-    false
   of mnkDeref, mnkDerefView:
     # a pure target means that the pointer is always the same
     isPure(tree, NodePosition tree.operand(n))
@@ -524,17 +522,18 @@ proc genAlias(c: var TCtx, n: PNode, mutable: bool): Value =
   else:
     captureName(c, f, mutable)
 
-proc capture(c: var TCtx, n: PNode): Value =
+proc capture(c: var TCtx, n: PNode; sink=false): Value =
   ## If not a stable lvalue expression, captures the result of the
   ## expression `n` in a temporary.
-  ## * rvalue expression are captured in temporaries
+  ## * rvalue expression are captured in temporaries (with `sink` indicating
+  ##   whether an owned value is preferred)
   ## * lvalue expressions are captured as non-assignable aliases
   ## * literals are not captured
   const Skip = abstractInstTypeClass + {tyVar}
   let f = c.builder.push: genx(c, n)
-  case detectKind(c.builder.staging, f.pos, sink=false)
+  case detectKind(c.builder.staging, f.pos, sink)
   of Rvalue, OwnedRvalue:
-    captureInTemp(c, f, sink=false)
+    captureInTemp(c, f, sink)
   of Literal:
     c.builder.popSingle(f)
   of Lvalue:
@@ -545,7 +544,9 @@ proc capture(c: var TCtx, n: PNode): Value =
       # don't create an alias for openArrays, a copy of the view suffices
       captureInTemp(c, f, sink=false)
     else:
-      captureName(c, f, mutable=false)
+      # if used in a sink context, the alias must support potentially
+      # destructive moves through it, which requires a ``BindMut``
+      captureName(c, f, mutable=sink)
 
 proc genOperand(c: var TCtx, n: PNode; sink = false) =
   ## Translates expression AST `n` to a MIR operand expression. `sink` signals
@@ -726,6 +727,84 @@ proc genVariantAccess(c: var TCtx, n: PNode) =
           c.subTree MirNode(kind: mnkPathVariant, typ: x.typ, field: discr):
             c.use x
 
+proc genObjConv(c: var TCtx, n: PNode, sink, dest: bool) =
+  ## Given an ``nkObjDownConv`` or ``nkObjUpConv`` AST, folding away all
+  ## immediately nested up- and down-conversion nodes. That is, only one
+  ## ``mnkPathConv`` is emitted.
+  ##
+  ## If conversion checks are enabled and required, at most one check is
+  ## emitted. The type used for the check is either the type most nested in
+  ## the hierarchy, or a sibling type (if a sibling conversion is present).
+  let
+    skipped = n.typ.skipTypes(abstractInst)
+    # only ref and ptr types are checked during conversions, normal objects
+    # are not
+    needsCheck = (optObjCheck in c.userOptions) and
+                 (skipped.kind in {tyPtr, tyRef}) and
+                 not isObjLackingTypeField(skipped.lastSon)
+
+  # find the first non-conversion node:
+  var start {.cursor.} = n
+  while start.kind in {nkObjDownConv, nkObjUpConv}:
+    start = start[0]
+
+  var deepest = start.typ.skipTypes(skipPtrs)
+    ## the type most nested in the type hierarchy that's certain to be valid.
+    ## If a sibling conversion exists in the chain, this is the first
+    ## encountered sibling type
+  if needsCheck:
+    # walk the conversions again and look for the type deepest in the
+    # hierarchy
+    var x {.cursor.} = n
+    while x.kind in {nkObjDownConv, nkObjUpConv}:
+      let typ = x.typ.skipTypes(skipPtrs)
+      if (let rel = inheritanceDiff(typ, deepest); rel > 0):
+        deepest = typ
+        if rel == high(typeof(rel)):
+          # whatever other types there are, a sibling conversion will always
+          # result in a run-time error
+          break
+
+      x = x[0]
+
+  if needsCheck and deepest != start.typ.skipTypes(skipPtrs):
+    # we do need a check, but only for the most deeply nested type that is
+    # converted to
+    let val =
+      if dest:
+        genAlias(c, start, mutable=true)
+      elif sink:
+        capture(c, start, true)
+      else:
+        # if the result neither needs to be moved from nor assigned to, a
+        # cursor is enough
+        let f = c.builder.push: genx(c, start, false)
+        captureInTemp(c, f, false)
+
+    let boolType = c.graph.getSysType(n.info, tyBool)
+
+    c.buildStmt mnkIf:
+      # the ``x != nil`` condtion:
+      c.wrapAndUse(boolType):
+        c.buildMagicCall mNot, boolType:
+          c.subTree mnkArg:
+            c.wrapAndUse(boolType):
+              c.buildMagicCall mIsNil, boolType:
+                c.emitByVal val
+      # the check:
+      c.subTree mnkVoid:
+        c.buildDefectMagicCall mChckObj, typeOrVoid(c, nil):
+          c.emitByVal val
+          c.emitByVal typeLit(deepest)
+
+    c.buildOp mnkPathConv, n.typ:
+      c.use val
+  else:
+    # skip all down- and up-conversion, the final conversion is all that
+    # matters
+    c.buildOp mnkPathConv, n.typ:
+      genOperand(c, start)
+
 proc genTypeExpr(c: var TCtx, n: PNode): Value =
   ## Generates the code for an expression that yields a type. These are only
   ## valid in metaprogramming contexts. If it's a static type expression, we
@@ -807,7 +886,13 @@ proc genLvalueOperand(c: var TCtx, n: PNode; mutable = true) =
   ## of the underlying location.
   let
     n = if n.kind == nkHiddenAddr: n[0] else: n
-    f = c.builder.push: genx(c, n)
+    f = c.builder.push:
+      if n.kind in {nkObjDownConv, nkObjUpConv}:
+        # XXX: super hacky, but currently required so that object conversions
+        #      pick the correct capture method when used as lvalue operands
+        genObjConv(c, n, sink=false, mutable)
+      else:
+        genx(c, n)
 
   if isStable(c.builder.staging, f.pos):
     # the expression can be used directly. We're already in a staging
@@ -1370,7 +1455,14 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
     # becomes:
     #   if cond: x = a
     #   else:    x = b
-    let dest = genAlias(c, lhs, true)
+    let
+      f = c.builder.push: genLvalueOperand(c, lhs, true)
+      dest =
+        if c.builder.staging[f.pos].kind in Atoms:
+          c.builder.popSingle(f)
+        else:
+          captureName(c, f, true)
+
     genWithDest(c, rhs, initDestination(dest, isFirst, sink))
   else:
     let kind =
@@ -1380,9 +1472,9 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
       else:         mnkFastAsgn
 
     c.buildStmt kind:
-      # ``genLvalueOperand`` ensures that unstable or raising lvalue
+      # ``genLvalueOperand`` ensures that unstable lvalue
       # expressions are captured
-      genLvalueOperand(c, lhs)
+      genLvalueOperand(c, lhs, true)
       genAsgnSource(c, rhs, sink)
 
 proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
@@ -1797,17 +1889,8 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
       unreachable(typ.kind)
   of nkBracketExpr:
     genBracketExpr(c, n)
-  of nkObjDownConv:
-    c.buildOp mnkPathConv, n.typ:
-      genOperand(c, n[0], consume)
-  of nkObjUpConv:
-    # discard conversions in the same direction that are used as the operand
-    var arg = n[0]
-    while arg.kind == nkObjUpConv:
-      arg = arg[0]
-
-    c.buildOp mnkPathConv, n.typ:
-      genOperand(c, arg, consume)
+  of nkObjDownConv, nkObjUpConv:
+    genObjConv(c, n, consume, dest=false)
   of nkAddr:
     c.genOp mnkAddr, n.typ, n[0]
   of nkHiddenAddr:

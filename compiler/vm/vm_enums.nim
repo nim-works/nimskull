@@ -154,6 +154,7 @@ type
 
     opcLdImmInt,  # dest = immediate value
     opcSetType,   # dest.typ = types[Bx]
+    opcObjChck    # raise error if a[] not of types[Bx]
     opcNSetType,  # dest.nimNode.typ = types[Bx]
     opcTypeTrait,
     opcSymOwner,

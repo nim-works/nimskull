@@ -2077,6 +2077,10 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.freeTemp(arr)
   of mChckField:
     genFieldCheck(c, n)
+  of mChckObj:
+    let obj = c.genx(n[1])
+    c.gABx(n, opcObjChck, obj, c.genType(n[2].typ))
+    c.freeTemp(obj)
   else:
     # mGCref, mGCunref, mFinished, etc.
     fail(n.info, vmGenDiagCodeGenUnhandledMagic, m)

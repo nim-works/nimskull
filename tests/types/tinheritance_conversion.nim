@@ -1,6 +1,11 @@
 discard """
-  cmd: "nim c --hints=on $file"
-  joinable: false
+  targets: "c js vm"
+  matrix: "--hints=on"
+  knownIssue.vm: '''
+    * the VM reports a run-time error when accessing a down-converted non-ref
+      object
+    * conversion checks for pointer types are not implemented
+  '''
 """
 
 
@@ -21,6 +26,9 @@ block: # Value tests
   proc test2(base: var Base) = base.field = 400
   proc test3(base: Base) = discard
   var a: Derived = Derived(Base())
+  # XXX: ^^ it's questionable that this is allowed. The VM reports a run-time
+  #      access violation here, since a location of type ``Base`` cannot be
+  #      accessed as if it were a ``Derived`` (only the other way around)
   a = Derived(Base(Derived2()))
   test(
     Derived(), #[tt.Hint
@@ -59,16 +67,15 @@ block: # Ref tests
   assert Derived(Base(Derived())) is Derived
 
 block: # Pointer tests
-  template make(t: typedesc): ptr t =
-    let res = createU(t)
-    res[] = t()
-    res
-  var a: ptr Base = make(Derived)
+  var
+    derived = Derived()
+    derived2 = Derived2()
+    a: ptr Base = addr derived
   assert (ptr Derived)(a) is (ptr Derived)
   doAssertRaises(ObjectConversionDefect): discard (ptr Derived2)(a)[]
   doAssertRaises(ObjectConversionDefect):
-    var a = make(Derived2)
+    var a = addr derived2
     discard (ptr Derived)((ptr Base)(a))
-  assert (ptr Base)(make(Derived)) is (ptr Base)
-  assert (ptr Derived2)((ptr Base)(make(Derived2))) is (ptr Derived2)
-  assert (ptr Derived)((ptr Base)(make(Derived))) is (ptr Derived)
+  assert (ptr Base)(addr derived) is (ptr Base)
+  assert (ptr Derived2)((ptr Base)(addr derived2)) is (ptr Derived2)
+  assert (ptr Derived)((ptr Base)(addr derived)) is (ptr Derived)
