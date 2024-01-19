@@ -1434,7 +1434,7 @@ proc symForVar(c: PContext, n: PNode): PSym =
       semmedNode[0] = resultNode
       semmedNode[1] = pragma
 
-  if resultNode.kind == nkError or hasPragma and n[1].kind == nkError:
+  if resultNode.kind == nkError or hasPragma and semmedNode[1].kind == nkError:
     result = newSym(skError, result.name, nextSymId(c.idgen), result.owner,
                     n.info)
     result.typ = c.errorType
