@@ -211,8 +211,6 @@ proc runGc() =
   ## Runs a GC collection pass. This procedure will also collect any cycles assuming ORC is in use.
   ##
   ## When nimsuggest is being used as a library, no GC mode change will be performed.
-  when isMainModule and defined(gcOrc):
-    GC_enableOrc()
   GC_fullCollect()
   when isMainModule and defined(gcOrc):
     GC_disableOrc()
