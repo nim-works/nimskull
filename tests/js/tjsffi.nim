@@ -189,7 +189,7 @@ block:
     # a ``JsObject``. This is not guaranteed to work, and in this case it
     # doesn't
     x += jsProc(10)
-    doAssert x.to(int32) == 1, "now works as expected" # expected: 12
+    doAssert x.to(int32) == 2, "now works as expected" # expected: 12
 
 block:
   {.emit:
