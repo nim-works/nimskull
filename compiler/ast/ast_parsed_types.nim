@@ -226,7 +226,8 @@ type
     base*: NumericalBase
     literal*: string
 
-  ParsedNodeData*{.final, acyclic.} = object
+  # TODO: This type should be marked acyclic
+  ParsedNodeData*{.final.} = object
     # TODO: replace token fields with indexing into a token sequence, this
     #       should also address line info tracking.
     comment*: string       # TODO: replace with an index into a token stream

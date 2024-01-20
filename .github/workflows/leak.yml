@@ -1,0 +1,40 @@
+name: Test compiler and tools for memory leaks
+
+on:
+  # This is for passing required checks
+  pull_request:
+  merge_group:
+
+jobs:
+  leaktest:
+    # Skip this for PRs
+    if: github.event_name != 'pull_request'
+
+    name: Compiler and tools leak test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: tree:0
+
+      - name: Enable annotations
+        run: echo "::add-matcher::.github/nim-problem-matcher.json"
+
+      - name: Build release binaries with LeakSanitizer
+        run: |
+          ./koch.py all-strict \
+            -d:useMalloc \
+            --passC:-fsanitize=leak \
+            --passC:"-fno-omit-frame-pointer -mno-omit-leaf-frame-pointer" \
+            --passL:-fsanitize=leak \
+            --debuginfo \
+            --linedir
+
+      - name: Run tools tests
+        run: ./koch.py testTools
+
+      # NOTE: We don't run the full test suite here as self-bootstrap
+      # and tools testsuite can be considered enough to rat out memory leaks
+      # within the compiler itself.
