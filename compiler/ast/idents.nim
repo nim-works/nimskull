@@ -22,6 +22,7 @@ import
 
 type
   PIdent* = ref TIdent
+  # TODO: This type should be marked acyclic
   TIdent* = object
     id*: int ## unique id; use this for comparisons and not the pointers
     s*: string

@@ -121,6 +121,7 @@ proc cacheTypeInst(c: PContext; inst: PType) =
   addToGenericCache(c, gt.sym, inst)
 
 type
+  # TODO: This type should be marked acyclic
   LayeredIdTable* = ref object
     topLayer*: TIdTable
     nextLayer*: LayeredIdTable

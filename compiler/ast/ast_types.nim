@@ -1642,6 +1642,7 @@ type
 
   PInstantiation* = ref TInstantiation
 
+  # TODO: This type should be marked acyclic
   TScope* = object
     depthLevel*: int
     symbols*: TStrTable

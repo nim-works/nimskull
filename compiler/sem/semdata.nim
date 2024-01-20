@@ -59,6 +59,7 @@ type
 
   POptionEntry* = ref TOptionEntry
   PProcCon* = ref TProcCon
+  # TODO: This type should be marked acyclic
   TProcCon* = object ## procedure context; also used for top-level
                                  ## statements
     owner*: PSym              ## the symbol this context belongs to
