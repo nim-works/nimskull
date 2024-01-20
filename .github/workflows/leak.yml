@@ -8,9 +8,7 @@ on:
 jobs:
   leaktest:
     # Skip this for PRs
-    #
-    # FIXME: uncomment this before merge
-    # if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request'
 
     name: Compiler and tools leak test
     runs-on: ubuntu-latest
