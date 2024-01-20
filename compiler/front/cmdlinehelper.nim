@@ -66,6 +66,7 @@ type
     configDiagSevError = "Error:"
     configDiagSevWarn  = "Warning:"
     configDiagSevInfo  = "Hint:"
+    configDiagSevNone  = ""
 
 proc writeConfigEvent(conf: ConfigRef,
                        evt: ConfigFileEvent,
@@ -115,7 +116,7 @@ proc writeConfigEvent(conf: ConfigRef,
       of cekProgressConfStart:
         ""
   const severityColors: array[ConfDiagSeverity, ForegroundColor] = [
-    fgRed, fgRed, fgYellow, fgGreen
+    fgRed, fgRed, fgYellow, fgGreen, fgDefault
   ]
 
   template styleSeverity(sev: ConfDiagSeverity): string =
@@ -125,18 +126,23 @@ proc writeConfigEvent(conf: ConfigRef,
       $sev
 
   let
-    severity =
+    diagSeverity =
       case evt.kind
       of cekInternalError:
-        styleSeverity configDiagSevFatal
+        configDiagSevFatal
       of cekLexerErrorDiag..cekFlagError:
-        styleSeverity configDiagSevError
+        configDiagSevError
       of cekLexerWarningDiag:
-        styleSeverity configDiagSevWarn
+        configDiagSevWarn
       of cekProgressConfStart, cekProgressPathAdded:
-        styleSeverity configDiagSevInfo # xxx: not really a hint
+        configDiagSevInfo # xxx: not really a hint
       of cekWriteConfig:
-        "" # not a log/diagnostic like the rest; has none
+        configDiagSevNone # not a log/diagnostic like the rest; has none
+
+    severity = styleSeverity diagSeverity
+
+  if diagSeverity <= configDiagSevError:
+    inc conf.errorCounter
 
   conf.writeln:
     case evt.kind
