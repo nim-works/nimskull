@@ -11,7 +11,7 @@ discard """
 
 type Sequence[T] = seq[T]
 
-# tcompile-time-evaluated value must have a generic instantiation as the type
+# the compile-time-evaluated value must have a generic instantiation as the type
 # in order to reproduce the issue
 let x = static:
   var large: array[1024, int]
