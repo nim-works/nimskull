@@ -4,7 +4,7 @@ discard """
     has a type header
   '''
   knownIssue.vm: '''
-  Cannot 'importc' proc 'localtime' in 'times.nim' at compile time
+    'localtime' is not yet supported with the VM backend
   '''
 """
 

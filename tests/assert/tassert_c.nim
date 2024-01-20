@@ -1,10 +1,10 @@
 discard """
-  cmd: "nim $target $options --excessiveStackTrace:off $file"
+  matrix: "--excessiveStackTrace:off"
   output: '''true'''
   knownIssue.js vm:'''
-  JavaScript produces a different stacktrace output
-  message than the c target.
-  VM does not support 'getStackTrace' on an Exception.
+    JavaScript produces a different stacktrace output message than the C
+    target.
+    VM does not support 'getStackTrace' on an Exception.
   '''
 """
 

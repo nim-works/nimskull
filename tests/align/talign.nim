@@ -8,6 +8,7 @@ description: '''
   . From https://github.com/nim-lang/Nim/issues/13122
     {.align.} pragma is not applied if there is a generic field
 '''
+targets: "!js"
 knownIssue.vm: "VM does not support casting a ptr to a uint"
 """
 
