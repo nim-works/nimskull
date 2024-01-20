@@ -19,11 +19,9 @@
 ##
 ## The values of rvalue operations, calls, and construction are first captured
 ## in temporaries (as the MIR doesn't support them being used as, e.g., call
-## arguments directly). Lvalues that have side-effects (e.g., index errors)
-## are captured (together with their side-effects) via MIR alias. In general,
-## all call arguments are first assigned to a temporary, except if the
-## expression is stable (in case of by-name arguments) or pure (in case of
-## non-sink by-value arguments).
+## arguments directly). In general, all call arguments are first assigned to a
+## temporary, except if the expression is stable (in case of by-name
+## arguments) or pure (in case of non-sink by-value arguments).
 ##
 ## Pure expression are those that don't have side-effect and always refer to
 ## the exact same value, whereas stable expression are those that don't have
@@ -267,7 +265,7 @@ func isPure(tree: MirTree, n: NodePosition): bool =
 
 func isStable(tree: MirTree, n: NodePosition): bool =
   ## Returns whether the run-time address of the lvalue expression `n` is
-  ## always the same and whether the expression is side-effect free.
+  ## always the same, regardless of when the address is computed.
   case tree[n].kind
   of mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp, mnkAlias:
     true
