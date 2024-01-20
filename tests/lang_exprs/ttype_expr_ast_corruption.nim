@@ -2,7 +2,8 @@ discard """
   description: '''
     Ensure that a type expression can be used in the type slot of an object
     construction syntax, which is itself the argument to a `[]` procedure
-    call
+    call.
+    Reduced from https://github.com/nim-works/nimskull/issues/1113
   '''
 """
 
