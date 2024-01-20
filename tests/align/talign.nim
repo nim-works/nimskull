@@ -1,6 +1,5 @@
 discard """
 ccodeCheck: "\\i @'NIM_ALIGN(128) NI mylocal1' .*"
-targets: "c"
 labels: "pragma alignment generic"
 description: '''
   . First one is is for Azure. The keyword ``alignof`` only exists in ``c++11``
@@ -9,6 +8,8 @@ description: '''
   . From https://github.com/nim-lang/Nim/issues/13122
     {.align.} pragma is not applied if there is a generic field
 '''
+targets: "!js"
+knownIssue.vm: "VM does not support casting a ptr to a uint"
 """
 
 import globalalignas

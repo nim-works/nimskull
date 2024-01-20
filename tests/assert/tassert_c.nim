@@ -1,11 +1,16 @@
 discard """
-  cmd: "nim $target $options --excessiveStackTrace:off $file"
+  matrix: "--excessiveStackTrace:off"
   output: '''true'''
+  knownIssue.js vm:'''
+    JavaScript produces a different stacktrace output message than the C
+    target.
+    VM does not support 'getStackTrace' on an Exception.
+  '''
 """
 
 const expected = """
-tassert_c.nim(35)        tassert_c
-tassert_c.nim(34)        foo
+tassert_c.nim(40)        tassert_c
+tassert_c.nim(39)        foo
 assertions.nim(*)       failedAssertImpl
 assertions.nim(*)       raiseAssert
 fatal.nim(*)            sysFatal"""
