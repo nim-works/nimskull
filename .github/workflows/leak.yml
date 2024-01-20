@@ -26,6 +26,7 @@ jobs:
         run: |
           ./koch.py all-strict \
             -d:useMalloc \
+            -d:leakTest \
             --passC:-fsanitize=leak \
             --passC:"-fno-omit-frame-pointer -mno-omit-leaf-frame-pointer" \
             --passL:-fsanitize=leak \
