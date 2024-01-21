@@ -3085,7 +3085,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
               if formal.typ.kind != tyUntyped:
                 n[a] = operand
 
-            arg = paramTypesMatch(m, formal.typ, operand.typ, operand)            
+            arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
             if arg.isNil(): # invalid arg
               noMatch()
 
