@@ -38,7 +38,6 @@ import
   ],
   compiler/utils/[
     debugutils,
-    astrepr
   ],
   compiler/front/[
     msgs,
