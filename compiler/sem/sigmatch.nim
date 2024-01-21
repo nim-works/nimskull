@@ -2798,6 +2798,10 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         m.error.firstMismatch.kind = kVarNeeded
         noMatch()
 
+  template acceptsTyped(typ: PType): bool =
+    typ != nil and (typ.kind == tyTyped or
+                    typ.kind == tyVarargs and typ[0].kind == tyTyped)
+
   m.state = csMatch # until proven otherwise
   m.error.firstMismatch = MismatchInfo()
   m.call = newNodeIT(n.kind, n.info, m.callee.base)
@@ -2872,7 +2876,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
       # assume it's wrong, then prove it correct
       m.error.firstMismatch.kind = kUnknownNamedParam
-      
+
       # check if m.callee has such a param:
       prepareNamedParam(n[a], c)
       
@@ -2952,7 +2956,9 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       else:
         setSon(m.call, formal.position + 1, arg)
 
-      if arg.isError and not callsiteArgWasError:
+      if operand.kind == nkError and formal.typ.acceptsTyped:
+        discard "allow assignment of error nodes to typed formals"
+      elif arg.isError:
         noMatchDueToError()
 
       inc f
@@ -3018,9 +3024,12 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             container.add arg
             incrIndexType(container.typ)
 
-          if arg.isError:
+          if operand.kind == nkError and formal.typ.acceptsTyped:
+            discard "allow error nodes for typed parameters"
+          elif arg.kind == nkError:
             noMatchDueToError()
-          elif m.baseTypeMatch: # match type in `varargs[T]`
+
+          if m.baseTypeMatch: # match type `T` in `varargs[T]`
             checkConstraint(operand)
           else:
             noMatch()
@@ -3114,8 +3123,10 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
                   formal = formal.typ, actual = n[a].typ)]))
 
             noMatch()
-          
-          if arg.kind == nkError:
+
+          if operand.kind == nkError and formal.typ.acceptsTyped:
+            discard "allowed nkError nodes for typed parameters"
+          elif arg.kind == nkError:
             noMatchDueToError()
 
         checkConstraint(operand)
