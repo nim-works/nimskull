@@ -97,8 +97,6 @@ see also: tests/errmsgs/tdeclaredlocs.nim
 
 
 
-
-
 ## line 100
 when true:
   # bug #11061 Type mismatch error "first type mismatch at" points to wrong argument/position
