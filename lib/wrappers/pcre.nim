@@ -310,12 +310,7 @@ type
 
 when not defined(usePcreHeader):
   when hostOS == "windows":
-    when defined(nimOldDlls):
-      const pcreDll = "pcre.dll"
-    elif defined(cpu64):
-      const pcreDll = "pcre64.dll"
-    else:
-      const pcreDll = "pcre32.dll"
+    const pcreDll = "(lib|)pcre.dll"
   elif hostOS == "macosx":
     const pcreDll = "libpcre(.3|.1|).dylib"
   else:
