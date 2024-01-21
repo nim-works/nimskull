@@ -1256,7 +1256,7 @@ type
     adSemDeprecatedCompilerOptArg   # warning promoted to error
 
   PAstDiag* = ref TAstDiag
-  TAstDiag* = object
+  TAstDiag* {.acyclic.} = object
     # xxx: consider splitting storage type vs message
     # xxx: consider breaking up diag into smaller types
     # xxx: try to shrink the int/int128 etc types for counts/ordinals
@@ -1642,8 +1642,8 @@ type
 
   PInstantiation* = ref TInstantiation
 
-  # TODO: This type should be marked acyclic
-  TScope* = object
+  TScope* {.acyclic.} = object
+    ## Scopes form a stack; cycles are not allowed.
     depthLevel*: int
     symbols*: TStrTable
     parent*: PScope

@@ -16,8 +16,7 @@ const
   Mhalf = M div 2
 
 type
-  # TODO: This type should be marked acyclic
-  Node[Key, Val]  = ref object
+  Node[Key, Val] {.acyclic.} = ref object
     entries: int
     keys: array[M, Key]
     case isInternal: bool
