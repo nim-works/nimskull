@@ -1562,7 +1562,9 @@ type
         discard
 
   TNode*{.final.} = object # on a 32bit machine, this takes 32 bytes
-                                    # on a 64bit machine, this takes 40 bytes
+                           # on a 64bit machine, this takes 40 bytes
+    # NOTE: don't mark as `.acyclic`. User-created AST might form cycles, and
+    # nodes can also form reference cycles with ``PSym`` and ``PType``
     typ*: PType
     id*: NodeId  # placed after `typ` field to save space due to field alignment
     info*: TLineInfo
