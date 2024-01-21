@@ -152,8 +152,8 @@ proc evalTemplateArgs*(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode
   
   for i in 1..givenRegularParams:
     # xxx: propagate nkError
-    if n[1].isError:
-      conf.localReport(n[1])
+    if n[i].isError:
+      conf.localReport(n[i])
     
     result.add n[i]
 
