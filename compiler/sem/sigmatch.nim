@@ -2798,9 +2798,10 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         m.error.firstMismatch.kind = kVarNeeded
         noMatch()
 
-  template acceptsTyped(typ: PType): bool =
-    typ != nil and (typ.kind == tyTyped or
-                    typ.kind == tyVarargs and typ[0].kind == tyTyped)
+  template acceptsTyped(callee: PSym, typ: PType): bool =
+    callee != nil and callee.kind in {skMacro, skTemplate} and
+      typ != nil and (typ.kind == tyTyped or
+                      typ.kind == tyVarargs and typ[0].kind == tyTyped)
 
   m.state = csMatch # until proven otherwise
   m.error.firstMismatch = MismatchInfo()
@@ -2956,7 +2957,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       else:
         setSon(m.call, formal.position + 1, arg)
 
-      if operand.kind == nkError and formal.typ.acceptsTyped:
+      if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
         discard "allow assignment of error nodes to typed formals"
       elif arg.isError:
         noMatchDueToError()
@@ -3024,7 +3025,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             container.add arg
             incrIndexType(container.typ)
 
-          if operand.kind == nkError and formal.typ.acceptsTyped:
+          if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
             discard "allow error nodes for typed parameters"
           elif arg.kind == nkError:
             noMatchDueToError()
@@ -3124,7 +3125,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
             noMatch()
 
-          if operand.kind == nkError and formal.typ.acceptsTyped:
+          if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
             discard "allowed nkError nodes for typed parameters"
           elif arg.kind == nkError:
             noMatchDueToError()
