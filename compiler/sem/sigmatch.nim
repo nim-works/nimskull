@@ -2236,6 +2236,8 @@ proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
 proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
                         argSemantized: PNode): PNode =
   if argSemantized.isError:
+    # xxx: this is wrong, we should check for at least a `typed`, and
+    #      `varargs[typed]`, formal and create a new error.
     result = argSemantized
     return
   
