@@ -3011,7 +3011,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
                 n[a] = operand
               arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
 
-          if arg.isNil or                 # valid argumet
+          if arg.isNil or                 # valid argument
              container.isNil:             # container must exist
             noMatch()
           else:
