@@ -69,6 +69,7 @@ proc parseTest(filename: string; epcMode=false): Test =
         result.script.add((x.substr(1).replaceWord("$path", tpath), ""))
       elif x.len > 0:
         # expected output line:
+        let filename = replace(filename, '\\', '/')
         let x = x % ["file", filename, "lib", libpath]
         result.script[^1][1].add x.replace(";;", "\t") & '\L'
         # else: ignore empty lines for better readability of the specs
@@ -211,7 +212,7 @@ proc sexpToAnswer(s: SexpNode): string =
       result.add '\t'
       result.add typ
       result.add '\t'
-      result.add file
+      result.add replace(file, '\\', '/')
       result.add '\t'
       result.addInt line
       result.add '\t'
