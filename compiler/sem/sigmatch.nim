@@ -2958,7 +2958,9 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         setSon(m.call, formal.position + 1, arg)
 
       if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
-        discard "allow assignment of error nodes to typed formals"
+        # allow assignment of error nodes to typed formals, but lower the score
+        # to not show up as an ambiguity.
+        dec m.exactMatches
       elif arg.isError:
         noMatchDueToError()
 
@@ -3026,7 +3028,9 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             incrIndexType(container.typ)
 
           if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
-            discard "allow error nodes for typed parameters"
+            # allow assignment of error nodes to typed formals, but lower the
+            # score to not show up as an ambiguity.
+            dec m.exactMatches
           elif arg.kind == nkError:
             noMatchDueToError()
 
@@ -3126,7 +3130,9 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             noMatch()
 
           if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
-            discard "allowed nkError nodes for typed parameters"
+            # allow assignment of error nodes to typed formals, but lower the
+            # score to not show up as an ambiguity.
+            dec m.exactMatches
           elif arg.kind == nkError:
             noMatchDueToError()
 
