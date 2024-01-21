@@ -1204,13 +1204,6 @@ proc genDatInitCode*(m: BModule): bool =
       moduleDatInitRequired = true
       prc.add(m.s[i])
 
-  # setting up the TLS must happen before initializing the ``system`` module,
-  # so we emit the call at the end of the data-init procedure:
-  if sfSystemModule in m.module.flags and
-     emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
-    moduleDatInitRequired = true
-    prc.addf("\tinitThreadVarsEmulation();$N", [])
-
   prc.addf("}$N$N", [])
 
   if moduleDatInitRequired:
