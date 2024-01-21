@@ -2233,11 +2233,14 @@ proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
   else:
     discard "result is already set"
 
+template acceptsTyped(callee: PSym, typ: PType): bool =
+  callee != nil and callee.kind in {skMacro, skTemplate} and
+    typ != nil and (typ.kind == tyTyped or
+                    typ.kind == tyVarargs and typ[0].kind == tyTyped)
+
 proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
                         argSemantized: PNode): PNode =
-  if argSemantized.isError:
-    # xxx: this is wrong, we should check for at least a `typed`, and
-    #      `varargs[typed]`, formal and create a new error.
+  if argSemantized.isError and not acceptsTyped(m.calleeSym, f):
     result = argSemantized
     return
   
@@ -2798,11 +2801,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         m.error.firstMismatch.kind = kVarNeeded
         noMatch()
 
-  template acceptsTyped(callee: PSym, typ: PType): bool =
-    callee != nil and callee.kind in {skMacro, skTemplate} and
-      typ != nil and (typ.kind == tyTyped or
-                      typ.kind == tyVarargs and typ[0].kind == tyTyped)
-
   m.state = csMatch # until proven otherwise
   m.error.firstMismatch = MismatchInfo()
   m.call = newNodeIT(n.kind, n.info, m.callee.base)
@@ -2926,13 +2924,13 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
         case operand.kind
         of nkError:
-          arg = operand
+          discard "assigned below"
         else:
           if formal.typ.kind != tyUntyped:
             n[a][1] = operand
             n[a].typ = n[a][1].typ
 
-          arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+        arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
 
       m.error.firstMismatch.kind = kTypeMismatch
 
@@ -2958,9 +2956,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         setSon(m.call, formal.position + 1, arg)
 
       if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
-        # allow assignment of error nodes to typed formals, but lower the score
-        # to not show up as an ambiguity.
-        dec m.exactMatches
+        discard "typed params accept errors, rejected in evalTemplateArgs"
       elif arg.isError:
         noMatchDueToError()
 
@@ -3014,11 +3010,11 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
             case operand.kind
             of nkError:
-              arg = operand
+              discard "args assigned below"
             else:
               if formal.typ.kind != tyUntyped:
                 n[a] = operand
-              arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+            arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
 
           if arg.isNil or                 # valid argument
              container.isNil:             # container must exist
@@ -3028,9 +3024,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             incrIndexType(container.typ)
 
           if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
-            # allow assignment of error nodes to typed formals, but lower the
-            # score to not show up as an ambiguity.
-            dec m.exactMatches
+            discard "typed params accept errors, rejected in evalTemplateArgs"
           elif arg.kind == nkError:
             noMatchDueToError()
 
@@ -3086,14 +3080,14 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
             case operand.kind
             of nkError:
-              arg = operand
+              discard "assigned below"
             else:
               if formal.typ.kind != tyUntyped:
                 n[a] = operand
-              arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
-              
-              if arg.isNil(): # invalid arg
-                noMatch()
+
+            arg = paramTypesMatch(m, formal.typ, operand.typ, operand)            
+            if arg.isNil(): # invalid arg
+              noMatch()
 
           if m.baseTypeMatch or
              (formal.typ.kind == tyVarargs and arg.kind == nkError): # var args
@@ -3130,9 +3124,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             noMatch()
 
           if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
-            # allow assignment of error nodes to typed formals, but lower the
-            # score to not show up as an ambiguity.
-            dec m.exactMatches
+            discard "typed params accept errors, rejected in evalTemplateArgs"
           elif arg.kind == nkError:
             noMatchDueToError()
 
