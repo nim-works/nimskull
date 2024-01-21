@@ -2762,7 +2762,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
   template noMatchAux() =
     m.state = csNoMatch
     m.error.firstMismatch.pos = a
-    m.error.firstMismatch.arg = n[a]
+    m.error.firstMismatch.arg = operand
     m.error.firstMismatch.formal = formal
     return
 
@@ -2839,6 +2839,8 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
   while a < n.len:
     c.openShadowScope
 
+    operand = n[a] # initialize to current arg in case of early `noMatch`
+
     # untyped varargs
     if a >= formalLen - 1 and              # last or finished passing args
        f < formalLen and                   # still have more formal params
@@ -2846,8 +2848,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       
       formal = m.callee.n[f].sym
       incl(marker, formal.position)
-
-      operand = n[a] # initialize to current arg in case of early `noMatch`
 
       case n[a].kind
       of nkHiddenStdConv:
