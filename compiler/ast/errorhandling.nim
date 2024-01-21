@@ -38,6 +38,7 @@ import
   ],
   compiler/utils/[
     debugutils,
+    astrepr
   ],
   compiler/front/[
     msgs,
@@ -175,7 +176,8 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
     errs.add n
   else:
     for i in 0..<n.len:
-      buildErrorList(config, n[i], errs)
+      if n[i] != nil:
+        buildErrorList(config, n[i], errs)
 
 iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   ## traverses the ast and yields errors from innermost to outermost. this is a
