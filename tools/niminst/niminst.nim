@@ -764,13 +764,6 @@ proc checkedExec(args: varargs[string]) =
   if exitCode != 0:
     raise newExternalProgramError(exitCode)
 
-proc checkedShellExec(cmd: string) =
-  ## Same as `shellExec`, but raise `ExternalProgramError` if the external
-  ## program fails.
-  let exitCode = shellExec(cmd)
-  if exitCode != 0:
-    raise newExternalProgramError(exitCode)
-
 proc computeChecksum(file: string): string =
   ## Calculate the SHA256 hash for `file`.
   let p = startProcess(
@@ -970,16 +963,8 @@ proc createArchiveDist(c: var ConfigData) =
       let fileList = archiveBaseName & ".files.txt"
       writeFile(fileList, paths.join("\n"))
 
-      # Set timezone to UTC so that timestamp recorded in the zip file is not
-      # affected by the timezone.
-      putEnv("TZ", "UTC")
-
       manifest.name = archiveBaseName & ".zip"
-
-      # TODO: Get rid of this hack once osproc gain the ability to modify just
-      # one portion of the child standard I/O.
-      checkedShellExec:
-        "zip -nw -X -@ $1 < $2" % [quoteShell(manifest.name), quoteShell(fileList)]
+      checkedExec("7za", "a", "-tzip", manifest.name, "@" & fileList)
 
     of tarFormats:
       # Write the list into a file then supply that file to archival programs to
