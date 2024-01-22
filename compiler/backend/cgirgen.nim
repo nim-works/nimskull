@@ -28,6 +28,7 @@ import
   ],
   compiler/mir/[
     mirbodies,
+    mirenv,
     mirtrees,
     sourcemaps
   ],
@@ -260,10 +261,10 @@ proc genObjConv(n: CgNode, a, b, t: PType): CgNode =
     n.info, t): n
 
 # forward declarations:
-proc stmtToIr(tree: MirBody, cl: var TranslateCl,
+proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
               cr: var TreeCursor): CgNode
-proc scopeToIr(tree: MirBody, cl: var TranslateCl, cr: var TreeCursor,
-               allowExpr=false): seq[CgNode]
+proc scopeToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
+               cr: var TreeCursor, allowExpr=false): seq[CgNode]
 
 proc handleSpecialConv(c: ConfigRef, n: CgNode, info: TLineInfo,
                        dest: PType): CgNode =
@@ -479,7 +480,7 @@ proc callToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
 
 proc exprToIr(tree: MirBody, cl: var TranslateCl, cr: var TreeCursor): CgNode
 
-proc defToIr(tree: MirBody, cl: var TranslateCl,
+proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
            n: MirNode, cr: var TreeCursor): CgNode =
   ## Translates a 'def'-like construct
   assert n.kind in DefNodes
@@ -569,7 +570,7 @@ proc defToIr(tree: MirBody, cl: var TranslateCl,
     # terms of initialization)
     case arg.kind
     of cnkEmpty:
-      if sfImportc in def.sym.flags:
+      if sfImportc in env.globals[def.global].flags:
         # for imported globals, the 'def' only means that the symbol becomes
         # known to us, not that it starts its lifetime here -> don't
         # initialize or move it
@@ -581,7 +582,7 @@ proc defToIr(tree: MirBody, cl: var TranslateCl,
       else:
         result = newStmt(cnkAsgn, info, [def, newDefaultCall(info, def.typ)])
     else:
-      if sfImportc notin def.sym.flags and cl.inUnscoped:
+      if sfImportc notin env.globals[def.global].flags and cl.inUnscoped:
         # default intialization is required at the start of the scope
         cl.defs.add def
       result = newStmt(cnkAsgn, info, [def, arg])
@@ -603,26 +604,26 @@ proc translateNode(n: PNode): CgNode =
     # cannot reach here
     unreachable(n.kind)
 
-proc bodyToIr(tree: MirBody, cl: var TranslateCl,
+proc bodyToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
               cr: var TreeCursor): CgNode =
   ## Generates the ``CgNode`` tree for the body of a construct that implies
   ## some form of control-flow.
   let prev = cl.inUnscoped
   # assume the body is unscoped until stated otherwise
   cl.inUnscoped = true
-  result = stmtToIr(tree, cl, cr)
+  result = stmtToIr(tree, env, cl, cr)
   cl.inUnscoped = prev
 
-proc caseToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
+proc caseToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl, n: MirNode,
               cr: var TreeCursor): CgNode
 
-proc stmtToIr(tree: MirBody, cl: var TranslateCl,
+proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
               cr: var TreeCursor): CgNode =
   let n {.cursor.} = tree.get(cr)
   let info = cr.info ## the source information of `n`
 
   template body(): CgNode =
-    bodyToIr(tree, cl, cr)
+    bodyToIr(tree, env, cl, cr)
 
   template to(kind: CgNodeKind, args: varargs[untyped]): CgNode =
     let r = newStmt(kind, info, args)
@@ -638,7 +639,7 @@ proc stmtToIr(tree: MirBody, cl: var TranslateCl,
 
   case n.kind
   of DefNodes:
-    defToIr(tree, cl, n, cr)
+    defToIr(tree, env, cl, n, cr)
   of mnkAsgn, mnkInit, mnkSwitch:
     to cnkAsgn, lvalueToIr(tree, cl, cr), exprToIr(tree, cl, cr)
   of mnkFastAsgn:
@@ -710,7 +711,7 @@ proc stmtToIr(tree: MirBody, cl: var TranslateCl,
       of mnkNone: atomToIr(tree, cl, cr)
       else:       lvalueToIr(tree, cl, cr)
   of mnkCase:
-    caseToIr(tree, cl, n, cr)
+    caseToIr(tree, env, cl, n, cr)
   of mnkAsm:
     toList cnkAsmStmt:
       res.add valueToIr(tree, cl, cr)
@@ -719,13 +720,13 @@ proc stmtToIr(tree: MirBody, cl: var TranslateCl,
       res.add valueToIr(tree, cl, cr)
   of mnkStmtList:
     toList cnkStmtList:
-      res.kids.addIfNotEmpty stmtToIr(tree, cl, cr)
+      res.kids.addIfNotEmpty stmtToIr(tree, env, cl, cr)
   of mnkScope:
-    toSingleNode scopeToIr(tree, cl, cr)
+    toSingleNode scopeToIr(tree, env, cl, cr)
   of AllNodeKinds - StmtNodes:
     unreachable(n.kind)
 
-proc caseToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
+proc caseToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl, n: MirNode,
               cr: var TreeCursor): CgNode =
   assert n.kind == mnkCase
   result = newStmt(cnkCaseStmt, cr.info, [valueToIr(tree, cl, cr)])
@@ -737,7 +738,7 @@ proc caseToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
       for x in 0..<br.len:
         result[^1].add translateLit(get(tree, cr).lit)
 
-    result[^1].add bodyToIr(tree, cl, cr)
+    result[^1].add bodyToIr(tree, env, cl, cr)
     leave(tree, cr)
 
   leave(tree, cr)
@@ -821,7 +822,7 @@ proc genDefFor(sym: sink CgNode): CgNode =
   else:
     unreachable()
 
-proc scopeToIr(tree: MirBody, cl: var TranslateCl,
+proc scopeToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
                cr: var TreeCursor, allowExpr = false): seq[CgNode] =
   let
     ends =
@@ -836,7 +837,7 @@ proc scopeToIr(tree: MirBody, cl: var TranslateCl,
   var stmts: seq[CgNode]
   # translate all statements:
   while cr.hasNext(tree) and tree[cr].kind notin ends:
-    stmts.addIfNotEmpty stmtToIr(tree, cl, cr)
+    stmts.addIfNotEmpty stmtToIr(tree, env, cl, cr)
 
   if cr.hasNext(tree) and tree[cr].kind == mnkEnd:
     leave(tree, cr) # close the sub-tree
@@ -853,10 +854,11 @@ proc scopeToIr(tree: MirBody, cl: var TranslateCl,
 
   result = stmts
 
-proc tb(tree: MirBody, cl: var TranslateCl, start: NodePosition): CgNode =
+proc tb(tree: MirBody, env: MirEnv, cl: var TranslateCl,
+        start: NodePosition): CgNode =
   ## Translate `tree` to the corresponding ``CgNode`` representation.
   var cr = TreeCursor(pos: start.uint32)
-  var nodes = scopeToIr(tree, cl, cr, allowExpr=true)
+  var nodes = scopeToIr(tree, env, cl, cr, allowExpr=true)
   if cr.hasNext(tree):
     # the tree must be an expression; the last node is required to be an atom
     let x = atomToIr(tree, cl, cr)
@@ -869,7 +871,8 @@ proc tb(tree: MirBody, cl: var TranslateCl, start: NodePosition): CgNode =
     # it's a statement list
     toSingleNode nodes
 
-proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
+proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: MirEnv,
+                 owner: PSym,
                  body: sink MirBody): Body =
   ## Generates the ``CgNode`` IR corresponding to the input MIR `body`,
   ## using `idgen` to provide new IDs when creating symbols.
@@ -901,5 +904,5 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
       add(owner.ast[paramsPos][^1].sym)
 
   result = Body()
-  result.code = tb(body, cl, NodePosition 0)
+  result.code = tb(body, env, cl, NodePosition 0)
   result.locals = cl.locals
