@@ -154,9 +154,9 @@ proc singleToStr(n: MirNode, result: var string, env: EnvPtr) =
   of mnkConst:
     result.addName(n.cnst, "<C", env)
   of mnkGlobal:
-    result.addName(n.cnst, "<G", env)
+    result.addName(n.global, "<G", env)
   of mnkProc:
-    result.addName(n.cnst, "<P", env)
+    result.addName(n.prc, "<P", env)
   of mnkTemp, mnkAlias:
     result.add "_" & $n.temp.int
   of mnkNone:
