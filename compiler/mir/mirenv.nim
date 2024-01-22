@@ -36,6 +36,10 @@ type
       ## includes both normal globals and threadvars
     procedures*: SymbolTable[ProcedureId, PSym]
 
+  EnvCheckpoint* = tuple
+    ## A low-cost snapshot of a `MirEnv <#MirEnv>`_.
+    procs, globals, consts: Checkpoint
+
 func toMir(s: sink PSym, t: typedesc): PSym =
   ## Translates a symbol to the MIR representation for the given entity.
   ## Overload this procedure for customizing the translation process.
@@ -70,6 +74,11 @@ proc len*[I, T](tab: SymbolTable[I, T]): int =
   ## The number of entities in `tab`.
   tab.data.nextId().int
 
+func checkpoint*[I, T](tab: SymbolTable[I, T]): Checkpoint =
+  ## Creates a checkpoint that represents the current state of `tab`. This
+  ## is a very low-cost operation, which doesn't perform any heap allocation.
+  checkpoint(tab.data)
+
 # ------- MirEnv API --------
 
 func `[]`*(env: MirEnv, id: ConstId): lent PSym {.inline.} =
@@ -81,7 +90,32 @@ func `[]`*(env: MirEnv, id: GlobalId): lent PSym {.inline.} =
 func `[]`*(env: MirEnv, id: ProcedureId): lent PSym {.inline.} =
   env.procedures.data[id]
 
+func checkpoint*(env: MirEnv): EnvCheckpoint =
+  ## Creates a snapshot of `env`. This is a low-cost operation, where no
+  ## copies are involved.
+  (env.procedures.checkpoint, env.globals.checkpoint, env.constants.checkpoint)
+
+proc rewind*(env: var MirEnv, to: EnvCheckpoint) =
+  ## Undoes all additions to `env` since `to` was created. Do note that all
+  ## checkpoints created after `to` are invalidated.
+  template rewind[I](tab: SymbolTable[I, PSym], to: Checkpoint) =
+    # remove the mappings
+    for _, it in since(tab.data, to):
+      tab.map.del(it.id)
+
+    # then rewind the Store
+    rewind(tab.data, to)
+
+  rewind(env.procedures, to.procs)
+  rewind(env.constants, to.consts)
+  rewind(env.globals, to.globals)
+
 iterator items*[I, T](tab: SymbolTable[I, T]): (I, lent T) =
   ## Returns all entities in `tab` together with their ID.
   for id, it in tab.data.pairs:
+    yield (id, it)
+
+iterator since*[I; T](tab: SymbolTable[I, T], p: Checkpoint): (I, lent T) =
+  ## Returns all entities from `tab` that were added since `p` was created.
+  for id, it in since(tab.data, p):
     yield (id, it)
