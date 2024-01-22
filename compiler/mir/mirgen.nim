@@ -1019,7 +1019,7 @@ proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
   of skTemplate:
     # for late template invocations, the callee template is an argument
     c.subTree mnkArg:
-      genCallee(c, n[1])
+      c.use literal(newTreeIT(nkNimNodeLit, n[1].info, n[1].typ, n[1]))
   else:
     unreachable(kind)
 

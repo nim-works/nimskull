@@ -1997,7 +1997,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
 
     # pass the template symbol as the first argument
     var callee = TDest(x)
-    c.genLit(call[1], c.toNodeCnst(newSymNode(call[1].sym)), callee)
+    c.genLit(call[1], c.toNodeCnst(call[1].astLit), callee)
     # XXX: don't create a new symbol node here; in ``transformExpandToAst``,
     #      emit an ``nkNimNodeLit`` for the callee instead
 
