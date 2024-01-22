@@ -45,6 +45,7 @@ import
     vmcompilerserdes,
     vmdef,
     vmgen,
+    vmjit_checks,
     vmlinker,
     vmmemory,
     vmtypegen
@@ -123,6 +124,14 @@ proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
 
     c.complexConsts.add handle
 
+template preCheck(env: MirEnv, n: PNode) =
+  ## Verifies that `n` can be build and run in JIT mode. If not, aborts the
+  ## surrounding routine by returning a ``VmGenResult``.
+  block:
+    let r = validate(env, n)
+    if r.isErr:
+      return VmGenResult.err(r.takeErr)
+
 func removeLastEof(c: var TCtx) =
   let last = c.code.len-1
   if last >= 0 and c.code[last].opcode == opcEof:
@@ -190,6 +199,7 @@ template runCodeGen(c: var TCtx, cg: var CodeGenCtx, b: Body,
 
 proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   ## Generates and emits code for the standalone top-level statement `n`.
+  preCheck(jit.gen.env, n)
   c.removeLastEof()
 
   let cp = checkpoint(jit.gen.env)
@@ -217,6 +227,7 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
 
 proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   ## Generates and emits code for the standalone expression `n`
+  preCheck(jit.gen.env, n)
   c.removeLastEof()
 
   # XXX: the way standalone expressions are currently handled is going to
@@ -247,8 +258,6 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   result = VmGenResult.ok: (start: start, regCount: r.get)
 
 proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
-  c.removeLastEof()
-
   let body =
     if isCompileTimeProc(s) and not defined(nimsuggest):
       # no need to go through the transformation cache
@@ -259,6 +268,9 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
       # retrieve the transformed body for non-compile-only routines or
       # when in suggest mode
       transformBody(c.graph, c.idgen, s, cache = true)
+
+  preCheck(jit.gen.env, body)
+  c.removeLastEof()
 
   let cp = checkpoint(jit.gen.env)
 

@@ -2123,23 +2123,6 @@ proc importcCondVar*(s: PSym): bool {.inline.} =
   if sfImportc in s.flags:
     return s.kind in {skVar, skLet, skConst}
 
-# TODO: the "can eval" checks below need to happend *before* the AST -> MIR
-#       translation
-#[
-proc checkCanEval(c: TCtx; n: CgNode) =
-  # we need to ensure that we don't evaluate 'x' here:
-  # proc foo() = var x ...
-  let s = n.sym
-  if {sfCompileTime, sfGlobal} <= s.flags: return
-  if s.importcCondVar:
-    # Defining importc'ed variables is allowed and since `checkCanEval` is
-    # also used by `genVarSection`, don't fail here
-    return
-  if s.kind in {skProc, skFunc, skConverter, skMethod,
-                  skIterator} and sfForward in s.flags:
-    cannotEval(c, n)
-]#
-
 proc genDiscrVal(c: var TCtx, discr, n: CgNode, oty: PType): TRegister =
   ## Generate the code for preparing and loading the discriminator value
   ## as expected by the execution engine
@@ -2868,11 +2851,6 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     let magic = getMagic(c.env, n)
     if magic != mNone:
       genMagic(c, n, dest, magic)
-    elif n[0].kind == cnkProc and n[0].sym.kind == skMethod and
-         c.mode != emStandalone:
-        # XXX: detect and reject this earlier -- it's not a code
-        #      generation error
-        fail(n.info, vmGenDiagCannotCallMethod, sym = n[0].sym)
     else:
       genCall(c, n, dest)
       clearDest(c, n, dest)
