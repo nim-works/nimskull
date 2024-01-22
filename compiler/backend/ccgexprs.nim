@@ -574,7 +574,7 @@ proc genRecordField(p: BProc, e: CgNode, d: var TLoc) =
   var a: TLoc
   genRecordFieldAux(p, e, d, a)
   var r = rdLoc(a)
-  var f = e[1].sym
+  var f = e[1].field
   let ty = skipTypes(a.t, abstractInst + tyUserTypeClasses)
   p.config.internalAssert(ty.kind == tyObject, e[0].info)
   if true:
@@ -618,10 +618,10 @@ proc genFieldCheck(p: BProc, e: CgNode) =
     of tyEnum:
       # use the compiler-generated enum-to-string procedure
       let prc = p.module.g.graph.getToStringProc(v.t)
-      p.module.extra.add prc # late dependency
+      discard registerLateProc(p.module, prc)
 
       var tmp: TLoc
-      expr(p, newSymNode(prc), tmp)
+      expr(p, newSymNode(p.env, prc), tmp)
       toStr = "$1($2)" % [rdLoc(tmp), rdLoc(v)]
       raiseProc = "raiseFieldErrorStr"
 
@@ -1102,7 +1102,7 @@ proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
   for it in e.items:
     var tmp2: TLoc
     tmp2.r = r
-    let field = lookupFieldAgain(p, ty, it[0].sym, tmp2.r)
+    let field = lookupFieldAgain(p, ty, it[0].field, tmp2.r)
     ensureObjectFields(p.module, field, ty)
     tmp2.r.add(".")
     tmp2.r.add(p.fieldName(field))
@@ -1250,7 +1250,7 @@ proc genGetTypeInfo(p: BProc, e: CgNode, d: var TLoc) =
 
 proc genGetTypeInfoV2(p: BProc, e: CgNode, d: var TLoc) =
   let t = e[1].typ
-  if isFinal(t) or e[0].sym.name.s != "getDynamicTypeInfo":
+  if isFinal(t) or p.env[e[0].prc].name.s != "getDynamicTypeInfo":
     # ordinary static type information
     putIntoDest(p, d, e, genTypeInfoV2(p.module, t, e.info))
   else:
@@ -1723,7 +1723,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     let member =
       if dotExpr.kind == cnkTupleAccess:
         "Field" & rope(dotExpr[1].intVal)
-      else: p.fieldName(dotExpr[1].sym)
+      else: p.fieldName(dotExpr[1].field)
     putIntoDest(p,d,e, "((NI)offsetof($1, $2))" % [tname, member])
   of mChr: genSomeCast(p, e, d)
   of mOrd: genOrd(p, e, d)
@@ -1736,7 +1736,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
      mInSet:
     genSetOp(p, e, d, op)
   of mNewString, mNewStringOfCap, mExit, mParseBiggestFloat:
-    var opr = e[0].sym
+    var opr = p.env[e[0].prc]
     # Why would anyone want to set nodecl to one of these hardcoded magics?
     # - not sure, and it wouldn't work if the symbol behind the magic isn't
     #   somehow forward-declared from some other usage, but it is *possible*
@@ -1752,7 +1752,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mArrToSeq: genArrToSeq(p, e, d)
   of mNLen..mNError, mStatic..mQuoteAst:
     localReport(p.config, e.info, reportSym(
-      rsemConstExpressionExpected, e[0].sym))
+      rsemConstExpressionExpected, p.env[e[0].prc]))
 
   of mDeepCopy:
     if p.config.selectedGC in {gcArc, gcOrc} and optEnableDeepCopy notin p.config.globalOptions:
@@ -1992,7 +1992,8 @@ proc exprComplexConst(p: BProc, n: CgNode, d: var TLoc) =
     if t.kind notin {tySequence, tyString}:
       d.storage = OnStatic
 
-proc useConst*(m: BModule; sym: PSym) =
+proc useConst*(m: BModule; id: ConstId) =
+  let sym = m.g.env[id]
   useHeader(m, sym)
   if exfNoDecl in sym.extFlags:
     return
@@ -2002,19 +2003,20 @@ proc useConst*(m: BModule; sym: PSym) =
   # one the constant is part of
   if q != m and not containsOrIncl(m.declaredThings, sym.id):
     let headerDecl = "extern NIM_CONST $1 $2;$n" %
-        [getTypeDesc(m, sym.typ, skVar), q.consts[sym].r]
+        [getTypeDesc(m, sym.typ, skVar), q.consts[id].r]
     m.s[cfsData].add(headerDecl)
 
-proc genConstDefinition*(q: BModule; sym: PSym) =
+proc genConstDefinition*(q: BModule; id: ConstId) =
+  let sym = q.g.env[id]
   let name = mangleName(q.g.graph, sym)
   if exfNoDecl notin sym.extFlags:
     let p = newProc(nil, q)
     q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
         [getTypeDesc(q, sym.typ), name,
-        genBracedInit(p, translate(sym.ast), sym.typ)])
+        genBracedInit(p, translate(q.g.env, sym.ast), sym.typ)])
 
   # all constants need a loc:
-  q.consts.put(sym, initLoc(locData, newSymNode(sym), name, OnStatic))
+  q.consts[id] = initLoc(locData, newSymNode(q.g.env, sym), name, OnStatic)
 
 proc expr(p: BProc, n: CgNode, d: var TLoc) =
   when defined(nimCompilerStacktraceHints):
@@ -2023,34 +2025,33 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
 
   case n.kind
   of cnkProc:
-    let sym = n.sym
+    let sym = p.env[n.prc]
     if sfCompileTime in sym.flags:
       localReport(p.config, n.info, reportSym(
         rsemCannotCodegenCompiletimeProc, sym))
 
-    useProc(p.module, sym)
-    putIntoDest(p, d, n, p.module.procs[sym].name, OnStack)
+    useProc(p.module, n.prc)
+    putIntoDest(p, d, n, p.module.procs[n.prc].name, OnStack)
   of cnkConst:
-    let sym = n.sym
-    if isSimpleConst(sym.typ):
-      putIntoDest(p, d, n, genLiteral(p, translate(sym.ast), sym.typ), OnStatic)
+    if isSimpleConst(n.typ):
+      let data = translate(p.env, p.env[n.cnst].ast)
+      putIntoDest(p, d, n, genLiteral(p, data, n.typ), OnStatic)
     else:
-      useConst(p.module, sym)
-      putLocIntoDest(p, d, p.module.consts[sym])
+      useConst(p.module, n.cnst)
+      putLocIntoDest(p, d, p.module.consts[n.cnst])
   of cnkGlobal:
-    let sym = n.sym
-    assert sfGlobal in sym.flags
-    genVarPrototype(p.module, n)
+    let id = n.global
+    genVarPrototype(p.module, id)
 
-    if sfThread in sym.flags:
-      accessThreadLocalVar(p, sym)
+    if sfThread in p.env[id].flags:
+      accessThreadLocalVar(p)
       if emulatedThreadVars(p.config):
-        let loc {.cursor.} = p.module.globals[sym]
+        let loc {.cursor.} = p.module.globals[id]
         putIntoDest(p, d, loc.lode, "NimTV_->" & loc.r)
       else:
-        putLocIntoDest(p, d, p.module.globals[sym])
+        putLocIntoDest(p, d, p.module.globals[id])
     else:
-      putLocIntoDest(p, d, p.module.globals[sym])
+      putLocIntoDest(p, d, p.module.globals[id])
   of cnkLocal:
     putLocIntoDest(p, d, p.locals[n.local])
   of cnkStrLit:
@@ -2059,7 +2060,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     putIntoDest(p, d, n, genLiteral(p, n))
   of cnkCall, cnkCheckedCall:
     genLineDir(p, n) # may be redundant, it is generated in fixupCall as well
-    let m = getCalleeMagic(n[0])
+    let m = getCalleeMagic(p.env, n[0])
     if n.typ.isNil:
       # discard the value:
       var a: TLoc
@@ -2227,7 +2228,7 @@ proc getNullValueAux(p: BProc; t: PType; obj: PNode, constOrNil: CgNode,
       ## find kind value, default is zero if not specified
       for it in constOrNil.items:
         assert it.kind == cnkBinding
-        if it[0].sym.name.id == obj[0].sym.name.id:
+        if it[0].field.name.id == obj[0].sym.name.id:
           branch = getOrdValue(it[1])
           break
 
@@ -2252,7 +2253,7 @@ proc getNullValueAux(p: BProc; t: PType; obj: PNode, constOrNil: CgNode,
     if constOrNil != nil:
       for it in constOrNil.items:
         assert it.kind == cnkBinding
-        if it[0].sym.name.id == field.name.id:
+        if it[0].field.name.id == field.name.id:
           result.add genBracedInit(p, it[1], field.typ)
           return
     # not found, produce default value:
