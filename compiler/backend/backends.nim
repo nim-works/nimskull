@@ -853,3 +853,25 @@ func setModuleOverride*(discovery: var DiscoveryData, id: ProcedureId,
   ## haven't been queued for code generation yet. It's also fundamentally a
   ## workaround, try to use it as little as possible.
   discovery.overrides[id] = module
+
+# ----- routines for manual implementation of the backend processing -----
+
+iterator discover*(env: var MirEnv, progress: EnvCheckpoint
+                  ): tuple[s: PSym, n: MirNode] =
+  ## Returns all entities - in an unspecified order - added to `env` since the
+  ## `progress` checkpoint was created. Procedures referenced from constants
+  ## also added to the environment and returnd.
+  ##
+  ## This iterator is meant for a manual implementation of the backend
+  ## processing -- don't use it in conjunction with the ``process`` iterator.
+  for id, it in since(env.constants, progress.consts):
+    # first discover and report the procedures referenced by the constant's
+    # data, allowing
+    discoverFromValueAst(env, astdef(it))
+    yield (it, MirNode(kind: mnkConst, cnst: id))
+
+  for id, it in since(env.procedures, progress.procs):
+    yield (it, MirNode(kind: mnkProc, prc: id))
+
+  for id, it in since(env.globals, progress.globals):
+    yield (it, MirNode(kind: mnkGlobal, global: id))
