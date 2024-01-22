@@ -148,6 +148,7 @@ type
     sp: SourceProvider
 
     numLabels: int ## provides the ID to use for the next label
+    scopeDepth: int ## the current amount of scope nesting
 
     # input:
     context: TSymKind ## what entity the input AST is part of (e.g. procedure,
@@ -209,11 +210,6 @@ func selectWhenBranch(n: PNode, isNimvm: bool): PNode =
   assert n.kind == nkWhen
   if isNimvm: n[0][1]
   else:       n[1][0]
-
-func selectDefKind(s: PSym): range[mnkDef..mnkDefCursor] =
-  ## Returns the kind of definition to use for the given entity
-  if sfCursor in s.flags: mnkDefCursor
-  else:                   mnkDef
 
 func initDestination(v: sink Value, isFirst, sink: bool): Destination =
   var flags: set[DestFlag]
@@ -329,8 +325,10 @@ template subTree(c: var TCtx, n: MirNode, body: untyped) =
     body
 
 template scope(c: var TCtx, body: untyped) =
+  inc c.scopeDepth
   c.builder.subTree mnkScope:
     body
+  dec c.scopeDepth
 
 template use(c: var TCtx, val: Value) =
   c.builder.use(val)
@@ -1482,20 +1480,41 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
 proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
   ## Generates the 'def' construct for the entity provided by the symbol node
   ## `n`
-  let s = n.sym
+  let
+    s = n.sym
+    hasInitializer = val.kind != nkEmpty
+    sink = sfCursor notin s.flags
+    node = nameNode(c, s)
 
   c.builder.useSource(c.sp, n)
-  c.buildStmt selectDefKind(s):
-    c.add nameNode(c.env, s)
-    # the initializer is optional
-    if val.kind != nkEmpty:
-      # XXX: some closure types are erroneously reported as having no
-      #      destructor, which would lead to memory leaks if the
-      #      expression is a closure construction. As a work around,
-      #      a missing destructor disables the sink context
-      genAsgnSource(c, val, (sfCursor notin s.flags) and hasDestructor(s.typ))
+  if node.kind == mnkGlobal and c.scopeDepth == 1:
+    # no 'def' statement is emitted for top-level globals
+    if hasInitializer:
+      genAsgn(c, true, sink, n, val)
+    elif {sfImportc, sfNoInit} * s.flags == {} and
+         {exfDynamicLib, exfNoDecl} * s.extFlags == {}:
+      # XXX: ^^ re-think this condition from first principles. Right now,
+      #      it's just meant to make some tests work
+      # the location doesn't have an explicit starting value. Initialize
+      # it to the type's default value.
+      c.buildStmt mnkInit:
+        c.add node
+        c.buildMagicCall mDefault, s.typ:
+          discard
     else:
-      c.add MirNode(kind: mnkNone)
+      # the definition doesn't imply default intialization
+      discard
+  else:
+    c.buildStmt (if sfCursor in s.flags: mnkDefCursor else: mnkDef):
+      c.add node
+      if hasInitializer:
+        # XXX: some closure types are erroneously reported as having no
+        #      destructor, which would lead to memory leaks if the
+        #      expression is a closure construction. As a work around,
+        #      a missing destructor disables the sink context
+        genAsgnSource(c, val, sink and hasDestructor(s.typ))
+      else:
+        c.add MirNode(kind: mnkNone)
 
 proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
   ## Generates the code for a location definition. `sym` is the symbol of the
@@ -2183,6 +2202,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv,
   ## statement `n`, appending the resulting code and the corresponding origin
   ## information to `code` and `source`, respectively.
   var c = TCtx(context: skUnknown, graph: graph, config: config)
+  c.scopeDepth = 2 # assume that this is not top-level code
 
   template swapState() =
     swap(c.sp.map, source)
@@ -2235,6 +2255,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
 
   swap(c.env, env)
 
+  c.scopeDepth = 1
   c.add MirNode(kind: mnkScope)
   if owner.kind in routineKinds:
     # add a 'def' for each ``sink`` parameter. This simplifies further

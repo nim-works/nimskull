@@ -365,8 +365,6 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
              idgen: IdGenerator) =
   ## Applies all applicable MIR passes to the `body`. `prc` is enclosing
   ## procedure.
-  rewriteGlobalDefs(body.code, body.source)
-
   if shouldInjectDestructorCalls(prc):
     injectDestructorCalls(graph, idgen, prc, body)
 

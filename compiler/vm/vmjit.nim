@@ -169,9 +169,6 @@ func discoverGlobalsAndRewrite(data: var DiscoveryData, body: var MirBody,
     else:
       inc i
 
-  if rewrite:
-    rewriteGlobalDefs(tree, body.source)
-
 func register(linker: var LinkerData, data: DiscoveryData) =
   ## Registers the newly discovered entities in the link table, but doesn't
   ## commit to them yet.
