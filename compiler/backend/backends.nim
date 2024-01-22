@@ -403,12 +403,11 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator,
 # ------- handling of lifted globals ---------
 
 proc produceFragmentsForGlobals(
-    data: var DiscoveryData, identdefs: seq[PNode], graph: ModuleGraph,
+    env: var MirEnv, identdefs: seq[PNode], graph: ModuleGraph,
     config: TranslationConfig): tuple[init, deinit: MirBody] =
   ## Given a list of identdefs of lifted globals, produces the MIR code for
-  ## initialzing and deinitializing the globals. `data` is updated with
-  ## not-yet-seen globals, and is at the same time used for discarding
-  ## the identdefs for globals that were already processed.
+  ## initialzing and deinitializing the globals. All not-yet-seen globals and
+  ## threadvars are added to `env`.
 
   func prepare(bu: var MirBuilder, m: var SourceMap, n: PNode) {.nimcall.} =
     # the fragments need to be wrapped in scopes; some MIR passes depend
@@ -434,23 +433,18 @@ proc produceFragmentsForGlobals(
   # only want to generate code for the first definition we encounter
   for it in identdefs.items:
     let s = it[0].sym
-    if not containsOrIncl(data.seen, s.id): # have we seen it yet?
-      if sfThread in s.flags:
-        data.threadvars.add(s)
-      else:
-        data.globals.add(s)
-
-      if sfThread in s.flags:
-        # threadvars don't support initialization nor destruction, so skip the
-        # logic ahead
-        continue
-
+    # threadvars don't support initialization nor destruction, so they're
+    # skipped
+    if sfThread in s.flags:
+      discard env.globals.add(s)
+    elif s notin env.globals: # cull duplicates
+      let global = env.globals.add(s)
       # generate the MIR code for an initializing assignment:
       prepare(init, result.init.source, graph.emptyNode)
       init.setSource(result.init.source.add(it))
       init.buildStmt mnkInit:
         init.setSource(result.init.source.add(it[0]))
-        init.use symbol(mnkGlobal, s)
+        init.use toValue(global, s.typ)
         init.setSource(result.init.source.add(it[2]))
         if it[2].kind == nkEmpty:
           # no explicit initializer expression means that the default value
@@ -461,36 +455,36 @@ proc produceFragmentsForGlobals(
           init.buildMagicCall mDefault, s.typ:
             discard
         else:
-          generateCode(graph, config, it[2], init, result.init.source)
+          generateCode(graph, env, config, it[2], init, result.init.source)
 
       # if the global requires one, emit a destructor call into the deinit
       # fragment:
       if hasDestructor(s.typ):
         prepare(deinit, result.deinit.source, graph.emptyNode)
         deinit.setSource(result.deinit.source.add(it[0]))
-        genDestroy(deinit, graph, symbol(mnkGlobal, s))
+        genDestroy(deinit, graph, env, toValue(global, s.typ))
 
   result.init.code = finish(init, result.init.source, graph.emptyNode)
   result.deinit.code = finish(deinit, result.deinit.source, graph.emptyNode)
 
 # ----- dynlib handling -----
 
-proc genLoadLib(graph: ModuleGraph, bu: var MirBuilder,
+proc genLoadLib(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
                 loc, name: Value): Value =
   ## Emits the MIR code for ``loc = nimLoadLibrary(name); loc.isNil``.
   let loadLib = graph.getCompilerProc("nimLoadLibrary")
 
   bu.subTree MirNode(kind: mnkAsgn):
     bu.use loc
-    bu.buildCall loadLib, loadLib.typ[0]:
+    bu.buildCall env.procedures.add(loadLib), loadLib.typ, loadLib.typ[0]:
       bu.emitByVal name
 
   bu.wrapTemp(graph.getSysType(unknownLineInfo, tyBool)):
     bu.buildMagicCall mIsNil, graph.getSysType(unknownLineInfo, tyBool):
       bu.emitByVal loc
 
-proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
-                 name: PSym, path: PNode,
+proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
+                 libVar: GlobalId, path: PNode,
                  bu: var MirBuilder, source: var SourceMap) =
   ## Emits the MIR code for loading a dynamic library to `dest`, with `name`
   ## being the symbol of the location that stores the handle and `path` the
@@ -498,7 +492,7 @@ proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
   let
     errorProc = graph.getCompilerProc("nimLoadLibraryError")
     voidTyp   = graph.getSysType(path.info, tyVoid)
-    nameNode  = symbol(mnkGlobal, name)
+    val       = toValue(libVar, env[libVar].typ)
 
   if path.kind in nkStrKinds:
     # the library name is known at compile-time
@@ -512,7 +506,7 @@ proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
     bu.subTree MirNode(kind: mnkBlock, label: outer):
       bu.add MirNode(kind: mnkStmtList) # manual, for less visual nesting
       for candidate in candidates.items:
-        var tmp = genLoadLib(graph, bu, nameNode):
+        var tmp = genLoadLib(bu, graph, env, val):
           literal(newStrNode(nkStrLit, candidate))
 
         tmp = bu.wrapTemp(graph.getSysType(path.info, tyBool)):
@@ -525,7 +519,7 @@ proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
 
       # if none of the candidates worked, a run-time error is reported:
       bu.subTree mnkVoid:
-        bu.buildCall errorProc, voidTyp:
+        bu.buildCall env.procedures.add(errorProc), errorProc.typ, voidTyp:
           bu.emitByVal literal(path)
       bu.add endNode(mnkStmtList)
   else:
@@ -537,21 +531,21 @@ proc genLibSetup(graph: ModuleGraph, conf: BackendConfig,
     let nameTemp = bu.allocTemp(strType)
     bu.buildStmt mnkDef:
       bu.use nameTemp
-      generateCode(graph, conf.tconfig, path, bu, source)
+      generateCode(graph, env, conf.tconfig, path, bu, source)
 
-    let cond = genLoadLib(graph, bu, nameNode, nameTemp)
+    let cond = genLoadLib(bu, graph, env, val, nameTemp)
     bu.subTree mnkIf:
       bu.use cond
       bu.subTree mnkVoid:
-        bu.buildCall errorProc, voidTyp:
+        bu.buildCall env.procedures.add(errorProc), errorProc.typ, voidTyp:
           bu.emitByVal nameTemp
 
 proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
-                   conf: BackendConfig, sym: PSym): MirBody =
+                   env: var MirEnv, conf: BackendConfig, sym: PSym): MirBody =
   ## Produces a MIR fragment with the load-at-run-time logic for procedure/
   ## variable `sym`. If not generated already, the loading logic for the
   ## necessary dynamic library is emitted into the fragment and the global
-  ## storing the library handle registered with `data`.
+  ## storing the library handle is registered with `env`.
   let
     lib      = graph.getLib(sym.annex)
     loadProc = graph.getCompilerProc("nimGetProcAddr")
@@ -565,9 +559,9 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
 
   let dest =
     if sym.kind in routineKinds:
-      procLit(sym)
+      toValue(env.procedures[sym], sym.typ)
     else:
-      symbol(mnkGlobal, sym)
+      toValue(env.globals[sym], sym.typ)
 
   # the scope makes sure that locals are destroyed once loading the
   # procedure has finished
@@ -582,7 +576,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
     let tmp = bu.allocTemp(dest.typ)
     bu.buildStmt mnkDef:
       bu.use tmp
-      generateCode(graph, conf.tconfig, path, bu, result.source)
+      generateCode(graph, env, conf.tconfig, path, bu, result.source)
     bu.subTree mnkVoid:
       bu.buildMagicCall mAsgnDynlibVar, voidTyp:
         bu.emitByName(dest, ekReassign)
@@ -590,18 +584,20 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
   else:
     # the imported procedure is identified by the symbol's external name and
     # the built-in proc loading logic is to be used
+    let
+      isNew = lib.name in env.globals
+      libVar = env.globals.add(lib.name)
 
-    if not data.seen.containsOrIncl(lib.name.id):
+    if not isNew:
       # the library hasn't been loaded yet
-      genLibSetup(graph, conf, lib.name, path, bu, result.source)
+      genLibSetup(graph, env, conf, libVar, path, bu, result.source)
       if path.kind in nkStrKinds: # only register statically-known dependencies
         data.libs.add sym.annex
-      data.globals.add lib.name # register the global
 
     # generate the code for ``sym = cast[typ](nimGetProcAddr(lib, extname))``
     let tmp = bu.wrapTemp(loadProc.typ[0]):
-      bu.buildCall loadProc, loadProc.typ[0]:
-        bu.emitByVal symbol(mnkGlobal, lib.name)
+      bu.buildCall env.procedures.add(loadProc), loadProc.typ, loadProc.typ[0]:
+        bu.emitByVal toValue(libVar, lib.name.typ)
         bu.emitByVal literal(extname)
 
     bu.subTree mnkVoid:
