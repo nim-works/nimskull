@@ -16,7 +16,8 @@ import
     options
   ],
   compiler/mir/[
-    mirtrees,
+    mirbodies,
+    mirenv,
     mirgen,
     utils
   ],
@@ -74,15 +75,15 @@ proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
     writeBody(config, "-- output AST: " & owner.name.s):
       config.writeln(treeRepr(body.code))
 
-proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                   body: PNode, config: TranslationConfig): Body =
+proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
+                   owner: PSym, body: PNode, config: TranslationConfig): Body =
   ## Legacy routine. Translates the body `body` of the procedure `owner` to
   ## MIR code, and the MIR code to ``CgNode`` IR.
   echoInput(graph.config, owner, body)
   # step 1: generate a ``MirTree`` from the input AST
-  let body = generateCode(graph, owner, config, body)
+  let body = generateCode(graph, env, owner, config, body)
   echoMir(graph.config, owner, body)
 
   # step 2: generate the ``CgNode`` tree
-  result = generateIR(graph, idgen, owner, body)
+  result = generateIR(graph, idgen, env, owner, body)
   echoOutput(graph.config, owner, result)
