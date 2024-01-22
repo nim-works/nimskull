@@ -963,8 +963,18 @@ proc createArchiveDist(c: var ConfigData) =
       let fileList = archiveBaseName & ".files.txt"
       writeFile(fileList, paths.join("\n"))
 
+      # Set timezone to UTC so that timestamp recorded in the zip file is not
+      # affected by the timezone.
+      putEnv("TZ", "UTC")
+
       manifest.name = archiveBaseName & ".zip"
-      checkedExec("7za", "a", "-tzip", manifest.name, "@" & fileList)
+      checkedExec("7za", "a",
+                  "-tzip",
+                  "-mtc=off",
+                  "-mcu=on",
+                  "-sse",
+                  manifest.name,
+                  "@" & fileList)
 
     of tarFormats:
       # Write the list into a file then supply that file to archival programs to
