@@ -1256,7 +1256,9 @@ type
     adSemDeprecatedCompilerOptArg   # warning promoted to error
 
   PAstDiag* = ref TAstDiag
-  TAstDiag* = object
+  TAstDiag* {.acyclic.} = object
+    ## A diagnostic must never store a tree that references the diagnostic
+    ## itself.
     # xxx: consider splitting storage type vs message
     # xxx: consider breaking up diag into smaller types
     # xxx: try to shrink the int/int128 etc types for counts/ordinals
@@ -1562,7 +1564,9 @@ type
         discard
 
   TNode*{.final.} = object # on a 32bit machine, this takes 32 bytes
-                                    # on a 64bit machine, this takes 40 bytes
+                           # on a 64bit machine, this takes 40 bytes
+    # NOTE: don't mark as `.acyclic`. User-created AST might form cycles, and
+    # nodes can also form reference cycles with ``PSym`` and ``PType``
     typ*: PType
     id*: NodeId  # placed after `typ` field to save space due to field alignment
     info*: TLineInfo
@@ -1642,8 +1646,8 @@ type
 
   PInstantiation* = ref TInstantiation
 
-  # TODO: This type should be marked acyclic
-  TScope* = object
+  TScope* {.acyclic.} = object
+    ## Scopes form a stack; cycles are not allowed.
     depthLevel*: int
     symbols*: TStrTable
     parent*: PScope
