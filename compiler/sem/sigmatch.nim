@@ -2233,9 +2233,14 @@ proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
   else:
     discard "result is already set"
 
+template acceptsTyped(callee: PSym, typ: PType): bool =
+  callee != nil and callee.kind in {skMacro, skTemplate} and
+    typ != nil and (typ.kind == tyTyped or
+                    typ.kind == tyVarargs and typ[0].kind == tyTyped)
+
 proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
                         argSemantized: PNode): PNode =
-  if argSemantized.isError:
+  if argSemantized.isError and not acceptsTyped(m.calleeSym, f):
     result = argSemantized
     return
   
@@ -2762,7 +2767,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
   template noMatchAux() =
     m.state = csNoMatch
     m.error.firstMismatch.pos = a
-    m.error.firstMismatch.arg = n[a]
+    m.error.firstMismatch.arg = operand
     m.error.firstMismatch.formal = formal
     return
 
@@ -2839,6 +2844,8 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
   while a < n.len:
     c.openShadowScope
 
+    operand = n[a] # initialize to current arg in case of early `noMatch`
+
     # untyped varargs
     if a >= formalLen - 1 and              # last or finished passing args
        f < formalLen and                   # still have more formal params
@@ -2846,8 +2853,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       
       formal = m.callee.n[f].sym
       incl(marker, formal.position)
-
-      operand = n[a] # initialize to current arg in case of early `noMatch`
 
       case n[a].kind
       of nkHiddenStdConv:
@@ -2870,7 +2875,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
       # assume it's wrong, then prove it correct
       m.error.firstMismatch.kind = kUnknownNamedParam
-      
+
       # check if m.callee has such a param:
       prepareNamedParam(n[a], c)
       
@@ -2919,13 +2924,13 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
         case operand.kind
         of nkError:
-          arg = operand
+          discard "assigned below"
         else:
           if formal.typ.kind != tyUntyped:
             n[a][1] = operand
             n[a].typ = n[a][1].typ
 
-          arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+        arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
 
       m.error.firstMismatch.kind = kTypeMismatch
 
@@ -2950,7 +2955,9 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       else:
         setSon(m.call, formal.position + 1, arg)
 
-      if arg.isError and not callsiteArgWasError:
+      if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
+        discard "typed params accept errors, rejected in evalTemplateArgs"
+      elif arg.isError:
         noMatchDueToError()
 
       inc f
@@ -3003,22 +3010,25 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
             case operand.kind
             of nkError:
-              arg = operand
+              discard "args assigned below"
             else:
               if formal.typ.kind != tyUntyped:
                 n[a] = operand
-              arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+            arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
 
-          if arg.isNil or                 # valid argumet
+          if arg.isNil or                 # valid argument
              container.isNil:             # container must exist
             noMatch()
           else:
             container.add arg
             incrIndexType(container.typ)
 
-          if arg.isError:
+          if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
+            discard "typed params accept errors, rejected in evalTemplateArgs"
+          elif arg.kind == nkError:
             noMatchDueToError()
-          elif m.baseTypeMatch: # match type in `varargs[T]`
+
+          if m.baseTypeMatch: # match type `T` in `varargs[T]`
             checkConstraint(operand)
           else:
             noMatch()
@@ -3070,14 +3080,14 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
             case operand.kind
             of nkError:
-              arg = operand
+              discard "assigned below"
             else:
               if formal.typ.kind != tyUntyped:
                 n[a] = operand
-              arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
-              
-              if arg.isNil(): # invalid arg
-                noMatch()
+
+            arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+            if arg.isNil(): # invalid arg
+              noMatch()
 
           if m.baseTypeMatch or
              (formal.typ.kind == tyVarargs and arg.kind == nkError): # var args
@@ -3112,8 +3122,10 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
                   formal = formal.typ, actual = n[a].typ)]))
 
             noMatch()
-          
-          if arg.kind == nkError:
+
+          if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
+            discard "typed params accept errors, rejected in evalTemplateArgs"
+          elif arg.kind == nkError:
             noMatchDueToError()
 
         checkConstraint(operand)
