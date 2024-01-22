@@ -15,13 +15,23 @@ import
     typesrenderer,
   ],
   compiler/mir/[
+    mirenv,
     mirtrees
   ]
 
 func `$`(n: MirNode): string =
   result.add substr($n.kind, 3) # cut off the prefix
   case n.kind
-  of mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal:
+  of mnkProc:
+    result.add " prc: "
+    result.addInt n.prc.uint32
+  of mnkConst:
+    result.add " cnst: "
+    result.addInt n.cnst.uint32
+  of mnkGlobal:
+    result.add " global: "
+    result.addInt n.global.uint32
+  of mnkParam, mnkLocal:
     result.add " sym: "
     result.add $n.sym.name.s
   of mnkField, mnkPathNamed, mnkPathVariant:
@@ -112,14 +122,41 @@ proc treeRepr*(tree: MirTree, pos = NodePosition(0)): string =
 
 # ------- MIR pretty printer --------
 
+type
+  EnvPtr = ptr MirEnv
+
+template treeParam(): untyped =
+  ## Expands to ``nodes`` or ``tree``, depending on how the parameter is
+  ## named.
+  mixin nodes, tree
+  when declared(nodes):
+    when nodes is MirTree: nodes
+    else:                  tree
+  else:                    tree
+
 func next(tree: MirTree, i: var int): lent MirNode =
   result = tree[i]
   inc i
 
-proc singleToStr(n: MirNode, result: var string) =
+func addName[I](result: var string, id: I, open: string, env: EnvPtr) =
+  if env.isNil:
+    # just render the ID
+    result.add open
+    result.addInt id.uint32
+    result.add ">"
+  else:
+    result.add env[][id].name.s
+
+proc singleToStr(n: MirNode, result: var string, env: EnvPtr) =
   case n.kind
   of SymbolLike:
     result.add n.sym.name.s
+  of mnkConst:
+    result.addName(n.cnst, "<C", env)
+  of mnkGlobal:
+    result.addName(n.cnst, "<G", env)
+  of mnkProc:
+    result.addName(n.cnst, "<P", env)
   of mnkTemp, mnkAlias:
     result.add "_" & $n.temp.int
   of mnkNone:
@@ -133,10 +170,17 @@ proc singleToStr(n: MirNode, result: var string) =
   of AllNodeKinds - Atoms:
     result.add "<error: " & $n.kind & ">"
 
-proc singleToStr(tree: MirTree, i: var int, result: var string) =
-  singleToStr(next(tree, i), result)
+proc singleToStr(tree: MirTree, i: var int, result: var string, env: EnvPtr) =
+  singleToStr(next(tree, i), result, env)
 
-proc valueToStr(nodes: MirTree, i: var int, result: var string) =
+template singleToStr() =
+  singleToStr(treeParam(), i, result, env)
+
+template valueToStr() =
+  mixin valueToStr
+  valueToStr(treeParam(), i, result, env)
+
+proc valueToStr(nodes: MirTree, i: var int, result: var string, env: EnvPtr) =
   template tree(start: string, body: untyped) =
     result.add start
     body
@@ -146,36 +190,36 @@ proc valueToStr(nodes: MirTree, i: var int, result: var string) =
   case n.kind
   of mnkPathArray:
     tree "":
-      valueToStr(nodes, i, result)
+      valueToStr()
       result.add "["
-      singleToStr(nodes, i, result)
+      singleToStr()
       result.add "]"
   of mnkPathPos:
     tree "":
-      valueToStr(nodes, i, result)
+      valueToStr()
       result.add "."
       result.addInt n.position
   of mnkPathNamed, mnkPathVariant:
     tree "":
-      valueToStr(nodes, i, result)
+      valueToStr()
       result.add "."
       result.add n.field.name.s
   of mnkPathConv:
     tree "":
-      valueToStr(nodes, i, result)
+      valueToStr()
       result.add ".("
       result.add typeToString(n.typ)
       result.add ")"
   of mnkDeref, mnkDerefView:
     tree "":
-      singleToStr(nodes, i, result)
+      singleToStr()
       result.add "[]"
   of AtomNodes:
-    singleToStr(n, result)
+    singleToStr(n, result, env)
   else:
     result.add "<error: " & $n.kind & ">"
 
-proc calleeToStr(tree: MirTree, i: var int, result: var string) =
+proc calleeToStr(tree: MirTree, i: var int, result: var string, env: EnvPtr) =
   case tree[i].kind
   of mnkMagic:
     # cut off the 'm' prefix and use a lowercase first character
@@ -184,9 +228,9 @@ proc calleeToStr(tree: MirTree, i: var int, result: var string) =
     result.add name
     inc i
   else:
-    valueToStr(tree, i, result)
+    valueToStr()
 
-proc argToStr(tree: MirTree, i: var int, result: var string) =
+proc argToStr(tree: MirTree, i: var int, result: var string, env: EnvPtr) =
   var n {.cursor.} = next(tree, i)
   case n.kind
   of mnkArg:     result.add "arg "
@@ -197,14 +241,17 @@ proc argToStr(tree: MirTree, i: var int, result: var string) =
 
   if tree[i].kind == mnkTag:
     discard next(tree, i)
-    valueToStr(tree, i, result)
+    valueToStr()
     inc i # skip the tag's end node
   else:
-    valueToStr(tree, i, result)
+    valueToStr()
 
   inc i # skip the end node
 
-proc exprToStr(nodes: MirTree, i: var int, result: var string) =
+template argToStr() =
+  argToStr(treeParam(), i, result, env)
+
+proc exprToStr(nodes: MirTree, i: var int, result: var string, env: EnvPtr) =
   template tree(start: string, body: untyped) =
     result.add start
     inc i # skip the start node
@@ -222,65 +269,79 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string) =
 
   case nodes[i].kind
   of LvalueExprKinds + Atoms:
-    valueToStr(nodes, i, result)
+    valueToStr()
   of mnkAddr:
     tree "addr ":
-      valueToStr(nodes, i, result)
+      valueToStr()
   of mnkView:
     tree "borrow ":
-      valueToStr(nodes, i, result)
+      valueToStr()
   of mnkToSlice:
     tree "toOpenArray ":
       commaSeparated:
-        valueToStr(nodes, i, result)
+        valueToStr()
   of mnkConv:
     tree "conv ":
-      valueToStr(nodes, i, result)
+      valueToStr()
   of mnkCast:
     tree "cast ":
-      valueToStr(nodes, i, result)
+      valueToStr()
   of mnkStdConv:
     tree "stdConv ":
-      valueToStr(nodes, i, result)
+      valueToStr()
   of mnkConstr:
     tree "construct (":
       commaSeparated:
-        argToStr(nodes, i, result)
+        argToStr()
       result.add ")"
   of mnkObjConstr:
     tree "(":
       commaSeparated:
         result.add next(nodes, i).field.name.s & ": "
-        argToStr(nodes, i, result)
+        argToStr()
       result.add ")"
   of mnkCall:
     tree "":
-      calleeToStr(nodes, i, result)
+      calleeToStr(nodes, i, result, env)
       result.add "("
       commaSeparated:
-        argToStr(nodes, i, result)
+        argToStr()
       result.add ")"
   of mnkCheckedCall:
     tree "":
-      calleeToStr(nodes, i, result)
+      calleeToStr(nodes, i, result, env)
       result.add "("
       commaSeparated:
-        argToStr(nodes, i, result)
+        argToStr()
       result.add ") (raises)"
   else:
     # TODO: make this branch exhaustive
     result.add "<error: " & $nodes[i].kind & ">"
     inc i
 
-proc renderNameWithType(tree: MirTree, i: var int, result: var string) =
+template exprToStr() =
+  exprToStr(nodes, i, result, env)
+
+proc renderNameWithType(tree: MirTree, i: var int, result: var string,
+                        env: EnvPtr) =
   let n {.cursor.} = next(tree, i)
-  singleToStr(n, result)
+  singleToStr(n, result, env)
   result.add ": "
   result.add typeToString(n.typ)
 
-proc renderList(tree: MirTree, i: var int, indent: int, result: var string)
+proc renderList(tree: MirTree, i: var int, indent: int, result: var string,
+                env: EnvPtr)
 
-proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string) =
+template renderList(indent: int) =
+  mixin renderList
+  renderList(treeParam(), i, indent, result, env)
+
+template stmtToStr(indent: int) =
+  mixin stmtToStr
+  stmtToStr(treeParam(), i, indent, result, env)
+
+proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string,
+               env: EnvPtr) =
   template tree(str: string, body: untyped) =
     result.add repeat("  ", indent)
     result.add str
@@ -297,97 +358,97 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string) =
   case n.kind
   of mnkDef, mnkDefUnpack:
     tree "def ":
-      renderNameWithType(nodes, i, result)
+      renderNameWithType(nodes, i, result, env)
       if nodes[i].kind != mnkNone:
         result.add " = "
-        exprToStr(nodes, i, result)
+        exprToStr()
       else:
         inc i # skip the node
     result.add "\n"
   of mnkDefCursor:
     tree "def_cursor ":
-      renderNameWithType(nodes, i, result)
+      renderNameWithType(nodes, i, result, env)
       result.add " = "
-      exprToStr(nodes, i, result)
+      exprToStr()
     result.add "\n"
   of mnkBind:
     tree "bind ":
-      renderNameWithType(nodes, i, result)
+      renderNameWithType(nodes, i, result, env)
       result.add " = "
-      valueToStr(nodes, i, result)
+      valueToStr()
     result.add "\n"
   of mnkBindMut:
     tree "bind_mut ":
-      renderNameWithType(nodes, i, result)
+      renderNameWithType(nodes, i, result, env)
       result.add " = "
-      valueToStr(nodes, i, result)
+      valueToStr()
     result.add "\n"
   of mnkAsgn, mnkSwitch:
     tree "":
-      valueToStr(nodes, i, result)
+      valueToStr()
       result.add " = "
-      exprToStr(nodes, i, result)
+      exprToStr()
     result.add "\n"
   of mnkInit:
     tree "":
-      valueToStr(nodes, i, result)
+      valueToStr()
       result.add " := "
-      exprToStr(nodes, i, result)
+      exprToStr()
     result.add "\n"
   of mnkFastAsgn:
     tree "":
-      valueToStr(nodes, i, result)
+      valueToStr()
       result.add " =fast "
-      exprToStr(nodes, i, result)
+      exprToStr()
     result.add "\n"
   of mnkStmtList:
-    renderList(nodes, i, indent, result)
+    renderList(indent)
   of mnkTry:
     tree "try:\n":
       tab:
-        stmtToStr(nodes, i, indent, result)
-      renderList(nodes, i, indent, result)
+        stmtToStr(indent)
+      renderList(indent)
   of mnkExcept:
     tree "except\n":
-      renderList(nodes, i, indent, result)
+      renderList(indent)
   of mnkFinally:
     tree "finally:\n":
       tab:
-        stmtToStr(nodes, i, indent, result)
+        stmtToStr(indent)
   of mnkScope:
     tree "scope:\n":
       tab:
-        renderList(nodes, i, indent, result)
+        renderList(indent)
   of mnkIf:
     tree "if ":
-      valueToStr(nodes, i, result)
+      valueToStr()
       result.add ":\n"
       tab:
-        renderList(nodes, i, indent, result)
+        renderList(indent)
   of mnkCase:
     tree "case ":
-      valueToStr(nodes, i, result)
+      valueToStr()
       result.add "\n"
       # use ``renderList`` for simplicity, even though it allows for
       # structures that are invalid
-      renderList(nodes, i, indent, result)
+      renderList(indent)
   of mnkBranch:
     tree "of ":
       for j in 0..<n.len:
         if j > 0:
           result.add ", "
-        singleToStr(nodes, i, result)
+        singleToStr()
       result.add ":\n"
       tab:
-        renderList(nodes, i, indent, result)
+        renderList(indent)
   of mnkBlock:
     tree "block L" & $n.label.int & ":\n":
       tab:
-        renderList(nodes, i, indent, result)
+        renderList(indent)
   of mnkRepeat:
     tree "while true:\n":
       tab:
-        renderList(nodes, i, indent, result)
+        renderList(indent)
   of mnkAsm, mnkEmit:
     tree (if n.kind == mnkAsm: "asm " else: "emit "):
       var first = true
@@ -396,7 +457,7 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string) =
           first = false
         else:
           result.add ", "
-        valueToStr(nodes, i, result)
+        valueToStr()
       result.add "\n"
   of mnkVoid:
     # drop the 'discard' prefix if the expression is a void expression
@@ -404,11 +465,11 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string) =
       if nodes[i].typ.kind == tyVoid: ""
       else: "discard "
     tree lead:
-      exprToStr(nodes, i, result)
+      exprToStr()
     result.add "\n"
   of mnkRaise:
     tree "raise ":
-      valueToStr(nodes, i, result)
+      valueToStr()
     result.add "\n"
   of mnkPNode:
     result.add repeat("  ", indent)
@@ -425,23 +486,24 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string) =
   # skip the end node
   i += ord(n.kind in SubTreeNodes)
 
-proc renderList(tree: MirTree, i: var int, indent: int, result: var string) =
+proc renderList(tree: MirTree, i: var int, indent: int, result: var string,
+                env: EnvPtr) =
   while i < tree.len and tree[i].kind != mnkEnd:
-    stmtToStr(tree, i, indent, result)
+    stmtToStr(indent)
 
-proc exprToStr*(tree: MirTree, n: NodePosition): string =
+proc exprToStr*(tree: MirTree, n: NodePosition, env: EnvPtr = nil): string =
   ## Renders the expression at `n` into a human-readable text representation.
   var i = n.int
-  exprToStr(tree, i, result)
+  exprToStr(tree, i, result, env)
 
-proc stmtToStr*(tree: MirTree, n: NodePosition): string =
+proc stmtToStr*(tree: MirTree, n: NodePosition, env: EnvPtr = nil): string =
   ## Renders the statement at `n` into a human-readable text representation.
   var i = n.int
-  stmtToStr(tree, i, 0, result)
+  stmtToStr(tree, i, 0, result, env)
 
-proc render*(tree: MirTree): string =
+proc render*(tree: MirTree, env: EnvPtr = nil): string =
   ## Renders `tree` into a human-readable text representation. The output is
   ## meant for debugging and tracing and is not guaranteed to have a stable
   ## format.
   var i = 0
-  renderList(tree, i, 0, result)
+  renderList(tree, i, 0, result, env)

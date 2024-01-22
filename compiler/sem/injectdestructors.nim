@@ -1184,5 +1184,5 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
 
   if g.config.arcToExpand.hasKey(owner.name.s):
     g.config.msgWrite("--expandArc: " & owner.name.s & "\n")
-    g.config.msgWrite(render(body.code))
+    g.config.msgWrite(render(body.code, addr env))
     g.config.msgWrite("\n-- end of expandArc ------------------------\n")
