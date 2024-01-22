@@ -972,7 +972,6 @@ proc createArchiveDist(c: var ConfigData) =
                   "-tzip",
                   "-mtc=off",
                   "-mcu=on",
-                  "-sse",
                   manifest.name,
                   "@" & fileList)
 
