@@ -971,6 +971,9 @@ proc createArchiveDist(c: var ConfigData) =
       checkedExec("7za", "a",
                   "-tzip",
                   "-mtc=off",
+                  "-mcl=off",
+                  "-scsUTF-8",
+                  "-sccUTF-8",
                   "-mcu=on",
                   manifest.name,
                   "@" & fileList)
