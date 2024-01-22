@@ -400,6 +400,7 @@ proc callNimCompiler(cmd: string): CompilerOutput =
   verboseCmd(cmd)
   var p = startProcess(command = cmd,
                        options = {poStdErrToStdOut, poUsePath, poEvalCommand})
+  defer: close(p)
   let outp = p.outputStream
   var foundSuccessMsg = false
   var foundErrorMsg = false
@@ -418,7 +419,6 @@ proc callNimCompiler(cmd: string): CompilerOutput =
         foundSuccessMsg = true
     elif not running(p):
       break
-  close(p)
   result.msg = ""
   result.file = ""
   result.output = ""
