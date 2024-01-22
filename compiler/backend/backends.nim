@@ -619,7 +619,8 @@ func queue(queue: var WorkQueue, id: ProcedureId, prc: PSym, m: FileIndex) =
   ## If eligible for processing and code generation, adds `prc` to
   ## `queue`'s queue.
   assert prc.kind in routineKinds
-  if exfNoDecl notin prc.extFlags and
+  if sfForward notin prc.flags and
+     exfNoDecl notin prc.extFlags and
      (sfImportc notin prc.flags or
       exfDynamicLib in prc.extFlags or (queue.config.noImported and
                                         prc.ast[bodyPos].kind != nkEmpty)):
@@ -717,6 +718,12 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
   # first, generate the method dispatchers, so that we can treat the
   # dispatchers as normal procedures:
   generateMethodDispatchers(graph)
+
+  # mark all procedures that require incremental code generation as forwarded,
+  # so that they're not queued for normal code generation
+  for _, m in modules.modules.pairs:
+    for it in [m.preInit, m.postDestructor, m.dynlibInit]:
+      it.flags.incl sfForward
 
   discovery.progress = checkpoint(env)
   # remember where the globals start, it's needed for producing the dynlib
@@ -843,6 +850,12 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
     # report and queue all discovered dependencies:
     for evt in flush(queue, env, discovery, module):
       yield evt
+
+  # unmark all completed incremental procedures:
+  for _, m in modules.modules.pairs:
+    for it in [m.preInit, m.postDestructor, m.dynlibInit]:
+      if not isTrivialProc(graph, it):
+        it.flags.excl sfForward
 
 # ----- API for interacting with ``DiscoveryData`` -----
 
