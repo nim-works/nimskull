@@ -63,17 +63,12 @@ func typ*(val: Value): PType =
   assert val.node.kind != mnkNone, "uninitialized"
   val.node.typ
 
-func procNode*(s: PSym): MirNode {.inline.} =
-  assert s.kind in routineKinds
-  MirNode(kind: mnkProc, sym: s)
+func procNode*(id: ProcedureId): MirNode {.inline.} =
+  MirNode(kind: mnkProc, prc: id)
 
 func endNode*(k: MirNodeKind): MirNode {.inline.} =
   assert k in SubTreeNodes
   MirNode(kind: mnkEnd, start: k)
-
-
-func procLit*(sym: PSym): Value =
-  Value(node: MirNode(kind: mnkProc, typ: sym.typ, sym: sym))
 
 func typeLit*(t: PType): Value =
   Value(node: MirNode(kind: mnkType, typ: t))
@@ -87,8 +82,14 @@ func temp*(typ: PType, id: TempId): Value =
 func alias*(typ: PType, id: TempId): Value =
   Value(node: MirNode(kind: mnkAlias, typ: typ, temp: id))
 
-func symbol*(kind: range[mnkConst..mnkLocal], sym: PSym): Value =
-  Value(node: MirNode(kind: kind, typ: sym.typ, sym: sym))
+func toValue*(id: ConstId, typ: PType): Value =
+  Value(node: MirNode(kind: mnkConst, typ: typ, cnst: id))
+
+func toValue*(id: GlobalId, typ: PType): Value =
+  Value(node: MirNode(kind: mnkGlobal, typ: typ, global: id))
+
+func toValue*(id: ProcedureId, typ: PType): Value =
+  Value(node: MirNode(kind: mnkProc, typ: typ, prc: id))
 
 # --------- MirBuffer interface ----------
 
