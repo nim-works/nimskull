@@ -967,14 +967,16 @@ proc createArchiveDist(c: var ConfigData) =
       # affected by the timezone.
       putEnv("TZ", "UTC")
 
+      # Force UTF-8 C locale for LC_CTYPE to prevent 7z from trying to convert
+      # the file list.
+      putEnv("LC_CTYPE", "C.utf8")
+
       manifest.name = archiveBaseName & ".zip"
       checkedExec("7za", "a",
                   "-tzip",
-                  "-mtc=off",
-                  "-mcl=off",
-                  "-scsUTF-8",
+                  "-mcu",
+                  "-mtc-",
                   "-sccUTF-8",
-                  "-mcu=on",
                   manifest.name,
                   "@" & fileList)
 
