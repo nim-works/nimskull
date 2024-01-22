@@ -145,9 +145,8 @@ proc newTree(kind: CgNodeKind, info: TLineInfo, kids: varargs[CgNode]): CgNode =
 func newTypeNode(info: TLineInfo, typ: PType): CgNode =
   CgNode(kind: cnkType, info: info, typ: typ)
 
-func newSymNode(kind: CgNodeKind, s: PSym; info = unknownLineInfo): CgNode =
-  {.cast(uncheckedAssign).}:
-    CgNode(kind: kind, info: info, typ: s.typ, sym: s)
+func newFieldNode(s: PSym; info = unknownLineInfo): CgNode =
+  CgNode(kind: cnkField, info: info, typ: s.typ, field: s)
 
 func newLabelNode(blk: BlockId; info = unknownLineInfo): CgNode =
   CgNode(kind: cnkLabel, info: info, label: blk)
@@ -201,7 +200,7 @@ proc translateLit*(val: PNode): CgNode =
   of nkSym:
     # special case for raw symbols used with emit and asm statements
     assert val.sym.kind == skField
-    node(cnkField, sym, val.sym)
+    node(cnkField, field, val.sym)
   else:
     unreachable("implement: " & $val.kind)
 
@@ -301,11 +300,11 @@ proc convToIr(cl: TranslateCl, n: CgNode, info: TLineInfo, dest: PType): CgNode 
 proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
   case n.kind
   of mnkProc:
-    newSymNode(cnkProc, n.sym, info)
-  of mnkConst:
-    newSymNode(cnkConst, n.sym, info)
+    CgNode(kind: cnkProc, info: info, typ: n.typ, prc: n.prc)
   of mnkGlobal:
-    newSymNode(cnkGlobal, n.sym, info)
+    CgNode(kind: cnkGlobal, info: info, typ: n.typ, global: n.global)
+  of mnkConst:
+    CgNode(kind: cnkConst, info: info, typ: n.typ, cnst: n.cnst)
   of mnkLocal, mnkParam:
     # paramaters are treated like locals in the code generators
     assert n.sym.id in cl.localsMap
@@ -372,11 +371,11 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
     return atomToIr(n, cl, info)
   of mnkPathNamed:
     result = newExpr(cnkFieldAccess, info, n.typ,
-                     [recurse(), newSymNode(cnkField, n.field)])
+                     [recurse(), newFieldNode(n.field)])
   of mnkPathVariant:
     if preferField:
       result = newExpr(cnkFieldAccess, cr.info, n.field.typ,
-                      [recurse(), newSymNode(cnkField, n.field)])
+                      [recurse(), newFieldNode(n.field)])
     else:
       # variant access itself has no ``CgNode`` counterpart at the moment
       result = recurse()
@@ -414,7 +413,8 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl,
 proc valueToIr(tree: MirBody, cl: var TranslateCl,
                cr: var TreeCursor): CgNode =
   case tree[cr].kind
-  of SymbolLike, mnkTemp, mnkAlias, mnkLiteral, mnkType:
+  of mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp, mnkAlias,
+     mnkLiteral, mnkType:
     atomToIr(tree, cl, cr)
   of mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathConv, mnkPathVariant,
      mnkDeref, mnkDerefView:
@@ -504,7 +504,8 @@ proc defToIr(tree: MirBody, cl: var TranslateCl,
     # ignore 'def's for parameters
     def = newEmpty()
   of mnkGlobal:
-    def = newSymNode(cnkGlobal, entity.sym, info)
+    def = CgNode(kind: cnkGlobal, info: info, typ: entity.typ,
+                 global: entity.global)
   of mnkTemp:
     # MIR temporaries are like normal locals, with the difference that they
     # are created ad-hoc and don't have any extra information attached
@@ -785,7 +786,7 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
   of mnkObjConstr:
     assert n.typ.skipTypes(abstractVarRange).kind in {tyObject, tyRef}
     treeOp cnkObjConstr:
-      let f = newSymNode(cnkField, get(tree, cr).field)
+      let f = newFieldNode(get(tree, cr).field)
       res.add newTree(cnkBinding, cr.info, [f, argToIr(tree, cl, cr)[1]])
   of mnkConstr:
     let typ = n.typ.skipTypes(abstractVarRange)
