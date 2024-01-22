@@ -31,7 +31,7 @@ Meow
 joinable: false
 """
 
-import macros, typetraits, os
+import macros, typetraits, os, posix
 
 
 block t5983:
