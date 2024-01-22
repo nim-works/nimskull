@@ -187,7 +187,7 @@ proc buildTools(args: string = "") =
   bundleNimsuggest(args)
   nimCompileFold("Compile nimgrep", "tools/nimgrep.nim",
                  options = "-d:release " & defineSourceMetadata() & " " & args)
-  when defined(windows): buildVccTool("--gc:orc " & args)
+  when defined(windows): buildVccTool("-d:release --gc:orc " & args)
 
   nimCompileFold("Compile vmrunner", "compiler/vm/vmrunner.nim",
                 options = "-d:release --gc:orc $# $#" % [defineSourceMetadata(), args])
