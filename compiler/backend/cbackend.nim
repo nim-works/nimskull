@@ -67,12 +67,13 @@ import
     containers,
     idioms,
     pathutils,
+    platform,
     ropes
   ]
 
 import std/options as std_options
 
-from compiler/ast/ast import id, newNode
+from compiler/ast/ast import id, newNode, newTree, newSymNode
 
 # XXX: reports are a legacy facility that is going to be phased out. A
 #      note on how to move forward is left at each usage site in this
@@ -214,7 +215,7 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
   of bekModule:
     # the code generator emits a call for setting up the TLS, which is a
     # procedure dependency that needs to be communicated
-    if sfSystemModule in bmod.module.flags and
+    if sfMainModule in bmod.module.flags and
        emulatedThreadVars(g.config):
       dependOnCompilerProc(inl, discovery, evt.module, g.graph,
                            "initThreadVarsEmulation")
@@ -304,7 +305,7 @@ proc generateHeader(g: BModuleList, inl: InliningData, data: DiscoveryData,
 
   for _, s in all(data.globals):
     if sfExportc in s.flags:
-      genVarPrototype(result, newSymNode(s))
+      genVarPrototype(result, compat.newSymNode(s))
 
   for _, s in all(data.procedures):
     # we don't want to emit compilerprocs (which are automatically marked
@@ -326,6 +327,13 @@ proc generateCodeForMain(m: BModule, modules: ModuleList) =
 
   # generate the body:
   let body = newNode(nkStmtList)
+
+  # if TLS emulation is used, the storage has to be setup before any other
+  # code is run:
+  if emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
+    body.add newTree(nkCall,
+      ast.newSymNode(m.g.graph.getCompilerProc("initThreadVarsEmulation")))
+
   generateMain(m.g.graph, modules, body)
   if {optGenStaticLib, optGenDynLib, optNoMain} * m.config.globalOptions == {}:
     # only emit the teardown logic when we're building a standalone program
