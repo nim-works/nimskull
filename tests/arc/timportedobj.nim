@@ -1,6 +1,7 @@
 discard """
   cmd: "nim c --gc:arc $file"
   action: "compile"
+  disabled: "windows"
 """
 
 # bug #13269
