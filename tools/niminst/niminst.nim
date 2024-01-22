@@ -967,18 +967,19 @@ proc createArchiveDist(c: var ConfigData) =
       # affected by the timezone.
       putEnv("TZ", "UTC")
 
-      # Force UTF-8 C locale for LC_CTYPE to prevent 7z from trying to convert
-      # the file list.
-      putEnv("LC_CTYPE", "C.utf8")
+      # Force UTF-8 C locale to prevent 7z from trying to convert
+      # the file list on non-UTF-8 locales.
+      putEnv("LC_ALL", "C.utf8")
 
       manifest.name = archiveBaseName & ".zip"
-      checkedExec("7za", "a",
-                  "-tzip",
-                  "-mcu",
-                  "-mtc-",
-                  "-sccUTF-8",
-                  manifest.name,
-                  "@" & fileList)
+      checkedExec(
+        "7z", "a",
+        "-tzip",
+        "-mcu",      # Use UTF-8 encoding for non-ASCII
+        "-mtc-",     # Disable storing extra timestamps
+        "-sccUTF-8", # Use UTF-8 when printing to console
+        manifest.name, "@" & fileList
+      )
 
     of tarFormats:
       # Write the list into a file then supply that file to archival programs to
