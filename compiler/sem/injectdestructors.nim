@@ -220,6 +220,7 @@ func toName(n: MirNode): EntityName =
   result.a[1] =
     case n.kind
     of SymbolLike: n.sym.id
+    of mnkGlobal:  n.global.int
     of mnkTemp:    n.temp.int
     else:          unreachable(n.kind)
 
@@ -316,10 +317,10 @@ func initEntityDict(tree: MirTree, dfg: DataFlowGraph): EntityDict =
         of mnkParam:
           assert isSinkTypeForParam(entity.sym.typ)
           entity.sym.typ
-        of mnkLocal, mnkGlobal:
+        of mnkLocal:
           assert sfCursor notin entity.sym.flags
           entity.sym.typ
-        of mnkTemp:
+        of mnkTemp, mnkGlobal:
           entity.typ
         else:
           unreachable()
@@ -392,8 +393,10 @@ func requiresDestruction(tree: MirTree, cfg: DataFlowGraph, values: Values,
 
   let r =
     case entity.kind
-    of mnkParam, mnkLocal, mnkGlobal:
+    of mnkParam, mnkLocal:
       computeAlive(entity.sym, computeAliveOp[PSym])
+    of mnkGlobal:
+      computeAlive(entity.global, computeAliveOp[GlobalId])
     of mnkTemp:
       # unpacked tuples don't need to be destroyed because all elements are
       # moved out of them
@@ -432,7 +435,7 @@ func computeDestructors(tree: MirTree, cfg: DataFlowGraph, values: Values,
       scopeStart = findParent(tree, def, mnkScope)
 
     if entity.kind == mnkGlobal and
-       doesGlobalEscape(tree, info.scope, info.scope.a, entity.sym):
+       doesGlobalEscape(tree, info.scope, info.scope.a, entity.global):
       # TODO: handle escaping globals. Either report a warning, an error, or
       #       defer destruction of the global to the end of the program
       discard
@@ -932,6 +935,7 @@ proc injectDestructorsInner(bu: var MirBuilder, orig: MirTree, graph: ModuleGrap
     let t =
       case orig[def].kind
       of SymbolLike: orig[def].sym.typ
+      of mnkGlobal:  orig[def].typ
       of mnkTemp:    orig[def].typ
       else:          unreachable()
 

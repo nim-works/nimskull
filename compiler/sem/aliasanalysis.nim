@@ -60,8 +60,8 @@ type
     long: seq[PathInstr]
 
 const
-  Roots = SymbolLike + {mnkTemp, mnkCall, mnkCheckedCall, mnkDeref,
-                        mnkDerefView}
+  Roots = {mnkProc, mnkConst, mnkGlobal, mnkTemp, mnkCall, mnkDeref,
+           mnkDerefView} + SymbolLike
   PathOps = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathConv,
              mnkPathVariant}
 
@@ -70,13 +70,19 @@ func isSameRoot(an, bn: MirNode): bool =
     return false
 
   case an.kind
-  of SymbolLike:
+  of mnkParam, mnkLocal:
     result = an.sym.id == bn.sym.id
+  of mnkProc:
+    result = an.prc == bn.prc
+  of mnkConst:
+    result = an.cnst == bn.cnst
+  of mnkGlobal:
+    result = an.global == bn.global
   of mnkTemp:
     result = an.temp == bn.temp
-  of Roots - SymbolLike - {mnkTemp}:
+  of mnkCall, mnkDeref, mnkDerefView:
     result = false
-  else:
+  of AllNodeKinds - Roots:
     unreachable(an.kind)
 
 func sameIndex*(a, b: MirNode): Ternary =
