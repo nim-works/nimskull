@@ -46,7 +46,6 @@ import
     cgen,
     cgendata,
     cgir,
-    compat,
     extccomp
   ],
   compiler/front/[
@@ -54,6 +53,7 @@ import
   ],
   compiler/mir/[
     mirbridge,
+    mirenv,
     mirtrees
   ],
   compiler/modules/[
@@ -85,7 +85,7 @@ from compiler/ast/reports_sem import SemReport
 type
   InlineProc = object
     ## Information about an inline procedure.
-    sym: PSym
+    id: ProcedureId
     body: Body
       ## the fully processed body of the procedure
 
@@ -100,14 +100,12 @@ type
     inlineProcs: Store[uint32, InlineProc]
       ## stores the additional information plus the generated code for each
       ## alive inline procedure
-    inlineMap: Table[int, uint32]
-      ## maps a symbol ID to the associated ``InlineProc`` ID
+    inlineMap: Table[ProcedureId, uint32]
+      ## maps a procedure ID to the associated ``InlineProc`` ID
 
     inlined: OrdinalSeq[ModuleId, PackedSet[uint32]]
       ## for each module, the starting set of inline procedures that need
       ## to be duplicated into the module's corresponding C file
-
-func hash(x: PSym): int = hash(x.id)
 
 proc writeMangledLocals(p: BProc) =
   ## Writes the mangled names of `p`'s locals to the module's NDI file.
@@ -118,27 +116,28 @@ proc writeMangledLocals(p: BProc) =
       writeMangledName(p.module.ndi, it.lode.info, p.body[i].name, it.r,
                        p.config)
 
-func registerInline(g: var InliningData, prc: PSym): uint32 =
+func registerInline(g: var InliningData, prc: ProcedureId): uint32 =
   ## If not already registered, registers the inline procedure `prc` with
   ## `g`. This only sets up an ``InlineProc`` stub -- the entry is
   ## not populated yet.
-  if prc.id in g.inlineMap:
+  if prc in g.inlineMap:
     # XXX: double lookup
-    result = g.inlineMap[prc.id]
+    result = g.inlineMap[prc]
   else:
-    result = g.inlineProcs.add(InlineProc(sym: prc))
-    g.inlineMap[prc.id] = result
+    result = g.inlineProcs.add(InlineProc(id: prc))
+    g.inlineMap[prc] = result
 
-proc dependOnCompilerProc(g: var InliningData, d: var DiscoveryData, m: ModuleId,
+proc dependOnCompilerProc(g: var InliningData, env: var MirEnv, m: ModuleId,
                           graph: ModuleGraph, name: string) =
   let sym = getCompilerProc(graph, name)
   assert sym != nil, "compilerproc missing"
-  register(d, sym)
+  let id = env.procedures.add(sym)
   # a compilerproc can also be an inline procedure:
   if sym.typ.callConv == ccInline:
-    g.inlined[m].incl registerInline(g, sym)
+    g.inlined[m].incl registerInline(g, id)
 
-func dependOnInline(g: var InliningData, m: ModuleId, id: Option[uint32], dep: PSym) =
+func dependOnInline(g: var InliningData, m: ModuleId, id: Option[uint32],
+                    dep: ProcedureId) =
   ## Raise a dependency on an inline procedure `dep`, with `m` being the
   ## current module and `id` the ID of the inline procedure the in whose
   ## context the dependency is raised.
@@ -149,28 +148,34 @@ func dependOnInline(g: var InliningData, m: ModuleId, id: Option[uint32], dep: P
     # remember the dependency:
     g.inlineProcs[id.unsafeGet].deps.incl other
 
-proc prepare(g: BModuleList, s: PSym) =
-  ## Responds to the discovery of entity `s`.
-  case s.kind
-  of skProcKinds, skConst:
+proc prepare(g: BModuleList, n: MirNode) =
+  ## Responds to the discovery of entity `n`.
+  case n.kind
+  of mnkProc, mnkConst:
     # the definition is emitted once the body is available
     discard "nothing to do"
-  of skVar, skLet, skForVar:
-    let bmod = g.modules[moduleId(s)]
+  of mnkGlobal:
+    let
+      s = g.env[n.global]
+      bmod = g.modules[moduleId(s)]
+
     # can be either a threadvar or normal global variable
     if sfThread in s.flags:
-      fillGlobalLoc(bmod, s)
-      declareThreadVar(bmod, s, sfImportc in s.flags)
+      fillGlobalLoc(bmod, n.global)
+      declareThreadVar(bmod, n.global, sfImportc in s.flags)
     else:
-      defineGlobalVar(bmod, s)
+      defineGlobalVar(bmod, n.global)
   else:
-    unreachable(s.kind)
+    unreachable(n.kind)
 
-proc processEvent(g: BModuleList, inl: var InliningData, discovery: var DiscoveryData, partial: var Table[PSym, BProc], evt: sink BackendEvent) =
+proc processEvent(g: BModuleList, inl: var InliningData,
+                  discovery: var DiscoveryData,
+                  partial: var Table[ProcedureId, BProc],
+                  evt: sink BackendEvent) =
   ## The orchestrator's event processor.
   let bmod = g.modules[evt.module.int]
 
-  proc handleInline(inl: var InliningData, m: ModuleId, prc: PSym,
+  proc handleInline(inl: var InliningData, env: MirEnv, m: ModuleId, prc: PSym,
                     body: MirTree): Option[uint32] {.nimcall.} =
     ## Registers the dependency on inline procedure that `body` has
     ## with module `m` and, if an inline procedure, also `prc`. Returns
@@ -178,34 +183,35 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
     ## procedure.
     result =
       if prc.typ.callConv == ccInline:
-        some(registerInline(inl, prc))
+        some(registerInline(inl, env.procedures[prc]))
       else:
         none(uint32)
 
     # remember usages of inline procedures for the purpose of emitting
     # them later:
     for dep in deps(body):
-      if dep.kind in routineKinds and dep.typ.callConv == ccInline:
-        dependOnInline(inl, m, result, dep)
+      if dep.kind == mnkProc and env[dep.prc].typ.callConv == ccInline:
+        dependOnInline(inl, m, result, dep.prc)
 
   proc processLate(bmod: BModule, data: var DiscoveryData, inl: var InliningData,
                    m: ModuleId, inlineId: Option[uint32]) {.nimcall.} =
     ## Registers late-dependencies raised by the code generator with `data`.
     ##
-    ## The code generator currently emits calls to ``.compilerprocs``, which
-    ## the alive set needs to know about.
+    ## The code generator is currently responsible for discovering some type-
+    ## attached procedures, and procedure processing needs to know about which
+    ## module they're registered from.
     for it in bmod.extra.items:
-      register(data, it)
-      if it.typ.callConv == ccInline:
+      if bmod.g.env[it].typ.callConv == ccInline:
         dependOnInline(inl, m, inlineId, it)
 
     # we processed/consumed all elements
     bmod.extra.setLen(0)
 
     # we also need to update the alive entities with the used hooks:
-    for bmod, s in bmod.g.hooks.items:
-      # queue the hook from the module it was used from:
-      registerLate(data, s, bmod.module.position.ModuleId)
+    for bmod, id in bmod.g.hooks.items:
+      # the hook needs to be queued from the module it was first referenced
+      # from:
+      setModuleOverride(data, id, bmod.module.position.ModuleId)
 
     bmod.g.hooks.setLen(0)
 
@@ -217,42 +223,42 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
     # procedure dependency that needs to be communicated
     if sfMainModule in bmod.module.flags and
        emulatedThreadVars(g.config):
-      dependOnCompilerProc(inl, discovery, evt.module, g.graph,
+      dependOnCompilerProc(inl, g.env, evt.module, g.graph,
                            "initThreadVarsEmulation")
 
   of bekConstant:
     # emit the definition now that the body is available
-    let s = evt.cnst
-    genConstDefinition(g.modules[moduleId(s)], s)
+    let s = g.env[evt.cnst]
+    genConstDefinition(g.modules[moduleId(s)], evt.cnst)
   of bekPartial:
     # register inline dependencies:
-    let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.code)
+    let inlineId = handleInline(inl, g.env, evt.module, evt.sym, evt.body.code)
 
-    var p = getOrDefault(partial, evt.sym)
+    var p = getOrDefault(partial, evt.id)
     if p == nil:
-      p = startProc(g.modules[evt.module.int], evt.sym, Body())
-      partial[evt.sym] = p
+      p = startProc(g.modules[evt.module.int], evt.id, Body())
+      partial[evt.id] = p
 
-    let body = generateIR(g.graph, bmod.idgen, evt.sym, evt.body)
+    let body = generateIR(g.graph, bmod.idgen, g.env, evt.sym, evt.body)
     # emit into the procedure:
     genPartial(p, merge(p.body, body))
 
     processLate(bmod, discovery, inl, evt.module, inlineId)
   of bekProcedure:
-    let inlineId = handleInline(inl, evt.module, evt.sym, evt.body.code)
+    let inlineId = handleInline(inl, g.env, evt.module, evt.sym, evt.body.code)
 
     # mark the procedure as declared, first. This gets around an unnecessary
     # emit of the prototype in the case of self-recursion
     bmod.declaredThings.incl(evt.sym.id)
     let
-      body = generateIR(g.graph, bmod.idgen, evt.sym, evt.body)
-      p    = startProc(bmod, evt.sym, body)
+      body = generateIR(g.graph, bmod.idgen, g.env, evt.sym, evt.body)
+      p    = startProc(bmod, evt.id, body)
 
     # we can't generate with ``genProc`` because we still need to output
     # the mangled names
     genStmts(p, p.body.code)
     writeMangledLocals(p)
-    let r = finishProc(p, evt.sym)
+    let r = finishProc(p, evt.id)
 
     if inlineId.isSome:
       # remember the generated body:
@@ -263,16 +269,17 @@ proc processEvent(g: BModuleList, inl: var InliningData, discovery: var Discover
 
     processLate(bmod, discovery, inl, evt.module, inlineId)
   of bekImported:
-    # an imported procedure available
-    symInDynamicLib(bmod, evt.sym)
+    # an imported procedure became available
+    symInDynamicLib(bmod, evt.id)
 
-proc emit(m: BModule, inl: InliningData, prc: InlineProc, r: var Rope) =
+proc emit(m: BModule, inl: InliningData, prc: InlineProc,
+          r: var Rope) =
   ## Emits the inline procedure `prc` and all its inline dependencies into
   ## `r`.
 
   # guard against recurisve inline procedures and the procedure having
   # been emitted already
-  if m.declaredThings.containsOrIncl(prc.sym.id):
+  if m.declaredThings.containsOrIncl(m.g.env[prc.id].id):
     return
 
   # emit the dependencies first:
@@ -282,10 +289,10 @@ proc emit(m: BModule, inl: InliningData, prc: InlineProc, r: var Rope) =
   assert prc.body.code != nil, "missing body"
   # conservatively emit a prototype for all procedures to make sure that
   # recursive procedures work:
-  genProcPrototype(m, prc.sym)
-  r.add(genProc(m, prc.sym, prc.body))
+  genProcPrototype(m, prc.id)
+  r.add(genProc(m, prc.id, prc.body))
 
-proc generateHeader(g: BModuleList, inl: InliningData, data: DiscoveryData,
+proc generateHeader(g: BModuleList, inl: InliningData, env: MirEnv,
                     s: PSym): BModule =
   ## Generates a C header file containing the prototypes of all
   ## ``.exportc``'ed entities. For inline procedure, the full definition is
@@ -299,27 +306,27 @@ proc generateHeader(g: BModuleList, inl: InliningData, data: DiscoveryData,
   result.flags.incl(isHeaderFile)
 
   # fill the header file with all exported entities:
-  for _, s in all(data.constants):
+  for id, s in items(env.constants):
     if sfExportc in s.flags:
-      useConst(result, s)
+      useConst(result, id)
 
-  for _, s in all(data.globals):
-    if sfExportc in s.flags:
-      genVarPrototype(result, compat.newSymNode(s))
+  for id, s in items(env.globals):
+    if {sfExportc, sfThread} * s.flags == {sfExportc}:
+      genVarPrototype(result, id)
 
-  for _, s in all(data.procedures):
+  for id, s in items(env.procedures):
     # we don't want to emit compilerprocs (which are automatically marked
     # as ``exportc``)
     if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
       if ccInline == s.typ.callConv:
         # inline procedure get inlined into the header
-        let id = inl.inlineMap[s.id]
+        let iid = inl.inlineMap[id]
         var r: string
-        emit(result, inl, inl.inlineProcs[id], r)
+        emit(result, inl, inl.inlineProcs[iid], r)
         result.s[cfsProcs].add(r)
       else:
         # for non-inline procedure, only a prototype is placed in the header
-        genProcPrototype(result, s)
+        genProcPrototype(result, id)
 
 proc generateCodeForMain(m: BModule, modules: ModuleList) =
   ## Generates and emits the C code for the program's or library's entry
@@ -346,7 +353,8 @@ proc generateCodeForMain(m: BModule, modules: ModuleList) =
   # we don't want error or stack-trace code in the main procedure:
   p.flags.incl nimErrorFlagDisabled
   p.options = {}
-  p.body = canonicalize(m.g.graph, m.idgen, m.module, body, TranslationConfig())
+  p.body = canonicalize(m.g.graph, m.idgen, m.g.env, m.module, body,
+                        TranslationConfig())
 
   genStmts(p, p.body.code)
   var code: string
@@ -406,18 +414,18 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
   var
     inl:       InliningData
     discovery: DiscoveryData
-    partial:   Table[PSym, BProc]
+    partial:   Table[ProcedureId, BProc]
 
   inl.inlined.newSeq(g.modules.len)
 
   # discover and generate code for all alive procedures:
-  for ac in process(graph, mlist, discovery, config):
+  for ac in process(graph, mlist, g.env, discovery, config):
     processEvent(g, inl, discovery, partial, ac)
 
   # finish the partial procedures:
-  for s, p in partial.pairs:
+  for id, p in partial.pairs:
     writeMangledLocals(p)
-    p.module.s[cfsProcs].add(finishProc(p, s))
+    p.module.s[cfsProcs].add(finishProc(p, id))
 
   # -------------------------
   # all alive entities must have been discovered when reaching here; it is
@@ -425,21 +433,19 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
 
   block:
     # write the mangled names of the various entities to the NDI files
-    for it in g.procs.items:
-      let
-        s = it.sym
-        m = g.modules[moduleId(s)]
-      writeMangledName(m.ndi, s, it.name, g.config)
+    for id, loc in g.procs.pairs:
+      let s = g.env[id]
+      writeMangledName(g.modules[moduleId(s)].ndi, s, loc.name, g.config)
 
-    template write(loc: TLoc) =
-      let s = loc.lode.sym
+    template write(loc: TLoc, id: untyped) =
+      let s = g.env[id]
       writeMangledName(g.modules[moduleId(s)].ndi, s, loc.r, g.config)
 
-    for it in g.globals.items:
-      write(it)
+    for id, loc in g.globals.pairs:
+      write(loc, id)
 
-    for it in g.consts.items:
-      write(it)
+    for id, loc in g.consts.pairs:
+      write(loc, id)
 
   # now emit a duplicate of each inline procedure into the C files where the
   # procedure is used. Due to how ``cgen`` currently works, this means
@@ -457,7 +463,7 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
   if optGenIndex in graph.config.globalOptions:
     # XXX: the header is just a normal C file artifact of ``generateCode``,
     #      don't store it with ``BModuleList``
-    g.generatedHeader = generateHeader(g, inl, discovery,
+    g.generatedHeader = generateHeader(g, inl, g.env,
                                        mlist[graph.config.projectMainIdx].sym)
 
   # not pretty, but here's the earliest point where we know about the set of
