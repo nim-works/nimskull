@@ -332,10 +332,13 @@ template buildMagicCall*(bu: var MirBuilder, m: TMagic, t: PType,
     bu.add MirNode(kind: mnkMagic, magic: m)
     body
 
-template buildCall*(bu: var MirBuilder, prc: PSym, t: PType, d: untyped) =
+template buildCall*(bu: var MirBuilder, prc: ProcedureId, pt, t: PType,
+                    body: untyped) =
+  ## Build and emits a call tree to the active buffer. `pt` is the type of the
+  ## procedure.
   bu.subTree MirNode(kind: mnkCall, typ: t):
-    bu.use procLit(prc)
-    d
+    bu.use toValue(prc, pt)
+    body
 
 func emitByVal*(bu: var MirBuilder, y: Value) =
   bu.subTree mnkArg:
