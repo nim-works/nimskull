@@ -28,7 +28,9 @@ import
   ],
   compiler/mir/[
     mirbodies,
-    mirgen
+    mirenv,
+    mirgen,
+    mirtrees
   ],
   compiler/modules/[
     modulegraphs,
@@ -65,17 +67,17 @@ type
     sym: PSym
     body: Body
 
-  PartialTbl = Table[int, PartialProc]
-    ## Maps the symbol ID of a partial procedure to its in-progress body
+  PartialTbl = Table[ProcedureId, PartialProc]
+    ## Maps the ID of a partial procedure to its in-progress body
 
   GenCtx = object
     ## State of the orchestrator.
     graph: ModuleGraph
 
     # link tables:
-    globals: OrdinalSeq[LinkIndex, PVmType]
-    functions: OrdinalSeq[LinkIndex, FuncTableEntry]
-    # for constants, the discovery data is re-used
+    globals: OrdinalSeq[GlobalId, PVmType]
+    functions: OrdinalSeq[ProcedureId, FuncTableEntry]
+    # no extra data is needed for constants
 
     gen: CodeGenCtx ## code generator state
 
@@ -114,19 +116,24 @@ func setLinkIndex(c: var GenCtx, s: PSym, i: LinkIndex) =
 proc initProcEntry(c: var GenCtx, prc: PSym): FuncTableEntry {.inline.} =
   initProcEntry(c.gen.linking, c.graph.config, c.gen.typeInfoCache, prc)
 
-proc registerProc(c: var GenCtx, prc: PSym): FunctionIndex =
-  ## Adds an empty function-table entry for `prc` and registers the latter
-  ## in the link table.
-  let idx = c.functions.add(c.initProcEntry(prc))
-  setLinkIndex(c, prc, idx)
-  result = FunctionIndex(idx)
+proc registerProc(c: var GenCtx, prc: ProcedureId) =
+  ## Adds an empty function-table entry for `prc` and registers `prc` in the
+  ## link table.
+  let idx = int prc
+  # make space for table entry:
+  if idx >= c.functions.len:
+    c.functions.setLen(idx + 1)
+
+  let sym = c.gen.env[prc]
+  c.functions[prc] = c.initProcEntry(sym)
+  setLinkIndex(c, sym, LinkIndex idx)
 
 proc generateCodeForProc(c: var CodeGenCtx, idgen: IdGenerator, s: PSym,
                          body: sink MirBody): CodeInfo =
   ## Generates and the bytecode for the procedure `s` with body `body`. The
   ## resulting bytecode is emitted into the global bytecode section.
   let
-    body = generateIR(c.graph, idgen, s, body)
+    body = generateIR(c.graph, idgen, c.env, s, body)
     r    = genProc(c, s, body)
 
   if r.isOk:
@@ -135,39 +142,37 @@ proc generateCodeForProc(c: var CodeGenCtx, idgen: IdGenerator, s: PSym,
     c.config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
 proc declareGlobal(c: var GenCtx, sym: PSym) =
-  # we silently ignore imported globals here and let ``vmgen`` raise an
-  # error when one is accessed
   if exfNoDecl notin sym.extFlags and sfImportc notin sym.flags:
     # make sure the type is generated and register the global in the
     # link table
-    setLinkIndex(c, sym, c.globals.add(getOrCreate(c.gen, sym.typ)))
+    discard c.globals.add(getOrCreate(c.gen, sym.typ))
+  else:
+    # we silently ignore imported globals here and let ``vmgen`` raise an
+    # error when one is accessed. A global must still be registered,
+    # otherwise `GlobalId` would go out of sync
+    discard c.globals.add(c.gen.typeInfoCache.emptyType)
 
-proc prepare(c: var GenCtx, i: int, it: PSym) =
-  ## Responds to the discovery of entity `s` (with index `i`). This means
-  ## registering it with the link table.
-  case it.kind
-  of skProcKinds:
-    # make space for table entry:
-    if i >= c.functions.len:
-      c.functions.setLen(i + 1)
-
-    let idx = LinkIndex(i)
-    c.functions[idx] = c.initProcEntry(it)
-    setLinkIndex(c, it, idx)
+proc prepare(c: var GenCtx, n: MirNode) =
+  ## Responds to the discovery of entity `n`. This means registering it with
+  ## the link table, if necessary.
+  case n.kind
+  of mnkProc:
+    let it = c.gen.env[n.prc]
+    registerProc(c, n.prc)
 
     # if a procedure's implementation is overridden with a VM callback, we
     # don't want any processing to happen for it, which we signal to the
     # event producer via ``exfNoDecl``
-    if c.functions[idx].kind == ckCallback:
+    if c.functions[n.prc].kind == ckCallback:
       it.extFlags.incl exfNoDecl
 
-  of skConst:
-    setLinkIndex(c, it, LinkIndex(i))
-  of skVar, skLet, skForVar:
+  of mnkConst:
+    discard "nothing to do"
+  of mnkGlobal:
     # global or threadvar
-    declareGlobal(c, it)
+    declareGlobal(c, c.gen.env[n.global])
   else:
-    unreachable(it.kind)
+    unreachable(n.kind)
 
 proc processEvent(c: var GenCtx, mlist: ModuleList, discovery: var DiscoveryData,
                   partial: var PartialTbl, evt: sink BackendEvent) =
@@ -177,16 +182,17 @@ proc processEvent(c: var GenCtx, mlist: ModuleList, discovery: var DiscoveryData
 
   case evt.kind
   of bekDiscovered:
-    prepare(c, evt.entityId, evt.entity)
+    prepare(c, evt.entity)
   of bekModule, bekConstant:
     discard "nothing to do"
   of bekPartial:
-    let p = addr mgetOrPut(partial, evt.sym.id, PartialProc(sym: evt.sym))
-    discard merge(p.body): generateIR(c.graph, idgen, evt.sym, evt.body)
+    let p = addr mgetOrPut(partial, evt.id, PartialProc(sym: evt.sym))
+    discard merge(p.body):
+      generateIR(c.graph, idgen, c.gen.env, evt.sym, evt.body)
   of bekProcedure:
     # a complete procedure became available
     let r = generateCodeForProc(c.gen, idgen, evt.sym, evt.body)
-    fillProcEntry(c.functions[lookup(c.gen.linking, evt.sym)], r)
+    fillProcEntry(c.functions[evt.id], r)
   of bekImported:
     # not supported at the moment; ``vmgen`` is going to raise an
     # error when generating a call to a dynlib procedure
@@ -199,17 +205,14 @@ proc generateAliveProcs(c: var GenCtx, config: BackendConfig,
   var
     partial: PartialTbl
 
-  for evt in process(c.graph, mlist, discovery, config):
+  for evt in process(c.graph, mlist, c.gen.env, discovery, config):
     processEvent(c, mlist, discovery, partial, evt)
 
   # generate the bytecode for the partial procedures:
-  for _, p in partial.mpairs:
-    let
-      id = registerProc(c, p.sym)
-      r  = genProc(c.gen, p.sym, move p.body)
-
+  for id, p in partial.mpairs:
+    let r = genProc(c.gen, p.sym, move p.body)
     if r.isOk:
-      fillProcEntry(c.functions[id.LinkIndex]): r.unsafeGet
+      fillProcEntry(c.functions[id]): r.unsafeGet
     else:
       c.gen.config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
@@ -221,17 +224,19 @@ proc generateAliveProcs(c: var GenCtx, config: BackendConfig,
     reset(p)
 
 proc generateCodeForMain(c: var GenCtx, config: BackendConfig,
-                         modules: var ModuleList): FunctionIndex =
+                         modules: var ModuleList): ProcedureId =
   ## Generate, emits, and links in the main procedure (the entry point).
   let
     idgen = mainModule(modules).idgen
     prc = generateMainProcedure(c.graph, idgen, modules)
-    body = translate(prc, prc.ast[bodyPos], c.graph, config, idgen)
+    id = c.gen.env.procedures.add(prc)
 
-  result = registerProc(c, prc)
+  # transform, generate code, and register in the function table:
+  let body = translate(id, prc.ast[bodyPos], c.graph, config, idgen, c.gen.env)
+  registerProc(c, id)
+  fillProcEntry(c.functions[id], generateCodeForProc(c.gen, idgen, prc, body))
 
-  let r = generateCodeForProc(c.gen, idgen, prc, body)
-  fillProcEntry(c.functions[result.LinkIndex], r)
+  result = id
 
 func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
                 linking: sink LinkerData,
@@ -302,10 +307,10 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   env.rtti = move c.gen.rtti
 
   # produce a list with the type of each constant:
-  var consts = newSeq[(PVmType, PNode)](discovery.constants.len)
-  for i, sym in all(discovery.constants):
+  var consts = newSeq[(PVmType, PNode)](c.gen.env.constants.len)
+  for i, sym in c.gen.env.constants.items:
     let typ = c.gen.typeInfoCache.lookup(conf, sym.typ)
-    consts[i] = (typ.unsafeGet, sym.ast)
+    consts[ord(i)] = (typ.unsafeGet, sym.ast)
 
   env.typeInfoCache = move c.gen.typeInfoCache
 
@@ -317,7 +322,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   enc.init(env.types)
   storeEnv(enc, penv, env)
   storeExtra(enc, penv, c.gen.linking, consts, base(c.globals))
-  penv.entryPoint = entryPoint
+  penv.entryPoint = FunctionIndex(entryPoint)
 
   let err = writeToFile(penv, prepareToWriteOutput(conf))
   if err != RodFileError.ok:
