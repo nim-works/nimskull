@@ -400,6 +400,7 @@ proc callNimCompiler(cmd: string): CompilerOutput =
   verboseCmd(cmd)
   var p = startProcess(command = cmd,
                        options = {poStdErrToStdOut, poUsePath, poEvalCommand})
+  # windows requires reading the the exit code (below) prior to closing
   defer: close(p)
   let outp = p.outputStream
   var foundSuccessMsg = false
