@@ -30,7 +30,7 @@ jobs:
     #               varies based on outside environment.
 
     # Skip this for PRs
-    if: github.event_name != 'pull_request'
+    #if: github.event_name != 'pull_request'
 
     strategy:
       fail-fast: false
