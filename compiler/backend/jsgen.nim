@@ -364,7 +364,7 @@ proc ensureMangledName(p: PProc, s: PSym): lent string =
 
 proc ensureMangledName(p: PProc, id: ProcedureId): lent string =
   if id notin p.g.procs:
-    # the mangled named hasn't been generated yet
+    # the mangled name hasn't been generated yet
     p.g.procs[id] = mangleName(p.module, p.env[id])
 
   result = p.g.procs[id]

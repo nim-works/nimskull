@@ -125,7 +125,7 @@ proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
     c.complexConsts.add handle
 
 template preCheck(env: MirEnv, n: PNode) =
-  ## Verifies that `n` can be build and run in JIT mode. If not, aborts the
+  ## Verifies that `n` can be built and run in JIT mode. If not, aborts the
   ## surrounding routine by returning a ``VmGenResult``.
   block:
     let r = validate(env, n)

@@ -873,7 +873,7 @@ iterator discover*(env: var MirEnv, progress: EnvCheckpoint
                   ): tuple[s: PSym, n: MirNode] =
   ## Returns all entities - in an unspecified order - added to `env` since the
   ## `progress` checkpoint was created. Procedures referenced from constants
-  ## also added to the environment and returnd.
+  ## also added to the environment and returned.
   ##
   ## This iterator is meant for a manual implementation of the backend
   ## processing -- don't use it in conjunction with the ``process`` iterator.

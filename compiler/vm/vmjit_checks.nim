@@ -2,7 +2,7 @@
 ## NimScript/REPL contexts.
 ##
 ## Future direction: this validation needs to be decoupled from the JIT and
-## moved into the semantical analyisis layer.
+## moved into the semantic analyisis layer.
 
 import
   std/[
