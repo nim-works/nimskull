@@ -144,6 +144,8 @@ type
     sp: SourceProvider
 
     numLabels: int ## provides the ID to use for the next label
+    inLoop: int
+      ## > 0 if the current statement/expression is part of a loop
 
     # input:
     context: TSymKind ## what entity the input AST is part of (e.g. procedure,
@@ -1526,6 +1528,8 @@ proc genVarTuple(c: var TCtx, n: PNode) =
   let
     numDefs = n.len - 2
     initExpr = n[^1]
+    isInit = c.inLoop == 0
+      ## for lifted locals, whether an 'init' assignment can be used
 
   # then, generate the initialization
   case initExpr.kind
@@ -1541,7 +1545,7 @@ proc genVarTuple(c: var TCtx, n: PNode) =
 
       case lhs.kind
       of nkSym:     genLocInit(c, lhs, rhs)
-      of nkDotExpr: genAsgn(c, true, true, lhs, rhs) # closure field
+      of nkDotExpr: genAsgn(c, isInit, true, lhs, rhs) # closure field
       else:         unreachable(lhs.kind)
 
   else:
@@ -1559,9 +1563,9 @@ proc genVarTuple(c: var TCtx, n: PNode) =
         genLocDef(c, lhs, c.graph.emptyNode)
 
       # generate the assignment:
-      c.buildStmt mnkInit:
+      c.buildStmt (if isInit: mnkInit else: mnkAsgn):
         genOperand(c, lhs)
-        c.subTree MirNode(kind: mnkPathPos, typ: lhs.sym.typ,
+        c.subTree MirNode(kind: mnkPathPos, typ: lhs.typ,
                           position: i.uint32):
           c.use val
 
@@ -1579,11 +1583,12 @@ proc genVarSection(c: var TCtx, n: PNode) =
       of nkDotExpr:
         # initialization of a variable that was lifted into a closure
         # environment
+        let isInit = c.inLoop == 0
         if a[2].kind != nkEmpty:
-          genAsgn(c, false, true, a[0], a[2])
+          genAsgn(c, isInit, true, a[0], a[2])
         else:
           # no intializer expression -> assign the default value
-          c.buildStmt mnkInit:
+          c.buildStmt (if isInit: mnkInit else: mnkAsgn):
             genOperand(c, a[0])
             c.buildMagicCall mDefault, a[0].typ:
               discard
@@ -1599,7 +1604,9 @@ proc genWhile(c: var TCtx, n: PNode) =
   assert isTrue(n[0]), "`n` wasn't properly transformed"
   c.subTree MirNode(kind: mnkRepeat):
     c.scope:
+      inc c.inLoop
       c.gen(n[1])
+      dec c.inLoop
 
 proc genBlock(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for a ``block`` expression or statement
