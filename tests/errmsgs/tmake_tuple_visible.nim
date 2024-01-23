@@ -1,5 +1,5 @@
 discard """
-  errormsg: '''type mismatch: got <(typedesc[NimEdAppWindow], int)>'''
+  errormsg: '''Mixing types and values in tuples is not allowed.'''
   line: 21
   description: '''error message and hint if there is a space between the
   routine name and the arguments at a call site.'''
