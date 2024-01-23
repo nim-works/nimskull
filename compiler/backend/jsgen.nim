@@ -43,6 +43,10 @@ import
     magicsys,
     modulegraphs
   ],
+  compiler/mir/[
+    mirenv,
+    mirtrees
+  ],
   compiler/front/[
     options,
     msgs
@@ -111,8 +115,13 @@ type
 
     names: Table[int, string]
       ## maps a symbol IDs to the symbol's JavaScript name
+    procs: SeqMap[ProcedureId, string]
+      ## the JavaScript name for each procedure
+    consts: SeqMap[ConstId, Loc]
+    globals: SeqMap[GlobalId, Loc]
 
-    extra*: seq[PSym]
+    env*: MirEnv
+      ## the project-wide MIR environment
 
   StorageFlag = enum
     stfIndirect ## the value is stored in a single-item array
@@ -160,6 +169,9 @@ const
     ## magics that are treated like normal procedures by the code
     ## generator
 
+template isFilled(x: string): bool =
+  x.len != 0
+
 # forward declarations:
 proc setupLocalLoc(p: PProc, id: LocalId, kind: TSymKind; name = "")
 
@@ -199,6 +211,7 @@ func analyseIfAddressTaken(n: CgNode, addrTaken: var PackedSet[LocalId]) =
       analyseIfAddressTaken(it, addrTaken)
 
 template config*(p: PProc): ConfigRef = p.module.config
+template env*(p: PProc): untyped = p.g.env
 
 proc indentLine(p: PProc, r: Rope): Rope =
   result = r
@@ -338,12 +351,6 @@ func mangleName(loc: Local, id: LocalId): string =
     result.add "_"
     result.addInt id.int
 
-proc mangledName(p: PProc, s: PSym, info: TLineInfo): lent string =
-  ## Returns the cached JavaScript name for `s`.
-  p.module.config.internalAssert(s.id in p.g.names, info):
-    "symbol has no generated name: " & s.name.s
-  result = p.g.names[s.id]
-
 proc ensureMangledName(p: PProc, s: PSym): lent string =
   ## Looks up and returns the mangled name for the non-local symbol
   ## `s`, generating and caching the mangled name if it hasn't been
@@ -354,6 +361,13 @@ proc ensureMangledName(p: PProc, s: PSym): lent string =
     n[] = mangleName(p.module, s)
 
   result = p.g.names[s.id]
+
+proc ensureMangledName(p: PProc, id: ProcedureId): lent string =
+  if id notin p.g.procs:
+    # the mangled name hasn't been generated yet
+    p.g.procs[id] = mangleName(p.module, p.env[id])
+
+  result = p.g.procs[id]
 
 proc escapeJSString(s: string): string =
   result = newStringOfCap(s.len + s.len shr 2)
@@ -392,7 +406,7 @@ proc useMagic(p: PProc, name: string) =
   if name.len == 0: return
   var s = magicsys.getCompilerProc(p.module.graph, name)
   if s != nil:
-    p.g.extra.add s
+    discard p.env.procedures.add(s)
   else:
     if p.prc != nil:
       globalReport(p.config, p.prc.info, reportStr(rsemSystemNeeds, name))
@@ -981,7 +995,7 @@ proc genFastAsgn(p: PProc, n: CgNode) =
 proc getFieldPosition(p: PProc; f: CgNode): int =
   case f.kind
   of cnkIntLit: result = int(f.intVal)
-  of cnkField:  result = f.sym.position
+  of cnkField:  result = f.field.position
   else: internalError(p.config, f.info, "genFieldPosition")
 
 proc genFieldAddr(p: PProc, n: CgNode, r: var TCompRes) =
@@ -994,7 +1008,7 @@ proc genFieldAddr(p: PProc, n: CgNode, r: var TCompRes) =
     r.res = makeJSString("Field" & $getFieldPosition(p, b[1]))
   of cnkFieldAccess:
     p.config.internalAssert(b[1].kind == cnkField, b[1].info, "genFieldAddr")
-    r.res = makeJSString(ensureMangledName(p, b[1].sym))
+    r.res = makeJSString(ensureMangledName(p, b[1].field))
   else:
     unreachable(n.kind)
   internalAssert p.config, a.typ != etyBaseIndex
@@ -1011,7 +1025,7 @@ proc genFieldAccess(p: PProc, n: CgNode, r: var TCompRes) =
         [r.res, getFieldPosition(p, n[1]).rope]
   of cnkFieldAccess:
     p.config.internalAssert(n[1].kind == cnkField, n[1].info, "genFieldAccess")
-    r.res = "$1.$2" % [r.res, ensureMangledName(p, n[1].sym)]
+    r.res = "$1.$2" % [r.res, ensureMangledName(p, n[1].field)]
   else:
     unreachable(n.kind)
 
@@ -1076,11 +1090,6 @@ proc genArrayAccess(p: PProc, n: CgNode, r: var TCompRes) =
     r.res = "$1[$2]" % [r.address, r.res]
   r.kind = resExpr
 
-func isBoxedPointer(v: PSym): bool =
-  ## Returns whether `v` stores a pointer value boxed in an array. If not,
-  ## the value is stored as two variables (base and index).
-  sfGlobal in v.flags
-
 func isBoxedPointer(v: Loc): bool =
   ## Returns whether `v` stores a pointer value boxed in an array. If not,
   ## the value is stored as two variables (base and index).
@@ -1097,7 +1106,7 @@ template isIndirect(x: PSym): bool =
 template isIndirect(x: Loc): bool =
   stfIndirect in x.storage
 
-proc addrLoc[T: Loc|PSym](name: string, s: T, r: var TCompRes) =
+proc addrLoc(s: Loc, r: var TCompRes) =
   ## Generates the code for taking the address of the location identified by
   ## symbol node `n`
   if true:
@@ -1105,23 +1114,25 @@ proc addrLoc[T: Loc|PSym](name: string, s: T, r: var TCompRes) =
     r.typ = etyBaseIndex
     r.res = "0"
     if isIndirect(s):
-      r.address = name
+      r.address = s.name
     elif mapType(s.typ) == etyBaseIndex and not isBoxedPointer(s):
       # box the separate base+index into an array first
-      r.address = "[[$1, $1_Idx]]" % name
+      r.address = "[[$1, $1_Idx]]" % s.name
     else:
       # something that doesn't directly support having its address
       # taken (e.g. imported variable, parameter, let, etc.)
-      r.address = "[$1]" % name
+      r.address = "[$1]" % s.name
 
 proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
   ## Dispatches to the appropriate procedure for generating the address-of
   ## operation based on the kind of node `n`
   case n.kind
   of cnkLocal:
-    addrLoc(p.locals[n.local].name, p.locals[n.local], r)
-  of cnkConst, cnkGlobal:
-    addrLoc(mangledName(p, n.sym, n.info), n.sym, r)
+    addrLoc(p.locals[n.local], r)
+  of cnkConst:
+    addrLoc(p.g.consts[n.cnst], r)
+  of cnkGlobal:
+    addrLoc(p.g.globals[n.global], r)
   of cnkFieldAccess, cnkTupleAccess:
     genFieldAddr(p, n, r)
   of cnkArrayAccess:
@@ -1146,24 +1157,24 @@ proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
   else:
     internalError(p.config, n.info, "genAddr: " & $n.kind)
 
-proc accessLoc[T: Loc|PSym](name: string, s: T, r: var TCompRes) =
+proc accessLoc(s: Loc, r: var TCompRes) =
     let k = mapType(s.typ)
     if k == etyBaseIndex:
       r.typ = etyBaseIndex
       if isBoxedPointer(s):
         if isIndirect(s):
-          r.address = "$1[0][0]" % [name]
-          r.res = "$1[0][1]" % [name]
+          r.address = "$1[0][0]" % [s.name]
+          r.res = "$1[0][1]" % [s.name]
         else:
-          r.address = "$1[0]" % [name]
-          r.res = "$1[1]" % [name]
+          r.address = "$1[0]" % [s.name]
+          r.res = "$1[1]" % [s.name]
       else:
-        r.address = name
-        r.res = name & "_Idx"
+        r.address = s.name
+        r.res = s.name & "_Idx"
     elif isIndirect(s):
-      r.res = "$1[0]" % [name]
+      r.res = "$1[0]" % [s.name]
     else:
-      r.res = name
+      r.res = s.name
 
 proc genDeref(p: PProc, n: CgNode, r: var TCompRes) =
   let it = n.operand
@@ -1294,7 +1305,7 @@ proc genPatternCall(p: PProc; n: CgNode; pat: string; typ: PType;
 
 proc genInfixCall(p: PProc, n: CgNode, r: var TCompRes) =
   # don't call '$' here for efficiency:
-  let f = n[0].sym
+  let f = p.g.env[n[0].prc]
   assert sfInfixCall in f.flags
   if true:
     let pat = f.extname
@@ -1488,32 +1499,18 @@ proc setupLocalLoc(p: PProc, id: LocalId, kind: TSymKind; name = "") =
 
   p.locals[id] = loc
 
-proc defineGlobal*(globals: PGlobals, m: BModule, v: PSym) =
+proc defineGlobal*(globals: PGlobals, m: BModule, id: GlobalId) =
   ## Emits the definition for the single global `v` into the top-level section,
   ## with `m` being the module the global belongs to. Also sets up the
   ## symbol's JavaScript name.
   let p = newInitProc(globals, m)
+  let v = globals.env[id]
   let name = mangleName(m, v)
   if exfNoDecl notin v.extFlags and sfImportc notin v.flags:
     lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
 
-  globals.names[v.id] = name
-  # add to the top-level section:
-  globals.code.add(p.body)
-
-proc defineGlobals*(globals: PGlobals, m: BModule, vars: openArray[PSym]) =
-  ## Emits definitions for the items in `vars` into the top-level section,
-  ## with `m` being the module the globals belong to. Also sets up the
-  ## JavaScript name for the globals.
-  let p = newInitProc(globals, m)
-    ## required for emitting code
-  for v in vars.items:
-    let name = mangleName(m, v)
-    if exfNoDecl notin v.extFlags and sfImportc notin v.flags:
-      lineF(p, "var $1 = $2;$n", [name, createVar(p, v.typ, isIndirect(v))])
-
-    globals.names[v.id] = name
-
+  globals.globals[id] = Loc(name: name, typ: v.typ,
+                            storage: storage(v.flags, v.kind, false))
   # add to the top-level section:
   globals.code.add(p.body)
 
@@ -1564,17 +1561,20 @@ proc genDef(p: PProc, it: CgNode) =
   genVarInit(p, p.locals[id].typ, p.locals[id].name, p.locals[id].storage,
              it[1])
 
-proc genConstant*(g: PGlobals, m: BModule, c: PSym) =
-  let name = mangleName(m, c)
+proc genConstant*(g: PGlobals, m: BModule, id: ConstId) =
+  let
+    c = g.env[id]
+    name = mangleName(m, c)
+    storage = storage({}, skConst, false)
+
   if exfNoDecl notin c.extFlags:
     var p = newInitProc(g, m)
     #genLineDir(p, c.ast)
-    genVarInit(p, c.typ, name, storage(c.flags, skConst, false),
-               translate(c.ast))
+    genVarInit(p, c.typ, name, storage, translate(g.env, c.ast))
     g.constants.add(p.body)
 
   # all constants need a name:
-  g.names[c.id] = name
+  g.consts[id] = Loc(name: name, typ: c.typ, storage: storage)
 
 proc genNew(p: PProc, n: CgNode, r: var TCompRes) =
   ## Updates `r` with the result of a ``new`` magic invocation.
@@ -1738,7 +1738,7 @@ proc genJSArrayConstr(p: PProc, n: CgNode, r: var TCompRes) =
 proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes)
 
 proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
-  let op = getCalleeMagic(n[0])
+  let op = getCalleeMagic(p.g.env, n[0])
   case op
   of mAddI..mUnaryMinusF64: arith(p, n, r, op)
   of mCharToStr:
@@ -1864,7 +1864,7 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mEcho: genEcho(p, n, r)
   of mNLen..mNError:
     localReport(p.config, n.info, reportSym(
-      rsemConstExpressionExpected, n[0].sym))
+      rsemConstExpressionExpected, p.env[n[0].prc]))
 
   of mNewString: unaryExpr(p, n, r, "mnewString", "mnewString($1)")
   of mNewStringOfCap:
@@ -2012,7 +2012,7 @@ proc genObjConstr(p: PProc, n: CgNode, r: var TCompRes) =
     internalAssert p.config, it.kind == cnkBinding
     let val = it[1]
     gen(p, val, a)
-    var f = it[0].sym
+    let f = it[0].field
     let name = ensureMangledName(p, f)
     fieldIDs.incl(lookupFieldAgain(n.typ, f).id)
 
@@ -2111,7 +2111,9 @@ proc optionalLine(p: Rope): Rope =
   else:
     return p & "\L"
 
-proc startProc*(g: PGlobals, module: BModule, prc: PSym, body: sink Body): PProc =
+proc startProc*(g: PGlobals, module: BModule, id: ProcedureId,
+                body: sink Body): PProc =
+  let prc = g.env[id]
   let p = newProc(g, module, prc, prc.options)
   p.fullBody = body
 
@@ -2120,7 +2122,7 @@ proc startProc*(g: PGlobals, module: BModule, prc: PSym, body: sink Body): PProc
     analyseIfAddressTaken(p.fullBody.code, p.addrTaken)
 
   # make sure the procedure has a mangled name:
-  discard ensureMangledName(p, prc)
+  discard ensureMangledName(p, id)
 
   # setup the loc for the the result variable:
   if prc.typ[0] != nil and sfPure notin prc.flags:
@@ -2163,7 +2165,7 @@ proc finishProc*(p: PProc): string =
       let resVar = createVar(p, loc.typ, isIndirect(loc))
       resultAsgn = p.indentLine(("var $# = $#;$n") % [mname, resVar])
     var a: TCompRes
-    accessLoc(mname, loc, a)
+    accessLoc(loc, a)
     if a.typ == etyBaseIndex:
       returnStmt = "return [$#, $#];$n" % [a.address, a.res]
     else:
@@ -2173,7 +2175,7 @@ proc finishProc*(p: PProc): string =
     result = lineDir(p.config, prc.info, toLinenumber(prc.info))
 
   let
-    name   = p.g.names[prc.id]
+    name   = p.g.procs[p.env.procedures[prc]]
     header = generateHeader(toOpenArray(p.locals.base, 1, prc.typ.len-1))
 
   var def: Rope
@@ -2205,9 +2207,9 @@ proc finishProc*(p: PProc): string =
   #if gVerbosity >= 3:
   #  echo "END   generated code for: " & prc.name.s
 
-proc genProc*(g: PGlobals, module: BModule, prc: PSym,
+proc genProc*(g: PGlobals, module: BModule, id: ProcedureId,
               body: sink Body): Rope =
-  var p = startProc(g, module, prc, body)
+  var p = startProc(g, module, id, body)
   p.nested: genStmt(p, p.fullBody.code)
   result = finishProc(p)
 
@@ -2280,19 +2282,19 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
 
   case n.kind
   of cnkProc:
-    let s = n.sym
+    let s = p.env[n.prc]
     if sfCompileTime in s.flags:
       localReport(p.config, n.info, reportSym(
         rsemCannotCodegenCompiletimeProc, s))
 
-    r.res = ensureMangledName(p, s)
+    r.res = ensureMangledName(p, n.prc)
   of cnkConst:
-    r.res = mangledName(p, n.sym, n.info)
+    # XXX: properly use ``accessLoc``
+    r.res = p.g.consts[n.cnst].name
   of cnkGlobal:
-    let s = n.sym
-    accessLoc(mangledName(p, s, n.info), s, r)
+    accessLoc(p.g.globals[n.global], r)
   of cnkLocal:
-    accessLoc(p.locals[n.local].name, p.locals[n.local], r)
+    accessLoc(p.locals[n.local], r)
   of cnkIntLit, cnkUIntLit:
     r.res = intLiteral(getInt(n), n.typ)
     r.kind = resExpr
@@ -2340,9 +2342,9 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkCall, cnkCheckedCall:
     if isEmptyType(n.typ):
       genLineDir(p, n)
-    if getCalleeMagic(n[0]) != mNone:
+    if getCalleeMagic(p.g.env, n[0]) != mNone:
       genMagic(p, n, r)
-    elif n[0].kind == cnkProc and sfInfixCall in n[0].sym.flags and
+    elif n[0].kind == cnkProc and sfInfixCall in p.env[n[0].prc].flags and
         n.len >= 1:
       genInfixCall(p, n, r)
     else:

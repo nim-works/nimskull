@@ -11,21 +11,17 @@ import
   ]
 
 type
-  ## The MIR itself doesn't not care for how each of the following ID types is
-  ## interpreted. For example, a ``ParamId`` could be the index of the
-  ## parameter or it could be an index into a list of symbols.
-
   LocalId {.used.} = distinct uint32
     ## Identifies a local inside a code fragment
-  GlobalId {.used.} = distinct uint32
-    ## Identifies a global inside a code fragment
-  ConstId {.used.} = distinct uint32
-    ## Identifies a named constant inside a code fragment
+  GlobalId* = distinct uint32
+    ## Identifies a global across all MIR code
+  ConstId* = distinct uint32
+    ## Identifies a named constant across all MIR code
   ParamId {.used.} = distinct uint32
     ## Identifies a parameter of the code fragment
   FieldId {.used.} = distinct uint32
     ## Identifies the field of a record type
-  ProcedureId {.used.} = distinct uint32
+  ProcedureId* = distinct uint32
     ## Identifies a procedure
   LiteralId {.used.} = distinct uint32
     ## Identifies a literal
@@ -252,7 +248,13 @@ type
       ## non-critical meta-data associated with the node (e.g., origin
       ## information)
     case kind*: MirNodeKind
-    of mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal:
+    of mnkProc:
+      prc*: ProcedureId
+    of mnkGlobal:
+      global*: GlobalId
+    of mnkConst:
+      cnst*: ConstId
+    of mnkParam, mnkLocal:
       sym*: PSym
     of mnkField, mnkPathNamed, mnkPathVariant:
       field*: PSym
@@ -317,7 +319,7 @@ const
   ArgumentNodes* = {mnkArg, mnkName, mnkConsume}
     ## Nodes only allowed in argument contexts.
 
-  SymbolLike* = {mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal}
+  SymbolLike* = {mnkParam, mnkLocal}
     ## Nodes for which the `sym` field is available
 
   # --- semantics-focused sets:
@@ -343,6 +345,9 @@ const
 func `==`*(a, b: SourceId): bool {.borrow.}
 func `==`*(a, b: TempId): bool {.borrow.}
 func `==`*(a, b: LabelId): bool {.borrow.}
+func `==`*(a, b: ConstId): bool {.borrow.}
+func `==`*(a, b: GlobalId): bool {.borrow.}
+func `==`*(a, b: ProcedureId): bool {.borrow.}
 
 # XXX: ideally, the arithmetic operations on ``NodePosition`` should not be
 #      exported. How the nodes are stored should be an implementation detail

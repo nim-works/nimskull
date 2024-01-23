@@ -50,7 +50,7 @@ proc endBlock(p: BProc)
 
 proc loadInto(p: BProc, le, ri: CgNode, a: var TLoc) {.inline.} =
   if ri.kind in {cnkCall, cnkCheckedCall} and
-     getCalleeMagic(ri[0]) == mNone:
+     getCalleeMagic(p.env, ri[0]) == mNone:
     genAsgnCall(p, le, ri, a)
   else:
     # this is a hacky way to fix #1181 (tmissingderef)::
@@ -677,7 +677,7 @@ proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
     of cnkStrLit:
       res.add(it.strVal)
     of cnkField:
-        let sym = it.sym
+        let sym = it.field
         # special support for raw field symbols
         discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
         p.config.internalAssert(sym.locId != 0, it.info):

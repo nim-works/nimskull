@@ -25,6 +25,10 @@ import
   compiler/backend/[
     cgir
   ],
+  compiler/mir/[
+    mirenv,
+    mirtrees
+  ],
   compiler/modules/[
     modulegraphs
   ],
@@ -90,10 +94,6 @@ type
   ProcLoc* = object
     name*: string             ## the name of the C function in the generated
                               ## code
-    sym*: PSym                ## the source symbol. Only needed for NDI file
-                              ## generation XXX: unnecessary once there's a
-                              ## one-to-one correspondence between
-                              ## ``DiscoverData`` and ``ProcLoc``
     params*: seq[TLoc]        ## the locs of the parameters
 
   ConstrTree* = distinct CgNode
@@ -216,16 +216,19 @@ type
                             ## nimtvDeps is VERY hard to cache because it's
                             ## not a list of IDs nor can it be made to be one.
 
-    globals*: SymbolMap[TLoc]
+    env*: MirEnv
+      ## the project-wide MIR environment
+
+    globals*: SeqMap[GlobalId, TLoc]
       ## the locs for all alive globals of the program
-    consts*: SymbolMap[TLoc]
+    consts*: SeqMap[ConstId, TLoc]
       ## the locs for all alive constants of the program
-    procs*: SymbolMap[ProcLoc]
+    procs*: SeqMap[ProcedureId, ProcLoc]
       ## the locs for all alive procedure of the program
     fields*: SymbolMap[string]
       ## stores the C name for each field
 
-    hooks*: seq[(BModule, PSym)]
+    hooks*: seq[(BModule, ProcedureId)]
       ## late late-dependencies. Generating code for a procedure might lead
       ## to the RTTI setup code for some type from a foreign module (i.e., one
       ## different from the module that acts as the current context) to be
@@ -267,7 +270,7 @@ type
     g*: BModuleList
     ndi*: NdiFile
 
-    extra*: seq[PSym]
+    extra*: seq[ProcedureId]
       ## communicates dependencies introduced by the code-generator
       ## back to the caller. The caller is responsible for clearing the list
       ## after it's done with processing it. The code-generator only ever
@@ -281,6 +284,8 @@ template fields*(m: BModule): untyped  = m.g.fields
 template globals*(m: BModule): untyped = m.g.globals
 template consts*(m: BModule): untyped  = m.g.consts
 
+template env*(p: BProc): untyped = p.module.g.env
+
 template fieldName*(p: BProc, field: PSym): string =
   ## Returns the C name for the given `field`.
   p.module.fields[field]
@@ -288,7 +293,7 @@ template fieldName*(p: BProc, field: PSym): string =
 template params*(p: BProc): seq[TLoc] =
   ## Returns the mutable list with the locs of `p`'s
   ## parameters.
-  p.module.procs[p.prc].params
+  p.module.procs[p.env.procedures[p.prc]].params
 
 proc includeHeader*(this: BModule; header: string) =
   if not this.headerFiles.contains header:
@@ -362,7 +367,7 @@ proc hash(n: ConstrTree): Hash =
     of cnkEmpty, cnkNilLit, cnkType:
       discard
     of cnkProc:
-      result = result !& n.sym.id
+      result = result !& hash(n.prc.uint32)
     of cnkIntLit, cnkUIntLit:
       result = result !& hash(n.intVal)
     of cnkFloatLit:
@@ -392,7 +397,7 @@ proc `==`(a, b: ConstrTree): bool =
       of cnkEmpty, cnkNilLit, cnkType:
         result = true
       of cnkProc:
-        result = a.sym.id == b.sym.id
+        result = a.prc == b.prc
       of cnkIntLit, cnkUIntLit:
         result = a.intVal == b.intVal
       of cnkFloatLit:
@@ -419,3 +424,10 @@ proc getOrPut*(t: var Table[ConstrTree, int], n: CgNode, label: int): int =
   ## Fetches the label for the given data AST, or adds the AST + label to the
   ## table first if they're not present yet.
   mgetOrPut(t, ConstrTree(n), label)
+
+func isFilled*(x: TLoc): bool {.inline.} =
+  x.k != locNone
+
+func isFilled*(x: ProcLoc): bool {.inline.} =
+  # has a name -> is initialized
+  x.name.len > 0

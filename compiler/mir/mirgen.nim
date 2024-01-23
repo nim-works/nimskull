@@ -69,6 +69,7 @@ import
   compiler/mir/[
     mirbodies,
     mirconstr,
+    mirenv,
     mirtrees,
     sourcemaps
   ],
@@ -136,6 +137,9 @@ type
 
   TCtx = object
     # working state:
+    env: MirEnv
+      ## for convenience and safety, `TCtx` temporarily assumes full
+      ## ownership of the environment
     builder: MirBuilder ## the builder for generating the MIR trees
 
     blocks: seq[Block] ## the stack of active ``block``s. Used for looking up
@@ -144,6 +148,7 @@ type
     sp: SourceProvider
 
     numLabels: int ## provides the ID to use for the next label
+    scopeDepth: int ## the current amount of scope nesting
     inLoop: int
       ## > 0 if the current statement/expression is part of a loop
 
@@ -207,11 +212,6 @@ func selectWhenBranch(n: PNode, isNimvm: bool): PNode =
   assert n.kind == nkWhen
   if isNimvm: n[0][1]
   else:       n[1][0]
-
-func selectDefKind(s: PSym): range[mnkDef..mnkDefCursor] =
-  ## Returns the kind of definition to use for the given entity
-  if sfCursor in s.flags: mnkDefCursor
-  else:                   mnkDef
 
 func initDestination(v: sink Value, isFirst, sink: bool): Destination =
   var flags: set[DestFlag]
@@ -327,8 +327,10 @@ template subTree(c: var TCtx, n: MirNode, body: untyped) =
     body
 
 template scope(c: var TCtx, body: untyped) =
+  inc c.scopeDepth
   c.builder.subTree mnkScope:
     body
+  dec c.scopeDepth
 
 template use(c: var TCtx, val: Value) =
   c.builder.use(val)
@@ -349,28 +351,28 @@ proc empty(c: var TCtx, n: PNode): MirNode =
 func intLiteral(val: Int128, typ: PType): Value =
   literal(newIntTypeNode(val, typ))
 
-func nameNode(s: PSym): MirNode =
+func nameNode(c: var TCtx, s: PSym): MirNode =
   case s.kind
   of skTemp:
     # temporaries are always locals, even if marked with the ``sfGlobal``
     # flag
     MirNode(kind: mnkLocal, typ: s.typ, sym: s)
   of skConst:
-    MirNode(kind: mnkConst, typ: s.typ, sym: s)
+    MirNode(kind: mnkConst, typ: s.typ, cnst: c.env.constants.add(s))
   of skParam:
     MirNode(kind: mnkParam, typ: s.typ, sym: s)
   of skResult:
     MirNode(kind: mnkLocal, typ: s.typ, sym: s)
   of skVar, skLet, skForVar:
     if sfGlobal in s.flags:
-      MirNode(kind: mnkGlobal, typ: s.typ, sym: s)
+      MirNode(kind: mnkGlobal, typ: s.typ, global: c.env.globals.add(s))
     else:
       MirNode(kind: mnkLocal, typ: s.typ, sym: s)
   else:
     unreachable(s.kind)
 
 func genLocation(c: var TCtx, n: PNode): Value =
-  let f = c.builder.push: c.builder.add(nameNode(n.sym))
+  let f = c.builder.push: c.builder.add(nameNode(c, n.sym))
   c.builder.popSingle(f)
 
 template allocTemp(c: var TCtx, typ: PType; alias=false): Value =
@@ -909,7 +911,7 @@ proc genCallee(c: var TCtx, n: PNode) =
     let s = n.sym
     if s.magic == mNone or s.magic in c.config.magicsToKeep:
       # reference the procedure by symbol
-      c.use procLit(n.sym)
+      c.use toValue(c.env.procedures.add(s), s.typ)
     else:
       # don't use a symbol
       c.add MirNode(kind: mnkMagic, magic: s.magic)
@@ -1019,7 +1021,7 @@ proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
   of skTemplate:
     # for late template invocations, the callee template is an argument
     c.subTree mnkArg:
-      genCallee(c, n[1])
+      c.use literal(newTreeIT(nkNimNodeLit, n[1].info, n[1].typ, n[1]))
   else:
     unreachable(kind)
 
@@ -1480,30 +1482,41 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
 proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
   ## Generates the 'def' construct for the entity provided by the symbol node
   ## `n`
-  let s = n.sym
+  let
+    s = n.sym
+    hasInitializer = val.kind != nkEmpty
+    sink = sfCursor notin s.flags
+    node = nameNode(c, s)
 
   c.builder.useSource(c.sp, n)
-  c.buildStmt selectDefKind(s):
-    case s.kind
-    of skTemp:
-      c.add MirNode(kind: mnkLocal, typ: s.typ, sym: s)
+  if node.kind == mnkGlobal and c.scopeDepth == 1:
+    # no 'def' statement is emitted for top-level globals
+    if hasInitializer:
+      genAsgn(c, true, sink, n, val)
+    elif {sfImportc, sfNoInit} * s.flags == {} and
+         {exfDynamicLib, exfNoDecl} * s.extFlags == {}:
+      # XXX: ^^ re-think this condition from first principles. Right now,
+      #      it's just meant to make some tests work
+      # the location doesn't have an explicit starting value. Initialize
+      # it to the type's default value.
+      c.buildStmt mnkInit:
+        c.add node
+        c.buildMagicCall mDefault, s.typ:
+          discard
     else:
-      let kind =
-        if sfGlobal in s.flags: mnkGlobal
-        else:                   mnkLocal
-
-      {.cast(uncheckedAssign).}:
-        c.add MirNode(kind: kind, typ: s.typ, sym: s)
-
-    # the initializer is optional
-    if val.kind != nkEmpty:
-      # XXX: some closure types are erroneously reported as having no
-      #      destructor, which would lead to memory leaks if the
-      #      expression is a closure construction. As a work around,
-      #      a missing destructor disables the sink context
-      genAsgnSource(c, val, (sfCursor notin s.flags) and hasDestructor(s.typ))
-    else:
-      c.add MirNode(kind: mnkNone)
+      # the definition doesn't imply default intialization
+      discard
+  else:
+    c.buildStmt (if sfCursor in s.flags: mnkDefCursor else: mnkDef):
+      c.add node
+      if hasInitializer:
+        # XXX: some closure types are erroneously reported as having no
+        #      destructor, which would lead to memory leaks if the
+        #      expression is a closure construction. As a work around,
+        #      a missing destructor disables the sink context
+        genAsgnSource(c, val, sink and hasDestructor(s.typ))
+      else:
+        c.add MirNode(kind: mnkNone)
 
 proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
   ## Generates the code for a location definition. `sym` is the symbol of the
@@ -1860,9 +1873,9 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
     let s = n.sym
     case s.kind
     of skVar, skForVar, skLet, skResult, skParam, skConst, skTemp:
-      c.add nameNode(s)
+      c.add nameNode(c, s)
     of skProc, skFunc, skConverter, skMethod, skIterator:
-      c.use procLit(s)
+      c.use toValue(c.env.procedures.add(s), s.typ)
     else:
       unreachable(s.kind)
 
@@ -1951,7 +1964,8 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
       # it's a conversion that produces a new rvalue
       c.genOp mnkConv, n.typ, n[1]
   of nkLambdaKinds:
-    c.use procLit(n[namePos].sym)
+    let s = n[namePos].sym
+    c.use toValue(c.env.procedures.add(s), n.typ)
   of nkChckRangeF, nkChckRange64, nkChckRange:
     # XXX: only produce range-check nodes where range checks should take
     #      place, and then remove the conditional logic here -- ``mirgen``
@@ -2188,16 +2202,19 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
   else:
     gen(c, n)
 
-proc generateCode*(graph: ModuleGraph, config: TranslationConfig, n: PNode,
+proc generateCode*(graph: ModuleGraph, env: var MirEnv,
+                   config: TranslationConfig, n: PNode,
                    builder: var MirBuilder, source: var SourceMap) =
   ## Generates MIR code that is semantically equivalent to the expression or
   ## statement `n`, appending the resulting code and the corresponding origin
   ## information to `code` and `source`, respectively.
   var c = TCtx(context: skUnknown, graph: graph, config: config)
+  c.scopeDepth = 2 # assume that this is not top-level code
 
   template swapState() =
     swap(c.sp.map, source)
     swap(c.builder, builder)
+    swap(c.env, env)
 
   # for the duration of ``generateCode`` we move the state into ``TCtx``
   swapState()
@@ -2225,8 +2242,8 @@ proc generateCode*(graph: ModuleGraph, config: TranslationConfig, n: PNode,
   # move the state back into the output parameters:
   swapState()
 
-proc generateCode*(graph: ModuleGraph, owner: PSym, config: TranslationConfig,
-                   body: PNode): MirBody =
+proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
+                   config: TranslationConfig,  body: PNode): MirBody =
   ## Generates the full MIR body for the given AST `body`.
   ##
   ## `owner` it the symbol of the entity (module or procedure) that `body`
@@ -2243,6 +2260,9 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, config: TranslationConfig,
                userOptions: owner.options)
   c.sp.active = (body, c.sp.map.add(body))
 
+  swap(c.env, env)
+
+  c.scopeDepth = 1
   c.add MirNode(kind: mnkScope)
   if owner.kind in routineKinds:
     # add a 'def' for each ``sink`` parameter. This simplifies further
@@ -2257,6 +2277,8 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, config: TranslationConfig,
 
   gen(c, body)
   c.add endNode(mnkScope)
+
+  swap(c.env, env) # swap back
 
   # move the buffers into the result body
   MirBody(source: move c.sp.map,

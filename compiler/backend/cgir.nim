@@ -12,6 +12,9 @@ import
     lineinfos,
     wordrecg
   ],
+  compiler/mir/[
+    mirtrees
+  ],
   compiler/utils/[
     containers
   ]
@@ -182,13 +185,15 @@ type
     of cnkFloatLit:   floatVal*: BiggestFloat
     of cnkStrLit:     strVal*: string
     of cnkAstLit:     astLit*: PNode
+    of cnkField:      field*: PSym
+    of cnkProc:       prc*: ProcedureId
+    of cnkConst:      cnst*: ConstId
+    of cnkGlobal:     global*: GlobalId
     of cnkMagic:      magic*: TMagic
     of cnkLabel:      label*: BlockId
     of cnkLocal:      local*: LocalId
     of cnkPragmaStmt: pragma*: TSpecialWord
     of cnkWithOperand: operand*: CgNode
-    of cnkField, cnkProc, cnkConst, cnkGlobal:
-      sym*: PSym
     of cnkWithItems:
       kids*: seq[CgNode]
 

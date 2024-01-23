@@ -17,11 +17,8 @@ import
   ],
   compiler/mir/[
     mirbodies,
-    mirchangesets,
-    mirconstr,
-    mirtrees,
+    mirenv,
     mirgen,
-    sourcemaps,
     utils
   ],
   compiler/modules/[
@@ -78,66 +75,15 @@ proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
     writeBody(config, "-- output AST: " & owner.name.s):
       config.writeln(treeRepr(body.code))
 
-proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap) =
-  ## Rewrites definitions of globals in the outermost scope into assignments.
-  # XXX: integrate the pass into ``mirgen`` once the dependency collection
-  #      also happens there
-  var
-    changes = initChangeset(body)
-    depth   = 0
-
-  for i, n in body.pairs:
-    case n.kind
-    of DefNodes:
-      let def = body.child(i, 0)
-      if body[def].kind == mnkGlobal:
-        let
-          sym = body[def].sym
-          typ = sym.typ
-        if depth > 1:
-          # don't rewrite the def
-          discard
-        elif body[i, 1].kind != mnkNone:
-          # the global has a starting value
-          changes.replaceMulti(body, i, buf):
-            let val = buf.inline(body, body.child(i, 1))
-            buf.subTree mnkInit:
-              buf.use symbol(mnkGlobal, sym)
-              buf.use val
-        elif {sfImportc, sfNoInit} * sym.flags == {} and
-             {exfDynamicLib, exfNoDecl} * sym.extFlags == {}:
-          # XXX: ^^ re-think this condition from first principles. Right now,
-          #      it's just meant to make some tests work
-          # the location doesn't have an explicit starting value. Initialize
-          # it to the type's default value.
-          changes.replaceMulti(body, i, buf):
-            buf.subTree mnkInit:
-              buf.use symbol(mnkGlobal, sym)
-              buf.buildMagicCall mDefault, typ:
-                discard
-        else:
-          # just remove the def:
-          changes.remove(body, i)
-
-    of mnkScope:
-      inc depth
-    of mnkEnd:
-      if n.start == mnkScope:
-        dec depth
-    else:
-      discard "ignore"
-
-  apply(body, prepare(changes))
-
-proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                   body: PNode, config: TranslationConfig): Body =
+proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
+                   owner: PSym, body: PNode, config: TranslationConfig): Body =
   ## Legacy routine. Translates the body `body` of the procedure `owner` to
   ## MIR code, and the MIR code to ``CgNode`` IR.
   echoInput(graph.config, owner, body)
   # step 1: generate a ``MirTree`` from the input AST
-  let body = generateCode(graph, owner, config, body)
+  let body = generateCode(graph, env, owner, config, body)
   echoMir(graph.config, owner, body)
 
   # step 2: generate the ``CgNode`` tree
-  result = generateIR(graph, idgen, owner, body)
+  result = generateIR(graph, idgen, env, owner, body)
   echoOutput(graph.config, owner, result)

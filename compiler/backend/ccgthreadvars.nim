@@ -15,7 +15,7 @@
 proc emulatedThreadVars(conf: ConfigRef): bool =
   result = {optThreads, optTlsEmulation} <= conf.globalOptions
 
-proc accessThreadLocalVar(p: BProc, s: PSym) =
+proc accessThreadLocalVar(p: BProc) =
   if emulatedThreadVars(p.config) and threadVarAccessed notin p.flags:
     p.flags.incl threadVarAccessed
     incl p.module.flags, usesThreadVars
@@ -23,14 +23,15 @@ proc accessThreadLocalVar(p: BProc, s: PSym) =
     p.procSec(cpsInit).add(
       ropecg(p.module, "\tNimTV_ = (NimThreadVars*) #GetThreadLocalVars();$n", []))
 
-proc declareThreadVar*(m: BModule, s: PSym, isExtern: bool) =
+proc declareThreadVar*(m: BModule, id: GlobalId, isExtern: bool) =
+  let s = m.g.env[id]
   if emulatedThreadVars(m.config):
     # we gather all thread locals var into a struct; we need to allocate
     # storage for that somehow, can't use the thread local storage
     # allocator for it :-(
     if not containsOrIncl(m.g.nimtvDeclared, s.id):
       m.g.nimtvDeps.add(s.typ)
-      m.g.nimtv.addf("$1 $2;$n", [getTypeDesc(m, s.typ), m.globals[s].r])
+      m.g.nimtv.addf("$1 $2;$n", [getTypeDesc(m, s.typ), m.globals[id].r])
   else:
     if isExtern: m.s[cfsVars].add("extern ")
     elif exfExportLib in s.extFlags: m.s[cfsVars].add("N_LIB_EXPORT_VAR ")
@@ -38,7 +39,7 @@ proc declareThreadVar*(m: BModule, s: PSym, isExtern: bool) =
     if optThreads in m.config.globalOptions:
       m.s[cfsVars].add("NIM_THREADVAR ")
     m.s[cfsVars].add(getTypeDesc(m, s.typ))
-    m.s[cfsVars].addf(" $1;$n", [m.globals[s].r])
+    m.s[cfsVars].addf(" $1;$n", [m.globals[id].r])
 
 proc generateThreadLocalStorage(m: BModule) =
   if m.g.nimtv != "" and (usesThreadVars in m.flags or sfMainModule in m.module.flags):
