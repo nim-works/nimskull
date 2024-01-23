@@ -4,6 +4,7 @@ discard """
     flow reaches the statement again
   '''
   targets: "c js vm"
+  knownIssue.js vm: "Heap cells (the closure environment) is not destroyed"
 """
 
 import mhelper
