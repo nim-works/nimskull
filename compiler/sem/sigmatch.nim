@@ -2907,30 +2907,15 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       m.baseTypeMatch = false
       m.typedescMatched = false
 
-      let callsiteArgWasError = n[a][1].kind == nkError
+      operand = prepareOperand(c, formal.typ, n[a][1], nOrig[a][1])
 
-       # might be passing an nkError around
-      if callsiteArgWasError:
-        # un/typed param, passing an nkError
-        if formal.typ.kind in {tyUntyped, tyTyped}:
+      # we assign, even if it's an error, because `n` is the storage for the
+      # semantically analysed AST, including if there were errors.
+      if formal.typ.kind != tyUntyped:
+        n[a][1] = operand
+        n[a].typ = n[a][1].typ
 
-          # set the callsite type to un/typed if required
-          if n[a].typ.isNil or n[a].typ.kind notin {tyUntyped, tyTyped}:
-            n[a].typ = newTypeS(formal.typ.kind, c)
-
-        arg = n[a][1]
-      else:
-        operand = prepareOperand(c, formal.typ, n[a][1], nOrig[a][1])
-
-        case operand.kind
-        of nkError:
-          discard "assigned below"
-        else:
-          if formal.typ.kind != tyUntyped:
-            n[a][1] = operand
-            n[a].typ = n[a][1].typ
-
-        arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+      arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
 
       m.error.firstMismatch.kind = kTypeMismatch
 
@@ -3001,20 +2986,15 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           m.baseTypeMatch = false
           m.typedescMatched = false
           incl(marker, formal.position)
-          
-          case n[a].kind
-          of nkError:
-            arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a])
-          else:
-            operand = prepareOperand(c, formal.typ, n[a], nOrig[a])
 
-            case operand.kind
-            of nkError:
-              discard "args assigned below"
-            else:
-              if formal.typ.kind != tyUntyped:
-                n[a] = operand
-            arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+          operand = prepareOperand(c, formal.typ, n[a], nOrig[a])
+
+          # we assign, even if it's an error, because `n` is the storage for
+          # the semantically analysed AST, including if there were errors.
+          if formal.typ.kind != tyUntyped:
+            n[a] = operand
+
+          arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
 
           if arg.isNil or                 # valid argument
              container.isNil:             # container must exist
@@ -3068,26 +3048,20 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           
           # xxx: this code and the unnamed/varargs handling above are near
           #      identical, should revise the overall logic and deduplicate
-          
+
           m.baseTypeMatch = false
           m.typedescMatched = false
 
-          case n[a].kind
-          of nkError:
-            arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a])
-          else:
-            operand = prepareOperand(c, formal.typ, n[a], nOrig[a])
+          operand = prepareOperand(c, formal.typ, n[a], nOrig[a])
 
-            case operand.kind
-            of nkError:
-              discard "assigned below"
-            else:
-              if formal.typ.kind != tyUntyped:
-                n[a] = operand
+          # we assign, even if it's an error, because `n` is the storage for
+          # the semantically analysed AST, including if there were errors.
+          if formal.typ.kind != tyUntyped:
+            n[a] = operand
 
-            arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
-            if arg.isNil(): # invalid arg
-              noMatch()
+          arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+          if arg.isNil(): # invalid arg
+            noMatch()
 
           if m.baseTypeMatch or
              (formal.typ.kind == tyVarargs and arg.kind == nkError): # var args
