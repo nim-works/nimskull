@@ -1561,7 +1561,7 @@ proc genVarTuple(c: var TCtx, n: PNode) =
       # generate the assignment:
       c.buildStmt mnkInit:
         genOperand(c, lhs)
-        c.subTree MirNode(kind: mnkPathPos, typ: lhs.sym.typ,
+        c.subTree MirNode(kind: mnkPathPos, typ: lhs.typ,
                           position: i.uint32):
           c.use val
 
