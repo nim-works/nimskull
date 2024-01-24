@@ -2180,9 +2180,16 @@ proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   n[namePos].sym = s
   n[genericParamsPos] = c.graph.emptyNode
   # for LL we need to avoid wrong aliasing
-  let params = copyTree n.typ.n
-  n[paramsPos] = params
+  n[paramsPos] = newNodeI(nkFormalParams, n[paramsPos].info, n.typ.n.len)
+  for i, p in n.typ.n:
+    n[paramsPos][i] =
+      case i
+      of 0: # return type
+        newNodeIT(nkType, n.info, n.typ[0])
+      else: # copy instantiated parameters
+        n.typ.n[i]
   s.typ = n.typ
+  let params = n.typ.n
   for i in 1..<params.len:
     if params[i].typ.kind in {tyTypeDesc, tyGenericParam,
                               tyFromExpr}+tyTypeClasses:
