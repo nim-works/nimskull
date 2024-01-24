@@ -543,6 +543,7 @@ proc semOrdinal(c: PContext, n: PNode, prev: PType): PType =
     result = newOrPrevType(tyError, prev, c)
 
 proc semTypeIdent(c: PContext, n: PNode): PSym =
+  addInNimDebugUtils(c.config, "semTypeIdent", n, result)
   if n.kind == nkSym:
     result = getGenSym(c, n.sym)
   else:
