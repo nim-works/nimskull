@@ -2182,7 +2182,7 @@ proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   n[genericParamsPos] = c.graph.emptyNode
   # for LL we need to avoid wrong aliasing
   n[paramsPos] = newNodeI(nkFormalParams, n[paramsPos].info, n.typ.n.len)
-  for i, p in n.typ.n:
+  for i, p in n.typ.n.pairs:
     n[paramsPos][i] =
       case i
       of 0: # return type
