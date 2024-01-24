@@ -2196,7 +2196,6 @@ proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
                               tyFromExpr}+tyTypeClasses:
       localReport(c.config, params[i].info, reportSym(
         rsemCannotInferTypeOfParameter, params[i].sym))
-
     #params[i].sym.owner = s
   openScope(c)
   pushOwner(c, s)
