@@ -1741,15 +1741,15 @@ type
     flags*: TTypeFlags        ## flags of the type
     sons*: TTypeSeq           ## base types, etc.
     n*: PNode                 ## node for types:
-                              ## for range types a nkRange node
-                              ## for record types a nkRecord node
-                              ## for enum types a list of symbols
-                              ## if kind == tyInt: it is an 'int literal(x)' type
-                              ## for procs and tyGenericBody, it's the
-                              ## formal param list
-                              ## for concepts, the concept body
-                              ## for errors, nkError or nil if legacy
-                              ## else: unused
+                              ## - range types a nkRange node
+                              ## - record types a nkRecord node
+                              ## - enum types a list of symbols
+                              ## - if kind == tyInt: it is an 'int literal(x)' type
+                              ## - procs and tyGenericBody, it's the formal
+                              ##   param list
+                              ## - concepts, the concept body
+                              ## - errors, nkError or nil if legacy
+                              ## - else: unused
     owner*: PSym              ## the 'owner' of the type
     sym*: PSym                ## types have the sym associated with them
                               ## it is used for converting types to strings
