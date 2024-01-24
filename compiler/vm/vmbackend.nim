@@ -238,12 +238,12 @@ proc generateCodeForMain(c: var GenCtx, config: BackendConfig,
 
   result = id
 
-func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
-                linking: sink LinkerData,
+proc storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
+                linking: sink LinkerData, config: ConfigRef,
                 consts: seq[(PVmType, PNode)], globals: seq[PVmType]) =
   ## Stores the previously gathered complex constants and globals into `dst`
 
-  var denc: DataEncoder
+  var denc = DataEncoder(config: config)
   denc.startEncoding(dst)
   denc.routineSymLookup = move linking.symToIndexTbl
 
@@ -321,7 +321,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
 
   enc.init(env.types)
   storeEnv(enc, penv, env)
-  storeExtra(enc, penv, c.gen.linking, consts, base(c.globals))
+  storeExtra(enc, penv, c.gen.linking, conf, consts, base(c.globals))
   penv.entryPoint = FunctionIndex(entryPoint)
 
   let err = writeToFile(penv, prepareToWriteOutput(conf))

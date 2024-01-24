@@ -21,7 +21,11 @@ import
   compiler/ast/[
     ast_query,
     ast_types,
-    lineinfos
+    lineinfos,
+    types
+  ],
+  compiler/front/[
+    options
   ],
   compiler/ic/[
     bitabs,
@@ -29,6 +33,7 @@ import
   ],
   compiler/utils/[
     idioms,
+    int128,
     pathutils # for `AbsoluteFile`
   ],
   compiler/vm/[
@@ -183,6 +188,7 @@ type
   DataEncoder* = object
     ## Contextual state needed for turning data `PNode`-trees into
     ## `PackedDataNode` trees and storing them into packed environment
+    config*: ConfigRef
     routineSymLookup*: #[lent]# Table[int, LinkIndex] ##
       ## symbol-id -> routine's link-index. Only read, not mutated
     i: int ## the index in `PackedEnv.nodes` where the next item is to be stored
@@ -319,15 +325,19 @@ proc storeArrayData(enc: var DataEncoder, e: var PackedEnv, n: PNode) =
     enc.storeData(e, x)
 
 proc storeSetData(enc: var DataEncoder, e: var PackedEnv, n: PNode) =
+  proc adjusted(enc: DataEncoder, n: PNode, typ: PType): uint32 =
+    # make the range start at zero
+    toUInt32(getInt(n) - firstOrd(enc.config, typ))
+
   e.nodes.growBy(n.len * 2)
   # bitsets only store values in the range 0..high(uint16), so the values can
   # be stored directly
   for i, x in n.pairs:
     if x.kind == nkRange:
-      enc.put e, PackedDataNode(kind: pdkIntLit, pos: x[0].intVal.uint32)
-      enc.put e, PackedDataNode(kind: pdkIntLit, pos: x[1].intVal.uint32)
+      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, x[0], n.typ))
+      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, x[1], n.typ))
     else:
-      let d = PackedDataNode(kind: pdkIntLit, pos: x.intVal.uint32)
+      let d = PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, x, n.typ))
       enc.put e, d
       enc.put e, d
 
