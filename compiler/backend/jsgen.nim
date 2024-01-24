@@ -725,23 +725,18 @@ proc genTry(p: PProc, n: CgNode) =
 
       useMagic(p, "isObj")
       for j in 0..<n[i].len - 1:
-        var throwObj: CgNode
         let it = n[i][j]
+        let throwObj = it
 
-        if it.kind == cnkBinding:
-          throwObj = it[0]
-          excAlias = it[1]
+        if it.kind == cnkLocal:
+          excAlias = it
           # If this is a ``except exc as sym`` branch there must be no following
           # nodes
           doAssert orExpr == ""
-        else:
-          p.config.internalAssert(it.kind == cnkType, n.info, "genTryStmt")
-          throwObj = it
 
         if orExpr != "": orExpr.add("||")
         # Generate the correct type checking code depending on whether this is a
-        # NIM-native or a JS-native exception
-        # if isJsObject(throwObj.typ):
+        # |NimSkull|-native or a JS-native exception
         if isImportedException(throwObj.typ, p.config):
           orExpr.addf("lastJSError instanceof $1",
             [throwObj.typ.sym.extname])

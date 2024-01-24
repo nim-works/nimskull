@@ -338,18 +338,11 @@ proc tbExceptItem(tree: MirBody, cl: var TranslateCl, cr: var TreeCursor
                  ): CgNode =
   let n {.cursor.} = get(tree, cr)
   case n.kind
-  of mnkPNode:
-    assert n.node.kind == nkInfix
-    assert n.node[1].kind == nkType
-    assert n.node[2].kind == nkSym
-    # the infix expression (``type as x``) signals that the except-branch is
-    # a matcher for an imported exception. We translate the infix to a
-    # ``cnkBinding`` node and let the code generators take care of it
-    let id = cl.locals.add initLocal(n.node[2].sym)
-    cl.localsMap[n.node[2].sym.id] = id
-    newTree(cnkBinding, cr.info):
-      [newNode(cnkType, n.node[1].info, n.node[1].typ),
-       newLocalRef(id, n.node[2].info, n.node[2].typ)]
+  of mnkLocal:
+    # the 'except' branch acts as a definition for the local
+    let id = cl.locals.add initLocal(n.sym)
+    cl.localsMap[n.sym.id] = id
+    newLocalRef(id, cr.info, n.typ)
   of mnkType:  newTypeNode(cr.info, n.typ)
   else:        unreachable()
 

@@ -1782,10 +1782,10 @@ proc genExceptBranch(c: var TCtx, n: PNode, dest: Destination) =
       of nkType:
         c.add MirNode(kind: mnkType, typ: tn.typ)
       of nkInfix:
-        # ``x as T`` doesn't get transformed to just ``T`` if ``T`` is the
-        # type of an imported exception. We don't care about the type of
-        # exceptions at the MIR-level, so we just use carry it along as is
-        c.add MirNode(kind: mnkPNode, node: tn)
+        # ``T as a`` doesn't get transformed to just ``T`` if ``T`` is the
+        # type of an imported exception -- the local's name is used at the
+        # MIR level
+        c.add MirNode(kind: mnkLocal, typ: tn[2].typ, sym: tn[2].sym)
       else:
         unreachable()
 
