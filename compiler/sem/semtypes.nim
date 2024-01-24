@@ -1628,6 +1628,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       elif r.kind == tyAnything:
         # 'p(): auto' and 'p(): untyped' are equivalent, but the rest of the
         # compiler is hardly aware of 'auto':
+        # xxx: ^^^ they should _not_ be equivalent
         r = newTypeS(tyUntyped, c)
       elif r.kind == tyStatic:
         # type allowed should forbid this type
