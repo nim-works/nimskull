@@ -123,6 +123,7 @@ proc evalTemplateArgs*(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode
   ## for parameters where no argument is provided.
   ##
   ## Despite the name, the procedure also applies to macro arguments.
+  addInNimDebugUtils(conf, "evalTemplateArgs", s, n, result)
   # if the template has zero arguments, it can be called without ``()``
   # `n` is then a nkSym or something similar
   let

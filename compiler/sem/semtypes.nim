@@ -543,6 +543,7 @@ proc semOrdinal(c: PContext, n: PNode, prev: PType): PType =
     result = newOrPrevType(tyError, prev, c)
 
 proc semTypeIdent(c: PContext, n: PNode): PSym =
+  addInNimDebugUtils(c.config, "semTypeIdent", n, result)
   if n.kind == nkSym:
     result = getGenSym(c, n.sym)
   else:
@@ -1627,6 +1628,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       elif r.kind == tyAnything:
         # 'p(): auto' and 'p(): untyped' are equivalent, but the rest of the
         # compiler is hardly aware of 'auto':
+        # xxx: ^^^ they should _not_ be equivalent
         r = newTypeS(tyUntyped, c)
       elif r.kind == tyStatic:
         # type allowed should forbid this type
@@ -2233,7 +2235,6 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     if s.typ == nil:
       if s.kind != skError:
         localReport(c.config, n, reportSem rsemTypeExpected)
-
       result = newOrPrevType(tyError, prev, c)
     elif s.kind == skParam and s.typ.kind == tyTypeDesc:
       c.config.internalAssert s.typ.base.kind != tyNone and prev == nil
