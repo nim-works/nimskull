@@ -881,6 +881,11 @@ proc symPrototype(g: ModuleGraph; typ: PType; owner: PSym; kind: TTypeAttachedOp
   var n = newNodeI(nkProcDef, info, bodyPos+1)
   for i in 0..<n.len: n[i] = newNodeI(nkEmpty, info)
   n[namePos] = newSymNode(result)
+  # xxx: technically we shouldn't assign `result.typ.n` to `paramsPos` because
+  #      the `TType.n` AST for `tyProc` types isn't well formed. This isn't
+  #      a practical issue, because nothing inspects the results of type hooks.
+  #      At the time of writing, `semstmts.semInferredLambda` is an example of
+  #      how to build up the `paramsPos`.
   n[paramsPos] = result.typ.n
   n[bodyPos] = newNodeI(nkStmtList, info)
   result.ast = n
