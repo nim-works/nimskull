@@ -2448,7 +2448,7 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
   of cnkConst:
     prepare(c, dest, n.typ)
 
-    let pos = int n.cnst
+    let pos = int c.env.dataFor(n.cnst)
     if load and fitsRegister(n.typ):
       let cc = c.getTemp(n.typ)
       c.gABx(n, opcLdCmplxConst, cc, pos)
@@ -2494,7 +2494,7 @@ proc genSymAddr(c: var TCtx, n: CgNode, dest: var TDest) =
   case n.kind
   of cnkConst:
     let
-      pos = int n.cnst
+      pos = int c.env.dataFor(n.cnst)
       tmp = c.getTemp(slotTempComplex)
     c.gABx(n, opcLdCmplxConst, tmp, pos)
     c.gABC(n, opcAddr, dest, tmp)
