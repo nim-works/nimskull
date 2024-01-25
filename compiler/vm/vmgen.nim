@@ -2458,6 +2458,9 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
       c.gABx(n, opcLdCmplxConst, dest, pos)
 
     discard genType(c, n.typ) # make sure the type exists
+    # somewhat hack-y, but the orchestrator later queries the type of the data
+    # (which might be a different PType that maps to the same VM type)
+    discard genType(c, c.env[DataId pos].typ)
   of cnkGlobal:
     # a global location
     let pos = useGlobal(c, n)
