@@ -2011,9 +2011,10 @@ proc genConstDefinition*(q: BModule; id: ConstId) =
   let name = mangleName(q.g.graph, sym)
   if exfNoDecl notin sym.extFlags:
     let p = newProc(nil, q)
+    let data = translate(q.g.env, q.g.env[q.g.env.dataFor(id)])
     q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
         [getTypeDesc(q, sym.typ), name,
-        genBracedInit(p, translate(q.g.env, sym.ast), sym.typ)])
+        genBracedInit(p, data, sym.typ)])
 
   # all constants need a loc:
   q.consts[id] = initLoc(locData, newSymNode(q.g.env, sym), name, OnStatic)
@@ -2034,7 +2035,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     putIntoDest(p, d, n, p.module.procs[n.prc].name, OnStack)
   of cnkConst:
     if isSimpleConst(n.typ):
-      let data = translate(p.env, p.env[n.cnst].ast)
+      let data = translate(p.env, p.env[p.env.dataFor(n.cnst)])
       putIntoDest(p, d, n, genLiteral(p, data, n.typ), OnStatic)
     else:
       useConst(p.module, n.cnst)
