@@ -25,6 +25,8 @@ type
     ## Identifies a procedure
   LiteralId {.used.} = distinct uint32
     ## Identifies a literal
+  DataId* = distinct uint32
+    ## Identifies a complete constant expression
 
   TypeInstance {.used.} = distinct uint32
     ## Refers to an existing type instance
@@ -348,6 +350,7 @@ func `==`*(a, b: LabelId): bool {.borrow.}
 func `==`*(a, b: ConstId): bool {.borrow.}
 func `==`*(a, b: GlobalId): bool {.borrow.}
 func `==`*(a, b: ProcedureId): bool {.borrow.}
+func `==`*(a, b: DataId): bool {.borrow.}
 
 # XXX: ideally, the arithmetic operations on ``NodePosition`` should not be
 #      exported. How the nodes are stored should be an implementation detail

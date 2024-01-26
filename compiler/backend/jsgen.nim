@@ -1565,7 +1565,8 @@ proc genConstant*(g: PGlobals, m: BModule, id: ConstId) =
   if exfNoDecl notin c.extFlags:
     var p = newInitProc(g, m)
     #genLineDir(p, c.ast)
-    genVarInit(p, c.typ, name, storage, translate(g.env, c.ast))
+    genVarInit(p, c.typ, name, storage,
+               translate(g.env, g.env[g.env.dataFor(id)]))
     g.constants.add(p.body)
 
   # all constants need a name:

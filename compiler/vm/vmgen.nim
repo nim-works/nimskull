@@ -2448,7 +2448,7 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
   of cnkConst:
     prepare(c, dest, n.typ)
 
-    let pos = int n.cnst
+    let pos = int c.env.dataFor(n.cnst)
     if load and fitsRegister(n.typ):
       let cc = c.getTemp(n.typ)
       c.gABx(n, opcLdCmplxConst, cc, pos)
@@ -2458,6 +2458,9 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
       c.gABx(n, opcLdCmplxConst, dest, pos)
 
     discard genType(c, n.typ) # make sure the type exists
+    # somewhat hack-y, but the orchestrator later queries the type of the data
+    # (which might be a different PType that maps to the same VM type)
+    discard genType(c, c.env[DataId pos].typ)
   of cnkGlobal:
     # a global location
     let pos = useGlobal(c, n)
@@ -2494,7 +2497,7 @@ proc genSymAddr(c: var TCtx, n: CgNode, dest: var TDest) =
   case n.kind
   of cnkConst:
     let
-      pos = int n.cnst
+      pos = int c.env.dataFor(n.cnst)
       tmp = c.getTemp(slotTempComplex)
     c.gABx(n, opcLdCmplxConst, tmp, pos)
     c.gABC(n, opcAddr, dest, tmp)

@@ -20,6 +20,7 @@ import
     options
   ],
   compiler/mir/[
+    datatables,
     mirbodies,
     mirbridge,
     mirconstr,
@@ -818,6 +819,7 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
       # future direction: the body of the constant (i.e., the value
       # expression) will be transformed to its MIR representation here
       discoverFromValueAst(env, env[item.cnst].ast)
+      env.setData(item.cnst, env.data.getOrPut(env[item.cnst].ast))
       # we cannot report (i.e., yield) right away, the discovered dependencies
       # have to be reported first
       queue.prepend(module, WorkItem(kind: wikReportConst, cnst: item.cnst))
@@ -879,8 +881,10 @@ iterator discover*(env: var MirEnv, progress: EnvCheckpoint
   ## processing -- don't use it in conjunction with the ``process`` iterator.
   for id, it in since(env.constants, progress.consts):
     # first discover and report the procedures referenced by the constant's
-    # data, allowing
+    # data. This ensures that the callsite can rely on all the constant's
+    # dependencies existing in the environment
     discoverFromValueAst(env, astdef(it))
+    env.setData(id, env.data.getOrPut(astdef(it)))
     yield (it, MirNode(kind: mnkConst, cnst: id))
 
   for id, it in since(env.procedures, progress.procs):

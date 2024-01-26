@@ -26,6 +26,7 @@ import
     cgir
   ],
   compiler/mir/[
+    datatables,
     mirbodies,
     mirbridge,
     mirconstr,
@@ -113,14 +114,14 @@ proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
     c.globals.add c.heap.heapNew(c.allocator, typ)
 
   # constants
-  for id, sym in since(env.constants, cp.consts):
+  for id, data in since(env.data, cp.data):
     let
-      typ = c.getOrCreate(sym.typ)
+      typ = c.getOrCreate(data.typ)
       handle = c.allocator.allocConstantLocation(typ)
 
     # TODO: strings, seqs and other values using allocation also need to be
     #       allocated with `allocConstantLocation` inside `serialize` here
-    c.serialize(sym.ast, handle)
+    c.serialize(data, handle)
 
     c.complexConsts.add handle
 

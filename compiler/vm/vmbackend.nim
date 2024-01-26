@@ -27,6 +27,7 @@ import
     modulelowering,
   ],
   compiler/mir/[
+    datatables,
     mirbodies,
     mirenv,
     mirgen,
@@ -307,10 +308,10 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   env.rtti = move c.gen.rtti
 
   # produce a list with the type of each constant:
-  var consts = newSeq[(PVmType, PNode)](c.gen.env.constants.len)
-  for i, sym in c.gen.env.constants.items:
-    let typ = c.gen.typeInfoCache.lookup(conf, sym.typ)
-    consts[ord(i)] = (typ.unsafeGet, sym.ast)
+  var consts = newSeq[(PVmType, PNode)](c.gen.env.data.len)
+  for i, data in c.gen.env.data.pairs:
+    let typ = c.gen.typeInfoCache.lookup(conf, data.typ)
+    consts[ord(i)] = (get(typ), data)
 
   env.typeInfoCache = move c.gen.typeInfoCache
 

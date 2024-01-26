@@ -3,6 +3,7 @@
 
 import
   std/[
+    hashes,
     tables
   ],
   compiler/ast/[
@@ -10,6 +11,7 @@ import
     ast_types
   ],
   compiler/mir/[
+    datatables,
     mirtrees
   ],
   compiler/utils/[
@@ -31,14 +33,22 @@ type
   MirEnv* = object
     ## Stores everything MIR-related that is shared/exists across MIR bodies,
     ## such as information about global variables, global constants, etc.
+    data*: DataTable
+      ## stores all constant data referenced by constants and MIR code
     constants*:  SymbolTable[ConstId, PSym]
     globals*:    SymbolTable[GlobalId, PSym]
       ## includes both normal globals and threadvars
     procedures*: SymbolTable[ProcedureId, PSym]
 
+    bodies*: OrdinalSeq[ConstId, DataId]
+      ## associates each user-defined constant with its content
+      ## ## TODO: this needs to be merged into `constants`
+
   EnvCheckpoint* = tuple
     ## A low-cost snapshot of a `MirEnv <#MirEnv>`_.
-    procs, globals, consts: Checkpoint
+    procs, globals, consts, data: Checkpoint
+
+# -------
 
 func toMir(s: sink PSym, t: typedesc): PSym =
   ## Translates a symbol to the MIR representation for the given entity.
@@ -90,10 +100,23 @@ func `[]`*(env: MirEnv, id: GlobalId): lent PSym {.inline.} =
 func `[]`*(env: MirEnv, id: ProcedureId): lent PSym {.inline.} =
   env.procedures.data[id]
 
+func `[]`*(env: MirEnv, id: DataId): lent ConstrTree {.inline.} =
+  env.data[id]
+
+func setData*(env: var MirEnv, id: ConstId, data: DataId) =
+  ## Sets the body for the constant identified by `id`.
+  synchronize(env.bodies, env.constants.data)
+  env.bodies[id] = data
+
+func dataFor*(env: MirEnv, id: ConstId): DataId =
+  ## Returns the ID of the constant expression associated with `id`.
+  env.bodies[id]
+
 func checkpoint*(env: MirEnv): EnvCheckpoint =
   ## Creates a snapshot of `env`. This is a low-cost operation, where no
   ## copies are involved.
-  (env.procedures.checkpoint, env.globals.checkpoint, env.constants.checkpoint)
+  (env.procedures.checkpoint, env.globals.checkpoint,
+   env.constants.checkpoint, env.data.checkpoint)
 
 proc rewind*(env: var MirEnv, to: EnvCheckpoint) =
   ## Undoes all additions to `env` since `to` was created. Do note that all
@@ -109,6 +132,8 @@ proc rewind*(env: var MirEnv, to: EnvCheckpoint) =
   rewind(env.procedures, to.procs)
   rewind(env.constants, to.consts)
   rewind(env.globals, to.globals)
+  rewind(env.data, to.data)
+  setLen(env.bodies, to.data.int)
 
 iterator items*[I, T](tab: SymbolTable[I, T]): (I, lent T) =
   ## Returns all entities in `tab` together with their ID.
