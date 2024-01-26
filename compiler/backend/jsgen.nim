@@ -1950,12 +1950,6 @@ proc genSetConstr(p: PProc, n: CgNode, r: var TCompRes) =
       gen(p, it, a)
       r.res.add(a.res)
   r.res.add(")")
-  # emit better code for constant sets:
-  if isDeepConstExpr(n):
-    inc(p.g.unique)
-    let tmp = rope("ConstSet") & rope(p.g.unique)
-    p.g.constants.addf("var $1 = $2;$n", [tmp, r.res])
-    r.res = tmp
 
 proc genArrayConstr(p: PProc, n: CgNode, r: var TCompRes) =
   ## Constructs array or sequence.
