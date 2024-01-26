@@ -1281,7 +1281,6 @@ proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModul
   result.module = module
   result.typeInfoMarker = initTable[SigHash, Rope]()
   result.sigConflicts = initCountTable[SigHash]()
-  result.dataCache = initTable[ConstrTree, int]()
   result.typeStack = @[]
   result.typeNodesName = getTempName(result)
   # no line tracing for the init sections of the system module so that we
