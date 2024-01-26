@@ -136,7 +136,7 @@ proc rewind*(env: var MirEnv, to: EnvCheckpoint) =
   rewind(env.constants, to.consts)
   rewind(env.globals, to.globals)
   rewind(env.data, to.data)
-  setLen(env.bodies, to.data.int)
+  setLen(env.bodies, to.consts.int)
 
 iterator items*[I, T](tab: SymbolTable[I, T]): (I, lent T) =
   ## Returns all entities in `tab` together with their ID.
