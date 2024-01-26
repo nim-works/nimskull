@@ -67,6 +67,7 @@ import
     wordrecg
   ],
   compiler/mir/[
+    datatables,
     mirbodies,
     mirconstr,
     mirenv,
@@ -207,6 +208,31 @@ func endsInNoReturn(n: PNode): bool =
   result = it.kind in nkLastBlockStmts or
     (it.kind in nkCallKinds and it[0].kind == nkSym and
      sfNoReturn in it[0].sym.flags)
+
+func isDeepConstExpr(n: PNode): bool =
+  ## Copy of ``trees.isDeepConstExpr`` that doesn't treat hidden conversions
+  ## as constant.
+  # XXX: used as a temporary workaround for ``nkHiddenStdConv`` not being
+  #      supported in MIR constant data
+  case n.kind
+  of nkLiterals, nkNilLit:
+    result = true
+  of nkExprColonExpr:
+    result = isDeepConstExpr(n[1])
+  of nkRange:
+    result = isDeepConstExpr(n[0]) and isDeepConstExpr(n[1])
+  of nkCurly, nkBracket, nkTupleConstr, nkObjConstr, nkClosure:
+    for i in ord(n.kind == nkObjConstr)..<n.len:
+      if not isDeepConstExpr(n[i]):
+        return false
+
+    let t = n.typ.skipTypes({tyGenericInst, tyDistinct, tyAlias, tySink})
+    # refs, pointers, unions, and case objects are not treated as constant
+    result = t.kind notin {tyRef, tyPtr} and
+             tfUnion notin t.flags and
+             (t.kind != tyObject or not isCaseObj(t.n))
+  else:
+    result = false
 
 func selectWhenBranch(n: PNode, isNimvm: bool): PNode =
   assert n.kind == nkWhen
@@ -1859,6 +1885,35 @@ proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination) =
     # not a complex expression
     unreachable(n.kind)
 
+proc scanExpr*(env: var MirEnv, n: PNode) =
+  ## Registers all routine symbols appearing in `n` with `env`.
+  case n.kind
+  of nkSym:
+    if n.sym.kind in routineKinds:
+      discard env.procedures.add(n.sym)
+  of nkWithoutSons - {nkSym}:
+    discard
+  of nkWithSons:
+    for it in n.items:
+      scanExpr(env, it)
+
+proc toConstant(c: var TCtx, n: PNode): Value =
+  ## Creates an anonymous constant from the constant expression `n`
+  ## and returns the ``Value`` for it.
+  # make sure to register all procedure referenced by the expression:
+  scanExpr(c.env, n)
+  let con = toConstId c.env.data.getOrPut(n)
+  toValue(con, n.typ)
+
+proc handleConstExpr(c: var TCtx, n: PNode, lift: bool): bool =
+  ## If `n` is a fully constant expression and `lift` is 'true', lifts `n`
+  ## into an anonymous constant, emits a use of said constant, and returns
+  ## 'true'. 'false' is returned if no lifting took place.
+  # there's no benefit to lifting empty construction; those are kept
+  if lift and n.len > ord(n.kind == nkObjConstr) and isDeepConstExpr(n):
+    c.use toConstant(c, n)
+    result = true
+
 proc genx(c: var TCtx, n: PNode, consume: bool) =
   ## Generate and emits the raw MIR code for the given expression `n` into
   ## the active buffer.
@@ -1989,22 +2044,30 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
   of nkBracket:
     let consume =
       if n.typ.skipTypes(abstractVarRange).kind == tySequence:
-        # don't propagate the `consume` flag through sequence constructors.
-        # A sequence constructor is only used for constant seqs
+        # for constant sequences, which `nkBracket` expression represent,
+        # prefer lifting into a constant
         false
       else:
         consume
 
-    genArrayConstr(c, n, consume)
+    if not handleConstExpr(c, n, not(consume)):
+      genArrayConstr(c, n, consume)
   of nkCurly:
-    # a ``set``-constructor never owns
-    genSetConstr(c, n)
+    # it's preferred for constant sets to be lifted into constants; pass
+    # 'false'
+    if not handleConstExpr(c, n, true):
+      genSetConstr(c, n)
   of nkObjConstr:
-    genObjConstr(c, n, consume)
+    if n.typ.skipTypes(abstractInstTypeClass).kind == tyRef or
+       not handleConstExpr(c, n, not(consume)):
+      # ref constructions are never lifted into constants
+      genObjConstr(c, n, consume)
   of nkTupleConstr:
-    genTupleConstr(c, n, consume)
+    if not handleConstExpr(c, n, not(consume)):
+      genTupleConstr(c, n, consume)
   of nkClosure:
-    genClosureConstr(c, n, consume)
+    if not handleConstExpr(c, n, not(consume)):
+      genClosureConstr(c, n, consume)
   of nkCast:
     c.genOp mnkCast, n.typ, n[1]
   of nkWhenStmt:
