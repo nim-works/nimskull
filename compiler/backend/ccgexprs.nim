@@ -909,13 +909,17 @@ proc genNewSeqOfCap(p: BProc; e: CgNode; d: var TLoc) =
       getSeqPayloadType(p.module, seqtype),
     ])
 
-proc rawConstExpr(p: BProc, n: CgNode; d: var TLoc) =
+proc defaultValueExpr(p: BProc, n: CgNode; d: var TLoc) =
+  ## Fills `d` with the default value expression `n`. The expression is
+  ## cached in a C constant.
+  ## XXX: this is only a temporary solution. Caching default value expressions
+  ##      needs to happen during the MIR phase
   let t = n.typ
   discard getTypeDesc(p.module, t) # so that any fields are initialized
-  let id = getOrPut(p.module.dataCache, n, p.module.labels)
+  let id = mgetOrPut(p.module.defaultCache, hashType(t), p.module.labels)
   fillLoc(d, locData, n, p.module.tmpBase & rope(id), OnStatic)
   if id == p.module.labels:
-    # expression not found in the cache:
+    # type not found in the cache:
     inc(p.module.labels)
     p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
           [getTypeDesc(p.module, t), d.r, genBracedInit(p, n, t)])

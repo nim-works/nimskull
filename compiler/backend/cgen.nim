@@ -402,7 +402,7 @@ proc rdCharLoc(a: TLoc): Rope =
     result = "((NU8)($1))" % [result]
 
 proc genObjConstr(p: BProc, e: CgNode, d: var TLoc)
-proc rawConstExpr(p: BProc, n: CgNode; d: var TLoc)
+proc defaultValueExpr(p: BProc, n: CgNode; d: var TLoc)
 proc genAssignment(p: BProc, dest, src: TLoc)
 
 type
@@ -437,7 +437,7 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
       else:
         unreachable("cannot have embedded type fields")
 
-    rawConstExpr(p, newExpr(kind, info, t), result)
+    defaultValueExpr(p, newExpr(kind, info, t), result)
 
   case analyseObjectWithTypeField(t)
   of frNone:

@@ -265,6 +265,9 @@ type
     dataCache*: Table[ConstrTree, int] ## maps a value construction
                               ## expression to the label of the C constant
                               ## created for it
+    defaultCache*: Table[SigHash, int]
+      ## maps a type hash to the name of a C constant storing the type's
+      ## default value
     strCache*: Table[StrNode, int]
       ## associates a string node with the label of a C constant generated for
       ## it
