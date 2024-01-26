@@ -119,20 +119,6 @@ proc genRawSetData(cs: TBitSet, size: int): Rope =
   else:
     result = intLiteral(cast[BiggestInt](bitSetToWord(cs, size)))
 
-proc genSetNode(p: BProc, n: CgNode): Rope =
-  var size = int(getSize(p.config, n.typ))
-  let cs = toBitSet(p.config, n)
-  if size > 8:
-    let id = getOrPut(p.module.dataCache, n, p.module.labels)
-    result = p.module.tmpBase & rope(id)
-    if id == p.module.labels:
-      # not found in cache:
-      inc(p.module.labels)
-      p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
-           [getTypeDesc(p.module, n.typ), result, genRawSetData(cs, size)])
-  else:
-    result = genRawSetData(cs, size)
-
 proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
   assert d.k != locNone
 
@@ -936,13 +922,6 @@ proc rawConstExpr(p: BProc, n: CgNode; d: var TLoc) =
     p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
           [getTypeDesc(p.module, t), d.r, genBracedInit(p, n, t)])
 
-proc handleConstExpr(p: BProc, n: CgNode, d: var TLoc): bool =
-  if d.k == locNone and n.len > 0 and n.isDeepConstExpr:
-    rawConstExpr(p, n, d)
-    result = true
-  else:
-    result = false
-
 proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
                           info: TLineInfo)
 
@@ -1048,16 +1027,6 @@ proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
     discard
 
 proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
-  #echo renderTree e, " ", e.isDeepConstExpr
-  when false:
-    # disabled optimization: see bug https://github.com/nim-lang/nim/issues/13240
-    #[
-      var box: seq[Thing]
-      for i in 0..3:
-        box.add Thing(s1: "121") # pass by sink can mutate Thing.
-    ]#
-    # TODO: verify whether this is still an issue
-    if handleConstExpr(p, e, d): return
   var t = e.typ.skipTypes(abstractInst)
   let isRef = t.kind == tyRef
 
@@ -1870,7 +1839,7 @@ proc genSetConstr(p: BProc, e: CgNode, d: var TLoc) =
 
 proc genTupleConstr(p: BProc, n: CgNode, d: var TLoc) =
   var rec: TLoc
-  if not handleConstExpr(p, n, d):
+  if true:
     let t = n.typ
     discard getTypeDesc(p.module, t) # so that any fields are initialized
     if d.k == locNone: getTemp(p, t, d)
@@ -1915,7 +1884,7 @@ proc genClosure(p: BProc, n: CgNode, d: var TLoc) =
 
 proc genArrayConstr(p: BProc, n: CgNode, d: var TLoc) =
   var arr: TLoc
-  if not handleConstExpr(p, n, d):
+  if true:
     if d.k == locNone: getTemp(p, n.typ, d)
     for i in 0..<n.len:
       initLoc(arr, locExpr, lodeTyp elemType(skipTypes(n.typ, abstractInst)), d.storage)
@@ -1970,27 +1939,6 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
     var r = rdLoc(a) & (if isRef: "->Sup" else: ".Sup")
     for i in 2..inheritanceDiff(src, dest): r.add(".Sup")
     putIntoDest(p, d, n, if isRef: "&" & r else: r, a.storage)
-
-proc exprComplexConst(p: BProc, n: CgNode, d: var TLoc) =
-  let t = n.typ
-  discard getTypeDesc(p.module, t) # so that any fields are initialized
-  let id = getOrPut(p.module.dataCache, n, p.module.labels)
-  let tmp = p.module.tmpBase & rope(id)
-
-  if id == p.module.labels:
-    # expression not found in the cache:
-    inc(p.module.labels)
-    p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
-         [getTypeDesc(p.module, t, skConst), tmp, genBracedInit(p, n, t)])
-
-  if d.k == locNone:
-    fillLoc(d, locData, n, tmp, OnStatic)
-  else:
-    putDataIntoDest(p, d, n, tmp)
-    # This fixes bug #4551, but we really need better dataflow
-    # analysis to make this 100% safe.
-    if t.kind notin {tySequence, tyString}:
-      d.storage = OnStatic
 
 proc useConst*(m: BModule; id: ConstId) =
   let sym = m.g.env[id]
@@ -2076,26 +2024,14 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
       else:
         genCall(p, n, d)
   of cnkSetConstr:
-    if isDeepConstExpr(n) and n.len != 0:
-      putIntoDest(p, d, n, genSetNode(p, n))
-    else:
-      genSetConstr(p, n, d)
+    genSetConstr(p, n, d)
   of cnkArrayConstr:
-    # XXX: constructions of empty seqs should be lifted into C constants too,
-    #      but that currently causes collisions and thus C compiler errors  
-    if isDeepConstExpr(n) and n.len != 0:
-      exprComplexConst(p, n, d)
-    elif skipTypes(n.typ, abstractVarRange).kind == tySequence:
+    if skipTypes(n.typ, abstractVarRange).kind == tySequence:
       genSeqConstr(p, n, d)
     else:
       genArrayConstr(p, n, d)
   of cnkTupleConstr:
-    if n.typ != nil and n.typ.kind == tyProc and n.len == 2:
-      genClosure(p, n, d)
-    elif isDeepConstExpr(n) and n.len != 0:
-      exprComplexConst(p, n, d)
-    else:
-      genTupleConstr(p, n, d)
+    genTupleConstr(p, n, d)
   of cnkObjConstr: genObjConstr(p, n, d)
   of cnkCast: genCast(p, n, d)
   of cnkHiddenConv, cnkConv: genConv(p, n, d)
