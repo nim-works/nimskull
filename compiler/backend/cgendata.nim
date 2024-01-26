@@ -101,6 +101,8 @@ type
     ## construction expression. A ``distinct`` alias for ``CgNode`` is used
     ## such that special equality and hash operations can be attached.
 
+  StrNode* = distinct CgNode
+
   TLabel* = Rope              ## for the C generator a label is just a rope
   TCFileSection* = enum       ## the sections a generated C file consists of
     cfsMergeInfo,             ## section containing merge information
@@ -263,6 +265,11 @@ type
     dataCache*: Table[ConstrTree, int] ## maps a value construction
                               ## expression to the label of the C constant
                               ## created for it
+    strCache*: Table[StrNode, int]
+      ## associates a string node with the label of a C constant generated for
+      ## it
+      ## TODO: strings should be turned into data-only constants (``DataId``)
+      ##       during the MIR phase
     dataNames*: Table[DataId, int]
       ## associates each constant expression for which a C constant was
       ## emitted with a label. The name of the C constant can be derived from
@@ -428,6 +435,15 @@ proc getOrPut*(t: var Table[ConstrTree, int], n: CgNode, label: int): int =
   ## Fetches the label for the given data AST, or adds the AST + label to the
   ## table first if they're not present yet.
   mgetOrPut(t, ConstrTree(n), label)
+
+proc `==`(a, b: StrNode): bool =
+  a.CgNode.strVal == b.CgNode.strVal
+
+proc hash(x: StrNode): Hash =
+  hash(x.CgNode.strVal)
+
+proc getOrPut*(t: var Table[StrNode, int], n: CgNode, label: int): int =
+  mgetOrPut(t, StrNode(n), label)
 
 func isFilled*(x: TLoc): bool {.inline.} =
   x.k != locNone
