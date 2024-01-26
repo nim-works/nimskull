@@ -110,7 +110,10 @@ func setData*(env: var MirEnv, id: ConstId, data: DataId) =
 
 func dataFor*(env: MirEnv, id: ConstId): DataId =
   ## Returns the ID of the constant expression associated with `id`.
-  env.bodies[id]
+  if isAnon(id):
+    extract(id)
+  else:
+    env.bodies[id]
 
 func checkpoint*(env: MirEnv): EnvCheckpoint =
   ## Creates a snapshot of `env`. This is a low-cost operation, where no
