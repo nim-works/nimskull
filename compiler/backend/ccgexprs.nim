@@ -58,13 +58,11 @@ proc genLiteral(p: BProc, n: CgNode, ty: PType): Rope =
   of cnkNilLit:
     let k = if ty == nil: tyPointer else: skipTypes(ty, abstractVarRange).kind
     if k == tyProc and skipTypes(ty, abstractVarRange).callConv == ccClosure:
-      let id = getOrPut(p.module.dataCache, n, p.module.labels)
-      result = p.module.tmpBase & rope(id)
-      if id == p.module.labels:
-        # not found in cache:
-        inc(p.module.labels)
-        p.module.s[cfsData].addf(
-             "static NIM_CONST $1 $2 = {NIM_NIL,NIM_NIL};$n",
+      # TODO: expand 'nil' closure literals with a MIR pass, instead of doing
+      #       it here during code generation
+      result = "CLOSURE" & $p.labels
+      inc(p.labels)
+      linefmt(p, cpsLocals, "NIM_CONST $1 $2 = {NIM_NIL,NIM_NIL};$n",
              [getTypeDesc(p.module, ty), result])
     elif k in {tyPointer, tyNil, tyProc}:
       result = rope("NIM_NIL")
