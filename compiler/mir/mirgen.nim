@@ -1111,7 +1111,7 @@ proc genInSetOp(c: var TCtx, n: PNode) =
               c.emitByVal b
           c.subTree mnkStmtList:
             var sv: Value
-            if se.kind == nkCurly:
+            if se.kind == nkCurly and not isDeepConstExpr(se):
               sv = c.allocTemp(se.typ)
               c.subTree mnkDef:
                 c.use sv
