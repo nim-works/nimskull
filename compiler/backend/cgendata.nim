@@ -263,6 +263,10 @@ type
     dataCache*: Table[ConstrTree, int] ## maps a value construction
                               ## expression to the label of the C constant
                               ## created for it
+    dataNames*: Table[DataId, int]
+      ## associates each constant expression for which a C constant was
+      ## emitted with a label. The name of the C constant can be derived from
+      ## the label
     typeNodes*: int ## used for type info generation
     typeNodesName*: Rope ## used for type info generation
     labels*: Natural          ## for generating unique module-scope names

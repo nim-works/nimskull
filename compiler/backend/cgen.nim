@@ -126,11 +126,18 @@ proc t(a: TLoc): PType {.inline.} =
 proc lodeTyp(t: PType): CgNode =
   result = newNode(cnkEmpty, typ = t)
 
-proc isSimpleConst(typ: PType): bool =
+proc isSimpleConst(c: ConfigRef, typ: PType): bool =
   let t = skipTypes(typ, abstractVar)
-  result = t.kind notin
-      {tyTuple, tyObject, tyArray, tySet, tySequence} and not
-      (t.kind == tyProc and t.callConv == ccClosure)
+  case t.kind
+  of tyTuple, tyObject, tyArray, tySequence:
+    false
+  of tySet:
+    # small sets can be inlined directly
+    getSize(c, t) <= 8
+  of tyProc:
+    t.callConv != ccClosure
+  else:
+    false
 
 proc useHeader(m: BModule, sym: PSym) =
   if exfHeader in sym.extFlags:

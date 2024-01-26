@@ -1967,6 +1967,20 @@ proc genConstDefinition*(q: BModule; id: ConstId) =
   # all constants need a loc:
   q.consts[id] = initLoc(locData, newSymNode(q.g.env, sym), name, OnStatic)
 
+proc useData(p: BProc, x: ConstId, typ: PType): string =
+  ## Returns the C name of the anonymous constant `x` and emits its
+  ## definition into the current module, if it hasn't been already.
+  assert isAnon(x)
+  let
+    id = p.env.dataFor(x)
+    name = p.module.dataNames.mgetOrPut(id, p.module.labels)
+  result = p.module.tmpBase & $name
+  if name == p.module.labels:
+    inc p.module.labels
+    p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
+      [getTypeDesc(p.module, typ), result,
+       genBracedInit(p, translate(p.env, p.env[id]), typ)])
+
 proc expr(p: BProc, n: CgNode, d: var TLoc) =
   when defined(nimCompilerStacktraceHints):
     frameMsg(p.config, n)
@@ -1982,9 +1996,17 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     useProc(p.module, n.prc)
     putIntoDest(p, d, n, p.module.procs[n.prc].name, OnStack)
   of cnkConst:
-    if isSimpleConst(n.typ):
-      let data = translate(p.env, p.env[p.env.dataFor(n.cnst)])
-      putIntoDest(p, d, n, genLiteral(p, data, n.typ), OnStatic)
+    if isSimpleConst(p.config, n.typ):
+      # simple constants are inlined at the usage site
+      let da = p.env.dataFor(n.cnst)
+      let val = translate(p.env, p.env[da])
+      if val.kind == cnkSetConstr:
+        let cs = toBitSet(p.config, val)
+        putIntoDest(p, d, n, genRawSetData(cs, int(getSize(p.config, n.typ))))
+      else:
+        putIntoDest(p, d, n, genLiteral(p, val))
+    elif isAnon(n.cnst):
+      putDataIntoDest(p, d, n, useData(p, n.cnst, n.typ))
     else:
       useConst(p.module, n.cnst)
       putLocIntoDest(p, d, p.module.consts[n.cnst])
