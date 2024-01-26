@@ -1893,9 +1893,13 @@ proc scanExpr*(env: var MirEnv, n: PNode) =
       discard env.procedures.add(n.sym)
   of nkWithoutSons - {nkSym}:
     discard
-  of nkWithSons:
+  of nkWithSons - {nkObjConstr}:
     for it in n.items:
       scanExpr(env, it)
+  of nkObjConstr:
+    # don't scan the type slot:
+    for i in 1..<n.len:
+      scanExpr(env, n[i])
 
 proc toConstant(c: var TCtx, n: PNode): Value =
   ## Creates an anonymous constant from the constant expression `n`
