@@ -152,7 +152,12 @@ proc singleToStr(n: MirNode, result: var string, env: EnvPtr) =
   of SymbolLike:
     result.add n.sym.name.s
   of mnkConst:
-    result.addName(n.cnst, "<C", env)
+    if isAnon(n.cnst):
+      result.add "<D" # "D" for "Data"
+      result.addInt extract(n.cnst).uint32
+      result.add ">"
+    else:
+      result.addName(n.cnst, "<C", env)
   of mnkGlobal:
     result.addName(n.global, "<G", env)
   of mnkProc:
