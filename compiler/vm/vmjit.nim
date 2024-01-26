@@ -26,6 +26,7 @@ import
     cgir
   ],
   compiler/mir/[
+    datatables,
     mirbodies,
     mirbridge,
     mirconstr,

@@ -27,6 +27,7 @@ import
     modulelowering,
   ],
   compiler/mir/[
+    datatables,
     mirbodies,
     mirenv,
     mirgen,

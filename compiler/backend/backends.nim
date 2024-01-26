@@ -20,6 +20,7 @@ import
     options
   ],
   compiler/mir/[
+    datatables,
     mirbodies,
     mirbridge,
     mirconstr,
