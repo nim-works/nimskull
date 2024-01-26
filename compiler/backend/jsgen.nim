@@ -111,6 +111,7 @@ type
   PGlobals* = ref object
     typeInfo, constants*, code*: Rope
     typeInfoGenerated: IntSet
+    dataGenerated: IntSet
     unique: int    # for temp identifier generation
 
     names: Table[int, string]
@@ -2211,6 +2212,18 @@ proc genPartial*(p: PProc, n: CgNode) =
   analyseIfAddressTaken(p.fullBody.code, p.addrTaken)
   genStmt(p, n)
 
+proc rdData(p: PProc, data: DataId, typ: PType): TCompRes =
+  ## Returns the loc for the `data` of type `typ`. Emits the definition for
+  ## `data` if it hasn't been already.
+  if not containsOrIncl(p.g.dataGenerated, data.int):
+    let val = gen(p, translate(p.env, p.env[data]))
+    # emit the definition into the constants section:
+    p.g.constants.addf("var Data$1 = $2;$n", [$ord(data), val.res])
+
+  TCompRes(res: "Data$1" % [$ord(data)],
+           typ: mapType(typ),
+           kind: resExpr)
+
 proc genStmt(p: PProc, n: CgNode) =
   var r: TCompRes
   gen(p, n, r)
@@ -2279,8 +2292,11 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
 
     r.res = ensureMangledName(p, n.prc)
   of cnkConst:
-    # XXX: properly use ``accessLoc``
-    r.res = p.g.consts[n.cnst].name
+    if isAnon(n.cnst):
+      r = rdData(p, p.env.dataFor(n.cnst), n.typ)
+    else:
+      # XXX: properly use ``accessLoc``
+      r.res = p.g.consts[n.cnst].name
   of cnkGlobal:
     accessLoc(p.g.globals[n.global], r)
   of cnkLocal:
