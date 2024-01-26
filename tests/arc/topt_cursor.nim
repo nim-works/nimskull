@@ -5,14 +5,14 @@ discard """
 
 scope:
   try:
-    def_cursor x: (string, int) = construct (arg "hi", arg 5)
+    def_cursor x: (string, int) = <D0>
     block L0:
       if cond:
         scope:
-          x =fast construct (arg "different", arg 54)
+          x =fast <D1>
           break L0
       scope:
-        x =fast construct (arg "string here", arg 80)
+        x =fast <D2>
     def_cursor _0: (string, int) = x
     def _1: string = $(arg _0) (raises)
     echo(arg type(array[0..0, string]), arg _1) (raises)
