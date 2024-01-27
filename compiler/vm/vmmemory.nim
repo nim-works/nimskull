@@ -174,9 +174,8 @@ func loadFullSlice*(a: VmAllocator, cp: CellPtr, typ: PVmType): VmSlice =
   ## locations of the sequence cell corresponding to `cp`. Returns a slice
   ## signaling invalid if that's not possible.
   let id = mapPointerToCell(a, cp)
-  # XXX: don't use assertions for ensuring that some expectations hold. While
-  #      it would work now, it's not future proof
-  VmSlice(cell: id, start: cast[VmMemPointer](cp), len: a.cells[id].count,
+  VmSlice(cell: id, start: cast[VmMemPointer](cp),
+          len: (if id != -1: a.cells[id].count else: 0),
           typ: typ)
 
 template internalSlice(p: VmMemPointer | CellPtr, l, h: Natural): untyped =
