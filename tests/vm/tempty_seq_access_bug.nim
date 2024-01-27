@@ -1,7 +1,7 @@
 discard """
   description: '''
     Regression test for an internal issue with the VM's pointer-to-cell
-    mapping that allowed
+    mapping that allowed out-of-bound writes.
   '''
   targets: vm
   matrix: "--boundChecks:off"
