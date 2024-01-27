@@ -94,7 +94,10 @@ func allocConstantLocation*(a: var VmAllocator, typ: PVmType): LocHandle =
 
 func mapPointerToCell*(a: VmAllocator, p: CellPtr): CellId =
   ## Maps a cell pointer to the corresponding cell id, or -1 if the pointer
-  ## is not a valid cell pointer
+  ## is not a valid cell pointer.
+  if p.isNil:
+    return -1
+
   for id in 0..<a.freeTail:
     if a.cells[id].p == pointer(p):
       return id
@@ -102,6 +105,9 @@ func mapPointerToCell*(a: VmAllocator, p: CellPtr): CellId =
   result = -1
 
 func mapInteriorPointerToCell(a: VmAllocator, p: pointer): CellId =
+  if p.isNil:
+    return -1
+
   let rp = cast[int](p)
   for id in 0..<a.freeTail:
     let
@@ -152,10 +158,7 @@ func makeLocHandle*(a: VmAllocator, p: pointer, typ: PVmType): LocHandle =
   ## Attempts to create a handle to the guest memory location that to host
   ## address `p` maps to. A handle signaling "invalid" is returned if no
   ## mapping exists.
-  let id =
-    if p == nil: -1
-    else:        mapInteriorPointerToCell(a, p)
-
+  let id = mapInteriorPointerToCell(a, p)
   LocHandle(cell: id, p: cast[VmMemPointer](p), typ: typ)
 
 func makeLocHandle*(a: VmAllocator, cp: CellPtr, offset: Natural, typ: PVmType
