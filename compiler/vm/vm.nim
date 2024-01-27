@@ -739,8 +739,9 @@ func setAddress(r: var TFullReg, handle: LocHandle) =
 
 func setHandle(r: var TFullReg, handle: LocHandle) =
   assert r.kind == rkHandle # Not rkLocation
-  assert not handle.p.isNil
   assert handle.typ.isValid
+  # note: handles storing nil pointers are okay here. Only the access thereof
+  # is disallowed
   r.handle = handle
 
 func loadEmptyReg*(r: var TFullReg, typ: PVmType, info: TLineInfo, mm: var VmMemoryManager): bool =
