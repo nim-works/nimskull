@@ -919,6 +919,26 @@ proc transformCase(c: PTransf, n: PNode): PNode =
     let elseBranch = newTreeI(nkElse, n.info): newNodeI(nkNilLit, n.info)
     result.add(elseBranch)
 
+  if result.len == 2 and result[1].kind == nkElse:
+    # the case statement has no 'of' branch. Transform it into a
+    # ``(discard sel; block: body)``. Why the block and discard?
+    # * the discard makes sure side-effects of the selector expression are
+    #   computed and that usage of `sel` stays
+    # * the block makes sure that lifetimes don't change
+    let
+      discardStmt = newTreeI(nkDiscardStmt, n.info, result[0])
+      body = result[1][^1]
+      label = newSymNode(newLabel(c, body))
+    result =
+      if isEmptyType(result.typ):
+        newTreeI(nkStmtList, n.info):
+          [discardStmt,
+           newTreeI(nkBlockStmt, body.info, label, body)]
+      else:
+        newTreeIT(nkStmtListExpr, n.info, n.typ):
+          [discardStmt,
+           newTreeIT(nkBlockExpr, body.info, body.typ, label, body)]
+
 proc transformArrayAccess(c: PTransf, n: PNode): PNode =
   # XXX this is really bad; transf should use a proper AST visitor
   if n[0].kind == nkSym and n[0].sym.kind == skType:
