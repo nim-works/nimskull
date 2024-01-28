@@ -351,7 +351,18 @@ func storeData*(enc: var DataEncoder, e: var PackedEnv, n: PNode) =
 
     of nkFloatLit..nkFloat64Lit:  (pdkFloat,  e.getLitId(n.floatVal).uint32)
     of nkStrLit..nkTripleStrLit:  (pdkString, e.getLitId(n.strVal).uint32)
-    of nkNilLit:                  (pdkPtr,    0'u32)
+    of nkNilLit:
+      if n.typ.skipTypes(abstractInst).callConv == ccClosure:
+        # XXX: some unexpanded `nil` closure literals reach here, so we have
+        #      to expand them here. This needs to happen earlier
+        e.nodes.growBy(4)
+        enc.put e, PackedDataNode(kind: pdkField, pos: 0)
+        enc.put e, PackedDataNode(kind: pdkPtr, pos: 0)
+        enc.put e, PackedDataNode(kind: pdkField, pos: 0)
+        enc.put e, PackedDataNode(kind: pdkPtr, pos: 0)
+        (pdkObj, 2'u32)
+      else:
+        (pdkPtr, 0'u32)
 
     of nkBracket:
       enc.storeArrayData(e, n)

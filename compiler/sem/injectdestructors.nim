@@ -558,14 +558,8 @@ func isMoveable(tree: MirTree, v: Values, n: NodePosition): bool =
   of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice:
     # the result of these operations is not an owned value
     false
-  of mnkCall, mnkCheckedCall, mnkObjConstr:
+  of mnkCall, mnkCheckedCall, mnkObjConstr, mnkConstr:
     true
-  of mnkConstr:
-    case tree[n].typ.skipTypes(abstractInst).kind
-    of tySequence:
-      false # sequence constructors are immutable constants
-    else:
-      true
   of AllNodeKinds - ExprKinds:
     unreachable(tree[n].kind)
 

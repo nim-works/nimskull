@@ -126,11 +126,18 @@ proc t(a: TLoc): PType {.inline.} =
 proc lodeTyp(t: PType): CgNode =
   result = newNode(cnkEmpty, typ = t)
 
-proc isSimpleConst(typ: PType): bool =
+proc isSimpleConst(c: ConfigRef, typ: PType): bool =
   let t = skipTypes(typ, abstractVar)
-  result = t.kind notin
-      {tyTuple, tyObject, tyArray, tySet, tySequence} and not
-      (t.kind == tyProc and t.callConv == ccClosure)
+  case t.kind
+  of tyTuple, tyObject, tyArray, tySequence:
+    false
+  of tySet:
+    # small sets can be inlined directly
+    getSize(c, t) <= 8
+  of tyProc:
+    t.callConv != ccClosure
+  else:
+    false
 
 proc useHeader(m: BModule, sym: PSym) =
   if exfHeader in sym.extFlags:
@@ -395,7 +402,7 @@ proc rdCharLoc(a: TLoc): Rope =
     result = "((NU8)($1))" % [result]
 
 proc genObjConstr(p: BProc, e: CgNode, d: var TLoc)
-proc rawConstExpr(p: BProc, n: CgNode; d: var TLoc)
+proc defaultValueExpr(p: BProc, n: CgNode; d: var TLoc)
 proc genAssignment(p: BProc, dest, src: TLoc)
 
 type
@@ -430,7 +437,7 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
       else:
         unreachable("cannot have embedded type fields")
 
-    rawConstExpr(p, newExpr(kind, info, t), result)
+    defaultValueExpr(p, newExpr(kind, info, t), result)
 
   case analyseObjectWithTypeField(t)
   of frNone:
@@ -1274,7 +1281,6 @@ proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModul
   result.module = module
   result.typeInfoMarker = initTable[SigHash, Rope]()
   result.sigConflicts = initCountTable[SigHash]()
-  result.dataCache = initTable[ConstrTree, int]()
   result.typeStack = @[]
   result.typeNodesName = getTempName(result)
   # no line tracing for the init sections of the system module so that we

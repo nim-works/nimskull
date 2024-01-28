@@ -110,7 +110,10 @@ func setData*(env: var MirEnv, id: ConstId, data: DataId) =
 
 func dataFor*(env: MirEnv, id: ConstId): DataId =
   ## Returns the ID of the constant expression associated with `id`.
-  env.bodies[id]
+  if isAnon(id):
+    extract(id)
+  else:
+    env.bodies[id]
 
 func checkpoint*(env: MirEnv): EnvCheckpoint =
   ## Creates a snapshot of `env`. This is a low-cost operation, where no
@@ -133,7 +136,7 @@ proc rewind*(env: var MirEnv, to: EnvCheckpoint) =
   rewind(env.constants, to.consts)
   rewind(env.globals, to.globals)
   rewind(env.data, to.data)
-  setLen(env.bodies, to.data.int)
+  setLen(env.bodies, to.consts.int)
 
 iterator items*[I, T](tab: SymbolTable[I, T]): (I, lent T) =
   ## Returns all entities in `tab` together with their ID.

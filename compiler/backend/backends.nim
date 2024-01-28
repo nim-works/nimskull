@@ -602,20 +602,6 @@ func discoverFrom*(env: var MirEnv, decl: PNode) =
     else:
       unreachable(n.kind)
 
-func discoverFromValueAst(env: var MirEnv, ast: PNode) =
-  ## Discovers new routines from `ast`, which is an AST representing a value
-  ## construction expression.
-  case ast.kind
-  of nkSym:
-    let s = ast.sym
-    if s.kind in routineKinds:
-      discard env.procedures.add(s)
-  of nkWithSons:
-    for n in ast.items:
-      discoverFromValueAst(env, n)
-  of nkWithoutSons - {nkSym}:
-    discard "nothing to do"
-
 func queue(queue: var WorkQueue, id: ProcedureId, prc: PSym, m: FileIndex) =
   ## If eligible for processing and code generation, adds `prc` to
   ## `queue`'s queue.
@@ -818,7 +804,7 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
       # scan the constant for its dependencies
       # future direction: the body of the constant (i.e., the value
       # expression) will be transformed to its MIR representation here
-      discoverFromValueAst(env, env[item.cnst].ast)
+      scanExpr(env, env[item.cnst].ast)
       env.setData(item.cnst, env.data.getOrPut(env[item.cnst].ast))
       # we cannot report (i.e., yield) right away, the discovered dependencies
       # have to be reported first
@@ -883,7 +869,7 @@ iterator discover*(env: var MirEnv, progress: EnvCheckpoint
     # first discover and report the procedures referenced by the constant's
     # data. This ensures that the callsite can rely on all the constant's
     # dependencies existing in the environment
-    discoverFromValueAst(env, astdef(it))
+    scanExpr(env, astdef(it))
     env.setData(id, env.data.getOrPut(astdef(it)))
     yield (it, MirNode(kind: mnkConst, cnst: id))
 

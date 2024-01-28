@@ -20,7 +20,6 @@ import
     ast,
     lineinfos,
     ndi,
-    types
   ],
   compiler/backend/[
     cgir
@@ -96,10 +95,7 @@ type
                               ## code
     params*: seq[TLoc]        ## the locs of the parameters
 
-  ConstrTree* = distinct CgNode
-    ## A ``CgNode`` tree that represents a literal primitive/aggregate value
-    ## construction expression. A ``distinct`` alias for ``CgNode`` is used
-    ## such that special equality and hash operations can be attached.
+  StrNode* = distinct CgNode
 
   TLabel* = Rope              ## for the C generator a label is just a rope
   TCFileSection* = enum       ## the sections a generated C file consists of
@@ -260,9 +256,18 @@ type
     typeInfoMarker*: TypeCache ## needed for generating type information
     typeInfoMarkerV2*: TypeCache
     typeStack*: TTypeSeq      ## used for type generation
-    dataCache*: Table[ConstrTree, int] ## maps a value construction
-                              ## expression to the label of the C constant
-                              ## created for it
+    defaultCache*: Table[SigHash, int]
+      ## maps a type hash to the name of a C constant storing the type's
+      ## default value
+    strCache*: Table[StrNode, int]
+      ## associates a string node with the label of a C constant generated for
+      ## it
+      ## TODO: strings should be turned into data-only constants (``DataId``)
+      ##       during the MIR phase
+    dataNames*: Table[DataId, int]
+      ## associates each constant expression for which a C constant was
+      ## emitted with a label. The name of the C constant can be derived from
+      ## the label
     typeNodes*: int ## used for type info generation
     typeNodesName*: Rope ## used for type info generation
     labels*: Natural          ## for generating unique module-scope names
@@ -356,74 +361,14 @@ iterator items*[T](m: SymbolMap[T]): lent T =
   for it in m.store.items:
     yield it
 
-proc hash(n: ConstrTree): Hash =
-  ## Computes a hash over the structure of a tree (`n`). The hash function is
-  ## intended to be used with ``Table``, so two different trees are not
-  ## guaranteed to produce a different hash, but the same hash *must* be
-  ## produced for two structurally equal trees.
-  proc hashTree(n: CgNode): Hash =
-    result = ord(n.kind)
-    case n.kind
-    of cnkEmpty, cnkNilLit, cnkType:
-      discard
-    of cnkProc:
-      result = result !& hash(n.prc.uint32)
-    of cnkIntLit, cnkUIntLit:
-      result = result !& hash(n.intVal)
-    of cnkFloatLit:
-      # we'll be comparing the bit patterns later on, meaning that
-      # they're what we have to compute the hash for
-      result = result !& hash(cast[BiggestInt](n.floatVal))
-    of cnkStrLit:
-      result = result !& hash(n.strVal)
-    of cnkWithItems:
-      for it in n.items:
-        result = result !& hashTree(it)
-    of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic,
-       cnkWithOperand, cnkLocal, cnkLabel, cnkField, cnkConst, cnkGlobal:
-      unreachable()
-    result = !$result
+proc `==`(a, b: StrNode): bool =
+  a.CgNode.strVal == b.CgNode.strVal
 
-  result = hashTree(CgNode(n))
+proc hash(x: StrNode): Hash =
+  hash(x.CgNode.strVal)
 
-proc `==`(a, b: ConstrTree): bool =
-  ## Computes and returns whether `a` and `b` are structurally equal *and*
-  ## have equal types.
-  proc treesEquivalent(a, b: CgNode): bool =
-    if a == b:
-      result = true
-    elif a.kind == b.kind:
-      case a.kind
-      of cnkEmpty, cnkNilLit, cnkType:
-        result = true
-      of cnkProc:
-        result = a.prc == b.prc
-      of cnkIntLit, cnkUIntLit:
-        result = a.intVal == b.intVal
-      of cnkFloatLit:
-        result = cast[BiggestInt](a.floatVal) == cast[BiggestInt](b.floatVal)
-      of cnkStrLit:
-        result = a.strVal == b.strVal
-      of cnkWithItems:
-        if a.len == b.len:
-          for i in 0..<a.len:
-            if not treesEquivalent(a[i], b[i]): return
-          result = true
-      of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic,
-         cnkWithOperand, cnkLocal, cnkLabel, cnkField, cnkConst, cnkGlobal:
-        # nodes that cannot appear in construction trees
-        unreachable()
-
-      # we also want equal types:
-      if result:
-        result = sameTypeOrNil(a.typ, b.typ)
-
-  treesEquivalent(CgNode(a), CgNode(b))
-
-proc getOrPut*(t: var Table[ConstrTree, int], n: CgNode, label: int): int =
-  ## Fetches the label for the given data AST, or adds the AST + label to the
-  ## table first if they're not present yet.
-  mgetOrPut(t, ConstrTree(n), label)
+proc getOrPut*(t: var Table[StrNode, int], n: CgNode, label: int): int =
+  mgetOrPut(t, StrNode(n), label)
 
 func isFilled*(x: TLoc): bool {.inline.} =
   x.k != locNone

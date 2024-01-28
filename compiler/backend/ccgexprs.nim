@@ -58,13 +58,11 @@ proc genLiteral(p: BProc, n: CgNode, ty: PType): Rope =
   of cnkNilLit:
     let k = if ty == nil: tyPointer else: skipTypes(ty, abstractVarRange).kind
     if k == tyProc and skipTypes(ty, abstractVarRange).callConv == ccClosure:
-      let id = getOrPut(p.module.dataCache, n, p.module.labels)
-      result = p.module.tmpBase & rope(id)
-      if id == p.module.labels:
-        # not found in cache:
-        inc(p.module.labels)
-        p.module.s[cfsData].addf(
-             "static NIM_CONST $1 $2 = {NIM_NIL,NIM_NIL};$n",
+      # TODO: expand 'nil' closure literals with a MIR pass, instead of doing
+      #       it here during code generation
+      result = "CLOSURE" & $p.labels
+      inc(p.labels)
+      linefmt(p, cpsLocals, "NIM_CONST $1 $2 = {NIM_NIL,NIM_NIL};$n",
              [getTypeDesc(p.module, ty), result])
     elif k in {tyPointer, tyNil, tyProc}:
       result = rope("NIM_NIL")
@@ -118,20 +116,6 @@ proc genRawSetData(cs: TBitSet, size: int): Rope =
     result = rope(res)
   else:
     result = intLiteral(cast[BiggestInt](bitSetToWord(cs, size)))
-
-proc genSetNode(p: BProc, n: CgNode): Rope =
-  var size = int(getSize(p.config, n.typ))
-  let cs = toBitSet(p.config, n)
-  if size > 8:
-    let id = getOrPut(p.module.dataCache, n, p.module.labels)
-    result = p.module.tmpBase & rope(id)
-    if id == p.module.labels:
-      # not found in cache:
-      inc(p.module.labels)
-      p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
-           [getTypeDesc(p.module, n.typ), result, genRawSetData(cs, size)])
-  else:
-    result = genRawSetData(cs, size)
 
 proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
   assert d.k != locNone
@@ -925,23 +909,20 @@ proc genNewSeqOfCap(p: BProc; e: CgNode; d: var TLoc) =
       getSeqPayloadType(p.module, seqtype),
     ])
 
-proc rawConstExpr(p: BProc, n: CgNode; d: var TLoc) =
+proc defaultValueExpr(p: BProc, n: CgNode; d: var TLoc) =
+  ## Fills `d` with the default value expression `n`. The expression is
+  ## cached in a C constant.
+  ## XXX: this is only a temporary solution. Caching default value expressions
+  ##      needs to happen during the MIR phase
   let t = n.typ
   discard getTypeDesc(p.module, t) # so that any fields are initialized
-  let id = getOrPut(p.module.dataCache, n, p.module.labels)
+  let id = mgetOrPut(p.module.defaultCache, hashType(t), p.module.labels)
   fillLoc(d, locData, n, p.module.tmpBase & rope(id), OnStatic)
   if id == p.module.labels:
-    # expression not found in the cache:
+    # type not found in the cache:
     inc(p.module.labels)
     p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
           [getTypeDesc(p.module, t), d.r, genBracedInit(p, n, t)])
-
-proc handleConstExpr(p: BProc, n: CgNode, d: var TLoc): bool =
-  if d.k == locNone and n.len > 0 and n.isDeepConstExpr:
-    rawConstExpr(p, n, d)
-    result = true
-  else:
-    result = false
 
 proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
                           info: TLineInfo)
@@ -1048,16 +1029,6 @@ proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
     discard
 
 proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
-  #echo renderTree e, " ", e.isDeepConstExpr
-  when false:
-    # disabled optimization: see bug https://github.com/nim-lang/nim/issues/13240
-    #[
-      var box: seq[Thing]
-      for i in 0..3:
-        box.add Thing(s1: "121") # pass by sink can mutate Thing.
-    ]#
-    # TODO: verify whether this is still an issue
-    if handleConstExpr(p, e, d): return
   var t = e.typ.skipTypes(abstractInst)
   let isRef = t.kind == tyRef
 
@@ -1870,7 +1841,7 @@ proc genSetConstr(p: BProc, e: CgNode, d: var TLoc) =
 
 proc genTupleConstr(p: BProc, n: CgNode, d: var TLoc) =
   var rec: TLoc
-  if not handleConstExpr(p, n, d):
+  if true:
     let t = n.typ
     discard getTypeDesc(p.module, t) # so that any fields are initialized
     if d.k == locNone: getTemp(p, t, d)
@@ -1915,7 +1886,7 @@ proc genClosure(p: BProc, n: CgNode, d: var TLoc) =
 
 proc genArrayConstr(p: BProc, n: CgNode, d: var TLoc) =
   var arr: TLoc
-  if not handleConstExpr(p, n, d):
+  if true:
     if d.k == locNone: getTemp(p, n.typ, d)
     for i in 0..<n.len:
       initLoc(arr, locExpr, lodeTyp elemType(skipTypes(n.typ, abstractInst)), d.storage)
@@ -1971,27 +1942,6 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
     for i in 2..inheritanceDiff(src, dest): r.add(".Sup")
     putIntoDest(p, d, n, if isRef: "&" & r else: r, a.storage)
 
-proc exprComplexConst(p: BProc, n: CgNode, d: var TLoc) =
-  let t = n.typ
-  discard getTypeDesc(p.module, t) # so that any fields are initialized
-  let id = getOrPut(p.module.dataCache, n, p.module.labels)
-  let tmp = p.module.tmpBase & rope(id)
-
-  if id == p.module.labels:
-    # expression not found in the cache:
-    inc(p.module.labels)
-    p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
-         [getTypeDesc(p.module, t, skConst), tmp, genBracedInit(p, n, t)])
-
-  if d.k == locNone:
-    fillLoc(d, locData, n, tmp, OnStatic)
-  else:
-    putDataIntoDest(p, d, n, tmp)
-    # This fixes bug #4551, but we really need better dataflow
-    # analysis to make this 100% safe.
-    if t.kind notin {tySequence, tyString}:
-      d.storage = OnStatic
-
 proc useConst*(m: BModule; id: ConstId) =
   let sym = m.g.env[id]
   useHeader(m, sym)
@@ -2019,6 +1969,20 @@ proc genConstDefinition*(q: BModule; id: ConstId) =
   # all constants need a loc:
   q.consts[id] = initLoc(locData, newSymNode(q.g.env, sym), name, OnStatic)
 
+proc useData(p: BProc, x: ConstId, typ: PType): string =
+  ## Returns the C name of the anonymous constant `x` and emits its
+  ## definition into the current module, if it hasn't been already.
+  assert isAnon(x)
+  let
+    id = p.env.dataFor(x)
+    name = p.module.dataNames.mgetOrPut(id, p.module.labels)
+  result = p.module.tmpBase & $name
+  if name == p.module.labels:
+    inc p.module.labels
+    p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
+      [getTypeDesc(p.module, typ), result,
+       genBracedInit(p, translate(p.env, p.env[id]), typ)])
+
 proc expr(p: BProc, n: CgNode, d: var TLoc) =
   when defined(nimCompilerStacktraceHints):
     frameMsg(p.config, n)
@@ -2034,9 +1998,17 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     useProc(p.module, n.prc)
     putIntoDest(p, d, n, p.module.procs[n.prc].name, OnStack)
   of cnkConst:
-    if isSimpleConst(n.typ):
-      let data = translate(p.env, p.env[p.env.dataFor(n.cnst)])
-      putIntoDest(p, d, n, genLiteral(p, data, n.typ), OnStatic)
+    if isSimpleConst(p.config, n.typ):
+      # simple constants are inlined at the usage site
+      let da = p.env.dataFor(n.cnst)
+      let val = translate(p.env, p.env[da])
+      if val.kind == cnkSetConstr:
+        let cs = toBitSet(p.config, val)
+        putIntoDest(p, d, n, genRawSetData(cs, int(getSize(p.config, n.typ))))
+      else:
+        putIntoDest(p, d, n, genLiteral(p, val))
+    elif isAnon(n.cnst):
+      putDataIntoDest(p, d, n, useData(p, n.cnst, n.typ))
     else:
       useConst(p.module, n.cnst)
       putLocIntoDest(p, d, p.module.consts[n.cnst])
@@ -2076,26 +2048,14 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
       else:
         genCall(p, n, d)
   of cnkSetConstr:
-    if isDeepConstExpr(n) and n.len != 0:
-      putIntoDest(p, d, n, genSetNode(p, n))
-    else:
-      genSetConstr(p, n, d)
+    genSetConstr(p, n, d)
   of cnkArrayConstr:
-    # XXX: constructions of empty seqs should be lifted into C constants too,
-    #      but that currently causes collisions and thus C compiler errors  
-    if isDeepConstExpr(n) and n.len != 0:
-      exprComplexConst(p, n, d)
-    elif skipTypes(n.typ, abstractVarRange).kind == tySequence:
+    if skipTypes(n.typ, abstractVarRange).kind == tySequence:
       genSeqConstr(p, n, d)
     else:
       genArrayConstr(p, n, d)
   of cnkTupleConstr:
-    if n.typ != nil and n.typ.kind == tyProc and n.len == 2:
-      genClosure(p, n, d)
-    elif isDeepConstExpr(n) and n.len != 0:
-      exprComplexConst(p, n, d)
-    else:
-      genTupleConstr(p, n, d)
+    genTupleConstr(p, n, d)
   of cnkObjConstr: genObjConstr(p, n, d)
   of cnkCast: genCast(p, n, d)
   of cnkHiddenConv, cnkConv: genConv(p, n, d)
