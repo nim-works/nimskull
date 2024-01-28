@@ -884,12 +884,13 @@ proc transformFor(c: PTransf, n: PNode): PNode =
 proc transformCase(c: PTransf, n: PNode): PNode =
   # removes `elif` branches of a case stmt
   # adds ``else: nil`` if needed for the code generator
+  # also drops ``of`` branches without labels
   result = newNodeIT(nkCaseStmt, n.info, n.typ)
   var ifs: PNode = nil
   for it in n:
-    var e = transform(c, it)
     case it.kind
     of nkElifBranch:
+      let e = transform(c, it)
       if ifs == nil:
         # Generate the right node depending on whether `n` is used as a stmt or
         # as an expr
@@ -897,10 +898,17 @@ proc transformCase(c: PTransf, n: PNode): PNode =
         ifs = newNodeIT(kind, it.info, n.typ)
       ifs.add(e)
     of nkElse:
+      let e = transform(c, it)
       if ifs == nil: result.add(e)
       else: ifs.add(e)
+    of nkOfBranch:
+      # drop the branch if it has no labels. This is the case for,
+      # e.g.: `of []: discard`
+      if it.len > 1:
+        result.add(transform(c, it))
     else:
-      result.add(e)
+      # this must be the selector expression
+      result.add(transform(c, it))
   if ifs != nil:
     var elseBranch = newTreeI(nkElse, n.info): ifs
     result.add(elseBranch)

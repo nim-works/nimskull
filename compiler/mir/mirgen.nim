@@ -1752,24 +1752,12 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
   ## straightforward
   assert isEmptyType(n.typ) == not dest.isSome
 
-  # the number of processed branches is not necessarily equal to the amount
-  # we're going to emit (in case we skip some), so we have to count them
-  # manually
-  var num = 0
-  for (_, branch) in branches(n):
-    # an 'of' branch with no labels (e.g. ``of {}:``) is dropped, no code is
-    # generated for it
-    num += ord(branch.kind != nkOfBranch or branch.len > 1)
-
   let v = genUse(c, n[0])
-  c.add MirNode(kind: mnkCase, len: num)
+  c.add MirNode(kind: mnkCase, len: n.len - 1)
   c.use v
 
   # iterate of/else branches:
   for (_, branch) in branches(n):
-    if branch.len == 1 and branch.kind == nkOfBranch:
-      continue
-
     c.add MirNode(kind: mnkBranch, len: branch.len - 1)
 
     case branch.kind
@@ -1787,7 +1775,6 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
       genBranch(c, branch.lastSon, dest)
 
     c.add endNode(mnkBranch)
-    inc num
 
   c.add endNode(mnkCase)
 
