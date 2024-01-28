@@ -34,7 +34,6 @@ import
   dynlib,
   encodings,
   endians,
-  epoll,
   fenv,
   hashes,
   heapqueue,
@@ -45,7 +44,6 @@ import
   #inotify,
   intsets,
   json,
-  kqueue,
   lenientops,
   lexbase,
   lists,
@@ -168,5 +166,7 @@ import std/private/[
 
 when defined(posix):
   import std/[
+    epoll,
+    kqueue,
     posix_utils,
   ]

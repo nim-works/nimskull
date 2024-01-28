@@ -58,13 +58,11 @@ proc genLiteral(p: BProc, n: CgNode, ty: PType): Rope =
   of cnkNilLit:
     let k = if ty == nil: tyPointer else: skipTypes(ty, abstractVarRange).kind
     if k == tyProc and skipTypes(ty, abstractVarRange).callConv == ccClosure:
-      let id = getOrPut(p.module.dataCache, n, p.module.labels)
-      result = p.module.tmpBase & rope(id)
-      if id == p.module.labels:
-        # not found in cache:
-        inc(p.module.labels)
-        p.module.s[cfsData].addf(
-             "static NIM_CONST $1 $2 = {NIM_NIL,NIM_NIL};$n",
+      # TODO: expand 'nil' closure literals with a MIR pass, instead of doing
+      #       it here during code generation
+      result = "CLOSURE" & $p.labels
+      inc(p.labels)
+      linefmt(p, cpsLocals, "NIM_CONST $1 $2 = {NIM_NIL,NIM_NIL};$n",
              [getTypeDesc(p.module, ty), result])
     elif k in {tyPointer, tyNil, tyProc}:
       result = rope("NIM_NIL")
@@ -118,20 +116,6 @@ proc genRawSetData(cs: TBitSet, size: int): Rope =
     result = rope(res)
   else:
     result = intLiteral(cast[BiggestInt](bitSetToWord(cs, size)))
-
-proc genSetNode(p: BProc, n: CgNode): Rope =
-  var size = int(getSize(p.config, n.typ))
-  let cs = toBitSet(p.config, n)
-  if size > 8:
-    let id = getOrPut(p.module.dataCache, n, p.module.labels)
-    result = p.module.tmpBase & rope(id)
-    if id == p.module.labels:
-      # not found in cache:
-      inc(p.module.labels)
-      p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
-           [getTypeDesc(p.module, n.typ), result, genRawSetData(cs, size)])
-  else:
-    result = genRawSetData(cs, size)
 
 proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
   assert d.k != locNone
@@ -574,7 +558,7 @@ proc genRecordField(p: BProc, e: CgNode, d: var TLoc) =
   var a: TLoc
   genRecordFieldAux(p, e, d, a)
   var r = rdLoc(a)
-  var f = e[1].sym
+  var f = e[1].field
   let ty = skipTypes(a.t, abstractInst + tyUserTypeClasses)
   p.config.internalAssert(ty.kind == tyObject, e[0].info)
   if true:
@@ -618,10 +602,10 @@ proc genFieldCheck(p: BProc, e: CgNode) =
     of tyEnum:
       # use the compiler-generated enum-to-string procedure
       let prc = p.module.g.graph.getToStringProc(v.t)
-      p.module.extra.add prc # late dependency
+      discard registerLateProc(p.module, prc)
 
       var tmp: TLoc
-      expr(p, newSymNode(prc), tmp)
+      expr(p, newSymNode(p.env, prc), tmp)
       toStr = "$1($2)" % [rdLoc(tmp), rdLoc(v)]
       raiseProc = "raiseFieldErrorStr"
 
@@ -925,23 +909,20 @@ proc genNewSeqOfCap(p: BProc; e: CgNode; d: var TLoc) =
       getSeqPayloadType(p.module, seqtype),
     ])
 
-proc rawConstExpr(p: BProc, n: CgNode; d: var TLoc) =
+proc defaultValueExpr(p: BProc, n: CgNode; d: var TLoc) =
+  ## Fills `d` with the default value expression `n`. The expression is
+  ## cached in a C constant.
+  ## XXX: this is only a temporary solution. Caching default value expressions
+  ##      needs to happen during the MIR phase
   let t = n.typ
   discard getTypeDesc(p.module, t) # so that any fields are initialized
-  let id = getOrPut(p.module.dataCache, n, p.module.labels)
+  let id = mgetOrPut(p.module.defaultCache, hashType(t), p.module.labels)
   fillLoc(d, locData, n, p.module.tmpBase & rope(id), OnStatic)
   if id == p.module.labels:
-    # expression not found in the cache:
+    # type not found in the cache:
     inc(p.module.labels)
     p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
           [getTypeDesc(p.module, t), d.r, genBracedInit(p, n, t)])
-
-proc handleConstExpr(p: BProc, n: CgNode, d: var TLoc): bool =
-  if d.k == locNone and n.len > 0 and n.isDeepConstExpr:
-    rawConstExpr(p, n, d)
-    result = true
-  else:
-    result = false
 
 proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
                           info: TLineInfo)
@@ -1048,16 +1029,6 @@ proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
     discard
 
 proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
-  #echo renderTree e, " ", e.isDeepConstExpr
-  when false:
-    # disabled optimization: see bug https://github.com/nim-lang/nim/issues/13240
-    #[
-      var box: seq[Thing]
-      for i in 0..3:
-        box.add Thing(s1: "121") # pass by sink can mutate Thing.
-    ]#
-    # TODO: verify whether this is still an issue
-    if handleConstExpr(p, e, d): return
   var t = e.typ.skipTypes(abstractInst)
   let isRef = t.kind == tyRef
 
@@ -1102,7 +1073,7 @@ proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
   for it in e.items:
     var tmp2: TLoc
     tmp2.r = r
-    let field = lookupFieldAgain(p, ty, it[0].sym, tmp2.r)
+    let field = lookupFieldAgain(p, ty, it[0].field, tmp2.r)
     ensureObjectFields(p.module, field, ty)
     tmp2.r.add(".")
     tmp2.r.add(p.fieldName(field))
@@ -1252,7 +1223,7 @@ proc genGetTypeInfo(p: BProc, e: CgNode, d: var TLoc) =
 
 proc genGetTypeInfoV2(p: BProc, e: CgNode, d: var TLoc) =
   let t = e[1].typ
-  if isFinal(t) or e[0].sym.name.s != "getDynamicTypeInfo":
+  if isFinal(t) or p.env[e[0].prc].name.s != "getDynamicTypeInfo":
     # ordinary static type information
     putIntoDest(p, d, e, genTypeInfoV2(p.module, t, e.info))
   else:
@@ -1725,7 +1696,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     let member =
       if dotExpr.kind == cnkTupleAccess:
         "Field" & rope(dotExpr[1].intVal)
-      else: p.fieldName(dotExpr[1].sym)
+      else: p.fieldName(dotExpr[1].field)
     putIntoDest(p,d,e, "((NI)offsetof($1, $2))" % [tname, member])
   of mChr: genSomeCast(p, e, d)
   of mOrd: genOrd(p, e, d)
@@ -1738,7 +1709,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
      mInSet:
     genSetOp(p, e, d, op)
   of mNewString, mNewStringOfCap, mExit, mParseBiggestFloat:
-    var opr = e[0].sym
+    var opr = p.env[e[0].prc]
     # Why would anyone want to set nodecl to one of these hardcoded magics?
     # - not sure, and it wouldn't work if the symbol behind the magic isn't
     #   somehow forward-declared from some other usage, but it is *possible*
@@ -1754,7 +1725,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mArrToSeq: genArrToSeq(p, e, d)
   of mNLen..mNError, mStatic..mQuoteAst:
     localReport(p.config, e.info, reportSym(
-      rsemConstExpressionExpected, e[0].sym))
+      rsemConstExpressionExpected, p.env[e[0].prc]))
 
   of mDeepCopy:
     if p.config.selectedGC in {gcArc, gcOrc} and optEnableDeepCopy notin p.config.globalOptions:
@@ -1872,7 +1843,7 @@ proc genSetConstr(p: BProc, e: CgNode, d: var TLoc) =
 
 proc genTupleConstr(p: BProc, n: CgNode, d: var TLoc) =
   var rec: TLoc
-  if not handleConstExpr(p, n, d):
+  if true:
     let t = n.typ
     discard getTypeDesc(p.module, t) # so that any fields are initialized
     if d.k == locNone: getTemp(p, t, d)
@@ -1917,7 +1888,7 @@ proc genClosure(p: BProc, n: CgNode, d: var TLoc) =
 
 proc genArrayConstr(p: BProc, n: CgNode, d: var TLoc) =
   var arr: TLoc
-  if not handleConstExpr(p, n, d):
+  if true:
     if d.k == locNone: getTemp(p, n.typ, d)
     for i in 0..<n.len:
       initLoc(arr, locExpr, lodeTyp elemType(skipTypes(n.typ, abstractInst)), d.storage)
@@ -1973,28 +1944,8 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
     for i in 2..inheritanceDiff(src, dest): r.add(".Sup")
     putIntoDest(p, d, n, if isRef: "&" & r else: r, a.storage)
 
-proc exprComplexConst(p: BProc, n: CgNode, d: var TLoc) =
-  let t = n.typ
-  discard getTypeDesc(p.module, t) # so that any fields are initialized
-  let id = getOrPut(p.module.dataCache, n, p.module.labels)
-  let tmp = p.module.tmpBase & rope(id)
-
-  if id == p.module.labels:
-    # expression not found in the cache:
-    inc(p.module.labels)
-    p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
-         [getTypeDesc(p.module, t, skConst), tmp, genBracedInit(p, n, t)])
-
-  if d.k == locNone:
-    fillLoc(d, locData, n, tmp, OnStatic)
-  else:
-    putDataIntoDest(p, d, n, tmp)
-    # This fixes bug #4551, but we really need better dataflow
-    # analysis to make this 100% safe.
-    if t.kind notin {tySequence, tyString}:
-      d.storage = OnStatic
-
-proc useConst*(m: BModule; sym: PSym) =
+proc useConst*(m: BModule; id: ConstId) =
+  let sym = m.g.env[id]
   useHeader(m, sym)
   if exfNoDecl in sym.extFlags:
     return
@@ -2004,19 +1955,35 @@ proc useConst*(m: BModule; sym: PSym) =
   # one the constant is part of
   if q != m and not containsOrIncl(m.declaredThings, sym.id):
     let headerDecl = "extern NIM_CONST $1 $2;$n" %
-        [getTypeDesc(m, sym.typ, skVar), q.consts[sym].r]
+        [getTypeDesc(m, sym.typ, skVar), q.consts[id].r]
     m.s[cfsData].add(headerDecl)
 
-proc genConstDefinition*(q: BModule; sym: PSym) =
+proc genConstDefinition*(q: BModule; id: ConstId) =
+  let sym = q.g.env[id]
   let name = mangleName(q.g.graph, sym)
   if exfNoDecl notin sym.extFlags:
     let p = newProc(nil, q)
+    let data = translate(q.g.env, q.g.env[q.g.env.dataFor(id)])
     q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
         [getTypeDesc(q, sym.typ), name,
-        genBracedInit(p, translate(sym.ast), sym.typ)])
+        genBracedInit(p, data, sym.typ)])
 
   # all constants need a loc:
-  q.consts.put(sym, initLoc(locData, newSymNode(sym), name, OnStatic))
+  q.consts[id] = initLoc(locData, newSymNode(q.g.env, sym), name, OnStatic)
+
+proc useData(p: BProc, x: ConstId, typ: PType): string =
+  ## Returns the C name of the anonymous constant `x` and emits its
+  ## definition into the current module, if it hasn't been already.
+  assert isAnon(x)
+  let
+    id = p.env.dataFor(x)
+    name = p.module.dataNames.mgetOrPut(id, p.module.labels)
+  result = p.module.tmpBase & $name
+  if name == p.module.labels:
+    inc p.module.labels
+    p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
+      [getTypeDesc(p.module, typ), result,
+       genBracedInit(p, translate(p.env, p.env[id]), typ)])
 
 proc expr(p: BProc, n: CgNode, d: var TLoc) =
   when defined(nimCompilerStacktraceHints):
@@ -2025,34 +1992,41 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
 
   case n.kind
   of cnkProc:
-    let sym = n.sym
+    let sym = p.env[n.prc]
     if sfCompileTime in sym.flags:
       localReport(p.config, n.info, reportSym(
         rsemCannotCodegenCompiletimeProc, sym))
 
-    useProc(p.module, sym)
-    putIntoDest(p, d, n, p.module.procs[sym].name, OnStack)
+    useProc(p.module, n.prc)
+    putIntoDest(p, d, n, p.module.procs[n.prc].name, OnStack)
   of cnkConst:
-    let sym = n.sym
-    if isSimpleConst(sym.typ):
-      putIntoDest(p, d, n, genLiteral(p, translate(sym.ast), sym.typ), OnStatic)
+    if isSimpleConst(p.config, n.typ):
+      # simple constants are inlined at the usage site
+      let da = p.env.dataFor(n.cnst)
+      let val = translate(p.env, p.env[da])
+      if val.kind == cnkSetConstr:
+        let cs = toBitSet(p.config, val)
+        putIntoDest(p, d, n, genRawSetData(cs, int(getSize(p.config, n.typ))))
+      else:
+        putIntoDest(p, d, n, genLiteral(p, val))
+    elif isAnon(n.cnst):
+      putDataIntoDest(p, d, n, useData(p, n.cnst, n.typ))
     else:
-      useConst(p.module, sym)
-      putLocIntoDest(p, d, p.module.consts[sym])
+      useConst(p.module, n.cnst)
+      putLocIntoDest(p, d, p.module.consts[n.cnst])
   of cnkGlobal:
-    let sym = n.sym
-    assert sfGlobal in sym.flags
-    genVarPrototype(p.module, n)
+    let id = n.global
+    genVarPrototype(p.module, id)
 
-    if sfThread in sym.flags:
-      accessThreadLocalVar(p, sym)
+    if sfThread in p.env[id].flags:
+      accessThreadLocalVar(p)
       if emulatedThreadVars(p.config):
-        let loc {.cursor.} = p.module.globals[sym]
+        let loc {.cursor.} = p.module.globals[id]
         putIntoDest(p, d, loc.lode, "NimTV_->" & loc.r)
       else:
-        putLocIntoDest(p, d, p.module.globals[sym])
+        putLocIntoDest(p, d, p.module.globals[id])
     else:
-      putLocIntoDest(p, d, p.module.globals[sym])
+      putLocIntoDest(p, d, p.module.globals[id])
   of cnkLocal:
     putLocIntoDest(p, d, p.locals[n.local])
   of cnkStrLit:
@@ -2061,7 +2035,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     putIntoDest(p, d, n, genLiteral(p, n))
   of cnkCall, cnkCheckedCall:
     genLineDir(p, n) # may be redundant, it is generated in fixupCall as well
-    let m = getCalleeMagic(n[0])
+    let m = getCalleeMagic(p.env, n[0])
     if n.typ.isNil:
       # discard the value:
       var a: TLoc
@@ -2076,26 +2050,14 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
       else:
         genCall(p, n, d)
   of cnkSetConstr:
-    if isDeepConstExpr(n) and n.len != 0:
-      putIntoDest(p, d, n, genSetNode(p, n))
-    else:
-      genSetConstr(p, n, d)
+    genSetConstr(p, n, d)
   of cnkArrayConstr:
-    # XXX: constructions of empty seqs should be lifted into C constants too,
-    #      but that currently causes collisions and thus C compiler errors  
-    if isDeepConstExpr(n) and n.len != 0:
-      exprComplexConst(p, n, d)
-    elif skipTypes(n.typ, abstractVarRange).kind == tySequence:
+    if skipTypes(n.typ, abstractVarRange).kind == tySequence:
       genSeqConstr(p, n, d)
     else:
       genArrayConstr(p, n, d)
   of cnkTupleConstr:
-    if n.typ != nil and n.typ.kind == tyProc and n.len == 2:
-      genClosure(p, n, d)
-    elif isDeepConstExpr(n) and n.len != 0:
-      exprComplexConst(p, n, d)
-    else:
-      genTupleConstr(p, n, d)
+    genTupleConstr(p, n, d)
   of cnkObjConstr: genObjConstr(p, n, d)
   of cnkCast: genCast(p, n, d)
   of cnkHiddenConv, cnkConv: genConv(p, n, d)
@@ -2229,7 +2191,7 @@ proc getNullValueAux(p: BProc; t: PType; obj: PNode, constOrNil: CgNode,
       ## find kind value, default is zero if not specified
       for it in constOrNil.items:
         assert it.kind == cnkBinding
-        if it[0].sym.name.id == obj[0].sym.name.id:
+        if it[0].field.name.id == obj[0].sym.name.id:
           branch = getOrdValue(it[1])
           break
 
@@ -2254,7 +2216,7 @@ proc getNullValueAux(p: BProc; t: PType; obj: PNode, constOrNil: CgNode,
     if constOrNil != nil:
       for it in constOrNil.items:
         assert it.kind == cnkBinding
-        if it[0].sym.name.id == field.name.id:
+        if it[0].field.name.id == field.name.id:
           result.add genBracedInit(p, it[1], field.typ)
           return
     # not found, produce default value:

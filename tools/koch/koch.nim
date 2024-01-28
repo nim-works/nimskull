@@ -536,10 +536,10 @@ when isMainModule:
       else: showHelp(success = false)
     of cmdArgument:
       case normalize(op.key)
-      of "all": buildReleaseBinaries()
+      of "all": buildReleaseBinaries(op.cmdLineRest)
       of "all-strict":
         # when using strict mode, don't abort after the first error
-        buildReleaseBinaries("-d:nimStrictMode --errorMax:3")
+        buildReleaseBinaries("-d:nimStrictMode --errorMax:3 " & op.cmdLineRest)
       of "boot": boot(op.cmdLineRest)
       of "clean": clean(op.cmdLineRest)
       of "doc", "docs": buildDocs(op.cmdLineRest)

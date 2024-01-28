@@ -19,11 +19,9 @@
 ##
 ## The values of rvalue operations, calls, and construction are first captured
 ## in temporaries (as the MIR doesn't support them being used as, e.g., call
-## arguments directly). Lvalues that have side-effects (e.g., index errors)
-## are captured (together with their side-effects) via MIR alias. In general,
-## all call arguments are first assigned to a temporary, except if the
-## expression is stable (in case of by-name arguments) or pure (in case of
-## non-sink by-value arguments).
+## arguments directly). In general, all call arguments are first assigned to a
+## temporary, except if the expression is stable (in case of by-name
+## arguments) or pure (in case of non-sink by-value arguments).
 ##
 ## Pure expression are those that don't have side-effect and always refer to
 ## the exact same value, whereas stable expression are those that don't have
@@ -69,8 +67,10 @@ import
     wordrecg
   ],
   compiler/mir/[
+    datatables,
     mirbodies,
     mirconstr,
+    mirenv,
     mirtrees,
     sourcemaps
   ],
@@ -138,6 +138,9 @@ type
 
   TCtx = object
     # working state:
+    env: MirEnv
+      ## for convenience and safety, `TCtx` temporarily assumes full
+      ## ownership of the environment
     builder: MirBuilder ## the builder for generating the MIR trees
 
     blocks: seq[Block] ## the stack of active ``block``s. Used for looking up
@@ -146,6 +149,9 @@ type
     sp: SourceProvider
 
     numLabels: int ## provides the ID to use for the next label
+    scopeDepth: int ## the current amount of scope nesting
+    inLoop: int
+      ## > 0 if the current statement/expression is part of a loop
 
     # input:
     context: TSymKind ## what entity the input AST is part of (e.g. procedure,
@@ -203,15 +209,35 @@ func endsInNoReturn(n: PNode): bool =
     (it.kind in nkCallKinds and it[0].kind == nkSym and
      sfNoReturn in it[0].sym.flags)
 
+func isDeepConstExpr(n: PNode): bool =
+  ## Copy of ``trees.isDeepConstExpr`` that doesn't treat hidden conversions
+  ## as constant.
+  # XXX: used as a temporary workaround for ``nkHiddenStdConv`` not being
+  #      supported in MIR constant data
+  case n.kind
+  of nkLiterals, nkNilLit:
+    result = true
+  of nkExprColonExpr:
+    result = isDeepConstExpr(n[1])
+  of nkRange:
+    result = isDeepConstExpr(n[0]) and isDeepConstExpr(n[1])
+  of nkCurly, nkBracket, nkTupleConstr, nkObjConstr, nkClosure:
+    for i in ord(n.kind == nkObjConstr)..<n.len:
+      if not isDeepConstExpr(n[i]):
+        return false
+
+    let t = n.typ.skipTypes({tyGenericInst, tyDistinct, tyAlias, tySink})
+    # refs, pointers, unions, and case objects are not treated as constant
+    result = t.kind notin {tyRef, tyPtr} and
+             tfUnion notin t.flags and
+             (t.kind != tyObject or not isCaseObj(t.n))
+  else:
+    result = false
+
 func selectWhenBranch(n: PNode, isNimvm: bool): PNode =
   assert n.kind == nkWhen
   if isNimvm: n[0][1]
   else:       n[1][0]
-
-func selectDefKind(s: PSym): range[mnkDef..mnkDefCursor] =
-  ## Returns the kind of definition to use for the given entity
-  if sfCursor in s.flags: mnkDefCursor
-  else:                   mnkDef
 
 func initDestination(v: sink Value, isFirst, sink: bool): Destination =
   var flags: set[DestFlag]
@@ -267,7 +293,7 @@ func isPure(tree: MirTree, n: NodePosition): bool =
 
 func isStable(tree: MirTree, n: NodePosition): bool =
   ## Returns whether the run-time address of the lvalue expression `n` is
-  ## always the same and whether the expression is side-effect free.
+  ## always the same, regardless of when the address is computed.
   case tree[n].kind
   of mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp, mnkAlias:
     true
@@ -327,8 +353,10 @@ template subTree(c: var TCtx, n: MirNode, body: untyped) =
     body
 
 template scope(c: var TCtx, body: untyped) =
+  inc c.scopeDepth
   c.builder.subTree mnkScope:
     body
+  dec c.scopeDepth
 
 template use(c: var TCtx, val: Value) =
   c.builder.use(val)
@@ -349,28 +377,28 @@ proc empty(c: var TCtx, n: PNode): MirNode =
 func intLiteral(val: Int128, typ: PType): Value =
   literal(newIntTypeNode(val, typ))
 
-func nameNode(s: PSym): MirNode =
+func nameNode(c: var TCtx, s: PSym): MirNode =
   case s.kind
   of skTemp:
     # temporaries are always locals, even if marked with the ``sfGlobal``
     # flag
     MirNode(kind: mnkLocal, typ: s.typ, sym: s)
   of skConst:
-    MirNode(kind: mnkConst, typ: s.typ, sym: s)
+    MirNode(kind: mnkConst, typ: s.typ, cnst: c.env.constants.add(s))
   of skParam:
     MirNode(kind: mnkParam, typ: s.typ, sym: s)
   of skResult:
     MirNode(kind: mnkLocal, typ: s.typ, sym: s)
   of skVar, skLet, skForVar:
     if sfGlobal in s.flags:
-      MirNode(kind: mnkGlobal, typ: s.typ, sym: s)
+      MirNode(kind: mnkGlobal, typ: s.typ, global: c.env.globals.add(s))
     else:
       MirNode(kind: mnkLocal, typ: s.typ, sym: s)
   else:
     unreachable(s.kind)
 
 func genLocation(c: var TCtx, n: PNode): Value =
-  let f = c.builder.push: c.builder.add(nameNode(n.sym))
+  let f = c.builder.push: c.builder.add(nameNode(c, n.sym))
   c.builder.popSingle(f)
 
 template allocTemp(c: var TCtx, typ: PType; alias=false): Value =
@@ -442,13 +470,7 @@ func detectKind(tree: MirTree, n: NodePosition, sink: bool): ExprKind =
     else:
       Rvalue
   of mnkConstr:
-    # XXX: sequence constructions (i.e., constant ``seq``s) are allowed to be
-    #      lifted into constants at a later stage, which needs to be accounted
-    #      here by treating the values as non-owning. Performing all lifting-
-    #      into-constants here in ``mirgen`` is going to render this special-
-    #      casing obsolete
-    if sink and hasDestructor(tree[n].typ) and
-       tree[n].typ.skipTypes(abstractInst).kind != tySequence:
+    if sink and hasDestructor(tree[n].typ):
       OwnedRvalue
     else:
       Rvalue
@@ -909,7 +931,7 @@ proc genCallee(c: var TCtx, n: PNode) =
     let s = n.sym
     if s.magic == mNone or s.magic in c.config.magicsToKeep:
       # reference the procedure by symbol
-      c.use procLit(n.sym)
+      c.use toValue(c.env.procedures.add(s), s.typ)
     else:
       # don't use a symbol
       c.add MirNode(kind: mnkMagic, magic: s.magic)
@@ -1019,7 +1041,7 @@ proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
   of skTemplate:
     # for late template invocations, the callee template is an argument
     c.subTree mnkArg:
-      genCallee(c, n[1])
+      c.use literal(newTreeIT(nkNimNodeLit, n[1].info, n[1].typ, n[1]))
   else:
     unreachable(kind)
 
@@ -1083,7 +1105,7 @@ proc genInSetOp(c: var TCtx, n: PNode) =
               c.emitByVal b
           c.subTree mnkStmtList:
             var sv: Value
-            if se.kind == nkCurly:
+            if se.kind == nkCurly and not isDeepConstExpr(se):
               sv = c.allocTemp(se.typ)
               c.subTree mnkDef:
                 c.use sv
@@ -1480,30 +1502,41 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
 proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
   ## Generates the 'def' construct for the entity provided by the symbol node
   ## `n`
-  let s = n.sym
+  let
+    s = n.sym
+    hasInitializer = val.kind != nkEmpty
+    sink = sfCursor notin s.flags
+    node = nameNode(c, s)
 
   c.builder.useSource(c.sp, n)
-  c.buildStmt selectDefKind(s):
-    case s.kind
-    of skTemp:
-      c.add MirNode(kind: mnkLocal, typ: s.typ, sym: s)
+  if node.kind == mnkGlobal and c.scopeDepth == 1:
+    # no 'def' statement is emitted for top-level globals
+    if hasInitializer:
+      genAsgn(c, true, sink, n, val)
+    elif {sfImportc, sfNoInit} * s.flags == {} and
+         {exfDynamicLib, exfNoDecl} * s.extFlags == {}:
+      # XXX: ^^ re-think this condition from first principles. Right now,
+      #      it's just meant to make some tests work
+      # the location doesn't have an explicit starting value. Initialize
+      # it to the type's default value.
+      c.buildStmt mnkInit:
+        c.add node
+        c.buildMagicCall mDefault, s.typ:
+          discard
     else:
-      let kind =
-        if sfGlobal in s.flags: mnkGlobal
-        else:                   mnkLocal
-
-      {.cast(uncheckedAssign).}:
-        c.add MirNode(kind: kind, typ: s.typ, sym: s)
-
-    # the initializer is optional
-    if val.kind != nkEmpty:
-      # XXX: some closure types are erroneously reported as having no
-      #      destructor, which would lead to memory leaks if the
-      #      expression is a closure construction. As a work around,
-      #      a missing destructor disables the sink context
-      genAsgnSource(c, val, (sfCursor notin s.flags) and hasDestructor(s.typ))
-    else:
-      c.add MirNode(kind: mnkNone)
+      # the definition doesn't imply default intialization
+      discard
+  else:
+    c.buildStmt (if sfCursor in s.flags: mnkDefCursor else: mnkDef):
+      c.add node
+      if hasInitializer:
+        # XXX: some closure types are erroneously reported as having no
+        #      destructor, which would lead to memory leaks if the
+        #      expression is a closure construction. As a work around,
+        #      a missing destructor disables the sink context
+        genAsgnSource(c, val, sink and hasDestructor(s.typ))
+      else:
+        c.add MirNode(kind: mnkNone)
 
 proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
   ## Generates the code for a location definition. `sym` is the symbol of the
@@ -1528,6 +1561,8 @@ proc genVarTuple(c: var TCtx, n: PNode) =
   let
     numDefs = n.len - 2
     initExpr = n[^1]
+    isInit = c.inLoop == 0
+      ## for lifted locals, whether an 'init' assignment can be used
 
   # then, generate the initialization
   case initExpr.kind
@@ -1543,7 +1578,7 @@ proc genVarTuple(c: var TCtx, n: PNode) =
 
       case lhs.kind
       of nkSym:     genLocInit(c, lhs, rhs)
-      of nkDotExpr: genAsgn(c, true, true, lhs, rhs) # closure field
+      of nkDotExpr: genAsgn(c, isInit, true, lhs, rhs) # closure field
       else:         unreachable(lhs.kind)
 
   else:
@@ -1561,9 +1596,9 @@ proc genVarTuple(c: var TCtx, n: PNode) =
         genLocDef(c, lhs, c.graph.emptyNode)
 
       # generate the assignment:
-      c.buildStmt mnkInit:
+      c.buildStmt (if isInit: mnkInit else: mnkAsgn):
         genOperand(c, lhs)
-        c.subTree MirNode(kind: mnkPathPos, typ: lhs.sym.typ,
+        c.subTree MirNode(kind: mnkPathPos, typ: lhs.typ,
                           position: i.uint32):
           c.use val
 
@@ -1581,11 +1616,12 @@ proc genVarSection(c: var TCtx, n: PNode) =
       of nkDotExpr:
         # initialization of a variable that was lifted into a closure
         # environment
+        let isInit = c.inLoop == 0
         if a[2].kind != nkEmpty:
-          genAsgn(c, false, true, a[0], a[2])
+          genAsgn(c, isInit, true, a[0], a[2])
         else:
           # no intializer expression -> assign the default value
-          c.buildStmt mnkInit:
+          c.buildStmt (if isInit: mnkInit else: mnkAsgn):
             genOperand(c, a[0])
             c.buildMagicCall mDefault, a[0].typ:
               discard
@@ -1601,7 +1637,9 @@ proc genWhile(c: var TCtx, n: PNode) =
   assert isTrue(n[0]), "`n` wasn't properly transformed"
   c.subTree MirNode(kind: mnkRepeat):
     c.scope:
+      inc c.inLoop
       c.gen(n[1])
+      dec c.inLoop
 
 proc genBlock(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for a ``block`` expression or statement
@@ -1764,10 +1802,10 @@ proc genExceptBranch(c: var TCtx, n: PNode, dest: Destination) =
       of nkType:
         c.add MirNode(kind: mnkType, typ: tn.typ)
       of nkInfix:
-        # ``x as T`` doesn't get transformed to just ``T`` if ``T`` is the
-        # type of an imported exception. We don't care about the type of
-        # exceptions at the MIR-level, so we just use carry it along as is
-        c.add MirNode(kind: mnkPNode, node: tn)
+        # ``T as a`` doesn't get transformed to just ``T`` if ``T`` is the
+        # type of an imported exception -- the local's name is used at the
+        # MIR level
+        c.add MirNode(kind: mnkLocal, typ: tn[2].typ, sym: tn[2].sym)
       else:
         unreachable()
 
@@ -1841,6 +1879,39 @@ proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination) =
     # not a complex expression
     unreachable(n.kind)
 
+proc scanExpr*(env: var MirEnv, n: PNode) =
+  ## Registers all routine symbols appearing in `n` with `env`.
+  case n.kind
+  of nkSym:
+    if n.sym.kind in routineKinds:
+      discard env.procedures.add(n.sym)
+  of nkWithoutSons - {nkSym}:
+    discard
+  of nkWithSons - {nkObjConstr}:
+    for it in n.items:
+      scanExpr(env, it)
+  of nkObjConstr:
+    # don't scan the type slot:
+    for i in 1..<n.len:
+      scanExpr(env, n[i])
+
+proc toConstant(c: var TCtx, n: PNode): Value =
+  ## Creates an anonymous constant from the constant expression `n`
+  ## and returns the ``Value`` for it.
+  # make sure to register all procedure referenced by the expression:
+  scanExpr(c.env, n)
+  let con = toConstId c.env.data.getOrPut(n)
+  toValue(con, n.typ)
+
+proc handleConstExpr(c: var TCtx, n: PNode, lift: bool): bool =
+  ## If `n` is a fully constant expression and `lift` is 'true', lifts `n`
+  ## into an anonymous constant, emits a use of said constant, and returns
+  ## 'true'. 'false' is returned if no lifting took place.
+  # there's no benefit to lifting empty construction; those are kept
+  if lift and n.len > ord(n.kind == nkObjConstr) and isDeepConstExpr(n):
+    c.use toConstant(c, n)
+    result = true
+
 proc genx(c: var TCtx, n: PNode, consume: bool) =
   ## Generate and emits the raw MIR code for the given expression `n` into
   ## the active buffer.
@@ -1855,9 +1926,9 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
     let s = n.sym
     case s.kind
     of skVar, skForVar, skLet, skResult, skParam, skConst, skTemp:
-      c.add nameNode(s)
+      c.add nameNode(c, s)
     of skProc, skFunc, skConverter, skMethod, skIterator:
-      c.use procLit(s)
+      c.use toValue(c.env.procedures.add(s), s.typ)
     else:
       unreachable(s.kind)
 
@@ -1946,7 +2017,8 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
       # it's a conversion that produces a new rvalue
       c.genOp mnkConv, n.typ, n[1]
   of nkLambdaKinds:
-    c.use procLit(n[namePos].sym)
+    let s = n[namePos].sym
+    c.use toValue(c.env.procedures.add(s), n.typ)
   of nkChckRangeF, nkChckRange64, nkChckRange:
     # XXX: only produce range-check nodes where range checks should take
     #      place, and then remove the conditional logic here -- ``mirgen``
@@ -1970,22 +2042,30 @@ proc genx(c: var TCtx, n: PNode, consume: bool) =
   of nkBracket:
     let consume =
       if n.typ.skipTypes(abstractVarRange).kind == tySequence:
-        # don't propagate the `consume` flag through sequence constructors.
-        # A sequence constructor is only used for constant seqs
+        # for constant sequences, which `nkBracket` expression represent,
+        # prefer lifting into a constant
         false
       else:
         consume
 
-    genArrayConstr(c, n, consume)
+    if not handleConstExpr(c, n, not(consume)):
+      genArrayConstr(c, n, consume)
   of nkCurly:
-    # a ``set``-constructor never owns
-    genSetConstr(c, n)
+    # it's preferred for constant sets to be lifted into constants; pass
+    # 'false'
+    if not handleConstExpr(c, n, true):
+      genSetConstr(c, n)
   of nkObjConstr:
-    genObjConstr(c, n, consume)
+    if n.typ.skipTypes(abstractInstTypeClass).kind == tyRef or
+       not handleConstExpr(c, n, not(consume)):
+      # ref constructions are never lifted into constants
+      genObjConstr(c, n, consume)
   of nkTupleConstr:
-    genTupleConstr(c, n, consume)
+    if not handleConstExpr(c, n, not(consume)):
+      genTupleConstr(c, n, consume)
   of nkClosure:
-    genClosureConstr(c, n, consume)
+    if not handleConstExpr(c, n, not(consume)):
+      genClosureConstr(c, n, consume)
   of nkCast:
     c.genOp mnkCast, n.typ, n[1]
   of nkWhenStmt:
@@ -2183,16 +2263,19 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
   else:
     gen(c, n)
 
-proc generateCode*(graph: ModuleGraph, config: TranslationConfig, n: PNode,
+proc generateCode*(graph: ModuleGraph, env: var MirEnv,
+                   config: TranslationConfig, n: PNode,
                    builder: var MirBuilder, source: var SourceMap) =
   ## Generates MIR code that is semantically equivalent to the expression or
   ## statement `n`, appending the resulting code and the corresponding origin
   ## information to `code` and `source`, respectively.
   var c = TCtx(context: skUnknown, graph: graph, config: config)
+  c.scopeDepth = 2 # assume that this is not top-level code
 
   template swapState() =
     swap(c.sp.map, source)
     swap(c.builder, builder)
+    swap(c.env, env)
 
   # for the duration of ``generateCode`` we move the state into ``TCtx``
   swapState()
@@ -2220,8 +2303,8 @@ proc generateCode*(graph: ModuleGraph, config: TranslationConfig, n: PNode,
   # move the state back into the output parameters:
   swapState()
 
-proc generateCode*(graph: ModuleGraph, owner: PSym, config: TranslationConfig,
-                   body: PNode): MirBody =
+proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
+                   config: TranslationConfig,  body: PNode): MirBody =
   ## Generates the full MIR body for the given AST `body`.
   ##
   ## `owner` it the symbol of the entity (module or procedure) that `body`
@@ -2238,6 +2321,9 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, config: TranslationConfig,
                userOptions: owner.options)
   c.sp.active = (body, c.sp.map.add(body))
 
+  swap(c.env, env)
+
+  c.scopeDepth = 1
   c.add MirNode(kind: mnkScope)
   if owner.kind in routineKinds:
     # add a 'def' for each ``sink`` parameter. This simplifies further
@@ -2252,6 +2338,8 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, config: TranslationConfig,
 
   gen(c, body)
   c.add endNode(mnkScope)
+
+  swap(c.env, env) # swap back
 
   # move the buffers into the result body
   MirBody(source: move c.sp.map,

@@ -3619,11 +3619,12 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
         var baseType = semExpr(c, n[0]).typ.skipTypes({tyTypeDesc})
         result.typ = c.makeTypeDesc(c.newTypeWithSons(modifier, @[baseType]))
         return
-    let typ = semTypeNode(c, n, nil).skipTypes({tyTypeDesc})
-    result.typ = makeTypeDesc(c, typ)
+    result = semTypeNode2(c, n, nil)
+    # a type expression is of type ``typeDesc[T]``
+    result.typ = makeTypeDesc(c, result.typ.skipTypes({tyTypeDesc}))
   of nkStmtListType:
-    let typ = semTypeNode(c, n, nil)
-    result.typ = makeTypeDesc(c, typ)
+    result = semTypeNode2(c, n, nil)
+    result.typ = makeTypeDesc(c, result.typ)
   of nkCall, nkInfix, nkPrefix, nkPostfix, nkCommand, nkCallStrLit:
     # check if it is an expression macro:
     checkMinSonsLen(n, 1, c.config)

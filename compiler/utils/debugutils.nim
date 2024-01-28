@@ -58,7 +58,7 @@ type
     stepIdentToSym
     stepSymNodeToNode
     stepNodeFlagsToNode
-    stepNodeTypeToNode
+    stepNodeTypeToType
     stepTypeTypeToType
     stepResolveOverload
     stepNodeSigMatch
@@ -87,7 +87,7 @@ type
       of stepIdentToSym:
         ident*: PIdent
 
-      of stepNodeTypeToNode, stepTypeTypeToType:
+      of stepNodeTypeToType, stepTypeTypeToType:
         typ*: PType
         typ1*: PType
 
@@ -265,15 +265,15 @@ proc generateOutput(conf: ConfigRef, r: CompilerTrace): string =
           field("to node")
           result.add render(s.node)
 
-      of stepNodeTypeToNode:
+      of stepNodeTypeToType:
         if enter:
           field("from node")
           result.add render(s.node)
           field("from type")
           result.add render(s.typ)
         else:
-          field("to node")
-          result.add render(s.node)
+          field("to type")
+          result.add render(s.typ1)
 
       of stepNodeFlagsToNode:
         if enter:
@@ -720,13 +720,13 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
       traceEnterIt(
-        loc, stepParams(c, stepNodeTypeToNode, indentLevel, action)):
+        loc, stepParams(c, stepNodeTypeToType, indentLevel, action)):
         it.node = n
         it.typ = prev
 
     template leaveMsg(indentLevel: int) =
       traceLeaveIt(
-        loc, stepParams(c, stepNodeTypeToNode, indentLevel, action)):
+        loc, stepParams(c, stepNodeTypeToType, indentLevel, action)):
         it.node = n
         it.typ = r
 

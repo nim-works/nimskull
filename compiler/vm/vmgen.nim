@@ -49,6 +49,10 @@ import
     magicsys,
     modulegraphs
   ],
+  compiler/mir/[
+    mirenv,
+    mirtrees
+  ],
   compiler/front/[
     msgs,
     options
@@ -140,6 +144,9 @@ type
     ## Bundles all input, output, and other contextual data needed for the
     ## code generator
     prc: BProc
+
+    # code-generator owned state:
+    env*: MirEnv
 
     # immutable input parameters:
     graph*: ModuleGraph
@@ -568,8 +575,8 @@ proc clearDest(c: var TCtx; n: CgNode; dest: var TDest) {.inline.} =
     c.freeTemp(dest)
     dest = -1
 
-func isNotOpr(n: CgNode): bool {.inline.} =
-  getMagic(n) == mNot
+func isNotOpr(env: MirEnv, n: CgNode): bool {.inline.} =
+  getMagic(env, n) == mNot
 
 proc whichAsgnOpc(t: PType): TOpcode {.used.} =
   case t.skipTypes(IrrelevantTypes + {tyRange}).kind
@@ -623,7 +630,7 @@ proc genIf(c: var TCtx, n: CgNode) =
       let it = n
       withDest(tmp):
         var elsePos: TPosition
-        if isNotOpr(it[0]):
+        if isNotOpr(c.env, it[0]):
           c.gen(it[0][1], tmp)
           elsePos = c.xjmp(it[0][1], opcTJmp, tmp) # if true
         else:
@@ -925,14 +932,14 @@ proc genLit(c: var TCtx; n: CgNode; dest: var TDest) =
   genLit(c, n, lit, dest)
 
 
-proc genProcLit(c: var TCtx, n: CgNode, s: PSym; dest: var TDest) =
-  let idx = c.linking.symToIndexTbl[s.id].int
+proc genProcLit(c: var TCtx, n: CgNode; dest: var TDest) =
   if dest.isUnset or c.prc.regInfo[dest].kind == slotTempUnknown:
     # ``prepare`` wouldn't work here, as we need to use the internal type
-    if dest.isUnset: dest = c.getTemp(s.typ)
-    c.gABx(n, opcLdNull, dest, c.genType(s.typ, noClosure=true))
+    if dest.isUnset: dest = c.getTemp(n.typ)
+    c.gABx(n, opcLdNull, dest, c.genType(n.typ, noClosure=true))
 
-  c.gABx(n, opcWrProc, dest, idx)
+  # the ID of the procedure also represents its table index
+  c.gABx(n, opcWrProc, dest, int(n.prc))
 
 proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
   var res = dest
@@ -1029,7 +1036,7 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
 proc genField(c: TCtx; n: CgNode): TRegister =
   assert n.kind == cnkField
 
-  let s = n.sym
+  let s = n.field
   if s.position > high(typeof(result)):
     fail(n.info, vmGenDiagTooLargeOffset, sym = s)
 
@@ -1467,7 +1474,7 @@ proc genCastIntFloat(c: var TCtx; n: CgNode; dest: var TDest) =
        n.operand.kind == cnkProc:
     # casting a procedure literal to another type. This is the same as just
     # loading the literal
-    genProcLit(c, n, n.operand.sym, dest)
+    genProcLit(c, n.operand, dest)
   else:
     # todo: support cast from tyInt to tyRef
     raiseVmGenError:
@@ -1923,7 +1930,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mNGetType:
     let tmp = c.genx(n[1])
     if dest.isUnset: dest = c.getTemp(n.typ)
-    let rc = case n[0].sym.name.s:
+    let rc = case c.env.procedures[n[0].prc].name.s:
       of "getType":     0
       of "typeKind":    1
       of "getTypeInst": 2
@@ -1933,7 +1940,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.freeTemp(tmp)
     #genUnaryABC(c, n, dest, opcNGetType)
   of mNSizeOf:
-    let imm = case n[0].sym.name.s:
+    let imm = case c.env.procedures[n[0].prc].name.s:
       of "getSize":   0
       of "getAlign":  1
       of "getOffset": 2
@@ -1958,7 +1965,8 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mEqNimrodNode: genBinaryABC(c, n, dest, opcEqNimNode)
   of mSameNodeType: genBinaryABC(c, n, dest, opcSameNodeType)
   of mNLineInfo:
-    case n[0].sym.name.s
+    let name = c.env[n[0].prc].name
+    case name.s
     of "getFile": genUnaryABI(c, n, dest, opcNGetLineInfo, 0)
     of "getLine": genUnaryABI(c, n, dest, opcNGetLineInfo, 1)
     of "getColumn": genUnaryABI(c, n, dest, opcNGetLineInfo, 2)
@@ -1968,7 +1976,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
       genBinaryStmt(c, n, opcNSetLineInfo)
     else:
       internalAssert(
-        c.config, false, "Unexpected mNLineInfo symbol name - " & n[0].sym.name.s)
+        c.config, false, "Unexpected mNLineInfo symbol name - " & name.s)
   of mNHint, mNWarning, mNError:
     unused(c, n, dest)
     c.genCall(n, dest)
@@ -1989,7 +1997,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
 
     # pass the template symbol as the first argument
     var callee = TDest(x)
-    c.genLit(call[1], c.toNodeCnst(newSymNode(call[1].sym)), callee)
+    c.genLit(call[1], c.toNodeCnst(call[1].astLit), callee)
     # XXX: don't create a new symbol node here; in ``transformExpandToAst``,
     #      emit an ``nkNimNodeLit`` for the callee instead
 
@@ -2103,8 +2111,8 @@ func cannotEval(c: TCtx; n: CgNode) {.noinline, noreturn.} =
   # XXX: move this kind of error reporting outside of vmgen instead
   {.cast(noSideEffect).}:
     let ast =
-      if n.kind in {cnkProc, cnkConst, cnkGlobal}:
-        newSymNode(n.sym, n.info)
+      if n.kind == cnkField:
+        newSymNode(n.field, n.info)
       else:
         nil # give up
 
@@ -2114,20 +2122,6 @@ proc importcCondVar*(s: PSym): bool {.inline.} =
   # see also importcCond
   if sfImportc in s.flags:
     return s.kind in {skVar, skLet, skConst}
-
-proc checkCanEval(c: TCtx; n: CgNode) =
-  # we need to ensure that we don't evaluate 'x' here:
-  # proc foo() = var x ...
-  let s = n.sym
-  if {sfCompileTime, sfGlobal} <= s.flags: return
-  if s.importcCondVar:
-    # Defining importc'ed variables is allowed and since `checkCanEval` is
-    # also used by `genVarSection`, don't fail here
-    return
-  if s.kind in {skProc, skFunc, skConverter, skMethod,
-                  skIterator} and sfForward in s.flags:
-    cannotEval(c, n)
-
 
 proc genDiscrVal(c: var TCtx, discr, n: CgNode, oty: PType): TRegister =
   ## Generate the code for preparing and loading the discriminator value
@@ -2140,10 +2134,10 @@ proc genDiscrVal(c: var TCtx, discr, n: CgNode, oty: PType): TRegister =
     let (o, idx) =
       getFieldAndOwner(
         c.getOrCreate(oty),
-        fpos(discr.sym.position))
+        fpos(discr.field.position))
     o.fieldAt(idx).typ
 
-  let recCase = findRecCase(oty, discr.sym)
+  let recCase = findRecCase(oty, discr.field)
   assert recCase != nil
 
   if n.kind in {cnkIntLit, cnkUIntLit}:
@@ -2206,7 +2200,7 @@ proc genFieldAsgn(c: var TCtx, obj: TRegister; le, ri: CgNode) =
   c.config.internalAssert(le.kind == cnkFieldAccess)
 
   let idx = c.genField(le[1])
-  let s = le[1].sym
+  let s = le[1].field
 
   if sfDiscriminant notin s.flags:
     putIntoLoc(c, ri, obj, idx, opcWrObj, opcLdObj)
@@ -2414,7 +2408,6 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
     # they're skipped
     genAsgn(c, le.operand, ri, requiresCopy)
   of cnkGlobal:
-    checkCanEval(c, le)
     var dest = noDest
     c.genSym(le, dest, load=false)
     putIntoLoc(c, ri, dest, 0, opcWrLoc, opcWrLoc)
@@ -2439,29 +2432,23 @@ proc useGlobal(c: var TCtx, n: CgNode): int =
     ## Resolves the global identified by symbol node `n` to the ID that
     ## identifies it at run-time. If using the global is illegal (because
     ## it's an importc'ed variable, for example), an error is raised.
-    let s = n.sym
+    let s = c.env[n.global]
 
     if importcCondVar(s) or c.importcCond(s):
       # Using importc'ed symbols on the left or right side of an expression is
       # not allowed
       fail(n.info, vmGenDiagCannotImportc, sym = s)
 
-    if s.id in c.linking.symToIndexTbl:
-      # XXX: double table lookup
-      result = c.linking.symToIndexTbl[s.id].int
-    else:
-      # a global that is not accessible in the current context
-      cannotEval(c, n)
+    int n.global
 
 proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
   ## Generates and emits the code for loading either the value or handle of
   ## the location named by symbol or local node `n` into the `dest` register.
   case n.kind
   of cnkConst:
-    let s = n.sym
     prepare(c, dest, n.typ)
 
-    let pos = int c.linking.lookup(s)
+    let pos = int c.env.dataFor(n.cnst)
     if load and fitsRegister(n.typ):
       let cc = c.getTemp(n.typ)
       c.gABx(n, opcLdCmplxConst, cc, pos)
@@ -2471,14 +2458,16 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
       c.gABx(n, opcLdCmplxConst, dest, pos)
 
     discard genType(c, n.typ) # make sure the type exists
+    # somewhat hack-y, but the orchestrator later queries the type of the data
+    # (which might be a different PType that maps to the same VM type)
+    discard genType(c, c.env[DataId pos].typ)
   of cnkGlobal:
     # a global location
-    let s = n.sym
     let pos = useGlobal(c, n)
     if dest.isUnset:
-      dest = c.getTemp(s.typ)
+      dest = c.getTemp(n.typ)
 
-    if load and (isLocView(s.typ) or fitsRegister(s.typ)):
+    if load and (isLocView(n.typ) or fitsRegister(n.typ)):
       let cc = c.getTemp(n.typ)
       c.gABx(n, opcLdGlobal, cc, pos)
       c.genRegLoad(n, dest, cc)
@@ -2508,7 +2497,7 @@ proc genSymAddr(c: var TCtx, n: CgNode, dest: var TDest) =
   case n.kind
   of cnkConst:
     let
-      pos = int c.linking.lookup(n.sym)
+      pos = int c.env.dataFor(n.cnst)
       tmp = c.getTemp(slotTempComplex)
     c.gABx(n, opcLdCmplxConst, tmp, pos)
     c.gABC(n, opcAddr, dest, tmp)
@@ -2810,7 +2799,7 @@ proc genObjConstr(c: var TCtx, n: CgNode, dest: TRegister) =
   for it in n.items:
     assert it.kind == cnkBinding and it[0].kind == cnkField
     let idx = genField(c, it[0])
-    if sfDiscriminant notin it[0].sym.flags:
+    if sfDiscriminant notin it[0].field.flags:
       putIntoLoc(c, it[1], obj, idx, opcWrObj, opcLdObj)
     else:
       let tmp = c.genDiscrVal(it[0], it[1], n.typ)
@@ -2854,23 +2843,17 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
 
   case n.kind
   of cnkProc:
-    let s = n.sym
-    checkCanEval(c, n)
+    let s = c.env.procedures[n.prc]
     if importcCond(c, s) and lookup(c.linking.callbackKeys, s) == -1:
       fail(n.info, vmGenDiagCannotImportc, sym = s)
 
-    genProcLit(c, n, s, dest)
+    genProcLit(c, n, dest)
   of cnkConst, cnkGlobal, cnkLocal:
     genSym(c, n, dest)
   of cnkCall, cnkCheckedCall:
-    let magic = getMagic(n)
+    let magic = getMagic(c.env, n)
     if magic != mNone:
       genMagic(c, n, dest, magic)
-    elif n[0].kind == cnkProc and n[0].sym.kind == skMethod and
-         c.mode != emStandalone:
-        # XXX: detect and reject this earlier -- it's not a code
-        #      generation error
-        fail(n.info, vmGenDiagCannotCallMethod, sym = n[0].sym)
     else:
       genCall(c, n, dest)
       clearDest(c, n, dest)

@@ -764,13 +764,6 @@ proc checkedExec(args: varargs[string]) =
   if exitCode != 0:
     raise newExternalProgramError(exitCode)
 
-proc checkedShellExec(cmd: string) =
-  ## Same as `shellExec`, but raise `ExternalProgramError` if the external
-  ## program fails.
-  let exitCode = shellExec(cmd)
-  if exitCode != 0:
-    raise newExternalProgramError(exitCode)
-
 proc computeChecksum(file: string): string =
   ## Calculate the SHA256 hash for `file`.
   let p = startProcess(
@@ -974,12 +967,19 @@ proc createArchiveDist(c: var ConfigData) =
       # affected by the timezone.
       putEnv("TZ", "UTC")
 
-      manifest.name = archiveBaseName & ".zip"
+      # Force UTF-8 C locale to prevent 7z from trying to convert
+      # the file list on non-UTF-8 locales.
+      putEnv("LC_ALL", "C.utf8")
 
-      # TODO: Get rid of this hack once osproc gain the ability to modify just
-      # one portion of the child standard I/O.
-      checkedShellExec:
-        "zip -nw -X -@ $1 < $2" % [quoteShell(manifest.name), quoteShell(fileList)]
+      manifest.name = archiveBaseName & ".zip"
+      checkedExec(
+        "7z", "a",
+        "-tzip",
+        "-mcu",      # Use UTF-8 encoding for non-ASCII
+        "-mtc-",     # Disable storing extra timestamps
+        "-sccUTF-8", # Use UTF-8 when printing to console
+        manifest.name, "@" & fileList
+      )
 
     of tarFormats:
       # Write the list into a file then supply that file to archival programs to

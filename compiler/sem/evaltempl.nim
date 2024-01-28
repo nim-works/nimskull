@@ -123,6 +123,7 @@ proc evalTemplateArgs*(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode
   ## for parameters where no argument is provided.
   ##
   ## Despite the name, the procedure also applies to macro arguments.
+  addInNimDebugUtils(conf, "evalTemplateArgs", s, n, result)
   # if the template has zero arguments, it can be called without ``()``
   # `n` is then a nkSym or something similar
   let
@@ -149,19 +150,19 @@ proc evalTemplateArgs*(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode
       rsemMissingGenericParamsForTemplate, n, sym = s))
 
   result = newNodeI(nkArgList, n.info)
-  
+
   for i in 1..givenRegularParams:
     # xxx: propagate nkError
-    if n[1].isError:
-      conf.localReport(n[1])
-    
+    for e in walkErrors(conf, n[i]):
+      conf.localReport(e)
+
     result.add n[i]
 
   # handle parameters with default values, which were
   # not supplied by the user
   for i in givenRegularParams+1..expectedRegularParams:
     let default = s.typ.n[i].sym.ast
-    
+
     if default.isNil or default.kind == nkEmpty:
       result.add newNodeI(nkEmpty, n.info)
       return newError(conf, result, PAstDiag(kind: adSemWrongNumberOfArguments))
@@ -171,11 +172,11 @@ proc evalTemplateArgs*(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode
   # add any generic parameters
   for i in 1..genericParams:
     let it = n[givenRegularParams + i]
-    
+
     # xxx: propagate nkError
-    if it.isError:
-      conf.localReport(it)
-    
+    for e in walkErrors(conf, it):
+      conf.localReport(e)
+
     result.add it
 
 # to prevent endless recursion in template instantiation

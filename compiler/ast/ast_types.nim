@@ -901,7 +901,7 @@ type
 
 
 type
-  TIdObj* {.acyclic.} = object of RootObj
+  TIdObj* = object of RootObj
     itemId*: ItemId
   PIdObj* = ref TIdObj
 
@@ -1257,6 +1257,8 @@ type
 
   PAstDiag* = ref TAstDiag
   TAstDiag* {.acyclic.} = object
+    ## A diagnostic must never store a tree that references the diagnostic
+    ## itself.
     # xxx: consider splitting storage type vs message
     # xxx: consider breaking up diag into smaller types
     # xxx: try to shrink the int/int128 etc types for counts/ordinals
@@ -1561,8 +1563,10 @@ type
           adSemDefNameSymIllformedAst:
         discard
 
-  TNode*{.final, acyclic.} = object # on a 32bit machine, this takes 32 bytes
-                                    # on a 64bit machine, this takes 40 bytes
+  TNode*{.final.} = object # on a 32bit machine, this takes 32 bytes
+                           # on a 64bit machine, this takes 40 bytes
+    # NOTE: don't mark as `.acyclic`. User-created AST might form cycles, and
+    # nodes can also form reference cycles with ``PSym`` and ``PType``
     typ*: PType
     id*: NodeId  # placed after `typ` field to save space due to field alignment
     info*: TLineInfo
@@ -1643,6 +1647,7 @@ type
   PInstantiation* = ref TInstantiation
 
   TScope* {.acyclic.} = object
+    ## Scopes form a stack; cycles are not allowed.
     depthLevel*: int
     symbols*: TStrTable
     parent*: PScope
@@ -1650,7 +1655,7 @@ type
 
   PScope* = ref TScope
 
-  TSym* {.acyclic.} = object of TIdObj # Keep in sync with PackedSym
+  TSym* = object of TIdObj # Keep in sync with PackedSym
     ## proc and type instantiations are cached in the generic symbol
     case kind*: TSymKind
     of routineKinds - {skMacro}:
@@ -1728,7 +1733,7 @@ type
     attachedTrace,
     attachedDeepCopy
 
-  TType* {.acyclic.} = object of TIdObj
+  TType*  = object of TIdObj
     ## types are identical only if they have the same id; there may be multiple
     ## copies of a type in memory! Keep in sync with PackedType
     kind*: TTypeKind          ## kind of type
@@ -1736,15 +1741,15 @@ type
     flags*: TTypeFlags        ## flags of the type
     sons*: TTypeSeq           ## base types, etc.
     n*: PNode                 ## node for types:
-                              ## for range types a nkRange node
-                              ## for record types a nkRecord node
-                              ## for enum types a list of symbols
-                              ## if kind == tyInt: it is an 'int literal(x)' type
-                              ## for procs and tyGenericBody, it's the
-                              ## formal param list
-                              ## for concepts, the concept body
-                              ## for errors, nkError or nil if legacy
-                              ## else: unused
+                              ## - range types a nkRange node
+                              ## - record types a nkRecord node
+                              ## - enum types a list of symbols
+                              ## - if kind == tyInt: it is an 'int literal(x)' type
+                              ## - procs and tyGenericBody, it's the formal
+                              ##   param list
+                              ## - concepts, the concept body
+                              ## - errors, nkError or nil if legacy
+                              ## - else: unused
     owner*: PSym              ## the 'owner' of the type
     sym*: PSym                ## types have the sym associated with them
                               ## it is used for converting types to strings

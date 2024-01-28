@@ -160,9 +160,12 @@ Semantics
             | Asm VALUE ...
 
   BRANCH_LIST = (Branch <Literal> ... STATEMENT) ... # a list of branches
-  HANDLER = Except (Branch <Type> ... STATEMENT) ... # exception handler
 
-  TRY_STMT = Try STATEMENT (HANDLER)? (Finally STATEMENT)?
+  EXCEPT_BRANCH = Branch <Type> ... STATEMENT # exception handler
+                | Branch <Local>    STATEMENT # exception handler for imported
+                                              # exception
+
+  TRY_STMT = Try STATEMENT (Except EXCEPT_BRANCH ...)? (Finally STATEMENT)?
     # if a handler is present, all `raise` statements within the tried
     # statement are redirected to the handler. If a finalizer is present, all
     # control-flow exiting the tried statement or handler is first redirected

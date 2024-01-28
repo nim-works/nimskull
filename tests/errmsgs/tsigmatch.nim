@@ -26,10 +26,12 @@ proc foo[T, S](op: proc (x: T): S {.cdecl.}): auto
   first type mismatch at position: 1
   required type for op: proc (x: T): S{.cdecl.}
   but expression 'fun' is of type: proc (s: string): string{.noSideEffect, gcsafe, locks: 0.}
+  Calling convention mismatch: got '{.nimcall.}', but expected '{.cdecl.}'.
 proc foo[T, S](op: proc (x: T): S {.safecall.}): auto
   first type mismatch at position: 1
   required type for op: proc (x: T): S{.safecall.}
   but expression 'fun' is of type: proc (s: string): string{.noSideEffect, gcsafe, locks: 0.}
+  Calling convention mismatch: got '{.nimcall.}', but expected '{.safecall.}'.
 
 expression: foo(fun)
 tsigmatch.nim(143, 13) Error: type mismatch: got <array[0..0, proc (x: int){.gcsafe, locks: 0.}]>
@@ -64,11 +66,11 @@ but expected one of:
 proc f(x: string; a0: string)
   first type mismatch at position: 2
   required type for a0: string
-  but expression 'a0 = 12' is of type: int literal(12)
+  but expression '12' is of type: int literal(12)
 proc f(x: string; a0: var int)
   first type mismatch at position: 2
   required type for a0: var int
-  but expression 'a0 = 12' is immutable, not 'var'
+  but expression '12' is immutable, not 'var'
 
 expression: f(foo, a0 = 12)
 '''
@@ -80,8 +82,6 @@ expression: f(foo, a0 = 12)
 #[
 see also: tests/errmsgs/tdeclaredlocs.nim
 ]#
-
-
 
 
 

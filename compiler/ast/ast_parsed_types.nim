@@ -227,6 +227,7 @@ type
     literal*: string
 
   ParsedNodeData*{.final, acyclic.} = object
+    ## The AST is a tree, the nodes can never form a cycle.
     # TODO: replace token fields with indexing into a token sequence, this
     #       should also address line info tracking.
     comment*: string       # TODO: replace with an index into a token stream

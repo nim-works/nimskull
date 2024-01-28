@@ -225,7 +225,7 @@ func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph, loc: Path,
 
   result = (true, state.exit, state.escapes)
 
-func computeAliveOp*[T: PSym | TempId](
+func computeAliveOp*[T: PSym | GlobalId | TempId](
   tree: MirTree, values: Values, loc: T, op: Opcode, n: OpValue): AliveState =
   ## Computes the state of `loc` at the *end* of the given operation. The
   ## operands are expected to *not* alias with each other. The analysis
@@ -234,8 +234,10 @@ func computeAliveOp*[T: PSym | TempId](
   func isAnalysedLoc[T](n: MirNode, loc: T): bool =
     when T is TempId:
       n.kind == mnkTemp and n.temp == loc
+    elif T is GlobalId:
+      n.kind == mnkGlobal and n.global == loc
     elif T is PSym:
-      n.kind in {mnkLocal, mnkParam, mnkGlobal} and n.sym.id == loc.id
+      n.kind in {mnkLocal, mnkParam} and n.sym.id == loc.id
     else:
       {.error.}
 
@@ -260,13 +262,9 @@ func computeAliveOp*[T: PSym | TempId](
     discard "cannot be reasoned about here"
 
   of opMutateGlobal:
-    when T is PSym:
-      # XXX: testing the symbol's flags is okay for now, but a different
-      #      approach has to be used once moving away from storing ``PSym``s
-      #      in ``MirNodes``
-      if sfGlobal in loc.flags:
-        # the operation mutates global state and we're analysing a global
-        result = alive
+    when T is GlobalId:
+      # the operation mutates global state and we're analysing a global
+      result = alive
 
   of opConsume:
     if values.isOwned(n) and sameLocation(n):
@@ -314,7 +312,7 @@ func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph, values: Values,
   result = (false, false)
 
 proc doesGlobalEscape*(tree: MirTree, scope: Subgraph, start: InstrPos,
-                       s: PSym): bool =
+                       s: GlobalId): bool =
   ## Computes if the global `s` potentially "escapes". A global escapes if it
   ## is not declared at module scope and is used inside a procedure that is
   ## then called outside the analysed global's scope. Example:

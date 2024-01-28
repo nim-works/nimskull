@@ -206,7 +206,7 @@ type
     ## This is useful for environments such as nimsuggest, which discard
     ## the output.
 
-  ConfigRef* {.acyclic.} = ref object
+  ConfigRef* = ref object
     ## every global configuration fields marked with '*' are subject to the
     ## incremental compilation mechanisms (+) means "part of the dependency"
 

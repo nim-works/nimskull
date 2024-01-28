@@ -186,11 +186,26 @@ proc lowerSwap(tree: MirTree, changes: var Changeset) =
 proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
   ## Where safe (i.e., observable program behaviour does not change), elides
   ## temporaries in a backend-agnostice way. This is an optimization.
-  const Ignore = IntegralTypes + {tyPtr, tyPointer, tyRef, tyVar, tyLent,
-                                  tyOpenArray, tyProc}
-    ## ignored by the optimization pass. These are types where a copy is
-    ## faster than creating a reference
+  ##
+  ## For example:
+  ##
+  ##   def _1 = a.b.c
+  ##   call(arg _1)
+  ##
+  ## would be transformed into:
+  ##
+  ##   call(arg a.b.c)
   var ct = initCountTable[uint32]()
+
+  proc isDangerous(tree: MirTree, n: NodePosition): bool =
+    # HACK: this is a tremendous hack to detect whether `n` is part of a
+    #       loose expression, which are currently required by expression
+    #       support for ``vmjit``. Remove as soon as no longer needed
+    var i = int n
+    while i < tree.len and tree[i].kind notin StmtNodes:
+      inc i
+
+    result = i >= tree.len
 
   # first pass: gather all single-use temporaries that are created from
   # lvalues and are eligible for elimination.
@@ -200,7 +215,6 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
     of mnkDef, mnkDefCursor:
       let e = tree.operand(i, 1)
       if tree[i, 0].kind == mnkTemp and
-         tree[i, 0].typ.skipTypes(LocSkip).kind notin Ignore and
          tree[e].kind in LvalueExprKinds and
          tree[getRoot(tree, e)].kind != mnkTemp:
         # definition of a temporary into which an lvalue is assigned. Elision
@@ -210,9 +224,30 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
 
       i = NodePosition e # skip to the source expression
     of mnkTemp:
+      # treat as usage
+      # XXX: this is brittle. Usages should be detected through DFA, not by
+      #      looking for names
       let id = tree[i].temp
       if hasKey(ct, id.uint32):
-        ct.inc(id.uint32)
+        if isDangerous(tree, i):
+          ct.del(id.uint32)
+        else:
+          ct.inc(id.uint32)
+
+      inc i
+    of mnkDeref, mnkDerefView:
+      # a non-name lvalue expression cannot be placed into deref slots. All
+      # analysed temporaries are assumed to have been initialized with a non-
+      # name lvalue expression, so if a temporary appears in a deref slot,
+      # elision of said temporary is disabled
+      if tree[i, 0].kind == mnkTemp:
+        ct.del(tree[i, 0].temp.uint32) # treat as not eligible
+      i = tree.sibling(i) # skip the deref
+    of mnkPathArray:
+      # for array index slots, the above also applies
+      let index = tree.child(i, 1)
+      if tree[index].kind == mnkTemp:
+        ct.del(tree[index].temp.uint32)
       inc i
     else:
       inc i
@@ -313,16 +348,12 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         unreachable(tree[expr].kind)
 
       if elide:
-        # XXX: lvalue expression can currently have side-effects, so
-        #      forwarding the expression would change behaviour. Instead, the
-        #      temporary is turned into an alias
-        let
-          alias = MirNode(kind: mnkAlias, typ: tree[n].typ, temp: tree[n].temp)
-          def = tree.parent(n)
-
-        changes.changeTree(tree, def): MirNode(kind: mnkBind)
-        changes.replace(tree, n): alias
-        changes.replace(tree, pos): alias
+        # remove the definition of the temporary:
+        changes.remove(tree, def)
+        # replace the temporary's only usage with the lvalue expression it was
+        # created from:
+        changes.replaceMulti(tree, pos, bu):
+          bu.emitFrom(tree, tree.child(def, 1))
 
 proc applyPasses*(body: var MirBody, prc: PSym, config: ConfigRef,
                   target: TargetBackend) =

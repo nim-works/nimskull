@@ -26,9 +26,11 @@ import
     cgir
   ],
   compiler/mir/[
+    datatables,
     mirbodies,
     mirbridge,
     mirconstr,
+    mirenv,
     mirgen,
     mirpasses,
     mirtrees,
@@ -44,9 +46,13 @@ import
     vmcompilerserdes,
     vmdef,
     vmgen,
+    vmjit_checks,
     vmlinker,
     vmmemory,
     vmtypegen
+  ],
+  compiler/utils/[
+    idioms
   ],
   experimental/[
     results
@@ -57,10 +63,6 @@ export VmGenResult
 type
   JitState* = object
     ## State of the VM's just-in-time compiler that is kept across invocations.
-    discovery: DiscoveryData
-      ## acts as the source-of-truth regarding what entities exists. All
-      ## entities not registered with `discovery` also don't exist in
-      ## ``TCtx``
     gen: CodeGenCtx
       ## code generator state
 
@@ -95,48 +97,41 @@ func swapState(c: var TCtx, gen: var CodeGenCtx) =
   swap(typeInfoCache)
   swap(rtti)
 
-proc updateEnvironment(c: var TCtx, data: var DiscoveryData) =
+proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
   ## Needs to be called after a `vmgen` invocation and prior to resuming
   ## execution. Allocates and sets up the execution resources required for the
-  ## newly gathered dependencies.
+  ## newly gathered dependencies (those added since `cp` was created).
   ##
   ## This "commits" to the new dependencies.
 
   # procedures
-  c.functions.setLen(data.procedures.len)
-  for i, sym in visit(data.procedures):
-    c.functions[i] = initProcEntry(c, sym)
+  for id, sym in since(env.procedures, cp.procs):
+    c.functions.add initProcEntry(c, sym)
 
-  block: # globals and threadvars
-    # threadvars are currently treated the same as normal globals
-    var i = c.globals.len
-    c.globals.setLen(data.globals.len + data.threadvars.len)
-
-    template alloc(q: Queue[PSym]) =
-      for _, sym in visit(q):
-        let typ = c.getOrCreate(sym.typ)
-        c.globals[i] = c.heap.heapNew(c.allocator, typ)
-        inc i
-
-    # order is important here!
-    alloc(data.globals)
-    alloc(data.threadvars)
+  # globals (which includes threadvars)
+  for id, sym in since(env.globals, cp.globals):
+    let typ = c.getOrCreate(sym.typ)
+    c.globals.add c.heap.heapNew(c.allocator, typ)
 
   # constants
-  c.complexConsts.setLen(data.constants.len)
-  for i, sym in visit(data.constants):
-    assert sym.ast.kind notin nkLiterals
-
+  for id, data in since(env.data, cp.data):
     let
-      typ = c.getOrCreate(sym.typ)
+      typ = c.getOrCreate(data.typ)
       handle = c.allocator.allocConstantLocation(typ)
 
     # TODO: strings, seqs and other values using allocation also need to be
     #       allocated with `allocConstantLocation` inside `serialize` here
-    c.serialize(sym.ast, handle)
+    c.serialize(data, handle)
 
-    c.complexConsts[i] = handle
+    c.complexConsts.add handle
 
+template preCheck(env: MirEnv, n: PNode) =
+  ## Verifies that `n` can be built and run in JIT mode. If not, aborts the
+  ## surrounding routine by returning a ``VmGenResult``.
+  block:
+    let r = validate(env, n)
+    if r.isErr:
+      return VmGenResult.err(r.takeErr)
 
 func removeLastEof(c: var TCtx) =
   let last = c.code.len-1
@@ -146,63 +141,40 @@ func removeLastEof(c: var TCtx) =
     c.code.setLen(last)
     c.debug.setLen(last)
 
-func discoverGlobalsAndRewrite(data: var DiscoveryData, body: var MirBody,
-                               rewrite: bool) =
-  ## Scans `tree` for definitions of globals, registers them with the `data`,
-  ## and rewrites their definitions into assignments (if `rewrite` is true).
-  template tree(): MirTree =
-    body.code
+func register(linker: var LinkerData, s: PSym, it: MirNode) =
+  ## Registers a newly discovered entity in the link table.
+  case it.kind
+  of mnkConst:
+    discard "nothing to do"
+  of mnkGlobal:
+    # XXX: only required for the compiler API
+    #      (``compilerbridge.setGlobalValue``). The MirEnv should be queried
+    #      directly (through ``vmjit``), instead of the link table being used
+    #      for this
+    linker.symToIndexTbl[s.id] = LinkIndex(it.global)
+  of mnkProc:
+    # XXX: the additional table is only required so that constructing values
+    #      directly from AST works (symbols need to be translated to procedure
+    #      IDs). Once constant data is represented with the MIR, this becomes
+    #      obsolete
+    linker.symToIndexTbl[s.id] = LinkIndex(it.prc)
+  else:
+    unreachable()
 
-  # scan the body for definitions of globals:
-  var i = NodePosition 0
-  while i.int < tree.len:
-    case tree[i].kind
-    of DefNodes:
-      if tree[i + 1].kind == mnkGlobal and
-         (let g = tree[i+1].sym; sfImportc notin g.flags):
-        # found a global definition; register it. Imported ones are
-        # ignored -- ``vmgen`` will report an error when the global is
-        # accessed
-        data.registerGlobal(g)
-
-      i = sibling(tree, i)
-    else:
-      inc i
-
-  if rewrite:
-    rewriteGlobalDefs(tree, body.source)
-
-func register(linker: var LinkerData, data: DiscoveryData) =
-  ## Registers the newly discovered entities in the link table, but doesn't
-  ## commit to them yet.
-  for i, it in peek(data.procedures):
-    linker.symToIndexTbl[it.id] = LinkIndex(i)
-
-  for i, it in peek(data.constants):
-    linker.symToIndexTbl[it.id] = LinkIndex(i)
-
-  # first register globals, then threadvars. This order must be the same as
-  # the one they're later committed to in
-  for i, it in peek(data.globals):
-    linker.symToIndexTbl[it.id] = LinkIndex(i)
-
-  for i, it in peek(data.threadvars):
-    linker.symToIndexTbl[it.id] = LinkIndex(i)
-
-proc generateMirCode(c: var TCtx, n: PNode;
+proc generateMirCode(c: var TCtx, env: var MirEnv, n: PNode;
                      isStmt = false): MirBody =
   ## Generates the initial MIR code for a standalone statement/expression.
   if isStmt:
     # we want statements wrapped in a scope, hence generating a proper
     # fragment
-    result = generateCode(c.graph, c.module, selectOptions(c), n)
+    result = generateCode(c.graph, env, c.module, selectOptions(c), n)
   else:
     var bu: MirBuilder
-    generateCode(c.graph, selectOptions(c), n, bu, result.source)
+    generateCode(c.graph, env, selectOptions(c), n, bu, result.source)
     result.code = finish(bu)
 
-proc generateIR(c: var TCtx, body: sink MirBody): Body =
-  backends.generateIR(c.graph, c.idgen, c.module, body)
+proc generateIR(c: var TCtx, env: MirEnv, body: sink MirBody): Body =
+  backends.generateIR(c.graph, c.idgen, env, c.module, body)
 
 proc setupRootRef(c: var TCtx) =
   ## Sets up if the ``RootRef`` type for the type info cache. This
@@ -228,32 +200,35 @@ template runCodeGen(c: var TCtx, cg: var CodeGenCtx, b: Body,
 
 proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   ## Generates and emits code for the standalone top-level statement `n`.
+  preCheck(jit.gen.env, n)
   c.removeLastEof()
 
+  let cp = checkpoint(jit.gen.env)
+
   # `n` is expected to have been put through ``transf`` already
-  var mirBody = generateMirCode(c, n, isStmt = true)
-  discoverGlobalsAndRewrite(jit.discovery, mirBody, true)
+  var mirBody = generateMirCode(c, jit.gen.env, n, isStmt = true)
   applyPasses(mirBody, c.module, c.config, targetVm)
-  discoverFrom(jit.discovery, mirBody.code)
-  register(c.linking, jit.discovery)
+  for s, n in discover(jit.gen.env, cp):
+    register(c.linking, s, n)
 
   let
-    body = generateIR(c, mirBody)
+    body = generateIR(c, jit.gen.env, mirBody)
     start = c.code.len
 
   # generate the bytecode:
   let r = runCodeGen(c, jit.gen, body): genStmt(jit.gen, body)
 
   if unlikely(r.isErr):
-    rewind(jit.discovery)
+    rewind(jit.gen.env, cp)
     return VmGenResult.err(r.takeErr)
 
-  updateEnvironment(c, jit.discovery)
+  updateEnvironment(c, jit.gen.env, cp)
 
   result = VmGenResult.ok: (start: start, regCount: r.get)
 
 proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   ## Generates and emits code for the standalone expression `n`
+  preCheck(jit.gen.env, n)
   c.removeLastEof()
 
   # XXX: the way standalone expressions are currently handled is going to
@@ -261,37 +236,29 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   #      all expect statements). Ideally, dedicated support for
   #      expressions would be removed from the JIT.
 
-  var mirBody = generateMirCode(c, n)
-  # constant expression outside of routines can currently also contain
-  # definitions of globals...
-  # XXX: they really should not, but that's up to sem. Example:
-  #
-  #        const c = block: (var x = 0; x)
-  #
-  #     If `c` is defined at the top-level, then `x` is a "global" variable
-  discoverGlobalsAndRewrite(jit.discovery, mirBody, false)
+  let cp = checkpoint(jit.gen.env)
+
+  var mirBody = generateMirCode(c, jit.gen.env, n)
   applyPasses(mirBody, c.module, c.config, targetVm)
-  discoverFrom(jit.discovery, mirBody.code)
-  register(c.linking, jit.discovery)
+  for s, n in discover(jit.gen.env, cp):
+    register(c.linking, s, n)
 
   let
-    body = generateIR(c, mirBody)
+    body = generateIR(c, jit.gen.env, mirBody)
     start = c.code.len
 
   # generate the bytecode:
   let r = runCodeGen(c, jit.gen, body): genExpr(jit.gen, body)
 
   if unlikely(r.isErr):
-    rewind(jit.discovery)
+    rewind(jit.gen.env, cp)
     return VmGenResult.err(r.takeErr)
 
-  updateEnvironment(c, jit.discovery)
+  updateEnvironment(c, jit.gen.env, cp)
 
   result = VmGenResult.ok: (start: start, regCount: r.get)
 
 proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
-  c.removeLastEof()
-
   let body =
     if isCompileTimeProc(s) and not defined(nimsuggest):
       # no need to go through the transformation cache
@@ -303,21 +270,19 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
       # when in suggest mode
       transformBody(c.graph, c.idgen, s, cache = true)
 
-  echoInput(c.config, s, body)
-  var mirBody = generateCode(c.graph, s, selectOptions(c), body)
-  echoMir(c.config, s, mirBody)
-  # XXX: lifted globals are currently not extracted from the procedure and,
-  #      for the most part, behave like normal locals. The call to
-  #      ``discoverGlobalsAndRewrite`` plus the MIR -> ``CgNode`` translation
-  #      make sure that at least ``vmgen`` doesn't have to be concerned with
-  #      that, but eventually it needs to be decided how lifted globals should
-  #      work in compile-time and interpreted contexts
-  discoverGlobalsAndRewrite(jit.discovery, mirBody, false)
-  applyPasses(mirBody, s, c.config, targetVm)
-  discoverFrom(jit.discovery, mirBody.code)
-  register(c.linking, jit.discovery)
+  preCheck(jit.gen.env, body)
+  c.removeLastEof()
 
-  let outBody = generateIR(c.graph, c.idgen, s, mirBody)
+  let cp = checkpoint(jit.gen.env)
+
+  echoInput(c.config, s, body)
+  var mirBody = generateCode(c.graph, jit.gen.env, s, selectOptions(c), body)
+  echoMir(c.config, s, mirBody)
+  applyPasses(mirBody, s, c.config, targetVm)
+  for s, n in discover(jit.gen.env, cp):
+    register(c.linking, s, n)
+
+  let outBody = generateIR(c.graph, c.idgen, jit.gen.env, s, mirBody)
   echoOutput(c.config, s, outBody)
 
   try:
@@ -328,10 +293,10 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
     raise
 
   if unlikely(result.isErr):
-    rewind(jit.discovery)
+    rewind(jit.gen.env, cp)
     return
 
-  updateEnvironment(c, jit.discovery)
+  updateEnvironment(c, jit.gen.env, cp)
 
 func isAvailable*(c: TCtx, prc: PSym): bool =
   ## Returns whether the bytecode for `prc` is already available.
@@ -342,24 +307,13 @@ proc registerProcedure*(jit: var JitState, c: var TCtx, prc: PSym): FunctionInde
   ## If it hasn't been already, adds `prc` to the set of procedures the JIT
   ## code-generator knowns about and sets up a function-table entry. `jit` is
   ## required to not be in the process of generating code.
-  assert jit.discovery.procedures.isProcessed, "code generation in progress?"
-  var index = -1
+  if prc notin jit.gen.env.procedures:
+    let id = jit.gen.env.procedures.add(prc)
+    c.linking.symToIndexTbl[prc.id] = LinkIndex id
+    c.functions.add initProcEntry(c, prc)
+    assert int(id) == c.functions.high, "tables are out of sync"
 
-  register(jit.discovery, prc)
-  # if one was added, commit to the new entry now and create a function-table
-  # entry it
-  c.functions.setLen(jit.discovery.procedures.len)
-  for i, it in visit(jit.discovery.procedures):
-    assert it == prc
-    c.linking.symToIndexTbl[it.id] = LinkIndex(i)
-    c.functions[i] = initProcEntry(c, it)
-    index = i
-
-  if index == -1:
-    # no entry was added -> one must exist already
-    result = FunctionIndex(c.linking.symToIndexTbl[prc.id])
-  else:
-    result = FunctionIndex(index)
+  result = FunctionIndex c.linking.symToIndexTbl[prc.id]
 
 proc compile*(jit: var JitState, c: var TCtx, fnc: FunctionIndex): VmGenResult =
   ## Generates code for the the given function and updates the execution

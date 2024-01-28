@@ -233,9 +233,9 @@ scope:
           =sink(name _18, arg _17)
           break L1
       scope:
-        bind_mut _19: seq[string] = this[].matchDirs
-        def _20: seq[string] = construct ()
-        =copy(name _19, arg _20)
+        def _19: seq[string] = construct ()
+        bind_mut _20: seq[string] = this[].matchDirs
+        =sink(name _20, arg _19)
   finally:
     =destroy(name par)
 -- end of expandArc ------------------------'''

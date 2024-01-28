@@ -52,8 +52,8 @@ proc exitCall(p: BProc, callee: CgNode, canRaise: bool) =
   ## Emits the exceptional control-flow related post-call logic.
   if p.config.exc == excGoto:
     if nimErrorFlagDisabled in p.flags:
-      if callee.kind == cnkProc and sfNoReturn in callee.sym.flags and
-         canRaiseConservative(callee):
+      if callee.kind == cnkProc and sfNoReturn in p.env[callee.prc].flags and
+         canRaiseConservative(p.env, callee):
         # when using goto-exceptions, noreturn doesn't map to "doesn't return"
         # at the C-level. In order to still support dispatching to wrapper
         # procedures around ``raise`` from inside ``.compilerprocs``, we emit
