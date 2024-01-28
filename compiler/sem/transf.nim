@@ -884,12 +884,13 @@ proc transformFor(c: PTransf, n: PNode): PNode =
 proc transformCase(c: PTransf, n: PNode): PNode =
   # removes `elif` branches of a case stmt
   # adds ``else: nil`` if needed for the code generator
+  # also drops ``of`` branches without labels
   result = newNodeIT(nkCaseStmt, n.info, n.typ)
   var ifs: PNode = nil
   for it in n:
-    var e = transform(c, it)
     case it.kind
     of nkElifBranch:
+      let e = transform(c, it)
       if ifs == nil:
         # Generate the right node depending on whether `n` is used as a stmt or
         # as an expr
@@ -897,10 +898,17 @@ proc transformCase(c: PTransf, n: PNode): PNode =
         ifs = newNodeIT(kind, it.info, n.typ)
       ifs.add(e)
     of nkElse:
+      let e = transform(c, it)
       if ifs == nil: result.add(e)
       else: ifs.add(e)
+    of nkOfBranch:
+      # drop the branch if it has no labels. This is the case for,
+      # e.g.: `of []: discard`
+      if it.len > 1:
+        result.add(transform(c, it))
     else:
-      result.add(e)
+      # this must be the selector expression
+      result.add(transform(c, it))
   if ifs != nil:
     var elseBranch = newTreeI(nkElse, n.info): ifs
     result.add(elseBranch)
@@ -910,6 +918,26 @@ proc transformCase(c: PTransf, n: PNode): PNode =
     # fix a stupid code gen bug by normalizing:
     let elseBranch = newTreeI(nkElse, n.info): newNodeI(nkNilLit, n.info)
     result.add(elseBranch)
+
+  if result.len == 2 and result[1].kind == nkElse:
+    # the case statement has no 'of' branch. Transform it into a
+    # ``(discard sel; block: body)``. Why the block and discard?
+    # * the discard makes sure side-effects of the selector expression are
+    #   computed and that usage of `sel` stays
+    # * the block makes sure that lifetimes don't change
+    let
+      discardStmt = newTreeI(nkDiscardStmt, n.info, result[0])
+      body = result[1][^1]
+      label = newSymNode(newLabel(c, body))
+    result =
+      if isEmptyType(result.typ):
+        newTreeI(nkStmtList, n.info):
+          [discardStmt,
+           newTreeI(nkBlockStmt, body.info, label, body)]
+      else:
+        newTreeIT(nkStmtListExpr, n.info, n.typ):
+          [discardStmt,
+           newTreeIT(nkBlockExpr, body.info, body.typ, label, body)]
 
 proc transformArrayAccess(c: PTransf, n: PNode): PNode =
   # XXX this is really bad; transf should use a proper AST visitor
