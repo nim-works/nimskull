@@ -1109,7 +1109,8 @@ proc genSeqConstr(p: BProc, n: CgNode, d: var TLoc) =
 
   let l = intLiteral(n.len)
   block:
-    let seqtype = n.typ
+    let seqtype = n.typ.skipTypes(abstractInst)
+    assert seqtype.kind == tySequence
     linefmt(p, cpsStmts, "$1.len = $2; $1.p = ($4*) #newSeqPayload($2, sizeof($3), NIM_ALIGNOF($3));$n",
       [rdLoc tmp, l, getTypeDesc(p.module, seqtype.lastSon),
       getSeqPayloadType(p.module, seqtype)])
@@ -1137,7 +1138,8 @@ proc genArrToSeq(p: BProc, n: CgNode, d: var TLoc) =
   # generate call to newSeq before adding the elements per hand:
   let L = toInt(lengthOrd(p.config, n[1].typ))
   block:
-    let seqtype = n.typ
+    let seqtype = n.typ.skipTypes(abstractInst)
+    assert seqtype.kind == tySequence
     linefmt(p, cpsStmts, "$1.len = $2; $1.p = ($4*) #newSeqPayload($2, sizeof($3), NIM_ALIGNOF($3));$n",
       [rdLoc d, L, getTypeDesc(p.module, seqtype.lastSon),
       getSeqPayloadType(p.module, seqtype)])
