@@ -87,7 +87,7 @@ jobs:
           && !(steps.find-comment.outputs.comment-id
             && steps.pr-data.outputs.body-tail == '')
         name: Create or update informational comment
-        uses: peter-evans/create-or-update-comment@v3
+        uses: peter-evans/create-or-update-comment@v4
         with:
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
           issue-number: ${{ github.event.client_payload.pull_request.number }}
