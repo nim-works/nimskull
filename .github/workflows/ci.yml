@@ -92,6 +92,10 @@ jobs:
             {
               "name": "macOS",
               "runner": "macos-11"
+            },
+            {
+              "name": "Windows",
+              "runner": "windows-2022"
             }
           ]
           EOF
@@ -122,6 +126,30 @@ jobs:
 
       - name: Enable annotations
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
+
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-mingw
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        uses: johnwason/vcpkg-action@v6
+        with:
+          pkgs: >-
+            pcre
+            sqlite3
+          triplet: x64-mingw-dynamic
+          extra-args: --host-triplet=x64-mingw-dynamic
+          revision: 2024.01.12
+          github-binarycache: true
+          token: ${{ github.token }}
+
+      - name: Download CA certificates (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          Invoke-WebRequest https://curl.se/ca/cacert.pem -OutFile (Join-Path $binPath "cacert.pem")
+        shell: pwsh
 
       - name: Build release binaries
         run: ./koch.py all-strict
@@ -180,6 +208,17 @@ jobs:
         run: |
           brew update
 
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-mingw
+
+      - name: Add DLLs to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
+
       - name: Run tester
         run: ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' --tryFailing all
 
@@ -204,6 +243,17 @@ jobs:
         with:
           fetch-depth: 0
           filter: tree:0
+
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-mingw
+
+      - name: Add DLLs to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
 
       - uses: ./.github/actions/download-compiler
 
@@ -269,6 +319,36 @@ jobs:
     runs-on: ${{ matrix.target.runner }}
 
     steps:
+      - name: Get actions
+        uses: actions/checkout@v4
+        with:
+          path: git-src
+          sparse-checkout: .github/actions
+
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./git-src/.github/actions/setup-mingw
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        uses: johnwason/vcpkg-action@v6
+        with:
+          pkgs: >-
+            pcre
+            sqlite3
+          triplet: x64-mingw-dynamic
+          extra-args: --host-triplet=x64-mingw-dynamic
+          revision: 2024.01.12
+          github-binarycache: true
+          token: ${{ github.token }}
+
+      - name: Add DLLs to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
+
       - name: Download source archive
         uses: actions/download-artifact@v4
         with:
@@ -298,7 +378,11 @@ jobs:
       - id: package
         name: Create release package
         run: |
-          ./koch.py unixrelease
+          releasecmd=unixrelease
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            releasecmd=winrelease
+          fi
+          ./koch.py "$releasecmd"
 
           archive=build/archive/$(jq -r .name build/archive/archive.json)
           # Rename the archive manifest to avoid collision with other artifacts
@@ -343,6 +427,17 @@ jobs:
       - name: Enable annotations
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-mingw
+
+      - name: Add DLLs to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
+
       # Note: keep synchronized with source_binaries job
       - name: Build docs
         run: |
@@ -357,7 +452,11 @@ jobs:
       - id: package
         name: Create release package
         run: |
-          ./koch.py unixrelease
+          releasecmd=unixrelease
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            releasecmd=winrelease
+          fi
+          ./koch.py "$releasecmd"
 
           archive=build/archive/$(jq -r .name build/archive/archive.json)
           # Rename the archive manifest to avoid collision with other artifacts
