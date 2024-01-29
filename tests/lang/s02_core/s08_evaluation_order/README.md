@@ -4,7 +4,7 @@ This section contains tests for inter- and intra-evaluation-order of
 expressions and their sub-expressions.
 
 The tests document where and how effects of expression are observable --
- without effectful expression (i.e., expression that do more than just return
+without effectful expression (i.e., expression that do more than just return
 a value), order of evaluation would not matter.
 
 ## Assumptions
