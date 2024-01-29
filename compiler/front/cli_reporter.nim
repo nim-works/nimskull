@@ -1891,6 +1891,12 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemHintLibDependency:
       result = r.str
 
+    of rsemUnknownHint:
+      result = "unknown hint: '$1'" % [r.str]
+
+    of rsemUnknownWarning:
+      result = "unknown warning: '$1'" % [r.str]
+
     of rsemObservableStores:
       result = "observable stores to '$1'" % r.ast.render
 
