@@ -355,6 +355,7 @@ type
     rsemTIsNotAConcreteType
     rsemProcIsNotAConcreteType
     rsemRangeIsEmpty
+    rsemStringRangeNotAllowed
 
     rsemCannotInstantiate
     rsemCannotInstantiateWithParameter
