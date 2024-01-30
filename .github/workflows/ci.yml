@@ -139,7 +139,7 @@ jobs:
             pcre
             sqlite3
           triplet: x64-mingw-dynamic-release
-          extra-args: --overlay-triplets=tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
+          extra-args: --overlay-triplets=${{ github.workspace }}/tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
           revision: 2024.01.12
           github-binarycache: true
           token: ${{ github.token }}
@@ -349,7 +349,7 @@ jobs:
             pcre
             sqlite3
           triplet: x64-mingw-dynamic-release
-          extra-args: --overlay-triplets=tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
+          extra-args: --overlay-triplets=${{ github.workspace }}/tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
           revision: 2024.01.12
           github-binarycache: true
           token: ${{ github.token }}
