@@ -284,3 +284,28 @@ doAssert(foo2("Y", "a2") == 0)
 doAssert(foo2("Y", "2a") == 2)
 doAssert(foo2("N", "a3") == 3)
 doAssert(foo2("z", "2") == 0)
+
+block float_slice_list:
+  ## Tests for slice lists of float values
+  proc p(f: float): int =
+    case f
+    of 5.0, -2.0 .. 1.2, 6.0: 0 # slice-list with gaps
+    of 1.5: 1
+    of 20.0 .. 32.0: 2
+    else: 3
+
+  # direct matches
+  doAssert p(5.0) == 0
+  doAssert p(-2.0) == 0
+  doAssert p(1.2) == 0
+  doAssert p(6.0) == 0
+  doAssert p(1.5) == 1
+  doAssert p(20.0) == 2
+  doAssert p(32.0) == 2
+
+  # in ranges
+  doAssert p(0.1) == 0
+  doAssert p(-1.0) == 0
+  doAssert p(1.1) == 0
+  doAssert p(1.6) == 3
+  doAssert p(25.0) == 2
