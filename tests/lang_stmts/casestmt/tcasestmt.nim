@@ -1,4 +1,8 @@
 discard """
+targets: "c js vm"
+knownIssue.js: '''
+  The code generator rejects 'of' branch ranges > 2^16
+'''
 output:
 '''
 Not found!
@@ -14,7 +18,9 @@ an identifier
 OK
 OK
 OK
-ayyydd
+a
+yyy
+dd
 '''
 """
 
@@ -133,12 +139,12 @@ block tcasestm:
     i: int
 
   case y
-  of eA: write(stdout, "a")
-  of eB, eC: write(stdout, "b or c")
+  of eA: echo "a"
+  of eB, eC: echo "b or c"
 
   case x
-  of "Andreas", "Rumpf": write(stdout, "Hallo Meister!")
-  of "aa", "bb": write(stdout, "Du bist nicht mein Meister")
+  of "Andreas", "Rumpf": echo "Hallo Meister!"
+  of "aa", "bb": echo "Du bist nicht mein Meister"
   of "cc", "hash", "when": discard
   of "will", "it", "finally", "be", "generated": discard
 
@@ -148,7 +154,7 @@ block tcasestm:
     elif x == "Ha":
       "cc"
     elif x == "yyy":
-      write(stdout, x)
+      echo x
       "dd"
     else:
       "zz"
@@ -178,8 +184,8 @@ block tcasestm:
   doAssert(a == true)
   doAssert(b == false)
 
-  static:
-    #bug #7407
+  block:
+    # bug https://github.com/nim-lang/nim/issues/7407
     let bstatic = "N".toBool()
     doAssert(bstatic == false)
 
@@ -271,15 +277,6 @@ func foo2(b, input: string): int =
         result =  if c in '0'..'9': parseInt($c)
                   else: continue
     else: return
-
-
-static:
-  doAssert(foo("3") == 3)
-  doAssert(foo("a") == 0)
-  doAssert(foo2("Y", "a2") == 0)
-  doAssert(foo2("Y", "2a") == 2)
-  doAssert(foo2("N", "a3") == 3)
-  doAssert(foo2("z", "2") == 0)
 
 doAssert(foo("3") == 3)
 doAssert(foo("a") == 0)
