@@ -806,7 +806,6 @@ proc loadEnv*(dst: var TCtx, src: PackedEnv) =
 
     of cnstSliceListInt:   co.intSlices = loadSliceList[BiggestInt](src, id)
     of cnstSliceListFloat: co.floatSlices = loadSliceList[BiggestFloat](src, id)
-    of cnstSliceListStr:   co.strSlices = loadSliceList[ConstantId](src, id)
     of cnstNode: unreachable()
 
     co
@@ -871,7 +870,6 @@ func storeEnv*(enc: var PackedEncoder, dst: var PackedEnv, c: TCtx) =
 
       of cnstSliceListInt:   dst.storeSliceList(c.intSlices)
       of cnstSliceListFloat: dst.storeSliceList(c.floatSlices)
-      of cnstSliceListStr:   dst.storeSliceList(c.strSlices)
       of cnstNode:
         # node constants are not created in a non-compiletime context
         unreachable()

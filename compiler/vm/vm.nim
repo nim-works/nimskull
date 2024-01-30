@@ -2013,39 +2013,12 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         for s in list.items:
           if v in s: return true
 
-      func cmp(a: string, b: VmString): int =
-        let minLen = min(a.len, b.len)
-        if minLen > 0:
-          result = cmpMem(unsafeAddr a[0], b.data.rawPointer, minLen)
-        if result == 0:
-          result = a.len - b.len
-
       var cond = false
       case value.kind
       of cnstInt:      cond = regs[ra].intVal == value.intVal
-      of cnstString:   cond = regs[ra].strVal == value.strVal
       of cnstFloat:    cond = regs[ra].floatVal == value.floatVal
       of cnstSliceListInt:   cond = regs[ra].intVal in value.intSlices
       of cnstSliceListFloat: cond = regs[ra].floatVal in value.floatSlices
-      of cnstSliceListStr:
-        # string slice-lists don't store the strings directly, but the ID of
-        # a constant instead
-        let str = regs[ra].strVal
-        for s in value.strSlices.items:
-          let a = c.constants[s.a].strVal
-          let r = cmp(a, str)
-          if s.a == s.b:
-            # no need to compare the string with both slice elements if
-            # they're the same
-            if r == 0:
-              cond = true
-              break
-          else:
-            let b = c.constants[s.b].strVal
-            if r <= 0 and cmp(b, str) >= 0:
-              cond = true
-              break
-
       else:
         unreachable(value.kind)
 
@@ -2200,7 +2173,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         #      cases where non-NimNode PNodes need to be stored in registers
         #      seems unnecessary however.
         regs[ra] = TFullReg(kind: rkNimNode, nimNode: cnst.node)
-      of cnstSliceListInt..cnstSliceListStr:
+      of cnstSliceListInt..cnstSliceListFloat:
         # A slice-list must not be used with `LdConst`
         assert false
 
@@ -2212,7 +2185,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       of cnstString:
         # load the string literal directly into the destination
         deref(regs[ra].handle).strVal.newVmString(cnst.strVal, c.allocator)
-      of cnstInt, cnstFloat, cnstNode, cnstSliceListInt..cnstSliceListStr:
+      of cnstInt, cnstFloat, cnstNode, cnstSliceListInt..cnstSliceListFloat:
         raiseVmError(VmEvent(kind: vmEvtErrInternal, msg: "illegal constant"))
     of opcLdGlobal:
       let rb = instr.regBx - wordExcess

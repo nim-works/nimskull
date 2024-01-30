@@ -342,7 +342,6 @@ type
     # slice-lists are used for implementing `opcBranch` (branch for case stmt)
     cnstSliceListInt
     cnstSliceListFloat
-    cnstSliceListStr
 
   ConstantId* = int ## The ID of a `VmConstant`. Currently just an index into
                     ## `TCtx.constants`
@@ -368,9 +367,6 @@ type
       intSlices*: seq[Slice[BiggestInt]]
     of cnstSliceListFloat:
       floatSlices*: seq[Slice[BiggestFloat]]
-    of cnstSliceListStr:
-      strSlices*: seq[Slice[ConstantId]] ## Stores the ids of string constants
-                                         ## as a storage optimization
 
   VmArgs* = object
     ra*, rb*, rc*: Natural
