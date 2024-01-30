@@ -2173,7 +2173,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         #      cases where non-NimNode PNodes need to be stored in registers
         #      seems unnecessary however.
         regs[ra] = TFullReg(kind: rkNimNode, nimNode: cnst.node)
-      of cnstSliceListInt..cnstSliceListStr:
+      of cnstSliceListInt..cnstSliceListFloat:
         # A slice-list must not be used with `LdConst`
         assert false
 
@@ -2185,7 +2185,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       of cnstString:
         # load the string literal directly into the destination
         deref(regs[ra].handle).strVal.newVmString(cnst.strVal, c.allocator)
-      of cnstInt, cnstFloat, cnstNode, cnstSliceListInt..cnstSliceListStr:
+      of cnstInt, cnstFloat, cnstNode, cnstSliceListInt..cnstSliceListFloat:
         raiseVmError(VmEvent(kind: vmEvtErrInternal, msg: "illegal constant"))
     of opcLdGlobal:
       let rb = instr.regBx - wordExcess
