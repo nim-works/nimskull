@@ -138,8 +138,8 @@ jobs:
           pkgs: >-
             pcre
             sqlite3
-          triplet: x64-mingw-dynamic
-          extra-args: --host-triplet=x64-mingw-dynamic
+          triplet: x64-mingw-dynamic-release
+          extra-args: --overlay-triplets=tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
           revision: 2024.01.12
           github-binarycache: true
           token: ${{ github.token }}
@@ -147,7 +147,7 @@ jobs:
       - name: Download CA certificates (Windows)
         if: runner.os == 'Windows'
         run: |
-          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
           Invoke-WebRequest https://curl.se/ca/cacert.pem -OutFile (Join-Path $binPath "cacert.pem")
         shell: pwsh
 
@@ -215,7 +215,7 @@ jobs:
       - name: Add DLLs to PATH (Windows)
         if: runner.os == 'Windows'
         run: |
-          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
           $binPath | Out-File -Append $env:GITHUB_PATH
         shell: pwsh
 
@@ -251,7 +251,7 @@ jobs:
       - name: Add DLLs to PATH (Windows)
         if: runner.os == 'Windows'
         run: |
-          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
           $binPath | Out-File -Append $env:GITHUB_PATH
         shell: pwsh
 
@@ -329,26 +329,6 @@ jobs:
         if: runner.os == 'Windows'
         uses: ./git-src/.github/actions/setup-mingw
 
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        uses: johnwason/vcpkg-action@v6
-        with:
-          pkgs: >-
-            pcre
-            sqlite3
-          triplet: x64-mingw-dynamic
-          extra-args: --host-triplet=x64-mingw-dynamic
-          revision: 2024.01.12
-          github-binarycache: true
-          token: ${{ github.token }}
-
-      - name: Add DLLs to PATH (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
-          $binPath | Out-File -Append $env:GITHUB_PATH
-        shell: pwsh
-
       - name: Download source archive
         uses: actions/download-artifact@v4
         with:
@@ -361,10 +341,30 @@ jobs:
           # Pipe from zstd to tar because macOS' tar does not support unpacking zstd
           zstd -c -d "$archive" | tar -xf - --strip-components 1
 
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        uses: johnwason/vcpkg-action@v6
+        with:
+          pkgs: >-
+            pcre
+            sqlite3
+          triplet: x64-mingw-dynamic-release
+          extra-args: --overlay-triplets=tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
+          revision: 2024.01.12
+          github-binarycache: true
+          token: ${{ github.token }}
+
+      - name: Add DLLs to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
+
       - name: Install DLLs to package (Windows)
         if: runner.os == 'Windows'
         run: |
-          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
           $binPath | Out-File -Append $env:GITHUB_PATH
           Copy-Item (Join-Path $binPath "libpcre.dll") -Destination bin
         shell: pwsh
@@ -442,14 +442,14 @@ jobs:
       - name: Add DLLs to PATH (Windows)
         if: runner.os == 'Windows'
         run: |
-          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
           $binPath | Out-File -Append $env:GITHUB_PATH
         shell: pwsh
 
       - name: Install DLLs to package (Windows)
         if: runner.os == 'Windows'
         run: |
-          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
           $binPath | Out-File -Append $env:GITHUB_PATH
           Copy-Item (Join-Path $binPath "libpcre.dll") -Destination bin
         shell: pwsh
