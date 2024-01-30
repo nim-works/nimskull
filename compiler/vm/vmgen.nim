@@ -757,11 +757,6 @@ proc genBranchLit(c: var TCtx, n: CgNode, t: PType): int =
       cnst.floatSlices.fillSliceList(values):
         it.floatVal
 
-    of tyString:
-      cnst = VmConstant(kind: cnstSliceListStr)
-      cnst.strSlices.fillSliceList(values):
-        c.toStringCnst(it.strVal)
-
     else:
       unreachable(t.kind)
 
