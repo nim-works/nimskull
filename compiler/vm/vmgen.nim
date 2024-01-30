@@ -801,16 +801,44 @@ proc genCase(c: var TCtx; n: CgNode) =
   var endings: seq[TPosition] = @[]
   withDest(tmp):
     c.gen(n[0], tmp)
-    # branch tmp, codeIdx
-    # fjmp   elseLabel
 
     # iterate of/else branches
     for i in 1..<n.len:
       let branch = n[i]
       if isOfBranch(branch):
-        let b = genBranchLit(c, branch, selType)
-        c.gABx(branch, opcBranch, tmp, b)
-        let elsePos = c.xjmp(branch.lastSon, opcFJmp, tmp)
+        var elsePos: TPosition
+        if selType.kind == tyString:
+          # special handling for string case statements: generate a sequence
+          # of comparisons
+          let
+            cond = c.getTemp(slotTempInt)
+            # we re-use the `endings` list for collecting the jumps to the
+            # body:
+            start = endings.len
+
+          for j in 0..<branch.len - 1:
+            let
+              it = branch[j]
+              val = c.genx(it)
+            # generate: ``if tmp == label: goto body``
+            c.gABC(it, opcEqStr, cond, tmp, val)
+            endings.add c.xjmp(it, opcTJmp, cond)
+            c.freeTemp(val)
+
+          c.freeTemp(cond)
+          # emit a jump to the next branch:
+          elsePos = c.xjmp(branch.lastSon, opcJmp)
+          # patch the jumps to the body:
+          for j in start..<endings.len:
+            c.patch(endings[j])
+          endings.setLen(start)
+        else:
+          # branch tmp, codeIdx
+          # fjmp   elseLabel
+          let b = genBranchLit(c, branch, selType)
+          c.gABx(branch, opcBranch, tmp, b)
+          elsePos = c.xjmp(branch.lastSon, opcFJmp, tmp)
+
         c.gen(branch.lastSon)
         if i < n.len-1:
           endings.add(c.xjmp(branch.lastSon, opcJmp, 0))
