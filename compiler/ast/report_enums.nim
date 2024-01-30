@@ -772,6 +772,8 @@ type
     rsemUntypedParamsFollwedByMoreSpecificType
     rsemBindDeprecated
     rsemObservableStores       = "ObservableStores"
+    rsemUnknownHint            = "UnknownHint"
+    rsemUnknownWarning         = "UnknownWarning"
     rsemUseOfGc                = "GcMem" # last !
     # END !! add reports BEFORE the last enum !!
 
