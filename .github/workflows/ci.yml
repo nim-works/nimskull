@@ -361,6 +361,14 @@ jobs:
           # Pipe from zstd to tar because macOS' tar does not support unpacking zstd
           zstd -c -d "$archive" | tar -xf - --strip-components 1
 
+      - name: Install DLLs to package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+          Copy-Item (Join-Path $binPath "libpcre.dll") -Destination bin
+        shell: pwsh
+
       - name: Build release binaries
         run: ./koch.py all
 
@@ -436,6 +444,14 @@ jobs:
         run: |
           $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
           $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
+
+      - name: Install DLLs to package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+          Copy-Item (Join-Path $binPath "libpcre.dll") -Destination bin
         shell: pwsh
 
       # Note: keep synchronized with source_binaries job
