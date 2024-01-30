@@ -426,25 +426,44 @@ proc processDynLib(c: PContext, n: PNode, sym: PSym): PNode =
       sym.typ.callConv = ccCDecl
 
 proc processNote(c: PContext, n: PNode): PNode =
-  ## process a single pragma "note" `n`
-  ## xxx: document this better, this is awful
-  proc handleNote(enumVals: ReportKinds, notes: ConfNoteSet): PNode =
-    let x = findStr(enumVals, n[0][1].ident.s, repNone)
-    case x:
-      of repNone:
-        invalidPragma(c, n)
+  ## Analyzes the pragma expression `n`, verifying that its of the form
+  ## ``note[name]: val``.
+  ##
+  ## If `note` is the name of a valid note set, `name` is the name of a valid
+  ## enum part of that set, and `val` evaluates to a bool value, includes or
+  ## excludes `val` from the `note` set and returns the typed AST. An error is
+  ## returned otherwise.
+
+  proc handleNote(warning: bool, notes: ConfNoteSet, n: PNode): PNode =
+    let
+      enumVals =
+        if warning: repWarningKinds
+        else:       repHintKinds
+      # search for an enum value that has the provided name:
+      nk = findStr(enumVals, n[0][1].ident.s, repNone)
+
+    if nk == repNone:
+      # not part of the allowed set
+      localReport(c.config, n[0][1].info):
+        reportStr(if warning: rsemUnknownWarning else: rsemUnknownHint,
+                  n[0][1].ident.s)
+
+    # always evaluate the boolean expression:
+    let enable = c.semConstBoolExpr(c, n[1])
+
+    if nk != repNone and enable.kind == nkIntLit:
+      if enable.intVal != 0:
+        incl(c.config, notes, nk)
       else:
-        let
-          nk = x
-          x = c.semConstBoolExpr(c, n[1])
-        n[1] = x
+        excl(c.config, notes, nk)
 
-        if x.kind == nkIntLit and x.intVal != 0:
-          incl(c.config, notes, nk)
-        else:
-          excl(c.config, notes, nk)
+    # setup the production:
+    result = shallowCopy(n)
+    result[0] = n[0]
+    result[1] = enable
 
-        n
+    if enable.kind == nkError:
+      result = c.config.wrapError(result)
 
   let
     validPragma = n.kind in nkPragmaCallKinds and n.len == 2
@@ -461,10 +480,10 @@ proc processNote(c: PContext, n: PNode): PNode =
     if isBracketExpr:
       let cw = whichKeyword(n[0][0].ident)
       case cw:
-      of wHint:           handleNote(repHintKinds,    cnCurrent)
-      of wWarning:        handleNote(repWarningKinds, cnCurrent)
-      of wWarningAsError: handleNote(repWarningKinds, cnWarnAsError)
-      of wHintAsError:    handleNote(repHintKinds,    cnHintAsError)
+      of wHint:           handleNote(false, cnCurrent,     n)
+      of wWarning:        handleNote(true,  cnCurrent,     n)
+      of wWarningAsError: handleNote(true,  cnWarnAsError, n)
+      of wHintAsError:    handleNote(false, cnHintAsError, n)
       else: invalidPragma(c, n)
     else:
       bracketExpr
