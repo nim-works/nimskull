@@ -765,6 +765,9 @@ proc semBranchRange(c: PContext, t, a, b: PNode, covered: var Int128): PNode =
   result.add(bt)
   if emptyRange(ac, bc):
     localReport(c.config, b, reportSem rsemRangeIsEmpty)
+  elif t[0].typ.skipTypes(abstractInst).kind == tyString:
+    # XXX: ``nkError`` needs to be used here
+    localReport(c.config, b, reportSem rsemStringRangeNotAllowed)
   else: covered = covered + getOrdValue(bc) + 1 - getOrdValue(ac)
 
 proc semCaseBranchRange(c: PContext, t, b: PNode,

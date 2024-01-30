@@ -1136,6 +1136,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemRangeIsEmpty:
       result = "range is empty"
 
+    of rsemStringRangeNotAllowed:
+      result = "cannot create a range of strings"
+
     of rsemExpectedOrdinalOrFloat:
       result = "ordinal or float type expected"
 
