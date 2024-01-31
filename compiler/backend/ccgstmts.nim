@@ -363,8 +363,8 @@ proc genRaiseStmt(p: BProc, t: CgNode) =
     if isImportedException(typ, p.config):
       lineF(p, cpsStmts, "throw $1;$n", [e])
     else:
-      lineCg(p, cpsStmts, "#raiseExceptionEx((#Exception*)$1, $2, $3, $4, $5);$n",
-          [e, makeCString(typ.sym.name.s),
+      lineCg(p, cpsStmts, "#raiseException2((#Exception*)$1, $2, $3, $4);$n",
+          [e,
           makeCString(if p.prc != nil: p.prc.name.s else: p.module.module.name.s),
           quotedFilename(p.config, t.info), toLinenumber(t.info)])
 
