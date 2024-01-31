@@ -1399,10 +1399,30 @@ proc genObjConstr(c: var TCtx, n: PNode, isConsume: bool) =
 
 proc genRaise(c: var TCtx, n: PNode) =
   assert n.kind == nkRaiseStmt
-  c.buildStmt mnkRaise:
-    if n[0].kind != nkEmpty:
-      genArgExpression(c, n[0], sink=true)
-    else:
+  if n[0].kind != nkEmpty:
+    let tmp = c.wrapTemp n[0].typ:
+      genx(c, n[0], consume=true)
+
+    # emit the preparation code:
+    let
+      typ = skipTypes(n[0].typ, abstractPtrs)
+      cp = c.graph.getCompilerProc("prepareException")
+    c.buildStmt mnkVoid:
+      c.buildTree mnkCall, typeOrVoid(c, nil):
+        c.use toValue(c.env.procedures.add(cp), cp.typ)
+        c.subTree mnkArg:
+          # lvalue conversion to the base ``Exception`` type:
+          c.buildTree mnkPathConv, cp.typ[1]:
+            c.use tmp
+        c.emitByVal literal(newStrNode(typ.sym.name.s,
+                                       c.graph.getSysType(n.info, tyCstring)))
+
+    # emit the raise statement:
+    c.buildStmt mnkRaise:
+      c.use tmp
+  else:
+    # a re-raise statement
+    c.buildStmt mnkRaise:
       c.add MirNode(kind: mnkNone)
 
 proc genReturn(c: var TCtx, n: PNode) =
