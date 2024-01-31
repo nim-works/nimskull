@@ -428,6 +428,24 @@ proc raiseExceptionAux(e: sink(ref Exception)) {.nodestroy.} =
   pushCurrentException(e)
   inc nimInErrorMode
 
+proc prepareException(e: ref Exception, ename: cstring) {.compilerRtl.} =
+  if e.name.isNil: e.name = ename
+  when hasSomeStackTrace:
+    when defined(nimStackTraceOverride):
+      if e.trace.len == 0:
+        rawWriteStackTrace(e.trace)
+      else:
+        e.trace.add reraisedFrom(reraisedFromBegin)
+        auxWriteStackTraceWithOverride(e.trace)
+        e.trace.add reraisedFrom(reraisedFromEnd)
+    elif NimStackTrace:
+      if e.trace.len == 0:
+        rawWriteStackTrace(e.trace)
+      elif framePtr != nil:
+        e.trace.add reraisedFrom(reraisedFromBegin)
+        auxWriteStackTrace(framePtr, e.trace)
+        e.trace.add reraisedFrom(reraisedFromEnd)
+
 proc raiseExceptionEx(e: sink(ref Exception), ename, procname, filename: cstring,
                       line: int) {.compilerRtl, nodestroy.} =
   if e.name.isNil: e.name = ename

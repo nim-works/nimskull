@@ -2063,6 +2063,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         discard "fall through"
     of opcRaise:
       decodeBImm()
+      discard rb # fix the "unused" warning
       checkHandle(regs[ra])
 
       # `imm == 0` -> raise; `imm == 1` -> reraise current exception
@@ -2076,8 +2077,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           assert regs[ra].handle.typ.kind == akRef
           regs[ra].atomVal.refVal
 
-      let raised = c.heap.tryDeref(raisedRef, noneType).value()
-
       # XXX: the exception is never freed right now
 
       # Keep the exception alive during exception handling
@@ -2089,6 +2088,8 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       t.activeException = raisedRef
 
       # gather the stack-trace for the exception:
+      # TODO: store the trace in the exception's `trace` field and move this
+      #       setup logic to the ``prepareException`` implementation
       block:
         var pc = pc
         t.activeExceptionTrace.setLen(t.sframes.len)
@@ -2101,16 +2102,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
               pc
 
           t.activeExceptionTrace[i] = (it.prc, p)
-
-      let name = deref(raised.getFieldHandle(1.fpos))
-      if not isReraise and name.strVal.len == 0:
-        # XXX: the VM doesn't distinguish between a `nil` cstring and an empty
-        #      `cstring`, leading to the name erroneously being overridden if
-        #      it was explicitly initialized with `""`
-        # Set the `name` field of the exception. No need to valdiate the
-        # handle in `regs[rb]`, since it's a constant loaded prior to the
-        # raise
-        name.strVal.asgnVmString(regs[rb].strVal, c.allocator)
 
       pc = resumeRaise(c, t)
       updateRegsAlias()

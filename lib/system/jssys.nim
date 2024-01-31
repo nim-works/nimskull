@@ -140,6 +140,13 @@ proc unhandledException(e: ref Exception) {.
   }
   """.}
 
+proc prepareException(e: ref Exception, ename: cstring) {.
+    compilerproc, asmNoStackFrame.} =
+  if e.name.isNil:
+    e.name = ename
+  when NimStackTrace:
+    e.trace = rawWriteStackTrace()
+
 proc raiseException(e: ref Exception, ename: cstring) {.
     compilerproc, asmNoStackFrame.} =
   if e.name.isNil:
