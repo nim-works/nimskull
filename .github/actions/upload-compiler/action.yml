@@ -11,13 +11,19 @@ runs:
   steps:
     - name: Package workspace
       run: |
-        # Package new and changed files
-        declare -a diff
-        while IFS= read -r -d '' file; do
-          diff+=("$file")
-        done < <(git ls-files -zmo)
-        tar cf "$RUNNER_TEMP/compiler.tar" "${diff[@]}"
-      shell: bash
+        import os
+        import tarfile
+        from pathlib import Path
+        from subprocess import run, PIPE
+
+        diff = run(["git", "ls-files", "-zmo"], stdout=PIPE, check=True).stdout.split(b"\0")
+        diff = [f.decode() for f in diff if f] # trim empty strings and decode into str
+
+        archivepath = Path(os.environ["RUNNER_TEMP"]) / "compiler.tar"
+        with tarfile.open(archivepath, mode="x") as archive:
+          for file in diff:
+            archive.add(file)
+      shell: python
       working-directory: "${{ inputs.source }}"
 
     - uses: actions/upload-artifact@v4

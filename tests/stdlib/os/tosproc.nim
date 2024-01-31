@@ -12,11 +12,14 @@ see also: tests/osproc/*.nim; consider merging those into a single test here
 
 import stdtest/[specialpaths, unittest_light]
 import std/[os, osproc, streams, strtabs, strutils]
-from posix import exitnow
+when defined(posix):
+  from posix import exitnow
+elif defined(windows):
+  proc exitnow(code: uint32) {.stdcall, dynlib: "kernel32", importc: "ExitProcess", noreturn.}
 
 proc exitTest(args: openArray[string]) =
   ## Test various process exit methods?
-  proc c_exit2(code: c_int): void {.importc: "_exit", header: "<unistd.h>".}
+  proc c_exit2(code: c_int): void {.importc: "_Exit", header: "<stdlib.h>".}
   var a = 0
   proc fun(b = 0) =
     a.inc

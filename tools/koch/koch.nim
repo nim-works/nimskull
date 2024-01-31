@@ -187,7 +187,7 @@ proc buildTools(args: string = "") =
   bundleNimsuggest(args)
   nimCompileFold("Compile nimgrep", "tools/nimgrep.nim",
                  options = "-d:release " & defineSourceMetadata() & " " & args)
-  when defined(windows): buildVccTool("--gc:orc " & args)
+  when defined(windows): buildVccTool("-d:release --gc:orc " & args)
 
   nimCompileFold("Compile vmrunner", "compiler/vm/vmrunner.nim",
                 options = "-d:release --gc:orc $# $#" % [defineSourceMetadata(), args])
@@ -197,8 +197,14 @@ proc buildTools(args: string = "") =
   # `-d:nimDebugUtils` only makes sense when temporarily editing/debugging compiler
   # `-d:debug` should be changed to a flag that doesn't require re-compiling nim
   # `--opt:speed` is a sensible default even for a debug build, it doesn't affect nim stacktraces
+  const extraFlags =
+    when defined(windows) and defined(gcc):
+      # Disable PE timestamp for reproducible builds
+      "--passL:-Wl,--no-insert-timestamp"
+    else:
+      ""
   nimCompileFold("Compile nim_dbg", "compiler/nim.nim", options =
-      "--opt:speed --stacktrace -d:debug --stacktraceMsgs -d:nimCompilerStacktraceHints --excessiveStackTrace:off --gc:orc " & defineSourceMetadata() & " " & args,
+      "--opt:speed --stacktrace -d:debug --stacktraceMsgs -d:nimCompilerStacktraceHints --excessiveStackTrace:off --gc:orc " & extraFlags & " " & defineSourceMetadata() & " " & args,
       outputName = "nim_dbg")
 
 
