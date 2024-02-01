@@ -332,7 +332,7 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
     of backendNimVm:   targetVm
     of backendInvalid: unreachable()
 
-  applyPasses(body, prc, graph.config, target)
+  applyPasses(body, prc, env, graph.config, target)
 
 proc translate*(id: ProcedureId, body: PNode, graph: ModuleGraph,
                 config: BackendConfig, idgen: IdGenerator,
