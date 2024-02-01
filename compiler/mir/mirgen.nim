@@ -209,31 +209,6 @@ func endsInNoReturn(n: PNode): bool =
     (it.kind in nkCallKinds and it[0].kind == nkSym and
      sfNoReturn in it[0].sym.flags)
 
-func isDeepConstExpr(n: PNode): bool =
-  ## Copy of ``trees.isDeepConstExpr`` that doesn't treat hidden conversions
-  ## as constant.
-  # XXX: used as a temporary workaround for ``nkHiddenStdConv`` not being
-  #      supported in MIR constant data
-  case n.kind
-  of nkLiterals, nkNilLit:
-    result = true
-  of nkExprColonExpr:
-    result = isDeepConstExpr(n[1])
-  of nkRange:
-    result = isDeepConstExpr(n[0]) and isDeepConstExpr(n[1])
-  of nkCurly, nkBracket, nkTupleConstr, nkObjConstr, nkClosure:
-    for i in ord(n.kind == nkObjConstr)..<n.len:
-      if not isDeepConstExpr(n[i]):
-        return false
-
-    let t = n.typ.skipTypes({tyGenericInst, tyDistinct, tyAlias, tySink})
-    # refs, pointers, unions, and case objects are not treated as constant
-    result = t.kind notin {tyRef, tyPtr} and
-             tfUnion notin t.flags and
-             (t.kind != tyObject or not isCaseObj(t.n))
-  else:
-    result = false
-
 func selectWhenBranch(n: PNode, isNimvm: bool): PNode =
   assert n.kind == nkWhen
   if isNimvm: n[0][1]
