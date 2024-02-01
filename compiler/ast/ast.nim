@@ -284,6 +284,10 @@ proc newStrNode*(strVal: string; info: TLineInfo): PNode =
   result = newNodeI(nkStrLit, info)
   result.strVal = strVal
 
+proc newStrNode*(strVal: sink string, typ: PType; info=unknownLineInfo): PNode =
+  result = newNodeIT(nkStrLit, info, typ)
+  result.strVal = strVal
+
 proc newProcNode*(kind: TNodeKind, info: TLineInfo, body: PNode,
                  params,
                  name, pattern, genericParams,

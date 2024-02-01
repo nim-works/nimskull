@@ -902,17 +902,8 @@ proc genTry(c: var TCtx; n: CgNode) =
 
 proc genRaise(c: var TCtx; n: CgNode) =
   if n[0].kind != cnkEmpty:
-    let
-      dest = c.genx(n[0])
-      typ = skipTypes(n[0].typ, abstractPtrs)
-
-    # get the exception name
-    var name = noDest
-    c.genLit(n[0], c.toStringCnst(typ.sym.name.s), name)
-
-    # XXX: using an ABxI encoding would make sense here...
-    c.gABI(n, opcRaise, dest, name, 0)
-    c.freeTemp(name)
+    let dest = c.genx(n[0])
+    c.gABI(n, opcRaise, dest, 0, imm=0)
     c.freeTemp(dest)
   else:
     # reraise

@@ -156,6 +156,20 @@ proc setCurrentExceptionWrapper(a: VmArgs) {.nimcall.} =
   asgnRef(a.currentException, deref(a.getHandle(0)).refVal,
           a.mem[], reset=true)
 
+proc prepareExceptionWrapper(a: VmArgs) {.nimcall.} =
+  let
+    raised = a.heap[].tryDeref(deref(a.getHandle(0)).refVal, noneType).value()
+    nameField = raised.getFieldHandle(1.fpos)
+
+  # set the name of the exception if it hasn't been already:
+  if deref(nameField).strVal.len == 0:
+    # XXX: the VM doesn't distinguish between a `nil` cstring and an empty
+    #      `cstring`, leading to the name erroneously being overridden if
+    #      it was explicitly initialized with `""`
+    asgnVmString(deref(nameField).strVal,
+                 deref(a.getHandle(1)).strVal,
+                 a.mem.allocator)
+
 proc prepareMutationWrapper(a: VmArgs) {.nimcall.} =
   discard "no-op"
 
@@ -232,6 +246,7 @@ iterator basicOps*(): Override =
   # system operations
   systemop(getCurrentExceptionMsg)
   systemop(getCurrentException)
+  systemop(prepareException)
   systemop(prepareMutation)
   override("stdlib.system.closureIterSetupExc",
            setCurrentExceptionWrapper)

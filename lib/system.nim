@@ -2336,6 +2336,9 @@ when notJSnotNims and hostOS != "standalone":
 elif isNimVmTarget:
   proc getCurrentException*(): ref Exception {.compilerRtl.} = discard
 
+  proc prepareException(e: ref Exception, ename: cstring) {.compilerproc.} =
+    discard
+
   proc closureIterSetupExc(e: ref Exception) {.compilerproc, inline.} =
     ## Used by the closure transformation pass for preparing for exception
     ## handling. Implemented as a callback.

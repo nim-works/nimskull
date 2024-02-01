@@ -772,11 +772,10 @@ proc genRaiseStmt(p: PProc, n: CgNode) =
   if n[0].kind != cnkEmpty:
     var a: TCompRes
     gen(p, n[0], a)
-    let typ = skipTypes(n[0].typ, abstractPtrs)
     genLineDir(p, n)
     useMagic(p, "raiseException")
-    lineF(p, "raiseException($1, $2);$n",
-             [a.rdLoc, makeJSString(typ.sym.name.s)])
+    lineF(p, "raiseException($1);$n",
+             [a.rdLoc])
   else:
     genLineDir(p, n)
     useMagic(p, "reraiseException")
