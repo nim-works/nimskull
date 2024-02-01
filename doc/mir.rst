@@ -207,3 +207,26 @@ processing and faster access, the whole code for a procedure is stored in a
 single sequence of *nodes*, with the nodes forming a tree.
 
 Sub-trees are currently delimited via an explicit `End` node.
+
+Constant Expressions
+====================
+
+MIR constant expression are stored separately from MIR trees representing
+routine bodies. Constant expressions describe a value not depending on any
+dynamic/run-time information. They use a variation/sub-set of the MIR that is
+better suited for statement-less trees.
+
+The syntax is similar to that of the normal MIR, with the biggest difference
+being that the representation is flat (i.e., a single tree rather than multiple
+ones).
+
+.. code-block:: literal
+
+  VALUE = <Proc>
+        | <Literal>
+        | COMPLEX
+
+  ARG = Arg VALUE
+
+  COMPLEX = Constr ARG...
+          | ObjConstr (<Field> ARG)...
