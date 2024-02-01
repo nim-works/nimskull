@@ -139,7 +139,7 @@ proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
     dest.nimNode = data[0].lit
   else:
     dest.initLocReg(typ, c.memory)
-    initFromExpr(dest.handle, data, c.config, c.memory)
+    initFromExpr(dest.handle, data, c)
 
 proc unpackResult(res: sink ExecutionResult; config: ConfigRef, node: PNode): PNode =
   ## Unpacks the execution result. If the result represents a failure, returns
@@ -676,13 +676,15 @@ proc getGlobalValue*(c: TCtx; s: PSym): PNode =
 
   result = c.deserialize(slot.handle, s.typ, s.info)
 
-proc setGlobalValue*(c: var TCtx; s: PSym, val: PNode) =
+proc setGlobalValue*(c: var EvalContext; s: PSym, val: PNode) =
   ## Does not do type checking so ensure the `val` matches the `s.typ`
-  internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
-  let slotIdx = c.globals[c.linking.symToIndexTbl[s.id]]
-  let slot = c.heap.slots[slotIdx]
+  internalAssert(c.vm.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
+  let
+    slotIdx = c.vm.globals[c.vm.linking.symToIndexTbl[s.id]]
+    slot = c.vm.heap.slots[slotIdx]
+    data = constDataToMir(c.vm, c.jit, val)
 
-  c.serialize(val, slot.handle)
+  initFromExpr(slot.handle, data, c.vm)
 
 ## what follows is an implementation of the ``passes`` interface that evaluates
 ## the code directly inside the VM. It is used for NimScript execution and by
