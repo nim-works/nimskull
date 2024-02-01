@@ -325,6 +325,10 @@ const
   SymbolLike* = {mnkParam, mnkLocal}
     ## Nodes for which the `sym` field is available
 
+  ConstrTreeNodes* = {mnkConstr, mnkObjConstr, mnkLiteral, mnkProc,
+                      mnkArg, mnkField, mnkEnd}
+    ## Nodes that can appear in the MIR subset used for constant expressions.
+
   # --- semantics-focused sets:
 
   Atoms* = {mnkNone .. mnkType} - {mnkField}

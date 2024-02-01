@@ -1,5 +1,5 @@
 ## Implements a bi-directional table that associates constant data
-## (represented by ``PNode`` AST) with a ``DataId`` and vice versa.
+## (represented by a subset of the MIR) with a ``DataId`` and vice versa.
 
 import
   std/[
@@ -20,7 +20,7 @@ import
   ]
 
 type
-  ConstrTree* = PNode
+  ConstrTree* = MirTree
   DataTable* = object
     ## A bi-directional table that associates constant expressions with an ID.
     vals: Store[DataId, ConstrTree]
@@ -32,40 +32,78 @@ type
 func hashTree(tree: ConstrTree): Hash =
   ## Computes the `tree`. The hash is meant to be used for lookup in a hash
   ## table. Keep this synchronized with `cmp <#cmp,ConstrTree,ConstrTree>`_.
-  proc hash(n: PNode): Hash {.nimcall.} =
+  func hash(n: MirNode): Hash {.nimcall.} =
     result = hash(n.kind)
     case n.kind
-    of nkIntKinds:
-      result = result !& hash(n.intVal)
-    of nkFloatLiterals:
-      # make sure to hash the bit representation, so that NaNs are accounted
-      # for
-      result = result !& hash(cast[BiggestUInt](n.floatVal))
-    of nkStrKinds:
-      result = result !& hash(n.strVal)
-    of nkNilLit:
+    of mnkLiteral:
+      proc hashLit(n: PNode): Hash =
+        case n.kind
+        of nkFloatKinds:
+          # make sure to hash the bit representation, so that NaNs are
+          # accounted for
+          hash(cast[BiggestInt](n.floatVal))
+        of nkStrKinds:
+          hash(n.strVal)
+        of nkIntKinds:
+          hash(n.intVal)
+        of nkNilLit:
+          Hash(0)
+        of nkRange:
+          hashLit(n[0]) !& hashLit(n[1])
+        else:
+          unreachable(n.kind)
+
+      result = result !& hashLit(n.lit)
+    of mnkProc:
+      result = result !& hash(n.prc.ord)
+    of mnkObjConstr, mnkConstr:
+      result = result !& hash(n.len)
+    of mnkField:
+      result = result !& hash(n.field.id)
+    of mnkArg, mnkEnd:
       discard
-    of nkSym:
-      result = result !& hash(n.sym.id)
-    of nkBracket, nkCurly, nkTupleConstr, nkClosure, nkExprColonExpr, nkRange:
-      for it in n.items:
-        result = result !& hash(it)
-    of nkObjConstr:
-      for i in 1..<n.len:
-        result = result !& hash(n[i])
-    else:
+    of AllNodeKinds - ConstrTreeNodes:
       unreachable(n.kind)
 
-  result = hash(tree)
+  # hash the nodes:
+  for _, it in tree.pairs:
+    result = result !& hash(it)
+
   # only hash the kind of the type. This trades more collisions for faster
   # hashing
-  result = result !& hash(tree.typ.kind)
+  result = result !& hash(tree[0].typ.kind)
   result = !$(result)
 
 proc cmp(a, b: ConstrTree): bool =
-  # same structure and same (backend) type means that the construction
-  # expressions produce the same value
-  result = exprStructuralEquivalent(a, b) and sameBackendType(a.typ, b.typ)
+  ## Compares two MIR constant expressions for structural equality.
+  proc `==`(a, b: MirNode): bool {.nimcall.} =
+    if a.kind != b.kind:
+      return false # cannot be the same
+
+    case a.kind
+    of mnkLiteral:
+      exprStructuralEquivalent(a.lit, b.lit)
+    of mnkProc:
+      a.prc == b.prc
+    else:
+      # all other nodes are equal when their kind is the same
+      true
+
+  if not a[0].typ.sameBackendType(b[0].typ) or a.len != b.len:
+    # the (backend-)type is different -> not the same constant expressions
+    return false
+
+  # both trees are known to have the same length at this point
+  var i = 0
+  # traverse both trees simultaneously and look for a divergence:
+  while i < a.len:
+    if a[i] != b[i]:
+      return false # divergence -> not equal
+
+    inc i
+
+  # the cursor reached the end; the trees are equal
+  result = true
 
 proc nextTry(h, maxHash: Hash): Hash {.inline.} =
   result = (h + 1) and maxHash
@@ -101,7 +139,7 @@ proc len*(t: DataTable): int {.inline.} =
   ## The number of items in `t`.
   t.vals.nextId().int
 
-proc getOrPut*(t: var DataTable; tree: PNode): DataId =
+proc getOrPut*(t: var DataTable; tree: sink MirTree): DataId =
   ## Adds `tree` to `t` and returns the ID the tree can be queried with later.
   ## If the tree already exists in the table, only the ID is returned.
   let origH = hashTree(tree)
