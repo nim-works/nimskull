@@ -2161,11 +2161,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         # A slice-list must not be used with `LdConst`
         assert false
 
-    of opcAsgnConst:
-      # assign the constant to the destination
-      decodeBx()
-      # TODO: remove
-      raiseVmError(VmEvent(kind: vmEvtErrInternal, msg: "illegal constant"))
     of opcLdGlobal:
       let rb = instr.regBx - wordExcess
       let slot = c.globals[rb]
