@@ -649,6 +649,12 @@ iterator flush(queue: var WorkQueue, env: var MirEnv,
 proc isTrivialProc(graph: ModuleGraph, prc: PSym): bool {.inline.} =
   getBody(graph, prc).kind == nkEmpty
 
+proc translateConst(env: var MirEnv, id: ConstId, c: PSym) =
+  ## Translates the content of the const `c` to its MIR form and links
+  ## the result with `id` in the `env`ironment.
+  let tree = constDataToMir(env, astdef(c))
+  env.setData(id, env.data.getOrPut(tree))
+
 proc pushProgress(queue: var WorkQueue, env: var MirEnv, graph: ModuleGraph,
                   idgen: IdGenerator, prc: PSym, frag: sink MirBody,
                   m: FileIndex) =
@@ -801,11 +807,7 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
                                        fragId: item.prc, frag: frag))
     of wikProcessConst:
       module = moduleId(env[item.cnst]).FileIndex
-      # scan the constant for its dependencies
-      # future direction: the body of the constant (i.e., the value
-      # expression) will be transformed to its MIR representation here
-      scanExpr(env, env[item.cnst].ast)
-      env.setData(item.cnst, env.data.getOrPut(env[item.cnst].ast))
+      translateConst(env, item.cnst, env[item.cnst])
       # we cannot report (i.e., yield) right away, the discovered dependencies
       # have to be reported first
       queue.prepend(module, WorkItem(kind: wikReportConst, cnst: item.cnst))
@@ -869,8 +871,7 @@ iterator discover*(env: var MirEnv, progress: EnvCheckpoint
     # first discover and report the procedures referenced by the constant's
     # data. This ensures that the callsite can rely on all the constant's
     # dependencies existing in the environment
-    scanExpr(env, astdef(it))
-    env.setData(id, env.data.getOrPut(astdef(it)))
+    translateConst(env, id, it)
     yield (it, MirNode(kind: mnkConst, cnst: id))
 
   for id, it in since(env.procedures, progress.procs):
