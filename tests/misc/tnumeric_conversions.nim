@@ -4,7 +4,7 @@ discard """
   knownIssue.js: "full-range integers aren't supported yet"
 """
 
-when defined(amd64) or defined(i386):
+when defined(amd64) or defined(i386) or defined(js) or defined(vm):
   # FIXME: This test right now depends on architecture-specific behavior on x86
   #
   # This bug is tracked at https://github.com/nim-works/nimskull/issues/1155
