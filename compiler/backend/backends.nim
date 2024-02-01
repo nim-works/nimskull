@@ -467,7 +467,7 @@ proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
       bu.add MirNode(kind: mnkStmtList) # manual, for less visual nesting
       for candidate in candidates.items:
         var tmp = genLoadLib(bu, graph, env, val):
-          literal(newStrNode(nkStrLit, candidate))
+          literal(newStrNode(candidate, graph.getSysType(path.info, tyString)))
 
         tmp = bu.wrapTemp(graph.getSysType(path.info, tyBool)):
           bu.buildMagicCall mNot, graph.getSysType(path.info, tyBool):
