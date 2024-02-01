@@ -2321,7 +2321,6 @@ proc genBracedInit(p: BProc, n: CgNode; optionalType: PType): Rope =
           #      passing the expression to evaluation
           symNode = n
         of cnkClosureConstr:
-          p.config.internalAssert(n[0].kind == cnkProc, n.info)
           p.config.internalAssert(n[1].kind == cnkNilLit, n.info)
           symNode = n[0]
         else:
