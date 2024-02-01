@@ -31,6 +31,9 @@ import
     bitabs,
     rodfiles
   ],
+  compiler/mir/[
+    mirtrees
+  ],
   compiler/utils/[
     idioms,
     int128,
@@ -38,7 +41,6 @@ import
   ],
   compiler/vm/[
     vmdef,
-    vmlinker
   ]
 
 from compiler/vm/vmaux import findRecCase, findMatchingBranch
@@ -187,10 +189,8 @@ type
 
   DataEncoder* = object
     ## Contextual state needed for turning data `PNode`-trees into
-    ## `PackedDataNode` trees and storing them into packed environment
+    ## `PackedDataNode` trees and storing them into the packed environment
     config*: ConfigRef
-    routineSymLookup*: #[lent]# Table[int, LinkIndex] ##
-      ## symbol-id -> routine's link-index. Only read, not mutated
     i: int ## the index in `PackedEnv.nodes` where the next item is to be stored
 
 const
@@ -275,11 +275,12 @@ func setAt(enc: var DataEncoder, e: var PackedEnv, i: int,
            d: sink PackedDataNode) {.inline.} =
   e.nodes[i] = d
 
-func storeData*(enc: var DataEncoder, e: var PackedEnv, n: PNode)
-  ## Stores the data represented by the Data AST `n` in `e.nodes`.
-  ## The caller is responsible for making sure that there's a slot allocated
-  ## in `e.nodes` for the top data-node. Space allocation for the
-  ## sub-data-nodes is handled by ``storeData``
+func storeDataNode(enc: var DataEncoder, e: var PackedEnv,
+                   t: MirTree, n: NodePosition)
+  ## Stores in `e.nodes` the data represented by the MIR constant expression
+  ## `t`. The caller is responsible for making sure that there's a slot
+  ## allocated in `e.nodes` for the top data-node. Space allocation for the
+  ## sub-data-nodes is handled by ``storeData``.
 
 func storeDiscrData(enc: var DataEncoder, e: var PackedEnv, s: PSym, v: PNode) =
   let
@@ -295,62 +296,88 @@ func storeDiscrData(enc: var DataEncoder, e: var PackedEnv, s: PSym, v: PNode) =
   let val = packDiscr(v.intVal, b, numBits = 32)
   enc.put e, PackedDataNode(kind: pdkInt, pos: e.getLitId(val).uint32)
 
-proc storeFieldsData(enc: var DataEncoder, e: var PackedEnv, n: openArray[PNode]) =
-  if n.len == 0:
-    return
+proc storeFieldsData(enc: var DataEncoder, e: var PackedEnv,
+                     t: MirTree, n: NodePosition) =
+  let count = t[n].len
+  enc.put e, PackedDataNode(kind: pdkObj, pos: count.uint32)
+  e.nodes.growBy(count * 2) # make space for the content
 
-  e.nodes.growBy(n.len * 2)
+  # iterate over all fields in the construction and pack and store them:
+  var n = n + 1
+  for _ in 0..<count:
+    let s = t[n].field ## the field symbol
+    inc n # move the cursor to the field's data
 
-  if n[0].kind == nkExprColonExpr:
-    for x in n.items:
-      let
-        s = x[0].sym
-        v = x[1]
+    enc.put e, PackedDataNode(kind: pdkField, pos: s.position.uint32)
 
-      enc.put e, PackedDataNode(kind: pdkField, pos: s.position.uint32)
+    if sfDiscriminant notin s.flags:
+      enc.storeDataNode(e, t, n+1)
+    else:
+      enc.storeDiscrData(e, s, t[n+1].lit)
 
-      if sfDiscriminant notin s.flags:
-        enc.storeData(e, v)
-      else:
-        enc.storeDiscrData(e, s, v)
+    n = t.sibling(n) # move the cursor to the next field
 
-  else:
-    for i, x in n.pairs:
-      enc.put e, PackedDataNode(kind: pdkField, pos: i.uint32)
-      enc.storeData(e, x)
+proc storeTupleData(enc: var DataEncoder, e: var PackedEnv,
+                    t: MirTree, n: NodePosition) =
+  let count = t[n].len
+  enc.put e, PackedDataNode(kind: pdkObj, pos: count.uint32)
+  e.nodes.growBy(count * 2) # make space for the content
 
-proc storeArrayData(enc: var DataEncoder, e: var PackedEnv, n: PNode) =
-  e.nodes.growBy(n.len)
-  for x in n.items:
-    enc.storeData(e, x)
+  # pack and store all elements:
+  var n = n + 1
+  for i in 0..<count:
+    enc.put e, PackedDataNode(kind: pdkField, pos: i.uint32)
+    enc.storeDataNode(e, t, n+1)
+    n = t.sibling(n)
 
-proc storeSetData(enc: var DataEncoder, e: var PackedEnv, n: PNode) =
+proc storeArrayData(enc: var DataEncoder, e: var PackedEnv,
+                    t: MirTree, n: NodePosition) =
+  let count = t[n].len
+  enc.put e, PackedDataNode(kind: pdkArray, pos: count.uint32)
+  e.nodes.growBy(count) # make space for the content
+
+  # encode all elements:
+  var n = n + 1
+  for _ in 0..<count:
+    enc.storeDataNode(e, t, n+1)
+    n = t.sibling(n)
+
+proc storeSetData(enc: var DataEncoder, e: var PackedEnv,
+                  t: MirTree, n: NodePosition) =
+  let
+    count = t[n].len
+    typ = t[n].typ
+  enc.put e, PackedDataNode(kind: pdkSet, pos: count.uint32 * 2)
+  e.nodes.growBy(count * 2) # make space for the content
+
   proc adjusted(enc: DataEncoder, n: PNode, typ: PType): uint32 =
     # make the range start at zero
     toUInt32(getInt(n) - firstOrd(enc.config, typ))
 
-  e.nodes.growBy(n.len * 2)
+  var n = n + 1
   # bitsets only store values in the range 0..high(uint16), so the values can
   # be stored directly
-  for i, x in n.pairs:
+  for _ in 0..<count:
+    let x = t[n+1].lit
     if x.kind == nkRange:
-      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, x[0], n.typ))
-      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, x[1], n.typ))
+      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, x[0], typ))
+      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, x[1], typ))
     else:
-      let d = PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, x, n.typ))
+      let d = PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, x, typ))
       enc.put e, d
       enc.put e, d
 
-func storeData*(enc: var DataEncoder, e: var PackedEnv, n: PNode) =
+    n = t.sibling(n)
+
+func storeLiteral(enc: var DataEncoder, e: var PackedEnv, n: PNode) =
   let dstIdx = enc.putLater()
   let (kind, item) =
     case n.kind
     of EmbeddedUInts: (pdkIntLit, n.intVal.uint32)
     of EmbeddedInts:  (pdkIntLit, cast[uint32](n.intVal))
     of ExternalInts:  (pdkInt,    e.getLitId(n.intVal).uint32)
-
-    of nkFloatLit..nkFloat64Lit:  (pdkFloat,  e.getLitId(n.floatVal).uint32)
-    of nkStrLit..nkTripleStrLit:  (pdkString, e.getLitId(n.strVal).uint32)
+    of nkFloatKinds:  (pdkFloat,  e.getLitId(n.floatVal).uint32)
+    of nkStrKinds:    (pdkString, e.getLitId(n.strVal).uint32)
     of nkNilLit:
       if n.typ.skipTypes(abstractInst).callConv == ccClosure:
         # XXX: some unexpanded `nil` closure literals reach here, so we have
@@ -363,31 +390,41 @@ func storeData*(enc: var DataEncoder, e: var PackedEnv, n: PNode) =
         (pdkObj, 2'u32)
       else:
         (pdkPtr, 0'u32)
-
-    of nkBracket:
-      enc.storeArrayData(e, n)
-      (pdkArray, uint32(n.len))
-    of nkCurly:
-      enc.storeSetData(e, n)
-      (pdkSet, uint32(n.len * 2))
-    of nkObjConstr:
-      enc.storeFieldsData(e, n.sons.toOpenArray(1, n.sons.high))
-      (pdkObj, uint32(n.len - 1))
-    of nkTupleConstr:
-      enc.storeFieldsData(e, n.sons)
-      (pdkObj, uint32(n.len))
-    of nkClosure:
-      # ignore the potentially non-nil env value
-      let val = enc.routineSymLookup[n[0].sym.id]
-      (pdkIntLit, val)
-    of nkSym:
-      assert n.typ.kind == tyProc
-      let val = enc.routineSymLookup[n.sym.id]
-      (pdkIntLit, val)
-    else:
-      unreachable(n.kind)
-
+    else:             unreachable(n.kind)
   enc.setAt e, dstIdx, PackedDataNode(kind: kind, pos: item)
+
+func storeDataNode(enc: var DataEncoder, e: var PackedEnv,
+                   t: MirTree, n: NodePosition) =
+  case t[n].kind
+  of mnkLiteral:
+    storeLiteral(enc, e, t[n].lit)
+  of mnkProc:
+    # the ID is stable, it can be packed directly
+    enc.put e, PackedDataNode(kind: pdkIntLit, pos: t[n].prc.uint32)
+  of mnkConstr:
+    case t[n].typ.skipTypes(abstractInst).kind
+    of tySequence, tyArray, tyOpenArray:
+      enc.storeArrayData(e, t, n)
+    of tyTuple, tyProc:
+      enc.storeTupleData(e, t, n)
+    of tySet:
+      enc.storeSetData(e, t, n)
+    else:
+      unreachable(t[n].kind)
+  of mnkObjConstr:
+    enc.storeFieldsData(e, t, n)
+  else:
+    unreachable(t[n].kind)
+
+import compiler/mir/utils
+
+func storeData*(enc: var DataEncoder, e: var PackedEnv, tree: MirTree): int =
+  ## Packs the MIR constant expression `tree` and puts it into `e`. Returns
+  ## the index of the top data node.
+  debugEcho treeRepr(tree)
+  result = enc.i
+  e.nodes.growBy(1)
+  storeDataNode(enc, e, tree, NodePosition 0)
 
 func getIntVal*(pe: PackedEnv, n: PackedDataNode): BiggestInt {.inline.} =
   case n.kind
