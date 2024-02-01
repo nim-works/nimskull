@@ -11,7 +11,7 @@ runs:
   steps:
     - uses: actions/download-artifact@v4
       with:
-        name: compiler ${{ runner.os }}
+        name: compiler ${{ runner.os }} ${{ runner.arch }}
         path: "${{ runner.temp }}"
 
     - name: Unpack the workspace
