@@ -23,5 +23,5 @@ runs:
         archivepath = Path(os.environ["RUNNER_TEMP"]) / "compiler.tar"
         with tarfile.open(archivepath) as archive:
           archive.extractall()
-      shell: python
+      shell: python3 {0}
       working-directory: "${{ inputs.workspace }}"

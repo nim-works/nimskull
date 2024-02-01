@@ -23,7 +23,7 @@ runs:
         with tarfile.open(archivepath, mode="x") as archive:
           for file in diff:
             archive.add(file)
-      shell: python
+      shell: python3 {0}
       working-directory: "${{ inputs.source }}"
 
     - uses: actions/upload-artifact@v4
