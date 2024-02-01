@@ -2151,13 +2151,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         regs[ra] = TFullReg(kind: rkInt, intVal: cnst.intVal)
       of cnstFloat:
         regs[ra] = TFullReg(kind: rkFloat, floatVal: cnst.floatVal)
-      of cnstString:
-        regs[ra] = TFullReg(kind: rkLocation)
-        regs[ra].handle =
-          c.allocator.allocSingleLocation(c.typeInfoCache.stringType)
-        # TODO: once implemented, assign the string as a literal instead of
-        #       via deep copying
-        deref(regs[ra].handle).strVal.newVmString(cnst.strVal, c.allocator)
       of cnstNode:
         # XXX: cnstNode is also used for non-NimNodes, so using `rkNimNode` is
         #      somewhat wrong. Introducing a new register kind just for the
@@ -2171,13 +2164,8 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
     of opcAsgnConst:
       # assign the constant to the destination
       decodeBx()
-      let cnst {.cursor.} = c.constants[rbx]
-      case cnst.kind
-      of cnstString:
-        # load the string literal directly into the destination
-        deref(regs[ra].handle).strVal.newVmString(cnst.strVal, c.allocator)
-      of cnstInt, cnstFloat, cnstNode, cnstSliceListInt..cnstSliceListFloat:
-        raiseVmError(VmEvent(kind: vmEvtErrInternal, msg: "illegal constant"))
+      # TODO: remove
+      raiseVmError(VmEvent(kind: vmEvtErrInternal, msg: "illegal constant"))
     of opcLdGlobal:
       let rb = instr.regBx - wordExcess
       let slot = c.globals[rb]

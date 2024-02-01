@@ -92,7 +92,6 @@ proc codeListing*(c: TCtx; start = 0; last = -1): seq[DebugVmCodeEntry] =
         case cnst.kind
         of cnstInt:    newIntNode(nkIntLit, cnst.intVal)
         of cnstFloat:  newFloatNode(nkFloatLit, cnst.floatVal)
-        of cnstString: newStrNode(nkStrLit, cnst.strVal)
         of cnstNode:   cnst.node
         of cnstSliceListInt..cnstSliceListFloat:
           # XXX: translate into an `nkOfBranch`?
