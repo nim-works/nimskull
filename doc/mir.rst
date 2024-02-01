@@ -159,7 +159,9 @@ Semantics
             | Emit VALUE ...
             | Asm VALUE ...
 
-  BRANCH_LIST = (Branch <Literal> ... STATEMENT) ... # a list of branches
+  BRANCH_LABEL = <Literal>
+               | <Const>
+  BRANCH_LIST = (Branch BRANCH_LABEL ... STATEMENT) ... # a list of branches
 
   EXCEPT_BRANCH = Branch <Type> ... STATEMENT # exception handler
                 | Branch <Local>    STATEMENT # exception handler for imported
