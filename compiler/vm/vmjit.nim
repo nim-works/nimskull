@@ -43,7 +43,7 @@ import
   ],
   compiler/vm/[
     vmaux,
-    vmcompilerserdes,
+    vmserialize,
     vmdef,
     vmgen,
     vmjit_checks,
@@ -116,12 +116,10 @@ proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
   # constants
   for id, data in since(env.data, cp.data):
     let
-      typ = c.getOrCreate(data.typ)
+      typ = c.getOrCreate(data[0].typ)
       handle = c.allocator.allocConstantLocation(typ)
 
-    # TODO: strings, seqs and other values using allocation also need to be
-    #       allocated with `allocConstantLocation` inside `serialize` here
-    c.serialize(data, handle)
+    initFromExpr(handle, data, c)
 
     c.complexConsts.add handle
 
