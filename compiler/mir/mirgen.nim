@@ -1786,7 +1786,7 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
     of nkOfBranch:
       # emit the lables:
       for (_, lit) in branchLabels(branch):
-        c.add MirNode(kind: mnkLiteral, lit: lit)
+        c.add MirNode(kind: mnkLiteral, lit: lit, typ: lit.typ)
     else:
       unreachable(branch.kind)
 
