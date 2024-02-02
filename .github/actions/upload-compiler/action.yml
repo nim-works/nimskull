@@ -23,12 +23,12 @@ runs:
         with tarfile.open(archivepath, mode="x") as archive:
           for file in diff:
             archive.add(file)
-      shell: python
+      shell: python3 {0}
       working-directory: "${{ inputs.source }}"
 
     - uses: actions/upload-artifact@v4
       with:
-        name: compiler ${{ runner.os }}
+        name: compiler ${{ runner.os }} ${{ runner.arch }}
         path: "${{ runner.temp }}/compiler.tar"
         # This action is only used to share data between jobs, there is no need
         # to keep this artifact for long.

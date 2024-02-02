@@ -94,6 +94,10 @@ jobs:
               "runner": "macos-11"
             },
             {
+              "name": "macOS (M1)",
+              "runner": "macos-14"
+            },
+            {
               "name": "Windows",
               "runner": "windows-2022"
             }
