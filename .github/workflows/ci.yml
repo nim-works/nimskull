@@ -91,7 +91,7 @@ jobs:
             },
             {
               "name": "macOS",
-              "runner": "macos-11"
+              "runner": "macos-12"
             },
             {
               "name": "macOS (M1)",
