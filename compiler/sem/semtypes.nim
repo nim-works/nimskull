@@ -585,7 +585,6 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
           localReport(c.config, err)
           return errorSym(c, n, err)
       if result.kind != skType and result.magic notin {mStatic, mType, mTypeOf}:
-        # this implements the wanted ``var v: V, x: V`` feature ...
         var ov: TOverloadIter
         var amb = initOverloadIter(ov, c, n)
         while amb != nil and amb.kind != skType:
