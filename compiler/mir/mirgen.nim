@@ -678,7 +678,7 @@ proc genFieldCheck(c: var TCtx, access: Value, call: PNode, inverted: bool,
       c.emitByVal literal(newIntTypeNode(ord(inverted), call.typ))
       # error message operand:
       c.emitByVal literal(newStrNode(genFieldDefect(conf, field, discr),
-                                     call.info))
+                                     c.graph.getSysType(call.info, tyString)))
 
 proc genVariantAccess(c: var TCtx, n: PNode) =
   ## Generates and emits the MIR code for an object variant access, but
@@ -1761,7 +1761,7 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
     of nkOfBranch:
       # emit the lables:
       for (_, lit) in branchLabels(branch):
-        c.add MirNode(kind: mnkLiteral, lit: lit)
+        c.add MirNode(kind: mnkLiteral, lit: lit, typ: lit.typ)
     else:
       unreachable(branch.kind)
 

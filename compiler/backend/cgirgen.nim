@@ -729,7 +729,8 @@ proc caseToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl, n: MirNode,
     result.add newTree(cnkBranch, cr.info)
     if br.len > 0:
       for x in 0..<br.len:
-        result[^1].add translateLit(get(tree, cr).lit)
+        assert tree[cr].kind in {mnkConst, mnkLiteral}
+        result[^1].add atomToIr(tree, cl, cr)
 
     result[^1].add bodyToIr(tree, env, cl, cr)
     leave(tree, cr)

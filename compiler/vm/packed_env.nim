@@ -839,7 +839,6 @@ proc loadEnv*(dst: var TCtx, src: PackedEnv) =
     case x[0]
     of cnstInt:     co.intVal = src.numbers[id.LitId]
     of cnstFloat:   co.floatVal = cast[BiggestFloat](src.numbers[id.LitId])
-    of cnstString:  co.strVal = src.strings[id.LitId]
 
     of cnstSliceListInt:   co.intSlices = loadSliceList[BiggestInt](src, id)
     of cnstSliceListFloat: co.floatSlices = loadSliceList[BiggestFloat](src, id)
@@ -903,7 +902,6 @@ func storeEnv*(enc: var PackedEncoder, dst: var PackedEnv, c: TCtx) =
       case c.kind
       of cnstInt:     dst.getLitId(c.intVal).uint32
       of cnstFloat:   dst.getLitId(c.floatVal).uint32
-      of cnstString:  dst.getLitId(c.strVal).uint32
 
       of cnstSliceListInt:   dst.storeSliceList(c.intSlices)
       of cnstSliceListFloat: dst.storeSliceList(c.floatSlices)
