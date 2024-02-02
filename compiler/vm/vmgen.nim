@@ -433,9 +433,10 @@ proc patchSetEh(c: var TCtx, p: TPosition) =
   let
     p = p.int
     fin = c.ehTable.len
-  assert c.code[p].opcode == opcSetEh
-  c.code[p] = TInstr((c.code[p].TInstrType and regAMask) or
-                     TInstrType(fin shl regBShift))
+    instr = c.code[p]
+  assert instr.opcode == opcSetEh
+  # opcode and regA stay the same, only regB is updated:
+  c.code[p] = TInstr(instr.TInstrType or TInstrType(fin shl regBShift))
 
 proc registerEh(c: var TCtx) =
   ## If a jump-list designated for exception handling is active, associates it
