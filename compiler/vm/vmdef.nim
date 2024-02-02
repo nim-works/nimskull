@@ -336,7 +336,6 @@ type
   ConstantKind* = enum
     cnstInt
     cnstFloat
-    cnstString
     cnstNode ## AST, type literals
 
     # slice-lists are used for implementing `opcBranch` (branch for case stmt)
@@ -356,8 +355,6 @@ type
       intVal*: BiggestInt
     of cnstFloat:
       floatVal*: BiggestFloat
-    of cnstString:
-      strVal*: string
     of cnstNode:
       node*: PNode
 

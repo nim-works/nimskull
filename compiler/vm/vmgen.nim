@@ -693,8 +693,6 @@ makeCnstFunc(toIntCnst, BiggestInt, cnstInt, intVal, `==`)
 
 makeCnstFunc(toFloatCnst, BiggestFloat, cnstFloat, floatVal, cmpFloatRep)
 
-makeCnstFunc(toStringCnst, string, cnstString, strVal, `==`)
-
 proc toIntCnst(c: var TCtx, val: Int128): int =
   # integer constants are stored as their raw bit representation
   toIntCnst(c, BiggestInt(toInt64(val)))
@@ -704,7 +702,6 @@ proc genLiteral(c: var TCtx, n: CgNode): int =
   of cnkIntLit:   toIntCnst(c, n.intVal)
   of cnkUIntLit:  toIntCnst(c, n.intVal)
   of cnkFloatLit: toFloatCnst(c, n.floatVal)
-  of cnkStrLit:   toStringCnst(c, n.strVal)
   else:           unreachable(n.kind)
 
 template fillSliceList[T](sl: var seq[Slice[T]], nodes: openArray[CgNode],
@@ -932,14 +929,9 @@ proc genReturn(c: var TCtx; n: CgNode) =
 
 proc genLit(c: var TCtx; n: CgNode; lit: int; dest: var TDest) =
   ## `lit` is the index of a constant as returned by `genLiteral`
-  if dest.isUnset or c.prc.regInfo[dest].kind == slotTempUnknown or
-     fitsRegister(n.typ):
-    # load the literal into the *register*
-    prepare(c, dest, n.typ)
-    c.gABx(n, opcLdConst, dest, lit)
-  else:
-    # assign the literal to the destination *location* directly
-    c.gABx(n, opcAsgnConst, dest, lit)
+  # load the literal into the *register*
+  prepare(c, dest, n.typ)
+  c.gABx(n, opcLdConst, dest, lit)
 
 proc genLit(c: var TCtx; n: CgNode; dest: var TDest) =
   let lit = genLiteral(c, n)
