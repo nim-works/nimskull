@@ -1373,13 +1373,13 @@ when not defined(nimscript):
     elif defined(windows):
       var bufsize = MAX_PATH.int32
       when useWinUnicode:
-        var res = newWideCString("", bufsize)
+        var res = newWideCString(bufsize)
         while true:
           var L = getCurrentDirectoryW(bufsize, res)
           if L == 0'i32:
             raiseOSError(osLastError())
           elif L > bufsize:
-            res = newWideCString("", L)
+            res = newWideCString(L)
             bufsize = L
           else:
             result = res$L
@@ -2186,13 +2186,13 @@ proc expandFilename*(filename: string): string {.rtl, extern: "nos$1",
     var bufsize = MAX_PATH.int32
     when useWinUnicode:
       var unused: WideCString = nil
-      var res = newWideCString("", bufsize)
+      var res = newWideCString(bufsize)
       while true:
         var L = getFullPathNameW(newWideCString(filename), bufsize, res, unused)
         if L == 0'i32:
           raiseOSError(osLastError(), filename)
         elif L > bufsize:
-          res = newWideCString("", L)
+          res = newWideCString(L)
           bufsize = L
         else:
           result = res$L
@@ -3131,14 +3131,14 @@ proc getAppFilename*(): string {.rtl, extern: "nos$1", tags: [ReadIOEffect], noW
   when defined(windows):
     var bufsize = int32(MAX_PATH)
     when useWinUnicode:
-      var buf = newWideCString("", bufsize)
+      var buf = newWideCString(bufsize)
       while true:
         var L = getModuleFileNameW(0, buf, bufsize)
         if L == 0'i32:
           result = "" # error!
           break
         elif L > bufsize:
-          buf = newWideCString("", L)
+          buf = newWideCString(L)
           bufsize = L
         else:
           result = buf$L
