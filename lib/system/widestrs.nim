@@ -121,9 +121,12 @@ iterator runes(s: cstring, L: int): int =
     yield result
 
 proc newWideCString*(size: int): WideCStringObj =
+  ## Create an empty `WideCStringObj` with the given buffer size in
+  ## UTF-16 code units.
   createWide(result, size + 1) # +1 for the zero terminator
 
 proc newWideCString*(source: cstring, L: int): WideCStringObj =
+  ## Take a `cstring` and its length `L` in bytes, then returns a copy in wide form.
   createWide(result, L + 1) # +1 for the zero terminator
   var d = 0
   for ch in runes(source, L):
@@ -144,11 +147,13 @@ proc newWideCString*(source: cstring, L: int): WideCStringObj =
   result[d] = Utf16Char(0)
 
 proc newWideCString*(s: cstring): WideCStringObj =
+  ## Returns a copy of the string `s` in wide form. `s` should be NUL-terminated.
   if s.isNil: return nullWide
 
   result = newWideCString(s, s.len)
 
 proc newWideCString*(s: string): WideCStringObj =
+  ## Returns a copy of the string `s` in wide form.
   result = newWideCString(cstring s, s.len)
 
 proc `$`*(w: WideCString, estimate: int, replacement: int = 0xFFFD): string =
