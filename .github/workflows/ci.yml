@@ -92,6 +92,10 @@ jobs:
             {
               "name": "macOS",
               "runner": "macos-11"
+            },
+            {
+              "name": "Windows",
+              "runner": "windows-2022"
             }
           ]
           EOF
@@ -122,6 +126,30 @@ jobs:
 
       - name: Enable annotations
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
+
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-mingw
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        uses: johnwason/vcpkg-action@v6
+        with:
+          pkgs: >-
+            pcre
+            sqlite3
+          triplet: x64-mingw-dynamic-release
+          extra-args: --overlay-triplets=${{ github.workspace }}/tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
+          revision: 2024.01.12
+          github-binarycache: true
+          token: ${{ github.token }}
+
+      - name: Download CA certificates (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          Invoke-WebRequest https://curl.se/ca/cacert.pem -OutFile (Join-Path $binPath "cacert.pem")
+        shell: pwsh
 
       - name: Build release binaries
         run: ./koch.py all-strict
@@ -180,6 +208,17 @@ jobs:
         run: |
           brew update
 
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-mingw
+
+      - name: Add DLLs to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
+
       - name: Run tester
         run: ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' --tryFailing all
 
@@ -204,6 +243,17 @@ jobs:
         with:
           fetch-depth: 0
           filter: tree:0
+
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-mingw
+
+      - name: Add DLLs to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
 
       - uses: ./.github/actions/download-compiler
 
@@ -238,17 +288,17 @@ jobs:
         run: |
           ./koch.py archive
 
-          archive=build/$(jq -r .name build/archive.json)
+          archive=build/archive/$(jq -r .name build/archive/archive.json)
 
           # Rename the archive manifest to avoid collision with manifest of
           # other archives
-          mv build/archive.json build/source.json
+          mv build/archive/archive.json build/archive/source.json
 
           echo "archive=$archive" >> $GITHUB_OUTPUT
-          echo "metadata=build/source.json" >> $GITHUB_OUTPUT
+          echo "metadata=build/archive/source.json" >> $GITHUB_OUTPUT
 
       - name: Publish source archive to artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: source archive
           path: |
@@ -269,8 +319,18 @@ jobs:
     runs-on: ${{ matrix.target.runner }}
 
     steps:
+      - name: Get actions
+        uses: actions/checkout@v4
+        with:
+          path: git-src
+          sparse-checkout: .github/actions
+
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./git-src/.github/actions/setup-mingw
+
       - name: Download source archive
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: source archive
           path: source-archive
@@ -280,6 +340,34 @@ jobs:
           archive=source-archive/$(jq -r .name source-archive/source.json)
           # Pipe from zstd to tar because macOS' tar does not support unpacking zstd
           zstd -c -d "$archive" | tar -xf - --strip-components 1
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        uses: johnwason/vcpkg-action@v6
+        with:
+          pkgs: >-
+            pcre
+            sqlite3
+          triplet: x64-mingw-dynamic-release
+          extra-args: --overlay-triplets=${{ github.workspace }}/tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
+          revision: 2024.01.12
+          github-binarycache: true
+          token: ${{ github.token }}
+
+      - name: Add DLLs to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
+
+      - name: Install DLLs to package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+          Copy-Item (Join-Path $binPath "libpcre.dll") -Destination bin
+        shell: pwsh
 
       - name: Build release binaries
         run: ./koch.py all
@@ -298,23 +386,27 @@ jobs:
       - id: package
         name: Create release package
         run: |
-          ./koch.py unixrelease
+          releasecmd=unixrelease
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            releasecmd=winrelease
+          fi
+          ./koch.py "$releasecmd"
 
-          archive=build/$(jq -r .name build/archive.json)
+          archive=build/archive/$(jq -r .name build/archive/archive.json)
           # Rename the archive manifest to avoid collision with other artifacts
-          os=$(jq -r .os build/archive.json)
-          cpu=$(jq -r .cpu build/archive.json)
-          metadata=build/${os}_${cpu}.json
-          mv build/archive.json "$metadata"
+          os=$(jq -r .os build/archive/archive.json)
+          cpu=$(jq -r .cpu build/archive/archive.json)
+          metadata=build/archive/${os}_${cpu}.json
+          mv build/archive/archive.json "$metadata"
 
           # Let the uploader know what to upload
           echo "archive=$archive" >> $GITHUB_OUTPUT
           echo "metadata=$metadata" >> $GITHUB_OUTPUT
 
       - name: Upload release package to artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: binaries from source archive
+          name: binaries from source archive ${{ matrix.target.name }}
           path: |
             ${{ steps.package.outputs.archive }}
             ${{ steps.package.outputs.metadata }}
@@ -343,6 +435,25 @@ jobs:
       - name: Enable annotations
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-mingw
+
+      - name: Add DLLs to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
+
+      - name: Install DLLs to package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+          Copy-Item (Join-Path $binPath "libpcre.dll") -Destination bin
+        shell: pwsh
+
       # Note: keep synchronized with source_binaries job
       - name: Build docs
         run: |
@@ -357,14 +468,18 @@ jobs:
       - id: package
         name: Create release package
         run: |
-          ./koch.py unixrelease
+          releasecmd=unixrelease
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            releasecmd=winrelease
+          fi
+          ./koch.py "$releasecmd"
 
-          archive=build/$(jq -r .name build/archive.json)
+          archive=build/archive/$(jq -r .name build/archive/archive.json)
           # Rename the archive manifest to avoid collision with other artifacts
-          os=$(jq -r .os build/archive.json)
-          cpu=$(jq -r .cpu build/archive.json)
-          metadata=build/${os}_${cpu}.json
-          mv build/archive.json "$metadata"
+          os=$(jq -r .os build/archive/archive.json)
+          cpu=$(jq -r .cpu build/archive/archive.json)
+          metadata=build/archive/${os}_${cpu}.json
+          mv build/archive/archive.json "$metadata"
 
           # Let the uploader know what to upload
           echo "archive=$archive" >> $GITHUB_OUTPUT
@@ -372,7 +487,7 @@ jobs:
 
       - name: Upload docs to artifacts
         if: matrix.target.shared_builder
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           # If this name is updated, tweak publisher.yml
           name: Generated docs
@@ -380,9 +495,9 @@ jobs:
           if-no-files-found: error
 
       - name: Upload release package to artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: release binaries
+          name: release binaries ${{ matrix.target.name }}
           path: |
             ${{ steps.package.outputs.archive }}
             ${{ steps.package.outputs.metadata }}
@@ -406,19 +521,22 @@ jobs:
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
       - name: Download binaries built from source archive
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: binaries from source archive
+          pattern: binaries from source archive*
           path: binary-from-source
+          merge-multiple: true
 
       - name: Download release package
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: release binaries
+          # Download all release binaries to the same folder
+          pattern: release binaries*
           path: release-binary
+          merge-multiple: true
 
       - name: Download release source archive
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: source archive
           path: source-archive
@@ -449,7 +567,7 @@ jobs:
 
       - name: Upload difference test result on failure
         if: failure() && steps.diff.outputs.result != ''
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: differences between binary from source archive and git
           path: ${{ steps.diff.outputs.result }}
@@ -469,7 +587,7 @@ jobs:
       # This allow the publisher to run the tool directly without having to
       # clone the compiler.
       - name: Upload release manifest tool
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: release manifest tool
           path: tools/release_manifest

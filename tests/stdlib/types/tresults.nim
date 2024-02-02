@@ -1,7 +1,6 @@
 discard """
   description: "Tests for the std/experimental/results module"
   targets: "c js vm"
-  knownIssue.vm: "code-gen issues"
 """
 
 # This file was based on the ``test.nim`` file

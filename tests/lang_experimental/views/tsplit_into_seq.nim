@@ -4,7 +4,6 @@ asdf
 231
 231
 '''
-  cmd: "nim c --gc:orc $file"
 """
 
 {.experimental: "views".}

@@ -1,0 +1,40 @@
+name: Setup MinGW environment
+description: Download and setup MinGW environment for Windows
+inputs:
+  mingw-version:
+    description: The release tag from niXman/mingw-builds-binaries to use
+    required: false
+    default: "13.2.0-rt_v11-rev1"
+
+runs:
+  using: "composite"
+  steps:
+    - if: runner.os != 'Windows'
+      name: Error when used on non-Windows runners
+      run: |
+        echo "::error::This action does not support $RUNNER_OS"
+        exit 1
+      shell: bash
+
+    - name: Download from niXman/mingw-builds-binaries
+      id: download
+      uses: robinraju/release-downloader@v1.8
+      with:
+        repository: niXman/mingw-builds-binaries
+        tag: ${{ inputs.mingw-version }}
+        fileName: x86_64-*-win32-*-ucrt*.7z
+
+    - name: Extract MinGW and add to PATH
+      run: |
+        7z x "$env:MINGW_ARCHIVE"
+        rm $env:MINGW_ARCHIVE
+        Join-Path $env:RUNNER_TEMP "mingw64" "bin" | Out-File -Append $env:GITHUB_PATH
+      shell: pwsh
+      env:
+        MINGW_ARCHIVE:
+          ${{ fromJson(steps.download.outputs.downloaded_files)[0] }}
+      working-directory: ${{ runner.temp }}
+
+    - name: Print GCC version
+      run: gcc -v
+      shell: pwsh

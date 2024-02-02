@@ -1,5 +1,4 @@
 discard """
-  targets: "c js"
   labels: "js arithmetic int"
   description: '''
     . Fix div uint64 without truncation for JS.
@@ -18,6 +17,5 @@ block divUint64:
     doAssert z == 269113
     doAssert a == 112130
 
-  static: divTest()
   divTest()
 

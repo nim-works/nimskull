@@ -19,6 +19,9 @@ type
     ## integer-like ID. The container is append-only
     data: seq[T]
 
+  Checkpoint* = distinct int
+    ## Represents the state of a ``Store`` at some point in time.
+
   OrdinalSeq*[I: Ordinal, T] = distinct seq[T]
     ## Similar to a ``seq``, but can only be accessed by values of the
     ## specified type. This is useful in situations where the type of the
@@ -78,6 +81,8 @@ iterator mpairs*[K, V](m: var SeqMap[K, V]): (K, var V) =
 
 # ---------- Store API ------------
 
+func `==`*(a, b: Checkpoint): bool {.borrow.}
+
 template `[]`*[I; T](x: Store[I, T], i: I): untyped =
   # TODO: convert to ``distinctBase`` instead
   x.data[int(i)]
@@ -107,10 +112,18 @@ iterator pairs*[I, T](x: Store[I, T]): (I, lent T) =
     yield (I(i), x.data[i])
     inc i
 
+iterator since*[I; T](s: Store[I, T], p: Checkpoint): (I, lent T) =
+  ## Returns all items together with their ID added since `p` was created.
+  for i in int(p)..<s.data.len:
+    yield (I(i), s.data[i])
+
 func nextId*[I; T](x: Store[I, T]): I {.inline.} =
   ## Returns the ID that would be assigned to the next added item.
   rangeCheck x.data.len.BiggestUInt < high(I).BiggestUInt
   result = I(x.data.len)
+
+func checkpoint*(s: Store): Checkpoint =
+  s.data.len.Checkpoint
 
 func add*[I; T](x: var Store[I, T], it: sink T): I {.inline.} =
   ## Appends a new item to the Store and returns the ID assigned to
@@ -140,6 +153,12 @@ func merge*[I; T](dst: var Store[I, T], src: sink Store[I, T]): Option[I] =
   result =
     if src.data.len > 0: some I(start)
     else:                none(I)
+
+func rewind*(s: var Store, p: Checkpoint) =
+  ## Removes all items added since `p` was created. Do note that modifications
+  ## to items already existing when `p` was created are not reverted.
+  assert p.int <= s.data.len, "illegal rewind"
+  s.data.setLen(p.int)
 
 # ---------- OrdinalSeq API ------------
 

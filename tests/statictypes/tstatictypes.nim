@@ -362,7 +362,7 @@ type
 #------------------------------------------------------------------------------------------
 # issue #15858
 
-proc fn(N1: static int, N2: static int, T: typedesc): array[N1 * N2, T] = 
+proc fn(N1: static int, N2: static int, T: typedesc): array[N1 * N2, T] =
   doAssert(len(result) == N1 * N2)
 
 let yy = fn(5, 10, float)
@@ -391,3 +391,24 @@ var sorted = newSeq[int](1000)
 for i in 0..<sorted.len: sorted[i] = i*2
 doAssert isSorted2(sorted, compare)
 doAssert isSorted2(sorted, proc (a, b: int): bool {.inline.} = a < b)
+
+block invalid_type_coercion:
+  # a ``typedesc[int]`` cannot be coerced into a ``static[int]``
+  doAssert not compiles(static[int](int))
+
+block coercion_to_static_type_error:
+  # the expression to a static-type coercion must be a constant expression
+  var x = 1
+  doAssert not compiles(static[int](x))
+
+block coercion_to_static_type:
+  # expressions in static-type coercions must be fully evaluated at compile-
+  # time
+  proc get(): float =
+    when nimvm:
+      result = 1.1
+    else:
+      result = 2.1
+
+  # the call must be fully evaluated at compile-time
+  doAssert static[int](get()) == 1

@@ -1,6 +1,6 @@
 discard """
   targets: "c js vm"
-  knownIssue.c js: '''
+  knownIssue.c js vm: '''
     A constructor node with a resolved type-class as the type either
     crashes the compiler or results in an internal compiler error
   '''

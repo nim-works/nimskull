@@ -371,7 +371,6 @@ func astDiagVmToLegacyReportKind*(
   of adVmUserError: rvmUserError
   of adVmUnhandledException: rvmUnhandledException
   of adVmCannotCast: rvmCannotCast
-  of adVmCallingNonRoutine: rvmCallingNonRoutine
   of adVmCannotModifyTypechecked: rvmCannotModifyTypechecked
   of adVmNilAccess: rvmNilAccess
   of adVmAccessOutOfBounds: rvmAccessOutOfBounds

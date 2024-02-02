@@ -3,71 +3,88 @@ discard """
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:tfor --expandArc:texit --hint:Performance:off $file'''
   nimout: '''--expandArc: main
 
-var a
-var b
-var x
-x = f()
-block :label_0:
-  if cond:
-    add(a, x)
-    break :label_0
-  add(b, x)
-=destroy(b)
-=destroy(a)
+scope:
+  def a: seq[seq[int]]
+  def b: seq[seq[int]]
+  def x: seq[int] = f() (raises)
+  block L0:
+    if cond:
+      scope:
+        def _0: seq[int] = x
+        add(name a, consume _0)
+        break L0
+    scope:
+      def _1: seq[int] = x
+      add(name b, consume _1)
+  =destroy(name b)
+  =destroy(name a)
 -- end of expandArc ------------------------
 --expandArc: tfor
 
-var a
-var b
-var x
-try:
-  x = f()
-  var a_1 = 0
-  var b_1 = 4
-  var i = a_1
-  block :label_0:
-    while true:
-      if not(<(i, b_1)):
-        break :label_0
-      var i_1_cursor = i
-      if ==(i_1_cursor, 2):
-        return
-      add(a,
-        var :aux_9 = default()
-        =copy(:aux_9, x)
-        :aux_9)
-      inc(i, 1)
-  block :label_0:
-    if cond:
-      add(a,
-        var :aux_10 = x
-        wasMoved(x)
-        :aux_10)
-      break :label_0
-    add(b,
-      var :aux_11 = x
-      wasMoved(x)
-      :aux_11)
-finally:
-  =destroy(x)
-  =destroy_1(b)
-  =destroy_1(a)
+scope:
+  try:
+    def a: seq[seq[int]]
+    def b: seq[seq[int]]
+    def x: seq[int] = f() (raises)
+    scope:
+      def a: int = 0
+      def b: int = 4
+      def i: int = a
+      block L0:
+        scope:
+          while true:
+            scope:
+              def_cursor _0: int = i
+              def_cursor _1: bool = ltI(arg _0, arg b)
+              def_cursor _2: bool = not(arg _1)
+              if _2:
+                scope:
+                  break L0
+              scope:
+                scope:
+                  def_cursor i: int = i
+                  def_cursor _3: bool = eqI(arg i, arg 2)
+                  if _3:
+                    scope:
+                      return
+                  def _4: seq[int]
+                  =copy(name _4, arg x)
+                  add(name a, consume _4)
+                i = addI(arg i, arg 1)
+    block L1:
+      if cond:
+        scope:
+          def _5: seq[int] = x
+          wasMoved(name x)
+          add(name a, consume _5)
+          break L1
+      scope:
+        def _6: seq[int] = x
+        wasMoved(name x)
+        add(name b, consume _6)
+  finally:
+    =destroy(name x)
+    =destroy(name b)
+    =destroy(name a)
 -- end of expandArc ------------------------
 --expandArc: texit
-var str
-var x
-try:
-  x = $(cond)
-  if cond:
-    return
-  str = $(cond)
-  if not(cond):
-    result = str
-    wasMoved(str)
-    return
-finally:
-  =destroy(x)
-  =destroy(str)
+scope:
+  try:
+    def str: string
+    def x: string = boolToStr(arg cond)
+    if cond:
+      scope:
+        return
+    str = boolToStr(arg cond)
+    def_cursor _0: bool = not(arg cond)
+    if _0:
+      scope:
+        result = str
+        wasMoved(name str)
+        return
+  finally:
+    =destroy(name x)
+    =destroy(name str)
 -- end of expandArc ------------------------'''
 """
 

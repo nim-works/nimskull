@@ -59,8 +59,8 @@ type
 
   POptionEntry* = ref TOptionEntry
   PProcCon* = ref TProcCon
-  TProcCon* {.acyclic.} = object ## procedure context; also used for top-level
-                                 ## statements
+  TProcCon* {.acyclic.} = object
+    ## procedure context; also used for top-level statements
     owner*: PSym              ## the symbol this context belongs to
     resultSym*: PSym          ## the result symbol (if we are in a proc)
     next*: PProcCon           ## used for stacking procedure contexts
@@ -619,7 +619,7 @@ type
     semConstBoolExpr*: proc (c: PContext, n: PNode): PNode {.nimcall.} # XXX bite the bullet
       ## read to break cyclic dependencies, init in sem during module open and
       ## read in pragmas
-    semOverloadedCall*: proc (c: PContext, n: PNode,
+    semOverloadedCall*: proc (c: PContext, n, nOrig: PNode,
                               filter: TSymKinds, flags: TExprFlags): PNode {.nimcall.}
       ## read to break cyclic dependencies, init in sem during module open and
       ## read in pragmas and semtypinst

@@ -325,18 +325,12 @@ proc collectCyclesBacon(j: var GcEnv; lowMark: int) =
     for i in countdown(last, lowMark):
       scan(roots.d[i][0], roots.d[i][1], j)
 
-  init j.toFree
   for i in 0 ..< roots.len:
     let s = roots.d[i][0]
     s.rootIdx = 0
     collectColor(s, roots.d[i][1], colToCollect, j)
 
-  for i in 0 ..< j.toFree.len:
-    free(j.toFree.d[i][0], j.toFree.d[i][1])
-
   inc j.freed, j.toFree.len
-  deinit j.toFree
-  #roots.len = 0
 
 const
   defaultThreshold = when defined(nimFixedOrc): 10_000 else: 128
@@ -346,39 +340,85 @@ when defined(nimStressOrc):
 else:
   var rootsThreshold = defaultThreshold
 
+var collectorLock {.threadvar.}: bool
+  ## prevents infinite recursion of the cycle collector, by disabling
+  ## the collector when a collection is already in progress
+
+proc freeCells(j: var GcEnv) =
+  ## Destroys and frees all garbage cells and then deinits the list. This
+  ## might register new cycle roots, so the cycle collector is disabled during
+  ## the process, in order to prevent recursion and stack overflows.
+  collectorLock = true
+  for i in 0 ..< j.toFree.len:
+    free(j.toFree.d[i][0], j.toFree.d[i][1])
+  collectorLock = false
+
 proc partialCollect(lowMark: int) =
+  if collectorLock:
+    return
   when false:
     if roots.len < 10 + lowMark: return
   when logOrc:
     cfprintf(cstderr, "[partialCollect] begin\n")
   var j: GcEnv
   init j.traceStack
+  init j.toFree
   collectCyclesBacon(j, lowMark)
   when logOrc:
     cfprintf(cstderr, "[partialCollect] end; freed %ld touched: %ld work: %ld\n", j.freed, j.touched,
       roots.len - lowMark)
   roots.len = lowMark
   deinit j.traceStack
+  # free the garbage cells after the root list is updated
+  freeCells(j)
+  deinit j.toFree
 
 proc collectCycles() =
   ## Collect cycles.
+  if collectorLock:
+    return
   when logOrc:
     cfprintf(cstderr, "[collectCycles] begin\n")
 
   var j: GcEnv
   init j.traceStack
+  init j.toFree
   when useJumpStack:
     init j.jumpStack
-    collectCyclesBacon(j, 0)
-    while j.jumpStack.len > 0:
-      let (t, desc) = j.jumpStack.pop
-      # not in jump stack anymore!
-      t.rc = t.rc and not jumpStackFlag
-    deinit j.jumpStack
-  else:
-    collectCyclesBacon(j, 0)
 
+  # destroying garbage cells can lead to the registration of new cycles, so
+  # cycle collection is run until no new roots are registered during cleanup
+  while roots.len > 0:
+    # reset all counters and lists:
+    j.keepThreshold = false
+    j.edges = 0
+    j.rcSum = 0
+    j.touched = 0
+    j.freed = 0
+    j.toFree.len = 0
+    j.traceStack.len = 0
+
+    when useJumpStack:
+      j.jumpStack.len = 0
+      collectCyclesBacon(j, 0)
+      while j.jumpStack.len > 0:
+        let (t, desc) = j.jumpStack.pop
+        # not in jump stack anymore!
+        t.rc = t.rc and not jumpStackFlag
+    else:
+      collectCyclesBacon(j, 0)
+
+    # prepare for ``freeCell`` potentially registering new roots
+    roots.len = 0
+    # free the garbage cells after the root list is reset
+    freeCells(j)
+
+  # free the temporary lists allocated for the cycle collector:
+  when useJumpStack:
+    deinit j.jumpStack
+  deinit j.toFree
   deinit j.traceStack
+  # also free the global root list:
   deinit roots
 
   when not defined(nimStressOrc):

@@ -30,12 +30,15 @@ import
     wordrecg,
     renderer,
     lineinfos,
-    astmsgs,
     ndi
   ],
   compiler/modules/[
     magicsys,
     modulegraphs
+  ],
+  compiler/mir/[
+    mirenv,
+    mirtrees
   ],
   compiler/front/[
     options,
@@ -89,15 +92,11 @@ const NonMagics* = {mNewString, mNewStringOfCap, mNewSeq, mSetLengthSeq,
                     mAppendSeqElem, mEnumToStr, mExit, mParseBiggestFloat,
                     mDotDot, mEqCString, mIsolate}
   ## magics that are treated like normal procedures by the code generator.
-  ## This set only applies when using the new runtime.
 
 const
   sfTopLevel* = sfMainModule
     ## the procedure contains top-level code, which currently affects how
     ## emit, asm, and error handling works
-
-template `[]=`(x: CgNode, i: Natural, n: CgNode) =
-  x.kids[i] = n
 
 proc findPendingModule(m: BModule, s: PSym): BModule =
   let ms = s.itemId.module  #getModule(s)
@@ -122,19 +121,23 @@ proc fillLoc(a: var TLoc, k: TLocKind, lode: CgNode, r: Rope, s: TStorageLoc) =
     if a.r == "": a.r = r
 
 proc t(a: TLoc): PType {.inline.} =
-  if a.lode.kind == cnkSym:
-    result = a.lode.sym.typ
-  else:
-    result = a.lode.typ
+  a.lode.typ
 
 proc lodeTyp(t: PType): CgNode =
   result = newNode(cnkEmpty, typ = t)
 
-proc isSimpleConst(typ: PType): bool =
+proc isSimpleConst(c: ConfigRef, typ: PType): bool =
   let t = skipTypes(typ, abstractVar)
-  result = t.kind notin
-      {tyTuple, tyObject, tyArray, tySet, tySequence} and not
-      (t.kind == tyProc and t.callConv == ccClosure)
+  case t.kind
+  of tyTuple, tyObject, tyArray, tySequence:
+    false
+  of tySet:
+    # small sets can be inlined directly
+    getSize(c, t) <= 8
+  of tyProc:
+    t.callConv != ccClosure
+  else:
+    false
 
 proc useHeader(m: BModule, sym: PSym) =
   if exfHeader in sym.extFlags:
@@ -309,9 +312,16 @@ proc genLineDir(p: BProc, t: CgNode) =
       linefmt(p, cpsStmts, "nimln_($1, $2);$n",
               [line, quotedFilename(p.config, t.info)])
 
-proc accessThreadLocalVar(p: BProc, s: PSym)
+proc registerLateProc(m: BModule, s: PSym): ProcedureId =
+  ## Raises a dependency on `s`, registering it with the environment if it's
+  ## not present there already.
+  result = m.g.env.procedures.add(s)
+  # inline procedure handling needs to know about the dependency...
+  m.extra.add(result)
+
+proc accessThreadLocalVar(p: BProc)
 proc emulatedThreadVars*(conf: ConfigRef): bool {.inline.}
-proc useProc(m: BModule, prc: PSym)
+proc useProc(m: BModule, id: ProcedureId)
 proc raiseInstr(p: BProc): Rope
 
 proc getTempName(m: BModule): Rope =
@@ -336,8 +346,14 @@ include ccgtypes
 
 func mapTypeChooser(p: BProc, n: CgNode): TSymKind =
   case n.kind
-  of cnkSym:
-    n.sym.kind
+  of cnkField:
+    skField
+  of cnkProc:
+    skProc
+  of cnkConst:
+    skConst
+  of cnkGlobal:
+    skVar
   of cnkLocal:
     if n.local == resultId:
       skResult
@@ -351,8 +367,14 @@ func mapTypeChooser(p: BProc, n: CgNode): TSymKind =
 func mapTypeChooser(a: TLoc): TSymKind =
   let n = a.lode
   case n.kind
-  of cnkSym:
-    n.sym.kind
+  of cnkField:
+    skField
+  of cnkProc:
+    skProc
+  of cnkConst:
+    skConst
+  of cnkGlobal:
+    skVar
   of cnkLocal:
     if n.local == resultId:
       skResult
@@ -380,7 +402,7 @@ proc rdCharLoc(a: TLoc): Rope =
     result = "((NU8)($1))" % [result]
 
 proc genObjConstr(p: BProc, e: CgNode, d: var TLoc)
-proc rawConstExpr(p: BProc, n: CgNode; d: var TLoc)
+proc defaultValueExpr(p: BProc, n: CgNode; d: var TLoc)
 proc genAssignment(p: BProc, dest, src: TLoc)
 
 type
@@ -415,7 +437,7 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
       else:
         unreachable("cannot have embedded type fields")
 
-    rawConstExpr(p, newExpr(kind, info, t), result)
+    defaultValueExpr(p, newExpr(kind, info, t), result)
 
   case analyseObjectWithTypeField(t)
   of frNone:
@@ -524,27 +546,30 @@ proc assignLocalVar(p: BProc, n: CgNode) =
 
 include ccgthreadvars
 
-proc varInDynamicLib(m: BModule, sym: PSym)
+proc varInDynamicLib(m: BModule, id: GlobalId)
 
-proc fillGlobalLoc*(m: BModule, s: PSym) =
-  let n = CgNode(kind: cnkSym, info: s.info, typ: s.typ, sym: s)
-  m.globals.put(s, initLoc(locGlobalVar, n, mangleName(m.g.graph, s), OnHeap))
+proc fillGlobalLoc*(m: BModule, id: GlobalId) =
+  let
+    s = m.g.env[id]
+    n = CgNode(kind: cnkGlobal, info: s.info, typ: s.typ, global: id)
+  m.globals[id] = initLoc(locGlobalVar, n, mangleName(m.g.graph, s), OnHeap)
 
-proc defineGlobalVar*(m: BModule, s: PSym) =
-  fillGlobalLoc(m, s)
+proc defineGlobalVar*(m: BModule, id: GlobalId) =
+  let s = m.g.env[id]
+  fillGlobalLoc(m, id)
 
   assert s.id notin m.declaredThings
   assert findPendingModule(m, s) == m, "not the attached-to module"
 
   if exfDynamicLib in s.extFlags:
     incl(m.declaredThings, s.id)
-    varInDynamicLib(m, s)
+    varInDynamicLib(m, id)
   else:
     useHeader(m, s)
     if exfNoDecl notin s.extFlags:
       incl(m.declaredThings, s.id)
       var decl = ""
-      var td = getTypeDesc(m, m.globals[s].t, skVar)
+      var td = getTypeDesc(m, m.globals[id].t, skVar)
       if true:
         if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
           decl.addf "NIM_ALIGN($1) ", [rope(s.alignment)]
@@ -555,13 +580,13 @@ proc defineGlobalVar*(m: BModule, s: PSym) =
         if sfRegister in s.flags: decl.add(" register")
         if sfVolatile in s.flags: decl.add(" volatile")
         if sfNoalias in s.flags: decl.add(" NIM_NOALIAS")
-        decl.addf(" $1;$n", [m.globals[s].r])
+        decl.addf(" $1;$n", [m.globals[id].r])
 
       m.s[cfsVars].add(decl)
 
-proc fillProcLoc*(m: BModule; sym: PSym) =
-  if sym.locId == 0:
-    m.procs.put(sym): ProcLoc(sym: sym, name: mangleName(m.g.graph, sym))
+proc fillProcLoc*(m: BModule; id: ProcedureId) =
+  if id notin m.procs:
+    m.procs[id] = ProcLoc(name: mangleName(m.g.graph, m.g.env[id]))
 
 proc getLabel(p: BProc): TLabel =
   inc(p.labels)
@@ -570,8 +595,8 @@ proc getLabel(p: BProc): TLabel =
 proc fixLabel(p: BProc, labl: TLabel) =
   lineF(p, cpsStmts, "$1: ;$n", [labl])
 
-proc genVarPrototype*(m: BModule, n: CgNode)
-proc genProcPrototype*(m: BModule, sym: PSym)
+proc genVarPrototype*(m: BModule, id: GlobalId)
+proc genProcPrototype*(m: BModule, id: ProcedureId)
 proc genStmts*(p: BProc, t: CgNode)
 proc expr(p: BProc, n: CgNode, d: var TLoc)
 proc putLocIntoDest(p: BProc, d: var TLoc, s: TLoc)
@@ -591,7 +616,8 @@ proc initLocExpr(p: BProc, e: CgNode, result: var TLoc, flags: set[LocFlag]) =
 
 proc initLocExprSingleUse(p: BProc, e: CgNode, result: var TLoc) =
   initLoc(result, locNone, e, OnUnknown)
-  if e.kind == cnkCall and getCalleeMagic(e[0]) == mNone:
+  if e.kind in {cnkCall, cnkCheckedCall} and
+     getCalleeMagic(p.env, e[0]) == mNone:
     # We cannot check for tfNoSideEffect here because of mutable parameters.
     discard "bug #8202; enforce evaluation order for nested calls"
     # We may need to consider that 'f(g())' cannot be rewritten to 'tmp = g(); f(tmp)'
@@ -633,22 +659,24 @@ proc mangleDynLibProc(sym: PSym): Rope =
   else:
     result = rope(strutils.`%`("Dl_$1_", $sym.id))
 
-proc fillDynlibProcLoc(m: BModule, s: PSym) =
-  if s.locId == 0:
+proc fillDynlibProcLoc(m: BModule, id: ProcedureId) =
+  if id notin m.procs:
     # XXX: a dynlib procedure is not really a ``locProc``, but rather a
     #      global variable
-    m.procs.put(s): ProcLoc(name: mangleDynLibProc(s), sym: s)
+    m.procs[id] = ProcLoc(name: mangleDynLibProc(m.g.env[id]))
 
-proc symInDynamicLib*(m: BModule, sym: PSym) =
-  fillDynlibProcLoc(m, sym)
+proc symInDynamicLib*(m: BModule, id: ProcedureId) =
+  fillDynlibProcLoc(m, id)
   m.s[cfsVars].addf("$2 $1;$n",
-                    [m.procs[sym].name, getTypeDesc(m, sym.typ, skVar)])
+                    [m.procs[id].name, getTypeDesc(m, m.g.env[id].typ, skVar)])
 
 
-proc varInDynamicLib(m: BModule, sym: PSym) =
-  let tmp = mangleDynLibProc(sym)
-  incl(m.globals[sym].flags, lfIndirect)
-  m.globals[sym].r = tmp  # from now on we only need the internal name
+proc varInDynamicLib(m: BModule, id: GlobalId) =
+  let
+    sym = m.g.env[id]
+    tmp = mangleDynLibProc(sym)
+  incl(m.globals[id].flags, lfIndirect)
+  m.globals[id].r = tmp  # from now on we only need the internal name
   m.s[cfsVars].addf("$2* $1;$n",
       [tmp, getTypeDesc(m, sym.typ, skVar)])
 
@@ -657,9 +685,9 @@ proc cgsym(m: BModule, name: string): Rope =
   if sym != nil:
     case sym.kind
     of skProc, skFunc, skMethod, skConverter, skIterator:
-      useProc(m, sym)
-      m.extra.add(sym) # notify the caller about the dependency
-    of skVar, skResult, skLet: genVarPrototype(m, newSymNode sym)
+      useProc(m, registerLateProc(m, sym))
+    of skVar, skResult, skLet:
+      genVarPrototype(m, m.g.env.globals[sym])
     of skType: discard getTypeDesc(m, sym.typ)
     else: internalError(m.config, "cgsym: " & name & ": " & $sym.kind)
   else:
@@ -750,7 +778,7 @@ proc allPathsAsgnResult(n: CgNode): InitResultEnum =
 
   result = Unknown
   case n.kind
-  of cnkStmtList, cnkStmtListExpr:
+  of cnkStmtList:
     for it in n:
       result = allPathsAsgnResult(it)
       if result != Unknown: return result
@@ -822,14 +850,15 @@ proc allPathsAsgnResult(n: CgNode): InitResultEnum =
 proc isNoReturn(m: BModule; s: PSym): bool {.inline.} =
   sfNoReturn in s.flags and m.config.exc != excGoto
 
-proc startProc*(m: BModule, prc: PSym; procBody: sink Body): BProc =
+proc startProc*(m: BModule, id: ProcedureId; procBody: sink Body): BProc =
+  let prc = m.g.env[id]
   var p = newProc(prc, m)
   p.body = procBody
   assert(prc.ast != nil)
-  fillProcLoc(m, prc) # ensure that a loc exists
-  if m.procs[prc].params.len == 0:
+  fillProcLoc(m, id) # ensure that a loc exists
+  if m.procs[id].params.len == 0:
     # if a prototype was emitted, the parameter list already exists
-    m.procs[prc].params = prepareParameters(m, prc.typ)
+    m.procs[id].params = prepareParameters(m, prc.typ)
 
   synchronize(p.locals, p.body.locals)
 
@@ -862,8 +891,8 @@ proc startProc*(m: BModule, prc: PSym; procBody: sink Body): BProc =
         p.locals[res].storage = OnUnknown
 
   # setup the locs for the parameters:
-  for i in 1..<m.procs[prc].params.len:
-    p.locals[LocalId(i)] = m.procs[prc].params[i]
+  for i in 1..<m.procs[id].params.len:
+    p.locals[LocalId(i)] = m.procs[id].params[i]
 
   # for now, we treat all compilerprocs as being able to run in a boot
   # environment where the error flag is not yet accessible. This is not quite
@@ -892,12 +921,13 @@ proc startProc*(m: BModule, prc: PSym; procBody: sink Body): BProc =
 
   result = p
 
-proc finishProc*(p: BProc, prc: PSym): string =
+proc finishProc*(p: BProc, id: ProcedureId): string =
   if {nimErrorFlagAccessed, nimErrorFlagDeclared} * p.flags == {nimErrorFlagAccessed}:
     p.flags.incl nimErrorFlagDeclared
     p.blocks[0].sections[cpsLocals].add(ropecg(p.module, "NIM_BOOL* nimErr_;$n", []))
     p.blocks[0].sections[cpsInit].add(ropecg(p.module, "nimErr_ = #nimErrorFlag();$n", []))
 
+  let prc = p.env[id]
   var
     header = genProcHeader(p.module, prc, p.params)
     returnStmt = ""
@@ -943,12 +973,12 @@ proc finishProc*(p: BProc, prc: PSym): string =
 
   result = generatedProc
 
-proc genProc*(m: BModule, prc: PSym, procBody: sink Body): Rope =
-  ## Generates the code for the procedure `prc`, where `procBody` is the code
+proc genProc*(m: BModule, id: ProcedureId, procBody: sink Body): Rope =
+  ## Generates the code for the procedure `id`, where `procBody` is the code
   ## of the body with all applicable lowerings and transformation applied.
-  let p = startProc(m, prc, procBody)
+  let p = startProc(m, id, procBody)
   genStmts(p, p.body.code)
-  result = finishProc(p, prc)
+  result = finishProc(p, id)
 
 proc genPartial*(p: BProc, n: CgNode) =
   ## Generates the C code for `n` and appends the result to `p`. This
@@ -957,7 +987,8 @@ proc genPartial*(p: BProc, n: CgNode) =
   synchronize(p.locals, p.body.locals)
   genStmts(p, n)
 
-proc genProcPrototype(m: BModule, sym: PSym) =
+proc genProcPrototype(m: BModule, id: ProcedureId) =
+  let sym = m.g.env[id]
   useHeader(m, sym)
   if exfNoDecl in sym.extFlags: return
   if exfDynamicLib in sym.extFlags:
@@ -965,12 +996,12 @@ proc genProcPrototype(m: BModule, sym: PSym) =
         not containsOrIncl(m.declaredThings, sym.id):
       m.s[cfsVars].add(ropecg(m, "$1 $2 $3;$n",
                         ["extern",
-                        getTypeDesc(m, sym.typ), m.procs[sym].name]))
+                        getTypeDesc(m, sym.typ), m.procs[id].name]))
 
   elif not containsOrIncl(m.declaredProtos, sym.id):
-    if m.procs[sym].params.len == 0:
-      m.procs[sym].params = prepareParameters(m, sym.typ)
-    var header = genProcHeader(m, sym, m.procs[sym].params)
+    if m.procs[id].params.len == 0:
+      m.procs[id].params = prepareParameters(m, sym.typ)
+    var header = genProcHeader(m, sym, m.procs[id].params)
     block:
       if isNoReturn(m, sym) and hasDeclspec in extccomp.CC[m.config.cCompiler].props:
         header = "__declspec(noreturn) " & header
@@ -980,34 +1011,34 @@ proc genProcPrototype(m: BModule, sym: PSym) =
         header.add(" __attribute__((noreturn))")
     m.s[cfsProcHeaders].add(ropecg(m, "$1;$N", [header]))
 
-proc useProc(m: BModule, prc: PSym) =
+proc useProc(m: BModule, id: ProcedureId) =
+  let prc = m.g.env[id]
   if exfImportCompilerProc in prc.extFlags:
-    fillProcLoc(m, prc)
+    fillProcLoc(m, id)
     useHeader(m, prc)
     # dependency to a compilerproc:
     discard cgsym(m, prc.name.s)
   elif exfDynamicLib in prc.extFlags:
     # a special name is used for run-time imported procedures:
-    fillDynlibProcLoc(m, prc)
-    genProcPrototype(m, prc)
+    fillDynlibProcLoc(m, id)
+    genProcPrototype(m, id)
   elif exfNoDecl in prc.extFlags or sfImportc in prc.flags:
-    fillProcLoc(m, prc)
-    genProcPrototype(m, prc)
+    fillProcLoc(m, id)
+    genProcPrototype(m, id)
   else:
     # mangle based on the attached-to module
-    fillProcLoc(findPendingModule(m, prc), prc)
-    genProcPrototype(m, prc)
+    fillProcLoc(findPendingModule(m, prc), id)
+    genProcPrototype(m, id)
 
-proc genVarPrototype(m: BModule, n: CgNode) =
-  #assert(sfGlobal in sym.flags)
-  let sym = n.sym
+proc genVarPrototype(m: BModule, id: GlobalId) =
+  let sym = m.g.env[id]
   useHeader(m, sym)
   if (exfNoDecl in sym.extFlags) or contains(m.declaredThings, sym.id):
     return
   if sym.owner.id != m.module.id:
     # else we already have the symbol generated!
     if sfThread in sym.flags:
-      declareThreadVar(m, sym, true)
+      declareThreadVar(m, id, true)
     else:
       incl(m.declaredThings, sym.id)
       if sym.kind in {skLet, skVar, skField, skForVar} and sym.alignment > 0:
@@ -1018,7 +1049,7 @@ proc genVarPrototype(m: BModule, n: CgNode) =
       if sfRegister in sym.flags: m.s[cfsVars].add(" register")
       if sfVolatile in sym.flags: m.s[cfsVars].add(" volatile")
       if sfNoalias in sym.flags: m.s[cfsVars].add(" NIM_NOALIAS")
-      m.s[cfsVars].addf(" $1;$n", [m.globals[sym].r])
+      m.s[cfsVars].addf(" $1;$n", [m.globals[id].r])
 
 proc addNimDefines(result: var Rope; conf: ConfigRef) {.inline.} =
   result.addf("#define NIM_INTBITS $1\L", [
@@ -1200,13 +1231,6 @@ proc genDatInitCode*(m: BModule): bool =
       moduleDatInitRequired = true
       prc.add(m.s[i])
 
-  # setting up the TLS must happen before initializing the ``system`` module,
-  # so we emit the call at the end of the data-init procedure:
-  if sfSystemModule in m.module.flags and
-     emulatedThreadVars(m.config) and m.config.target.targetOS != osStandalone:
-    moduleDatInitRequired = true
-    prc.addf("\tinitThreadVarsEmulation();$N", [])
-
   prc.addf("}$N$N", [])
 
   if moduleDatInitRequired:
@@ -1257,7 +1281,6 @@ proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModul
   result.module = module
   result.typeInfoMarker = initTable[SigHash, Rope]()
   result.sigConflicts = initCountTable[SigHash]()
-  result.dataCache = initTable[ConstrTree, int]()
   result.typeStack = @[]
   result.typeNodesName = getTempName(result)
   # no line tracing for the init sections of the system module so that we

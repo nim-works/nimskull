@@ -49,7 +49,8 @@ template startBlock(p: BProc, id: BlockId) =
 proc endBlock(p: BProc)
 
 proc loadInto(p: BProc, le, ri: CgNode, a: var TLoc) {.inline.} =
-  if ri.kind == cnkCall and getCalleeMagic(ri[0]) == mNone:
+  if ri.kind in {cnkCall, cnkCheckedCall} and
+     getCalleeMagic(p.env, ri[0]) == mNone:
     genAsgnCall(p, le, ri, a)
   else:
     # this is a hacky way to fix #1181 (tmissingderef)::
@@ -137,7 +138,7 @@ proc genGotoVar(p: BProc; value: CgNode) =
   else:
     localReport(p.config, value.info, reportSem rsemExpectedLiteralForGoto)
 
-proc genBracedInit(p: BProc, n: CgNode; isConst: bool; optionalType: PType): Rope
+proc genBracedInit(p: BProc, n: CgNode; optionalType: PType): Rope
 
 proc genSingleVar(p: BProc, vn, value: CgNode) =
   ## Generates and emits the C code for the definition statement of a local.
@@ -362,8 +363,8 @@ proc genRaiseStmt(p: BProc, t: CgNode) =
     if isImportedException(typ, p.config):
       lineF(p, cpsStmts, "throw $1;$n", [e])
     else:
-      lineCg(p, cpsStmts, "#raiseExceptionEx((#Exception*)$1, $2, $3, $4, $5);$n",
-          [e, makeCString(typ.sym.name.s),
+      lineCg(p, cpsStmts, "#raiseException2((#Exception*)$1, $2, $3, $4);$n",
+          [e,
           makeCString(if p.prc != nil: p.prc.name.s else: p.module.module.name.s),
           quotedFilename(p.config, t.info), toLinenumber(t.info)])
 
@@ -563,19 +564,15 @@ proc genCase(p: BProc, t: CgNode) =
 
 proc bodyCanRaise(p: BProc; n: CgNode): bool =
   case n.kind
-  of cnkCall:
-    result = canRaiseDisp(p, n[0])
-    if not result:
-      # also check the arguments:
-      for i in 1 ..< n.len:
-        if bodyCanRaise(p, n[i]): return true
+  of cnkCheckedCall:
+    result = true
   of cnkRaiseStmt:
     result = true
   of cnkAtoms:
     result = false
   of cnkWithOperand:
     result = bodyCanRaise(p, n.operand)
-  of cnkWithItems - {cnkCall, cnkRaiseStmt}:
+  of cnkWithItems - {cnkCheckedCall, cnkRaiseStmt}:
     for it in n.items:
       if bodyCanRaise(p, it): return true
     result = false
@@ -679,29 +676,13 @@ proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
     case it.kind
     of cnkStrLit:
       res.add(it.strVal)
-    of cnkSym:
-      var sym = it.sym
-      case sym.kind
-      of skProc, skFunc, skIterator, skMethod:
-        var a: TLoc
-        initLocExpr(p, it, a)
-        res.add(rdLoc(a))
-      of skVar, skLet, skForVar:
-        # make sure the C type description is available:
-        discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
-        var a: TLoc
-        initLocExpr(p, it, a)
-        res.add(rdLoc(a))
-      of skType:
-        res.add(getTypeDesc(p.module, sym.typ))
-      of skField:
+    of cnkField:
+        let sym = it.field
         # special support for raw field symbols
         discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
         p.config.internalAssert(sym.locId != 0, it.info):
           "field's surrounding type not setup"
         res.add(p.fieldName(sym))
-      else:
-        unreachable(sym.kind)
     of cnkLocal:
       # make sure the C type description is available:
       discard getTypeDesc(p.module, skipTypes(it.typ, abstractPtrs))
@@ -780,22 +761,10 @@ when false:
     call.add e
     expr(p, call, d)
 
-proc asgnFieldDiscriminant(p: BProc, e: CgNode) =
-  var a, tmp: TLoc
-  var dotExpr = e[0]
-  if dotExpr.kind == cnkCheckedFieldAccess: dotExpr = dotExpr[0]
-  initLocExpr(p, e[0], a)
-  getTemp(p, a.t, tmp)
-  expr(p, e[1], tmp)
-  genAssignment(p, a, tmp)
-
 proc genAsgn(p: BProc, e: CgNode) =
   if e[0].kind == cnkLocal and sfGoto in p.body[e[0].local].flags:
     genLineDir(p, e)
     genGotoVar(p, e[1])
-  elif optFieldCheck in p.options and isDiscriminantField(e[0]):
-    genLineDir(p, e)
-    asgnFieldDiscriminant(p, e)
   else:
     let le = e[0]
     let ri = e[1]

@@ -1136,6 +1136,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemRangeIsEmpty:
       result = "range is empty"
 
+    of rsemStringRangeNotAllowed:
+      result = "cannot create a range of strings"
+
     of rsemExpectedOrdinalOrFloat:
       result = "ordinal or float type expected"
 
@@ -1890,6 +1893,12 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemHintLibDependency:
       result = r.str
+
+    of rsemUnknownHint:
+      result = "unknown hint: '$1'" % [r.str]
+
+    of rsemUnknownWarning:
+      result = "unknown warning: '$1'" % [r.str]
 
     of rsemObservableStores:
       result = "observable stores to '$1'" % r.ast.render
@@ -3014,12 +3023,6 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
     result = "unhandled exception: value out of range"
 
   of rvmErrInternal:
-    result = r.str
-
-  of rvmCallingNonRoutine:
-    result = "NimScript: attempt to call non-routine: " & r.symstr
-
-  of rvmGlobalError:
     result = r.str
 
   of rvmOpcParseExpectedExpression:

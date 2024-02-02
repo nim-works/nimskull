@@ -1,9 +1,8 @@
-## ``mirgen`` is responsible for generating MIR code from ``PNode`` AST. The
-## input AST is expected to have already been transformed by ``transf``.
+## Implements the translation from AST to the MIR. The input AST is expected
+## to have already been transformed by ``transf``.
 ##
-## Operation wise, the input AST is traversed via recursing into statements and
-## expressions, ignoring declarative constructs that are not relevant to nor
-## representable with the MIR.
+## In terms of operation, the input AST is traversed via recursion, with
+## declarative constructs not relevant to the MIR being ignored.
 ##
 ## None of the MIR operations that imply structured control-flow produce a
 ## value, so the input expression that do (``if``, ``case``, ``block``, and
@@ -11,6 +10,28 @@
 ## clause is turned into an assignment to, depending on the context where
 ## they're used, either a temporary or existing lvalue expression. The latter
 ## are forwarded to the generation procedures via ``Destination``.
+##
+## For efficiency, ``MirBuilder`` double-buffering functionality is used for
+## emitting the trees. Statements are directly emitted into the final buffer
+## (after all their operands were emitted), while expressions are first
+## emitted into the staging buffer, with the callsite then deciding what to
+## do with them.
+##
+## The values of rvalue operations, calls, and construction are first captured
+## in temporaries (as the MIR doesn't support them being used as, e.g., call
+## arguments directly). In general, all call arguments are first assigned to a
+## temporary, except if the expression is stable (in case of by-name
+## arguments) or pure (in case of non-sink by-value arguments).
+##
+## Pure expression are those that don't have side-effect and always refer to
+## the exact same value, whereas stable expression are those that don't have
+## side-effects and always refer to the same *location*.
+##
+## Whether a temporary is owning (that is, it needs to be destroyed later)
+## depends on both the value it captures and how its used. If the captured
+## value is coming from a call or construction of destructible value, the
+## temporary, otherwise its non-owning, except if used in a consuming
+## context (`sink` parameter or aggregate construction).
 ##
 ## Origin information
 ## ==================
@@ -39,13 +60,17 @@ import
   ],
   compiler/ast/[
     ast,
+    astmsgs, # for generating the field error message
     lineinfos,
     trees,
     types,
     wordrecg
   ],
   compiler/mir/[
+    datatables,
+    mirbodies,
     mirconstr,
+    mirenv,
     mirtrees,
     sourcemaps
   ],
@@ -56,23 +81,15 @@ import
   compiler/front/[
     options
   ],
+  compiler/sem/[
+    ast_analysis
+  ],
   compiler/utils/[
     containers,
     idioms
-  ],
-  experimental/[
-    dod_helpers
   ]
 
 type
-  NodeSpan = HOslice[NodeIndex]
-    ## Refers to a span of nodes in a ``Fragment``
-
-  DestinationKind = enum
-    dkNone ## no destination
-    dkFrag ## an lvalue expression
-    dkGen  ## an lvalue expression that is generated in-place
-
   DestFlag = enum
     ## Extra information about an assignment destination. The flags are used to
     ## decide which kind of assignment to use
@@ -81,14 +98,10 @@ type
 
   Destination = object
     ## Stores the information necessary to generate the code for an assignment
-    ## to some lvalue expression
-    case kind: DestinationKind
-    of dkNone:
-      discard
-    of dkFrag:
-      nodes: NodeSpan ## references a slice of nodes in the staging buffer
-    of dkGen:
-      node {.cursor.}: PNode
+    ## to some destination.
+    case isSome: bool
+    of false: discard
+    of true:  val: Value
 
     flags: set[DestFlag]
 
@@ -98,20 +111,11 @@ type
                 ## label
     id: LabelId ## the block's internal label ID
 
-  MirBuffer* = object
-    ## Accumulates in-progress MIR code and keeps track of additional state
-    ## needed when building MIR code sequences.
-    nodes*: MirNodeSeq
-    # XXX: `nodes` should not be exported, but for convenience it currently
-    #      is
-    cursor: int
-      ## points to the first node that hasn't had its ``info`` set up yet
-
   SourceProvider = object
     ## Stores the active origin and the in-progress database of origin
     ## ``PNode``s. Both are needed together in most cases, hence their bundling
     ## into an object
-    active: tuple[n: PNode, id: opt(SourceId)]
+    active: tuple[n: PNode, id: SourceId]
       ## the ``PNode`` to use as the origin for emitted ``MirNode``s (if none
       ## is explicitly provided). If `id` is 'none', no database entry exists
       ## for the ``PNode`` yet
@@ -124,25 +128,30 @@ type
     goIsCompileTime ## whether the code is meant to be run at compile-time.
                     ## Affects handling of ``.compileTime`` globals
 
-  TCtx = object
-    # output:
-    stmts: MirBuffer
+  TranslationConfig* = object
+     ## Extra configuration for the AST -> MIR translation.
+     options*: set[GenOption]
+     magicsToKeep*: set[TMagic]
+      ## magic procedures that need to be referenced via their symbols, either
+      ## because they're not really magic or because the symbol has
+      ## additional information
 
+  TCtx = object
     # working state:
-    staging: MirBuffer ## intermediate buffer for partially generated MIR
-                       ## code
+    env: MirEnv
+      ## for convenience and safety, `TCtx` temporarily assumes full
+      ## ownership of the environment
+    builder: MirBuilder ## the builder for generating the MIR trees
 
     blocks: seq[Block] ## the stack of active ``block``s. Used for looking up
                        ## break targets
 
     sp: SourceProvider
 
-    tmpMap: Table[ItemId, TempId]
-      ## maps the ID of ``skTemp`` symbols to the ``TempId`` used to refer to
-      ## them in output
-
-    numTemps: int  ## provides the ID for temporaries
     numLabels: int ## provides the ID to use for the next label
+    scopeDepth: int ## the current amount of scope nesting
+    inLoop: int
+      ## > 0 if the current statement/expression is part of a loop
 
     # input:
     context: TSymKind ## what entity the input AST is part of (e.g. procedure,
@@ -151,7 +160,13 @@ type
     userOptions: set[TOption]
     graph: ModuleGraph
 
-    options: set[GenOption]
+    config: TranslationConfig
+
+  ExprKind = enum
+    Literal
+    Lvalue
+    Rvalue         # non-owning rvalue that can only be copied
+    OwnedRvalue    # rvalue that requires destruction
 
 const
   abstractInstTypeClass = abstractInst + tyUserTypeClasses
@@ -161,19 +176,6 @@ const
   ComplexExprs = {nkIfExpr, nkCaseStmt, nkBlockExpr, nkTryStmt}
     ## The expression that are treated as complex and which are transformed
     ## into assignments-to-temporaries
-
-func halfOpen[T](x: Slice[T]): HOslice[T] {.inline.} =
-  ## Constructs a half-open slice from a normal slice. `x` is expected to
-  ## already represent a half-open slice
-  HOslice[T](a: x.a, b: x.b)
-
-template toOpenArray[T, I](x: seq[T], slice: Slice[I]): openArray[T] =
-  let s = slice
-  toOpenArray(x, s.a.int, s.b.int)
-
-template toOpenArray[T, I](x: seq[T], slice: HOslice[I]): openArray[T] =
-  let s = slice
-  toOpenArray(x, s.a.int, s.b.int - 1)
 
 func isHandleLike(t: PType): bool =
   t.skipTypes(abstractInst).kind in {tyPtr, tyRef, tyLent, tyVar, tyOpenArray}
@@ -207,51 +209,44 @@ func endsInNoReturn(n: PNode): bool =
     (it.kind in nkCallKinds and it[0].kind == nkSym and
      sfNoReturn in it[0].sym.flags)
 
-func canonicalExpr(n: PNode): PNode =
-  ## Returns the canonical expression, i.e. the expression without leading
-  ## pragma blocks or empty statement lists
-  func skipped(n: PNode): PNode =
-    case n.kind
-    of nkPragmaBlock:
-      n.lastSon
-    of nkStmtListExpr:
-      if stupidStmtListExpr(n):
-        # the statement-list expression is redundant (i.e. only has a single
-        # item or only leading empty nodes) -> skip it
-        n.lastSon
-      else:
-        # the list needs to be kept
-        n
-    else:
-      n
+func isDeepConstExpr(n: PNode): bool =
+  ## Copy of ``trees.isDeepConstExpr`` that doesn't treat hidden conversions
+  ## as constant.
+  # XXX: used as a temporary workaround for ``nkHiddenStdConv`` not being
+  #      supported in MIR constant data
+  case n.kind
+  of nkLiterals, nkNilLit:
+    result = true
+  of nkExprColonExpr:
+    result = isDeepConstExpr(n[1])
+  of nkRange:
+    result = isDeepConstExpr(n[0]) and isDeepConstExpr(n[1])
+  of nkCurly, nkBracket, nkTupleConstr, nkObjConstr, nkClosure:
+    for i in ord(n.kind == nkObjConstr)..<n.len:
+      if not isDeepConstExpr(n[i]):
+        return false
 
-  var n {.cursor.} = n
-  while (let it = skipped(n); it != n):
-    n = it
-
-  result = n
+    let t = n.typ.skipTypes({tyGenericInst, tyDistinct, tyAlias, tySink})
+    # refs, pointers, unions, and case objects are not treated as constant
+    result = t.kind notin {tyRef, tyPtr} and
+             tfUnion notin t.flags and
+             (t.kind != tyObject or not isCaseObj(t.n))
+  else:
+    result = false
 
 func selectWhenBranch(n: PNode, isNimvm: bool): PNode =
   assert n.kind == nkWhen
   if isNimvm: n[0][1]
   else:       n[1][0]
 
-func selectDefKind(s: PSym): range[mnkDef..mnkDefCursor] =
-  ## Returns the kind of definition to use for the given entity
-  if sfCursor in s.flags: mnkDefCursor
-  else:                   mnkDef
-
-func isSome(x: Destination): bool {.inline.} =
-  x.kind != dkNone
-
-func initDestination(n: PNode, isFirst: bool): Destination =
+func initDestination(v: sink Value, isFirst, sink: bool): Destination =
   var flags: set[DestFlag]
   if isFirst:
     flags.incl dfEmpty
-  if not isCursor(n):
+  if sink:
     flags.incl dfOwns
 
-  Destination(kind: dkGen, node: n, flags: flags)
+  Destination(isSome: true, val: v, flags: flags)
 
 proc typeOrVoid(g: ModuleGraph, t: PType): PType =
   ## Returns `t` if it's not 'nil' - the ``void`` type otherwise
@@ -263,214 +258,366 @@ proc typeOrVoid(c: TCtx, t: PType): PType {.inline.} =
   # TODO: cache the void type
   typeOrVoid(c.graph, t)
 
-func nextTempId(c: var TCtx): TempId =
-  result = TempId(c.numTemps)
-  inc c.numTemps
-
 func nextLabel(c: var TCtx): LabelId =
   result = LabelId(c.numLabels)
   inc c.numLabels
 
-# ----------- MirBuffer API -------------
+func isPure(tree: MirTree, n: NodePosition): bool =
+  ## Returns whether the expression at `n` is a pure expression.
+  case tree[n].kind
+  of mnkParam:
+    # sink parameters are mutable and thus not pure
+    tree[n].typ.kind != tySink
+  of mnkTemp, mnkConst, mnkLiteral, mnkProc, mnkType:
+    # note: during the translation phase, the name of a temporary is a pure
+    # expression
+    true
+  of mnkLocal:
+    # let bindings are pure, but only if they don't have a destructor (in
+    # which case they're movable)
+    tree[n].sym.kind in {skLet, skForVar} and not hasDestructor(tree[n].typ)
+  of mnkPathNamed, mnkPathPos, mnkPathConv, mnkPathVariant:
+    isPure(tree, NodePosition tree.operand(n))
+  of mnkPathArray:
+    let arr = NodePosition tree.operand(n, 0)
+    case tree[arr].typ.skipTypes(abstractVar).kind
+    of tyArray, tyUncheckedArray, tyString, tySequence, tyOpenArray, tyVarargs,
+       tyCstring:
+      # pure when the both the array and index operands are pure
+      isPure(tree, tree.child(n, 1)) and isPure(tree, arr)
+    else:
+      unreachable(tree[arr].kind)
+  else:
+    # TODO: make exhaustive
+    false
 
-func len*(b: MirBuffer): int {.inline.} =
-  b.nodes.len
+func isStable(tree: MirTree, n: NodePosition): bool =
+  ## Returns whether the run-time address of the lvalue expression `n` is
+  ## always the same, regardless of when the address is computed.
+  case tree[n].kind
+  of mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp, mnkAlias:
+    true
+  of mnkPathArray:
+    let arr = NodePosition tree.operand(n, 0)
+    case tree[arr].typ.skipTypes(abstractVar).kind
+    of tyArray, tyUncheckedArray:
+      # static arrays
+      isPure(tree, tree.child(n, 1)) and isStable(tree, arr)
+    of tyString, tySequence, tyOpenArray, tyVarargs, tyCstring:
+      # run-time arrays; stable when neither the array nor index operand
+      # depends on mutable state
+      isPure(tree, tree.child(n, 1)) and isPure(tree, arr)
+    else:
+      unreachable()
+  of mnkPathNamed, mnkPathPos, mnkPathConv, mnkPathVariant:
+    isStable(tree, NodePosition tree.operand(n))
+  of mnkDeref, mnkDerefView:
+    # a pure target means that the pointer is always the same
+    isPure(tree, NodePosition tree.operand(n))
+  of AllNodeKinds - LvalueExprKinds:
+    unreachable(tree[n].kind)
 
-func add*(b: var MirBuffer, info: SourceId, n: sink MirNode) {.inline.} =
-  ## Sets `info` as `n`'s origin information and appends the node to the
-  ## buffer. This operation is only allowed when all already buffered nodes
-  ## have had the origin information assigned too.
-  assert b.cursor == b.nodes.len
-  n.info = info
-  b.nodes.add n
-  inc b.cursor
+# ----------- SourceProvider API -------------
 
-template add(f: var MirBuffer, n: MirNode) =
-  f.nodes.add n
-
-template subTree(f: var MirBuffer, n: MirNode, body: untyped) =
-  f.nodes.subTree n:
-    body
-
-func apply*(frag: var MirBuffer, id: SourceId) =
-  ## Associates all nodes added since the previous call to ``apply`` with the
-  ## origin information identified by `id`.
-  assert frag.nodes.len > frag.cursor
-  for i in frag.cursor..<frag.nodes.len:
-    frag.nodes[i].info = id
-
-  frag.cursor = frag.nodes.len
-
-func prepareForUse(sp: var SourceProvider): SourceId =
-  if sp.active.id.isNone:
-    sp.active.id = someOpt sp.map.add(sp.active.n)
-
-  result = sp.active.id[]
-
-func applySource(frag: var MirBuffer, sp: var SourceProvider) =
-  ## Associates all ``MirNode``s that don't yet have a source association with
-  ## the currently active source information
-  if frag.nodes.len > frag.cursor:
-    apply(frag, prepareForUse(sp))
-
-template useSource(frag: var MirBuffer, sp: var SourceProvider,
+template useSource(bu: var MirBuilder, sp: var SourceProvider,
                    origin: PNode) =
   ## Pushes `origin` to be used as the source for the rest of the scope that
-  ## ``useSource`` is used inside. When the scope is left, the previous origin
-  ## is restored
-  applySource(frag, sp)
+  ## ``useSource`` is used inside. When the scope is exited, the previous
+  ## origin is restored.
+  let x = origin
+  var prev =
+    if sp.active.n != x: (x, sp.map.add(x))
+    else:                (x, sp.active.id)
 
-  # setup the new source information and swap it with the active one
-  var prev = (origin, noneOpt(SourceId))
+  # set the new source information on the builder and make it the
+  # active one:
+  bu.setSource(prev[1])
   swap(prev, sp.active)
 
   defer:
-    # apply the still active source information first and then restore the
-    # the source information that was previously active:
-    applySource(frag, sp)
+    # switch back to the previous source information:
+    bu.setSource(prev[1])
     swap(prev, sp.active)
 
-template buildSlice(frag: var MirBuffer, sp: var SourceProvider,
-                    body: untyped): NodeSpan =
-  ## Creates a ``NodeSpan`` containing all code emitted into `frag` during the
-  ## execution of `body`
-  let nodeStart = frag.nodes.len.NodeIndex
+# -------------- builder/convenience routines -------------
 
-  body
+template add(c: var TCtx, n: MirNode) =
+  c.builder.add n
 
-  applySource(frag, sp)
-  halfOpen(nodeStart .. frag.nodes.len.NodeIndex)
-
-func popSlice(frag: var MirBuffer, span: NodeSpan) =
-  ## Pops (removes) the nodes part of `span` from `frag`
-  assert span.b == frag.nodes.len.NodeIndex
-  frag.nodes.setLen(span.a)
-
-func finish*(buf: sink MirBuffer): MirTree =
-  ## Returns `buf`'s finished tree.
-  assert buf.nodes.len == buf.cursor,
-         "not all nodes have origin information attached"
-  result = move buf.nodes
-
-# -------------- convenience templates -------------
-
-template forward(v: EValue) =
-  ## Acts the same as discarding the expression's result, but hints to
-  ## the reader that the MIR code generated by the expression
-  ## represents input to the MIR code that is emitted next.
-  discard v
-
-template argBlock(f: var MirBuffer, body: untyped) =
-  f.nodes.argBlock:
+template subTree(c: var TCtx, k: MirNodeKind, body: untyped) =
+  c.builder.subTree MirNode(kind: k):
     body
 
-template scope(f: var MirBuffer, body: untyped) =
-  f.nodes.scope:
+template subTree(c: var TCtx, n: MirNode, body: untyped) =
+  c.builder.subTree n:
     body
 
-template stmtList(f: var MirBuffer, body: untyped) =
-  f.nodes.stmtList:
+template scope(c: var TCtx, body: untyped) =
+  inc c.scopeDepth
+  c.builder.subTree mnkScope:
     body
+  dec c.scopeDepth
 
-# for convenience, we introduce wrapper template accepting a
-# ``TCtx`` for some DSL atoms
+template use(c: var TCtx, val: Value) =
+  c.builder.use(val)
 
-template chain(c: var TCtx, x: untyped) =
-  chain(c.stmts.nodes, x)
+template emitByVal(c: var TCtx, val: Value) =
+  ## Emits a pass-by-value argument sub-tree with `val`.
+  c.builder.emitByVal(val)
 
-template eval(c: var TCtx, x: untyped): EValue =
-  eval(c.stmts.nodes, x)
+template emitByName(c: var TCtx, eff: EffectKind, body: untyped) =
+  ## Emits a pass-by-name argument sub-tree with `val`.
+  c.subTree mnkName:
+    c.subTree MirNode(kind: mnkTag, effect: eff):
+      body
 
-template forward(c: var TCtx, x: untyped) =
-  forward(c.stmts.nodes, x)
+proc empty(c: var TCtx, n: PNode): MirNode =
+  MirNode(kind: mnkNone, typ: n.typ)
 
-template procLit(c: var TCtx, s: PSym): EValue =
-  procLit(c.stmts.nodes, s)
+func intLiteral(val: Int128, typ: PType): Value =
+  literal(newIntTypeNode(val, typ))
 
-template genTypeLit(c: var TCtx, t: PType): EValue =
-  typeLit(c.stmts.nodes, t)
-
-template genLit(c: var TCtx, n: PNode): EValue =
-  literal(c.stmts.nodes, n)
-
-template constr(c: var TCtx, t: PType): EValue =
-  constr(c.stmts.nodes, t)
-
-template tempNode(c: var TCtx, t: PType, id: TempId): EValue =
-  temp(c.stmts.nodes, t, id)
-
-template magicCall(c: var TCtx, m: TMagic, typ: PType): EValue =
-  magicCall(c.stmts.nodes, m, typ)
-
-template modify(): untyped =
-  tag(ekMutate)
-
-template outOp(): untyped =
-  tag(ekReassign)
-
-template notOp(c: var TCtx): untyped =
-  unaryMagicCall(mNot, getSysType(c.graph, c.sp.active.n.info, tyBool))
-
-template tupleAccess(pos: uint32, elem: PType): untyped =
-  pathPos(elem, pos)
-
-proc genEmpty(c: var TCtx, n: PNode): EValue =
-  c.stmts.nodes.add MirNode(kind: mnkNone, typ: n.typ)
-  result = EValue(typ: c.graph.getSysType(n.info, tyVoid))
-
-func nameNode(s: PSym): MirNode =
+func nameNode(c: var TCtx, s: PSym): MirNode =
   case s.kind
+  of skTemp:
+    # temporaries are always locals, even if marked with the ``sfGlobal``
+    # flag
+    MirNode(kind: mnkLocal, typ: s.typ, sym: s)
   of skConst:
-    MirNode(kind: mnkConst, typ: s.typ, sym: s)
+    MirNode(kind: mnkConst, typ: s.typ, cnst: c.env.constants.add(s))
   of skParam:
     MirNode(kind: mnkParam, typ: s.typ, sym: s)
   of skResult:
     MirNode(kind: mnkLocal, typ: s.typ, sym: s)
   of skVar, skLet, skForVar:
     if sfGlobal in s.flags:
-      MirNode(kind: mnkGlobal, typ: s.typ, sym: s)
+      MirNode(kind: mnkGlobal, typ: s.typ, global: c.env.globals.add(s))
     else:
       MirNode(kind: mnkLocal, typ: s.typ, sym: s)
   else:
     unreachable(s.kind)
 
-template genLocation(c: var TCtx, n: PNode): EValue =
-  c.stmts.nodes.emit(nameNode(n.sym))
+func genLocation(c: var TCtx, n: PNode): Value =
+  let f = c.builder.push: c.builder.add(nameNode(c, n.sym))
+  c.builder.popSingle(f)
 
-func emit(dest: var MirBuffer, sp: var SourceProvider, src: MirBuffer,
-          span: NodeSpan): EValue =
-  ## Copies the nodes denoted by `span` from `src` to the end of `dest`
-  assert span.len > 0, "empty source fragment"
-
-  # make sure that the source information in `dest` is up-to-date before
-  # appending
-  applySource(dest, sp)
-
-  dest.nodes.add toOpenArray(src.nodes, span)
-
-  result = EValue(typ: dest.nodes[^1].typ)
-
-func genDefault(c: var TCtx, typ: PType): EValue =
-  ## Emits a call to the ``default`` operator for the given `typ`
-  argBlock(c.stmts): discard
-  magicCall(c.stmts.nodes, mDefault, typ)
+template allocTemp(c: var TCtx, typ: PType; alias=false): Value =
+  ## Allocates a new ID for a temporary and returns the name.
+  c.builder.allocTemp(typ, alias)
 
 proc gen(c: var TCtx; n: PNode)
-proc genx(c: var TCtx; n: PNode, consume: bool = false): EValue
+proc genx(c: var TCtx; n: PNode, consume: bool = false)
 proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination)
 
 proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode)
 proc genWithDest(c: var TCtx; n: PNode; dest: Destination)
 
-template selectArg(useConsume: bool): Sink {.dirty.} =
-  if useConsume: consume()
-  else:          arg()
+func getTemp(c: var TCtx, typ: PType): Value =
+  ## Allocates a new temporary and emits a definition for it into the
+  ## final buffer.
+  assert typ != nil
+  result = c.allocTemp(typ)
+  withFront c.builder:
+    c.subTree mnkDef:
+      c.use result
+      c.add MirNode(kind: mnkNone)
 
-func getTemp(c: var TCtx, typ: PType): TempId =
-  ## Allocates a new name for a temporary and emits a definition for it
-  result = nextTempId(c)
-  c.stmts.subTree MirNode(kind: mnkDef):
-    c.stmts.add MirNode(kind: mnkTemp, temp: result, typ: typ)
+template buildStmt(c: var TCtx, k: MirNodeKind, body: untyped) =
+  c.builder.buildStmt(k, body)
+
+template buildMagicCall(c: var TCtx, m: TMagic, t: PType, body: untyped) =
+  c.builder.buildMagicCall(m, t, body)
+
+template buildCheckedMagicCall(c: var TCtx, m: TMagic, t: PType,
+                               body: untyped) =
+  c.subTree MirNode(kind: mnkCheckedCall, typ: t):
+    c.add MirNode(kind: mnkMagic, magic: m)
+    body
+
+template buildDefectMagicCall(c: var TCtx, m: TMagic, t: PType,
+                              body: untyped) =
+  ## Builds and emits a call to the `m` magic with return type `t`. The call
+  ## is only marked as potentially raising if panics are not enabled.
+  ##
+  ## This template is meant to be used for ``Defect``-raising magic
+  ## procedures.
+  let kind =
+    if optPanics in c.graph.config.globalOptions:
+      mnkCall
+    else:
+      mnkCheckedCall
+
+  c.subTree MirNode(kind: kind, typ: t):
+    c.add MirNode(kind: mnkMagic, magic: m)
+    body
+
+func detectKind(tree: MirTree, n: NodePosition, sink: bool): ExprKind =
+  ## Detects the kind of expression `n` (with the originating from AST `e`)
+  ## represents. `sink` informs whether expression is used in a sink context.
+  case tree[n].kind
+  of mnkCall, mnkCheckedCall:
+    if hasDestructor(tree[n].typ):
+      OwnedRvalue
+    else:
+      Rvalue
+  of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice:
+    Rvalue
+  of mnkObjConstr:
+    if tree[n].typ.skipTypes(abstractInst).kind == tyRef or
+       (sink and hasDestructor(tree[n].typ)):
+      # the result of ref constructions always needs to be destroyed
+      OwnedRvalue
+    else:
+      Rvalue
+  of mnkConstr:
+    if sink and hasDestructor(tree[n].typ):
+      OwnedRvalue
+    else:
+      Rvalue
+  of LvalueExprKinds:
+    Lvalue
+  of mnkLiteral, mnkProc, mnkType:
+    Literal
+  of AllNodeKinds - ExprKinds:
+    unreachable(tree[n].kind)
+
+func captureInTemp(c: var TCtx, f: Fragment, sink: bool): Value =
+  ## Pops the expression `f` from the staging buffer and wraps it in a new
+  ## temporary. `sink` signals whether the temporary is intended for use
+  ## in a sink context.
+  let def =
+    if sink or detectKind(c.builder.staging, f.pos, sink) == OwnedRvalue:
+      mnkDef
+    else:
+      mnkDefCursor
+
+  result = c.allocTemp(f.typ)
+  withFront c.builder:
+    c.subTree def:
+      c.use result
+      c.builder.pop(f)
+
+func captureName(c: var TCtx, f: Fragment, mutable: bool): Value =
+  ## Pops the expression `f` from the staging buffer and assigns it to an
+  ## alias. The alias is returned.
+  let res = c.allocTemp(f.typ, alias=true)
+  withFront c.builder:
+    c.subTree (if mutable: mnkBindMut else: mnkBind):
+      c.add res.node
+      c.builder.pop(f)
+  res
+
+proc genUse(c: var TCtx, n: PNode): Value =
+  ## Generates the MIR tree for expression `n`. If the expression is an
+  ## atom, the atom is returned, otherwise the value is captured in a
+  ## temporary and the name of the temporary is returned.
+  c.builder.useSource(c.sp, n)
+  # emit the expression into the staging buffer:
+  let f = c.builder.push: genx(c, n)
+
+  if c.builder.staging[f.pos].kind in Atoms:
+    result = c.builder.popSingle(f)
+  else:
+    result = captureInTemp(c, f, sink=false)
+
+proc genRd(c: var TCtx, n: PNode; consume=false): Value =
+  ## Generates the MIR code for the expression `n`. Makes sure that the run-
+  ## time value of the expression is *captured* by assigning it to a
+  ## temporary.
+  c.builder.useSource(c.sp, n)
+  let f = c.builder.push: genx(c, n)
+
+  if c.builder.staging[f.pos].kind in Atoms and
+     isPure(c.builder.staging, f.pos):
+    result = c.builder.popSingle(f)
+  else:
+    # either an rvalue or some non-pure lvalue -> capture
+    result = captureInTemp(c, f, consume)
+
+proc genAlias(c: var TCtx, n: PNode, mutable: bool): Value =
+  ## `mutable` indicates whether the alias needs to support direct assignments
+  ## through it.
+  let f = c.builder.push: genx(c, n)
+  if c.builder.staging[f.pos].kind in Atoms:
+    # names are always stable, so no capture is needed
+    c.builder.popSingle(f)
+  else:
+    captureName(c, f, mutable)
+
+proc capture(c: var TCtx, n: PNode; sink=false): Value =
+  ## If not a stable lvalue expression, captures the result of the
+  ## expression `n` in a temporary.
+  ## * rvalue expression are captured in temporaries (with `sink` indicating
+  ##   whether an owned value is preferred)
+  ## * lvalue expressions are captured as non-assignable aliases
+  ## * literals are not captured
+  const Skip = abstractInstTypeClass + {tyVar}
+  let f = c.builder.push: genx(c, n)
+  case detectKind(c.builder.staging, f.pos, sink)
+  of Rvalue, OwnedRvalue:
+    captureInTemp(c, f, sink)
+  of Literal:
+    c.builder.popSingle(f)
+  of Lvalue:
+    if c.builder.staging[f.pos].kind in Atoms:
+      # atoms are always stable and can thus be used directly
+      c.builder.popSingle(f)
+    elif n.typ.skipTypes(Skip).kind in {tyOpenArray, tyVarargs}:
+      # don't create an alias for openArrays, a copy of the view suffices
+      captureInTemp(c, f, sink=false)
+    else:
+      # if used in a sink context, the alias must support potentially
+      # destructive moves through it, which requires a ``BindMut``
+      captureName(c, f, mutable=sink)
+
+proc genOperand(c: var TCtx, n: PNode; sink = false) =
+  ## Translates expression AST `n` to a MIR operand expression. `sink` signals
+  ## whether the result is used in a sink context -- the flag is propagated
+  ## through conversions such that in ``A(B(C(x: ...)))`` the object
+  ## construction produces an owning value.
+  c.builder.useSource(c.sp, n)
+  let f = c.builder.push: genx(c, n, sink)
+  case detectKind(c.builder.staging, f.pos, sink)
+  of OwnedRvalue, Rvalue:
+    let tmp = captureInTemp(c, f, sink)
+    c.use tmp
+  of Lvalue, Literal:
+    # nothing to do, the nodes are already in the staging buffer
+    # note: literals are not valid in a context where an lvalue is required
+    #       (e.g., as the operand to an ``addr`` operation)
+    discard f
+
+proc genOp(c: var TCtx, k: MirNodeKind, t: PType, n: PNode) =
+  assert t != nil
+  c.subTree MirNode(kind: k, typ: t):
+    genOperand(c, n)
+
+template buildOp(c: var TCtx, k: MirNodeKind, t: PType, body: untyped) =
+  assert t != nil
+  c.subTree MirNode(kind: k, typ: t):
+    body
+
+template wrapTemp(c: var TCtx, t: PType, body: untyped): Value =
+  ## Assigns the expression emitted by `body` to a temporary and
+  ## returns the name of the latter.
+  assert t != nil
+  let res = c.allocTemp(t)
+  c.buildStmt mnkDef:
+    c.use res
+    body
+
+  res
+
+template wrapAndUse(c: var TCtx, t: PType, body: untyped) =
+  ## Assigns the expression emitted by `body` to a temporary
+  ## and immediately emits a use thereof.
+  let tmp = c.wrapTemp(t):
+    body
+  c.use tmp
+
+template buildTree(c: var TCtx, k: MirNodeKind, t: PType, body: untyped) =
+  c.subTree MirNode(kind: k, typ: t):
+    body
 
 proc genAndOr(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates the code for an ``and|or`` operation:
@@ -495,63 +642,197 @@ proc genAndOr(c: var TCtx, n: PNode, dest: Destination) =
   genAsgn(c, dest, n[1]) # the left-hand side
 
   # condition:
-  let v = emit(c.stmts, c.sp, c.staging, dest.nodes)
+  var v = dest.val
   if n[0].sym.magic == mOr:
-    forward(c): v => notOp(c)
+    v = c.wrapTemp n.typ:
+      c.buildMagicCall mNot, n.typ:
+        c.emitByVal v
 
-  c.stmts.subTree MirNode(kind: mnkIf):
-    stmtList(c.stmts):
+  c.subTree mnkIf:
+    c.use v
+    c.subTree mnkStmtList:
       genAsgn(c, dest, n[2]) # the right-hand side
 
-proc genBracketExpr(c: var TCtx, n: PNode): EValue =
+proc genBracketExpr(c: var TCtx, n: PNode) =
   let typ = n[0].typ.skipTypes(abstractInstTypeClass - {tyTypeDesc})
   case typ.kind
   of tyTuple:
     let i = n[1].intVal.int
     # due to all the type-related modifications done by ``transf``, it's safer
     # to lookup query the type from the tuple instead of using `n.typ`
-    eval(c): genx(c, n[0]) => pathPos(typ[i], i.uint32)
+    c.subTree MirNode(kind: mnkPathPos, typ: typ[i], position: i.uint32):
+      genOperand(c, n[0])
   of tyArray, tySequence, tyOpenArray, tyVarargs, tyUncheckedArray, tyString,
      tyCstring:
-    argBlock(c.stmts):
-      chain(c): genx(c, n[0]) => name()
-      chain(c): genx(c, n[1]) => arg()
-    c.stmts.add MirNode(kind: mnkPathArray, typ: elemType(typ))
+    if optBoundsCheck in c.userOptions and
+       needsIndexCheck(c.graph.config, n[0], n[1]):
+      let
+        arr = capture(c, n[0])
+        idx = genRd(c, n[1])
 
-    EValue(typ: elemType(typ))
+      c.buildStmt mnkVoid:
+        c.buildDefectMagicCall mChckIndex, typeOrVoid(c, nil):
+          c.emitByVal arr
+          c.emitByVal idx
+
+      c.buildOp mnkPathArray, elemType(typ):
+        c.use arr
+        c.use idx
+    else:
+      c.buildOp mnkPathArray, elemType(typ):
+        genOperand(c, n[0])
+        c.use genRd(c, n[1])
   else: unreachable()
 
-proc genVariantAccess(c: var TCtx, n: PNode): (EValue, PNode) =
+proc genFieldCheck(c: var TCtx, access: Value, call: PNode, inverted: bool,
+                   field: string) =
+  ## Generates and emits a field check.
+  let
+    conf = c.graph.config
+    discr = call[2].sym
+  c.buildStmt mnkVoid:
+    c.buildDefectMagicCall mChckField, typeOrVoid(c, nil):
+      # set operand:
+      c.emitByVal c.genRd(call[1])
+      # discriminator value operand:
+      c.subTree mnkArg:
+        c.subTree MirNode(kind: mnkPathNamed, typ: discr.typ,
+                          field: discr):
+          c.use access
+      # inverted flag:
+      c.emitByVal literal(newIntTypeNode(ord(inverted), call.typ))
+      # error message operand:
+      c.emitByVal literal(newStrNode(genFieldDefect(conf, field, discr),
+                                     call.info))
+
+proc genVariantAccess(c: var TCtx, n: PNode) =
+  ## Generates and emits the MIR code for an object variant access, but
+  ## **without** the final field access. That is, for `x.b` - where `b` is part
+  ## of a variant - the `.b` part is **not** emitted. If field checks are
+  ## enabled, they are emitted too.
+  ##
+  ## There'S no notion of "access variant" in the AST while in the MIR there
+  ## is. This requires first materializing each variant access.
   assert n.kind == nkCheckedFieldExpr
 
   let access = n[0]
   assert access.kind == nkDotExpr
 
-  var val = genx(c, access[0])
+  var x = capture(c, access[0])
   # iterate the checks in reverse, as the outermost discriminator check is
   # rightmost
   # XXX: the "rightmost" part is an implementation detail of how
-  #      ``nkCheckedFieldExpr`` nodes are generated by ``sem.nim``,
-  #      depending on it here is brittle. It's okay for now and
-  #      ``nkCheckedFieldExpr`` should ideally be removed anyways
-  for i in countdown(n.len-1, 1):
+  #      ``nkCheckedFieldExpr`` nodes are generated by ``sem``,
+  #      depending on it here is brittle
+  for i in countdown(n.len - 1, 1):
     let check = n[i]
     assert check.kind in nkCallKinds
-    # the check can be wrapped in a ``not`` call -- unwrap it first
-    let inCall =
-      if check[0].sym.magic == mNot: check[1]
-      else:                          check
+    let
+      inverted = check[0].sym.magic == mNot
+      call =
+        if inverted: check[1]
+        else:        check
+      discr = call[2].sym ## the discriminator's symbol
 
-    pathVariant(c.stmts.nodes, access[0].typ, inCall[2].sym, val)
+    if optFieldCheck in c.userOptions:
+      genFieldCheck(c, x, call, inverted, access[1].sym.name.s)
 
-  result = (val, access[1])
+    if i == 1:
+      # last access in the chain
+      c.subTree MirNode(kind: mnkPathVariant, typ: x.typ, field: discr):
+        c.use x
+    else:
+      # capture the access in an alias, so that it can be used for the
+      # following check
+      withFront c.builder:
+        x = c.builder.wrapAlias x.typ:
+          c.subTree MirNode(kind: mnkPathVariant, typ: x.typ, field: discr):
+            c.use x
 
-proc genTypeExpr(c: var TCtx, n: PNode): EValue =
+proc genObjConv(c: var TCtx, n: PNode, sink, dest: bool) =
+  ## Given an ``nkObjDownConv`` or ``nkObjUpConv`` AST, folding away all
+  ## immediately nested up- and down-conversion nodes. That is, only one
+  ## ``mnkPathConv`` is emitted.
+  ##
+  ## If conversion checks are enabled and required, at most one check is
+  ## emitted. The type used for the check is either the type most nested in
+  ## the hierarchy, or a sibling type (if a sibling conversion is present).
+  let
+    skipped = n.typ.skipTypes(abstractInst)
+    # only ref and ptr types are checked during conversions, normal objects
+    # are not
+    needsCheck = (optObjCheck in c.userOptions) and
+                 (skipped.kind in {tyPtr, tyRef}) and
+                 not isObjLackingTypeField(skipped.lastSon)
+
+  # find the first non-conversion node:
+  var start {.cursor.} = n
+  while start.kind in {nkObjDownConv, nkObjUpConv}:
+    start = start[0]
+
+  var deepest = start.typ.skipTypes(skipPtrs)
+    ## the type most nested in the type hierarchy that's certain to be valid.
+    ## If a sibling conversion exists in the chain, this is the first
+    ## encountered sibling type
+  if needsCheck:
+    # walk the conversions again and look for the type deepest in the
+    # hierarchy
+    var x {.cursor.} = n
+    while x.kind in {nkObjDownConv, nkObjUpConv}:
+      let typ = x.typ.skipTypes(skipPtrs)
+      if (let rel = inheritanceDiff(typ, deepest); rel > 0):
+        deepest = typ
+        if rel == high(typeof(rel)):
+          # whatever other types there are, a sibling conversion will always
+          # result in a run-time error
+          break
+
+      x = x[0]
+
+  if needsCheck and deepest != start.typ.skipTypes(skipPtrs):
+    # we do need a check, but only for the most deeply nested type that is
+    # converted to
+    let val =
+      if dest:
+        genAlias(c, start, mutable=true)
+      elif sink:
+        capture(c, start, true)
+      else:
+        # if the result neither needs to be moved from nor assigned to, a
+        # cursor is enough
+        let f = c.builder.push: genx(c, start, false)
+        captureInTemp(c, f, false)
+
+    let boolType = c.graph.getSysType(n.info, tyBool)
+
+    c.buildStmt mnkIf:
+      # the ``x != nil`` condtion:
+      c.wrapAndUse(boolType):
+        c.buildMagicCall mNot, boolType:
+          c.subTree mnkArg:
+            c.wrapAndUse(boolType):
+              c.buildMagicCall mIsNil, boolType:
+                c.emitByVal val
+      # the check:
+      c.subTree mnkVoid:
+        c.buildDefectMagicCall mChckObj, typeOrVoid(c, nil):
+          c.emitByVal val
+          c.emitByVal typeLit(deepest)
+
+    c.buildOp mnkPathConv, n.typ:
+      c.use val
+  else:
+    # skip all down- and up-conversion, the final conversion is all that
+    # matters
+    c.buildOp mnkPathConv, n.typ:
+      genOperand(c, start)
+
+proc genTypeExpr(c: var TCtx, n: PNode): Value =
   ## Generates the code for an expression that yields a type. These are only
   ## valid in metaprogramming contexts. If it's a static type expression, we
   ## evaluate it directly and store the result as a type literal in the MIR
   assert n.typ.kind == tyTypeDesc
-  c.stmts.useSource(c.sp, n)
+  c.builder.useSource(c.sp, n)
   case n.kind
   of nkStmtListType, nkStmtListExpr:
     # FIXME: a ``nkStmtListExpr`` shouldn't reach here, but it does. See
@@ -573,13 +854,13 @@ proc genTypeExpr(c: var TCtx, n: PNode): EValue =
       #       ``nkInfix`` sub-node, where the latter doesn't use a
       #       ``tyTypeDesc`` type but a ``tyRef`` instead. For now, we work
       #       around this by using the type of the ``nkStmtListType``
-      genTypeLit(c, n.typ)
+      typeLit(n.typ)
   of nkBlockType:
     genTypeExpr(c, n.lastSon)
   of nkSym:
     case n.sym.kind
     of skType:
-      genTypeLit(c, n.sym.typ)
+      typeLit(n.sym.typ)
     of skVar, skLet, skForVar, skTemp, skParam:
       # a first-class type value stored in a location
       genLocation(c, n)
@@ -587,71 +868,92 @@ proc genTypeExpr(c: var TCtx, n: PNode): EValue =
       unreachable()
   of nkBracketExpr:
     # the type description of a generic type, e.g. ``seq[int]``
-    genTypeLit(c, n.typ)
+    typeLit(n.typ)
   of nkTupleTy, nkStaticTy, nkRefTy, nkPtrTy, nkVarTy, nkDistinctTy, nkProcTy,
      nkIteratorTy, nkSharedTy, nkTupleConstr:
-    genTypeLit(c, n.typ)
+    typeLit(n.typ)
   of nkTypeOfExpr, nkType:
-    genTypeLit(c, n.typ)
+    typeLit(n.typ)
   else:
     unreachable("not a type expression")
 
-proc genCallee(c: var TCtx, n: PNode): EValue =
-  ## Generates and emits the code for a callee expression
+proc genArgExpression(c: var TCtx, n: PNode, sink: bool) =
+  ## Generates and emits the code for an expression appearing in a call or
+  ## construction argument position.
+  c.builder.useSource(c.sp, n)
+
+  let f = c.builder.push: genx(c, n, consume = sink)
+  let needsTemp =
+    if sink:
+      # only literals can be passed directly to sink parameters
+      c.builder.staging[f.pos].kind notin {mnkProc, mnkLiteral}
+    else:
+      # all non-pure expressions need to be captured
+      not isPure(c.builder.staging, f.pos)
+
+  if needsTemp:
+    c.use captureInTemp(c, f, sink)
+  else:
+    discard f
+
+proc emitOperandTree(c: var TCtx, n: PNode, sink: bool) =
+  ## Generates and emits the MIR tree for a call or construction argument.
+  c.subTree (if sink: mnkConsume else: mnkArg):
+    genArgExpression(c, n, sink)
+
+proc genLvalueOperand(c: var TCtx, n: PNode; mutable = true) =
+  ## Generates the code for lvalue expression `n`. If the expression is either
+  ## not pure or has side-effects, its address/name is captured, with
+  ## `mutable` denoting whether the address is going to be used for mutation
+  ## of the underlying location.
+  let
+    n = if n.kind == nkHiddenAddr: n[0] else: n
+    f = c.builder.push:
+      if n.kind in {nkObjDownConv, nkObjUpConv}:
+        # XXX: super hacky, but currently required so that object conversions
+        #      pick the correct capture method when used as lvalue operands
+        genObjConv(c, n, sink=false, mutable)
+      else:
+        genx(c, n)
+
+  if isStable(c.builder.staging, f.pos):
+    # the expression can be used directly. We're already in a staging
+    # buffer context, so do nothing
+    discard f
+  else:
+    # capture the address via an alias
+    c.use captureName(c, f, mutable)
+
+proc genCallee(c: var TCtx, n: PNode) =
+  ## Generates and emits the code for a callee expression.
   if n.kind == nkSym and n.sym.kind in routineKinds:
-    c.stmts.useSource(c.sp, n)
-    procLit(c, n.sym)
+    c.builder.useSource(c.sp, n)
+    let s = n.sym
+    if s.magic == mNone or s.magic in c.config.magicsToKeep:
+      # reference the procedure by symbol
+      c.use toValue(c.env.procedures.add(s), s.typ)
+    else:
+      # don't use a symbol
+      c.add MirNode(kind: mnkMagic, magic: s.magic)
   else:
     # an indirect call
-    genx(c, n)
-
-proc genArgExpression(c: var TCtx, formal: PType, n: PNode): EValue =
-  ## Generates the code for an expression appearing in the context of an
-  ## argument
-  const OpenArrayLike = {tyOpenArray, tyVarargs}
-  let
-    t = formal.skipTypes(abstractVarRange)
-    # skip the hidden addr - it's not needed by the IR
-    n = if n.kind == nkHiddenAddr: n[0] else: n
-
-  c.stmts.useSource(c.sp, n)
-
-  result = c.genx(n, consume = formal.kind == tySink)
-
-  if t.kind in OpenArrayLike and
-     n.typ.skipTypes(abstractVarRange).kind notin OpenArrayLike:
-    # restore the conversion that was eliminated by ``transf``
-    result = eval(c): result => stdConvOp(formal.skipTypes(abstractVar))
+    genArgExpression(c, n, false)
 
 proc genArg(c: var TCtx, formal: PType, n: PNode) =
-  ## Generates and emits the MIR code for an argument expression plus the
-  ## required argument sink. The `formal` type is needed for figuring out
-  ## which sink to use
-  let v = genArgExpression(c, formal, n)
-
+  ## Generates and emits the MIR code for an argument expression, with the
+  ## MIR expression being wrapped in the correct argument node. The `formal`
+  ## type is needed for figuring out how the argument is passed.
   case formal.skipTypes(abstractRange-{tySink}).kind
   of tyVar:
-    chain(c): v => modify() => name()
+    if formal.base.kind in {tyOpenArray, tyVarargs}:
+      # it's not a pass-by-name parameter
+      c.emitOperandTree n, false
+    else:
+      c.emitByName ekMutate, genLvalueOperand(c, n, true)
   of tySink:
-    chain(c): v => consume()
+    c.emitOperandTree n, true
   else:
-    chain(c): v => arg()
-
-proc finishCall(c: var TCtx, callee: PNode, fntyp: PType): EValue =
-  # compute the effects the call has:
-  var effects: set[GeneralEffect]
-  if canRaiseConservative(callee):
-    effects.incl geRaises
-
-  if tfNoSideEffect notin fntyp.flags:
-    effects.incl geMutateGlobal
-
-  # to ease further return-type queries, a non-existing return-type (i.e. the
-  # type is 'nil') is replaced with the ``void`` type
-  let rtyp = typeOrVoid(c, fntyp[0])
-  c.stmts.add MirNode(kind: mnkCall, typ: rtyp, effects: effects)
-
-  result = EValue(typ: rtyp)
+    c.emitOperandTree n, false
 
 proc genArgs(c: var TCtx, n: PNode) =
   ## Emits the MIR code for the argument expressions (including the
@@ -666,47 +968,82 @@ proc genArgs(c: var TCtx, n: PNode) =
       if i < fntyp.len: fntyp[i]
       else:             n[i].typ
 
-    if t.kind == tyTypeDesc and goGenTypeExpr in c.options:
+    if t.kind == tyTypeDesc and goGenTypeExpr in c.config.options:
       # generation of type expressions is requested. It's important that this
       # branch comes before the ``isCompileTimeOnly`` one, as a ``tyTypeDesc``
       # is treated as a compile-time-only type and would be omitted then
-      chain(c): genTypeExpr(c, n[i]) => arg()
+      # FIXME: some argument expressions seem to reach here incorrectly
+      #        typed (i.e., not as a typedesc). Figure out why, resolve
+      #        the issues, and then remove the workaround here
+      if n[i].typ.kind == tyTypeDesc:
+        c.emitByVal genTypeExpr(c, n[i])
+      else:
+        c.emitByVal typeLit(n[i].typ)
     elif t.isCompileTimeOnly:
       # don't translate arguments to compile-time-only parameters. To ease the
-      # translation back to ``PNode``, we don't omit them completely but only
+      # translation to ``CgNode``, we don't omit them completely but only
       # replace them with a node holding their type
-      chain(c): genEmpty(c, n[i]) => arg()
+      c.subTree mnkArg:
+        c.add empty(c, n[i])
     elif t.kind == tyVoid:
       # a ``void`` argument. We can't just generate an ``mnkNone`` node, as the
       # statement used as the argument can still have side-effects
-      gen(c, n[i])
-      chain(c): genEmpty(c, n[i]) => arg()
+      withFront c.builder:
+        gen(c, n[i])
+      c.subTree mnkArg:
+        c.add empty(c, n[i])
     elif i == 1 and not fntyp[0].isEmptyType() and
          not isHandleLike(t) and
          classifyBackendView(fntyp[0]) != bvcNone:
       # the procedure returns a view, but the first parameter is not something
       # that resembles a handle. We need to make sure that the first argument
-      # (which the view could be created from), is passed by reference in that
-      # case.
-      chain(c): genArgExpression(c, t, n[i]) => name()
+      # (which the view could be created from), is passed by reference
+      c.subTree mnkName:
+        let x = c.builder.push: genx(c, n[i])
+        case detectKind(c.builder.staging, x.pos, false)
+        of OwnedRvalue, Rvalue, Literal:
+          c.use captureInTemp(c, x, false)
+        of Lvalue:
+          if isStable(c.builder.staging, x.pos):
+            discard x
+          else:
+            c.use captureName(c, x, false)
+
     else:
       genArg(c, t, n[i])
 
-proc genCall(c: var TCtx, n: PNode): EValue =
+proc genCall(c: var TCtx, n: PNode) =
   ## Generates and emits the MIR code for a call expression.
-  argBlock(c.stmts):
-    chain(c): genCallee(c, n[0]) => arg()
-    genArgs(c, n)
+  let fntyp = n[0].typ.skipTypes(abstractInst)
+  let kind: range[mnkCall..mnkCheckedCall] =
+    if canRaise(optPanics in c.graph.config.globalOptions, n[0]):
+      mnkCheckedCall
+    else:
+      mnkCall
 
-  finishCall(c, n[0], skipTypes(n[0].typ, abstractInst))
+  var effects: set[GeneralEffect]
+  if tfNoSideEffect notin fntyp.flags:
+    effects.incl geMutateGlobal
+
+  c.subTree MirNode(kind: kind, typ: typeOrVoid(c, fntyp[0]),
+                    effects: effects):
+    genCallee(c, n[0])
+    genArgs(c, n)
 
 proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
   ## Generates the arguments for a macro/template call expression. `n` is
   ## expected to be a ``getAst`` expression that has been transformed to the
   ## internal representation. `kind` is the meta-routine's kind, and `fntyp`
   ## its signature.
-  assert kind in {skMacro, skTemplate}
-  chain(c): genCallee(c, n[1]) => arg()
+  case kind
+  of skMacro:
+    genCallee(c, n[1])
+  of skTemplate:
+    # for late template invocations, the callee template is an argument
+    c.subTree mnkArg:
+      c.use literal(newTreeIT(nkNimNodeLit, n[1].info, n[1].typ, n[1]))
+  else:
+    unreachable(kind)
 
   for i in 2..<n.len:
     let
@@ -716,17 +1053,17 @@ proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
     if argTyp.kind == tyTypeDesc:
       # the expression is a type expression, explicitly handle it there so that
       # ``genx`` doesn't have to
-      chain(c): genTypeExpr(c, it) => arg()
+      c.emitByVal genTypeExpr(c, it)
     elif kind == skMacro:
       # we can extract the formal types from the signature
       genArg(c, fntyp[i - 1], it)
     elif kind == skTemplate:
       # we have to treat the arguments as normal expressions
-      chain(c): genx(c, it) => arg()
+      c.emitByVal genRd(c, it)
     else:
       unreachable()
 
-proc genInSetOp(c: var TCtx, n: PNode): EValue =
+proc genInSetOp(c: var TCtx, n: PNode) =
   ## Generates and emits the IR for the ``mInSet`` magic call `n`. If
   ## the element operand is a range check, it is integrated into the
   ## operation, meaning that no defect will be raised if the operand is
@@ -745,73 +1082,52 @@ proc genInSetOp(c: var TCtx, n: PNode): EValue =
       leOp = getMagicLeForType(elemTyp) # less-equal op
       res = getTemp(c, n.typ) # the temporary to write the result to
 
-    # we use a region in order to ensure that all operands are only evaluated
-    # once
-    argBlock(c.stmts):
-      # the evaluation order is reversed here: the second operand comes
-      # first
-      chain(c): genx(c, x[0]) => arg()
-      chain(c): genx(c, x[1]) => arg()
-      chain(c): genx(c, x[2]) => arg()
+    # the evaluation order is reversed here: the second operand comes
+    # first
+    let
+      val = genRd(c, x[0])
+      a   = genRd(c, x[1])
+      b   = genRd(c, x[2])
 
-      if se.kind == nkCurly:
-        # don't pass the set construction as an argument, as that would
-        # always materialize it, preventing optimizations. Literals are
-        # forwarded (they don't have side-effects) in order to reduce
-        # the amount of MIR code
-        for it in se.items:
-          if it.kind notin {nkRange} + nkLiterals:
-            chain(c): genx(c, it) => arg()
-      else:
-        chain(c): genx(c, n[1]) => arg()
+    c.buildStmt mnkIf:
+      # condition: ``a <= x:``
+      c.wrapAndUse(n.typ):
+        c.buildMagicCall leOp, n.typ:
+          c.emitByVal a
+          c.emitByVal val
+      # the outer body:
+      c.subTree mnkStmtList:
+        # condition: ``x <= b:``
+        c.subTree mnkIf:
+          c.wrapAndUse(n.typ):
+            c.buildMagicCall leOp, n.typ:
+              c.emitByVal val
+              c.emitByVal b
+          c.subTree mnkStmtList:
+            var sv: Value
+            if se.kind == nkCurly and not isDeepConstExpr(se):
+              sv = c.allocTemp(se.typ)
+              c.subTree mnkDef:
+                c.use sv
+                c.subTree MirNode(kind: mnkConstr, typ: se.typ):
+                  for it in se.items:
+                    c.emitOperandTree it, false
+            else:
+              sv = genRd(c, se)
 
-    c.stmts.subTree MirNode(kind: mnkRegion):
-      # generate: ``if x <= a:``
-      argBlock(c.stmts):
-        chain(c): genx(c, x[1]) => arg()
-        chain(c): opParam(0, x.typ) => arg()
-      forward(c): magicCall(leOp, n.typ)
-      c.stmts.subTree MirNode(kind: mnkIf):
-        c.stmts.subTree MirNode(kind: mnkStmtList):
-          # generate: ``if x <= b:``
-          argBlock(c.stmts):
-            chain(c): opParam(0, x.typ) => arg()
-            chain(c): genx(c, x[2]) => arg()
-          forward(c): magicCall(leOp, n.typ)
-          c.stmts.subTree MirNode(kind: mnkIf):
-            c.stmts.subTree MirNode(kind: mnkStmtList):
-              # generate: ``tmp = x in ...``
-              argBlock(c.stmts):
-                chain(c): temp(n.typ, res) => outOp() => name()
-                argBlock(c.stmts):
-                  if se.kind == nkCurly:
-                    argBlock(c.stmts):
-                      # emit a set construction
-                      var i = 0
-                      for it in se.items:
-                        if it.kind in nkLiterals + {nkRange}:
-                          chain(c): genx(c, it) => arg()
-                        else:
-                          # use the corresponding region parameter:
-                          chain(c): opParam(uint32(3 + i), n.typ) => arg()
-                          inc i
-                    chain(c): constr(se.typ) => arg()
-                  else:
-                    # forward the region parameter:
-                    chain(c): opParam(3, n.typ) => arg()
-                  # the 'in' element operand:
-                  chain(c): opParam(0, x.typ) => arg()
-                chain(c): magicCall(mInSet, n.typ) => arg()
-              c.stmts.add MirNode(kind: mnkInit)
+            c.subTree mnkInit:
+              c.use res
+              c.buildMagicCall mInSet, n.typ:
+                c.emitByVal sv
+                c.emitByVal val
 
-    # generate: ``tmp``
-    c.tempNode(n.typ, res)
+    c.use res
   else:
     # the operation is not eligible for being turned into an ``if`` chain. Emit a
     # generic magic call
     genCall(c, n)
 
-proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
+proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
   ## Generates the MIR code for the magic call expression/statement `n`. `m` is
   ## the magic's enum value and must match with that of the callee.
   ##
@@ -819,103 +1135,159 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
   ## symbols are incomplete: only the ``magic`` and ``name`` field can be
   ## treated as valid. These magic calls are manually translated and don't go
   ## through ``genCall``
-  c.stmts.useSource(c.sp, n)
+  c.builder.useSource(c.sp, n)
 
-  proc argExpr(c: var TCtx, n: PNode): EValue =
-    ## Generates an argument expression in a context where information about
-    ## the formal type is missing -- the type of the expression is used as the
-    ## formal type instead. This only works for arguments where the parameter is
-    ## known to neither be of ``var`` nor ``sink`` type
-    # make sure to skip types such as ``sink``, as the expression would be
-    # erroneously treated as used in a consume context otherwise
-    genArgExpression(c, n.typ.skipTypes(abstractVar), n)
+  template arg(n: PNode) =
+    c.emitOperandTree n, false
 
   case m
   of mAnd, mOr:
     let tmp = getTemp(c, n.typ)
-    let slice = buildSlice(c.staging, c.sp):
-      c.staging.add MirNode(kind: mnkTemp, typ: n.typ, temp: tmp)
-
-    genAndOr(c, n, Destination(kind: dkFrag, nodes: slice))
-
-    c.staging.popSlice(slice)
-
-    tempNode(c, n.typ, tmp)
+    withFront c.builder:
+      genAndOr(c, n, Destination(isSome: true, val: tmp))
+    c.use tmp
   of mDefault:
     # use the canonical form:
-    genDefault(c, n.typ)
+    c.buildMagicCall mDefault, n.typ:
+      discard
   of mNew:
     # ``new`` has 2 variants. The standard one with zero arguments, and the
     # unsafe version that takes a ``size`` argument
     assert n.len == 1 or n.len == 2
-    argBlock(c.stmts):
+    c.buildMagicCall m, typeOrVoid(c, n.typ):
       if n.len == 2:
         # the size argument
-        chain(c): genArgExpression(c, n[0].typ[1], n[1]) => arg()
+        arg n[1]
 
-    magicCall(c, m, typeOrVoid(c, n.typ))
   of mWasMoved:
     # ``wasMoved`` has an effect that is not encoded by the parameter's type
     # (it kills the location), so we need to manually translate it
-    argBlock(c.stmts):
-      chain(c): argExpr(c, n[1]) => tag(ekKill) => name()
-
-    magicCall(c, mWasMoved, typeOrVoid(c, n.typ))
+    c.buildMagicCall m, typeOrVoid(c, n.typ):
+      c.emitByName ekKill, genLvalueOperand(c, n[1])
   of mConStrStr:
     # the `mConStrStr` magic is very special. Nested calls to it are flattened
     # into a single call in ``transf``. It can't be passed on to ``genCall``
     # since the number of arguments doesn't match with the number of parameters
-    argBlock(c.stmts):
+    c.buildMagicCall m, n.typ:
       for i in 1..<n.len:
-        chain(c): argExpr(c, n[i]) => arg()
-
-    magicCall(c, mConStrStr, n.typ)
-  of mRunnableExamples:
-    # omit the ``runnableExamples`` call. The callsite of ``genMagic`` expects
-    # that we emit something, so we emit an ``mnkEmpty`` node
-    # TODO: call to ``runnableExamples`` shouldn't reach into ``mirgen``. If
-    #       they do, it means that simple expression might sometimes not be
-    #       detected as such, because ``canonicalExpr`` doesn't consider
-    #       ``runnableExamples``
-    genEmpty(c, n)
+        arg n[i]
   of mInSet:
     genInSetOp(c, n)
+  of mEcho:
+    # forward the wrapped arguments to the call; don't emit the intermediate array
+    let x = n[1].skipConv
+    assert x.kind == nkBracket
+    c.buildCheckedMagicCall m, typeOrVoid(c, n.typ):
+      # for the convenience of later transformations, the type of the would-be
+      # array is passed along as the first argument
+      if x.len > 0:
+        c.emitByVal typeLit(x.typ)
+      for it in x.items:
+        arg it
+  of mAccessEnv:
+    c.subTree MirNode(kind: mnkPathPos, typ: n.typ, position: 1):
+      genOperand(c, n[1])
+  of mOffsetOf:
+    # an offsetOf call that has to be evaluated by the backend
+    c.buildMagicCall mOffsetOf, n.typ:
+      c.subTree mnkName:
+        # prevent all checks and make sure that the original lvalue
+        # expression reaches the code generators
+        # XXX: this is a brittle and problematic hack. The type plus field
+        #      index should be passed as the arguments instead
+        let orig = c.userOptions
+        c.userOptions = {}
+        genx(c, n[1])
+        c.userOptions = orig
+  of mSlice:
+    # XXX: a HiddenStdConv erroneously ends up in the array position
+    #      sometimes, which would, if kept, lead to index errors when the
+    #      array doesn't start at index 0
+    let arr = skipConv(n[1])
+    if optBoundsCheck in c.userOptions and needsBoundCheck(arr, n[2], n[3]):
+      let
+        arr = capture(c, arr)
+        lo = genRd(c, n[2])
+        hi = genRd(c, n[3])
+      c.buildStmt mnkVoid:
+        c.buildDefectMagicCall mChckBounds, typeOrVoid(c, nil):
+          c.emitByVal arr
+          c.emitByVal lo
+          c.emitByVal hi
+
+      c.buildTree mnkToSlice, n.typ:
+        c.use arr
+        c.use lo
+        c.use hi
+    else:
+      c.buildTree mnkToSlice, n.typ:
+        genOperand(c, arr)
+        genArgExpression(c, n[2], sink=false)
+        genArgExpression(c, n[3], sink=false)
+
+  # arithmetic operations:
+  of mInc, mDec:
+    # ``inc a, b`` -> ``a = a + b``
+    let
+      typ = n[1].typ
+      dest = genAlias(c, n[1], true)
+    c.buildStmt mnkAsgn:
+      c.use dest
+      if isUnsigned(typ):
+        const magic = [mInc: mAddU, mDec: mSubU]
+        c.buildMagicCall magic[m], typ:
+          c.emitByVal dest
+          arg n[2]
+      else:
+        const magic = [mInc: mAddI, mDec: mSubI]
+        if optRangeCheck in c.userOptions and
+           typ.skipTypes(abstractInst).kind in {tyRange, tyEnum}:
+          # needs an additional range check in order to ensure that the value
+          # is in range
+          let val = c.wrapTemp(typ):
+            c.buildMagicCall magic[m], typ:
+              c.emitByVal dest
+              arg n[2]
+          c.buildDefectMagicCall mChckRange, typ:
+            c.emitByVal val
+            c.emitByVal intLiteral(firstOrd(c.graph.config, typ), typ)
+            c.emitByVal intLiteral(lastOrd(c.graph.config, typ), typ)
+        else:
+          # no range check is needed
+          c.buildMagicCall magic[m], n[1].typ:
+            c.emitByVal dest
+            arg n[2]
 
   # magics that use incomplete symbols (most of them are generated by
   # ``liftdestructors``):
   of mDestroy:
     # ``mDestroy`` magic calls might be incomplete symbols, so we have to
     # translate them manually
-    argBlock(c.stmts):
-      chain(c): argExpr(c, n[1]) => tag(ekMutate) => name()
-    magicCall(c, m, typeOrVoid(c, n.typ))
+    c.buildMagicCall m, typeOrVoid(c, n.typ):
+      c.emitByName ekMutate, genLvalueOperand(c, n[1])
   of mNewSeq:
     # XXX: the first parameter is actually an ``out`` parameter -- the
     #      ``ekReassign`` effect could be used
     if n[0].typ == nil:
-      argBlock(c.stmts):
-        chain(c): argExpr(c, n[1]) => tag(ekMutate) => name()
-        chain(c): argExpr(c, n[2]) => arg()
-      magicCall(c, m, typeOrVoid(c, n.typ))
+      c.buildMagicCall m, typeOrVoid(c, n.typ):
+        c.emitByName ekMutate, genLvalueOperand(c, n[1])
+        arg n[2]
     else:
       genCall(c, n)
-  of mInc, mSetLengthStr:
+  of mSetLengthStr, mCopyInternal:
     if n[0].typ == nil:
-      argBlock(c.stmts):
-        chain(c): argExpr(c, n[1]) => tag(ekMutate) => name()
-        chain(c): argExpr(c, n[2]) => arg()
-      magicCall(c, m, typeOrVoid(c, n.typ))
+      c.buildMagicCall m, typeOrVoid(c, n.typ):
+        c.emitByName ekMutate, genLvalueOperand(c, n[1])
+        arg n[2]
     else:
       genCall(c, n)
-  of mNot, mLtI, mSubI, mLengthSeq, mLengthStr, mAccessEnv, mAccessTypeField,
-     mSamePayload:
+  of mNot, mLtI, mSubI, mLengthSeq, mLengthStr, mSamePayload:
     if n[0].typ == nil:
       # simple translation. None of the arguments need to be passed by lvalue
-      argBlock(c.stmts):
+      c.buildMagicCall m, n.typ:
         for i in 1..<n.len:
-          chain(c): argExpr(c, n[i]) => arg()
+          arg n[i]
 
-      magicCall(c, m, n.typ)
     else:
       genCall(c, n)
   of mAlignOf:
@@ -923,16 +1295,14 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
     # calls where ``x`` is of an imported type with unknown alignment reach
     # here. The code-generators only care about the types in both cases, so
     # that's what we emit
-    argBlock(c.stmts):
+    c.buildMagicCall m, n.typ:
       # skip the surrounding typedesc
-      chain(c): typeLit(n[1].typ.skipTypes({tyTypeDesc})) => arg()
-    magicCall(c, m, n.typ)
+      c.emitByVal typeLit(n[1].typ.skipTypes({tyTypeDesc}))
   of mGetTypeInfoV2:
     if n[0].typ == nil:
       # the compiler-generated version always uses a type as the argument
-      argBlock(c.stmts):
-        chain(c): typeLit(n[1].typ) => arg()
-      magicCall(c, m, n.typ)
+      c.buildMagicCall m, n.typ:
+        c.emitByVal typeLit(n[1].typ)
     else:
       # only the compiler-generated version of the magic has a type parameter.
       # The normal one doesn't (see ``cyclebreaker.getDynamicTypeInfo``), so we
@@ -948,158 +1318,165 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
     of skTemplate:
       # a ``getAst`` call taking a template call expression. The arguments
       # need special handling, but the shape stays as is
-      argBlock(c.stmts):
+      c.buildMagicCall m, n.typ:
         genMacroCallArgs(c, n, skTemplate, callee.sym.typ)
-
-      magicCall(c, m, n.typ)
     of skMacro:
       # rewrite ``getAst(macro(a, b, c))`` -> ``macro(a, b, c)``
-      argBlock(c.stmts):
-        # we can use the internal signature
-        genMacroCallArgs(c, n, skMacro, callee.sym.internal)
-
       # treat a macro call as potentially raising and as modifying global
       # data. While not wrong, it is pessimistic
-      c.stmts.add MirNode(kind: mnkCall, typ: n.typ,
-                          effects: {geMutateGlobal, geRaises})
-      EValue(typ: n.typ)
+      c.subTree MirNode(kind: mnkCheckedCall, typ: n.typ,
+                        effects: {geMutateGlobal}):
+        # we can use the internal signature
+        genMacroCallArgs(c, n, skMacro, callee.sym.internal)
     else:
       unreachable()
 
   of mSwap:
     # turn calls to magic procedures that don't require symbols into MIR
     # magic calls
-    argBlock(c.stmts):
+    c.buildMagicCall m, n.typ:
       genArgs(c, n)
-    magicCall(c, m, typeOrVoid(c, n.typ))
-
   else:
     # no special transformation for the other magics:
     genCall(c, n)
 
-proc genCallOrMagic(c: var TCtx, n: PNode): EValue =
+proc genCallOrMagic(c: var TCtx, n: PNode) =
   if n[0].kind == nkSym and (let s = n[0].sym; s.magic != mNone):
     genMagic(c, n, s.magic)
   else:
     genCall(c, n)
 
-proc genSetConstr(c: var TCtx, n: PNode): EValue =
-  argBlock(c.stmts):
+proc genSetConstr(c: var TCtx, n: PNode) =
+  c.buildTree mnkConstr, n.typ:
     for it in n.items:
-      chain(c): genx(c, it) => arg()
+      c.emitOperandTree it, false
 
-  result = constr(c, n.typ)
-
-proc genArrayConstr(c: var TCtx, n: PNode, isConsume: bool): EValue =
-  argBlock(c.stmts):
+proc genArrayConstr(c: var TCtx, n: PNode, isConsume: bool) =
+  c.buildTree mnkConstr, n.typ:
     for it in n.items:
-      chain(c): genx(c, it, isConsume) => selectArg(isConsume)
+      c.emitOperandTree it, isConsume
 
-  result = constr(c, n.typ)
-
-proc genTupleConstr(c: var TCtx, n: PNode, isConsume: bool): EValue =
+proc genTupleConstr(c: var TCtx, n: PNode, isConsume: bool) =
   assert n.typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind == tyTuple
-
-  argBlock(c.stmts):
+  c.buildTree mnkConstr, n.typ:
     for it in n.items:
-      chain(c): genx(c, skipColon(it), isConsume) => selectArg(isConsume)
+      c.emitOperandTree skipColon(it), isConsume
 
-  result = constr(c, n.typ)
+proc genClosureConstr(c: var TCtx, n: PNode, isConsume: bool) =
+  c.buildTree mnkConstr, n.typ:
+    c.emitOperandTree n[0].skipConv, false # the procedural value
+    # transf wraps the procedure operand in a conversion that we don't
+    # need
 
-proc genClosureConstr(c: var TCtx, n: PNode, isConsume: bool): EValue =
-  argBlock(c.stmts):
-    chain(c): genx(c, n[0]) => arg() # the procedure
-
-    let v =
+    c.subTree (if isConsume: mnkConsume else: mnkArg): # the environment
       if n[1].kind == nkNilLit:
         # it can happen that a ``nkNilLit`` has no type (i.e. its typ is nil) -
         # we ensure that the nil literal has the correct type
         # TODO: prevent a ``nkNilLit`` with no type information from being
         #       created instead
-        genLit(c, newNodeIT(nkNilLit, n[1].info, c.graph.getSysType(n[1].info, tyNil)))
+        c.use literal(newNodeIT(nkNilLit, n[1].info,
+                                c.graph.getSysType(n[1].info, tyNil)))
       else:
-        genx(c, n[1], isConsume)
+        genArgExpression(c, n[1], isConsume)
 
-    chain(c): v => selectArg(isConsume) # the environment
-
-  result = constr(c, n.typ)
-
-proc genObjConstr(c: var TCtx, n: PNode, isConsume: bool): EValue =
+proc genObjConstr(c: var TCtx, n: PNode, isConsume: bool) =
   let isRef = n.typ.skipTypes(abstractInst).kind == tyRef
 
-  # generate the argument block:
-  argBlock(c.stmts):
+  c.subTree MirNode(kind: mnkObjConstr, typ: n.typ, len: n.len-1):
     for i in 1..<n.len:
       let it = n[i]
+      let field = lookupFieldAgain(n.typ.skipTypes(abstractInst), it[0].sym)
       assert it.kind == nkExprColonExpr
 
       # only require require a unique value when constructing a ``ref`` and the
       # destination is not a ``.cursor`` field
       let useConsume =
         (isRef or isConsume) and
-        sfCursor notin lookupFieldAgain(n.typ.skipTypes(abstractInst), it[0].sym).flags
+        sfCursor notin field.flags
 
-      chain(c): genx(c, it[1], useConsume) => selectArg(useConsume)
-
-  # emit the constructor:
-  c.stmts.subTree MirNode(kind: mnkObjConstr, typ: n.typ, len: n.len-1):
-    for i in 1..<n.len:
-      let it = n[i]
-
-      c.stmts.add MirNode(kind: mnkField, field: it[0].sym)
-
-  result = EValue(typ: n.typ)
-
+      c.add MirNode(kind: mnkField, field: field)
+      c.emitOperandTree it[1], useConsume
 
 proc genRaise(c: var TCtx, n: PNode) =
   assert n.kind == nkRaiseStmt
-  forward:
-    if n[0].kind != nkEmpty: c.genx(n[0])
-    else:                    c.genEmpty(n[0])
+  if n[0].kind != nkEmpty:
+    let tmp = c.wrapTemp n[0].typ:
+      genx(c, n[0], consume=true)
 
-  c.stmts.add MirNode(kind: mnkRaise)
+    # emit the preparation code:
+    let
+      typ = skipTypes(n[0].typ, abstractPtrs)
+      cp = c.graph.getCompilerProc("prepareException")
+    c.buildStmt mnkVoid:
+      c.buildTree mnkCall, typeOrVoid(c, nil):
+        c.use toValue(c.env.procedures.add(cp), cp.typ)
+        c.subTree mnkArg:
+          # lvalue conversion to the base ``Exception`` type:
+          c.buildTree mnkPathConv, cp.typ[1]:
+            c.use tmp
+        c.emitByVal literal(newStrNode(typ.sym.name.s,
+                                       c.graph.getSysType(n.info, tyCstring)))
+
+    # emit the raise statement:
+    c.buildStmt mnkRaise:
+      c.use tmp
+  else:
+    # a re-raise statement
+    c.buildStmt mnkRaise:
+      c.add MirNode(kind: mnkNone)
 
 proc genReturn(c: var TCtx, n: PNode) =
   assert n.kind == nkReturnStmt
   if n[0].kind != nkEmpty:
     gen(c, n[0])
 
-  c.stmts.add MirNode(kind: mnkReturn)
+  c.add MirNode(kind: mnkReturn)
+
+proc genAsgnSource(c: var TCtx, e: PNode, sink: bool) =
+  ## Generates the MIR code for the right-hand side of an assignment.
+  ## The value is captured in a temporary if necessary for proper
+  ## destruction.
+  c.builder.useSource(c.sp, e)
+  let f = c.builder.push: genx(c, e, sink)
+
+  if not sink and
+     detectKind(c.builder.staging, f.pos, false) == OwnedRvalue:
+    # the expression produces some value that requires ownership being
+    # taken of but the receiver doesn't support holding those. Assign the
+    # value to an owning temporary (which can be destroyed later) first
+    let tmp = c.allocTemp(e.typ)
+    withFront c.builder:
+      c.subTree mnkDef:
+        c.add tmp.node
+        c.builder.pop(f)
+    c.use tmp
 
 proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
   assert dest.isSome
   let owns = dfOwns in dest.flags
-  argBlock(c.stmts):
-    let v =
-      case dest.kind
-      of dkGen:  genx(c, dest.node)
-      of dkFrag: emit(c.stmts, c.sp, c.staging, dest.nodes)
-      else:      unreachable()
-
-    chain(c): v => outOp() => name() # lhs
-    chain(c): c.genx(rhs, consume = owns) => selectArg(owns) # rhs
-
   let kind =
     if owns:
       if dfEmpty in dest.flags: mnkInit
       else:                     mnkAsgn
     else:                       mnkFastAsgn
-
-  c.stmts.add MirNode(kind: kind)
+  c.buildStmt kind:
+    c.use dest.val
+    c.genAsgnSource(rhs, sink = owns)
 
 proc unwrap(c: var TCtx, n: PNode): PNode =
   ## If `n` is a statement-list expression, generates the code for all
-  ## statements and returns the unwrapped expression. Returns the canonicalized
-  ## `n` otherwise
-  result = canonicalExpr(n)
+  ## statements and returns the unwrapped expression. The unchanged `n` is
+  ## returned otherwise.
+  result = n
   if result.kind == nkStmtListExpr:
-    for i in 0..<(result.len-1):
-      gen(c, result[i])
+    withFront c.builder:
+      for i in 0..<(result.len-1):
+        gen(c, result[i])
 
-    result = canonicalExpr(result.lastSon)
+    result = result.lastSon
     assert result.kind != nkStmtListExpr
 
-proc genAsgn(c: var TCtx, isFirst: bool, lhs, rhs: PNode) =
+proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
   ## Generates the code for an assignment. `isFirst` indicates if this is the
   ## first assignment to the location named by `lhs`.
   ##
@@ -1111,115 +1488,101 @@ proc genAsgn(c: var TCtx, isFirst: bool, lhs, rhs: PNode) =
   # l-value expression:
   let
     lhs = unwrap(c, lhs)
-    isCursor = isCursor(lhs)
+    sink = sink and not isCursor(lhs)
 
-  func isSimple(n: PNode): bool =
-    ## Computes if the l-value expression `n` always names the same valid
-    ## location
-    var n {.cursor.} = n
-    while true:
-      case n.kind
-      of nkSym:
-        return true
-      of nkDotExpr:
-        # ``nkCheckedFieldExpr`` is deliberately not included here because it
-        # means the location is part of a variant-object-branch
-        n = n[0]
-      of nkBracketExpr:
-        if n[0].typ.skipTypes(abstractVarRange).kind in {tyTuple, tyArray} and
-           n[1].kind in nkLiterals:
-          # tuple access and arrays indexed by a constant value are
-          # allowed -- they always name the same location
-          n = n[0]
+  case rhs.kind
+  of ComplexExprs, nkStmtListExpr:
+    # optimization: forward the destination. For example:
+    #   x = if cond: a else: b
+    # becomes:
+    #   if cond: x = a
+    #   else:    x = b
+    let
+      f = c.builder.push: genLvalueOperand(c, lhs, true)
+      dest =
+        if c.builder.staging[f.pos].kind in Atoms:
+          c.builder.popSingle(f)
         else:
-          return false
-      else:
-        return false
+          captureName(c, f, true)
 
-  if isSimple(lhs):
-    # the rhs cannot change the location the lhs names, so we can assign
-    # directly
-    genWithDest(c, rhs, initDestination(lhs, isFirst))
+    genWithDest(c, rhs, initDestination(dest, isFirst, sink))
   else:
-    argBlock(c.stmts):
-      chain(c): genx(c, lhs) => outOp() => name()
-      # only use 'consume' if the we're not assigning to a cursor
-      chain(c): genx(c, rhs, consume=not isCursor) => selectArg(not isCursor)
-
     let kind =
-      if isCursor:  mnkFastAsgn
-      else:
+      if sink:
         if isFirst: mnkInit
         else:       mnkAsgn
+      else:         mnkFastAsgn
 
-    c.stmts.add MirNode(kind: kind)
+    c.buildStmt kind:
+      # ``genLvalueOperand`` ensures that unstable lvalue
+      # expressions are captured
+      genLvalueOperand(c, lhs, true)
+      genAsgnSource(c, rhs, sink)
 
-proc genFastAsgn(c: var TCtx, lhs, rhs: PNode) =
-  argBlock(c.stmts):
-    chain(c): genx(c, lhs) => outOp() => name()
-    chain(c): genx(c, rhs) => arg()
-
-  c.stmts.add MirNode(kind: mnkFastAsgn)
-
-proc genLocDef(c: var TCtx, n: PNode) =
+proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
   ## Generates the 'def' construct for the entity provided by the symbol node
   ## `n`
-  let s = n.sym
+  let
+    s = n.sym
+    hasInitializer = val.kind != nkEmpty
+    sink = sfCursor notin s.flags
+    node = nameNode(c, s)
 
-  c.stmts.useSource(c.sp, n)
-  c.stmts.subTree MirNode(kind: selectDefKind(s)):
-    case s.kind
-    of skTemp:
-      let id = nextTempId(c)
-      c.tmpMap[s.itemId] = id
-
-      c.stmts.add MirNode(kind: mnkTemp, typ: s.typ, temp: id)
+  c.builder.useSource(c.sp, n)
+  if node.kind == mnkGlobal and c.scopeDepth == 1:
+    # no 'def' statement is emitted for top-level globals
+    if hasInitializer:
+      genAsgn(c, true, sink, n, val)
+    elif {sfImportc, sfNoInit} * s.flags == {} and
+         {exfDynamicLib, exfNoDecl} * s.extFlags == {}:
+      # XXX: ^^ re-think this condition from first principles. Right now,
+      #      it's just meant to make some tests work
+      # the location doesn't have an explicit starting value. Initialize
+      # it to the type's default value.
+      c.buildStmt mnkInit:
+        c.add node
+        c.buildMagicCall mDefault, s.typ:
+          discard
     else:
-      let kind =
-        if sfGlobal in s.flags: mnkGlobal
-        else:                   mnkLocal
-
-      {.cast(uncheckedAssign).}:
-        c.stmts.add MirNode(kind: kind, typ: s.typ, sym: s)
+      # the definition doesn't imply default intialization
+      discard
+  else:
+    c.buildStmt (if sfCursor in s.flags: mnkDefCursor else: mnkDef):
+      c.add node
+      if hasInitializer:
+        # XXX: some closure types are erroneously reported as having no
+        #      destructor, which would lead to memory leaks if the
+        #      expression is a closure construction. As a work around,
+        #      a missing destructor disables the sink context
+        genAsgnSource(c, val, sink and hasDestructor(s.typ))
+      else:
+        c.add MirNode(kind: mnkNone)
 
 proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
   ## Generates the code for a location definition. `sym` is the symbol of the
   ## location and `initExpr` the initializer expression
   let
     sym = symNode.sym
-    hasInitExpr = initExpr.kind != nkEmpty
-    wantsOwnership = sfCursor notin sym.flags and
-                     hasDestructor(sym.typ)
 
   assert sym.kind in {skVar, skLet, skTemp, skForVar}
 
-  if sfCompileTime in sym.flags and goIsCompileTime notin c.options:
+  if sfCompileTime in sym.flags and goIsCompileTime notin c.config.options:
     # compile-time-only locations don't exist outside of compile-time
     # contexts, so omit their definitions
     return
 
-  # if there's an initial value and the destination is non-owning, we pass the
-  # value directly to the def
-  if hasInitExpr and not wantsOwnership:
-    # TODO: add a test for using a constructor expression for initializing a
-    #       cursor
-    forward(c): genx(c, initExpr, consume = false)
-
-  genLocDef(c, symNode)
-
-  if hasInitExpr and wantsOwnership:
-    # a copy or sink can't be expressed via a pass-to-def -- we need to use
-    # the assignment operator
-    genAsgn(c, true, symNode, initExpr)
+  genLocDef(c, symNode, initExpr)
 
 proc genVarTuple(c: var TCtx, n: PNode) =
   ## Generates the code for a ``let/var (a, b) = c`` statement
   assert n.kind == nkVarTuple
-  c.stmts.useSource(c.sp, n)
+  c.builder.useSource(c.sp, n)
 
   let
     numDefs = n.len - 2
     initExpr = n[^1]
+    isInit = c.inLoop == 0
+      ## for lifted locals, whether an 'init' assignment can be used
 
   # then, generate the initialization
   case initExpr.kind
@@ -1235,39 +1598,29 @@ proc genVarTuple(c: var TCtx, n: PNode) =
 
       case lhs.kind
       of nkSym:     genLocInit(c, lhs, rhs)
-      of nkDotExpr: genAsgn(c, true, lhs, rhs) # part of a closure environment
+      of nkDotExpr: genAsgn(c, isInit, true, lhs, rhs) # closure field
       else:         unreachable(lhs.kind)
 
   else:
-    let
-      typ = initExpr.typ
-      tmp = nextTempId(c)
-
-    # XXX: ``mnkDefUnpack`` was meant as a workaround and shouldn't be used
-    #      here. Passing each destination plus the tuple expression as
-    #      arguments to a region that performs the unpacking would be a much
-    #      cleaner solution and also speed up the move analysis a bit, because
-    #      the lifetime of the temporary ends much earlier. The problem: the
-    #      move analyser is not capable of analysing section parameters yet.
-    #      Using a region would also mean an increase in the amount of nodes --
-    #      ``mnkDefUnpack``, while a hack, is much more concise
     # generate the definition for the temporary:
-    forward: genx(c, initExpr, consume = true)
-    c.stmts.subTree MirNode(kind: mnkDefUnpack):
-      c.stmts.add MirNode(kind: mnkTemp, typ: typ, temp: tmp)
+    let val = c.allocTemp(initExpr.typ)
+    c.buildStmt mnkDefUnpack:
+      c.use val
+      genx(c, initExpr, consume = true)
 
     # generate the unpack logic:
     for i in 0..<numDefs:
       let lhs = n[i]
 
       if lhs.kind == nkSym:
-        genLocDef(c, lhs)
+        genLocDef(c, lhs, c.graph.emptyNode)
 
       # generate the assignment:
-      argBlock(c.stmts):
-        chain(c): genx(c, lhs) => outOp() => name()
-        chain(c): temp(typ, tmp) => tupleAccess(i.uint32, lhs.sym.typ) => consume()
-      c.stmts.add MirNode(kind: mnkInit)
+      c.buildStmt (if isInit: mnkInit else: mnkAsgn):
+        genOperand(c, lhs)
+        c.subTree MirNode(kind: mnkPathPos, typ: lhs.typ,
+                          position: i.uint32):
+          c.use val
 
 proc genVarSection(c: var TCtx, n: PNode) =
   for a in n:
@@ -1276,21 +1629,22 @@ proc genVarSection(c: var TCtx, n: PNode) =
     of nkVarTuple:
       genVarTuple(c, a)
     of nkIdentDefs:
-      c.stmts.useSource(c.sp, a)
+      c.builder.useSource(c.sp, a)
       case a[0].kind
       of nkSym:
         genLocInit(c, a[0], a[2])
       of nkDotExpr:
         # initialization of a variable that was lifted into a closure
         # environment
+        let isInit = c.inLoop == 0
         if a[2].kind != nkEmpty:
-          genAsgn(c, false, a[0], a[2])
+          genAsgn(c, isInit, true, a[0], a[2])
         else:
           # no intializer expression -> assign the default value
-          argBlock(c.stmts):
-            chain(c): genx(c, a[0]) => tag(ekReassign) => name()
-            chain(c): genDefault(c, a[0].typ) => arg()
-          c.stmts.add MirNode(kind: mnkInit)
+          c.buildStmt (if isInit: mnkInit else: mnkAsgn):
+            genOperand(c, a[0])
+            c.buildMagicCall mDefault, a[0].typ:
+              discard
       else:
         unreachable()
 
@@ -1301,16 +1655,18 @@ proc genVarSection(c: var TCtx, n: PNode) =
 proc genWhile(c: var TCtx, n: PNode) =
   ## Generates the code for a ``nkWhile`` node.
   assert isTrue(n[0]), "`n` wasn't properly transformed"
-  c.stmts.subTree MirNode(kind: mnkRepeat):
-    scope(c.stmts):
+  c.subTree MirNode(kind: mnkRepeat):
+    c.scope:
+      inc c.inLoop
       c.gen(n[1])
+      dec c.inLoop
 
 proc genBlock(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for a ``block`` expression or statement
   if sfUsed notin n[0].sym.flags:
     # if the label is never used, it means that the block is only used for
     # scoping. Omit emitting an ``mnkBlock`` and just use a scope
-    scope(c.stmts): c.genWithDest(n[1], dest)
+    c.scope: c.genWithDest(n[1], dest)
     return
 
   let id = nextLabel(c)
@@ -1320,8 +1676,8 @@ proc genBlock(c: var TCtx, n: PNode, dest: Destination) =
   c.blocks.add Block(label: n[0].sym, id: id)
 
   # generate the body:
-  c.stmts.subTree MirNode(kind: mnkBlock, label: id):
-    scope(c.stmts):
+  c.subTree MirNode(kind: mnkBlock, label: id):
+    c.scope:
       c.genWithDest(n[1], dest)
 
   # pop the block:
@@ -1334,7 +1690,7 @@ proc genBranch(c: var TCtx, n: PNode, dest: Destination) =
 
   # if the branch ends in a no-return statement, it has no type. We generate a
   # normal statement (without an assignment to `dest`) in that case
-  if dest.kind != dkNone and not n.typ.isEmptyType():
+  if dest.isSome and not n.typ.isEmptyType():
     genWithDest(c, n, dest)
   else:
     gen(c, n)
@@ -1375,9 +1731,10 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
 
   template genElifBranch(branch: PNode, extra: untyped) =
     ## Generates the code for a single ``nkElif(Branch|Expr)``
-    forward: genx(c, branch[0])
-    c.stmts.subTree MirNode(kind: mnkIf):
-      scope(c.stmts):
+    let v = genUse(c, branch[0])
+    c.subTree mnkIf:
+      c.use v
+      c.scope:
         genBranch(c, branch.lastSon, dest)
         extra
 
@@ -1390,8 +1747,8 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
   else:
     # a multi-clause ``if`` statement/expression
     let label = nextLabel(c)
-    c.stmts.subTree MirNode(kind: mnkBlock, label: label):
-      stmtList(c.stmts):
+    c.subTree MirNode(kind: mnkBlock, label: label):
+      c.subTree mnkStmtList:
         for it in n.items:
           case it.kind
           of nkElifBranch, nkElifExpr:
@@ -1399,10 +1756,10 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
               # don't emit the 'break' if the branch doesn't have a structured
               # exit
               if not endsInNoReturn(it.lastSon):
-                c.stmts.add MirNode(kind: mnkBreak, label: label)
+                c.add MirNode(kind: mnkBreak, label: label)
 
           of nkElse, nkElseExpr:
-            scope(c.stmts):
+            c.scope:
               genBranch(c, it[0], dest)
 
             # since this is the last branch, a 'break' is not needed
@@ -1415,23 +1772,13 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
   ## straightforward
   assert isEmptyType(n.typ) == not dest.isSome
 
-  forward: genx(c, n[0])
+  let v = genUse(c, n[0])
+  c.add MirNode(kind: mnkCase, len: n.len - 1)
+  c.use v
 
-  let start = c.stmts.nodes.len
-  c.stmts.add MirNode(kind: mnkCase)
-
-  # the number of processed branches is not necessarily equal to the amount
-  # we're going to emit (in case we skip some), so we have to count them
-  # manually
-  var num = 0
   # iterate of/else branches:
   for (_, branch) in branches(n):
-    if branch.len == 1 and branch.kind == nkOfBranch:
-      # an 'of' branch that has no labels (e.g. ``of {}:``). We omit the whole
-      # branch and don't generate any code for it
-      continue
-
-    c.stmts.add MirNode(kind: mnkBranch, len: branch.len - 1)
+    c.add MirNode(kind: mnkBranch, len: branch.len - 1)
 
     case branch.kind
     of nkElse:
@@ -1439,42 +1786,38 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
     of nkOfBranch:
       # emit the lables:
       for (_, lit) in branchLabels(branch):
-        c.stmts.add MirNode(kind: mnkLiteral, lit: lit)
+        c.add MirNode(kind: mnkLiteral, lit: lit)
     else:
       unreachable(branch.kind)
 
     # the branch's body:
-    scope(c.stmts):
+    c.scope:
       genBranch(c, branch.lastSon, dest)
 
-    c.stmts.add endNode(mnkBranch)
-    inc num
+    c.add endNode(mnkBranch)
 
-  c.stmts.add endNode(mnkCase)
-
-  # set the number of actually emitted branches:
-  c.stmts.nodes[start].len = num
+  c.add endNode(mnkCase)
 
 proc genExceptBranch(c: var TCtx, n: PNode, dest: Destination) =
   assert n.kind == nkExceptBranch
-  c.stmts.useSource(c.sp, n)
+  c.builder.useSource(c.sp, n)
 
-  c.stmts.subTree MirNode(kind: mnkBranch, len: n.len - 1):
+  c.subTree MirNode(kind: mnkBranch, len: n.len - 1):
     # emit the exception types the branch covers:
     for _, tn in branchLabels(n):
       case tn.kind
       of nkType:
-        c.stmts.add MirNode(kind: mnkType, typ: tn.typ)
+        c.add MirNode(kind: mnkType, typ: tn.typ)
       of nkInfix:
-        # ``x as T`` doesn't get transformed to just ``T`` if ``T`` is the
-        # type of an imported exception. We don't care about the type of
-        # exceptions at the MIR-level, so we just use carry it along as is
-        c.stmts.add MirNode(kind: mnkPNode, node: tn)
+        # ``T as a`` doesn't get transformed to just ``T`` if ``T`` is the
+        # type of an imported exception -- the local's name is used at the
+        # MIR level
+        c.add MirNode(kind: mnkLocal, typ: tn[2].typ, sym: tn[2].sym)
       else:
         unreachable()
 
     # generate the body of the branch:
-    scope(c.stmts):
+    c.scope:
       genBranch(c, n.lastSon, dest)
 
 proc genTry(c: var TCtx, n: PNode, dest: Destination) =
@@ -1482,8 +1825,8 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
     hasFinally = n.lastSon.kind == nkFinally
     hasExcept = n[1].kind == nkExceptBranch
 
-  c.stmts.add MirNode(kind: mnkTry, len: ord(hasFinally) + ord(hasExcept))
-  scope(c.stmts):
+  c.add MirNode(kind: mnkTry, len: ord(hasFinally) + ord(hasExcept))
+  c.scope:
     c.genBranch(n[0], dest)
 
   let len =
@@ -1492,49 +1835,43 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
     ## the number of sub-nodes excluding ``nkFinally``
 
   if hasExcept:
-    c.stmts.subTree MirNode(kind: mnkExcept, len: len-1):
+    c.subTree MirNode(kind: mnkExcept, len: len-1):
       for i in 1..<len:
         genExceptBranch(c, n[i], dest)
 
   if hasFinally:
-    c.stmts.useSource(c.sp, n.lastSon)
-    c.stmts.subTree MirNode(kind: mnkFinally):
-      scope(c.stmts):
+    c.builder.useSource(c.sp, n.lastSon)
+    c.subTree MirNode(kind: mnkFinally):
+      c.scope:
         c.gen(n.lastSon[0])
 
-  c.stmts.add endNode(mnkTry)
+  c.add endNode(mnkTry)
 
 proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
   ## Generates and emits the MIR code for an emit directive or ``asm``
   ## statement.
-  argBlock(c.stmts):
+  c.buildStmt kind:
     for it in n.items:
       # both asm and emit statements support arbitrary expressions
       # (including type expressions) ...
       if it.typ != nil and it.typ.kind == tyTypeDesc:
-        chain(c): genTypeExpr(c, it) => arg()
+        c.use genTypeExpr(c, it)
       elif it.kind == nkSym and it.sym.kind == skField:
         # emit and asm support using raw symbols. So that we don't
         # have to allow ``skField``s in general, we special case them
         # here (by pushing them through the MIR phase boxed as
         # ``mnkLiteral``s)
-        c.stmts.add MirNode(kind: mnkLiteral, lit: it, typ: it.sym.typ)
-        chain(c): EValue(typ: it.sym.typ) => arg()
+        c.add MirNode(kind: mnkLiteral, lit: it, typ: it.sym.typ)
       else:
-        # XXX: we treat the operands as using pass-by-value. This is not
-        #      really correct, but it makes the logic here simpler, and
-        #      the whole facility is unsafe enough that one should not depend
-        #      on these kind of details
-        chain(c): genx(c, it) => arg()
-
-  c.stmts.add MirNode(kind: kind)
+        # emit and asm statements support lvalue operands
+        genOperand(c, it)
 
 proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for assigning the value resulting from
   ## the complex expression `n` to destination `dest`
   assert not n.typ.isEmptyType()
   assert dest.isSome
-  c.stmts.useSource(c.sp, n)
+  c.builder.useSource(c.sp, n)
 
   case n.kind
   of nkIfExpr:
@@ -1549,39 +1886,68 @@ proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination) =
     # not a complex expression
     unreachable(n.kind)
 
+proc scanExpr*(env: var MirEnv, n: PNode) =
+  ## Registers all routine symbols appearing in `n` with `env`.
+  case n.kind
+  of nkSym:
+    if n.sym.kind in routineKinds:
+      discard env.procedures.add(n.sym)
+  of nkWithoutSons - {nkSym}:
+    discard
+  of nkWithSons - {nkObjConstr}:
+    for it in n.items:
+      scanExpr(env, it)
+  of nkObjConstr:
+    # don't scan the type slot:
+    for i in 1..<n.len:
+      scanExpr(env, n[i])
 
-proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
-  ## Generate and emits the MIR for the given expression `n`.
+proc toConstant(c: var TCtx, n: PNode): Value =
+  ## Creates an anonymous constant from the constant expression `n`
+  ## and returns the ``Value`` for it.
+  # make sure to register all procedure referenced by the expression:
+  scanExpr(c.env, n)
+  let con = toConstId c.env.data.getOrPut(n)
+  toValue(con, n.typ)
+
+proc handleConstExpr(c: var TCtx, n: PNode, lift: bool): bool =
+  ## If `n` is a fully constant expression and `lift` is 'true', lifts `n`
+  ## into an anonymous constant, emits a use of said constant, and returns
+  ## 'true'. 'false' is returned if no lifting took place.
+  # there's no benefit to lifting empty construction; those are kept
+  if lift and n.len > ord(n.kind == nkObjConstr) and isDeepConstExpr(n):
+    c.use toConstant(c, n)
+    result = true
+
+proc genx(c: var TCtx, n: PNode, consume: bool) =
+  ## Generate and emits the raw MIR code for the given expression `n` into
+  ## the active buffer.
   ##
-  ## `consume` indicates whether the expression is used in a 'consume' context,
-  ## that is, whether ownership is requested over the resulting value. This
-  ## information is used to decide whether or not constructor expressions yield
-  ## a *unique* value (one that has single ownership over its content)
-  c.stmts.useSource(c.sp, n)
+  ## `consume` signals whether aggregate constructions have to create owned
+  ## value (by consuming their elements) or not (by shallow-copying their
+  ## element).
+  c.builder.useSource(c.sp, n)
 
   case n.kind
   of nkSym:
     let s = n.sym
     case s.kind
-    of skVar, skForVar, skLet, skResult, skParam, skConst:
-      genLocation(c, n)
-    of skTemp:
-      tempNode(c, s.typ, c.tmpMap[s.itemId])
+    of skVar, skForVar, skLet, skResult, skParam, skConst, skTemp:
+      c.add nameNode(c, s)
     of skProc, skFunc, skConverter, skMethod, skIterator:
-      procLit(c, s)
+      c.use toValue(c.env.procedures.add(s), s.typ)
     else:
       unreachable(s.kind)
 
   of nkCallKinds:
     genCallOrMagic(c, n)
   of nkCharLit..nkNilLit, nkRange, nkNimNodeLit:
-    genLit(c, n)
+    c.use literal(n)
   of nkCheckedFieldExpr:
-    let (val, rhs) = genVariantAccess(c, n)
-    eval(c): val => pathObj(rhs.sym)
+    c.subTree MirNode(kind: mnkPathNamed, typ: n.typ, field: n[0][1].sym):
+      genVariantAccess(c, n)
   of nkDotExpr:
     let
-      v = genx(c, n[0])
       typ = n[0].typ.skipTypes(abstractInstTypeClass)
       sym = n[1].sym
 
@@ -1589,113 +1955,135 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
 
     case typ.kind
     of tyObject:
-      eval(c): v => pathObj(sym)
+      c.subTree MirNode(kind: mnkPathNamed, typ: n.typ, field: sym):
+        genOperand(c, n[0])
     of tyTuple:
       # always use lookup-by-position for tuples, even when they're accessed
       # with via name
-      eval(c): v => pathPos(typ[sym.position], sym.position.uint32)
+      c.subTree MirNode(kind: mnkPathPos, typ: typ[sym.position],
+                        position: sym.position.uint32):
+        genOperand(c, n[0])
     else:
       unreachable(typ.kind)
-
   of nkBracketExpr:
     genBracketExpr(c, n)
-  of nkObjDownConv:
-    eval(c): genx(c, n[0], consume) => pathConv(n.typ)
-  of nkObjUpConv:
-    # discard conversions in the same direction that are used as the operand
-    var arg = n[0]
-    while arg.kind == nkObjUpConv:
-      arg = arg[0]
-
-    eval(c): genx(c, arg, consume) => pathConv(n.typ)
+  of nkObjDownConv, nkObjUpConv:
+    genObjConv(c, n, consume, dest=false)
   of nkAddr:
-    eval(c): genx(c, n[0]) => addrOp(n.typ)
+    c.genOp mnkAddr, n.typ, n[0]
   of nkHiddenAddr:
-    let v = genx(c, n[0])
     case classifyBackendView(n.typ)
     of bvcSingle:
       # a view into the source operand is created
-      eval(c): v => viewOp(n.typ)
+      c.genOp mnkView, n.typ, n[0]
     of bvcSequence:
-      # the addr operation is a no-op
-      v
+      # the addr operation itself is a no-op, but the operation needs to be
+      # re-typed
+      let start = c.builder.staging.len
+      genx(c, n[0])
+      c.builder.staging[start].typ = n.typ
     of bvcNone:
       # a normal address-of operation
-      eval(c): v => addrOp(n.typ)
+      c.genOp mnkAddr, n.typ, n[0]
 
   of nkDerefExpr:
-    eval(c): genx(c, n[0]) => derefOp(n.typ)
+    # it's not know where the path is going to be used, so the target is
+    # always captured when not pure
+    c.buildOp mnkDeref, n.typ:
+      c.use genRd(c, n[0])
   of nkHiddenDeref:
-    let v = genx(c, n[0])
     case classifyBackendView(n[0].typ)
     of bvcSingle:
       # it's a deref of a view
-      eval(c): v => derefViewOp(n.typ)
+      c.buildOp mnkDerefView, n.typ:
+        c.use genRd(c, n[0])
     of bvcSequence:
-      v
+      # it's a no-op
+      genx(c, n[0])
     of bvcNone:
       # it's a ``ref`` or ``ptr`` deref
-      eval(c): v => derefOp(n.typ)
+      c.buildOp mnkDeref, n.typ:
+        c.use genRd(c, n[0])
 
   of nkHiddenStdConv:
-    eval(c): genx(c, n[1], consume) => stdConvOp(n.typ)
+    case n.typ.skipTypes(abstractVar).kind
+    of tyOpenArray:
+      c.genOp mnkToSlice, n.typ, n[1]
+    else:
+      c.genOp mnkStdConv, n.typ, n[1]
   of nkHiddenSubConv, nkConv:
     if compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct, {IgnoreTupleFields}):
       # it's an lvalue-preserving conversion
-      eval(c): genx(c, n[1], consume) => pathConv(n.typ)
+      c.buildOp mnkPathConv, n.typ:
+        genOperand(c, n[1], consume)
+    elif n.typ.skipTypes(abstractVar).kind == tyOpenArray:
+      # to-openArray conversion also reach here as ``nkHiddenSubConv``
+      # sometimes
+      c.genOp mnkToSlice, n.typ, n[1]
     else:
       # it's a conversion that produces a new rvalue
-      eval(c): genx(c, n[1], consume) => convOp(n.typ)
+      c.genOp mnkConv, n.typ, n[1]
   of nkLambdaKinds:
-    procLit(c, n[namePos].sym)
+    let s = n[namePos].sym
+    c.use toValue(c.env.procedures.add(s), n.typ)
   of nkChckRangeF, nkChckRange64, nkChckRange:
     # XXX: only produce range-check nodes where range checks should take
     #      place, and then remove the conditional logic here -- ``mirgen``
     #      should only do what it's told to and not make program-semantics-
-    #      related descisons on its own
+    #      related descisions on its own
     if optRangeCheck notin c.userOptions or
        skipTypes(n.typ, abstractVar).kind in {tyUInt..tyUInt64}:
       # unsigned types should be range checked, see: https://github.com/nim-works/nimskull/issues/574
-      eval(c): genx(c, n[0]) => convOp(n.typ)
+      c.genOp mnkConv, n.typ, n[0]
     else:
-      argBlock(c.stmts):
-        chain(c): genx(c, n[0]) => arg()
-        chain(c): genx(c, n[1]) => arg()
-        chain(c): genx(c, n[2]) => arg()
-      magicCall(c, mChckRange, n.typ)
-  of nkStringToCString, nkCStringToString:
-    # undo the transformation done by ``transf``
-    # TODO: turn both of them into operators
-    eval(c): genx(c, n[0]) => stdConvOp(n.typ)
+      c.buildDefectMagicCall mChckRange, n.typ:
+        c.emitOperandTree n[0], false
+        c.emitOperandTree n[1], false
+        c.emitOperandTree n[2], false
+  of nkStringToCString:
+    c.buildMagicCall mStrToCStr, n.typ:
+      c.emitOperandTree n[0], false
+  of nkCStringToString:
+    c.buildMagicCall mCStrToStr, n.typ:
+      c.emitOperandTree n[0], false
   of nkBracket:
     let consume =
       if n.typ.skipTypes(abstractVarRange).kind == tySequence:
-        # don't propagate the `consume` flag through sequence constructors.
-        # A sequence constructor is only used for constant seqs
+        # for constant sequences, which `nkBracket` expression represent,
+        # prefer lifting into a constant
         false
       else:
         consume
 
-    genArrayConstr(c, n, consume)
+    if not handleConstExpr(c, n, not(consume)):
+      genArrayConstr(c, n, consume)
   of nkCurly:
-    # a ``set``-constructor never owns
-    genSetConstr(c, n)
+    # it's preferred for constant sets to be lifted into constants; pass
+    # 'false'
+    if not handleConstExpr(c, n, true):
+      genSetConstr(c, n)
   of nkObjConstr:
-    genObjConstr(c, n, consume)
+    if n.typ.skipTypes(abstractInstTypeClass).kind == tyRef or
+       not handleConstExpr(c, n, not(consume)):
+      # ref constructions are never lifted into constants
+      genObjConstr(c, n, consume)
   of nkTupleConstr:
-    genTupleConstr(c, n, consume)
+    if not handleConstExpr(c, n, not(consume)):
+      genTupleConstr(c, n, consume)
   of nkClosure:
-    genClosureConstr(c, n, consume)
+    if not handleConstExpr(c, n, not(consume)):
+      genClosureConstr(c, n, consume)
   of nkCast:
-    eval(c): c.genx(n[1]) => castOp(n.typ)
+    c.genOp mnkCast, n.typ, n[1]
   of nkWhenStmt:
     # a ``when nimvm`` expression
-    genx(c, selectWhenBranch(n, goIsNimvm in c.options), consume)
+    genx(c, selectWhenBranch(n, goIsNimvm in c.config.options), consume)
   of nkPragmaBlock:
     genx(c, n.lastSon, consume)
   of nkStmtListExpr:
-    for i in 0..<n.len-1:
-      gen(c, n[i])
+    withFront c.builder:
+      for i in 0..<n.len-1:
+        gen(c, n[i])
 
     genx(c, n[^1], consume)
   of ComplexExprs:
@@ -1703,21 +2091,18 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
     # destination specified -> assign the value resulting from it to a
     # temporary
     let tmp = getTemp(c, n.typ)
-    let slice = buildSlice(c.staging, c.sp):
-      c.staging.add MirNode(kind: mnkTemp, typ: n.typ, temp: tmp)
 
-    genComplexExpr(c, n):
-      Destination(kind: dkFrag, nodes: slice, flags: {dfOwns, dfEmpty})
+    withFront c.builder:
+      genComplexExpr(c, n):
+        Destination(isSome: true, val: tmp, flags: {dfOwns, dfEmpty})
 
-    c.staging.popSlice(slice)
-
-    tempNode(c, n.typ, tmp)
+    c.use tmp
   else:
     unreachable(n.kind)
 
 proc gen(c: var TCtx, n: PNode) =
   ## Generates and emits the MIR code for the statement `n`
-  c.stmts.useSource(c.sp, n)
+  c.builder.useSource(c.sp, n)
 
   # because of ``.discardable`` calls, we can't require `n` to be of void
   # type
@@ -1760,7 +2145,7 @@ proc gen(c: var TCtx, n: PNode) =
 
       unreachable "break target missing"
 
-    c.stmts.add MirNode(kind: mnkBreak, label: id)
+    c.add MirNode(kind: mnkBreak, label: id)
   of nkVarSection, nkLetSection:
     genVarSection(c, n)
   of nkAsgn:
@@ -1774,24 +2159,23 @@ proc gen(c: var TCtx, n: PNode) =
       # an assignment to a discriminant. In other words: a branch switch (but
       # only if the new value refers to a different branch than the one that's
       # currently active)
-      argBlock(c.stmts):
-        # for nested record-cases, the discriminant access is wrapped in a
-        # ``nkCheckedFieldExpr``, in which case it needs to be unwrapped
-        # first
-        let (val, rhs) =
+      c.buildStmt mnkSwitch:
+        # the 'switch' operations expects a variant access as the first
+        # operand
+        c.subTree MirNode(kind: mnkPathVariant, typ: x[0].typ, field: x[1].sym):
           case n[0].kind
-          of nkCheckedFieldExpr: genVariantAccess(c, n[0])
-          else:                  (genx(c, x[0]), x[1])
+          of nkCheckedFieldExpr:
+            # for nested record-cases, the discriminant access is wrapped in a
+            # ``nkCheckedFieldExpr``, in which case it needs to be unwrapped
+            # first
+            genVariantAccess(c, n[0])
+          else:
+            genOperand(c, x[0])
 
-        # the 'switch' operations expects a variant access as its input, so
-        # using ``genx(c, x)`` would be wrong
-        chain(c): val => pathVariant(x[0].typ, rhs.sym) => tag(ekInvalidate) => name()
-        chain(c): genx(c, n[1]) => arg()
-
-      c.stmts.add MirNode(kind: mnkSwitch)
+        genAsgnSource(c, n[1], false) # the source operand
     else:
       # a normal assignment
-      genAsgn(c, false, n[0], n[1])
+      genAsgn(c, false, true, n[0], n[1])
 
   of nkFastAsgn:
     # for non-destructor-using types, ``nkFastAsgn`` means bitwise copy
@@ -1801,26 +2185,39 @@ proc gen(c: var TCtx, n: PNode) =
     #      insert ``nkFastAsgn`` as aggresively as it does now and instead
     #      let the move-analyser and cursor-inference take care of optimizing
     #      the copies away
-    if hasDestructor(n[0].typ):
-      genAsgn(c, false, n[0], n[1])
-    else:
-      genFastAsgn(c, n[0], n[1])
-
+    let sink = hasDestructor(n[0].typ)
+    genAsgn(c, false, sink, n[0], n[1])
   of nkCallKinds:
-    chain(c): genCallOrMagic(c, n) => voidOut()
-  of nkProcDef, nkFuncDef, nkIteratorDef, nkMethodDef, nkConverterDef:
-    c.stmts.subTree MirNode(kind: mnkDef):
-      c.stmts.add procNode(n[namePos].sym)
-
+    # calls are expressions, the void statement allows using them as
+    # statements. The call might be a magic that expands to a statement,
+    # however
+    let f = c.builder.push: genCallOrMagic(c, n)
+    if f.len > 0:
+      withFront c.builder:
+        c.subTree mnkVoid:
+          c.builder.pop(f)
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
-      chain(c): genx(c, n[0]) => voidOut()
+      let f = c.builder.push: genx(c, n[0])
+      case detectKind(c.builder.staging, f.pos, false)
+      of Rvalue, OwnedRvalue:
+        # extend the lifetime of the value
+        # XXX: while not not possible at the moment, in the future, the
+        #      discard statement could destroy the temporary right away
+        discard captureInTemp(c, f, false)
+      of Lvalue:
+        c.subTree mnkVoid:
+          c.builder.pop(f)
+      of Literal:
+        # the expression no side-effects nor does it constitute as use
+        # of a location, omit
+        discard c.builder.popSingle(f)
 
   of nkNilLit:
     # a 'nil' literals can be used as a statement, in which case it is treated
     # as a ``discard``
     assert n.typ.isEmptyType()
-  of nkCommentStmt, nkTemplateDef, nkMacroDef, nkImportStmt,
+  of routineDefs, nkCommentStmt, nkImportStmt,
      nkImportExceptStmt, nkFromStmt, nkIncludeStmt, nkStaticStmt,
      nkExportStmt, nkExportExceptStmt, nkTypeSection, nkMixinStmt,
      nkBindStmt, nkConstSection, nkEmpty:
@@ -1831,7 +2228,7 @@ proc gen(c: var TCtx, n: PNode) =
     for it in n:
       case whichPragma(it)
       of wEmit:
-        c.stmts.useSource(c.sp, it)
+        c.builder.useSource(c.sp, it)
         genAsmOrEmitStmt(c, mnkEmit, it[1])
       of wComputedGoto:
         # the MIR doesn't handle this directive, but the code generators
@@ -1840,15 +2237,15 @@ proc gen(c: var TCtx, n: PNode) =
         # single statement, we split it out into a standalone pragma statement
         # first
         # XXX: ideally, sem or transf would split pragma statement up
-        c.stmts.useSource(c.sp, it)
-        c.stmts.add MirNode(kind: mnkPNode, node: newTree(nkPragma, [it]))
+        c.builder.useSource(c.sp, it)
+        c.add MirNode(kind: mnkPNode, node: newTree(nkPragma, [it]))
       else:     discard
 
   of nkAsmStmt:
     genAsmOrEmitStmt(c, mnkAsm, n)
   of nkWhenStmt:
     # a ``when nimvm`` statement
-    gen(c, selectWhenBranch(n, goIsNimvm in c.options))
+    gen(c, selectWhenBranch(n, goIsNimvm in c.config.options))
   else:
     unreachable(n.kind)
 
@@ -1857,7 +2254,6 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
   ## assigning the resulting value to the given destination `dest`. `dest` can
   ## be 'none', in which case `n` is required to be a statement
   if dest.isSome:
-    let n = canonicalExpr(n)
     assert not endsInNoReturn(n)
 
     case n.kind
@@ -1874,61 +2270,68 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
   else:
     gen(c, n)
 
-
-proc generateCode*(graph: ModuleGraph, options: set[GenOption], n: PNode,
-                   code: var MirBuffer, source: var SourceMap) =
+proc generateCode*(graph: ModuleGraph, env: var MirEnv,
+                   config: TranslationConfig, n: PNode,
+                   builder: var MirBuilder, source: var SourceMap) =
   ## Generates MIR code that is semantically equivalent to the expression or
   ## statement `n`, appending the resulting code and the corresponding origin
   ## information to `code` and `source`, respectively.
-  assert code.cursor == code.nodes.len, "missing origin associations"
-  var c = TCtx(context: skUnknown, graph: graph, options: options)
+  var c = TCtx(context: skUnknown, graph: graph, config: config)
+  c.scopeDepth = 2 # assume that this is not top-level code
 
   template swapState() =
     swap(c.sp.map, source)
-    swap(c.stmts, code)
+    swap(c.builder, builder)
+    swap(c.env, env)
 
   # for the duration of ``generateCode`` we move the state into ``TCtx``
   swapState()
 
   if n.typ.isEmptyType:
-    gen(c, n)
+    withFront c.builder:
+      gen(c, n)
   elif n.typ.kind == tyTypeDesc:
     # FIXME: this shouldn't happen, but type expressions are sometimes
-    #        evaluated with the VM, such as the ``int`` in the type expression
-    #        ``static int``. While it makes to allow evaluating type expression
-    #        with the VM, in simple situtations like the example above, it's
-    #        simpler, faster, and more intuitive to either evaluate them directly
-    #        when analying the type expression or during ``semfold``
-    discard genTypeExpr(c, n)
+    #        evaluated with the VM, such as a ``typeof(T.x)`` appearing as
+    #        a field type within a generic object definition. While it makes
+    #        sense to allow evaluating type expression with the VM, in simple
+    #        situtations like the example above, it's simpler, faster, and more
+    #        intuitive to either evaluate them directly when analying the type
+    #        expression or during ``semfold``
+    c.builder.useSource(c.sp, n)
+    c.use genTypeExpr(c, n)
   else:
-    discard genx(c, n)
-
-  assert c.stmts.nodes.len == c.stmts.cursor
+    c.builder.useSource(c.sp, n)
+    # XXX: restructure the ``mirgen`` API to use a dedicated procedure for
+    #      generating expression code
+    let v = genUse(c, n)
+    c.use v
 
   # move the state back into the output parameters:
   swapState()
 
-proc generateCode*(graph: ModuleGraph, owner: PSym, options: set[GenOption],
-                   body: PNode): tuple[code: MirTree, source: SourceMap] =
-  ## Generates MIR code that is semantically equivalent to `body` plus the
-  ## ``SourceMap`` that associates each ``MirNode`` with the ``PNode`` it
-  ## originated from.
+proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
+                   config: TranslationConfig,  body: PNode): MirBody =
+  ## Generates the full MIR body for the given AST `body`.
   ##
   ## `owner` it the symbol of the entity (module or procedure) that `body`
   ## belongs to. If the owner is a procedure, `body` is expected to be the
   ## full body of the procedure.
   ##
-  ## `isNimvm` indicates the branch of a ``when nimvm`` statement that code
-  ## should be generated code for
+  ## `config` provides additional configuration options that alter how some
+  ## AST is translated.
   # XXX: this assertion can currently not be used, as the ``nfTransf`` flag
   #      might no longer be present after the lambdalifting pass
   #assert nfTransf in body.flags, "transformed AST is expected as input"
 
-  var c = TCtx(context: owner.kind, graph: graph, options: options,
+  var c = TCtx(context: owner.kind, graph: graph, config: config,
                userOptions: owner.options)
-  c.sp = SourceProvider(active: (body, noneOpt(SourceId)))
+  c.sp.active = (body, c.sp.map.add(body))
 
-  c.stmts.add MirNode(kind: mnkScope)
+  swap(c.env, env)
+
+  c.scopeDepth = 1
+  c.add MirNode(kind: mnkScope)
   if owner.kind in routineKinds:
     # add a 'def' for each ``sink`` parameter. This simplifies further
     # processing and analysis
@@ -1936,17 +2339,15 @@ proc generateCode*(graph: ModuleGraph, owner: PSym, options: set[GenOption],
     for i in 1..<params.len:
       let s = params[i].sym
       if s.typ.isSinkTypeForParam():
-        c.stmts.subTree MirNode(kind: mnkDef):
-          c.stmts.add MirNode(kind: mnkParam, typ: s.typ, sym: s)
+        c.subTree mnkDef:
+          c.add MirNode(kind: mnkParam, typ: s.typ, sym: s)
+          c.add MirNode(kind: mnkNone)
 
   gen(c, body)
+  c.add endNode(mnkScope)
 
-  c.stmts.add endNode(mnkScope)
+  swap(c.env, env) # swap back
 
-  # set the origin information for the 'end' node added above:
-  apply(c.stmts, prepareForUse(c.sp))
-
-  assert c.stmts.nodes.len == c.stmts.cursor
-
-  result[0] = move c.stmts.nodes
-  result[1] = move c.sp.map
+  # move the buffers into the result body
+  MirBody(source: move c.sp.map,
+          code: finish(move c.builder))

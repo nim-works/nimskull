@@ -253,7 +253,6 @@ func vmEventToLegacyReportKind(evt: VmEventKind): ReportKind {.inline.} =
   of vmEvtUserError: rvmUserError
   of vmEvtUnhandledException: rvmUnhandledException
   of vmEvtCannotCast: rvmCannotCast
-  of vmEvtCallingNonRoutine: rvmCallingNonRoutine
   of vmEvtCannotModifyTypechecked: rvmCannotModifyTypechecked
   of vmEvtNilAccess: rvmNilAccess
   of vmEvtAccessOutOfBounds: rvmAccessOutOfBounds

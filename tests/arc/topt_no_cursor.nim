@@ -12,175 +12,232 @@ doing shady stuff...
   cmd: '''nim c --gc:arc --expandArc:newTarget --expandArc:delete --expandArc:p1 --expandArc:tt --hint:Performance:off --assertions:off --expandArc:extractConfig --expandArc:mergeShadowScope --expandArc:check --expandArc:treturn $file'''
   nimout: '''--expandArc: newTarget
 
-var splat
-splat = splitFile(path)
-result = (
-  var :aux_3 = splat[0]
-  wasMoved(splat[0])
-  :aux_3,
-  var :aux_4 = splat[1]
-  wasMoved(splat[1])
-  :aux_4,
-  var :aux_5 = splat[2]
-  wasMoved(splat[2])
-  :aux_5)
-=destroy(splat)
+scope:
+  def splat: tuple[dir: string, name: string, ext: string] = splitFile(arg path) (raises)
+  bind_mut _3: string = splat.0
+  def _0: string = _3
+  wasMoved(name _3)
+  bind_mut _4: string = splat.1
+  def _1: string = _4
+  wasMoved(name _4)
+  bind_mut _5: string = splat.2
+  def _2: string = _5
+  wasMoved(name _5)
+  result = construct (consume _0, consume _1, consume _2)
+  =destroy(name splat)
 -- end of expandArc ------------------------
 --expandArc: delete
 
-var sibling
-var :aux_3 = target[].parent[].left
-=copy(sibling, :aux_3)
-var saved
-var :aux_5 = sibling[].right
-=copy(saved, :aux_5)
-var :aux_6 = sibling[].right
-var :aux_7 = saved[].left
-=copy(:aux_6, :aux_7)
-var :aux_8 = sibling[].parent
-=sink(:aux_8, saved)
-=destroy(sibling)
+scope:
+  def_cursor _0: Node = target[]
+  def_cursor _1: Node = _0[].parent
+  def sibling: Node
+  def _6: Node = _1[].left
+  =copy(name sibling, arg _6) (raises)
+  def_cursor _2: Node = sibling
+  def saved: Node
+  def _7: Node = _2[].right
+  =copy(name saved, arg _7) (raises)
+  def_cursor _3: Node = sibling
+  def_cursor _4: Node = saved
+  bind_mut _8: Node = _3[].right
+  def _9: Node = _4[].left
+  =copy(name _8, arg _9) (raises)
+  def_cursor _5: Node = sibling
+  bind_mut _10: Node = _5[].parent
+  =sink(name _10, arg saved) (raises)
+  =destroy(name sibling) (raises)
 -- end of expandArc ------------------------
 --expandArc: p1
 
-var lresult
-lresult = @([123])
-var lvalue
-var lnext
-var :aux_4
-:aux_4 = (lresult, ";")
-lvalue = :aux_4[0]
-wasMoved(:aux_4[0])
-lnext = :aux_4[1]
-wasMoved(:aux_4[1])
-result.value = move(lvalue)
-=destroy(:aux_4)
-=destroy_1(lnext)
-=destroy_2(lvalue)
+scope:
+  def _0: array[0..0, int] = construct (consume 123)
+  def lresult: seq[int] = arrToSeq(consume _0)
+  def lvalue: seq[int]
+  def lnext: string
+  def _1: seq[int] = lresult
+  def _: (seq[int], string) = construct (consume _1, consume ";")
+  bind_mut _2: seq[int] = _.0
+  lvalue = _2
+  wasMoved(name _2)
+  bind_mut _3: string = _.1
+  lnext = _3
+  wasMoved(name _3)
+  result.value = move(name lvalue)
+  =destroy(name _)
+  =destroy(name lnext)
+  =destroy(name lvalue)
 -- end of expandArc ------------------------
 --expandArc: tt
 
-var it_cursor
-var a
-var :aux_4
-var :aux_5
-var :aux_6
-try:
-  it_cursor = x
-  a = (
-    :aux_4 = default()
-    =copy(:aux_4, it_cursor[0])
-    :aux_4,
-    :aux_5 = default()
-    =copy(:aux_5, it_cursor[1])
-    :aux_5)
-  echo([
-    :aux_6 = $(a)
-    :aux_6])
-finally:
-  =destroy(:aux_6)
-  =destroy_1(a)
+scope:
+  try:
+    def_cursor it: KeyValue = x
+    def _0: seq[int]
+    def _4: seq[int] = it.0
+    =copy(name _0, arg _4)
+    def _1: seq[int]
+    def _5: seq[int] = it.1
+    =copy(name _1, arg _5)
+    def a: (seq[int], seq[int]) = construct (consume _0, consume _1)
+    def_cursor _2: (seq[int], seq[int]) = a
+    def _3: string = $(arg _2) (raises)
+    echo(arg type(array[0..0, string]), arg _3) (raises)
+  finally:
+    =destroy(name _3)
+    =destroy(name a)
 -- end of expandArc ------------------------
 --expandArc: extractConfig
 
-var lan_ip
-try:
-  lan_ip = ""
-  var a_cursor = txt
-  var i = 0
-  var L = len(a_cursor)
-  block :label_0:
-    while true:
-      if not(<(i, L)):
-        break :label_0
-      var line
-      var splitted
-      try:
-        line = a_cursor[i]
-        splitted = split(line, " ", -1)
-        if ==(splitted[0], "opt"):
-          var :aux_7 = splitted[1]
-          =copy(lan_ip, :aux_7)
-        echo([lan_ip])
-        echo([splitted[1]])
-      finally:
-        =destroy(splitted)
-      inc(i, 1)
-finally:
-  =destroy_1(lan_ip)
+scope:
+  try:
+    def lan_ip: string = ""
+    scope:
+      def_cursor a: seq[string] = txt
+      def i: int = 0
+      def_cursor _0: seq[string] = a
+      def L: int = lengthSeq(arg _0)
+      block L0:
+        scope:
+          while true:
+            scope:
+              def_cursor _1: int = i
+              def_cursor _2: bool = ltI(arg _1, arg L)
+              def_cursor _3: bool = not(arg _2)
+              if _3:
+                scope:
+                  break L0
+              scope:
+                scope:
+                  try:
+                    def_cursor _4: int = i
+                    def line: lent string = borrow a[_4]
+                    def_cursor _5: string = line[]
+                    def splitted: seq[string] = split(arg _5, arg " ", arg -1) (raises)
+                    def_cursor _6: string = splitted[0]
+                    def_cursor _7: bool = eqStr(arg _6, arg "opt")
+                    if _7:
+                      scope:
+                        def _10: string = splitted[1]
+                        =copy(name lan_ip, arg _10)
+                    def_cursor _8: string = lan_ip
+                    echo(arg type(array[0..0, string]), arg _8) (raises)
+                    def_cursor _9: string = splitted[1]
+                    echo(arg type(array[0..0, string]), arg _9) (raises)
+                  finally:
+                    =destroy(name splitted)
+                i = addI(arg i, arg 1)
+  finally:
+    =destroy(name lan_ip)
 --expandArc: mergeShadowScope
 
-var shadowScope
-try:
-  var :aux_3 = c[].currentScope
-  =copy(shadowScope, :aux_3)
-  rawCloseScope(c)
-  var a_cursor = shadowScope[].symbols
-  var i = 0
-  var L = len(a_cursor)
-  block :label_0:
-    while true:
-      if not(<(i, L)):
-        break :label_0
-      var sym = a_cursor[i]
-      addInterfaceDecl(c,
-        var :aux_8 = sym
-        var :aux_9 = default()
-        =copy_1(:aux_9, :aux_8)
-        :aux_9)
-      inc(i, 1)
-finally:
-  =destroy(shadowScope)
+scope:
+  try:
+    def shadowScope: Scope
+    def _7: Scope = c[].currentScope
+    =copy(name shadowScope, arg _7) (raises)
+    rawCloseScope(arg c) (raises)
+    scope:
+      def_cursor _0: Scope = shadowScope
+      def_cursor a: seq[Symbol] = _0[].symbols
+      def i: int = 0
+      def_cursor _1: seq[Symbol] = a
+      def L: int = lengthSeq(arg _1)
+      block L0:
+        scope:
+          while true:
+            scope:
+              def_cursor _2: int = i
+              def_cursor _3: bool = ltI(arg _2, arg L)
+              def_cursor _4: bool = not(arg _3)
+              if _4:
+                scope:
+                  break L0
+              scope:
+                scope:
+                  def_cursor _5: int = i
+                  def sym: lent Symbol = borrow a[_5]
+                  def _6: Symbol
+                  def _8: Symbol = sym[]
+                  =copy(name _6, arg _8)
+                  addInterfaceDecl(arg c, consume _6) (raises)
+                i = addI(arg i, arg 1)
+  finally:
+    =destroy(name shadowScope) (raises)
 -- end of expandArc ------------------------
 --expandArc: treturn
 
-var :aux_2
-try:
-  if ==(len(x), 2):
-    result = x
-    wasMoved(x)
-    return
-  echo([
-    :aux_2 = $(len(x))
-    :aux_2])
-finally:
-  =destroy(:aux_2)
-  =destroy(x)
+scope:
+  try:
+    def x: sink string
+    def_cursor _0: sink string = x
+    def_cursor _1: int = lengthStr(arg _0)
+    def_cursor _2: bool = eqI(arg _1, arg 2)
+    if _2:
+      scope:
+        result = x
+        wasMoved(name x)
+        return
+    def_cursor _3: sink string = x
+    def_cursor _4: int = lengthStr(arg _3)
+    def _5: string = $(arg _4) (raises)
+    echo(arg type(array[0..0, string]), arg _5) (raises)
+  finally:
+    =destroy(name _5)
+    =destroy(name x)
+
 -- end of expandArc ------------------------
 --expandArc: check
 
-var par
-try:
-  this[].isValid = fileExists(this[].value)
-  block :label_0:
-    if dirExists(this[].value):
-      par = (
-        var :aux_3 = this[].value
-        var :aux_4 = default()
-        =copy(:aux_4, :aux_3)
-        :aux_4, "")
-      break :label_0
-    par = (parentDir(this[].value),
-      var :aux_7 = splitPath(
-        var :aux_5 = this[].value
-        var :aux_6 = default()
-        =copy(:aux_6, :aux_5)
-        :aux_6)
-      var :aux_8 = :aux_7[1]
-      wasMoved(:aux_7[1])
-      :aux_8)
-    =destroy(:aux_7)
-  block :label_0:
-    if dirExists(par[0]):
-      var :aux_9 = this[].matchDirs
-      var :aux_10 = getSubDirs(par[0], par[1])
-      =sink(:aux_9, :aux_10)
-      break :label_0
-    var :aux_11 = this[].matchDirs
-    var :aux_12 = []
-    =copy_1(:aux_11, :aux_12)
-finally:
-  =destroy(par)
+scope:
+  try:
+    def_cursor _0: string = this[].value
+    this[].isValid = fileExists(arg _0) (raises)
+    def _1: tuple[dir: string, front: string]
+    block L0:
+      def_cursor _2: string = this[].value
+      def_cursor _3: bool = dirExists(arg _2) (raises)
+      if _3:
+        scope:
+          def _4: string
+          def _14: string = this[].value
+          =copy(name _4, arg _14)
+          _1 := construct (consume _4, consume "")
+          break L0
+      scope:
+        try:
+          def_cursor _5: string = this[].value
+          def _6: string = parentDir(arg _5) (raises)
+          def _7: string
+          def _15: string = this[].value
+          =copy(name _7, arg _15)
+          def _8: tuple[head: string, tail: string] = splitPath(consume _7) (raises)
+          bind_mut _16: string = _8.1
+          def _9: string = _16
+          wasMoved(name _16)
+          _1 := construct (consume _6, consume _9)
+          wasMoved(name _6)
+        finally:
+          =destroy(name _8)
+          =destroy(name _6)
+    def par: tuple[dir: string, front: string] = _1
+    block L1:
+      def_cursor _10: string = par.0
+      def_cursor _11: bool = dirExists(arg _10) (raises)
+      if _11:
+        scope:
+          def_cursor _12: string = par.0
+          def_cursor _13: string = par.1
+          def _17: seq[string] = getSubDirs(arg _12, arg _13) (raises)
+          bind_mut _18: seq[string] = this[].matchDirs
+          =sink(name _18, arg _17)
+          break L1
+      scope:
+        def _19: seq[string] = construct ()
+        bind_mut _20: seq[string] = this[].matchDirs
+        =sink(name _20, arg _19)
+  finally:
+    =destroy(name par)
 -- end of expandArc ------------------------'''
 """
 

@@ -106,10 +106,11 @@ block insert_shared_start:
   # ``replace``/``remove`` operations are allowed to share their start node
   # with an ``insert`` operation. The ``insert`` operation takes place *first*,
   # independent of the order in which they're recorded
-  var tree: MirTree
-  tree.add temp(0)
-  tree.subTree MirNode(kind: mnkStmtList): discard
-  tree.add temp(3)
+  var bu: MirBuilder
+  bu.add temp(0)
+  bu.subTree mnkStmtList: discard
+  bu.add temp(3)
+  var tree = finish(bu)
 
   test(tree, [temp(0), temp(1), temp(2), temp(3)]):
     c.replace 1, temp(2)
@@ -131,10 +132,11 @@ block insert_shared_end:
   # ``replace``/``remove`` operations are allowed to share their end node
   # with an ``insert`` operation. The ``insert`` operation takes place
   # *second*, independent of the order in which they're recorded
-  var tree: MirTree
-  tree.add temp(0)
-  tree.subTree MirNode(kind: mnkStmtList): discard
-  tree.add temp(3)
+  var bu: MirBuilder
+  bu.add temp(0)
+  bu.subTree mnkStmtList: discard
+  bu.add temp(3)
+  var tree = finish(bu)
 
   test(tree, [temp(0), temp(1), temp(2), temp(3)]):
     c.replace 1, temp(1)

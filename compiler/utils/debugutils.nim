@@ -58,7 +58,7 @@ type
     stepIdentToSym
     stepSymNodeToNode
     stepNodeFlagsToNode
-    stepNodeTypeToNode
+    stepNodeTypeToType
     stepTypeTypeToType
     stepResolveOverload
     stepNodeSigMatch
@@ -87,7 +87,7 @@ type
       of stepIdentToSym:
         ident*: PIdent
 
-      of stepNodeTypeToNode, stepTypeTypeToType:
+      of stepNodeTypeToType, stepTypeTypeToType:
         typ*: PType
         typ1*: PType
 
@@ -265,15 +265,15 @@ proc generateOutput(conf: ConfigRef, r: CompilerTrace): string =
           field("to node")
           result.add render(s.node)
 
-      of stepNodeTypeToNode:
+      of stepNodeTypeToType:
         if enter:
           field("from node")
           result.add render(s.node)
           field("from type")
           result.add render(s.typ)
         else:
-          field("to node")
-          result.add render(s.node)
+          field("to type")
+          result.add render(s.typ1)
 
       of stepNodeFlagsToNode:
         if enter:
@@ -336,6 +336,8 @@ proc generateOutput(conf: ConfigRef, r: CompilerTrace): string =
               result.add render(s.candidate.calleeSym)
             field("call")
             result.add render(s.candidate.call)
+            field("to node")
+            result.add render(s.node)
   of compilerTraceLine:
     let ind = repeat("  ", r.ctraceData.level)
     var
@@ -493,7 +495,7 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
         if indentLevel != 0: # print a delta stack
           # try to print only the part of the stacktrace since the last time,
           # this is done by looking for any previous calls in `debugUtilsStack`
-          {.line.}: # stops the template showing up in the StackTraceEntries
+          {.line:instantiationInfo(-2, true).}: # stops the template showing up in the StackTraceEntries
             let
               stopProc =
                 if indentLevel == 1: prcname  # we're the only ones
@@ -595,7 +597,7 @@ template traceStepImpl*(
     outputTrace(p.c, CompilerTrace(
       kind: compilerTraceStep,
       semstep: it,
-      instLoc: instLoc())
+      instLoc: params.info)
     )
 
 template traceEnterIt*(
@@ -718,13 +720,13 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
       traceEnterIt(
-        loc, stepParams(c, stepNodeTypeToNode, indentLevel, action)):
+        loc, stepParams(c, stepNodeTypeToType, indentLevel, action)):
         it.node = n
         it.typ = prev
 
     template leaveMsg(indentLevel: int) =
       traceLeaveIt(
-        loc, stepParams(c, stepNodeTypeToNode, indentLevel, action)):
+        loc, stepParams(c, stepNodeTypeToType, indentLevel, action)):
         it.node = n
         it.typ = r
 
@@ -856,6 +858,7 @@ template addInNimDebugUtils*(c: ConfigRef;
     template leaveMsg(indentLevel: int) =
       traceLeaveIt(loc, stepParams(c, stepNodeSigMatch, indentLevel, action)):
         it.candidate = toDebugCallableCandidate(res)
+        it.node = n # to track mutations
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 

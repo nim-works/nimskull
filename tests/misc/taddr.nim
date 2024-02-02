@@ -351,6 +351,31 @@ block address_of_let:
   test(new int)           # ref with primitive base type
   test((ref Foo)(bar: 1)) # ref object
 
+block address_of_aggregate_const:
+  # taking the address of a constant of aggregate type works, and the resulting
+  # pointer can be used for reading
+  proc test[T](x: ptr T, expect: T) {.noinline.} =
+    # prevent the addr + deref from being optimized away by using a .noinline
+    # procedure
+    doAssert x[] == expect
+
+  type Object = object
+    x: int
+
+  const o = Object(x: 1)
+  test(addr o, Object(x: 1)) # address-of full location works
+  # test(addr o.x, 1) # address-of element works
+
+  # knownIssue: constants of tuple type don't support having their address
+  # taken, as they're inlined immediately
+  const tup = (1, 2, 3)
+  doAssert not compiles(test(addr tup, (1, 2, 3)))
+  # doAssert not compiles(test(addr tup[1], 2))
+
+  const arr = [1, 2, 3]
+  test(addr arr, [1, 2, 3]) # address-of full location works
+  #test(addr arr[1], 2) # address-of element works
+
 template main =
   test14339()
   test15464()

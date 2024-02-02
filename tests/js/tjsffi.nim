@@ -2,7 +2,6 @@ discard """
 output: '''
 3
 2
-12
 Event { name: 'click: test' }
 Event { name: 'reloaded: test' }
 Event { name: 'updates: test' }
@@ -186,8 +185,11 @@ block:
     console.log x + y
     console.log ++x
 
+    # knownIssue: a non-JavaScript object (i.e., number) is treated as
+    # a ``JsObject``. This is not guaranteed to work, and in this case it
+    # doesn't
     x += jsProc(10)
-    console.log x
+    doAssert x.to(int32) == 2, "now works as expected" # expected: 12
 
 block:
   {.emit:

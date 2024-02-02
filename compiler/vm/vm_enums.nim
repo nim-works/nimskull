@@ -48,13 +48,14 @@ type
     opcLdDeref,
     opcWrDeref,
     opcWrStrIdx,
-    opcLdStrIdx, # a = b[c]
-    opcLdStrIdxAddr,  # a = addr(b[c])
+    opcLdStrIdx, # a = b[c]; the character is loaded directly into register 'a'
 
     opcInitDisc # init discriminant (a.b = c)
     opcSetDisc # set discriminant (a.b = c)
 
     opcWrProc # deref(a) = functions[Bx]
+
+    opcReset   ## resets the memory location referenced by a
 
     opcAddInt,
     opcAddImmInt,
@@ -85,6 +86,7 @@ type
     opcAddStrStr,
     opcAddSeqElem,
     opcRangeChck,
+    opcIndexChck, ## abort execution if the index is not in bounds
 
     opcArrCopy,
 
@@ -155,6 +157,7 @@ type
 
     opcLdImmInt,  # dest = immediate value
     opcSetType,   # dest.typ = types[Bx]
+    opcObjChck    # raise error if a[] not of types[Bx]
     opcNSetType,  # dest.nimNode.typ = types[Bx]
     opcTypeTrait,
     opcSymOwner,

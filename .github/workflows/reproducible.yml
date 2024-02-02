@@ -39,18 +39,18 @@ jobs:
         test:
           - name: Source archive
             command: "./koch.py boot -d:danger && ./koch.py csource -d:danger && ./koch.py archive"
-            pattern: "build/*.tar.zst"
+            pattern: "build/archive/*.tar.zst"
 
           - name: Unix binary archive
             command: "./koch.py boot -d:danger && ./koch.py docs --docCmd:skip && ./koch.py unixrelease"
-            pattern: "build/*.tar.zst"
+            pattern: "build/archive/*.tar.zst"
 
           # Note: this tests the zip generation and not exe generation determinism.
           #
           # Testing exe generation will be done when cross-bootstrap is possible.
           - name: Windows binary archive
             command: "./koch.py boot -d:danger && ./koch.py docs --docCmd:skip && ./koch.py winrelease"
-            pattern: "build/*.zip"
+            pattern: "build/archive/*.zip"
 
     name: "${{ matrix.test.name }} reproducibility tests"
     runs-on: ubuntu-latest
@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload diffoscope output
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.test.name }} reproducibility test diffoscope output
           path: ${{ steps.reprotest.outputs.result }}

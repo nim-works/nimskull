@@ -221,7 +221,6 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
     elif not isException(typ):
       localReport(c.config, typeNode.info, reportAst(
         rsemCannotBeRaised, typeNode, typ = typ))
-
     if containsOrIncl(check, typ.id):
       localReport(c.config, typeNode.info, reportTyp(
         rsemExceptionAlreadyHandled, typ))
@@ -553,7 +552,7 @@ proc tryMacroPragma(c: PContext, pragmas: ptr PNode, i: int,
   x.add(operand) # the definition AST the pragma appears on
 
   # recursion assures that this works for multiple macro annotations too:
-  let r = semOverloadedCall(c, x, {skMacro, skTemplate}, {efNoUndeclared})
+  let r = semOverloadedCall(c, x, copyNodeWithKids(x), {skMacro, skTemplate}, {efNoUndeclared})
   if r.isNil:
     # restore the old list of pragmas since we couldn't process this one
     pragmas[] = n
@@ -1424,6 +1423,7 @@ proc symForVar(c: PContext, n: PNode): PSym =
   let
     hasPragma = n.kind == nkPragmaExpr
     resultNode = newSymGNode(skForVar, (if hasPragma: n[0] else: n), c)
+    semmedNode = if hasPragma: copyNodeWithKids(n) else: resultNode
 
   result = getDefNameSymOrRecover(resultNode)
   styleCheckDef(c.config, result)
@@ -1431,13 +1431,14 @@ proc symForVar(c: PContext, n: PNode): PSym =
   if hasPragma:
     let pragma = pragmaDecl(c, result, n[1], forVarPragmas)
     if pragma.kind == nkError:
-      n[1] = pragma
+      semmedNode[0] = resultNode
+      semmedNode[1] = pragma
 
-  if resultNode.kind == nkError or hasPragma and n[1].kind == nkError:
+  if resultNode.kind == nkError or hasPragma and semmedNode[1].kind == nkError:
     result = newSym(skError, result.name, nextSymId(c.idgen), result.owner,
                     n.info)
     result.typ = c.errorType
-    result.ast = c.config.wrapError(n)
+    result.ast = c.config.wrapError(semmedNode)
 
 proc semSingleForVar(c: PContext, formal: PType, view: ViewTypeKind, n: PNode): PNode =
   ## Semantically analyses a single definition of a variable in the context of
@@ -1446,7 +1447,7 @@ proc semSingleForVar(c: PContext, formal: PType, view: ViewTypeKind, n: PNode): 
 
   let v = symForVar(c, n)
   if v.kind == skError:
-    return c.config.wrapError(n)
+    return v.ast
 
   if getCurrOwner(c).kind == skModule:
     incl(v.flags, sfGlobal)
@@ -1535,7 +1536,16 @@ proc semForVar(c: PContext, formal: PType, view: ViewTypeKind, n: PNode): PNode 
   else:
     semSingleForVar(c, formal, view, n)
 
-proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
+proc implicitIterator(c: PContext, it: string, arg: PNode): PNode =
+  result = newNodeI(nkCall, arg.info)
+  result.add(newIdentNode(getIdent(c.cache, it), arg.info))
+  if arg.typ != nil and arg.typ.kind in {tyVar, tyLent}:
+    result.add newDeref(arg)
+  else:
+    result.add arg
+  result = semExprNoDeref(c, result, {efWantIterator})
+
+proc semForVars(c: PContext, n, call: PNode; flags: TExprFlags): PNode =
   ## Semantically analyses a normal ``for`` statement
   addInNimDebugUtils(c.config, "semForVars", n, result, flags)
 
@@ -1547,10 +1557,29 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
   #
   #   for x, (y, z) in ...: ...
 
-  let formal = n[^2].typ
-  var hasError = false
+  result = copyNodeWithKids(n)
 
-  result = n
+  var hasError = call.kind == nkError
+  let isCallExpr = call.kind in nkCallKinds
+
+  result[^2] = call
+
+  if isCallExpr and isClosureIterator(call[0].typ.skipTypes(abstractInst)):
+    # first class iterator
+    discard
+  elif not isCallExpr or call[0].kind != nkSym or
+       call[0].sym.kind != skIterator:
+    if n.len == 3:
+      result[^2] = implicitIterator(c, "items", call)
+    elif n.len == 4:
+      result[^2] = implicitIterator(c, "pairs", call)
+    else:
+      result[^2] = c.config.newError(call,
+                              PAstDiag(kind: adSemForExpectedIterator))
+    hasError = result[^2].isError or hasError
+
+  let formal = result[^2].typ
+
   # ``n.len == 3`` means that there is one for loop variable and thus no
   # (direct) tuple unpacking. There can still be a ``nkVarTuple`` however
   if result.len == 3:
@@ -1558,7 +1587,7 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result[0] = semForVar(c, formal, noView, n[0])
   else:
     let typ = formal.skipTypes({tyGenericInst, tyAlias, tyLent, tyVar})
-    result = semForVarUnpacked(c, typ, inheritViewKind(formal, noView), n,
+    result = semForVarUnpacked(c, typ, inheritViewKind(formal, noView), result,
                                n.len - 2)
 
     if result.isError:
@@ -1567,7 +1596,7 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
   inc(c.execCon.nestedLoopCounter)
   openScope(c)
   block:
-    var body = semExprBranch(c, n[^1], flags)
+    var body = semExprBranch(c, result[^1], flags)
     if efInTypeof notin flags:
       body = discardCheck(c, body, flags)
       hasError = hasError or body.isError
@@ -1579,15 +1608,11 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
 
   if hasError:
     result = c.config.wrapError(result)
-
-proc implicitIterator(c: PContext, it: string, arg: PNode): PNode =
-  result = newNodeI(nkCall, arg.info)
-  result.add(newIdentNode(getIdent(c.cache, it), arg.info))
-  if arg.typ != nil and arg.typ.kind in {tyVar, tyLent}:
-    result.add newDeref(arg)
-  else:
-    result.add arg
-  result = semExprNoDeref(c, result, {efWantIterator})
+  elif result[^1].typ == c.enforceVoidContext:
+    # propagate any enforced VoidContext:
+    result.typ = c.enforceVoidContext
+  elif efInTypeof in flags:
+    result.typ = result.lastSon.typ
 
 proc isTrivalStmtExpr(n: PNode): bool =
   for i in 0..<n.len-1:
@@ -1599,41 +1624,20 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
   addInNimDebugUtils(c.config, "semFor", n, result, flags)
   checkMinSonsLen(n, 3, c.config)
   openScope(c)
-  result = n
-  n[^2] = semExprNoDeref(c, n[^2], {efWantIterator})
-  var hasError = n[^2].kind == nkError
-  var call = n[^2]
+
+  var call = semExprNoDeref(c, n[^2], {efWantIterator})
   if call.kind == nkStmtListExpr and isTrivalStmtExpr(call):
     call = call.lastSon
-    n[^2] = call
+
   let isCallExpr = call.kind in nkCallKinds
+
   if isCallExpr and call[0].kind == nkSym and
       call[0].sym.magic in {mFields, mFieldPairs}:
-    result = semForFields(c, n, call[0].sym.magic)
+    result = semForFields(c, n, call, flags)
   else:
-    if isCallExpr and isClosureIterator(call[0].typ.skipTypes(abstractInst)):
-      # first class iterator:
-      discard
-    elif not isCallExpr or call[0].kind != nkSym or
-        call[0].sym.kind != skIterator:
-      if n.len == 3:
-        n[^2] = implicitIterator(c, "items", n[^2])
-      elif n.len == 4:
-        n[^2] = implicitIterator(c, "pairs", n[^2])
-      else:
-        n[^2] = c.config.newError(n[^2], PAstDiag(kind: adSemForExpectedIterator))
-      hasError = n[^2].isError or hasError
-    result = semForVars(c, n, flags)
-  if hasError or result.kind == nkError:
-    discard # do nothing
-  elif n[^1].typ == c.enforceVoidContext:
-    # propagate any enforced VoidContext:
-    result.typ = c.enforceVoidContext
-  elif efInTypeof in flags:
-    result.typ = result.lastSon.typ
+    result = semForVars(c, n, call, flags)
+
   closeScope(c)
-  if result.kind != nkError and hasError:
-    result = c.config.wrapError(result)
 
 proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
@@ -2164,6 +2168,7 @@ proc semProcAnnotation(c: PContext, prc: PNode): PNode =
 
 proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   ## used for resolving 'auto' in lambdas based on their callsite
+  addInNimDebugUtils(c.config, "semInferredLambda", n, result)
   var n = n
   let original = n[namePos].sym
   let s = original #copySym(original, false)
@@ -2176,15 +2181,21 @@ proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   n[namePos].sym = s
   n[genericParamsPos] = c.graph.emptyNode
   # for LL we need to avoid wrong aliasing
-  let params = copyTree n.typ.n
-  n[paramsPos] = params
+  n[paramsPos] = newNodeI(nkFormalParams, n[paramsPos].info, n.typ.n.len)
+  for i, p in n.typ.n.pairs:
+    n[paramsPos][i] =
+      case i
+      of 0: # return type
+        newNodeIT(nkType, n.info, n.typ[0])
+      else: # copy instantiated parameters
+        n.typ.n[i]
   s.typ = n.typ
+  let params = n.typ.n
   for i in 1..<params.len:
     if params[i].typ.kind in {tyTypeDesc, tyGenericParam,
                               tyFromExpr}+tyTypeClasses:
       localReport(c.config, params[i].info, reportSym(
         rsemCannotInferTypeOfParameter, params[i].sym))
-
     #params[i].sym.owner = s
   openScope(c)
   pushOwner(c, s)

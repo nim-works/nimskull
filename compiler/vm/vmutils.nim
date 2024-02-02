@@ -94,7 +94,7 @@ proc codeListing*(c: TCtx; start = 0; last = -1): seq[DebugVmCodeEntry] =
         of cnstFloat:  newFloatNode(nkFloatLit, cnst.floatVal)
         of cnstString: newStrNode(nkStrLit, cnst.strVal)
         of cnstNode:   cnst.node
-        of cnstSliceListInt..cnstSliceListStr:
+        of cnstSliceListInt..cnstSliceListFloat:
           # XXX: translate into an `nkOfBranch`?
           newNode(nkEmpty)
     else:

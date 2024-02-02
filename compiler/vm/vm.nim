@@ -744,8 +744,9 @@ func setAddress(r: var TFullReg, handle: LocHandle) =
 
 func setHandle(r: var TFullReg, handle: LocHandle) =
   assert r.kind == rkHandle # Not rkLocation
-  assert not handle.p.isNil
   assert handle.typ.isValid
+  # note: handles storing nil pointers are okay here. Only the access thereof
+  # is disallowed
   r.handle = handle
 
 func loadEmptyReg*(r: var TFullReg, typ: PVmType, info: TLineInfo, mm: var VmMemoryManager): bool =
@@ -1004,10 +1005,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       let
         idx = regs[rc].intVal.int
         srcTyp = regs[rb].handle.typ
-        L = arrayLen(regs[rb].handle)
-
-      if unlikely(idx >=% L):
-        raiseVmError(reportVmIdx(idx, L-1))
 
       case srcTyp.kind
       of akString:
@@ -1030,9 +1027,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       checkHandle(regs[rb])
       let src = regs[rb].handle
 
-      if unlikely(idx >=% arrayLen(src)):
-        raiseVmError(reportVmIdx(idx, arrayLen(src) - 1))
-
       case src.typ.kind
       of akString:
         # XXX: see todo and comment in `opcLdArr` for the reasons why
@@ -1054,20 +1048,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       let s = regs[rb].atomVal.strVal
       if idx <% s.len:
         regs[ra].intVal = s[idx].ord
-      else:
-        raiseVmError(reportVmIdx(idx, s.len-1))
-    of opcLdStrIdxAddr:
-      # a = addr(b[c]); similar to opcLdArrAddr
-      decodeBC(rkAddress)
-      if regs[rc].intVal > high(int):
-        raiseVmError(reportVmIdx(regs[rc].intVal, high(int)))
-
-      checkHandle(regs[rb])
-
-      let idx = regs[rc].intVal.int
-      let s = regs[rb].atomVal.strVal
-      if idx <% s.len:
-        regs[ra].setAddress(s.data.applyOffset(uint idx), c.typeInfoCache.charType)
       else:
         raiseVmError(reportVmIdx(idx, s.len-1))
 
@@ -1098,7 +1078,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
            akDiscriminator:
           unreachable(dTyp.kind)
 
-      if idx <% slice.len:
+      if idx >= 0 and idx <% slice.len:
         checkHandle(regs[rc])
         writeLoc(slice[idx], regs[rc], c.memory)
       else:
@@ -1268,6 +1248,12 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           kind: vmEvtErrInternal,
           msg:  "opcWrDeref: regs[ra].kind: " & $r.kind))
 
+    of opcReset:
+      decodeBx()
+      checkHandle(regs[ra])
+      let loc = regs[ra].handle
+      resetLocation(c.memory, loc.byteView(), c.types[rbx])
+      safeZeroMem(loc.byteView(), loc.typ.sizeInBytes)
     of opcAddInt:
       decodeBC(rkInt)
       let
@@ -1854,7 +1840,34 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
             regs[ra].toStr,
             "[" & regs[rb].toStr & ".." & regs[rc].toStr & "]"
           ]))
+    of opcIndexChck:
+      # raise an error if c is not within b's bounds
+      let
+        rb = instr.regB
+        idx = regs[instr.regC].intVal
+      checkHandle(regs[rb])
 
+      let len = arrayLen(regs[rb].handle)
+      if idx < 0 or idx >=% len:
+        raiseVmError(reportVmIdx(idx, len-1))
+    of opcObjChck:
+      # raise an error if ``not a of b``, where `a` must be a ref value. This
+      # is intended for conversion checks
+      # XXX: this operation is a bit too specific, and usage of it is also a
+      #      lot less common than that of the other checks. It should be
+      #      implemented in bytecode instead
+      decodeBx()
+      checkHandle(regs[ra])
+      let src = regs[ra].handle
+      assert src.typ.kind == akRef # vmgen issue
+
+      # XXX: this is missing support for pointers
+      let loc = c.heap.tryDeref(deref(src).refVal, noneType).value()
+      if getTypeRel(loc.typ, c.types[rbx]) notin {vtrSame, vtrSub}:
+        # an illegal down-conversion (assuming both types are related)
+        raiseVmError(VmEvent(
+          kind: vmEvtIllegalConv,
+          msg: "invalid object conversion"))
     of opcArrCopy:
       let rb = instr.regB
       let rc = instr.regC
@@ -1920,8 +1933,8 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           # setup register that will store the result
           if not loadEmptyReg(regs[ra], retType, c.debug[pc], c.memory):
             # allocating the destination location is the responsibility of
-            # ``vmgen``
-            discard
+            # ``vmgen``, but we still have to make sure its accessible
+            checkHandle(regs[ra])
 
         # We have to assume that the callback makes use of its parameters and
         # thus need to validate them here
@@ -1958,7 +1971,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         var newFrame = TStackFrame(prc: prc, comesFrom: pc)
         newFrame.slots.newSeq(regCount)
         if instr.opcode == opcIndCallAsgn:
-          checkHandle(regs[ra])
           # the destination might be a temporary complex location (`ra` is an
           # ``rkLocation`` register then). While we could use
           # ``fastAsgnComplex`` like we do with the arguments, it would mean
@@ -2002,39 +2014,12 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         for s in list.items:
           if v in s: return true
 
-      func cmp(a: string, b: VmString): int =
-        let minLen = min(a.len, b.len)
-        if minLen > 0:
-          result = cmpMem(unsafeAddr a[0], b.data.rawPointer, minLen)
-        if result == 0:
-          result = a.len - b.len
-
       var cond = false
       case value.kind
       of cnstInt:      cond = regs[ra].intVal == value.intVal
-      of cnstString:   cond = regs[ra].strVal == value.strVal
       of cnstFloat:    cond = regs[ra].floatVal == value.floatVal
       of cnstSliceListInt:   cond = regs[ra].intVal in value.intSlices
       of cnstSliceListFloat: cond = regs[ra].floatVal in value.floatSlices
-      of cnstSliceListStr:
-        # string slice-lists don't store the strings directly, but the ID of
-        # a constant instead
-        let str = regs[ra].strVal
-        for s in value.strSlices.items:
-          let a = c.constants[s.a].strVal
-          let r = cmp(a, str)
-          if s.a == s.b:
-            # no need to compare the string with both slice elements if
-            # they're the same
-            if r == 0:
-              cond = true
-              break
-          else:
-            let b = c.constants[s.b].strVal
-            if r <= 0 and cmp(b, str) >= 0:
-              cond = true
-              break
-
       else:
         unreachable(value.kind)
 
@@ -2103,6 +2088,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
     of opcRaise:
       decodeBImm()
+      discard rb # fix the "unused" warning
       checkHandle(regs[ra])
 
       # `imm == 0` -> raise; `imm == 1` -> reraise current exception
@@ -2127,20 +2113,12 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
           exception.trace[i] = (it.prc, p)
 
+        # TODO: store the trace in the exception's `trace` field and move this
+        #       setup logic to the ``prepareException`` implementation
+
         exception.refVal = regs[ra].atomVal.refVal
         # keep the exception alive during exception handling:
         c.heap.heapIncRef(exception.refVal)
-
-      let raised = c.heap.tryDeref(exception.refVal, noneType).value()
-      let name = deref(raised.getFieldHandle(1.fpos))
-      if not isReraise and name.strVal.len == 0:
-        # XXX: the VM doesn't distinguish between a `nil` cstring and an empty
-        #      `cstring`, leading to the name erroneously being overridden if
-        #      it was explicitly initialized with `""`
-        # Set the `name` field of the exception. No need to valdiate the
-        # handle in `regs[rb]`, since it's a constant loaded prior to the
-        # raise
-        name.strVal.asgnVmString(regs[rb].strVal, c.allocator)
 
       pc = opRaise(c, t, pc, exception).handle(c, t) - 1
       updateRegsAlias()
@@ -2203,22 +2181,20 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         #      cases where non-NimNode PNodes need to be stored in registers
         #      seems unnecessary however.
         regs[ra] = TFullReg(kind: rkNimNode, nimNode: cnst.node)
-      of cnstSliceListInt..cnstSliceListStr:
+      of cnstSliceListInt..cnstSliceListFloat:
         # A slice-list must not be used with `LdConst`
         assert false
 
     of opcAsgnConst:
-      # XXX: currently unused, but might be revived
-      assert false
-      #[
+      # assign the constant to the destination
       decodeBx()
-      let cnst = c.constants[rbx]
-      if cnst.typ.kind in RegisterAtomKinds:
-        putIntoReg(regs[ra], cnst)
-      else:
-        regs[ra].initLocReg(cnst.typ, c.memory)
-        copyToLocation(regs[ra].handle, cnst, c.memory, false)
-      ]#
+      let cnst {.cursor.} = c.constants[rbx]
+      case cnst.kind
+      of cnstString:
+        # load the string literal directly into the destination
+        deref(regs[ra].handle).strVal.newVmString(cnst.strVal, c.allocator)
+      of cnstInt, cnstFloat, cnstNode, cnstSliceListInt..cnstSliceListFloat:
+        raiseVmError(VmEvent(kind: vmEvtErrInternal, msg: "illegal constant"))
     of opcLdGlobal:
       let rb = instr.regBx - wordExcess
       let slot = c.globals[rb]
@@ -2683,30 +2659,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       inc pc
       let desttyp = c.types[c.code[pc].regBx - wordExcess]
 
-      assert src.typ.kind == desttyp.kind
-      # perform a conversion check, if necessary
-      case desttyp.kind
-      of akRef:
-        # a ref up- or down conversion
-        assert src.typ.kind == akRef # vmgen issue
-        checkHandle(regs[instr.regB])
-
-        let refVal = deref(src).refVal
-
-        if isNotNil(refVal):
-          let loc = c.heap.tryDeref(refVal, noneType).value()
-          if getTypeRel(loc.typ, desttyp.targetType) notin {vtrSame, vtrSub}:
-            # an illegal up-conversion (assuming both types are related)
-            raiseVmError(VmEvent(
-              kind: vmEvtIllegalConv,
-              msg: "illegal up-conversion"))
-
-      of akObject:
-        # an object-to-object lvalue conversion
-        discard "no check necessary"
-      else:
-        unreachable(desttyp.kind)
-
       regs[ra].handle = src
       regs[ra].handle.typ = desttyp
     of opcCast:
@@ -2989,7 +2941,6 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
     of vmEvtUserError: adVmUserError
     of vmEvtUnhandledException: adVmUnhandledException
     of vmEvtCannotCast: adVmCannotCast
-    of vmEvtCallingNonRoutine: adVmCallingNonRoutine
     of vmEvtCannotModifyTypechecked: adVmCannotModifyTypechecked
     of vmEvtNilAccess: adVmNilAccess
     of vmEvtAccessOutOfBounds: adVmAccessOutOfBounds
@@ -3059,7 +3010,6 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
           kind: kind,
           sym: evt.sym)
       of adVmOpcParseExpectedExpression,
-          adVmCallingNonRoutine,
           adVmCannotModifyTypechecked,
           adVmAccessOutOfBounds,
           adVmAccessTypeMismatch,

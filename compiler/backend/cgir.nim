@@ -12,6 +12,9 @@ import
     lineinfos,
     wordrecg
   ],
+  compiler/mir/[
+    mirtrees
+  ],
   compiler/utils/[
     containers
   ]
@@ -32,15 +35,18 @@ type
     cnkNilLit        ## the nil literal
     cnkAstLit        ## a ``NimNode`` literal
 
-    cnkSym
+    cnkField         ## reference to an object field's symbol
     cnkLabel         ## name of a block
+    cnkProc          ## name of a procedure
+    cnkConst         ## reference to a named, global constant
+    cnkGlobal        ## reference to a global location
     cnkLocal         ## reference to a local
-    # future direction: split up ``cnkSym`` in the way the MIR does it
     cnkMagic         ## name of a magic procedure. Only valid in the callee
-                     ## slot of ``cnkCall`` nodes
+                     ## slot of ``cnkCall`` and ``cnkCheckedCall`` nodes
 
     cnkCall          ## a procedure call. The first operand is the procedure,
                      ## the following operands the arguments
+    cnkCheckedCall   ## like ``cnkCall``, but the call might raise an exception
 
     # constructors:
     cnkTupleConstr   ## tuple constructor
@@ -59,9 +65,6 @@ type
     cnkTupleAccess
     # future direction: merge ``cnkFieldAccess`` and ``cnkTupleAccess`` into a
     # single node (field access by position).
-    cnkCheckedFieldAccess
-    # future direction: lower object access checks eariler (e.g., during the
-    # MIR phase) and then remove ``cnkCheckedFieldAccess``
 
     cnkDeref         ## dereference 'x'
     cnkAddr          ## address of 'x'
@@ -74,26 +77,22 @@ type
     # makes sense, e.g. C). This could make ``cnkDerefView`` obsolete
 
     cnkConv          ## a type conversion
-    # future direction: introduce a dedicated operation for "l-value preserving
-    # conversions"
+    cnkLvalueConv    ## an lvalue-preserving conversion. The ones reaching
+                     ## into the code generators are usually discarded, but
+                     ## they're still required for proper typing
     cnkHiddenConv
     # future direction: the notion of "hidden" doesn't make any sense in the
     # context of code generation. Adjust the code generators so that they no
     # longer depend on ``cnkHiddenConv`` being different from ``cnkConv``, and
     # then remove the former
+    cnkToSlice       ## slice creation. Works the same as the corresponding
+                     ## MIR operation
 
     cnkObjDownConv   ## down conversion between `object` or `ref` types
     cnkObjUpConv     ## up conversion between `object` or `ref` types
 
     cnkCast          ## reinterpret the bit-pattern of the operand as a
                      ## different type
-
-    # ---- special conversions kept for compatibility
-    cnkStringToCString ## string to cstring
-    cnkCStringToString ## cstring to string
-    # future direction: lower these coversion operations during the MIR
-    # phase and then remove the node kinds
-    # ---- end
 
     cnkStmtList
     cnkStmtListExpr
@@ -141,7 +140,7 @@ const
 
   cnkWithOperand*  = {cnkConv, cnkHiddenConv, cnkDeref, cnkAddr, cnkHiddenAddr,
                       cnkDerefView, cnkObjDownConv, cnkObjUpConv, cnkCast,
-                      cnkStringToCString, cnkCStringToString}
+                      cnkLvalueConv}
   cnkAtoms*        = {cnkInvalid..cnkMagic, cnkReturnStmt, cnkPragmaStmt}
     ## node kinds that denote leafs
   cnkWithItems*    = AllKinds - cnkWithOperand - cnkAtoms
@@ -186,7 +185,10 @@ type
     of cnkFloatLit:   floatVal*: BiggestFloat
     of cnkStrLit:     strVal*: string
     of cnkAstLit:     astLit*: PNode
-    of cnkSym:        sym*: PSym
+    of cnkField:      field*: PSym
+    of cnkProc:       prc*: ProcedureId
+    of cnkConst:      cnst*: ConstId
+    of cnkGlobal:     global*: GlobalId
     of cnkMagic:      magic*: TMagic
     of cnkLabel:      label*: BlockId
     of cnkLocal:      local*: LocalId

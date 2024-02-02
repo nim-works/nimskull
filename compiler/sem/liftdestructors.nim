@@ -881,17 +881,20 @@ proc symPrototype(g: ModuleGraph; typ: PType; owner: PSym; kind: TTypeAttachedOp
   var n = newNodeI(nkProcDef, info, bodyPos+1)
   for i in 0..<n.len: n[i] = newNodeI(nkEmpty, info)
   n[namePos] = newSymNode(result)
+  # xxx: technically we shouldn't assign `result.typ.n` to `paramsPos` because
+  #      the `TType.n` AST for `tyProc` types isn't well formed. This isn't
+  #      a practical issue, because nothing inspects the results of type hooks.
+  #      At the time of writing, `semstmts.semInferredLambda` is an example of
+  #      how to build up the `paramsPos`.
   n[paramsPos] = result.typ.n
   n[bodyPos] = newNodeI(nkStmtList, info)
   result.ast = n
   result.flags.incl {sfFromGeneric, sfGeneratedOp}
 
 proc genTypeFieldCopy(c: var TLiftCtx; t: PType; body, x, y: PNode) =
-  let xx = genBuiltin(c, mAccessTypeField, "accessTypeField", x)
-  let yy = genBuiltin(c, mAccessTypeField, "accessTypeField", y)
-  xx.typ = getSysType(c.g, c.info, tyPointer)
-  yy.typ = xx.typ
-  body.add newAsgnStmt(xx, yy)
+  let call = genBuiltin(c, mCopyInternal, "copyInternal", x)
+  call.add y
+  body.add call
 
 proc produceSym(g: ModuleGraph; c: PContext; typ: PType; kind: TTypeAttachedOp;
               info: TLineInfo; idgen: IdGenerator): PSym =

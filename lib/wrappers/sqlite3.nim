@@ -11,12 +11,7 @@ when defined(nimHasStyleChecks):
   {.push styleChecks: off.}
 
 when defined(windows):
-  when defined(nimOldDlls):
-    const Lib = "sqlite3.dll"
-  elif defined(cpu64):
-    const Lib = "sqlite3_64.dll"
-  else:
-    const Lib = "sqlite3_32.dll"
+  const Lib = "(lib|)sqlite3.dll"
 elif defined(macosx):
   const
     Lib = "libsqlite3(|.0).dylib"

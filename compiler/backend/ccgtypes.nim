@@ -239,7 +239,7 @@ proc getSimpleTypeDesc(m: BModule, typ: PType): Rope =
   of tyStatic:
     m.config.internalAssert(typ.n != nil, "tyStatic for getSimpleTypeDesc")
     result = getSimpleTypeDesc(m, lastSon typ)
-  of tyGenericInst, tyAlias, tySink:
+  of tyGenericInst, tyAlias, tySink, tyEnum:
     result = getSimpleTypeDesc(m, lastSon typ)
   else: result = ""
 
@@ -787,8 +787,8 @@ proc genProcHeader(m: BModule, prc: PSym, locs: openArray[TLoc]): Rope =
   # careful here! don't access ``prc.ast`` as that could reload large parts of
   # the object graph!
   result.addf("$1($2, $3)$4",
-        [rope(CallingConvToStr[prc.typ.callConv]), rettype, m.procs[prc].name,
-         params])
+        [rope(CallingConvToStr[prc.typ.callConv]), rettype,
+         m.procs[m.g.env.procedures[prc]].name, params])
 
 # ------------------ type info generation -------------------------------------
 
@@ -1031,11 +1031,20 @@ proc fakeClosureType(m: BModule; owner: PSym): PType =
   r.rawAddSon(obj)
   result.rawAddSon(r)
 
+proc useHook(m: BModule, s: PSym): ProcedureId =
+  if s in m.g.env.procedures:
+    result = m.g.env.procedures[s]
+  else:
+    result = m.g.env.procedures.add(s)
+    # adding a module override is only necessary when it's a new procedure
+    m.g.hooks.add (m, result)
+
+  useProc(m, result)
+
 proc genDeepCopyProc(m: BModule; s: PSym; result: Rope) =
-  useProc(m, s)
-  m.g.hooks.add (m, s)
+  let id = useHook(m, s)
   m.s[cfsTypeInit3].addf("$1.deepcopy =(void* (N_RAW_NIMCALL*)(void*))$2;$n",
-     [result, m.procs[s].name])
+     [result, m.procs[id].name])
 
 proc declareNimType(m: BModule, name: string; str: Rope, module: int) =
   m.s[cfsData].addf("extern $2 $1;$n", [str, rope(name)])
@@ -1075,10 +1084,8 @@ proc genHook(m: BModule; t: PType; info: TLineInfo; op: TTypeAttachedOp): Rope =
       localReport(m.config, info, reportSym(
         rsemExpectedNimcallProc, theProc))
 
-    useProc(m, theProc)
-    m.g.hooks.add (m, theProc)
-
-    result = m.procs[theProc].name
+    let id = useHook(m, theProc)
+    result = m.procs[id].name
 
     when false:
       if not canFormAcycle(t) and op == attachedTrace:

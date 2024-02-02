@@ -22,6 +22,9 @@ import
   compiler/front/[
     options
   ],
+  compiler/mir/[
+    mirenv
+  ],
   compiler/utils/[
     bitsets,
     idioms,
@@ -37,7 +40,7 @@ func lastSon*(n: CgNode): CgNode {.inline.} =
 
 proc skipConv*(n: CgNode): CgNode {.inline.} =
   result = n
-  while result.kind in {cnkConv, cnkHiddenConv}:
+  while result.kind in {cnkConv, cnkHiddenConv, cnkLvalueConv}:
     result = result.operand
 
 func getInt*(n: CgNode): Int128 =
@@ -53,21 +56,22 @@ proc getOrdValue*(n: CgNode): Int128 =
   of cnkHiddenConv: getOrdValue(n.operand)
   else:             unreachable()
 
-func getCalleeMagic*(callee: CgNode): TMagic {.inline.} =
+func getCalleeMagic*(env: MirEnv, callee: CgNode): TMagic {.inline.} =
   case callee.kind
-  of cnkSym:   callee.sym.magic
+  of cnkProc:  env[callee.prc].magic
   of cnkMagic: callee.magic
   else:        mNone
 
-proc getMagic*(op: CgNode): TMagic {.inline.}  =
+proc getMagic*(env: MirEnv, op: CgNode): TMagic {.inline.}  =
   case op.kind
-  of cnkCall: getCalleeMagic(op[0])
-  else:       mNone
+  of cnkCall, cnkCheckedCall:
+    getCalleeMagic(env, op[0])
+  else:
+    mNone
 
 proc isDiscriminantField*(n: CgNode): bool =
   case n.kind
-  of cnkCheckedFieldAccess: sfDiscriminant in n[0][1].sym.flags
-  of cnkFieldAccess:        sfDiscriminant in n[1].sym.flags
+  of cnkFieldAccess:        sfDiscriminant in n[1].field.flags
   else:                     false
 
 func isOfBranch*(n: CgNode): bool {.inline.} =
@@ -98,30 +102,11 @@ proc isDeepConstExpr*(n: CgNode): bool =
   else:
     result = false
 
-proc canRaiseConservative*(fn: CgNode): bool =
+proc canRaiseConservative*(env: MirEnv, fn: CgNode): bool =
   ## Duplicate of `canRaiseConservative <ast_query.html#canRaiseConservative,PNode>`_.
   # ``mNone`` is also included in the set, therefore this check works even for
   # non-magic calls
-  getCalleeMagic(fn) in magicsThatCanRaise
-
-proc canRaise*(fn: CgNode): bool =
-  ## Duplicate of `canRaise <ast_query.html#canRaise,PNode>`_.
-  if fn.kind == cnkSym and (fn.sym.magic notin magicsThatCanRaise or
-      {sfImportc, sfInfixCall} * fn.sym.flags == {sfImportc} or
-      sfGeneratedOp in fn.sym.flags):
-    result = false
-  elif fn.kind == cnkSym and fn.sym.magic == mEcho:
-    result = true
-  elif fn.kind == cnkMagic:
-    result = fn.magic in magicsThatCanRaise
-  else:
-    if fn.typ != nil and fn.typ.n != nil and fn.typ.n[0].kind == nkSym:
-      result = false
-    else:
-      result = fn.typ != nil and fn.typ.n != nil and
-        ((fn.typ.n[0].len < effectListLen) or
-         (fn.typ.n[0][exceptionEffects] != nil and
-          fn.typ.n[0][exceptionEffects].safeLen > 0))
+  getCalleeMagic(env, fn) in magicsThatCanRaise
 
 proc toBitSet*(conf: ConfigRef; s: CgNode): TBitSet =
   ## Duplicate of `toBitSet <nimsets.html#toBitSet,ConfigRef,PNode>`_
@@ -140,10 +125,6 @@ proc toBitSet*(conf: ConfigRef; s: CgNode): TBitSet =
 
 proc flattenStmts*(n: CgNode): CgNode =
   ## Duplicate of `flattenStmts <trees.html#flattenStmts,PNode>`_
-  # XXX: this doesn't work as intended. The intention is to bring all 'def's
-  #      to the top so that they can be special cased, but
-  #      ``cnkStmtListExpr``s cannot be unnested, meaning that not all
-  #      'def's are brought to the top-level
   proc unnestStmts(n: CgNode, result: var CgNode) =
     case n.kind
     of cnkStmtList:
@@ -157,48 +138,58 @@ proc flattenStmts*(n: CgNode): CgNode =
   if result.len == 1:
     result = result[0]
 
-proc toSymNode*(n: PNode): CgNode {.inline.} =
-  CgNode(kind: cnkSym, info: n.info, typ: n.typ, sym: n.sym)
-
-proc newSymNode*(s: PSym): CgNode {.inline.} =
-  CgNode(kind: cnkSym, info: s.info, typ: s.typ, sym: s)
+proc newSymNode*(env: MirEnv, s: PSym): CgNode {.inline.} =
+  case s.kind
+  of skConst:
+    CgNode(kind: cnkConst, info: s.info, typ: s.typ, cnst: env.constants[s])
+  of skVar, skLet, skForVar:
+    CgNode(kind: cnkGlobal, info: s.info, typ: s.typ, global: env.globals[s])
+  of skProcKinds:
+    CgNode(kind: cnkProc, info: s.info, typ: s.typ, prc: env.procedures[s])
+  of skField:
+    CgNode(kind: cnkField, info: s.info, typ: s.typ, field: s)
+  else:
+    unreachable(s.kind)
 
 proc newStrNode*(str: sink string): CgNode {.inline.} =
   CgNode(kind: cnkStrLit, info: unknownLineInfo, strVal: str)
 
-proc translate*(n: PNode): CgNode =
+proc translate*(env: MirEnv, n: PNode): CgNode =
   ## Compatibility routine for translating a ``PNode`` value-construction tree
   ## to a ``CgNode`` tree.
+  template recurse(n: PNode): CgNode =
+    translate(env, n)
+
   case n.kind
   of nkObjConstr:
     result = newExpr(cnkObjConstr, n.info, n.typ)
     for i, it in sliceIt(n.sons, 1, n.len-1):
-      result.kids.add translate(it)
+      result.kids.add recurse(it)
   of nkBracket:
     result = newExpr(cnkArrayConstr, n.info, n.typ)
     for it in n.items:
-      result.kids.add translate(it)
+      result.kids.add recurse(it)
   of nkCurly:
     result = newExpr(cnkSetConstr, n.info, n.typ)
     for it in n.items:
-      result.kids.add translate(it)
+      result.kids.add recurse(it)
   of nkTupleConstr:
     result = newExpr(cnkTupleConstr, n.info, n.typ)
     for it in n.items:
       let it = if it.kind == nkExprColonExpr: it[1] else: it
-      result.kids.add translate(it)
+      result.kids.add recurse(it)
   of nkClosure:
     result = newExpr(cnkClosureConstr, n.info, n.typ)
-    result.kids = @[translate(n[0]), translate(n[1])]
+    result.kids = @[recurse(n[0]), recurse(n[1])]
   of nkRange:
     result = newNode(cnkRange, n.info)
-    result.kids = @[translate(n[0]), translate(n[1])]
+    result.kids = @[recurse(n[0]), recurse(n[1])]
   of nkSym:
-    result = newSymNode(n.sym)
+    result = newSymNode(env, n.sym)
     result.info = n.info
   of nkExprColonExpr:
     result = newNode(cnkBinding, n.info)
-    result.kids = @[translate(n[0]), translate(n[1])]
+    result.kids = @[recurse(n[0]), recurse(n[1])]
   of nkLiterals:
     result = translateLit(n)
   of nkNilLit:

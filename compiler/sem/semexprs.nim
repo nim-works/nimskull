@@ -261,6 +261,7 @@ proc maybeLiftType(t: var PType, c: PContext, info: TLineInfo) =
   if lifted != nil: t = lifted
 
 proc semConv(c: PContext, n: PNode): PNode =
+  addInNimDebugUtils(c.config, "semConv", n, result)
   if n.len != 2:
     result = c.config.newError(n,
                 PAstDiag(kind: adSemTypeConversionArgumentMismatch,
@@ -279,15 +280,29 @@ proc semConv(c: PContext, n: PNode): PNode =
     else:
       targetType = targetType.base
   of tyStatic:
-    var evaluated = semStaticExpr(c, n[1])
-    if evaluated.kind == nkType or evaluated.typ.kind == tyTypeDesc:
-      result = n
-      result.typ = c.makeTypeDesc semStaticType(c, evaluated, nil)
-      return
-    elif targetType.base.kind == tyNone:
-      return evaluated
+    if targetType.base.kind == tyNone:
+      let evaluated = semStaticExpr(c, n[1])
+      # the meaning depends on the type of the operand
+      if evaluated.typ.kind == tyTypeDesc:
+        # a type construction, e.g.: ``static(int)``
+        result = newTreeI(nkStaticTy, n.info, evaluated)
+        result.typ = c.makeTypeDesc:
+          let typ = newTypeS(tyStatic, c)
+          typ.rawAddSon(evaluated.typ.base)
+          typ.flags.incl tfHasStatic
+          typ
+        return
+      else:
+        # an expression forcefully evaluated at compile-time,
+        # e.g.: ``static(x)``
+        return evaluated
     else:
-      targetType = targetType.base
+      # a coercion to a static type, e.g.: ``static[int](x)``. It's
+      # semantically equivalent to ``static(int(x))``
+      result.add newNodeIT(nkType, n[0].info, c.makeTypeDesc targetType.base)
+      result.add n[1]
+      result = newTreeI(nkStaticExpr, n.info, result)
+      return semExprWithType(c, result, {})
   else: discard
 
   maybeLiftType(targetType, c, n[0].info)
@@ -1113,10 +1128,13 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
   popExecCon(c)
   closeScope(c)
   a = foldInAst(c.module, a, c.idgen, c.graph)
-  if a.kind == nkError or a.findUnresolvedStatic != nil:
+  if a.typ.kind == tyTypeDesc or a.findUnresolvedStatic != nil:
     return a
 
-  result = evalStaticExpr(c.module, c.idgen, c.graph, a, c.p.owner)
+  result = getConstExprError(c.module, a, c.idgen, c.graph)
+  if result == nil:
+    # not something that's foldable, use the VM
+    result = evalStaticExpr(c.module, c.idgen, c.graph, a, c.p.owner)
 
 proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
                                      flags: TExprFlags): PNode =
@@ -1126,10 +1144,10 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
     # to 'skIterator' anymore; skIterator is preferred in sigmatch already
     # for typeof support.
     # for ``typeof(countup(1,3))``, see ``tests/ttoseq``.
-    result = semOverloadedCall(c, n,
+    result = semOverloadedCall(c, n, copyNodeWithKids(n),
       {skProc, skFunc, skMethod, skConverter, skMacro, skTemplate, skIterator}, flags)
   else:
-    result = semOverloadedCall(c, n,
+    result = semOverloadedCall(c, n, copyNodeWithKids(n),
       {skProc, skFunc, skMethod, skConverter, skMacro, skTemplate}, flags)
 
   if result != nil and result.kind != nkError:
@@ -1157,7 +1175,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode
 proc resolveIndirectCall(c: PContext; n: PNode;
                          t: PType): TCandidate =
   initCandidate(c, result, t)
-  matches(c, n, result)
+  matches(c, n, copyNodeWithKids(n), result)
 
 proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
   if n.kind == nkError:
@@ -3601,11 +3619,12 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
         var baseType = semExpr(c, n[0]).typ.skipTypes({tyTypeDesc})
         result.typ = c.makeTypeDesc(c.newTypeWithSons(modifier, @[baseType]))
         return
-    let typ = semTypeNode(c, n, nil).skipTypes({tyTypeDesc})
-    result.typ = makeTypeDesc(c, typ)
+    result = semTypeNode2(c, n, nil)
+    # a type expression is of type ``typeDesc[T]``
+    result.typ = makeTypeDesc(c, result.typ.skipTypes({tyTypeDesc}))
   of nkStmtListType:
-    let typ = semTypeNode(c, n, nil)
-    result.typ = makeTypeDesc(c, typ)
+    result = semTypeNode2(c, n, nil)
+    result.typ = makeTypeDesc(c, result.typ)
   of nkCall, nkInfix, nkPrefix, nkPostfix, nkCommand, nkCallStrLit:
     # check if it is an expression macro:
     checkMinSonsLen(n, 1, c.config)
@@ -3774,7 +3793,10 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     n[0] = semExpr(c, n[0], flags)
   of nkCast: result = c.config.extract(semCast(c, n))
   of nkIfExpr, nkIfStmt: result = semIf(c, n, flags)
-  of nkHiddenStdConv, nkHiddenSubConv, nkConv, nkHiddenCallConv:
+  of nkConv:
+    checkSonsLen(n, 2, c.config)
+    result = semConv(c, n)
+  of nkHiddenStdConv, nkHiddenSubConv, nkHiddenCallConv:
     checkSonsLen(n, 2, c.config)
     considerGenSyms(c, n)
   of nkStringToCString, nkCStringToString, nkObjDownConv, nkObjUpConv:

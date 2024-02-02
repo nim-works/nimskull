@@ -9,12 +9,19 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - uses: actions/download-artifact@v3.0.2
+    - uses: actions/download-artifact@v4
       with:
         name: compiler ${{ runner.os }}
         path: "${{ runner.temp }}"
 
     - name: Unpack the workspace
-      run: tar xf "$RUNNER_TEMP/compiler.tar"
-      shell: bash
+      run: |
+        import os
+        import tarfile
+        from pathlib import Path
+
+        archivepath = Path(os.environ["RUNNER_TEMP"]) / "compiler.tar"
+        with tarfile.open(archivepath) as archive:
+          archive.extractall()
+      shell: python
       working-directory: "${{ inputs.workspace }}"

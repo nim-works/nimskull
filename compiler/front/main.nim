@@ -519,6 +519,21 @@ proc mainCommand*(graph: ModuleGraph) =
   when defined(nimDebugUnreportedErrors):
     addExitProc proc = echoAndResetUnreportedErrors(conf)
 
+  when defined(gcOrc) and not defined(leakTest):
+    # Compilation is currently very taxing on ORC due to frequent
+    # creations and destructions of ref objects with potential cycles.
+    #
+    # Disable ORC to reduce overhead from the cycle collector at the
+    # cost of memory usage.
+    #
+    # We don't collect cycles afterwards as the command is one-shot and
+    # memory should be freed once the program stops.
+    #
+    # An exception is made for when running the leak test, as not running the
+    # cycle collector would mean that all reference cycles stay reachable
+    # (through the potential cycle root list).
+    GC_disableOrc()
+
   ## process all commands
   case conf.cmd
   of cmdBackends: compileToBackend()

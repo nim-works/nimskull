@@ -1,9 +1,11 @@
 discard """
+  targets: "c js vm"
   output: '''10
 10
 1
 1
 true'''
+  knownIssue.vm: "`RangeDefect`s aren't catchable"
 """
 
 # bug #1344

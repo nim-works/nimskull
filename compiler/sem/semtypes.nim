@@ -543,6 +543,7 @@ proc semOrdinal(c: PContext, n: PNode, prev: PType): PType =
     result = newOrPrevType(tyError, prev, c)
 
 proc semTypeIdent(c: PContext, n: PNode): PSym =
+  addInNimDebugUtils(c.config, "semTypeIdent", n, result)
   if n.kind == nkSym:
     result = getGenSym(c, n.sym)
   else:
@@ -764,6 +765,9 @@ proc semBranchRange(c: PContext, t, a, b: PNode, covered: var Int128): PNode =
   result.add(bt)
   if emptyRange(ac, bc):
     localReport(c.config, b, reportSem rsemRangeIsEmpty)
+  elif t[0].typ.skipTypes(abstractInst).kind == tyString:
+    # XXX: ``nkError`` needs to be used here
+    localReport(c.config, b, reportSem rsemStringRangeNotAllowed)
   else: covered = covered + getOrdValue(bc) + 1 - getOrdValue(ac)
 
 proc semCaseBranchRange(c: PContext, t, b: PNode,
@@ -1627,6 +1631,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       elif r.kind == tyAnything:
         # 'p(): auto' and 'p(): untyped' are equivalent, but the rest of the
         # compiler is hardly aware of 'auto':
+        # xxx: ^^^ they should _not_ be equivalent
         r = newTypeS(tyUntyped, c)
       elif r.kind == tyStatic:
         # type allowed should forbid this type
@@ -1725,7 +1730,7 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
   else:
     var m = newCandidate(c, t)
     m.isNoCall = true
-    matches(c, n, m)
+    matches(c, n, copyNodeWithKids(n), m)
 
     if m.state != csMatch:
       localReport(c.config, n.info):
@@ -2233,7 +2238,6 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     if s.typ == nil:
       if s.kind != skError:
         localReport(c.config, n, reportSem rsemTypeExpected)
-
       result = newOrPrevType(tyError, prev, c)
     elif s.kind == skParam and s.typ.kind == tyTypeDesc:
       c.config.internalAssert s.typ.base.kind != tyNone and prev == nil
@@ -2331,7 +2335,7 @@ proc semTypeNode2(c: PContext, n: PNode, prev: PType): PNode =
   let typ = semTypeNode(c, n, prev)
   if typ.isNil:
     result = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
-  elif typ.kind == tyError and typ.n.kind == nkError:
+  elif typ.kind == tyError and typ.n != nil and typ.n.kind == nkError:
     result = typ.n
   else:
     # the type is either valid or an error type that doesn't store a
