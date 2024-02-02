@@ -490,8 +490,9 @@ proc setCurrentException(t: var VmThread, mem: var VmMemoryManager,
                          ex: HeapSlotHandle) =
   ## Sets `ex` as `t`'s current exception, freeing the previous exception,
   ## if necessary.
-  mem.heap.heapIncRef(ex)
-  if not t.currentException.isNil:
+  if ex.isNotNil:
+    mem.heap.heapIncRef(ex)
+  if t.currentException.isNotNil:
     mem.heap.heapDecRef(mem.allocator, t.currentException)
 
   t.currentException = ex
