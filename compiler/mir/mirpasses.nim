@@ -366,7 +366,7 @@ proc extractStringLiterals(tree: MirTree, env: var MirEnv,
     # note: both normal string *and* cstring literals are currently included
     if tree[i].lit.kind in nkStrLiterals:
       # create an anonymous constant from the literal:
-      let c = toConstId env.data.getOrPut(tree[i].lit)
+      let c = toConstId env.data.getOrPut(@[tree[i]])
       # replace the usage of the literal with the anonymous constant:
       changes.replaceMulti(tree, i, bu):
         bu.use toValue(c, tree[i].typ)
