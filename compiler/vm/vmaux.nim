@@ -17,10 +17,6 @@ import
     vmdef,
     vmlinker,
     vmtypegen
-  ],
-
-  std/[
-    tables
   ]
 
 func findRecCaseAux(n: PNode, d: PSym): PNode =
@@ -123,9 +119,3 @@ func fillProcEntry*(e: var FuncTableEntry, info: CodeInfo) {.inline.} =
   ## Sets the execution information of the function table entry to `info`
   e.start = info.start
   e.regCount = info.regCount.uint16
-
-proc lookupProc*(c: var TCtx, prc: PSym): FunctionIndex {.inline.} =
-  ## Returns the function-table index corresponding to the provided `prc`
-  ## symbol. Behaviour is undefined if `prc` has no corresponding function-
-  ## table entry.
-  c.linking.symToIndexTbl[prc.id].FunctionIndex

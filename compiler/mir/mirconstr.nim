@@ -188,14 +188,22 @@ template push*(bu: var MirBuilder, body: untyped): Fragment =
 func pop*(bu: var MirBuilder, f: Fragment) =
   ## Moves the expression/statement identified by `v` from the top of the
   ## staging buffer to the final buffer.
+  func popAux(dst, src: var MirBuffer, start: int, id: SourceId) =
+    if dst.len == 0 and start == 0:
+      # the whole source buffer's content is moved into the empty destination
+      # buffer. Moving the nodes is not necessary, the buffers can simply be
+      # swapped
+      swap(dst, src)
+    else:
+      dst.apply(id)
+      src.moveTo(dst, start)
+
   if bu.swapped:
     assert f.s.b.int == bu.front.len
-    bu.back.apply(bu.currentSourceId)
-    bu.front.moveTo(bu.back, f.s.a.int)
+    popAux(bu.back, bu.front, f.s.a.int, bu.currentSourceId)
   else:
     assert f.s.b.int == bu.back.len
-    bu.front.apply(bu.currentSourceId)
-    bu.back.moveTo(bu.front, f.s.a.int)
+    popAux(bu.front, bu.back, f.s.a.int, bu.currentSourceId)
 
 template withFront*(bu: var MirBuilder, body: untyped) =
   ## Runs `body` with the final buffer as the front buffer.

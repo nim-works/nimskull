@@ -209,31 +209,6 @@ func endsInNoReturn(n: PNode): bool =
     (it.kind in nkCallKinds and it[0].kind == nkSym and
      sfNoReturn in it[0].sym.flags)
 
-func isDeepConstExpr(n: PNode): bool =
-  ## Copy of ``trees.isDeepConstExpr`` that doesn't treat hidden conversions
-  ## as constant.
-  # XXX: used as a temporary workaround for ``nkHiddenStdConv`` not being
-  #      supported in MIR constant data
-  case n.kind
-  of nkLiterals, nkNilLit:
-    result = true
-  of nkExprColonExpr:
-    result = isDeepConstExpr(n[1])
-  of nkRange:
-    result = isDeepConstExpr(n[0]) and isDeepConstExpr(n[1])
-  of nkCurly, nkBracket, nkTupleConstr, nkObjConstr, nkClosure:
-    for i in ord(n.kind == nkObjConstr)..<n.len:
-      if not isDeepConstExpr(n[i]):
-        return false
-
-    let t = n.typ.skipTypes({tyGenericInst, tyDistinct, tyAlias, tySink})
-    # refs, pointers, unions, and case objects are not treated as constant
-    result = t.kind notin {tyRef, tyPtr} and
-             tfUnion notin t.flags and
-             (t.kind != tyObject or not isCaseObj(t.n))
-  else:
-    result = false
-
 func selectWhenBranch(n: PNode, isNimvm: bool): PNode =
   assert n.kind == nkWhen
   if isNimvm: n[0][1]
@@ -1886,28 +1861,12 @@ proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination) =
     # not a complex expression
     unreachable(n.kind)
 
-proc scanExpr*(env: var MirEnv, n: PNode) =
-  ## Registers all routine symbols appearing in `n` with `env`.
-  case n.kind
-  of nkSym:
-    if n.sym.kind in routineKinds:
-      discard env.procedures.add(n.sym)
-  of nkWithoutSons - {nkSym}:
-    discard
-  of nkWithSons - {nkObjConstr}:
-    for it in n.items:
-      scanExpr(env, it)
-  of nkObjConstr:
-    # don't scan the type slot:
-    for i in 1..<n.len:
-      scanExpr(env, n[i])
+proc constDataToMir*(env: var MirEnv, n: PNode): MirTree
 
 proc toConstant(c: var TCtx, n: PNode): Value =
   ## Creates an anonymous constant from the constant expression `n`
   ## and returns the ``Value`` for it.
-  # make sure to register all procedure referenced by the expression:
-  scanExpr(c.env, n)
-  let con = toConstId c.env.data.getOrPut(n)
+  let con = toConstId c.env.data.getOrPut(constDataToMir(c.env, n))
   toValue(con, n.typ)
 
 proc handleConstExpr(c: var TCtx, n: PNode, lift: bool): bool =
@@ -2351,3 +2310,51 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
   # move the buffers into the result body
   MirBody(source: move c.sp.map,
           code: finish(move c.builder))
+
+proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
+  ## Translates the construction expression AST `n` representing some
+  ## constant data to its corresponding MIR representation.
+  proc constToMirAux(bu: var MirBuilder, env: var MirEnv, n: PNode) =
+    case n.kind
+    of nkObjConstr:
+      # no normalization/canonicalization takes place here, meaning that
+      # ``Obj(a: 0, b: 1)`` and ``Obj(b: 1, a: 0)`` will result in two data
+      # table entries, even though the values they represent are equivalent
+      bu.subTree MirNode(kind: mnkObjConstr, typ: n.typ, len: n.len-1):
+        for i in 1..<n.len:
+          bu.add MirNode(kind: mnkField, field: n[i][0].sym)
+          bu.subTree mnkArg:
+            constToMirAux(bu, env, n[i][1])
+
+    of nkBracket, nkCurly, nkTupleConstr, nkClosure:
+      bu.subTree MirNode(kind: mnkConstr, typ: n.typ, len: n.len):
+        for it in n.items:
+          bu.subTree mnkArg:
+            constToMirAux(bu, env, it.skipColon)
+
+    of nkSym:
+      # must either be another constant or a procedural value
+      case n.sym.kind
+      of skProc, skFunc, skConverter, skIterator:
+        bu.use toValue(env.procedures.add(n.sym), n.typ)
+      of skConst:
+        bu.use toValue(env.constants.add(n.sym), n.sym.typ)
+      else:
+        unreachable()
+    of nkLiterals, nkNilLit, nkRange:
+      bu.use literal(n)
+    of nkHiddenStdConv, nkHiddenSubConv:
+      # doesn't translate to a MIR node itself, but the type overrides
+      # that of the sub-expression
+      let top = bu.staging.len
+      constToMirAux(bu, env, n[1])
+      # patch the type:
+      bu.staging[top].typ = n.typ
+    else:
+      unreachable(n.kind)
+
+  var bu = initBuilder(SourceId 0)
+  # push and pop the content so that ``constToMirAux`` places the nodes into
+  # the staging buffer, which is necessary for after-the-fact type patching
+  bu.pop(bu.push(constToMirAux(bu, env, n)))
+  bu.finish()

@@ -43,7 +43,7 @@ import
   ],
   compiler/vm/[
     vmaux,
-    vmcompilerserdes,
+    vmserialize,
     vmdef,
     vmgen,
     vmjit_checks,
@@ -116,12 +116,10 @@ proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
   # constants
   for id, data in since(env.data, cp.data):
     let
-      typ = c.getOrCreate(data.typ)
+      typ = c.getOrCreate(data[0].typ)
       handle = c.allocator.allocConstantLocation(typ)
 
-    # TODO: strings, seqs and other values using allocation also need to be
-    #       allocated with `allocConstantLocation` inside `serialize` here
-    c.serialize(data, handle)
+    initFromExpr(handle, data, c)
 
     c.complexConsts.add handle
 
@@ -353,3 +351,17 @@ proc registerCallback*(c: var TCtx; pattern: string; callback: VmCallback) =
   c.callbacks.add(callback) # some consumers rely on preserving registration order
   c.linking.callbackKeys.add(IdentPattern(pattern))
   assert c.callbacks.len == c.linking.callbackKeys.len
+
+proc constDataToMir*(c: var TCtx, jit: var JitState, e: PNode): MirTree =
+  ## Translates the constant expression `e` to a MIR constant expression and
+  ## returns it. Entities referenced by the constant expression (e.g.,
+  ## procedures), are direclty registered with the environment.
+  let cp = checkpoint(jit.gen.env)
+  result = constDataToMir(jit.gen.env, e)
+
+  # register all newly discovered entities:
+  for s, n in discover(jit.gen.env, cp):
+    register(c.linking, s, n)
+
+  # populate the VM environment with the discovered entities:
+  updateEnvironment(c, jit.gen.env, cp)

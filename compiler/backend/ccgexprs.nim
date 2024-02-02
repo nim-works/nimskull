@@ -1963,7 +1963,7 @@ proc genConstDefinition*(q: BModule; id: ConstId) =
   let name = mangleName(q.g.graph, sym)
   if exfNoDecl notin sym.extFlags:
     let p = newProc(nil, q)
-    let data = translate(q.g.env, q.g.env[q.g.env.dataFor(id)])
+    let data = translate(q.g.env[q.g.env.dataFor(id)])
     q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
         [getTypeDesc(q, sym.typ), name,
         genBracedInit(p, data, sym.typ)])
@@ -1983,7 +1983,7 @@ proc useData(p: BProc, x: ConstId, typ: PType): string =
     inc p.module.labels
     p.module.s[cfsData].addf("static NIM_CONST $1 $2 = $3;$n",
       [getTypeDesc(p.module, typ), result,
-       genBracedInit(p, translate(p.env, p.env[id]), typ)])
+       genBracedInit(p, translate(p.env[id]), typ)])
 
 proc expr(p: BProc, n: CgNode, d: var TLoc) =
   when defined(nimCompilerStacktraceHints):
@@ -2003,7 +2003,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     if isSimpleConst(p.config, n.typ):
       # simple constants are inlined at the usage site
       let da = p.env.dataFor(n.cnst)
-      let val = translate(p.env, p.env[da])
+      let val = translate(p.env[da])
       if val.kind == cnkSetConstr:
         let cs = toBitSet(p.config, val)
         putIntoDest(p, d, n, genRawSetData(cs, int(getSize(p.config, n.typ))))
@@ -2321,7 +2321,6 @@ proc genBracedInit(p: BProc, n: CgNode; optionalType: PType): Rope =
           #      passing the expression to evaluation
           symNode = n
         of cnkClosureConstr:
-          p.config.internalAssert(n[0].kind == cnkProc, n.info)
           p.config.internalAssert(n[1].kind == cnkNilLit, n.info)
           symNode = n[0]
         else:
