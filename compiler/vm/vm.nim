@@ -486,6 +486,34 @@ proc regToNode*(c: TCtx, x: TFullReg; typ: PType, info: TLineInfo): PNode =
 
 # ---- exception handling ----
 
+proc findEh(c: TCtx, t: VmThread, at: PrgCtr, frame: int
+           ): Option[tuple[frame: int, ehInstr: uint32]] =
+  ## Searches for the EH instruction that is associated with `at`. If none is
+  ## found on the current stack frame, the caller's call instruction is
+  ## inspected, then the caller of the caller, etc.
+  ##
+  ## On success, the EH instruction position and the stack frame the handler
+  ## is attached to are returned.
+  var
+    pc = at
+    frame = frame
+
+  while frame >= 0:
+    let
+      handlers = t.sframes[frame].eh
+      offset = uint32(pc - t.sframes[frame].baseOffset)
+
+    # search for the instruction's asscoiated exception handler:
+    for i in handlers.items:
+      if c.ehTable[i].offset == offset:
+        return some (frame, c.ehTable[i].instr)
+
+    # no handler was found, try the above frame
+    pc = t.sframes[frame].comesFrom
+    dec frame
+
+  # no handler exists
+
 proc setCurrentException(t: var VmThread, mem: var VmMemoryManager,
                          ex: HeapSlotHandle) =
   ## Sets `ex` as `t`'s current exception, freeing the previous exception,
@@ -561,43 +589,50 @@ proc runEh(t: var VmThread, c: var TCtx): Result[PrgCtr, VmException] =
       t.ehStack.setLen(t.ehStack.len - 1)
       break
 
+proc resumeEh(c: var TCtx, t: var VmThread,
+              frame: int): Result[PrgCtr, VmException] =
+  ## Continues raising the exception from the top-most EH thread. If exception
+  ## handling code is found, unwinds the stack till where the handler is
+  ## located and returns the program counter where to resume. Otherwise
+  ## returns the unhandled exception.
+  var frame = frame
+  while true:
+    let r = runEh(t, c)
+    if r.isOk:
+      # an exception handler or finalizer is entered. Unwind to the target
+      # frame:
+      for j in (frame+1)..<t.sframes.len:
+        cleanUpLocations(c.memory, t.sframes[j])
+      t.sframes.setLen(frame + 1)
+      # return control to the VM:
+      return r
+    elif frame == 0:
+      # no more stack frames to unwind -> the exception is unhandled
+      return r
+    else:
+      # exception was not handled on the current frame, try the frame above
+      let pos = findEh(c, t, t.sframes[frame].comesFrom, frame)
+      if pos.isSome:
+        # EH code exists in a frame above. Run it
+        frame = pos.get().frame # update to the frame the EH code is part of
+        t.ehStack.add (r.takeErr(), pos.get().ehInstr)
+      else:
+        return r
+
 proc opRaise(c: var TCtx, t: var VmThread, at: PrgCtr,
              ex: sink VmException): Result[PrgCtr, VmException] =
   ## Searches for an exception handler for the instruction at `at`. If one is
   ## found, the stack is unwound till the frame the handler is in and the
-  ## position where to resume is returned. If there is none, `ex` is returned.
-  var
-    pc = at
-    frame = t.sframes.high
-
-  while frame >= 0:
-    let
-      handlers = t.sframes[frame].eh
-      offset = uint32(pc - t.sframes[frame].baseOffset)
-
-    # search for the instruction's asscoiated exception handler:
-    for i in handlers.items:
-      if c.ehTable[i].offset == offset:
-        # found an associated EH instruction, spawn an EH thread and run it
-        t.ehStack.add (ex, c.ehTable[i].instr)
-        let r = runEh(t, c)
-        if r.isOk:
-          # entered a handler or finalizer. Unwind to the target frame
-          for j in (frame+1)..<t.sframes.len:
-            cleanUpLocations(c.memory, t.sframes[j])
-          t.sframes.setLen(frame + 1)
-          return r
-        else:
-          # continue searching in the above stack frame
-          ex = r.takeErr()
-          break
-
-    # the exception wasn't handled, try the above frame
-    pc = t.sframes[frame].comesFrom
-    dec frame
-
-  # the exception wasn't handled
-  result.initFailure(ex)
+  ## position where to resume is returned. If there no handler is found, `ex`
+  ## is returned.
+  let pos = findEh(c, t, at, t.sframes.high)
+  if pos.isSome:
+    # spawn and run the EH thread:
+    t.ehStack.add (ex, pos.get().ehInstr)
+    result = resumeEh(c, t, pos.get().frame)
+  else:
+    # no exception handler exists:
+    result.initFailure(ex)
 
 proc handle(res: sink Result[PrgCtr, VmException], c: var TCtx,
             t: var VmThread): PrgCtr =
@@ -2080,8 +2115,8 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       let (isError, target) = decodeControl(regs[ra].intVal)
       if isError:
         # continue the EH thread
-        pc = runEh(t, c).handle(c, t) - 1
-        # FIXME: ^^ this is wrong. Unwinding needs to continue too!
+        pc = resumeEh(c, t, t.sframes.high).handle(c, t) - 1
+        updateRegsAlias()
       else:
         # not entered through exceptional control-flow; jump to target stored
         # in the register
