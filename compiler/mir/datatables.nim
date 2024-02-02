@@ -94,13 +94,10 @@ proc cmp(a, b: ConstrTree): bool =
     return false
 
   # both trees are known to have the same length at this point
-  var i = 0
   # traverse both trees simultaneously and look for a divergence:
-  while i < a.len:
+  for i in 0..<a.len:
     if a[i] != b[i]:
       return false # divergence -> not equal
-
-    inc i
 
   # the cursor reached the end; the trees are equal
   result = true
