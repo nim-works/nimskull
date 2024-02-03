@@ -457,6 +457,8 @@ proc unaryArith(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     applyFormat("$1")
   of mUnaryMinusF64:
     applyFormat("-($1)")
+  of mAbsI:
+    applyFormat("($1 > 0? ($1) : -($1))")
   else:
     assert false, $op
 
@@ -1649,8 +1651,13 @@ proc genBreakState(p: BProc, n: CgNode, d: var TLoc) =
 
 proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   case op
-  of mNot..mUnaryMinusF64: unaryArith(p, e, d, op)
-  of mUnaryMinusI..mAbsI: unaryArithOverflow(p, e, d, op)
+  of mUnaryMinusI, mUnaryMinusI64: unaryArithOverflow(p, e, d, op)
+  of mAbsI:
+    # TODO: lower the unchecked ``abs`` variant earlier
+    if optOverflowCheck in p.options:
+      unaryArithOverflow(p, e, d, op)
+    else:
+      unaryArith(p, e, d, op)
   of mAddF64..mDivF64: binaryFloatArith(p, e, d, op)
   of mShrI..mXor: binaryArith(p, e, d, op)
   of mEqProc: genEqProc(p, e, d)
