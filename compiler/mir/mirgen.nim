@@ -435,7 +435,8 @@ func detectKind(tree: MirTree, n: NodePosition, sink: bool): ExprKind =
       OwnedRvalue
     else:
       Rvalue
-  of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice:
+  of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice, UnaryOps,
+     BinaryOps:
     Rvalue
   of mnkObjConstr:
     if tree[n].typ.skipTypes(abstractInst).kind == tyRef or
