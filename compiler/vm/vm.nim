@@ -285,11 +285,10 @@ proc cleanUpLocations(mm: var VmMemoryManager, frame: var TStackFrame) =
 
 func cleanUpPending(mm: var VmMemoryManager) =
   ## Cleans up all managed ref-counted locations marked for clean-up.
-  var i = 0
-  # `resetLocation` might add new entries to the `pending` list, which is why
-  # we have to iterate the list manually like this
-  while i < mm.heap.pending.len:
-    let idx = mm.heap.pending[i]
+  # process the list back-to-front, reducing the amount of seq resizing when
+  # ``resetLocation`` adds new items to the pending list
+  while mm.heap.pending.len > 0:
+    let idx = mm.heap.pending.pop()
     let slot {.cursor.} = mm.heap.slots[idx] # A deep-copy is not necessary
                 # here, as the underlying `HeapSlot` is only moved around
 
@@ -299,10 +298,6 @@ func cleanUpPending(mm: var VmMemoryManager) =
     mm.allocator.dealloc(slot.handle)
 
     mm.heap.slots[idx].reset()
-
-    inc i
-
-  mm.heap.pending.setLen(0)
 
 # XXX: ensureKind (register transition) will be moved into a dedicated
 #      instruction
