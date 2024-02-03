@@ -273,6 +273,11 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
       if tree[source].typ.kind == tyVar: opMutate
       else:                              opUse
     emitLvalueOp(env, opc, tree, at, tree.operand(source, 0))
+  of UnaryOps:
+    emitLvalueOp(env, opUse, tree, at, tree.operand(source, 0))
+  of BinaryOps:
+    emitLvalueOp(env, opUse, tree, at, tree.operand(source, 0))
+    emitLvalueOp(env, opUse, tree, at, tree.operand(source, 1))
   of LvalueExprKinds:
     # a read or consume is performed on an lvalue
     let opc =
