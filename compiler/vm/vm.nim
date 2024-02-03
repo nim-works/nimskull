@@ -2114,6 +2114,10 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       let typ = c.types[instr.regBx - wordExcess]
       assert typ.kind == akRef
 
+      if c.heap.pending.len > 128:
+        # free the ref-counted cells pending destruction
+        cleanUpPending(c.memory)
+
       # note: typ is the ref type, not the target type
       let dest = regs[ra].handle
       # reset the destination first:
