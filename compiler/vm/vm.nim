@@ -2109,11 +2109,13 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       let typ = c.types[instr.regBx - wordExcess]
       assert typ.kind == akRef
 
-      # typ is the ref type, not the target type
-      let slot = c.heap.heapNew(c.allocator, typ.targetType)
-      # XXX: making sure that the previous ref value was destroyed will become
-      #      the responsibility of the code generator, in the future
-      asgnRef(regs[ra].atomVal.refVal, slot, c.memory, reset=true)
+      # note: typ is the ref type, not the target type
+      let dest = regs[ra].handle
+      # reset the destination first:
+      resetLocation(c.memory, dest.byteView(), typ)
+      # then allocate and assign the cell (but without increasing the
+      # ref-count, as it alrady starts at 1):
+      regs[ra].atomVal.refVal = c.heap.heapNew(c.allocator, typ.targetType)
     of opcNewSeq:
       let typ = c.types[instr.regBx - wordExcess]
       inc pc
