@@ -42,12 +42,12 @@ import
     idioms
   ],
   compiler/vm/[
+    identpatterns,
     packed_env,
     vmaux,
     vmdef,
     vmgen,
     vmlegacy,
-    vmlinker,
     vmobjects,
     vmops,
     vmtypegen
@@ -82,7 +82,7 @@ type
 
     gen: CodeGenCtx ## code generator state
 
-proc registerCallbacks(linking: var LinkerData) =
+proc registerCallbacks(callbackKeys: var Patterns) =
   ## Registers callbacks for various functions, so that no code is
   ## generated for them and that they can (must) be overridden by the runner
 
@@ -91,7 +91,7 @@ proc registerCallbacks(linking: var LinkerData) =
   # complain if there's a mismatch
 
   template cb(key: string) =
-    linking.callbackKeys.add(IdentPattern(key))
+    callbackKeys.add(IdentPattern(key))
 
   template register(iter: untyped) =
     for it in iter:
@@ -108,7 +108,7 @@ proc registerCallbacks(linking: var LinkerData) =
   cb "stdlib.system.getOccupiedMem"
 
 proc initProcEntry(c: var GenCtx, prc: PSym): FuncTableEntry {.inline.} =
-  initProcEntry(c.gen.linking, c.graph.config, c.gen.typeInfoCache, prc)
+  initProcEntry(c.gen.callbackKeys, c.graph.config, c.gen.typeInfoCache, prc)
 
 proc registerProc(c: var GenCtx, prc: ProcedureId) =
   ## Adds an empty function-table entry for `prc` and registers `prc` in the
@@ -243,7 +243,7 @@ proc storeData(enc: var PackedEncoder, dst: var PackedEnv,
     (enc.typeMap[it[0]], id.uint32)
 
 func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
-                linking: LinkerData, globals: seq[PVmType]) =
+                callbacks: Patterns, globals: seq[PVmType]) =
   ## Stores the globals and callback keys into `dst`.
   mapList(dst.globals, globals, it):
     enc.typeMap[it]
@@ -251,7 +251,7 @@ func storeExtra(enc: var PackedEncoder, dst: var PackedEnv,
   # TODO: add support for either `distinct string` or custom `storePrim`
   #       overloads (or both) to `rodfiles`. Due to the lack of both, we
   #       have to perform a manual copy instead of a move here
-  mapList(dst.callbacks, linking.callbackKeys, c):
+  mapList(dst.callbacks, callbacks, c):
     c.string
 
 proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
@@ -273,7 +273,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
 
   # register the extra ops so that code generation isn't performed for the
   # corresponding procs:
-  registerCallbacks(c.gen.linking)
+  registerCallbacks(c.gen.callbackKeys)
 
   # generate code for all alive routines:
   var discovery: DiscoveryData
@@ -311,7 +311,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   enc.init(env.types)
   storeEnv(enc, penv, env)
   storeData(enc, penv, conf, consts, c.gen.env)
-  storeExtra(enc, penv, c.gen.linking, base(c.globals))
+  storeExtra(enc, penv, c.gen.callbackKeys, base(c.globals))
   penv.entryPoint = FunctionIndex(entryPoint)
 
   let err = writeToFile(penv, prepareToWriteOutput(conf))

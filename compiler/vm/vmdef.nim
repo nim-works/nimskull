@@ -28,11 +28,12 @@ import
   ],
   compiler/utils/[
     debugutils,
+  ],
+  compiler/vm/[
+    identpatterns
   ]
 
 import std/options as std_options
-
-from compiler/vm/vmlinker import LinkerData
 
 import vm_enums
 export vm_enums
@@ -488,6 +489,11 @@ type
       #      know nor care about ``RootObj``. Can be removed once closure types
       #      are lowered earlier
 
+  LinkIndex* = uint32
+    ## Identifies a linker-relevant entity. There are three namespaces, one
+    ## for procedures, one for globals, and one for constants -- which
+    ## namespace an index is part of is stored separately.
+
   FunctionIndex* = distinct int
 
   # XXX: TCtx's contents should be separated into five parts (separate object
@@ -673,9 +679,8 @@ type
       ## generator. Initialized by the VM's callsite and queried by the JIT.
     # XXX: ^^ make this a part of the JIT state as soon as possible
 
-    linking*: LinkerData
-    # XXX: ^^ should be made part of the JIT state but ``vmcompilerserdes``
-    #      currently blocks that
+    callbackKeys*: Patterns
+    # TODO: make this a part of the JIT state; it not needed at VM run-time
 
     module*: PSym
     callsite*: PNode
