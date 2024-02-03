@@ -667,20 +667,21 @@ proc execProc*(jit: var JitState, c: var TCtx; sym: PSym;
 #      could be used to modify the actual global value, but this is not
 #      possible anymore
 
-proc getGlobalValue*(c: TCtx; s: PSym): PNode =
+proc getGlobalValue*(c: EvalContext, s: PSym): PNode =
   ## Does not perform type checking, so ensure that `s.typ` matches the
   ## global's type
-  internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
-  let slotIdx = c.globals[c.linking.symToIndexTbl[s.id]]
-  let slot = c.heap.slots[slotIdx]
+  internalAssert(c.vm.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
+  let
+    slotIdx = c.vm.globals[c.jit.getGlobal(s)]
+    slot = c.vm.heap.slots[slotIdx]
 
-  result = c.deserialize(slot.handle, s.typ, s.info)
+  result = c.vm.deserialize(slot.handle, s.typ, s.info)
 
 proc setGlobalValue*(c: var EvalContext; s: PSym, val: PNode) =
   ## Does not do type checking so ensure the `val` matches the `s.typ`
   internalAssert(c.vm.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
   let
-    slotIdx = c.vm.globals[c.vm.linking.symToIndexTbl[s.id]]
+    slotIdx = c.vm.globals[c.jit.getGlobal(s)]
     slot = c.vm.heap.slots[slotIdx]
     data = constDataToMir(c.vm, c.jit, val)
 

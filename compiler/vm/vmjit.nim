@@ -296,6 +296,10 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
 
   updateEnvironment(c, jit.gen.env, cp)
 
+func getGlobal*(jit: JitState, g: PSym): LinkIndex =
+  ## Returns the link index for the symbol `g`. `g` must be known to `jit`.
+  LinkIndex jit.gen.env.globals[g]
+
 func isAvailable*(jit: JitState, c: TCtx, prc: PSym): bool =
   ## Returns whether the bytecode for `prc` is already available.
   prc in jit.gen.env.procedures and

@@ -92,7 +92,7 @@ proc callRoutine*(i: Interpreter; routine: PSym; args: openArray[PNode]): PNode 
 
 proc getGlobalValue*(i: Interpreter; letOrVar: PSym): PNode =
   let c = PEvalContext(i.graph.vm)
-  result = getGlobalValue(c.vm, letOrVar)
+  result = getGlobalValue(c[], letOrVar)
 
 proc setGlobalValue*(i: Interpreter; letOrVar: PSym, val: PNode) =
   ## Sets a global value to a given PNode, does not do any type checking.
