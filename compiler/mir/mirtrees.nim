@@ -154,6 +154,18 @@ type
               ## Used for both static and dynamic calls
     mnkCheckedCall  ## invoke a magic procedure and pass along the provided arguments
 
+    # unary arithmetic operations:
+    mnkNegI ## signed integer negation (overflow is UB)
+    # binary arithmetic operations:
+    mnkAddI ## signed integer addition (overflow is UB)
+    mnkSubI ## signed integer substraction (overflow is UB)
+    mnkMulI ## signed integer multiplication (overflow is UB)
+    mnkDivI ## signed integer division (division by zero is UB)
+    mnkModI ## compute the remainder of an integer division (division by zero
+            ## is UB)
+    # future direction: the arithmetic operations should be generalized to also
+    # apply to unsigned integers and floats
+
     mnkRaise  ## if the operand is an ``mnkNone`` node, reraises the
               ## currently active exception. Otherwise, set the operand value
               ## as the active exception (via a move). Control-flow is
@@ -339,11 +351,17 @@ const
                 mnkAsgn, mnkSwitch, mnkFastAsgn, mnkVoid, mnkRaise, mnkEmit,
                 mnkAsm} + DefNodes
 
+  UnaryOps*  = {mnkNegI}
+    ## All unary operators
+  BinaryOps* = {mnkAddI, mnkSubI, mnkMulI, mnkDivI, mnkModI}
+    ## All binary operators
+
   LvalueExprKinds* = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathVariant,
                       mnkPathConv, mnkDeref, mnkDerefView, mnkTemp, mnkAlias,
                       mnkLocal, mnkParam, mnkConst, mnkGlobal}
   RvalueExprKinds* = {mnkLiteral, mnkType, mnkProc, mnkConv, mnkStdConv,
-                      mnkCast, mnkAddr, mnkView, mnkToSlice}
+                      mnkCast, mnkAddr, mnkView, mnkToSlice} + UnaryOps +
+                     BinaryOps
   ExprKinds* =       {mnkCall, mnkCheckedCall, mnkConstr, mnkObjConstr} +
                      LvalueExprKinds + RvalueExprKinds
 
