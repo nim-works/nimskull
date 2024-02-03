@@ -498,6 +498,12 @@ template binaryExpr(p: PProc, n: CgNode, r: var TCompRes, magic, frmt: string) =
   r.res = frmt % [a, b, a, b]
   r.kind = resExpr
 
+template binaryExpr(p: PProc, a, b: CgNode, r: var TCompRes, frmt: string) =
+  var x, y: TCompRes
+  gen(p, a, x)
+  gen(p, b, y)
+  r.res = frmt % [x.rdLoc, y.rdLoc]
+
 proc unsignedTrimmerJS(size: BiggestInt): Rope =
   case size
   of 1: rope"& 0xff"
@@ -907,8 +913,8 @@ proc generateHeader(params: openArray[Loc]): string =
 
 const
   nodeKindsNeedNoCopy = cnkLiterals + {
-    cnkObjConstr, cnkTupleConstr, cnkArrayConstr,
-    cnkCall, cnkCheckedCall}
+    cnkObjConstr, cnkTupleConstr, cnkArrayConstr, cnkCall, cnkCheckedCall,
+    cnkNegI, cnkAddI, cnkSubI, cnkMulI, cnkDivI, cnkModI }
 
 proc needsNoCopy(p: PProc; y: CgNode): bool =
   return y.kind in nodeKindsNeedNoCopy or
@@ -2354,6 +2360,16 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       genInfixCall(p, n, r)
     else:
       genCall(p, n, r)
+  of cnkNegI:
+    let x = gen(p, n[0])
+    r.res = "(-$1)" % rdLoc(x)
+    r.typ = mapType(n.typ)
+    r.kind = resExpr
+  of cnkAddI: binaryExpr(p, n[0], n[1], r, "($1 + $2)")
+  of cnkSubI: binaryExpr(p, n[0], n[1], r, "($1 - $2)")
+  of cnkMulI: binaryExpr(p, n[0], n[1], r, "($1 * $2)")
+  of cnkDivI: binaryExpr(p, n[0], n[1], r, "Math.trunc($1 / $2)")
+  of cnkModI: binaryExpr(p, n[0], n[1], r, "Math.trunc($1 % $2)")
   of cnkClosureConstr:
     useMagic(p, "makeClosure")
     var tmp1, tmp2: TCompRes
