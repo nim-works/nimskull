@@ -553,7 +553,7 @@ proc evalMacroCall*(jit: var JitState, c: var TCtx, call, args: PNode,
     c.mode = oldMode
     c.callsite = nil
 
-  let wasAvailable = isAvailable(c, sym)
+  let wasAvailable = isAvailable(jit, c, sym)
   let (start, regCount) = loadProc(jit, c, sym).returnOnErr(c.config, call)
 
   # make sure to only output the code listing once:

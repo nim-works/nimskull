@@ -296,10 +296,10 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
 
   updateEnvironment(c, jit.gen.env, cp)
 
-func isAvailable*(c: TCtx, prc: PSym): bool =
+func isAvailable*(jit: JitState, c: TCtx, prc: PSym): bool =
   ## Returns whether the bytecode for `prc` is already available.
-  prc.id in c.linking.symToIndexTbl and
-    c.functions[c.linking.symToIndexTbl[prc.id].int].start >= 0
+  prc in jit.gen.env.procedures and
+    c.functions[jit.gen.env.procedures[prc].int].start >= 0
 
 proc registerProcedure*(jit: var JitState, c: var TCtx, prc: PSym): FunctionIndex =
   ## If it hasn't been already, adds `prc` to the set of procedures the JIT
