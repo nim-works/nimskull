@@ -50,8 +50,3 @@ func lookup*(patterns: seq[IdentPattern]; s: PSym): int =
     inc i
 
   result = -1
-
-func lookup*(data: LinkerData, s: PSym): LinkIndex {.inline.} =
-  ## Returns the link-index for the symbol `s`, which must exist in the link
-  ## table.
-  data.symToIndexTbl[s.id]
