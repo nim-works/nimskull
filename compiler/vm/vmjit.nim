@@ -311,11 +311,10 @@ proc registerProcedure*(jit: var JitState, c: var TCtx, prc: PSym): FunctionInde
   ## required to not be in the process of generating code.
   if prc notin jit.gen.env.procedures:
     let id = jit.gen.env.procedures.add(prc)
-    c.linking.symToIndexTbl[prc.id] = LinkIndex id
     c.functions.add initProcEntry(c, prc)
     assert int(id) == c.functions.high, "tables are out of sync"
 
-  result = FunctionIndex c.linking.symToIndexTbl[prc.id]
+  result = FunctionIndex jit.gen.env.procedures[prc]
 
 proc compile*(jit: var JitState, c: var TCtx, fnc: FunctionIndex): VmGenResult =
   ## Generates code for the the given function and updates the execution
