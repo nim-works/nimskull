@@ -126,7 +126,7 @@ scope:
                     echo(arg type(array[0..0, string]), arg _9) (raises)
                   finally:
                     =destroy(name splitted)
-                i = addI(arg i, arg 1)
+                i = addI(arg i, arg 1) (raises)
   finally:
     =destroy(name lan_ip)
 --expandArc: mergeShadowScope
@@ -161,7 +161,7 @@ scope:
                   def _8: Symbol = sym[]
                   =copy(name _6, arg _8)
                   addInterfaceDecl(arg c, consume _6) (raises)
-                i = addI(arg i, arg 1)
+                i = addI(arg i, arg 1) (raises)
   finally:
     =destroy(name shadowScope) (raises)
 -- end of expandArc ------------------------
