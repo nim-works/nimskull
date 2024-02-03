@@ -635,6 +635,13 @@ proc arith(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
     gen(p, n[1], x)
     gen(p, n[2], y)
     r.res = "($1 >>> $2)" % [x.rdLoc, y.rdLoc]
+  of mAbsI:
+    # TODO: lower the unchecked ``abs`` variant earlier
+    if optOverflowCheck in p.options:
+      arithAux(p, n, r, op)
+    else:
+      let x = gen(p, n[1])
+      r.res = "Math.abs($1)" % rdLoc(x)
   of mEqRef:
     if mapType(n[1].typ) != etyBaseIndex:
       arithAux(p, n, r, op)
