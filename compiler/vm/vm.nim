@@ -990,7 +990,11 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       if regs[rb].kind in {rkLocation, rkHandle}:
         checkHandle(regs[rb])
         if regs[rb].handle.typ.kind in RegisterAtomKinds:
-          loadFromLoc(regs[ra], regs[rb].handle)
+          let h = regs[rb].handle
+          # retrieve the handle *before* cleaning up the register, since `ra`
+          # and `rb` may point to the same register
+          cleanUpReg(regs[ra], c.memory)
+          loadFromLoc(regs[ra], h)
         else:
           unreachable() # vmgen issue
       else:
