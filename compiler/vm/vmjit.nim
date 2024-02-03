@@ -51,9 +51,6 @@ import
     vmmemory,
     vmtypegen
   ],
-  compiler/utils/[
-    idioms
-  ],
   experimental/[
     results
   ]
@@ -139,26 +136,6 @@ func removeLastEof(c: var TCtx) =
     c.code.setLen(last)
     c.debug.setLen(last)
 
-func register(linker: var LinkerData, s: PSym, it: MirNode) =
-  ## Registers a newly discovered entity in the link table.
-  case it.kind
-  of mnkConst:
-    discard "nothing to do"
-  of mnkGlobal:
-    # XXX: only required for the compiler API
-    #      (``compilerbridge.setGlobalValue``). The MirEnv should be queried
-    #      directly (through ``vmjit``), instead of the link table being used
-    #      for this
-    linker.symToIndexTbl[s.id] = LinkIndex(it.global)
-  of mnkProc:
-    # XXX: the additional table is only required so that constructing values
-    #      directly from AST works (symbols need to be translated to procedure
-    #      IDs). Once constant data is represented with the MIR, this becomes
-    #      obsolete
-    linker.symToIndexTbl[s.id] = LinkIndex(it.prc)
-  else:
-    unreachable()
-
 proc generateMirCode(c: var TCtx, env: var MirEnv, n: PNode;
                      isStmt = false): MirBody =
   ## Generates the initial MIR code for a standalone statement/expression.
@@ -206,8 +183,8 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   # `n` is expected to have been put through ``transf`` already
   var mirBody = generateMirCode(c, jit.gen.env, n, isStmt = true)
   applyPasses(mirBody, c.module, jit.gen.env, c.config, targetVm)
-  for s, n in discover(jit.gen.env, cp):
-    register(c.linking, s, n)
+  for _ in discover(jit.gen.env, cp):
+    discard "nothing to register"
 
   let
     body = generateIR(c, jit.gen.env, mirBody)
@@ -238,8 +215,8 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
 
   var mirBody = generateMirCode(c, jit.gen.env, n)
   applyPasses(mirBody, c.module, jit.gen.env, c.config, targetVm)
-  for s, n in discover(jit.gen.env, cp):
-    register(c.linking, s, n)
+  for _ in discover(jit.gen.env, cp):
+    discard "nothing to register"
 
   let
     body = generateIR(c, jit.gen.env, mirBody)
@@ -277,8 +254,8 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   var mirBody = generateCode(c.graph, jit.gen.env, s, selectOptions(c), body)
   echoMir(c.config, s, mirBody)
   applyPasses(mirBody, s, jit.gen.env, c.config, targetVm)
-  for s, n in discover(jit.gen.env, cp):
-    register(c.linking, s, n)
+  for _ in discover(jit.gen.env, cp):
+    discard "nothing to register"
 
   let outBody = generateIR(c.graph, c.idgen, jit.gen.env, s, mirBody)
   echoOutput(c.config, s, outBody)
@@ -362,9 +339,9 @@ proc constDataToMir*(c: var TCtx, jit: var JitState, e: PNode): MirTree =
   let cp = checkpoint(jit.gen.env)
   result = constDataToMir(jit.gen.env, e)
 
-  # register all newly discovered entities:
-  for s, n in discover(jit.gen.env, cp):
-    register(c.linking, s, n)
+  # run the discovery pass:
+  for _ in discover(jit.gen.env, cp):
+    discard "nothing to register"
 
   # populate the VM environment with the discovered entities:
   updateEnvironment(c, jit.gen.env, cp)

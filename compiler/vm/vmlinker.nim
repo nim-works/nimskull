@@ -3,8 +3,7 @@
 
 import
   std/[
-    strutils,
-    tables
+    strutils
   ],
   compiler/ast/[
     ast_types
@@ -25,8 +24,6 @@ type
   LinkerData* = object
     ## All data required for mapping symbols to the entities they represent
     ## inside the VM (procedures, globals, constants).
-    symToIndexTbl*: Table[int, LinkIndex]
-      ## the link table. Keeps track of all symbols known to the linker
     callbackKeys*: seq[IdentPattern]
       ## the matcher patterns used for implementing overrides
 
