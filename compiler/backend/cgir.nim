@@ -48,6 +48,14 @@ type
                      ## the following operands the arguments
     cnkCheckedCall   ## like ``cnkCall``, but the call might raise an exception
 
+    # arithmetic operations:
+    cnkNegI
+    cnkAddI
+    cnkSubI
+    cnkMulI
+    cnkDivI
+    cnkModI
+
     # constructors:
     cnkTupleConstr   ## tuple constructor
     cnkObjConstr     ## object constructor
