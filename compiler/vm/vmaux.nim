@@ -81,13 +81,13 @@ func getEnvParam*(prc: PSym): PSym =
   else: nil
 
 
-proc initProcEntry*(linker: LinkerData, config: ConfigRef,
+proc initProcEntry*(keys: Patterns, config: ConfigRef,
                     tc: var TypeInfoCache, prc: PSym): FuncTableEntry =
   ## Returns an initialized function table entry. Execution information (such
   ## as the bytecode offset and register count) for procedures not overriden
   ## by callbacks is initialized to a state that indicates "missing"; it needs
   ## to be filled in separately via `fillProcEntry`.
-  let cbIndex = lookup(linker.callbackKeys, prc)
+  let cbIndex = lookup(keys, prc)
   result =
     if cbIndex >= 0:
       FuncTableEntry(kind: ckCallback, cbOffset: cbIndex)
@@ -112,8 +112,8 @@ proc initProcEntry*(linker: LinkerData, config: ConfigRef,
 
 proc initProcEntry*(c: var TCtx, prc: PSym): FuncTableEntry {.inline.} =
   ## Convenience wrapper around
-  ## `initProcEntry <#initProcEntry,LinkerData,ConfigRef,TypeInfoCache,PSym>`_.
-  initProcEntry(c.linking, c.config, c.typeInfoCache, prc)
+  ## `initProcEntry <#initProcEntry,Patterns,ConfigRef,TypeInfoCache,PSym>`_.
+  initProcEntry(c.callbackKeys, c.config, c.typeInfoCache, prc)
 
 func fillProcEntry*(e: var FuncTableEntry, info: CodeInfo) {.inline.} =
   ## Sets the execution information of the function table entry to `info`

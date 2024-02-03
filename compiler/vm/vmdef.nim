@@ -32,7 +32,7 @@ import
 
 import std/options as std_options
 
-from compiler/vm/vmlinker import LinkerData
+from compiler/vm/vmlinker import Patterns
 
 import vm_enums
 export vm_enums
@@ -673,9 +673,8 @@ type
       ## generator. Initialized by the VM's callsite and queried by the JIT.
     # XXX: ^^ make this a part of the JIT state as soon as possible
 
-    linking*: LinkerData
-    # XXX: ^^ should be made part of the JIT state but ``vmcompilerserdes``
-    #      currently blocks that
+    callbackKeys*: Patterns
+    # TODO: make this a part of the JIT state; it not needed at VM run-time
 
     module*: PSym
     callsite*: PNode

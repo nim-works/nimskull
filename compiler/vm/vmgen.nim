@@ -155,7 +155,7 @@ type
     features*: TSandboxFlags
     module*: PSym
 
-    linking*: LinkerData
+    callbackKeys*: Patterns
 
     # input-output parameters:
     code*: seq[TInstr]
@@ -2850,7 +2850,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   case n.kind
   of cnkProc:
     let s = c.env.procedures[n.prc]
-    if importcCond(c, s) and lookup(c.linking.callbackKeys, s) == -1:
+    if importcCond(c, s) and lookup(c.callbackKeys, s) == -1:
       fail(n.info, vmGenDiagCannotImportc, sym = s)
 
     genProcLit(c, n, dest)

@@ -85,7 +85,7 @@ func swapState(c: var TCtx, gen: var CodeGenCtx) =
   swap(mode)
   swap(features)
   swap(module)
-  swap(linking)
+  swap(callbackKeys)
 
   # input-output parameters:
   swap(code)
@@ -329,8 +329,8 @@ proc registerCallback*(c: var TCtx; pattern: string; callback: VmCallback) =
   ## procedure at run-time will invoke the callback instead.
   # XXX: consider renaming this procedure to ``registerOverride``
   c.callbacks.add(callback) # some consumers rely on preserving registration order
-  c.linking.callbackKeys.add(IdentPattern(pattern))
-  assert c.callbacks.len == c.linking.callbackKeys.len
+  c.callbackKeys.add(IdentPattern(pattern))
+  assert c.callbacks.len == c.callbackKeys.len
 
 proc constDataToMir*(c: var TCtx, jit: var JitState, e: PNode): MirTree =
   ## Translates the constant expression `e` to a MIR constant expression and
