@@ -14,8 +14,8 @@ import
     options
   ],
   compiler/vm/[
+    identpatterns,
     vmdef,
-    vmlinker,
     vmtypegen
   ]
 

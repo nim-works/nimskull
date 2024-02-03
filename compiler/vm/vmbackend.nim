@@ -42,12 +42,12 @@ import
     idioms
   ],
   compiler/vm/[
+    identpatterns,
     packed_env,
     vmaux,
     vmdef,
     vmgen,
     vmlegacy,
-    vmlinker,
     vmobjects,
     vmops,
     vmtypegen

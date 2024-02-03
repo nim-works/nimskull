@@ -42,12 +42,12 @@ import
     transf
   ],
   compiler/vm/[
+    identpatterns,
     vmaux,
     vmserialize,
     vmdef,
     vmgen,
     vmjit_checks,
-    vmlinker,
     vmmemory,
     vmtypegen
   ],

@@ -1,5 +1,5 @@
-## Implements types and procedures related to mapping symbols to their in-VM
-## IDs.
+## Implements routines for matching *qualified identifier patterns* against
+## symbols.
 
 import
   std/[
@@ -13,11 +13,6 @@ from compiler/ast/ast import id
 from compiler/ast/idents import cmpIgnoreStyle
 
 type
-  LinkIndex* = uint32
-    ## Identifies a linker-relevant entity. There are three namespaces, one
-    ## for procedures, one for globals, and one for constants -- which
-    ## namespace an index is part of is stored separately.
-
   IdentPattern* = distinct string
     ## A matcher pattern for a fully qualified symbol identifier
 

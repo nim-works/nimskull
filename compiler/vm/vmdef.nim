@@ -28,11 +28,12 @@ import
   ],
   compiler/utils/[
     debugutils,
+  ],
+  compiler/vm/[
+    identpatterns
   ]
 
 import std/options as std_options
-
-from compiler/vm/vmlinker import Patterns
 
 import vm_enums
 export vm_enums
@@ -487,6 +488,11 @@ type
       # XXX: this is a temporary workaround, the type cache shouldn't need to
       #      know nor care about ``RootObj``. Can be removed once closure types
       #      are lowered earlier
+
+  LinkIndex* = uint32
+    ## Identifies a linker-relevant entity. There are three namespaces, one
+    ## for procedures, one for globals, and one for constants -- which
+    ## namespace an index is part of is stored separately.
 
   FunctionIndex* = distinct int
 

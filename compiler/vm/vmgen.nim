@@ -62,9 +62,9 @@ import
     idioms
   ],
   compiler/vm/[
+    identpatterns,
     vmaux,
     vmdef,
-    vmlinker,
     vmobjects,
     vmtypegen,
     vmtypes,
