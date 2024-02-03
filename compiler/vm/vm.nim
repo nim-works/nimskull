@@ -319,7 +319,8 @@ func initLocReg*(r: var TFullReg, typ: PVmType, mm: var VmMemoryManager) =
   r = TFullReg(kind: rkLocation)
   r.handle = mm.allocator.allocSingleLocation(typ)
 
-func initIntReg(r: var TFullReg, i: BiggestInt) =
+func initIntReg(r: var TFullReg, i: BiggestInt, mm: var VmMemoryManager) =
+  cleanUpReg(r, mm)
   r = TFullReg(kind: rkInt, intVal: i)
 
 template ensureKind(k: untyped) {.dirty.} =
@@ -2518,9 +2519,9 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       of 0: # getFile
         regs[ra].strVal.newVmString(toFullPath(c.config, n.info), c.allocator)
       of 1: # getLine
-        regs[ra].initIntReg(n.info.line.int)
+        regs[ra].initIntReg(n.info.line.int, c.memory)
       of 2: # getColumn
-        regs[ra].initIntReg(n.info.col)
+        regs[ra].initIntReg(n.info.col, c.memory)
       else:
         unreachable($imm) # vmgen issue
     of opcNSetLineInfo:
