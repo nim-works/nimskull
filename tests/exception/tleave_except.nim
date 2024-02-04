@@ -27,4 +27,4 @@ steps.add 2
 doAssert getCurrentException() == nil, "current exception was cleared"
 doAssert steps == [1, 2]
 
-echo "done" # ensures that the assertion weren't jumped over
+echo "done" # ensures that the assertions weren't jumped over

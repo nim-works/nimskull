@@ -69,7 +69,7 @@ test reraiseFromFinally(), [1, 2, 3]
 
 proc exceptionInFinally() =
   ## Raise, and fully handle, an exception within a finally clause that was
-  ## entered through exceptionl control-flow.
+  ## entered through exceptional control-flow.
   try:
     try:
       raise ValueError.newException("a")

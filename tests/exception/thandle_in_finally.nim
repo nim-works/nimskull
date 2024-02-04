@@ -27,7 +27,7 @@ try:
     # unwinding doesn't continue when leaving the finally
   steps.add 3
 except CatchableError:
-  # never reached, since the excepti
+  # never reached, since the exception was handled above
   doAssert false, "unreachable"
 
 doAssert steps == [1, 2]
