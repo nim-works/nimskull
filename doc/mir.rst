@@ -48,6 +48,14 @@ Semantics
         | <Type>
         | LVALUE
 
+  UNARY_OP = NegI VALUE
+
+  BINARY_OP = AddI VALUE, VALUE
+            | SubI VALUE, VALUE
+            | MulI VALUE, VALUE
+            | DivI VALUE, VALUE
+            | ModI VALUE, VALUE
+
   CALL_ARG = Arg VALUE                    # pass-by-value argument
            | Arg <none>                   # argument that's going to be omitted
                                           # later
@@ -76,7 +84,11 @@ Semantics
                     | CheckedCall LVALUE CALL_ARG ...
                     | CheckedCall <Magic> CALL_ARG ...
 
-  RVALUE = CALL_EXPR
+
+  RVALUE = UNARY_OP
+         | BINARY_OP
+         | CALL_EXPR
+         | CHECKED_CALL_EXPR
          | Constr   CONSTR_ARG ...       # construct a tuple, closure, set, or
          | ObjConstr (<Field> CONSTR_ARG) ... # construct an `object` or
                                          # `ref object`

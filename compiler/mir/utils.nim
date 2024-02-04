@@ -319,6 +319,19 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, env: EnvPtr) =
       commaSeparated:
         argToStr()
       result.add ") (raises)"
+  of UnaryOps:
+    const Map = [mnkNegI: "-"]
+    let kind = nodes[i].kind
+    tree Map[kind]:
+      valueToStr()
+  of BinaryOps:
+    let kind = nodes[i].kind
+    tree "":
+      valueToStr() # first operand
+      const Map = [mnkAddI: " + ", mnkSubI: " - ",
+                   mnkMulI: " * ", mnkDivI: " div ", mnkModI: " mod "]
+      result.add Map[kind]
+      valueToStr() # second operand
   else:
     # TODO: make this branch exhaustive
     result.add "<error: " & $nodes[i].kind & ">"

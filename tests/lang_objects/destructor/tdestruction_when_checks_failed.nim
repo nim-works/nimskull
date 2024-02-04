@@ -77,3 +77,11 @@ block object_conversion_checks:
 
   runTest:
     test(RootRef()) # provoke a object-conversion-check failure
+
+block signed_integer_overflow_check:
+  proc test(a: int32) =
+    var obj = Object() # obj stores a value that needs to be destroyed
+    discard 1'i32 + a
+
+  runTest:
+    test(high(int32)) # provoke an overflow-check failure

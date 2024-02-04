@@ -1602,9 +1602,9 @@ proc genNoLoad(c: var TCtx, n: CgNode): tuple[reg: TRegister, isDirect: bool] =
 
 proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   case m
-  of mPred, mSubI:
+  of mSubI:
     c.genAddSubInt(n, dest, opcSubInt)
-  of mSucc, mAddI:
+  of mAddI:
     c.genAddSubInt(n, dest, opcAddInt)
   of mOrd, mChr: c.gen(n[1], dest)
   of mArrToSeq:
@@ -2843,6 +2843,18 @@ proc genClosureConstr(c: var TCtx, n: CgNode, dest: TRegister) =
     c.freeTemp(tmp2)
     c.freeTemp(envTmp)
 
+proc binaryArith(c: var TCtx, e, x, y: CgNode, dest: var TDest, op: TOpcode) =
+  ## Emits the instruction sequence for the binary operation `e` with opcode
+  ## `op`. `x` and `y` are the operand expressions.
+  prepare(c, dest, e.typ)
+  let
+    a = c.genx(x)
+    b = c.genx(y)
+  c.gABC(e, op, dest, a, b)
+  c.genNarrow(x, dest)
+  c.freeTemp(a)
+  c.freeTemp(b)
+
 proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   when defined(nimCompilerStacktraceHints):
     frameMsg c.config, n
@@ -2863,6 +2875,15 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     else:
       genCall(c, n, dest)
       clearDest(c, n, dest)
+  of cnkNegI:
+    let a = c.genx(n[0])
+    c.gABC(n, opcUnaryMinusInt, dest, a)
+    c.genNarrow(n[0], dest)
+  of cnkAddI: binaryArith(c, n, n[0], n[1], dest, opcAddu)
+  of cnkSubI: binaryArith(c, n, n[0], n[1], dest, opcSubu)
+  of cnkMulI: binaryArith(c, n, n[0], n[1], dest, opcMulu)
+  of cnkDivI: binaryArith(c, n, n[0], n[1], dest, opcDivInt)
+  of cnkModI: binaryArith(c, n, n[0], n[1], dest, opcModInt)
   of cnkIntLit, cnkUIntLit:
     prepare(c, dest, n.typ)
     c.loadInt(n, dest, getInt(n))

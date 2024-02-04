@@ -422,66 +422,65 @@ proc getTemp(p: PProc, defineInLocals: bool = true): Rope =
     p.defs.add(p.indentLine("var $1;$n" % [result]))
 
 type
-  TMagicFrmt = array[0..1, string]
-  TMagicOps = array[mAddI..mUnaryMinusF64, TMagicFrmt]
+  TMagicOps = array[mAddI..mUnaryMinusF64, string]
 
-const # magic checked op; magic unchecked op;
+const # magic checked op
   jsMagics: TMagicOps = [
-    mAddI: ["addInt", ""],
-    mSubI: ["subInt", ""],
-    mMulI: ["mulInt", ""],
-    mDivI: ["divInt", ""],
-    mModI: ["modInt", ""],
-    mSucc: ["addInt", ""],
-    mPred: ["subInt", ""],
-    mAddF64: ["", ""],
-    mSubF64: ["", ""],
-    mMulF64: ["", ""],
-    mDivF64: ["", ""],
-    mShrI: ["", ""],
-    mShlI: ["", ""],
-    mAshrI: ["", ""],
-    mBitandI: ["", ""],
-    mBitorI: ["", ""],
-    mBitxorI: ["", ""],
-    mMinI: ["nimMin", "nimMin"],
-    mMaxI: ["nimMax", "nimMax"],
-    mAddU: ["", ""],
-    mSubU: ["", ""],
-    mMulU: ["", ""],
-    mDivU: ["", ""],
-    mModU: ["", ""],
-    mEqI: ["", ""],
-    mLeI: ["", ""],
-    mLtI: ["", ""],
-    mEqF64: ["", ""],
-    mLeF64: ["", ""],
-    mLtF64: ["", ""],
-    mLeU: ["", ""],
-    mLtU: ["", ""],
-    mEqEnum: ["", ""],
-    mLeEnum: ["", ""],
-    mLtEnum: ["", ""],
-    mEqCh: ["", ""],
-    mLeCh: ["", ""],
-    mLtCh: ["", ""],
-    mEqB: ["", ""],
-    mLeB: ["", ""],
-    mLtB: ["", ""],
-    mEqRef: ["", ""],
-    mLePtr: ["", ""],
-    mLtPtr: ["", ""],
-    mXor: ["", ""],
-    mEqCString: ["", ""],
-    mEqProc: ["", ""],
-    mUnaryMinusI: ["negInt", ""],
-    mUnaryMinusI64: ["negInt64", ""],
-    mAbsI: ["absInt", ""],
-    mNot: ["", ""],
-    mUnaryPlusI: ["", ""],
-    mBitnotI: ["", ""],
-    mUnaryPlusF64: ["", ""],
-    mUnaryMinusF64: ["", ""]]
+    mAddI: "addInt",
+    mSubI: "subInt",
+    mMulI: "mulInt",
+    mDivI: "divInt",
+    mModI: "modInt",
+    mSucc: "addInt",
+    mPred: "subInt",
+    mAddF64: "",
+    mSubF64: "",
+    mMulF64: "",
+    mDivF64: "",
+    mShrI: "",
+    mShlI: "",
+    mAshrI: "",
+    mBitandI: "",
+    mBitorI: "",
+    mBitxorI: "",
+    mMinI: "nimMin",
+    mMaxI: "nimMax",
+    mAddU: "",
+    mSubU: "",
+    mMulU: "",
+    mDivU: "",
+    mModU: "",
+    mEqI: "",
+    mLeI: "",
+    mLtI: "",
+    mEqF64: "",
+    mLeF64: "",
+    mLtF64: "",
+    mLeU: "",
+    mLtU: "",
+    mEqEnum: "",
+    mLeEnum: "",
+    mLtEnum: "",
+    mEqCh: "",
+    mLeCh: "",
+    mLtCh: "",
+    mEqB: "",
+    mLeB: "",
+    mLtB: "",
+    mEqRef: "",
+    mLePtr: "",
+    mLtPtr: "",
+    mXor: "",
+    mEqCString: "",
+    mEqProc: "",
+    mUnaryMinusI: "negInt",
+    mUnaryMinusI64: "negInt64",
+    mAbsI: "absInt",
+    mNot: "",
+    mUnaryPlusI: "",
+    mBitnotI: "",
+    mUnaryPlusF64: "",
+    mUnaryMinusF64: ""]
 
 template binaryExpr(p: PProc, n: CgNode, r: var TCompRes, magic, frmt: string) =
   # $1 and $2 in the `frmt` string bind to lhs and rhs of the expr,
@@ -497,6 +496,12 @@ template binaryExpr(p: PProc, n: CgNode, r: var TCompRes, magic, frmt: string) =
 
   r.res = frmt % [a, b, a, b]
   r.kind = resExpr
+
+template binaryExpr(p: PProc, a, b: CgNode, r: var TCompRes, frmt: string) =
+  var x, y: TCompRes
+  gen(p, a, x)
+  gen(p, b, y)
+  r.res = frmt % [x.rdLoc, y.rdLoc]
 
 proc unsignedTrimmerJS(size: BiggestInt): Rope =
   case size
@@ -532,8 +537,8 @@ proc arithAux(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
   var
     x, y: TCompRes
     xLoc,yLoc: Rope
-  let i = ord(optOverflowCheck notin p.options)
-  useMagic(p, jsMagics[op][i])
+
+  useMagic(p, jsMagics[op])
   if n.len > 2:
     gen(p, n[1], x)
     gen(p, n[2], y)
@@ -545,75 +550,73 @@ proc arithAux(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
 
   template applyFormat(frmt) =
     r.res = frmt % [xLoc, yLoc]
-  template applyFormat(frmtA, frmtB) =
-    if i == 0: applyFormat(frmtA) else: applyFormat(frmtB)
 
   case op:
-  of mAddI: applyFormat("addInt($1, $2)", "($1 + $2)")
-  of mSubI: applyFormat("subInt($1, $2)", "($1 - $2)")
-  of mMulI: applyFormat("mulInt($1, $2)", "($1 * $2)")
-  of mDivI: applyFormat("divInt($1, $2)", "Math.trunc($1 / $2)")
-  of mModI: applyFormat("modInt($1, $2)", "Math.trunc($1 % $2)")
-  of mSucc: applyFormat("addInt($1, $2)", "($1 + $2)")
-  of mPred: applyFormat("subInt($1, $2)", "($1 - $2)")
-  of mAddF64: applyFormat("($1 + $2)", "($1 + $2)")
-  of mSubF64: applyFormat("($1 - $2)", "($1 - $2)")
-  of mMulF64: applyFormat("($1 * $2)", "($1 * $2)")
-  of mDivF64: applyFormat("($1 / $2)", "($1 / $2)")
-  of mShrI: applyFormat("", "")
+  of mAddI: applyFormat("addInt($1, $2)")
+  of mSubI: applyFormat("subInt($1, $2)")
+  of mMulI: applyFormat("mulInt($1, $2)")
+  of mDivI: applyFormat("divInt($1, $2)")
+  of mModI: applyFormat("modInt($1, $2)")
+  of mSucc: applyFormat("addInt($1, $2)")
+  of mPred: applyFormat("subInt($1, $2)")
+  of mAddF64: applyFormat("($1 + $2)")
+  of mSubF64: applyFormat("($1 - $2)")
+  of mMulF64: applyFormat("($1 * $2)")
+  of mDivF64: applyFormat("($1 / $2)")
+  of mShrI: applyFormat("")
   of mShlI:
     if n[1].typ.size <= 4:
-      applyFormat("($1 << $2)", "($1 << $2)")
+      applyFormat("($1 << $2)")
     else:
-      applyFormat("($1 * Math.pow(2, $2))", "($1 * Math.pow(2, $2))")
+      applyFormat("($1 * Math.pow(2, $2))")
   of mAshrI:
-    if n[1].typ.size <= 4:
-      applyFormat("($1 >> $2)", "($1 >> $2)")
+    if n[2].typ.size <= 4:
+      applyFormat("($1 >> $2)")
     else:
-      applyFormat("Math.floor($1 / Math.pow(2, $2))", "Math.floor($1 / Math.pow(2, $2))")
-  of mBitandI: applyFormat("($1 & $2)", "($1 & $2)")
-  of mBitorI: applyFormat("($1 | $2)", "($1 | $2)")
-  of mBitxorI: applyFormat("($1 ^ $2)", "($1 ^ $2)")
-  of mMinI: applyFormat("nimMin($1, $2)", "nimMin($1, $2)")
-  of mMaxI: applyFormat("nimMax($1, $2)", "nimMax($1, $2)")
-  of mAddU: applyFormat("", "")
-  of mSubU: applyFormat("", "")
-  of mMulU: applyFormat("", "")
-  of mDivU: applyFormat("", "")
-  of mModU: applyFormat("($1 % $2)", "($1 % $2)")
-  of mEqI: applyFormat("($1 == $2)", "($1 == $2)")
-  of mLeI: applyFormat("($1 <= $2)", "($1 <= $2)")
-  of mLtI: applyFormat("($1 < $2)", "($1 < $2)")
-  of mEqF64: applyFormat("($1 == $2)", "($1 == $2)")
-  of mLeF64: applyFormat("($1 <= $2)", "($1 <= $2)")
-  of mLtF64: applyFormat("($1 < $2)", "($1 < $2)")
-  of mLeU: applyFormat("($1 <= $2)", "($1 <= $2)")
-  of mLtU: applyFormat("($1 < $2)", "($1 < $2)")
-  of mEqEnum: applyFormat("($1 == $2)", "($1 == $2)")
-  of mLeEnum: applyFormat("($1 <= $2)", "($1 <= $2)")
-  of mLtEnum: applyFormat("($1 < $2)", "($1 < $2)")
-  of mEqCh: applyFormat("($1 == $2)", "($1 == $2)")
-  of mLeCh: applyFormat("($1 <= $2)", "($1 <= $2)")
-  of mLtCh: applyFormat("($1 < $2)", "($1 < $2)")
-  of mEqB: applyFormat("($1 == $2)", "($1 == $2)")
-  of mLeB: applyFormat("($1 <= $2)", "($1 <= $2)")
-  of mLtB: applyFormat("($1 < $2)", "($1 < $2)")
-  of mEqRef: applyFormat("($1 == $2)", "($1 == $2)")
-  of mLePtr: applyFormat("($1 <= $2)", "($1 <= $2)")
-  of mLtPtr: applyFormat("($1 < $2)", "($1 < $2)")
-  of mXor: applyFormat("($1 != $2)", "($1 != $2)")
-  of mEqCString: applyFormat("($1 == $2)", "($1 == $2)")
-  of mEqProc: applyFormat("($1 == $2)", "($1 == $2)")
-  of mUnaryMinusI: applyFormat("negInt($1)", "-($1)")
-  of mUnaryMinusI64: applyFormat("negInt64($1)", "-($1)")
-  of mAbsI: applyFormat("absInt($1)", "Math.abs($1)")
-  of mNot: applyFormat("!($1)", "!($1)")
-  of mUnaryPlusI: applyFormat("+($1)", "+($1)")
-  of mBitnotI: applyFormat("~($1)", "~($1)")
-  of mUnaryPlusF64: applyFormat("+($1)", "+($1)")
-  of mUnaryMinusF64: applyFormat("-($1)", "-($1)")
+      applyFormat("Math.floor($1 / Math.pow(2, $2))")
+  of mBitandI: applyFormat("($1 & $2)")
+  of mBitorI: applyFormat("($1 | $2)")
+  of mBitxorI: applyFormat("($1 ^ $2)")
+  of mMinI: applyFormat("nimMin($1, $2)")
+  of mMaxI: applyFormat("nimMax($1, $2)")
+  of mAddU: applyFormat("")
+  of mSubU: applyFormat("")
+  of mMulU: applyFormat("")
+  of mDivU: applyFormat("")
+  of mModU: applyFormat("($1 % $2)")
+  of mEqI: applyFormat("($1 == $2)")
+  of mLeI: applyFormat("($1 <= $2)")
+  of mLtI: applyFormat("($1 < $2)")
+  of mEqF64: applyFormat("($1 == $2)")
+  of mLeF64: applyFormat("($1 <= $2)")
+  of mLtF64: applyFormat("($1 < $2)")
+  of mLeU: applyFormat("($1 <= $2)")
+  of mLtU: applyFormat("($1 < $2)")
+  of mEqEnum: applyFormat("($1 == $2)")
+  of mLeEnum: applyFormat("($1 <= $2)")
+  of mLtEnum: applyFormat("($1 < $2)")
+  of mEqCh: applyFormat("($1 == $2)")
+  of mLeCh: applyFormat("($1 <= $2)")
+  of mLtCh: applyFormat("($1 < $2)")
+  of mEqB: applyFormat("($1 == $2)")
+  of mLeB: applyFormat("($1 <= $2)")
+  of mLtB: applyFormat("($1 < $2)")
+  of mEqRef: applyFormat("($1 == $2)")
+  of mLePtr: applyFormat("($1 <= $2)")
+  of mLtPtr: applyFormat("($1 < $2)")
+  of mXor: applyFormat("($1 != $2)")
+  of mEqCString: applyFormat("($1 == $2)")
+  of mEqProc: applyFormat("($1 == $2)")
+  of mUnaryMinusI: applyFormat("negInt($1)")
+  of mUnaryMinusI64: applyFormat("negInt64($1)")
+  of mAbsI: applyFormat("absInt($1)")
+  of mNot: applyFormat("!($1)")
+  of mUnaryPlusI: applyFormat("+($1)")
+  of mBitnotI: applyFormat("~($1)")
+  of mUnaryPlusF64: applyFormat("+($1)")
+  of mUnaryMinusF64: applyFormat("-($1)")
   else:
-    assert false, $op
+    unreachable(op)
 
 proc arith(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
   case op
@@ -629,6 +632,13 @@ proc arith(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
     gen(p, n[1], x)
     gen(p, n[2], y)
     r.res = "($1 >>> $2)" % [x.rdLoc, y.rdLoc]
+  of mAbsI:
+    # TODO: lower the unchecked ``abs`` variant earlier
+    if optOverflowCheck in p.options:
+      arithAux(p, n, r, op)
+    else:
+      let x = gen(p, n[1])
+      r.res = "Math.abs($1)" % rdLoc(x)
   of mEqRef:
     if mapType(n[1].typ) != etyBaseIndex:
       arithAux(p, n, r, op)
@@ -907,8 +917,8 @@ proc generateHeader(params: openArray[Loc]): string =
 
 const
   nodeKindsNeedNoCopy = cnkLiterals + {
-    cnkObjConstr, cnkTupleConstr, cnkArrayConstr,
-    cnkCall, cnkCheckedCall}
+    cnkObjConstr, cnkTupleConstr, cnkArrayConstr, cnkCall, cnkCheckedCall,
+    cnkNegI, cnkAddI, cnkSubI, cnkMulI, cnkDivI, cnkModI }
 
 proc needsNoCopy(p: PProc; y: CgNode): bool =
   return y.kind in nodeKindsNeedNoCopy or
@@ -2354,6 +2364,16 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       genInfixCall(p, n, r)
     else:
       genCall(p, n, r)
+  of cnkNegI:
+    let x = gen(p, n[0])
+    r.res = "(-$1)" % rdLoc(x)
+    r.typ = mapType(n.typ)
+    r.kind = resExpr
+  of cnkAddI: binaryExpr(p, n[0], n[1], r, "($1 + $2)")
+  of cnkSubI: binaryExpr(p, n[0], n[1], r, "($1 - $2)")
+  of cnkMulI: binaryExpr(p, n[0], n[1], r, "($1 * $2)")
+  of cnkDivI: binaryExpr(p, n[0], n[1], r, "Math.trunc($1 / $2)")
+  of cnkModI: binaryExpr(p, n[0], n[1], r, "Math.trunc($1 % $2)")
   of cnkClosureConstr:
     useMagic(p, "makeClosure")
     var tmp1, tmp2: TCompRes

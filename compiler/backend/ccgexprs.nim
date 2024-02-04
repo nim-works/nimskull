@@ -303,17 +303,14 @@ template binaryArithOverflowRaw(p: BProc, t: PType, a, b: TLoc;
 
 proc binaryArithOverflow(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
   const
-    prc: array[mAddI..mPred, string] = [
+    prc: array[mAddI..mModI, string] = [
       "nimAddInt", "nimSubInt",
-      "nimMulInt", "nimDivInt", "nimModInt",
-      "nimAddInt", "nimSubInt"
+      "nimMulInt", "nimDivInt", "nimModInt"
     ]
-    prc64: array[mAddI..mPred, string] = [
+    prc64: array[mAddI..mModI, string] = [
       "nimAddInt64", "nimSubInt64",
-      "nimMulInt64", "nimDivInt64", "nimModInt64",
-      "nimAddInt64", "nimSubInt64"
+      "nimMulInt64", "nimDivInt64", "nimModInt64"
     ]
-    opr: array[mAddI..mPred, string] = ["+", "-", "*", "/", "%", "+", "-"]
   var a, b: TLoc
   assert(e[1].typ != nil)
   assert(e[2].typ != nil)
@@ -322,10 +319,7 @@ proc binaryArithOverflow(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
   # skipping 'range' is correct here as we'll generate a proper range check
   # later via 'chckRange'
   let t = e.typ.skipTypes(abstractRange)
-  if optOverflowCheck notin p.options:
-    let res = "($1)($2 $3 $4)" % [getTypeDesc(p.module, e.typ), rdLoc(a), rope(opr[m]), rdLoc(b)]
-    putIntoDest(p, d, e, res)
-  else:
+  if true:
     # we handle div by zero here so that we know that the compilerproc's
     # result is only for overflows.
     if m in {mDivI, mModI}:
@@ -343,9 +337,8 @@ proc unaryArithOverflow(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
   assert(e[1].typ != nil)
   initLocExpr(p, e[1], a)
   t = skipTypes(e.typ, abstractRange)
-  if optOverflowCheck in p.options:
-    linefmt(p, cpsStmts, "if ($1 == $2){ #raiseOverflow(); $3}$n",
-            [rdLoc(a), intLiteral(firstOrd(p.config, t)), raiseInstr(p)])
+  linefmt(p, cpsStmts, "if ($1 == $2){ #raiseOverflow(); $3}$n",
+          [rdLoc(a), intLiteral(firstOrd(p.config, t)), raiseInstr(p)])
   case m
   of mUnaryMinusI:
     putIntoDest(p, d, e, "((NI$2)-($1))" % [rdLoc(a), rope(getSize(p.config, t) * 8)])
@@ -356,14 +349,14 @@ proc unaryArithOverflow(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
   else:
     assert(false, $m)
 
-proc binaryArith(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
+proc binaryArith(p: BProc, e, x, y: CgNode, d: var TLoc, op: TMagic) =
   var
     a, b: TLoc
     s, k: BiggestInt
-  assert(e[1].typ != nil)
-  assert(e[2].typ != nil)
-  initLocExpr(p, e[1], a)
-  initLocExpr(p, e[2], b)
+  assert(x.typ != nil)
+  assert(y.typ != nil)
+  initLocExpr(p, x, a)
+  initLocExpr(p, y, b)
   # BUGFIX: cannot use result-type here, as it may be a boolean
   s = max(getSize(p.config, a.t), getSize(p.config, b.t)) * 8
   k = getSize(p.config, a.t) * 8
@@ -375,6 +368,11 @@ proc binaryArith(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     )
 
   case op
+  of mAddI: applyFormat("($4)($1 + $2)")
+  of mSubI: applyFormat("($4)($1 - $2)")
+  of mMulI: applyFormat("($4)($1 * $2)")
+  of mDivI: applyFormat("($4)($1 / $2)")
+  of mModI: applyFormat("($4)($1 % $2)")
   of mAddF64: applyFormat("(($4)($1) + ($4)($2))")
   of mSubF64: applyFormat("(($4)($1) - ($4)($2))")
   of mMulF64: applyFormat("(($4)($1) * ($4)($2))")
@@ -435,12 +433,12 @@ proc genIsNil(p: BProc, e: CgNode, d: var TLoc) =
   else:
     unaryExpr(p, e, d, "($1 == 0)")
 
-proc unaryArith(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
+proc unaryArith(p: BProc, e, x: CgNode, d: var TLoc, op: TMagic) =
   var
     a: TLoc
     t: PType
-  assert(e[1].typ != nil)
-  initLocExpr(p, e[1], a)
+  assert(x.typ != nil)
+  initLocExpr(p, x, a)
   t = skipTypes(e.typ, abstractRange)
 
   template applyFormat(frmt: untyped) =
@@ -455,8 +453,12 @@ proc unaryArith(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     applyFormat("($3)((NU$2) ~($1))")
   of mUnaryPlusF64:
     applyFormat("$1")
-  of mUnaryMinusF64:
+  of mUnaryMinusF64, mUnaryMinusI64:
     applyFormat("-($1)")
+  of mUnaryMinusI:
+    applyFormat("((NI$2)-($1))")
+  of mAbsI:
+    applyFormat("($1 > 0? ($1) : -($1))")
   else:
     assert false, $op
 
@@ -1571,7 +1573,7 @@ proc binaryFloatArith(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
     if optInfCheck in p.options:
       linefmt(p, cpsStmts, "if ($1 != 0.0 && $1*0.5 == $1) { #raiseFloatOverflow($1); $2}$n", [rdLoc(d), raiseInstr(p)])
   else:
-    binaryArith(p, e, d, m)
+    binaryArith(p, e, e[1], e[2], d, m)
 
 proc skipAddr(n: CgNode): CgNode =
   if n.kind == cnkHiddenAddr: n.operand
@@ -1649,10 +1651,16 @@ proc genBreakState(p: BProc, n: CgNode, d: var TLoc) =
 
 proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   case op
-  of mNot..mUnaryMinusF64: unaryArith(p, e, d, op)
-  of mUnaryMinusI..mAbsI: unaryArithOverflow(p, e, d, op)
+  of mNot..mUnaryMinusF64: unaryArith(p, e, e[1], d, op)
+  of mUnaryMinusI, mUnaryMinusI64: unaryArithOverflow(p, e, d, op)
+  of mAbsI:
+    # TODO: lower the unchecked ``abs`` variant earlier
+    if optOverflowCheck in p.options:
+      unaryArithOverflow(p, e, d, op)
+    else:
+      unaryArith(p, e, e[1], d, op)
   of mAddF64..mDivF64: binaryFloatArith(p, e, d, op)
-  of mShrI..mXor: binaryArith(p, e, d, op)
+  of mShrI..mXor: binaryArith(p, e, e[1], e[2], d, op)
   of mEqProc: genEqProc(p, e, d)
   of mAddI..mPred: binaryArithOverflow(p, e, d, op)
   of mGetTypeInfo: genGetTypeInfo(p, e, d)
@@ -2049,6 +2057,13 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
         genMagicExpr(p, n, d, m)
       else:
         genCall(p, n, d)
+  # unchecked arithmetic operations:
+  of cnkNegI: unaryArith(p, n, n[0], d, mUnaryMinusI)
+  of cnkAddI: binaryArith(p, n, n[0], n[1], d, mAddI)
+  of cnkSubI: binaryArith(p, n, n[0], n[1], d, mSubI)
+  of cnkMulI: binaryArith(p, n, n[0], n[1], d, mMulI)
+  of cnkDivI: binaryArith(p, n, n[0], n[1], d, mDivI)
+  of cnkModI: binaryArith(p, n, n[0], n[1], d, mModI)
   of cnkSetConstr:
     genSetConstr(p, n, d)
   of cnkArrayConstr:
