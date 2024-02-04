@@ -22,6 +22,7 @@ except ValueError as e:
 
   steps.add 3
   # make sure the current exception is still the correct one
+  doAssert e.msg == "a"
   doAssert getCurrentException() == e
 
 steps.add 4
