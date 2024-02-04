@@ -639,8 +639,7 @@ proc handle(res: sink Result[PrgCtr, VmException], c: var TCtx,
     if c.code[result].opcode == opcFinally:
       # setup the finally section's control register
       let reg = c.code[result].regA
-      t.sframes[^1].slots[reg].cleanUpReg(c.memory)
-      t.sframes[^1].slots[reg].initIntReg(fromEhBit or t.ehStack.high)
+      t.sframes[^1].slots[reg].initIntReg(fromEhBit or t.ehStack.high, c.memory)
       inc result
 
   else:
@@ -2074,8 +2073,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       if c.code[target].opcode == opcFinally:
         # remember where to jump back when leaving the finally section
         let reg = c.code[target].regA
-        regs[reg].cleanUpReg(c.memory)
-        regs[reg].initIntReg(pc + 1)
+        regs[reg].initIntReg(pc + 1, c.memory)
         # jump to the instruction following the 'Finally'
         pc = target
       else:
