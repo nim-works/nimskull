@@ -2082,6 +2082,8 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.gABC(n, opcRangeChck, dest, tmp1, tmp2)
     c.freeTemp(tmp1)
     c.freeTemp(tmp2)
+  of mChckNaN:
+    discard "implementation is missing"
   of mChckIndex:
     let
       arr = c.genx(n[1])
