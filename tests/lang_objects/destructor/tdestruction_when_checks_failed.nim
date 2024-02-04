@@ -84,4 +84,4 @@ block signed_integer_overflow_check:
     discard 1'i32 + a
 
   runTest:
-    test(high(int32)) # provok an overflow-check failure
+    test(high(int32)) # provoke an overflow-check failure
