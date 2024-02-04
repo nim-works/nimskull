@@ -1558,7 +1558,7 @@ proc genStrEquals(p: BProc, e: CgNode, d: var TLoc) =
     binaryExpr(p, e, d, "#eqStrings($1, $2)")
 
 proc binaryFloatArith(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
-  if {optNaNCheck, optInfCheck} * p.options != {}:
+  if optInfCheck in p.options:
     const opr: array[mAddF64..mDivF64, string] = ["+", "-", "*", "/"]
     var a, b: TLoc
     assert(e[1].typ != nil)
@@ -1568,10 +1568,7 @@ proc binaryFloatArith(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
     putIntoDest(p, d, e, ropecg(p.module, "(($4)($2) $1 ($4)($3))",
                               [opr[m], rdLoc(a), rdLoc(b),
                               getSimpleTypeDesc(p.module, e[1].typ)]))
-    if optNaNCheck in p.options:
-      linefmt(p, cpsStmts, "if ($1 != $1){ #raiseFloatInvalidOp(); $2}$n", [rdLoc(d), raiseInstr(p)])
-    if optInfCheck in p.options:
-      linefmt(p, cpsStmts, "if ($1 != 0.0 && $1*0.5 == $1) { #raiseFloatOverflow($1); $2}$n", [rdLoc(d), raiseInstr(p)])
+    linefmt(p, cpsStmts, "if ($1 != 0.0 && $1*0.5 == $1) { #raiseFloatOverflow($1); $2}$n", [rdLoc(d), raiseInstr(p)])
   else:
     binaryArith(p, e, e[1], e[2], d, m)
 
@@ -1763,6 +1760,15 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     linefmt(p, cpsStmts, "$1 = ($2)($3);$n", [a.r, typ, rdLoc(b)])
   of mChckRange:
     genRangeChck(p, e, d)
+  of mChckNaN:
+    var a: TLoc
+    initLocExpr(p, e[1], a)
+    # XXX: using a comparison could result in a floating point exception to
+    #      be raised (i.e., the flag to be set in the fenv).
+    #      ``__builtin_isnan``, which doesn't exhibit this behaviour, could be
+    #      used instead
+    linefmt(p, cpsStmts, "if ($1 != $1){ #raiseFloatInvalidOp(); $2}$n",
+            [rdLoc(a), raiseInstr(p)])
   of mChckIndex:
     var arr, a: TLoc
     initLocExpr(p, e[1], arr)
