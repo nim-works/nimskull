@@ -729,7 +729,8 @@ proc caseToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl, n: MirNode,
     result.add newTree(cnkBranch, cr.info)
     if br.len > 0:
       for x in 0..<br.len:
-        result[^1].add translateLit(get(tree, cr).lit)
+        assert tree[cr].kind in {mnkConst, mnkLiteral}
+        result[^1].add atomToIr(tree, cl, cr)
 
     result[^1].add bodyToIr(tree, env, cl, cr)
     leave(tree, cr)
@@ -800,6 +801,15 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
       res.add argToIr(tree, cl, cr)[1]
   of mnkCall, mnkCheckedCall:
     callToIr(tree, cl, n, cr)
+  of UnaryOps:
+    const Map = [mnkNegI: cnkNegI]
+    treeOp Map[n.kind]:
+      res.add valueToIr(tree, cl, cr)
+  of BinaryOps:
+    const Map = [mnkAddI: cnkAddI, mnkSubI: cnkSubI,
+                 mnkMulI: cnkMulI, mnkDivI: cnkDivI, mnkModI: cnkModI]
+    treeOp Map[n.kind]:
+      res.kids = @[valueToIr(tree, cl, cr), valueToIr(tree, cl, cr)]
   of AllNodeKinds - ExprKinds - {mnkNone}:
     unreachable(n.kind)
 

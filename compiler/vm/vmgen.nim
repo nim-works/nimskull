@@ -62,9 +62,9 @@ import
     idioms
   ],
   compiler/vm/[
+    identpatterns,
     vmaux,
     vmdef,
-    vmlinker,
     vmobjects,
     vmtypegen,
     vmtypes,
@@ -173,7 +173,7 @@ type
     features*: TSandboxFlags
     module*: PSym
 
-    linking*: LinkerData
+    callbackKeys*: Patterns
 
     # input-output parameters:
     code*: seq[TInstr]
@@ -772,8 +772,6 @@ makeCnstFunc(toIntCnst, BiggestInt, cnstInt, intVal, `==`)
 
 makeCnstFunc(toFloatCnst, BiggestFloat, cnstFloat, floatVal, cmpFloatRep)
 
-makeCnstFunc(toStringCnst, string, cnstString, strVal, `==`)
-
 proc toIntCnst(c: var TCtx, val: Int128): int =
   # integer constants are stored as their raw bit representation
   toIntCnst(c, BiggestInt(toInt64(val)))
@@ -783,7 +781,6 @@ proc genLiteral(c: var TCtx, n: CgNode): int =
   of cnkIntLit:   toIntCnst(c, n.intVal)
   of cnkUIntLit:  toIntCnst(c, n.intVal)
   of cnkFloatLit: toFloatCnst(c, n.floatVal)
-  of cnkStrLit:   toStringCnst(c, n.strVal)
   else:           unreachable(n.kind)
 
 template fillSliceList[T](sl: var seq[Slice[T]], nodes: openArray[CgNode],
@@ -1143,14 +1140,9 @@ proc genReturn(c: var TCtx; n: CgNode) =
 
 proc genLit(c: var TCtx; n: CgNode; lit: int; dest: var TDest) =
   ## `lit` is the index of a constant as returned by `genLiteral`
-  if dest.isUnset or c.prc.regInfo[dest].kind == slotTempUnknown or
-     fitsRegister(n.typ):
-    # load the literal into the *register*
-    prepare(c, dest, n.typ)
-    c.gABx(n, opcLdConst, dest, lit)
-  else:
-    # assign the literal to the destination *location* directly
-    c.gABx(n, opcAsgnConst, dest, lit)
+  # load the literal into the *register*
+  prepare(c, dest, n.typ)
+  c.gABx(n, opcLdConst, dest, lit)
 
 proc genLit(c: var TCtx; n: CgNode; dest: var TDest) =
   let lit = genLiteral(c, n)
@@ -1822,9 +1814,9 @@ proc genNoLoad(c: var TCtx, n: CgNode): tuple[reg: TRegister, isDirect: bool] =
 
 proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   case m
-  of mPred, mSubI:
+  of mSubI:
     c.genAddSubInt(n, dest, opcSubInt)
-  of mSucc, mAddI:
+  of mAddI:
     c.genAddSubInt(n, dest, opcAddInt)
   of mOrd, mChr: c.gen(n[1], dest)
   of mArrToSeq:
@@ -2686,7 +2678,7 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
     discard genType(c, n.typ) # make sure the type exists
     # somewhat hack-y, but the orchestrator later queries the type of the data
     # (which might be a different PType that maps to the same VM type)
-    discard genType(c, c.env[DataId pos].typ)
+    discard genType(c, c.env[DataId pos][0].typ)
   of cnkGlobal:
     # a global location
     let pos = useGlobal(c, n)
@@ -3063,6 +3055,18 @@ proc genClosureConstr(c: var TCtx, n: CgNode, dest: TRegister) =
     c.freeTemp(tmp2)
     c.freeTemp(envTmp)
 
+proc binaryArith(c: var TCtx, e, x, y: CgNode, dest: var TDest, op: TOpcode) =
+  ## Emits the instruction sequence for the binary operation `e` with opcode
+  ## `op`. `x` and `y` are the operand expressions.
+  prepare(c, dest, e.typ)
+  let
+    a = c.genx(x)
+    b = c.genx(y)
+  c.gABC(e, op, dest, a, b)
+  c.genNarrow(x, dest)
+  c.freeTemp(a)
+  c.freeTemp(b)
+
 proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   when defined(nimCompilerStacktraceHints):
     frameMsg c.config, n
@@ -3070,7 +3074,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   case n.kind
   of cnkProc:
     let s = c.env.procedures[n.prc]
-    if importcCond(c, s) and lookup(c.linking.callbackKeys, s) == -1:
+    if importcCond(c, s) and lookup(c.callbackKeys, s) == -1:
       fail(n.info, vmGenDiagCannotImportc, sym = s)
 
     genProcLit(c, n, dest)
@@ -3083,6 +3087,15 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     else:
       genCall(c, n, dest)
       clearDest(c, n, dest)
+  of cnkNegI:
+    let a = c.genx(n[0])
+    c.gABC(n, opcUnaryMinusInt, dest, a)
+    c.genNarrow(n[0], dest)
+  of cnkAddI: binaryArith(c, n, n[0], n[1], dest, opcAddu)
+  of cnkSubI: binaryArith(c, n, n[0], n[1], dest, opcSubu)
+  of cnkMulI: binaryArith(c, n, n[0], n[1], dest, opcMulu)
+  of cnkDivI: binaryArith(c, n, n[0], n[1], dest, opcDivInt)
+  of cnkModI: binaryArith(c, n, n[0], n[1], dest, opcModInt)
   of cnkIntLit, cnkUIntLit:
     prepare(c, dest, n.typ)
     c.loadInt(n, dest, getInt(n))

@@ -50,7 +50,7 @@ scope:
                   def _4: seq[int]
                   =copy(name _4, arg x)
                   add(name a, consume _4)
-                i = addI(arg i, arg 1)
+                i = addI(arg i, arg 1) (raises)
     block L1:
       if cond:
         scope:

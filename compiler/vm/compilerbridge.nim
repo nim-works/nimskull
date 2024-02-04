@@ -47,6 +47,7 @@ import
     vmlegacy,
     vmops,
     vmprofiler,
+    vmserialize,
     vmtypegen,
     vmutils,
     vm
@@ -117,86 +118,28 @@ proc logBytecode(c: TCtx, owner: PSym, start: int) =
 
 proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
                 formal: PType) =
-  ## Put the value that is represented by `n` (but not the node itself) into
-  ## `dest`. Implicit conversion is also performed, if necessary.
-  # XXX: requring access to the JIT state here is all kinds of wrong and
-  #      indicates that ``putIntoReg`` is not a good idea to begin with. The
-  #      XXX comment below describes a good way to get out of this mess
-  let t = formal.skipTypes(abstractInst+{tyStatic}-{tyTypeDesc})
-
-  # XXX: instead of performing conversion here manually, sem could generate a
-  #      small thunk for macro invocations that sets up static arguments and
-  #      then invokes the macro. The thunk would be executed in the VM, making
-  #      the code here obsolete while also eliminating unnecessary
-  #      deserialize/serialize round-trips
-
-  proc registerProcs(jit: var JitState, c: var TCtx, n: PNode) =
-    # note: this kind of scanning only works for AST representing concrete
-    # values
-    case n.kind
-    of nkSym:
-      if n.sym.kind in routineKinds:
-        discard registerProcedure(jit, c, n.sym)
-    of nkWithoutSons - {nkSym}:
-      discard "not relevant"
-    of nkWithSons:
-      for it in n.items:
-        registerProcs(jit, c, it)
-
-  # create a function table entry for each procedure referenced by `n` --
-  # ``serialize`` depends on it
-  registerProcs(jit, c, n)
-
-  case t.kind
-  of tyBool, tyChar, tyEnum, tyInt..tyInt64, tyUInt..tyUInt64:
-    assert n.kind in nkCharLit..nkUInt64Lit
+  ## Treats `n` as a constant expression and loads the value it represents
+  ## into `dest`.
+  let
+    typ = c.getOrCreate(formal.skipTypes({tySink, tyStatic}))
+    data = constDataToMir(c, jit, n)
+  case typ.kind
+  of akInt:
     dest.ensureKind(rkInt, c.memory)
-    dest.intVal = n.intVal
-  of tyFloat..tyFloat64:
-    assert n.kind in nkFloatLit..nkFloat64Lit
+    dest.intVal = data[0].lit.intVal
+  of akFloat:
     dest.ensureKind(rkFloat, c.memory)
-    dest.floatVal = n.floatVal
-  of tyNil, tyPtr, tyPointer:
+    dest.floatVal = data[0].lit.floatVal
+  of akPtr:
     dest.ensureKind(rkAddress, c.memory)
-    # XXX: it's currently forbidden to pass non-nil pointer to static
-    #      parameters. `deserialize` already reports an error, so an
-    #      assert is used here to make sure that it really got reported
-    #      earlier
-    assert n.kind == nkNilLit
-  of tyOpenArray:
-    # Handle `openArray` parameters the same way they're handled elsewhere
-    # in the VM: simply pass the argument without a conversion
-    let typ = c.getOrCreate(n.typ)
-    dest.initLocReg(typ, c.memory)
-    c.serialize(n, dest.handle)
-  of tyProc:
-    let val =
-      if t.callConv == ccClosure:
-        # do what ``transf`` would do and turn the expression into a closure
-        # construction
-        case n.kind
-        of nkSym:
-          newTreeIT(nkClosure, n.info, t, [n, newNode(nkNilLit)])
-        of nkClosure, nkNilLit:
-          n
-        else:
-          unreachable()
-      else:
-        n
-
-    dest.initLocReg(c.getOrCreate(t), c.memory)
-    c.serialize(val, dest.handle)
+    # non-nil values should have already been reported as an error
+    assert data[0].lit.kind == nkNilLit
+  of akPNode:
+    dest.ensureKind(rkNimNode, c.memory)
+    dest.nimNode = data[0].lit
   else:
-    if t.kind == tyRef and t.sym != nil and t.sym.magic == mPNimrodNode:
-      # A NimNode
-      dest.ensureKind(rkNimNode, c.memory)
-      dest.nimNode = n
-    else:
-      let typ = c.getOrCreate(formal)
-      dest.initLocReg(typ, c.memory)
-      # XXX: overriding the type (passing `formal`), leads to issues (internal
-      #      compiler error) when passing an empty set to a static parameter
-      c.serialize(n, dest.handle)#, formal)
+    dest.initLocReg(typ, c.memory)
+    initFromExpr(dest.handle, data, c)
 
 proc unpackResult(res: sink ExecutionResult; config: ConfigRef, node: PNode): PNode =
   ## Unpacks the execution result. If the result represents a failure, returns
@@ -610,7 +553,7 @@ proc evalMacroCall*(jit: var JitState, c: var TCtx, call, args: PNode,
     c.mode = oldMode
     c.callsite = nil
 
-  let wasAvailable = isAvailable(c, sym)
+  let wasAvailable = isAvailable(jit, c, sym)
   let (start, regCount) = loadProc(jit, c, sym).returnOnErr(c.config, call)
 
   # make sure to only output the code listing once:
@@ -724,22 +667,25 @@ proc execProc*(jit: var JitState, c: var TCtx; sym: PSym;
 #      could be used to modify the actual global value, but this is not
 #      possible anymore
 
-proc getGlobalValue*(c: TCtx; s: PSym): PNode =
+proc getGlobalValue*(c: EvalContext, s: PSym): PNode =
   ## Does not perform type checking, so ensure that `s.typ` matches the
   ## global's type
-  internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
-  let slotIdx = c.globals[c.linking.symToIndexTbl[s.id]]
-  let slot = c.heap.slots[slotIdx]
+  internalAssert(c.vm.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
+  let
+    slotIdx = c.vm.globals[c.jit.getGlobal(s)]
+    slot = c.vm.heap.slots[slotIdx]
 
-  result = c.deserialize(slot.handle, s.typ, s.info)
+  result = c.vm.deserialize(slot.handle, s.typ, s.info)
 
-proc setGlobalValue*(c: var TCtx; s: PSym, val: PNode) =
+proc setGlobalValue*(c: var EvalContext; s: PSym, val: PNode) =
   ## Does not do type checking so ensure the `val` matches the `s.typ`
-  internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
-  let slotIdx = c.globals[c.linking.symToIndexTbl[s.id]]
-  let slot = c.heap.slots[slotIdx]
+  internalAssert(c.vm.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
+  let
+    slotIdx = c.vm.globals[c.jit.getGlobal(s)]
+    slot = c.vm.heap.slots[slotIdx]
+    data = constDataToMir(c.vm, c.jit, val)
 
-  c.serialize(val, slot.handle)
+  initFromExpr(slot.handle, data, c.vm)
 
 ## what follows is an implementation of the ``passes`` interface that evaluates
 ## the code directly inside the VM. It is used for NimScript execution and by

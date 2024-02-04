@@ -293,11 +293,10 @@ proc cleanUpLocations(mm: var VmMemoryManager, frame: var TStackFrame) =
 
 func cleanUpPending(mm: var VmMemoryManager) =
   ## Cleans up all managed ref-counted locations marked for clean-up.
-  var i = 0
-  # `resetLocation` might add new entries to the `pending` list, which is why
-  # we have to iterate the list manually like this
-  while i < mm.heap.pending.len:
-    let idx = mm.heap.pending[i]
+  # process the list back-to-front, reducing the amount of seq resizing when
+  # ``resetLocation`` adds new items to the pending list
+  while mm.heap.pending.len > 0:
+    let idx = mm.heap.pending.pop()
     let slot {.cursor.} = mm.heap.slots[idx] # A deep-copy is not necessary
                 # here, as the underlying `HeapSlot` is only moved around
 
@@ -307,10 +306,6 @@ func cleanUpPending(mm: var VmMemoryManager) =
     mm.allocator.dealloc(slot.handle)
 
     mm.heap.slots[idx].reset()
-
-    inc i
-
-  mm.heap.pending.setLen(0)
 
 # XXX: ensureKind (register transition) will be moved into a dedicated
 #      instruction
@@ -327,7 +322,8 @@ func initLocReg*(r: var TFullReg, typ: PVmType, mm: var VmMemoryManager) =
   r = TFullReg(kind: rkLocation)
   r.handle = mm.allocator.allocSingleLocation(typ)
 
-func initIntReg(r: var TFullReg, i: BiggestInt) =
+func initIntReg(r: var TFullReg, i: BiggestInt, mm: var VmMemoryManager) =
+  cleanUpReg(r, mm)
   r = TFullReg(kind: rkInt, intVal: i)
 
 template ensureKind(k: untyped) {.dirty.} =
@@ -1027,7 +1023,11 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       if regs[rb].kind in {rkLocation, rkHandle}:
         checkHandle(regs[rb])
         if regs[rb].handle.typ.kind in RegisterAtomKinds:
-          loadFromLoc(regs[ra], regs[rb].handle)
+          let h = regs[rb].handle
+          # retrieve the handle *before* cleaning up the register, since `ra`
+          # and `rb` may point to the same register
+          cleanUpReg(regs[ra], c.memory)
+          loadFromLoc(regs[ra], h)
         else:
           unreachable() # vmgen issue
       else:
@@ -2162,11 +2162,17 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       let typ = c.types[instr.regBx - wordExcess]
       assert typ.kind == akRef
 
-      # typ is the ref type, not the target type
-      let slot = c.heap.heapNew(c.allocator, typ.targetType)
-      # XXX: making sure that the previous ref value was destroyed will become
-      #      the responsibility of the code generator, in the future
-      asgnRef(regs[ra].atomVal.refVal, slot, c.memory, reset=true)
+      if c.heap.pending.len > 128:
+        # free the ref-counted cells pending destruction
+        cleanUpPending(c.memory)
+
+      # note: typ is the ref type, not the target type
+      let dest = regs[ra].handle
+      # reset the destination first:
+      resetLocation(c.memory, dest.byteView(), typ)
+      # then allocate and assign the cell (but without increasing the
+      # ref-count, as it alrady starts at 1):
+      regs[ra].atomVal.refVal = c.heap.heapNew(c.allocator, typ.targetType)
     of opcNewSeq:
       let typ = c.types[instr.regBx - wordExcess]
       inc pc
@@ -2204,13 +2210,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         regs[ra] = TFullReg(kind: rkInt, intVal: cnst.intVal)
       of cnstFloat:
         regs[ra] = TFullReg(kind: rkFloat, floatVal: cnst.floatVal)
-      of cnstString:
-        regs[ra] = TFullReg(kind: rkLocation)
-        regs[ra].handle =
-          c.allocator.allocSingleLocation(c.typeInfoCache.stringType)
-        # TODO: once implemented, assign the string as a literal instead of
-        #       via deep copying
-        deref(regs[ra].handle).strVal.newVmString(cnst.strVal, c.allocator)
       of cnstNode:
         # XXX: cnstNode is also used for non-NimNodes, so using `rkNimNode` is
         #      somewhat wrong. Introducing a new register kind just for the
@@ -2221,16 +2220,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         # A slice-list must not be used with `LdConst`
         assert false
 
-    of opcAsgnConst:
-      # assign the constant to the destination
-      decodeBx()
-      let cnst {.cursor.} = c.constants[rbx]
-      case cnst.kind
-      of cnstString:
-        # load the string literal directly into the destination
-        deref(regs[ra].handle).strVal.newVmString(cnst.strVal, c.allocator)
-      of cnstInt, cnstFloat, cnstNode, cnstSliceListInt..cnstSliceListFloat:
-        raiseVmError(VmEvent(kind: vmEvtErrInternal, msg: "illegal constant"))
     of opcLdGlobal:
       let rb = instr.regBx - wordExcess
       let slot = c.globals[rb]
@@ -2582,9 +2571,9 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       of 0: # getFile
         regs[ra].strVal.newVmString(toFullPath(c.config, n.info), c.allocator)
       of 1: # getLine
-        regs[ra].initIntReg(n.info.line.int)
+        regs[ra].initIntReg(n.info.line.int, c.memory)
       of 2: # getColumn
-        regs[ra].initIntReg(n.info.col)
+        regs[ra].initIntReg(n.info.col, c.memory)
       else:
         unreachable($imm) # vmgen issue
     of opcNSetLineInfo:

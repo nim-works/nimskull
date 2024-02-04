@@ -150,7 +150,6 @@ type
     opcLdNull,    # dest = nullvalue(types[Bx])
     opcLdNullReg,
     opcLdConst,   # dest = constants[Bx]
-    opcAsgnConst, # dest = copy(constants[Bx])
     opcLdGlobal,  # dest = globals[Bx]
 
     opcLdCmplxConst, # dest = complexConsts[Bx]

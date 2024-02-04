@@ -23,7 +23,8 @@ import
     options
   ],
   compiler/mir/[
-    mirenv
+    mirenv,
+    mirtrees
   ],
   compiler/utils/[
     bitsets,
@@ -154,45 +155,59 @@ proc newSymNode*(env: MirEnv, s: PSym): CgNode {.inline.} =
 proc newStrNode*(str: sink string): CgNode {.inline.} =
   CgNode(kind: cnkStrLit, info: unknownLineInfo, strVal: str)
 
-proc translate*(env: MirEnv, n: PNode): CgNode =
-  ## Compatibility routine for translating a ``PNode`` value-construction tree
-  ## to a ``CgNode`` tree.
-  template recurse(n: PNode): CgNode =
-    translate(env, n)
+proc translate*(t: MirTree): CgNode =
+  ## Compatibility routine for translating a MIR constant-expression (`t`) to
+  ## a ``CgNode`` tree. Obsolete once the code generators use the MIR
+  ## directly.
+  proc translateAux(t: MirTree, i: var int): CgNode =
+    template tree(k: CgNodeKind, body: untyped): CgNode =
+      ## Convenience template for setting up the tree node and iterating the
+      ## input node's child nodes.
+      let res {.inject.} = newExpr(k, unknownLineInfo, n.typ)
+      res.kids.newSeq(t[i - 1].len)
+      for j in 0..<res.len:
+        res.kids[j] = body
 
-  case n.kind
-  of nkObjConstr:
-    result = newExpr(cnkObjConstr, n.info, n.typ)
-    for i, it in sliceIt(n.sons, 1, n.len-1):
-      result.kids.add recurse(it)
-  of nkBracket:
-    result = newExpr(cnkArrayConstr, n.info, n.typ)
-    for it in n.items:
-      result.kids.add recurse(it)
-  of nkCurly:
-    result = newExpr(cnkSetConstr, n.info, n.typ)
-    for it in n.items:
-      result.kids.add recurse(it)
-  of nkTupleConstr:
-    result = newExpr(cnkTupleConstr, n.info, n.typ)
-    for it in n.items:
-      let it = if it.kind == nkExprColonExpr: it[1] else: it
-      result.kids.add recurse(it)
-  of nkClosure:
-    result = newExpr(cnkClosureConstr, n.info, n.typ)
-    result.kids = @[recurse(n[0]), recurse(n[1])]
-  of nkRange:
-    result = newNode(cnkRange, n.info)
-    result.kids = @[recurse(n[0]), recurse(n[1])]
-  of nkSym:
-    result = newSymNode(env, n.sym)
-    result.info = n.info
-  of nkExprColonExpr:
-    result = newNode(cnkBinding, n.info)
-    result.kids = @[recurse(n[0]), recurse(n[1])]
-  of nkLiterals:
-    result = translateLit(n)
-  of nkNilLit:
-    result = newNode(cnkNilLit, n.info, n.typ)
-  else:
-    unreachable(n.kind)
+      inc i # consume the end node
+      res
+
+    let n {.cursor.} = t[i]
+    inc i # advance to the first child node
+    case n.kind
+    of mnkObjConstr:
+      tree cnkObjConstr:
+        let field = translateAux(t, i)
+        CgNode(kind: cnkBinding, info: unknownLineInfo,
+               kids: @[field, translateAux(t, i)])
+    of mnkConstr:
+      let kind =
+        case n.typ.skipTypes(abstractVarRange).kind
+        of tyArray, tySequence, tyOpenArray:
+          cnkArrayConstr
+        of tyTuple:
+          cnkTupleConstr
+        of tySet:
+          cnkSetConstr
+        of tyProc:
+          cnkClosureConstr
+        else:
+          unreachable()
+
+      tree kind:
+        translateAux(t, i)
+    of mnkArg:
+      let x = translateAux(t, i)
+      inc i # skip the end node
+      x
+    of mnkLiteral:
+      translateLit(n.lit)
+    of mnkField:
+      CgNode(kind: cnkField, info: unknownLineInfo, field: n.field)
+    of mnkProc:
+      CgNode(kind: cnkProc, info: unknownLineInfo, prc: n.prc, typ: n.typ)
+    of AllNodeKinds - ConstrTreeNodes + {mnkEnd}:
+      # 'end' nodes are skipped manually
+      unreachable(n.kind)
+
+  var i = 0
+  translateAux(t, i)

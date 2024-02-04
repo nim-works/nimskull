@@ -35,7 +35,9 @@ proc genEnumToStrProc*(t: PType; info: TLineInfo; g: ModuleGraph; idgen: IdGener
     let field = t.n[i].sym
     let val = if field.ast == nil: field.name.s else: field.ast.strVal
     caseStmt.add newTree(nkOfBranch, newIntTypeNode(field.position, t),
-      newTree(nkStmtList, newTree(nkFastAsgn, newSymNode(res), newStrNode(val, info))))
+      newTree(nkStmtList, newTree(nkFastAsgn,
+                                  newSymNode(res),
+                                  newStrNode(val, res.typ, info))))
 
   let body = newTreeI(nkStmtList, info): caseStmt
 

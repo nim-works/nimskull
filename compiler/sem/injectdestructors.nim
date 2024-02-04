@@ -555,7 +555,8 @@ func isMoveable(tree: MirTree, v: Values, n: NodePosition): bool =
     false
   of mnkLiteral, mnkProc, mnkType:
     true
-  of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice:
+  of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice, UnaryOps,
+     BinaryOps:
     # the result of these operations is not an owned value
     false
   of mnkCall, mnkCheckedCall, mnkObjConstr, mnkConstr:

@@ -48,6 +48,14 @@ Semantics
         | <Type>
         | LVALUE
 
+  UNARY_OP = NegI VALUE
+
+  BINARY_OP = AddI VALUE, VALUE
+            | SubI VALUE, VALUE
+            | MulI VALUE, VALUE
+            | DivI VALUE, VALUE
+            | ModI VALUE, VALUE
+
   CALL_ARG = Arg VALUE                    # pass-by-value argument
            | Arg <none>                   # argument that's going to be omitted
                                           # later
@@ -76,7 +84,11 @@ Semantics
                     | CheckedCall LVALUE CALL_ARG ...
                     | CheckedCall <Magic> CALL_ARG ...
 
-  RVALUE = CALL_EXPR
+
+  RVALUE = UNARY_OP
+         | BINARY_OP
+         | CALL_EXPR
+         | CHECKED_CALL_EXPR
          | Constr   CONSTR_ARG ...       # construct a tuple, closure, set, or
          | ObjConstr (<Field> CONSTR_ARG) ... # construct an `object` or
                                          # `ref object`
@@ -159,7 +171,9 @@ Semantics
             | Emit VALUE ...
             | Asm VALUE ...
 
-  BRANCH_LIST = (Branch <Literal> ... STATEMENT) ... # a list of branches
+  BRANCH_LABEL = <Literal>
+               | <Const>
+  BRANCH_LIST = (Branch BRANCH_LABEL ... STATEMENT) ... # a list of branches
 
   EXCEPT_BRANCH = Branch <Type> ... STATEMENT # exception handler
                 | Branch <Local>    STATEMENT # exception handler for imported
@@ -207,3 +221,26 @@ processing and faster access, the whole code for a procedure is stored in a
 single sequence of *nodes*, with the nodes forming a tree.
 
 Sub-trees are currently delimited via an explicit `End` node.
+
+Constant Expressions
+====================
+
+MIR constant expression are stored separately from MIR trees representing
+routine bodies. Constant expressions describe a value not depending on any
+dynamic/run-time information. They use a variation/sub-set of the MIR that is
+better suited for statement-less trees.
+
+The syntax is similar to that of the normal MIR, with the biggest difference
+being that the representation is flat (i.e., a single tree rather than multiple
+ones).
+
+.. code-block:: literal
+
+  VALUE = <Proc>
+        | <Literal>
+        | COMPLEX
+
+  ARG = Arg VALUE
+
+  COMPLEX = Constr ARG...
+          | ObjConstr (<Field> ARG)...

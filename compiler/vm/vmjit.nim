@@ -42,17 +42,14 @@ import
     transf
   ],
   compiler/vm/[
+    identpatterns,
     vmaux,
-    vmcompilerserdes,
+    vmserialize,
     vmdef,
     vmgen,
     vmjit_checks,
-    vmlinker,
     vmmemory,
     vmtypegen
-  ],
-  compiler/utils/[
-    idioms
   ],
   experimental/[
     results
@@ -88,7 +85,7 @@ func swapState(c: var TCtx, gen: var CodeGenCtx) =
   swap(mode)
   swap(features)
   swap(module)
-  swap(linking)
+  swap(callbackKeys)
 
   # input-output parameters:
   swap(code)
@@ -118,12 +115,10 @@ proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
   # constants
   for id, data in since(env.data, cp.data):
     let
-      typ = c.getOrCreate(data.typ)
+      typ = c.getOrCreate(data[0].typ)
       handle = c.allocator.allocConstantLocation(typ)
 
-    # TODO: strings, seqs and other values using allocation also need to be
-    #       allocated with `allocConstantLocation` inside `serialize` here
-    c.serialize(data, handle)
+    initFromExpr(handle, data, c)
 
     c.complexConsts.add handle
 
@@ -142,26 +137,6 @@ func removeLastEof(c: var TCtx) =
     assert c.code.len == c.debug.len
     c.code.setLen(last)
     c.debug.setLen(last)
-
-func register(linker: var LinkerData, s: PSym, it: MirNode) =
-  ## Registers a newly discovered entity in the link table.
-  case it.kind
-  of mnkConst:
-    discard "nothing to do"
-  of mnkGlobal:
-    # XXX: only required for the compiler API
-    #      (``compilerbridge.setGlobalValue``). The MirEnv should be queried
-    #      directly (through ``vmjit``), instead of the link table being used
-    #      for this
-    linker.symToIndexTbl[s.id] = LinkIndex(it.global)
-  of mnkProc:
-    # XXX: the additional table is only required so that constructing values
-    #      directly from AST works (symbols need to be translated to procedure
-    #      IDs). Once constant data is represented with the MIR, this becomes
-    #      obsolete
-    linker.symToIndexTbl[s.id] = LinkIndex(it.prc)
-  else:
-    unreachable()
 
 proc generateMirCode(c: var TCtx, env: var MirEnv, n: PNode;
                      isStmt = false): MirBody =
@@ -209,9 +184,9 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
 
   # `n` is expected to have been put through ``transf`` already
   var mirBody = generateMirCode(c, jit.gen.env, n, isStmt = true)
-  applyPasses(mirBody, c.module, c.config, targetVm)
-  for s, n in discover(jit.gen.env, cp):
-    register(c.linking, s, n)
+  applyPasses(mirBody, c.module, jit.gen.env, c.config, targetVm)
+  for _ in discover(jit.gen.env, cp):
+    discard "nothing to register"
 
   let
     body = generateIR(c, jit.gen.env, mirBody)
@@ -241,9 +216,9 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   let cp = checkpoint(jit.gen.env)
 
   var mirBody = generateMirCode(c, jit.gen.env, n)
-  applyPasses(mirBody, c.module, c.config, targetVm)
-  for s, n in discover(jit.gen.env, cp):
-    register(c.linking, s, n)
+  applyPasses(mirBody, c.module, jit.gen.env, c.config, targetVm)
+  for _ in discover(jit.gen.env, cp):
+    discard "nothing to register"
 
   let
     body = generateIR(c, jit.gen.env, mirBody)
@@ -280,9 +255,9 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   echoInput(c.config, s, body)
   var mirBody = generateCode(c.graph, jit.gen.env, s, selectOptions(c), body)
   echoMir(c.config, s, mirBody)
-  applyPasses(mirBody, s, c.config, targetVm)
-  for s, n in discover(jit.gen.env, cp):
-    register(c.linking, s, n)
+  applyPasses(mirBody, s, jit.gen.env, c.config, targetVm)
+  for _ in discover(jit.gen.env, cp):
+    discard "nothing to register"
 
   let outBody = generateIR(c.graph, c.idgen, jit.gen.env, s, mirBody)
   echoOutput(c.config, s, outBody)
@@ -300,10 +275,14 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
 
   updateEnvironment(c, jit.gen.env, cp)
 
-func isAvailable*(c: TCtx, prc: PSym): bool =
+func getGlobal*(jit: JitState, g: PSym): LinkIndex =
+  ## Returns the link index for the symbol `g`. `g` must be known to `jit`.
+  LinkIndex jit.gen.env.globals[g]
+
+func isAvailable*(jit: JitState, c: TCtx, prc: PSym): bool =
   ## Returns whether the bytecode for `prc` is already available.
-  prc.id in c.linking.symToIndexTbl and
-    c.functions[c.linking.symToIndexTbl[prc.id].int].start >= 0
+  prc in jit.gen.env.procedures and
+    c.functions[jit.gen.env.procedures[prc].int].start >= 0
 
 proc registerProcedure*(jit: var JitState, c: var TCtx, prc: PSym): FunctionIndex =
   ## If it hasn't been already, adds `prc` to the set of procedures the JIT
@@ -311,11 +290,10 @@ proc registerProcedure*(jit: var JitState, c: var TCtx, prc: PSym): FunctionInde
   ## required to not be in the process of generating code.
   if prc notin jit.gen.env.procedures:
     let id = jit.gen.env.procedures.add(prc)
-    c.linking.symToIndexTbl[prc.id] = LinkIndex id
     c.functions.add initProcEntry(c, prc)
     assert int(id) == c.functions.high, "tables are out of sync"
 
-  result = FunctionIndex c.linking.symToIndexTbl[prc.id]
+  result = FunctionIndex jit.gen.env.procedures[prc]
 
 proc compile*(jit: var JitState, c: var TCtx, fnc: FunctionIndex): VmGenResult =
   ## Generates code for the the given function and updates the execution
@@ -353,5 +331,19 @@ proc registerCallback*(c: var TCtx; pattern: string; callback: VmCallback) =
   ## procedure at run-time will invoke the callback instead.
   # XXX: consider renaming this procedure to ``registerOverride``
   c.callbacks.add(callback) # some consumers rely on preserving registration order
-  c.linking.callbackKeys.add(IdentPattern(pattern))
-  assert c.callbacks.len == c.linking.callbackKeys.len
+  c.callbackKeys.add(IdentPattern(pattern))
+  assert c.callbacks.len == c.callbackKeys.len
+
+proc constDataToMir*(c: var TCtx, jit: var JitState, e: PNode): MirTree =
+  ## Translates the constant expression `e` to a MIR constant expression and
+  ## returns it. Entities referenced by the constant expression (e.g.,
+  ## procedures), are direclty registered with the environment.
+  let cp = checkpoint(jit.gen.env)
+  result = constDataToMir(jit.gen.env, e)
+
+  # run the discovery pass:
+  for _ in discover(jit.gen.env, cp):
+    discard "nothing to register"
+
+  # populate the VM environment with the discovered entities:
+  updateEnvironment(c, jit.gen.env, cp)

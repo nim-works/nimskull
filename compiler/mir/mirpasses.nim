@@ -11,7 +11,9 @@ import
     types
   ],
   compiler/mir/[
+    datatables,
     mirbodies,
+    mirenv,
     mirchangesets,
     mirconstr,
     mirtrees,
@@ -355,11 +357,25 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         changes.replaceMulti(tree, pos, bu):
           bu.emitFrom(tree, tree.child(def, 1))
 
-proc applyPasses*(body: var MirBody, prc: PSym, config: ConfigRef,
-                  target: TargetBackend) =
+proc extractStringLiterals(tree: MirTree, env: var MirEnv,
+                           changes: var Changeset) =
+  ## Extracts all string literals and promotes them to anonymous constants,
+  ## replacing the string literals with a usage of the constants they were
+  ## promoted to.
+  for i in search(tree, {mnkLiteral}):
+    # note: both normal string *and* cstring literals are currently included
+    if tree[i].lit.kind in nkStrLiterals:
+      # create an anonymous constant from the literal:
+      let c = toConstId env.data.getOrPut(@[tree[i]])
+      # replace the usage of the literal with the anonymous constant:
+      changes.replaceMulti(tree, i, bu):
+        bu.use toValue(c, tree[i].typ)
+
+proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
+                  config: ConfigRef, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
   ## `prc`. `target` is the targeted backend and is used to enable/disable
-  ## certain passes.
+  ## certain passes. Passes may register new entities with `env`.
   template batch(b: untyped) =
     block:
       var c {.inject.} = initChangeset(body.code)
@@ -374,6 +390,10 @@ proc applyPasses*(body: var MirBody, prc: PSym, config: ConfigRef,
 
   batch:
     lowerSwap(body.code, c)
+    if target == targetVm:
+      # only the C and VM targets need the extraction, and only the VM
+      # requires the extraction for cstring literals
+      extractStringLiterals(body.code, env, c)
 
   # eliminate temporaries after all other passes
   batch:

@@ -552,7 +552,6 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
       result = qualifiedLookUp(c, n, {checkAmbiguity, checkUndeclared})
     if result.isError:
       markUsed(c, n.info, result)
-
       # XXX: move to propagating nkError, skError, and tyError
       localReport(c.config, result.ast)
     elif result != nil:
@@ -569,7 +568,6 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
         if result.typ.sym == nil:
           let err = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
           localReport(c.config, err)
-
           return errorSym(c, n, err)
         result = result.typ.sym.copySym(nextSymId c.idgen)
         result.typ = exactReplica(result.typ)
@@ -585,23 +583,19 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
         else:
           let err = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
           localReport(c.config, err)
-
           return errorSym(c, n, err)
       if result.kind != skType and result.magic notin {mStatic, mType, mTypeOf}:
-        # this implements the wanted ``var v: V, x: V`` feature ...
         var ov: TOverloadIter
         var amb = initOverloadIter(ov, c, n)
-        while amb != nil:
+        while amb != nil and amb.kind != skType:
           if amb.isError:
             localReport(c.config, amb.ast)
-          if amb.kind != skType:
-            amb = nextOverloadIter(ov, c, n)
+          amb = nextOverloadIter(ov, c, n)
         if amb != nil: result = amb
         else:
           let err = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
           if result.kind != skError:
             localReport(c.config, err)
-
           return errorSym(c, n, err)
       if result.typ.kind != tyGenericParam:
         # XXX get rid of this hack!
