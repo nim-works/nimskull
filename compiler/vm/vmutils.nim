@@ -135,12 +135,12 @@ proc renderCodeListing*(config: ConfigRef, sym: PSym,
                 $<e.opc, $<e.ra, $<e.rb,
                 $<e.types[0].typeToString(),
                 $<e.types[1].typeToString())
+    of opcSetEh:
+      line.addf("  $# $# $#", $<e.opc, $<e.ra, $e.rb)
     elif e.opc < firstABxInstr:
       line.addf("  $# r$# r$# r$#", $<e.opc, $<e.ra, $<e.rb, $<e.rc)
-    elif e.opc in relativeJumps + {opcTry}:
+    elif e.opc in relativeJumps:
       line.addf("  $# r$# L$#", $<e.opc, $<e.ra, $<e.idx)
-    elif e.opc in {opcExcept}:
-      line.addf("  $# $# $#", $<e.opc, $<e.ra, $<e.idx)
     elif e.opc in {opcLdConst}:
       line.addf("  $# r$# $# $#",
                 $<e.opc, $<e.ra, $<e.ast.renderTree(), $<e.idx)

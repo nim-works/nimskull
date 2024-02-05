@@ -4,9 +4,6 @@ false
 Within finally->try
 '''
   exitCode: 1
-  knownIssue.vm: '''
-    Exception/finally handling is largely disfunctional in the VM
-  '''
 """
 # Test break in try statement:
 

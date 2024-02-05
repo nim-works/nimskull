@@ -28,6 +28,7 @@ import
   ],
   compiler/utils/[
     debugutils,
+    idioms
   ],
   compiler/vm/[
     identpatterns
@@ -658,10 +659,41 @@ type
 
   VmRawStackTrace* = seq[tuple[sym: PSym, pc: PrgCtr]]
 
+  HandlerTableEntry* = tuple
+    offset: uint32 ## instruction offset
+    instr:  uint32 ## position of the EH instruction to spawn a thread with
+
+  EhOpcode* = enum
+    ehoExcept
+      ## unconditional exception handler
+    ehoExceptWithFilter
+      ## conditionl exception handler. If the exception is a subtype or equal
+      ## to the specified type, the handler is entered
+    ehoFinally
+      ## enter the ``finally`` handler
+    ehoNext
+      ## relative jump to another instruction
+    ehoLeave
+      ## abort the parent thread
+    ehoEnd
+      ## ends the thread without treating the exception as handled
+
+  EhInstr* = tuple
+    ## Exception handling instruction. 8-byte in size.
+    opcode: EhOpcode
+    a: uint16 ## meaning depends on the opcode
+    b: uint32 ## meaning depends on the opcode
+
   TCtx* = object
     code*: seq[TInstr]
     debug*: seq[TLineInfo]  # line info for every instruction; kept separate
                             # to not slow down interpretation
+    ehTable*: seq[HandlerTableEntry]
+      ## stores the instruction-to-EH mappings. Used to look up the EH
+      ## instruction to start exception handling with in case of a normal
+      ## instruction raising
+    ehCode*: seq[EhInstr]
+      ## stores the instructions for the exception handling (EH) mechanism
     globals*: seq[HeapSlotHandle] ## Stores each global's corresponding heap slot
     constants*: seq[VmConstant] ## constant data
     complexConsts*: seq[LocHandle] ## complex constants (i.e. everything that
@@ -704,15 +736,13 @@ type
     prc*: PSym                 # current prc; proc that is evaluated
     slots*: seq[TFullReg]      # parameters passed to the proc + locals;
                               # parameters come first
+    eh*: HOslice[int]
+      ## points to the active list of instruction-to-EH mappings
+    baseOffset*: PrgCtr
+      ## the instruction that all offsets in the instruction-to-EH list are
+      ## relative to. Only valid when `eh` is not empty
 
     comesFrom*: int
-    safePoints*: seq[int]      # used for exception handling
-                              # XXX 'break' should perform cleanup actions
-                              # What does the C backend do for it?
-
-    savedPC*: PrgCtr         ## remembers the program counter of the ``Ret``
-                             ## instruction during cleanup. -1 indicates that
-                             ## no clean-up is happening
 
   ProfileInfo* = object
     ## Profiler data for a single procedure.

@@ -28,9 +28,24 @@ func raiseVmError*(
   event.instLoc = inst
   raise (ref VmError)(event: event)
 
+func vmUnreachable(msg: sink string, inst: InstantiationInfo
+                   ) {.noinline, noreturn.} =
+  ## Raises an internal VM error with `msg` as the message.
+  raiseVmError(VmEvent(kind: vmEvtErrInternal, msg: msg), inst)
+
 # templates below are required as InstantiationInfo isn't captured otherwise
 
 template raiseVmError*(event: VmEvent) =
   ## Raises a `VmError`, using the source code position of the callsite as the
   ## `inst` value.
   raiseVmError(event, instLoc(-2))
+
+template vmUnreachable*(msg: sink string) =
+  ## Raises an internal VM error with `msg` as the message.
+  vmUnreachable(msg, instLoc(-2))
+
+template vmAssert*(cond: bool) =
+  ## Raises an ``AssertionDefect`` or VM error depending on the compile-
+  ## time configuration.
+  # XXX: implement this properly
+  assert cond

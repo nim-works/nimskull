@@ -90,6 +90,8 @@ func swapState(c: var TCtx, gen: var CodeGenCtx) =
   # input-output parameters:
   swap(code)
   swap(debug)
+  swap(ehTable)
+  swap(ehCode)
   swap(constants)
   swap(typeInfoCache)
   swap(rtti)

@@ -183,6 +183,8 @@ proc loadFromFile(c: var TCtx, overrides: var seq[string],
 
   loadIntoContext(c, p)
   c.code = move p.code
+  c.ehTable = move p.ehTable
+  c.ehCode = move p.ehCode
   overrides = move p.callbacks
 
   result.initSuccess(p.entryPoint)
