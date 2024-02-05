@@ -85,3 +85,27 @@ block signed_integer_overflow_check:
 
   runTest:
     test(high(int32)) # provoke an overflow-check failure
+
+block float_nan_check:
+  # enable nan checks first; they're disabled by default
+  {.push nanChecks: on.}
+
+  proc test(a: float) =
+    var obj = Object() # obj stores a value that needs to be destroyed
+    discard 0.0 / a
+
+  {.pop.}
+
+  numDestroy = 0
+  var raised = false
+  try:
+    test(0.0) # provoke a nan-check failure
+  except:
+    raised = true
+
+  when defined(js) or defined(vm):
+    # XXX: nan checks aren't yet implemented on these targets
+    doAssert not raised, "NaN checks are implemented"
+  else:
+    doAssert raised
+  doAssert numDestroy == 1

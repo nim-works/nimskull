@@ -1897,6 +1897,8 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
     r.kind = resExpr
   of mChckRange:
     genRangeChck(p, n, r)
+  of mChckNaN:
+    discard "implementation is missing"
   of mChckIndex:
     let
       first = firstOrd(p.config, n[1].typ)

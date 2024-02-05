@@ -822,6 +822,9 @@ type
     mChckRange
       ## chckRange(v, lower, upper); conversion + range check -- returns
       ## either the type-converted value or raises a defect
+    mChckNaN
+      ## chckNaN(v); raise an error when the float value `v` is a quiet NaN.
+      ## Behaviour with signaling NaNs is undefined.
     mChckIndex
       ## chckIndex(arr, idx); raise an error when `idx` is not within `arr`'s
       ## bounds
