@@ -1763,10 +1763,8 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mChckNaN:
     var a: TLoc
     initLocExpr(p, e[1], a)
-    # XXX: using a comparison could result in a floating point exception to
-    #      be raised (i.e., the flag to be set in the fenv).
-    #      ``__builtin_isnan``, which doesn't exhibit this behaviour, could be
-    #      used instead
+    # NOTE: if the value is a signaling NaN, the comparison itself results in
+    #       a float-point exception (which might result in a trap)
     linefmt(p, cpsStmts, "if ($1 != $1){ #raiseFloatInvalidOp(); $2}$n",
             [rdLoc(a), raiseInstr(p)])
   of mChckIndex:
