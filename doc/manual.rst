@@ -4690,10 +4690,13 @@ the `raise` statement is the only way to raise an exception.
 
 .. XXX document this better!
 
-If no exception name is given, the current exception is `re-raised`:idx:. The
-`ReraiseDefect`:idx: exception is raised if there is no exception to
-re-raise. It follows that the `raise` statement *always* raises an
-exception.
+If no exception name is given, the current exception is `re-raised`:idx:.
+There are two restrictions for `raise` statements without an exception name:
+
+1. They must appear within the scope of an `except`.
+2. They must not appear within the direct scope of a `finally`. A re-raise
+   statement within an `except` that appears within a `finally` is okay, but
+   the other way around is not.
 
 
 Exception hierarchy
