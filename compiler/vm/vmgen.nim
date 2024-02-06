@@ -1350,12 +1350,9 @@ proc genNarrow(c: var TCtx; n: CgNode; dest: TRegister; sNarrow = opcNarrowS) =
       else:             sNarrow
     c.gABC(n, op, dest, TRegister(size*8))
 
-proc genNarrowU(c: var TCtx; n: CgNode; dest: TDest) =
-  let t = skipTypes(n.typ, IrrelevantTypes + {tyRange})
-  assert t.kind in {tyUInt..tyUInt64, tyInt..tyInt64}
-  let size = getSize(c.config, t)
-  if size < 8:
-    c.gABC(n, opcNarrowU, dest, TRegister(size * 8))
+proc genNarrowU(c: var TCtx; n: CgNode; dest: TDest) {.inline.} =
+  # always mask the value, even if of signed type
+  genNarrow(c, n, dest, opcNarrowU)
 
 proc genNarrowUnsigned(c: var TCtx; info: TLineInfo, typ: PType,
                        dest: TRegister) =
