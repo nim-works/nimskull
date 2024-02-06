@@ -1271,12 +1271,12 @@ proc genIndex(c: var TCtx; n: CgNode; arr: PType): TRegister =
   else:
     result = c.genx(n)
 
+proc genNarrowUnsigned(c: var TCtx; info: TLineInfo, typ: PType,
+                       dest: TRegister)
+
 proc genRegLoad(c: var TCtx, n: CgNode, typ: PType, dest, src: TRegister) =
   c.gABC(n, opcNodeToReg, dest, src)
-
-  let t = typ.skipTypes(abstractInst)
-  if t.isUnsigned() and t.size < sizeof(BiggestInt):
-    c.gABC(n, opcNarrowU, dest, TRegister(t.size * 8))
+  genNarrowUnsigned(c, n.info, typ, dest)
 
 proc genRegLoad(c: var TCtx, n: CgNode, dest, src: TRegister) {.inline.} =
   genRegLoad(c, n, n.typ, dest, src)
@@ -1337,22 +1337,30 @@ proc genBinaryABC(c: var TCtx; n: CgNode; dest: var TDest; opc: TOpcode) =
   c.freeTemp(tmp)
   c.freeTemp(tmp2)
 
-proc genNarrow(c: var TCtx; n: CgNode; dest: TDest) =
-  let t = skipTypes(n.typ, abstractVar-{tyTypeDesc})
-  # uint is uint64 in the VM, we we only need to mask the result for
-  # other unsigned types:
-  if t.kind in {tyUInt8..tyUInt32} or (t.kind == tyUInt and t.size < 8):
-    c.gABC(n, opcNarrowU, dest, TRegister(t.size*8))
-  elif t.kind in {tyInt8..tyInt32} or (t.kind == tyInt and t.size < 8):
-    c.gABC(n, opcNarrowS, dest, TRegister(t.size*8))
+proc genNarrow(c: var TCtx; n: CgNode; dest: TRegister; sNarrow = opcNarrowS) =
+  ## If required for the type of `n`, emits a narrow/masking instruction for
+  ## the value in `dest`. `sNarrow` is the opcode to use for signed integers.
+  let
+    t = skipTypes(n.typ, IrrelevantTypes + {tyRange})
+    size = getSize(c.config, t)
+  if size < 8:
+    # the value doesn't occupy the full register's range
+    let op =
+      if isUnsigned(t): opcNarrowU
+      else:             sNarrow
+    c.gABC(n, op, dest, TRegister(size*8))
 
-proc genNarrowU(c: var TCtx; n: CgNode; dest: TDest) =
-  let t = skipTypes(n.typ, abstractVar-{tyTypeDesc})
-  # uint is uint64 in the VM, we we only need to mask the result for
-  # other unsigned types:
-  if t.kind in {tyUInt8..tyUInt32, tyInt8..tyInt32} or
-    (t.kind in {tyUInt, tyInt} and t.size < 8):
-    c.gABC(n, opcNarrowU, dest, TRegister(t.size*8))
+proc genNarrowU(c: var TCtx; n: CgNode; dest: TDest) {.inline.} =
+  # always mask the value, even if of signed type
+  genNarrow(c, n, dest, opcNarrowU)
+
+proc genNarrowUnsigned(c: var TCtx; info: TLineInfo, typ: PType,
+                       dest: TRegister) =
+  ## Only masks the value in `dest` (with ``opcNarrowU``) if `typ` is an
+  ## unsigned integer type.
+  let t = skipTypes(typ, IrrelevantTypes + {tyRange})
+  if isUnsigned(t) and (let size = getSize(c.config, t); size < 8):
+    c.gABC(info, opcNarrowU, dest, TRegister(size * 8))
 
 proc genBinaryABCnarrow(c: var TCtx; n: CgNode; dest: var TDest; opc: TOpcode) =
   genBinaryABC(c, n, dest, opc)
@@ -1887,12 +1895,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.freeTemp(tmp2)
   of mShlI:
     genBinaryABC(c, n, dest, opcShlInt)
-    # genNarrowU modified
-    let t = skipTypes(n.typ, abstractVar-{tyTypeDesc})
-    if t.kind in {tyUInt8..tyUInt32} or (t.kind == tyUInt and t.size < 8):
-      c.gABC(n, opcNarrowU, dest, TRegister(t.size*8))
-    elif t.kind in {tyInt8..tyInt32} or (t.kind == tyInt and t.size < 8):
-      c.gABC(n, opcSignExtend, dest, TRegister(t.size*8))
+    genNarrow(c, n, dest, opcSignExtend)
   of mAshrI: genBinaryABC(c, n, dest, opcAshrInt)
   of mBitandI: genBinaryABC(c, n, dest, opcBitandInt)
   of mBitorI: genBinaryABC(c, n, dest, opcBitorInt)
@@ -1955,10 +1958,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mUnaryPlusI, mUnaryPlusF64: gen(c, n[1], dest)
   of mBitnotI:
     genUnaryABC(c, n, dest, opcBitnotInt)
-    #genNarrowU modified, do not narrow signed types
-    let t = skipTypes(n.typ, abstractVar-{tyTypeDesc})
-    if t.kind in {tyUInt8..tyUInt32} or (t.kind == tyUInt and t.size < 8):
-      c.gABC(n, opcNarrowU, dest, TRegister(t.size*8))
+    genNarrowUnsigned(c, n.info, n.typ, dest)
   of mCharToStr, mBoolToStr, mIntToStr, mInt64ToStr, mFloatToStr, mStrToStr,
      mEnumToStr:
     genToStr(c, n, n[1], dest)
