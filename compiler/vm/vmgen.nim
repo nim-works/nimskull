@@ -1362,7 +1362,7 @@ proc genNarrowUnsigned(c: var TCtx; info: TLineInfo, typ: PType,
   ## Only masks the value in `dest` (with ``opcNarrowU``) if `typ` is an
   ## unsigned integer type.
   let t = skipTypes(typ, IrrelevantTypes + {tyRange})
-  if isUnsigned(t) and (let size = getSize(c.config, typ); size < 8):
+  if isUnsigned(t) and (let size = getSize(c.config, t); size < 8):
     c.gABC(info, opcNarrowU, dest, TRegister(size * 8))
 
 proc genBinaryABCnarrow(c: var TCtx; n: CgNode; dest: var TDest; opc: TOpcode) =
