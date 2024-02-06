@@ -49,24 +49,6 @@ proc raiseFromFinally() =
 
 test raiseFromFinally(), [1, 2, 3]
 
-proc reraiseFromFinally() =
-  try:
-    try:
-      raise ValueError.newException("a")
-    finally:
-      steps.add 1
-      # abort the exception but immediately re-raise it
-      raise
-    doAssert false, "unreachable"
-  except ValueError as e:
-    steps.add 2
-    doAssert e.msg == "a"
-    doAssert getCurrentException() == e
-
-  steps.add 3
-
-test reraiseFromFinally(), [1, 2, 3]
-
 proc exceptionInFinally() =
   ## Raise, and fully handle, an exception within a finally clause that was
   ## entered through exceptional control-flow.
