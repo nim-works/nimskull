@@ -1650,12 +1650,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   case op
   of mNot..mUnaryMinusF64: unaryArith(p, e, e[1], d, op)
   of mUnaryMinusI, mUnaryMinusI64: unaryArithOverflow(p, e, d, op)
-  of mAbsI:
-    # TODO: lower the unchecked ``abs`` variant earlier
-    if optOverflowCheck in p.options:
-      unaryArithOverflow(p, e, d, op)
-    else:
-      unaryArith(p, e, e[1], d, op)
   of mAddF64..mDivF64: binaryFloatArith(p, e, d, op)
   of mShrI..mXor: binaryArith(p, e, e[1], e[2], d, op)
   of mEqProc: genEqProc(p, e, d)
@@ -1666,7 +1660,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mAppendStrCh:
     binaryStmtAddr(p, e, d, "nimAddCharV1")
   of mAppendStrStr: genStrAppend(p, e, d)
-  of mAppendSeqElem, mNewSeq, mSetLengthSeq:
+  of mAppendSeqElem, mNewSeq, mSetLengthSeq, mAbsI:
     genCall(p, e, d)
   of mEqStr: genStrEquals(p, e, d)
   of mLeStr: binaryExpr(p, e, d, "(#cmpStrings($1, $2) <= 0)")
