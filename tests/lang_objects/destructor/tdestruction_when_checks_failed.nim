@@ -86,6 +86,14 @@ block signed_integer_overflow_check:
   runTest:
     test(high(int32)) # provoke an overflow-check failure
 
+block abs_overflow_check:
+  proc test(a: int32) =
+    var obj = Object() # obj stores a value that needs to be destroyed
+    discard abs(a)
+
+  runTest:
+    test(low(int32)) # provoke an overflow-check failure
+
 block float_nan_check:
   # enable nan checks first; they're disabled by default
   {.push nanChecks: on.}
