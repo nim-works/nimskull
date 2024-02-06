@@ -1267,6 +1267,16 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         else:
           # no range check is needed
           op(c, dest, n, m)
+  of mAbsI:
+    # special handling for the ``abs`` magic: if overflow checks are enabled
+    # and panics are disabled, the call must be a checked call
+    if optOverflowCheck in n[0].sym.options and
+       optPanics notin c.graph.config.globalOptions:
+      c.buildTree mnkCheckedCall, n.typ:
+        c.genCallee(n[0])
+        arg n[1]
+    else:
+      genCall(c, n)
 
   # float arithmetic operations:
   of mAddF64, mSubF64, mMulF64, mDivF64:

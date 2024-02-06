@@ -90,7 +90,7 @@ when options.hasTinyCBackend:
 
 const NonMagics* = {mNewString, mNewStringOfCap, mNewSeq, mSetLengthSeq,
                     mAppendSeqElem, mEnumToStr, mExit, mParseBiggestFloat,
-                    mDotDot, mEqCString, mIsolate}
+                    mAbsI, mDotDot, mEqCString, mIsolate}
   ## magics that are treated like normal procedures by the code generator.
 
 const

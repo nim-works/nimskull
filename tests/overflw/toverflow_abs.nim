@@ -3,13 +3,9 @@ discard """
   targets: "c js vm"
   matrix: "--overflowChecks:on"
   exitcode: 1
-  outputsub: "Error: over- or underflow"
-  knownIssue.c js: "`abs` uses the local overflow check state"
+  outputsub: "over- or underflow"
+  knownIssue.js: "64-bit signed integers aren't fully supported"
 """
-
-# instantiate the magic procedure in a context where overflow checks are
-# enabled:
-discard abs(-1)
 
 {.push overflowChecks: off.}
 

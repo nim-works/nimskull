@@ -166,7 +166,7 @@ const
   sfModuleInit* = sfMainModule
     ## the procedure is the 'init' procedure of a module
 
-  NonMagics* = { mDotDot, mParseBiggestFloat, mExit }
+  NonMagics* = { mAbsI, mDotDot, mParseBiggestFloat, mExit }
     ## magics that are treated like normal procedures by the code
     ## generator
 
@@ -632,13 +632,6 @@ proc arith(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
     gen(p, n[1], x)
     gen(p, n[2], y)
     r.res = "($1 >>> $2)" % [x.rdLoc, y.rdLoc]
-  of mAbsI:
-    # TODO: lower the unchecked ``abs`` variant earlier
-    if optOverflowCheck in p.options:
-      arithAux(p, n, r, op)
-    else:
-      let x = gen(p, n[1])
-      r.res = "Math.abs($1)" % rdLoc(x)
   of mEqRef:
     if mapType(n[1].typ) != etyBaseIndex:
       arithAux(p, n, r, op)
@@ -1746,7 +1739,8 @@ proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes)
 proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   let op = getCalleeMagic(p.g.env, n[0])
   case op
-  of mAddI..mUnaryMinusF64: arith(p, n, r, op)
+  of mAddI..mUnaryMinusI64, mNot..mUnaryMinusF64:
+    arith(p, n, r, op)
   of mCharToStr:
     unaryExpr(p, n, r, "nimCharToStr", "nimCharToStr($1)")
   of mBoolToStr:
@@ -1875,7 +1869,7 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mNewString: unaryExpr(p, n, r, "mnewString", "mnewString($1)")
   of mNewStringOfCap:
     unaryExpr(p, n, r, "mnewString", "mnewString(0)")
-  of mDotDot:
+  of mAbsI, mDotDot:
     genCall(p, n, r)
   of mParseBiggestFloat:
     useMagic(p, "nimParseBiggestFloat")
