@@ -456,7 +456,7 @@ proc modInt(a, b: int): int {.asmNoStackFrame, compilerproc.} =
     return Math.trunc(`a` % `b`);
   """
 
-proc checkOverflowInt64(a: int) {.asmNoStackFrame, compilerproc.} =
+proc checkOverflowInt64(a: int64) {.asmNoStackFrame, compilerproc.} =
   asm """
     if (`a` > 9223372036854775807 || `a` < -9223372036854775808) `raiseOverflow`();
   """
@@ -498,9 +498,11 @@ proc modInt64(a, b: int): int {.asmNoStackFrame, compilerproc.} =
 
 proc negInt(a: int): int {.compilerproc.} =
   result = a*(-1)
+  checkOverflowInt(result)
 
 proc negInt64(a: int64): int64 {.compilerproc.} =
   result = a*(-1)
+  checkOverflowInt64(result)
 
 proc absInt(a: int): int {.compilerproc.} =
   result = if a < 0: a*(-1) else: a
