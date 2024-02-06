@@ -121,6 +121,8 @@ type
     exc: PNode  ## stack of exceptions
     tags: PNode ## list of tags
     bottom, inTryStmt, inExceptOrFinallyStmt, leftPartOfAsgn: int
+    isReraiseAllowed: int
+      ## > 0 if a re-raise statement is allowed
     owner: PSym
     ownerModule: PSym
     init: seq[int] ## list of initialized variables
@@ -577,12 +579,19 @@ proc trackTryStmt(tracked: PEffects, n: PNode) =
     let b = n[i]
     if b.kind == nkExceptBranch:
       setLen(tracked.init, oldState)
+      inc tracked.isReraiseAllowed
       track(tracked, b[^1])
+      dec tracked.isReraiseAllowed
       for i in oldState..<tracked.init.len:
         addToIntersection(inter, tracked.init[i])
     else:
       setLen(tracked.init, oldState)
+      let prev = tracked.isReraiseAllowed
+      # re-raising in a finally clause would allow handling the exception,
+      # which is illegal. Therefore, re-raising is disallowed:
+      tracked.isReraiseAllowed = 0
       track(tracked, b[^1])
+      tracked.isReraiseAllowed = prev
       hasFinally = true
 
   tracked.bottom = oldBottom
@@ -1170,11 +1179,15 @@ proc track(tracked: PEffects, n: PNode) =
       for i in 0..<n.safeLen:
         track(tracked, n[i])
       createTypeBoundOps(tracked, n[0].typ, n.info)
-    else:
+    elif tracked.isReraiseAllowed > 0:
       # A `raise` with no arguments means we're going to re-raise the exception
-      # being handled or, if outside of an `except` block, a `ReraiseDefect`.
-      # Here we add a `Exception` tag in order to cover both the cases.
+      # being handled
+      # XXX: using an `Exception` tag is overly conservative. It is statically
+      #      known which exceptions an except branch covers, but this
+      #      information isn't available here, at the moment.
       addRaiseEffect(tracked, createRaise(tracked.graph, n), nil)
+    else:
+      localReport(tracked.config, n, reportSem(rsemCannotReraise))
   of nkCallKinds:
     trackCall(tracked, n)
   of nkDotExpr:

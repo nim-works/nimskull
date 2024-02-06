@@ -498,6 +498,7 @@ type
     rsemExpectedObjectForMethod
     rsemUnexpectedPragmaInDefinitionOf
     rsemMisplacedRunnableExample
+    rsemCannotReraise
 
     # Expressions
     rsemConstantOfTypeHasNoValue

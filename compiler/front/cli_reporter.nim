@@ -1350,6 +1350,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemMisplacedRunnableExample:
       result = "runnableExamples must appear before the first non-comment statement"
 
+    of rsemCannotReraise:
+      result = "an exception can only be re-raised within the scope of an" &
+               " except, with no finally in-between"
+
     of rsemCannotInferTypeOfLiteral:
       result = "cannot infer the type of the $1" % r.typ.kind.toHumanStr
 
