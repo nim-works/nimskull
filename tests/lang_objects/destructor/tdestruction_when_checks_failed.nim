@@ -94,6 +94,30 @@ block abs_overflow_check:
   runTest:
     test(low(int32)) # provoke an overflow-check failure
 
+block float_inf_check:
+  # enable infinity checks first; they're disabled by default
+  {.push infChecks: on.}
+
+  proc test(a: float) =
+    var obj = Object() # obj stores a value that needs to be destroyed
+    discard 1.0 / a
+
+  {.pop.}
+
+  numDestroy = 0
+  var raised = false
+  try:
+    test(0.0) # provoke an infinity-check failure
+  except:
+    raised = true
+
+  when defined(js) or defined(vm):
+    # XXX: infinity checks aren't yet implemented on these targets
+    doAssert not raised, "NaN checks are implemented"
+  else:
+    doAssert raised
+  doAssert numDestroy == 1
+
 block float_nan_check:
   # enable nan checks first; they're disabled by default
   {.push nanChecks: on.}
