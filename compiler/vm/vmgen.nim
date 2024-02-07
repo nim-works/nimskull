@@ -3089,8 +3089,10 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
       genCall(c, n, dest)
       clearDest(c, n, dest)
   of cnkNeg:
+    prepare(c, dest, n.typ)
     let a = c.genx(n[0])
     c.gABC(n, pick(n, opcUnaryMinusInt, opcUnaryMinusFloat), dest, a)
+    c.freeTemp(a)
   of cnkAdd: binaryArith(c, n, n[0], n[1], dest, opcAddu, opcAddFloat)
   of cnkSub: binaryArith(c, n, n[0], n[1], dest, opcSubu, opcSubFloat)
   of cnkMul: binaryArith(c, n, n[0], n[1], dest, opcMulu, opcMulFloat)
