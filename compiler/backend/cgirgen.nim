@@ -802,12 +802,12 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
   of mnkCall, mnkCheckedCall:
     callToIr(tree, cl, n, cr)
   of UnaryOps:
-    const Map = [mnkNegI: cnkNegI]
+    const Map = [mnkNeg: cnkNeg]
     treeOp Map[n.kind]:
       res.add valueToIr(tree, cl, cr)
   of BinaryOps:
-    const Map = [mnkAddI: cnkAddI, mnkSubI: cnkSubI,
-                 mnkMulI: cnkMulI, mnkDivI: cnkDivI, mnkModI: cnkModI]
+    const Map = [mnkAdd: cnkAdd, mnkSub: cnkSub,
+                 mnkMul: cnkMul, mnkDiv: cnkDiv, mnkModI: cnkModI]
     treeOp Map[n.kind]:
       res.kids = @[valueToIr(tree, cl, cr), valueToIr(tree, cl, cr)]
   of AllNodeKinds - ExprKinds - {mnkNone}:

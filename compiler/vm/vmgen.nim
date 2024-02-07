@@ -76,7 +76,7 @@ import
 import std/options as std_options
 
 from compiler/backend/compat import getInt, isOfBranch, skipConv, lastSon,
-  getMagic
+  getMagic, pick
 
 from std/bitops import bitor
 
@@ -1954,7 +1954,6 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mUnaryMinusI, mUnaryMinusI64:
     genUnaryABC(c, n, dest, opcUnaryMinusInt)
     genNarrow(c, n, dest)
-  of mUnaryMinusF64: genUnaryABC(c, n, dest, opcUnaryMinusFloat)
   of mUnaryPlusI, mUnaryPlusF64: gen(c, n[1], dest)
   of mBitnotI:
     genUnaryABC(c, n, dest, opcBitnotInt)
@@ -3057,15 +3056,15 @@ proc genClosureConstr(c: var TCtx, n: CgNode, dest: TRegister) =
     c.freeTemp(tmp2)
     c.freeTemp(envTmp)
 
-proc binaryArith(c: var TCtx, e, x, y: CgNode, dest: var TDest, op: TOpcode) =
+proc binaryArith(c: var TCtx, e, x, y: CgNode, dest: var TDest,
+                 intOp, floatOp: TOpcode) =
   ## Emits the instruction sequence for the binary operation `e` with opcode
   ## `op`. `x` and `y` are the operand expressions.
   prepare(c, dest, e.typ)
   let
     a = c.genx(x)
     b = c.genx(y)
-  c.gABC(e, op, dest, a, b)
-  c.genNarrow(x, dest)
+  c.gABC(e, pick(e, intOp, floatOp), dest, a, b)
   c.freeTemp(a)
   c.freeTemp(b)
 
@@ -3089,15 +3088,16 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     else:
       genCall(c, n, dest)
       clearDest(c, n, dest)
-  of cnkNegI:
+  of cnkNeg:
+    prepare(c, dest, n.typ)
     let a = c.genx(n[0])
-    c.gABC(n, opcUnaryMinusInt, dest, a)
-    c.genNarrow(n[0], dest)
-  of cnkAddI: binaryArith(c, n, n[0], n[1], dest, opcAddu)
-  of cnkSubI: binaryArith(c, n, n[0], n[1], dest, opcSubu)
-  of cnkMulI: binaryArith(c, n, n[0], n[1], dest, opcMulu)
-  of cnkDivI: binaryArith(c, n, n[0], n[1], dest, opcDivInt)
-  of cnkModI: binaryArith(c, n, n[0], n[1], dest, opcModInt)
+    c.gABC(n, pick(n, opcUnaryMinusInt, opcUnaryMinusFloat), dest, a)
+    c.freeTemp(a)
+  of cnkAdd: binaryArith(c, n, n[0], n[1], dest, opcAddu, opcAddFloat)
+  of cnkSub: binaryArith(c, n, n[0], n[1], dest, opcSubu, opcSubFloat)
+  of cnkMul: binaryArith(c, n, n[0], n[1], dest, opcMulu, opcMulFloat)
+  of cnkDiv: binaryArith(c, n, n[0], n[1], dest, opcDivInt, opcDivFloat)
+  of cnkModI: binaryArith(c, n, n[0], n[1], dest, opcModInt, opcModInt)
   of cnkIntLit, cnkUIntLit:
     prepare(c, dest, n.typ)
     c.loadInt(n, dest, getInt(n))

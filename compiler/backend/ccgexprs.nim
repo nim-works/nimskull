@@ -1558,7 +1558,7 @@ proc genStrEquals(p: BProc, e: CgNode, d: var TLoc) =
     binaryExpr(p, e, d, "#eqStrings($1, $2)")
 
 proc binaryFloatArith(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
-  if optInfCheck in p.options:
+  if true:
     const opr: array[mAddF64..mDivF64, string] = ["+", "-", "*", "/"]
     var a, b: TLoc
     assert(e[1].typ != nil)
@@ -1569,8 +1569,6 @@ proc binaryFloatArith(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
                               [opr[m], rdLoc(a), rdLoc(b),
                               getSimpleTypeDesc(p.module, e[1].typ)]))
     linefmt(p, cpsStmts, "if ($1 != 0.0 && $1*0.5 == $1) { #raiseFloatOverflow($1); $2}$n", [rdLoc(d), raiseInstr(p)])
-  else:
-    binaryArith(p, e, e[1], e[2], d, m)
 
 proc skipAddr(n: CgNode): CgNode =
   if n.kind == cnkHiddenAddr: n.operand
@@ -1648,7 +1646,7 @@ proc genBreakState(p: BProc, n: CgNode, d: var TLoc) =
 
 proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   case op
-  of mNot..mUnaryMinusF64: unaryArith(p, e, e[1], d, op)
+  of mNot..mUnaryPlusF64: unaryArith(p, e, e[1], d, op)
   of mUnaryMinusI, mUnaryMinusI64: unaryArithOverflow(p, e, d, op)
   of mAddF64..mDivF64: binaryFloatArith(p, e, d, op)
   of mShrI..mXor: binaryArith(p, e, e[1], e[2], d, op)
@@ -2056,11 +2054,11 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
       else:
         genCall(p, n, d)
   # unchecked arithmetic operations:
-  of cnkNegI: unaryArith(p, n, n[0], d, mUnaryMinusI)
-  of cnkAddI: binaryArith(p, n, n[0], n[1], d, mAddI)
-  of cnkSubI: binaryArith(p, n, n[0], n[1], d, mSubI)
-  of cnkMulI: binaryArith(p, n, n[0], n[1], d, mMulI)
-  of cnkDivI: binaryArith(p, n, n[0], n[1], d, mDivI)
+  of cnkNeg: unaryArith(p, n, n[0], d, pick(n, mUnaryMinusI, mUnaryMinusF64))
+  of cnkAdd: binaryArith(p, n, n[0], n[1], d, pick(n, mAddI, mAddF64))
+  of cnkSub: binaryArith(p, n, n[0], n[1], d, pick(n, mSubI, mSubF64))
+  of cnkMul: binaryArith(p, n, n[0], n[1], d, pick(n, mMulI, mMulF64))
+  of cnkDiv: binaryArith(p, n, n[0], n[1], d, pick(n, mDivI, mDivF64))
   of cnkModI: binaryArith(p, n, n[0], n[1], d, mModI)
   of cnkSetConstr:
     genSetConstr(p, n, d)

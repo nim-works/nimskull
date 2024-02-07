@@ -422,7 +422,7 @@ proc getTemp(p: PProc, defineInLocals: bool = true): Rope =
     p.defs.add(p.indentLine("var $1;$n" % [result]))
 
 type
-  TMagicOps = array[mAddI..mUnaryMinusF64, string]
+  TMagicOps = array[mAddI..mUnaryPlusF64, string]
 
 const # magic checked op
   jsMagics: TMagicOps = [
@@ -479,8 +479,7 @@ const # magic checked op
     mNot: "",
     mUnaryPlusI: "",
     mBitnotI: "",
-    mUnaryPlusF64: "",
-    mUnaryMinusF64: ""]
+    mUnaryPlusF64: ""]
 
 template binaryExpr(p: PProc, n: CgNode, r: var TCompRes, magic, frmt: string) =
   # $1 and $2 in the `frmt` string bind to lhs and rhs of the expr,
@@ -614,7 +613,6 @@ proc arithAux(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
   of mUnaryPlusI: applyFormat("+($1)")
   of mBitnotI: applyFormat("~($1)")
   of mUnaryPlusF64: applyFormat("+($1)")
-  of mUnaryMinusF64: applyFormat("-($1)")
   else:
     unreachable(op)
 
@@ -911,7 +909,7 @@ proc generateHeader(params: openArray[Loc]): string =
 const
   nodeKindsNeedNoCopy = cnkLiterals + {
     cnkObjConstr, cnkTupleConstr, cnkArrayConstr, cnkCall, cnkCheckedCall,
-    cnkNegI, cnkAddI, cnkSubI, cnkMulI, cnkDivI, cnkModI }
+    cnkNeg, cnkAdd, cnkSub, cnkMul, cnkDiv, cnkModI }
 
 proc needsNoCopy(p: PProc; y: CgNode): bool =
   return y.kind in nodeKindsNeedNoCopy or
@@ -1739,7 +1737,7 @@ proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes)
 proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   let op = getCalleeMagic(p.g.env, n[0])
   case op
-  of mAddI..mUnaryMinusI64, mNot..mUnaryMinusF64:
+  of mAddI..mUnaryMinusI64, mNot..mUnaryPlusF64:
     arith(p, n, r, op)
   of mCharToStr:
     unaryExpr(p, n, r, "nimCharToStr", "nimCharToStr($1)")
@@ -2360,15 +2358,19 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       genInfixCall(p, n, r)
     else:
       genCall(p, n, r)
-  of cnkNegI:
+  of cnkNeg:
     let x = gen(p, n[0])
     r.res = "(-$1)" % rdLoc(x)
     r.typ = mapType(n.typ)
     r.kind = resExpr
-  of cnkAddI: binaryExpr(p, n[0], n[1], r, "($1 + $2)")
-  of cnkSubI: binaryExpr(p, n[0], n[1], r, "($1 - $2)")
-  of cnkMulI: binaryExpr(p, n[0], n[1], r, "($1 * $2)")
-  of cnkDivI: binaryExpr(p, n[0], n[1], r, "Math.trunc($1 / $2)")
+  of cnkAdd: binaryExpr(p, n[0], n[1], r, "($1 + $2)")
+  of cnkSub: binaryExpr(p, n[0], n[1], r, "($1 - $2)")
+  of cnkMul: binaryExpr(p, n[0], n[1], r, "($1 * $2)")
+  of cnkDiv:
+    if mapType(n.typ) == etyFloat:
+      binaryExpr(p, n[0], n[1], r, "($1 / $2)")
+    else:
+      binaryExpr(p, n[0], n[1], r, "Math.trunc($1 / $2)")
   of cnkModI: binaryExpr(p, n[0], n[1], r, "Math.trunc($1 % $2)")
   of cnkClosureConstr:
     useMagic(p, "makeClosure")

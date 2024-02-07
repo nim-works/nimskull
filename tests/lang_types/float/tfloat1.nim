@@ -1,7 +1,10 @@
 discard """
-  matrix: "--exceptions:goto"
-  outputsub: "Error: unhandled exception: FPU operation caused an overflow [FloatOverflowDefect]"
+  targets: "c js vm"
+  outputsub: "FPU operation caused an overflow"
   exitcode: "1"
+  knownIssue.js vm: '''
+    Overflow checks for floating-point arithmetic are not implemented
+  '''
 """
 # Test new floating point exceptions
 

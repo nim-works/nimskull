@@ -320,7 +320,7 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, env: EnvPtr) =
         argToStr()
       result.add ") (raises)"
   of UnaryOps:
-    const Map = [mnkNegI: "-"]
+    const Map = [mnkNeg: "-"]
     let kind = nodes[i].kind
     tree Map[kind]:
       valueToStr()
@@ -328,8 +328,8 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, env: EnvPtr) =
     let kind = nodes[i].kind
     tree "":
       valueToStr() # first operand
-      const Map = [mnkAddI: " + ", mnkSubI: " - ",
-                   mnkMulI: " * ", mnkDivI: " div ", mnkModI: " mod "]
+      const Map = [mnkAdd: " + ", mnkSub: " - ",
+                   mnkMul: " * ", mnkDiv: " div ", mnkModI: " mod "]
       result.add Map[kind]
       valueToStr() # second operand
   else:
