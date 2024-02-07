@@ -211,3 +211,12 @@ proc translate*(t: MirTree): CgNode =
 
   var i = 0
   translateAux(t, i)
+
+proc pick*[T](n: CgNode, forInt, forFloat: T): T =
+  ## Returns either `forInt` or `forFloat` depending on the type of `n`.
+  case n.typ.skipTypes(abstractRange + tyUserTypeClasses + {tyEnum}).kind
+  of tyInt..tyInt64, tyBool:   forInt
+  of tyUInt..tyUInt64, tyChar: forInt
+  of tyFloat..tyFloat64:       forFloat
+  else:
+    unreachable("not an integer or float type")
