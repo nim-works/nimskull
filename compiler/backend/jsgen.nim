@@ -2360,15 +2360,19 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       genInfixCall(p, n, r)
     else:
       genCall(p, n, r)
-  of cnkNegI:
+  of cnkNeg:
     let x = gen(p, n[0])
     r.res = "(-$1)" % rdLoc(x)
     r.typ = mapType(n.typ)
     r.kind = resExpr
-  of cnkAddI: binaryExpr(p, n[0], n[1], r, "($1 + $2)")
-  of cnkSubI: binaryExpr(p, n[0], n[1], r, "($1 - $2)")
-  of cnkMulI: binaryExpr(p, n[0], n[1], r, "($1 * $2)")
-  of cnkDivI: binaryExpr(p, n[0], n[1], r, "Math.trunc($1 / $2)")
+  of cnkAdd: binaryExpr(p, n[0], n[1], r, "($1 + $2)")
+  of cnkSub: binaryExpr(p, n[0], n[1], r, "($1 - $2)")
+  of cnkMul: binaryExpr(p, n[0], n[1], r, "($1 * $2)")
+  of cnkDiv:
+    if mapType(n.typ) == etyFloat:
+      binaryExpr(p, n[0], n[1], r, "($1 / $2)")
+    else:
+      binaryExpr(p, n[0], n[1], r, "Math.trunc($1 / $2)")
   of cnkModI: binaryExpr(p, n[0], n[1], r, "Math.trunc($1 % $2)")
   of cnkClosureConstr:
     useMagic(p, "makeClosure")
