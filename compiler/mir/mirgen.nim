@@ -1213,9 +1213,9 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         arg n[1]
         arg n[2]
     else:
-      const Map = [mAddI: mnkAddI, mSubI: mnkSubI,
-                   mMulI: mnkMulI, mDivI: mnkDivI, mModI: mnkModI,
-                   mSucc: mnkAddI, mPred: mnkSubI]
+      const Map = [mAddI: mnkAdd, mSubI: mnkSub,
+                   mMulI: mnkMul, mDivI: mnkDiv, mModI: mnkModI,
+                   mSucc: mnkAdd, mPred: mnkSub]
       c.buildTree Map[m], n.typ:
         genArgExpression(c, n[1], sink=false)
         genArgExpression(c, n[2], sink=false)
@@ -1226,7 +1226,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
       c.buildDefectMagicCall m, n.typ:
         arg n[1]
     else:
-      c.genOp(mnkNegI, n.typ, n[1])
+      c.genOp(mnkNeg, n.typ, n[1])
 
   of mInc, mDec:
     # ``inc a, b`` -> ``a = a + b``
@@ -1249,7 +1249,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
               c.emitByVal dest
               arg n[2]
           else:
-            const kind = [mInc: mnkAddI, mDec: mnkSubI]
+            const kind = [mInc: mnkAdd, mDec: mnkSub]
             # the unchecked arithmetic operators can be used directly
             c.buildTree kind[m], dest.typ:
               c.use dest

@@ -155,16 +155,18 @@ type
     mnkCheckedCall  ## invoke a magic procedure and pass along the provided arguments
 
     # unary arithmetic operations:
-    mnkNegI ## signed integer negation (overflow is UB)
+    mnkNeg ## signed integer and float negation (for ints, overflow is UB)
     # binary arithmetic operations:
-    mnkAddI ## signed integer addition (overflow is UB)
-    mnkSubI ## signed integer substraction (overflow is UB)
-    mnkMulI ## signed integer multiplication (overflow is UB)
-    mnkDivI ## signed integer division (division by zero is UB)
+    mnkAdd ## signed integer and float addition (for ints, overflow is UB)
+    mnkSub ## signed integer and float subtraction (for ints, overflow is UB)
+    mnkMul ## signed integer and float multiplication (for ints, overflow is
+           ##  UB)
+    mnkDiv ## signed integer and float division (for ints, division by zero is
+           ## UB)
     mnkModI ## compute the remainder of an integer division (division by zero
             ## is UB)
-    # future direction: the arithmetic operations should be generalized to also
-    # apply to unsigned integers and floats
+    # future direction: the arithmetic operations should also apply to
+    # unsigned integers
 
     mnkRaise  ## if the operand is an ``mnkNone`` node, reraises the
               ## currently active exception. Otherwise, set the operand value
@@ -351,9 +353,9 @@ const
                 mnkAsgn, mnkSwitch, mnkFastAsgn, mnkVoid, mnkRaise, mnkEmit,
                 mnkAsm} + DefNodes
 
-  UnaryOps*  = {mnkNegI}
+  UnaryOps*  = {mnkNeg}
     ## All unary operators
-  BinaryOps* = {mnkAddI, mnkSubI, mnkMulI, mnkDivI, mnkModI}
+  BinaryOps* = {mnkAdd, mnkSub, mnkMul, mnkDiv, mnkModI}
     ## All binary operators
 
   LvalueExprKinds* = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathVariant,

@@ -49,11 +49,11 @@ type
     cnkCheckedCall   ## like ``cnkCall``, but the call might raise an exception
 
     # arithmetic operations:
-    cnkNegI
-    cnkAddI
-    cnkSubI
-    cnkMulI
-    cnkDivI
+    cnkNeg
+    cnkAdd
+    cnkSub
+    cnkMul
+    cnkDiv
     cnkModI
 
     # constructors:

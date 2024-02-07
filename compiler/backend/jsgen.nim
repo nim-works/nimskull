@@ -911,7 +911,7 @@ proc generateHeader(params: openArray[Loc]): string =
 const
   nodeKindsNeedNoCopy = cnkLiterals + {
     cnkObjConstr, cnkTupleConstr, cnkArrayConstr, cnkCall, cnkCheckedCall,
-    cnkNegI, cnkAddI, cnkSubI, cnkMulI, cnkDivI, cnkModI }
+    cnkNeg, cnkAdd, cnkSub, cnkMul, cnkDiv, cnkModI }
 
 proc needsNoCopy(p: PProc; y: CgNode): bool =
   return y.kind in nodeKindsNeedNoCopy or
