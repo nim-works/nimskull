@@ -60,3 +60,15 @@ block reraise_in_nested_try:
       raise
     finally:
       discard
+
+block reraise_in_nested_finally_try:
+  # no error is reported here
+  try:
+    discard
+  finally:
+    try:
+      raise CatchableError.newException("")
+    except:
+      # a re-raise within an except within a finally, but not directly
+      # within, is allowed.
+      raise
