@@ -422,7 +422,7 @@ proc getTemp(p: PProc, defineInLocals: bool = true): Rope =
     p.defs.add(p.indentLine("var $1;$n" % [result]))
 
 type
-  TMagicOps = array[mAddI..mUnaryMinusF64, string]
+  TMagicOps = array[mAddI..mUnaryPlusF64, string]
 
 const # magic checked op
   jsMagics: TMagicOps = [
@@ -479,8 +479,7 @@ const # magic checked op
     mNot: "",
     mUnaryPlusI: "",
     mBitnotI: "",
-    mUnaryPlusF64: "",
-    mUnaryMinusF64: ""]
+    mUnaryPlusF64: ""]
 
 template binaryExpr(p: PProc, n: CgNode, r: var TCompRes, magic, frmt: string) =
   # $1 and $2 in the `frmt` string bind to lhs and rhs of the expr,
@@ -614,7 +613,6 @@ proc arithAux(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
   of mUnaryPlusI: applyFormat("+($1)")
   of mBitnotI: applyFormat("~($1)")
   of mUnaryPlusF64: applyFormat("+($1)")
-  of mUnaryMinusF64: applyFormat("-($1)")
   else:
     unreachable(op)
 
@@ -1739,7 +1737,7 @@ proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes)
 proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   let op = getCalleeMagic(p.g.env, n[0])
   case op
-  of mAddI..mUnaryMinusI64, mNot..mUnaryMinusF64:
+  of mAddI..mUnaryMinusI64, mNot..mUnaryPlusF64:
     arith(p, n, r, op)
   of mCharToStr:
     unaryExpr(p, n, r, "nimCharToStr", "nimCharToStr($1)")

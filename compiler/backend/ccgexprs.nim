@@ -1646,7 +1646,7 @@ proc genBreakState(p: BProc, n: CgNode, d: var TLoc) =
 
 proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   case op
-  of mNot..mUnaryMinusF64: unaryArith(p, e, e[1], d, op)
+  of mNot..mUnaryPlusF64: unaryArith(p, e, e[1], d, op)
   of mUnaryMinusI, mUnaryMinusI64: unaryArithOverflow(p, e, d, op)
   of mAddF64..mDivF64: binaryFloatArith(p, e, d, op)
   of mShrI..mXor: binaryArith(p, e, e[1], e[2], d, op)
