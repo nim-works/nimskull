@@ -11,6 +11,6 @@ action: compile
 import std/macros
 
 macro foo(x: typed) = newProc ident"bar"
-proc bar() {.foo.} = raise
+proc bar() {.foo.} = raise CatchableError.newException("")
 bar()
 
