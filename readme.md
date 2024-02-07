@@ -62,20 +62,22 @@ possible features:
 
 ![](./doc/fixup_roadmap.png)
 
-For updates on the progress see the roadmap progress [thread](https://github.com/nim-works/nimskull/discussions/142?sort=new)
+For updates on the progress refer to the [milestones](https://github.com/nim-works/nimskull/milestones).
+The current ones are used as a way to track progress on a topic, rather than
+for representing fixed milestones. The old, out-of-date thread about roadmap
+progress can be found [here](https://github.com/nim-works/nimskull/discussions/142?sort=new).
 
 The current and key areas of development are as follows:
 
 1. decouple the data types used by the different compilation stages
 2. simplify the code generators - perform much of the transformation and lowering
-   via passes over the mid-end IR
+   via passes over the mid-end IR ([Project](https://github.com/orgs/nim-works/projects/12))
 3. improve tests - core specification as tests (see `slim the core` below).
-   Reorganize existing tests. [Project](https://github.com/nim-works/nimskull/projects/2)
-   to track progress.
+   Reorganize existing tests. ([Project](https://github.com/nim-works/nimskull/projects/2))
 4. nkError/tyError/skerror - replace `localError` etc approach with an AST
-   (`nkError`) one [Project](https://github.com/nim-works/nimskull/projects/1)
+   (`nkError`) one ([Project](https://github.com/nim-works/nimskull/projects/1))
 5. comments - incrementally document compiler source for easier learning
-6. slim the core - remove dialects, backwards compatibility, etc [Discussion](https://github.com/nim-works/nimskull/discussions/289)
+6. slim the core - remove dialects, backwards compatibility, etc ([Discussion](https://github.com/nim-works/nimskull/discussions/289))
 
 There are more, the above have been carefully chosen based on the direction of
 the language; moreover, their impact goes beyond what's been described and
