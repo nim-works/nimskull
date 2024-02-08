@@ -1599,11 +1599,7 @@ proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
     c.buildStmt (if sfCursor in s.flags: mnkDefCursor else: mnkDef):
       c.add node
       if hasInitializer:
-        # XXX: some closure types are erroneously reported as having no
-        #      destructor, which would lead to memory leaks if the
-        #      expression is a closure construction. As a work around,
-        #      a missing destructor disables the sink context
-        genAsgnSource(c, val, sink and hasDestructor(s.typ))
+        genAsgnSource(c, val, sink)
       else:
         c.add MirNode(kind: mnkNone)
 
