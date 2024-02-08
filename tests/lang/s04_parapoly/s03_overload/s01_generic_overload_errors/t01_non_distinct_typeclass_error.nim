@@ -1,10 +1,9 @@
 discard """
-description: '''
-Using user-defined typeclass in argument type works differently compared
-to the explicitly written type alternatrives.
-'''
-
-errormsg: "type mismatch: got <float, int>"
+  description: '''
+    Using user-defined typeclass in argument type works differently compared
+    to the explicitly written type alternatrives.
+  '''
+  errormsg: "type mismatch: got <float, int>"
 """
 
 
@@ -28,7 +27,6 @@ block:
     ## `a, b: Type` can also be used.
     proc aliasedTypeAlts(a, b: distinct Typeclass) = discard
     aliasedTypeAlts(float(2.0), int(2))
-
 
 block:
   type Typeclass = int or float
