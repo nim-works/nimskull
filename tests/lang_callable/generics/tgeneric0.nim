@@ -1,5 +1,5 @@
 discard """
-  target: "!vm"
+  knownIssue.vm: "it seems to get stuck; needs a deeper dive"
   output: '''
 100
 0
@@ -8,8 +8,6 @@ float32
 (name: "Resource 1", readers: ..., writers: ...)
 '''
 """
-
-# disabled on VM: it seems to get stuck; needs a deeper dive (knownIssue)
 
 import std/tables
 
