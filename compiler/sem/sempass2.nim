@@ -1438,6 +1438,11 @@ proc track(tracked: PEffects, n: PNode) =
       track(tracked, n[i])
 
     inc tracked.leftPartOfAsgn
+  of nkBlockType, nkStmtListType:
+    # TODO: it's a minor breaking change (macros can observe it via
+    #       `getImpl`), but these nodes should instead be folded into
+    #        ``nkType`` nodes by ``semfold``
+    discard
   of nkBindStmt, nkMixinStmt, nkImportStmt, nkImportExceptStmt, nkExportStmt,
      nkExportExceptStmt, nkFromStmt:
     # a declarative statement that is not relevant to the analysis. Report
