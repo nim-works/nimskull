@@ -1314,6 +1314,12 @@ proc track(tracked: PEffects, n: PNode) =
          iterCall[1].typ.skipTypes(abstractVar).kind notin {tyVarargs, tyOpenArray}:
         createTypeBoundOps(tracked, iterCall[1].typ, iterCall[1].info)
     
+    if tracked.owner.kind != skMacro and iterCall.kind in nkCallKinds and
+       iterCall[0].typ.skipTypes(abstractInst).callConv == ccClosure:
+      # the loop is a for-loop over a closure iterator. Lift the hooks for
+      # the iterator
+      createTypeBoundOps(tracked, iterCall[0].typ, iterCall[0].info)
+
     track(tracked, iterCall)
     track(tracked, loopBody)
     setLen(tracked.init, oldState)
@@ -1432,6 +1438,11 @@ proc track(tracked: PEffects, n: PNode) =
       track(tracked, n[i])
 
     inc tracked.leftPartOfAsgn
+  of nkBlockType, nkStmtListType:
+    # TODO: it's a minor breaking change (macros can observe it via
+    #       `getImpl`), but these nodes should instead be folded into
+    #        ``nkType`` nodes by ``semfold``
+    discard
   of nkBindStmt, nkMixinStmt, nkImportStmt, nkImportExceptStmt, nkExportStmt,
      nkExportExceptStmt, nkFromStmt:
     # a declarative statement that is not relevant to the analysis. Report
