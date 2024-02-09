@@ -1,5 +1,4 @@
 discard """
-  knownIssue.vm: "it seems to get stuck; needs a deeper dive"
   output: '''
 100
 0

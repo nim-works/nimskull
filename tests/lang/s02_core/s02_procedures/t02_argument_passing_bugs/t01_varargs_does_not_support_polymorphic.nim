@@ -11,7 +11,6 @@ being passed to the called procedure. If derived object is passed, correct `.Sup
 be used to achieve desired behavior.
 
 '''
-knownIssue: "varargs cannot pass polymorphic derived types"
 """
 
 var invalidAssings: seq[string]
@@ -33,18 +32,15 @@ block regular_types:
 
     try:
       test(Base())
-
     except ObjectAssignmentDefect:
       invalidAssings.add "Base()"
 
     try:
       test(Base(), Derived1())
-
     except ObjectAssignmentDefect:
       invalidAssings.add "Base(), Derived1()"
 
     try:
       test(Derived1(), Derived2())
-
     except ObjectAssignmentDefect:
       invalidAssings.add "Derived1(), Derived2()"
