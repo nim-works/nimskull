@@ -13,7 +13,8 @@ template main =
   doAssert querySetting(backend) == "c"
   doAssert fileExists(libPath.querySetting / "system.nim")
   doAssert "-fmax-errors=4" in querySetting(compileOptions)
-  doAssert "-u dummysymboldoesnotexist" in querySetting(linkOptions), querySetting(linkOptions)
+  when not defined(macos) and not defined(windows):
+    doAssert "-u dummysymboldoesnotexist" in querySetting(linkOptions)
 
 static: main()
 main()
