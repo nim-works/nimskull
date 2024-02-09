@@ -393,6 +393,16 @@ passStrTableField symbols
 passStrTableField macrosToExpand
 passStrTableField arcToExpand
 
+proc getCompileOptionsStr*(conf: ConfigRef): string =
+  result = conf.compileOptions
+
+  for option in conf.compileOptionsCmd:
+    if strutils.find(result, option, 0) < 0:
+      if result.len == 0 or result[^1] != ' ': result.add " "
+      result.add option
+
+proc getLinkOptionsStr*(conf: ConfigRef): string =
+  conf.linkOptions & " " & conf.linkOptionsCmd.join(" ")
 
 proc defineSymbol*(conf: ConfigRef, symbol: string, value: string = "true") =
   conf.symbolsSet(symbol, value)
