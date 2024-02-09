@@ -38,6 +38,8 @@ import
     results
   ]
 
+from compiler/backend/extccomp import getCompileOptions, getLinkOptions
+
 from compiler/front/msgs import localReport
 
 # xxx: reports are a code smell meaning data types are misplaced
@@ -203,8 +205,8 @@ when defined(nimHasInvariant):
     of SingleValueSetting.projectFull: result = conf.projectFull.string
     of SingleValueSetting.command: result = conf.command
     of SingleValueSetting.commandLine: result = conf.commandLine
-    of SingleValueSetting.linkOptions: result = conf.linkOptions
-    of SingleValueSetting.compileOptions: result = conf.compileOptions
+    of SingleValueSetting.linkOptions: result = conf.getLinkOptions()
+    of SingleValueSetting.compileOptions: result = conf.getCompileOptions()
     of SingleValueSetting.ccompilerPath: result = conf.cCompilerPath
     of SingleValueSetting.backend: result = $conf.backend
     of SingleValueSetting.libPath: result = conf.libpath.string

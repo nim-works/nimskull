@@ -484,7 +484,7 @@ proc cFileSpecificOptions(conf: ConfigRef; nimname, fullNimFile: string): string
 
   addOpt(result, conf.cfileSpecificOptions.getOrDefault(fullNimFile))
 
-proc getCompileOptions(conf: ConfigRef): string =
+proc getCompileOptions*(conf: ConfigRef): string =
   result = cFileSpecificOptions(conf, "__dummy__", "__dummy__")
 
 proc vccplatform(conf: ConfigRef): string =
@@ -499,7 +499,7 @@ proc vccplatform(conf: ConfigRef): string =
         of cpuAmd64: " --platform:amd64"
         else: ""
 
-proc getLinkOptions(conf: ConfigRef): string =
+proc getLinkOptions*(conf: ConfigRef): string =
   result = conf.linkOptions & " " & conf.linkOptionsCmd.join(" ") & " "
   for linkedLib in items(conf.cLinkedLibs):
     result.add(CC[conf.cCompiler].linkLibCmd % linkedLib.quoteShell)
