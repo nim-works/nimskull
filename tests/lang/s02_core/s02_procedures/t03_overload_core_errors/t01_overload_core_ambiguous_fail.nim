@@ -1,9 +1,9 @@
 discard """
   description: '''
-    Identical number of matches in each argument overload cateogory leads to
-    the ambiguous overload error.
+    Identical number of matches in each argument overload category leads to an
+    ambiguous overload error.
   '''
-  errormsg: "ambiguous call; both t03_overload_core_ambiguous_fail.impl2(exact: uint8, conv: string) [proc declared in t03_overload_core_ambiguous_fail.nim(12, 6)] and t03_overload_core_ambiguous_fail.impl2(conv: string, exact: uint8) [proc declared in t03_overload_core_ambiguous_fail.nim(13, 6)] match for: (uint8, uint8)"
+  errormsg: "ambiguous call; both t01_overload_core_ambiguous_fail.impl2(exact: uint8, conv: string) [proc declared in t01_overload_core_ambiguous_fail.nim(13, 6)] and t01_overload_core_ambiguous_fail.impl2(conv: string, exact: uint8) [proc declared in t01_overload_core_ambiguous_fail.nim(14, 6)] match for: (uint8, uint8)"
 """
 
 # TODO: this is a converter related test and should not be in s02_core
