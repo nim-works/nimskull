@@ -1,5 +1,5 @@
 discard """
-matrix: "--nimcache:build/myNimCache --nimblePath:myNimblePath --passc:'-fmax-errors=4' --passl:'-u dummysymboldoesnotexist'"
+matrix: "--nimcache:build/myNimCache --nimblePath:myNimblePath --passc:'-fmax-errors=4' --passl:'-Xlinker --defsym -Xlinker dummysymboldoesnotexist=0x0'"
 joinable: false
 """
 
@@ -13,8 +13,8 @@ template main =
   doAssert querySetting(backend) == "c"
   doAssert fileExists(libPath.querySetting / "system.nim")
   doAssert "-fmax-errors=4" in querySetting(compileOptions)
-  when not defined(macos) and not defined(windows):
-    doAssert "-u dummysymboldoesnotexist" in querySetting(linkOptions)
+  doAssert "-Xlinker --defsym -Xlinker dummysymboldoesnotexist=0x0" in
+              querySetting(linkOptions)
 
 static: main()
 main()
