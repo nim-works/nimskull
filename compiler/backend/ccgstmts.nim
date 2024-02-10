@@ -15,13 +15,6 @@ const
   stringCaseThreshold = 8
     # above X strings a hash-switch for strings is generated
 
-proc isAssignedImmediately(conf: ConfigRef; n: CgNode): bool {.inline.} =
-  # note: the destination can be considered assigned immediately even if the
-  # source is an exception-raising RVO call. This is because the call happens
-  # *before* the definition, meaning that nothing on the exceptional control-
-  # flow path must observe (read or write) the destination
-  n.kind != cnkEmpty
-
 proc inExceptBlockLen(p: BProc): int =
   for x in p.nestedTryStmts:
     if x.inExcept: result.inc
@@ -147,9 +140,16 @@ proc genSingleVar(p: BProc, vn, value: CgNode) =
     genGotoVar(p, value)
     return
 
-  let imm = isAssignedImmediately(p.config, value)
   assignLocalVar(p, vn)
-  initLocalVar(p, v, imm)
+  # default-initialize the local if no initial value is supplied. Automatic
+  # initialization is also ommitted when the `value` expression is a
+  # potentially-raising call, because for a definition like:
+  #   def x = f()
+  # no except or finally section that is entered when `f` raises can access
+  # `x`, nor can any code that the except or finally section can exit into,
+  # meaning that it's safe to potentially leave `x` uninitialized if `f`
+  # raises
+  initLocalVar(p, v, immediateAsgn = (value.kind != cnkEmpty))
 
   if value.kind != cnkEmpty:
     genLineDir(p, vn)
