@@ -16,13 +16,11 @@ const
     # above X strings a hash-switch for strings is generated
 
 proc isAssignedImmediately(conf: ConfigRef; n: CgNode): bool {.inline.} =
-  if n.kind == cnkEmpty: return false
-  if isInvalidReturnType(conf, n.typ):
-    # var v = f()
-    # is transformed into: var v;  f(addr v)
-    # where 'f' **does not** initialize the result!
-    return false
-  result = true
+  # note: the destination can be considered assigned immediately even if the
+  # source is an exception-raising RVO call. This is because the call happens
+  # *before* the definition, meaning that nothing on the exceptional control-
+  # flow path must observe (read or write) the destination
+  n.kind != cnkEmpty
 
 proc inExceptBlockLen(p: BProc): int =
   for x in p.nestedTryStmts:
