@@ -1,5 +1,5 @@
 discard """
-matrix: "--nimcache:build/myNimCache --nimblePath:myNimblePath --passc:'-fmax-errors=4'"
+matrix: "--nimcache:build/myNimCache --nimblePath:myNimblePath --passc:-fmax-errors=4"
 joinable: false
 """
 
