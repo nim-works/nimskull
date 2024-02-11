@@ -734,8 +734,9 @@ type
 
   TStackFrame* = object
     prc*: PSym                 # current prc; proc that is evaluated
-    slots*: seq[TFullReg]      # parameters passed to the proc + locals;
-                              # parameters come first
+    start*: int
+      ## position in the thread's register sequence where the registers for
+      ## the frame start
     eh*: HOslice[int]
       ## points to the active list of instruction-to-EH mappings
     baseOffset*: PrgCtr
