@@ -2006,7 +2006,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           checkHandle(regs[i])
 
         c.callbacks[entry.cbOffset](
-          VmArgs(ra: ra, rb: rb, rc: rc, slots: cast[ptr UncheckedArray[TFullReg]](addr regs[0]),
+          VmArgs(ra: ra, rb: rb, rc: rc, slots: regs.data,
                  currentExceptionPtr: addr t.currentException,
                  currentLineInfo: c.debug[pc],
                  typeCache: addr c.typeInfoCache,
