@@ -15,15 +15,6 @@ const
   stringCaseThreshold = 8
     # above X strings a hash-switch for strings is generated
 
-proc isAssignedImmediately(conf: ConfigRef; n: CgNode): bool {.inline.} =
-  if n.kind == cnkEmpty: return false
-  if isInvalidReturnType(conf, n.typ):
-    # var v = f()
-    # is transformed into: var v;  f(addr v)
-    # where 'f' **does not** initialize the result!
-    return false
-  result = true
-
 proc inExceptBlockLen(p: BProc): int =
   for x in p.nestedTryStmts:
     if x.inExcept: result.inc
@@ -149,9 +140,16 @@ proc genSingleVar(p: BProc, vn, value: CgNode) =
     genGotoVar(p, value)
     return
 
-  let imm = isAssignedImmediately(p.config, value)
   assignLocalVar(p, vn)
-  initLocalVar(p, v, imm)
+  # default-initialize the local if no initial value is supplied. Automatic
+  # initialization is also ommitted when the `value` expression is a
+  # potentially-raising call, because for a definition like:
+  #   def x = f()
+  # no except or finally section that is entered when `f` raises can access
+  # `x`, nor can any code that the except or finally section can exit into,
+  # meaning that it's safe to potentially leave `x` uninitialized if `f`
+  # raises
+  initLocalVar(p, v, immediateAsgn = (value.kind != cnkEmpty))
 
   if value.kind != cnkEmpty:
     genLineDir(p, vn)
