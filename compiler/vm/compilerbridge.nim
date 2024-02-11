@@ -290,7 +290,7 @@ proc execute(jit: var JitState, c: var TCtx, thread: sink VmThread,
         "non-static stmt evaluation must produce a value, mode: " & $c.mode
       let reg =
         if r.reg.isSome:
-          thread.slots[r.reg.get]
+          thread.regs[r.reg.get]
         else:
           TFullReg(kind: rkNone)
       result.initSuccess cb(c, reg)
@@ -558,11 +558,11 @@ proc evalMacroCall*(jit: var JitState, c: var TCtx, call, args: PNode,
 
   var thread = initVmThread(c, start, regCount, sym)
   # return value:
-  thread[0].slots[0] = TFullReg(kind: rkNimNode, nimNode: newNodeI(nkEmpty, call.info))
+  thread.regs[0] = TFullReg(kind: rkNimNode, nimNode: newNodeI(nkEmpty, call.info))
 
   # put the normal arguments into registers
   for i in 1..<sym.typ.len:
-    setupMacroParam(thread[0].slots[i], jit, c, args[i - 1], sym.typ[i])
+    setupMacroParam(thread.regs[i], jit, c, args[i - 1], sym.typ[i])
 
   # put the generic arguments into registers
   let gp = sym.ast[genericParamsPos]
@@ -571,7 +571,7 @@ proc evalMacroCall*(jit: var JitState, c: var TCtx, call, args: PNode,
     # signature
     if tfImplicitTypeParam notin gp[i].sym.typ.flags:
       let idx = sym.typ.len + i
-      setupMacroParam(thread[0].slots[idx], jit, c, args[idx - 1], gp[i].sym.typ)
+      setupMacroParam(thread.regs[idx], jit, c, args[idx - 1], gp[i].sym.typ)
 
   let cb = mkCallback(c, r): r.nimNode
   result = execute(jit, c, thread, cb).unpackResult(c.config, call)
@@ -632,11 +632,11 @@ proc execProc*(jit: var JitState, c: var TCtx; sym: PSym;
       # setup parameters:
       if not isEmptyType(sym.typ[0]) or sym.kind == skMacro:
         let typ = c.getOrCreate(sym.typ[0])
-        if not thread[0].slots[0].loadEmptyReg(typ, sym.info, c.memory):
-          thread[0].slots[0].initLocReg(typ, c.memory)
+        if not thread.regs[0].loadEmptyReg(typ, sym.info, c.memory):
+          thread.regs[0].initLocReg(typ, c.memory)
       # XXX We could perform some type checking here.
       for i in 1..<sym.typ.len:
-        putIntoReg(thread[0].slots[i], jit, c, args[i-1], sym.typ[i])
+        putIntoReg(thread.regs[i], jit, c, args[i-1], sym.typ[i])
 
       let cb =
         if not isEmptyType(sym.typ[0]):
