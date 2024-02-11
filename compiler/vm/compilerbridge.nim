@@ -271,14 +271,13 @@ proc createLegacyStackTrace(
                     location: some source(c, thread),
                     reportInst: toReportLineInfo(instLoc))
 
-proc execute(jit: var JitState, c: var TCtx, start: int, frame: sink TStackFrame;
+proc execute(jit: var JitState, c: var TCtx, thread: sink VmThread,
              cb: proc(c: TCtx, r: TFullReg): PNode
             ): ExecutionResult {.inline.} =
   ## This is the entry point for invoking the VM to execute code at
   ## compile-time. The `cb` callback is used to deserialize the result stored
   ## as VM data into ``PNode`` AST, and is invoked with the register that
   ## holds the result
-  var thread = initVmThread(c, start, frame)
 
   # run the VM until either no code is left to execute or an event implying
   # execution can't go on occurs
@@ -291,7 +290,7 @@ proc execute(jit: var JitState, c: var TCtx, start: int, frame: sink TStackFrame
         "non-static stmt evaluation must produce a value, mode: " & $c.mode
       let reg =
         if r.reg.isSome:
-          thread[0].slots[r.reg.get]
+          thread.slots[r.reg.get]
         else:
           TFullReg(kind: rkNone)
       result.initSuccess cb(c, reg)
@@ -340,9 +339,8 @@ proc execute(jit: var JitState, c: var TCtx, start: int, frame: sink TStackFrame
   dispose(c, thread)
 
 proc execute(jit: var JitState, c: var TCtx, info: CodeInfo): ExecutionResult =
-  var tos = TStackFrame(prc: nil, comesFrom: 0)
-  tos.slots.newSeq(info.regCount)
-  execute(jit, c, info.start, tos,
+  let thread = initVmThread(c, info.start, info.regCount, nil)
+  execute(jit, c, thread,
           proc(c: TCtx, r: TFullReg): PNode = c.graph.emptyNode)
 
 template returnOnErr(res: VmGenResult, config: ConfigRef, node: PNode): CodeInfo =
@@ -476,16 +474,14 @@ proc eval(jit: var JitState, c: var TCtx; prc: PSym, n: PNode): PNode =
 
   logBytecode(c, prc, start)
 
-  var tos = TStackFrame(prc: prc, comesFrom: 0)
-  tos.slots.newSeq(regCount)
-  #for i in 0..<regCount: tos.slots[i] = newNode(nkEmpty)
   let cb =
     if requiresValue:
       mkCallback(c, r): c.regToNode(r, n.typ, n.info)
     else:
       mkCallback(c, r): newNodeI(nkEmpty, n.info)
 
-  result = execute(jit, c, start, tos, cb).unpackResult(c.config, n)
+  let thread = initVmThread(c, start, regCount, prc)
+  result = execute(jit, c, thread, cb).unpackResult(c.config, n)
 
 proc evalConstExprAux(module: PSym, idgen: IdGenerator, g: ModuleGraph,
                       prc: PSym, n: PNode,
@@ -560,15 +556,13 @@ proc evalMacroCall*(jit: var JitState, c: var TCtx, call, args: PNode,
   if not wasAvailable:
     logBytecode(c, sym, start)
 
-  var tos = TStackFrame(prc: sym, comesFrom: 0)
-  tos.slots.newSeq(regCount)
-
+  var thread = initVmThread(c, start, regCount, sym)
   # return value:
-  tos.slots[0] = TFullReg(kind: rkNimNode, nimNode: newNodeI(nkEmpty, call.info))
+  thread[0].slots[0] = TFullReg(kind: rkNimNode, nimNode: newNodeI(nkEmpty, call.info))
 
   # put the normal arguments into registers
   for i in 1..<sym.typ.len:
-    setupMacroParam(tos.slots[i], jit, c, args[i - 1], sym.typ[i])
+    setupMacroParam(thread[0].slots[i], jit, c, args[i - 1], sym.typ[i])
 
   # put the generic arguments into registers
   let gp = sym.ast[genericParamsPos]
@@ -577,10 +571,10 @@ proc evalMacroCall*(jit: var JitState, c: var TCtx, call, args: PNode,
     # signature
     if tfImplicitTypeParam notin gp[i].sym.typ.flags:
       let idx = sym.typ.len + i
-      setupMacroParam(tos.slots[idx], jit, c, args[idx - 1], gp[i].sym.typ)
+      setupMacroParam(thread[0].slots[idx], jit, c, args[idx - 1], gp[i].sym.typ)
 
   let cb = mkCallback(c, r): r.nimNode
-  result = execute(jit, c, start, tos, cb).unpackResult(c.config, call)
+  result = execute(jit, c, thread, cb).unpackResult(c.config, call)
 
   if result.kind != nkError and cyclicTree(result):
     result = c.config.newError(call, PAstDiag(kind: adCyclicTree))
@@ -633,17 +627,16 @@ proc execProc*(jit: var JitState, c: var TCtx; sym: PSym;
           return nil
         r.unsafeGet
 
-      var tos = TStackFrame(prc: sym, comesFrom: 0)
-      tos.slots.newSeq(maxSlots)
+      var thread = initVmThread(c, start, maxSlots, sym)
 
       # setup parameters:
       if not isEmptyType(sym.typ[0]) or sym.kind == skMacro:
         let typ = c.getOrCreate(sym.typ[0])
-        if not tos.slots[0].loadEmptyReg(typ, sym.info, c.memory):
-          tos.slots[0].initLocReg(typ, c.memory)
+        if not thread[0].slots[0].loadEmptyReg(typ, sym.info, c.memory):
+          thread[0].slots[0].initLocReg(typ, c.memory)
       # XXX We could perform some type checking here.
       for i in 1..<sym.typ.len:
-        putIntoReg(tos.slots[i], jit, c, args[i-1], sym.typ[i])
+        putIntoReg(thread[0].slots[i], jit, c, args[i-1], sym.typ[i])
 
       let cb =
         if not isEmptyType(sym.typ[0]):
@@ -654,7 +647,7 @@ proc execProc*(jit: var JitState, c: var TCtx; sym: PSym;
         else:
           mkCallback(c, r): newNodeI(nkEmpty, sym.info)
 
-      let r = execute(jit, c, start, tos, cb)
+      let r = execute(jit, c, thread, cb)
       result = r.unpackResult(c.config, c.graph.emptyNode)
       reportIfError(c.config, result)
       if result.isError:

@@ -2912,12 +2912,16 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
 proc `=copy`*(x: var VmThread, y: VmThread) {.error.}
 
-proc initVmThread*(c: var TCtx, pc: int, frame: sink TStackFrame): VmThread =
-  ## Sets up a ``VmThread`` instance that will start execution at `pc`.
-  ## `frame` provides the initial stack frame.
+proc initVmThread*(c: var TCtx, pc: PrgCtr, numRegisters: int,
+                   sym: PSym): VmThread =
+  ## Sets up a `VmThread <#VmThread>`_ instance that will start execution at
+  ## `pc` and that has `numRegisters` as the initial amount of registers.
+  ## `sym` is the symbol to associate the initial stack-frame with. It may be
+  ## nil.
   VmThread(pc: pc,
            loopIterations: c.config.maxLoopIterationsVM,
-           sframes: @[frame])
+           sframes: @[TStackFrame(prc: sym,
+                                  slots: newSeq[TFullReg](numRegisters))])
 
 proc dispose*(c: var TCtx, t: sink VmThread) =
   ## Cleans up and frees all VM data owned by `t`.

@@ -375,14 +375,11 @@ proc main*(args: seq[string]): int =
   let
     entryPoint = c.functions[lr.unsafeGet.int]
 
-  # setup the starting frame:
-  var frame = TStackFrame(prc: entryPoint.sym)
-  frame.slots.newSeq(entryPoint.regCount)
-
   # the execution part. Set up a thread and run it until it either exits
   # normally or abnormally
   var
-    thread = initVmThread(c, entryPoint.start, frame)
+    thread = initVmThread(c, entryPoint.start, entryPoint.regCount.int,
+                          entryPoint.sym)
     continueExecution = true ## whether we continue to execute after yield
   while continueExecution:
     continueExecution = false # default to stop execution on any yield
