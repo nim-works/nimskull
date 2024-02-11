@@ -201,7 +201,7 @@ proc createStackTrace*(
   assert result.stacktrace.len() <= recursionLimit # post condition check
 
 func initFrom(regs: seq[TFullReg], start: int): Registers =
-  ## Creates a register list view covering `at..regs.high`.
+  ## Creates a register list view covering `start..regs.high`.
   result = Registers(len: regs.len - start)
   if regs.len > 0:
     result.data = cast[ptr UncheckedArray[TFullReg]](addr regs[start])
