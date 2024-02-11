@@ -95,6 +95,8 @@ type
     ## includes things like the program counter, stack frames, active
     ## exception, etc.
     pc: int ## the program counter. Points to the instruction to execute next
+    regs*: seq[TFullReg]
+      ## all registers beloning to the thread. Each frame owns a slice of it
     sframes: seq[TStackFrame] ## stack frames
     loopIterations: int
       ## the number of remaining jumps backwards
@@ -139,6 +141,12 @@ type
       entry*: FunctionIndex   ## the entry of the procedure that is a stub
     of yrkEcho:
       strs*: seq[string]      ## strings to be echo'd, at least one item
+
+  Registers = object
+    ## A view into the thread's register list. Implements manual index
+    ## checks, so it's a bit less unsafe than a raw pointer-to-unchecked-array.
+    len: int
+    data: ptr UncheckedArray[TFullReg]
 
 const
   traceCode = defined(nimVMDebugExecute)
@@ -192,6 +200,33 @@ proc createStackTrace*(
 
   assert result.stacktrace.len() <= recursionLimit # post condition check
 
+func initFrom(regs: seq[TFullReg], start: int): Registers =
+  ## Creates a register list view covering `at..regs.high`.
+  result = Registers(len: regs.len - start)
+  if regs.len > 0:
+    result.data = cast[ptr UncheckedArray[TFullReg]](addr regs[start])
+
+func regIndexCheck(r: Registers, i: int) {.inline.} =
+  # XXX: instead of verifying each register access, it'd be a lot more
+  #      efficient to go over every instruction in a procedure and check the
+  #      register indices once at VM startup
+  if unlikely(i < 0 or i >= r.len):
+    raiseVmError(VmEvent(kind: vmEvtErrInternal, msg: "illegal register access"))
+
+template `[]`(r: Registers, i: SomeInteger): TFullReg =
+  let x = i
+  regIndexCheck(r, i)
+  r.data[x]
+
+template `[]=`(r: Registers, i: SomeInteger, val: TFullReg) =
+  let x = i
+  regIndexCheck(r, i)
+  r.data[x] = val
+
+func getReg(t: var VmThread, i: int): var TFullReg {.inline.} =
+  ## Shortcut for accessing the the `i`-th register belonging to the topmost
+  ## stack frame.
+  t.regs[t.sframes[^1].start + i]
 
 func setNodeValue(dest: LocHandle, node: PNode) =
   assert dest.typ.kind == akPNode
@@ -282,14 +317,15 @@ func cleanUpReg(r: var TFullReg, mm: var VmMemoryManager) =
     resetLocation(mm, r.handle.byteView(), r.handle.typ)
     mm.allocator.dealloc(r.handle)
 
-proc cleanUpLocations(mm: var VmMemoryManager, frame: var TStackFrame) =
-  ## Cleans up and deallocates all locations belonging to `frame`. Registers
-  ## are left in an invalid state, as this function is meant to be called
-  ## prior to leaving a frame
-  for s in frame.slots.items:
+proc cleanUpLocations(mm: var VmMemoryManager, regs: var seq[TFullReg],
+                      start: int) =
+  ## Cleans up and frees all registers beyond and including `start`.
+  for s in regs.toOpenArray(start, regs.high):
     if s.kind == rkLocation:
       mm.resetLocation(s.handle.byteView(), s.handle.typ)
       mm.allocator.dealloc(s.handle)
+
+  regs.setLen(start)
 
 func cleanUpPending(mm: var VmMemoryManager) =
   ## Cleans up all managed ref-counted locations marked for clean-up.
@@ -572,7 +608,7 @@ proc runEh(t: var VmThread, c: var TCtx): Result[PrgCtr, VmException] =
         # ``finally``
         let instr = c.code[instr.b]
         vmAssert instr.opcode == opcFinallyEnd
-        let (fromEh, b) = decodeControl(t.sframes[^1].slots[instr.regA].intVal)
+        let (fromEh, b) = decodeControl(t.getReg(instr.regA).intVal)
         if fromEh:
           vmAssert b.int == t.ehStack.high - 1
           swap(tos, t.ehStack[^2])
@@ -597,9 +633,9 @@ proc resumeEh(c: var TCtx, t: var VmThread,
     if r.isOk:
       # an exception handler or finalizer is entered. Unwind to the target
       # frame:
-      for j in (frame+1)..<t.sframes.len:
-        cleanUpLocations(c.memory, t.sframes[j])
-      t.sframes.setLen(frame + 1)
+      if frame < t.sframes.len - 1:
+        cleanUpLocations(c.memory, t.regs, t.sframes[frame+1].start)
+        t.sframes.setLen(frame + 1)
       # return control to the VM:
       return r
     elif frame == 0:
@@ -639,7 +675,7 @@ proc handle(res: sink Result[PrgCtr, VmException], c: var TCtx,
     if c.code[result].opcode == opcFinally:
       # setup the finally section's control register
       let reg = c.code[result].regA
-      t.sframes[^1].slots[reg].initIntReg(fromEhBit or t.ehStack.high, c.memory)
+      t.getReg(reg).initIntReg(fromEhBit or t.ehStack.high, c.memory)
       inc result
 
   else:
@@ -846,18 +882,11 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
   ## instruction. If the loop exits without errors, `pc` points to the last
   ## executed instruction.
 
-  when defined(gcArc) or defined(gcOrc):
-    # Use {.cursor.} as a way to get a shallow copy of the seq. This is safe,
-    # since `slots` is never changed in length (no add/delete)
-    var regs {.cursor.}: seq[TFullReg]
-    template updateRegsAlias =
-      regs = t.sframes[^1].slots
-    updateRegsAlias
-  else:
-    var regs: seq[TFullReg] # alias to tos.slots for performance
-    template updateRegsAlias =
-      shallowCopy(regs, t.sframes[^1].slots)
-    updateRegsAlias
+  var regs: Registers
+    ## view into current active frame's register slice
+  template updateRegsAlias =
+    regs = initFrom(t.regs, t.sframes[^1].start)
+  updateRegsAlias()
 
   # alias templates to shorten common expressions:
   template tos: untyped =
@@ -869,7 +898,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
     updateRegsAlias()
 
   template popFrame() =
-    cleanUpLocations(c.memory, t.sframes[tos])
+    cleanUpLocations(c.memory, t.regs, t.sframes[tos].start)
     t.sframes.setLen(t.sframes.len - 1)
 
     updateRegsAlias()
@@ -935,7 +964,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           # value or the destination handle) to the destination register on the
           # caller's frame
           let i = c.code[pc].regA
-          t.sframes[tos - 1].slots[i] = move regs[0]
+          t.regs[t.sframes[tos - 1].start + i] = move regs[0]
 
         popFrame()
     of opcYldYoid: assert false
@@ -2003,8 +2032,11 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         # logic as for loops:
         if newPc < pc: handleJmpBack()
         #echo "new pc ", newPc, " calling: ", prc.name.s
-        var newFrame = TStackFrame(prc: prc, comesFrom: pc)
-        newFrame.slots.newSeq(regCount)
+        let start = t.regs.len
+        var newFrame = TStackFrame(prc: prc, comesFrom: pc, start: start)
+        # make space for the registers and refresh the view:
+        t.regs.setLen(start + regCount)
+        updateRegsAlias()
         if instr.opcode == opcIndCallAsgn:
           # the destination might be a temporary complex location (`ra` is an
           # ``rkLocation`` register then). While we could use
@@ -2012,10 +2044,10 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           # that each result access is subjected to access checks. That's
           # inefficient, so we *move* (destructive) the register's content for
           # the duration of the call and move it back when the call returns
-          newFrame.slots[0] = move regs[ra]
+          t.regs[start + 0] = move regs[ra]
 
         for i in 1..<rc:
-          newFrame.slots[i].fastAsgnComplex(regs[rb+i])
+          t.regs[start + i].fastAsgnComplex(regs[rb+i])
 
         pushFrame(newFrame)
         # -1 for the following 'inc pc'
@@ -2919,14 +2951,13 @@ proc initVmThread*(c: var TCtx, pc: PrgCtr, numRegisters: int,
   ## `sym` is the symbol to associate the initial stack-frame with. It may be
   ## nil.
   VmThread(pc: pc,
+           regs: newSeq[TFullReg](numRegisters),
            loopIterations: c.config.maxLoopIterationsVM,
-           sframes: @[TStackFrame(prc: sym,
-                                  slots: newSeq[TFullReg](numRegisters))])
+           sframes: @[TStackFrame(prc: sym)])
 
 proc dispose*(c: var TCtx, t: sink VmThread) =
   ## Cleans up and frees all VM data owned by `t`.
-  for f in t.sframes.mitems:
-    c.memory.cleanUpLocations(f)
+  c.memory.cleanUpLocations(t.regs, 0)
 
   if t.currentException.isNotNil:
     c.heap.heapDecRef(c.allocator, t.currentException)
