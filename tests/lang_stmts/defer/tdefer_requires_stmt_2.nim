@@ -1,7 +1,7 @@
 discard """
   description: "Defer body must be a statement, without error"
   errormsg: "type mismatch: got <bool, int literal(1)>"
-  line: 12
+  line: 13
 """
 
 ## somewhat of a regression test to see what happens when the defer body has an
