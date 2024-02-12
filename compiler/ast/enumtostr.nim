@@ -51,7 +51,15 @@ proc genEnumToStrProc*(t: PType; info: TLineInfo; g: ModuleGraph; idgen: IdGener
   # treat the symbol as a magic so that further processing can easily detect
   # auto-generated enum-to-string procedures
   result.magic = mEnumToStr
-  result.flags.incl {sfFromGeneric, sfNeverRaises}
+  result.flags.incl {sfNeverRaises}
+  # XXX: the synthesized procedure could be seen as coming from a generic
+  #      routine (the generic ``mEnumToStr`` magic procedure from the system
+  #      module), but for the ``sfFromGeneric`` flag to be included, the owner
+  #      of the symbol would have to be the originating-from generic procedure,
+  #      which isn't possible at the moment, given that sem might not have
+  #      processed the declaration (meaning no symbol) of said magic procedure
+  #      when ``genEnumToString`` is called
+  #result.flags.incl {sfFromGeneric}
 
 proc searchObjCaseImpl(obj: PNode; field: PSym): PNode =
   case obj.kind
