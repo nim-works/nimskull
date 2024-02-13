@@ -1,5 +1,5 @@
 discard """
-  description: "Empty `defer` body is not allowed (macro input)."
+  description: "`defer` must have exactly one child node (macro input)."
   errormsg: "illformed AST"
   file: "macros.nim"
   line: 618
