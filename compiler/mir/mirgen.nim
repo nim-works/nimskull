@@ -1,6 +1,9 @@
 ## Implements the translation from AST to the MIR. The input AST is expected
 ## to have already been transformed by ``transf``.
 ##
+## How It Works
+## ------------
+##
 ## In terms of operation, the input AST is traversed via recursion, with
 ## declarative constructs not relevant to the MIR being ignored.
 ##
@@ -11,30 +14,31 @@
 ## they're used, either a temporary or existing lvalue expression. The latter
 ## are forwarded to the generation procedures via ``Destination``.
 ##
-## For efficiency, ``MirBuilder`` double-buffering functionality is used for
+## For efficiency, ``MirBuilder``'s double-buffering functionality is used for
 ## emitting the trees. Statements are directly emitted into the final buffer
 ## (after all their operands were emitted), while expressions are first
 ## emitted into the staging buffer, with the callsite then deciding what to
 ## do with them.
 ##
-## The values of rvalue operations, calls, and construction are first captured
-## in temporaries (as the MIR doesn't support them being used as, e.g., call
-## arguments directly). In general, all call arguments are first assigned to a
-## temporary, except if the expression is stable (in case of by-name
-## arguments) or pure (in case of non-sink by-value arguments).
+## When translating expressions, they're first translated to the `proto-MIR <proto_mir.html>`_,
+## and then the proto-MIR expression is translated to the MIR. This allows
+## the translation of expressions (besides calls) to focus only on syntax,
+## leaving the semantics-related decision-making to the proto-MIR construction.
 ##
-## Pure expression are those that don't have side-effect and always refer to
-## the exact same value, whereas stable expression are those that don't have
-## side-effects and always refer to the same *location*.
+## For arguments, the translation uses temporaries (both owning and non-owning)
+## to make sure that the following invariants are true:
+## * normal argument expressions are pure (the expression always evaluates to
+##   the same value)
+## * lvalue argument expressions are stable (the expression always has the
+##   same address)
+## * sink arguments are always moveable
+## * index and dereference targets are always pure
 ##
-## Whether a temporary is owning (that is, it needs to be destroyed later)
-## depends on both the value it captures and how its used. If the captured
-## value is coming from a call or construction of destructible value, the
-## temporary, otherwise its non-owning, except if used in a consuming
-## context (`sink` parameter or aggregate construction).
+## These guarantees make the following analysis and transformation a lot
+## easier.
 ##
 ## Origin information
-## ==================
+## ------------------
 ##
 ## Each produced ``MirNode`` is associated with the ``PNode`` it originated
 ## from (referred to as "source information"). The ``PNode`` is registered in
