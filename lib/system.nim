@@ -52,6 +52,15 @@ type
   typed* {.magic: Stmt.}         ## Meta type to denote an expression that
                                  ## is resolved (for templates).
 
+# XXX: the ``EnumToStr`` magic has to be defined here so that the ``bool``
+#      definition can compile
+proc `$`*[Enum: enum](x: Enum): string {.magic: "EnumToStr", noSideEffect.}
+  ## The stringify operator for an enumeration argument. This works for
+  ## any enumeration type thanks to compiler magic.
+  ##
+  ## If a `$` operator for a concrete enumeration is provided, this is
+  ## used instead. (In other words: *Overwriting* is possible.)
+
 include "system/basic_types"
 
 
@@ -1970,6 +1979,7 @@ template newException*(exceptn: typedesc, message: string;
                        parentException: ref Exception = nil): untyped =
   ## Creates an exception object of type `exceptn`, initializes it's `name`
   ## and sets its `msg` field to `message`. Returns the new exception object.
+  mixin `$`
   (ref exceptn)(name: $exceptn, msg: message, parent: parentException)
 
 proc getTypeInfo*[T](x: T): pointer {.magic: "GetTypeInfo", benign.}
