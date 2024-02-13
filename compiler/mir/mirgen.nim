@@ -1658,7 +1658,8 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
   of pirCheckedVariantAccess:
     let
       variant = toValue(c, e, i - 1)
-      discr = genCheckedVariantAccess(c, variant, n.field.name, n.orig)
+      discr = genCheckedVariantAccess(c, variant, n.orig[0][1].sym.name,
+                                      n.orig[n.nodeIndex])
     c.subTree MirNode(kind: mnkPathVariant, typ: n.typ, field: discr):
       c.use variant
   of pirCheckedObjConv:

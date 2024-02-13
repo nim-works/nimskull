@@ -124,11 +124,14 @@ type
       sym* {.cursor.}: PSym
     of pirTupleAccess:
       pos*: uint32
-    of pirFieldAccess, pirVariantAccess, pirCheckedVariantAccess:
+    of pirFieldAccess, pirVariantAccess:
       field* {.cursor.}: PSym
     of pirArrayAccess, pirSeqAccess, pirCheckedArrayAccess, pirCheckedSeqAccess:
       index*: int
         ## the item index of the index operand expression
+    of pirCheckedVariantAccess:
+      nodeIndex*: int
+        ## the check's index in the originating-from ``nkCheckedFieldAccess``
     of pirCheckedObjConv:
       check* {.cursor.}: PType
         ## the type to emit a run-time check with
@@ -549,15 +552,13 @@ proc exprToPmir(c: TranslateCtx, result: var seq[ProtoItem], n: PNode, sink: boo
         else:                          check[2].sym
 
       if optFieldCheck in c.options:
-        # note: for a checked access, the symbol of the actually accessed
-        # field, not that of the discriminator, is used
-        result.add ProtoItem(orig: check, typ: n[0][0].typ, keep: kLvalue,
-                             kind: pirCheckedVariantAccess, field: field)
+        result.add ProtoItem(orig: n, typ: n[0][0].typ, keep: kLvalue,
+                             kind: pirCheckedVariantAccess, nodeIndex: i)
       else:
-        result.add ProtoItem(orig: check, typ: n[0][0].typ, keep: kLvalue,
+        result.add ProtoItem(orig: n, typ: n[0][0].typ, keep: kLvalue,
                              kind: pirVariantAccess, field: discr)
 
-    result.addField n[0], pirFieldAccess, field
+    result.addField n, pirFieldAccess, field
 
   of nkObjDownConv, nkObjUpConv:
     # the object conversion might need a run-time check
