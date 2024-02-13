@@ -22,11 +22,10 @@ proc genEnumToStrProc*(t: PType; info: TLineInfo; g: ModuleGraph; idgen: IdGener
   let res = newSym(skResult, getIdent(g.cache, "result"), nextSymId idgen, result, info)
   res.typ = getSysType(g, info, tyString)
 
-  result.typ = newType(tyProc, nextTypeId idgen, t.owner)
-  result.typ.n = newNodeI(nkFormalParams, info)
-  rawAddSon(result.typ, res.typ)
-  result.typ.n.add newNodeI(nkEffectList, info)
-
+  # setup the procedure's type:
+  result.typ = newProcType(info, nextTypeId idgen, result)
+  result.typ[0] = res.typ
+  propagateToOwner(result.typ, res.typ, false)
   result.typ.addParam dest
 
   var caseStmt = newNodeI(nkCaseStmt, info)
