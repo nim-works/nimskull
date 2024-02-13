@@ -1979,6 +1979,7 @@ template newException*(exceptn: typedesc, message: string;
                        parentException: ref Exception = nil): untyped =
   ## Creates an exception object of type `exceptn`, initializes it's `name`
   ## and sets its `msg` field to `message`. Returns the new exception object.
+  mixin `$`
   (ref exceptn)(name: $exceptn, msg: message, parent: parentException)
 
 proc getTypeInfo*[T](x: T): pointer {.magic: "GetTypeInfo", benign.}
