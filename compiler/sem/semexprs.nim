@@ -3878,22 +3878,14 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkDefer:
     if c.currentScope == c.topLevelScope:
       localReport(c.config, n, reportSem rsemUnexpectedToplevelDefer)
-    let res = semExpr(c, n[0])
-    case res.kind
+    checkSonsLen(n, 1, c.config)
+    result = copyNodeWithKids(n)
+    result[0] = semStmt(c, n[0], {})
+    case result[0].kind
     of nkError:
-      result = copyNodeWithKids(n)
-      result[0] = res
       result = c.config.wrapError(result)
     else:
-      if res == n[0]: # no change
-        discard
-      else:
-        result = copyNodeWithKids(n)
-        result[0] = res
-
-      # TODO: convert to nkError
-      if not res.typ.isEmptyType and not implicitlyDiscardable(res):
-        localReport(c.config, n, reportSem rsemExpectedTypelessDeferBody)
+      discard
   of nkMixinStmt: discard
   of nkBindStmt:
     if c.p != nil:
