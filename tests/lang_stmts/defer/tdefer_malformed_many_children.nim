@@ -1,7 +1,8 @@
 discard """
   description: "Empty `defer` body is not allowed (macro input)."
   errormsg: "illformed AST"
-  line: 13
+  file: "macros.nim"
+  line: 618
 """
 
 import std/macros

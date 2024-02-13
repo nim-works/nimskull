@@ -1,7 +1,7 @@
 discard """
   description: "Defer body must be statement"
-  errormsg: "'defer' takes a 'void' expression"
-  line: 8
+  errormsg: "expression 'true' is of type 'bool' and has to be used (or discarded)"
+  line: 9
 """
 
 block:
