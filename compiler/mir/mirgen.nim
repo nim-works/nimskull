@@ -60,6 +60,7 @@ import
   ],
   compiler/ast/[
     ast,
+    astalgo,
     astmsgs, # for generating the field error message
     lineinfos,
     trees,
@@ -72,6 +73,7 @@ import
     mirconstr,
     mirenv,
     mirtrees,
+    proto_mir,
     sourcemaps
   ],
   compiler/modules/[
@@ -162,17 +164,10 @@ type
 
     config: TranslationConfig
 
-  ExprKind = enum
-    Literal
-    Lvalue
-    Rvalue         # non-owning rvalue that can only be copied
-    OwnedRvalue    # rvalue that requires destruction
+  PMirExpr = seq[ProtoItem]
+    ## Convenience alias.
 
 const
-  abstractInstTypeClass = abstractInst + tyUserTypeClasses
-  # TODO: this set shouldn't be needed. ``tyUserTypeClass`` and
-  #       ``tyUserTypeClassInst`` should be turned into either aliases or
-  #       ``tyGenericInst`` types when they're resolved
   ComplexExprs = {nkIfExpr, nkCaseStmt, nkBlockExpr, nkTryStmt}
     ## The expression that are treated as complex and which are transformed
     ## into assignments-to-temporaries
@@ -209,11 +204,6 @@ func endsInNoReturn(n: PNode): bool =
     (it.kind in nkCallKinds and it[0].kind == nkSym and
      sfNoReturn in it[0].sym.flags)
 
-func selectWhenBranch(n: PNode, isNimvm: bool): PNode =
-  assert n.kind == nkWhen
-  if isNimvm: n[0][1]
-  else:       n[1][0]
-
 func initDestination(v: sink Value, isFirst, sink: bool): Destination =
   var flags: set[DestFlag]
   if isFirst:
@@ -236,61 +226,6 @@ proc typeOrVoid(c: TCtx, t: PType): PType {.inline.} =
 func nextLabel(c: var TCtx): LabelId =
   result = LabelId(c.numLabels)
   inc c.numLabels
-
-func isPure(tree: MirTree, n: NodePosition): bool =
-  ## Returns whether the expression at `n` is a pure expression.
-  case tree[n].kind
-  of mnkParam:
-    # sink parameters are mutable and thus not pure
-    tree[n].typ.kind != tySink
-  of mnkTemp, mnkConst, mnkLiteral, mnkProc, mnkType:
-    # note: during the translation phase, the name of a temporary is a pure
-    # expression
-    true
-  of mnkLocal:
-    # let bindings are pure, but only if they don't have a destructor (in
-    # which case they're movable)
-    tree[n].sym.kind in {skLet, skForVar} and not hasDestructor(tree[n].typ)
-  of mnkPathNamed, mnkPathPos, mnkPathConv, mnkPathVariant:
-    isPure(tree, NodePosition tree.operand(n))
-  of mnkPathArray:
-    let arr = NodePosition tree.operand(n, 0)
-    case tree[arr].typ.skipTypes(abstractVar).kind
-    of tyArray, tyUncheckedArray, tyString, tySequence, tyOpenArray, tyVarargs,
-       tyCstring:
-      # pure when the both the array and index operands are pure
-      isPure(tree, tree.child(n, 1)) and isPure(tree, arr)
-    else:
-      unreachable(tree[arr].kind)
-  else:
-    # TODO: make exhaustive
-    false
-
-func isStable(tree: MirTree, n: NodePosition): bool =
-  ## Returns whether the run-time address of the lvalue expression `n` is
-  ## always the same, regardless of when the address is computed.
-  case tree[n].kind
-  of mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp, mnkAlias:
-    true
-  of mnkPathArray:
-    let arr = NodePosition tree.operand(n, 0)
-    case tree[arr].typ.skipTypes(abstractVar).kind
-    of tyArray, tyUncheckedArray:
-      # static arrays
-      isPure(tree, tree.child(n, 1)) and isStable(tree, arr)
-    of tyString, tySequence, tyOpenArray, tyVarargs, tyCstring:
-      # run-time arrays; stable when neither the array nor index operand
-      # depends on mutable state
-      isPure(tree, tree.child(n, 1)) and isPure(tree, arr)
-    else:
-      unreachable()
-  of mnkPathNamed, mnkPathPos, mnkPathConv, mnkPathVariant:
-    isStable(tree, NodePosition tree.operand(n))
-  of mnkDeref, mnkDerefView:
-    # a pure target means that the pointer is always the same
-    isPure(tree, NodePosition tree.operand(n))
-  of AllNodeKinds - LvalueExprKinds:
-    unreachable(tree[n].kind)
 
 # ----------- SourceProvider API -------------
 
@@ -381,11 +316,19 @@ template allocTemp(c: var TCtx, typ: PType; alias=false): Value =
   c.builder.allocTemp(typ, alias)
 
 proc gen(c: var TCtx; n: PNode)
-proc genx(c: var TCtx; n: PNode, consume: bool = false)
+proc genx(c: var TCtx; e: PMirExpr, i: int)
 proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination)
 
 proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode)
 proc genWithDest(c: var TCtx; n: PNode; dest: Destination)
+
+proc exprToPmir(c: var TCtx, n: PNode, sink, mutable: bool): PMirExpr =
+  exprToPmir(c.userOptions, c.graph.config, goIsNimvm in c.config.options,
+             n, sink, mutable)
+
+proc genx(c: var TCtx, n: PNode; consume: bool = false) =
+  let e = exprToPmir(c, n, consume, false)
+  genx(c, e, e.high)
 
 func getTemp(c: var TCtx, typ: PType): Value =
   ## Allocates a new temporary and emits a definition for it into the
@@ -426,142 +369,67 @@ template buildDefectMagicCall(c: var TCtx, m: TMagic, t: PType,
     c.add MirNode(kind: mnkMagic, magic: m)
     body
 
-func detectKind(tree: MirTree, n: NodePosition, sink: bool): ExprKind =
-  ## Detects the kind of expression `n` (with the originating from AST `e`)
-  ## represents. `sink` informs whether expression is used in a sink context.
-  case tree[n].kind
-  of mnkCall, mnkCheckedCall:
-    if hasDestructor(tree[n].typ):
-      OwnedRvalue
-    else:
-      Rvalue
-  of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice, UnaryOps,
-     BinaryOps:
-    Rvalue
-  of mnkObjConstr:
-    if tree[n].typ.skipTypes(abstractInst).kind == tyRef or
-       (sink and hasDestructor(tree[n].typ)):
-      # the result of ref constructions always needs to be destroyed
-      OwnedRvalue
-    else:
-      Rvalue
-  of mnkConstr:
-    if sink and hasDestructor(tree[n].typ):
-      OwnedRvalue
-    else:
-      Rvalue
-  of LvalueExprKinds:
-    Lvalue
-  of mnkLiteral, mnkProc, mnkType:
-    Literal
-  of AllNodeKinds - ExprKinds:
-    unreachable(tree[n].kind)
+proc singleToValue(c: var TCtx, e: PMirExpr, i: int): Value =
+  c.builder.useSource(c.sp, e[i].orig)
+  let f = c.builder.push: genx(c, e, i)
+  result = c.builder.popSingle(f)
 
-func captureInTemp(c: var TCtx, f: Fragment, sink: bool): Value =
-  ## Pops the expression `f` from the staging buffer and wraps it in a new
-  ## temporary. `sink` signals whether the temporary is intended for use
-  ## in a sink context.
-  let def =
-    if sink or detectKind(c.builder.staging, f.pos, sink) == OwnedRvalue:
-      mnkDef
-    else:
-      mnkDefCursor
+proc toValue(c: var TCtx, e: PMirExpr, i: int, def: MirNodeKind): Value =
+  ## Generates the MIR code for the given expression and turns it into a
+  ## ``Value``, using a `def` statement for creating the necessary
+  ## temporary.
+  c.builder.useSource(c.sp, e[i].orig)
+  let f = c.builder.push: genx(c, e, i)
+  if c.builder.staging[f.pos].kind in Atoms:
+    # can be turned into a ``Value`` directly
+    result = c.builder.popSingle(f)
+  else:
+    # needs a temporary
+    result = c.allocTemp(e[i].typ, def in {mnkBind, mnkBindMut})
+    withFront c.builder:
+      c.subTree def:
+        c.use result
+        c.builder.pop(f)
 
-  result = c.allocTemp(f.typ)
-  withFront c.builder:
-    c.subTree def:
-      c.use result
-      c.builder.pop(f)
-
-func captureName(c: var TCtx, f: Fragment, mutable: bool): Value =
-  ## Pops the expression `f` from the staging buffer and assigns it to an
-  ## alias. The alias is returned.
-  let res = c.allocTemp(f.typ, alias=true)
-  withFront c.builder:
-    c.subTree (if mutable: mnkBindMut else: mnkBind):
-      c.add res.node
-      c.builder.pop(f)
-  res
+proc toValue(c: var TCtx, e: PMirExpr, i: int): Value =
+  ## Generates the MIR code for the given expression and turns it into a
+  ## ``Value``.
+  case classify(e, i)
+  of Lvalue:
+    case e[i].keep
+    of kDontCare:  toValue(c, e, i, mnkDefCursor)
+    of kLvalue:    toValue(c, e, i, mnkBind)
+    of kMutLvalue: toValue(c, e, i, mnkBindMut)
+  of Rvalue:       toValue(c, e, i, mnkDefCursor)
+  of OwnedRvalue:  toValue(c, e, i, mnkDef)
+  of Literal:      singleToValue(c, e, i)
 
 proc genUse(c: var TCtx, n: PNode): Value =
-  ## Generates the MIR tree for expression `n`. If the expression is an
-  ## atom, the atom is returned, otherwise the value is captured in a
-  ## temporary and the name of the temporary is returned.
-  c.builder.useSource(c.sp, n)
-  # emit the expression into the staging buffer:
-  let f = c.builder.push: genx(c, n)
+  ## Generates the MIR code for expression `n` and returns it as a ``Value``.
+  ## The expression is not guaranteed to be pure.
+  var e = exprToPmir(c, n, false, false)
+  toValue(c, e, e.high)
 
-  if c.builder.staging[f.pos].kind in Atoms:
-    result = c.builder.popSingle(f)
-  else:
-    result = captureInTemp(c, f, sink=false)
-
-proc genRd(c: var TCtx, n: PNode; consume=false): Value =
-  ## Generates the MIR code for the expression `n`. Makes sure that the run-
-  ## time value of the expression is *captured* by assigning it to a
-  ## temporary.
-  c.builder.useSource(c.sp, n)
-  let f = c.builder.push: genx(c, n)
-
-  if c.builder.staging[f.pos].kind in Atoms and
-     isPure(c.builder.staging, f.pos):
-    result = c.builder.popSingle(f)
-  else:
-    # either an rvalue or some non-pure lvalue -> capture
-    result = captureInTemp(c, f, consume)
+proc genRd(c: var TCtx, n: PNode): Value =
+  ## Generates the MIR code for expression `n` and returns it as a pure
+  ## ``Value``.
+  var e = exprToPmir(c, n, false, false)
+  wantPure(e)
+  toValue(c, e, e.high)
 
 proc genAlias(c: var TCtx, n: PNode, mutable: bool): Value =
-  ## `mutable` indicates whether the alias needs to support direct assignments
-  ## through it.
-  let f = c.builder.push: genx(c, n)
-  if c.builder.staging[f.pos].kind in Atoms:
-    # names are always stable, so no capture is needed
-    c.builder.popSingle(f)
-  else:
-    captureName(c, f, mutable)
+  ## Generates the MIR code for lvalue expression `n`, and creates an alias
+  ## (run-time reference) for it. `mutable` indicates whether the alias
+  ## needs to support direct assignments through it.
+  var e = exprToPmir(c, n, false, mutable)
+  toValue(c, e, e.high)
 
-proc capture(c: var TCtx, n: PNode; sink=false): Value =
-  ## If not a stable lvalue expression, captures the result of the
-  ## expression `n` in a temporary.
-  ## * rvalue expression are captured in temporaries (with `sink` indicating
-  ##   whether an owned value is preferred)
-  ## * lvalue expressions are captured as non-assignable aliases
-  ## * literals are not captured
-  const Skip = abstractInstTypeClass + {tyVar}
-  let f = c.builder.push: genx(c, n)
-  case detectKind(c.builder.staging, f.pos, sink)
-  of Rvalue, OwnedRvalue:
-    captureInTemp(c, f, sink)
-  of Literal:
-    c.builder.popSingle(f)
-  of Lvalue:
-    if c.builder.staging[f.pos].kind in Atoms:
-      # atoms are always stable and can thus be used directly
-      c.builder.popSingle(f)
-    elif n.typ.skipTypes(Skip).kind in {tyOpenArray, tyVarargs}:
-      # don't create an alias for openArrays, a copy of the view suffices
-      captureInTemp(c, f, sink=false)
-    else:
-      # if used in a sink context, the alias must support potentially
-      # destructive moves through it, which requires a ``BindMut``
-      captureName(c, f, mutable=sink)
-
-proc genOperand(c: var TCtx, n: PNode; sink = false) =
-  ## Translates expression AST `n` to a MIR operand expression. `sink` signals
-  ## whether the result is used in a sink context -- the flag is propagated
-  ## through conversions such that in ``A(B(C(x: ...)))`` the object
-  ## construction produces an owning value.
-  c.builder.useSource(c.sp, n)
-  let f = c.builder.push: genx(c, n, sink)
-  case detectKind(c.builder.staging, f.pos, sink)
-  of OwnedRvalue, Rvalue:
-    let tmp = captureInTemp(c, f, sink)
-    c.use tmp
-  of Lvalue, Literal:
-    # nothing to do, the nodes are already in the staging buffer
-    # note: literals are not valid in a context where an lvalue is required
-    #       (e.g., as the operand to an ``addr`` operation)
-    discard f
+proc genOperand(c: var TCtx, n: PNode) =
+  ## Generates and emits the MIR code for expression `n`, using temporaries to
+  ## make sure the emitted MIR expression is valid in an operand position.
+  var e = exprToPmir(c, n, false, false)
+  wantValue(e)
+  genx(c, e, e.high)
 
 proc genOp(c: var TCtx, k: MirNodeKind, t: PType, n: PNode) =
   assert t != nil
@@ -629,37 +497,6 @@ proc genAndOr(c: var TCtx, n: PNode, dest: Destination) =
     c.subTree mnkStmtList:
       genAsgn(c, dest, n[2]) # the right-hand side
 
-proc genBracketExpr(c: var TCtx, n: PNode) =
-  let typ = n[0].typ.skipTypes(abstractInstTypeClass - {tyTypeDesc})
-  case typ.kind
-  of tyTuple:
-    let i = n[1].intVal.int
-    # due to all the type-related modifications done by ``transf``, it's safer
-    # to lookup query the type from the tuple instead of using `n.typ`
-    c.subTree MirNode(kind: mnkPathPos, typ: typ[i], position: i.uint32):
-      genOperand(c, n[0])
-  of tyArray, tySequence, tyOpenArray, tyVarargs, tyUncheckedArray, tyString,
-     tyCstring:
-    if optBoundsCheck in c.userOptions and
-       needsIndexCheck(c.graph.config, n[0], n[1]):
-      let
-        arr = capture(c, n[0])
-        idx = genRd(c, n[1])
-
-      c.buildStmt mnkVoid:
-        c.buildDefectMagicCall mChckIndex, typeOrVoid(c, nil):
-          c.emitByVal arr
-          c.emitByVal idx
-
-      c.buildOp mnkPathArray, elemType(typ):
-        c.use arr
-        c.use idx
-    else:
-      c.buildOp mnkPathArray, elemType(typ):
-        genOperand(c, n[0])
-        c.use genRd(c, n[1])
-  else: unreachable()
-
 proc genFieldCheck(c: var TCtx, access: Value, call: PNode, inverted: bool,
                    field: string) =
   ## Generates and emits a field check.
@@ -681,127 +518,23 @@ proc genFieldCheck(c: var TCtx, access: Value, call: PNode, inverted: bool,
       c.emitByVal literal(newStrNode(genFieldDefect(conf, field, discr),
                                      c.graph.getSysType(call.info, tyString)))
 
-proc genVariantAccess(c: var TCtx, n: PNode) =
-  ## Generates and emits the MIR code for an object variant access, but
-  ## **without** the final field access. That is, for `x.b` - where `b` is part
-  ## of a variant - the `.b` part is **not** emitted. If field checks are
-  ## enabled, they are emitted too.
-  ##
-  ## There'S no notion of "access variant" in the AST while in the MIR there
-  ## is. This requires first materializing each variant access.
-  assert n.kind == nkCheckedFieldExpr
-
-  let access = n[0]
-  assert access.kind == nkDotExpr
-
-  var x = capture(c, access[0])
-  # iterate the checks in reverse, as the outermost discriminator check is
-  # rightmost
-  # XXX: the "rightmost" part is an implementation detail of how
-  #      ``nkCheckedFieldExpr`` nodes are generated by ``sem``,
-  #      depending on it here is brittle
-  for i in countdown(n.len - 1, 1):
-    let check = n[i]
-    assert check.kind in nkCallKinds
-    let
-      inverted = check[0].sym.magic == mNot
-      call =
-        if inverted: check[1]
-        else:        check
-      discr = call[2].sym ## the discriminator's symbol
-
-    if optFieldCheck in c.userOptions:
-      genFieldCheck(c, x, call, inverted, access[1].sym.name.s)
-
-    if i == 1:
-      # last access in the chain
-      c.subTree MirNode(kind: mnkPathVariant, typ: x.typ, field: discr):
-        c.use x
-    else:
-      # capture the access in an alias, so that it can be used for the
-      # following check
-      withFront c.builder:
-        x = c.builder.wrapAlias x.typ:
-          c.subTree MirNode(kind: mnkPathVariant, typ: x.typ, field: discr):
-            c.use x
-
-proc genObjConv(c: var TCtx, n: PNode, sink, dest: bool) =
-  ## Given an ``nkObjDownConv`` or ``nkObjUpConv`` AST, folding away all
-  ## immediately nested up- and down-conversion nodes. That is, only one
-  ## ``mnkPathConv`` is emitted.
-  ##
-  ## If conversion checks are enabled and required, at most one check is
-  ## emitted. The type used for the check is either the type most nested in
-  ## the hierarchy, or a sibling type (if a sibling conversion is present).
+proc genCheckedVariantAccess(c: var TCtx, variant: Value, name: PIdent,
+                             check: PNode): PSym =
+  ## Generates and emits the field check. `variant` is the variant-object
+  ## value the discriminator field is part of, `name` is the name to
+  ## put into the error message, and `check` is the check-AST coming from an
+  ## ``nkCheckedFieldExpr`` expression.
+  ## The symbol of the discriminator field, as taken from `check`, is
+  ## returned.
+  assert check.kind in nkCallKinds
   let
-    skipped = n.typ.skipTypes(abstractInst)
-    # only ref and ptr types are checked during conversions, normal objects
-    # are not
-    needsCheck = (optObjCheck in c.userOptions) and
-                 (skipped.kind in {tyPtr, tyRef}) and
-                 not isObjLackingTypeField(skipped.lastSon)
+    inverted = check[0].sym.magic == mNot
+    call =
+      if inverted: check[1]
+      else:        check
 
-  # find the first non-conversion node:
-  var start {.cursor.} = n
-  while start.kind in {nkObjDownConv, nkObjUpConv}:
-    start = start[0]
-
-  var deepest = start.typ.skipTypes(skipPtrs)
-    ## the type most nested in the type hierarchy that's certain to be valid.
-    ## If a sibling conversion exists in the chain, this is the first
-    ## encountered sibling type
-  if needsCheck:
-    # walk the conversions again and look for the type deepest in the
-    # hierarchy
-    var x {.cursor.} = n
-    while x.kind in {nkObjDownConv, nkObjUpConv}:
-      let typ = x.typ.skipTypes(skipPtrs)
-      if (let rel = inheritanceDiff(typ, deepest); rel > 0):
-        deepest = typ
-        if rel == high(typeof(rel)):
-          # whatever other types there are, a sibling conversion will always
-          # result in a run-time error
-          break
-
-      x = x[0]
-
-  if needsCheck and deepest != start.typ.skipTypes(skipPtrs):
-    # we do need a check, but only for the most deeply nested type that is
-    # converted to
-    let val =
-      if dest:
-        genAlias(c, start, mutable=true)
-      elif sink:
-        capture(c, start, true)
-      else:
-        # if the result neither needs to be moved from nor assigned to, a
-        # cursor is enough
-        let f = c.builder.push: genx(c, start, false)
-        captureInTemp(c, f, false)
-
-    let boolType = c.graph.getSysType(n.info, tyBool)
-
-    c.buildStmt mnkIf:
-      # the ``x != nil`` condtion:
-      c.wrapAndUse(boolType):
-        c.buildMagicCall mNot, boolType:
-          c.subTree mnkArg:
-            c.wrapAndUse(boolType):
-              c.buildMagicCall mIsNil, boolType:
-                c.emitByVal val
-      # the check:
-      c.subTree mnkVoid:
-        c.buildDefectMagicCall mChckObj, typeOrVoid(c, nil):
-          c.emitByVal val
-          c.emitByVal typeLit(deepest)
-
-    c.buildOp mnkPathConv, n.typ:
-      c.use val
-  else:
-    # skip all down- and up-conversion, the final conversion is all that
-    # matters
-    c.buildOp mnkPathConv, n.typ:
-      genOperand(c, start)
+  genFieldCheck(c, variant, call, inverted, name.s)
+  result = call[2].sym
 
 proc genTypeExpr(c: var TCtx, n: PNode): Value =
   ## Generates the code for an expression that yields a type. These are only
@@ -857,20 +590,12 @@ proc genArgExpression(c: var TCtx, n: PNode, sink: bool) =
   ## Generates and emits the code for an expression appearing in a call or
   ## construction argument position.
   c.builder.useSource(c.sp, n)
+  var e = exprToPmir(c, n, sink, false)
 
-  let f = c.builder.push: genx(c, n, consume = sink)
-  let needsTemp =
-    if sink:
-      # only literals can be passed directly to sink parameters
-      c.builder.staging[f.pos].kind notin {mnkProc, mnkLiteral}
-    else:
-      # all non-pure expressions need to be captured
-      not isPure(c.builder.staging, f.pos)
+  if sink: wantConsumeable(e)
+  else:    wantPure(e)
 
-  if needsTemp:
-    c.use captureInTemp(c, f, sink)
-  else:
-    discard f
+  genx(c, e, e.high)
 
 proc emitOperandTree(c: var TCtx, n: PNode, sink: bool) =
   ## Generates and emits the MIR tree for a call or construction argument.
@@ -882,23 +607,10 @@ proc genLvalueOperand(c: var TCtx, n: PNode; mutable = true) =
   ## not pure or has side-effects, its address/name is captured, with
   ## `mutable` denoting whether the address is going to be used for mutation
   ## of the underlying location.
-  let
-    n = if n.kind == nkHiddenAddr: n[0] else: n
-    f = c.builder.push:
-      if n.kind in {nkObjDownConv, nkObjUpConv}:
-        # XXX: super hacky, but currently required so that object conversions
-        #      pick the correct capture method when used as lvalue operands
-        genObjConv(c, n, sink=false, mutable)
-      else:
-        genx(c, n)
-
-  if isStable(c.builder.staging, f.pos):
-    # the expression can be used directly. We're already in a staging
-    # buffer context, so do nothing
-    discard f
-  else:
-    # capture the address via an alias
-    c.use captureName(c, f, mutable)
+  let n = if n.kind == nkHiddenAddr: n[0] else: n
+  var e = exprToPmir(c, n, false, mutable)
+  wantStable(e)
+  genx(c, e, e.high)
 
 proc genCallee(c: var TCtx, n: PNode) =
   ## Generates and emits the code for a callee expression.
@@ -975,15 +687,9 @@ proc genArgs(c: var TCtx, n: PNode) =
       # that resembles a handle. We need to make sure that the first argument
       # (which the view could be created from), is passed by reference
       c.subTree mnkName:
-        let x = c.builder.push: genx(c, n[i])
-        case detectKind(c.builder.staging, x.pos, false)
-        of OwnedRvalue, Rvalue, Literal:
-          c.use captureInTemp(c, x, false)
-        of Lvalue:
-          if isStable(c.builder.staging, x.pos):
-            discard x
-          else:
-            c.use captureName(c, x, false)
+        var e = exprToPmir(c, n[i], false, false)
+        wantStable(e)
+        genx(c, e, e.high)
 
     else:
       genArg(c, t, n[i])
@@ -1160,9 +866,6 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         c.emitByVal typeLit(x.typ)
       for it in x.items:
         arg it
-  of mAccessEnv:
-    c.subTree MirNode(kind: mnkPathPos, typ: n.typ, position: 1):
-      genOperand(c, n[1])
   of mOffsetOf:
     # an offsetOf call that has to be evaluated by the backend
     c.buildMagicCall mOffsetOf, n.typ:
@@ -1175,31 +878,6 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         c.userOptions = {}
         genx(c, n[1])
         c.userOptions = orig
-  of mSlice:
-    # XXX: a HiddenStdConv erroneously ends up in the array position
-    #      sometimes, which would, if kept, lead to index errors when the
-    #      array doesn't start at index 0
-    let arr = skipConv(n[1])
-    if optBoundsCheck in c.userOptions and needsBoundCheck(arr, n[2], n[3]):
-      let
-        arr = capture(c, arr)
-        lo = genRd(c, n[2])
-        hi = genRd(c, n[3])
-      c.buildStmt mnkVoid:
-        c.buildDefectMagicCall mChckBounds, typeOrVoid(c, nil):
-          c.emitByVal arr
-          c.emitByVal lo
-          c.emitByVal hi
-
-      c.buildTree mnkToSlice, n.typ:
-        c.use arr
-        c.use lo
-        c.use hi
-    else:
-      c.buildTree mnkToSlice, n.typ:
-        genOperand(c, arr)
-        genArgExpression(c, n[2], sink=false)
-        genArgExpression(c, n[3], sink=false)
 
   # arithmetic operations:
   of mAddI, mSubI, mMulI, mDivI, mModI, mPred, mSucc:
@@ -1485,20 +1163,10 @@ proc genAsgnSource(c: var TCtx, e: PNode, sink: bool) =
   ## Generates the MIR code for the right-hand side of an assignment.
   ## The value is captured in a temporary if necessary for proper
   ## destruction.
-  c.builder.useSource(c.sp, e)
-  let f = c.builder.push: genx(c, e, sink)
-
-  if not sink and
-     detectKind(c.builder.staging, f.pos, false) == OwnedRvalue:
-    # the expression produces some value that requires ownership being
-    # taken of but the receiver doesn't support holding those. Assign the
-    # value to an owning temporary (which can be destroyed later) first
-    let tmp = c.allocTemp(e.typ)
-    withFront c.builder:
-      c.subTree mnkDef:
-        c.add tmp.node
-        c.builder.pop(f)
-    c.use tmp
+  var e = exprToPmir(c, e, sink, false)
+  if not sink:
+    wantShallow(e)
+  genx(c, e, e.high)
 
 proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
   assert dest.isSome
@@ -1546,14 +1214,7 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
     # becomes:
     #   if cond: x = a
     #   else:    x = b
-    let
-      f = c.builder.push: genLvalueOperand(c, lhs, true)
-      dest =
-        if c.builder.staging[f.pos].kind in Atoms:
-          c.builder.popSingle(f)
-        else:
-          captureName(c, f, true)
-
+    let dest = genAlias(c, lhs, true)
     genWithDest(c, rhs, initDestination(dest, isFirst, sink))
   else:
     let kind =
@@ -1939,195 +1600,194 @@ proc toConstant(c: var TCtx, n: PNode): Value =
   let con = toConstId c.env.data.getOrPut(constDataToMir(c.env, n))
   toValue(con, n.typ)
 
-proc handleConstExpr(c: var TCtx, n: PNode, lift: bool): bool =
-  ## If `n` is a fully constant expression and `lift` is 'true', lifts `n`
-  ## into an anonymous constant, emits a use of said constant, and returns
-  ## 'true'. 'false' is returned if no lifting took place.
-  # there's no benefit to lifting empty construction; those are kept
-  if lift and n.len > ord(n.kind == nkObjConstr) and isDeepConstExpr(n):
-    c.use toConstant(c, n)
-    result = true
+proc genx(c: var TCtx, e: PMirExpr, i: int) =
+  ## Translates the proto-MIR expression to MIR code and emits it into the
+  ## current front buffer.
+  let n {.cursor.} = e[i]
+  c.builder.useSource(c.sp, n.orig)
 
-proc genx(c: var TCtx, n: PNode, consume: bool) =
-  ## Generate and emits the raw MIR code for the given expression `n` into
-  ## the active buffer.
-  ##
-  ## `consume` signals whether aggregate constructions have to create owned
-  ## value (by consuming their elements) or not (by shallow-copying their
-  ## element).
-  c.builder.useSource(c.sp, n)
+  template recurse() =
+    genx(c, e, i - 1)
 
   case n.kind
-  of nkSym:
-    let s = n.sym
-    case s.kind
-    of skVar, skForVar, skLet, skResult, skParam, skConst, skTemp:
-      c.add nameNode(c, s)
-    of skProc, skFunc, skConverter, skMethod, skIterator:
-      c.use toValue(c.env.procedures.add(s), s.typ)
-    else:
-      unreachable(s.kind)
-
-  of nkCallKinds:
-    genCallOrMagic(c, n)
-  of nkCharLit..nkNilLit, nkRange, nkNimNodeLit:
-    c.use literal(n)
-  of nkCheckedFieldExpr:
-    c.subTree MirNode(kind: mnkPathNamed, typ: n.typ, field: n[0][1].sym):
-      genVariantAccess(c, n)
-  of nkDotExpr:
-    let
-      typ = n[0].typ.skipTypes(abstractInstTypeClass)
-      sym = n[1].sym
-
-    assert sym.kind == skField
-
-    case typ.kind
-    of tyObject:
-      c.subTree MirNode(kind: mnkPathNamed, typ: n.typ, field: sym):
-        genOperand(c, n[0])
-    of tyTuple:
-      # always use lookup-by-position for tuples, even when they're accessed
-      # with via name
-      c.subTree MirNode(kind: mnkPathPos, typ: typ[sym.position],
-                        position: sym.position.uint32):
-        genOperand(c, n[0])
-    else:
-      unreachable(typ.kind)
-  of nkBracketExpr:
-    genBracketExpr(c, n)
-  of nkObjDownConv, nkObjUpConv:
-    genObjConv(c, n, consume, dest=false)
-  of nkAddr:
-    c.genOp mnkAddr, n.typ, n[0]
-  of nkHiddenAddr:
-    case classifyBackendView(n.typ)
-    of bvcSingle:
-      # a view into the source operand is created
-      c.genOp mnkView, n.typ, n[0]
-    of bvcSequence:
-      # the addr operation itself is a no-op, but the operation needs to be
-      # re-typed
-      let start = c.builder.staging.len
-      genx(c, n[0])
-      c.builder.staging[start].typ = n.typ
-    of bvcNone:
-      # a normal address-of operation
-      c.genOp mnkAddr, n.typ, n[0]
-
-  of nkDerefExpr:
-    # it's not know where the path is going to be used, so the target is
-    # always captured when not pure
+  of pirProc:
+    c.use toValue(c.env.procedures.add(n.sym), n.sym.typ)
+  of pirLiteral:
+    c.use literal(n.orig)
+  of pirLocal, pirGlobal, pirParam, pirConst:
+    c.add nameNode(c, n.sym)
+  of pirDeref:
     c.buildOp mnkDeref, n.typ:
-      c.use genRd(c, n[0])
-  of nkHiddenDeref:
-    case classifyBackendView(n[0].typ)
-    of bvcSingle:
-      # it's a deref of a view
-      c.buildOp mnkDerefView, n.typ:
-        c.use genRd(c, n[0])
-    of bvcSequence:
-      # it's a no-op
-      genx(c, n[0])
-    of bvcNone:
-      # it's a ``ref`` or ``ptr`` deref
-      c.buildOp mnkDeref, n.typ:
-        c.use genRd(c, n[0])
+      c.use toValue(c, e, i - 1)
+  of pirViewDeref:
+    c.buildOp mnkDerefView, n.typ:
+      c.use toValue(c, e, i - 1)
+  of pirTupleAccess:
+    c.subTree MirNode(kind: mnkPathPos, typ: n.typ, position: n.pos):
+      recurse()
+  of pirFieldAccess:
+    c.subTree MirNode(kind: mnkPathNamed, typ: n.typ, field: n.field):
+      recurse()
+  of pirArrayAccess, pirSeqAccess:
+    c.buildOp mnkPathArray, n.typ:
+      recurse()
+      c.use toValue(c, e, n.index)
+  of pirVariantAccess:
+    c.subTree MirNode(kind: mnkPathVariant, typ: n.typ, field: n.field):
+      recurse()
+  of pirLvalueConv:
+    c.buildOp mnkPathConv, n.typ:
+      recurse()
+  of pirCheckedArrayAccess, pirCheckedSeqAccess:
+    let
+      arr = toValue(c, e, i - 1)
+      idx = toValue(c, e, n.index)
 
-  of nkHiddenStdConv:
-    case n.typ.skipTypes(abstractVar).kind
-    of tyOpenArray:
-      c.genOp mnkToSlice, n.typ, n[1]
+    c.buildStmt mnkVoid:
+      c.buildDefectMagicCall mChckIndex, typeOrVoid(c, nil):
+        c.emitByVal arr
+        c.emitByVal idx
+
+    c.buildOp mnkPathArray, n.typ:
+      c.use arr
+      c.use idx
+  of pirCheckedVariantAccess:
+    let
+      variant = toValue(c, e, i - 1)
+      discr = genCheckedVariantAccess(c, variant, n.field.name, n.orig)
+    c.subTree MirNode(kind: mnkPathVariant, typ: n.typ, field: discr):
+      c.use variant
+  of pirCheckedObjConv:
+    let
+      val = toValue(c, e, i - 1)
+      boolType = c.graph.getSysType(n.orig.info, tyBool)
+
+    c.buildStmt mnkIf:
+      # the ``x != nil`` condtion:
+      c.wrapAndUse(boolType):
+        c.buildMagicCall mNot, boolType:
+          c.subTree mnkArg:
+            c.wrapAndUse(boolType):
+              c.buildMagicCall mIsNil, boolType:
+                c.emitByVal val
+      # the check:
+      c.subTree mnkVoid:
+        c.buildDefectMagicCall mChckObj, typeOrVoid(c, nil):
+          c.emitByVal val
+          c.emitByVal typeLit(n.check)
+
+    c.buildOp mnkPathConv, n.typ:
+      c.use val
+
+  of pirAddr:
+    c.buildOp mnkAddr, n.typ:
+      recurse()
+  of pirView:
+    c.buildOp mnkView, n.typ:
+      recurse()
+  of pirCast:
+    c.buildOp mnkCast, n.typ:
+      recurse()
+  of pirConv:
+    c.buildOp mnkConv, n.typ:
+      recurse()
+  of pirStdConv:
+    c.buildOp mnkStdConv, n.typ:
+      recurse()
+  of pirToSlice:
+    c.buildOp mnkToSlice, n.typ:
+      recurse()
+  of pirToSubSlice:
+    # the array operand is a PMIR expression already, but the operands
+    # specifying the bounds are not
+    let
+      a = n.orig[2]
+      b = n.orig[3]
+    if optBoundsCheck in c.userOptions and needsBoundCheck(n.orig[1], a, b):
+      let
+        arr = toValue(c, e, i - 1)
+        lo = genRd(c, a)
+        hi = genRd(c, b)
+      c.buildStmt mnkVoid:
+        c.buildDefectMagicCall mChckBounds, typeOrVoid(c, nil):
+          c.emitByVal arr
+          c.emitByVal lo
+          c.emitByVal hi
+
+      c.buildTree mnkToSlice, n.typ:
+        c.use arr
+        c.use lo
+        c.use hi
     else:
-      c.genOp mnkStdConv, n.typ, n[1]
-  of nkHiddenSubConv, nkConv:
-    if compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct, {IgnoreTupleFields}):
-      # it's an lvalue-preserving conversion
-      c.buildOp mnkPathConv, n.typ:
-        genOperand(c, n[1], consume)
-    elif n.typ.skipTypes(abstractVar).kind == tyOpenArray:
-      # to-openArray conversion also reach here as ``nkHiddenSubConv``
-      # sometimes
-      c.genOp mnkToSlice, n.typ, n[1]
-    else:
-      # it's a conversion that produces a new rvalue
-      c.genOp mnkConv, n.typ, n[1]
-  of nkLambdaKinds:
-    let s = n[namePos].sym
-    c.use toValue(c.env.procedures.add(s), n.typ)
-  of nkChckRangeF, nkChckRange64, nkChckRange:
-    # XXX: only produce range-check nodes where range checks should take
-    #      place, and then remove the conditional logic here -- ``mirgen``
-    #      should only do what it's told to and not make program-semantics-
-    #      related descisions on its own
-    if optRangeCheck notin c.userOptions or
-       skipTypes(n.typ, abstractVar).kind in {tyUInt..tyUInt64}:
-      # unsigned types should be range checked, see: https://github.com/nim-works/nimskull/issues/574
-      c.genOp mnkConv, n.typ, n[0]
-    else:
-      c.buildDefectMagicCall mChckRange, n.typ:
-        c.emitOperandTree n[0], false
-        c.emitOperandTree n[1], false
-        c.emitOperandTree n[2], false
-  of nkStringToCString:
+      c.buildTree mnkToSlice, n.typ:
+        recurse()
+        genArgExpression(c, a, sink=false)
+        genArgExpression(c, b, sink=false)
+  of pirCall:
+    genCallOrMagic(c, n.orig)
+  of pirChckRange:
+    c.buildDefectMagicCall mChckRange, n.typ:
+      c.emitOperandTree n.orig[0], false
+      c.emitOperandTree n.orig[1], false
+      c.emitOperandTree n.orig[2], false
+  of pirStringToCString:
     c.buildMagicCall mStrToCStr, n.typ:
-      c.emitOperandTree n[0], false
-  of nkCStringToString:
+      c.emitOperandTree n.orig[0], false
+  of pirCStringToString:
     c.buildMagicCall mCStrToStr, n.typ:
-      c.emitOperandTree n[0], false
-  of nkBracket:
-    let consume =
-      if n.typ.skipTypes(abstractVarRange).kind == tySequence:
-        # for constant sequences, which `nkBracket` expression represent,
-        # prefer lifting into a constant
-        false
-      else:
-        consume
-
-    if not handleConstExpr(c, n, not(consume)):
-      genArrayConstr(c, n, consume)
-  of nkCurly:
-    # it's preferred for constant sets to be lifted into constants; pass
-    # 'false'
-    if not handleConstExpr(c, n, true):
-      genSetConstr(c, n)
-  of nkObjConstr:
-    if n.typ.skipTypes(abstractInstTypeClass).kind == tyRef or
-       not handleConstExpr(c, n, not(consume)):
-      # ref constructions are never lifted into constants
-      genObjConstr(c, n, consume)
-  of nkTupleConstr:
-    if not handleConstExpr(c, n, not(consume)):
-      genTupleConstr(c, n, consume)
-  of nkClosure:
-    if not handleConstExpr(c, n, not(consume)):
-      genClosureConstr(c, n, consume)
-  of nkCast:
-    c.genOp mnkCast, n.typ, n[1]
-  of nkWhenStmt:
-    # a ``when nimvm`` expression
-    genx(c, selectWhenBranch(n, goIsNimvm in c.config.options), consume)
-  of nkPragmaBlock:
-    genx(c, n.lastSon, consume)
-  of nkStmtListExpr:
+      c.emitOperandTree n.orig[0], false
+  of pirArrayConstr:
+    genArrayConstr(c, n.orig, n.owning)
+  of pirSetConstr:
+    genSetConstr(c, n.orig)
+  of pirRefConstr:
+    genObjConstr(c, n.orig, true)
+  of pirObjConstr:
+    genObjConstr(c, n.orig, n.owning)
+  of pirTupleConstr:
+    genTupleConstr(c, n.orig, n.owning)
+  of pirClosureConstr:
+    genClosureConstr(c, n.orig, n.owning)
+  of pirConstExpr:
+    # lift a constant from the expression and emit a use of the constant
+    c.use toConstant(c, n.orig)
+  of pirStmtList:
+    let orig = n.orig
+    assert orig.kind == nkStmtListExpr
     withFront c.builder:
-      for i in 0..<n.len-1:
-        gen(c, n[i])
+      for i in 0..<orig.len-1:
+        gen(c, orig[i])
 
-    genx(c, n[^1], consume)
-  of ComplexExprs:
+    recurse()
+  of pirComplex:
     # attempting to generate the code for a complex expression without a
     # destination specified -> assign the value resulting from it to a
     # temporary
     let tmp = getTemp(c, n.typ)
 
     withFront c.builder:
-      genComplexExpr(c, n):
+      genComplexExpr(c, n.orig):
         Destination(isSome: true, val: tmp, flags: {dfOwns, dfEmpty})
 
     c.use tmp
-  else:
-    unreachable(n.kind)
+  of pirMat, pirMatCursor:
+    let f = c.builder.push: recurse()
+    # only materialize a temporary if the expression is not already a
+    # temporary introduced by the PMIR-to-MIR translation
+    if c.builder.staging[f.pos].kind != mnkTemp:
+      let tmp = c.allocTemp(n.typ)
+      withFront c.builder:
+        c.subTree (if n.kind == pirMat: mnkDef else: mnkDefCursor):
+          c.use tmp
+          c.builder.pop(f)
+      c.use tmp
+  of pirMatLvalue:
+    let tmp = c.allocTemp(n.typ, true)
+    # make sure to create an alias that supports assignment, if requested
+    c.buildStmt (if e[i-1].keep == kMutLvalue: mnkBindMut else: mnkBind):
+      c.use tmp
+      recurse()
+    c.use tmp
 
 proc gen(c: var TCtx, n: PNode) =
   ## Generates and emits the MIR code for the statement `n`
@@ -2178,28 +1838,17 @@ proc gen(c: var TCtx, n: PNode) =
   of nkVarSection, nkLetSection:
     genVarSection(c, n)
   of nkAsgn:
-    # get the unwrapped ``nkDotExpr`` on the left (if one exists):
-    let x =
-      case n[0].kind
-      of nkCheckedFieldExpr: n[0][0]
-      else: n[0]
-
-    if x.kind == nkDotExpr and sfDiscriminant in x[1].sym.flags:
+    if isDiscriminantField(n[0]):
       # an assignment to a discriminant. In other words: a branch switch (but
       # only if the new value refers to a different branch than the one that's
       # currently active)
+      let dest = exprToPmir(c, n[0], false, true)
       c.buildStmt mnkSwitch:
         # the 'switch' operations expects a variant access as the first
         # operand
-        c.subTree MirNode(kind: mnkPathVariant, typ: x[0].typ, field: x[1].sym):
-          case n[0].kind
-          of nkCheckedFieldExpr:
-            # for nested record-cases, the discriminant access is wrapped in a
-            # ``nkCheckedFieldExpr``, in which case it needs to be unwrapped
-            # first
-            genVariantAccess(c, n[0])
-          else:
-            genOperand(c, x[0])
+        c.subTree MirNode(kind: mnkPathVariant, typ: dest[^2].typ,
+                          field: dest[^1].field):
+          genx(c, dest, dest.len - 2)
 
         genAsgnSource(c, n[1], false) # the source operand
     else:
@@ -2227,20 +1876,22 @@ proc gen(c: var TCtx, n: PNode) =
           c.builder.pop(f)
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
-      let f = c.builder.push: genx(c, n[0])
-      case detectKind(c.builder.staging, f.pos, false)
-      of Rvalue, OwnedRvalue:
+      let e = exprToPmir(c, unwrap(c, n[0]), false, false)
+      case classify(e)
+      of Rvalue:
+        discard toValue(c, e, e.high, mnkDefCursor)
+      of OwnedRvalue:
         # extend the lifetime of the value
-        # XXX: while not not possible at the moment, in the future, the
+        # XXX: while not possible at the moment, in the future, the
         #      discard statement could destroy the temporary right away
-        discard captureInTemp(c, f, false)
+        discard toValue(c, e, e.high, mnkDef)
       of Lvalue:
-        c.subTree mnkVoid:
-          c.builder.pop(f)
+        c.buildStmt mnkVoid:
+          genx(c, e, e.high)
       of Literal:
-        # the expression no side-effects nor does it constitute as use
-        # of a location, omit
-        discard c.builder.popSingle(f)
+        # the expression has no side-effects nor does it constitute as use
+        # of a location; drop it
+        discard
 
   of nkNilLit:
     # a 'nil' literals can be used as a statement, in which case it is treated
