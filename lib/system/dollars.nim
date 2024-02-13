@@ -51,13 +51,6 @@ proc `$`*(x: string): string {.magic: "StrToStr", noSideEffect.}
   ## as it is. This operator is useful for generic code, so
   ## that `$expr` also works if `expr` is already a string.
 
-proc `$`*[Enum: enum](x: Enum): string {.magic: "EnumToStr", noSideEffect.}
-  ## The stringify operator for an enumeration argument. This works for
-  ## any enumeration type thanks to compiler magic.
-  ##
-  ## If a `$` operator for a concrete enumeration is provided, this is
-  ## used instead. (In other words: *Overwriting* is possible.)
-
 proc `$`*(t: typedesc): string {.magic: "TypeTrait".}
   ## Returns the name of the given type.
   ##
