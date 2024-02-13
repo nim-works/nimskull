@@ -961,9 +961,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemInvalidBindContext:
       result = "invalid context for 'bind' statement: " & render(r.ast)
 
-    of rsemExpectedTypelessDeferBody:
-      result = "'defer' takes a 'void' expression, got: " & render(r.ast[0])
-
     of rsemUnexpectedToplevelDefer:
       result = "defer statement not supported at top level"
 
