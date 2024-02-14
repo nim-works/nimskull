@@ -227,7 +227,7 @@ func isPure(e: seq[ProtoItem], n: int): bool =
     e[n].typ.kind != tySink
   of pirConst, pirLiteral, pirProc, pirConstExpr:
     true
-  of pirLocal:
+  of pirLocal, pirGlobal:
     # let bindings are pure, but only if they don't have a destructor (in
     # which case they're movable)
     e[n].sym.kind in {skLet, skForVar} and not hasDestructor(e[n].typ)
