@@ -240,13 +240,19 @@ func isPure(e: seq[ProtoItem], n: int): bool =
     # note: the AST-to-PMIR tranlsation made sure that the index operand is
     # pure
     isPure(e, n - 1)
-  of pirMatLvalue:
-    # depends on the lvalue
+  of pirMatLvalue, pirAddr, pirView, pirConv, pirStdConv, pirCast, pirToSlice:
+    # depends on the operand
     isPure(e, n - 1)
   of pirMat, pirMatCursor:
     # the materialized-into temporary is never assigned to
     true
-  else:
+  of pirDeref, pirViewDeref:
+    # the pointer destination could change (unless it's an immutable view)
+    false
+  of pirSetConstr, pirObjConstr, pirTupleConstr, pirArrayConstr,
+     pirClosureConstr, pirRefConstr, pirStringToCString, pirCStringToString,
+     pirToSubSlice, pirChckRange, pirCall, pirComplex:
+    # not analyzable
     false
 
 func isStable(e: seq[ProtoItem], n: int): bool =

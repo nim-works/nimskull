@@ -596,8 +596,11 @@ proc genArgExpression(c: var TCtx, n: PNode, sink: bool) =
   c.builder.useSource(c.sp, n)
   var e = exprToPmir(c, n, sink, false)
 
-  if sink: wantConsumeable(e)
-  else:    wantPure(e)
+  if sink:
+    wantConsumeable(e)
+  else:
+    wantValue(e)
+    wantPure(e)
 
   genx(c, e, e.high)
 
