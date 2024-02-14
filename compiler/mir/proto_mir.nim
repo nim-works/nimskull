@@ -89,11 +89,11 @@ type
     pirMatLvalue ## materialize the lvalue into a temporary reference
 
   Keep* = enum
-    kDontCare  ## can capture by value or lvalue; it doesn't matter
-    kLvalue    ## a capture must preserve lvalue-ness
-    kMutLvalue ## a capture must preserve lvalue-ness and the created
-               ## reference must be usable as an immediate assignment
-               ## destination
+    kDontCare  ## lvalue-ness doesn't matter
+    kLvalue    ## whatever the item is translated to, it must have lvalue
+               ## semantics
+    kMutLvalue ## whatever the item is translated to, it must have mutable
+               ## lvalue semantics
 
   ProtoItem* = object
     ## A chain of ``ProtoItem``s forms a proto-MIR expression. Multiple sub-
