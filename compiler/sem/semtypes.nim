@@ -2024,7 +2024,12 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
 
   if c.config.cmd == cmdIdeTools: suggestExpr(c, n)
   case n.kind
-  of nkEmpty: result = n.typ
+  of nkEmpty, nkType:
+    if n.typ == nil:
+      localReport(c.config, n, reportSem rsemTypeExpected)
+      result = newOrPrevType(tyError, prev, c)
+    else:
+      result = n.typ
   of nkTypeOfExpr:
     # for ``typeof(countup(1,3))``, see ``tests/ttoseq``.
     checkSonsLen(n, 1, c.config)
@@ -2307,7 +2312,6 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     else:
       result = semProcTypeWithScope(c, n, prev, skProc)
   of nkEnumTy: result = semEnum(c, n, prev)
-  of nkType: result = n.typ
   of nkStmtListType: result = semStmtListType(c, n, prev)
   of nkBlockType: result = semBlockType(c, n, prev)
   of nkError:
@@ -2317,6 +2321,8 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
   else:
     localReport(c.config, n, reportSem rsemTypeExpected)
     result = newOrPrevType(tyError, prev, c)
+
+  c.config.internalAssert(result != nil, n.info, "missing type")
   n.typ = result
   dec c.inTypeContext
 

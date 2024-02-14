@@ -1968,10 +1968,11 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       # ``static type``
       rawAddSon(s.typ, newTypeS(tyNone, c))
       s.ast = a
-      inc c.inGenericContext
-      var body = semTypeNode(c, a[2], nil)
-      dec c.inGenericContext
-      if body != nil:
+      # magic type definitions are allowed to not have a body on the right
+      if s.magic == mNone or a[2].kind != nkEmpty:
+        inc c.inGenericContext
+        var body = semTypeNode(c, a[2], nil)
+        dec c.inGenericContext
         body.sym = s
         body.size = -1 # could not be computed properly
         s.typ[^1] = body
