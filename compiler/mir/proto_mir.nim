@@ -219,8 +219,9 @@ func classify*(e: seq[ProtoItem]): ExprKind =
 
 func isPure(e: seq[ProtoItem], n: int): bool =
   ## Returns whether the expression at `n` is a pure expression. An expression
-  ## is pure evaluating it doesn't depend on mutable state. In other words, a
-  ## pure expression can be safely reordered with other statements/expressions.
+  ## is pure if evaluating it doesn't depend on mutable state. In other words,
+  ## a pure expression can be safely reordered with other statements/
+  ## expressions.
   case e[n].kind
   of pirParam:
     # sink parameters are mutable and thus not pure
@@ -262,7 +263,7 @@ func isStable(e: seq[ProtoItem], n: int): bool =
   of pirGlobal, pirParam, pirLocal, pirConst, pirConstExpr, pirMat,
      pirMatCursor, pirMatLvalue:
      # location names (which includes constant expressions) and materialized
-     # expressions are never change identity
+     # expressions never change identity
     true
   of pirArrayAccess, pirFieldAccess, pirTupleAccess, pirVariantAccess,
      pirLvalueConv, pirStmtList:
