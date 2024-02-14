@@ -358,11 +358,11 @@ func handleConstExpr(result: var seq[ProtoItem], n: PNode, kind: ProtoItemKind,
   ## treated as constant expressions.
   if not sink and n.len > ord(n.kind == nkObjConstr) and isDeepConstExpr(n):
     result.add ProtoItem(orig: n, typ: n.typ, kind: pirConstExpr)
-  elif kind != pirSetConstr:
+  elif kind == pirSetConstr:
     result.add ProtoItem(orig: n, typ: n.typ, kind: kind)
-    result[^1].owning = sink
   else:
     result.add ProtoItem(orig: n, typ: n.typ, kind: kind)
+    result[^1].owning = sink
 
 proc analyseObjConv(c: TranslateCtx, n: PNode): (PNode, PType) =
   ## Given an ``nkObjDownConv`` or ``nkObjUpConv`` AST, returns the operand to
