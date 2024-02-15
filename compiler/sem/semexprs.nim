@@ -2297,9 +2297,9 @@ proc semReturn(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "semReturn", n, result)
   checkSonsLen(n, 1, c.config)
 
-  proc setAsgn(c: PContext, orig: PNode, asgn: PNode): PNode =
+  proc setAsgn(c: PContext, orig: PNode, asgn: PNode): PNode {.nimcall.} =
     result = shallowCopy(orig)
-    result.flags = n.flags
+    result.flags = orig.flags
     result[0] =
       if asgn.kind == nkError:
         asgn
@@ -2319,8 +2319,9 @@ proc semReturn(c: PContext, n: PNode): PNode =
     of nkAsgn:
       # the return was already analysed (and transformed)
       if e[0].kind == nkSym and e[0].sym.id == c.p.resultSym.id:
-        # it seems to be valid, we can keep it
-        n
+        # re-analyze the assignment; it might only be partially typed and
+        # coming from a macro
+        setAsgn(c, n, semAsgn(c, e))
       else:
         setAsgn(c, n):
           c.config.newError(e, PAstDiag(kind: adSemInvalidExpression))
