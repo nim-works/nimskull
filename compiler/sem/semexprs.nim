@@ -2297,9 +2297,9 @@ proc semReturn(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "semReturn", n, result)
   checkSonsLen(n, 1, c.config)
 
-  proc setAsgn(c: PContext, orig: PNode, asgn: PNode): PNode =
+  proc setAsgn(c: PContext, orig: PNode, asgn: PNode): PNode {.nimcall.} =
     result = shallowCopy(orig)
-    result.flags = n.flags
+    result.flags = orig.flags
     result[0] =
       if asgn.kind == nkError:
         asgn
