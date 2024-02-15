@@ -2319,8 +2319,9 @@ proc semReturn(c: PContext, n: PNode): PNode =
     of nkAsgn:
       # the return was already analysed (and transformed)
       if e[0].kind == nkSym and e[0].sym.id == c.p.resultSym.id:
-        # it seems to be valid, we can keep it
-        n
+        # re-analyze the assignment; it might only be partially typed and
+        # coming from a macro
+        setAsgn(c, n, semAsgn(c, e))
       else:
         setAsgn(c, n):
           c.config.newError(e, PAstDiag(kind: adSemInvalidExpression))
