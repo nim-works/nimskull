@@ -48,11 +48,7 @@ type
     opInvalidate  ## all information gathered about a value becomes invalid
     opMutate      ## mutation of a value. Can be viewed as a combined 'use' +
                   ## 'def'
-    opConsume     ## a value is consumed. Counts as either a 'use' or a 'use'
-                  ## + 'kill', depending on the context
-    # future direction: change ``opConsume`` to always mean 'use' + 'kill'.
-    # The callsite should be fully responsible for handling sinks, rather
-    # than this being partially pushed into the DFG
+    opConsume     ## a value is consumed. This is effectively a 'use' + 'kill'
 
     opMutateGlobal ## an unspecified global is mutated
 
@@ -233,8 +229,7 @@ func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
     else:
       emitLvalueOp(env, opUse, tree, at, OpValue it)
 
-func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
-                consume: bool) =
+func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
   ## Emits the data- and control-flow instructions corresponding to the
   ## expression at `source`.
   template op(o: Opcode, v: OpValue) =
@@ -273,17 +268,20 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
       if tree[source].typ.kind == tyVar: opMutate
       else:                              opUse
     emitLvalueOp(env, opc, tree, at, tree.operand(source, 0))
+  of mnkCopy, mnkSink:
+    # until it's collapsed, a sink is conservatively treated as only a
+    # usage (not a consumption)
+    emitLvalueOp(env, opUse, tree, at, tree.operand(source))
+  of mnkMove:
+    emitLvalueOp(env, opConsume, tree, at, tree.operand(source))
   of UnaryOps:
     emitLvalueOp(env, opUse, tree, at, tree.operand(source, 0))
   of BinaryOps:
     emitLvalueOp(env, opUse, tree, at, tree.operand(source, 0))
     emitLvalueOp(env, opUse, tree, at, tree.operand(source, 1))
   of LvalueExprKinds:
-    # a read or consume is performed on an lvalue
-    let opc =
-      if consume: opConsume
-      else:       opUse
-    emitLvalueOp(env, opc, tree, at, OpValue source)
+    # raw usage of an lvalue
+    emitLvalueOp(env, opUse, tree, at, OpValue source)
   of mnkNone, mnkLiteral, mnkProc:
     discard "okay, ignore"
   of AllNodeKinds - ExprKinds - {mnkNone} + {mnkType}:
@@ -316,12 +314,12 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition,
   else:
     discard
 
-func emitForDef(env: var ClosureEnv, tree: MirTree, n: NodePosition, consume: bool) =
+func emitForDef(env: var ClosureEnv, tree: MirTree, n: NodePosition) =
   let
     dest   = tree.operand(n, 0)
     source = tree.operand(n, 1)
   emitForValue(env, tree, n, dest)
-  emitForExpr(env, tree, n, NodePosition source, consume)
+  emitForExpr(env, tree, n, NodePosition source)
   # defs with an empty initializer have no data- or control-flow properties.
   # Parameter definitions are an exception.
   if tree[dest].kind == mnkParam or tree[source].kind != mnkNone:
@@ -548,10 +546,8 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
         # no control-flow or other effects
         discard
 
-    of mnkAsgn, mnkInit:
-      emitForDef(env, tree, i, true)
-    of mnkFastAsgn:
-      emitForDef(env, tree, i, false)
+    of mnkDef, mnkDefCursor, mnkDefUnpack, mnkAsgn, mnkInit:
+      emitForDef(env, tree, i)
     of mnkSwitch:
       # the switch statement invalidates the destination rather than
       # reassigning it (i.e., ``opDef``)
@@ -559,16 +555,12 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
         dest   = tree.operand(i, 0)
         source = tree.operand(i, 1)
       emitForValue(env, tree, i, dest)
-      emitForExpr(env, tree, i, NodePosition source, false)
+      emitForExpr(env, tree, i, NodePosition source)
       dfaOp env, opInvalidate, i, dest
-    of mnkDef, mnkDefUnpack:
-      emitForDef(env, tree, i, true)
-    of mnkDefCursor:
-      emitForDef(env, tree, i, false)
     of mnkBindMut, mnkBind:
       emitForValue(env, tree, i, tree.operand(i, 1))
     of mnkVoid:
-      emitForExpr(env, tree, i, NodePosition tree.operand(i), false)
+      emitForExpr(env, tree, i, NodePosition tree.operand(i))
     of mnkEmit, mnkAsm:
       emitForArgs(env, tree, i, i)
 
