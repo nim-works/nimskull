@@ -332,6 +332,15 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, env: EnvPtr) =
                    mnkMul: " * ", mnkDiv: " div ", mnkModI: " mod "]
       result.add Map[kind]
       valueToStr() # second operand
+  of mnkCopy:
+    tree "copy ":
+      valueToStr()
+  of mnkMove:
+    tree "move ":
+      valueToStr()
+  of mnkSink:
+    tree "sink ":
+      valueToStr()
   else:
     # TODO: make this branch exhaustive
     result.add "<error: " & $nodes[i].kind & ">"
@@ -411,12 +420,6 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string,
     tree "":
       valueToStr()
       result.add " := "
-      exprToStr()
-    result.add "\n"
-  of mnkFastAsgn:
-    tree "":
-      valueToStr()
-      result.add " =fast "
       exprToStr()
     result.add "\n"
   of mnkStmtList:
