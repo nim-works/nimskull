@@ -3256,6 +3256,10 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
         if defaultValue.isError:
           # xxx: change this to propagate
           c.config.localReport(defaultValue)
+        else:
+          # the expression is already typed and valid; don't analyze it again,
+          # which might lose the type
+          defaultValue.flags.incl nfSem
 
         if nfDefaultRefsParam in formal.ast.flags:
           m.call.flags.incl nfDefaultRefsParam
