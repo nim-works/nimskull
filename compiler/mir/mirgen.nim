@@ -2001,6 +2001,26 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
   else:
     gen(c, n)
 
+proc generateAssignment*(graph: ModuleGraph, env: var MirEnv,
+                   config: TranslationConfig, n: PNode,
+                   builder: var MirBuilder, source: var SourceMap) =
+  ## Translates an `nkIdentDefs` AST into MIR and emits the result into
+  ## `builder`'s currently selected buffer.
+  assert n.kind == nkIdentDefs and n.len == 3
+  var c = TCtx(context: skUnknown, graph: graph, config: config)
+  # treat the code as top-level code so that no 'def' is generated for
+  # assignments to globals
+  c.scopeDepth = 1
+
+  template swapState() =
+    swap(c.sp.map, source)
+    swap(c.builder, builder)
+    swap(c.env, env)
+
+  swapState()
+  genLocInit(c, n[0], n[2])
+  swapState()
+
 proc generateCode*(graph: ModuleGraph, env: var MirEnv,
                    config: TranslationConfig, n: PNode,
                    builder: var MirBuilder, source: var SourceMap) =
