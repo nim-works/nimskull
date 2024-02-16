@@ -3944,6 +3944,10 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
         c.p.localBindStmts.add n
     else:
       localReport(c.config, n, reportSem rsemInvalidBindContext)
+  of nkNimNodeLit:
+    checkSonsLen(n, 1, c.config)
+    # the content is raw AST, so there's nothing to validate
+    result = copyNodeWithKids(n)
   of nkError:
     discard "ignore errors for now"
   else:
