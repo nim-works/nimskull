@@ -1166,26 +1166,35 @@ proc genReturn(c: var TCtx, n: PNode) =
 
   c.add MirNode(kind: mnkReturn)
 
-proc genAsgnSource(c: var TCtx, e: PNode, sink: bool) =
+proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
   ## Generates the MIR code for the right-hand side of an assignment.
-  ## The value is captured in a temporary if necessary for proper
-  ## destruction.
-  var e = exprToPmir(c, e, sink, false)
-  if not sink:
+  ## `status` provides the information necessary to decide what assignment
+  ## modifiers to use and whether a temporary is required.
+  ##
+  ## If not an initial assignment, and lifetime hooks are present, a temporary
+  ## is introduced for rvalue expressions that return owning values:
+  ##
+  ##   def _1 = get()
+  ##   dest = move _1
+  ##
+  ## This is necessary for the later hook injection, which triggers on
+  ## assignment modifiers, to work.
+  var e = exprToPmir(c, e, dfOwns in status, false)
+  if dfOwns in status:
+    wantOwning(e, dfEmpty notin status and hasDestructor(e.typ))
+  else:
     wantShallow(e)
+
   genx(c, e, e.high)
 
 proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
   assert dest.isSome
-  let owns = dfOwns in dest.flags
   let kind =
-    if owns:
-      if dfEmpty in dest.flags: mnkInit
-      else:                     mnkAsgn
-    else:                       mnkFastAsgn
+    if dfEmpty in dest.flags: mnkInit
+    else:                     mnkAsgn
   c.buildStmt kind:
     c.use dest.val
-    c.genAsgnSource(rhs, sink = owns)
+    c.genAsgnSource(rhs, dest.flags)
 
 proc unwrap(c: var TCtx, n: PNode): PNode =
   ## If `n` is a statement-list expression, generates the code for all
@@ -1225,16 +1234,20 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
     genWithDest(c, rhs, initDestination(dest, isFirst, sink))
   else:
     let kind =
-      if sink:
-        if isFirst: mnkInit
-        else:       mnkAsgn
-      else:         mnkFastAsgn
+      if isFirst: mnkInit
+      else:       mnkAsgn
+
+    var status: set[DestFlag]
+    if sink:
+      status.incl dfOwns
+    if isFirst:
+      status.incl dfEmpty
 
     c.buildStmt kind:
       # ``genLvalueOperand`` ensures that unstable lvalue
       # expressions are captured
       genLvalueOperand(c, lhs, true)
-      genAsgnSource(c, rhs, sink)
+      genAsgnSource(c, rhs, status)
 
 proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
   ## Generates the 'def' construct for the entity provided by the symbol node
@@ -1267,7 +1280,9 @@ proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
     c.buildStmt (if sfCursor in s.flags: mnkDefCursor else: mnkDef):
       c.add nameNode(c, s)
       if hasInitializer:
-        genAsgnSource(c, val, sink)
+        genAsgnSource(c, val):
+          if sink: {dfEmpty, dfOwns}
+          else:    {dfEmpty}
       else:
         c.add MirNode(kind: mnkNone)
 
@@ -1319,7 +1334,7 @@ proc genVarTuple(c: var TCtx, n: PNode) =
     let val = c.allocTemp(initExpr.typ)
     c.buildStmt mnkDefUnpack:
       c.use val
-      genx(c, initExpr, consume = true)
+      genAsgnSource(c, initExpr, {dfEmpty, dfOwns})
 
     # generate the unpack logic:
     for i in 0..<numDefs:
@@ -1778,6 +1793,18 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
         Destination(isSome: true, val: tmp, flags: {dfOwns, dfEmpty})
 
     c.use tmp
+  of pirCopy:
+    c.buildOp mnkCopy, n.typ:
+      recurse()
+  of pirMove:
+    c.buildOp mnkMove, n.typ:
+      recurse()
+  of pirSink, pirDestructiveMove:
+    # a destructive move is currently not translated into a move + wasMoved,
+    # but rather into a sink, which is then, if necessary, later turned into
+    # a destructive move
+    c.buildOp mnkSink, n.typ:
+      recurse()
   of pirMat, pirMatCursor:
     let f = c.builder.push: recurse()
     # only materialize a temporary if the expression is not already a
@@ -1858,7 +1885,7 @@ proc gen(c: var TCtx, n: PNode) =
                           field: dest[^1].field):
           genx(c, dest, dest.len - 2)
 
-        genAsgnSource(c, n[1], false) # the source operand
+        genAsgnSource(c, n[1], {dfOwns}) # the source operand
     else:
       # a normal assignment
       genAsgn(c, false, true, n[0], n[1])
