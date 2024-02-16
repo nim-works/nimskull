@@ -1374,12 +1374,21 @@ proc genVarSection(c: var TCtx, n: PNode) =
         let isInit = c.inLoop == 0
         if a[2].kind != nkEmpty:
           genAsgn(c, isInit, true, a[0], a[2])
-        else:
-          # no intializer expression -> assign the default value
-          c.buildStmt (if isInit: mnkInit else: mnkAsgn):
+        elif isInit or not hasDestructor(a[0].typ):
+          # the default value can be assigned in-place
+          c.buildStmt mnkInit:
             genOperand(c, a[0])
             c.buildMagicCall mDefault, a[0].typ:
               discard
+        else:
+          # a 'move' modifier is required for the assignment to later be
+          # rewritten
+          c.buildStmt mnkAsgn:
+            genOperand(c, a[0])
+            c.buildTree mnkMove, a[0].typ:
+              c.wrapAndUse a[0].typ:
+                c.buildMagicCall mDefault, a[0].typ:
+                  discard
       else:
         unreachable()
 
