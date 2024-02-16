@@ -110,7 +110,14 @@ Semantics
                                          # at the upper bound (inclusive, third
                                          # parameter)
 
-  FULL_VALUE = RVALUE | VALUE
+  ASGN_SRC = RVALUE
+           | VALUE
+           | Copy VALUE
+           | Move LVALUE
+           | Sink LVALUE
+
+  SHALLOW_SRC = RVALUE
+              | VALUE
 
   STATEMENT =
             | StmtList STATEMENT ...    # a list of statements
@@ -118,10 +125,10 @@ Semantics
                                         # delimits the lifetime of all
                                         # definitions within
             | Def NAME none             # definition
-            | Def NAME FULL_VALUE       # definition + initial value assignment
+            | Def NAME ASGN_SRC         # definition + initial value assignment
             | DefCursor NAME            # definition of non-owning location
-            | DefCursor NAME FULL_VALUE # same as above, but with initial
-                                        # assignment
+            | DefCursor NAME SHALLOW_SRC# definition of non-owning location +
+                                        # initial (shallow copy) assignment
             | Bind <Alias> LVALUE       # bind the lvalue to the given alias.
                                         # May be used for mutation, but must
                                         # not be used as an assignment's
@@ -136,13 +143,11 @@ Semantics
             | Void CALL_EXPR            # represents a void call. The called
                                         # procedure or magic *must* have a
                                         # `void`` return type
-            | Asgn LVALUE FULL_VALUE    # normal assignment of the right value
+            | Asgn LVALUE ASGN_SRC      # normal assignment of the right value
                                         # to the left location
-            | Init LVALUE FULL_VALUE    # initial assignment (the destination
+            | Init LVALUE ASGN_SRC      # initial assignment (the destination
                                         # is empty)
-            | FastAsgn LVALUE FULL_VALUE# fast assignment (cannot be rewritten
-                                        # into a full copy)
-            | Switch LVALUE FULL_VALUE  # changes the active branch of a
+            | Switch LVALUE ASGN_SRC    # changes the active branch of a
                                         # variant. Unclear semantics.
             | If VALUE STATEMENT        # if the value evaluates to true
                                         # execute the statement
