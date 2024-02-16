@@ -2829,6 +2829,8 @@ proc semSizeof(c: PContext, n: PNode): PNode =
     result = c.config.newError(n, PAstDiag(kind: adSemMagicExpectTypeOrValue,
                                             magic: mSizeOf))
 
+proc asBracketExpr(c: PContext; n: PNode): PNode
+
 proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   # this is a hotspot in the compiler!
   result = n
@@ -2913,6 +2915,14 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   of mSizeOf:
     markUsed(c, n.info, s)
     result = semSizeof(c, setMs(n, s))
+  of mArrGet:
+    # this could be a rewritten subscript operation
+    let b = asBracketExpr(c, n)
+    if b.isNil:
+      # it's not
+      result = semDirectOp(c, n, flags)
+    else:
+      result = semArrayAccess(c, b, flags)
   else:
     result = semDirectOp(c, n, flags)
 
@@ -3401,22 +3411,25 @@ proc semExport(c: PContext, n: PNode): PNode =
 
         s = nextOverloadIter(o, c, a)
 
+func containsArrGet(n: PNode): bool =
+  ## Analyses `n` for whether it is or could be the ``mArrGet`` magic.
+  case n.kind
+  of nkSymChoices:
+    for it in n.items:
+      if it.kind == nkSym and it.sym.magic == mArrGet:
+        result = true
+        break
+  of nkSym:
+    # can happen in rare cases
+    result = n.sym.magic == mArrGet
+  else:
+    result = false
 
 proc shouldBeBracketExpr(n: PNode): bool =
   assert n.kind in nkCallKinds
   let a = n[0]
   if a.kind in nkCallKinds:
-    let b = a[0]
-    if b.kind in nkSymChoices:
-      for i in 0..<b.len:
-        if b[i].kind == nkSym and b[i].sym.magic == mArrGet:
-          result = true
-          break
-    elif b.kind == nkSym and b.sym.magic == mArrGet:
-      # can happen in rare cases
-      result = true
-
-    if result:
+    if containsArrGet(a[0]):
       let be = newNodeI(nkBracketExpr, n.info)
       for i in 1..<a.len:
         be.add(a[i])
@@ -3449,12 +3462,10 @@ proc asBracketExpr(c: PContext; n: PNode): PNode =
   assert n.kind in nkCallKinds
   if n.len > 1 and isGeneric(c, n[1]):
     let b = n[0]
-    if b.kind in nkSymChoices:
-      for i in 0..<b.len:
-        if b[i].kind == nkSym and b[i].sym.magic == mArrGet:
-          result = newNodeI(nkBracketExpr, n.info)
-          for i in 1..<n.len: result.add(n[i])
-          return result
+    if containsArrGet(b):
+      result = newNodeI(nkBracketExpr, n.info)
+      for i in 1..<n.len: result.add(n[i])
+      return result
   return nil
 
 proc hoistParamsUsedInDefault(c: PContext, call, letSection, defExpr: var PNode) =
