@@ -1134,8 +1134,11 @@ proc genObjConstr(c: var TCtx, n: PNode, isConsume: bool) =
 proc genRaise(c: var TCtx, n: PNode) =
   assert n.kind == nkRaiseStmt
   if n[0].kind != nkEmpty:
-    let tmp = c.wrapTemp n[0].typ:
-      genx(c, n[0], consume=true)
+    # the raise operand slot is a sink context, and it behaves much like a
+    # ``sink`` parameter
+    var e = exprToPmir(c, n[0], true, false)
+    wantConsumeable(e)
+    let tmp = toValue(c, e, e.high)
 
     # emit the preparation code:
     let
