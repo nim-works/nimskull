@@ -116,9 +116,10 @@ proc fixNilType(c: PContext; n: PNode) =
 
 # start `discard` check related code
 
-proc implicitlyDiscardable(n: PNode): bool =
-  var n = n
-  while n.kind in skipForDiscardable: n = n.lastSon
+func implicitlyDiscardable(n: PNode): bool =
+  ## true if a node, `n`, is implicitly discardable, meaning it's a control
+  ## flow ending statement in a block (`return`, `break`, `raise`, etc) or a
+  ## routine call to a routine type marked as `{.discardable.}`.
   result = n.kind in nkLastBlockStmts or
            (isCallExpr(n) and n[0].kind == nkSym and
            sfDiscardable in n[0].sym.flags)
@@ -130,24 +131,24 @@ proc discardCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
   if c.matchedConcept != nil or efInTypeof in flags: return
 
   if n.typ != nil and n.typ.kind notin {tyTyped, tyVoid}:
-    if implicitlyDiscardable(n):
+    var m = n
+    while m.kind in skipForDiscardable:
+      case m.kind
+      of nkTryStmt:
+        m =
+          case m[^1].kind
+          of nkFinally:
+            m[^2]
+          of nkExceptBranch:
+            m[^1]
+          of nkAllNodeKinds - {nkFinally, nkExceptBranch}:
+            unreachable()
+      else:
+        m = m.lastSon
+
+    if implicitlyDiscardable(m):
       result = newTreeI(nkDiscardStmt, n.info, n)
     elif n.typ.kind != tyError and c.config.cmd != cmdInteractive:
-      var m = n
-      while m.kind in skipForDiscardable:
-        case m.kind
-        of nkTryStmt:
-          m =
-            case m[^1].kind
-            of nkFinally:
-              m[^2]
-            of nkExceptBranch:
-              m[^1]
-            of nkAllNodeKinds - {nkFinally, nkExceptBranch}:
-              unreachable()
-        else:
-          m = m.lastSon
-
       result = newError(c.config, n,
         PAstDiag(kind: adSemUseOrDiscardExpr, undiscarded: m))
 
@@ -1967,10 +1968,11 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       # ``static type``
       rawAddSon(s.typ, newTypeS(tyNone, c))
       s.ast = a
-      inc c.inGenericContext
-      var body = semTypeNode(c, a[2], nil)
-      dec c.inGenericContext
-      if body != nil:
+      # magic type definitions are allowed to not have a body on the right
+      if s.magic == mNone or a[2].kind != nkEmpty:
+        inc c.inGenericContext
+        var body = semTypeNode(c, a[2], nil)
+        dec c.inGenericContext
         body.sym = s
         body.size = -1 # could not be computed properly
         s.typ[^1] = body

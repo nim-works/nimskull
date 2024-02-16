@@ -485,16 +485,10 @@ proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
   constructLoc(p, loc, doInitObj)
 
 proc initLocalVar(p: BProc, v: LocalId, immediateAsgn: bool) =
-  if sfNoInit notin p.body[v].flags:
-    # we know it is a local variable and thus on the stack!
+  if not immediateAsgn and sfNoInit notin p.body[v].flags:
     # If ``not immediateAsgn`` it is not initialized in a binding like
     # ``var v = X`` and thus we need to init it.
-    # If ``v`` contains a GC-ref we may pass it to ``unsureAsgnRef`` somehow
-    # which requires initialization. However this can really only happen if
-    # ``var v = X()`` gets transformed into ``X(&v)``.
-    # Nowadays the logic in ccgcalls deals with this case however.
-    if not immediateAsgn:
-      constructLoc(p, p.locals[v])
+    constructLoc(p, p.locals[v])
 
 proc getTemp(p: BProc, t: PType, result: var TLoc) =
   inc(p.labels)

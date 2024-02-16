@@ -418,12 +418,9 @@ func storeDataNode(enc: var DataEncoder, e: var PackedEnv,
   else:
     unreachable(t[n].kind)
 
-import compiler/mir/utils
-
 func storeData*(enc: var DataEncoder, e: var PackedEnv, tree: MirTree): int =
   ## Packs the MIR constant expression `tree` and puts it into `e`. Returns
   ## the index of the top data node.
-  debugEcho treeRepr(tree)
   result = enc.i
   e.nodes.growBy(1)
   storeDataNode(enc, e, tree, NodePosition 0)

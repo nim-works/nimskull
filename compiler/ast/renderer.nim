@@ -1592,7 +1592,8 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
       put(g, tkDefer, "defer")
     putWithSpace(g, tkColon, ":")
     gcoms(g)
-    gstmts(g, n[0], c)
+    for kid in n.sons.items:
+      gstmts(g, kid, c)
   of nkExceptBranch:
     optNL(g)
     if n.len != 1:

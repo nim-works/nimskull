@@ -393,6 +393,23 @@ passStrTableField symbols
 passStrTableField macrosToExpand
 passStrTableField arcToExpand
 
+proc getCompileOptionsStr*(conf: ConfigRef): string =
+  ## Returns the combination of the current C compile options and the
+  ## global `--passC` options (combined in that exact order).
+  ##
+  ## Global `--passC` options already present in the current C compile
+  ## options are *not* include again.
+  result = conf.compileOptions
+
+  for option in conf.compileOptionsCmd:
+    if strutils.find(result, option, 0) < 0:
+      if result.len == 0 or result[^1] != ' ': result.add " "
+      result.add option
+
+proc getLinkOptionsStr*(conf: ConfigRef): string =
+  ## Returns the combination of the current C linker options and the global
+  ## `--passL` options (combined in that exact order).
+  conf.linkOptions & " " & conf.linkOptionsCmd.join(" ")
 
 proc defineSymbol*(conf: ConfigRef, symbol: string, value: string = "true") =
   conf.symbolsSet(symbol, value)

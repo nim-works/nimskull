@@ -203,8 +203,8 @@ when defined(nimHasInvariant):
     of SingleValueSetting.projectFull: result = conf.projectFull.string
     of SingleValueSetting.command: result = conf.command
     of SingleValueSetting.commandLine: result = conf.commandLine
-    of SingleValueSetting.linkOptions: result = conf.linkOptions
-    of SingleValueSetting.compileOptions: result = conf.compileOptions
+    of SingleValueSetting.linkOptions: result = conf.getLinkOptionsStr()
+    of SingleValueSetting.compileOptions: result = conf.getCompileOptionsStr()
     of SingleValueSetting.ccompilerPath: result = conf.cCompilerPath
     of SingleValueSetting.backend: result = $conf.backend
     of SingleValueSetting.libPath: result = conf.libpath.string

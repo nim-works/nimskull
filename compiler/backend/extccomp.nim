@@ -461,11 +461,7 @@ proc cFileSpecificOptions(conf: ConfigRef; nimname, fullNimFile: string): string
   ## added in the following order:
   ## `[global(--passc)][opt=speed/size/debug][file-local][<nimname>.always]`.
   ## `<nimname>.always` is a configuration variable.
-  result = conf.compileOptions
-
-  for option in conf.compileOptionsCmd:
-    if strutils.find(result, option, 0) < 0:
-      addOpt(result, option)
+  result = getCompileOptionsStr(conf)
 
   if optCDebug in conf.globalOptions:
     let key = nimname & ".debug"
@@ -500,7 +496,7 @@ proc vccplatform(conf: ConfigRef): string =
         else: ""
 
 proc getLinkOptions(conf: ConfigRef): string =
-  result = conf.linkOptions & " " & conf.linkOptionsCmd.join(" ") & " "
+  result = getLinkOptionsStr(conf) & " "
   for linkedLib in items(conf.cLinkedLibs):
     result.add(CC[conf.cCompiler].linkLibCmd % linkedLib.quoteShell)
   for libDir in items(conf.cLibs):

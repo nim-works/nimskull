@@ -568,7 +568,6 @@ type
     rsemExpectedModuleNameForImportExcept
     rsemCannotExport
     rsemCannotMixTypesAndValuesInTuple
-    rsemExpectedTypelessDeferBody
     rsemInvalidBindContext
     rsemCannotCreateImplicitOpenarray
     rsemCannotAssignToDiscriminantWithCustomDestructor

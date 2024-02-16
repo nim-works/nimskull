@@ -2297,9 +2297,9 @@ proc semReturn(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "semReturn", n, result)
   checkSonsLen(n, 1, c.config)
 
-  proc setAsgn(c: PContext, orig: PNode, asgn: PNode): PNode =
+  proc setAsgn(c: PContext, orig: PNode, asgn: PNode): PNode {.nimcall.} =
     result = shallowCopy(orig)
-    result.flags = n.flags
+    result.flags = orig.flags
     result[0] =
       if asgn.kind == nkError:
         asgn
@@ -2319,8 +2319,9 @@ proc semReturn(c: PContext, n: PNode): PNode =
     of nkAsgn:
       # the return was already analysed (and transformed)
       if e[0].kind == nkSym and e[0].sym.id == c.p.resultSym.id:
-        # it seems to be valid, we can keep it
-        n
+        # re-analyze the assignment; it might only be partially typed and
+        # coming from a macro
+        setAsgn(c, n, semAsgn(c, e))
       else:
         setAsgn(c, n):
           c.config.newError(e, PAstDiag(kind: adSemInvalidExpression))
@@ -3878,9 +3879,14 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkDefer:
     if c.currentScope == c.topLevelScope:
       localReport(c.config, n, reportSem rsemUnexpectedToplevelDefer)
-    n[0] = semExpr(c, n[0])
-    if not n[0].typ.isEmptyType and not implicitlyDiscardable(n[0]):
-      localReport(c.config, n, reportSem rsemExpectedTypelessDeferBody)
+    checkSonsLen(n, 1, c.config)
+    result = copyNodeWithKids(n)
+    result[0] = semStmt(c, n[0], {})
+    case result[0].kind
+    of nkError:
+      result = c.config.wrapError(result)
+    else:
+      discard
   of nkMixinStmt: discard
   of nkBindStmt:
     if c.p != nil:
