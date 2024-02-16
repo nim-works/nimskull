@@ -561,6 +561,7 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     arg = newOp(cnkHiddenAddr, info, def.typ, arg)
 
   let isLet = (entity.kind == mnkTemp and n.kind == mnkDefCursor) or
+              (entity.kind == mnkTemp and not hasDestructor(def.typ)) or
               (entity.kind == mnkAlias)
   # to reduce the pressure on the code generator, locals that never cross
   # structured control-flow boundaries are not lifted. As a temporary
