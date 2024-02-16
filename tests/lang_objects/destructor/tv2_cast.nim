@@ -9,10 +9,10 @@ scope:
   try:
     def _0: string = newString(arg 100)
     def_cursor _1: seq[byte] = cast _0
-    def_cursor _2: openArray[byte] = toOpenArray _1
+    def _2: openArray[byte] = toOpenArray _1
     def _3: seq[byte] = encode(arg _2) (raises)
+    def_cursor _4: string = cast _3
     def data: string
-    def _4: string = cast _3
     =copy(name data, arg _4)
   finally:
     =destroy(name data)
@@ -24,13 +24,13 @@ scope:
   try:
     def s: string = newString(arg 100)
     def_cursor _0: string = s
-    def_cursor _1: int = lengthStr(arg _0)
-    def_cursor _2: int = subI(arg _1, arg 1) (raises)
+    def _1: int = lengthStr(arg _0)
+    def _2: int = subI(arg _1, arg 1) (raises)
     chckBounds(arg s, arg 0, arg _2) (raises)
-    def_cursor _3: openArray[byte] = toOpenArray s, 0, _2
+    def _3: openArray[byte] = toOpenArray s, 0, _2
     def _4: seq[byte] = encode(arg _3) (raises)
+    def_cursor _5: string = cast _4
     def data: string
-    def _5: string = cast _4
     =copy(name data, arg _5)
   finally:
     =destroy(name data)
@@ -41,10 +41,10 @@ scope:
 scope:
   try:
     def s: seq[byte] = newSeq(arg 100) (raises)
-    def_cursor _0: openArray[byte] = toOpenArray s
+    def _0: openArray[byte] = toOpenArray s
     def _1: seq[byte] = encode(arg _0) (raises)
+    def_cursor _2: string = cast _1
     def data: string
-    def _2: string = cast _1
     =copy(name data, arg _2)
   finally:
     =destroy(name data)
@@ -55,10 +55,10 @@ scope:
 scope:
   try:
     def _0: seq[byte] = newSeq(arg 100) (raises)
-    def_cursor _1: openArray[byte] = toOpenArray _0
+    def _1: openArray[byte] = toOpenArray _0
     def _2: seq[byte] = encode(arg _1) (raises)
+    def_cursor _3: string = cast _2
     def data: string
-    def _3: string = cast _2
     =copy(name data, arg _3)
   finally:
     =destroy(name data)
