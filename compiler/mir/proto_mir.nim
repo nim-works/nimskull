@@ -187,9 +187,6 @@ func typ*(n: seq[ProtoItem]): PType {.inline.} =
 
 func classify*(e: seq[ProtoItem], i: int): ExprKind =
   ## Returns the kind of the given proto-MIR expression.
-  # XXX: ownership is unrelated to whether a type has custom copy/sink/
-  #      destruction logic. Taking the latter into consideration is an
-  #      optimization that needs to eventually be removed
   case e[i].kind
   of pirLiteral, pirProc:
     Literal
@@ -198,20 +195,18 @@ func classify*(e: seq[ProtoItem], i: int): ExprKind =
     # constant expression are later turned into anonymous constants, so
     # they're lvalues too
     Lvalue
-  of pirCall, pirComplex, pirStringToCString, pirCStringToString:
-    if hasDestructor(e[i].typ):
-      OwnedRvalue
-    else:
-      Rvalue
+  of pirCall, pirComplex, pirSetConstr, pirAddr, pirView, pirToSlice,
+     pirToSubSlice, pirStringToCString, pirCStringToString,
+     pirConv, pirStdConv, pirChckRange:
+    OwnedRvalue
   of pirObjConstr, pirTupleConstr, pirClosureConstr, pirArrayConstr:
-    if e[i].owning and hasDestructor(e[i].typ):
+    if e[i].owning:
       OwnedRvalue
     else:
       Rvalue
   of pirRefConstr:
     OwnedRvalue
-  of pirSetConstr, pirAddr, pirView, pirCast, pirConv, pirStdConv,
-     pirChckRange, pirToSlice, pirToSubSlice:
+  of pirCast:
     Rvalue
   of pirMat, pirCopy, pirMove, pirDestructiveMove, pirSink:
     OwnedRvalue
