@@ -56,6 +56,7 @@ proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
       result = c.config.newError(n, PAstDiag(kind: adSemProcHasNoConcreteType))
     elif result.typ.kind in {tyVar, tyLent}:
       result = newDeref(result)
+      result.flags.incl nfSem
   elif {efWantStmt, efAllowStmt} * flags != {}:
     result.typ = newTypeS(tyVoid, c)
   else:
@@ -93,6 +94,7 @@ proc semExprWithType(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
 
   elif result.typ.kind in {tyVar, tyLent}:
     result = newDeref(result)
+    result.flags.incl nfSem
 
 proc semExprNoDeref(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   result = semExprCheck(c, n, flags)
