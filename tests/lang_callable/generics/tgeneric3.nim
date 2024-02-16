@@ -1,5 +1,6 @@
 discard """
-knownIssue.vm: "it seems to get stuck; needs a deeper dive"
+targets: "!vm"
+knownIssue.vm: "very slow on the vm"
 output: '''
 312
 1000000
