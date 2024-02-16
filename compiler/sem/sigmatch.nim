@@ -2608,7 +2608,7 @@ proc prepareOperand(c: PContext; formal: PType; a, aOrig: PNode): PNode =
   if formal.kind == tyUntyped:
     assert formal.len != 1
     result = aOrig
-  elif a.typ.isNil:
+  elif nfSem notin a.flags:
     # XXX This is unsound! 'formal' can differ from overloaded routine to
     # overloaded routine!
     result = c.semOperand(c, a, {efAllowStmt})
@@ -2622,7 +2622,7 @@ proc prepareOperand(c: PContext; formal: PType; a, aOrig: PNode): PNode =
       result = newDeref(result)
 
 proc prepareOperand(c: PContext; a: PNode): PNode =
-  if a.typ.isNil:
+  if nfSem notin a.flags:
     result = c.semOperand(c, a)
   else:
     result = a
