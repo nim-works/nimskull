@@ -473,6 +473,29 @@ proc callToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
 
 proc exprToIr(tree: MirBody, cl: var TranslateCl, cr: var TreeCursor): CgNode
 
+proc sourceExprToIr(tree: MirBody, cl: var TranslateCl,
+                    cr: var TreeCursor): tuple[n: CgNode, useFast: bool] =
+  ## Translates the MIR expression appearing in an assignment's source
+  ## slot. Assignment modifiers are dropped, and whether a fast assignment or
+  ## normal assignment should be used is computed and returned.
+  case tree[cr].kind
+  of mnkCopy, mnkSink:
+    # requires a full assignment
+    discard enter(tree, cr)
+    result = (valueToIr(tree, cl, cr), false)
+    leave(tree, cr)
+  of mnkMove:
+    # an ``x = move y`` assignment can be turned into a fast assignment
+    discard enter(tree, cr)
+    result = (valueToIr(tree, cl, cr), true)
+    leave(tree, cr)
+  of LvalueExprKinds:
+    # a fast assignment is correct for all raw lvalues
+    result = (lvalueToIr(tree, cl, cr), true)
+  else:
+    # rvalue expressions require a full assignment
+    result = (exprToIr(tree, cl, cr), false)
+
 proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
            n: MirNode, cr: var TreeCursor): CgNode =
   ## Translates a 'def'-like construct
@@ -531,7 +554,7 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
       # don't use the field interperation for variant access
       lvalueToIr(tree, cl, cr, preferField=false)
     else:
-      exprToIr(tree, cl, cr)
+      sourceExprToIr(tree, cl, cr)[0]
   leave(tree, cr)
   if n.kind in {mnkBind, mnkBindMut} and arg.typ.kind notin {tyVar, tyLent}:
     # wrap the operand in an address-of operation
@@ -634,9 +657,10 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   of DefNodes:
     defToIr(tree, env, cl, n, cr)
   of mnkAsgn, mnkInit, mnkSwitch:
-    to cnkAsgn, lvalueToIr(tree, cl, cr), exprToIr(tree, cl, cr)
-  of mnkFastAsgn:
-    to cnkFastAsgn, lvalueToIr(tree, cl, cr), exprToIr(tree, cl, cr)
+    let
+      dst = lvalueToIr(tree, cl, cr)
+      (src, useFast) = sourceExprToIr(tree, cl, cr)
+    to (if useFast: cnkFastAsgn else: cnkAsgn), dst, src
   of mnkRepeat:
     to cnkRepeatStmt, body()
   of mnkBlock:
@@ -810,6 +834,9 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
                  mnkMul: cnkMul, mnkDiv: cnkDiv, mnkModI: cnkModI]
     treeOp Map[n.kind]:
       res.kids = @[valueToIr(tree, cl, cr), valueToIr(tree, cl, cr)]
+  of mnkCopy, mnkMove, mnkSink:
+    # translation of assignments needs to handle all modifiers
+    unreachable("loose assignment modifier")
   of AllNodeKinds - ExprKinds - {mnkNone}:
     unreachable(n.kind)
 
