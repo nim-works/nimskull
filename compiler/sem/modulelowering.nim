@@ -190,8 +190,8 @@ proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
   ## the module level (within the module imperative body `stmts`).
 
   proc register(structs: var ModuleStructs, s: PSym, isTopLevel: bool) {.nimcall.} =
-    if sfCompileTime in s.flags:
-      # don't register compile-time globals with the module struct
+    if {sfCompileTime, sfImportc} * s.flags != {}:
+      # don't register compile-time or imported globals with the module struct
       discard
     elif s.kind == skTemp:
       # HACK: semantic analysis sometimes produces temporaries (it does so for
