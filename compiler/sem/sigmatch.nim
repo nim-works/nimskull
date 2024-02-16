@@ -2280,6 +2280,7 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
         # Don't build the type in-place because `evaluated` and `arg` may point
         # to the same object and we'd end up creating recursive types (#9255)
         let typ = newTypeS(tyStatic, c)
+        evaluated.flags.incl nfSem
         typ.sons = @[evaluated.typ]
         typ.n = evaluated
         typ.flags.incl tfHasStatic
