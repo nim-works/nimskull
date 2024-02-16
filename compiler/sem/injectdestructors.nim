@@ -554,23 +554,14 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
     # the presence of the value is observed -> a reset is required
     result = true
 
-func isMoveable(tree: MirTree, v: Values, n: NodePosition): bool =
-  ## Returns whether the value of the expression `n` can be moved.
+func isMove(tree: MirTree, v: Values, n: NodePosition): bool =
+  ## Returns whether the assignment modifier at `n` is a move modifier (after
+  ## collapsing sink).
   case tree[n].kind:
-  of LvalueExprKinds - {mnkDeref, mnkDerefView}:
-    v.isOwned(OpValue n)
-  of mnkDeref, mnkDerefView:
-    false
-  of mnkLiteral, mnkProc, mnkType:
-    true
-  of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice, UnaryOps,
-     BinaryOps:
-    # the result of these operations is not an owned value
-    false
-  of mnkCall, mnkCheckedCall, mnkObjConstr, mnkConstr:
-    true
-  of AllNodeKinds - ExprKinds:
-    unreachable(tree[n].kind)
+  of mnkCopy: false
+  of mnkMove: true
+  of mnkSink: v.isOwned(tree.operand(n))
+  else:       unreachable(tree[n].kind)
 
 # ------- code generation routines --------
 
@@ -658,12 +649,13 @@ func destructiveMoveOperands(bu: var MirBuilder, tree: MirTree,
 proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                 env: var MirEnv, stmt: NodePosition, pos: InstrPos,
                 c: var Changeset) =
-  ## Expands an assignment into either a copy, move, or destructive move.
-  ## `stmt` is the assignment statement node and `pos` is the 'def' data-flow
-  ## instruction corresponding to it.
+  ## Rewrites the assignment at `stmt` into either a ``=copy`` hook call,
+  ## ``=sink`` hook call, move, or destructive move.
+  ## `pos` is the 'def' data-flow instruction corresponding to the assignment.
   let
     dest       = tree.child(stmt, 0)
-    source     = tree.child(stmt, 1)
+    operator   = tree.child(stmt, 1)
+    source     = tree.child(operator, 0)
     sourcePath = computePath(tree, source)
     destPath   = computePath(tree, dest)
     relation   = compare(tree, sourcePath, destPath)
@@ -671,77 +663,60 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
   if relation.isSame:
     # a self-assignment -> elide
     c.remove(tree, stmt)
-  elif isMoveable(tree, ar.v[], source):
+  elif isMove(tree, ar.v[], operator):
     # a move is possible -> sink
     if true:
-      let fromLvalue = isNamed(tree, OpValue source)
+      template needsReset(): bool =
+        # only a ``sink`` modifier allows for the injection of resets
+        (tree[operator].kind == mnkSink and
+         needsReset(tree, ctx.cfg, ar, sourcePath, pos))
 
       if tree[stmt].kind != mnkInit and
          isAlive(tree, ctx.cfg, ar.entities[], destPath, pos):
         # there already exists a value in the destination location -> use the
         # sink operation
-        if fromLvalue:
+        if true:
           c.replaceMulti(tree, stmt, bu):
             let a = bu.bindMut(tree, dest)
             if isAPartOfB(relation) != no:
-              # this is a potential part-to-whole assignment, e.g.: ``x = x.y``.
-              # We need to move the source value into a temporary first, as
-              # ``=sink`` would otherwise destroy ``x`` first, also destroying
-              # ``x.y`` in the process
+              # this is a potential part-to-whole assignment, e.g.:
+              # ``x = move x.y``. We need to move the source value into a
+              # temporary first, as ``=sink`` would otherwise destroy ``x``
+              # first, also destroying ``x.y`` in the process
               let b = bu.bindMut(tree, source)
               genSinkFromTemporary(bu, ctx.graph, env, a, b)
-            elif needsReset(tree, ctx.cfg, ar, sourcePath, pos):
+            elif needsReset():
               # a sink from a location that needs to be reset after the move
               # (i.e., a destructive move)
               let (b, clear) = bu.destructiveMoveOperands(tree, source)
               genInjectedSink(bu, ctx.graph, env, a, b)
               genWasMoved(bu, ctx.graph, clear)
             else:
-              # a sink from a location that doesn't need to be cleared after
+              # a sink from a location that doesn't need to be reset afterwards
               let b = bu.bindImmutable(tree, source)
               genInjectedSink(bu, ctx.graph, env, a, b)
 
-        else:
-          # this is a bit hack-y, but in order to support changes within the
-          # second operand's tree, the assignment is not replaced as a whole
-          # but rather turned into a def statement. ``a.x = f(arg 1)`` becomes:
-          #   def _1 = f(arg 1)
-          #   bind_mut _2 = a.x
-          #   =sink(name _2, arg _1)
-          # XXX: this is going to become cleaner once `mirgen` handles most of
-          #      the sink-related transformations
-          var tmp: Value
-          c.changeTree(tree, stmt, MirNode(kind: mnkDef))
-          c.replaceMulti(tree, dest, bu):
-            # replace the destination operand with the name of a newly
-            # allocated temporary
-            tmp = bu.allocTemp(tree[source].typ)
-            bu.use tmp
-
-          c.insert(tree, tree.sibling(stmt), stmt, bu):
-            # the value is only accessible through the source expression, a
-            # destructive move is not required
-            let a = bu.bindMut(tree, dest)
-            genInjectedSink(bu, ctx.graph, env, a, tmp)
-
-      else:
+      elif needsReset():
         # the destination location doesn't contain a value yet (which would
         # need to be destroyed first otherwise) -> a bitwise copy can be used
-        if fromLvalue and needsReset(tree, ctx.cfg, ar, sourcePath, pos):
-          # we don't need to check for part-to-whole assignments here, because
-          # if the destination location has no value, so don't locations derived
-          # from it, in which case it doesn't matter when the reset happens
-          # XXX: the reset could be omitted for part-to-whole assignments
-          c.replaceMulti(tree, stmt, bu):
-            let
-              a          = bu.bindMut(tree, dest)
-              (b, clear) = bu.destructiveMoveOperands(tree, source)
-            bu.asgnMove a, b
-            genWasMoved(bu, ctx.graph, clear)
+        # we don't need to check for part-to-whole assignments here, because
+        # if the destination location has no value, so don't locations derived
+        # from it, in which case it doesn't matter when the reset happens
+        # XXX: the reset could be omitted for part-to-whole assignments
+        c.replaceMulti(tree, stmt, bu):
+          let
+            a          = bu.bindMut(tree, dest)
+            (b, clear) = bu.destructiveMoveOperands(tree, source)
+          bu.asgnMove a, b
+          genWasMoved(bu, ctx.graph, clear)
 
-        else:
-          # no hook call nor destructive move is required
-          discard
+      elif tree[operator].kind == mnkSink:
+        # no reset and/or hook call needs to be injected, simply replace the
+        # sink modifier with a move
+        c.changeTree(tree, operator): MirNode(kind: mnkMove)
+      else:
+        # no hook call nor destructive move is required
+        discard "nothing to do"
 
   else:
     # a move is not possible -> copy
@@ -761,18 +736,18 @@ proc expandDef(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                c: var Changeset) =
   ## Depending on whether the source can be moved out of, either rewrites the
   ## 'def' at `at` into a call to the ``=copy`` hook call or into a
-  ## destructive move. If the source can be moved out of non-destructively,
-  ## nothing is changed. `pos` is the data-flow instruction
+  ## destructive or non-destructive move. `pos` is the data-flow instruction.
   let
-    dest   = tree.child(at, 0)
-    source = tree.child(at, 1)
-  case isMoveable(tree, ar.v[], source)
+    dest     = tree.child(at, 0)
+    operator = tree.child(at, 1)
+    source   = tree.child(operator, 0)
+  case isMove(tree, ar.v[], operator)
   of false:
-    # a copy is required. Transform ``def x = a.b`` into:
+    # a copy is required. Transform ``def x = copy a.b`` into:
     #   def x
     #   bind _1 = a.b
     #   =copy(name x, arg _1)
-    c.replace(tree, source): MirNode(kind: mnkNone)
+    c.replace(tree, operator): MirNode(kind: mnkNone)
     c.insert(tree, tree.sibling(at), source, bu):
       let
         a = bu.bindMut(tree, dest)
@@ -781,20 +756,25 @@ proc expandDef(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       # etc.), no cycle can possibly be introduced
       genCopy(bu, ctx.graph, env, a, b, false)
   of true:
-    if isNamed(tree, OpValue source) and
-       needsReset(tree, ctx.cfg, ar, computePath(tree, source), pos):
+    assert tree[operator].kind == mnkSink
+    if needsReset(tree, ctx.cfg, ar, computePath(tree, source), pos):
       # the value can be moved, but the location needs to be reset. Transform
-      # ``def x = a.b`` into:
+      # ``def x = sink a.b`` into:
       #   bind_mut _1 = a.b
-      #   def x = _1
+      #   def x = move _1
       #   wasMoved(name x)
       var tmp, clear: Value
       c.insert(tree, at, source, bu):
         (tmp, clear) = bu.destructiveMoveOperands(tree, source)
-      c.replaceMulti(tree, source, bu):
-        bu.use tmp
+      c.replaceMulti(tree, operator, bu):
+        bu.move tmp
       c.insert(tree, tree.sibling(at), source, bu):
         genWasMoved(bu, ctx.graph, clear)
+    else:
+      # turn into a ``Move`` operation
+      c.changeTree(tree, operator):
+        MirNode(kind: mnkMove, typ: tree[operator].typ)
+
 
 proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                 expr: NodePosition, src: OpValue, pos: InstrPos,
@@ -884,8 +864,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                         env: var MirEnv, diags: var seq[LocalDiag],
                         c: var Changeset) =
   ## Rewrites assignments to locations into calls to either the ``=copy``
-  ## or ``=sink`` hook (see ``expandAsgn`` for more details), using the
-  ## previously computed ownership information to decide.
+  ## or ``=sink`` hook (see ``expandAsgn`` for more details).
   ##
   ## Also injects the necessary location reset logic for lvalues passed to
   ## 'consume' argument sinks.
@@ -901,7 +880,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         consumeArg(tree, ctx, ar, tree.parent(parent), val, i, c)
       of mnkRaise:
         consumeArg(tree, ctx, ar, NodePosition val, val, i, c)
-      of mnkAsgn, mnkInit, mnkDef, mnkDefUnpack:
+      of mnkMove, mnkSink:
         # assignments are handled separately
         discard
       else:
@@ -914,9 +893,10 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       case tree[stmt].kind
       of mnkDef, mnkDefUnpack:
         let src = tree.child(stmt, 1)
-        # ignore definitions with no initializer
-        if tree[src].kind != mnkNone:
-          if not isMoveable(tree, ar.v[], src):
+        # only rewrite definitions with modifiers. The ``move`` modifier
+        # is ignored since there's nothing to be rewritten for it
+        if tree[src].kind in ModifierNodes - {mnkMove}:
+          if not isMove(tree, ar.v[], src):
             checkCopy(ctx.graph, tree, src, diags)
             # emit a warning for copies-to-sink
             if isUsedForSink(tree, stmt):
@@ -925,9 +905,11 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
           expandDef(tree, ctx, ar, env, stmt, i, c)
       of mnkAsgn, mnkInit:
         let src = tree.child(stmt, 1)
-        if not isMoveable(tree, ar.v[], src):
-          checkCopy(ctx.graph, tree, src, diags)
-        expandAsgn(tree, ctx, ar, env, stmt, i, c)
+        # only rewrite assignments with modifiers
+        if tree[src].kind in ModifierNodes:
+          if not isMove(tree, ar.v[], src):
+            checkCopy(ctx.graph, tree, src, diags)
+          expandAsgn(tree, ctx, ar, env, stmt, i, c)
       else:
         # e.g., output arguments to procedures
         discard "ignore"
