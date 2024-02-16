@@ -2998,49 +2998,66 @@ proc semSetConstr(c: PContext, n: PNode): PNode =
   if n.len == 0:
     rawAddSon(result.typ, newTypeS(tyEmpty, c))
   else:
+    var
+      typ: PType = nil
+      diag: PAstDiag # the error diagnostic, if an error occurred
+
+    result.sons.setLen(n.len)
     # only semantic checking for all elements, later type checking:
-    var typ: PType = nil
-    for i in 0..<n.len:
-      if isRange(n[i]):
-        checkSonsLen(n[i], 3, c.config)
-        n[i][1] = semExprWithType(c, n[i][1])
-        n[i][2] = semExprWithType(c, n[i][2])
-        if typ == nil:
-          typ = skipTypes(n[i][1].typ,
-                          {tyGenericInst, tyVar, tyLent, tyOrdinal, tyAlias, tySink})
-        n[i].typ = n[i][2].typ # range node needs type too
+    for i, it in n.pairs:
+      var elem: PType
+      if isRange(it):
+        checkSonsLen(it, 3, c.config)
+        result[i] =
+          newTreeI(nkRange, it.info,
+                   semExprWithType(c, it[1]),
+                   semExprWithType(c, it[2]))
+        elem = result[i][0].typ
       elif n[i].kind == nkRange:
-        # already semchecked
-        if typ == nil:
-          typ = skipTypes(n[i][0].typ,
-                          {tyGenericInst, tyVar, tyLent, tyOrdinal, tyAlias, tySink})
+        checkSonsLen(n[i], 2, c.config)
+        result[i] =
+          newTreeI(nkRange, it.info,
+                   semExprWithType(c, it[0]),
+                   semExprWithType(c, it[1]))
+        elem = result[i][0].typ
       else:
-        n[i] = semExprWithType(c, n[i])
-        if typ == nil:
-          typ = skipTypes(n[i].typ, {tyGenericInst, tyVar, tyLent, tyOrdinal, tyAlias, tySink})
+        result[i] = semExprWithType(c, n[i])
+        elem = result[i].typ
+
+      if typ.isNil:
+        typ = skipTypes(elem, {tyGenericInst, tyOrdinal, tyAlias, tySink})
+
     if not isOrdinalType(typ, allowEnumWithHoles=true):
-      localReport(c.config, n, reportSem rsemExpectedOrdinal)
+      if typ.kind != tyError:
+        diag = PAstDiag(kind: adSemExpectedOrdinal, nonOrdTyp: typ)
       typ = makeRangeType(c, 0, MaxSetElements - 1, n.info)
 
     elif lengthOrd(c.config, typ) > MaxSetElements:
       typ = makeRangeType(c, 0, MaxSetElements - 1, n.info)
 
     addSonSkipIntLit(result.typ, typ, c.idgen)
-    for i in 0..<n.len:
-      var m: PNode
-      let info = n[i].info
-      if isRange(n[i]):
-        m = newNodeI(nkRange, info)
-        m.add fitNode(c, typ, n[i][1], info)
-        m.add fitNode(c, typ, n[i][2], info)
 
-      elif n[i].kind == nkRange:
-        m = n[i] # already semchecked
+    var hasError = false
+    template inheritError(n: PNode): PNode =
+      let x = n
+      hasError = hasError or x.kind == nkError
+      x
 
+    # second pass: type checking and error detection
+    for i in 0..<result.len:
+      let info = result[i].info
+      case result[i].kind
+      of nkRange:
+        result[i][0] = inheritError fitNode(c, typ, result[i][0], info)
+        result[i][1] = inheritError fitNode(c, typ, result[i][1], info)
       else:
-        m = fitNode(c, typ, n[i], info)
+        result[i] = inheritError fitNode(c, typ, result[i], info)
 
-      result.add m
+    # wrap with the appropriate error (or none)
+    if diag != nil:
+      result = c.config.newError(result, diag)
+    elif hasError:
+      result = c.config.wrapError(result)
 
 proc semTableConstr(c: PContext, n: PNode): PNode =
   # we simply transform ``{key: value, key2, key3: value}`` to
