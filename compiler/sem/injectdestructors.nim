@@ -28,19 +28,18 @@
 ##          Except for thread-local variables, the others are destroyed at the
 ##          end of the program.
 ##
-## ``solveOwnership`` then computes for all lvalue expression appearing in
-## consume (e.g., argument to ``sink`` parameter) or sink contexts (source
-## lvalue in an assignment).
+## ``collapseSink`` then computes for all lvalue expression appearing as
+## source operands to sink assignments whether it's the last use of the
+## value currently stored in the location identified by the lvalue. All sinks
+## where this is the case are remembered, and their corresponding data-flow
+## operation is turned from a 'use' into a 'consume'.
 ##
-## Using the now resolved ownership status of all expressions, the next
-## analysis step computes which locations need to be destroyed via a destructor
-## call (see ``computeDestructors``).
+## With all sink assignments either collapsed into copy or move assignments,
+## the next analysis step computes which locations need to be destroyed via a
+## destructor call (see ``computeDestructors``).
 ##
 ## As the last step, the assignment rewriting and destructor injection is
 ## performed, using the previously gathered data.
-##
-## For the assignment rewriting, if the source operand of an assignment is
-## owned, a move is used instead of a copy.
 ##
 ## Ownership analysis
 ## ==================
