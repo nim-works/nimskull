@@ -3424,7 +3424,11 @@ proc shouldBeBracketExpr(n: PNode): bool =
 
 proc asBracketExpr(c: PContext; n: PNode): PNode =
   proc isGeneric(c: PContext; n: PNode): bool =
-    if n.kind in {nkIdent, nkAccQuoted}:
+    # XXX: this guesswork is meant to figure out whether a ``[](x, y)``
+    #      expression *could* have been a ``x[y]`` expression where `x` is a
+    #      generic procedure
+    case n.kind
+    of nkIdent, nkAccQuoted:
       let s = qualifiedLookUp(c, n, {})
       if s.isError:
         # XXX: move to propagating nkError, skError, and tyError
@@ -3432,6 +3436,15 @@ proc asBracketExpr(c: PContext; n: PNode): PNode =
         result = false
       else:
         result = s != nil and isGenericRoutineStrict(s)
+    of nkSym:
+      result = isGenericRoutineStrict(n.sym)
+    of nkSymChoices:
+      for it in n.items:
+        if isGenericRoutineStrict(it.sym):
+          result = true
+          break
+    else:
+      result = false
 
   assert n.kind in nkCallKinds
   if n.len > 1 and isGeneric(c, n[1]):
