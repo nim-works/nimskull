@@ -1836,7 +1836,8 @@ proc dotTransformation(c: PContext, n: PNode): PNode =
             PAstDiag(kind: adSemExpectedIdentifierWithExprContext,
                      expr: n))
 
-  result.add copyTree(n[0])
+  # the operand was already sem'ed immediately prior. No need to copy it
+  result.add n[0]
 
   if result[0].kind == nkError: # handle the potential ident error
     result = c.config.wrapError(result)
