@@ -3840,9 +3840,20 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     checkSonsLen(n, 1, c.config)
     result[0] = semAddrArg(c, n[0])
     result.typ = makePtrType(c, result[0].typ)
-  of nkHiddenAddr, nkHiddenDeref:
+  of nkHiddenAddr:
     checkSonsLen(n, 1, c.config)
-    n[0] = semExpr(c, n[0], flags)
+    result = semExpr(c, n[0], flags)
+  of nkHiddenDeref:
+    checkSonsLen(n, 1, c.config)
+    # the type of the deref can be synthesized, so try to keep it
+    let operand = semExpr(c, n[0], flags)
+    case operand.typ.kind
+    of tyVar, tyLent:
+      result = newTreeIT(nkHiddenDeref, n.info, operand.typ.base): operand
+    else:
+      # an error or something else. Don't complain and pass it on, the
+      # receiver will figure out what to do with it
+      result = operand
   of nkCast: result = c.config.extract(semCast(c, n))
   of nkIfExpr, nkIfStmt: result = semIf(c, n, flags)
   of nkConv:
@@ -3850,7 +3861,8 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     result = semConv(c, n)
   of nkHiddenStdConv, nkHiddenSubConv, nkHiddenCallConv:
     checkSonsLen(n, 2, c.config)
-    considerGenSyms(c, n)
+    # discard the hidden conversion. It's restored again (or not) if necessary
+    result = semExpr(c, n[1], flags)
   of nkStringToCString, nkCStringToString, nkObjDownConv, nkObjUpConv:
     checkSonsLen(n, 1, c.config)
     considerGenSyms(c, n)
@@ -3859,7 +3871,9 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     considerGenSyms(c, n)
   of nkCheckedFieldExpr:
     checkMinSonsLen(n, 2, c.config)
-    considerGenSyms(c, n)
+    # discard the check; analysis of the field expression will restore it if
+    # necessary
+    result = semExpr(c, n[0], flags)
   of nkTableConstr:
     result = semTableConstr(c, n)
   of nkClosedSymChoice, nkOpenSymChoice:
