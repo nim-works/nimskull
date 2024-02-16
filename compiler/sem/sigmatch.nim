@@ -2033,6 +2033,7 @@ proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
 
   result.add c.graph.emptyNode
   result.add arg
+  result.flags.incl nfSem
 
 proc isLValue(c: PContext; n: PNode): bool {.inline.} =
   case isAssignable(nil, n)
@@ -2101,9 +2102,11 @@ proc userConvMatch(c: PContext, m: var TCandidate, f, a: PType,
                   newTreeIT(nkHiddenAddr, arg.info, conv.typ[1], copyTree(arg))
                 else:
                   copyTree(arg))
+      result.flags.incl nfSem
 
       if dest.kind in {tyVar, tyLent}:
         result = newDeref(result)
+        result.flags.incl nfSem
 
       inc(m.convMatches)
 
@@ -2620,6 +2623,7 @@ proc prepareOperand(c: PContext; formal: PType; a, aOrig: PNode): PNode =
        result.typ.kind in {tyVar, tyLent} and
        c.matchedConcept.isNil():
       result = newDeref(result)
+      result.flags.incl nfSem
 
 proc prepareOperand(c: PContext; a: PNode): PNode =
   if nfSem notin a.flags:
