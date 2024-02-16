@@ -1215,7 +1215,7 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
     sink = sink and not isCursor(lhs)
 
   case rhs.kind
-  of ComplexExprs, nkStmtListExpr:
+  of ComplexExprs:
     # optimization: forward the destination. For example:
     #   x = if cond: a else: b
     # becomes:
