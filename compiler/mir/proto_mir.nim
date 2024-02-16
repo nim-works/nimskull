@@ -448,13 +448,14 @@ func selectWhenBranch*(n: PNode, isNimvm: bool): PNode =
   else:       n[1][0]
 
 func handleConstExpr(result: var seq[ProtoItem], n: PNode, kind: ProtoItemKind,
-                     sink: bool) =
-  ## If eligible, translates `n` to a constant expression. To a construction of
-  ## kind `kind` otherwise.
+                     sink, lift: bool) =
+  ## If `lift` is true and the expression is eligible, translates `n` to a
+  ## constant expression. To a construction of kind `kind` otherwise.
   ##
   ## Only fully constant, non-empty aggregate or set constructions are
   ## treated as constant expressions.
-  if not sink and n.len > ord(n.kind == nkObjConstr) and isDeepConstExpr(n):
+  if lift and n.len > ord(n.kind == nkObjConstr) and
+     isDeepConstExpr(n):
     result.add ProtoItem(orig: n, typ: n.typ, kind: pirConstExpr)
   elif kind == pirSetConstr:
     result.add ProtoItem(orig: n, typ: n.typ, kind: kind)
@@ -768,24 +769,24 @@ proc exprToPmir(c: TranslateCtx, result: var seq[ProtoItem], n: PNode, sink: boo
 
   of nkBracket:
     # if the construction is of seq type, then it's a constant seq value,
-    # which we prefer to lift into a constant (again)
-    let consume =
-      n.typ.skipTypes(IrrelevantTypes).kind != tySequence and sink
-    handleConstExpr(result, n, pirArrayConstr, consume)
+    # which we prefer to lift into a constant (again), even in sink contexts
+    let lift =
+      n.typ.skipTypes(IrrelevantTypes).kind == tySequence or not(sink)
+    handleConstExpr(result, n, pirArrayConstr, sink, lift)
   of nkCurly:
-    # never treat set constructions as appearing in a sink context, so that
-    # they're always turned into constants, if possible
-    handleConstExpr(result, n, pirSetConstr, false)
+    # always attempt to turn set constructions into constants, regardless of
+    # whether they're used in a sink context
+    handleConstExpr(result, n, pirSetConstr, false, true)
   of nkObjConstr:
     if n.typ.skipTypes(IrrelevantTypes).kind == tyRef:
       # ref constructions are never constant
       result.add n, pirRefConstr
     else:
-      handleConstExpr(result, n, pirObjConstr, sink)
+      handleConstExpr(result, n, pirObjConstr, sink, not sink)
   of nkTupleConstr:
-    handleConstExpr(result, n, pirTupleConstr, sink)
+    handleConstExpr(result, n, pirTupleConstr, sink, not sink)
   of nkClosure:
-    handleConstExpr(result, n, pirClosureConstr, sink)
+    handleConstExpr(result, n, pirClosureConstr, sink, not sink)
 
   of nkWhenStmt:
     # a ``when nimvm`` expression
