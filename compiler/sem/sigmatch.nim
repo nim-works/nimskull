@@ -2282,6 +2282,7 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
         let typ = newTypeS(tyStatic, c)
         typ.sons = @[evaluated.typ]
         typ.n = evaluated
+        typ.flags.incl tfHasStatic
         arg = copyTree(arg) # fix #12864
         arg.typ = typ
         a = typ
