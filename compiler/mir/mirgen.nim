@@ -833,7 +833,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
   of mAnd, mOr:
     let tmp = getTemp(c, n.typ)
     withFront c.builder:
-      genAndOr(c, n, Destination(isSome: true, val: tmp))
+      genAndOr(c, n, Destination(isSome: true, val: tmp, flags: {dfOwns}))
     c.use tmp
   of mDefault:
     # use the canonical form:
