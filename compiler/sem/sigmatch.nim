@@ -2285,6 +2285,7 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
         typ.flags.incl tfHasStatic
         arg = copyTree(arg) # fix #12864
         arg.typ = typ
+        arg.flags.incl nfSem
         a = typ
       else:
         if m.callee.kind == tyGenericBody:
