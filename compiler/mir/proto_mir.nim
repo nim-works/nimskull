@@ -70,6 +70,13 @@ type
 
     pirStmtList # usually skipped
 
+    # --- ownership operations
+
+    pirCopy
+    pirMove
+    pirDestructiveMove # move + wasMoved
+    pirSink
+
     # --- constructors
 
     pirClosureConstr
@@ -206,7 +213,7 @@ func classify*(e: seq[ProtoItem], i: int): ExprKind =
   of pirSetConstr, pirAddr, pirView, pirCast, pirConv, pirStdConv,
      pirChckRange, pirToSlice, pirToSubSlice:
     Rvalue
-  of pirMat:
+  of pirMat, pirCopy, pirMove, pirDestructiveMove, pirSink:
     OwnedRvalue
   of pirMatCursor:
     Rvalue
@@ -247,6 +254,9 @@ func isPure(e: seq[ProtoItem], n: int): bool =
   of pirMat, pirMatCursor:
     # the materialized-into temporary is never assigned to
     true
+  of pirCopy, pirMove, pirDestructiveMove, pirSink:
+    # always produce an owning value
+    true
   of pirDeref, pirViewDeref:
     # the pointer destination could change (unless it's an immutable view)
     false
@@ -286,15 +296,107 @@ func isStable(e: seq[ProtoItem], n: int): bool =
   else:
     unreachable(e[n].kind)
 
+func ownershipOp(e: seq[ProtoItem], i: int): ProtoItemKind =
+  ## Infers and returns the best fitting operation to retrieve an owning
+  ## value from the given *lvalue*.
+  proc decayMove(kind: ProtoItemKind): ProtoItemKind {.inline.} =
+    # moving from a projection requires a destructive move, since the source
+    # location needs to be destroyed after (in order to free the non-moved
+    # parts)
+    case kind
+    of pirMove: pirDestructiveMove
+    else:       kind
+
+  case e[i].kind
+  of pirParam:
+    if e[i].typ.kind == tySink:
+      pirSink
+    else:
+      pirCopy
+  of pirLocal, pirGlobal:
+    if sfCursor in e[i].sym.flags:
+      pirCopy # cursors can only be copied from
+    else:
+      pirSink # moveability depends on data flow
+  of pirConst, pirConstExpr, pirLiteral:
+    pirCopy
+  of pirFieldAccess:
+    if sfCursor in e[i].field.flags:
+      pirCopy # non-owning fields cannot be copied
+    else:
+      decayMove ownershipOp(e, i - 1)
+  of pirTupleAccess, pirArrayAccess, pirVariantAccess, pirSeqAccess:
+    decayMove ownershipOp(e, i - 1)
+  of pirLvalueConv:
+    # it's still the whole location that would be consumed, so no destructive
+    # move is required
+    ownershipOp(e, i - 1)
+  of pirCheckedArrayAccess, pirCheckedSeqAccess, pirCheckedVariantAccess,
+     pirCheckedObjConv:
+    decayMove ownershipOp(e, i - 1)
+  of pirDeref, pirViewDeref:
+    # pointers and views are currently not tracked, so their targets can only
+    # be copied from
+    pirCopy
+  of pirMat:
+    pirMove
+  of pirMatCursor:
+    pirCopy
+  of pirStmtList, pirMatLvalue:
+    ownershipOp(e, i - 1)
+  else:
+    # cannot be part of an lvalue expression sequence
+    unreachable(e[i].kind)
+
+func wantOwning*(e: var seq[ProtoItem], forceTemp: bool) =
+  ## Makes sure `e` produces an owning value. If `forceTemp` is true, a
+  ## temporary is materialized even if the expression would already produces
+  ## an owning value.
+  case classify(e, e.high)
+  of Rvalue:
+    # rvalue expressions cannot be copied from directly
+    if e[^1].kind != pirMatCursor:
+      e.add pirMatCursor
+    e.add pirCopy
+  of OwnedRvalue:
+    var i = e.high
+    while e[i].kind == pirStmtList:
+      dec i
+    case e[i].kind
+    of pirMat:
+      e.add pirMove
+    of pirComplex:
+      # watch out! try-finally expressions can have exceptional control-flow
+      # that forces the destination temporary to have be destroyed in a
+      # finalizer. A destructive move is required
+      e.add pirMat
+      e.add pirDestructiveMove
+    elif forceTemp:
+      e.add pirMat
+      e.add pirMove
+  of Lvalue:
+    e.add ownershipOp(e, e.high)
+  of Literal:
+    if forceTemp:
+      e.add pirMat
+      e.add pirMove
+
 func wantConsumeable*(e: var seq[ProtoItem]) =
   ## Makes sure `e` is an expression that can be used in a context requiring a
-  ## certainly-consumeable value.
+  ## certainly-consumeable value (either a materialized temporary or a literal
+  ## value).
   case classify(e, e.high)
-  of Rvalue, OwnedRvalue:
+  of Rvalue:
+    if e[^1].kind != pirMatCursor:
+      e.add pirMatCursor
+    e.add pirCopy
+    e.add pirMat
+  of OwnedRvalue:
     if e[^1].kind != pirMat:
       # requires an owning temporary
       e.add pirMat
   of Lvalue:
+    e.add ownershipOp(e, e.high)
     e.add pirMat
   of Literal:
     discard "okay, can be used as is"
