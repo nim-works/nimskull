@@ -2670,6 +2670,43 @@ proc incrIndexType(t: PType) =
   assert t.kind == tyArray
   inc t[0].n[1].intVal
 
+proc matchContainer(m: var TCandidate, formal: PType, n: PNode): PNode =
+  ## Takes an already typed varargs container and re-analyses and matches
+  ## each item against the formal type, producing an AST of the shape the
+  ## usual (untyped -> typed) matching would have produced.
+  assert formal.kind == tyVarargs
+  var hasError = false
+
+  result = shallowCopy(n)
+  result.typ = arrayConstr(m.c, n.info)
+  result.typ.flags.incl tfVarargs
+
+  for i, it in n.pairs:
+    let
+      it = prepareOperand(m.c, it)
+      arg = paramTypesMatchAux(m, formal, it.typ, it)
+
+    if arg.isNil:
+      # it's a legacy error that was already reported
+      result[i] = it
+    elif arg.isError:
+      result[i] = arg
+      hasError = true
+    else:
+      result[i] = arg
+
+    incrIndexType(result.typ)
+
+  if hasError:
+    result = m.c.config.wrapError(result)
+  else:
+    if result.len > 0:
+      # update the array's type:
+      result.typ[1] = result[0].typ
+      propagateToOwner(result.typ, result.typ[1])
+    # a conversion is required to go from array -> varargs
+    result = implicitConv(nkHiddenStdConv, formal, result, m, m.c)
+
 template isVarargsUntyped(x): untyped =
   x.kind == tyVarargs and x[0].kind == tyUntyped
 
@@ -2941,6 +2978,10 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
         if f != formalLen - 1: # not the last formal param
           container = nil      # xxx: is this more vararg stuff?
+      elif formal.typ.kind == tyVarargs:
+        # it's a varargs to varargs match (only possible during re-typing)
+        operand = matchContainer(m, formal.typ, arg)
+        setSon(m.call, formal.position + 1, operand)
       else:
         setSon(m.call, formal.position + 1, arg)
 
@@ -3084,6 +3125,13 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             # pick the formal from the end, so a regular param can follow a
             # varargs: 'foo(x: int, y: varargs[typed], blk: untyped): typed'
             f = max(f, formalLen - n.len + a + 1)
+          elif formal.typ.kind == tyVarargs and arg.kind == nkBracket and
+               container.isNil:
+            # a pre-existing container matches against a varargs type (only
+            # possible during re-typing)
+            operand = matchContainer(m, formal.typ, arg)
+            setSon(m.call, formal.position + 1, operand)
+            inc f
           elif formal.typ.kind != tyVarargs or container.isNil(): # regular arg
             setSon(m.call, formal.position + 1, arg)
             inc f

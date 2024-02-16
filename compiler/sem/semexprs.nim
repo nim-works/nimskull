@@ -3810,7 +3810,14 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkTupleConstr:
     result = semTupleConstr(c, n, flags)
   of nkCurly: result = semSetConstr(c, n)
-  of nkBracket: result = semArrayConstr(c, n, flags)
+  of nkBracket:
+    if n.typ == nil or (tfVarargs notin n.typ.flags):
+      result = semArrayConstr(c, n, flags)
+    else:
+      # HACK: there's not enough information here to re-type an already
+      #       typed varargs container, so it gets passed on for
+      #       ``sigmatch`` to take care of re-typing it
+      result = n
   of nkObjConstr: result = semObjConstr(c, n, flags)
   of nkLambdaKinds:
     result = semProcAnnotation(c, n)
