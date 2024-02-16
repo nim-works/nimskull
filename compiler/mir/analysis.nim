@@ -9,10 +9,6 @@
 ## not. This means that run-time aliasing (e.g., through pointers) is **not**
 ## considered.
 ##
-## Analysis routine related to liveness take an additional ``Values``
-## instance as input, for knowing about what operation to collapse an
-## ``opConsume`` to.
-##
 ## When a "before" or "after" relationship is mentioned in the context of
 ## operations, it doesn't refer to the relative memory location of the
 ## nodes representing the operations, but rather to the operations'
@@ -53,7 +49,7 @@ type
     alive
 
   ComputeAliveProc[T] =
-    proc(tree: MirTree, values: Values, loc: T, op: Opcode,
+    proc(tree: MirTree, loc: T, op: Opcode,
          n: OpValue): AliveState {.nimcall, noSideEffect.}
 
 func skipConversions*(tree: MirTree, val: OpValue): OpValue =
@@ -68,7 +64,7 @@ func isOwned*(v: Values, val: OpValue): bool {.inline.} =
 func markOwned*(v: var Values, val: OpValue) {.inline.} =
   v.owned.incl val
 
-func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
+func isAlive*(tree: MirTree, cfg: DataFlowGraph,
              span: Subgraph, loc: Path, start: InstrPos): bool =
   ## Computes whether the location named by `loc` does contain a value (i.e.,
   ## is alive) when the data-flow operation at `start` is reached (but not
@@ -99,9 +95,15 @@ func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
         # return already
         return true
 
-    of opKill:
+    of opKill, opConsume:
       if isPartOf(tree, loc, path n) == yes:
+        # the location's value is consumed or the location is killed. No
+        # operation coming before the current one can change that, so we can
+        # stop traversing the current path
         exit = true
+
+      # partially consuming the value, or killing the location, does *not*
+      # change the alive state
 
     of opInvalidate:
       discard
@@ -111,16 +113,6 @@ func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
         # an unspecified global is mutated and we're analysing a location
         # derived from a global -> assume the analysed global is mutated
         return true
-
-    of opConsume:
-      if v.isOwned(n):
-        if isPartOf(tree, loc, path n) == yes:
-          # the location's value is consumed and it becomes empty. No operation
-          # coming before the current one can change that, so we can stop
-          # traversing the current path
-          exit = true
-
-        # partially consuming the location does *not* change the alive state
 
     of opUse:
       discard "not relevant"
@@ -226,7 +218,7 @@ func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph, loc: Path,
   result = (true, state.exit, state.escapes)
 
 func computeAliveOp*[T: PSym | GlobalId | TempId](
-  tree: MirTree, values: Values, loc: T, op: Opcode, n: OpValue): AliveState =
+  tree: MirTree, loc: T, op: Opcode, n: OpValue): AliveState =
   ## Computes the state of `loc` at the *end* of the given operation. The
   ## operands are expected to *not* alias with each other. The analysis
   ## result will be wrong if they do
@@ -253,9 +245,10 @@ func computeAliveOp*[T: PSym | GlobalId | TempId](
       # the analysed location or one derived from it is mutated
       return alive
 
-  of opKill:
+  of opKill, opConsume:
     if sameLocation(n):
-      # the location is killed
+      # the location is killed or its value is consumed (i.e., moved somewhere
+      # else)
       return dead
 
   of opInvalidate:
@@ -266,15 +259,10 @@ func computeAliveOp*[T: PSym | GlobalId | TempId](
       # the operation mutates global state and we're analysing a global
       result = alive
 
-  of opConsume:
-    if values.isOwned(n) and sameLocation(n):
-      # the location's value is consumed
-      result = dead
-
   else:
     discard
 
-func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph, values: Values,
+func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph,
                       span: Subgraph, loc: T, op: static ComputeAliveProc[T]
                      ): tuple[alive, escapes: bool] =
   ## Computes whether the location is alive when `span` is exited via either
@@ -287,7 +275,7 @@ func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph, values: Values,
 
   var exit = false
   for opc, n in traverseFromExits(cfg, span, exit):
-    case op(tree, values, loc, opc, n)
+    case op(tree, loc, opc, n)
     of dead:
       exit = true
     of alive:
@@ -299,7 +287,7 @@ func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph, values: Values,
 
   # check if the location is alive at the structured exit of the span
   for opc, n in traverseReverse(cfg, span, span.b + 1, exit):
-    case op(tree, values, loc, opc, n)
+    case op(tree, loc, opc, n)
     of dead:
       exit = true
     of alive:

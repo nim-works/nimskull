@@ -598,6 +598,14 @@ func find*(dfg: DataFlowGraph, n: NodePosition): InstrPos =
   ## attached-to node position) operation is returned.
   lowerBound(dfg, n)
 
+func change*(dfg: var DataFlowGraph, instrs: openArray[InstrPos],
+             to: Opcode) =
+  ## Changes all data-flow instructions identified by `instrs` to use the
+  ## `to` opcode.
+  for it in instrs.items:
+    assert dfg.instructions[it].op in DataFlowOps
+    dfg.instructions[it].op = to
+
 iterator instructions*(dfg: DataFlowGraph): (InstrPos, Opcode, OpValue) =
   ## Returns all data-flow operations in order of appearance together with
   ## their position.

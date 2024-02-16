@@ -339,13 +339,6 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, entities: EntityDict,
   ## Computes for `lval` whether it can be moved from (i.e., ownership of the
   ## value transferred) at the program position `start`.
   case tree[lval.root].kind
-  of mnkDeref, mnkDerefView, mnkConst:
-    # * derefs reaching here means that they couldn't be resolved
-    # * handles to constant locations are never owning
-    false
-  of mnkLiteral:
-    # literals can be moved (although not destructively)
-    true
   of mnkLocal, mnkParam, mnkGlobal, mnkTemp:
     # only entities that are relevant for destructor injection have an entry in
     # `entities`. Those that don't also can't be consumed (because we either
@@ -364,19 +357,34 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, entities: EntityDict,
   else:
     unreachable()
 
-func solveOwnership(tree: MirTree, cfg: DataFlowGraph,
-                    entities: EntityDict): Values =
-  ## Computes for all lvalues used in consume context whether they're owning
-  ## or not. Returns a ``Values`` instance with the results.
-  # search for 'consume' instructions and compute for their operands whether
-  # it's a handle that owns the location's value
+func collapseSink(tree: MirTree, cfg: var DataFlowGraph,
+                  entities: EntityDict): Values =
+  ## Computes for every ``mnkSink`` node what operation (copy or move) it has
+  ## to collapse to, returning the result(s) as a ``Values`` instance.
+  ##
+  ## In addition, the DFG instructions in `cfg` for sinks-turned-into-moves
+  ## are updated to ``opConsume`` instructions.
+  var update: seq[InstrPos]
+    ## tracks the DFG instructions that need to be updated
+
+  # search for all 'use' instructions representing sinks, and compute whether
+  # they have to be turned into a move or copy
   for i, op, opr in cfg.instructions:
-    if op == opConsume and hasDestructor(tree[opr].typ) and
-       computeOwnership(tree, cfg, entities,
-                        computePath(tree, NodePosition opr), i + 1):
-      result.markOwned(opr)
-    else:
-      discard "nothing to do"
+    if op == opUse and tree[tree.parent(NodePosition opr)].kind == mnkSink:
+      # it's the DFG instruction for a sink
+      if hasDestructor(tree[opr].typ) and
+         computeOwnership(tree, cfg, entities,
+                          computePath(tree, NodePosition opr), i + 1):
+        update.add i
+        result.markOwned(opr)
+
+      # for the moment, sinks are always turned into copies for values without
+      # custom destroy/copy/sink behaviour
+
+  # change all 'use' instructions corresponding to sinks to 'consume'
+  # instructions. This is more efficient than changing the node kinds and then
+  # recomputing the graph
+  cfg.change(update, opConsume)
 
 type DestructionMode = enum
   demNone    ## location doesn't need to be destroyed because it contains no
@@ -386,11 +394,11 @@ type DestructionMode = enum
   demFinally ## the location contains a value when the scope is exited via
              ## unstructured control-flow
 
-func requiresDestruction(tree: MirTree, cfg: DataFlowGraph, values: Values,
+func requiresDestruction(tree: MirTree, cfg: DataFlowGraph,
                          span: Subgraph, def: NodePosition, entity: MirNode
                         ): DestructionMode =
   template computeAlive(loc, op: untyped): untyped =
-    computeAlive(tree, cfg, values, span, loc, op)
+    computeAlive(tree, cfg, span, loc, op)
 
   let r =
     case entity.kind
@@ -413,7 +421,7 @@ func requiresDestruction(tree: MirTree, cfg: DataFlowGraph, values: Values,
     elif r.alive: demNormal
     else:         demNone
 
-func computeDestructors(tree: MirTree, cfg: DataFlowGraph, values: Values,
+func computeDestructors(tree: MirTree, cfg: DataFlowGraph,
                         entities: EntityDict): seq[DestroyEntry] =
   ## Computes and collects which locations present in `entities` need to be
   ## destroyed at the exit of their enclosing scope in order to prevent the
@@ -441,7 +449,7 @@ func computeDestructors(tree: MirTree, cfg: DataFlowGraph, values: Values,
       #       defer destruction of the global to the end of the program
       discard
 
-    case requiresDestruction(tree, cfg, values, info.scope, def, entity)
+    case requiresDestruction(tree, cfg, info.scope, def, entity)
     of demNormal:
       result.add (scopeStart, def, false)
     of demFinally:
@@ -458,7 +466,7 @@ func computeDestructors(tree: MirTree, cfg: DataFlowGraph, values: Values,
 
 # --------- analysis routines --------------
 
-func isAlive(tree: MirTree, cfg: DataFlowGraph, v: Values,
+func isAlive(tree: MirTree, cfg: DataFlowGraph,
              entities: EntityDict, val: Path, at: InstrPos): bool =
   ## Computes if `val` refers to a location that contains a value when
   ## `at` in the DFG is reached.
@@ -482,7 +490,7 @@ func isAlive(tree: MirTree, cfg: DataFlowGraph, v: Values,
     if at <= scope.a:
       false # the location cannot be alive
     else:
-      isAlive(tree, cfg, v, scope, val, at)
+      isAlive(tree, cfg, scope, val, at)
   else:
     # something that we can't analyse (e.g. a dereferenced pointer). We have
     # to be conservative and assume that the location the lvalue names already
@@ -669,7 +677,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       let fromLvalue = isNamed(tree, OpValue source)
 
       if tree[stmt].kind != mnkInit and
-         isAlive(tree, ctx.cfg, ar.v[], ar.entities[], destPath, pos):
+         isAlive(tree, ctx.cfg, ar.entities[], destPath, pos):
         # there already exists a value in the destination location -> use the
         # sink operation
         if fromLvalue:
@@ -1164,13 +1172,13 @@ proc injectDestructorCalls*(g: ModuleGraph, idgen: IdGenerator,
     var
       changes = initChangeset(body.code)
       diags: seq[LocalDiag]
+      actx = AnalyseCtx(graph: g, cfg: computeDfg(body.code))
 
     let
-      actx = AnalyseCtx(graph: g, cfg: computeDfg(body.code))
       entities = initEntityDict(body.code, actx.cfg)
-      values = solveOwnership(body.code, actx.cfg, entities)
+      values = collapseSink(body.code, actx.cfg, entities)
 
-    let destructors = computeDestructors(body.code, actx.cfg, values, entities)
+    let destructors = computeDestructors(body.code, actx.cfg, entities)
 
     rewriteAssignments(
       body.code, actx,
