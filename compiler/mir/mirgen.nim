@@ -1243,10 +1243,10 @@ proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
     s = n.sym
     hasInitializer = val.kind != nkEmpty
     sink = sfCursor notin s.flags
-    node = nameNode(c, s)
+    kind = symbolToPmir(s)
 
   c.builder.useSource(c.sp, n)
-  if node.kind == mnkGlobal and c.scopeDepth == 1:
+  if kind == pirGlobal and c.scopeDepth == 1:
     # no 'def' statement is emitted for top-level globals
     if hasInitializer:
       genAsgn(c, true, sink, n, val)
@@ -1257,7 +1257,7 @@ proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
       # the location doesn't have an explicit starting value. Initialize
       # it to the type's default value.
       c.buildStmt mnkInit:
-        c.add node
+        c.add nameNode(c, s)
         c.buildMagicCall mDefault, s.typ:
           discard
     else:
@@ -1265,7 +1265,7 @@ proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
       discard
   else:
     c.buildStmt (if sfCursor in s.flags: mnkDefCursor else: mnkDef):
-      c.add node
+      c.add nameNode(c, s)
       if hasInitializer:
         genAsgnSource(c, val, sink)
       else:

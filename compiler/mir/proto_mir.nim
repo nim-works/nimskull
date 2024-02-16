@@ -438,6 +438,25 @@ proc wantArray(e: var seq[ProtoItem]) =
     #      without them, so we do prefer lvalue captures
     e[^1].keep = kLvalue
 
+func symbolToPmir*(s: PSym): range[pirProc..pirConst] =
+  ## Returns the proto-MIR item kind corresponding to `s`.
+  case s.kind
+  of skVar, skLet, skForVar:
+    if sfGlobal in s.flags:
+      pirGlobal
+    else:
+      pirLocal
+  of skTemp, skResult:
+    pirLocal
+  of skParam:
+    pirParam
+  of skConst:
+    pirConst
+  of skProc, skFunc, skConverter, skMethod, skIterator:
+    pirProc
+  else:
+    unreachable(s.kind)
+
 proc exprToPmir(c: TranslateCtx, result: var seq[ProtoItem], n: PNode, sink: bool) =
   ## Translates the single node `n` and recurses if it's a non-terminal. This
   ## procedure makes up the core of the AST-to-proto-MIR translation.
@@ -482,24 +501,7 @@ proc exprToPmir(c: TranslateCtx, result: var seq[ProtoItem], n: PNode, sink: boo
   of nkLambdaKinds:
     node pirProc, sym, n[namePos].sym
   of nkSym:
-    let kind: range[pirProc..pirConst] =
-      case n.sym.kind
-      of skVar, skLet, skForVar:
-        if sfGlobal in n.sym.flags:
-          pirGlobal
-        else:
-          pirLocal
-      of skTemp, skResult:
-        pirLocal
-      of skParam:
-        pirParam
-      of skConst:
-        pirConst
-      of skProc, skFunc, skConverter, skMethod, skIterator:
-        pirProc
-      else:
-        unreachable(n.sym.kind)
-
+    let kind = symbolToPmir(n.sym)
     result.add ProtoItem(orig: n, typ: n.sym.typ, kind: kind, sym: n.sym)
   of nkDerefExpr:
     wantPure(n[0])
