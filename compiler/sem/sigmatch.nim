@@ -2394,11 +2394,9 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     if arg.typ.isNil():
       result = arg
     elif skipTypes(arg.typ, abstractVar-{tyTypeDesc}).kind == tyTuple or
-         m.inheritancePenalty > oldInheritancePenalty:
+         m.inheritancePenalty > oldInheritancePenalty or
+         arg.typ.isEmptyContainer:
       result = implicitConv(nkHiddenSubConv, f, arg, m, c)
-    elif arg.typ.isEmptyContainer:
-      result = arg.copyTree
-      result.typ = getInstantiatedType(c, arg, m, f)
     else:
       result = arg
   of isBothMetaConvertible:

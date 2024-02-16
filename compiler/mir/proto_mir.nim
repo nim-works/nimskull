@@ -693,12 +693,7 @@ proc exprToPmir(c: TranslateCtx, result: var seq[ProtoItem], n: PNode, sink: boo
     recurse(selectWhenBranch(n, c.pickVm), sink)
   of nkStmtListExpr:
     recurse(n.lastSon, sink)
-    # HACK: inherit the type from the child node. This prevents incorrectly
-    #       typed array constructions (a sem bug) from appearing to work
-    #       correctly (see
-    #       tests/lang_exprs/tempty_typed_expressions_issues.nim)
-    result.add ProtoItem(orig: n, typ: result[^1].typ, kind: pirStmtList)
-    #node pirStmtList
+    node pirStmtList
   of nkPragmaBlock:
     # the pragma is uninteresting here, just skip it
     recurse(n.lastSon, sink)
