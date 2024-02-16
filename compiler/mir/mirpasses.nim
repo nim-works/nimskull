@@ -180,10 +180,10 @@ proc lowerSwap(tree: MirTree, changes: var Changeset) =
       let
         a = bu.bindMut(tree, NodePosition tree.argument(i, 0))
         b = bu.bindMut(tree, NodePosition tree.argument(i, 1))
-        temp = bu.materialize(a)
+        temp = bu.materializeMove(a)
       # we're just swapping the values, no full copy is needed
-      bu.asgn a, b
-      bu.asgn b, temp
+      bu.asgnMove a, b
+      bu.asgnMove b, temp
 
 proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
   ## Where safe (i.e., observable program behaviour does not change), elides

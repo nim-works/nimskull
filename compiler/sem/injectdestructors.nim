@@ -613,13 +613,13 @@ proc genInjectedSink(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
   else:
     # without a sink hook, a ``=destroy`` + blit-copy is used
     genDestroy(bu, graph, env, dest)
-    bu.asgn dest, source
+    bu.asgnMove dest, source
 
 proc genSinkFromTemporary(bu: var MirBuilder, graph: ModuleGraph,
                           env: var MirEnv, dest, source: Value) =
   ## Similar to ``genInjectedSink`` but generates code for destructively
   ## moving the source operand into a temporary first.
-  let tmp = bu.materialize(source)
+  let tmp = bu.materializeMove(source)
   genWasMoved(bu, graph, source)
   genInjectedSink(bu, graph, env, dest, tmp)
 
@@ -688,7 +688,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
               # We need to move the source value into a temporary first, as
               # ``=sink`` would otherwise destroy ``x`` first, also destroying
               # ``x.y`` in the process
-              let b = bu.bindImmutable(tree, source)
+              let b = bu.bindMut(tree, source)
               genSinkFromTemporary(bu, ctx.graph, env, a, b)
             elif needsReset(tree, ctx.cfg, ar, sourcePath, pos):
               # a sink from a location that needs to be reset after the move
@@ -736,7 +736,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
             let
               a          = bu.bindMut(tree, dest)
               (b, clear) = bu.destructiveMoveOperands(tree, source)
-            bu.asgn a, b
+            bu.asgnMove a, b
             genWasMoved(bu, ctx.graph, clear)
 
         else:
@@ -820,7 +820,7 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       var tmp: Value
       c.insert(tree, stmt, NodePosition src, bu):
         let v = bu.bindMut(tree, NodePosition src)
-        tmp = bu.materialize(v)
+        tmp = bu.materializeMove(v)
         genWasMoved(bu, ctx.graph, v)
 
       # replace the argument with the injected temporary:
