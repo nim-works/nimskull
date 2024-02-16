@@ -1349,9 +1349,13 @@ proc genVarTuple(c: var TCtx, n: PNode) =
       # generate the assignment:
       c.buildStmt (if isInit: mnkInit else: mnkAsgn):
         genOperand(c, lhs)
-        c.subTree MirNode(kind: mnkPathPos, typ: lhs.typ,
-                          position: i.uint32):
-          c.use val
+        # the temporary tuple is only used for unpacking; it can always be
+        # moved out of. The temporary tuple is not destroyed, so no
+        # destructive move is required
+        c.buildTree mnkMove, lhs.typ:
+          c.subTree MirNode(kind: mnkPathPos, typ: lhs.typ,
+                            position: i.uint32):
+            c.use val
 
 proc genVarSection(c: var TCtx, n: PNode) =
   for a in n:
