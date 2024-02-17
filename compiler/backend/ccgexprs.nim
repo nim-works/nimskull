@@ -1943,10 +1943,15 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
                 a.storage)
     # an indirection is used:
     d.flags.incl lfIndirect
+  elif isRef:
+    # using ``&(x->Sup)`` is undefined behaviour when x is null, so the
+    # pointer has to be cast instead
+    putIntoDest(p, d, n,
+                "(($1) ($2))" % [getTypeDesc(p.module, n.typ), rdLoc(a)])
   else:
-    var r = rdLoc(a) & (if isRef: "->Sup" else: ".Sup")
+    var r = rdLoc(a) & ".Sup"
     for i in 2..inheritanceDiff(src, dest): r.add(".Sup")
-    putIntoDest(p, d, n, if isRef: "&" & r else: r, a.storage)
+    putIntoDest(p, d, n, r, a.storage)
 
 proc useConst*(m: BModule; id: ConstId) =
   let sym = m.g.env[id]
