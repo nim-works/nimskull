@@ -148,10 +148,12 @@ proc genOpenArraySlice(p: BProc; q: CgNode; formalType, destType: PType): (Rope,
     if formalType.skipTypes(abstractInst).kind in {tyVar} and atyp.kind == tyString:
       linefmt(p, cpsStmts, "#nimPrepareStrMutationV2($1);$n", [byRefLoc(p, a)])
     if atyp.kind in {tyVar}:
-      result = ("($4*)(*$1)$3+($2)" % [rdLoc(a), rdLoc(b), dataField(p), dest],
+      result = ("((*$1).p != NIM_NIL ? ($4*)(*$1)$3+$2 : NIM_NIL)" %
+                  [rdLoc(a), rdLoc(b), dataField(p), dest],
                 lengthExpr)
     else:
-      result = ("($4*)$1$3+($2)" % [rdLoc(a), rdLoc(b), dataField(p), dest],
+      result = ("($1.p != NIM_NIL ? ($4*)$1$3+$2 : NIM_NIL)" %
+                  [rdLoc(a), rdLoc(b), dataField(p), dest],
                 lengthExpr)
   else:
     internalError(p.config, "openArrayLoc: " & typeToString(a.t))
