@@ -345,7 +345,7 @@ func ownershipOp(e: seq[ProtoItem], i: int): ProtoItemKind =
 
 func wantOwning*(e: var seq[ProtoItem], forceTemp: bool) =
   ## Makes sure `e` produces an owning value. If `forceTemp` is true, a
-  ## temporary is materialized even if the expression would already produces
+  ## temporary is materialized even if the expression would already produce
   ## an owning value.
   case classify(e, e.high)
   of Rvalue:
@@ -362,7 +362,7 @@ func wantOwning*(e: var seq[ProtoItem], forceTemp: bool) =
       e.add pirMove
     of pirComplex:
       # watch out! try-finally expressions can have exceptional control-flow
-      # that forces the destination temporary to have be destroyed in a
+      # that forces the destination temporary to have to be destroyed in a
       # finalizer. A destructive move is required
       e.add pirMat
       e.add pirDestructiveMove
