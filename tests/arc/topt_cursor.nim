@@ -9,10 +9,10 @@ scope:
     block L0:
       if cond:
         scope:
-          x =fast <D1>
+          x = <D1>
           break L0
       scope:
-        x =fast <D2>
+        x = <D2>
     def_cursor _0: (string, int) = x
     def _1: string = $(arg _0) (raises)
     echo(arg type(array[0..0, string]), arg _1) (raises)
@@ -35,8 +35,8 @@ scope:
               while true:
                 scope:
                   def_cursor _1: File = f
-                  def_cursor _2: bool = readLine(arg _1, name res) (raises)
-                  def_cursor _3: bool = not(arg _2)
+                  def _2: bool = readLine(arg _1, name res) (raises)
+                  def _3: bool = not(arg _2)
                   if _3:
                     scope:
                       break L0

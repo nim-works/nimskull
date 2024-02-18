@@ -10,11 +10,11 @@ scope:
   block L0:
     if cond:
       scope:
-        def _0: seq[int] = x
+        def _0: seq[int] = move x
         add(name a, consume _0)
         break L0
     scope:
-      def _1: seq[int] = x
+      def _1: seq[int] = move x
       add(name b, consume _1)
   =destroy(name b)
   =destroy(name a)
@@ -29,21 +29,21 @@ scope:
     scope:
       def a: int = 0
       def b: int = 4
-      def i: int = a
+      def i: int = sink a
       block L0:
         scope:
           while true:
             scope:
               def_cursor _0: int = i
-              def_cursor _1: bool = ltI(arg _0, arg b)
-              def_cursor _2: bool = not(arg _1)
+              def _1: bool = ltI(arg _0, arg b)
+              def _2: bool = not(arg _1)
               if _2:
                 scope:
                   break L0
               scope:
                 scope:
                   def_cursor i: int = i
-                  def_cursor _3: bool = eqI(arg i, arg 2)
+                  def _3: bool = eqI(arg i, arg 2)
                   if _3:
                     scope:
                       return
@@ -54,12 +54,12 @@ scope:
     block L1:
       if cond:
         scope:
-          def _5: seq[int] = x
+          def _5: seq[int] = move x
           wasMoved(name x)
           add(name a, consume _5)
           break L1
       scope:
-        def _6: seq[int] = x
+        def _6: seq[int] = move x
         wasMoved(name x)
         add(name b, consume _6)
   finally:
@@ -75,11 +75,12 @@ scope:
     if cond:
       scope:
         return
-    str = boolToStr(arg cond)
-    def_cursor _0: bool = not(arg cond)
-    if _0:
+    def _0: string = boolToStr(arg cond)
+    str = move _0
+    def _1: bool = not(arg cond)
+    if _1:
       scope:
-        result = str
+        result = move str
         wasMoved(name str)
         return
   finally:

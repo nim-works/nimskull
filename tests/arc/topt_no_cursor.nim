@@ -14,16 +14,17 @@ doing shady stuff...
 
 scope:
   def splat: tuple[dir: string, name: string, ext: string] = splitFile(arg path) (raises)
-  bind_mut _3: string = splat.0
-  def _0: string = _3
-  wasMoved(name _3)
-  bind_mut _4: string = splat.1
-  def _1: string = _4
+  bind_mut _4: string = splat.0
+  def _0: string = move _4
   wasMoved(name _4)
-  bind_mut _5: string = splat.2
-  def _2: string = _5
+  bind_mut _5: string = splat.1
+  def _1: string = move _5
   wasMoved(name _5)
-  result = construct (consume _0, consume _1, consume _2)
+  bind_mut _6: string = splat.2
+  def _2: string = move _6
+  wasMoved(name _6)
+  def _3: Target = construct (consume _0, consume _1, consume _2)
+  result = move _3
   =destroy(name splat)
 -- end of expandArc ------------------------
 --expandArc: delete
@@ -55,15 +56,16 @@ scope:
   def lresult: seq[int] = arrToSeq(consume _0)
   def lvalue: seq[int]
   def lnext: string
-  def _1: seq[int] = lresult
+  def _1: seq[int] = move lresult
   def _: (seq[int], string) = construct (consume _1, consume ";")
-  bind_mut _2: seq[int] = _.0
-  lvalue = _2
-  wasMoved(name _2)
-  bind_mut _3: string = _.1
-  lnext = _3
+  bind_mut _3: seq[int] = _.0
+  lvalue = move _3
   wasMoved(name _3)
-  result.value = move(name lvalue)
+  bind_mut _4: string = _.1
+  lnext = move _4
+  wasMoved(name _4)
+  def _2: seq[int] = move(name lvalue)
+  result.value = move _2
   =destroy(name _)
   =destroy(name lnext)
   =destroy(name lvalue)
@@ -102,8 +104,8 @@ scope:
           while true:
             scope:
               def_cursor _1: int = i
-              def_cursor _2: bool = ltI(arg _1, arg L)
-              def_cursor _3: bool = not(arg _2)
+              def _2: bool = ltI(arg _1, arg L)
+              def _3: bool = not(arg _2)
               if _3:
                 scope:
                   break L0
@@ -115,7 +117,7 @@ scope:
                     def_cursor _5: string = line[]
                     def splitted: seq[string] = split(arg _5, arg " ", arg -1) (raises)
                     def_cursor _6: string = splitted[0]
-                    def_cursor _7: bool = eqStr(arg _6, arg "opt")
+                    def _7: bool = eqStr(arg _6, arg "opt")
                     if _7:
                       scope:
                         def _10: string = splitted[1]
@@ -148,8 +150,8 @@ scope:
           while true:
             scope:
               def_cursor _2: int = i
-              def_cursor _3: bool = ltI(arg _2, arg L)
-              def_cursor _4: bool = not(arg _3)
+              def _3: bool = ltI(arg _2, arg L)
+              def _4: bool = not(arg _3)
               if _4:
                 scope:
                   break L0
@@ -171,15 +173,15 @@ scope:
   try:
     def x: sink string
     def_cursor _0: sink string = x
-    def_cursor _1: int = lengthStr(arg _0)
-    def_cursor _2: bool = eqI(arg _1, arg 2)
+    def _1: int = lengthStr(arg _0)
+    def _2: bool = eqI(arg _1, arg 2)
     if _2:
       scope:
-        result = x
+        result = move x
         wasMoved(name x)
         return
     def_cursor _3: sink string = x
-    def_cursor _4: int = lengthStr(arg _3)
+    def _4: int = lengthStr(arg _3)
     def _5: string = $(arg _4) (raises)
     echo(arg type(array[0..0, string]), arg _5) (raises)
   finally:
@@ -196,12 +198,12 @@ scope:
     def _1: tuple[dir: string, front: string]
     block L0:
       def_cursor _2: string = this[].value
-      def_cursor _3: bool = dirExists(arg _2) (raises)
+      def _3: bool = dirExists(arg _2) (raises)
       if _3:
         scope:
           def _4: string
-          def _14: string = this[].value
-          =copy(name _4, arg _14)
+          def _16: string = this[].value
+          =copy(name _4, arg _16)
           _1 := construct (consume _4, consume "")
           break L0
       scope:
@@ -209,33 +211,33 @@ scope:
           def_cursor _5: string = this[].value
           def _6: string = parentDir(arg _5) (raises)
           def _7: string
-          def _15: string = this[].value
-          =copy(name _7, arg _15)
+          def _17: string = this[].value
+          =copy(name _7, arg _17)
           def _8: tuple[head: string, tail: string] = splitPath(consume _7) (raises)
-          bind_mut _16: string = _8.1
-          def _9: string = _16
-          wasMoved(name _16)
+          bind_mut _18: string = _8.1
+          def _9: string = move _18
+          wasMoved(name _18)
           _1 := construct (consume _6, consume _9)
           wasMoved(name _6)
         finally:
           =destroy(name _8)
           =destroy(name _6)
-    def par: tuple[dir: string, front: string] = _1
+    def par: tuple[dir: string, front: string] = move _1
     block L1:
       def_cursor _10: string = par.0
-      def_cursor _11: bool = dirExists(arg _10) (raises)
+      def _11: bool = dirExists(arg _10) (raises)
       if _11:
         scope:
           def_cursor _12: string = par.0
           def_cursor _13: string = par.1
-          def _17: seq[string] = getSubDirs(arg _12, arg _13) (raises)
-          bind_mut _18: seq[string] = this[].matchDirs
-          =sink(name _18, arg _17)
+          def _14: seq[string] = getSubDirs(arg _12, arg _13) (raises)
+          bind_mut _19: seq[string] = this[].matchDirs
+          =sink(name _19, arg _14)
           break L1
       scope:
-        def _19: seq[string] = construct ()
+        def _15: seq[string] = construct ()
         bind_mut _20: seq[string] = this[].matchDirs
-        =sink(name _20, arg _19)
+        =sink(name _20, arg _15)
   finally:
     =destroy(name par)
 -- end of expandArc ------------------------'''

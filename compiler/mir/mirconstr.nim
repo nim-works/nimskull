@@ -357,11 +357,22 @@ func emitByName*(bu: var MirBuilder, val: Value, e: EffectKind) =
     bu.subTree MirNode(kind: mnkTag, effect: e):
       bu.use val
 
+func move*(bu: var MirBuilder, val: Value) =
+  ## Emits ``move val``.
+  bu.subTree MirNode(kind: mnkMove, typ: val.typ):
+    bu.use val
+
 func asgn*(buf: var MirBuilder, a, b: Value) =
-  ## Emits an assignment of `b` to `a`.
+  ## Emits a shallow assignment: ``a = b``.
   buf.subTree MirNode(kind: mnkAsgn):
     buf.use a
     buf.use b
+
+func asgnMove*(bu: var MirBuilder, a, b: Value) =
+  ## Emits a move assignment: ``a = move b``.
+  bu.subTree mnkAsgn:
+    bu.use a
+    bu.move b
 
 func inline*(bu: var MirBuilder, tree: MirTree, fr: NodePosition): Value =
   ## Inlines the operand for non-mutating use. This is meant to be used for
@@ -414,6 +425,11 @@ func materialize*(bu: var MirBuilder, loc: Value): Value =
   bu.subTree MirNode(kind: mnkDefCursor):
     bu.use result
     bu.use loc
+
+func materializeMove*(bu: var MirBuilder, loc: Value): Value =
+  ## Emits a new owning temporary that's initialized with the moved-from `loc`.
+  bu.wrapTemp loc.typ:
+    bu.move loc
 
 func finish*(bu: sink MirBuilder): MirTree =
   ## Consumes `bu` and returns the finished tree.

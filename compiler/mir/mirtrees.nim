@@ -97,9 +97,6 @@ type
     mnkBindMut   ## introduces an alias that may be used for read/write access
                  ## and assignments. The source expression must not be empty
 
-    mnkFastAsgn ## assignment that cannot be rewritten into copy, move, or
-                ## hook call
-    # future direction: same as with DefCursor, remove FastAsgn
     mnkAsgn     ## normal assignment; the destination might store a value
                 ## already. Whether the source is copied or moved depends
                 ## on the expression
@@ -184,6 +181,17 @@ type
     mnkObjConstr  ## either allocate a new managed heap cell and returns a
                   ## ``ref`` to it, or or constructs a new aggregate value
                   ## with named fields
+
+    mnkCopy   ## denotes the assignment as copying the source value
+    mnkMove   ## denotes the assignment as moving the value. This does
+              ## not imply a phyiscal change to the source location
+    mnkSink   ## collapses into one of the following:
+              ## - a copy (`mnkCopy`)
+              ## - a non-destructive move (`mnkMove`)
+              ## - a destructive move
+              ##
+              ## Collapsing ``mnkSink`` is the responsibility of the move
+              ## analyzer.
 
     mnkArg    ## when used in a call: denotes an argument that may either be
               ## passed by value or by name. Evaluation order is unspecified
@@ -330,11 +338,16 @@ const
   SingleOperandNodes* = {mnkPathNamed, mnkPathPos, mnkPathVariant, mnkPathConv,
                          mnkAddr, mnkDeref, mnkView, mnkDerefView, mnkStdConv,
                          mnkConv, mnkCast, mnkRaise, mnkTag, mnkArg,
-                         mnkName, mnkConsume, mnkVoid}
+                         mnkName, mnkConsume, mnkVoid, mnkCopy, mnkMove,
+                         mnkSink}
     ## Nodes that start sub-trees but that always have a single sub node.
 
   ArgumentNodes* = {mnkArg, mnkName, mnkConsume}
     ## Nodes only allowed in argument contexts.
+
+  ModifierNodes* = {mnkCopy, mnkMove, mnkSink}
+    ## Assignment modifiers. Nodes that can only appear directly in the source
+    ## slot of assignments.
 
   SymbolLike* = {mnkParam, mnkLocal}
     ## Nodes for which the `sym` field is available
@@ -350,7 +363,7 @@ const
 
   StmtNodes* = {mnkScope, mnkStmtList, mnkIf, mnkCase, mnkRepeat, mnkTry,
                 mnkBlock, mnkBreak, mnkReturn, mnkRaise, mnkPNode, mnkInit,
-                mnkAsgn, mnkSwitch, mnkFastAsgn, mnkVoid, mnkRaise, mnkEmit,
+                mnkAsgn, mnkSwitch, mnkVoid, mnkRaise, mnkEmit,
                 mnkAsm} + DefNodes
 
   UnaryOps*  = {mnkNeg}
@@ -365,7 +378,7 @@ const
                       mnkCast, mnkAddr, mnkView, mnkToSlice} + UnaryOps +
                      BinaryOps
   ExprKinds* =       {mnkCall, mnkCheckedCall, mnkConstr, mnkObjConstr} +
-                     LvalueExprKinds + RvalueExprKinds
+                     LvalueExprKinds + RvalueExprKinds + ModifierNodes
 
   CallKinds* = {mnkCall, mnkCheckedCall}
 

@@ -70,6 +70,13 @@ type
 
     pirStmtList # usually skipped
 
+    # --- ownership operations
+
+    pirCopy
+    pirMove
+    pirDestructiveMove # move + wasMoved
+    pirSink
+
     # --- constructors
 
     pirClosureConstr
@@ -180,9 +187,6 @@ func typ*(n: seq[ProtoItem]): PType {.inline.} =
 
 func classify*(e: seq[ProtoItem], i: int): ExprKind =
   ## Returns the kind of the given proto-MIR expression.
-  # XXX: ownership is unrelated to whether a type has custom copy/sink/
-  #      destruction logic. Taking the latter into consideration is an
-  #      optimization that needs to eventually be removed
   case e[i].kind
   of pirLiteral, pirProc:
     Literal
@@ -191,22 +195,20 @@ func classify*(e: seq[ProtoItem], i: int): ExprKind =
     # constant expression are later turned into anonymous constants, so
     # they're lvalues too
     Lvalue
-  of pirCall, pirComplex, pirStringToCString, pirCStringToString:
-    if hasDestructor(e[i].typ):
-      OwnedRvalue
-    else:
-      Rvalue
+  of pirCall, pirComplex, pirSetConstr, pirAddr, pirView, pirToSlice,
+     pirToSubSlice, pirStringToCString, pirCStringToString,
+     pirConv, pirStdConv, pirChckRange:
+    OwnedRvalue
   of pirObjConstr, pirTupleConstr, pirClosureConstr, pirArrayConstr:
-    if e[i].owning and hasDestructor(e[i].typ):
+    if e[i].owning:
       OwnedRvalue
     else:
       Rvalue
   of pirRefConstr:
     OwnedRvalue
-  of pirSetConstr, pirAddr, pirView, pirCast, pirConv, pirStdConv,
-     pirChckRange, pirToSlice, pirToSubSlice:
+  of pirCast:
     Rvalue
-  of pirMat:
+  of pirMat, pirCopy, pirMove, pirDestructiveMove, pirSink:
     OwnedRvalue
   of pirMatCursor:
     Rvalue
@@ -247,6 +249,9 @@ func isPure(e: seq[ProtoItem], n: int): bool =
   of pirMat, pirMatCursor:
     # the materialized-into temporary is never assigned to
     true
+  of pirCopy, pirMove, pirDestructiveMove, pirSink:
+    # always produce an owning value
+    true
   of pirDeref, pirViewDeref:
     # the pointer destination could change (unless it's an immutable view)
     false
@@ -286,15 +291,107 @@ func isStable(e: seq[ProtoItem], n: int): bool =
   else:
     unreachable(e[n].kind)
 
+func ownershipOp(e: seq[ProtoItem], i: int): ProtoItemKind =
+  ## Infers and returns the best fitting operation to retrieve an owning
+  ## value from the given *lvalue*.
+  func decayMove(kind: ProtoItemKind): ProtoItemKind {.inline.} =
+    # moving from a projection requires a destructive move, since the source
+    # location needs to be destroyed after (in order to free the non-moved
+    # parts)
+    case kind
+    of pirMove: pirDestructiveMove
+    else:       kind
+
+  case e[i].kind
+  of pirParam:
+    if e[i].typ.kind == tySink:
+      pirSink
+    else:
+      pirCopy
+  of pirLocal, pirGlobal:
+    if sfCursor in e[i].sym.flags:
+      pirCopy # cursors can only be copied from
+    else:
+      pirSink # moveability depends on data flow
+  of pirConst, pirConstExpr, pirLiteral:
+    pirCopy
+  of pirFieldAccess:
+    if sfCursor in e[i].field.flags:
+      pirCopy # non-owning fields cannot be copied
+    else:
+      decayMove ownershipOp(e, i - 1)
+  of pirTupleAccess, pirArrayAccess, pirVariantAccess, pirSeqAccess:
+    decayMove ownershipOp(e, i - 1)
+  of pirLvalueConv:
+    # it's still the whole location that would be consumed, so no destructive
+    # move is required
+    ownershipOp(e, i - 1)
+  of pirCheckedArrayAccess, pirCheckedSeqAccess, pirCheckedVariantAccess,
+     pirCheckedObjConv:
+    decayMove ownershipOp(e, i - 1)
+  of pirDeref, pirViewDeref:
+    # pointers and views are currently not tracked, so their targets can only
+    # be copied from
+    pirCopy
+  of pirMat:
+    pirMove
+  of pirMatCursor:
+    pirCopy
+  of pirStmtList, pirMatLvalue:
+    ownershipOp(e, i - 1)
+  else:
+    # cannot be part of an lvalue expression sequence
+    unreachable(e[i].kind)
+
+func wantOwning*(e: var seq[ProtoItem], forceTemp: bool) =
+  ## Makes sure `e` produces an owning value. If `forceTemp` is true, a
+  ## temporary is materialized even if the expression would already produce
+  ## an owning value.
+  case classify(e, e.high)
+  of Rvalue:
+    # rvalue expressions cannot be copied from directly
+    if e[^1].kind != pirMatCursor:
+      e.add pirMatCursor
+    e.add pirCopy
+  of OwnedRvalue:
+    var i = e.high
+    while e[i].kind == pirStmtList:
+      dec i
+    case e[i].kind
+    of pirMat:
+      e.add pirMove
+    of pirComplex:
+      # watch out! try-finally expressions can have exceptional control-flow
+      # that forces the destination temporary to have to be destroyed in a
+      # finalizer. A destructive move is required
+      e.add pirMat
+      e.add pirDestructiveMove
+    elif forceTemp:
+      e.add pirMat
+      e.add pirMove
+  of Lvalue:
+    e.add ownershipOp(e, e.high)
+  of Literal:
+    if forceTemp:
+      e.add pirMat
+      e.add pirMove
+
 func wantConsumeable*(e: var seq[ProtoItem]) =
   ## Makes sure `e` is an expression that can be used in a context requiring a
-  ## certainly-consumeable value.
+  ## certainly-consumeable value (either a materialized temporary or a literal
+  ## value).
   case classify(e, e.high)
-  of Rvalue, OwnedRvalue:
+  of Rvalue:
+    if e[^1].kind != pirMatCursor:
+      e.add pirMatCursor
+    e.add pirCopy
+    e.add pirMat
+  of OwnedRvalue:
     if e[^1].kind != pirMat:
       # requires an owning temporary
       e.add pirMat
   of Lvalue:
+    e.add ownershipOp(e, e.high)
     e.add pirMat
   of Literal:
     discard "okay, can be used as is"
@@ -351,13 +448,14 @@ func selectWhenBranch*(n: PNode, isNimvm: bool): PNode =
   else:       n[1][0]
 
 func handleConstExpr(result: var seq[ProtoItem], n: PNode, kind: ProtoItemKind,
-                     sink: bool) =
-  ## If eligible, translates `n` to a constant expression. To a construction of
-  ## kind `kind` otherwise.
+                     sink, lift: bool) =
+  ## If `lift` is true and the expression is eligible, translates `n` to a
+  ## constant expression. To a construction of kind `kind` otherwise.
   ##
   ## Only fully constant, non-empty aggregate or set constructions are
   ## treated as constant expressions.
-  if not sink and n.len > ord(n.kind == nkObjConstr) and isDeepConstExpr(n):
+  if lift and n.len > ord(n.kind == nkObjConstr) and
+     isDeepConstExpr(n):
     result.add ProtoItem(orig: n, typ: n.typ, kind: pirConstExpr)
   elif kind == pirSetConstr:
     result.add ProtoItem(orig: n, typ: n.typ, kind: kind)
@@ -671,24 +769,24 @@ proc exprToPmir(c: TranslateCtx, result: var seq[ProtoItem], n: PNode, sink: boo
 
   of nkBracket:
     # if the construction is of seq type, then it's a constant seq value,
-    # which we prefer to lift into a constant (again)
-    let consume =
-      n.typ.skipTypes(IrrelevantTypes).kind != tySequence and sink
-    handleConstExpr(result, n, pirArrayConstr, consume)
+    # which we prefer to lift into a constant (again), even in sink contexts
+    let lift =
+      n.typ.skipTypes(IrrelevantTypes).kind == tySequence or not(sink)
+    handleConstExpr(result, n, pirArrayConstr, sink, lift)
   of nkCurly:
-    # never treat set constructions as appearing in a sink context, so that
-    # they're always turned into constants, if possible
-    handleConstExpr(result, n, pirSetConstr, false)
+    # always attempt to turn set constructions into constants, regardless of
+    # whether they're used in a sink context
+    handleConstExpr(result, n, pirSetConstr, false, true)
   of nkObjConstr:
     if n.typ.skipTypes(IrrelevantTypes).kind == tyRef:
       # ref constructions are never constant
       result.add n, pirRefConstr
     else:
-      handleConstExpr(result, n, pirObjConstr, sink)
+      handleConstExpr(result, n, pirObjConstr, sink, not sink)
   of nkTupleConstr:
-    handleConstExpr(result, n, pirTupleConstr, sink)
+    handleConstExpr(result, n, pirTupleConstr, sink, not sink)
   of nkClosure:
-    handleConstExpr(result, n, pirClosureConstr, sink)
+    handleConstExpr(result, n, pirClosureConstr, sink, not sink)
 
   of nkWhenStmt:
     # a ``when nimvm`` expression

@@ -10,9 +10,9 @@ scope:
       while true:
         scope:
           def_cursor _0: Node = it
-          def_cursor _1: bool = eqRef(arg _0, arg nil)
-          def_cursor _2: bool = not(arg _1)
-          def_cursor _3: bool = not(arg _2)
+          def _1: bool = eqRef(arg _0, arg nil)
+          def _2: bool = not(arg _1)
+          def _3: bool = not(arg _2)
           if _3:
             scope:
               break L0
@@ -21,16 +21,16 @@ scope:
             def_cursor _5: string = _4[].s
             echo(arg type(array[0..0, string]), arg _5) (raises)
             def_cursor _6: Node = it
-            it =fast _6[].ri
+            it = _6[].ri
   def_cursor jt: Node = root
   block L1:
     scope:
       while true:
         scope:
           def_cursor _7: Node = jt
-          def_cursor _8: bool = eqRef(arg _7, arg nil)
-          def_cursor _9: bool = not(arg _8)
-          def_cursor _10: bool = not(arg _9)
+          def _8: bool = eqRef(arg _7, arg nil)
+          def _9: bool = not(arg _8)
+          def _10: bool = not(arg _9)
           if _10:
             scope:
               break L1
@@ -40,7 +40,7 @@ scope:
             def_cursor _12: Node = jt
             def_cursor _13: string = _12[].s
             echo(arg type(array[0..0, string]), arg _13) (raises)
-            jt =fast ri
+            jt = ri
 -- end of expandArc ------------------------'''
 """
 

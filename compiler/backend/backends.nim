@@ -401,21 +401,7 @@ proc produceFragmentsForGlobals(
       let global = env.globals.add(s)
       # generate the MIR code for an initializing assignment:
       prepare(init, result.init.source, graph.emptyNode)
-      init.setSource(result.init.source.add(it))
-      init.buildStmt mnkInit:
-        init.setSource(result.init.source.add(it[0]))
-        init.use toValue(global, s.typ)
-        init.setSource(result.init.source.add(it[2]))
-        if it[2].kind == nkEmpty:
-          # no explicit initializer expression means that the default value
-          # should be used
-          # XXX: ^^ it'd make sense to instead let semantic analysis ensure
-          #      this (i.e. by placing a ``default(T)`` in the initializer
-          #      slot)
-          init.buildMagicCall mDefault, s.typ:
-            discard
-        else:
-          generateCode(graph, env, config, it[2], init, result.init.source)
+      generateAssignment(graph, env, config, it, init, result.init.source)
 
       # if the global requires one, emit a destructor call into the deinit
       # fragment:

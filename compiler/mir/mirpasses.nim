@@ -110,7 +110,7 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
   # we don't need to consider defs or initializing assignments (``mnkInit``)
   # here, because there it is guaranteed that the destination does not appear
   # anywhere in the source expression
-  for i in search(tree, {mnkFastAsgn, mnkAsgn}):
+  for i in search(tree, {mnkAsgn}):
     let source = tree.operand(i, 1)
     if tree[source].kind notin CallKinds or tree[source, 0].kind == mnkMagic or
        not eligibleForRvo(tree[source].typ):
@@ -159,9 +159,9 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
         tmp = bu.allocTemp(tree[source].typ)
         bu.use tmp
       changes.insert(tree, tree.sibling(i), i, bu):
-        bu.subTree tree[i].kind:
+        bu.subTree mnkAsgn:
           bu.emitFrom(tree, pos)
-          bu.use tmp
+          bu.move tmp
 
 proc lowerSwap(tree: MirTree, changes: var Changeset) =
   ## Lowers a ``swap(a, b)`` call into:
@@ -180,10 +180,10 @@ proc lowerSwap(tree: MirTree, changes: var Changeset) =
       let
         a = bu.bindMut(tree, NodePosition tree.argument(i, 0))
         b = bu.bindMut(tree, NodePosition tree.argument(i, 1))
-        temp = bu.materialize(a)
+        temp = bu.materializeMove(a)
       # we're just swapping the values, no full copy is needed
-      bu.asgn a, b
-      bu.asgn b, temp
+      bu.asgnMove a, b
+      bu.asgnMove b, temp
 
 proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
   ## Where safe (i.e., observable program behaviour does not change), elides

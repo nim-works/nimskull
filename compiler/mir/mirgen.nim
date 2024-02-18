@@ -833,7 +833,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
   of mAnd, mOr:
     let tmp = getTemp(c, n.typ)
     withFront c.builder:
-      genAndOr(c, n, Destination(isSome: true, val: tmp))
+      genAndOr(c, n, Destination(isSome: true, val: tmp, flags: {dfOwns}))
     c.use tmp
   of mDefault:
     # use the canonical form:
@@ -1134,8 +1134,11 @@ proc genObjConstr(c: var TCtx, n: PNode, isConsume: bool) =
 proc genRaise(c: var TCtx, n: PNode) =
   assert n.kind == nkRaiseStmt
   if n[0].kind != nkEmpty:
-    let tmp = c.wrapTemp n[0].typ:
-      genx(c, n[0], consume=true)
+    # the raise operand slot is a sink context, and it behaves much like a
+    # ``sink`` parameter
+    var e = exprToPmir(c, n[0], true, false)
+    wantConsumeable(e)
+    let tmp = toValue(c, e, e.high)
 
     # emit the preparation code:
     let
@@ -1166,26 +1169,35 @@ proc genReturn(c: var TCtx, n: PNode) =
 
   c.add MirNode(kind: mnkReturn)
 
-proc genAsgnSource(c: var TCtx, e: PNode, sink: bool) =
+proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
   ## Generates the MIR code for the right-hand side of an assignment.
-  ## The value is captured in a temporary if necessary for proper
-  ## destruction.
-  var e = exprToPmir(c, e, sink, false)
-  if not sink:
+  ## `status` provides the information necessary to decide what assignment
+  ## modifiers to use and whether a temporary is required.
+  ##
+  ## If not an initial assignment, and lifetime hooks are present, a temporary
+  ## is introduced for rvalue expressions that return owning values:
+  ##
+  ##   def _1 = get()
+  ##   dest = move _1
+  ##
+  ## This is necessary for the later hook injection, which triggers on
+  ## assignment modifiers, to work.
+  var e = exprToPmir(c, e, dfOwns in status, false)
+  if dfOwns in status:
+    wantOwning(e, dfEmpty notin status and hasDestructor(e.typ))
+  else:
     wantShallow(e)
+
   genx(c, e, e.high)
 
 proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
   assert dest.isSome
-  let owns = dfOwns in dest.flags
   let kind =
-    if owns:
-      if dfEmpty in dest.flags: mnkInit
-      else:                     mnkAsgn
-    else:                       mnkFastAsgn
+    if dfEmpty in dest.flags: mnkInit
+    else:                     mnkAsgn
   c.buildStmt kind:
     c.use dest.val
-    c.genAsgnSource(rhs, sink = owns)
+    c.genAsgnSource(rhs, dest.flags)
 
 proc unwrap(c: var TCtx, n: PNode): PNode =
   ## If `n` is a statement-list expression, generates the code for all
@@ -1215,7 +1227,7 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
     sink = sink and not isCursor(lhs)
 
   case rhs.kind
-  of ComplexExprs, nkStmtListExpr:
+  of ComplexExprs:
     # optimization: forward the destination. For example:
     #   x = if cond: a else: b
     # becomes:
@@ -1225,16 +1237,20 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
     genWithDest(c, rhs, initDestination(dest, isFirst, sink))
   else:
     let kind =
-      if sink:
-        if isFirst: mnkInit
-        else:       mnkAsgn
-      else:         mnkFastAsgn
+      if isFirst: mnkInit
+      else:       mnkAsgn
+
+    var status: set[DestFlag]
+    if sink:
+      status.incl dfOwns
+    if isFirst:
+      status.incl dfEmpty
 
     c.buildStmt kind:
       # ``genLvalueOperand`` ensures that unstable lvalue
       # expressions are captured
       genLvalueOperand(c, lhs, true)
-      genAsgnSource(c, rhs, sink)
+      genAsgnSource(c, rhs, status)
 
 proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
   ## Generates the 'def' construct for the entity provided by the symbol node
@@ -1267,7 +1283,9 @@ proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
     c.buildStmt (if sfCursor in s.flags: mnkDefCursor else: mnkDef):
       c.add nameNode(c, s)
       if hasInitializer:
-        genAsgnSource(c, val, sink)
+        genAsgnSource(c, val):
+          if sink: {dfEmpty, dfOwns}
+          else:    {dfEmpty}
       else:
         c.add MirNode(kind: mnkNone)
 
@@ -1319,7 +1337,8 @@ proc genVarTuple(c: var TCtx, n: PNode) =
     let val = c.allocTemp(initExpr.typ)
     c.buildStmt mnkDefUnpack:
       c.use val
-      genx(c, initExpr, consume = true)
+      # ensure that the temporary owns the tuple value:
+      genAsgnSource(c, initExpr, {dfEmpty, dfOwns})
 
     # generate the unpack logic:
     for i in 0..<numDefs:
@@ -1331,9 +1350,14 @@ proc genVarTuple(c: var TCtx, n: PNode) =
       # generate the assignment:
       c.buildStmt (if isInit: mnkInit else: mnkAsgn):
         genOperand(c, lhs)
-        c.subTree MirNode(kind: mnkPathPos, typ: lhs.typ,
-                          position: i.uint32):
-          c.use val
+        # the temporary tuple is ensured to own (see the emission of the
+        # definition above), and it's only used for unpacking; it can always be
+        # moved out of. The temporary tuple is not destroyed, so no
+        # destructive move is required
+        c.buildTree mnkMove, lhs.typ:
+          c.subTree MirNode(kind: mnkPathPos, typ: lhs.typ,
+                            position: i.uint32):
+            c.use val
 
 proc genVarSection(c: var TCtx, n: PNode) =
   for a in n:
@@ -1352,12 +1376,21 @@ proc genVarSection(c: var TCtx, n: PNode) =
         let isInit = c.inLoop == 0
         if a[2].kind != nkEmpty:
           genAsgn(c, isInit, true, a[0], a[2])
-        else:
-          # no intializer expression -> assign the default value
-          c.buildStmt (if isInit: mnkInit else: mnkAsgn):
+        elif isInit or not hasDestructor(a[0].typ):
+          # the default value can be assigned in-place
+          c.buildStmt mnkInit:
             genOperand(c, a[0])
             c.buildMagicCall mDefault, a[0].typ:
               discard
+        else:
+          # a 'move' modifier is required for the assignment to later be
+          # rewritten
+          c.buildStmt mnkAsgn:
+            genOperand(c, a[0])
+            c.buildTree mnkMove, a[0].typ:
+              c.wrapAndUse a[0].typ:
+                c.buildMagicCall mDefault, a[0].typ:
+                  discard
       else:
         unreachable()
 
@@ -1778,6 +1811,18 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
         Destination(isSome: true, val: tmp, flags: {dfOwns, dfEmpty})
 
     c.use tmp
+  of pirCopy:
+    c.buildOp mnkCopy, n.typ:
+      recurse()
+  of pirMove:
+    c.buildOp mnkMove, n.typ:
+      recurse()
+  of pirSink, pirDestructiveMove:
+    # a destructive move is currently not translated into a move + wasMoved,
+    # but rather into a sink, which is then, if necessary, later turned into
+    # a destructive move
+    c.buildOp mnkSink, n.typ:
+      recurse()
   of pirMat, pirMatCursor:
     let f = c.builder.push: recurse()
     # only materialize a temporary if the expression is not already a
@@ -1858,7 +1903,7 @@ proc gen(c: var TCtx, n: PNode) =
                           field: dest[^1].field):
           genx(c, dest, dest.len - 2)
 
-        genAsgnSource(c, n[1], false) # the source operand
+        genAsgnSource(c, n[1], {dfOwns}) # the source operand
     else:
       # a normal assignment
       genAsgn(c, false, true, n[0], n[1])
@@ -1957,6 +2002,26 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
 
   else:
     gen(c, n)
+
+proc generateAssignment*(graph: ModuleGraph, env: var MirEnv,
+                   config: TranslationConfig, n: PNode,
+                   builder: var MirBuilder, source: var SourceMap) =
+  ## Translates an `nkIdentDefs` AST into MIR and emits the result into
+  ## `builder`'s currently selected buffer.
+  assert n.kind == nkIdentDefs and n.len == 3
+  var c = TCtx(context: skUnknown, graph: graph, config: config)
+  # treat the code as top-level code so that no 'def' is generated for
+  # assignments to globals
+  c.scopeDepth = 1
+
+  template swapState() =
+    swap(c.sp.map, source)
+    swap(c.builder, builder)
+    swap(c.env, env)
+
+  swapState()
+  genLocInit(c, n[0], n[2])
+  swapState()
 
 proc generateCode*(graph: ModuleGraph, env: var MirEnv,
                    config: TranslationConfig, n: PNode,
