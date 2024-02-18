@@ -85,9 +85,14 @@ proc cmp(a, b: ConstrTree): bool =
       exprStructuralEquivalent(a.lit, b.lit)
     of mnkProc:
       a.prc == b.prc
-    else:
-      # all other nodes are equal when their kind is the same
-      true
+    of mnkConstr, mnkObjConstr:
+      a.len == b.len
+    of mnkField:
+      a.field.id == b.field.id
+    of mnkArg, mnkEnd:
+      true # same node kind -> equal nodes
+    of AllNodeKinds - ConstrTreeNodes:
+      unreachable(a.kind)
 
   if not a[0].typ.sameBackendType(b[0].typ) or a.len != b.len:
     # the (backend-)type is different -> not the same constant expressions
