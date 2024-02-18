@@ -294,7 +294,7 @@ func isStable(e: seq[ProtoItem], n: int): bool =
 func ownershipOp(e: seq[ProtoItem], i: int): ProtoItemKind =
   ## Infers and returns the best fitting operation to retrieve an owning
   ## value from the given *lvalue*.
-  proc decayMove(kind: ProtoItemKind): ProtoItemKind {.inline.} =
+  func decayMove(kind: ProtoItemKind): ProtoItemKind {.inline.} =
     # moving from a projection requires a destructive move, since the source
     # location needs to be destroyed after (in order to free the non-moved
     # parts)
