@@ -40,18 +40,18 @@
 ## Substitution Positions
 ## ----------------------
 ## Templates are ultimately AST level constructs regardless of output type,
-## even they follow the grammar. There are two types of positions in a template
-## body, one is `definition` and the other is `usage`. A `definition` are any
+## they must be valid syntax. There are two types of positions in a template
+## body, one is `definition` and the other is `usage`. A `definition` is any
 ## position where the grammar construct is intended to introduce a new symbol,
 ## i.e.: the name of a routine, including its parameters; names of variables
 ## (`const`, `let`, `var`), and so on. All other sites are `usage` sites, where
-## a symbol of "chunk" of AST might be used.
+## a symbol referring to a "chunk" of AST might be used.
 ## 
 ## This is a draft of subsitution rules:
-## - `untyped` template bodies accept `typed` and `untyped` params in
-##   definition or usage positions; and all other params are usage only
-## - `typed` template bodies accept `typed` and `untyped` params in definition
-##    or usage positions; and all other params are usage only
+## - `untyped` template bodies accept `untyped` params in definition or usage
+##   positions; and all other params are usage only
+## - `typed` template bodies accept `untyped` params in definition or usage
+##   positions; and all other params are usage only
 ## - non-ast template bodies only allow subsitutions within usage positions
 
 discard """
@@ -259,7 +259,7 @@ func isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
 func definitionTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
   ## True if `n` is an AST typed (`typed`/`untyped`) parameter symbol of the
   ## current template
-  isTemplParam(c, n) and n.sym.typ.kind in {tyUntyped, tyTyped}
+  isTemplParam(c, n) and n.sym.typ.kind in {tyUntyped}
 
 proc semTemplBody(c: var TemplCtx, n: PNode): PNode
 
