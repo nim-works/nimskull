@@ -257,8 +257,7 @@ func isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
     sfTemplateParam in n.sym.flags
 
 func definitionTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
-  ## True if `n` is an AST typed (`typed`/`untyped`) parameter symbol of the
-  ## current template
+  ## True if `n` is an `untyped` parameter symbol of the current template.
   isTemplParam(c, n) and n.sym.typ.kind in {tyUntyped}
 
 proc semTemplBody(c: var TemplCtx, n: PNode): PNode

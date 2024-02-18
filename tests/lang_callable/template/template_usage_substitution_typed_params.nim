@@ -1,6 +1,6 @@
 discard """
   description: '''
-Templates `typed` and non-AST parameters do not replace identifiers in new
+Except for `untyped`, template parameters do not replace identifiers in new
 symbol definition positions. Meaning a template parameter that is not `untyped`
 will not substitute for a matching identifier if defining things like
 variables, routines, parameters, types, fields, etc.
