@@ -37,8 +37,7 @@ block tree_equality:
     @[node(mnkLiteral, t1, lit, newStrNode(nkStrLit, "a"))],
     @[node(mnkLiteral, t1, lit, newFloatNode(nkFloatLit, 0.0))],
     # 0.0 and -0.0 are different float values
-    # FIXME: doesn't work yet
-    #@[node(mnkLiteral, t1, lit, newFloatNode(nkFloatLit, -0.0))],
+    @[node(mnkLiteral, t1, lit, newFloatNode(nkFloatLit, -0.0))],
 
     # --- ordered aggregates
     @[node(mnkConstr, t1, len, 0), node(mnkEnd)],
