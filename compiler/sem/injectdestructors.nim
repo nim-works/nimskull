@@ -175,11 +175,15 @@ type
     needsFinally: bool  ## whether the destructor needs to be placed in a
                         ## 'finally' clause
 
+  Moves = PackedSet[OpValue]
+    ## A set storing the operands of all sinks that were collapsed into
+    ## moves.
+
   AnalysisResults = object
     ## Bundled-up immutable state needed for assignment rewriting. Since
     ## they're immutable, ``Cursor``s are used in order to not copy
     # XXX: ideally, view types (i.e. ``lent``) would be used here
-    v: Cursor[Values]
+    moves: Cursor[Moves]
     entities: Cursor[EntityDict]
     destroy: Cursor[seq[DestroyEntry]]
 
@@ -357,9 +361,10 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, entities: EntityDict,
     unreachable()
 
 func collapseSink(tree: MirTree, cfg: var DataFlowGraph,
-                  entities: EntityDict): Values =
+                  entities: EntityDict): Moves =
   ## Computes for every ``mnkSink`` node what operation (copy or move) it has
-  ## to collapse to, returning the result(s) as a ``Values`` instance.
+  ## to collapse to, returning a set with the operands of all sinks that are
+  ## collapsed into moves.
   ##
   ## In addition, the DFG instructions in `cfg` for sinks-turned-into-moves
   ## are updated to ``opConsume`` instructions.
@@ -375,7 +380,7 @@ func collapseSink(tree: MirTree, cfg: var DataFlowGraph,
          computeOwnership(tree, cfg, entities,
                           computePath(tree, NodePosition opr), i + 1):
         update.add i
-        result.markOwned(opr)
+        result.incl opr
 
       # for the moment, sinks are always turned into copies for values without
       # custom destroy/copy/sink behaviour
@@ -553,13 +558,13 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
     # the presence of the value is observed -> a reset is required
     result = true
 
-func isMove(tree: MirTree, v: Values, n: NodePosition): bool =
+func isMove(tree: MirTree, moves: Moves, n: NodePosition): bool =
   ## Returns whether the assignment modifier at `n` is a move modifier (after
   ## collapsing sink).
   case tree[n].kind:
   of mnkCopy: false
   of mnkMove: true
-  of mnkSink: v.isOwned(tree.operand(n))
+  of mnkSink: tree.operand(n) in moves
   else:       unreachable(tree[n].kind)
 
 # ------- code generation routines --------
@@ -662,7 +667,7 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
   if relation.isSame:
     # a self-assignment -> elide
     c.remove(tree, stmt)
-  elif isMove(tree, ar.v[], operator):
+  elif isMove(tree, ar.moves[], operator):
     # a move is possible -> sink
     if true:
       template needsReset(): bool =
@@ -740,7 +745,7 @@ proc expandDef(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
     dest     = tree.child(at, 0)
     operator = tree.child(at, 1)
     source   = tree.child(operator, 0)
-  case isMove(tree, ar.v[], operator)
+  case isMove(tree, ar.moves[], operator)
   of false:
     # a copy is required. Transform ``def x = copy a.b`` into:
     #   def x
@@ -895,7 +900,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         # only rewrite definitions with modifiers. The ``move`` modifier
         # is ignored since there's nothing to be rewritten for it
         if tree[src].kind in ModifierNodes - {mnkMove}:
-          if not isMove(tree, ar.v[], src):
+          if not isMove(tree, ar.moves[], src):
             checkCopy(ctx.graph, tree, src, diags)
             # emit a warning for copies-to-sink
             if isUsedForSink(tree, stmt):
@@ -906,7 +911,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         let src = tree.child(stmt, 1)
         # only rewrite assignments with modifiers
         if tree[src].kind in ModifierNodes:
-          if not isMove(tree, ar.v[], src):
+          if not isMove(tree, ar.moves[], src):
             checkCopy(ctx.graph, tree, src, diags)
           expandAsgn(tree, ctx, ar, env, stmt, i, c)
       else:
@@ -1157,13 +1162,13 @@ proc injectDestructorCalls*(g: ModuleGraph, idgen: IdGenerator,
 
     let
       entities = initEntityDict(body.code, actx.cfg)
-      values = collapseSink(body.code, actx.cfg, entities)
+      moves = collapseSink(body.code, actx.cfg, entities)
 
     let destructors = computeDestructors(body.code, actx.cfg, entities)
 
     rewriteAssignments(
       body.code, actx,
-      AnalysisResults(v: cursor(values),
+      AnalysisResults(moves: cursor(moves),
                       entities: cursor(entities),
                       destroy: cursor(destructors)),
       env, diags, changes)

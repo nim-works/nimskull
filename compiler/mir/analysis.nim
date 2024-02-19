@@ -38,11 +38,6 @@ import
   ]
 
 type
-  Values* = object
-    ## Stores information about MIR expressions.
-    owned: PackedSet[OpValue]
-      ## all lvalue expressions that can be moved from
-
   AliveState = enum
     unchanged
     dead
@@ -57,12 +52,6 @@ func skipConversions*(tree: MirTree, val: OpValue): OpValue =
   result = val
   while tree[result].kind == mnkPathConv:
     result = tree.operand(result)
-
-func isOwned*(v: Values, val: OpValue): bool {.inline.} =
-  val in v.owned
-
-func markOwned*(v: var Values, val: OpValue) {.inline.} =
-  v.owned.incl val
 
 func isAlive*(tree: MirTree, cfg: DataFlowGraph,
              span: Subgraph, loc: Path, start: InstrPos): bool =
