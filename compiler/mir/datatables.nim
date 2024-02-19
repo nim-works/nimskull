@@ -8,7 +8,6 @@ import
   compiler/ast/[
     ast_query,
     ast_types,
-    trees,
     types
   ],
   compiler/mir/[
@@ -74,6 +73,26 @@ func hashTree(tree: ConstrTree): Hash =
   result = result !& hash(tree[0].typ.kind)
   result = !$(result)
 
+func cmp(a, b: PNode): bool =
+  ## Compares for equality two nodes storing literal values. For float values,
+  ## their bit-representation is compared.
+  if a.kind != b.kind:
+    return false
+
+  case a.kind
+  of nkIntLiterals:
+    a.intVal == b.intVal
+  of nkFloatLiterals:
+    cast[BiggestUInt](a.floatVal) == cast[BiggestUInt](b.floatVal)
+  of nkStrLiterals:
+    a.strVal == b.strVal
+  of nkNilLit:
+    true
+  of nkRange:
+    cmp(a[0], b[0]) and cmp(a[1], b[1])
+  else:
+    unreachable(a.kind)
+
 proc cmp(a, b: ConstrTree): bool =
   ## Compares two MIR constant expressions for structural equality.
   proc `==`(a, b: MirNode): bool {.nimcall.} =
@@ -82,7 +101,7 @@ proc cmp(a, b: ConstrTree): bool =
 
     case a.kind
     of mnkLiteral:
-      exprStructuralEquivalent(a.lit, b.lit)
+      cmp(a.lit, b.lit)
     of mnkProc:
       a.prc == b.prc
     of mnkConstr, mnkObjConstr:
