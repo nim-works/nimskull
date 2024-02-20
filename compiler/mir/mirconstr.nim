@@ -379,17 +379,19 @@ func asgnMove*(bu: var MirBuilder, a, b: Value) =
     bu.move b
 
 func inline*(bu: var MirBuilder, tree: MirTree, fr: NodePosition): Value =
-  ## Inlines the operand for non-mutating use. This is meant to be used for
-  ## materialzing immutable arguments when inlining calls / expanding
+  ## Inlines the lvalue operand for non-mutating use. This is meant to be used
+  ## for materialzing immutable arguments when inlining calls / expanding
   ## assignments.
   case tree[fr].kind
   of Atoms:
     result = Value(node: tree[fr])
-  else:
+  of LvalueExprKinds - Atoms:
     result = allocTemp(bu, tree[fr].typ)
-    bu.subTree mnkDef:
+    bu.subTree mnkDefCursor:
       bu.use result
       bu.emitFrom(tree, fr)
+  else:
+    unreachable("can only inline lvalue-expression arguments")
 
 func bindImmutable*(bu: var MirBuilder, tree: MirTree,
                     lval: NodePosition): Value =

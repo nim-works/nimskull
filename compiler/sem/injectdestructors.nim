@@ -824,13 +824,15 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
     typ = body[target].field.typ
 
   assert body[target].kind == mnkPathVariant
+  assert body[stmt, 1].kind in ModifierNodes
 
   let
     a = bu.wrapMutAlias(typ):
       # bind the discriminator lvalue, not the variant lvalue
       bu.subTree MirNode(kind: mnkPathNamed, typ: typ, field: body[target].field):
         bu.emitFrom(body, NodePosition body.operand(target))
-    b = bu.inline(body, body.child(stmt, 1))
+    b = bu.wrapTemp typ:
+      bu.emitFrom(body, body.child(stmt, 1))
 
   # check if the object contains fields requiring destruction:
   if hasDestructor(objType):
