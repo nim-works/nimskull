@@ -644,7 +644,7 @@ proc specializeAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       # the assignment initializes the location
       c.changeTree(tree, stmt): MirNode(kind: mnkInit)
   else:
-    # it's a move or move already, so nothing to change there
+    # it's a move or copy already, so nothing to change there
     if tree[stmt].kind == mnkAsgn and
        not isAlive(tree, ctx.cfg, ar.entities[], destPath, pos):
       # the assignment initializes the location
