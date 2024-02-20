@@ -193,7 +193,7 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
         # with:
         #   def_cursor _1 = a.b
         #   =copy(name x, arg _1)
-        # XXX: the temporary could be emitted in more cases by using proper
+        # XXX: the temporary could be omitted in more cases by using proper
         #      alias analysis
         changes.replaceMulti(tree, stmt, bu):
           let tmp = bu.inline(tree, src)
