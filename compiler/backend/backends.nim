@@ -23,6 +23,7 @@ import
   ],
   compiler/mir/[
     datatables,
+    injecthooks,
     mirbodies,
     mirbridge,
     mirconstr,
@@ -327,6 +328,7 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
   ## procedure.
   if shouldInjectDestructorCalls(prc):
     injectDestructorCalls(graph, idgen, env, prc, body)
+    injectHooks(body, graph, env, prc)
 
     if graph.config.arcToExpand.hasKey(prc.name.s):
       graph.config.msgWrite("--expandArc: " & prc.name.s & "\n")

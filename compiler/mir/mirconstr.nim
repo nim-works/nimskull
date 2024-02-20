@@ -352,10 +352,14 @@ func emitByVal*(bu: var MirBuilder, y: Value) =
   bu.subTree mnkArg:
     bu.use y
 
-func emitByName*(bu: var MirBuilder, val: Value, e: EffectKind) =
+template emitByName*(bu: var MirBuilder, e: EffectKind, body: untyped) =
   bu.subTree mnkName:
     bu.subTree MirNode(kind: mnkTag, effect: e):
-      bu.use val
+      body
+
+func emitByName*(bu: var MirBuilder, val: Value, e: EffectKind) =
+  bu.emitByName e:
+    bu.use val
 
 func move*(bu: var MirBuilder, val: Value) =
   ## Emits ``move val``.
