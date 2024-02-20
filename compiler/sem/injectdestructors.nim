@@ -102,7 +102,6 @@ import
     algorithm,
     hashes,
     packedsets,
-    strtabs,
     tables
   ],
   compiler/ast/[
@@ -117,16 +116,14 @@ import
     mirconstr,
     mirenv,
     mirtrees,
-    sourcemaps,
-    utils
+    sourcemaps
   ],
   compiler/modules/[
     magicsys,
     modulegraphs
   ],
   compiler/front/[
-    options,
-    msgs
+    options
   ],
   compiler/sem/[
     aliasanalysis,
@@ -1179,8 +1176,3 @@ proc injectDestructorCalls*(g: ModuleGraph, idgen: IdGenerator,
     injectDestructors(body.code, g, destructors, env, changes)
 
     apply(changes)
-
-  if g.config.arcToExpand.hasKey(owner.name.s):
-    g.config.msgWrite("--expandArc: " & owner.name.s & "\n")
-    g.config.msgWrite(render(body.code, addr env))
-    g.config.msgWrite("\n-- end of expandArc ------------------------\n")
