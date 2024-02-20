@@ -29,7 +29,7 @@ scope:
     scope:
       def a: int = 0
       def b: int = 4
-      def i: int = sink a
+      def i: int = copy a
       block L0:
         scope:
           while true:
@@ -76,11 +76,11 @@ scope:
       scope:
         return
     def _0: string = boolToStr(arg cond)
-    str = move _0
+    str := move _0
     def _1: bool = not(arg cond)
     if _1:
       scope:
-        result = move str
+        result := move str
         wasMoved(name str)
         return
   finally:

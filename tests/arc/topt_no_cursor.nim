@@ -24,7 +24,7 @@ scope:
   def _2: string = move _6
   wasMoved(name _6)
   def _3: Target = construct (consume _0, consume _1, consume _2)
-  result = move _3
+  result := move _3
   =destroy(name splat)
 -- end of expandArc ------------------------
 --expandArc: delete
@@ -33,20 +33,16 @@ scope:
   def_cursor _0: Node = target[]
   def_cursor _1: Node = _0[].parent
   def sibling: Node
-  def _6: Node = _1[].left
-  =copy(name sibling, arg _6) (raises)
+  =copy(name sibling, arg _1[].left) (raises)
   def_cursor _2: Node = sibling
   def saved: Node
-  def _7: Node = _2[].right
-  =copy(name saved, arg _7) (raises)
+  =copy(name saved, arg _2[].right) (raises)
   def_cursor _3: Node = sibling
   def_cursor _4: Node = saved
-  bind_mut _8: Node = _3[].right
-  def _9: Node = _4[].left
-  =copy(name _8, arg _9) (raises)
+  def_cursor _6: Node = _4[].left
+  =copy(name _3[].right, arg _6) (raises)
   def_cursor _5: Node = sibling
-  bind_mut _10: Node = _5[].parent
-  =sink(name _10, arg saved) (raises)
+  =sink(name _5[].parent, arg saved) (raises)
   =destroy(name sibling) (raises)
 -- end of expandArc ------------------------
 --expandArc: p1
@@ -59,13 +55,13 @@ scope:
   def _1: seq[int] = move lresult
   def _: (seq[int], string) = construct (consume _1, consume ";")
   bind_mut _3: seq[int] = _.0
-  lvalue = move _3
+  lvalue := move _3
   wasMoved(name _3)
   bind_mut _4: string = _.1
-  lnext = move _4
+  lnext := move _4
   wasMoved(name _4)
   def _2: seq[int] = move(name lvalue)
-  result.value = move _2
+  result.value := move _2
   =destroy(name _)
   =destroy(name lnext)
   =destroy(name lvalue)
@@ -76,11 +72,9 @@ scope:
   try:
     def_cursor it: KeyValue = x
     def _0: seq[int]
-    def _4: seq[int] = it.0
-    =copy(name _0, arg _4)
+    =copy(name _0, arg it.0)
     def _1: seq[int]
-    def _5: seq[int] = it.1
-    =copy(name _1, arg _5)
+    =copy(name _1, arg it.1)
     def a: (seq[int], seq[int]) = construct (consume _0, consume _1)
     def_cursor _2: (seq[int], seq[int]) = a
     def _3: string = $(arg _2) (raises)
@@ -120,7 +114,7 @@ scope:
                     def _7: bool = eqStr(arg _6, arg "opt")
                     if _7:
                       scope:
-                        def _10: string = splitted[1]
+                        def_cursor _10: string = splitted[1]
                         =copy(name lan_ip, arg _10)
                     def_cursor _8: string = lan_ip
                     echo(arg type(array[0..0, string]), arg _8) (raises)
@@ -136,8 +130,7 @@ scope:
 scope:
   try:
     def shadowScope: Scope
-    def _7: Scope = c[].currentScope
-    =copy(name shadowScope, arg _7) (raises)
+    =copy(name shadowScope, arg c[].currentScope) (raises)
     rawCloseScope(arg c) (raises)
     scope:
       def_cursor _0: Scope = shadowScope
@@ -160,8 +153,7 @@ scope:
                   def_cursor _5: int = i
                   def sym: lent Symbol = borrow a[_5]
                   def _6: Symbol
-                  def _8: Symbol = sym[]
-                  =copy(name _6, arg _8)
+                  =copy(name _6, arg sym[])
                   addInterfaceDecl(arg c, consume _6) (raises)
                 i = addI(arg i, arg 1) (raises)
   finally:
@@ -177,7 +169,7 @@ scope:
     def _2: bool = eqI(arg _1, arg 2)
     if _2:
       scope:
-        result = move x
+        result := move x
         wasMoved(name x)
         return
     def_cursor _3: sink string = x
@@ -202,8 +194,7 @@ scope:
       if _3:
         scope:
           def _4: string
-          def _16: string = this[].value
-          =copy(name _4, arg _16)
+          =copy(name _4, arg this[].value)
           _1 := construct (consume _4, consume "")
           break L0
       scope:
@@ -211,12 +202,11 @@ scope:
           def_cursor _5: string = this[].value
           def _6: string = parentDir(arg _5) (raises)
           def _7: string
-          def _17: string = this[].value
-          =copy(name _7, arg _17)
+          =copy(name _7, arg this[].value)
           def _8: tuple[head: string, tail: string] = splitPath(consume _7) (raises)
-          bind_mut _18: string = _8.1
-          def _9: string = move _18
-          wasMoved(name _18)
+          bind_mut _16: string = _8.1
+          def _9: string = move _16
+          wasMoved(name _16)
           _1 := construct (consume _6, consume _9)
           wasMoved(name _6)
         finally:
@@ -231,13 +221,11 @@ scope:
           def_cursor _12: string = par.0
           def_cursor _13: string = par.1
           def _14: seq[string] = getSubDirs(arg _12, arg _13) (raises)
-          bind_mut _19: seq[string] = this[].matchDirs
-          =sink(name _19, arg _14)
+          =sink(name this[].matchDirs, arg _14)
           break L1
       scope:
         def _15: seq[string] = construct ()
-        bind_mut _20: seq[string] = this[].matchDirs
-        =sink(name _20, arg _15)
+        =sink(name this[].matchDirs, arg _15)
   finally:
     =destroy(name par)
 -- end of expandArc ------------------------'''

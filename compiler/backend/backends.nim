@@ -4,6 +4,7 @@ import
   std/[
     deques,
     dynlib, # for computing possible candidate names
+    strtabs,
     tables
   ],
   compiler/ast/[
@@ -17,10 +18,12 @@ import
     cgirgen
   ],
   compiler/front/[
+    msgs,
     options
   ],
   compiler/mir/[
     datatables,
+    injecthooks,
     mirbodies,
     mirbridge,
     mirconstr,
@@ -28,7 +31,8 @@ import
     mirgen,
     mirpasses,
     mirtrees,
-    sourcemaps
+    sourcemaps,
+    utils
   ],
   compiler/modules/[
     modulegraphs,
@@ -324,6 +328,12 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
   ## procedure.
   if shouldInjectDestructorCalls(prc):
     injectDestructorCalls(graph, idgen, env, prc, body)
+    injectHooks(body, graph, env, prc)
+
+    if graph.config.arcToExpand.hasKey(prc.name.s):
+      graph.config.msgWrite("--expandArc: " & prc.name.s & "\n")
+      graph.config.msgWrite(render(body.code, addr env))
+      graph.config.msgWrite("\n-- end of expandArc ------------------------\n")
 
   let target =
     case graph.config.backend
