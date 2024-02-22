@@ -209,6 +209,8 @@ const
   UnknownLockLevel* = TLockLevel(1001'i16)
   AttachedOpToStr*: array[TTypeAttachedOp, string] = [
     "=destroy", "=copy", "=sink", "=trace", "=deepcopy"]
+  AttachedOpToMagic*: array[TTypeAttachedOp, TMagic] = [
+    mDestroy, mAsgn, mAsgn, mTrace, mDeepCopy]
 
 
 proc `$`*(x: TLockLevel): string =

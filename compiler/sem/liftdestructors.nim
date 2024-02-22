@@ -854,9 +854,11 @@ proc produceSymDistinctType(g: ModuleGraph; c: PContext; typ: PType;
 
 proc symPrototype(g: ModuleGraph; typ: PType; owner: PSym; kind: TTypeAttachedOp;
               info: TLineInfo; idgen: IdGenerator): PSym =
-
+  # a synthesized hook is treated as an instantiation of the respective generic
+  # magic procedure from the system module
   let procname = getIdent(g.cache, AttachedOpToStr[kind])
-  result = newSym(skProc, procname, nextSymId(idgen), owner, info)
+  let base = getSysMagic(g, info, AttachedOpToStr[kind], AttachedOpToMagic[kind])
+  result = newSym(skProc, procname, nextSymId(idgen), base, info)
   let dest = newSym(skParam, getIdent(g.cache, "dest"), nextSymId(idgen), result, info)
   let src = newSym(skParam, getIdent(g.cache, if kind == attachedTrace: "env" else: "src"),
                    nextSymId(idgen), result, info)
@@ -866,7 +868,7 @@ proc symPrototype(g: ModuleGraph; typ: PType; owner: PSym; kind: TTypeAttachedOp
   else:
     src.typ = typ
 
-  result.typ = newProcType(info, nextTypeId(idgen), owner)
+  result.typ = newProcType(info, nextTypeId(idgen), result)
   result.typ.addParam dest
   if kind != attachedDestructor:
     result.typ.addParam src
