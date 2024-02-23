@@ -32,7 +32,7 @@ m:
     var v2 = HookObject()
     `=destroy`(v2)
 
-# the same bug happend when using a template:
+# the same bug happened when using a template:
 template t(x: typed): untyped = x
 
 t:
