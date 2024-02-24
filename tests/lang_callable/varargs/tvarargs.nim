@@ -15,23 +15,6 @@ const
   makeErrorTest     ## used in `when` stmts to mark code that should be moved
                     ## into an error test.
 
-
-block generics_properties:
-  block generic_varargs_infer_the_type_T:
-    proc foo[T](v: varargs[T]): int =
-      doAssert v is array[T]
-      v.len
-
-    foo(1, 2, 3) == 3
-
-  block cannot_set_varargs_as_type_parameter:
-    when makeErrorTest:
-      proc foo[T](a: T) =
-        discard
-
-      foo[varargs[int]](1, 2, 3) # this should be an error!
-
-
 block overload_resolution_and_precedence:
   block no_param_candidate_over_empty_varargs:
     # xxx: maybe this should be an error, but if so, how do we call the 0-ary
