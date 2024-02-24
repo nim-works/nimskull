@@ -1,10 +1,13 @@
-## Implements the MIR pass for replacing copy and move assignments with the
-## ``=copy`` or ``=sink`` hook (if available for the type).
-##
-## Future direction: injection of ``=destroy`` hooks also needs to happen
-## here.
+## Implements the MIR pass for:
+## * replacing copy and move assignments with the ``=copy`` or ``=sink``
+##   hook (if available for the type).
+## * replacing destroy operations with calls to the ``=destroy`` hook (if
+##   available for the type)
 
 import
+  std/[
+    tables
+  ],
   compiler/ast/[
     ast_query,
     ast_types,
@@ -24,6 +27,9 @@ import
   compiler/modules/[
     modulegraphs
   ],
+  compiler/sem/[
+    sighashes
+  ],
   compiler/utils/[
     idioms
   ]
@@ -32,8 +38,8 @@ import
 from compiler/ast/reports_sem import SemReport
 from compiler/ast/report_enums import ReportKind
 
-# XXX: temporary dependency until destroy hooks are injected here
-from compiler/sem/injectdestructors import getOp, genDestroy, buildVoidCall
+# XXX: temporary dependency until switch assignments are lowered differently
+from compiler/sem/injectdestructors import buildVoidCall
 
 from compiler/sem/liftdestructors import boolLit, cyclicType
 
@@ -55,6 +61,18 @@ type
 
 const
   skipAliases = {tyGenericInst, tyAlias, tySink}
+
+proc getOp*(g: ModuleGraph, t: PType, kind: TTypeAttachedOp): PSym =
+  ## Returns the symbol for the `kind` type-bound hook for `t` (or nil, if
+  ## there's none).
+  let t = t.skipTypes(skipForHooks)
+  result = getAttachedOp(g, t, kind)
+  if result == nil or result.ast.isGenericRoutine:
+    # give up and find the canonical type instead:
+    let h = sighashes.hashType(t, {CoType, CoDistinct})
+    let canon = g.canonTypes.getOrDefault(h)
+    if canon != nil:
+      result = getAttachedOp(g, canon, kind)
 
 proc isUsedForSink(tree: MirTree, stmt: NodePosition): bool =
   ## Computes whether the definition statement is something produced for
@@ -137,6 +155,13 @@ template genCopy(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
       # parameter:
       let c = maybeCyclic and couldIntroduceCycle(tree, dest)
       bu.emitByVal literal(boolLit(graph, unknownLineInfo, c))
+
+proc genDestroy*(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
+                 target: Value) =
+  ## Emits a destructor call with `target` as the argument.
+  let destr = getOp(graph, target.typ, attachedDestructor)
+  bu.buildVoidCall(env, destr):
+    bu.emitByName(target, ekMutate)
 
 proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
                   owner: PSym, changes: var Changeset) =
@@ -243,6 +268,19 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
           genDestroy(bu, graph, env, loc)
         changes.replaceMulti(tree, dest, bu):
           bu.use loc
+
+    of mnkDestroy:
+      let destr = getOp(graph, tree[tree.operand(i)].typ, attachedDestructor)
+      changes.replaceMulti(tree, i, bu):
+        bu.buildVoidCall(env, destr):
+          # XXX: the by-name passing and usage of ``ekMutate`` is not really
+          #      correct. For all intents and purposes, a destructor
+          #      *consumes* the value (and then effectively voids it), meaning
+          #      that ``mnkConsume`` should actually be used. However, this
+          #      would require changing the signature of ``=destroy`` to use
+          #      ``sink``
+          bu.emitByName ekMutate:
+            bu.emitFrom(tree, tree.child(i, 0))
 
     else:
       discard "nothing to do"

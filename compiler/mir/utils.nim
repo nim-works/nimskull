@@ -492,6 +492,10 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string,
     tree "raise ":
       valueToStr()
     result.add "\n"
+  of mnkDestroy:
+    tree "destroy ":
+      valueToStr()
+      result.add "\n"
   of mnkPNode:
     result.add repeat("  ", indent)
     result.add "PNode " & $n.node & "\n"

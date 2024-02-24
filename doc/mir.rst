@@ -173,6 +173,7 @@ Semantics
             | Return                    # exit the procedure, but execute all
                                         # enclosing finalizers first (from
                                         # innermost to outermost)
+            | Destroy LVALUE
             | Emit VALUE ...
             | Asm VALUE ...
 

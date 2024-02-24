@@ -239,6 +239,9 @@ type
 
     mnkBranch ## defines a branch of an ``mnkExcept`` or ``mnkCase``
 
+    mnkDestroy## destroys the value stored in the given location, leaving the
+              ## location in an undefined state
+
     mnkAsm    ## embeds backend-dependent code directly into the output
     mnkEmit   ## embeds backend-dependent code directly into the output
 
@@ -339,7 +342,7 @@ const
                          mnkAddr, mnkDeref, mnkView, mnkDerefView, mnkStdConv,
                          mnkConv, mnkCast, mnkRaise, mnkTag, mnkArg,
                          mnkName, mnkConsume, mnkVoid, mnkCopy, mnkMove,
-                         mnkSink}
+                         mnkSink, mnkDestroy}
     ## Nodes that start sub-trees but that always have a single sub node.
 
   ArgumentNodes* = {mnkArg, mnkName, mnkConsume}
@@ -363,7 +366,7 @@ const
 
   StmtNodes* = {mnkScope, mnkStmtList, mnkIf, mnkCase, mnkRepeat, mnkTry,
                 mnkBlock, mnkBreak, mnkReturn, mnkRaise, mnkPNode, mnkInit,
-                mnkAsgn, mnkSwitch, mnkVoid, mnkRaise, mnkEmit,
+                mnkAsgn, mnkSwitch, mnkVoid, mnkRaise, mnkDestroy, mnkEmit,
                 mnkAsm} + DefNodes
 
   UnaryOps*  = {mnkNeg}

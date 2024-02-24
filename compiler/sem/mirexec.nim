@@ -561,6 +561,8 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
       emitForValue(env, tree, i, tree.operand(i, 1))
     of mnkVoid:
       emitForExpr(env, tree, i, NodePosition tree.operand(i))
+    of mnkDestroy:
+      unreachable("not implemented yet")
     of mnkEmit, mnkAsm:
       emitForArgs(env, tree, i, i)
 

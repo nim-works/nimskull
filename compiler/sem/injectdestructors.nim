@@ -12,7 +12,7 @@
 ## - the pass for collapsing sink assignments into copies, moves, and
 ##   destrutive moves
 ## - the pass for injected ``wasMoved`` calls for consumed lvalues
-## - the destructor (i.e. ``=destroy`` hook) injection
+## - the pass for injecting destructors
 ##
 ## Overview
 ## ========
@@ -129,7 +129,6 @@ import
     aliasanalysis,
     liftdestructors,
     mirexec,
-    sighashes
   ],
   compiler/utils/[
     cursors,
@@ -228,16 +227,6 @@ func findScope(entities: EntityDict, name: EntityName, at: InstrPos,
 
 proc getVoidType(g: ModuleGraph): PType {.inline.} =
   g.getSysType(unknownLineInfo, tyVoid)
-
-proc getOp*(g: ModuleGraph, t: PType, kind: TTypeAttachedOp): PSym =
-  let t = t.skipTypes(skipForHooks)
-  result = getAttachedOp(g, t, kind)
-  if result == nil or result.ast.isGenericRoutine:
-    # give up and find the canonical type instead:
-    let h = sighashes.hashType(t, {CoType, CoDistinct})
-    let canon = g.canonTypes.getOrDefault(h)
-    if canon != nil:
-      result = getAttachedOp(g, canon, kind)
 
 func isNamed(tree: MirTree, val: OpValue): bool =
   ## Returns whether `val` is the projection of a named location (or refers to
@@ -554,13 +543,6 @@ proc genWasMoved(bu: var MirBuilder, graph: ModuleGraph, target: Value) =
     bu.buildMagicCall mWasMoved, getVoidType(graph):
       bu.emitByName(target, ekKill)
 
-proc genDestroy*(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
-                 target: Value) =
-  let destr = getOp(graph, target.typ, attachedDestructor)
-
-  bu.buildVoidCall(env, destr):
-    bu.emitByName(target, ekMutate)
-
 func destructiveMoveOperands(bu: var MirBuilder, tree: MirTree,
                              src: NodePosition
                             ): tuple[src, clear: Value] =
@@ -718,22 +700,12 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
 
 # --------- destructor injection -------------
 
-proc injectDestructorsInner(bu: var MirBuilder, orig: MirTree,
-                            graph: ModuleGraph, env: var MirEnv,
-                            entries: openArray[DestroyEntry]) =
-  ## Generates a destructor call for each item in `entries`, using `buf` as the
-  ## output.
+proc injectDestroysAux(bu: var MirBuilder, orig: MirTree,
+                       entries: openArray[DestroyEntry]) =
+  ## Emits a destroy operation for each item in `entries`.
   for it in ritems(entries):
-    let def = getDefEntity(orig, it.pos)
-    let t =
-      case orig[def].kind
-      of SymbolLike: orig[def].sym.typ
-      of mnkGlobal:  orig[def].typ
-      of mnkTemp:    orig[def].typ
-      else:          unreachable()
-
-    bu.buildVoidCall(env, getOp(graph, t, attachedDestructor)):
-      bu.emitByName(Value(node: orig[def]), ekMutate)
+    bu.subTree mnkDestroy:
+      bu.emitFrom(orig, getDefEntity(orig, it.pos))
 
 proc injectDestructors(tree: MirTree, graph: ModuleGraph,
                        destroy: seq[DestroyEntry], env: var MirEnv,
@@ -803,13 +775,11 @@ proc injectDestructors(tree: MirTree, graph: ModuleGraph,
           # there's no need for opening a new scope -- we use a statement-list
           # instead
           buf.subTree MirNode(kind: mnkStmtList):
-            injectDestructorsInner(buf, tree, graph, env,
-                                   toOpenArray(entries, s.a, s.b))
+            injectDestroysAux(buf, tree, toOpenArray(entries, s.a, s.b))
 
         buf.add endNode(mnkTry)
       else:
-        injectDestructorsInner(buf, tree, graph, env,
-                               toOpenArray(entries, s.a, s.b))
+        injectDestroysAux(buf, tree, toOpenArray(entries, s.a, s.b))
 
 proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
                        idgen: IdGenerator, env: var MirEnv,

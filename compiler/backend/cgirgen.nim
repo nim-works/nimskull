@@ -741,6 +741,8 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
       res.kids.addIfNotEmpty stmtToIr(tree, env, cl, cr)
   of mnkScope:
     toSingleNode scopeToIr(tree, env, cl, cr)
+  of mnkDestroy:
+    unreachable("a 'destroy' that wasn't lowered")
   of AllNodeKinds - StmtNodes:
     unreachable(n.kind)
 

@@ -36,7 +36,7 @@ import
     idioms
   ]
 
-from compiler/sem/injectdestructors import getOp
+from compiler/mir/injecthooks import getOp
 
 type
   ModuleStructs* = object
