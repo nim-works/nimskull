@@ -9,13 +9,11 @@ which means derived object should correctly pass a slice/ptr to the procedure.
 When `varargs` procedure is called, temporary array with values is constructed, before
 being passed to the called procedure. If derived object is passed, correct `.Sup` must
 be used to achieve desired behavior.
-
 '''
 knownIssue: "varargs cannot pass polymorphic derived types"
-
 """
 
-var invalidAssings: seq[string]
+var invalidAssigns: seq[string]
 
 block regular_types:
   ## Issue is present for both regular and generic code
@@ -36,19 +34,19 @@ block regular_types:
       test(Base())
 
     except ObjectAssignmentDefect:
-      invalidAssings.add "Base()"
+      invalidAssigns.add "Base()"
 
     try:
       test(Base(), Derived1())
 
     except ObjectAssignmentDefect:
-      invalidAssings.add "Base(), Derived1()"
+      invalidAssigns.add "Base(), Derived1()"
 
     try:
       test(Derived1(), Derived2())
 
     except ObjectAssignmentDefect:
-      invalidAssings.add "Derived1(), Derived2()"
+      invalidAssigns.add "Derived1(), Derived2()"
 
 
 block:
@@ -84,8 +82,8 @@ block:
     ) == "243", "Passing subtypes via varargs must work the same way as mutliple arguments"
 
   except ObjectAssignmentdefect:
-    invalidAssings.add "Derived1, Derived, Base"
+    invalidAssigns.add "Derived1, Derived, Base"
 
 
-doAssert invalidAssings.len == 0, "Failed object assignment for " & $invalidAssings.len &
-  " cases - " & $invalidAssings
+doAssert invalidAssigns.len == 0, "Failed object assignment for " & $invalidAssigns.len &
+  " cases - " & $invalidAssigns
