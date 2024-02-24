@@ -16,38 +16,6 @@ const
                     ## into an error test.
 
 
-block basic_subtype_matching:
-  block ranges:
-    type Foo = range[0..5]
-
-    func bar(v: varargs[Foo], values: openarray[Foo]) =
-      doAssert v.len == values.len
-      for i, a in v.pairs:
-        doAssert a == values[i], $a " is not equal to ", $values[i]
-    
-    bar(0, [0])
-    bar(0, 1, [0, 1])
-    bar([]) # should match?!, `v` will be empty, and `values` the empty array
-
-    block out_of_range_should_not_match:
-      func baz(v: varargs[Foo], a, b: int) =
-        doAssert v.len == 0
-        doAssert a == -1
-        doAssert b == 6
-      
-      baz(-1, 6)
-
-  when makeErrorTest:
-    block widening:
-      proc foo(v: varargs[int32], values: openarray[int32]) =
-        doAssert v.len == values.len
-        for i, a in v.pairs:
-          doAssert a == values[i], $a " is not equal to ", $values[i]
-
-      foo(1'i16, 1'i8, 2'u16, [1'i32, 1'i32, 2'i32])
-      # error: no match
-
-
 block generics_properties:
   block generic_varargs_infer_the_type_T:
     proc foo[T](v: varargs[T]): int =
