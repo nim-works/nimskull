@@ -62,21 +62,16 @@ block limit_greediness_of_varargs_parameter_consumption:
   ## following non-defaulted/vararg params means: varargs must stop matching in
   ## order to leave enough for following params
   block match_args_with_enough_for_each_trailing_param:
-    discard "knownIssue: test in `tvarargs_non_ast_types_basic_known_issue_1"
+    func foo(_: varargs[string], wutboutme: string) =
+      doAssert wutboutme == "we didn't forget"
+
+    foo("test", "best", "this", "one too", "we didn't forget")
 
   block defaulted_dont_count:
-    # xxx: hint that only a named param/array call syntax will work?
-    func bar(_: varargs[string], wutboutme: string = "oh hai") =
-      doAssert wutboutme == "oh hai", wutboutme
+    discard "knownIssue: tvarargs_non_ast_types_basic_known_issue_1"
 
-    bar("test", "best", "this", "one too")
-
-    block nor_do_varargs:
-      # xxx: hint that only a named param/array call syntax will work?
-      func baz(_: varargs[string], wutboutme: varargs[string] = []) =
-        doAssert wutboutme == []
-
-      baz("test", "best", "this", "one too")
+  block varargs_dont_count:
+    discard "knownIssue: tvarargs_non_ast_types_basic_known_issue_1"
 
 
 block multiple_varargs:

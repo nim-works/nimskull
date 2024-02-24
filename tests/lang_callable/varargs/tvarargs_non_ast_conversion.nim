@@ -2,7 +2,6 @@ discard """
   description: '''
     Tests for non-ast varargs, those that are not `un/typed`, with conversions.
   '''
-  knownIssue: "argument handling is just plain broken"
 """
 
 block conversions_for_non_ast_varargs:
