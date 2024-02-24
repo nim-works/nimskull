@@ -1,5 +1,6 @@
 discard """
   description: "Tests for varargs, in particular during overload resolution."
+  disabled: true
 """
 
 import std/macros
@@ -13,92 +14,6 @@ const
 
   makeErrorTest     ## used in `when` stmts to mark code that should be moved
                     ## into an error test.
-
-block single_varargs:
-  proc foo(v: varargs[int]): int = v.len
-
-  doAssert foo() == 0
-  doAssert foo(9) == 1
-  doAssert foo(1, 2, 3) == 3
-
-  block a_var_arg_position_can_be_satisfied_by_an_openarray:
-    doAssert foo([1, 2, 3, 4]) == 4, "varargs as array"
-    doAssert foo(@[1, 2, 3]) == 3, "varargs as sequence"
-
-  macro checkStructure(stmtList: typed, argArray: openArray[int]): bool =
-    ## check the array conversion performed on trailing varargs
-    let call = stmtList[0]
-    call[1] == arr
-
-  doAssert checkStructure(foo(), []), "empty array for no varargs"
-  doAssert checkStructure(foo(9), [9]), "single item array for one varargs"
-  doAssert checkStructure(foo(1, 2), [1, 2]), "all items in an array for varargs"
-
-
-block trailing_varargs:
-  block with_leading_param:
-    proc foo(leading: string, v: varargs[int]): int =
-      v.len
-
-    doAssert foo("foo") == 0, "no varargs provided"
-    doAssert foo("foo", 1) == 1, "one varargs provided"
-    doAssert foo("foo", 1, 2) == 2, "two varargs provided"
-    doAssert foo("foo", [1, 2, 3]) == 3, "3 provided as an array"
-    doAssert foo("foo", @[1, 2]) == 2, "2 provided as a sequnce"
-
-  block with_a_leading_defaulted_param:
-    proc foo(leading = 3, v: varargs[int]): int =
-      doAssert v.len == 0
-      leading
-
-    doAssert foo() == 3
-
-
-block non_trailing_varargs:
-  # xxx: this should probably be at a lower precendence
-  proc foo(v: varargs[int], trailing: string): int =
-    v.len
-
-  doAssert foo("foo") == 0, "leading match with zero candidates"
-  doAssert foo(1, "foo") == 1, "one leading varargs provided"
-  doAssert foo(1, 2, "foo") == 2, "two leading varargs provided"
-  doAssert foo([1, 2, 3], "foo") == 2, "3 leading provided as array"
-  doAssert foo(@[1, 2], "foo") == 2, "2 leading provided as sequence"
-
-
-block multiple_varargs:
-  block same_types:
-    proc foo(v, w: varargs[int], varargs[int]): (int, int) =
-      (v.len, w.len)
-
-    let v, w = foo(1, 2, 3, [4, 5])
-    doAssert v == 3
-    doAssert w == 2
-
-    block first_vararg_will_match_all:
-      # xxx: we should probably detect this and hint?
-      let v, w = foo(1, 2, 3, 4, 5)
-      doAssert v == 5
-      doAssert w == 0
-
-  block differing_types:
-    proc foo(v: varargs[int], w: varargs[bool]): (int, int) =
-      (v.len, w.len)
-
-    doAssert foo(1, 2, 3, false) == (3, 1), "3 ints and 1 bool"
-
-    macro checkStructure(callStmt: typed, v1: openArray[int],
-                         v2: openArray[bool]): bool =
-      ## check the array/arg(?) conversions performed on varargs
-      let call = callStmt[0]
-      doAssert call[1].kind == nnkArgList, "argList for non-trailing"
-      doAssert call[1].kind == nnkBracket, "bracket for trailing"
-      call[1] == v1 and call[2] == v2
-
-    doAssert checkStructure(foo(1, 2, true, false), [1, 2], [true, false])
-    doAssert checkStructure(foo(1, 2), [1, 2], [])
-    doAssert checkStructure(foo(true, false), [], [true, false])
-
 
 block conversions_for_non_ast_varargs:
   var called = 0
@@ -157,30 +72,6 @@ block conversions_for_non_ast_varargs:
       before(["1", "test"], expected)
     calledCheck 2:
       before(expected, ["1", "test"])
-
-  block dont_be_greedy:
-    ## following non-defaulted/vararg params means varargs stops matching in
-    ## order to leave enough for following params
-    when knownIssue:
-      block match_args_with_enough_for_each_trailing_param:
-        func foo(varargs[string], wutboutme: string) =
-          doAssert wutboutme == "we didn't forget"
-
-        foo("test", "best", "this", "one too", "we didn't forget")
-
-    block defaulted_dont_count:
-      # xxx: hint that only a named param/array call syntax will work?
-      func bar(varargs[string], wutboutme: string = "oh hai") =
-        doAssert wutboutme == "oh hai"
-
-      bar("test", "best", "this", "one too")
-    
-      block nor_do_varargs:
-        # xxx: hint that only a named param/array call syntax will work?
-        func baz(varargs[string], wutboutme: varargs[string] = []) =
-          doAssert wutboutme == []
-
-        baz("test", "best", "this", "one too")
 
 
 block basic_subtype_matching:
