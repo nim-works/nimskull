@@ -1,5 +1,5 @@
 discard """
-  description: "Test `varargs[untyped]` params disallow conversion params"
+  description: "Test `varargs[untyped]` params require compile time context"
   knownIssue: "Implement me: not checked for and enforced"
   errormsg: "routine with 'varargs[untyped]' parameter is implicitly compile-time only"
   line: 10

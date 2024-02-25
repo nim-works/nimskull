@@ -1,5 +1,5 @@
 discard """
-  description: "Test `varargs[untyped]` params disallow conversion params"
+  description: "Test `varargs[untyped]` params only one per routine"
   knownIssue: "Implement me: not checked for and enforced"
   errormsg: "only one trailing 'varargs[untyped]' parameter allowed per routine"
   line: 9
