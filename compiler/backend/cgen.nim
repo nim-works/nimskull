@@ -730,117 +730,6 @@ proc closureSetup(p: BProc, prc: PSym) =
   linefmt(p, cpsStmts, "$1 = ($2) ClE_0;$n",
           [rdLoc(p.locals[n.local]), getTypeDesc(p.module, ls.typ)])
 
-func containsResult(n: CgNode): bool =
-  result = false
-  case n.kind
-  of cnkAtoms - {cnkLocal}:
-    discard "ignore"
-  of cnkLocal:
-    if n.local == resultId:
-      result = true
-  of cnkWithOperand:
-    result = containsResult(n.operand)
-  of cnkWithItems:
-    for i in 0..<n.len:
-      if containsResult(n[i]): return true
-
-type
-  InitResultEnum = enum Unknown, InitSkippable, InitRequired
-
-proc allPathsAsgnResult(n: CgNode): InitResultEnum =
-  # Exceptions coming from calls don't have not be considered here:
-  #
-  # proc bar(): string = raise newException(...)
-  #
-  # proc foo(): string =
-  #   # optimized out: 'reset(result)'
-  #   result = bar()
-  #
-  # try:
-  #   a = foo()
-  # except:
-  #   echo "a was not written to"
-  #
-  template allPathsInBranch(it) =
-    let a = allPathsAsgnResult(it)
-    case a
-    of InitRequired: return InitRequired
-    of InitSkippable: discard
-    of Unknown:
-      # sticky, but can be overwritten by InitRequired:
-      result = Unknown
-
-  result = Unknown
-  case n.kind
-  of cnkStmtList:
-    for it in n:
-      result = allPathsAsgnResult(it)
-      if result != Unknown: return result
-  of cnkAsgn, cnkFastAsgn:
-    if n[0].kind == cnkLocal and n[0].local == resultId:
-      if not containsResult(n[1]): result = InitSkippable
-      else: result = InitRequired
-    elif containsResult(n):
-      result = InitRequired
-  of cnkReturnStmt:
-      if true:
-        # This is a bare `return` statement, if `result` was not initialized
-        # anywhere else (or if we're not sure about this) let's require it to be
-        # initialized. This avoids cases like #9286 where this heuristic lead to
-        # wrong code being generated.
-        result = InitRequired
-  of cnkIfStmt:
-    result = InitSkippable
-    # the condition must not use 'result':
-    if containsResult(n[0]):
-      return InitRequired
-
-    allPathsInBranch(n[1])
-    # if the 'if' statement is not exhaustive and yet it touched 'result'
-    # in some way, say Unknown.
-    result = Unknown
-  of cnkCaseStmt:
-    if containsResult(n[0]): return InitRequired
-    result = InitSkippable
-    var exhaustive = skipTypes(n[0].typ,
-        abstractVarRange-{tyTypeDesc}).kind notin {tyFloat..tyFloat64, tyString}
-    for i in 1..<n.len:
-      let it = n[i]
-      allPathsInBranch(it.lastSon)
-      if not isOfBranch(it): exhaustive = true
-    if not exhaustive: result = Unknown
-  of cnkRepeatStmt:
-    result = allPathsAsgnResult(n[0])
-    # a 'repeat' loop is always executed at least once
-    if result == InitSkippable: result = Unknown
-  of cnkAtoms - {cnkLocal, cnkReturnStmt}:
-    result = Unknown
-  of cnkLocal:
-    # some path reads from 'result' before it was written to!
-    if n.local == resultId: result = InitRequired
-  of cnkTryStmt:
-    # We need to watch out for the following problem:
-    # try:
-    #   result = stuffThatRaises()
-    # except:
-    #   discard "result was not set"
-    #
-    # So ... even if the assignment to 'result' is the very first
-    # assignment this is not good enough! The only pattern we allow for
-    # is 'finally: result = x'
-    result = InitSkippable
-    allPathsInBranch(n[0])
-    for i in 1..<n.len:
-      if n[i].kind == cnkFinally:
-        result = allPathsAsgnResult(n[i].lastSon)
-      else:
-        allPathsInBranch(n[i].lastSon)
-  of cnkWithOperand:
-    allPathsInBranch(n.operand)
-  else:
-    for it in n.items:
-      allPathsInBranch(it)
-
 proc isNoReturn(m: BModule; s: PSym): bool {.inline.} =
   sfNoReturn in s.flags and m.config.exc != excGoto
 
@@ -864,22 +753,9 @@ proc startProc*(m: BModule, id: ProcedureId; procBody: sink Body): BProc =
     if not isInvalidReturnType(m.config, prc.typ[0]):
       # declare the result symbol:
       assignLocalVar(p, resNode)
-      if sfNoInit notin prc.flags:
-        initLocalVar(p, res, immediateAsgn=false)
     else:
       p.locals[res] = initResultParamLoc(p.config, resNode)
       scopeMangledParam(p, p.body[res].name)
-      # We simplify 'unsureAsgn(result, nil); unsureAsgn(result, x)'
-      # to 'unsureAsgn(result, x)'
-      # Sketch why this is correct: If 'result' points to a stack location
-      # the 'unsureAsgn' is a nop. If it points to a global variable the
-      # global is either 'nil' or points to valid memory and so the RC operation
-      # succeeds without touching not-initialized memory.
-      if sfNoInit in prc.flags: discard
-      elif p.body.code != nil and
-           allPathsAsgnResult(p.body.code) == InitSkippable: discard
-      else:
-        resetLoc(p, p.locals[res])
       if skipTypes(resNode.typ, abstractInst).kind == tyArray:
         #incl(res.locFlags, lfIndirect)
         p.locals[res].storage = OnUnknown

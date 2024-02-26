@@ -11,6 +11,7 @@ import
     types
   ],
   compiler/mir/[
+    analysis,
     datatables,
     mirbodies,
     mirenv,
@@ -371,6 +372,59 @@ proc extractStringLiterals(tree: MirTree, env: var MirEnv,
       changes.replaceMulti(tree, i, bu):
         bu.use toValue(c, tree[i].typ)
 
+proc injectResultInit(tree: MirTree, resultVar: PSym, changes: var Changeset) =
+  ## Injects a default-initialization for the result variable, if deemed
+  ## necessary by data-flow analysis.
+  ##
+  ## For targets that don't default-initialize locals automatically,
+  ## default-initialization is necessary for the result variable if:
+  ## * it is partially modified, read from, or otherwise used without having
+  ##   been fully assigned first
+  ## * a procedure exit is reached and the variable is not definitely
+  ##   initialized
+  # future direction: once possible, extend this pass to apply to all local
+  # variables
+  func isResult(tree: MirTree, n: OpValue): bool =
+    tree[n].kind == mnkLocal and tree[n].sym.kind == skResult
+
+  func requiresInit(tree: MirTree): bool =
+    let
+      dfg = computeDfg(tree)
+      all = dfg.subgraphFor(NodePosition(0) .. NodePosition(tree.len))
+    var s: TraverseState
+
+    for op, n in traverse(dfg, all, 0, s):
+      case op
+      of opDef, opKill:
+        if isResult(tree, skipConversions(tree, n)):
+          # the result variable is fully assigned or reset -> quit the
+          # path
+          s.exit = true
+
+      of opUse, opConsume, opMutate, opInvalidate:
+        if isResult(tree, getRoot(tree, n)):
+          # the result variable is read from or modified before it was
+          # initialized
+          return true
+
+      of opMutateGlobal:
+        discard "not relevant"
+
+    # the exit flag indicates that traversal reached the end of the body
+    # (without ``result`` being an initialized). The a > b check makes sure
+    # an empty procedure body also requires initialization of the result
+    # var
+    result = s.exit or all.a > all.b
+
+  if requiresInit(tree):
+    assert tree[0].kind == mnkScope
+    let at = tree.child(NodePosition 0, 0)
+    changes.insert(tree, at, at, bu):
+      bu.subTree mnkInit:
+        bu.use toValue(mnkLocal, resultVar)
+        bu.buildMagicCall mDefault, resultVar.typ:
+          discard
+
 proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
                   config: ConfigRef, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
@@ -389,6 +443,12 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       preventRvo(body.code, c)
 
   batch:
+    if target == targetC and (prc.kind in routineKinds) and
+       (sfNoInit notin prc.flags) and not prc.typ[0].isEmptyType():
+      # the procedure has a result variable and initialization of it is
+      # allowed
+      injectResultInit(body.code, prc.ast[resultPos].sym, c)
+
     lowerSwap(body.code, c)
     if target == targetVm:
       # only the C and VM targets need the extraction, and only the VM
