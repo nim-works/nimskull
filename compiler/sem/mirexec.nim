@@ -686,13 +686,16 @@ iterator traverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
       of DataFlowOps:
         yield (DataFlowOpcode(instr.op), instr.val)
 
-      inc pc
-
-      if state.exit or pc == start:
+      if state.exit or pc + 1 == start:
         # abort the current path if we either reached the instruction we
         # started at or the path was manually killed
         state.exit = false
         abort()
+
+      # increment *after* the abort handling, otherwise it wouldn't be
+      # possible to detect that the end wasn't reached when an abort is
+      # triggered by the very last instruction
+      inc pc
 
   assert queue.len <= 1
 
