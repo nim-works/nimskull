@@ -124,21 +124,6 @@ proc toBitSet*(conf: ConfigRef; s: CgNode): TBitSet =
     else:
       bitSetIncl(result, toInt64(getOrdValue(it) - first))
 
-proc flattenStmts*(n: CgNode): CgNode =
-  ## Duplicate of `flattenStmts <trees.html#flattenStmts,PNode>`_
-  proc unnestStmts(n: CgNode, result: var CgNode) =
-    case n.kind
-    of cnkStmtList:
-      for it in n.items:
-        unnestStmts(it, result)
-    else:
-      result.kids.add n
-
-  result = CgNode(kind: cnkStmtList)
-  unnestStmts(n, result)
-  if result.len == 1:
-    result = result[0]
-
 proc newSymNode*(env: MirEnv, s: PSym): CgNode {.inline.} =
   case s.kind
   of skConst:
