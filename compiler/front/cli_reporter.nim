@@ -1993,21 +1993,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemDisallowedRangeForComputedGoto:
       result = "range notation not available for computed goto"
 
-    of rsemExpectedCaseForComputedGoto:
-      result = "no case statement found for computed goto"
-
-    of rsemExpectedLow0ForComputedGoto:
-      result = "case statement has to start at 0 for computed goto"
-
-    of rsemTooManyEntriesForComputedGoto:
-      result = "case statement has too many cases for computed goto"
-
-    of rsemExpectedUnholyEnumForComputedGoto:
-      result = "case statement cannot work on enums with holes for computed goto"
-
-    of rsemExpectedExhaustiveCaseForComputedGoto:
-      result = "case statement must be exhaustive for computed goto"
-
     of rsemExpectedNimcallProc:
       result = r.symstr & " needs to have the 'nimcall' calling convention"
 

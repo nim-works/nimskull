@@ -628,11 +628,6 @@ type
     # Codegen
     rsemRttiRequestForIncompleteObject
     rsemExpectedNimcallProc
-    rsemExpectedExhaustiveCaseForComputedGoto
-    rsemExpectedUnholyEnumForComputedGoto
-    rsemTooManyEntriesForComputedGoto
-    rsemExpectedLow0ForComputedGoto
-    rsemExpectedCaseForComputedGoto
     rsemDisallowedRangeForComputedGoto
     rsemExpectedParameterForJsPattern
     rsemExpectedLiteralForGoto
