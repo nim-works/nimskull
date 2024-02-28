@@ -42,7 +42,6 @@ import
   ]
 
 from compiler/ast/ast import newSym, newType, rawAddSon
-from compiler/ast/idents import whichKeyword
 from compiler/sem/semdata import makeVarType
 
 type
@@ -608,19 +607,6 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   else:
     unreachable()
 
-proc translateNode(n: PNode): CgNode =
-  ## Translates the content of a ``mnkPNode`` node to a ``CgNode``.
-  case n.kind
-  of nkPragma:
-    # XXX: consider adding a dedicated ``mnkPragma`` MIR node
-    # only simple pragmas reach here
-    assert n.len == 1
-    assert n[0].kind == nkIdent
-    CgNode(kind: cnkPragmaStmt, info: n.info, pragma: whichKeyword(n[0].ident))
-  else:
-    # cannot reach here
-    unreachable(n.kind)
-
 proc bodyToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
               cr: var TreeCursor): CgNode =
   ## Generates the ``CgNode`` tree for the body of a construct that implies
@@ -709,8 +695,6 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     newStmt(cnkBreakStmt, info, [newLabelNode(BlockId idx, info)])
   of mnkReturn:
     newNode(cnkReturnStmt, info)
-  of mnkPNode:
-    translateNode(n.node)
   of mnkVoid:
     var res = exprToIr(tree, cl, cr)
     if res.typ.isEmptyType():

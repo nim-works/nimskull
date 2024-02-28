@@ -189,97 +189,6 @@ proc genGotoForCase(p: BProc; caseStmt: CgNode) =
     genStmts(p, it.lastSon)
     endBlock(p)
 
-proc genAsgn(p: BProc, e: CgNode)
-
-proc genComputedGoto(p: BProc; n: CgNode) =
-  # first pass: Generate array of computed labels:
-
-  # flatten the loop body because otherwise let and var sections
-  # wrapped inside stmt lists by inject destructors won't be recognised
-  # XXX: ^^ this doesn't work as intended (see the comment in
-  #      ``flattenStmts``)
-  let n = n.flattenStmts()
-  var casePos = -1
-  var arraySize: int
-  for i in 0..<n.len:
-    let it = n[i]
-    if it.kind == cnkCaseStmt:
-      # XXX: move the checks into the semantic analysis phase
-      if not isOfBranch(it[^1]):
-        localReport(p.config, it.info, reportSem rsemExpectedExhaustiveCaseForComputedGoto)
-        return
-
-      casePos = i
-      if enumHasHoles(it[0].typ):
-        localReport(p.config, it.info, reportSem rsemExpectedUnholyEnumForComputedGoto)
-        return
-
-      let aSize = lengthOrd(p.config, it[0].typ)
-      if aSize > 10_000:
-        localReport(p.config, it.info, reportSem rsemTooManyEntriesForComputedGoto)
-        return
-
-      arraySize = toInt(aSize)
-      if firstOrd(p.config, it[0].typ) != 0:
-        localReport(p.config, it.info, reportSem rsemExpectedLow0ForComputedGoto)
-        return
-
-  if casePos < 0:
-    localReport(p.config, n.info, reportSem rsemExpectedCaseForComputedGoto)
-    return
-
-  var id = p.labels+1
-  inc p.labels, arraySize+1
-  let tmp = "TMP$1_" % [id.rope]
-  var gotoArray = "static void* $#[$#] = {" % [tmp, arraySize.rope]
-  for i in 1..arraySize-1:
-    gotoArray.addf("&&TMP$#_, ", [rope(id+i)])
-  gotoArray.addf("&&TMP$#_};$n", [rope(id+arraySize)])
-  line(p, cpsLocals, gotoArray)
-
-  for j in 0..<casePos:
-    genStmts(p, n[j])
-
-  let caseStmt = n[casePos]
-  var a: TLoc
-  initLocExpr(p, caseStmt[0], a)
-  # first goto:
-  lineF(p, cpsStmts, "goto *$#[$#];$n", [tmp, a.rdLoc])
-
-  for i in 1..<caseStmt.len:
-    startBlock(p)
-    let it = caseStmt[i]
-    for j in 0..<it.len-1:
-      if it[j].kind == cnkRange:
-        localReport(p.config, it.info, reportSem rsemDisallowedRangeForComputedGoto)
-        return
-
-      let val = getOrdValue(it[j])
-      lineF(p, cpsStmts, "TMP$#_:$n", [intLiteral(toInt64(val)+id+1)])
-
-    genStmts(p, it.lastSon)
-
-    for j in casePos+1..<n.len:
-      genStmts(p, n[j])
-
-    for j in 0..<casePos:
-      # prevent new local declarations
-      # compile declarations as assignments
-      let it = n[j]
-      if it.kind == cnkDef:
-        genAsgn(p, it)
-      else:
-        genStmts(p, it)
-
-    var a: TLoc
-    initLocExpr(p, caseStmt[0], a)
-    lineF(p, cpsStmts, "goto *$#[$#];$n", [tmp, a.rdLoc])
-    endBlock(p)
-
-  for j in casePos+1..<n.len:
-    genStmts(p, n[j])
-
-
 proc genRepeatStmt(p: BProc, t: CgNode) =
   # we don't generate labels here as for example GCC would produce
   # significantly worse code
@@ -288,10 +197,7 @@ proc genRepeatStmt(p: BProc, t: CgNode) =
 
   if true:
     var loopBody = t[0]
-    if loopBody.stmtsContainPragma(wComputedGoto) and
-       hasComputedGoto in CC[p.config.cCompiler].props:
-      genComputedGoto(p, loopBody)
-    else:
+    if true:
       startBlock(p, "while (1) {$n")
       genStmts(p, loopBody)
 

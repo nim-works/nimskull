@@ -36,9 +36,6 @@ proc treeRepr*(n: CgNode): string =
       result.add "strVal: \""
       result.add n.strVal
       result.add "\""
-    of cnkPragmaStmt:
-      result.add "pragma: "
-      result.add $n.pragma
     of cnkField:
       result.add "field: "
       result.add n.field.name.s

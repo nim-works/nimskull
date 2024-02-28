@@ -59,9 +59,6 @@ func `$`(n: MirNode): string =
   of mnkEnd:
     result.add " start: "
     result.add $n.start
-  of mnkPNode:
-    result.add " node: "
-    result.add $n.node.kind
   of mnkTag:
     result.add " effect: "
     result.add $n.effect
@@ -496,9 +493,6 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string,
     tree "destroy ":
       valueToStr()
       result.add "\n"
-  of mnkPNode:
-    result.add repeat("  ", indent)
-    result.add "PNode " & $n.node & "\n"
   of mnkBreak:
     result.add repeat("  ", indent)
     result.add "break L" & $n.label.int & "\n"

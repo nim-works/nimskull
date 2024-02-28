@@ -2446,7 +2446,6 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkAsmStmt, cnkEmitStmt: genAsmOrEmitStmt(p, n)
   of cnkTryStmt: genTry(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)
-  of cnkPragmaStmt: discard
   of cnkInvalid, cnkMagic, cnkRange, cnkBinding, cnkExcept, cnkFinally,
      cnkBranch, cnkAstLit, cnkLabel, cnkStmtListExpr, cnkField:
     internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
