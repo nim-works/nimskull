@@ -252,12 +252,6 @@ type
     # structural changes, as not all node kinds are able to use the length
     # field at the moment
 
-    mnkPNode ## depending on the context, either statement or something else.
-             ## If it appears as a statement, it is expected to not have any
-             ## obsersvable effects
-             ## XXX: eventually, everything that currently requires
-             ##      ``mnkPNode`` should be expressable directly in the IR
-
   EffectKind* = enum
     ekMutate    ## the value in the location is mutated
     ekReassign  ## a new value is assigned to the location
@@ -301,8 +295,6 @@ type
                       ## for a break, the label of the block to break out of
     of mnkEnd:
       start*: MirNodeKind ## the kind of the corresponding start node
-    of mnkPNode:
-      node*: PNode
     of mnkTag:
       effect*: EffectKind ## the effect that happens when the operator the
                           ## tagged value is passed to is executed
@@ -331,7 +323,7 @@ const
     ## Node kinds that represent definition statements (i.e. something that
     ## introduces a named entity)
 
-  AtomNodes* = {mnkNone..mnkType, mnkMagic, mnkBreak, mnkReturn, mnkPNode}
+  AtomNodes* = {mnkNone..mnkType, mnkMagic, mnkBreak, mnkReturn}
     ## Nodes that don't support sub nodes.
 
   SubTreeNodes* = AllNodeKinds - AtomNodes - {mnkEnd}
@@ -365,7 +357,7 @@ const
     ## Nodes that may be appear in atom-expecting slots.
 
   StmtNodes* = {mnkScope, mnkStmtList, mnkIf, mnkCase, mnkRepeat, mnkTry,
-                mnkBlock, mnkBreak, mnkReturn, mnkRaise, mnkPNode, mnkInit,
+                mnkBlock, mnkBreak, mnkReturn, mnkRaise, mnkInit,
                 mnkAsgn, mnkSwitch, mnkVoid, mnkRaise, mnkDestroy, mnkEmit,
                 mnkAsm} + DefNodes
 

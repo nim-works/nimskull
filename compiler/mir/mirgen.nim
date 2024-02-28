@@ -1963,15 +1963,6 @@ proc gen(c: var TCtx, n: PNode) =
       of wEmit:
         c.builder.useSource(c.sp, it)
         genAsmOrEmitStmt(c, mnkEmit, it[1])
-      of wComputedGoto:
-        # the MIR doesn't handle this directive, but the code generators
-        # might. As such, we need to keep it via a ``mnkPNode``. Since the
-        # directive might be combined with some other directive in a
-        # single statement, we split it out into a standalone pragma statement
-        # first
-        # XXX: ideally, sem or transf would split pragma statement up
-        c.builder.useSource(c.sp, it)
-        c.add MirNode(kind: mnkPNode, node: newTree(nkPragma, [it]))
       else:     discard
 
   of nkAsmStmt:

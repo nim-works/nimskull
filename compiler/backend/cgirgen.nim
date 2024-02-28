@@ -695,8 +695,6 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     newStmt(cnkBreakStmt, info, [newLabelNode(BlockId idx, info)])
   of mnkReturn:
     newNode(cnkReturnStmt, info)
-  of mnkPNode:
-    discard
   of mnkVoid:
     var res = exprToIr(tree, cl, cr)
     if res.typ.isEmptyType():
