@@ -9,8 +9,7 @@ import
   ],
   compiler/ast/[
     ast_types,
-    lineinfos,
-    wordrecg
+    lineinfos
   ],
   compiler/mir/[
     mirtrees
@@ -109,7 +108,6 @@ type
     # expression or not
 
     cnkVoidStmt   ## discard the operand value (i.e., do nothing with it)
-    cnkPragmaStmt ## a single compiler directive
     cnkEmitStmt   ## an ``emit`` statement
     cnkAsmStmt    ## an ``asm`` statement
 
@@ -149,7 +147,7 @@ const
   cnkWithOperand*  = {cnkConv, cnkHiddenConv, cnkDeref, cnkAddr, cnkHiddenAddr,
                       cnkDerefView, cnkObjDownConv, cnkObjUpConv, cnkCast,
                       cnkLvalueConv}
-  cnkAtoms*        = {cnkInvalid..cnkMagic, cnkReturnStmt, cnkPragmaStmt}
+  cnkAtoms*        = {cnkInvalid..cnkMagic, cnkReturnStmt}
     ## node kinds that denote leafs
   cnkWithItems*    = AllKinds - cnkWithOperand - cnkAtoms
     ## node kinds for which the ``items`` iterator is available
@@ -200,7 +198,6 @@ type
     of cnkMagic:      magic*: TMagic
     of cnkLabel:      label*: BlockId
     of cnkLocal:      local*: LocalId
-    of cnkPragmaStmt: pragma*: TSpecialWord
     of cnkWithOperand: operand*: CgNode
     of cnkWithItems:
       kids*: seq[CgNode]

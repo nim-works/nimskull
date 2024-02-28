@@ -2129,7 +2129,6 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     assert p.config.exc == excGoto
     genTryGoto(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)
-  of cnkPragmaStmt: discard
   of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkExcept,
      cnkFinally, cnkBranch, cnkLabel, cnkStmtListExpr, cnkField:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")

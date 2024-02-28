@@ -3197,7 +3197,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
       genCastIntFloat(c, n, dest)
   of cnkType:
     genTypeLit(c, n, n.typ, dest)
-  of cnkPragmaStmt, cnkAsmStmt, cnkEmitStmt:
+  of cnkAsmStmt, cnkEmitStmt:
     unused(c, n, dest)
   of cnkInvalid, cnkMagic, cnkRange, cnkExcept, cnkFinally, cnkBranch,
      cnkBinding, cnkLabel, cnkStmtListExpr, cnkField, cnkToSlice:

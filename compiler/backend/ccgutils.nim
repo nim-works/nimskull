@@ -14,7 +14,6 @@ import
     hashes, strutils
   ],
   compiler/ast/[
-    wordrecg,
     ast,
     types
   ],
@@ -28,21 +27,7 @@ import
   ],
   compiler/backend/[
     cgendata,
-    cgir
   ]
-
-proc getPragmaStmt*(n: CgNode, w: TSpecialWord): CgNode =
-  case n.kind
-  of cnkStmtList:
-    for i in 0..<n.len:
-      result = getPragmaStmt(n[i], w)
-      if result != nil: break
-  of cnkPragmaStmt:
-    if n.pragma == w: return n
-  else: discard
-
-proc stmtsContainPragma*(n: CgNode, w: TSpecialWord): bool =
-  result = getPragmaStmt(n, w) != nil
 
 proc hashString*(conf: ConfigRef; s: string): BiggestInt =
   # has to be the same algorithm as strmantle.hashString!
