@@ -258,10 +258,6 @@ template appcg(m: BModule, sec: TCFileSection, frmt: FormatStr,
            args: untyped) =
   m.s[sec].add(ropecg(m, frmt, args))
 
-template appcg(p: BProc, sec: TCProcSection, frmt: FormatStr,
-           args: untyped) =
-  p.s(sec).add(ropecg(p.module, frmt, args))
-
 template line(p: BProc, sec: TCProcSection, r: Rope) =
   p.s(sec).add(indentLine(p, r))
 
