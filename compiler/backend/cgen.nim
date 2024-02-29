@@ -824,9 +824,6 @@ proc finishProc*(p: BProc, id: ProcedureId): string =
       generatedProc.add(initFrame(p, procname, quotedFilename(p.config, prc.info)))
     else:
       generatedProc.add(p.s(cpsLocals))
-    if optProfiler in prc.options:
-      # invoke at proc entry for recursion:
-      appcg(p, cpsInit, "\t#nimProfile();$n", [])
     # this pair of {} was added because C++ is stricter with its control flow
     # integrity checks, leaving them in
     if beforeRetNeeded in p.flags: generatedProc.add("{")
