@@ -2124,7 +2124,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
             # I suggest revisiting this once the language decides on whether
             # `not nil` should be the default. We can then map nilable refs
             # to other types such as `Option[T]`.
-            result = makeTypeFromExpr(c, newTree(nkStmtListType, n.copyTree))
+            result = makeTypeFromExpr(c, n.copyTree)
           of NilableTypes + {tyGenericInvocation, tyForward}:
             result = freshType(c, result, prev)
             result.flags.incl(tfNotNil)
@@ -2162,7 +2162,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
   of nkWhenStmt:
     var whenResult = semWhen(c, n, false)
     if whenResult.kind == nkStmtList:
-      whenResult.transitionSonsKind(nkStmtListType)
+      whenResult.transitionSonsKind(nkStmtListExpr)
     result = semTypeNode(c, whenResult, prev)
   of nkBracketExpr:
     checkMinSonsLen(n, 2, c.config)
@@ -2312,7 +2312,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     else:
       result = semProcTypeWithScope(c, n, prev, skProc)
   of nkEnumTy: result = semEnum(c, n, prev)
-  of nkStmtListType: result = semStmtListType(c, n, prev)
+  of nkStmtListType, nkStmtListExpr: result = semStmtListType(c, n, prev)
   of nkBlockType: result = semBlockType(c, n, prev)
   of nkError:
     localReport(c.config, n, reportSem rsemTypeExpected)

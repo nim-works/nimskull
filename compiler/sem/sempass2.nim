@@ -1313,8 +1313,10 @@ proc track(tracked: PEffects, n: PNode) =
       if iterCall[1].typ != nil and
          iterCall[1].typ.skipTypes(abstractVar).kind notin {tyVarargs, tyOpenArray}:
         createTypeBoundOps(tracked, iterCall[1].typ, iterCall[1].info)
-    
+
     if tracked.owner.kind != skMacro and iterCall.kind in nkCallKinds and
+       iterCall[0].typ != nil and # XXX: untyped nkForStmt can reach here
+                                  # due to types not being folded away
        iterCall[0].typ.skipTypes(abstractInst).callConv == ccClosure:
       # the loop is a for-loop over a closure iterator. Lift the hooks for
       # the iterator
