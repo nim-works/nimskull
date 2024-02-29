@@ -34,8 +34,8 @@ proc profileCallback(st: StackTrace) =
 
 # nothing will happen before the hook is set
 profilerHook = profileCallback
-# the "profiling requested" callback guards whether to invoke the profile
-# callback is invoked
+# the "profiling requested" callback guards whether to invoke the profiler
+# callback
 profilingRequestedHook = enabledCallback
 
 proc test() =
