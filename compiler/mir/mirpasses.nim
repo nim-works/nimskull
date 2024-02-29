@@ -8,7 +8,11 @@ import
   compiler/ast/[
     ast_query,
     ast_types,
+    lineinfos,
     types
+  ],
+  compiler/front/[
+    in_options
   ],
   compiler/mir/[
     analysis,
@@ -19,6 +23,10 @@ import
     mirconstr,
     mirtrees,
     sourcemaps
+  ],
+  compiler/modules/[
+    modulegraphs,
+    magicsys
   ],
   compiler/sem/[
     aliasanalysis,
@@ -425,8 +433,33 @@ proc injectResultInit(tree: MirTree, resultVar: PSym, changes: var Changeset) =
         bu.buildMagicCall mDefault, resultVar.typ:
           discard
 
+proc injectProfilerCalls(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
+                         changes: var Changeset) =
+  ## Instruments the body with calls to the ``nimProfile`` compiler runtime
+  ## procedure. Profiler calls are placed:
+  ## * at the beginning of a procedure's body
+  ## * at the end of a loop's body
+  let
+    voidType = graph.getSysType(unknownLineInfo, tyVoid)
+    prc = graph.getCompilerProc("nimProfile")
+    prcId = env.procedures.add(prc)
+
+  # insert the entry call within the outermost scope:
+  changes.insert(tree, tree.child(NodePosition 0, 0), NodePosition 0, bu):
+    bu.subTree mnkVoid:
+      bu.buildCall prcId, prc.typ, voidType:
+        discard "no arguments"
+
+  for i in search(tree, {mnkEnd}):
+    if tree[i].start == mnkRepeat:
+      # insert the call before the end node:
+      changes.insert(tree, i - 1, i, bu):
+        bu.subTree mnkVoid:
+          bu.buildCall prcId, prc.typ, voidType:
+            discard "no arguments"
+
 proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
-                  config: ConfigRef, target: TargetBackend) =
+                  graph: ModuleGraph, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
   ## `prc`. `target` is the targeted backend and is used to enable/disable
   ## certain passes. Passes may register new entities with `env`.
@@ -454,6 +487,16 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       # only the C and VM targets need the extraction, and only the VM
       # requires the extraction for cstring literals
       extractStringLiterals(body.code, env, c)
+
+  # instrument the body with profiler calls after all lowerings, but before
+  # optimization
+  if (sfPure notin prc.flags) and (optProfiler in prc.options) and
+     (target in {targetC, targetJs}):
+    # XXX: not enabled for the VM because compile-time and run-time cannot
+    #      be distinguished at the moment (no instrumentation should happen
+    #      for compile-time code)
+    batch:
+      injectProfilerCalls(body.code, graph, env, c)
 
   # eliminate temporaries after all other passes
   batch:

@@ -184,7 +184,7 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
 
   # `n` is expected to have been put through ``transf`` already
   var mirBody = generateMirCode(c, jit.gen.env, n, isStmt = true)
-  applyPasses(mirBody, c.module, jit.gen.env, c.config, targetVm)
+  applyPasses(mirBody, c.module, jit.gen.env, c.graph, targetVm)
   for _ in discover(jit.gen.env, cp):
     discard "nothing to register"
 
@@ -216,7 +216,7 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   let cp = checkpoint(jit.gen.env)
 
   var mirBody = generateMirCode(c, jit.gen.env, n)
-  applyPasses(mirBody, c.module, jit.gen.env, c.config, targetVm)
+  applyPasses(mirBody, c.module, jit.gen.env, c.graph, targetVm)
   for _ in discover(jit.gen.env, cp):
     discard "nothing to register"
 
@@ -255,7 +255,7 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   echoInput(c.config, s, body)
   var mirBody = generateCode(c.graph, jit.gen.env, s, selectOptions(c), body)
   echoMir(c.config, s, mirBody)
-  applyPasses(mirBody, s, jit.gen.env, c.config, targetVm)
+  applyPasses(mirBody, s, jit.gen.env, c.graph, targetVm)
   for _ in discover(jit.gen.env, cp):
     discard "nothing to register"
 
