@@ -894,7 +894,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     if optOverflowCheck in c.userOptions:
       const Map = [mAddI: mAddI, mSubI, mMulI, mDivI, mModI,
                    mSucc: mAddI, mPred: mSubI]
-      c.buildCheckedMagicCall Map[m], n.typ:
+      c.buildDefectMagicCall Map[m], n.typ:
         arg n[1]
         arg n[2]
     else:
