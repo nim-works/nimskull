@@ -25,6 +25,9 @@ import
     backends,
     cgir
   ],
+  compiler/front/[
+    in_options,
+  ],
   compiler/mir/[
     datatables,
     mirbodies,
@@ -175,6 +178,15 @@ template runCodeGen(c: var TCtx, cg: var CodeGenCtx, b: Body,
   swapState(c, cg)
   r
 
+proc applyPasses(c: var TCtx, env: var MirEnv, prc: PSym, body: var MirBody) =
+  let restore = optProfiler in prc.options
+  # don't instrument procedures when using the JIT
+  if restore:
+    prc.options.excl optProfiler
+  applyPasses(body, prc, env, c.graph, targetVm)
+  if restore:
+    prc.options.incl optProfiler
+
 proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
   ## Generates and emits code for the standalone top-level statement `n`.
   preCheck(jit.gen.env, n)
@@ -184,7 +196,7 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
 
   # `n` is expected to have been put through ``transf`` already
   var mirBody = generateMirCode(c, jit.gen.env, n, isStmt = true)
-  applyPasses(mirBody, c.module, jit.gen.env, c.graph, targetVm)
+  applyPasses(c, jit.gen.env, c.module, mirBody)
   for _ in discover(jit.gen.env, cp):
     discard "nothing to register"
 
@@ -216,7 +228,7 @@ proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   let cp = checkpoint(jit.gen.env)
 
   var mirBody = generateMirCode(c, jit.gen.env, n)
-  applyPasses(mirBody, c.module, jit.gen.env, c.graph, targetVm)
+  applyPasses(c, jit.gen.env, c.module, mirBody)
   for _ in discover(jit.gen.env, cp):
     discard "nothing to register"
 
@@ -255,7 +267,7 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   echoInput(c.config, s, body)
   var mirBody = generateCode(c.graph, jit.gen.env, s, selectOptions(c), body)
   echoMir(c.config, s, mirBody)
-  applyPasses(mirBody, s, jit.gen.env, c.graph, targetVm)
+  applyPasses(c, jit.gen.env, s, mirBody)
   for _ in discover(jit.gen.env, cp):
     discard "nothing to register"
 

@@ -490,11 +490,7 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
 
   # instrument the body with profiler calls after all lowerings, but before
   # optimization
-  if (sfPure notin prc.flags) and (optProfiler in prc.options) and
-     (target in {targetC, targetJs}):
-    # XXX: not enabled for the VM because compile-time and run-time cannot
-    #      be distinguished at the moment (no instrumentation should happen
-    #      for compile-time code)
+  if (sfPure notin prc.flags) and (optProfiler in prc.options):
     batch:
       injectProfilerCalls(body.code, graph, env, c)
 

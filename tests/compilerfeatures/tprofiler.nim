@@ -5,12 +5,8 @@ discard """
   '''
   targets: "c js vm"
   matrix: "--profiler:on"
-  knownIssue.vm: '''
-    Due to a deficit with MIR pass application, no instrumentation with
-    `nimProfile` calls happens
-  '''
-  knownIssue.js: '''
-    The `system/profile.nim` module is not available for the JS target
+  knownIssue.js vm: '''
+    The `system/profile.nim` module is not available for the targets
   '''
 """
 
