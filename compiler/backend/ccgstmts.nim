@@ -200,10 +200,6 @@ proc genRepeatStmt(p: BProc, t: CgNode) =
     if true:
       startBlock(p, "while (1) {$n")
       genStmts(p, loopBody)
-
-      if optProfiler in p.options:
-        # invoke at loop body exit:
-        linefmt(p, cpsStmts, "#nimProfile();$n", [])
       endBlock(p)
 
   dec(p.withinLoop)

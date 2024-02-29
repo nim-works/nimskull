@@ -258,10 +258,6 @@ template appcg(m: BModule, sec: TCFileSection, frmt: FormatStr,
            args: untyped) =
   m.s[sec].add(ropecg(m, frmt, args))
 
-template appcg(p: BProc, sec: TCProcSection, frmt: FormatStr,
-           args: untyped) =
-  p.s(sec).add(ropecg(p.module, frmt, args))
-
 template line(p: BProc, sec: TCProcSection, r: Rope) =
   p.s(sec).add(indentLine(p, r))
 
@@ -824,9 +820,6 @@ proc finishProc*(p: BProc, id: ProcedureId): string =
       generatedProc.add(initFrame(p, procname, quotedFilename(p.config, prc.info)))
     else:
       generatedProc.add(p.s(cpsLocals))
-    if optProfiler in prc.options:
-      # invoke at proc entry for recursion:
-      appcg(p, cpsInit, "\t#nimProfile();$n", [])
     # this pair of {} was added because C++ is stricter with its control flow
     # integrity checks, leaving them in
     if beforeRetNeeded in p.flags: generatedProc.add("{")
