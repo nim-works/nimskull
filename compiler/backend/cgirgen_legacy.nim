@@ -80,11 +80,6 @@ type
     pos: uint32 ## the index of the currently pointed to node
     origin {.cursor.}: PNode ## the source node
 
-template isFilled(x: LocalId): bool =
-  # '0' is a valid ID, but this procedure is only used for
-  # temporaries, which can never map to the result variable
-  x.int != 0
-
 func newMagicNode(magic: TMagic, info: TLineInfo): CgNode =
   CgNode(kind: cnkMagic, info: info, magic: magic)
 
