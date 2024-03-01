@@ -132,6 +132,10 @@ proc exit(n: CgNode): CgNode =
   of cnkCheckedCall: n[^1]
   else:              nil
 
+proc useLabel(p: BProc, label: CLabel) {.inline.} =
+  if label.id == ExitLabel:
+    p.flags.incl beforeRetNeeded
+
 proc raiseInstr(p: BProc, n: CgNode): Rope =
   if n != nil:
     case n.kind
@@ -141,6 +145,7 @@ proc raiseInstr(p: BProc, n: CgNode): Rope =
     of cnkTargetList:
       # the first non-leave operand is the initial jump target
       let label = toCLabel(n[0], p.specifier)
+      useLabel(p, label)
       result = ropecg(p.module, "goto $1;", [label])
     else:
       unreachable(n.kind)
@@ -506,6 +511,7 @@ proc gen(p: BProc, code: openArray[CInstr], stmts: CgNode) =
     of opLabel:
       lineCg(p, cpsStmts, "$1:;$n", [it.label])
     of opJump:
+      useLabel(p, it.label)
       lineCg(p, cpsStmts, "goto $1;$n", [it.label])
     of opDispJump:
       # must only be part of a dispatcher
@@ -517,6 +523,7 @@ proc gen(p: BProc, code: openArray[CInstr], stmts: CgNode) =
       lineF(p, cpsStmts, "switch (Target$1_) {$n", [$it.discr])
       for i in 0..<it.value:
         inc pos
+        useLabel(p, code[pos].label)
         lineCg(p, cpsStmts, "case $1: goto $2;$n", [i, code[pos].label])
 
       # help the C compiler a bit by making the case statement exhaustive
@@ -536,6 +543,7 @@ proc gen(p: BProc, code: openArray[CInstr], stmts: CgNode) =
         lineCg(p, cpsStmts, "*nimErr_ = oldNimErrFin$1_;$n", [$it.local])
     of opErrJump:
       if nimErrorFlagDisabled notin p.flags:
+        useLabel(p, code[pos].label)
         p.flags.incl nimErrorFlagAccessed
         lineCg(p, cpsStmts, "if (NIM_UNLIKELY(*nimErr_)) goto $1;$n",
                [it.label])
