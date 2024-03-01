@@ -498,6 +498,9 @@ proc toInstrList*(stmts: CgNode, isFull: bool): seq[CInstr] =
           jump code, opJump, c, PathIndex c.paths[entry].next
 
     of cnkJoinStmt:
+      # XXX: labels that were redirected cannot be eliminated yet, as case
+      #      statements (which are handled outside of ccgflow) might still
+      #      target them
       label code, toCLabel(it[0])
     of cnkExcept:
       # an except section is a label followed by the filter logic
