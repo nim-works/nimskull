@@ -48,20 +48,20 @@ proc isHarmlessStore(p: BProc; canRaise: bool; d: TLoc): bool =
   else:
     result = false
 
-proc exitCall(p: BProc, callee: CgNode, canRaise: bool) =
+proc exitCall(p: BProc, call: CgNode) =
   ## Emits the exceptional control-flow related post-call logic.
-  if p.config.exc == excGoto:
+  if call.kind == cnkCheckedCall:
     if nimErrorFlagDisabled in p.flags:
-      if callee.kind == cnkProc and sfNoReturn in p.env[callee.prc].flags and
-         canRaiseConservative(p.env, callee):
+      if call[0].kind == cnkProc and sfNoReturn in p.env[call[0].prc].flags and
+         canRaiseConservative(p.env, call[0]):
         # when using goto-exceptions, noreturn doesn't map to "doesn't return"
         # at the C-level. In order to still support dispatching to wrapper
         # procedures around ``raise`` from inside ``.compilerprocs``, we emit
         # an exit after the call
         p.flags.incl beforeRetNeeded
         lineF(p, cpsStmts, "goto BeforeRet_;$n", [])
-    elif canRaise:
-      raiseExit(p)
+    else:
+      raiseExit(p, call[^1])
 
 proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
                callee, params: Rope) =
@@ -86,7 +86,7 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         pl.add(addrLoc(p.config, d))
         pl.add(~");$n")
         line(p, cpsStmts, pl)
-        exitCall(p, ri[0], canRaise)
+        exitCall(p, ri)
     else:
       pl.add(~")")
       if isHarmlessStore(p, canRaise, d):
@@ -96,7 +96,7 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         initLoc(list, locCall, d.lode, OnUnknown)
         list.r = pl
         genAssignment(p, d, list)
-        exitCall(p, ri[0], canRaise)
+        exitCall(p, ri)
       else:
         var tmp: TLoc
         getTemp(p, typ[0], tmp)
@@ -104,12 +104,12 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         initLoc(list, locCall, d.lode, OnUnknown)
         list.r = pl
         genAssignment(p, tmp, list)
-        exitCall(p, ri[0], canRaise)
+        exitCall(p, ri)
         genAssignment(p, d, tmp)
   else:
     pl.add(~");$n")
     line(p, cpsStmts, pl)
-    exitCall(p, ri[0], canRaise)
+    exitCall(p, ri)
 
 proc reifiedOpenArray(p: BProc, n: CgNode): bool {.inline.} =
   # all non-parameter openArrays are reified
@@ -264,7 +264,7 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
           getTemp(p, typ[0], d)
         pl.add(addrLoc(p.config, d))
         genCallPattern()
-        exitCall(p, ri[0], canRaise)
+        exitCall(p, ri)
     elif isHarmlessStore(p, canRaise, d):
       if d.k == locNone: getTemp(p, typ[0], d)
       assert(d.t != nil)        # generate an assignment to d:
@@ -275,7 +275,7 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
       else:
         list.r = PatProc % [rdLoc(op), pl, pl.addComma, rawProc]
       genAssignment(p, d, list)
-      exitCall(p, ri[0], canRaise)
+      exitCall(p, ri)
     else:
       var tmp: TLoc
       getTemp(p, typ[0], tmp)
@@ -287,11 +287,11 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
       else:
         list.r = PatProc % [rdLoc(op), pl, pl.addComma, rawProc]
       genAssignment(p, tmp, list)
-      exitCall(p, ri[0], canRaise)
+      exitCall(p, ri)
       genAssignment(p, d, tmp)
   else:
     genCallPattern()
-    exitCall(p, ri[0], canRaise)
+    exitCall(p, ri)
 
 proc genAsgnCall(p: BProc, le, ri: CgNode, d: var TLoc) =
   if ri[0].typ.skipTypes({tyGenericInst, tyAlias, tySink}).callConv == ccClosure:

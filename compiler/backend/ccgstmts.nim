@@ -224,18 +224,6 @@ proc genBreakStmt(p: BProc, t: CgNode) =
   genLineDir(p, t)
   lineF(p, cpsStmts, "goto $1;$n", [label])
 
-proc raiseExit(p: BProc) =
-  assert p.config.exc == excGoto
-  if nimErrorFlagDisabled notin p.flags:
-    p.flags.incl nimErrorFlagAccessed
-    if p.nestedTryStmts.len == 0:
-      p.flags.incl beforeRetNeeded
-      # easy case, simply goto 'ret':
-      lineCg(p, cpsStmts, "if (NIM_UNLIKELY(*nimErr_)) goto BeforeRet_;$n", [])
-    else:
-      lineCg(p, cpsStmts, "if (NIM_UNLIKELY(*nimErr_)) goto LA$1_;$n",
-        [p.nestedTryStmts[^1].label])
-
 proc exit(n: CgNode): CgNode =
   # XXX: exists as a convenience for overflow check, index check, etc.
   #      code gen. Should be removed once those are fully lowered prior
@@ -260,6 +248,13 @@ proc raiseInstr(p: BProc, n: CgNode): Rope =
       unreachable(n.kind)
   else:
     result = ""
+
+proc raiseExit(p: BProc, n: CgNode) =
+  assert p.config.exc == excGoto
+  if nimErrorFlagDisabled notin p.flags:
+    p.flags.incl nimErrorFlagAccessed
+    lineCg(p, cpsStmts, "if (NIM_UNLIKELY(*nimErr_)) $1$n",
+           [raiseInstr(p, n)])
 
 proc genRaiseStmt(p: BProc, t: CgNode) =
   if t[0].kind != cnkEmpty:
