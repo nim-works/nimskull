@@ -598,13 +598,6 @@ proc fillProcLoc*(m: BModule; id: ProcedureId) =
   if id notin m.procs:
     m.procs[id] = ProcLoc(name: mangleName(m.g.graph, m.g.env[id]))
 
-proc getLabel(p: BProc): TLabel =
-  inc(p.labels)
-  result = "LA" & rope(p.labels) & "_"
-
-proc fixLabel(p: BProc, labl: TLabel) =
-  lineF(p, cpsStmts, "$1: ;$n", [labl])
-
 proc genVarPrototype*(m: BModule, id: GlobalId)
 proc genProcPrototype*(m: BModule, id: ProcedureId)
 proc genStmt(p: BProc, t: CgNode)

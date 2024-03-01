@@ -137,15 +137,7 @@ type
   BModule* = ref TCGen
   BProc* = ref TCProc
   TBlock* = object
-    id*: int                  ## the ID of the label; positive means that it
-    blk*: int                 ## the ``BlockId`` + 1 of the block.
-                              ## '0' if the ``TBlock`` doesn't correspond to a
-                              ## ``cnkBlockStmt``
-    label*: Rope              ## generated text for the label
-                              ## nil if label is not used
     sections*: TCProcSections ## the code belonging
-    nestedTryStmts*: int16    ## how many try statements is it nested into
-    nestedExceptStmts*: int16 ## how many except statements is it nested into
     frameLen*: int16
 
   TCProcFlag* = enum

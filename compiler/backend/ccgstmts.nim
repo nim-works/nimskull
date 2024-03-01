@@ -15,29 +15,14 @@ const
   stringCaseThreshold = 8
     # above X strings a hash-switch for strings is generated
 
-proc inExceptBlockLen(p: BProc): int =
-  for x in p.nestedTryStmts:
-    if x.inExcept: result.inc
-
-proc startBlockInternal(p: BProc, blk: int) =
-  inc(p.labels)
+proc startBlockInternal(p: BProc) =
   let result = p.blocks.len
   setLen(p.blocks, result + 1)
-  p.blocks[result].id = p.labels
-  p.blocks[result].blk = blk
-  p.blocks[result].nestedTryStmts = p.nestedTryStmts.len.int16
-  p.blocks[result].nestedExceptStmts = p.inExceptBlockLen.int16
 
 template startBlock(p: BProc, start: FormatStr = "{$n",
-                args: varargs[Rope]) =
+                args: varargs[Rope]) {.used.} =
   lineCg(p, cpsStmts, start, args)
-  startBlockInternal(p, 0)
-
-template startBlock(p: BProc, id: BlockId) =
-  lineCg(p, cpsStmts, "{$n", [])
-  startBlockInternal(p, id.int + 1)
-
-proc endBlock(p: BProc)
+  startBlockInternal(p)
 
 proc loadInto(p: BProc, le, ri: CgNode, a: var TLoc) {.inline.} =
   if ri.kind in {cnkCall, cnkCheckedCall} and
@@ -76,10 +61,7 @@ proc endBlock(p: BProc) =
   var blockEnd: Rope
   if frameLen > 0:
     blockEnd.addf("FR_.len-=$1;$n", [frameLen.rope])
-  if p.blocks[topBlock].label != "":
-    blockEnd.addf("} $1: ;$n", [p.blocks[topBlock].label])
-  else:
-    blockEnd.addf("}$n", [])
+  blockEnd.addf("}$n", [])
   endBlock(p, blockEnd)
 
 proc genGotoVar(p: BProc; value: CgNode) =
