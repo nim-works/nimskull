@@ -283,6 +283,23 @@ proc genObjConv(n: CgNode, a, b, t: PType): CgNode =
     if diff < 0: cnkObjUpConv else: cnkObjDownConv,
     n.info, t): n
 
+proc disable(cl: var TranslateCl) =
+  # consider the following MIR:
+  #   try:
+  #     return
+  #     def _1 = ...
+  #   finally:
+  #     =destroy(name _1)
+  #
+  # Although nonesense, this is currently both legal and possible MIR. If
+  # translation would be disabled beyond the ``return``, then the temporary
+  # wouldn't be registered. Therefore, disable is a no-op when in an unscoped
+  # contexts (such as the above)
+  # XXX: eliminating unreachable code needs to happen much earlier, either in
+  #      ``mirgen`` or ``transf``
+  if not cl.inUnscoped:
+    cl.isActive = false
+
 # forward declarations:
 proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
               cr: var TreeCursor, stmts: var seq[CgNode])
@@ -737,7 +754,7 @@ template exit(lbl: LabelId) =
     let n = newStmt(cnkGotoStmt, unknownLineInfo, nil)
     stmts.add n
     cl.exits.add((n, lbl))
-    cl.isActive = false
+    cl.disable()
 
 template guarded(lbl: LabelId, body: untyped) =
   ## Updates all exits emitted as part of `body` with a leave instruction
@@ -887,7 +904,7 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
 
       leave(tree, cr)
 
-    cl.isActive = false
+    cl.disable()
     # if structured control-flow exits the try statement, the join will enable
     # translation again
     join info, target
@@ -931,7 +948,7 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     res.add nil # reserve a slot for the label
     cl.raiseExits.add (res, LabelId(0))
     stmts.add res
-    cl.isActive = false
+    cl.disable()
     leave(tree, cr)
   of mnkCase:
     caseToIr(tree, env, cl, n, cr, stmts)
@@ -986,7 +1003,10 @@ proc caseToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl, n: MirNode,
 
   # we used manual gotos, so emission of a join statement has to be forced
   join result.info, exit, required=true
-  cl.isActive = doesExit
+  if doesExit:
+    cl.isActive = true
+  else:
+    cl.disable()
 
   leave(tree, cr)
 
