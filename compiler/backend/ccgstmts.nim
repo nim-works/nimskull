@@ -677,7 +677,7 @@ proc genAsgn(p: BProc, e: CgNode) =
     genLineDir(p, ri)
     loadInto(p, le, ri, a)
 
-proc genStmts(p: BProc, t: CgNode) =
+proc genStmt(p: BProc, t: CgNode) =
   var a: TLoc
 
   let isPush = p.config.hasHint(rsemExtendedContext)
@@ -685,3 +685,65 @@ proc genStmts(p: BProc, t: CgNode) =
   expr(p, t, a)
   if isPush: popInfoContext(p.config)
   internalAssert p.config, a.k in {locNone, locTemp, locLocalVar, locExpr}
+
+proc gen(p: BProc, code: openArray[CInstr], stmts: CgNode) =
+  ## Generates and emits the C code for `code` and `stmts`. This is the main
+  ## driver of C code generation.
+  var pos = 0
+  while pos < code.len:
+    let it = code[pos]
+    case it.op
+    of opLabel:
+      lineCg(p, cpsStmts, "$1:;$n", [it.label])
+    of opJump:
+      lineCg(p, cpsStmts, "goto $1;$n", [it.label])
+    of opDispJump:
+      # must only be part of a dispatcher
+      unreachable()
+    of opSetTarget:
+      lineCg(p, cpsStmts, "Target$1_ = $2;$n", [$it.discr, it.value])
+    of opDispatcher:
+      lineF(p, cpsLocals, "NU8 Target$1_;$N", [$it.discr])
+      lineF(p, cpsStmts, "switch (Target$1_) {$n", [$it.discr])
+      for i in 0..<it.value:
+        inc pos
+        lineCg(p, cpsStmts, "case $1: goto $2;$n", [i, code[pos].label])
+
+      # help the C compiler a bit by making the case statement exhaustive
+      if hasAssume in CC[p.config.cCompiler].props:
+        lineF(p, cpsStmts, "default: __assume(0);$n", [])
+      # TODO: use ``__builtin_unreachable();`` for compiler supporting the
+      #       GCC built-ins
+      lineF(p, cpsStmts, "}$n", [])
+    of opBackup:
+      if nimErrorFlagDisabled notin p.flags:
+        p.flags.incl nimErrorFlagAccessed
+        lineCg(p, cpsStmts, "NI32 oldNimErrFin$1_ = *nimErr_; *nimErr_ = NIM_FALSE;$n",
+              [$it.local])
+    of opRestore:
+      if nimErrorFlagDisabled notin p.flags:
+        p.flags.incl nimErrorFlagAccessed
+        lineCg(p, cpsStmts, "*nimErr_ = oldNimErrFin$1_;$n", [$it.local])
+    of opErrJump:
+      if nimErrorFlagDisabled notin p.flags:
+        p.flags.incl nimErrorFlagAccessed
+        lineCg(p, cpsStmts, "if (NIM_UNLIKELY(*nimErr_)) goto $1;$n",
+               [it.label])
+
+    of opStmts:
+      # generate the code for all statements; no label specifier is set
+      p.specifier = none CLabelSpecifier
+      for i in it.stmts.items:
+        genStmt(p, stmts[i])
+    of opStmt:
+      p.specifier = some it.specifier
+      genStmt(p, stmts[it.stmt])
+
+    inc pos
+
+proc genStmts*(p: BProc, n: CgNode) =
+  ## Generates and emits the C code for the statement list node `n`, which
+  ## makes up the full body of the procedure. This is the external entry
+  ## point into the C code generator.
+  assert n.kind == cnkStmtList
+  gen(p, toInstrList(n, true), n)

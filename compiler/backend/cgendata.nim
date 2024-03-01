@@ -41,6 +41,7 @@ import
     pathutils
   ]
 
+import std/options as std_options
 
 type
   SymbolMap*[T] = object
@@ -174,6 +175,10 @@ type
     withinTryWithExcept*: int ## required for goto based exception handling
     withinBlockLeaveActions*: int ## complex to explain
     sigConflicts*: CountTable[string]
+
+    specifier*: Option[uint32]
+    # XXX: `specifier` is a hack. Some parts of the code generator manually
+    #      emit gotos, and thus need a label specifier, but they shouldn't
 
     body*: Body               ## the procedure's full body
     locals*: OrdinalSeq[LocalId, TLoc]

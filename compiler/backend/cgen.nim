@@ -62,11 +62,14 @@ import
     compat,
     extccomp,
     ccgutils,
+    ccgflow,
     cgendata,
     cgir
   ],
   compiler/plugins/[
   ]
+
+import std/options as std_options
 
 # xxx: reports are a code smell meaning data types are misplaced...
 #      like the backend report sem errors.
@@ -158,6 +161,23 @@ proc cgFormatValue(result: var string; value: BiggestInt) =
 
 proc cgFormatValue(result: var string; value: Int128) =
   result.addInt128 value
+
+proc cgFormatValue(result: var string; value: BlockId) =
+  # the trailing underscore makes sure that the name doesn't collide
+  # with other names
+  result.add "LA"
+  result.addInt value.uint32
+  result.add "_"
+
+proc cgFormatValue(result: var string, value: CLabel) =
+  if value.id == ExitLabel:
+    result.add "BeforeRet_"
+  else:
+    cgFormatValue(result, toBlockId(value.id))
+    # specifier:
+    if value.specifier.isSome:
+      result.addInt value.specifier.unsafeGet
+      result.add "_"
 
 # TODO: please document
 macro ropecg(m: BModule, frmt: static[FormatStr], args: untyped): Rope =
@@ -587,7 +607,7 @@ proc fixLabel(p: BProc, labl: TLabel) =
 
 proc genVarPrototype*(m: BModule, id: GlobalId)
 proc genProcPrototype*(m: BModule, id: ProcedureId)
-proc genStmts*(p: BProc, t: CgNode)
+proc genStmt(p: BProc, t: CgNode)
 proc expr(p: BProc, n: CgNode, d: var TLoc)
 proc putLocIntoDest(p: BProc, d: var TLoc, s: TLoc)
 proc intLiteral(i: BiggestInt): Rope
@@ -848,7 +868,7 @@ proc genPartial*(p: BProc, n: CgNode) =
   ## is intended for CG IR that wasn't already available when calling
   ## `startProc`.
   synchronize(p.locals, p.body.locals)
-  genStmts(p, n)
+  gen(p, toInstrList(n, isFull=false), n)
 
 proc genProcPrototype(m: BModule, id: ProcedureId) =
   let sym = m.g.env[id]
