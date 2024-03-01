@@ -120,7 +120,8 @@ proc genGotoForCase(p: BProc; caseStmt: CgNode) =
         return
       let val = getOrdValue(it[j])
       lineF(p, cpsStmts, "NIMSTATE_$#:$n", [val.rope])
-    genStmts(p, it.lastSon)
+
+    lineCg(p, cpsStmts, "goto $1;$n", [it[^1].label])
     endBlock(p)
 
 proc exit(n: CgNode): CgNode =
@@ -179,7 +180,7 @@ proc genRaiseStmt(p: BProc, t: CgNode) =
   # the goto is emitted separately
 
 template genCaseGenericBranch(p: BProc, b: CgNode, e: TLoc,
-                          rangeFormat, eqFormat: FormatStr, labl: TLabel) =
+                          rangeFormat, eqFormat: FormatStr, labl: BlockId) =
   var x, y: TLoc
   for i in 0..<b.len - 1:
     if b[i].kind == cnkRange:
@@ -191,49 +192,24 @@ template genCaseGenericBranch(p: BProc, b: CgNode, e: TLoc,
       initLocExpr(p, b[i], x)
       lineCg(p, cpsStmts, eqFormat, [rdCharLoc(e), rdCharLoc(x), labl])
 
-proc genCaseSecondPass(p: BProc, t: CgNode,
-                       labId, until: int): TLabel =
-  var lend = getLabel(p)
-  for i in 1..until:
-    lineF(p, cpsStmts, "LA$1_: ;$n", [rope(labId + i)])
-    if isOfBranch(t[i]):
-      stmtBlock(p, t[i][^1])
-      lineF(p, cpsStmts, "goto $1;$n", [lend])
-    else:
-      stmtBlock(p, t[i][0])
-  result = lend
-
 template genIfForCaseUntil(p: BProc, t: CgNode,
                        rangeFormat, eqFormat: FormatStr,
-                       until: int, a: TLoc): TLabel =
+                       until: int, a: TLoc) =
   # generate a C-if statement for a Nim case statement
-  var res: TLabel
-  var labId = p.labels
   for i in 1..until:
-    inc(p.labels)
     if isOfBranch(t[i]):
       genCaseGenericBranch(p, t[i], a, rangeFormat, eqFormat,
-                           "LA" & rope(p.labels) & "_")
+                           t[i][^1].label)
     else:
-      lineF(p, cpsStmts, "goto LA$1_;$n", [rope(p.labels)])
-  if until < t.len-1:
-    inc(p.labels)
-    var gotoTarget = p.labels
-    lineF(p, cpsStmts, "goto LA$1_;$n", [rope(gotoTarget)])
-    res = genCaseSecondPass(p, t, labId, until)
-    lineF(p, cpsStmts, "LA$1_: ;$n", [rope(gotoTarget)])
-  else:
-    res = genCaseSecondPass(p, t, labId, until)
-  res
+      linefmt(p, cpsStmts, "goto $1;$n", [t[i][^1].label])
 
 template genCaseGeneric(p: BProc, t: CgNode,
                     rangeFormat, eqFormat: FormatStr) =
   var a: TLoc
   initLocExpr(p, t[0], a)
-  var lend = genIfForCaseUntil(p, t, rangeFormat, eqFormat, t.len-1, a)
-  fixLabel(p, lend)
+  genIfForCaseUntil(p, t, rangeFormat, eqFormat, t.len-1, a)
 
-proc genCaseStringBranch(p: BProc, b: CgNode, e: TLoc, labl: TLabel,
+proc genCaseStringBranch(p: BProc, b: CgNode, e: TLoc, labl: BlockId,
                          branches: var openArray[Rope]) =
   var x: TLoc
   for i in 0..<b.len - 1:
@@ -255,15 +231,11 @@ proc genStringCase(p: BProc, t: CgNode) =
     newSeq(branches, bitMask + 1)
     var a: TLoc
     initLocExpr(p, t[0], a) # fist pass: generate ifs+goto:
-    var labId = p.labels
     for i in 1..<t.len:
-      inc(p.labels)
       if isOfBranch(t[i]):
-        genCaseStringBranch(p, t[i], a, "LA" & rope(p.labels) & "_",
-                            branches)
+        genCaseStringBranch(p, t[i], a, t[i][^1].label, branches)
       else:
         # else statement: nothing to do yet
-        # but we reserved a label, which we use later
         discard
     linefmt(p, cpsStmts, "switch (#hashString($1) & $2) {$n",
             [rdLoc(a), bitMask])
@@ -273,10 +245,8 @@ proc genStringCase(p: BProc, t: CgNode) =
              [intLiteral(j), branches[j]])
     lineF(p, cpsStmts, "}$n", []) # else statement:
     if not isOfBranch(t[^1]):
-      lineF(p, cpsStmts, "goto LA$1_;$n", [rope(p.labels)])
-    # third pass: generate statements
-    var lend = genCaseSecondPass(p, t, labId, t.len-1)
-    fixLabel(p, lend)
+      lineCg(p, cpsStmts, "goto $1;$n", [t[^1][0].label])
+
   else:
     genCaseGeneric(p, t, "", "if (#eqStrings($1, $2)) goto $3;$n")
 
@@ -326,10 +296,11 @@ proc genOrdinalCase(p: BProc, n: CgNode) =
   # generate if part (might be empty):
   var a: TLoc
   initLocExpr(p, n[0], a)
-  var lend = if splitPoint > 0: genIfForCaseUntil(p, n,
+  if splitPoint > 0:
+    genIfForCaseUntil(p, n,
                     rangeFormat = "if ($1 >= $2 && $1 <= $3) goto $4;$n",
                     eqFormat = "if ($1 == $2) goto $3;$n",
-                    splitPoint, a) else: ""
+                    splitPoint, a)
 
   # generate switch part (might be empty):
   if splitPoint+1 < n.len:
@@ -343,12 +314,11 @@ proc genOrdinalCase(p: BProc, n: CgNode) =
         # else part of case statement:
         lineF(p, cpsStmts, "default:$n", [])
         hasDefault = true
-      stmtBlock(p, branch.lastSon)
-      lineF(p, cpsStmts, "break;$n", [])
+
+      linefmt(p, cpsStmts, "goto $1;$n", [branch[^1].label])
     if (hasAssume in CC[p.config.cCompiler].props) and not hasDefault:
       lineF(p, cpsStmts, "default: __assume(0);$n", [])
     lineF(p, cpsStmts, "}$n", [])
-  if lend != "": fixLabel(p, lend)
 
 proc genCase(p: BProc, t: CgNode) =
   genLineDir(p, t)
