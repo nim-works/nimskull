@@ -54,10 +54,6 @@ proc loadInto(p: BProc, le, ri: CgNode, a: var TLoc) {.inline.} =
     a.flags.incl(lfEnforceDeref)
     expr(p, ri, a)
 
-proc assignLabel(b: var TBlock): Rope {.inline.} =
-  b.label = "LA" & b.id.rope
-  result = b.label
-
 proc blockBody(b: var TBlock): Rope =
   result = b.sections[cpsLocals]
   if b.frameLen > 0:
@@ -85,42 +81,6 @@ proc endBlock(p: BProc) =
   else:
     blockEnd.addf("}$n", [])
   endBlock(p, blockEnd)
-
-proc stmtBlock(p: BProc, n: CgNode) =
-  startBlock(p)
-  genStmts(p, n)
-  endBlock(p)
-
-proc blockLeaveActions(p: BProc, howManyTrys, howManyExcepts: int) =
-  # Called by return and break stmts.
-  # Deals with issues faced when jumping out of try/except/finally stmts.
-
-  var stack = newSeq[typeof(p.nestedTryStmts[0])](0)
-
-  inc p.withinBlockLeaveActions
-  for i in 1..howManyTrys:
-    let tryStmt = p.nestedTryStmts.pop
-    # Pop this try-stmt of the list of nested trys
-    # so we don't infinite recurse on it in the next step.
-    stack.add(tryStmt)
-
-    # Find finally-stmt for this try-stmt
-    # and generate a copy of its sons
-    var finallyStmt = tryStmt.fin
-    if finallyStmt != nil:
-      genStmts(p, finallyStmt[0])
-
-  dec p.withinBlockLeaveActions
-
-  # push old elements again:
-  for i in countdown(howManyTrys-1, 0):
-    p.nestedTryStmts.add(stack[i])
-
-  # Pop exceptions that was handled by the
-  # except-blocks we are in
-  block:
-    for i in countdown(howManyExcepts-1, 0):
-      linefmt(p, cpsStmts, "#popCurrentException();$n", [])
 
 proc genGotoVar(p: BProc; value: CgNode) =
   case value.kind
@@ -166,15 +126,7 @@ proc genIf(p: BProc, n: CgNode) =
 
   initLocExprSingleUse(p, n[0], a)
   lineF(p, cpsStmts, "if ($1)$n", [rdLoc(a)])
-  stmtBlock(p, n[1])
-
-proc genReturnStmt(p: BProc, t: CgNode) =
-  p.flags.incl beforeRetNeeded
-  genLineDir(p, t)
-  blockLeaveActions(p,
-    howManyTrys    = p.nestedTryStmts.len,
-    howManyExcepts = p.inExceptBlockLen)
-  lineF(p, cpsStmts, "goto BeforeRet_;$n", [])
+  startBlock(p)
 
 proc genGotoForCase(p: BProc; caseStmt: CgNode) =
   for i in 1..<caseStmt.len:
@@ -188,41 +140,6 @@ proc genGotoForCase(p: BProc; caseStmt: CgNode) =
       lineF(p, cpsStmts, "NIMSTATE_$#:$n", [val.rope])
     genStmts(p, it.lastSon)
     endBlock(p)
-
-proc genRepeatStmt(p: BProc, t: CgNode) =
-  # we don't generate labels here as for example GCC would produce
-  # significantly worse code
-  inc(p.withinLoop)
-  genLineDir(p, t)
-
-  if true:
-    var loopBody = t[0]
-    if true:
-      startBlock(p, "while (1) {$n")
-      genStmts(p, loopBody)
-      endBlock(p)
-
-  dec(p.withinLoop)
-
-proc genBlock(p: BProc, n: CgNode) =
-  startBlock(p, n[0].label)
-  genStmts(p, n[1])
-  endBlock(p)
-
-proc genBreakStmt(p: BProc, t: CgNode) =
-  assert t[0].kind == cnkLabel
-  var idx = p.blocks.high
-  # search for the ``TBlock`` that corresponds to the label. `blk` stores the
-  # ID offset by 1, which has to be accounted for here
-  while idx >= 0 and p.blocks[idx].blk != (t[0].label.int + 1):
-    dec idx
-
-  let label = assignLabel(p.blocks[idx])
-  blockLeaveActions(p,
-    p.nestedTryStmts.len - p.blocks[idx].nestedTryStmts,
-    p.inExceptBlockLen - p.blocks[idx].nestedExceptStmts)
-  genLineDir(p, t)
-  lineF(p, cpsStmts, "goto $1;$n", [label])
 
 proc exit(n: CgNode): CgNode =
   # XXX: exists as a convenience for overflow check, index check, etc.

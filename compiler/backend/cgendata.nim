@@ -171,7 +171,6 @@ type
                               ## generation; this is the same as prc.options
                               ## unless prc == nil
     module*: BModule          ## used to prevent excessive parameter passing
-    withinLoop*: int          ## > 0 if we are within a loop
     withinTryWithExcept*: int ## required for goto based exception handling
     withinBlockLeaveActions*: int ## complex to explain
     sigConflicts*: CountTable[string]

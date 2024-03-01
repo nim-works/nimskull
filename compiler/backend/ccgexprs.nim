@@ -1901,10 +1901,6 @@ proc genArrayConstr(p: BProc, n: CgNode, d: var TLoc) =
       arr.r = "$1[$2]" % [rdLoc(d), intLiteral(i)]
       expr(p, n[i], arr)
 
-proc genStmtList(p: BProc, n: CgNode) =
-  for i in 0..<n.len:
-    genStmts(p, n[i])
-
 proc downConv(p: BProc, n: CgNode, d: var TLoc) =
   ## Generates and emits the code for the ``cnkObjDownConv`` (conversion to
   ## sub-type) expression `n`.
@@ -2106,18 +2102,17 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
       genTupleElem(p, n, d)
   of cnkDeref, cnkDerefView: genDeref(p, n, d)
   of cnkFieldAccess: genRecordField(p, n, d)
-  of cnkBlockStmt: genBlock(p, n)
-  of cnkStmtList: genStmtList(p, n)
   of cnkIfStmt: genIf(p, n)
   of cnkObjDownConv: downConv(p, n, d)
   of cnkObjUpConv: upConv(p, n, d)
   of cnkClosureConstr: genClosure(p, n, d)
   of cnkEmpty: discard
-  of cnkRepeatStmt: genRepeatStmt(p, n)
+  of cnkRepeatStmt:
+    startBlock(p, "while (1) {$n")
+  of cnkEnd:
+    endBlock(p)
   of cnkDef: genSingleVar(p, n[0], n[1])
   of cnkCaseStmt: genCase(p, n)
-  of cnkReturnStmt: genReturnStmt(p, n)
-  of cnkBreakStmt: genBreakStmt(p, n)
   of cnkAsgn, cnkFastAsgn:
     genAsgn(p, n)
   of cnkVoidStmt:
@@ -2127,12 +2122,14 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     line(p, cpsStmts, "(void)(" & a.r & ");\L")
   of cnkAsmStmt: genAsmStmt(p, n)
   of cnkEmitStmt: genEmit(p, n)
-  of cnkTryStmt:
-    assert p.config.exc == excGoto
-    genTryGoto(p, n)
+  of cnkExcept:
+    genExcept(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)
-  of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkExcept,
-     cnkFinally, cnkBranch, cnkLabel, cnkStmtListExpr, cnkField:
+  of cnkJoinStmt, cnkFinally, cnkContinueStmt, cnkGotoStmt:
+    unreachable("handled separately")
+  of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkBranch,
+     cnkLabel, cnkTargetList, cnkStmtListExpr, cnkField, cnkStmtList,
+     cnkLeave, cnkResume, cnkLegacyNodes:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 
 proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =
