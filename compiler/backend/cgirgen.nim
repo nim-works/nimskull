@@ -846,6 +846,7 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
               cl.isActive = true # each branch starts as active
               body() # body of the handler
               exit target # jump to the after the try statement
+              stmts.add newStmt(cnkEnd, excpt.info, [node(this)])
 
             leave(tree, cr)
 

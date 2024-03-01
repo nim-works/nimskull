@@ -373,6 +373,7 @@ proc genExcept(p: BProc, n: CgNode) =
   else:
     discard "catch-all handler, nothing to check"
 
+  startBlock(p)
   p.flags.incl nimErrorFlagAccessed
   lineCg(p, cpsStmts, "*nimErr_ = NIM_FALSE;$n", []) # exit error mode
 
