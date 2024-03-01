@@ -43,6 +43,9 @@ type
     cnkMagic         ## name of a magic procedure. Only valid in the callee
                      ## slot of ``cnkCall`` and ``cnkCheckedCall`` nodes
 
+    cnkResume        ## leave the current procedure as part of exceptional
+                     ## control-flow
+
     cnkCall          ## a procedure call. The first operand is the procedure,
                      ## the following operands the arguments
     cnkCheckedCall   ## like ``cnkCall``, but the call might raise an exception
@@ -103,9 +106,8 @@ type
 
     cnkStmtList
     cnkStmtListExpr
-    # future direction: remove ``cnkStmtListExpr``. The code generators know
-    # based on the context a statement list appears in whether its an
-    # expression or not
+    # XXX: both stmtlist and stmtlistexpr are obsolete. They're only kept for
+    #      grouping the top-level statements under a single node
 
     cnkVoidStmt   ## discard the operand value (i.e., do nothing with it)
     cnkEmitStmt   ## an ``emit`` statement
@@ -115,23 +117,27 @@ type
                   ## evaluates to 'true'
     cnkRepeatStmt ## execute the body indefinitely
     cnkCaseStmt   ## a ``case`` statement
+    cnkBranch     ## the branch of a ``case`` statement
     cnkBlockStmt  ## an (optionally) labeled block
+    cnkTryStmt
 
+    cnkGotoStmt
     cnkBreakStmt  ## break out of labeled block, or, if no label is provided,
                   ## the closest ``repeat`` loop
     cnkRaiseStmt  ## raise(x) -- set the `x` as the current exception and start
                   ## exceptional control-flow. `x` can be ``cnkEmpty`` in which
                   ## case "set current exception" part is skipped
-    # future direction: lower the high-level raise statements (which means
-    # "set the current exception" + "start exceptional control-flow") into
-    # just "start exceptional control-flow"
     cnkReturnStmt
+    cnkContinueStmt## jump to the next target in the active jump list
 
-    cnkTryStmt
-    cnkExcept
+    cnkJoinStmt   ## join point for gotos
+    cnkEnd        ## marks the end of a structured control-flow block
+                  ## (identified by the label)
+    cnkExcept     ## special join point, representing an exception handler
     cnkFinally
 
-    cnkBranch     ## the branch of a ``case`` statement
+    cnkTargetList ## an ordered list of jump target/actions
+    cnkLeave
 
     cnkDef        ## starts the lifetime of a local and optionally assigns an
                   ## initial value
@@ -147,12 +153,17 @@ const
   cnkWithOperand*  = {cnkConv, cnkHiddenConv, cnkDeref, cnkAddr, cnkHiddenAddr,
                       cnkDerefView, cnkObjDownConv, cnkObjUpConv, cnkCast,
                       cnkLvalueConv}
-  cnkAtoms*        = {cnkInvalid..cnkMagic, cnkReturnStmt}
+  cnkAtoms*        = {cnkInvalid..cnkResume, cnkReturnStmt}
     ## node kinds that denote leafs
   cnkWithItems*    = AllKinds - cnkWithOperand - cnkAtoms
     ## node kinds for which the ``items`` iterator is available
 
   cnkLiterals* = {cnkIntLit, cnkUIntLit, cnkFloatLit, cnkStrLit}
+  cnkLegacyNodes* = {cnkBlockStmt, cnkTryStmt, cnkReturnStmt, cnkBreakStmt}
+    ## node kinds that belong to the legacy control-flow representation
+  cnkNewCfNodes* = {cnkGotoStmt, cnkJoinStmt, cnkLeave, cnkResume,
+                    cnkContinueStmt, cnkEnd, cnkTargetList}
+    ## node kinds that belong to the new-style control-flow representation
 
 type
   Local* = object
@@ -184,7 +195,8 @@ type
     info*: TLineInfo
     typ*: PType
     case kind*: CgNodeKind
-    of cnkInvalid, cnkEmpty, cnkType, cnkNilLit, cnkReturnStmt: discard
+    of cnkInvalid, cnkEmpty, cnkType, cnkNilLit, cnkReturnStmt, cnkResume:
+      discard
     of cnkIntLit, cnkUIntLit:
       # future direction: use a ``BiggestUint`` for uint values
       intVal*: BiggestInt
