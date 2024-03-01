@@ -35,7 +35,23 @@ proc reportObservableStore(p: BProc; le, ri: CgNode) =
         # cannot analyse the location; assume the worst
         return true
 
-  if le != nil and locationEscapes(p, le, p.nestedTryStmts.len > 0):
+  # XXX: this whole procedure needs to be removed; RVO calls must only be used
+  #      if safe
+  var inTryStmt = false
+  # analyse the target to check whether a local exception handler or finally
+  # is reached
+  case ri[^1].kind
+  of cnkLabel:
+    inTryStmt = true
+  of cnkTargetList:
+    for it in ri[^1].items:
+      if it.kind == cnkLabel:
+        inTryStmt = true
+        break
+  else:
+    discard "no local exception handler or finally is reached"
+
+  if le != nil and locationEscapes(p, le, inTryStmt):
     localReport(p.config, le.info, reportSem rsemObservableStores)
 
 proc observableInExcept(n: CgNode): bool =
