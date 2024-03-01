@@ -150,7 +150,14 @@ proc raiseInstr(p: BProc, n: CgNode): Rope =
     else:
       unreachable(n.kind)
   else:
-    result = ""
+    # absence of an node storing the target means "never exits"
+    if hasAssume in CC[p.config.cCompiler].props:
+      result = "__asume(0);"
+    else:
+      # don't just fall-through; doing so would inhibit C compiler
+      # optimizations
+      p.flags.incl beforeRetNeeded
+      result = "goto BeforeRet_;"
 
 proc raiseExit(p: BProc, n: CgNode) =
   assert p.config.exc == excGoto
