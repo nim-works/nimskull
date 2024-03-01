@@ -38,10 +38,20 @@ proc reportObservableStore(p: BProc; le, ri: CgNode) =
   if le != nil and locationEscapes(p, le, p.nestedTryStmts.len > 0):
     localReport(p.config, le.info, reportSem rsemObservableStores)
 
-proc isHarmlessStore(p: BProc; canRaise: bool; d: TLoc): bool =
-  if d.k in {locTemp, locNone} or not canRaise:
+proc observableInExcept(n: CgNode): bool =
+  ## Computes whether the call expression `n` has an exceptional exit
+  ## that leads to an exception handler within the current procedure.
+  let target = n[^1]
+  case target.kind
+  of cnkLabel:      true # can only be an exception handler (of finally)
+  of cnkTargetList: target[^1].kind == cnkLabel
+  else:
+    unreachable()
+
+proc isHarmlessStore(p: BProc; ri: CgNode, d: TLoc): bool =
+  if d.k in {locTemp, locNone} or ri.kind != cnkCheckedCall:
     result = true
-  elif d.k == locLocalVar and p.withinTryWithExcept == 0:
+  elif d.k == locLocalVar and not observableInExcept(ri):
     # we cannot observe a store to a local variable if the current proc
     # has no error handler:
     result = true
@@ -89,7 +99,7 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         exitCall(p, ri)
     else:
       pl.add(~")")
-      if isHarmlessStore(p, canRaise, d):
+      if isHarmlessStore(p, ri, d):
         if d.k == locNone: getTemp(p, typ[0], d)
         assert(d.t != nil)        # generate an assignment to d:
         var list: TLoc
@@ -265,7 +275,7 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
         pl.add(addrLoc(p.config, d))
         genCallPattern()
         exitCall(p, ri)
-    elif isHarmlessStore(p, canRaise, d):
+    elif isHarmlessStore(p, ri, d):
       if d.k == locNone: getTemp(p, typ[0], d)
       assert(d.t != nil)        # generate an assignment to d:
       var list: TLoc
