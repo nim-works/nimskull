@@ -338,7 +338,7 @@ proc registerLateProc(m: BModule, s: PSym): ProcedureId =
 proc accessThreadLocalVar(p: BProc)
 proc emulatedThreadVars*(conf: ConfigRef): bool {.inline.}
 proc useProc(m: BModule, id: ProcedureId)
-proc raiseInstr(p: BProc): Rope
+proc raiseInstr(p: BProc, n: CgNode): Rope
 
 proc getTempName(m: BModule): Rope =
   result = m.tmpBase & rope(m.labels)

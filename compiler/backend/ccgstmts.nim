@@ -236,19 +236,28 @@ proc raiseExit(p: BProc) =
       lineCg(p, cpsStmts, "if (NIM_UNLIKELY(*nimErr_)) goto LA$1_;$n",
         [p.nestedTryStmts[^1].label])
 
-proc raiseInstr(p: BProc): Rope =
-  if p.config.exc == excGoto:
-    let L = p.nestedTryStmts.len
-    if L == 0:
-      p.flags.incl beforeRetNeeded
-      # easy case, simply goto 'ret':
-      result = ropecg(p.module, "goto BeforeRet_;$n", [])
+proc exit(n: CgNode): CgNode =
+  # XXX: exists as a convenience for overflow check, index check, etc.
+  #      code gen. Should be removed once those are fully lowered prior
+  #      to code generation
+  case n.kind
+  of cnkCheckedCall: n[^1]
+  else:              nil
+
+proc raiseInstr(p: BProc, n: CgNode): Rope =
+  if n != nil:
+    case n.kind
+    of cnkLabel:
+      # easy case, simply goto the target:
+      result = ropecg(p.module, "goto $1;", [n.label])
+    of cnkTargetList:
+      for i in 0..<n.len:
+        if n[i].kind in {cnkLabel, cnkResume}:
+          let label = toCLabel(n[i], p.specifier)
+          result = ropecg(p.module, "goto $1$2_;", [label])
+          break
     else:
-      # raise inside an 'except' must go to the finally block,
-      # raise outside an 'except' block must go to the 'except' list.
-      result = ropecg(p.module, "goto LA$1_;$n",
-        [p.nestedTryStmts[L-1].label])
-      # + ord(p.nestedTryStmts[L-1].inExcept)])
+      unreachable(n.kind)
   else:
     result = ""
 
