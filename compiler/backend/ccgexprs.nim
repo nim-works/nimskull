@@ -766,18 +766,19 @@ proc genArrayLikeElem(p: BProc; n: CgNode; d: var TLoc) =
 
 proc genEcho(p: BProc, n: CgNode) =
   ## Generates and emits the code for the magic echo call.
-  if n.len == 1:
+  let argCount = numArgs(n)
+  if argCount == 0:
     linefmt(p, cpsStmts, "#echoBinSafe(NIM_NIL, 0);$n", [])
   else:
     # allocate a temporary array and fill it with the arguments:
     var tmp: TLoc
     getTemp(p, n[1].typ, tmp) # the first argument stores the type to use
-    for i in 2..<n.len:
+    for i in 2..<(1 + argCount):
       var a: TLoc
       initLocExpr(p, n[i], a)
       linefmt(p, cpsStmts, "$1[$2] = $3;$n", [rdLoc(tmp), i-2, rdLoc(a)])
 
-    linefmt(p, cpsStmts, "#echoBinSafe($1, $2);$n", [rdLoc(tmp), n.len-2])
+    linefmt(p, cpsStmts, "#echoBinSafe($1, $2);$n", [rdLoc(tmp), argCount-1])
 
 proc strLoc(p: BProc; d: TLoc): Rope =
   result = byRefLoc(p, d)
@@ -1531,7 +1532,7 @@ proc genRangeChck(p: BProc, n: CgNode, d: var TLoc) =
           ""
       linefmt(p, cpsStmts, "if ($6($1) < $2 || $6($1) > $3){ $4($1, $2, $3); $5}$n",
         [rdCharLoc(a), genLiteral(p, n[2], dest), genLiteral(p, n[3], dest),
-        raiser, raiseInstr(p), boundaryCast])
+        raiser, raiseInstr(p, n.exit), boundaryCast])
   putIntoDest(p, d, n, "(($1) ($2))" %
       [getTypeDesc(p.module, dest), rdCharLoc(a)], a.storage)
 

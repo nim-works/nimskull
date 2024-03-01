@@ -197,7 +197,7 @@ proc genArgNoParam(p: BProc, n: CgNode, needsTmp = false): Rope =
   result = rdLoc(a)
 
 proc genParams(p: BProc, ri: CgNode, typ: PType): Rope =
-  for i in 1..<ri.len:
+  for i in 1..<(1 + numArgs(ri)):
     if i < typ.len:
       assert(typ.n[i].kind == nkSym)
       let paramType = typ.n[i]
@@ -251,7 +251,7 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
   let canRaise = ri.kind == cnkCheckedCall
   if typ[0] != nil:
     if isInvalidReturnType(p.config, typ[0]):
-      if ri.len > 1: pl.add(~", ")
+      if numArgs(ri) > 0: pl.add(~", ")
       # the destination is guaranteed to be either a temporary or an lvalue
       # that can be modified in-place
       if true:
