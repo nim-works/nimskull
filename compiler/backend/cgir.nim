@@ -293,18 +293,34 @@ proc merge*(dest: var Body, source: Body): CgNode =
   # merge the locals:
   let offset = dest.locals.merge(source.locals)
 
-  proc update(n: CgNode, offset: uint32) {.nimcall.} =
+  proc update(n: CgNode, offset, labelOffset: uint32) {.nimcall.} =
     ## Offsets the ID of all references-to-``Local`` in `n` by `offset`.
     case n.kind
     of cnkLocal:
       n.local.uint32 += offset
-    of cnkAtoms - {cnkLocal}:
+    of cnkLabel:
+      n.label.uint32 += labelOffset
+    of cnkAtoms - {cnkLocal, cnkLabel}:
       discard "nothing to do"
     of cnkWithOperand:
-      update(n.operand, offset)
+      update(n.operand, offset, labelOffset)
     of cnkWithItems:
       for it in n.items:
-        update(it, offset)
+        update(it, offset, labelOffset)
+
+  proc computeNextLabel(n: CgNode, highest: var uint32) =
+    ## Computes the highest ID value used by labels within `n` and writes it
+    ## to `highest`.
+    case n.kind
+    of cnkLabel:
+      highest = max(n.label.uint32, highest)
+    of cnkAtoms - {cnkLabel}:
+      discard "nothing to do"
+    of cnkWithOperand:
+      computeNextLabel(n.operand, highest)
+    of cnkWithItems:
+      for it in n.items:
+        computeNextLabel(it, highest)
 
   result = source.code
 
@@ -312,8 +328,10 @@ proc merge*(dest: var Body, source: Body): CgNode =
     # make things easier by supporting `dest` being uninitialized
     dest.code = source.code
   elif source.code.kind != cnkEmpty:
-    # update references to locals in source's code:
-    update(source.code, offset.get(LocalId(0)).uint32)
+    var labelOffset = 0'u32
+    computeNextLabel(dest.code, labelOffset)
+    # update references to locals and labels in source's code:
+    update(source.code, offset.get(LocalId(0)).uint32, labelOffset + 1)
 
     # merge the code fragments:
     case dest.code.kind
