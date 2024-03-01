@@ -37,6 +37,9 @@ type
     # used as an assignment source currently block this, as they might
     # require an assignment-to-temporary
 
+    opAbort
+    opPopHandler
+
   JumpOp = range[opJump..opDispJump]
 
   CLabelId* = distinct uint32
@@ -60,8 +63,10 @@ type
     of opStmt:
       stmt*: int
       specifier*: CLabelSpecifier
-    of opBackup, opRestore:
+    of opBackup, opRestore, opAbort:
       local*: uint32 ## ID of the backup variable
+    of opPopHandler:
+      discard
 
   FinallyInfo* = object
     routes: seq[PathIndex]
@@ -82,6 +87,9 @@ type
     pkNormal
   PathIndex = uint32
     ## Index of a ``PathItem`` within the item storage.
+  PathItemTarget = object
+    label: CLabelId
+    isCleanup: bool
   PathItem = object
     ## Represents a step in a jump path. A jump path is a chain of finally
     ## sections plus final target an intercepted goto visits.
@@ -93,8 +101,8 @@ type
     prev, next: PathIndex
     sibling: PathIndex
 
-    target: CLabelId
-      ## the label identifying the jump target
+    target: PathItemTarget
+      ## the identifier of the jump target
     kinds: set[PathKind]
       ## the kinds of control-flow (exception or normal) reaching the path
       ## item
@@ -122,6 +130,9 @@ type
     paths: Paths
     stmtToPath: Table[int, int]
     finallys: Table[CLabelId, FinallyInfo]
+    cleanups: Table[CLabelId, FinallyInfo]
+      ## cleanup here refers to the exception-related cleanup when
+      ## exiting a finally or except section
 
 const
   ExitLabel* = CLabelId(0)
@@ -138,6 +149,8 @@ func toCLabel*(n: CgNode): CLabelId =
     ResumeLabel
   of cnkLabel:
     CLabelId(ord(n.label) + 2)
+  of cnkLeave:
+    toCLabel(n[0])
   else:
     unreachable(n.kind)
 
@@ -150,7 +163,7 @@ func toBlockId*(id: CLabelId): BlockId =
   ## the CGIR label.
   BlockId(ord(id) - 2)
 
-func rawAdd(p: var Paths, x: openArray[CLabelId]): PathIndex =
+func rawAdd(p: var Paths, x: openArray[PathItemTarget]): PathIndex =
   ## Appends the chain `x` to `p` without any deduplication or
   ## linking with the existing items. Returns the index of the
   ## tail item.
@@ -162,7 +175,7 @@ func rawAdd(p: var Paths, x: openArray[CLabelId]): PathIndex =
                    sibling: pos,
                    target: x[i])
 
-func add(p: var Paths, path: openArray[CLabelId]): PathIndex =
+func add(p: var Paths, path: openArray[PathItemTarget]): PathIndex =
   ## Adds `path` to the `p`. Only the sub-path of `path` not yet present in
   ## `p` is added. The index of the *head* item of the added (or existing)
   ## path is returned.
@@ -218,36 +231,44 @@ func needsDispatcher(f: FinallyInfo): bool =
   f.numExits > 1 and
     not(f.routes.len == 2 and f.numErr == 1 and f.numNormal == 1)
 
-func needsDispatcher(f: Table[CLabelId, FinallyInfo], b: CLabelId): bool =
-  (b in f) and needsDispatcher(f[b])
+func needsSpecifier(c: Context, target: PathItemTarget): bool =
+  # cleanup sections don't have a unique label themselves, so using a
+  # specifier is required
+  target.isCleanup or
+    ((target.label in c.finallys) and
+     needsDispatcher(c.finallys[target.label]))
 
-proc append(targets: var seq[CLabelId], redirects: Table[BlockId, CgNode],
+proc append(targets: var seq[PathItemTarget],
+            redirects: Table[BlockId, CgNode],
             exits: PackedSet[BlockId], n: CgNode) =
   ## Appends all jump targets `n` represents to `targets`, following
   ## `redirects` and turning all labels part of `exits` into the
   ## "before return" label.
+  template addTarget(t: CLabelId; cleanup = false) =
+    targets.add PathItemTarget(label: t, isCleanup: cleanup)
+
   case n.kind
   of cnkLabel:
     if n.label in redirects:
       append(targets, redirects, exits, redirects[n.label])
     elif n.label in exits:
-      targets.add ExitLabel
+      addTarget ExitLabel
     else:
-      targets.add toCLabel(n)
+      addTarget toCLabel(n)
   of cnkTargetList:
     # only the final target could possibly be redirected
     let hasRedir = n[^1].kind == cnkLabel and n[^1].label in redirects
     for i in 0..<n.len - ord(hasRedir):
       case n[i].kind
       of cnkLeave:
-        discard
+        addTarget toCLabel(n[i][0]), cleanup=true
       of cnkResume:
-        targets.add toCLabel(n[i])
+        addTarget toCLabel(n[i])
       of cnkLabel:
         if n[i].label in exits:
-          targets.add ExitLabel
+          addTarget ExitLabel
         else:
-          targets.add toCLabel(n[i])
+          addTarget toCLabel(n[i])
       else:
         unreachable()
 
@@ -266,15 +287,16 @@ proc gatherRedirectsAndFinallys(c: var Context, stmts: CgNode
   ## especially common with compiler-generated cleanup sections.
   ##
   ## The table for the finally sections is also populated.
-  var ifs: PackedSet[BlockId]
-    ## keeps track of which labels refer to if statements
+  var ends: PackedSet[BlockId]
+    ## keeps track of the ``cnkEnd`` nodes that can safely be skipped (all
+    ## if-like one can)
   for i in 0..<stmts.len - 1:
     case stmts[i].kind
     of cnkJoinStmt:
       var j = i + 1
       # skip join and (safe) end statements:
       while j < stmts.len and (stmts[j].kind == cnkJoinStmt or
-            (stmts[j].kind == cnkEnd and stmts[j][0].label in ifs)):
+            (stmts[j].kind == cnkEnd and stmts[j][0].label in ends)):
         inc j
 
       # if the label is followed directly by a goto statement, all jumps to
@@ -282,7 +304,9 @@ proc gatherRedirectsAndFinallys(c: var Context, stmts: CgNode
       if j < stmts.len and stmts[j].kind == cnkGotoStmt:
         result[stmts[i][0].label] = stmts[j][0]
     of cnkIfStmt:
-      ifs.incl stmts[i][^1].label
+      ends.incl stmts[i][^1].label
+    of cnkExcept:
+      ends.incl stmts[i][0].label
     of cnkFinally:
       # make sure a table entry exists for the finally section:
       c.finallys[toCLabel(stmts[i][0])] = FinallyInfo()
@@ -307,14 +331,14 @@ proc toInstrList*(stmts: CgNode, isFull: bool): seq[CInstr] =
 
   # second pass: collect all jump paths, using the table of redirections to
   # eliminate unnecessary breaks in the paths
-  var targets: seq[CLabelId]
+  var targets: seq[PathItemTarget]
   for i, it in stmts.pairs:
     template exit(x: CgNode; isErr = false) =
       targets.setLen(0)
       targets.append(redirects, exits, x)
 
       # a single jump is only of relevance if it targets a finally directly
-      if targets.len > 1 or targets[0] in c.finallys:
+      if targets.len > 1 or targets[0].label in c.finallys:
         let id = c.paths.add(targets)
         if isErr: incl(c.paths, id, pkError)
         else:     incl(c.paths, id, pkNormal)
@@ -342,12 +366,16 @@ proc toInstrList*(stmts: CgNode, isFull: bool): seq[CInstr] =
   # register every path item with the finally section it targets, and compute
   # some statistics that are used during the later code generation:
   for i, it in c.paths.pairs:
-    if it.target in c.finallys:
-      let f = addr c.finallys[it.target]
+    func setup(f: var FinallyInfo, it: PathItem) =
       f.routes.add i.PathIndex
       f.numExits += ord(it.next.int != i)
       f.numErr += ord(pkError in it.kinds)
       f.numNormal += ord(pkNormal in it.kinds)
+
+    if it.target.isCleanup:
+      setup(c.cleanups.mgetOrPut(it.target.label, FinallyInfo()), it)
+    elif it.target.label in c.finallys:
+      setup(c.finallys[it.target.label], it)
 
   # construction of the instruction list follows
 
@@ -367,14 +395,14 @@ proc toInstrList*(stmts: CgNode, isFull: bool): seq[CInstr] =
   proc jump(code: var seq[CInstr], op: JumpOp, c: Context,
             path: PathIndex) {.nimcall.} =
     let target = c.paths[path].target
-    if needsDispatcher(c.finallys, target):
-      code.add CInstr(op: op, label: (target, some path))
+    if needsSpecifier(c, target):
+      code.add CInstr(op: op, label: (target.label, some path))
     else:
-      code.add CInstr(op: op, label: (target, none CLabelSpecifier))
+      code.add CInstr(op: op, label: (target.label, none CLabelSpecifier))
 
   proc stmt(code: var seq[CInstr], c: Context, pos: int) {.nimcall.} =
     if (let path = c.stmtToPath.getOrDefault(pos, -1); path != -1 and
-       needsDispatcher(c.finallys, c.paths[path].target)):
+        needsSpecifier(c, c.paths[path].target)):
       # a label specifier, and thus a separate instruction, is needed
       code.add CInstr(op: opStmt, stmt: pos, specifier: CLabelSpecifier path)
     elif code.len > 0 and code[^1].op == opStmts and
@@ -423,7 +451,9 @@ proc toInstrList*(stmts: CgNode, isFull: bool): seq[CInstr] =
         inc nextRecoverID
 
     of cnkContinueStmt:
-      let f {.cursor.} = c.finallys[toCLabel(it[0])]
+      let
+        clabel = toCLabel(it[0])
+        f {.cursor.} = c.finallys[clabel]
 
       # no need to restore the error state if control-flow never reaches the
       # end of the finally anyway
@@ -454,11 +484,37 @@ proc toInstrList*(stmts: CgNode, isFull: bool): seq[CInstr] =
         for it in f.routes.items:
           jump code, op, c, c.paths[it].next
 
+      # emit the exception-related cleanup after the dispatcher:
+      if clabel in c.cleanups:
+        let cleanup {.cursor.} = c.cleanups[clabel]
+        # a dispatcher is not worth the overhead, emit an abort instruction
+        # for each route
+        for entry in cleanup.routes.items:
+          label code, clabel, some(entry)
+          # TODO: omit the cleanup logic as a whole, if the finally section is
+          #       never entered via an exception
+          if f.numErr > 0:
+            code.add CInstr(op: opAbort, local: f.errBackupId)
+          jump code, opJump, c, PathIndex c.paths[entry].next
+
     of cnkJoinStmt:
       label code, toCLabel(it[0])
     of cnkExcept:
       # an except section is a label followed by the filter logic
       label code, toCLabel(it[0])
+      stmt code, c, i
+    of cnkEnd:
+      let clabel = toCLabel(it[0])
+      # emit the cleanup for except sections:
+      if clabel in c.cleanups:
+        let cleanup {.cursor.} = c.cleanups[clabel]
+        # a dispatcher is not worth the overhead, emit a pop instruction
+        # for each route
+        for entry in cleanup.routes.items:
+          label code, clabel, some(entry)
+          code.add CInstr(op: opPopHandler)
+          jump code, opJump, c, PathIndex c.paths[entry].next
+
       stmt code, c, i
 
     of cnkGotoStmt:
