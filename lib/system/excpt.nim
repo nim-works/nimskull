@@ -430,6 +430,8 @@ when true:
 proc pushActiveException(e: sink(ref Exception)) =
   e.up = activeException
   activeException = e
+  # FIXME: don't set the current exception here; it's only done this way for
+  #        backwards compatibility
   currException = e # set the current exception already
 
 proc raiseExceptionAux(e: sink(ref Exception)) {.nodestroy.} =
@@ -585,6 +587,8 @@ proc nimCatchException(frame: ptr ExceptionFrame) {.compilerproc.} =
   activeException = move activeException.up
 
 proc restoreCurrentEx() =
+  # FIXME: don't consider active exceptions; it's only done this way for
+  #        backwards compatibility
   if handlers.isNil or handlers.exc.isNil:
     currException = activeException
   elif handlers.exc.up == activeException:
