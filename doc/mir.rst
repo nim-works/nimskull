@@ -181,9 +181,10 @@ Semantics
             | Repeat STATEMENT          # unconditional loop. Repeat the
                                         # statement for an indefinite amount
                                         # of times (legacy)
-            | Repeat <Label>            # unconditional loop
             | TRY_STMT                  # (legacy)
             | Goto TARGET
+            | Loop <Label>              # unconditional jump back to the start
+                                        # of a loop
             | Raise LVALUE              # push the given exception to the
                                         # exception stack and start exceptional
                                         # control-flow. The `ref object` is
@@ -197,6 +198,7 @@ Semantics
             | Raise <None> EX_TARGET
             | Join <Label>              # join point for non-exceptional
                                         # control-flow (e.g., goto)
+            | LoopJoin <Label>          # join point for `Loop`
             | Except <Type> ... EX_TARGET
             | Except <Local> EX_TARGET
             | Except                    # catch-all handler
@@ -263,19 +265,21 @@ Terminology:
 * *terminator*: marks the end of a basic block
 
 A basic block is started by `Finally` and `Except`. Terminators are: `Case`,
-`Goto`, `Raise`, and `Continue`.  `If`, `Repeat`, and `Join` acts as both
-the start and end of a basic block. The nature of `End` depends on the
+`Goto`, `Raise`, `Continue`, and `Loop`. `If`, `Join`, and `LoopJoin` act as
+both the start and end of a basic block. The nature of `End` depends on the
 associated construct:
-* for `If` and `Except`, it acts as both a terminator and start of a basic
-  block
-* for `Repeat`, it acts a terminator (jump back to the start of the loop)
+* for `If`, it acts as both a terminator and start of a basic block
+* for `Except`, it only marks the end of the section
+
+Except for `Loop`, all terminators only allow forward control-flow.
 
 Structured Constructs
 ---------------------
 
-Each `If`, `Except`, and `Repeat` must be paired with exactly one `End`,
-each `Finally` with a `Continue`. They represent the *structured* constructs,
-and they must not overlap each other, meaning that:
+Each `If` and `Except` must be paired with exactly one `End`, each `LoopJoin`
+with a `Loop`, and each `Finally` with a `Continue`. These are the
+*structured* constructs, and they must not overlap each other, meaning
+that:
 
 .. code-block::
 

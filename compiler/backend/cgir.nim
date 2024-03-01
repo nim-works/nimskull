@@ -122,6 +122,7 @@ type
     cnkTryStmt
 
     cnkGotoStmt
+    cnkLoopStmt   ## jump back to a loop join point
     cnkBreakStmt  ## break out of labeled block, or, if no label is provided,
                   ## the closest ``repeat`` loop
     cnkRaiseStmt  ## raise(x) -- set the `x` as the current exception and start
@@ -131,6 +132,7 @@ type
     cnkContinueStmt## jump to the next target in the active jump list
 
     cnkJoinStmt   ## join point for gotos
+    cnkLoopJoinStmt## join point for loops
     cnkEnd        ## marks the end of a structured control-flow block
                   ## (identified by the label)
     cnkExcept     ## special join point, representing an exception handler
@@ -159,10 +161,12 @@ const
     ## node kinds for which the ``items`` iterator is available
 
   cnkLiterals* = {cnkIntLit, cnkUIntLit, cnkFloatLit, cnkStrLit}
-  cnkLegacyNodes* = {cnkBlockStmt, cnkTryStmt, cnkReturnStmt, cnkBreakStmt}
+  cnkLegacyNodes* = {cnkBlockStmt, cnkTryStmt, cnkReturnStmt, cnkBreakStmt,
+                     cnkRepeatStmt}
     ## node kinds that belong to the legacy control-flow representation
   cnkNewCfNodes* = {cnkGotoStmt, cnkJoinStmt, cnkLeave, cnkResume,
-                    cnkContinueStmt, cnkEnd, cnkTargetList}
+                    cnkContinueStmt, cnkLoopStmt, cnkLoopJoinStmt,
+                    cnkEnd, cnkTargetList}
     ## node kinds that belong to the new-style control-flow representation
 
 type

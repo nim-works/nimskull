@@ -785,9 +785,9 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     to (if useFast: cnkFastAsgn else: cnkAsgn), dst, src
   of mnkRepeat:
     let label = newLabel(cl)
-    stmts.add newTree(cnkRepeatStmt, info, node(label))
+    stmts.add newTree(cnkLoopJoinStmt, info, node(label))
     body()
-    stmts.add newStmt(cnkEnd, info, node(label))
+    stmts.add newStmt(cnkLoopStmt, info, node(label))
     leave(tree, cr)
   of mnkBlock:
     cl.blocks.add (n.label, newLabel(cl))

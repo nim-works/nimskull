@@ -287,26 +287,18 @@ proc gatherRedirectsAndFinallys(c: var Context, stmts: CgNode
   ## especially common with compiler-generated cleanup sections.
   ##
   ## The table for the finally sections is also populated.
-  var ends: PackedSet[BlockId]
-    ## keeps track of the ``cnkEnd`` nodes that can safely be skipped (all
-    ## if-like one can)
   for i in 0..<stmts.len - 1:
     case stmts[i].kind
     of cnkJoinStmt:
       var j = i + 1
-      # skip join and (safe) end statements:
-      while j < stmts.len and (stmts[j].kind == cnkJoinStmt or
-            (stmts[j].kind == cnkEnd and stmts[j][0].label in ends)):
+      # skip join and end statements:
+      while j < stmts.len and stmts[j].kind in {cnkJoinStmt, cnkEnd}:
         inc j
 
       # if the label is followed directly by a goto statement, all jumps to
       # the label can jump to the goto's target instead
       if j < stmts.len and stmts[j].kind == cnkGotoStmt:
         result[stmts[i][0].label] = stmts[j][0]
-    of cnkIfStmt:
-      ends.incl stmts[i][^1].label
-    of cnkExcept:
-      ends.incl stmts[i][0].label
     of cnkFinally:
       # make sure a table entry exists for the finally section:
       c.finallys[toCLabel(stmts[i][0])] = FinallyInfo()

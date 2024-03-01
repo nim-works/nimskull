@@ -2107,11 +2107,11 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkObjUpConv: upConv(p, n, d)
   of cnkClosureConstr: genClosure(p, n, d)
   of cnkEmpty: discard
-  of cnkRepeatStmt:
+  of cnkLoopJoinStmt:
     startBlock(p, "while (1) {$n")
   of cnkFinally:
     startBlock(p)
-  of cnkEnd, cnkContinueStmt:
+  of cnkEnd, cnkContinueStmt, cnkLoopStmt:
     endBlock(p)
   of cnkDef: genSingleVar(p, n[0], n[1])
   of cnkCaseStmt: genCase(p, n)
