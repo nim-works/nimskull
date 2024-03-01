@@ -519,10 +519,10 @@ proc toInstrList*(stmts: CgNode, isFull: bool): seq[CInstr] =
 
     of cnkGotoStmt:
       let target = it[0]
-      if target.kind == cnkLabel:
-        jump code, toCLabel(target)
-      elif (let path = c.stmtToPath.getOrDefault(i, -1); path != -1):
+      if (let path = c.stmtToPath.getOrDefault(i, -1); path != -1):
         jump code, opJump, c, PathIndex path
+      elif target.kind == cnkLabel:
+        jump code, toCLabel(target)
       else:
         jump code, toCLabel(target[^1])
     of cnkRaiseStmt:
