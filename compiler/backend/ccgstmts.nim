@@ -139,11 +139,9 @@ proc raiseInstr(p: BProc, n: CgNode): Rope =
       # easy case, simply goto the target:
       result = ropecg(p.module, "goto $1;", [n.label])
     of cnkTargetList:
-      for i in 0..<n.len:
-        if n[i].kind in {cnkLabel, cnkResume}:
-          let label = toCLabel(n[i], p.specifier)
-          result = ropecg(p.module, "goto $1$2_;", [label])
-          break
+      # the first non-leave operand is the initial jump target
+      let label = toCLabel(n[0], p.specifier)
+      result = ropecg(p.module, "goto $1;", [label])
     else:
       unreachable(n.kind)
   else:
@@ -375,7 +373,12 @@ proc genExcept(p: BProc, n: CgNode) =
 
   startBlock(p)
   p.flags.incl nimErrorFlagAccessed
-  lineCg(p, cpsStmts, "*nimErr_ = NIM_FALSE;$n", []) # exit error mode
+  # exit error mode:
+  lineCg(p, cpsStmts, "*nimErr_ = NIM_FALSE;$n", [])
+  # setup the handler frame:
+  var tmp: TLoc
+  getTemp(p, p.module.g.graph.getCompilerProc("ExceptionFrame").typ, tmp)
+  lineCg(p, cpsStmts, "#nimCatchException($1);$n", [addrLoc(p.config, tmp)])
 
 proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
   var res = ""
@@ -545,6 +548,17 @@ proc gen(p: BProc, code: openArray[CInstr], stmts: CgNode) =
     of opStmt:
       p.specifier = some it.specifier
       genStmt(p, stmts[it.stmt])
+
+    of opAbort:
+      if nimErrorFlagDisabled in p.flags:
+        lineCg(p, cpsStmts, "#nimAbortException();$n", [])
+      else:
+        # there's only something to abort when the finalizer was intercepted a
+        # raise
+        lineCg(p, cpsStmts, "if (NIM_UNLIKELY(oldNimErrFin$1_)) #nimAbortException();$n",
+               [$it.local])
+    of opPopHandler:
+      lineCg(p, cpsStmts, "#nimLeaveExcept();$n", [])
 
     inc pos
 
