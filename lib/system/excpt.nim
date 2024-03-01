@@ -67,12 +67,25 @@ type
     len: int
     prev: ptr GcFrameHeader
 
+  ExceptionFrame {.compilerproc.} = object
+    ## Represents an exception handler (i.e., an ``except`` section).
+    prev: ptr ExceptionFrame
+      ## previous frame, or nil
+    exc: ref Exception
+      ## always non-nil
+
 when NimStackTraceMsgs:
   var frameMsgBuf* {.threadvar.}: string
 var
   framePtr {.threadvar.}: PFrame
   currException {.threadvar.}: ref Exception
   gcFramePtr {.threadvar.}: GcFrame
+
+  handlers {.threadvar.}: ptr ExceptionFrame
+    ## linked list of all active handlers in the current thread
+  activeException {.threadvar.}: ref Exception
+    ## stack of in-flight exceptions. An exception stops being in-flight once
+    ## an ``except`` section "catches" it.
 
 type
   FrameState = tuple[gcFramePtr: GcFrame, framePtr: PFrame,
@@ -118,11 +131,13 @@ proc pushGcFrame*(s: GcFrame) {.compilerRtl, inl.} =
   gcFramePtr = s
 
 proc pushCurrentException(e: sink(ref Exception)) {.compilerRtl, inl.} =
+  # XXX: legacy runtime procedure only used by the csources compiler
   e.up = currException
   currException = e
   #showErrorMessage2 "A"
 
 proc popCurrentException {.compilerRtl, inl.} =
+  # XXX: legacy runtime procedure only used by the csources compiler
   currException = currException.up
   #showErrorMessage2 "B"
 
@@ -412,6 +427,11 @@ when true:
       currException = nil
       quit(1)
 
+proc pushActiveException(e: sink(ref Exception)) =
+  e.up = activeException
+  activeException = e
+  currException = e # set the current exception already
+
 proc raiseExceptionAux(e: sink(ref Exception)) {.nodestroy.} =
   when defined(nimPanics):
     # XXX: the compiler should reject raise being used with defects. User-code
@@ -425,7 +445,10 @@ proc raiseExceptionAux(e: sink(ref Exception)) {.nodestroy.} =
   if globalRaiseHook != nil:
     if not globalRaiseHook(e): return
 
-  pushCurrentException(e)
+  when defined(nimskullNewExceptionRt):
+    pushActiveException(e)
+  else:
+    pushCurrentException(e)
   inc nimInErrorMode
 
 proc prepareException(e: ref Exception, ename: cstring) {.compilerRtl.} =
@@ -467,10 +490,16 @@ proc raiseException(e: sink(ref Exception), ename: cstring) {.compilerRtl.} =
   raiseExceptionEx(e, ename, nil, nil, 0)
 
 proc reraiseException() {.compilerRtl.} =
-  if currException == nil:
-    sysFatal(ReraiseDefect, "no exception to reraise")
-  else:
+  when defined(nimskullNewExceptionRt):
+    # the compiler makes sure that a re-raise only take place within an
+    # exception handler
+    pushActiveException(move handlers.exc)
     inc nimInErrorMode
+  else:
+    if currException == nil:
+      sysFatal(ReraiseDefect, "no exception to reraise")
+    else:
+      inc nimInErrorMode
 
 proc threadTrouble() =
   # also forward declared, it is 'raises: []' hence the try-except.
@@ -533,6 +562,69 @@ proc nimFrame(s: PFrame) {.compilerRtl, inl, raises: [].} =
   s.prev = framePtr
   framePtr = s
   if s.calldepth == nimCallDepthLimit: callDepthLimitReached()
+
+# v2 exception handling runtime
+# -----------------------------
+
+{.push stacktrace: off, checks: off.}
+
+proc nimCatchException(frame: ptr ExceptionFrame) {.compilerproc.} =
+  ## Pops the top-most in-flight exception from the stack, stores it in
+  ## `frame`, and sets it as the current exception. `frame` is pushed to the
+  ## handler stack.
+  # zero-initialize the location first
+  nimZeroMem(frame, sizeof(ExceptionFrame))
+  frame.prev = handlers
+  frame.exc = activeException
+  # push to handler stack:
+  handlers = frame
+
+  currException = activeException
+  # "pop" the exception from the active stack. Moving from the up pointer
+  # makes sure the caught exception is properly disconnected:
+  activeException = move activeException.up
+
+proc restoreCurrentEx() =
+  if handlers.isNil or handlers.exc.isNil:
+    currException = activeException
+  elif handlers.exc.up == activeException:
+    # the active handler is more recent than the most-recent active exception
+    currException = handlers.exc
+  else:
+    # the active exception was raised after the most-recent handler was entered
+    currException = activeException
+
+proc nimLeaveExcept() {.compilerproc, inline.} =
+  ## Called when an exception handler is exited. Pops the top-most frame from
+  ## the handler stack. Supports being called during unwinding.
+  var wasInErrorMode = nimInErrorMode
+  nimInErrorMode = false
+  handlers.exc = nil # cleanup the ref
+  handlers = handlers.prev
+  restoreCurrentEx()
+  nimInErrorMode = wasInErrorMode
+
+proc nimAbortException() {.compilerproc.} =
+  ## Abort (i.e., discard) an in-flight exception. Must only be called if an
+  ## exception is actually in-flight.
+  var wasInErrorMode = nimInErrorMode
+  # disable error mode right away
+  nimInErrorMode = false
+
+  if wasInErrorMode:
+    # if an exception is aborted by raising another exception, don't pop the
+    # active exception; drop its parent
+    if activeException.up != nil:
+      activeException.up = activeException.up.up
+  else:
+    activeException = activeException.up
+
+  restoreCurrentEx()
+  nimInErrorMode = wasInErrorMode
+
+{.pop.}
+
+# -----
 
 when not defined(noSignalHandler) and not defined(useNimRtl):
   type Sighandler = proc (a: cint) {.noconv, benign.}
