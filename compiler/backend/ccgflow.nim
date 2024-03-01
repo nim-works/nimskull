@@ -421,6 +421,7 @@ proc toInstrList*(stmts: CgNode, isFull: bool): seq[CInstr] =
   for i, it in stmts.pairs:
     case it.kind
     of cnkFinally:
+      stmt code, c, i
       let
         clabel = toCLabel(it[0])
         f = addr c.finallys[clabel]
@@ -496,6 +497,8 @@ proc toInstrList*(stmts: CgNode, isFull: bool): seq[CInstr] =
           if f.numErr > 0:
             code.add CInstr(op: opAbort, local: f.errBackupId)
           jump code, opJump, c, PathIndex c.paths[entry].next
+
+      stmt code, c, i
 
     of cnkJoinStmt:
       # XXX: labels that were redirected cannot be eliminated yet, as case

@@ -2109,7 +2109,9 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkEmpty: discard
   of cnkRepeatStmt:
     startBlock(p, "while (1) {$n")
-  of cnkEnd:
+  of cnkFinally:
+    startBlock(p)
+  of cnkEnd, cnkContinueStmt:
     endBlock(p)
   of cnkDef: genSingleVar(p, n[0], n[1])
   of cnkCaseStmt: genCase(p, n)
@@ -2125,7 +2127,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkExcept:
     genExcept(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)
-  of cnkJoinStmt, cnkFinally, cnkContinueStmt, cnkGotoStmt:
+  of cnkJoinStmt, cnkGotoStmt:
     unreachable("handled separately")
   of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkBranch,
      cnkLabel, cnkTargetList, cnkStmtListExpr, cnkField, cnkStmtList,
