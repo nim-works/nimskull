@@ -313,13 +313,16 @@ proc toInstrList*(stmts: CgNode, isFull: bool): seq[CInstr] =
   var c = Context()
   let redirects = gatherRedirectsAndFinallys(c, stmts) # first pass
 
-  # mark the labels of the trailing joins as being the same as the exit label:
+  # mark the labels of the trailing joins as being the same as the exit
+  # label...
   var exits: PackedSet[BlockId]
-  for i in countdown(stmts.len - 1, 0):
-    if stmts[i].kind == cnkJoinStmt:
-      exits.incl stmts[i][0].label
-    else:
-      break
+  if isFull:
+    # ... but only of stmts constitute the whole body
+    for i in countdown(stmts.len - 1, 0):
+      if stmts[i].kind == cnkJoinStmt:
+        exits.incl stmts[i][0].label
+      else:
+        break
 
   # second pass: collect all jump paths, using the table of redirections to
   # eliminate unnecessary breaks in the paths
