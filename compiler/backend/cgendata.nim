@@ -161,18 +161,12 @@ type
     flags*: set[TCProcFlag]
     lastLineInfo*: TLineInfo  ## to avoid generating excessive 'nimln' statements
     currLineInfo*: TLineInfo  ## AST codegen will make this superfluous
-    nestedTryStmts*: seq[tuple[fin: CgNode, inExcept: bool, label: Natural]]
-                              ## in how many nested try statements we are
-                              ## (the vars must be volatile then)
-                              ## bool is true when are in the except part of a try block
     labels*: Natural          ## for generating unique labels in the C proc
     blocks*: seq[TBlock]      ## nested blocks
     options*: TOptions        ## options that should be used for code
                               ## generation; this is the same as prc.options
                               ## unless prc == nil
     module*: BModule          ## used to prevent excessive parameter passing
-    withinTryWithExcept*: int ## required for goto based exception handling
-    withinBlockLeaveActions*: int ## complex to explain
     sigConflicts*: CountTable[string]
 
     specifier*: Option[uint32]
@@ -323,7 +317,6 @@ proc newProc*(prc: PSym, module: BModule): BProc =
   result.options = if prc != nil: prc.options
                    else: module.config.options
   newSeq(result.blocks, 1)
-  result.nestedTryStmts = @[]
   result.sigConflicts = initCountTable[string]()
 
 proc newModuleList*(g: ModuleGraph): BModuleList =

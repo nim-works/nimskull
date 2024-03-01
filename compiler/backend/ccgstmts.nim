@@ -193,9 +193,8 @@ proc genRaiseStmt(p: BProc, t: CgNode) =
     genLineDir(p, t)
     # reraise the last exception:
     linefmt(p, cpsStmts, "#reraiseException();$n", [])
-  let gotoInstr = raiseInstr(p)
-  if gotoInstr != "":
-    line(p, cpsStmts, gotoInstr)
+
+  # the goto is emitted separately
 
 template genCaseGenericBranch(p: BProc, b: CgNode, e: TLoc,
                           rangeFormat, eqFormat: FormatStr, labl: TLabel) =
@@ -398,98 +397,32 @@ proc bodyCanRaise(p: BProc; n: CgNode): bool =
       if bodyCanRaise(p, it): return true
     result = false
 
-proc genTryGoto(p: BProc; t: CgNode) =
-  let fin = if t[^1].kind == cnkFinally: t[^1] else: nil
-  inc p.labels
-  let lab = p.labels
-  let hasExcept = t[1].kind == cnkExcept
-  if hasExcept: inc p.withinTryWithExcept
-  p.nestedTryStmts.add((fin, false, Natural lab))
+proc genExcept(p: BProc, n: CgNode) =
+  ## Generates and emits the C code for an ``Except`` join point.
+
+  if n.len > 1:
+    # it's a handler with a filter/matcher
+    var condExpr = ""
+    for j in 1..<n.len - 1:
+      assert n[j].kind == cnkType
+      if condExpr != "":
+        condExpr.add("||")
+
+      # make sure the Exception type is available in the module:
+      discard
+        getTypeDesc(p.module, p.module.g.graph.getCompilerProc("Exception").typ)
+
+      appcg(p.module, condExpr, "#isObj(#nimBorrowCurrentException()->Sup.m_type, $1)",
+            [genTypeInfo2Name(p.module, n[j].typ)])
+
+    # jump to the next handler in the chain if the filter doesn't apply
+    linefmt(p, cpsStmts, "if (!($1)) {$2}$n",
+            [condExpr, raiseInstr(p, n[^1])])
+  else:
+    discard "catch-all handler, nothing to check"
 
   p.flags.incl nimErrorFlagAccessed
-
-  var errorFlagSet = false ## tracks whether the error flag is set to 'true'
-    ## on a control-flow path connected to the finally section
-
-  template checkSetsErrorFlag(n: CgNode) =
-    if fin != nil and not errorFlagSet:
-      errorFlagSet = bodyCanRaise(p, n)
-
-  genStmts(p, t[0])
-  checkSetsErrorFlag(t[0])
-
-  if 1 < t.len and t[1].kind == cnkExcept:
-    startBlock(p, "if (NIM_UNLIKELY(*nimErr_)) {$n")
-  else:
-    startBlock(p)
-  linefmt(p, cpsStmts, "LA$1_:;$n", [lab])
-
-  p.nestedTryStmts[^1].inExcept = true
-  var i = 1
-  while (i < t.len) and (t[i].kind == cnkExcept):
-
-    inc p.labels
-    let nextExcept = p.labels
-    p.nestedTryStmts[^1].label = nextExcept
-
-    if t[i].len == 1:
-      # general except section:
-      if i > 1: lineF(p, cpsStmts, "else", [])
-      startBlock(p)
-      # we handled the exception, remember this:
-      linefmt(p, cpsStmts, "*nimErr_ = NIM_FALSE;$n", [])
-      genStmts(p, t[i][0])
-      checkSetsErrorFlag(t[i][0])
-    else:
-      var orExpr = ""
-      for j in 0..<t[i].len - 1:
-        assert(t[i][j].kind == cnkType)
-        if orExpr != "": orExpr.add("||")
-        let checkFor = genTypeInfo2Name(p.module, t[i][j].typ)
-        let memberName = "Sup.m_type"
-        appcg(p.module, orExpr, "#isObj(#nimBorrowCurrentException()->$1, $2)", [memberName, checkFor])
-
-      if i > 1: line(p, cpsStmts, "else ")
-      startBlock(p, "if ($1) {$n", [orExpr])
-      # we handled the exception, remember this:
-      linefmt(p, cpsStmts, "*nimErr_ = NIM_FALSE;$n", [])
-      genStmts(p, t[i][^1])
-      checkSetsErrorFlag(t[i][^1])
-
-    linefmt(p, cpsStmts, "#popCurrentException();$n", [])
-    linefmt(p, cpsStmts, "LA$1_:;$n", [nextExcept])
-    endBlock(p)
-
-    inc(i)
-  discard pop(p.nestedTryStmts)
-  endBlock(p)
-
-  if i < t.len and t[i].kind == cnkFinally:
-    startBlock(p)
-    # future direction: the code generator should track for each procedure
-    # whether it observes the error flag. If the finally clause's body
-    # doesn't observes it itself, and also doesn't call any procedure that
-    # does, we can also omit the save/restore pair
-    if not errorFlagSet:
-      # this is an optimization; if the error flag is proven to never be
-      # 'true' when the finally section is reached, we don't need to erase
-      # nor restore it:
-      genStmts(p, t[i][0])
-    else:
-      # pretend we did handle the error for the safe execution of the 'finally' section:
-      p.procSec(cpsLocals).add(ropecg(p.module, "NIM_BOOL oldNimErrFin$1_;$n", [lab]))
-      linefmt(p, cpsStmts, "oldNimErrFin$1_ = *nimErr_; *nimErr_ = NIM_FALSE;$n", [lab])
-      genStmts(p, t[i][0])
-      # this is correct for all these cases:
-      # 1. finally is run during ordinary control flow
-      # 2. finally is run after 'except' block handling: these however set the
-      #    error back to nil.
-      # 3. finally is run for exception handling code without any 'except'
-      #    handler present or only handlers that did not match.
-      linefmt(p, cpsStmts, "*nimErr_ = oldNimErrFin$1_;$n", [lab])
-    endBlock(p)
-  raiseExit(p)
-  if hasExcept: inc p.withinTryWithExcept
+  lineCg(p, cpsStmts, "*nimErr_ = NIM_FALSE;$n", []) # exit error mode
 
 proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
   var res = ""
