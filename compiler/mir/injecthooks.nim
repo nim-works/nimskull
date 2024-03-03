@@ -19,7 +19,7 @@ import
   ],
   compiler/mir/[
     mirbodies,
-    mirchangesets,
+    newchangesets,
     mirconstr,
     mirenv,
     mirtrees
@@ -292,6 +292,6 @@ proc injectHooks*(body: var MirBody, graph: ModuleGraph, env: var MirEnv,
                   owner: PSym) =
   ## Adapter for the legacy pass-application pipeline. Once possible, the pass
   ## needs to be treated as just another MIR pass.
-  var c = initChangeset(body.code)
+  var c = initChangeset(body)
   injectHooks(body, graph, env, owner, c)
-  apply(body.code, prepare(c))
+  body.apply(c)

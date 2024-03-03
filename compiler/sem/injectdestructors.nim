@@ -112,7 +112,7 @@ import
   compiler/mir/[
     analysis,
     mirbodies,
-    mirchangesets,
+    newchangesets,
     mirconstr,
     mirenv,
     mirtrees,
@@ -880,13 +880,9 @@ proc injectDestructorCalls*(g: ModuleGraph, idgen: IdGenerator,
   ## For now, semantic errors and other diagnostics related to lifetime-hook
   ## usage are also reported here.
 
-  template apply(c: Changeset) =
-    ## Applies the changeset `c` to `body`.
-    apply(body.code, prepare(c))
-
   # apply the first batch of passes:
   block:
-    var changes = initChangeset(body.code)
+    var changes = initChangeset(body)
     # the VM implements branch switching itself - performing the lowering for
     # code meant to run in it would be harmful
     # FIXME: discriminant assignment lowering also needs to be disabled for
@@ -903,12 +899,12 @@ proc injectDestructorCalls*(g: ModuleGraph, idgen: IdGenerator,
           changes.replaceMulti(body.code, i, buf):
             lowerBranchSwitch(buf, body.code, g, idgen, env, i)
 
-    apply(changes)
+    body.apply(changes)
 
   # apply the second batch of passes:
   block:
     var
-      changes = initChangeset(body.code)
+      changes = initChangeset(body)
       actx = AnalyseCtx(graph: g, cfg: computeDfg(body.code))
 
     let
@@ -926,4 +922,4 @@ proc injectDestructorCalls*(g: ModuleGraph, idgen: IdGenerator,
 
     injectDestructors(body.code, g, destructors, env, changes)
 
-    apply(changes)
+    body.apply(changes)
