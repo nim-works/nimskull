@@ -1,5 +1,5 @@
 discard """
-  description: "Tests for the MIR ``Changeset`` API"
+  description: "Tests for the MIR ``TreeChangeset`` API"
   targets: native
 """
 
@@ -7,8 +7,10 @@ discard """
 
 import
   compiler/ast/ast_types,
-  compiler/mir/[mirtrees, mirchangesets, mirconstr, sourcemaps],
+  compiler/mir/[mirtrees, treechangesets, mirconstr, sourcemaps],
   compiler/utils/containers
+
+type Changeset = TreeChangeset
 
 proc temp(x: int): MirNode =
   MirNode(kind: mnkTemp, temp: x.TempId)
@@ -42,7 +44,7 @@ template test(input, output: typed, body: untyped) =
       tree =
         when input is array: @input
         else:                input
-      c {.inject.} = initChangeset(tree)
+      c {.inject.}: Changeset
       sourceMap = setupSourceMap(tree)
 
     template replace(c: Changeset, i: int, n: MirNode) {.inject.} =
