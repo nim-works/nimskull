@@ -737,8 +737,12 @@ proc join(stmts: var seq[CgNode], cl: var TranslateCl, info: TLineInfo,
   if label == target and (found or required):
     stmts.add newTree(cnkJoinStmt, info, node(label))
 
-  if found:
+  if found or true:
     # code is alive if following a join that is targeted by an alive goto
+    # XXX: translation has to be forcefully enabled at a join, even if not
+    #      within a scoped context: the surrounding scope might itself be
+    #      part of an unscoped context. This is a temporary workaround, see
+    #      `disable <#disable,TranslateCl>`_
     cl.isActive = true
 
 template join(info: TLineInfo, lbl: LabelId; required = false) =
