@@ -19,7 +19,7 @@ import
     datatables,
     mirbodies,
     mirenv,
-    mirchangesets,
+    newchangesets,
     mirconstr,
     mirtrees,
     sourcemaps
@@ -465,9 +465,9 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
   ## certain passes. Passes may register new entities with `env`.
   template batch(b: untyped) =
     block:
-      var c {.inject.} = initChangeset(body.code)
+      var c {.inject.} = initChangeset(body)
       b
-      apply(body.code, prepare(c))
+      apply(body, c)
 
   if target == targetC:
     batch:

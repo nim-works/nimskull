@@ -1,19 +1,19 @@
-## This module implements the ``Changeset`` API, which is the main way of
-## applying changes to a ``MirTree``.
+## This module implements the `TreeChangeset <#TreeChangeset>`_ API, which is
+## the main way of modifying a ``MirTree`` after its initial construction.
 ##
 ## Instead of modifying a ``MirTree`` directly, the changes (which can be
 ## insertions, replacements, or removals) are first recorded into a
-## ``Changeset``. This allows for recording changes independent of each other
-## concurrently and later apply the changes all at once.
+## ``TreeChangeset``. This allows for recording changes independent of each
+## other concurrently and later applying the changes all at once.
 ##
-## Before applying a ``Changeset`` to a ``MirTree``, it has to be prepared via
-## a call to ``prepare`` first, after which the ``Changeset`` is sealed an no
-## further changes can be recorded. ``prepare`` is responsible from normalizing
-## the internal representation of the ``Changeset`` and is required for the
-## later application to work.
+## Before applying a ``TreeChangeset`` to a ``MirTree``, it has to be prepared
+## via a call to ``prepare`` first, after which the ``TreeChangeset`` is sealed
+## and no further changes can be recorded. ``prepare`` is responsible from
+## normalizing the internal representation of the ``Changeset`` and is required
+## for the later application to work.
 ##
 ## Applying the ``PreparedChangeset`` is done via ``apply``. This integrates
-## all recorded changes into the applied to tree,.
+## all recorded changes into the applied-to tree.
 ##
 ## Order of application
 ## --------------------
@@ -32,9 +32,7 @@ import
     algorithm
   ],
   compiler/mir/[
-    mirtrees,
-    mirconstr,
-    sourcemaps
+    mirtrees
   ],
   compiler/utils/[
     idioms
@@ -50,12 +48,10 @@ type
     orig: HOslice[NodeIndex] ## the slice of nodes this change affects
     src:  HOslice[NodeIndex] ## a slice in the buffer of staged nodes
 
-  Changeset* = object
+  TreeChangeset* = object
     ## Represents a set of changes to be applied to a ``MirTree``.
     nodes: seq[MirNode]
     rows: seq[Row]
-
-    numTemps: uint32 ## the number of existing temporaries
 
   PreparedChangeset* = object
     nodes: seq[MirNode]
@@ -64,6 +60,9 @@ type
     diff: int        ## the number of additions/removals
     stagingSize: int ## the minimum amount of nodes the working area must be
                      ## able to hold
+
+  # use a local alias for convenience:
+  Changeset = TreeChangeset
 
 func single[T](x: T): HOslice[T] {.inline.} =
   ## Utility for creating a slice with a single item
@@ -83,16 +82,6 @@ func row(start, fin: NodePosition, src: HOslice[NodeIndex]): Row {.inline.} =
 func addSingle(s: var MirNodeSeq, n: sink MirNode): HOslice[NodeIndex] =
   s.add n
   result = single(s.high.NodeIndex)
-
-func initChangeset*(tree: MirTree): Changeset =
-  ## Initializes a new ``Changeset`` instance. Until the resulting
-  ## ``Changeset`` is applied, the associated tree must not be modified.
-
-  # count the number of existing temporaries:
-  for i, n in tree.pairs:
-    if n.kind in DefNodes and
-       (let ent = tree[i, 0]; ent.kind in {mnkTemp, mnkAlias}):
-      result.numTemps = max(ent.temp.uint32 + 1, result.numTemps)
 
 func replace*(c: var Changeset, tree: MirTree, at: NodePosition,
               with: sink MirNode) =
@@ -121,19 +110,8 @@ func insert*(c: var Changeset, at: NodePosition, n: sink MirNode) =
   ## is not modified.
   c.rows.add row(at, at, c.nodes.addSingle(n))
 
-func initBuilder(c: var Changeset, info: SourceId): MirBuilder =
-  ## Internal routines for setting up a builder. Must be paired with a
-  ## ``finishBuilder`` call.
-  result = initBuilder(info, move c.nodes)
-  swap(c.numTemps, result.numTemps)
-
-func finishBuilder(c: var Changeset, bu: sink MirBuilder) =
-  # move the ID counter and buffer back into the changeset
-  swap(c.numTemps, bu.numTemps)
-  c.nodes = finish(bu)
-
-template insert*(c: var Changeset, tree: MirTree, at, source: NodePosition,
-                 name: untyped, body: untyped) =
+template insert*(c: var Changeset, at: NodePosition, name: untyped,
+                 body: untyped) =
   ## Records an insertion at the `at` position, providing direct
   ## access to the internal node buffer inside `body` via an injected variable
   ## of the name `name`. `source` is the node to inherit the source/origin
@@ -141,14 +119,14 @@ template insert*(c: var Changeset, tree: MirTree, at, source: NodePosition,
   block:
     let
       start = c.nodes.len.NodeIndex
-      # evaluate `at` and `source` before `body`, as the latter might change
-      # what `source` evaluates to:
+      # evaluate `at` before `body`, as the latter might change
+      # what `at` evaluates to:
       pos = at
-      info = tree[source].info
 
-    var name = initBuilder(c, info)
+    var name: MirNodeSeq
+    swap(name, c.nodes)
     body
-    finishBuilder(c, name)
+    swap(name, c.nodes)
 
     c.rows.add row(pos, pos, span(start, c.nodes.len.NodeIndex))
 
@@ -161,12 +139,12 @@ template replaceMulti*(c: var Changeset, tree: MirTree, at: NodePosition,
     let
       start = c.nodes.len.NodeIndex
       pos = at # prevent double evaluation
-      info = tree[pos].info
       next = sibling(tree, pos)
 
-    var name = initBuilder(c, info)
+    var name: MirNodeSeq
+    swap(name, c.nodes)
     body
-    finishBuilder(c, name)
+    swap(name, c.nodes)
 
     c.rows.add row(pos, next, span(start, c.nodes.len.NodeIndex))
 
