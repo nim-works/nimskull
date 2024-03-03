@@ -149,7 +149,7 @@ window.addEventListener('DOMContentLoaded', main);
 
   </div>
   &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/lib/pure/sugar.nim#L1"
+href="https://github.com/nim-works/nimskull/tree/d53c9a31f1e8d12307383de8fa2f83b0f8821094/lib/pure/sugar.nim#L1"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/sugar.nim#L1" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -185,7 +185,7 @@ Semicolons can not be used to separate procedure arguments.</div>
 
 <span class="Identifier">assert</span> <span class="Identifier">passOne</span><span class="Punctuation">(</span><span class="Identifier">x</span> <span class="Punctuation">{</span><span class="Operator">.</span><span class="Identifier">noSideEffect</span><span class="Operator">.</span><span class="Punctuation">}</span> <span class="Operator">=&gt;</span> <span class="Identifier">x</span> <span class="Operator">+</span> <span class="DecNumber">1</span><span class="Punctuation">)</span> <span class="Operator">==</span> <span class="DecNumber">2</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/lib/pure/sugar.nim#L136"
+href="https://github.com/nim-works/nimskull/tree/d53c9a31f1e8d12307383de8fa2f83b0f8821094/lib/pure/sugar.nim#L136"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/sugar.nim#L136" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -215,7 +215,7 @@ Semicolons can not be used to separate procedure arguments.</div>
 <span class="Keyword">let</span> <span class="Identifier">f</span> <span class="Operator">=</span> <span class="Punctuation">(</span><span class="Punctuation">)</span> <span class="Operator">=&gt;</span> <span class="Punctuation">(</span><span class="Keyword">discard</span><span class="Punctuation">)</span> <span class="Comment"># simplest proc that returns void</span>
 <span class="Identifier">f</span><span class="Punctuation">(</span><span class="Punctuation">)</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/lib/pure/sugar.nim#L55"
+href="https://github.com/nim-works/nimskull/tree/d53c9a31f1e8d12307383de8fa2f83b0f8821094/lib/pure/sugar.nim#L55"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/sugar.nim#L55" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -237,7 +237,7 @@ Useful when creating a closure in a loop to capture some local loop variables by
         <span class="Identifier">myClosure</span> <span class="Operator">=</span> <span class="Punctuation">(</span><span class="Punctuation">)</span> <span class="Operator">=&gt;</span> <span class="RawData">fmt&quot;{i} * {j} = 42&quot;</span>
 <span class="Identifier">assert</span> <span class="Identifier">myClosure</span><span class="Punctuation">(</span><span class="Punctuation">)</span> <span class="Operator">==</span> <span class="StringLit">&quot;6 * 7 = 42&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/lib/pure/sugar.nim#L216"
+href="https://github.com/nim-works/nimskull/tree/d53c9a31f1e8d12307383de8fa2f83b0f8821094/lib/pure/sugar.nim#L216"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/sugar.nim#L216" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -274,7 +274,7 @@ Same as <tt class="docutils literal"><span class="pre"><span class="Identifier">
 <span class="Keyword">from</span> <span class="Identifier">std</span><span class="Operator">/</span><span class="Identifier">sequtils</span> <span class="Keyword">import</span> <span class="Identifier">toSeq</span>
 <span class="Identifier">assert</span> <span class="Identifier">toSeq</span><span class="Punctuation">(</span><span class="FloatNumber">1.</span><span class="Operator">.</span><span class="DecNumber">3</span><span class="Punctuation">)</span> <span class="Operator">==</span> <span class="Operator">@</span><span class="Punctuation">[</span><span class="DecNumber">1</span><span class="Punctuation">,</span> <span class="DecNumber">2</span><span class="Punctuation">,</span> <span class="DecNumber">3</span><span class="Punctuation">]</span> <span class="Comment"># simpler</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/lib/pure/sugar.nim#L392"
+href="https://github.com/nim-works/nimskull/tree/d53c9a31f1e8d12307383de8fa2f83b0f8821094/lib/pure/sugar.nim#L392"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/sugar.nim#L392" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -314,7 +314,7 @@ class="link-seesrc" target="_blank">Source</a>
   <span class="Keyword">for</span> <span class="Identifier">i</span><span class="Punctuation">,</span> <span class="Identifier">d</span> <span class="Keyword">in</span> <span class="Identifier">data</span><span class="Operator">.</span><span class="Identifier">pairs</span><span class="Punctuation">:</span> <span class="Punctuation">{</span><span class="Identifier">i</span><span class="Punctuation">:</span> <span class="Identifier">d</span><span class="Punctuation">}</span>
 <span class="Identifier">assert</span> <span class="Identifier">z</span> <span class="Operator">==</span> <span class="Punctuation">{</span><span class="DecNumber">0</span><span class="Punctuation">:</span> <span class="StringLit">&quot;bird&quot;</span><span class="Punctuation">,</span> <span class="DecNumber">1</span><span class="Punctuation">:</span> <span class="StringLit">&quot;word&quot;</span><span class="Punctuation">}</span><span class="Operator">.</span><span class="Identifier">toTable</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/lib/pure/sugar.nim#L355"
+href="https://github.com/nim-works/nimskull/tree/d53c9a31f1e8d12307383de8fa2f83b0f8821094/lib/pure/sugar.nim#L355"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/sugar.nim#L355" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -333,7 +333,7 @@ class="link-seesrc" target="_blank">Source</a>
   <span class="Identifier">y</span> <span class="Operator">=</span> <span class="DecNumber">20</span>
 <span class="Identifier">dump</span><span class="Punctuation">(</span><span class="Identifier">x</span> <span class="Operator">+</span> <span class="Identifier">y</span><span class="Punctuation">)</span> <span class="Comment"># prints: `x + y = 30`</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/lib/pure/sugar.nim#L155"
+href="https://github.com/nim-works/nimskull/tree/d53c9a31f1e8d12307383de8fa2f83b0f8821094/lib/pure/sugar.nim#L155"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/sugar.nim#L155" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -355,7 +355,7 @@ Returns the content of a statement or expression <tt class="docutils literal"><s
 <span class="Keyword">import</span> <span class="Identifier">std</span><span class="Operator">/</span><span class="Identifier">strutils</span>
 <span class="Identifier">assert</span> <span class="StringLit">&quot;failedAssertImpl&quot;</span> <span class="Keyword">in</span> <span class="Identifier">dumpToString</span><span class="Punctuation">(</span><span class="Identifier">assert</span> <span class="Identifier">true</span><span class="Punctuation">)</span> <span class="Comment"># example with a statement</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/lib/pure/sugar.nim#L183"
+href="https://github.com/nim-works/nimskull/tree/d53c9a31f1e8d12307383de8fa2f83b0f8821094/lib/pure/sugar.nim#L183"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/sugar.nim#L183" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -402,7 +402,7 @@ class="link-seesrc" target="_blank">Source</a>
   <span class="Identifier">makePalindrome</span> <span class="Comment"># zyyxxxyyz</span>
 <span class="Identifier">assert</span> <span class="Identifier">d</span> <span class="Operator">==</span> <span class="StringLit">&quot;zyyxxxyyz&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/lib/pure/sugar.nim#L244"
+href="https://github.com/nim-works/nimskull/tree/d53c9a31f1e8d12307383de8fa2f83b0f8821094/lib/pure/sugar.nim#L244"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/sugar.nim#L244" class="link-seesrc" target="_blank" >Edit</a>
 

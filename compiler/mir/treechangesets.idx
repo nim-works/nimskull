@@ -1,0 +1,11 @@
+TreeChangeset	mir/treechangesets.html#TreeChangeset	treechangesets: TreeChangeset	
+PreparedChangeset	mir/treechangesets.html#PreparedChangeset	treechangesets: PreparedChangeset	
+replace	mir/treechangesets.html#replace,TreeChangeset,MirTree,NodePosition,sinkMirNode	treechangesets: replace(c: var Changeset; tree: MirTree; at: NodePosition; with: sink MirNode)	
+changeTree	mir/treechangesets.html#changeTree,TreeChangeset,MirTree,NodePosition,sinkMirNode	treechangesets: changeTree(c: var Changeset; tree: MirTree; at: NodePosition; with: sink MirNode)	
+insert	mir/treechangesets.html#insert,TreeChangeset,NodePosition,sinkMirNode	treechangesets: insert(c: var Changeset; at: NodePosition; n: sink MirNode)	
+insert	mir/treechangesets.html#insert.t,TreeChangeset,NodePosition,untyped,untyped	treechangesets: insert(c: var Changeset; at: NodePosition; name: untyped; body: untyped)	
+replaceMulti	mir/treechangesets.html#replaceMulti.t,TreeChangeset,MirTree,NodePosition,untyped,untyped	treechangesets: replaceMulti(c: var Changeset; tree: MirTree; at: NodePosition;\n             name, body: untyped)	
+remove	mir/treechangesets.html#remove,TreeChangeset,MirTree,NodePosition	treechangesets: remove(c: var Changeset; tree: MirTree; at: NodePosition)	
+prepare	mir/treechangesets.html#prepare,sinkTreeChangeset	treechangesets: prepare(c: sink Changeset): PreparedChangeset	
+apply	mir/treechangesets.html#apply,MirTree,sinkPreparedChangeset	treechangesets: apply(tree: var MirTree; c: sink PreparedChangeset)	
+Order of application	mir/treechangesets.html#order-of-application	 Order of application	

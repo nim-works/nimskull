@@ -1,0 +1,9 @@
+Changeset	mir/newchangesets.html#Changeset	newchangesets: Changeset	
+replace	mir/newchangesets.html#replace.t,Changeset,MirTree,NodePosition,MirNode	newchangesets: replace(c: var Changeset; tree: MirTree; at: NodePosition; with: MirNode)	
+changeTree	mir/newchangesets.html#changeTree.t,Changeset,MirTree,NodePosition,MirNode	newchangesets: changeTree(c: var Changeset; tree: MirTree; at: NodePosition; with: MirNode)	
+insert	mir/newchangesets.html#insert.t,Changeset,NodePosition,MirNode	newchangesets: insert(c: var Changeset; at: NodePosition; n: MirNode)	
+remove	mir/newchangesets.html#remove.t,Changeset,MirTree,NodePosition	newchangesets: remove(c: var Changeset; tree: MirTree; at: NodePosition)	
+initChangeset	mir/newchangesets.html#initChangeset,MirBody	newchangesets: initChangeset(body: MirBody): Changeset	
+insert	mir/newchangesets.html#insert.t,Changeset,MirTree,NodePosition,NodePosition,untyped,untyped	newchangesets: insert(c: var Changeset; tree: MirTree; at, source: NodePosition; name: untyped;\n       body: untyped)	
+replaceMulti	mir/newchangesets.html#replaceMulti.t,Changeset,MirTree,NodePosition,untyped,untyped	newchangesets: replaceMulti(c: var Changeset; tree: MirTree; at: NodePosition;\n             name, body: untyped)	
+apply	mir/newchangesets.html#apply,MirBody,sinkChangeset	newchangesets: apply(body: var MirBody; c: sink Changeset)	
