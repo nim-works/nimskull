@@ -48,6 +48,15 @@ Semantics
         | <Type>
         | LVALUE
 
+  INTERMEDIATE_TARGET = <Label>
+                      | Leave <Label>
+
+  TARGET = <Label>
+         | TargetList INTERMEDIATE_TARGET ... <Label>
+
+  EX_TARGET = TARGET
+            | TargetList INTERMEDIATE_TARGET ... Resume
+
   UNARY_OP = NegI VALUE
 
   BINARY_OP = AddI VALUE, VALUE
@@ -78,11 +87,16 @@ Semantics
                                          # one for which the behaviour cannot
                                          # be represented in the MIR)
 
-  # checked calls have the same shape as normal calls. The difference is that
-  # the call has an exceptional exit (i.e., it might raise an exception)
+  # (legacy) checked calls have the same shape as normal calls. The difference
+  # is that the call has an exceptional exit (i.e., it might raise an
+  # exception)
   CHECKED_CALL_EXPR = CheckedCall <Proc> CALL_ARG ...
                     | CheckedCall LVALUE CALL_ARG ...
                     | CheckedCall <Magic> CALL_ARG ...
+
+  CHECKED_CALL_EXPR = CheckedCall <Proc> CALL_ARG ...  EX_TARGET
+                    | CheckedCall LVALUE CALL_ARG ...  EX_TARGET
+                    | CheckedCall <Magic> CALL_ARG ... EX_TARGET
 
 
   RVALUE = UNARY_OP
@@ -150,7 +164,10 @@ Semantics
             | Switch LVALUE ASGN_SRC    # changes the active branch of a
                                         # variant. Unclear semantics.
             | If VALUE STATEMENT        # if the value evaluates to true
-                                        # execute the statement
+                                        # execute the statement (legacy)
+            | If VALUE <Label>          # fall through if the value evaluates
+                                        # to true, otherwise jump to the if's
+                                        # corresponding end
             | Case VALUE BRANCH_LIST    # dispatch to one of the branches based
                                         # on the value, where value must be
                                         # either of integer, float, or string
@@ -158,13 +175,16 @@ Semantics
             | Block <Label> STATEMENT   # run the wrapped statement and provide
                                         # a named exit. The label must be
                                         # unique across all blocks in the
-                                        # procedure
+                                        # procedure (legacy)
             | Break <Label>             # exit the enclosing block that has the
-                                        # given label
+                                        # given label (legacy)
             | Repeat STATEMENT          # unconditional loop. Repeat the
                                         # statement for an indefinite amount
-                                        # of times
-            | TRY_STMT
+                                        # of times (legacy)
+            | TRY_STMT                  # (legacy)
+            | Goto TARGET
+            | Loop <Label>              # unconditional jump back to the start
+                                        # of a loop
             | Raise LVALUE              # push the given exception to the
                                         # exception stack and start exceptional
                                         # control-flow. The `ref object` is
@@ -172,14 +192,27 @@ Semantics
             | Raise <None>              # re-raise the current exception
             | Return                    # exit the procedure, but execute all
                                         # enclosing finalizers first (from
-                                        # innermost to outermost)
+                                        # innermost to outermost) (legacy)
             | Destroy LVALUE
+            | Raise LVALUE EX_TARGET
+            | Raise <None> EX_TARGET
+            | Join <Label>              # join point for non-exceptional
+                                        # control-flow (e.g., goto)
+            | LoopJoin <Label>          # join point for `Loop`
+            | Except <Type> ... EX_TARGET
+            | Except <Local> EX_TARGET
+            | Except                    # catch-all handler
+            | Finally <Label>
+            | Continue <Label> (<Label> | Resume) ...
+            | End <Label>               # marks the end of an if, repeat, or
+                                        # except
             | Emit VALUE ...
             | Asm VALUE ...
 
   BRANCH_LABEL = <Literal>
                | <Const>
   BRANCH_LIST = (Branch BRANCH_LABEL ... STATEMENT) ... # a list of branches
+              | (Branch BRANCH_LABEL ... TARGET) ...
 
   EXCEPT_BRANCH = Branch <Type> ... STATEMENT # exception handler
                 | Branch <Local>    STATEMENT # exception handler for imported
@@ -218,6 +251,110 @@ be read from during execution of the procedure.
 
 This information is intended for use by data-flow analysis and code
 generators.
+
+
+Control Flow Representation
+===========================
+
+.. note:: This only covers the new control-flow primitives.
+
+Terminology:
+* *basic block*: a basic block is a region of statements that contains no
+  jumps and is not jumped into
+* *label*: identifies a control-flow-related construct
+* *terminator*: marks the end of a basic block
+
+A basic block is started by `Finally` and `Except`. Terminators are: `Case`,
+`Goto`, `Raise`, `Continue`, and `Loop`. `If`, `Join`, and `LoopJoin` act as
+both the start and end of a basic block. The nature of `End` depends on the
+associated construct:
+* for `If`, it acts as both a terminator and start of a basic block
+* for `Except`, it only marks the end of the section
+
+Except for `Loop`, all terminators only allow forward control-flow.
+
+Structured Constructs
+---------------------
+
+Each `If` and `Except` must be paired with exactly one `End`, each `LoopJoin`
+with a `Loop`, and each `Finally` with a `Continue`. These are the
+*structured* constructs, and they must not overlap each other, meaning
+that:
+
+.. code-block::
+
+  if x (L1)
+  if y (L2)
+  end L1
+  end L2
+
+is not allowed. However, much like in the high-level language, structured
+constructs can be nested.
+
+Target Lists
+------------
+
+`Goto`, `Raise`, `Except`, and `CheckedCall` support *target lists*. The
+target list specifies intermediate jump targets as well as which sections
+are exited. Take, for example:
+
+.. code-block::
+
+  goto [Leave L1, L2, Leave L3, L4]
+
+What this means is the following:
+1. leave the section (`Except` or `Finally`) identified by label L1
+2. enter the `Finally` section identified by label L2
+3. leave the section identified by label L3
+4. land at the `Finally` or `Join` identified by label L4
+
+An example of the code that would result in such `Goto`:
+
+.. code-block:: nim
+
+  block L4:
+    try:
+      ...
+    finally:
+      try:
+        try
+          ...
+        finally:
+          break L4 # this would translate to the aforementioned goto
+      finally:
+        ...
+
+In the context of exceptional control-flow, the final target must be either
+a `Finally` or an `Except`, otherwise it must be either a `Finally` or `Join`.
+
+Resume
+------
+
+`Resume` is a special jump target that may only appear as the final target of
+`Raise`, `CheckedCall`, and `Except`. It specifies that unwinding/exception-
+handling *resumes* in the caller procedure.
+
+Exception Handler
+-----------------
+
+`Except` represents an exception handler. If types or a local is specified,
+the section is only entered if the run-time type of the active exception
+matches the section's filters. If there's a match, execution continues with
+the statement following the `Except`, otherwise it continues at the target
+specified by the `Except`.
+
+Finally Sections
+----------------
+
+A `Finally` section is used as an intermediate target in a jump chain. Where
+the `Continue` statement marking the end of the section jumps to depends on
+the *target list* the entered `Finally` is part of. For example, with
+`Goto [L1, L2]`, the `Continue` of the `Finally` section identified by L1
+would jump to L2.
+
+The `Continue` must also be present if it is never actually reached. In this
+case, the `Finally` section may only appear as the final target in a target
+list.
 
 Storage
 =======

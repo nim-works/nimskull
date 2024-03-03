@@ -41,6 +41,7 @@ import
     pathutils
   ]
 
+import std/options as std_options
 
 type
   SymbolMap*[T] = object
@@ -136,15 +137,7 @@ type
   BModule* = ref TCGen
   BProc* = ref TCProc
   TBlock* = object
-    id*: int                  ## the ID of the label; positive means that it
-    blk*: int                 ## the ``BlockId`` + 1 of the block.
-                              ## '0' if the ``TBlock`` doesn't correspond to a
-                              ## ``cnkBlockStmt``
-    label*: Rope              ## generated text for the label
-                              ## nil if label is not used
     sections*: TCProcSections ## the code belonging
-    nestedTryStmts*: int16    ## how many try statements is it nested into
-    nestedExceptStmts*: int16 ## how many except statements is it nested into
     frameLen*: int16
 
   TCProcFlag* = enum
@@ -160,20 +153,17 @@ type
     flags*: set[TCProcFlag]
     lastLineInfo*: TLineInfo  ## to avoid generating excessive 'nimln' statements
     currLineInfo*: TLineInfo  ## AST codegen will make this superfluous
-    nestedTryStmts*: seq[tuple[fin: CgNode, inExcept: bool, label: Natural]]
-                              ## in how many nested try statements we are
-                              ## (the vars must be volatile then)
-                              ## bool is true when are in the except part of a try block
     labels*: Natural          ## for generating unique labels in the C proc
     blocks*: seq[TBlock]      ## nested blocks
     options*: TOptions        ## options that should be used for code
                               ## generation; this is the same as prc.options
                               ## unless prc == nil
     module*: BModule          ## used to prevent excessive parameter passing
-    withinLoop*: int          ## > 0 if we are within a loop
-    withinTryWithExcept*: int ## required for goto based exception handling
-    withinBlockLeaveActions*: int ## complex to explain
     sigConflicts*: CountTable[string]
+
+    specifier*: Option[uint32]
+    # XXX: `specifier` is a hack. Some parts of the code generator manually
+    #      emit gotos, and thus need a label specifier, but they shouldn't
 
     body*: Body               ## the procedure's full body
     locals*: OrdinalSeq[LocalId, TLoc]
@@ -319,7 +309,6 @@ proc newProc*(prc: PSym, module: BModule): BProc =
   result.options = if prc != nil: prc.options
                    else: module.config.options
   newSeq(result.blocks, 1)
-  result.nestedTryStmts = @[]
   result.sigConflicts = initCountTable[string]()
 
 proc newModuleList*(g: ModuleGraph): BModuleList =

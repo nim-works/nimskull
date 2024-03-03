@@ -2447,7 +2447,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkTryStmt: genTry(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)
   of cnkInvalid, cnkMagic, cnkRange, cnkBinding, cnkExcept, cnkFinally,
-     cnkBranch, cnkAstLit, cnkLabel, cnkStmtListExpr, cnkField:
+     cnkBranch, cnkAstLit, cnkLabel, cnkStmtListExpr, cnkField, cnkNewCfNodes:
     internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =

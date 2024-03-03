@@ -294,11 +294,11 @@ template binaryArithOverflowRaw(p: BProc, t: PType, a, b: TLoc;
   var result = getTempName(p.module)
   linefmt(p, cpsLocals, "$1 $2;$n", [storage, result])
   lineCg(p, cpsStmts, "if (#$2($3, $4, &$1)) { #raiseOverflow(); $5};$n",
-      [result, cpname, rdCharLoc(a), rdCharLoc(b), raiseInstr(p)])
+      [result, cpname, rdCharLoc(a), rdCharLoc(b), raiseInstr(p, e.exit)])
   if size < p.config.target.intSize or t.kind in {tyRange, tyEnum}:
     linefmt(p, cpsStmts, "if ($1 < $2 || $1 > $3){ #raiseOverflow(); $4}$n",
             [result, intLiteral(firstOrd(p.config, t)), intLiteral(lastOrd(p.config, t)),
-            raiseInstr(p)])
+            raiseInstr(p, e.exit)])
   result
 
 proc binaryArithOverflow(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
@@ -324,7 +324,7 @@ proc binaryArithOverflow(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
     # result is only for overflows.
     if m in {mDivI, mModI}:
       linefmt(p, cpsStmts, "if ($1 == 0){ #raiseDivByZero(); $2}$n",
-              [rdLoc(b), raiseInstr(p)])
+              [rdLoc(b), raiseInstr(p, e.exit)])
 
     let res = binaryArithOverflowRaw(p, t, a, b,
       if t.kind == tyInt64: prc64[m] else: prc[m])
@@ -338,7 +338,7 @@ proc unaryArithOverflow(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
   initLocExpr(p, e[1], a)
   t = skipTypes(e.typ, abstractRange)
   linefmt(p, cpsStmts, "if ($1 == $2){ #raiseOverflow(); $3}$n",
-          [rdLoc(a), intLiteral(firstOrd(p.config, t)), raiseInstr(p)])
+          [rdLoc(a), intLiteral(firstOrd(p.config, t)), raiseInstr(p, e.exit)])
   case m
   of mUnaryMinusI:
     putIntoDest(p, d, e, "((NI$2)-($1))" % [rdLoc(a), rope(getSize(p.config, t) * 8)])
@@ -631,7 +631,7 @@ proc genFieldCheck(p: BProc, e: CgNode) =
 
     discard cgsym(p.module, raiseProc) # make sure the compilerproc is generated
     linefmt(p, cpsStmts, "{ $1($3, $4); $2} $n",
-            [raiseProc, raiseInstr(p), strLit, toStr])
+            [raiseProc, raiseInstr(p, e.exit), strLit, toStr])
 
 proc genUncheckedArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   var a, b: TLoc
@@ -660,7 +660,7 @@ proc genCStringElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   putIntoDest(p, d, n,
               ropecg(p.module, "$1[$2]", [rdLoc(a), rdCharLoc(b)]), a.storage)
 
-proc genBoundsCheck(p: BProc; arr, a, b: TLoc) =
+proc genBoundsCheck(p: BProc; arr, a, b: TLoc, exit: CgNode) =
   # types that map to C pointers need to be skipped here too, since no
   # dereference is generated for ``ptr array`` and the like
   let ty = skipTypes(arr.t, abstractVarRange + {tyPtr, tyRef, tyLent})
@@ -670,29 +670,29 @@ proc genBoundsCheck(p: BProc; arr, a, b: TLoc) =
       linefmt(p, cpsStmts,
         "if ($2-$1 != -1 && " &
         "((NU)($1) >= (NU)($3.Field1) || (NU)($2) >= (NU)($3.Field1))){ #raiseIndexError(); $4}$n",
-        [rdLoc(a), rdLoc(b), rdLoc(arr), raiseInstr(p)])
+        [rdLoc(a), rdLoc(b), rdLoc(arr), raiseInstr(p, exit)])
     else:
       linefmt(p, cpsStmts,
         "if ($2-$1 != -1 && " &
         "((NU)($1) >= (NU)($3Len_0) || (NU)($2) >= (NU)($3Len_0))){ #raiseIndexError(); $4}$n",
-        [rdLoc(a), rdLoc(b), rdLoc(arr), raiseInstr(p)])
+        [rdLoc(a), rdLoc(b), rdLoc(arr), raiseInstr(p, exit)])
   of tyArray:
     let first = intLiteral(firstOrd(p.config, ty))
     linefmt(p, cpsStmts,
       "if ($2-$1 != -1 && " &
       "($2-$1 < -1 || $1 < $3 || $1 > $4 || $2 < $3 || $2 > $4)){ #raiseIndexError(); $5}$n",
-      [rdCharLoc(a), rdCharLoc(b), first, intLiteral(lastOrd(p.config, ty)), raiseInstr(p)])
+      [rdCharLoc(a), rdCharLoc(b), first, intLiteral(lastOrd(p.config, ty)), raiseInstr(p, exit)])
   of tySequence, tyString:
     linefmt(p, cpsStmts,
       "if ($2-$1 != -1 && " &
       "((NU)($1) >= (NU)$3 || (NU)($2) >= (NU)$3)){ #raiseIndexError(); $4}$n",
-      [rdLoc(a), rdLoc(b), lenExpr(p, arr), raiseInstr(p)])
+      [rdLoc(a), rdLoc(b), lenExpr(p, arr), raiseInstr(p, exit)])
   of tyUncheckedArray, tyCstring:
     discard "no checks are used"
   else:
     unreachable(ty.kind)
 
-proc genIndexCheck(p: BProc; x: CgNode, arr, idx: TLoc) =
+proc genIndexCheck(p: BProc; x: CgNode, arr, idx: TLoc, exit: CgNode) =
   ## Emits the index check logic + subsequent raise operation. `x` is
   ## the array expression the `arr` loc resulted from from.
   let ty = arr.t.skipTypes(abstractVar + tyUserTypeClasses +
@@ -703,22 +703,22 @@ proc genIndexCheck(p: BProc; x: CgNode, arr, idx: TLoc) =
     if firstOrd(p.config, ty) == 0 and lastOrd(p.config, ty) >= 0:
       linefmt(p, cpsStmts, "if ((NU)($1) > (NU)($2)){ #raiseIndexError2($1, $2); $3}$n",
               [rdCharLoc(idx), intLiteral(lastOrd(p.config, ty)),
-               raiseInstr(p)])
+               raiseInstr(p, exit)])
     else:
       linefmt(p, cpsStmts, "if ($1 < $2 || $1 > $3){ #raiseIndexError3($1, $2, $3); $4}$n",
               [rdCharLoc(idx), first, intLiteral(lastOrd(p.config, ty)),
-               raiseInstr(p)])
+               raiseInstr(p, exit)])
   of tySequence, tyString:
     linefmt(p, cpsStmts,
             "if ((NU)($1) >= (NU)$2){ #raiseIndexError2($1,$2-1); $3}$n",
-            [rdCharLoc(idx), lenExpr(p, arr), raiseInstr(p)])
+            [rdCharLoc(idx), lenExpr(p, arr), raiseInstr(p, exit)])
   of tyOpenArray, tyVarargs:
     if reifiedOpenArray(p, x):
       linefmt(p, cpsStmts, "if ((NU)($1) >= (NU)($2.Field1)){ #raiseIndexError2($1,$2.Field1-1); $3}$n",
-              [rdCharLoc(idx), rdLoc(arr), raiseInstr(p)])
+              [rdCharLoc(idx), rdLoc(arr), raiseInstr(p, exit)])
     else:
       linefmt(p, cpsStmts, "if ((NU)($1) >= (NU)($2Len_0)){ #raiseIndexError2($1,$2Len_0-1); $3}$n",
-              [rdCharLoc(idx), rdLoc(arr), raiseInstr(p)])
+              [rdCharLoc(idx), rdLoc(arr), raiseInstr(p, exit)])
   of tyCstring:
     discard "no bound checks"
   else:
@@ -766,18 +766,19 @@ proc genArrayLikeElem(p: BProc; n: CgNode; d: var TLoc) =
 
 proc genEcho(p: BProc, n: CgNode) =
   ## Generates and emits the code for the magic echo call.
-  if n.len == 1:
+  let argCount = numArgs(n)
+  if argCount == 0:
     linefmt(p, cpsStmts, "#echoBinSafe(NIM_NIL, 0);$n", [])
   else:
     # allocate a temporary array and fill it with the arguments:
     var tmp: TLoc
     getTemp(p, n[1].typ, tmp) # the first argument stores the type to use
-    for i in 2..<n.len:
+    for i in 2..<(1 + argCount):
       var a: TLoc
       initLocExpr(p, n[i], a)
       linefmt(p, cpsStmts, "$1[$2] = $3;$n", [rdLoc(tmp), i-2, rdLoc(a)])
 
-    linefmt(p, cpsStmts, "#echoBinSafe($1, $2);$n", [rdLoc(tmp), n.len-2])
+    linefmt(p, cpsStmts, "#echoBinSafe($1, $2);$n", [rdLoc(tmp), argCount-1])
 
 proc strLoc(p: BProc; d: TLoc): Rope =
   result = byRefLoc(p, d)
@@ -1514,7 +1515,7 @@ proc genRangeChck(p: BProc, n: CgNode, d: var TLoc) =
     if n0t.kind in {tyUInt, tyUInt64}:
       linefmt(p, cpsStmts, "if ($1 > ($6)($3)){ #raiseRangeErrorNoArgs(); $5}$n",
         [rdCharLoc(a), genLiteral(p, n[2], dest), genLiteral(p, n[3], dest),
-        raiser, raiseInstr(p), getTypeDesc(p.module, n0t)])
+        raiser, raiseInstr(p, n.exit), getTypeDesc(p.module, n0t)])
     else:
       let raiser =
         case skipTypes(n.typ, abstractVarRange).kind
@@ -1531,7 +1532,7 @@ proc genRangeChck(p: BProc, n: CgNode, d: var TLoc) =
           ""
       linefmt(p, cpsStmts, "if ($6($1) < $2 || $6($1) > $3){ $4($1, $2, $3); $5}$n",
         [rdCharLoc(a), genLiteral(p, n[2], dest), genLiteral(p, n[3], dest),
-        raiser, raiseInstr(p), boundaryCast])
+        raiser, raiseInstr(p, n.exit), boundaryCast])
   putIntoDest(p, d, n, "(($1) ($2))" %
       [getTypeDesc(p.module, dest), rdCharLoc(a)], a.storage)
 
@@ -1568,7 +1569,8 @@ proc binaryFloatArith(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
     putIntoDest(p, d, e, ropecg(p.module, "(($4)($2) $1 ($4)($3))",
                               [opr[m], rdLoc(a), rdLoc(b),
                               getSimpleTypeDesc(p.module, e[1].typ)]))
-    linefmt(p, cpsStmts, "if ($1 != 0.0 && $1*0.5 == $1) { #raiseFloatOverflow($1); $2}$n", [rdLoc(d), raiseInstr(p)])
+    linefmt(p, cpsStmts, "if ($1 != 0.0 && $1*0.5 == $1) { #raiseFloatOverflow($1); $2}$n",
+            [rdLoc(d), raiseInstr(p, e.exit)])
 
 proc skipAddr(n: CgNode): CgNode =
   if n.kind == cnkHiddenAddr: n.operand
@@ -1758,18 +1760,18 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     # NOTE: if the value is a signaling NaN, the comparison itself results in
     #       a float-point exception (which might result in a trap)
     linefmt(p, cpsStmts, "if ($1 != $1){ #raiseFloatInvalidOp(); $2}$n",
-            [rdLoc(a), raiseInstr(p)])
+            [rdLoc(a), raiseInstr(p, e.exit)])
   of mChckIndex:
     var arr, a: TLoc
     initLocExpr(p, e[1], arr)
     initLocExpr(p, e[2], a)
-    genIndexCheck(p, e[1], arr, a)
+    genIndexCheck(p, e[1], arr, a, e.exit)
   of mChckBounds:
     var arr, a, b: TLoc
     initLocExpr(p, e[1], arr)
     initLocExpr(p, e[2], a)
     initLocExpr(p, e[3], b)
-    genBoundsCheck(p, arr, a, b)
+    genBoundsCheck(p, arr, a, b, e.exit)
   of mChckField:
     genFieldCheck(p, e)
   of mChckObj:
@@ -1781,7 +1783,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     # the nil-check is expected to have taken place already
     linefmt(p, cpsStmts, "if (!#isObj($2, $3)){ #raiseObjectConversionError(); $4}$n",
             [nilCheck, r, genTypeInfo2Name(p.module, e[2].typ),
-             raiseInstr(p)])
+             raiseInstr(p, e.exit)])
   of mSamePayload:
     var a, b: TLoc
     initLocExpr(p, e[1], a)
@@ -1898,10 +1900,6 @@ proc genArrayConstr(p: BProc, n: CgNode, d: var TLoc) =
       initLoc(arr, locExpr, lodeTyp elemType(skipTypes(n.typ, abstractInst)), d.storage)
       arr.r = "$1[$2]" % [rdLoc(d), intLiteral(i)]
       expr(p, n[i], arr)
-
-proc genStmtList(p: BProc, n: CgNode) =
-  for i in 0..<n.len:
-    genStmts(p, n[i])
 
 proc downConv(p: BProc, n: CgNode, d: var TLoc) =
   ## Generates and emits the code for the ``cnkObjDownConv`` (conversion to
@@ -2104,18 +2102,19 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
       genTupleElem(p, n, d)
   of cnkDeref, cnkDerefView: genDeref(p, n, d)
   of cnkFieldAccess: genRecordField(p, n, d)
-  of cnkBlockStmt: genBlock(p, n)
-  of cnkStmtList: genStmtList(p, n)
   of cnkIfStmt: genIf(p, n)
   of cnkObjDownConv: downConv(p, n, d)
   of cnkObjUpConv: upConv(p, n, d)
   of cnkClosureConstr: genClosure(p, n, d)
   of cnkEmpty: discard
-  of cnkRepeatStmt: genRepeatStmt(p, n)
+  of cnkLoopJoinStmt:
+    startBlock(p, "while (1) {$n")
+  of cnkFinally:
+    startBlock(p)
+  of cnkEnd, cnkContinueStmt, cnkLoopStmt:
+    endBlock(p)
   of cnkDef: genSingleVar(p, n[0], n[1])
   of cnkCaseStmt: genCase(p, n)
-  of cnkReturnStmt: genReturnStmt(p, n)
-  of cnkBreakStmt: genBreakStmt(p, n)
   of cnkAsgn, cnkFastAsgn:
     genAsgn(p, n)
   of cnkVoidStmt:
@@ -2125,12 +2124,14 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
     line(p, cpsStmts, "(void)(" & a.r & ");\L")
   of cnkAsmStmt: genAsmStmt(p, n)
   of cnkEmitStmt: genEmit(p, n)
-  of cnkTryStmt:
-    assert p.config.exc == excGoto
-    genTryGoto(p, n)
+  of cnkExcept:
+    genExcept(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)
-  of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkExcept,
-     cnkFinally, cnkBranch, cnkLabel, cnkStmtListExpr, cnkField:
+  of cnkJoinStmt, cnkGotoStmt:
+    unreachable("handled separately")
+  of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkBranch,
+     cnkLabel, cnkTargetList, cnkStmtListExpr, cnkField, cnkStmtList,
+     cnkLeave, cnkResume, cnkLegacyNodes:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 
 proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =

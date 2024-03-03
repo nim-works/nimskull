@@ -35,33 +35,59 @@ proc reportObservableStore(p: BProc; le, ri: CgNode) =
         # cannot analyse the location; assume the worst
         return true
 
-  if le != nil and locationEscapes(p, le, p.nestedTryStmts.len > 0):
+  # XXX: this whole procedure needs to be removed; RVO calls must only be used
+  #      if safe
+  var inTryStmt = false
+  # analyse the target to check whether a local exception handler or finally
+  # is reached
+  case ri[^1].kind
+  of cnkLabel:
+    inTryStmt = true
+  of cnkTargetList:
+    for it in ri[^1].items:
+      if it.kind == cnkLabel:
+        inTryStmt = true
+        break
+  else:
+    discard "no local exception handler or finally is reached"
+
+  if le != nil and locationEscapes(p, le, inTryStmt):
     localReport(p.config, le.info, reportSem rsemObservableStores)
 
-proc isHarmlessStore(p: BProc; canRaise: bool; d: TLoc): bool =
-  if d.k in {locTemp, locNone} or not canRaise:
+proc observableInExcept(n: CgNode): bool =
+  ## Computes whether the call expression `n` has an exceptional exit
+  ## that leads to an exception handler within the current procedure.
+  let target = n[^1]
+  case target.kind
+  of cnkLabel:      true # can only be an exception handler (of finally)
+  of cnkTargetList: target[^1].kind == cnkLabel
+  else:
+    unreachable()
+
+proc isHarmlessStore(p: BProc; ri: CgNode, d: TLoc): bool =
+  if d.k in {locTemp, locNone} or ri.kind != cnkCheckedCall:
     result = true
-  elif d.k == locLocalVar and p.withinTryWithExcept == 0:
+  elif d.k == locLocalVar and not observableInExcept(ri):
     # we cannot observe a store to a local variable if the current proc
     # has no error handler:
     result = true
   else:
     result = false
 
-proc exitCall(p: BProc, callee: CgNode, canRaise: bool) =
+proc exitCall(p: BProc, call: CgNode) =
   ## Emits the exceptional control-flow related post-call logic.
-  if p.config.exc == excGoto:
+  if call.kind == cnkCheckedCall:
     if nimErrorFlagDisabled in p.flags:
-      if callee.kind == cnkProc and sfNoReturn in p.env[callee.prc].flags and
-         canRaiseConservative(p.env, callee):
+      if call[0].kind == cnkProc and sfNoReturn in p.env[call[0].prc].flags and
+         canRaiseConservative(p.env, call[0]):
         # when using goto-exceptions, noreturn doesn't map to "doesn't return"
         # at the C-level. In order to still support dispatching to wrapper
         # procedures around ``raise`` from inside ``.compilerprocs``, we emit
         # an exit after the call
         p.flags.incl beforeRetNeeded
         lineF(p, cpsStmts, "goto BeforeRet_;$n", [])
-    elif canRaise:
-      raiseExit(p)
+    else:
+      raiseExit(p, call[^1])
 
 proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
                callee, params: Rope) =
@@ -86,17 +112,17 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         pl.add(addrLoc(p.config, d))
         pl.add(~");$n")
         line(p, cpsStmts, pl)
-        exitCall(p, ri[0], canRaise)
+        exitCall(p, ri)
     else:
       pl.add(~")")
-      if isHarmlessStore(p, canRaise, d):
+      if isHarmlessStore(p, ri, d):
         if d.k == locNone: getTemp(p, typ[0], d)
         assert(d.t != nil)        # generate an assignment to d:
         var list: TLoc
         initLoc(list, locCall, d.lode, OnUnknown)
         list.r = pl
         genAssignment(p, d, list)
-        exitCall(p, ri[0], canRaise)
+        exitCall(p, ri)
       else:
         var tmp: TLoc
         getTemp(p, typ[0], tmp)
@@ -104,12 +130,12 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         initLoc(list, locCall, d.lode, OnUnknown)
         list.r = pl
         genAssignment(p, tmp, list)
-        exitCall(p, ri[0], canRaise)
+        exitCall(p, ri)
         genAssignment(p, d, tmp)
   else:
     pl.add(~");$n")
     line(p, cpsStmts, pl)
-    exitCall(p, ri[0], canRaise)
+    exitCall(p, ri)
 
 proc reifiedOpenArray(p: BProc, n: CgNode): bool {.inline.} =
   # all non-parameter openArrays are reified
@@ -197,7 +223,7 @@ proc genArgNoParam(p: BProc, n: CgNode, needsTmp = false): Rope =
   result = rdLoc(a)
 
 proc genParams(p: BProc, ri: CgNode, typ: PType): Rope =
-  for i in 1..<ri.len:
+  for i in 1..<(1 + numArgs(ri)):
     if i < typ.len:
       assert(typ.n[i].kind == nkSym)
       let paramType = typ.n[i]
@@ -251,7 +277,7 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
   let canRaise = ri.kind == cnkCheckedCall
   if typ[0] != nil:
     if isInvalidReturnType(p.config, typ[0]):
-      if ri.len > 1: pl.add(~", ")
+      if numArgs(ri) > 0: pl.add(~", ")
       # the destination is guaranteed to be either a temporary or an lvalue
       # that can be modified in-place
       if true:
@@ -264,8 +290,8 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
           getTemp(p, typ[0], d)
         pl.add(addrLoc(p.config, d))
         genCallPattern()
-        exitCall(p, ri[0], canRaise)
-    elif isHarmlessStore(p, canRaise, d):
+        exitCall(p, ri)
+    elif isHarmlessStore(p, ri, d):
       if d.k == locNone: getTemp(p, typ[0], d)
       assert(d.t != nil)        # generate an assignment to d:
       var list: TLoc
@@ -275,7 +301,7 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
       else:
         list.r = PatProc % [rdLoc(op), pl, pl.addComma, rawProc]
       genAssignment(p, d, list)
-      exitCall(p, ri[0], canRaise)
+      exitCall(p, ri)
     else:
       var tmp: TLoc
       getTemp(p, typ[0], tmp)
@@ -287,11 +313,11 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
       else:
         list.r = PatProc % [rdLoc(op), pl, pl.addComma, rawProc]
       genAssignment(p, tmp, list)
-      exitCall(p, ri[0], canRaise)
+      exitCall(p, ri)
       genAssignment(p, d, tmp)
   else:
     genCallPattern()
-    exitCall(p, ri[0], canRaise)
+    exitCall(p, ri)
 
 proc genAsgnCall(p: BProc, le, ri: CgNode, d: var TLoc) =
   if ri[0].typ.skipTypes({tyGenericInst, tyAlias, tySink}).callConv == ccClosure:

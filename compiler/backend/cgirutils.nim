@@ -59,7 +59,8 @@ proc treeRepr*(n: CgNode): string =
     of cnkMagic:
       result.add "magic: "
       result.add $n.magic
-    of cnkEmpty, cnkInvalid, cnkType, cnkAstLit, cnkNilLit, cnkReturnStmt:
+    of cnkEmpty, cnkInvalid, cnkType, cnkAstLit, cnkNilLit, cnkReturnStmt,
+       cnkResume:
       discard
     of cnkWithOperand:
       result.add "\n"

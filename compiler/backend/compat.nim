@@ -205,3 +205,8 @@ proc pick*[T](n: CgNode, forInt, forFloat: T): T =
   of tyFloat..tyFloat64:       forFloat
   else:
     unreachable("not an integer or float type")
+
+func numArgs*(n: CgNode): int {.inline.} =
+  ## Returns the number of arguments for a call-like node. The callee
+  ## is excluded.
+  n.len - 1 - ord(n.kind == cnkCheckedCall)

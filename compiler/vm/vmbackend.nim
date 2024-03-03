@@ -126,7 +126,7 @@ proc generateCodeForProc(c: var CodeGenCtx, idgen: IdGenerator, s: PSym,
   ## Generates and the bytecode for the procedure `s` with body `body`. The
   ## resulting bytecode is emitted into the global bytecode section.
   let
-    body = generateIR(c.graph, idgen, c.env, s, body)
+    body = generateIRLegacy(c.graph, idgen, c.env, s, body)
     r    = genProc(c, s, body)
 
   if r.isOk:
@@ -181,7 +181,7 @@ proc processEvent(c: var GenCtx, mlist: ModuleList, discovery: var DiscoveryData
   of bekPartial:
     let p = addr mgetOrPut(partial, evt.id, PartialProc(sym: evt.sym))
     discard merge(p.body):
-      generateIR(c.graph, idgen, c.gen.env, evt.sym, evt.body)
+      generateIRLegacy(c.graph, idgen, c.gen.env, evt.sym, evt.body)
   of bekProcedure:
     # a complete procedure became available
     let r = generateCodeForProc(c.gen, idgen, evt.sym, evt.body)
