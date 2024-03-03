@@ -3,5 +3,11 @@ Overview	mir.html#overview	 Overview
 Semantics	mir.html#semantics	 Semantics	
 Types	mir.html#types	  Types	
 Effects	mir.html#effects	  Effects	
+Control Flow Representation	mir.html#control-flow-representation	 Control Flow Representation	
+Structured Constructs	mir.html#structured-constructs	  Structured Constructs	
+Target Lists	mir.html#target-lists	  Target Lists	
+Resume	mir.html#resume	  Resume	
+Exception Handler	mir.html#exception-handler	  Exception Handler	
+Finally Sections	mir.html#finally-sections	  Finally Sections	
 Storage	mir.html#storage	 Storage	
 Constant Expressions	mir.html#constant-expressions	 Constant Expressions	

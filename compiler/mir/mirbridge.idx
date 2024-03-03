@@ -1,4 +1,4 @@
 echoInput	mir/mirbridge.html#echoInput,ConfigRef,PSym,PNode	mirbridge: echoInput(config: ConfigRef; owner: PSym; body: PNode)	
 echoMir	mir/mirbridge.html#echoMir,ConfigRef,PSym,MirBody	mirbridge: echoMir(config: ConfigRef; owner: PSym; body: MirBody)	
 echoOutput	mir/mirbridge.html#echoOutput,ConfigRef,PSym,Body	mirbridge: echoOutput(config: ConfigRef; owner: PSym; body: Body)	
-canonicalize	mir/mirbridge.html#canonicalize,ModuleGraph,IdGenerator,MirEnv,PSym,PNode,TranslationConfig	mirbridge: canonicalize(graph: ModuleGraph; idgen: IdGenerator; env: var MirEnv;\n             owner: PSym; body: PNode; config: TranslationConfig): Body	
+canonicalize	mir/mirbridge.html#canonicalize,ModuleGraph,IdGenerator,MirEnv,PSym,PNode,TranslationConfig	mirbridge: canonicalize(graph: ModuleGraph; idgen: IdGenerator; env: var MirEnv;\n             owner: PSym; body: PNode; config: TranslationConfig; legacy = false): Body	

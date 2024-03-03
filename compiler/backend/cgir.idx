@@ -14,6 +14,7 @@ cnkConst	backend/cgir.html#cnkConst	CgNodeKind.cnkConst
 cnkGlobal	backend/cgir.html#cnkGlobal	CgNodeKind.cnkGlobal	
 cnkLocal	backend/cgir.html#cnkLocal	CgNodeKind.cnkLocal	
 cnkMagic	backend/cgir.html#cnkMagic	CgNodeKind.cnkMagic	
+cnkResume	backend/cgir.html#cnkResume	CgNodeKind.cnkResume	
 cnkCall	backend/cgir.html#cnkCall	CgNodeKind.cnkCall	
 cnkCheckedCall	backend/cgir.html#cnkCheckedCall	CgNodeKind.cnkCheckedCall	
 cnkNeg	backend/cgir.html#cnkNeg	CgNodeKind.cnkNeg	
@@ -51,14 +52,22 @@ cnkAsmStmt	backend/cgir.html#cnkAsmStmt	CgNodeKind.cnkAsmStmt
 cnkIfStmt	backend/cgir.html#cnkIfStmt	CgNodeKind.cnkIfStmt	
 cnkRepeatStmt	backend/cgir.html#cnkRepeatStmt	CgNodeKind.cnkRepeatStmt	
 cnkCaseStmt	backend/cgir.html#cnkCaseStmt	CgNodeKind.cnkCaseStmt	
+cnkBranch	backend/cgir.html#cnkBranch	CgNodeKind.cnkBranch	
 cnkBlockStmt	backend/cgir.html#cnkBlockStmt	CgNodeKind.cnkBlockStmt	
+cnkTryStmt	backend/cgir.html#cnkTryStmt	CgNodeKind.cnkTryStmt	
+cnkGotoStmt	backend/cgir.html#cnkGotoStmt	CgNodeKind.cnkGotoStmt	
+cnkLoopStmt	backend/cgir.html#cnkLoopStmt	CgNodeKind.cnkLoopStmt	
 cnkBreakStmt	backend/cgir.html#cnkBreakStmt	CgNodeKind.cnkBreakStmt	
 cnkRaiseStmt	backend/cgir.html#cnkRaiseStmt	CgNodeKind.cnkRaiseStmt	
 cnkReturnStmt	backend/cgir.html#cnkReturnStmt	CgNodeKind.cnkReturnStmt	
-cnkTryStmt	backend/cgir.html#cnkTryStmt	CgNodeKind.cnkTryStmt	
+cnkContinueStmt	backend/cgir.html#cnkContinueStmt	CgNodeKind.cnkContinueStmt	
+cnkJoinStmt	backend/cgir.html#cnkJoinStmt	CgNodeKind.cnkJoinStmt	
+cnkLoopJoinStmt	backend/cgir.html#cnkLoopJoinStmt	CgNodeKind.cnkLoopJoinStmt	
+cnkEnd	backend/cgir.html#cnkEnd	CgNodeKind.cnkEnd	
 cnkExcept	backend/cgir.html#cnkExcept	CgNodeKind.cnkExcept	
 cnkFinally	backend/cgir.html#cnkFinally	CgNodeKind.cnkFinally	
-cnkBranch	backend/cgir.html#cnkBranch	CgNodeKind.cnkBranch	
+cnkTargetList	backend/cgir.html#cnkTargetList	CgNodeKind.cnkTargetList	
+cnkLeave	backend/cgir.html#cnkLeave	CgNodeKind.cnkLeave	
 cnkDef	backend/cgir.html#cnkDef	CgNodeKind.cnkDef	
 cnkAsgn	backend/cgir.html#cnkAsgn	CgNodeKind.cnkAsgn	
 cnkFastAsgn	backend/cgir.html#cnkFastAsgn	CgNodeKind.cnkFastAsgn	
@@ -67,6 +76,8 @@ cnkWithOperand	backend/cgir.html#cnkWithOperand	cgir: cnkWithOperand
 cnkAtoms	backend/cgir.html#cnkAtoms	cgir: cnkAtoms	
 cnkWithItems	backend/cgir.html#cnkWithItems	cgir: cnkWithItems	
 cnkLiterals	backend/cgir.html#cnkLiterals	cgir: cnkLiterals	
+cnkLegacyNodes	backend/cgir.html#cnkLegacyNodes	cgir: cnkLegacyNodes	
+cnkNewCfNodes	backend/cgir.html#cnkNewCfNodes	cgir: cnkNewCfNodes	
 Local	backend/cgir.html#Local	cgir: Local	
 BlockId	backend/cgir.html#BlockId	cgir: BlockId	
 LocalId	backend/cgir.html#LocalId	cgir: LocalId	

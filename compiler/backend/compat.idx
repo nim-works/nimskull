@@ -13,3 +13,4 @@ newSymNode	backend/compat.html#newSymNode,MirEnv,PSym	compat: newSymNode(env: Mi
 newStrNode	backend/compat.html#newStrNode,sinkstring	compat: newStrNode(str: sink string): CgNode	
 translate	backend/compat.html#translate,MirTree	compat: translate(t: MirTree): CgNode	
 pick	backend/compat.html#pick,CgNode,T,T	compat: pick[T](n: CgNode; forInt, forFloat: T): T	
+numArgs	backend/compat.html#numArgs,CgNode	compat: numArgs(n: CgNode): int	

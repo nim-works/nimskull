@@ -100,6 +100,15 @@ VALUE = &lt;Literal&gt;
       | &lt;Type&gt;
       | LVALUE
 
+INTERMEDIATE_TARGET = &lt;Label&gt;
+                    | Leave &lt;Label&gt;
+
+TARGET = &lt;Label&gt;
+       | TargetList INTERMEDIATE_TARGET ... &lt;Label&gt;
+
+EX_TARGET = TARGET
+          | TargetList INTERMEDIATE_TARGET ... Resume
+
 UNARY_OP = NegI VALUE
 
 BINARY_OP = AddI VALUE, VALUE
@@ -130,11 +139,16 @@ CALL_EXPR = Call &lt;Proc&gt; CALL_ARG ...   # a static call of the provided
                                        # one for which the behaviour cannot
                                        # be represented in the MIR)
 
-# checked calls have the same shape as normal calls. The difference is that
-# the call has an exceptional exit (i.e., it might raise an exception)
+# (legacy) checked calls have the same shape as normal calls. The difference
+# is that the call has an exceptional exit (i.e., it might raise an
+# exception)
 CHECKED_CALL_EXPR = CheckedCall &lt;Proc&gt; CALL_ARG ...
                   | CheckedCall LVALUE CALL_ARG ...
                   | CheckedCall &lt;Magic&gt; CALL_ARG ...
+
+CHECKED_CALL_EXPR = CheckedCall &lt;Proc&gt; CALL_ARG ...  EX_TARGET
+                  | CheckedCall LVALUE CALL_ARG ...  EX_TARGET
+                  | CheckedCall &lt;Magic&gt; CALL_ARG ... EX_TARGET
 
 
 RVALUE = UNARY_OP
@@ -202,7 +216,10 @@ STATEMENT =
           | Switch LVALUE ASGN_SRC    # changes the active branch of a
                                       # variant. Unclear semantics.
           | If VALUE STATEMENT        # if the value evaluates to true
-                                      # execute the statement
+                                      # execute the statement (legacy)
+          | If VALUE &lt;Label&gt;          # fall through if the value evaluates
+                                      # to true, otherwise jump to the if's
+                                      # corresponding end
           | Case VALUE BRANCH_LIST    # dispatch to one of the branches based
                                       # on the value, where value must be
                                       # either of integer, float, or string
@@ -210,13 +227,16 @@ STATEMENT =
           | Block &lt;Label&gt; STATEMENT   # run the wrapped statement and provide
                                       # a named exit. The label must be
                                       # unique across all blocks in the
-                                      # procedure
+                                      # procedure (legacy)
           | Break &lt;Label&gt;             # exit the enclosing block that has the
-                                      # given label
+                                      # given label (legacy)
           | Repeat STATEMENT          # unconditional loop. Repeat the
                                       # statement for an indefinite amount
-                                      # of times
-          | TRY_STMT
+                                      # of times (legacy)
+          | TRY_STMT                  # (legacy)
+          | Goto TARGET
+          | Loop &lt;Label&gt;              # unconditional jump back to the start
+                                      # of a loop
           | Raise LVALUE              # push the given exception to the
                                       # exception stack and start exceptional
                                       # control-flow. The `ref object` is
@@ -224,14 +244,27 @@ STATEMENT =
           | Raise &lt;None&gt;              # re-raise the current exception
           | Return                    # exit the procedure, but execute all
                                       # enclosing finalizers first (from
-                                      # innermost to outermost)
+                                      # innermost to outermost) (legacy)
           | Destroy LVALUE
+          | Raise LVALUE EX_TARGET
+          | Raise &lt;None&gt; EX_TARGET
+          | Join &lt;Label&gt;              # join point for non-exceptional
+                                      # control-flow (e.g., goto)
+          | LoopJoin &lt;Label&gt;          # join point for `Loop`
+          | Except &lt;Type&gt; ... EX_TARGET
+          | Except &lt;Local&gt; EX_TARGET
+          | Except                    # catch-all handler
+          | Finally &lt;Label&gt;
+          | Continue &lt;Label&gt; (&lt;Label&gt; | Resume) ...
+          | End &lt;Label&gt;               # marks the end of an if, repeat, or
+                                      # except
           | Emit VALUE ...
           | Asm VALUE ...
 
 BRANCH_LABEL = &lt;Literal&gt;
              | &lt;Const&gt;
 BRANCH_LIST = (Branch BRANCH_LABEL ... STATEMENT) ... # a list of branches
+            | (Branch BRANCH_LABEL ... TARGET) ...
 
 EXCEPT_BRANCH = Branch &lt;Type&gt; ... STATEMENT # exception handler
               | Branch &lt;Local&gt;    STATEMENT # exception handler for imported
@@ -252,6 +285,52 @@ TRY_STMT = Try STATEMENT (Except EXCEPT_BRANCH ...)? (Finally STATEMENT)?
 <h2 id="effects">Effects</h2><p>Lvalues passed to by-name parameters may optionally be tagged with an <em>effect</em>. The effect describes what may happen to the underlying location <em>during</em> execution of the procedure. If no effects are specified, the location may only be read from during execution of the procedure.</p>
 <p>This information is intended for use by data-flow analysis and code generators.</p>
 
+<h1 id="control-flow-representation">Control Flow Representation</h1><div class="admonition admonition-info"><span class="admonition-info-text"><b>Note:</b></span>
+This only covers the new control-flow primitives.</div>
+<p>Terminology:</p>
+<ul class="simple"><li><em>basic block</em>: a basic block is a region of statements that contains no jumps and is not jumped into</li>
+<li><em>label</em>: identifies a control-flow-related construct</li>
+<li><em>terminator</em>: marks the end of a basic block</li>
+</ul>
+<p>A basic block is started by <tt class="docutils literal"><span class="pre">Finally</span></tt> and <tt class="docutils literal"><span class="pre">Except</span></tt>. Terminators are: <tt class="docutils literal"><span class="pre">Case</span></tt>, <tt class="docutils literal"><span class="pre">Goto</span></tt>, <tt class="docutils literal"><span class="pre">Raise</span></tt>, <tt class="docutils literal"><span class="pre">Continue</span></tt>, and <tt class="docutils literal"><span class="pre">Loop</span></tt>. <tt class="docutils literal"><span class="pre">If</span></tt>, <tt class="docutils literal"><span class="pre">Join</span></tt>, and <tt class="docutils literal"><span class="pre">LoopJoin</span></tt> act as both the start and end of a basic block. The nature of <tt class="docutils literal"><span class="pre">End</span></tt> depends on the associated construct:</p>
+<ul class="simple"><li>for <tt class="docutils literal"><span class="pre">If</span></tt>, it acts as both a terminator and start of a basic block</li>
+<li>for <tt class="docutils literal"><span class="pre">Except</span></tt>, it only marks the end of the section</li>
+</ul>
+<p>Except for <tt class="docutils literal"><span class="pre">Loop</span></tt>, all terminators only allow forward control-flow.</p>
+
+<h2 id="structured-constructs">Structured Constructs</h2><p>Each <tt class="docutils literal"><span class="pre">If</span></tt> and <tt class="docutils literal"><span class="pre">Except</span></tt> must be paired with exactly one <tt class="docutils literal"><span class="pre">End</span></tt>, each <tt class="docutils literal"><span class="pre">LoopJoin</span></tt> with a <tt class="docutils literal"><span class="pre">Loop</span></tt>, and each <tt class="docutils literal"><span class="pre">Finally</span></tt> with a <tt class="docutils literal"><span class="pre">Continue</span></tt>. These are the <em>structured</em> constructs, and they must not overlap each other, meaning that:</p>
+<pre class="listing"><span class="Keyword">if</span> <span class="Identifier">x</span> <span class="Punctuation">(</span><span class="Identifier">L1</span><span class="Punctuation">)</span>
+<span class="Keyword">if</span> <span class="Identifier">y</span> <span class="Punctuation">(</span><span class="Identifier">L2</span><span class="Punctuation">)</span>
+<span class="Keyword">end</span> <span class="Identifier">L1</span>
+<span class="Keyword">end</span> <span class="Identifier">L2</span></pre><p>is not allowed. However, much like in the high-level language, structured constructs can be nested.</p>
+
+<h2 id="target-lists">Target Lists</h2><p><tt class="docutils literal"><span class="pre">Goto</span></tt>, <tt class="docutils literal"><span class="pre">Raise</span></tt>, <tt class="docutils literal"><span class="pre">Except</span></tt>, and <tt class="docutils literal"><span class="pre">CheckedCall</span></tt> support <em>target lists</em>. The target list specifies intermediate jump targets as well as which sections are exited. Take, for example:</p>
+<pre class="listing"><span class="Identifier">goto</span> <span class="Punctuation">[</span><span class="Identifier">Leave</span> <span class="Identifier">L1</span><span class="Punctuation">,</span> <span class="Identifier">L2</span><span class="Punctuation">,</span> <span class="Identifier">Leave</span> <span class="Identifier">L3</span><span class="Punctuation">,</span> <span class="Identifier">L4</span><span class="Punctuation">]</span></pre><p>What this means is the following:</p>
+<ol class="simple"><li>leave the section (<tt class="docutils literal"><span class="pre">Except</span></tt> or <tt class="docutils literal"><span class="pre">Finally</span></tt>) identified by label L1</li>
+<li>enter the <tt class="docutils literal"><span class="pre">Finally</span></tt> section identified by label L2</li>
+<li>leave the section identified by label L3</li>
+<li>land at the <tt class="docutils literal"><span class="pre">Finally</span></tt> or <tt class="docutils literal"><span class="pre">Join</span></tt> identified by label L4</li>
+</ol>
+<p>An example of the code that would result in such <tt class="docutils literal"><span class="pre">Goto</span></tt>:</p>
+<pre class="listing"><span class="Keyword">block</span> <span class="Identifier">L4</span><span class="Punctuation">:</span>
+  <span class="Keyword">try</span><span class="Punctuation">:</span>
+    <span class="Operator">...</span>
+  <span class="Keyword">finally</span><span class="Punctuation">:</span>
+    <span class="Keyword">try</span><span class="Punctuation">:</span>
+      <span class="Keyword">try</span>
+        <span class="Operator">...</span>
+      <span class="Keyword">finally</span><span class="Punctuation">:</span>
+        <span class="Keyword">break</span> <span class="Identifier">L4</span> <span class="Comment"># this would translate to the aforementioned goto</span>
+    <span class="Keyword">finally</span><span class="Punctuation">:</span>
+      <span class="Operator">...</span></pre><p>In the context of exceptional control-flow, the final target must be either a <tt class="docutils literal"><span class="pre">Finally</span></tt> or an <tt class="docutils literal"><span class="pre">Except</span></tt>, otherwise it must be either a <tt class="docutils literal"><span class="pre">Finally</span></tt> or <tt class="docutils literal"><span class="pre">Join</span></tt>.</p>
+
+<h2 id="resume">Resume</h2><p><tt class="docutils literal"><span class="pre">Resume</span></tt> is a special jump target that may only appear as the final target of <tt class="docutils literal"><span class="pre">Raise</span></tt>, <tt class="docutils literal"><span class="pre">CheckedCall</span></tt>, and <tt class="docutils literal"><span class="pre">Except</span></tt>. It specifies that unwinding/exception- handling <em>resumes</em> in the caller procedure.</p>
+
+<h2 id="exception-handler">Exception Handler</h2><p><tt class="docutils literal"><span class="pre">Except</span></tt> represents an exception handler. If types or a local is specified, the section is only entered if the run-time type of the active exception matches the section's filters. If there's a match, execution continues with the statement following the <tt class="docutils literal"><span class="pre">Except</span></tt>, otherwise it continues at the target specified by the <tt class="docutils literal"><span class="pre">Except</span></tt>.</p>
+
+<h2 id="finally-sections">Finally Sections</h2><p>A <tt class="docutils literal"><span class="pre">Finally</span></tt> section is used as an intermediate target in a jump chain. Where the <tt class="docutils literal"><span class="pre">Continue</span></tt> statement marking the end of the section jumps to depends on the <em>target list</em> the entered <tt class="docutils literal"><span class="pre">Finally</span></tt> is part of. For example, with <tt class="docutils literal"><span class="pre">Goto [L1, L2]</span></tt>, the <tt class="docutils literal"><span class="pre">Continue</span></tt> of the <tt class="docutils literal"><span class="pre">Finally</span></tt> section identified by L1 would jump to L2.</p>
+<p>The <tt class="docutils literal"><span class="pre">Continue</span></tt> must also be present if it is never actually reached. In this case, the <tt class="docutils literal"><span class="pre">Finally</span></tt> section may only appear as the final target in a target list.</p>
+
 <h1 id="storage">Storage</h1><p>The MIR uses a tree-based representation similar to the AST. For easier processing and faster access, the whole code for a procedure is stored in a single sequence of <em>nodes</em>, with the nodes forming a tree.</p>
 <p>Sub-trees are currently delimited via an explicit <tt class="docutils literal"><span class="pre">End</span></tt> node.</p>
 
@@ -271,7 +350,7 @@ COMPLEX = Constr ARG...
       <div class="twelve-columns footer">
         <span class="nim-sprite"></span>
         <br/>
-        <small style="color: var(--hint);">Made with Nim. Generated: 2024-02-29 00:00:00 UTC</small>
+        <small style="color: var(--hint);">Made with Nim. Generated: 2024-03-03 00:00:00 UTC</small>
       </div>
     </div>
   </div>

@@ -1,0 +1,2 @@
+translateLit	backend/cgirgen_legacy.html#translateLit,PNode	cgirgen_legacy: translateLit(val: PNode): CgNode	
+generateIR	backend/cgirgen_legacy.html#generateIR,ModuleGraph,IdGenerator,MirEnv,PSym,sinkMirBody	cgirgen_legacy: generateIR(graph: ModuleGraph; idgen: IdGenerator; env: MirEnv; owner: PSym;\n           body: sink MirBody): Body	

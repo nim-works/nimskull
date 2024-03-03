@@ -173,6 +173,13 @@ window.addEventListener('DOMContentLoaded', main);
            body: sink MirBody): Body</a></li>
 
   </ul>
+  <ul class="simple nested-toc-section">generateIRLegacy
+      <li><a class="reference" href="#generateIRLegacy%2CModuleGraph%2CIdGenerator%2CMirEnv%2CPSym%2CsinkMirBody"
+    title="generateIRLegacy(graph: ModuleGraph; idgen: IdGenerator; env: MirEnv;
+                 owner: PSym; body: sink MirBody): Body">generateIRLegacy(graph: ModuleGraph; idgen: IdGenerator; env: MirEnv;
+                 owner: PSym; body: sink MirBody): Body</a></li>
+
+  </ul>
   <ul class="simple nested-toc-section">generateMain
       <li><a class="reference" href="#generateMain%2CModuleGraph%2CModuleList%2CPNode"
     title="generateMain(graph: ModuleGraph; modules: ModuleList; result: PNode)">generateMain(graph: ModuleGraph; modules: ModuleList; result: PNode)</a></li>
@@ -260,7 +267,7 @@ window.addEventListener('DOMContentLoaded', main);
 
   </div>
   &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L1"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L1"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L1" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -271,7 +278,7 @@ class="link-seesrc" target="_blank">Source</a>
   <div class="section" id="6">
 <h1><a class="toc-backref" href="#6">Imports</a></h1>
 <dl class="item">
-<a class="reference external" href="../ast/ast.html">../ast/ast</a>, <a class="reference external" href="../ast/idents.html">../ast/idents</a>, <a class="reference external" href="../ast/lineinfos.html">../ast/lineinfos</a>, <a class="reference external" href="cgmeth.html">cgmeth</a>, <a class="reference external" href="cgir.html">cgir</a>, <a class="reference external" href="cgirgen.html">cgirgen</a>, <a class="reference external" href="../front/msgs.html">../front/msgs</a>, <a class="reference external" href="../front/options.html">../front/options</a>, <a class="reference external" href="../mir/datatables.html">../mir/datatables</a>, <a class="reference external" href="../mir/injecthooks.html">../mir/injecthooks</a>, <a class="reference external" href="../mir/mirbodies.html">../mir/mirbodies</a>, <a class="reference external" href="../mir/mirbridge.html">../mir/mirbridge</a>, <a class="reference external" href="../mir/mirconstr.html">../mir/mirconstr</a>, <a class="reference external" href="../mir/mirenv.html">../mir/mirenv</a>, <a class="reference external" href="../mir/mirgen.html">../mir/mirgen</a>, <a class="reference external" href="../mir/mirpasses.html">../mir/mirpasses</a>, <a class="reference external" href="../mir/mirtrees.html">../mir/mirtrees</a>, <a class="reference external" href="../mir/sourcemaps.html">../mir/sourcemaps</a>, <a class="reference external" href="../mir/utils.html">../mir/utils</a>, <a class="reference external" href="../modules/modulegraphs.html">../modules/modulegraphs</a>, <a class="reference external" href="../modules/magicsys.html">../modules/magicsys</a>, <a class="reference external" href="../sem/injectdestructors.html">../sem/injectdestructors</a>, <a class="reference external" href="../sem/modulelowering.html">../sem/modulelowering</a>, <a class="reference external" href="../sem/transf.html">../sem/transf</a>, <a class="reference external" href="../sem/varpartitions.html">../sem/varpartitions</a>, <a class="reference external" href="../utils/containers.html">../utils/containers</a>, <a class="reference external" href="../utils/idioms.html">../utils/idioms</a>
+<a class="reference external" href="../ast/ast.html">../ast/ast</a>, <a class="reference external" href="../ast/idents.html">../ast/idents</a>, <a class="reference external" href="../ast/lineinfos.html">../ast/lineinfos</a>, <a class="reference external" href="cgmeth.html">cgmeth</a>, <a class="reference external" href="cgir.html">cgir</a>, <a class="reference external" href="cgirgen.html">cgirgen</a>, <a class="reference external" href="cgirgen_legacy.html">cgirgen_legacy</a>, <a class="reference external" href="../front/msgs.html">../front/msgs</a>, <a class="reference external" href="../front/options.html">../front/options</a>, <a class="reference external" href="../mir/datatables.html">../mir/datatables</a>, <a class="reference external" href="../mir/injecthooks.html">../mir/injecthooks</a>, <a class="reference external" href="../mir/mirbodies.html">../mir/mirbodies</a>, <a class="reference external" href="../mir/mirbridge.html">../mir/mirbridge</a>, <a class="reference external" href="../mir/mirconstr.html">../mir/mirconstr</a>, <a class="reference external" href="../mir/mirenv.html">../mir/mirenv</a>, <a class="reference external" href="../mir/mirgen.html">../mir/mirgen</a>, <a class="reference external" href="../mir/mirpasses.html">../mir/mirpasses</a>, <a class="reference external" href="../mir/mirtrees.html">../mir/mirtrees</a>, <a class="reference external" href="../mir/sourcemaps.html">../mir/sourcemaps</a>, <a class="reference external" href="../mir/utils.html">../mir/utils</a>, <a class="reference external" href="../modules/modulegraphs.html">../modules/modulegraphs</a>, <a class="reference external" href="../modules/magicsys.html">../modules/magicsys</a>, <a class="reference external" href="../sem/injectdestructors.html">../sem/injectdestructors</a>, <a class="reference external" href="../sem/modulelowering.html">../sem/modulelowering</a>, <a class="reference external" href="../sem/transf.html">../sem/transf</a>, <a class="reference external" href="../sem/varpartitions.html">../sem/varpartitions</a>, <a class="reference external" href="../utils/containers.html">../utils/containers</a>, <a class="reference external" href="../utils/idioms.html">../utils/idioms</a>
 </dl></div>
 <div class="section" id="7">
 <h1><a class="toc-backref" href="#7">Types</a></h1>
@@ -287,9 +294,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Configuration state altering the operation of the <tt class="docutils literal"><span class="pre">process</span></tt> iterator.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L55"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L56"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L55" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L56" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -319,9 +326,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Progress event returned by the <tt class="docutils literal"><span class="pre">process</span></tt> iterator.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L93"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L94"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L93" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L94" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -346,9 +353,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L79"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L80"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L79" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L80" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -365,9 +372,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Bundles all data needed during the disovery of alive, backend-relevant entities.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L65"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L66"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L65" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L66" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -382,9 +389,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Updates <tt class="docutils literal"><span class="pre"><span class="Identifier">env</span></span></tt> with all not-yet-seen entities from the list of declarative statements (<tt class="docutils literal"><span class="pre"><span class="Identifier">decl</span></span></tt>).
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L569"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L577"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L569" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L577" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -396,9 +403,23 @@ class="link-seesrc" target="_blank">Source</a>
 
 Translates the MIR code provided by <tt class="docutils literal"><span class="pre"><span class="Identifier">code</span></span></tt> into <tt class="docutils literal"><span class="pre">CgNode</span></tt> IR and, if enabled, echoes the result.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L366"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L367"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L366" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L367" class="link-seesrc" target="_blank" >Edit</a>
+
+</dd>
+</div>
+<div id="generateIRLegacy,ModuleGraph,IdGenerator,MirEnv,PSym,sinkMirBody">
+<dt><pre><span class="Keyword">proc</span> <a href="#generateIRLegacy%2CModuleGraph%2CIdGenerator%2CMirEnv%2CPSym%2CsinkMirBody"><span class="Identifier">generateIRLegacy</span></a><span class="Other">(</span><span class="Identifier">graph</span><span class="Other">:</span> <a href="../modules/modulegraphs.html#ModuleGraph"><span class="Identifier">ModuleGraph</span></a><span class="Other">;</span> <span class="Identifier">idgen</span><span class="Other">:</span> <a href="../ast/ast_idgen.html#IdGenerator"><span class="Identifier">IdGenerator</span></a><span class="Other">;</span> <span class="Identifier">env</span><span class="Other">:</span> <a href="../mir/mirenv.html#MirEnv"><span class="Identifier">MirEnv</span></a><span class="Other">;</span>
+                      <span class="Identifier">owner</span><span class="Other">:</span> <a href="../ast/ast_types.html#PSym"><span class="Identifier">PSym</span></a><span class="Other">;</span> <span class="Identifier">body</span><span class="Other">:</span> <span class="Identifier">sink</span> <a href="../mir/mirbodies.html#MirBody"><span class="Identifier">MirBody</span></a><span class="Other">)</span><span class="Other">:</span> <a href="cgir.html#Body"><span class="Identifier">Body</span></a> {.
+    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">KeyError</span><span class="Other">,</span> <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ValueError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
+<dd>
+
+Translates the MIR code provided by <tt class="docutils literal"><span class="pre"><span class="Identifier">code</span></span></tt> into legacy <tt class="docutils literal"><span class="pre">CgNode</span></tt> IR and, if enabled, echoes the result.
+&nbsp;&nbsp;<a
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L374"
+class="link-seesrc" target="_blank">Source</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L374" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -409,9 +430,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Generates the program initialization code and emits it to <tt class="docutils literal"><span class="pre"><span class="Identifier">result</span></span></tt>. The initialization logic is the code that invokes each module's init procedures.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L188"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L189"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L188" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L189" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -423,9 +444,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Generates the procedure for initializing, running, and de-initializing the full program (<tt class="docutils literal"><span class="pre"><span class="Identifier">modules</span></span></tt>). The procedure returns the value of the internal <tt class="docutils literal"><span class="pre">programResult</span></tt> global.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L223"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L224"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L223" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L224" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -436,9 +457,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Generates the code for de-initializing the program, and emits it to <tt class="docutils literal"><span class="pre"><span class="Identifier">result</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L210"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L211"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L210" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L211" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -448,9 +469,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L270"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L271"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L270" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L271" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -460,9 +481,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Returns whether <tt class="docutils literal"><span class="pre"><span class="Identifier">tree</span></span></tt> contains either no nodes or only nodes that have no meaning by themselves.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L261"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L262"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L261" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L262" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -472,9 +493,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Returns the ID of the module <tt class="docutils literal"><span class="pre"><span class="Identifier">o</span></span></tt> is <em>attached</em> to. Do note that in the case of generic instantiations, this is not the necessarily the same module as the one indicated via the owner.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L174"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L175"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L174" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L175" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -487,9 +508,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Runs the <tt class="docutils literal"><span class="pre">transf</span></tt> pass on the body of <tt class="docutils literal"><span class="pre"><span class="Identifier">prc</span></span></tt> and queues the steps needed for fully processing the procedure. <tt class="docutils literal"><span class="pre"><span class="Identifier">module</span></span></tt> is the module the step was queued from: it's used as the module the next processing is queued from.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L295"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L296"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L295" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L296" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -500,9 +521,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Overrides which module the procedure identified by <tt class="docutils literal"><span class="pre"><span class="Identifier">id</span></span></tt> will be reported as having been first seen with. This only works with procedures that haven't been queued for code generation yet. It's also fundamentally a workaround, try to use it as little as possible.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L848"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L856"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L848" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L856" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -515,9 +536,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Translates <tt class="docutils literal"><span class="pre"><span class="Identifier">body</span></span></tt> to MIR code, applies all applicable MIR passes, and returns the result. <tt class="docutils literal"><span class="pre"><span class="Identifier">id</span></span></tt> is the ID of the procedure the fragment belongs to.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L347"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L348"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L347" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L348" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -532,9 +553,9 @@ class="link-seesrc" target="_blank">Source</a>
 
 Returns all external entities (procedures, globals, etc.) that <tt class="docutils literal"><span class="pre"><span class="Identifier">tree</span></span></tt> references <em>directly</em>, in an unspecified order.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L273"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L274"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L273" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L274" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -548,9 +569,9 @@ class="link-seesrc" target="_blank">Source</a>
 <p>This iterator is meant for a manual implementation of the backend processing -- don't use it in conjunction with the <tt class="docutils literal"><span class="pre">process</span></tt> iterator.</p>
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L858"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L866"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L858" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L866" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -566,9 +587,9 @@ class="link-seesrc" target="_blank">Source</a>
 <p>At the callsite, no new entities must be registered with <tt class="docutils literal"><span class="pre"><span class="Identifier">discovery</span></span></tt> during processing of a <tt class="docutils literal"><span class="pre">bekDiscovered</span></tt> event.</p>
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/12f0aa45abab91601f53cc79854a27376c403d0f/compiler/backend/backends.nim#L683"
+href="https://github.com/nim-works/nimskull/tree/fff9caeaeec26a1ae419b0979bd0f7a23147303b/compiler/backend/backends.nim#L691"
 class="link-seesrc" target="_blank">Source</a>
-&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L683" class="link-seesrc" target="_blank" >Edit</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/backend/backends.nim#L691" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -587,7 +608,7 @@ class="link-seesrc" target="_blank">Source</a>
       <div class="twelve-columns footer">
         <span class="nim-sprite"></span>
         <br/>
-        <small style="color: var(--hint);">Made with Nim. Generated: 2024-02-29 00:00:00 UTC</small>
+        <small style="color: var(--hint);">Made with Nim. Generated: 2024-03-03 00:00:00 UTC</small>
       </div>
     </div>
   </div>
