@@ -18,6 +18,7 @@ __POCC__
 __TINYC__
 __clang__
 __AVR__
+__EMSCRIPTEN__
 */
 
 
@@ -220,8 +221,16 @@ __AVR__
 #    define N_FASTCALL_PTR(rettype, name) rettype (*name)
 #    define N_SAFECALL_PTR(rettype, name) rettype (*name)
 #  endif
-#  define N_LIB_EXPORT NIM_EXTERNC __attribute__((visibility("default")))
-#  define N_LIB_EXPORT_VAR  __attribute__((visibility("default")))
+#  ifdef __EMSCRIPTEN__
+//   Emscripten uses an EMSCRIPTEN_KEEPALIVE macro to mark exports, but also
+//   requires an <emscripten.h> include. The macro expands to __attribute__((used)).
+//   With the following, we cut out the middleman and avoid that include:
+#    define N_LIB_EXPORT  NIM_EXTERNC __attribute__((used, visibility("default")))
+#    define N_LIB_EXPORT_VAR  __attribute__((used, visibility("default")))
+#  else
+#    define N_LIB_EXPORT  NIM_EXTERNC __attribute__((visibility("default")))
+#    define N_LIB_EXPORT_VAR  __attribute__((visibility("default")))
+#  endif
 #  define N_LIB_IMPORT  extern
 #endif
 
