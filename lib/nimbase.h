@@ -225,7 +225,7 @@ __EMSCRIPTEN__
 //   Emscripten uses an EMSCRIPTEN_KEEPALIVE macro to mark exports, but also
 //   requires an <emscripten.h> include. The macro expands to __attribute__((used)).
 //   With the following, we cut out the middleman and avoid that include:
-#    define N_LIB_EXPORT  __attribute__((used, visibility("default")))
+#    define N_LIB_EXPORT  NIM_EXTERNC __attribute__((used, visibility("default")))
 #    define N_LIB_EXPORT_VAR  __attribute__((used, visibility("default")))
 #  else
 #    define N_LIB_EXPORT  NIM_EXTERNC __attribute__((visibility("default")))
