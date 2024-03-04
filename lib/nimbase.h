@@ -18,6 +18,7 @@ __POCC__
 __TINYC__
 __clang__
 __AVR__
+__EMSCRIPTEN__
 */
 
 
@@ -164,7 +165,6 @@ __AVR__
 #  define NIM_CAST(type, ptr) ((type)(ptr))
 #endif
 
-
 /* ------------------------------------------------------------------- */
 #ifdef  __cplusplus
 #  define NIM_EXTERNC extern "C"
@@ -188,6 +188,8 @@ __AVR__
 
 #  ifdef __cplusplus
 #    define N_LIB_EXPORT  NIM_EXTERNC __declspec(dllexport)
+#  elif __EMSCRIPTEN__
+#    define N_LIB_EXPORT  EMSCRIPTEN_KEEPALIVE __declspec(dllexport)
 #  else
 #    define N_LIB_EXPORT  NIM_EXTERNC __declspec(dllexport)
 #  endif
@@ -220,8 +222,13 @@ __AVR__
 #    define N_FASTCALL_PTR(rettype, name) rettype (*name)
 #    define N_SAFECALL_PTR(rettype, name) rettype (*name)
 #  endif
-#  define N_LIB_EXPORT NIM_EXTERNC __attribute__((visibility("default")))
-#  define N_LIB_EXPORT_VAR  __attribute__((visibility("default")))
+#  ifdef __EMSCRIPTEN__
+#    define N_LIB_EXPORT  EMSCRIPTEN_KEEPALIVE __attribute__((visibility("default")))
+#    define N_LIB_EXPORT_VAR  EMSCRIPTEN_KEEPALIVE __attribute__((visibility("default")))
+#  else
+#    define N_LIB_EXPORT  NIM_EXTERNC __attribute__((visibility("default")))
+#    define N_LIB_EXPORT_VAR  __attribute__((visibility("default")))
+#  endif
 #  define N_LIB_IMPORT  extern
 #endif
 
