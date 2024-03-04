@@ -188,8 +188,6 @@ __EMSCRIPTEN__
 
 #  ifdef __cplusplus
 #    define N_LIB_EXPORT  NIM_EXTERNC __declspec(dllexport)
-#  elif __EMSCRIPTEN__
-#    define N_LIB_EXPORT  EMSCRIPTEN_KEEPALIVE __declspec(dllexport)
 #  else
 #    define N_LIB_EXPORT  NIM_EXTERNC __declspec(dllexport)
 #  endif
@@ -223,8 +221,11 @@ __EMSCRIPTEN__
 #    define N_SAFECALL_PTR(rettype, name) rettype (*name)
 #  endif
 #  ifdef __EMSCRIPTEN__
-#    define N_LIB_EXPORT  EMSCRIPTEN_KEEPALIVE __attribute__((visibility("default")))
-#    define N_LIB_EXPORT_VAR  EMSCRIPTEN_KEEPALIVE __attribute__((visibility("default")))
+//   Emscripten uses an EMSCRIPTEN_KEEPALIVE macro to mark exports, but also
+//   requires an <emscripten.h> include. The macro expands to __attribute__((used)).
+//   With the following, we cut out the middleman and avoid that include:
+#    define N_LIB_EXPORT  __attribute__((used, visibility("default")))
+#    define N_LIB_EXPORT_VAR  __attribute__((used, visibility("default")))
 #  else
 #    define N_LIB_EXPORT  NIM_EXTERNC __attribute__((visibility("default")))
 #    define N_LIB_EXPORT_VAR  __attribute__((visibility("default")))
