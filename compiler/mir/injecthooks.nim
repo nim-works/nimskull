@@ -19,7 +19,7 @@ import
   ],
   compiler/mir/[
     mirbodies,
-    newchangesets,
+    mirchangesets,
     mirconstr,
     mirenv,
     mirtrees
