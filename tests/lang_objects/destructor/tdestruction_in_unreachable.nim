@@ -33,3 +33,24 @@ test(true)
 # XXX: wasDestroy must be false, but it currently isn't. Testing the inverse
 #      makes sure that the test at least compiles
 doAssert wasDestroyed, "the behaviour is correct now"
+
+# ------------------------------
+# test without if/else statement
+
+proc test2(cond: bool) =
+  block:
+    # the return is within its own scope. Using a raise would have the same
+    # compile-time effect, but would result in an unhandled exception at
+    # run-time
+    return
+
+  var o = Object()
+  if cond:
+    # introduce an unstructured exit of the scope (which currently
+    # forces destruction within a finally)
+    return
+  discard o
+
+test2(true)
+# XXX: same comment as for the assertion above
+doAssert wasDestroyed, "the behaviour is correct now"
