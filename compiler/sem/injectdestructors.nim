@@ -112,7 +112,7 @@ import
   compiler/mir/[
     analysis,
     mirbodies,
-    newchangesets,
+    mirchangesets,
     mirconstr,
     mirenv,
     mirtrees,
