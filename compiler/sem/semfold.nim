@@ -745,19 +745,6 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
                     else: sameType(t1, t2)
 
         result = newIntNodeT(toInt128(ord(match)), n, idgen, g)
-      elif s.magic == mNot and n.len == 3 and n[2].kind == nkNilLit:
-        # Fold not nil into nkType
-        let typ = n[1].typ.skipTypes({tyTypeDesc})
-
-        var notNilTyp = copyType(typ, nextTypeId idgen, typ.owner)
-        copyTypeProps(g, idgen.module, notNilTyp , typ)
-        notNilTyp.flags.incl(tfNotNil)
-
-        var wrappedInTypeDesc = newType(tyTypeDesc, nextTypeId(idgen), typ.owner)
-        incl wrappedInTypeDesc.flags, tfCheckedForDestructor
-        wrappedInTypeDesc.addSonSkipIntLit(notNilTyp, idgen)
-
-        result = newNodeIT(nkType, n.info, wrappedInTypeDesc)
       else:
         result = magicCall(m, n, idgen, g)
     except OverflowDefect:

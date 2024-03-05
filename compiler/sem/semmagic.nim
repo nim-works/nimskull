@@ -175,7 +175,18 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
   of "and":
     return typeWithSonsResult(tyAnd, @[operand, operand2])
   of "not":
-    return typeWithSonsResult(tyNot, @[operand])
+    if traitCall.len == 3:
+      c.config.internalAssert traitCall[2].kind == nkNilLit
+
+      var notNilTyp = copyType(operand, nextTypeId c.idgen, operand.owner)
+      copyTypeProps(c.graph, c.idgen.module, notNilTyp, operand)
+      notNilTyp.flags.incl(tfNotNil)
+
+      return makeTypeDesc(c, notNilTyp).toNode(traitCall.info)
+
+    else:
+      return typeWithSonsResult(tyNot, @[operand])
+
   of "typeToString":
     var prefer = preferTypeName
     if traitCall.len >= 2:
@@ -260,7 +271,7 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
 proc semTypeTraits(c: PContext, n: PNode): PNode =
   checkMinSonsLen(n, 2, c.config)
   let t = n[1].typ
-  c.config.internalAssert t != nil and t.kind == tyTypeDesc
+  c.config.internalAssert t != nil #and t.kind == tyTypeDesc
   if t.len > 0:
     # This is either a type known to sem or a typedesc
     # param to a regular proc (again, known at instantiation)
