@@ -720,7 +720,7 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
       hasError = true
 
     closeScope(c)
-  of nkBlockStmt, nkBlockExpr, nkBlockType:
+  of nkBlockStmt, nkBlockExpr:
     checkSonsLen(n, 2, c.c.config)
     openScope(c)
     case n[0].kind

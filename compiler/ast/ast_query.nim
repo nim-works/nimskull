@@ -123,8 +123,6 @@ const
     nkIteratorTy,
     nkSharedTy,
     nkEnumTy,
-    nkStmtListType,
-    nkBlockType
   }
 
   # TODO: replace with `nk*Literals`, see above

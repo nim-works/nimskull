@@ -857,14 +857,14 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
     return
   of nkSym:
     discard "may be folded away"
-  of nkTypeExprs - {nkStmtListType, nkBlockType}:
+  of nkTypeExprs:
     result.node = newNodeIT(nkType, n.info, n.typ)
   of nkBracket, nkCurly, nkTupleConstr, nkRange, nkAddr, nkHiddenAddr,
      nkHiddenDeref, nkDerefExpr, nkBracketExpr, nkCallKinds, nkIfExpr,
      nkElifExpr, nkElseExpr, nkElse, nkElifBranch:
     for it in n.items:
       result.add foldConstExprAux(m, it, idgen, g)
-  of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv, nkBlockExpr, nkBlockType:
+  of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv, nkBlockExpr:
     # the first slot only holds the type/label, which we don't need to traverse
     # into / fold
     result.add n[0]
@@ -888,7 +888,7 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
     result.add n[0] # skip the type slot
     for i in 1..<n.len:
       result.add foldConstExprAux(m, n[i], idgen, g)
-  of nkStmtListExpr, nkStmtListType:
+  of nkStmtListExpr:
     for i in 0..<n.len-1:
       result.add foldInAstAux(m, n[i], idgen, g)
     # the last node is an expression

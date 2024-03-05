@@ -1675,18 +1675,6 @@ proc semStmtListType(c: PContext, n: PNode, prev: PType): PType =
   else:
     result = nil
 
-proc semBlockType(c: PContext, n: PNode, prev: PType): PType =
-  inc(c.execCon.nestedBlockCounter)
-  checkSonsLen(n, 2, c.config)
-  openScope(c)
-  if n[0].kind notin {nkEmpty, nkSym}:
-    addDecl(c, newSymS(skLabel, n[0], c))
-  result = semStmtListType(c, n[1], prev)
-  n[1].typ = result
-  n.typ = result
-  closeScope(c)
-  dec(c.execCon.nestedBlockCounter)
-
 proc semGenericParamInInvocation(c: PContext, n: PNode): PType =
   result = semTypeNode(c, n, nil)
   n.typ = makeTypeDesc(c, result)
@@ -2312,8 +2300,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     else:
       result = semProcTypeWithScope(c, n, prev, skProc)
   of nkEnumTy: result = semEnum(c, n, prev)
-  of nkStmtListType, nkStmtListExpr: result = semStmtListType(c, n, prev)
-  of nkBlockType: result = semBlockType(c, n, prev)
+  of nkStmtListExpr: result = semStmtListType(c, n, prev)
   of nkError:
     localReport(c.config, n, reportSem rsemTypeExpected)
     result = newOrPrevType(tyError, prev, c)

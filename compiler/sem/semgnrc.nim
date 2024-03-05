@@ -432,7 +432,7 @@ proc semGenericStmt(c: PContext, n: PNode,
       n[^1] = checkError semGenericStmt(c, n[^1], flags, ctx)
       closeScope(c)
       closeScope(c)
-  of nkBlockStmt, nkBlockExpr, nkBlockType:
+  of nkBlockStmt, nkBlockExpr:
     checkSonsLen(n, 2, c.config)
     openScope(c)
     if n[0].kind != nkEmpty:
