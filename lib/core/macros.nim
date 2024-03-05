@@ -92,7 +92,7 @@ type
     nnkIncludeStmt,
     nnkBindStmt, nnkMixinStmt, nnkUsingStmt,
     nnkCommentStmt, nnkStmtListExpr, nnkBlockExpr,
-    nnkWith = skipEnumValue(nimskullHasNkStmtListTypeAndNkBlockTypeRemoved, nnkBlockExpr, 2),
+    nnkWith = skipEnumValue(nimskullNoNkStmtListTypeAndNkBlockType, nnkBlockExpr, 2),
     nnkWithout,
     nnkTypeOfExpr, nnkObjectTy,
     nnkTupleTy, nnkTupleClassTy, nnkTypeClassTy, nnkStaticTy,
