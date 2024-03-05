@@ -283,22 +283,8 @@ proc genObjConv(n: CgNode, a, b, t: PType): CgNode =
     if diff < 0: cnkObjUpConv else: cnkObjDownConv,
     n.info, t): n
 
-proc disable(cl: var TranslateCl) =
-  # consider the following MIR:
-  #   try:
-  #     return
-  #     def _1 = ...
-  #   finally:
-  #     =destroy(name _1)
-  #
-  # Although nonesense, this is currently both legal and possible MIR. If
-  # translation would be disabled beyond the ``return``, then the temporary
-  # wouldn't be registered. Therefore, disable is a no-op when in an unscoped
-  # contexts (such as the above)
-  # XXX: eliminating unreachable code needs to happen much earlier, either in
-  #      ``mirgen`` or ``transf``
-  if not cl.inUnscoped:
-    cl.isActive = false
+func disable(cl: var TranslateCl) {.inline.} =
+  cl.isActive = false
 
 # forward declarations:
 proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
@@ -737,12 +723,8 @@ proc join(stmts: var seq[CgNode], cl: var TranslateCl, info: TLineInfo,
   if label == target and (found or required):
     stmts.add newTree(cnkJoinStmt, info, node(label))
 
-  if found or true:
+  if found:
     # code is alive if following a join that is targeted by an alive goto
-    # XXX: translation has to be forcefully enabled at a join, even if not
-    #      within a scoped context: the surrounding scope might itself be
-    #      part of an unscoped context. This is a temporary workaround, see
-    #      `disable <#disable,TranslateCl>`_
     cl.isActive = true
 
 template join(info: TLineInfo, lbl: LabelId; required = false) =
@@ -773,8 +755,21 @@ template guarded(lbl: LabelId, body: untyped) =
 proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
               cr: var TreeCursor, stmts: var seq[CgNode]) =
 
-  # skip the statement if translation is disabled
-  if not cl.isActive:
+  # skip the statement if translation is disabled, but with a caveat. Consider
+  # the following MIR:
+  #   try:
+  #     return
+  #     def _1 = ...
+  #   finally:
+  #     =destroy(name _1)
+  #
+  # Although nonesense, this is currently both legal and possible MIR. If
+  # translation would be disabled beyond the ``return``, then the temporary
+  # wouldn't be registered. Therefore, translation is always enabled in unscoped
+  # contexts (such as the above)
+  # XXX: eliminating unreachable code needs to happen much earlier, either in
+  #      ``mirgen`` or ``transf``
+  if not cl.isActive and not cl.inUnscoped:
     tree.skip(cr)
     return
 
