@@ -2112,7 +2112,9 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
             # I suggest revisiting this once the language decides on whether
             # `not nil` should be the default. We can then map nilable refs
             # to other types such as `Option[T]`.
-            result = makeTypeFromExpr(c, n.copyTree)
+            var copyN = n.copyTree
+            copyN[1].typ = makeTypeDesc(c, result)
+            result = makeTypeFromExpr(c, copyN)
           of NilableTypes + {tyGenericInvocation, tyForward}:
             result = freshType(c, result, prev)
             result.flags.incl(tfNotNil)

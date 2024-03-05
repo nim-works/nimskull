@@ -3044,6 +3044,5 @@ when defined(nimDebugUtils):
     n
     {.undef(nimCompilerDebug).}
 
-# Overloads for not nil
+# Overload for not nil
 proc `not`*(a: typedesc[ref], b: typeof(nil)): typedesc {.magic: "TypeTrait".}
-proc `not`*(a: ref, b: typeof(nil)): typedesc {.magic: "TypeTrait".}
