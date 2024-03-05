@@ -1316,7 +1316,8 @@ proc track(tracked: PEffects, n: PNode) =
 
     if tracked.owner.kind != skMacro and iterCall.kind in nkCallKinds and
        iterCall[0].typ != nil and # XXX: untyped nkForStmt can reach here
-                                  # due to types not being folded away
+                                  # due to statement list type expressions
+                                  # not being folded away completely
        iterCall[0].typ.skipTypes(abstractInst).callConv == ccClosure:
       # the loop is a for-loop over a closure iterator. Lift the hooks for
       # the iterator
