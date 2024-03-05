@@ -177,16 +177,9 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
   of "not":
     if traitCall.len == 3:
       c.config.internalAssert traitCall[2].kind == nkNilLit
-
-      var notNilTyp = copyType(operand, nextTypeId c.idgen, operand.owner)
-      copyTypeProps(c.graph, c.idgen.module, notNilTyp, operand)
-      notNilTyp.flags.incl(tfNotNil)
-
-      return makeTypeDesc(c, notNilTyp).toNode(traitCall.info)
-
+      return makeTypeDesc(c, semTypeNode(c, traitCall, nil)).toNode(traitCall.info)
     else:
       return typeWithSonsResult(tyNot, @[operand])
-
   of "typeToString":
     var prefer = preferTypeName
     if traitCall.len >= 2:
