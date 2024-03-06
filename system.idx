@@ -782,6 +782,7 @@ toOpenArray	system.html#toOpenArray,string,int,int	system: toOpenArray(x: string
 toOpenArrayByte	system.html#toOpenArrayByte,string,int,int	system: toOpenArrayByte(x: string; first, last: int): openArray[byte]	
 toOpenArrayByte	system.html#toOpenArrayByte,openArray[char],int,int	system: toOpenArrayByte(x: openArray[char]; first, last: int): openArray[byte]	
 toOpenArrayByte	system.html#toOpenArrayByte,seq[char],int,int	system: toOpenArrayByte(x: seq[char]; first, last: int): openArray[byte]	
+`not`	system.html#not,typedesc[T],	system: `not`[T: ref or ptr](a: typedesc[T]; b: typeof(nil)): typedesc	
 out of memory	system.html#out-of-memory_1	Module system	
 slice	system.html#slice_1	Module system	
 slice	system.html#slice_2	Module system	

@@ -150,8 +150,6 @@ nkUsingStmt	ast/ast_types.html#nkUsingStmt	TNodeKind.nkUsingStmt
 nkCommentStmt	ast/ast_types.html#nkCommentStmt	TNodeKind.nkCommentStmt	
 nkStmtListExpr	ast/ast_types.html#nkStmtListExpr	TNodeKind.nkStmtListExpr	
 nkBlockExpr	ast/ast_types.html#nkBlockExpr	TNodeKind.nkBlockExpr	
-nkStmtListType	ast/ast_types.html#nkStmtListType	TNodeKind.nkStmtListType	
-nkBlockType	ast/ast_types.html#nkBlockType	TNodeKind.nkBlockType	
 nkWith	ast/ast_types.html#nkWith	TNodeKind.nkWith	
 nkWithout	ast/ast_types.html#nkWithout	TNodeKind.nkWithout	
 nkTypeOfExpr	ast/ast_types.html#nkTypeOfExpr	TNodeKind.nkTypeOfExpr	

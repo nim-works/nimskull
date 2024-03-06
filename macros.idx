@@ -123,8 +123,6 @@ nnkUsingStmt	macros.html#nnkUsingStmt	NimNodeKind.nnkUsingStmt
 nnkCommentStmt	macros.html#nnkCommentStmt	NimNodeKind.nnkCommentStmt	
 nnkStmtListExpr	macros.html#nnkStmtListExpr	NimNodeKind.nnkStmtListExpr	
 nnkBlockExpr	macros.html#nnkBlockExpr	NimNodeKind.nnkBlockExpr	
-nnkStmtListType	macros.html#nnkStmtListType	NimNodeKind.nnkStmtListType	
-nnkBlockType	macros.html#nnkBlockType	NimNodeKind.nnkBlockType	
 nnkWith	macros.html#nnkWith	NimNodeKind.nnkWith	
 nnkWithout	macros.html#nnkWithout	NimNodeKind.nnkWithout	
 nnkTypeOfExpr	macros.html#nnkTypeOfExpr	NimNodeKind.nnkTypeOfExpr	
