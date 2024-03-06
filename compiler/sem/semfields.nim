@@ -23,7 +23,8 @@ proc instFieldLoopBody(c: TFieldInstCtx, n: PNode, forLoop: PNode): PNode =
     result = newNode(nkEmpty)
     return
   case n.kind
-  of nkEmpty..pred(nkIdent), succ(nkSym)..nkNilLit: result = copyNode(n)
+  of nkNone, nkEmpty..pred(nkIdent), succ(nkSym)..nkNilLit, nkCommentStmt, nkError:
+    result = copyNode(n)
   of nkIdent, nkSym:
     result = n
     let (ident, err) = considerQuotedIdent(c.c, n)
@@ -50,7 +51,7 @@ proc instFieldLoopBody(c: TFieldInstCtx, n: PNode, forLoop: PNode): PNode =
           result.add(tupl)
           result.add(newSymNode(c.field, n.info))
         break
-  else:
+  of nkWithSons:
     if n.kind == nkContinueStmt:
       localReport(c.c.config, n, reportSem rsemFieldsIteratorCannotContinue)
     result = shallowCopy(n)

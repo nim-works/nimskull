@@ -295,9 +295,9 @@ proc transformConstSection(c: PTransf, v: PNode): PNode =
 
 proc hasContinue(n: PNode): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkCommentStmt, nkForStmt, nkWhileStmt: discard
+  of nkNone, nkEmpty..nkNilLit, nkCommentStmt, nkError, nkForStmt, nkWhileStmt: discard
   of nkContinueStmt: result = true
-  else:
+  of nkWithSons - {nkForStmt, nkWhileStmt, nkContinueStmt}:
     for i in 0..<n.len:
       if hasContinue(n[i]): return true
 

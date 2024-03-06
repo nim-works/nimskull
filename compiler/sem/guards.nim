@@ -455,8 +455,9 @@ proc sameTree*(a, b: PNode): bool =
     of nkFloatLit..nkFloat64Lit: result = a.floatVal == b.floatVal
     of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
     of nkType: result = a.typ == b.typ
-    of nkEmpty, nkNilLit: result = true
-    else:
+    of nkNone, nkEmpty, nkNilLit, nkCommentStmt, nkError:
+      result = true # XXX: Should nkCommentStmt, nkError be handled?
+    of nkWithSons:
       if a.len == b.len:
         for i in 0..<a.len:
           if not sameTree(a[i], b[i]): return
@@ -466,11 +467,11 @@ proc hasSubTree(n, x: PNode): bool =
   if n.sameTree(x): result = true
   else:
     case n.kind
-    of nkEmpty..nkNilLit:
-      result = n.sameTree(x)
+    of nkNone, nkEmpty..nkNilLit, nkCommentStmt, nkError:
+      result = n.sameTree(x) # XXX: Should nkCommentStmt, nkError be handled?
     of nkFormalParams:
       discard
-    else:
+    of nkWithSons - nkFormalParams:
       for i in 0..<n.len:
         if hasSubTree(n[i], x): return true
 

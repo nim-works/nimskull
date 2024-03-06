@@ -82,7 +82,8 @@ proc hashTree(c: var MD5Context, n: PNode; flags: set[ConsiderFlag]) =
   # we really must not hash line information. 'n.typ' is debatable but
   # shouldn't be necessary for now and avoids potential infinite recursions.
   case n.kind
-  of nkEmpty, nkNilLit, nkType: discard
+  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError:
+    discard # XXX: Should nkCommentStmt, nkError be handled?
   of nkIdent:
     c &= n.ident.s
   of nkSym:
@@ -97,7 +98,7 @@ proc hashTree(c: var MD5Context, n: PNode; flags: set[ConsiderFlag]) =
     lowlevel v
   of nkStrLit..nkTripleStrLit:
     c &= n.strVal
-  else:
+  of nkWithSons:
     for i in 0..<n.len: hashTree(c, n[i], flags)
 
 proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
@@ -350,7 +351,8 @@ proc hashBodyTree(graph: ModuleGraph, c: var MD5Context, n: PNode) =
     return
   c &= char(n.kind)
   case n.kind
-  of nkEmpty, nkNilLit, nkType, nkCommentStmt: discard
+  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError:
+    discard # XXX: Should nkError be handled?
   of nkIdent:
     c &= n.ident.s
   of nkSym:
@@ -368,7 +370,7 @@ proc hashBodyTree(graph: ModuleGraph, c: var MD5Context, n: PNode) =
     c &= n.floatVal
   of nkStrLit..nkTripleStrLit:
     c &= n.strVal
-  else:
+  of nkWithSons - {nkProcDef, nkFuncDef, nkTemplateDef, nkMacroDef} :
     for i in 0..<n.len:
       hashBodyTree(graph, c, n[i])
 

@@ -62,12 +62,13 @@ proc sameTrees*(a, b: PNode): bool =
     case a.kind
     of nkSym: result = a.sym == b.sym
     of nkIdent: result = a.ident.id == b.ident.id
-    of nkCharLit..nkInt64Lit: result = a.intVal == b.intVal
+    of nkCharLit..nkUInt64Lit: result = a.intVal == b.intVal
     of nkFloatLit..nkFloat64Lit: result = a.floatVal == b.floatVal
     of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
-    of nkEmpty, nkNilLit: result = true
+    of nkNone, nkEmpty, nkNilLit, nkCommentStmt, nkError:
+      result = true # XXX: Should nkCommentStmt, nkError be handled?
     of nkType: result = sameTypeOrNil(a.typ, b.typ)
-    else:
+    of nkWithSons:
       if a.len == b.len:
         for i in 0..<a.len:
           if not sameTrees(a[i], b[i]): return
@@ -178,12 +179,12 @@ proc matches(c: PPatternContext, p, n: PNode): bool =
     case p.kind
     of nkSym: result = p.sym == n.sym
     of nkIdent: result = p.ident.id == n.ident.id
-    of nkCharLit..nkInt64Lit: result = p.intVal == n.intVal
+    of nkCharLit..nkUInt64Lit: result = p.intVal == n.intVal
     of nkFloatLit..nkFloat64Lit: result = p.floatVal == n.floatVal
     of nkStrLit..nkTripleStrLit: result = p.strVal == n.strVal
-    of nkEmpty, nkNilLit, nkType:
-      result = true
-    else:
+    of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError:
+      result = true # XXX: Should nkCommentStmt, nkError be handled?
+    of nkWithSons:
       # special rule for p(X) ~ f(...); this also works for stuff like
       # partial case statements, etc! - Not really ... :-/
       let v = lastSon(p)
