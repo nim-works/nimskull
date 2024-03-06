@@ -102,7 +102,7 @@ proc toString*(tree: PackedTree; n: NodePos; m: PackedModule; nesting: int;
 
   result.add $tree[pos].kind
   case tree.nodes[pos].kind
-  of nkNone, nkEmpty, nkNilLit, nkType: discard
+  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError: discard
   of nkIdent, nkStrLit..nkTripleStrLit:
     result.add " "
     result.add m.strings[LitId tree.nodes[pos].operand]
@@ -121,7 +121,7 @@ proc toString*(tree: PackedTree; n: NodePos; m: PackedModule; nesting: int;
   of nkFloatLit..nkFloat64Lit:
     result.add " "
     result.addFloat cast[BiggestFloat](m.numbers[LitId tree.nodes[pos].operand])
-  else:
+  of nkWithSons:
     result.add "(\n"
     for i in 1..(nesting+1)*2: result.add ' '
     for child in sonsReadonly(tree, n):
@@ -446,7 +446,7 @@ proc toPackedNode*(n: PNode; ir: var PackedTree; c: var PackedEncoder; m: var Pa
     return
   let info = toPackedInfo(n.info, c, m)
   case n.kind
-  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt:
+  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError:
     ir.nodes.add PackedNode(kind: n.kind, flags: n.flags, operand: 0,
                             typeId: storeTypeLater(n.typ, c, m), info: info)
   of nkIdent:
@@ -479,7 +479,7 @@ proc toPackedNode*(n: PNode; ir: var PackedTree; c: var PackedEncoder; m: var Pa
     ir.nodes.add PackedNode(kind: n.kind, flags: n.flags,
                             operand: int32 getOrIncl(m.numbers, cast[BiggestInt](n.floatVal)),
                             typeId: storeTypeLater(n.typ, c, m), info: info)
-  else:
+  of nkWithSons:
     let patchPos = ir.prepare(n.kind, n.flags,
                               storeTypeLater(n.typ, c, m), info)
     for i in 0..<n.len:
@@ -776,7 +776,7 @@ proc loadNodes*(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int;
   result.flags = n.flags
 
   case k
-  of nkEmpty, nkNilLit, nkType:
+  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError:
     discard
   of nkIdent:
     result.ident = getIdent(c.cache, g[thisModule].fromDisk.strings[n.litId])
@@ -796,7 +796,7 @@ proc loadNodes*(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int;
     assert n2.kind == nkInt32Lit
     transitionNoneToSym(result)
     result.sym = loadSym(c, g, thisModule, PackedItemId(module: n1.litId, item: tree.nodes[n2.int].operand))
-  else:
+  of nkWithSons - nkModuleRef:
     for n0 in sonsReadonly(tree, n):
       result.addAllowNil loadNodes(c, g, thisModule, tree, n0)
 
