@@ -50,10 +50,10 @@ when defined(nimDebugUnreportedErrors):
 proc errorSubNode*(n: PNode): PNode =
   ## find the first error node, or nil, under `n` using a depth first traversal
   case n.kind
-  of nkNone, nkEmpty..nkNilLit, nkCommentStmt:
-    result = nil
   of nkError:
     result = n
+  of nkWithoutSons - nkError:
+    result = nil
   of nkWithSons:
     result = nil
     for s in n.items:
@@ -165,7 +165,7 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
   ## creates a list (`errs` seq) from most specific to least specific
   ## by traversing the the error tree in a depth-first-search.
   case n.kind
-  of nkNone, nkEmpty .. nkNilLit, nkCommentStmt:
+  of nkWithoutSons - nkError:
     discard
   of nkError:
     buildErrorList(config, n.diag.wrongNode, errs)

@@ -17,7 +17,7 @@ proc cyclicTreeAux(n: PNode, visited: var seq[PNode]): bool =
   for v in visited:
     if v == n: return true
   case n.kind
-  of nkNone, nkEmpty..nkNilLit, nkCommentStmt:
+  of nkWithoutSons - nkError:
     discard
   of nkError:
     visited.add(n)
@@ -49,9 +49,9 @@ proc exprStructuralEquivalent*(a, b: PNode; strictSymEquality=false): bool =
         # don't go nuts here: same symbol as string is enough:
         result = a.sym.name.id == b.sym.name.id
     of nkIdent: result = a.ident.id == b.ident.id
-    of nkCharLit..nkUInt64Lit: result = a.intVal == b.intVal
-    of nkFloatLit..nkFloat64Lit: result = sameFloatIgnoreNan(a.floatVal, b.floatVal)
-    of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
+    of nkIntLiterals: result = a.intVal == b.intVal
+    of nkFloatLiterals: result = sameFloatIgnoreNan(a.floatVal, b.floatVal)
+    of nkStrLiterals: result = a.strVal == b.strVal
     of nkCommentStmt: result = a.comment == b.comment
     of nkNone, nkEmpty, nkNilLit, nkType: result = true
     of nkError:
@@ -76,13 +76,13 @@ proc sameTree*(a, b: PNode): bool =
       # don't go nuts here: same symbol as string is enough:
       result = a.sym.name.id == b.sym.name.id
     of nkIdent: result = a.ident.id == b.ident.id
-    of nkCharLit..nkUInt64Lit:
+    of nkIntLiterals:
       result = a.intVal == b.intVal and
                a.intLitBase == b.intLitBase
-    of nkFloatLit..nkFloat64Lit:
+    of nkFloatLiterals:
       result = sameFloatIgnoreNan(a.floatVal, b.floatVal) and
                a.floatLitBase == b.floatLitBase
-    of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
+    of nkStrLiterals: result = a.strVal == b.strVal
     of nkCommentStmt: result = a.comment == b.comment
     of nkNone, nkEmpty, nkNilLit, nkType: result = true
     of nkError:
@@ -103,7 +103,7 @@ proc getMagic*(op: PNode): TMagic =
   else: result = mNone
 
 proc isConstExpr*(n: PNode): bool =
-  const atomKinds = {nkCharLit..nkNilLit} # Char, Int, UInt, Str, Float and Nil literals
+  const atomKinds = nkLiterals + nkNilLit # Char, Int, UInt, Str, Float and Nil literals
   n.kind in atomKinds or nfAllConst in n.flags
 
 proc isCaseObj*(n: PNode): bool =
@@ -113,7 +113,7 @@ proc isCaseObj*(n: PNode): bool =
 
 proc isDeepConstExpr*(n: PNode; preventInheritance = false): bool =
   case n.kind
-  of nkCharLit..nkNilLit:
+  of nkLiterals, nkNilLit:
     result = true
   of nkExprEqExpr, nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv:
     result = isDeepConstExpr(n[1], preventInheritance)

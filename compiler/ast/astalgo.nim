@@ -75,12 +75,12 @@ proc skipConvCastAndClosure*(n: PNode): PNode =
 proc sameValue*(a, b: PNode): bool =
   result = false
   case a.kind
-  of nkCharLit..nkUInt64Lit:
-    if b.kind in {nkCharLit..nkUInt64Lit}: result = getInt(a) == getInt(b)
-  of nkFloatLit..nkFloat64Lit:
-    if b.kind in {nkFloatLit..nkFloat64Lit}: result = a.floatVal == b.floatVal
-  of nkStrLit..nkTripleStrLit:
-    if b.kind in {nkStrLit..nkTripleStrLit}: result = a.strVal == b.strVal
+  of nkIntLiterals:
+    if b.kind in nkIntLiterals: result = getInt(a) == getInt(b)
+  of nkFloatLiterals:
+    if b.kind in nkFloatLiterals: result = a.floatVal == b.floatVal
+  of nkStrLiterals:
+    if b.kind in nkStrLiterals: result = a.strVal == b.strVal
   else:
     # don't raise an internal error for 'nim check':
     #InternalError(a.info, "SameValue")
@@ -90,12 +90,12 @@ proc leValue*(a, b: PNode): bool =
   # a <= b?
   result = false
   case a.kind
-  of nkCharLit..nkUInt64Lit:
-    if b.kind in {nkCharLit..nkUInt64Lit}: result = getInt(a) <= getInt(b)
-  of nkFloatLit..nkFloat64Lit:
-    if b.kind in {nkFloatLit..nkFloat64Lit}: result = a.floatVal <= b.floatVal
-  of nkStrLit..nkTripleStrLit:
-    if b.kind in {nkStrLit..nkTripleStrLit}: result = a.strVal <= b.strVal
+  of nkIntLiterals:
+    if b.kind in nkIntLiterals: result = getInt(a) <= getInt(b)
+  of nkFloatLiterals:
+    if b.kind in nkFloatLiterals: result = a.floatVal <= b.floatVal
+  of nkStrLiterals:
+    if b.kind in nkStrLiterals: result = a.strVal <= b.strVal
   else:
     # don't raise an internal error for 'nim check':
     #InternalError(a.info, "leValue")

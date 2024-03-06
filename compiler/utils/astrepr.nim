@@ -854,12 +854,12 @@ proc treeRepr*(
         add "\"" & n.strVal + style.strLit & "\""
         postLiteral()
 
-      of nkCharLit .. nkUInt64Lit:
+      of nkIntLiterals:
         add " "
         add $n.intVal + style.number
         postLiteral()
 
-      of nkFloatLit .. nkFloat64Lit:
+      of nkFloatLiterals:
         add " "
         add $n.floatVal + style.floatLit
         postLiteral()
@@ -909,7 +909,7 @@ proc treeRepr*(
       else:
         discard
 
-    if n.kind notin {nkNone .. nkNilLit, nkCommentStmt}:
+    if n.kind notin nkWithoutSons - nkError:
       addFlags()
       if (n.kind == nkError and trfSkipAuxError notin rconf) or
           (n.kind != nkError and n.len > 0):

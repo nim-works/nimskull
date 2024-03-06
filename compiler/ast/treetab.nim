@@ -23,13 +23,13 @@ proc hashTree*(n: PNode): Hash =
     result = result !& n.ident.h
   of nkSym:
     result = result !& n.sym.id
-  of nkCharLit..nkUInt64Lit:
+  of nkIntLiterals:
     if (n.intVal >= low(int)) and (n.intVal <= high(int)):
       result = result !& int(n.intVal)
-  of nkFloatLit..nkFloat64Lit:
+  of nkFloatLiterals:
     if (n.floatVal >= - 1000000.0) and (n.floatVal <= 1000000.0):
       result = result !& toInt(n.floatVal)
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     result = result !& hash(n.strVal)
   of nkWithSons:
     for i in 0..<n.len:
@@ -46,9 +46,9 @@ proc treesEquivalent(a, b: PNode): bool =
     of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError: result = true
     of nkSym: result = a.sym.id == b.sym.id
     of nkIdent: result = a.ident.id == b.ident.id
-    of nkCharLit..nkUInt64Lit: result = a.intVal == b.intVal
-    of nkFloatLit..nkFloat64Lit: result = a.floatVal == b.floatVal
-    of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
+    of nkIntLiterals: result = a.intVal == b.intVal
+    of nkFloatLiterals: result = a.floatVal == b.floatVal
+    of nkStrLiterals: result = a.strVal == b.strVal
     of nkWithSons:
       if a.len == b.len:
         for i in 0..<a.len:
