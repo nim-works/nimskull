@@ -17,13 +17,13 @@ proc cyclicTreeAux(n: PNode, visited: var seq[PNode]): bool =
   for v in visited:
     if v == n: return true
   case n.kind
-  of nkEmpty..nkNilLit, nkCommentStmt:
+  of nkNone, nkEmpty..nkNilLit, nkCommentStmt:
     discard
   of nkError:
     visited.add(n)
     if cyclicTreeAux(n.diag.wrongNode, visited): return true
     discard visited.pop()
-  else:
+  of nkWithSons:
     visited.add(n)
     for nSon in n.sons:
       if cyclicTreeAux(nSon, visited): return true
@@ -53,8 +53,10 @@ proc exprStructuralEquivalent*(a, b: PNode; strictSymEquality=false): bool =
     of nkFloatLit..nkFloat64Lit: result = sameFloatIgnoreNan(a.floatVal, b.floatVal)
     of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
     of nkCommentStmt: result = a.comment == b.comment
-    of nkEmpty, nkNilLit, nkType: result = true
-    else:
+    of nkNone, nkEmpty, nkNilLit, nkType: result = true
+    of nkError:
+      result = true # XXX: This seems wrong
+    of nkWithSons:
       if a.len == b.len:
         for i in 0..<a.len:
           if not exprStructuralEquivalent(a[i], b[i],
@@ -82,8 +84,10 @@ proc sameTree*(a, b: PNode): bool =
                a.floatLitBase == b.floatLitBase
     of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
     of nkCommentStmt: result = a.comment == b.comment
-    of nkEmpty, nkNilLit, nkType: result = true
-    else:
+    of nkNone, nkEmpty, nkNilLit, nkType: result = true
+    of nkError:
+      result = true # XXX: This seems wrong
+    of nkWithSons:
       if a.len == b.len:
         for i in 0..<a.len:
           if not sameTree(a[i], b[i]): return

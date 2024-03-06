@@ -50,11 +50,11 @@ when defined(nimDebugUnreportedErrors):
 proc errorSubNode*(n: PNode): PNode =
   ## find the first error node, or nil, under `n` using a depth first traversal
   case n.kind
-  of nkEmpty..nkNilLit:
+  of nkNone, nkEmpty..nkNilLit, nkCommentStmt:
     result = nil
   of nkError:
     result = n
-  else:
+  of nkWithSons:
     result = nil
     for s in n.items:
       if s.isNil: continue
@@ -165,7 +165,7 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
   ## creates a list (`errs` seq) from most specific to least specific
   ## by traversing the the error tree in a depth-first-search.
   case n.kind
-  of nkEmpty .. nkNilLit, nkCommentStmt:
+  of nkNone, nkEmpty .. nkNilLit, nkCommentStmt:
     discard
   of nkError:
     buildErrorList(config, n.diag.wrongNode, errs)
@@ -173,7 +173,7 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
       if n.errorKind == adWrappedError and errs.len == 0:
         echo "Empty WrappedError: ", config $ n.info
     errs.add n
-  else:
+  of nkWithSons:
     for i in 0..<n.len:
       buildErrorList(config, n[i], errs)
 

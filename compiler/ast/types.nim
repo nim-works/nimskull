@@ -166,10 +166,10 @@ proc iterOverNode(marker: var IntSet, n: PNode, iter: TTypeIter,
                   closure: RootRef): bool =
   if n != nil:
     case n.kind
-    of nkNone..nkNilLit:
+    of nkNone..nkNilLit, nkCommentStmt, nkError:
       # a leaf
       result = iterOverTypeAux(marker, n.typ, iter, closure)
-    else:
+    of nkWithSons:
       for i in 0..<n.len:
         result = iterOverNode(marker, n[i], iter, closure)
         if result: return
@@ -344,9 +344,9 @@ proc canFormAcycleNode(marker: var IntSet, n: PNode, startId: int): bool =
     result = canFormAcycleAux(marker, n.typ, startId)
     if not result:
       case n.kind
-      of nkNone..nkNilLit:
+      of nkNone..nkNilLit, nkCommentStmt, nkError:
         discard
-      else:
+      of nkWithSons:
         for i in 0..<n.len:
           result = canFormAcycleNode(marker, n[i], startId)
           if result: return
@@ -395,10 +395,10 @@ proc mutateNode(marker: var IntSet, n: PNode, iter: TTypeMutator,
     result = copyNode(n)
     result.typ = mutateTypeAux(marker, n.typ, iter, closure)
     case n.kind
-    of nkNone..nkNilLit:
+    of nkNone..nkNilLit, nkCommentStmt, nkError:
       # a leaf
       discard
-    else:
+    of nkWithSons:
       for i in 0..<n.len:
         result.add mutateNode(marker, n[i], iter, closure)
 

@@ -357,17 +357,17 @@ proc containsNode*(n: PNode, kinds: TNodeKinds): bool =
   if n == nil: return
   case n.kind
   of nkWithoutSons: result = n.kind in kinds
-  else:
+  of nkWithSons:
     for i in 0..<n.len:
       if n.kind in kinds or containsNode(n[i], kinds): return true
 
 proc hasSubnodeWith*(n: PNode, kind: TNodeKind): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkFormalParams, nkCommentStmt:
+  of nkNone, nkEmpty..nkNilLit, nkFormalParams, nkCommentStmt:
     result = n.kind == kind
   of nkError:
     result = hasSubnodeWith(n.diag.wrongNode, kind)
-  else:
+  of nkWithSons - nkFormalParams:
     for i in 0..<n.len:
       if (n[i].kind == kind) or hasSubnodeWith(n[i], kind):
         return true

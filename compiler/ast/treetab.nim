@@ -17,7 +17,7 @@ proc hashTree*(n: PNode): Hash =
     return
   result = ord(n.kind)
   case n.kind
-  of nkEmpty, nkNilLit, nkType:
+  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError:
     discard
   of nkIdent:
     result = result !& n.ident.h
@@ -31,7 +31,7 @@ proc hashTree*(n: PNode): Hash =
       result = result !& toInt(n.floatVal)
   of nkStrLit..nkTripleStrLit:
     result = result !& hash(n.strVal)
-  else:
+  of nkWithSons:
     for i in 0..<n.len:
       result = result !& hashTree(n[i])
   result = !$result
@@ -43,13 +43,13 @@ proc treesEquivalent(a, b: PNode): bool =
     result = true
   elif (a != nil) and (b != nil) and (a.kind == b.kind):
     case a.kind
-    of nkEmpty, nkNilLit, nkType: result = true
+    of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError: result = true
     of nkSym: result = a.sym.id == b.sym.id
     of nkIdent: result = a.ident.id == b.ident.id
     of nkCharLit..nkUInt64Lit: result = a.intVal == b.intVal
     of nkFloatLit..nkFloat64Lit: result = a.floatVal == b.floatVal
     of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
-    else:
+    of nkWithSons:
       if a.len == b.len:
         for i in 0..<a.len:
           if not treesEquivalent(a[i], b[i]): return
