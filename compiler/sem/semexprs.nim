@@ -3623,9 +3623,6 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     result = semTypeNode2(c, n, nil)
     # a type expression is of type ``typeDesc[T]``
     result.typ = makeTypeDesc(c, result.typ.skipTypes({tyTypeDesc}))
-  of nkStmtListType:
-    result = semTypeNode2(c, n, nil)
-    result.typ = makeTypeDesc(c, result.typ)
   of nkCall, nkInfix, nkPrefix, nkPostfix, nkCommand, nkCallStrLit:
     # check if it is an expression macro:
     checkMinSonsLen(n, 1, c.config)

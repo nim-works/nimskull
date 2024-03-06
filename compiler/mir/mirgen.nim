@@ -547,28 +547,10 @@ proc genTypeExpr(c: var TCtx, n: PNode): Value =
   assert n.typ.kind == tyTypeDesc
   c.builder.useSource(c.sp, n)
   case n.kind
-  of nkStmtListType, nkStmtListExpr:
+  of nkStmtListExpr:
     # FIXME: a ``nkStmtListExpr`` shouldn't reach here, but it does. See
     #        ``tests/lang_callable/generics/t18859.nim`` for a case where it
     #        does
-    if n[^1].typ.kind == tyTypeDesc:
-      genTypeExpr(c, n.lastSon)
-    else:
-      # HACK: this is big hack. Consider the following case:
-      #
-      #       .. code-block:: nim
-      #
-      #         type Obj[T] = object
-      #           p: T not nil
-      #
-      #         var x: Obj[ref int]
-      #
-      #       The ``T not nil`` is a ``nkStmtListType`` node with a single
-      #       ``nkInfix`` sub-node, where the latter doesn't use a
-      #       ``tyTypeDesc`` type but a ``tyRef`` instead. For now, we work
-      #       around this by using the type of the ``nkStmtListType``
-      typeLit(n.typ)
-  of nkBlockType:
     genTypeExpr(c, n.lastSon)
   of nkSym:
     case n.sym.kind

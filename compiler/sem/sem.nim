@@ -730,7 +730,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       # More restrictive version.
       result = semExprWithType(c, result, flags)
     of tyTypeDesc:
-      if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListType)
+      if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListExpr)
       result = semTypeNode2(c, result, nil)
       if result.kind != nkError:
         result.typ = makeTypeDesc(c, result.typ)

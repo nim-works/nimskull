@@ -175,7 +175,13 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
   of "and":
     return typeWithSonsResult(tyAnd, @[operand, operand2])
   of "not":
-    return typeWithSonsResult(tyNot, @[operand])
+    if traitCall.len == 3:
+      c.config.internalAssert traitCall[2].kind == nkNilLit
+      # the operand is not generic anymore, let ``semTypeNode`` produce a
+      # type with the not-nil modifier applied
+      return makeTypeDesc(c, semTypeNode(c, traitCall, nil)).toNode(traitCall.info)
+    else:
+      return typeWithSonsResult(tyNot, @[operand])
   of "typeToString":
     var prefer = preferTypeName
     if traitCall.len >= 2:

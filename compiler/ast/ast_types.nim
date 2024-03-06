@@ -201,9 +201,6 @@ type
     nkBlockExpr           ## a statement block ending in an expr; this is used
                           ## to allow powerful multi-line templates that open a
                           ## temporary scope
-    nkStmtListType        ## a statement list ending in a type; for macros
-    nkBlockType           ## a statement block ending in a type; for macros
-                          ## types as syntactic trees:
 
     nkWith                ## distinct with `foo`
     nkWithout             ## distinct without `foo`
