@@ -3044,5 +3044,5 @@ when defined(nimDebugUtils):
     n
     {.undef(nimCompilerDebug).}
 
-proc `not`*(a: typedesc[ref], b: typeof(nil)): typedesc {.magic: "TypeTrait", noSideEffect.}
+proc `not`*[T: ref or ptr](a: typedesc[T], b: typeof(nil)): typedesc {.magic: "TypeTrait", noSideEffect.}
   ## Constructs a `not nil` type.
