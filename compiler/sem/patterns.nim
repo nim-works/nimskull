@@ -61,23 +61,13 @@ proc sameKinds(a, b: PNode): bool {.inline.} =
   result = a.kind == b.kind or a.canonKind == b.canonKind
 
 proc sameTrees*(a, b: PNode): bool =
-  if sameKinds(a, b):
-    case a.kind
-    of nkSym: result = a.sym == b.sym
-    of nkIdent: result = a.ident.id == b.ident.id
-    of nkIntLiterals: result = a.intVal == b.intVal
-    of nkFloatLiterals: result = a.floatVal == b.floatVal
-    of nkStrLiterals: result = a.strVal == b.strVal
-    of nkError:
-      unreachable()
-    of nkEmpty, nkNilLit, nkCommentStmt:
-      result = true # Ignore comments
-    of nkType: result = sameTypeOrNil(a.typ, b.typ)
-    of nkWithSons:
-      if a.len == b.len:
-        for i in 0..<a.len:
-          if not sameTrees(a[i], b[i]): return
-        result = true
+  structEquiv(sameTrees,
+    relaxKindCheck = sameKinds(a, b), #a.canonKind == b.canonKind
+    symCheck = a.sym == b.sym,
+    floatCheck = a.floatVal == b.floatVal,
+    commentCheck = true, # Ignore comments
+    typeCheck = sameTypeOrNil(a.typ, b.typ)
+  )
 
 proc inSymChoice(sc, x: PNode): bool =
   if sc.kind == nkClosedSymChoice:
