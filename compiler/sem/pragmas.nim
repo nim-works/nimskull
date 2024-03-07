@@ -283,7 +283,7 @@ proc intLitToIntOrErr(c: PContext, n: PNode): (int, PNode) =
   else:
     n[1] = c.semConstExpr(c, n[1])
     case n[1].kind
-    of nkIntLit..nkInt64Lit:
+    of nkSIntLiterals:
       (int(n[1].intVal), nil)
     else:
       (-1, c.config.newError(n, PAstDiag(kind: adSemIntLiteralExpected)))
@@ -371,7 +371,7 @@ proc getLib(c: PContext, kind: TLibKind, path: PNode): LibId =
 
   var lib = initLib(kind)
   lib.path = path
-  if path.kind in {nkStrLit..nkTripleStrLit}:
+  if path.kind in nkStrLiterals:
     lib.isOverriden = options.isDynlibOverride(c.config, path.strVal)
 
   result = c.addLib(lib)

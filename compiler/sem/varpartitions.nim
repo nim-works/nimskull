@@ -292,7 +292,7 @@ proc connect(v: var Partitions; a, b: PSym; info: TLineInfo) =
 
 proc borrowFromConstExpr(n: PNode): bool =
   case n.kind
-  of nkCharLit..nkNilLit:
+  of nkLiterals, nkNilLit:
     result = true
   of nkExprEqExpr, nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv,
       nkCast, nkObjUpConv, nkObjDownConv:
@@ -440,7 +440,7 @@ proc destMightOwn(c: var Partitions; dest: var VarIndex; n: PNode) =
   ## Analyse if 'n' is an expression that owns the data, if so mark 'dest'
   ## with 'ownsData'.
   case n.kind
-  of nkEmpty, nkCharLit..nkNilLit:
+  of nkEmpty, nkLiterals, nkNilLit:
     # primitive literals including the empty are harmless:
     discard
 
@@ -665,11 +665,11 @@ proc deps(c: var Partitions; dest, src: PNode) =
                 c.s[vid].flags.incl preventCursor
 
 const
-  nodesToIgnoreSet = {nkNone..pred(nkSym), succ(nkSym)..nkNilLit,
+  nodesToIgnoreSet = nkWithoutSons - nkSym + {
     nkTypeSection, nkProcDef, nkConverterDef,
     nkMethodDef, nkIteratorDef, nkMacroDef, nkTemplateDef, nkLambda, nkDo,
     nkFuncDef, nkConstSection, nkConstDef, nkIncludeStmt, nkImportStmt,
-    nkExportStmt, nkPragma, nkCommentStmt, nkTypeOfExpr, nkMixinStmt,
+    nkExportStmt, nkPragma, nkTypeOfExpr, nkMixinStmt,
     nkBindStmt}
 
 proc potentialMutationViaArg(c: var Partitions; n: PNode; callee: PType) =

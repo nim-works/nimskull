@@ -1152,7 +1152,7 @@ proc warnAboutDeprecated(conf: ConfigRef; info: TLineInfo; s: PSym) =
   if pragmaNode != nil:
     for it in pragmaNode:
       if whichPragma(it) == wDeprecated and it.safeLen == 2 and
-          it[1].kind in {nkStrLit..nkTripleStrLit}:
+          it[1].kind in nkStrLiterals:
         localReport(conf, info, reportSym(
           rsemDeprecated, s, str = it[1].strVal))
         return
@@ -1164,7 +1164,7 @@ proc userError(conf: ConfigRef; info: TLineInfo; s: PSym) =
   if pragmaNode != nil:
     for it in pragmaNode:
       if whichPragma(it) == wError and it.safeLen == 2 and
-          it[1].kind in {nkStrLit..nkTripleStrLit}:
+          it[1].kind in nkStrLiterals:
         localReport(conf, info, reportSym(
           rsemUsageIsError, s, str = it[1].strVal))
         return

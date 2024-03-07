@@ -1244,10 +1244,10 @@ proc check(n: PNode, ctx: NilCheckerContext, map: NilMap): Check =
     result = checkTry(n, ctx, map)
   of nkWhileStmt:
     result = checkWhile(n, ctx, map)
-  of nkNone..pred(nkSym), succ(nkSym)..nkNilLit, nkTypeSection, nkProcDef, nkConverterDef,
+  of nkWithoutSons - nkSym, nkTypeSection, nkProcDef, nkConverterDef,
       nkMethodDef, nkIteratorDef, nkMacroDef, nkTemplateDef, nkLambda, nkDo,
       nkFuncDef, nkConstSection, nkConstDef, nkIncludeStmt, nkImportStmt,
-      nkExportStmt, nkPragma, nkCommentStmt, nkTypeOfExpr, nkMixinStmt,
+      nkExportStmt, nkPragma, nkTypeOfExpr, nkMixinStmt,
       nkBindStmt:
 
     discard "don't follow this : same as varpartitions"

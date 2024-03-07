@@ -648,7 +648,7 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
   of nkMixinStmt:
     if c.scopeN > 0: result = semTemplBodySons(c, n)
     else: result = semMixinStmt(c.c, n, c.toMixin)
-  of nkEmpty, nkSym..nkNilLit:
+  of nkWithoutSons - nkIdent:
     discard
   of nkIfStmt:
     for i in 0..<n.len:
@@ -954,8 +954,6 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
 
       if result[i].isError:
         hasError = true
-  of nkError, nkCommentStmt:
-    result = n
   else:
     result = semTemplBodySons(c, n)
   
@@ -1009,7 +1007,7 @@ proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode =
     result = semTemplBodyDirty(c, n[0])
   of nkBindStmt:
     result = semBindStmt(c.c, n, c.toBind)
-  of nkEmpty, nkSym..nkNilLit, nkError, nkCommentStmt:
+  of nkWithoutSons - nkIdent:
     discard
   of nkDotExpr, nkAccQuoted:
     # dotExpr is ambiguous: note that we explicitly allow 'x.TemplateParam',
@@ -1220,7 +1218,7 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
           # more flexibility
   of nkBindStmt:
     result = semBindStmt(c.c, n, c.toBind)
-  of nkEmpty, nkSym..nkNilLit:
+  of nkWithoutSons - nkIdent:
     discard
   of nkCurlyExpr:
     # we support '(pattern){x}' to bind a subpattern to a parameter 'x';

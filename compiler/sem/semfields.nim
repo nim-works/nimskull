@@ -23,7 +23,7 @@ proc instFieldLoopBody(c: TFieldInstCtx, n: PNode, forLoop: PNode): PNode =
     result = newNode(nkEmpty)
     return
   case n.kind
-  of nkNone, nkEmpty..pred(nkIdent), succ(nkSym)..nkNilLit, nkCommentStmt, nkError:
+  of nkWithoutSons - {nkIdent, nkSym}:
     result = copyNode(n)
   of nkIdent, nkSym:
     result = n

@@ -90,13 +90,13 @@ proc hashTree(c: var MD5Context, n: PNode; flags: set[ConsiderFlag]) =
     hashSym(c, n.sym)
     if CoHashTypeInsideNode in flags and n.sym.typ != nil:
       hashType(c, n.sym.typ, flags)
-  of nkCharLit..nkUInt64Lit:
+  of nkIntLiterals:
     let v = n.intVal
     lowlevel v
-  of nkFloatLit..nkFloat64Lit:
+  of nkFloatLiterals:
     let v = n.floatVal
     lowlevel v
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     c &= n.strVal
   of nkWithSons:
     for i in 0..<n.len: hashTree(c, n[i], flags)
@@ -364,11 +364,11 @@ proc hashBodyTree(graph: ModuleGraph, c: var MD5Context, n: PNode) =
       c &= hashNonProc(n.sym)
   of nkProcDef, nkFuncDef, nkTemplateDef, nkMacroDef:
     discard # we track usage of proc symbols not their definition
-  of nkCharLit..nkUInt64Lit:
+  of nkIntLiterals:
     c &= n.intVal
-  of nkFloatLit..nkFloat64Lit:
+  of nkFloatLiterals:
     c &= n.floatVal
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     c &= n.strVal
   of nkWithSons - {nkProcDef, nkFuncDef, nkTemplateDef, nkMacroDef} :
     for i in 0..<n.len:

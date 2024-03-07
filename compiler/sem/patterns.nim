@@ -50,7 +50,7 @@ proc canonKind(n: PNode): TNodeKind =
   result = n.kind
   case result
   of nkCallKinds: result = nkCall
-  of nkStrLit..nkTripleStrLit: result = nkStrLit
+  of nkStrLiterals: result = nkStrLit
   of nkFastAsgn: result = nkAsgn
   else: discard
 
@@ -62,9 +62,9 @@ proc sameTrees*(a, b: PNode): bool =
     case a.kind
     of nkSym: result = a.sym == b.sym
     of nkIdent: result = a.ident.id == b.ident.id
-    of nkCharLit..nkUInt64Lit: result = a.intVal == b.intVal
-    of nkFloatLit..nkFloat64Lit: result = a.floatVal == b.floatVal
-    of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
+    of nkIntLiterals: result = a.intVal == b.intVal
+    of nkFloatLiterals: result = a.floatVal == b.floatVal
+    of nkStrLiterals: result = a.strVal == b.strVal
     of nkNone, nkEmpty, nkNilLit, nkCommentStmt, nkError:
       result = true # XXX: Should nkCommentStmt, nkError be handled?
     of nkType: result = sameTypeOrNil(a.typ, b.typ)
@@ -179,9 +179,9 @@ proc matches(c: PPatternContext, p, n: PNode): bool =
     case p.kind
     of nkSym: result = p.sym == n.sym
     of nkIdent: result = p.ident.id == n.ident.id
-    of nkCharLit..nkUInt64Lit: result = p.intVal == n.intVal
-    of nkFloatLit..nkFloat64Lit: result = p.floatVal == n.floatVal
-    of nkStrLit..nkTripleStrLit: result = p.strVal == n.strVal
+    of nkIntLiterals: result = p.intVal == n.intVal
+    of nkFloatLiterals: result = p.floatVal == n.floatVal
+    of nkStrLiterals: result = p.strVal == n.strVal
     of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError:
       result = true # XXX: Should nkCommentStmt, nkError be handled?
     of nkWithSons:
