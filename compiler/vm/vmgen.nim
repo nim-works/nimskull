@@ -131,9 +131,9 @@ type
     bkFinally ## ``finally`` clause
 
   BlockInfo = object
-    label: BlockId
     oldRegisterCount: int
       ## upper bound of allocated registers at the beginning of the block
+    label: BlockId
     case kind: BlockKind
     of bkBlock, bkFinally:
       start: TPosition
