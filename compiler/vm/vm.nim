@@ -605,10 +605,8 @@ proc runEh(t: var VmThread, c: var TCtx): Result[PrgCtr, VmException] =
         t.ehStack.setLen(t.ehStack.len - 1)
       of 1:
         # discard the parent thread if it's associated with the provided
-        # ``finally``
-        let instr = c.code[instr.b]
-        vmAssert instr.opcode == opcFinallyEnd
-        let (fromEh, b) = decodeControl(t.getReg(instr.regA).intVal)
+        # control register
+        let (fromEh, b) = decodeControl(t.getReg(instr.b.TRegister).intVal)
         if fromEh:
           vmAssert b.int == t.ehStack.high - 1
           swap(tos, t.ehStack[^2])
