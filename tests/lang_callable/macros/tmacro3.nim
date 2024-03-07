@@ -21,7 +21,7 @@ macro test2*(a: untyped): untyped =
     echo "That's weird"
     var o : NimNode = nil
     echo "  no its not!"
-    o = newNimNode(nnkNone)
+    o = newNimNode(nnkEmpty)
     if recurse > 0:
       testproc(recurse - 1)
   testproc(5)

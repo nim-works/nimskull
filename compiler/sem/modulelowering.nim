@@ -151,8 +151,6 @@ proc group(n: PNode, decl, imperative: var seq[PNode]) =
   of nkEmpty, nkError:
     # errors were already reported earlier
     discard "drop errors and empty nodes"
-  of nkNone:
-    unreachable()
   of nkStmtList:
     # flatten statement lists
     for it in n.items:

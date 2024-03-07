@@ -667,8 +667,8 @@ func storeNode(enc: var TypeInfoEncoder, ps: var PackedEnv, n: PNode): NodeId =
     of nkWithSons:
       hasSons = true
       n.sons.len.int32
-    of nkError, nkNone:
-      unreachable("errors and invalid nodes must not reach here")
+    of nkError:
+      unreachable("errors must not reach here")
 
   result = ps.nimNodes.len.NodeId
   ps.nimNodes.add(PackedNodeLite(kind: n.kind, flags: n.flags,
@@ -753,7 +753,7 @@ proc loadNode(dec: var TypeInfoDecoder, ps: PackedEnv, id: NodeId): (PNode, int3
       nextId += skip
 
     return (r, nextId - id.int32)
-  of nkNone, nkError:
+  of nkError:
     # should have not been stored in the first place
     unreachable()
 

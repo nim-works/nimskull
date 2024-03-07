@@ -68,7 +68,7 @@ proc sameTrees*(a, b: PNode): bool =
     of nkIntLiterals: result = a.intVal == b.intVal
     of nkFloatLiterals: result = a.floatVal == b.floatVal
     of nkStrLiterals: result = a.strVal == b.strVal
-    of nkNone, nkEmpty, nkNilLit, nkCommentStmt:
+    of nkEmpty, nkNilLit, nkCommentStmt:
       result = true # Ignore comments
     of nkError:
       unreachable()
@@ -187,7 +187,7 @@ proc matches(c: PPatternContext, p, n: PNode): bool =
     of nkIntLiterals: result = p.intVal == n.intVal
     of nkFloatLiterals: result = p.floatVal == n.floatVal
     of nkStrLiterals: result = p.strVal == n.strVal
-    of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt:
+    of nkEmpty, nkNilLit, nkType, nkCommentStmt:
       result = true # Ignore comments
     of nkError:
       unreachable()

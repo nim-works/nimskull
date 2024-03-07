@@ -102,7 +102,7 @@ proc toString*(tree: PackedTree; n: NodePos; m: PackedModule; nesting: int;
 
   result.add $tree[pos].kind
   case tree.nodes[pos].kind
-  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError: discard
+  of nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError: discard
   of nkIdent, nkStrLiterals:
     result.add " "
     result.add m.strings[LitId tree.nodes[pos].operand]
@@ -446,7 +446,7 @@ proc toPackedNode*(n: PNode; ir: var PackedTree; c: var PackedEncoder; m: var Pa
     return
   let info = toPackedInfo(n.info, c, m)
   case n.kind
-  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError:
+  of nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError:
     ir.nodes.add PackedNode(kind: n.kind, flags: n.flags, operand: 0,
                             typeId: storeTypeLater(n.typ, c, m), info: info)
   of nkIdent:
@@ -776,7 +776,7 @@ proc loadNodes*(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int;
   result.flags = n.flags
 
   case k
-  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError:
+  of nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError:
     discard
   of nkIdent:
     result.ident = getIdent(c.cache, g[thisModule].fromDisk.strings[n.litId])

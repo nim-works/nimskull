@@ -10,7 +10,6 @@ contains:
 
   type
     NimNodeKind = enum     ## kind of a node; only explanatory
-      nnkNone,             ## invalid node kind
       nnkEmpty,            ## empty node
       nnkIdent,            ## node contains an identifier
       nnkIntLit,           ## node contains an int literal (example: 10)
@@ -22,7 +21,7 @@ contains:
     NimNode = ref NimNodeObj
     NimNodeObj = object
       case kind: NimNodeKind           ## the node's kind
-      of nnkNone, nnkEmpty, nnkNilLit:
+      of nnkEmpty, nnkNilLit:
         discard                        ## node contains no additional fields
       of nnkCharLit..nnkUInt64Lit:
         intVal: BiggestInt             ## the int literal

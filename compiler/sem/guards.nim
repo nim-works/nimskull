@@ -456,7 +456,7 @@ proc sameTree*(a, b: PNode): bool =
     of nkFloatLiterals: result = a.floatVal == b.floatVal
     of nkStrLiterals: result = a.strVal == b.strVal
     of nkType: result = a.typ == b.typ
-    of nkNone, nkEmpty, nkNilLit, nkCommentStmt:
+    of nkEmpty, nkNilLit, nkCommentStmt:
       result = true # Ignore comments
     of nkError:
       unreachable()
