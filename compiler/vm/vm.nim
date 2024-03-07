@@ -2072,7 +2072,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       inc pc, rbx
       handleJmpBack()
     of opcBranch:
-      # we know the next instruction is a 'fjmp':
+      # we know the next instruction is a 'tjmp':
       let value = c.constants[instr.regBx-wordExcess]
 
       checkHandle(regs[ra])
@@ -2090,11 +2090,11 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       else:
         unreachable(value.kind)
 
-      assert c.code[pc+1].opcode == opcFJmp
+      assert c.code[pc+1].opcode == opcTJmp
       inc pc
       # we skip this instruction so that the final 'inc(pc)' skips
       # the following jump
-      if not cond:
+      if cond:
         let instr2 = c.code[pc]
         let rbx = instr2.regBx - wordExcess - 1 # -1 for the following 'inc pc'
         inc pc, rbx
