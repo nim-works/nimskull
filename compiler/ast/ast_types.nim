@@ -54,6 +54,7 @@ type
     ## belongs to a certain class
     ## Expressions:
     ## Atoms:
+    nkError               ## erroneous AST node see `errorhandling`
     nkEmpty               ## the node is empty
     nkIdent               ## node is an identifier
     nkSym                 ## node is a symbol
@@ -232,7 +233,6 @@ type
                           ## transformation
     nkFuncDef             ## a func
     nkTupleConstr         ## a tuple constructor
-    nkError               ## erroneous AST node see `errorhandling`
     nkNimNodeLit          ## a ``NimNode`` literal. Stores a single sub node
                           ## that represents the ``NimNode`` AST
     nkModuleRef           ## for .rod file support: A (moduleId, itemId) pair

@@ -47,7 +47,8 @@ template skipEnumValue(define: untyped, predecessor: untyped; gap = 1): untyped 
 
 type
   NimNodeKind* = enum
-    nnkEmpty = skipEnumValue(nimskullNoNkNone, -1),
+    nnkError,  ## erroneous AST node
+    nnkEmpty,
     nnkIdent, nnkSym,
     nnkType, nnkCharLit, nnkIntLit, nnkInt8Lit,
     nnkInt16Lit, nnkInt32Lit, nnkInt64Lit, nnkUIntLit, nnkUInt8Lit,
@@ -112,8 +113,7 @@ type
     nnkGotoState,
     nnkFuncDef = skipEnumValue(nimHasNkBreakStateNodeRemoved, nnkGotoState, 2),
     nnkTupleConstr,
-    nnkError,  ## erroneous AST node
-    nnkNimNodeLit
+    nnkNimNodeLit = skipEnumValue(nimskullNoNkNone, nnkTupleConstr)
 
   NimNodeKinds* = set[NimNodeKind]
   NimTypeKind* = enum  # some types are no longer used, see ast.nim
