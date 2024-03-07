@@ -691,7 +691,7 @@ proc cyclicTreeAux(n: PNode, visited: var seq[PNode], count: var int): bool =
       of nkError:
         @[n.diag.wrongNode]
       else:
-        @[] # XXX: This is a bug!
+        n.sons
 
     for nSon in sons:
       if cyclicTreeAux(nSon, visited, count):
