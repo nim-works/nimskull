@@ -500,8 +500,7 @@ proc registerEh(c: var TCtx, n: CgNode) =
       # procedure, no EH code needs to be associated with the instruction
       return
 
-    if c.prc.lastPath == nil or (let shared = comparePaths(n, c.prc.lastPath);
-       shared < n.len):
+    if c.prc.lastPath == nil or comparePaths(n, c.prc.lastPath) < n.len:
       # cannot re-use the previous instruction sequence
       genEhCode(c, n)
 
