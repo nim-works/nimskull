@@ -930,18 +930,7 @@ proc unused(c: TCtx; n: CgNode; x: TDest) {.inline.} =
     fail(n.info, vmGenDiagNotUnused, PNode(nil))
 
 proc genCase(c: var TCtx; n: CgNode) =
-  #  if (!expr1) goto lab1;
-  #    thenPart
-  #    goto LEnd
-  #  lab1:
-  #  if (!expr2) goto lab2;
-  #    thenPart2
-  #    goto LEnd
-  #  lab2:
-  #    elsePart
-  #  Lend:
   let selType = n[0].typ.skipTypes(abstractVarRange)
-  var endings: seq[TPosition] = @[]
   withDest(tmp):
     c.gen(n[0], tmp)
 
@@ -949,15 +938,12 @@ proc genCase(c: var TCtx; n: CgNode) =
     for i in 1..<n.len:
       let branch = n[i]
       if isOfBranch(branch):
-        var elsePos: TPosition
         if selType.kind == tyString:
           # special handling for string case statements: generate a sequence
           # of comparisons
           let
             cond = c.getTemp(slotTempInt)
-            # we re-use the `endings` list for collecting the jumps to the
-            # body:
-            start = endings.len
+            exit = branch[^1].label
 
           for j in 0..<branch.len - 1:
             let
@@ -965,31 +951,20 @@ proc genCase(c: var TCtx; n: CgNode) =
               val = c.genx(it)
             # generate: ``if tmp == label: goto body``
             c.gABC(it, opcEqStr, cond, tmp, val)
-            endings.add c.xjmp(it, opcTJmp, cond)
+            c.prc.exits.add (exit, c.xjmp(it, opcTJmp, cond))
             c.freeTemp(val)
 
           c.freeTemp(cond)
-          # emit a jump to the next branch:
-          elsePos = c.xjmp(branch.lastSon, opcJmp)
-          # patch the jumps to the body:
-          for j in start..<endings.len:
-            c.patch(endings[j])
-          endings.setLen(start)
         else:
           # branch tmp, codeIdx
-          # fjmp   elseLabel
+          # tjmp   thenLabel
           let b = genBranchLit(c, branch, selType)
           c.gABx(branch, opcBranch, tmp, b)
-          elsePos = c.xjmp(branch.lastSon, opcFJmp, tmp)
+          c.prc.exits.add (branch[^1].label, c.xjmp(branch, opcTJmp, tmp))
 
-        c.gen(branch.lastSon)
-        if i < n.len-1:
-          endings.add(c.xjmp(branch.lastSon, opcJmp, 0))
-        c.patch(elsePos)
       else:
         # else stmt:
-        c.gen(branch[0])
-  for endPos in endings: c.patch(endPos)
+        c.prc.exits.add (branch[0].label, c.xjmp(branch.lastSon, opcJmp))
 
 proc genType(c: var TCtx; typ: PType; noClosure = false): int =
   ## Returns the ID of `typ`'s corresponding `VmType` as an `int`. The
