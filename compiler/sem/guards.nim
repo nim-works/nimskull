@@ -447,6 +447,8 @@ proc sameTree*(a, b: PNode): bool =
     result = true
   elif a != nil and b != nil and a.kind == b.kind:
     case a.kind
+    of nkError:
+      unreachable()
     of nkSym:
       result = a.sym == b.sym
       if not result and a.sym.magic != mNone:
@@ -458,8 +460,6 @@ proc sameTree*(a, b: PNode): bool =
     of nkType: result = a.typ == b.typ
     of nkEmpty, nkNilLit, nkCommentStmt:
       result = true # Ignore comments
-    of nkError:
-      unreachable()
     of nkWithSons:
       if a.len == b.len:
         for i in 0..<a.len:
