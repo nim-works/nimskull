@@ -594,7 +594,7 @@ proc exprToPmir(c: TranslateCtx, result: var seq[ProtoItem], n: PNode, sink: boo
     result.add ProtoItem(orig: n, typ: n.typ, kind: k, field: val)
 
   case n.kind
-  of nkLiterals, nkNilLit, nkRange, nkNimNodeLit:
+  of nkLiterals, nkRange, nkNimNodeLit:
     node pirLiteral
   of nkLambdaKinds:
     node pirProc, sym, n[namePos].sym

@@ -98,7 +98,7 @@ proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
 
   const
     atomicIdentKinds = {nkIdent, nkSym}
-    renderableLiterals = nkLiterals - nkFloatLiterals
+    renderableLiterals = nkLiterals - nkFloatLiterals - nkNilLit
     renderableKinds = atomicIdentKinds + renderableLiterals
     allNodeKinds = {low(TNodeKind)..high(TNodeKind)}
 

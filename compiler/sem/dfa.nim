@@ -793,7 +793,7 @@ proc gen(c: var Con; n: PNode) =
         genNoReturn(c, n)
     else:
       genCall(c, n)
-  of nkLiterals, nkNilLit: discard
+  of nkLiterals: discard
   of nkAsgn, nkFastAsgn:
     gen(c, n[1])
 

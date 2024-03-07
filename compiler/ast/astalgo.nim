@@ -102,7 +102,7 @@ proc leValue*(a, b: PNode): bool =
     discard
 
 proc weakLeValue*(a, b: PNode): TImplication =
-  if a.kind notin nkLiterals or b.kind notin nkLiterals:
+  if a.kind notin nkLiterals - nkNilLit or b.kind notin nkLiterals - nkNilLit:
     result = impUnknown
   else:
     result = if leValue(a, b): impYes else: impNo

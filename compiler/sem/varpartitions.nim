@@ -292,7 +292,7 @@ proc connect(v: var Partitions; a, b: PSym; info: TLineInfo) =
 
 proc borrowFromConstExpr(n: PNode): bool =
   case n.kind
-  of nkLiterals, nkNilLit:
+  of nkLiterals:
     result = true
   of nkExprEqExpr, nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv,
       nkCast, nkObjUpConv, nkObjDownConv:
@@ -440,7 +440,7 @@ proc destMightOwn(c: var Partitions; dest: var VarIndex; n: PNode) =
   ## Analyse if 'n' is an expression that owns the data, if so mark 'dest'
   ## with 'ownsData'.
   case n.kind
-  of nkEmpty, nkLiterals, nkNilLit:
+  of nkEmpty, nkLiterals:
     # primitive literals including the empty are harmless:
     discard
 

@@ -103,7 +103,7 @@ proc getMagic*(op: PNode): TMagic =
   else: result = mNone
 
 proc isConstExpr*(n: PNode): bool =
-  const atomKinds = nkLiterals + nkNilLit # Char, Int, UInt, Str, Float and Nil literals
+  const atomKinds = nkLiterals # Char, Int, UInt, Str, Float and Nil literals
   n.kind in atomKinds or nfAllConst in n.flags
 
 proc isCaseObj*(n: PNode): bool =
@@ -113,7 +113,7 @@ proc isCaseObj*(n: PNode): bool =
 
 proc isDeepConstExpr*(n: PNode; preventInheritance = false): bool =
   case n.kind
-  of nkLiterals, nkNilLit:
+  of nkLiterals:
     result = true
   of nkExprEqExpr, nkExprColonExpr, nkHiddenStdConv, nkHiddenSubConv:
     result = isDeepConstExpr(n[1], preventInheritance)

@@ -54,7 +54,7 @@ type
 
 const
   ExpressionNodes = nkCallKinds + nkLiterals + nkTypeExprs + {
-    nkSym, nkEmpty, nkNimNodeLit, nkNilLit,
+    nkSym, nkEmpty, nkNimNodeLit,
 
     nkRange, nkBracket, nkCurly, nkObjConstr, nkTupleConstr,
 
@@ -673,7 +673,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
       else:
         result = newSymNodeTypeDesc(s, idgen, n.info)
     else: discard
-  of nkLiterals, nkNilLit:
+  of nkLiterals:
     result = copyNode(n)
   of nkIfExpr:
     result = getConstIfExpr(m, n, idgen, g)
@@ -838,7 +838,7 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
 
   # first step: fold the sub-expressions
   case n.kind
-  of nkEmpty, nkLiterals, nkNimNodeLit, nkNilLit:
+  of nkEmpty, nkLiterals, nkNimNodeLit:
     # short-circuit the following ``getConstExpr`` call, so that no
     # unnecessary copy of the node is created
     return

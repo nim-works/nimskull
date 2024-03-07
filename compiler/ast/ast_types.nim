@@ -249,15 +249,14 @@ const
   nkIntLiterals*   = nkUIntLiterals + nkSIntLiterals
   nkFloatLiterals* = {nkFloatLit..nkFloat64Lit}
   nkStrLiterals*   = {nkStrLit..nkTripleStrLit}
-  # TODO: include `nkNilLit` as it's a literal, not the same as `nnkLiterals`
-  nkLiterals*      = nkIntLiterals + nkFloatLiterals + nkStrLiterals
+  nkLiterals*      = nkIntLiterals + nkFloatLiterals + nkStrLiterals + nkNilLit
+  # TODO: `nnkLiterals` doesn't include `nkNilLit`
 
   nkWithoutSons* =
     {nkEmpty, nkNone} +
     {nkIdent, nkSym} +
     {nkType} +
     nkLiterals +
-    {nkNilLit} +
     {nkError} +
     {nkCommentStmt}
 

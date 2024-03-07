@@ -2108,7 +2108,7 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
         bu.use toValue(env.constants.add(n.sym), n.sym.typ)
       else:
         unreachable()
-    of nkLiterals, nkNilLit, nkRange:
+    of nkLiterals, nkRange:
       bu.use literal(n)
     of nkHiddenStdConv, nkHiddenSubConv:
       # doesn't translate to a MIR node itself, but the type overrides

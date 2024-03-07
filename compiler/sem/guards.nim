@@ -62,7 +62,7 @@ const
   someMin = {mMinI}
   someBinaryOp = someAdd+someSub+someMul+someMax+someMin
 
-proc isValue(n: PNode): bool = n.kind in nkLiterals + nkNilLit
+proc isValue(n: PNode): bool = n.kind in nkLiterals
 proc isLocation(n: PNode): bool = not n.isValue
 
 proc isLet(n: PNode): bool =
