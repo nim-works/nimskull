@@ -250,7 +250,6 @@ const
   nkFloatLiterals* = {nkFloatLit..nkFloat64Lit}
   nkStrLiterals*   = {nkStrLit..nkTripleStrLit}
   nkLiterals*      = nkIntLiterals + nkFloatLiterals + nkStrLiterals + nkNilLit
-  # TODO: `nnkLiterals` doesn't include `nkNilLit`
 
   nkWithoutSons* =
     {nkEmpty, nkNone} +
