@@ -76,7 +76,7 @@ import
 import std/options as std_options
 
 from compiler/backend/compat import getInt, isOfBranch, skipConv, lastSon,
-  getMagic, pick
+  getMagic, pick, numArgs
 
 from std/bitops import bitor
 
@@ -1174,7 +1174,8 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
 
   let
     fntyp = skipTypes(n[0].typ, abstractInst)
-    regCount = n.len + ord(fntyp.callConv == ccClosure)
+    operands = numArgs(n) + 1
+    regCount = operands + ord(fntyp.callConv == ccClosure)
     x = c.prc.getTempRange(regCount, slotTempUnknown)
 
   # generate the code for the callee:
@@ -1187,7 +1188,7 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
       # the respective registers directly
       # XXX: dead code, but should be restored
       c.gen(n[0][0], x+0)
-      c.gen(n[0][1], x+n.len)
+      c.gen(n[0][1], x+operands)
     else:
       let
         tmp = c.genx(n[0])
@@ -1196,14 +1197,14 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
       # use a full assignment in order for the environment to stay alive during
       # the call
       c.gABC(n[0], opcLdObj, tmp2, tmp, 1)
-      c.gABC(n[0], opcAsgnComplex, x+n.len, tmp2)
+      c.gABC(n[0], opcAsgnComplex, x+operands, tmp2)
       c.freeTemp(tmp2)
       c.freeTemp(tmp)
   else:
     c.gen(n[0], x+0)
 
   # varargs need 'opcSetType' for the FFI support:
-  for i in 1..<n.len:
+  for i in 1..<operands:
     # skip empty arguments (i.e. arguments to compile-time parameters that
     # were omitted):
     if n[i].kind == cnkEmpty:
@@ -1232,9 +1233,9 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
 
   c.registerEh()
   if res.isUnset:
-    c.gABC(n, opcIndCall, 0, x, n.len)
+    c.gABC(n, opcIndCall, 0, x, operands)
   else:
-    c.gABC(n, opcIndCallAsgn, res, x, n.len)
+    c.gABC(n, opcIndCallAsgn, res, x, operands)
 
   if res != dest:
     if dest.isUnset:
@@ -2092,7 +2093,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mEcho:
     unused(c, n, dest)
     let
-      numArgs = n.len - 2
+      numArgs = numArgs(n)-1 # the extra type argument is ignored
       x = c.prc.getTempRange(numArgs, slotTempUnknown)
     for i in 0..<numArgs:
       var r: TRegister = x+i
