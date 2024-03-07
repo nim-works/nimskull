@@ -3,7 +3,7 @@ discard """
     Ensure that raising a caught exception from within an exception handler
     works
   '''
-  knownIssue.js vm: "The current exception is not properly updated"
+  knownIssue.js: "The current exception is not properly updated"
 """
 
 proc manualReraise() =
