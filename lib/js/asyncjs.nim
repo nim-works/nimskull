@@ -73,6 +73,8 @@ type
   PromiseJs* {.importjs: "Promise".} = ref object
   ## A JavaScript Promise.
 
+proc reraise(e: ref CatchableError) {.asmNoStackFrame, noreturn.} =
+  {.emit: ["throw new Error(", cstring(e.msg), ");"].}
 
 proc replaceReturn(node: var NimNode) =
   var z = 0
@@ -135,6 +137,16 @@ proc generateJsasync(arg: NimNode): NimNode =
     var voidFix = quote:
       return `jsResolve`()
     result.body.add(voidFix)
+
+  if len(code) > 0:
+    # turn |NimSkull| outgoing exceptions into JavaScript errors
+    let body = result.body
+    result.body = quote:
+      try:
+        `body`
+      except CatchableError as e:
+        # use .noreturn call to make sure `body` being an expression works
+        reraise(e)
 
   let asyncPragma = quote:
     {.codegenDecl: "async function $2($3)".}
