@@ -733,12 +733,12 @@ proc loadNode(dec: var TypeInfoDecoder, ps: PackedEnv, id: NodeId): (PNode, int3
   case n.kind
   of nkEmpty, nkType, nkNilLit, nkCommentStmt:
     discard "do nothing"
-  of nkCharLit..nkUInt64Lit:
+  of nkIntLiterals:
     r.intVal = ps.numbers[n.operand.LitId]
-  of nkFloatLit..nkFloat64Lit:
+  of nkFloatLiterals:
     # use a `cast` to preserve the bit representation:
     r.floatVal = cast[BiggestFloat](ps.numbers[n.operand.LitId])
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     r.strVal = ps.strings[n.operand.LitId]
   of nkSym:
     r.sym = dec.loadSym(ps, n.operand.SymId)

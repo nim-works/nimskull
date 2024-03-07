@@ -103,7 +103,7 @@ proc toString*(tree: PackedTree; n: NodePos; m: PackedModule; nesting: int;
   result.add $tree[pos].kind
   case tree.nodes[pos].kind
   of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError: discard
-  of nkIdent, nkStrLit..nkTripleStrLit:
+  of nkIdent, nkStrLiterals:
     result.add " "
     result.add m.strings[LitId tree.nodes[pos].operand]
   of nkSym:
@@ -118,7 +118,7 @@ proc toString*(tree: PackedTree; n: NodePos; m: PackedModule; nesting: int;
   of externUIntLit:
     result.add " "
     result.addInt cast[uint64](m.numbers[LitId tree.nodes[pos].operand])
-  of nkFloatLit..nkFloat64Lit:
+  of nkFloatLiterals:
     result.add " "
     result.addFloat cast[BiggestFloat](m.numbers[LitId tree.nodes[pos].operand])
   of nkWithSons:
@@ -471,11 +471,11 @@ proc toPackedNode*(n: PNode; ir: var PackedTree; c: var PackedEncoder; m: var Pa
     ir.nodes.add PackedNode(kind: n.kind, flags: n.flags,
                             operand: int32 getOrIncl(m.numbers, n.intVal),
                             typeId: storeTypeLater(n.typ, c, m), info: info)
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     ir.nodes.add PackedNode(kind: n.kind, flags: n.flags,
                             operand: int32 getOrIncl(m.strings, n.strVal),
                             typeId: storeTypeLater(n.typ, c, m), info: info)
-  of nkFloatLit..nkFloat64Lit:
+  of nkFloatLiterals:
     ir.nodes.add PackedNode(kind: n.kind, flags: n.flags,
                             operand: int32 getOrIncl(m.numbers, cast[BiggestInt](n.floatVal)),
                             typeId: storeTypeLater(n.typ, c, m), info: info)
@@ -786,9 +786,9 @@ proc loadNodes*(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int;
     result.intVal = tree.nodes[n.int].operand
   of externIntLit:
     result.intVal = g[thisModule].fromDisk.numbers[n.litId]
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     result.strVal = g[thisModule].fromDisk.strings[n.litId]
-  of nkFloatLit..nkFloat64Lit:
+  of nkFloatLiterals:
     result.floatVal = cast[BiggestFloat](g[thisModule].fromDisk.numbers[n.litId])
   of nkModuleRef:
     let (n1, n2) = sons2(tree, n)

@@ -2388,7 +2388,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       let src = regs[rb].nimNode
       # TODO: This if-else block should be reordered so as to match the
       #       expectation of occurence
-      if src.kind in {nkEmpty..nkNilLit, nkError}:
+      if src.kind in nkWithoutSons:
         raiseVmError(VmEvent(kind: vmEvtCannotGetChild, ast: src))
       elif idx >=% src.len:
         raiseVmError(reportVmIdx(idx, src.len - 1))
@@ -2400,7 +2400,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       var dest = regs[ra].nimNode
       if nfSem in dest.flags:
         raiseVmError(VmEvent(kind: vmEvtCannotModifyTypechecked))
-      elif dest.kind in {nkEmpty..nkNilLit, nkError}:
+      elif dest.kind in nkWithoutSons:
         raiseVmError(VmEvent(kind: vmEvtCannotSetChild, ast: dest))
       elif idx >=% dest.len:
         raiseVmError(reportVmIdx(idx, dest.len - 1))
@@ -2411,7 +2411,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       var u = regs[rb].nimNode
       if nfSem in u.flags:
         raiseVmError(VmEvent(kind: vmEvtCannotModifyTypechecked))
-      elif u.kind in {nkEmpty..nkNilLit, nkError}:
+      elif u.kind in nkWithoutSons:
         raiseVmError(VmEvent(kind: vmEvtCannotAddChild, ast: u))
       else:
         u.add(regs[rc].nimNode)
@@ -2427,7 +2427,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       var u = regs[rb].nimNode
       if nfSem in u.flags:
         raiseVmError(VmEvent(kind: vmEvtCannotModifyTypechecked))
-      elif u.kind in {nkEmpty..nkNilLit, nkError}:
+      elif u.kind in nkWithoutSons:
         raiseVmError(VmEvent(kind: vmEvtCannotAddChild, ast: u))
       else:
         let L = arrayLen(x)
@@ -2452,7 +2452,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
     of opcNIntVal:
       decodeB(rkInt)
       let a = regs[rb].nimNode
-      if a.kind in {nkCharLit..nkUInt64Lit}:
+      if a.kind in nkIntLiterals:
         regs[ra].intVal = a.intVal
       elif a.kind == nkSym and a.sym.kind == skEnumField:
         regs[ra].intVal = a.sym.position
@@ -2462,7 +2462,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       decodeB(rkFloat)
       let a = regs[rb].nimNode
       case a.kind
-      of nkFloatLit..nkFloat64Lit: regs[ra].floatVal = a.floatVal
+      of nkFloatLiterals: regs[ra].floatVal = a.floatVal
       else: raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "floatVal"))
     of opcNodeId:
       decodeB(rkInt)
@@ -2540,7 +2540,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       decodeB(akString)
       let a = regs[rb].nimNode
       case a.kind
-      of nkStrLit..nkTripleStrLit:
+      of nkStrLiterals:
         regs[ra].strVal = a.strVal
       of nkCommentStmt:
         regs[ra].strVal = a.comment
@@ -2726,7 +2726,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
     of opcNSetIntVal:
       decodeB(rkNimNode)
       var dest = regs[ra].nimNode
-      if dest.kind in {nkCharLit..nkUInt64Lit}:
+      if dest.kind in nkIntLiterals:
         dest.intVal = regs[rb].intVal
       elif dest.kind == nkSym and dest.sym.kind == skEnumField:
         raiseVmError(VmEvent(
@@ -2737,7 +2737,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
     of opcNSetFloatVal:
       decodeB(rkNimNode)
       var dest = regs[ra].nimNode
-      if dest.kind in {nkFloatLit..nkFloat64Lit}:
+      if dest.kind in nkFloatLiterals:
         dest.floatVal = regs[rb].floatVal
       else:
         raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "floatVal"))
@@ -2746,7 +2746,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       checkHandle(regs[rb])
       var dest = regs[ra].nimNode
       assert regs[rb].handle.typ.kind == akString
-      if dest.kind in {nkStrLit..nkTripleStrLit}:
+      if dest.kind in nkStrLiterals:
         dest.strVal = $regs[rb].strVal
       elif dest.kind == nkCommentStmt:
         dest.comment = $regs[rb].strVal
