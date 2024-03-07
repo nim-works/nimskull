@@ -2377,28 +2377,27 @@ proc genDiscrVal(c: var TCtx, discr, n: CgNode, oty: PType): TRegister =
     var endings: seq[TPosition] = @[]
     let bIReg = c.getTemp(discr.typ)
     let tmp = c.getTemp(discr.typ)
-    # XXX: this is mostly just copied from `genCase`
     c.gen(n, tmp)
     # branch tmp, codeIdx
-    # fjmp   elseLabel
+    # tjmp   target
 
-    # iterate of/else branches
-    for i in 1..<recCase.len:
-      let branch = recCase[i]
-      let bI = i - 1
-      assert bI <= int(high(uint16))
-      if branch.len == 1:
-        # else branch:
-        c.gABx(n, opcLdImmInt, bIReg, bI)
-      else:
-        # of branch
+    # iterate of/else branches and emit the dispatcher:
+    for i, branch in branches(recCase):
+      case branch.kind
+      of nkElse:
+        endings.add c.xjmp(n, opcJmp)
+      of nkOfBranch:
         let b = genBranchLit(c, branch)
         c.gABx(n, opcBranch, tmp, b)
-        let elsePos = c.xjmp(n, opcFJmp, tmp)
-        c.gABx(n, opcLdImmInt, bIReg, bI)
-        if i < recCase.len-1:
-          endings.add(c.xjmp(n, opcJmp, 0))
-        c.patch(elsePos)
+        endings.add c.xjmp(n, opcTJmp)
+      else:
+        unreachable()
+
+    # emit the bodies:
+    for i, branch in branches(recCase):
+      c.patch(endings[i])
+      c.gABx(n, opcLdImmInt, bIReg, i)
+      endings[i] = c.xjmp(n, opcJmp) # jump past the other branches
 
     for endPos in endings: c.patch(endPos)
 
