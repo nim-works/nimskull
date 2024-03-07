@@ -127,15 +127,25 @@ type
 
   BlockKind = enum
     bkBlock   ## labeled block
-    bkTry     ## the ``try`` and ``except`` clause of a ``finally``-having
-              ## try statement
     bkExcept  ## ``except`` clause
     bkFinally ## ``finally`` clause
 
+  BlockInfo = object
+    label: BlockId
+    oldRegisterCount: int
+      ## upper bound of allocated registers at the beginning of the block
+    case kind: BlockKind
+    of bkBlock, bkFinally:
+      start: TPosition
+    of bkExcept:
+      discard
+
   BProc = object
-    blocks: seq[tuple[kind: BlockKind, exits: seq[TPosition], cr: TRegister]]
-      ## for each block, the jump instructions targeting the block's exit.
-      ## These need to be patched once the code for the block is generated
+    blocks: seq[BlockInfo]
+      ## information about each block-like construct. Forms a stack
+    exits: seq[tuple[label: BlockId, pos: TPosition]]
+      ## jump instructions that need patching once the target instruction is
+      ## known
     sym: PSym
     body: Body
       ## the full body of the current procedure/statement/expression
@@ -633,33 +643,17 @@ proc whichAsgnOpc(t: PType): TOpcode {.used.} =
   else:
     opcAsgnComplex
 
-proc genRepeat(c: var TCtx; n: CgNode) =
-  # lab1:
-  #   body
-  #   jmp lab1
-  # lab2:
-  let lab1 = c.genLabel
-  c.gen(n[0])
-  c.jmpBack(n, lab1)
+func pushBlock(c: var TCtx, blk: sink BlockInfo) =
+  blk.oldRegisterCount = c.prc.regInfo.len
+  # XXX: ^^ the register list only grows, meaning that its length doesn't
+  #      represent the allocated upper bound... Freeing register used for
+  #      locals is broken in general
+  c.prc.blocks.add blk
 
-func initBlock(kind: BlockKind, cr = TRegister(0)): typeof(BProc().blocks[0]) =
-  ## NOTE: this procedure is a workaround for a bug of the current csources
-  ## compiler. `isTry` being a literal bool value would lead to run-time
-  ## crashes.
-  result = (kind, @[], cr)
-
-proc genBlock(c: var TCtx; n: CgNode) =
-  let oldRegisterCount = c.prc.regInfo.len
-
-  c.prc.blocks.add initBlock(bkBlock) # push a new block
-  c.gen(n[1])
-  # fixup the jumps:
-  for pos in c.prc.blocks[^1].exits.items:
-    c.patch(pos)
-  # pop the block again:
-  c.prc.blocks.setLen(c.prc.blocks.len - 1)
-
-  for i in oldRegisterCount..<c.prc.regInfo.len:
+proc popBlock(c: var TCtx) =
+  let blk = c.prc.blocks.pop()
+  # free all register allocated for locals part of the block:
+  for i in blk.oldRegisterCount..<c.prc.regInfo.len:
       when not defined(release):
         if c.prc.regInfo[i].inUse and c.prc.regInfo[i].kind in {slotTempUnknown,
                                   slotTempInt,
@@ -670,36 +664,62 @@ proc genBlock(c: var TCtx; n: CgNode) =
           doAssert false, "leaking temporary " & $i & " " & $c.prc.regInfo[i].kind
       c.prc.regInfo[i] = RegInfo(kind: slotEmpty)
 
-proc blockLeaveActions(c: var TCtx, info: CgNode, target: Natural) =
-  ## Emits the bytecode for leaving a block. `target` is the index of the
-  ## block to exit.
-  # perform the leave actions from innermost to outermost
-  for i in countdown(c.prc.blocks.high, target):
-    case c.prc.blocks[i].kind
-    of bkBlock:
-      discard "no leave action to perfrom"
-    of bkTry:
-      # enter the finally clause
-      c.prc.blocks[i].exits.add c.xjmp(info, opcEnter)
-    of bkExcept:
-      # leave the except clause
-      c.gABI(info, opcLeave, 0, 0, 0)
-    of bkFinally:
-      # leave the finally clause
-      c.gABI(info, opcLeave, c.prc.blocks[i].cr, 0, 1)
+func controlReg(c: TCtx, blk: BlockInfo): TRegister =
+  c.code[blk.start.int].regA
 
-proc genBreak(c: var TCtx; n: CgNode) =
-  # find the labeled block corresponding to the block ID:
-  var i, b = 0
-  while b < n[0].label.int or c.prc.blocks[i].kind != bkBlock:
-    b += ord(c.prc.blocks[i].kind == bkBlock)
-    inc i
+proc genGoto(c: var TCtx; n: CgNode) =
+  ## Generates and emits the code for a ``cnkGoto``. Depending on whether it's
+  ## an intercepted jump, the goto can translate to more than one instruction.
+  let
+    target = n[0]
+    info = n.info
+  case target.kind
+  of cnkLabel:
+    c.prc.exits.add (target.label, c.xjmp(n, opcJmp))
+  of cnkTargetList:
+    # there are some leave actions
+    for i in 0..<target.len-1:
+      let it = target[i]
+      case it.kind
+      of cnkLabel:
+        # enter the finally section:
+        c.prc.exits.add (it.label, c.xjmp(n, opcEnter))
+      of cnkLeave:
+        # leave the except or finally section:
+        for blk in c.prc.blocks.items:
+          if blk.label == it[0].label:
+            case blk.kind
+            of bkExcept:
+              c.gABI(info, opcLeave, 0, 0, 0)
+            of bkFinally:
+              c.gABI(info, opcLeave, c.controlReg(blk), 0, 1)
+            else:
+              unreachable()
+            break
+      else:
+        unreachable()
 
-  blockLeaveActions(c, n, i)
+    # the jump to the final destination
+    c.prc.exits.add (target[^1].label, c.xjmp(n, opcJmp))
+  else:
+    unreachable()
 
-  # emit the actual jump to the end of targeted labeled block:
-  let label = c.xjmp(n, opcJmp)
-  c.prc.blocks[i].exits.add label
+
+iterator take[T](s: var seq[T], label: BlockId): lent T =
+  ## Returns all items with `label` and removes them afterwards.
+  var i = 0
+  while i < s.len:
+    if s[i].label == label:
+      yield s[i]
+      # remove the item from the list (order within the list doesn't
+      # matter)
+      s.del(i)
+    else:
+      inc i
+
+proc patch(c: var TCtx, label: BlockId) =
+  for it in take(c.prc.exits, label):
+    c.patch(it.pos)
 
 proc genIf(c: var TCtx, n: CgNode) =
   #  if (!expr1) goto lab1;
@@ -708,16 +728,16 @@ proc genIf(c: var TCtx, n: CgNode) =
   block:
       let it = n
       withDest(tmp):
-        var elsePos: TPosition
+        var start: TPosition
         if isNotOpr(c.env, it[0]):
           c.gen(it[0][1], tmp)
-          elsePos = c.xjmp(it[0][1], opcTJmp, tmp) # if true
+          start = c.xjmp(it[0][1], opcTJmp, tmp) # if true
         else:
           c.gen(it[0], tmp)
-          elsePos = c.xjmp(it[0], opcFJmp, tmp) # if false
+          start = c.xjmp(it[0], opcFJmp, tmp) # if false
 
-      c.gen(it[1]) # then part
-      c.patch(elsePos)
+      # the 'if' opens a block, which the corresponding 'end' closes
+      pushBlock(c): BlockInfo(kind: bkBlock, label: it[1].label, start: start)
 
 # XXX `rawGenLiteral` should be a func, but can't due to `internalAssert`
 proc rawGenLiteral(c: var TCtx, val: sink VmConstant): int =
@@ -1132,11 +1152,6 @@ proc writeBackResult(c: var TCtx, info: CgNode) =
       c.genRegLoad(info, typ, tmp, dest)
       c.gABC(info, opcFastAsgnComplex, dest, tmp)
       c.freeTemp(tmp)
-
-proc genReturn(c: var TCtx; n: CgNode) =
-  blockLeaveActions(c, n, 0)
-  writeBackResult(c, n)
-  c.gABC(n, opcRet)
 
 proc genLit(c: var TCtx; n: CgNode; lit: int; dest: var TDest) =
   ## `lit` is the index of a constant as returned by `genLiteral`
@@ -3153,27 +3168,46 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkCaseStmt:
     unused(c, n, dest)
     genCase(c, n)
-  of cnkRepeatStmt:
-    unused(c, n, dest)
-    genRepeat(c, n)
-  of cnkBlockStmt:
-    unused(c, n, dest)
-    genBlock(c, n)
-  of cnkReturnStmt:
-    genReturn(c, n)
   of cnkRaiseStmt:
     genRaise(c, n)
-  of cnkBreakStmt:
-    genBreak(c, n)
-  of cnkTryStmt:
-    unused(c, n, dest)
-    genTry(c, n)
+  of cnkGotoStmt:
+    genGoto(c, n)
   of cnkStmtList:
+    # XXX: supported for a transition period (``cgir.merge`` creates nested
+    #      statement lists)
     unused(c, n, dest)
     for x in n: gen(c, x)
   of cnkVoidStmt:
     unused(c, n, dest)
     gen(c, n[0])
+  of cnkContinueStmt:
+    # marks the end of a finally section
+    let
+      blk {.cursor.} = c.prc.blocks[^1]
+      control = c.controlReg(blk)
+    # patch the ``opcFinally`` instruction:
+    c.patch(blk.start)
+    c.gABx(n, opcFinallyEnd, control, 0)
+    # now free the control register
+    c.freeTemp(control)
+    popBlock(c)
+  of cnkJoinStmt:
+    c.patch(n[0].label)
+  of cnkLoopJoinStmt:
+    # loops count as blocks too
+    pushBlock(c):
+      BlockInfo(kind: bkBlock, label: n[0].label, start: c.genLabel())
+  of cnkLoopStmt:
+    c.jmpBack(n, c.prc.blocks[^1].start)
+    popBlock(c)
+  of cnkExcept:
+    genExcept(c, n)
+  of cnkFinally:
+    genFinally(c, n)
+  of cnkEnd:
+    if c.prc.blocks[^1].kind == bkBlock:
+      c.patch(c.prc.blocks[^1].start)
+    popBlock(c)
   of cnkHiddenConv, cnkConv:
     genConv(c, n, n.operand, dest)
   of cnkLvalueConv:
@@ -3199,9 +3233,9 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     genTypeLit(c, n, n.typ, dest)
   of cnkAsmStmt, cnkEmitStmt:
     unused(c, n, dest)
-  of cnkInvalid, cnkMagic, cnkRange, cnkExcept, cnkFinally, cnkBranch,
+  of cnkInvalid, cnkMagic, cnkRange, cnkBranch,
      cnkBinding, cnkLabel, cnkStmtListExpr, cnkField, cnkToSlice,
-     cnkNewCfNodes:
+     cnkLegacyNodes, cnkResume, cnkTargetList, cnkLeave:
     unreachable(n.kind)
 
 proc initProc(c: TCtx, owner: PSym, body: sink Body): BProc =
