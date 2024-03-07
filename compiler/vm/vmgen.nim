@@ -3239,7 +3239,7 @@ proc genExpr*(c: var TCtx; body: sink Body): Result[int, VmGenDiag] =
   var d: TDest = -1
   try:
     let eh = genSetEh(c, n.info)
-    if n.kind == cnkStmtListExpr:
+    if n.kind == cnkStmtList:
       # special case the expression here so that ``gen`` doesn't have to
       for i in 0..<n.len-1:
         c.gen(n[i])
