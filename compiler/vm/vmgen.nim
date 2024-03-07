@@ -1032,6 +1032,15 @@ proc genEhCode(c: var TCtx, n: CgNode) =
 
 proc genExcept(c: var TCtx, n: CgNode) =
   ## Emits the EH code for a ``cnkExcept``.
+
+  # simple but high-impact optimization: if the last EH exit we need to patch
+  # is the preceding EH instruction, eliminate the instruction (it'd just be
+  # a single instruction jump)
+  if c.prc.ehExits.len > 0 and
+     c.prc.ehExits[^1] == (n[0].label, c.ehCode.high.uint32):
+    c.ehCode.setLen(c.ehCode.len - 1)
+    c.prc.ehExits.setLen(c.prc.ehExits.len - 1)
+
   # patch all EH instructions targeting the handler:
   for it in take(c.prc.ehExits, n[0].label):
     c.ehCode[it.pos] = (ehoNext, 0'u16, c.ehCode.len.uint32 - it.pos)
