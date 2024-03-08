@@ -11,3 +11,13 @@ method testMethod(g: SomeDerived) =
 # ensure int literals still work
 proc plain*() {.locks: 0.} =
   discard
+
+# ensure unknown locklevel works
+proc plain2*() {.locks: "unknown".} =
+  discard
+
+# ensure char literals are rejected
+assert not compiles (;
+  proc plain3() {.locks: 'c'.} =
+    discard
+  )
