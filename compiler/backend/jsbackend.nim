@@ -74,11 +74,11 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
       p = startProc(g, bmod, evt.id, Body())
       partial[evt.sym.id] = p
 
-    let body = generateIRLegacy(graph, bmod.idgen, g.env, evt.sym, evt.body)
+    let body = generateIR(graph, bmod.idgen, g.env, evt.sym, evt.body)
     genPartial(p, merge(p.fullBody, body))
   of bekProcedure:
     let
-      body = generateIRLegacy(graph, bmod.idgen, g.env, evt.sym, evt.body)
+      body = generateIR(graph, bmod.idgen, g.env, evt.sym, evt.body)
       r = genProc(g, bmod, evt.id, body)
 
     if sfCompilerProc in evt.sym.flags:
@@ -116,7 +116,7 @@ proc generateCodeForMain(globals: PGlobals, graph: ModuleGraph, m: BModule,
   let owner = m.module
   genTopLevelStmt(globals, m):
     canonicalize(graph, m.idgen, globals.env, owner, body, TranslationConfig(),
-                 legacy=true)
+                 legacy=false)
 
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point into the JS backend. Generates the code for all modules and
