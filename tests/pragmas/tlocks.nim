@@ -17,7 +17,7 @@ proc plain2*() {.locks: "unknown".} =
   discard
 
 # ensure char literals are rejected
-assert not compiles (;
+doAssert not compiles (;
   proc plain3() {.locks: 'c'.} =
     discard
   )
