@@ -2166,6 +2166,8 @@ proc genStmts(p: PProc, stmts: openArray[CgNode]) =
       genStmt(p, stmts[it.stmt])
       # the statements immediately following the terminator are dead code,
       # ignore them
+    of stkReturn:
+      lineF(p, "return;$n", [])
     of stkEnd:
       # is it the end of a handler? if so, pop it from the stack
       if p.handlers.len > 0 and p.handlers[^1] == it.label:

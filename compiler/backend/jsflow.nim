@@ -30,6 +30,7 @@ type
     stkEnd     ## end of a catch, finally, or block
 
     stkTerminator ## a goto or raise statement. Only relevant during analysis
+    stkReturn     ## JavaScript return
 
   Structure* = object
     ## A list of ``Structure`` items describes how the JavaScript control-flow
@@ -40,8 +41,15 @@ type
     of stkStructStart, stkTry, stkBlock, stkCatch, stkFinally, stkEnd:
       label*: BlockId
         ## the associated CGIR label
-    of stkTerminator:
+    of stkTerminator, stkReturn:
       discard
+
+func finalTarget(n: CgNode): CgNode =
+  case n.kind
+  of cnkLabel:      n
+  of cnkTargetList: n[^1]
+  else:
+    unreachable()
 
 proc spawnOpens(items: var seq[Structure], pos: int, n: CgNode, isError: bool,
                 finallys: PackedSet[BlockId], marker: var PackedSet[BlockId]) =
@@ -170,7 +178,14 @@ proc toStructureList*(stmts: openArray[CgNode]): (seq[Structure], PackedSet[Bloc
       exit(it[^1], isError=true)
     of cnkGotoStmt:
       exit(it[0], isError=false)
-      terminator()
+      let target = finalTarget(it[0])
+      # if the goto jumps to a finally, there's no label for the break.
+      # Since this can only happen when structured control-flow never
+      # leaves the finally, we can use a JavaScript 'return' in that case
+      if target.label in finallys:
+        structs.add Structure(kind: stkReturn, stmt: i)
+      else:
+        terminator()
     of cnkRaiseStmt:
       exit(it[^1], isError=true)
       terminator()
@@ -222,7 +237,7 @@ proc toStructureList*(stmts: openArray[CgNode]): (seq[Structure], PackedSet[Bloc
           dec depth
           if structs[j].label == structs[i].label:
             break
-        of stkTerminator:
+        of stkTerminator, stkReturn:
           discard "not relevant"
 
       # depth < 0 means that the try/block start is more nested than its end.
@@ -242,7 +257,7 @@ proc toStructureList*(stmts: openArray[CgNode]): (seq[Structure], PackedSet[Bloc
           dec depth
         of stkBlock, stkTry, stkStructStart:
           inc depth
-        of stkTerminator, stkCatch, stkFinally:
+        of stkTerminator, stkReturn, stkCatch, stkFinally:
           # catch and finally don't change the nesting (the try's body is at
           # the same level as catch/finally's body)
           discard
