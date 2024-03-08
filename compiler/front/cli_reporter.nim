@@ -1633,7 +1633,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "using '.' instead of '/' in import paths is deprecated"
 
     of rsemInvalidModuleName:
-      result = "invalid module name: '$1'" % r.ast.render
+      result = "invalid module name: '$1'" % r.symstr
 
     of rsemInvalidMethodDeclarationOrder:
       result = "invalid declaration order; cannot attach '" & r.symbols[0].name.s &
