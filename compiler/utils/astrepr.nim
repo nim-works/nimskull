@@ -686,14 +686,14 @@ proc cyclicTreeAux(n: PNode, visited: var seq[PNode], count: var int): bool =
   of nkWithSons, nkError:
     visited.add(n)
 
-    let sons =
+    let nWithSons =
       case n.kind
       of nkError:
-        @[n.diag.wrongNode]
+        n.diag.wrongNode
       else:
-        n.sons
+        n
 
-    for nSon in sons:
+    for nSon in nWithSons.sons:
       if cyclicTreeAux(nSon, visited, count):
         return true
 
