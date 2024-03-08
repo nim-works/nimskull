@@ -198,11 +198,16 @@ proc toStructureList*(stmts: openArray[CgNode]): (seq[Structure], PackedSet[Bloc
       struct(stkStructStart, it[0].label)
     of cnkIfStmt:
       struct(stkStructStart, it[1].label)
-    of cnkEnd, cnkJoinStmt, cnkContinueStmt, cnkLoopStmt:
+    of cnkEnd, cnkContinueStmt, cnkLoopStmt:
+      struct(stkEnd, it[0].label)
+    of cnkJoinStmt:
+      assert it[0].label in marker
       struct(stkEnd, it[0].label)
     of cnkFinally:
+      assert it[0].label in marker
       struct(stkFinally, it[0].label)
     of cnkExcept:
+      assert it[0].label in marker
       struct(stkCatch, it[0].label)
       if it.len > 1:
         # not a catch-all handler; raising might continue

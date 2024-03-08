@@ -1000,9 +1000,9 @@ proc caseToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl, n: MirNode,
 
     leave(tree, cr)
 
-  # we used manual gotos, so emission of a join statement has to be forced
-  join result.info, exit, required=true
   if doesExit:
+    # we used manual gotos, so emission of a join statement has to be forced
+    join result.info, exit, required=true
     cl.isActive = true
   else:
     cl.disable()
