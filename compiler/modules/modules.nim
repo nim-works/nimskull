@@ -104,7 +104,7 @@ proc newModule(graph: ModuleGraph; fileIdx: FileIndex): PSym =
                 name: getModuleIdent(graph, filename),
                 info: newLineInfo(fileIdx, 1, 1))
   if not isNimIdentifier(result.name.s):
-    localReport(graph.config, reportSym(rsemInvalidModuleName, result))
+    discard report(graph.config, reportSym(rsemInvalidModuleName, nil, str=result.name.s))
 
   partialInitModule(result, graph, fileIdx, filename)
   graph.registerModule(result)
