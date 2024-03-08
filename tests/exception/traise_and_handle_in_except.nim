@@ -4,7 +4,6 @@ discard """
     branch works.
   '''
   output: "done"
-  knownIssue.js: "The current exception is not properly cleared"
 """
 
 var steps: seq[int]
