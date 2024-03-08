@@ -349,10 +349,8 @@ when false:
     result = tree.sh.strings[LitId tree.nodes[n.int].operand]
 
 const
-  externSIntLit* =
-    {nkIntLit, nkInt8Lit, nkInt16Lit, nkInt64Lit} # nkInt32Lit is missing by design!
-  externUIntLit* =
-    {nkCharLit, nkUIntLit, nkUInt8Lit, nkUInt16Lit, nkUInt32Lit, nkUInt64Lit}
+  externSIntLit* = nkSIntLiterals - nkInt32Lit # nkInt32Lit is excluded by design!
+  externUIntLit* = nkUIntLiterals
   externIntLit* = externSIntLit + externUIntLit
   directIntLit* = nkInt32Lit
 

@@ -110,8 +110,7 @@ proc getMagic*(op: PNode): TMagic =
   else: result = mNone
 
 proc isConstExpr*(n: PNode): bool =
-  const atomKinds = nkLiterals # Char, Int, UInt, Str, Float and Nil literals
-  n.kind in atomKinds or nfAllConst in n.flags
+  n.kind in nkLiterals or nfAllConst in n.flags
 
 proc isCaseObj*(n: PNode): bool =
   if n.kind == nkRecCase: return true

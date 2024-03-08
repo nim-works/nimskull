@@ -163,7 +163,7 @@ proc getLockLevel(t: PType): TLockLevel =
   var t = t
   # tyGenericInst(TLock {tyGenericBody}, tyStatic, tyObject):
   if t.kind == tyGenericInst and t.len == 3: t = t[1]
-  if t.kind == tyStatic and t.n != nil and t.n.kind in nkIntLiterals:
+  if t.kind == tyStatic and t.n != nil and t.n.kind in nkSIntLiterals:
     result = t.n.intVal.TLockLevel
 
 proc lockLocations(a: PEffects; pragma: PNode) =
