@@ -10,6 +10,7 @@ contains:
 
   type
     NimNodeKind = enum     ## kind of a node; only explanatory
+      nnkError,            ## erroneous AST node
       nnkEmpty,            ## empty node
       nnkIdent,            ## node contains an identifier
       nnkIntLit,           ## node contains an int literal (example: 10)
