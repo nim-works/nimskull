@@ -538,7 +538,7 @@ proc arithAux(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
     xLoc,yLoc: Rope
 
   useMagic(p, jsMagics[op])
-  if n.len > 2:
+  if numArgs(n) == 2:
     gen(p, n[1], x)
     gen(p, n[2], y)
     xLoc = x.rdLoc
@@ -1227,7 +1227,7 @@ proc genArgs(p: PProc, n: CgNode, r: var TCompRes; start=1) =
   assert(typ.len == typ.n.len)
   var emitted = start-1
 
-  for i in start..<n.len:
+  for i in start..<(1 + numArgs(n)):
     let it = n[i]
     var paramType: PNode = nil
     if i < typ.len:
@@ -1247,11 +1247,11 @@ proc genArgs(p: PProc, n: CgNode, r: var TCompRes; start=1) =
 
 proc genOtherArg(p: PProc; n: CgNode; i: int; typ: PType;
                  generated: var int; r: var TCompRes) =
-  if i >= n.len:
+  if i >= numArgs(n) + 1:
     globalReport(p.config, n.info, semReportCountMismatch(
       rsemExpectedParameterForJsPattern,
       expected = i,
-      got = n.len - 1))
+      got = numArgs(n)))
 
   let it = n[i]
   var paramType: PNode = nil
@@ -1274,7 +1274,7 @@ proc genPatternCall(p: PProc; n: CgNode; pat: string; typ: PType;
     case pat[i]
     of '@':
       var generated = 0
-      for k in j..<n.len:
+      for k in j..<(1 + numArgs(n)):
         if generated > 0: r.res.add(", ")
         genOtherArg(p, n, k, typ, generated, r)
       inc i
@@ -1311,7 +1311,7 @@ proc genInfixCall(p: PProc, n: CgNode, r: var TCompRes) =
       assert(typ.kind == tyProc)
       genPatternCall(p, n, pat, typ, r)
       return
-  if n.len != 1:
+  if numArgs(n) != 0:
     gen(p, n[1], r)
     if r.typ == etyBaseIndex:
       p.config.internalAssert(r.address != "", n.info, "cannot invoke with infix syntax")
@@ -1341,7 +1341,7 @@ proc genEcho(p: PProc, n: CgNode, r: var TCompRes) =
   useMagic(p, "rawEcho")
   r.res.add("rawEcho(")
   # the first argument is a literal type that we don't need
-  for i in 2..<n.len:
+  for i in 2..<(1 + numArgs(n)):
     let it = n[i]
     if it.typ.isCompileTimeOnly: continue
     if i > 2: r.res.add(", ")
@@ -2353,8 +2353,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       genLineDir(p, n)
     if getCalleeMagic(p.g.env, n[0]) != mNone:
       genMagic(p, n, r)
-    elif n[0].kind == cnkProc and sfInfixCall in p.env[n[0].prc].flags and
-        n.len >= 1:
+    elif n[0].kind == cnkProc and sfInfixCall in p.env[n[0].prc].flags:
       genInfixCall(p, n, r)
     else:
       genCall(p, n, r)
