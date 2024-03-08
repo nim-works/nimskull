@@ -693,7 +693,7 @@ proc cyclicTreeAux(n: PNode, visited: var seq[PNode], count: var int): bool =
       else:
         n
 
-    for nSon in nWithSons.sons:
+    for nSon in nWithSons.items:
       if cyclicTreeAux(nSon, visited, count):
         return true
 
