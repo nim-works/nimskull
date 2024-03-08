@@ -960,13 +960,14 @@ proc pragmaLocks(c: PContext, it: PNode): (TLockLevel, PNode) =
         result = (UnknownLockLevel, wrapError(c.config, it))
     else:
       let (x, err) = intLitToIntOrErr(c, it)
-      if err.isNil:
-        if x < 0 or x > MaxLockLevel:
-          it[1] = c.config.newError(it[1], PAstDiag(
-            kind: adSemLocksPragmaBadLevelRange))
-          result = (UnknownLockLevel, wrapError(c.config, it))
-        else:
-          result = (TLockLevel(x), nil)
+      if err != nil:
+        result = (UnknownLockLevel, err)
+      elif x < 0 or x > MaxLockLevel:
+        it[1] = c.config.newError(it[1], PAstDiag(
+          kind: adSemLocksPragmaBadLevelRange))
+        result = (UnknownLockLevel, wrapError(c.config, it))
+      else:
+        result = (TLockLevel(x), nil)
 
 proc typeBorrow(c: PContext; sym: PSym, n: PNode): PNode =
   result = n
