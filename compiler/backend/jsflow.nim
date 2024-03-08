@@ -357,7 +357,7 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
         # blocks broken out of more than once cannot be inlined. Remove
         # them from the table
         inline.del(it.label)
-    of stkBlock, stkCatch, stkFinally, stkReturn:
+    of stkTry, stkBlock, stkCatch, stkFinally, stkStructStart, stkReturn:
       discard "not relevant"
 
   # the `inline` table now contains only the blocks inline-able into swith-case
