@@ -245,7 +245,9 @@ type
 
 const
   nkUIntLiterals*  = {nkCharLit, nkUIntLit..nkUInt64Lit}
+    ## Unsigned int literals
   nkSIntLiterals*  = {nkIntLit..nkInt64Lit}
+    ## Signed int literals
   nkIntLiterals*   = nkUIntLiterals + nkSIntLiterals
   nkFloatLiterals* = {nkFloatLit..nkFloat64Lit}
   nkStrLiterals*   = {nkStrLit..nkTripleStrLit}

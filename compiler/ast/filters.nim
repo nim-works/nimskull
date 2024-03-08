@@ -38,7 +38,7 @@ proc invalidPragma(conf: ConfigRef; n: PNode) =
 proc getArg(conf: ConfigRef; n: PNode, name: string, pos: int): PNode =
   result = nil
   case n.kind
-  of nkWithoutSons: return
+  of nkWithoutSons: discard # these can't have args
   of nkWithSons:
     for i in 1..<n.len:
       if n[i].kind == nkExprEqExpr:
