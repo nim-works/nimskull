@@ -739,7 +739,12 @@ func intLiteral(v: Int128, typ: PType): string =
     else:         "true"
   else:           $v
 
-proc genCaseJS(p: PProc, n: CgNode) =
+proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int)
+
+proc genCaseJS(p: PProc, desc: StructDesc, stmts: openArray[CgNode], n: CgNode) =
+  ## Generates and emits the JavaScript code for dispatcher `n`. The branch
+  ## targes may be inlined directly (if safe) -- `desc` and `stmts` are
+  ## required for the inlining. The inlining is a source of call recursion.
   var
     cond: TCompRes
     totalRange = Zero
@@ -776,12 +781,20 @@ proc genCaseJS(p: PProc, n: CgNode) =
           else:
             gen(p, e, cond)
             lineF(p, "case $1:$n", [cond.rdLoc])
-      p.nested:
-        lineF(p, "break Label$1;$n", [$it[^1].label])
     else:
       lineF(p, "default: $n", [])
-      p.nested:
-        lineF(p, "break Label$1;$n", [$it[^1].label])
+
+    let target = it[^1].label
+    p.nested:
+      if target in desc.inline:
+        # inline the code from the jump destination. The block nesting that
+        # would otherwise ensue can be too much for JavaScript engines to
+        # handle (V8 would fail to compile the code, for example)
+        gen(p, desc, stmts, desc.inline[target])
+      else:
+        # cannnot inline. A jump is needed
+        lineF(p, "break Label$1;$n", [$target])
+
   lineF(p, "}$n", [])
 
 proc genAsmOrEmitStmt(p: PProc, n: CgNode) =
@@ -1081,6 +1094,7 @@ proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
     internalError(p.config, n.info, "genAddr: " & $n.kind)
 
 proc accessLoc(s: Loc, r: var TCompRes) =
+    assert s.typ != nil, repr(s)
     let k = mapType(s.typ)
     if k == etyBaseIndex:
       r.typ = etyBaseIndex
@@ -2139,34 +2153,51 @@ proc handleRecover(p: PProc, needsRecover: PackedSet[BlockId],
       # procedure entry, so that it can be restored here
       p.lastErrorBackupNeeded = true
 
-proc genStmts(p: PProc, stmts: openArray[CgNode]) =
-  let (structs, needsRecover) = toStructureList(stmts)
-  if structs.len == 0:
-    # there are no control-flow constructs in the body
-    for it in stmts.items:
-      genStmt(p, it)
-    return
+proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int) =
+  ## Generates code for `desc` and `stmts` starting at (but not including)
+  ## structure item `start`. Code generation continues until the first
+  ## terminator that's at the same nesting level as the item at `start`.
+  var
+    depth = 0
+    i     = start + 1
+
+  template structs: untyped = desc.structs
 
   template gen(a, b: int) =
     for i in a..<b:
       genStmt(p, stmts[i])
 
-  # generate code for the statements up to the first control-flow construct:
-  gen(0, structs[0].stmt)
+  block:
+    # generate code for the statements leading up to the first structure item
+    let
+      first =
+        if start == -1: 0
+        else:           structs[start].stmt
+      next =
+        if structs.len == 0: stmts.len
+        else:                structs[i].stmt
+
+    gen(first, next)
 
   # code generation is driven by the control-flow constructs. Indentation is
   # also (mostly) managed here
-  for i, it in structs.pairs:
+  while i < structs.len:
+    let it = desc.structs[i]
     case it.kind
     of stkTry:
       startBlock(p, "try {$n", [])
       gen(it.stmt, structs[i+1].stmt)
+      inc depth
     of stkBlock:
-      startBlock(p, "Label$1: {$n", [$it.label.int])
-      gen(it.stmt, structs[i+1].stmt)
+      if it.label notin desc.inline:
+        startBlock(p, "Label$1: {$n", [$it.label.int])
+        gen(it.stmt, structs[i+1].stmt)
+      # still increment the depth; it makes handling of the 'end' item easier
+      inc depth
     of stkStructStart:
       # indentation is managed by ``genStmt`` here
       gen(it.stmt, structs[i+1].stmt)
+      inc depth
     of stkCatch:
       endBlock(p)
       p.handlers.add it.label # push the handler to the stack
@@ -2175,25 +2206,63 @@ proc genStmts(p: PProc, stmts: openArray[CgNode]) =
     of stkFinally:
       endBlock(p)
       startBlock(p, "finally {$n", [])
-      handleRecover(p, needsRecover, it.label)
+      handleRecover(p, desc.needsRecover, it.label)
       gen(it.stmt, structs[i+1].stmt)
     of stkTerminator:
-      genStmt(p, stmts[it.stmt])
+      let n = stmts[it.stmt]
+      if n.kind == cnkCaseStmt:
+        genCaseJS(p, desc, stmts, n)
+      else:
+        genStmt(p, n)
       # the statements immediately following the terminator are dead code,
       # ignore them
+      if depth == 0:
+        break
     of stkReturn:
       lineF(p, "return;$n", [])
+      if depth == 0:
+        break
     of stkEnd:
-      # is it the end of a handler? if so, pop it from the stack
-      if p.handlers.len > 0 and p.handlers[^1] == it.label:
-        p.handlers.setLen(p.handlers.len - 1)
+      if it.label in desc.inline:
+        # skip the skip code following the block's end; this code is emitted from
+        # elsewhere
+        let orig = depth
+        while depth >= orig:
+          inc i
+          case structs[i].kind
+          of stkBlock, stkTry, stkStructStart:
+            inc depth
+          of stkEnd:
+            dec depth
+          of stkCatch, stkFinally:
+            discard "decrements and then increments the depth; a no-op"
+          of stkTerminator, stkReturn:
+            # the first terminator at the same level as the 'end' delimits
+            # the inlined section
+            if depth == orig:
+              break
 
-      endBlock(p)
-      handleRecover(p, needsRecover, it.label)
-      # an 'end' can be the last item in the list
-      gen(it.stmt):
-        if i < structs.high: structs[i+1].stmt
-        else:                stmts.len
+      else:
+        # is it the end of a handler? if so, pop it from the stack
+        if p.handlers.len > 0 and p.handlers[^1] == it.label:
+          p.handlers.setLen(p.handlers.len - 1)
+
+        endBlock(p)
+        handleRecover(p, desc.needsRecover, it.label)
+        # an 'end' can be the last item in the list
+        gen(it.stmt):
+          if i < structs.high: structs[i+1].stmt
+          else:                stmts.len
+
+      dec depth
+
+    inc i
+
+proc genStmts(p: PProc, stmts: openArray[CgNode]) =
+  let desc = toStructureList(stmts)
+  # we want to generate the statements leading up to the first structure
+  # too, hence -1 as the start
+  gen(p, desc, stmts, -1)
 
 proc genProc*(g: PGlobals, module: BModule, id: ProcedureId,
               body: sink Body): Rope =
@@ -2414,7 +2483,6 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkEmpty: discard
   of cnkType: r.res = genTypeInfo(p, n.typ)
   of cnkDef: genDef(p, n)
-  of cnkCaseStmt: genCaseJS(p, n)
   of cnkGotoStmt:
     case n[0].kind
     of cnkLabel:
@@ -2456,7 +2524,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
     discard "terminators or endings for which no special handling is needed"
   of cnkInvalid, cnkMagic, cnkRange, cnkBinding, cnkLeave, cnkTargetList,
      cnkResume, cnkBranch, cnkAstLit, cnkLabel, cnkStmtListExpr, cnkStmtList,
-     cnkField, cnkLegacyNodes:
+     cnkField, cnkLegacyNodes, cnkCaseStmt:
     internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =

@@ -9,7 +9,8 @@
 
 import
   std/[
-    packedsets
+    packedsets,
+    tables
   ],
   compiler/backend/[
     cgir
@@ -43,6 +44,16 @@ type
         ## the associated CGIR label
     of stkTerminator, stkReturn:
       discard
+
+  StructDesc* = tuple
+    ## Describes how a CGIR statement-list translates to JavaScript code. The
+    ## focus is on the control-flow constructs, hence the name.
+    structs: seq[Structure]
+    needsRecover: PackedSet[BlockId]
+      ## blocks at whose exit the current exception has to be recovered
+    inline: Table[BlockId, int]
+      ## maps all blocks that can be inlined into swith-case statements to
+      ## the blocks' 'end' item
 
 func finalTarget(n: CgNode): CgNode =
   case n.kind
@@ -129,10 +140,9 @@ proc collectRecover(n: CgNode, finallys: PackedSet[BlockId],
   else:
     unreachable(n.kind)
 
-proc toStructureList*(stmts: openArray[CgNode]): (seq[Structure], PackedSet[BlockId]) =
+proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   ## Creates and returns the JavaScript control-flow-construct-focused
-  ## representation for `stmts`. Also returns a set with all join points at
-  ## which the current exception needs to be updated/restored.
+  ## representation for `stmts`.
   var
     structs = newSeq[Structure]()
     needsRecover = initPackedSet[BlockId]()
@@ -291,4 +301,66 @@ proc toStructureList*(stmts: openArray[CgNode]): (seq[Structure], PackedSet[Bloc
   # flags for all finalizers within a procedure are bundled into a integer
   discard "not yet implemented"
 
-  result = (structs, needsRecover)
+  # if a case dispatcher is the only break targeting a block, and the block is
+  # not exited through structured control-flow, the code following the block
+  # can be inlined directly at the break within the switch-case statement:
+  #   L2: {
+  #     L1: {
+  #       switch (x) {
+  #       case 0:
+  #         break L1;
+  #       default:
+  #         break L2;
+  #       }
+  #     }
+  #     // A
+  #     break L2
+  #   }
+  #
+  # Here, the A section plus the ``break L2`` can be inlined directly at
+  # the ``break L1``.
+  # We perform two passes over the structure list:
+  #   1. the first one counts for each block how many breaks target it
+  #   2. the second pass removes all ineligible blocks from the table and
+  #      replaces the counter with an item index of the blocks' 'end'
+  # For efficiency, and thanks to the forward-only control-flow, both
+  # passes are merged into one.
+  var inline: Table[BlockId, int]
+  for i, it in structs.pairs:
+    case it.kind
+    of stkTerminator:
+      let n = stmts[it.stmt]
+      case n.kind
+      of cnkCaseStmt:
+        for j in 1..<n.len:
+          inline.mgetOrPut(n[j][^1].label, 0) += 1
+      of cnkGotoStmt:
+        # we don't inline the target at bare gotos. Mark the block the goto
+        # targets as ineligible by incrementing the counter by two
+        inline.mgetOrPut(finalTarget(n[0]).label, 0) += 2
+      else:
+        discard "only gotos are interesting"
+    of stkEnd:
+      case inline.getOrDefault(it.label, 0)
+      of 0:
+        discard "must be the end of a finally or catch; ignore"
+      of 1:
+        # possible candidate. Is it preceded by a terminator (meaning that
+        # structured control-flow doesn't reach the 'end')?
+        if structs[i - 1].kind == stkTerminator:
+          # can be inlined. Replace the counter value with the index
+          inline[it.label] = i
+        else:
+          # not eligible, remove it from the set of candidates
+          inline.del(it.label)
+      else:
+        # blocks broken out of more than once cannot be inlined. Remove
+        # them from the table
+        inline.del(it.label)
+    of stkBlock, stkCatch, stkFinally, stkReturn:
+      discard "not relevant"
+
+  # the `inline` table now contains only the blocks inline-able into swith-case
+  # statements
+
+  result = (structs, needsRecover, inline)
