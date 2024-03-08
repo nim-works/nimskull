@@ -154,7 +154,7 @@ proc generateMirCode(c: var TCtx, env: var MirEnv, n: PNode;
     result.code = finish(bu)
 
 proc generateIR(c: var TCtx, env: MirEnv, body: sink MirBody): Body =
-  backends.generateIRLegacy(c.graph, c.idgen, env, c.module, body)
+  backends.generateIR(c.graph, c.idgen, env, c.module, body)
 
 proc setupRootRef(c: var TCtx) =
   ## Sets up if the ``RootRef`` type for the type info cache. This
@@ -271,7 +271,7 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   for _ in discover(jit.gen.env, cp):
     discard "nothing to register"
 
-  let outBody = generateIRLegacy(c.graph, c.idgen, jit.gen.env, s, mirBody)
+  let outBody = generateIR(c.graph, c.idgen, jit.gen.env, s, mirBody)
   echoOutput(c.config, s, outBody)
 
   try:

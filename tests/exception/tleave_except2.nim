@@ -3,7 +3,7 @@ discard """
     Ensure that leaving an `except` section by raising an exception properly
     updates the current exception.
   '''
-  knownIssue.js vm: "The current exception is not reset properly"
+  knownIssue.js: "The current exception is not reset properly"
 """
 
 var steps: seq[string]
