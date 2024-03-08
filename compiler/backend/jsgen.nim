@@ -702,6 +702,13 @@ proc genExcept(p: PProc, n: CgNode) =
     # re-throw the exception when it doesn't match the filter
     lineF(p, "if (!(Exception$1_ && ($2))) { throw Exception$1_; }\L",
           [$id, orExpr])
+
+    if n[1].kind == cnkLocal:
+      # it's a handler for an imported exception. Setup the local
+      let local = n[1].local
+      setupLocalLoc(p, local, skVar)
+      lineF(p, "var $1 = Exception$2_;$n", [p.locals[local].name, $id])
+
   else:
     # catch-all handler
     discard
