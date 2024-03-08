@@ -150,11 +150,7 @@ type
     options: TOptions
     module: BModule
     g: PGlobals
-    beforeRetNeeded: bool
     unique: int    # for temp identifier generation
-    blocks: seq[int]
-      ## the stack of enclosing blocks, indexed by ``BlockId``. Each entry
-      ## stores the number to use for the label name
     extraIndent: int
 
     locals: OrdinalSeq[LocalId, Loc]
@@ -219,9 +215,9 @@ template config*(p: PProc): ConfigRef = p.module.config
 template env*(p: PProc): untyped = p.g.env
 
 proc indentLine(p: PProc, r: Rope): Rope =
-  result = r
-  for i in 0..<p.blocks.len + p.extraIndent:
-    prepend(result, rope"  ")
+  for i in 0..<p.extraIndent:
+    result.add "  "
+  result.add r
 
 template line(p: PProc, added: string) =
   p.body.add(indentLine(p, rope(added)))
@@ -258,7 +254,6 @@ proc rdLoc(a: TCompRes): Rope {.inline.} =
 proc newProc(globals: PGlobals, module: BModule, prc: PSym,
              options: TOptions): PProc =
   result = PProc(
-    blocks: @[],
     options: options,
     module: module,
     prc: prc,
@@ -774,19 +769,6 @@ proc genCaseJS(p: PProc, n: CgNode) =
         lineF(p, "break Label$1;$n", [$it[^1].label])
   lineF(p, "}$n", [])
 
-proc genBlock(p: PProc, n: CgNode) =
-  inc(p.unique)
-  let labl = p.unique
-  lineF(p, "Label$1: {$n", [labl.rope])
-  p.blocks.add labl # push a new block
-  genStmt(p, n[1])
-  p.blocks.setLen(p.blocks.len - 1) # pop the block from the stack
-  lineF(p, "}$n", [labl.rope])
-
-proc genBreakStmt(p: PProc, n: CgNode) =
-  genLineDir(p, n)
-  lineF(p, "break Label$1;$n", [$p.blocks[n[0].label.int]])
-
 proc genAsmOrEmitStmt(p: PProc, n: CgNode) =
   genLineDir(p, n)
   p.body.add p.indentLine("")
@@ -820,15 +802,6 @@ proc genAsmOrEmitStmt(p: PProc, n: CgNode) =
       gen(p, it, r)
       p.body.add(r.rdLoc)
   p.body.add "\L"
-
-proc genIf(p: PProc, n: CgNode) =
-  let it = n
-
-  var cond: TCompRes
-  p.nested: gen(p, it[0], cond)
-  lineF(p, "if ($1) {$n", [cond.rdLoc])
-  genStmt(p, it[1])
-  lineF(p, "}$n", [])
 
 proc generateHeader(params: openArray[Loc]): string =
   ## Generates the JavaScript function parameter list for `params`.
@@ -1996,12 +1969,6 @@ proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes) =
     useMagic(p, "chckRange")
     r.res = "chckRange($1, $2, $3)" % [r.res, a.res, b.res]
     r.kind = resExpr
-
-proc genReturnStmt(p: PProc, n: CgNode) =
-  p.config.internalAssert(p.prc != nil, n.info, "genReturnStmt")
-  p.beforeRetNeeded = true
-  genLineDir(p, n)
-  lineF(p, "break BeforeRet;$n", [])
 
 proc frameCreate(p: PProc; procname, filename: Rope): Rope =
   const frameFmt =
