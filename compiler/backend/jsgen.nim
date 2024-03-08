@@ -150,7 +150,12 @@ type
     options: TOptions
     module: BModule
     g: PGlobals
+    lastErrorBackupNeeded: bool
+      ## signals whether the value of ``lastJSError`` needs to be captured
+      ## on procedure entry
     unique: int    # for temp identifier generation
+    handlers: seq[BlockId]
+      ## enclosing exception handlers
     extraIndent: int
 
     locals: OrdinalSeq[LocalId, Loc]
@@ -675,6 +680,8 @@ proc genLineDir(p: PProc, n: CgNode) =
 
 proc genExcept(p: PProc, n: CgNode) =
   ## Generates and emits code for an ``cnkExcept`` join point.
+  let id = p.handlers.len # name suffix of the exception variable
+
   if n.len > 1:
     # handler with filter
     var orExpr = ""
@@ -686,20 +693,21 @@ proc genExcept(p: PProc, n: CgNode) =
       # Generate the correct type checking code depending on whether this is a
       # |NimSkull|-native or a JS-native exception
       if isImportedException(throwObj.typ, p.config):
-        orExpr.addf("EXCEPTION instanceof $1",
-          [throwObj.typ.sym.extname])
+        orExpr.addf("Exception$1_ instanceof $2",
+          [$id, throwObj.typ.sym.extname])
       else:
-        orExpr.addf("isObj(EXCEPTION.m_type, $1)",
-          [genTypeInfo(p, throwObj.typ)])
+        orExpr.addf("isObj(Exception$1_.m_type, $2)",
+          [$id, genTypeInfo(p, throwObj.typ)])
 
     # re-throw the exception when it doesn't match the filter
-    lineF(p, "if (!(EXCEPTION && ($1))) { throw EXCEPTION; }\L", [orExpr])
+    lineF(p, "if (!(Exception$1_ && ($2))) { throw Exception$1_; }\L",
+          [$id, orExpr])
   else:
     # catch-all handler
     discard
 
   # set the current exception:
-  lineF(p, "lastJSError = EXCEPTION;$n", [])
+  lineF(p, "lastJSError = Exception$1_;$n", [$id])
 
   # restore the framePtr (it's incorrect when coming from unwinding)
   if hasFrameInfo(p):
@@ -1994,6 +2002,9 @@ proc genProcBody(p: PProc, prc: PSym): Rope =
   else:
     result = ""
 
+  if p.lastErrorBackupNeeded:
+    result.add(p.indentLine("var Exception0_ = lastJSError;$n" % []))
+
   result.add(p.body)
   if prc.typ.callConv == ccSysCall:
     result = ("try {$n$1} catch (e) {$n" &
@@ -2103,8 +2114,18 @@ proc finishProc*(p: PProc): string =
   #if gVerbosity >= 3:
   #  echo "END   generated code for: " & prc.name.s
 
+proc handleRecover(p: PProc, needsRecover: PackedSet[BlockId],
+                   label: BlockId) =
+  if label in needsRecover:
+    let nesting = p.handlers.len
+    lineF(p, "lastJSError = Exception$1_;$n", [$nesting])
+    if nesting == 0:
+      # signal that the value of ``lastJSError`` needs to be captured on
+      # procedure entry, so that it can be restored here
+      p.lastErrorBackupNeeded = true
+
 proc genStmts(p: PProc, stmts: openArray[CgNode]) =
-  let structs = toStructureList(stmts)
+  let (structs, needsRecover) = toStructureList(stmts)
   if structs.len == 0:
     # there are no control-flow constructs in the body
     for it in stmts.items:
@@ -2133,18 +2154,25 @@ proc genStmts(p: PProc, stmts: openArray[CgNode]) =
       gen(it.stmt, structs[i+1].stmt)
     of stkCatch:
       endBlock(p)
-      startBlock(p, "catch(EXCEPTION) {$n")
+      p.handlers.add it.label # push the handler to the stack
+      startBlock(p, "catch(Exception$1_) {$n", [$p.handlers.len])
       gen(it.stmt, structs[i+1].stmt)
     of stkFinally:
       endBlock(p)
       startBlock(p, "finally {$n", [])
+      handleRecover(p, needsRecover, it.label)
       gen(it.stmt, structs[i+1].stmt)
     of stkTerminator:
       genStmt(p, stmts[it.stmt])
       # the statements immediately following the terminator are dead code,
       # ignore them
     of stkEnd:
+      # is it the end of a handler? if so, pop it from the stack
+      if p.handlers.len > 0 and p.handlers[^1] == it.label:
+        p.handlers.setLen(p.handlers.len - 1)
+
       endBlock(p)
+      handleRecover(p, needsRecover, it.label)
       # an 'end' can be the last item in the list
       gen(it.stmt):
         if i < structs.high: structs[i+1].stmt
