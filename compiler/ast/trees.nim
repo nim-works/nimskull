@@ -10,7 +10,14 @@
 ## tree helper routines
 
 import
-  ast, wordrecg, idents
+  compiler/ast/[
+    ast,
+    wordrecg,
+    idents,
+  ],
+  compiler/utils/[
+    idioms,
+  ]
 
 proc cyclicTreeAux(n: PNode, visited: var seq[PNode]): bool =
   if n == nil: return
@@ -55,7 +62,7 @@ proc exprStructuralEquivalent*(a, b: PNode; strictSymEquality=false): bool =
     of nkCommentStmt: result = a.comment == b.comment
     of nkNone, nkEmpty, nkNilLit, nkType: result = true
     of nkError:
-      result = true # XXX: This seems wrong
+      unreachable()
     of nkWithSons:
       if a.len == b.len:
         for i in 0..<a.len:
@@ -86,7 +93,7 @@ proc sameTree*(a, b: PNode): bool =
     of nkCommentStmt: result = a.comment == b.comment
     of nkNone, nkEmpty, nkNilLit, nkType: result = true
     of nkError:
-      result = true # XXX: This seems wrong
+      unreachable()
     of nkWithSons:
       if a.len == b.len:
         for i in 0..<a.len:

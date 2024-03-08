@@ -23,6 +23,7 @@ import
   compiler/utils/[
     saturate,
     int128,
+    idioms,
   ],
   compiler/modules/[
     magicsys,
@@ -455,8 +456,10 @@ proc sameTree*(a, b: PNode): bool =
     of nkFloatLiterals: result = a.floatVal == b.floatVal
     of nkStrLiterals: result = a.strVal == b.strVal
     of nkType: result = a.typ == b.typ
-    of nkNone, nkEmpty, nkNilLit, nkCommentStmt, nkError:
-      result = true # XXX: Should nkCommentStmt, nkError be handled?
+    of nkNone, nkEmpty, nkNilLit, nkCommentStmt:
+      result = true # Ignore comments
+    of nkError:
+      unreachable()
     of nkWithSons:
       if a.len == b.len:
         for i in 0..<a.len:
@@ -468,7 +471,7 @@ proc hasSubTree(n, x: PNode): bool =
   else:
     case n.kind
     of nkWithoutSons - nkFormalParams:
-      result = n.sameTree(x) # XXX: Should nkCommentStmt, nkError be handled?
+      result = n.sameTree(x)
     of nkFormalParams:
       discard
     of nkWithSons - nkFormalParams:

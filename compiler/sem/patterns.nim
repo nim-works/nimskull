@@ -21,6 +21,9 @@ import
     sigmatch,
     aliases,
     parampatterns
+  ],
+  compiler/utils/[
+    idioms
   ]
 
 type
@@ -182,8 +185,10 @@ proc matches(c: PPatternContext, p, n: PNode): bool =
     of nkIntLiterals: result = p.intVal == n.intVal
     of nkFloatLiterals: result = p.floatVal == n.floatVal
     of nkStrLiterals: result = p.strVal == n.strVal
-    of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt, nkError:
-      result = true # XXX: Should nkCommentStmt, nkError be handled?
+    of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt:
+      result = true # Ignore comments
+    of nkError:
+      unreachable()
     of nkWithSons:
       # special rule for p(X) ~ f(...); this also works for stuff like
       # partial case statements, etc! - Not really ... :-/
