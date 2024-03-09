@@ -697,7 +697,7 @@ proc genLineDir(p: PProc, n: CgNode) =
   if hasFrameInfo(p):
     lineF(p, "F.line = $1;$n", [rope(line)])
 
-proc handleJump(p: PProc, n: CgNode, fromError: bool): seq[int] =
+proc handleJump(p: PProc, n: CgNode, fromError: bool): seq[BlockId] =
   ## Makes sure the control-flow described by jump action description `n`
   ## matches the actual JavaScript control-flow. If catch or finally
   ## sections would be entered that shouldn't be, they're flagged as
@@ -718,9 +718,9 @@ proc handleJump(p: PProc, n: CgNode, fromError: bool): seq[int] =
       # XXX: this is not ideal. It would be better if the local is defined
       #      at the start of the scope, but that's a bit tricky to do at
       #      the moment
-      lineF(p, "var Enabled$1_ = true;\L", [$idx])
+      lineF(p, "var Enabled$1_ = true;\L", [$b.label])
       b.flags.incl needsEnableFlag
-      result.add idx
+      result.add b.label
 
   case n.kind
   of cnkLabel:
@@ -761,7 +761,7 @@ proc handleJump(p: PProc, n: CgNode, fromError: bool): seq[int] =
   else:
     unreachable()
 
-proc setEnabled(p: PProc, sections: seq[int], val: Rope) =
+proc setEnabled(p: PProc, sections: seq[BlockId], val: Rope) =
   ## Emits code for assigning `val` to the enabled flag of all given
   ## `sections`.
   for it in sections.items:
@@ -2254,7 +2254,10 @@ proc handleSectionStart(p: PProc) =
   # wrap the section in an 'if' if it can be disabled at run-time (only the
   # opening is handled here)
   if needsEnableFlag in p.blocks[^1].flags:
-    startBlock(p, "if (Enabled$1_) {$n", $p.blocks.high)
+    # the local is only defined when its first set to false, so it being
+    # undefined is treated as meaning "enabled"
+    startBlock(p, "if (Enabled$1_ === undefined || Enabled$1_) {$n",
+               $p.blocks[^1].label)
 
 proc popBlock(p: PProc) =
   let blk = p.blocks.pop()
