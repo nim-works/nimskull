@@ -68,8 +68,10 @@ proc sameTrees*(a, b: PNode): bool =
     of nkIntLiterals: result = a.intVal == b.intVal
     of nkFloatLiterals: result = a.floatVal == b.floatVal
     of nkStrLiterals: result = a.strVal == b.strVal
-    of nkNone, nkEmpty, nkNilLit, nkCommentStmt, nkError:
-      result = true # XXX: Should nkCommentStmt, nkError be handled?
+    of nkNone, nkEmpty, nkNilLit, nkCommentStmt:
+      result = true # Ignore comments
+    of nkError:
+      unreachable()
     of nkType: result = sameTypeOrNil(a.typ, b.typ)
     of nkWithSons:
       if a.len == b.len:
