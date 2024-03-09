@@ -51,8 +51,6 @@ type
     structs: seq[Structure]
     finallys: PackedSet[BlockId]
       ## labels that denote finally sections
-    needsRecover: PackedSet[BlockId]
-      ## blocks at whose exit the current exception has to be recovered
     inline: Table[BlockId, int]
       ## maps all blocks that can be inlined into swith-case statements to
       ## the blocks' 'end' item
@@ -113,41 +111,11 @@ proc spawnOpens(items: var seq[Structure], pos: int, n: CgNode, isError: bool,
   else:
     unreachable(n.kind)
 
-proc collectRecover(n: CgNode, finallys: PackedSet[BlockId],
-                    needsRecover: var PackedSet[BlockId]) =
-  ## Given the jump action description `n`, computes, based on the ``Leave``
-  ## action, at which jump-targets updating the "current exception" is
-  ## required.
-  case n.kind
-  of cnkLabel:
-    discard "nothing to do"
-  of cnkTargetList:
-    var isOutgoing = false
-    for it in n.items:
-      case it.kind
-      of cnkLabel:
-        if isOutgoing:
-          # a jump target that's reached after an exception handler is exited.
-          # The proper current exception needs to be restored when landing
-          needsRecover.incl it.label
-          isOutgoing = false
-      of cnkLeave:
-        if it[0].label notin finallys: # exception handler?
-          isOutgoing = true
-      of cnkResume:
-        discard "recovery is handled in the caller procedure"
-      else:
-        unreachable(n.kind)
-
-  else:
-    unreachable(n.kind)
-
 proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   ## Creates and returns the JavaScript control-flow-construct-focused
   ## representation for `stmts`.
   var
     structs = newSeq[Structure]()
-    needsRecover = initPackedSet[BlockId]()
     finallys = initPackedSet[BlockId]()
     marker = initPackedSet[BlockId]()
 
@@ -174,7 +142,6 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   for i, it in stmts.pairs:
     template exit(n: CgNode, isError: bool) =
       spawnOpens(structs, i, n, isError, finallys, marker)
-      collectRecover(n, finallys, needsRecover)
 
     template terminator() =
       structs.add Structure(kind: stkTerminator, stmt: i)
@@ -357,4 +324,4 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   # the `inline` table now contains only the blocks inline-able into swith-case
   # statements
 
-  result = (structs, finallys, needsRecover, inline)
+  result = (structs, finallys, inline)

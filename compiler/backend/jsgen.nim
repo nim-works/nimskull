@@ -148,12 +148,14 @@ type
     bkFinally
     bkCatch
 
+  BlockFlag = enum
+    needsRecover
+    needsEnableFlag
+
   BlockInfo = object
     label: BlockId
     kind: BlockKind
-    needsEnableFlag: bool
-      ## not valid for block, but using a variant would only complicate
-      ## changing the kind
+    flags: set[BlockFlag]
 
   PProc* = ref TProc
   TProc* = object
@@ -717,7 +719,7 @@ proc handleJump(p: PProc, n: CgNode, fromError: bool): seq[int] =
       #      at the start of the scope, but that's a bit tricky to do at
       #      the moment
       lineF(p, "var Enabled$1_ = true;\L", [$idx])
-      b.needsEnableFlag = true
+      b.flags.incl needsEnableFlag
       result.add idx
 
   case n.kind
@@ -729,14 +731,24 @@ proc handleJump(p: PProc, n: CgNode, fromError: bool): seq[int] =
         onMiss(i, b)
 
   of cnkTargetList:
-    var t = 0
+    # marking blocks as having to restore the current exceptions is also done
+    # here
+    var
+      t = 0
+      wasLeave = false
     for i, b in mreverse(p.blocks):
+      wasLeave = wasLeave or n[t].kind == cnkLeave
       # skip leave actions:
       while n[t].kind == cnkLeave:
         inc t
 
       if n[t].kind == cnkLabel and n[t].label == b.label:
         inc t
+        if wasLeave:
+          b.flags.incl needsRecover
+          # the next jump target doesn't need to recover the exception,
+          # unless there's another leave action in-between
+          wasLeave = false
         # stop searching when we reach the end
         if t >= n.len:
           break
@@ -2229,9 +2241,8 @@ proc finishProc*(p: PProc): string =
   #if gVerbosity >= 3:
   #  echo "END   generated code for: " & prc.name.s
 
-proc handleRecover(p: PProc, needsRecover: PackedSet[BlockId],
-                   label: BlockId) =
-  if label in needsRecover:
+proc handleRecover(p: PProc, b: BlockInfo) =
+  if needsRecover in b.flags:
     let nesting = p.numHandlers
     lineF(p, "lastJSError = Exception$1_;$n", [$nesting])
     if nesting == 0:
@@ -2242,23 +2253,24 @@ proc handleRecover(p: PProc, needsRecover: PackedSet[BlockId],
 proc handleSectionStart(p: PProc) =
   # wrap the section in an 'if' if it can be disabled at run-time (only the
   # opening is handled here)
-  if p.blocks[^1].needsEnableFlag:
+  if needsEnableFlag in p.blocks[^1].flags:
     startBlock(p, "if (Enabled$1_) {$n", $p.blocks.high)
 
-proc popBlock(p: PProc, needsRecover: PackedSet[BlockId]) =
+proc popBlock(p: PProc) =
   let blk = p.blocks.pop()
   case blk.kind
   of bkBlock:
     endBlock(p)
-    handleRecover(p, needsRecover, blk.label)
+    # restore
+    handleRecover(p, blk)
   of bkFinally:
-    if blk.needsEnableFlag:
+    if needsEnableFlag in blk.flags:
       # close the wrapper 'if'
       endBlock(p)
     endBlock(p)
   of bkCatch:
     # the counterpart to the opening logic
-    if blk.needsEnableFlag:
+    if needsEnableFlag in blk.flags:
       # close the wrapper 'if' and re-raise
       endBlock(p, "} else { throw Exception$1_; }$n", $p.numHandlers)
     endBlock(p)
@@ -2329,7 +2341,7 @@ proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int) =
       startBlock(p, "finally {$n", [])
       p.blocks[^1].kind = bkFinally # replace the try block
       handleSectionStart(p)
-      handleRecover(p, desc.needsRecover, it.label)
+      handleRecover(p, p.blocks[^1])
       gen(it.stmt, structs[i+1].stmt)
     of stkTerminator:
       let n = stmts[it.stmt]
@@ -2367,7 +2379,7 @@ proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int) =
 
       else:
         if p.blocks.len > 0 and p.blocks[^1].label == it.label:
-          popBlock(p, desc.needsRecover)
+          popBlock(p)
         else:
           endBlock(p) # no special handling needed
         # an 'end' can be the last item in the list
