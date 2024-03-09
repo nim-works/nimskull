@@ -743,8 +743,11 @@ proc handleJump(p: PProc, n: CgNode, fromError: bool): seq[int] =
       else:
         onMiss(i, b)
 
+  of cnkCheckedCall:
+    # to reduce conditionals at the callsite
+    result = handleJump(p, n[^1], fromError)
   else:
-    discard "ignore so as to not require extra conditionals at the callsite"
+    unreachable()
 
 proc setEnabled(p: PProc, sections: seq[int], val: Rope) =
   ## Emits code for assigning `val` to the enabled flag of all given
@@ -2410,8 +2413,20 @@ proc rdData(p: PProc, data: DataId, typ: PType): TCompRes =
 
 proc genStmt(p: PProc, n: CgNode) =
   var r: TCompRes
-  gen(p, n, r)
-  if r.res != "": lineF(p, "$#;$n", [r.res])
+  if n.kind == cnkCheckedCall or (n.kind in {cnkAsgn, cnkFastAsgn, cnkDef} and
+     n[1].kind == cnkCheckedCall):
+    # XXX: somewhat hacky way to handle checked calls
+    let sections = handleJump(p, n[^1], fromError=true)
+    setEnabled(p, sections, "false")
+    gen(p, n, r)
+    if r.res != "": lineF(p, "$#;$n", [r.res])
+    # re-enable the section again. Since disabling sections is uncommon,
+    # this should have less overhead than having to enable the section
+    # prior to *every* relevant jump
+    setEnabled(p, sections, "true")
+  else:
+    gen(p, n, r)
+    if r.res != "": lineF(p, "$#;$n", [r.res])
 
 proc genCast(p: PProc, n: CgNode, r: var TCompRes) =
   var dest = skipTypes(n.typ, abstractVarRange)
