@@ -111,6 +111,33 @@ proc spawnOpens(items: var seq[Structure], pos: int, n: CgNode, isError: bool,
   else:
     unreachable(n.kind)
 
+func endsInTerminator(structs: seq[Structure], start: int): bool =
+  ## Computes and returns whether the region starting at `start` ends in a
+  ## terminator.
+  var
+    i = start
+    depth = 0
+  while depth >= 0 and i < structs.len:
+    case structs[i].kind
+    of stkBlock, stkTry, stkStructStart:
+      inc depth
+    of stkEnd:
+      dec depth
+    of stkCatch, stkFinally:
+      if depth == 0:
+        # end of scope
+        break
+      # depth stays the same
+    of stkTerminator, stkReturn:
+      if depth == 0:
+        # a terminator is reached and it's at the same level as was started
+        # at
+        return true
+
+    inc i
+
+  result = false # doesn't end in terminator
+
 proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   ## Creates and returns the JavaScript control-flow-construct-focused
   ## representation for `stmts`.
@@ -307,8 +334,9 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
         discard "must be the end of a finally or catch; ignore"
       of 1:
         # possible candidate. Is it preceded by a terminator (meaning that
-        # structured control-flow doesn't reach the 'end')?
-        if structs[i - 1].kind == stkTerminator:
+        # structured control-flow doesn't reach the 'end') and ends in one?
+        if structs[i - 1].kind == stkTerminator and
+           endsInTerminator(structs, i + 1):
           # can be inlined. Replace the counter value with the index
           inline[it.label] = i
         else:
