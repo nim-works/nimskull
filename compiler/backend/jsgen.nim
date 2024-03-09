@@ -141,6 +141,20 @@ type
     typ: PType
     storage: StorageFlags
 
+  BlockKind = enum
+    bkBlock
+    bkTryFinally ## try with attached 'finally'
+    bkTryCatch   ## try with attached 'catch'
+    bkFinally
+    bkCatch
+
+  BlockInfo = object
+    label: BlockId
+    kind: BlockKind
+    needsEnableFlag: bool
+      ## not valid for block, but using a variant would only complicate
+      ## changing the kind
+
   PProc* = ref TProc
   TProc* = object
     prc: PSym
@@ -154,8 +168,11 @@ type
       ## signals whether the value of ``lastJSError`` needs to be captured
       ## on procedure entry
     unique: int    # for temp identifier generation
-    handlers: seq[BlockId]
-      ## enclosing exception handlers
+    blocks: seq[BlockInfo]
+      ## enclosing exception handlers and finallys
+    numHandlers: int
+      ## number of enclosing 'catch' clauses. The name of the
+      ## exception local is derived from this counter
     extraIndent: int
 
     locals: OrdinalSeq[LocalId, Loc]
@@ -242,9 +259,9 @@ template startBlock(p: PProc, frmt: FormatStr, args: varargs[Rope]) =
   lineF(p, frmt, args)
   inc p.extraIndent
 
-template endBlock(p: PProc) =
+template endBlock(p: PProc, frmt: FormatStr = "}$n", args: varargs[Rope]) =
   dec p.extraIndent
-  lineF(p, "}$n", [])
+  lineF(p, frmt, args)
 
 proc newGlobals*(): PGlobals =
   new(result)
@@ -678,9 +695,67 @@ proc genLineDir(p: PProc, n: CgNode) =
   if hasFrameInfo(p):
     lineF(p, "F.line = $1;$n", [rope(line)])
 
+proc handleJump(p: PProc, n: CgNode, fromError: bool): seq[int] =
+  ## Makes sure the control-flow described by jump action description `n`
+  ## matches the actual JavaScript control-flow. If catch or finally
+  ## sections would be entered that shouldn't be, they're flagged as
+  ## requiring an "is enabled" guard and a boolean local is spawned.
+  ##
+  ## Returns the list of sections that need to be disabled.
+
+  iterator mreverse[T](s: var seq[T]): (int, var T) =
+    for i in countdown(s.high, 0):
+      yield (i, s[i])
+
+  template onMiss(idx: int, b: var BlockInfo) =
+    if b.kind == bkTryFinally or (b.kind == bkTryCatch and fromError):
+      # JavaScript control-flow enters a 'finally' or 'catch' it shouldn't.
+      # The section needs to be disabled; a boolean flag is used for this.
+      # Thanks to `var`, the local can be spawned without regards to
+      # scoping.
+      # XXX: this is not ideal. It would be better if the local is defined
+      #      at the start of the scope, but that's a bit tricky to do at
+      #      the moment
+      lineF(p, "var Enabled$1_ = true;\L", [$idx])
+      b.needsEnableFlag = true
+      result.add idx
+
+  case n.kind
+  of cnkLabel:
+    for i, b in mreverse(p.blocks):
+      if n.label == b.label:
+        break # found the target
+      else:
+        onMiss(i, b)
+
+  of cnkTargetList:
+    var t = 0
+    for i, b in mreverse(p.blocks):
+      # skip leave actions:
+      while n[t].kind == cnkLeave:
+        inc t
+
+      if n[t].kind == cnkLabel and n[t].label == b.label:
+        inc t
+        # stop searching when we reach the end
+        if t >= n.len:
+          break
+      else:
+        onMiss(i, b)
+
+  else:
+    discard "ignore so as to not require extra conditionals at the callsite"
+
+proc setEnabled(p: PProc, sections: seq[int], val: Rope) =
+  ## Emits code for assigning `val` to the enabled flag of all given
+  ## `sections`.
+  for it in sections.items:
+    # the block/section index is used for the name:
+    lineF(p, "Enabled$1_ = $2;$n", [$it, val])
+
 proc genExcept(p: PProc, n: CgNode) =
   ## Generates and emits code for an ``cnkExcept`` join point.
-  let id = p.handlers.len # name suffix of the exception variable
+  let id = p.numHandlers # name suffix of the exception variable
 
   if n.len > 1:
     # handler with filter
@@ -700,8 +775,13 @@ proc genExcept(p: PProc, n: CgNode) =
           [$id, genTypeInfo(p, throwObj.typ)])
 
     # re-throw the exception when it doesn't match the filter
-    lineF(p, "if (!(Exception$1_ && ($2))) { throw Exception$1_; }\L",
+    lineF(p, "if (!(Exception$1_ && ($2))) {\L",
           [$id, orExpr])
+    p.nested:
+      # disable the necessary sections before throwing
+      setEnabled(p, handleJump(p, n[^1], fromError=true), "false")
+      lineF(p, "throw Exception$1_;\L", [$id])
+    lineF(p, "}\L")
 
     if n[1].kind == cnkLocal:
       # it's a handler for an imported exception. Setup the local
@@ -721,6 +801,8 @@ proc genExcept(p: PProc, n: CgNode) =
     lineF(p, "framePtr = F;$n", [])
 
 proc genRaiseStmt(p: PProc, n: CgNode) =
+  # disable the necessary sections before throwing:
+  setEnabled(p, handleJump(p, n[^1], fromError=true), "false")
   if n[0].kind != cnkEmpty:
     var a: TCompRes
     gen(p, n[0], a)
@@ -792,7 +874,8 @@ proc genCaseJS(p: PProc, desc: StructDesc, stmts: openArray[CgNode], n: CgNode) 
         # handle (V8 would fail to compile the code, for example)
         gen(p, desc, stmts, desc.inline[target])
       else:
-        # cannnot inline. A jump is needed
+        # cannnot inline; a jump is needed
+        setEnabled(p, handleJump(p, it[^1], fromError=false), "false")
         lineF(p, "break Label$1;$n", [$target])
 
   lineF(p, "}$n", [])
@@ -2146,12 +2229,40 @@ proc finishProc*(p: PProc): string =
 proc handleRecover(p: PProc, needsRecover: PackedSet[BlockId],
                    label: BlockId) =
   if label in needsRecover:
-    let nesting = p.handlers.len
+    let nesting = p.numHandlers
     lineF(p, "lastJSError = Exception$1_;$n", [$nesting])
     if nesting == 0:
       # signal that the value of ``lastJSError`` needs to be captured on
       # procedure entry, so that it can be restored here
       p.lastErrorBackupNeeded = true
+
+proc handleSectionStart(p: PProc) =
+  # wrap the section in an 'if' if it can be disabled at run-time (only the
+  # opening is handled here)
+  if p.blocks[^1].needsEnableFlag:
+    startBlock(p, "if (Enabled$1_) {$n", $p.blocks.high)
+
+proc popBlock(p: PProc, needsRecover: PackedSet[BlockId]) =
+  let blk = p.blocks.pop()
+  case blk.kind
+  of bkBlock:
+    endBlock(p)
+    handleRecover(p, needsRecover, blk.label)
+  of bkFinally:
+    if blk.needsEnableFlag:
+      # close the wrapper 'if'
+      endBlock(p)
+    endBlock(p)
+  of bkCatch:
+    # the counterpart to the opening logic
+    if blk.needsEnableFlag:
+      # close the wrapper 'if' and re-raise
+      endBlock(p, "} else { throw Exception$1_; }$n", $p.numHandlers)
+    endBlock(p)
+    # release the name:
+    dec p.numHandlers
+  of bkTryCatch, bkTryFinally:
+    discard "nothing to do when exiting these"
 
 proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int) =
   ## Generates code for `desc` and `stmts` starting at (but not including)
@@ -2185,11 +2296,16 @@ proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int) =
     let it = desc.structs[i]
     case it.kind
     of stkTry:
+      p.blocks.add BlockInfo(label: it.label)
+      p.blocks[^1].kind =
+        if it.label in desc.finallys: bkTryFinally
+        else:                         bkTryCatch
       startBlock(p, "try {$n", [])
       gen(it.stmt, structs[i+1].stmt)
       inc depth
     of stkBlock:
       if it.label notin desc.inline:
+        p.blocks.add BlockInfo(kind: bkBlock, label: it.label)
         startBlock(p, "Label$1: {$n", [$it.label.int])
         gen(it.stmt, structs[i+1].stmt)
       # still increment the depth; it makes handling of the 'end' item easier
@@ -2200,12 +2316,16 @@ proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int) =
       inc depth
     of stkCatch:
       endBlock(p)
-      p.handlers.add it.label # push the handler to the stack
-      startBlock(p, "catch(Exception$1_) {$n", [$p.handlers.len])
+      p.blocks[^1].kind = bkCatch # replace the try block
+      inc p.numHandlers
+      startBlock(p, "catch(Exception$1_) {$n", [$p.numHandlers])
+      handleSectionStart(p)
       gen(it.stmt, structs[i+1].stmt)
     of stkFinally:
       endBlock(p)
       startBlock(p, "finally {$n", [])
+      p.blocks[^1].kind = bkFinally # replace the try block
+      handleSectionStart(p)
       handleRecover(p, desc.needsRecover, it.label)
       gen(it.stmt, structs[i+1].stmt)
     of stkTerminator:
@@ -2243,12 +2363,10 @@ proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int) =
               break
 
       else:
-        # is it the end of a handler? if so, pop it from the stack
-        if p.handlers.len > 0 and p.handlers[^1] == it.label:
-          p.handlers.setLen(p.handlers.len - 1)
-
-        endBlock(p)
-        handleRecover(p, desc.needsRecover, it.label)
+        if p.blocks.len > 0 and p.blocks[^1].label == it.label:
+          popBlock(p, desc.needsRecover)
+        else:
+          endBlock(p) # no special handling needed
         # an 'end' can be the last item in the list
         gen(it.stmt):
           if i < structs.high: structs[i+1].stmt
@@ -2412,6 +2530,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
         r.res.addFloatRoundtrip(f)
     r.kind = resExpr
   of cnkCall, cnkCheckedCall:
+    # TODO: also handle jump actions for checked calls!
     if isEmptyType(n.typ):
       genLineDir(p, n)
     if getCalleeMagic(p.g.env, n[0]) != mNone:
@@ -2484,6 +2603,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkType: r.res = genTypeInfo(p, n.typ)
   of cnkDef: genDef(p, n)
   of cnkGotoStmt:
+    setEnabled(p, handleJump(p, n[0], fromError=false), "false")
     case n[0].kind
     of cnkLabel:
       lineF(p, "break Label$1;$n", [$n[0].label])

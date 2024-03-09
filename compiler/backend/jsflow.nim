@@ -49,6 +49,8 @@ type
     ## Describes how a CGIR statement-list translates to JavaScript code. The
     ## focus is on the control-flow constructs, hence the name.
     structs: seq[Structure]
+    finallys: PackedSet[BlockId]
+      ## labels that denote finally sections
     needsRecover: PackedSet[BlockId]
       ## blocks at whose exit the current exception has to be recovered
     inline: Table[BlockId, int]
@@ -293,14 +295,6 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   #   could be merged
   # * a chain of exception could be merged into a single JavaScript catch
 
-  # lastly, something has to be done about goto (which are translated into
-  # ``break``s) and raise statements that jump "over" finally or except
-  # sections. Since this cannot be expressed directly in JavaScript, a boolean
-  # flag is associated with the affected 'finally'/'except' to indicate
-  # whether it's disabled. For the sake of emitting less code, the "enabled"
-  # flags for all finalizers within a procedure are bundled into a integer
-  discard "not yet implemented"
-
   # if a case dispatcher is the only break targeting a block, and the block is
   # not exited through structured control-flow, the code following the block
   # can be inlined directly at the break within the switch-case statement:
@@ -363,4 +357,4 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   # the `inline` table now contains only the blocks inline-able into swith-case
   # statements
 
-  result = (structs, needsRecover, inline)
+  result = (structs, finallys, needsRecover, inline)
