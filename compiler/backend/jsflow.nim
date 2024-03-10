@@ -58,7 +58,7 @@ type
 const
   Terminators = {stkReturn, stkTerminator}
 
-func finalTarget(n: CgNode): CgNode =
+func finalTarget*(n: CgNode): CgNode =
   case n.kind
   of cnkLabel:      n
   of cnkTargetList: n[^1]

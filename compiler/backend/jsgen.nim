@@ -2637,13 +2637,9 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkDef: genDef(p, n)
   of cnkGotoStmt:
     setEnabled(p, handleJump(p, n[0], fromError=false), "false")
-    case n[0].kind
-    of cnkLabel:
-      lineF(p, "break Label$1;$n", [$n[0].label])
-    else:
-      # jump directly to the final target. Placement of finallys made sure
-      # that those are visited correctly
-      lineF(p, "break Label$1;$n", [$n[0][^1].label])
+    # jump directly to the final target. Placement of 'try' blocks made
+    # sure that finally sections are visited correctly
+    lineF(p, "break Label$1;$n", [$finalTarget(n[0]).label])
   of cnkLoopJoinStmt:
     startBlock(p, "while (true) {$n")
   of cnkExcept:
