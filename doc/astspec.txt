@@ -22,7 +22,7 @@ contains:
     NimNode = ref NimNodeObj
     NimNodeObj = object
       case kind: NimNodeKind           ## the node's kind
-      of nnkEmpty, nnkNilLit:
+      of nnkError, nnkEmpty, nnkNilLit:
         discard                        ## node contains no additional fields
       of nnkCharLit..nnkUInt64Lit:
         intVal: BiggestInt             ## the int literal

@@ -48,8 +48,7 @@ template skipEnumValue(define: untyped, predecessor: untyped; gap = 1): untyped 
 type
   NimNodeKind* = enum
     nnkError,  ## erroneous AST node
-    nnkEmpty,
-    nnkIdent, nnkSym,
+    nnkEmpty, nnkIdent, nnkSym,
     nnkType, nnkCharLit, nnkIntLit, nnkInt8Lit,
     nnkInt16Lit, nnkInt32Lit, nnkInt64Lit, nnkUIntLit, nnkUInt8Lit,
     nnkUInt16Lit, nnkUInt32Lit, nnkUInt64Lit, nnkFloatLit,

@@ -2,7 +2,7 @@ discard """
   description: "`defer` must have exactly one child node (macro input)."
   errormsg: "illformed AST"
   file: "macros.nim"
-  line: 619
+  line: 618
 """
 
 import std/macros
