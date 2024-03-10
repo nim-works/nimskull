@@ -1209,7 +1209,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemUseOrDiscardExpr:
       let n = r.wrongNode
-
       result.add(
         "expression '",
         n.render,
@@ -1220,7 +1219,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
       if r.ast.info.line != n.info.line or
          r.ast.info.fileIndex != n.info.fileIndex:
-
         result.add "; start of expression here: " & conf$r.ast.info
 
       if r.ast.typ.kind == tyProc:
