@@ -186,6 +186,12 @@ nkReplayAction	ast/ast_types.html#nkReplayAction	TNodeKind.nkReplayAction
 nkNilRodNode	ast/ast_types.html#nkNilRodNode	TNodeKind.nkNilRodNode	
 TNodeKind	ast/ast_types.html#TNodeKind	ast_types: TNodeKind	
 TNodeKinds	ast/ast_types.html#TNodeKinds	ast_types: TNodeKinds	
+nkUIntLiterals	ast/ast_types.html#nkUIntLiterals	ast_types: nkUIntLiterals	
+nkSIntLiterals	ast/ast_types.html#nkSIntLiterals	ast_types: nkSIntLiterals	
+nkIntLiterals	ast/ast_types.html#nkIntLiterals	ast_types: nkIntLiterals	
+nkFloatLiterals	ast/ast_types.html#nkFloatLiterals	ast_types: nkFloatLiterals	
+nkStrLiterals	ast/ast_types.html#nkStrLiterals	ast_types: nkStrLiterals	
+nkLiterals	ast/ast_types.html#nkLiterals	ast_types: nkLiterals	
 nkWithoutSons	ast/ast_types.html#nkWithoutSons	ast_types: nkWithoutSons	
 nkWithSons	ast/ast_types.html#nkWithSons	ast_types: nkWithSons	
 nodeKindsProducedByParse	ast/ast_types.html#nodeKindsProducedByParse	ast_types: nodeKindsProducedByParse	

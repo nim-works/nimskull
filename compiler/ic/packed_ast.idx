@@ -52,9 +52,9 @@ info	ic/packed_ast.html#info.t,NodePos	packed_ast: info(n: NodePos): PackedLineI
 litId	ic/packed_ast.html#litId.t,NodePos	packed_ast: litId(n: NodePos): LitId	
 symId	ic/packed_ast.html#symId.t,NodePos	packed_ast: symId(n: NodePos): SymId	
 firstSon	ic/packed_ast.html#firstSon,NodePos	packed_ast: firstSon(n: NodePos): NodePos	
-externIntLit	ic/packed_ast.html#externIntLit	packed_ast: externIntLit	
 externSIntLit	ic/packed_ast.html#externSIntLit	packed_ast: externSIntLit	
 externUIntLit	ic/packed_ast.html#externUIntLit	packed_ast: externUIntLit	
+externIntLit	ic/packed_ast.html#externIntLit	packed_ast: externIntLit	
 directIntLit	ic/packed_ast.html#directIntLit	packed_ast: directIntLit	
 copyInto	ic/packed_ast.html#copyInto.t,,,	packed_ast: copyInto(dest, n, body)	
 copyIntoKind	ic/packed_ast.html#copyIntoKind.t,,,,	packed_ast: copyIntoKind(dest, kind, info, body)	

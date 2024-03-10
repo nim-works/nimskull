@@ -24,10 +24,6 @@ firstArgPos	ast/ast_query.html#firstArgPos	ast_query: firstArgPos
 nkCallKinds	ast/ast_query.html#nkCallKinds	ast_query: nkCallKinds	
 nkIdentKinds	ast/ast_query.html#nkIdentKinds	ast_query: nkIdentKinds	
 nkPragmaCallKinds	ast/ast_query.html#nkPragmaCallKinds	ast_query: nkPragmaCallKinds	
-nkIntLiterals	ast/ast_query.html#nkIntLiterals	ast_query: nkIntLiterals	
-nkFloatLiterals	ast/ast_query.html#nkFloatLiterals	ast_query: nkFloatLiterals	
-nkStrLiterals	ast/ast_query.html#nkStrLiterals	ast_query: nkStrLiterals	
-nkLiterals	ast/ast_query.html#nkLiterals	ast_query: nkLiterals	
 nkLambdaKinds	ast/ast_query.html#nkLambdaKinds	ast_query: nkLambdaKinds	
 declarativeDefs	ast/ast_query.html#declarativeDefs	ast_query: declarativeDefs	
 routineDefs	ast/ast_query.html#routineDefs	ast_query: routineDefs	
