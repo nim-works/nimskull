@@ -171,7 +171,9 @@ type
       ## on procedure entry
     unique: int    # for temp identifier generation
     blocks: seq[BlockInfo]
-      ## enclosing exception handlers and finallys
+      ## enclosing exception handlers, finallys, and labeled blocks. Used
+      ## for correcting wrong control-flow paths and tracking where the
+      ## current exception needs to be restored
     numHandlers: int
       ## number of enclosing 'catch' clauses. The name of the
       ## exception local is derived from this counter
@@ -2131,7 +2133,8 @@ proc genProcBody(p: PProc, prc: PSym): Rope =
   elif sfModuleInit in prc.flags:
     # report an unhandled exception when a |NimSkull| exception escapes
     # module-level code
-    # XXX: this needs to be earlier; it's the same across all backends
+    # XXX: this is common logic across all backends; it needs to be handled at
+    #      the MIR level
     useMagic(p, "unhandledException")
     result = ("try {$n$1} catch (e) {$n" &
               "  if (e.m_type !== undefined) { unhandledException(e); }$n" &
@@ -2246,8 +2249,8 @@ proc handleRecover(p: PProc, b: BlockInfo) =
     let nesting = p.numHandlers
     lineF(p, "lastJSError = Exception$1_;$n", [$nesting])
     if nesting == 0:
-      # signal that the value of ``lastJSError`` needs to be captured on
-      # procedure entry, so that it can be restored here
+      # there's no enclosing 'catch'; the value of ``lastJSError`` needs to
+      # be captured on procedure entry
       p.lastErrorBackupNeeded = true
 
 proc handleSectionStart(p: PProc) =
@@ -2284,8 +2287,9 @@ proc popBlock(p: PProc) =
 
 proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int) =
   ## Generates code for `desc` and `stmts` starting at (but not including)
-  ## structure item `start`. Code generation continues until the first
-  ## terminator that's at the same nesting level as the item at `start`.
+  ## structure item `start`. Code generation continues until encountering
+  ## the first terminator that's at the same nesting level as the item at
+  ## `start`.
   var
     depth = 0
     i     = start + 1
@@ -2560,7 +2564,6 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
         r.res.addFloatRoundtrip(f)
     r.kind = resExpr
   of cnkCall, cnkCheckedCall:
-    # TODO: also handle jump actions for checked calls!
     if isEmptyType(n.typ):
       genLineDir(p, n)
     if getCalleeMagic(p.g.env, n[0]) != mNone:

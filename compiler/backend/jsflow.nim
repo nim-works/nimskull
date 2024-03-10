@@ -69,7 +69,7 @@ proc spawnOpens(items: var seq[Structure], pos: int, n: CgNode, isError: bool,
                 finallys: PackedSet[BlockId], marker: var PackedSet[BlockId]) =
   ## Using the jump action description `n`, spawns the 'try' or labeled block
   ## openings needed for the jump targets. The set of targets for which
-  ## opening was already spawned are tracked by `marker`.
+  ## openings were already spawned are tracked by `marker`.
   ##
   ## `pos` is the index of the statement. `isError` indicates whether `n`
   ## describes exceptional control-flow, and is required to interpret what the
@@ -139,7 +139,7 @@ func endsInTerminator(structs: seq[Structure], start: int): bool =
 
     inc i
 
-  result = false # doesn't end in terminator
+  result = false # doesn't end in a terminator
 
 proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   ## Creates and returns the JavaScript control-flow-construct-focused
@@ -190,7 +190,7 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
       let target = finalTarget(it[0])
       # if the goto jumps to a finally, there's no label for the break.
       # Since this can only happen when structured control-flow never
-      # leaves the finally, we can use a JavaScript 'return' in that case
+      # leaves the finally, a JavaScript 'return' can be used
       if target.label in finallys:
         structs.add Structure(kind: stkReturn, stmt: i)
       else:
@@ -285,12 +285,9 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
 
     dec i
 
-  # possible improvements:
-  # * breaks and the associated block could be eliminated where JavaScript's
-  #   structured control-flow would take same route
-  # * for ``try{ try{ ... } catch(...) { ... } } finally {...}``, the trys
-  #   could be merged
-  # * a chain of exception could be merged into a single JavaScript catch
+  # note: changing what statements a 'try' encloses can alter semantics! That's
+  # none of our concern here, however: the code generator is reponsible for
+  # addressing/fixing it.
 
   # if a case dispatcher is the only break targeting a block, and the block is
   # not exited through structured control-flow, the code following the block
@@ -315,7 +312,7 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   #   2. the second pass removes all ineligible blocks from the table and
   #      replaces the counter with an item index of the blocks' 'end'
   # For efficiency, and thanks to the forward-only control-flow, both
-  # passes are merged into one.
+  # steps are performed with a single pass.
   var inline: Table[BlockId, int]
   for i, it in structs.pairs:
     case it.kind
@@ -336,8 +333,8 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
       of 0:
         discard "must be the end of a finally or catch; ignore"
       of 1:
-        # possible candidate. Is it preceded by a terminator (meaning that
-        # structured control-flow doesn't reach the 'end') and ends in one?
+        # possible candidate. Is the region preceded by a terminator (meaning
+        # that structured control-flow doesn't enter it) and ends in one?
         if structs[i - 1].kind in Terminators and
            endsInTerminator(structs, i + 1):
           # can be inlined. Replace the counter value with the index
@@ -354,5 +351,10 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
 
   # the `inline` table now contains only the blocks inline-able into swith-case
   # statements
+
+  # possible improvements:
+  # * breaks and the associated block could be eliminated where JavaScript's
+  #   structured control-flow would take same route
+  # * a chain of exception could be merged into a single JavaScript catch
 
   result = (structs, finallys, inline)
