@@ -55,6 +55,9 @@ type
       ## maps all blocks that can be inlined into swith-case statements to
       ## the blocks' 'end' item
 
+const
+  Terminators = {stkReturn, stkTerminator}
+
 func finalTarget(n: CgNode): CgNode =
   case n.kind
   of cnkLabel:      n
@@ -128,7 +131,7 @@ func endsInTerminator(structs: seq[Structure], start: int): bool =
         # end of scope
         break
       # depth stays the same
-    of stkTerminator, stkReturn:
+    of Terminators:
       if depth == 0:
         # a terminator is reached and it's at the same level as was started
         # at
@@ -248,7 +251,7 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
           dec depth
           if structs[j].label == structs[i].label:
             break
-        of stkTerminator, stkReturn:
+        of Terminators:
           discard "not relevant"
 
       # depth < 0 means that the try/block start is more nested than its end.
@@ -268,7 +271,7 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
           dec depth
         of stkBlock, stkTry, stkStructStart:
           inc depth
-        of stkTerminator, stkReturn, stkCatch, stkFinally:
+        of Terminators, stkCatch, stkFinally:
           # catch and finally don't change the nesting (the try's body is at
           # the same level as catch/finally's body)
           discard
@@ -335,7 +338,7 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
       of 1:
         # possible candidate. Is it preceded by a terminator (meaning that
         # structured control-flow doesn't reach the 'end') and ends in one?
-        if structs[i - 1].kind == stkTerminator and
+        if structs[i - 1].kind in Terminators and
            endsInTerminator(structs, i + 1):
           # can be inlined. Replace the counter value with the index
           inline[it.label] = i
