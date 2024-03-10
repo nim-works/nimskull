@@ -140,8 +140,7 @@ proc addSymDef*(tree: var PackedTree; s: SymId; info: PackedLineInfo) =
   tree.nodes.add PackedNode(kind: nkSym, operand: int32(s), info: info)
 
 proc isAtom*(tree: PackedTree; pos: int): bool {.inline.} =
-  let kind = tree.nodes[pos].kind
-  kind <= nkNilLit or kind == nkCommentStmt
+  tree.nodes[pos].kind in nkWithoutSons
 
 proc copyTree*(dest: var PackedTree; tree: PackedTree; n: NodePos) =
   # and this is why the IR is superior. We can copy subtrees
@@ -179,7 +178,7 @@ proc prepare*(dest: var PackedTree; source: PackedTree; sourcePos: NodePos): Pat
 
 proc patch*(tree: var PackedTree; pos: PatchPos) =
   let pos = pos.int
-  assert not isAtom(tree, pos)
+  assert not isAtom(tree, pos), $tree.nodes[pos].kind
   let distance = int32(tree.nodes.len - pos)
   tree.nodes[pos].operand = distance
 
@@ -197,7 +196,7 @@ proc nextChild(tree: PackedTree; pos: var int) {.inline.} =
 
 iterator sonsReadonly*(tree: PackedTree; n: NodePos): NodePos =
   var pos = n.int
-  assert not isAtom(tree, pos)
+  assert not isAtom(tree, pos), $tree.nodes[pos].kind
   let last = pos + tree.nodes[pos].operand
   inc pos
   while pos < last:
@@ -218,7 +217,7 @@ iterator isons*(dest: var PackedTree; tree: PackedTree;
 
 iterator sonsFrom1*(tree: PackedTree; n: NodePos): NodePos =
   var pos = n.int
-  assert not isAtom(tree, pos)
+  assert not isAtom(tree, pos), $tree.nodes[pos].kind
   let last = pos + tree.nodes[pos].operand
   inc pos
   if pos < last:
@@ -350,19 +349,9 @@ when false:
     result = tree.sh.strings[LitId tree.nodes[n.int].operand]
 
 const
-  externIntLit* = {nkCharLit,
-    nkIntLit,
-    nkInt8Lit,
-    nkInt16Lit,
-    nkInt64Lit,
-    nkUIntLit,
-    nkUInt8Lit,
-    nkUInt16Lit,
-    nkUInt32Lit,
-    nkUInt64Lit} # nkInt32Lit is missing by design!
-
-  externSIntLit* = {nkIntLit, nkInt8Lit, nkInt16Lit, nkInt64Lit}
-  externUIntLit* = {nkUIntLit, nkUInt8Lit, nkUInt16Lit, nkUInt32Lit, nkUInt64Lit}
+  externSIntLit* = nkSIntLiterals - nkInt32Lit # nkInt32Lit is excluded by design!
+  externUIntLit* = nkUIntLiterals
+  externIntLit* = externSIntLit + externUIntLit
   directIntLit* = nkInt32Lit
 
 when false:

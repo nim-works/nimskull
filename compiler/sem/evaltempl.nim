@@ -104,7 +104,7 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
       result.add newNodeI(nkEmpty, templ.info)
   of nkError:
     c.config.internalError(templ.info, "unreported error")
-  else:
+  of nkWithSons:
     let parentIsDeclarative = c.isDeclarative
     if templ.kind in routineDefs + {nkTypeSection, nkVarSection, nkLetSection, nkConstSection}:
       c.isDeclarative = true

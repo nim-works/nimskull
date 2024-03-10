@@ -244,14 +244,20 @@ type
   TNodeKinds* = set[TNodeKind]
 
 const
+  nkUIntLiterals*  = {nkCharLit, nkUIntLit..nkUInt64Lit}
+    ## Unsigned int literals
+  nkSIntLiterals*  = {nkIntLit..nkInt64Lit}
+    ## Signed int literals
+  nkIntLiterals*   = nkUIntLiterals + nkSIntLiterals
+  nkFloatLiterals* = {nkFloatLit..nkFloat64Lit}
+  nkStrLiterals*   = {nkStrLit..nkTripleStrLit}
+  nkLiterals*      = nkIntLiterals + nkFloatLiterals + nkStrLiterals + nkNilLit
+
   nkWithoutSons* =
     {nkEmpty, nkNone} +
     {nkIdent, nkSym} +
     {nkType} +
-    {nkCharLit..nkUInt64Lit} +
-    {nkFloatLit..nkFloat64Lit} +
-    {nkStrLit..nkTripleStrLit} +
-    {nkNilLit} +
+    nkLiterals +
     {nkError} +
     {nkCommentStmt}
 
@@ -1572,15 +1578,15 @@ type
     info*: TLineInfo
     flags*: TNodeFlags
     case kind*: TNodeKind
-    of nkCharLit..nkUInt64Lit:
+    of nkIntLiterals:
       intVal*: BiggestInt
       intLitBase*: NumericalBase
-    of nkFloatLit..nkFloat64Lit:
+    of nkFloatLiterals:
       floatVal*: BiggestFloat
       floatLitBase*: NumericalBase
         # Once case branches can share fields this can be unified with
         # intLitBase above
-    of nkStrLit..nkTripleStrLit:
+    of nkStrLiterals:
       strVal*: string
     of nkSym:
       sym*: PSym

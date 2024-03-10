@@ -22,7 +22,8 @@ import
     modulegraphs
   ],
   compiler/utils/[
-    ropes
+    ropes,
+    idioms
   ]
 
 proc `&=`(c: var MD5Context, s: string) = md5Update(c, s, s.len)
@@ -82,22 +83,25 @@ proc hashTree(c: var MD5Context, n: PNode; flags: set[ConsiderFlag]) =
   # we really must not hash line information. 'n.typ' is debatable but
   # shouldn't be necessary for now and avoids potential infinite recursions.
   case n.kind
-  of nkEmpty, nkNilLit, nkType: discard
+  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt:
+    discard # ignore comments (could appear in a tyFromExpr)
+  of nkError:
+    unreachable()
   of nkIdent:
     c &= n.ident.s
   of nkSym:
     hashSym(c, n.sym)
     if CoHashTypeInsideNode in flags and n.sym.typ != nil:
       hashType(c, n.sym.typ, flags)
-  of nkCharLit..nkUInt64Lit:
+  of nkIntLiterals:
     let v = n.intVal
     lowlevel v
-  of nkFloatLit..nkFloat64Lit:
+  of nkFloatLiterals:
     let v = n.floatVal
     lowlevel v
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     c &= n.strVal
-  else:
+  of nkWithSons:
     for i in 0..<n.len: hashTree(c, n[i], flags)
 
 proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
@@ -350,7 +354,10 @@ proc hashBodyTree(graph: ModuleGraph, c: var MD5Context, n: PNode) =
     return
   c &= char(n.kind)
   case n.kind
-  of nkEmpty, nkNilLit, nkType, nkCommentStmt: discard
+  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt:
+    discard # ignore comments
+  of nkError:
+    unreachable()
   of nkIdent:
     c &= n.ident.s
   of nkSym:
@@ -362,13 +369,13 @@ proc hashBodyTree(graph: ModuleGraph, c: var MD5Context, n: PNode) =
       c &= hashNonProc(n.sym)
   of nkProcDef, nkFuncDef, nkTemplateDef, nkMacroDef:
     discard # we track usage of proc symbols not their definition
-  of nkCharLit..nkUInt64Lit:
+  of nkIntLiterals:
     c &= n.intVal
-  of nkFloatLit..nkFloat64Lit:
+  of nkFloatLiterals:
     c &= n.floatVal
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     c &= n.strVal
-  else:
+  of nkWithSons - {nkProcDef, nkFuncDef, nkTemplateDef, nkMacroDef} :
     for i in 0..<n.len:
       hashBodyTree(graph, c, n[i])
 

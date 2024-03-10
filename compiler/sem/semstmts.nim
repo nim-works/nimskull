@@ -339,7 +339,7 @@ proc fitRemoveHiddenConv(c: PContext, typ: PType, n: PNode): PNode =
   case result.kind
   of nkHiddenStdConv, nkHiddenSubConv:
     let r1 = result[1]
-    if r1.kind in {nkCharLit..nkUInt64Lit} and
+    if r1.kind in nkIntLiterals and
        typ.skipTypes(abstractRange).kind in {tyFloat..tyFloat64}:
       result = newFloatNode(nkFloatLit, BiggestFloat r1.intVal)
       result.info = n.info

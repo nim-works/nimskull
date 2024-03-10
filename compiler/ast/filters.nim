@@ -37,14 +37,16 @@ proc invalidPragma(conf: ConfigRef; n: PNode) =
 
 proc getArg(conf: ConfigRef; n: PNode, name: string, pos: int): PNode =
   result = nil
-  if n.kind in {nkEmpty..nkNilLit}: return
-  for i in 1..<n.len:
-    if n[i].kind == nkExprEqExpr:
-      if n[i][0].kind != nkIdent: invalidPragma(conf, n)
-      if cmpIgnoreStyle(n[i][0].ident.s, name) == 0:
-        return n[i][1]
-    elif i == pos:
-      return n[i]
+  case n.kind
+  of nkWithoutSons: discard # these can't have args
+  of nkWithSons:
+    for i in 1..<n.len:
+      if n[i].kind == nkExprEqExpr:
+        if n[i][0].kind != nkIdent: invalidPragma(conf, n)
+        if cmpIgnoreStyle(n[i][0].ident.s, name) == 0:
+          return n[i][1]
+      elif i == pos:
+        return n[i]
 
 proc charArg*(conf: ConfigRef; n: PNode, name: string, pos: int, default: char): char =
   var x = getArg(conf, n, name, pos)
@@ -55,7 +57,7 @@ proc charArg*(conf: ConfigRef; n: PNode, name: string, pos: int, default: char):
 proc strArg*(conf: ConfigRef; n: PNode, name: string, pos: int, default: string): string =
   var x = getArg(conf, n, name, pos)
   if x == nil: result = default
-  elif x.kind in {nkStrLit..nkTripleStrLit}: result = x.strVal
+  elif x.kind in nkStrLiterals: result = x.strVal
   else: invalidPragma(conf, n)
 
 proc boolArg*(conf: ConfigRef; n: PNode, name: string, pos: int, default: bool): bool =

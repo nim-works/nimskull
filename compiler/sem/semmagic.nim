@@ -105,7 +105,7 @@ proc semIsPartOf(c: PContext, n: PNode, flags: TExprFlags): PNode =
 proc expectIntLit(c: PContext, n: PNode): int =
   let x = c.semConstExpr(c, n)
   case x.kind
-  of nkIntLit..nkInt64Lit: result = int(x.intVal)
+  of nkSIntLiterals: result = int(x.intVal)
   else: localReport(c.config, n, reportSem rsemIntLiteralExpected)
 
 proc semInstantiationInfo(c: PContext, n: PNode): PNode =

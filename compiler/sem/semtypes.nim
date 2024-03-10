@@ -412,8 +412,8 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
     elif enumHasHoles(rangeT[0]):
       localReport(c.config, n.info, reportTyp(rsemExpectedUnholyEnum, rangeT[0]))
 
-  if (result.n[0].kind in {nkFloatLit..nkFloat64Lit} and result.n[0].floatVal.isNaN) or
-      (result.n[1].kind in {nkFloatLit..nkFloat64Lit} and result.n[1].floatVal.isNaN):
+  if (result.n[0].kind in nkFloatLiterals and result.n[0].floatVal.isNaN) or
+      (result.n[1].kind in nkFloatLiterals and result.n[1].floatVal.isNaN):
     localReport(c.config, n, reportSem rsemRangeDoesNotSupportNan)
 
   if weakLeValue(result.n[0], result.n[1]) == impNo:
@@ -427,14 +427,14 @@ proc semRange(c: PContext, n: PNode, prev: PType): PType =
     if isRange(n[1]):
       result = semRangeAux(c, n[1], prev)
       let n = result.n
-      if n[0].kind in {nkCharLit..nkUInt64Lit} and n[0].intVal > 0:
+      if n[0].kind in nkIntLiterals and n[0].intVal > 0:
         incl(result.flags, tfRequiresInit)
-      elif n[1].kind in {nkCharLit..nkUInt64Lit} and n[1].intVal < 0:
+      elif n[1].kind in nkIntLiterals and n[1].intVal < 0:
         incl(result.flags, tfRequiresInit)
-      elif n[0].kind in {nkFloatLit..nkFloat64Lit} and
+      elif n[0].kind in nkFloatLiterals and
           n[0].floatVal > 0.0:
         incl(result.flags, tfRequiresInit)
-      elif n[1].kind in {nkFloatLit..nkFloat64Lit} and
+      elif n[1].kind in nkFloatLiterals and
           n[1].floatVal < 0.0:
         incl(result.flags, tfRequiresInit)
     else:
@@ -481,7 +481,7 @@ proc semArrayIndex(c: PContext, n: PNode): PType =
 
     # an expression that doesn't reference type variables
     e = semExprWithType(c, e)
-    if e.kind in {nkIntLit..nkUInt64Lit}:
+    if e.kind in nkIntLiterals:
       if e.intVal < 0:
         localReport(c.config, n.info,
           SemReport(
@@ -492,7 +492,7 @@ proc semArrayIndex(c: PContext, n: PNode): PType =
       result = makeRangeType(c, 0, e.intVal-1, n.info, e.typ)
     else:
       let x = semConstExpr(c, e)
-      if x.kind in {nkIntLit..nkUInt64Lit}:
+      if x.kind in nkIntLiterals:
         result = makeRangeType(c, 0, x.intVal-1, n.info,
                              x.typ.skipTypes({tyTypeDesc}))
       else:

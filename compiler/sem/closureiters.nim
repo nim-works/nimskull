@@ -195,8 +195,8 @@ type
     idgen: IdGenerator
 
 const
-  nkSkip = {nkEmpty..nkNilLit, nkTemplateDef, nkTypeSection, nkStaticStmt,
-            nkCommentStmt, nkMixinStmt, nkBindStmt} + procDefs
+  nkSkip = nkWithoutSons + {nkTemplateDef, nkTypeSection, nkStaticStmt,
+            nkMixinStmt, nkBindStmt} + procDefs
 
 proc boolLit(ctx: Ctx, info: TLineInfo, val: bool): PNode =
   result = newIntTypeNode(ord val, ctx.g.getSysType(info, tyBool))

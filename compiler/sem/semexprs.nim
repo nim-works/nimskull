@@ -167,19 +167,19 @@ proc checkConvertible(c: PContext, targetTyp: PType, src: PNode): TConvStatus =
     if targetTyp.kind == tyBool:
       discard "convOk"
     elif targetTyp.isOrdinalType:
-      if src.kind in nkCharLit..nkUInt64Lit and
+      if src.kind in nkIntLiterals and
           src.getInt notin firstOrd(c.config, targetTyp)..lastOrd(c.config, targetTyp):
         result = convNotInRange
-      elif src.kind in nkFloatLit..nkFloat64Lit:
+      elif src.kind in nkFloatLiterals:
         if not src.floatVal.inInt128Range:
           result = convNotInRange
         elif src.floatVal.toInt128 notin firstOrd(c.config, targetTyp)..lastOrd(c.config, targetTyp):
           result = convNotInRange
     elif targetBaseTyp.kind in tyFloat..tyFloat64:
-      if src.kind in nkFloatLit..nkFloat64Lit and
+      if src.kind in nkFloatLiterals and
           not floatRangeCheck(src.floatVal, targetTyp):
         result = convNotInRange
-      elif src.kind in nkCharLit..nkUInt64Lit and
+      elif src.kind in nkIntLiterals and
           not floatRangeCheck(src.intVal.float, targetTyp):
         result = convNotInRange
     elif targetBaseTyp.enumHasHoles:
@@ -476,7 +476,7 @@ proc isOpImpl(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ## or an expression whose type is compared with `x`'s type.
   c.config.internalAssert:
     n.len == 3 and n[1].typ != nil and
-    n[2].kind in {nkStrLit..nkTripleStrLit, nkType}
+    n[2].kind in nkStrLiterals + nkType
 
   var
     res = false
@@ -486,7 +486,7 @@ proc isOpImpl(c: PContext, n: PNode, flags: TExprFlags): PNode =
   if t1.kind == tyTypeDesc and t2.kind != tyTypeDesc:
     t1 = t1.base
 
-  if n[2].kind in {nkStrLit..nkTripleStrLit}:
+  if n[2].kind in nkStrLiterals:
     case n[2].strVal.normalize
     of "closure":
       let t = skipTypes(t1, abstractRange)
@@ -541,7 +541,7 @@ proc semIs(c: PContext, n: PNode, flags: TExprFlags): PNode =
   n[1] = semExprWithType(c, n[1], flags + {efWantIterator})
 
   case n[2].kind
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     n[2] = semExpr(c, n[2])
   of nkError:
     discard # below we'll wrap the result in an error
@@ -671,7 +671,7 @@ proc changeType(c: PContext, n: PNode, newType: PType, check: bool): PNode =
       result = newError(c.config, n,
                         PAstDiag(kind: adSemNoTupleTypeForConstructor))
       return # hard error
-  of nkCharLit..nkUInt64Lit:
+  of nkIntLiterals:
     if check and n.kind != nkUInt64Lit and not sameType(n.typ, newType):
       let val = n.intVal
       if val < firstOrd(c.config, newType) or val > lastOrd(c.config, newType):
@@ -679,7 +679,7 @@ proc changeType(c: PContext, n: PNode, newType: PType, check: bool): PNode =
                           PAstDiag(kind: adSemCannotBeConvertedTo,
                                    inputVal: n,
                                    targetTyp: newType))
-  of nkFloatLit..nkFloat64Lit:
+  of nkFloatLiterals:
     if check and not floatRangeCheck(n.floatVal, newType):
       result = newError(c.config, n,
                         PAstDiag(kind: adSemCannotBeConvertedTo,
@@ -3601,7 +3601,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     # handle `nkFloatLit` here to keep raw information of the float literal;
     # not sure why though, also why not do that for int?
     if result.typ == nil: result.typ = getSysType(c.graph, n.info, tyFloat64)
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     if result.typ == nil: result.typ = getSysType(c.graph, n.info, tyString)
   of nkCharLit:
     if result.typ == nil: result.typ = getSysType(c.graph, n.info, tyChar)

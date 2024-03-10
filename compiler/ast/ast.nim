@@ -482,7 +482,7 @@ template copyNodeImpl(dst, src, processSonsStmt) =
     dst.floatLitBase = src.floatLitBase
   of nkSym: dst.sym = src.sym
   of nkIdent: dst.ident = src.ident
-  of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
+  of nkStrLiterals: dst.strVal = src.strVal
   of nkEmpty, nkNone, nkNilLit, nkType, nkCommentStmt: discard "no children"
   of nkError: dst.diag = src.diag # do cheap copies
   of nkWithSons: processSonsStmt

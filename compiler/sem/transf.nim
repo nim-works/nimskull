@@ -295,9 +295,9 @@ proc transformConstSection(c: PTransf, v: PNode): PNode =
 
 proc hasContinue(n: PNode): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkCommentStmt, nkForStmt, nkWhileStmt: discard
+  of nkWithoutSons, nkForStmt, nkWhileStmt: discard
   of nkContinueStmt: result = true
-  else:
+  of nkWithSons - {nkForStmt, nkWhileStmt, nkContinueStmt}:
     for i in 0..<n.len:
       if hasContinue(n[i]): return true
 
@@ -420,7 +420,7 @@ proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
   case n.kind
   of nkSym:
     result = transformSym(c, n)
-  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit, nkCommentStmt:
+  of nkWithoutSons - nkSym:
     # nothing to be done for leaves:
     result = n
   of callableDefs:
@@ -721,13 +721,13 @@ proc findWrongOwners(c: PTransf, n: PNode) =
 proc isSimpleIteratorVar(c: PTransf; iter: PSym): bool =
   proc rec(n: PNode; owner: PSym; dangerousYields: var int) =
     case n.kind
-    of nkEmpty..nkNilLit: discard
+    of nkWithoutSons: discard
     of nkYieldStmt:
       if n[0].kind == nkSym and n[0].sym.owner == owner:
         discard "good: yield a single variable that we own"
       else:
         inc dangerousYields
-    else:
+    of nkWithSons - nkYieldStmt:
       for c in n: rec(c, owner, dangerousYields)
 
   var dangerousYields = 0
@@ -1136,7 +1136,7 @@ proc transform(c: PTransf, n: PNode): PNode =
     unreachable("errors can't reach here")
   of nkSym:
     result = transformSym(c, n)
-  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit:
+  of nkWithoutSons - {nkSym, nkError}:
     # nothing to be done for leaves:
     result = n
   of nkBracketExpr: result = transformArrayAccess(c, n)
@@ -1212,7 +1212,7 @@ proc transform(c: PTransf, n: PNode): PNode =
         # ensure that e.g. discard "some comment" gets optimized away
         # completely:
         result = newNode(nkCommentStmt)
-  of nkCommentStmt, nkTemplateDef, nkImportStmt, nkStaticStmt,
+  of nkTemplateDef, nkImportStmt, nkStaticStmt,
       nkExportStmt, nkExportExceptStmt:
     return n
   of nkConstSection:

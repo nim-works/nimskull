@@ -6,6 +6,8 @@ output: '''
 hel
 lo
 my awesome concat
+1
+TRM
 '''
 """
 
@@ -87,3 +89,13 @@ in_to_out(char, int)
 
 # This works
 proc to_out2(x: char{lit}): int = result = ord(x)
+
+# Unsigned literals
+template times3is1{`*`(u,3'u)}(u: uint): uint = 1
+var u = 3'u
+echo u * 3'u # 1
+
+# Char literals
+template dontAppendE{`&`(s, 'E')}(s: string): string = s
+var s = "T"
+echo s & 'E' & 'R' & 'M'

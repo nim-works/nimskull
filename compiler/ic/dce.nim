@@ -195,7 +195,7 @@ proc aliveCode(c: var AliveContext; g: PackedModuleGraph; tree: PackedTree; n: N
   ## Marks the symbols we encounter when we traverse the AST at `tree[n]` as alive, unless
   ## it is purely in a declarative context (type section etc.).
   case n.kind
-  of nkNone..pred(nkSym), succ(nkSym)..nkNilLit:
+  of nkWithoutSons - nkSym:
     discard "ignore non-sym atoms"
   of nkSym:
     # This symbol is alive and everything its body references.
@@ -209,9 +209,8 @@ proc aliveCode(c: var AliveContext; g: PackedModuleGraph; tree: PackedTree; n: N
     let otherModule = toFileIndexCached(c.decoder, g, c.thisModule, m).int
     followLater(c, g, otherModule, item)
   of nkMacroDef, nkTemplateDef, nkTypeSection, nkTypeOfExpr,
-     nkCommentStmt, nkIncludeStmt,
-     nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt,
-     nkFromStmt, nkStaticStmt:
+     nkIncludeStmt, nkImportStmt, nkImportExceptStmt,
+     nkExportStmt, nkExportExceptStmt, nkFromStmt, nkStaticStmt:
     discard
   of nkVarSection, nkLetSection, nkConstSection:
     # XXX ignore the defining local variable name?

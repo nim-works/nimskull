@@ -163,7 +163,8 @@ proc getLockLevel(t: PType): TLockLevel =
   var t = t
   # tyGenericInst(TLock {tyGenericBody}, tyStatic, tyObject):
   if t.kind == tyGenericInst and t.len == 3: t = t[1]
-  if t.kind == tyStatic and t.n != nil and t.n.kind in {nkCharLit..nkInt64Lit}:
+  if t.kind == tyStatic and t.n != nil and t.n.kind in nkIntLiterals:
+    assert t.n.kind in nkSIntLiterals
     result = t.n.intVal.TLockLevel
 
 proc lockLocations(a: PEffects; pragma: PNode) =
@@ -694,7 +695,7 @@ proc notNilCheck(tracked: PEffects, n: PNode, paramType: PType) =
         # addr(x[]) can't be proven, but addr(x) can:
         if not containsNode(n, {nkDerefExpr, nkHiddenDeref}): return
       elif (n.kind == nkSym and n.sym.kind in routineKinds) or
-          (n.kind in procDefs+{nkObjConstr, nkBracket, nkClosure, nkStrLit..nkTripleStrLit}) or
+          (n.kind in procDefs + {nkObjConstr, nkBracket, nkClosure} + nkStrLiterals) or
           (n.kind in nkCallKinds and n[0].kind == nkSym and n[0].sym.magic == mArrToSeq) or
           n.typ.kind == tyTypeDesc:
         # 'p' is not nil obviously:
@@ -1008,7 +1009,7 @@ proc trackCall(tracked: PEffects; n: PNode) =
       let arg = n[1]
       initVarViaNew(tracked, arg)
       if arg.typ.len != 0 and {tfRequiresInit} * arg.typ.lastSon.flags != {}:
-        if a.sym.magic == mNewSeq and n[2].kind in {nkCharLit..nkUInt64Lit} and
+        if a.sym.magic == mNewSeq and n[2].kind in nkIntLiterals and
             n[2].intVal == 0:
           # var s: seq[notnil];  newSeq(s, 0)  is a special case!
           discard
@@ -1124,14 +1125,14 @@ proc trackInnerProc(tracked: PEffects, n: PNode) =
     let s = n.sym
     if s.kind == skParam and s.owner == tracked.owner:
       tracked.escapingParams.incl s.id
-  of nkNone..pred(nkSym), succ(nkSym)..nkNilLit:
+  of nkWithoutSons - nkSym:
     discard
   of nkProcDef, nkConverterDef, nkMethodDef, nkIteratorDef, nkLambda, nkFuncDef, nkDo:
     if n[0].kind == nkSym and n[0].sym.ast != nil:
       trackInnerProc(tracked, getBody(tracked.graph, n[0].sym))
-  of nkTypeSection, nkMacroDef, nkTemplateDef, nkError,
+  of nkTypeSection, nkMacroDef, nkTemplateDef,
      nkConstSection, nkConstDef, nkIncludeStmt, nkImportStmt,
-     nkExportStmt, nkPragma, nkCommentStmt, nkTypeOfExpr, nkMixinStmt,
+     nkExportStmt, nkPragma, nkTypeOfExpr, nkMixinStmt,
      nkBindStmt:
     discard
   else:
@@ -1139,7 +1140,7 @@ proc trackInnerProc(tracked: PEffects, n: PNode) =
 
 proc allowCStringConv(n: PNode): bool =
   case n.kind
-  of nkStrLit..nkTripleStrLit: result = true
+  of nkStrLiterals: result = true
   of nkSym: result = n.sym.kind in {skConst, skParam}
   of nkAddr: result = isCharArrayPtr(n.typ, true)
   of nkCallKinds:
