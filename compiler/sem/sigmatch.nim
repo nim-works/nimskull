@@ -1878,6 +1878,7 @@ typeRel can be used to establish various relationships between types:
           result = typeRel(c, f.base, a, flags)
           if result != isNone and f.n != nil:
             if not exprStructuralEquivalent(f.n, aOrig.n):
+              # comment equality SHOULDN'T matter here (demo: TODO)
               result = isNone
         elif f.base.kind == tyGenericParam:
           # Handling things like `type A[T; Y: static T] = object`, the reason this is here is the following:
@@ -1911,6 +1912,7 @@ typeRel can be used to establish various relationships between types:
         result = typeRel(c, prev.lastSon, a, flags)
         if result != isNone and prev.n != nil:
           if not exprStructuralEquivalent(prev.n, aOrig.n):
+            # comment equality SHOULDN'T matter here (demo: TODO)
             result = isNone
       else: result = isNone
     else:
@@ -1974,12 +1976,14 @@ typeRel can be used to establish various relationships between types:
       result = typeRel(c, a, reevaluated.typ.base, flags)
       if result != isNone and reevaluated.typ.n != nil:
         if not exprStructuralEquivalent(aOrig.n, reevaluated.typ.n):
+          # comment equality SHOULDN'T matter here (demo: TODO)
           result = isNone
     else:
       # bug #14136: other types are just like 'tyStatic' here:
       result = typeRel(c, a, reevaluated.typ, flags)
       if result != isNone and reevaluated.typ.n != nil:
         if not exprStructuralEquivalent(aOrig.n, reevaluated.typ.n):
+          # comment equality SHOULDN'T matter here (demo: TODO)
           result = isNone
   of tyNone:
     if a.kind == tyNone: result = isEqual

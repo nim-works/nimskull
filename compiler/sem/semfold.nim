@@ -380,6 +380,7 @@ proc evalOp*(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): 
   of mEqProc:
     result = newIntNodeT(toInt128(ord(
         exprStructuralEquivalent(a, b, strictSymEquality=true))), n, idgen, g)
+        # comment equality doesn't matter here (getConstExpr doesn't return AST with comments)
   else: discard
 
 proc getConstIfExpr(c: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =

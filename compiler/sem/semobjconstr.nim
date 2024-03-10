@@ -78,6 +78,7 @@ proc caseBranchMatchesExpr(branch, matched: PNode): bool =
     if branch[i].kind == nkRange:
       if overlap(branch[i], matched): return true
     elif exprStructuralEquivalent(branch[i], matched):
+      # comment equality doesn't matter here (AST is comment free from semConstExpr or a nkIntLit)
       return true
 
   return false

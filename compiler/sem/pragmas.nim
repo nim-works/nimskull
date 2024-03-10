@@ -367,6 +367,7 @@ proc processCallConv(c: PContext, n: PNode): PNode =
 proc getLib(c: PContext, kind: TLibKind, path: PNode): LibId =
   for id, it in c.libs:
     if it.kind == kind and trees.exprStructuralEquivalent(it.path, path):
+      # comment equality SHOULDN'T matter here (demo: TODO)
       return id
 
   var lib = initLib(kind)

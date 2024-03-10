@@ -652,14 +652,19 @@ proc sameTypeOrNil*(a, b: PType, flags: TTypeCmpFlags = {}): bool =
     else: result = sameType(a, b, flags)
 
 proc equalParam(a, b: PSym): TParamsEquality =
+  # This is not commutative!
   if sameTypeOrNil(a.typ, b.typ, {ExactTypeDescValues}) and
       exprStructuralEquivalent(a.constraint, b.constraint):
+      # comment equality doesn't matter here (constraints are nkStrLit)
     if a.ast == b.ast:
       result = paramsEqual
     elif a.ast != nil and b.ast != nil:
       if exprStructuralEquivalent(a.ast, b.ast): result = paramsEqual
+      # comment equality SHOULDN'T matter here (demo: tests/lang_callable/generics/tforwardgeneric.nim)
       else: result = paramsIncompatible
     elif a.ast != nil:
+      # This means default values for parameters don't have to be
+      # repeated when the proc was forward declared
       result = paramsEqual
     elif b.ast != nil:
       result = paramsIncompatible
@@ -672,6 +677,7 @@ proc sameConstraints(a, b: PNode): bool =
   for i in 1..<a.len:
     if not exprStructuralEquivalent(a[i].sym.constraint,
                                     b[i].sym.constraint):
+      # comment equality doesn't matter here (constraints are nkStrLit)
       return false
   return true
 
@@ -819,6 +825,7 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
         result = symFlagsA == symFlagsB
   of tyStatic, tyFromExpr:
     result = exprStructuralEquivalent(a.n, b.n) and sameFlags(a, b)
+    # comment equality SHOULDN'T matter here (TODO: demo)
     if result and a.len == b.len and a.len == 1:
       cycleCheck()
       result = sameTypeAux(a[0], b[0], c)

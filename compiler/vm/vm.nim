@@ -1552,6 +1552,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       regs[ra].intVal =
         ord(exprStructuralEquivalent(regs[rb].nimNode, regs[rc].nimNode,
                                      strictSymEquality=true))
+        # comment equality DOES matter here
     of opcSameNodeType:
       decodeBC(rkInt)
       # TODO: Look into me!
@@ -2835,6 +2836,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         block search:
           for existing in g.cacheSeqs[destKey]:
             if exprStructuralEquivalent(existing, val, strictSymEquality=true):
+              # comment equality DOES matter here
               break search
           g.cacheSeqs[destKey].add val
       recordIncl(c, c.debug[pc], destKey, val)
