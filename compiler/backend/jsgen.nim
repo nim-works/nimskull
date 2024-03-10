@@ -739,7 +739,9 @@ proc handleJump(p: PProc, n: CgNode, fromError: bool): seq[BlockId] =
     # here
     var
       t = 0
-      wasLeave = false
+      wasLeave = fromError
+    # ^^ exceptional control-flow could come from within a procedure call, where
+    # an exception handler boundary crossed
     for i, b in mreverse(p.blocks):
       wasLeave = wasLeave or n[t].kind == cnkLeave
       # skip leave actions:
