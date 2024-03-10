@@ -720,8 +720,10 @@ proc handleJump(p: PProc, n: CgNode, fromError: bool): seq[BlockId] =
       # XXX: this is not ideal. It would be better if the local is defined
       #      at the start of the scope, but that's a bit tricky to do at
       #      the moment
-      lineF(p, "var Enabled$1_ = true;\L", [$b.label])
-      b.flags.incl needsEnableFlag
+      if needsEnableFlag notin b.flags:
+        lineF(p, "var Enabled$1_ = true;\L", [$b.label])
+        b.flags.incl needsEnableFlag
+
       result.add b.label
 
   case n.kind
