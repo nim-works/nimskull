@@ -2271,14 +2271,15 @@ proc popBlock(p: PProc) =
     handleRecover(p, blk)
   of bkFinally:
     if needsEnableFlag in blk.flags:
-      # close the wrapper 'if'
-      endBlock(p)
+      # close the wrapper 'if' and re-enable the section
+      endBlock(p, "} else { Enabled$1_ = true; }$n", $blk.label)
     endBlock(p)
   of bkCatch:
     # the counterpart to the opening logic
     if needsEnableFlag in blk.flags:
-      # close the wrapper 'if' and re-raise
-      endBlock(p, "} else { throw Exception$1_; }$n", $p.numHandlers)
+      # close the wrapper 'if', re-enable the section, and re-throw
+      endBlock(p, "} else { Enabled$1_ = true; throw Exception$2_; }$n",
+               [$blk.label, $p.numHandlers])
     endBlock(p)
     # release the name:
     dec p.numHandlers
