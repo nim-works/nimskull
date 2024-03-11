@@ -1,4 +1,4 @@
-nnkNone	macros.html#nnkNone	NimNodeKind.nnkNone	
+nnkError	macros.html#nnkError	NimNodeKind.nnkError	
 nnkEmpty	macros.html#nnkEmpty	NimNodeKind.nnkEmpty	
 nnkIdent	macros.html#nnkIdent	NimNodeKind.nnkIdent	
 nnkSym	macros.html#nnkSym	NimNodeKind.nnkSym	
@@ -152,7 +152,6 @@ nnkClosure	macros.html#nnkClosure	NimNodeKind.nnkClosure
 nnkGotoState	macros.html#nnkGotoState	NimNodeKind.nnkGotoState	
 nnkFuncDef	macros.html#nnkFuncDef	NimNodeKind.nnkFuncDef	
 nnkTupleConstr	macros.html#nnkTupleConstr	NimNodeKind.nnkTupleConstr	
-nnkError	macros.html#nnkError	NimNodeKind.nnkError	
 nnkNimNodeLit	macros.html#nnkNimNodeLit	NimNodeKind.nnkNimNodeLit	
 NimNodeKind	macros.html#NimNodeKind	macros: NimNodeKind	
 NimNodeKinds	macros.html#NimNodeKinds	macros: NimNodeKinds	

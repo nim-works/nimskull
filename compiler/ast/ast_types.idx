@@ -25,7 +25,7 @@ NodeId	ast/ast_types.html#NodeId	ast_types: NodeId
 `==`	ast/ast_types.html#==,NodeId,NodeId	ast_types: `==`(a, b: NodeId): bool	
 hash	ast/ast_types.html#hash,NodeId	ast_types: hash(a: NodeId): Hash	
 `$`	ast/ast_types.html#$,NodeId	ast_types: `$`(a: NodeId): string	
-nkNone	ast/ast_types.html#nkNone	TNodeKind.nkNone	
+nkError	ast/ast_types.html#nkError	TNodeKind.nkError	
 nkEmpty	ast/ast_types.html#nkEmpty	TNodeKind.nkEmpty	
 nkIdent	ast/ast_types.html#nkIdent	TNodeKind.nkIdent	
 nkSym	ast/ast_types.html#nkSym	TNodeKind.nkSym	
@@ -179,7 +179,6 @@ nkClosure	ast/ast_types.html#nkClosure	TNodeKind.nkClosure
 nkGotoState	ast/ast_types.html#nkGotoState	TNodeKind.nkGotoState	
 nkFuncDef	ast/ast_types.html#nkFuncDef	TNodeKind.nkFuncDef	
 nkTupleConstr	ast/ast_types.html#nkTupleConstr	TNodeKind.nkTupleConstr	
-nkError	ast/ast_types.html#nkError	TNodeKind.nkError	
 nkNimNodeLit	ast/ast_types.html#nkNimNodeLit	TNodeKind.nkNimNodeLit	
 nkModuleRef	ast/ast_types.html#nkModuleRef	TNodeKind.nkModuleRef	
 nkReplayAction	ast/ast_types.html#nkReplayAction	TNodeKind.nkReplayAction	
