@@ -59,6 +59,7 @@ const
   Terminators = {stkReturn, stkTerminator}
 
 func finalTarget*(n: CgNode): CgNode =
+  ## Given a label or target list, retrieves the target.
   case n.kind
   of cnkLabel:      n
   of cnkTargetList: n[^1]
