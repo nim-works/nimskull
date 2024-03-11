@@ -226,7 +226,7 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
       discard "not relevant"
 
   # the list of openings and closing produced by the first pass will in most
-  # cases not be valid JavaScript code. We have to "solve" therepresentation
+  # cases not be valid JavaScript code. We have to "solve" the representation
   # by reordering the openings until they're matched with their corresponding
   # end. ``stkCatch``, ``stkFinally``, ``stkStructStart``, and ``stkEnd`` must
   # keep their relative order and stay attached to the same statements, only
