@@ -72,30 +72,33 @@ template structEquiv*(
           if not self(a[i], b[i]): return false
         result = true
 
-proc exprStructuralEquivalentLaxSym(a, b: PNode): bool =
-  structEquiv(exprStructuralEquivalentLaxSym,
+proc exprStructuralEquivalent*(a, b: PNode): bool =
+  structEquiv(exprStructuralEquivalent,
     relaxKindCheck = false,
     # don't go nuts here: same symbol as string is enough:
     symCheck = a.sym.name.id == b.sym.name.id,
     floatCheck = sameFloatIgnoreNan(a.floatVal, b.floatVal),
-    commentCheck = a.comment == b.comment,
+    commentCheck = true,
     typeCheck = true
   )
 
-proc exprStructuralEquivalentStrictSym(a, b: PNode): bool =
+proc exprStructuralEquivalentStrictSym*(a, b: PNode): bool =
   structEquiv(exprStructuralEquivalentStrictSym,
+    relaxKindCheck = false,
+    symCheck = a.sym == b.sym,
+    floatCheck = sameFloatIgnoreNan(a.floatVal, b.floatVal),
+    commentCheck = true,
+    typeCheck = true
+  )
+
+proc exprStructuralEquivalentStrictSymAndComm*(a, b: PNode): bool =
+  structEquiv(exprStructuralEquivalentStrictSymAndComm,
     relaxKindCheck = false,
     symCheck = a.sym == b.sym,
     floatCheck = sameFloatIgnoreNan(a.floatVal, b.floatVal),
     commentCheck = a.comment == b.comment,
     typeCheck = true
   )
-
-proc exprStructuralEquivalent*(a, b: PNode; strictSymEquality=false): bool =
-  if strictSymEquality:
-    exprStructuralEquivalentStrictSym(a, b)
-  else:
-    exprStructuralEquivalentLaxSym(a, b)
 
 proc getMagic*(op: PNode): TMagic =
   if op == nil: return mNone
