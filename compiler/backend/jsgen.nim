@@ -1272,7 +1272,7 @@ proc genArgs(p: PProc, n: CgNode, r: var TCompRes; start=1) =
   assert(typ.len == typ.n.len)
   var emitted = start-1
 
-  for i in start..<(1 + numArgs(n)):
+  for i in start..<callLen(n):
     let it = n[i]
     var paramType: PNode = nil
     if i < typ.len:
@@ -1292,7 +1292,7 @@ proc genArgs(p: PProc, n: CgNode, r: var TCompRes; start=1) =
 
 proc genOtherArg(p: PProc; n: CgNode; i: int; typ: PType;
                  generated: var int; r: var TCompRes) =
-  if i >= numArgs(n) + 1:
+  if i >= callLen(n):
     globalReport(p.config, n.info, semReportCountMismatch(
       rsemExpectedParameterForJsPattern,
       expected = i,
@@ -1319,7 +1319,7 @@ proc genPatternCall(p: PProc; n: CgNode; pat: string; typ: PType;
     case pat[i]
     of '@':
       var generated = 0
-      for k in j..<(1 + numArgs(n)):
+      for k in j..<callLen(n):
         if generated > 0: r.res.add(", ")
         genOtherArg(p, n, k, typ, generated, r)
       inc i
@@ -1386,7 +1386,7 @@ proc genEcho(p: PProc, n: CgNode, r: var TCompRes) =
   useMagic(p, "rawEcho")
   r.res.add("rawEcho(")
   # the first argument is a literal type that we don't need
-  for i in 2..<(1 + numArgs(n)):
+  for i in 2..<callLen(n):
     let it = n[i]
     if it.typ.isCompileTimeOnly: continue
     if i > 2: r.res.add(", ")
