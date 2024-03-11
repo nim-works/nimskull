@@ -83,10 +83,10 @@ proc hashTree(c: var MD5Context, n: PNode; flags: set[ConsiderFlag]) =
   # we really must not hash line information. 'n.typ' is debatable but
   # shouldn't be necessary for now and avoids potential infinite recursions.
   case n.kind
-  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt:
-    discard # ignore comments (could appear in a tyFromExpr)
   of nkError:
     unreachable()
+  of nkEmpty, nkNilLit, nkType, nkCommentStmt:
+    discard # ignore comments (could appear in a tyFromExpr)
   of nkIdent:
     c &= n.ident.s
   of nkSym:
@@ -354,10 +354,10 @@ proc hashBodyTree(graph: ModuleGraph, c: var MD5Context, n: PNode) =
     return
   c &= char(n.kind)
   case n.kind
-  of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt:
-    discard # ignore comments
   of nkError:
     unreachable()
+  of nkEmpty, nkNilLit, nkType, nkCommentStmt:
+    discard # ignore comments
   of nkIdent:
     c &= n.ident.s
   of nkSym:

@@ -603,7 +603,7 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
 
   result = evalConstExpr(c.module, c.idgen, c.graph, result)
   case result.kind
-  of nkEmpty, nkError:
+  of nkError, nkEmpty:
     result = nil
   else:
     discard

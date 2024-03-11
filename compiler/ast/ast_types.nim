@@ -52,10 +52,9 @@ type
   TNodeKind* = enum
     ## order is important, because ranges are used to check whether a node
     ## belongs to a certain class
-
-    nkNone                ## unknown node kind: indicates an error
-                          ## Expressions:
-                          ## Atoms:
+    ## Expressions:
+    ## Atoms:
+    nkError               ## erroneous AST node see `errorhandling`
     nkEmpty               ## the node is empty
     nkIdent               ## node is an identifier
     nkSym                 ## node is a symbol
@@ -234,7 +233,6 @@ type
                           ## transformation
     nkFuncDef             ## a func
     nkTupleConstr         ## a tuple constructor
-    nkError               ## erroneous AST node see `errorhandling`
     nkNimNodeLit          ## a ``NimNode`` literal. Stores a single sub node
                           ## that represents the ``NimNode`` AST
     nkModuleRef           ## for .rod file support: A (moduleId, itemId) pair
@@ -254,7 +252,7 @@ const
   nkLiterals*      = nkIntLiterals + nkFloatLiterals + nkStrLiterals + nkNilLit
 
   nkWithoutSons* =
-    {nkEmpty, nkNone} +
+    {nkEmpty} +
     {nkIdent, nkSym} +
     {nkType} +
     nkLiterals +
@@ -1592,7 +1590,7 @@ type
       sym*: PSym
     of nkIdent:
       ident*: PIdent
-    of nkEmpty, nkNone, nkType, nkNilLit, nkCommentStmt:
+    of nkEmpty, nkType, nkNilLit, nkCommentStmt:
       discard
     of nkError:
       diag*: PAstDiag

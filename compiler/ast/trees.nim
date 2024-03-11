@@ -60,7 +60,7 @@ proc exprStructuralEquivalent*(a, b: PNode; strictSymEquality=false): bool =
     of nkFloatLiterals: result = sameFloatIgnoreNan(a.floatVal, b.floatVal)
     of nkStrLiterals: result = a.strVal == b.strVal
     of nkCommentStmt: result = a.comment == b.comment
-    of nkNone, nkEmpty, nkNilLit, nkType: result = true
+    of nkEmpty, nkNilLit, nkType: result = true
     of nkError:
       unreachable()
     of nkWithSons:
@@ -91,7 +91,7 @@ proc sameTree*(a, b: PNode): bool =
                a.floatLitBase == b.floatLitBase
     of nkStrLiterals: result = a.strVal == b.strVal
     of nkCommentStmt: result = a.comment == b.comment
-    of nkNone, nkEmpty, nkNilLit, nkType: result = true
+    of nkEmpty, nkNilLit, nkType: result = true
     of nkError:
       unreachable()
     of nkWithSons:

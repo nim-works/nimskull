@@ -47,7 +47,8 @@ template skipEnumValue(define: untyped, predecessor: untyped; gap = 1): untyped 
 
 type
   NimNodeKind* = enum
-    nnkNone, nnkEmpty, nnkIdent, nnkSym,
+    nnkError,  ## erroneous AST node
+    nnkEmpty, nnkIdent, nnkSym,
     nnkType, nnkCharLit, nnkIntLit, nnkInt8Lit,
     nnkInt16Lit, nnkInt32Lit, nnkInt64Lit, nnkUIntLit, nnkUInt8Lit,
     nnkUInt16Lit, nnkUInt32Lit, nnkUInt64Lit, nnkFloatLit,
@@ -111,8 +112,7 @@ type
     nnkGotoState,
     nnkFuncDef = skipEnumValue(nimHasNkBreakStateNodeRemoved, nnkGotoState, 2),
     nnkTupleConstr,
-    nnkError,  ## erroneous AST node
-    nnkNimNodeLit
+    nnkNimNodeLit = skipEnumValue(nimskullNoNkNone, nnkTupleConstr)
 
   NimNodeKinds* = set[NimNodeKind]
   NimTypeKind* = enum  # some types are no longer used, see ast.nim
@@ -843,8 +843,6 @@ proc treeTraverse(n: NimNode; res: var string; level = 0; isLisp = false, indent
     res.add(" " & $n.floatVal)
   of nnkStrLit .. nnkTripleStrLit, nnkCommentStmt, nnkIdent, nnkSym:
     res.add(" " & $n.strVal.newLit.repr)
-  of nnkNone:
-    assert false
   elif n.kind in {nnkOpenSymChoice, nnkClosedSymChoice} and collapseSymChoice:
     res.add(" " & $n.len)
     if n.len > 0:
@@ -885,7 +883,7 @@ proc astGenRepr*(n: NimNode): string {.benign.} =
   ## See also `repr`, `treeRepr`, and `lispRepr`.
 
   const
-    NodeKinds = {nnkEmpty, nnkIdent, nnkSym, nnkNone, nnkCommentStmt}
+    NodeKinds = {nnkEmpty, nnkIdent, nnkSym, nnkCommentStmt}
     LitKinds = {nnkCharLit..nnkInt64Lit, nnkFloatLit..nnkFloat64Lit, nnkStrLit..nnkTripleStrLit}
 
   proc traverse(res: var string, level: int, n: NimNode) {.benign.} =
@@ -906,7 +904,6 @@ proc astGenRepr*(n: NimNode): string {.benign.} =
     of nnkFloatLit..nnkFloat64Lit: res.add($n.floatVal)
     of nnkStrLit..nnkTripleStrLit, nnkCommentStmt, nnkIdent, nnkSym:
       res.add(n.strVal.newLit.repr)
-    of nnkNone: assert false
     elif n.kind in {nnkOpenSymChoice, nnkClosedSymChoice} and collapseSymChoice:
       res.add(", # unrepresentable symbols: " & $n.len)
       if n.len > 0:
@@ -1098,7 +1095,7 @@ proc last*(node: NimNode): NimNode = node[node.len-1]
 const
   RoutineNodes* = {nnkProcDef, nnkFuncDef, nnkMethodDef, nnkDo, nnkLambda,
                    nnkIteratorDef, nnkTemplateDef, nnkConverterDef, nnkMacroDef}
-  AtomicNodes* = {nnkNone..nnkNilLit}
+  AtomicNodes* = {nnkEmpty..nnkNilLit}
   CallNodes* = {nnkCall, nnkInfix, nnkPrefix, nnkPostfix, nnkCommand,
     nnkCallStrLit, nnkHiddenCallConv}
 

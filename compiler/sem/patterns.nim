@@ -68,10 +68,10 @@ proc sameTrees*(a, b: PNode): bool =
     of nkIntLiterals: result = a.intVal == b.intVal
     of nkFloatLiterals: result = a.floatVal == b.floatVal
     of nkStrLiterals: result = a.strVal == b.strVal
-    of nkNone, nkEmpty, nkNilLit, nkCommentStmt:
-      result = true # Ignore comments
     of nkError:
       unreachable()
+    of nkEmpty, nkNilLit, nkCommentStmt:
+      result = true # Ignore comments
     of nkType: result = sameTypeOrNil(a.typ, b.typ)
     of nkWithSons:
       if a.len == b.len:
@@ -182,15 +182,15 @@ proc matches(c: PPatternContext, p, n: PNode): bool =
         result = bindOrCheck(c, p[1].sym, n)
   elif sameKinds(p, n):
     case p.kind
+    of nkError:
+      unreachable()
     of nkSym: result = p.sym == n.sym
     of nkIdent: result = p.ident.id == n.ident.id
     of nkIntLiterals: result = p.intVal == n.intVal
     of nkFloatLiterals: result = p.floatVal == n.floatVal
     of nkStrLiterals: result = p.strVal == n.strVal
-    of nkNone, nkEmpty, nkNilLit, nkType, nkCommentStmt:
+    of nkEmpty, nkNilLit, nkType, nkCommentStmt:
       result = true # Ignore comments
-    of nkError:
-      unreachable()
     of nkWithSons:
       # special rule for p(X) ~ f(...); this also works for stuff like
       # partial case statements, etc! - Not really ... :-/
