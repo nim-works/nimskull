@@ -139,6 +139,17 @@ proc unhandledException(e: ref Exception) {.
   }
   """.}
 
+proc nimUnhandledException() {.compilerproc, asmNoStackFrame.} =
+  # |NimSkull| exceptions are turned into JavaScript errors for the purpose
+  # of better error messages
+  asm """
+    if (lastJSError.m_type !== undefined) {
+      `unhandledException`(lastJSError);
+    } else {
+      throw lastJSError;
+    }
+  """
+
 proc prepareException(e: ref Exception, ename: cstring) {.
     compilerproc, asmNoStackFrame.} =
   if e.name.isNil:
