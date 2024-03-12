@@ -46,10 +46,10 @@ proc sameFloatIgnoreNan(a, b: BiggestFloat): bool {.inline.} =
 
 template makeTreeEquivalenceProc*(
   name, relaxedKindCheck, symCheck, floatCheck, typeCheck, commentCheck) {.dirty.} =
-  # Defines a tree equivalence checking procedure.
-  # This skeleton is shared between all recursive
-  # PNode equivalence checks in the compiler code base
-  # It might be possible to unify more of them with each other.
+  ## Defines a tree equivalence checking procedure.
+  ## This skeleton is shared between all recursive
+  ## `PNode` equivalence checks in the compiler code base
+  ## It might be possible to unify more of them with each other.
   proc name(a, b: PNode): bool =
     result = false
     if a == b:
@@ -63,8 +63,8 @@ template makeTreeEquivalenceProc*(
       of nkIntLiterals:     result = a.intVal == b.intVal
       of nkFloatLiterals:   result = floatCheck
         # XXX: Using float equality, even if partially tamed through
-        # sameFloatIgnoreNan, causes inconsistencies due to it lacking
-        # the substition and reflexivity property.
+        #      sameFloatIgnoreNan, causes inconsistencies due to it
+        #      lacking the substition and reflexivity property.
       of nkStrLiterals:     result = a.strVal == b.strVal
       of nkType:            result = typeCheck
       of nkCommentStmt:     result = commentCheck
