@@ -69,7 +69,6 @@ template makeTreeEquivalenceProc*(
       of nkType:            result = typeCheck
       of nkCommentStmt:     result = commentCheck
       # XXX: nkNimNodeLit should probably always be checked strictly.
-      # Currently this doesn't matter as only nkSym NimNode literals are created
       of nkWithSons:
         if a.len == b.len:
           for i in 0..<a.len:

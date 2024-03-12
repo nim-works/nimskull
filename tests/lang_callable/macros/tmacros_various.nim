@@ -10,6 +10,8 @@ Infix
       Ident "cint"
   NilLit
 macrocache ok
+CommentStmt "comment 1"
+CommentStmt "comment 2"
 '''
 
   output: '''
@@ -328,3 +330,16 @@ block: # bug #15118
 
   block:
     flop("b")
+
+block: # Ensure nkCommentStmt equality is not ignored when checking for const duplicates:
+  proc createComment(s: string): NimNode =
+    result = nnkCommentStmt.newNimNode()
+    result.strVal = s
+
+  macro testComments =
+    const C1 = (1, createComment("comment 1"))
+    const C2 = (1, createComment("comment 2"))
+    echo treeRepr(C1[1])
+    echo treeRepr(C2[1])
+
+  testComments
