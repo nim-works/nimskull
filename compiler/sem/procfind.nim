@@ -15,6 +15,7 @@ import
     ast,
     astalgo,
     types,
+    trees,
   ],
   compiler/front/[
      msgs,
