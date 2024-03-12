@@ -816,7 +816,8 @@ func cmpNodeCnst(a, b: PNode): bool {.inline.} =
     relaxKindCheck = false,
     symCheck = a.sym == b.sym,
     floatCheck = cmpFloatRep(a.floatVal, b.floatVal),
-    commentCheck = true, # Ignore comments
+    commentCheck = true,
+    # comment equality shouldn't be ignored here (no test because currently only nkSym NimNode literals are created)
     typeCheck = a.typ == b.typ
   )
 
