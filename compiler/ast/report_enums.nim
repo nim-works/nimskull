@@ -247,6 +247,7 @@ type
     rvmCacheKeyAlreadyExists
     rvmFieldNotFound
     rvmFieldInavailable
+    rvmCannotCreateNode
     rvmCannotSetChild
     rvmCannotAddChild
     rvmCannotGetChild

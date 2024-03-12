@@ -2752,13 +2752,21 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "strVal"))
     of opcNNewNimNode:
       decodeBC(rkNimNode)
-      var k = regs[rb].intVal
+      let k = regs[rb].intVal
       guestValidate(k in 0..ord(high(TNodeKind)),
         "request to create a NimNode of invalid kind")
 
+      let kind = TNodeKind(int(k))
+      case kind
+      of nkError, nkIdent, nkSym, nkType:
+        # nodes that cannot be created manually
+        raiseVmError(VmEvent(kind: vmEvtCannotCreateNode, msg: $kind))
+      of nkWithSons, nkLiterals, nkCommentStmt, nkEmpty:
+        discard "the uninitialized state is valid"
+
       let cc = regs[rc].nimNode
 
-      let x = newNodeI(TNodeKind(int(k)),
+      let x = newNodeI(kind,
         if cc.kind != nkNilLit:
           cc.info
         elif c.comesFromHeuristic.line != 0'u16:
@@ -2767,8 +2775,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           c.callsite[1].info
         else:
           c.debug[pc])
-      # prevent crashes in the compiler resulting from wrong macros:
-      if x.kind == nkIdent: x.ident = c.cache.emptyIdent
+
       regs[ra].nimNode = x
     of opcNCopyNimNode:
       decodeB(rkNimNode)
@@ -3017,6 +3024,7 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
     of vmEvtFieldNotFound: adVmFieldNotFound
     of vmEvtNotAField: adVmNotAField
     of vmEvtFieldUnavailable: adVmFieldUnavailable
+    of vmEvtCannotCreateNode: adVmCannotCreateNode
     of vmEvtCannotSetChild: adVmCannotSetChild
     of vmEvtCannotAddChild: adVmCannotAddChild
     of vmEvtCannotGetChild: adVmCannotGetChild
@@ -3048,7 +3056,8 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
           indexSpec: evt.indexSpec)
       of adVmErrInternal, adVmNilAccess, adVmIllegalConv,
           adVmFieldUnavailable, adVmFieldNotFound,
-          adVmCacheKeyAlreadyExists, adVmMissingCacheKey:
+          adVmCacheKeyAlreadyExists, adVmMissingCacheKey,
+          adVmCannotCreateNode:
         AstDiagVmError(
           kind: kind,
           msg: evt.msg)

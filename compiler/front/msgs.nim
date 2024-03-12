@@ -391,6 +391,7 @@ func astDiagVmToLegacyReportKind*(
   of adVmFieldNotFound: rvmFieldNotFound
   of adVmNotAField: rvmNotAField
   of adVmFieldUnavailable: rvmFieldInavailable
+  of adVmCannotCreateNode: rvmCannotCreateNode
   of adVmCannotSetChild: rvmCannotSetChild
   of adVmCannotAddChild: rvmCannotAddChild
   of adVmCannotGetChild: rvmCannotGetChild

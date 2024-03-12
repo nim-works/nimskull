@@ -2949,6 +2949,9 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
   of rvmFieldNotFound:
     result = "node lacks field: " & r.str
 
+  of rvmCannotCreateNode:
+    result = "cannot manually create a node of kind: n" & r.str
+
   of rvmCannotSetChild:
     result = "cannot set child of node kind: n" & $r.ast.kind
 
@@ -3867,7 +3870,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         location: some location,
         reportInst: diag.instLoc.toReportLineInfo)
     of rvmErrInternal, rvmNilAccess, rvmIllegalConv, rvmFieldInavailable,
-        rvmFieldNotFound, rvmCacheKeyAlreadyExists, rvmMissingCacheKey:
+        rvmFieldNotFound, rvmCacheKeyAlreadyExists, rvmMissingCacheKey,
+        rvmCannotCreateNode:
       vmRep = VMReport(
         kind: kind,
         str: diag.vmErr.msg,

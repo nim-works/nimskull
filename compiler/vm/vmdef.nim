@@ -598,6 +598,7 @@ type
     vmEvtFieldNotFound
     vmEvtNotAField
     vmEvtFieldUnavailable
+    vmEvtCannotCreateNode
     vmEvtCannotSetChild
     vmEvtCannotAddChild
     vmEvtCannotGetChild
@@ -623,7 +624,8 @@ type
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
       of vmEvtErrInternal, vmEvtNilAccess, vmEvtIllegalConv,
           vmEvtFieldUnavailable, vmEvtFieldNotFound,
-          vmEvtCacheKeyAlreadyExists, vmEvtMissingCacheKey:
+          vmEvtCacheKeyAlreadyExists, vmEvtMissingCacheKey,
+          vmEvtCannotCreateNode:
         msg*: string
       of vmEvtCannotSetChild, vmEvtCannotAddChild, vmEvtCannotGetChild,
          vmEvtNoType, vmEvtNodeNotASymbol:
