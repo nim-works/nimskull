@@ -443,10 +443,10 @@ proc sameOpr(a, b: PSym): bool =
 
 makeTreeEquivalenceProc(sameTree,
   relaxedKindCheck = false,
-  symCheck =     sameOpr(a.sym, b.sym) or
+  symCheck     = sameOpr(a.sym, b.sym) or
     (a.sym.magic != mNone and a.sym.magic == b.sym.magic),
-  floatCheck =   a.floatVal == b.floatVal,
-  typeCheck =    a.typ == b.typ,
+  floatCheck   = a.floatVal == b.floatVal,
+  typeCheck    = a.typ == b.typ,
   commentCheck = true # ignore comments
 )
 export sameTree

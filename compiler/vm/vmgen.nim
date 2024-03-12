@@ -813,9 +813,9 @@ template cmpFloatRep(a, b: BiggestFloat): bool =
 # AST from being added as a node constant more than once
 makeTreeEquivalenceProc(cmpNodeCnst,
   relaxedKindCheck = false,
-  symCheck =     a.sym == b.sym,
-  floatCheck =   cmpFloatRep(a.floatVal, b.floatVal),
-  typeCheck =    a.typ == b.typ,
+  symCheck     = a.sym == b.sym,
+  floatCheck   = cmpFloatRep(a.floatVal, b.floatVal),
+  typeCheck    = a.typ == b.typ,
   commentCheck = a.comment == b.comment
 )
 

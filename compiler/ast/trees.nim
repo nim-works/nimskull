@@ -77,27 +77,27 @@ template makeTreeEquivalenceProc*(
 
 makeTreeEquivalenceProc(exprStructuralEquivalent,
   relaxedKindCheck = false,
-  symCheck =     a.sym.name.id == b.sym.name.id, # same symbol as string is enough
-  floatCheck =   sameFloatIgnoreNan(a.floatVal, b.floatVal),
-  typeCheck =    true,
+  symCheck     = a.sym.name.id == b.sym.name.id, # same symbol as string is enough
+  floatCheck   = sameFloatIgnoreNan(a.floatVal, b.floatVal),
+  typeCheck    = true,
   commentCheck = true
 )
 export exprStructuralEquivalent
 
 makeTreeEquivalenceProc(exprStructuralEquivalentStrictSym,
   relaxedKindCheck = false,
-  symCheck =     a.sym == b.sym,
-  floatCheck =   sameFloatIgnoreNan(a.floatVal, b.floatVal),
-  typeCheck =    true,
+  symCheck     = a.sym == b.sym,
+  floatCheck   = sameFloatIgnoreNan(a.floatVal, b.floatVal),
+  typeCheck    = true,
   commentCheck = true
 )
 export exprStructuralEquivalentStrictSym
 
 makeTreeEquivalenceProc(exprStructuralEquivalentStrictSymAndComm,
   relaxedKindCheck = false,
-  symCheck =     a.sym == b.sym,
-  floatCheck =   sameFloatIgnoreNan(a.floatVal, b.floatVal),
-  typeCheck =    true,
+  symCheck     = a.sym == b.sym,
+  floatCheck   = sameFloatIgnoreNan(a.floatVal, b.floatVal),
+  typeCheck    = true,
   commentCheck = a.comment == b.comment
 )
 export exprStructuralEquivalentStrictSymAndComm
