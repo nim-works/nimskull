@@ -1788,6 +1788,21 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
   else:
     effects[tagEffects] = t.tags
 
+  # ensure that user-provided hooks have no effects and don't raise
+  if sfOverriden in s.flags:
+    # if raising was explicitly disabled (i.e., via ``.raises: []``),
+    # exceptions, if any, were already reported; don't report errors again in
+    # that case
+    if raisesSpec.isNil or raisesSpec.len > 0:
+      let newSpec = newNodeI(nkArgList, s.info)
+      checkRaisesSpec(g, rsemHookCannotRaise, newSpec,
+                      t.exc, hints=off, nil)
+      # override the raises specification to prevent cascading errors:
+      effects[exceptionEffects] = newSpec
+
+    # enforce that no defects escape the routine at run-time:
+    s.flags.incl sfNeverRaises
+
   var mutationInfo = MutationInfo()
   var hasMutationSideEffect = false
   if {strictFuncs, views} * c.features != {}:

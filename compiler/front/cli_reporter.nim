@@ -1303,6 +1303,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemXCannotRaiseY:
       result = "'$1' cannot raise '$2'" % [r.ast.render, r.raisesList.render]
 
+    of rsemHookCannotRaise:
+      result = "a hook routine is not allowed to raise. ($1)" % r.typ.render
+
     of rsemUnlistedRaises, rsemWarnUnlistedRaises:
       result.add("$1 can raise an unlisted exception: " % r.ast.render,
                  r.typ.render)
