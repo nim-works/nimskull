@@ -14,3 +14,4 @@ newStrNode	backend/compat.html#newStrNode,sinkstring	compat: newStrNode(str: sin
 translate	backend/compat.html#translate,MirTree	compat: translate(t: MirTree): CgNode	
 pick	backend/compat.html#pick,CgNode,T,T	compat: pick[T](n: CgNode; forInt, forFloat: T): T	
 numArgs	backend/compat.html#numArgs,CgNode	compat: numArgs(n: CgNode): int	
+callLen	backend/compat.html#callLen,CgNode	compat: callLen(n: CgNode): int	
