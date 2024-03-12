@@ -148,7 +148,7 @@ window.addEventListener('DOMContentLoaded', main);
 
   </div>
   &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/23c71c44893600c91faf0844f49ab075536ec02d/lib/system/assertions.nim#L1"
+href="https://github.com/nim-works/nimskull/tree/e223adb3cb0dfcb55bd5907c8dfe30bdbc007d7a/lib/system/assertions.nim#L1"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/system/assertions.nim#L1" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -172,7 +172,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Raises an <tt class="docutils literal"><span class="pre"><span class="Identifier">AssertionDefect</span></span></tt> with <tt class="docutils literal"><span class="pre"><span class="Identifier">msg</span></span></tt>, but this is hidden from the effect system. Called when an assertion failed.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/23c71c44893600c91faf0844f49ab075536ec02d/lib/system/assertions.nim#L30"
+href="https://github.com/nim-works/nimskull/tree/e223adb3cb0dfcb55bd5907c8dfe30bdbc007d7a/lib/system/assertions.nim#L30"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/system/assertions.nim#L30" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -185,7 +185,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Raises an <tt class="docutils literal"><span class="pre"><span class="Identifier">AssertionDefect</span></span></tt> with <tt class="docutils literal"><span class="pre"><span class="Identifier">msg</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/23c71c44893600c91faf0844f49ab075536ec02d/lib/system/assertions.nim#L26"
+href="https://github.com/nim-works/nimskull/tree/e223adb3cb0dfcb55bd5907c8dfe30bdbc007d7a/lib/system/assertions.nim#L26"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/system/assertions.nim#L26" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -210,7 +210,7 @@ class="link-seesrc" target="_blank">Source</a>
 <p><strong class="examples_text">Example: cmd: -d:danger</strong></p>
 <pre class="listing"><span class="Identifier">assert</span> <span class="DecNumber">1</span> <span class="Operator">==</span> <span class="DecNumber">2</span> <span class="Comment"># ditto</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/23c71c44893600c91faf0844f49ab075536ec02d/lib/system/assertions.nim#L51"
+href="https://github.com/nim-works/nimskull/tree/e223adb3cb0dfcb55bd5907c8dfe30bdbc007d7a/lib/system/assertions.nim#L51"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/system/assertions.nim#L51" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -224,7 +224,7 @@ Similar to <a class="reference external" href="#assert.t,untyped,string">assert<
 <p><strong class="examples_text">Example:</strong></p>
 <pre class="listing"><span class="Identifier">doAssert</span> <span class="DecNumber">1</span> <span class="Operator">==</span> <span class="DecNumber">1</span> <span class="Comment"># generates code even when built with `-d:danger` or `--assertions:off`</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/23c71c44893600c91faf0844f49ab075536ec02d/lib/system/assertions.nim#L65"
+href="https://github.com/nim-works/nimskull/tree/e223adb3cb0dfcb55bd5907c8dfe30bdbc007d7a/lib/system/assertions.nim#L65"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/system/assertions.nim#L65" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -240,7 +240,7 @@ Raises <tt class="docutils literal"><span class="pre"><span class="Identifier">A
 <span class="Identifier">doAssertRaises</span><span class="Punctuation">(</span><span class="Identifier">CatchableError</span><span class="Punctuation">)</span><span class="Punctuation">:</span> <span class="Keyword">raise</span> <span class="Identifier">newException</span><span class="Punctuation">(</span><span class="Identifier">ValueError</span><span class="Punctuation">,</span> <span class="StringLit">&quot;Hello World&quot;</span><span class="Punctuation">)</span>
 <span class="Identifier">doAssertRaises</span><span class="Punctuation">(</span><span class="Identifier">AssertionDefect</span><span class="Punctuation">)</span><span class="Punctuation">:</span> <span class="Identifier">doAssert</span> <span class="Identifier">false</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/23c71c44893600c91faf0844f49ab075536ec02d/lib/system/assertions.nim#L86"
+href="https://github.com/nim-works/nimskull/tree/e223adb3cb0dfcb55bd5907c8dfe30bdbc007d7a/lib/system/assertions.nim#L86"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/system/assertions.nim#L86" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -260,7 +260,7 @@ Sets an assertion failure handler that will intercept any assert statements foll
   <span class="Keyword">raise</span> <span class="Punctuation">(</span><span class="Keyword">ref</span> <span class="Identifier">MyError</span><span class="Punctuation">)</span><span class="Punctuation">(</span><span class="Identifier">msg</span><span class="Punctuation">:</span> <span class="Identifier">msg</span><span class="Punctuation">,</span> <span class="Identifier">lineinfo</span><span class="Punctuation">:</span> <span class="Identifier">instantiationInfo</span><span class="Punctuation">(</span><span class="Operator">-</span><span class="DecNumber">2</span><span class="Punctuation">)</span><span class="Punctuation">)</span>
 <span class="Identifier">doAssertRaises</span><span class="Punctuation">(</span><span class="Identifier">MyError</span><span class="Punctuation">)</span><span class="Punctuation">:</span> <span class="Identifier">doAssert</span> <span class="Identifier">false</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/23c71c44893600c91faf0844f49ab075536ec02d/lib/system/assertions.nim#L71"
+href="https://github.com/nim-works/nimskull/tree/e223adb3cb0dfcb55bd5907c8dfe30bdbc007d7a/lib/system/assertions.nim#L71"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/system/assertions.nim#L71" class="link-seesrc" target="_blank" >Edit</a>
 
