@@ -808,17 +808,16 @@ template cmpFloatRep(a, b: BiggestFloat): bool =
   # if a.floatVal == 0.0: result = cast[uint64](a.floatVal) == cast[uint64](b.floatVal)
   # else: result = a.floatVal == b.floatVal
 
-func cmpNodeCnst(a, b: PNode): bool {.inline.} =
-  ## Compares two trees for structural equality, also taking the type of
-  ## ``nkType`` nodes into account. This procedure is used to prevent the same
-  ## AST from being added as a node constant more than once
-  structEquiv(cmpNodeCnst,
-    relaxKindCheck = false,
-    symCheck = a.sym == b.sym,
-    floatCheck = cmpFloatRep(a.floatVal, b.floatVal),
-    commentCheck = a.comment == b.comment,
-    typeCheck = a.typ == b.typ
-  )
+# Compares two trees for structural equality, also taking the type of
+# ``nkType`` nodes into account. This procedure is used to prevent the same
+# AST from being added as a node constant more than once
+makeTreeEquivalenceProc(cmpNodeCnst,
+  relaxedKindCheck = false,
+  symCheck = a.sym == b.sym,
+  floatCheck = cmpFloatRep(a.floatVal, b.floatVal),
+  commentCheck = a.comment == b.comment,
+  typeCheck = a.typ == b.typ
+)
 
 template makeCnstFunc(name, vType, aKind, valName, cmp) {.dirty.} =
   proc name(c: var TCtx, val: vType): int =

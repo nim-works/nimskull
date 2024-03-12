@@ -60,14 +60,14 @@ proc canonKind(n: PNode): TNodeKind =
 proc sameKinds(a, b: PNode): bool {.inline.} =
   result = a.kind == b.kind or a.canonKind == b.canonKind
 
-proc sameTrees*(a, b: PNode): bool =
-  structEquiv(sameTrees,
-    relaxKindCheck = sameKinds(a, b), #a.canonKind == b.canonKind
-    symCheck = a.sym == b.sym,
-    floatCheck = a.floatVal == b.floatVal,
-    commentCheck = true, # Ignore comments
-    typeCheck = sameTypeOrNil(a.typ, b.typ)
-  )
+makeTreeEquivalenceProc(sameTrees,
+  relaxedKindCheck = sameKinds(a, b), #a.canonKind == b.canonKind
+  symCheck = a.sym == b.sym,
+  floatCheck = a.floatVal == b.floatVal,
+  commentCheck = true, # Ignore comments
+  typeCheck = sameTypeOrNil(a.typ, b.typ)
+)
+export sameTrees
 
 proc inSymChoice(sc, x: PNode): bool =
   if sc.kind == nkClosedSymChoice:

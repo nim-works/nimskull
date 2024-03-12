@@ -441,15 +441,15 @@ proc sameOpr(a, b: PSym): bool =
   of someDiv: result = b.magic in someDiv
   else: result = a == b
 
-proc sameTree*(a, b: PNode): bool =
-  structEquiv(sameTree,
-    relaxKindCheck = false,
-    symCheck = a.sym == b.sym or
-      (a.sym.magic != mNone and a.sym.magic == b.sym.magic or sameOpr(a.sym, b.sym)),
-    floatCheck = a.floatVal == b.floatVal,
-    commentCheck = true, # ignore comments
-    typeCheck = a.typ == b.typ
-  )
+makeTreeEquivalenceProc(sameTree,
+  relaxedKindCheck = false,
+  symCheck = a.sym == b.sym or
+    (a.sym.magic != mNone and a.sym.magic == b.sym.magic or sameOpr(a.sym, b.sym)),
+  floatCheck = a.floatVal == b.floatVal,
+  commentCheck = true, # ignore comments
+  typeCheck = a.typ == b.typ
+)
+export sameTree
 
 proc hasSubTree(n, x: PNode): bool =
   if n.sameTree(x): result = true

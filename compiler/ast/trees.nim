@@ -44,61 +44,62 @@ proc sameFloatIgnoreNan(a, b: BiggestFloat): bool {.inline.} =
   ## ignores NaN semantics, but ensures 0.0 == -0.0, see #13730
   cast[uint64](a) == cast[uint64](b) or a == b
 
-template structEquiv*(
-  self, relaxKindCheck, symCheck, floatCheck, commentCheck, typeCheck: untyped) =
-  # This template contains the skeleton/common denominator of all
-  # recursive PNode equivalence checks in the compiler code base
+template makeTreeEquivalenceProc*(
+  name, relaxedKindCheck, symCheck, floatCheck, commentCheck, typeCheck: untyped) {.dirty.} =
+  # Defines a tree equivalence checking procedure.
+  # This skeleton is shared between all recursive
+  # PNode equivalence checks in the compiler code base
   # It might be possible to unify more of them with each other.
-  result = false
-  if a == b:
-    result = true
-  elif a != nil and b != nil and a.kind == b.kind or relaxKindCheck:
-    case a.kind
-    of nkSym: result = symCheck
-    of nkIdent: result = a.ident.id == b.ident.id
-    of nkIntLiterals: result = a.intVal == b.intVal
-    of nkFloatLiterals: result = floatCheck
-    of nkStrLiterals: result = a.strVal == b.strVal
-    of nkCommentStmt: result = commentCheck
-    of nkError:
-      unreachable()
-    of nkType:
-      result = typeCheck
-    of nkEmpty, nkNilLit:
+  proc name(a, b: PNode): bool =
+    result = false
+    if a == b:
       result = true
-    of nkWithSons:
-      if a.len == b.len:
-        for i in 0..<a.len:
-          if not self(a[i], b[i]): return false
+    elif a != nil and b != nil and (a.kind == b.kind or relaxedKindCheck):
+      case a.kind
+      of nkSym: result = symCheck
+      of nkIdent: result = a.ident.id == b.ident.id
+      of nkIntLiterals: result = a.intVal == b.intVal
+      of nkFloatLiterals: result = floatCheck
+      of nkStrLiterals: result = a.strVal == b.strVal
+      of nkCommentStmt: result = commentCheck
+      of nkError:
+        unreachable()
+      of nkType:
+        result = typeCheck
+      of nkEmpty, nkNilLit:
         result = true
+      of nkWithSons:
+        if a.len == b.len:
+          for i in 0..<a.len:
+            if not name(a[i], b[i]): return false
+          result = true
 
-proc exprStructuralEquivalent*(a, b: PNode): bool =
-  structEquiv(exprStructuralEquivalent,
-    relaxKindCheck = false,
-    # don't go nuts here: same symbol as string is enough:
-    symCheck = a.sym.name.id == b.sym.name.id,
-    floatCheck = sameFloatIgnoreNan(a.floatVal, b.floatVal),
-    commentCheck = true,
-    typeCheck = true
-  )
+makeTreeEquivalenceProc(exprStructuralEquivalent,
+  relaxedKindCheck = false,
+  symCheck = a.sym.name.id == b.sym.name.id, # same symbol as string is enough
+  floatCheck = sameFloatIgnoreNan(a.floatVal, b.floatVal),
+  commentCheck = true,
+  typeCheck = true
+)
+export exprStructuralEquivalent
 
-proc exprStructuralEquivalentStrictSym*(a, b: PNode): bool =
-  structEquiv(exprStructuralEquivalentStrictSym,
-    relaxKindCheck = false,
-    symCheck = a.sym == b.sym,
-    floatCheck = sameFloatIgnoreNan(a.floatVal, b.floatVal),
-    commentCheck = true,
-    typeCheck = true
-  )
+makeTreeEquivalenceProc(exprStructuralEquivalentStrictSym,
+  relaxedKindCheck = false,
+  symCheck = a.sym == b.sym,
+  floatCheck = sameFloatIgnoreNan(a.floatVal, b.floatVal),
+  commentCheck = true,
+  typeCheck = true
+)
+export exprStructuralEquivalentStrictSym
 
-proc exprStructuralEquivalentStrictSymAndComm*(a, b: PNode): bool =
-  structEquiv(exprStructuralEquivalentStrictSymAndComm,
-    relaxKindCheck = false,
-    symCheck = a.sym == b.sym,
-    floatCheck = sameFloatIgnoreNan(a.floatVal, b.floatVal),
-    commentCheck = a.comment == b.comment,
-    typeCheck = true
-  )
+makeTreeEquivalenceProc(exprStructuralEquivalentStrictSymAndComm,
+  relaxedKindCheck = false,
+  symCheck = a.sym == b.sym,
+  floatCheck = sameFloatIgnoreNan(a.floatVal, b.floatVal),
+  commentCheck = a.comment == b.comment,
+  typeCheck = true
+)
+export exprStructuralEquivalentStrictSymAndComm
 
 proc getMagic*(op: PNode): TMagic =
   if op == nil: return mNone
