@@ -115,8 +115,7 @@ proc generateCodeForMain(globals: PGlobals, graph: ModuleGraph, m: BModule,
 
   let owner = m.module
   genTopLevelStmt(globals, m):
-    canonicalize(graph, m.idgen, globals.env, owner, body, TranslationConfig(),
-                 legacy=false)
+    canonicalize(graph, m.idgen, globals.env, owner, body, TranslationConfig())
 
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point into the JS backend. Generates the code for all modules and
