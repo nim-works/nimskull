@@ -331,7 +331,12 @@ block: # bug #15118
   block:
     flop("b")
 
-block: # Ensure nkCommentStmt equality is not ignored when checking for const duplicates:
+block:
+  # Ensure nkCommentStmt equality is not ignored when vmgen.cmpNodeCnst
+  # is used to deduplicate NimNode constants, so that `CommentStmt "comment 2"`
+  # is not counted as a duplicate of `CommentStmt "comment 1"` and
+  # incorrectly optimized to point at the `Comment "comment 1"` node
+
   proc createComment(s: string): NimNode =
     result = nnkCommentStmt.newNimNode()
     result.strVal = s
