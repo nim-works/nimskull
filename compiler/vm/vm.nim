@@ -3017,6 +3017,7 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
     of vmEvtFieldNotFound: adVmFieldNotFound
     of vmEvtNotAField: adVmNotAField
     of vmEvtFieldUnavailable: adVmFieldUnavailable
+    of vmEvtCannotCreateNode: adVmCannotCreateNode
     of vmEvtCannotSetChild: adVmCannotSetChild
     of vmEvtCannotAddChild: adVmCannotAddChild
     of vmEvtCannotGetChild: adVmCannotGetChild
@@ -3048,7 +3049,8 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
           indexSpec: evt.indexSpec)
       of adVmErrInternal, adVmNilAccess, adVmIllegalConv,
           adVmFieldUnavailable, adVmFieldNotFound,
-          adVmCacheKeyAlreadyExists, adVmMissingCacheKey:
+          adVmCacheKeyAlreadyExists, adVmMissingCacheKey,
+          adVmCannotCreateNode:
         AstDiagVmError(
           kind: kind,
           msg: evt.msg)

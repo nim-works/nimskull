@@ -987,6 +987,7 @@ type
     adVmFieldNotFound
     adVmNotAField
     adVmFieldUnavailable
+    adVmCannotCreateNode
     adVmCannotSetChild
     adVmCannotAddChild
     adVmCannotGetChild
@@ -1009,7 +1010,8 @@ type
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
       of adVmErrInternal, adVmNilAccess, adVmIllegalConv,
           adVmFieldUnavailable, adVmFieldNotFound,
-          adVmCacheKeyAlreadyExists, adVmMissingCacheKey:
+          adVmCacheKeyAlreadyExists, adVmMissingCacheKey,
+          adVmCannotCreateNode:
         msg*: string
       of adVmCannotSetChild, adVmCannotAddChild, adVmCannotGetChild,
           adVmUnhandledException, adVmNoType, adVmNodeNotASymbol:

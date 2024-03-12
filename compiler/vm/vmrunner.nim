@@ -273,6 +273,7 @@ func vmEventToLegacyReportKind(evt: VmEventKind): ReportKind {.inline.} =
   of vmEvtFieldNotFound: rvmFieldNotFound
   of vmEvtNotAField: rvmNotAField
   of vmEvtFieldUnavailable: rvmFieldInavailable
+  of vmEvtCannotCreateNode: rvmCannotCreateNode
   of vmEvtCannotSetChild: rvmCannotSetChild
   of vmEvtCannotAddChild: rvmCannotAddChild
   of vmEvtCannotGetChild: rvmCannotGetChild
