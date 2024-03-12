@@ -4,17 +4,21 @@ discard """
 
 import jsffi
 
+proc throwError() {.importjs: "throw new Error('a new error')".}
+
 # Can catch JS exceptions
 try:
-  asm """throw new Error('a new error');"""
+  throwError()
 except JsError as e:
   doAssert e.message == "a new error"
 except:
   doAssert false
 
+proc parse() {.importjs: "JSON.parse(';;')".}
+
 # Can distinguish different exceptions
 try:
-  asm """JSON.parse(';;');"""
+  parse()
 except JsEvalError:
   doAssert false
 except JsSyntaxError as se:
@@ -22,9 +26,11 @@ except JsSyntaxError as se:
 except JsError as e:
   doAssert false
 
+proc throwSyntaxError() {.importjs: "throw new SyntaxError()".}
+
 # Can catch parent exception
 try:
-  asm """throw new SyntaxError();"""
+  throwSyntaxError()
 except JsError as e:
   discard
 except:

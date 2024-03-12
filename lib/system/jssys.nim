@@ -31,7 +31,6 @@ type
 
 var
   framePtr {.importc, nodecl, volatile.}: PCallFrame
-  excHandler {.importc, nodecl, volatile.}: int = 0
   lastJSError {.importc, nodecl, volatile.}: PJSError = nil
 
 {.push stacktrace: off, profiler:off.}
@@ -148,18 +147,12 @@ proc prepareException(e: ref Exception, ename: cstring) {.
     e.trace = rawWriteStackTrace()
 
 proc raiseException(e: ref Exception) {.compilerproc, asmNoStackFrame.} =
-  if excHandler == 0:
-    unhandledException(e)
   asm "throw `e`;"
 
 proc reraiseException() {.compilerproc, asmNoStackFrame.} =
   if lastJSError == nil:
     raise newException(ReraiseDefect, "no exception to reraise")
   else:
-    if excHandler == 0:
-      if isNimException():
-        unhandledException(cast[ref Exception](lastJSError))
-
     asm "throw lastJSError;"
 
 proc raiseOverflow {.exportc: "raiseOverflow", noreturn, compilerproc.} =

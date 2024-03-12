@@ -210,3 +210,8 @@ func numArgs*(n: CgNode): int {.inline.} =
   ## Returns the number of arguments for a call-like node. The callee
   ## is excluded.
   n.len - 1 - ord(n.kind == cnkCheckedCall)
+
+func callLen*(n: CgNode): int {.inline.} =
+  ## The number of sub-nodes in a call-like node, excluding the trailing jump
+  ## target description.
+  n.len - ord(n.kind == cnkCheckedCall)
