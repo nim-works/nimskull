@@ -2130,8 +2130,8 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkJoinStmt, cnkGotoStmt:
     unreachable("handled separately")
   of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkBranch,
-     cnkLabel, cnkTargetList, cnkStmtListExpr, cnkField, cnkStmtList,
-     cnkLeave, cnkResume, cnkLegacyNodes:
+     cnkLabel, cnkTargetList, cnkField, cnkStmtList,
+     cnkLeave, cnkResume:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 
 proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =

@@ -105,9 +105,8 @@ type
                      ## different type
 
     cnkStmtList
-    cnkStmtListExpr
-    # XXX: both stmtlist and stmtlistexpr are obsolete. They're only kept for
-    #      grouping the top-level statements under a single node
+    # XXX: stmtlist is obsolete, and only kept temporarily to group statements
+    #      together under a single node
 
     cnkVoidStmt   ## discard the operand value (i.e., do nothing with it)
     cnkEmitStmt   ## an ``emit`` statement
@@ -115,20 +114,14 @@ type
 
     cnkIfStmt     ## only execute the body when the condition expression
                   ## evaluates to 'true'
-    cnkRepeatStmt ## execute the body indefinitely
     cnkCaseStmt   ## a ``case`` statement
     cnkBranch     ## the branch of a ``case`` statement
-    cnkBlockStmt  ## an (optionally) labeled block
-    cnkTryStmt
 
     cnkGotoStmt
     cnkLoopStmt   ## jump back to a loop join point
-    cnkBreakStmt  ## break out of labeled block, or, if no label is provided,
-                  ## the closest ``repeat`` loop
     cnkRaiseStmt  ## raise(x) -- set the `x` as the current exception and start
                   ## exceptional control-flow. `x` can be ``cnkEmpty`` in which
                   ## case "set current exception" part is skipped
-    cnkReturnStmt
     cnkContinueStmt## jump to the next target in the active jump list
 
     cnkJoinStmt   ## join point for gotos
@@ -155,19 +148,12 @@ const
   cnkWithOperand*  = {cnkConv, cnkHiddenConv, cnkDeref, cnkAddr, cnkHiddenAddr,
                       cnkDerefView, cnkObjDownConv, cnkObjUpConv, cnkCast,
                       cnkLvalueConv}
-  cnkAtoms*        = {cnkInvalid..cnkResume, cnkReturnStmt}
+  cnkAtoms*        = {cnkInvalid..cnkResume}
     ## node kinds that denote leafs
   cnkWithItems*    = AllKinds - cnkWithOperand - cnkAtoms
     ## node kinds for which the ``items`` iterator is available
 
   cnkLiterals* = {cnkIntLit, cnkUIntLit, cnkFloatLit, cnkStrLit}
-  cnkLegacyNodes* = {cnkBlockStmt, cnkTryStmt, cnkReturnStmt, cnkBreakStmt,
-                     cnkRepeatStmt}
-    ## node kinds that belong to the legacy control-flow representation
-  cnkNewCfNodes* = {cnkGotoStmt, cnkJoinStmt, cnkLeave, cnkResume,
-                    cnkContinueStmt, cnkLoopStmt, cnkLoopJoinStmt,
-                    cnkEnd, cnkTargetList}
-    ## node kinds that belong to the new-style control-flow representation
 
 type
   Local* = object
@@ -199,7 +185,7 @@ type
     info*: TLineInfo
     typ*: PType
     case kind*: CgNodeKind
-    of cnkInvalid, cnkEmpty, cnkType, cnkNilLit, cnkReturnStmt, cnkResume:
+    of cnkInvalid, cnkEmpty, cnkType, cnkNilLit, cnkResume:
       discard
     of cnkIntLit, cnkUIntLit:
       # future direction: use a ``BiggestUint`` for uint values
