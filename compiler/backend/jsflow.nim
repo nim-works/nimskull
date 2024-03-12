@@ -28,7 +28,8 @@ type
     stkCatch   ## a 'catch' clause of a 'try' statement
     stkFinally ## a 'finally' clause of a 'try' statement
 
-    stkEnd     ## end of a catch, finally, or block
+    stkEnd     ## end of a catch, finally, block, or `stkStructStart`
+               ## (if and while)
 
     stkTerminator ## a goto or raise statement. Only relevant during analysis
     stkReturn     ## JavaScript return
