@@ -61,11 +61,11 @@ proc sameKinds(a, b: PNode): bool {.inline.} =
   result = a.kind == b.kind or a.canonKind == b.canonKind
 
 makeTreeEquivalenceProc(sameTrees,
-  relaxedKindCheck = sameKinds(a, b), #a.canonKind == b.canonKind
-  symCheck = a.sym == b.sym,
-  floatCheck = a.floatVal == b.floatVal,
-  commentCheck = true, # Ignore comments
-  typeCheck = sameTypeOrNil(a.typ, b.typ)
+  relaxedKindCheck = sameKinds(a, b),
+  symCheck =     a.sym == b.sym,
+  floatCheck =   a.floatVal == b.floatVal,
+  typeCheck =    sameTypeOrNil(a.typ, b.typ),
+  commentCheck = true # Ignore comments
 )
 export sameTrees
 
