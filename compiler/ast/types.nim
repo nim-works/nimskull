@@ -652,7 +652,7 @@ proc sameTypeOrNil*(a, b: PType, flags: TTypeCmpFlags = {}): bool =
     else: result = sameType(a, b, flags)
 
 proc equalParam(a, b: PSym): TParamsEquality =
-  ## Returns wether parameters `a` and `b` are considered equal.
+  ## Returns whether parameters `a` and `b` are considered equal.
   ## Note that this operation is not commutative, so when comparing
   ## a forward declaration to an implementation, ensure `a` is the
   ## param from the forward declaration.
