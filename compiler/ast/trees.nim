@@ -62,9 +62,14 @@ template makeTreeEquivalenceProc*(
       of nkIdent:           result = a.ident.id == b.ident.id
       of nkIntLiterals:     result = a.intVal == b.intVal
       of nkFloatLiterals:   result = floatCheck
+        # XXX: Using float equality, even if partially tamed through
+        # sameFloatIgnoreNan, causes inconsistencies due to it lacking
+        # the substition and reflexivity property.
       of nkStrLiterals:     result = a.strVal == b.strVal
       of nkType:            result = typeCheck
       of nkCommentStmt:     result = commentCheck
+      # XXX: nkNimNodeLit should probably always be checked strictly.
+      # Currently this doesn't matter as only nkSym NimNode literals are created
       of nkWithSons:
         if a.len == b.len:
           for i in 0..<a.len:
