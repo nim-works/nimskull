@@ -88,7 +88,7 @@ template makeTreeEquivalenceProc*(
 makeTreeEquivalenceProc(exprStructuralEquivalent,
   relaxedKindCheck = false,
   symCheck     = a.sym.name.id == b.sym.name.id, # same symbol as string is enough
-  floatCheck   = sameFloatIgnoreNan(a.floatVal, b.floatVal),
+  floatCheck   = cmpFloatRep(a.floatVal, b.floatVal),
   typeCheck    = true,
   commentCheck = true
 )
