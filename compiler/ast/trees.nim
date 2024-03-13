@@ -97,7 +97,7 @@ export exprStructuralEquivalent
 makeTreeEquivalenceProc(exprStructuralEquivalentStrictSym,
   relaxedKindCheck = false,
   symCheck     = a.sym == b.sym,
-  floatCheck   = sameFloatIgnoreNan(a.floatVal, b.floatVal),
+  floatCheck   = cmpFloatRep(a.floatVal, b.floatVal),
   typeCheck    = true,
   commentCheck = true
 )
