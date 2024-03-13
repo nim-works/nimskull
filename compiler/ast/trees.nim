@@ -40,19 +40,13 @@ proc cyclicTree*(n: PNode): bool =
   var visited: seq[PNode] = @[]
   cyclicTreeAux(n, visited)
 
-proc sameFloatIgnoreNan(a, b: BiggestFloat): bool {.inline.} =
-  ## ignores NaN semantics, but ensures 0.0 == -0.0, see #13730
-  cast[uint64](a) == cast[uint64](b) or a == b
-
 template cmpFloatRep*(a, b: BiggestFloat): bool =
   ## Compares the bit-representation of floats `a` and `b`
   # Special handling for floats, so that floats that have the same
   # value but different bit representations are treated as different constants
+  # As opposed to float equality this does not lack the substition or
+  # reflexivity property, which the compiler relies on for correctness.
   cast[uint64](a) == cast[uint64](b)
-  # refs bug #16469
-  # if we wanted to only distinguish 0.0 vs -0.0:
-  # if a.floatVal == 0.0: result = cast[uint64](a.floatVal) == cast[uint64](b.floatVal)
-  # else: result = a.floatVal == b.floatVal
 
 template makeTreeEquivalenceProc*(
   name, relaxedKindCheck, symCheck, floatCheck, typeCheck, commentCheck) {.dirty.} =
@@ -72,9 +66,6 @@ template makeTreeEquivalenceProc*(
       of nkIdent:           result = a.ident.id == b.ident.id
       of nkIntLiterals:     result = a.intVal == b.intVal
       of nkFloatLiterals:   result = floatCheck
-        # XXX: Using float equality, even if partially tamed through
-        #      sameFloatIgnoreNan, causes inconsistencies due to it
-        #      lacking the substition and reflexivity property.
       of nkStrLiterals:     result = a.strVal == b.strVal
       of nkType:            result = typeCheck
       of nkCommentStmt:     result = commentCheck
