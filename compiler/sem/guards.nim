@@ -458,6 +458,9 @@ makeTreeEquivalenceProc(sameTree,
   symCheck     = sameOpr(a.sym, b.sym) or
     (a.sym.magic != mNone and a.sym.magic == b.sym.magic),
   floatCheck   = a.floatVal == b.floatVal,
+    # XXX: Even though float equality doesn't satisfy the
+    #      substition property, sameTree is used as if it did.
+    #      Using cmpFloatRep here would not be correct either.
   typeCheck    = a.typ == b.typ,
   commentCheck = true # ignore comments
 )
