@@ -63,7 +63,7 @@ proc sameKinds(a, b: PNode): bool {.inline.} =
 makeTreeEquivalenceProc(sameTrees,
   relaxedKindCheck = sameKinds(a, b),
   symCheck     = a.sym == b.sym,
-  floatCheck   = a.floatVal == b.floatVal,
+  floatCheck   = cmpFloatRep(a.floatVal, b.floatVal),
   typeCheck    = sameTypeOrNil(a.typ, b.typ),
   commentCheck = true # Ignore comments
 )
@@ -177,7 +177,7 @@ proc matches(c: PPatternContext, p, n: PNode): bool =
     of nkSym: result = p.sym == n.sym
     of nkIdent: result = p.ident.id == n.ident.id
     of nkIntLiterals: result = p.intVal == n.intVal
-    of nkFloatLiterals: result = p.floatVal == n.floatVal
+    of nkFloatLiterals: result = cmpFloatRep(p.floatVal, n.floatVal)
     of nkStrLiterals: result = p.strVal == n.strVal
     of nkEmpty, nkNilLit, nkType, nkCommentStmt:
       result = true # Ignore comments
