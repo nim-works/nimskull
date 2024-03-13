@@ -94,15 +94,6 @@ makeTreeEquivalenceProc(exprStructuralEquivalent,
 )
 export exprStructuralEquivalent
 
-makeTreeEquivalenceProc(exprStructuralEquivalentStrictSym,
-  relaxedKindCheck = false,
-  symCheck     = a.sym == b.sym,
-  floatCheck   = cmpFloatRep(a.floatVal, b.floatVal),
-  typeCheck    = true,
-  commentCheck = true
-)
-export exprStructuralEquivalentStrictSym
-
 makeTreeEquivalenceProc(exprStructuralEquivalentStrictSymAndComm,
   relaxedKindCheck = false,
   symCheck     = a.sym == b.sym,
