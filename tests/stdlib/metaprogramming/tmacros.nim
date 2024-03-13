@@ -150,7 +150,8 @@ block some_node_kinds_require_specialize_initialization:
   const kindsNotRequiringInit = {low(NimNodeKind)..high(NimNodeKind)} -
                                   nnkRequireInitKinds
 
-  doAssert kindsNotRequiringInit.len > 0
+  static:
+    doAssert kindsNotRequiringInit.len > 0
 
-  for k in kindsNotRequiringInit.items:
-    discard newNimNode(k)
+    for k in kindsNotRequiringInit.items:
+      discard newNimNode(k)
