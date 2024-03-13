@@ -15,8 +15,7 @@ import
   compiler/backend/[
     cgmeth,
     cgir,
-    cgirgen,
-    cgirgen_legacy
+    cgirgen
   ],
   compiler/front/[
     msgs,
@@ -369,13 +368,6 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: MirEnv,
   ## Translates the MIR code provided by `code` into ``CgNode`` IR and,
   ## if enabled, echoes the result.
   result = cgirgen.generateIR(graph, idgen, env, owner, body)
-  echoOutput(graph.config, owner, result)
-
-proc generateIRLegacy*(graph: ModuleGraph, idgen: IdGenerator, env: MirEnv,
-                 owner: PSym, body: sink MirBody): Body =
-  ## Translates the MIR code provided by `code` into legacy ``CgNode`` IR and,
-  ## if enabled, echoes the result.
-  result = cgirgen_legacy.generateIR(graph, idgen, env, owner, body)
   echoOutput(graph.config, owner, result)
 
 # ------- handling of lifted globals ---------

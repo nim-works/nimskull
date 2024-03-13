@@ -207,14 +207,8 @@ func analyseIfAddressTaken(n: CgNode, addrTaken: var PackedSet[LocalId]) =
   ## that have their address taken in `addrTaken`.
   proc skipAllConv(n: CgNode): CgNode {.nimcall.} =
     var n {.cursor.} = n
-    while true:
-      case n.kind
-      of cnkLvalueConv, cnkObjDownConv, cnkObjUpConv:
-        n = n.operand
-      of cnkStmtListExpr:
-        n = n[^1]
-      else:
-        break
+    while n.kind in {cnkLvalueConv, cnkObjDownConv, cnkObjUpConv}:
+      n = n.operand
 
     result = n
 
@@ -1189,11 +1183,6 @@ proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkObjUpConv, cnkObjDownConv:
     # object up-/down-conversions are no-ops
     genAddr(p, n.operand, r)
-  of cnkStmtListExpr:
-    for i in 0..<n.len-1:
-      genStmt(p, n[i])
-
-    genAddr(p, n[^1], r)
   else:
     internalError(p.config, n.info, "genAddr: " & $n.kind)
 
@@ -2677,8 +2666,8 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkJoinStmt, cnkEnd, cnkLoopStmt, cnkContinueStmt:
     discard "terminators or endings for which no special handling is needed"
   of cnkInvalid, cnkMagic, cnkRange, cnkBinding, cnkLeave, cnkTargetList,
-     cnkResume, cnkBranch, cnkAstLit, cnkLabel, cnkStmtListExpr, cnkStmtList,
-     cnkField, cnkLegacyNodes, cnkCaseStmt:
+     cnkResume, cnkBranch, cnkAstLit, cnkLabel, cnkStmtList, cnkCaseStmt,
+     cnkField:
     internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =

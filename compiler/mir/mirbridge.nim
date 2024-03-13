@@ -10,7 +10,6 @@ import
   compiler/backend/[
     cgir,
     cgirgen,
-    cgirgen_legacy,
     cgirutils
   ],
   compiler/front/[
@@ -77,8 +76,7 @@ proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
       config.writeln(treeRepr(body.code))
 
 proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
-                   owner: PSym, body: PNode, config: TranslationConfig;
-                   legacy=false): Body =
+                   owner: PSym, body: PNode, config: TranslationConfig): Body =
   ## Legacy routine. Translates the body `body` of the procedure `owner` to
   ## MIR code, and the MIR code to ``CgNode`` IR.
   echoInput(graph.config, owner, body)
@@ -87,8 +85,5 @@ proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
   echoMir(graph.config, owner, body)
 
   # step 2: generate the ``CgNode`` tree
-  if legacy:
-    result = cgirgen_legacy.generateIR(graph, idgen, env, owner, body)
-  else:
-    result = cgirgen.generateIR(graph, idgen, env, owner, body)
+  result = cgirgen.generateIR(graph, idgen, env, owner, body)
   echoOutput(graph.config, owner, result)

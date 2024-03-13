@@ -3187,8 +3187,8 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkAsmStmt, cnkEmitStmt:
     unused(c, n, dest)
   of cnkInvalid, cnkMagic, cnkRange, cnkBranch,
-     cnkBinding, cnkLabel, cnkStmtListExpr, cnkField, cnkToSlice,
-     cnkLegacyNodes, cnkResume, cnkTargetList, cnkLeave:
+     cnkBinding, cnkLabel, cnkField, cnkToSlice,
+     cnkResume, cnkTargetList, cnkLeave:
     unreachable(n.kind)
 
 proc initProc(c: TCtx, owner: PSym, body: sink Body): BProc =
