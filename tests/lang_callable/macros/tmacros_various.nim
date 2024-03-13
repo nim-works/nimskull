@@ -12,6 +12,8 @@ Infix
 macrocache ok
 CommentStmt "comment 1"
 CommentStmt "comment 2"
+false
+true
 '''
 
   output: '''
@@ -346,3 +348,10 @@ block:
   static:
     echo treeRepr(C1[1])
     echo treeRepr(C2[1])
+
+block:
+  # Ensure float equality semantics are not used when comparing AST for equality
+
+  static:
+    echo newLit(0.0) == newLit(-0.0) # false
+    echo newLit(NaN) == newLit(NaN) # true
