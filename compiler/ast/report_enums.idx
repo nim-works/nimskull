@@ -115,6 +115,7 @@ rvmMissingCacheKey	ast/report_enums.html#rvmMissingCacheKey	ReportKind.rvmMissin
 rvmCacheKeyAlreadyExists	ast/report_enums.html#rvmCacheKeyAlreadyExists	ReportKind.rvmCacheKeyAlreadyExists	
 rvmFieldNotFound	ast/report_enums.html#rvmFieldNotFound	ReportKind.rvmFieldNotFound	
 rvmFieldInavailable	ast/report_enums.html#rvmFieldInavailable	ReportKind.rvmFieldInavailable	
+rvmCannotCreateNode	ast/report_enums.html#rvmCannotCreateNode	ReportKind.rvmCannotCreateNode	
 rvmCannotSetChild	ast/report_enums.html#rvmCannotSetChild	ReportKind.rvmCannotSetChild	
 rvmCannotAddChild	ast/report_enums.html#rvmCannotAddChild	ReportKind.rvmCannotAddChild	
 rvmCannotGetChild	ast/report_enums.html#rvmCannotGetChild	ReportKind.rvmCannotGetChild	

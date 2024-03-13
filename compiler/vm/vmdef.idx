@@ -138,6 +138,7 @@ vmEvtCacheKeyAlreadyExists	vm/vmdef.html#vmEvtCacheKeyAlreadyExists	VmEventKind.
 vmEvtFieldNotFound	vm/vmdef.html#vmEvtFieldNotFound	VmEventKind.vmEvtFieldNotFound	
 vmEvtNotAField	vm/vmdef.html#vmEvtNotAField	VmEventKind.vmEvtNotAField	
 vmEvtFieldUnavailable	vm/vmdef.html#vmEvtFieldUnavailable	VmEventKind.vmEvtFieldUnavailable	
+vmEvtCannotCreateNode	vm/vmdef.html#vmEvtCannotCreateNode	VmEventKind.vmEvtCannotCreateNode	
 vmEvtCannotSetChild	vm/vmdef.html#vmEvtCannotSetChild	VmEventKind.vmEvtCannotSetChild	
 vmEvtCannotAddChild	vm/vmdef.html#vmEvtCannotAddChild	VmEventKind.vmEvtCannotAddChild	
 vmEvtCannotGetChild	vm/vmdef.html#vmEvtCannotGetChild	VmEventKind.vmEvtCannotGetChild	

@@ -747,6 +747,7 @@ adVmCacheKeyAlreadyExists	ast/ast_types.html#adVmCacheKeyAlreadyExists	AstDiagVm
 adVmFieldNotFound	ast/ast_types.html#adVmFieldNotFound	AstDiagVmKind.adVmFieldNotFound	
 adVmNotAField	ast/ast_types.html#adVmNotAField	AstDiagVmKind.adVmNotAField	
 adVmFieldUnavailable	ast/ast_types.html#adVmFieldUnavailable	AstDiagVmKind.adVmFieldUnavailable	
+adVmCannotCreateNode	ast/ast_types.html#adVmCannotCreateNode	AstDiagVmKind.adVmCannotCreateNode	
 adVmCannotSetChild	ast/ast_types.html#adVmCannotSetChild	AstDiagVmKind.adVmCannotSetChild	
 adVmCannotAddChild	ast/ast_types.html#adVmCannotAddChild	AstDiagVmKind.adVmCannotAddChild	
 adVmCannotGetChild	ast/ast_types.html#adVmCannotGetChild	AstDiagVmKind.adVmCannotGetChild	
