@@ -341,10 +341,8 @@ block:
     result = nnkCommentStmt.newNimNode()
     result.strVal = s
 
-  macro testComments =
-    const C1 = (1, createComment("comment 1"))
-    const C2 = (1, createComment("comment 2"))
+  const C1 = (1, createComment("comment 1"))
+  const C2 = (1, createComment("comment 2"))
+  static:
     echo treeRepr(C1[1])
     echo treeRepr(C2[1])
-
-  testComments
