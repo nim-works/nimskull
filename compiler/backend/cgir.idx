@@ -45,21 +45,15 @@ cnkObjDownConv	backend/cgir.html#cnkObjDownConv	CgNodeKind.cnkObjDownConv
 cnkObjUpConv	backend/cgir.html#cnkObjUpConv	CgNodeKind.cnkObjUpConv	
 cnkCast	backend/cgir.html#cnkCast	CgNodeKind.cnkCast	
 cnkStmtList	backend/cgir.html#cnkStmtList	CgNodeKind.cnkStmtList	
-cnkStmtListExpr	backend/cgir.html#cnkStmtListExpr	CgNodeKind.cnkStmtListExpr	
 cnkVoidStmt	backend/cgir.html#cnkVoidStmt	CgNodeKind.cnkVoidStmt	
 cnkEmitStmt	backend/cgir.html#cnkEmitStmt	CgNodeKind.cnkEmitStmt	
 cnkAsmStmt	backend/cgir.html#cnkAsmStmt	CgNodeKind.cnkAsmStmt	
 cnkIfStmt	backend/cgir.html#cnkIfStmt	CgNodeKind.cnkIfStmt	
-cnkRepeatStmt	backend/cgir.html#cnkRepeatStmt	CgNodeKind.cnkRepeatStmt	
 cnkCaseStmt	backend/cgir.html#cnkCaseStmt	CgNodeKind.cnkCaseStmt	
 cnkBranch	backend/cgir.html#cnkBranch	CgNodeKind.cnkBranch	
-cnkBlockStmt	backend/cgir.html#cnkBlockStmt	CgNodeKind.cnkBlockStmt	
-cnkTryStmt	backend/cgir.html#cnkTryStmt	CgNodeKind.cnkTryStmt	
 cnkGotoStmt	backend/cgir.html#cnkGotoStmt	CgNodeKind.cnkGotoStmt	
 cnkLoopStmt	backend/cgir.html#cnkLoopStmt	CgNodeKind.cnkLoopStmt	
-cnkBreakStmt	backend/cgir.html#cnkBreakStmt	CgNodeKind.cnkBreakStmt	
 cnkRaiseStmt	backend/cgir.html#cnkRaiseStmt	CgNodeKind.cnkRaiseStmt	
-cnkReturnStmt	backend/cgir.html#cnkReturnStmt	CgNodeKind.cnkReturnStmt	
 cnkContinueStmt	backend/cgir.html#cnkContinueStmt	CgNodeKind.cnkContinueStmt	
 cnkJoinStmt	backend/cgir.html#cnkJoinStmt	CgNodeKind.cnkJoinStmt	
 cnkLoopJoinStmt	backend/cgir.html#cnkLoopJoinStmt	CgNodeKind.cnkLoopJoinStmt	
@@ -76,8 +70,6 @@ cnkWithOperand	backend/cgir.html#cnkWithOperand	cgir: cnkWithOperand
 cnkAtoms	backend/cgir.html#cnkAtoms	cgir: cnkAtoms	
 cnkWithItems	backend/cgir.html#cnkWithItems	cgir: cnkWithItems	
 cnkLiterals	backend/cgir.html#cnkLiterals	cgir: cnkLiterals	
-cnkLegacyNodes	backend/cgir.html#cnkLegacyNodes	cgir: cnkLegacyNodes	
-cnkNewCfNodes	backend/cgir.html#cnkNewCfNodes	cgir: cnkNewCfNodes	
 Local	backend/cgir.html#Local	cgir: Local	
 BlockId	backend/cgir.html#BlockId	cgir: BlockId	
 LocalId	backend/cgir.html#LocalId	cgir: LocalId	
