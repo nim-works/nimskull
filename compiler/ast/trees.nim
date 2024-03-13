@@ -44,6 +44,16 @@ proc sameFloatIgnoreNan(a, b: BiggestFloat): bool {.inline.} =
   ## ignores NaN semantics, but ensures 0.0 == -0.0, see #13730
   cast[uint64](a) == cast[uint64](b) or a == b
 
+template cmpFloatRep*(a, b: BiggestFloat): bool =
+  ## Compares the bit-representation of floats `a` and `b`
+  # Special handling for floats, so that floats that have the same
+  # value but different bit representations are treated as different constants
+  cast[uint64](a) == cast[uint64](b)
+  # refs bug #16469
+  # if we wanted to only distinguish 0.0 vs -0.0:
+  # if a.floatVal == 0.0: result = cast[uint64](a.floatVal) == cast[uint64](b.floatVal)
+  # else: result = a.floatVal == b.floatVal
+
 template makeTreeEquivalenceProc*(
   name, relaxedKindCheck, symCheck, floatCheck, typeCheck, commentCheck) {.dirty.} =
   ## Defines a tree equivalence checking procedure.
