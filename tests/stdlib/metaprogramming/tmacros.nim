@@ -144,3 +144,13 @@ block: # extractDocCommentsAndRunnables
     
   proc c() {.checkComments("Hello world").} =
     ## Hello world
+
+block some_node_kinds_require_specialize_initialization:
+  ## ensure we can init all the rest as a "negative" test
+  const kindsNotRequiringInit = {low(NimNodeKind)..high(NimNodeKind)} -
+                                  nnkRequireInitKinds
+
+  doAssert kindsNotRequiringInit.len > 0
+
+  for k in kindsNotRequiringInit.items:
+    discard newNimNode(k)
