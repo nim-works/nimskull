@@ -141,7 +141,7 @@ window.addEventListener('DOMContentLoaded', main);
 
   </div>
   &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmaux.nim#L1"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmaux.nim#L1"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmaux.nim#L1" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -164,7 +164,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Sets the execution information of the function table entry to <tt class="docutils literal"><span class="pre"><span class="Identifier">info</span></span></tt>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmaux.nim#L118"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmaux.nim#L118"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmaux.nim#L118" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -177,7 +177,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmaux.nim#L50"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmaux.nim#L50"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmaux.nim#L50" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -189,7 +189,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Find the <tt class="docutils literal"><span class="pre"><span class="Identifier">nkRecCase</span></span></tt> node in <tt class="docutils literal"><span class="pre"><span class="Identifier">t</span></span></tt> or any of it's base types that has <tt class="docutils literal"><span class="pre"><span class="Identifier">d</span></span></tt> as the discriminator
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmaux.nim#L43"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmaux.nim#L43"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmaux.nim#L43" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -201,7 +201,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Return the symbol the hidden environment parameter, or <tt class="docutils literal"><span class="pre"><span class="Keyword">nil</span></span></tt> if there's none
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmaux.nim#L76"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmaux.nim#L76"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmaux.nim#L76" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -209,12 +209,12 @@ class="link-seesrc" target="_blank">Source</a>
 </div>
 <div id="initProcEntry,TCtx,PSym">
 <dt><pre><span class="Keyword">proc</span> <a href="#initProcEntry%2CTCtx%2CPSym"><span class="Identifier">initProcEntry</span></a><span class="Other">(</span><span class="Identifier">c</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="vmdef.html#TCtx"><span class="Identifier">TCtx</span></a><span class="Other">;</span> <span class="Identifier">prc</span><span class="Other">:</span> <a href="../ast/ast_types.html#PSym"><span class="Identifier">PSym</span></a><span class="Other">)</span><span class="Other">:</span> <a href="vmdef.html#FuncTableEntry"><span class="Identifier">FuncTableEntry</span></a> {.<span class="Identifier">inline</span><span class="Other">,</span>
-    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">KeyError</span><span class="Other">,</span> <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
+    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">,</span> <span class="Identifier">KeyError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
 <dd>
 
 Convenience wrapper around <a class="reference external" href="#initProcEntry,Patterns,ConfigRef,TypeInfoCache,PSym">initProcEntry</a>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmaux.nim#L113"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmaux.nim#L113"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmaux.nim#L113" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -223,12 +223,12 @@ class="link-seesrc" target="_blank">Source</a>
 <div id="initProcEntry,Patterns,ConfigRef,TypeInfoCache,PSym">
 <dt><pre><span class="Keyword">proc</span> <a href="#initProcEntry%2CPatterns%2CConfigRef%2CTypeInfoCache%2CPSym"><span class="Identifier">initProcEntry</span></a><span class="Other">(</span><span class="Identifier">keys</span><span class="Other">:</span> <a href="identpatterns.html#Patterns"><span class="Identifier">Patterns</span></a><span class="Other">;</span> <span class="Identifier">config</span><span class="Other">:</span> <a href="../front/options.html#ConfigRef"><span class="Identifier">ConfigRef</span></a><span class="Other">;</span> <span class="Identifier">tc</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="vmdef.html#TypeInfoCache"><span class="Identifier">TypeInfoCache</span></a><span class="Other">;</span>
                    <span class="Identifier">prc</span><span class="Other">:</span> <a href="../ast/ast_types.html#PSym"><span class="Identifier">PSym</span></a><span class="Other">)</span><span class="Other">:</span> <a href="vmdef.html#FuncTableEntry"><span class="Identifier">FuncTableEntry</span></a> {.
-    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">KeyError</span><span class="Other">,</span> <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
+    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">,</span> <span class="Identifier">KeyError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
 <dd>
 
 Returns an initialized function table entry. Execution information (such as the bytecode offset and register count) for procedures not overriden by callbacks is initialized to a state that indicates &quot;missing&quot;; it needs to be filled in separately via <tt class="docutils literal"><span class="pre"><span class="Identifier">fillProcEntry</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmaux.nim#L84"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmaux.nim#L84"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmaux.nim#L84" class="link-seesrc" target="_blank" >Edit</a>
 

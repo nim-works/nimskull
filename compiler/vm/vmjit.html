@@ -172,7 +172,7 @@ window.addEventListener('DOMContentLoaded', main);
 
   </div>
   &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmjit.nim#L1"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmjit.nim#L1"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmjit.nim#L1" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -199,7 +199,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 State of the VM's just-in-time compiler that is kept across invocations.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmjit.nim#L64"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmjit.nim#L64"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmjit.nim#L64" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -218,7 +218,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Generates code for the the given function and updates the execution environment. In addition, the function's table entry is updated with the bytecode position and execution requirements (i.e. register count). Make sure to only use <tt class="docutils literal"><span class="pre"><span class="Identifier">compile</span></span></tt> when you're sure the function wasn't generated yet
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmjit.nim#L310"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmjit.nim#L310"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmjit.nim#L310" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -226,12 +226,12 @@ class="link-seesrc" target="_blank">Source</a>
 </div>
 <div id="constDataToMir,TCtx,JitState,PNode">
 <dt><pre><span class="Keyword">proc</span> <a href="#constDataToMir%2CTCtx%2CJitState%2CPNode"><span class="Identifier">constDataToMir</span></a><span class="Other">(</span><span class="Identifier">c</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="vmdef.html#TCtx"><span class="Identifier">TCtx</span></a><span class="Other">;</span> <span class="Identifier">jit</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="vmjit.html#JitState"><span class="Identifier">JitState</span></a><span class="Other">;</span> <span class="Identifier">e</span><span class="Other">:</span> <a href="../ast/ast_types.html#PNode"><span class="Identifier">PNode</span></a><span class="Other">)</span><span class="Other">:</span> <a href="../mir/mirtrees.html#MirTree"><span class="Identifier">MirTree</span></a> {.
-    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">KeyError</span><span class="Other">,</span> <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
+    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">,</span> <span class="Identifier">KeyError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
 <dd>
 
 Translates the constant expression <tt class="docutils literal"><span class="pre"><span class="Identifier">e</span></span></tt> to a MIR constant expression and returns it. Entities referenced by the constant expression (e.g., procedures), are direclty registered with the environment.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmjit.nim#L349"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmjit.nim#L349"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmjit.nim#L349" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -239,14 +239,14 @@ class="link-seesrc" target="_blank">Source</a>
 </div>
 <div id="genExpr,JitState,TCtx,PNode">
 <dt><pre><span class="Keyword">proc</span> <a href="#genExpr%2CJitState%2CTCtx%2CPNode"><span class="Identifier">genExpr</span></a><span class="Other">(</span><span class="Identifier">jit</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="vmjit.html#JitState"><span class="Identifier">JitState</span></a><span class="Other">;</span> <span class="Identifier">c</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="vmdef.html#TCtx"><span class="Identifier">TCtx</span></a><span class="Other">;</span> <span class="Identifier">n</span><span class="Other">:</span> <a href="../ast/ast_types.html#PNode"><span class="Identifier">PNode</span></a><span class="Other">)</span><span class="Other">:</span> <a href="vmgen.html#VmGenResult"><span class="Identifier">VmGenResult</span></a> {.<span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span>
-    <span class="Identifier">ResultErrorRef[system.void]</span><span class="Other">,</span> <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">KeyError</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">,</span>
+    <span class="Identifier">ResultErrorRef[system.void]</span><span class="Other">,</span> <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">,</span> <span class="Identifier">KeyError</span><span class="Other">,</span>
     <span class="Identifier">ValueError</span><span class="Other">,</span> <span class="Identifier">ResultErrorRef[vmdef.VmGenDiag]</span><span class="Other">]</span><span class="Other">,</span>
     <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">,</span> <span class="Identifier">ReadDirEffect</span><span class="Other">]</span></span>.}</pre></dt>
 <dd>
 
 Generates and emits code for the standalone expression <tt class="docutils literal"><span class="pre"><span class="Identifier">n</span></span></tt>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmjit.nim#L218"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmjit.nim#L218"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmjit.nim#L218" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -254,14 +254,14 @@ class="link-seesrc" target="_blank">Source</a>
 </div>
 <div id="genStmt,JitState,TCtx,PNode">
 <dt><pre><span class="Keyword">proc</span> <a href="#genStmt%2CJitState%2CTCtx%2CPNode"><span class="Identifier">genStmt</span></a><span class="Other">(</span><span class="Identifier">jit</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="vmjit.html#JitState"><span class="Identifier">JitState</span></a><span class="Other">;</span> <span class="Identifier">c</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="vmdef.html#TCtx"><span class="Identifier">TCtx</span></a><span class="Other">;</span> <span class="Identifier">n</span><span class="Other">:</span> <a href="../ast/ast_types.html#PNode"><span class="Identifier">PNode</span></a><span class="Other">)</span><span class="Other">:</span> <a href="vmgen.html#VmGenResult"><span class="Identifier">VmGenResult</span></a> {.<span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span>
-    <span class="Identifier">ResultErrorRef[system.void]</span><span class="Other">,</span> <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">KeyError</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">,</span>
+    <span class="Identifier">ResultErrorRef[system.void]</span><span class="Other">,</span> <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">,</span> <span class="Identifier">KeyError</span><span class="Other">,</span>
     <span class="Identifier">ValueError</span><span class="Other">,</span> <span class="Identifier">ResultErrorRef[vmdef.VmGenDiag]</span><span class="Other">]</span><span class="Other">,</span>
     <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">,</span> <span class="Identifier">ReadDirEffect</span><span class="Other">]</span></span>.}</pre></dt>
 <dd>
 
 Generates and emits code for the standalone top-level statement <tt class="docutils literal"><span class="pre"><span class="Identifier">n</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmjit.nim#L190"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmjit.nim#L190"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmjit.nim#L190" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -273,7 +273,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Returns the link index for the symbol <tt class="docutils literal"><span class="pre"><span class="Identifier">g</span></span></tt>. <tt class="docutils literal"><span class="pre"><span class="Identifier">g</span></span></tt> must be known to <tt class="docutils literal"><span class="pre"><span class="Identifier">jit</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmjit.nim#L290"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmjit.nim#L290"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmjit.nim#L290" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -286,7 +286,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Returns whether the bytecode for <tt class="docutils literal"><span class="pre"><span class="Identifier">prc</span></span></tt> is already available.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmjit.nim#L294"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmjit.nim#L294"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmjit.nim#L294" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -294,13 +294,13 @@ class="link-seesrc" target="_blank">Source</a>
 </div>
 <div id="loadProc,JitState,TCtx,PSym">
 <dt><pre><span class="Keyword">proc</span> <a href="#loadProc%2CJitState%2CTCtx%2CPSym"><span class="Identifier">loadProc</span></a><span class="Other">(</span><span class="Identifier">jit</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="vmjit.html#JitState"><span class="Identifier">JitState</span></a><span class="Other">;</span> <span class="Identifier">c</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="vmdef.html#TCtx"><span class="Identifier">TCtx</span></a><span class="Other">;</span> <span class="Identifier">sym</span><span class="Other">:</span> <a href="../ast/ast_types.html#PSym"><span class="Identifier">PSym</span></a><span class="Other">)</span><span class="Other">:</span> <a href="vmgen.html#VmGenResult"><span class="Identifier">VmGenResult</span></a> {.<span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span>
-    <span class="Identifier">KeyError</span><span class="Other">,</span> <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">,</span> <span class="Identifier">ValueError</span><span class="Other">,</span>
+    <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">,</span> <span class="Identifier">KeyError</span><span class="Other">,</span> <span class="Identifier">ValueError</span><span class="Other">,</span>
     <span class="Identifier">ResultErrorRef[system.void]</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">,</span> <span class="Identifier">ReadDirEffect</span><span class="Other">]</span></span>.}</pre></dt>
 <dd>
 
 The main entry point into the JIT code-generator. Retrieves the information required for executing <tt class="docutils literal"><span class="pre"><span class="Identifier">sym</span></span></tt>. A function table entry is created first if it doesn't exist yet, and the procedure is also generated via <tt class="docutils literal"><span class="pre"><span class="Identifier">compile</span></span></tt> if it wasn't already
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmjit.nim#L325"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmjit.nim#L325"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmjit.nim#L325" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -313,7 +313,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Registers the <tt class="docutils literal"><span class="pre"><span class="Identifier">callback</span></span></tt> with <tt class="docutils literal"><span class="pre"><span class="Identifier">c</span></span></tt>. After the <tt class="docutils literal"><span class="pre">registerCallback</span></tt> call, when a procedures of which the fully qualified identifier matches <tt class="docutils literal"><span class="pre"><span class="Identifier">pattern</span></span></tt> is added to the VM's function table, all invocations of the procedure at run-time will invoke the callback instead.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmjit.nim#L339"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmjit.nim#L339"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmjit.nim#L339" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -321,12 +321,12 @@ class="link-seesrc" target="_blank">Source</a>
 </div>
 <div id="registerProcedure,JitState,TCtx,PSym">
 <dt><pre><span class="Keyword">proc</span> <a href="#registerProcedure%2CJitState%2CTCtx%2CPSym"><span class="Identifier">registerProcedure</span></a><span class="Other">(</span><span class="Identifier">jit</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="vmjit.html#JitState"><span class="Identifier">JitState</span></a><span class="Other">;</span> <span class="Identifier">c</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="vmdef.html#TCtx"><span class="Identifier">TCtx</span></a><span class="Other">;</span> <span class="Identifier">prc</span><span class="Other">:</span> <a href="../ast/ast_types.html#PSym"><span class="Identifier">PSym</span></a><span class="Other">)</span><span class="Other">:</span> <a href="vmdef.html#FunctionIndex"><span class="Identifier">FunctionIndex</span></a> {.
-    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">KeyError</span><span class="Other">,</span> <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
+    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">,</span> <span class="Identifier">KeyError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
 <dd>
 
 If it hasn't been already, adds <tt class="docutils literal"><span class="pre"><span class="Identifier">prc</span></span></tt> to the set of procedures the JIT code-generator knowns about and sets up a function-table entry. <tt class="docutils literal"><span class="pre"><span class="Identifier">jit</span></span></tt> is required to not be in the process of generating code.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/vm/vmjit.nim#L299"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/vm/vmjit.nim#L299"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmjit.nim#L299" class="link-seesrc" target="_blank" >Edit</a>
 

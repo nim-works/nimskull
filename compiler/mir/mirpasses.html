@@ -128,7 +128,7 @@ window.addEventListener('DOMContentLoaded', main);
 
   </div>
   &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/mir/mirpasses.nim#L1"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/mir/mirpasses.nim#L1"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/mir/mirpasses.nim#L1" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -151,7 +151,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 The backend that is going to consume the MIR code. Used to select what passes to run.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/mir/mirpasses.nim#L45"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/mir/mirpasses.nim#L45"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/mir/mirpasses.nim#L45" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -165,13 +165,13 @@ class="link-seesrc" target="_blank">Source</a>
 <div id="applyPasses,MirBody,PSym,MirEnv,ModuleGraph,TargetBackend">
 <dt><pre><span class="Keyword">proc</span> <a href="#applyPasses%2CMirBody%2CPSym%2CMirEnv%2CModuleGraph%2CTargetBackend"><span class="Identifier">applyPasses</span></a><span class="Other">(</span><span class="Identifier">body</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="mirbodies.html#MirBody"><span class="Identifier">MirBody</span></a><span class="Other">;</span> <span class="Identifier">prc</span><span class="Other">:</span> <a href="../ast/ast_types.html#PSym"><span class="Identifier">PSym</span></a><span class="Other">;</span> <span class="Identifier">env</span><span class="Other">:</span> <span class="Keyword">var</span> <a href="mirenv.html#MirEnv"><span class="Identifier">MirEnv</span></a><span class="Other">;</span>
                  <span class="Identifier">graph</span><span class="Other">:</span> <a href="../modules/modulegraphs.html#ModuleGraph"><span class="Identifier">ModuleGraph</span></a><span class="Other">;</span> <span class="Identifier">target</span><span class="Other">:</span> <a href="mirpasses.html#TargetBackend"><span class="Identifier">TargetBackend</span></a><span class="Other">)</span> {.
-    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">KeyError</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">]</span><span class="Other">,</span>
+    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">,</span> <span class="Identifier">KeyError</span><span class="Other">]</span><span class="Other">,</span>
     <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">,</span> <span class="Identifier">ReadDirEffect</span><span class="Other">]</span></span>.}</pre></dt>
 <dd>
 
 Applies all applicable MIR passes to the body (<tt class="docutils literal"><span class="pre"><span class="Identifier">tree</span></span></tt> and <tt class="docutils literal"><span class="pre"><span class="Identifier">source</span></span></tt>) of <tt class="docutils literal"><span class="pre"><span class="Identifier">prc</span></span></tt>. <tt class="docutils literal"><span class="pre"><span class="Identifier">target</span></span></tt> is the targeted backend and is used to enable/disable certain passes. Passes may register new entities with <tt class="docutils literal"><span class="pre"><span class="Identifier">env</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/mir/mirpasses.nim#L461"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/mir/mirpasses.nim#L461"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/mir/mirpasses.nim#L461" class="link-seesrc" target="_blank" >Edit</a>
 

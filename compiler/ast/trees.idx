@@ -1,6 +1,8 @@
 cyclicTree	ast/trees.html#cyclicTree,PNode	trees: cyclicTree(n: PNode): bool	
-exprStructuralEquivalent	ast/trees.html#exprStructuralEquivalent,PNode,PNode	trees: exprStructuralEquivalent(a, b: PNode; strictSymEquality = false): bool	
-sameTree	ast/trees.html#sameTree,PNode,PNode	trees: sameTree(a, b: PNode): bool	
+makeTreeEquivalenceProc	ast/trees.html#makeTreeEquivalenceProc.t,,,,,,	trees: makeTreeEquivalenceProc(name, relaxedKindCheck, symCheck, floatCheck, typeCheck,\n                        commentCheck)	
+exprStructuralEquivalent	ast/trees.html#exprStructuralEquivalent,PNode,PNode	trees: exprStructuralEquivalent(a, b: PNode): bool	
+exprStructuralEquivalentStrictSym	ast/trees.html#exprStructuralEquivalentStrictSym,PNode,PNode	trees: exprStructuralEquivalentStrictSym(a, b: PNode): bool	
+exprStructuralEquivalentStrictSymAndComm	ast/trees.html#exprStructuralEquivalentStrictSymAndComm,PNode,PNode	trees: exprStructuralEquivalentStrictSymAndComm(a, b: PNode): bool	
 getMagic	ast/trees.html#getMagic,PNode	trees: getMagic(op: PNode): TMagic	
 isConstExpr	ast/trees.html#isConstExpr,PNode	trees: isConstExpr(n: PNode): bool	
 isCaseObj	ast/trees.html#isCaseObj,PNode	trees: isCaseObj(n: PNode): bool	

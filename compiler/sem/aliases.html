@@ -128,7 +128,7 @@ window.addEventListener('DOMContentLoaded', main);
 
   </div>
   &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/sem/aliases.nim#L1"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/sem/aliases.nim#L1"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/sem/aliases.nim#L1" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -151,7 +151,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/sem/aliases.nim#L25"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/sem/aliases.nim#L25"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/sem/aliases.nim#L25" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -164,7 +164,7 @@ class="link-seesrc" target="_blank">Source</a>
 <dl class="item">
 <div id="isPartOf,PNode,PNode">
 <dt><pre><span class="Keyword">proc</span> <a href="#isPartOf%2CPNode%2CPNode"><span class="Identifier">isPartOf</span></a><span class="Other">(</span><span class="Identifier">a</span><span class="Other">,</span> <span class="Identifier">b</span><span class="Other">:</span> <a href="../ast/ast_types.html#PNode"><span class="Identifier">PNode</span></a><span class="Other">)</span><span class="Other">:</span> <a href="aliases.html#TAnalysisResult"><span class="Identifier">TAnalysisResult</span></a> {.
-    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">KeyError</span><span class="Other">,</span> <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
+    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
 <dd>
 
 <p>checks if location <tt class="docutils literal"><span class="pre"><span class="Identifier">a</span></span></tt> can be part of location <tt class="docutils literal"><span class="pre"><span class="Identifier">b</span></span></tt>. We treat seqs and strings as pointers because the code gen often just passes them as such.</p>
@@ -180,7 +180,7 @@ class="link-seesrc" target="_blank">Source</a>
 </p></blockquote>
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/sem/aliases.nim#L75"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/sem/aliases.nim#L75"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/sem/aliases.nim#L75" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -188,12 +188,12 @@ class="link-seesrc" target="_blank">Source</a>
 </div>
 <div id="isPartOf,PType,PType">
 <dt><pre><span class="Keyword">proc</span> <a href="#isPartOf%2CPType%2CPType"><span class="Identifier">isPartOf</span></a><span class="Other">(</span><span class="Identifier">a</span><span class="Other">,</span> <span class="Identifier">b</span><span class="Other">:</span> <a href="../ast/ast_types.html#PType"><span class="Identifier">PType</span></a><span class="Other">)</span><span class="Other">:</span> <a href="aliases.html#TAnalysisResult"><span class="Identifier">TAnalysisResult</span></a> {.
-    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">KeyError</span><span class="Other">,</span> <span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
+    <span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">Exception</span><span class="Other">,</span> <span class="Identifier">ERecoverableError</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Identifier">RootEffect</span><span class="Other">]</span></span>.}</pre></dt>
 <dd>
 
 checks iff 'a' can be part of 'b'. Iterates over VALUE types!
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0d035765bf39a1ded566fc28566907a9bd803656/compiler/sem/aliases.nim#L69"
+href="https://github.com/nim-works/nimskull/tree/7fd1110e09ea2b1c34f35f9415b682e618da2f2c/compiler/sem/aliases.nim#L69"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/sem/aliases.nim#L69" class="link-seesrc" target="_blank" >Edit</a>
 
