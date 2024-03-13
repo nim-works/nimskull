@@ -49,7 +49,7 @@ template cmpFloatRep*(a, b: BiggestFloat): bool =
   cast[uint64](a) == cast[uint64](b)
 
 template makeTreeEquivalenceProc*(
-  name, relaxedKindCheck,symCheck, floatCheck, typeCheck, commentCheck) {.dirty.} =
+  name, relaxedKindCheck, symCheck, floatCheck, typeCheck, commentCheck) {.dirty.} =
   ## Defines a tree equivalence checking procedure.
   ## This skeleton is shared between all recursive
   ## `PNode` equivalence checks in the compiler code base
