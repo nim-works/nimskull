@@ -49,7 +49,7 @@ template cmpFloatRep*(a, b: BiggestFloat): bool =
   cast[uint64](a) == cast[uint64](b)
 
 template makeTreeEquivalenceProc*(
-  name, relaxedKindCheck, symCheck, floatCheck, typeCheck, commentCheck) {.dirty.} =
+  name, relaxedKindCheck,symCheck, floatCheck, typeCheck, commentCheck) {.dirty.} =
   ## Defines a tree equivalence checking procedure.
   ## This skeleton is shared between all recursive
   ## `PNode` equivalence checks in the compiler code base
@@ -66,6 +66,9 @@ template makeTreeEquivalenceProc*(
       of nkIdent:           result = a.ident.id == b.ident.id
       of nkIntLiterals:     result = a.intVal == b.intVal
       of nkFloatLiterals:   result = floatCheck
+        # XXX: This should always use cmpFloatRep, see the comment in cmpFloatRep
+        #      but sem/guards.sameTree still incorrectly uses this floatCheck param
+        #      to use float equality instead.
       of nkStrLiterals:     result = a.strVal == b.strVal
       of nkType:            result = typeCheck
       of nkCommentStmt:     result = commentCheck
