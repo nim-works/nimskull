@@ -48,22 +48,24 @@ import std/strutils
 type
   LibHandle* = pointer ## A handle to a dynamically loaded library.
 
-proc loadLib*(path: string, globalSymbols = false): LibHandle {.gcsafe.}
+{.pragma: noeffects, gcsafe, raises: [], tags: [].}
+
+proc loadLib*(path: string, globalSymbols = false): LibHandle {.noeffects.}
   ## Loads a library from `path`. Returns nil if the library could not
   ## be loaded.
 
-proc loadLib*(): LibHandle {.gcsafe.}
+proc loadLib*(): LibHandle {.noeffects.}
   ## Gets the handle from the current executable. Returns nil if the
   ## library could not be loaded.
 
-proc unloadLib*(lib: LibHandle) {.gcsafe.}
+proc unloadLib*(lib: LibHandle) {.noeffects.}
   ## Unloads the library `lib`.
 
 proc raiseInvalidLibrary*(name: cstring) {.noinline, noreturn.} =
   ## Raises a `LibraryError` exception.
   raise newException(LibraryError, "could not find symbol: " & $name)
 
-proc symAddr*(lib: LibHandle, name: cstring): pointer {.gcsafe.}
+proc symAddr*(lib: LibHandle, name: cstring): pointer {.noeffects.}
   ## Retrieves the address of a procedure/variable from `lib`. Returns nil
   ## if the symbol could not be found.
 
