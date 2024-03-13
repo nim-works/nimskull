@@ -25,7 +25,7 @@ import
 
 # XXX: the function signatures are a bit cumbersome here
 
-from compiler/ast/trees import exprStructuralEquivalent, cyclicTree
+from compiler/ast/trees import cyclicTree
 
 const SkipSet = abstractRange + {tyStatic} - {tyTypeDesc}
 

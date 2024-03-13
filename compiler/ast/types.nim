@@ -652,6 +652,10 @@ proc sameTypeOrNil*(a, b: PType, flags: TTypeCmpFlags = {}): bool =
     else: result = sameType(a, b, flags)
 
 proc equalParam(a, b: PSym): TParamsEquality =
+  ## Returns whether parameters `a` and `b` are considered equal.
+  ## Note that this operation is not commutative, so when comparing
+  ## a forward declaration to an implementation, ensure `a` is the
+  ## param from the forward declaration.
   if sameTypeOrNil(a.typ, b.typ, {ExactTypeDescValues}) and
       exprStructuralEquivalent(a.constraint, b.constraint):
     if a.ast == b.ast:
@@ -660,6 +664,8 @@ proc equalParam(a, b: PSym): TParamsEquality =
       if exprStructuralEquivalent(a.ast, b.ast): result = paramsEqual
       else: result = paramsIncompatible
     elif a.ast != nil:
+      # This means default values for parameters don't have to be
+      # repeated when the proc was forward declared
       result = paramsEqual
     elif b.ast != nil:
       result = paramsIncompatible

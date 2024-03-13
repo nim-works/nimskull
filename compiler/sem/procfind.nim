@@ -58,6 +58,7 @@ proc searchForProcAux(c: PContext, scope: PScope, fn: PSym): PSym =
         return
       of paramsIncompatible:
         localReport(c.config, fn.info, reportSym(rsemAmbiguousCall, fn))
+          # TODO: Should be rsemDefaultParamIsIncompatible
 
         return
       of paramsNotEqual:

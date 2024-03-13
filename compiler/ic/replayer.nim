@@ -101,7 +101,7 @@ proc replayStateChanges*(module: PSym; g: ModuleGraph) =
         else:
           block search:
             for existing in g.cacheSeqs[destKey]:
-              if exprStructuralEquivalent(existing, val, strictSymEquality = true):
+              if exprStructuralEquivalentStrictSymAndComm(existing, val):
                 break search
             g.cacheSeqs[destKey].add val
       of "add":

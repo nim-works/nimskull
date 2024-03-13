@@ -10,6 +10,8 @@ Infix
       Ident "cint"
   NilLit
 macrocache ok
+CommentStmt "comment 1"
+CommentStmt "comment 2"
 '''
 
   output: '''
@@ -328,3 +330,19 @@ block: # bug #15118
 
   block:
     flop("b")
+
+block:
+  # Ensure nkCommentStmt equality is not ignored when vmgen.cmpNodeCnst
+  # is used to deduplicate NimNode constants, so that `CommentStmt "comment 2"`
+  # is not counted as a duplicate of `CommentStmt "comment 1"` and
+  # incorrectly optimized to point at the `Comment "comment 1"` node
+
+  proc createComment(s: string): NimNode =
+    result = nnkCommentStmt.newNimNode()
+    result.strVal = s
+
+  const C1 = (1, createComment("comment 1"))
+  const C2 = (1, createComment("comment 2"))
+  static:
+    echo treeRepr(C1[1])
+    echo treeRepr(C2[1])

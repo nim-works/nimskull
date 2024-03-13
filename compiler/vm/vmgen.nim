@@ -40,7 +40,8 @@ import
     renderer,
     types,
     ast,
-    lineinfos
+    lineinfos,
+    trees
   ],
   compiler/backend/[
     cgir
@@ -807,26 +808,16 @@ template cmpFloatRep(a, b: BiggestFloat): bool =
   # if a.floatVal == 0.0: result = cast[uint64](a.floatVal) == cast[uint64](b.floatVal)
   # else: result = a.floatVal == b.floatVal
 
-func cmpNodeCnst(a, b: PNode): bool {.inline.} =
-  ## Compares two trees for structural equality, also taking the type of
-  ## ``nkType`` nodes into account. This procedure is used to prevent the same
-  ## AST from being added as a node constant more than once
-  if a == b:
-    return true
-  elif a.kind == b.kind:
-    case a.kind
-    of nkSym:           result = a.sym == b.sym
-    of nkIdent:         result = a.ident.id == b.ident.id
-    of nkEmpty:         result = true
-    of nkType:          result = a.typ == b.typ
-    of nkStrKinds:      result = a.strVal == b.strVal
-    of nkIntKinds:      result = a.intVal == b.intVal
-    of nkFloatLiterals: result = cmpFloatRep(a.floatVal, b.floatVal)
-    else:
-      if a.len == b.len:
-        for i in 0..<a.len:
-          if not cmpNodeCnst(a[i], b[i]): return
-        result = true
+# Compares two trees for structural equality, also taking the type of
+# ``nkType`` nodes into account. This procedure is used to prevent the same
+# AST from being added as a node constant more than once
+makeTreeEquivalenceProc(cmpNodeCnst,
+  relaxedKindCheck = false,
+  symCheck     = a.sym == b.sym,
+  floatCheck   = cmpFloatRep(a.floatVal, b.floatVal),
+  typeCheck    = a.typ == b.typ,
+  commentCheck = a.comment == b.comment
+)
 
 template makeCnstFunc(name, vType, aKind, valName, cmp) {.dirty.} =
   proc name(c: var TCtx, val: vType): int =

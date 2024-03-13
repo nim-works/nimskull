@@ -441,30 +441,15 @@ proc sameOpr(a, b: PSym): bool =
   of someDiv: result = b.magic in someDiv
   else: result = a == b
 
-proc sameTree*(a, b: PNode): bool =
-  result = false
-  if a == b:
-    result = true
-  elif a != nil and b != nil and a.kind == b.kind:
-    case a.kind
-    of nkError:
-      unreachable()
-    of nkSym:
-      result = a.sym == b.sym
-      if not result and a.sym.magic != mNone:
-        result = a.sym.magic == b.sym.magic or sameOpr(a.sym, b.sym)
-    of nkIdent: result = a.ident.id == b.ident.id
-    of nkIntLiterals: result = a.intVal == b.intVal
-    of nkFloatLiterals: result = a.floatVal == b.floatVal
-    of nkStrLiterals: result = a.strVal == b.strVal
-    of nkType: result = a.typ == b.typ
-    of nkEmpty, nkNilLit, nkCommentStmt:
-      result = true # Ignore comments
-    of nkWithSons:
-      if a.len == b.len:
-        for i in 0..<a.len:
-          if not sameTree(a[i], b[i]): return
-        result = true
+makeTreeEquivalenceProc(sameTree,
+  relaxedKindCheck = false,
+  symCheck     = sameOpr(a.sym, b.sym) or
+    (a.sym.magic != mNone and a.sym.magic == b.sym.magic),
+  floatCheck   = a.floatVal == b.floatVal,
+  typeCheck    = a.typ == b.typ,
+  commentCheck = true # ignore comments
+)
+export sameTree
 
 proc hasSubTree(n, x: PNode): bool =
   if n.sameTree(x): result = true

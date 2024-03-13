@@ -44,61 +44,63 @@ proc sameFloatIgnoreNan(a, b: BiggestFloat): bool {.inline.} =
   ## ignores NaN semantics, but ensures 0.0 == -0.0, see #13730
   cast[uint64](a) == cast[uint64](b) or a == b
 
-proc exprStructuralEquivalent*(a, b: PNode; strictSymEquality=false): bool =
-  if a == b:
-    result = true
-  elif (a != nil) and (b != nil) and (a.kind == b.kind):
-    case a.kind
-    of nkSym:
-      if strictSymEquality:
-        result = a.sym == b.sym
-      else:
-        # don't go nuts here: same symbol as string is enough:
-        result = a.sym.name.id == b.sym.name.id
-    of nkIdent: result = a.ident.id == b.ident.id
-    of nkIntLiterals: result = a.intVal == b.intVal
-    of nkFloatLiterals: result = sameFloatIgnoreNan(a.floatVal, b.floatVal)
-    of nkStrLiterals: result = a.strVal == b.strVal
-    of nkCommentStmt: result = a.comment == b.comment
-    of nkEmpty, nkNilLit, nkType: result = true
-    of nkError:
-      unreachable()
-    of nkWithSons:
-      if a.len == b.len:
-        for i in 0..<a.len:
-          if not exprStructuralEquivalent(a[i], b[i],
-                                          strictSymEquality): return
-        result = true
+template makeTreeEquivalenceProc*(
+  name, relaxedKindCheck, symCheck, floatCheck, typeCheck, commentCheck) {.dirty.} =
+  ## Defines a tree equivalence checking procedure.
+  ## This skeleton is shared between all recursive
+  ## `PNode` equivalence checks in the compiler code base
+  ## It might be possible to unify more of them with each other.
+  proc name(a, b: PNode): bool =
+    result = false
+    if a == b:
+      result = true
+    elif a != nil and b != nil and (a.kind == b.kind or relaxedKindCheck):
+      case a.kind
+      of nkError:           unreachable()
+      of nkEmpty, nkNilLit: result = true
+      of nkSym:             result = symCheck
+      of nkIdent:           result = a.ident.id == b.ident.id
+      of nkIntLiterals:     result = a.intVal == b.intVal
+      of nkFloatLiterals:   result = floatCheck
+        # XXX: Using float equality, even if partially tamed through
+        #      sameFloatIgnoreNan, causes inconsistencies due to it
+        #      lacking the substition and reflexivity property.
+      of nkStrLiterals:     result = a.strVal == b.strVal
+      of nkType:            result = typeCheck
+      of nkCommentStmt:     result = commentCheck
+      # XXX: nkNimNodeLit should probably always be checked strictly.
+      of nkWithSons:
+        if a.len == b.len:
+          for i in 0..<a.len:
+            if not name(a[i], b[i]): return false
+          result = true
 
-proc sameTree*(a, b: PNode): bool =
-  if a == b:
-    result = true
-  elif a != nil and b != nil and a.kind == b.kind:
-    if a.flags != b.flags: return
-    if a.info.line != b.info.line: return
-    if a.info.col != b.info.col:
-      return                  #if a.info.fileIndex <> b.info.fileIndex then exit;
-    case a.kind
-    of nkSym:
-      # don't go nuts here: same symbol as string is enough:
-      result = a.sym.name.id == b.sym.name.id
-    of nkIdent: result = a.ident.id == b.ident.id
-    of nkIntLiterals:
-      result = a.intVal == b.intVal and
-               a.intLitBase == b.intLitBase
-    of nkFloatLiterals:
-      result = sameFloatIgnoreNan(a.floatVal, b.floatVal) and
-               a.floatLitBase == b.floatLitBase
-    of nkStrLiterals: result = a.strVal == b.strVal
-    of nkCommentStmt: result = a.comment == b.comment
-    of nkEmpty, nkNilLit, nkType: result = true
-    of nkError:
-      unreachable()
-    of nkWithSons:
-      if a.len == b.len:
-        for i in 0..<a.len:
-          if not sameTree(a[i], b[i]): return
-        result = true
+makeTreeEquivalenceProc(exprStructuralEquivalent,
+  relaxedKindCheck = false,
+  symCheck     = a.sym.name.id == b.sym.name.id, # same symbol as string is enough
+  floatCheck   = sameFloatIgnoreNan(a.floatVal, b.floatVal),
+  typeCheck    = true,
+  commentCheck = true
+)
+export exprStructuralEquivalent
+
+makeTreeEquivalenceProc(exprStructuralEquivalentStrictSym,
+  relaxedKindCheck = false,
+  symCheck     = a.sym == b.sym,
+  floatCheck   = sameFloatIgnoreNan(a.floatVal, b.floatVal),
+  typeCheck    = true,
+  commentCheck = true
+)
+export exprStructuralEquivalentStrictSym
+
+makeTreeEquivalenceProc(exprStructuralEquivalentStrictSymAndComm,
+  relaxedKindCheck = false,
+  symCheck     = a.sym == b.sym,
+  floatCheck   = sameFloatIgnoreNan(a.floatVal, b.floatVal),
+  typeCheck    = true,
+  commentCheck = a.comment == b.comment
+)
+export exprStructuralEquivalentStrictSymAndComm
 
 proc getMagic*(op: PNode): TMagic =
   if op == nil: return mNone
