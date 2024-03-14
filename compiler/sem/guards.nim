@@ -40,7 +40,7 @@ from compiler/ast/report_enums import ReportKind
 
 const
   # Float operations are not analysed as
-  # it is currently unclear wether they
+  # it is currently unclear whether they
   # can be analysed in a sound manner
   # with the approach used here
   someEq = {mEqI, mEqEnum, mEqCh, mEqB, mEqRef, mEqProc,
