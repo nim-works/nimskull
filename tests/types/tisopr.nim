@@ -102,6 +102,7 @@ block:
   doAssert Foo2 is Foo2
   doAssert Foo2 isnot Bar
   doAssert Foo[int,float] is Foo2[int,float]
+  doAssert Foo2[int,float] is Foo[int,float]
 
   # other
   doAssert Foo[int,float] isnot Foo2[float,float]

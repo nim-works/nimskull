@@ -7,13 +7,13 @@ block: # Replicates #18728
     Trinary[A, B, C] = ref object
       next: Trinary[B, C, A]
   
-  assert typeof(FlipFlop[int, string]().next) is FlipFlop[string, int]
-  assert typeof(FlipFlop[string, int]().next) is FlipFlop[int, string]
-  assert typeof(Trinary[int, float, string]().next) is Trinary[float, string, int]
-  assert typeof(Trinary[int, float, string]().next.next) is Trinary[string, int, float]
+  doAssert typeof(FlipFlop[int, string]().next) is FlipFlop[string, int]
+  doAssert typeof(FlipFlop[string, int]().next) is FlipFlop[int, string]
+  doAssert typeof(Trinary[int, float, string]().next) is Trinary[float, string, int]
+  doAssert typeof(Trinary[int, float, string]().next.next) is Trinary[string, int, float]
   var a = FlipFlop[int, string](val: 100, next: FlipFlop[string, int](val: "Hello"))
-  assert a.val == 100
-  assert a.next.val == "Hello"
+  doAssert a.val == 100
+  doAssert a.next.val == "Hello"
 
 block: # 18838
   type
@@ -33,7 +33,9 @@ block: # 18838
 
   let link = newDoublyLinkedNode(Item[Box]())
 
-import lists
+  doAssert link is DoublyLinkedNode[Item[Box]]
+
+import std/lists
 block:
   type
     Box = object
@@ -44,6 +46,8 @@ block:
       link:DoublyLinkedNode[ ItemSimple ]
 
   let link = newDoublyLinkedNode( Item[Box]() )
+
+  doAssert link is DoublyLinkedNode[Item[Box]]
 
 block: #18897
   type

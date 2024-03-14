@@ -1,4 +1,15 @@
 discard """
+action: reject
+knownIssue: "this is not at all how generics + default params should work"
+"""
+
+# This is not a "feature", it's completely broken that this works, `999`, the
+# default parameter, does not satisfy all `T: any`. Nor can `T` be "inferred"
+# as `int` in the default case as one can specify `T` breaking the default.
+# This should plainly be illegal, as `T` is not equivalent to `untyped`.
+
+#[
+# old output that should _never_ have worked
   output: '''1
 1
 1
@@ -7,7 +18,7 @@ discard """
 999
 999
 2'''
-"""
+]#
 
 # test if we can pass explicit generic arguments to generic templates
 # based on bug report #3496

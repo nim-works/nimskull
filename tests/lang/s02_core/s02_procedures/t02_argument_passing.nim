@@ -4,6 +4,13 @@ Covers the multitude of ways you can pass arguments to procedures.
 '''
 """
 
+# TODO: break things out as more advanced sections:
+# - variadics should be their own spec
+#   - variadic with conversion, is yet more complicated
+# - syntax: separate dot call rewrites
+# - named arguments
+# - default arguments
+
 
 block different_number_of_arguments:
   ## Procedures can accept zero or more arguments.

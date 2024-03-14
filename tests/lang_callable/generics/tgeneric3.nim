@@ -1,5 +1,6 @@
 discard """
-target: "!vm"
+targets: "!vm"
+knownIssue.vm: "very slow on the vm"
 output: '''
 312
 1000000
@@ -8,8 +9,6 @@ output: '''
 0
 '''
 """
-
-# disabled on VM: it seems to get stuck; needs a deeper dive (knownIssue)
 
 import std/strutils
 
@@ -27,7 +26,6 @@ type
         slots: TItems[T,D]
         left: PNode[T,D]
         count: int32
-
 
   RPath[T,D] = tuple[
     Xi: int,
