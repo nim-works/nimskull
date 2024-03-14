@@ -39,14 +39,22 @@ from compiler/ast/reports_sem import reportAst,
 from compiler/ast/report_enums import ReportKind
 
 const
-  someEq = {mEqI, mEqF64, mEqEnum, mEqCh, mEqB, mEqRef, mEqProc,
+  # Float operations are not analysed as
+  # it is currently unclear wether they
+  # can be analysed in a sound manner
+  # with the approach used here
+  someEq = {mEqI, mEqEnum, mEqCh, mEqB, mEqRef, mEqProc,
     mEqStr, mEqSet, mEqCString}
+    # `mEqF64` excluded here as it lacks the
+    # substition and reflexivity property
 
   # set excluded here as the semantics are vastly different:
-  someLe = {mLeI, mLeF64, mLeU, mLeEnum,
+  someLe = {mLeI, mLeU, mLeEnum,
             mLeCh, mLeB, mLePtr, mLeStr}
+    # `mLeF64` excluded here since it's not a total order
   someLt = {mLtI, mLtF64, mLtU, mLtEnum,
             mLtCh, mLtB, mLtPtr, mLtStr}
+    # `mLtF64` excluded here since it's not a strict total order
 
   someLen = {mLengthOpenArray, mLengthStr, mLengthArray, mLengthSeq}
 
@@ -55,10 +63,14 @@ const
   someHigh = {mHigh}
   # we don't list unsigned here because wrap around semantics suck for
   # proving anything:
-  someAdd = {mAddI, mAddF64, mSucc}
-  someSub = {mSubI, mSubF64, mPred}
-  someMul = {mMulI, mMulF64}
-  someDiv = {mDivI, mDivF64}
+  someAdd = {mAddI, mSucc}
+    # No `mAddF64` since float ops aren't analysed
+  someSub = {mSubI, mPred}
+    # No `mSubF64` since float ops aren't analysed
+  someMul = {mMulI}
+    # No `mMulF64` since float ops aren't analysed
+  someDiv = {mDivI}
+    # No `mDivF64` since float ops aren't analysed
   someMax = {mMaxI}
   someMin = {mMinI}
   someBinaryOp = someAdd+someSub+someMul+someMax+someMin
