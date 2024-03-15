@@ -794,7 +794,9 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
     typ = body[target].field.typ
 
   assert body[target].kind == mnkPathVariant
-  assert body[stmt, 1].kind in ModifierNodes
+  # the source expression must either be an rvalue, or there must be a
+  # modifier present
+  assert body[stmt, 1].kind notin LvalueExprKinds
 
   let
     a = bu.wrapMutAlias(typ):
