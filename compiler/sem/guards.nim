@@ -454,13 +454,12 @@ proc sameOpr(a, b: PSym): bool =
   else: result = a == b
 
 makeTreeEquivalenceProc(sameTree,
+  # XXX: This completely ignores that expressions might
+  #      not be pure/deterministic.
   relaxedKindCheck = false,
   symCheck     = sameOpr(a.sym, b.sym) or
     (a.sym.magic != mNone and a.sym.magic == b.sym.magic),
-  floatCheck   = a.floatVal == b.floatVal,
-    # XXX: Even though float equality doesn't satisfy the
-    #      substition property, sameTree is used as if it did.
-    #      Using cmpFloatRep here would not be correct either.
+  floatCheck   = cmpFloatRep(a.floatVal, b.floatVal),
   typeCheck    = a.typ == b.typ,
   commentCheck = true # ignore comments
 )
