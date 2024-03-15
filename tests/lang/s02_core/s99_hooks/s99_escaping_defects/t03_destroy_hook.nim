@@ -1,13 +1,13 @@
 discard """
   description: "`=destroy` hooks panic when a defect escapes"
-  outputsub: "Error: unhandled exception:  [Defect]"
+  outputsub: "Error: unhandled exception: error [Defect]"
   exitcode: 1
 """
 
 type Type = object
 
 proc `=destroy`(a: var Type) =
-  raise (ref Defect)()
+  raise (ref Defect)(msg: "error")
 
 try:
   var x: Type

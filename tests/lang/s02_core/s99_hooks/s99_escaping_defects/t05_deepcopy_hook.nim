@@ -1,13 +1,13 @@
 discard """
-  description: "`=copy` hooks panic when a defect escapes"
-  outputsub: "Error: unhandled exception:  [Defect]"
+  description: "`=deepcopy` hooks panic when a defect escapes"
+  outputsub: "Error: unhandled exception: error [Defect]"
   exitcode: 1
 """
 
 type Type = ref object
 
 proc `=deepcopy`(a: Type): Type =
-  raise (ref Defect)()
+  raise (ref Defect)(msg: "error")
 
 try:
   var x = `=deepcopy`(Type())
