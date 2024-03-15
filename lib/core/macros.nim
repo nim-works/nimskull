@@ -149,9 +149,13 @@ type
 
 const
   nnkLiterals* = {nnkCharLit..nnkNilLit}
+    ## `NimNodeKind`s that represent syntax literals
   nnkCallKinds* = {nnkCall, nnkInfix, nnkPrefix, nnkPostfix, nnkCommand,
                    nnkCallStrLit}
   nnkPragmaCallKinds = {nnkExprColonExpr, nnkCall, nnkCallStrLit}
+  nnkRequireInitKinds* = {nnkError, nnkIdent, nnkSym, nnkType}
+    ## `NimNodeKind`s that require initialization and cannot be created via
+    ## general construction routines e.g. `newNimNode`.
 
 proc `==`*(a, b: NimNode): bool {.magic: "EqNimrodNode", noSideEffect.}
   ## Compare two Nim nodes. Return true if nodes are structurally
