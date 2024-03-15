@@ -49,7 +49,7 @@ template cmpFloatRep*(a, b: BiggestFloat): bool =
   cast[uint64](a) == cast[uint64](b)
 
 template makeTreeEquivalenceProc*(
-  name, relaxedKindCheck, symCheck, floatCheck, typeCheck, commentCheck) {.dirty.} =
+  name, relaxedKindCheck, symCheck, typeCheck, commentCheck) {.dirty.} =
   ## Defines a tree equivalence checking procedure.
   ## This skeleton is shared between all recursive
   ## `PNode` equivalence checks in the compiler code base
@@ -65,10 +65,7 @@ template makeTreeEquivalenceProc*(
       of nkSym:             result = symCheck
       of nkIdent:           result = a.ident.id == b.ident.id
       of nkIntLiterals:     result = a.intVal == b.intVal
-      of nkFloatLiterals:   result = floatCheck
-        # XXX: This should always use cmpFloatRep, see the comment in cmpFloatRep
-        #      but sem/guards.sameTree still incorrectly uses this floatCheck param
-        #      to use float equality instead.
+      of nkFloatLiterals:   result = cmpFloatRep(a.floatVal, b.floatVal)
       of nkStrLiterals:     result = a.strVal == b.strVal
       of nkType:            result = typeCheck
       of nkCommentStmt:     result = commentCheck
@@ -82,7 +79,6 @@ template makeTreeEquivalenceProc*(
 makeTreeEquivalenceProc(exprStructuralEquivalent,
   relaxedKindCheck = false,
   symCheck     = a.sym.name.id == b.sym.name.id, # same symbol as string is enough
-  floatCheck   = cmpFloatRep(a.floatVal, b.floatVal),
   typeCheck    = true,
   commentCheck = true
 )
@@ -91,7 +87,6 @@ export exprStructuralEquivalent
 makeTreeEquivalenceProc(exprStructuralEquivalentStrictSymAndComm,
   relaxedKindCheck = false,
   symCheck     = a.sym == b.sym,
-  floatCheck   = cmpFloatRep(a.floatVal, b.floatVal),
   typeCheck    = a.typ == b.typ,
   commentCheck = a.comment == b.comment
 )

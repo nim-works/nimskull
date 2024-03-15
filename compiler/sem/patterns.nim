@@ -63,7 +63,6 @@ proc sameKinds(a, b: PNode): bool {.inline.} =
 makeTreeEquivalenceProc(sameTrees,
   relaxedKindCheck = sameKinds(a, b),
   symCheck     = a.sym == b.sym,
-  floatCheck   = cmpFloatRep(a.floatVal, b.floatVal),
   typeCheck    = sameTypeOrNil(a.typ, b.typ),
   commentCheck = true # Ignore comments
 )

@@ -459,7 +459,6 @@ makeTreeEquivalenceProc(sameTree,
   relaxedKindCheck = false,
   symCheck     = sameOpr(a.sym, b.sym) or
     (a.sym.magic != mNone and a.sym.magic == b.sym.magic),
-  floatCheck   = cmpFloatRep(a.floatVal, b.floatVal),
   typeCheck    = a.typ == b.typ,
   commentCheck = true # ignore comments
 )
