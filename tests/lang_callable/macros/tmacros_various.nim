@@ -335,8 +335,8 @@ block: # bug #15118
     flop("b")
 
 block:
-  # Ensure nkCommentStmt equality is not ignored when vmgen.cmpNodeCnst
-  # is used to deduplicate NimNode constants, so that `CommentStmt "comment 2"`
+  # Ensure nkCommentStmt equality is not ignored when vmgen.toNodeCnst
+  # deduplicates NimNode constants, so that `CommentStmt "comment 2"`
   # is not counted as a duplicate of `CommentStmt "comment 1"` and
   # incorrectly optimized to point at the `Comment "comment 1"` node
 
