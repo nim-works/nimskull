@@ -66,7 +66,6 @@ makeTreeEquivalenceProc(sameTrees,
   typeCheck    = sameTypeOrNil(a.typ, b.typ),
   commentCheck = true # Ignore comments
 )
-export sameTrees
 
 proc inSymChoice(sc, x: PNode): bool =
   if sc.kind == nkClosedSymChoice:
