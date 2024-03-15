@@ -155,6 +155,18 @@ jobs:
           Invoke-WebRequest https://curl.se/ca/cacert.pem -OutFile (Join-Path $binPath "cacert.pem")
         shell: pwsh
 
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
+
       - name: Build release binaries
         run: ./koch.py all-strict
 
@@ -207,6 +219,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install "${deps[@]}"
 
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
+
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -258,6 +282,18 @@ jobs:
           $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
           $binPath | Out-File -Append $env:GITHUB_PATH
         shell: pwsh
+
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
 
       - uses: ./.github/actions/download-compiler
 
@@ -332,6 +368,18 @@ jobs:
       - name: Install MinGW (Windows)
         if: runner.os == 'Windows'
         uses: ./git-src/.github/actions/setup-mingw
+
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
 
       - name: Download source archive
         uses: actions/download-artifact@v4
@@ -457,6 +505,18 @@ jobs:
           $binPath | Out-File -Append $env:GITHUB_PATH
           Copy-Item (Join-Path $binPath "libpcre.dll") -Destination bin
         shell: pwsh
+
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
 
       # Note: keep synchronized with source_binaries job
       - name: Build docs
