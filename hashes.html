@@ -187,7 +187,7 @@ window.addEventListener('DOMContentLoaded', main);
 
   </div>
   &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L1"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L1"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L1" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -256,7 +256,7 @@ If the type has a <tt class="docutils literal"><span class="pre"><span class="Op
 
 A hash value. Hash tables using these values should always have a size of a power of two so they can use the <tt class="docutils literal"><span class="pre"><span class="Keyword">and</span></span></tt> operator instead of <tt class="docutils literal"><span class="pre"><span class="Keyword">mod</span></span></tt> for truncation of the hash value.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L71"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L71"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L71" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -275,7 +275,7 @@ class="link-seesrc" target="_blank">Source</a>
 <p>This is only needed if you need to implement a <tt class="docutils literal"><span class="pre"><span class="Identifier">hash</span></span></tt> proc for a new datatype.</p>
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L86"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L86"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L86" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -289,7 +289,7 @@ class="link-seesrc" target="_blank">Source</a>
 <p>This is only needed if you need to implement a <tt class="docutils literal"><span class="pre"><span class="Identifier">hash</span></span></tt> proc for a new datatype.</p>
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L75"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L75"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L75" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -306,7 +306,7 @@ class="link-seesrc" target="_blank">Source</a>
 <pre class="listing"><span class="Keyword">var</span> <span class="Identifier">a</span> <span class="Operator">=</span> <span class="StringLit">&quot;abracadabra&quot;</span>
 <span class="Identifier">doAssert</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="Identifier">a</span><span class="Punctuation">,</span> <span class="DecNumber">0</span><span class="Punctuation">,</span> <span class="DecNumber">3</span><span class="Punctuation">)</span> <span class="Operator">==</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="Identifier">a</span><span class="Punctuation">,</span> <span class="DecNumber">7</span><span class="Punctuation">,</span> <span class="DecNumber">10</span><span class="Punctuation">)</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L414"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L414"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L414" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -322,7 +322,7 @@ Efficient hashing of null-terminated strings.
 <span class="Identifier">doAssert</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="RawData">cstring&quot;AbracadabrA&quot;</span><span class="Punctuation">)</span> <span class="Operator">==</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="StringLit">&quot;AbracadabrA&quot;</span><span class="Punctuation">)</span>
 <span class="Identifier">doAssert</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="RawData">cstring&quot;abracadabra&quot;</span><span class="Punctuation">)</span> <span class="Operator">!=</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="RawData">cstring&quot;AbracadabrA&quot;</span><span class="Punctuation">)</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L390"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L390"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L390" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -334,7 +334,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Efficient hashing of floats.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L268"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L268"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L268" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -346,7 +346,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Efficient <tt class="docutils literal"><span class="pre"><span class="Identifier">hash</span></span></tt> overload.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L227"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L227"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L227" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -365,7 +365,7 @@ class="link-seesrc" target="_blank">Source</a>
 <p><strong class="examples_text">Example:</strong></p>
 <pre class="listing"><span class="Identifier">doAssert</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="StringLit">&quot;abracadabra&quot;</span><span class="Punctuation">)</span> <span class="Operator">!=</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="StringLit">&quot;AbracadabrA&quot;</span><span class="Punctuation">)</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L370"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L370"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L370" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -382,7 +382,7 @@ class="link-seesrc" target="_blank">Source</a>
 <pre class="listing"><span class="Keyword">let</span> <span class="Identifier">a</span> <span class="Operator">=</span> <span class="Punctuation">[</span><span class="DecNumber">1</span><span class="Punctuation">,</span> <span class="DecNumber">2</span><span class="Punctuation">,</span> <span class="DecNumber">5</span><span class="Punctuation">,</span> <span class="DecNumber">1</span><span class="Punctuation">,</span> <span class="DecNumber">2</span><span class="Punctuation">,</span> <span class="DecNumber">6</span><span class="Punctuation">]</span>
 <span class="Identifier">doAssert</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="Identifier">a</span><span class="Punctuation">,</span> <span class="DecNumber">0</span><span class="Punctuation">,</span> <span class="DecNumber">1</span><span class="Punctuation">)</span> <span class="Operator">==</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="Identifier">a</span><span class="Punctuation">,</span> <span class="DecNumber">3</span><span class="Punctuation">,</span> <span class="DecNumber">4</span><span class="Punctuation">)</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L574"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L574"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L574" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -394,7 +394,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Efficient hashing of arrays and sequences. There must be a <tt class="docutils literal"><span class="pre"><span class="Identifier">hash</span></span></tt> proc defined for the element type <tt class="docutils literal"><span class="pre"><span class="Identifier">A</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L559"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L559"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L559" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -406,7 +406,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Efficient hashing of sets. There must be a <tt class="docutils literal"><span class="pre"><span class="Identifier">hash</span></span></tt> proc defined for the element type <tt class="docutils literal"><span class="pre"><span class="Identifier">A</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L599"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L599"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L599" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -418,7 +418,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Efficient hashing of integers.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L209"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L209"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L209" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -457,7 +457,7 @@ Efficient <tt class="docutils literal"><span class="pre"><span class="Identifier
   <span class="Identifier">assert</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="Identifier">fn2</span><span class="Punctuation">)</span> <span class="Operator">!=</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="Identifier">fn1</span><span class="Punctuation">)</span>
 <span class="Identifier">outer</span><span class="Punctuation">(</span><span class="Punctuation">)</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L520"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L520"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L520" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -473,7 +473,7 @@ Efficient <tt class="docutils literal"><span class="pre"><span class="Identifier
 <span class="Identifier">assert</span> <span class="Identifier">a</span><span class="Punctuation">[</span><span class="DecNumber">0</span><span class="Punctuation">]</span><span class="Operator">.</span><span class="Keyword">addr</span><span class="Operator">.</span><span class="Identifier">hash</span> <span class="Operator">!=</span> <span class="Identifier">a</span><span class="Punctuation">[</span><span class="DecNumber">1</span><span class="Punctuation">]</span><span class="Operator">.</span><span class="Keyword">addr</span><span class="Operator">.</span><span class="Identifier">hash</span>
 <span class="Identifier">assert</span> <span class="Keyword">cast</span><span class="Punctuation">[</span><span class="Identifier">pointer</span><span class="Punctuation">]</span><span class="Punctuation">(</span><span class="Identifier">a</span><span class="Punctuation">[</span><span class="DecNumber">0</span><span class="Punctuation">]</span><span class="Operator">.</span><span class="Keyword">addr</span><span class="Punctuation">)</span><span class="Operator">.</span><span class="Identifier">hash</span> <span class="Operator">==</span> <span class="Identifier">a</span><span class="Punctuation">[</span><span class="DecNumber">0</span><span class="Punctuation">]</span><span class="Operator">.</span><span class="Keyword">addr</span><span class="Operator">.</span><span class="Identifier">hash</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L235"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L235"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L235" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -501,7 +501,7 @@ Use <tt class="docutils literal"><span class="pre"><span class="Operator">-</spa
 <span class="Keyword">proc</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="Identifier">a</span><span class="Punctuation">:</span> <span class="Identifier">A</span><span class="Punctuation">)</span><span class="Punctuation">:</span> <span class="Identifier">Hash</span> <span class="Operator">=</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="Identifier">a</span><span class="Operator">.</span><span class="Identifier">x</span><span class="Punctuation">)</span>
 <span class="Identifier">assert</span> <span class="Identifier">A</span><span class="Punctuation">[</span><span class="Identifier">int</span><span class="Punctuation">]</span><span class="Punctuation">(</span><span class="Identifier">x</span><span class="Punctuation">:</span> <span class="DecNumber">3</span><span class="Punctuation">,</span> <span class="Identifier">y</span><span class="Punctuation">:</span> <span class="DecNumber">4</span><span class="Punctuation">)</span><span class="Operator">.</span><span class="Identifier">hash</span> <span class="Operator">==</span> <span class="Identifier">A</span><span class="Punctuation">[</span><span class="Identifier">int</span><span class="Punctuation">]</span><span class="Punctuation">(</span><span class="Identifier">x</span><span class="Punctuation">:</span> <span class="DecNumber">3</span><span class="Punctuation">,</span> <span class="Identifier">y</span><span class="Punctuation">:</span> <span class="DecNumber">5</span><span class="Punctuation">)</span><span class="Operator">.</span><span class="Identifier">hash</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L244"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L244"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L244" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -513,7 +513,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Hashes an array of bytes of size <tt class="docutils literal"><span class="pre"><span class="Identifier">size</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L184"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L184"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L184" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -525,7 +525,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 The identity hash, i.e. <tt class="docutils literal"><span class="pre"><span class="Identifier">hashIdentity</span><span class="Punctuation">(</span><span class="Identifier">x</span><span class="Punctuation">)</span> <span class="Operator">=</span> <span class="Identifier">x</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L200"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L200"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L200" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -543,7 +543,7 @@ class="link-seesrc" target="_blank">Source</a>
 <pre class="listing"><span class="Keyword">var</span> <span class="Identifier">a</span> <span class="Operator">=</span> <span class="StringLit">&quot;ABracadabRA&quot;</span>
 <span class="Identifier">doAssert</span> <span class="Identifier">hashIgnoreCase</span><span class="Punctuation">(</span><span class="Identifier">a</span><span class="Punctuation">,</span> <span class="DecNumber">0</span><span class="Punctuation">,</span> <span class="DecNumber">3</span><span class="Punctuation">)</span> <span class="Operator">==</span> <span class="Identifier">hashIgnoreCase</span><span class="Punctuation">(</span><span class="Identifier">a</span><span class="Punctuation">,</span> <span class="DecNumber">7</span><span class="Punctuation">,</span> <span class="DecNumber">10</span><span class="Punctuation">)</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L500"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L500"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L500" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -563,7 +563,7 @@ class="link-seesrc" target="_blank">Source</a>
 <pre class="listing"><span class="Identifier">doAssert</span> <span class="Identifier">hashIgnoreCase</span><span class="Punctuation">(</span><span class="StringLit">&quot;ABRAcaDABRA&quot;</span><span class="Punctuation">)</span> <span class="Operator">==</span> <span class="Identifier">hashIgnoreCase</span><span class="Punctuation">(</span><span class="StringLit">&quot;abRACAdabra&quot;</span><span class="Punctuation">)</span>
 <span class="Identifier">doAssert</span> <span class="Identifier">hashIgnoreCase</span><span class="Punctuation">(</span><span class="StringLit">&quot;abcdefghi&quot;</span><span class="Punctuation">)</span> <span class="Operator">!=</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="StringLit">&quot;abcdefghi&quot;</span><span class="Punctuation">)</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L481"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L481"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L481" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -581,7 +581,7 @@ class="link-seesrc" target="_blank">Source</a>
 <pre class="listing"><span class="Keyword">var</span> <span class="Identifier">a</span> <span class="Operator">=</span> <span class="StringLit">&quot;ABracada_b_r_a&quot;</span>
 <span class="Identifier">doAssert</span> <span class="Identifier">hashIgnoreStyle</span><span class="Punctuation">(</span><span class="Identifier">a</span><span class="Punctuation">,</span> <span class="DecNumber">0</span><span class="Punctuation">,</span> <span class="DecNumber">3</span><span class="Punctuation">)</span> <span class="Operator">==</span> <span class="Identifier">hashIgnoreStyle</span><span class="Punctuation">(</span><span class="Identifier">a</span><span class="Punctuation">,</span> <span class="DecNumber">7</span><span class="Punctuation">,</span> <span class="Identifier">a</span><span class="Operator">.</span><span class="Identifier">high</span><span class="Punctuation">)</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L456"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L456"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L456" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -601,7 +601,7 @@ class="link-seesrc" target="_blank">Source</a>
 <pre class="listing"><span class="Identifier">doAssert</span> <span class="Identifier">hashIgnoreStyle</span><span class="Punctuation">(</span><span class="StringLit">&quot;aBr_aCa_dAB_ra&quot;</span><span class="Punctuation">)</span> <span class="Operator">==</span> <span class="Identifier">hashIgnoreStyle</span><span class="Punctuation">(</span><span class="StringLit">&quot;abracadabra&quot;</span><span class="Punctuation">)</span>
 <span class="Identifier">doAssert</span> <span class="Identifier">hashIgnoreStyle</span><span class="Punctuation">(</span><span class="StringLit">&quot;abcdefghi&quot;</span><span class="Punctuation">)</span> <span class="Operator">!=</span> <span class="Identifier">hash</span><span class="Punctuation">(</span><span class="StringLit">&quot;abcdefghi&quot;</span><span class="Punctuation">)</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L431"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L431"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L431" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -615,7 +615,7 @@ class="link-seesrc" target="_blank">Source</a>
 <p><strong>Note:</strong> It's ok to define <tt class="docutils literal"><span class="pre"><span class="Keyword">proc</span><span class="Punctuation">(</span><span class="Identifier">x</span><span class="Punctuation">:</span> <span class="Identifier">int16</span><span class="Punctuation">)</span><span class="Punctuation">:</span> <span class="Identifier">Hash</span> <span class="Operator">=</span> <span class="Identifier">hashWangYi1</span><span class="Punctuation">(</span><span class="Identifier">Hash</span><span class="Punctuation">(</span><span class="Identifier">x</span><span class="Punctuation">)</span><span class="Punctuation">)</span></span></tt>.</p>
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/ae89c1099e1b83ca351c2cdde1808192b94cc9bd/lib/pure/hashes.nim#L161"
+href="https://github.com/nim-works/nimskull/tree/82b3cea69c3c4ab36ff509d7809f4df1f3f8fa5f/lib/pure/hashes.nim#L161"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/hashes.nim#L161" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -631,7 +631,7 @@ class="link-seesrc" target="_blank">Source</a>
       <div class="twelve-columns footer">
         <span class="nim-sprite"></span>
         <br/>
-        <small style="color: var(--hint);">Made with Nim. Generated: 2024-03-14 00:00:00 UTC</small>
+        <small style="color: var(--hint);">Made with Nim. Generated: 2024-03-15 00:00:00 UTC</small>
       </div>
     </div>
   </div>
