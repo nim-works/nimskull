@@ -157,7 +157,7 @@ window.addEventListener('DOMContentLoaded', main);
 
   </div>
   &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/compiler/mir/analysis.nim#L1"
+href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/mir/analysis.nim#L1"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/mir/analysis.nim#L1" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -183,7 +183,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Computes whether the location is alive when <tt class="docutils literal"><span class="pre"><span class="Identifier">span</span></span></tt> is exited via either structured or unstructured control-flow. A location is considered alive if it contains a value
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/compiler/mir/analysis.nim#L254"
+href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/mir/analysis.nim#L254"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/mir/analysis.nim#L254" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -196,7 +196,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Computes the state of <tt class="docutils literal"><span class="pre"><span class="Identifier">loc</span></span></tt> at the <em>end</em> of the given operation. The operands are expected to <em>not</em> alias with each other. The analysis result will be wrong if they do
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/compiler/mir/analysis.nim#L209"
+href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/mir/analysis.nim#L209"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/mir/analysis.nim#L209" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -220,7 +220,7 @@ Computes if the global <tt class="docutils literal"><span class="pre"><span clas
 
 <span class="Identifier">p</span><span class="Punctuation">(</span><span class="Punctuation">)</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/compiler/mir/analysis.nim#L291"
+href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/mir/analysis.nim#L291"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/mir/analysis.nim#L291" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -233,7 +233,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Computes whether the location named by <tt class="docutils literal"><span class="pre"><span class="Identifier">loc</span></span></tt> does contain a value (i.e., is alive) when the data-flow operation at <tt class="docutils literal"><span class="pre"><span class="Identifier">start</span></span></tt> is reached (but not executed). Only the <tt class="docutils literal"><span class="pre"><span class="Identifier">span</span></span></tt> sub-graph is considered by the analysis.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/compiler/mir/analysis.nim#L56"
+href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/mir/analysis.nim#L56"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/mir/analysis.nim#L56" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -246,7 +246,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Performs data-flow analysis to compute whether the value that <tt class="docutils literal"><span class="pre"><span class="Identifier">loc</span></span></tt> evaluates to when <tt class="docutils literal"><span class="pre"><span class="Identifier">start</span></span></tt> is reached (but not executed) is <em>not</em> observed by operations that have a control-flow dependency on the operation/statement at <tt class="docutils literal"><span class="pre"><span class="Identifier">start</span></span></tt> and are located inside <tt class="docutils literal"><span class="pre"><span class="Identifier">span</span></span></tt>. It's important to note that this analysis does not test whether the underlying <em>location</em> is accessed, but rather the <em>value</em> it stores. If a new value is assigned to the underlying location which is then accessed after, it won't cause the analysis to return false
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/compiler/mir/analysis.nim#L112"
+href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/mir/analysis.nim#L112"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/mir/analysis.nim#L112" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -262,7 +262,7 @@ class="link-seesrc" target="_blank">Source</a>
 <p>In addition, whether the <tt class="docutils literal"><span class="pre"><span class="Identifier">start</span></span></tt> is connected to a structured or unstructured exit of <tt class="docutils literal"><span class="pre"><span class="Identifier">span</span></span></tt> is also returned</p>
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/compiler/mir/analysis.nim#L168"
+href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/mir/analysis.nim#L168"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/mir/analysis.nim#L168" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -275,7 +275,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Returns the expression after skipping handle-only conversions.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/compiler/mir/analysis.nim#L50"
+href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/mir/analysis.nim#L50"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/mir/analysis.nim#L50" class="link-seesrc" target="_blank" >Edit</a>
 

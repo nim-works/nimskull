@@ -244,6 +244,7 @@ nskStub	macros.html#nskStub	NimSymKind.nskStub
 NimSymKind	macros.html#NimSymKind	macros: NimSymKind	
 nnkLiterals	macros.html#nnkLiterals	macros: nnkLiterals	
 nnkCallKinds	macros.html#nnkCallKinds	macros: nnkCallKinds	
+nnkRequireInitKinds	macros.html#nnkRequireInitKinds	macros: nnkRequireInitKinds	
 `==`	macros.html#==,NimNode,NimNode	macros: `==`(a, b: NimNode): bool	
 sameType	macros.html#sameType,NimNode,NimNode	macros: sameType(a, b: NimNode): bool	
 len	macros.html#len,NimNode	macros: len(n: NimNode): int	
