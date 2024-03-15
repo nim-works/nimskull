@@ -215,7 +215,7 @@ window.addEventListener('DOMContentLoaded', main);
 
   </div>
   &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L1"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L1"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L1" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -241,7 +241,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 A rope data type. The empty rope is represented by <tt class="docutils literal"><span class="pre"><span class="Keyword">nil</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L32"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L32"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L32" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -258,7 +258,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Converts a rope back to a string.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L288"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L288"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L288" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -280,7 +280,7 @@ class="link-seesrc" target="_blank">Source</a>
 <span class="Keyword">let</span> <span class="Identifier">r3</span> <span class="Operator">=</span> <span class="StringLit">&quot;${1} ${2} ${3}&quot;</span> <span class="Operator">%</span> <span class="Punctuation">[</span><span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;Nim&quot;</span><span class="Punctuation">)</span><span class="Punctuation">,</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;is&quot;</span><span class="Punctuation">)</span><span class="Punctuation">,</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;a great language&quot;</span><span class="Punctuation">)</span><span class="Punctuation">]</span>
 <span class="Identifier">doAssert</span> <span class="Operator">$</span><span class="Identifier">r3</span> <span class="Operator">==</span> <span class="StringLit">&quot;Nim is a great language&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L293"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L293"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L293" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -296,7 +296,7 @@ The concatenation operator for ropes.
 <pre class="listing"><span class="Keyword">let</span> <span class="Identifier">r</span> <span class="Operator">=</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;Hello, &quot;</span><span class="Punctuation">)</span> <span class="Operator">&amp;</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;Nim!&quot;</span><span class="Punctuation">)</span>
 <span class="Identifier">doAssert</span> <span class="Operator">$</span><span class="Identifier">r</span> <span class="Operator">==</span> <span class="StringLit">&quot;Hello, Nim!&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L172"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L172"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L172" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -312,7 +312,7 @@ The concatenation operator for an <tt class="docutils literal"><span class="pre"
 <pre class="listing"><span class="Keyword">let</span> <span class="Identifier">r</span> <span class="Operator">=</span> <span class="Operator">&amp;</span><span class="Punctuation">[</span><span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;Hello, &quot;</span><span class="Punctuation">)</span><span class="Punctuation">,</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;Nim&quot;</span><span class="Punctuation">)</span><span class="Punctuation">,</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;!&quot;</span><span class="Punctuation">)</span><span class="Punctuation">]</span>
 <span class="Identifier">doAssert</span> <span class="Operator">$</span><span class="Identifier">r</span> <span class="Operator">==</span> <span class="StringLit">&quot;Hello, Nim!&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L204"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L204"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L204" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -328,7 +328,7 @@ The concatenation operator for ropes.
 <pre class="listing"><span class="Keyword">let</span> <span class="Identifier">r</span> <span class="Operator">=</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;Hello, &quot;</span><span class="Punctuation">)</span> <span class="Operator">&amp;</span> <span class="StringLit">&quot;Nim!&quot;</span>
 <span class="Identifier">doAssert</span> <span class="Operator">$</span><span class="Identifier">r</span> <span class="Operator">==</span> <span class="StringLit">&quot;Hello, Nim!&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L188"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L188"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L188" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -344,7 +344,7 @@ The concatenation operator for ropes.
 <pre class="listing"><span class="Keyword">let</span> <span class="Identifier">r</span> <span class="Operator">=</span> <span class="StringLit">&quot;Hello, &quot;</span> <span class="Operator">&amp;</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;Nim!&quot;</span><span class="Punctuation">)</span>
 <span class="Identifier">doAssert</span> <span class="Operator">$</span><span class="Identifier">r</span> <span class="Operator">==</span> <span class="StringLit">&quot;Hello, Nim!&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L196"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L196"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L196" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -363,7 +363,7 @@ Returns the character at position <tt class="docutils literal"><span class="pre"
 <span class="Identifier">doAssert</span> <span class="Identifier">r</span><span class="Punctuation">[</span><span class="DecNumber">7</span><span class="Punctuation">]</span> <span class="Operator">==</span> <span class="CharLit">'N'</span>
 <span class="Identifier">doAssert</span> <span class="Identifier">r</span><span class="Punctuation">[</span><span class="DecNumber">22</span><span class="Punctuation">]</span> <span class="Operator">==</span> <span class="CharLit">'\0'</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L230"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L230"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L230" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -380,7 +380,7 @@ Adds <tt class="docutils literal"><span class="pre"><span class="Identifier">b</
 <span class="Identifier">r</span><span class="Operator">.</span><span class="Identifier">add</span><span class="Punctuation">(</span><span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;Nim!&quot;</span><span class="Punctuation">)</span><span class="Punctuation">)</span>
 <span class="Identifier">doAssert</span> <span class="Operator">$</span><span class="Identifier">r</span> <span class="Operator">==</span> <span class="StringLit">&quot;Hello, Nim!&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L212"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L212"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L212" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -397,7 +397,7 @@ Adds <tt class="docutils literal"><span class="pre"><span class="Identifier">b</
 <span class="Identifier">r</span><span class="Operator">.</span><span class="Identifier">add</span><span class="Punctuation">(</span><span class="StringLit">&quot;Nim!&quot;</span><span class="Punctuation">)</span>
 <span class="Identifier">doAssert</span> <span class="Operator">$</span><span class="Identifier">r</span> <span class="Operator">==</span> <span class="StringLit">&quot;Hello, Nim!&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L221"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L221"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L221" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -414,7 +414,7 @@ Shortcut for <tt class="docutils literal"><span class="pre"><span class="Identif
 <span class="Identifier">r</span><span class="Operator">.</span><span class="Identifier">addf</span> <span class="StringLit">&quot;$1 $2 $3&quot;</span><span class="Punctuation">,</span> <span class="Punctuation">[</span><span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;Nim&quot;</span><span class="Punctuation">)</span><span class="Punctuation">,</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;is&quot;</span><span class="Punctuation">)</span><span class="Punctuation">,</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;a great language&quot;</span><span class="Punctuation">)</span><span class="Punctuation">]</span>
 <span class="Identifier">doAssert</span> <span class="Operator">$</span><span class="Identifier">r</span> <span class="Operator">==</span> <span class="StringLit">&quot;Dash: Nim is a great language&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L346"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L346"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L346" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -426,7 +426,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 The cache is discarded and disabled. The GC will reuse its used memory.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L167"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L167"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L167" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -438,7 +438,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Enables the caching of leaves. This reduces the memory footprint at the cost of runtime efficiency.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L162"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L162"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L162" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -451,7 +451,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Returns true if the contents of the file <tt class="docutils literal"><span class="pre"><span class="Identifier">f</span></span></tt> equal <tt class="docutils literal"><span class="pre"><span class="Identifier">r</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L359"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L359"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L359" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -464,7 +464,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Returns true if the contents of the file <tt class="docutils literal"><span class="pre"><span class="Identifier">f</span></span></tt> equal <tt class="docutils literal"><span class="pre"><span class="Identifier">r</span></span></tt>. If <tt class="docutils literal"><span class="pre"><span class="Identifier">f</span></span></tt> does not exist, false is returned.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L386"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L386"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L386" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -476,7 +476,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 The rope's length.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L46"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L46"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L46" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -492,7 +492,7 @@ Converts a float to a rope.
 <pre class="listing"><span class="Keyword">let</span> <span class="Identifier">r</span> <span class="Operator">=</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="FloatNumber">4.29</span><span class="Punctuation">)</span>
 <span class="Identifier">doAssert</span> <span class="Operator">$</span><span class="Identifier">r</span> <span class="Operator">==</span> <span class="StringLit">&quot;4.29&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L154"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L154"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L154" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -508,7 +508,7 @@ Converts an int to a rope.
 <pre class="listing"><span class="Keyword">let</span> <span class="Identifier">r</span> <span class="Operator">=</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="DecNumber">429</span><span class="Punctuation">)</span>
 <span class="Identifier">doAssert</span> <span class="Operator">$</span><span class="Identifier">r</span> <span class="Operator">==</span> <span class="StringLit">&quot;429&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L146"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L146"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L146" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -524,7 +524,7 @@ Converts a string to a rope.
 <pre class="listing"><span class="Keyword">let</span> <span class="Identifier">r</span> <span class="Operator">=</span> <span class="Identifier">rope</span><span class="Punctuation">(</span><span class="StringLit">&quot;I'm a rope&quot;</span><span class="Punctuation">)</span>
 <span class="Identifier">doAssert</span> <span class="Operator">$</span><span class="Identifier">r</span> <span class="Operator">==</span> <span class="StringLit">&quot;I'm a rope&quot;</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L127"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L127"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L127" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -537,7 +537,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Writes a rope to a file.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L280"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L280"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L280" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -551,7 +551,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Writes a rope to a stream.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L284"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L284"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L284" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -568,7 +568,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Iterates over any character in the rope <tt class="docutils literal"><span class="pre"><span class="Identifier">r</span></span></tt>.
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L275"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L275"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L275" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -587,7 +587,7 @@ Iterates over any leaf string in the rope <tt class="docutils literal"><span cla
   <span class="Identifier">doAssert</span> <span class="Identifier">leave</span> <span class="Operator">==</span> <span class="Identifier">s</span><span class="Punctuation">[</span><span class="Identifier">index</span><span class="Punctuation">]</span>
   <span class="Identifier">inc</span><span class="Punctuation">(</span><span class="Identifier">index</span><span class="Punctuation">)</span></pre>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/0ecf9a8ed0deef2e54f860d0e3c347bf58fd716a/lib/pure/ropes.nim#L254"
+href="https://github.com/nim-works/nimskull/tree/87e282a14648f1d3ed9e43298a82792b37ff4891/lib/pure/ropes.nim#L254"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/lib/pure/ropes.nim#L254" class="link-seesrc" target="_blank" >Edit</a>
 
