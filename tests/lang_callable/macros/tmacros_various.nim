@@ -12,6 +12,7 @@ Infix
 macrocache ok
 CommentStmt "comment 1"
 CommentStmt "comment 2"
+false
 '''
 
   output: '''
@@ -346,3 +347,22 @@ block:
   static:
     echo treeRepr(C1[1])
     echo treeRepr(C2[1])
+
+block:
+  # Ensure nkType equality is not ignored by `==` for NimNode
+  macro checkEq(a, b: typed) =
+    echo a == b
+
+  type Exception1 = object of Exception
+  type Exception2 = object of Exception
+  checkEq (;
+    try:
+      discard
+    except Exception1:
+      discard
+  ), (;
+    try:
+      discard
+    except Exception2:
+      discard
+  )
