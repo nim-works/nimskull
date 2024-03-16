@@ -242,6 +242,7 @@ rsemAmbiguousCall	ast/report_enums.html#rsemAmbiguousCall	ReportKind.rsemAmbiguo
 rsemCallingConventionMismatch	ast/report_enums.html#rsemCallingConventionMismatch	ReportKind.rsemCallingConventionMismatch	
 rsemHasSideEffects	ast/report_enums.html#rsemHasSideEffects	ReportKind.rsemHasSideEffects	
 rsemCantPassProcvar	ast/report_enums.html#rsemCantPassProcvar	ReportKind.rsemCantPassProcvar	
+rsemHookCannotRaise	ast/report_enums.html#rsemHookCannotRaise	ReportKind.rsemHookCannotRaise	
 rsemUnlistedRaises	ast/report_enums.html#rsemUnlistedRaises	ReportKind.rsemUnlistedRaises	
 rsemUnlistedEffects	ast/report_enums.html#rsemUnlistedEffects	ReportKind.rsemUnlistedEffects	
 rsemOverrideSafetyMismatch	ast/report_enums.html#rsemOverrideSafetyMismatch	ReportKind.rsemOverrideSafetyMismatch	

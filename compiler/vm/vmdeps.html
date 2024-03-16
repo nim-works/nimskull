@@ -144,6 +144,11 @@ window.addEventListener('DOMContentLoaded', main);
     PNode, Report]</a></li>
 
   </ul>
+  <ul class="simple nested-toc-section">toExceptionAst
+      <li><a class="reference" href="#toExceptionAst%2Csinkstring%2Csinkstring"
+    title="toExceptionAst(name, msg: sink string): PNode">toExceptionAst(name, msg: sink string): PNode</a></li>
+
+  </ul>
 
   </ul>
 </li>
@@ -152,7 +157,7 @@ window.addEventListener('DOMContentLoaded', main);
 
   </div>
   &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/vm/vmdeps.nim#L1"
+href="https://github.com/nim-works/nimskull/tree/f98e81760161ef3fe303999468fdfe97e4914aee/compiler/vm/vmdeps.nim#L1"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmdeps.nim#L1" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -176,7 +181,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Turns the given <tt class="docutils literal"><span class="pre"><span class="Identifier">error</span></span></tt> report into text that is meant to be passed on to the user
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/vm/vmdeps.nim#L418"
+href="https://github.com/nim-works/nimskull/tree/f98e81760161ef3fe303999468fdfe97e4914aee/compiler/vm/vmdeps.nim#L418"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmdeps.nim#L418" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -190,7 +195,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/vm/vmdeps.nim#L364"
+href="https://github.com/nim-works/nimskull/tree/f98e81760161ef3fe303999468fdfe97e4914aee/compiler/vm/vmdeps.nim#L364"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmdeps.nim#L364" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -204,7 +209,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/vm/vmdeps.nim#L359"
+href="https://github.com/nim-works/nimskull/tree/f98e81760161ef3fe303999468fdfe97e4914aee/compiler/vm/vmdeps.nim#L359"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmdeps.nim#L359" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -218,7 +223,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/vm/vmdeps.nim#L354"
+href="https://github.com/nim-works/nimskull/tree/f98e81760161ef3fe303999468fdfe97e4914aee/compiler/vm/vmdeps.nim#L354"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmdeps.nim#L354" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -232,7 +237,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/vm/vmdeps.nim#L45"
+href="https://github.com/nim-works/nimskull/tree/f98e81760161ef3fe303999468fdfe97e4914aee/compiler/vm/vmdeps.nim#L45"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmdeps.nim#L45" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -247,7 +252,7 @@ class="link-seesrc" target="_blank">Source</a>
 
 Invokes the parser for the given <tt class="docutils literal"><span class="pre"><span class="Identifier">code</span></span></tt> and returns either the parsed AST or the first error that occurred during parsing
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/vm/vmdeps.nim#L367"
+href="https://github.com/nim-works/nimskull/tree/f98e81760161ef3fe303999468fdfe97e4914aee/compiler/vm/vmdeps.nim#L367"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmdeps.nim#L367" class="link-seesrc" target="_blank" >Edit</a>
 
@@ -262,9 +267,21 @@ class="link-seesrc" target="_blank">Source</a>
 
 Version of <tt class="docutils literal"><span class="pre">parseCode</span></tt> that accepts a <tt class="docutils literal"><span class="pre">TLineInfo</span></tt>
 &nbsp;&nbsp;<a
-href="https://github.com/nim-works/nimskull/tree/9549d7e455b3dffb81b118afbc08ad49ab9d5d81/compiler/vm/vmdeps.nim#L413"
+href="https://github.com/nim-works/nimskull/tree/f98e81760161ef3fe303999468fdfe97e4914aee/compiler/vm/vmdeps.nim#L413"
 class="link-seesrc" target="_blank">Source</a>
 &nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmdeps.nim#L413" class="link-seesrc" target="_blank" >Edit</a>
+
+</dd>
+</div>
+<div id="toExceptionAst,sinkstring,sinkstring">
+<dt><pre><span class="Keyword">proc</span> <a href="#toExceptionAst%2Csinkstring%2Csinkstring"><span class="Identifier">toExceptionAst</span></a><span class="Other">(</span><span class="Identifier">name</span><span class="Other">,</span> <span class="Identifier">msg</span><span class="Other">:</span> <span class="Identifier">sink</span> <span class="Identifier">string</span><span class="Other">)</span><span class="Other">:</span> <a href="../ast/ast_types.html#PNode"><span class="Identifier">PNode</span></a> {.<span><span class="Other pragmadots">...</span></span><span class="pragmawrap"><span class="Identifier">raises</span><span class="Other">:</span> <span class="Other">[</span><span class="Other">]</span><span class="Other">,</span> <span class="Identifier">tags</span><span class="Other">:</span> <span class="Other">[</span><span class="Other">]</span></span>.}</pre></dt>
+<dd>
+
+Creates the AST as for an exception object as expected by the report.
+&nbsp;&nbsp;<a
+href="https://github.com/nim-works/nimskull/tree/f98e81760161ef3fe303999468fdfe97e4914aee/compiler/vm/vmdeps.nim#L432"
+class="link-seesrc" target="_blank">Source</a>
+&nbsp;&nbsp;<a href="https://github.com/nim-works/nimskull/edit/devel/compiler/vm/vmdeps.nim#L432" class="link-seesrc" target="_blank" >Edit</a>
 
 </dd>
 </div>
@@ -278,7 +295,7 @@ class="link-seesrc" target="_blank">Source</a>
       <div class="twelve-columns footer">
         <span class="nim-sprite"></span>
         <br/>
-        <small style="color: var(--hint);">Made with Nim. Generated: 2024-03-15 00:00:00 UTC</small>
+        <small style="color: var(--hint);">Made with Nim. Generated: 2024-03-16 00:00:00 UTC</small>
       </div>
     </div>
   </div>
