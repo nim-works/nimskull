@@ -2348,6 +2348,9 @@ elif isNimVmTarget:
   proc prepareException(e: ref Exception, ename: cstring) {.compilerproc.} =
     discard
 
+  proc nimUnhandledException() {.compilerproc.} =
+    discard
+
   proc closureIterSetupExc(e: ref Exception) {.compilerproc, inline.} =
     ## Used by the closure transformation pass for preparing for exception
     ## handling. Implemented as a callback.

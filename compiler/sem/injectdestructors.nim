@@ -63,31 +63,6 @@
 ## subsequently turning the assignment into a move and thus making the
 ## assertion fail with an ``IndexDefect``.
 
-# XXX: there exists an effect-related problem with the lifetime-tracking hooks
-#      (i.e. ``=copy``, ``=sink``, ``=destroy``). The assignment rewriting and,
-#      to some degree, the destructor injection can be seen as a
-#      refinement/expansion/lowering and should thus not introduce (observable)
-#      side-effects (mutation of global state, exceptional control-flow, etc.) --
-#      it also violates the MIR specification. All three hooks are currently
-#      allowed to have side-effects, which violates the aforementioned rules.
-#      It also causes the concrete issue of cyclic dependencies: for example,
-#      the move analyser uses data-flow analysis (which requires a control-flow
-#      graph) in order to decide where to move and where to copy. If whether a
-#      copy or move is used affects the control-flow graph, the move analyser
-#      depends on its own output, which while possible to make work, would
-#      likely introduce a large amount of complexity.
-#      There are two possible solutions:
-#      1. disallow lifetime-tracking hooks from having any side-effects
-#      2. at least for the ``=copy`` and ``=sink`` hooks, each assignment
-#         could be said to have the union of the effects from both hooks.
-#         Those can be computed when generating the MIR code, as types and
-#         their type-bound operations are already figured out at that point.
-#         It's more complicated for ``=destroy`` hooks, since they are
-#         injected rather than being the result of an expansion. The current
-#         plan is to introduce the MIR concept of dedicated "scope finalizers",
-#         which could be used to attach the effects gathered from all possible
-#         destructor calls to
-
 # XXX: not being able to rewrite an assignment into a call to the copy hook
 #      because it is disabled is a semantic error, meaning that it should
 #      be detected and reported during semantic analysis, not as part of
@@ -527,14 +502,7 @@ template buildVoidCall*(bu: var MirBuilder, env: var MirEnv, p: PSym,
                        body: untyped) =
   let prc = p # prevent multi evaluation
   bu.subTree mnkVoid:
-    let kind =
-      if canRaise(optPanics in graph.config.globalOptions, prc.ast[namePos]):
-        mnkCheckedCall
-      else:
-        mnkCall
-
-    # XXX: injected procedures should not introduce new control-flow paths
-    bu.subTree MirNode(kind: kind, typ: getVoidType(graph)):
+    bu.subTree MirNode(kind: mnkCall, typ: getVoidType(graph)):
       bu.use toValue(env.procedures.add(prc), prc.typ)
       body
 

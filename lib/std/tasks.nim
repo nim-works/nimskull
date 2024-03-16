@@ -61,7 +61,7 @@ type
   Task* = object ## `Task` contains the callback and its arguments.
     callback: proc (args: pointer) {.nimcall, gcsafe.}
     args: pointer
-    destroy: proc (args: pointer) {.nimcall, gcsafe.}
+    destroy: proc (args: pointer) {.nimcall, gcsafe, raises: [].}
 
 
 proc `=copy`*(x: var Task, y: Task) {.error.}

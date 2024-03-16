@@ -33,17 +33,17 @@ scope:
   def_cursor _0: Node = target[]
   def_cursor _1: Node = _0[].parent
   def sibling: Node
-  =copy(name sibling, arg _1[].left) (raises)
+  =copy(name sibling, arg _1[].left)
   def_cursor _2: Node = sibling
   def saved: Node
-  =copy(name saved, arg _2[].right) (raises)
+  =copy(name saved, arg _2[].right)
   def_cursor _3: Node = sibling
   def_cursor _4: Node = saved
   def_cursor _6: Node = _4[].left
-  =copy(name _3[].right, arg _6) (raises)
+  =copy(name _3[].right, arg _6)
   def_cursor _5: Node = sibling
-  =sink(name _5[].parent, arg saved) (raises)
-  =destroy(name sibling) (raises)
+  =sink(name _5[].parent, arg saved)
+  =destroy(name sibling)
 -- end of expandArc ------------------------
 --expandArc: p1
 
@@ -130,7 +130,7 @@ scope:
 scope:
   try:
     def shadowScope: Scope
-    =copy(name shadowScope, arg c[].currentScope) (raises)
+    =copy(name shadowScope, arg c[].currentScope)
     rawCloseScope(arg c) (raises)
     scope:
       def_cursor _0: Scope = shadowScope
@@ -157,7 +157,7 @@ scope:
                   addInterfaceDecl(arg c, consume _6) (raises)
                 i = addI(arg i, arg 1) (raises)
   finally:
-    =destroy(name shadowScope) (raises)
+    =destroy(name shadowScope)
 -- end of expandArc ------------------------
 --expandArc: treturn
 
