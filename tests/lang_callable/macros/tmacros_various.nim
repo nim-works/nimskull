@@ -14,6 +14,7 @@ CommentStmt "comment 1"
 CommentStmt "comment 2"
 false
 false
+false
 true
 '''
 
@@ -367,6 +368,25 @@ block:
       discard
     except Exception2:
       discard
+  )
+
+  macro checkEqOfTry(a, b: typed) =
+    echo a[0][1][1] == b[0][1][1]
+
+  checkEqOfTry (;
+    block:
+      type E = object of Exception1
+      try:
+        discard
+      except E:
+        discard
+  ), (;
+    block:
+      type E = object of Exception2
+      try:
+        discard
+      except E:
+        discard
   )
 
 block:
