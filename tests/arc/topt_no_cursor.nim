@@ -98,11 +98,13 @@ scope:
           while true:
             scope:
               def_cursor _1: int = i
-              def _2: bool = ltI(arg _1, arg L)
-              def _3: bool = not(arg _2)
-              if _3:
-                scope:
-                  break L0
+              def :tmp: bool = ltI(arg _1, arg L)
+              scope:
+                def_cursor _2: bool = :tmp
+                def _3: bool = not(arg _2)
+                if _3:
+                  scope:
+                    break L0
               scope:
                 scope:
                   try:
@@ -110,12 +112,13 @@ scope:
                     def line: lent string = borrow a[_4]
                     def_cursor _5: string = line[]
                     def splitted: seq[string] = split(arg _5, arg " ", arg -1) (raises)
-                    def_cursor _6: string = splitted[0]
-                    def _7: bool = eqStr(arg _6, arg "opt")
-                    if _7:
-                      scope:
-                        def_cursor _10: string = splitted[1]
-                        =copy(name lan_ip, arg _10)
+                    scope:
+                      def_cursor _6: string = splitted[0]
+                      def _7: bool = eqStr(arg _6, arg "opt")
+                      if _7:
+                        scope:
+                          def_cursor _10: string = splitted[1]
+                          =copy(name lan_ip, arg _10)
                     def_cursor _8: string = lan_ip
                     echo(arg type(array[0..0, string]), arg _8) (raises)
                     def_cursor _9: string = splitted[1]
@@ -143,11 +146,13 @@ scope:
           while true:
             scope:
               def_cursor _2: int = i
-              def _3: bool = ltI(arg _2, arg L)
-              def _4: bool = not(arg _3)
-              if _4:
-                scope:
-                  break L0
+              def :tmp: bool = ltI(arg _2, arg L)
+              scope:
+                def_cursor _3: bool = :tmp
+                def _4: bool = not(arg _3)
+                if _4:
+                  scope:
+                    break L0
               scope:
                 scope:
                   def_cursor _5: int = i
@@ -164,14 +169,15 @@ scope:
 scope:
   try:
     def x: sink string
-    def_cursor _0: sink string = x
-    def _1: int = lengthStr(arg _0)
-    def _2: bool = eqI(arg _1, arg 2)
-    if _2:
-      scope:
-        result := move x
-        wasMoved(name x)
-        return
+    scope:
+      def_cursor _0: sink string = x
+      def _1: int = lengthStr(arg _0)
+      def _2: bool = eqI(arg _1, arg 2)
+      if _2:
+        scope:
+          result := move x
+          wasMoved(name x)
+          return
     def_cursor _3: sink string = x
     def _4: int = lengthStr(arg _3)
     def _5: string = $(arg _4) (raises)
@@ -189,14 +195,15 @@ scope:
     this[].isValid = fileExists(arg _0) (raises)
     def _1: tuple[dir: string, front: string]
     block L0:
-      def_cursor _2: string = this[].value
-      def _3: bool = dirExists(arg _2) (raises)
-      if _3:
-        scope:
-          def _4: string
-          =copy(name _4, arg this[].value)
-          _1 := construct (consume _4, consume "")
-          break L0
+      scope:
+        def_cursor _2: string = this[].value
+        def _3: bool = dirExists(arg _2) (raises)
+        if _3:
+          scope:
+            def _4: string
+            =copy(name _4, arg this[].value)
+            _1 := construct (consume _4, consume "")
+            break L0
       scope:
         try:
           def_cursor _5: string = this[].value
@@ -214,15 +221,16 @@ scope:
           =destroy(name _6)
     def par: tuple[dir: string, front: string] = move _1
     block L1:
-      def_cursor _10: string = par.0
-      def _11: bool = dirExists(arg _10) (raises)
-      if _11:
-        scope:
-          def_cursor _12: string = par.0
-          def_cursor _13: string = par.1
-          def _14: seq[string] = getSubDirs(arg _12, arg _13) (raises)
-          =sink(name this[].matchDirs, arg _14)
-          break L1
+      scope:
+        def_cursor _10: string = par.0
+        def _11: bool = dirExists(arg _10) (raises)
+        if _11:
+          scope:
+            def_cursor _12: string = par.0
+            def_cursor _13: string = par.1
+            def _14: seq[string] = getSubDirs(arg _12, arg _13) (raises)
+            =sink(name this[].matchDirs, arg _14)
+            break L1
       scope:
         def _15: seq[string] = construct ()
         =sink(name this[].matchDirs, arg _15)

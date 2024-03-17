@@ -8,11 +8,12 @@ scope:
   def b: seq[seq[int]]
   def x: seq[int] = f() (raises)
   block L0:
-    if cond:
-      scope:
-        def _0: seq[int] = move x
-        add(name a, consume _0)
-        break L0
+    scope:
+      if cond:
+        scope:
+          def _0: seq[int] = move x
+          add(name a, consume _0)
+          break L0
     scope:
       def _1: seq[int] = move x
       add(name b, consume _1)
@@ -35,29 +36,33 @@ scope:
           while true:
             scope:
               def_cursor _0: int = i
-              def _1: bool = ltI(arg _0, arg b)
-              def _2: bool = not(arg _1)
-              if _2:
-                scope:
-                  break L0
+              def :tmp: bool = ltI(arg _0, arg b)
+              scope:
+                def_cursor _1: bool = :tmp
+                def _2: bool = not(arg _1)
+                if _2:
+                  scope:
+                    break L0
               scope:
                 scope:
                   def_cursor i: int = i
-                  def _3: bool = eqI(arg i, arg 2)
-                  if _3:
-                    scope:
-                      return
+                  scope:
+                    def _3: bool = eqI(arg i, arg 2)
+                    if _3:
+                      scope:
+                        return
                   def _4: seq[int]
                   =copy(name _4, arg x)
                   add(name a, consume _4)
                 i = addI(arg i, arg 1) (raises)
     block L1:
-      if cond:
-        scope:
-          def _5: seq[int] = move x
-          wasMoved(name x)
-          add(name a, consume _5)
-          break L1
+      scope:
+        if cond:
+          scope:
+            def _5: seq[int] = move x
+            wasMoved(name x)
+            add(name a, consume _5)
+            break L1
       scope:
         def _6: seq[int] = move x
         wasMoved(name x)
@@ -72,17 +77,19 @@ scope:
   try:
     def str: string
     def x: string = boolToStr(arg cond)
-    if cond:
-      scope:
-        return
+    scope:
+      if cond:
+        scope:
+          return
     def _0: string = boolToStr(arg cond)
     str := move _0
-    def _1: bool = not(arg cond)
-    if _1:
-      scope:
-        result := move str
-        wasMoved(name str)
-        return
+    scope:
+      def _1: bool = not(arg cond)
+      if _1:
+        scope:
+          result := move str
+          wasMoved(name str)
+          return
   finally:
     =destroy(name x)
     =destroy(name str)

@@ -1459,12 +1459,13 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
 
   template genElifBranch(branch: PNode, extra: untyped) =
     ## Generates the code for a single ``nkElif(Branch|Expr)``
-    let v = genUse(c, branch[0])
-    c.subTree mnkIf:
-      c.use v
-      c.scope:
-        genBranch(c, branch.lastSon, dest)
-        extra
+    c.scope:
+      let v = genUse(c, branch[0])
+      c.subTree mnkIf:
+        c.use v
+        c.scope:
+          genBranch(c, branch.lastSon, dest)
+          extra
 
   if n.len == 1:
     # an ``if`` statement/expression with a single branch. Don't emit the
