@@ -97,7 +97,7 @@ makeTreeEquivalenceProc(exprStructuralEquivalentStrictSymAndComm,
   relaxedKindCheck = false,
   symCheck     = a.sym == b.sym,
   floatCheck   = sameFloatIgnoreNan(a.floatVal, b.floatVal),
-  typeCheck    = true,
+  typeCheck    = a.typ == b.typ,
   commentCheck = a.comment == b.comment
 )
 export exprStructuralEquivalentStrictSymAndComm
