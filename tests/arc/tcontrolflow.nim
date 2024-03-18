@@ -1,12 +1,12 @@
 discard """
   output: '''begin A
 elif
-end A
 destroyed
+end A
 begin false
 if
-end false
 destroyed
+end false
 begin true
 if
 end true
@@ -18,6 +18,9 @@ true
 """
 # we use the -d:danger switch to detect uninitialized stack
 # slots more reliably (there shouldn't be any, of course).
+
+# XXX: the test here need to be improved and turned into a proper
+#      specification
 
 type
   Foo = object

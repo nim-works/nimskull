@@ -225,7 +225,9 @@ proc buildError(c: TCtx, thread: VmThread, event: sink VmEvent): ExecErrorReport
   ## Creates an `ExecErrorReport` with the `event` and a stack-trace for
   ## `thread`
   let stackTrace =
-    if event.kind == vmEvtUnhandledException:
+    if event.kind == vmEvtUnhandledException and event.trace.len > 0:
+      # HACK: an unhandled exception can be reported without providing a trace.
+      #       Ideally, that shouldn't happen
       createStackTrace(c, event.trace)
     else:
       createStackTrace(c, thread)

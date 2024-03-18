@@ -423,6 +423,7 @@ type
     rsemCallingConventionMismatch
     rsemHasSideEffects
     rsemCantPassProcvar
+    rsemHookCannotRaise
     rsemUnlistedRaises
     rsemUnlistedEffects
     rsemOverrideSafetyMismatch

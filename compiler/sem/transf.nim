@@ -373,9 +373,9 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
       loop[0] = newIntTypeNode(1, c.graph.getSysType(info, tyBool))
       loop[0].info = info
 
-      # XXX: we need to help ``closureiters`` (which doesn't support 'yield' in
-      #      if conditions...) here and unpack complex condition expressions;
-      #      'yield' in 'while' conditions would not work otherwise
+      # unwrap the statement list expression. It helps with the following
+      # lowering, and it's also necessary for the closure iterator
+      # transformation
       var preamble = PNode(nil)
       if cond.kind in {nkStmtListExpr, nkStmtList}:
         preamble = newNodeI(nkStmtList, info, cond.len - 1)
@@ -383,6 +383,16 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
           preamble[i] = cond[i]
 
         cond = cond[^1]
+
+      # all definitions part of the condition expression are part of the while's
+      # scope, placing the expression into the if's condition slot would thus
+      # result in incorrect scoping
+      if not isAtom(cond):
+        let tmp = newTemp(c, cond.typ, cond.info)
+        if preamble.isNil:
+          preamble = newTree(nkStmtList)
+        preamble.add newTree(nkLetSection, newIdentDefs(tmp, cond))
+        cond = tmp
 
       let exit =
         newTreeI(nkIfStmt, info,

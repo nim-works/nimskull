@@ -170,6 +170,17 @@ proc prepareExceptionWrapper(a: VmArgs) {.nimcall.} =
                  deref(a.getHandle(1)).strVal,
                  a.mem.allocator)
 
+proc nimUnhandledExceptionWrapper(a: VmArgs) {.nimcall.} =
+  # setup the exception AST:
+  let
+    exc = a.heap[].tryDeref(a.currentException, noneType).value()
+    ast = toExceptionAst($exc.getFieldHandle(1.fpos).deref().strVal,
+                         $exc.getFieldHandle(2.fpos).deref().strVal)
+  # report the unhandled exception:
+  # XXX: the current stack-trace should be passed along, but we don't
+  #      have access to it here
+  raiseVmError(VmEvent(kind: vmEvtUnhandledException, exc: ast))
+
 proc prepareMutationWrapper(a: VmArgs) {.nimcall.} =
   discard "no-op"
 
@@ -247,6 +258,7 @@ iterator basicOps*(): Override =
   systemop(getCurrentExceptionMsg)
   systemop(getCurrentException)
   systemop(prepareException)
+  systemop(nimUnhandledException)
   systemop(prepareMutation)
   override("stdlib.system.closureIterSetupExc",
            setCurrentExceptionWrapper)

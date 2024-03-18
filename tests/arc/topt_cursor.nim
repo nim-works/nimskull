@@ -7,10 +7,11 @@ scope:
   try:
     def_cursor x: (string, int) = <D0>
     block L0:
-      if cond:
-        scope:
-          x = <D1>
-          break L0
+      scope:
+        if cond:
+          scope:
+            x = <D1>
+            break L0
       scope:
         x = <D2>
     def_cursor _0: (string, int) = x
@@ -35,11 +36,13 @@ scope:
               while true:
                 scope:
                   def_cursor _1: File = f
-                  def _2: bool = readLine(arg _1, name res) (raises)
-                  def _3: bool = not(arg _2)
-                  if _3:
-                    scope:
-                      break L0
+                  def :tmp: bool = readLine(arg _1, name res) (raises)
+                  scope:
+                    def_cursor _2: bool = :tmp
+                    def _3: bool = not(arg _2)
+                    if _3:
+                      scope:
+                        break L0
                   scope:
                     scope:
                       def_cursor x: string = res

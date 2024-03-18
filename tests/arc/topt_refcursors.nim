@@ -11,11 +11,13 @@ scope:
         scope:
           def_cursor _0: Node = it
           def _1: bool = eqRef(arg _0, arg nil)
-          def _2: bool = not(arg _1)
-          def _3: bool = not(arg _2)
-          if _3:
-            scope:
-              break L0
+          def :tmp: bool = not(arg _1)
+          scope:
+            def_cursor _2: bool = :tmp
+            def _3: bool = not(arg _2)
+            if _3:
+              scope:
+                break L0
           scope:
             def_cursor _4: Node = it
             def_cursor _5: string = _4[].s
@@ -29,11 +31,13 @@ scope:
         scope:
           def_cursor _7: Node = jt
           def _8: bool = eqRef(arg _7, arg nil)
-          def _9: bool = not(arg _8)
-          def _10: bool = not(arg _9)
-          if _10:
-            scope:
-              break L1
+          def :tmp: bool = not(arg _8)
+          scope:
+            def_cursor _9: bool = :tmp
+            def _10: bool = not(arg _9)
+            if _10:
+              scope:
+                break L1
           scope:
             def_cursor _11: Node = jt
             def_cursor ri: Node = _11[].ri

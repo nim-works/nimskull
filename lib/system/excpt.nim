@@ -427,6 +427,12 @@ when true:
       currException = nil
       quit(1)
 
+proc nimUnhandledException() {.compilerproc, noreturn.} =
+  ## Called from generated code when propgation of an exception crosses a
+  ## routine boundary it shouldn't.
+  reportUnhandledError(currException)
+  quit(1)
+
 proc pushActiveException(e: sink(ref Exception)) =
   e.up = activeException
   activeException = e

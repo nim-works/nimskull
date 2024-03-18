@@ -286,22 +286,8 @@ template toException(x: DerefFailureCode): untyped =
 
 proc reportException(c: TCtx; trace: sink VmRawStackTrace, raised: LocHandle) =
   ## Reports the exception represented by `raised` by raising a `VmError`
-
-  let name = $raised.getFieldHandle(1.fpos).deref().strVal
-  let msg = $raised.getFieldHandle(2.fpos).deref().strVal
-
-  # The reporter expects the exception as a deserialized PNode-tree. Only the
-  # 2nd (name) and 3rd (msg) field are actually used, so instead of running
-  # full deserialization (which is also not possible due to no `PType` being
-  # available), we just create the necessary parts manually
-
-  # TODO: the report should take the two strings directly instead
-  let empty = newNode(nkEmpty)
-  let ast = newTree(nkObjConstr,
-                    empty, # constructor type; unused
-                    empty, # unused
-                    newStrNode(nkStrLit, name),
-                    newStrNode(nkStrLit, msg))
+  let ast = toExceptionAst($raised.getFieldHandle(1.fpos).deref().strVal,
+                           $raised.getFieldHandle(2.fpos).deref().strVal)
   raiseVmError(VmEvent(kind: vmEvtUnhandledException, exc: ast, trace: trace))
 
 func cleanUpReg(r: var TFullReg, mm: var VmMemoryManager) =

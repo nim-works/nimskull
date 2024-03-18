@@ -428,3 +428,13 @@ proc errorReportToString*(c: ConfigRef, error: Report): string =
               # the report, so need to add `"Error: "`
               # manally to stay consistent with the old
               # output.
+
+proc toExceptionAst*(name, msg: sink string): PNode =
+  ## Creates the AST as for an exception object as expected by the report.
+  # TODO: the report should take the two strings directly instead
+  let empty = newNode(nkEmpty)
+  newTree(nkObjConstr,
+          empty, # constructor type; unused
+          empty, # unused
+          newStrNode(nkStrLit, name),
+          newStrNode(nkStrLit, msg))

@@ -57,7 +57,6 @@ type
     asgnForType: PType
     recurse: bool
     addMemReset: bool    # add wasMoved() call after destructor call
-    canRaise: bool
     filterDiscriminator: PSym  # we generating destructor for case branch
     c: PContext # c can be nil, then we are called from lambdalifting!
     idgen: IdGenerator
@@ -152,8 +151,6 @@ proc genContainerOf(c: var TLiftCtx; objType: PType, field, x: PSym): PNode =
 proc destructorCall(c: var TLiftCtx; op: PSym; x: PNode): PNode =
   var destroy = newTreeIT(nkCall, x.info, op.typ[0]):
     [newSymNode(op), genAddr(c, x)]
-  if sfNeverRaises notin op.flags:
-    c.canRaise = true
   if c.addMemReset:
     result = newTree(nkStmtList):
       [destroy, genBuiltin(c, mWasMoved,  "wasMoved", x)]
@@ -303,8 +300,6 @@ proc newHookCall(c: var TLiftCtx; op: PSym; x, y: PNode): PNode =
   #  localReport(c.config, x.info, "usage of '$1' is a user-defined error" % op.name.s)
   result = newNodeI(nkCall, x.info)
   result.add newSymNode(op)
-  if sfNeverRaises notin op.flags:
-    c.canRaise = true
   if op.typ.sons[1].kind == tyVar:
     result.add genAddr(c, x)
   else:
@@ -322,8 +317,6 @@ proc newHookCall(c: var TLiftCtx; op: PSym; x, y: PNode): PNode =
 proc newOpCall(c: var TLiftCtx; op: PSym; x: PNode): PNode =
   result = newTreeIT(nkCall, x.info, op.typ[0]):
     [newSymNode(op), x]
-  if sfNeverRaises notin op.flags:
-    c.canRaise = true
 
 proc newDeepCopyCall(c: var TLiftCtx; op: PSym; x, y: PNode): PNode =
   result = newAsgnStmt(x, newOpCall(c, op, y))
@@ -948,7 +941,7 @@ proc produceSym(g: ModuleGraph; c: PContext; typ: PType; kind: TTypeAttachedOp;
         # bug #19205: Do not forget to also copy the hidden type field:
         genTypeFieldCopy(a, typ, result.ast[bodyPos], d, src)
 
-  if not a.canRaise: incl result.flags, sfNeverRaises
+  incl result.flags, sfNeverRaises
   completePartialOp(g, idgen.module, typ, kind, result)
 
 
@@ -972,7 +965,7 @@ proc produceDestructorForDiscriminator*(g: ModuleGraph; typ: PType; field: PSym,
   result.ast[bodyPos].add v
   let placeHolder = newNodeIT(nkSym, info, getSysType(g, info, tyPointer))
   fillBody(a, typ, result.ast[bodyPos], d, placeHolder)
-  if not a.canRaise: incl result.flags, sfNeverRaises
+  incl result.flags, sfNeverRaises
 
 
 template liftTypeBoundOps*(c: PContext; typ: PType; info: TLineInfo) =

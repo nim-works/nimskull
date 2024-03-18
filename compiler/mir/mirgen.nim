@@ -1459,12 +1459,13 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
 
   template genElifBranch(branch: PNode, extra: untyped) =
     ## Generates the code for a single ``nkElif(Branch|Expr)``
-    let v = genUse(c, branch[0])
-    c.subTree mnkIf:
-      c.use v
-      c.scope:
-        genBranch(c, branch.lastSon, dest)
-        extra
+    c.scope:
+      let v = genUse(c, branch[0])
+      c.subTree mnkIf:
+        c.use v
+        c.scope:
+          genBranch(c, branch.lastSon, dest)
+          extra
 
   if n.len == 1:
     # an ``if`` statement/expression with a single branch. Don't emit the
@@ -2058,6 +2059,10 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
 
   c.scopeDepth = 1
   c.add MirNode(kind: mnkScope)
+  if sfNeverRaises in owner.flags:
+    c.add MirNode(kind: mnkTry, len: 1)
+    c.add MirNode(kind: mnkStmtList)
+
   if owner.kind in routineKinds:
     # add a 'def' for each ``sink`` parameter. This simplifies further
     # processing and analysis
@@ -2070,6 +2075,21 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
           c.add MirNode(kind: mnkNone)
 
   gen(c, body)
+
+  if sfNeverRaises in owner.flags:
+    # if it's enforced that the procedure never raises, exceptions escaping
+    # the procedure terminate the program. This is achieved by wrapping the
+    # body in a catch-all exception handler
+    c.add endNode(mnkStmtList)
+    c.subTree MirNode(kind: mnkExcept, len: 1):
+      c.subTree mnkBranch:
+        c.subTree mnkVoid:
+          let p = c.graph.getCompilerProc("nimUnhandledException")
+          c.builder.buildCall c.env.procedures.add(p), p.typ,
+                              typeOrVoid(c, p.typ[0]):
+            discard
+    c.add endNode(mnkTry)
+
   c.add endNode(mnkScope)
 
   swap(c.env, env) # swap back
