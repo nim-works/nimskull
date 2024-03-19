@@ -101,7 +101,7 @@ jobs:
 
       - id: release
         name: Create pre-release
-        uses: softprops/action-gh-release@v2.0.3
+        uses: softprops/action-gh-release@v2.0.4
         with:
           prerelease: true
           files: ${{ steps.release-files.outputs.result }}
