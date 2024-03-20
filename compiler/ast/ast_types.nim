@@ -799,6 +799,7 @@ type
     mIsMainModule, mCompileDate, mCompileTime, mProcCall,
     mCpuEndian, mHostOS, mHostCPU, mBuildOS, mBuildCPU, mAppType,
     mCompileOption, mCompileOptionArg,
+    mLaunch, mSuspend,
     mNLen, mNChild, mNSetChild, mNAdd, mNAddMultiple, mNDel,
     mNKind, mNSymKind,
 
