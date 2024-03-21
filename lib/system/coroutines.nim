@@ -10,8 +10,6 @@ type
       ## internal procedure
     state: int32
       ## internal state value
-    running: bool
-      # XXX: interim solution, needs some more thought
     exc: Exception
       ## the "current exception" of the coroutine instance
 
@@ -30,6 +28,10 @@ type
 
   CoroutineError* = object of ValueError
     # XXX: derive from ``CatchableError`` directly?
+
+const
+  StateOffset = 4
+    ## the number of special values `state` can have + 1
 
 # compiler interface
 # ------------------
@@ -54,7 +56,7 @@ proc status*(c: CoroutineBase): CoroutineState =
     csAborted
   of -1:
     csPending
-  elif c.running:
+  elif c.state >= 0:
     csRunning
   else:
     csSuspended
@@ -65,10 +67,17 @@ proc resume*[T: Coroutine](c: T): T {.discardable.} =
   ## Yields control to the given suspendend coroutine instance `c`, which is
   ## then executed until the first suspension point is reached. Returns the
   ## coroutine instance that the coroutine yielded control to (may be nil).
-  # TODO: prevent resuming running coroutine instance
-  c.running = true
+  if c.state < -StateOffset:
+    # mark as running:
+    c.state = -(c.state + StateOffset)
+  else:
+    # already running
+    discard "TODO: raise an error"
+  # execute until the first suspension point is reached:
   result = T(c.fn(c))
-  c.running = false
+  # mark as not running again:
+  if c.state >= 0:
+    c.state = -(c.state + StateOffset)
 
 {.pop.}
 
