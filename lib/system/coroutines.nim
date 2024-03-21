@@ -63,7 +63,7 @@ proc resume*[T: Coroutine](c: T): T {.discardable.} =
   ## Yields control to the given suspendend coroutine instance `c`, which is
   ## then executed until the first suspension point is reached. Returns the
   ## coroutine instance that the coroutine yielded control to (may be nil).
-  if c.state < -StateOffset:
+  if c.state <= -StateOffset:
     # mark as running:
     c.state = -(c.state + StateOffset)
   else:
