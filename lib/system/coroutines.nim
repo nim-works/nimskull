@@ -57,7 +57,7 @@ proc status*(c: CoroutineBase): CoroutineState =
   elif c.running:
     csRunning
   else:
-    csPending
+    csSuspended
 
 {.push checks: off.}
 
