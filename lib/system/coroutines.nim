@@ -36,10 +36,6 @@ const
 # compiler interface
 # ------------------
 
-proc launch*(constr: untyped): auto {.noSideEffect, magic: "Launch".}
-  ## Given a literal coroutine instance construction expression, constructs
-  ## the instance and returns it.
-
 proc suspend*(c: Coroutine) {.magic: "Suspend".}
   ## Suspends the enclosing coroutine. `c` is the coroutine instance that
   ## will be returned by the `resume <#resume,T>`_ that resumed execution
