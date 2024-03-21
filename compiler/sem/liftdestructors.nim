@@ -1062,7 +1062,9 @@ proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInf
       setAttachedOp(g, idgen.module, orig, k, getAttachedOp(g, canon, k))
 
   let op = getAttachedOp(g, orig, attachedDestructor)
-  if op != nil and getBody(g, op).len != 0:
+  # if the destructor is overridden, the ``tfHasAsgn`` flag was already
+  # included
+  if op != nil and sfOverriden notin op.flags and getBody(g, op).len != 0:
     #or not isTrival(orig.assignment) or
     # not isTrival(orig.sink):
     orig.flags.incl tfHasAsgn
