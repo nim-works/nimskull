@@ -7,6 +7,6 @@ discard """
 proc coro[T](x: T) {.coroutine.} =
   echo x
 
-var instance = launch coro(1)
+var instance = coro(1)
 doAssert instance is Coroutine[int]
 resume(instance)

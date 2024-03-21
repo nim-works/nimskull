@@ -7,7 +7,7 @@
 proc coro(): int {.coroutine.} =
   result = 1
 
-let instance = launch coro()
+let instance = coro()
 resume(instance) # run to completion
 doAssert instance.status == csPending
 
@@ -25,7 +25,7 @@ proc coro2(early: bool): int {.coroutine.} =
     return 2
   return 1
 
-var instance2 = launch coro2(true)
+var instance2 = coro2(true)
 
 resume(instance2)
 doAssert instance2.status == csPending

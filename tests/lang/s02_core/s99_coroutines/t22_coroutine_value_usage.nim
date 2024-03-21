@@ -9,16 +9,7 @@ proc coro() {.coroutine.} =
   echo "here"
 
 let c = coro
-
-# with launch:
-resume(launch c())
-
-# with trampoline:
-proc trampoline(x: sink Coroutine) =
-  echo "trampoline"
-  resume(x)
-
-c() # invokes trampoline
+resume(c())
 
 ## The same is true for closure coroutine values.
 
@@ -31,8 +22,4 @@ proc make(): (proc() {.coroutine.}) =
   result = coro
 
 let cc = make()
-# with launch:
-resume(launch cc())
-
-# with trampoline:
-cc()
+resume(cc())

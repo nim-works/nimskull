@@ -14,7 +14,7 @@ discard """
 proc coro() {.coroutine.}
   echo "here"
 
-let instance = launch coro()
+let instance = coro()
 discard resume(instance) # the echo will be executed
 
 ## When a suspension point is reached, ``resume`` returns. If there's no more

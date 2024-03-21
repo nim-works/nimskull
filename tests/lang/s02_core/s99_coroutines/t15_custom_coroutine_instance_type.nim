@@ -16,7 +16,7 @@ proc coro() {.coroutine: Custom.} =
   # the hidden `self` parameter is also of type ``Custom``
   echo self.value
 
-## The instance returned by ``launch`` is of the provided type.
-var instance = launch coro()
+## The constructed instance is of the provided custom instance type.
+var instance = coro()
 doAssert typeof(instance) is Custom
 doAssert instance.value == 0

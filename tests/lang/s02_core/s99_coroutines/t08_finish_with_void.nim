@@ -6,7 +6,7 @@
 proc coro() {.coroutine.} =
   discard
 
-var instance = launch coro()
+var instance = coro()
 
 resume(instance)
 doAssert instance.status == csPending

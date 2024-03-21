@@ -4,7 +4,7 @@
 proc coro() {.coroutine.} =
   suspend(nil)
 
-var instance = launch coro()
+var instance = coro()
 # hold on to the instance:
 var original = instance
 

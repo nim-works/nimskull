@@ -1,6 +1,8 @@
 
-## To launch a coroutine, the built-in ``launch`` routine is used. As its
-## single parameter, it expects the invocation of a coroutine.
+## To launch a coroutine, the syntax for routine invocation is used. Unlike a
+## normal procedure, this doesn't call the coroutine; instead, it constructs
+## a coroutine instance. The expression is referred to as a *coroutine
+## construction* (coroutine instantiation?).
 ##
 ## What happens is, in the following order:
 ## 1. a managed heap cell of the coroutine's internal environment type is
@@ -19,8 +21,7 @@
 proc coro(x: int) {.coroutine.} =
   discard
 
-# every routine invocation syntax is valid for ``launch``
-let instance = launch coro(1)
+let instance = coro(1)
 doAssert instance is Coroutine[void]
 doAssert instance.state == csSuspended
 

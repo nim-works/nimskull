@@ -15,5 +15,5 @@ template suspend(c: Coroutine) =
 proc coro() {.coroutine.} =
   suspend(self)
 
-var instance = launch coro()
+var instance = coro()
 resume(instance)

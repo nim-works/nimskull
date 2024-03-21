@@ -10,7 +10,7 @@ proc `=copy`(x: var Object, y: Object) {.error.}
 proc coro(): Object {.coroutine.} =
   result = Object(value: 1)
 
-var instance = launch coro()
+var instance = coro()
 resume(instance)
 
 # the value is moved out of the instance, no copy is made

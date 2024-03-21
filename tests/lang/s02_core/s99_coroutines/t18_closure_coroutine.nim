@@ -10,7 +10,7 @@ proc outer() =
     suspend(self)
     result = x
 
-  var instance = launch coro()
+  var instance = coro()
 
   doAssert x == 0
   resume(instance)

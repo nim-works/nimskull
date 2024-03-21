@@ -1,5 +1,5 @@
 
-## The custom type to use for the coroutine can be generic too.
+## The custom type to use for the coroutine instance can be generic too.
 
 type Custom[T] = ref object of Coroutine[void]
   value: T
@@ -7,5 +7,5 @@ type Custom[T] = ref object of Coroutine[void]
 proc coro[T]() {.coroutine: Custom[T].} =
   discard
 
-var instance = launch coro[int]()
+var instance = coro[int]()
 doAssert instance is Custom[int]

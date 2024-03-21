@@ -24,7 +24,7 @@ proc coro() {.coroutine.} =
   suspend(self)
   echo "coro: 3"
 
-var instance = launch coro()
+var instance = coro()
 let original = instance
 
 echo "outside: 1"

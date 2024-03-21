@@ -11,7 +11,7 @@
 proc coro() {.coroutine.} =
   discard
 
-let instance = launch coro(false)
+let instance = coro(false)
 doAssert instance.status == csSuspended
 
 var wasError = false

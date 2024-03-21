@@ -8,7 +8,7 @@ proc coro(cancel: bool) {.coroutine.}
   if cancel:
     raise CatchableError.newException("cancel")
 
-let instance = launch coro(true)
+let instance = coro(true)
 doAssert instance.status == csSuspended
 
 resume(instance)

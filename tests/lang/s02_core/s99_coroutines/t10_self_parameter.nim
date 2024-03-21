@@ -13,5 +13,5 @@ proc coro() {.coroutine.} =
   echo typeof(self)
   echo self.status
 
-var instance = launch coro()
+var instance = coro()
 resume(instance)
