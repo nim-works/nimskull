@@ -641,14 +641,22 @@ proc canRaise(fn: PNode): bool =
     result = false
   elif fn.kind == nkSym and fn.sym.magic == mEcho:
     result = true
-  else:
-    # TODO check for n having sons? or just return false for now if not
-    if fn.typ != nil and fn.typ.n != nil and fn.typ.n[0].kind == nkSym:
-      result = false
+  elif fn.typ != nil and fn.typ.kind == tyProc:
+    let effects {.cursor.} = fn.typ.n[0]
+    case effects.kind
+    of nkSym:
+      result = false # callable has no effects
+    of nkEffectList:
+      # if the effects were either not computed yet or there's no explicit
+      # specification, assume that the procedure can raise
+      result = effects.len < effectListLen or
+               effects[exceptionEffects].isNil or
+               effects[exceptionEffects].len > 0
     else:
-      result = fn.typ != nil and fn.typ.n != nil and ((fn.typ.n[0].len < effectListLen) or
-        (fn.typ.n[0][exceptionEffects] != nil and
-        fn.typ.n[0][exceptionEffects].safeLen > 0))
+      unreachable(effects.kind)
+  else:
+    # fn doesn't seem to be something callable, assume not raising
+    result = false
 
 proc canRaise*(panicsEnabled: bool, n: PNode): bool =
   ## 'true' if a call with `n` as the callee can exit via exceptional control-
