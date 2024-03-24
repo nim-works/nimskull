@@ -11,7 +11,8 @@ coro: 3'''
 ## A coroutine can be suspended without returning or raising an exception.
 ## This is achieved by calling the built-in ``suspend`` routine, which expects
 ## a ``CoroutineBase`` as the parameter -- the instance passed to ``suspend``
-## is what ``resume`` will return.
+## is what ``resume`` will return. It is legal pass the currently running
+## coroutine (i.e., `self`) to ``suspend``.
 
 # IDEA: instead of the ``suspend`` routine, the ``yield`` keyword could be
 #       re-used, which could be much more convenient to use. It'd also be
@@ -40,9 +41,3 @@ instance = resume(instance)
 
 doAssert instance.status == csPending
 doAssert instance == original
-
-## The run-time type of the instance needs to be a sub-type of the coroutine
-## instance type that is suspended from, if it isn't, a ``SuspendDefect`` is
-## raised.
-
-# TODO: a test is missing

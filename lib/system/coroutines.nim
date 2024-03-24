@@ -59,7 +59,7 @@ proc status*(c: CoroutineBase): CoroutineState =
 
 {.push checks: off.}
 
-proc resume*[T: Coroutine](c: T): T {.discardable.} =
+proc resume*(c: CoroutineBase): CoroutineBase {.discardable.} =
   ## Yields control to the given suspendend coroutine instance `c`, which is
   ## then executed until the first suspension point is reached. Returns the
   ## coroutine instance that the coroutine yielded control to (may be nil).
@@ -70,7 +70,7 @@ proc resume*[T: Coroutine](c: T): T {.discardable.} =
     # already running
     discard "TODO: raise an error"
   # execute until the first suspension point is reached:
-  result = T(c.fn(c))
+  result = c.fn(c)
   # mark as not running again:
   if c.state >= 0:
     c.state = -(c.state + StateOffset)
@@ -102,7 +102,7 @@ proc trampoline*[T](c: sink Coroutine[T]): T =
   # XXX: unrelated to the coroutine compiler interface. This should either be
   #      directly in the system module, or in a separate standard library
   #      module.
-  var c = c
+  var c = CoroutineBase(c)
   while c != nil and c.status == csSuspended:
     c = c.resume()
 
@@ -117,9 +117,9 @@ proc trampoline*[T](c: sink Coroutine[T]): T =
     raise c.exc
   of csPending:
     when T is void:
-      finish(c)
+      finish(Coroutine[T](c))
     else:
-      result = finish(c)
+      result = finish(Coroutine[T](c))
   of csRunning:
     # the coroutine must have yielded to a another, running coroutine
     # TODO: report an error
