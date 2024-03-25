@@ -28,8 +28,7 @@ doAssert get2(@[]) == 0
 
 # more complex case: statement-list expressions
 discard get((discard; nil))
-# XXX: not working yet
-#discard get((discard; []))
+discard get((discard; []))
 discard get((discard; @[]))
 discard get((discard; {}))
 
