@@ -36,7 +36,7 @@ const
 # compiler interface
 # ------------------
 
-proc suspend*(c: Coroutine) {.magic: "Suspend".}
+proc suspend*(c: CoroutineBase) {.magic: "Suspend".}
   ## Suspends the enclosing coroutine. `c` is the coroutine instance that
   ## will be returned by the `resume <#resume,T>`_ that resumed execution
   ## of the instance.
