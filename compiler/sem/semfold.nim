@@ -31,6 +31,7 @@ import
   ],
   compiler/front/[
     options,
+    msgs,
   ],
   compiler/utils/[
     platform,
@@ -378,8 +379,16 @@ proc evalOp*(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): 
     result = copyTree(a)
     result.typ = n.typ
   of mEqProc:
-    result = newIntNodeT(toInt128(ord(
-        exprStructuralEquivalentStrictSym(a, b))), n, idgen, g)
+    g.config.internalAssert(a.kind in {nkSym, nkNilLit} and
+                            b.kind in {nkSym, nkNilLit},
+                            n.info, "mEqProc: invalid AST")
+    let isEqual = if a.kind != b.kind:
+                    false
+                  elif a.kind == nkSym: # and b.kind == nkSym:
+                    a.sym == b.sym
+                  else: # a.kind == nkNilLit and b.kind == nkNilLit
+                    true
+    result = newIntNodeT(toInt128(ord(isEqual)), n, idgen, g)
   else: discard
 
 proc getConstIfExpr(c: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
