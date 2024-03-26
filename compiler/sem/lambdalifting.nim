@@ -917,7 +917,7 @@ proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator;
       callee = newSym(skLet, op[0].sym.name, nextSymId(idgen), owner, op.info)
     callee.typ = op.typ
 
-    if owner.isIterator:
+    if owner.isIterator or owner.isCoroutine:
       # meh, we have to add the local to the environment; it might be used
       # across yields
       op = freshVarForClosureIter(g, callee, idgen, owner)

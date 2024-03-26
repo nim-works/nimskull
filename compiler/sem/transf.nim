@@ -110,7 +110,7 @@ proc newTemp(c: PTransf, typ: PType, info: TLineInfo): PNode =
   r.typ = typ #skipTypes(typ, {tyGenericInst, tyAlias, tySink})
   incl(r.flags, sfFromGeneric)
   let owner = getCurrOwner(c)
-  if owner.isIterator:
+  if owner.isIterator or owner.isCoroutine:
     result = freshVarForClosureIter(c.graph, r, c.idgen, owner)
   else:
     result = newSymNode(r)
@@ -189,7 +189,7 @@ proc freshVar(c: PTransf; v: PSym): PNode =
     # following after ``transf`` expects that the set of existing globals
     # stays unchanged
     result = newSymNode(v)
-  elif owner.isIterator:
+  elif owner.isIterator or owner.isCoroutine:
     result = freshVarForClosureIter(c.graph, v, c.idgen, owner)
   else:
     var newVar = copySym(v, nextSymId(c.idgen))
@@ -816,7 +816,7 @@ proc transformFor(c: PTransf, n: PNode): PNode =
         sym.flags.incl sfShadowed
 
         result =
-          if owner.isIterator:
+          if owner.isIterator or owner.isCoroutine:
             freshVarForClosureIter(c.graph, sym, c.idgen, owner)
           else:
             newSymNode(sym)
