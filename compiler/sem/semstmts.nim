@@ -2769,7 +2769,7 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
         # absolutely no generics (empty) or a single generic return type are
         # allowed, everything else, including a nullary generic is an error.
         pushProcCon(c, s)
-        addResult(c, result, s.typ[0])
+        maybeAddResult(c, s, result)
         s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
         s.ast[bodyPos] = foldInAst(c.module, s.ast[bodyPos], c.idgen, c.graph)
         trackProc(c, s, s.ast[bodyPos])
