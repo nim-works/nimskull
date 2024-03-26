@@ -77,9 +77,12 @@ proc preTransformConstr*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PN
   # lifting pass visits it
   inner.typ.callConv = ccClosure
 
+  # move the selfSym node to the inner procedure's dispacher slot
+  inner.ast.sons.setLen(dispatcherPos + 1)
+  inner.ast[dispatcherPos] = move prc.ast[dispatcherPos]
+
   # place the instance base type is stored in the constructors dispatcher
   # slot, for the lambda-lifting pass to later fetch it
-  prc.ast.sons.setLen(dispatcherPos + 1)
   prc.ast[dispatcherPos] = newNodeIT(nkType, prc.info, prc.typ[0])
 
   # setup the proper result variable:
@@ -106,6 +109,7 @@ proc transformCoroutineConstr*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, bo
     # this is a bit brittle. We rely on the exact positions in the AST
     stmts = body.lastSon
     inner = stmts[0][namePos].sym
+    selfSym = move inner.ast[dispatcherPos]
 
   # the lambda-lifting pass needs to be run early for the inner procedure,
   # since we need to patch the parameter type afterwards
@@ -122,7 +126,6 @@ proc transformCoroutineConstr*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, bo
   param.kind = skLet
   param.flags.incl sfCursor
   # the symbols is stashed in the dispatcher slot
-  inner.ast.sons.setLen(dispatcherPos + 1)
   inner.ast[dispatcherPos] = newSymNode(param)
 
   # now turn the inner procedure into one with the expected signature:
@@ -151,6 +154,10 @@ proc transformCoroutineConstr*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, bo
 
   let envLocal = body[0][0][0] # the local injected by lambda-lifting
   result = body
+  # replace the placeholder ``nkDiscardStmt`` tree with assigning the
+  # environment to the result:
+  stmts[1] = newAsgnStmt(newSymNode(res),
+                         newTreeIT(nkObjDownConv, prc.info, res.typ, envLocal))
   # set the procedure pointer:
   stmts.add newAsgnStmt(indirectAccess(envLocal, "fn", prc.info, cache),
                         newSymNode inner)
@@ -158,10 +165,10 @@ proc transformCoroutineConstr*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, bo
   # suspended:
   stmts.add newAsgnStmt(indirectAccess(envLocal, "state", prc.info, cache),
                         newIntTypeNode(-4, g.getSysType(prc.info, tyInt32)))
-  # replace the placeholder ``nkDiscardStmt`` tree with assigning the
-  # environment to the result:
-  stmts[1] = newAsgnStmt(newSymNode(res),
-                         newTreeIT(nkObjDownConv, prc.info, res.typ, envLocal))
+  # init the lifted ``self`` symbol:
+  if getFieldFromObj(envLocal.typ.base, selfSym.sym) != nil:
+    stmts.add newAsgnStmt(indirectAccess(envLocal, selfSym.sym, selfSym.info),
+                          newSymNode res)
 
   # the fields in the constructed environment are wrong, they need to be
   # patched

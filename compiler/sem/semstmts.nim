@@ -2482,6 +2482,19 @@ proc semCoroutine(c: PContext, n: PNode, ptyp: PType) =
 
   ptyp[0] = typ
 
+  # XXX: the below is quite the hack
+  let selfSym = newSym(skLet, c.cache.getIdent("self"), nextSymId c.idgen,
+                       c.getCurrOwner, n[namePos].info)
+  selfSym.typ = typ
+  # the self local is always outlived by the instance, so it's marked as a
+  # cursor. This also prevents reference cycles, should the local be lifted
+  # into the instance
+  selfSym.flags.incl sfCursor
+  # the ``self`` parameter symbol is stashed in the routine's dispatcher
+  # slot
+  n.sons.setLen(dispatcherPos + 1)
+  n[dispatcherPos] = newSymNode(selfSym)
+
 proc semRoutineName(c: PContext, n: PNode, kind: TSymKind; allowAnon = true): PNode =
   ## Semantically analyse the AST `n` appearing in the name slot of the
   ## definition of a callable
@@ -2752,6 +2765,10 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     else:
       result[namePos] = checkSpecialOperators(c, result[namePos])
       hasError = hasError or result[namePos].kind == nkError
+
+  if sfCoroutine in s.flags:
+    # inject the ``self`` parameter symbol
+    addDecl(c, s.ast[dispatcherPos].sym)
 
   if n[bodyPos].kind != nkEmpty and sfError notin s.flags:
     # for DLL generation we allow sfImportc to have a body, for use in VM
