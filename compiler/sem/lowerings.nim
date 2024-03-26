@@ -220,6 +220,10 @@ proc addUnmappedField*(obj: PType, s: PSym, cache: IdentCache, idgen: IdGenerato
 proc addField*(obj: PType; s: PSym; cache: IdentCache; idgen: IdGenerator) =
   ## Similar to ``addUnmappedField``, but makes sure that the field can later
   ## be looked up via the ``ItemId`` of `s`.
+  if s.kind == skResult and lookupInType(obj, s.name) != nil:
+    # a result field exists in the type, re-use it
+    return
+
   let field = addUnmappedField(obj, s, cache, idgen)
   field.itemId = ItemId(module: s.itemId.module, item: -s.itemId.item)
 
@@ -280,6 +284,10 @@ proc indirectAccess*(a: PNode, b: string, info: TLineInfo; cache: IdentCache): P
 
 proc getFieldFromObj*(t: PType; v: PSym): PSym =
   assert v.kind != skField
+  # try to use the existing result field, if present:
+  if v.kind == skResult and (let x = lookupInType(t, v.name); x != nil):
+    return x
+
   var t = t
   while true:
     assert t.kind == tyObject

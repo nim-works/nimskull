@@ -1549,3 +1549,14 @@ proc classifyBackendView*(t: PType): BackendViewKind =
      tyGenericParam, tyForward, tyBuiltInTypeClass, tyCompositeTypeClass,
      tyAnd, tyOr, tyNot, tyAnything, tyFromExpr:
     unreachable()
+
+proc lookupInType*(typ: PType, field: PIdent): PSym =
+  ## Searches for a field with the given identifier (`field`) in the object
+  ## type hierarchy of `typ`.
+  var typ = typ
+  while typ != nil:
+    typ = typ.skipTypes(skipPtrs)
+    result = lookupInRecord(typ.n, field)
+    if result != nil:
+      return
+    typ = typ.base
