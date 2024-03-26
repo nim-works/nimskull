@@ -6,7 +6,7 @@ type
   CoroutineBase {.compilerproc.} = ref object of RootObj
     ## The internal base type of all coroutine instance type. Carries the
     ## state all coroutine instances have.
-    fn: proc(c: CoroutineBase): CoroutineBase {.nimcall, raises: [].}
+    fn: proc(c: CoroutineBase): CoroutineBase {.nimcall.}
       ## internal procedure
     state: int32
       ## internal state value
@@ -70,7 +70,13 @@ proc resume*(c: CoroutineBase): CoroutineBase {.discardable.} =
     # already running
     discard "TODO: raise an error"
   # execute until the first suspension point is reached:
-  result = c.fn(c)
+  try:
+    result = c.fn(c)
+  except CatchableError as e:
+    c.state = -2 # aborted
+    c.exc = e
+    result = c
+
   # mark as not running again:
   if c.state >= 0:
     c.state = -(c.state + StateOffset)
