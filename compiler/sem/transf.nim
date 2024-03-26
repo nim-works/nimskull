@@ -1274,6 +1274,11 @@ proc transform(c: PTransf, n: PNode): PNode =
       result[1] = transformSymAux(c, a)
     else:
       result = n
+
+    if n[0].kind == nkSym and n[0].sym.isCoroutine:
+      # the coroutine needs to be transformed eagerly, so that its signature
+      # is correct before first reaching code generation
+      discard transformBody(c.graph, c.idgen, n[0].sym, true)
   of nkOfBranch:
     result = shallowCopy(n)
     # don't transform the label nodes:

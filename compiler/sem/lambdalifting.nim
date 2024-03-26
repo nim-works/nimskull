@@ -595,9 +595,9 @@ proc accessEnv(available: PSym, wanted: PType, info: TLineInfo,
 
 proc getStateField*(g: ModuleGraph; owner: PSym): PSym =
   if sfCoroutine in owner.flags:
-    # for coroutines, the ``state`` symbol is at a different
-    # position
-    getHiddenParam(g, owner).typ.base.n[1].sym
+    # for coroutines, the ``state`` field symbol comes from the
+    # ``CoroutineBase`` type
+    g.getCompilerProc("CoroutineBase").typ.base.n[1].sym
   else:
     getHiddenParam(g, owner).typ.base.n[0].sym
 

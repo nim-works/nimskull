@@ -50,14 +50,12 @@ proc preTransformConstr*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PN
   ##
   ##   .. code-block:: nim
   ##
-  ##     proc inner() {.closure.} =
+  ##     discard (proc inner() {.closure.} =
   ##       body
-  ##     discard inner
+  ##     )
   ##
   ## Since the owner of the locals within `body` is not changed, the lambda-
-  ## lifting pass will lift them into the environment type. The
-  ## ``discard inner`` makes sure ``inner`` is considerd by lambda-
-  ## lifting.
+  ## lifting pass will lift them into the environment type.
   let cache = g.cache
   let base = g.getCompilerProc("CoroutineBase").typ
 
@@ -65,7 +63,7 @@ proc preTransformConstr*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PN
   let inner = newSym(skProc, prc.name, nextSymId idgen, prc, prc.info,
                      prc.options)
   inner.flags.incl sfCoroutine
-  inner.ast = newProcNode(nkProcDef, prc.info, body,
+  inner.ast = newProcNode(nkLambda, prc.info, body,
                           newTree(nkFormalParams, newNodeIT(nkType, prc.info, base)),
                           newSymNode(inner),
                           newNode(nkEmpty),
@@ -73,119 +71,121 @@ proc preTransformConstr*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PN
                           newNode(nkEmpty),
                           newNode(nkEmpty))
   inner.typ = newProcType(prc.info, nextTypeId idgen, inner)
+  inner.typ[0] = base # return type
   # temporarily mark the procedure as a closure procedure, so that the lambda-
   # lifting pass visits it
   inner.typ.callConv = ccClosure
 
-  # move the selfSym node to the inner procedure's dispacher slot
+  # temporarily stash the ``self`` symbol node in the inner procedure's
+  # dispatcher slot
   inner.ast.sons.setLen(dispatcherPos + 1)
   inner.ast[dispatcherPos] = move prc.ast[dispatcherPos]
 
-  # place the instance base type is stored in the constructors dispatcher
+  # result symbol for the coroutine:
+  inner.ast[resultPos] = newSymNode:
+    newSym(skResult, cache.getIdent("result"), nextSymId idgen, inner,
+           inner.info, base)
+
+  # place the instance base type in the constructor's dispatcher
   # slot, for the lambda-lifting pass to later fetch it
   prc.ast[dispatcherPos] = newNodeIT(nkType, prc.info, prc.typ[0])
 
-  # setup the proper result variable:
-  let res = newSym(skResult, cache.getIdent("result"), nextSymId idgen, prc,
-                   prc.info)
-  res.typ = prc.typ[0]
-  prc.ast[resultPos] = newSymNode(res)
+  # fix the result variable for the constructor:
+  prc.ast[resultPos] = newSymNode:
+    newSym(skResult, cache.getIdent("result"), nextSymId idgen, prc,
+           prc.info, prc.typ[0])
 
-  result = nkStmtList.newTree(
-    inner.ast,
-    nkDiscardStmt.newTree(newSymNode(inner))
-  )
+  let body = copyNodeWithKids(inner.ast)
+  body.typ = inner.typ
+  result = nkDiscardStmt.newTree(body)
 
-proc transformCoroutineConstr*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode): PNode =
+proc transformCoroutineConstr*(g: ModuleGraph, idgen: IdGenerator, prc: PSym,
+                               body: PNode): PNode =
   ## Post-processes the transformed coroutine instance constructor procedure,
-  ## completing the body of the constructor (but not of the actual coroutine).
+  ## completing the body of the constructor.
   ##
-  ## This pass has to make sure that the signature of the inner procedure
-  ## (i.e., the actual coroutine) is final and valid, since the symbol might
-  ## be passed to code generation *before* its body is transformed.
+  ## The `body` is expected to have undergone the transf pass, including
+  ## lambda-lifting.
   let
     cache = g.cache
     base = g.getCompilerProc("CoroutineBase").typ
     # this is a bit brittle. We rely on the exact positions in the AST
-    stmts = body.lastSon
-    inner = stmts[0][namePos].sym
+    inner = body.lastSon[0][0].sym
     selfSym = move inner.ast[dispatcherPos]
+    res = prc.ast[resultPos].sym
 
-  # the lambda-lifting pass needs to be run early for the inner procedure,
-  # since we need to patch the parameter type afterwards
-  var param: PSym
-  (inner.ast[bodyPos], param) = liftLambdas(g, inner, inner.ast[bodyPos], idgen)
+  result = body
 
-  # replace the hidden parameter with a correctly typed one:
+  # remove the discard statement injected earlier:
+  result.delSon(result.len - 1)
+
+  let
+    envLocal = body[0][0][0] # the local injected by lambda-lifting
+    constr = body[0][0][2] # the env construction expression
+
+  # patch the environment construction:
+  constr.add nkExprColonExpr.newTree(
+    newSymNode lookupInType(base, cache.getIdent("fn")),
+    newSymNode inner
+    )
+  # the state needs to be initialized to -4, to signal that the instance is
+  # suspended:
+  constr.add nkExprColonExpr.newTree(
+    newSymNode lookupInType(base, cache.getIdent("state")),
+    newIntTypeNode(-4, g.getSysType(prc.info, tyInt32))
+  )
+
+  # add the result assignment:
+  result.add newAsgnStmt(newSymNode(res),
+                        newTreeIT(nkObjDownConv, prc.info, res.typ, envLocal))
+  # init the lifted ``self`` symbol:
+  if getFieldFromObj(envLocal.typ.base, selfSym.sym) != nil:
+    result.add newAsgnStmt(indirectAccess(envLocal, selfSym.sym, selfSym.info),
+                           newSymNode res)
+
+proc transformCoroutine*(g: ModuleGraph, idgen: IdGenerator, prc: PSym,
+                         body: PNode): PNode =
+  ## Given the ``trans``formed and lambda-lifted `body`, applies the
+  ## transformation for turning the coroutine `prc` into a resumable procedure
+  ## (uses `closureiters <#closureiters>`_ underneath).
+  ##
+  ## Also takes care of fixing the signature of `prc`.
+  let
+    base = g.getCompilerProc("CoroutineBase").typ
+    body = transformClosureIterator(g, idgen, prc, body)
+    param = prc.getEnvParam()
+
+  # replace the hidden parameter with one that has the correct type:
   let newParam = copySym(param, nextSymId idgen)
   newParam.typ = base
 
-  # the original hidden parameter is turned into a cursor local that's later
-  # injected into the body. Reusing the symbols means that body doesn't need
-  # to be updated
+  # the original parameter is turned into a cursor local and is injected
+  # into the body. Reusing the symbol means that body doesn't need
+  # to be patched
   param.kind = skLet
   param.flags.incl sfCursor
-  # the symbols is stashed in the dispatcher slot
-  inner.ast[dispatcherPos] = newSymNode(param)
 
-  # now turn the inner procedure into one with the expected signature:
-  inner.typ.callConv = ccNimCall
-  inner.typ[0] = base # return type
-  inner.typ.rawAddSon(base) # first parameter type
-  inner.typ.n.add newSymNode(newParam)
-  inner.ast[paramsPos][^1] = newSymNode(newParam) # hidden parameter symbol
+  # fix the signature. It needs to be ``CoroutineBase -> CoroutineBase``
+  prc.typ.callConv = ccNimCall
+  prc.typ.rawAddSon(base) # first parameter type
+  prc.typ.n.add newSymNode(newParam)
+  # replace the hidden parameter (it's no longer hidden):
+  prc.ast[paramsPos][^1] = newSymNode(newParam)
 
-  block:
-    # update the result variable of the coroutine
-    let res = newSym(skResult, cache.getIdent("result"), nextSymId idgen,
-                     inner, prc.info)
-    res.typ = base
-    inner.ast[resultPos] = newSymNode res
-
-  # body patching
-  # -------------
-
-  let envLocal = body[0][0][0] # the local injected by lambda-lifting
-  result = body
-  # replace the placeholder ``nkDiscardStmt`` tree with assigning the
-  # environment to the result:
-  stmts[1] = newAsgnStmt(newSymNode(res),
-                         newTreeIT(nkObjDownConv, prc.info, res.typ, envLocal))
-  # set the procedure pointer:
-  stmts.add newAsgnStmt(indirectAccess(envLocal, "fn", prc.info, cache),
-                        newSymNode inner)
-  # the state needs to be initialized to -4, to signal that the instance is
-  # suspended:
-  stmts.add newAsgnStmt(indirectAccess(envLocal, "state", prc.info, cache),
-                        newIntTypeNode(-4, g.getSysType(prc.info, tyInt32)))
-  # init the lifted ``self`` symbol:
-  if getFieldFromObj(envLocal.typ.base, selfSym.sym) != nil:
-    stmts.add newAsgnStmt(indirectAccess(envLocal, selfSym.sym, selfSym.info),
-                          newSymNode res)
+  # inject a definition for the local and emit ``result`` initialization
+  result = nkStmtList.newTree(
+    nkLetSection.newTree(
+      newIdentDefs(newSymNode(param),
+                   newTreeIT(nkObjDownConv, body.info, param.typ,
+                             newSymNode(newParam)))),
+    newAsgnStmt(prc.ast[resultPos], newSymNode(newParam)),
+    body
+  )
 
   # the fields in the constructed environment are wrong, they need to be
   # patched
-  let obj = envLocal.typ.base
+  let obj = param.typ.base
   var start = 0
   computeFieldStart(obj.base, start)
   for it in obj.n.items:
     it.sym.position += start
-
-proc transformCoroutine*(g: ModuleGraph, idgen: IdGenerator, prc: PSym,
-                         body: PNode): PNode =
-  ## Applies the actual transformation for turning the coroutine `prc` into
-  ## a resumable procedure (uses `closureiters <#closureiters>`_ underneath).
-  ##
-  ## Additional code for completing the coroutine body is also injected here.
-  let
-    env = prc.typ.n[1].sym
-    body = transformClosureIterator(g, idgen, prc, body)
-  let s = prc.ast[dispatcherPos] # the cursor local stashed earlier
-  # inject a definition for the local and emit ``result`` initialization
-  result = nkStmtList.newTree(
-    nkLetSection.newTree(
-      newIdentDefs(s, newTreeIT(nkObjDownConv, body.info, env.typ,
-                                newSymNode(env)))),
-    newAsgnStmt(prc.ast[resultPos], newSymNode(env)),
-    body
-  )
