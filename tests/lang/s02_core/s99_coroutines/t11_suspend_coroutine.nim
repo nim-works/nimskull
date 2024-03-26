@@ -9,10 +9,13 @@ coro: 3'''
 """
 
 ## A coroutine can be suspended without returning or raising an exception.
-## This is achieved by calling the built-in ``suspend`` routine, which expects
-## a ``CoroutineBase`` as the parameter -- the instance passed to ``suspend``
-## is what ``resume`` will return. It is legal to pass the currently running
-## coroutine (i.e., `self`) to ``suspend``.
+## This is achieved by calling the built-in ``suspend`` routine. On calling
+## ``suspend``, execution of the coroutine halts, and control is given back to
+## the callsite of the ``resume`` call that previously resumed execution of
+## the instance.
+##
+## When suspended this way, the ``resume`` that control is given back to
+## returns the instance it was invoked with.
 
 # IDEA: instead of the ``suspend`` routine, the ``yield`` keyword could be
 #       re-used, which could be much more convenient to use. It'd also be
@@ -20,24 +23,22 @@ coro: 3'''
 
 proc coro() {.coroutine.} =
   echo "coro: 1"
-  suspend(self)
+  suspend()
   echo "coro: 2"
-  suspend(self)
+  suspend()
   echo "coro: 3"
 
 var instance = coro()
-let original = instance
 
 echo "outside: 1"
-instance = Coroutine[void](resume(instance))
+doAssert resume(instance) == instance
 
-## After suspending, the coroutine is the "suspended" state.
+## After suspending, the coroutine is in the "suspended" state.
 doAssert instance.status == csSuspended
 
 echo "outside: 2"
-instance = Coroutine[void](resume(instance))
+doAssert resume(instance) == instance
 echo "outside: 3"
-instance = Coroutine[void](resume(instance))
+doAssert resume(instance) == instance
 
 doAssert instance.status == csPending
-doAssert instance == original

@@ -12,7 +12,7 @@ proc coro(): int {.coroutine: Instance.} =
 
   self.callback = inner
   inc x
-  suspend(self)
+  suspend()
 
   result = x
 

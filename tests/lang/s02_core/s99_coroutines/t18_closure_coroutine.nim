@@ -7,7 +7,7 @@ proc outer() =
 
   proc coro(): int {.closure, coroutine.} =
     x = 1
-    suspend(self)
+    suspend()
     result = x
 
   var instance = coro()
