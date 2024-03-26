@@ -134,13 +134,12 @@ proc lowerTupleUnpackingForAsgn*(g: ModuleGraph; n: PNode; idgen: IdGenerator; o
   for i in 0..<lhs.len:
     result.add newAsgnStmt(lhs[i], newTupleAccessRaw(tempAsNode, i))
 
-proc createObj*(g: ModuleGraph; idgen: IdGenerator; owner: PSym, info: TLineInfo; final=true): PType =
+proc createObj*(g: ModuleGraph; idgen: IdGenerator; owner: PSym, info: TLineInfo;
+                base: PType): PType =
   result = newType(tyObject, nextTypeId(idgen), owner)
-  if final:
-    rawAddSon(result, nil)
+  rawAddSon(result, base)
+  if base.isNil:
     incl result.flags, tfFinal
-  else:
-    rawAddSon(result, getCompilerProc(g, "RootObj").typ)
   result.n = newNodeI(nkRecList, info)
   let s = newSym(skType, getIdent(g.cache, "Env_" & toFilename(g.config, info) & "_" & $owner.name.s),
                   nextSymId(idgen),
@@ -148,6 +147,12 @@ proc createObj*(g: ModuleGraph; idgen: IdGenerator; owner: PSym, info: TLineInfo
   incl s.flags, sfAnon
   s.typ = result
   result.sym = s
+
+proc createObj*(g: ModuleGraph; idgen: IdGenerator; owner: PSym,
+                info: TLineInfo; final: bool): PType =
+  createObj(g, idgen, owner, info):
+    if final: nil
+    else:     g.getCompilerProc("RootObj").typ
 
 template fieldCheck {.dirty.} =
   when false:
