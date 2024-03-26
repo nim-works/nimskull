@@ -167,7 +167,7 @@ proc transformCoroutineConstr*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, bo
   # patched
   let obj = envLocal.typ.base
   var start = 0
-  computeFieldStart(obj, start)
+  computeFieldStart(obj.base, start)
   for it in obj.n.items:
     it.sym.position += start
 
