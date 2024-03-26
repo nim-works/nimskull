@@ -594,7 +594,12 @@ proc accessEnv(available: PSym, wanted: PType, info: TLineInfo,
     result = rawIndirectAccess(result, upField, info)
 
 proc getStateField*(g: ModuleGraph; owner: PSym): PSym =
-  getHiddenParam(g, owner).typ.base.n[0].sym
+  if sfCoroutine in owner.flags:
+    # for coroutines, the ``state`` symbol is at a different
+    # position
+    getHiddenParam(g, owner).typ.base.n[1].sym
+  else:
+    getHiddenParam(g, owner).typ.base.n[0].sym
 
 proc symToClosure(n: PNode; graph: ModuleGraph; idgen: IdGenerator;
                   c: LiftingPass): PNode =
