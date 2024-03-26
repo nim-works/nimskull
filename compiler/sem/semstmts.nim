@@ -2143,7 +2143,11 @@ proc addResult(c: PContext, n: PNode, t: PType) =
         discard
 
   if t != nil:
-    if n.len > resultPos and n[resultPos] != nil:
+    # ensure that the result slot exists:
+    if n.len <= resultPos:
+      n.sons.setLen(resultPos + 1)
+
+    if n[resultPos] != nil:
       if n[resultPos].sym.kind != skResult:
         localReport(c.config, n, reportSem rsemIncorrectResultProcSymbol)
 
@@ -2157,7 +2161,7 @@ proc addResult(c: PContext, n: PNode, t: PType) =
     else:
       genResSym(s)
       c.p.resultSym = s
-      n.add newSymNode(c.p.resultSym)
+      n[resultPos] = newSymNode(c.p.resultSym)
     addParamOrResult(c, c.p.resultSym)
 
 
