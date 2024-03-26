@@ -18,5 +18,6 @@ proc coro() {.coroutine: Custom.} =
 
 ## The constructed instance is of the provided custom instance type.
 var instance = coro()
+resume(instance)
 doAssert typeof(instance) is Custom
 doAssert instance.value == 0

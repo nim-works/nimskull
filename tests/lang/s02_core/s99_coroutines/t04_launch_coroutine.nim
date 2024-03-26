@@ -23,6 +23,6 @@ proc coro(x: int) {.coroutine.} =
 
 let instance = coro(1)
 doAssert instance is Coroutine[void]
-doAssert instance.state == csSuspended
+doAssert instance.status == csSuspended
 
 ## It is legal to do nothing with an instantiated coroutine.

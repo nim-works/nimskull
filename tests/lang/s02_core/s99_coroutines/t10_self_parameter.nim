@@ -1,5 +1,5 @@
 discard """
-  output: "Coroutine[void]\ncsRunning"
+  output: "Coroutine[system.void]\ncsRunning"
 """
 
 ## To access the active *instance* within the body of a coroutine, the hidden

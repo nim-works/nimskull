@@ -11,13 +11,13 @@
 proc coro() {.coroutine.} =
   discard
 
-let instance = coro(false)
+let instance = coro()
 doAssert instance.status == csSuspended
 
 var wasError = false
 # unwrap only legal when instance was aborted
 try:
-  unwrap(instance)
+  discard unwrap(instance)
 except CoroutineError as e:
   wasError = true
 

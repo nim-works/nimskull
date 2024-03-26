@@ -11,7 +11,7 @@ discard """
 ## Before passing control to the coroutine, ``resume`` sets the instance's
 ## status to "running"
 
-proc coro() {.coroutine.}
+proc coro() {.coroutine.} =
   echo "here"
 
 let instance = coro()

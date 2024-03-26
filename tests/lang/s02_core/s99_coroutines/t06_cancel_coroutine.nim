@@ -4,9 +4,9 @@
 ## ``resume`` call that started execution changes the state of the instance
 ## to "aborted" and returns the instance.
 
-proc coro(cancel: bool) {.coroutine.}
+proc coro(cancel: bool) {.coroutine.} =
   if cancel:
-    raise CatchableError.newException("cancel")
+    raise CatchableError.newException("fail")
 
 let instance = coro(true)
 doAssert instance.status == csSuspended
