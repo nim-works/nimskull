@@ -127,7 +127,8 @@ const
   paramPragmas* = {wNoalias, wInject, wGensym}
   letPragmas* = varPragmas
   procTypePragmas* = {FirstCallConv..LastCallConv, wVarargs, wNoSideEffect,
-                      wThread, wRaises, wEffectsOf, wLocks, wTags, wGcSafe}
+                      wThread, wRaises, wEffectsOf, wLocks, wTags, wGcSafe,
+                      wCoroutine}
   forVarPragmas* = {wInject, wGensym}
   allRoutinePragmas* = methodPragmas + iteratorPragmas + lambdaPragmas
   enumFieldPragmas* = {wDeprecated}
