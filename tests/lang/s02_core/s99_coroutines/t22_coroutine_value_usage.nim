@@ -1,5 +1,5 @@
 discard """
-  output: "here\ntrampoline\nhere\n1\ntrampoline\n2"
+  output: "here\n1\n2"
 """
 
 ## A coroutine value can be used the same way as the immediate symbol of a
@@ -22,4 +22,5 @@ proc make(): (proc() {.coroutine.}) =
   result = coro
 
 let cc = make()
+resume(cc())
 resume(cc())
