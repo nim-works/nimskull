@@ -625,6 +625,14 @@ proc isSinkParam*(s: PSym): bool {.inline.} =
 proc isSinkType*(t: PType): bool {.inline.} =
   t.kind == tySink
 
+proc isCoroutineConstr*(prc: PSym): bool {.inline.} =
+  ## Returns whether `prc` is the symbol of a coroutine *constructor*.
+  sfCoroutine in prc.flags and tfCoroutine in prc.typ.flags
+
+proc isCoroutine*(prc: PSym): bool {.inline.} =
+  ## Returns whether `prc` is the symbol of a coroutine.
+  sfCoroutine in prc.flags and tfCoroutine notin prc.typ.flags
+
 const magicsThatCanRaise* = {
   mNone, mParseExprToAst, mParseStmtToAst, mEcho, mChckRange }
 

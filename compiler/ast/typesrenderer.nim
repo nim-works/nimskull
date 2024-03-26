@@ -406,6 +406,9 @@ proc typeToString*(typ: PType, prefer: TPreferedDesc = preferName): string =
       result.add(')')
       if t.len > 0 and t[0] != nil: result.add(": " & typeToString(t[0]))
       var prag = if t.callConv == ccNimCall and tfExplicitCallConv notin t.flags: "" else: $t.callConv
+      if tfCoroutine in t.flags:
+        addSep(prag)
+        prag.add "coroutine"
       if tfNoSideEffect in t.flags:
         addSep(prag)
         prag.add("noSideEffect")

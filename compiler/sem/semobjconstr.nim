@@ -403,17 +403,6 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
                     PAstDiag(kind: adSemExpectedObjectOfType,
                              expectedObjTyp: t))
 
-  proc lookupInType(typ: PType, field: PIdent): PSym =
-    ## Searches for a field with the given identifier (`field`) in the object
-    ## type hierarchy of `typ`.
-    var typ = typ
-    while typ != nil:
-      typ = typ.skipTypes(skipPtrs)
-      result = lookupInRecord(typ.n, field)
-      if result != nil:
-        return
-      typ = typ.base
-
   # phase 1: verify that the AST is valid and has unambiguous meaning
   for i in 1..<n.len:
     let it = n[i]

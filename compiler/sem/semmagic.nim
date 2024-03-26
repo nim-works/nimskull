@@ -530,5 +530,10 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
         of compileOptArgCheckFailedWithInvalidOption:
           c.config.newError(n, PAstDiag(kind: adSemCompilerOptionInvalid,
                                         badCompilerOpt: a))
+  of mSuspend:
+    if c.p == nil or sfCoroutine notin c.p.owner.flags:
+      # TODO: use a proper diagnostic
+      c.config.internalError("'suspend' is only allowed within a coroutine")
+    result = n
   else:
     result = n

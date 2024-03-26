@@ -77,3 +77,4 @@ proc initDefines*(symbols: StringTableRef) =
   defineSymbol("nimskullNewExceptionRt")
   defineSymbol("nimskullNoNkStmtListTypeAndNkBlockType")
   defineSymbol("nimskullNoNkNone")
+  defineSymbol("nimskullHasCoroutines")
