@@ -40,6 +40,7 @@ import
   compiler/sem/[
     ast_analysis,
     closureiters,
+    coroutines,
     semfold,
     lambdalifting,
     lowerings
@@ -1360,7 +1361,12 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
   ##
   ## Application always happens in that exact order.
   var c = PTransf(graph: g, module: prc.getModule, idgen: idgen)
-  (result, c.env) = liftLambdas(g, prc, body, c.idgen)
+  if prc.isCoroutineConstr:
+    result = preTransformConstr(g, idgen, prc, body)
+  else:
+    result = body
+
+  (result, c.env) = liftLambdas(g, prc, result, c.idgen)
   result = processTransf(c, result, prc)
   liftDefer(c, result)
 
@@ -1369,6 +1375,10 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
     # the environment type is closed for modification, meaning that we can
     # safely create the type-bound operators now
     finishClosureIterator(c.graph, c.idgen, prc)
+  elif prc.isCoroutineConstr:
+    result = g.transformCoroutineConstr(c.idgen, prc, result)
+  elif prc.isCoroutine:
+    result = g.transformCoroutine(c.idgen, prc, result)
 
   incl(result.flags, nfTransf)
 

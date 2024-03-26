@@ -167,7 +167,10 @@ proc createStateField(g: ModuleGraph; iter: PSym; idgen: IdGenerator): PSym =
   result.typ = createClosureIterStateType(g, iter, idgen)
 
 proc createEnvObj(g: ModuleGraph; idgen: IdGenerator; owner: PSym; info: TLineInfo): PType =
-  result = createObj(g, idgen, owner, info, final=false)
+  if sfCoroutine in owner.flags:
+    result = createObj(g, idgen, owner, info, owner.ast[dispatcherPos].typ)
+  else:
+    result = createObj(g, idgen, owner, info, g.getCompilerProc("RootObj").typ)
 
 proc getClosureIterResult*(g: ModuleGraph; iter: PSym; idgen: IdGenerator): PSym =
   if resultPos < iter.ast.len:
@@ -682,9 +685,10 @@ proc liftCapturedVars(n: PNode, graph: ModuleGraph, idgen: IdGenerator,
       n[1] = liftCapturedVars(n[1], graph, idgen, c)
       if n[1].kind == nkClosure: result = n[1]
   of nkReturnStmt:
-    if n[0].kind in {nkAsgn, nkFastAsgn}:
+    if n[0].kind in {nkAsgn, nkFastAsgn} and sfCoroutine notin c.owner.flags:
       # let's not touch the LHS in order to make the lifting pass
-      # correct when `result` is lifted
+      # correct when `result` is lifted. For coroutines, the LHS needs to
+      # be rewritten too!
       n[0][1] = liftCapturedVars(n[0][1], graph, idgen, c)
     else:
       n[0] = liftCapturedVars(n[0], graph, idgen, c)
@@ -773,6 +777,19 @@ proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode;
     prepareInnerRoutines(d, idgen, t, fn.info)
     # the environment instance is not setup here; that's done at the iterator's
     # callsite
+    result.body = liftCapturedVars(body, g, idgen, initLiftingPass(d, param))
+    result.env = param
+  elif fn.isCoroutine and fn.typ.callConv == ccClosure:
+    # coroutines are somewhat special. In the context of lambda-lifting,
+    # they're similar to closure iterators, with the difference that the
+    # environment parameter type is already correct
+    var d = initDetectionPass(g, fn, idgen)
+    detectCapturedVars(body, fn, d)
+
+    let param = getEnvParam(fn)
+    assert param != nil
+
+    prepareInnerRoutines(d, idgen, param.typ, fn.info)
     result.body = liftCapturedVars(body, g, idgen, initLiftingPass(d, param))
     result.env = param
   elif body.kind != nkEmpty:
