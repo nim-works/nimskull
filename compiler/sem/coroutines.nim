@@ -142,13 +142,6 @@ proc transformCoroutineConstr*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, bo
     res.typ = base
     inner.ast[resultPos] = newSymNode res
 
-  # replace the result variable of the constructor routine with one that has
-  # the correct type:
-  let res = newSym(skResult, cache.getIdent("result"), nextSymId idgen, prc,
-                   prc.info)
-  res.typ = prc.typ[0]
-  prc.ast[resultPos] = newSymNode(res)
-
   # body patching
   # -------------
 
