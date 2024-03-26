@@ -29,15 +29,15 @@ var instance = coro()
 let original = instance
 
 echo "outside: 1"
-instance = resume(instance)
+instance = Coroutine[void](resume(instance))
 
 ## After suspending, the coroutine is the "suspended" state.
 doAssert instance.status == csSuspended
 
 echo "outside: 2"
-instance = resume(instance)
+instance = Coroutine[void](resume(instance))
 echo "outside: 3"
-instance = resume(instance)
+instance = Coroutine[void](resume(instance))
 
 doAssert instance.status == csPending
 doAssert instance == original
