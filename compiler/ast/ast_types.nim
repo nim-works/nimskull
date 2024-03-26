@@ -413,6 +413,7 @@ type
     sfUsedInFinallyOrExcept  ## symbol is used inside an 'except' or 'finally'
     sfNoalias         ## 'noalias' annotation, means C's 'restrict'
     sfEffectsDelayed  ## an 'effectsDelayed' parameter
+    sfCoroutine       ## the routine is a coroutine
 
   TSymFlags* = set[TSymFlag]
 
@@ -640,6 +641,7 @@ type
     tfByCopy,         ## pass object/tuple by copy (C backend)
     tfByRef,          ## pass object/tuple by reference (C backend)
     tfIterator,       ## type is really an iterator, not a tyProc
+    tfCoroutine,      ## type is that of a coroutine
     tfNotNil,         ## type cannot be 'nil'
     tfRequiresInit,   ## type constains a "not nil" constraint somewhere or
                       ## a `requiresInit` field, so the default zero init

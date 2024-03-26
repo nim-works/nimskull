@@ -77,9 +77,9 @@ const
     wBorrow, wImportCompilerProc, wThread,
     wAsmNoStackFrame, wDiscardable, wNoInit, wCodegenDecl,
     wGensym, wInject, wRaises, wEffectsOf, wTags, wLocks, wGcSafe,
-    wStackTrace, wLineTrace, wNoDestroy}
-  converterPragmas* = procPragmas
-  methodPragmas* = procPragmas+{wBase}-{wOverride}
+    wStackTrace, wLineTrace, wNoDestroy, wCoroutine}
+  converterPragmas* = procPragmas-{wCoroutine}
+  methodPragmas* = procPragmas+{wBase}-{wOverride, wCoroutine}
   templatePragmas* = {wDeprecated, wError, wGensym, wInject, wDirty,
     wExportNims, wUsed, wPragma}
   macroPragmas* = declPragmas + {FirstCallConv..LastCallConv,
@@ -107,7 +107,8 @@ const
     wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
     wThread, wAsmNoStackFrame,
     wRaises, wLocks, wTags, wEffectsOf,
-    wGcSafe, wCodegenDecl, wNoInit, wCompileTime}
+    wGcSafe, wCodegenDecl, wNoInit, wCompileTime,
+    wCoroutine}
   typePragmas* = declPragmas + {wMagic, wAcyclic,
     wPure, wHeader, wCompilerProc, wCore, wFinal, wSize,
     wIncompleteStruct, wCompleteStruct, wByCopy, wByRef,
@@ -1467,6 +1468,23 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         sym.flags.incl sfUsed
       of wCast:
         result = c.config.newError(it, PAstDiag(kind: adSemCastRequiresStatement))
+      of wCoroutine:
+        if sfCoroutine in sym.flags:
+          # TODO: properly use a user error
+          internalError(c.config, it.info, "already a coroutine")
+        else:
+          if it.kind in nkPragmaCallKinds:
+            result = it
+            # XXX: inadequate error handling, ``semTypeNode2`` needs to be
+            #      used instead
+            let typ = c.semTypeNode(c, it[1], nil)
+            result = copyTree(it)
+            result[1] = newNodeIT(nkType, it[1].info, typ)
+          else:
+            result = noVal(c, it)
+
+          sym.flags.incl sfCoroutine
+          sym.typ.flags.incl tfCoroutine
       of wInvalid:
         # a non-builtin pragma reaching here must be a custom pragma
         result = it
