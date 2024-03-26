@@ -36,10 +36,15 @@ const
 # compiler interface
 # ------------------
 
-proc suspend*(c: CoroutineBase) {.magic: "Suspend".}
-  ## Suspends the enclosing coroutine. `c` is the coroutine instance that
-  ## will be returned by the `resume <#resume,T>`_ that resumed execution
-  ## of the instance.
+proc suspend*() {.magic: "Suspend".}
+  ## Suspend the active coroutine, yielding control back to the callsite of
+  ## the `resume <#resume,CoroutineBase>` that earlier resumed it. The resume
+  ## call will return the same instance it was invoked on.
+
+proc suspend*(next: CoroutineBase) {.magic: "Suspend".}
+  ## Suspend the active coroutine, yielding control back to the callsite of
+  ## the `resume <#resume,CoroutineBase>` that earlier resumed it. `next` is
+  ## the coroutine instance resume will returned.
 
 # low-level API
 # -------------

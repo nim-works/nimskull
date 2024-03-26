@@ -1069,7 +1069,11 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     result = transformExpandToAst(c, n)
   elif magic == mSuspend:
     let x = transformSons(c, n)
-    result = nkYieldStmt.newTree(x[1])
+    result = newNodeI(nkYieldStmt, n.info)
+    if x.len > 1:
+      result.add x[1]
+    else:
+      result.add newNodeI(nkEmpty, n.info)
   else:
     let s = transformSons(c, n)
     # bugfix: check after 'transformSons' if it's still a method call:
