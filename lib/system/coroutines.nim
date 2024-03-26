@@ -10,7 +10,7 @@ type
       ## internal procedure
     state: int32
       ## internal state value
-    exc: Exception
+    exc: ref Exception
       ## the "current exception" of the coroutine instance
 
   Coroutine*[T] {.compilerproc.} = ref object of CoroutineBase
@@ -86,7 +86,7 @@ proc finish*[T](c: sink Coroutine[T]): T =
   else:
     raise CoroutineError.newException("not pending")
 
-proc unwrap*(c: sink CoroutineBase): Exception =
+proc unwrap*(c: sink CoroutineBase): ref Exception =
   # XXX: unwrap is not a descriptive name for what the procedure does
   case c.status
   of csAborted:
