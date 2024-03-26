@@ -3,8 +3,8 @@
 ## with them.
 
 type
-  CoroutineBase {.compilerproc.} = ref object of RootObj
-    ## The internal base type of all coroutine instance type. Carries the
+  CoroutineBase* {.compilerproc.} = ref object of RootObj
+    ## The internal base type of all coroutine instance types. Carries the
     ## state all coroutine instances have.
     fn: proc(c: CoroutineBase): CoroutineBase {.nimcall.}
       ## internal procedure
