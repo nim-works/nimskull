@@ -11,7 +11,7 @@ coro: 3'''
 ## A coroutine can be suspended without returning or raising an exception.
 ## This is achieved by calling the built-in ``suspend`` routine, which expects
 ## a ``CoroutineBase`` as the parameter -- the instance passed to ``suspend``
-## is what ``resume`` will return. It is legal pass the currently running
+## is what ``resume`` will return. It is legal to pass the currently running
 ## coroutine (i.e., `self`) to ``suspend``.
 
 # IDEA: instead of the ``suspend`` routine, the ``yield`` keyword could be
