@@ -2230,7 +2230,13 @@ proc activate(c: PContext, n: PNode) =
       discard
 
 proc maybeAddResult(c: PContext, s: PSym, n: PNode) =
-  if s.typ[0] != nil and not isInlineIterator(s.typ):
+  if sfCoroutine in s.flags:
+    if n[resultPos].kind != nkEmpty:
+      # destrutively move the type node out of the result slot, so
+      # that ``addResult`` creates a new result type
+      addResult(c, n, move(n[resultPos]).typ)
+
+  elif s.typ[0] != nil and not isInlineIterator(s.typ):
     addResult(c, n, s.typ[0])
 
 proc canonType(c: PContext, t: PType): PType =
@@ -2411,6 +2417,70 @@ proc semMethodPrototype(c: PContext; s: PSym; n: PNode) =
     else:
       localReport(c.config, n.info, reportSym(
         rsemExpectedObjectForMethod, s))
+
+proc getCoroutineInstType(c: PContext, info: TLineInfo, rtyp: PType): PType =
+  ## Instantiates the ``Coroutine[T]`` type with `rtyp` bound to ``T``.
+  let
+    rtyp =
+      if rtyp.isNil: c.graph.getSysType(info, tyVoid)
+      else:          rtyp
+    t = c.graph.getCompilerProc("Coroutine").typ
+  result = newTypeS(tyGenericInvocation, c)
+  result.rawAddSon(t) # generic body
+  result.rawAddSon(rtyp) # type argument
+  var map: TIdTable
+  result = generateTypeInstance(c, map, info, result)
+
+proc semCoroutine(c: PContext, n: PNode, ptyp: PType) =
+  ## Given the partially analysed routine definition production AST `n` (the
+  ## parameter list has to be typed already), makes sure that the routine
+  ## header is valid for a coroutine. A coroutine is not a standalone
+  ## entity -- instead, routines can be marked as being coroutines.
+
+  # fetch the user-specified type, if any:
+  var typ = coroutineSpec(n[pragmasPos])
+
+  # instantiate the generic instance type ``Coroutine[T]``. `T` is replaced
+  # with the procedure's return type
+  # TODO: support generic routines...
+  let inst = getCoroutineInstType(c, n.info, ptyp[0])
+
+  if typ.isNil:
+    # no custom instance type specificed
+    typ = inst
+  else:
+    # the custom instance type must be a sub-type of inst
+    if inheritanceDiff(inst, typ) <= 0:
+      # TODO: use a proper diagnostic
+      internalError(c.config, "instance type must be a sub-type of 'Coroutine[T]'")
+
+    let refTyp = skipTypes(inst, {tyGenericInst, tyAlias, tySink})
+    # it must also be a ref type
+    if refTyp.kind != tyRef:
+      # TODO: maybe the specification is too strict here? A 'ref' type could
+      #       be created automatically
+      internalError(c.config, "instance type must be a 'ref' type")
+
+    # it must be extendable
+    if isFinal(refTyp.base):
+      internalError(c.config, "instance type must be non-final")
+
+    # all good, the type is correct
+
+  # no transformation of the procedure is performed here, so as to keep the
+  # shape of the AST and not interfere with typed macros. Instead, the
+  # transformations are applied later during ``transf``. Here, we only
+  # replace the result *type* with the instance type, but make sure that the
+  # actual result variable that's injected stays as the as-specified type
+
+  n.sons.setLen(resultPos + 1)
+  # TODO: handle the result slot being non-empty (happens during re-sem)
+  if ptyp[0].isEmptyType():
+    n[resultPos] = c.graph.emptyNode
+  else:
+    n[resultPos] = newNodeIT(nkType, n.info, ptyp[0])
+
+  ptyp[0] = typ
 
 proc semRoutineName(c: PContext, n: PNode, kind: TSymKind; allowAnon = true): PNode =
   ## Semantically analyse the AST `n` appearing in the name slot of the
@@ -2615,6 +2685,9 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     closeScope(c)
     popOwner(c)
     return wrapErrorAndUpdate(c.config, result, s)
+
+  if sfCoroutine in s.flags:
+    semCoroutine(c, result, s.typ)
 
   if result[pragmasPos].kind != nkEmpty and sfBorrow notin s.flags:
     setEffectsForProcType(c.graph, s.typ, result[pragmasPos], s)

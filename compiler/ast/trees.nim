@@ -183,6 +183,16 @@ proc effectSpec*(n: PNode, effectType: TSpecialWord): PNode =
         result.add(it[1])
       return
 
+proc coroutineSpec*(n: PNode): PType =
+  ## Returns the instance type specified by the ``.coroutine`` pragma in
+  ## pragma list `n`, or nil, if no instance type is specified.
+  let p = findPragma(n, wCoroutine)
+  assert p != nil, "has no coroutine specification"
+  if p.kind == nkExprColonExpr:
+    p[1].typ
+  else:
+    nil
+
 proc unnestStmts(n, result: PNode) =
   case n.kind
   of nkStmtList:
