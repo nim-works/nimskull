@@ -41,6 +41,11 @@ type
     source*: SourceMap
     code*: MirTree
 
+const
+  resultId* = LocalId(0)
+    ## the ID of the result variable. A slot for the result variable is always
+    ## reserved, even if there is no result variable for a body
+
 func `[]`*(body: MirBody, n: NodePosition): lent MirNode {.inline.} =
   body.code[n]
 

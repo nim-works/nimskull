@@ -22,6 +22,7 @@ import
 # compatibility exports for symbols originally defined here
 export Local
 export LocalId
+export resultId
 
 type
   CgNodeKind* = enum
@@ -199,10 +200,6 @@ type
     ## procedure.
     locals*: Store[LocalId, Local] ## all locals belonging to the body
     code*: CgNode
-
-const
-  resultId* = LocalId(0)
-    ## the ID of the local representing the ``result`` variable
 
 func len*(n: CgNode): int {.inline.} =
   n.kids.len
