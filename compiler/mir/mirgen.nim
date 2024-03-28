@@ -151,6 +151,8 @@ type
 
     blocks: seq[Block] ## the stack of active ``block``s. Used for looking up
                        ## break targets
+    localsMap: Table[int, LocalId]
+      ## maps symbol IDs of locals to the corresponding ``LocalId``
 
     sp: SourceProvider
 
@@ -253,6 +255,22 @@ template useSource(bu: var MirBuilder, sp: var SourceProvider,
     bu.setSource(prev[1])
     swap(prev, sp.active)
 
+# -------------- Symbol translation --------------
+
+func localToMir(s: PSym): Local =
+  Local(typ: s.typ, flags: s.flags,
+        isImmutable: s.kind in {skLet, skForVar},
+        name: s.name,
+        alignment:
+          if s.kind in {skVar, skLet, skForVar}:
+            s.alignment.uint32
+          else:
+            0
+        )
+
+template paramToMir(s: PSym): Local =
+  localToMir(s)
+
 # -------------- builder/convenience routines -------------
 
 template add(c: var TCtx, n: MirNode) =
@@ -285,6 +303,16 @@ template emitByName(c: var TCtx, eff: EffectKind, body: untyped) =
     c.subTree MirNode(kind: mnkTag, effect: eff):
       body
 
+template addLocal(c: var TCtx, local: Local): LocalId =
+  c.builder.addLocal(local)
+
+func addLocal(c: var TCtx, s: PSym): LocalId =
+  ## Translates `s` to its MIR representation, registers it with body, and
+  ## establishes a mapping.
+  assert s.id notin c.localsMap
+  result = c.addLocal(localToMir(s))
+  c.localsMap[s.id] = result
+
 proc empty(c: var TCtx, n: PNode): MirNode =
   MirNode(kind: mnkNone, typ: n.typ)
 
@@ -296,18 +324,18 @@ func nameNode(c: var TCtx, s: PSym): MirNode =
   of skTemp:
     # temporaries are always locals, even if marked with the ``sfGlobal``
     # flag
-    MirNode(kind: mnkLocal, typ: s.typ, sym: s)
+    MirNode(kind: mnkLocal, typ: s.typ, local: c.localsMap[s.id])
   of skConst:
     MirNode(kind: mnkConst, typ: s.typ, cnst: c.env.constants.add(s))
   of skParam:
-    MirNode(kind: mnkParam, typ: s.typ, sym: s)
+    MirNode(kind: mnkParam, typ: s.typ, local: LocalId(1 + s.position))
   of skResult:
-    MirNode(kind: mnkLocal, typ: s.typ, sym: s)
+    MirNode(kind: mnkLocal, typ: s.typ, local: resultId)
   of skVar, skLet, skForVar:
     if sfGlobal in s.flags:
       MirNode(kind: mnkGlobal, typ: s.typ, global: c.env.globals.add(s))
     else:
-      MirNode(kind: mnkLocal, typ: s.typ, sym: s)
+      MirNode(kind: mnkLocal, typ: s.typ, local: c.localsMap[s.id])
   else:
     unreachable(s.kind)
 
@@ -1545,7 +1573,8 @@ proc genExceptBranch(c: var TCtx, n: PNode, dest: Destination) =
         # ``T as a`` doesn't get transformed to just ``T`` if ``T`` is the
         # type of an imported exception -- the local's name is used at the
         # MIR level
-        c.add MirNode(kind: mnkLocal, typ: tn[2].typ, sym: tn[2].sym)
+        let id = c.addLocal(tn[2].sym)
+        c.add MirNode(kind: mnkLocal, typ: tn[2].typ, local: id)
       else:
         unreachable()
 
@@ -2041,6 +2070,29 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv,
   # move the state back into the output parameters:
   swapState()
 
+proc addParams(c: var TCtx, prc: PSym, signature: PType) =
+  ## Translates the result variable and the parameters (taken from `signature`)
+  ## to their MIR representation and adds them to the list of locals.
+  template add(x: Local) =
+    discard c.addLocal(x)
+
+  # result variable:
+  if signature[0].isEmptyType():
+    # always reserve a slot for the result variable, even if the latter is
+    # not present
+    add Local()
+  else:
+    add localToMir(prc.ast[resultPos].sym)
+
+  # parameters:
+  let params = signature.n
+  for i in 1..<params.len:
+    add paramToMir(params[i].sym)
+
+  if signature.callConv == ccClosure:
+    # environment parameter
+    add paramToMir(prc.ast[paramsPos][^1].sym)
+
 proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
                    config: TranslationConfig,  body: PNode): MirBody =
   ## Generates the full MIR body for the given AST `body`.
@@ -2068,15 +2120,27 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
     c.add MirNode(kind: mnkStmtList)
 
   if owner.kind in routineKinds:
+    # the procedure backing a macro has its own internal signature; use that
+    # beyond this point
+    let signature =
+      if owner.kind == skMacro:
+        owner.internal
+      else:
+        owner.typ
+
+    addParams(c, owner, signature)
     # add a 'def' for each ``sink`` parameter. This simplifies further
     # processing and analysis
-    let params = owner.typ.n
+    let params = signature.n
     for i in 1..<params.len:
       let s = params[i].sym
       if s.typ.isSinkTypeForParam():
         c.subTree mnkDef:
-          c.add MirNode(kind: mnkParam, typ: s.typ, sym: s)
+          c.add nameNode(c, s)
           c.add MirNode(kind: mnkNone)
+  else:
+    # reserve the result slot:
+    discard c.addLocal(Local())
 
   gen(c, body)
 
