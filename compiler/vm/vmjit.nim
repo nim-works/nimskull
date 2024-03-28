@@ -44,6 +44,9 @@ import
   compiler/sem/[
     transf
   ],
+  compiler/utils/[
+    containers
+  ],
   compiler/vm/[
     identpatterns,
     vmaux,
@@ -150,8 +153,12 @@ proc generateMirCode(c: var TCtx, env: var MirEnv, n: PNode;
     result = generateCode(c.graph, env, c.module, selectOptions(c), n)
   else:
     var bu: MirBuilder
+     # add an empty local so that the result slot is occupied:
+    discard bu.addLocal(Local())
+    # XXX: ^^ this is a hack, and yet another reason to remove expression
+    #      support from the JIT
     generateCode(c.graph, env, selectOptions(c), n, bu, result.source)
-    result.code = finish(bu)
+    (result.code, result.locals) = finish(bu, default(Store[LocalId, Local]))
 
 proc generateIR(c: var TCtx, env: MirEnv, body: sink MirBody): Body =
   backends.generateIR(c.graph, c.idgen, env, c.module, body)
