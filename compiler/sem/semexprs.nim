@@ -1740,13 +1740,21 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
       result = semSym(c, n, s, flags)
     return
 
-  n[0] = semExprWithType(c, n[0], flags)
+  let
+    lhs = semExprWithType(c, n[0], flags)
+    rhs = legacyConsiderQuotedIdent(c, n[1], n)
   var
-    i = legacyConsiderQuotedIdent(c, n[1], n)
-    ty = n[0].typ
-    f: PSym = nil
+    ty = lhs.typ
 
-  if ty.kind == tyTypeDesc:
+  if lhs.isError:
+    # the expression might be a valid dot-call, drop the error
+    return nil
+  else:
+    # FIXME: remove the input AST modification
+    n[0] = lhs
+
+  case ty.kind
+  of tyTypeDesc:
     if ty.base.kind == tyNone:
       # This is a still unresolved typedesc parameter.
       # If this is a regular proc, then all bets are off and we must return
@@ -1758,12 +1766,9 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
       else:
         return nil
     else:
-      return tryReadingTypeField(c, n, i, ty.base)
+      return tryReadingTypeField(c, n, rhs, ty.base)
   elif isTypeExpr(n[0]):
-    return tryReadingTypeField(c, n, i, ty)
-  elif ty.kind == tyError:
-    # a type error doesn't have any builtin fields
-    return nil
+    return tryReadingTypeField(c, n, rhs, ty)
 
   if ty.kind in tyUserTypeClasses and ty.isResolvedUserTypeClass:
     ty = ty.lastSon
@@ -1771,9 +1776,10 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
   while tfBorrowDot in ty.flags: ty = ty.skipTypes({tyDistinct, tyGenericInst, tyAlias})
   var check: PNode = nil
   if ty.kind == tyObject:
+    var f: PSym
     while true:
       check = nil
-      f = lookupInRecordAndBuildCheck(c, n, ty.n, i, check)
+      f = lookupInRecordAndBuildCheck(c, n, ty.n, rhs, check)
       if f != nil: break
       if ty[0] == nil: break
       ty = skipTypes(ty[0], skipPtrs)
@@ -1795,7 +1801,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
           check.typ = n.typ
           result = check
   elif ty.kind == tyTuple and ty.n != nil:
-    f = getSymFromList(ty.n, i)
+    let f = getSymFromList(ty.n, rhs)
     if f != nil:
       markUsed(c, n[1].info, f)
       n[0] = makeDeref(n[0])
@@ -1806,7 +1812,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # we didn't find any field, let's look for a generic param
   if result == nil:
     let t = n[0].typ.skipTypes(tyDotOpTransparent)
-    result = tryReadingGenericParam(c, n, i, t)
+    result = tryReadingGenericParam(c, n, rhs, t)
 
 proc dotTransformation(c: PContext, n: PNode): PNode =
   ## transforms a dotExpr into a dotCall, returns nkError if the "field" of the

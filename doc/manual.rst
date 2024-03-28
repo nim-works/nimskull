@@ -5771,22 +5771,6 @@ However, this means that the method call syntax is not available for
 Limitations of the method call syntax
 -------------------------------------
 
-The expression `x` in `x.f` needs to be semantically checked (that means
-symbol lookup and type checking) before it can be decided that it needs to be
-rewritten to `f(x)`. Therefore the dot syntax has some limitations when it
-is used to invoke templates/macros:
-
-.. code-block:: nim
-    :test: "nim c $1"
-    :status: 1
-
-  template declareVar(name: untyped) =
-    const name {.inject.} = 45
-
-  # Doesn't compile:
-  unknownIdentifier.declareVar
-
-
 It is also not possible to use fully qualified identifiers with module
 symbol in method call syntax. The order in which the dot operator
 binds to symbols prohibits this.

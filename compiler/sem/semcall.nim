@@ -358,6 +358,8 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
     if overloadsState == csEmpty and result.state == csEmpty:
       if efNoUndeclared notin flags: # for tests/pragmas/tcustom_pragma.nim
         if n[0] != nil and n[0].kind == nkIdent and n[0].ident.s in [".", ".="] and n[2].kind == nkIdent:
+          # the first operand might have not been analyzed yet; make sure it is
+          n[1] = semExprWithType(c, n[1])
           let sym = n[1].typ.typSym
           if sym == nil:
             let msg = getMsgDiagnostic(c, flags, n, f)
