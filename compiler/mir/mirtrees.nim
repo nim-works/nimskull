@@ -11,7 +11,7 @@ import
   ]
 
 type
-  LocalId {.used.} = distinct uint32
+  LocalId* = distinct uint32
     ## Identifies a local inside a code fragment
   GlobalId* = distinct uint32
     ## Identifies a global across all MIR code
@@ -277,7 +277,7 @@ type
     of mnkConst:
       cnst*: ConstId
     of mnkParam, mnkLocal:
-      sym*: PSym
+      local*: LocalId
     of mnkField, mnkPathNamed, mnkPathVariant:
       field*: PSym
     of mnkLiteral:
@@ -344,9 +344,6 @@ const
     ## Assignment modifiers. Nodes that can only appear directly in the source
     ## slot of assignments.
 
-  SymbolLike* = {mnkParam, mnkLocal}
-    ## Nodes for which the `sym` field is available
-
   ConstrTreeNodes* = {mnkConstr, mnkObjConstr, mnkLiteral, mnkProc,
                       mnkArg, mnkField, mnkEnd}
     ## Nodes that can appear in the MIR subset used for constant expressions.
@@ -378,6 +375,7 @@ const
   CallKinds* = {mnkCall, mnkCheckedCall}
 
 func `==`*(a, b: SourceId): bool {.borrow.}
+func `==`*(a, b: LocalId): bool {.borrow.}
 func `==`*(a, b: TempId): bool {.borrow.}
 func `==`*(a, b: LabelId): bool {.borrow.}
 func `==`*(a, b: ConstId): bool {.borrow.}

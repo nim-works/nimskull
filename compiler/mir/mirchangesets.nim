@@ -9,12 +9,17 @@ import
     mirtrees,
     sourcemaps,
     treechangesets
+  ],
+  compiler/utils/[
+    containers
   ]
 
 type
   Changeset* = object
     ## Represents a set of changes to be applied to a ``MirBody``.
     inner: TreeChangeset
+    locals: PartialStore[LocalId, Local]
+      ## new locals to be added on changeset application
     numTemps: uint32
       ## keeps track of the number of temporaries. Exchanged with
       ## the created builder, where it's used for allocating new IDs
@@ -46,6 +51,7 @@ template remove*(c: var Changeset, tree: MirTree, at: NodePosition) =
 func initChangeset*(body: MirBody): Changeset =
   ## Sets up a changeset for `body`. The changeset either needs to be
   ## discarded, or applied to the same ``MirBody`` instance it was created for.
+  result = Changeset(locals: fork(body.locals))
   # compute the next ID to use for new temporaries:
   for i, n in body.code.pairs:
     if n.kind in DefNodes and
@@ -58,12 +64,13 @@ func initBuilder(c: var Changeset, buffer: var MirNodeSeq,
   ## ``finishBuilder`` call.
   result = initBuilder(info, move buffer)
   swap(c.numTemps, result.numTemps)
+  swap(c.locals, result.locals)
 
 func finishBuilder(c: var Changeset, buffer: var MirNodeSeq,
                    bu: sink MirBuilder) =
   # move the ID counter and buffer back into the changeset
   swap(c.numTemps, bu.numTemps)
-  buffer = finish(bu)
+  (buffer, c.locals) = finish(bu)
 
 template insert*(c: var Changeset, tree: MirTree, at, source: NodePosition,
                  name: untyped, body: untyped) =
@@ -90,3 +97,4 @@ template replaceMulti*(c: var Changeset, tree: MirTree, at: NodePosition,
 func apply*(body: var MirBody, c: sink Changeset) =
   ## Applies the changeset `c` to `body`.
   apply(body.code, prepare(move c.inner))
+  join(body.locals, move c.locals)

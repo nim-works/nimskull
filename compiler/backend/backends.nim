@@ -332,7 +332,7 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
 
     if graph.config.arcToExpand.hasKey(prc.name.s):
       graph.config.msgWrite("--expandArc: " & prc.name.s & "\n")
-      graph.config.msgWrite(render(body.code, addr env))
+      graph.config.msgWrite(render(body.code, addr env, addr body))
       graph.config.msgWrite("\n-- end of expandArc ------------------------\n")
 
   let target =
@@ -383,14 +383,16 @@ proc produceFragmentsForGlobals(
     # the fragments need to be wrapped in scopes; some MIR passes depend
     # on this
     if bu.front.len == 0:
+      discard bu.addLocal(Local()) # empty result slot
       bu.add(m.add(n)): MirNode(kind: mnkScope)
 
   func finish(bu: sink MirBuilder, m: var SourceMap, n: PNode
-             ): MirTree {.nimcall.} =
+             ): auto {.nimcall.} =
     if bu.front.len > 0:
       bu.setSource(m.add(n))
       bu.add endNode(mnkScope)
-    result = finish(bu)
+    # we're creating a body here, so there is no list of locals yet
+    result = finish(bu, default(Store[LocalId, Local]))
 
   var init, deinit: MirBuilder
 
@@ -420,8 +422,10 @@ proc produceFragmentsForGlobals(
         deinit.setSource(result.deinit.source.add(it[0]))
         genDestroy(deinit, graph, env, toValue(global, s.typ))
 
-  result.init.code = finish(init, result.init.source, graph.emptyNode)
-  result.deinit.code = finish(deinit, result.deinit.source, graph.emptyNode)
+  (result.init.code, result.init.locals) =
+    finish(init, result.init.source, graph.emptyNode)
+  (result.deinit.code, result.deinit.locals) =
+    finish(deinit, result.deinit.source, graph.emptyNode)
 
 # ----- dynlib handling -----
 
@@ -512,6 +516,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
   extname.typ = graph.getSysType(lib.path.info, tyCstring)
 
   var bu = initBuilder(result.source.add(path))
+  discard bu.addLocal(Local()) # empty result slot
 
   let dest =
     if sym.kind in routineKinds:
@@ -562,7 +567,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
         bu.emitByVal tmp
 
   bu.add endNode(mnkScope)
-  result.code = finish(bu)
+  (result.code, result.locals) = finish(bu, result.locals)
 
 # ----- discovery and queueing logic -----
 

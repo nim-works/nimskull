@@ -12,11 +12,17 @@ import
     lineinfos
   ],
   compiler/mir/[
+    mirbodies,
     mirtrees
   ],
   compiler/utils/[
     containers
   ]
+
+# compatibility exports for symbols originally defined here
+export Local
+export LocalId
+export resultId
 
 type
   CgNodeKind* = enum
@@ -156,28 +162,10 @@ const
   cnkLiterals* = {cnkIntLit, cnkUIntLit, cnkFloatLit, cnkStrLit}
 
 type
-  Local* = object
-    ## Static information about a local variable. Initialized prior to code
-    ## generation and only read (but not written) by the code generators.
-    typ*: PType
-    alignment*: uint32
-    flags*: TSymFlags
-    isImmutable*: bool
-      ## whether the local is expected to not be mutated, from a high-level
-      ## language perspective. Note that this doesn't meant that it really
-      ## isn't mutated, rather this information is intended to help the
-      ## the code generators optimize
-    # future direction: merge `flags` and `isImmutable` into a single set of
-    # flags
-    name*: PIdent
-      ## either the user-defined name or 'nil'
-
   BlockId* = distinct uint32
     ## Identifies a block within another block -- the IDs are **not** unique
     ## within a ``Body``. An outermost block has ID 0, a block within the
     ## block ID 1, etc.
-  LocalId* = distinct uint32
-    ## Identifies a local within a procedure.
 
   CgNode* {.acyclic.} = ref object
     ## A node in the tree structure representing code during the code
@@ -212,10 +200,6 @@ type
     ## procedure.
     locals*: Store[LocalId, Local] ## all locals belonging to the body
     code*: CgNode
-
-const
-  resultId* = LocalId(0)
-    ## the ID of the local representing the ``result`` variable
 
 func len*(n: CgNode): int {.inline.} =
   n.kids.len
@@ -273,7 +257,6 @@ proc newOp*(kind: CgNodeKind; info: TLineInfo, typ: PType,
 func newLocalRef*(id: LocalId, info: TLineInfo, typ: PType): CgNode =
   CgNode(kind: cnkLocal, info: info, typ: typ, local: id)
 
-proc `==`*(x, y: LocalId): bool {.borrow.}
 proc `==`*(x, y: BlockId): bool {.borrow.}
 
 proc merge*(dest: var Body, source: Body): CgNode =

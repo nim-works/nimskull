@@ -60,9 +60,6 @@ type
 
     tempMap: SeqMap[TempId, LocalId]
       ## maps a ``TempId`` to the ID of the local created for it
-    localsMap: Table[int, LocalId]
-      ## maps a sybmol ID to the corresponding local. Needed because normal
-      ## local variables reach here as ``PSym``s
     blocks: seq[tuple[input, actual: LabelId]]
       ## the stack of enclosing blocks for the currently processed node
 
@@ -251,13 +248,6 @@ proc newDefaultCall(info: TLineInfo, typ: PType): CgNode =
   ## Produces the tree for a ``default`` magic call.
   newExpr(cnkCall, info, typ, [newMagicNode(mDefault, info)])
 
-proc initLocal(s: PSym): Local =
-  ## Inits a ``Local`` with the data from `s`.
-  result = Local(typ: s.typ, flags: s.flags, isImmutable: (s.kind == skLet),
-                 name: s.name)
-  if s.kind in {skVar, skLet, skForVar}:
-    result.alignment = s.alignment.uint32
-
 proc wrapInHiddenAddr(cl: TranslateCl, n: CgNode): CgNode =
   ## Restores the ``cnkHiddenAddr`` around lvalue expressions passed to ``var``
   ## parameters. The code-generators operating on ``CgNode``-IR depend on the
@@ -333,9 +323,7 @@ proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
   of mnkConst:
     CgNode(kind: cnkConst, info: info, typ: n.typ, cnst: n.cnst)
   of mnkLocal, mnkParam:
-    # paramaters are treated like locals in the code generators
-    assert n.sym.id in cl.localsMap
-    newLocalRef(cl.localsMap[n.sym.id], info, n.sym.typ)
+    newLocalRef(n.local, info, cl.locals[n.local].typ)
   of mnkTemp:
     newLocalRef(cl.tempMap[n.temp], info, n.typ)
   of mnkAlias:
@@ -364,11 +352,7 @@ proc tbExceptItem(tree: MirBody, cl: var TranslateCl, cr: var TreeCursor
                  ): CgNode =
   let n {.cursor.} = get(tree, cr)
   case n.kind
-  of mnkLocal:
-    # the 'except' branch acts as a definition for the local
-    let id = cl.locals.add initLocal(n.sym)
-    cl.localsMap[n.sym.id] = id
-    newLocalRef(id, cr.info, n.typ)
+  of mnkLocal: newLocalRef(n.local, cr.info, n.typ)
   of mnkType:  newTypeNode(cr.info, n.typ)
   else:        unreachable()
 
@@ -534,15 +518,8 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
 
   case entity.kind
   of mnkLocal:
-    # translate the ``PSym`` to a ``Local`` and establish a mapping
-    let
-      sym = entity.sym
-      id = cl.locals.add initLocal(sym)
-
-    assert sym.id notin cl.localsMap, "re-definition of local"
-    cl.localsMap[sym.id] = id
-
-    def = newLocalRef(id, info, entity.typ)
+    let id = entity.local
+    def = newLocalRef(id, info, cl.locals[id].typ)
   of mnkParam:
     # ignore 'def's for parameters
     def = newEmpty()
@@ -1165,33 +1142,8 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: MirEnv,
                  body: sink MirBody): Body =
   ## Generates the ``CgNode`` IR corresponding to the input MIR `body`,
   ## using `idgen` to provide new IDs when creating symbols.
-  var cl = TranslateCl(graph: graph, idgen: idgen, owner: owner)
-  if owner.kind in routineKinds:
-    # setup the locals and associated mappings for the parameters
-    template add(v: PSym) =
-      let s = v
-      cl.localsMap[s.id] = cl.locals.add initLocal(s)
-
-    let sig =
-      if owner.kind == skMacro: owner.internal
-      else:                     owner.typ
-
-    # result variable:
-    if sig[0].isEmptyType():
-      # always reserve a slot for the result variable, even if the latter is
-      # not present
-      discard cl.locals.add(Local())
-    else:
-      add(owner.ast[resultPos].sym)
-
-    # normal parameters:
-    for i in 1..<sig.len:
-      add(sig.n[i].sym)
-
-    if sig.callConv == ccClosure:
-      # environment parameter
-      add(owner.ast[paramsPos][^1].sym)
-
+  var cl = TranslateCl(graph: graph, idgen: idgen, owner: owner,
+                       locals: move body.locals)
   # enable translation:
   cl.isActive = true
 

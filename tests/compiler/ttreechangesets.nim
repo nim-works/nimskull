@@ -112,7 +112,7 @@ block insert_shared_start:
   bu.add temp(0)
   bu.subTree mnkStmtList: discard
   bu.add temp(3)
-  var tree = finish(bu)
+  var (tree, _) = finish(bu)
 
   test(tree, [temp(0), temp(1), temp(2), temp(3)]):
     c.replace 1, temp(2)
@@ -138,7 +138,7 @@ block insert_shared_end:
   bu.add temp(0)
   bu.subTree mnkStmtList: discard
   bu.add temp(3)
-  var tree = finish(bu)
+  var (tree, _) = finish(bu)
 
   test(tree, [temp(0), temp(1), temp(2), temp(3)]):
     c.replace 1, temp(1)

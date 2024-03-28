@@ -15,6 +15,7 @@ import
     typesrenderer,
   ],
   compiler/mir/[
+    mirbodies,
     mirenv,
     mirtrees
   ]
@@ -32,8 +33,8 @@ func `$`(n: MirNode): string =
     result.add " global: "
     result.addInt n.global.uint32
   of mnkParam, mnkLocal:
-    result.add " sym: "
-    result.add $n.sym.name.s
+    result.add " local: "
+    result.addInt n.local.uint32
   of mnkField, mnkPathNamed, mnkPathVariant:
     result.add " field:"
     result.add $n.field.name.s
@@ -120,7 +121,10 @@ proc treeRepr*(tree: MirTree, pos = NodePosition(0)): string =
 # ------- MIR pretty printer --------
 
 type
-  EnvPtr = ptr MirEnv
+  RenderCtx = object
+    ## Contextual immutable data for the renderer.
+    env: ptr MirEnv   ## may be nil
+    body: ptr MirBody ## may be nil
 
 template treeParam(): untyped =
   ## Expands to ``nodes`` or ``tree``, depending on how the parameter is
@@ -135,30 +139,42 @@ func next(tree: MirTree, i: var int): lent MirNode =
   result = tree[i]
   inc i
 
-func addName[I](result: var string, id: I, open: string, env: EnvPtr) =
-  if env.isNil:
+func addName[I](result: var string, id: I, open: string, c: RenderCtx) =
+  if c.env.isNil:
     # just render the ID
     result.add open
     result.addInt id.uint32
     result.add ">"
   else:
-    result.add env[][id].name.s
+    result.add c.env[][id].name.s
 
-proc singleToStr(n: MirNode, result: var string, env: EnvPtr) =
+func addLocalName(result: var string, id: LocalId, open: string,
+                  c: RenderCtx) =
+  if c.body.isNil:
+    # render just the ID
+    result.add open
+    result.addInt id.uint32
+    result.add ">"
+  else:
+    result.add c.body[][id].name.s
+
+proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
   case n.kind
-  of SymbolLike:
-    result.add n.sym.name.s
+  of mnkParam:
+    result.addLocalName(n.local, "<Param", c)
+  of mnkLocal:
+    result.addLocalName(n.local, "<L", c)
   of mnkConst:
     if isAnon(n.cnst):
       result.add "<D" # "D" for "Data"
       result.addInt extract(n.cnst).uint32
       result.add ">"
     else:
-      result.addName(n.cnst, "<C", env)
+      result.addName(n.cnst, "<C", c)
   of mnkGlobal:
-    result.addName(n.global, "<G", env)
+    result.addName(n.global, "<G", c)
   of mnkProc:
-    result.addName(n.prc, "<P", env)
+    result.addName(n.prc, "<P", c)
   of mnkTemp, mnkAlias:
     result.add "_" & $n.temp.int
   of mnkNone:
@@ -172,17 +188,17 @@ proc singleToStr(n: MirNode, result: var string, env: EnvPtr) =
   of AllNodeKinds - Atoms:
     result.add "<error: " & $n.kind & ">"
 
-proc singleToStr(tree: MirTree, i: var int, result: var string, env: EnvPtr) =
-  singleToStr(next(tree, i), result, env)
+proc singleToStr(tree: MirTree, i: var int, result: var string, c: RenderCtx) =
+  singleToStr(next(tree, i), result, c)
 
 template singleToStr() =
-  singleToStr(treeParam(), i, result, env)
+  singleToStr(treeParam(), i, result, c)
 
 template valueToStr() =
   mixin valueToStr
-  valueToStr(treeParam(), i, result, env)
+  valueToStr(treeParam(), i, result, c)
 
-proc valueToStr(nodes: MirTree, i: var int, result: var string, env: EnvPtr) =
+proc valueToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
   template tree(start: string, body: untyped) =
     result.add start
     body
@@ -217,11 +233,11 @@ proc valueToStr(nodes: MirTree, i: var int, result: var string, env: EnvPtr) =
       singleToStr()
       result.add "[]"
   of AtomNodes:
-    singleToStr(n, result, env)
+    singleToStr(n, result, c)
   else:
     result.add "<error: " & $n.kind & ">"
 
-proc calleeToStr(tree: MirTree, i: var int, result: var string, env: EnvPtr) =
+proc calleeToStr(tree: MirTree, i: var int, result: var string, c: RenderCtx) =
   case tree[i].kind
   of mnkMagic:
     # cut off the 'm' prefix and use a lowercase first character
@@ -232,7 +248,7 @@ proc calleeToStr(tree: MirTree, i: var int, result: var string, env: EnvPtr) =
   else:
     valueToStr()
 
-proc argToStr(tree: MirTree, i: var int, result: var string, env: EnvPtr) =
+proc argToStr(tree: MirTree, i: var int, result: var string, c: RenderCtx) =
   var n {.cursor.} = next(tree, i)
   case n.kind
   of mnkArg:     result.add "arg "
@@ -251,9 +267,9 @@ proc argToStr(tree: MirTree, i: var int, result: var string, env: EnvPtr) =
   inc i # skip the end node
 
 template argToStr() =
-  argToStr(treeParam(), i, result, env)
+  argToStr(treeParam(), i, result, c)
 
-proc exprToStr(nodes: MirTree, i: var int, result: var string, env: EnvPtr) =
+proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
   template tree(start: string, body: untyped) =
     result.add start
     inc i # skip the start node
@@ -304,14 +320,14 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, env: EnvPtr) =
       result.add ")"
   of mnkCall:
     tree "":
-      calleeToStr(nodes, i, result, env)
+      calleeToStr(nodes, i, result, c)
       result.add "("
       commaSeparated:
         argToStr()
       result.add ")"
   of mnkCheckedCall:
     tree "":
-      calleeToStr(nodes, i, result, env)
+      calleeToStr(nodes, i, result, c)
       result.add "("
       commaSeparated:
         argToStr()
@@ -344,28 +360,28 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, env: EnvPtr) =
     inc i
 
 template exprToStr() =
-  exprToStr(nodes, i, result, env)
+  exprToStr(nodes, i, result, c)
 
 proc renderNameWithType(tree: MirTree, i: var int, result: var string,
-                        env: EnvPtr) =
+                        c: RenderCtx) =
   let n {.cursor.} = next(tree, i)
-  singleToStr(n, result, env)
+  singleToStr(n, result, c)
   result.add ": "
   result.add typeToString(n.typ)
 
 proc renderList(tree: MirTree, i: var int, indent: int, result: var string,
-                env: EnvPtr)
+                c: RenderCtx)
 
 template renderList(indent: int) =
   mixin renderList
-  renderList(treeParam(), i, indent, result, env)
+  renderList(treeParam(), i, indent, result, c)
 
 template stmtToStr(indent: int) =
   mixin stmtToStr
-  stmtToStr(treeParam(), i, indent, result, env)
+  stmtToStr(treeParam(), i, indent, result, c)
 
 proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string,
-               env: EnvPtr) =
+               c: RenderCtx) =
   template tree(str: string, body: untyped) =
     result.add repeat("  ", indent)
     result.add str
@@ -382,7 +398,7 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string,
   case n.kind
   of mnkDef, mnkDefUnpack:
     tree "def ":
-      renderNameWithType(nodes, i, result, env)
+      renderNameWithType(nodes, i, result, c)
       if nodes[i].kind != mnkNone:
         result.add " = "
         exprToStr()
@@ -391,19 +407,19 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string,
     result.add "\n"
   of mnkDefCursor:
     tree "def_cursor ":
-      renderNameWithType(nodes, i, result, env)
+      renderNameWithType(nodes, i, result, c)
       result.add " = "
       exprToStr()
     result.add "\n"
   of mnkBind:
     tree "bind ":
-      renderNameWithType(nodes, i, result, env)
+      renderNameWithType(nodes, i, result, c)
       result.add " = "
       valueToStr()
     result.add "\n"
   of mnkBindMut:
     tree "bind_mut ":
-      renderNameWithType(nodes, i, result, env)
+      renderNameWithType(nodes, i, result, c)
       result.add " = "
       valueToStr()
     result.add "\n"
@@ -506,23 +522,26 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string,
   i += ord(n.kind in SubTreeNodes)
 
 proc renderList(tree: MirTree, i: var int, indent: int, result: var string,
-                env: EnvPtr) =
+                c: RenderCtx) =
   while i < tree.len and tree[i].kind != mnkEnd:
     stmtToStr(indent)
 
-proc exprToStr*(tree: MirTree, n: NodePosition, env: EnvPtr = nil): string =
+proc exprToStr*(tree: MirTree, n: NodePosition; env: ptr MirEnv = nil;
+                body: ptr MirBody = nil): string =
   ## Renders the expression at `n` into a human-readable text representation.
   var i = n.int
-  exprToStr(tree, i, result, env)
+  exprToStr(tree, i, result, RenderCtx(env: env, body: body))
 
-proc stmtToStr*(tree: MirTree, n: NodePosition, env: EnvPtr = nil): string =
+proc stmtToStr*(tree: MirTree, n: NodePosition; env: ptr MirEnv = nil;
+                body: ptr MirBody = nil): string =
   ## Renders the statement at `n` into a human-readable text representation.
   var i = n.int
-  stmtToStr(tree, i, 0, result, env)
+  stmtToStr(tree, i, 0, result, RenderCtx(env: env, body: body))
 
-proc render*(tree: MirTree, env: EnvPtr = nil): string =
+proc render*(tree: MirTree; env: ptr MirEnv = nil;
+             body: ptr MirBody = nil): string =
   ## Renders `tree` into a human-readable text representation. The output is
   ## meant for debugging and tracing and is not guaranteed to have a stable
   ## format.
   var i = 0
-  renderList(tree, i, 0, result, env)
+  renderList(tree, i, 0, result, RenderCtx(env: env, body: body))
