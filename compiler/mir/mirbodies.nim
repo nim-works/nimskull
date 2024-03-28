@@ -8,6 +8,9 @@ import
   compiler/mir/[
     mirtrees,
     sourcemaps
+  ],
+  compiler/utils/[
+    containers
   ]
 
 type
@@ -27,6 +30,8 @@ type
     name*: PIdent
       ## either the user-defined name or 'nil'
 
+  Locals* = Store[LocalId, Local]
+
   MirBody* = object
     ## A ``MirBody`` represents a self-contained piece of MIR code. This can
     ## either be:
@@ -38,6 +43,8 @@ type
     ## In each case, ``MirBody`` stores all the local data referenced and
     ## needed by the body's MIR code. It also store additional information
     ## associated with a body, such as how far the lowering is along.
+    locals*: Locals
+      ## all locals part of the body
     source*: SourceMap
     code*: MirTree
 
@@ -51,3 +58,7 @@ func `[]`*(body: MirBody, n: NodePosition): lent MirNode {.inline.} =
 
 func sourceFor*(body: MirBody, n: NodePosition): PNode {.inline.} =
   body.source[body.code[n].info]
+
+func `[]`*(body: MirBody, id: LocalId): lent Local {.inline.} =
+  ## Returns the local corresponding to `id`.
+  body.locals[id]
