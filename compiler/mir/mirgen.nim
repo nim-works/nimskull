@@ -1262,6 +1262,10 @@ proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
       # the definition doesn't imply default intialization
       discard
   else:
+    if kind == pirLocal:
+      # translate the symbol of the local:
+      discard c.addLocal(s)
+
     c.buildStmt (if sfCursor in s.flags: mnkDefCursor else: mnkDef):
       c.add nameNode(c, s)
       if hasInitializer:

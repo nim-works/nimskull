@@ -11,7 +11,7 @@ import
   ]
 
 type
-  LocalId {.used.} = distinct uint32
+  LocalId* = distinct uint32
     ## Identifies a local inside a code fragment
   GlobalId* = distinct uint32
     ## Identifies a global across all MIR code
@@ -378,6 +378,7 @@ const
   CallKinds* = {mnkCall, mnkCheckedCall}
 
 func `==`*(a, b: SourceId): bool {.borrow.}
+func `==`*(a, b: LocalId): bool {.borrow.}
 func `==`*(a, b: TempId): bool {.borrow.}
 func `==`*(a, b: LabelId): bool {.borrow.}
 func `==`*(a, b: ConstId): bool {.borrow.}
