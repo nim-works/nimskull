@@ -383,6 +383,7 @@ proc produceFragmentsForGlobals(
     # the fragments need to be wrapped in scopes; some MIR passes depend
     # on this
     if bu.front.len == 0:
+      discard bu.addLocal(Local()) # empty result slot
       bu.add(m.add(n)): MirNode(kind: mnkScope)
 
   func finish(bu: sink MirBuilder, m: var SourceMap, n: PNode
@@ -515,6 +516,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
   extname.typ = graph.getSysType(lib.path.info, tyCstring)
 
   var bu = initBuilder(result.source.add(path))
+  discard bu.addLocal(Local()) # empty result slot
 
   let dest =
     if sym.kind in routineKinds:
