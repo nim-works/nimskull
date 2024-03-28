@@ -32,8 +32,8 @@ func `$`(n: MirNode): string =
     result.add " global: "
     result.addInt n.global.uint32
   of mnkParam, mnkLocal:
-    result.add " sym: "
-    result.add $n.sym.name.s
+    result.add " local: "
+    result.addInt n.local.uint32
   of mnkField, mnkPathNamed, mnkPathVariant:
     result.add " field:"
     result.add $n.field.name.s

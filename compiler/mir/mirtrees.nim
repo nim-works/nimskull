@@ -277,7 +277,7 @@ type
     of mnkConst:
       cnst*: ConstId
     of mnkParam, mnkLocal:
-      sym*: PSym
+      local*: LocalId
     of mnkField, mnkPathNamed, mnkPathVariant:
       field*: PSym
     of mnkLiteral:
@@ -343,9 +343,6 @@ const
   ModifierNodes* = {mnkCopy, mnkMove, mnkSink}
     ## Assignment modifiers. Nodes that can only appear directly in the source
     ## slot of assignments.
-
-  SymbolLike* = {mnkParam, mnkLocal}
-    ## Nodes for which the `sym` field is available
 
   ConstrTreeNodes* = {mnkConstr, mnkObjConstr, mnkLiteral, mnkProc,
                       mnkArg, mnkField, mnkEnd}

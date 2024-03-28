@@ -171,7 +171,7 @@ func toName(n: MirNode): EntityName =
   result.a[0] = n.kind.int
   result.a[1] =
     case n.kind
-    of SymbolLike: n.sym.id
+    of mnkParam, mnkLocal: n.local.int
     of mnkGlobal:  n.global.int
     of mnkTemp:    n.temp.int
     else:          unreachable(n.kind)
@@ -257,11 +257,10 @@ func initEntityDict(tree: MirTree, dfg: DataFlowGraph): EntityDict =
       let t =
         case entity.kind
         of mnkParam:
-          assert isSinkTypeForParam(entity.sym.typ)
-          entity.sym.typ
+          assert isSinkTypeForParam(entity.typ)
+          entity.typ
         of mnkLocal:
-          assert sfCursor notin entity.sym.flags
-          entity.sym.typ
+          entity.typ
         of mnkTemp, mnkGlobal:
           entity.typ
         else:
@@ -345,7 +344,7 @@ func requiresDestruction(tree: MirTree, cfg: DataFlowGraph,
   let r =
     case entity.kind
     of mnkParam, mnkLocal:
-      computeAlive(entity.sym, computeAliveOp[PSym])
+      computeAlive(entity.local, computeAliveOp[LocalId])
     of mnkGlobal:
       computeAlive(entity.global, computeAliveOp[GlobalId])
     of mnkTemp:
@@ -419,7 +418,7 @@ func isAlive(tree: MirTree, cfg: DataFlowGraph,
     let scope =
       # XXX: the way the ``result`` variable is detected here is a hack. It
       #      should be treated as any other local in the context of the MIR
-      if tree[root].kind in SymbolLike and tree[root].sym.kind == skResult:
+      if tree[root].kind == mnkLocal and tree[root].local == resultId:
         cfg.subgraphFor(NodePosition(0) .. NodePosition(tree.high))
       else:
         var exists: bool
@@ -459,7 +458,7 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
   #      procedure's body should be encoded by inserting a special 'use'
   #      operation that has a control-flow dependency on *all* other
   #      operations
-  if tree[root].kind in SymbolLike and tree[root].sym.kind == skResult:
+  if tree[root].kind == mnkLocal and tree[root].local == resultId:
     return true
 
   var exists: bool

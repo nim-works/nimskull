@@ -95,8 +95,9 @@ func toValue*(id: GlobalId, typ: PType): Value =
 func toValue*(id: ProcedureId, typ: PType): Value =
   Value(node: MirNode(kind: mnkProc, typ: typ, prc: id))
 
-func toValue*(kind: range[mnkParam..mnkLocal], sym: PSym): Value =
-  Value(node: MirNode(kind: kind, typ: sym.typ, sym: sym))
+func toValue*(kind: range[mnkParam..mnkLocal], id: LocalId,
+              typ: PType): Value =
+  Value(node: MirNode(kind: kind, typ: typ, local: id))
 
 # --------- MirBuffer interface ----------
 
