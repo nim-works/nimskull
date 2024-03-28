@@ -380,7 +380,7 @@ proc extractStringLiterals(tree: MirTree, env: var MirEnv,
       changes.replaceMulti(tree, i, bu):
         bu.use toValue(c, tree[i].typ)
 
-proc injectResultInit(tree: MirTree, resultVar: PSym, changes: var Changeset) =
+proc injectResultInit(tree: MirTree, resultTyp: PType, changes: var Changeset) =
   ## Injects a default-initialization for the result variable, if deemed
   ## necessary by data-flow analysis.
   ##
@@ -393,7 +393,7 @@ proc injectResultInit(tree: MirTree, resultVar: PSym, changes: var Changeset) =
   # future direction: once possible, extend this pass to apply to all local
   # variables
   func isResult(tree: MirTree, n: OpValue): bool =
-    tree[n].kind == mnkLocal and tree[n].sym.kind == skResult
+    tree[n].kind == mnkLocal and tree[n].local == resultId
 
   func requiresInit(tree: MirTree): bool =
     let
@@ -429,8 +429,8 @@ proc injectResultInit(tree: MirTree, resultVar: PSym, changes: var Changeset) =
     let at = tree.child(NodePosition 0, 0)
     changes.insert(tree, at, at, bu):
       bu.subTree mnkInit:
-        bu.use toValue(mnkLocal, resultVar)
-        bu.buildMagicCall mDefault, resultVar.typ:
+        bu.use toValue(mnkLocal, resultId, resultTyp)
+        bu.buildMagicCall mDefault, resultTyp:
           discard
 
 proc injectProfilerCalls(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
@@ -476,11 +476,11 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       preventRvo(body.code, c)
 
   batch:
-    if target == targetC and (prc.kind in routineKinds) and
-       (sfNoInit notin prc.flags) and not prc.typ[0].isEmptyType():
+    if target == targetC and body[resultId].typ != nil and
+       (sfNoInit notin body[resultId].flags):
       # the procedure has a result variable and initialization of it is
       # allowed
-      injectResultInit(body.code, prc.ast[resultPos].sym, c)
+      injectResultInit(body.code, body[resultId].typ, c)
 
     lowerSwap(body.code, c)
     if target == targetVm:
