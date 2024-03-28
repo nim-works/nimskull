@@ -5,9 +5,11 @@ import
     ast_types
   ],
   compiler/mir/[
-    mirtrees
+    mirtrees,
+    mirbodies
   ],
   compiler/utils/[
+    containers,
     idioms
   ],
   experimental/[
@@ -51,6 +53,8 @@ type
       ## the ID of the meta-data to associate with all added nodes (that
       ## don't have an explicitly assigned source ID)
 
+    locals*: PartialStore[LocalId, Local]
+      ## new locals created with the builder
     numTemps*: uint32
       ## tracks the number of existing temporaries. Used for allocating new
       ## IDs.
@@ -250,6 +254,10 @@ func setSource*(bu: var MirBuilder, id: SourceId) =
     # now change the active ID
     bu.currentSourceId = id
 
+func addLocal*(bu: var MirBuilder, data: sink Local): LocalId {.inline.} =
+  ## Adds a new local to the body and returns the ID to address it with.
+  bu.locals.add data
+
 func add*(bu: var MirBuilder, n: sink MirNode) {.inline.} =
   ## Emits `n` to the node buffers.
   bu.front.add n
@@ -440,8 +448,9 @@ func materializeMove*(bu: var MirBuilder, loc: Value): Value =
   bu.wrapTemp loc.typ:
     bu.move loc
 
-func finish*(bu: sink MirBuilder): MirTree =
-  ## Consumes `bu` and returns the finished tree.
+func finish*(bu: sink MirBuilder): auto =
+  ## Low-level procedure that consumes `bu` and returns the finished tree
+  ## and partial store of the locals.
   if bu.swapped:
     swap(bu.front, bu.back)
     bu.swapped = false
@@ -449,4 +458,13 @@ func finish*(bu: sink MirBuilder): MirTree =
   assert bu.back.len == 0, "staging buffer is not empty"
   # make sure all nodes have their info IDs assigned:
   apply(bu.front, bu.currentSourceId)
-  result = move bu.front.nodes
+  result = (move bu.front.nodes, move bu.locals)
+
+func finish*(bu: sink MirBuilder, locals: sink Store[LocalId, Local]): auto =
+  ## Returns the finished tree from `bu`, plus `locals` joined with the locals
+  ## created with the builder. `locals` must be the store the `bu` was initially
+  ## set-up with.
+  let (tree, partial) = finish(bu)
+  result = (tree, move locals)
+  # join the partial store into the base store:
+  join(result[1], partial)

@@ -386,11 +386,12 @@ proc produceFragmentsForGlobals(
       bu.add(m.add(n)): MirNode(kind: mnkScope)
 
   func finish(bu: sink MirBuilder, m: var SourceMap, n: PNode
-             ): MirTree {.nimcall.} =
+             ): auto {.nimcall.} =
     if bu.front.len > 0:
       bu.setSource(m.add(n))
       bu.add endNode(mnkScope)
-    result = finish(bu)
+    # we're creating a body here, so there is no list of locals yet
+    result = finish(bu, default(Store[LocalId, Local]))
 
   var init, deinit: MirBuilder
 
@@ -420,8 +421,10 @@ proc produceFragmentsForGlobals(
         deinit.setSource(result.deinit.source.add(it[0]))
         genDestroy(deinit, graph, env, toValue(global, s.typ))
 
-  result.init.code = finish(init, result.init.source, graph.emptyNode)
-  result.deinit.code = finish(deinit, result.deinit.source, graph.emptyNode)
+  (result.init.code, result.init.locals) =
+    finish(init, result.init.source, graph.emptyNode)
+  (result.deinit.code, result.deinit.locals) =
+    finish(deinit, result.deinit.source, graph.emptyNode)
 
 # ----- dynlib handling -----
 
@@ -562,7 +565,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
         bu.emitByVal tmp
 
   bu.add endNode(mnkScope)
-  result.code = finish(bu)
+  (result.code, result.locals) = finish(bu, result.locals)
 
 # ----- discovery and queueing logic -----
 

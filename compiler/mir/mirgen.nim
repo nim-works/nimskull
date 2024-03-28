@@ -2099,8 +2099,8 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
   swap(c.env, env) # swap back
 
   # move the buffers into the result body
-  MirBody(source: move c.sp.map,
-          code: finish(move c.builder))
+  let (code, locals) = finish(move c.builder, default(Store[LocalId, Local]))
+  MirBody(locals: locals, source: move c.sp.map, code: code)
 
 proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
   ## Translates the construction expression AST `n` representing some
@@ -2148,4 +2148,4 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
   # push and pop the content so that ``constToMirAux`` places the nodes into
   # the staging buffer, which is necessary for after-the-fact type patching
   bu.pop(bu.push(constToMirAux(bu, env, n)))
-  bu.finish()
+  bu.finish()[0]
