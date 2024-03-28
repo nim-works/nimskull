@@ -332,7 +332,7 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
 
     if graph.config.arcToExpand.hasKey(prc.name.s):
       graph.config.msgWrite("--expandArc: " & prc.name.s & "\n")
-      graph.config.msgWrite(render(body.code, addr env))
+      graph.config.msgWrite(render(body.code, addr env, addr body))
       graph.config.msgWrite("\n-- end of expandArc ------------------------\n")
 
   let target =
