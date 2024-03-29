@@ -1191,6 +1191,8 @@ type
     adSemDotOperatorsNotEnabled
     adSemCallOperatorsNotEnabled
     adSemUnexpectedPattern
+    adSemCannotBeRaised
+    adSemCannotRaiseNonException
     # types
     adSemTypeKindMismatch
     # semexprs
@@ -1553,6 +1555,8 @@ type
       defNameSymData*: AdSemDefNameSym
     of adSemInvalidControlFlow:
       label*: PSym
+    of adSemCannotBeRaised, adSemCannotRaiseNonException:
+      excType*: PType
 
   AdSemDefNameSymKind* = enum
     adSemDefNameSymExpectedKindMismatch

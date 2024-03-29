@@ -3831,6 +3831,13 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       ast: diag.wrongNode,
       str: diag.compilerOpt.getStr,
       compilerOptArg: diag.compilerOptArg.getStr)
+  of adSemCannotBeRaised, adSemCannotRaiseNonException:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.excType)
   of adVmError:
     let
       kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()

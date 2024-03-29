@@ -1730,20 +1730,26 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result.typ = typ
 
 proc semRaise(c: PContext, n: PNode): PNode =
-  result = n
   checkSonsLen(n, 1, c.config)
-  if n[0].kind != nkEmpty:
-    n[0] = semExprWithType(c, n[0])
-    var typ = n[0].typ
-    if not isImportedException(typ, c.config):
-      typ = typ.skipTypes({tyAlias, tyGenericInst})
-      if typ.kind != tyRef:
-        localReport(c.config, n.info, reportTyp(
-          rsemCannotBeRaised, typ))
-
-      if typ.len > 0 and not isException(typ.lastSon):
-        localReport(c.config, n.info, reportTyp(
-          rsemCannotRaiseNonException, typ))
+  result = shallowCopy(n)
+  case n[0].kind
+  of nkEmpty:
+    # make sure to copy, the nfSem flag needs to be included
+    result[0] = copyNode(n[0])
+    result[0].flags.incl nfSem
+  else:
+    result[0] = semExprWithType(c, n[0])
+    let typ = result[0].typ
+    if result[0].kind == nkError:
+      result = c.config.wrapError(result)
+    elif not isImportedException(typ, c.config):
+      let refTyp = typ.skipTypes({tyAlias, tyGenericInst})
+      if refTyp.kind != tyRef:
+        result = c.config.newError(result,
+          PAstDiag(kind: adSemCannotBeRaised, excType: typ))
+      elif not isException(refTyp.lastSon):
+        result = c.config.newError(result,
+          PAstDiag(kind: adSemCannotRaiseNonException, excType: typ))
 
 proc addGenericParamListToScope(c: PContext, n: PNode) =
   if n.kind != nkGenericParams:
