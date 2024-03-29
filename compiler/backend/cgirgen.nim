@@ -260,18 +260,16 @@ proc wrapInHiddenAddr(cl: TranslateCl, n: CgNode): CgNode =
     #      level
     n
 
-proc genObjConv(n: CgNode, a, b, t: PType): CgNode =
-  ## Depending on the relationship between `a` and `b`, wraps `n` in either an
-  ## up- or down-conversion. `t` is the type to use for the resulting
-  ## expression
-  let diff = inheritanceDiff(b, a)
-  #echo "a: ", a.sym.name.s, "; b: ", b.sym.name.s
-  #assert diff != 0 and diff != high(int), "redundant or illegal conversion"
+proc genObjConv(n: CgNode, to: PType, info: TLineInfo): CgNode =
+  ## Depending on the type relationship between `n` and `to`, wraps `n` in
+  ## either an up- or down-conversion. Returns `nil` if no up- or down-
+  ## conversion is needed.
+  let diff = inheritanceDiff(to.skipTypes(skipPtrs), n.typ.skipTypes(skipPtrs))
   if diff == 0:
     return nil
   result = newOp(
     if diff < 0: cnkObjUpConv else: cnkObjDownConv,
-    n.info, t): n
+    info, to): n
 
 func disable(cl: var TranslateCl) {.inline.} =
   cl.isActive = false
@@ -288,21 +286,10 @@ proc handleSpecialConv(c: ConfigRef, n: CgNode, info: TLineInfo,
   ## between the source type (i.e. that of `n`) and the destination type.
   ## If it is, generates the conversion operation IR and returns it -- nil
   ## otherwise
-  let
-    orig = dest
-    source = n.typ.skipTypes(abstractVarRange)
-    dest = dest.skipTypes(abstractVarRange)
-
-  case dest.kind
-  of tyObject:
-    assert source.kind == tyObject
-    genObjConv(n, source, dest, orig)
-  of tyRef, tyPtr, tyVar, tyLent:
-    assert source.kind == dest.kind
-    if source.base.kind == tyObject:
-      genObjConv(n, source.base, dest.base, orig)
-    else:
-      nil
+  if dest.skipTypes(skipPtrs - {tyDistinct}).kind == tyObject:
+    # if the destination is an object (or ptr/ref object), it must be an
+    # object conversion
+    genObjConv(n, dest, info)
   else:
     nil
 
