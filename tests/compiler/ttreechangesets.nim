@@ -13,9 +13,9 @@ import
 type Changeset = TreeChangeset
 
 proc temp(x: int): MirNode =
-  MirNode(kind: mnkTemp, local: x.TempId)
+  MirNode(kind: mnkTemp, local: x.LocalId)
 
-func `==`(a: TempId, b: int): bool =
+func `==`(a: LocalId, b: int): bool =
   a.int == b
 
 func insert(c: var Changeset, i: int, n: sink MirNode) =
