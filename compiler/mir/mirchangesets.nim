@@ -20,9 +20,6 @@ type
     inner: TreeChangeset
     locals: PartialStore[LocalId, Local]
       ## new locals to be added on changeset application
-    numTemps: uint32
-      ## keeps track of the number of temporaries. Exchanged with
-      ## the created builder, where it's used for allocating new IDs
 
 # ----------------------------------------
 # proxy routines
@@ -52,24 +49,17 @@ func initChangeset*(body: MirBody): Changeset =
   ## Sets up a changeset for `body`. The changeset either needs to be
   ## discarded, or applied to the same ``MirBody`` instance it was created for.
   result = Changeset(locals: fork(body.locals))
-  # compute the next ID to use for new temporaries:
-  for i, n in body.code.pairs:
-    if n.kind in DefNodes and
-       (let ent = body.code[i, 0]; ent.kind in {mnkTemp, mnkAlias}):
-      result.numTemps = max(ent.temp.uint32 + 1, result.numTemps)
 
 func initBuilder(c: var Changeset, buffer: var MirNodeSeq,
                  info: SourceId): MirBuilder =
   ## Internal routine for setting up a builder. Must be paired with a
   ## ``finishBuilder`` call.
   result = initBuilder(info, move buffer)
-  swap(c.numTemps, result.numTemps)
   swap(c.locals, result.locals)
 
 func finishBuilder(c: var Changeset, buffer: var MirNodeSeq,
                    bu: sink MirBuilder) =
   # move the ID counter and buffer back into the changeset
-  swap(c.numTemps, bu.numTemps)
   (buffer, c.locals) = finish(bu)
 
 template insert*(c: var Changeset, tree: MirTree, at, source: NodePosition,
