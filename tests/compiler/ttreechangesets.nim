@@ -13,7 +13,7 @@ import
 type Changeset = TreeChangeset
 
 proc temp(x: int): MirNode =
-  MirNode(kind: mnkTemp, temp: x.TempId)
+  MirNode(kind: mnkTemp, local: x.TempId)
 
 func `==`(a: TempId, b: int): bool =
   a.int == b
@@ -29,7 +29,7 @@ func `==`(a, b: MirNode): bool =
   # only implements the comparisons needed by the tests
   case a.kind
   of mnkTemp:
-    result = a.temp == b.temp
+    result = a.local == b.local
   else:
     doAssert false
 
