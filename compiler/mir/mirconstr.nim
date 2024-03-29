@@ -80,11 +80,11 @@ func typeLit*(t: PType): Value =
 func literal*(n: PNode): Value =
   Value(node: MirNode(kind: mnkLiteral, typ: n.typ, lit: n))
 
-func temp*(typ: PType, id: TempId): Value =
-  Value(node: MirNode(kind: mnkTemp, typ: typ, temp: id))
+func temp*(typ: PType, id: LocalId): Value =
+  Value(node: MirNode(kind: mnkTemp, typ: typ, local: id))
 
-func alias*(typ: PType, id: TempId): Value =
-  Value(node: MirNode(kind: mnkAlias, typ: typ, temp: id))
+func alias*(typ: PType, id: LocalId): Value =
+  Value(node: MirNode(kind: mnkAlias, typ: typ, local: id))
 
 func toValue*(id: ConstId, typ: PType): Value =
   Value(node: MirNode(kind: mnkConst, typ: typ, cnst: id))

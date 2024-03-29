@@ -32,7 +32,7 @@ func `$`(n: MirNode): string =
   of mnkGlobal:
     result.add " global: "
     result.addInt n.global.uint32
-  of mnkParam, mnkLocal:
+  of mnkParam, mnkLocal, mnkTemp, mnkAlias:
     result.add " local: "
     result.addInt n.local.uint32
   of mnkField, mnkPathNamed, mnkPathVariant:
@@ -42,9 +42,6 @@ func `$`(n: MirNode): string =
     result.add " lit: "
     {.cast(noSideEffect).}:
       result.add renderTree(n.lit)
-  of mnkTemp, mnkAlias:
-    result.add " temp: "
-    result.add $ord(n.temp)
   of mnkPathPos:
     result.add " position: "
     result.add $n.position
@@ -176,7 +173,7 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
   of mnkProc:
     result.addName(n.prc, "<P", c)
   of mnkTemp, mnkAlias:
-    result.add "_" & $n.temp.int
+    result.add "_" & $n.local.int
   of mnkNone:
     result.add "<none>"
   of mnkLiteral:

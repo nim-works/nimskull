@@ -598,7 +598,8 @@ iterator arguments*(tree: MirTree, n: NodePosition): (ArgKinds, OpValue) =
 func findDef*(tree: MirTree, n: NodePosition): NodePosition =
   ## Finds and returns the first definition for the name of the temporary
   ## at node `n`. No control-flow analysis is performed.
-  let expected = tree[n].temp
+  assert tree[n].kind in {mnkTemp, mnkAlias}
+  let expected = tree[n].local
   # first, unwind until the closest statement
   result = n
   while tree[result].kind notin StmtNodes:
@@ -608,7 +609,8 @@ func findDef*(tree: MirTree, n: NodePosition): NodePosition =
   while result > NodePosition 0:
     if tree[result].kind in DefNodes:
       let name = tree.operand(result, 0)
-      if tree[name].kind in {mnkTemp, mnkAlias} and tree[name].temp == expected:
+      if tree[name].kind in {mnkTemp, mnkAlias} and
+         tree[name].local == expected:
         return
 
     result = tree.previous(result)
