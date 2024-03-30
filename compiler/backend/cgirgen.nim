@@ -272,7 +272,7 @@ func disable(cl: var TranslateCl) {.inline.} =
 proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
               cr: var TreeCursor, stmts: var seq[CgNode])
 proc scopeToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
-               cr: var TreeCursor, stmts: var seq[CgNode], allowExpr=false)
+               cr: var TreeCursor, stmts: var seq[CgNode])
 
 proc handleSpecialConv(c: ConfigRef, n: CgNode, info: TLineInfo,
                        dest: PType): CgNode =
@@ -1050,12 +1050,8 @@ proc genDefFor(sym: sink CgNode): CgNode =
     unreachable()
 
 proc scopeToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
-               cr: var TreeCursor, stmts: var seq[CgNode],
-               allowExpr = false) =
+               cr: var TreeCursor, stmts: var seq[CgNode]) =
   let
-    ends =
-      if allowExpr: {mnkEnd} + Atoms
-      else:         {mnkEnd}
     prev = cl.defs.len
     prevInUnscoped = cl.inUnscoped
     start = stmts.len
@@ -1064,7 +1060,7 @@ proc scopeToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   cl.inUnscoped = false
 
   # translate all statements:
-  while cr.hasNext(tree) and tree[cr].kind notin ends:
+  while cr.hasNext(tree) and tree[cr].kind != mnkEnd:
     stmtToIr(tree, env, cl, cr, stmts)
 
   if cr.hasNext(tree) and tree[cr].kind == mnkEnd:
@@ -1085,7 +1081,7 @@ proc tb(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   ## Translate `tree` to the corresponding ``CgNode`` representation.
   var cr = TreeCursor(pos: start.uint32)
   var stmts: seq[CgNode]
-  scopeToIr(tree, env, cl, cr, stmts, allowExpr=true)
+  scopeToIr(tree, env, cl, cr, stmts)
   if cl.raiseExits.len > 0:
     # there's unhandled exceptional control-flow
     patchResume(cl.raiseExits, 0)
@@ -1093,11 +1089,6 @@ proc tb(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   # emit the join for the return label, if used
   if cl.returnLabel.isSome:
     join unknownLineInfo, cl.returnLabel.get()
-
-  if cr.hasNext(tree):
-    # the tree must be an expression; the last node is required to be an atom
-    let x = atomToIr(tree, cl, cr)
-    stmts.add x
 
   # XXX: the list of statements is still wrapped in a node for now, but
   #      this needs to change once all code generators use the new CGIR
