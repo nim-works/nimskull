@@ -32,7 +32,6 @@ import
     datatables,
     mirbodies,
     mirbridge,
-    mirconstr,
     mirenv,
     mirgen,
     mirpasses,
@@ -43,9 +42,6 @@ import
   ],
   compiler/sem/[
     transf
-  ],
-  compiler/utils/[
-    containers
   ],
   compiler/vm/[
     identpatterns,
@@ -60,6 +56,11 @@ import
   experimental/[
     results
   ]
+
+# XXX: temporary imports for expression support
+from compiler/ast/ast import newTreeIT
+from compiler/sem/semdata import makeVarType
+from compiler/sem/parampatterns import isAssignable, TAssignableResult
 
 export VmGenResult
 
@@ -148,17 +149,19 @@ proc generateMirCode(c: var TCtx, env: var MirEnv, n: PNode;
                      isStmt = false): MirBody =
   ## Generates the initial MIR code for a standalone statement/expression.
   if isStmt:
-    # we want statements wrapped in a scope, hence generating a proper
-    # fragment
     result = generateCode(c.graph, env, c.module, selectOptions(c), n)
   else:
-    var bu: MirBuilder
-     # add an empty local so that the result slot is occupied:
-    discard bu.addLocal(Local())
-    # XXX: ^^ this is a hack, and yet another reason to remove expression
-    #      support from the JIT
-    generateCode(c.graph, env, selectOptions(c), n, bu, result.source)
-    (result.code, result.locals) = finish(bu, default(Store[LocalId, Local]))
+    var n = n
+    # optimization: wrap the expression in a hidden address if it's an lvalue
+    # expression. This eliminates the unnecessary copy that would be created
+    # otherwise
+    if isAssignable(nil, n, isUnsafeAddr=true) in {arLocalLValue, arLValue,
+                                                   arLentValue}:
+      n = newTreeIT(nkHiddenAddr, n.info,
+                    makeVarType(c.module, n.typ, c.idgen, tyLent),
+                    n)
+
+    result = exprToMir(c.graph, env, selectOptions(c), n)
 
 proc generateIR(c: var TCtx, env: MirEnv, body: sink MirBody): Body =
   backends.generateIR(c.graph, c.idgen, env, c.module, body)
@@ -194,15 +197,14 @@ proc applyPasses(c: var TCtx, env: var MirEnv, prc: PSym, body: var MirBody) =
   if restore:
     prc.options.incl optProfiler
 
-proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
-  ## Generates and emits code for the standalone top-level statement `n`.
+proc gen(jit: var JitState, c: var TCtx, n: PNode, isStmt: bool): VmGenResult =
   preCheck(jit.gen.env, n)
   c.removeLastEof()
 
   let cp = checkpoint(jit.gen.env)
 
   # `n` is expected to have been put through ``transf`` already
-  var mirBody = generateMirCode(c, jit.gen.env, n, isStmt = true)
+  var mirBody = generateMirCode(c, jit.gen.env, n, isStmt)
   applyPasses(c, jit.gen.env, c.module, mirBody)
   for _ in discover(jit.gen.env, cp):
     discard "nothing to register"
@@ -222,37 +224,13 @@ proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
 
   result = VmGenResult.ok: (start: start, regCount: r.get)
 
+proc genStmt*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
+  ## Generates and emits code for the standalone top-level statement `n`.
+  gen(jit, c, n, isStmt = true)
+
 proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   ## Generates and emits code for the standalone expression `n`
-  preCheck(jit.gen.env, n)
-  c.removeLastEof()
-
-  # XXX: the way standalone expressions are currently handled is going to
-  #      be a problem as soon as proper MIR passes need to be run (which
-  #      all expect statements). Ideally, dedicated support for
-  #      expressions would be removed from the JIT.
-
-  let cp = checkpoint(jit.gen.env)
-
-  var mirBody = generateMirCode(c, jit.gen.env, n)
-  applyPasses(c, jit.gen.env, c.module, mirBody)
-  for _ in discover(jit.gen.env, cp):
-    discard "nothing to register"
-
-  let
-    body = generateIR(c, jit.gen.env, mirBody)
-    start = c.code.len
-
-  # generate the bytecode:
-  let r = runCodeGen(c, jit.gen, body): genExpr(jit.gen, body)
-
-  if unlikely(r.isErr):
-    rewind(jit.gen.env, cp)
-    return VmGenResult.err(r.takeErr)
-
-  updateEnvironment(c, jit.gen.env, cp)
-
-  result = VmGenResult.ok: (start: start, regCount: r.get)
+  gen(jit, c, n, isStmt = false)
 
 proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   let body =
