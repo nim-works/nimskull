@@ -2050,16 +2050,6 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv,
   if n.typ.isEmptyType:
     withFront c.builder:
       gen(c, n)
-  elif n.typ.kind == tyTypeDesc:
-    # FIXME: this shouldn't happen, but type expressions are sometimes
-    #        evaluated with the VM, such as a ``typeof(T.x)`` appearing as
-    #        a field type within a generic object definition. While it makes
-    #        sense to allow evaluating type expression with the VM, in simple
-    #        situtations like the example above, it's simpler, faster, and more
-    #        intuitive to either evaluate them directly when analying the type
-    #        expression or during ``semfold``
-    c.builder.useSource(c.sp, n)
-    c.use genTypeExpr(c, n)
   else:
     c.builder.useSource(c.sp, n)
     # XXX: restructure the ``mirgen`` API to use a dedicated procedure for
@@ -2163,6 +2153,36 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
   swap(c.env, env) # swap back
 
   # move the buffers into the result body
+  let (code, locals) = finish(move c.builder, default(Store[LocalId, Local]))
+  MirBody(locals: locals, source: move c.sp.map, code: code)
+
+proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
+                config: TranslationConfig, e: PNode): MirBody =
+  ## Only meant to be used by `vmjit <#vmjit>`_. Produces a MIR body for a
+  ## standalone expression. The result of the expression is assigned to the
+  ## special local with ID 0.
+  var c = TCtx(context: skUnknown, graph: graph, config: config)
+  c.sp.active = (e, c.sp.map.add(e))
+  swap(c.env, env)
+
+  let res = c.addLocal(Local(typ: e.typ)) # the result variable
+  c.scope:
+    c.buildStmt mnkDef:
+      c.use toValue(mnkLocal, res, e.typ)
+      if e.typ.kind == tyTypeDesc:
+        # FIXME: this shouldn't happen, but type expressions are sometimes
+        #        evaluated with the VM, such as a ``typeof(T.x)`` appearing as
+        #        a field type within a generic object definition. While it
+        #        makes sense to allow evaluating type expression with the VM,
+        #        in simple situtations like the example above, it's simpler,
+        #        faster, and more intuitive to either evaluate them directly
+        #        when analyzing the type expression, or during ``semfold``
+        c.use genTypeExpr(c, e)
+      else:
+        c.genAsgnSource(e, {dfOwns, dfEmpty})
+
+  swap(c.env, env)
+
   let (code, locals) = finish(move c.builder, default(Store[LocalId, Local]))
   MirBody(locals: locals, source: move c.sp.map, code: code)
 

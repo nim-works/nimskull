@@ -3198,45 +3198,16 @@ proc genStmt*(c: var TCtx; body: sink Body): Result[int, VmGenDiag] =
   c.prc = initProc(c, nil, body)
   let n = c.prc.body.code
 
-  var d: TDest = -1
   try:
     let eh = genSetEh(c, n.info)
-    c.gen(n, d)
+    c.gen(n)
     c.patchSetEh(eh)
   except VmGenError as e:
     return typeof(result).err(move e.diag)
 
-  c.config.internalAssert(d < 0, n.info, "VM problem: dest register is set")
-  result = typeof(result).ok(c.prc.regInfo.len)
-
-proc genExpr*(c: var TCtx; body: sink Body): Result[int, VmGenDiag] =
-  ## Generates and emits the code for a standalone expression.
-  c.prc = initProc(c, nil, body)
-  let n = c.prc.body.code
-
-  var d: TDest = -1
-  try:
-    let eh = genSetEh(c, n.info)
-    if n.kind == cnkStmtList:
-      # special case the expression here so that ``gen`` doesn't have to
-      for i in 0..<n.len-1:
-        c.gen(n[i])
-
-      c.gen(n[^1], d)
-    else:
-      c.gen(n, d)
-
-    c.patchSetEh(eh)
-  except VmGenError as e:
-    return typeof(result).err(move e.diag)
-
-  # the destination register not being set likely indicate that `n` is not an
-  # expression
-  c.config.internalAssert(d != noDest, n.info):
-    "VM problem: dest register is not set"
-  # standalone expressions are treated as nullary procedures that
-  # directly return the value
-  c.gABC(n, opcRet, d)
+  if not isEmptyType(c.prc.body[resultId].typ):
+    # the body has a result, emit a return
+    c.gABC(n, opcRet, c.prc[resultId].reg)
 
   result = typeof(result).ok(c.prc.regInfo.len)
 
