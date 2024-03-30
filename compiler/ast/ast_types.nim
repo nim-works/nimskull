@@ -1191,6 +1191,8 @@ type
     adSemDotOperatorsNotEnabled
     adSemCallOperatorsNotEnabled
     adSemUnexpectedPattern
+    adSemCannotBeRaised
+    adSemCannotRaiseNonException
     # types
     adSemTypeKindMismatch
     # semexprs
@@ -1349,6 +1351,8 @@ type
         adSemDotOperatorsNotEnabled,
         adSemCallOperatorsNotEnabled,
         adSemUnexpectedPattern,
+        adSemCannotBeRaised,
+        adSemCannotRaiseNonException,
         adSemIsOperatorTakes2Args,
         adSemNoTupleTypeForConstructor,
         adSemInvalidOrderInArrayConstructor,
