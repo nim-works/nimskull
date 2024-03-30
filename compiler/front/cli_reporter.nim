@@ -3837,7 +3837,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       reportInst: diag.instLoc.toReportLineInfo,
       kind: kind,
       ast: diag.wrongNode,
-      typ: diag.excType)
+      typ: diag.wrongNode[0].typ)
   of adVmError:
     let
       kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()

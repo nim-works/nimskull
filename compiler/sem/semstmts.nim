@@ -1746,10 +1746,10 @@ proc semRaise(c: PContext, n: PNode): PNode =
       let refTyp = typ.skipTypes({tyAlias, tyGenericInst})
       if refTyp.kind != tyRef:
         result = c.config.newError(result,
-          PAstDiag(kind: adSemCannotBeRaised, excType: typ))
+          PAstDiag(kind: adSemCannotBeRaised))
       elif not isException(refTyp.lastSon):
         result = c.config.newError(result,
-          PAstDiag(kind: adSemCannotRaiseNonException, excType: typ))
+          PAstDiag(kind: adSemCannotRaiseNonException))
 
 proc addGenericParamListToScope(c: PContext, n: PNode) =
   if n.kind != nkGenericParams:
