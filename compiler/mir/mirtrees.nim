@@ -41,13 +41,6 @@ type
 template indexLike*(_: typedesc[SourceId]) = discard
 
 type
-  ## Different to the ID types above, how and what the following ID types
-  ## represent is dictated by the MIR
-  TempId* = distinct uint32
-    ## ID of a temporary location. A temporary location is created and
-    ## inserted by the compiler. The only difference to other named locations
-    ## is that temporaries are allowed to be elided (by an optimization pass,
-    ## for example) if it's deemed to have no effect on the codes' semantics
   LabelId* = distinct uint32
     ## ID of a label, used to identify a block (``mnkBlock``).
 
@@ -63,8 +56,8 @@ type
     mnkGlobal ## global location
     mnkParam  ## parameter
     mnkLocal  ## local location
-    mnkTemp   ## temporary introduced during the MIR phase. Has the same
-              ## semantics as ``mnkLocal``
+    mnkTemp   ## like ``mnkLocal``, but the local was introduced by the
+              ## compiler during the MIR phase
     mnkAlias  ## local run-time handle. This is essentially a ``var T`` or
               ## ``lent T`` local
 
@@ -276,14 +269,12 @@ type
       global*: GlobalId
     of mnkConst:
       cnst*: ConstId
-    of mnkParam, mnkLocal:
+    of mnkParam, mnkLocal, mnkTemp, mnkAlias:
       local*: LocalId
     of mnkField, mnkPathNamed, mnkPathVariant:
       field*: PSym
     of mnkLiteral:
       lit*: PNode
-    of mnkTemp, mnkAlias:
-      temp*: TempId
     of mnkPathPos:
       position*: uint32 ## the 0-based position of the field
     of mnkCall, mnkCheckedCall:
@@ -376,7 +367,6 @@ const
 
 func `==`*(a, b: SourceId): bool {.borrow.}
 func `==`*(a, b: LocalId): bool {.borrow.}
-func `==`*(a, b: TempId): bool {.borrow.}
 func `==`*(a, b: LabelId): bool {.borrow.}
 func `==`*(a, b: ConstId): bool {.borrow.}
 func `==`*(a, b: GlobalId): bool {.borrow.}
@@ -608,7 +598,8 @@ iterator arguments*(tree: MirTree, n: NodePosition): (ArgKinds, OpValue) =
 func findDef*(tree: MirTree, n: NodePosition): NodePosition =
   ## Finds and returns the first definition for the name of the temporary
   ## at node `n`. No control-flow analysis is performed.
-  let expected = tree[n].temp
+  assert tree[n].kind in {mnkTemp, mnkAlias}
+  let expected = tree[n].local
   # first, unwind until the closest statement
   result = n
   while tree[result].kind notin StmtNodes:
@@ -618,7 +609,8 @@ func findDef*(tree: MirTree, n: NodePosition): NodePosition =
   while result > NodePosition 0:
     if tree[result].kind in DefNodes:
       let name = tree.operand(result, 0)
-      if tree[name].kind in {mnkTemp, mnkAlias} and tree[name].temp == expected:
+      if tree[name].kind in {mnkTemp, mnkAlias} and
+         tree[name].local == expected:
         return
 
     result = tree.previous(result)

@@ -8,10 +8,10 @@ discard """
   nimout: '''
 --expandArc: test
 scope:
-  def_cursor _0: proc (x: float){.nimcall.} = cast other
-  def p: proc (x: float){.nimcall.} = copy _0
-  def_cursor _1: proc (x: int){.nimcall.} = cast p
-  _1(arg 1) (raises)
+  def_cursor _2: proc (x: float){.nimcall.} = cast other
+  def p: proc (x: float){.nimcall.} = copy _2
+  def_cursor _3: proc (x: int){.nimcall.} = cast p
+  _3(arg 1) (raises)
 -- end of expandArc ------------------------
   '''
   output: "1"

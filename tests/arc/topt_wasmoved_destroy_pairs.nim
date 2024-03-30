@@ -11,12 +11,12 @@ scope:
     scope:
       if cond:
         scope:
-          def _0: seq[int] = move x
-          add(name a, consume _0)
+          def _5: seq[int] = move x
+          add(name a, consume _5)
           break L0
     scope:
-      def _1: seq[int] = move x
-      add(name b, consume _1)
+      def _6: seq[int] = move x
+      add(name b, consume _6)
   =destroy(name b)
   =destroy(name a)
 -- end of expandArc ------------------------
@@ -35,38 +35,38 @@ scope:
         scope:
           while true:
             scope:
-              def_cursor _0: int = i
-              def :tmp: bool = ltI(arg _0, arg b)
+              def_cursor _9: int = i
+              def :tmp: bool = ltI(arg _9, arg b)
               scope:
-                def_cursor _1: bool = :tmp
-                def _2: bool = not(arg _1)
-                if _2:
+                def_cursor _10: bool = :tmp
+                def _11: bool = not(arg _10)
+                if _11:
                   scope:
                     break L0
               scope:
                 scope:
                   def_cursor i: int = i
                   scope:
-                    def _3: bool = eqI(arg i, arg 2)
-                    if _3:
+                    def _13: bool = eqI(arg i, arg 2)
+                    if _13:
                       scope:
                         return
-                  def _4: seq[int]
-                  =copy(name _4, arg x)
-                  add(name a, consume _4)
+                  def _14: seq[int]
+                  =copy(name _14, arg x)
+                  add(name a, consume _14)
                 i = addI(arg i, arg 1) (raises)
     block L1:
       scope:
         if cond:
           scope:
-            def _5: seq[int] = move x
+            def _15: seq[int] = move x
             wasMoved(name x)
-            add(name a, consume _5)
+            add(name a, consume _15)
             break L1
       scope:
-        def _6: seq[int] = move x
+        def _16: seq[int] = move x
         wasMoved(name x)
-        add(name b, consume _6)
+        add(name b, consume _16)
   finally:
     =destroy(name x)
     =destroy(name b)
@@ -81,11 +81,11 @@ scope:
       if cond:
         scope:
           return
-    def _0: string = boolToStr(arg cond)
-    str := move _0
+    def _4: string = boolToStr(arg cond)
+    str := move _4
     scope:
-      def _1: bool = not(arg cond)
-      if _1:
+      def _5: bool = not(arg cond)
+      if _5:
         scope:
           result := move str
           wasMoved(name str)

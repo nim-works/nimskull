@@ -9,41 +9,41 @@ scope:
     scope:
       while true:
         scope:
-          def_cursor _0: Node = it
-          def _1: bool = eqRef(arg _0, arg nil)
-          def :tmp: bool = not(arg _1)
+          def_cursor _4: Node = it
+          def _5: bool = eqRef(arg _4, arg nil)
+          def :tmp: bool = not(arg _5)
           scope:
-            def_cursor _2: bool = :tmp
-            def _3: bool = not(arg _2)
-            if _3:
+            def_cursor _6: bool = :tmp
+            def _7: bool = not(arg _6)
+            if _7:
               scope:
                 break L0
           scope:
-            def_cursor _4: Node = it
-            def_cursor _5: string = _4[].s
-            echo(arg type(array[0..0, string]), arg _5) (raises)
-            def_cursor _6: Node = it
-            it = _6[].ri
+            def_cursor _8: Node = it
+            def_cursor _9: string = _8[].s
+            echo(arg type(array[0..0, string]), arg _9) (raises)
+            def_cursor _10: Node = it
+            it = _10[].ri
   def_cursor jt: Node = root
   block L1:
     scope:
       while true:
         scope:
-          def_cursor _7: Node = jt
-          def _8: bool = eqRef(arg _7, arg nil)
-          def :tmp: bool = not(arg _8)
+          def_cursor _13: Node = jt
+          def _14: bool = eqRef(arg _13, arg nil)
+          def :tmp: bool = not(arg _14)
           scope:
-            def_cursor _9: bool = :tmp
-            def _10: bool = not(arg _9)
-            if _10:
+            def_cursor _15: bool = :tmp
+            def _16: bool = not(arg _15)
+            if _16:
               scope:
                 break L1
           scope:
-            def_cursor _11: Node = jt
-            def_cursor ri: Node = _11[].ri
-            def_cursor _12: Node = jt
-            def_cursor _13: string = _12[].s
-            echo(arg type(array[0..0, string]), arg _13) (raises)
+            def_cursor _18: Node = jt
+            def_cursor ri: Node = _18[].ri
+            def_cursor _19: Node = jt
+            def_cursor _20: string = _19[].s
+            echo(arg type(array[0..0, string]), arg _20) (raises)
             jt = ri
 -- end of expandArc ------------------------'''
 """

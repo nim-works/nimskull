@@ -58,8 +58,6 @@ type
 
     owner: PSym
 
-    tempMap: SeqMap[TempId, LocalId]
-      ## maps a ``TempId`` to the ID of the local created for it
     blocks: seq[tuple[input, actual: LabelId]]
       ## the stack of enclosing blocks for the currently processed node
 
@@ -80,7 +78,8 @@ type
       ## unreachable code
 
     locals: Store[LocalId, Local]
-      ## the in-progress list of all locals in the translated body
+      ## the list of all locals in the body, taken from the ``MirBody``.
+      ## Only needed for updating the type for alias locals
 
     # a 'def' in the MIR means that the the local starts to exists and that it
     # is accessible in all connected basic blocks part of the enclosing
@@ -99,11 +98,6 @@ type
     ## A cursor into a ``MirBody``.
     pos: uint32 ## the index of the currently pointed to node
     origin {.cursor.}: PNode ## the source node
-
-template isFilled(x: LocalId): bool =
-  # '0' is a valid ID, but this procedure is only used for
-  # temporaries, which can never map to the result variable
-  x.int != 0
 
 func delete[T](s: var seq[T], a, b: int) =
   # XXX: this procedure is a workaround for ``sequtils.delete`` not handling
@@ -309,14 +303,12 @@ proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
     CgNode(kind: cnkGlobal, info: info, typ: n.typ, global: n.global)
   of mnkConst:
     CgNode(kind: cnkConst, info: info, typ: n.typ, cnst: n.cnst)
-  of mnkLocal, mnkParam:
+  of mnkLocal, mnkParam, mnkTemp:
     newLocalRef(n.local, info, cl.locals[n.local].typ)
-  of mnkTemp:
-    newLocalRef(cl.tempMap[n.temp], info, n.typ)
   of mnkAlias:
     # the type of the node doesn't match the real one
     let
-      id = cl.tempMap[n.temp]
+      id = n.local
       typ = cl.locals[id].typ
     # the view is auto-dereferenced here for convenience
     newOp(cnkDerefView, info, typ.base, newLocalRef(id, info, typ))
@@ -328,7 +320,7 @@ proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
     # type arguments do use `mnkNone` in some situtations, so keep
     # the type
     CgNode(kind: cnkEmpty, info: info, typ: n.typ)
-  else:
+  of AllNodeKinds - Atoms:
     unreachable("not an atom: " & $n.kind)
 
 proc atomToIr(tree: MirBody, cl: var TranslateCl,
@@ -504,7 +496,7 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   var def: CgNode
 
   case entity.kind
-  of mnkLocal:
+  of mnkLocal, mnkTemp:
     let id = entity.local
     def = newLocalRef(id, info, cl.locals[id].typ)
   of mnkParam:
@@ -513,16 +505,6 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   of mnkGlobal:
     def = CgNode(kind: cnkGlobal, info: info, typ: entity.typ,
                  global: entity.global)
-  of mnkTemp:
-    # MIR temporaries are like normal locals, with the difference that they
-    # are created ad-hoc and don't have any extra information attached
-    assert entity.typ != nil
-    let tmp = cl.locals.add Local(typ: entity.typ)
-
-    assert entity.temp notin cl.tempMap, "re-definition of temporary"
-    cl.tempMap[entity.temp] = tmp
-
-    def = newLocalRef(tmp, info, entity.typ)
   of mnkAlias:
     # MIR aliases are translated to var/lent views
     assert n.kind in {mnkBind, mnkBindMut}, "alias can only be defined by binds"
@@ -530,12 +512,10 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     let
       typ = makeVarType(cl.owner, entity.typ, cl.idgen,
                         if n.kind == mnkBind: tyLent else: tyVar)
-      tmp = cl.locals.add Local(typ: typ)
+    # override the original type
+    cl.locals[entity.local].typ = typ
 
-    assert entity.temp notin cl.tempMap, "re-definition of temporary"
-    cl.tempMap[entity.temp] = tmp
-
-    def = newLocalRef(tmp, info, typ)
+    def = newLocalRef(entity.local, info, typ)
   else:
     unreachable()
 

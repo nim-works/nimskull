@@ -14,19 +14,19 @@ scope:
             break L0
       scope:
         x = <D2>
-    def_cursor _0: (string, int) = x
-    def _1: string = $(arg _0) (raises)
-    echo(arg type(array[0..0, string]), arg _1) (raises)
+    def_cursor _3: (string, int) = x
+    def _4: string = $(arg _3) (raises)
+    echo(arg type(array[0..0, string]), arg _4) (raises)
   finally:
-    =destroy(name _1)
+    =destroy(name _4)
 -- end of expandArc ------------------------
 --expandArc: sio
 
 scope:
   scope:
     def_cursor filename: string = "debug.txt"
-    def_cursor _0: string = filename
-    def f: File = open(arg _0, arg fmRead, arg 8000) (raises)
+    def_cursor _3: string = filename
+    def f: File = open(arg _3, arg fmRead, arg 8000) (raises)
     try:
       scope:
         try:
@@ -35,25 +35,25 @@ scope:
             scope:
               while true:
                 scope:
-                  def_cursor _1: File = f
-                  def :tmp: bool = readLine(arg _1, name res) (raises)
+                  def_cursor _6: File = f
+                  def :tmp: bool = readLine(arg _6, name res) (raises)
                   scope:
-                    def_cursor _2: bool = :tmp
-                    def _3: bool = not(arg _2)
-                    if _3:
+                    def_cursor _7: bool = :tmp
+                    def _8: bool = not(arg _7)
+                    if _8:
                       scope:
                         break L0
                   scope:
                     scope:
                       def_cursor x: string = res
-                      def_cursor _4: string = x
-                      echo(arg type(array[0..0, string]), arg _4) (raises)
+                      def_cursor _10: string = x
+                      echo(arg type(array[0..0, string]), arg _10) (raises)
         finally:
           =destroy(name res)
     finally:
       scope:
-        def_cursor _5: File = f
-        close(arg _5) (raises)
+        def_cursor _11: File = f
+        close(arg _11) (raises)
 -- end of expandArc ------------------------'''
 """
 

@@ -97,7 +97,7 @@ proc isUsedForSink(tree: MirTree, stmt: NodePosition): bool =
     case tree[n].kind
     of mnkConsume:
       let x = tree.operand(n)
-      if tree[x].kind == mnkTemp and tree[x].temp == tree[def].temp:
+      if tree[x].kind == mnkTemp and tree[x].local == tree[def].local:
         # the temporary is used for sink parameter passing
         result = true
         break

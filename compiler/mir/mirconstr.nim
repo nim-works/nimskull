@@ -55,9 +55,6 @@ type
 
     locals*: PartialStore[LocalId, Local]
       ## new locals created with the builder
-    numTemps*: uint32
-      ## tracks the number of existing temporaries. Used for allocating new
-      ## IDs.
 
     # XXX: the internal fields are currently exported for the integration
     #      with changesets to work, but future refactorings should focus
@@ -80,11 +77,11 @@ func typeLit*(t: PType): Value =
 func literal*(n: PNode): Value =
   Value(node: MirNode(kind: mnkLiteral, typ: n.typ, lit: n))
 
-func temp*(typ: PType, id: TempId): Value =
-  Value(node: MirNode(kind: mnkTemp, typ: typ, temp: id))
+func temp*(typ: PType, id: LocalId): Value =
+  Value(node: MirNode(kind: mnkTemp, typ: typ, local: id))
 
-func alias*(typ: PType, id: TempId): Value =
-  Value(node: MirNode(kind: mnkAlias, typ: typ, temp: id))
+func alias*(typ: PType, id: LocalId): Value =
+  Value(node: MirNode(kind: mnkAlias, typ: typ, local: id))
 
 func toValue*(id: ConstId, typ: PType): Value =
   Value(node: MirNode(kind: mnkConst, typ: typ, cnst: id))
@@ -297,18 +294,17 @@ template scope*(bu: var MirBuilder, body: untyped) =
   bu.subTree MirNode(kind: mnkScope):
     body
 
-func allocTemp(bu: MirBuilder, t: PType; id: TempId, alias: bool): Value =
+func allocTemp(bu: MirBuilder, t: PType; id: LocalId, alias: bool): Value =
   ## Allocates a new temporary or alias and returns it.
   let kind = if alias: mnkAlias
              else:     mnkTemp
   {.cast(uncheckedAssign).}:
-    result = Value(node: MirNode(kind: kind, typ: t, temp: id),
+    result = Value(node: MirNode(kind: kind, typ: t, local: id),
                    info: someOpt bu.currentSourceId)
 
 template allocTemp*(bu: var MirBuilder, t: PType, alias = false): Value =
   # XXX: the only purpose of this is to work around a ``strictFuncs`` bug
-  let id = TempId bu.numTemps
-  inc bu.numTemps
+  let id = bu.addLocal(Local(typ: t))
   allocTemp(bu, t, id, alias)
 
 func use*(bu: var MirBuilder, val: sink Value) {.inline.} =

@@ -231,14 +231,14 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         # definition of a temporary into which an lvalue is assigned. Elision
         # is disabled for projections of temporaries; the projected temporary
         # might be elided itself, which could lead to evaluation order issues
-        ct[tree[i, 0].temp.uint32] = 1
+        ct[tree[i, 0].local.uint32] = 1
 
       i = NodePosition e # skip to the source expression
     of mnkTemp:
       # treat as usage
       # XXX: this is brittle. Usages should be detected through DFA, not by
       #      looking for names
-      let id = tree[i].temp
+      let id = tree[i].local
       if hasKey(ct, id.uint32):
         if isDangerous(tree, i):
           ct.del(id.uint32)
@@ -252,13 +252,13 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
       # name lvalue expression, so if a temporary appears in a deref slot,
       # elision of said temporary is disabled
       if tree[i, 0].kind == mnkTemp:
-        ct.del(tree[i, 0].temp.uint32) # treat as not eligible
+        ct.del(tree[i, 0].local.uint32) # treat as not eligible
       i = tree.sibling(i) # skip the deref
     of mnkPathArray:
       # for array index slots, the above also applies
       let index = tree.child(i, 1)
       if tree[index].kind == mnkTemp:
-        ct.del(tree[index].temp.uint32)
+        ct.del(tree[index].local.uint32)
       inc i
     else:
       inc i
@@ -272,7 +272,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
     overlapsConservative(tree, a, computePath(tree, x), typ, tree[x].typ)
 
   proc findUse(tree: MirTree, dfg: DataFlowGraph, p: Path, typ: PType,
-               start: InstrPos, e: TempId): NodePosition {.nimcall.} =
+               start: InstrPos, e: LocalId): NodePosition {.nimcall.} =
     ## Conservative data-flow analysis that computes whether the `p` might be
     ## modified. If there are no modifications of `p` between `start`
     ## (inclusive) and the use of `e`, the the usage of `e` is returned --
@@ -287,12 +287,12 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
     for op, n in traverse(dfg, all, start, s):
       case op
       of opUse:
-        if tree[n].kind == mnkTemp and tree[n].temp == e:
+        if tree[n].kind == mnkTemp and tree[n].local == e:
           # the searched-for temporary is used and there was no mutation of
           # `p` so far -> not modified
           return NodePosition(n)
       of opConsume, opDef, opMutate, opKill, opInvalidate:
-        if (tree[n].kind == mnkTemp and tree[n].temp == e) or
+        if (tree[n].kind == mnkTemp and tree[n].local == e) or
            overlaps(p, typ, n):
           # either the searched-for temporary is mutated or consumed itself,
           # or the lvalue is mutated/consumed
@@ -311,7 +311,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
   let dfg = computeDfg(tree)
   for i, op, n in instructions(dfg):
     if op == opDef and tree[n].kind == mnkTemp and
-       ct.getOrDefault(tree[n].temp.uint32, 0) == 2:
+       ct.getOrDefault(tree[n].local.uint32, 0) == 2:
       # definition of a single-use temporary that might be elidable. Look for
       # potential mutations of the lvalue
       let
@@ -319,7 +319,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         def = tree.parent(n)
         p   = computePath(tree, tree.child(def, 1))
         typ = tree[n].typ
-        pos = findUse(tree, dfg, p, typ, i + 1, tree[n].temp)
+        pos = findUse(tree, dfg, p, typ, i + 1, tree[n].local)
 
       if pos == NodePosition(-1):
         # the copy is necessary

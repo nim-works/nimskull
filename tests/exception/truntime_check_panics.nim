@@ -13,19 +13,19 @@ scope:
   chckIndex(arg a, arg i)
   discard a[i]
   chckBounds(arg a, arg 0, arg i)
-  def _0: openArray[int] = toOpenArray a, 0, i
-  def _1: int = addI(arg i, arg i)
-  def _2: int = unaryMinusI(arg i)
-  def _3: range 0..1(int) = chckRange(arg i, arg 0, arg 1)
+  def _6: openArray[int] = toOpenArray a, 0, i
+  def _7: int = addI(arg i, arg i)
+  def _8: int = unaryMinusI(arg i)
+  def _9: range 0..1(int) = chckRange(arg i, arg 0, arg 1)
   chckField(arg <D0>, arg o.kind, arg false, arg "field \'x\' is not accessible for type \'Object\' using \'kind = ")
   discard o.kind.x
-  def _5: bool = isNil(arg r)
-  def _4: bool = not(arg _5)
-  if _4:
+  def _11: bool = isNil(arg r)
+  def _10: bool = not(arg _11)
+  if _10:
     chckObj(arg r, arg type(Sub:ObjectType))
   discard r.(Sub)
-  def _6: float = mulF64(arg f, arg f)
-  chckNaN(arg _6)
+  def _12: float = mulF64(arg f, arg f)
+  chckNaN(arg _12)
 
 -- end of expandArc ------------------------'''
 """

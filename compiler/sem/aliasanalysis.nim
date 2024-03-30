@@ -70,7 +70,7 @@ func isSameRoot(an, bn: MirNode): bool =
     return false
 
   case an.kind
-  of mnkParam, mnkLocal:
+  of mnkParam, mnkLocal, mnkTemp:
     result = an.local == bn.local
   of mnkProc:
     result = an.prc == bn.prc
@@ -78,8 +78,6 @@ func isSameRoot(an, bn: MirNode): bool =
     result = an.cnst == bn.cnst
   of mnkGlobal:
     result = an.global == bn.global
-  of mnkTemp:
-    result = an.temp == bn.temp
   of mnkCall, mnkDeref, mnkDerefView:
     result = false
   of AllNodeKinds - Roots:

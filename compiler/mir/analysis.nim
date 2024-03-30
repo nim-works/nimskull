@@ -206,19 +206,17 @@ func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph, loc: Path,
 
   result = (true, state.exit, state.escapes)
 
-func computeAliveOp*[T: LocalId | GlobalId | TempId](
+func computeAliveOp*[T: LocalId | GlobalId](
   tree: MirTree, loc: T, op: Opcode, n: OpValue): AliveState =
   ## Computes the state of `loc` at the *end* of the given operation. The
   ## operands are expected to *not* alias with each other. The analysis
   ## result will be wrong if they do
 
   func isAnalysedLoc[T](n: MirNode, loc: T): bool =
-    when T is TempId:
-      n.kind == mnkTemp and n.temp == loc
-    elif T is GlobalId:
+    when T is GlobalId:
       n.kind == mnkGlobal and n.global == loc
     elif T is LocalId:
-      n.kind in {mnkLocal, mnkParam} and n.local == loc
+      n.kind in {mnkLocal, mnkParam, mnkTemp} and n.local == loc
     else:
       {.error.}
 

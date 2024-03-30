@@ -171,10 +171,12 @@ func toName(n: MirNode): EntityName =
   result.a[0] = n.kind.int
   result.a[1] =
     case n.kind
-    of mnkParam, mnkLocal: n.local.int
-    of mnkGlobal:  n.global.int
-    of mnkTemp:    n.temp.int
-    else:          unreachable(n.kind)
+    of mnkParam, mnkLocal, mnkTemp:
+      n.local.int
+    of mnkGlobal:
+      n.global.int
+    else:
+      unreachable(n.kind)
 
 func findScope(entities: EntityDict, name: EntityName, at: InstrPos,
                exists: var bool): EntityInfo =
@@ -351,7 +353,7 @@ func requiresDestruction(tree: MirTree, cfg: DataFlowGraph,
       # unpacked tuples don't need to be destroyed because all elements are
       # moved out of them
       if tree[def].kind != mnkDefUnpack:
-        computeAlive(entity.temp, computeAliveOp[TempId])
+        computeAlive(entity.local, computeAliveOp[LocalId])
       else:
         (alive: false, escapes: false)
     else:
