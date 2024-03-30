@@ -208,16 +208,6 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
   ##   call(arg a.b.c)
   var ct = initCountTable[uint32]()
 
-  proc isDangerous(tree: MirTree, n: NodePosition): bool =
-    # HACK: this is a tremendous hack to detect whether `n` is part of a
-    #       loose expression, which are currently required by expression
-    #       support for ``vmjit``. Remove as soon as no longer needed
-    var i = int n
-    while i < tree.len and tree[i].kind notin StmtNodes:
-      inc i
-
-    result = i >= tree.len
-
   # first pass: gather all single-use temporaries that are created from
   # lvalues and are eligible for elimination.
   var i = NodePosition 0
@@ -240,10 +230,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
       #      looking for names
       let id = tree[i].local
       if hasKey(ct, id.uint32):
-        if isDangerous(tree, i):
-          ct.del(id.uint32)
-        else:
-          ct.inc(id.uint32)
+        ct.inc(id.uint32)
 
       inc i
     of mnkDeref, mnkDerefView:
