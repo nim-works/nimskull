@@ -114,16 +114,6 @@ proc getRoot*(tree: MirTree, n: OpValue): OpValue =
   else:
     result = pos
 
-func isCursor*(tree: MirTree, path: Path): bool =
-  ## Returns whether the path `n` denotes a cursor location.
-  # XXX: this is an intermediate solution. ``mirgen`` is going to handle
-  #      all cursor-related behaviour in the future, which will make this
-  #      procedure obsolete
-  for i in 0..<path.len:
-    if path[i].kind == pikNamed and sfCursor in tree[path[i].node].field.flags:
-      result = true
-      break
-
 proc computePath*(tree: MirTree, at: NodePosition): Path =
   ## Computes the ``Path`` for the given expression. The expression not being
   ## a path expression is allowed too.

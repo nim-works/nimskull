@@ -294,8 +294,7 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, entities: EntityDict,
     #       visit it first
     var exists = false
     let info = entities.findScope(toName(tree[lval.root]), start, exists)
-    exists and not isCursor(tree, lval) and
-      isLastRead(tree, cfg, info.scope, lval, start)
+    exists and isLastRead(tree, cfg, info.scope, lval, start)
   else:
     unreachable()
 
