@@ -98,15 +98,17 @@ Semantics
                     | CheckedCall LVALUE CALL_ARG ...  EX_TARGET
                     | CheckedCall <Magic> CALL_ARG ... EX_TARGET
 
+  SET_CONSTR_ARG = VALUE
+                 | Range VALUE VALUE     # range construction
 
   RVALUE = UNARY_OP
          | BINARY_OP
          | CALL_EXPR
          | CHECKED_CALL_EXPR
-         | Constr   CONSTR_ARG ...       # construct a tuple, closure, set, or
+         | Constr   CONSTR_ARG ...       # construct a tuple, closure, or array
+         | SetConstr SET_CONSTR_ARG ...
          | ObjConstr (<Field> CONSTR_ARG) ... # construct an `object` or
                                          # `ref object`
-                                         # array
          | StdConv  VALUE                # number conversion or conversion
                                          # between cstring and string
          | Conv     VALUE                # same as `StdConv`. Only duplicate
@@ -211,6 +213,7 @@ Semantics
 
   BRANCH_LABEL = <Literal>
                | <Const>
+               | Range <Literal> <Literal>
   BRANCH_LIST = (Branch BRANCH_LABEL ... STATEMENT) ... # a list of branches
               | (Branch BRANCH_LABEL ... TARGET) ...
 
@@ -385,5 +388,9 @@ ones).
 
   ARG = Arg VALUE
 
+  SET_CONSTR_ARG = <Literal>
+                 | Range <Literal> <Literal>
+
   COMPLEX = Constr ARG...
+          | SetConstr SET_CONSTR_ARG...
           | ObjConstr (<Field> ARG)...
