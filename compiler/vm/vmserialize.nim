@@ -85,16 +85,9 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int,
       recurse(c.heap.unsafeDeref(slot))
       deref(dest).refVal = slot
   of akSet:
-    proc put(dest: LocHandle, lit: PNode, first: Int128) {.inline.} =
-      proc adjusted(n: PNode, first: Int128): BiggestInt =
-        # subtract the first element's value to make all values zero-based
-        toInt(getInt(n) - first)
-
-      if lit.kind == nkRange:
-        bitSetInclRange(mbitSet(dest),
-          adjusted(lit[0], first)..adjusted(lit[1], first))
-      else:
-        bitSetIncl(mbitSet(dest), adjusted(lit, first))
+    proc adjusted(n: PNode, first: Int128): BiggestInt {.inline.} =
+      # subtract the first element's value to make all values zero-based
+      toInt(getInt(n) - first)
 
     let first =
       if tree[n].len > 0: firstOrd(c.config, tree[n].typ)
@@ -102,7 +95,15 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int,
     # XXX: ^^ ``set[empty]``-typed literals reach here, but they shouldn't. The
     #      len guard works around the issue
     iterTree(j):
-      arg put(dest, next().lit, first)
+      let node = next()
+      if node.kind == mnkRange:
+        let
+          a = adjusted(next().lit, first)
+          b = adjusted(next().lit, first)
+        bitSetInclRange(mbitSet(dest), a .. b)
+        inc n # skip the end node
+      else:
+        bitSetIncl(mbitSet(dest), adjusted(node.lit, first))
   of akPNode:
     deref(dest).nodeVal = next().lit[0]
   of akCallable:

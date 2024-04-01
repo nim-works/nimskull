@@ -171,14 +171,18 @@ proc translate*(t: MirTree): CgNode =
           cnkArrayConstr
         of tyTuple:
           cnkTupleConstr
-        of tySet:
-          cnkSetConstr
         of tyProc:
           cnkClosureConstr
         else:
           unreachable()
 
       tree kind:
+        translateAux(t, i)
+    of mnkSetConstr:
+      tree cnkSetConstr:
+        translateAux(t, i)
+    of mnkRange:
+      tree cnkRange:
         translateAux(t, i)
     of mnkArg:
       let x = translateAux(t, i)
