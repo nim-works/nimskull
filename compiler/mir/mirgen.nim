@@ -762,6 +762,8 @@ proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
     else:
       unreachable()
 
+proc genSetConstr(c: var TCtx, n: PNode)
+
 proc genInSetOp(c: var TCtx, n: PNode) =
   ## Generates and emits the IR for the ``mInSet`` magic call `n`. If
   ## the element operand is a range check, it is integrated into the
@@ -808,9 +810,7 @@ proc genInSetOp(c: var TCtx, n: PNode) =
               sv = c.allocTemp(se.typ)
               c.subTree mnkDef:
                 c.use sv
-                c.subTree MirNode(kind: mnkConstr, typ: se.typ):
-                  for it in se.items:
-                    c.emitOperandTree it, false
+                genSetConstr(c, se)
             else:
               sv = genRd(c, se)
 
@@ -1091,9 +1091,15 @@ proc genCallOrMagic(c: var TCtx, n: PNode) =
     genCall(c, n)
 
 proc genSetConstr(c: var TCtx, n: PNode) =
-  c.buildTree mnkConstr, n.typ:
+  c.buildTree mnkSetConstr, n.typ:
     for it in n.items:
-      c.emitOperandTree it, false
+      if it.kind == nkRange:
+        # watch out! the operands don't have to be literal values
+        c.subTree mnkRange:
+          c.genArgExpression(it[0], sink=false)
+          c.genArgExpression(it[1], sink=false)
+      else:
+        c.genArgExpression(it, sink=false)
 
 proc genArrayConstr(c: var TCtx, n: PNode, isConsume: bool) =
   c.buildTree mnkConstr, n.typ:
@@ -1546,8 +1552,15 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
       discard
     of nkOfBranch:
       # emit the lables:
-      for (_, lit) in branchLabels(branch):
-        c.add MirNode(kind: mnkLiteral, lit: lit, typ: lit.typ)
+      for (_, label) in branchLabels(branch):
+        template add(n: PNode) =
+          c.add MirNode(kind: mnkLiteral, lit: n, typ: n.typ)
+        if label.kind == nkRange:
+          c.subTree mnkRange:
+            add(label[0])
+            add(label[1])
+        else:
+          add(label)
     else:
       unreachable(branch.kind)
 
@@ -2200,8 +2213,13 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
           bu.add MirNode(kind: mnkField, field: n[i][0].sym)
           bu.subTree mnkArg:
             constToMirAux(bu, env, n[i][1])
-
-    of nkBracket, nkCurly, nkTupleConstr, nkClosure:
+    of nkCurly:
+      # similar to object construction, no normalization means that ``{1, 2}``
+      # and ``{2, 1}`` results in two data table entries
+      bu.subTree MirNode(kind: mnkSetConstr, typ: n.typ, len: n.len):
+        for it in n.items:
+          constToMirAux(bu, env, it)
+    of nkBracket, nkTupleConstr, nkClosure:
       bu.subTree MirNode(kind: mnkConstr, typ: n.typ, len: n.len):
         for it in n.items:
           bu.subTree mnkArg:
@@ -2216,7 +2234,11 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
         bu.use toValue(env.constants.add(n.sym), n.sym.typ)
       else:
         unreachable()
-    of nkLiterals, nkRange:
+    of nkRange:
+      bu.subTree MirNode(kind: mnkRange, len: 2):
+        constToMirAux(bu, env, n[0])
+        constToMirAux(bu, env, n[1])
+    of nkLiterals:
       bu.use literal(n)
     of nkHiddenStdConv, nkHiddenSubConv:
       # doesn't translate to a MIR node itself, but the type overrides
