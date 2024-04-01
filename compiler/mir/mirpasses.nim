@@ -321,7 +321,7 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
       of LvalueExprKinds:
         # usage in an lvalue expression -> the temporary can be elided
         elide = true
-      of RvalueExprKinds:
+      of RvalueExprKinds, mnkSetConstr:
         elide = true
       of mnkConstr, mnkObjConstr:
         # if the lvalue doesn't overlap with the assignment destination, the
