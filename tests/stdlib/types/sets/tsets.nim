@@ -92,3 +92,12 @@ block:
 
   doAssert k99 notin s1
   doAssert k99 notin s2
+
+block set_construction_with_dynamic_range:
+  # constructing a set value using dynamic ranges crashed the compiler
+  var
+    a = 1'u8
+    b = 4'u8
+  let se = {a..b}
+  doAssert 3'u8 in se
+  doAssert 5'u8 notin se
