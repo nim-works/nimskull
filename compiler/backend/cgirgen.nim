@@ -221,8 +221,6 @@ proc translateLit*(val: PNode): CgNode =
     newNode(cnkNilLit, val.info, val.typ)
   of nkNimNodeLit:
     node(cnkAstLit, astLit, val[0])
-  of nkRange:
-    node(cnkRange, kids, @[translateLit(val[0]), translateLit(val[1])])
   of nkSym:
     # special case for raw symbols used with emit and asm statements
     assert val.sym.kind == skField
@@ -912,6 +910,21 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   of AllNodeKinds - StmtNodes:
     unreachable(n.kind)
 
+proc setElementToIr(tree: MirBody, cl: var TranslateCl,
+                    cr: var TreeCursor): CgNode =
+  ## Translates a sub-tree appearing as a branch label or in a set
+  ## construction to the CGIR.
+  case tree[cr].kind
+  of LvalueExprKinds, mnkLiteral:
+    result = valueToIr(tree, cl, cr)
+  of mnkRange:
+    discard enter(tree, cr)
+    result = newTree(cnkRange, unknownLineInfo,
+                     [valueToIr(tree, cl, cr), valueToIr(tree, cl, cr)])
+    leave(tree, cr)
+  else:
+    unreachable()
+
 proc caseToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl, n: MirNode,
               cr: var TreeCursor, stmts: var seq[CgNode]) =
   assert n.kind == mnkCase
@@ -927,8 +940,7 @@ proc caseToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl, n: MirNode,
 
     result.add newTree(cnkBranch, cr.info)
     for x in 0..<br.len:
-      assert tree[cr].kind in {mnkConst, mnkLiteral}
-      result[^1].add atomToIr(tree, cl, cr)
+      result[^1].add setElementToIr(tree, cl, cr)
 
     let label = newLabel(cl)
     result[^1].add node(label)
@@ -994,6 +1006,9 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
     op cnkHiddenAddr, lvalueToIr(tree, cl, cr)
   of mnkDerefView:
     op cnkDerefView, atomToIr(tree, cl, cr)
+  of mnkSetConstr:
+    treeOp cnkSetConstr:
+      res.add setElementToIr(tree, cl, cr)
   of mnkObjConstr:
     assert n.typ.skipTypes(abstractVarRange).kind in {tyObject, tyRef}
     treeOp cnkObjConstr:
@@ -1004,7 +1019,6 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
 
     let kind =
       case typ.kind
-      of tySet:               cnkSetConstr
       of tyArray, tySequence: cnkArrayConstr
       of tyTuple:             cnkTupleConstr
       of tyProc:
