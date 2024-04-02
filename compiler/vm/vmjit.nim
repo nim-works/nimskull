@@ -70,6 +70,10 @@ type
     gen: CodeGenCtx
       ## code generator state
 
+func env*(jit: JitState): lent MirEnv {.inline.} =
+  ## The JIT code generator's MIR environment.
+  jit.gen.env
+
 func selectOptions(c: TCtx): TranslationConfig =
   result = TranslationConfig(options: {goIsNimvm}, magicsToKeep: MagicsToKeep)
   # include additional options based on the JIT's configuration
@@ -125,7 +129,7 @@ proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
       typ = c.getOrCreate(data[0].typ)
       handle = c.allocator.allocConstantLocation(typ)
 
-    initFromExpr(handle, data, c)
+    initFromExpr(handle, data, env, c)
 
     c.complexConsts.add handle
 

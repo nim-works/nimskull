@@ -139,7 +139,7 @@ proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
     dest.nimNode = data[0].lit
   else:
     dest.initLocReg(typ, c.memory)
-    initFromExpr(dest.handle, data, c)
+    initFromExpr(dest.handle, data, jit.env, c)
 
 proc unpackResult(res: sink ExecutionResult; config: ConfigRef, node: PNode): PNode =
   ## Unpacks the execution result. If the result represents a failure, returns
@@ -680,7 +680,7 @@ proc setGlobalValue*(c: var EvalContext; s: PSym, val: PNode) =
     slot = c.vm.heap.slots[slotIdx]
     data = constDataToMir(c.vm, c.jit, val)
 
-  initFromExpr(slot.handle, data, c.vm)
+  initFromExpr(slot.handle, data, c.jit.env, c.vm)
 
 ## what follows is an implementation of the ``passes`` interface that evaluates
 ## the code directly inside the VM. It is used for NimScript execution and by

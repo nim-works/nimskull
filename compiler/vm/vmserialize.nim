@@ -11,6 +11,7 @@ import
     options
   ],
   compiler/mir/[
+    mirenv,
     mirtrees
   ],
   compiler/vm/[
@@ -27,12 +28,12 @@ import
     int128
   ]
 
-proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int,
+proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
                   c: var TCtx) =
   ## Loads the value represented by `tree` at `n` into `dest`. On exit, `n`
   ## points to the next sub-tree.
   template recurse(dest: LocHandle) =
-    initFromExpr(dest, tree, n, c)
+    initFromExpr(dest, tree, n, env, c)
 
   template next(): lent MirNode =
     let i = n
@@ -62,7 +63,7 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int,
     else:
       writeFloat64(dest, float64(next().lit.floatVal))
   of akString:
-    deref(dest).strVal.newVmString(next().lit.strVal, c.allocator)
+    deref(dest).strVal.newVmString(env[next().strVal], c.allocator)
   of akSeq:
     # allocate the sequence first:
     newVmSeq(deref(dest).seqVal, dest.typ, tree[n].len, c.memory)
@@ -144,9 +145,10 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int,
     iterTree(i):
       arg recurse(slice[i])
 
-proc initFromExpr*(dest: LocHandle, tree: MirTree, c: var TCtx) {.inline.} =
+proc initFromExpr*(dest: LocHandle, tree: MirTree, env: MirEnv,
+                   c: var TCtx) {.inline.} =
   ## Intializes the memory location `dest` with the value represented by the
   ## MIR contant expression `tree`. The location is expected to be in its
   ## zero'ed state.
   var i = 0
-  initFromExpr(dest, tree, i, c)
+  initFromExpr(dest, tree, i, env, c)
