@@ -358,14 +358,13 @@ proc extractStringLiterals(tree: MirTree, env: var MirEnv,
   ## Extracts all string literals and promotes them to anonymous constants,
   ## replacing the string literals with a usage of the constants they were
   ## promoted to.
-  for i in search(tree, {mnkLiteral}):
+  for i in search(tree, {mnkStrLit}):
     # note: both normal string *and* cstring literals are currently included
-    if tree[i].lit.kind in nkStrLiterals:
-      # create an anonymous constant from the literal:
-      let c = toConstId env.data.getOrPut(@[tree[i]])
-      # replace the usage of the literal with the anonymous constant:
-      changes.replaceMulti(tree, i, bu):
-        bu.use toValue(c, tree[i].typ)
+    # create an anonymous constant from the literal:
+    let c = toConstId env.data.getOrPut(@[tree[i]])
+    # replace the usage of the literal with the anonymous constant:
+    changes.replaceMulti(tree, i, bu):
+      bu.use toValue(c, tree[i].typ)
 
 proc injectResultInit(tree: MirTree, resultTyp: PType, changes: var Changeset) =
   ## Injects a default-initialization for the result variable, if deemed
