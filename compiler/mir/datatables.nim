@@ -41,8 +41,6 @@ func hashTree(tree: ConstrTree): Hash =
           # make sure to hash the bit representation, so that NaNs are
           # accounted for
           hash(cast[BiggestInt](n.floatVal))
-        of nkStrKinds:
-          hash(n.strVal)
         of nkIntKinds:
           hash(n.intVal)
         of nkNilLit:
@@ -51,6 +49,8 @@ func hashTree(tree: ConstrTree): Hash =
           unreachable(n.kind)
 
       result = result !& hashLit(n.lit)
+    of mnkStrLit:
+      result = result !& hash(n.strVal)
     of mnkProc:
       result = result !& hash(n.prc.ord)
     of mnkConstr, mnkSetConstr, mnkRange, mnkObjConstr:
@@ -98,6 +98,8 @@ proc cmp(a, b: ConstrTree): bool =
     case a.kind
     of mnkLiteral:
       cmp(a.lit, b.lit)
+    of mnkStrLit:
+      a.strVal == b.strVal
     of mnkProc:
       a.prc == b.prc
     of mnkConstr, mnkSetConstr, mnkRange, mnkObjConstr:
