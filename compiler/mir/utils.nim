@@ -42,6 +42,9 @@ func `$`(n: MirNode): string =
     result.add " lit: "
     {.cast(noSideEffect).}:
       result.add renderTree(n.lit)
+  of mnkStrLit:
+    result.add " strVal: "
+    result.addInt n.strVal.uint32
   of mnkPathPos:
     result.add " position: "
     result.add $n.position
