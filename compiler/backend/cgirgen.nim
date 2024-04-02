@@ -215,8 +215,6 @@ proc translateLit*(val: PNode): CgNode =
       node(cnkFloatLit, floatVal, val.floatVal.float32.float64)
     else:
       unreachable()
-  of nkStrKinds:
-    node(cnkStrLit, strVal, val.strVal)
   of nkNilLit:
     newNode(cnkNilLit, val.info, val.typ)
   of nkNimNodeLit:
@@ -312,6 +310,8 @@ proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
     newOp(cnkDerefView, info, typ.base, newLocalRef(id, info, typ))
   of mnkLiteral:
     translateLit(n.lit)
+  of mnkStrLit:
+    CgNode(kind: cnkStrLit, info: info, typ: n.typ, strVal: n.strVal)
   of mnkType:
     newTypeNode(info, n.typ)
   of mnkNone:

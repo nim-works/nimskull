@@ -190,6 +190,9 @@ proc translate*(t: MirTree): CgNode =
       x
     of mnkLiteral:
       translateLit(n.lit)
+    of mnkStrLit:
+      CgNode(kind: cnkStrLit, info: unknownLineInfo, typ: n.typ,
+             strVal: n.strVal)
     of mnkField:
       CgNode(kind: cnkField, info: unknownLineInfo, field: n.field)
     of mnkProc:
