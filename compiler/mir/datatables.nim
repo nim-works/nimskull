@@ -47,15 +47,13 @@ func hashTree(tree: ConstrTree): Hash =
           hash(n.intVal)
         of nkNilLit:
           Hash(0)
-        of nkRange:
-          hashLit(n[0]) !& hashLit(n[1])
         else:
           unreachable(n.kind)
 
       result = result !& hashLit(n.lit)
     of mnkProc:
       result = result !& hash(n.prc.ord)
-    of mnkObjConstr, mnkConstr:
+    of mnkConstr, mnkSetConstr, mnkRange, mnkObjConstr:
       result = result !& hash(n.len)
     of mnkField:
       result = result !& hash(n.field.id)
@@ -88,8 +86,6 @@ func cmp(a, b: PNode): bool =
     a.strVal == b.strVal
   of nkNilLit:
     true
-  of nkRange:
-    cmp(a[0], b[0]) and cmp(a[1], b[1])
   else:
     unreachable(a.kind)
 
@@ -104,7 +100,7 @@ proc cmp(a, b: ConstrTree): bool =
       cmp(a.lit, b.lit)
     of mnkProc:
       a.prc == b.prc
-    of mnkConstr, mnkObjConstr:
+    of mnkConstr, mnkSetConstr, mnkRange, mnkObjConstr:
       a.len == b.len
     of mnkField:
       a.field.id == b.field.id

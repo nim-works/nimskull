@@ -309,6 +309,16 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
       commaSeparated:
         argToStr()
       result.add ")"
+  of mnkSetConstr:
+    tree "{":
+      commaSeparated:
+        exprToStr(nodes, i, result, c)
+      result.add "}"
+  of mnkRange:
+    tree "":
+      valueToStr()
+      result.add " .. "
+      valueToStr()
   of mnkObjConstr:
     tree "(":
       commaSeparated:

@@ -171,6 +171,9 @@ type
     mnkConstr     ## constructs a either new aggregate value or set value made
                   ## up of the input values. Whether the resulting value is
                   ## owned depends on whether one the context it's used in
+    mnkSetConstr  ## constructor for set values
+    mnkRange      ## range constructor. May only appear in set constructions
+                  ## and as a branch label
     mnkObjConstr  ## either allocate a new managed heap cell and returns a
                   ## ``ref`` to it, or or constructs a new aggregate value
                   ## with named fields
@@ -335,8 +338,8 @@ const
     ## Assignment modifiers. Nodes that can only appear directly in the source
     ## slot of assignments.
 
-  ConstrTreeNodes* = {mnkConstr, mnkObjConstr, mnkLiteral, mnkProc,
-                      mnkArg, mnkField, mnkEnd}
+  ConstrTreeNodes* = {mnkConstr, mnkSetConstr, mnkRange, mnkObjConstr,
+                      mnkLiteral, mnkProc, mnkArg, mnkField, mnkEnd}
     ## Nodes that can appear in the MIR subset used for constant expressions.
 
   # --- semantics-focused sets:
@@ -360,8 +363,9 @@ const
   RvalueExprKinds* = {mnkLiteral, mnkType, mnkProc, mnkConv, mnkStdConv,
                       mnkCast, mnkAddr, mnkView, mnkToSlice} + UnaryOps +
                      BinaryOps
-  ExprKinds* =       {mnkCall, mnkCheckedCall, mnkConstr, mnkObjConstr} +
-                     LvalueExprKinds + RvalueExprKinds + ModifierNodes
+  ExprKinds* =       {mnkCall, mnkCheckedCall, mnkConstr, mnkSetConstr,
+                      mnkObjConstr} + LvalueExprKinds + RvalueExprKinds +
+                     ModifierNodes
 
   CallKinds* = {mnkCall, mnkCheckedCall}
 

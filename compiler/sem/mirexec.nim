@@ -238,6 +238,14 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
   case tree[source].kind
   of mnkCall, mnkCheckedCall, mnkConstr, mnkObjConstr:
     emitForArgs(env, tree, at, source)
+  of mnkSetConstr:
+    for it in subNodes(tree, source):
+      case tree[it].kind
+      of mnkRange:
+        emitLvalueOp(env, opUse, tree, at, tree.operand(it, 0))
+        emitLvalueOp(env, opUse, tree, at, tree.operand(it, 1))
+      else:
+        emitLvalueOp(env, opUse, tree, at, OpValue it)
   of mnkConv, mnkStdConv, mnkCast:
     # a read is performed on the source operand (if it's an lvalue)
     emitLvalueOp(env, opUse, tree, at, tree.operand(source))

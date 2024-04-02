@@ -352,20 +352,19 @@ proc storeSetData(enc: var DataEncoder, e: var PackedEnv,
   enc.put e, PackedDataNode(kind: pdkSet, pos: count.uint32 * 2)
   e.nodes.growBy(count * 2) # make space for the content
 
-  proc adjusted(enc: DataEncoder, n: PNode, typ: PType): uint32 =
+  proc adjusted(enc: DataEncoder, n: MirNode, typ: PType): uint32 =
     # make the range start at zero
-    toUInt32(getInt(n) - firstOrd(enc.config, typ))
+    toUInt32(getInt(n.lit) - firstOrd(enc.config, typ))
 
   var n = n + 1
   # bitsets only store values in the range 0..high(uint16), so the values can
   # be stored directly
   for _ in 0..<count:
-    let x = t[n+1].lit
-    if x.kind == nkRange:
-      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, x[0], typ))
-      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, x[1], typ))
+    if t[n].kind == mnkRange:
+      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, t[n + 1], typ))
+      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, t[n + 2], typ))
     else:
-      let d = PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, x, typ))
+      let d = PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, t[n], typ))
       enc.put e, d
       enc.put e, d
 
@@ -409,10 +408,10 @@ func storeDataNode(enc: var DataEncoder, e: var PackedEnv,
       enc.storeArrayData(e, t, n)
     of tyTuple, tyProc:
       enc.storeTupleData(e, t, n)
-    of tySet:
-      enc.storeSetData(e, t, n)
     else:
       unreachable(t[n].kind)
+  of mnkSetConstr:
+    enc.storeSetData(e, t, n)
   of mnkObjConstr:
     enc.storeFieldsData(e, t, n)
   else:
