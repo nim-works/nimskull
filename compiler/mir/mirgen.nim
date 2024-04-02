@@ -550,8 +550,8 @@ proc genFieldCheck(c: var TCtx, access: Value, call: PNode, inverted: bool,
       # inverted flag:
       c.emitByVal literal(newIntTypeNode(ord(inverted), call.typ))
       # error message operand:
-      c.emitByVal literal(newStrNode(genFieldDefect(conf, field, discr),
-                                     c.graph.getSysType(call.info, tyString)))
+      c.emitByVal strLiteral(c.env, genFieldDefect(conf, field, discr),
+                             c.graph.getSysType(call.info, tyString))
 
 proc genCheckedVariantAccess(c: var TCtx, variant: Value, name: PIdent,
                              check: PNode): PSym =
@@ -1170,8 +1170,8 @@ proc genRaise(c: var TCtx, n: PNode) =
           # lvalue conversion to the base ``Exception`` type:
           c.buildTree mnkPathConv, cp.typ[1]:
             c.use tmp
-        c.emitByVal literal(newStrNode(typ.sym.name.s,
-                                       c.graph.getSysType(n.info, tyCstring)))
+        c.emitByVal strLiteral(c.env, typ.sym.name.s,
+                               c.graph.getSysType(n.info, tyCstring))
 
     # emit the raise statement:
     c.buildStmt mnkRaise:
