@@ -137,9 +137,6 @@ proc newSymNode*(env: MirEnv, s: PSym): CgNode {.inline.} =
   else:
     unreachable(s.kind)
 
-proc newStrNode*(str: sink string): CgNode {.inline.} =
-  CgNode(kind: cnkStrLit, info: unknownLineInfo, strVal: str)
-
 proc translate*(t: MirTree): CgNode =
   ## Compatibility routine for translating a MIR constant-expression (`t`) to
   ## a ``CgNode`` tree. Obsolete once the code generators use the MIR
