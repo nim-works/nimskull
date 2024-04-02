@@ -308,7 +308,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   # pack the data and write it to the ouput file:
   var
     enc: PackedEncoder
-    penv: PackedEnv
+    penv = PackedEnv(strings: move c.gen.env.strings)
 
   enc.init(env.types)
   storeEnv(enc, penv, env)

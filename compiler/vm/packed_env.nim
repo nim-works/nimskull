@@ -378,7 +378,6 @@ func storeLiteral(enc: var DataEncoder, e: var PackedEnv, n: PNode) =
     of EmbeddedInts:  (pdkIntLit, cast[uint32](n.intVal))
     of ExternalInts:  (pdkInt,    e.getLitId(n.intVal).uint32)
     of nkFloatKinds:  (pdkFloat,  e.getLitId(n.floatVal).uint32)
-    of nkStrKinds:    (pdkString, e.getLitId(n.strVal).uint32)
     of nkNilLit:
       if n.typ.skipTypes(abstractInst).callConv == ccClosure:
         # XXX: some unexpanded `nil` closure literals reach here, so we have
@@ -399,6 +398,9 @@ func storeDataNode(enc: var DataEncoder, e: var PackedEnv,
   case t[n].kind
   of mnkLiteral:
     storeLiteral(enc, e, t[n].lit)
+  of mnkStrLit:
+    # the ID indexes into the string BiTable, it can be packed directly
+    enc.put e, PackedDataNode(kind: pdkString, pos: t[n].strVal.uint32)
   of mnkProc:
     # the ID is stable, it can be packed directly
     enc.put e, PackedDataNode(kind: pdkIntLit, pos: t[n].prc.uint32)
