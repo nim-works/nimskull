@@ -233,7 +233,7 @@ proc toOSFlags*(socketFlags: set[SocketFlag]): cint =
 
 proc newSocket*(fd: SocketHandle, domain: Domain = AF_INET,
     sockType: SockType = SOCK_STREAM,
-    protocol: Protocol = IPPROTO_TCP, buffered = true): owned(Socket) =
+    protocol: Protocol = IPPROTO_DEFAULT, buffered = true): owned(Socket) =
   ## Creates a new socket as specified by the params.
   assert fd != osInvalidSocket
   result = Socket(
@@ -265,7 +265,7 @@ proc newSocket*(domain, sockType, protocol: cint, buffered = true,
                      buffered)
 
 proc newSocket*(domain: Domain = AF_INET, sockType: SockType = SOCK_STREAM,
-                protocol: Protocol = IPPROTO_TCP, buffered = true,
+                protocol: Protocol = IPPROTO_DEFAULT, buffered = true,
                 inheritable = defined(nimInheritHandles)): owned(Socket) =
   ## Creates a new socket.
   ##
@@ -1644,7 +1644,6 @@ proc recvFrom*[T: string | IpAddress](socket: Socket, data: var string, length: 
     else:
       raiseOSError(osLastError())
 
-  assert(socket.protocol != IPPROTO_TCP, "Cannot `recvFrom` on a TCP socket")
   # TODO: Buffered sockets
   data.setLen(length)
 
@@ -1726,7 +1725,6 @@ proc sendTo*(socket: Socket, address: string, port: Port, data: pointer,
   ## which is defined below.
   ##
   ## **Note:** This proc is not available for SSL sockets.
-  assert(socket.protocol != IPPROTO_TCP, "Cannot `sendTo` on a TCP socket")
   assert(not socket.isClosed, "Cannot `sendTo` on a closed socket")
   var aiList = getAddrInfo(address, port, af, socket.sockType, socket.protocol)
   # try all possibilities:
@@ -1771,7 +1769,6 @@ proc sendTo*(socket: Socket, address: IpAddress, port: Port,
   ## If an error occurs an OSError exception will be raised.
   ##
   ## This is the high-level version of the above `sendTo` function.
-  assert(socket.protocol != IPPROTO_TCP, "Cannot `sendTo` on a TCP socket")
   assert(not socket.isClosed, "Cannot `sendTo` on a closed socket")
 
   var sa: Sockaddr_storage
@@ -1909,7 +1906,7 @@ proc `$`*(address: IpAddress): string =
           printedLastGroup = true
 
 proc dial*(address: string, port: Port,
-           protocol = IPPROTO_TCP, buffered = true): owned(Socket)
+           protocol = IPPROTO_DEFAULT, buffered = true): owned(Socket)
            {.tags: [ReadIOEffect, WriteIOEffect].} =
   ## Establishes connection to the specified `address`:`port` pair via the
   ## specified protocol. The procedure iterates through possible
