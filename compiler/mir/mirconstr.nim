@@ -2,6 +2,7 @@
 
 import
   compiler/ast/[
+    ast_query,
     ast_types
   ],
   compiler/mir/[
@@ -75,7 +76,11 @@ func typeLit*(t: PType): Value =
   Value(node: MirNode(kind: mnkType, typ: t))
 
 func literal*(n: PNode): Value =
+  assert n.kind notin nkStrKinds
   Value(node: MirNode(kind: mnkLiteral, typ: n.typ, lit: n))
+
+func literal*(str: StringId, typ: PType): Value =
+  Value(node: MirNode(kind: mnkStrLit, typ: typ, strVal: str))
 
 func temp*(typ: PType, id: LocalId): Value =
   Value(node: MirNode(kind: mnkTemp, typ: typ, local: id))

@@ -319,6 +319,9 @@ proc empty(c: var TCtx, n: PNode): MirNode =
 func intLiteral(val: Int128, typ: PType): Value =
   literal(newIntTypeNode(val, typ))
 
+func strLiteral(env: var MirEnv, str: string, typ: PType): Value =
+  literal(env.getOrIncl(str), typ)
+
 func nameNode(c: var TCtx, s: PSym): MirNode =
   case s.kind
   of skTemp:
@@ -1553,14 +1556,12 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
     of nkOfBranch:
       # emit the lables:
       for (_, label) in branchLabels(branch):
-        template add(n: PNode) =
-          c.add MirNode(kind: mnkLiteral, lit: n, typ: n.typ)
         if label.kind == nkRange:
           c.subTree mnkRange:
-            add(label[0])
-            add(label[1])
+            genx(c, label[0])
+            genx(c, label[1])
         else:
-          add(label)
+          genx(c, label)
     else:
       unreachable(branch.kind)
 
@@ -1682,7 +1683,11 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
   of pirProc:
     c.use toValue(c.env.procedures.add(n.sym), n.sym.typ)
   of pirLiteral:
-    c.use literal(n.orig)
+    case n.orig.kind
+    of nkStrLiterals:
+      c.use strLiteral(c.env, n.orig.strVal, n.typ)
+    else:
+      c.use literal(n.orig)
   of pirLocal, pirGlobal, pirParam, pirConst:
     c.add nameNode(c, n.sym)
   of pirDeref:
@@ -2238,8 +2243,10 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
       bu.subTree MirNode(kind: mnkRange, len: 2):
         constToMirAux(bu, env, n[0])
         constToMirAux(bu, env, n[1])
-    of nkLiterals:
+    of nkIntLiterals, nkFloatLiterals, nkNilLit:
       bu.use literal(n)
+    of nkStrLiterals:
+      bu.use strLiteral(env, n.strVal, n.typ)
     of nkHiddenStdConv, nkHiddenSubConv:
       # doesn't translate to a MIR node itself, but the type overrides
       # that of the sub-expression
