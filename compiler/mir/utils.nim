@@ -181,6 +181,13 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     result.add "<none>"
   of mnkLiteral:
     result.add $n.lit
+  of mnkStrLit:
+    if c.env.isNil:
+      result.add "<Str: "
+      result.addInt n.strVal.uint32
+      result.add ">"
+    else:
+      result.addQuoted c.env[][n.strVal]
   of mnkType:
     result.add "type("
     result.add $n.typ
