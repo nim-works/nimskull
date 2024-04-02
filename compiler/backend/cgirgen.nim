@@ -369,7 +369,7 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
     # XXX: this needs to be removed once there is a dedicated run-time-
     #      sequence access operator
     let arg =
-      if tree[cr].kind == mnkLiteral:
+      if tree[cr].kind in LiteralDataNodes:
         atomToIr(tree, cl, cr)
       else:
         recurse()
@@ -395,7 +395,7 @@ proc valueToIr(tree: MirBody, cl: var TranslateCl,
                cr: var TreeCursor): CgNode =
   case tree[cr].kind
   of mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp, mnkAlias,
-     mnkLiteral, mnkType:
+     mnkType, LiteralDataNodes:
     atomToIr(tree, cl, cr)
   of mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathConv, mnkPathVariant,
      mnkDeref, mnkDerefView:
@@ -417,7 +417,7 @@ proc argToIr(tree: MirBody, cl: var TranslateCl,
     # it is one, the expression must be an lvalue
     result = (true, lvalueToIr(tree, cl, cr))
     leave(tree, cr)
-  of mnkLiteral, mnkType, mnkProc, mnkNone:
+  of LiteralDataNodes, mnkType, mnkProc, mnkNone:
     # not a tag but an atom
     result = (false, atomToIr(n, cl, cr.info))
   of LvalueExprKinds:
@@ -915,7 +915,7 @@ proc setElementToIr(tree: MirBody, cl: var TranslateCl,
   ## Translates a sub-tree appearing as a branch label or in a set
   ## construction to the CGIR.
   case tree[cr].kind
-  of LvalueExprKinds, mnkLiteral:
+  of LvalueExprKinds, LiteralDataNodes:
     result = valueToIr(tree, cl, cr)
   of mnkRange:
     discard enter(tree, cr)
