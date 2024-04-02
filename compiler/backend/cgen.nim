@@ -101,6 +101,9 @@ const
     ## the procedure contains top-level code, which currently affects how
     ## emit, asm, and error handling works
 
+template getString(p: BProc, n: CgNode): untyped =
+  p.env[n.strVal]
+
 proc findPendingModule(m: BModule, s: PSym): BModule =
   let ms = s.itemId.module  #getModule(s)
   result = m.g.modules[ms]

@@ -11,7 +11,6 @@
 
 import
   std/[
-    hashes,
     intsets,
     tables,
     sets
@@ -95,8 +94,6 @@ type
     name*: string             ## the name of the C function in the generated
                               ## code
     params*: seq[TLoc]        ## the locs of the parameters
-
-  StrNode* = distinct CgNode
 
   TLabel* = Rope              ## for the C generator a label is just a rope
   TCFileSection* = enum       ## the sections a generated C file consists of
@@ -249,9 +246,9 @@ type
     defaultCache*: Table[SigHash, int]
       ## maps a type hash to the name of a C constant storing the type's
       ## default value
-    strCache*: Table[StrNode, int]
-      ## associates a string node with the label of a C constant generated for
-      ## it
+    strCache*: Table[StringId, int]
+      ## associates a string with the label of the C constant generated
+      ## for it
       ## TODO: strings should be turned into data-only constants (``DataId``)
       ##       during the MIR phase
     dataNames*: Table[DataId, int]
@@ -349,15 +346,6 @@ func contains*[T](m: SymbolMap[T], sym: PSym): bool {.inline.} =
 iterator items*[T](m: SymbolMap[T]): lent T =
   for it in m.store.items:
     yield it
-
-proc `==`(a, b: StrNode): bool =
-  a.CgNode.strVal == b.CgNode.strVal
-
-proc hash(x: StrNode): Hash =
-  hash(x.CgNode.strVal)
-
-proc getOrPut*(t: var Table[StrNode, int], n: CgNode, label: int): int =
-  mgetOrPut(t, StrNode(n), label)
 
 func isFilled*(x: TLoc): bool {.inline.} =
   x.k != locNone

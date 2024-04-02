@@ -226,7 +226,7 @@ proc genCaseStringBranch(p: BProc, b: CgNode, e: TLoc, labl: BlockId,
     assert(b[i].kind != cnkRange)
     initLocExpr(p, b[i], x)
     assert(b[i].kind == cnkStrLit)
-    var j = int(hashString(p.config, b[i].strVal) and high(branches))
+    var j = int(hashString(p.config, getString(p, b[i])) and high(branches))
     appcg(p.module, branches[j], "if (#eqStrings($1, $2)) goto $3;$n",
          [rdLoc(e), rdLoc(x), labl])
 
@@ -397,7 +397,7 @@ proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
   for it in t.items:
     case it.kind
     of cnkStrLit:
-      res.add(it.strVal)
+      res.add(getString(p, it))
     of cnkField:
         let sym = it.field
         # special support for raw field symbols
@@ -448,10 +448,10 @@ proc genAsmStmt(p: BProc, t: CgNode) =
   else:
     p.s(cpsStmts).add indentLine(p, runtimeFormat(CC[p.config.cCompiler].asmStmtFrmt, [s]))
 
-proc determineSection(n: CgNode): TCFileSection =
+proc determineSection(env: MirEnv, n: CgNode): TCFileSection =
   result = cfsProcHeaders
   if n.len >= 1 and n[0].kind == cnkStrLit:
-    let sec = n[0].strVal
+    let sec = env[n[0].strVal]
     if sec.startsWith("/*TYPESECTION*/"): result = cfsTypes
     elif sec.startsWith("/*VARSECTION*/"): result = cfsVars
     elif sec.startsWith("/*INCLUDESECTION*/"): result = cfsHeaders
@@ -460,7 +460,7 @@ proc genEmit(p: BProc, t: CgNode) =
   var s = genAsmOrEmitStmt(p, t)
   if sfTopLevel in p.prc.flags:
     # top level emit pragma?
-    let section = determineSection(t)
+    let section = determineSection(p.env, t)
     genCLineDir(p.module.s[section], t.info, p.config)
     p.module.s[section].add(s)
   else:

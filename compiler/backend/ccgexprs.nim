@@ -79,7 +79,7 @@ proc genLiteral(p: BProc, n: CgNode, ty: PType): Rope =
       # save tons of allocations:
       result = genStringLiteral(p.module, n)
     else:
-      result = makeCString(n.strVal)
+      result = makeCString(getString(p, n))
   of cnkFloatLit:
     if ty.kind == tyFloat32:
       result = rope(n.floatVal.float32.toStrMaxPrecision)
@@ -586,8 +586,10 @@ proc genFieldCheck(p: BProc, e: CgNode) =
       # by encoding the file names separately from `file(line:col)`, essentially
       # passing around `TLineInfo` + the set of files in the project.
       msg.add toFileLineCol(p.config, e.info) & " "
-    msg.add e[4].strVal
-    let strLit = genStringLiteral(p.module, newStrNode(msg))
+    msg.add getString(p, e[4])
+    # don't commit the string to the string table, as it's likely to be
+    # unique and never used again
+    let strLit = genStringLiteral(p.module, msg)
 
     ## discriminant check
     template fun(code) = linefmt(p, cpsStmts, code, [rdLoc(test)])
@@ -813,7 +815,7 @@ proc genStrConcat(p: BProc, e: CgNode, d: var TLoc) =
       appends.add(ropecg(p.module, "#appendChar($1, $2);$n", [strLoc(p, tmp), rdLoc(a)]))
     else:
       if e[i + 1].kind == cnkStrLit:
-        inc(L, e[i + 1].strVal.len)
+        inc(L, getString(p, e[i + 1]).len)
       else:
         lens.add(lenExpr(p, a))
         lens.add(" + ")
@@ -852,7 +854,7 @@ proc genStrAppend(p: BProc, e: CgNode, d: var TLoc) =
                         [strLoc(p, dest), rdLoc(a)]))
     else:
       if e[i + 2].kind == cnkStrLit:
-        inc(L, e[i + 2].strVal.len)
+        inc(L, getString(p, e[i + 2]).len)
       else:
         lens.add(lenExpr(p, a))
         lens.add(" + ")
@@ -1547,11 +1549,11 @@ proc genStrEquals(p: BProc, e: CgNode, d: var TLoc) =
   var x: TLoc
   var a = e[1]
   var b = e[2]
-  if a.kind == cnkStrLit and a.strVal == "":
+  if a.kind == cnkStrLit and getString(p, a) == "":
     initLocExpr(p, e[2], x)
     putIntoDest(p, d, e,
       ropecg(p.module, "($1 == 0)", [lenExpr(p, x)]))
-  elif b.kind == cnkStrLit and b.strVal == "":
+  elif b.kind == cnkStrLit and getString(p, b) == "":
     initLocExpr(p, e[1], x)
     putIntoDest(p, d, e,
       ropecg(p.module, "($1 == 0)", [lenExpr(p, x)]))
@@ -2379,7 +2381,7 @@ proc genBracedInit(p: BProc, n: CgNode; optionalType: PType): Rope =
       result = genConstObjConstr(p, n)
     of tyString, tyCstring:
       if n.kind != cnkNilLit and ty == tyString:
-        result = genStringLiteralV2Const(p.module, n, true)
+        result = genStringLiteralV2Const(p.module, n.strVal, true)
       else:
         var d: TLoc
         initLocExpr(p, n, d)
