@@ -813,14 +813,19 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
       bu.buildMagicCall mNot, boolTyp:
          bu.emitByVal val
 
+    var src = body.child(NodePosition target, 0)
+    # skip all ``mnkPathVariant`` nodes:
+    while body[src].kind == mnkPathVariant:
+      src = body.child(src, 0)
+
     bu.subTree mnkIf:
       bu.use val
       # ``=destroy`` call:
       bu.buildVoidCall(env, branchDestructor):
-        # pass the original variant access to the destroy call
+        # pass the object access expression to the destroy call
         bu.subTree mnkName:
-          bu.subTree MirNode(kind: mnkTag, effect: ekInvalidate):
-            bu.emitFrom(body, NodePosition target)
+          bu.subTree MirNode(kind: mnkTag, effect: ekMutate):
+            bu.emitFrom(body, src)
 
   else:
     # the object doesn't need destruction, which means that neither does one

@@ -125,29 +125,6 @@ proc genWhileLoop(c: var TLiftCtx; i, dest: PNode): PNode =
 proc genIf(c: var TLiftCtx; cond, action: PNode): PNode =
   result = newTree(nkIfStmt, newTree(nkElifBranch, cond, action))
 
-proc genContainerOf(c: var TLiftCtx; objType: PType, field, x: PSym): PNode =
-  # generate: cast[ptr ObjType](cast[int](addr(x)) - offsetOf(objType.field))
-  let intType = getSysType(c.g, unknownLineInfo, tyInt)
-
-  let addrOf = newTreeIT(nkAddr, c.info, makePtrType(x.owner, x.typ, c.idgen)):
-    newDeref(newSymNode(x))
-  let castExpr1 = newTreeIT(nkCast, c.info, intType):
-    [newNodeIT(nkType, c.info, intType), addrOf]
-
-  let dotExpr = newTreeIT(nkDotExpr, c.info, x.typ):
-    [newNodeIT(nkType, c.info, objType), newSymNode(field)]
-
-  let offsetOf = genBuiltin(c, mOffsetOf, "offsetof", dotExpr)
-  offsetOf.typ = intType
-
-  let minusExpr = genBuiltin(c, mSubI, "-", castExpr1)
-  minusExpr.typ = intType
-  minusExpr.add foldOffsetOf(c.g.config, offsetOf, offsetOf)
-
-  let objPtr = makePtrType(objType.owner, objType, c.idgen)
-  result = newTreeIT(nkCast, c.info, objPtr):
-    [newNodeIT(nkType, c.info, objPtr), minusExpr]
-
 proc destructorCall(c: var TLiftCtx; op: PSym; x: PNode): PNode =
   var destroy = newTreeIT(nkCall, x.info, op.typ[0]):
     [newSymNode(op), genAddr(c, x)]
@@ -948,23 +925,16 @@ proc produceSym(g: ModuleGraph; c: PContext; typ: PType; kind: TTypeAttachedOp;
 proc produceDestructorForDiscriminator*(g: ModuleGraph; typ: PType; field: PSym,
                                         info: TLineInfo; idgen: IdGenerator): PSym =
   assert(typ.skipTypes({tyAlias, tyGenericInst}).kind == tyObject)
-  result = symPrototype(g, field.typ, typ.owner, attachedDestructor, info, idgen)
+  result = symPrototype(g, typ, typ.owner, attachedDestructor, info, idgen)
   var a = TLiftCtx(info: info, g: g, kind: attachedDestructor, asgnForType: typ, idgen: idgen,
                    fn: result)
   a.asgnForType = typ
   a.filterDiscriminator = field
   a.addMemReset = true
-  let discrimantDest = result.typ.n[1].sym
-
-  let dst = newSym(skVar, getIdent(g.cache, "dest"), nextSymId(idgen), result, info)
-  dst.typ = makePtrType(typ.owner, typ, idgen)
-  let dstSym = newSymNode(dst)
-  let d = newDeref(dstSym)
-  let v = newTreeI(nkVarSection, info):
-    newIdentDefs(dstSym, genContainerOf(a, typ, field, discrimantDest))
-  result.ast[bodyPos].add v
-  let placeHolder = newNodeIT(nkSym, info, getSysType(g, info, tyPointer))
-  fillBody(a, typ, result.ast[bodyPos], d, placeHolder)
+  let
+    d = newDeref(newSymNode(result.typ.n[1].sym))
+    placeholder = newNodeIT(nkSym, info, getSysType(g, info, tyPointer))
+  fillBody(a, typ, result.ast[bodyPos], d, placeholder)
   incl result.flags, sfNeverRaises
 
 
