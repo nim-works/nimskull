@@ -4,6 +4,9 @@ discard """
     changing the active case object branch
   '''
   targets: "c js vm"
+  knownIssue.vm: '''
+    Lowering branch switch statements is disabled for the VM backend
+  '''
 """
 
 type
