@@ -179,7 +179,7 @@ type
       # future direction: use a ``BiggestUint`` for uint values
       intVal*: BiggestInt
     of cnkFloatLit:   floatVal*: BiggestFloat
-    of cnkStrLit:     strVal*: string
+    of cnkStrLit:     strVal*: StringId
     of cnkAstLit:     astLit*: PNode
     of cnkField:      field*: PSym
     of cnkProc:       prc*: ProcedureId

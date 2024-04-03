@@ -234,6 +234,9 @@ func analyseIfAddressTaken(n: CgNode, addrTaken: var PackedSet[LocalId]) =
 template config*(p: PProc): ConfigRef = p.module.config
 template env*(p: PProc): untyped = p.g.env
 
+template getString(p: PProc, n: CgNode): string =
+  p.g.env[n.strVal]
+
 proc indentLine(p: PProc, r: Rope): Rope =
   for i in 0..<p.extraIndent:
     result.add "  "
@@ -873,7 +876,7 @@ proc genCaseJS(p: PProc, desc: StructDesc, stmts: openArray[CgNode], n: CgNode) 
           if stringSwitch:
             case e.kind
             of cnkStrLit: lineF(p, "case $1:$n",
-                [makeJSString(e.strVal, false)])
+                [makeJSString(getString(p, e), false)])
             else: internalError(p.config, e.info, "jsgen.genCaseStmt: 2")
           else:
             gen(p, e, cond)
@@ -902,7 +905,7 @@ proc genAsmOrEmitStmt(p: PProc, n: CgNode) =
     let it = n[i]
     case it.kind
     of cnkStrLit:
-      p.body.add(it.strVal)
+      p.body.add(getString(p, it))
     of cnkProc, cnkConst, cnkGlobal, cnkLocal:
       # for backwards compatibility we don't deref syms here :-(
       if false:
@@ -1081,7 +1084,7 @@ proc genFieldCheck(p: PProc, e: CgNode) =
   useMagic(p, "reprDiscriminant") # no need to offset by firstOrd unlike for cgen
   lineF(p, "if ($1[$2]$3undefined) { raiseFieldError2(makeNimstrLit($4), reprDiscriminant($2, $5)); }$n",
     setx.res, val.rdLoc, if invert: ~"!==" else: ~"===",
-    makeJSString(e[4].strVal), genTypeInfo(p, e[2].typ))
+    makeJSString(getString(p, e[4])), genTypeInfo(p, e[2].typ))
 
 proc genArrayAddr(p: PProc, n: CgNode, r: var TCompRes) =
   var
@@ -2527,13 +2530,13 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       r.kind = resExpr
   of cnkStrLit:
     if skipTypes(n.typ, abstractVarRange).kind == tyString:
-      if n.strVal.len != 0:
+      if getString(p, n).len != 0:
         useMagic(p, "makeNimstrLit")
-        r.res = "makeNimstrLit($1)" % [makeJSString(n.strVal)]
+        r.res = "makeNimstrLit($1)" % [makeJSString(getString(p, n))]
       else:
         r.res = rope"[]"
     else:
-      r.res = makeJSString(n.strVal, false)
+      r.res = makeJSString(getString(p, n), false)
     r.kind = resExpr
   of cnkFloatLit:
     let f = n.floatVal

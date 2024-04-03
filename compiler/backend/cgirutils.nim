@@ -34,7 +34,7 @@ proc treeRepr*(n: CgNode): string =
       result.add $n.floatVal
     of cnkStrLit:
       result.add "strVal: \""
-      result.add n.strVal
+      result.addInt n.strVal.uint32
       result.add "\""
     of cnkField:
       result.add "field: "

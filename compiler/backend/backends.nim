@@ -467,7 +467,8 @@ proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
       bu.add MirNode(kind: mnkStmtList) # manual, for less visual nesting
       for candidate in candidates.items:
         var tmp = genLoadLib(bu, graph, env, val):
-          literal(newStrNode(candidate, graph.getSysType(path.info, tyString)))
+          literal(env.getOrIncl(candidate),
+                  graph.getSysType(path.info, tyString))
 
         tmp = bu.wrapTemp(graph.getSysType(path.info, tyBool)):
           bu.buildMagicCall mNot, graph.getSysType(path.info, tyBool):
@@ -480,7 +481,7 @@ proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
       # if none of the candidates worked, a run-time error is reported:
       bu.subTree mnkVoid:
         bu.buildCall env.procedures.add(errorProc), errorProc.typ, voidTyp:
-          bu.emitByVal literal(path)
+          bu.emitByVal literal(env.getOrIncl(path.strVal), path.typ)
       bu.add endNode(mnkStmtList)
   else:
     # the name of the dynamic library to load the procedure from is only known
@@ -559,7 +560,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
     let tmp = bu.wrapTemp(loadProc.typ[0]):
       bu.buildCall env.procedures.add(loadProc), loadProc.typ, loadProc.typ[0]:
         bu.emitByVal toValue(libVar, lib.name.typ)
-        bu.emitByVal literal(extname)
+        bu.emitByVal literal(env.getOrIncl(extname.strVal), extname.typ)
 
     bu.subTree mnkVoid:
       bu.buildMagicCall mAsgnDynlibVar, voidTyp:

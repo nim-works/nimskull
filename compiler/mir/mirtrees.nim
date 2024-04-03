@@ -26,6 +26,9 @@ type
     ## Identifies a procedure
   LiteralId {.used.} = distinct uint32
     ## Identifies a literal
+  StringId* = distinct uint32
+    ## Uniquely identifies a string value. Two strings sharing the same
+    ## content map to the same ID
   DataId* = distinct uint32
     ## Identifies a complete constant expression
 
@@ -66,6 +69,7 @@ type
     mnkLiteral ## literal data. Currently represented via a ``PNode``
     # future direction: split into IntLit, FloatLit, and StrLit and store the
     # values in a separate table (so that MirNode gets smaller)
+    mnkStrLit  ## reference to a literal string
     mnkType    ## a type literal
 
     # future direction:
@@ -278,6 +282,8 @@ type
       field*: PSym
     of mnkLiteral:
       lit*: PNode
+    of mnkStrLit:
+      strVal*: StringId
     of mnkPathPos:
       position*: uint32 ## the 0-based position of the field
     of mnkCall, mnkCheckedCall:
@@ -338,8 +344,10 @@ const
     ## Assignment modifiers. Nodes that can only appear directly in the source
     ## slot of assignments.
 
+  LiteralDataNodes* = {mnkLiteral, mnkStrLit}
+
   ConstrTreeNodes* = {mnkConstr, mnkSetConstr, mnkRange, mnkObjConstr,
-                      mnkLiteral, mnkProc, mnkArg, mnkField, mnkEnd}
+                      mnkProc, mnkArg, mnkField, mnkEnd} + LiteralDataNodes
     ## Nodes that can appear in the MIR subset used for constant expressions.
 
   # --- semantics-focused sets:
@@ -360,9 +368,9 @@ const
   LvalueExprKinds* = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathVariant,
                       mnkPathConv, mnkDeref, mnkDerefView, mnkTemp, mnkAlias,
                       mnkLocal, mnkParam, mnkConst, mnkGlobal}
-  RvalueExprKinds* = {mnkLiteral, mnkType, mnkProc, mnkConv, mnkStdConv,
-                      mnkCast, mnkAddr, mnkView, mnkToSlice} + UnaryOps +
-                     BinaryOps
+  RvalueExprKinds* = {mnkType, mnkProc, mnkConv, mnkStdConv, mnkCast, mnkAddr,
+                      mnkView, mnkToSlice} + UnaryOps + BinaryOps +
+                     LiteralDataNodes
   ExprKinds* =       {mnkCall, mnkCheckedCall, mnkConstr, mnkSetConstr,
                       mnkObjConstr} + LvalueExprKinds + RvalueExprKinds +
                      ModifierNodes
@@ -376,6 +384,7 @@ func `==`*(a, b: ConstId): bool {.borrow.}
 func `==`*(a, b: GlobalId): bool {.borrow.}
 func `==`*(a, b: ProcedureId): bool {.borrow.}
 func `==`*(a, b: DataId): bool {.borrow.}
+func `==`*(a, b: StringId): bool {.borrow.}
 
 func isAnon*(id: ConstId): bool =
   ## Returns whether `id` represents an anonymous constant.

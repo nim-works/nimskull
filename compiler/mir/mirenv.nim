@@ -14,6 +14,9 @@ import
     datatables,
     mirtrees
   ],
+  compiler/ic/[
+    bitabs
+  ],
   compiler/utils/[
     containers
   ]
@@ -39,6 +42,9 @@ type
     globals*:    SymbolTable[GlobalId, PSym]
       ## includes both normal globals and threadvars
     procedures*: SymbolTable[ProcedureId, PSym]
+
+    strings*: BiTable[string]
+      ## all string data referenced by the MIR
 
     bodies*: OrdinalSeq[ConstId, DataId]
       ## associates each user-defined constant with its content
@@ -102,6 +108,13 @@ func `[]`*(env: MirEnv, id: ProcedureId): lent PSym {.inline.} =
 
 func `[]`*(env: MirEnv, id: DataId): lent ConstrTree {.inline.} =
   env.data[id]
+
+func `[]`*(env: MirEnv, id: StringId): lent string {.inline.} =
+  env.strings[LitId id]
+
+func getOrIncl*(env: var MirEnv, str: string): StringId {.inline.} =
+  ## If not registered already, adds `str` to the environment.
+  StringId env.strings.getOrIncl(str)
 
 func setData*(env: var MirEnv, id: ConstId, data: DataId) =
   ## Sets the body for the constant identified by `id`.

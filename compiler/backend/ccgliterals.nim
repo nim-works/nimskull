@@ -24,35 +24,45 @@ proc genStringLiteralDataOnlyV2(m: BModule, s: string; result: Rope; isConst: bo
        [result, rope(s.len), makeCString(s),
        rope(if isConst: "const" else: "")])
 
-proc genStringLiteralV2(m: BModule; n: CgNode; isConst: bool): Rope =
-  let id = getOrPut(m.strCache, n, m.labels)
+proc genStringLiteralV2(m: BModule; str: StringId; isConst: bool): Rope =
+  let id = m.strCache.mgetOrPut(str, m.labels)
+  let len = m.g.env[str].len
   if id == m.labels:
     let pureLit = getTempName(m)
-    genStringLiteralDataOnlyV2(m, n.strVal, pureLit, isConst)
+    genStringLiteralDataOnlyV2(m, m.g.env[str], pureLit, isConst)
     result = getTempName(m)
     discard cgsym(m, "NimStrPayload")
     discard cgsym(m, "NimStringV2")
     # string literal not found in the cache:
     m.s[cfsData].addf("static $4 NimStringV2 $1 = {$2, (NimStrPayload*)&$3};$n",
-          [result, rope(n.strVal.len), pureLit, rope(if isConst: "const" else: "")])
+          [result, rope(len), pureLit, rope(if isConst: "const" else: "")])
   else:
     result = getTempName(m)
     m.s[cfsData].addf("static $4 NimStringV2 $1 = {$2, (NimStrPayload*)&$3};$n",
-          [result, rope(n.strVal.len), m.tmpBase & rope(id),
+          [result, rope(len), m.tmpBase & rope(id),
           rope(if isConst: "const" else: "")])
 
-proc genStringLiteralV2Const(m: BModule; n: CgNode; isConst: bool): Rope =
-  let id = getOrPut(m.strCache, n, m.labels)
+proc genStringLiteralV2Const(m: BModule; str: StringId; isConst: bool): Rope =
+  let id = m.strCache.mgetOrPut(str, m.labels)
   var pureLit: Rope
   if id == m.labels:
     pureLit = getTempName(m)
     discard cgsym(m, "NimStrPayload")
     discard cgsym(m, "NimStringV2")
     # string literal not found in the cache:
-    genStringLiteralDataOnlyV2(m, n.strVal, pureLit, isConst)
+    genStringLiteralDataOnlyV2(m, m.g.env[str], pureLit, isConst)
   else:
     pureLit = m.tmpBase & rope(id)
-  result = "{$1, (NimStrPayload*)&$2}" % [rope(n.strVal.len), pureLit]
+  result = "{$1, (NimStrPayload*)&$2}" % [rope(m.g.env[str].len), pureLit]
+
+proc genStringLiteral(m: BModule, str: string): Rope =
+  ## Spawns and emits a new global C constant storing a NimString with content
+  ## `str` -- no caching is performed.
+  let content = getTempName(m)
+  genStringLiteralDataOnlyV2(m, str, content, true)
+  result = getTempName(m)
+  m.s[cfsData].addf("static const NimStringV2 $1 = {$2, (NimStrPayload*)&$3};$n",
+                    [result, rope(str.len), content])
 
 # ------ Version selector ---------------------------------------------------
 
@@ -60,4 +70,4 @@ proc genNilStringLiteral(m: BModule; info: TLineInfo): Rope =
   result = ropecg(m, "((#NimStringDesc*) NIM_NIL)", [])
 
 proc genStringLiteral(m: BModule; n: CgNode): Rope =
-  result = genStringLiteralV2(m, n, isConst = true)
+  result = genStringLiteralV2(m, n.strVal, isConst = true)
