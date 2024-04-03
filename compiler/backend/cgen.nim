@@ -101,7 +101,7 @@ const
     ## the procedure contains top-level code, which currently affects how
     ## emit, asm, and error handling works
 
-template getString(p: BProc, n: CgNode): untyped =
+template getString(p: BProc, n: CgNode): string =
   p.env[n.strVal]
 
 proc findPendingModule(m: BModule, s: PSym): BModule =

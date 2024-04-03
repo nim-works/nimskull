@@ -234,7 +234,7 @@ func analyseIfAddressTaken(n: CgNode, addrTaken: var PackedSet[LocalId]) =
 template config*(p: PProc): ConfigRef = p.module.config
 template env*(p: PProc): untyped = p.g.env
 
-template getString(p: PProc, n: CgNode): untyped =
+template getString(p: PProc, n: CgNode): string =
   p.g.env[n.strVal]
 
 proc indentLine(p: PProc, r: Rope): Rope =
