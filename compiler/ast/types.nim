@@ -1346,6 +1346,18 @@ proc lookupFieldAgain*(ty: PType; field: PSym): PSym =
     ty = ty[0]
   if result == nil: result = field
 
+proc lookupInType*(ty: PType, position: int): PSym =
+  ## Looks up and returns the field with the given `position` in `ty`. Returns
+  ## nil if there's no such field.
+  var ty = ty
+  while ty != nil:
+    ty = ty.skipTypes(skipPtrs)
+    assert ty.kind in {tyTuple, tyObject}
+    result = lookupInRecord(ty.n, position)
+    if result != nil:
+      break
+    ty = ty[0]
+
 proc isCharArrayPtr*(t: PType; allowPointerToChar: bool): bool =
   let t = t.skipTypes(abstractInst)
   if t.kind == tyPtr:
