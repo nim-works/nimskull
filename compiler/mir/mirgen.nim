@@ -1105,18 +1105,18 @@ proc genSetConstr(c: var TCtx, n: PNode) =
         c.genArgExpression(it, sink=false)
 
 proc genArrayConstr(c: var TCtx, n: PNode, isConsume: bool) =
-  c.buildTree mnkConstr, n.typ:
+  c.buildTree mnkArrayConstr, n.typ:
     for it in n.items:
       c.emitOperandTree it, isConsume
 
 proc genTupleConstr(c: var TCtx, n: PNode, isConsume: bool) =
   assert n.typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind == tyTuple
-  c.buildTree mnkConstr, n.typ:
+  c.buildTree mnkTupleConstr, n.typ:
     for it in n.items:
       c.emitOperandTree skipColon(it), isConsume
 
 proc genClosureConstr(c: var TCtx, n: PNode, isConsume: bool) =
-  c.buildTree mnkConstr, n.typ:
+  c.buildTree mnkClosureConstr, n.typ:
     c.emitOperandTree n[0].skipConv, false # the procedural value
     # transf wraps the procedure operand in a conversion that we don't
     # need

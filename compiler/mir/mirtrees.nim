@@ -172,12 +172,13 @@ type
               ## tree. Describes what kind of mutation is applied to the
               ## lvalue within the called procedure
 
-    mnkConstr     ## constructs a either new aggregate value or set value made
-                  ## up of the input values. Whether the resulting value is
-                  ## owned depends on whether one the context it's used in
     mnkSetConstr  ## constructor for set values
     mnkRange      ## range constructor. May only appear in set constructions
                   ## and as a branch label
+    mnkArrayConstr## constructor for array values
+    mnkSeqConstr  ## constructor for seq values
+    mnkTupleConstr## constructor for tuple values
+    mnkClosureConstr## constructor for closure values
     mnkObjConstr  ## either allocate a new managed heap cell and returns a
                   ## ``ref`` to it, or or constructs a new aggregate value
                   ## with named fields
@@ -346,7 +347,8 @@ const
 
   LiteralDataNodes* = {mnkLiteral, mnkStrLit}
 
-  ConstrTreeNodes* = {mnkConstr, mnkSetConstr, mnkRange, mnkObjConstr,
+  ConstrTreeNodes* = {mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr,
+                      mnkTupleConstr, mnkClosureConstr, mnkObjConstr,
                       mnkProc, mnkArg, mnkField, mnkEnd} + LiteralDataNodes
     ## Nodes that can appear in the MIR subset used for constant expressions.
 
@@ -371,7 +373,8 @@ const
   RvalueExprKinds* = {mnkType, mnkProc, mnkConv, mnkStdConv, mnkCast, mnkAddr,
                       mnkView, mnkToSlice} + UnaryOps + BinaryOps +
                      LiteralDataNodes
-  ExprKinds* =       {mnkCall, mnkCheckedCall, mnkConstr, mnkSetConstr,
+  ExprKinds* =       {mnkCall, mnkCheckedCall, mnkSetConstr, mnkArrayConstr,
+                      mnkSeqConstr, mnkTupleConstr, mnkClosureConstr,
                       mnkObjConstr} + LvalueExprKinds + RvalueExprKinds +
                      ModifierNodes
 
