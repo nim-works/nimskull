@@ -351,12 +351,16 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
   of mnkLocal, mnkGlobal, mnkParam, mnkTemp, mnkAlias, mnkConst, mnkProc:
     return atomToIr(n, cl, info)
   of mnkPathNamed:
+    let obj = recurse()
     result = newExpr(cnkFieldAccess, info, n.typ,
-                     [recurse(), newFieldNode(n.field)])
+                     [obj, newFieldNode(lookupInType(obj.typ, n.field.int))])
   of mnkPathVariant:
     if preferField:
-      result = newExpr(cnkFieldAccess, cr.info, n.field.typ,
-                      [recurse(), newFieldNode(n.field)])
+      let
+        obj = recurse()
+        field = lookupInType(obj.typ, n.field.int)
+      result = newExpr(cnkFieldAccess, info, field.typ,
+                      [obj, newFieldNode(field)])
     else:
       # variant access itself has no ``CgNode`` counterpart at the moment
       result = recurse()
@@ -1012,7 +1016,7 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
   of mnkObjConstr:
     assert n.typ.skipTypes(abstractVarRange).kind in {tyObject, tyRef}
     treeOp cnkObjConstr:
-      let f = newFieldNode(get(tree, cr).field)
+      let f = newFieldNode(lookupInType(n.typ, get(tree, cr).field))
       res.add newTree(cnkBinding, cr.info, [f, argToIr(tree, cl, cr)[1]])
   of mnkConstr:
     let typ = n.typ.skipTypes(abstractVarRange)
