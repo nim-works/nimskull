@@ -279,7 +279,8 @@ type
     of mnkParam, mnkLocal, mnkTemp, mnkAlias:
       local*: LocalId
     of mnkField, mnkPathNamed, mnkPathVariant:
-      field*: PSym
+      field*: int32
+        ## field position
     of mnkLiteral:
       lit*: PNode
     of mnkStrLit:
