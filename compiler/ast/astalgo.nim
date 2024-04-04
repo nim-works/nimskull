@@ -17,6 +17,9 @@ import
     idents,
     renderer
   ],
+  compiler/utils/[
+    idioms
+  ],
   std/[
     hashes,
     intsets,
@@ -127,6 +130,29 @@ proc lookupInRecord(n: PNode, field: PIdent): PSym =
   of nkSym:
     if n.sym.name.id == field.id: result = n.sym
   else: return nil
+
+func lookupInRecord*(n: PNode, pos: int): PSym =
+  ## Searches record AST `n` for a symbol with position `pos`, returning
+  ## the symbol if one is found.
+  case n.kind
+  of nkSym:
+    if n.sym.position == pos:
+      return n.sym
+  of nkRecList:
+    for it in n.items:
+      result = lookupInRecord(it, pos)
+      if result != nil:
+        return
+  of nkRecCase:
+    if n[0].sym.position == pos:
+      return n[0].sym
+
+    for i in 1..<n.len:
+      result = lookupInRecord(n[i][^1], pos)
+      if result != nil:
+        return
+  else:
+    unreachable(n.kind)
 
 proc getModule*(s: PSym): PSym =
   ## if it's a module returns itself, otherwise looks through `s`' owners, may

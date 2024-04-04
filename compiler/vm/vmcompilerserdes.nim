@@ -4,6 +4,7 @@ import
   compiler/ast/[
     ast_types,
     ast,
+    astalgo,
     errorhandling,
     lineinfos,
     nimsets,
@@ -87,31 +88,6 @@ proc deserializeRef*(c: TCtx, slot: HeapSlotHandle, vt: PVmType; f, con: PType, 
 proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal: PType, info: TLineInfo): PNode {.inline.} =
   deserialize(c, m, vt, formal, formal.skipTypes(SkipSet), info)
 
-
-# TODO: record walking is implemented multiple times in multiple different
-#       places across the compiler. An `iterator` encapsulating the logic would
-#       probably make sense...
-func findField(n: PNode, pos: int): PSym =
-  case n.kind
-  of nkSym:
-    if n.sym.position == pos:
-      return n.sym
-  of nkRecList:
-    for x in n.items:
-      result = findField(x, pos)
-      if result != nil:
-        return
-  of nkRecCase:
-    if n[0].sym.position == pos:
-      return n[0].sym
-
-    for i in 1..<n.len:
-      result = findField(lastSon(n[i]), pos)
-      if result != nil:
-        return
-  else:
-    unreachable()
-
 proc deserializeTuple(c: TCtx, m: VmMemoryRegion, vt: PVmType; formal, ty: PType, info: TLineInfo): PNode =
   assert vt.kind == akObject
 
@@ -163,7 +139,7 @@ proc deserializeObjectPart(c: TCtx,
     # no variant object
     for i in start..<vt.objFields.len:
       let f = vt.objFields[i]
-      let sym = findField(ty.n, vt.toFieldPos(FieldIndex i).int)
+      let sym = lookupInRecord(ty.n, vt.toFieldPos(FieldIndex i).int)
       dest.sons[result.cIdx] = constrField(f, sym)
       inc result.cIdx
 
@@ -181,7 +157,7 @@ proc deserializeObjectPart(c: TCtx,
       let r = iter.get()
       if r.valid:
         let f = vt.fieldAt(r.idx)
-        let sym = findField(ty.n, vt.toFieldPos(r.idx).int)
+        let sym = lookupInRecord(ty.n, vt.toFieldPos(r.idx).int)
         assert sym.typ != nil
         dest.sons[result.cIdx] = constrField(f, sym)
         inc result.cIdx
