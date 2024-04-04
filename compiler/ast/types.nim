@@ -1348,8 +1348,9 @@ proc lookupFieldAgain*(ty: PType; field: PSym): PSym =
 
 proc lookupInType*(ty: PType, position: int): PSym =
   ## Looks up and returns the field with the given `position` in `ty`. Returns
-  ## nil if there's no such field.
-  var ty = ty
+  ## nil if there's no such field. `ty` is expected to be a fully resolved
+  ## ``object`` or ``ref object``/``ptr object`` type.
+  var ty = ty.skipTypes(skipPtrs + tyUserTypeClasses + tyDistinct)
   while ty != nil:
     ty = ty.skipTypes(skipPtrs)
     assert ty.kind in {tyTuple, tyObject}
