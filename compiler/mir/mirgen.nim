@@ -1109,6 +1109,11 @@ proc genArrayConstr(c: var TCtx, n: PNode, isConsume: bool) =
     for it in n.items:
       c.emitOperandTree it, isConsume
 
+proc genSeqConstr(c: var TCtx, n: PNode) =
+  c.buildTree mnkSeqConstr, n.typ:
+    for it in n.items:
+      c.emitOperandTree it, true
+
 proc genTupleConstr(c: var TCtx, n: PNode, isConsume: bool) =
   assert n.typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind == tyTuple
   c.buildTree mnkTupleConstr, n.typ:
@@ -1813,6 +1818,8 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
       c.emitOperandTree n.orig[0], false
   of pirArrayConstr:
     genArrayConstr(c, n.orig, n.owning)
+  of pirSeqConstr:
+    genSeqConstr(c, n.orig)
   of pirSetConstr:
     genSetConstr(c, n.orig)
   of pirRefConstr:
