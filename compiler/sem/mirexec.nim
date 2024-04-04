@@ -236,7 +236,8 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
     env.dfaOp(o, tree, at, v)
 
   case tree[source].kind
-  of mnkCall, mnkCheckedCall, mnkConstr, mnkObjConstr:
+  of mnkCall, mnkCheckedCall, mnkArrayConstr, mnkSeqConstr, mnkTupleConstr,
+     mnkClosureConstr, mnkObjConstr:
     emitForArgs(env, tree, at, source)
   of mnkSetConstr:
     for it in subNodes(tree, source):
