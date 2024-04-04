@@ -117,7 +117,7 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
       assert tree[n].lit.kind == nkNilLit
       # only skip the node, don't initialize anything
       discard next()
-    of mnkConstr:
+    of mnkTupleConstr, mnkClosureConstr:
       iterTree(j):
         arg recurse(dest.getFieldHandle(j.FieldPosition))
     of mnkObjConstr:

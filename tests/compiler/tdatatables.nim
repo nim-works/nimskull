@@ -40,12 +40,12 @@ block tree_equality:
     @[node(mnkLiteral, t1, lit, newFloatNode(nkFloatLit, -0.0))],
 
     # --- ordered aggregates
-    @[node(mnkConstr, t1, len, 0), node(mnkEnd)],
-    @[node(mnkConstr, t2, len, 0), node(mnkEnd)],
-    @[node(mnkConstr, t1, len, 1),
+    @[node(mnkTupleConstr, t1, len, 0), node(mnkEnd)],
+    @[node(mnkTupleConstr, t2, len, 0), node(mnkEnd)],
+    @[node(mnkTupleConstr, t1, len, 1),
         node(mnkArg), literal(newIntNode(nkIntLit, 0)),
       node(mnkEnd)],
-    @[node(mnkConstr, t1, len, 2),
+    @[node(mnkTupleConstr, t1, len, 2),
         node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
         node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
       node(mnkEnd)],

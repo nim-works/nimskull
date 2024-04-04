@@ -2232,7 +2232,15 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
         for it in n.items:
           constToMirAux(bu, env, it)
     of nkBracket, nkTupleConstr, nkClosure:
-      bu.subTree MirNode(kind: mnkConstr, typ: n.typ, len: n.len):
+      let kind: range[mnkArrayConstr..mnkClosureConstr] =
+        case n.typ.skipTypes(abstractInst).kind
+        of tyArray:                 mnkArrayConstr
+        of tyOpenArray, tySequence: mnkSeqConstr
+        of tyTuple:                 mnkTupleConstr
+        of tyProc:                  mnkClosureConstr
+        else:                       unreachable()
+
+      bu.subTree MirNode(kind: kind, typ: n.typ, len: n.len):
         for it in n.items:
           bu.subTree mnkArg:
             constToMirAux(bu, env, it.skipColon)
