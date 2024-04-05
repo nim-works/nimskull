@@ -158,9 +158,11 @@ proc translate*(t: MirTree): CgNode =
     case n.kind
     of mnkObjConstr:
       tree cnkObjConstr:
-        let field = translateAux(t, i)
+        let field = lookupInType(n.typ, t[i].field.int)
+        inc i # advance to the arg node
         CgNode(kind: cnkBinding, info: unknownLineInfo,
-               kids: @[field, translateAux(t, i)])
+               kids: @[CgNode(kind: cnkField, field: field),
+                       translateAux(t, i)])
     of mnkArrayConstr, mnkSeqConstr:
       tree cnkArrayConstr:
         translateAux(t, i)
@@ -185,11 +187,9 @@ proc translate*(t: MirTree): CgNode =
     of mnkStrLit:
       CgNode(kind: cnkStrLit, info: unknownLineInfo, typ: n.typ,
              strVal: n.strVal)
-    of mnkField:
-      CgNode(kind: cnkField, info: unknownLineInfo, field: n.field)
     of mnkProc:
       CgNode(kind: cnkProc, info: unknownLineInfo, prc: n.prc, typ: n.typ)
-    of AllNodeKinds - ConstrTreeNodes + {mnkEnd}:
+    of AllNodeKinds - ConstrTreeNodes + {mnkEnd, mnkField}:
       # 'end' nodes are skipped manually
       unreachable(n.kind)
 

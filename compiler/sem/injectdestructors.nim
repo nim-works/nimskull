@@ -759,7 +759,8 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
   let
     target = body.operand(stmt, 0)
     objType = body[target].typ
-    typ = body[target].field.typ
+    field = lookupInType(objType, body[target].field.int)
+    typ = field.typ
 
   assert body[target].kind == mnkPathVariant
   # the source expression must either be an rvalue, or there must be a
@@ -793,7 +794,7 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
     #      field alignment, however.
     let branchDestructor = produceDestructorForDiscriminator(
                             graph, objType,
-                            body[target].field,
+                            field,
                             unknownLineInfo, idgen
                            )
 

@@ -57,7 +57,7 @@ func hashTree(tree: ConstrTree): Hash =
        mnkClosureConstr, mnkObjConstr:
       result = result !& hash(n.len)
     of mnkField:
-      result = result !& hash(n.field.id)
+      result = result !& hash(n.field)
     of mnkArg, mnkEnd:
       discard
     of AllNodeKinds - ConstrTreeNodes:
@@ -107,7 +107,7 @@ proc cmp(a, b: ConstrTree): bool =
        mnkClosureConstr, mnkObjConstr:
       a.len == b.len
     of mnkField:
-      a.field.id == b.field.id
+      a.field == b.field
     of mnkArg, mnkEnd:
       true # same node kind -> equal nodes
     of AllNodeKinds - ConstrTreeNodes:

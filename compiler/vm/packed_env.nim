@@ -300,14 +300,16 @@ func storeDiscrData(enc: var DataEncoder, e: var PackedEnv, s: PSym, v: PNode) =
 
 proc storeFieldsData(enc: var DataEncoder, e: var PackedEnv,
                      t: MirTree, n: NodePosition) =
-  let count = t[n].len
+  let
+    typ = t[n].typ
+    count = t[n].len
   enc.put e, PackedDataNode(kind: pdkObj, pos: count.uint32)
   e.nodes.growBy(count * 2) # make space for the content
 
   # iterate over all fields in the construction and pack and store them:
   var n = n + 1
   for _ in 0..<count:
-    let s = t[n].field ## the field symbol
+    let s = lookupInType(typ, t[n].field.int) ## the field symbol
     inc n # move the cursor to the field's data
 
     enc.put e, PackedDataNode(kind: pdkField, pos: s.position.uint32)

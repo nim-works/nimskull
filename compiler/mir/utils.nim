@@ -12,6 +12,7 @@ import
   compiler/ast/[
     ast_types,
     renderer,
+    types,
     typesrenderer,
   ],
   compiler/mir/[
@@ -37,7 +38,7 @@ func `$`(n: MirNode): string =
     result.addInt n.local.uint32
   of mnkField, mnkPathNamed, mnkPathVariant:
     result.add " field:"
-    result.add $n.field.name.s
+    result.addInt n.field
   of mnkLiteral:
     result.add " lit: "
     {.cast(noSideEffect).}:
@@ -226,9 +227,10 @@ proc valueToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
       result.addInt n.position
   of mnkPathNamed, mnkPathVariant:
     tree "":
+      let typ = nodes[i].typ # type of the object operand
       valueToStr()
       result.add "."
-      result.add n.field.name.s
+      result.add lookupInType(typ, n.field).name.s
   of mnkPathConv:
     tree "":
       valueToStr()
@@ -345,9 +347,11 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
       result.add " .. "
       valueToStr()
   of mnkObjConstr:
+    let typ = nodes[i].typ
     tree "(":
       commaSeparated:
-        result.add next(nodes, i).field.name.s & ": "
+        let field = lookupInType(typ, next(nodes, i).field.int)
+        result.add field.name.s & ": "
         argToStr()
       result.add ")"
   of mnkCall:

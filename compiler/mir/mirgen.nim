@@ -545,7 +545,7 @@ proc genFieldCheck(c: var TCtx, access: Value, call: PNode, inverted: bool,
       # discriminator value operand:
       c.subTree mnkArg:
         c.subTree MirNode(kind: mnkPathNamed, typ: discr.typ,
-                          field: discr):
+                          field: discr.position.int32):
           c.use access
       # inverted flag:
       c.emitByVal literal(newIntTypeNode(ord(inverted), call.typ))
@@ -1152,7 +1152,7 @@ proc genObjConstr(c: var TCtx, n: PNode, isConsume: bool) =
         (isRef or isConsume) and
         sfCursor notin field.flags
 
-      c.add MirNode(kind: mnkField, field: field)
+      c.add MirNode(kind: mnkField, field: field.position.int32)
       c.emitOperandTree it[1], useConsume
 
 proc genRaise(c: var TCtx, n: PNode) =
@@ -1705,14 +1705,16 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
     c.subTree MirNode(kind: mnkPathPos, typ: n.typ, position: n.pos):
       recurse()
   of pirFieldAccess:
-    c.subTree MirNode(kind: mnkPathNamed, typ: n.typ, field: n.field):
+    c.subTree MirNode(kind: mnkPathNamed, typ: n.typ,
+                      field: n.field.position.int32):
       recurse()
   of pirArrayAccess, pirSeqAccess:
     c.buildOp mnkPathArray, n.typ:
       recurse()
       c.use toValue(c, e, n.index)
   of pirVariantAccess:
-    c.subTree MirNode(kind: mnkPathVariant, typ: n.typ, field: n.field):
+    c.subTree MirNode(kind: mnkPathVariant, typ: n.typ,
+                      field: n.field.position.int32):
       recurse()
   of pirLvalueConv:
     c.buildOp mnkPathConv, n.typ:
@@ -1735,7 +1737,8 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
       variant = toValue(c, e, i - 1)
       discr = genCheckedVariantAccess(c, variant, n.orig[0][1].sym.name,
                                       n.orig[n.nodeIndex])
-    c.subTree MirNode(kind: mnkPathVariant, typ: n.typ, field: discr):
+    c.subTree MirNode(kind: mnkPathVariant, typ: n.typ,
+                      field: discr.position.int32):
       c.use variant
   of pirCheckedObjConv:
     let
@@ -1941,7 +1944,7 @@ proc gen(c: var TCtx, n: PNode) =
         # the 'switch' operations expects a variant access as the first
         # operand
         c.subTree MirNode(kind: mnkPathVariant, typ: dest[^2].typ,
-                          field: dest[^1].field):
+                          field: dest[^1].field.position.int32):
           genx(c, dest, dest.len - 2)
 
         genAsgnSource(c, n[1], {dfOwns}) # the source operand
@@ -2222,7 +2225,7 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
       # table entries, even though the values they represent are equivalent
       bu.subTree MirNode(kind: mnkObjConstr, typ: n.typ, len: n.len-1):
         for i in 1..<n.len:
-          bu.add MirNode(kind: mnkField, field: n[i][0].sym)
+          bu.add MirNode(kind: mnkField, field: n[i][0].sym.position.int32)
           bu.subTree mnkArg:
             constToMirAux(bu, env, n[i][1])
     of nkCurly:

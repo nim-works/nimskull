@@ -124,7 +124,7 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
       let typ = tree[n].typ.skipTypes(abstractPtrs) ## the object's type
       iterTree(i):
         let
-          sym = next().field
+          sym = lookupInType(typ, next().field)
           field = dest.getFieldHandle(sym.position.FieldPosition)
         # object types require special handling for tag fields
         if sfDiscriminant in sym.flags:

@@ -12,8 +12,6 @@ let
   t1 = PType(itemId: ItemId(item: 1), kind: tyObject, sons: @[PType nil])
   t2 = PType(itemId: ItemId(item: 2), kind: tyObject, sons: @[PType nil])
   t3 = PType(itemId: ItemId(item: 3), kind: tyObject, sons: @[PType nil])
-  field1 = PSym(itemId: ItemId(item: 1))
-  field2 = PSym(itemId: ItemId(item: 2))
 
 # node constructor
 template node(k: MirNodeKind, t: PType, field, val: untyped): MirNode =
@@ -54,25 +52,25 @@ block tree_equality:
     @[node(mnkObjConstr, t1, len, 0), node(mnkEnd)],
     @[node(mnkObjConstr, t2, len, 0), node(mnkEnd)],
     @[node(mnkObjConstr, t1, len, 1),
-        node(mnkField, field, field1),
+        node(mnkField, field, 0),
         node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
       node(mnkEnd)],
     # same field value, different field:
     @[node(mnkObjConstr, t1, len, 1),
-        node(mnkField, field, field2),
+        node(mnkField, field, 1),
         node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
       node(mnkEnd)],
     @[node(mnkObjConstr, t1, len, 1),
-        node(mnkField, field, field1),
+        node(mnkField, field, 0),
         node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
-        node(mnkField, field, field2),
+        node(mnkField, field, 1),
         node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
       node(mnkEnd)],
     # swapped fields
     @[node(mnkObjConstr, t1, len, 1),
-        node(mnkField, field, field2),
+        node(mnkField, field, 1),
         node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
-        node(mnkField, field, field1),
+        node(mnkField, field, 0),
         node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
       node(mnkEnd)]
   ]
