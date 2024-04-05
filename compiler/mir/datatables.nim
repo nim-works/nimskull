@@ -53,7 +53,8 @@ func hashTree(tree: ConstrTree): Hash =
       result = result !& hash(n.strVal)
     of mnkProc:
       result = result !& hash(n.prc.ord)
-    of mnkConstr, mnkSetConstr, mnkRange, mnkObjConstr:
+    of mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr, mnkTupleConstr,
+       mnkClosureConstr, mnkObjConstr:
       result = result !& hash(n.len)
     of mnkField:
       result = result !& hash(n.field)
@@ -102,7 +103,8 @@ proc cmp(a, b: ConstrTree): bool =
       a.strVal == b.strVal
     of mnkProc:
       a.prc == b.prc
-    of mnkConstr, mnkSetConstr, mnkRange, mnkObjConstr:
+    of mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr, mnkTupleConstr,
+       mnkClosureConstr, mnkObjConstr:
       a.len == b.len
     of mnkField:
       a.field == b.field

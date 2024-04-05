@@ -1013,26 +1013,20 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
   of mnkSetConstr:
     treeOp cnkSetConstr:
       res.add setElementToIr(tree, cl, cr)
+  of mnkArrayConstr, mnkSeqConstr:
+    treeOp cnkArrayConstr:
+      res.add argToIr(tree, cl, cr)[1]
+  of mnkTupleConstr:
+    treeOp cnkTupleConstr:
+      res.add argToIr(tree, cl, cr)[1]
+  of mnkClosureConstr:
+    treeOp cnkClosureConstr:
+      res.add argToIr(tree, cl, cr)[1]
   of mnkObjConstr:
     assert n.typ.skipTypes(abstractVarRange).kind in {tyObject, tyRef}
     treeOp cnkObjConstr:
       let f = newFieldNode(lookupInType(n.typ, get(tree, cr).field))
       res.add newTree(cnkBinding, cr.info, [f, argToIr(tree, cl, cr)[1]])
-  of mnkConstr:
-    let typ = n.typ.skipTypes(abstractVarRange)
-
-    let kind =
-      case typ.kind
-      of tyArray, tySequence: cnkArrayConstr
-      of tyTuple:             cnkTupleConstr
-      of tyProc:
-        assert typ.callConv == ccClosure
-        cnkClosureConstr
-      else:
-        unreachable(typ.kind)
-
-    treeOp kind:
-      res.add argToIr(tree, cl, cr)[1]
   of mnkCall:
     callToIr(tree, cl, n, cr)
   of mnkCheckedCall:

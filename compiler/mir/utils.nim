@@ -316,8 +316,23 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
   of mnkStdConv:
     tree "stdConv ":
       valueToStr()
-  of mnkConstr:
-    tree "construct (":
+  of mnkArrayConstr:
+    tree "[":
+      commaSeparated:
+        argToStr()
+      result.add "]"
+  of mnkSeqConstr:
+    tree "@[":
+      commaSeparated:
+        argToStr()
+      result.add "]"
+  of mnkTupleConstr:
+    tree "(":
+      commaSeparated:
+        argToStr()
+      result.add ")"
+  of mnkClosureConstr:
+    tree "closure (":
       commaSeparated:
         argToStr()
       result.add ")"

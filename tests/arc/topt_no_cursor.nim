@@ -23,7 +23,7 @@ scope:
   bind_mut _9: string = splat.2
   def _5: string = move _9
   wasMoved(name _9)
-  def _6: Target = construct (consume _3, consume _4, consume _5)
+  def _6: Target = (consume _3, consume _4, consume _5)
   result := move _6
   =destroy(name splat)
 -- end of expandArc ------------------------
@@ -48,12 +48,12 @@ scope:
 --expandArc: p1
 
 scope:
-  def _2: array[0..0, int] = construct (consume 123)
+  def _2: array[0..0, int] = [consume 123]
   def lresult: seq[int] = arrToSeq(consume _2)
   def lvalue: seq[int]
   def lnext: string
   def _6: seq[int] = move lresult
-  def _: (seq[int], string) = construct (consume _6, consume ";")
+  def _: (seq[int], string) = (consume _6, consume ";")
   bind_mut _8: seq[int] = _.0
   lvalue := move _8
   wasMoved(name _8)
@@ -75,7 +75,7 @@ scope:
     =copy(name _4, arg it.0)
     def _5: seq[int]
     =copy(name _5, arg it.1)
-    def a: (seq[int], seq[int]) = construct (consume _4, consume _5)
+    def a: (seq[int], seq[int]) = (consume _4, consume _5)
     def_cursor _6: (seq[int], seq[int]) = a
     def _7: string = $(arg _6) (raises)
     echo(arg type(array[0..0, string]), arg _7) (raises)
@@ -202,7 +202,7 @@ scope:
           scope:
             def _7: string
             =copy(name _7, arg this[].value)
-            _4 := construct (consume _7, consume "")
+            _4 := (consume _7, consume "")
             break L0
       scope:
         try:
@@ -214,7 +214,7 @@ scope:
           bind_mut _19: string = _11.1
           def _12: string = move _19
           wasMoved(name _19)
-          _4 := construct (consume _9, consume _12)
+          _4 := (consume _9, consume _12)
           wasMoved(name _9)
         finally:
           =destroy(name _11)
@@ -232,7 +232,7 @@ scope:
             =sink(name this[].matchDirs, arg _17)
             break L1
       scope:
-        def _18: seq[string] = construct ()
+        def _18: seq[string] = @[]
         =sink(name this[].matchDirs, arg _18)
   finally:
     =destroy(name par)
