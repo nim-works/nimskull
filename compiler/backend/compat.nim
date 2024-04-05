@@ -161,19 +161,14 @@ proc translate*(t: MirTree): CgNode =
         let field = translateAux(t, i)
         CgNode(kind: cnkBinding, info: unknownLineInfo,
                kids: @[field, translateAux(t, i)])
-    of mnkConstr:
-      let kind =
-        case n.typ.skipTypes(abstractVarRange).kind
-        of tyArray, tySequence, tyOpenArray:
-          cnkArrayConstr
-        of tyTuple:
-          cnkTupleConstr
-        of tyProc:
-          cnkClosureConstr
-        else:
-          unreachable()
-
-      tree kind:
+    of mnkArrayConstr, mnkSeqConstr:
+      tree cnkArrayConstr:
+        translateAux(t, i)
+    of mnkTupleConstr:
+      tree cnkTupleConstr:
+        translateAux(t, i)
+    of mnkClosureConstr:
+      tree cnkClosureConstr:
         translateAux(t, i)
     of mnkSetConstr:
       tree cnkSetConstr:

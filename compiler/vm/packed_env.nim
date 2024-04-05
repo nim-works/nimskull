@@ -404,14 +404,10 @@ func storeDataNode(enc: var DataEncoder, e: var PackedEnv,
   of mnkProc:
     # the ID is stable, it can be packed directly
     enc.put e, PackedDataNode(kind: pdkIntLit, pos: t[n].prc.uint32)
-  of mnkConstr:
-    case t[n].typ.skipTypes(abstractInst).kind
-    of tySequence, tyArray, tyOpenArray:
-      enc.storeArrayData(e, t, n)
-    of tyTuple, tyProc:
-      enc.storeTupleData(e, t, n)
-    else:
-      unreachable(t[n].kind)
+  of mnkArrayConstr, mnkSeqConstr:
+    enc.storeArrayData(e, t, n)
+  of mnkTupleConstr, mnkClosureConstr:
+    enc.storeTupleData(e, t, n)
   of mnkSetConstr:
     enc.storeSetData(e, t, n)
   of mnkObjConstr:

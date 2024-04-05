@@ -85,6 +85,7 @@ type
     pirRefConstr
     pirTupleConstr
     pirArrayConstr
+    pirSeqConstr
 
     pirConstExpr ## an expression that needs to be turned into an anonymous
                  ## constant
@@ -204,7 +205,7 @@ func classify*(e: seq[ProtoItem], i: int): ExprKind =
       OwnedRvalue
     else:
       Rvalue
-  of pirRefConstr:
+  of pirRefConstr, pirSeqConstr:
     OwnedRvalue
   of pirCast:
     Rvalue
@@ -255,7 +256,7 @@ func isPure(e: seq[ProtoItem], n: int): bool =
   of pirDeref, pirViewDeref:
     # the pointer destination could change (unless it's an immutable view)
     false
-  of pirSetConstr, pirObjConstr, pirTupleConstr, pirArrayConstr,
+  of pirSetConstr, pirObjConstr, pirTupleConstr, pirArrayConstr, pirSeqConstr,
      pirClosureConstr, pirRefConstr, pirStringToCString, pirCStringToString,
      pirToSubSlice, pirChckRange, pirCall, pirComplex:
     # not analyzable
@@ -457,7 +458,7 @@ func handleConstExpr(result: var seq[ProtoItem], n: PNode, kind: ProtoItemKind,
   if lift and n.len > ord(n.kind == nkObjConstr) and
      isDeepConstExpr(n):
     result.add ProtoItem(orig: n, typ: n.typ, kind: pirConstExpr)
-  elif kind == pirSetConstr:
+  elif kind in {pirSetConstr, pirSeqConstr}:
     result.add ProtoItem(orig: n, typ: n.typ, kind: kind)
   else:
     result.add ProtoItem(orig: n, typ: n.typ, kind: kind)
@@ -770,9 +771,13 @@ proc exprToPmir(c: TranslateCtx, result: var seq[ProtoItem], n: PNode, sink: boo
   of nkBracket:
     # if the construction is of seq type, then it's a constant seq value,
     # which we prefer to lift into a constant (again), even in sink contexts
-    let lift =
-      n.typ.skipTypes(IrrelevantTypes).kind == tySequence or not(sink)
-    handleConstExpr(result, n, pirArrayConstr, sink, lift)
+    let kind =
+      if n.typ.skipTypes(IrrelevantTypes).kind == tySequence:
+        pirSeqConstr
+      else:
+        pirArrayConstr
+    handleConstExpr(result, n, kind, sink,
+                    lift = (kind == pirSeqConstr) or not(sink))
   of nkCurly:
     # always attempt to turn set constructions into constants, regardless of
     # whether they're used in a sink context

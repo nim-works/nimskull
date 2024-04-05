@@ -323,7 +323,8 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         elide = true
       of RvalueExprKinds, mnkSetConstr:
         elide = true
-      of mnkConstr, mnkObjConstr:
+      of mnkArrayConstr, mnkSeqConstr, mnkTupleConstr, mnkClosureConstr,
+         mnkObjConstr:
         # if the lvalue doesn't overlap with the assignment destination, the
         # temporary can be elided
         let stmt = tree.parent(expr)

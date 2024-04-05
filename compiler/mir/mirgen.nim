@@ -1105,18 +1105,23 @@ proc genSetConstr(c: var TCtx, n: PNode) =
         c.genArgExpression(it, sink=false)
 
 proc genArrayConstr(c: var TCtx, n: PNode, isConsume: bool) =
-  c.buildTree mnkConstr, n.typ:
+  c.buildTree mnkArrayConstr, n.typ:
     for it in n.items:
       c.emitOperandTree it, isConsume
 
+proc genSeqConstr(c: var TCtx, n: PNode) =
+  c.buildTree mnkSeqConstr, n.typ:
+    for it in n.items:
+      c.emitOperandTree it, true
+
 proc genTupleConstr(c: var TCtx, n: PNode, isConsume: bool) =
   assert n.typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind == tyTuple
-  c.buildTree mnkConstr, n.typ:
+  c.buildTree mnkTupleConstr, n.typ:
     for it in n.items:
       c.emitOperandTree skipColon(it), isConsume
 
 proc genClosureConstr(c: var TCtx, n: PNode, isConsume: bool) =
-  c.buildTree mnkConstr, n.typ:
+  c.buildTree mnkClosureConstr, n.typ:
     c.emitOperandTree n[0].skipConv, false # the procedural value
     # transf wraps the procedure operand in a conversion that we don't
     # need
@@ -1813,6 +1818,8 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
       c.emitOperandTree n.orig[0], false
   of pirArrayConstr:
     genArrayConstr(c, n.orig, n.owning)
+  of pirSeqConstr:
+    genSeqConstr(c, n.orig)
   of pirSetConstr:
     genSetConstr(c, n.orig)
   of pirRefConstr:
@@ -2225,7 +2232,15 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
         for it in n.items:
           constToMirAux(bu, env, it)
     of nkBracket, nkTupleConstr, nkClosure:
-      bu.subTree MirNode(kind: mnkConstr, typ: n.typ, len: n.len):
+      let kind: range[mnkArrayConstr..mnkClosureConstr] =
+        case n.typ.skipTypes(abstractInst).kind
+        of tyArray:                 mnkArrayConstr
+        of tyOpenArray, tySequence: mnkSeqConstr
+        of tyTuple:                 mnkTupleConstr
+        of tyProc:                  mnkClosureConstr
+        else:                       unreachable()
+
+      bu.subTree MirNode(kind: kind, typ: n.typ, len: n.len):
         for it in n.items:
           bu.subTree mnkArg:
             constToMirAux(bu, env, it.skipColon)
