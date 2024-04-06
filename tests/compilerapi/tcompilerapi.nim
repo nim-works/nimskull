@@ -57,6 +57,9 @@ proc vmReport(config: ConfigRef, report: Report): TErrorHandling {.gcsafe.} =
   elif report.kind == rintEchoMessage:
     echo report.internalReport.msg
 
+proc newFloatTypeNode(val: float, typ: PType): PNode =
+  result = newFloatNode(nkFloatLit, val)
+  result.typ = typ
 
 proc main() =
   let i = initInterpreter("myscript.nim", vmReport)
@@ -67,8 +70,9 @@ proc main() =
   let foreignProc = i.selectRoutine("hostProgramRunsThis")
   if foreignProc == nil:
     quit "script does not export a proc of the name: 'hostProgramRunsThis'"
-  let res = i.callRoutine(foreignProc, [newFloatNode(nkFloatLit, 0.9),
-                                        newFloatNode(nkFloatLit, 0.1)])
+  let typ = foreignProc.typ[1]
+  let res = i.callRoutine(foreignProc, [newFloatTypeNode(0.9, typ),
+                                        newFloatTypeNode(0.1, typ)])
   doAssert res.kind == nkFloatLit
   echo res.floatVal
 
