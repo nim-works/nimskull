@@ -39,13 +39,15 @@ func `$`(n: MirNode): string =
   of mnkField, mnkPathNamed, mnkPathVariant:
     result.add " field:"
     result.addInt n.field
-  of mnkLiteral:
-    result.add " lit: "
-    {.cast(noSideEffect).}:
-      result.add renderTree(n.lit)
+  of mnkIntLit, mnkUIntLit, mnkFloatLit:
+    result.add " number: "
+    result.addInt n.number.uint32
   of mnkStrLit:
     result.add " strVal: "
     result.addInt n.strVal.uint32
+  of mnkAstLit:
+    result.add " ast: "
+    result.addInt n.ast.uint32
   of mnkPathPos:
     result.add " position: "
     result.add $n.position

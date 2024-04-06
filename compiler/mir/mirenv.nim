@@ -43,8 +43,13 @@ type
       ## includes both normal globals and threadvars
     procedures*: SymbolTable[ProcedureId, PSym]
 
+    numbers*: BiTable[BiggestInt]
+      ## all numerical values referenced by the MIR, stored as bit patterns
     strings*: BiTable[string]
       ## all string data referenced by the MIR
+    asts*: Store[AstId, PNode]
+      ## all AST fragments referenced by the MIR. No unification is
+      ## performed
 
     bodies*: OrdinalSeq[ConstId, DataId]
       ## associates each user-defined constant with its content
@@ -109,8 +114,25 @@ func `[]`*(env: MirEnv, id: ProcedureId): lent PSym {.inline.} =
 func `[]`*(env: MirEnv, id: DataId): lent ConstrTree {.inline.} =
   env.data[id]
 
+func getInt*(env: MirEnv, id: NumberId): BiggestInt {.inline.} =
+  env.numbers[LitId id]
+
+func getUInt*(env: MirEnv, id: NumberId): BiggestUInt {.inline.} =
+  cast[BiggestUInt](env.numbers[LitId id])
+
+func getFloat*(env: MirEnv, id: NumberId): BiggestFloat {.inline.} =
+  cast[BiggestFloat](env.numbers[LitId id])
+
 func `[]`*(env: MirEnv, id: StringId): lent string {.inline.} =
   env.strings[LitId id]
+
+func `[]`*(env: MirEnv, id: AstId): lent PNode {.inline.} =
+  env.asts[id]
+
+func getOrIncl*(env: var MirEnv, v: BiggestInt|BiggestUInt|BiggestFloat
+               ): NumberId {.inline.} =
+  ## If not registered already, adds `v` to the environment.
+  NumberId env.numbers.getOrIncl(cast[BiggestInt](v))
 
 func getOrIncl*(env: var MirEnv, str: string): StringId {.inline.} =
   ## If not registered already, adds `str` to the environment.
