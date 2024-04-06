@@ -17,7 +17,7 @@ scope:
   def _7: int = addI(arg i, arg i)
   def _8: int = unaryMinusI(arg i)
   def _9: range 0..1(int) = chckRange(arg i, arg 0, arg 1)
-  chckField(arg <D0>, arg o.kind, arg 0, arg "field \'x\' is not accessible for type \'Object\' using \'kind = ")
+  chckField(arg <D0>, arg o.kind, arg false, arg "field \'x\' is not accessible for type \'Object\' using \'kind = ")
   discard o.kind.x
   def _11: bool = isNil(arg r)
   def _10: bool = not(arg _11)
