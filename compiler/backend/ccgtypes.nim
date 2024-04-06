@@ -603,9 +603,7 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet): Rope =
       addAbiCheck(m, t, result)
 
   result = getTypePre(m, t, sig)
-  # note: ``openArray`` types map to different C types depending on the
-  # context, so we always re-compute the C type for them
-  if result != "" and t.kind != tyOpenArray:
+  if result != "":
     excl(check, t.id)
     return
   case t.kind
@@ -613,7 +611,6 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet): Rope =
     let star = "*"
     var et = origTyp.skipTypes(abstractInst).lastSon
     var etB = et.skipTypes(abstractInst)
-    let origBase = etB
     if mapType(m.config, t) == ctPtrToArray:
       if etB.kind == tySet:
         et = getSysType(m.g.graph, unknownLineInfo, tyUInt8)
@@ -625,23 +622,15 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet): Rope =
       # no restriction! We have a forward declaration for structs
       let name = getTypeForward(m, et, hashType et)
       result = name & star
-      m.typeCache[sig] = result
     of tySequence:
         result = getTypeDescWeak(m, et, check) & star
-        m.typeCache[sig] = result
     of tyOpenArray:
       result = getTypeDescAux(m, etB, check)
     else:
       # else we have a strong dependency  :-(
       result = getTypeDescAux(m, et, check) & star
-      m.typeCache[sig] = result
 
-    # HACK: an openArray is mapped to different types depending on what context
-    #       we're in (`kind`). The context is not stored together with the cached
-    #       type, so we force the type to be computed again next time by deleting
-    #       the entry created above
-    if origBase.kind == tyOpenArray:
-      m.typeCache.del(sig)
+    m.typeCache[sig] = result
   of tyOpenArray, tyVarargs:
     result = getOpenArrayDesc(m, t, check)
   of tyEnum:
