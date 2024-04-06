@@ -6,7 +6,6 @@ import
     hashes
   ],
   compiler/ast/[
-    ast_query,
     ast_types,
     types
   ],
@@ -34,23 +33,12 @@ func hashTree(tree: ConstrTree): Hash =
   func hash(n: MirNode): Hash {.nimcall.} =
     result = hash(n.kind)
     case n.kind
-    of mnkLiteral:
-      proc hashLit(n: PNode): Hash =
-        case n.kind
-        of nkFloatKinds:
-          # make sure to hash the bit representation, so that NaNs are
-          # accounted for
-          hash(cast[BiggestInt](n.floatVal))
-        of nkIntKinds:
-          hash(n.intVal)
-        of nkNilLit:
-          Hash(0)
-        else:
-          unreachable(n.kind)
-
-      result = result !& hashLit(n.lit)
+    of mnkIntLit, mnkUIntLit, mnkFloatLit:
+      result = result !& hash(n.number)
     of mnkStrLit:
       result = result !& hash(n.strVal)
+    of mnkAstLit:
+      result = result !& hash(n.ast)
     of mnkProc:
       result = result !& hash(n.prc.ord)
     of mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr, mnkTupleConstr,
@@ -58,7 +46,7 @@ func hashTree(tree: ConstrTree): Hash =
       result = result !& hash(n.len)
     of mnkField:
       result = result !& hash(n.field)
-    of mnkArg, mnkEnd:
+    of mnkArg, mnkEnd, mnkNilLit:
       discard
     of AllNodeKinds - ConstrTreeNodes:
       unreachable(n.kind)
@@ -72,24 +60,6 @@ func hashTree(tree: ConstrTree): Hash =
   result = result !& hash(tree[0].typ.kind)
   result = !$(result)
 
-func cmp(a, b: PNode): bool =
-  ## Compares for equality two nodes storing literal values. For float values,
-  ## their bit-representation is compared.
-  if a.kind != b.kind:
-    return false
-
-  case a.kind
-  of nkIntLiterals:
-    a.intVal == b.intVal
-  of nkFloatLiterals:
-    cast[BiggestUInt](a.floatVal) == cast[BiggestUInt](b.floatVal)
-  of nkStrLiterals:
-    a.strVal == b.strVal
-  of nkNilLit:
-    true
-  else:
-    unreachable(a.kind)
-
 proc cmp(a, b: ConstrTree): bool =
   ## Compares two MIR constant expressions for structural equality.
   proc `==`(a, b: MirNode): bool {.nimcall.} =
@@ -97,10 +67,12 @@ proc cmp(a, b: ConstrTree): bool =
       return false # cannot be the same
 
     case a.kind
-    of mnkLiteral:
-      cmp(a.lit, b.lit)
+    of mnkIntLit, mnkUIntLit, mnkFloatLit:
+      a.number == b.number
     of mnkStrLit:
       a.strVal == b.strVal
+    of mnkAstLit:
+      a.ast == b.ast
     of mnkProc:
       a.prc == b.prc
     of mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr, mnkTupleConstr,
@@ -108,7 +80,7 @@ proc cmp(a, b: ConstrTree): bool =
       a.len == b.len
     of mnkField:
       a.field == b.field
-    of mnkArg, mnkEnd:
+    of mnkArg, mnkEnd, mnkNilLit:
       true # same node kind -> equal nodes
     of AllNodeKinds - ConstrTreeNodes:
       unreachable(a.kind)

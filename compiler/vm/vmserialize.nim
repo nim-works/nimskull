@@ -28,6 +28,12 @@ import
     int128
   ]
 
+proc getInt(env: MirEnv, n: MirNode): Int128 =
+  case n.kind
+  of mnkIntLit:  env.getInt(n.number).toInt128
+  of mnkUIntLit: env.getUInt(n.number).toInt128
+  else:          unreachable(n.kind)
+
 proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
                   c: var TCtx) =
   ## Loads the value represented by `tree` at `n` into `dest`. On exit, `n`
@@ -53,15 +59,15 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
 
   case dest.typ.kind
   of akInt:
-    writeUInt(dest, next().lit.intVal)
+    writeUInt(dest, env.getInt(next().number))
   of akDiscriminator:
     # handled during object processing below
     unreachable("cannot be written directly")
   of akFloat:
     if dest.typ.sizeInBytes == 4:
-      writeFloat32(dest, float32(next().lit.floatVal))
+      writeFloat32(dest, float32(env.getFloat(next().number)))
     else:
-      writeFloat64(dest, float64(next().lit.floatVal))
+      writeFloat64(dest, float64(env.getFloat(next().number)))
   of akString:
     deref(dest).strVal.newVmString(env[next().strVal], c.allocator)
   of akSeq:
@@ -86,9 +92,9 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
       recurse(c.heap.unsafeDeref(slot))
       deref(dest).refVal = slot
   of akSet:
-    proc adjusted(n: PNode, first: Int128): BiggestInt {.inline.} =
+    proc adjusted(val, first: Int128): BiggestInt {.inline.} =
       # subtract the first element's value to make all values zero-based
-      toInt(getInt(n) - first)
+      toInt(val - first)
 
     let first =
       if tree[n].len > 0: firstOrd(c.config, tree[n].typ)
@@ -99,14 +105,14 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
       let node = next()
       if node.kind == mnkRange:
         let
-          a = adjusted(next().lit, first)
-          b = adjusted(next().lit, first)
+          a = adjusted(env.getInt(next()), first)
+          b = adjusted(env.getInt(next()), first)
         bitSetInclRange(mbitSet(dest), a .. b)
         inc n # skip the end node
       else:
-        bitSetIncl(mbitSet(dest), adjusted(node.lit, first))
+        bitSetIncl(mbitSet(dest), adjusted(env.getInt(node), first))
   of akPNode:
-    deref(dest).nodeVal = next().lit[0]
+    deref(dest).nodeVal = env[next().ast]
   of akCallable:
     deref(dest).callableVal = toFuncPtr FunctionIndex(next().prc)
   of akObject:
@@ -130,7 +136,7 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
           let (owner, idx) = getFieldAndOwner(dest.typ, fpos sym.position)
           # fetch the integer value:
           var val: Int128
-          arg (;val = getInt(next().lit))
+          arg (;val = env.getInt(next()))
           # compute the branch index:
           let b = findMatchingBranch(findRecCase(typ, sym), val)
           # write the tag value to the location:

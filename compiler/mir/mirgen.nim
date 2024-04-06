@@ -2314,8 +2314,12 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
       bu.subTree MirNode(kind: mnkRange, len: 2):
         constToMirAux(bu, env, n[0])
         constToMirAux(bu, env, n[1])
-    of nkIntLiterals, nkFloatLiterals, nkNilLit:
-      bu.use literal(n)
+    of nkNilLit:
+      bu.add MirNode(kind: mnkNilLit, typ: n.typ)
+    of nkIntLiterals:
+      bu.use toIntLiteral(env, n)
+    of nkFloatLiterals:
+      bu.use toFloatLiteral(env, n)
     of nkStrLiterals:
       bu.use strLiteral(env, n.strVal, n.typ)
     of nkHiddenStdConv, nkHiddenSubConv:

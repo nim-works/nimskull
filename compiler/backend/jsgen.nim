@@ -1604,7 +1604,7 @@ proc genConstant*(g: PGlobals, m: BModule, id: ConstId) =
     var p = newInitProc(g, m)
     #genLineDir(p, c.ast)
     genVarInit(p, c.typ, name, storage,
-               translate(g.env[g.env.dataFor(id)]))
+               translate(g.env[g.env.dataFor(id)], g.env))
     g.constants.add(p.body)
 
   # all constants need a name:
@@ -2419,7 +2419,7 @@ proc rdData(p: PProc, data: DataId, typ: PType): TCompRes =
   ## Returns the loc for the `data` of type `typ`. Emits the definition for
   ## `data` if it hasn't been already.
   if not containsOrIncl(p.g.dataGenerated, data.int):
-    let val = gen(p, translate(p.env[data]))
+    let val = gen(p, translate(p.env[data], p.env))
     # emit the definition into the constants section:
     p.g.constants.addf("var Data$1 = $2;$n", [$ord(data), val.res])
 
