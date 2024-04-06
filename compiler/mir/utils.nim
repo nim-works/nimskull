@@ -10,6 +10,7 @@ import
     strutils
   ],
   compiler/ast/[
+    ast_query,
     ast_types,
     renderer,
     types,
@@ -162,6 +163,35 @@ func addLocalName(result: var string, id: LocalId, open: string,
   else:
     result.add c.body[][id].name.s
 
+proc addTypedNumber(result: var string, bits: BiggestInt, typ: PType) =
+  ## Interprets the bit representation `bits` as `typ` and renders it
+  ## accordingly. Errors are output directly into `result`.
+  let typ = typ.skipTypes(abstractRange)
+  case typ.kind
+  of tyInt..tyInt64:
+    result.addInt bits
+    result.add [tyInt: "", "'i8", "'i16", "'i32", "'i64"][typ.kind]
+  of tyUInt..tyUInt64:
+    result.addInt cast[BiggestUInt](bits)
+    result.add [tyUInt: "", "'u8", "'u16", "'u32", "'u64"][typ.kind]
+  of tyFloat:
+    result.addFloat cast[BiggestFloat](bits)
+    result.add [tyFloat: "", "'f32", "'f64"][typ.kind]
+  of tyEnum, tyBool:
+    # use the name of the enum field
+    block render:
+      # search for the enum field with the given value
+      for it in typ.n.items:
+        if it.sym.position == bits:
+          # found it!
+          result.add it.sym.name.s
+          break render
+      result.add "<invalid enum>"
+  of tyProc, tyPtr, tyPointer:
+    result.addInt cast[BiggestUInt](bits)
+  else:
+    result.add "<invalid literal>"
+
 proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
   case n.kind
   of mnkParam:
@@ -187,18 +217,17 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     if c.env.isNil:
       idToStr(result, n.number, "<Int: ")
     else:
-      result.addInt c.env[].getInt(n.number)
+      result.addTypedNumber(c.env[].getInt(n.number), n.typ)
   of mnkUIntLit:
     if c.env.isNil:
       idToStr(result, n.number, "<UInt: ")
     else:
-      result.addInt c.env[].getUInt(n.number)
-      result.add "'u"
+      result.addTypedNumber(c.env[].getInt(n.number), n.typ)
   of mnkFloatLit:
     if c.env.isNil:
       idToStr(result, n.number, "<Float: ")
     else:
-      result.addFloat c.env[].getFloat(n.number)
+      result.addTypedNumber(c.env[].getInt(n.number), n.typ)
   of mnkStrLit:
     if c.env.isNil:
       result.add "<Str: "
