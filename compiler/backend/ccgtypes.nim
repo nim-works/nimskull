@@ -387,7 +387,17 @@ proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
     var param = t.n[i].sym
     if locs[i].k == locNone: continue
     if params != "": params.add(~", ")
-    if lfIndirect in locs[i].flags:
+
+    var arr = param.typ.skipTypes({tyGenericInst})
+    if arr.kind in {tyVar, tyLent, tySink}:
+      arr = arr.lastSon
+    let isOpenArray = arr.kind in {tyOpenArray, tyVarargs}
+
+    if isOpenArray:
+      # declare the pointer field for openArray:
+      params.add(getTypeDescWeak(m, arr.base, check))
+      params.add("*")
+    elif lfIndirect in locs[i].flags:
       params.add(getTypeDescWeak(m, param.typ, check))
       params.add(~"*")
     elif weakDep:
@@ -399,14 +409,10 @@ proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
       params.add(~"NIM_NOALIAS ")
     params.add(locs[i].r)
     # declare the len field for open arrays:
-    var arr = param.typ.skipTypes({tyGenericInst})
-    if arr.kind in {tyVar, tyLent, tySink}: arr = arr.lastSon
-    var j = 0
-    while arr.kind in {tyOpenArray, tyVarargs}:
+    if isOpenArray:
       # need to pass hidden parameter:
-      params.addf(", NI $1Len_$2", [locs[i].r, j.rope])
-      inc(j)
-      arr = arr[0].skipTypes({tySink})
+      params.addf(", NI $1Len_$2", [locs[i].r, 0.rope])
+
   if t[0] != nil and isInvalidReturnType(m.config, t[0]):
     var arr = t[0]
     if params != "": params.add(", ")
