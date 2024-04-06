@@ -196,10 +196,6 @@ type
     i: int ## the index in `PackedEnv.nodes` where the next item is to be stored
 
 const
-  EmbeddedUInts = {nkCharLit, nkUInt8Lit..nkUInt32Lit}
-  EmbeddedInts = {nkInt8Lit..nkInt32Lit} # these also fit into a `uint32`
-  ExternalInts = {nkIntLit, nkInt64Lit, nkUIntLit, nkUInt64Lit}
-
   NilSymId = -1.SymId
   NilTypeId = -1.TypeId
 
@@ -259,6 +255,15 @@ func getLitId(e: var PackedEnv, x: BiggestInt): LitId {.inline.} =
 func getLitId(e: var PackedEnv, x: BiggestFloat): LitId {.inline.} =
   e.numbers.getOrIncl(cast[BiggestInt](x))
 
+func getInt(e: PackedEnv, n: MirNode): Int128 =
+  case n.kind
+  of mnkIntLit:
+    toInt128 e.numbers[n.number.LitId]
+  of mnkUIntLit:
+    toInt128 cast[BiggestUInt](e.numbers[n.number.LitId])
+  else:
+    unreachable()
+
 # -------- data storing --------------------------------------------------
 
 func startEncoding*(enc: var DataEncoder, e: PackedEnv) {.inline.} =
@@ -269,14 +274,6 @@ func put(enc: var DataEncoder, e: var PackedEnv,
   e.nodes[enc.i] = d
   inc enc.i
 
-func putLater(enc: var DataEncoder): int {.inline.} =
-  result = enc.i
-  inc enc.i
-
-func setAt(enc: var DataEncoder, e: var PackedEnv, i: int,
-           d: sink PackedDataNode) {.inline.} =
-  e.nodes[i] = d
-
 func storeDataNode(enc: var DataEncoder, e: var PackedEnv,
                    t: MirTree, n: NodePosition)
   ## Stores in `e.nodes` the data represented by the MIR constant expression
@@ -284,10 +281,10 @@ func storeDataNode(enc: var DataEncoder, e: var PackedEnv,
   ## allocated in `e.nodes` for the top data-node. Space allocation for the
   ## sub-data-nodes is handled by ``storeData``.
 
-func storeDiscrData(enc: var DataEncoder, e: var PackedEnv, s: PSym, v: PNode) =
+func storeDiscrData(enc: var DataEncoder, e: var PackedEnv, s: PSym, v: Int128) =
   let
     recCase = findRecCase(s.owner.typ, s)
-    b = findMatchingBranch(recCase, getInt(v))
+    b = findMatchingBranch(recCase, v)
   assert b != -1
   # We don't have access to vm type information here, so 32 is always
   # used for `numBits`. This is safe, since the both `value` and `index`
@@ -295,7 +292,7 @@ func storeDiscrData(enc: var DataEncoder, e: var PackedEnv, s: PSym, v: PNode) =
   # of repacking the discriminator with the correct `numBits`
   # XXX: 16 could be safely used for `numBits` and then the resulting
   #      value could be stored as a `pdkIntLit`
-  let val = packDiscr(v.intVal, b, numBits = 32)
+  let val = packDiscr(v.toInt, b, numBits = 32)
   enc.put e, PackedDataNode(kind: pdkInt, pos: e.getLitId(val).uint32)
 
 proc storeFieldsData(enc: var DataEncoder, e: var PackedEnv,
@@ -317,7 +314,7 @@ proc storeFieldsData(enc: var DataEncoder, e: var PackedEnv,
     if sfDiscriminant notin s.flags:
       enc.storeDataNode(e, t, n+1)
     else:
-      enc.storeDiscrData(e, s, t[n+1].lit)
+      enc.storeDiscrData(e, s, e.getInt(t[n+1]))
 
     n = t.sibling(n) # move the cursor to the next field
 
@@ -354,52 +351,43 @@ proc storeSetData(enc: var DataEncoder, e: var PackedEnv,
   enc.put e, PackedDataNode(kind: pdkSet, pos: count.uint32 * 2)
   e.nodes.growBy(count * 2) # make space for the content
 
-  proc adjusted(enc: DataEncoder, n: MirNode, typ: PType): uint32 =
+  template adjusted(n: MirNode, typ: PType): uint32 =
     # make the range start at zero
-    toUInt32(getInt(n.lit) - firstOrd(enc.config, typ))
+    toUInt32(e.getInt(n) - firstOrd(enc.config, typ))
 
   var n = n + 1
   # bitsets only store values in the range 0..high(uint16), so the values can
   # be stored directly
   for _ in 0..<count:
     if t[n].kind == mnkRange:
-      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, t[n + 1], typ))
-      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, t[n + 2], typ))
+      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(t[n + 1], typ))
+      enc.put e, PackedDataNode(kind: pdkIntLit, pos: adjusted(t[n + 2], typ))
     else:
-      let d = PackedDataNode(kind: pdkIntLit, pos: adjusted(enc, t[n], typ))
+      let d = PackedDataNode(kind: pdkIntLit, pos: adjusted(t[n], typ))
       enc.put e, d
       enc.put e, d
 
     n = t.sibling(n)
 
-func storeLiteral(enc: var DataEncoder, e: var PackedEnv, n: PNode) =
-  let dstIdx = enc.putLater()
-  let (kind, item) =
-    case n.kind
-    of EmbeddedUInts: (pdkIntLit, n.intVal.uint32)
-    of EmbeddedInts:  (pdkIntLit, cast[uint32](n.intVal))
-    of ExternalInts:  (pdkInt,    e.getLitId(n.intVal).uint32)
-    of nkFloatKinds:  (pdkFloat,  e.getLitId(n.floatVal).uint32)
-    of nkNilLit:
-      if n.typ.skipTypes(abstractInst).callConv == ccClosure:
-        # XXX: some unexpanded `nil` closure literals reach here, so we have
-        #      to expand them here. This needs to happen earlier
-        e.nodes.growBy(4)
-        enc.put e, PackedDataNode(kind: pdkField, pos: 0)
-        enc.put e, PackedDataNode(kind: pdkPtr, pos: 0)
-        enc.put e, PackedDataNode(kind: pdkField, pos: 0)
-        enc.put e, PackedDataNode(kind: pdkPtr, pos: 0)
-        (pdkObj, 2'u32)
-      else:
-        (pdkPtr, 0'u32)
-    else:             unreachable(n.kind)
-  enc.setAt e, dstIdx, PackedDataNode(kind: kind, pos: item)
-
 func storeDataNode(enc: var DataEncoder, e: var PackedEnv,
                    t: MirTree, n: NodePosition) =
   case t[n].kind
-  of mnkLiteral:
-    storeLiteral(enc, e, t[n].lit)
+  of mnkNilLit:
+    if t[n].typ.skipTypes(abstractInst).callConv == ccClosure:
+      # XXX: some unexpanded `nil` closure literals reach here, so we have
+      #      to expand them here. This needs to happen earlier
+      enc.put e, PackedDataNode(kind: pdkObj, pos: 2)
+      e.nodes.growBy(4)
+      enc.put e, PackedDataNode(kind: pdkField, pos: 0)
+      enc.put e, PackedDataNode(kind: pdkPtr, pos: 0)
+      enc.put e, PackedDataNode(kind: pdkField, pos: 0)
+      enc.put e, PackedDataNode(kind: pdkPtr, pos: 0)
+    else:
+      enc.put e, PackedDataNode(kind: pdkPtr, pos: 0)
+  of mnkIntLit, mnkUIntLit:
+    enc.put e, PackedDataNode(kind: pdkInt, pos: t[n].number.uint32)
+  of mnkFloatLit:
+    enc.put e, PackedDataNode(kind: pdkFloat, pos: t[n].number.uint32)
   of mnkStrLit:
     # the ID indexes into the string BiTable, it can be packed directly
     enc.put e, PackedDataNode(kind: pdkString, pos: t[n].strVal.uint32)
