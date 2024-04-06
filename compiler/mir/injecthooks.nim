@@ -25,6 +25,7 @@ import
     mirtrees
   ],
   compiler/modules/[
+    magicsys,
     modulegraphs
   ],
   compiler/sem/[
@@ -41,7 +42,7 @@ from compiler/ast/report_enums import ReportKind
 # XXX: temporary dependency until switch assignments are lowered differently
 from compiler/sem/injectdestructors import buildVoidCall
 
-from compiler/sem/liftdestructors import boolLit, cyclicType
+from compiler/sem/liftdestructors import cyclicType
 
 type
   LocalDiagKind = enum
@@ -154,7 +155,8 @@ template genCopy(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
       # pass whether the copy can potentially introduce cycles as the third
       # parameter:
       let c = maybeCyclic and couldIntroduceCycle(tree, dest)
-      bu.emitByVal literal(boolLit(graph, unknownLineInfo, c))
+      bu.emitByVal literal(mnkIntLit, env.getOrIncl(BiggestInt(c)),
+                           graph.getSysType(unknownLineInfo, tyBool))
 
 proc genDestroy*(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
                  target: Value) =
