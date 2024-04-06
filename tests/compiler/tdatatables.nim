@@ -20,8 +20,8 @@ template node(k: MirNodeKind, field, val: untyped): MirNode =
   MirNode(kind: k, field: val)
 template node(k: MirNodeKind): MirNode =
   MirNode(kind: k)
-template literal(val: PNode): MirNode =
-  MirNode(kind: mnkLiteral, lit: val)
+template literal(val: NumberId): MirNode =
+  MirNode(kind: mnkIntLit, number: val)
 
 block tree_equality:
   # the type is only relevant for the head of the tree (the first node)
@@ -29,23 +29,24 @@ block tree_equality:
   # setup a list of structurally valid and unique (in terms of equality) trees
   let trees = @[
     # --- literals
-    @[node(mnkLiteral, t1, lit, newIntNode(nkIntLit, 0))],
-    @[node(mnkLiteral, t2, lit, newIntNode(nkIntLit, 0))],
-    @[node(mnkLiteral, t1, lit, newStrNode(nkStrLit, ""))],
-    @[node(mnkLiteral, t1, lit, newStrNode(nkStrLit, "a"))],
-    @[node(mnkLiteral, t1, lit, newFloatNode(nkFloatLit, 0.0))],
-    # 0.0 and -0.0 are different float values
-    @[node(mnkLiteral, t1, lit, newFloatNode(nkFloatLit, -0.0))],
+    @[node(mnkIntLit, t1, number, NumberId 0)],
+    @[node(mnkIntLit, t2, number, NumberId 0)],
+    @[node(mnkUIntLit, t1, number, NumberId 0)],
+    @[node(mnkUIntLit, t2, number, NumberId 0)],
+    @[node(mnkStrLit, t1, strVal, StringId 0)],
+    @[node(mnkStrLit, t1, strVal, StringId 1)],
+    @[node(mnkFloatLit, t1, number, NumberId 0)],
+    @[node(mnkFloatLit, t2, number, NumberId 0)],
 
     # --- ordered aggregates
     @[node(mnkTupleConstr, t1, len, 0), node(mnkEnd)],
     @[node(mnkTupleConstr, t2, len, 0), node(mnkEnd)],
     @[node(mnkTupleConstr, t1, len, 1),
-        node(mnkArg), literal(newIntNode(nkIntLit, 0)),
+        node(mnkArg), literal(NumberId 0),
       node(mnkEnd)],
     @[node(mnkTupleConstr, t1, len, 2),
-        node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
-        node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
+        node(mnkArg), literal(NumberId 0), node(mnkEnd),
+        node(mnkArg), literal(NumberId 0), node(mnkEnd),
       node(mnkEnd)],
 
     # --- aggregates with fields
@@ -53,25 +54,25 @@ block tree_equality:
     @[node(mnkObjConstr, t2, len, 0), node(mnkEnd)],
     @[node(mnkObjConstr, t1, len, 1),
         node(mnkField, field, 0),
-        node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
+        node(mnkArg), literal(NumberId 0), node(mnkEnd),
       node(mnkEnd)],
     # same field value, different field:
     @[node(mnkObjConstr, t1, len, 1),
         node(mnkField, field, 1),
-        node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
+        node(mnkArg), literal(NumberId 0), node(mnkEnd),
       node(mnkEnd)],
     @[node(mnkObjConstr, t1, len, 1),
         node(mnkField, field, 0),
-        node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
+        node(mnkArg), literal(NumberId 0), node(mnkEnd),
         node(mnkField, field, 1),
-        node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
+        node(mnkArg), literal(NumberId 0), node(mnkEnd),
       node(mnkEnd)],
     # swapped fields
     @[node(mnkObjConstr, t1, len, 1),
         node(mnkField, field, 1),
-        node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
+        node(mnkArg), literal(NumberId 0), node(mnkEnd),
         node(mnkField, field, 0),
-        node(mnkArg), literal(newIntNode(nkIntLit, 0)), node(mnkEnd),
+        node(mnkArg), literal(NumberId 0), node(mnkEnd),
       node(mnkEnd)]
   ]
 
