@@ -24,11 +24,14 @@ type
     ## Identifies the field of a record type
   ProcedureId* = distinct uint32
     ## Identifies a procedure
-  LiteralId {.used.} = distinct uint32
-    ## Identifies a literal
+  NumberId* = distinct uint32
+    ## Uniquely identifies some numerical value (float, signed int,
+    ## unsigned int). Two values with the same bit pattern have the same ID
   StringId* = distinct uint32
     ## Uniquely identifies a string value. Two strings sharing the same
     ## content map to the same ID
+  AstId* = distinct uint32
+    ## Identifies an AST fragment stored in the MIR environment.
   DataId* = distinct uint32
     ## Identifies a complete constant expression
 
@@ -66,10 +69,12 @@ type
 
     mnkField  ## declarative node only allowed in special contexts
 
-    mnkLiteral ## literal data. Currently represented via a ``PNode``
-    # future direction: split into IntLit, FloatLit, and StrLit and store the
-    # values in a separate table (so that MirNode gets smaller)
+    mnkNilLit  ## nil literal
+    mnkIntLit  ## reference to signed integer literal
+    mnkUIntLit ## reference to unsigend integer literal
+    mnkFloatLit## reference to float literal
     mnkStrLit  ## reference to a literal string
+    mnkAstLit  ## reference to AST fragment
     mnkType    ## a type literal
 
     # future direction:
@@ -282,10 +287,12 @@ type
     of mnkField, mnkPathNamed, mnkPathVariant:
       field*: int32
         ## field position
-    of mnkLiteral:
-      lit*: PNode
+    of mnkIntLit, mnkUIntLit, mnkFloatLit:
+      number*: NumberId
     of mnkStrLit:
       strVal*: StringId
+    of mnkAstLit:
+      ast*: AstId
     of mnkPathPos:
       position*: uint32 ## the 0-based position of the field
     of mnkCall, mnkCheckedCall:
@@ -346,7 +353,8 @@ const
     ## Assignment modifiers. Nodes that can only appear directly in the source
     ## slot of assignments.
 
-  LiteralDataNodes* = {mnkLiteral, mnkStrLit}
+  LiteralDataNodes* = {mnkNilLit, mnkIntLit, mnkUIntLit, mnkFloatLit,
+                       mnkStrLit, mnkAstLit}
 
   ConstrTreeNodes* = {mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr,
                       mnkTupleConstr, mnkClosureConstr, mnkObjConstr,
@@ -388,7 +396,9 @@ func `==`*(a, b: ConstId): bool {.borrow.}
 func `==`*(a, b: GlobalId): bool {.borrow.}
 func `==`*(a, b: ProcedureId): bool {.borrow.}
 func `==`*(a, b: DataId): bool {.borrow.}
+func `==`*(a, b: NumberId): bool {.borrow.}
 func `==`*(a, b: StringId): bool {.borrow.}
+func `==`*(a, b: AstId): bool {.borrow.}
 
 func isAnon*(id: ConstId): bool =
   ## Returns whether `id` represents an anonymous constant.

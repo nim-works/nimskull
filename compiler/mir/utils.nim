@@ -10,6 +10,7 @@ import
     strutils
   ],
   compiler/ast/[
+    ast_query,
     ast_types,
     renderer,
     types,
@@ -39,13 +40,15 @@ func `$`(n: MirNode): string =
   of mnkField, mnkPathNamed, mnkPathVariant:
     result.add " field:"
     result.addInt n.field
-  of mnkLiteral:
-    result.add " lit: "
-    {.cast(noSideEffect).}:
-      result.add renderTree(n.lit)
+  of mnkIntLit, mnkUIntLit, mnkFloatLit:
+    result.add " number: "
+    result.addInt n.number.uint32
   of mnkStrLit:
     result.add " strVal: "
     result.addInt n.strVal.uint32
+  of mnkAstLit:
+    result.add " ast: "
+    result.addInt n.ast.uint32
   of mnkPathPos:
     result.add " position: "
     result.add $n.position
@@ -140,12 +143,15 @@ func next(tree: MirTree, i: var int): lent MirNode =
   result = tree[i]
   inc i
 
+func idToStr[I](result: var string, id: I, open: string) =
+  result.add open
+  result.addInt id.uint32
+  result.add ">"
+
 func addName[I](result: var string, id: I, open: string, c: RenderCtx) =
   if c.env.isNil:
     # just render the ID
-    result.add open
-    result.addInt id.uint32
-    result.add ">"
+    idToStr(result, id, open)
   else:
     result.add c.env[][id].name.s
 
@@ -153,11 +159,38 @@ func addLocalName(result: var string, id: LocalId, open: string,
                   c: RenderCtx) =
   if c.body.isNil:
     # render just the ID
-    result.add open
-    result.addInt id.uint32
-    result.add ">"
+    idToStr(result, id, open)
   else:
     result.add c.body[][id].name.s
+
+proc addTypedNumber(result: var string, bits: BiggestInt, typ: PType) =
+  ## Interprets the bit representation `bits` as `typ` and renders it
+  ## accordingly. Errors are output directly into `result`.
+  let typ = typ.skipTypes(abstractRange)
+  case typ.kind
+  of tyInt..tyInt64:
+    result.addInt bits
+    result.add [tyInt: "", "'i8", "'i16", "'i32", "'i64"][typ.kind]
+  of tyUInt..tyUInt64:
+    result.addInt cast[BiggestUInt](bits)
+    result.add [tyUInt: "", "'u8", "'u16", "'u32", "'u64"][typ.kind]
+  of tyFloat:
+    result.addFloat cast[BiggestFloat](bits)
+    result.add [tyFloat: "", "'f32", "'f64"][typ.kind]
+  of tyEnum, tyBool:
+    # use the name of the enum field
+    block render:
+      # search for the enum field with the given value
+      for it in typ.n.items:
+        if it.sym.position == bits:
+          # found it!
+          result.add it.sym.name.s
+          break render
+      result.add "<invalid enum>"
+  of tyProc, tyPtr, tyPointer:
+    result.addInt cast[BiggestUInt](bits)
+  else:
+    result.add "<invalid literal>"
 
 proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
   case n.kind
@@ -167,9 +200,7 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     result.addLocalName(n.local, "<L", c)
   of mnkConst:
     if isAnon(n.cnst):
-      result.add "<D" # "D" for "Data"
-      result.addInt extract(n.cnst).uint32
-      result.add ">"
+      idToStr(result, extract(n.cnst), "<D") # "D" for "Data"
     else:
       result.addName(n.cnst, "<C", c)
   of mnkGlobal:
@@ -180,8 +211,23 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     result.add "_" & $n.local.int
   of mnkNone:
     result.add "<none>"
-  of mnkLiteral:
-    result.add $n.lit
+  of mnkNilLit:
+    result.add "nil"
+  of mnkIntLit:
+    if c.env.isNil:
+      idToStr(result, n.number, "<Int: ")
+    else:
+      result.addTypedNumber(c.env[].getInt(n.number), n.typ)
+  of mnkUIntLit:
+    if c.env.isNil:
+      idToStr(result, n.number, "<UInt: ")
+    else:
+      result.addTypedNumber(c.env[].getInt(n.number), n.typ)
+  of mnkFloatLit:
+    if c.env.isNil:
+      idToStr(result, n.number, "<Float: ")
+    else:
+      result.addTypedNumber(c.env[].getInt(n.number), n.typ)
   of mnkStrLit:
     if c.env.isNil:
       result.add "<Str: "
@@ -189,6 +235,10 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
       result.add ">"
     else:
       result.addQuoted c.env[][n.strVal]
+  of mnkAstLit:
+    # could also be pretty-printed, but, given the sparse usage, doesn't
+    # warrant the extra effort at the moment
+    result.add "<Ast>"
   of mnkType:
     result.add "type("
     result.add $n.typ

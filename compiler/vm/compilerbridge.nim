@@ -27,6 +27,10 @@ import
     msgs,
     options
   ],
+  compiler/mir/[
+    mirenv,
+    mirtrees
+  ],
   compiler/modules/[
     modulegraphs
   ],
@@ -126,17 +130,17 @@ proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
   case typ.kind
   of akInt:
     dest.ensureKind(rkInt, c.memory)
-    dest.intVal = data[0].lit.intVal
+    dest.intVal = jit.env.getInt(data[0].number)
   of akFloat:
     dest.ensureKind(rkFloat, c.memory)
-    dest.floatVal = data[0].lit.floatVal
+    dest.floatVal = jit.env.getFloat(data[0].number)
   of akPtr:
     dest.ensureKind(rkAddress, c.memory)
     # non-nil values should have already been reported as an error
-    assert data[0].lit.kind == nkNilLit
+    assert data[0].kind == mnkNilLit
   of akPNode:
     dest.ensureKind(rkNimNode, c.memory)
-    dest.nimNode = data[0].lit
+    dest.nimNode = jit.env[data[0].ast]
   else:
     dest.initLocReg(typ, c.memory)
     initFromExpr(dest.handle, data, jit.env, c)

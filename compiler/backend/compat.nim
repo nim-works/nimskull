@@ -32,8 +32,6 @@ import
     int128
   ]
 
-from compiler/backend/cgirgen import translateLit
-
 func lastSon*(n: CgNode): CgNode {.inline.} =
   # XXX: replace usages with `n[^1]`
   {.cast(noSideEffect).}:
@@ -137,11 +135,14 @@ proc newSymNode*(env: MirEnv, s: PSym): CgNode {.inline.} =
   else:
     unreachable(s.kind)
 
-proc translate*(t: MirTree): CgNode =
+proc translate*(t: MirTree, env: MirEnv): CgNode =
   ## Compatibility routine for translating a MIR constant-expression (`t`) to
   ## a ``CgNode`` tree. Obsolete once the code generators use the MIR
   ## directly.
-  proc translateAux(t: MirTree, i: var int): CgNode =
+  proc translateAux(t: MirTree, i: var int, env: MirEnv): CgNode =
+    template recurse(): CgNode =
+      translateAux(t, i, env)
+
     template tree(k: CgNodeKind, body: untyped): CgNode =
       ## Convenience template for setting up the tree node and iterating the
       ## input node's child nodes.
@@ -162,31 +163,43 @@ proc translate*(t: MirTree): CgNode =
         inc i # advance to the arg node
         CgNode(kind: cnkBinding, info: unknownLineInfo,
                kids: @[CgNode(kind: cnkField, field: field),
-                       translateAux(t, i)])
+                       recurse()])
     of mnkArrayConstr, mnkSeqConstr:
       tree cnkArrayConstr:
-        translateAux(t, i)
+        recurse()
     of mnkTupleConstr:
       tree cnkTupleConstr:
-        translateAux(t, i)
+        recurse()
     of mnkClosureConstr:
       tree cnkClosureConstr:
-        translateAux(t, i)
+        recurse()
     of mnkSetConstr:
       tree cnkSetConstr:
-        translateAux(t, i)
+        recurse()
     of mnkRange:
       tree cnkRange:
-        translateAux(t, i)
+        recurse()
     of mnkArg:
-      let x = translateAux(t, i)
+      let x = recurse()
       inc i # skip the end node
       x
-    of mnkLiteral:
-      translateLit(n.lit)
+    of mnkNilLit:
+      CgNode(kind: cnkNilLit, info: unknownLineInfo, typ: n.typ)
+    of mnkIntLit:
+      CgNode(kind: cnkIntLit, info: unknownLineInfo, typ: n.typ,
+             intVal: env.getInt(n.number))
+    of mnkUIntLit:
+      CgNode(kind: cnkUIntLit, info: unknownLineInfo, typ: n.typ,
+             intVal: env.getInt(n.number))
+    of mnkFloatLit:
+      CgNode(kind: cnkFloatLit, info: unknownLineInfo, typ: n.typ,
+             floatVal: env.getFloat(n.number))
     of mnkStrLit:
       CgNode(kind: cnkStrLit, info: unknownLineInfo, typ: n.typ,
              strVal: n.strVal)
+    of mnkAstLit:
+      CgNode(kind: cnkAstLit, info: unknownLineInfo, typ: n.typ,
+             astLit: env[n.ast])
     of mnkProc:
       CgNode(kind: cnkProc, info: unknownLineInfo, prc: n.prc, typ: n.typ)
     of AllNodeKinds - ConstrTreeNodes + {mnkEnd, mnkField}:
@@ -194,7 +207,7 @@ proc translate*(t: MirTree): CgNode =
       unreachable(n.kind)
 
   var i = 0
-  translateAux(t, i)
+  translateAux(t, i, env)
 
 proc pick*[T](n: CgNode, forInt, forFloat: T): T =
   ## Returns either `forInt` or `forFloat` depending on the type of `n`.

@@ -55,6 +55,9 @@ type
   TranslateCl = object
     graph: ModuleGraph
     idgen: IdGenerator
+    env: ptr MirEnv
+      ## read-only reference to the MirEnv. Stored here to prevent excessive
+      ## parameter passing
 
     owner: PSym
 
@@ -184,48 +187,6 @@ proc newExpr(kind: CgNodeKind, info: TLineInfo, typ: PType,
   result = CgNode(kind: kind, info: info, typ: typ)
   result.kids = kids
 
-proc translateLit*(val: PNode): CgNode =
-  ## Translates an ``mnkLiteral`` node to a ``CgNode``.
-  ## Note that the MIR not only uses ``mnkLiteral`` for "real" literals, but
-  ## also for pushing other raw ``PNode``s through the MIR phase.
-  template node(k: CgNodeKind, field, value: untyped): CgNode =
-    CgNode(kind: k, info: val.info, typ: val.typ, field: value)
-
-  case val.kind
-  of nkIntLiterals:
-    # use the type for deciding what whether it's a signed or unsigned value
-    case val.typ.skipTypes(abstractRange + {tyEnum}).kind
-    of tyInt..tyInt64, tyBool:
-      node(cnkIntLit, intVal, val.intVal)
-    of tyUInt..tyUInt64, tyChar:
-      node(cnkUIntLit, intVal, val.intVal)
-    of tyPtr, tyPointer, tyProc:
-      # XXX: consider adding a dedicated node for pointer-like-literals
-      #      to both ``PNode`` and ``CgNode``
-      node(cnkUIntLit, intVal, val.intVal)
-    else:
-      unreachable(val.typ.skipTypes(abstractRange).kind)
-  of nkFloatLiterals:
-    case val.typ.skipTypes(abstractRange).kind
-    of tyFloat, tyFloat64:
-      node(cnkFloatLit, floatVal, val.floatVal)
-    of tyFloat32:
-      # all code-generators need to do this at one point, so we help them out
-      # by narrowing the value to a float32 value
-      node(cnkFloatLit, floatVal, val.floatVal.float32.float64)
-    else:
-      unreachable()
-  of nkNilLit:
-    newNode(cnkNilLit, val.info, val.typ)
-  of nkNimNodeLit:
-    node(cnkAstLit, astLit, val[0])
-  of nkSym:
-    # special case for raw symbols used with emit and asm statements
-    assert val.sym.kind == skField
-    node(cnkField, field, val.sym)
-  else:
-    unreachable("implement: " & $val.kind)
-
 func addIfNotEmpty(stmts: var seq[CgNode], n: sink CgNode) =
   ## Only adds the node to the list if it's not an empty node. Used to prevent
   ## the creation of statement-list expression that only consist of empty
@@ -308,10 +269,21 @@ proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
       typ = cl.locals[id].typ
     # the view is auto-dereferenced here for convenience
     newOp(cnkDerefView, info, typ.base, newLocalRef(id, info, typ))
-  of mnkLiteral:
-    translateLit(n.lit)
+  of mnkNilLit:
+    CgNode(kind: cnkNilLit, info: info, typ: n.typ)
+  of mnkIntLit:
+    CgNode(kind: cnkIntLit, info: info, typ: n.typ,
+           intVal: cl.env[].getInt(n.number))
+  of mnkUIntLit:
+    CgNode(kind: cnkUIntLit, info: info, typ: n.typ,
+           intVal: cl.env[].getInt(n.number))
+  of mnkFloatLit:
+    CgNode(kind: cnkFloatLit, info: info, typ: n.typ,
+           floatVal: cl.env[].getFloat(n.number))
   of mnkStrLit:
     CgNode(kind: cnkStrLit, info: info, typ: n.typ, strVal: n.strVal)
+  of mnkAstLit:
+    CgNode(kind: cnkAstLit, info: info, typ: n.typ, astLit: cl.env[][n.ast])
   of mnkType:
     newTypeNode(info, n.typ)
   of mnkNone:
@@ -1112,8 +1084,8 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: MirEnv,
                  body: sink MirBody): Body =
   ## Generates the ``CgNode`` IR corresponding to the input MIR `body`,
   ## using `idgen` to provide new IDs when creating symbols.
-  var cl = TranslateCl(graph: graph, idgen: idgen, owner: owner,
-                       locals: move body.locals)
+  var cl = TranslateCl(graph: graph, idgen: idgen, env: addr env,
+                       owner: owner, locals: move body.locals)
   # enable translation:
   cl.isActive = true
 

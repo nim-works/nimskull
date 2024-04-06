@@ -316,8 +316,54 @@ func addLocal(c: var TCtx, s: PSym): LocalId =
 proc empty(c: var TCtx, n: PNode): MirNode =
   MirNode(kind: mnkNone, typ: n.typ)
 
-func intLiteral(val: Int128, typ: PType): Value =
-  literal(newIntTypeNode(val, typ))
+func intLiteral(env: var MirEnv, val: BiggestInt, typ: PType): Value =
+  literal(mnkIntLit, env.getOrIncl(val), typ)
+
+func uintLiteral(env: var MirEnv, val: BiggestUInt, typ: PType): Value =
+  literal(mnkUIntLit, env.getOrIncl(val), typ)
+
+func floatLiteral(env: var MirEnv, val: BiggestFloat, typ: PType): Value =
+  literal(mnkFloatLit, env.getOrIncl(val), typ)
+
+func astLiteral(env: var MirEnv, val: PNode, typ: PType): Value =
+  literal(env.asts.add(val), typ)
+
+proc toIntLiteral(env: var MirEnv, val: Int128, typ: PType): Value =
+  ## Interprets `val` based on `typ`.
+  if isUnsigned(typ):
+    uintLiteral(env, val.toUInt, typ)
+  else:
+    intLiteral(env, val.toInt, typ)
+
+proc toIntLiteral(env: var MirEnv, n: PNode): Value =
+  ## Translates an integer value (represented by `n`) to its MIR
+  ## counterpart.
+  assert n.kind in nkIntLiterals
+  # use the type for deciding what whether it's a signed or unsigned value
+  case n.typ.skipTypes(abstractRange + {tyEnum}).kind
+  of tyInt..tyInt64, tyBool:
+    intLiteral(env, n.intVal, n.typ)
+  of tyUInt..tyUInt64, tyChar, tyPtr, tyPointer, tyProc:
+    uintLiteral(env, cast[BiggestUInt](n.intVal), n.typ)
+  else:
+    unreachable()
+
+proc toFloatLiteral(env: var MirEnv, n: PNode): Value =
+  ## Translates a float value (represented by `n`) to its MIR
+  ## counterpart.
+  assert n.kind in nkFloatLiterals
+  var val = n.floatVal
+  case n.typ.skipTypes(abstractRange).kind
+  of tyFloat, tyFloat64:
+    discard "nothing to adjust"
+  of tyFloat32:
+    # all code-generators would have to narrow the value at some point, so we
+    # help them by doing it here
+    val = val.float32.float64
+  else:
+    unreachable()
+
+  floatLiteral(env, val, n.typ)
 
 func strLiteral(env: var MirEnv, str: string, typ: PType): Value =
   literal(env.getOrIncl(str), typ)
@@ -548,7 +594,7 @@ proc genFieldCheck(c: var TCtx, access: Value, call: PNode, inverted: bool,
                           field: discr.position.int32):
           c.use access
       # inverted flag:
-      c.emitByVal literal(newIntTypeNode(ord(inverted), call.typ))
+      c.emitByVal intLiteral(c.env, ord(inverted), call.typ)
       # error message operand:
       c.emitByVal strLiteral(c.env, genFieldDefect(conf, field, discr),
                              c.graph.getSysType(call.info, tyString))
@@ -742,8 +788,7 @@ proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
     genCallee(c, n[1])
   of skTemplate:
     # for late template invocations, the callee template is an argument
-    c.subTree mnkArg:
-      c.use literal(newTreeIT(nkNimNodeLit, n[1].info, n[1].typ, n[1]))
+    c.emitByVal astLiteral(c.env, n[1], n[1].typ)
   else:
     unreachable(kind)
 
@@ -960,8 +1005,8 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
           let val = c.wrapTemp(typ): op(c, dest, n, m)
           c.buildDefectMagicCall mChckRange, typ:
             c.emitByVal val
-            c.emitByVal intLiteral(firstOrd(c.graph.config, typ), typ)
-            c.emitByVal intLiteral(lastOrd(c.graph.config, typ), typ)
+            c.emitByVal toIntLiteral(c.env, firstOrd(c.graph.config, typ), typ)
+            c.emitByVal toIntLiteral(c.env, lastOrd(c.graph.config, typ), typ)
         else:
           # no range check is needed
           op(c, dest, n, m)
@@ -1132,8 +1177,8 @@ proc genClosureConstr(c: var TCtx, n: PNode, isConsume: bool) =
         # we ensure that the nil literal has the correct type
         # TODO: prevent a ``nkNilLit`` with no type information from being
         #       created instead
-        c.use literal(newNodeIT(nkNilLit, n[1].info,
-                                c.graph.getSysType(n[1].info, tyNil)))
+        c.add MirNode(kind: mnkNilLit,
+                      typ: c.graph.getSysType(n[1].info, tyNil))
       else:
         genArgExpression(c, n[1], isConsume)
 
@@ -1638,11 +1683,10 @@ proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
       if it.typ != nil and it.typ.kind == tyTypeDesc:
         c.use genTypeExpr(c, it)
       elif it.kind == nkSym and it.sym.kind == skField:
-        # emit and asm support using raw symbols. So that we don't
-        # have to allow ``skField``s in general, we special case them
-        # here (by pushing them through the MIR phase boxed as
-        # ``mnkLiteral``s)
-        c.add MirNode(kind: mnkLiteral, lit: it, typ: it.sym.typ)
+        # emit and asm support using raw field symbols. For pushing them
+        # through to the code generators, they're quoted (i.e., boxed into
+        # an AST literal)
+        c.use astLiteral(c.env, it, it.sym.typ)
       else:
         # emit and asm statements support lvalue operands
         genOperand(c, it)
@@ -1689,10 +1733,18 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
     c.use toValue(c.env.procedures.add(n.sym), n.sym.typ)
   of pirLiteral:
     case n.orig.kind
+    of nkNilLit:
+      c.add MirNode(kind: mnkNilLit, typ: n.typ)
+    of nkIntLiterals:
+      c.use toIntLiteral(c.env, n.orig)
+    of nkFloatLiterals:
+      c.use toFloatLiteral(c.env, n.orig)
     of nkStrLiterals:
       c.use strLiteral(c.env, n.orig.strVal, n.typ)
+    of nkNimNodeLit:
+      c.use astLiteral(c.env, n.orig[0], n.typ)
     else:
-      c.use literal(n.orig)
+      unreachable(n.orig.kind)
   of pirLocal, pirGlobal, pirParam, pirConst:
     c.add nameNode(c, n.sym)
   of pirDeref:
@@ -2261,8 +2313,12 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
       bu.subTree MirNode(kind: mnkRange, len: 2):
         constToMirAux(bu, env, n[0])
         constToMirAux(bu, env, n[1])
-    of nkIntLiterals, nkFloatLiterals, nkNilLit:
-      bu.use literal(n)
+    of nkNilLit:
+      bu.add MirNode(kind: mnkNilLit, typ: n.typ)
+    of nkIntLiterals:
+      bu.use toIntLiteral(env, n)
+    of nkFloatLiterals:
+      bu.use toFloatLiteral(env, n)
     of nkStrLiterals:
       bu.use strLiteral(env, n.strVal, n.typ)
     of nkHiddenStdConv, nkHiddenSubConv:

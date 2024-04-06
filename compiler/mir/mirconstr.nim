@@ -75,12 +75,15 @@ func endNode*(k: MirNodeKind): MirNode {.inline.} =
 func typeLit*(t: PType): Value =
   Value(node: MirNode(kind: mnkType, typ: t))
 
-func literal*(n: PNode): Value =
-  assert n.kind notin nkStrKinds
-  Value(node: MirNode(kind: mnkLiteral, typ: n.typ, lit: n))
+func literal*(kind: range[mnkIntLit..mnkFloatLit], n: NumberId,
+              typ: PType): Value =
+  Value(node: MirNode(kind: kind, typ: typ, number: n))
 
 func literal*(str: StringId, typ: PType): Value =
   Value(node: MirNode(kind: mnkStrLit, typ: typ, strVal: str))
+
+func literal*(ast: AstId, typ: PType): Value =
+  Value(node: MirNode(kind: mnkAstLit, typ: typ, ast: ast))
 
 func temp*(typ: PType, id: LocalId): Value =
   Value(node: MirNode(kind: mnkTemp, typ: typ, local: id))
