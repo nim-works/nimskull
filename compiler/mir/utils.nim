@@ -142,12 +142,15 @@ func next(tree: MirTree, i: var int): lent MirNode =
   result = tree[i]
   inc i
 
+func idToStr[I](result: var string, id: I, open: string) =
+  result.add open
+  result.addInt id.uint32
+  result.add ">"
+
 func addName[I](result: var string, id: I, open: string, c: RenderCtx) =
   if c.env.isNil:
     # just render the ID
-    result.add open
-    result.addInt id.uint32
-    result.add ">"
+    idToStr(result, id, open)
   else:
     result.add c.env[][id].name.s
 
@@ -155,9 +158,7 @@ func addLocalName(result: var string, id: LocalId, open: string,
                   c: RenderCtx) =
   if c.body.isNil:
     # render just the ID
-    result.add open
-    result.addInt id.uint32
-    result.add ">"
+    idToStr(result, id, open)
   else:
     result.add c.body[][id].name.s
 
@@ -169,9 +170,7 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     result.addLocalName(n.local, "<L", c)
   of mnkConst:
     if isAnon(n.cnst):
-      result.add "<D" # "D" for "Data"
-      result.addInt extract(n.cnst).uint32
-      result.add ">"
+      idToStr(result, extract(n.cnst), "<D") # "D" for "Data"
     else:
       result.addName(n.cnst, "<C", c)
   of mnkGlobal:
@@ -182,8 +181,24 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     result.add "_" & $n.local.int
   of mnkNone:
     result.add "<none>"
-  of mnkLiteral:
-    result.add $n.lit
+  of mnkNilLit:
+    result.add "nil"
+  of mnkIntLit:
+    if c.env.isNil:
+      idToStr(result, n.number, "<Int: ")
+    else:
+      result.addInt c.env[].getInt(n.number)
+  of mnkUIntLit:
+    if c.env.isNil:
+      idToStr(result, n.number, "<UInt: ")
+    else:
+      result.addInt c.env[].getUInt(n.number)
+      result.add "'u"
+  of mnkFloatLit:
+    if c.env.isNil:
+      idToStr(result, n.number, "<Float: ")
+    else:
+      result.addFloat c.env[].getFloat(n.number)
   of mnkStrLit:
     if c.env.isNil:
       result.add "<Str: "
@@ -191,6 +206,10 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
       result.add ">"
     else:
       result.addQuoted c.env[][n.strVal]
+  of mnkAstLit:
+    # could also be pretty-printed, but, given the sparse usage, doesn't
+    # warrant the extra effort at the moment
+    result.add "<Ast>"
   of mnkType:
     result.add "type("
     result.add $n.typ
