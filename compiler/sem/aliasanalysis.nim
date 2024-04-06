@@ -84,10 +84,10 @@ func isSameRoot(an, bn: MirNode): bool =
     unreachable(an.kind)
 
 func sameIndex*(a, b: MirNode): Ternary =
-  if a.kind != b.kind or a.kind != mnkLiteral:
+  if a.kind != b.kind or a.kind notin {mnkIntLit, mnkUIntLit}:
     maybe
   else:
-    if a.lit.intVal == b.lit.intVal:
+    if a.number == b.number:
       yes
     else:
       no

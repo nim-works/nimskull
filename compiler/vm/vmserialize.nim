@@ -76,7 +76,7 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
     # nothing to do, only nil literals are allowed here
     discard next()
   of akRef:
-    if tree[n].kind == mnkLiteral:
+    if tree[n].kind == mnkNilLit:
       discard next() # nothing to do for 'nil' literals
     else:
       # allocate a managed heap location and fill it:
@@ -112,9 +112,8 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
   of akObject:
     # the source can either be an object or tuple constructor
     case tree[n].kind
-    of mnkLiteral:
+    of mnkNilLit:
       # special case: nil closure literal
-      assert tree[n].lit.kind == nkNilLit
       # only skip the node, don't initialize anything
       discard next()
     of mnkTupleConstr, mnkClosureConstr:
