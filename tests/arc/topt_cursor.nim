@@ -26,7 +26,7 @@ scope:
   scope:
     def_cursor filename: string = "debug.txt"
     def_cursor _3: string = filename
-    def f: File = open(arg _3, arg fmRead, arg 8000) (raises)
+    def f: File = open(arg _3, arg 0'u, arg 8000) (raises)
     try:
       scope:
         try:
