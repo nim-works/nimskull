@@ -146,7 +146,7 @@ proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
 proc genAssignment(p: BProc, dest, src: TLoc) =
   # This function replaces all other methods for generating
   # the assignment operation in C.
-  case mapType(p.config, dest.t, skVar)
+  case mapType(p.config, dest.t)
   of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
      ctFloat, ctFloat32, ctFloat64,
      ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64,
@@ -465,7 +465,7 @@ proc unaryArith(p: BProc, e, x: CgNode, d: var TLoc, op: TMagic) =
 proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
   let
     src = e.operand
-    mt = mapType(p.config, src.typ, mapTypeChooser(p, src))
+    mt = mapType(p.config, src.typ)
   if mt in {ctArray, ctPtrToArray} and lfEnforceDeref notin d.flags:
     # XXX the amount of hacks for C's arrays is incredible, maybe we should
     # simply wrap them in a struct? --> Losing auto vectorization then?
@@ -503,11 +503,11 @@ proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
     else:
       # in C89, dereferencing a pointer requires a pointer to complete type.
       # Make sure that the element type is fully defined by querying its name:
-      discard getTypeDesc(p.module, e.typ, skVar)
+      discard getTypeDesc(p.module, e.typ)
       putIntoDest(p, d, e, "(*$1)" % [rdLoc(a)], a.storage)
 
 proc genAddr(p: BProc, e: CgNode, mutate: bool, d: var TLoc) =
-  if mapType(p.config, e.operand.typ, mapTypeChooser(p, e.operand)) == ctArray:
+  if mapType(p.config, e.operand.typ) == ctArray:
     expr(p, e.operand, d)
   else:
     var a: TLoc
@@ -1681,10 +1681,10 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mNewSeqOfCap: genNewSeqOfCap(p, e, d)
   of mSizeOf:
     let t = e[1].typ.skipTypes({tyTypeDesc})
-    putIntoDest(p, d, e, "((NI)sizeof($1))" % [getTypeDesc(p.module, t, skVar)])
+    putIntoDest(p, d, e, "((NI)sizeof($1))" % [getTypeDesc(p.module, t)])
   of mAlignOf:
     let t = e[1].typ.skipTypes({tyTypeDesc})
-    putIntoDest(p, d, e, "((NI)NIM_ALIGNOF($1))" % [getTypeDesc(p.module, t, skVar)])
+    putIntoDest(p, d, e, "((NI)NIM_ALIGNOF($1))" % [getTypeDesc(p.module, t)])
   of mOffsetOf:
     var dotExpr: CgNode
     case e[1].kind
@@ -1693,7 +1693,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     else:
       internalError(p.config, e.info, "unknown ast")
     let t = dotExpr[0].typ.skipTypes({tyTypeDesc})
-    let tname = getTypeDesc(p.module, t, skVar)
+    let tname = getTypeDesc(p.module, t)
     let member =
       if dotExpr.kind == cnkTupleAccess:
         "Field" & rope(dotExpr[1].intVal)
@@ -1964,7 +1964,7 @@ proc useConst*(m: BModule; id: ConstId) =
   # one the constant is part of
   if q != m and not containsOrIncl(m.declaredThings, sym.id):
     let headerDecl = "extern NIM_CONST $1 $2;$n" %
-        [getTypeDesc(m, sym.typ, skVar), q.consts[id].r]
+        [getTypeDesc(m, sym.typ), q.consts[id].r]
     m.s[cfsData].add(headerDecl)
 
 proc genConstDefinition*(q: BModule; id: ConstId) =

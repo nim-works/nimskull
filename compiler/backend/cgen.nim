@@ -363,55 +363,14 @@ include ccgtypes
 
 # ------------------------------ Manager of temporaries ------------------
 
-func mapTypeChooser(p: BProc, n: CgNode): TSymKind =
-  case n.kind
-  of cnkField:
-    skField
-  of cnkProc:
-    skProc
-  of cnkConst:
-    skConst
-  of cnkGlobal:
-    skVar
-  of cnkLocal:
-    if n.local == resultId:
-      skResult
-    elif p.locals[n.local].k == locParam:
-      skParam
-    else:
-      skVar
-  else:
-    skVar
-
-func mapTypeChooser(a: TLoc): TSymKind =
-  let n = a.lode
-  case n.kind
-  of cnkField:
-    skField
-  of cnkProc:
-    skProc
-  of cnkConst:
-    skConst
-  of cnkGlobal:
-    skVar
-  of cnkLocal:
-    if n.local == resultId:
-      skResult
-    elif a.k == locParam:
-      skParam
-    else:
-      skVar
-  else:
-    skVar
-
 proc addrLoc(conf: ConfigRef; a: TLoc): Rope =
   result = a.r
-  if lfIndirect notin a.flags and mapType(conf, a.t, mapTypeChooser(a)) != ctArray:
+  if lfIndirect notin a.flags and mapType(conf, a.t) != ctArray:
     result = "(&" & result & ")"
 
 proc byRefLoc(p: BProc; a: TLoc): Rope =
   result = a.r
-  if lfIndirect notin a.flags and mapType(p.config, a.t, mapTypeChooser(a)) != ctArray:
+  if lfIndirect notin a.flags and mapType(p.config, a.t) != ctArray:
     result = "(&" & result & ")"
 
 proc rdCharLoc(a: TLoc): Rope =
@@ -471,14 +430,13 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
         let tmp = defaultValueExpr(p, objType, a.lode.info)
         linefmt(p, cpsStmts,
             "#nimCopyMem((void*)$1, (NIM_CONST void*)&$2, sizeof($3));$n",
-            [rdLoc(a), rdLoc(tmp), getTypeDesc(p.module, objType, mapTypeChooser(a))])
+            [rdLoc(a), rdLoc(tmp), getTypeDesc(p.module, objType)])
       else:
         let tmp = defaultValueExpr(p, t, a.lode.info)
         genAssignment(p, a, tmp)
 
 proc constructLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  let kind = mapTypeChooser(loc)
-  case mapType(p.config, loc.t, kind)
+  case mapType(p.config, loc.t)
   of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
      ctFloat, ctFloat32, ctFloat64,
      ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64:
@@ -491,7 +449,7 @@ proc constructLoc(p: BProc, loc: var TLoc; doInitObj = true) =
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
   of ctArray, ctStruct, ctNimOpenArray:
     linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-            [addrLoc(p.config, loc), getTypeDesc(p.module, loc.t, kind)])
+            [addrLoc(p.config, loc), getTypeDesc(p.module, loc.t)])
 
     if doInitObj:
       genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
@@ -512,7 +470,7 @@ proc initLocalVar(p: BProc, v: LocalId, immediateAsgn: bool) =
 proc getTemp(p: BProc, t: PType, result: var TLoc) =
   inc(p.labels)
   result.r = "T" & rope(p.labels) & "_"
-  linefmt(p, cpsLocals, "$1 $2;$n", [getTypeDesc(p.module, t, skVar), result.r])
+  linefmt(p, cpsLocals, "$1 $2;$n", [getTypeDesc(p.module, t), result.r])
   result.k = locTemp
   result.lode = lodeTyp t
   result.storage = OnStack
@@ -542,7 +500,7 @@ proc localVarDecl(p: BProc; n: CgNode, decl: Local): Rope =
   if decl.alignment > 0:
     result.addf("NIM_ALIGN($1) ", [$decl.alignment])
 
-  result.add getTypeDesc(p.module, decl.typ, skVar)
+  result.add getTypeDesc(p.module, decl.typ)
   if true:
     if sfRegister in decl.flags: result.add(" register")
     if sfVolatile in decl.flags: result.add(" volatile")
@@ -582,7 +540,7 @@ proc defineGlobalVar*(m: BModule, id: GlobalId) =
     if exfNoDecl notin s.extFlags:
       incl(m.declaredThings, s.id)
       var decl = ""
-      var td = getTypeDesc(m, m.globals[id].t, skVar)
+      var td = getTypeDesc(m, m.globals[id].t)
       if true:
         if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
           decl.addf "NIM_ALIGN($1) ", [rope(s.alignment)]
@@ -674,7 +632,7 @@ proc fillDynlibProcLoc(m: BModule, id: ProcedureId) =
 proc symInDynamicLib*(m: BModule, id: ProcedureId) =
   fillDynlibProcLoc(m, id)
   m.s[cfsVars].addf("$2 $1;$n",
-                    [m.procs[id].name, getTypeDesc(m, m.g.env[id].typ, skVar)])
+                    [m.procs[id].name, getTypeDesc(m, m.g.env[id].typ)])
 
 
 proc varInDynamicLib(m: BModule, id: GlobalId) =
@@ -684,7 +642,7 @@ proc varInDynamicLib(m: BModule, id: GlobalId) =
   incl(m.globals[id].flags, lfIndirect)
   m.globals[id].r = tmp  # from now on we only need the internal name
   m.s[cfsVars].addf("$2* $1;$n",
-      [tmp, getTypeDesc(m, sym.typ, skVar)])
+      [tmp, getTypeDesc(m, sym.typ)])
 
 proc cgsym(m: BModule, name: string): Rope =
   let sym = magicsys.getCompilerProc(m.g.graph, name)
@@ -923,7 +881,7 @@ proc genVarPrototype(m: BModule, id: GlobalId) =
       if sym.kind in {skLet, skVar, skField, skForVar} and sym.alignment > 0:
         m.s[cfsVars].addf "NIM_ALIGN($1) ", [rope(sym.alignment)]
       m.s[cfsVars].add("extern ")
-      m.s[cfsVars].add(getTypeDesc(m, sym.typ, skVar))
+      m.s[cfsVars].add(getTypeDesc(m, sym.typ))
       if exfDynamicLib in sym.extFlags: m.s[cfsVars].add("*")
       if sfRegister in sym.flags: m.s[cfsVars].add(" register")
       if sfVolatile in sym.flags: m.s[cfsVars].add(" volatile")
