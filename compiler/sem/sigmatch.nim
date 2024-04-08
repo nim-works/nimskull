@@ -285,6 +285,15 @@ proc writeMatches*(c: TCandidate) =
   echo "  inheritance: ", c.inheritancePenalty
 
 proc cmpCandidates*(a, b: TCandidate): int =
+  # an non-erroneous candidate is always preferred over a non-erroneous one.
+  # This is only necessary to allow recovery through ``untyped``
+  if a.fauxMatch == tyError:
+    if b.fauxMatch != tyError:
+      return -1
+    # for two errorneous candidates, pick the better one
+  elif b.fauxMatch == tyError:
+    return 1
+
   result = a.exactMatches - b.exactMatches
   if result != 0: return
   result = a.genericMatches - b.genericMatches
