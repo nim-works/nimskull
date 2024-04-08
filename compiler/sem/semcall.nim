@@ -394,7 +394,11 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
     c.config.internalAssert result.state == csMatch
     #writeMatches(result)
     #writeMatches(alt)
-    if c.config.m.errorOutputs == {}:
+    if result.fauxMatch == tyError:
+      # don't report an ambiguity error when the candidates both only matched
+      # due to errors
+      assert alt.fauxMatch == tyError
+    elif c.config.m.errorOutputs == {}:
       # quick error message for performance of 'compiles' built-in:
       globalReport(c.config, n.info, reportSem(rsemAmbiguous))
 
