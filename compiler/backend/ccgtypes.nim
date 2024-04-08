@@ -470,9 +470,6 @@ proc genRecordFieldsAux(m: BModule, n: PNode,
     if fieldType.kind == tyUncheckedArray:
       result.addf("$1 $2[SEQ_DECL_SIZE];$n",
           [getTypeDescAux(m, fieldType.elemType, check), sname])
-    elif fieldType.kind == tySequence:
-      # we need to use a weak dependency here for trecursive_table.
-      result.addf("$1$3 $2;$n", [getTypeDescWeak(m, field.typ, check), sname, noAlias])
     elif field.bitsize != 0:
       result.addf("$1$4 $2:$3;$n", [getTypeDescAux(m, field.typ, check), sname, rope($field.bitsize), noAlias])
     else:
@@ -591,12 +588,10 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet): Rope =
         et = elemType(etB)
       etB = et.skipTypes(abstractInst)
     case etB.kind
-    of tyObject, tyTuple:
+    of tyObject, tyTuple, tySequence:
       # no restriction! We have a forward declaration for structs
       let name = getTypeForward(m, et, hashType et)
       result = name & star
-    of tySequence:
-        result = getTypeDescWeak(m, et, check) & star
     of tyOpenArray:
       result = getTypeDescAux(m, etB, check)
     else:
