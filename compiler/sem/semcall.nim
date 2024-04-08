@@ -530,7 +530,10 @@ proc semResolvedCall(c: PContext, x: TCandidate,
   if x.hasFauxMatch:
     result = x.call
     result[0] = newSymNode(finalCallee, getCallLineInfo(result[0]))
-    if containsGenericType(result.typ) or x.fauxMatch == tyUnknown:
+    if x.fauxMatch == tyError:
+      # at least one argument expression was erroneous
+      result = c.config.wrapError(result)
+    elif containsGenericType(result.typ) or x.fauxMatch == tyUnknown:
       result.typ = newTypeS(x.fauxMatch, c)
       if result.typ.kind == tyError: incl result.typ.flags, tfCheckedForDestructor
     return
