@@ -294,29 +294,6 @@ proc getTypeDescWeak(m: BModule; t: PType; check: var IntSet): Rope =
   of tyObject, tyTuple:
     result = getTypeForward(m, t, hashType(t))
     pushType(m, t)
-  of tySequence:
-      let sig = hashType(t)
-      m.config.internalAssert(skipTypes(etB[0], typedescInst).kind != tyEmpty,
-                              "cannot map the empty seq type to a C type")
-
-      result = cacheGetType(m.forwTypeCache, sig)
-      if result == "":
-        result = getTypeName(m, t, sig)
-        if not isImportedType(t):
-          m.forwTypeCache[sig] = result
-          addForwardStructFormat(m, rope"struct", result)
-          let payload = result & "_Content"
-          addForwardStructFormat(m, rope"struct", payload)
-
-      if cacheGetType(m.typeCache, sig) == "":
-        m.typeCache[sig] = result
-        #echo "adding ", sig, " ", typeToString(t), " ", m.module.name.s
-        appcg(m, m.s[cfsTypes],
-          "struct $1 {$N" &
-          "  NI len; $1_Content* p;$N" &
-          "};$N", [result])
-
-      pushType(m, t)
   else:
     result = getTypeDescAux(m, t, check)
 
@@ -329,16 +306,12 @@ proc seqV2ContentType(m: BModule; t: PType; check: var IntSet) =
   let sig = hashType(t)
   let result = cacheGetType(m.typeCache, sig)
   if result == "":
+    # the struct definition hasn't been emitted yet
     discard getTypeDescAux(m, t, check)
   else:
-    # little hack for now to prevent multiple definitions of the same
-    # Seq_Content:
-    appcg(m, m.s[cfsTypes], """$N
-$3ifndef $2_Content_PP
-$3define $2_Content_PP
-struct $2_Content { NI cap; $1 data[SEQ_DECL_SIZE];};
-$3endif$N
-      """, [getTypeDescAux(m, t.skipTypes(abstractInst)[0], check), result, rope"#"])
+    # emit the payload type:
+    appcg(m, m.s[cfsTypes], "struct $2_Content { NI cap; $1 data[SEQ_DECL_SIZE];};$N",
+          [getTypeDescAux(m, t.skipTypes(abstractInst)[0], check), result])
 
 proc prepareParameters(m: BModule, t: PType): seq[TLoc] =
   ## Sets up and returns the locs of the parameter symbols for procedure
@@ -667,7 +640,31 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet): Rope =
             "void* ClE_0;$n} $1;$n",
              [result, rettype, desc])
   of tySequence:
-      result = getTypeDescWeak(m, t, check)
+    # a sequence type is two structs underneath: one for the seq itself, and
+    # one for its payload
+    m.config.internalAssert(skipTypes(t[0], typedescInst).kind != tyEmpty,
+                            "cannot map the empty seq type to a C type")
+
+    result = cacheGetType(m.forwTypeCache, sig)
+    if result == "":
+      result = getTypeName(m, origTyp, sig)
+      if not isImportedType(t):
+        m.forwTypeCache[sig] = result
+        addForwardStructFormat(m, structOrUnion(t), result)
+
+    # it's possible that the element type cannot be emitted yet because it
+    # depends on the sequence type (a cyclic type). For this reason, the
+    # payload type is only forward-declared here, and the actual definition
+    # is emitted later
+    addForwardStructFormat(m, structOrUnion(t), result & "_Content")
+    # note: force push the type (by not using ``pushType``)
+    m.typeStack.add origTyp
+
+    m.typeCache[sig] = result
+    appcg(m, m.s[cfsTypes],
+      "struct $1 {$N" &
+      "  NI len; $1_Content* p;$N" &
+      "};$N", [result])
   of tyUncheckedArray:
     result = getTypeName(m, origTyp, sig)
     m.typeCache[sig] = result
