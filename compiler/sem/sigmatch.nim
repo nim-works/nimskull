@@ -2284,6 +2284,10 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
   let oldInheritancePenalty = m.inheritancePenalty
   var r = typeRel(m, f, a)
 
+  if a != nil and a.kind == tyError:
+    # if the argument is an error, a match, if any, is a faux match
+    m.fauxMatch = tyError
+
   # This special typing rule for macros and templates is not documented
   # anywhere and breaks symmetry. It's hard to get rid of though, my
   # custom seqs example fails to compile without this:
@@ -2407,10 +2411,10 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       result = implicitConv(nkHiddenSubConv, f, arg, m, c)
   of isNone:
     # do not do this in ``typeRel`` as it then can't infer T in ``ref T``:
-    # xxx: likely a latent bug, as tyError is simply a const equal to tyProxy
-    if a.kind in {tyProxy, tyUnknown}:
+    if a.kind in {tyError, tyUnknown}:
       inc(m.genericMatches)
-      m.fauxMatch = a.kind
+      if m.fauxMatch != tyError: # don't go back from error matches
+        m.fauxMatch = a.kind
       result = arg
       return
     elif a.kind == tyVoid and f.matchesVoidProc and arg.kind == nkStmtList:
