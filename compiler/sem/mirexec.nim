@@ -256,14 +256,14 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
     # handles aren't tracked however, the operation is conservatively
     # treated as a mutation
     emitLvalueOp(env, opMutate, tree, at, tree.operand(source))
-  of mnkView:
+  of mnkView, mnkMutView:
     # if the created view supports mutation, treat the creation as a
     # mutation itself
     let opc =
-      if tree[source].typ.kind == tyVar: opMutate
-      else:                              opUse
+      if tree[source].kind == mnkView: opUse
+      else:                            opMutate
     emitLvalueOp(env, opc, tree, at, tree.operand(source))
-  of mnkToSlice:
+  of mnkToSlice, mnkMutToSlice:
     # slices aren't tracked at the moment, so the mere creation of a slice is
     # treated as a usage of the sequence. If the resulting openArray supports
     # mutation, creation of the slice is treated as a mutation. To ensure the
@@ -274,8 +274,8 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
       emitLvalueOp(env, opUse, tree, at, tree.operand(source, 2))
 
     let opc =
-      if tree[source].typ.kind == tyVar: opMutate
-      else:                              opUse
+      if tree[source].kind == mnkToSlice: opUse
+      else:                               opMutate
     emitLvalueOp(env, opc, tree, at, tree.operand(source, 0))
   of mnkCopy, mnkSink:
     # until it's collapsed, a sink is conservatively treated as only a

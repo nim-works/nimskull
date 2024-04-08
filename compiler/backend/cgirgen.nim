@@ -971,14 +971,14 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
     op cnkConv, valueToIr(tree, cl, cr)
   of mnkStdConv:
     op cnkHiddenConv, valueToIr(tree, cl, cr)
-  of mnkToSlice:
+  of mnkToSlice, mnkMutToSlice:
     treeOp cnkToSlice:
       res.add valueToIr(tree, cl, cr)
   of mnkAddr:
     op cnkAddr, lvalueToIr(tree, cl, cr)
   of mnkDeref:
     op cnkDeref, atomToIr(tree, cl, cr)
-  of mnkView:
+  of mnkView, mnkMutView:
     op cnkHiddenAddr, lvalueToIr(tree, cl, cr)
   of mnkDerefView:
     op cnkDerefView, atomToIr(tree, cl, cr)

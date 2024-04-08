@@ -350,10 +350,10 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
   of mnkAddr:
     tree "addr ":
       valueToStr()
-  of mnkView:
+  of mnkView, mnkMutView:
     tree "borrow ":
       valueToStr()
-  of mnkToSlice:
+  of mnkToSlice, mnkMutToSlice:
     tree "toOpenArray ":
       commaSeparated:
         valueToStr()

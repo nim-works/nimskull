@@ -132,6 +132,7 @@ type
     mnkDeref  ## dereference a ``ptr`` or ``ref`` value
 
     mnkView      ## create a first-class safe alias from an lvalue
+    mnkMutView   ## create a safe mutable view from an lvalue
     mnkDerefView ## dereference a first-class safe alias
 
     mnkStdConv    ## a standard conversion. Produce a new value.
@@ -148,6 +149,7 @@ type
                   ##   upper bound
     # XXX: consider using a separate operator for the slice-from-sub-sequence
     #      operation
+    mnkMutToSlice ## version of ``mnkMutToSlice`` for creating a mutable slice
 
     mnkCall   ## invoke a procedure and pass along the provided arguments.
               ## Used for both static and dynamic calls
@@ -343,7 +345,7 @@ const
                          mnkAddr, mnkDeref, mnkView, mnkDerefView, mnkStdConv,
                          mnkConv, mnkCast, mnkRaise, mnkTag, mnkArg,
                          mnkName, mnkConsume, mnkVoid, mnkCopy, mnkMove,
-                         mnkSink, mnkDestroy}
+                         mnkSink, mnkDestroy, mnkMutView, mnkMutToSlice}
     ## Nodes that start sub-trees but that always have a single sub node.
 
   ArgumentNodes* = {mnkArg, mnkName, mnkConsume}
@@ -380,8 +382,8 @@ const
                       mnkPathConv, mnkDeref, mnkDerefView, mnkTemp, mnkAlias,
                       mnkLocal, mnkParam, mnkConst, mnkGlobal}
   RvalueExprKinds* = {mnkType, mnkProc, mnkConv, mnkStdConv, mnkCast, mnkAddr,
-                      mnkView, mnkToSlice} + UnaryOps + BinaryOps +
-                     LiteralDataNodes
+                      mnkView, mnkMutView, mnkToSlice, mnkMutToSlice} +
+                     UnaryOps + BinaryOps + LiteralDataNodes
   ExprKinds* =       {mnkCall, mnkCheckedCall, mnkSetConstr, mnkArrayConstr,
                       mnkSeqConstr, mnkTupleConstr, mnkClosureConstr,
                       mnkObjConstr} + LvalueExprKinds + RvalueExprKinds +

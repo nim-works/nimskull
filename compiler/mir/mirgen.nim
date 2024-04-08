@@ -1728,6 +1728,11 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
   template recurse() =
     genx(c, e, i - 1)
 
+  proc pick(typ: PType, mut, nonMut: MirNodeKind): MirNodeKind =
+    case typ.skipTypes(abstractInst).kind
+    of tyVar: mut
+    else:     nonMut
+
   case n.kind
   of pirProc:
     c.use toValue(c.env.procedures.add(n.sym), n.sym.typ)
@@ -1818,7 +1823,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
     c.buildOp mnkAddr, n.typ:
       recurse()
   of pirView:
-    c.buildOp mnkView, n.typ:
+    c.buildOp pick(n.typ, mnkMutView, mnkView), n.typ:
       recurse()
   of pirCast:
     c.buildOp mnkCast, n.typ:
@@ -1830,12 +1835,13 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
     c.buildOp mnkStdConv, n.typ:
       recurse()
   of pirToSlice:
-    c.buildOp mnkToSlice, n.typ:
+    c.buildOp pick(n.typ, mnkMutToSlice, mnkToSlice), n.typ:
       recurse()
   of pirToSubSlice:
     # the array operand is a PMIR expression already, but the operands
     # specifying the bounds are not
     let
+      op = pick(n.typ, mnkMutToSlice, mnkToSlice)
       a = n.orig[2]
       b = n.orig[3]
     if optBoundsCheck in c.userOptions and needsBoundCheck(n.orig[1], a, b):
@@ -1849,12 +1855,12 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
           c.emitByVal lo
           c.emitByVal hi
 
-      c.buildTree mnkToSlice, n.typ:
+      c.buildTree op, n.typ:
         c.use arr
         c.use lo
         c.use hi
     else:
-      c.buildTree mnkToSlice, n.typ:
+      c.buildTree op, n.typ:
         recurse()
         genArgExpression(c, a, sink=false)
         genArgExpression(c, b, sink=false)

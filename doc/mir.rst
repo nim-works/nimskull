@@ -121,13 +121,16 @@ Semantics
          | Addr     LVALUE               # create a pointer from the lvalue
          | View     LVALUE               # create a view (`var`/`lent`) of the
                                          # lvalue
+         | MutView  LVALUE
          | ToSlice  VALUE                # create an `openArray` slice of
                                          # the full sequence
+         | MutToSlice LVALUE
          | ToSlice  VALUE, VALUE, VALUE  # create an `openArray` slice from the
                                          # first operand, starting at the lower
                                          # bound (second parameter) and ending
                                          # at the upper bound (inclusive, third
                                          # parameter)
+         | MutToSlice LVALUE, VALUE, VALUE
 
   ASGN_SRC = RVALUE
            | VALUE
