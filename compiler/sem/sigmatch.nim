@@ -140,6 +140,7 @@ proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PType) =
   c.calleeSym = nil
   c.call = nil
   c.baseTypeMatch = false
+  c.fauxMatch = tyNone
   c.genericConverter = false
   c.inheritancePenalty = 0
   c.error = SemCallMismatch()
