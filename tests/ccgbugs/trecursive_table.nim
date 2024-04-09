@@ -13,5 +13,5 @@ type
     of eY:
       nil
 
-proc p*(x: Table[string, T]) =
+proc p*(x: Table[string, T]) {.exportc.} =
   discard
