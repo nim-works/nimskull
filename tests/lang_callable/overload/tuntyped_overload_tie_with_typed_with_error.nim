@@ -1,14 +1,10 @@
 discard """
   description: '''
-    Ensure that overloads separated by `typed` and `untyped` parameters tie,
-    resulting in an ambiguity error, if that argument is an `nkError`.
-
-    This isn't ideal, but it works until `untyped` parameters result in eager
-    matching over any other parameter type.
+    Ensure that overloads separated by `typed` and `untyped` parameters don't
+    result in a tie, if the argument in question is erroneous (i.e., an
+    `nkError`).
   '''
-  errormsg: "ambiguous call"
-  line: 22
-  column: 2
+  action: compile
 """
 
 import std/macros

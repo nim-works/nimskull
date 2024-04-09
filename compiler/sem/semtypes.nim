@@ -1714,7 +1714,15 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
     m.isNoCall = true
     matches(c, n, copyNodeWithKids(n), m)
 
-    if m.state != csMatch:
+    case m.state
+    of csMatch:
+      if m.fauxMatch == tyError:
+        # not a real match, report the errors and return
+        # XXX: this needs to use proper error propagation
+        for it in walkErrors(c.config, m.call):
+          localReport(c.config, it)
+        return newOrPrevType(tyError, prev, c)
+    else:
       localReport(c.config, n.info):
         block:
           var r = reportTyp(rsemCannotInstantiateWithParameter, t, ast = n)
