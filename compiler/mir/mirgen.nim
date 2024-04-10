@@ -1728,10 +1728,15 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
   template recurse() =
     genx(c, e, i - 1)
 
-  proc pick(typ: PType, mut, nonMut: MirNodeKind): MirNodeKind =
-    case typ.skipTypes(abstractInst).kind
-    of tyVar: mut
-    else:     nonMut
+  proc viewOp(kind: MirNodeKind, typ: PType): MirNodeKind {.nimcall.} =
+    # pick the correct kind based on the var-ness
+    let isMutable = typ.skipTypes(abstractInst).kind == tyVar
+    case kind
+    of mnkView:
+      if isMutable: mnkMutView    else: mnkView
+    of mnkToSlice:
+      if isMutable: mnkToMutSlice else: mnkToSlice
+    else: unreachable()
 
   case n.kind
   of pirProc:
@@ -1823,7 +1828,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
     c.buildOp mnkAddr, n.typ:
       recurse()
   of pirView:
-    c.buildOp pick(n.typ, mnkMutView, mnkView), n.typ:
+    c.buildOp viewOp(mnkView, n.typ), n.typ:
       recurse()
   of pirCast:
     c.buildOp mnkCast, n.typ:
@@ -1835,13 +1840,13 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
     c.buildOp mnkStdConv, n.typ:
       recurse()
   of pirToSlice:
-    c.buildOp pick(n.typ, mnkToMutSlice, mnkToSlice), n.typ:
+    c.buildOp viewOp(mnkToSlice, n.typ), n.typ:
       recurse()
   of pirToSubSlice:
     # the array operand is a PMIR expression already, but the operands
     # specifying the bounds are not
     let
-      op = pick(n.typ, mnkToMutSlice, mnkToSlice)
+      op = viewOp(mnkToSlice, n.typ)
       a = n.orig[2]
       b = n.orig[3]
     if optBoundsCheck in c.userOptions and needsBoundCheck(n.orig[1], a, b):
