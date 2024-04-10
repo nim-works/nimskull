@@ -353,7 +353,7 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
   of mnkView, mnkMutView:
     tree "borrow ":
       valueToStr()
-  of mnkToSlice, mnkMutToSlice:
+  of mnkToSlice, mnkToMutSlice:
     tree "toOpenArray ":
       commaSeparated:
         valueToStr()

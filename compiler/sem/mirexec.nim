@@ -263,7 +263,7 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
       if tree[source].kind == mnkView: opUse
       else:                            opMutate
     emitLvalueOp(env, opc, tree, at, tree.operand(source))
-  of mnkToSlice, mnkMutToSlice:
+  of mnkToSlice, mnkToMutSlice:
     # slices aren't tracked at the moment, so the mere creation of a slice is
     # treated as a usage of the sequence. If the resulting openArray supports
     # mutation, creation of the slice is treated as a mutation. To ensure the

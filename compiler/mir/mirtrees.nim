@@ -149,7 +149,7 @@ type
                   ##   upper bound
     # XXX: consider using a separate operator for the slice-from-sub-sequence
     #      operation
-    mnkMutToSlice ## version of ``mnkMutToSlice`` for creating a mutable slice
+    mnkToMutSlice ## version of ``mnkToSlice`` for creating a mutable slice
 
     mnkCall   ## invoke a procedure and pass along the provided arguments.
               ## Used for both static and dynamic calls
@@ -345,7 +345,7 @@ const
                          mnkAddr, mnkDeref, mnkView, mnkDerefView, mnkStdConv,
                          mnkConv, mnkCast, mnkRaise, mnkTag, mnkArg,
                          mnkName, mnkConsume, mnkVoid, mnkCopy, mnkMove,
-                         mnkSink, mnkDestroy, mnkMutView, mnkMutToSlice}
+                         mnkSink, mnkDestroy, mnkMutView, mnkToMutSlice}
     ## Nodes that start sub-trees but that always have a single sub node.
 
   ArgumentNodes* = {mnkArg, mnkName, mnkConsume}
@@ -382,7 +382,7 @@ const
                       mnkPathConv, mnkDeref, mnkDerefView, mnkTemp, mnkAlias,
                       mnkLocal, mnkParam, mnkConst, mnkGlobal}
   RvalueExprKinds* = {mnkType, mnkProc, mnkConv, mnkStdConv, mnkCast, mnkAddr,
-                      mnkView, mnkMutView, mnkToSlice, mnkMutToSlice} +
+                      mnkView, mnkMutView, mnkToSlice, mnkToMutSlice} +
                      UnaryOps + BinaryOps + LiteralDataNodes
   ExprKinds* =       {mnkCall, mnkCheckedCall, mnkSetConstr, mnkArrayConstr,
                       mnkSeqConstr, mnkTupleConstr, mnkClosureConstr,

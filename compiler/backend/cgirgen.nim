@@ -971,7 +971,7 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
     op cnkConv, valueToIr(tree, cl, cr)
   of mnkStdConv:
     op cnkHiddenConv, valueToIr(tree, cl, cr)
-  of mnkToSlice, mnkMutToSlice:
+  of mnkToSlice, mnkToMutSlice:
     treeOp cnkToSlice:
       res.add valueToIr(tree, cl, cr)
   of mnkAddr:

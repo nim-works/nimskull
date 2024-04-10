@@ -1835,13 +1835,13 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
     c.buildOp mnkStdConv, n.typ:
       recurse()
   of pirToSlice:
-    c.buildOp pick(n.typ, mnkMutToSlice, mnkToSlice), n.typ:
+    c.buildOp pick(n.typ, mnkToMutSlice, mnkToSlice), n.typ:
       recurse()
   of pirToSubSlice:
     # the array operand is a PMIR expression already, but the operands
     # specifying the bounds are not
     let
-      op = pick(n.typ, mnkMutToSlice, mnkToSlice)
+      op = pick(n.typ, mnkToMutSlice, mnkToSlice)
       a = n.orig[2]
       b = n.orig[3]
     if optBoundsCheck in c.userOptions and needsBoundCheck(n.orig[1], a, b):
