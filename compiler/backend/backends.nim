@@ -281,7 +281,7 @@ iterator deps*(tree: MirTree): lent MirNode =
       # skip over the name slot:
       i = NodePosition tree.operand(i, 1)
       continue
-    of mnkProc:
+    of mnkProc, mnkProcLit:
       yield tree[i]
     of mnkGlobal:
       yield tree[i]

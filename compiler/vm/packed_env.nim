@@ -391,7 +391,7 @@ func storeDataNode(enc: var DataEncoder, e: var PackedEnv,
   of mnkStrLit:
     # the ID indexes into the string BiTable, it can be packed directly
     enc.put e, PackedDataNode(kind: pdkString, pos: t[n].strVal.uint32)
-  of mnkProc:
+  of mnkProcLit:
     # the ID is stable, it can be packed directly
     enc.put e, PackedDataNode(kind: pdkIntLit, pos: t[n].prc.uint32)
   of mnkArrayConstr, mnkSeqConstr:

@@ -254,7 +254,7 @@ proc convToIr(cl: TranslateCl, n: CgNode, info: TLineInfo, dest: PType): CgNode 
 
 proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
   case n.kind
-  of mnkProc:
+  of mnkProcLit:
     CgNode(kind: cnkProc, info: info, typ: n.typ, prc: n.prc)
   of mnkGlobal:
     CgNode(kind: cnkGlobal, info: info, typ: n.typ, global: n.global)
@@ -320,7 +320,7 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
     lvalueToIr(tree, cl, tree.get(cr), cr, false)
 
   case n.kind
-  of mnkLocal, mnkGlobal, mnkParam, mnkTemp, mnkAlias, mnkConst, mnkProc:
+  of mnkLocal, mnkGlobal, mnkParam, mnkTemp, mnkAlias, mnkConst, mnkProcLit:
     return atomToIr(n, cl, info)
   of mnkPathNamed:
     let obj = recurse()
@@ -358,7 +358,7 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
     result = newOp(cnkDeref, info, n.typ, atomToIr(tree, cl, cr))
   of mnkDerefView:
     result = newOp(cnkDerefView, info, n.typ, atomToIr(tree, cl, cr))
-  of AllNodeKinds - LvalueExprKinds - {mnkProc}:
+  of AllNodeKinds - LvalueExprKinds - {mnkProcLit}:
     unreachable(n.kind)
 
   leave(tree, cr)
@@ -370,7 +370,7 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl,
 proc valueToIr(tree: MirBody, cl: var TranslateCl,
                cr: var TreeCursor): CgNode =
   case tree[cr].kind
-  of mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp, mnkAlias,
+  of mnkProcLit, mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp, mnkAlias,
      mnkType, LiteralDataNodes:
     atomToIr(tree, cl, cr)
   of mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathConv, mnkPathVariant,
@@ -393,7 +393,7 @@ proc argToIr(tree: MirBody, cl: var TranslateCl,
     # it is one, the expression must be an lvalue
     result = (true, lvalueToIr(tree, cl, cr))
     leave(tree, cr)
-  of LiteralDataNodes, mnkType, mnkProc, mnkNone:
+  of LiteralDataNodes, mnkType, mnkProcLit, mnkNone:
     # not a tag but an atom
     result = (false, atomToIr(n, cl, cr.info))
   of LvalueExprKinds:
@@ -403,16 +403,24 @@ proc argToIr(tree: MirBody, cl: var TranslateCl,
 
   leave(tree, cr)
 
+proc calleeToIr(tree: MirBody, cl: var TranslateCl, cr: var TreeCursor): CgNode =
+  case tree[cr].kind
+  of mnkMagic:
+    newMagicNode(tree.get(cr).magic, cr.info)
+  of mnkProc:
+    let prc = tree.get(cr).prc
+    # assign a type for the CGIR node, the code generators currently need it
+    CgNode(kind: cnkProc, typ: cl.env[][prc].typ, info: cr.info, prc: prc)
+  else:
+    valueToIr(tree, cl, cr)
+
 proc callToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
               cr: var TreeCursor): CgNode =
   ## Translate a valid call-like tree to the CG IR.
   let info = cr.info
   result = newExpr((if n.kind == mnkCall: cnkCall else: cnkCheckedCall),
                    info, n.typ)
-  result.add: # the callee
-    case tree[cr].kind
-    of mnkMagic: newMagicNode(tree.get(cr).magic, info)
-    else:        valueToIr(tree, cl, cr)
+  result.add calleeToIr(tree, cl, cr)
 
   # the code generators currently require some magics to not have any
   # arguments wrapped in ``cnkHiddenAddr`` nodes

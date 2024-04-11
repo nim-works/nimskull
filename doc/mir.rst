@@ -44,7 +44,7 @@ Semantics
          | DerefView   NAME              # dereference a `var` or `lent`
 
   VALUE = <Literal>
-        | <Proc>
+        | <ProcLit>
         | <Type>
         | LVALUE
 
@@ -388,7 +388,7 @@ ones).
 
 .. code-block:: literal
 
-  VALUE = <Proc>
+  VALUE = <ProcLit>
         | <Literal>
         | COMPLEX
 

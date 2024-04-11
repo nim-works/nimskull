@@ -98,7 +98,7 @@ func toValue*(id: GlobalId, typ: PType): Value =
   Value(node: MirNode(kind: mnkGlobal, typ: typ, global: id))
 
 func toValue*(id: ProcedureId, typ: PType): Value =
-  Value(node: MirNode(kind: mnkProc, typ: typ, prc: id))
+  Value(node: MirNode(kind: mnkProcLit, typ: typ, prc: id))
 
 func toValue*(kind: range[mnkParam..mnkLocal], id: LocalId,
               typ: PType): Value =

@@ -25,7 +25,7 @@ import
 func `$`(n: MirNode): string =
   result.add substr($n.kind, 3) # cut off the prefix
   case n.kind
-  of mnkProc:
+  of mnkProc, mnkProcLit:
     result.add " prc: "
     result.addInt n.prc.uint32
   of mnkConst:
@@ -205,7 +205,8 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
       result.addName(n.cnst, "<C", c)
   of mnkGlobal:
     result.addName(n.global, "<G", c)
-  of mnkProc:
+  of mnkProc, mnkProcLit:
+    # procedure references are also handled here for simplicity
     result.addName(n.prc, "<P", c)
   of mnkTemp, mnkAlias:
     result.add "_" & $n.local.int
@@ -243,7 +244,7 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     result.add "type("
     result.add $n.typ
     result.add ")"
-  of AllNodeKinds - Atoms:
+  of AllNodeKinds - Atoms - mnkProc:
     result.add "<error: " & $n.kind & ">"
 
 proc singleToStr(tree: MirTree, i: var int, result: var string, c: RenderCtx) =
