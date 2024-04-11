@@ -685,7 +685,7 @@ proc genCallee(c: var TCtx, n: PNode) =
     let s = n.sym
     if s.magic == mNone or s.magic in c.config.magicsToKeep:
       # reference the procedure by symbol
-      c.use toValue(c.env.procedures.add(s), s.typ)
+      c.add procNode(c.env.procedures.add(s))
     else:
       # don't use a symbol
       c.add MirNode(kind: mnkMagic, magic: s.magic)
@@ -1215,7 +1215,7 @@ proc genRaise(c: var TCtx, n: PNode) =
       cp = c.graph.getCompilerProc("prepareException")
     c.buildStmt mnkVoid:
       c.buildTree mnkCall, typeOrVoid(c, nil):
-        c.use toValue(c.env.procedures.add(cp), cp.typ)
+        c.add procNode(c.env.procedures.add(cp))
         c.subTree mnkArg:
           # lvalue conversion to the base ``Exception`` type:
           c.buildTree mnkPathConv, cp.typ[1]:
@@ -2234,8 +2234,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
       c.subTree mnkBranch:
         c.subTree mnkVoid:
           let p = c.graph.getCompilerProc("nimUnhandledException")
-          c.builder.buildCall c.env.procedures.add(p), p.typ,
-                              typeOrVoid(c, p.typ[0]):
+          c.builder.buildCall c.env.procedures.add(p), typeOrVoid(c, p.typ[0]):
             discard
     c.add endNode(mnkTry)
 

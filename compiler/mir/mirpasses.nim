@@ -428,13 +428,12 @@ proc injectProfilerCalls(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
   ## * at the end of a loop's body
   let
     voidType = graph.getSysType(unknownLineInfo, tyVoid)
-    prc = graph.getCompilerProc("nimProfile")
-    prcId = env.procedures.add(prc)
+    prcId = env.procedures.add(graph.getCompilerProc("nimProfile"))
 
   # insert the entry call within the outermost scope:
   changes.insert(tree, tree.child(NodePosition 0, 0), NodePosition 0, bu):
     bu.subTree mnkVoid:
-      bu.buildCall prcId, prc.typ, voidType:
+      bu.buildCall prcId, voidType:
         discard "no arguments"
 
   for i in search(tree, {mnkEnd}):
@@ -442,7 +441,7 @@ proc injectProfilerCalls(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
       # insert the call before the end node:
       changes.insert(tree, i - 1, i, bu):
         bu.subTree mnkVoid:
-          bu.buildCall prcId, prc.typ, voidType:
+          bu.buildCall prcId, voidType:
             discard "no arguments"
 
 proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
