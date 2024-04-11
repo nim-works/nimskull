@@ -15,7 +15,7 @@ coro: 3'''
 ## the instance.
 ##
 ## When suspended this way, the ``resume`` that control is given back to
-## returns the instance it was invoked with.
+## returns the suspended instance.
 
 # IDEA: instead of the ``suspend`` routine, the ``yield`` keyword could be
 #       re-used, which could be much more convenient to use. It'd also be
