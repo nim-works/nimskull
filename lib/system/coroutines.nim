@@ -10,6 +10,9 @@ type
       ## internal procedure
     state: int32
       ## internal state value
+    next: CoroutineBase
+      ## the instance to continue with (i.e., the *continuation*) once
+      ## control-flow leaves the current coroutine
     exc: ref Exception
       ## the "current exception" of the coroutine instance
 
@@ -41,10 +44,9 @@ proc suspend*() {.magic: "Suspend".}
   ## the `resume <#resume,CoroutineBase>` that earlier resumed it. The resume
   ## call will return the same instance it was invoked on.
 
-proc suspend*(next: CoroutineBase) {.magic: "Suspend".}
-  ## Suspend the active coroutine, yielding control back to the callsite of
-  ## the `resume <#resume,CoroutineBase>` that earlier resumed it. `next` is
-  ## the coroutine instance resume will returned.
+proc suspend(next: sink CoroutineBase) {.magic: "Suspend".}
+  ## Internal-only suspend. Sets the instance returned by the coroutine
+  ## procedure to `next`
 
 # low-level API
 # -------------
@@ -66,25 +68,37 @@ proc status*(c: CoroutineBase): CoroutineState =
 
 proc resume*(c: CoroutineBase): CoroutineBase {.discardable.} =
   ## Yields control to the given suspendend coroutine instance `c`, which is
-  ## then executed until the first suspension point is reached. Returns the
-  ## coroutine instance that the coroutine yielded control to (may be nil).
-  if c.state <= -StateOffset:
-    # mark as running:
-    c.state = -(c.state + StateOffset)
-  else:
+  ## then executed until the first suspension point is reached. Returns
+  ## the coroutine instance in which a suspension point was reached.
+  if c.state >= 0:
     # already running
     discard "TODO: raise an error"
-  # execute until the first suspension point is reached:
-  try:
-    result = c.fn(c)
-  except CatchableError as e:
-    c.state = -2 # aborted
-    c.exc = e
-    result = c
 
-  # mark as not running again:
+  # run the coroutine and its continuations until a suspension point is
+  # reached:
+  var c = c
+  while true:
+    if c.state <= -StateOffset:
+      # mark as running:
+      c.state = -(c.state + StateOffset)
+
+    var next: CoroutineBase
+    try:
+      next = c.fn(c)
+    except CatchableError as e:
+      c.state = -2 # aborted
+      c.exc = e
+      next = c.next
+
+    if next.isNil:
+      break # nothing to continue with
+    c = next
+
+  # mark the exit instance as suspended, if not pending or aborted:
   if c.state >= 0:
     c.state = -(c.state + StateOffset)
+
+  result = c
 
 {.pop.}
 
@@ -105,6 +119,38 @@ proc unwrap*(c: sink CoroutineBase): ref Exception =
     c.state = -3
   else:
     raise CoroutineError.newException("not aborted")
+
+proc getOrRaise[T](c: Coroutine[T]): T =
+  case c.status
+  of csAborted:
+    c.state = -3
+    raise move(c.exc)
+  of csPending:
+    when T isnot void:
+      result = move c.result
+    c.state = -3
+  else:
+    raise CoroutineError.newException("not pending")
+
+template tail*[T](c: Coroutine[T]): untyped =
+  ## Passes control to coroutine instance `c`. When `c` logically returns,
+  ## control is passed back to the currently running coroutine, without
+  ## original `resume <#resume,CoroutineBase>`_ returning.
+  # TODO: move the checks and setup into a separate procedure
+  let x = c
+  case x.status
+  of csRunning:
+    raise CoroutineError.newException("tail-call target already running")
+  of csSuspended:
+    # XXX: an error is not strictly necessary, we could also take over the
+    #      continuation
+    if x.next != nil:
+      raise CoroutineError.newException("cannot tail-call again")
+    x.next = self
+    suspend(x) # pass control to the coroutine
+  else:
+    discard "okay, do nothing"
+  getOrRaise(x)
 
 proc trampoline*[T](c: sink Coroutine[T]): T =
   ## Runs the instance until control is yielded to a not-suspended instance.

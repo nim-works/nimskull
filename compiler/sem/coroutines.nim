@@ -178,7 +178,11 @@ proc transformCoroutine*(g: ModuleGraph, idgen: IdGenerator, prc: PSym,
       newIdentDefs(newSymNode(param),
                    newTreeIT(nkObjDownConv, body.info, param.typ,
                              newSymNode(newParam)))),
-    newAsgnStmt(prc.ast[resultPos], newSymNode(newParam)),
+    # XXX: always assigning the continuation to the result is inefficient; it
+    #      should happen on return
+    newAsgnStmt(prc.ast[resultPos],
+                indirectAccess(newSymNode(newParam), "next", newParam.info,
+                               g.cache)),
     body
   )
 

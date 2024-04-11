@@ -1073,7 +1073,8 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     if x.len > 1:
       result.add x[1]
     else:
-      result.add newNodeI(nkEmpty, n.info)
+      let typ = c.graph.getCompilerProc("CoroutineBase").typ
+      result.add newNodeIT(nkNilLit, n.info, typ)
   else:
     let s = transformSons(c, n)
     # bugfix: check after 'transformSons' if it's still a method call:
