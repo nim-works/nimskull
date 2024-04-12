@@ -254,7 +254,7 @@ proc convToIr(cl: TranslateCl, n: CgNode, info: TLineInfo, dest: PType): CgNode 
 
 proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
   case n.kind
-  of mnkProcLit:
+  of mnkProcVal:
     CgNode(kind: cnkProc, info: info, typ: n.typ, prc: n.prc)
   of mnkGlobal:
     CgNode(kind: cnkGlobal, info: info, typ: n.typ, global: n.global)
@@ -320,7 +320,7 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
     lvalueToIr(tree, cl, tree.get(cr), cr, false)
 
   case n.kind
-  of mnkLocal, mnkGlobal, mnkParam, mnkTemp, mnkAlias, mnkConst, mnkProcLit:
+  of mnkLocal, mnkGlobal, mnkParam, mnkTemp, mnkAlias, mnkConst, mnkProcVal:
     return atomToIr(n, cl, info)
   of mnkPathNamed:
     let obj = recurse()
@@ -358,7 +358,7 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
     result = newOp(cnkDeref, info, n.typ, atomToIr(tree, cl, cr))
   of mnkDerefView:
     result = newOp(cnkDerefView, info, n.typ, atomToIr(tree, cl, cr))
-  of AllNodeKinds - LvalueExprKinds - {mnkProcLit}:
+  of AllNodeKinds - LvalueExprKinds - {mnkProcVal}:
     unreachable(n.kind)
 
   leave(tree, cr)
@@ -370,7 +370,7 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl,
 proc valueToIr(tree: MirBody, cl: var TranslateCl,
                cr: var TreeCursor): CgNode =
   case tree[cr].kind
-  of mnkProcLit, mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp, mnkAlias,
+  of mnkProcVal, mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp, mnkAlias,
      mnkType, LiteralDataNodes:
     atomToIr(tree, cl, cr)
   of mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathConv, mnkPathVariant,
@@ -393,7 +393,7 @@ proc argToIr(tree: MirBody, cl: var TranslateCl,
     # it is one, the expression must be an lvalue
     result = (true, lvalueToIr(tree, cl, cr))
     leave(tree, cr)
-  of LiteralDataNodes, mnkType, mnkProcLit, mnkNone:
+  of LiteralDataNodes, mnkType, mnkProcVal, mnkNone:
     # not a tag but an atom
     result = (false, atomToIr(n, cl, cr.info))
   of LvalueExprKinds:

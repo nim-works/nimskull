@@ -60,7 +60,7 @@ type
     long: seq[PathInstr]
 
 const
-  Roots = {mnkProcLit, mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp,
+  Roots = {mnkProcVal, mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp,
            mnkCall, mnkDeref, mnkDerefView}
   PathOps = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathConv,
              mnkPathVariant}
@@ -72,7 +72,7 @@ func isSameRoot(an, bn: MirNode): bool =
   case an.kind
   of mnkParam, mnkLocal, mnkTemp:
     result = an.local == bn.local
-  of mnkProcLit:
+  of mnkProcVal:
     result = an.prc == bn.prc
   of mnkConst:
     result = an.cnst == bn.cnst

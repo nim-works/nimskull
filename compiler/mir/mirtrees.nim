@@ -58,6 +58,7 @@ type
 
     # entity names:
     mnkProc   ## procedure reference; only allowed in callee slots
+    mnkProcVal## procedural value
     mnkConst  ## named constant
     mnkGlobal ## global location
     mnkParam  ## parameter
@@ -69,7 +70,6 @@ type
 
     mnkField  ## declarative node only allowed in special contexts
 
-    mnkProcLit ## procedural value
     mnkNilLit  ## nil literal
     mnkIntLit  ## reference to signed integer literal
     mnkUIntLit ## reference to unsigend integer literal
@@ -279,7 +279,7 @@ type
       ## non-critical meta-data associated with the node (e.g., origin
       ## information)
     case kind*: MirNodeKind
-    of mnkProc, mnkProcLit:
+    of mnkProc, mnkProcVal:
       prc*: ProcedureId
     of mnkGlobal:
       global*: GlobalId
@@ -361,7 +361,7 @@ const
 
   ConstrTreeNodes* = {mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr,
                       mnkTupleConstr, mnkClosureConstr, mnkObjConstr,
-                      mnkProcLit, mnkArg, mnkField, mnkEnd} + LiteralDataNodes
+                      mnkProcVal, mnkArg, mnkField, mnkEnd} + LiteralDataNodes
     ## Nodes that can appear in the MIR subset used for constant expressions.
 
   # --- semantics-focused sets:
@@ -382,7 +382,7 @@ const
   LvalueExprKinds* = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathVariant,
                       mnkPathConv, mnkDeref, mnkDerefView, mnkTemp, mnkAlias,
                       mnkLocal, mnkParam, mnkConst, mnkGlobal}
-  RvalueExprKinds* = {mnkType, mnkProcLit, mnkConv, mnkStdConv, mnkCast,
+  RvalueExprKinds* = {mnkType, mnkProcVal, mnkConv, mnkStdConv, mnkCast,
                       mnkAddr, mnkView, mnkMutView, mnkToSlice,
                       mnkToMutSlice} + UnaryOps + BinaryOps + LiteralDataNodes
   ExprKinds* =       {mnkCall, mnkCheckedCall, mnkSetConstr, mnkArrayConstr,
