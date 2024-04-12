@@ -224,7 +224,7 @@ func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
       emitLvalueOp(env, opConsume, tree, at, tree.operand(it))
     of mnkName:
       emitForValue(env, tree, at, tree.skip(tree.operand(it), mnkTag))
-    of mnkField, mnkMagic:
+    of mnkField, mnkMagic, mnkProc:
       discard
     else:
       emitLvalueOp(env, opUse, tree, at, OpValue it)
@@ -291,7 +291,7 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
   of LvalueExprKinds:
     # raw usage of an lvalue
     emitLvalueOp(env, opUse, tree, at, OpValue source)
-  of mnkNone, LiteralDataNodes, mnkProc:
+  of mnkNone, LiteralDataNodes, mnkProcVal:
     discard "okay, ignore"
   of AllNodeKinds - ExprKinds - {mnkNone} + {mnkType}:
     unreachable(tree[source].kind)

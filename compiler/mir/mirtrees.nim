@@ -57,7 +57,8 @@ type
     mnkNone
 
     # entity names:
-    mnkProc   ## procedure
+    mnkProc   ## procedure reference; only allowed in callee slots
+    mnkProcVal## procedural value
     mnkConst  ## named constant
     mnkGlobal ## global location
     mnkParam  ## parameter
@@ -278,7 +279,7 @@ type
       ## non-critical meta-data associated with the node (e.g., origin
       ## information)
     case kind*: MirNodeKind
-    of mnkProc:
+    of mnkProc, mnkProcVal:
       prc*: ProcedureId
     of mnkGlobal:
       global*: GlobalId
@@ -360,12 +361,12 @@ const
 
   ConstrTreeNodes* = {mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr,
                       mnkTupleConstr, mnkClosureConstr, mnkObjConstr,
-                      mnkProc, mnkArg, mnkField, mnkEnd} + LiteralDataNodes
+                      mnkProcVal, mnkArg, mnkField, mnkEnd} + LiteralDataNodes
     ## Nodes that can appear in the MIR subset used for constant expressions.
 
   # --- semantics-focused sets:
 
-  Atoms* = {mnkNone .. mnkType} - {mnkField}
+  Atoms* = {mnkNone .. mnkType} - {mnkField, mnkProc}
     ## Nodes that may be appear in atom-expecting slots.
 
   StmtNodes* = {mnkScope, mnkStmtList, mnkIf, mnkCase, mnkRepeat, mnkTry,
@@ -381,9 +382,9 @@ const
   LvalueExprKinds* = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathVariant,
                       mnkPathConv, mnkDeref, mnkDerefView, mnkTemp, mnkAlias,
                       mnkLocal, mnkParam, mnkConst, mnkGlobal}
-  RvalueExprKinds* = {mnkType, mnkProc, mnkConv, mnkStdConv, mnkCast, mnkAddr,
-                      mnkView, mnkMutView, mnkToSlice, mnkToMutSlice} +
-                     UnaryOps + BinaryOps + LiteralDataNodes
+  RvalueExprKinds* = {mnkType, mnkProcVal, mnkConv, mnkStdConv, mnkCast,
+                      mnkAddr, mnkView, mnkMutView, mnkToSlice,
+                      mnkToMutSlice} + UnaryOps + BinaryOps + LiteralDataNodes
   ExprKinds* =       {mnkCall, mnkCheckedCall, mnkSetConstr, mnkArrayConstr,
                       mnkSeqConstr, mnkTupleConstr, mnkClosureConstr,
                       mnkObjConstr} + LvalueExprKinds + RvalueExprKinds +

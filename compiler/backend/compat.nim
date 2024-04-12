@@ -200,7 +200,7 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
     of mnkAstLit:
       CgNode(kind: cnkAstLit, info: unknownLineInfo, typ: n.typ,
              astLit: env[n.ast])
-    of mnkProc:
+    of mnkProcVal:
       CgNode(kind: cnkProc, info: unknownLineInfo, prc: n.prc, typ: n.typ)
     of AllNodeKinds - ConstrTreeNodes + {mnkEnd, mnkField}:
       # 'end' nodes are skipped manually

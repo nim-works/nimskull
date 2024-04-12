@@ -502,8 +502,7 @@ template buildVoidCall*(bu: var MirBuilder, env: var MirEnv, p: PSym,
                        body: untyped) =
   let prc = p # prevent multi evaluation
   bu.subTree mnkVoid:
-    bu.subTree MirNode(kind: mnkCall, typ: getVoidType(graph)):
-      bu.use toValue(env.procedures.add(prc), prc.typ)
+    bu.buildCall env.procedures.add(prc), getVoidType(graph):
       body
 
 proc genWasMoved(bu: var MirBuilder, graph: ModuleGraph, target: Value) =

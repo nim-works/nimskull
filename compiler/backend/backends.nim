@@ -281,7 +281,7 @@ iterator deps*(tree: MirTree): lent MirNode =
       # skip over the name slot:
       i = NodePosition tree.operand(i, 1)
       continue
-    of mnkProc:
+    of mnkProc, mnkProcVal:
       yield tree[i]
     of mnkGlobal:
       yield tree[i]
@@ -436,7 +436,7 @@ proc genLoadLib(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
 
   bu.subTree MirNode(kind: mnkAsgn):
     bu.use loc
-    bu.buildCall env.procedures.add(loadLib), loadLib.typ, loadLib.typ[0]:
+    bu.buildCall env.procedures.add(loadLib), loadLib.typ[0]:
       bu.emitByVal name
 
   bu.wrapTemp(graph.getSysType(unknownLineInfo, tyBool)):
@@ -480,7 +480,7 @@ proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
 
       # if none of the candidates worked, a run-time error is reported:
       bu.subTree mnkVoid:
-        bu.buildCall env.procedures.add(errorProc), errorProc.typ, voidTyp:
+        bu.buildCall env.procedures.add(errorProc), voidTyp:
           bu.emitByVal literal(env.getOrIncl(path.strVal), path.typ)
       bu.add endNode(mnkStmtList)
   else:
@@ -498,7 +498,7 @@ proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
     bu.subTree mnkIf:
       bu.use cond
       bu.subTree mnkVoid:
-        bu.buildCall env.procedures.add(errorProc), errorProc.typ, voidTyp:
+        bu.buildCall env.procedures.add(errorProc), voidTyp:
           bu.emitByVal nameTemp
 
 proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
@@ -558,7 +558,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
 
     # generate the code for ``sym = cast[typ](nimGetProcAddr(lib, extname))``
     let tmp = bu.wrapTemp(loadProc.typ[0]):
-      bu.buildCall env.procedures.add(loadProc), loadProc.typ, loadProc.typ[0]:
+      bu.buildCall env.procedures.add(loadProc), loadProc.typ[0]:
         bu.emitByVal toValue(libVar, lib.name.typ)
         bu.emitByVal literal(env.getOrIncl(extname.strVal), extname.typ)
 

@@ -98,7 +98,7 @@ func toValue*(id: GlobalId, typ: PType): Value =
   Value(node: MirNode(kind: mnkGlobal, typ: typ, global: id))
 
 func toValue*(id: ProcedureId, typ: PType): Value =
-  Value(node: MirNode(kind: mnkProc, typ: typ, prc: id))
+  Value(node: MirNode(kind: mnkProcVal, typ: typ, prc: id))
 
 func toValue*(kind: range[mnkParam..mnkLocal], id: LocalId,
               typ: PType): Value =
@@ -356,12 +356,12 @@ template buildMagicCall*(bu: var MirBuilder, m: TMagic, t: PType,
     bu.add MirNode(kind: mnkMagic, magic: m)
     body
 
-template buildCall*(bu: var MirBuilder, prc: ProcedureId, pt, t: PType,
+template buildCall*(bu: var MirBuilder, prc: ProcedureId, t: PType,
                     body: untyped) =
   ## Build and emits a call tree to the active buffer. `pt` is the type of the
   ## procedure.
   bu.subTree MirNode(kind: mnkCall, typ: t):
-    bu.use toValue(prc, pt)
+    bu.add procNode(prc)
     body
 
 func emitByVal*(bu: var MirBuilder, y: Value) =
