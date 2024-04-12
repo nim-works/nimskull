@@ -690,7 +690,7 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
         [st, n]
 
   of nkCast, nkHiddenStdConv, nkHiddenSubConv, nkConv, nkObjUpConv,
-      nkDerefExpr, nkHiddenDeref:
+     nkObjDownConv, nkDerefExpr, nkHiddenDeref:
     var ns = false
     for i in ord(n.kind == nkCast)..<n.len:
       n[i] = ctx.lowerStmtListExprs(n[i], ns)
@@ -743,8 +743,7 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
 
   of nkWhileStmt:
     assert isTrue(n[0])
-    var bodyNeedsSplit = false
-    n[1] = ctx.lowerStmtListExprs(n[1], bodyNeedsSplit)
+    n[1] = ctx.lowerStmtListExprs(n[1], needsSplit)
 
   of nkDotExpr, nkCheckedFieldExpr:
     var ns = false
