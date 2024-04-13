@@ -19,7 +19,8 @@ import
   compiler/mir/[
     mirbodies,
     mirenv,
-    mirtrees
+    mirtrees,
+    mirtypes
   ]
 
 func `$`(n: MirNode): string =
@@ -71,9 +72,9 @@ func `$`(n: MirNode): string =
     result.add " len: "
     result.add $n.len
 
-  if n.typ != nil:
+  if n.typ != VoidType:
     result.add " typ: "
-    result.add $n.typ.kind
+    result.addInt n.typ.uint32
 
 proc treeRepr*(tree: MirTree, pos = NodePosition(0)): string =
   ## Renders the node or sub-tree at `pos` to a string in a tree-layout-

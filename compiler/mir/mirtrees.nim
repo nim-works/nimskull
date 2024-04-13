@@ -35,10 +35,8 @@ type
   DataId* = distinct uint32
     ## Identifies a complete constant expression
 
-  TypeInstance {.used.} = distinct uint32
-    ## Refers to an existing type instance
-  TypeId {.used.} = distinct uint32
-    ## The ID of a type instance or nil
+  TypeId* = distinct uint32
+    ## Identifies a type
 
   SourceId* = distinct range[0'u32 .. high(uint32)-1]
     ## The ID of a source-mapping that's stored separately from the MIR nodes.
@@ -274,7 +272,7 @@ type
     geMutateGlobal ## the operation mutates global state
 
   MirNode* = object
-    typ*: PType ## non-nil for all expressions
+    typ*: TypeId ## valid for all expression, including all calls
     info*: SourceId
       ## non-critical meta-data associated with the node (e.g., origin
       ## information)
@@ -402,6 +400,7 @@ func `==`*(a, b: DataId): bool {.borrow.}
 func `==`*(a, b: NumberId): bool {.borrow.}
 func `==`*(a, b: StringId): bool {.borrow.}
 func `==`*(a, b: AstId): bool {.borrow.}
+func `==`*(a, b: TypeId): bool {.borrow.}
 
 func isAnon*(id: ConstId): bool =
   ## Returns whether `id` represents an anonymous constant.

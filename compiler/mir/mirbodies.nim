@@ -17,7 +17,7 @@ type
   Local* = object
     ## Static information about a local location ('let' or 'var'). Not modified
     ## after initialization.
-    typ*: PType
+    typ*: TypeId
       ## type of the local
     alignment*: uint32
       ## alignment of the location, measured in bytes. 0 means "use default"
