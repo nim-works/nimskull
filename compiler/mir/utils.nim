@@ -156,6 +156,14 @@ func addName[I](result: var string, id: I, open: string, c: RenderCtx) =
   else:
     result.add c.env[][id].name.s
 
+proc typeToStr(result: var string, t: TypeId, env: ptr MirEnv) =
+  if env.isNil:
+    result.add "<T"
+    result.addInt t.uint32
+    result.add ">"
+  else:
+    result.add typeToString(env.types[t])
+
 func addLocalName(result: var string, id: LocalId, open: string,
                   c: RenderCtx) =
   if c.body.isNil:
@@ -219,17 +227,17 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     if c.env.isNil:
       idToStr(result, n.number, "<Int: ")
     else:
-      result.addTypedNumber(c.env[].getInt(n.number), n.typ)
+      result.addTypedNumber(c.env[].getInt(n.number), c.env[][n.typ])
   of mnkUIntLit:
     if c.env.isNil:
       idToStr(result, n.number, "<UInt: ")
     else:
-      result.addTypedNumber(c.env[].getInt(n.number), n.typ)
+      result.addTypedNumber(c.env[].getInt(n.number), c.env[][n.typ])
   of mnkFloatLit:
     if c.env.isNil:
       idToStr(result, n.number, "<Float: ")
     else:
-      result.addTypedNumber(c.env[].getInt(n.number), n.typ)
+      result.addTypedNumber(c.env[].getInt(n.number), c.env[][n.typ])
   of mnkStrLit:
     if c.env.isNil:
       result.add "<Str: "
@@ -243,7 +251,7 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     result.add "<Ast>"
   of mnkType:
     result.add "type("
-    result.add $n.typ
+    typeToStr(result, n.typ, c.env)
     result.add ")"
   of AllNodeKinds - Atoms - mnkProc:
     result.add "<error: " & $n.kind & ">"
@@ -253,6 +261,13 @@ proc singleToStr(tree: MirTree, i: var int, result: var string, c: RenderCtx) =
 
 template singleToStr() =
   singleToStr(treeParam(), i, result, c)
+
+proc fieldToStr(field: int32, typ: TypeId, result: var string, c: RenderCtx) =
+  if c.env.isNil:
+    result.add "Field"
+    result.addInt field
+  else:
+    result.add lookupInType(c.env[][typ], field.int).name.s
 
 template valueToStr() =
   mixin valueToStr
@@ -282,12 +297,12 @@ proc valueToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
       let typ = nodes[i].typ # type of the object operand
       valueToStr()
       result.add "."
-      result.add lookupInType(typ, n.field).name.s
+      fieldToStr(n.field, typ, result, c)
   of mnkPathConv:
     tree "":
       valueToStr()
       result.add ".("
-      result.add typeToString(n.typ)
+      typeToStr(result, n.typ, c.env)
       result.add ")"
   of mnkDeref, mnkDerefView:
     tree "":
@@ -402,8 +417,7 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
     let typ = nodes[i].typ
     tree "(":
       commaSeparated:
-        let field = lookupInType(typ, next(nodes, i).field.int)
-        result.add field.name.s & ": "
+        fieldToStr(next(nodes, i).field, typ, result, c)
         argToStr()
       result.add ")"
   of mnkCall:
@@ -455,7 +469,7 @@ proc renderNameWithType(tree: MirTree, i: var int, result: var string,
   let n {.cursor.} = next(tree, i)
   singleToStr(n, result, c)
   result.add ": "
-  result.add typeToString(n.typ)
+  typeToStr(result, n.typ, c.env)
 
 proc renderList(tree: MirTree, i: var int, indent: int, result: var string,
                 c: RenderCtx)
@@ -584,7 +598,7 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string,
   of mnkVoid:
     # drop the 'discard' prefix if the expression is a void expression
     let lead =
-      if nodes[i].typ.kind == tyVoid: ""
+      if nodes[i].typ == VoidType: ""
       else: "discard "
     tree lead:
       exprToStr()
