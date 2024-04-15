@@ -1521,7 +1521,7 @@ proc setupLocalLoc(p: PProc, id: LocalId, kind: TSymKind; name = "") =
   ## computing the storage flags and a non-empty `name` overrides the
   ## mangled name.
   var loc = Loc(name: mangleName(p.fullBody[id], id),
-                typ: p.fullBody[id].typ,
+                typ: p.env[p.fullBody[id].typ],
                 storage: storage(p.fullBody[id].flags, kind,
                                  id in p.addrTaken))
 
