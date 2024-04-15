@@ -30,6 +30,7 @@ import
     mirbodies,
     mirenv,
     mirtrees,
+    mirtypes,
     sourcemaps
   ],
   compiler/modules/[
@@ -56,8 +57,8 @@ type
     graph: ModuleGraph
     idgen: IdGenerator
     env: ptr MirEnv
-      ## read-only reference to the MirEnv. Stored here to prevent excessive
-      ## parameter passing
+      ## read/write reference to the MirEnv. Stored here to prevent excessive
+      ## parameter passing. Only the type environment is potentially modified
 
     owner: PSym
 
@@ -148,6 +149,9 @@ template `[]=`(x: CgNode, i: BackwardsIndex, n: CgNode) =
 
 template add(x: CgNode, y: CgNode) =
   x.kids.add y
+
+template map(cl: TranslateCl, id: TypeId): lent PType =
+  cl.env.types[id]
 
 proc copyTree(n: CgNode): CgNode =
   case n.kind
@@ -253,43 +257,44 @@ proc convToIr(cl: TranslateCl, n: CgNode, info: TLineInfo, dest: PType): CgNode 
     result = newOp(cnkLvalueConv, info, dest, n)
 
 proc atomToIr(n: MirNode, cl: TranslateCl, info: TLineInfo): CgNode =
+  let typ = cl.map(n.typ)
   case n.kind
   of mnkProcVal:
-    CgNode(kind: cnkProc, info: info, typ: n.typ, prc: n.prc)
+    CgNode(kind: cnkProc, info: info, typ: typ, prc: n.prc)
   of mnkGlobal:
-    CgNode(kind: cnkGlobal, info: info, typ: n.typ, global: n.global)
+    CgNode(kind: cnkGlobal, info: info, typ: typ, global: n.global)
   of mnkConst:
-    CgNode(kind: cnkConst, info: info, typ: n.typ, cnst: n.cnst)
+    CgNode(kind: cnkConst, info: info, typ: typ, cnst: n.cnst)
   of mnkLocal, mnkParam, mnkTemp:
-    newLocalRef(n.local, info, cl.locals[n.local].typ)
+    newLocalRef(n.local, info, cl.map(cl.locals[n.local].typ))
   of mnkAlias:
     # the type of the node doesn't match the real one
     let
       id = n.local
-      typ = cl.locals[id].typ
+      typ = cl.map(cl.locals[id].typ)
     # the view is auto-dereferenced here for convenience
     newOp(cnkDerefView, info, typ.base, newLocalRef(id, info, typ))
   of mnkNilLit:
-    CgNode(kind: cnkNilLit, info: info, typ: n.typ)
+    CgNode(kind: cnkNilLit, info: info, typ: typ)
   of mnkIntLit:
-    CgNode(kind: cnkIntLit, info: info, typ: n.typ,
+    CgNode(kind: cnkIntLit, info: info, typ: typ,
            intVal: cl.env[].getInt(n.number))
   of mnkUIntLit:
-    CgNode(kind: cnkUIntLit, info: info, typ: n.typ,
+    CgNode(kind: cnkUIntLit, info: info, typ: typ,
            intVal: cl.env[].getInt(n.number))
   of mnkFloatLit:
-    CgNode(kind: cnkFloatLit, info: info, typ: n.typ,
+    CgNode(kind: cnkFloatLit, info: info, typ: typ,
            floatVal: cl.env[].getFloat(n.number))
   of mnkStrLit:
-    CgNode(kind: cnkStrLit, info: info, typ: n.typ, strVal: n.strVal)
+    CgNode(kind: cnkStrLit, info: info, typ: typ, strVal: n.strVal)
   of mnkAstLit:
-    CgNode(kind: cnkAstLit, info: info, typ: n.typ, astLit: cl.env[][n.ast])
+    CgNode(kind: cnkAstLit, info: info, typ: typ, astLit: cl.env[][n.ast])
   of mnkType:
-    newTypeNode(info, n.typ)
+    newTypeNode(info, typ)
   of mnkNone:
     # type arguments do use `mnkNone` in some situtations, so keep
     # the type
-    CgNode(kind: cnkEmpty, info: info, typ: n.typ)
+    CgNode(kind: cnkEmpty, info: info, typ: typ)
   of AllNodeKinds - Atoms:
     unreachable("not an atom: " & $n.kind)
 
@@ -301,8 +306,8 @@ proc tbExceptItem(tree: MirBody, cl: var TranslateCl, cr: var TreeCursor
                  ): CgNode =
   let n {.cursor.} = get(tree, cr)
   case n.kind
-  of mnkLocal: newLocalRef(n.local, cr.info, n.typ)
-  of mnkType:  newTypeNode(cr.info, n.typ)
+  of mnkLocal: newLocalRef(n.local, cr.info, cl.map(n.typ))
+  of mnkType:  newTypeNode(cr.info, cl.map(n.typ))
   else:        unreachable()
 
 
@@ -314,7 +319,9 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
   ## context-dependent -- `preferField` disambiguates whether it should be
   ## turned into a field access rather than a (pseudo) access of the tagged
   ## union.
-  let info = cr.info
+  let
+    info = cr.info
+    typ = cl.map(n.typ)
 
   template recurse(): CgNode =
     lvalueToIr(tree, cl, tree.get(cr), cr, false)
@@ -324,7 +331,7 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
     return atomToIr(n, cl, info)
   of mnkPathNamed:
     let obj = recurse()
-    result = newExpr(cnkFieldAccess, info, n.typ,
+    result = newExpr(cnkFieldAccess, info, typ,
                      [obj, newFieldNode(lookupInType(obj.typ, n.field.int))])
   of mnkPathVariant:
     if preferField:
@@ -337,7 +344,7 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
       # variant access itself has no ``CgNode`` counterpart at the moment
       result = recurse()
   of mnkPathPos:
-    result = newExpr(cnkTupleAccess, info, n.typ,
+    result = newExpr(cnkTupleAccess, info, typ,
                      [recurse(),
                       CgNode(kind: cnkIntLit, intVal: n.position.BiggestInt)])
   of mnkPathArray:
@@ -350,14 +357,15 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
       else:
         recurse()
 
-    result = newExpr(cnkArrayAccess, info, n.typ, [arg, atomToIr(tree, cl, cr)])
+    result = newExpr(cnkArrayAccess, info, typ,
+                     [arg, atomToIr(tree, cl, cr)])
   of mnkPathConv:
-    result = convToIr(cl, recurse(), info, n.typ)
+    result = convToIr(cl, recurse(), info, typ)
   # dereferences are allowed at the end of a path tree
   of mnkDeref:
-    result = newOp(cnkDeref, info, n.typ, atomToIr(tree, cl, cr))
+    result = newOp(cnkDeref, info, typ, atomToIr(tree, cl, cr))
   of mnkDerefView:
-    result = newOp(cnkDerefView, info, n.typ, atomToIr(tree, cl, cr))
+    result = newOp(cnkDerefView, info, typ, atomToIr(tree, cl, cr))
   of AllNodeKinds - LvalueExprKinds - {mnkProcVal}:
     unreachable(n.kind)
 
@@ -419,7 +427,7 @@ proc callToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
   ## Translate a valid call-like tree to the CG IR.
   let info = cr.info
   result = newExpr((if n.kind == mnkCall: cnkCall else: cnkCheckedCall),
-                   info, n.typ)
+                   info, cl.map(n.typ))
   result.add calleeToIr(tree, cl, cr)
 
   # the code generators currently require some magics to not have any
@@ -474,28 +482,28 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   let
     entity {.cursor.} = get(tree, cr) # the name of the defined entity
     info = cr.info
+    typ {.cursor.} = cl.map(entity.typ)
 
   var def: CgNode
 
   case entity.kind
   of mnkLocal, mnkTemp:
     let id = entity.local
-    def = newLocalRef(id, info, cl.locals[id].typ)
+    def = newLocalRef(id, info, typ)
   of mnkParam:
     # ignore 'def's for parameters
     def = newEmpty()
   of mnkGlobal:
-    def = CgNode(kind: cnkGlobal, info: info, typ: entity.typ,
+    def = CgNode(kind: cnkGlobal, info: info, typ: typ,
                  global: entity.global)
   of mnkAlias:
     # MIR aliases are translated to var/lent views
     assert n.kind in {mnkBind, mnkBindMut}, "alias can only be defined by binds"
-    assert entity.typ != nil
     let
-      typ = makeVarType(cl.owner, entity.typ, cl.idgen,
+      typ = makeVarType(cl.owner, typ, cl.idgen,
                         if n.kind == mnkBind: tyLent else: tyVar)
     # override the original type
-    cl.locals[entity.local].typ = typ
+    cl.locals[entity.local].typ = cl.env.types.add(typ)
 
     def = newLocalRef(entity.local, info, typ)
   else:
@@ -957,12 +965,12 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
   let info = cr.info
 
   template op(kind: CgNodeKind, e: CgNode): CgNode =
-    let r = newOp(kind, info, n.typ, e)
+    let r = newOp(kind, info, cl.map(n.typ), e)
     leave(tree, cr)
     r
 
   template treeOp(k: CgNodeKind, body: untyped): CgNode =
-    let res {.inject.} = newExpr(k, info, n.typ)
+    let res {.inject.} = newExpr(k, info, cl.map(n.typ))
     while tree[cr].kind != mnkEnd:
       body
     leave(tree, cr)
@@ -1003,9 +1011,10 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
     treeOp cnkClosureConstr:
       res.add argToIr(tree, cl, cr)[1]
   of mnkObjConstr:
-    assert n.typ.skipTypes(abstractVarRange).kind in {tyObject, tyRef}
+    let typ = cl.map(n.typ)
+    assert typ.skipTypes(abstractVarRange).kind in {tyObject, tyRef}
     treeOp cnkObjConstr:
-      let f = newFieldNode(lookupInType(n.typ, get(tree, cr).field))
+      let f = newFieldNode(lookupInType(typ, get(tree, cr).field))
       res.add newTree(cnkBinding, cr.info, [f, argToIr(tree, cl, cr)[1]])
   of mnkCall:
     callToIr(tree, cl, n, cr)
@@ -1087,7 +1096,7 @@ proc tb(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   result = newStmt(cnkStmtList, unknownLineInfo)
   result.kids = move stmts
 
-proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: MirEnv,
+proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
                  owner: PSym,
                  body: sink MirBody): Body =
   ## Generates the ``CgNode`` IR corresponding to the input MIR `body`,

@@ -172,7 +172,7 @@ proc generateMirCode(c: var TCtx, env: var MirEnv, n: PNode;
 
     result = exprToMir(c.graph, env, selectOptions(c), n)
 
-proc generateIR(c: var TCtx, env: MirEnv, body: sink MirBody): Body =
+proc generateIR(c: var TCtx, env: var MirEnv, body: sink MirBody): Body =
   backends.generateIR(c.graph, c.idgen, env, c.module, body)
 
 proc setupRootRef(c: var TCtx) =
