@@ -236,7 +236,7 @@ proc storeData(enc: var PackedEncoder, dst: var PackedEnv,
                config: ConfigRef,
                consts: seq[(PVmType, DataId)], env: MirEnv) =
   ## Packs all constant data (`consts`) and stores it into `dst`.
-  var denc = DataEncoder(config: config)
+  var denc = DataEncoder(config: config, types: addr env.types)
   denc.startEncoding(dst)
 
   mapList(dst.cconsts, consts, it):

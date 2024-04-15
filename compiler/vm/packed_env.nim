@@ -32,7 +32,8 @@ import
     rodfiles
   ],
   compiler/mir/[
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/utils/[
     idioms,
@@ -193,6 +194,11 @@ type
     ## Contextual state needed for turning data `PNode`-trees into
     ## `PackedDataNode` trees and storing them into the packed environment
     config*: ConfigRef
+    types*: ptr TypeEnv
+      # HACK: some parts of constant data encoding need read-only access to
+      #       the type environment, so a pointer to the environment is stored
+      #       here to prevent excessive parameter passing. No access to the
+      #       type environment should be required
     i: int ## the index in `PackedEnv.nodes` where the next item is to be stored
 
 const
@@ -298,7 +304,7 @@ func storeDiscrData(enc: var DataEncoder, e: var PackedEnv, s: PSym, v: Int128) 
 proc storeFieldsData(enc: var DataEncoder, e: var PackedEnv,
                      t: MirTree, n: NodePosition) =
   let
-    typ = t[n].typ
+    typ = enc.types[][t[n].typ]
     count = t[n].len
   enc.put e, PackedDataNode(kind: pdkObj, pos: count.uint32)
   e.nodes.growBy(count * 2) # make space for the content
@@ -347,7 +353,7 @@ proc storeSetData(enc: var DataEncoder, e: var PackedEnv,
                   t: MirTree, n: NodePosition) =
   let
     count = t[n].len
-    typ = t[n].typ
+    typ = enc.types[][t[n].typ]
   enc.put e, PackedDataNode(kind: pdkSet, pos: count.uint32 * 2)
   e.nodes.growBy(count * 2) # make space for the content
 
@@ -373,7 +379,7 @@ func storeDataNode(enc: var DataEncoder, e: var PackedEnv,
                    t: MirTree, n: NodePosition) =
   case t[n].kind
   of mnkNilLit:
-    if t[n].typ.skipTypes(abstractInst).callConv == ccClosure:
+    if enc.types[][t[n].typ].skipTypes(abstractInst).callConv == ccClosure:
       # XXX: some unexpanded `nil` closure literals reach here, so we have
       #      to expand them here. This needs to happen earlier
       enc.put e, PackedDataNode(kind: pdkObj, pos: 2)
