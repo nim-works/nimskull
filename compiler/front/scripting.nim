@@ -225,7 +225,7 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
   #  during `setupVM`
   # - NimScript has access to the macro/compile-time APIs
   registerAdditionalOps(vm, disallowDanger)
-  graph.vm = PEvalContext(vm: vm, jit: initJit(graph))
+  graph.vm = PVmCtx(context: vm)
 
   graph.compileSystemModule()
   discard graph.processModule(m, idgen, stream)

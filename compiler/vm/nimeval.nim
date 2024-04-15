@@ -174,7 +174,7 @@ proc createInterpreter*(
     # Register basic system operations and parts of stdlib modules
     for o in basicOps():
       vm.registerCallback(o.pattern, o.prc)
-  graph.vm = PEvalContext(vm: vm, jit: initJit(graph))
+  graph.vm = PVmCtx(context: vm)
   graph.compileSystemModule()
   result = Interpreter(mainModule: m, graph: graph, scriptName: scriptName, idgen: idgen)
 
@@ -219,8 +219,7 @@ proc runRepl*(
   var idgen = idGeneratorFromModule(m)
 
   if supportNimscript:
-    graph.vm = PEvalContext(jit: initJit(graph),
-                            vm: setupVM(m, cache, "stdin", graph, idgen))
+    graph.vm = PVmCtx(context: setupVM(m, cache, "stdin", graph, idgen))
 
   graph.compileSystemModule()
   processModule(graph, m, idgen, llStreamOpenStdIn(r))
