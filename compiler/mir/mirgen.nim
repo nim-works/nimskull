@@ -2107,7 +2107,8 @@ proc generateAssignment*(graph: ModuleGraph, env: var MirEnv,
   ## Translates an `nkIdentDefs` AST into MIR and emits the result into
   ## `builder`'s currently selected buffer.
   assert n.kind == nkIdentDefs and n.len == 3
-  var c = TCtx(context: skUnknown, graph: graph, config: config)
+  var c = TCtx(context: skUnknown, graph: graph, config: config,
+               env: move env)
   # treat the code as top-level code so that no 'def' is generated for
   # assignments to globals
   c.scopeDepth = 1
@@ -2115,11 +2116,11 @@ proc generateAssignment*(graph: ModuleGraph, env: var MirEnv,
   template swapState() =
     swap(c.sp.map, source)
     swap(c.builder, builder)
-    swap(c.env, env)
 
   swapState()
   genLocInit(c, n[0], n[2])
   swapState()
+  env = move c.env # move back
 
 proc generateCode*(graph: ModuleGraph, env: var MirEnv,
                    config: TranslationConfig, n: PNode,
@@ -2127,13 +2128,12 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv,
   ## Generates MIR code that is semantically equivalent to the expression or
   ## statement `n`, appending the resulting code and the corresponding origin
   ## information to `code` and `source`, respectively.
-  var c = TCtx(context: skUnknown, graph: graph, config: config)
+  var c = TCtx(context: skUnknown, graph: graph, config: config, env: move env)
   c.scopeDepth = 2 # assume that this is not top-level code
 
   template swapState() =
     swap(c.sp.map, source)
     swap(c.builder, builder)
-    swap(c.env, env)
 
   # for the duration of ``generateCode`` we move the state into ``TCtx``
   swapState()
@@ -2150,6 +2150,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv,
 
   # move the state back into the output parameters:
   swapState()
+  env = move c.env
 
 proc addParams(c: var TCtx, prc: PSym, signature: PType) =
   ## Translates the result variable and the parameters (taken from `signature`)
@@ -2189,10 +2190,8 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
   #assert nfTransf in body.flags, "transformed AST is expected as input"
 
   var c = TCtx(context: owner.kind, graph: graph, config: config,
-               userOptions: owner.options)
+               userOptions: owner.options, env: move env)
   c.sp.active = (body, c.sp.map.add(body))
-
-  swap(c.env, env)
 
   c.scopeDepth = 1
   c.add MirNode(kind: mnkScope)
@@ -2240,7 +2239,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
 
   c.add endNode(mnkScope)
 
-  swap(c.env, env) # swap back
+  env = c.env
 
   # move the buffers into the result body
   let (code, locals) = finish(move c.builder, default(Store[LocalId, Local]))
@@ -2251,9 +2250,8 @@ proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
   ## Only meant to be used by `vmjit <#vmjit>`_. Produces a MIR body for a
   ## standalone expression. The result of the expression is assigned to the
   ## special local with ID 0.
-  var c = TCtx(context: skUnknown, graph: graph, config: config)
+  var c = TCtx(context: skUnknown, graph: graph, config: config, env: move env)
   c.sp.active = (e, c.sp.map.add(e))
-  swap(c.env, env)
 
   let res = c.addLocal(Local(typ: e.typ)) # the result variable
   c.scope:
@@ -2271,7 +2269,7 @@ proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
       else:
         c.genAsgnSource(e, {dfOwns, dfEmpty})
 
-  swap(c.env, env)
+  env = move c.env
 
   let (code, locals) = finish(move c.builder, default(Store[LocalId, Local]))
   MirBody(locals: locals, source: move c.sp.map, code: code)

@@ -264,9 +264,8 @@ template endBlock(p: PProc, frmt: FormatStr = "}$n", args: varargs[Rope]) =
   dec p.extraIndent
   lineF(p, frmt, args)
 
-proc newGlobals*(): PGlobals =
-  new(result)
-  result.typeInfoGenerated = initIntSet()
+proc newGlobals*(g: ModuleGraph): PGlobals =
+  PGlobals(env: initMirEnv(g))
 
 proc rdLoc(a: TCompRes): Rope {.inline.} =
   if a.typ != etyBaseIndex:

@@ -36,9 +36,11 @@ import
     mirgen,
     mirpasses,
     mirtrees,
+    mirtypes
   ],
   compiler/modules/[
-    magicsys
+    magicsys,
+    modulegraphs
   ],
   compiler/sem/[
     transf
@@ -70,6 +72,10 @@ type
     gen: CodeGenCtx
       ## code generator state
 
+proc initJit*(graph: ModuleGraph): JitState =
+  ## Returns an initialized ``JitState`` instance.
+  JitState(gen: initCodeGen(graph))
+
 func env*(jit: JitState): lent MirEnv {.inline.} =
   ## The JIT code generator's MIR environment.
   jit.gen.env
@@ -93,7 +99,6 @@ func swapState(c: var TCtx, gen: var CodeGenCtx) =
   # input parameters:
   swap(graph)
   swap(config)
-  swap(mode)
   swap(features)
   swap(module)
   swap(callbackKeys)

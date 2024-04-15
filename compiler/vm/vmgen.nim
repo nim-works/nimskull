@@ -180,7 +180,6 @@ type
     # immutable input parameters:
     graph*: ModuleGraph
     config*: ConfigRef
-    mode*: TEvalMode
     features*: TSandboxFlags
     module*: PSym
 
@@ -216,6 +215,9 @@ const
 
   noDest = TDest(-1)
   slotSomeTemp* = slotTempUnknown
+
+proc initCodeGen*(g: ModuleGraph): CodeGenCtx =
+  CodeGenCtx(graph: g, config: g.config, env: initMirEnv(g))
 
 proc getOrCreate*(c: var TCtx, typ: PType;
                   noClosure = false): PVmType {.inline.} =

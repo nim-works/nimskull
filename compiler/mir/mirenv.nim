@@ -15,6 +15,9 @@ import
     mirtrees,
     mirtypes
   ],
+  compiler/modules/[
+    modulegraphs
+  ],
   compiler/ic/[
     bitabs
   ],

@@ -31,7 +31,8 @@ import
     mirbodies,
     mirenv,
     mirgen,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/modules/[
     modulegraphs,
@@ -265,8 +266,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
                                 magicsToKeep: MagicsToKeep))
 
   var c =
-    GenCtx(graph: g,
-           gen: CodeGenCtx(config: g.config, graph: g, mode: emStandalone))
+    GenCtx(graph: g, gen: initCodeGen(g))
 
   c.gen.typeInfoCache.init()
   c.gen.typeInfoCache.initRootRef(g.config, g.getCompilerProc("RootObj").typ)

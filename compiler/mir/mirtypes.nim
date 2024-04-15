@@ -1,6 +1,8 @@
+## Implements the type IR for the MIR phase (not yet), plus the
+## `TypeEnv <#TypeEnv>`_, which stores the data for all types.
 ##
-## Some commonly used built-in types use static IDs, to make lookup easier
-## and faster.
+## All types are addressed via ``TypeId``, with the built-in types using
+## static IDs.
 
 import
   std/[
@@ -24,7 +26,9 @@ import
   ]
 
 type
-  TypeEnv* = object
+  TypeEnv* {.requiresInit.} = object
+    ## Stores the data associated with types. Has no valid default value, and
+    ## must be explicitly initialized first.
     map: TypeTable[TypeId]
       ## maps the hash of a type. Since the hash is not guaranteed to be
       ## unique, hash collisions are possible!
@@ -50,18 +54,18 @@ const
   CstringType* = TypeId 14
   PointerType* = TypeId 15
 
-proc init*(env: var TypeEnv, graph: ModuleGraph) =
-  ## Initializes the type environment.
-  if env.types.nextId() != VoidType:
-    return
+proc initTypeEnv*(graph: ModuleGraph): TypeEnv =
+  ## Returns a fully initialized type environment instance.
+  result = TypeEnv(map: default(TypeTable[TypeId]),
+                   types: default(Store[TypeId, PType]))
 
   template add(kind: TTypeKind, expect: TypeId) =
     let
       typ = graph.getSysType(unknownLineInfo, kind)
-      id  = env.types.add(typ)
+      id  = result.types.add(typ)
     assert id == expect
     # the type needs to be mapped too
-    env.map[typ] = id
+    result.map[typ] = id
 
   add(tyVoid, VoidType)
   add(tyBool, BoolType)

@@ -460,7 +460,7 @@ proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
     ctx.flags = {cgfAllowMeta}
     registerAdditionalOps(ctx, disallowDangerous)
 
-    graph.vm = PEvalContext(vm: ctx)
+    graph.vm = PEvalContext(vm: ctx, jit: initJit(graph))
   else:
     let c = PEvalContext(graph.vm)
     refresh(c.vm, module, idgen)
