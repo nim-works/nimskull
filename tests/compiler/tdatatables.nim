@@ -4,17 +4,18 @@ discard """
 """
 
 import compiler/ast/ast
+import compiler/mir/mirtypes
 include compiler/mir/datatables
 
 # some placeholder types to assing to the nodes. For object types, a different
 # ID means that it's a different type
 let
-  t1 = PType(itemId: ItemId(item: 1), kind: tyObject, sons: @[PType nil])
-  t2 = PType(itemId: ItemId(item: 2), kind: tyObject, sons: @[PType nil])
-  t3 = PType(itemId: ItemId(item: 3), kind: tyObject, sons: @[PType nil])
+  t1 = Int8Type
+  t2 = Int16Type
+  t3 = Int32Type
 
 # node constructor
-template node(k: MirNodeKind, t: PType, field, val: untyped): MirNode =
+template node(k: MirNodeKind, t: TypeId, field, val: untyped): MirNode =
   MirNode(kind: k, typ: t, field: val)
 template node(k: MirNodeKind, field, val: untyped): MirNode =
   MirNode(kind: k, field: val)
