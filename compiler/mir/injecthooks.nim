@@ -22,10 +22,10 @@ import
     mirchangesets,
     mirconstr,
     mirenv,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/modules/[
-    magicsys,
     modulegraphs
   ],
   compiler/sem/[
@@ -115,8 +115,8 @@ proc isUsedForSink(tree: MirTree, stmt: NodePosition): bool =
 
     inc n
 
-proc reportDiagnostics(g: ModuleGraph, body: MirBody,
-                       owner: PSym, diags: var seq[LocalDiag]) =
+proc reportDiagnostics(g: ModuleGraph, types: TypeEnv, body: MirBody,
+                       owner: PSym, diags: seq[LocalDiag]) =
   ## Reports all diagnostics in `diags` as ``SemReport``s and clear the list
   for diag in diags.items:
     let ast = body.sourceFor(diag.pos)
@@ -124,7 +124,7 @@ proc reportDiagnostics(g: ModuleGraph, body: MirBody,
       case diag.kind
       of ldkUnavailableTypeBound:
         SemReport(kind: rsemUnavailableTypeBound,
-                  typ: body[diag.pos].typ,
+                  typ: types[body[diag.pos].typ],
                   str: AttachedOpToStr[diag.op],
                   ast: ast,
                   sym: owner)
@@ -151,17 +151,17 @@ template genCopy(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
       src
 
     if graph.config.selectedGC == gcOrc and
-       cyclicType(tree[dst].typ.skipTypes(skipAliases + {tyDistinct}), graph):
+       cyclicType(env[tree[dst].typ].skipTypes(skipAliases + {tyDistinct}),
+                  graph):
       # pass whether the copy can potentially introduce cycles as the third
       # parameter:
       let c = maybeCyclic and couldIntroduceCycle(tree, dest)
-      bu.emitByVal literal(mnkIntLit, env.getOrIncl(BiggestInt(c)),
-                           graph.getSysType(unknownLineInfo, tyBool))
+      bu.emitByVal literal(mnkIntLit, env.getOrIncl(BiggestInt(c)), BoolType)
 
 proc genDestroy*(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
                  target: Value) =
   ## Emits a destructor call with `target` as the argument.
-  let destr = getOp(graph, target.typ, attachedDestructor)
+  let destr = getOp(graph, env[target.typ], attachedDestructor)
   bu.buildVoidCall(env, destr):
     bu.emitByName(target, ekMutate)
 
@@ -179,14 +179,14 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
         stmt = tree.parent(i)
         typ  = tree[stmt, 0].typ
 
-      if not hasDestructor(typ):
+      if not hasDestructor(env[typ]):
         # nothing to insert
         continue
 
       let
         dest = tree.child(stmt, 0)
         src  = tree.child(i, 0)
-        op   = getOp(graph, typ, attachedAsgn)
+        op   = getOp(graph, env[typ], attachedAsgn)
 
       if sfError in op.flags:
         # emit an error if the hook is not available, but still continue
@@ -234,7 +234,7 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
         stmt = tree.parent(i)
         typ  = tree[stmt, 0].typ
 
-      if not hasDestructor(typ) or
+      if not hasDestructor(env[typ]) or
          tree[stmt].kind in {mnkDef, mnkDefUnpack, mnkInit}:
         # nothing to do if:
         # * the type has no hooks
@@ -244,7 +244,7 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
       let
         dest = tree.child(stmt, 0)
         src  = tree.child(i, 0)
-        op   = getOp(graph, typ, attachedSink)
+        op   = getOp(graph, env[typ], attachedSink)
 
       # note: the move analyzer has to make sure that the source operand
       # doesn't overlap with the destination, so no temporary for the source is
@@ -272,7 +272,7 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
           bu.use loc
 
     of mnkDestroy:
-      let destr = getOp(graph, tree[tree.operand(i)].typ, attachedDestructor)
+      let destr = getOp(graph, env[tree[tree.operand(i)].typ], attachedDestructor)
       changes.replaceMulti(tree, i, bu):
         bu.buildVoidCall(env, destr):
           # XXX: the by-name passing and usage of ``ekMutate`` is not really
@@ -288,7 +288,7 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
       discard "nothing to do"
 
   # turn the collected diagnostics into reports and report them:
-  reportDiagnostics(graph, body, owner, diags)
+  reportDiagnostics(graph, env.types, body, owner, diags)
 
 proc injectHooks*(body: var MirBody, graph: ModuleGraph, env: var MirEnv,
                   owner: PSym) =
