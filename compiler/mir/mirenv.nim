@@ -12,7 +12,8 @@ import
   ],
   compiler/mir/[
     datatables,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/ic/[
     bitabs
@@ -42,6 +43,8 @@ type
     globals*:    SymbolTable[GlobalId, PSym]
       ## includes both normal globals and threadvars
     procedures*: SymbolTable[ProcedureId, PSym]
+    types*: TypeEnv
+      ## the type environment
 
     numbers*: BiTable[BiggestInt]
       ## all numerical values referenced by the MIR, stored as bit patterns
@@ -102,6 +105,9 @@ func checkpoint*[I, T](tab: SymbolTable[I, T]): Checkpoint =
 
 # ------- MirEnv API --------
 
+proc initMirEnv*(g: ModuleGraph): MirEnv =
+  MirEnv(types: initTypeEnv(g))
+
 func `[]`*(env: MirEnv, id: ConstId): lent PSym {.inline.} =
   env.constants.data[id]
 
@@ -137,6 +143,9 @@ func getOrIncl*(env: var MirEnv, v: BiggestInt|BiggestUInt|BiggestFloat
 func getOrIncl*(env: var MirEnv, str: string): StringId {.inline.} =
   ## If not registered already, adds `str` to the environment.
   StringId env.strings.getOrIncl(str)
+
+template `[]`*(env: MirEnv, id: TypeId): PType =
+  env.types[id]
 
 func setData*(env: var MirEnv, id: ConstId, data: DataId) =
   ## Sets the body for the constant identified by `id`.
