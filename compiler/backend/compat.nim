@@ -24,7 +24,8 @@ import
   ],
   compiler/mir/[
     mirenv,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/utils/[
     bitsets,
@@ -146,7 +147,7 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
     template tree(k: CgNodeKind, body: untyped): CgNode =
       ## Convenience template for setting up the tree node and iterating the
       ## input node's child nodes.
-      let res {.inject.} = newExpr(k, unknownLineInfo, n.typ)
+      let res {.inject.} = newExpr(k, unknownLineInfo, typ)
       res.kids.newSeq(t[i - 1].len)
       for j in 0..<res.len:
         res.kids[j] = body
@@ -154,12 +155,14 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
       inc i # consume the end node
       res
 
-    let n {.cursor.} = t[i]
+    let
+      n {.cursor.} = t[i]
+      typ {.cursor.} = env[n.typ]
     inc i # advance to the first child node
     case n.kind
     of mnkObjConstr:
       tree cnkObjConstr:
-        let field = lookupInType(n.typ, t[i].field.int)
+        let field = lookupInType(typ, t[i].field.int)
         inc i # advance to the arg node
         CgNode(kind: cnkBinding, info: unknownLineInfo,
                kids: @[CgNode(kind: cnkField, field: field),
@@ -184,24 +187,24 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
       inc i # skip the end node
       x
     of mnkNilLit:
-      CgNode(kind: cnkNilLit, info: unknownLineInfo, typ: n.typ)
+      CgNode(kind: cnkNilLit, info: unknownLineInfo, typ: typ)
     of mnkIntLit:
-      CgNode(kind: cnkIntLit, info: unknownLineInfo, typ: n.typ,
+      CgNode(kind: cnkIntLit, info: unknownLineInfo, typ: typ,
              intVal: env.getInt(n.number))
     of mnkUIntLit:
-      CgNode(kind: cnkUIntLit, info: unknownLineInfo, typ: n.typ,
+      CgNode(kind: cnkUIntLit, info: unknownLineInfo, typ: typ,
              intVal: env.getInt(n.number))
     of mnkFloatLit:
-      CgNode(kind: cnkFloatLit, info: unknownLineInfo, typ: n.typ,
+      CgNode(kind: cnkFloatLit, info: unknownLineInfo, typ: typ,
              floatVal: env.getFloat(n.number))
     of mnkStrLit:
-      CgNode(kind: cnkStrLit, info: unknownLineInfo, typ: n.typ,
+      CgNode(kind: cnkStrLit, info: unknownLineInfo, typ: typ,
              strVal: n.strVal)
     of mnkAstLit:
-      CgNode(kind: cnkAstLit, info: unknownLineInfo, typ: n.typ,
+      CgNode(kind: cnkAstLit, info: unknownLineInfo, typ: typ,
              astLit: env[n.ast])
     of mnkProcVal:
-      CgNode(kind: cnkProc, info: unknownLineInfo, prc: n.prc, typ: n.typ)
+      CgNode(kind: cnkProc, info: unknownLineInfo, prc: n.prc, typ: typ)
     of AllNodeKinds - ConstrTreeNodes + {mnkEnd, mnkField}:
       # 'end' nodes are skipped manually
       unreachable(n.kind)

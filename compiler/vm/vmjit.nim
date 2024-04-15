@@ -131,7 +131,7 @@ proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
   # constants
   for id, data in since(env.data, cp.data):
     let
-      typ = c.getOrCreate(data[0].typ)
+      typ = c.getOrCreate(env.types[data[0].typ])
       handle = c.allocator.allocConstantLocation(typ)
 
     initFromExpr(handle, data, env, c)

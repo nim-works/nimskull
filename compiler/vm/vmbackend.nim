@@ -300,7 +300,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   # produce a list with the type of each constant:
   var consts = newSeq[(PVmType, DataId)](c.gen.env.data.len)
   for i, data in c.gen.env.data.pairs:
-    let typ = c.gen.typeInfoCache.lookup(conf, data[0].typ)
+    let typ = c.gen.typeInfoCache.lookup(conf, c.gen.env[data[0].typ])
     consts[ord(i)] = (get(typ), i)
 
   env.typeInfoCache = move c.gen.typeInfoCache
