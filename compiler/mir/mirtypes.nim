@@ -84,6 +84,11 @@ proc initTypeEnv*(graph: ModuleGraph): TypeEnv =
   add(tyCstring, CstringType)
   add(tyPointer, PointerType)
 
+  # also register the built-in unspecified-width types. This prevents int/float
+  # literal types from being added to the environment
+  add(tyInt,   TypeId(ord(PointerType) + 1))
+  add(tyFloat, TypeId(ord(PointerType) + 2))
+
 proc add*(env: var TypeEnv, t: PType): TypeId =
   ## If not registered yet, adds `t` to `env` and returns the ID to later
   ## look it up with. Basic structural type unification is performed.
