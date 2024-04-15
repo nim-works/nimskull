@@ -784,7 +784,7 @@ proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
     genCallee(c, n[1])
   of skTemplate:
     # for late template invocations, the callee template is an argument
-    c.emitByVal astLiteral(c.env, n[1], n[1].typ)
+    c.emitByVal literal(c.env.asts.add(n[1]), VoidType)
   else:
     unreachable(kind)
 
