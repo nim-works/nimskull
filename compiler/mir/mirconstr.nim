@@ -28,7 +28,7 @@ type
   Fragment* = object
     ## Identifies a fragment (usually a sub-tree) within the staging buffer.
     s: NodeSlice
-    typ*: PType
+    typ*: TypeId
 
   MirBuffer = object
     ## Accumulates in-progress MIR code and keeps track of additional state
@@ -61,7 +61,7 @@ type
     #      with changesets to work, but future refactorings should focus
     #      on making them hidden
 
-func typ*(val: Value): PType =
+func typ*(val: Value): TypeId =
   assert val.node.kind != mnkNone, "uninitialized"
   val.node.typ
 
@@ -72,36 +72,36 @@ func endNode*(k: MirNodeKind): MirNode {.inline.} =
   assert k in SubTreeNodes
   MirNode(kind: mnkEnd, start: k)
 
-func typeLit*(t: PType): Value =
+func typeLit*(t: TypeId): Value =
   Value(node: MirNode(kind: mnkType, typ: t))
 
 func literal*(kind: range[mnkIntLit..mnkFloatLit], n: NumberId,
-              typ: PType): Value =
+              typ: TypeId): Value =
   Value(node: MirNode(kind: kind, typ: typ, number: n))
 
-func literal*(str: StringId, typ: PType): Value =
+func literal*(str: StringId, typ: TypeId): Value =
   Value(node: MirNode(kind: mnkStrLit, typ: typ, strVal: str))
 
-func literal*(ast: AstId, typ: PType): Value =
+func literal*(ast: AstId, typ: TypeId): Value =
   Value(node: MirNode(kind: mnkAstLit, typ: typ, ast: ast))
 
-func temp*(typ: PType, id: LocalId): Value =
+func temp*(typ: TypeId, id: LocalId): Value =
   Value(node: MirNode(kind: mnkTemp, typ: typ, local: id))
 
-func alias*(typ: PType, id: LocalId): Value =
+func alias*(typ: TypeId, id: LocalId): Value =
   Value(node: MirNode(kind: mnkAlias, typ: typ, local: id))
 
-func toValue*(id: ConstId, typ: PType): Value =
+func toValue*(id: ConstId, typ: TypeId): Value =
   Value(node: MirNode(kind: mnkConst, typ: typ, cnst: id))
 
-func toValue*(id: GlobalId, typ: PType): Value =
+func toValue*(id: GlobalId, typ: TypeId): Value =
   Value(node: MirNode(kind: mnkGlobal, typ: typ, global: id))
 
-func toValue*(id: ProcedureId, typ: PType): Value =
+func toValue*(id: ProcedureId, typ: TypeId): Value =
   Value(node: MirNode(kind: mnkProcVal, typ: typ, prc: id))
 
 func toValue*(kind: range[mnkParam..mnkLocal], id: LocalId,
-              typ: PType): Value =
+              typ: TypeId): Value =
   Value(node: MirNode(kind: kind, typ: typ, local: id))
 
 # --------- MirBuffer interface ----------
@@ -196,7 +196,7 @@ template push*(bu: var MirBuilder, body: untyped): Fragment =
            typ: if start < bu.staging.len:
                   bu.staging[start].typ
                 else:
-                  nil)
+                  VoidType)
 
 func pop*(bu: var MirBuilder, f: Fragment) =
   ## Moves the expression/statement identified by `v` from the top of the
@@ -302,7 +302,7 @@ template scope*(bu: var MirBuilder, body: untyped) =
   bu.subTree MirNode(kind: mnkScope):
     body
 
-func allocTemp(bu: MirBuilder, t: PType; id: LocalId, alias: bool): Value =
+func allocTemp(bu: MirBuilder, t: TypeId; id: LocalId, alias: bool): Value =
   ## Allocates a new temporary or alias and returns it.
   let kind = if alias: mnkAlias
              else:     mnkTemp
@@ -310,7 +310,7 @@ func allocTemp(bu: MirBuilder, t: PType; id: LocalId, alias: bool): Value =
     result = Value(node: MirNode(kind: kind, typ: t, local: id),
                    info: someOpt bu.currentSourceId)
 
-template allocTemp*(bu: var MirBuilder, t: PType, alias = false): Value =
+template allocTemp*(bu: var MirBuilder, t: TypeId, alias = false): Value =
   # XXX: the only purpose of this is to work around a ``strictFuncs`` bug
   let id = bu.addLocal(Local(typ: t))
   allocTemp(bu, t, id, alias)
@@ -322,7 +322,7 @@ func use*(bu: var MirBuilder, val: sink Value) {.inline.} =
   else:
     bu.add val.node
 
-template wrapTemp*(bu: var MirBuilder, t: PType,
+template wrapTemp*(bu: var MirBuilder, t: TypeId,
                   body: untyped): Value =
   ## Emits a definition of a temporary with `body` as the initializer
   ## expression.
@@ -332,7 +332,7 @@ template wrapTemp*(bu: var MirBuilder, t: PType,
     body
   val
 
-template wrapAlias*(bu: var MirBuilder, t: PType, body: untyped): Value =
+template wrapAlias*(bu: var MirBuilder, t: TypeId, body: untyped): Value =
   ## Emits an ``mnkBind`` statement with `body` as the lvalue expression.
   ## Returns the name of the alias.
   let val = allocTemp(bu, t, true)
@@ -341,7 +341,7 @@ template wrapAlias*(bu: var MirBuilder, t: PType, body: untyped): Value =
     body
   val
 
-template wrapMutAlias*(bu: var MirBuilder, t: PType, body: untyped): Value =
+template wrapMutAlias*(bu: var MirBuilder, t: TypeId, body: untyped): Value =
   ## Emits a ``mnkBindMut`` statement with `body` as the lvalue expression.
   ## Returns the name of the alias.
   let val = allocTemp(bu, t, true)
@@ -350,13 +350,13 @@ template wrapMutAlias*(bu: var MirBuilder, t: PType, body: untyped): Value =
     body
   val
 
-template buildMagicCall*(bu: var MirBuilder, m: TMagic, t: PType,
+template buildMagicCall*(bu: var MirBuilder, m: TMagic, t: TypeId,
                          body: untyped) =
   bu.subTree MirNode(kind: mnkCall, typ: t):
     bu.add MirNode(kind: mnkMagic, magic: m)
     body
 
-template buildCall*(bu: var MirBuilder, prc: ProcedureId, t: PType,
+template buildCall*(bu: var MirBuilder, prc: ProcedureId, t: TypeId,
                     body: untyped) =
   ## Build and emits a call tree to the active buffer. `pt` is the type of the
   ## procedure.
