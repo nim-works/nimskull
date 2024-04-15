@@ -31,6 +31,7 @@ import
     mirgen,
     mirpasses,
     mirtrees,
+    mirtypes,
     sourcemaps,
     utils
   ],
@@ -363,7 +364,7 @@ proc translate*(id: ProcedureId, body: PNode, graph: ModuleGraph,
   # now apply the passes:
   process(result, prc, graph, idgen, env)
 
-proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: MirEnv,
+proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
                  owner: PSym, body: sink MirBody): Body =
   ## Translates the MIR code provided by `code` into ``CgNode`` IR and,
   ## if enabled, echoes the result.
@@ -420,7 +421,7 @@ proc produceFragmentsForGlobals(
       if hasDestructor(s.typ):
         prepare(deinit, result.deinit.source, graph.emptyNode)
         deinit.setSource(result.deinit.source.add(it[0]))
-        genDestroy(deinit, graph, env, toValue(global, s.typ))
+        genDestroy(deinit, graph, env, toValue(global, env.types.add(s.typ)))
 
   (result.init.code, result.init.locals) =
     finish(init, result.init.source, graph.emptyNode)
@@ -436,11 +437,11 @@ proc genLoadLib(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
 
   bu.subTree MirNode(kind: mnkAsgn):
     bu.use loc
-    bu.buildCall env.procedures.add(loadLib), loadLib.typ[0]:
+    bu.buildCall env.procedures.add(loadLib), env.types.add(loadLib.typ[0]):
       bu.emitByVal name
 
-  bu.wrapTemp(graph.getSysType(unknownLineInfo, tyBool)):
-    bu.buildMagicCall mIsNil, graph.getSysType(unknownLineInfo, tyBool):
+  bu.wrapTemp(BoolType):
+    bu.buildMagicCall mIsNil, BoolType:
       bu.emitByVal loc
 
 proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
@@ -451,8 +452,7 @@ proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
   ## expression used with the ``.dynlib`` pragma.
   let
     errorProc = graph.getCompilerProc("nimLoadLibraryError")
-    voidTyp   = graph.getSysType(path.info, tyVoid)
-    val       = toValue(libVar, env[libVar].typ)
+    val       = toValue(libVar, env.types.add(env[libVar].typ))
 
   if path.kind in nkStrKinds:
     # the library name is known at compile-time
@@ -467,11 +467,10 @@ proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
       bu.add MirNode(kind: mnkStmtList) # manual, for less visual nesting
       for candidate in candidates.items:
         var tmp = genLoadLib(bu, graph, env, val):
-          literal(env.getOrIncl(candidate),
-                  graph.getSysType(path.info, tyString))
+          literal(env.getOrIncl(candidate), StringType)
 
-        tmp = bu.wrapTemp(graph.getSysType(path.info, tyBool)):
-          bu.buildMagicCall mNot, graph.getSysType(path.info, tyBool):
+        tmp = bu.wrapTemp(BoolType):
+          bu.buildMagicCall mNot, BoolType:
             bu.emitByVal tmp
 
         bu.subTree mnkIf:
@@ -480,16 +479,13 @@ proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
 
       # if none of the candidates worked, a run-time error is reported:
       bu.subTree mnkVoid:
-        bu.buildCall env.procedures.add(errorProc), voidTyp:
-          bu.emitByVal literal(env.getOrIncl(path.strVal), path.typ)
+        bu.buildCall env.procedures.add(errorProc), VoidType:
+          bu.emitByVal literal(env.getOrIncl(path.strVal), StringType)
       bu.add endNode(mnkStmtList)
   else:
     # the name of the dynamic library to load the procedure from is only known
     # at run-time
-    let
-      strType = graph.getSysType(path.info, tyString)
-
-    let nameTemp = bu.allocTemp(strType)
+    let nameTemp = bu.allocTemp(StringType)
     bu.buildStmt mnkDef:
       bu.use nameTemp
       generateCode(graph, env, conf.tconfig, path, bu, source)
@@ -498,7 +494,7 @@ proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
     bu.subTree mnkIf:
       bu.use cond
       bu.subTree mnkVoid:
-        bu.buildCall env.procedures.add(errorProc), voidTyp:
+        bu.buildCall env.procedures.add(errorProc), VoidType:
           bu.emitByVal nameTemp
 
 proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
@@ -512,7 +508,6 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
     loadProc = graph.getCompilerProc("nimGetProcAddr")
     path     = transformExpr(graph, m.idgen, m.sym, lib.path)
     extname  = newStrNode(nkStrLit, sym.extname)
-    voidTyp  = graph.getSysType(path.info, tyVoid)
 
   extname.typ = graph.getSysType(lib.path.info, tyCstring)
 
@@ -521,9 +516,9 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
 
   let dest =
     if sym.kind in routineKinds:
-      toValue(env.procedures[sym], sym.typ)
+      toValue(env.procedures[sym], env.types.add(sym.typ))
     else:
-      toValue(env.globals[sym], sym.typ)
+      toValue(env.globals[sym], env.types.add(sym.typ))
 
   # the scope makes sure that locals are destroyed once loading the
   # procedure has finished
@@ -540,7 +535,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
       bu.use tmp
       generateCode(graph, env, conf.tconfig, path, bu, result.source)
     bu.subTree mnkVoid:
-      bu.buildMagicCall mAsgnDynlibVar, voidTyp:
+      bu.buildMagicCall mAsgnDynlibVar, VoidType:
         bu.emitByName(dest, ekReassign)
         bu.emitByVal(tmp)
   else:
@@ -549,6 +544,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
     let
       isNew = lib.name in env.globals
       libVar = env.globals.add(lib.name)
+      rtyp = env.types.add(loadProc.typ[0])
 
     if not isNew:
       # the library hasn't been loaded yet
@@ -557,13 +553,13 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
         data.libs.add sym.annex
 
     # generate the code for ``sym = cast[typ](nimGetProcAddr(lib, extname))``
-    let tmp = bu.wrapTemp(loadProc.typ[0]):
-      bu.buildCall env.procedures.add(loadProc), loadProc.typ[0]:
-        bu.emitByVal toValue(libVar, lib.name.typ)
-        bu.emitByVal literal(env.getOrIncl(extname.strVal), extname.typ)
+    let tmp = bu.wrapTemp(rtyp):
+      bu.buildCall env.procedures.add(loadProc), rtyp:
+        bu.emitByVal toValue(libVar, env.types.add(lib.name.typ))
+        bu.emitByVal literal(env.getOrIncl(extname.strVal), CstringType)
 
     bu.subTree mnkVoid:
-      bu.buildMagicCall mAsgnDynlibVar, voidTyp:
+      bu.buildMagicCall mAsgnDynlibVar, VoidType:
         bu.emitByName(dest, ekReassign)
         bu.emitByVal tmp
 
