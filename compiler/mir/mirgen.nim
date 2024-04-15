@@ -1169,16 +1169,7 @@ proc genClosureConstr(c: var TCtx, n: PNode, isConsume: bool) =
     # transf wraps the procedure operand in a conversion that we don't
     # need
 
-    c.subTree (if isConsume: mnkConsume else: mnkArg): # the environment
-      if n[1].kind == nkNilLit:
-        # it can happen that a ``nkNilLit`` has no type (i.e. its typ is nil) -
-        # we ensure that the nil literal has the correct type
-        # TODO: prevent a ``nkNilLit`` with no type information from being
-        #       created instead
-        c.add MirNode(kind: mnkNilLit,
-                      typ: c.graph.getSysType(n[1].info, tyNil))
-      else:
-        genArgExpression(c, n[1], isConsume)
+    c.emitOperandTree n[1], isConsume # the environment
 
 proc genObjConstr(c: var TCtx, n: PNode, isConsume: bool) =
   let isRef = n.typ.skipTypes(abstractInst).kind == tyRef
