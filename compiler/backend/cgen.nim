@@ -500,7 +500,7 @@ proc localVarDecl(p: BProc; n: CgNode, decl: Local): Rope =
   if decl.alignment > 0:
     result.addf("NIM_ALIGN($1) ", [$decl.alignment])
 
-  result.add getTypeDesc(p.module, decl.typ)
+  result.add getTypeDesc(p.module, p.module.g.env[decl.typ])
   if true:
     if sfRegister in decl.flags: result.add(" register")
     if sfVolatile in decl.flags: result.add(" volatile")

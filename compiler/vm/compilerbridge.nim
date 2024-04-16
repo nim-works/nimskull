@@ -95,13 +95,22 @@ type
   ExecutionResult* = Result[PNode, ExecErrorReport]
 
   PEvalContext* = ref EvalContext
-  EvalContext* = object of TPassContext
+  EvalContext* {.final.} = object of RootObj
     ## All state required to on-demand translate AST to VM bytecode and execute
     ## it. An ``EvalContext`` instance makes up everything that is required
     ## for running code at compile-time.
     vm*: TCtx
     jit*: JitState
 
+  PVmCtx* = ref object of RootObj
+    ## Wrapper type intended for storing only a VM instance (without a JIT
+    ## environment) in the module graph.
+    context*: TCtx
+
+  PEvalPassContext = ref object of PPassContext
+    ## Pass context for the evaluation pass.
+    graph: ModuleGraph
+    module: PSym
     oldErrorCount: int
 
 # prevent a default `$` implementation from being generated
@@ -460,7 +469,12 @@ proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
     ctx.flags = {cgfAllowMeta}
     registerAdditionalOps(ctx, disallowDangerous)
 
-    graph.vm = PEvalContext(vm: ctx)
+    graph.vm = PEvalContext(vm: ctx, jit: initJit(graph))
+  elif graph.vm of PVmCtx:
+    # take the VM instance provided by the wrapper and create a proper
+    # evaluation context from it
+    let ctx = move PVmCtx(graph.vm).context
+    graph.vm = PEvalContext(vm: ctx, jit: initJit(graph))
   else:
     let c = PEvalContext(graph.vm)
     refresh(c.vm, module, idgen)
@@ -691,26 +705,39 @@ proc setGlobalValue*(c: var EvalContext; s: PSym, val: PNode) =
 ## the ``nimeval`` interface
 
 proc myOpen(graph: ModuleGraph; module: PSym; idgen: IdGenerator): PPassContext {.nosinks.} =
-  #var c = newEvalContext(module, emRepl)
-  #c.features = {allowCast, allowInfiniteLoops}
-  #pushStackFrame(c, newStackFrame())
+  result = PEvalPassContext(idgen: idgen, graph: graph, module: module)
 
-  # XXX produce a new 'globals' environment here:
-  setupGlobalCtx(module, graph, idgen)
-  result = PEvalContext graph.vm
+proc isDecl(n: PNode): bool =
+  case n.kind
+  of nkStmtList:
+    # if one sub-node is not declarative, neither is `n`
+    for it in n.items:
+      if not isDecl(it):
+        return false
+    result = true
+  of nkEmpty, nkTypeSection, nkConstSection, nkImportStmt, nkImportAs,
+     nkImportExceptStmt, nkFromStmt, nkCommentStmt, routineDefs:
+    result = true
+  else:
+    result = false
 
 proc myProcess(c: PPassContext, n: PNode): PNode =
-  let c = PEvalContext(c)
-  # don't eval errornous code:
-  if c.oldErrorCount == c.vm.config.errorCounter and not n.isError:
-    let r = evalStmt(c.jit, c.vm, n)
-    reportIfError(c.vm.config, r)
+  let c = PEvalPassContext(c)
+  # don't eval errornous code. Also skip declarative nodes, as those represent
+  # type definitions required for bootstrapping the basic type environment
+  if c.oldErrorCount == c.graph.config.errorCounter and not n.isError and
+     not isDecl(n):
+    setupGlobalCtx(c.module, c.graph, c.idgen)
+    let eval = PEvalContext(c.graph.vm)
+
+    let r = evalStmt(eval.jit, eval.vm, n)
+    reportIfError(c.graph.config, r)
     # TODO: use the node returned by evalStmt as the result and don't report
     #       the error here
     result = newNodeI(nkEmpty, n.info)
   else:
     result = n
-  c.oldErrorCount = c.vm.config.errorCounter
+  c.oldErrorCount = c.graph.config.errorCounter
 
 proc myClose(graph: ModuleGraph; c: PPassContext, n: PNode): PNode =
   result = myProcess(c, n)

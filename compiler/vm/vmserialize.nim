@@ -87,7 +87,7 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
     else:
       # allocate a managed heap location and fill it:
       let
-        t = c.getOrCreate(tree[n].typ)
+        t = c.getOrCreate(env[tree[n].typ])
         slot = c.heap.heapNew(c.allocator, t.targetType)
       recurse(c.heap.unsafeDeref(slot))
       deref(dest).refVal = slot
@@ -97,7 +97,7 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
       toInt(val - first)
 
     let first =
-      if tree[n].len > 0: firstOrd(c.config, tree[n].typ)
+      if tree[n].len > 0: firstOrd(c.config, env[tree[n].typ])
       else:               Zero
     # XXX: ^^ ``set[empty]``-typed literals reach here, but they shouldn't. The
     #      len guard works around the issue
@@ -126,7 +126,7 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
       iterTree(j):
         arg recurse(dest.getFieldHandle(j.FieldPosition))
     of mnkObjConstr:
-      let typ = tree[n].typ.skipTypes(abstractPtrs) ## the object's type
+      let typ = env[tree[n].typ].skipTypes(abstractPtrs) ## the object's type
       iterTree(i):
         let
           sym = lookupInType(typ, next().field)

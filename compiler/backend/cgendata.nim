@@ -310,7 +310,8 @@ proc newProc*(prc: PSym, module: BModule): BProc =
 
 proc newModuleList*(g: ModuleGraph): BModuleList =
   BModuleList(typeInfoMarker: initTable[SigHash, tuple[str: Rope, owner: int32]](),
-    config: g.config, graph: g, nimtvDeclared: initIntSet())
+    config: g.config, graph: g, nimtvDeclared: initIntSet(),
+    env: initMirEnv(g))
 
 iterator cgenModules*(g: BModuleList): BModule =
   for m in g.modulesClosed:

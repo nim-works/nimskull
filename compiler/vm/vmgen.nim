@@ -52,7 +52,8 @@ import
   ],
   compiler/mir/[
     mirenv,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/front/[
     msgs,
@@ -180,7 +181,6 @@ type
     # immutable input parameters:
     graph*: ModuleGraph
     config*: ConfigRef
-    mode*: TEvalMode
     features*: TSandboxFlags
     module*: PSym
 
@@ -216,6 +216,9 @@ const
 
   noDest = TDest(-1)
   slotSomeTemp* = slotTempUnknown
+
+proc initCodeGen*(g: ModuleGraph): CodeGenCtx =
+  CodeGenCtx(graph: g, config: g.config, env: initMirEnv(g))
 
 proc getOrCreate*(c: var TCtx, typ: PType;
                   noClosure = false): PVmType {.inline.} =
@@ -1083,7 +1086,7 @@ proc writeBackResult(c: var TCtx, info: CgNode) =
   ## If the result value fits into a register but is not stored in one
   ## (because it has its address taken, etc.), emits the code for storing it
   ## back into a register. `info` is only used to provide line information.
-  let typ = c.prc.body[resultId].typ
+  let typ = c.env[c.prc.body[resultId].typ]
   if not isEmptyType(typ) and fitsRegister(typ) and not isDirectView(typ) and
      c.prc[resultId].isIndirect:
       # a write-back is required. Load the value into temporary register and
@@ -1244,10 +1247,10 @@ proc genRegLoad(c: var TCtx, n: CgNode, dest, src: TRegister) {.inline.} =
 proc genFieldCheck(c: var TCtx; n: CgNode)
 proc genSym(c: var TCtx, n: CgNode, dest: var TDest, load = true)
 
-func usesRegister(p: BProc, s: LocalId): bool =
+func usesRegister(c: TCtx, s: LocalId): bool =
   ## Returns whether the location identified by `s` is backed by a register
   ## (that is, whether the value is stored in a register directly)
-  fitsRegister(p.body[s].typ) and not p[s].isIndirect
+  fitsRegister(c.env[c.prc.body[s].typ]) and not c.prc[s].isIndirect
 
 proc genNew(c: var TCtx; n: CgNode, dest: var TDest) =
   prepare(c, dest, n, n.typ)
@@ -1757,14 +1760,14 @@ func fitsRegister(t: PType): bool =
   st.kind in { tyBool, tyInt..tyUInt64, tyChar, tyPtr, tyPointer} or
     (st.sym != nil and st.sym.magic == mPNimrodNode) # NimNode goes into register too
 
-func usesRegister(p: BProc, n: CgNode): bool =
+func usesRegister(c: TCtx, n: CgNode): bool =
   ## Analyses and returns whether the value of the location named by l-value
   ## expression `n` is stored in a register instead of a memory location
   # XXX: instead of using a separate analysis, compute and return this as part
   #      of ``genLValue`` and
   case n.kind
   of cnkLocal:
-    usesRegister(p, n.local)
+    usesRegister(c, n.local)
   of cnkProc, cnkConst, cnkGlobal:
     false
   of cnkDeref, cnkDerefView, cnkFieldAccess, cnkArrayAccess, cnkTupleAccess,
@@ -1778,7 +1781,7 @@ proc genNoLoad(c: var TCtx, n: CgNode): tuple[reg: TRegister, isDirect: bool] =
   ## the result stores a handle or a value.
   var dest = noDest
   genLvalue(c, n, dest)
-  result = (TRegister(dest), usesRegister(c.prc, n))
+  result = (TRegister(dest), usesRegister(c, n))
 
 proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   case m
@@ -2482,7 +2485,7 @@ proc genAsgnToLocal(c: var TCtx, le, ri: CgNode) =
       genToSlice(c, ri, dest, reified=false)
     else:
       gen(c, ri, dest)
-  elif usesRegister(c.prc, le.local):
+  elif usesRegister(c, le.local):
     gen(c, ri, dest)
   elif fitsRegister(le.typ):
     # the local is stored in-memory, a temporary register is needed
@@ -2638,7 +2641,7 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
     discard genType(c, n.typ) # make sure the type exists
     # somewhat hack-y, but the orchestrator later queries the type of the data
     # (which might be a different PType that maps to the same VM type)
-    discard genType(c, c.env[DataId pos][0].typ)
+    discard genType(c, c.env[c.env[DataId pos][0].typ])
   of cnkGlobal:
     # a global location
     let pos = useGlobal(c, n)
@@ -2655,7 +2658,7 @@ proc genSym(c: var TCtx; n: CgNode; dest: var TDest; load = true) =
   of cnkLocal:
       let local = c.prc[n.local].reg
       internalAssert(c.config, c.prc.regInfo[local].kind < slotSomeTemp)
-      if usesRegister(c.prc, n.local) or not load or not fitsRegister(n.typ):
+      if usesRegister(c, n.local) or not load or not fitsRegister(n.typ):
         if dest.isUnset:
           dest = local
         else:
@@ -2903,7 +2906,7 @@ proc genDef(c: var TCtx; a: CgNode) =
             # no initializer; only setup the register (and memory location,
             # if used)
             let reg = setSlot(c.prc, s)
-            let opc = if usesRegister(c.prc, s): opcLdNullReg
+            let opc = if usesRegister(c, s): opcLdNullReg
                       else: opcLdNull
 
             c.gABx(a, opc, reg, c.genType(typ))
@@ -2913,7 +2916,7 @@ proc genDef(c: var TCtx; a: CgNode) =
             # initialization is in progress:
             c.prc.regInfo[reg].kind = slotNoValue
             # XXX: checking for views here is wrong but necessary
-            if not usesRegister(c.prc, s) and not isDirectView(typ):
+            if not usesRegister(c, s) and not isDirectView(typ):
               # only setup a memory location if the local uses one
               c.gABx(a, opcLdNull, reg, c.genType(typ))
 
@@ -3205,7 +3208,7 @@ proc genStmt*(c: var TCtx; body: sink Body): Result[int, VmGenDiag] =
   except VmGenError as e:
     return typeof(result).err(move e.diag)
 
-  if not isEmptyType(c.prc.body[resultId].typ):
+  if c.prc.body[resultId].typ != VoidType:
     # the body has a result, emit a return
     c.gABC(n, opcRet, c.prc[resultId].reg)
 
@@ -3333,7 +3336,7 @@ proc genProcBody(c: var TCtx): int =
     # result register is setup at the start of macro evaluation
     # XXX: initializing the ``result`` of a macro should be handled through
     #      inserting the necessary code either in ``sem` or here
-    let rt = c.prc.body[resultId].typ
+    let rt = c.env[c.prc.body[resultId].typ]
     if not isEmptyType(rt) and fitsRegister(rt):
       # initialize the register holding the result
       if s.kind == skMacro:
@@ -3367,7 +3370,7 @@ proc genProcBody(c: var TCtx): int =
       # may pass it as a super type
       let env = TRegister(s.routineSignature.n.len)
       c.gABC(body, opcObjConv, env, env)
-      c.gABx(body, opcObjConv, 0, c.genType(c.prc.body[LocalId env].typ))
+      c.gABx(body, opcObjConv, 0, c.genType(c.env[c.prc.body[LocalId env].typ]))
 
     let eh = genSetEh(c, body.info)
     gen(c, body)

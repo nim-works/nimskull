@@ -31,7 +31,8 @@ import
     mirbodies,
     mirenv,
     mirgen,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/modules/[
     modulegraphs,
@@ -235,7 +236,7 @@ proc storeData(enc: var PackedEncoder, dst: var PackedEnv,
                config: ConfigRef,
                consts: seq[(PVmType, DataId)], env: MirEnv) =
   ## Packs all constant data (`consts`) and stores it into `dst`.
-  var denc = DataEncoder(config: config)
+  var denc = DataEncoder(config: config, types: addr env.types)
   denc.startEncoding(dst)
 
   mapList(dst.cconsts, consts, it):
@@ -265,8 +266,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
                                 magicsToKeep: MagicsToKeep))
 
   var c =
-    GenCtx(graph: g,
-           gen: CodeGenCtx(config: g.config, graph: g, mode: emStandalone))
+    GenCtx(graph: g, gen: initCodeGen(g))
 
   c.gen.typeInfoCache.init()
   c.gen.typeInfoCache.initRootRef(g.config, g.getCompilerProc("RootObj").typ)
@@ -300,7 +300,7 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
   # produce a list with the type of each constant:
   var consts = newSeq[(PVmType, DataId)](c.gen.env.data.len)
   for i, data in c.gen.env.data.pairs:
-    let typ = c.gen.typeInfoCache.lookup(conf, data[0].typ)
+    let typ = c.gen.typeInfoCache.lookup(conf, c.gen.env[data[0].typ])
     consts[ord(i)] = (get(typ), i)
 
   env.typeInfoCache = move c.gen.typeInfoCache

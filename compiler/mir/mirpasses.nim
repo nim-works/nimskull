@@ -22,6 +22,7 @@ import
     mirchangesets,
     mirconstr,
     mirtrees,
+    mirtypes,
     sourcemaps
   ],
   compiler/modules/[
@@ -102,7 +103,7 @@ proc overlapsConservative(tree: MirTree, a, b: Path, typA, typB: PType): bool =
   # use path-based analysis:
   result = overlaps(tree, a, b) != no
 
-proc preventRvo(tree: MirTree, changes: var Changeset) =
+proc preventRvo(tree: MirTree, types: TypeEnv, changes: var Changeset) =
   ## Injects intermediate temporaries for assignments where the source is an
   ## RVO-using call rvalue and the destination potentially aliases with a
   ## location accessible witin the call through one of the arguments.
@@ -122,7 +123,7 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
   for i in search(tree, {mnkAsgn}):
     let source = tree.operand(i, 1)
     if tree[source].kind notin CallKinds or tree[source, 0].kind == mnkMagic or
-       not eligibleForRvo(tree[source].typ):
+       not eligibleForRvo(types[tree[source].typ]):
       # the return-value optimization is not used
       continue
 
@@ -137,7 +138,7 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
           # special handling for openArrays: they are also able to observe the
           # result location
           if tree[it].kind == mnkTemp and
-             tree[it].typ.skipTypes(abstractVar).kind == tyOpenArray:
+             types[tree[it].typ].skipTypes(abstractVar).kind == tyOpenArray:
             # find the lvalue expression (if any) that the slice was created
             # from and use that for the overlap analysis
             let def = tree.child(findDef(tree, NodePosition it), 1)
@@ -154,7 +155,8 @@ proc preventRvo(tree: MirTree, changes: var Changeset) =
 
       if check and overlapsConservative(tree, path,
                                         computePath(tree, NodePosition arg),
-                                        tree[dest].typ, tree[arg].typ):
+                                        types[tree[dest].typ],
+                                        types[tree[arg].typ]):
         needsTemp = true
         break
 
@@ -194,7 +196,8 @@ proc lowerSwap(tree: MirTree, changes: var Changeset) =
       bu.asgnMove a, b
       bu.asgnMove b, temp
 
-proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
+proc eliminateTemporaries(tree: MirTree, types: TypeEnv,
+                          changes: var Changeset) =
   ## Where safe (i.e., observable program behaviour does not change), elides
   ## temporaries in a backend-agnostice way. This is an optimization.
   ##
@@ -256,9 +259,10 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
 
   template overlaps(a: Path, typ: PType, b: OpValue): bool =
     let x = NodePosition b
-    overlapsConservative(tree, a, computePath(tree, x), typ, tree[x].typ)
+    overlapsConservative(tree, a, computePath(tree, x), typ, types[tree[x].typ])
 
-  proc findUse(tree: MirTree, dfg: DataFlowGraph, p: Path, typ: PType,
+  proc findUse(tree: MirTree, types: TypeEnv, dfg: DataFlowGraph,
+               p: Path, typ: PType,
                start: InstrPos, e: LocalId): NodePosition {.nimcall.} =
     ## Conservative data-flow analysis that computes whether the `p` might be
     ## modified. If there are no modifications of `p` between `start`
@@ -305,8 +309,8 @@ proc eliminateTemporaries(tree: MirTree, changes: var Changeset) =
         n   = NodePosition n
         def = tree.parent(n)
         p   = computePath(tree, tree.child(def, 1))
-        typ = tree[n].typ
-        pos = findUse(tree, dfg, p, typ, i + 1, tree[n].local)
+        typ = types[tree[n].typ]
+        pos = findUse(tree, types, dfg, p, typ, i + 1, tree[n].local)
 
       if pos == NodePosition(-1):
         # the copy is necessary
@@ -367,7 +371,7 @@ proc extractStringLiterals(tree: MirTree, env: var MirEnv,
     changes.replaceMulti(tree, i, bu):
       bu.use toValue(c, tree[i].typ)
 
-proc injectResultInit(tree: MirTree, resultTyp: PType, changes: var Changeset) =
+proc injectResultInit(tree: MirTree, resultTyp: TypeId, changes: var Changeset) =
   ## Injects a default-initialization for the result variable, if deemed
   ## necessary by data-flow analysis.
   ##
@@ -427,13 +431,12 @@ proc injectProfilerCalls(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
   ## * at the beginning of a procedure's body
   ## * at the end of a loop's body
   let
-    voidType = graph.getSysType(unknownLineInfo, tyVoid)
     prcId = env.procedures.add(graph.getCompilerProc("nimProfile"))
 
   # insert the entry call within the outermost scope:
   changes.insert(tree, tree.child(NodePosition 0, 0), NodePosition 0, bu):
     bu.subTree mnkVoid:
-      bu.buildCall prcId, voidType:
+      bu.buildCall prcId, VoidType:
         discard "no arguments"
 
   for i in search(tree, {mnkEnd}):
@@ -441,7 +444,7 @@ proc injectProfilerCalls(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
       # insert the call before the end node:
       changes.insert(tree, i - 1, i, bu):
         bu.subTree mnkVoid:
-          bu.buildCall prcId, voidType:
+          bu.buildCall prcId, VoidType:
             discard "no arguments"
 
 proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
@@ -459,10 +462,10 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
     batch:
       # only the C code generator employs the return-value optimization (=RVO)
       # at the moment
-      preventRvo(body.code, c)
+      preventRvo(body.code, env.types, c)
 
   batch:
-    if target == targetC and body[resultId].typ != nil and
+    if target == targetC and body[resultId].typ != VoidType and
        (sfNoInit notin body[resultId].flags):
       # the procedure has a result variable and initialization of it is
       # allowed
@@ -482,4 +485,4 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
 
   # eliminate temporaries after all other passes
   batch:
-    eliminateTemporaries(body.code, c)
+    eliminateTemporaries(body.code, env.types, c)

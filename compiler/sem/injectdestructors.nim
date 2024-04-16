@@ -87,6 +87,7 @@ import
   compiler/mir/[
     analysis,
     mirbodies,
+    mirtypes,
     mirchangesets,
     mirconstr,
     mirenv,
@@ -201,10 +202,6 @@ func findScope(entities: EntityDict, name: EntityName, at: InstrPos,
   else:
     exists = false
 
-
-proc getVoidType(g: ModuleGraph): PType {.inline.} =
-  g.getSysType(unknownLineInfo, tyVoid)
-
 func isNamed(tree: MirTree, val: OpValue): bool =
   ## Returns whether `val` is the projection of a named location (or refers to
   ## the named location itself).
@@ -243,7 +240,7 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
 
   #result.pos = p
 
-func initEntityDict(tree: MirTree, dfg: DataFlowGraph): EntityDict =
+func initEntityDict(tree: MirTree, dfg: DataFlowGraph, env: MirEnv): EntityDict =
   ## Collects the names of all analysable locations relevant to destructor
   ## injection and the move analyser. This includes: locals, temporaries, sink
   ## parameters and, with some restrictions, globals.
@@ -255,20 +252,7 @@ func initEntityDict(tree: MirTree, dfg: DataFlowGraph): EntityDict =
     case n.kind
     of mnkDef, mnkDefUnpack:
       let entity = tree[getDefEntity(tree, i)]
-
-      let t =
-        case entity.kind
-        of mnkParam:
-          assert isSinkTypeForParam(entity.typ)
-          entity.typ
-        of mnkLocal:
-          entity.typ
-        of mnkTemp, mnkGlobal:
-          entity.typ
-        else:
-          unreachable()
-
-      if hasDestructor(t):
+      if hasDestructor(env[entity.typ]):
         result.mgetOrPut(toName(entity), @[]).add:
           # don't include the data-flow operations preceding the def
           EntityInfo(def: i, scope: subgraphFor(dfg, i .. scope.b))
@@ -299,7 +283,7 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, entities: EntityDict,
     unreachable()
 
 func collapseSink(tree: MirTree, cfg: var DataFlowGraph,
-                  entities: EntityDict): Moves =
+                  entities: EntityDict, env: TypeEnv): Moves =
   ## Computes for every ``mnkSink`` node what operation (copy or move) it has
   ## to collapse to, returning a set with the operands of all sinks that are
   ## collapsed into moves.
@@ -314,7 +298,7 @@ func collapseSink(tree: MirTree, cfg: var DataFlowGraph,
   for i, op, opr in cfg.instructions:
     if op == opUse and tree[tree.parent(NodePosition opr)].kind == mnkSink:
       # it's the DFG instruction for a sink
-      if hasDestructor(tree[opr].typ) and
+      if hasDestructor(env[tree[opr].typ]) and
          computeOwnership(tree, cfg, entities,
                           computePath(tree, NodePosition opr), i + 1):
         update.add i
@@ -502,12 +486,12 @@ template buildVoidCall*(bu: var MirBuilder, env: var MirEnv, p: PSym,
                        body: untyped) =
   let prc = p # prevent multi evaluation
   bu.subTree mnkVoid:
-    bu.buildCall env.procedures.add(prc), getVoidType(graph):
+    bu.buildCall env.procedures.add(prc), VoidType:
       body
 
 proc genWasMoved(bu: var MirBuilder, graph: ModuleGraph, target: Value) =
   bu.subTree MirNode(kind: mnkVoid):
-    bu.buildMagicCall mWasMoved, getVoidType(graph):
+    bu.buildMagicCall mWasMoved, VoidType:
       bu.emitByName(target, ekKill)
 
 func destructiveMoveOperands(bu: var MirBuilder, tree: MirTree,
@@ -636,14 +620,14 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         genWasMoved(bu, ctx.graph, v)
 
 proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
-                        c: var Changeset) =
+                        env: TypeEnv, c: var Changeset) =
   ## Rewrites assignments to locations into calls to either the ``=copy``
   ## or ``=sink`` hook (see ``expandAsgn`` for more details).
   ##
   ## Also injects the necessary location reset logic for lvalues passed to
   ## 'consume' argument sinks.
   for i, opc, val in ctx.cfg.instructions:
-    if opc == opConsume and hasDestructor(tree[val].typ):
+    if opc == opConsume and hasDestructor(env[tree[val].typ]):
       # disarm the destructors for locations of which the value is consumed
       # but that are reassigned or destroyed after
       let parent = tree.parent(NodePosition val)
@@ -758,8 +742,8 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
   let
     target = body.operand(stmt, 0)
     objType = body[target].typ
-    field = lookupInType(objType, body[target].field.int)
-    typ = field.typ
+    field = lookupInType(env[objType], body[target].field.int)
+    typ = env.types.add(field.typ)
 
   assert body[target].kind == mnkPathVariant
   # the source expression must either be an rvalue, or there must be a
@@ -775,7 +759,7 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
       bu.emitFrom(body, body.child(stmt, 1))
 
   # check if the object contains fields requiring destruction:
-  if hasDestructor(objType):
+  if hasDestructor(env[objType]):
     # XXX: we are only interested in if the *record-case* contains fields
     #      requiring destruction, not the whole *object*. If none of the
     #      branches requires destruction, but the enclosing object does,
@@ -792,25 +776,22 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
     #      Depending on how it's implemented, this approach has issues with
     #      field alignment, however.
     let branchDestructor = produceDestructorForDiscriminator(
-                            graph, objType,
+                            graph, env[objType],
                             field,
                             unknownLineInfo, idgen
                            )
-
-    let
-      boolTyp = graph.getSysType(unknownLineInfo, tyBool)
 
     # XXX: comparing the discrimant values here means that the branch is
     #      destroyed even if the branch doesn't change. This differs from
     #      the VM's behaviour. There, the branch is only reset if it's
     #      actually changed
-    var val = bu.wrapTemp(boolTyp):
-      bu.buildMagicCall(getMagicEqForType(typ), boolTyp):
+    var val = bu.wrapTemp BoolType:
+      bu.buildMagicCall(getMagicEqForType(field.typ), BoolType):
         bu.emitByVal a
         bu.emitByVal b
 
-    val = bu.wrapTemp(boolTyp):
-      bu.buildMagicCall mNot, boolTyp:
+    val = bu.wrapTemp BoolType:
+      bu.buildMagicCall mNot, BoolType:
          bu.emitByVal val
 
     var src = body.child(NodePosition target, 0)
@@ -883,8 +864,8 @@ proc injectDestructorCalls*(g: ModuleGraph, idgen: IdGenerator,
       actx = AnalyseCtx(graph: g, cfg: computeDfg(body.code))
 
     let
-      entities = initEntityDict(body.code, actx.cfg)
-      moves = collapseSink(body.code, actx.cfg, entities)
+      entities = initEntityDict(body.code, actx.cfg, env)
+      moves = collapseSink(body.code, actx.cfg, entities, env.types)
 
     let destructors = computeDestructors(body.code, actx.cfg, entities)
 
@@ -893,7 +874,7 @@ proc injectDestructorCalls*(g: ModuleGraph, idgen: IdGenerator,
       AnalysisResults(moves: cursor(moves),
                       entities: cursor(entities),
                       destroy: cursor(destructors)),
-      changes)
+      env.types, changes)
 
     injectDestructors(body.code, g, destructors, env, changes)
 

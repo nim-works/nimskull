@@ -264,9 +264,8 @@ template endBlock(p: PProc, frmt: FormatStr = "}$n", args: varargs[Rope]) =
   dec p.extraIndent
   lineF(p, frmt, args)
 
-proc newGlobals*(): PGlobals =
-  new(result)
-  result.typeInfoGenerated = initIntSet()
+proc newGlobals*(g: ModuleGraph): PGlobals =
+  PGlobals(env: initMirEnv(g))
 
 proc rdLoc(a: TCompRes): Rope {.inline.} =
   if a.typ != etyBaseIndex:
@@ -1522,7 +1521,7 @@ proc setupLocalLoc(p: PProc, id: LocalId, kind: TSymKind; name = "") =
   ## computing the storage flags and a non-empty `name` overrides the
   ## mangled name.
   var loc = Loc(name: mangleName(p.fullBody[id], id),
-                typ: p.fullBody[id].typ,
+                typ: p.env[p.fullBody[id].typ],
                 storage: storage(p.fullBody[id].flags, kind,
                                  id in p.addrTaken))
 

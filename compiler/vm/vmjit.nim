@@ -36,9 +36,11 @@ import
     mirgen,
     mirpasses,
     mirtrees,
+    mirtypes
   ],
   compiler/modules/[
-    magicsys
+    magicsys,
+    modulegraphs
   ],
   compiler/sem/[
     transf
@@ -70,6 +72,10 @@ type
     gen: CodeGenCtx
       ## code generator state
 
+proc initJit*(graph: ModuleGraph): JitState =
+  ## Returns an initialized ``JitState`` instance.
+  JitState(gen: initCodeGen(graph))
+
 func env*(jit: JitState): lent MirEnv {.inline.} =
   ## The JIT code generator's MIR environment.
   jit.gen.env
@@ -93,7 +99,6 @@ func swapState(c: var TCtx, gen: var CodeGenCtx) =
   # input parameters:
   swap(graph)
   swap(config)
-  swap(mode)
   swap(features)
   swap(module)
   swap(callbackKeys)
@@ -126,7 +131,7 @@ proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
   # constants
   for id, data in since(env.data, cp.data):
     let
-      typ = c.getOrCreate(data[0].typ)
+      typ = c.getOrCreate(env.types[data[0].typ])
       handle = c.allocator.allocConstantLocation(typ)
 
     initFromExpr(handle, data, env, c)
@@ -167,7 +172,7 @@ proc generateMirCode(c: var TCtx, env: var MirEnv, n: PNode;
 
     result = exprToMir(c.graph, env, selectOptions(c), n)
 
-proc generateIR(c: var TCtx, env: MirEnv, body: sink MirBody): Body =
+proc generateIR(c: var TCtx, env: var MirEnv, body: sink MirBody): Body =
   backends.generateIR(c.graph, c.idgen, env, c.module, body)
 
 proc setupRootRef(c: var TCtx) =

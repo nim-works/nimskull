@@ -5,10 +5,6 @@ import
   std/[
     hashes
   ],
-  compiler/ast/[
-    ast_types,
-    types
-  ],
   compiler/mir/[
     mirtrees
   ],
@@ -55,9 +51,7 @@ func hashTree(tree: ConstrTree): Hash =
   for _, it in tree.pairs:
     result = result !& hash(it)
 
-  # only hash the kind of the type. This trades more collisions for faster
-  # hashing
-  result = result !& hash(tree[0].typ.kind)
+  result = result !& hash(tree[0].typ)
   result = !$(result)
 
 proc cmp(a, b: ConstrTree): bool =
@@ -85,7 +79,7 @@ proc cmp(a, b: ConstrTree): bool =
     of AllNodeKinds - ConstrTreeNodes:
       unreachable(a.kind)
 
-  if not a[0].typ.sameBackendType(b[0].typ) or a.len != b.len:
+  if a[0].typ != b[0].typ or a.len != b.len:
     # the (backend-)type is different -> not the same constant expressions
     return false
 
