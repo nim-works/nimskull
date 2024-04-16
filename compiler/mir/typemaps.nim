@@ -180,6 +180,7 @@ proc `[]`*[T](t: TypeTable[T], key: PType): lent T {.inline.} =
   t.inner[Type key]
 
 proc `[]=`*[T](t: var TypeTable[T], key: PType, val: sink T) {.inline.} =
+  ## Assign a `val` for the `key`.
   t.inner[Type key] = val
 
 proc mgetOrPut*[T](t: var TypeTable, key: PType, val: T): var T =
