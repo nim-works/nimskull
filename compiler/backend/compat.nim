@@ -141,6 +141,10 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
   ## a ``CgNode`` tree. Obsolete once the code generators use the MIR
   ## directly.
   proc translateAux(t: MirTree, i: var int, env: MirEnv): CgNode =
+    let
+      n {.cursor.}   = t[i]
+      typ {.cursor.} = env[n.typ]
+
     template recurse(): CgNode =
       translateAux(t, i, env)
 
@@ -155,9 +159,6 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
       inc i # consume the end node
       res
 
-    let
-      n {.cursor.} = t[i]
-      typ {.cursor.} = env[n.typ]
     inc i # advance to the first child node
     case n.kind
     of mnkObjConstr:
