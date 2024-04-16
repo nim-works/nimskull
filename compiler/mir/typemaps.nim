@@ -26,13 +26,13 @@ type
   TypeTable*[T] = object
     inner: Table[Type, T]
 
-proc safeId(n: PNode): NodeId {.inline.} =
+func safeId(n: PNode): NodeId {.inline.} =
   if n != nil: n.id
   else:        NodeId -1
 
-proc cmp(a, b: PType): bool {.noSideEffect.}
+func cmp(a, b: PType): bool
 
-proc cmpElements(a, b: PType): bool =
+func cmpElements(a, b: PType): bool =
   if a.len != b.len:
     return false
 
@@ -42,7 +42,7 @@ proc cmpElements(a, b: PType): bool =
 
   result = true
 
-proc cmpProc(a, b: PType): bool =
+func cmpProc(a, b: PType): bool =
   if a.len != b.len:
     return false
 
@@ -56,7 +56,7 @@ proc cmpProc(a, b: PType): bool =
 
   result = true
 
-proc cmp(a, b: PNode): bool =
+func cmp(a, b: PNode): bool =
   if a.kind != b.kind:
     return false
   case a.kind
@@ -67,7 +67,7 @@ proc cmp(a, b: PNode): bool =
   else:
     unreachable()
 
-proc cmp(a, b: PType): bool =
+func cmp(a, b: PType): bool =
   # generic types are also handled here, since they can be part of
   # ``tyTypeDesc``s
   if a.id == b.id: # quick check: same type instance?
@@ -119,7 +119,7 @@ proc cmp(a, b: PType): bool =
     else:
       unreachable()
 
-proc hash(n: PNode): Hash =
+func hash(n: PNode): Hash =
   case n.kind
   of nkFloatLiterals:
     hash(cast[BiggestInt](n.floatVal))
@@ -128,7 +128,7 @@ proc hash(n: PNode): Hash =
   else:
     unreachable(n.kind)
 
-proc hash(t: PType): Hash =
+func hash(t: PType): Hash =
   # ``hash(a)`` must be ``== hash(b)`` if ``cmp(a, b)`` is true
   if t.sym != nil:
     # for types with symbols, only the symbol matters
@@ -167,11 +167,11 @@ proc hash(t: PType): Hash =
 # note: hash and the equality procedure need to be be exported for symbol
 # binding in ``Table`` routines to work properly
 
-proc `==`*(a, b: Type): bool {.inline.} =
+func `==`*(a, b: Type): bool {.inline.} =
   ## Leaked implementation detail -- do not use.
   cmp(a.PType, b.PType)
 
-proc hash*(x: Type): Hash {.inline.} =
+func hash*(x: Type): Hash {.inline.} =
   ## Leaked implementation detail -- do not use.
   hash(PType x)
 
