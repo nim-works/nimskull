@@ -1032,6 +1032,81 @@ proc flattenTree(root: PNode): PNode =
   else:
     result = root
 
+proc transformAndOr(c: PTransf, n: PNode): PNode =
+  ## Transforms both operands and hoists all locals within them that are in
+  ## the outermost scope to the start of the and/or expression:
+  ##
+  ##   (let x = 0; a) or (var y; y = 1; b)
+  ##   # ->
+  ##   (let x; var y; (x = 0; a) or (y = 1; b))
+  ##
+  ## This makes sure that the bindings' lifetime is delimited by the `and`/`or`
+  ## expression's enclosing scope, even after lowering the expression.
+  proc hoist(c: PTransf, n: sink PNode, target: PNode): PNode {.nimcall.} =
+    # traverse all statements/expressions within the *same* scope
+    case n.kind
+    of nkVarSection, nkLetSection:
+      result = newTreeI(nkStmtList, n.info)
+
+      for it in n.items:
+        case it.kind
+        of nkIdentDefs:
+          if (it[0].kind == nkSym and (sfGlobal notin it[0].sym.flags or
+              it[0].sym.owner.kind notin routineKinds)) or
+             it[0].kind == nkDotExpr:
+            # local or module-level global. The initializer expression must be
+            # processed first, since locations defined therein start their
+            # lifetime earlier. That is, for ``var x = (var y = 0; y)`` the
+            # ``var y`` must be hoisted first
+            let src = hoist(c, move it[2], target)
+            target.add newTreeI(n.kind, it.info,
+              newTreeI(nkIdentDefs, it.info, it[0], c.graph.emptyNode,
+                        c.graph.emptyNode))
+            if src.kind != nkEmpty:
+              result.add newTreeI(nkAsgn, it.info, it[0], src)
+          else:
+            # a global defined within a procedure, leave as is
+            result.add newTreeI(n.kind, n.info, it)
+        of nkVarTuple:
+          # lower into assignments first, then process the result
+          let x = lowerTupleUnpacking(c.graph, it, c.idgen, getCurrOwner(c))
+          result.add hoist(c, x, target)
+        else:
+          unreachable()
+
+      if result.len == 0:
+        # all definitions were hoisted
+        result = c.graph.emptyNode
+
+    of nkHiddenAddr, nkHiddenDeref, nkAddr, nkDerefExpr, nkObjDownConv,
+        nkObjUpConv, nkStringToCString, nkCStringToString, nkCheckedFieldExpr:
+      result = n
+      result[0] = hoist(c, move result[0], target)
+    of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv, nkPragmaBlock:
+      result = n
+      result[1] = hoist(c, move result[1], target)
+    of nkDotExpr, nkBracketExpr, nkCallKinds, nkBracket, nkTupleConstr,
+        nkChckRangeF, nkChckRange64, nkChckRange, nkStmtListExpr, nkStmtList:
+      result = n
+      for i in 0..<result.len:
+        result[i] = hoist(c, move result[i], target)
+    else:
+      # other expressions or statements are either decalarative or open a
+      # new scope
+      result = n
+
+  if c.inlining > 0:
+    # hoisting already happened fro inlined and/or expressions
+    result = transformSons(c, n)
+  else:
+    var hoisted = newTreeIT(nkStmtListExpr, n.info, n.typ)
+    result = hoist(c, transformSons(c, n), hoisted)
+
+    if hoisted.len > 0:
+      # append the transformed expression to the statement list:
+      hoisted.add result
+      result = hoisted
+
 proc transformCall(c: PTransf, n: PNode): PNode =
   var n = flattenTree(n)
   let op = getMergeOp(n)
@@ -1066,6 +1141,8 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     result = transform(c, n[1])
   elif magic == mExpandToAst:
     result = transformExpandToAst(c, n)
+  elif magic in {mAnd, mOr}:
+    result = transformAndOr(c, n)
   else:
     let s = transformSons(c, n)
     # bugfix: check after 'transformSons' if it's still a method call:
