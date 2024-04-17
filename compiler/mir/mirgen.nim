@@ -1174,7 +1174,8 @@ proc genClosureConstr(c: var TCtx, n: PNode, isConsume: bool) =
 proc genObjConstr(c: var TCtx, n: PNode, isConsume: bool) =
   let isRef = n.typ.skipTypes(abstractInst).kind == tyRef
 
-  c.subTree MirNode(kind: mnkObjConstr, typ: c.typeToMir(n.typ), len: n.len-1):
+  c.subTree MirNode(kind: mnkObjConstr, typ: c.typeToMir(n.typ),
+                    len: uint32(n.len-1)):
     for i in 1..<n.len:
       let it = n[i]
       let field = lookupFieldAgain(n.typ.skipTypes(abstractInst), it[0].sym)
@@ -1585,12 +1586,12 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
   assert isEmptyType(n.typ) == not dest.isSome
 
   let v = genUse(c, n[0])
-  c.add MirNode(kind: mnkCase, len: n.len - 1)
+  c.add MirNode(kind: mnkCase, len: uint32(n.len - 1))
   c.use v
 
   # iterate of/else branches:
   for (_, branch) in branches(n):
-    c.add MirNode(kind: mnkBranch, len: branch.len - 1)
+    c.add MirNode(kind: mnkBranch, len: uint32(branch.len - 1))
 
     case branch.kind
     of nkElse:
@@ -1619,7 +1620,7 @@ proc genExceptBranch(c: var TCtx, n: PNode, dest: Destination) =
   assert n.kind == nkExceptBranch
   c.builder.useSource(c.sp, n)
 
-  c.subTree MirNode(kind: mnkBranch, len: n.len - 1):
+  c.subTree MirNode(kind: mnkBranch, len: uint32(n.len - 1)):
     # emit the exception types the branch covers:
     for _, tn in branchLabels(n):
       case tn.kind
@@ -1643,7 +1644,7 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
     hasFinally = n.lastSon.kind == nkFinally
     hasExcept = n[1].kind == nkExceptBranch
 
-  c.add MirNode(kind: mnkTry, len: ord(hasFinally) + ord(hasExcept))
+  c.add MirNode(kind: mnkTry, len: uint32(ord(hasFinally) + ord(hasExcept)))
   c.scope:
     c.genBranch(n[0], dest)
 
@@ -1653,7 +1654,7 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
     ## the number of sub-nodes excluding ``nkFinally``
 
   if hasExcept:
-    c.subTree MirNode(kind: mnkExcept, len: len-1):
+    c.subTree MirNode(kind: mnkExcept, len: uint32(len-1)):
       for i in 1..<len:
         genExceptBranch(c, n[i], dest)
 
@@ -2280,7 +2281,7 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
       # no normalization/canonicalization takes place here, meaning that
       # ``Obj(a: 0, b: 1)`` and ``Obj(b: 1, a: 0)`` will result in two data
       # table entries, even though the values they represent are equivalent
-      bu.subTree MirNode(kind: mnkObjConstr, typ: typ, len: n.len-1):
+      bu.subTree MirNode(kind: mnkObjConstr, typ: typ, len: uint32(n.len-1)):
         for i in 1..<n.len:
           bu.add MirNode(kind: mnkField, field: n[i][0].sym.position.int32)
           bu.subTree mnkArg:
@@ -2288,7 +2289,7 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
     of nkCurly:
       # similar to object construction, no normalization means that ``{1, 2}``
       # and ``{2, 1}`` results in two data table entries
-      bu.subTree MirNode(kind: mnkSetConstr, typ: typ, len: n.len):
+      bu.subTree MirNode(kind: mnkSetConstr, typ: typ, len: uint32(n.len)):
         for it in n.items:
           constToMirAux(bu, env, it)
     of nkBracket, nkTupleConstr, nkClosure:
@@ -2300,7 +2301,7 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
         of tyProc:                  mnkClosureConstr
         else:                       unreachable()
 
-      bu.subTree MirNode(kind: kind, typ: typ, len: n.len):
+      bu.subTree MirNode(kind: kind, typ: typ, len: uint32(n.len)):
         for it in n.items:
           bu.subTree mnkArg:
             constToMirAux(bu, env, it.skipColon)
