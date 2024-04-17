@@ -309,7 +309,7 @@ type
       effect*: EffectKind ## the effect that happens when the operator the
                           ## tagged value is passed to is executed
     else:
-      len*: int
+      len*: uint32
 
   MirTree* = seq[MirNode]
   MirNodeSeq* = seq[MirNode]
