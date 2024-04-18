@@ -13,6 +13,9 @@ import
     ast_types,
     lineinfos
   ],
+  compiler/front/[
+    options
+  ],
   compiler/modules/[
     modulegraphs,
     magicsys
@@ -22,7 +25,8 @@ import
     typemaps
   ],
   compiler/utils/[
-    containers
+    containers,
+    idioms
   ]
 
 type
@@ -35,6 +39,8 @@ type
       # XXX: ^^ the collision needs to be addressed at some point. A proper,
       #      non-sighash-based comparision needs to be used
     types: Store[TypeId, PType]
+    sizeType: TypeId
+      ## the target-dependent integer type to use for size values
 
 const
   VoidType*    = TypeId 0
@@ -57,7 +63,8 @@ const
 proc initTypeEnv*(graph: ModuleGraph): TypeEnv =
   ## Returns a fully initialized type environment instance.
   result = TypeEnv(map: default(TypeTable[TypeId]),
-                   types: default(Store[TypeId, PType]))
+                   types: default(Store[TypeId, PType]),
+                   sizeType: VoidType)
 
   template add(kind: TTypeKind, expect: TypeId) =
     let
@@ -89,6 +96,12 @@ proc initTypeEnv*(graph: ModuleGraph): TypeEnv =
   add(tyInt,   TypeId(ord(PointerType) + 1))
   add(tyFloat, TypeId(ord(PointerType) + 2))
 
+  result.sizeType =
+    case graph.config.target.intSize
+    of 1, 2, 4: Int32Type
+    of 8:       Int64Type
+    else:       unreachable()
+
 proc add*(env: var TypeEnv, t: PType): TypeId =
   ## If not registered yet, adds `t` to `env` and returns the ID to later
   ## look it up with. Basic structural type unification is performed.
@@ -98,3 +111,8 @@ proc add*(env: var TypeEnv, t: PType): TypeId =
 
 func `[]`*(env: TypeEnv, id: TypeId): lent PType {.inline.} =
   env.types[id]
+
+func sizeType*(env: TypeEnv): TypeId {.inline.} =
+  ## Returns the type to use for values representing some size. This is a
+  ## signed integer type of target-dependent bit-width.
+  env.sizeType
