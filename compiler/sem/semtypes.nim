@@ -1878,6 +1878,8 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
     localReport(c.config, result.n[3])
   closeScope(c)
 
+proc getCoroutineInstType(c: PContext, info: TLineInfo, rtyp: PType): PType
+
 proc semProcTypeWithScope(c: PContext, n: PNode,
                           prev: PType, kind: TSymKind): PType =
   checkSonsLen(n, 2, c.config)
@@ -1899,6 +1901,12 @@ proc semProcTypeWithScope(c: PContext, n: PNode,
   elif c.optionStack.len > 0:
     # we're still interested in implicit tags and raises pragmas
     n[1] = implicitPragmas(c, s, n[1], {wTags, wRaises})
+
+  if tfCoroutine in result.flags:
+    # replace the return type with the instance type
+    # TODO: the specified instance type needs to be used instead, and it also
+    #       needs to be validated
+    result[0] = getCoroutineInstType(c, n.info, result[0])
 
   when true:
     # check if we got any errors and if so report them

@@ -3049,3 +3049,6 @@ when defined(nimDebugUtils):
 
 proc `not`*[T: ref or ptr](a: typedesc[T], b: typeof(nil)): typedesc {.magic: "TypeTrait", noSideEffect.}
   ## Constructs a `not nil` type.
+
+when defined(nimskullHasCoroutines):
+  include "system/coroutines"

@@ -40,6 +40,7 @@ import
   compiler/sem/[
     ast_analysis,
     closureiters,
+    coroutines,
     semfold,
     lambdalifting,
     lowerings
@@ -109,7 +110,7 @@ proc newTemp(c: PTransf, typ: PType, info: TLineInfo): PNode =
   r.typ = typ #skipTypes(typ, {tyGenericInst, tyAlias, tySink})
   incl(r.flags, sfFromGeneric)
   let owner = getCurrOwner(c)
-  if owner.isIterator:
+  if owner.isIterator or owner.isCoroutine:
     result = freshVarForClosureIter(c.graph, r, c.idgen, owner)
   else:
     result = newSymNode(r)
@@ -188,7 +189,7 @@ proc freshVar(c: PTransf; v: PSym): PNode =
     # following after ``transf`` expects that the set of existing globals
     # stays unchanged
     result = newSymNode(v)
-  elif owner.isIterator:
+  elif owner.isIterator or owner.isCoroutine:
     result = freshVarForClosureIter(c.graph, v, c.idgen, owner)
   else:
     var newVar = copySym(v, nextSymId(c.idgen))
@@ -815,7 +816,7 @@ proc transformFor(c: PTransf, n: PNode): PNode =
         sym.flags.incl sfShadowed
 
         result =
-          if owner.isIterator:
+          if owner.isIterator or owner.isCoroutine:
             freshVarForClosureIter(c.graph, sym, c.idgen, owner)
           else:
             newSymNode(sym)
@@ -1066,6 +1067,14 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     result = transform(c, n[1])
   elif magic == mExpandToAst:
     result = transformExpandToAst(c, n)
+  elif magic == mSuspend:
+    let x = transformSons(c, n)
+    result = newNodeI(nkYieldStmt, n.info)
+    if x.len > 1:
+      result.add x[1]
+    else:
+      let typ = c.graph.getCompilerProc("CoroutineBase").typ
+      result.add newNodeIT(nkNilLit, n.info, typ)
   else:
     let s = transformSons(c, n)
     # bugfix: check after 'transformSons' if it's still a method call:
@@ -1270,6 +1279,11 @@ proc transform(c: PTransf, n: PNode): PNode =
       result[1] = transformSymAux(c, a)
     else:
       result = n
+
+    if n[0].kind == nkSym and n[0].sym.isCoroutine:
+      # the coroutine needs to be transformed eagerly, so that its signature
+      # is correct before first reaching code generation
+      discard transformBody(c.graph, c.idgen, n[0].sym, true)
   of nkOfBranch:
     result = shallowCopy(n)
     # don't transform the label nodes:
@@ -1360,7 +1374,12 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
   ##
   ## Application always happens in that exact order.
   var c = PTransf(graph: g, module: prc.getModule, idgen: idgen)
-  (result, c.env) = liftLambdas(g, prc, body, c.idgen)
+  if prc.isCoroutineConstr:
+    result = preTransformConstr(g, idgen, prc, body)
+  else:
+    result = body
+
+  (result, c.env) = liftLambdas(g, prc, result, c.idgen)
   result = processTransf(c, result, prc)
   liftDefer(c, result)
 
@@ -1369,6 +1388,10 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
     # the environment type is closed for modification, meaning that we can
     # safely create the type-bound operators now
     finishClosureIterator(c.graph, c.idgen, prc)
+  elif prc.isCoroutineConstr:
+    result = g.transformCoroutineConstr(c.idgen, prc, result)
+  elif prc.isCoroutine:
+    result = g.transformCoroutine(c.idgen, prc, result)
 
   incl(result.flags, nfTransf)
 

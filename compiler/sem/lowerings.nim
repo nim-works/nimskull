@@ -134,13 +134,12 @@ proc lowerTupleUnpackingForAsgn*(g: ModuleGraph; n: PNode; idgen: IdGenerator; o
   for i in 0..<lhs.len:
     result.add newAsgnStmt(lhs[i], newTupleAccessRaw(tempAsNode, i))
 
-proc createObj*(g: ModuleGraph; idgen: IdGenerator; owner: PSym, info: TLineInfo; final=true): PType =
+proc createObj*(g: ModuleGraph; idgen: IdGenerator; owner: PSym, info: TLineInfo;
+                base: PType): PType =
   result = newType(tyObject, nextTypeId(idgen), owner)
-  if final:
-    rawAddSon(result, nil)
+  rawAddSon(result, base)
+  if base.isNil:
     incl result.flags, tfFinal
-  else:
-    rawAddSon(result, getCompilerProc(g, "RootObj").typ)
   result.n = newNodeI(nkRecList, info)
   let s = newSym(skType, getIdent(g.cache, "Env_" & toFilename(g.config, info) & "_" & $owner.name.s),
                   nextSymId(idgen),
@@ -148,6 +147,12 @@ proc createObj*(g: ModuleGraph; idgen: IdGenerator; owner: PSym, info: TLineInfo
   incl s.flags, sfAnon
   s.typ = result
   result.sym = s
+
+proc createObj*(g: ModuleGraph; idgen: IdGenerator; owner: PSym,
+                info: TLineInfo; final: bool): PType =
+  createObj(g, idgen, owner, info):
+    if final: nil
+    else:     g.getCompilerProc("RootObj").typ
 
 template fieldCheck {.dirty.} =
   when false:
@@ -215,6 +220,10 @@ proc addUnmappedField*(obj: PType, s: PSym, cache: IdentCache, idgen: IdGenerato
 proc addField*(obj: PType; s: PSym; cache: IdentCache; idgen: IdGenerator) =
   ## Similar to ``addUnmappedField``, but makes sure that the field can later
   ## be looked up via the ``ItemId`` of `s`.
+  if s.kind == skResult and lookupInType(obj, s.name) != nil:
+    # a result field exists in the type, re-use it
+    return
+
   let field = addUnmappedField(obj, s, cache, idgen)
   field.itemId = ItemId(module: s.itemId.module, item: -s.itemId.item)
 
@@ -275,6 +284,10 @@ proc indirectAccess*(a: PNode, b: string, info: TLineInfo; cache: IdentCache): P
 
 proc getFieldFromObj*(t: PType; v: PSym): PSym =
   assert v.kind != skField
+  # try to use the existing result field, if present:
+  if v.kind == skResult and (let x = lookupInType(t, v.name); x != nil):
+    return x
+
   var t = t
   while true:
     assert t.kind == tyObject
