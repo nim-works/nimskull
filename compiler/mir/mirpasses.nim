@@ -57,6 +57,11 @@ const
   LocSkip = abstractRange + tyUserTypeClasses
     ## types to skip to arrive at the underlying concrete value type
 
+template subTree(bu: var MirBuilder, k: MirNodeKind, t: TypeId,
+                 body: untyped) =
+  bu.subTree MirNode(kind: k, typ: t):
+    body
+
 iterator search(tree: MirTree, kinds: static set[MirNodeKind]): NodePosition =
   ## Returns in order of appearance the positions of all nodes matching the
   ## given `kinds`.
@@ -452,6 +457,99 @@ proc injectProfilerCalls(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
           bu.buildCall prcId, VoidType:
             discard "no arguments"
 
+proc lowerNew(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
+              changes: var Changeset) =
+  ## Lowers ``mNew`` magic calls and ref construction into runtime procedure
+  ## calls + initialization.
+  let
+    uninitNewProc = graph.getCompilerProc("nimNewObjUninit")
+    initNewProc   = graph.getCompilerProc("nimNewObj")
+
+  proc emitNew(bu: var MirBuilder, env: var MirEnv, typ, base: TypeId,
+               size: Value, prc: PSym): Value {.nimcall.} =
+    ## Emits:
+    ##   def _1 = alignof(arg type(typ))
+    ##   def _2 = nimNewObj|nimNewObjUninit(arg size, arg _1)
+    ##   def _3 = cast _2
+    let align = bu.wrapTemp(env.types.sizeType):
+      bu.buildMagicCall mAlignOf, env.types.sizeType:
+        bu.emitByVal typeLit(base)
+    let raw = bu.wrapTemp(PointerType):
+      bu.buildCall env.procedures.add(prc), PointerType:
+        bu.emitByVal size
+        bu.emitByVal align
+    result = bu.wrapTemp typ:
+      bu.subTree mnkCast, typ:
+        bu.use raw
+
+  for i, n in tree.pairs:
+    if n.kind == mnkRefConstr:
+      let
+        stmt = tree.parent(i)
+        typ  = tree[i].typ
+        base = env.types.add(env[typ].skipTypes(abstractInst).base)
+
+      var tmp: Value
+      changes.insert(tree, stmt, i, bu):
+        let size = bu.wrapTemp(env.types.sizeType):
+          bu.buildMagicCall mSizeOf, env.types.sizeType:
+            bu.emitByVal typeLit(base)
+
+        # the object construction will zero the memory, meaning that it's okay
+        # to use the uninit-new can be used
+        tmp = emitNew(bu, env, typ, base, size, uninitNewProc)
+
+        # create a normal object construction with the original arguments, and
+        # assign it to the location:
+        bu.subTree mnkInit:
+          bu.subTree mnkDeref, base:
+            bu.use tmp
+          bu.subTree mnkObjConstr, base:
+            for it in subNodes(tree, i):
+              bu.emitFrom(tree, it)
+
+      changes.replaceMulti(tree, i, bu):
+        bu.move tmp
+    elif n.kind == mnkMagic and n.magic == mNew:
+      # lower ``x = new()`` into:
+      #   def _1 = sizeof(arg type(T))
+      #   def _2 = alignof(arg type(T))
+      #   def _3 = nimNewObjUninit(arg _1, arg _2)
+      #   def _4 = cast _3
+      #   _4[] = default()
+      #   x = move _4
+      let
+        call = tree.parent(i)
+        stmt = tree.parent(call)
+        typ  = tree[call].typ
+        base = env.types.add(env[typ].skipTypes(abstractInst).base)
+
+      var tmp: Value
+      changes.insert(tree, stmt, call, bu):
+        if numArgs(tree, call) == 2:
+          # the unsafe new-with-size version
+          let size = bu.inline(tree, NodePosition tree.argument(call, 0))
+          # not the whole memory is necessarily initialized by the default
+          # assignment, so zero the whole region (``nimNewObj``)
+          tmp = emitNew(bu, env, typ, base, size, initNewProc)
+        else:
+          # the standard new version
+          let size = bu.wrapTemp(env.types.sizeType):
+            bu.buildMagicCall mSizeOf, env.types.sizeType:
+              bu.emitByVal typeLit(base)
+          tmp = emitNew(bu, env, typ, base, size, uninitNewProc)
+
+        # ``_4[] = default()``
+        bu.subTree mnkInit:
+          bu.subTree mnkDeref, base:
+            bu.use tmp
+          bu.buildMagicCall mDefault, base:
+            discard
+
+      changes.replaceMulti(tree, call, bu):
+        bu.move tmp
+
+
 proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
                   graph: ModuleGraph, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
@@ -481,6 +579,9 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       # only the C and VM targets need the extraction, and only the VM
       # requires the extraction for cstring literals
       extractStringLiterals(body.code, env, c)
+
+    if target == targetC:
+      lowerNew(body.code, graph, env, c)
 
   # instrument the body with profiler calls after all lowerings, but before
   # optimization

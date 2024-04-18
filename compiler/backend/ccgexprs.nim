@@ -870,39 +870,6 @@ proc genDefault(p: BProc; n: CgNode; d: var TLoc) =
     getTemp(p, n.typ, d)
   resetLoc(p, d)
 
-proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool; doInitObj = true) =
-  var sizeExpr = sizeExpr
-  let typ = a.t
-  var b: TLoc
-  initLoc(b, locExpr, a.lode, OnHeap)
-  let refType = typ.skipTypes(abstractInst)
-  assert refType.kind == tyRef
-  let bt = refType.lastSon
-  if sizeExpr == "":
-    sizeExpr = "sizeof($1)" % [getTypeDesc(p.module, bt)]
-
-  block:
-    if needsInit:
-      b.r = ropecg(p.module, "($1) #nimNewObj($2, NIM_ALIGNOF($3))",
-          [getTypeDesc(p.module, typ), sizeExpr, getTypeDesc(p.module, bt)])
-    else:
-      b.r = ropecg(p.module, "($1) #nimNewObjUninit($2, NIM_ALIGNOF($3))",
-          [getTypeDesc(p.module, typ), sizeExpr, getTypeDesc(p.module, bt)])
-    genAssignment(p, a, b)
-
-  if doInitObj:
-    # set the object type:
-    genObjectInit(p, cpsStmts, bt, a, constructRefObj)
-
-proc genNew(p: BProc, e: CgNode, a: var TLoc) =
-  # 'genNew' also handles 'unsafeNew':
-  if e.len == 2:
-    var se: TLoc
-    initLocExpr(p, e[1], se)
-    rawGenNew(p, a, se.rdLoc, needsInit = true)
-  else:
-    rawGenNew(p, a, "", needsInit = true)
-
 proc genNewSeqOfCap(p: BProc; e: CgNode; d: var TLoc) =
   let seqtype = skipTypes(e.typ, abstractVarRange)
   var a: TLoc
@@ -1035,12 +1002,11 @@ proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
 
 proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
   var t = e.typ.skipTypes(abstractInst)
-  let isRef = t.kind == tyRef
 
   # a temporary was injected if in-place construction cannot be used,
   # meaning that we can always construct in-place here (we still have
   # to consider uninitialized and expression locs)
-  let useTemp = isRef or d.k == locNone
+  let useTemp = d.k == locNone
 
   # if the object has a record-case, don't initialize type fields before but
   # after initializing discriminators. Otherwise, the type fields in the
@@ -1062,14 +1028,7 @@ proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
   if useTemp:
     getTemp(p, t, tmp)
     r = rdLoc(tmp)
-    if isRef:
-      rawGenNew(p, tmp, "",
-                needsInit = true,
-                doInitObj = not hasCase)
-      t = t.lastSon.skipTypes(abstractInst)
-      r = "(*$1)" % [r]
-    else:
-      constructLoc(p, tmp, doInitObj = not hasCase)
+    constructLoc(p, tmp, doInitObj = not hasCase)
   else:
     resetLoc(p, d, doInitObj = not hasCase)
     r = rdLoc(d)
@@ -1084,10 +1043,10 @@ proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
     tmp2.r.add(p.fieldName(field))
     if useTemp:
       tmp2.k = locTemp
-      tmp2.storage = if isRef: OnHeap else: OnStack
+      tmp2.storage = OnStack
     else:
       tmp2.k = d.k
-      tmp2.storage = if isRef: OnHeap else: d.storage
+      tmp2.storage = d.storage
     tmp2.lode = it[1]
     expr(p, it[1], tmp2)
   if useTemp:
@@ -1103,8 +1062,6 @@ proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
     #      their switch-case stmt emitted by `specializeInitObject` could be
     #      elided
     var r = rdLoc(d)
-    if isRef: r = "(*$1)" % [r]
-
     specializeInitObject(p, r, t, e.info)
 
 proc genSeqConstr(p: BProc, n: CgNode, d: var TLoc) =
@@ -1677,7 +1634,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of mFinished: genBreakState(p, e, d)
   of mEnumToStr: genCall(p, e, d)
   of mOf: genOf(p, e, d)
-  of mNew: genNew(p, e, d)
   of mNewSeqOfCap: genNewSeqOfCap(p, e, d)
   of mSizeOf:
     let t = e[1].typ.skipTypes({tyTypeDesc})
