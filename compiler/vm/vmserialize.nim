@@ -125,7 +125,7 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
     of mnkTupleConstr, mnkClosureConstr:
       iterTree(j):
         arg recurse(dest.getFieldHandle(j.FieldPosition))
-    of mnkObjConstr:
+    of mnkObjConstr, mnkRefConstr:
       let typ = env[tree[n].typ].skipTypes(abstractPtrs) ## the object's type
       iterTree(i):
         let

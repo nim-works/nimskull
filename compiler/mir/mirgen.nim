@@ -1172,10 +1172,13 @@ proc genClosureConstr(c: var TCtx, n: PNode, isConsume: bool) =
     c.emitOperandTree n[1], isConsume # the environment
 
 proc genObjConstr(c: var TCtx, n: PNode, isConsume: bool) =
-  let isRef = n.typ.skipTypes(abstractInst).kind == tyRef
+  let
+    isRef = n.typ.skipTypes(abstractInst).kind == tyRef
+    kind: range[mnkObjConstr..mnkRefConstr] =
+      if isRef: mnkRefConstr
+      else:     mnkObjConstr
 
-  c.subTree MirNode(kind: mnkObjConstr, typ: c.typeToMir(n.typ),
-                    len: uint32(n.len-1)):
+  c.subTree MirNode(kind: kind, typ: c.typeToMir(n.typ), len: uint32(n.len-1)):
     for i in 1..<n.len:
       let it = n[i]
       let field = lookupFieldAgain(n.typ.skipTypes(abstractInst), it[0].sym)

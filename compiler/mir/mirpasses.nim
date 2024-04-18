@@ -325,7 +325,12 @@ proc eliminateTemporaries(tree: MirTree, types: TypeEnv,
       of LvalueExprKinds:
         # usage in an lvalue expression -> the temporary can be elided
         elide = true
-      of RvalueExprKinds, mnkSetConstr:
+      of RvalueExprKinds:
+        elide = true
+      of mnkSetConstr, mnkRefConstr:
+        # constructions that are either not in-place (ref construction) or
+        # there's no relation between the operands and the result (set
+        # construction)
         elide = true
       of mnkArrayConstr, mnkSeqConstr, mnkTupleConstr, mnkClosureConstr,
          mnkObjConstr:
