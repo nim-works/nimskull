@@ -1001,12 +1001,7 @@ proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
     discard
 
 proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
-  var t = e.typ.skipTypes(abstractInst)
-
-  # a temporary was injected if in-place construction cannot be used,
-  # meaning that we can always construct in-place here (we still have
-  # to consider uninitialized and expression locs)
-  let useTemp = d.k == locNone
+  let t = e.typ.skipTypes(abstractInst)
 
   # if the object has a record-case, don't initialize type fields before but
   # after initializing discriminators. Otherwise, the type fields in the
@@ -1023,15 +1018,8 @@ proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
 
     v
 
-  var tmp: TLoc
-  var r: Rope
-  if useTemp:
-    getTemp(p, t, tmp)
-    r = rdLoc(tmp)
-    constructLoc(p, tmp, doInitObj = not hasCase)
-  else:
-    resetLoc(p, d, doInitObj = not hasCase)
-    r = rdLoc(d)
+  resetLoc(p, d, doInitObj = not hasCase)
+  let r = rdLoc(d)
   discard getTypeDesc(p.module, t)
   let ty = getUniqueType(t)
   for it in e.items:
@@ -1041,27 +1029,16 @@ proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
     ensureObjectFields(p.module, field, ty)
     tmp2.r.add(".")
     tmp2.r.add(p.fieldName(field))
-    if useTemp:
-      tmp2.k = locTemp
-      tmp2.storage = OnStack
-    else:
-      tmp2.k = d.k
-      tmp2.storage = d.storage
+    tmp2.k = d.k
+    tmp2.storage = d.storage
     tmp2.lode = it[1]
     expr(p, it[1], tmp2)
-  if useTemp:
-    if d.k == locNone:
-      d = tmp
-    else:
-      genAssignment(p, d, tmp)
 
   if hasCase:
     # initialize the object's type fields, if there are any
-
     # XXX: for some discriminators, the value is known at compile-time, so
     #      their switch-case stmt emitted by `specializeInitObject` could be
     #      elided
-    var r = rdLoc(d)
     specializeInitObject(p, r, t, e.info)
 
 proc genSeqConstr(p: BProc, n: CgNode, d: var TLoc) =
