@@ -180,6 +180,9 @@ type
     scopeDepth: int ## the current amount of scope nesting
     inLoop: int
       ## > 0 if the current statement/expression is part of a loop
+    isDisabled: bool
+      ## set to true when entering unreachable code. Disables translation
+      ## and emission of control-flow statements at block/scope ends
 
     # input:
     context: TSymKind ## what entity the input AST is part of (e.g. procedure,
@@ -874,6 +877,10 @@ proc genCall(c: var TCtx, n: PNode) =
     if kind == mnkCheckedCall:
       raiseExit(c)
 
+  # code following the call of .noreturn routine is unreachable:
+  if n[0].kind == nkSym and sfNoReturn in n[0].sym.flags:
+    c.isDisabled = true
+
 proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
   ## Generates the arguments for a macro/template call expression. `n` is
   ## expected to be a ``getAst`` expression that has been transformed to the
@@ -1340,6 +1347,9 @@ proc genRaise(c: var TCtx, n: PNode) =
       c.add MirNode(kind: mnkNone)
       raiseExit(c)
 
+  # code following a raise statement is unreachable:
+  c.isDisabled = true
+
 proc genReturn(c: var TCtx, n: PNode) =
   assert n.kind == nkReturnStmt
   if n[0].kind != nkEmpty:
@@ -1351,6 +1361,8 @@ proc genReturn(c: var TCtx, n: PNode) =
     c.subTree mnkTargetList:
       if blockLeaveActions(c, 0):
         c.add labelNode(c.requestLabel(c.blocks[0]))
+
+  c.isDisabled = true
 
 proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
   ## Generates the MIR code for the right-hand side of an assignment.
@@ -1600,6 +1612,8 @@ proc genWhile(c: var TCtx, n: PNode) =
     dec c.inLoop
   c.subTree mnkLoop:
     c.add labelNode(label)
+  # a while loop has no structured exit:
+  c.isDisabled = true
 
 proc closeBlock(c: var TCtx) =
   let blk = c.blocks.pop()
@@ -1607,6 +1621,8 @@ proc closeBlock(c: var TCtx) =
   # and the join can be omitted
   if blk.kind == bkBlock and blk.id.isSome:
     c.join blk.id.unsafeGet
+    # the block is broken out of, so the code following it is reachable:
+    c.isDisabled = false
 
 template withBlock(c: var TCtx, k: BlockKind, body: untyped) =
   c.blocks.add Block(kind: k)
@@ -1641,11 +1657,11 @@ proc genBranch(c: var TCtx, n: PNode, dest: Destination) =
   else:
     gen(c, n)
 
-proc leaveBlock(c: var TCtx, stmt: PNode) =
-  ## If `stmt` doesn't end in a noreturn statement, emits a goto for jumping
-  ## to the exit of first enclosing block.
-  if endsInNoReturn(stmt):
-    return
+proc leaveBlock(c: var TCtx) =
+  ## Emits a goto for jumping to the exit of first enclosing block, but only
+  ## if not in an unreachable context.
+  if c.isDisabled:
+    return # omit the leave actions if not reachable
 
   var i = c.blocks.high
   while i >= 0 and c.blocks[i].kind != bkBlock:
@@ -1656,6 +1672,8 @@ proc leaveBlock(c: var TCtx, stmt: PNode) =
     c.subTree mnkTargetList:
       if blockLeaveActions(c, i):
         c.add labelNode(c.requestLabel(c.blocks[i]))
+
+  c.isDisabled = true # code following a goto is unreachable
 
 proc genIf(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates the code for an ``if`` statement (``nkIf(Stmt|Expr)``). It's
@@ -1700,6 +1718,10 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
           genBranch(c, branch.lastSon, dest)
           extra
 
+    # if the start of the branch was reachable, then so is the code
+    # following the branch
+    c.isDisabled = false
+
   if n.len == 1:
     # an ``if`` statement/expression with a single branch. Don't use the
     # the block wrapping
@@ -1714,7 +1736,7 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
           case it.kind
           of nkElifBranch, nkElifExpr:
             genElifBranch(it):
-              leaveBlock(c, it.lastSon)
+              leaveBlock(c)
 
           of nkElse, nkElseExpr:
             c.scope:
@@ -1761,9 +1783,10 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
   c.withBlock bkBlock:
     for (i, branch) in branches(n):
       c.join LabelId(firstLabel + uint32(i))
+      c.isDisabled = false # every branch starts as reachable again
       c.scope:
         genBranch(c, branch.lastSon, dest)
-        leaveBlock(c, branch.lastSon)
+        leaveBlock(c)
 
 proc genExceptBranch(c: var TCtx, n: PNode, label: LabelId,
                      next: Option[LabelId], dest: Destination) =
@@ -1802,7 +1825,7 @@ proc genExceptBranch(c: var TCtx, n: PNode, label: LabelId,
   c.withBlock bkExcept, label:
     c.scope:
       genBranch(c, n.lastSon, dest)
-      leaveBlock(c, n.lastSon)
+      leaveBlock(c)
 
   c.subTree mnkEndStruct:
     c.add labelNode(label)
@@ -1833,6 +1856,7 @@ proc genFinally(c: var TCtx, n: PNode) =
     # the finally is never entered, omit it
     return
 
+  c.isDisabled = false # the finally is reachable
   c.builder.useSource(c.sp, n)
   c.subTree mnkFinally:
     c.add labelNode(blk.id.unsafeGet)
@@ -1868,7 +1892,7 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
   # the body of the try:
   c.scope:
     c.genBranch(n[0], dest)
-    leaveBlock(c, n[0])
+    leaveBlock(c)
 
   if hasExcept:
     genExcept(c, n, n.len - ord(hasFinally), dest)
@@ -1876,6 +1900,8 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
   if hasFinally:
     genFinally(c, n[^1])
 
+  # presume unreachable, closing the block will correct the presumption
+  c.isDisabled = true
   c.closeBlock()
 
 proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
@@ -2157,6 +2183,9 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
 
 proc gen(c: var TCtx, n: PNode) =
   ## Generates and emits the MIR code for the statement `n`
+  if c.isDisabled:
+    return
+
   c.builder.useSource(c.sp, n)
 
   # because of ``.discardable`` calls, we can't require `n` to be of void
@@ -2200,6 +2229,8 @@ proc gen(c: var TCtx, n: PNode) =
       c.subTree mnkTargetList:
         if blockLeaveActions(c, i):
           c.add labelNode(c.requestLabel(c.blocks[i]))
+
+    c.isDisabled = true # code following a break is unreachable
   of nkVarSection, nkLetSection:
     genVarSection(c, n)
   of nkAsgn:
@@ -2431,7 +2462,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
     gen(c, body)
 
     if sfNeverRaises in owner.flags and (let b = c.blocks.pop(); b.id.isSome):
-      leaveBlock(c, body) # jump over the handler
+      leaveBlock(c) # jump over the handler
       # emit the handler for panicking on escaping exceptions:
       c.subTree MirNode(kind: mnkExcept, len: 1):
         c.add labelNode(b.id.unsafeGet)
