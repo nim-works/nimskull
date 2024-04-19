@@ -156,7 +156,6 @@ type
 
     sp: SourceProvider
 
-    numLabels: int ## provides the ID to use for the next label
     scopeDepth: int ## the current amount of scope nesting
     inLoop: int
       ## > 0 if the current statement/expression is part of a loop
@@ -393,6 +392,9 @@ func genLocation(c: var TCtx, n: PNode): Value =
 template allocTemp(c: var TCtx, typ: TypeId; alias=false): Value =
   ## Allocates a new ID for a temporary and returns the name.
   c.builder.allocTemp(typ, alias)
+
+template allocLabel(c: var TCtx): LabelId =
+  c.builder.allocLabel()
 
 proc gen(c: var TCtx; n: PNode)
 proc genx(c: var TCtx; e: PMirExpr, i: int)

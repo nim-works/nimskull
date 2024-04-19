@@ -317,6 +317,11 @@ template allocTemp*(bu: var MirBuilder, t: TypeId, alias = false): Value =
   let id = bu.addLocal(Local(typ: t))
   allocTemp(bu, t, id, alias)
 
+func allocLabel*(bu: var MirBuilder): LabelId =
+  ## Allocates a fresh label ID.
+  result = LabelId(bu.nextLabel)
+  inc bu.nextLabel
+
 func use*(bu: var MirBuilder, val: sink Value) {.inline.} =
   ## Emits a use of `val`.
   if val.info.isSome:
