@@ -560,8 +560,8 @@ func findParent*(tree: MirTree, start: NodePosition,
   while tree[result].kind != kind:
     result = parent(tree, result)
 
-func numArgs*(tree: MirTree, n: NodePosition): int =
-  ## Computes the number of arguments in the call tree.
+func len*(tree: MirTree, n: NodePosition): int =
+  ## Computes the number of child nodes for the given sub-tree node.
   var n = n + 1
   while tree[n].kind != mnkEnd:
     inc result

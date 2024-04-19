@@ -269,7 +269,7 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
     # mutation, creation of the slice is treated as a mutation. To ensure the
     # correct data-flow operation order for the mutation case, the lower/upper
     # bound operands are treated as being evaluated (i.e., used) first
-    if numArgs(tree, source) == 3:
+    if len(tree, source) == 3:
       emitLvalueOp(env, opUse, tree, at, tree.operand(source, 1))
       emitLvalueOp(env, opUse, tree, at, tree.operand(source, 2))
 
