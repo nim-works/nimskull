@@ -463,7 +463,7 @@ proc blockLeaveActions(c: var TCtx, targetBlock: int): bool =
 
   var previous = -1 # previous finally
   for i in countdown(c.blocks.high, targetBlock + 1):
-    let b = c.blocks[i]
+    let b {.cursor.} = c.blocks[i]
     case b.kind
     of bkBlock, bkTryExcept:
       discard "nothing to do"
