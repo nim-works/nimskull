@@ -46,7 +46,8 @@ template indexLike*(_: typedesc[SourceId]) = discard
 
 type
   LabelId* = distinct uint32
-    ## ID of a label, used to identify a block (``mnkBlock``).
+    ## ID of a label, used to identify the control-flow destinations and
+    ## constructs.
 
   MirNodeKind* = enum
     ## Users of ``MirNodeKind`` should not depend on the absolute or relative
@@ -67,6 +68,7 @@ type
               ## ``lent T`` local
 
     mnkField  ## declarative node only allowed in special contexts
+    mnkLabel  ## name of a label
 
     mnkNilLit  ## nil literal
     mnkIntLit  ## reference to signed integer literal
@@ -82,6 +84,12 @@ type
 
     mnkMagic  ## only allowed in a callee position. Refers to a magic
               ## procedure
+
+    mnkResume    ## special action in a target list that means "resume
+                 ## exception handling in caller"
+    mnkLeave     ## a leave action within a target list
+    mnkTargetList## describes the actions to perform prior to jumping, as well
+                 ## as the final jump
 
     mnkDef       ## marks the start of existence of a local, global, procedure,
                  ## or temporary. Supports an optional intial value (except for
@@ -169,10 +177,8 @@ type
     # unsigned integers
 
     mnkRaise  ## if the operand is an ``mnkNone`` node, reraises the
-              ## currently active exception. Otherwise, set the operand value
-              ## as the active exception (via a move). Control-flow is
-              ## transfered to the closest exception handler. If none exists,
-              ## the program terminates
+              ## currently active exception. Otherwise, consumes the operand
+              ## and sets it as the active exception
 
     mnkTag    ## must only appear as the immediate subnode to a ``mnkName``
               ## tree. Describes what kind of mutation is applied to the
@@ -211,39 +217,25 @@ type
               ## * syntactic statement node for representing void calls
               ## * statement acting as a use of the given lvalue
 
-    mnkStmtList ## a sequence of statements, grouped together as a single
-                ## statement
     mnkScope  ## the only way to introduce a scope. Scopes can be nested and
               ## dictate the lifetime of the locals that are directly enclosed
               ## by them
 
+    mnkGoto   ## unconditional jump
     mnkIf     ## depending on the run-time value of `x`, transfers control-
               ## flow to either the start or the end of the spanned code
-    mnkCase   ## dispatches to one the its branches based on the run-time
+    mnkCase   ## dispatches to one of its branches based on the run-time
               ## value of the operand
-    mnkRepeat ## repeats the body indefinitely
-    mnkTry    ## associates one one or more statements (the first sub-node)
-              ## with: an exception handler, a finalizer, or both
-    mnkExcept ## defines and attaches an exception handler to a ``try`` block.
-              ## Only one handler can be attached to a ``try`` block
-    mnkFinally## defines a finalizer in the context of a ``try`` construct. All
-              ## control-flow that either leaves the body of the ``try`` and
-              ## does not target the exception handler (if one is present) or
-              ## that leaves the exception handler is redirected to inside the
-              ## finalizer first. Once control-flow reaches the end of a
-              ## finalizer, it is transferred to the original destination. Only
-              ## one finalizer can be attached to a ``try`` block
-    mnkBlock  ## attaches a label to a span of code. If control-flow reaches
-              ## this statement, it is transferred to the start of the body.
-              ## Once control-flow reaches the end of a ``block``, it is
-              ## transferred to the next statement/operation following the
-              ## block
-    mnkBreak  ## transfers control-flow to the statement/operation following
-              ## after the ``block`` with the given label
-    mnkReturn ## if the code-fragment represents the body of a procedure,
-              ## transfers control-flow back to the caller
+    mnkBranch ## a branch in a ``mnkCase`` dispatcher
+    mnkLoop   ## unconditional jump to the associated-with loop start
 
-    mnkBranch ## defines a branch of an ``mnkExcept`` or ``mnkCase``
+    mnkJoin   ## join point for gotos and branches
+    mnkLoopJoin## join point for loops. Represents the start of a loop
+    mnkExcept ## starts an exception handler
+    mnkFinally## starts a finally section. Must be paired with exactly one
+              ## ``mnkContinue`` that follows
+    mnkContinue## marks the end of a finally section
+    mnkEndStruct ## marks the end of an if or except
 
     mnkDestroy## destroys the value stored in the given location, leaving the
               ## location in an undefined state
@@ -297,11 +289,10 @@ type
       position*: uint32 ## the 0-based position of the field
     of mnkCall, mnkCheckedCall:
       effects*: set[GeneralEffect]
+    of mnkLabel, mnkLeave:
+      label*: LabelId
     of mnkMagic:
       magic*: TMagic
-    of mnkBlock, mnkBreak:
-      label*: LabelId ## for a block, the label that identifies the block;
-                      ## for a break, the label of the block to break out of
     of mnkEnd:
       start*: MirNodeKind ## the kind of the corresponding start node
     of mnkTag:
@@ -332,7 +323,7 @@ const
     ## Node kinds that represent definition statements (i.e. something that
     ## introduces a named entity)
 
-  AtomNodes* = {mnkNone..mnkType, mnkMagic, mnkBreak, mnkReturn}
+  AtomNodes* = {mnkNone..mnkLeave}
     ## Nodes that don't support sub nodes.
 
   SubTreeNodes* = AllNodeKinds - AtomNodes - {mnkEnd}
@@ -353,6 +344,8 @@ const
     ## Assignment modifiers. Nodes that can only appear directly in the source
     ## slot of assignments.
 
+  LabelNodes* = {mnkLabel, mnkLeave}
+
   LiteralDataNodes* = {mnkNilLit, mnkIntLit, mnkUIntLit, mnkFloatLit,
                        mnkStrLit, mnkAstLit}
 
@@ -362,15 +355,16 @@ const
                       mnkEnd} + LiteralDataNodes
     ## Nodes that can appear in the MIR subset used for constant expressions.
 
+  StmtNodes* = {mnkScope, mnkGoto, mnkIf, mnkCase, mnkLoop, mnkJoin,
+                mnkLoopJoin, mnkExcept, mnkFinally, mnkContinue, mnkEndStruct,
+                mnkInit, mnkAsgn, mnkSwitch, mnkVoid, mnkRaise, mnkDestroy,
+                mnkEmit, mnkAsm} + DefNodes
+    ## Nodes that are treated like statements, in terms of syntax.
+
   # --- semantics-focused sets:
 
-  Atoms* = {mnkNone .. mnkType} - {mnkField, mnkProc}
+  Atoms* = {mnkNone .. mnkType} - {mnkField, mnkProc, mnkLabel}
     ## Nodes that may be appear in atom-expecting slots.
-
-  StmtNodes* = {mnkScope, mnkStmtList, mnkIf, mnkCase, mnkRepeat, mnkTry,
-                mnkBlock, mnkBreak, mnkReturn, mnkRaise, mnkInit,
-                mnkAsgn, mnkSwitch, mnkVoid, mnkRaise, mnkDestroy, mnkEmit,
-                mnkAsm} + DefNodes
 
   UnaryOps*  = {mnkNeg}
     ## All unary operators

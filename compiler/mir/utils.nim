@@ -59,9 +59,9 @@ func `$`(n: MirNode): string =
   of mnkMagic:
     result.add " magic: "
     result.add $n.magic
-  of mnkBlock, mnkBreak:
-    result.add " block: "
-    result.add $ord(n.label)
+  of mnkLabel, mnkLeave:
+    result.add " label: "
+    result.addInt n.label.uint32
   of mnkEnd:
     result.add " start: "
     result.add $n.start
