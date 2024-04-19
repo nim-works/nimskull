@@ -1010,7 +1010,7 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
   of mnkClosureConstr:
     treeOp cnkClosureConstr:
       res.add argToIr(tree, cl, cr)[1]
-  of mnkObjConstr:
+  of mnkObjConstr, mnkRefConstr:
     let typ = cl.map(n.typ)
     assert typ.skipTypes(abstractVarRange).kind in {tyObject, tyRef}
     treeOp cnkObjConstr:

@@ -406,7 +406,7 @@ func storeDataNode(enc: var DataEncoder, e: var PackedEnv,
     enc.storeTupleData(e, t, n)
   of mnkSetConstr:
     enc.storeSetData(e, t, n)
-  of mnkObjConstr:
+  of mnkObjConstr, mnkRefConstr:
     enc.storeFieldsData(e, t, n)
   else:
     unreachable(t[n].kind)

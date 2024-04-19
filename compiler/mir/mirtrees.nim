@@ -185,9 +185,8 @@ type
     mnkSeqConstr  ## constructor for seq values
     mnkTupleConstr## constructor for tuple values
     mnkClosureConstr## constructor for closure values
-    mnkObjConstr  ## either allocate a new managed heap cell and returns a
-                  ## ``ref`` to it, or or constructs a new aggregate value
-                  ## with named fields
+    mnkObjConstr  ## constructor for object values
+    mnkRefConstr  ## allocates a new managed heap cell and initializes it
 
     mnkCopy   ## denotes the assignment as copying the source value
     mnkMove   ## denotes the assignment as moving the value. This does
@@ -359,7 +358,8 @@ const
 
   ConstrTreeNodes* = {mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr,
                       mnkTupleConstr, mnkClosureConstr, mnkObjConstr,
-                      mnkProcVal, mnkArg, mnkField, mnkEnd} + LiteralDataNodes
+                      mnkRefConstr, mnkProcVal, mnkArg, mnkField,
+                      mnkEnd} + LiteralDataNodes
     ## Nodes that can appear in the MIR subset used for constant expressions.
 
   # --- semantics-focused sets:
@@ -385,8 +385,8 @@ const
                       mnkToMutSlice} + UnaryOps + BinaryOps + LiteralDataNodes
   ExprKinds* =       {mnkCall, mnkCheckedCall, mnkSetConstr, mnkArrayConstr,
                       mnkSeqConstr, mnkTupleConstr, mnkClosureConstr,
-                      mnkObjConstr} + LvalueExprKinds + RvalueExprKinds +
-                     ModifierNodes
+                      mnkObjConstr, mnkRefConstr} + LvalueExprKinds +
+                     RvalueExprKinds + ModifierNodes
 
   CallKinds* = {mnkCall, mnkCheckedCall}
 

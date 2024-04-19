@@ -161,7 +161,7 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
 
     inc i # advance to the first child node
     case n.kind
-    of mnkObjConstr:
+    of mnkObjConstr, mnkRefConstr:
       tree cnkObjConstr:
         let field = lookupInType(typ, t[i].field.int)
         inc i # advance to the arg node
