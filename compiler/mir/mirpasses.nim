@@ -526,7 +526,7 @@ proc lowerNew(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
 
       var tmp: Value
       changes.insert(tree, stmt, call, bu):
-        if numArgs(tree, call) == 2:
+        if numArgs(tree, call) == 1:
           # the unsafe new-with-size version
           let size = bu.inline(tree, NodePosition tree.argument(call, 0))
           # not the whole memory is necessarily initialized by the default

@@ -567,6 +567,15 @@ func len*(tree: MirTree, n: NodePosition): int =
     inc result
     n = tree.sibling(n)
 
+func numArgs*(tree: MirTree, n: NodePosition): int =
+  ## Counts and returns the number of *call arguments* in the call tree at
+  ## `n`.
+  assert tree[n].kind in CallKinds
+  var n = tree.sibling(n + 1) # skip the callee
+  while tree[n].kind in ArgumentNodes:
+    inc result
+    n = tree.sibling(n)
+
 func operand*(tree: MirTree, op: OpValue|NodePosition): OpValue =
   ## Returns the index (``OpValue``) of the operand for the single-input node
   ## at `op`.
