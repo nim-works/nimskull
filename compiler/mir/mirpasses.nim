@@ -449,13 +449,12 @@ proc injectProfilerCalls(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
       bu.buildCall prcId, VoidType:
         discard "no arguments"
 
-  for i in search(tree, {mnkEnd}):
-    if tree[i].start == mnkRepeat:
-      # insert the call before the end node:
-      changes.insert(tree, i - 1, i, bu):
-        bu.subTree mnkVoid:
-          bu.buildCall prcId, VoidType:
-            discard "no arguments"
+  for i in search(tree, {mnkLoop}):
+    # insert the call before the loop end:
+    changes.insert(tree, i - 1, i, bu):
+      bu.subTree mnkVoid:
+        bu.buildCall prcId, VoidType:
+          discard "no arguments"
 
 proc lowerNew(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
               changes: var Changeset) =
