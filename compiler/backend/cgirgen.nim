@@ -61,15 +61,12 @@ type
       ## the list of all locals in the body, taken from the ``MirBody``.
       ## Only needed for updating the type for alias locals
 
-    # a 'def' in the MIR means that the the local starts to exists and that it
-    # is accessible in all connected basic blocks part of the enclosing
-    # ``mnkScope``. The ``CgNode`` IR doesn't use same notion of scope,
-    # so for now, all 'def's (without the initial values) within nested
-    # control-flow-related trees are moved to the start of the enclosing
-    # ``mnkScope``.
-    inUnscoped: bool
+    inUnscoped: int
       ## whether the currently proceesed statement/expression is part of an
-      ## unscoped control-flow context
+      ## unscoped control-flow context. Used to move definitions to the start
+      ## of the enclosing scope, which is currently required for temporaries
+      ## requiring destruction that are spawned defined as part of the right-
+      ## hand operand of ``and``/``or``
     defs: seq[CgNode]
       ## the stack of locals/globals for which the ``cnkDef``/assignemnt needs
       ## to be inserted later
@@ -526,7 +523,7 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
 
   case def.kind
   of cnkLocal:
-    if cl.inUnscoped and not isLet:
+    if cl.inUnscoped > 0 and not isLet:
       # add the local to the list of moved definitions and only emit
       # an assignment
       cl.defs.add copyTree(def)
@@ -547,14 +544,14 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
         # known to us, not that it starts its lifetime here -> don't
         # initialize or move it
         result = arg
-      elif cl.inUnscoped:
+      elif cl.inUnscoped > 0:
         # move the default initialization to the start of the scope
         cl.defs.add def
         result = arg
       else:
         result = newStmt(cnkAsgn, info, [def, newDefaultCall(info, def.typ)])
     else:
-      if sfImportc notin env.globals[def.global].flags and cl.inUnscoped:
+      if sfImportc notin env.globals[def.global].flags and cl.inUnscoped > 0:
         # default intialization is required at the start of the scope
         cl.defs.add def
       result = newStmt(cnkAsgn, info, [def, arg])
@@ -611,6 +608,8 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
 
     leave(tree, cr)
     stmts.add excpt
+    # XXX: temporary workaround, refer to ``inUnscoped`` doc comment
+    inc cl.inUnscoped
   of mnkFinally:
     to cnkFinally, labelToIr(tree, cr)
   of mnkContinue:
@@ -630,7 +629,11 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     stmts.add res
   of mnkIf:
     to cnkIfStmt, valueToIr(tree, cl, cr), labelToIr(tree, cr)
+    # XXX: temporary workaround, refer to ``inUnscoped`` doc comment
+    inc cl.inUnscoped
   of mnkEndStruct:
+    # XXX: temporary workaround, refer to ``inUnscoped`` doc comment
+    dec cl.inUnscoped
     to cnkEnd, labelToIr(tree, cr)
   of mnkRaise:
     # the operand can either be empty or an lvalue expression
@@ -791,7 +794,7 @@ proc scopeToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     start = stmts.len
 
   # a scope is entered, meaning that we're no longer in an unscoped context
-  cl.inUnscoped = false
+  cl.inUnscoped = 0
 
   # translate all statements:
   while cr.hasNext(tree) and tree[cr].kind != mnkEnd:
