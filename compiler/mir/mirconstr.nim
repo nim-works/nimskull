@@ -56,6 +56,8 @@ type
 
     locals*: PartialStore[LocalId, Local]
       ## new locals created with the builder
+    nextLabel*: uint32
+      ## the ID to use when allocating a new label ID
 
     # XXX: the internal fields are currently exported for the integration
     #      with changesets to work, but future refactorings should focus
