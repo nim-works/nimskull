@@ -402,14 +402,7 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
               cond),
             newBreakStmt(info, labl)))
 
-      var body = transformLoopBody(c, n[1])
-      # use a nested scope for the body. This is important for the clean-up
-      # semantics, as exiting the loop via the ``break`` used by the exit
-      # handling must not run finalizers (if present) for the loop's body
-      if body.kind != nkBlockStmt:
-        body = newTreeI(nkBlockStmt, n[1].info):
-          [newSymNode(newLabel(c, body)), body]
-
+      let body = transformLoopBody(c, n[1])
       loop[1] =
         if preamble.isNil: newTree(nkStmtList, [exit, body])
         else:              newTree(nkStmtList, [preamble, exit, body])
