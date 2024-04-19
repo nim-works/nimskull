@@ -401,6 +401,11 @@ func asgnMove*(bu: var MirBuilder, a, b: Value) =
     bu.use a
     bu.move b
 
+func join*(bu: var MirBuilder, label: LabelId) =
+  ## Emits a ``join`` statement with `label.
+  bu.subTree mnkJoin:
+    bu.add MirNode(kind: mnkLabel, label: label)
+
 func inline*(bu: var MirBuilder, tree: MirTree, fr: NodePosition): Value =
   ## Inlines the lvalue operand for non-mutating use. This is meant to be used
   ## for materialzing immutable arguments when inlining calls / expanding
