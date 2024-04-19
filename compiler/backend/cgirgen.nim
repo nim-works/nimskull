@@ -43,16 +43,11 @@ import
   ]
 
 import std/options as std_options
-from std/sequtils import delete
 
 from compiler/ast/ast import newSym, newType, rawAddSon
 from compiler/sem/semdata import makeVarType
 
 type
-  NodeLabelPair = tuple
-    node: CgNode
-    target: LabelId
-
   TranslateCl = object
     graph: ModuleGraph
     idgen: IdGenerator
@@ -61,25 +56,6 @@ type
       ## parameter passing. Only the type environment is potentially modified
 
     owner: PSym
-
-    blocks: seq[tuple[input, actual: LabelId]]
-      ## the stack of enclosing blocks for the currently processed node
-
-    numLabels: int
-      ## incremented when a new label ID is allocated
-    exits: seq[NodeLabelPair]
-      ## non-exception goto-like statements that need patching when crossing
-      ## ``try``, ``finally``, or ``except`` boundaries
-    raiseExits: seq[NodeLabelPair]
-      ## similar to `exits`, but for exceptional control-flow statements/
-      ## nodes. The label doesn't matter, it's only there so that `raiseExits`
-      ## can be passed to the same procedures as `exits`
-    returnLabel: Option[LabelId]
-      ## the label to be placed after all other statements. A label is only
-      ## allocated if an ``mnkReturn`` appears somewhere in the MIR code
-    isActive: bool
-      ## whether translation of statements is enabled. Used to eliminate
-      ## unreachable code
 
     locals: Store[LocalId, Local]
       ## the list of all locals in the body, taken from the ``MirBody``.
@@ -102,12 +78,6 @@ type
     ## A cursor into a ``MirBody``.
     pos: uint32 ## the index of the currently pointed to node
     origin {.cursor.}: PNode ## the source node
-
-func delete[T](s: var seq[T], a, b: int) =
-  # XXX: this procedure is a workaround for ``sequtils.delete`` not handling
-  #      empty slices properly (an IndexDefect is erroneously raised)
-  if b > a:
-    sequtils.delete(s, a..(b-1))
 
 func newMagicNode(magic: TMagic, info: TLineInfo): CgNode =
   CgNode(kind: cnkMagic, info: info, magic: magic)
@@ -142,9 +112,6 @@ template hasNext(cr: TreeCursor, t: MirBody): bool =
   cr.pos.int < t.code.len
 
 template `[]=`(x: CgNode, i: Natural, n: CgNode) =
-  x.kids[i] = n
-
-template `[]=`(x: CgNode, i: BackwardsIndex, n: CgNode) =
   x.kids[i] = n
 
 template add(x: CgNode, y: CgNode) =
@@ -225,9 +192,6 @@ proc genObjConv(n: CgNode, to: PType, info: TLineInfo): CgNode =
   result = newOp(
     if diff < 0: cnkObjUpConv else: cnkObjDownConv,
     info, to): n
-
-func disable(cl: var TranslateCl) {.inline.} =
-  cl.isActive = false
 
 # forward declarations:
 proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
@@ -599,145 +563,11 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   else:
     unreachable()
 
-proc bodyToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
-              cr: var TreeCursor, stmts: var seq[CgNode]) =
-  ## Generates the ``CgNode`` tree for the body of a construct that implies
-  ## some form of control-flow.
-  let prev = cl.inUnscoped
-  # assume the body is unscoped until stated otherwise
-  cl.inUnscoped = true
-  stmtToIr(tree, env, cl, cr, stmts)
-  cl.inUnscoped = prev
-
 proc caseToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl, n: MirNode,
               cr: var TreeCursor): CgNode
 
-func newLabel(cl: var TranslateCl): LabelId =
-  ## Allocates a new label ID and returns it.
-  result = LabelId(cl.numLabels)
-  inc cl.numLabels
-
-func getReturnLabel(cl: var TranslateCl): LabelId =
-  ## Returns the label that points to the end of the current procedure.
-  if cl.returnLabel.isSome:
-    result = cl.returnLabel.unsafeGet()
-  else:
-    # allocate a new label first
-    result = newLabel(cl)
-    cl.returnLabel = some result
-
-func node(lbl: LabelId): CgNode =
-  newLabelNode(BlockId(lbl))
-
-proc patch(stmt: CgNode, target: sink CgNode) =
-  ## Appends `target` to the goto-like statement `stmt`, always wrapping
-  ## `target` in a ``cnkTargetList`` if there's none yet.
-  if stmt[^1] == nil:
-    stmt[^1] = newTree(cnkTargetList, unknownLineInfo, target)
-  else:
-    # a target list already exists
-    stmt[^1].kids.add target
-
-proc patchSingle(stmt: CgNode, target: sink CgNode) =
-  ## Appends `target` to the goto-like statement `stmt`.
-  if stmt[^1] == nil:
-    stmt[^1] = target
-  else:
-    stmt[^1].kids.add target
-
-proc patch(x: seq[NodeLabelPair], start: int, exit: LabelId) =
-  for i in start..<x.len:
-    patch(x[i].node, node(exit))
-
-proc patchLeave(x: seq[NodeLabelPair], start: int, exit: LabelId) =
-  for i in start..<x.len:
-    patch(x[i].node, newTree(cnkLeave, x[i].node.info, node(exit)))
-
-proc patchResume(x: seq[NodeLabelPair], start: int) =
-  for i in start..<x.len:
-    patch(x[i].node, newNode(cnkResume, x[i].node.info))
-
-proc join(stmts: var seq[CgNode], cl: var TranslateCl, info: TLineInfo,
-          target: LabelId, required: bool) =
-  ## Emits a join statement with label `target`, enabling translation
-  ## again if it's disabled and an exit targetting `target` exists.
-  ## If `required` is false and a join statement was immediately emitted
-  ## prior, no new join statement is emitted.
-  var label = target
-
-  # if allowed and possible, coalesce a join with the previous one:
-  if not required and stmts.len > 0 and stmts[^1].kind == cnkJoinStmt:
-    label = stmts[^1][0].label.LabelId
-
-  var
-    i = 0
-    found = false
-  # search for exits targetting `target`, update them with the correct label,
-  # and then remove them from the list
-  while i < cl.exits.len:
-    if cl.exits[i][1] == target:
-      patchSingle(cl.exits[i][0], node(label))
-      cl.exits.del(i)
-      # remember that at least one exit was found:
-      found = true
-    else:
-      inc i
-
-  # emit the join, but only if no coalescing took place and the label is
-  # actually targeted:
-  if label == target and (found or required):
-    stmts.add newTree(cnkJoinStmt, info, node(label))
-
-  if found:
-    # code is alive if following a join that is targeted by an alive goto
-    cl.isActive = true
-
-template join(info: TLineInfo, lbl: LabelId; required = false) =
-  join(stmts, cl, info, lbl, required)
-
-template goto(kind: CgNodeKind, info: TLineInfo, target: LabelId) =
-  ## Emits a fixed goto-like statement targeting `target`.
-  stmts.add newStmt(kind, info, node(target))
-
-template exit(lbl: LabelId) =
-  ## Emits a goto statement and registers it with `lbl` as the target.
-  if cl.isActive:
-    let n = newStmt(cnkGotoStmt, unknownLineInfo, nil)
-    stmts.add n
-    cl.exits.add((n, lbl))
-    cl.disable()
-
-template guarded(lbl: LabelId, body: untyped) =
-  ## Updates all exits emitted as part of `body` with a leave instruction
-  ## targetting `lbl`.
-  let
-    raiseStart = cl.raiseExits.len
-    exitStart = cl.exits.len
-  body
-  patchLeave(cl.raiseExits, raiseStart, lbl)
-  patchLeave(cl.exits, exitStart, lbl)
-
 proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
               cr: var TreeCursor, stmts: var seq[CgNode]) =
-
-  # skip the statement if translation is disabled, but with a caveat. Consider
-  # the following MIR:
-  #   try:
-  #     return
-  #     def _1 = ...
-  #   finally:
-  #     =destroy(name _1)
-  #
-  # Although nonesense, this is currently both legal and possible MIR. If
-  # translation would be disabled beyond the ``return``, then the temporary
-  # wouldn't be registered. Therefore, translation is always enabled in unscoped
-  # contexts (such as the above)
-  # XXX: eliminating unreachable code needs to happen much earlier, either in
-  #      ``mirgen`` or ``transf``
-  if not cl.isActive and not cl.inUnscoped:
-    tree.skip(cr)
-    return
-
   let n {.cursor.} = tree.get(cr)
   let info = cr.info ## the source information of `n`
 
@@ -999,8 +829,6 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
   ## using `idgen` to provide new IDs when creating symbols.
   var cl = TranslateCl(graph: graph, idgen: idgen, env: addr env,
                        owner: owner, locals: move body.locals)
-  # enable translation:
-  cl.isActive = true
 
   result = Body()
   result.code = tb(body, env, cl, NodePosition 0)
