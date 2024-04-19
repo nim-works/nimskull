@@ -74,7 +74,6 @@
 
 import
   std/[
-    algorithm,
     hashes,
     packedsets,
     tables
@@ -136,13 +135,6 @@ type
     ## injection and the move analyser. A location may have more than one
     ## lifetimes.
 
-  DestroyEntry = tuple
-    scope: NodePosition ## the position of the enclosing 'scope' node
-    pos: NodePosition   ## the position of the 'def' belonging to the entity
-                        ## that requires destruction
-    needsFinally: bool  ## whether the destructor needs to be placed in a
-                        ## 'finally' clause
-
   Moves = PackedSet[OpValue]
     ## A set storing the operands of all sinks that were collapsed into
     ## moves.
@@ -153,14 +145,6 @@ type
     # XXX: ideally, view types (i.e. ``lent``) would be used here
     moves: Cursor[Moves]
     entities: Cursor[EntityDict]
-    destroy: Cursor[seq[DestroyEntry]]
-
-iterator ritems[T](x: openArray[T]): lent T =
-  ## Iterates and yields the items from the container `x` in reverse
-  var i = x.high
-  while i >= 0:
-    yield x[i]
-    dec i
 
 func hash(x: EntityName): int =
   result = 0 !& x.a[0] !& x.a[1]
@@ -312,84 +296,6 @@ func collapseSink(tree: MirTree, cfg: var DataFlowGraph,
   # recomputing the graph
   cfg.change(update, opConsume)
 
-type DestructionMode = enum
-  demNone    ## location doesn't need to be destroyed because it contains no
-             ## value when control-flow exits the enclosing scope
-  demNormal  ## the location contains a value when the scope is exited via
-             ## structured control-flow
-  demFinally ## the location contains a value when the scope is exited via
-             ## unstructured control-flow
-
-func requiresDestruction(tree: MirTree, cfg: DataFlowGraph,
-                         span: Subgraph, def: NodePosition, entity: MirNode
-                        ): DestructionMode =
-  template computeAlive(loc, op: untyped): untyped =
-    computeAlive(tree, cfg, span, loc, op)
-
-  let r =
-    case entity.kind
-    of mnkParam, mnkLocal:
-      computeAlive(entity.local, computeAliveOp[LocalId])
-    of mnkGlobal:
-      computeAlive(entity.global, computeAliveOp[GlobalId])
-    of mnkTemp:
-      # unpacked tuples don't need to be destroyed because all elements are
-      # moved out of them
-      if tree[def].kind != mnkDefUnpack:
-        computeAlive(entity.local, computeAliveOp[LocalId])
-      else:
-        (alive: false, escapes: false)
-    else:
-      unreachable(entity.kind)
-
-  result =
-    if r.escapes: demFinally
-    elif r.alive: demNormal
-    else:         demNone
-
-func computeDestructors(tree: MirTree, cfg: DataFlowGraph,
-                        entities: EntityDict): seq[DestroyEntry] =
-  ## Computes and collects which locations present in `entities` need to be
-  ## destroyed at the exit of their enclosing scope in order to prevent the
-  ## values they still store from staying alive.
-  ##
-  ## Special handling is required if the scope is exited via unstructured
-  ## control-flow while the location is still alive (its value is then said
-  ## to "escape")
-  var needsFinally: PackedSet[NodePosition]
-
-  iterator items(x: EntityDict): lent EntityInfo =
-    for _, infos in x.pairs:
-      for it in infos.items:
-        yield it
-
-  for info in entities.items:
-    let
-      def = info.def ## the position of the entity's definition
-      entity = tree[getDefEntity(tree, def)]
-      scopeStart = findParent(tree, def, mnkScope)
-
-    if entity.kind == mnkGlobal and
-       doesGlobalEscape(tree, info.scope, info.scope.a, entity.global):
-      # TODO: handle escaping globals. Either report a warning, an error, or
-      #       defer destruction of the global to the end of the program
-      discard
-
-    case requiresDestruction(tree, cfg, info.scope, def, entity)
-    of demNormal:
-      result.add (scopeStart, def, false)
-    of demFinally:
-      needsFinally.incl scopeStart
-      result.add (scopeStart, def, true)
-    of demNone:
-      discard
-
-  # second pass: if at least one destructor call in a scope needs to use a
-  # finalizer, all do. Update the entries accordingly
-  for it in result.mitems:
-    if it.scope in needsFinally:
-      it.needsFinally = true
-
 # --------- analysis routines --------------
 
 func isAlive(tree: MirTree, cfg: DataFlowGraph,
@@ -457,22 +363,6 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
   let res = isLastWrite(tree, cfg, info.scope, src, at)
 
   if res.result:
-    if res.escapes or res.exits:
-      let def = info.def
-      assert tree[def].kind in DefNodes
-
-      # check if there exists a destructor call that would observe the
-      # location's value:
-      for it in ar.destroy[].items:
-        if def == it.pos:
-          if (it.needsFinally and res.escapes) or res.exits:
-            # there exists a destructor call for the location -> the current
-            # value is observed
-            return true
-
-          # no need to continue searching
-          break
-
     # no mutation nor destructor call observes the current value -> no reset
     # is needed
     result = false
@@ -649,88 +539,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       assert tree[stmt].kind in {mnkDef, mnkDefUnpack, mnkAsgn, mnkInit}
       specializeAsgn(tree, ctx, ar, stmt, i, c)
 
-# --------- destructor injection -------------
-
-proc injectDestroysAux(bu: var MirBuilder, orig: MirTree,
-                       entries: openArray[DestroyEntry]) =
-  ## Emits a destroy operation for each item in `entries`.
-  for it in ritems(entries):
-    bu.subTree mnkDestroy:
-      bu.emitFrom(orig, getDefEntity(orig, it.pos))
-
-proc injectDestructors(tree: MirTree, graph: ModuleGraph,
-                       destroy: seq[DestroyEntry], env: var MirEnv,
-                       c: var Changeset) =
-  ## Injects a destructor call for each entity in the `destroy` list, in the
-  ## entities reverse order they are defined. That is the entity defined last
-  ## is destroyed first
-  if destroy.len == 0:
-    # nothing to do
-    return
-
-  var
-    entries = destroy
-    needsFinally: PackedSet[NodePosition]
-
-  # first pass: gather which scopes need to be wrapped in a ``finally``
-  for it in destroy.items:
-    assert tree[it.scope].kind == mnkScope
-    if it.needsFinally:
-      needsFinally.incl it.scope
-
-  # sort the entries by scope (first-order) and position (second-order) in
-  # ascending order. Do this before moving the definitions, as `entries` would
-  # have no defined order otherwise (which could change the relative order
-  # of the moved definitions)
-  sort(entries, proc(x, y: auto): int =
-    result = ord(x.scope) - ord(y.scope)
-    if result == 0:
-      result = ord(x.pos) - ord(y.pos)
-  )
-
-  iterator scopeItems(e: seq[DestroyEntry]): Slice[int] {.inline.} =
-    ## Partitions `e` using the `scope` field and yields the slice of each
-    ## partition
-    var
-      scopePos = e[0].scope
-      start = 0
-
-    # the loop is written in such a way as that ``yield`` is only needed once
-    for i in 1..e.len:
-      if i == e.len or e[i].scope != scopePos:
-        yield start .. (i - 1)
-        if i < e.len:
-          scopePos = e[i].scope
-          start = i
-
-  # second pass: inject the destructors and place them inside a ``finally``
-  # clause if necessary
-  for s in scopeItems(entries):
-    let
-      scopeStart = entries[s.a].scope
-      useFinally = scopeStart in needsFinally
-      source = scopeStart
-        ## the node to inherit the origin information from
-
-    if useFinally:
-      # start a 'finally' at the beginning of the scope:
-      c.insert(tree, scopeStart + 1, source, buf):
-        buf.add MirNode(kind: mnkTry, len: 1)
-        buf.add MirNode(kind: mnkStmtList)
-
-    # insert at the scope's end node
-    c.insert(tree, findEnd(tree, scopeStart), source, buf):
-      if useFinally:
-        buf.add endNode(mnkStmtList) # close the body of the 'try' clause
-        buf.subTree MirNode(kind: mnkFinally):
-          # there's no need for opening a new scope -- we use a statement-list
-          # instead
-          buf.subTree MirNode(kind: mnkStmtList):
-            injectDestroysAux(buf, tree, toOpenArray(entries, s.a, s.b))
-
-        buf.add endNode(mnkTry)
-      else:
-        injectDestroysAux(buf, tree, toOpenArray(entries, s.a, s.b))
+# --------- switch lowering -------------
 
 proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
                        idgen: IdGenerator, env: var MirEnv,
@@ -867,15 +676,10 @@ proc injectDestructorCalls*(g: ModuleGraph, idgen: IdGenerator,
       entities = initEntityDict(body.code, actx.cfg, env)
       moves = collapseSink(body.code, actx.cfg, entities, env.types)
 
-    let destructors = computeDestructors(body.code, actx.cfg, entities)
-
     rewriteAssignments(
       body.code, actx,
       AnalysisResults(moves: cursor(moves),
-                      entities: cursor(entities),
-                      destroy: cursor(destructors)),
+                      entities: cursor(entities)),
       env.types, changes)
-
-    injectDestructors(body.code, g, destructors, env, changes)
 
     body.apply(changes)
