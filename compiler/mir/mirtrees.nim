@@ -623,7 +623,9 @@ iterator arguments*(tree: MirTree, n: NodePosition): (ArgKinds, OpValue) =
   ## Returns the argument kinds together with the operand node (or tag tree).
   assert tree[n].kind in CallKinds
   var i = tree.sibling(n + 1) # skip the callee
-  while tree[i].kind != mnkEnd:
+  # XXX: iterating until no more argument nodes are found is a temporary
+  #      workaround until call nodes store their number of sub-nodes
+  while tree[i].kind in ArgumentNodes:
     yield (ArgKinds(tree[i].kind), tree.operand(i))
     i = tree.sibling(i)
 
