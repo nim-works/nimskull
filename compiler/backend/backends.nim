@@ -459,12 +459,11 @@ proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
     var candidates: seq[string]
     libCandidates(path.strVal, candidates)
 
-    let outer = LabelId(1) # labels are 1-based
+    let outer = bu.allocLabel()
 
     # generate an 'or' chain that tries every candidate until one is found
     # for which loading succeeds
-    bu.subTree MirNode(kind: mnkBlock, label: outer):
-      bu.add MirNode(kind: mnkStmtList) # manual, for less visual nesting
+    bu.buildBlock outer:
       for candidate in candidates.items:
         var tmp = genLoadLib(bu, graph, env, val):
           literal(env.getOrIncl(candidate), StringType)
@@ -473,15 +472,14 @@ proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
           bu.buildMagicCall mNot, BoolType:
             bu.emitByVal tmp
 
-        bu.subTree mnkIf:
-          bu.use tmp
-          bu.add MirNode(kind: mnkBreak, label: outer)
+        bu.buildIf (bu.use tmp;):
+          bu.subTree mnkGoto:
+            bu.add MirNode(kind: mnkLabel, label: outer)
 
       # if none of the candidates worked, a run-time error is reported:
       bu.subTree mnkVoid:
         bu.buildCall env.procedures.add(errorProc), VoidType:
           bu.emitByVal literal(env.getOrIncl(path.strVal), StringType)
-      bu.add endNode(mnkStmtList)
   else:
     # the name of the dynamic library to load the procedure from is only known
     # at run-time
@@ -491,8 +489,7 @@ proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
       generateCode(graph, env, conf.tconfig, path, bu, source)
 
     let cond = genLoadLib(bu, graph, env, val, nameTemp)
-    bu.subTree mnkIf:
-      bu.use cond
+    bu.buildIf (bu.use cond;):
       bu.subTree mnkVoid:
         bu.buildCall env.procedures.add(errorProc), VoidType:
           bu.emitByVal nameTemp

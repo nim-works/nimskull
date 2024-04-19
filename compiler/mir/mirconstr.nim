@@ -232,6 +232,17 @@ template buildStmt*(bu: var MirBuilder, body: untyped) =
   let v = bu.push(body)
   bu.pop(v)
 
+template buildIf*(bu: var MirBuilder, cond, body: untyped) =
+  ## Emits the start and end of an ``if``, with `cond` providing the MIR for
+  ## the condition, and `body` providing the MIR for the body.
+  let label = bu.allocLabel()
+  bu.subTree mnkIf:
+    cond
+    bu.add MirNode(kind: mnkLabel, label: label)
+  body
+  bu.subTree mnkEndStruct:
+    bu.add MirNode(kind: mnkLabel, label: label)
+
 template buildStmt*(bu: var MirBuilder, k: MirNodeKind, body: untyped) =
   ## Similar to `buildStmt <#buildStmt,TCtx,untyped>`_, but also starts a sub-
   ## tree of kind `k`.
@@ -405,6 +416,11 @@ func join*(bu: var MirBuilder, label: LabelId) =
   ## Emits a ``join`` statement with `label.
   bu.subTree mnkJoin:
     bu.add MirNode(kind: mnkLabel, label: label)
+
+template buildBlock*(bu: var MirBuilder, id: LabelId, body: untyped) =
+  ## Emits `body` followed by a join statement for the given `id`.
+  body
+  bu.join id
 
 func inline*(bu: var MirBuilder, tree: MirTree, fr: NodePosition): Value =
   ## Inlines the lvalue operand for non-mutating use. This is meant to be used
