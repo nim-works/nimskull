@@ -87,13 +87,9 @@ Semantics
                                          # one for which the behaviour cannot
                                          # be represented in the MIR)
 
-  # (legacy) checked calls have the same shape as normal calls. The difference
+  # checked calls have the same shape as normal calls. The difference
   # is that the call has an exceptional exit (i.e., it might raise an
   # exception)
-  CHECKED_CALL_EXPR = CheckedCall <Proc> CALL_ARG ...
-                    | CheckedCall LVALUE CALL_ARG ...
-                    | CheckedCall <Magic> CALL_ARG ...
-
   CHECKED_CALL_EXPR = CheckedCall <Proc> CALL_ARG ...  EX_TARGET
                     | CheckedCall LVALUE CALL_ARG ...  EX_TARGET
                     | CheckedCall <Magic> CALL_ARG ... EX_TARGET
@@ -141,9 +137,7 @@ Semantics
   SHALLOW_SRC = RVALUE
               | VALUE
 
-  STATEMENT =
-            | StmtList STATEMENT ...    # a list of statements
-            | Scope STATEMENT           # wrap the statement in a scope, which
+  STATEMENT = Scope STATEMENT           # wrap the statement in a scope, which
                                         # delimits the lifetime of all
                                         # definitions within
             | Def NAME none             # definition
@@ -171,8 +165,6 @@ Semantics
                                         # is empty)
             | Switch LVALUE ASGN_SRC    # changes the active branch of a
                                         # variant. Unclear semantics.
-            | If VALUE STATEMENT        # if the value evaluates to true
-                                        # execute the statement (legacy)
             | If VALUE <Label>          # fall through if the value evaluates
                                         # to true, otherwise jump to the if's
                                         # corresponding end
@@ -180,27 +172,9 @@ Semantics
                                         # on the value, where value must be
                                         # either of integer, float, or string
                                         # type
-            | Block <Label> STATEMENT   # run the wrapped statement and provide
-                                        # a named exit. The label must be
-                                        # unique across all blocks in the
-                                        # procedure (legacy)
-            | Break <Label>             # exit the enclosing block that has the
-                                        # given label (legacy)
-            | Repeat STATEMENT          # unconditional loop. Repeat the
-                                        # statement for an indefinite amount
-                                        # of times (legacy)
-            | TRY_STMT                  # (legacy)
             | Goto TARGET
             | Loop <Label>              # unconditional jump back to the start
                                         # of a loop
-            | Raise LVALUE              # push the given exception to the
-                                        # exception stack and start exceptional
-                                        # control-flow. The `ref object` is
-                                        # consumed
-            | Raise <None>              # re-raise the current exception
-            | Return                    # exit the procedure, but execute all
-                                        # enclosing finalizers first (from
-                                        # innermost to outermost) (legacy)
             | Destroy LVALUE
             | Raise LVALUE EX_TARGET
             | Raise <None> EX_TARGET
@@ -220,18 +194,7 @@ Semantics
   BRANCH_LABEL = <Literal>
                | <Const>
                | Range <Literal> <Literal>
-  BRANCH_LIST = (Branch BRANCH_LABEL ... STATEMENT) ... # a list of branches
-              | (Branch BRANCH_LABEL ... TARGET) ...
-
-  EXCEPT_BRANCH = Branch <Type> ... STATEMENT # exception handler
-                | Branch <Local>    STATEMENT # exception handler for imported
-                                              # exception
-
-  TRY_STMT = Try STATEMENT (Except EXCEPT_BRANCH ...)? (Finally STATEMENT)?
-    # if a handler is present, all `raise` statements within the tried
-    # statement are redirected to the handler. If a finalizer is present, all
-    # control-flow exiting the tried statement or handler is first redirected
-    # to the finalizer.
+  BRANCH_LIST = (Branch BRANCH_LABEL ... TARGET) ... # a list of branches
 
 Only allowing calls, conversions, casts, etc. as the source operand (i.e., on
 the right) of an assignment makes sure that they always have named receivers,
@@ -264,8 +227,6 @@ generators.
 
 Control Flow Representation
 ===========================
-
-.. note:: This only covers the new control-flow primitives.
 
 Terminology:
 * *basic block*: a basic block is a region of statements that contains no
