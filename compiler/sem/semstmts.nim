@@ -1679,7 +1679,10 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
       let branch = semCaseBranch(c, selector, x, covered)
       result[i] = branch
       checkBranchForOverlap(c, result, i, result[i].len - 1)
-      branch.add semExprBranchScope(c, x[^1])
+      # the branch node might be inspected from within the body, so make sure
+      # it is syntactically valid prior to the analysis
+      branch.add c.graph.emptyNode
+      branch[^1] = semExprBranchScope(c, x[^1])
     of nkElifBranch:
       chckCovered = false
       checkSonsLen(x, 2, c.config)
