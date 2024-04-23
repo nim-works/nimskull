@@ -747,36 +747,42 @@ proc checkForOverlap(c: PContext, t: PNode, currentEx, branchIndex: int) =
           ast: ex,
           overlappingGroup: t[i][j].skipConv))
 
-proc semBranchRange(c: PContext, t, a, b: PNode, covered: var Int128): PNode =
-  checkMinSonsLen(t, 1, c.config)
-  let ac = semConstExpr(c, a)
-  let bc = semConstExpr(c, b)
-  let at = fitNode(c, t[0].typ, ac, ac.info).skipConvTakeType
-  let bt = fitNode(c, t[0].typ, bc, bc.info).skipConvTakeType
+proc semBranchRange(c: PContext, typ: PType, a, b: PNode,
+                    covered: var Int128): PNode =
+  ## Analyses an ``nkRange`` AST and produces a typed version thereof, or an
+  ## error. `typ` is the expected element type.
+  let
+    a = evalConstExpr(c, fitNode(c, typ, semExprWithType(c, a, {}), a.info))
+    b = evalConstExpr(c, fitNode(c, typ, semExprWithType(c, b, {}), b.info))
 
   result = newNodeI(nkRange, a.info)
-  result.add(at)
-  result.add(bt)
-  if emptyRange(ac, bc):
-    localReport(c.config, b, reportSem rsemRangeIsEmpty)
-  elif t[0].typ.skipTypes(abstractInst).kind == tyString:
-    # XXX: ``nkError`` needs to be used here
-    localReport(c.config, b, reportSem rsemStringRangeNotAllowed)
-  else: covered = covered + getOrdValue(bc) + 1 - getOrdValue(ac)
+  result.add(a)
+  result.add(b)
+  if a.kind == nkError or b.kind == nkError:
+    result = c.config.wrapError(result)
+  elif typ.skipTypes(abstractInst).kind == tyString:
+    result = c.config.newError(result):
+      PAstDiag(kind: adSemStringRangeNotAllowed)
+  elif emptyRange(a, b):
+    result = c.config.newError(result):
+      PAstDiag(kind: adSemRangeIsEmpty)
+  else:
+    # all good; no error
+    covered = covered + getOrdValue(b) + 1 - getOrdValue(a)
 
 proc semCaseBranchRange(c: PContext, t, b: PNode,
                         covered: var Int128): PNode =
   checkSonsLen(b, 3, c.config)
-  result = semBranchRange(c, t, b[1], b[2], covered)
+  result = semBranchRange(c, t[0].typ, b[1], b[2], covered)
 
 proc semCaseBranchSetElem(c: PContext, t, b: PNode,
                           covered: var Int128): PNode =
   if isRange(b):
-    checkSonsLen(b, 3, c.config)
-    result = semBranchRange(c, t, b[1], b[2], covered)
+    # TODO: cannot ever happen; remove
+    result = semCaseBranchRange(c, t, b, covered)
   elif b.kind == nkRange:
     checkSonsLen(b, 2, c.config)
-    result = semBranchRange(c, t, b[0], b[1], covered)
+    result = semBranchRange(c, t[0].typ, b[0], b[1], covered)
   else:
     result = fitNode(c, t[0].typ, b, b.info)
     inc(covered)
