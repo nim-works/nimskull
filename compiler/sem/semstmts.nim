@@ -1675,7 +1675,6 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
         suggestEnum(c, x, caseTyp)
     case x.kind
     of nkOfBranch:
-      checkMinSonsLen(x, 2, c.config)
       let branch = semCaseBranch(c, n[0].typ, x, covered)
       # XXX: errors need to be propagated
       for e in walkErrors(c.config, branch):

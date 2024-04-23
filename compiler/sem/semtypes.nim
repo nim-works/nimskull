@@ -807,6 +807,7 @@ proc semCaseBranch(c: PContext, typ: PType, branch: PNode,
         to.add x
         inc covered
 
+  checkMinSonsLen(branch, 2, c.config)
   # not a one-to-one mapping between the input and output AST
   result = copyNode(branch)
 
@@ -957,7 +958,6 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
     let b = n[i]
     case n[i].kind
     of nkOfBranch:
-      checkMinSonsLen(b, 2, c.config)
       a.add semCaseBranch(c, a[0].typ, b, covered)
       checkBranchForOverlap(c, a, i, a[^1].len - 1)
       # XXX: errors need to be propagated
