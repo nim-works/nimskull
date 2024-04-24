@@ -1159,6 +1159,8 @@ type
     adSemDefNameSym   ## when creating a sym node from `nkIdentKinds`
     # semtypes
     adSemTypeExpected
+    adSemStringRangeNotAllowed
+    adSemRangeIsEmpty
     # semtempl
     adSemIllformedAst
     adSemIllformedAstExpectedPragmaOrIdent
@@ -1336,6 +1338,8 @@ type
         adSemCallInCompilesContextNotAProcOrField,
         adSemExpressionHasNoType,
         adSemTypeExpected,
+        adSemStringRangeNotAllowed,
+        adSemRangeIsEmpty,
         adSemIllformedAst,
         adSemIllformedAstExpectedPragmaOrIdent,
         adSemInvalidExpression,

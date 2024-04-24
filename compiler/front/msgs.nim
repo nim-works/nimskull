@@ -501,6 +501,8 @@ func astDiagToLegacyReportKind*(
   of adSemCalleeHasAnError: rsemCalleeHasAnError
   of adSemExpressionHasNoType: rsemExpressionHasNoType
   of adSemTypeExpected: rsemTypeExpected
+  of adSemStringRangeNotAllowed: rsemStringRangeNotAllowed
+  of adSemRangeIsEmpty: rsemRangeIsEmpty
   of adSemIllformedAst: rsemIllformedAst
   of adSemIllformedAstExpectedPragmaOrIdent: rsemIllformedAst
   of adSemIllformedAstExpectedOneOf: rsemIllformedAst

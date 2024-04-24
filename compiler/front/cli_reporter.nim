@@ -3225,6 +3225,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemCallInCompilesContextNotAProcOrField,
       adSemExpressionHasNoType,
       adSemTypeExpected,
+      adSemStringRangeNotAllowed,
+      adSemRangeIsEmpty,
       adSemIllformedAst,
       adSemInvalidExpression,
       adSemExpectedNonemptyPattern,
