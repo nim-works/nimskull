@@ -578,18 +578,19 @@ proc genFieldCheck(p: BProc, e: CgNode) =
     initLocExpr(p, e[1], u)
     initLocExpr(p, e[2], v)
     genInExprAux(p, e, u, v, test)
-    var msg = ""
+    var strLit: Rope
     if optDeclaredLocs in p.config.globalOptions:
       # xxx this should be controlled by a separate flag, and
       # used for other similar defects so that location information is shown
       # even without the expensive `--stacktrace`; binary size could be optimized
       # by encoding the file names separately from `file(line:col)`, essentially
       # passing around `TLineInfo` + the set of files in the project.
-      msg.add toFileLineCol(p.config, e.info) & " "
-    msg.add getString(p, e[4])
-    # don't commit the string to the string table, as it's likely to be
-    # unique and never used again
-    let strLit = genStringLiteral(p.module, msg)
+      let msg = toFileLineCol(p.config, e.info) & " " & getString(p, e[4])
+      # don't commit the string to the string table, as it's likely to be
+      # unique and never used again
+      strLit = genStringLiteral(p.module, msg)
+    else:
+      strLit = genStringLiteral(p.module, e[4])
 
     ## discriminant check
     template fun(code) = linefmt(p, cpsStmts, code, [rdLoc(test)])
