@@ -811,8 +811,7 @@ proc semCaseBranch(c: PContext, typ: PType, branch: PNode,
   # not a one-to-one mapping between the input and output AST
   result = copyNode(branch)
 
-  for i in 0..<branch.len-1:
-    let b = branch[i]
+  for _, b in branchLabels(branch):
     if b.kind == nkRange:
       result.add semBranchRange(c, typ, b[0], b[1], covered)
     elif isRange(b):
