@@ -171,8 +171,6 @@ proc genOpenArraySlice(p: BProc; q: CgNode; formalType, destType: PType): (Rope,
               lengthExpr)
   of tyString, tySequence:
     let atyp = skipTypes(a.t, abstractInst)
-    if formalType.skipTypes(abstractInst).kind in {tyVar} and atyp.kind == tyString:
-      linefmt(p, cpsStmts, "#nimPrepareStrMutationV2($1);$n", [byRefLoc(p, a)])
     if atyp.kind in {tyVar}:
       result = ("((*$1).p != NIM_NIL ? ($4*)(*$1)$3+$2 : NIM_NIL)" %
                   [rdLoc(a), rdLoc(b), dataField(p), dest],

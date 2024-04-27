@@ -492,9 +492,9 @@ proc genAsgn(p: BProc, e: CgNode) =
     let ri = e[1]
     var a: TLoc
     initLoc(a, locNone, le, OnUnknown)
-    a.flags.incl {lfEnforceDeref, lfPrepareForMutation, lfWantLvalue}
+    a.flags.incl {lfEnforceDeref, lfWantLvalue}
     expr(p, le, a)
-    a.flags.excl {lfPrepareForMutation, lfWantLvalue}
+    a.flags.excl {lfWantLvalue}
     assert(a.t != nil)
     genLineDir(p, ri)
     loadInto(p, le, ri, a)
