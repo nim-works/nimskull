@@ -128,18 +128,12 @@ proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
     else:
       linefmt(p, cpsStmts, "$1.Field0 = $2; $1.Field1 = $2Len_0;$n",
         [rdLoc(d), a.rdLoc])
-  of tySequence:
+  of tySequence, tyString:
     linefmt(p, cpsStmts, "$1.Field0 = ($2.p != NIM_NIL ? $2$3 : NIM_NIL); $1.Field1 = $4;$n",
       [rdLoc(d), a.rdLoc, dataField(p), lenExpr(p, a)])
   of tyArray:
     linefmt(p, cpsStmts, "$1.Field0 = $2; $1.Field1 = $3;$n",
       [rdLoc(d), rdLoc(a), rope(lengthOrd(p.config, a.t))])
-  of tyString:
-    if skipTypes(d.t, abstractInst).kind in {tyVar}:
-      linefmt(p, cpsStmts, "#nimPrepareStrMutationV2($1);$n", [byRefLoc(p, a)])
-
-    linefmt(p, cpsStmts, "$1.Field0 = ($2.p != NIM_NIL ? $2$3 : NIM_NIL); $1.Field1 = $4;$n",
-      [rdLoc(d), a.rdLoc, dataField(p), lenExpr(p, a)])
   else:
     internalError(p.config, a.lode.info, "cannot handle " & $a.t.kind)
 
@@ -506,16 +500,13 @@ proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
       discard getTypeDesc(p.module, e.typ)
       putIntoDest(p, d, e, "(*$1)" % [rdLoc(a)], a.storage)
 
-proc genAddr(p: BProc, e: CgNode, mutate: bool, d: var TLoc) =
+proc genAddr(p: BProc, e: CgNode, d: var TLoc) =
   if mapType(p.config, e.operand.typ) == ctArray:
     expr(p, e.operand, d)
   else:
     var a: TLoc
     initLoc(a, locNone, e.operand, OnUnknown)
     a.flags.incl lfWantLvalue
-    if mutate:
-      a.flags.incl lfPrepareForMutation
-
     expr(p, e.operand, a)
     putIntoDest(p, d, e, addrLoc(p.config, a), a.storage)
 
@@ -751,8 +742,6 @@ proc genSeqElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   if skipTypes(a.t, abstractVar).kind in {tyRef, tyPtr}:
     a.r = ropecg(p.module, "(*$1)", [a.r])
 
-  if lfPrepareForMutation in d.flags and ty.kind == tyString:
-    linefmt(p, cpsStmts, "#nimPrepareStrMutationV2($1);$n", [byRefLoc(p, a)])
   putIntoDest(p, d, n,
               ropecg(p.module, "$1$3[$2]", [rdLoc(a), rdCharLoc(b), dataField(p)]), a.storage)
 
@@ -2024,8 +2013,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
       # ``&(*x)`` to just ``x``
       expr(p, n.operand.operand, d)
     else:
-      let mutate = n.kind == cnkHiddenAddr and n.typ.kind == tyVar
-      genAddr(p, n, mutate, d)
+      genAddr(p, n, d)
   of cnkArrayAccess: genArrayLikeElem(p, n, d)
   of cnkTupleAccess:
     if n[0].typ.skipTypes(abstractInst).kind == tyProc:

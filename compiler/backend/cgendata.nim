@@ -79,7 +79,6 @@ type
     lfEnforceDeref           ## a copyMem is required to dereference if this a
                              ## ptr array due to C array limitations.
                              ## See #1181, #6422, #11171
-    lfPrepareForMutation     ## string location is about to be mutated
     lfWantLvalue             ## on empty locs, signals that a C lvalue is
                              ## expected
 
