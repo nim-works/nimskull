@@ -940,6 +940,16 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         c.userOptions = {}
         genx(c, n[1])
         c.userOptions = orig
+  of mHigh:
+    # custom translation in order to skip both explicit and implicit to-slice
+    # conversions; those are unnecessary
+    c.buildMagicCall mHigh, rtyp:
+      var arg = n[1]
+      while arg.kind in {nkConv, nkHiddenStdConv, nkHiddenSubConv} and
+            classifyBackendView(arg.typ) == bvcSequence:
+        arg = arg[^1]
+
+      c.emitOperandTree arg, sink=false
 
   # arithmetic operations:
   of mAddI, mSubI, mMulI, mDivI, mModI, mPred, mSucc:
