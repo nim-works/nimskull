@@ -10,11 +10,11 @@
 # Integer arithmetic with overflow checking. Uses
 # intrinsics or inline assembler.
 
-proc raiseOverflow {.compilerproc, noinline.} =
+proc raiseOverflow {.errorPrc.} =
   # a single proc to reduce code size to a minimum
   sysFatal(OverflowDefect, "over- or underflow")
 
-proc raiseDivByZero {.compilerproc, noinline.} =
+proc raiseDivByZero {.errorPrc.} =
   sysFatal(DivByZeroDefect, "division by zero")
 
 {.pragma: nimbaseH, importc, nodecl, noSideEffect, compilerproc.}
@@ -122,10 +122,10 @@ template divImplFallback(name, T) {.dirty.} =
 divImplFallback(nimDivInt, int)
 divImplFallback(nimDivInt64, int64)
 
-proc raiseFloatInvalidOp {.compilerproc, noinline.} =
+proc raiseFloatInvalidOp {.errorPrc.} =
   sysFatal(FloatInvalidOpDefect, "FPU operation caused a NaN result")
 
-proc raiseFloatOverflow(x: float64) {.compilerproc, noinline.} =
+proc raiseFloatOverflow(x: float64) {.errorPrc.} =
   if x > 0.0:
     sysFatal(FloatOverflowDefect, "FPU operation caused an overflow")
   else:
