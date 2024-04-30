@@ -16,7 +16,6 @@ import
   ],
   compiler/mir/[
     analysis,
-    checks,
     datatables,
     mirbodies,
     mirenv,
@@ -24,6 +23,7 @@ import
     mirconstr,
     mirtrees,
     mirtypes,
+    rtchecks,
     sourcemaps
   ],
   compiler/modules/[
