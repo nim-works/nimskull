@@ -56,3 +56,10 @@ static:
     discard
 
   doAssert not compiles(f(0))
+
+block unsigned_64_bit_to_range_conversion:
+  # regression test to make sure a uint/uint64 to integer range conversion
+  # checks the target range's lower bound
+  var x: uint64 = 0
+  doAssertRaises RangeDefect:
+    discard range[1..high(int)](x)
