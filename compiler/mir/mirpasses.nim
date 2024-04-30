@@ -607,6 +607,43 @@ proc injectStrPreparation(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
     else:
       discard "not relevant"
 
+proc lowerMove(tree: MirTree, changes: var Changeset) =
+  ## Lowers ``mMove`` and ``mWasMoved`` magic calls.
+  for i in search(tree, {mnkMagic}):
+    case tree[i].magic
+    of mMove:
+      # lower ``def x = move(name y)`` into:
+      #   def x = move y
+      #   y = default() # essentially ``wasMoved(y)``
+      let
+        call = tree.parent(i)
+        arg  = NodePosition tree.argument(call, 0)
+        stmt = getStmt(tree, call)
+      # the argument expression is stable, so there's no need to bind it
+      changes.replaceMulti(tree, call, bu):
+        bu.subTree mnkMove, tree[call].typ:
+          bu.emitFrom(tree, arg)
+      # emit the default-assignment after the move call:
+      changes.insert(tree, tree.sibling(stmt), call, bu):
+        bu.subTree mnkAsgn:
+          bu.emitFrom(tree, arg)
+          bu.buildMagicCall mDefault, tree[call].typ:
+            discard
+    of mWasMoved:
+      # lower ``wasMoved(name x)`` into:
+      #   x = default()
+      let
+        call = tree.parent(i)
+        arg  = NodePosition tree.argument(call, 0)
+        stmt = getStmt(tree, call)
+      changes.replaceMulti(tree, stmt, bu):
+        bu.subTree mnkAsgn:
+          bu.emitFrom(tree, arg)
+          bu.buildMagicCall mDefault, tree[arg].typ:
+            discard
+    else:
+      discard "not relevant"
+
 proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
                   graph: ModuleGraph, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
@@ -632,6 +669,7 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       injectResultInit(body.code, body[resultId].typ, c)
 
     lowerSwap(body.code, c)
+    lowerMove(body.code, c)
     if target == targetVm:
       # only the C and VM targets need the extraction, and only the VM
       # requires the extraction for cstring literals
