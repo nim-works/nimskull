@@ -16,6 +16,7 @@ import
   ],
   compiler/mir/[
     analysis,
+    checks,
     datatables,
     mirbodies,
     mirenv,
@@ -639,6 +640,7 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
 
     if target == targetC:
       lowerNew(body.code, graph, env, c)
+      lowerChecks(body.code, graph, env, c)
       injectStrPreparation(body.code, graph, env, c)
 
   # instrument the body with profiler calls after all lowerings, but before
