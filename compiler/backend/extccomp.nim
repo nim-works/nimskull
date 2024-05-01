@@ -393,6 +393,11 @@ proc toObjFile*(conf: ConfigRef; filename: AbsoluteFile): AbsoluteFile =
   # Object file for compilation
   result = AbsoluteFile(filename.string & "." & CC[conf.cCompiler].objExt)
 
+proc externalObjFile*(conf: ConfigRef; cfile: AbsoluteFile): AbsoluteFile =
+  ## Returns the path of the object file to output for the external C file
+  ## `cfile`.
+  result = toObjFile(conf, completeGeneratedExtFilePath(conf, cfile))
+
 proc addFileToCompile*(conf: ConfigRef; cf: Cfile) =
   conf.toCompile.add(cf)
 

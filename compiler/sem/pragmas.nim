@@ -775,8 +775,10 @@ proc processCompile(c: PContext, n: PNode): PNode =
         found = findFile(c.config, file)
         if found.isEmpty: found = AbsoluteFile file
 
-    let obj = toObjFile(c.config):
-      completeCfilePath(c.config, withPackageName(c.config, found), false)
+    # prepend the package name derived from the file path to `found`, in order
+    # to prevent name collisions when there are multiple external C files with
+    # the same name
+    let obj = externalObjFile(c.config, withPackageName(c.config, found))
     docompile(c, n, found, obj, (if n.len == 2: "" else: result[2].strVal))
   else:
     # too many arguments

@@ -1300,6 +1300,19 @@ proc completeGeneratedFilePath*(conf: ConfigRef; f: AbsoluteFile,
   result = subdir / RelativeFile f.string.splitPath.tail
   #echo "completeGeneratedFilePath(", f, ") = ", result
 
+proc completeGeneratedExtFilePath*(conf: ConfigRef, f: AbsoluteFile
+                                  ): AbsoluteFile =
+  ## Returns the absolute file path within the cache directory for file `f`.
+  ## This procedure is meant to be used for external files with names not
+  ## controlled by the compiler -- a sub-directory is used to prevent
+  ## collisions.
+  let subdir = getNimcacheDir(conf.active) / RelativeDir("external")
+  try:
+    createDir(subdir.string)
+  except OSError:
+    conf.quitOrRaise "cannot create directory: " & subdir.string
+  result = subdir / RelativeFile(f.string.splitPath.tail)
+
 proc toRodFile*(conf: ConfigRef; f: AbsoluteFile; ext = RodExt): AbsoluteFile =
   result = changeFileExt(completeGeneratedFilePath(conf,
     withPackageName(conf, f)), ext)
