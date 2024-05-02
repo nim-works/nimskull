@@ -1645,13 +1645,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
       typ.add "*"
 
     linefmt(p, cpsStmts, "$1 = ($2)($3);$n", [a.r, typ, rdLoc(b)])
-  of mChckNaN:
-    var a: TLoc
-    initLocExpr(p, e[1], a)
-    # NOTE: if the value is a signaling NaN, the comparison itself results in
-    #       a float-point exception (which might result in a trap)
-    linefmt(p, cpsStmts, "if ($1 != $1){ #raiseFloatInvalidOp(); $2}$n",
-            [rdLoc(a), raiseInstr(p, e.exit)])
   of mChckIndex:
     var arr, a: TLoc
     initLocExpr(p, e[1], arr)
