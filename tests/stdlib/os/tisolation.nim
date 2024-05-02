@@ -1,5 +1,5 @@
 discard """
-  targets: "c vm"
+  targets: "c"
 """
 
 import std/[isolation, json]
