@@ -173,6 +173,24 @@ proc emitRangeCheck(tree, call, graph, env, bu): Value =
         bu.emitByVal lo
         bu.emitByVal hi
 
+proc emitNanCheck(tree; call; graph; env; bu) =
+  ## For ``chckNaN(val)`` emit:
+  ##   def _1 = eqF64(arg val, arg val)
+  ##   def _2 = not(arg _1)
+  ##   if _2:
+  ##     raiseFloatInvalidOp()
+  let cmp = bu.wrapTemp BoolType:
+    bu.buildMagicCall mEqF64, BoolType:
+      bu.subTree mnkArg:
+        bu.emitFrom(tree, NodePosition tree.argument(call, 0))
+      bu.subTree mnkArg:
+        bu.emitFrom(tree, NodePosition tree.argument(call, 0))
+
+  # if a float value is not equal to itself, it is not a number (=NaN)
+  bu.buildIfNot cmp:
+    bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseFloatInvalidOp")):
+      discard
+
 proc lowerChecks*(tree; graph; env; changes: var Changeset) =
   ## Lowers all magic calls implementing the run-time checks.
   for i, n in tree.pairs:
@@ -188,5 +206,10 @@ proc lowerChecks*(tree; graph; env; changes: var Changeset) =
         changes.replaceMulti(tree, call, bu):
           bu.subTree mnkConv, tree[call].typ:
             bu.use tmp
+      of mChckNaN:
+        let call = tree.parent(i)
+        # make sure to take the ``mnkVoid`` wrapper into account
+        changes.replaceMulti(tree, tree.parent(call), bu):
+          emitNanCheck(tree, call, graph, env, bu)
       else:
         discard "not relevant"
