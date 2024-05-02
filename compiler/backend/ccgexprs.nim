@@ -1470,23 +1470,6 @@ proc skipAddr(n: CgNode): CgNode =
   if n.kind == cnkHiddenAddr: n.operand
   else:                       n
 
-proc genWasMoved(p: BProc; n: CgNode) =
-  var a: TLoc
-  let n1 = n[1].skipAddr
-  if true:
-    initLocExpr(p, n1, a, {lfWantLvalue})
-    resetLoc(p, a)
-    #linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-    #  [addrLoc(p.config, a), getTypeDesc(p.module, a.t)])
-
-proc genMove(p: BProc; n: CgNode; d: var TLoc) =
-  var a: TLoc
-  initLocExpr(p, n[1], a, {lfWantLvalue})
-  if true:
-    if d.k == locNone: getTemp(p, n.typ, d)
-    genAssignment(p, d, a)
-    resetLoc(p, a)
-
 proc genDestroy(p: BProc; n: CgNode) =
     let arg = n[1].skipAddr
     let t = arg.typ.skipTypes(abstractInst)
@@ -1629,8 +1612,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     initLocExpr(p, e[2], b)
     genDeepCopy(p, a, b)
   of mDotDot, mEqCString: genCall(p, e, d)
-  of mWasMoved: genWasMoved(p, e)
-  of mMove: genMove(p, e, d)
   of mDestroy: genDestroy(p, e)
   of mAccessTypeField: genAccessTypeField(p, e, d)
   of mTrace: discard "no code to generate"

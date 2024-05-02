@@ -1732,25 +1732,6 @@ proc genDefault(p: PProc, n: CgNode; r: var TCompRes) =
   else:
     r.res = createVar(p, n.typ, indirect = false)
 
-proc genReset(p: PProc, n: CgNode) =
-  var x: TCompRes
-  useMagic(p, "genericReset")
-  gen(p, n[1], x)
-  if x.typ == etyBaseIndex:
-    lineF(p, "$1 = null, $2 = 0;$n", [x.address, x.res])
-  else:
-    lineF(p, "$1 = genericReset($1, $2);$n", [x.rdLoc,
-                  genTypeInfo(p, n[1].typ)])
-
-proc genMove(p: PProc; n: CgNode; r: var TCompRes) =
-  var a: TCompRes
-  r.kind = resVal
-  r.res = p.getTemp()
-  gen(p, n[1], a)
-  lineF(p, "$1 = $2;$n", [r.rdLoc, a.rdLoc])
-  genReset(p, n)
-  #lineF(p, "$1 = $2;$n", [dest.rdLoc, src.rdLoc])
-
 proc genJSArrayConstr(p: PProc, n: CgNode, r: var TCompRes) =
   var a: TCompRes
   r.res = rope("[")
@@ -1894,7 +1875,6 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mNewSeqOfCap: unaryExpr(p, n, r, "", "[]")
   of mOf: genOf(p, n, r)
   of mDefault: genDefault(p, n, r)
-  of mWasMoved: genReset(p, n)
   of mEcho: genEcho(p, n, r)
   of mNLen..mNError:
     localReport(p.config, n.info, reportSym(
@@ -1908,8 +1888,6 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mParseBiggestFloat:
     useMagic(p, "nimParseBiggestFloat")
     genCall(p, n, r)
-  of mMove:
-    genMove(p, n, r)
   # of mAccessEnv:
   #   unaryExpr(p, n, r, "accessEnv", "accessEnv($1)")
   of mFinished:
