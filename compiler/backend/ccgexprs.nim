@@ -1430,38 +1430,6 @@ proc genCast(p: BProc, e: CgNode, d: var TLoc) =
     # C code; plus it's the right thing to do for closures:
     genSomeCast(p, e, d)
 
-proc genRangeChck(p: BProc, n: CgNode, d: var TLoc) =
-  var a: TLoc
-  var dest = skipTypes(n.typ, abstractVar)
-  initLocExpr(p, n[1], a)
-  if true:
-    let n0t = n[1].typ
-
-    # emit range check:
-    if n0t.kind in {tyUInt, tyUInt64}:
-      linefmt(p, cpsStmts, "if ($1 > ($6)($3)){ #raiseRangeErrorNoArgs(); $5}$n",
-        [rdCharLoc(a), genLiteral(p, n[2], dest), genLiteral(p, n[3], dest),
-        raiser, raiseInstr(p, n.exit), getTypeDesc(p.module, n0t)])
-    else:
-      let raiser =
-        case skipTypes(n.typ, abstractVarRange).kind
-        of tyUInt..tyUInt64, tyChar: "raiseRangeErrorU"
-        of tyFloat..tyFloat64: "raiseRangeErrorF"
-        else: "raiseRangeErrorI"
-      discard cgsym(p.module, raiser)
-
-      let boundaryCast =
-        if n0t.skipTypes(abstractVarRange).kind in {tyUInt, tyUInt32, tyUInt64} or
-            (n0t.sym != nil and sfSystemModule in n0t.sym.owner.flags and n0t.sym.name.s == "csize"):
-          "(NI64)"
-        else:
-          ""
-      linefmt(p, cpsStmts, "if ($6($1) < $2 || $6($1) > $3){ $4($1, $2, $3); $5}$n",
-        [rdCharLoc(a), genLiteral(p, n[2], dest), genLiteral(p, n[3], dest),
-        raiser, raiseInstr(p, n.exit), boundaryCast])
-  putIntoDest(p, d, n, "(($1) ($2))" %
-      [getTypeDesc(p.module, dest), rdCharLoc(a)], a.storage)
-
 proc genConv(p: BProc, e: CgNode, d: var TLoc) =
   let destType = e.typ.skipTypes({tyVar, tyLent, tyGenericInst, tyAlias, tySink})
   if sameBackendType(destType, e.operand.typ):
@@ -1658,15 +1626,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
       typ.add "*"
 
     linefmt(p, cpsStmts, "$1 = ($2)($3);$n", [a.r, typ, rdLoc(b)])
-  of mChckRange:
-    genRangeChck(p, e, d)
-  of mChckNaN:
-    var a: TLoc
-    initLocExpr(p, e[1], a)
-    # NOTE: if the value is a signaling NaN, the comparison itself results in
-    #       a float-point exception (which might result in a trap)
-    linefmt(p, cpsStmts, "if ($1 != $1){ #raiseFloatInvalidOp(); $2}$n",
-            [rdLoc(a), raiseInstr(p, e.exit)])
   of mChckIndex:
     var arr, a: TLoc
     initLocExpr(p, e[1], arr)

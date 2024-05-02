@@ -1184,6 +1184,16 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
       let tmp = c.genx(n[i])
       c.gABC(n[i], opcAsgnComplex, r, tmp)
       c.freeTemp(tmp)
+    elif n[i].kind == cnkConst and i < fntyp.len and
+         fntyp[i].kind == tySink and fntyp[i][0].kind == tyString:
+      # HACK: passing a string literal (lifted into a constant) directly to a
+      #       sink parameter is wrong, since it allows the callee to modify the
+      #       constant data; a copy has to be introduced. This needs to
+      #       eventually be fixed in ``mirgen``, by introducing a intermediate
+      #       temporary for the argument
+      let tmp = c.genx(n[i])
+      c.gABC(n[i], opcAsgnComplex, r, tmp)
+      c.freeTemp(tmp)
     else:
       c.gen(n[i], r)
 

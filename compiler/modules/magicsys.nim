@@ -180,19 +180,23 @@ func getMagicEqForType*(t: PType): TMagic =
   else:
     unreachable(t.kind)
 
-func getMagicLeForType*(t: PType): TMagic =
-  ## Returns the ``mLeX`` magic for the given type `t`.
+func getMagicLessForType*(t: PType): tuple[le, lt: TMagic] =
+  ## Returns the ``mLeX`` and ``mLtX`` magic for type `t`.
   case t.kind
   of tyInt, tyInt8, tyInt16, tyInt32, tyInt64,
      tyUInt, tyUInt8, tyUInt16, tyUInt32, tyUInt64:
-    mLeI
-  of tyEnum:   mLeEnum
-  of tyBool:   mLeB
-  of tyString: mLeStr
-  of tyChar:   mLeCh
-  of tySet:    mLeSet
+    (mLeI, mLtI)
+  of tyEnum:   (mLeEnum, mLtEnum)
+  of tyBool:   (mLeB,    mLtB)
+  of tyString: (mLeStr,  mLtStr)
+  of tyChar:   (mLeCh,   mLtCh)
+  of tySet:    (mLeSet,  mLtSet)
   else:
     unreachable(t.kind)
+
+template getMagicLeForType*(t: PType): TMagic =
+  ## Returns the ``mLeX`` magic for the given type `t`.
+  getMagicLessForType(t).le
 
 proc getMagicEqSymForType*(g: ModuleGraph; t: PType; info: TLineInfo): PSym =
   let magic = getMagicEqForType(t)
