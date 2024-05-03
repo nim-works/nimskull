@@ -918,16 +918,44 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     let s = qualifiedLookUp(c.c, n, {})
 
     if s.isNil:
-      result = n
-
+      # a normal dot expression
       result[0] = semTemplBody(c, n[0])
-      
-      inc c.noGenSym
-      result[1] = semTemplBody(c, n[1])
-      dec c.noGenSym
+      var
+        iter: TOverloadIter
+        s = initOverloadIter(iter, c.c, n[1])
 
-      if nkError in {result[0].kind, result[1].kind}:
-        result = c.c.config.wrapError(result)
+      block resolve:
+        # only routines and types are eligible for the right-hand side, look
+        # for such a symbol:
+        while s != nil:
+          if s.isError:
+            localReport(c.c.config, s.ast)
+          elif isTemplParam(c, s):
+            # template parameters are bound eagerly
+            incl(s.flags, sfUsed)
+            result[1] = newSymNode(s, n[1].info)
+            break resolve
+          elif s.kind in routineKinds + {skType, skGenericParam}:
+            break # found a symbol that fits
+          s = nextOverloadIter(iter, c.c, n[1])
+
+        if s != nil:
+          var field = templBindSym(c, s, n[1], isField=true)
+          if field.kind == nkSym and sfGenSym notin field.sym.flags and
+             field.sym.kind in OverloadableSyms:
+            # ``semexprs.dotTransformation`` ignores single symbols, so we
+            # need to wrap the symbol in a sym-choice, to preserve the bound
+            # symbol
+            field = newTreeIT(nkOpenSymChoice, n[1].info,
+                              newTypeS(tyNone, c.c), field)
+            # XXX: should be a closed symbol choice, like it works for
+            #      generics, but code relies on the symbol being open...
+            # XXX: ``dotTransformation`` should not ignore symbols in the
+            #      first place
+
+          result[1] = field
+
+      hasError = nkError in {result[0].kind, result[1].kind}:
     elif s.isError:
       result = s.ast
     else:
