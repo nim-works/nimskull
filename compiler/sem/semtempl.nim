@@ -421,19 +421,13 @@ proc semTemplSymbol(c: PContext, n: PNode, s: PSym; isField: bool): PNode =
         n           # Introduced in this pass! Leave it as an identifier.
   of OverloadableSyms-{skEnumField}:
     result = symChoice(c, n, s, scOpen, isField)
-  of skGenericParam:
-    if isField and sfGenSym in s.flags: result = n
-    else: result = newSymNodeTypeDesc(s, c.idgen, n.info)
+  of skType, skGenericParam:
+    result = newSymNodeTypeDesc(s, c.idgen, n.info)
   of skParam:
     result = n
-  of skType:
-    if isField and sfGenSym in s.flags: result = n
-    else: result = newSymNodeTypeDesc(s, c.idgen, n.info)
   else:
     if s.kind == skEnumField and overloadableEnums in c.features:
       result = symChoice(c, n, s, scOpen, isField)
-    elif isField and sfGenSym in s.flags:
-      result = n
     else:
       result = newSymNode(s, n.info)
     # Issue #12832
@@ -442,6 +436,22 @@ proc semTemplSymbol(c: PContext, n: PNode, s: PSym; isField: bool): PNode =
     # field access (dot expr) will be handled by builtinFieldAccess
     if not isField and {optStyleHint, optStyleError} * c.config.globalOptions != {}:
       styleCheckUse(c.config, n.info, s)
+
+proc templBindSym(c: TemplCtx, s: PSym, n: PNode, isField: bool): PNode =
+  if contains(c.toBind, s.id):
+    result = symChoice(c.c, n, s, scClosed, isField)
+  elif contains(c.toMixin, s.name.id):
+    result = symChoice(c.c, n, s, scForceOpen, isField)
+  elif s.owner == c.owner and sfGenSym in s.flags:
+    # XXX: this is a tremendous hack. Symbol choices cannot contain
+    #      template-introduced gensyms, since gensym'ed symbols are turned
+    #      into identifiers during template evaluation. To at least support
+    #      basic usage of gensyms, they're bound directly. As a consequence,
+    #      overloads part of the definition scope won't be considered
+    incl(s.flags, sfUsed)
+    result = newSymNode(s, n.info)
+  else:
+    result = semTemplSymbol(c.c, n, s, isField)
 
 proc semRoutineInTemplName(c: var TemplCtx, n: PNode): PNode =
   ## Analyses the `namePos` in a routine-like occurring in a template body,
@@ -629,21 +639,12 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
       discard     # result is already set to n
     elif s.isError:
       result = s.ast
+    elif isTemplParam(c, s):
+      incl(s.flags, sfUsed)
+      result = newSymNode(s, n.info)
     else:
-      if s.owner == c.owner and s.kind == skParam and sfTemplateParam in s.flags:
-        incl(s.flags, sfUsed)
-        result = newSymNode(s, n.info)
-      elif contains(c.toBind, s.id):
-        result = symChoice(c.c, n, s, scClosed, c.noGenSym > 0)
-      elif contains(c.toMixin, s.name.id):
-        result = symChoice(c.c, n, s, scForceOpen, c.noGenSym > 0)
-      elif s.owner == c.owner and sfGenSym in s.flags and c.noGenSym == 0:
-        # template tmp[T](x: var seq[T]) =
-        # var yz: T
-        incl(s.flags, sfUsed)
-        result = newSymNode(s, n.info)
-      else:
-        result = semTemplSymbol(c.c, n, s, c.noGenSym > 0)
+      result = templBindSym(c, s, n, c.noGenSym > 0)
+
   of nkBind:
     result = semTemplBody(c, n[0])
   of nkBindStmt:
