@@ -215,7 +215,6 @@ type
     owner: PSym
     cursorInBody: bool # only for nimsuggest
     scopeN: int
-    noGenSym: int
     inTemplateHeader: int
 
 proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
@@ -643,7 +642,7 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
       incl(s.flags, sfUsed)
       result = newSymNode(s, n.info)
     else:
-      result = templBindSym(c, s, n, c.noGenSym > 0)
+      result = templBindSym(c, s, n, isField=false)
 
   of nkBind:
     result = semTemplBody(c, n[0])
@@ -960,11 +959,13 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
       result = s.ast
     else:
       if contains(c.toBind, s.id):
-        return symChoice(c.c, n, s, scClosed, c.noGenSym > 0)
+        result = symChoice(c.c, n, s, scClosed)
       elif contains(c.toMixin, s.name.id):
-        return symChoice(c.c, n, s, scForceOpen, c.noGenSym > 0)
+        result = symChoice(c.c, n, s, scForceOpen)
       else:
-        return symChoice(c.c, n, s, scOpen, c.noGenSym > 0)
+        # FIXME: ``semTemplSymbol`` needs to be used here to ensure correct
+        #        typing for type symbols
+        result = symChoice(c.c, n, s, scOpen)
 
   of nkExprColonExpr, nkExprEqExpr:
     let s = qualifiedLookUp(c.c, n[0], {})
