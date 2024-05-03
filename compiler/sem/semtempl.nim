@@ -904,7 +904,14 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     # do not transform runnableExamples (bug #9143)
     if not isRunnableExamples(n[0]):
       result = semTemplBodySons(c, n)
-  of nkDotExpr, nkAccQuoted:
+  of nkAccQuoted:
+    if n.len == 1:
+      # quoted identifier, resolve and unquote it
+      result = semTemplBody(c, n[0])
+    else:
+      # identifier construction
+      result = semTemplBodySons(c, n)
+  of nkDotExpr:
     # dotExpr is ambiguous: note that we explicitly allow 'x.TemplateParam',
     # so we use the generic code for nkDotExpr too
     let s = qualifiedLookUp(c.c, n, {})
@@ -914,12 +921,7 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     elif s.isError:
       result = s.ast
     else:
-      # do not symchoice a quoted template parameter (bug #2390):
-      if s.owner == c.owner and s.kind == skParam and
-          n.kind == nkAccQuoted and n.len == 1:
-        incl(s.flags, sfUsed)
-        return newSymNode(s, n.info)
-      elif contains(c.toBind, s.id):
+      if contains(c.toBind, s.id):
         return symChoice(c.c, n, s, scClosed, c.noGenSym > 0)
       elif contains(c.toMixin, s.name.id):
         return symChoice(c.c, n, s, scForceOpen, c.noGenSym > 0)
@@ -938,8 +940,6 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
 
       if nkError in {result[0].kind, result[1].kind}:
         result = c.c.config.wrapError(result)
-    of nkAccQuoted:
-      result = semTemplBodySons(c, n)
     else:
       unreachable("should never have gotten here")
   of nkExprColonExpr, nkExprEqExpr:
