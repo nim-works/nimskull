@@ -917,19 +917,6 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     let s = qualifiedLookUp(c.c, n, {})
 
     if s.isNil:
-      discard
-    elif s.isError:
-      result = s.ast
-    else:
-      if contains(c.toBind, s.id):
-        return symChoice(c.c, n, s, scClosed, c.noGenSym > 0)
-      elif contains(c.toMixin, s.name.id):
-        return symChoice(c.c, n, s, scForceOpen, c.noGenSym > 0)
-      else:
-        return symChoice(c.c, n, s, scOpen, c.noGenSym > 0)
-
-    case n.kind
-    of nkDotExpr:
       result = n
 
       result[0] = semTemplBody(c, n[0])
@@ -940,8 +927,16 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
 
       if nkError in {result[0].kind, result[1].kind}:
         result = c.c.config.wrapError(result)
+    elif s.isError:
+      result = s.ast
     else:
-      unreachable("should never have gotten here")
+      if contains(c.toBind, s.id):
+        return symChoice(c.c, n, s, scClosed, c.noGenSym > 0)
+      elif contains(c.toMixin, s.name.id):
+        return symChoice(c.c, n, s, scForceOpen, c.noGenSym > 0)
+      else:
+        return symChoice(c.c, n, s, scOpen, c.noGenSym > 0)
+
   of nkExprColonExpr, nkExprEqExpr:
     let s = qualifiedLookUp(c.c, n[0], {})
     # template parameters can be substituted into the name position of a
