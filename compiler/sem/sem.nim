@@ -12,6 +12,7 @@
 import
   std/[
     strutils,
+    hashes,
     math,
     strtabs,
     intsets,
