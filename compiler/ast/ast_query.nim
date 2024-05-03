@@ -147,12 +147,12 @@ const
     ## not be performed for arguments to these magics.
 
 proc getPIdent*(a: PNode): PIdent {.inline.} =
-  ## Returns underlying `PIdent` for `{nkSym, nkIdent}`, or `nil`.
-  # xxx consider whether also returning the 1st ident for {nkOpenSymChoice, nkClosedSymChoice}
-  # which may simplify code.
+  ## Returns underlying `PIdent` for `{nkSym, nkIdent, nkOpenSymChoice,
+  ## nkClosedSymChoice}`, or `nil`.
   case a.kind
   of nkSym: a.sym.name
   of nkIdent: a.ident
+  of nkSymChoices: a[0].sym.name
   else: nil
 
 proc getIdentLineInfo*(n: PNode): TLineInfo =
