@@ -94,7 +94,7 @@ type
     scClosed, scOpen, scForceOpen
 
 proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
-               isField = false): PNode =
+               noGenSyms = false): PNode =
   var
     a: PSym
     o: TOverloadIter
@@ -112,11 +112,11 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
     # XXX this makes more sense but breaks bootstrapping for now:
     # (s.kind notin routineKinds or s.magic != mNone):
     # for instance 'nextTry' is both in tables.nim and astalgo.nim ...
-    if not(isField and sfGenSym in s.flags):
+    if noGenSyms and sfGenSym in s.flags:
+      result = n
+    else:
       result = newSymNode(s, info)
       markUsed(c, info, s)
-    else:
-      result = n
   else:
     # semantic checking requires a type; `fitNode` deals with it
     # appropriately
@@ -125,7 +125,7 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
     result = newNodeIT(kind, info, newTypeS(tyNone, c))
     a = initOverloadIter(o, c, n)
     while a != nil:
-      if a.kind != skModule and not(isField and sfGenSym in s.flags):
+      if a.kind != skModule and not(noGenSyms and sfGenSym in a.flags):
         incl(a.flags, sfUsed)
         markOwnerModuleAsUsed(c, a)
         result.add newSymNode(a, info)
