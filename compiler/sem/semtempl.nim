@@ -251,10 +251,13 @@ proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
                   expectedKinds: {nkPostfix, nkPragmaExpr, nkIdent,
                                   nkAccQuoted}))
 
+func isTemplParam(c: TemplCtx, s: PSym): bool {.inline.} =
+  ## True if `s` is a parameter symbol of the current template.
+  s.kind == skParam and s.owner == c.owner and sfTemplateParam in s.flags
+
 func isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
   ## True if `n` is a parameter symbol of the current template.
-  n.kind == nkSym and n.sym.kind == skParam and n.sym.owner == c.owner and
-    sfTemplateParam in n.sym.flags
+  n.kind == nkSym and isTemplParam(c, n.sym)
 
 func definitionTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
   ## True if `n` is an `untyped` parameter symbol of the current template.
@@ -940,13 +943,17 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     else:
       unreachable("should never have gotten here")
   of nkExprColonExpr, nkExprEqExpr:
-    if n.len == 2:
-      inc c.noGenSym
-      result[0] = semTemplBody(c, n[0])
-      dec c.noGenSym
-      result[1] = semTemplBody(c, n[1])
-    else:
-      result = semTemplBodySons(c, n)
+    let s = qualifiedLookUp(c.c, n[0], {})
+    # template parameters can be substituted into the name position of a
+    # ``a: b`` or ``a = b`` construct
+    if s != nil and isTemplParam(c, s):
+      result[0] = newSymNode(s, n[0].info)
+    elif n[0].kind == nkAccQuoted and n[0].len > 1:
+      # make sure to also process identifier constructions
+      result[0] = semTemplBody(c, n[1])
+
+    result[1] = semTemplBody(c, n[1])
+    hasError = nkError in {result[0].kind, result[1].kind}
   of nkTableConstr:
     # also transform the keys (bug #12595)
     for i in 0..<n.len:
