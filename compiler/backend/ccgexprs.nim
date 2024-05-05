@@ -561,72 +561,6 @@ proc genRecordField(p: BProc, e: CgNode, d: var TLoc) =
     r.addf(".$1", [p.fieldName(field)])
     putIntoDest(p, d, e, r, a.storage)
 
-proc genInExprAux(p: BProc, e: CgNode, a, b, d: var TLoc)
-
-proc genFieldCheck(p: BProc, e: CgNode) =
-  var test, u, v: TLoc
-  if true:
-    initLocExpr(p, e[1], u)
-    initLocExpr(p, e[2], v)
-    genInExprAux(p, e, u, v, test)
-    var strLit: Rope
-    if optDeclaredLocs in p.config.globalOptions:
-      # xxx this should be controlled by a separate flag, and
-      # used for other similar defects so that location information is shown
-      # even without the expensive `--stacktrace`; binary size could be optimized
-      # by encoding the file names separately from `file(line:col)`, essentially
-      # passing around `TLineInfo` + the set of files in the project.
-      let msg = toFileLineCol(p.config, e.info) & " " & getString(p, e[4])
-      # don't commit the string to the string table, as it's likely to be
-      # unique and never used again
-      strLit = genStringLiteral(p.module, msg)
-    else:
-      strLit = genStringLiteral(p.module, e[4])
-
-    ## discriminant check
-    template fun(code) = linefmt(p, cpsStmts, code, [rdLoc(test)])
-    if e[3].intVal == 1:
-      # the third operand indicates whether the result needs to be inverted
-      fun("if ($1) ")
-    else:
-      fun("if (!($1)) ")
-
-    let base = v.t.skipTypes(abstractRange)
-    var raiseProc, toStr: string
-    # generate and emit the code for the failure case:
-    case base.kind
-    of tyEnum:
-      # use the compiler-generated enum-to-string procedure
-      let prc = p.module.g.graph.getToStringProc(v.t)
-      discard registerLateProc(p.module, prc)
-
-      var tmp: TLoc
-      expr(p, newSymNode(p.env, prc), tmp)
-      toStr = "$1($2)" % [rdLoc(tmp), rdLoc(v)]
-      raiseProc = "raiseFieldErrorStr"
-
-    of tyChar:
-      # XXX: rendering as a character is supported by the runtime
-      #raiseProc = "raiseFieldErrorChar"
-      toStr = rdCharLoc(v)
-      raiseProc = "raiseFieldErrorUInt"
-    of tyBool:
-      raiseProc = "raiseFieldErrorBool"
-    of tyInt..tyInt64:
-      raiseProc = "raiseFieldErrorInt"
-    of tyUInt..tyUInt64:
-      raiseProc = "raiseFieldErrorUInt"
-    else:
-      discard
-      # unreachable()
-
-    if toStr == "":
-      toStr = rdLoc(v)
-
-    discard cgsym(p.module, raiseProc) # make sure the compilerproc is generated
-    linefmt(p, cpsStmts, "{ $1($3, $4); $2} $n",
-            [raiseProc, raiseInstr(p, e.exit), strLit, toStr])
-
 proc genUncheckedArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   var a, b: TLoc
   initLocExpr(p, x, a)
@@ -1637,8 +1571,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     initLocExpr(p, e[2], a)
     initLocExpr(p, e[3], b)
     genBoundsCheck(p, arr, a, b, e.exit)
-  of mChckField:
-    genFieldCheck(p, e)
   of mChckObj:
     var a: TLoc
     initLocExpr(p, e[1], a)
