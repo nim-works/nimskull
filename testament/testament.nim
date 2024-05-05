@@ -1147,6 +1147,9 @@ proc computeEarly(spec: TSpec, inCurrentBatch: bool): TResultEnum =
   else:
     reSuccess
 
+proc computeEarly(test: TTest): TResultEnum {.inline.} =
+  computeEarly(test.spec, test.inCurrentBatch)
+
 proc produceRuns(r: var TResults, test: TTest, early: TResultEnum,
                   runs: var seq[TestRun]) =
   ## Takes a test description (`test`) and the computed early result and
