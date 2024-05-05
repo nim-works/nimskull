@@ -50,7 +50,8 @@ template subTree(bu; k: MirNodeKind, t: TypeId, body: untyped) =
 template buildIf(bu; cond: Value, body: untyped) =
   bu.subTree mnkIf:
     bu.use cond
-    body
+    bu.subTree mnkScope:
+      body
 
 template buildIfNot(bu; cond: Value, body: untyped) =
   let c = bu.wrapTemp BoolType:
