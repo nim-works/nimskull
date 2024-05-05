@@ -904,19 +904,27 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     # do not transform runnableExamples (bug #9143)
     if not isRunnableExamples(n[0]):
       result = semTemplBodySons(c, n)
-  of nkAccQuoted:
-    if n.len == 1:
-      # quoted identifier, resolve and unquote it
-      result = semTemplBody(c, n[0])
-    else:
-      # identifier construction
-      result = semTemplBodySons(c, n)
-  of nkDotExpr:
+  of nkDotExpr, nkAccQuoted:
     # dotExpr is ambiguous: note that we explicitly allow 'x.TemplateParam',
     # so we use the generic code for nkDotExpr too
     let s = qualifiedLookUp(c.c, n, {})
 
-    if s.isNil:
+    if s != nil:
+      if isTemplParam(c, s):
+        incl(s.flags, sfUsed)
+        result = newSymNode(s, n.info)
+      elif s.isError:
+        result = s.ast
+      elif contains(c.toBind, s.id):
+        result = symChoice(c.c, n, s, scClosed)
+      elif contains(c.toMixin, s.name.id):
+        result = symChoice(c.c, n, s, scForceOpen)
+      else:
+        # FIXME: ``semTemplSymbol`` needs to be used here to ensure correct
+        #        typing for type symbols
+        result = symChoice(c.c, n, s, scOpen)
+
+    elif n.kind == nkDotExpr:
       # a normal dot expression
       result[0] = semTemplBody(c, n[0])
       var
@@ -955,17 +963,9 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
           result[1] = field
 
       hasError = nkError in {result[0].kind, result[1].kind}:
-    elif s.isError:
-      result = s.ast
     else:
-      if contains(c.toBind, s.id):
-        result = symChoice(c.c, n, s, scClosed)
-      elif contains(c.toMixin, s.name.id):
-        result = symChoice(c.c, n, s, scForceOpen)
-      else:
-        # FIXME: ``semTemplSymbol`` needs to be used here to ensure correct
-        #        typing for type symbols
-        result = symChoice(c.c, n, s, scOpen)
+      # a quoted identifier or identifier construction
+      result = semTemplBodySons(c, n)
 
   of nkExprColonExpr, nkExprEqExpr:
     let s = qualifiedLookUp(c.c, n[0], {})
