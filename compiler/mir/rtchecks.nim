@@ -17,19 +17,26 @@ import
     magicsys
   ],
   compiler/mir/[
+    mirbodies,
     mirchangesets,
     mirconstr,
     mirenv,
     mirtrees,
-    mirtypes
+    mirtypes,
+    sourcemaps
   ],
   compiler/utils/[
     int128,
     idioms
   ]
 
+import compiler/front/options as comp_options
+# XXX: no source position inspection should take place here
+from compiler/front/msgs import toFileLineCol
+
 # shorten some common parameter declarations:
 using
+  body: MirBody
   tree: MirTree
   call: NodePosition
   graph: ModuleGraph
@@ -43,7 +50,8 @@ template subTree(bu; k: MirNodeKind, t: TypeId, body: untyped) =
 template buildIf(bu; cond: Value, body: untyped) =
   bu.subTree mnkIf:
     bu.use cond
-    body
+    bu.subTree mnkScope:
+      body
 
 template buildIfNot(bu; cond: Value, body: untyped) =
   let c = bu.wrapTemp BoolType:
@@ -191,8 +199,78 @@ proc emitNanCheck(tree; call; graph; env; bu) =
     bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseFloatInvalidOp")):
       discard
 
-proc lowerChecks*(tree; graph; env; changes: var Changeset) =
+proc emitFieldCheck(tree; source: SourceMap; call; graph; env; bu) =
+  ## For ``chckField(set, discr, invert, msg)`` emits the MIR equivalent of:
+  ##   if not contains(set, discr):
+  ##     raiseFieldError(msg, ...)
+  let
+    setVal   = bu.inline(tree, NodePosition tree.argument(call, 0))
+    discrVal = bu.inline(tree, NodePosition tree.argument(call, 1))
+
+  var cond = bu.wrapTemp BoolType:
+    bu.buildMagicCall mInSet, BoolType:
+      bu.emitByVal setVal
+      bu.emitByVal discrVal
+
+  # the third argument is a boolean indicating whether the test is inverted
+  if env.getInt(tree[tree.argument(call, 2)]) == Zero:
+    cond = bu.wrapTemp BoolType:
+      bu.buildMagicCall mNot, BoolType:
+        bu.emitByVal cond
+
+  var msgVal: Value
+  if optDeclaredLocs in graph.config.globalOptions:
+    # XXX: this an inadequate hack for supporting showing the source line
+    #      information as part of the error message, even when stack-traces are
+    #      disabled. This needs to be replaced with a general solution that
+    #      applies to all run-time checks
+    # fetch the line information of the call, render it, and prepend it to the
+    # message
+    var msg = toFileLineCol(graph.config, source[tree[call].info].info)
+    msg.add " "
+    msg.add env[tree[tree.argument(call, 3)].strVal]
+    msgVal = literal(env.getOrIncl(msg), StringType)
+  else:
+    # use the original message as-is
+    msgVal = bu.inline(tree, NodePosition tree.argument(call, 3))
+
+  bu.buildIf cond:
+    let typ = env[discrVal.typ].skipTypes(abstractRange)
+    var
+      raiseProc: string
+      extra = discrVal # the extra value to pass to the raise procedure
+
+    case typ.kind
+    of tyEnum:
+      # turn the run-time enum value into a string using the compiler-generated
+      # enum-to-string procedure for the type
+      let prc = graph.getToStringProc(typ)
+      extra = bu.wrapTemp StringType:
+        bu.buildCall env.procedures.add(prc), StringType:
+          bu.emitByVal discrVal
+
+      raiseProc = "raiseFieldErrorStr"
+    of tyChar:
+      # XXX: needs to use a dedicated raise procedure, once the runtime
+      #      supports it
+      raiseProc = "raiseFieldErrorUInt"
+    of tyBool:
+      raiseProc = "raiseFieldErrorBool"
+    of tyInt..tyInt64:
+      raiseProc = "raiseFieldErrorInt"
+    of tyUInt..tyUInt64:
+      raiseProc = "raiseFieldErrorUInt"
+    else:
+      unreachable(typ.kind)
+
+    bu.emitCall(tree, call, env.addCompilerProc(graph, raiseProc)):
+      bu.emitByVal msgVal
+      bu.emitByVal extra
+
+proc lowerChecks*(body; graph; env; changes: var Changeset) =
   ## Lowers all magic calls implementing the run-time checks.
+  template tree: MirTree = body.code
+
   for i, n in tree.pairs:
     if n.kind == mnkMagic:
       case n.magic
@@ -211,5 +289,10 @@ proc lowerChecks*(tree; graph; env; changes: var Changeset) =
         # make sure to take the ``mnkVoid`` wrapper into account
         changes.replaceMulti(tree, tree.parent(call), bu):
           emitNanCheck(tree, call, graph, env, bu)
+      of mChckField:
+        let call = tree.parent(i)
+        # make sure to take the ``mnkVoid`` wrapper into account
+        changes.replaceMulti(tree, tree.parent(call), bu):
+          emitFieldCheck(tree, body.source, call, graph, env, bu)
       else:
         discard "not relevant"
