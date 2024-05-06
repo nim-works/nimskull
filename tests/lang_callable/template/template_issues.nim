@@ -304,3 +304,19 @@ block static_parameter_with_default:
     discard int(b)
 
   x() # the default value for the parameter must be used
+
+block method_call_syntax_with_gensym_routine:
+  # using the method-call syntax with gensym'ed routines didn't work
+  template test(x: int): untyped =
+    proc p(v: int): int {.gensym.} = v
+    x.p()
+
+  doAssert test(1) == 1
+
+block method_call_syntax_with_gensym_type:
+  # using the method-call syntax with gensym'ed types didn't work
+  template test(x: int): float =
+    type Typ {.gensym.} = float
+    x.Typ
+
+  doAssert test(1) == 1.0

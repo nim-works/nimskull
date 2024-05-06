@@ -1716,6 +1716,16 @@ proc tryReadingTypeField(c: PContext, n: PNode, i: PIdent, ty: PType): PNode =
   else:
     result = tryReadingGenericParam(c, n, i, ty)
 
+proc originalName(cache: IdentCache, ident: PIdent): PIdent =
+  ## Returns the identifier stripped off of the '`gensym' suffix, if any.
+  let i = find(ident.s, '`')
+  if i != -1:
+    # if there's a backtick in the name, the name must come from a gensym'ed
+    # symbol. Strip the '`gensym' suffix
+    cache.getIdent(ident.s.cstring, i, hashIgnoreStyle(ident.s, 0, i - 1))
+  else:
+    ident
+
 proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ## returns nil if it's not a built-in field access
   checkSonsLen(n, 2, c.config)
@@ -1742,7 +1752,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   n[0] = semExprWithType(c, n[0], flags)
   var
-    i = legacyConsiderQuotedIdent(c, n[1], n)
+    i = originalName(c.cache, legacyConsiderQuotedIdent(c, n[1], n))
     ty = n[0].typ
     f: PSym = nil
 
@@ -2067,7 +2077,7 @@ proc semArrayAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
     result = semExpr(c, result, flags)
 
 proc propertyWriteAccess(c: PContext, n, a: PNode): PNode =
-  var id = legacyConsiderQuotedIdent(c, a[1],a)
+  var id = originalName(c.cache, legacyConsiderQuotedIdent(c, a[1],a))
   var setterId = newIdentNode(getIdent(c.cache, id.s & '='), a[1].info)
   # a[0] is already checked for semantics, that does ``builtinFieldAccess``
   # this is ugly. XXX Semantic checking should use the ``nfSem`` flag for
