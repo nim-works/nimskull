@@ -23,6 +23,7 @@ import
     mirconstr,
     mirtrees,
     mirtypes,
+    rtchecks,
     sourcemaps
   ],
   compiler/modules/[
@@ -61,6 +62,12 @@ template subTree(bu: var MirBuilder, k: MirNodeKind, t: TypeId,
                  body: untyped) =
   bu.subTree MirNode(kind: k, typ: t):
     body
+
+func getStmt(tree: MirTree, n: NodePosition): NodePosition =
+  ## Returns the statement `n` is part of.
+  result = n
+  while tree[result].kind notin StmtNodes:
+    result = tree.parent(result)
 
 iterator search(tree: MirTree, kinds: static set[MirNodeKind]): NodePosition =
   ## Returns in order of appearance the positions of all nodes matching the
@@ -548,6 +555,94 @@ proc lowerNew(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
       changes.replaceMulti(tree, call, bu):
         bu.move tmp
 
+proc injectStrPreparation(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
+                          changes: var Changeset) =
+  ## Injects the calls to the runtime for making sure copy-on-write strings
+  ## work. Whenever a string's underlying storage is modified, it needs to be
+  ## ensured that the storage is actually writable (copy on write).
+  let prc = graph.getCompilerProc("nimPrepareStrMutationV2")
+
+  proc insertPrepareCall(changes: var Changeset, tree: MirTree,
+                         src: NodePosition, prc: ProcedureId) {.nimcall.} =
+    ## Insert the call prior to the statement `src` is part of.
+    let stmt = getStmt(tree, src)
+    changes.insert(tree, stmt, src, bu):
+      bu.subTree mnkVoid:
+        bu.buildCall prc, VoidType:
+          bu.emitByName ekMutate:
+            bu.emitFrom(tree, src)
+
+  template isStringAccess(n: NodePosition): bool =
+    tree[n].kind == mnkPathArray and
+      env[tree[n, 0].typ].skipTypes(abstractInst).kind == tyString
+
+  # search for all operations that modify, or potentially modify, a string's
+  # storage
+  for i, node in tree.pairs:
+    case node.kind
+    of mnkAsgn, mnkInit, mnkMutView, mnkTag:
+      let op = tree.child(i, 0) # the operand
+      if isStringAccess(op):
+        # either
+        # * a mutable view of a string element is created
+        # * OR an element within the string is directly assigned to
+        insertPrepareCall(changes, tree, tree.child(op, 0),
+                          env.procedures.add(prc))
+
+    of mnkToMutSlice:
+      if env[tree[i, 0].typ].skipTypes(abstractInst).kind == tyString:
+        # conservatively prepare the string for mutation when creating a
+        # mutable slice of its storage
+        insertPrepareCall(changes, tree, tree.child(i, 0),
+                          env.procedures.add(prc))
+
+    of mnkBindMut:
+      let op = tree.child(i, 1) # the operand
+      if isStringAccess(op):
+        # just creating a mutable binding to the element doesn't imply
+        # mutation, but it's simpler to assume it does
+        insertPrepareCall(changes, tree, tree.child(op, 0),
+                          env.procedures.add(prc))
+
+    else:
+      discard "not relevant"
+
+proc lowerMove(tree: MirTree, changes: var Changeset) =
+  ## Lowers ``mMove`` and ``mWasMoved`` magic calls.
+  for i in search(tree, {mnkMagic}):
+    case tree[i].magic
+    of mMove:
+      # lower ``def x = move(name y)`` into:
+      #   def x = move y
+      #   y = default() # essentially ``wasMoved(y)``
+      let
+        call = tree.parent(i)
+        arg  = NodePosition tree.argument(call, 0)
+        stmt = getStmt(tree, call)
+      # the argument expression is stable, so there's no need to bind it
+      changes.replaceMulti(tree, call, bu):
+        bu.subTree mnkMove, tree[call].typ:
+          bu.emitFrom(tree, arg)
+      # emit the default-assignment after the move call:
+      changes.insert(tree, tree.sibling(stmt), call, bu):
+        bu.subTree mnkAsgn:
+          bu.emitFrom(tree, arg)
+          bu.buildMagicCall mDefault, tree[call].typ:
+            discard
+    of mWasMoved:
+      # lower ``wasMoved(name x)`` into:
+      #   x = default()
+      let
+        call = tree.parent(i)
+        arg  = NodePosition tree.argument(call, 0)
+        stmt = getStmt(tree, call)
+      changes.replaceMulti(tree, stmt, bu):
+        bu.subTree mnkAsgn:
+          bu.emitFrom(tree, arg)
+          bu.buildMagicCall mDefault, tree[arg].typ:
+            discard
+    else:
+      discard "not relevant"
 
 proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
                   graph: ModuleGraph, target: TargetBackend) =
@@ -574,6 +669,7 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       injectResultInit(body.code, body[resultId].typ, c)
 
     lowerSwap(body.code, c)
+    lowerMove(body.code, c)
     if target == targetVm:
       # only the C and VM targets need the extraction, and only the VM
       # requires the extraction for cstring literals
@@ -581,6 +677,8 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
 
     if target == targetC:
       lowerNew(body.code, graph, env, c)
+      lowerChecks(body, graph, env, c)
+      injectStrPreparation(body.code, graph, env, c)
 
   # instrument the body with profiler calls after all lowerings, but before
   # optimization

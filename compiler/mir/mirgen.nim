@@ -1059,6 +1059,16 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         c.userOptions = {}
         genx(c, n[1])
         c.userOptions = orig
+  of mHigh:
+    # custom translation in order to skip both explicit and implicit to-slice
+    # conversions; those are unnecessary
+    c.buildMagicCall mHigh, rtyp:
+      var arg = n[1]
+      while arg.kind in {nkConv, nkHiddenStdConv, nkHiddenSubConv} and
+            classifyBackendView(arg.typ) == bvcSequence:
+        arg = arg[^1]
+
+      c.emitOperandTree arg, sink=false
 
   # arithmetic operations:
   of mAddI, mSubI, mMulI, mDivI, mModI, mPred, mSucc:
@@ -1118,8 +1128,11 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         if optRangeCheck in c.userOptions and
            typ.skipTypes(abstractInst).kind in {tyRange, tyEnum}:
           # needs an additional range check in order to ensure that the value
-          # is in range
-          let val = c.wrapTemp(rtyp): op(c, dest, n, m)
+          # is in range. For proper lowering later on, the intermediate
+          # temporary must use the *underlying* type, not the range/enum type
+          let
+            tmpTyp = c.typeToMir(typ.skipTypes(abstractRange + {tyEnum}))
+            val = c.wrapTemp(tmpTyp): op(c, dest, n, m)
           c.buildDefectMagicCall mChckRange, rtyp:
             c.emitByVal val
             c.emitByVal toIntLiteral(c.env, firstOrd(c.graph.config, typ), typ)

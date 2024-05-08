@@ -1716,6 +1716,16 @@ proc tryReadingTypeField(c: PContext, n: PNode, i: PIdent, ty: PType): PNode =
   else:
     result = tryReadingGenericParam(c, n, i, ty)
 
+proc originalName(cache: IdentCache, ident: PIdent): PIdent =
+  ## Returns the identifier stripped off of the '`gensym' suffix, if any.
+  let i = find(ident.s, '`')
+  if i != -1:
+    # if there's a backtick in the name, the name must come from a gensym'ed
+    # symbol. Strip the '`gensym' suffix
+    cache.getIdent(ident.s.cstring, i, hashIgnoreStyle(ident.s, 0, i - 1))
+  else:
+    ident
+
 proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ## returns nil if it's not a built-in field access
   checkSonsLen(n, 2, c.config)
@@ -1742,7 +1752,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   n[0] = semExprWithType(c, n[0], flags)
   var
-    i = legacyConsiderQuotedIdent(c, n[1], n)
+    i = originalName(c.cache, legacyConsiderQuotedIdent(c, n[1], n))
     ty = n[0].typ
     f: PSym = nil
 
@@ -2067,7 +2077,7 @@ proc semArrayAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
     result = semExpr(c, result, flags)
 
 proc propertyWriteAccess(c: PContext, n, a: PNode): PNode =
-  var id = legacyConsiderQuotedIdent(c, a[1],a)
+  var id = originalName(c.cache, legacyConsiderQuotedIdent(c, a[1],a))
   var setterId = newIdentNode(getIdent(c.cache, id.s & '='), a[1].info)
   # a[0] is already checked for semantics, that does ``builtinFieldAccess``
   # this is ugly. XXX Semantic checking should use the ``nfSem`` flag for
@@ -2980,55 +2990,73 @@ proc semWhen(c: PContext, n: PNode, semCheck = true): PNode =
     result.typ = typ
 
 proc semSetConstr(c: PContext, n: PNode): PNode =
-  result = newNodeI(nkCurly, n.info)
+  ## Analyses and types a set construction expression (``nkCurly``). Produces
+  ## a typed expression, or an error.
+  result = shallowCopy(n)
   result.typ = newTypeS(tySet, c)
   result.typ.flags.incl tfIsConstructor
   if n.len == 0:
     rawAddSon(result.typ, newTypeS(tyEmpty, c))
   else:
+    var
+      typ: PType = nil
+      diag: PAstDiag ## the error diagnostic, if an error occurred
+
     # only semantic checking for all elements, later type checking:
-    var typ: PType = nil
-    for i in 0..<n.len:
-      if isRange(n[i]):
-        checkSonsLen(n[i], 3, c.config)
-        n[i][1] = semExprWithType(c, n[i][1])
-        n[i][2] = semExprWithType(c, n[i][2])
-        if typ == nil:
-          typ = skipTypes(n[i][1].typ,
-                          {tyGenericInst, tyVar, tyLent, tyOrdinal, tyAlias, tySink})
-        n[i].typ = n[i][2].typ # range node needs type too
+    for i, it in n.pairs:
+      var elem: PType
+      if isRange(it):
+        checkSonsLen(it, 3, c.config)
+        result[i] =
+          newTreeI(nkRange, it.info,
+                   semExprWithType(c, it[1]),
+                   semExprWithType(c, it[2]))
+        elem = result[i][0].typ
       elif n[i].kind == nkRange:
-        # already semchecked
-        if typ == nil:
-          typ = skipTypes(n[i][0].typ,
-                          {tyGenericInst, tyVar, tyLent, tyOrdinal, tyAlias, tySink})
+        checkSonsLen(n[i], 2, c.config)
+        result[i] =
+          newTreeI(nkRange, it.info,
+                   semExprWithType(c, it[0]),
+                   semExprWithType(c, it[1]))
+        elem = result[i][0].typ
       else:
-        n[i] = semExprWithType(c, n[i])
-        if typ == nil:
-          typ = skipTypes(n[i].typ, {tyGenericInst, tyVar, tyLent, tyOrdinal, tyAlias, tySink})
+        result[i] = semExprWithType(c, n[i])
+        elem = result[i].typ
+
+      if typ.isNil:
+        typ = skipTypes(elem, {tyGenericInst, tyOrdinal, tyAlias, tySink})
+
     if not isOrdinalType(typ, allowEnumWithHoles=true):
-      localReport(c.config, n, reportSem rsemExpectedOrdinal)
+      if typ.kind != tyError:
+        diag = PAstDiag(kind: adSemExpectedOrdinal, nonOrdTyp: typ)
       typ = makeRangeType(c, 0, MaxSetElements - 1, n.info)
 
     elif lengthOrd(c.config, typ) > MaxSetElements:
       typ = makeRangeType(c, 0, MaxSetElements - 1, n.info)
 
     addSonSkipIntLit(result.typ, typ, c.idgen)
-    for i in 0..<n.len:
-      var m: PNode
-      let info = n[i].info
-      if isRange(n[i]):
-        m = newNodeI(nkRange, info)
-        m.add fitNode(c, typ, n[i][1], info)
-        m.add fitNode(c, typ, n[i][2], info)
 
-      elif n[i].kind == nkRange:
-        m = n[i] # already semchecked
+    var hasError = false
+    template handleError(n: PNode): PNode =
+      let x = n
+      hasError = hasError or x.kind == nkError
+      x
 
+    # second pass: type checking and error detection
+    for i in 0..<result.len:
+      let info = result[i].info
+      case result[i].kind
+      of nkRange:
+        result[i][0] = handleError fitNode(c, typ, result[i][0], info)
+        result[i][1] = handleError fitNode(c, typ, result[i][1], info)
       else:
-        m = fitNode(c, typ, n[i], info)
+        result[i] = handleError fitNode(c, typ, result[i], info)
 
-      result.add m
+    # wrap with the appropriate error (or none)
+    if diag != nil:
+      result = c.config.newError(result, diag)
+    elif hasError:
+      result = c.config.wrapError(result)
 
 proc semTableConstr(c: PContext, n: PNode): PNode =
   # we simply transform ``{key: value, key2, key3: value}`` to

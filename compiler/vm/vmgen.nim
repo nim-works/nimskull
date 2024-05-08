@@ -1184,6 +1184,16 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
       let tmp = c.genx(n[i])
       c.gABC(n[i], opcAsgnComplex, r, tmp)
       c.freeTemp(tmp)
+    elif n[i].kind == cnkConst and i < fntyp.len and
+         fntyp[i].kind == tySink and fntyp[i][0].kind == tyString:
+      # HACK: passing a string literal (lifted into a constant) directly to a
+      #       sink parameter is wrong, since it allows the callee to modify the
+      #       constant data; a copy has to be introduced. This needs to
+      #       eventually be fixed in ``mirgen``, by introducing a intermediate
+      #       temporary for the argument
+      let tmp = c.genx(n[i])
+      c.gABC(n[i], opcAsgnComplex, r, tmp)
+      c.freeTemp(tmp)
     else:
       c.gen(n[i], r)
 
@@ -1760,29 +1770,6 @@ func fitsRegister(t: PType): bool =
   st.kind in { tyBool, tyInt..tyUInt64, tyChar, tyPtr, tyPointer} or
     (st.sym != nil and st.sym.magic == mPNimrodNode) # NimNode goes into register too
 
-func usesRegister(c: TCtx, n: CgNode): bool =
-  ## Analyses and returns whether the value of the location named by l-value
-  ## expression `n` is stored in a register instead of a memory location
-  # XXX: instead of using a separate analysis, compute and return this as part
-  #      of ``genLValue`` and
-  case n.kind
-  of cnkLocal:
-    usesRegister(c, n.local)
-  of cnkProc, cnkConst, cnkGlobal:
-    false
-  of cnkDeref, cnkDerefView, cnkFieldAccess, cnkArrayAccess, cnkTupleAccess,
-     cnkLvalueConv, cnkObjDownConv, cnkObjUpConv:
-    false
-  else:
-    unreachable(n.kind)
-
-proc genNoLoad(c: var TCtx, n: CgNode): tuple[reg: TRegister, isDirect: bool] =
-  ## Similar to ``genLValue``, but also returns whether the register storing
-  ## the result stores a handle or a value.
-  var dest = noDest
-  genLvalue(c, n, dest)
-  result = (TRegister(dest), usesRegister(c, n))
-
 proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   case m
   of mSubI:
@@ -2006,19 +1993,6 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.freeTemp(tmp1)
     c.freeTemp(tmp2)
     c.freeTemp(tmp3)
-  of mWasMoved:
-    unused(c, n, dest)
-    let
-      (dest, isDirect) = genNoLoad(c, n[1])
-      typ = n[1].typ.skipTypes({tyVar, tyLent})
-
-    if isDirect:
-      # the location uses a register -> load it with the empty value
-      c.gABx(n, opcLdNullReg, dest, c.genType(typ))
-    else:
-      c.gABx(n, opcReset, dest, c.genType(typ))
-
-    c.freeTemp(dest)
   of mDefault:
     if fitsRegister(n.typ):
       prepare(c, dest, n.typ)
@@ -2203,21 +2177,6 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mRunnableExamples:
     discard "just ignore any call to runnableExamples"
   of mDestroy, mTrace: discard "ignore calls to the default destructor"
-  of mMove:
-    let arg = n[1]
-    if fitsRegister(n.typ):
-      gen(c, arg, dest)
-    else:
-      assert dest != noDest
-      let tmp = genLvalue(c, arg)
-      # perform a normal copy
-      c.gABC(n, opcWrLoc, dest, tmp)
-      c.freeTemp(tmp)
-    # XXX use ldNullOpcode() here?
-    # Don't zero out the arg for now #17199
-    # c.gABx(n, opcLdNull, a, c.genType(arg.typ))
-    # c.gABx(n, opcNodeToReg, a, a)
-    # c.genAsgnPatch(arg, a)
   of mNodeId:
     c.genUnaryABC(n, dest, opcNodeId)
   of mFinished:

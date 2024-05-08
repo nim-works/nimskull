@@ -76,18 +76,30 @@ proc isHarmlessStore(p: BProc; ri: CgNode, d: TLoc): bool =
 
 proc exitCall(p: BProc, call: CgNode) =
   ## Emits the exceptional control-flow related post-call logic.
+  let isNoReturn = call[0].kind == cnkProc and
+                   sfNoReturn in p.env[call[0].prc].flags
   if call.kind == cnkCheckedCall:
-    if nimErrorFlagDisabled in p.flags:
-      if call[0].kind == cnkProc and sfNoReturn in p.env[call[0].prc].flags and
-         canRaiseConservative(p.env, call[0]):
-        # when using goto-exceptions, noreturn doesn't map to "doesn't return"
-        # at the C-level. In order to still support dispatching to wrapper
-        # procedures around ``raise`` from inside ``.compilerprocs``, we emit
-        # an exit after the call
+    if isNoReturn:
+      # the callee raises and doesn't have a normal exit -> testing the error
+      # flag is unnecessary
+      if nimErrorFlagDisabled in p.flags:
+        # don't jump to the error target. Both exception handlers and
+        # finalizers require disabling error mode, but due to the flag being
+        # inaccessible, that's not going to work
+        # XXX: as an interim solution, skipping handlers is safer than
+        #      attempting to execute them. Ultimately, the error flag needs
+        #      to be available everywhere
         p.flags.incl beforeRetNeeded
         lineF(p, cpsStmts, "goto BeforeRet_;$n", [])
+      else:
+        # jump to the handler/finalizer
+        lineF(p, cpsStmts, "$1$n", [raiseInstr(p, call[^1])])
     else:
       raiseExit(p, call[^1])
+  elif isNoReturn:
+    # mark the control-flow path following the call as unreachable
+    if hasAssume in CC[p.config.cCompiler].props:
+      lineF(p, cpsStmts, "__assume(0);$n", [])
 
 proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
                callee, params: Rope) =
@@ -171,8 +183,6 @@ proc genOpenArraySlice(p: BProc; q: CgNode; formalType, destType: PType): (Rope,
               lengthExpr)
   of tyString, tySequence:
     let atyp = skipTypes(a.t, abstractInst)
-    if formalType.skipTypes(abstractInst).kind in {tyVar} and atyp.kind == tyString:
-      linefmt(p, cpsStmts, "#nimPrepareStrMutationV2($1);$n", [byRefLoc(p, a)])
     if atyp.kind in {tyVar}:
       result = ("((*$1).p != NIM_NIL ? ($4*)(*$1)$3+$2 : NIM_NIL)" %
                   [rdLoc(a), rdLoc(b), dataField(p), dest],

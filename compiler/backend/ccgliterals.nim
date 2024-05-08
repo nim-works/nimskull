@@ -55,15 +55,6 @@ proc genStringLiteralV2Const(m: BModule; str: StringId; isConst: bool): Rope =
     pureLit = m.tmpBase & rope(id)
   result = "{$1, (NimStrPayload*)&$2}" % [rope(m.g.env[str].len), pureLit]
 
-proc genStringLiteral(m: BModule, str: string): Rope =
-  ## Spawns and emits a new global C constant storing a NimString with content
-  ## `str` -- no caching is performed.
-  let content = getTempName(m)
-  genStringLiteralDataOnlyV2(m, str, content, true)
-  result = getTempName(m)
-  m.s[cfsData].addf("static const NimStringV2 $1 = {$2, (NimStrPayload*)&$3};$n",
-                    [result, rope(str.len), content])
-
 # ------ Version selector ---------------------------------------------------
 
 proc genNilStringLiteral(m: BModule; info: TLineInfo): Rope =

@@ -102,12 +102,6 @@ proc isDeepConstExpr*(n: CgNode): bool =
   else:
     result = false
 
-proc canRaiseConservative*(env: MirEnv, fn: CgNode): bool =
-  ## Duplicate of `canRaiseConservative <ast_query.html#canRaiseConservative,PNode>`_.
-  # ``mNone`` is also included in the set, therefore this check works even for
-  # non-magic calls
-  getCalleeMagic(env, fn) in magicsThatCanRaise
-
 proc toBitSet*(conf: ConfigRef; s: CgNode): TBitSet =
   ## Duplicate of `toBitSet <nimsets.html#toBitSet,ConfigRef,PNode>`_
   bitSetInit(result, int(getSize(conf, s.typ)))

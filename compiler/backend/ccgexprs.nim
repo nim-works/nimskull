@@ -128,18 +128,12 @@ proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
     else:
       linefmt(p, cpsStmts, "$1.Field0 = $2; $1.Field1 = $2Len_0;$n",
         [rdLoc(d), a.rdLoc])
-  of tySequence:
+  of tySequence, tyString:
     linefmt(p, cpsStmts, "$1.Field0 = ($2.p != NIM_NIL ? $2$3 : NIM_NIL); $1.Field1 = $4;$n",
       [rdLoc(d), a.rdLoc, dataField(p), lenExpr(p, a)])
   of tyArray:
     linefmt(p, cpsStmts, "$1.Field0 = $2; $1.Field1 = $3;$n",
       [rdLoc(d), rdLoc(a), rope(lengthOrd(p.config, a.t))])
-  of tyString:
-    if skipTypes(d.t, abstractInst).kind in {tyVar}:
-      linefmt(p, cpsStmts, "#nimPrepareStrMutationV2($1);$n", [byRefLoc(p, a)])
-
-    linefmt(p, cpsStmts, "$1.Field0 = ($2.p != NIM_NIL ? $2$3 : NIM_NIL); $1.Field1 = $4;$n",
-      [rdLoc(d), a.rdLoc, dataField(p), lenExpr(p, a)])
   else:
     internalError(p.config, a.lode.info, "cannot handle " & $a.t.kind)
 
@@ -506,16 +500,13 @@ proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
       discard getTypeDesc(p.module, e.typ)
       putIntoDest(p, d, e, "(*$1)" % [rdLoc(a)], a.storage)
 
-proc genAddr(p: BProc, e: CgNode, mutate: bool, d: var TLoc) =
+proc genAddr(p: BProc, e: CgNode, d: var TLoc) =
   if mapType(p.config, e.operand.typ) == ctArray:
     expr(p, e.operand, d)
   else:
     var a: TLoc
     initLoc(a, locNone, e.operand, OnUnknown)
     a.flags.incl lfWantLvalue
-    if mutate:
-      a.flags.incl lfPrepareForMutation
-
     expr(p, e.operand, a)
     putIntoDest(p, d, e, addrLoc(p.config, a), a.storage)
 
@@ -569,71 +560,6 @@ proc genRecordField(p: BProc, e: CgNode, d: var TLoc) =
     ensureObjectFields(p.module, field, rtyp)
     r.addf(".$1", [p.fieldName(field)])
     putIntoDest(p, d, e, r, a.storage)
-
-proc genInExprAux(p: BProc, e: CgNode, a, b, d: var TLoc)
-
-proc genFieldCheck(p: BProc, e: CgNode) =
-  var test, u, v: TLoc
-  if true:
-    initLocExpr(p, e[1], u)
-    initLocExpr(p, e[2], v)
-    genInExprAux(p, e, u, v, test)
-    var msg = ""
-    if optDeclaredLocs in p.config.globalOptions:
-      # xxx this should be controlled by a separate flag, and
-      # used for other similar defects so that location information is shown
-      # even without the expensive `--stacktrace`; binary size could be optimized
-      # by encoding the file names separately from `file(line:col)`, essentially
-      # passing around `TLineInfo` + the set of files in the project.
-      msg.add toFileLineCol(p.config, e.info) & " "
-    msg.add getString(p, e[4])
-    # don't commit the string to the string table, as it's likely to be
-    # unique and never used again
-    let strLit = genStringLiteral(p.module, msg)
-
-    ## discriminant check
-    template fun(code) = linefmt(p, cpsStmts, code, [rdLoc(test)])
-    if e[3].intVal == 1:
-      # the third operand indicates whether the result needs to be inverted
-      fun("if ($1) ")
-    else:
-      fun("if (!($1)) ")
-
-    let base = v.t.skipTypes(abstractRange)
-    var raiseProc, toStr: string
-    # generate and emit the code for the failure case:
-    case base.kind
-    of tyEnum:
-      # use the compiler-generated enum-to-string procedure
-      let prc = p.module.g.graph.getToStringProc(v.t)
-      discard registerLateProc(p.module, prc)
-
-      var tmp: TLoc
-      expr(p, newSymNode(p.env, prc), tmp)
-      toStr = "$1($2)" % [rdLoc(tmp), rdLoc(v)]
-      raiseProc = "raiseFieldErrorStr"
-
-    of tyChar:
-      # XXX: rendering as a character is supported by the runtime
-      #raiseProc = "raiseFieldErrorChar"
-      toStr = rdCharLoc(v)
-      raiseProc = "raiseFieldErrorUInt"
-    of tyBool:
-      raiseProc = "raiseFieldErrorBool"
-    of tyInt..tyInt64:
-      raiseProc = "raiseFieldErrorInt"
-    of tyUInt..tyUInt64:
-      raiseProc = "raiseFieldErrorUInt"
-    else:
-      discard
-      # unreachable()
-
-    if toStr == "":
-      toStr = rdLoc(v)
-
-    discard cgsym(p.module, raiseProc) # make sure the compilerproc is generated
-    linefmt(p, cpsStmts, "{ $1($3, $4); $2} $n",
-            [raiseProc, raiseInstr(p, e.exit), strLit, toStr])
 
 proc genUncheckedArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   var a, b: TLoc
@@ -750,8 +676,6 @@ proc genSeqElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   if skipTypes(a.t, abstractVar).kind in {tyRef, tyPtr}:
     a.r = ropecg(p.module, "(*$1)", [a.r])
 
-  if lfPrepareForMutation in d.flags and ty.kind == tyString:
-    linefmt(p, cpsStmts, "#nimPrepareStrMutationV2($1);$n", [byRefLoc(p, a)])
   putIntoDest(p, d, n,
               ropecg(p.module, "$1$3[$2]", [rdLoc(a), rdCharLoc(b), dataField(p)]), a.storage)
 
@@ -1440,38 +1364,6 @@ proc genCast(p: BProc, e: CgNode, d: var TLoc) =
     # C code; plus it's the right thing to do for closures:
     genSomeCast(p, e, d)
 
-proc genRangeChck(p: BProc, n: CgNode, d: var TLoc) =
-  var a: TLoc
-  var dest = skipTypes(n.typ, abstractVar)
-  initLocExpr(p, n[1], a)
-  if true:
-    let n0t = n[1].typ
-
-    # emit range check:
-    if n0t.kind in {tyUInt, tyUInt64}:
-      linefmt(p, cpsStmts, "if ($1 > ($6)($3)){ #raiseRangeErrorNoArgs(); $5}$n",
-        [rdCharLoc(a), genLiteral(p, n[2], dest), genLiteral(p, n[3], dest),
-        raiser, raiseInstr(p, n.exit), getTypeDesc(p.module, n0t)])
-    else:
-      let raiser =
-        case skipTypes(n.typ, abstractVarRange).kind
-        of tyUInt..tyUInt64, tyChar: "raiseRangeErrorU"
-        of tyFloat..tyFloat64: "raiseRangeErrorF"
-        else: "raiseRangeErrorI"
-      discard cgsym(p.module, raiser)
-
-      let boundaryCast =
-        if n0t.skipTypes(abstractVarRange).kind in {tyUInt, tyUInt32, tyUInt64} or
-            (n0t.sym != nil and sfSystemModule in n0t.sym.owner.flags and n0t.sym.name.s == "csize"):
-          "(NI64)"
-        else:
-          ""
-      linefmt(p, cpsStmts, "if ($6($1) < $2 || $6($1) > $3){ $4($1, $2, $3); $5}$n",
-        [rdCharLoc(a), genLiteral(p, n[2], dest), genLiteral(p, n[3], dest),
-        raiser, raiseInstr(p, n.exit), boundaryCast])
-  putIntoDest(p, d, n, "(($1) ($2))" %
-      [getTypeDesc(p.module, dest), rdCharLoc(a)], a.storage)
-
 proc genConv(p: BProc, e: CgNode, d: var TLoc) =
   let destType = e.typ.skipTypes({tyVar, tyLent, tyGenericInst, tyAlias, tySink})
   if sameBackendType(destType, e.operand.typ):
@@ -1511,23 +1403,6 @@ proc binaryFloatArith(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
 proc skipAddr(n: CgNode): CgNode =
   if n.kind == cnkHiddenAddr: n.operand
   else:                       n
-
-proc genWasMoved(p: BProc; n: CgNode) =
-  var a: TLoc
-  let n1 = n[1].skipAddr
-  if true:
-    initLocExpr(p, n1, a, {lfWantLvalue})
-    resetLoc(p, a)
-    #linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-    #  [addrLoc(p.config, a), getTypeDesc(p.module, a.t)])
-
-proc genMove(p: BProc; n: CgNode; d: var TLoc) =
-  var a: TLoc
-  initLocExpr(p, n[1], a, {lfWantLvalue})
-  if true:
-    if d.k == locNone: getTemp(p, n.typ, d)
-    genAssignment(p, d, a)
-    resetLoc(p, a)
 
 proc genDestroy(p: BProc; n: CgNode) =
     let arg = n[1].skipAddr
@@ -1671,8 +1546,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     initLocExpr(p, e[2], b)
     genDeepCopy(p, a, b)
   of mDotDot, mEqCString: genCall(p, e, d)
-  of mWasMoved: genWasMoved(p, e)
-  of mMove: genMove(p, e, d)
   of mDestroy: genDestroy(p, e)
   of mAccessTypeField: genAccessTypeField(p, e, d)
   of mTrace: discard "no code to generate"
@@ -1687,15 +1560,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
       typ.add "*"
 
     linefmt(p, cpsStmts, "$1 = ($2)($3);$n", [a.r, typ, rdLoc(b)])
-  of mChckRange:
-    genRangeChck(p, e, d)
-  of mChckNaN:
-    var a: TLoc
-    initLocExpr(p, e[1], a)
-    # NOTE: if the value is a signaling NaN, the comparison itself results in
-    #       a float-point exception (which might result in a trap)
-    linefmt(p, cpsStmts, "if ($1 != $1){ #raiseFloatInvalidOp(); $2}$n",
-            [rdLoc(a), raiseInstr(p, e.exit)])
   of mChckIndex:
     var arr, a: TLoc
     initLocExpr(p, e[1], arr)
@@ -1707,8 +1571,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     initLocExpr(p, e[2], a)
     initLocExpr(p, e[3], b)
     genBoundsCheck(p, arr, a, b, e.exit)
-  of mChckField:
-    genFieldCheck(p, e)
   of mChckObj:
     var a: TLoc
     initLocExpr(p, e[1], a)
@@ -2023,8 +1885,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
       # ``&(*x)`` to just ``x``
       expr(p, n.operand.operand, d)
     else:
-      let mutate = n.kind == cnkHiddenAddr and n.typ.kind == tyVar
-      genAddr(p, n, mutate, d)
+      genAddr(p, n, d)
   of cnkArrayAccess: genArrayLikeElem(p, n, d)
   of cnkTupleAccess:
     if n[0].typ.skipTypes(abstractInst).kind == tyProc:

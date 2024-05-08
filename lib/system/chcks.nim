@@ -10,41 +10,45 @@
 # Implementation of some runtime checks.
 include system/indexerrors
 
-proc raiseRangeError(val: BiggestInt) {.compilerproc, noinline.} =
+# don't inline the raise procedures in order to reduce both executable size
+# and I-cache pressure
+{.pragma: errorPrc, compilerproc, noinline, noreturn.}
+
+proc raiseRangeError(val: BiggestInt) {.errorPrc.} =
   when hostOS == "standalone":
     sysFatal(RangeDefect, "value out of range")
   else:
     sysFatal(RangeDefect, "value out of range: ", $val)
 
-proc raiseIndexError3(i, a, b: int) {.compilerproc, noinline.} =
+proc raiseIndexError3(i, a, b: int) {.errorPrc.} =
   sysFatal(IndexDefect, formatErrorIndexBound(i, a, b))
 
-proc raiseIndexError2(i, n: int) {.compilerproc, noinline.} =
+proc raiseIndexError2(i, n: int) {.errorPrc.} =
   sysFatal(IndexDefect, formatErrorIndexBound(i, n))
 
-proc raiseIndexError() {.compilerproc, noinline.} =
+proc raiseIndexError() {.errorPrc.} =
   sysFatal(IndexDefect, "index out of bounds")
 
-proc raiseFieldError(f: string) {.compilerproc, noinline.} =
+proc raiseFieldError(f: string) {.errorPrc.} =
   ## remove after bootstrap > 1.5.1
   sysFatal(FieldDefect, f)
 
-proc raiseFieldErrorBool(f: string, val: bool) {.compilerproc, noinline.} =
+proc raiseFieldErrorBool(f: string, val: bool) {.errorPrc.} =
   sysFatal(FieldError, formatFieldDefect(f, $val))
 
 when false:
   # XXX: the character value needs to be escaped properly, but the ``reprChar``
   #      is not defined yet (or at all)
-  proc raiseFieldErrorChar(f: string, val: char) {.compilerproc, noinline.} =
+  proc raiseFieldErrorChar(f: string, val: char) {.errorPrc.} =
     sysFatal(FieldError, formatFieldDefect(f, $val))
 
-proc raiseFieldErrorInt(f: string, val: int64) {.compilerproc, noinline.} =
+proc raiseFieldErrorInt(f: string, val: int64) {.errorPrc.} =
   sysFatal(FieldError, formatFieldDefect(f, $val))
 
-proc raiseFieldErrorUInt(f: string, val: uint64) {.compilerproc, noinline.} =
+proc raiseFieldErrorUInt(f: string, val: uint64) {.errorPrc.} =
   sysFatal(FieldError, formatFieldDefect(f, $val))
 
-proc raiseFieldErrorStr(f: string, val: string) {.compilerproc, noinline.} =
+proc raiseFieldErrorStr(f: string, val: string) {.errorPrc.} =
   sysFatal(FieldError, formatFieldDefect(f, val))
 
 when defined(nimV2):
@@ -56,26 +60,26 @@ else:
     ## Obsolete. Remove after updating the csources compiler
     sysFatal(FieldError, formatFieldDefect(f, discVal))
 
-proc raiseRangeErrorI(i, a, b: BiggestInt) {.compilerproc, noinline.} =
+proc raiseRangeErrorI(i, a, b: BiggestInt) {.errorPrc.} =
   when defined(standalone):
     sysFatal(RangeDefect, "value out of range")
   else:
     sysFatal(RangeDefect, "value out of range: " & $i & " notin " & $a & " .. " & $b)
 
-proc raiseRangeErrorF(i, a, b: float) {.compilerproc, noinline.} =
+proc raiseRangeErrorF(i, a, b: float) {.errorPrc.} =
   when defined(standalone):
     sysFatal(RangeDefect, "value out of range")
   else:
     sysFatal(RangeDefect, "value out of range: " & $i & " notin " & $a & " .. " & $b)
 
-proc raiseRangeErrorU(i, a, b: uint64) {.compilerproc, noinline.} =
+proc raiseRangeErrorU(i, a, b: uint64) {.errorPrc.} =
   # todo: better error reporting
   sysFatal(RangeDefect, "value out of range")
 
-proc raiseRangeErrorNoArgs() {.compilerproc, noinline.} =
+proc raiseRangeErrorNoArgs() {.errorPrc.} =
   sysFatal(RangeDefect, "value out of range")
 
-proc raiseObjectConversionError() {.compilerproc, noinline.} =
+proc raiseObjectConversionError() {.errorPrc.} =
   sysFatal(ObjectConversionDefect, "invalid object conversion")
 
 proc chckIndx(i, a, b: int): int =

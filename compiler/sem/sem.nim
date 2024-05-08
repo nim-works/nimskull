@@ -12,6 +12,7 @@
 import
   std/[
     strutils,
+    hashes,
     math,
     strtabs,
     intsets,
@@ -616,7 +617,6 @@ proc evalConstExpr(c: PContext, n: PNode): PNode =
   ## Tries to turn the expression `n` into AST that represents a concrete
   ## value. If this fails, an `nkError` node is returned
   addInNimDebugUtils(c.config, "evalConstExpr", n, result)
-  assert not n.isError
 
   # this happens when the overloadableEnums is enabled. We short-circuit
   # evaluation in this case, as neither ``vmgen`` nor ``semfold`` know what to

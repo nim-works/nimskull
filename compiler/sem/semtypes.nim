@@ -737,7 +737,9 @@ proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
     result = semIdentVis(c, kind, n, allowed)
 
 proc checkForOverlap(c: PContext, t: PNode, currentEx, branchIndex: int) =
-  let ex = t[branchIndex][currentEx].skipConv
+  ## Given the in-progress ``nkCaseStmt`` production `t`, reports an error for
+  ## each value in branch `branchIndex` that already appears elsewhere.
+  let ex = t[branchIndex][currentEx]
   for i in 1..branchIndex:
     for j in 0..<t[i].len - 1:
       if i == branchIndex and j == currentEx: break
@@ -747,80 +749,96 @@ proc checkForOverlap(c: PContext, t: PNode, currentEx, branchIndex: int) =
           ast: ex,
           overlappingGroup: t[i][j].skipConv))
 
-proc semBranchRange(c: PContext, t, a, b: PNode, covered: var Int128): PNode =
-  checkMinSonsLen(t, 1, c.config)
-  let ac = semConstExpr(c, a)
-  let bc = semConstExpr(c, b)
-  let at = fitNode(c, t[0].typ, ac, ac.info).skipConvTakeType
-  let bt = fitNode(c, t[0].typ, bc, bc.info).skipConvTakeType
+proc checkBranchForOverlap(c: PContext, caseStmt: PNode, branch, last: int) =
+  for i in 0..last:
+    checkForOverlap(c, caseStmt, i, branch)
+
+proc semBranchRange(c: PContext, typ: PType, a, b: PNode,
+                    covered: var Int128): PNode =
+  ## Analyses an ``nkRange`` AST and produces a typed version thereof, or an
+  ## error. `typ` is the expected element type.
+  let
+    a = evalConstExpr(c, fitNode(c, typ, semExprWithType(c, a, {}), a.info))
+    b = evalConstExpr(c, fitNode(c, typ, semExprWithType(c, b, {}), b.info))
 
   result = newNodeI(nkRange, a.info)
-  result.add(at)
-  result.add(bt)
-  if emptyRange(ac, bc):
-    localReport(c.config, b, reportSem rsemRangeIsEmpty)
-  elif t[0].typ.skipTypes(abstractInst).kind == tyString:
-    # XXX: ``nkError`` needs to be used here
-    localReport(c.config, b, reportSem rsemStringRangeNotAllowed)
-  else: covered = covered + getOrdValue(bc) + 1 - getOrdValue(ac)
+  result.add(a)
+  result.add(b)
+  if a.kind == nkError or b.kind == nkError:
+    result = c.config.wrapError(result)
+  elif typ.skipTypes(abstractInst).kind == tyString:
+    result = c.config.newError(result):
+      PAstDiag(kind: adSemStringRangeNotAllowed)
+  elif emptyRange(a, b):
+    result = c.config.newError(result):
+      PAstDiag(kind: adSemRangeIsEmpty)
+  else:
+    # all good; no error
+    covered = covered + getOrdValue(b) + 1 - getOrdValue(a)
 
-proc semCaseBranchRange(c: PContext, t, b: PNode,
+proc semCaseBranchRange(c: PContext, typ: PType, b: PNode,
                         covered: var Int128): PNode =
   checkSonsLen(b, 3, c.config)
-  result = semBranchRange(c, t, b[1], b[2], covered)
+  result = semBranchRange(c, typ, b[1], b[2], covered)
 
-proc semCaseBranchSetElem(c: PContext, t, b: PNode,
-                          covered: var Int128): PNode =
-  if isRange(b):
-    checkSonsLen(b, 3, c.config)
-    result = semBranchRange(c, t, b[1], b[2], covered)
-  elif b.kind == nkRange:
-    checkSonsLen(b, 2, c.config)
-    result = semBranchRange(c, t, b[0], b[1], covered)
-  else:
-    result = fitNode(c, t[0].typ, b, b.info)
-    inc(covered)
+proc semCaseBranch(c: PContext, typ: PType, branch: PNode,
+                   covered: var Int128): PNode =
+  ## Analyses the ``nkOfBranch`` AST `branch`, producing either an error or
+  ## the typed AST. Note that the production does *not* include the action
+  ## slot.
+  ##
+  ## Productions with no items are valid: they result from, e.g., ``of {}:``.
+  proc fitAndAdd(to: PNode, c: PContext, typ: PType, n: PNode,
+                 covered: var Int128) {.nimcall.} =
+    if n.kind == nkError:
+      to.add n
+      return
 
-proc semCaseBranch(c: PContext, t, branch: PNode, branchIndex: int,
-                   covered: var Int128) =
-  let lastIndex = branch.len - 2
-  for i in 0..lastIndex:
-    var b = branch[i]
-    if b.kind == nkRange:
-      branch[i] = b
-    elif isRange(b):
-      branch[i] = semCaseBranchRange(c, t, b, covered)
-    else:
-      # constant sets and arrays are allowed:
-      var r = semConstExpr(c, b)
-      if r.kind in {nkCurly, nkBracket} and r.len == 0 and branch.len == 2:
-        # discarding ``{}`` and ``[]`` branches silently
-        delSon(branch, 0)
-        return
-      elif r.kind notin {nkCurly, nkBracket} or r.len == 0:
-        checkMinSonsLen(t, 1, c.config)
-        var tmp = fitNode(c, t[0].typ, r, r.info)
-        # the call to fitNode may introduce a call to a converter
-        if tmp.kind in {nkHiddenCallConv}: tmp = semConstExpr(c, tmp)
-        branch[i] = skipConv(tmp)
-        inc(covered)
+    # errors are ignored here; they're handled later
+    for it in n.items:
+      case it.kind
+      of nkRange:
+        to.add semBranchRange(c, typ, it[0], it[1], covered)
       else:
-        if r.kind == nkCurly:
-          r = deduplicate(c.config, r)
+        var x = fitNode(c, typ, it, it.info)
+        # fitting the element may introduce a conversion
+        if x.kind in {nkHiddenCallConv, nkHiddenStdConv, nkHiddenSubConv}:
+          x = evalConstExpr(c, x)
+        to.add x
+        inc covered
 
-        # first element is special and will overwrite: branch[i]:
-        branch[i] = semCaseBranchSetElem(c, t, r[0], covered)
+  checkMinSonsLen(branch, 2, c.config)
+  # not a one-to-one mapping between the input and output AST
+  result = copyNode(branch)
 
-        # other elements have to be added to ``branch``
-        for j in 1..<r.len:
-          branch.add(semCaseBranchSetElem(c, t, r[j], covered))
-          # caution! last son of branch must be the actions to execute:
-          swap(branch[^2], branch[^1])
-    checkForOverlap(c, t, i, branchIndex)
-
-  # Elements added above needs to be checked for overlaps.
-  for i in lastIndex.succ..<branch.len - 1:
-    checkForOverlap(c, t, i, branchIndex)
+  for _, b in branchLabels(branch):
+    if b.kind == nkRange:
+      result.add semBranchRange(c, typ, b[0], b[1], covered)
+    elif isRange(b):
+      result.add semCaseBranchRange(c, typ, b, covered)
+    else:
+      var r = semExprWithType(c, b, {})
+      # XXX: distincts are currently skipped, but it would make sense to
+      #      not, thus preventing, e.g., a distinct set from being usable
+      #      in a label slot without explicit conversion
+      case r.typ.skipTypes(abstractRange).kind
+      of tySet:
+        # constant sets are allowed
+        r = evalConstExpr(c, r)
+        if r.kind == nkError:
+          result.add r
+        elif r.len > 0:
+          # duplicates from the evaluated set need to be eliminated
+          result.fitAndAdd(c, typ, deduplicate(c.config, r), covered)
+        else:
+          discard "do nothing for empty sets"
+      of tyArray, tySequence:
+        # constant arrays and sequences are allowed too
+        r = evalConstExpr(c, r)
+        result.fitAndAdd(c, typ, r, covered)
+      else:
+        result.add evalConstExpr(c, fitNode(c, typ, r, r.info))
+        inc covered
 
 proc toCover(c: PContext, t: PType): Int128 =
   let t2 = skipTypes(t, abstractVarRange-{tyTypeDesc})
@@ -936,25 +954,28 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
       sym: a[0].sym))
 
   for i in 1..<n.len:
-    var b = copyTree(n[i])
-    a.add b
+    let b = n[i]
     case n[i].kind
     of nkOfBranch:
-      checkMinSonsLen(b, 2, c.config)
-      semCaseBranch(c, a, b, i, covered)
+      a.add semCaseBranch(c, a[0].typ, b, covered)
+      checkBranchForOverlap(c, a, i, a[^1].len - 1)
+      # XXX: errors need to be propagated
+      for e in walkErrors(c.config, a[^1]):
+        localReport(c.config, e)
     of nkElse:
       checkSonsLen(b, 1, c.config)
       if chckCovered and covered == toCover(c, a[0].typ):
         localReport(c.config, b.info, SemReport(kind: rsemUnreachableElse))
       chckCovered = false
+      # copy without the action slot:
+      a.add copyNode(b)
     else:
       semReportIllformedAst(
         c.config, n,
         "Expected ofBranch or else for object case statement, but found" &
           $n[i].kind)
 
-    delSon(b, b.len - 1)
-    semRecordNodeAux(c, lastSon(n[i]), check, pos, b, rectype, hasCaseFields = true)
+    semRecordNodeAux(c, lastSon(n[i]), check, pos, a[^1], rectype, hasCaseFields = true)
   if chckCovered and covered != toCover(c, a[0].typ):
     if a[0].typ.skipTypes(abstractRange).kind == tyEnum:
       localReport(c.config, a.info, SemReport(
