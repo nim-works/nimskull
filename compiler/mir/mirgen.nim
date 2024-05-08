@@ -1807,6 +1807,9 @@ proc genExceptBranch(c: var TCtx, n: PNode, label: LabelId,
   c.builder.useSource(c.sp, n)
   let withFilter = n.len > 1
 
+  # the except branch is reachable:
+  c.isDisabled = false
+
   c.subTree MirNode(kind: mnkExcept,
                     len: uint32(1 + (n.len - 1) + ord(withFilter))):
     c.add labelNode(label) # name of the except
