@@ -39,7 +39,7 @@
 ##  initLock(L)
 ##
 ##  for i in 0..high(thr):
-##    createThread(thr[i], threadFunc, (i*10, i*10+5))
+##    thr[i] = createThread(threadFunc, (i*10, i*10+5))
 ##  joinThreads(thr)
 ##
 ##  deinitLock(L)
@@ -225,22 +225,22 @@ when false:
       t.core = nil
 
 when hostOS == "windows":
-  proc createThread*[TArg](t: var Thread[TArg],
-                           tp: proc (arg: TArg) {.thread, nimcall.},
-                           param: TArg) =
-    ## Creates a new thread `t` and starts its execution.
+  proc createThread*[TArg](tp: proc (arg: TArg) {.thread, nimcall.},
+                           param: TArg): Thread[TArg] =
+    ## Creates a new thread, starts its execution, and returns a handle of the
+    ## thread.
     ##
     ## Entry point is the proc `tp`.
     ## `param` is passed to `tp`. `TArg` can be `void` if you
     ## don't need to pass any data to the thread.
-    t.core = (createThreadCore[TArg])(tp)
+    result.core = (createThreadCore[TArg])(tp)
     when TArg isnot void:
-      t.core.data = param
+      result.core.data = param
 
     var dummyThreadId: int32
-    t.sys = createThread(nil, ThreadStackSize, threadProcWrapper[TArg],
-                         t.core, 0'i32, dummyThreadId)
-    if t.sys <= 0:
+    result.sys = createThread(nil, ThreadStackSize, threadProcWrapper[TArg],
+                              result.core, 0'i32, dummyThreadId)
+    if result.sys <= 0:
       raise newException(ResourceExhaustedError, "cannot create thread")
 
   proc pinToCpu*[Arg](t: var Thread[Arg]; cpu: Natural) =
@@ -251,17 +251,17 @@ when hostOS == "windows":
     setThreadAffinityMask(t.sys, uint(1 shl cpu))
 
 else:
-  proc createThread*[TArg](t: var Thread[TArg],
-                           tp: proc (arg: TArg) {.thread, nimcall.},
-                           param: TArg) =
-    ## Creates a new thread `t` and starts its execution.
+  proc createThread*[TArg](tp: proc (arg: TArg) {.thread, nimcall.},
+                           param: TArg): Thread[TArg] =
+    ## Creates a new thread, starts its execution, and returns a handle of the
+    ## thread.
     ##
     ## Entry point is the proc `tp`. `param` is passed to `tp`.
     ## `TArg` can be `void` if you
     ## don't need to pass any data to the thread.
-    t.core = (createThreadCore[TArg])(tp)
+    result.core = (createThreadCore[TArg])(tp)
     when TArg isnot void:
-      t.core.data = param
+      result.core.data = param
 
     var a {.noinit.}: Pthread_attr
     doAssert pthread_attr_init(a) == 0
@@ -269,7 +269,7 @@ else:
     when not defined(ios):
       # This fails on iOS
       doAssert(setstacksizeResult == 0)
-    if pthread_create(t.sys, a, threadProcWrapper[TArg], t.core) != 0:
+    if pthread_create(result.sys, a, threadProcWrapper[TArg], result.core) != 0:
       raise newException(ResourceExhaustedError, "cannot create thread")
     doAssert pthread_attr_destroy(a) == 0
 
@@ -285,7 +285,16 @@ else:
       setAffinity(t.sys, csize_t(sizeof(s)), s)
 
 proc createThread*(t: var Thread[void], tp: proc () {.thread, nimcall.}) =
-  (createThread[void])(t, tp)
+  t = (createThread[void])(tp)
+
+proc createThread*[TArg](t: var Thread[TArg],
+                         tp: proc(arg: TArg) {.thread, nimcall.},
+                         param: TArg) =
+  ## Convenience short-hand for creating and assigning a thread in-place.
+  when TArg isnot void:
+    t = createThread[TArg](tp, param)
+  else:
+    t = (createThread[void])(tp)
 
 when not defined(gcOrc):
   include threadids
