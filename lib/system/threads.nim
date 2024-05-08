@@ -61,16 +61,42 @@ const
 # use ``stdcall`` since it is mapped to ``noconv`` on UNIX anyway.
 
 type
-  Thread*[TArg] = object
-    core: PGcThread
-    sys: SysThread
+  ThreadCore[TArg] = object
+    ## The internal managnement data associated with a thread. Allocated
+    ## by the spawning thread, and - initially - owned by both the spawning
+    ## and spawned thread (shared ownership). If the spawned thread finishes
+    ## before the `Thread <#Thread>` handle owned by the spawning thread goes
+    ## out of scope, the spawning thread frees the instance, otherwise the
+    ## spawned thread does.
+    when emulatedThreadVars:
+      tls: ThreadLocalStorage
+
+    rc: int
+      ## ref-counter. Has a maximum value of 2. All operations on it must be
+      ## atomic
+
     when TArg is void:
       dataFn: proc () {.nimcall, gcsafe.}
     else:
       dataFn: proc (m: TArg) {.nimcall, gcsafe.}
       data: TArg
 
+  Thread*[TArg] = object
+    core: ptr ThreadCore[TArg]
+    sys: SysThread
+
 proc `=copy`*[TArg](x: var Thread[TArg], y: Thread[TArg]) {.error.}
+proc `=destroy`[TArg](x: var Thread[TArg])
+
+proc release[TArg](core: ptr ThreadCore[TArg]) =
+  if atomicDec(core.rc, 1, ATOMIC_ACQ_REL) == 0:
+    deallocShared(core)
+
+proc `=destroy`[TArg](x: var Thread[TArg]) =
+  if x.core != nil:
+    # the spawning thread doesn't own the data passed along to the thread,
+    # so don't touch it
+    release(x.core)
 
 var
   threadDestructionHandlers {.rtlThreadVar.}: seq[proc () {.closure, gcsafe, raises: [].}]
@@ -94,7 +120,7 @@ proc threadTrouble() {.raises: [], gcsafe.}
   ## defined in system/excpt.nim
 
 when true:
-  proc threadProcWrapDispatch[TArg](thrd: ptr Thread[TArg]) {.raises: [].} =
+  proc threadProcWrapDispatch[TArg](thrd: ptr ThreadCore[TArg]) {.raises: [].} =
     try:
       when TArg is void:
         thrd.dataFn()
@@ -106,25 +132,26 @@ when true:
       afterThreadRuns()
 
 template threadProcWrapperBody(closure: untyped): untyped =
-  var thrd = cast[ptr Thread[TArg]](closure)
-  var core = thrd.core
-  when declared(globalsSlot): threadVarSetValue(globalsSlot, thrd.core)
-  threadProcWrapDispatch(thrd)
+  let core = cast[ptr ThreadCore[TArg]](closure)
+  when declared(globalsSlot):
+    threadVarSetValue(globalsSlot, addr(core.tls))
+  threadProcWrapDispatch(core)
   # Since an unhandled exception terminates the whole process (!), there is
   # no need for a ``try finally`` here, nor would it be correct: The current
   # exception is tried to be re-raised by the code-gen after the ``finally``!
   # However this is doomed to fail, because we already unmapped every heap
   # page!
 
+  when TArg isnot void:
+    # the spawned thread has ownership of the extra data, destroy it:
+    reset(core.data)
+
   when compileOption("gc", "orc"):
     # run a full garbage collection pass in order to free all cells
     # kept alive only through reference cycles
     GC_fullCollect()
 
-  # mark as not running anymore:
-  thrd.core = nil
-  thrd.dataFn = nil
-  deallocShared(cast[pointer](core))
+  release(core)
 
 {.push stack_trace:off.}
 # NOTE: the `threadProcWrapper` is currently special-cased by the compiler to
@@ -138,9 +165,18 @@ else:
     threadProcWrapperBody(closure)
 {.pop.}
 
+proc createThreadCore[TArg](tp: proc (arg: TArg) {.thread, nimcall.},
+                           ): ptr ThreadCore[TArg] =
+  ## Allocates and sets up a ``ThreadCore`` instance.
+  result = createShared(ThreadCore[TArg])
+  result.rc = 2 # both threads initially own the data
+  result.dataFn = tp
+
 proc running*[TArg](t: Thread[TArg]): bool {.inline.} =
   ## Returns true if `t` is running.
-  result = t.dataFn != nil
+  # if the spawning thread has unique ownership of the spawned thread's
+  # management data, the thread isn't running anymore
+  result = t.core != nil and atomicLoadN(addr t.core.rc, ATOMIC_RELAXED) == 2
 
 proc handle*[TArg](t: Thread[TArg]): SysThread {.inline.} =
   ## Returns the thread handle of `t`.
@@ -197,14 +233,13 @@ when hostOS == "windows":
     ## Entry point is the proc `tp`.
     ## `param` is passed to `tp`. `TArg` can be `void` if you
     ## don't need to pass any data to the thread.
-    t.core = cast[PGcThread](allocShared0(sizeof(GcThread)))
-
-    when TArg isnot void: t.data = param
-    t.dataFn = tp
+    t.core = (createThreadCore[TArg])(tp)
+    when TArg isnot void:
+      t.core.data = param
 
     var dummyThreadId: int32
     t.sys = createThread(nil, ThreadStackSize, threadProcWrapper[TArg],
-                         addr(t), 0'i32, dummyThreadId)
+                         t.core, 0'i32, dummyThreadId)
     if t.sys <= 0:
       raise newException(ResourceExhaustedError, "cannot create thread")
 
@@ -224,10 +259,9 @@ else:
     ## Entry point is the proc `tp`. `param` is passed to `tp`.
     ## `TArg` can be `void` if you
     ## don't need to pass any data to the thread.
-    t.core = cast[PGcThread](allocShared0(sizeof(GcThread)))
-
-    when TArg isnot void: t.data = param
-    t.dataFn = tp
+    t.core = (createThreadCore[TArg])(tp)
+    when TArg isnot void:
+      t.core.data = param
 
     var a {.noinit.}: Pthread_attr
     doAssert pthread_attr_init(a) == 0
@@ -235,7 +269,7 @@ else:
     when not defined(ios):
       # This fails on iOS
       doAssert(setstacksizeResult == 0)
-    if pthread_create(t.sys, a, threadProcWrapper[TArg], addr(t)) != 0:
+    if pthread_create(t.sys, a, threadProcWrapper[TArg], t.core) != 0:
       raise newException(ResourceExhaustedError, "cannot create thread")
     doAssert pthread_attr_destroy(a) == 0
 
