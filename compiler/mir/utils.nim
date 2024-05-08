@@ -144,6 +144,9 @@ func next(tree: MirTree, i: var int): lent MirNode =
   result = tree[i]
   inc i
 
+proc error(result: var string, n: MirNode) =
+  result.add "<unexpected: " & $n.kind & ">"
+
 func idToStr[I](result: var string, id: I, open: string) =
   result.add open
   result.addInt id.uint32
@@ -254,7 +257,7 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     typeToStr(result, n.typ, c.env)
     result.add ")"
   of AllNodeKinds - Atoms - mnkProc:
-    result.add "<error: " & $n.kind & ">"
+    result.error(n)
 
 proc singleToStr(tree: MirTree, i: var int, result: var string, c: RenderCtx) =
   singleToStr(next(tree, i), result, c)
@@ -311,7 +314,7 @@ proc valueToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
   of AtomNodes:
     singleToStr(n, result, c)
   else:
-    result.add "<error: " & $n.kind & ">"
+    result.error(n)
 
 proc calleeToStr(tree: MirTree, i: var int, result: var string, c: RenderCtx) =
   case tree[i].kind
@@ -331,7 +334,7 @@ proc argToStr(tree: MirTree, i: var int, result: var string, c: RenderCtx) =
   of mnkName:    result.add "name "
   of mnkConsume: result.add "consume "
   of AllNodeKinds - ArgumentNodes:
-    result.add "<error: " & $n.kind & ">"
+    result.error(n)
 
   if tree[i].kind == mnkTag:
     discard next(tree, i)
@@ -618,7 +621,7 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: int, result: var string,
     result.add repeat("  ", indent)
     result.add "return\n"
   of AllNodeKinds - StmtNodes - {mnkBranch, mnkExcept, mnkFinally}:
-    result.add "<error: " & $n.kind & ">\n"
+    result.error(n)
 
   # skip the end node
   i += ord(n.kind in SubTreeNodes)
