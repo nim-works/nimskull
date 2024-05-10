@@ -1571,16 +1571,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     initLocExpr(p, e[2], a)
     initLocExpr(p, e[3], b)
     genBoundsCheck(p, arr, a, b, e.exit)
-  of mChckObj:
-    var a: TLoc
-    initLocExpr(p, e[1], a)
-    var nilCheck = ""
-    let r = rdMType(p, a, nilCheck)
-    assert nilCheck != "", "not a pointer-like value?"
-    # the nil-check is expected to have taken place already
-    linefmt(p, cpsStmts, "if (!#isObj($2, $3)){ #raiseObjectConversionError(); $4}$n",
-            [nilCheck, r, genTypeInfo2Name(p.module, e[2].typ),
-             raiseInstr(p, e.exit)])
   of mSamePayload:
     var a, b: TLoc
     initLocExpr(p, e[1], a)
