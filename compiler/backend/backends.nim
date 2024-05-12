@@ -216,10 +216,29 @@ proc generateTeardown*(graph: ModuleGraph, modules: ModuleList, result: PNode) =
   for it in rclosed(modules):
     if sfSystemModule notin it.sym.flags:
       emitOpCall(graph, it.destructor, result)
+      emitOpCall(graph, it.threadDestructor, result)
       emitOpCall(graph, it.postDestructor, result)
 
+  # the destructor calls for procedure-scoped threadvars are also part of the
+  # postDestructor module op, meaning that the threadPostDestructor op must
+  # not be invoked
+
   emitOpCall(graph, systemModule(modules).destructor, result)
+  emitOpCall(graph, systemModule(modules).threadDestructor, result)
   emitOpCall(graph, systemModule(modules).postDestructor, result)
+
+proc generateThreadTeardown*(graph: ModuleGraph, modules: ModuleList,
+                             result: PNode) =
+  ## Generates the code for de-initializing all threadvars for the program,
+  ## and emits it to `result`. Destruction order is the same as for non-
+  ## threadlocal state.
+  for it in rclosed(modules):
+    if sfSystemModule notin it.sym.flags:
+      emitOpCall(graph, it.threadDestructor, result)
+      emitOpCall(graph, it.threadPostDestructor, result)
+
+  emitOpCall(graph, systemModule(modules).threadDestructor, result)
+  emitOpCall(graph, systemModule(modules).threadPostDestructor, result)
 
 proc generateMainProcedure*(graph: ModuleGraph, idgen: IdGenerator,
                             modules: ModuleList): PSym =
@@ -375,7 +394,7 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
 
 proc produceFragmentsForGlobals(
     env: var MirEnv, identdefs: seq[PNode], graph: ModuleGraph,
-    config: TranslationConfig): tuple[init, deinit: MirBody] =
+    config: TranslationConfig): tuple[init, deinit, threadDeinit: MirBody] =
   ## Given a list of identdefs of lifted globals, produces the MIR code for
   ## initialzing and deinitializing the globals. All not-yet-seen globals and
   ## threadvars are added to `env`.
@@ -395,7 +414,7 @@ proc produceFragmentsForGlobals(
     # we're creating a body here, so there is no list of locals yet
     result = finish(bu, default(Store[LocalId, Local]))
 
-  var init, deinit: MirBuilder
+  var init, deinit, threadDeinit: MirBuilder
 
   # lifted globals can appear re-appear in the identdefs list for two reasons:
   # - the definition appears in the body of a for-loop using an inline iterator
@@ -406,27 +425,32 @@ proc produceFragmentsForGlobals(
   # only want to generate code for the first definition we encounter
   for it in identdefs.items:
     let s = it[0].sym
-    # threadvars don't support initialization nor destruction, so they're
-    # skipped
-    if sfThread in s.flags:
-      discard env.globals.add(s)
-    elif s notin env.globals: # cull duplicates
+    if s notin env.globals: # cull duplicates
       let global = env.globals.add(s)
-      # generate the MIR code for an initializing assignment:
-      prepare(init, result.init.source, graph.emptyNode)
-      generateAssignment(graph, env, config, it, init, result.init.source)
+      if sfThread notin s.flags:
+        # generate the MIR code for an initializing assignment:
+        prepare(init, result.init.source, graph.emptyNode)
+        generateAssignment(graph, env, config, it, init, result.init.source)
+
+      template destroyOp(bu: var MirBuilder, sm: var SourceMap) =
+        prepare(bu, sm, graph.emptyNode)
+        bu.setSource(sm.add(it[0]))
+        genDestroy(bu, graph, env, toValue(global, env.types.add(s.typ)))
 
       # if the global requires one, emit a destructor call into the deinit
       # fragment:
       if hasDestructor(s.typ):
-        prepare(deinit, result.deinit.source, graph.emptyNode)
-        deinit.setSource(result.deinit.source.add(it[0]))
-        genDestroy(deinit, graph, env, toValue(global, env.types.add(s.typ)))
+        destroyOp(deinit, result.deinit.source)
+        if sfThread in s.flags:
+          # also emit a destructor into the thread-deinit fragment:
+          destroyOp(threadDeinit, result.threadDeinit.source)
 
   (result.init.code, result.init.locals) =
     finish(init, result.init.source, graph.emptyNode)
   (result.deinit.code, result.deinit.locals) =
     finish(deinit, result.deinit.source, graph.emptyNode)
+  (result.threadDeinit.code, result.threadDeinit.locals) =
+    finish(threadDeinit, result.threadDeinit.source, graph.emptyNode)
 
 # ----- dynlib handling -----
 
@@ -713,7 +737,8 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
   # mark all procedures that require incremental code generation as forwarded,
   # so that they're not queued for normal code generation
   for _, m in modules.modules.pairs:
-    for it in [m.preInit, m.postDestructor, m.dynlibInit]:
+    for it in [m.preInit, m.postDestructor, m.threadPostDestructor,
+               m.dynlibInit]:
       it.flags.incl sfForward
 
   discovery.progress = checkpoint(env)
@@ -730,6 +755,9 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
 
     if not isTrivialProc(graph, m.destructor):
       discard env.procedures.add(m.destructor)
+
+    if not isTrivialProc(graph, m.threadDestructor):
+      discard env.procedures.add(m.threadDestructor)
 
     # register the globals and threadvars:
     for s in m.structs.globals.items:
@@ -811,11 +839,12 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
       queue.prepend(module, WorkItem(kind: wikReportConst, cnst: item.cnst))
     of wikProcessGlobals:
       # produce the init/de-init code for the lifted globals:
-      let (init, deinit) =
+      let (init, deinit, threadDeinit) =
         produceFragmentsForGlobals(env, item.globals, graph, conf.tconfig)
 
       pushProgress(modules[module].preInit, init, module)
       pushProgress(modules[module].postDestructor, deinit, module)
+      pushProgress(modules[module].threadPostDestructor, threadDeinit, module)
     of wikImported:
       let id = item.imported
       # the procedure is always reported from the module its attached to
@@ -841,7 +870,8 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
 
   # unmark all completed incremental procedures:
   for _, m in modules.modules.pairs:
-    for it in [m.preInit, m.postDestructor, m.dynlibInit]:
+    for it in [m.preInit, m.postDestructor, m.threadPostDestructor,
+               m.dynlibInit]:
       if not isTrivialProc(graph, it):
         it.flags.excl sfForward
 

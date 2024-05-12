@@ -71,8 +71,11 @@ type
     init*: PSym
       ## the procedure responsible for initializing the module's globals
     destructor*: PSym
-      ## the prodcedure responsible for de-initializing the module's
+      ## the procedure responsible for de-initializing the module's
       ## globals
+    threadDestructor*: PSym
+      ## the procedure responsible for de-initializing the module's
+      ## thread-local variables
 
     # XXX: the design around the pre-init and post-destructor procedure is
     #      likely not final yet. At the moment, we set them up here so that
@@ -81,6 +84,8 @@ type
       ## the procedure for initializing the module's lifted globals
     postDestructor*: PSym
       ## the procedure for destroying the module's lifted globals
+    threadPostDestructor*: PSym
+      ## the procedure for destroying the module's lifted threadvars
     dynlibInit*: PSym
       ## the procedure for loading the dynamic libraries, procedure, and
       ## variables associated with the module
@@ -299,12 +304,13 @@ proc genDestroy(graph: ModuleGraph, dest: PNode): PNode =
 
   result = newTreeI(nkCall, dest.info, newSymNode(op), addrExp)
 
-proc generateModuleDestructor(graph: ModuleGraph, m: Module): PNode =
-  ## Generates the body for the destructor procedure of module `m` (also
-  ## referred to as the 'de-init' procedure).
+proc generateDestructor(graph: ModuleGraph, vars: openArray[PSym]): PNode =
+  ## Generates the body for a module destructor (also referred to as the
+  ## 'de-init' procedure). A destructor call for each entitiy in `vars` is
+  ## emitted, in reverse order of appearance.
   result = newNode(nkStmtList)
-  for i in countdown(m.structs.globals.high, 0):
-    let s = m.structs.globals[i]
+  for i in countdown(vars.high, 0):
+    let s = vars[i]
     if hasDestructor(s.typ):
       result.add genDestroy(graph, newSymNode(s))
 
@@ -414,11 +420,22 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
   result.dataInit = createModuleOp(graph, idgen, "DatInit", m, newNode(nkEmpty), options)
 
   # setup the module struct clean-up operator:
-  let destructorBody = generateModuleDestructor(graph, result)
-  result.destructor = createModuleOp(graph, idgen, "Deinit", m, destructorBody, options)
+  result.destructor =
+    createModuleOp(graph, idgen, "Deinit", m,
+                   generateDestructor(graph, result.structs.globals),
+                   options)
+
+  # setup the per-thread module struct clean-up operator:
+  result.threadDestructor =
+    createModuleOp(graph, idgen, "ThreadDeinit", m,
+                   generateDestructor(graph, result.structs.threadvars),
+                   options)
 
   result.preInit = createModuleOp(graph, idgen, "PreInit", m, newNode(nkEmpty), options)
   result.postDestructor = createModuleOp(graph, idgen, "PostDeinit", m, newNode(nkEmpty), options)
+  result.threadPostDestructor =
+    createModuleOp(graph, idgen, "ThreadPostDeinit", m, newNode(nkEmpty),
+                   options)
   result.dynlibInit = createModuleOp(graph, idgen, "DynlibInit", m, newNode(nkEmpty), options)
 
 # Below is the `passes` interface implementation
