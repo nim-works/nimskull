@@ -77,12 +77,17 @@ proc shrink*[T](x: var seq[T]; newLen: Natural) =
   when nimvm:
     setLen(x, newLen)
   else:
-    #sysAssert newLen <= x.len, "invalid newLen parameter for 'shrink'"
     when not supportsCopyMem(T):
+      # destroy all cut-off items, but don't reset the memory yet
       for i in countdown(x.len - 1, newLen):
-        reset x[i]
+        `=destroy`(x[i])
+
     # XXX This is wrong for const seqs that were moved into 'x'!
     cast[ptr NimSeqV2[T]](addr x).len = newLen
+
+proc rawAssign[T](dest: var T, value: sink T) {.inline, nodestroy.} =
+  # the copy takes place at the callsite, only a blit copy is performed here
+  dest = value
 
 proc grow*[T](x: var seq[T]; newLen: Natural; value: T) =
   let oldLen = x.len
@@ -93,7 +98,13 @@ proc grow*[T](x: var seq[T]; newLen: Natural; value: T) =
     xu.p = cast[typeof(xu.p)](prepareSeqAdd(oldLen, xu.p, newLen - oldLen, sizeof(T), alignof(T)))
   xu.len = newLen
   for i in oldLen .. newLen-1:
-    xu.p.data[i] = value
+    when supportsCopyMem(T):
+      # no copy hook exists, a direct assignment can be used
+      xu.p.data[i] = value
+    else:
+      # the slot is in an unknown state, so a direct assignment (which would
+      # invoke the copy hook) cannot be used
+      rawAssign(xu.p.data[i], value)
 
 proc add*[T](x: var seq[T]; value: sink T) {.magic: "AppendSeqElem", noSideEffect, nodestroy.} =
   ## Generic proc for adding a data item `y` to a container `x`.
