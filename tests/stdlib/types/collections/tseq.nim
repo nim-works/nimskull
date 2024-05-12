@@ -201,3 +201,52 @@ for i in 0..100:
   var test = newSeqOfCap[uint32](1)
   test.setLen(1)
   doAssert test[0] == 0, $(test[0], i)
+
+block shrink_resets:
+  # ensure that the cut-off items are in the default state after shrinking and
+  # then growing the seq
+  var s = newSeq[int](10) # with primitive type
+  for it in s.mitems:
+    it = 1
+
+  s.setLen(5)
+  s.setLen(6) # grow again
+  doAssert s[5] == 0
+
+block shrink_resets_with_destructor:
+  # test with type that requires destruction
+  type Obj = object
+    has: bool
+
+  var destroyed {.global.} = 0
+
+  proc `=destroy`(x: var Obj) =
+    if x.has:
+      inc destroyed
+
+  var s = newSeq[Obj](10)
+  for it in s.mitems:
+    it = Obj(has: true)
+
+  s.setLen(5)
+  doAssert destroyed == 5
+  s.setLen(6)
+  doAssert s[5].has == false
+
+block item_with_type_field:
+  # ensure that object with type fields have their type fields initialized
+  # properly
+  type Obj = object of RootObj
+
+  proc test(x: RootObj) =
+    doAssert x of Obj
+
+  # after ``newSeq``:
+  var s: seq[Obj]
+  s.newSeq(1)
+  test(s[0])
+
+  # after ``setLen``:
+  var s2: seq[Obj]
+  s.setLen(1)
+  test(s[0])
