@@ -113,6 +113,25 @@ proc add*[T](x: var seq[T]; value: sink T) {.magic: "AppendSeqElem", noSideEffec
   # We also save the `wasMoved + destroy` pair for the sink parameter.
   xu.p.data[oldLen] = value
 
+{.push checks: off.}
+
+proc prepareSeqSlots[T](xu: ptr NimSeqV2[T],
+                        oldLen, newLen: int) {.inline, nodestroy.} =
+  when T is (SomeNumber or ptr or ref or pointer or proc or seq or string):
+    # special case numeric and pointer types (types for which it's known that
+    # zero is valid) for efficiency
+    zeroMem(addr xu.p.data[oldLen], (newLen - oldLen) * sizeof(T))
+  else:
+    # assume that zero is not a valid default
+    var i = oldLen
+    while i < newLen:
+      # the memory is in an unknown state, and ``.nodestroy`` makes sure that
+      # the assignment is a blit-copy
+      xu.p.data[i] = default(T)
+      inc i
+
+{.pop.}
+
 proc setLen[T](s: var seq[T], newlen: Natural) =
   {.noSideEffect.}:
     if newlen < s.len:
@@ -124,6 +143,7 @@ proc setLen[T](s: var seq[T], newlen: Natural) =
       if xu.p == nil or xu.p.cap < newlen:
         xu.p = cast[typeof(xu.p)](prepareSeqAdd(oldLen, xu.p, newlen - oldLen, sizeof(T), alignof(T)))
       xu.len = newlen
+      prepareSeqSlots(xu, oldLen, newlen)
 
 proc newSeq[T](s: var seq[T], len: Natural) =
   shrink(s, 0)
