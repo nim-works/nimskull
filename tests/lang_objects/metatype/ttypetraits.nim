@@ -388,3 +388,36 @@ block: # enum.len
     doAssert MyEnum.enumLen == 4
     doAssert OtherEnum.enumLen == 3
     doAssert MyFlag.enumLen == 4
+
+{.experimental: "strictNotNil".}
+
+block supports_zero_mem:
+  type
+    RequiresInit {.requiresInit.} = object
+    WithDestructor = object
+    Distinct = distinct int
+    PtrNotNil = ptr int not nil
+
+  proc `=destroy`(x: var WithDestructor) =
+    discard
+
+  # primitive types and built-in dynamic containers support zeroMem
+  doAssert supportsZeroMem(int)
+  doAssert supportsZeroMem((int, int))
+  doAssert supportsZeroMem(seq[int])
+  doAssert supportsZeroMem(Distinct)
+
+  # a type having a destructor doesn't preclude it from being initialize-able
+  # with zeroMem
+  doAssert supportsZeroMem(WithDestructor)
+
+  doAssert not supportsZeroMem(range[1..2])
+  doAssert not supportsZeroMem(openArray[int])
+  doAssert not supportsZeroMem(var int)
+  doAssert not supportsZeroMem(PtrNotNil)
+  # requiresInit types - and the types they're part of - do not support zeroMem
+  doAssert not supportsZeroMem(RequiresInit)
+  # knownIssue: the requiresInit condition isn't propagated to array and tuple
+  # types
+  doAssert supportsZeroMem(array[1, RequiresInit]), "works now"
+  doAssert supportsZeroMem((RequiresInit,)), "works now"

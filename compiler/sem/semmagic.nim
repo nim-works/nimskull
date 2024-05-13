@@ -222,6 +222,18 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
     let complexObj = containsGarbageCollectedRef(t) or
                      hasDestructor(t)
     result = newIntNodeT(toInt128(ord(not complexObj)), traitCall, c.idgen, c.graph)
+  of "supportsZeroMem":
+    # Zero initialization is not valid for:
+    # * types requiring explicit initialization
+    # * partial types (package-level objects)
+    # * object types with a type header
+    proc pred(t: PType): bool =
+      # object with type header? or package-level object?
+      t.kind == tyObject and (not isObjLackingTypeField(t) or
+        sfForward in t.sym.flags)
+
+    let cond = requiresInit(operand) or searchTypeFor(operand, pred)
+    result = newIntNodeT(toInt128(ord(not cond)), traitCall, c.idgen, c.graph)
   of "isNamedTuple":
     var operand = operand.skipTypes({tyGenericInst})
     let cond = operand.kind == tyTuple and operand.n != nil

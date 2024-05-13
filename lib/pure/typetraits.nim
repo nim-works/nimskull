@@ -93,6 +93,12 @@ proc supportsCopyMem*(t: typedesc): bool {.magic: "TypeTrait".}
   ##
   ## Other languages name a type like these `blob`:idx:.
 
+proc supportsZeroMem*(t: typedesc): bool {.magic: "TypeTrait".}
+  ## This trait returns true if using `zeroMem`:idx: on a location of type `t`
+  ## brings the location into its "default-initialized" state. This doesn't
+  ## imply that using `zeroMem`:idx: on a location already storing a value is
+  ## valid.
+
 proc isNamedTuple*(T: typedesc): bool {.magic: "TypeTrait".} =
   ## Returns true for named tuples, false for any other type.
   runnableExamples:
