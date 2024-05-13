@@ -238,15 +238,17 @@ block item_with_type_field:
   # properly
   type Obj = object of RootObj
 
-  proc test(x: RootObj) =
+  proc test(x: ptr RootObj) =
+    # if the type field wasn't initialized, the `of` check is going to crash
+    # with a nil-access defect
     doAssert x of Obj
 
   # after ``newSeq``:
   var s: seq[Obj]
   s.newSeq(1)
-  test(s[0])
+  test(addr s[0])
 
   # after ``setLen``:
   var s2: seq[Obj]
   s.setLen(1)
-  test(s[0])
+  test(addr s[0])
