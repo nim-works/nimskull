@@ -223,12 +223,14 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
                      hasDestructor(t)
     result = newIntNodeT(toInt128(ord(not complexObj)), traitCall, c.idgen, c.graph)
   of "supportsZeroMem":
-    # * if the type requires initialization, zero-initializing it is not valid
-    # * zero-initialization is not valid for object types with type fields
-    #   either
+    # Zero initialization is not valid for:
+    # * types requiring explicit initialization
+    # * partial types (package-level objects)
+    # * object types with a type header
     proc pred(t: PType): bool =
-      # object with type header?
-      t.kind == tyObject and not isObjLackingTypeField(t)
+      # object with type header? or package-level object?
+      t.kind == tyObject and (not isObjLackingTypeField(t) or
+        sfForward in t.sym.flags)
 
     let cond = requiresInit(operand) or searchTypeFor(operand, pred)
     result = newIntNodeT(toInt128(ord(not cond)), traitCall, c.idgen, c.graph)
