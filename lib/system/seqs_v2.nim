@@ -12,6 +12,12 @@
 # strs already imported allocateds for us.
 
 proc supportsCopyMem(t: typedesc): bool {.magic: "TypeTrait".}
+when defined(nimskullHasSupportsZeroMem):
+  proc supportsZeroMem(t: typedesc): bool {.magic: "TypeTrait".}
+else:
+  # approximate detection of whether a type supports zeroMem
+  template supportsZeroMem(t: typedesc): bool =
+    t is (SomeNumber or enum or ptr or ref or pointer or proc or seq or string)
 
 ## Default seq implementation used by Nim's core.
 type
@@ -128,18 +134,12 @@ proc add*[T](x: var seq[T]; value: sink T) {.magic: "AppendSeqElem", noSideEffec
 
 proc prepareSeqSlots[T](xu: ptr NimSeqV2[T],
                         oldLen, newLen: int) {.inline, nodestroy.} =
-  when T is (SomeNumber or ptr or ref or pointer or proc or seq or string):
-    # special case numeric and pointer types (types for which it's known that
-    # zero is valid) for efficiency
-    zeroMem(addr xu.p.data[oldLen], (newLen - oldLen) * sizeof(T))
-  else:
-    # assume that zero is not a valid default
-    var i = oldLen
-    while i < newLen:
-      # the memory is in an unknown state, and ``.nodestroy`` makes sure that
-      # the assignment is a blit-copy
-      xu.p.data[i] = default(T)
-      inc i
+  var i = oldLen
+  while i < newLen:
+    # the memory is in an unknown state, and ``.nodestroy`` makes sure that
+    # the assignment is a blit-copy
+    xu.p.data[i] = default(T)
+    inc i
 
 {.pop.}
 
@@ -154,7 +154,11 @@ proc setLen[T](s: var seq[T], newlen: Natural) =
       if xu.p == nil or xu.p.cap < newlen:
         xu.p = cast[typeof(xu.p)](prepareSeqAdd(oldLen, xu.p, newlen - oldLen, sizeof(T), alignof(T)))
       xu.len = newlen
-      prepareSeqSlots(xu, oldLen, newlen)
+      when supportsZeroMem(T):
+        # optimization: clear the whole memory region in one go
+        zeroMem(addr xu.p.data[oldLen], (newlen - oldLen) * sizeof(T))
+      else:
+        prepareSeqSlots(xu, oldLen, newlen)
 
 proc newSeq[T](s: var seq[T], len: Natural) =
   shrink(s, 0)
