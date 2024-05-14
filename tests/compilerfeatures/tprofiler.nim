@@ -21,14 +21,10 @@ var
 
 proc enabledCallback(): bool =
   result = enabled
-  # XXX: an issue with the profiler runtime requires disabling the callback
-  #      until the `profileCallback` is done
-  enabled = false
 
 proc profileCallback(st: StackTrace) =
   traces[numTraces] = st
   inc numTraces
-  enabled = true # re-enable
 
 {.pop.}
 
