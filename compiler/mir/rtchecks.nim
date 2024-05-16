@@ -269,6 +269,30 @@ proc emitFieldCheck(tree; source: SourceMap; call; graph; env; bu) =
       bu.emitByVal msgVal
       bu.emitByVal extra
 
+proc emitObjectCheck(tree; call; graph; env; bu) =
+  ## For ``chckObj(o, typ)`` emits:
+  ##   def _1 = of(arg o[], arg typ)
+  ##   def _2 = not(arg _1)
+  ##   if _2:
+  ##     raiseObjectConversionError()
+  let
+    arg = bu.inline(tree, NodePosition tree.argument(call, 0))
+    typ = env[arg.typ].skipTypes(abstractInst + tyUserTypeClasses)
+
+  let cond = bu.wrapTemp BoolType:
+    bu.buildMagicCall mOf, BoolType:
+      # dereference first. Object checks are always guarded by an ``!= nil``
+      # check, so the pointer/ref is guaranteed to be non-nil
+      bu.subTree mnkArg:
+        bu.subTree mnkDeref, env.types.add(typ[^1]):
+          bu.use arg
+      bu.subTree mnkArg:
+        bu.emitFrom(tree, NodePosition tree.argument(call, 1))
+
+  bu.buildIfNot cond:
+    bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseObjectConversionError")):
+      discard
+
 proc lowerChecks*(body; graph; env; changes: var Changeset) =
   ## Lowers all magic calls implementing the run-time checks.
   template tree: MirTree = body.code
@@ -296,5 +320,9 @@ proc lowerChecks*(body; graph; env; changes: var Changeset) =
         # make sure to take the ``mnkVoid`` wrapper into account
         changes.replaceMulti(tree, tree.parent(call), bu):
           emitFieldCheck(tree, body.source, call, graph, env, bu)
+      of mChckObj:
+        let call = tree.parent(i)
+        changes.replaceMulti(tree, tree.parent(call), bu):
+          emitObjectCheck(tree, call, graph, env, bu)
       else:
         discard "not relevant"

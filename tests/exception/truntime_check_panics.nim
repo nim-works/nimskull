@@ -22,7 +22,8 @@ scope:
   def _11: bool = isNil(arg r)
   def _10: bool = not(arg _11)
   if _10:
-    chckObj(arg r, arg type(Sub:ObjectType))
+    scope:
+      chckObj(arg r, arg type(Sub:ObjectType))
   discard r.(Sub)
   def _12: float = mulF64(arg f, arg f)
   chckNaN(arg _12)

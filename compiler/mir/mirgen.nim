@@ -2064,10 +2064,11 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
                 c.emitByVal val
     do:
       # the check:
-      c.buildStmt mnkVoid:
-        c.buildDefectMagicCall mChckObj, VoidType:
-          c.emitByVal val
-          c.emitByVal typeLit(c.typeToMir(n.check))
+      c.buildStmt mnkScope:
+        c.subTree mnkVoid:
+          c.buildDefectMagicCall mChckObj, VoidType:
+            c.emitByVal val
+            c.emitByVal typeLit(c.typeToMir(n.check))
 
     c.buildOp mnkPathConv, typ:
       c.use val
