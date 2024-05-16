@@ -26,6 +26,7 @@ import
     injecthooks,
     mirbodies,
     mirbridge,
+    mirchangesets,
     mirconstr,
     mirenv,
     mirgen,
@@ -347,7 +348,18 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
   ## Applies all applicable MIR passes to the `body`. `prc` is the enclosing
   ## procedure.
   if shouldInjectDestructorCalls(prc):
-    injectDestructorCalls(graph, idgen, env, prc, body)
+    block:
+      var c = initChangeset(body)
+      injectDestructorCalls(body.code, graph, env, c)
+      # XXX: ``vmgen`` doesn't support the code resulting from the switch
+      #      lowering, so branch destructors are disabled for the VM target
+      #      at the moment
+      if graph.config.backend != backendNimVm:
+        lowerBranchSwitch(body.code, graph, idgen, env, c)
+      body.apply(c)
+
+    # hook injection needs to happen *after* move analysis and destroy
+    # injection
     injectHooks(body, graph, env, prc)
 
     if graph.config.arcToExpand.hasKey(prc.name.s):
