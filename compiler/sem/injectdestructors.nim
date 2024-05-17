@@ -826,56 +826,35 @@ func shouldInjectDestructorCalls*(owner: PSym): bool =
      {sfInjectDestructors, sfGeneratedOp} * owner.flags == {sfInjectDestructors} and
      (owner.kind != skIterator or not isInlineIterator(owner.typ))
 
-proc injectDestructorCalls*(g: ModuleGraph, idgen: IdGenerator,
-                            env: var MirEnv, owner: PSym,
-                            body: var MirBody) =
-  ## The ``injectdestructors`` pass entry point. The pass is made up of
-  ## multiple sub-passes, hence the mutable `body` (as opposed
-  ## to returning a ``Changeset``).
-  ##
-  ## For now, semantic errors and other diagnostics related to lifetime-hook
-  ## usage are also reported here.
+proc lowerBranchSwitch*(tree: MirTree, g: ModuleGraph, idgen: IdGenerator,
+                        env: var MirEnv, changes: var Changeset) =
+  ## Lowers ``mnkSwitch`` operations into normal assignments, with a branch
+  ## destructor injected if the respective record-case requires it (i.e.,
+  ## because it contains fields requiring destruction).
+  for i, n in tree.pairs:
+    if n.kind == mnkSwitch:
+      changes.replaceMulti(tree, i, buf):
+        lowerBranchSwitch(buf, tree, g, idgen, env, i)
 
-  # apply the first batch of passes:
-  block:
-    var changes = initChangeset(body)
-    # the VM implements branch switching itself - performing the lowering for
-    # code meant to run in it would be harmful
-    # FIXME: discriminant assignment lowering also needs to be disabled for
-    #        when generating code running at compile-time (e.g. inside a
-    #        macro)
-    # XXX: the lowering is *always* necessary, as the destructors for
-    #      fields inside switched-away-from branches won't be called
-    #      otherwise
-    # TODO: make the branch-switch lowering a separate and standalone pass --
-    #       it's not directly related to the rest of the processing here
-    if g.config.backend != backendNimVm:
-      for i, n in body.code.pairs:
-        if n.kind == mnkSwitch:
-          changes.replaceMulti(body.code, i, buf):
-            lowerBranchSwitch(buf, body.code, g, idgen, env, i)
-
-    body.apply(changes)
-
-  # apply the second batch of passes:
+proc injectDestructorCalls*(tree: MirTree, g: ModuleGraph, env: var MirEnv,
+                            changes: var Changeset) =
+  ## Collapses sink assignments into either copy or move assignments, and
+  ## injects the destroy operations for all entities requiring destruction.
   block:
     var
-      changes = initChangeset(body)
-      actx = AnalyseCtx(graph: g, cfg: computeDfg(body.code))
+      actx = AnalyseCtx(graph: g, cfg: computeDfg(tree))
 
     let
-      entities = initEntityDict(body.code, actx.cfg, env)
-      moves = collapseSink(body.code, actx.cfg, entities, env.types)
+      entities = initEntityDict(tree, actx.cfg, env)
+      moves = collapseSink(tree, actx.cfg, entities, env.types)
 
-    let destructors = computeDestructors(body.code, actx.cfg, entities)
+    let destructors = computeDestructors(tree, actx.cfg, entities)
 
     rewriteAssignments(
-      body.code, actx,
+      tree, actx,
       AnalysisResults(moves: cursor(moves),
                       entities: cursor(entities),
                       destroy: cursor(destructors)),
       env.types, changes)
 
-    injectDestructors(body.code, g, destructors, env, changes)
-
-    body.apply(changes)
+    injectDestructors(tree, g, destructors, env, changes)
