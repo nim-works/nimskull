@@ -1084,7 +1084,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         arg n[2]
     else:
       genCall(c, n)
-  of mNot, mLtI, mLengthSeq, mLengthStr, mSamePayload:
+  of mNot, mLtI, mLengthSeq, mLengthStr, mSamePayload, mIsNil:
     if n[0].typ == nil:
       # simple translation. None of the arguments need to be passed by lvalue
       c.buildMagicCall m, rtyp:
@@ -1111,6 +1111,11 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
       # The normal one doesn't (see ``cyclebreaker.getDynamicTypeInfo``), so we
       # can safely use ``genCall``
       genCall(c, n)
+  of mAsgnDynlibVar:
+    c.buildMagicCall m, VoidType:
+      # note: the first operand may be a procedure symbol
+      c.emitByName ekReassign, genOperand(c, n[1])
+      arg n[2]
 
   # special macro related magics:
   of mExpandToAst:
@@ -2131,36 +2136,6 @@ proc generateAssignment*(graph: ModuleGraph, env: var MirEnv,
   genLocInit(c, n[0], n[2])
   swapState()
   env = move c.env # move back
-
-proc generateCode*(graph: ModuleGraph, env: var MirEnv,
-                   config: TranslationConfig, n: PNode,
-                   builder: var MirBuilder, source: var SourceMap) =
-  ## Generates MIR code that is semantically equivalent to the expression or
-  ## statement `n`, appending the resulting code and the corresponding origin
-  ## information to `code` and `source`, respectively.
-  var c = TCtx(context: skUnknown, graph: graph, config: config, env: move env)
-  c.scopeDepth = 2 # assume that this is not top-level code
-
-  template swapState() =
-    swap(c.sp.map, source)
-    swap(c.builder, builder)
-
-  # for the duration of ``generateCode`` we move the state into ``TCtx``
-  swapState()
-
-  if n.typ.isEmptyType:
-    withFront c.builder:
-      gen(c, n)
-  else:
-    c.builder.useSource(c.sp, n)
-    # XXX: restructure the ``mirgen`` API to use a dedicated procedure for
-    #      generating expression code
-    let v = genUse(c, n)
-    c.use v
-
-  # move the state back into the output parameters:
-  swapState()
-  env = move c.env
 
 proc addParams(c: var TCtx, prc: PSym, signature: PType) =
   ## Translates the result variable and the parameters (taken from `signature`)
