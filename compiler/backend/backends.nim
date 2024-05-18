@@ -466,75 +466,80 @@ proc produceFragmentsForGlobals(
 
 # ----- dynlib handling -----
 
-proc genLoadLib(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
-                loc, name: Value): Value =
-  ## Emits the MIR code for ``loc = nimLoadLibrary(name); loc.isNil``.
-  let loadLib = graph.getCompilerProc("nimLoadLibrary")
+proc newCall(sym: PSym, info: TLineInfo, args: varargs[PNode]): PNode =
+  # if the symbol has no type (likely because it's a magic), use nil for the
+  # type and have ``mirgen`` figure it out
+  result = newTreeIT(nkCall, info, (if sym.typ != nil: sym.typ[0] else: nil))
+  result.add newSymNode(sym)
+  for it in args.items:
+    result.add it
 
-  bu.subTree MirNode(kind: mnkAsgn):
-    bu.use loc
-    bu.buildCall env.procedures.add(loadLib), env.types.add(loadLib.typ[0]):
-      bu.emitByVal name
+proc newBoolCall(sym: PSym, info: TLineInfo, graph: ModuleGraph,
+                 a: PNode; b = PNode(nil)): PNode =
+  result = newTreeIT(nkCall, info, graph.getSysType(unknownLineInfo, tyBool))
+  result.add newSymNode(sym)
+  result.add a
+  if b != nil:
+    result.add b
 
-  bu.wrapTemp(BoolType):
-    bu.buildMagicCall mIsNil, BoolType:
-      bu.emitByVal loc
+proc genLoadLib(graph: ModuleGraph, loc, name: PNode): PNode =
+  ## Generates the AST for ``loc = nimLoadLibrary(name); loc.isNil``.
+  let
+    loadLib = graph.getCompilerProc("nimLoadLibrary")
+    typ = graph.getSysType(unknownLineInfo, tyBool)
 
-proc genLibSetup(graph: ModuleGraph, env: var MirEnv, conf: BackendConfig,
-                 libVar: GlobalId, path: PNode,
-                 bu: var MirBuilder, source: var SourceMap) =
-  ## Emits the MIR code for loading a dynamic library to `dest`, with `name`
-  ## being the symbol of the location that stores the handle and `path` the
-  ## expression used with the ``.dynlib`` pragma.
+  result = nkStmtListExpr.newTreeIT(loc.info, typ,
+    newTree(nkAsgn, loc, newCall(loadLib, loc.info, name)),
+    newBoolCall(graph.operators.opIsNil, loc.info, graph, loc))
+
+proc genLibSetup(graph: ModuleGraph, libVar: PNode, path: PNode): PNode =
+  ## Generates the AST for a statement loading and assigning a dynlib handle
+  ## to `libVar`, with `path` being the expression used with the ``.dynlib``
+  ## pragma.
   let
     errorProc = graph.getCompilerProc("nimLoadLibraryError")
-    val       = toValue(libVar, env.types.add(env[libVar].typ))
 
   if path.kind in nkStrKinds:
     # the library name is known at compile-time
     var candidates: seq[string]
     libCandidates(path.strVal, candidates)
 
-    let outer = LabelId(1) # labels are 1-based
-
-    # generate an 'or' chain that tries every candidate until one is found
+    # generate an 'and' chain that tries every candidate until one is found
     # for which loading succeeds
-    bu.subTree MirNode(kind: mnkBlock, label: outer):
-      bu.add MirNode(kind: mnkStmtList) # manual, for less visual nesting
-      for candidate in candidates.items:
-        var tmp = genLoadLib(bu, graph, env, val):
-          literal(env.getOrIncl(candidate), StringType)
+    var check = PNode(nil)
+    for candidate in candidates.items:
+      let e = genLoadLib(graph, libVar):
+        newStrNode(candidate, errorProc.typ[1])
+      if check.isNil:
+        check = e
+      else:
+        check = newBoolCall(graph.operators.opAnd, path.info, graph, check, e)
 
-        tmp = bu.wrapTemp(BoolType):
-          bu.buildMagicCall mNot, BoolType:
-            bu.emitByVal tmp
-
-        bu.subTree mnkIf:
-          bu.use tmp
-          bu.add MirNode(kind: mnkBreak, label: outer)
-
-      # if none of the candidates worked, a run-time error is reported:
-      bu.subTree mnkVoid:
-        bu.buildCall env.procedures.add(errorProc), VoidType:
-          bu.emitByVal literal(env.getOrIncl(path.strVal), StringType)
-      bu.add endNode(mnkStmtList)
+    assert check != nil
+    # if all candidates failed, the error reporting proc is called
+    result = nkIfStmt.newTree(
+      nkElifBranch.newTree(check, newCall(errorProc, path.info, path)))
   else:
     # the name of the dynamic library to load the procedure from is only known
     # at run-time
-    let nameTemp = bu.allocTemp(StringType)
-    bu.buildStmt mnkDef:
-      bu.use nameTemp
-      generateCode(graph, env, conf.tconfig, path, bu, source)
 
-    let cond = genLoadLib(bu, graph, env, val, nameTemp)
-    bu.subTree mnkIf:
-      bu.use cond
-      bu.subTree mnkVoid:
-        bu.buildCall env.procedures.add(errorProc), VoidType:
-          bu.emitByVal nameTemp
+    # since the temporary is translated to MIR immediately afterwards, using
+    # nil as the owner is fine
+    let tmp = newSym(skLet, graph.cache.getIdent(":tmp"), nextSymId graph.idgen,
+                     nil, path.info, path.typ)
+    # the expression is captured in a temporary first, which is then passed to
+    # ``nimLoadLibrary``
+    result = nkStmtList.newTree(
+      nkLetSection.newTree(
+        nkIdentDefs.newTree(newSymNode(tmp), graph.emptyNode, path)),
+      nkIfStmt.newTree(
+        nkElifBranch.newTree(
+          genLoadLib(graph, libVar, newSymNode(tmp)),
+          newCall(errorProc, path.info, newSymNode(tmp)))))
 
 proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
-                   env: var MirEnv, conf: BackendConfig, sym: PSym): MirBody =
+                   env: var MirEnv, conf: BackendConfig,
+                   owner, sym: PSym): MirBody =
   ## Produces a MIR fragment with the load-at-run-time logic for procedure/
   ## variable `sym`. If not generated already, the loading logic for the
   ## necessary dynamic library is emitted into the fragment and the global
@@ -544,21 +549,11 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
     loadProc = graph.getCompilerProc("nimGetProcAddr")
     path     = transformExpr(graph, m.idgen, m.sym, lib.path)
     extname  = newStrNode(nkStrLit, sym.extname)
+    magic    = createMagic(graph, graph.idgen, "asgnDynlibVar", mAsgnDynlibVar)
 
   extname.typ = graph.getSysType(lib.path.info, tyCstring)
 
-  var bu = initBuilder(result.source.add(path))
-  discard bu.addLocal(Local()) # empty result slot
-
-  let dest =
-    if sym.kind in routineKinds:
-      toValue(env.procedures[sym], env.types.add(sym.typ))
-    else:
-      toValue(env.globals[sym], env.types.add(sym.typ))
-
-  # the scope makes sure that locals are destroyed once loading the
-  # procedure has finished
-  bu.add MirNode(kind: mnkScope)
+  var body: PNode
 
   if path.kind in nkCallKinds and path.typ != nil and
      path.typ.kind in {tyPointer, tyProc}:
@@ -566,41 +561,25 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
     path[^1] = extname # update to the correct name
     # XXX: ^^ maybe sem should do this instead...
 
-    let tmp = bu.allocTemp(dest.typ)
-    bu.buildStmt mnkDef:
-      bu.use tmp
-      generateCode(graph, env, conf.tconfig, path, bu, result.source)
-    bu.subTree mnkVoid:
-      bu.buildMagicCall mAsgnDynlibVar, VoidType:
-        bu.emitByName(dest, ekReassign)
-        bu.emitByVal(tmp)
+    body = newCall(magic, path.info): [newSymNode(sym), path]
   else:
     # the imported procedure is identified by the symbol's external name and
     # the built-in proc loading logic is to be used
-    let
-      isNew = lib.name in env.globals
-      libVar = env.globals.add(lib.name)
-      rtyp = env.types.add(loadProc.typ[0])
-
-    if not isNew:
+    body = newTree(nkStmtList)
+    if lib.name notin env.globals:
       # the library hasn't been loaded yet
-      genLibSetup(graph, env, conf, libVar, path, bu, result.source)
+      body.add genLibSetup(graph, newSymNode(lib.name), path)
       if path.kind in nkStrKinds: # only register statically-known dependencies
         data.libs.add sym.annex
 
-    # generate the code for ``sym = cast[typ](nimGetProcAddr(lib, extname))``
-    let tmp = bu.wrapTemp(rtyp):
-      bu.buildCall env.procedures.add(loadProc), rtyp:
-        bu.emitByVal toValue(libVar, env.types.add(lib.name.typ))
-        bu.emitByVal literal(env.getOrIncl(extname.strVal), CstringType)
+    # generate the AST for ``asgnDynlibVar(sym, nimGetProcAddr(lib, extname))``
+    body.add newCall(magic, path.info, [
+      newSymNode(sym),
+      newCall(loadProc, path.info, newSymNode(lib.name), extname)])
 
-    bu.subTree mnkVoid:
-      bu.buildMagicCall mAsgnDynlibVar, VoidType:
-        bu.emitByName(dest, ekReassign)
-        bu.emitByVal tmp
-
-  bu.add endNode(mnkScope)
-  (result.code, result.locals) = finish(bu, result.locals)
+  echoInput(graph.config, sym, body)
+  result = generateCode(graph, env, owner, conf.tconfig, body)
+  echoMir(graph.config, sym, result)
 
 # ----- discovery and queueing logic -----
 
@@ -806,7 +785,7 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
     if exfDynamicLib in it.extFlags:
       let module = moduleId(it).FileIndex
       var frag = produceLoader(graph, modules[module], discovery, env, conf,
-                               it)
+                               modules[module].dynlibInit, it)
       pushProgress(modules[module].dynlibInit, frag, module)
 
   # let the entities discovered while producing the loaders "bleed" over
@@ -868,7 +847,7 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
 
       # ... then produce the loader code
       let frag = produceLoader(graph, modules[module], discovery, env, conf,
-                               env[id])
+                               modules[module].dynlibInit, env[id])
       pushProgress(modules[module].dynlibInit, frag, module)
     of wikReport:
       reportBody(item.fragId, module, item.evt, item.frag)
