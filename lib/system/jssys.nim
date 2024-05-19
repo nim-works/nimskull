@@ -696,7 +696,7 @@ proc arrayConstr(len: int, value: JSRef, typ: PNimType): JSRef {.
   # types are fake
   asm """
     var result = new Array(`len`);
-    for (var i = 0; i < `len`; ++i) result[i] = nimCopy(null, `value`, `typ`);
+    for (var i = 0; i < `len`; ++i) result[i] = `nimCopy`(null, `value`, `typ`);
     return result;
   """
 
