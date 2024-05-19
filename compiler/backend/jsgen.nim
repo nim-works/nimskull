@@ -1457,8 +1457,6 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
       result = "new $1($2)" % [rope(jsTyp), rope(length)]
     elif length > 32:
       useMagic(p, "arrayConstr")
-      # XXX: arrayConstr depends on nimCopy. This line shouldn't be necessary.
-      useMagic(p, "nimCopy")
       result = "arrayConstr($1, $2, $3)" % [rope(length),
           createVar(p, e, false), genTypeInfo(p, e)]
     else:
