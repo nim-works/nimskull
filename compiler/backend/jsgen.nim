@@ -114,6 +114,8 @@ type
     typeInfoGenerated: IntSet
     dataGenerated: IntSet
     unique: int    # for temp identifier generation
+    requestArrayConstr: bool
+      ## used for deferring registration of the ``arrayConstr`` proc
 
     names: Table[int, string]
       ## maps a symbol IDs to the symbol's JavaScript name
@@ -1456,7 +1458,12 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
     if jsTyp.len > 0:
       result = "new $1($2)" % [rope(jsTyp), rope(length)]
     elif length > 32:
-      useMagic(p, "arrayConstr")
+      if p.prc.isNil:
+        # we're called in a context where registering a new procedure could be
+        # disallowed, so the magic cannot be directly marked as used
+        p.g.requestArrayConstr = true
+      else:
+        useMagic(p, "arrayConstr")
       result = "arrayConstr($1, $2, $3)" % [rope(length),
           createVar(p, e, false), genTypeInfo(p, e)]
     else:
@@ -2376,8 +2383,14 @@ proc genStmts(p: PProc, stmts: openArray[CgNode]) =
   # too, hence -1 as the start
   gen(p, desc, stmts, -1)
 
+proc handleRequestArrayConstr(g: PGlobals, graph: ModuleGraph) =
+  if g.requestArrayConstr:
+    discard g.env.procedures.add(graph.getCompilerProc("arrayConstr"))
+    g.requestArrayConstr = false
+
 proc genProc*(g: PGlobals, module: BModule, id: ProcedureId,
               body: sink Body): Rope =
+  handleRequestArrayConstr(g, module.graph)
   var p = startProc(g, module, id, body)
   p.nested: genStmts(p, p.fullBody.code.kids)
   result = finishProc(p)
@@ -2386,6 +2399,7 @@ proc genPartial*(p: PProc, n: CgNode) =
   ## Generates the JavaScript code for `n` and appends the result to `p`. This
   ## is intended for CG IR that wasn't already available when calling
   ## `startProc`.
+  handleRequestArrayConstr(p.g, p.module.graph)
   synchronize(p.locals, p.fullBody.locals)
   analyseIfAddressTaken(p.fullBody.code, p.addrTaken)
   genStmts(p, n.kids)
