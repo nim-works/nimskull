@@ -78,7 +78,7 @@ proc getOp*(g: ModuleGraph, t: PType, kind: TTypeAttachedOp): PSym =
 proc isUsedForSink(tree: MirTree, stmt: NodePosition): bool =
   ## Computes whether the definition statement is something produced for
   ## sink parameter handling.
-  assert tree[stmt].kind in {mnkDef, mnkDefUnpack}
+  assert tree[stmt].kind == mnkDef
   let def = tree.operand(stmt, 0)
   if tree[def].kind != mnkTemp:
     # only temporaries are used for sink handling
@@ -198,7 +198,7 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
         diags.add LocalDiag(pos: src, kind: ldkPassCopyToSink)
 
       case tree[stmt].kind
-      of mnkDef, mnkDefUnpack:
+      of mnkDef:
         # turn a ``def x = copy a.b`` into:
         #   def x
         #   =copy(name x, arg a.b)
@@ -235,7 +235,7 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
         typ  = tree[stmt, 0].typ
 
       if not hasDestructor(env[typ]) or
-         tree[stmt].kind in {mnkDef, mnkDefUnpack, mnkInit}:
+         tree[stmt].kind in {mnkDef, mnkInit}:
         # nothing to do if:
         # * the type has no hooks
         # * it's guaranteed that there's no value in the destination

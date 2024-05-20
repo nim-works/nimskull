@@ -98,8 +98,6 @@ type
     # future direction: remove this distinction and perform all related decision
     # making (e.g., injecting destructors) requiring knowledge of locations'
     # ownership in ``mirgen``. There's only going to be the ``Def`` kind
-    mnkDefUnpack ## intermediate hack required by destructor injection. Don't
-                 ## use
     mnkBind      ## introduces an alias that may be used for read/write
                  ## access, but not for direct assignments. The source
                  ## expression must not be empty
@@ -319,7 +317,7 @@ const
   AllNodeKinds* = {low(MirNodeKind)..high(MirNodeKind)}
     ## Convenience set containing all existing node kinds
 
-  DefNodes* = {mnkDef, mnkDefCursor, mnkDefUnpack, mnkBind, mnkBindMut}
+  DefNodes* = {mnkDef, mnkDefCursor, mnkBind, mnkBindMut}
     ## Node kinds that represent definition statements (i.e. something that
     ## introduces a named entity)
 

@@ -1492,7 +1492,7 @@ proc genVarTuple(c: var TCtx, n: PNode) =
   else:
     # generate the definition for the temporary:
     let val = c.allocTemp(c.typeToMir(initExpr.typ))
-    c.buildStmt mnkDefUnpack:
+    c.buildStmt mnkDef:
       c.use val
       # ensure that the temporary owns the tuple value:
       genAsgnSource(c, initExpr, {dfEmpty, dfOwns})

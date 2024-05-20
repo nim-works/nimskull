@@ -458,7 +458,7 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
       if ifs.len > 0 and tree[i, 0].label == ifs[^1]:
         join i, ifs.pop()
 
-    of mnkDef, mnkDefCursor, mnkDefUnpack, mnkAsgn, mnkInit:
+    of mnkDef, mnkDefCursor, mnkAsgn, mnkInit:
       emitForDef(env, tree, i)
     of mnkSwitch:
       # the switch statement invalidates the destination rather than

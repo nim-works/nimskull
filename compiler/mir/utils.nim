@@ -537,7 +537,7 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: var int, result: var string,
 
   let n {.cursor.} = next(nodes, i)
   case n.kind
-  of mnkDef, mnkDefUnpack:
+  of mnkDef:
     tree "def ":
       renderNameWithType(nodes, i, result, c)
       if nodes[i].kind != mnkNone:

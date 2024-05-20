@@ -241,7 +241,7 @@ func initEntityDict(tree: MirTree, dfg: DataFlowGraph, env: MirEnv): EntityDict 
   ## and cursor locations (non-owning) are not include in the dictionary.
   for i, n, scope in nodesWithScope(tree):
     case n.kind
-    of mnkDef, mnkDefUnpack:
+    of mnkDef:
       let entity = tree[getDefEntity(tree, i)]
       if hasDestructor(env[entity.typ]):
         result.mgetOrPut(toName(entity), @[]).add:
@@ -550,7 +550,7 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
     elif opc == opDef and (let stmt = tree.parent(NodePosition val);
           tree[stmt, 1].kind in {mnkCopy, mnkMove, mnkSink}):
       # specialize the modifier-using assignment
-      assert tree[stmt].kind in {mnkDef, mnkDefUnpack, mnkAsgn, mnkInit}
+      assert tree[stmt].kind in {mnkDef, mnkAsgn, mnkInit}
       specializeAsgn(tree, ctx, ar, stmt, i, c)
 
 # --------- switch lowering -------------
