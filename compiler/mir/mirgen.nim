@@ -155,6 +155,8 @@ type
     scopeDepth: int ## the current amount of scope nesting
     inLoop: int
       ## > 0 if the current statement/expression is part of a loop
+    injectDestructors: bool
+      ## whether injection of destructors is enabled
     isDisabled: bool
       ## set to true when entering unreachable code. Disables translation
       ## and emission of control-flow statements at block/scope ends
@@ -274,7 +276,9 @@ template subTree(c: var TCtx, n: MirNode, body: untyped) =
 template scope(c: var TCtx, body: untyped) =
   inc c.scopeDepth
   c.builder.subTree mnkScope:
+    let prev = c.blocks.startScope()
     body
+    c.blocks.closeScope(c.builder, prev, not c.isDisabled)
   dec c.scopeDepth
 
 template use(c: var TCtx, val: Value) =
@@ -466,6 +470,12 @@ template buildIf(c: var TCtx, cond, body: untyped) =
   c.buildStmt mnkEndStruct:
     c.add labelNode(label)
 
+proc register(c: var TCtx, loc: Value) =
+  ## If destructor injection is enabled for the current context and `val`,
+  ## registers `loc` for destruction at the end of the current scope.
+  if c.injectDestructors and c.env[loc.typ].hasDestructor():
+    c.blocks.register(loc)
+
 proc singleToValue(c: var TCtx, e: PMirExpr, i: int): Value =
   c.builder.useSource(c.sp, e[i].orig)
   let f = c.builder.push: genx(c, e, i)
@@ -487,6 +497,9 @@ proc toValue(c: var TCtx, e: PMirExpr, i: int, def: MirNodeKind): Value =
       c.subTree def:
         c.use result
         c.builder.pop(f)
+
+    if def == mnkDef:
+      c.register(result)
 
 proc toValue(c: var TCtx, e: PMirExpr, i: int): Value =
   ## Generates the MIR code for the given expression and turns it into a
@@ -1425,6 +1438,9 @@ proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
       else:
         c.add MirNode(kind: mnkNone)
 
+    if sfCursor notin s.flags:
+      c.register(genLocation(c, n))
+
 proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
   ## Generates the code for a location definition. `sym` is the symbol of the
   ## location and `initExpr` the initializer expression
@@ -1496,6 +1512,9 @@ proc genVarTuple(c: var TCtx, n: PNode) =
           c.subTree MirNode(kind: mnkPathPos, typ: typ,
                             position: i.uint32):
             c.use val
+
+    # it's guaranteed that all elements are moved out of the tuple, no
+    # destruction is needed
 
 proc genVarSection(c: var TCtx, n: PNode) =
   for a in n:
@@ -1592,6 +1611,10 @@ proc leaveBlock(c: var TCtx) =
   ## if not in an unreachable context.
   if c.isDisabled:
     return # omit the leave actions if not reachable
+
+  if c.scopeDepth > 0:
+    # only emit the early scope exit if still within a scope
+    earlyExit(c.blocks, c.builder)
 
   c.subTree mnkGoto:
     blockExit(c.blocks, c.builder, closest(c.blocks))
@@ -2088,6 +2111,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
       genComplexExpr(c, n.orig):
         Destination(isSome: true, val: tmp, flags: {dfOwns, dfEmpty})
 
+    # the temporary is registered for destruction by the ``pirMat`` handling
     c.use tmp
   of pirCopy:
     c.buildOp mnkCopy, typ:
@@ -2102,6 +2126,19 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
     c.buildOp mnkSink, typ:
       recurse()
   of pirMat, pirMatCursor:
+    template needsDestroy(): bool =
+      # the materialized temporary needs to be destroyed if owning and not
+      # immediately moved afterwards
+      if n.kind == pirMat:
+        var x = i + 1
+        # ignore lvalue conversions:
+        while x < e.len and e[x].kind == pirLvalueConv:
+          inc x
+
+        x == e.len or e[x].kind != pirMove
+      else:
+        false
+
     let f = c.builder.push: recurse()
     # only materialize a temporary if the expression is not already a
     # temporary introduced by the PMIR-to-MIR translation
@@ -2111,6 +2148,15 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
         c.subTree (if n.kind == pirMat: mnkDef else: mnkDefCursor):
           c.use tmp
           c.builder.pop(f)
+
+      if needsDestroy():
+        c.register(tmp)
+      c.use tmp
+    elif needsDestroy():
+      # nothing to materialize (the input is already a temporary), but the
+      # temporary still needs to be registered for destruction
+      let tmp = c.builder.popSingle(f)
+      c.register(tmp)
       c.use tmp
   of pirMatLvalue:
     let tmp = c.allocTemp(typ, true)
@@ -2277,6 +2323,13 @@ proc initCtx(graph: ModuleGraph, config: TranslationConfig, owner: PSym,
   result = TCtx(graph: graph, config: config, env: move env)
   if owner != nil:
     result.userOptions = owner.options
+    result.injectDestructors =
+      sfInjectDestructors in owner.flags and
+      sfGeneratedOp notin owner.flags and
+      goIsCompileTime notin result.config.options
+  else:
+    # default to injecting destructors
+    result.injectDestructors = goIsCompileTime notin result.config.options
 
 proc generateAssignment*(graph: ModuleGraph, env: var MirEnv,
                    config: TranslationConfig, n: PNode,
@@ -2359,6 +2412,8 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
         c.subTree mnkDef:
           c.add nameNode(c, s)
           c.add MirNode(kind: mnkNone)
+        # the sink parameter requires destruction:
+        c.register(genLocation(c, params[i]))
   else:
     # reserve the result slot:
     discard c.addLocal(Local())
