@@ -95,9 +95,7 @@ type
                  ## or temporary. Supports an optional intial value (except for
                  ## procedure definitions)
     mnkDefCursor ## marks the start of existence of a non-owning location
-    # future direction: remove this distinction and perform all related decision
-    # making (e.g., injecting destructors) requiring knowledge of locations'
-    # ownership in ``mirgen``. There's only going to be the ``Def`` kind
+
     mnkBind      ## introduces an alias that may be used for read/write
                  ## access, but not for direct assignments. The source
                  ## expression must not be empty
