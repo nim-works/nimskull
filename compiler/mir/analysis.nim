@@ -18,34 +18,13 @@
 ## aforementioned relationship doesn't exist.
 
 import
-  std/[
-    packedsets,
-    tables
-  ],
-  compiler/ast/[
-    ast_types,
-    ast_query
-  ],
   compiler/mir/[
     mirtrees
   ],
   compiler/sem/[
     aliasanalysis,
     mirexec,
-  ],
-  compiler/utils/[
-    containers
   ]
-
-type
-  AliveState = enum
-    unchanged
-    dead
-    alive
-
-  ComputeAliveProc[T] =
-    proc(tree: MirTree, loc: T, op: Opcode,
-         n: OpValue): AliveState {.nimcall, noSideEffect.}
 
 func skipConversions*(tree: MirTree, val: OpValue): OpValue =
   ## Returns the expression after skipping handle-only conversions.
@@ -202,86 +181,6 @@ func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph, loc: Path,
       discard
 
   result = true
-
-func computeAliveOp*[T: LocalId | GlobalId](
-  tree: MirTree, loc: T, op: Opcode, n: OpValue): AliveState =
-  ## Computes the state of `loc` at the *end* of the given operation. The
-  ## operands are expected to *not* alias with each other. The analysis
-  ## result will be wrong if they do
-
-  func isAnalysedLoc[T](n: MirNode, loc: T): bool =
-    when T is GlobalId:
-      n.kind == mnkGlobal and n.global == loc
-    elif T is LocalId:
-      n.kind in {mnkLocal, mnkParam, mnkTemp} and n.local == loc
-    else:
-      {.error.}
-
-  template isRootOf(val: OpValue): bool =
-    isAnalysedLoc(tree[getRoot(tree, val)], loc)
-
-  template sameLocation(val: OpValue): bool =
-    isAnalysedLoc(tree[skipConversions(tree, val)], loc)
-
-  case op
-  of opMutate, opDef:
-    if isRootOf(n):
-      # the analysed location or one derived from it is mutated
-      return alive
-
-  of opKill, opConsume, opDestroy:
-    if sameLocation(n):
-      # the location is killed or its value is consumed (i.e., moved somewhere
-      # else)
-      return dead
-
-  of opInvalidate:
-    discard "cannot be reasoned about here"
-
-  of opMutateGlobal:
-    when T is GlobalId:
-      # the operation mutates global state and we're analysing a global
-      result = alive
-
-  of opUse:
-    discard
-
-func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph,
-                      span: Subgraph, loc: T, op: static ComputeAliveProc[T]
-                     ): tuple[alive, escapes: bool] =
-  ## Computes whether the location is alive when `span` is exited via either
-  ## structured or unstructured control-flow. A location is considered alive
-  ## if it contains a value
-
-  # assigning to or mutating the analysed location makes it become alive,
-  # because it then stores a value. Consuming its value or using ``wasMoved``
-  # on it "kills" it (it no longer contains a value)
-
-  var exit = false
-  for opc, n in traverseFromExits(cfg, span, exit):
-    case op(tree, loc, opc, n)
-    of dead:
-      exit = true
-    of alive:
-      # the location is definitely alive when leaving the span via
-      # unstructured control-flow
-      return (true, true)
-    of unchanged:
-      discard
-
-  # check if the location is alive at the structured exit of the span
-  for opc, n in traverseReverse(cfg, span, span.b + 1, exit):
-    case op(tree, loc, opc, n)
-    of dead:
-      exit = true
-    of alive:
-      # the location is definitely alive when leaving the span via
-      # structured control-flow
-      return (true, false)
-    of unchanged:
-      discard
-
-  result = (false, false)
 
 proc doesGlobalEscape*(tree: MirTree, scope: Subgraph, start: InstrPos,
                        s: GlobalId): bool =
