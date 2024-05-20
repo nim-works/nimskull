@@ -75,6 +75,7 @@ import
     mirbodies,
     mirconstr,
     mirenv,
+    mirgen_blocks,
     mirtrees,
     mirtypes,
     proto_mir,
@@ -113,31 +114,6 @@ type
 
     flags: set[DestFlag]
 
-  BlockKind = enum
-    bkBlock
-    bkTryExcept
-    bkTryFinally
-    bkFinally
-    bkExcept
-
-  Block = object
-    ## Information about a block-like structure. This not only includes |NimSkull|
-    ## ``block``s, but also try, finally, etc.
-    id: Option[LabelId]
-      ## the block's label. Initialized on-demand, meaning that 'none'
-      ## indicates that the block is unused
-    case kind: BlockKind
-    of bkBlock:
-      label: PSym
-        ## the symbol of the block's label. nil if it's an internal block
-    of bkTryFinally:
-      doesntExit: bool
-        ## whether structured control-flow doesn't reach the end of the finally
-      exits: seq[LabelId]
-        ## unordered set of follow-up targets
-    of bkTryExcept, bkFinally, bkExcept:
-      discard
-
   SourceProvider = object
     ## Stores the active origin and the in-progress database of origin
     ## ``PNode``s. Both are needed together in most cases, hence their bundling
@@ -170,8 +146,7 @@ type
       ## ownership of the environment
     builder: MirBuilder ## the builder for generating the MIR trees
 
-    blocks: seq[Block]
-      ## stack of enclosing try, finally, etc. blocks
+    blocks: BlockCtx
     localsMap: Table[int, LocalId]
       ## maps symbol IDs of locals to the corresponding ``LocalId``
 
@@ -450,65 +425,8 @@ func getTemp(c: var TCtx, typ: TypeId): Value =
       c.use result
       c.add MirNode(kind: mnkNone)
 
-proc requestLabel(c: var TCtx, b: var Block): LabelId =
-  if b.id.isNone:
-    b.id = some c.builder.allocLabel()
-  result = b.id.unsafeGet
-
-proc blockLeaveActions(c: var TCtx, targetBlock: int): bool =
-  ## Emits the actions for leaving the blocks up until (but not including)
-  ## `targetBlock`. Returns false when there's an intercepting
-  ## ``finally`` clause that doesn't exit (meaning that `targetBlock` won't
-  ## be reached), true otherwise.
-  proc incl[T](s: var seq[T], it: T) {.inline.} =
-    if it notin s:
-      s.add it
-
-  var previous = -1 # previous finally
-  for i in countdown(c.blocks.high, targetBlock + 1):
-    let b {.cursor.} = c.blocks[i]
-    case b.kind
-    of bkBlock, bkTryExcept:
-      discard "nothing to do"
-    of bkExcept, bkFinally:
-      # needs a leave action
-      c.add MirNode(kind: mnkLeave, label: b.id.get)
-    of bkTryFinally:
-      let label = c.requestLabel(c.blocks[i])
-      # register as outgoing edge the preceding finally (if any):
-      if previous != -1:
-        c.blocks[previous].exits.incl label
-
-      previous = i
-
-      # enter the finally clause:
-      c.add labelNode(label)
-      if b.doesntExit:
-        # structured control-flow doesn't leave the finally; the finally is
-        # the final jump target
-        return false
-
-  if targetBlock >= 0 and previous != -1 and
-     c.blocks[targetBlock].kind in {bkBlock, bkTryExcept}:
-    # register the target as the follow-up for the previous finally
-    c.blocks[previous].exits.incl c.requestLabel(c.blocks[targetBlock])
-
-  result = true
-
-proc raiseExit(c: var TCtx) =
-  ## Emits the jump target description for a jump to the nearest enclosing
-  ## exception handler.
-  var i = c.blocks.high
-  while i >= 0 and c.blocks[i].kind != bkTryExcept:
-    dec i
-
-  c.subTree mnkTargetList:
-    if blockLeaveActions(c, i):
-      if i == -1:
-        # nothing handles the exception within the current procedure
-        c.add MirNode(kind: mnkResume)
-      else:
-        c.add labelNode(c.requestLabel(c.blocks[i]))
+template raiseExit(c: var TCtx) =
+  raiseExit(c.blocks, c.builder)
 
 template buildStmt(c: var TCtx, k: MirNodeKind, body: untyped) =
   c.builder.buildStmt(k, body)
@@ -1374,11 +1292,7 @@ proc genReturn(c: var TCtx, n: PNode) =
     gen(c, n[0])
 
   c.buildStmt mnkGoto:
-    # XXX: using a target list is not necessary if there's only a single
-    #      target
-    c.subTree mnkTargetList:
-      if blockLeaveActions(c, 0):
-        c.add labelNode(c.requestLabel(c.blocks[0]))
+    blockExit(c.blocks, c.builder, 0)
 
   c.isDisabled = true
 
@@ -1642,12 +1556,7 @@ proc genWhile(c: var TCtx, n: PNode) =
   c.isDisabled = true
 
 proc closeBlock(c: var TCtx) =
-  let blk = c.blocks.pop()
-  # if there's no label, the exit of the block is never jumped to
-  # and the join can be omitted
-  if blk.kind == bkBlock and blk.id.isSome:
-    c.join blk.id.unsafeGet
-    # the block is broken out of, so the code following it is reachable:
+  if c.blocks.closeBlock(c.builder):
     c.isDisabled = false
 
 template withBlock(c: var TCtx, k: BlockKind, body: untyped) =
@@ -1663,14 +1572,12 @@ template withBlock(c: var TCtx, k: BlockKind, lbl: LabelId, body: untyped) =
 proc genBlock(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for a ``block`` expression or statement.
   ## A block translates to a scope and, optionally, a join.
-
-  # push the block to the stack:
   c.blocks.add Block(kind: bkBlock, label: n[0].sym)
 
   # generate the body:
   c.scope:
     c.genWithDest(n[1], dest)
-  c.closeBlock() # pop the block
+  c.closeBlock()
 
 proc genBranch(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates the body of a branch. Here, a branch refers to either an
@@ -1689,15 +1596,8 @@ proc leaveBlock(c: var TCtx) =
   if c.isDisabled:
     return # omit the leave actions if not reachable
 
-  var i = c.blocks.high
-  while i >= 0 and c.blocks[i].kind != bkBlock:
-    dec i
-  assert i >= 0, "no enclosing block?"
-
   c.subTree mnkGoto:
-    c.subTree mnkTargetList:
-      if blockLeaveActions(c, i):
-        c.add labelNode(c.requestLabel(c.blocks[i]))
+    blockExit(c.blocks, c.builder, closest(c.blocks))
 
   c.isDisabled = true # code following a goto is unreachable
 
@@ -2260,17 +2160,8 @@ proc gen(c: var TCtx, n: PNode) =
   of nkPragmaBlock:
     gen(c, n.lastSon)
   of nkBreakStmt:
-    let sym = n[0].sym
-    var i = c.blocks.high
-    # find the block with the matching label:
-    while i >= 0 and (c.blocks[i].kind != bkBlock or c.blocks[i].label != sym):
-      dec i
-
-    assert i >= 0, "break target missing"
     c.buildStmt mnkGoto:
-      c.subTree mnkTargetList:
-        if blockLeaveActions(c, i):
-          c.add labelNode(c.requestLabel(c.blocks[i]))
+      blockExit(c.blocks, c.builder, findBlock(c.blocks, n[0].sym))
 
     c.isDisabled = true # code following a break is unreachable
   of nkVarSection, nkLetSection:
