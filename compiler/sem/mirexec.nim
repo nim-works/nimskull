@@ -38,6 +38,7 @@ type
   Opcode* = enum
     ## The opcode of a data-/control-flow instruction, representing edges and
     ## nodes in the graph.
+    opNone ## no-op
     opFork ## branching control-flow that cannot introduce a cycle
     opGoto ## unconditional jump that cannot introduce a cycle
     opLoop ## unconditional jump to the start of a loop. The start of a cycle
@@ -77,6 +78,8 @@ type
       id: JoinId
     of DataFlowOps:
       val: OpValue
+    of opNone:
+      discard
 
   DataFlowGraph* = object
     ## Encodes the data-flow graph of a local program as a sequence of
@@ -584,6 +587,8 @@ iterator traverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
           queue.delete(0)
       of DataFlowOps:
         yield (DataFlowOpcode(instr.op), instr.val)
+      of opNone:
+        discard "ignore"
 
       if state.exit or pc + 1 == start:
         # abort the current path if we either reached the instruction we
@@ -704,7 +709,7 @@ iterator traverseReverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
       # the start of a loop; pop the previous loop entry:
       if s.loops.len > 0 and s.loops[^1].start == instr.id:
         s.loops.setLen(s.loops.len - 1)
-    of opGoto, opFork, DataFlowOps:
+    of opGoto, opFork, DataFlowOps, opNone:
       discard
 
     dec s.pc
@@ -734,6 +739,8 @@ iterator traverseReverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
       of DataFlowOps:
         # the end (in our case start) of the basic block is reached
         break
+      of opNone:
+        discard "ignore"
 
       dec s.pc
 
@@ -823,6 +830,8 @@ iterator traverseFromExits*(c: DataFlowGraph, span: Subgraph,
       of DataFlowOps:
         # the end of a basic block is reached
         break
+      of opNone:
+        discard "ignore"
 
       dec s.pc
 
@@ -860,5 +869,7 @@ func `$`*(c: DataFlowGraph): string =
       result.add $n.op & " " & $n.dest
     of DataFlowOps:
       result.add $n.op & " " & $ord(n.val)
+    else:
+      result.add "---"
 
     result.add " -> " & $ord(n.node) & "\n"

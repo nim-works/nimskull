@@ -394,6 +394,21 @@ func destructiveMoveOperands(bu: var MirBuilder, tree: MirTree,
     # the assignment source
     (bu.bindImmutable(tree, src), bu.bindMut(tree, x))
 
+proc eliminateDestroy(tree: MirTree, dfg: var DataFlowGraph, ents: EntityDict,
+                      c: var Changeset) =
+  ## Removes destroy operations where it's certain that the location doesn't
+  ## store a value (i.e., is not alive). This is an *optimization*, not
+  ## performing it must not affect correctness.
+  var noops: seq[InstrPos]
+  for i, op, val in instructions(dfg):
+    if op == opDestroy and
+       not isAlive(tree, dfg, ents, computePath(tree, NodePosition val), i):
+      # location not alive when the destructor is reached -> remove
+      c.remove(tree, tree.parent(NodePosition val))
+      noops.add i
+
+  dfg.change(noops, opNone)
+
 proc specializeAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                     stmt: NodePosition, pos: InstrPos, c: var Changeset) =
   ## Specializes the modifier-using assignment at `stmt` using the analysis
@@ -651,6 +666,10 @@ proc injectDestructorCalls*(tree: MirTree, g: ModuleGraph, env: var MirEnv,
     let
       entities = initEntityDict(tree, actx.cfg, env)
       moves = collapseSink(tree, actx.cfg, entities, env.types)
+
+    # the order matters: eliminate destroy operation *after* collapsing sinks,
+    # but *before* specializing the assignments
+    eliminateDestroy(tree, actx.cfg, entities, changes)
 
     rewriteAssignments(
       tree, actx,
