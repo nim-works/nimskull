@@ -50,6 +50,7 @@ type
     opMutate      ## mutation of a value. Can be viewed as a combined 'use' +
                   ## 'def'
     opConsume     ## a value is consumed. This is effectively a 'use' + 'kill'
+    opDestroy     ## a location's value is destroyed
 
     opMutateGlobal ## an unspecified global is mutated
 
@@ -470,7 +471,7 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
     of mnkVoid:
       emitForExpr(env, tree, i, NodePosition tree.operand(i))
     of mnkDestroy:
-      unreachable("not implemented yet")
+      emitLvalueOp(env, opDestroy, tree, i, tree.operand(i))
     of mnkEmit, mnkAsm:
       emitForArgs(env, tree, i, i)
 

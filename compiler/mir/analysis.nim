@@ -84,7 +84,7 @@ func isAlive*(tree: MirTree, cfg: DataFlowGraph,
         # return already
         return true
 
-    of opKill, opConsume:
+    of opKill, opConsume, opDestroy:
       if isPartOf(tree, loc, path n) == yes:
         # the location's value is consumed or the location is killed. No
         # operation coming before the current one can change that, so we can
@@ -141,7 +141,7 @@ func isLastRead*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph,
         # the location is partially written to
         return false
 
-    of opKill:
+    of opKill, opDestroy:
       let cmp = compare(tree, loc, path n)
       if isAPartOfB(cmp) == yes:
         # the location is definitely killed, it no longer stores the value
@@ -181,7 +181,7 @@ func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph, loc: Path,
   var state: TraverseState
   for op, n in traverse(cfg, span, start, state):
     case op
-    of opDef, opMutate, opInvalidate:
+    of opDef, opMutate, opInvalidate, opDestroy:
       # note: since we don't know what happens to the location when it is
       # invalidated, the ``opInvalidate`` is also included here
       if overlaps(tree, loc, path n) != no:
@@ -201,7 +201,7 @@ func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph, loc: Path,
         # derived from a global
         return (false, false, false)
 
-    else:
+    of opUse, opConsume:
       discard
 
   result = (true, state.exit, state.escapes)
@@ -232,7 +232,7 @@ func computeAliveOp*[T: LocalId | GlobalId](
       # the analysed location or one derived from it is mutated
       return alive
 
-  of opKill, opConsume:
+  of opKill, opConsume, opDestroy:
     if sameLocation(n):
       # the location is killed or its value is consumed (i.e., moved somewhere
       # else)
@@ -246,7 +246,7 @@ func computeAliveOp*[T: LocalId | GlobalId](
       # the operation mutates global state and we're analysing a global
       result = alive
 
-  else:
+  of opUse:
     discard
 
 func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph,
