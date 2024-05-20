@@ -201,6 +201,13 @@ func dfaOp(env: var ClosureEnv, opc: Opcode, tree: MirTree, n: NodePosition,
   if tree[v].kind in LvalueExprKinds:
     dfaOp(env, opc, n, v)
 
+func getResumeLabel(env: var ClosureEnv): JoinId =
+  # the join point is allocated when first used
+  if env.resumeLabel.isNone:
+    env.resumeLabel = some env.joins.len.JoinId
+    env.joins.add 0 # will be patched later
+  env.resumeLabel.unsafeGet
+
 func raiseExit(env: var ClosureEnv, opc: Opcode, tree: MirTree,
                at, target: NodePosition) =
   let target = firstTarget(tree, target)
@@ -210,10 +217,7 @@ func raiseExit(env: var ClosureEnv, opc: Opcode, tree: MirTree,
     of mnkLabel:
       map(env, tree[target].label)
     of mnkResume:
-      if env.resumeLabel.isNone:
-        env.resumeLabel = some env.joins.len.JoinId
-        env.joins.add 0 # will be patched later
-      env.resumeLabel.unsafeGet
+      env.getResumeLabel()
     else:
       unreachable()
 
@@ -447,6 +451,12 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
         else:
           goto i, tree[it].label
         inc j
+
+      if n.len == 1:
+        # no follow-up targets means that the finally continues exceptional
+        # control-flow in the caller
+        let target = env.getResumeLabel()
+        env.instrs.add Instr(op: opGoto, node: i, dest: target)
     of mnkRaise:
       # raising an exception consumes it:
       if tree[tree.operand(i)].kind != mnkNone:
