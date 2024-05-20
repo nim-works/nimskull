@@ -360,15 +360,7 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
     # to be reset
     return true
 
-  let res = isLastWrite(tree, cfg, info.scope, src, at)
-
-  if res.result:
-    # no mutation nor destructor call observes the current value -> no reset
-    # is needed
-    result = false
-  else:
-    # the presence of the value is observed -> a reset is required
-    result = true
+  result = not isLastWrite(tree, cfg, info.scope, src, at)
 
 # ------- code generation routines --------
 

@@ -166,15 +166,12 @@ func isLastRead*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph,
   result = true
 
 func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph, loc: Path,
-                  start: InstrPos): tuple[result, exits, escapes: bool] =
+                  start: InstrPos): bool =
   ## Computes whether the location `loc` is reassigned or modified on any paths
   ## starting from and including `start`, returning 'false' if yes and 'true'
   ## if not. In other words, computes whether a reassignment or mutation that
   ## has a control-flow dependency on `start` and is located inside `span`
   ## observes the current value.
-  ##
-  ## In addition, whether the `start` is connected to a structured or
-  ## unstructured exit of `span` is also returned
   template path(val: OpValue): Path =
     computePath(tree, NodePosition val)
 
@@ -185,7 +182,7 @@ func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph, loc: Path,
       # note: since we don't know what happens to the location when it is
       # invalidated, the ``opInvalidate`` is also included here
       if overlaps(tree, loc, path n) != no:
-        return (false, false, false)
+        return false
 
     of opKill:
       let cmp = compare(tree, loc, path n)
@@ -199,12 +196,12 @@ func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph, loc: Path,
       if tree[loc.root].kind == mnkGlobal:
         # an unspecified global is mutated and we're analysing a location
         # derived from a global
-        return (false, false, false)
+        return false
 
     of opUse, opConsume:
       discard
 
-  result = (true, state.exit, state.escapes)
+  result = true
 
 func computeAliveOp*[T: LocalId | GlobalId](
   tree: MirTree, loc: T, op: Opcode, n: OpValue): AliveState =
