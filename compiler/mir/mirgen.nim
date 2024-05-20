@@ -1267,7 +1267,12 @@ proc genRaise(c: var TCtx, n: PNode) =
     # ``sink`` parameter
     var e = exprToPmir(c, n[0], true, false)
     wantConsumeable(e)
-    let tmp = toValue(c, e, e.high)
+    # we cannot use ``toValue`` here, since the temporary must not be
+    # registered for destruction -- it's moved into the `raise` operation
+    let tmp = c.wrapTemp c.typeToMir(e[^1].typ):
+      assert e[^1].kind == pirMat
+      # skip the 'materialize' node
+      genx(c, e, e.high - 1, fromMove=true)
 
     # emit the preparation code:
     let
