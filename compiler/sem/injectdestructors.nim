@@ -608,8 +608,7 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
     while body[src].kind == mnkPathVariant:
       src = body.child(src, 0)
 
-    bu.subTree mnkIf:
-      bu.use val
+    bu.buildIf (;bu.use val):
       # ``=destroy`` call:
       bu.buildVoidCall(env, branchDestructor):
         # pass the object access expression to the destroy call
