@@ -2391,39 +2391,38 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
   var c = initCtx(graph, config, owner, move env)
   c.sp.active = (body, c.sp.map.add(body))
 
-  c.scopeDepth = 1
-  c.add MirNode(kind: mnkScope)
-  if owner.kind in routineKinds:
-    # the procedure backing a macro has its own internal signature; use that
-    # beyond this point
-    let signature =
-      if owner.kind == skMacro:
-        owner.internal
-      else:
-        owner.typ
+  c.scope:
+    if owner.kind in routineKinds:
+      # the procedure backing a macro has its own internal signature; use that
+      # beyond this point
+      let signature =
+        if owner.kind == skMacro:
+          owner.internal
+        else:
+          owner.typ
 
-    addParams(c, owner, signature)
-    # add a 'def' for each ``sink`` parameter. This simplifies further
-    # processing and analysis
-    let params = signature.n
-    for i in 1..<params.len:
-      let s = params[i].sym
-      if s.typ.isSinkTypeForParam():
-        c.subTree mnkDef:
-          c.add nameNode(c, s)
-          c.add MirNode(kind: mnkNone)
-        # the sink parameter requires destruction:
-        c.register(genLocation(c, params[i]))
-  else:
-    # reserve the result slot:
-    discard c.addLocal(Local())
+      addParams(c, owner, signature)
+      # add a 'def' for each ``sink`` parameter. This simplifies further
+      # processing and analysis
+      let params = signature.n
+      for i in 1..<params.len:
+        let s = params[i].sym
+        if s.typ.isSinkTypeForParam():
+          c.subTree mnkDef:
+            c.add nameNode(c, s)
+            c.add MirNode(kind: mnkNone)
+          # the sink parameter requires destruction:
+          c.register(genLocation(c, params[i]))
+    else:
+      # reserve the result slot:
+      discard c.addLocal(Local())
 
-  c.withBlock bkBlock: # the target for return statements
-    if sfNeverRaises in owner.flags:
-      # it needs to be ensured that no exceptions leave the body
-      c.blocks.add Block(kind: bkTryExcept)
+    c.withBlock bkBlock: # the target for return statements
+      if sfNeverRaises in owner.flags:
+        # it needs to be ensured that no exceptions leave the body
+        c.blocks.add Block(kind: bkTryExcept)
 
-    gen(c, body)
+      gen(c, body)
 
     if sfNeverRaises in owner.flags and (let b = c.blocks.pop(); b.id.isSome):
       leaveBlock(c) # jump over the handler
@@ -2436,8 +2435,6 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
           discard
       c.subTree mnkEndStruct:
         c.add labelNode(b.id.unsafeGet)
-
-  c.add endNode(mnkScope)
 
   env = c.env
 
