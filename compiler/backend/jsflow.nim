@@ -173,15 +173,13 @@ proc sort(structs: var seq[Structure]) =
       order[idx] = orderVal
       inc orderVal
 
-  var
-    stack: seq[tuple[pos: int, order: int]]
-    i = 0
+  var stack: seq[tuple[pos: int, order: int]]
 
   # now we want to establish the following: for each parent/child opening, the
   # parent has a *greater* order value than the child. Structure, catch, and
   # finally openings must stay associated with their original statement -- they
   # cannot move
-  while i < structs.len:
+  for i in 0..<structs.len:
     template invariant(): bool =
       # the loop invariant
       stack.len < 2 or stack[^2].order > stack[^1].order
@@ -226,8 +224,6 @@ proc sort(structs: var seq[Structure]) =
       discard
 
     assert invariant()
-    # we're always making progress, the loop is guaranteed to terminate
-    inc i
 
 proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   ## Creates and returns the JavaScript control-flow-construct-focused
