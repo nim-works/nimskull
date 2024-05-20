@@ -402,7 +402,7 @@ template allocLabel(c: var TCtx): LabelId =
   c.builder.allocLabel()
 
 proc gen(c: var TCtx; n: PNode)
-proc genx(c: var TCtx; e: PMirExpr, i: int)
+proc genx(c: var TCtx; e: PMirExpr, i: int; fromMove = false)
 proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination)
 
 proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode)
@@ -1899,14 +1899,14 @@ proc toConstant(c: var TCtx, n: PNode): Value =
   let con = toConstId c.env.data.getOrPut(constDataToMir(c.env, n))
   toValue(con, c.typeToMir(n.typ))
 
-proc genx(c: var TCtx, e: PMirExpr, i: int) =
+proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
   ## Translates the proto-MIR expression to MIR code and emits it into the
   ## current front buffer.
   let n {.cursor.} = e[i]
   c.builder.useSource(c.sp, n.orig)
 
-  template recurse() =
-    genx(c, e, i - 1)
+  template recurse(fromMove = false) =
+    genx(c, e, i - 1, fromMove)
 
   proc viewOp(kind: MirNodeKind, typ: PType): MirNodeKind {.nimcall.} =
     # pick the correct kind based on the var-ness
@@ -1961,7 +1961,8 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
       recurse()
   of pirLvalueConv:
     c.buildOp mnkPathConv, typ:
-      recurse()
+      # moves are propagated through lvalue conversions
+      recurse(fromMove)
   of pirCheckedArrayAccess, pirCheckedSeqAccess:
     let
       arr = toValue(c, e, i - 1)
@@ -2118,7 +2119,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
       recurse()
   of pirMove:
     c.buildOp mnkMove, typ:
-      recurse()
+      recurse(fromMove = true)
   of pirSink, pirDestructiveMove:
     # a destructive move is currently not translated into a move + wasMoved,
     # but rather into a sink, which is then, if necessary, later turned into
@@ -2129,15 +2130,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
     template needsDestroy(): bool =
       # the materialized temporary needs to be destroyed if owning and not
       # immediately moved afterwards
-      if n.kind == pirMat:
-        var x = i + 1
-        # ignore lvalue conversions:
-        while x < e.len and e[x].kind == pirLvalueConv:
-          inc x
-
-        x == e.len or e[x].kind != pirMove
-      else:
-        false
+      n.kind == pirMat and not fromMove
 
     let f = c.builder.push: recurse()
     # only materialize a temporary if the expression is not already a
