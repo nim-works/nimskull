@@ -1403,15 +1403,6 @@ proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
 
   genx(c, e, e.high)
 
-proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
-  assert dest.isSome
-  let kind =
-    if dfEmpty in dest.flags: mnkInit
-    else:                     mnkAsgn
-  c.buildStmt kind:
-    c.use dest.val
-    c.genAsgnSource(rhs, dest.flags)
-
 proc unwrap(c: var TCtx, n: PNode): PNode =
   ## If `n` is a statement-list expression, generates the code for all
   ## statements and returns the unwrapped expression. The unchanged `n` is
@@ -1424,6 +1415,19 @@ proc unwrap(c: var TCtx, n: PNode): PNode =
 
     result = result.lastSon
     assert result.kind != nkStmtListExpr
+
+proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
+  assert dest.isSome
+  let kind =
+    if dfEmpty in dest.flags: mnkInit
+    else:                     mnkAsgn
+
+  let rhs = unwrap(c, rhs)
+  # the right-hand expression not returning needs to be accounted for
+  if not c.isDisabled:
+    c.buildStmt kind:
+      c.use dest.val
+      c.genAsgnSource(rhs, dest.flags)
 
 proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
   ## Generates the code for an assignment. `isFirst` indicates if this is the
@@ -1438,6 +1442,10 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
   let
     lhs = unwrap(c, lhs)
     sink = sink and not isCursor(lhs)
+
+  if c.isDisabled:
+    # the left-hand expression terminates -> the assignment is dead code
+    return
 
   case rhs.kind
   of ComplexExprs:
@@ -2160,7 +2168,19 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
       for i in 0..<orig.len-1:
         gen(c, orig[i])
 
-    recurse()
+    if c.isDisabled:
+      # don't translate the expression if it's unreachable. The callsite still
+      # expects some expression, and thus a default-intialized is used. Do note
+      # that the code is unreachable, and the assignment is thus never
+      # evaluated -- it's just there to uphold the callsite's expectations
+      # XXX: ideally, non-terminating statement list expressions should
+      #      have the trailing expression cut off and be turned into
+      #      ``nkStmtList`` nodes at an earlier stage
+      c.wrapAndUse typ:
+        c.buildMagicCall mDefault, typ:
+          discard
+    else:
+      recurse()
   of pirComplex:
     # attempting to generate the code for a complex expression without a
     # destination specified -> assign the value resulting from it to a
@@ -2294,7 +2314,12 @@ proc gen(c: var TCtx, n: PNode) =
           c.builder.pop(f)
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
-      let e = exprToPmir(c, unwrap(c, n[0]), false, false)
+      let n = unwrap(c, n[0])
+      if c.isDisabled:
+        # don't translate the expression
+        return
+
+      let e = exprToPmir(c, n, false, false)
       case classify(e)
       of Rvalue:
         discard toValue(c, e, e.high, mnkDefCursor)
