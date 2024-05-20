@@ -160,9 +160,6 @@ type
       ## and emission of control-flow statements at block/scope ends
 
     # input:
-    context: TSymKind ## what entity the input AST is part of (e.g. procedure,
-                      ## macro, module, etc.). Used to allow or change how the
-                      ## AST is interpreted in some places
     userOptions: set[TOption]
     graph: ModuleGraph
 
@@ -2275,14 +2272,19 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
   else:
     gen(c, n)
 
+proc initCtx(graph: ModuleGraph, config: TranslationConfig, owner: PSym,
+             env: sink MirEnv): TCtx =
+  result = TCtx(graph: graph, config: config, env: move env)
+  if owner != nil:
+    result.userOptions = owner.options
+
 proc generateAssignment*(graph: ModuleGraph, env: var MirEnv,
                    config: TranslationConfig, n: PNode,
                    builder: var MirBuilder, source: var SourceMap) =
   ## Translates an `nkIdentDefs` AST into MIR and emits the result into
   ## `builder`'s currently selected buffer.
   assert n.kind == nkIdentDefs and n.len == 3
-  var c = TCtx(context: skUnknown, graph: graph, config: config,
-               env: move env)
+  var c = initCtx(graph, config, nil, move env)
   # treat the code as top-level code so that no 'def' is generated for
   # assignments to globals
   c.scopeDepth = 1
@@ -2333,8 +2335,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
   #      might no longer be present after the lambdalifting pass
   #assert nfTransf in body.flags, "transformed AST is expected as input"
 
-  var c = TCtx(context: owner.kind, graph: graph, config: config,
-               userOptions: owner.options, env: move env)
+  var c = initCtx(graph, config, owner, move env)
   c.sp.active = (body, c.sp.map.add(body))
 
   c.scopeDepth = 1
@@ -2394,7 +2395,7 @@ proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
   ## Only meant to be used by `vmjit <#vmjit>`_. Produces a MIR body for a
   ## standalone expression. The result of the expression is assigned to the
   ## special local with ID 0.
-  var c = TCtx(context: skUnknown, graph: graph, config: config, env: move env)
+  var c = initCtx(graph, config, nil, move env)
   c.sp.active = (e, c.sp.map.add(e))
 
   let
