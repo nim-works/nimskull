@@ -94,7 +94,10 @@ import
     mirconstr,
     mirenv,
     mirtrees,
-    sourcemaps
+    sourcemaps,
+    utils # unused import, but keeping it significantly speeds up the compiler
+    # XXX: this is possibly caused by some hooks changing which module they're
+    #      part of
   ],
   compiler/modules/[
     magicsys,
@@ -679,3 +682,8 @@ proc injectDestructorCalls*(tree: MirTree, g: ModuleGraph, env: var MirEnv,
       AnalysisResults(moves: cursor(moves),
                       entities: cursor(entities)),
       env.types, changes)
+
+# the below is required to keep the `utils` import from being reported as
+# being unused
+proc workaround() {.used.} =
+  discard render(default(MirTree))
