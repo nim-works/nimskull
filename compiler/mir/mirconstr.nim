@@ -413,7 +413,7 @@ func asgnMove*(bu: var MirBuilder, a, b: Value) =
     bu.move b
 
 func join*(bu: var MirBuilder, label: LabelId) =
-  ## Emits a ``join`` statement with `label.
+  ## Emits a ``join`` statement with `label`.
   bu.subTree mnkJoin:
     bu.add MirNode(kind: mnkLabel, label: label)
 
