@@ -2391,36 +2391,36 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
   var c = initCtx(graph, config, owner, move env)
   c.sp.active = (body, c.sp.map.add(body))
 
-  c.scope:
-    if owner.kind in routineKinds:
-      # the procedure backing a macro has its own internal signature; use that
-      # beyond this point
-      let signature =
-        if owner.kind == skMacro:
-          owner.internal
-        else:
-          owner.typ
+  c.withBlock bkBlock: # the target for return statements
+    if sfNeverRaises in owner.flags:
+      # it needs to be ensured that no exceptions leave the body
+      c.blocks.add Block(kind: bkTryExcept)
 
-      addParams(c, owner, signature)
-      # add a 'def' for each ``sink`` parameter. This simplifies further
-      # processing and analysis
-      let params = signature.n
-      for i in 1..<params.len:
-        let s = params[i].sym
-        if s.typ.isSinkTypeForParam():
-          c.subTree mnkDef:
-            c.add nameNode(c, s)
-            c.add MirNode(kind: mnkNone)
-          # the sink parameter requires destruction:
-          c.register(genLocation(c, params[i]))
-    else:
-      # reserve the result slot:
-      discard c.addLocal(Local())
+    c.scope:
+      if owner.kind in routineKinds:
+        # the procedure backing a macro has its own internal signature; use that
+        # beyond this point
+        let signature =
+          if owner.kind == skMacro:
+            owner.internal
+          else:
+            owner.typ
 
-    c.withBlock bkBlock: # the target for return statements
-      if sfNeverRaises in owner.flags:
-        # it needs to be ensured that no exceptions leave the body
-        c.blocks.add Block(kind: bkTryExcept)
+        addParams(c, owner, signature)
+        # add a 'def' for each ``sink`` parameter. This simplifies further
+        # processing and analysis
+        let params = signature.n
+        for i in 1..<params.len:
+          let s = params[i].sym
+          if s.typ.isSinkTypeForParam():
+            c.subTree mnkDef:
+              c.add nameNode(c, s)
+              c.add MirNode(kind: mnkNone)
+            # the sink parameter requires destruction:
+            c.register(genLocation(c, params[i]))
+      else:
+        # reserve the result slot:
+        discard c.addLocal(Local())
 
       gen(c, body)
 
