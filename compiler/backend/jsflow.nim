@@ -59,6 +59,15 @@ type
 const
   Terminators = {stkReturn, stkTerminator}
 
+proc rotateRight[T](s: var seq[T], a, b: int) =
+  ## Rotates the items in slice a..b to the right by one element.
+  let backup = s[b]
+  var i = b
+  while i > a:
+    s[i] = s[i - 1]
+    dec i
+  s[a] = backup
+
 func finalTarget*(n: CgNode): CgNode =
   ## Given a label or target list, retrieves the target.
   case n.kind
@@ -143,6 +152,79 @@ func endsInTerminator(structs: seq[Structure], start: int): bool =
 
   result = false # doesn't end in a terminator
 
+proc sort(structs: var seq[Structure]) =
+  ## Reorders the openings in `structs` such that each opening is paired with
+  ## its corresponding end. Pre-conditions:
+  ## * all ends have the correct relative order to each other
+  ## * if a block encloses a ``stkStructStart``, the end of the block is not
+  ##   enclosed by the ``stkStructStart``
+  var
+    order: seq[int] # indexed by LabelId
+    orderVal = 0
+
+  # associate a unique "order" value with each label. We need it to establish a
+  # correct ordering between parent and child openings
+  for i, it in structs.pairs:
+    if it.kind == stkEnd:
+      let idx = it.label.int
+      if idx >= order.len:
+        order.setLen(idx + 1)
+
+      order[idx] = orderVal
+      inc orderVal
+
+  var stack: seq[tuple[pos: int, order: int]]
+
+  # now we want to establish the following: for each parent/child opening, the
+  # parent has a *greater* order value than the child. Structure, catch, and
+  # finally openings must stay associated with their original statement -- they
+  # cannot move
+  for i in 0..<structs.len:
+    template invariant(): bool =
+      # the loop invariant
+      stack.len < 2 or stack[^2].order > stack[^1].order
+
+    let it = structs[i]
+    case it.kind
+    of stkTry, stkBlock:
+      stack.add (i, order[it.label.int])
+      if not invariant():
+        # restore the loop invariant by shifting the new item to the first
+        # position where the invariant holds again
+        var insert = stack.len - 2
+        while insert >= 0 and stack[insert].order < stack[^1].order:
+          dec insert
+        insert += 1
+
+        # attach the opening to the same statement as the opening we're placing
+        # it before:
+        structs[i].stmt = structs[stack[insert].pos].stmt
+        # shift the opening in the `structs` list and reflect the shift in the
+        # `stack`:
+        rotateRight(structs, stack[insert].pos, i)
+        rotateRight(stack, insert, stack.high)
+
+        # we've moved some items in the `structs` list, and the affected stack
+        # items need to reflect that
+        stack[insert].pos = stack[insert + 1].pos
+        for x in (insert + 1) ..< stack.len:
+          inc stack[x].pos
+
+    of stkStructStart:
+      stack.add (i, order[it.label.int])
+    of stkFinally, stkCatch:
+      # keep the 'try'-opening on the stack
+      assert stack[^1].order == order[it.label.int]
+    of stkEnd:
+      # if the pre-conditions hold, the end corresponds to opening at the stack
+      # head -- pop the block
+      let e = stack.pop()
+      assert e.order == order[it.label.int]
+    of stkTerminator, stkReturn:
+      discard
+
+    assert invariant()
+
 proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   ## Creates and returns the JavaScript control-flow-construct-focused
   ## representation for `stmts`.
@@ -226,66 +308,9 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
     else:
       discard "not relevant"
 
-  # the list of openings and closing produced by the first pass will in most
-  # cases not be valid JavaScript code. We have to "solve" the representation
-  # by reordering the openings until they're matched with their corresponding
-  # end. ``stkCatch``, ``stkFinally``, ``stkStructStart``, and ``stkEnd`` must
-  # keep their relative order and stay attached to the same statements, only
-  # ``stkTry`` and ``stkBlock`` can be moved, but only backwards
-  var i = structs.high
-  while i > 0:
-    if structs[i].kind in {stkTry, stkBlock}:
-      # compute the difference in nesting between the try/block and its
-      # corresponding end:
-      var
-        depth = 1
-        j = i
-      while true:
-        inc j
-        case structs[j].kind
-        of stkTry, stkBlock, stkStructStart:
-          inc depth
-        of stkFinally, stkCatch:
-          if structs[j].label == structs[i].label:
-            dec depth
-            break
-        of stkEnd:
-          dec depth
-          if structs[j].label == structs[i].label:
-            break
-        of Terminators:
-          discard "not relevant"
-
-      # depth < 0 means that the try/block start is more nested than its end.
-      # In other words, the try or block start is currently too nested. Move
-      # it backwards (i.e., associate it with an earlier statement) until it's
-      # at the same level as its end
-      let moved = depth < 0
-      var x = i
-      while depth < 0:
-        # change the associated statement...
-        structs[x].stmt = structs[x - 1].stmt
-        # ... then swap
-        swap(structs[x], structs[x - 1])
-
-        case structs[x].kind
-        of stkEnd:
-          dec depth
-        of stkBlock, stkTry, stkStructStart:
-          inc depth
-        of Terminators, stkCatch, stkFinally:
-          # catch and finally don't change the nesting (the try's body is at
-          # the same level as catch/finally's body)
-          discard
-
-        dec x
-
-      if moved:
-        # a different item than before is in the slot now; it needs to be
-        # processed too
-        continue # skip the following decrement
-
-    dec i
+  # now make sure that all openings in the list are matched with their
+  # respective end
+  sort(structs)
 
   # note: changing what statements a 'try' encloses can alter semantics! That's
   # none of our concern here, however: the code generator is reponsible for
