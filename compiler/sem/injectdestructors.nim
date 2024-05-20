@@ -218,6 +218,10 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
       if n.start == mnkScope:
         # leave the current scope:
         scopeStack.setLen(scopeStack.len - 1)
+        if scopeStack.len == 0:
+          # the following statements, if any, can only be joins, and those can
+          # safely be skipped here
+          break
 
     else:
       yield (i, n, scopeStack[^1])
