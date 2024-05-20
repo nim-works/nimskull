@@ -103,9 +103,6 @@ import
     magicsys,
     modulegraphs
   ],
-  compiler/front/[
-    options
-  ],
   compiler/sem/[
     aliasanalysis,
     liftdestructors,
