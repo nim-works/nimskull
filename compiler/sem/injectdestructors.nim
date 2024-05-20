@@ -11,8 +11,11 @@
 ## - the 'switch' operation lowering (``lowerBranchSwitch``)
 ## - the pass for collapsing sink assignments into copies, moves, and
 ##   destrutive moves
-## - the pass for injected ``wasMoved`` calls for consumed lvalues
-## - the pass for injecting destructors
+## - the pass for injecting ``wasMoved`` calls for consumed lvalues
+## - the pass for eliminating unnecessary destroy operations
+##
+## The module name is a historical leftover, it doesn't reflect the module's
+## content nor purpose anymore.
 ##
 ## Overview
 ## ========
