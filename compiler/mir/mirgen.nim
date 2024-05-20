@@ -1664,9 +1664,9 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
           genBranch(c, branch.lastSon, dest)
           extra
 
-    # if the start of the branch was reachable, then so is the code
-    # following the branch
-    c.isDisabled = false
+      # if the start of the branch was reachable, then so is the code
+      # following the branch
+      c.isDisabled = false
 
   if n.len == 1:
     # an ``if`` statement/expression with a single branch. Don't use the
