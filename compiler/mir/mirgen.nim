@@ -156,10 +156,12 @@ type
     inLoop: int
       ## > 0 if the current statement/expression is part of a loop
     injectDestructors: bool
-      ## whether injection of destructors is enabled
+      ## whether injection of destroy operations is enabled
     isDisabled: bool
-      ## set to true when entering unreachable code. Disables translation
-      ## and emission of control-flow statements at block/scope ends
+      ## set to true when entering unreachable code (e.g., statements
+      ## immediately following a `break`). Disables:
+      ## * translation of AST
+      ## * emission of control-flow statements at block/scope end
 
     # input:
     userOptions: set[TOption]
@@ -471,8 +473,9 @@ template buildIf(c: var TCtx, cond, body: untyped) =
     c.add labelNode(label)
 
 proc register(c: var TCtx, loc: Value) =
-  ## If destructor injection is enabled for the current context and `val`,
-  ## registers `loc` for destruction at the end of the current scope.
+  ## If `val` has a destructor and destroy injection is enabled for the
+  ## current context, registers `loc` for destruction at the end of the
+  ## current scope.
   if c.injectDestructors and c.env[loc.typ].hasDestructor():
     c.blocks.register(loc)
 
@@ -805,7 +808,7 @@ proc genCall(c: var TCtx, n: PNode) =
     if kind == mnkCheckedCall:
       raiseExit(c)
 
-  # code following the call of .noreturn routine is unreachable:
+  # code following the call of a .noreturn routine is unreachable:
   if n[0].kind == nkSym and sfNoReturn in n[0].sym.flags:
     c.isDisabled = true
 
@@ -1674,8 +1677,8 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
       c.isDisabled = false
 
   if n.len == 1:
-    # an ``if`` statement/expression with a single branch. Don't use the
-    # the block wrapping
+    # an ``if`` statement/expression with a single branch. Don't wrap in a
+    # block
     genElifBranch(n[0]):
       discard
 
@@ -1794,7 +1797,6 @@ proc genExcept(c: var TCtx, n: PNode, len: int, dest: Destination) =
     ## the label of the next handler
 
   for i in 1..<len:
-    # each except opens a new block
     let curr = next
     if i + 1 < len:
       # there's another except branch in the try
@@ -2096,9 +2098,10 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
 
     if c.isDisabled:
       # don't translate the expression if it's unreachable. The callsite still
-      # expects some expression, and thus a default-intialized is used. Do note
-      # that the code is unreachable, and the assignment is thus never
-      # evaluated -- it's just there to uphold the callsite's expectations
+      # expects some expression, and thus a default-intialized temporary is
+      # used. Do note that the code is unreachable, and the assignment is thus
+      # never evaluated -- it's just there to uphold the callsite's syntactic
+      # expectations
       # XXX: ideally, non-terminating statement list expressions should
       #      have the trailing expression cut off and be turned into
       #      ``nkStmtList`` nodes at an earlier stage

@@ -65,8 +65,8 @@ type
       ## whether the currently proceesed statement/expression is part of an
       ## unscoped control-flow context. Used to move definitions to the start
       ## of the enclosing scope, which is currently required for temporaries
-      ## requiring destruction that are spawned defined as part of the right-
-      ## hand operand of ``and``/``or``
+      ## requiring destruction that are spawned as part of the right-hand
+      ## operand of ``and``/``or``
     defs: seq[CgNode]
       ## the stack of locals/globals for which the ``cnkDef``/assignemnt needs
       ## to be inserted later
@@ -349,7 +349,7 @@ proc valueToIr(tree: MirBody, cl: var TranslateCl,
     unreachable("not a value: " & $tree[cr].kind)
 
 proc labelToIr(tree: MirBody, cr: var TreeCursor): CgNode =
-  ## Translate a MIR label to a CGIR label.
+  ## Translates a MIR label to a CGIR label.
   assert tree[cr].kind == mnkLabel
   newLabelNode(tree.get(cr).label)
 

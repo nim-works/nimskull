@@ -1,5 +1,7 @@
-## Subordinate module to `mirgen <#mirgen>`_. Implements the low-level control-
-## flow-related parts, as well as destructor injection.
+## Subordinate module to `mirgen <#mirgen>`_. Implements the block and scope
+## management required for translating the AST's high-level control-flow
+## constructs to the MIR's goto-based ones. Injecting ``mnkDestroy``
+## operations is also implemented here, integrated with the scope management.
 
 import
   std/[
@@ -54,8 +56,9 @@ type
       ## stack of enclosing try, finally, etc. blocks
     toDestroy: seq[tuple[entity: Value, label: Option[LabelId]]]
       ## all locals/globals/temporaries that need destruction, together
-      ## with the label of the finally that needs to be entered when
-      ## destroying
+      ## with the label of the finally that the destroy operation is part
+      ## of. Only the items where the `label` changes have an initialized
+      ## label
     currScope: int
       ## block index of the current scope
 
@@ -209,7 +212,7 @@ func register*(c; loc: Value) =
   c.toDestroy.add (loc, none LabelId)
 
 proc startScope*(c): int =
-  ## Starts a new scope and returns the index of the last one.
+  ## Starts a new scope and returns the index of the previous one.
   result = c.currScope
   c.blocks.add Block(kind: bkScope)
   c.currScope = c.blocks.high
@@ -278,7 +281,8 @@ proc closeScope*(c; bu; nextScope: int, hasStructuredExit: bool) =
     bu.emitDestroy(c.toDestroy[i].entity)
 
   if curr.isSome:
-    # finish the final finally. `scopeExits` stores all the possible
+    # finish the final finally. `scopeExits` stores all possible follow-up
+    # targets for the finally
     bu.subTree MirNode(kind: mnkContinue, len: uint32(1 + scope.scopeExits.len)):
       bu.add labelNode(curr.unsafeGet)
       for it in scope.scopeExits.items:
