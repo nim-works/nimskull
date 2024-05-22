@@ -658,24 +658,31 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
           attachedAsgn, col)
       excl mm.flags, tfFromGeneric
 
-proc eraseVoidParams*(t: PType) =
-  # transform '(): void' into '()' because old parts of the compiler really
-  # don't deal with '(): void':
-  if t[0] != nil and t[0].kind == tyVoid:
-    t[0] = nil
-
-  for i in 1..<t.len:
+proc eraseVoidTypes(t: PType; start = 0) =
+  ## Removes all ``tyVoid`` items from `t`. If `t` has attached AST, the slots
+  ## corresponding to the type items are removed too.
+  for i in start..<t.len:
     # don't touch any memory unless necessary
     if t[i].kind == tyVoid:
       var pos = i
       for j in i+1..<t.len:
         if t[j].kind != tyVoid:
           t[pos] = t[j]
-          t.n[pos] = t.n[j]
+          if t.n != nil:
+            t.n[pos] = t.n[j]
           inc pos
       setLen t.sons, pos
-      setLen t.n.sons, pos
+      if t.n != nil:
+        setLen t.n.sons, pos
       break
+
+proc eraseVoidParams*(t: PType) =
+  # transform '(): void' into '()' because old parts of the compiler really
+  # don't deal with '(): void':
+  if t[0] != nil and t[0].kind == tyVoid:
+    t[0] = nil
+
+  eraseVoidTypes(t, start=1)
 
 proc skipIntLiteralParams*(t: PType; idgen: IdGenerator) =
   for i in 0..<t.len:
@@ -690,20 +697,6 @@ proc skipIntLiteralParams*(t: PType; idgen: IdGenerator) =
   # param, the results gets infected with static as well:
   if t[0] != nil and t[0].kind == tyStatic:
     t[0] = t[0].base
-
-proc propagateFieldFlags(t: PType, n: PNode) =
-  # This is meant for objects and tuples
-  # The type must be fully instantiated!
-  if n.isNil:
-    return
-  #internalAssert n.kind != nkRecWhen
-  case n.kind
-  of nkSym:
-    propagateToOwner(t, n.sym.typ)
-  of nkRecList, nkRecCase, nkOfBranch, nkElse:
-    for son in n:
-      propagateFieldFlags(t, son)
-  else: discard
 
 proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
   template bailout =
@@ -800,21 +793,38 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
           result[i] = r
           if result.kind != tyArray or i != 0:
             propagateToOwner(result, r)
-      # bug #4677: Do not instantiate effect lists
-      result.n = replaceTypeVarsN(cl, result.n, ord(result.kind==tyProc))
       case result.kind
       of tyArray:
         let idx = result[0]
         internalAssert(cl.c.config, idx.kind != tyStatic, "[FIXME]")
 
       of tyTuple:
-        propagateFieldFlags(result, result.n)
+        if result.n != nil:
+          # update the record description
+          result.n = shallowCopy(t.n)
+          var pos = 0
+          for i, it in t.n.pairs:
+            # don't copy void fields, they're removed afterwards
+            if result[i].kind != tyVoid:
+              # always copy the symbol to make sure we can modify it
+              let s = copySym(it.sym, nextSymId cl.c.idgen)
+              s.typ = result[i]
+              incl(s.flags, sfFromGeneric)
+              s.position = pos
+              inc pos
+              result.n[i] = newSymNode(s, it.info)
+
+        # now erase the void types, which will also eliminate the empty slots
+        eraseVoidTypes(result)
 
       of tyProc:
+        # bug #4677: Do not instantiate effect lists
+        result.n = replaceTypeVarsN(cl, result.n, 1)
         eraseVoidParams(result)
         skipIntLiteralParams(result, cl.c.idgen)
 
       of tyRange:
+        result.n = replaceTypeVarsN(cl, result.n, 0)
         result[0] = result[0].skipTypes({tyStatic, tyDistinct})
 
       else: discard
