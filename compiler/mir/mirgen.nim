@@ -157,7 +157,7 @@ type
       ## > 0 if the current statement/expression is part of a loop
     injectDestructors: bool
       ## whether injection of destroy operations is enabled
-    isDisabled: bool
+    unreachable: bool
       ## set to true when entering unreachable code (e.g., statements
       ## immediately following a `break`). Disables:
       ## * translation of AST
@@ -280,7 +280,7 @@ template scope(c: var TCtx, body: untyped) =
   c.builder.subTree mnkScope:
     let prev = c.blocks.startScope()
     body
-    c.blocks.closeScope(c.builder, prev, not c.isDisabled)
+    c.blocks.closeScope(c.builder, prev, not c.unreachable)
   dec c.scopeDepth
 
 template use(c: var TCtx, val: Value) =
@@ -810,7 +810,7 @@ proc genCall(c: var TCtx, n: PNode) =
 
   # code following the call of a .noreturn routine is unreachable:
   if n[0].kind == nkSym and sfNoReturn in n[0].sym.flags:
-    c.isDisabled = true
+    c.unreachable = true
 
 proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
   ## Generates the arguments for a macro/template call expression. `n` is
@@ -1302,7 +1302,7 @@ proc genRaise(c: var TCtx, n: PNode) =
       raiseExit(c)
 
   # code following a raise statement is unreachable:
-  c.isDisabled = true
+  c.unreachable = true
 
 proc genReturn(c: var TCtx, n: PNode) =
   assert n.kind == nkReturnStmt
@@ -1312,7 +1312,7 @@ proc genReturn(c: var TCtx, n: PNode) =
   c.buildStmt mnkGoto:
     blockExit(c.blocks, c.builder, 0)
 
-  c.isDisabled = true
+  c.unreachable = true
 
 proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
   ## Generates the MIR code for the right-hand side of an assignment.
@@ -1356,7 +1356,7 @@ proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
 
   let rhs = unwrap(c, rhs)
   # the right-hand expression not returning needs to be accounted for
-  if not c.isDisabled:
+  if not c.unreachable:
     c.buildStmt kind:
       c.use dest.val
       c.genAsgnSource(rhs, dest.flags)
@@ -1375,7 +1375,7 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
     lhs = unwrap(c, lhs)
     sink = sink and not isCursor(lhs)
 
-  if c.isDisabled:
+  if c.unreachable:
     # the left-hand expression terminates -> the assignment is dead code
     return
 
@@ -1577,11 +1577,11 @@ proc genWhile(c: var TCtx, n: PNode) =
   c.subTree mnkLoop:
     c.add labelNode(label)
   # a while loop has no structured exit:
-  c.isDisabled = true
+  c.unreachable = true
 
 proc closeBlock(c: var TCtx) =
   if c.blocks.closeBlock(c.builder):
-    c.isDisabled = false
+    c.unreachable = false
 
 template withBlock(c: var TCtx, k: BlockKind, body: untyped) =
   c.blocks.add Block(kind: k)
@@ -1617,7 +1617,7 @@ proc genBranch(c: var TCtx, n: PNode, dest: Destination) =
 proc leaveBlock(c: var TCtx) =
   ## Emits a goto for jumping to the exit of first enclosing block, but only
   ## if not in an unreachable context.
-  if c.isDisabled:
+  if c.unreachable:
     return # omit the leave actions if not reachable
 
   if c.scopeDepth > 0:
@@ -1627,7 +1627,7 @@ proc leaveBlock(c: var TCtx) =
   c.subTree mnkGoto:
     blockExit(c.blocks, c.builder, closest(c.blocks))
 
-  c.isDisabled = true # code following a goto is unreachable
+  c.unreachable = true # code following a goto is unreachable
 
 proc genIf(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates the code for an ``if`` statement (``nkIf(Stmt|Expr)``). It's
@@ -1674,7 +1674,7 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
 
       # if the start of the branch was reachable, then so is the code
       # following the branch
-      c.isDisabled = false
+      c.unreachable = false
 
   if n.len == 1:
     # an ``if`` statement/expression with a single branch. Don't wrap in a
@@ -1737,7 +1737,7 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
   c.withBlock bkBlock:
     for (i, branch) in branches(n):
       c.join LabelId(firstLabel + uint32(i))
-      c.isDisabled = false # every branch starts as reachable again
+      c.unreachable = false # every branch starts as reachable again
       c.scope:
         genBranch(c, branch.lastSon, dest)
         leaveBlock(c)
@@ -1749,7 +1749,7 @@ proc genExceptBranch(c: var TCtx, n: PNode, label: LabelId,
   let withFilter = n.len > 1
 
   # the except branch is reachable:
-  c.isDisabled = false
+  c.unreachable = false
 
   c.subTree MirNode(kind: mnkExcept,
                     len: uint32(1 + (n.len - 1) + ord(withFilter))):
@@ -1812,7 +1812,7 @@ proc genFinally(c: var TCtx, n: PNode) =
     # the finally is never entered, omit it
     return
 
-  c.isDisabled = false # the finally is reachable
+  c.unreachable = false # the finally is reachable
   c.builder.useSource(c.sp, n)
   c.subTree mnkFinally:
     c.add labelNode(blk.id.unsafeGet)
@@ -1857,7 +1857,7 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
     genFinally(c, n[^1])
 
   # presume unreachable, closing the block will correct the presumption
-  c.isDisabled = true
+  c.unreachable = true
   c.closeBlock()
 
 proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
@@ -2096,7 +2096,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
       for i in 0..<orig.len-1:
         gen(c, orig[i])
 
-    if c.isDisabled:
+    if c.unreachable:
       # don't translate the expression if it's unreachable. The callsite still
       # expects some expression, and thus a default-intialized temporary is
       # used. Do note that the code is unreachable, and the assignment is thus
@@ -2169,7 +2169,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
 
 proc gen(c: var TCtx, n: PNode) =
   ## Generates and emits the MIR code for the statement `n`
-  if c.isDisabled:
+  if c.unreachable:
     return
 
   c.builder.useSource(c.sp, n)
@@ -2207,7 +2207,7 @@ proc gen(c: var TCtx, n: PNode) =
     c.buildStmt mnkGoto:
       blockExit(c.blocks, c.builder, findBlock(c.blocks, n[0].sym))
 
-    c.isDisabled = true # code following a break is unreachable
+    c.unreachable = true # code following a break is unreachable
   of nkVarSection, nkLetSection:
     genVarSection(c, n)
   of nkAsgn:
@@ -2250,7 +2250,7 @@ proc gen(c: var TCtx, n: PNode) =
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
       let n = unwrap(c, n[0])
-      if c.isDisabled:
+      if c.unreachable:
         # don't translate the expression
         return
 
