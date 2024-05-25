@@ -75,6 +75,7 @@ import
     mirbodies,
     mirconstr,
     mirenv,
+    mirgen_blocks,
     mirtrees,
     mirtypes,
     proto_mir,
@@ -95,6 +96,8 @@ import
     idioms
   ]
 
+import std/options as std_options
+
 type
   DestFlag = enum
     ## Extra information about an assignment destination. The flags are used to
@@ -110,12 +113,6 @@ type
     of true:  val: Value
 
     flags: set[DestFlag]
-
-  Block = object
-    ## Information about a ``block``
-    label: PSym ## the symbol of the block's label. 'nil' if the block has no
-                ## label
-    id: LabelId ## the block's internal label ID
 
   SourceProvider = object
     ## Stores the active origin and the in-progress database of origin
@@ -149,22 +146,24 @@ type
       ## ownership of the environment
     builder: MirBuilder ## the builder for generating the MIR trees
 
-    blocks: seq[Block] ## the stack of active ``block``s. Used for looking up
-                       ## break targets
+    blocks: BlockCtx
     localsMap: Table[int, LocalId]
       ## maps symbol IDs of locals to the corresponding ``LocalId``
 
     sp: SourceProvider
 
-    numLabels: int ## provides the ID to use for the next label
     scopeDepth: int ## the current amount of scope nesting
     inLoop: int
       ## > 0 if the current statement/expression is part of a loop
+    injectDestructors: bool
+      ## whether injection of destroy operations is enabled
+    unreachable: bool
+      ## set to true when entering unreachable code (e.g., statements
+      ## immediately following a `break`). Disables:
+      ## * translation of AST
+      ## * emission of control-flow statements at block/scope end
 
     # input:
-    context: TSymKind ## what entity the input AST is part of (e.g. procedure,
-                      ## macro, module, etc.). Used to allow or change how the
-                      ## AST is interpreted in some places
     userOptions: set[TOption]
     graph: ModuleGraph
 
@@ -224,10 +223,6 @@ proc typeToMir(c: var TCtx, t: PType): TypeId =
   if t.isNil: VoidType
   else:       c.env.types.add(t)
 
-func nextLabel(c: var TCtx): LabelId =
-  result = LabelId(c.numLabels)
-  inc c.numLabels
-
 # ----------- SourceProvider API -------------
 
 template useSource(bu: var MirBuilder, sp: var SourceProvider,
@@ -283,11 +278,16 @@ template subTree(c: var TCtx, n: MirNode, body: untyped) =
 template scope(c: var TCtx, body: untyped) =
   inc c.scopeDepth
   c.builder.subTree mnkScope:
+    let prev = c.blocks.startScope()
     body
+    c.blocks.closeScope(c.builder, prev, not c.unreachable)
   dec c.scopeDepth
 
 template use(c: var TCtx, val: Value) =
   c.builder.use(val)
+
+template join(c: var TCtx, label: LabelId) =
+  c.builder.join(label)
 
 template emitByVal(c: var TCtx, val: Value) =
   ## Emits a pass-by-value argument sub-tree with `val`.
@@ -365,6 +365,12 @@ proc toFloatLiteral(env: var MirEnv, n: PNode): Value =
 func strLiteral(env: var MirEnv, str: string, typ: TypeId): Value =
   literal(env.getOrIncl(str), typ)
 
+template labelNode(lbl: LabelId): MirNode =
+  MirNode(kind: mnkLabel, label: lbl)
+
+template newLabelNode(c: var TCtx): MirNode =
+  labelNode(c.builder.allocLabel())
+
 func nameNode(c: var TCtx, s: PSym): MirNode =
   let t = c.typeToMir(s.typ)
   case s.kind
@@ -394,8 +400,11 @@ template allocTemp(c: var TCtx, typ: TypeId; alias=false): Value =
   ## Allocates a new ID for a temporary and returns the name.
   c.builder.allocTemp(typ, alias)
 
+template allocLabel(c: var TCtx): LabelId =
+  c.builder.allocLabel()
+
 proc gen(c: var TCtx; n: PNode)
-proc genx(c: var TCtx; e: PMirExpr, i: int)
+proc genx(c: var TCtx; e: PMirExpr, i: int; fromMove = false)
 proc genComplexExpr(c: var TCtx, n: PNode, dest: Destination)
 
 proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode)
@@ -419,6 +428,9 @@ func getTemp(c: var TCtx, typ: TypeId): Value =
       c.use result
       c.add MirNode(kind: mnkNone)
 
+template raiseExit(c: var TCtx) =
+  raiseExit(c.blocks, c.builder)
+
 template buildStmt(c: var TCtx, k: MirNodeKind, body: untyped) =
   c.builder.buildStmt(k, body)
 
@@ -430,6 +442,7 @@ template buildCheckedMagicCall(c: var TCtx, m: TMagic, t: TypeId,
   c.subTree MirNode(kind: mnkCheckedCall, typ: t):
     c.add MirNode(kind: mnkMagic, magic: m)
     body
+    raiseExit(c)
 
 template buildDefectMagicCall(c: var TCtx, m: TMagic, t: TypeId,
                               body: untyped) =
@@ -447,6 +460,24 @@ template buildDefectMagicCall(c: var TCtx, m: TMagic, t: TypeId,
   c.subTree MirNode(kind: kind, typ: t):
     c.add MirNode(kind: mnkMagic, magic: m)
     body
+    if kind == mnkCheckedCall:
+      raiseExit(c)
+
+template buildIf(c: var TCtx, cond, body: untyped) =
+  let label = c.builder.allocLabel()
+  c.buildStmt mnkIf:
+    cond
+    c.add labelNode(label)
+  body
+  c.buildStmt mnkEndStruct:
+    c.add labelNode(label)
+
+proc register(c: var TCtx, loc: Value) =
+  ## If `loc` has a destructor and destroy injection is enabled for the
+  ## current context, registers `loc` for destruction at the end of the
+  ## current scope.
+  if c.injectDestructors and c.env[loc.typ].hasDestructor():
+    c.blocks.register(loc)
 
 proc singleToValue(c: var TCtx, e: PMirExpr, i: int): Value =
   c.builder.useSource(c.sp, e[i].orig)
@@ -469,6 +500,9 @@ proc toValue(c: var TCtx, e: PMirExpr, i: int, def: MirNodeKind): Value =
       c.subTree def:
         c.use result
         c.builder.pop(f)
+
+    if def == mnkDef:
+      c.register(result)
 
 proc toValue(c: var TCtx, e: PMirExpr, i: int): Value =
   ## Generates the MIR code for the given expression and turns it into a
@@ -569,10 +603,8 @@ proc genAndOr(c: var TCtx, n: PNode, dest: Destination) =
       c.buildMagicCall mNot, BoolType:
         c.emitByVal v
 
-  c.subTree mnkIf:
-    c.use v
-    c.subTree mnkStmtList:
-      genAsgn(c, dest, n[2]) # the right-hand side
+  c.buildIf (c.use v;):
+    genAsgn(c, dest, n[2]) # the right-hand side
 
 proc genFieldCheck(c: var TCtx, access: Value, call: PNode, inverted: bool,
                    field: string) =
@@ -773,6 +805,12 @@ proc genCall(c: var TCtx, n: PNode) =
                     effects: effects):
     genCallee(c, n[0])
     genArgs(c, n)
+    if kind == mnkCheckedCall:
+      raiseExit(c)
+
+  # code following the call of a .noreturn routine is unreachable:
+  if n[0].kind == nkSym and sfNoReturn in n[0].sym.flags:
+    c.unreachable = true
 
 proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
   ## Generates the arguments for a macro/template call expression. `n` is
@@ -834,35 +872,47 @@ proc genInSetOp(c: var TCtx, n: PNode) =
       a   = genRd(c, x[1])
       b   = genRd(c, x[2])
 
-    c.buildStmt mnkIf:
-      # condition: ``a <= x:``
-      c.wrapAndUse(BoolType):
-        c.buildMagicCall leOp, BoolType:
-          c.emitByVal a
-          c.emitByVal val
-      # the outer body:
-      c.subTree mnkStmtList:
-        # condition: ``x <= b:``
-        c.subTree mnkIf:
-          c.wrapAndUse(BoolType):
-            c.buildMagicCall leOp, BoolType:
-              c.emitByVal val
-              c.emitByVal b
-          c.subTree mnkStmtList:
-            var sv: Value
-            if se.kind == nkCurly and not isDeepConstExpr(se):
-              sv = c.allocTemp(c.typeToMir(se.typ))
-              c.subTree mnkDef:
-                c.use sv
-                genSetConstr(c, se)
-            else:
-              sv = genRd(c, se)
+    c.builder.buildStmt:
+      let
+        label1 = c.allocLabel()
+        label2 = c.allocLabel()
 
-            c.subTree mnkInit:
-              c.use res
-              c.buildMagicCall mInSet, BoolType:
-                c.emitByVal sv
-                c.emitByVal val
+      c.subTree mnkIf:
+        # condition: ``a <= x:``
+        c.wrapAndUse(BoolType):
+          c.buildMagicCall leOp, BoolType:
+            c.emitByVal a
+            c.emitByVal val
+        c.add labelNode(label1)
+
+      c.subTree mnkIf:
+        # condition: ``x <= b:``
+        c.wrapAndUse(BoolType):
+          c.buildMagicCall leOp, BoolType:
+            c.emitByVal val
+            c.emitByVal b
+        c.add labelNode(label2)
+
+      var sv: Value
+      if se.kind == nkCurly and not isDeepConstExpr(se):
+        sv = c.allocTemp(c.typeToMir(se.typ))
+        c.subTree mnkDef:
+          c.use sv
+          genSetConstr(c, se)
+      else:
+        sv = genRd(c, se)
+
+      c.subTree mnkInit:
+        c.use res
+        c.buildMagicCall mInSet, BoolType:
+          c.emitByVal sv
+          c.emitByVal val
+
+      # close the if statements:
+      c.subTree mnkEndStruct:
+        c.add labelNode(label2)
+      c.subTree mnkEndStruct:
+        c.add labelNode(label1)
 
     c.use res
   else:
@@ -1029,6 +1079,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
       c.buildTree mnkCheckedCall, rtyp:
         c.genCallee(n[0])
         arg n[1]
+        raiseExit(c)
     else:
       genCall(c, n)
 
@@ -1136,6 +1187,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
                         effects: {geMutateGlobal}):
         # we can use the internal signature
         genMacroCallArgs(c, n, skMacro, callee.sym.internal)
+        raiseExit(c)
     else:
       unreachable()
 
@@ -1218,7 +1270,12 @@ proc genRaise(c: var TCtx, n: PNode) =
     # ``sink`` parameter
     var e = exprToPmir(c, n[0], true, false)
     wantConsumeable(e)
-    let tmp = toValue(c, e, e.high)
+    # we cannot use ``toValue`` here, since the temporary must not be
+    # registered for destruction -- it's moved into the `raise` operation
+    let tmp = c.wrapTemp c.typeToMir(e[^1].typ):
+      assert e[^1].kind == pirMat
+      # skip the 'materialize' node
+      genx(c, e, e.high - 1, fromMove=true)
 
     # emit the preparation code:
     let
@@ -1237,17 +1294,25 @@ proc genRaise(c: var TCtx, n: PNode) =
     # emit the raise statement:
     c.buildStmt mnkRaise:
       c.use tmp
+      raiseExit(c)
   else:
     # a re-raise statement
     c.buildStmt mnkRaise:
       c.add MirNode(kind: mnkNone)
+      raiseExit(c)
+
+  # code following a raise statement is unreachable:
+  c.unreachable = true
 
 proc genReturn(c: var TCtx, n: PNode) =
   assert n.kind == nkReturnStmt
   if n[0].kind != nkEmpty:
     gen(c, n[0])
 
-  c.add MirNode(kind: mnkReturn)
+  c.buildStmt mnkGoto:
+    blockExit(c.blocks, c.builder, 0)
+
+  c.unreachable = true
 
 proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
   ## Generates the MIR code for the right-hand side of an assignment.
@@ -1270,15 +1335,6 @@ proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
 
   genx(c, e, e.high)
 
-proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
-  assert dest.isSome
-  let kind =
-    if dfEmpty in dest.flags: mnkInit
-    else:                     mnkAsgn
-  c.buildStmt kind:
-    c.use dest.val
-    c.genAsgnSource(rhs, dest.flags)
-
 proc unwrap(c: var TCtx, n: PNode): PNode =
   ## If `n` is a statement-list expression, generates the code for all
   ## statements and returns the unwrapped expression. The unchanged `n` is
@@ -1291,6 +1347,19 @@ proc unwrap(c: var TCtx, n: PNode): PNode =
 
     result = result.lastSon
     assert result.kind != nkStmtListExpr
+
+proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
+  assert dest.isSome
+  let kind =
+    if dfEmpty in dest.flags: mnkInit
+    else:                     mnkAsgn
+
+  let rhs = unwrap(c, rhs)
+  # the right-hand expression not returning needs to be accounted for
+  if not c.unreachable:
+    c.buildStmt kind:
+      c.use dest.val
+      c.genAsgnSource(rhs, dest.flags)
 
 proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
   ## Generates the code for an assignment. `isFirst` indicates if this is the
@@ -1305,6 +1374,10 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
   let
     lhs = unwrap(c, lhs)
     sink = sink and not isCursor(lhs)
+
+  if c.unreachable:
+    # the left-hand expression terminates -> the assignment is dead code
+    return
 
   case rhs.kind
   of ComplexExprs:
@@ -1373,6 +1446,9 @@ proc genLocDef(c: var TCtx, n: PNode, val: PNode) =
       else:
         c.add MirNode(kind: mnkNone)
 
+    if sfCursor notin s.flags:
+      c.register(genLocation(c, n))
+
 proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
   ## Generates the code for a location definition. `sym` is the symbol of the
   ## location and `initExpr` the initializer expression
@@ -1419,7 +1495,7 @@ proc genVarTuple(c: var TCtx, n: PNode) =
   else:
     # generate the definition for the temporary:
     let val = c.allocTemp(c.typeToMir(initExpr.typ))
-    c.buildStmt mnkDefUnpack:
+    c.buildStmt mnkDef:
       c.use val
       # ensure that the temporary owns the tuple value:
       genAsgnSource(c, initExpr, {dfEmpty, dfOwns})
@@ -1444,6 +1520,9 @@ proc genVarTuple(c: var TCtx, n: PNode) =
           c.subTree MirNode(kind: mnkPathPos, typ: typ,
                             position: i.uint32):
             c.use val
+
+    # it's guaranteed that all elements are moved out of the tuple, no
+    # destruction is needed
 
 proc genVarSection(c: var TCtx, n: PNode) =
   for a in n:
@@ -1488,34 +1567,41 @@ proc genVarSection(c: var TCtx, n: PNode) =
 proc genWhile(c: var TCtx, n: PNode) =
   ## Generates the code for a ``nkWhile`` node.
   assert isTrue(n[0]), "`n` wasn't properly transformed"
-  c.subTree MirNode(kind: mnkRepeat):
-    c.scope:
-      inc c.inLoop
-      c.gen(n[1])
-      dec c.inLoop
+  let label = c.allocLabel()
+  c.subTree mnkLoopJoin:
+    c.add labelNode(label)
+  c.scope:
+    inc c.inLoop
+    c.gen(n[1])
+    dec c.inLoop
+  c.subTree mnkLoop:
+    c.add labelNode(label)
+  # a while loop has no structured exit:
+  c.unreachable = true
+
+proc closeBlock(c: var TCtx) =
+  if c.blocks.closeBlock(c.builder):
+    c.unreachable = false
+
+template withBlock(c: var TCtx, k: BlockKind, body: untyped) =
+  c.blocks.add Block(kind: k)
+  body
+  c.closeBlock()
+
+template withBlock(c: var TCtx, k: BlockKind, lbl: LabelId, body: untyped) =
+  c.blocks.add Block(kind: k, id: some lbl)
+  body
+  c.closeBlock()
 
 proc genBlock(c: var TCtx, n: PNode, dest: Destination) =
-  ## Generates and emits the MIR code for a ``block`` expression or statement
-  if sfUsed notin n[0].sym.flags:
-    # if the label is never used, it means that the block is only used for
-    # scoping. Omit emitting an ``mnkBlock`` and just use a scope
-    c.scope: c.genWithDest(n[1], dest)
-    return
-
-  let id = nextLabel(c)
-
-  # push the block to the stack:
-  var oldLen = c.blocks.len
-  c.blocks.add Block(label: n[0].sym, id: id)
+  ## Generates and emits the MIR code for a ``block`` expression or statement.
+  ## A block translates to a scope and, optionally, a join.
+  c.blocks.add Block(kind: bkBlock, label: n[0].sym)
 
   # generate the body:
-  c.subTree MirNode(kind: mnkBlock, label: id):
-    c.scope:
-      c.genWithDest(n[1], dest)
-
-  # pop the block:
-  assert c.blocks.len == oldLen + 1
-  c.blocks.setLen(oldLen)
+  c.scope:
+    c.genWithDest(n[1], dest)
+  c.closeBlock()
 
 proc genBranch(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates the body of a branch. Here, a branch refers to either an
@@ -1527,6 +1613,21 @@ proc genBranch(c: var TCtx, n: PNode, dest: Destination) =
     genWithDest(c, n, dest)
   else:
     gen(c, n)
+
+proc leaveBlock(c: var TCtx) =
+  ## Emits a goto for jumping to the exit of first enclosing block, but only
+  ## if not in an unreachable context.
+  if c.unreachable:
+    return # omit the leave actions if not reachable
+
+  if c.scopeDepth > 0:
+    # only emit the early scope exit if still within a scope
+    earlyExit(c.blocks, c.builder)
+
+  c.subTree mnkGoto:
+    blockExit(c.blocks, c.builder, closest(c.blocks))
+
+  c.unreachable = true # code following a goto is unreachable
 
 proc genIf(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates the code for an ``if`` statement (``nkIf(Stmt|Expr)``). It's
@@ -1566,31 +1667,30 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
     ## Generates the code for a single ``nkElif(Branch|Expr)``
     c.scope:
       let v = genUse(c, branch[0])
-      c.subTree mnkIf:
-        c.use v
+      c.buildIf (c.use v;):
         c.scope:
           genBranch(c, branch.lastSon, dest)
           extra
 
+      # if the start of the branch was reachable, then so is the code
+      # following the branch
+      c.unreachable = false
+
   if n.len == 1:
-    # an ``if`` statement/expression with a single branch. Don't emit the
-    # unnecessary 'block' and 'break'
+    # an ``if`` statement/expression with a single branch. Don't wrap in a
+    # block
     genElifBranch(n[0]):
       discard
 
   else:
     # a multi-clause ``if`` statement/expression
-    let label = nextLabel(c)
-    c.subTree MirNode(kind: mnkBlock, label: label):
-      c.subTree mnkStmtList:
+    c.withBlock bkBlock: # <- the exit to jump to at the end of each branch
+      if true:
         for it in n.items:
           case it.kind
           of nkElifBranch, nkElifExpr:
             genElifBranch(it):
-              # don't emit the 'break' if the branch doesn't have a structured
-              # exit
-              if not endsInNoReturn(it.lastSon):
-                c.add MirNode(kind: mnkBreak, label: label)
+              leaveBlock(c)
 
           of nkElse, nkElseExpr:
             c.scope:
@@ -1601,18 +1701,17 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
             unreachable(it.kind)
 
 proc genCase(c: var TCtx, n: PNode, dest: Destination) =
-  ## Generates the MIR code for an ``nkCaseStmt`` node. Since the ``mnkCase``
-  ## MIR construct works in a very similar way, the translation logic is
-  ## straightforward
+  ## Generates the MIR code for an ``nkCaseStmt`` node.
   assert isEmptyType(n.typ) == not dest.isSome
 
   let v = genUse(c, n[0])
-  c.add MirNode(kind: mnkCase, len: uint32(n.len - 1))
+  c.add MirNode(kind: mnkCase, len: uint32(n.len))
   c.use v
 
-  # iterate of/else branches:
+  let firstLabel = c.builder.nextLabel
+  # first step: emit the dispatcher
   for (_, branch) in branches(n):
-    c.add MirNode(kind: mnkBranch, len: uint32(branch.len - 1))
+    c.add MirNode(kind: mnkBranch, len: uint32(branch.len))
 
     case branch.kind
     of nkElse:
@@ -1629,19 +1728,33 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
     else:
       unreachable(branch.kind)
 
-    # the branch's body:
-    c.scope:
-      genBranch(c, branch.lastSon, dest)
-
+    c.add newLabelNode(c) # the jump target
     c.add endNode(mnkBranch)
 
   c.add endNode(mnkCase)
 
-proc genExceptBranch(c: var TCtx, n: PNode, dest: Destination) =
+  # second step: emit the branch bodies
+  c.withBlock bkBlock:
+    for (i, branch) in branches(n):
+      c.join LabelId(firstLabel + uint32(i))
+      c.unreachable = false # every branch starts as reachable again
+      c.scope:
+        genBranch(c, branch.lastSon, dest)
+        leaveBlock(c)
+
+proc genExceptBranch(c: var TCtx, n: PNode, label: LabelId,
+                     next: Option[LabelId], dest: Destination) =
   assert n.kind == nkExceptBranch
   c.builder.useSource(c.sp, n)
+  let withFilter = n.len > 1
 
-  c.subTree MirNode(kind: mnkBranch, len: uint32(n.len - 1)):
+  # the except branch is reachable:
+  c.unreachable = false
+
+  c.subTree MirNode(kind: mnkExcept,
+                    len: uint32(1 + (n.len - 1) + ord(withFilter))):
+    c.add labelNode(label) # name of the except
+
     # emit the exception types the branch covers:
     for _, tn in branchLabels(n):
       case tn.kind
@@ -1656,36 +1769,96 @@ proc genExceptBranch(c: var TCtx, n: PNode, dest: Destination) =
       else:
         unreachable()
 
-    # generate the body of the branch:
+    if withFilter:
+      # exception handler with filters fork to another handler on mismatch
+      if next.isSome:
+        # try the next handler from the current try statement
+        c.add labelNode(next.unsafeGet)
+      else:
+        # continue raising
+        raiseExit(c)
+
+  # generate the body of the except branch:
+  c.withBlock bkExcept, label:
     c.scope:
       genBranch(c, n.lastSon, dest)
+      leaveBlock(c)
+
+  c.subTree mnkEndStruct:
+    c.add labelNode(label)
+
+proc genExcept(c: var TCtx, n: PNode, len: int, dest: Destination) =
+  let tryBlock = c.blocks.pop()
+  if tryBlock.id.isNone:
+    # the exception handlers are never entered, omit them
+    return
+
+  var next = tryBlock.id.unsafeGet()
+    ## the label of the next handler
+
+  for i in 1..<len:
+    let curr = next
+    if i + 1 < len:
+      # there's another except branch in the try
+      next = c.allocLabel()
+      c.genExceptBranch(n[i], curr, some next, dest)
+    else:
+      # this is the last branch
+      c.genExceptBranch(n[i], curr, none LabelId, dest)
+
+proc genFinally(c: var TCtx, n: PNode) =
+  let blk = c.blocks.pop()
+  if blk.id.isNone:
+    # the finally is never entered, omit it
+    return
+
+  c.unreachable = false # the finally is reachable
+  c.builder.useSource(c.sp, n)
+  c.subTree mnkFinally:
+    c.add labelNode(blk.id.unsafeGet)
+
+  # translate the body:
+  c.withBlock bkFinally, blk.id.unsafeGet:
+    c.scope:
+      c.gen(n[^1])
+
+  # the continue statement is always necessary, even if the body has no
+  # structured exit
+  c.subTree MirNode(kind: mnkContinue, len: uint32(1 + blk.exits.len)):
+    c.add labelNode(blk.id.unsafeGet)
+    for it in blk.exits.items:
+      c.add labelNode(it)
 
 proc genTry(c: var TCtx, n: PNode, dest: Destination) =
   let
     hasFinally = n.lastSon.kind == nkFinally
     hasExcept = n[1].kind == nkExceptBranch
 
-  c.add MirNode(kind: mnkTry, len: uint32(ord(hasFinally) + ord(hasExcept)))
-  c.scope:
-    c.genBranch(n[0], dest)
-
-  let len =
-    if hasFinally: n.len-1
-    else: n.len
-    ## the number of sub-nodes excluding ``nkFinally``
-
-  if hasExcept:
-    c.subTree MirNode(kind: mnkExcept, len: uint32(len-1)):
-      for i in 1..<len:
-        genExceptBranch(c, n[i], dest)
+  # the anonymous block to provide the exit:
+  c.blocks.add Block(kind: bkBlock)
 
   if hasFinally:
-    c.builder.useSource(c.sp, n.lastSon)
-    c.subTree MirNode(kind: mnkFinally):
-      c.scope:
-        c.gen(n.lastSon[0])
+    # the finally clause also applies to the except clauses, so it's
+    # pushed first
+    c.blocks.add Block(kind: bkTryFinally)
 
-  c.add endNode(mnkTry)
+  if hasExcept:
+    c.blocks.add Block(kind: bkTryExcept)
+
+  # the body of the try:
+  c.scope:
+    c.genBranch(n[0], dest)
+    leaveBlock(c)
+
+  if hasExcept:
+    genExcept(c, n, n.len - ord(hasFinally), dest)
+
+  if hasFinally:
+    genFinally(c, n[^1])
+
+  # presume unreachable, closing the block will correct the presumption
+  c.unreachable = true
+  c.closeBlock()
 
 proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
   ## Generates and emits the MIR code for an emit directive or ``asm``
@@ -1733,14 +1906,14 @@ proc toConstant(c: var TCtx, n: PNode): Value =
   let con = toConstId c.env.data.getOrPut(constDataToMir(c.env, n))
   toValue(con, c.typeToMir(n.typ))
 
-proc genx(c: var TCtx, e: PMirExpr, i: int) =
+proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
   ## Translates the proto-MIR expression to MIR code and emits it into the
   ## current front buffer.
   let n {.cursor.} = e[i]
   c.builder.useSource(c.sp, n.orig)
 
-  template recurse() =
-    genx(c, e, i - 1)
+  template recurse(fromMove = false) =
+    genx(c, e, i - 1, fromMove)
 
   proc viewOp(kind: MirNodeKind, typ: PType): MirNodeKind {.nimcall.} =
     # pick the correct kind based on the var-ness
@@ -1795,7 +1968,8 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
       recurse()
   of pirLvalueConv:
     c.buildOp mnkPathConv, typ:
-      recurse()
+      # moves are propagated through lvalue conversions
+      recurse(fromMove)
   of pirCheckedArrayAccess, pirCheckedSeqAccess:
     let
       arr = toValue(c, e, i - 1)
@@ -1821,7 +1995,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
     let
       val = toValue(c, e, i - 1)
 
-    c.buildStmt mnkIf:
+    c.buildIf:
       # the ``x != nil`` condtion:
       c.wrapAndUse(BoolType):
         c.buildMagicCall mNot, BoolType:
@@ -1829,8 +2003,9 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
             c.wrapAndUse(BoolType):
               c.buildMagicCall mIsNil, BoolType:
                 c.emitByVal val
+    do:
       # the check:
-      c.subTree mnkScope:
+      c.buildStmt mnkScope:
         c.subTree mnkVoid:
           c.buildDefectMagicCall mChckObj, VoidType:
             c.emitByVal val
@@ -1921,7 +2096,20 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
       for i in 0..<orig.len-1:
         gen(c, orig[i])
 
-    recurse()
+    if c.unreachable:
+      # don't translate the expression if it's unreachable. The callsite still
+      # expects some expression, and thus a default-intialized temporary is
+      # used. Do note that the code is unreachable, and the assignment is thus
+      # never evaluated -- it's just there to uphold the callsite's syntactic
+      # expectations
+      # XXX: ideally, non-terminating statement list expressions should
+      #      have the trailing expression cut off and be turned into
+      #      ``nkStmtList`` nodes at an earlier stage
+      c.wrapAndUse typ:
+        c.buildMagicCall mDefault, typ:
+          discard
+    else:
+      recurse()
   of pirComplex:
     # attempting to generate the code for a complex expression without a
     # destination specified -> assign the value resulting from it to a
@@ -1932,13 +2120,14 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
       genComplexExpr(c, n.orig):
         Destination(isSome: true, val: tmp, flags: {dfOwns, dfEmpty})
 
+    # the temporary is registered for destruction by the ``pirMat`` handling
     c.use tmp
   of pirCopy:
     c.buildOp mnkCopy, typ:
       recurse()
   of pirMove:
     c.buildOp mnkMove, typ:
-      recurse()
+      recurse(fromMove = true)
   of pirSink, pirDestructiveMove:
     # a destructive move is currently not translated into a move + wasMoved,
     # but rather into a sink, which is then, if necessary, later turned into
@@ -1946,6 +2135,11 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
     c.buildOp mnkSink, typ:
       recurse()
   of pirMat, pirMatCursor:
+    template needsDestroy(): bool =
+      # the materialized temporary needs to be destroyed if owning and not
+      # immediately moved afterwards
+      n.kind == pirMat and not fromMove
+
     let f = c.builder.push: recurse()
     # only materialize a temporary if the expression is not already a
     # temporary introduced by the PMIR-to-MIR translation
@@ -1955,6 +2149,15 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
         c.subTree (if n.kind == pirMat: mnkDef else: mnkDefCursor):
           c.use tmp
           c.builder.pop(f)
+
+      if needsDestroy():
+        c.register(tmp)
+      c.use tmp
+    elif needsDestroy():
+      # nothing to materialize (the input is already a temporary), but the
+      # temporary still needs to be registered for destruction
+      let tmp = c.builder.popSingle(f)
+      c.register(tmp)
       c.use tmp
   of pirMatLvalue:
     let tmp = c.allocTemp(typ, true)
@@ -1966,6 +2169,9 @@ proc genx(c: var TCtx, e: PMirExpr, i: int) =
 
 proc gen(c: var TCtx, n: PNode) =
   ## Generates and emits the MIR code for the statement `n`
+  if c.unreachable:
+    return
+
   c.builder.useSource(c.sp, n)
 
   # because of ``.discardable`` calls, we can't require `n` to be of void
@@ -1998,18 +2204,10 @@ proc gen(c: var TCtx, n: PNode) =
   of nkPragmaBlock:
     gen(c, n.lastSon)
   of nkBreakStmt:
-    var id: LabelId
-    block search:
-      let sym = n[0].sym
-      # find the block with the matching label and use its ``LabelId``:
-      for b in c.blocks.items:
-        if b.label.id == sym.id:
-          id = b.id
-          break search
+    c.buildStmt mnkGoto:
+      blockExit(c.blocks, c.builder, findBlock(c.blocks, n[0].sym))
 
-      unreachable "break target missing"
-
-    c.add MirNode(kind: mnkBreak, label: id)
+    c.unreachable = true # code following a break is unreachable
   of nkVarSection, nkLetSection:
     genVarSection(c, n)
   of nkAsgn:
@@ -2051,7 +2249,12 @@ proc gen(c: var TCtx, n: PNode) =
           c.builder.pop(f)
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
-      let e = exprToPmir(c, unwrap(c, n[0]), false, false)
+      let n = unwrap(c, n[0])
+      if c.unreachable:
+        # don't translate the expression
+        return
+
+      let e = exprToPmir(c, n, false, false)
       case classify(e)
       of Rvalue:
         discard toValue(c, e, e.high, mnkDefCursor)
@@ -2116,14 +2319,26 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
   else:
     gen(c, n)
 
+proc initCtx(graph: ModuleGraph, config: TranslationConfig, owner: PSym,
+             env: sink MirEnv): TCtx =
+  result = TCtx(graph: graph, config: config, env: move env)
+  if owner != nil:
+    result.userOptions = owner.options
+    result.injectDestructors =
+      sfInjectDestructors in owner.flags and
+      sfGeneratedOp notin owner.flags and
+      goIsCompileTime notin result.config.options
+  else:
+    # default to injecting destructors
+    result.injectDestructors = goIsCompileTime notin result.config.options
+
 proc generateAssignment*(graph: ModuleGraph, env: var MirEnv,
                    config: TranslationConfig, n: PNode,
                    builder: var MirBuilder, source: var SourceMap) =
   ## Translates an `nkIdentDefs` AST into MIR and emits the result into
   ## `builder`'s currently selected buffer.
   assert n.kind == nkIdentDefs and n.len == 3
-  var c = TCtx(context: skUnknown, graph: graph, config: config,
-               env: move env)
+  var c = initCtx(graph, config, nil, move env)
   # treat the code as top-level code so that no 'def' is generated for
   # assignments to globals
   c.scopeDepth = 1
@@ -2174,55 +2389,53 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
   #      might no longer be present after the lambdalifting pass
   #assert nfTransf in body.flags, "transformed AST is expected as input"
 
-  var c = TCtx(context: owner.kind, graph: graph, config: config,
-               userOptions: owner.options, env: move env)
+  var c = initCtx(graph, config, owner, move env)
   c.sp.active = (body, c.sp.map.add(body))
 
-  c.scopeDepth = 1
-  c.add MirNode(kind: mnkScope)
-  if sfNeverRaises in owner.flags:
-    c.add MirNode(kind: mnkTry, len: 1)
-    c.add MirNode(kind: mnkStmtList)
+  c.withBlock bkBlock: # the target for return statements
+    if sfNeverRaises in owner.flags:
+      # it needs to be ensured that no exceptions leave the body
+      c.blocks.add Block(kind: bkTryExcept)
 
-  if owner.kind in routineKinds:
-    # the procedure backing a macro has its own internal signature; use that
-    # beyond this point
-    let signature =
-      if owner.kind == skMacro:
-        owner.internal
+    c.scope:
+      if owner.kind in routineKinds:
+        # the procedure backing a macro has its own internal signature; use that
+        # beyond this point
+        let signature =
+          if owner.kind == skMacro:
+            owner.internal
+          else:
+            owner.typ
+
+        addParams(c, owner, signature)
+        # add a 'def' for each ``sink`` parameter. This simplifies further
+        # processing and analysis
+        let params = signature.n
+        for i in 1..<params.len:
+          let s = params[i].sym
+          if s.typ.isSinkTypeForParam():
+            c.subTree mnkDef:
+              c.add nameNode(c, s)
+              c.add MirNode(kind: mnkNone)
+            # the sink parameter requires destruction:
+            c.register(genLocation(c, params[i]))
       else:
-        owner.typ
+        # reserve the result slot:
+        discard c.addLocal(Local())
 
-    addParams(c, owner, signature)
-    # add a 'def' for each ``sink`` parameter. This simplifies further
-    # processing and analysis
-    let params = signature.n
-    for i in 1..<params.len:
-      let s = params[i].sym
-      if s.typ.isSinkTypeForParam():
-        c.subTree mnkDef:
-          c.add nameNode(c, s)
-          c.add MirNode(kind: mnkNone)
-  else:
-    # reserve the result slot:
-    discard c.addLocal(Local())
+      gen(c, body)
 
-  gen(c, body)
-
-  if sfNeverRaises in owner.flags:
-    # if it's enforced that the procedure never raises, exceptions escaping
-    # the procedure terminate the program. This is achieved by wrapping the
-    # body in a catch-all exception handler
-    c.add endNode(mnkStmtList)
-    c.subTree MirNode(kind: mnkExcept, len: 1):
-      c.subTree mnkBranch:
-        c.subTree mnkVoid:
-          let p = c.graph.getCompilerProc("nimUnhandledException")
-          c.builder.buildCall c.env.procedures.add(p), VoidType:
-            discard
-    c.add endNode(mnkTry)
-
-  c.add endNode(mnkScope)
+    if sfNeverRaises in owner.flags and (let b = c.blocks.pop(); b.id.isSome):
+      leaveBlock(c) # jump over the handler
+      # emit the handler for panicking on escaping exceptions:
+      c.subTree MirNode(kind: mnkExcept, len: 1):
+        c.add labelNode(b.id.unsafeGet)
+      c.subTree mnkVoid:
+        let p = c.graph.getCompilerProc("nimUnhandledException")
+        c.builder.buildCall c.env.procedures.add(p), VoidType:
+          discard
+      c.subTree mnkEndStruct:
+        c.add labelNode(b.id.unsafeGet)
 
   env = c.env
 
@@ -2235,26 +2448,27 @@ proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
   ## Only meant to be used by `vmjit <#vmjit>`_. Produces a MIR body for a
   ## standalone expression. The result of the expression is assigned to the
   ## special local with ID 0.
-  var c = TCtx(context: skUnknown, graph: graph, config: config, env: move env)
+  var c = initCtx(graph, config, nil, move env)
   c.sp.active = (e, c.sp.map.add(e))
 
   let
     rtyp = c.typeToMir(e.typ)
     res = c.addLocal(Local(typ: rtyp)) # the result variable
-  c.scope:
-    c.buildStmt mnkDef:
-      c.use toValue(mnkLocal, res, rtyp)
-      if e.typ.kind == tyTypeDesc:
-        # FIXME: this shouldn't happen, but type expressions are sometimes
-        #        evaluated with the VM, such as a ``typeof(T.x)`` appearing as
-        #        a field type within a generic object definition. While it
-        #        makes sense to allow evaluating type expression with the VM,
-        #        in simple situtations like the example above, it's simpler,
-        #        faster, and more intuitive to either evaluate them directly
-        #        when analyzing the type expression, or during ``semfold``
-        c.use genTypeExpr(c, e)
-      else:
-        c.genAsgnSource(e, {dfOwns, dfEmpty})
+  c.withBlock bkBlock:
+    c.scope:
+      c.buildStmt mnkDef:
+        c.use toValue(mnkLocal, res, rtyp)
+        if e.typ.kind == tyTypeDesc:
+          # FIXME: this shouldn't happen, but type expressions are sometimes
+          #        evaluated with the VM, such as a ``typeof(T.x)`` appearing as
+          #        a field type within a generic object definition. While it
+          #        makes sense to allow evaluating type expression with the VM,
+          #        in simple situtations like the example above, it's simpler,
+          #        faster, and more intuitive to either evaluate them directly
+          #        when analyzing the type expression, or during ``semfold``
+          c.use genTypeExpr(c, e)
+        else:
+          c.genAsgnSource(e, {dfOwns, dfEmpty})
 
   env = move c.env
 

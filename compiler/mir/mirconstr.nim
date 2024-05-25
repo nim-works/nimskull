@@ -56,6 +56,8 @@ type
 
     locals*: PartialStore[LocalId, Local]
       ## new locals created with the builder
+    nextLabel*: uint32
+      ## the ID to use when allocating a new label ID
 
     # XXX: the internal fields are currently exported for the integration
     #      with changesets to work, but future refactorings should focus
@@ -230,6 +232,17 @@ template buildStmt*(bu: var MirBuilder, body: untyped) =
   let v = bu.push(body)
   bu.pop(v)
 
+template buildIf*(bu: var MirBuilder, cond, body: untyped) =
+  ## Emits the start and end of an ``if``, with `cond` providing the MIR for
+  ## the condition, and `body` providing the MIR for the body.
+  let label = bu.allocLabel()
+  bu.subTree mnkIf:
+    cond
+    bu.add MirNode(kind: mnkLabel, label: label)
+  body
+  bu.subTree mnkEndStruct:
+    bu.add MirNode(kind: mnkLabel, label: label)
+
 template buildStmt*(bu: var MirBuilder, k: MirNodeKind, body: untyped) =
   ## Similar to `buildStmt <#buildStmt,TCtx,untyped>`_, but also starts a sub-
   ## tree of kind `k`.
@@ -315,6 +328,11 @@ template allocTemp*(bu: var MirBuilder, t: TypeId, alias = false): Value =
   let id = bu.addLocal(Local(typ: t))
   allocTemp(bu, t, id, alias)
 
+func allocLabel*(bu: var MirBuilder): LabelId =
+  ## Allocates a fresh label ID.
+  result = LabelId(bu.nextLabel)
+  inc bu.nextLabel
+
 func use*(bu: var MirBuilder, val: sink Value) {.inline.} =
   ## Emits a use of `val`.
   if val.info.isSome:
@@ -393,6 +411,16 @@ func asgnMove*(bu: var MirBuilder, a, b: Value) =
   bu.subTree mnkAsgn:
     bu.use a
     bu.move b
+
+func join*(bu: var MirBuilder, label: LabelId) =
+  ## Emits a ``join`` statement with `label`.
+  bu.subTree mnkJoin:
+    bu.add MirNode(kind: mnkLabel, label: label)
+
+template buildBlock*(bu: var MirBuilder, id: LabelId, body: untyped) =
+  ## Emits `body` followed by a join statement for the given `id`.
+  body
+  bu.join id
 
 func inline*(bu: var MirBuilder, tree: MirTree, fr: NodePosition): Value =
   ## Inlines the lvalue operand for non-mutating use. This is meant to be used

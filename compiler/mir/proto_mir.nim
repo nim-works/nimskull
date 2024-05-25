@@ -344,6 +344,11 @@ func ownershipOp(e: seq[ProtoItem], i: int): ProtoItemKind =
     # cannot be part of an lvalue expression sequence
     unreachable(e[i].kind)
 
+func materialize(e: var seq[ProtoItem], kind: ProtoItemKind) =
+  # only materialize if not materialized already
+  if e[^1].kind != kind:
+    e.add kind
+
 func wantOwning*(e: var seq[ProtoItem], forceTemp: bool) =
   ## Makes sure `e` produces an owning value. If `forceTemp` is true, a
   ## temporary is materialized even if the expression would already produce
@@ -351,8 +356,7 @@ func wantOwning*(e: var seq[ProtoItem], forceTemp: bool) =
   case classify(e, e.high)
   of Rvalue:
     # rvalue expressions cannot be copied from directly
-    if e[^1].kind != pirMatCursor:
-      e.add pirMatCursor
+    materialize(e, pirMatCursor)
     e.add pirCopy
   of OwnedRvalue:
     var i = e.high
@@ -383,14 +387,12 @@ func wantConsumeable*(e: var seq[ProtoItem]) =
   ## value).
   case classify(e, e.high)
   of Rvalue:
-    if e[^1].kind != pirMatCursor:
-      e.add pirMatCursor
+    materialize(e, pirMatCursor)
     e.add pirCopy
     e.add pirMat
   of OwnedRvalue:
-    if e[^1].kind != pirMat:
-      # requires an owning temporary
-      e.add pirMat
+    # requires an owning temporary
+    materialize(e, pirMat)
   of Lvalue:
     e.add ownershipOp(e, e.high)
     e.add pirMat
@@ -408,9 +410,9 @@ proc wantPure*(e: var seq[ProtoItem]) =
     if not isPure(e, e.high):
       e.add pirMatCursor
   of Rvalue:
-    e.add pirMatCursor
+    materialize(e, pirMatCursor)
   of OwnedRvalue:
-    e.add pirMat
+    materialize(e, pirMat)
 
 proc wantValue*(e: var seq[ProtoItem]) =
   ## Makes sure `e` is a literal value or lvalue expression.
@@ -418,16 +420,16 @@ proc wantValue*(e: var seq[ProtoItem]) =
   of Lvalue, Literal:
     discard "nothin to do"
   of Rvalue:
-    e.add pirMatCursor
+    materialize(e, pirMatCursor)
   of OwnedRvalue:
-    e.add pirMat
+    materialize(e, pirMat)
 
 proc wantShallow*(e: var seq[ProtoItem]) =
   ## Makes sure `e` is something that can be assigned to a non-owning
   ## destination.
   if classify(e, e.high) == OwnedRvalue:
     # commit to a temporary
-    e.add pirMat
+    materialize(e, pirMat)
 
 proc wantStable*(e: var seq[ProtoItem]) =
   ## Makes sure `e` is a stable lvalue expression. Rvalues and literal values
@@ -437,9 +439,9 @@ proc wantStable*(e: var seq[ProtoItem]) =
     if not isStable(e, e.high):
       e.add pirMatLvalue
   of OwnedRvalue:
-    e.add pirMat
+    materialize(e, pirMat)
   of Rvalue, Literal:
-    e.add pirMatCursor
+    materialize(e, pirMatCursor)
 
 # ---- translation routines ----
 

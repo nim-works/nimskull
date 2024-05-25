@@ -48,8 +48,7 @@ template subTree(bu; k: MirNodeKind, t: TypeId, body: untyped) =
     body
 
 template buildIf(bu; cond: Value, body: untyped) =
-  bu.subTree mnkIf:
-    bu.use cond
+  bu.buildIf (;bu.use(cond)):
     bu.subTree mnkScope:
       body
 
@@ -58,8 +57,7 @@ template buildIfNot(bu; cond: Value, body: untyped) =
     bu.buildMagicCall mNot, BoolType:
       bu.emitByVal cond
 
-  bu.subTree mnkIf:
-    bu.use c
+  bu.buildIf(c):
     body
 
 template emitCall(bu; tree; call; prc: ProcedureId, arguments: untyped) =
@@ -69,6 +67,10 @@ template emitCall(bu; tree; call; prc: ProcedureId, arguments: untyped) =
     bu.subTree tree[call].kind, VoidType:
       bu.add procNode(prc) # callee
       arguments # custom arguments
+
+      if tree[call].kind == mnkCheckedCall:
+        # copy the jump target
+        bu.emitFrom(tree, tree.previous(findEnd(tree, call)))
 
 proc addCompilerProc(env; graph; name: string): ProcedureId =
   env.procedures.add(graph.getCompilerProc(name))

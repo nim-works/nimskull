@@ -110,7 +110,7 @@ block insert_shared_start:
   # independent of the order in which they're recorded
   var bu: MirBuilder
   bu.add temp(0)
-  bu.subTree mnkStmtList: discard
+  bu.subTree mnkScope: discard
   bu.add temp(3)
   var (tree, _) = finish(bu)
 
@@ -136,7 +136,7 @@ block insert_shared_end:
   # *second*, independent of the order in which they're recorded
   var bu: MirBuilder
   bu.add temp(0)
-  bu.subTree mnkStmtList: discard
+  bu.subTree mnkScope: discard
   bu.add temp(3)
   var (tree, _) = finish(bu)
 

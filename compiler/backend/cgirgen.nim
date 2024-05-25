@@ -43,16 +43,11 @@ import
   ]
 
 import std/options as std_options
-from std/sequtils import delete
 
 from compiler/ast/ast import newSym, newType, rawAddSon
 from compiler/sem/semdata import makeVarType
 
 type
-  NodeLabelPair = tuple
-    node: CgNode
-    target: LabelId
-
   TranslateCl = object
     graph: ModuleGraph
     idgen: IdGenerator
@@ -62,38 +57,16 @@ type
 
     owner: PSym
 
-    blocks: seq[tuple[input, actual: LabelId]]
-      ## the stack of enclosing blocks for the currently processed node
-
-    numLabels: int
-      ## incremented when a new label ID is allocated
-    exits: seq[NodeLabelPair]
-      ## non-exception goto-like statements that need patching when crossing
-      ## ``try``, ``finally``, or ``except`` boundaries
-    raiseExits: seq[NodeLabelPair]
-      ## similar to `exits`, but for exceptional control-flow statements/
-      ## nodes. The label doesn't matter, it's only there so that `raiseExits`
-      ## can be passed to the same procedures as `exits`
-    returnLabel: Option[LabelId]
-      ## the label to be placed after all other statements. A label is only
-      ## allocated if an ``mnkReturn`` appears somewhere in the MIR code
-    isActive: bool
-      ## whether translation of statements is enabled. Used to eliminate
-      ## unreachable code
-
     locals: Store[LocalId, Local]
       ## the list of all locals in the body, taken from the ``MirBody``.
       ## Only needed for updating the type for alias locals
 
-    # a 'def' in the MIR means that the the local starts to exists and that it
-    # is accessible in all connected basic blocks part of the enclosing
-    # ``mnkScope``. The ``CgNode`` IR doesn't use same notion of scope,
-    # so for now, all 'def's (without the initial values) within nested
-    # control-flow-related trees are moved to the start of the enclosing
-    # ``mnkScope``.
-    inUnscoped: bool
+    inUnscoped: int
       ## whether the currently proceesed statement/expression is part of an
-      ## unscoped control-flow context
+      ## unscoped control-flow context. Used to move definitions to the start
+      ## of the enclosing scope, which is currently required for temporaries
+      ## requiring destruction that are spawned as part of the right-hand
+      ## operand of ``and``/``or``
     defs: seq[CgNode]
       ## the stack of locals/globals for which the ``cnkDef``/assignemnt needs
       ## to be inserted later
@@ -102,12 +75,6 @@ type
     ## A cursor into a ``MirBody``.
     pos: uint32 ## the index of the currently pointed to node
     origin {.cursor.}: PNode ## the source node
-
-func delete[T](s: var seq[T], a, b: int) =
-  # XXX: this procedure is a workaround for ``sequtils.delete`` not handling
-  #      empty slices properly (an IndexDefect is erroneously raised)
-  if b > a:
-    sequtils.delete(s, a..(b-1))
 
 func newMagicNode(magic: TMagic, info: TLineInfo): CgNode =
   CgNode(kind: cnkMagic, info: info, magic: magic)
@@ -144,9 +111,6 @@ template hasNext(cr: TreeCursor, t: MirBody): bool =
 template `[]=`(x: CgNode, i: Natural, n: CgNode) =
   x.kids[i] = n
 
-template `[]=`(x: CgNode, i: BackwardsIndex, n: CgNode) =
-  x.kids[i] = n
-
 template add(x: CgNode, y: CgNode) =
   x.kids.add y
 
@@ -181,8 +145,8 @@ func newTypeNode(info: TLineInfo, typ: PType): CgNode =
 func newFieldNode(s: PSym; info = unknownLineInfo): CgNode =
   CgNode(kind: cnkField, info: info, typ: s.typ, field: s)
 
-func newLabelNode(blk: BlockId; info = unknownLineInfo): CgNode =
-  CgNode(kind: cnkLabel, info: info, label: blk)
+func newLabelNode(label: LabelId; info = unknownLineInfo): CgNode =
+  CgNode(kind: cnkLabel, info: info, label: BlockId(label))
 
 proc newExpr(kind: CgNodeKind, info: TLineInfo, typ: PType,
              kids: sink seq[CgNode]): CgNode =
@@ -225,9 +189,6 @@ proc genObjConv(n: CgNode, to: PType, info: TLineInfo): CgNode =
   result = newOp(
     if diff < 0: cnkObjUpConv else: cnkObjDownConv,
     info, to): n
-
-func disable(cl: var TranslateCl) {.inline.} =
-  cl.isActive = false
 
 # forward declarations:
 proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
@@ -387,6 +348,34 @@ proc valueToIr(tree: MirBody, cl: var TranslateCl,
   else:
     unreachable("not a value: " & $tree[cr].kind)
 
+proc labelToIr(tree: MirBody, cr: var TreeCursor): CgNode =
+  ## Translates a MIR label to a CGIR label.
+  assert tree[cr].kind == mnkLabel
+  newLabelNode(tree.get(cr).label)
+
+proc targetToIr(tree: MirBody, cr: var TreeCursor): CgNode =
+  ## Translates a MIR target list to its CGIR counterpart. Both share the same
+  ## structure, so the translation is straightforward.
+  proc actionToIr(tree: MirBody, n: MirNode, info: TLineInfo): CgNode =
+    case n.kind
+    of mnkLabel:  newLabelNode(n.label)
+    of mnkLeave:  newTree(cnkLeave, info, newLabelNode(n.label))
+    of mnkResume: CgNode(kind: cnkResume, info: info)
+    else:
+      unreachable(n.kind)
+
+  let n {.cursor.} = tree.get(cr)
+  case n.kind
+  of mnkLabel:
+    result = actionToIr(tree, n, cr.info)
+  of mnkTargetList:
+    result = newTree(cnkTargetList, cr.info)
+    while tree[cr].kind != mnkEnd:
+      result.add actionToIr(tree, tree.get(cr), cr.info)
+    leave(tree, cr)
+  else:
+    unreachable(n.kind)
+
 proc argToIr(tree: MirBody, cl: var TranslateCl,
              cr: var TreeCursor): (bool, CgNode) =
   ## Translates a MIR argument tree to the corresponding CG IR tree.
@@ -436,7 +425,7 @@ proc callToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
                result[0].magic in FakeVarParams
 
   # translate the arguments:
-  while tree[cr].kind != mnkEnd:
+  while tree[cr].kind in ArgumentNodes:
     var (mutable, arg) = argToIr(tree, cl, cr)
     if noAddr:
       if arg.typ.kind == tyVar:
@@ -447,6 +436,9 @@ proc callToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
       arg = wrapInHiddenAddr(cl, arg)
 
     result.add arg
+
+  if n.kind == mnkCheckedCall:
+    result.add targetToIr(tree, cr)
 
   leave(tree, cr)
 
@@ -531,7 +523,7 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
 
   case def.kind
   of cnkLocal:
-    if cl.inUnscoped and not isLet:
+    if cl.inUnscoped > 0 and not isLet:
       # add the local to the list of moved definitions and only emit
       # an assignment
       cl.defs.add copyTree(def)
@@ -552,14 +544,14 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
         # known to us, not that it starts its lifetime here -> don't
         # initialize or move it
         result = arg
-      elif cl.inUnscoped:
+      elif cl.inUnscoped > 0:
         # move the default initialization to the start of the scope
         cl.defs.add def
         result = arg
       else:
         result = newStmt(cnkAsgn, info, [def, newDefaultCall(info, def.typ)])
     else:
-      if sfImportc notin env.globals[def.global].flags and cl.inUnscoped:
+      if sfImportc notin env.globals[def.global].flags and cl.inUnscoped > 0:
         # default intialization is required at the start of the scope
         cl.defs.add def
       result = newStmt(cnkAsgn, info, [def, arg])
@@ -568,150 +560,13 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   else:
     unreachable()
 
-proc bodyToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
-              cr: var TreeCursor, stmts: var seq[CgNode]) =
-  ## Generates the ``CgNode`` tree for the body of a construct that implies
-  ## some form of control-flow.
-  let prev = cl.inUnscoped
-  # assume the body is unscoped until stated otherwise
-  cl.inUnscoped = true
-  stmtToIr(tree, env, cl, cr, stmts)
-  cl.inUnscoped = prev
-
 proc caseToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl, n: MirNode,
-              cr: var TreeCursor, stmts: var seq[CgNode])
-
-func newLabel(cl: var TranslateCl): LabelId =
-  ## Allocates a new label ID and returns it.
-  result = LabelId(cl.numLabels)
-  inc cl.numLabels
-
-func getReturnLabel(cl: var TranslateCl): LabelId =
-  ## Returns the label that points to the end of the current procedure.
-  if cl.returnLabel.isSome:
-    result = cl.returnLabel.unsafeGet()
-  else:
-    # allocate a new label first
-    result = newLabel(cl)
-    cl.returnLabel = some result
-
-func node(lbl: LabelId): CgNode =
-  newLabelNode(BlockId(lbl))
-
-proc patch(stmt: CgNode, target: sink CgNode) =
-  ## Appends `target` to the goto-like statement `stmt`, always wrapping
-  ## `target` in a ``cnkTargetList`` if there's none yet.
-  if stmt[^1] == nil:
-    stmt[^1] = newTree(cnkTargetList, unknownLineInfo, target)
-  else:
-    # a target list already exists
-    stmt[^1].kids.add target
-
-proc patchSingle(stmt: CgNode, target: sink CgNode) =
-  ## Appends `target` to the goto-like statement `stmt`.
-  if stmt[^1] == nil:
-    stmt[^1] = target
-  else:
-    stmt[^1].kids.add target
-
-proc patch(x: seq[NodeLabelPair], start: int, exit: LabelId) =
-  for i in start..<x.len:
-    patch(x[i].node, node(exit))
-
-proc patchLeave(x: seq[NodeLabelPair], start: int, exit: LabelId) =
-  for i in start..<x.len:
-    patch(x[i].node, newTree(cnkLeave, x[i].node.info, node(exit)))
-
-proc patchResume(x: seq[NodeLabelPair], start: int) =
-  for i in start..<x.len:
-    patch(x[i].node, newNode(cnkResume, x[i].node.info))
-
-proc join(stmts: var seq[CgNode], cl: var TranslateCl, info: TLineInfo,
-          target: LabelId, required: bool) =
-  ## Emits a join statement with label `target`, enabling translation
-  ## again if it's disabled and an exit targetting `target` exists.
-  ## If `required` is false and a join statement was immediately emitted
-  ## prior, no new join statement is emitted.
-  var label = target
-
-  # if allowed and possible, coalesce a join with the previous one:
-  if not required and stmts.len > 0 and stmts[^1].kind == cnkJoinStmt:
-    label = stmts[^1][0].label.LabelId
-
-  var
-    i = 0
-    found = false
-  # search for exits targetting `target`, update them with the correct label,
-  # and then remove them from the list
-  while i < cl.exits.len:
-    if cl.exits[i][1] == target:
-      patchSingle(cl.exits[i][0], node(label))
-      cl.exits.del(i)
-      # remember that at least one exit was found:
-      found = true
-    else:
-      inc i
-
-  # emit the join, but only if no coalescing took place and the label is
-  # actually targeted:
-  if label == target and (found or required):
-    stmts.add newTree(cnkJoinStmt, info, node(label))
-
-  if found:
-    # code is alive if following a join that is targeted by an alive goto
-    cl.isActive = true
-
-template join(info: TLineInfo, lbl: LabelId; required = false) =
-  join(stmts, cl, info, lbl, required)
-
-template goto(kind: CgNodeKind, info: TLineInfo, target: LabelId) =
-  ## Emits a fixed goto-like statement targeting `target`.
-  stmts.add newStmt(kind, info, node(target))
-
-template exit(lbl: LabelId) =
-  ## Emits a goto statement and registers it with `lbl` as the target.
-  if cl.isActive:
-    let n = newStmt(cnkGotoStmt, unknownLineInfo, nil)
-    stmts.add n
-    cl.exits.add((n, lbl))
-    cl.disable()
-
-template guarded(lbl: LabelId, body: untyped) =
-  ## Updates all exits emitted as part of `body` with a leave instruction
-  ## targetting `lbl`.
-  let
-    raiseStart = cl.raiseExits.len
-    exitStart = cl.exits.len
-  body
-  patchLeave(cl.raiseExits, raiseStart, lbl)
-  patchLeave(cl.exits, exitStart, lbl)
+              cr: var TreeCursor): CgNode
 
 proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
               cr: var TreeCursor, stmts: var seq[CgNode]) =
-
-  # skip the statement if translation is disabled, but with a caveat. Consider
-  # the following MIR:
-  #   try:
-  #     return
-  #     def _1 = ...
-  #   finally:
-  #     =destroy(name _1)
-  #
-  # Although nonesense, this is currently both legal and possible MIR. If
-  # translation would be disabled beyond the ``return``, then the temporary
-  # wouldn't be registered. Therefore, translation is always enabled in unscoped
-  # contexts (such as the above)
-  # XXX: eliminating unreachable code needs to happen much earlier, either in
-  #      ``mirgen`` or ``transf``
-  if not cl.isActive and not cl.inUnscoped:
-    tree.skip(cr)
-    return
-
   let n {.cursor.} = tree.get(cr)
   let info = cr.info ## the source information of `n`
-
-  template body() =
-    bodyToIr(tree, env, cl, cr, stmts)
 
   template to(kind: CgNodeKind, args: varargs[untyped]) =
     let r = newStmt(kind, info, args)
@@ -733,124 +588,36 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
       dst = lvalueToIr(tree, cl, cr)
       (src, useFast) = sourceExprToIr(tree, cl, cr)
     to (if useFast: cnkFastAsgn else: cnkAsgn), dst, src
-  of mnkRepeat:
-    let label = newLabel(cl)
-    stmts.add newTree(cnkLoopJoinStmt, info, node(label))
-    body()
-    stmts.add newStmt(cnkLoopStmt, info, node(label))
+  of mnkGoto:
+    to cnkGotoStmt, targetToIr(tree, cr)
+  of mnkLoop:
+    to cnkLoopStmt, targetToIr(tree, cr)
+  of mnkLoopJoin:
+    to cnkLoopJoinStmt, targetToIr(tree, cr)
+  of mnkJoin:
+    to cnkJoinStmt, labelToIr(tree, cr)
+  of mnkExcept:
+    let excpt = newTree(cnkExcept, info, labelToIr(tree, cr))
+    if n.len > 1:
+      # not a catch-all handler. Translate the filter items:
+      for j in 1..<n.len-1:
+        excpt.add tbExceptItem(tree, cl, cr)
+
+      # then the jump target of the next handler:
+      excpt.add targetToIr(tree, cr)
+
     leave(tree, cr)
-  of mnkBlock:
-    cl.blocks.add (n.label, newLabel(cl))
-    body()
-    join info, cl.blocks.pop().actual
+    stmts.add excpt
+    # XXX: temporary workaround, refer to ``inUnscoped`` doc comment
+    inc cl.inUnscoped
+  of mnkFinally:
+    to cnkFinally, labelToIr(tree, cr)
+  of mnkContinue:
+    stmts.add newStmt(cnkContinueStmt, info, labelToIr(tree, cr))
+    # skip the candidate list, it's not relevant to code generation:
+    for _ in 1..<n.len:
+      tree.skip(cr)
     leave(tree, cr)
-  of mnkTry:
-    assert n.len <= 2
-    let
-      raiseExitStart = cl.raiseExits.len
-      exitStart      = cl.exits.len
-
-    body() # body of the try block
-    let target = newLabel(cl)
-    exit target # jump past the except and/or finally sections
-
-    for _ in 0..<n.len:
-      let it {.cursor.} = enter(tree, cr)
-
-      case it.kind
-      of mnkExcept:
-        # only translate the except section if it's actually entered
-        if raiseExitStart < cl.raiseExits.len:
-          var next = newLabel(cl)
-            ## the label of the next except branch
-          for i in raiseExitStart..<cl.raiseExits.len:
-            patchSingle(cl.raiseExits[i][0], node(next))
-
-          # translating the handler could add new exceptional exits, so pop
-          # the raise exits first
-          cl.raiseExits.setLen(raiseExitStart)
-
-          for bIdx in 0..<it.len:
-            let br {.cursor.} = enter(tree, cr)
-            assert br.kind == mnkBranch
-
-            let
-              this = next ## label of the current except branch
-              excpt = newTree(cnkExcept, cr.info, node(this))
-            for j in 0..<br.len:
-              excpt.add tbExceptItem(tree, cl, cr)
-
-            # no filters mean that this is a catch-all branch
-            if br.len > 0:
-              if bIdx == it.len-1:
-                # last branch in the handler block
-                excpt.add nil
-                cl.raiseExits.add (excpt, LabelId(0))
-              else:
-                # setup the label for the follow-up handler
-                next = newLabel(cl)
-                excpt.add node(next)
-
-            stmts.add excpt
-            guarded this:
-              cl.isActive = true # each branch starts as active
-              body() # body of the handler
-              exit target # jump to the after the try statement
-              stmts.add newStmt(cnkEnd, excpt.info, [node(this)])
-
-            leave(tree, cr)
-
-        else:
-          # skip all branches
-          for _ in 0..<it.len:
-            tree.skip(cr)
-      of mnkFinally:
-        # only translate the finally if it's actually entered
-        if raiseExitStart < cl.raiseExits.len or exitStart < cl.exits.len:
-          let label = newLabel(cl)
-          # add the finalizer as an intermediate target
-          patch(cl.raiseExits, raiseExitStart, label)
-          patch(cl.exits, exitStart, label)
-
-          # remember the states prior to translating the body:
-          let
-            raiseExitStart2 = cl.raiseExits.len
-            exitStart2 = cl.exits.len
-
-          stmts.add newStmt(cnkFinally, info, node(label))
-          guarded label:
-            cl.isActive = true
-            body()
-
-          if not cl.isActive:
-            # the finally section has no structured exit. Discard all
-            # intercepted exits; their final target is the finally
-            cl.raiseExits.delete(raiseExitStart, raiseExitStart2)
-            cl.exits.delete(exitStart, exitStart2)
-
-          stmts.add newStmt(cnkContinueStmt, info, node(label))
-        else:
-          tree.skip(cr) # skip the body
-
-      else:
-        unreachable(it.kind)
-
-      leave(tree, cr)
-
-    cl.disable()
-    # if structured control-flow exits the try statement, the join will enable
-    # translation again
-    join info, target
-    leave(tree, cr)
-  of mnkBreak:
-    # find the stack index of the enclosing 'block' identified by the break's
-    # label
-    var idx = cl.blocks.high
-    while idx >= 0 and cl.blocks[idx].input != n.label:
-      dec idx
-    exit cl.blocks[idx].actual
-  of mnkReturn:
-    exit getReturnLabel(cl)
   of mnkVoid:
     var res = exprToIr(tree, cl, cr)
     if res.typ.isEmptyType():
@@ -861,14 +628,13 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     leave(tree, cr)
     stmts.add res
   of mnkIf:
-    let label = newLabel(cl)
-    stmts.add newStmt(cnkIfStmt, info, [valueToIr(tree, cl, cr), node(label)])
-    body()
-    stmts.add newStmt(cnkEnd, info, [node(label)])
-    # if control-flow reaches the ``if`` itself, it also reaches the code
-    # following the ``if``
-    cl.isActive = true
-    leave(tree, cr)
+    to cnkIfStmt, valueToIr(tree, cl, cr), labelToIr(tree, cr)
+    # XXX: temporary workaround, refer to ``inUnscoped`` doc comment
+    inc cl.inUnscoped
+  of mnkEndStruct:
+    # XXX: temporary workaround, refer to ``inUnscoped`` doc comment
+    dec cl.inUnscoped
+    to cnkEnd, labelToIr(tree, cr)
   of mnkRaise:
     # the operand can either be empty or an lvalue expression
     let
@@ -878,23 +644,17 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
         of mnkNone: newEmpty()
         else:       lvalueToIr(tree, cl, arg, cr)
 
-    res.add nil # reserve a slot for the label
-    cl.raiseExits.add (res, LabelId(0))
+    res.add targetToIr(tree, cr)
     stmts.add res
-    cl.disable()
     leave(tree, cr)
   of mnkCase:
-    caseToIr(tree, env, cl, n, cr, stmts)
+    stmts.add caseToIr(tree, env, cl, n, cr)
   of mnkAsm:
     toList cnkAsmStmt:
       res.add valueToIr(tree, cl, cr)
   of mnkEmit:
     toList cnkEmitStmt:
       res.add valueToIr(tree, cl, cr)
-  of mnkStmtList:
-    while tree[cr].kind != mnkEnd:
-      stmtToIr(tree, env, cl, cr, stmts)
-    leave(tree, cr)
   of mnkScope:
     scopeToIr(tree, env, cl, cr, stmts)
   of mnkDestroy:
@@ -918,42 +678,23 @@ proc setElementToIr(tree: MirBody, cl: var TranslateCl,
     unreachable()
 
 proc caseToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl, n: MirNode,
-              cr: var TreeCursor, stmts: var seq[CgNode]) =
+              cr: var TreeCursor): CgNode =
   assert n.kind == mnkCase
-  let
-    exit = newLabel(cl)
-    result = newStmt(cnkCaseStmt, cr.info, [valueToIr(tree, cl, cr)])
-  # whether the statement has a structured exit is computed manually
-  var doesExit = false
+  result = newStmt(cnkCaseStmt, cr.info, [valueToIr(tree, cl, cr)])
 
-  stmts.add result # add the case statement already
-  for j in 0..<n.len:
+  # translate the branches:
+  for _ in 1..<n.len:
     let br {.cursor.} = enter(tree, cr)
 
-    result.add newTree(cnkBranch, cr.info)
-    for x in 0..<br.len:
-      result[^1].add setElementToIr(tree, cl, cr)
+    let branch = newTree(cnkBranch, cr.info)
+    for _ in 0..<br.len-1:
+      branch.add setElementToIr(tree, cl, cr)
 
-    let label = newLabel(cl)
-    result[^1].add node(label)
+    # the jump target is in the last slot:
+    branch.add labelToIr(tree, cr)
 
-    # start each branch as active again:
-    cl.isActive = true
-
-    join cr.info, label, required=true
-    bodyToIr(tree, env, cl, cr, stmts)
-    if cl.isActive:
-      doesExit = true
-      goto cnkGotoStmt, result.info, exit
-
+    result.add branch
     leave(tree, cr)
-
-  if doesExit:
-    # we used manual gotos, so emission of a join statement has to be forced
-    join result.info, exit, required=true
-    cl.isActive = true
-  else:
-    cl.disable()
 
   leave(tree, cr)
 
@@ -1016,13 +757,8 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
     treeOp cnkObjConstr:
       let f = newFieldNode(lookupInType(typ, get(tree, cr).field))
       res.add newTree(cnkBinding, cr.info, [f, argToIr(tree, cl, cr)[1]])
-  of mnkCall:
+  of mnkCall, mnkCheckedCall:
     callToIr(tree, cl, n, cr)
-  of mnkCheckedCall:
-    let res = callToIr(tree, cl, n, cr)
-    res.kids.add nil # reserve the slot for the target
-    cl.raiseExits.add (res, LabelId(0))
-    res
   of UnaryOps:
     const Map = [mnkNeg: cnkNeg]
     treeOp Map[n.kind]:
@@ -1058,7 +794,7 @@ proc scopeToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     start = stmts.len
 
   # a scope is entered, meaning that we're no longer in an unscoped context
-  cl.inUnscoped = false
+  cl.inUnscoped = 0
 
   # translate all statements:
   while cr.hasNext(tree) and tree[cr].kind != mnkEnd:
@@ -1083,13 +819,6 @@ proc tb(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   var cr = TreeCursor(pos: start.uint32)
   var stmts: seq[CgNode]
   scopeToIr(tree, env, cl, cr, stmts)
-  if cl.raiseExits.len > 0:
-    # there's unhandled exceptional control-flow
-    patchResume(cl.raiseExits, 0)
-
-  # emit the join for the return label, if used
-  if cl.returnLabel.isSome:
-    join unknownLineInfo, cl.returnLabel.get()
 
   # XXX: the list of statements is still wrapped in a node for now, but
   #      this needs to change once all code generators use the new CGIR
@@ -1103,8 +832,6 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
   ## using `idgen` to provide new IDs when creating symbols.
   var cl = TranslateCl(graph: graph, idgen: idgen, env: addr env,
                        owner: owner, locals: move body.locals)
-  # enable translation:
-  cl.isActive = true
 
   result = Body()
   result.code = tb(body, env, cl, NodePosition 0)

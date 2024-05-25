@@ -22,6 +22,7 @@ import
     algorithm,
     options,
     packedsets,
+    tables
   ],
   compiler/ast/[
     ast_types
@@ -37,6 +38,7 @@ type
   Opcode* = enum
     ## The opcode of a data-/control-flow instruction, representing edges and
     ## nodes in the graph.
+    opNone ## no-op
     opFork ## branching control-flow that cannot introduce a cycle
     opGoto ## unconditional jump that cannot introduce a cycle
     opLoop ## unconditional jump to the start of a loop. The start of a cycle
@@ -49,6 +51,7 @@ type
     opMutate      ## mutation of a value. Can be viewed as a combined 'use' +
                   ## 'def'
     opConsume     ## a value is consumed. This is effectively a 'use' + 'kill'
+    opDestroy     ## a location's value is destroyed
 
     opMutateGlobal ## an unspecified global is mutated
 
@@ -75,6 +78,8 @@ type
       id: JoinId
     of DataFlowOps:
       val: OpValue
+    of opNone:
+      discard
 
   DataFlowGraph* = object
     ## Encodes the data-flow graph of a local program as a sequence of
@@ -135,23 +140,12 @@ type
 
   ClosureEnv = object
     instrs: seq[Instr]
-    structStack: seq[InstrPos]
-      ## stack of instruction positions for the currently open
-      ## structured control-flow blocks (if, loop, and regions).
-    blocks: seq[Option[LabelId]]
-      ## stack of targets for forward, merging control-flow. No label
-      ## means that it's a *hidden* block (such as the one opened by a
-      ## ``try`` statement)
-    exits: seq[tuple[instr: InstrPos, id: uint32, inTry: uint32]]
-      ## unstructured exits. An `id` of ``high(uint32)`` means that it's
-      ## exceptional control-flow.
-
-    inTry: uint32
-    numJoins: int
-
-const
-  RaiseLabel = high(uint32)
-  ExitLabel = 0'u32
+    joins: seq[InstrPos]
+      ## the ``JoinId`` -> instruction position mappings
+    labelToJoin: Table[LabelId, JoinId]
+      ## maps the label ID to the corresponding join ID
+    resumeLabel: Option[JoinId]
+      ## only setup when used
 
 func incl[T](s: var seq[T], v: sink T) =
   ## If not present already, adds `v` to the sorted ``seq`` `s`
@@ -176,6 +170,27 @@ func `[]`(c: DataFlowGraph, pc: SomeInteger): lent Instr {.inline.} =
 
 # ---- data-flow graph setup ----
 
+proc firstTarget(tree: MirTree, n: NodePosition): NodePosition =
+  ## Returns the first label or resume in the jump target description.
+  case tree[n].kind
+  of mnkLabel:
+    result = n
+  of mnkTargetList:
+    for p in subNodes(tree, n):
+      if tree[p].kind in {mnkResume, mnkLabel}:
+        return p
+    unreachable("ill-formed target list")
+  else:
+    unreachable(tree[n].kind)
+
+func map(env: var ClosureEnv, id: LabelId): JoinId =
+  if id in env.labelToJoin:
+    result = env.labelToJoin[id]
+  else:
+    result = env.joins.len.JoinId
+    env.joins.add 0 # will be patched later
+    env.labelToJoin[id] = result
+
 func dfaOp(env: var ClosureEnv, opc: Opcode, n: NodePosition, v: OpValue) =
   {.cast(uncheckedAssign).}:
     env.instrs.add Instr(op: opc, node: n, val: v)
@@ -186,12 +201,28 @@ func dfaOp(env: var ClosureEnv, opc: Opcode, tree: MirTree, n: NodePosition,
   if tree[v].kind in LvalueExprKinds:
     dfaOp(env, opc, n, v)
 
-func emit(env: var ClosureEnv, opc: Opcode, n: NodePosition): InstrPos =
-  env.instrs.add Instr(op: opc, node: n)
-  env.instrs.high.InstrPos
+func getResumeLabel(env: var ClosureEnv): JoinId =
+  # the join point is allocated when first used
+  if env.resumeLabel.isNone:
+    env.resumeLabel = some env.joins.len.JoinId
+    env.joins.add 0 # will be patched later
+  env.resumeLabel.unsafeGet
 
-func exit(env: var ClosureEnv, opc: Opcode, pos: NodePosition, blk: uint32) =
-  env.exits.add (emit(env, opc, pos), blk, env.inTry)
+func raiseExit(env: var ClosureEnv, opc: Opcode, tree: MirTree,
+               at, target: NodePosition) =
+  let target = firstTarget(tree, target)
+  # compute the join ID to use, accounting for the special 'resume' action:
+  let join =
+    case tree[target].kind
+    of mnkLabel:
+      map(env, tree[target].label)
+    of mnkResume:
+      env.getResumeLabel()
+    else:
+      unreachable()
+
+  {.cast(uncheckedAssign).}:
+    env.instrs.add Instr(op: opc, node: at, id: join)
 
 func emitForValue(env: var ClosureEnv, tree: MirTree, at: NodePosition,
                   source: OpValue) =
@@ -224,7 +255,7 @@ func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
       emitLvalueOp(env, opConsume, tree, at, tree.operand(it))
     of mnkName:
       emitForValue(env, tree, at, tree.skip(tree.operand(it), mnkTag))
-    of mnkField, mnkMagic, mnkProc:
+    of mnkField, mnkMagic, mnkProc, mnkLabel, mnkTargetList:
       discard
     else:
       emitLvalueOp(env, opUse, tree, at, OpValue it)
@@ -269,7 +300,7 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
     # mutation, creation of the slice is treated as a mutation. To ensure the
     # correct data-flow operation order for the mutation case, the lower/upper
     # bound operands are treated as being evaluated (i.e., used) first
-    if numArgs(tree, source) == 3:
+    if len(tree, source) == 3:
       emitLvalueOp(env, opUse, tree, at, tree.operand(source, 1))
       emitLvalueOp(env, opUse, tree, at, tree.operand(source, 2))
 
@@ -319,7 +350,8 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
     if geMutateGlobal in tree[source].effects:
       env.instrs.add Instr(op: opMutateGlobal, node: at)
     if tree[source].kind == mnkCheckedCall:
-      exit env, opFork, at, RaiseLabel
+      # the jump target description is in the last slot
+      raiseExit(env, opFork, tree, at, tree.previous(findEnd(tree, source)))
   else:
     discard
 
@@ -337,225 +369,106 @@ func emitForDef(env: var ClosureEnv, tree: MirTree, n: NodePosition) =
     env.dfaOp opDef, n, dest
 
 func computeDfg*(tree: MirTree): DataFlowGraph =
-  ## Computes the data-flow graph for the given `tree`. This is an
-  ## expensive operation! The high cost is due to two essential reasons:
-  ##
-  ## 1. a control-flow graph needs to materialize all edges for a given `tree`
-  ## 2. the amount of allocations/bookkeeping necessary to do so
-  ##
-  ## The most amount of bookkeeping is required for finalizers and exceptions.
+  ## Computes the data-flow graph for the given `tree`. This is a moderately
+  ## expensive operation. The cost is due to having to materialize all data-
+  ## flow operation for a given tree.
 
-  template emit(opc: Opcode, n: NodePosition): InstrPos =
-    env.instrs.add Instr(op: opc, node: n)
-    env.instrs.high.InstrPos
+  template join(pos: NodePosition, label: LabelId) =
+    var id: JoinId
+    # pop the table entry; it's not needed past this point
+    if env.labelToJoin.pop(label, id):
+      env.instrs.add Instr(op: opJoin, node: pos, id: id)
+      # patch the join-to-instruction mapping:
+      env.joins[id] = env.instrs.high.InstrPos
+    else:
+      unreachable("unused join point")
 
-  template join(pos: NodePosition): JoinId =
-    let id = JoinId env.numJoins
-    inc env.numJoins
-    env.instrs.add Instr(op: opJoin, node: pos, id: id)
-    id
+  template goto(pos: NodePosition, label: LabelId) =
+    env.instrs.add Instr(op: opGoto, node: pos, dest: map(env, label))
 
-  proc findBlock(env: ClosureEnv, label: Option[LabelId]): uint32 =
-    var i = env.blocks.high
-    # search for the unstructured control-flow target for `label`
-    while i >= 0 and env.blocks[i] != label:
-      dec i
+  template fork(pos: NodePosition, label: LabelId) =
+    env.instrs.add Instr(op: opFork, node: pos, dest: map(env, label))
 
-    assert i >= 0, "invalid exit"
-    result = uint32(i + 1)
-
-  template findHidden(): uint32 = findBlock(env, none(LabelId))
-
-  template exit(opc: Opcode, pos: NodePosition, blk: uint32) =
-    env.exits.add (emit(opc, pos), blk, env.inTry)
-
-  template push(opc: Opcode, pos: NodePosition) =
-    env.structStack.add emit(opc, pos)
-
-  proc pop(env: var ClosureEnv, p: NodePosition) =
-    let start = env.structStack.pop()
-    case env.instrs[start].op
-    of opJoin:
-      let id = env.instrs[start].id
-      env.instrs.add Instr(op: opLoop, node: p, dest: id)
-    of opFork, opGoto, opLoop:
-      let id = join(p)
-      env.instrs[start].dest = id
-    of DataFlowOps:
-      discard
-
-  iterator updateTargets(env: var ClosureEnv, n: NodePosition,
-                         update: var bool): auto {.inline.} =
-    ## Yields all exits that are part of the active 'try' statement. If
-    ## `update` is 'true' when control is given back to the iterator, the exit
-    ## is removed from the list and the destination of the associated
-    ## instruction set to `n`.
-    var
-      id = none(JoinId) # only create a 'join' if really needed
-      i = 0
-    while i < env.exits.len:
-      if env.exits[i].inTry >= env.inTry:
-        update = false
-        yield env.exits[i]
-
-        if update:
-          if id.isNone:
-            id = some(join n)
-
-          env.instrs[env.exits[i].instr].dest = id.unsafeGet
-          del(env.exits, i)
-        else:
-          inc i
-      else:
-        inc i
-
-  template open(label: LabelId) =
-    env.blocks.add some(label)
-  template openHidden() =
-    env.blocks.add none(LabelId)
-
-  proc close(env: var ClosureEnv, i: NodePosition) =
-    var upd = false
-    for exit in updateTargets(env, i, upd):
-      upd = exit.id == env.blocks.len.uint32
-    discard env.blocks.pop()
+  template loop(pos: NodePosition, label: LabelId) =
+    var id: JoinId
+    discard env.labelToJoin.pop(label, id)
+    env.instrs.add Instr(op: opLoop, node: pos, dest: id)
 
   var
     env = ClosureEnv()
-    finallyExits: seq[tuple[id: uint32, inTry: uint32]]
+    ifs = newSeq[LabelId]()
 
   for i, n in tree.pairs:
     case n.kind
+    of mnkGoto:
+      let first = tree.firstTarget(tree.child(i, 0))
+      # the node for the target is guaranteed to be a label
+      goto i, tree[first].label
+    of mnkLoop:
+      loop i, tree[i, 0].label
     of mnkIf:
       emitLvalueOp(env, opUse, tree, i, tree.operand(i, 0))
-      push opFork, i
-    of mnkBranch:
-      # optimization: the first branch doesn't use a CFG edge
-      if tree[i-2].kind != mnkCase and tree[i-1].kind != mnkExcept:
-        pop(env, i)
-    of mnkRepeat:
-      # add a 'join' for the 'loop' that is emitted at the end of the repeat
-      discard join(i)
-      env.structStack.add env.instrs.high.InstrPos
-    of mnkBlock:
-      open n.label
+      fork i, tree[i, 1].label
+      ifs.add tree[i, 1].label
     of mnkCase:
-      emitLvalueOp(env, opUse, tree, i, tree.operand(i, 0))
-      openHidden() # for the branch exits
-      # fork to all branches except the the first one:
-      for _ in 0..<tree[i].len-1:
-        push opFork, i
-    of mnkTry:
-      openHidden()
-      inc env.inTry
+      var j = 0
+      for it in subNodes(tree, i):
+        if j == 0:
+          emitLvalueOp(env, opUse, tree, i, OpValue it)
+        elif j < tree[i].len.int:
+          # all branches up until the final one are forks
+          fork it, tree[it, tree[it].len - 1].label
+        else:
+          # a case dispatcher doesn't fall through (it's a terminator), so the
+          # last jump is a goto
+          goto it, tree[it, tree[it].len - 1].label
+
+        inc j
+    of mnkJoin:
+      join i, tree[i, 0].label
+    of mnkLoopJoin:
+      # special handling for loop joins, as they come before their
+      # corresponding jump instruction
+      let id = env.joins.len.JoinId
+      env.joins.add env.instrs.len.InstrPos
+      env.instrs.add Instr(op: opJoin, node: i, id: id)
+      env.labelToJoin[tree[i, 0].label] = id
     of mnkExcept:
-      # first, add a structured exit for the tried statement (which
-      # immediately precedes the handler):
-      exit opGoto, i-1, findHidden()
-      # set the join point for all exits targeting the 'raise' label:
-      var upd = false
-      for exit in updateTargets(env, i, upd):
-        upd = exit.id == RaiseLabel
-
-      # fork to the exception matchers:
-      for _ in 0..<tree[i].len-1:
-        push opFork, i
+      join i, tree[i, 0].label
+      # fork to the handler that is jumped to when there's no match
+      if n.len > 1:
+        raiseExit(env, opFork, tree, i, tree.child(i, n.len - 1))
     of mnkFinally:
-      if not (tree[i-1].kind == mnkEnd and tree[i-1].start == mnkExcept):
-        # this is a finally clause for a try statement without an exception
-        # handler. We need the structured exit for the tried statement to
-        # know where to resume at the end of the clause
-        exit opGoto, i-1, findHidden()
+      join i, tree[i, 0].label
+    of mnkContinue:
+      var j = 0
+      # a continue acts much like a dispatcher
+      for it in subNodes(tree, i):
+        if j == 0:
+          discard "label of the associated finally; ignore"
+        elif j < n.len.int - 1:
+          fork i, tree[it].label
+        else:
+          goto i, tree[it].label
+        inc j
 
-      let start = finallyExits.len
-
-      var upd = false
-      for exit in updateTargets(env, i, upd):
-        upd = true
-        # make sure that the list stays sorted while deduplicating exits:
-        var ins = start
-        while ins < finallyExits.len and finallyExits[ins].id < exit.id:
-          inc ins
-
-        if ins == finallyExits.len or finallyExits[ins].id != exit.id:
-          # the exit is not part of the surrounding 'try', so subtract 1
-          finallyExits.insert((exit.id, env.inTry-1), ins)
-
-      # the code inside the finally clause is control-flow wise not part of
-      # the 'try'
-      dec env.inTry
-    of mnkBreak:
-      exit opGoto, i, findBlock(env, some n.label)
-    of mnkReturn:
-      exit opGoto, i, ExitLabel
+      if n.len == 1:
+        # no follow-up targets means that the finally continues exceptional
+        # control-flow in the caller
+        let target = env.getResumeLabel()
+        env.instrs.add Instr(op: opGoto, node: i, dest: target)
     of mnkRaise:
       # raising an exception consumes it:
       if tree[tree.operand(i)].kind != mnkNone:
         emitLvalueOp(env, opConsume, tree, i, tree.operand(i))
 
-      exit opGoto, i, RaiseLabel # go to closest handler
-    of mnkEnd:
-      case n.start
-      of mnkBranch:
-        # XXX: the goto is redundant/unnecessary if the body doesn't have a
-        #      structured exit
-        # only create an edge for branches that are not the last one
-        if tree[i+1].kind != mnkEnd:
-          exit opGoto, i, findHidden()
-      of mnkIf, mnkRepeat:
-        pop(env, i)
+      raiseExit(env, opGoto, tree, i, tree.child(i, 1))
+    of mnkEndStruct:
+      # emit a join at the end of an 'if'
+      if ifs.len > 0 and tree[i, 0].label == ifs[^1]:
+        join i, ifs.pop()
 
-      # unstructured exits:
-      of mnkBlock, mnkCase:
-        close(env, i)
-      of mnkTry:
-        close(env, i)
-
-        if not (tree[i-1].kind == mnkEnd and tree[i-1].start == mnkFinally):
-          # if no finally clause exists, we need to patch the ``inTry``
-          # values for the exits. Effictively, the exits in a 'try' without
-          # a 'finally' clause become part of the surrounding 'try' (if any)
-          dec env.inTry
-          for exit in env.exits.mitems:
-            exit.inTry = min(exit.inTry, env.inTry)
-
-      # handlers and finally:
-      of mnkExcept:
-        # after a structured exit of the handler, control-flow continues after
-        # the code section it is attached to. Node-wise, this is the ``end``
-        # node terminating the ``try`` the handler is part of
-        # TODO: with this approach, either the last branch needs to fork
-        #       control-flow to the next exception handler or ``mirgen`` has to
-        #       introduce a catch-all handler
-        if tree[i+1].kind == mnkFinally:
-          # only add an edge if the there's a finalizer -- no edge is needed
-          # if there's none
-          exit opGoto, i, findHidden()
-      of mnkFinally:
-        # search for the start of the relevant exits:
-        var start = finallyExits.len
-        while start > 0 and finallyExits[start-1].inTry == env.inTry:
-          dec start
-
-        # where control-flow continues after exiting the finalizer depends on
-        # the jumps it intercepts. We represent this in the CFG by emitting a
-        # 'fork' instruction targeting the destination of each intercepted jump
-        for x in start..<finallyExits.len-1:
-          exit opFork, i, finallyExits[x].id
-
-        # the last target needs to be linked via a 'goto' instruction, as the
-        # finalizer must not be exited via fallthrough. The finally clause
-        # having no exits is valid: it means that the finalizer is unused
-        # (control-flow never enters it)
-        if start < finallyExits.len:
-          exit opGoto, i, finallyExits[^1].id
-
-        finallyExits.setLen(start)
-      else:
-        # no control-flow or other effects
-        discard
-
-    of mnkDef, mnkDefCursor, mnkDefUnpack, mnkAsgn, mnkInit:
+    of mnkDef, mnkDefCursor, mnkAsgn, mnkInit:
       emitForDef(env, tree, i)
     of mnkSwitch:
       # the switch statement invalidates the destination rather than
@@ -571,31 +484,21 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
     of mnkVoid:
       emitForExpr(env, tree, i, NodePosition tree.operand(i))
     of mnkDestroy:
-      unreachable("not implemented yet")
+      emitLvalueOp(env, opDestroy, tree, i, tree.operand(i))
     of mnkEmit, mnkAsm:
       emitForArgs(env, tree, i, i)
 
     else:
       discard "not relevant"
 
-  assert env.inTry == 0
-
-  if env.exits.len > 0:
-    let id = join tree.len.NodePosition
-    # all unhandled exits (including raise exits) that reach here exit the
-    # processed tree:
-    for it in env.exits.items:
-      env.instrs[it.instr].dest = id
+  # patch the resume label, if used:
+  if env.resumeLabel.isSome:
+    let id = env.resumeLabel.unsafeGet
+    env.joins[id] = env.instrs.len.InstrPos
+    env.instrs.add Instr(op: opJoin, node: tree.len.NodePosition, id: id)
 
   swap(env.instrs, result.instructions)
-
-  # looking up the position of the ``opcJoin`` instruction that defines a given
-  # join point is a very common operation, so we cache this information for
-  # efficiency
-  result.map.newSeq(env.numJoins)
-  for i, instr in result.instructions.lpairs:
-    if instr.op == opJoin:
-      result.map[instr.id] = InstrPos(i)
+  swap(env.joins, result.map)
 
 func subgraphFor*(dfg: DataFlowGraph, span: Slice[NodePosition]): Subgraph =
   ## Computes a reference to the sub-graph encompassing the `span` of MIR
@@ -694,6 +597,8 @@ iterator traverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
           queue.delete(0)
       of DataFlowOps:
         yield (DataFlowOpcode(instr.op), instr.val)
+      of opNone:
+        discard "ignore"
 
       if state.exit or pc + 1 == start:
         # abort the current path if we either reached the instruction we
@@ -814,7 +719,7 @@ iterator traverseReverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
       # the start of a loop; pop the previous loop entry:
       if s.loops.len > 0 and s.loops[^1].start == instr.id:
         s.loops.setLen(s.loops.len - 1)
-    of opGoto, opFork, DataFlowOps:
+    of opGoto, opFork, DataFlowOps, opNone:
       discard
 
     dec s.pc
@@ -844,6 +749,8 @@ iterator traverseReverse*(c: DataFlowGraph, span: Subgraph, start: InstrPos,
       of DataFlowOps:
         # the end (in our case start) of the basic block is reached
         break
+      of opNone:
+        discard "ignore"
 
       dec s.pc
 
@@ -933,6 +840,8 @@ iterator traverseFromExits*(c: DataFlowGraph, span: Subgraph,
       of DataFlowOps:
         # the end of a basic block is reached
         break
+      of opNone:
+        discard "ignore"
 
       dec s.pc
 
@@ -970,5 +879,7 @@ func `$`*(c: DataFlowGraph): string =
       result.add $n.op & " " & $n.dest
     of DataFlowOps:
       result.add $n.op & " " & $ord(n.val)
+    else:
+      result.add "---"
 
     result.add " -> " & $ord(n.node) & "\n"

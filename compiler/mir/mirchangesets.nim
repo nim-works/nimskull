@@ -20,6 +20,8 @@ type
     inner: TreeChangeset
     locals: PartialStore[LocalId, Local]
       ## new locals to be added on changeset application
+    nextLabel: uint32
+      ## exchanged with the builder, where it's used for allocating new IDs
 
 # ----------------------------------------
 # proxy routines
@@ -49,6 +51,13 @@ func initChangeset*(body: MirBody): Changeset =
   ## Sets up a changeset for `body`. The changeset either needs to be
   ## discarded, or applied to the same ``MirBody`` instance it was created for.
   result = Changeset(locals: fork(body.locals))
+  # compute the next ID to use for new labels:
+  for i, n in body.code.pairs:
+    case n.kind
+    of mnkLabel:
+      result.nextLabel = max(n.label.uint32 + 1, result.nextLabel)
+    else:
+      discard
 
 func initBuilder(c: var Changeset, buffer: var MirNodeSeq,
                  info: SourceId): MirBuilder =
@@ -56,10 +65,12 @@ func initBuilder(c: var Changeset, buffer: var MirNodeSeq,
   ## ``finishBuilder`` call.
   result = initBuilder(info, move buffer)
   swap(c.locals, result.locals)
+  swap(c.nextLabel, result.nextLabel)
 
 func finishBuilder(c: var Changeset, buffer: var MirNodeSeq,
                    bu: sink MirBuilder) =
   # move the ID counter and buffer back into the changeset
+  swap(c.nextLabel, bu.nextLabel)
   (buffer, c.locals) = finish(bu)
 
 template insert*(c: var Changeset, tree: MirTree, at, source: NodePosition,

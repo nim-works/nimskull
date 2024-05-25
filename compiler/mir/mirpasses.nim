@@ -294,7 +294,7 @@ proc eliminateTemporaries(tree: MirTree, types: TypeEnv,
           # the searched-for temporary is used and there was no mutation of
           # `p` so far -> not modified
           return NodePosition(n)
-      of opConsume, opDef, opMutate, opKill, opInvalidate:
+      of opConsume, opDef, opMutate, opKill, opInvalidate, opDestroy:
         if (tree[n].kind == mnkTemp and tree[n].local == e) or
            overlaps(p, typ, n):
           # either the searched-for temporary is mutated or consumed itself,
@@ -417,7 +417,7 @@ proc injectResultInit(tree: MirTree, resultTyp: TypeId, changes: var Changeset) 
           # path
           s.exit = true
 
-      of opUse, opConsume, opMutate, opInvalidate:
+      of opUse, opConsume, opMutate, opInvalidate, opDestroy:
         if isResult(tree, getRoot(tree, n)):
           # the result variable is read from or modified before it was
           # initialized
@@ -456,13 +456,12 @@ proc injectProfilerCalls(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
       bu.buildCall prcId, VoidType:
         discard "no arguments"
 
-  for i in search(tree, {mnkEnd}):
-    if tree[i].start == mnkRepeat:
-      # insert the call before the end node:
-      changes.insert(tree, i - 1, i, bu):
-        bu.subTree mnkVoid:
-          bu.buildCall prcId, VoidType:
-            discard "no arguments"
+  for i in search(tree, {mnkLoop}):
+    # insert the call before the loop end:
+    changes.insert(tree, i - 1, i, bu):
+      bu.subTree mnkVoid:
+        bu.buildCall prcId, VoidType:
+          discard "no arguments"
 
 proc lowerNew(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
               changes: var Changeset) =
@@ -533,7 +532,7 @@ proc lowerNew(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
 
       var tmp: Value
       changes.insert(tree, stmt, call, bu):
-        if numArgs(tree, call) == 2:
+        if numArgs(tree, call) == 1:
           # the unsafe new-with-size version
           let size = bu.inline(tree, NodePosition tree.argument(call, 0))
           # not the whole memory is necessarily initialized by the default

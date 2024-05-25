@@ -30,9 +30,7 @@ proc test(cond: bool) =
 
 test(true)
 
-# XXX: wasDestroy must be false, but it currently isn't. Testing the inverse
-#      makes sure that the test at least compiles
-doAssert wasDestroyed, "the behaviour is correct now"
+doAssert not wasDestroyed
 
 # ------------------------------
 # test without if/else statement
@@ -52,5 +50,4 @@ proc test2(cond: bool) =
   discard o
 
 test2(true)
-# XXX: same comment as for the assertion above
-doAssert wasDestroyed, "the behaviour is correct now"
+doAssert not wasDestroyed
