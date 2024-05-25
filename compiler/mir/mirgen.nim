@@ -473,7 +473,7 @@ template buildIf(c: var TCtx, cond, body: untyped) =
     c.add labelNode(label)
 
 proc register(c: var TCtx, loc: Value) =
-  ## If `val` has a destructor and destroy injection is enabled for the
+  ## If `loc` has a destructor and destroy injection is enabled for the
   ## current context, registers `loc` for destruction at the end of the
   ## current scope.
   if c.injectDestructors and c.env[loc.typ].hasDestructor():
