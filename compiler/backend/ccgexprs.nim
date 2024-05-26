@@ -1118,21 +1118,12 @@ proc genArrayLen(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   of tyCstring:
     if op == mHigh: unaryExpr(p, e, d, "($1 ? (#nimCStrLen($1)-1) : -1)")
     else: unaryExpr(p, e, d, "($1 ? #nimCStrLen($1) : 0)")
-  of tyString:
+  of tyString, tySequence:
     var a: TLoc
     initLocExpr(p, e[1], a)
     var x = lenExpr(p, a)
     if op == mHigh: x = "($1-1)" % [x]
     putIntoDest(p, d, e, x)
-  of tySequence:
-    # we go through a temporary here because people write bullshit code.
-    var a, tmp: TLoc
-    initLocExpr(p, e[1], a)
-    getIntTemp(p, tmp)
-    var x = lenExpr(p, a)
-    if op == mHigh: x = "($1-1)" % [x]
-    lineCg(p, cpsStmts, "$1 = $2;$n", [tmp.r, x])
-    putIntoDest(p, d, e, tmp.r)
   of tyArray:
     # YYY: length(sideeffect) is optimized away incorrectly?
     if op == mHigh: putIntoDest(p, d, e, rope(lastOrd(p.config, typ)))

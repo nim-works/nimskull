@@ -484,15 +484,6 @@ proc getTemp(p: BProc, t: PType, result: var TLoc) =
         echo "ENORMOUS TEMPORARY! ", p.config $ p.lastLineInfo
       writeStackTrace()
 
-proc getIntTemp(p: BProc, result: var TLoc) =
-  inc(p.labels)
-  result.r = "T" & rope(p.labels) & "_"
-  linefmt(p, cpsLocals, "NI $1;$n", [result.r])
-  result.k = locTemp
-  result.storage = OnStack
-  result.lode = lodeTyp getSysType(p.module.g.graph, unknownLineInfo, tyInt)
-  result.flags = {}
-
 proc localVarDecl(p: BProc; n: CgNode, decl: Local): Rope =
   let loc = initLoc(locLocalVar, n, mangleLocalName(p, decl.name, n.local),
                     OnStack)
