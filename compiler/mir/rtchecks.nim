@@ -293,6 +293,37 @@ proc emitObjectCheck(tree; call; graph; env; bu) =
     bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseObjectConversionError")):
       discard
 
+proc emitCheckedFloatOp(tree; call; graph; env; bu): Value =
+  ## Emits the lowered version of a checked float arithmetic operation.
+  ## Checked means that the result is tested for infinity.
+  let typ = tree[call].typ
+  const Map = [mAddF64: mnkAdd, mSubF64: mnkSub, mMulF64: mnkMul, mDivF64: mnkDiv]
+  result = bu.wrapTemp typ:
+    bu.subTree Map[tree[call + 1].magic], typ:
+      bu.emitFrom(tree, NodePosition tree.argument(call, 0))
+      bu.emitFrom(tree, NodePosition tree.argument(call, 1))
+
+  # test for infinity by multiplying the result with 0.5 and comparing it
+  # against the original result. If equal and the result was not 0, the result
+  # must be +inf or -inf
+  let cond = bu.wrapTemp BoolType:
+    bu.buildMagicCall mEqF64, BoolType:
+      bu.emitByVal result
+      bu.emitByVal literal(mnkFloatLit, env.getOrIncl(0.0), typ)
+  bu.buildIfNot cond:
+    let cmp = bu.wrapTemp typ:
+      bu.subTree mnkMul, typ:
+        bu.use result
+        bu.use literal(mnkFloatLit, env.getOrIncl(0.5), typ)
+    bu.subTree mnkAsgn:
+      bu.use cond
+      bu.buildMagicCall mEqF64, BoolType:
+        bu.emitByVal result
+        bu.emitByVal cmp
+    bu.buildIf cond:
+      bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseFloatOverflow")):
+        bu.emitByVal result
+
 proc lowerChecks*(body; graph; env; changes: var Changeset) =
   ## Lowers all magic calls implementing the run-time checks.
   template tree: MirTree = body.code
@@ -324,5 +355,13 @@ proc lowerChecks*(body; graph; env; changes: var Changeset) =
         let call = tree.parent(i)
         changes.replaceMulti(tree, tree.parent(call), bu):
           emitObjectCheck(tree, call, graph, env, bu)
+
+      of mAddF64, mSubF64, mMulF64, mDivF64:
+        let call = tree.parent(i)
+        var tmp: Value
+        changes.insert(tree, tree.parent(call), call, bu):
+          tmp = emitCheckedFloatOp(tree, call, graph, env, bu)
+        changes.replaceMulti(tree, call, bu):
+          bu.use tmp
       else:
         discard "not relevant"
