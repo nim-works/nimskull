@@ -1377,20 +1377,6 @@ proc genStrEquals(p: BProc, e: CgNode, d: var TLoc) =
   else:
     binaryExpr(p, e, d, "#eqStrings($1, $2)")
 
-proc binaryFloatArith(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
-  if true:
-    const opr: array[mAddF64..mDivF64, string] = ["+", "-", "*", "/"]
-    var a, b: TLoc
-    assert(e[1].typ != nil)
-    assert(e[2].typ != nil)
-    initLocExpr(p, e[1], a)
-    initLocExpr(p, e[2], b)
-    putIntoDest(p, d, e, ropecg(p.module, "(($4)($2) $1 ($4)($3))",
-                              [opr[m], rdLoc(a), rdLoc(b),
-                              getSimpleTypeDesc(p.module, e[1].typ)]))
-    linefmt(p, cpsStmts, "if ($1 != 0.0 && $1*0.5 == $1) { #raiseFloatOverflow($1); $2}$n",
-            [rdLoc(d), raiseInstr(p, e.exit)])
-
 proc skipAddr(n: CgNode): CgNode =
   if n.kind == cnkHiddenAddr: n.operand
   else:                       n
@@ -1452,7 +1438,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   case op
   of mNot..mUnaryPlusF64: unaryArith(p, e, e[1], d, op)
   of mUnaryMinusI, mUnaryMinusI64: unaryArithOverflow(p, e, d, op)
-  of mAddF64..mDivF64: binaryFloatArith(p, e, d, op)
   of mShrI..mXor: binaryArith(p, e, e[1], e[2], d, op)
   of mEqProc: genEqProc(p, e, d)
   of mAddI..mPred: binaryArithOverflow(p, e, d, op)
