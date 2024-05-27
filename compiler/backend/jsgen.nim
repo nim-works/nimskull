@@ -1829,14 +1829,9 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mNew: genNew(p, n, r)
   of mChr: gen(p, n[1], r)
   of mArrToSeq:
-    # only array literals doesn't need copy
-    if n[1].kind == cnkArrayConstr:
-      genJSArrayConstr(p, n[1], r)
-    else:
-      var x: TCompRes
-      gen(p, n[1], x)
-      useMagic(p, "nimCopy")
-      r.res = "nimCopy(null, $1, $2)" % [x.rdLoc, genTypeInfo(p, n.typ)]
+    # the argument is guaranteed to be moveable, it can simply be assigned to
+    # the destination
+    gen(p, n[1], r)
   of mDestroy, mTrace: discard "ignore calls to the default destructor"
   of mOrd: genOrd(p, n, r)
   of mLengthStr, mLengthSeq, mLengthOpenArray, mLengthArray:
