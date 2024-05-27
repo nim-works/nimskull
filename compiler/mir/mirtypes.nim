@@ -41,6 +41,8 @@ type
     types: Store[TypeId, PType]
     sizeType: TypeId
       ## the target-dependent integer type to use for size values
+    usizeType: TypeId
+      ## the target-dependent unsigned integer type to use for size values
 
 const
   VoidType*    = TypeId 0
@@ -64,7 +66,8 @@ proc initTypeEnv*(graph: ModuleGraph): TypeEnv =
   ## Returns a fully initialized type environment instance.
   result = TypeEnv(map: default(TypeTable[TypeId]),
                    types: default(Store[TypeId, PType]),
-                   sizeType: VoidType)
+                   sizeType: VoidType,
+                   usizeType: VoidType)
 
   template add(kind: TTypeKind, expect: TypeId) =
     let
@@ -96,10 +99,10 @@ proc initTypeEnv*(graph: ModuleGraph): TypeEnv =
   add(tyInt,   TypeId(ord(PointerType) + 1))
   add(tyFloat, TypeId(ord(PointerType) + 2))
 
-  result.sizeType =
+  (result.sizeType, result.usizeType) =
     case graph.config.target.intSize
-    of 1, 2, 4: Int32Type
-    of 8:       Int64Type
+    of 1, 2, 4: (Int32Type, UInt32Type)
+    of 8:       (Int64Type, UInt64Type)
     else:       unreachable()
 
 proc add*(env: var TypeEnv, t: PType): TypeId =
@@ -116,3 +119,8 @@ func sizeType*(env: TypeEnv): TypeId {.inline.} =
   ## Returns the type to use for values representing some size. This is a
   ## signed integer type of target-dependent bit-width.
   env.sizeType
+
+func usizeType*(env: TypeEnv): TypeId {.inline.} =
+  ## Returns the type to use for values representing some size. This is an
+  ## unsigned integer type of target-dependent bit-width.
+  env.usizeType
