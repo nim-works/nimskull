@@ -397,6 +397,114 @@ proc emitObjectCheck(tree; call; graph; env; bu) =
     bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseObjectConversionError")):
       discard
 
+# XXX: currently cannot be moved to within ``emitCheckedBinaryIntOp`` due to a
+#      csource compiler bug
+const ArithChcks: array[mAddI..mModI, array[tyInt..tyInt64, string]] = block:
+  # compile the names of the procedure at compile-time
+  var res: array[mAddI..mModI, array[tyInt..tyInt64, string]]
+  for op, it in res.mpairs:
+    let base = case op
+      of mAddI: "nimAddInt"
+      of mSubI: "nimSubInt"
+      of mMulI: "nimMulInt"
+      of mDivI: "nimDivInt"
+      of mModI: "nimModInt"
+
+    # the inner array stores the per-width names, which is the base name
+    # suffixed with the width
+    for i in 0..3:
+      it[[tyInt8, tyInt16, tyInt32, tyInt64][i]] = base & $(8 shl i)
+
+    # for the moment, there's still a generic-width version
+    it[tyInt] = base
+
+  res
+
+proc emitCheckedBinaryIntOp(tree; call; graph; env; bu): Value =
+  ## Emits the lowered version of a checked binary arithmetic operation.
+  ## Usually, it looks like this:
+  ##   def _1
+  ##   def _2 = nimAddInt(arg a, arg b, name _1)
+  ##   if _2:
+  ##     raiseOverflow()
+  ##   result = _1
+  let
+    magic = tree[call + 1].magic
+    t = env[tree[call].typ].skipTypes(abstractRange)
+    x = NodePosition tree.argument(call, 0)
+    y = NodePosition tree.argument(call, 1)
+
+  # divison-by-zero is checked for separately, so that a dedicated error can
+  # be reported:
+  if magic in {mDivI, mModI}:
+    let cond = bu.wrapTemp BoolType:
+      bu.buildMagicCall mEqI, BoolType:
+        bu.subTree mnkArg:
+          bu.emitFrom(tree, y)
+        bu.emitByVal literal(mnkIntLit, env.getOrIncl(0), tree[x].typ)
+
+    bu.buildIf cond:
+      bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseDivByZero")):
+        discard
+
+  result = bu.allocTemp(tree[call].typ)
+  bu.subTree mnkDef:
+    bu.use result
+    bu.add MirNode(kind: mnkNone)
+
+  let kind = t.skipTypes({tyEnum}).kind
+  if kind in {tyUInt..tyUInt64, tyBool}:
+    # enums using an unsigned integer as the underlying type can reach here
+    # (due to lowering ``succ`` and ``pred`` lowering), and no integer overflow
+    # check is performed for them -- the same goes for the bool typ
+    # XXX: no checked operation should be emitted for bool and unsigned enum
+    #      types in the first place
+    bu.subTree mnkInit:
+      bu.use result
+      # only 'add' and 'sub' operations can reach here
+      const Map = [mAddI: mnkAdd, mSubI: mnkSub]
+      bu.subTree Map[magic], tree[call].typ:
+        bu.emitFrom(tree, x)
+        bu.emitFrom(tree, y)
+
+  else:
+    # emit a call to the checked arithmethic operation:
+    let cond = bu.wrapTemp BoolType:
+      bu.buildCall env.addCompilerProc(graph, ArithChcks[magic][kind]), BoolType:
+        bu.subTree mnkArg:
+          bu.emitFrom(tree, x)
+        bu.subTree mnkArg:
+          bu.emitFrom(tree, y)
+        bu.emitByName(result, ekReassign)
+
+    bu.buildIf cond:
+      bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseOverflow")):
+        discard
+
+  # for enum types, it's checked that they stay within their valid range
+  # XXX: this is unprincipled. Range and bool types are not considered, but
+  #      without any clear reason as to why. Using range checks instead might
+  #      be a better solution
+  if t.kind == tyEnum:
+    let litKind = if isUnsigned(t): mnkUIntLit else: mnkIntLit
+    let cond = bu.wrapTemp BoolType:
+      bu.buildMagicCall mLtEnum, BoolType:
+        bu.emitByVal result
+        bu.emitByVal env.makeLiteral(litKind, firstOrd(graph.config, t),
+                                     result.typ)
+
+    bu.buildIfNot cond:
+      bu.subTree mnkAsgn:
+        bu.use cond
+        bu.buildMagicCall mLtEnum, BoolType:
+          bu.emitByVal env.makeLiteral(litKind, lastOrd(graph.config, t),
+                                       result.typ)
+          bu.emitByVal result
+
+    bu.buildIf cond:
+      bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseOverflow")):
+        discard
+
 proc emitCheckedFloatOp(tree; call; graph; env; bu): Value =
   ## Emits the lowered version of a checked float arithmetic operation.
   ## Checked means that the result is tested for infinity.
@@ -464,6 +572,13 @@ proc lowerChecks*(body; graph; env; changes: var Changeset) =
         changes.replaceMulti(tree, tree.parent(call), bu):
           emitObjectCheck(tree, call, graph, env, bu)
 
+      of mAddI, mSubI, mMulI, mModI, mDivI:
+        let call = tree.parent(i)
+        var tmp: Value
+        changes.insert(tree, tree.parent(call), call, bu):
+          tmp = emitCheckedBinaryIntOp(tree, call, graph, env, bu)
+        changes.replaceMulti(tree, call, bu):
+          bu.use tmp
       of mAddF64, mSubF64, mMulF64, mDivF64:
         let call = tree.parent(i)
         var tmp: Value
