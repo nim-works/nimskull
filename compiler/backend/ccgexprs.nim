@@ -991,13 +991,6 @@ proc genSeqConstr(p: BProc, n: CgNode, d: var TLoc) =
 
 proc genArrToSeq(p: BProc, n: CgNode, d: var TLoc) =
   var elem, a, arr: TLoc
-  if n[1].kind == cnkArrayConstr:
-    # XXX: dead code, but kept as a reminder
-    n[1].typ = n.typ
-    genSeqConstr(p, n[1], d)
-    return
-  if d.k == locNone:
-    getTemp(p, n.typ, d)
   # generate call to newSeq before adding the elements per hand:
   let L = toInt(lengthOrd(p.config, n[1].typ))
   block:

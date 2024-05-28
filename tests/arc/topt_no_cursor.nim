@@ -48,20 +48,19 @@ scope:
 --expandArc: p1
 
 scope:
-  def _2: array[0..0, int] = [consume 123]
-  def lresult: seq[int] = arrToSeq(consume _2)
+  def lresult: seq[int] = @[consume 123]
   def lvalue: seq[int]
   def lnext: string
-  def _6: seq[int] = move lresult
-  def _: (seq[int], string) = (consume _6, consume ";")
-  bind_mut _8: seq[int] = _.0
-  lvalue := move _8
+  def _5: seq[int] = move lresult
+  def _: (seq[int], string) = (consume _5, consume ";")
+  bind_mut _7: seq[int] = _.0
+  lvalue := move _7
+  wasMoved(name _7)
+  bind_mut _8: string = _.1
+  lnext := move _8
   wasMoved(name _8)
-  bind_mut _9: string = _.1
-  lnext := move _9
-  wasMoved(name _9)
-  def _7: seq[int] = move(name lvalue)
-  result.value := move _7
+  def _6: seq[int] = move(name lvalue)
+  result.value := move _6
   =destroy(name _)
   =destroy(name lnext)
   =destroy(name lvalue)

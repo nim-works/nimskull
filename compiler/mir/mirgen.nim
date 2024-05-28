@@ -1000,6 +1000,14 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         arg = arg[^1]
 
       c.emitOperandTree arg, sink=false
+  of mArrToSeq:
+    if n[1].kind == nkBracket:
+      # optimization: translate ``@[...]`` to a sequence construction
+      c.buildTree mnkSeqConstr, rtyp:
+        for it in n[1].items:
+          c.emitOperandTree it, sink=true
+    else:
+      genCall(c, n)
 
   # arithmetic operations:
   of mAddI, mSubI, mMulI, mDivI, mModI, mPred, mSucc:
