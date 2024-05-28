@@ -505,6 +505,23 @@ proc emitCheckedBinaryIntOp(tree; call; graph; env; bu): Value =
       bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseOverflow")):
         discard
 
+proc emitUnaryOverflowCheck(tree; call; graph; env; bu) =
+  ## Emits the overflow check for a integer negation operation:
+  ##   if x == low(x):
+  ##     raiseOverflow()
+  let
+    typ = tree[call].typ
+    min = firstOrd(graph.config, env[typ])
+    cond = bu.wrapTemp BoolType:
+      bu.buildMagicCall mEqI, BoolType:
+        bu.subTree mnkArg:
+          bu.emitFrom(tree, NodePosition tree.argument(call, 0))
+        bu.emitByVal env.makeLiteral(mnkIntLit, min, typ)
+
+  bu.buildIf cond:
+    bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseOverflow")):
+      discard
+
 proc emitCheckedFloatOp(tree; call; graph; env; bu): Value =
   ## Emits the lowered version of a checked float arithmetic operation.
   ## Checked means that the result is tested for infinity.
@@ -579,6 +596,14 @@ proc lowerChecks*(body; graph; env; changes: var Changeset) =
           tmp = emitCheckedBinaryIntOp(tree, call, graph, env, bu)
         changes.replaceMulti(tree, call, bu):
           bu.use tmp
+      of mUnaryMinusI, mUnaryMinusI64:
+        let call = tree.parent(i)
+        changes.insert(tree, tree.parent(call), call, bu):
+          emitUnaryOverflowCheck(tree, call, graph, env, bu)
+        # replace with built-in negation operation:
+        changes.replaceMulti(tree, call, bu):
+          bu.subTree MirNode(kind: mnkNeg, typ: tree[call].typ):
+            bu.emitFrom(tree, NodePosition tree.argument(call, 0))
       of mAddF64, mSubF64, mMulF64, mDivF64:
         let call = tree.parent(i)
         var tmp: Value
