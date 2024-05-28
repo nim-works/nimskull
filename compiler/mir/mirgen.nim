@@ -2400,10 +2400,21 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
   var c = initCtx(graph, config, owner, move env)
   c.sp.active = (body, c.sp.map.add(body))
 
+  let
+    needsTerminate = sfNeverRaises in owner.flags
+    needsCleanup = (c.injectDestructors and
+                    owner.kind in routineKinds and
+                    owner.typ[0] != nil and
+                    hasDestructor(owner.typ[0]))
+
   c.withBlock bkBlock: # the target for return statements
-    if sfNeverRaises in owner.flags:
+    if needsTerminate:
       # it needs to be ensured that no exceptions leave the body
       c.blocks.add Block(kind: bkTryExcept)
+    if needsCleanup:
+      # the result variable only needs to be cleaned up when the procedure
+      # exits via an exception
+      c.blocks.add Block(kind: bkTryFinally, errorOnly: true)
 
     c.scope:
       if owner.kind in routineKinds:
@@ -2433,8 +2444,27 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
 
       gen(c, body)
 
-    if sfNeverRaises in owner.flags and (let b = c.blocks.pop(); b.id.isSome):
+    var isFirst = true
+
+    if needsCleanup and (let b = c.blocks.pop(); b.id.isSome):
       leaveBlock(c) # jump over the handler
+      isFirst = false
+
+      # emit the finally section for cleaning up the result variable:
+      c.subTree mnkFinally:
+        c.add labelNode(b.id.unsafeGet)
+      c.subTree mnkDestroy:
+        c.use genLocation(c, owner.ast[resultPos])
+      # note: we don't need to reset the location. Per the MIR semantics, it's
+      # guaranteed that no one can observe the result location when the
+      # procedure raises
+      c.subTree mnkContinue:
+        c.add labelNode(b.id.unsafeGet)
+
+    if needsTerminate and (let b = c.blocks.pop(); b.id.isSome):
+      if isFirst:
+        leaveBlock(c)
+
       # emit the handler for panicking on escaping exceptions:
       c.subTree MirNode(kind: mnkExcept, len: 1):
         c.add labelNode(b.id.unsafeGet)
