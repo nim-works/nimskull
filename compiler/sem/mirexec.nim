@@ -381,7 +381,7 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
       # patch the join-to-instruction mapping:
       env.joins[id] = env.instrs.high.InstrPos
     else:
-      unreachable("unused join point")
+      discard "label is not used, ignore"
 
   template goto(pos: NodePosition, label: LabelId) =
     env.instrs.add Instr(op: opGoto, node: pos, dest: map(env, label))

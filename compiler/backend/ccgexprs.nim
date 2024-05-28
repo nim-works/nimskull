@@ -620,38 +620,6 @@ proc genBoundsCheck(p: BProc; arr, a, b: TLoc, exit: CgNode) =
   else:
     unreachable(ty.kind)
 
-proc genIndexCheck(p: BProc; x: CgNode, arr, idx: TLoc, exit: CgNode) =
-  ## Emits the index check logic + subsequent raise operation. `x` is
-  ## the array expression the `arr` loc resulted from from.
-  let ty = arr.t.skipTypes(abstractVar + tyUserTypeClasses +
-                           {tyPtr, tyRef, tyLent, tyVar})
-  case ty.kind
-  of tyArray:
-    var first = intLiteral(firstOrd(p.config, ty))
-    if firstOrd(p.config, ty) == 0 and lastOrd(p.config, ty) >= 0:
-      linefmt(p, cpsStmts, "if ((NU)($1) > (NU)($2)){ #raiseIndexError2($1, $2); $3}$n",
-              [rdCharLoc(idx), intLiteral(lastOrd(p.config, ty)),
-               raiseInstr(p, exit)])
-    else:
-      linefmt(p, cpsStmts, "if ($1 < $2 || $1 > $3){ #raiseIndexError3($1, $2, $3); $4}$n",
-              [rdCharLoc(idx), first, intLiteral(lastOrd(p.config, ty)),
-               raiseInstr(p, exit)])
-  of tySequence, tyString:
-    linefmt(p, cpsStmts,
-            "if ((NU)($1) >= (NU)$2){ #raiseIndexError2($1,$2-1); $3}$n",
-            [rdCharLoc(idx), lenExpr(p, arr), raiseInstr(p, exit)])
-  of tyOpenArray, tyVarargs:
-    if reifiedOpenArray(p, x):
-      linefmt(p, cpsStmts, "if ((NU)($1) >= (NU)($2.Field1)){ #raiseIndexError2($1,$2.Field1-1); $3}$n",
-              [rdCharLoc(idx), rdLoc(arr), raiseInstr(p, exit)])
-    else:
-      linefmt(p, cpsStmts, "if ((NU)($1) >= (NU)($2Len_0)){ #raiseIndexError2($1,$2Len_0-1); $3}$n",
-              [rdCharLoc(idx), rdLoc(arr), raiseInstr(p, exit)])
-  of tyCstring:
-    discard "no bound checks"
-  else:
-    unreachable()
-
 proc genOpenArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   var a, b: TLoc
   initLocExpr(p, x, a)
@@ -1529,11 +1497,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
       typ.add "*"
 
     linefmt(p, cpsStmts, "$1 = ($2)($3);$n", [a.r, typ, rdLoc(b)])
-  of mChckIndex:
-    var arr, a: TLoc
-    initLocExpr(p, e[1], arr)
-    initLocExpr(p, e[2], a)
-    genIndexCheck(p, e[1], arr, a, e.exit)
   of mChckBounds:
     var arr, a, b: TLoc
     initLocExpr(p, e[1], arr)

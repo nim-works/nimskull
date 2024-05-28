@@ -75,6 +75,9 @@ template emitCall(bu; tree; call; prc: ProcedureId, arguments: untyped) =
 proc addCompilerProc(env; graph; name: string): ProcedureId =
   env.procedures.add(graph.getCompilerProc(name))
 
+proc makeLiteral(env; kind: MirNodeKind, val: Int128, typ: TypeId): Value =
+  literal(kind, env.getOrIncl(val.toUInt.BiggestUInt), typ)
+
 proc getInt(env: MirEnv, n: MirNode): Int128 =
   case n.kind
   of mnkIntLit:  toInt128 env.getInt(n.number)
@@ -200,6 +203,107 @@ proc emitNanCheck(tree; call; graph; env; bu) =
   bu.buildIfNot cmp:
     bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseFloatInvalidOp")):
       discard
+
+proc emitIndexCheck(tree; call; graph; env; bu) =
+  ## Emits the lowered index check for `call`.
+  let
+    arrOperand = NodePosition tree.argument(call, 0)
+    ty = env[tree[arrOperand].typ].skipTypes(abstractInst +
+      tyUserTypeClasses + {tyLent, tyVar})
+
+  if ty.kind == tyCstring:
+    # no index check needed
+    # XXX: index checks should be omitted for cstrings when using the C
+    #      backend
+    return
+
+  let
+    idxOperand = NodePosition tree.argument(call, 1)
+    sizeType  = env.types.sizeType
+    usizeType = env.types.usizeType
+
+  if ty.kind == tyArray and (firstOrd(graph.config, ty) != Zero or
+     lastOrd(graph.config, ty) < Zero):
+    # FIXME: this branch also need to be taken when lastOrd >= high(int)
+    # we need to test against both the lower and upper bound
+    let
+      typ   = env.types.add(env[tree[arrOperand].typ][0])
+      first = env.makeLiteral(mnkIntLit, firstOrd(graph.config, ty), typ)
+      last  = env.makeLiteral(mnkIntLit, lastOrd(graph.config, ty), typ)
+
+    # FIXME: there are two problems here:
+    #        * the comparison operator is wrong for non-int types
+    #        * the comparison operands don't use the same type
+    #        As a consequence, C integer promotion rules apply, leading to
+    #        incorrect test results in some cases. The bound values need to
+    #        be converted to the index operand's type first, with boundary
+    #        checks omitted where the boundary's value cannot be represented
+    #        with the index operand's type
+
+    let cond = bu.wrapTemp BoolType:
+      bu.buildMagicCall mLtI, BoolType:
+        bu.subTree mnkArg:
+          bu.emitFrom(tree, idxOperand)
+        bu.emitByVal first
+
+    bu.buildIfNot cond:
+      bu.subTree mnkAsgn:
+        bu.use cond
+        bu.buildMagicCall mLtI, BoolType:
+          bu.emitByVal last
+          bu.subTree mnkArg:
+            bu.emitFrom(tree, idxOperand)
+
+    bu.buildIf cond:
+      bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseIndexError3")):
+        bu.subTree mnkArg:
+          bu.emitFrom(tree, idxOperand)
+        bu.emitByVal first
+        bu.emitByVal last
+
+  else:
+    # if the first index is at 0 and the length is guaranteed to be in range
+    # 0..high(int), an optimization is used: the operand is coverted to a
+    # first, and then only a single comparison against the length is used.
+    # This works because a negative index operand becomes a value > high(int)
+    # after to-uint conversion
+    var len: Value
+    if ty.kind == tyArray:
+      # the length is static
+      len = env.makeLiteral(mnkUIntLit, lengthOrd(graph.config, ty), usizeType)
+    else:
+      # the length is dynamic
+      let tmp = bu.wrapTemp sizeType:
+        bu.buildMagicCall mLengthOpenArray, sizeType:
+          bu.subTree mnkArg:
+            bu.emitFrom(tree, arrOperand)
+
+      # convert the length:
+      len = bu.wrapTemp usizeType:
+        bu.subTree mnkConv, usizeType:
+          bu.use tmp
+
+    # convert the index:
+    let idx = bu.wrapTemp usizeType:
+      bu.subTree mnkConv, usizeType:
+        bu.emitFrom(tree, idxOperand)
+
+    # compare the values:
+    let cond = bu.wrapTemp BoolType:
+      bu.buildMagicCall mLeU, BoolType:
+        bu.emitByVal len
+        bu.emitByVal idx
+
+    bu.buildIf cond:
+      let val = bu.wrapTemp usizeType:
+        bu.subTree mnkSub, usizeType:
+          bu.use len
+          bu.use literal(mnkUIntLit, env.getOrIncl(1), usizeType)
+
+      bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseIndexError2")):
+        bu.subTree mnkArg:
+          bu.emitFrom(tree, idxOperand)
+        bu.emitByVal val
 
 proc emitFieldCheck(tree; source: SourceMap; call; graph; env; bu) =
   ## For ``chckField(set, discr, invert, msg)`` emits the MIR equivalent of:
@@ -346,6 +450,10 @@ proc lowerChecks*(body; graph; env; changes: var Changeset) =
         # make sure to take the ``mnkVoid`` wrapper into account
         changes.replaceMulti(tree, tree.parent(call), bu):
           emitNanCheck(tree, call, graph, env, bu)
+      of mChckIndex:
+        let call = tree.parent(i)
+        changes.replaceMulti(tree, tree.parent(call), bu):
+          emitIndexCheck(tree, call, graph, env, bu)
       of mChckField:
         let call = tree.parent(i)
         # make sure to take the ``mnkVoid`` wrapper into account
