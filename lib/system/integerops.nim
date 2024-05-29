@@ -26,6 +26,18 @@ when not defined(nimEmulateOverflowChecks):
   proc nimSubInt(a, b: int, res: ptr int): bool {.nimbaseH.}
   proc nimMulInt(a, b: int, res: ptr int): bool {.nimbaseH.}
 
+  proc nimAddInt8(a, b: int8, res: ptr int8): bool {.nimbaseH.}
+  proc nimSubInt8(a, b: int8, res: ptr int8): bool {.nimbaseH.}
+  proc nimMulInt8(a, b: int8, res: ptr int8): bool {.nimbaseH.}
+
+  proc nimAddInt16(a, b: int16, res: ptr int16): bool {.nimbaseH.}
+  proc nimSubInt16(a, b: int16, res: ptr int16): bool {.nimbaseH.}
+  proc nimMulInt16(a, b: int16, res: ptr int16): bool {.nimbaseH.}
+
+  proc nimAddInt32(a, b: int32, res: ptr int32): bool {.nimbaseH.}
+  proc nimSubInt32(a, b: int32, res: ptr int32): bool {.nimbaseH.}
+  proc nimMulInt32(a, b: int32, res: ptr int32): bool {.nimbaseH.}
+
   proc nimAddInt64(a, b: int64; res: ptr int64): bool {.nimbaseH.}
   proc nimSubInt64(a, b: int64; res: ptr int64): bool {.nimbaseH.}
   proc nimMulInt64(a, b: int64; res: ptr int64): bool {.nimbaseH.}
@@ -36,6 +48,9 @@ when not defined(nimEmulateOverflowChecks):
 # check for 0 to the codgen.
 proc nimModInt(a, b: int; res: ptr int): bool {.nimbaseH.}
 
+proc nimModInt8(a, b: int8; res: ptr int8): bool {.nimbaseH.}
+proc nimModInt16(a, b: int16; res: ptr int16): bool {.nimbaseH.}
+proc nimModInt32(a, b: int32; res: ptr int32): bool {.nimbaseH.}
 proc nimModInt64(a, b: int64; res: ptr int64): bool {.nimbaseH.}
 
 # Platform independent versions.
@@ -50,6 +65,9 @@ template addImplFallback(name, T, U) {.dirty.} =
         result = true
 
 addImplFallback(nimAddInt, int, uint)
+addImplFallback(nimAddInt8, int8, uint8)
+addImplFallback(nimAddInt16, int16, uint16)
+addImplFallback(nimAddInt32, int32, uint32)
 addImplFallback(nimAddInt64, int64, uint64)
 
 template subImplFallback(name, T, U) {.dirty.} =
@@ -62,6 +80,9 @@ template subImplFallback(name, T, U) {.dirty.} =
         result = true
 
 subImplFallback(nimSubInt, int, uint)
+subImplFallback(nimSubInt8, int8, uint8)
+subImplFallback(nimSubInt16, int16, uint16)
+subImplFallback(nimSubInt32, int32, uint32)
 subImplFallback(nimSubInt64, int64, uint64)
 
 template mulImplFallback(name, T, U, conv) {.dirty.} =
@@ -108,6 +129,9 @@ template mulImplFallback(name, T, U, conv) {.dirty.} =
           result = true
 
 mulImplFallback(nimMulInt, int, uint, toFloat)
+mulImplFallback(nimMulInt8, int8, uint8, toFloat)
+mulImplFallback(nimMulInt16, int16, uint16, toFloat)
+mulImplFallback(nimMulInt32, int32, uint32, toFloat)
 mulImplFallback(nimMulInt64, int64, uint64, toBiggestFloat)
 
 
@@ -120,6 +144,9 @@ template divImplFallback(name, T) {.dirty.} =
       res[] = a div b
 
 divImplFallback(nimDivInt, int)
+divImplFallback(nimDivInt8, int8)
+divImplFallback(nimDivInt16, int16)
+divImplFallback(nimDivInt32, int32)
 divImplFallback(nimDivInt64, int64)
 
 proc raiseFloatInvalidOp {.errorPrc.} =

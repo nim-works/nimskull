@@ -280,69 +280,6 @@ template unaryExprChar(p: BProc, e: CgNode, d: var TLoc, frmt: string) =
   initLocExpr(p, e[1], a)
   putIntoDest(p, d, e, ropecg(p.module, frmt, [rdCharLoc(a)]))
 
-template binaryArithOverflowRaw(p: BProc, t: PType, a, b: TLoc;
-                            cpname: string): Rope =
-  var size = getSize(p.config, t)
-  let storage = if size < p.config.target.intSize: rope("NI")
-                else: getTypeDesc(p.module, t)
-  var result = getTempName(p.module)
-  linefmt(p, cpsLocals, "$1 $2;$n", [storage, result])
-  lineCg(p, cpsStmts, "if (#$2($3, $4, &$1)) { #raiseOverflow(); $5};$n",
-      [result, cpname, rdCharLoc(a), rdCharLoc(b), raiseInstr(p, e.exit)])
-  if size < p.config.target.intSize or t.kind in {tyRange, tyEnum}:
-    linefmt(p, cpsStmts, "if ($1 < $2 || $1 > $3){ #raiseOverflow(); $4}$n",
-            [result, intLiteral(firstOrd(p.config, t)), intLiteral(lastOrd(p.config, t)),
-            raiseInstr(p, e.exit)])
-  result
-
-proc binaryArithOverflow(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
-  const
-    prc: array[mAddI..mModI, string] = [
-      "nimAddInt", "nimSubInt",
-      "nimMulInt", "nimDivInt", "nimModInt"
-    ]
-    prc64: array[mAddI..mModI, string] = [
-      "nimAddInt64", "nimSubInt64",
-      "nimMulInt64", "nimDivInt64", "nimModInt64"
-    ]
-  var a, b: TLoc
-  assert(e[1].typ != nil)
-  assert(e[2].typ != nil)
-  initLocExpr(p, e[1], a)
-  initLocExpr(p, e[2], b)
-  # skipping 'range' is correct here as we'll generate a proper range check
-  # later via 'chckRange'
-  let t = e.typ.skipTypes(abstractRange)
-  if true:
-    # we handle div by zero here so that we know that the compilerproc's
-    # result is only for overflows.
-    if m in {mDivI, mModI}:
-      linefmt(p, cpsStmts, "if ($1 == 0){ #raiseDivByZero(); $2}$n",
-              [rdLoc(b), raiseInstr(p, e.exit)])
-
-    let res = binaryArithOverflowRaw(p, t, a, b,
-      if t.kind == tyInt64: prc64[m] else: prc[m])
-    putIntoDest(p, d, e, "($#)($#)" % [getTypeDesc(p.module, e.typ), res])
-
-proc unaryArithOverflow(p: BProc, e: CgNode, d: var TLoc, m: TMagic) =
-  var
-    a: TLoc
-    t: PType
-  assert(e[1].typ != nil)
-  initLocExpr(p, e[1], a)
-  t = skipTypes(e.typ, abstractRange)
-  linefmt(p, cpsStmts, "if ($1 == $2){ #raiseOverflow(); $3}$n",
-          [rdLoc(a), intLiteral(firstOrd(p.config, t)), raiseInstr(p, e.exit)])
-  case m
-  of mUnaryMinusI:
-    putIntoDest(p, d, e, "((NI$2)-($1))" % [rdLoc(a), rope(getSize(p.config, t) * 8)])
-  of mUnaryMinusI64:
-    putIntoDest(p, d, e, "-($1)" % [rdLoc(a)])
-  of mAbsI:
-    putIntoDest(p, d, e, "($1 > 0? ($1) : -($1))" % [rdLoc(a)])
-  else:
-    assert(false, $m)
-
 proc binaryArith(p: BProc, e, x, y: CgNode, d: var TLoc, op: TMagic) =
   var
     a, b: TLoc
@@ -1398,10 +1335,8 @@ proc genBreakState(p: BProc, n: CgNode, d: var TLoc) =
 proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
   case op
   of mNot..mUnaryPlusF64: unaryArith(p, e, e[1], d, op)
-  of mUnaryMinusI, mUnaryMinusI64: unaryArithOverflow(p, e, d, op)
   of mShrI..mXor: binaryArith(p, e, e[1], e[2], d, op)
   of mEqProc: genEqProc(p, e, d)
-  of mAddI..mPred: binaryArithOverflow(p, e, d, op)
   of mGetTypeInfo: genGetTypeInfo(p, e, d)
   of mGetTypeInfoV2: genGetTypeInfoV2(p, e, d)
   of mConStrStr: genStrConcat(p, e, d)
