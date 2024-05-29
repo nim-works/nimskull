@@ -456,7 +456,7 @@ proc emitCheckedBinaryIntOp(tree; call; graph; env; bu): Value =
   let kind = t.skipTypes({tyEnum}).kind
   if kind in {tyUInt..tyUInt64, tyBool}:
     # enums using an unsigned integer as the underlying type can reach here
-    # (due to lowering ``succ`` and ``pred`` lowering), and no integer overflow
+    # (due to ``succ`` and ``pred`` lowering), and no integer overflow
     # check is performed for them -- the same goes for the bool typ
     # XXX: no checked operation should be emitted for bool and unsigned enum
     #      types in the first place
@@ -507,7 +507,7 @@ proc emitCheckedBinaryIntOp(tree; call; graph; env; bu): Value =
         discard
 
 proc emitUnaryOverflowCheck(tree; call; graph; env; bu) =
-  ## Emits the overflow check for a integer negation operation:
+  ## Emits the overflow check for an integer negation operation:
   ##   if x == low(x):
   ##     raiseOverflow()
   let
