@@ -219,40 +219,51 @@ proc emitIndexCheck(tree; call; graph; env; bu) =
 
   let
     idxOperand = NodePosition tree.argument(call, 1)
-    sizeType  = env.types.sizeType
-    usizeType = env.types.usizeType
+    sizeType   = env.types.sizeType
+    usizeType  = env.types.usizeType
+    conf       = graph.config
 
-  if ty.kind == tyArray and (firstOrd(graph.config, ty) != Zero or
-     lastOrd(graph.config, ty) < Zero):
-    # FIXME: this branch also need to be taken when lastOrd >= high(int)
-    # we need to test against both the lower and upper bound
+  if ty.kind == tyArray and (firstOrd(conf, ty) != Zero or
+     lengthOrd(conf, ty) > lastOrd(conf, env[sizeType])):
+    # we cannot check against just the length; the lower and upper bound need
+    # to be checked against separately
     let
-      typ   = env.types.add(env[tree[arrOperand].typ][0])
-      first = env.makeLiteral(mnkIntLit, firstOrd(graph.config, ty), typ)
-      last  = env.makeLiteral(mnkIntLit, lastOrd(graph.config, ty), typ)
+      idxTyp = env[tree[idxOperand].typ]
+      litKind = if isUnsigned(idxTyp): mnkUIntLit else: mnkIntLit
+      lo     = firstOrd(conf, ty)
+      hi     = lastOrd(conf, ty)
+      first  = env.makeLiteral(litKind, lo, tree[idxOperand].typ)
+      last   = env.makeLiteral(litKind, hi, tree[idxOperand].typ)
+      ltOp   = getMagicLessForType(idxTyp.skipTypes(abstractRange +
+                                                    tyUserTypeClasses)).lt
 
-    # FIXME: there are two problems here:
-    #        * the comparison operator is wrong for non-int types
-    #        * the comparison operands don't use the same type
-    #        As a consequence, C integer promotion rules apply, leading to
-    #        incorrect test results in some cases. The bound values need to
-    #        be converted to the index operand's type first, with boundary
-    #        checks omitted where the boundary's value cannot be represented
-    #        with the index operand's type
-
-    let cond = bu.wrapTemp BoolType:
-      bu.buildMagicCall mLtI, BoolType:
-        bu.subTree mnkArg:
-          bu.emitFrom(tree, idxOperand)
-        bu.emitByVal first
-
-    bu.buildIfNot cond:
-      bu.subTree mnkAsgn:
-        bu.use cond
-        bu.buildMagicCall mLtI, BoolType:
-          bu.emitByVal last
+    var cond: Value
+    if firstOrd(conf, idxTyp) < lo:
+      # lower bound needs to be checked against
+      cond = bu.wrapTemp BoolType:
+        bu.buildMagicCall ltOp, BoolType:
           bu.subTree mnkArg:
             bu.emitFrom(tree, idxOperand)
+          bu.emitByVal first
+
+    if lastOrd(conf, idxTyp) > hi:
+      # upper bound needs to be checked against
+      proc check(bu; tree; m: TMagic, src: NodePosition, val: Value) {.nimcall.} =
+        bu.buildMagicCall m, BoolType:
+          bu.emitByVal val
+          bu.subTree mnkArg:
+            bu.emitFrom(tree, src)
+
+      if firstOrd(conf, idxTyp) < lo:
+        # the upper bound only needs to be tested when the lower bound check
+        # succeeded
+        bu.buildIfNot cond:
+          bu.subTree mnkAsgn:
+            bu.use cond
+            check(bu, tree, ltOp, idxOperand, last)
+      else:
+        cond = bu.wrapTemp BoolType:
+          check(bu, tree, ltOp, idxOperand, last)
 
     bu.buildIf cond:
       bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseIndexError3")):

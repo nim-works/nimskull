@@ -3,10 +3,6 @@ discard """
     Ensure that accessing an array works when the index operand's type cannot
     be safely converted to the array's index type
   '''
-  knownIssue.c: '''
-    The boundary checks are implemented improperly, leading to the array
-    appearing to effectively be empty
-  '''
   knownIssue.vm: '''
     Arrays with a start index outside of -128..127 crash the code generator
   '''
@@ -27,3 +23,9 @@ proc test2(index: uint): int =
   result = arr[index]
 
 doAssert test2(1) == 3
+
+# regression test: make sure that an index that is valid after conversion to
+# uint gets caught by the index check
+when not defined(vm): # catching defects is not supported by the VM
+  doAssertRaises IndexDefect:
+    discard test1(low(int))
