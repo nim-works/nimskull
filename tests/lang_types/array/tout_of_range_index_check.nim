@@ -23,3 +23,9 @@ proc test2(index: uint): int =
   result = arr[index]
 
 doAssert test2(1) == 3
+
+# regression test: make sure that an index that is valid after conversion to
+# uint gets caught by the index check
+when not defined(vm): # catching defects is not supported by the VM
+  doAssertRaises IndexDefect:
+    discard test1(low(int))
