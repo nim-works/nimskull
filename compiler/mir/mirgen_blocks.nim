@@ -45,6 +45,8 @@ type
     of bkTryFinally:
       doesntExit*: bool
         ## whether structured control-flow doesn't reach the end of the finally
+      errorOnly*: bool
+        ## whether only exceptional control-flow is intercepted
       exits*: seq[LabelId]
         ## unordered set of follow-up targets
     of bkTryExcept, bkFinally, bkExcept:
@@ -129,6 +131,11 @@ proc blockLeaveActions(c; bu; targetBlock: int): bool =
 
         last -= b.numRegistered
     of bkTryFinally:
+      if c.blocks[i].errorOnly and targetBlock >= 0 and
+         c.blocks[targetBlock].kind != bkTryExcept:
+        # ignore the finally; it only applies to exceptional control-flow
+        continue
+
       let label = bu.requestLabel(c.blocks[i])
       # register as outgoing edge of the preceding finally (if any):
       if previous != -1:

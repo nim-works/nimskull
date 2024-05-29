@@ -13,7 +13,7 @@ doing shady stuff...
   nimout: '''--expandArc: newTarget
 
 scope:
-  def splat: tuple[dir: string, name: string, ext: string] = splitFile(arg path) -> [Resume]
+  def splat: tuple[dir: string, name: string, ext: string] = splitFile(arg path) -> [L0, Resume]
   bind_mut _7: string = splat.0
   def _3: string = move _7
   wasMoved(name _7)
@@ -26,6 +26,10 @@ scope:
   def _6: Target = (consume _3, consume _4, consume _5)
   result := move _6
   =destroy(name splat)
+  goto [L1]
+finally (L0):
+  continue {}
+L1:
 -- end of expandArc ------------------------
 --expandArc: delete
 
@@ -190,16 +194,20 @@ scope:
         goto [L1, L2]
   def_cursor _5: sink string = x
   def _6: int = lengthStr(arg _5)
-  def _7: string = $(arg _6) -> [L1, Resume]
-  echo(arg type(array[0..0, string]), arg _7) -> [L3, L1, Resume]
-  goto [L3, L1, L4]
-  finally (L3):
+  def _7: string = $(arg _6) -> [L1, L3, Resume]
+  echo(arg type(array[0..0, string]), arg _7) -> [L4, L1, L3, Resume]
+  goto [L4, L1, L5]
+  finally (L4):
     =destroy(name _7)
     continue {L1}
   finally (L1):
     =destroy(name x)
-    continue {L2, L4}
-  L4:
+    continue {L2, L3, L5}
+  L5:
+goto [L2]
+finally (L3):
+  =destroy(name result)
+  continue {}
 L2:
 
 -- end of expandArc ------------------------
