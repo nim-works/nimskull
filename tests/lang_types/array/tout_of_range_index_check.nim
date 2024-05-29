@@ -3,10 +3,6 @@ discard """
     Ensure that accessing an array works when the index operand's type cannot
     be safely converted to the array's index type
   '''
-  knownIssue.c: '''
-    The boundary checks are implemented improperly, leading to the array
-    appearing to effectively be empty
-  '''
   knownIssue.vm: '''
     Arrays with a start index outside of -128..127 crash the code generator
   '''
