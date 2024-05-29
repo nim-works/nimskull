@@ -412,8 +412,9 @@ const ArithChcks: array[mAddI..mModI, array[tyInt..tyInt64, string]] = block:
 
     # the inner array stores the per-width names, which is the base name
     # suffixed with the width
-    for i in 0..3:
-      it[[tyInt8, tyInt16, tyInt32, tyInt64][i]] = base & $(8 shl i)
+    const intKinds = [tyInt8, tyInt16, tyInt32, tyInt64]
+    for i, k in intKinds.pairs:
+      it[k] = base & $(8 shl i)
 
     # for the moment, there's still a generic-width version
     it[tyInt] = base
