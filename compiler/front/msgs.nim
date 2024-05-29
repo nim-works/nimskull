@@ -424,6 +424,7 @@ func astDiagToLegacyReportKind*(
   of adWrappedError: rsemWrappedError
   of adSemTypeMismatch: rsemTypeMismatch
   of adSemTypeNotAllowed: rsemTypeNotAllowed
+  of adSemTIsNotAConcreteType: rsemTIsNotAConcreteType
   of adSemUndeclaredIdentifier: rsemUndeclaredIdentifier
   of adSemConflictingExportnims: rsemConflictingExportnims
   of adSemAmbiguousIdent: rsemAmbiguousIdent

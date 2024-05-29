@@ -1075,6 +1075,7 @@ type
     # type
     adSemTypeMismatch
     adSemTypeNotAllowed
+    adSemTIsNotAConcreteType
     # lookup
     adSemUndeclaredIdentifier
     adSemConflictingExportnims
@@ -1410,6 +1411,7 @@ type
     of adSemAsmEmitExpectsStringLiteral:
       unexpectedKind*: TNodeKind
     of adSemRaisesPragmaExpectsObject,
+        adSemTIsNotAConcreteType,
         adSemCannotInferTypeOfLiteral,
         adSemProcHasNoConcreteType,
         adSemCannotCastToNonConcrete,

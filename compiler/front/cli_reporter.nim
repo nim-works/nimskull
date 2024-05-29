@@ -3383,6 +3383,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
               "contains '$1'" % $diag.unexpectedKind,
         ast: diag.wrongNode)
   of adSemRaisesPragmaExpectsObject,
+      adSemTIsNotAConcreteType,
       adSemCannotInferTypeOfLiteral,
       adSemProcHasNoConcreteType,
       adSemCannotAssignTo:

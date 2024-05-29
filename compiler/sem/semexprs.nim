@@ -2833,8 +2833,15 @@ proc semSizeof(c: PContext, n: PNode): PNode =
   of 2:
     #restoreOldStyleType(n[1])
     n[1] = semExprWithType(c, n[1])
-    n.typ = getSysType(c.graph, n.info, tyInt)
-    result = foldSizeOf(c.config, n, n)
+    if containsGenericType(n[1].typ):
+      # let targetType = semTypeNode(c, n[0], nil)
+      n[1] = c.config.newError(n[1], PAstDiag(kind: adSemTIsNotAConcreteType,
+                                              wrongType: n[1].typ))
+                                              # wrongType: targetType))
+      result = n
+    else:
+      n.typ = getSysType(c.graph, n.info, tyInt)
+      result = foldSizeOf(c.config, n, n)
   else:
     result = c.config.newError(n, PAstDiag(kind: adSemMagicExpectTypeOrValue,
                                             magic: mSizeOf))
