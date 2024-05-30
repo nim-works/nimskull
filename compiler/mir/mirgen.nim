@@ -1802,7 +1802,8 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
   if hasFinally:
     # the finally clause also applies to the except clauses, so it's
     # pushed first
-    c.blocks.add Block(kind: bkTryFinally)
+    c.blocks.add Block(kind: bkTryFinally,
+                       doesntExit: not doesReturn(n[^1][0]))
 
   if hasExcept:
     c.blocks.add Block(kind: bkTryExcept)
