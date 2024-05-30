@@ -157,11 +157,6 @@ type
       ## > 0 if the current statement/expression is part of a loop
     injectDestructors: bool
       ## whether injection of destroy operations is enabled
-    unreachable: bool
-      ## set to true when entering unreachable code (e.g., statements
-      ## immediately following a `break`). Disables:
-      ## * translation of AST
-      ## * emission of control-flow statements at block/scope end
 
     # input:
     userOptions: set[TOption]
@@ -193,21 +188,9 @@ proc isCursor(n: PNode): bool =
   else:
     false
 
-func endsInNoReturn(n: PNode): bool =
-  ## Tests and returns whether the simple or compound statement `n` ends in a
-  ## no-return statement
-
-  # TODO: this is a patched version of ``sem.endsInNoReturn`` that also
-  #       considers ``nkPragmaBlock``. Move this procedure somewhere common and
-  #       replace ``sem.endsInNoReturn`` with it
-  const SkipSet = {nkStmtList, nkStmtListExpr, nkPragmaBlock}
-  var it {.cursor.} = n
-  while it.kind in SkipSet and it.len > 0:
-    it = it.lastSon
-
-  result = it.kind in nkLastBlockStmts or
-    (it.kind in nkCallKinds and it[0].kind == nkSym and
-     sfNoReturn in it[0].sym.flags)
+func doesReturn(n: PNode): bool =
+  # the void type indicates that the expression/statement doesn't return
+  n.typ == nil or n.typ.kind != tyVoid
 
 func initDestination(v: sink Value, isFirst, sink: bool): Destination =
   var flags: set[DestFlag]
@@ -275,12 +258,15 @@ template subTree(c: var TCtx, n: MirNode, body: untyped) =
   c.builder.subTree n:
     body
 
-template scope(c: var TCtx, body: untyped) =
+template scope(c: var TCtx, exits: bool, body: untyped) =
+  ## `exits` signals whether the body of the scope has a structured control-
+  ## flow exit.
+  let e = exits
   inc c.scopeDepth
   c.builder.subTree mnkScope:
     let prev = c.blocks.startScope()
     body
-    c.blocks.closeScope(c.builder, prev, not c.unreachable)
+    c.blocks.closeScope(c.builder, prev, e)
   dec c.scopeDepth
 
 template use(c: var TCtx, val: Value) =
@@ -808,10 +794,6 @@ proc genCall(c: var TCtx, n: PNode) =
     if kind == mnkCheckedCall:
       raiseExit(c)
 
-  # code following the call of a .noreturn routine is unreachable:
-  if n[0].kind == nkSym and sfNoReturn in n[0].sym.flags:
-    c.unreachable = true
-
 proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
   ## Generates the arguments for a macro/template call expression. `n` is
   ## expected to be a ``getAst`` expression that has been transformed to the
@@ -1309,8 +1291,6 @@ proc genRaise(c: var TCtx, n: PNode) =
       c.add MirNode(kind: mnkNone)
       raiseExit(c)
 
-  # code following a raise statement is unreachable:
-  c.unreachable = true
 
 proc genReturn(c: var TCtx, n: PNode) =
   assert n.kind == nkReturnStmt
@@ -1319,8 +1299,6 @@ proc genReturn(c: var TCtx, n: PNode) =
 
   c.buildStmt mnkGoto:
     blockExit(c.blocks, c.builder, 0)
-
-  c.unreachable = true
 
 proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
   ## Generates the MIR code for the right-hand side of an assignment.
@@ -1362,12 +1340,9 @@ proc genAsgn(c: var TCtx, dest: Destination, rhs: PNode) =
     if dfEmpty in dest.flags: mnkInit
     else:                     mnkAsgn
 
-  let rhs = unwrap(c, rhs)
-  # the right-hand expression not returning needs to be accounted for
-  if not c.unreachable:
-    c.buildStmt kind:
-      c.use dest.val
-      c.genAsgnSource(rhs, dest.flags)
+  c.buildStmt kind:
+    c.use dest.val
+    c.genAsgnSource(rhs, dest.flags)
 
 proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
   ## Generates the code for an assignment. `isFirst` indicates if this is the
@@ -1382,10 +1357,6 @@ proc genAsgn(c: var TCtx, isFirst, sink: bool, lhs, rhs: PNode) =
   let
     lhs = unwrap(c, lhs)
     sink = sink and not isCursor(lhs)
-
-  if c.unreachable:
-    # the left-hand expression terminates -> the assignment is dead code
-    return
 
   case rhs.kind
   of ComplexExprs:
@@ -1578,18 +1549,15 @@ proc genWhile(c: var TCtx, n: PNode) =
   let label = c.allocLabel()
   c.subTree mnkLoopJoin:
     c.add labelNode(label)
-  c.scope:
+  c.scope(doesReturn n[1]):
     inc c.inLoop
     c.gen(n[1])
     dec c.inLoop
   c.subTree mnkLoop:
     c.add labelNode(label)
-  # a while loop has no structured exit:
-  c.unreachable = true
 
 proc closeBlock(c: var TCtx) =
-  if c.blocks.closeBlock(c.builder):
-    c.unreachable = false
+  discard c.blocks.closeBlock(c.builder)
 
 template withBlock(c: var TCtx, k: BlockKind, body: untyped) =
   c.blocks.add Block(kind: k)
@@ -1607,7 +1575,7 @@ proc genBlock(c: var TCtx, n: PNode, dest: Destination) =
   c.blocks.add Block(kind: bkBlock, label: n[0].sym)
 
   # generate the body:
-  c.scope:
+  c.scope(doesReturn(n[1])):
     c.genWithDest(n[1], dest)
   c.closeBlock()
 
@@ -1623,11 +1591,7 @@ proc genBranch(c: var TCtx, n: PNode, dest: Destination) =
     gen(c, n)
 
 proc leaveBlock(c: var TCtx) =
-  ## Emits a goto for jumping to the exit of first enclosing block, but only
-  ## if not in an unreachable context.
-  if c.unreachable:
-    return # omit the leave actions if not reachable
-
+  ## Emits a goto for jumping to the exit of first enclosing block.
   if c.scopeDepth > 0:
     # only emit the early scope exit if still within a scope
     earlyExit(c.blocks, c.builder)
@@ -1635,7 +1599,16 @@ proc leaveBlock(c: var TCtx) =
   c.subTree mnkGoto:
     blockExit(c.blocks, c.builder, closest(c.blocks))
 
-  c.unreachable = true # code following a goto is unreachable
+proc genScopedBranch(c: var TCtx, n: PNode, dest: Destination,
+                     withLeave: bool) =
+  ## Translates `n`, wrapping it in a scope. If `withLeave` is true, a jump to
+  ## the exit of the enclosing block is emitted at the end.
+  let returns = doesReturn(n)
+  c.scope(returns and not withLeave):
+    c.genBranch(n, dest)
+    # the leave is only necessary when the statement/expression returns
+    if returns and withLeave:
+      leaveBlock(c)
 
 proc genIf(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates the code for an ``if`` statement (``nkIf(Stmt|Expr)``). It's
@@ -1671,24 +1644,17 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
   let hasValue = not isEmptyType(n.typ)
   assert hasValue == dest.isSome
 
-  template genElifBranch(branch: PNode, extra: untyped) =
+  template genElifBranch(branch: PNode, withLeave: bool) =
     ## Generates the code for a single ``nkElif(Branch|Expr)``
-    c.scope:
+    c.scope(true):
       let v = genUse(c, branch[0])
       c.buildIf (c.use v;):
-        c.scope:
-          genBranch(c, branch.lastSon, dest)
-          extra
-
-      # if the start of the branch was reachable, then so is the code
-      # following the branch
-      c.unreachable = false
+        c.genScopedBranch(branch.lastSon, dest, withLeave)
 
   if n.len == 1:
     # an ``if`` statement/expression with a single branch. Don't wrap in a
     # block
-    genElifBranch(n[0]):
-      discard
+    genElifBranch(n[0], false)
 
   else:
     # a multi-clause ``if`` statement/expression
@@ -1697,14 +1663,11 @@ proc genIf(c: var TCtx, n: PNode, dest: Destination) =
         for it in n.items:
           case it.kind
           of nkElifBranch, nkElifExpr:
-            genElifBranch(it):
-              leaveBlock(c)
+            genElifBranch(it, true)
 
           of nkElse, nkElseExpr:
-            c.scope:
-              genBranch(c, it[0], dest)
-
-            # since this is the last branch, a 'break' is not needed
+            # since this is the last branch, a jump is not needed
+            c.genScopedBranch(it[0], dest, withLeave=false)
           else:
             unreachable(it.kind)
 
@@ -1745,19 +1708,13 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
   c.withBlock bkBlock:
     for (i, branch) in branches(n):
       c.join LabelId(firstLabel + uint32(i))
-      c.unreachable = false # every branch starts as reachable again
-      c.scope:
-        genBranch(c, branch.lastSon, dest)
-        leaveBlock(c)
+      c.genScopedBranch(branch.lastSon, dest, withLeave=true)
 
 proc genExceptBranch(c: var TCtx, n: PNode, label: LabelId,
                      next: Option[LabelId], dest: Destination) =
   assert n.kind == nkExceptBranch
   c.builder.useSource(c.sp, n)
   let withFilter = n.len > 1
-
-  # the except branch is reachable:
-  c.unreachable = false
 
   c.subTree MirNode(kind: mnkExcept,
                     len: uint32(1 + (n.len - 1) + ord(withFilter))):
@@ -1788,9 +1745,7 @@ proc genExceptBranch(c: var TCtx, n: PNode, label: LabelId,
 
   # generate the body of the except branch:
   c.withBlock bkExcept, label:
-    c.scope:
-      genBranch(c, n.lastSon, dest)
-      leaveBlock(c)
+    c.genScopedBranch(n.lastSon, dest, withLeave=true)
 
   c.subTree mnkEndStruct:
     c.add labelNode(label)
@@ -1820,14 +1775,13 @@ proc genFinally(c: var TCtx, n: PNode) =
     # the finally is never entered, omit it
     return
 
-  c.unreachable = false # the finally is reachable
   c.builder.useSource(c.sp, n)
   c.subTree mnkFinally:
     c.add labelNode(blk.id.unsafeGet)
 
   # translate the body:
   c.withBlock bkFinally, blk.id.unsafeGet:
-    c.scope:
+    c.scope(not blk.doesntExit):
       c.gen(n[^1])
 
   # the continue statement is always necessary, even if the body has no
@@ -1854,9 +1808,7 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
     c.blocks.add Block(kind: bkTryExcept)
 
   # the body of the try:
-  c.scope:
-    c.genBranch(n[0], dest)
-    leaveBlock(c)
+  c.genScopedBranch(n[0], dest, withLeave=true)
 
   if hasExcept:
     genExcept(c, n, n.len - ord(hasFinally), dest)
@@ -1864,8 +1816,6 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
   if hasFinally:
     genFinally(c, n[^1])
 
-  # presume unreachable, closing the block will correct the presumption
-  c.unreachable = true
   c.closeBlock()
 
 proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
@@ -2104,20 +2054,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
       for i in 0..<orig.len-1:
         gen(c, orig[i])
 
-    if c.unreachable:
-      # don't translate the expression if it's unreachable. The callsite still
-      # expects some expression, and thus a default-intialized temporary is
-      # used. Do note that the code is unreachable, and the assignment is thus
-      # never evaluated -- it's just there to uphold the callsite's syntactic
-      # expectations
-      # XXX: ideally, non-terminating statement list expressions should
-      #      have the trailing expression cut off and be turned into
-      #      ``nkStmtList`` nodes at an earlier stage
-      c.wrapAndUse typ:
-        c.buildMagicCall mDefault, typ:
-          discard
-    else:
-      recurse()
+    recurse()
   of pirComplex:
     # attempting to generate the code for a complex expression without a
     # destination specified -> assign the value resulting from it to a
@@ -2177,9 +2114,6 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
 
 proc gen(c: var TCtx, n: PNode) =
   ## Generates and emits the MIR code for the statement `n`
-  if c.unreachable:
-    return
-
   c.builder.useSource(c.sp, n)
 
   # because of ``.discardable`` calls, we can't require `n` to be of void
@@ -2214,8 +2148,6 @@ proc gen(c: var TCtx, n: PNode) =
   of nkBreakStmt:
     c.buildStmt mnkGoto:
       blockExit(c.blocks, c.builder, findBlock(c.blocks, n[0].sym))
-
-    c.unreachable = true # code following a break is unreachable
   of nkVarSection, nkLetSection:
     genVarSection(c, n)
   of nkAsgn:
@@ -2257,12 +2189,7 @@ proc gen(c: var TCtx, n: PNode) =
           c.builder.pop(f)
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
-      let n = unwrap(c, n[0])
-      if c.unreachable:
-        # don't translate the expression
-        return
-
-      let e = exprToPmir(c, n, false, false)
+      let e = exprToPmir(c, n[0], false, false)
       case classify(e)
       of Rvalue:
         discard toValue(c, e, e.high, mnkDefCursor)
@@ -2311,8 +2238,6 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
   ## assigning the resulting value to the given destination `dest`. `dest` can
   ## be 'none', in which case `n` is required to be a statement
   if dest.isSome:
-    assert not endsInNoReturn(n)
-
     case n.kind
     of ComplexExprs:
       genComplexExpr(c, n, dest)
@@ -2406,6 +2331,8 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
                     owner.kind in routineKinds and
                     owner.typ[0] != nil and
                     hasDestructor(owner.typ[0]))
+    doesReturn = doesReturn(body)
+      ## whether the body "falls through"
 
   c.withBlock bkBlock: # the target for return statements
     if needsTerminate:
@@ -2416,7 +2343,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
       # exits via an exception
       c.blocks.add Block(kind: bkTryFinally, errorOnly: true)
 
-    c.scope:
+    c.scope(doesReturn):
       if owner.kind in routineKinds:
         # the procedure backing a macro has its own internal signature; use that
         # beyond this point
@@ -2447,8 +2374,9 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
     var isFirst = true
 
     if needsCleanup and (let b = c.blocks.pop(); b.id.isSome):
-      leaveBlock(c) # jump over the handler
-      isFirst = false
+      if doesReturn:
+        leaveBlock(c) # jump over the handler
+        isFirst = false
 
       # emit the finally section for cleaning up the result variable:
       c.subTree mnkFinally:
@@ -2462,7 +2390,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
         c.add labelNode(b.id.unsafeGet)
 
     if needsTerminate and (let b = c.blocks.pop(); b.id.isSome):
-      if isFirst:
+      if doesReturn and isFirst:
         leaveBlock(c)
 
       # emit the handler for panicking on escaping exceptions:
@@ -2493,7 +2421,7 @@ proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
     rtyp = c.typeToMir(e.typ)
     res = c.addLocal(Local(typ: rtyp)) # the result variable
   c.withBlock bkBlock:
-    c.scope:
+    c.scope(true):
       c.buildStmt mnkDef:
         c.use toValue(mnkLocal, res, rtyp)
         if e.typ.kind == tyTypeDesc:
