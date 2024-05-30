@@ -188,9 +188,10 @@ proc isCursor(n: PNode): bool =
   else:
     false
 
-func doesReturn(n: PNode): bool =
-  # the void type indicates that the expression/statement doesn't return
-  n.typ == nil or n.typ.kind != tyVoid
+template doesReturn(n: PNode): bool =
+  ## Returns whether `n` is a statement with a structured exit.
+  mixin c
+  n.typ != c.graph.noreturnType
 
 func initDestination(v: sink Value, isFirst, sink: bool): Destination =
   var flags: set[DestFlag]

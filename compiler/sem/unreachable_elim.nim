@@ -14,18 +14,16 @@
 ## inspecting just the trailing AST node.
 ##
 ## For later inspection, all non-returning statements (such as break, return,
-## etc.) have the 'void' type assigned to them.
+## etc.) have ``noreturnType`` assigned as the type.
 
 import
   compiler/ast/[
     ast_types,
     ast_query,
-    ast,
-    lineinfos
+    ast
   ],
   compiler/modules/[
-    modulegraphs,
-    magicsys
+    modulegraphs
   ],
   compiler/utils/[
     idioms
@@ -44,8 +42,8 @@ iterator mpairs(x: PNode): (int, var PNode) =
   for i in 0..<x.len:
     yield (i, x[i])
 
-func doesntReturn(x: PNode): bool =
-  x.typ != nil and x.typ.kind == tyVoid
+func doesntReturn(c: PassContext, n: PNode): bool =
+  n.typ == c.voidType
 
 proc process(c: var PassContext, n: PNode): PNode =
   ## Transforms a single tree layer. The AST is mutated in-place, and the
@@ -56,6 +54,9 @@ proc process(c: var PassContext, n: PNode): PNode =
   ## statements.
   template recurse(n: PNode): PNode =
     process(c, n)
+
+  template doesntReturn(n: PNode): bool =
+    doesntReturn(c, n)
 
   case n.kind
   of nkWithoutSons, nkSymChoices, nkNimNodeLit:
@@ -304,5 +305,5 @@ proc eliminateUnreachable*(graph: ModuleGraph, n: PNode): PNode =
   ## Entry point into the pass. Removes all unreachable statements/expression,
   ## making sure that a non-returning statement is always the last statement
   ## in a block of code.
-  var c = PassContext(voidType: graph.getSysType(unknownLineInfo, tyVoid))
+  var c = PassContext(voidType: graph.noreturnType)
   result = process(c, n)
