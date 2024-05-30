@@ -42,7 +42,8 @@ import
     closureiters,
     semfold,
     lambdalifting,
-    lowerings
+    lowerings,
+    unreachable_elim
   ],
   compiler/backend/[
     cgmeth
@@ -1433,6 +1434,7 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
   (result, c.env) = liftLambdas(g, prc, body, c.idgen)
   result = processTransf(c, result, prc)
   liftDefer(c, result)
+  result = eliminateUnreachable(g, result)
 
   if prc.isIterator:
     result = g.transformClosureIterator(c.idgen, prc, result)
@@ -1479,6 +1481,7 @@ proc transformStmt*(g: ModuleGraph; idgen: IdGenerator; module: PSym, n: PNode):
     var c = PTransf(graph: g, module: module, idgen: idgen)
     result = processTransf(c, n, module)
     liftDefer(c, result)
+    result = eliminateUnreachable(g, result)
     #result = liftLambdasForTopLevel(module, result)
     incl(result.flags, nfTransf)
 
@@ -1489,6 +1492,7 @@ proc transformExpr*(g: ModuleGraph; idgen: IdGenerator; module: PSym, n: PNode):
     var c = PTransf(graph: g, module: module, idgen: idgen)
     result = processTransf(c, n, module)
     liftDefer(c, result)
+    result = eliminateUnreachable(g, result)
     # expressions are not to be injected with destructor calls as that
     # the list of top level statements needs to be collected before.
     incl(result.flags, nfTransf)
