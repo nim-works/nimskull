@@ -37,9 +37,6 @@ import
     semdata,
     sighashes,
     lowerings
-  ],
-  compiler/backend/[
-    ccgutils
   ]
 
 from compiler/ast/reports_sem import reportAst,
@@ -224,15 +221,6 @@ proc fillBodyObjT(c: var TLiftCtx; t: PType, body, x, y: PNode) =
     # for every field (dependent on dest.kind):
     #   `=` dest.field, src.field
     # =destroy(blob)
-    var dummy = newSym(skTemp, getIdent(c.g.cache, lowerings.genPrefix), nextSymId c.idgen, c.fn, c.info)
-    dummy.typ = y.typ
-    if ccgIntroducedPtr(c.g.config, dummy, y.typ):
-      # Because of potential aliasing when the src param is passed by ref, we need to check for equality here,
-      # because the wasMoved(dest) call would zero out src, if dest aliases src.
-      var cond = newTree(nkCall, newSymNode(c.g.getSysMagic(c.info, "==", mEqRef)),
-        newTreeIT(nkAddr, c.info, makePtrType(c.fn, x.typ, c.idgen), x), newTreeIT(nkAddr, c.info, makePtrType(c.fn, y.typ, c.idgen), y))
-      cond.typ = getSysType(c.g, x.info, tyBool)
-      body.add genIf(c, cond, newTreeI(nkReturnStmt, c.info, newNodeI(nkEmpty, c.info)))
     var temp = newSym(skTemp, getIdent(c.g.cache, lowerings.genPrefix), nextSymId c.idgen, c.fn, c.info)
     temp.typ = x.typ
     incl(temp.flags, sfFromGeneric)
