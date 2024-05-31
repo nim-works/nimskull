@@ -14,19 +14,13 @@ import
     hashes, strutils
   ],
   compiler/ast/[
-    ast,
-    types
+    ast
   ],
   compiler/front/[
     options
   ],
   compiler/utils/[
     platform
-  ],
-  compiler/sem/[
-  ],
-  compiler/backend/[
-    cgendata,
   ]
 
 proc hashString*(conf: ConfigRef; s: string): BiggestInt =
