@@ -317,6 +317,8 @@ proc process(c: var PassContext, n: PNode): PNode =
             # wrap the previous operands in discard statements:
             for j in 0..<i:
               stmts[j] = newTreeI(nkDiscardStmt, args[j].info, args[j])
+            # assign the terminal expression and combine with the pragma:
+            stmts[i] = x
             return newTreeIT(nkStmtList, n.info, c.voidType, n, stmts)
 
       else:
