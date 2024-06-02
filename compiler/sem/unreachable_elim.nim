@@ -20,7 +20,9 @@ import
   compiler/ast/[
     ast_types,
     ast_query,
-    ast
+    ast,
+    trees,
+    wordrecg
   ],
   compiler/modules/[
     modulegraphs
@@ -293,9 +295,37 @@ proc process(c: var PassContext, n: PNode): PNode =
     result[1] = recurse(n[1])
     if doesntReturn(result[1]):
       result.typ = c.voidType
+  of nkPragma:
+    # the emit pragma can contain run-time code... An emit statement is
+    # treated like a call: if one operand is a non-returning expression, the
+    # emitted code is never reached, and the would-be emited code can be elided
+    # XXX: the logic here could be simpler if emit pragma statements had a more
+    #      regular shape at this point (e.g., a single pragma per list)
+    for pIndex, it in n.pairs:
+      case whichPragma(it)
+      of wEmit:
+        # process all operands:
+        let args = it[1]
+        for i, x in args.mpairs:
+          x = recurse(x)
+          if doesntReturn(x):
+            # remove the emit pragma and remaining pragmas from the pragma
+            # list:
+            n.sons.setLen(pIndex)
+
+            let stmts = newNodeIT(nkStmtList, args.info, c.voidType, i + 1)
+            # wrap the previous operands in discard statements:
+            for j in 0..<i:
+              stmts[j] = newTreeI(nkDiscardStmt, args[j].info, args[j])
+            return newTreeIT(nkStmtList, n.info, c.voidType, n, stmts)
+
+      else:
+        discard
+
+    result = n
   of callableDefs, nkConstSection, nkTypeSection, nkBindStmt, nkMixinStmt,
      nkIncludeStmt, nkImportStmt, nkImportExceptStmt, nkFromStmt, nkExportStmt,
-     nkExportExceptStmt, nkPragma:
+     nkExportExceptStmt:
     # ignore declarative statements
     result = n
   else:
