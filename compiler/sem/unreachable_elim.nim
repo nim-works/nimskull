@@ -170,7 +170,7 @@ proc process(c: var PassContext, n: PNode): PNode =
   of nkLetSection, nkVarSection:
     for i, it in n.pairs:
       assert it.kind in {nkIdentDefs, nkVarTuple}
-      let rhs = it[^1]
+      let rhs = recurse(it[^1])
       if doesntReturn(rhs):
         if i == 0:
           return rhs # discard the rest
