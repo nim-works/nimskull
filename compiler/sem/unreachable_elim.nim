@@ -327,7 +327,7 @@ proc process(c: var PassContext, n: PNode): PNode =
     result = n
   of callableDefs, nkConstSection, nkTypeSection, nkBindStmt, nkMixinStmt,
      nkIncludeStmt, nkImportStmt, nkImportExceptStmt, nkFromStmt, nkExportStmt,
-     nkExportExceptStmt:
+     nkExportExceptStmt, nkTypeOfExpr:
     # ignore declarative statements
     result = n
   else:
