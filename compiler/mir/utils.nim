@@ -519,21 +519,12 @@ proc renderNameWithType(tree: MirTree, i: var int, result: var string,
   result.add ": "
   typeToStr(result, n.typ, c.env)
 
-proc renderList(tree: MirTree, i: var int, indent: int, result: var string,
-                c: RenderCtx)
-
 proc stmtToStr(nodes: MirTree, i: var int, indent: var int, result: var string,
                c: RenderCtx) =
   template tree(str: string, body: untyped) =
     result.add repeat("  ", indent)
     result.add str
     body
-
-  template tab(body: untyped) =
-    ## Runs `body` with the indentation increased by 1.
-    inc indent
-    body
-    dec indent
 
   let n {.cursor.} = next(nodes, i)
   case n.kind
@@ -601,9 +592,10 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: var int, result: var string,
 
     inc indent
   of mnkScope:
-    tree "scope:\n":
-      tab:
-        renderList(nodes, i, indent, result, c)
+    tree "scope:\n": discard
+    inc indent
+  of mnkEndScope:
+    dec indent # just dedent
   of mnkIf:
     tree "if ":
       valueToStr()
