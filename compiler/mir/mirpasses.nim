@@ -434,7 +434,7 @@ proc injectResultInit(tree: MirTree, resultTyp: TypeId, changes: var Changeset) 
 
   if requiresInit(tree):
     assert tree[0].kind == mnkScope
-    let at = tree.child(NodePosition 0, 0)
+    let at = tree.sibling(NodePosition 0)
     changes.insert(tree, at, at, bu):
       bu.subTree mnkInit:
         bu.use toValue(mnkLocal, resultId, resultTyp)

@@ -656,10 +656,11 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     toList cnkEmitStmt:
       res.add valueToIr(tree, cl, cr)
   of mnkScope:
+    leave(tree, cr)
     scopeToIr(tree, env, cl, cr, stmts)
   of mnkDestroy:
     unreachable("a 'destroy' that wasn't lowered")
-  of AllNodeKinds - StmtNodes:
+  of AllNodeKinds - StmtNodes + {mnkEndScope}:
     unreachable(n.kind)
 
 proc setElementToIr(tree: MirBody, cl: var TranslateCl,
@@ -771,7 +772,7 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
   of mnkCopy, mnkMove, mnkSink:
     # translation of assignments needs to handle all modifiers
     unreachable("loose assignment modifier")
-  of AllNodeKinds - ExprKinds - {mnkNone}:
+  of AllNodeKinds - ExprKinds - {mnkNone} + {mnkEndScope}:
     unreachable(n.kind)
 
 proc genDefFor(sym: sink CgNode): CgNode =
@@ -797,11 +798,11 @@ proc scopeToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   cl.inUnscoped = 0
 
   # translate all statements:
-  while cr.hasNext(tree) and tree[cr].kind != mnkEnd:
+  while cr.hasNext(tree) and tree[cr].kind != mnkEndScope:
     stmtToIr(tree, env, cl, cr, stmts)
 
-  if cr.hasNext(tree) and tree[cr].kind == mnkEnd:
-    leave(tree, cr) # close the sub-tree
+  if cr.hasNext(tree) and tree[cr].kind == mnkEndScope:
+    skip(tree, cr)
 
   if cl.defs.len > prev:
     # insert all the lifted defs at the start of the scope
