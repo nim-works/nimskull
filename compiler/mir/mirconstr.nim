@@ -312,8 +312,9 @@ template stmtList*(bu: var MirBuilder, body: untyped) =
     body
 
 template scope*(bu: var MirBuilder, body: untyped) =
-  bu.subTree MirNode(kind: mnkScope):
-    body
+  bu.subTree mnkScope: discard
+  body
+  bu.subTree mnkEndScope: discard
 
 func allocTemp(bu: MirBuilder, t: TypeId; id: LocalId, alias: bool): Value =
   ## Allocates a new temporary or alias and returns it.

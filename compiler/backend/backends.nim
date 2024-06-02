@@ -283,7 +283,7 @@ func isEmpty*(tree: MirTree): bool =
   ## Returns whether `tree` contains either no nodes or only nodes that have
   ## no meaning by themselves.
   for n in tree.items:
-    if n.kind notin {mnkScope, mnkEnd}:
+    if n.kind notin {mnkScope, mnkEndScope, mnkEnd}:
       return false
 
   result = true
@@ -416,13 +416,14 @@ proc produceFragmentsForGlobals(
     # on this
     if bu.front.len == 0:
       discard bu.addLocal(Local()) # empty result slot
-      bu.add(m.add(n)): MirNode(kind: mnkScope)
+      bu.setSource(m.add(n))
+      bu.subTree mnkScope: discard
 
   func finish(bu: sink MirBuilder, m: var SourceMap, n: PNode
              ): auto {.nimcall.} =
     if bu.front.len > 0:
       bu.setSource(m.add(n))
-      bu.add endNode(mnkScope)
+      bu.subTree mnkEndScope: discard
     # we're creating a body here, so there is no list of locals yet
     result = finish(bu, default(Store[LocalId, Local]))
 

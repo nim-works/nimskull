@@ -49,7 +49,7 @@ template subTree(bu; k: MirNodeKind, t: TypeId, body: untyped) =
 
 template buildIf(bu; cond: Value, body: untyped) =
   bu.buildIf (;bu.use(cond)):
-    bu.subTree mnkScope:
+    bu.scope:
       body
 
 template buildIfNot(bu; cond: Value, body: untyped) =
