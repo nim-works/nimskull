@@ -141,7 +141,7 @@ proc process(c: var PassContext, n: PNode): PNode =
         result.sons.setLen(i + 1)
         # turn the expressions so far into statements by wrapping them in a
         # 'discard' statement
-        for i in 0..i:
+        for i in 0..<i:
           # the argument might be a 'void' (unit, really) expression, no
           # discard must be used then
           if result[i].typ != nil:
@@ -162,7 +162,7 @@ proc process(c: var PassContext, n: PNode): PNode =
       if doesntReturn(n[i][1]):
         # turn the operands so far into a valid statement list:
         result = newNodeIT(nkStmtList, n.info, c.voidType, i - 1)
-        for j in 1..i:
+        for j in 1..<i:
           result[j - 1] = newTreeI(nkDiscardStmt, n[j][1].info, n[j][1])
         return
 
