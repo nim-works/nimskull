@@ -137,9 +137,10 @@ Semantics
   SHALLOW_SRC = RVALUE
               | VALUE
 
-  STATEMENT = Scope STATEMENT           # wrap the statement in a scope, which
+  STATEMENT = Scope                     # starts a new scope, which
                                         # delimits the lifetime of all
                                         # definitions within
+            | EndScope                  # close the current scope
             | Def NAME none             # definition
             | Def NAME ASGN_SRC         # definition + initial value assignment
             | DefCursor NAME            # definition of non-owning location
