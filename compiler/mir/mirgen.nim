@@ -277,7 +277,7 @@ template subTree(c: var TCtx, n: MirNode, body: untyped) =
 
 template scope(c: var TCtx, body: untyped) =
   inc c.scopeDepth
-  c.builder.subTree mnkScope:
+  c.builder.scope:
     let prev = c.blocks.startScope()
     body
     c.blocks.closeScope(c.builder, prev, not c.unreachable)
@@ -2013,11 +2013,12 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
                 c.emitByVal val
     do:
       # the check:
-      c.buildStmt mnkScope:
-        c.subTree mnkVoid:
-          c.buildDefectMagicCall mChckObj, VoidType:
-            c.emitByVal val
-            c.emitByVal typeLit(c.typeToMir(n.check))
+      c.buildStmt mnkScope: discard
+      c.buildStmt mnkVoid:
+        c.buildDefectMagicCall mChckObj, VoidType:
+          c.emitByVal val
+          c.emitByVal typeLit(c.typeToMir(n.check))
+      c.buildStmt mnkEndScope: discard
 
     c.buildOp mnkPathConv, typ:
       c.use val

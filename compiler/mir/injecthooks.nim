@@ -104,12 +104,11 @@ proc isUsedForSink(tree: MirTree, stmt: NodePosition): bool =
         break
     of mnkScope:
       inc depth
-    of mnkEnd:
-      if tree[n].kind == mnkScope:
-        dec depth
-        if depth < 0:
-          # the end of the temporary's surrounding scope is reached
-          break
+    of mnkEndScope:
+      dec depth
+      if depth < 0:
+        # the end of the temporary's surrounding scope is reached
+        break
     else:
       discard
 

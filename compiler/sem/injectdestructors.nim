@@ -207,6 +207,19 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
   # the logic relies on the assumption that there exists a scope around
   # every 'def'
 
+  proc findScopeEnd(tree: MirTree, start: NodePosition): NodePosition =
+    ## Searches for the position of the ``mnkScopeEnd`` node for the current
+    ## scope.
+    var
+      i = start
+      depth = 0
+    while depth >= 0:
+      let kind = tree[i].kind
+      depth = depth + ord(kind == mnkScope) - ord(kind == mnkEndScope)
+      inc i
+
+    result = i - 1
+
   # XXX: profiling showed that a significant amount of time is spent in
   #      ``computeSpan`` and adding elements to the `scopeStack`. An approach
   #      where a scope's span is only computed when needed might be better
@@ -215,16 +228,15 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
     of mnkScope:
       # start a new scope. The start and end node/token are not included in
       # the span
-      let span = computeSpan(tree, i)
-      scopeStack.add (span.a + 1)..(span.b - 1)
-    of mnkEnd:
-      if n.start == mnkScope:
-        # leave the current scope:
-        scopeStack.setLen(scopeStack.len - 1)
-        if scopeStack.len == 0:
-          # the following statements, if any, can only be joins, and those can
-          # safely be skipped here
-          break
+      let fin = findScopeEnd(tree, i + 1)
+      scopeStack.add tree.sibling(i)..(fin-1)
+    of mnkEndScope:
+      # leave the current scope:
+      scopeStack.setLen(scopeStack.len - 1)
+      if scopeStack.len == 0:
+        # the following statements, if any, can only be joins, and those can
+        # safely be skipped here
+        break
 
     else:
       yield (i, n, scopeStack[^1])

@@ -213,9 +213,12 @@ type
               ## * syntactic statement node for representing void calls
               ## * statement acting as a use of the given lvalue
 
-    mnkScope  ## the only way to introduce a scope. Scopes can be nested and
-              ## dictate the lifetime of the locals that are directly enclosed
-              ## by them
+    mnkScope  ## starts a scope, which are used to delimit lifetime of locals
+              ## they enclose. Can be nested, but must always be paired with
+              ## exactly one ``mnkEndScope`` statement
+    mnkEndScope## closes the current scope. Must always be paired with a
+              ## ``mnkScope`` statement
+    # future direction: both mnkScope and mnkEndScope should become atoms
 
     mnkGoto   ## unconditional jump
     mnkIf     ## depending on the run-time value of `x`, transfers control-
@@ -354,7 +357,7 @@ const
   StmtNodes* = {mnkScope, mnkGoto, mnkIf, mnkCase, mnkLoop, mnkJoin,
                 mnkLoopJoin, mnkExcept, mnkFinally, mnkContinue, mnkEndStruct,
                 mnkInit, mnkAsgn, mnkSwitch, mnkVoid, mnkRaise, mnkDestroy,
-                mnkEmit, mnkAsm} + DefNodes
+                mnkEmit, mnkAsm, mnkEndScope} + DefNodes
     ## Nodes that are treated like statements, in terms of syntax.
 
   # --- semantics-focused sets:
