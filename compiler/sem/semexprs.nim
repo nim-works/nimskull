@@ -2834,10 +2834,8 @@ proc semSizeof(c: PContext, n: PNode): PNode =
     #restoreOldStyleType(n[1])
     n[1] = semExprWithType(c, n[1])
     if containsGenericType(n[1].typ):
-      # let targetType = semTypeNode(c, n[0], nil)
       n[1] = c.config.newError(n[1], PAstDiag(kind: adSemTIsNotAConcreteType,
-                                              wrongType: n[1].typ))
-                                              # wrongType: targetType))
+                                              wrongType: n[1].typ.sons[0]))
       result = n
     else:
       n.typ = getSysType(c.graph, n.info, tyInt)
