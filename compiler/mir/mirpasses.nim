@@ -451,14 +451,14 @@ proc injectProfilerCalls(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
     prcId = env.procedures.add(graph.getCompilerProc("nimProfile"))
 
   # insert the entry call within the outermost scope:
-  changes.insert(tree, tree.child(NodePosition 0, 0), NodePosition 0, bu):
+  changes.insert(tree, tree.sibling(NodePosition 0), NodePosition 0, bu):
     bu.subTree mnkVoid:
       bu.buildCall prcId, VoidType:
         discard "no arguments"
 
   for i in search(tree, {mnkLoop}):
     # insert the call before the loop end:
-    changes.insert(tree, i - 1, i, bu):
+    changes.insert(tree, i, i, bu):
       bu.subTree mnkVoid:
         bu.buildCall prcId, VoidType:
           discard "no arguments"
