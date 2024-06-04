@@ -27,11 +27,10 @@ import
     msgs
   ],
   compiler/utils/[
+    containers,
     pathutils
   ],
   compiler/backend/[
-    cgendata,
-    cgen,
     extccomp
   ],
   compiler/ic/[
@@ -52,9 +51,8 @@ proc unpackTree(g: ModuleGraph; thisModule: int;
   var decoder = initPackedDecoder(g.config, g.cache)
   result = loadNodes(decoder, g.packed, thisModule, tree, n)
 
-proc setupBackendModule(g: BModuleList; m: var LoadedModule, alive: AliveSyms) =
-  var bmod = cgen.newModule(g, m.module, g.config)
-  bmod.idgen = idgenFromLoadedModule(m)
+proc setupBackendModule(g: var BModuleList; m: var LoadedModule, alive: AliveSyms) =
+  g.modules[m.module.position.FileIndex] = initModule(idgenFromLoadedModule(m))
 
 proc addFileToLink(config: ConfigRef; m: PSym) {.used.} =
   # XXX: currently unused, but kept in case it is needed again
@@ -142,8 +140,7 @@ proc generateCode*(g: ModuleGraph) =
 
   # setup the module list and allocate space for all existing modules.
   # The slots for unchanged modules stay uninitialized.
-  let backend = cgendata.newModuleList(g)
-  backend.modules.setLen(g.packed.len)
+  var backend = initModuleList(g, g.packed.len)
 
   # Second pass: Setup all the backend modules for all the modules that have
   # changed:
@@ -177,7 +174,7 @@ proc generateCode*(g: ModuleGraph) =
 
     let
       pos = m.module.position
-      c = pass.open(g, m.module, backend.modules[pos].idgen)
+      c = pass.open(g, m.module, backend.modules[pos.FileIndex].idgen)
     for p in allNodes(m.fromDisk.topLevel):
       let n = unpackTree(g, pos, m.fromDisk.topLevel, p)
       discard pass.process(c, n)
@@ -196,8 +193,7 @@ proc generateCode*(g: ModuleGraph) =
       break
 
   # Fourth pass: Generate the code:
-  cbackend2.generateCode(g, backend, mlist)
-  g.backend = backend
+  g.backend = cbackend2.generateCode(g, backend, mlist)
 
   # Last pass: Write the rodfiles to disk. The code generator still modifies
   # their contents right up to this point, so this step currently cannot happen

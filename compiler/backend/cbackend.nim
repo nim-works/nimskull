@@ -31,18 +31,18 @@ import
 type
   ModuleId = FileIndex
 
-  BModule = object
+  BModule* = object
     ## Per-module data. A ``BModule`` instance usually corresponds to a
     ## |NimSkull| module, but doesn't necessarily have to.
-    idgen: IdGenerator
+    idgen*: IdGenerator
 
-  BModuleList = object
+  BModuleList* = object
     ## The "top level" type for the orchestrator, owning all state related
     ## to code generation.
     graph: ModuleGraph
     env: MirEnv
 
-    modules: OrdinalSeq[ModuleId, BModule]
+    modules*: OrdinalSeq[ModuleId, BModule]
 
   PartialTable = Table[ProcedureId, MirBody]
     ## Table for holding the incremental procedures
@@ -51,6 +51,14 @@ type
     ## The interface with the legacy backend management.
 
 const NonMagics = {}
+
+proc initModuleList*(graph: ModuleGraph, num: Natural): BModuleList =
+  ## Sets up a backend module-list with `num` modules.
+  result = BModuleList(graph: graph, env: initMirEnv(graph))
+  result.modules.newSeq(num)
+
+proc initModule*(idgen: IdGenerator): BModule =
+  BModule(idgen: idgen)
 
 proc processEvent(g: var BModuleList, discovery: DiscoveryData,
                   partial: var PartialTable, evt: sink BackendEvent) =
@@ -103,14 +111,14 @@ proc generateCode*(graph: ModuleGraph, g: sink BModuleList,
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point for C code generation. Only the C code is generated -- nothing
   ## is written to disk yet.
-  var g = BModuleList(graph: graph, env: initMirEnv(graph))
+  var g = initModuleList(graph, 0)
 
   # setup the module entries:
   for key, m in mlist.modules.pairs:
     # XXX: meh, not a good solution. The list should be setup up-front
     if m.sym.position >= g.modules.len:
       setLen(g.modules, m.sym.position + 1)
-    g.modules[key] = BModule(idgen: m.idgen)
+    g.modules[key] = initModule(m.idgen)
 
   # the output is communicated through the module graph
   graph.backend = generateCode(graph, g, mlist)
