@@ -2,14 +2,20 @@
 
 import
   std/[
+    os,
     tables
   ],
   compiler/ast/[
     ast_idgen,
+    ast_types,
     lineinfos
   ],
   compiler/backend/[
-    backends
+    backends,
+    extccomp
+  ],
+  compiler/front/[
+    options
   ],
   compiler/mir/[
     mirbodies,
@@ -25,8 +31,19 @@ import
   compiler/utils/[
     containers,
     idioms,
-    measure
+    measure,
+    pathutils,
+    ropes
   ]
+
+# XXX: move toFullPath somewhere else, like ``options`` (where ``ConfigRef``
+#      resides)
+from compiler/front/msgs import toFullPath, localReport
+
+# XXX: imports for the legacy reports
+import compiler/ast/report_enums
+from compiler/ast/reports_sem import SemReport,
+  reportStr
 
 type
   ModuleId = FileIndex
@@ -47,8 +64,11 @@ type
   PartialTable = Table[ProcedureId, MirBody]
     ## Table for holding the incremental procedures
 
-  Output* = ref object of RootObj
+  Output = ref object of RootObj
     ## The interface with the legacy backend management.
+    modules: seq[tuple[m: PSym, content: string]]
+      ## all modules to add to the build, together with their content
+    headers: seq[tuple[path: AbsoluteFile, content: string]]
 
 const NonMagics = {}
 
@@ -103,6 +123,7 @@ proc generateCode*(graph: ModuleGraph, g: sink BModuleList,
   # TODO: report the used dynamic libraries
   # TODO: generate a header, if requested
 
+  result = Output()
   # assemble the final C code for each module:
   for id, m in mlist.modules.pairs:
     discard assemble(m)
@@ -122,3 +143,55 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 
   # the output is communicated through the module graph
   graph.backend = generateCode(graph, g, mlist)
+
+# ---------------
+# output handling
+
+# XXX: consider moving this to a separate module. It's unrelated to code
+#      generation orchestration
+
+proc getCFile(config: ConfigRef, m: PSym): AbsoluteFile =
+  let p = AbsoluteFile toFullPath(config, m.position.FileIndex)
+  # XXX: toFullPath should return an AbsoluteFile already
+  result = changeFileExt(completeCfilePath(config, withPackageName(config, p)),
+                         ".nim.c")
+
+proc writeFile(config: ConfigRef, cfile: Cfile, code: string): bool =
+  ## Writes `code` to `cfile`, and returns whether the C file needs to be
+  ## recompiled.
+  if optForceFullMake notin config.globalOptions:
+    if not equalsFile(code, cfile.cname):
+      if not writeRope(code, cfile.cname):
+        localReport(config, reportStr(rsemCannotOpenFile, cfile.cname.string))
+      result = true
+    elif fileExists(cfile.obj) and
+         os.fileNewer(cfile.obj.string, cfile.cname.string):
+      result = false
+    else:
+      result = true
+  else:
+    if not writeRope(code, cfile.cname):
+      localReport(config, reportStr(rsemCannotOpenFile, cfile.cname.string))
+    result = true
+
+proc writeModules*(backend: RootRef, config: ConfigRef) =
+  ## Writes the files previously collected into `backend` to disk and adds
+  ## them to the final build.
+  let output = Output backend
+  for m, code in output.modules.items:
+    measure("write module")
+    let cfile = getCFile(config, m)
+    var cf = Cfile(nimname: m.name.s, cname: cfile,
+                   obj: completeCfilePath(config, toObjFile(config, cfile)),
+                   flags: {})
+
+    # write to disk:
+    if not writeFile(config, cf, code):
+      cf.flags = {CfileFlag.Cached} # already up-to-date
+
+    # add to the build:
+    addFileToCompile(config, cf)
+
+  for (path, content) in output.headers:
+    # nothing to add to the compilation; just write header to disk
+    discard writeRope(content, path)

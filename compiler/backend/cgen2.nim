@@ -1149,59 +1149,11 @@ proc writeHeader(m: BModule) =
   if not writeRope(result, m.filename):
     localReport(m.config, reportStr(rsemCannotOpenFile, m.filename.string))
 
-proc getCFile(m: BModule): AbsoluteFile =
-  result = changeFileExt(completeCfilePath(m.config, withPackageName(m.config, m.cfilename)), ".nim.c")
-
-proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
-  if optForceFullMake notin m.config.globalOptions:
-    if not moduleHasChanged(m.g.graph, m.module):
-      result = false
-    elif not equalsFile(code, cfile.cname):
-      when false:
-        #m.config.symbolFiles == readOnlySf: #isDefined(m.config, "nimdiff"):
-        if fileExists(cfile.cname):
-          copyFile(cfile.cname.string, cfile.cname.string & ".backup")
-          echo "diff ", cfile.cname.string, ".backup ", cfile.cname.string
-        else:
-          echo "new file ", cfile.cname.string
-      if not writeRope(code, cfile.cname):
-        localReport(m.config, reportStr(rsemCannotOpenFile, cfile.cname.string))
-
-      result = true
-    elif fileExists(cfile.obj) and os.fileNewer(cfile.obj.string, cfile.cname.string):
-      result = false
-    else:
-      result = true
-  else:
-    if not writeRope(code, cfile.cname):
-      localReport(m.config, reportStr(rsemCannotOpenFile, cfile.cname.string))
-
-    result = true
-
 proc finalizeModule*(m: BModule) =
   finishTypeDescriptions(m)
 
 proc finalizeMainModule*(m: BModule) =
   generateThreadVarsSize(m) # TODO: not the job of the code generator
-
-proc writeModule(m: BModule) =
-  template onExit() = close(m.ndi, m.config)
-  let cfile = getCFile(m)
-  var cf = Cfile(nimname: m.module.name.s, cname: cfile,
-                  obj: completeCfilePath(m.config, toObjFile(m.config, cfile)), flags: {})
-  var code = genModule(m, cf)
-  if code != "" or m.config.symbolFiles != disabledSf:
-    when hasTinyCBackend:
-      if m.config.cmd == cmdTcc:
-        tccgen.compileCCode($code, m.config)
-        onExit()
-        return
-
-    if not shouldRecompile(m, code, cf):
-      cf.flags = {CfileFlag.Cached}
-
-    addFileToCompile(m.config, cf)
-  onExit()
 
 proc cgenWriteModules*(backend: RootRef, config: ConfigRef) =
   let g = BModuleList(backend)
