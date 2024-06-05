@@ -102,7 +102,7 @@ when useWinVersion:
   from std/winlean import WSAESHUTDOWN
 
 when defineSsl:
-  import std/openssl
+  import std/openssl/[ssl, safestack, err, x509, x509v3]
   when not defined(nimDisableCertificateValidation):
     from std/ssl_certs import scanSSLCertificates
 
@@ -121,7 +121,7 @@ when defineSsl:
       protSSLv2, protSSLv3, protTLSv1, protSSLv23
 
     SslContext* = ref object
-      context*: SslCtx
+      context*: ptr SSL_CTX
       referencedData: HashSet[int]
       extraInternal: SslContextExtraInternal
 
@@ -156,7 +156,7 @@ type
     bufLen: int            # current length of buffer
     when defineSsl:
       isSsl: bool
-      sslHandle: SslPtr
+      sslHandle: ptr SSL
       sslContext: SslContext
       sslNoHandshake: bool # True if needs handshake.
       sslHasPeekChar: bool
@@ -517,13 +517,9 @@ proc fromSockAddr*(sa: Sockaddr_storage | SockAddr | Sockaddr_in | Sockaddr_in6,
   fromSockAddrAux(cast[ptr Sockaddr_storage](unsafeAddr sa), sl, address, port)
 
 when defineSsl:
-  CRYPTO_malloc_init()
-  doAssert SslLibraryInit() == 1
-  SSL_load_error_strings()
-  ERR_load_BIO_strings()
-  OpenSSL_add_all_algorithms()
+  const sslErrorStringBuf = 256
 
-  proc sslHandle*(self: Socket): SslPtr =
+  proc sslHandle*(self: Socket): ptr SSL =
     ## Retrieve the ssl pointer of `socket`.
     ## Useful for interfacing with `openssl`.
     self.sslHandle
@@ -535,13 +531,10 @@ when defineSsl:
     let err = ERR_peek_last_error()
     if err == 0:
       raise newException(SslError, "No error reported.")
-    var errStr = $ERR_error_string(err, nil)
-    case err
-    of 336032814, 336032784:
-      errStr = "Please upgrade your OpenSSL library, it does not support the " &
-               "necessary protocols. OpenSSL error is: " & errStr
-    else:
-      discard
+    var errStr = newString(sslErrorStringBuf)
+    ERR_error_string_n(err, errStr, csize_t len(errStr))
+    errStr.setLen(errStr.find('\0')) # Trim to first NUL
+
     raise newException(SslError, errStr)
 
   proc getExtraData*(ctx: SslContext, index: int): RootRef =
@@ -567,7 +560,7 @@ when defineSsl:
     GC_ref(data)
 
   # http://simplestcodings.blogspot.co.uk/2010/08/secure-server-client-using-openssl-in-c.html
-  proc loadCertificates(ctx: SslCtx, certFile, keyFile: string) =
+  proc loadCertificates(ctx: ptr SSL_CTX, certFile, keyFile: string) =
     if certFile != "" and not fileExists(certFile):
       raise newException(system.IOError,
           "Certificate file could not be found: " & certFile)
@@ -622,32 +615,20 @@ when defineSsl:
     ## or using ECDSA:
     ## - `openssl ecparam -out mykey.pem -name secp256k1 -genkey`
     ## - `openssl req -new -key mykey.pem -x509 -nodes -days 365 -out mycert.pem`
-    var newCTX: SslCtx
+    var newCTX: ptr SSL_CTX
     case protVersion
     of protSSLv23:
-      newCTX = SSL_CTX_new(SSLv23_method()) # SSlv2,3 and TLS1 support.
+      newCTX = SSL_CTX_new(TLS_method()) # SSlv2,3 and TLS1 support.
     of protSSLv2:
       raiseSSLError("SSLv2 is no longer secure and has been deprecated, use protSSLv23")
     of protSSLv3:
       raiseSSLError("SSLv3 is no longer secure and has been deprecated, use protSSLv23")
     of protTLSv1:
-      newCTX = SSL_CTX_new(TLSv1_method())
+      raiseSSLError("TLSv1.0 is no longer secure and has been deprecated, use protSSLv23")
 
     if newCTX.SSL_CTX_set_cipher_list(cipherList) != 1:
       raiseSSLError()
-    when not defined(openssl10) and not defined(libressl):
-      let sslVersion = getOpenSSLVersion()
-      if sslVersion >= 0x010101000 and not sslVersion == 0x020000000:
-        # In OpenSSL >= 1.1.1, TLSv1.3 cipher suites can only be configured via
-        # this API.
-        if newCTX.SSL_CTX_set_ciphersuites(cipherList) != 1:
-          raiseSSLError()
-    # Automatically the best ECDH curve for client exchange. Without this, ECDH
-    # ciphers will be ignored by the server.
-    #
-    # From OpenSSL >= 1.1.0, this setting is set by default and can't be
-    # overriden.
-    if newCTX.SSL_CTX_set_ecdh_auto(1) != 1:
+    if newCTX.SSL_CTX_set_ciphersuites(cipherList) != 1:
       raiseSSLError()
 
     when defined(nimDisableCertificateValidation):
@@ -662,7 +643,6 @@ when defineSsl:
     if newCTX == nil:
       raiseSSLError()
 
-    discard newCTX.SSLCTXSetMode(SSL_MODE_AUTO_RETRY)
     newCTX.loadCertificates(certFile, keyFile)
 
     const VerifySuccess = 1 # SSL_CTX_load_verify_locations returns 1 on success.
@@ -712,8 +692,8 @@ when defineSsl:
   proc clientGetPskFunc*(ctx: SslContext): SslClientGetPskFunc =
     return ctx.getExtraInternal().clientGetPskFunc
 
-  proc pskClientCallback(ssl: SslPtr; hint: cstring; identity: cstring;
-      max_identity_len: cuint; psk: ptr uint8;
+  proc pskClientCallback(ssl: ptr SSL; hint: cstring; identity: cstring;
+      max_identity_len: cuint; psk: ptr UncheckedArray[cuchar];
       max_psk_len: cuint): cuint {.cdecl.} =
     let ctx = SslContext(context: ssl.SSL_get_SSL_CTX)
     let hintString = if hint == nil: "" else: $hint
@@ -739,11 +719,11 @@ when defineSsl:
   proc serverGetPskFunc*(ctx: SslContext): SslServerGetPskFunc =
     return ctx.getExtraInternal().serverGetPskFunc
 
-  proc pskServerCallback(ssl: SslCtx; identity: cstring; psk: ptr uint8;
-      max_psk_len: cint): cuint {.cdecl.} =
+  proc pskServerCallback(ssl: ptr SSL; identity: cstring; psk: ptr UncheckedArray[cuchar];
+      max_psk_len: cuint): cuint {.cdecl.} =
     let ctx = SslContext(context: ssl.SSL_get_SSL_CTX)
     let pskString = (ctx.serverGetPskFunc)($identity)
-    if pskString.len.cint > max_psk_len:
+    if pskString.len.cuint > max_psk_len:
       return 0
     copyMem(psk, pskString.cstring, pskString.len)
 
@@ -783,7 +763,7 @@ when defineSsl:
     if socket.sslHandle == nil:
       raiseSSLError()
 
-    if SSL_set_fd(socket.sslHandle, socket.fd) != 1:
+    if SSL_set_fd(socket.sslHandle, socket.fd.cint) != 1:
       raiseSSLError()
 
   proc checkCertName(socket: Socket, hostname: string) =
@@ -792,16 +772,13 @@ when defineSsl:
     ## When name starts with a dot it will be matched by a certificate valid for any subdomain
     when not defined(nimDisableCertificateValidation) and not defined(windows):
       assert socket.isSsl
-      let certificate = socket.sslHandle.SSL_get_peer_certificate()
+      let certificate = socket.sslHandle.SSL_get0_peer_certificate()
       if certificate.isNil:
         raiseSSLError("No SSL certificate found.")
 
-      const X509_CHECK_FLAG_ALWAYS_CHECK_SUBJECT = 0x1.cuint
       # https://www.openssl.org/docs/man1.1.1/man3/X509_check_host.html
-      let match = certificate.X509_check_host(hostname.cstring, hostname.len.cint,
+      let match = certificate.X509_check_host(hostname.cstring, hostname.len.csize_t,
         X509_CHECK_FLAG_ALWAYS_CHECK_SUBJECT, nil)
-      # https://www.openssl.org/docs/man1.1.1/man3/SSL_get_peer_certificate.html
-      X509_free(certificate)
       if match != 1:
         raiseSSLError("SSL Certificate check failed.")
 
@@ -826,18 +803,28 @@ when defineSsl:
         # Discard result in case OpenSSL version doesn't support SNI, or we're
         # not using TLSv1+
         discard SSL_set_tlsext_host_name(socket.sslHandle, hostname)
-      ErrClearError()
+      ERR_clear_error()
       let ret = SSL_connect(socket.sslHandle)
       socketError(socket, ret)
       when not defined(nimDisableCertificateValidation) and not defined(windows):
         if hostname.len > 0 and not isIpAddress(hostname):
           socket.checkCertName(hostname)
     of handshakeAsServer:
-      ErrClearError()
+      ERR_clear_error()
       let ret = SSL_accept(socket.sslHandle)
       socketError(socket, ret)
 
-  proc getPeerCertificates*(sslHandle: SslPtr): seq[Certificate] {.since: (1, 1).} =
+  proc toCertificate(cert: ptr X509): Certificate =
+    ## Encode `cert` to DER representation
+    let len = i2d_X509(cert, nil)
+    result = newString(len)
+    var buf = cast[ptr UncheckedArray[cuchar]](addr result[0])
+    let encLen = i2d_X509(cert, addr buf)
+    if encLen.int <= 0:
+      raiseSSLError("X.509 certificate encoding failed")
+    result.setLen(encLen)
+
+  proc getPeerCertificates*(sslHandle: ptr SSL): seq[Certificate] {.since: (1, 1).} =
     ## Returns the certificate chain received by the peer we are connected to
     ## through the OpenSSL connection represented by `sslHandle`.
     ## The handshake must have been completed and the certificate chain must
@@ -849,12 +836,12 @@ when defineSsl:
     let stack = SSL_get0_verified_chain(sslHandle)
     if stack == nil:
       return
-    let length = OPENSSL_sk_num(stack)
+    let length = stack.num
     if length == 0:
       return
     for i in 0 .. length - 1:
-      let x509 = cast[PX509](OPENSSL_sk_value(stack, i))
-      result.add(i2d_X509(x509))
+      let x509 = stack.value(i)
+      result.add(x509.toCertificate())
 
   proc getPeerCertificates*(socket: Socket): seq[Certificate] {.since: (1, 1).} =
     ## Returns the certificate chain received by the peer we are connected to
@@ -881,7 +868,8 @@ when defineSsl:
     ## - sidCtx must be at most 32 characters in length.
     if sidCtx.len > 32:
       raiseSSLError("sessionIdContext must be shorter than 32 characters")
-    SSL_CTX_set_session_id_context(ctx.context, sidCtx, sidCtx.len)
+    # The error condition is already handled above
+    discard SSL_CTX_set_session_id_context(ctx.context, cast[ptr UncheckedArray[cuchar]](addr sidCtx[0]), cuint(sidCtx.len))
 
 proc getSocketError*(socket: Socket): OSErrorCode =
   ## Checks `osLastError` for a valid error. If it has been reset it uses
@@ -934,8 +922,10 @@ proc socketError*(socket: Socket, err: int = -1, async = false,
             elif sslErr == 0 and err == -1:
               errStr.add "in the BIO layer"
             else:
-              let errStr = $ERR_error_string(sslErr, nil)
-              raiseSSLError(errStr & ": " & errStr)
+              var sslErrStr = newString(sslErrorStringBuf)
+              ERR_error_string_n(sslErr, sslErrStr, csize_t(sslErrStr.len))
+              sslErrStr.setLen(sslErrStr.find('\0')) # Trim to first NUL
+              raiseSSLError(errStr & ": " & sslErrStr)
             raiseOSError(osErr, errStr)
         of SSL_ERROR_SSL:
           # SSL shutdown must not be done if a fatal error occurred.
@@ -1030,7 +1020,7 @@ proc acceptAddr*(server: Socket, client: var owned(Socket), address: var string,
         # We must wrap the client sock in a ssl context.
 
         server.sslContext.wrapSocket(client)
-        ErrClearError()
+        ERR_clear_error()
         let ret = SSL_accept(client.sslHandle)
         socketError(client, ret, false)
 
@@ -1060,7 +1050,7 @@ when false: #defineSsl:
 
           if not client.isSsl or client.sslHandle == nil:
             server.sslContext.wrapSocket(client)
-          ErrClearError()
+          ERR_clear_error()
           let ret = SSL_accept(client.sslHandle)
           while ret <= 0:
             let err = SSL_get_error(client.sslHandle, ret)
@@ -1183,7 +1173,7 @@ proc close*(socket: Socket, flags = {SocketFlag.SafeDisconn}) =
           # shutdown i.e not wait for the peers "close notify" alert with a second
           # call to SSL_shutdown
           blockSigpipe:
-            ErrClearError()
+            ERR_clear_error()
             let res = SSL_shutdown(socket.sslHandle)
             if res == 0:
               discard
@@ -1325,7 +1315,7 @@ proc uniRecv(socket: Socket, buffer: pointer, size, flags: cint): int =
   assert(not socket.isClosed, "Cannot `recv` on a closed socket")
   when defineSsl:
     if socket.isSsl:
-      ErrClearError()
+      ERR_clear_error()
       return SSL_read(socket.sslHandle, buffer, size)
 
   return recv(socket.fd, buffer, size, flags)
@@ -1682,8 +1672,8 @@ proc send*(socket: Socket, data: pointer, size: int): int {.
   assert(not socket.isClosed, "Cannot `send` on a closed socket")
   when defineSsl:
     if socket.isSsl:
-      ErrClearError()
-      return SSL_write(socket.sslHandle, cast[cstring](data), size)
+      ERR_clear_error()
+      return SSL_write(socket.sslHandle, cast[cstring](data), size.cint)
 
   when useWinVersion or defined(macosx):
     result = send(socket.fd, data, size.cint, 0'i32)
@@ -1997,7 +1987,7 @@ proc connect*(socket: Socket, address: string,
         # not using TLSv1+
         discard SSL_set_tlsext_host_name(socket.sslHandle, address)
 
-      ErrClearError()
+      ERR_clear_error()
       let ret = SSL_connect(socket.sslHandle)
       socketError(socket, ret)
       when not defined(nimDisableCertificateValidation) and not defined(windows):
@@ -2066,7 +2056,7 @@ proc connect*(socket: Socket, address: string, port = Port(0),
           # not using TLSv1+
           discard SSL_set_tlsext_host_name(socket.sslHandle, address)
 
-        ErrClearError()
+        ERR_clear_error()
         let ret = SSL_connect(socket.sslHandle)
         socketError(socket, ret)
         when not defined(nimDisableCertificateValidation):
