@@ -490,6 +490,13 @@ func `[]`*(tree: MirTree, n: OpValue, index: Natural): lent MirNode =
   ## Returns the `index`-th child node of sub-tree `n`.
   tree[child(tree, NodePosition n, index)]
 
+func last*(tree: MirTree, n: NodePosition): NodePosition =
+  ## Returns the last child node in the subtree at `n`.
+  let skip = tree[n].len - 1
+  result = tree.child(n, 0)
+  for _ in 0..<skip:
+    result = tree.sibling(result)
+
 func findParent*(tree: MirTree, start: NodePosition,
                  kind: MirNodeKind): NodePosition =
   ## Searches for the first enclosing sub-tree node of kind `kind` (which is

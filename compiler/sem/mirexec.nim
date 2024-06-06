@@ -361,7 +361,7 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
       env.instrs.add Instr(op: opMutateGlobal, node: at)
     if tree[source].kind == mnkCheckedCall:
       # the jump target description is in the last slot
-      raiseExit(env, opFork, tree, at, tree.previous(findEnd(tree, source)))
+      raiseExit(env, opFork, tree, at, tree.last(source))
   else:
     discard
 

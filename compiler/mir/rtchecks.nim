@@ -71,7 +71,7 @@ template emitCall(bu; tree; call; prc: ProcedureId, arguments: untyped) =
 
       if tree[call].kind == mnkCheckedCall:
         # copy the jump target
-        bu.emitFrom(tree, tree.previous(findEnd(tree, call)))
+        bu.emitFrom(tree, tree.last(call))
 
 proc addCompilerProc(env; graph; name: string): ProcedureId =
   env.procedures.add(graph.getCompilerProc(name))
