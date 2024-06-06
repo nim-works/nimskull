@@ -86,26 +86,14 @@ proc treeRepr*(tree: MirTree, pos = NodePosition(0)): string =
 
     case n.kind
     of SubTreeNodes:
-      var sub = 0
-      while true:
+      for sub in 0..<n.len.int:
         if i >= nodes.len:
-          line repeat("  ", indent), "out of bounds: end expected for ",
-               n.kind
+          line repeat("  ", indent+1), "error: nodes are missing"
           break
-        elif nodes[i].kind == mnkEnd:
-          if nodes[i].start == n.kind:
-            inc i
-            break
-          else:
-            line repeat("  ", indent+1), "loose end: ", nodes[i].start,
-                 " expected: ", n.kind
-            inc i
         else:
           aux(result, nodes, indent+1, sub, i)
 
-        inc sub
-
-    of AtomNodes + {mnkEnd}:
+    of AtomNodes:
       discard "already rendered"
 
   var i = pos.int
