@@ -510,7 +510,6 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
   ## `expr` is the call, construction, or ``raise`` argument expression that
   ## the consume is part of; `src` is the consumed lvalue; and `pos` is the
   ## data-flow instruction correspondig to the consume operation.
-  assert tree[expr].kind in ExprKinds
   if isNamed(tree, src) and
      needsReset(tree, ctx.cfg, ar, computePath(tree, NodePosition src),
                 pos + 1):

@@ -246,16 +246,23 @@ func emitLvalueOp(env: var ClosureEnv, opc: DataFlowOpcode, tree: MirTree,
   emitForValue(env, tree, at, source)
   env.dfaOp(opc, tree, at, source)
 
+func emitForArg(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
+  case tree[source].kind
+  of mnkArg:
+    emitLvalueOp(env, opUse, tree, at, tree.operand(source))
+  of mnkConsume:
+    emitLvalueOp(env, opConsume, tree, at, tree.operand(source))
+  of mnkName:
+    emitForValue(env, tree, at, tree.skip(tree.operand(it), mnkTag))
+  else:
+    unreachable(tree[source].kind)
+
 func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
   for it in subNodes(tree, source):
     case tree[it].kind
-    of mnkArg:
-      emitLvalueOp(env, opUse, tree, at, tree.operand(it))
-    of mnkConsume:
-      emitLvalueOp(env, opConsume, tree, at, tree.operand(it))
-    of mnkName:
-      emitForValue(env, tree, at, tree.skip(tree.operand(it), mnkTag))
-    of mnkField, mnkMagic, mnkProc, mnkLabel, mnkTargetList:
+    of mnkArg, mnkConsume, mnkName:
+      emitForArg(env, tree, at, it)
+    of mnkMagic, mnkProc, mnkLabel, mnkTargetList:
       discard
     else:
       emitLvalueOp(env, opUse, tree, at, OpValue it)
@@ -268,8 +275,11 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
 
   case tree[source].kind
   of mnkCall, mnkCheckedCall, mnkArrayConstr, mnkSeqConstr, mnkTupleConstr,
-     mnkClosureConstr, mnkObjConstr, mnkRefConstr:
+     mnkClosureConstr:
     emitForArgs(env, tree, at, source)
+  of mnkObjConstr, mnkRefConstr:
+    for it in subNodes(tree, source):
+      emitForArg(env, tree, at, tree.child(it, 1))
   of mnkSetConstr:
     for it in subNodes(tree, source):
       case tree[it].kind

@@ -1251,8 +1251,9 @@ proc genObjConstr(c: var TCtx, n: PNode, isConsume: bool) =
         (isRef or isConsume) and
         sfCursor notin field.flags
 
-      c.add MirNode(kind: mnkField, field: field.position.int32)
-      c.emitOperandTree it[1], useConsume
+      c.subTree mnkBinding:
+        c.add MirNode(kind: mnkField, field: field.position.int32)
+        c.emitOperandTree it[1], useConsume
 
 proc genRaise(c: var TCtx, n: PNode) =
   assert n.kind == nkRaiseStmt
@@ -2458,9 +2459,10 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
       # table entries, even though the values they represent are equivalent
       bu.subTree MirNode(kind: mnkObjConstr, typ: typ, len: uint32(n.len-1)):
         for i in 1..<n.len:
-          bu.add MirNode(kind: mnkField, field: n[i][0].sym.position.int32)
-          bu.subTree mnkArg:
-            constToMirAux(bu, env, n[i][1])
+          bu.subTree mnkBinding:
+            bu.add MirNode(kind: mnkField, field: n[i][0].sym.position.int32)
+            bu.subTree mnkArg:
+              constToMirAux(bu, env, n[i][1])
     of nkCurly:
       # similar to object construction, no normalization means that ``{1, 2}``
       # and ``{2, 1}`` results in two data table entries

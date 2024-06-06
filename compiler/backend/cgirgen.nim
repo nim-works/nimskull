@@ -756,8 +756,10 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
     let typ = cl.map(n.typ)
     assert typ.skipTypes(abstractVarRange).kind in {tyObject, tyRef}
     treeOp cnkObjConstr:
+      discard enter(tree, cr) # enter the binding tree
       let f = newFieldNode(lookupInType(typ, get(tree, cr).field))
       res.add newTree(cnkBinding, cr.info, [f, argToIr(tree, cl, cr)[1]])
+      leave(tree, cr)
   of mnkCall, mnkCheckedCall:
     callToIr(tree, cl, n, cr)
   of UnaryOps:

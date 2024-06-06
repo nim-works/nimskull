@@ -128,6 +128,7 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
     of mnkObjConstr, mnkRefConstr:
       let typ = env[tree[n].typ].skipTypes(abstractPtrs) ## the object's type
       iterTree(i):
+        inc n # skip the binding node
         let
           sym = lookupInType(typ, next().field)
           field = dest.getFieldHandle(sym.position.FieldPosition)
@@ -143,6 +144,7 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
           field.writeDiscrField(owner, idx, toInt(val), b)
         else:
           arg recurse(field)
+        inc n # skip the end node
     else:
       unreachable(tree[n].kind)
   of akArray:

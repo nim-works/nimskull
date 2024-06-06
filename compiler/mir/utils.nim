@@ -457,9 +457,10 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
     let typ = nodes[i].typ
     tree "(":
       commaSeparated:
-        fieldToStr(next(nodes, i).field, typ, result, c)
-        result.add ": "
-        argToStr()
+        tree "":
+          fieldToStr(next(nodes, i).field, typ, result, c)
+          result.add ": "
+          argToStr()
       result.add ")"
   of mnkCall:
     tree "":

@@ -189,6 +189,8 @@ type
     mnkClosureConstr## constructor for closure values
     mnkObjConstr  ## constructor for object values
     mnkRefConstr  ## allocates a new managed heap cell and initializes it
+    mnkBinding    ## only valid as an object or ref construction child node.
+                  ## Associates an argument with a field
 
     mnkCopy   ## denotes the assignment as copying the source value
     mnkMove   ## denotes the assignment as moving the value. This does
@@ -351,7 +353,8 @@ const
   ConstrTreeNodes* = {mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr,
                       mnkTupleConstr, mnkClosureConstr, mnkObjConstr,
                       mnkRefConstr, mnkProcVal, mnkArg, mnkField,
-                      mnkEnd} + LiteralDataNodes
+                      mnkEnd, mnkBinding} +
+                     LiteralDataNodes
     ## Nodes that can appear in the MIR subset used for constant expressions.
 
   StmtNodes* = {mnkScope, mnkGoto, mnkIf, mnkCase, mnkLoop, mnkJoin,
