@@ -274,7 +274,6 @@ proc valueToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
   template tree(start: string, body: untyped) =
     result.add start
     body
-    inc i # the end node
 
   let n {.cursor.} = next(nodes, i)
   case n.kind
@@ -333,11 +332,8 @@ proc argToStr(tree: MirTree, i: var int, result: var string, c: RenderCtx) =
   if tree[i].kind == mnkTag:
     discard next(tree, i)
     valueToStr()
-    inc i # skip the tag's end node
   else:
     valueToStr()
-
-  inc i # skip the end node
 
 template argToStr() =
   argToStr(treeParam(), i, result, c)
@@ -350,6 +346,13 @@ proc labelToStr(nodes: MirTree, i: var int, result: var string) =
   else:
     error(result, n)
 
+template commaSeparated(len: uint32, body: untyped) =
+  let x = len # capture the expression
+  for i in 0..<x:
+    if i > 0:
+      result.add ", "
+    body
+
 proc targetToStr(nodes: MirTree, i: var int, result: var string) =
   var n {.cursor.} = next(nodes, i)
   case n.kind
@@ -357,11 +360,8 @@ proc targetToStr(nodes: MirTree, i: var int, result: var string) =
     result.add n.label
   of mnkTargetList:
     result.add "["
-    let start = i
-    while (n = next(nodes, i); n.kind != mnkEnd):
-      if i > start + 1:
-        result.add ", "
-
+    commaSeparated n.len:
+      n = next(nodes, i)
       case n.kind
       of mnkLabel:  result.add n.label
       of mnkLeave:  result.add "Leave(L" & $n.label.int & ")"
@@ -380,18 +380,9 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
     result.add start
     inc i # skip the start node
     body
-    inc i # skip the end node
 
-  template commaSeparated(body: untyped) =
-    var first = true
-    while nodes[i].kind != mnkEnd:
-      if first:
-        first = false
-      else:
-        result.add ", "
-      body
-
-  case nodes[i].kind
+  let n {.cursor.} = nodes[i]
+  case n.kind
   of LvalueExprKinds + Atoms:
     valueToStr()
   of mnkAddr:
@@ -402,7 +393,7 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
       valueToStr()
   of mnkToSlice, mnkToMutSlice:
     tree "toOpenArray ":
-      commaSeparated:
+      commaSeparated n.len:
         valueToStr()
   of mnkConv:
     tree "conv ":
@@ -415,27 +406,27 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
       valueToStr()
   of mnkArrayConstr:
     tree "[":
-      commaSeparated:
+      commaSeparated n.len:
         argToStr()
       result.add "]"
   of mnkSeqConstr:
     tree "@[":
-      commaSeparated:
+      commaSeparated n.len:
         argToStr()
       result.add "]"
   of mnkTupleConstr:
     tree "(":
-      commaSeparated:
+      commaSeparated n.len:
         argToStr()
       result.add ")"
   of mnkClosureConstr:
     tree "closure (":
-      commaSeparated:
+      commaSeparated n.len:
         argToStr()
       result.add ")"
   of mnkSetConstr:
     tree "{":
-      commaSeparated:
+      commaSeparated n.len:
         exprToStr(nodes, i, result, c)
       result.add "}"
   of mnkRange:
@@ -446,7 +437,7 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
   of mnkObjConstr, mnkRefConstr:
     let typ = nodes[i].typ
     tree "(":
-      commaSeparated:
+      commaSeparated n.len:
         tree "":
           fieldToStr(next(nodes, i).field, typ, result, c)
           result.add ": "
@@ -456,7 +447,7 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
     tree "":
       calleeToStr(nodes, i, result, c)
       result.add "("
-      commaSeparated:
+      commaSeparated n.len - 1:
         argToStr()
       result.add ")"
   of mnkCheckedCall:
@@ -464,10 +455,7 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
       calleeToStr(nodes, i, result, c)
       result.add "("
       # arguments:
-      let first = i
-      while nodes[i].kind in ArgumentNodes:
-        if i > first:
-          result.add ", "
+      commaSeparated n.len - 2:
         argToStr()
 
       # jump target:
@@ -475,16 +463,14 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
       targetToStr()
   of UnaryOps:
     const Map = [mnkNeg: "-"]
-    let kind = nodes[i].kind
-    tree Map[kind]:
+    tree Map[n.kind]:
       valueToStr()
   of BinaryOps:
-    let kind = nodes[i].kind
     tree "":
       valueToStr() # first operand
       const Map = [mnkAdd: " + ", mnkSub: " - ",
                    mnkMul: " * ", mnkDiv: " div ", mnkModI: " mod "]
-      result.add Map[kind]
+      result.add Map[n.kind]
       valueToStr() # second operand
   of mnkCopy:
     tree "copy ":
@@ -497,7 +483,7 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
       valueToStr()
   else:
     # TODO: make this branch exhaustive
-    result.error(nodes[i])
+    result.error(n)
     inc i
 
 template exprToStr() =
@@ -613,19 +599,13 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: var int, result: var string,
             result.add ": goto "
             labelToStr(nodes, i, result)
             result.add "\n"
-          inc i # skip the end node
         else:
           # make no attempt at error correction
           result.error(b)
 
   of mnkAsm, mnkEmit:
     tree (if n.kind == mnkAsm: "asm " else: "emit "):
-      var first = true
-      while nodes[i].kind != mnkEnd:
-        if first:
-          first = false
-        else:
-          result.add ", "
+      commaSeparated n.len:
         valueToStr()
       result.add "\n"
   of mnkVoid:
@@ -675,15 +655,6 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: var int, result: var string,
   of AllNodeKinds - StmtNodes:
     result.error(n)
 
-  # skip the end node
-  i += ord(n.kind in SubTreeNodes)
-
-proc renderList(tree: MirTree, i: var int, indent: int, result: var string,
-                c: RenderCtx) =
-  var indent = indent # support mutation
-  while i < tree.len and tree[i].kind != mnkEnd:
-    stmtToStr(tree, i, indent, result, c)
-
 proc exprToStr*(tree: MirTree, n: NodePosition; env: ptr MirEnv = nil;
                 body: ptr MirBody = nil): string =
   ## Renders the expression at `n` into a human-readable text representation.
@@ -703,7 +674,9 @@ proc render*(tree: MirTree; env: ptr MirEnv = nil;
   ## Renders `tree` into a human-readable text representation. The output is
   ## meant for debugging and tracing and is not guaranteed to have a stable
   ## format.
+  let ctx = RenderCtx(env: env, body: body)
   var
     i = 0
     indent = 0
-  renderList(tree, i, indent, result, RenderCtx(env: env, body: body))
+  while i < tree.len:
+    stmtToStr(tree, i, indent, result, ctx)

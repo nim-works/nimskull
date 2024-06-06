@@ -96,8 +96,7 @@ func enter(t: MirBody, cr: var TreeCursor): lent MirNode {.inline.} =
   result = get(t, cr)
 
 func leave(t: MirBody, cr: var TreeCursor) =
-  assert t.code[cr.pos].kind == mnkEnd, "not at the end of sub-tree"
-  inc cr.pos
+  discard "obsolete; a no-op for backwards compatibility"
 
 template info(cr: TreeCursor): TLineInfo =
   cr.origin.info
@@ -370,7 +369,7 @@ proc targetToIr(tree: MirBody, cr: var TreeCursor): CgNode =
     result = actionToIr(tree, n, cr.info)
   of mnkTargetList:
     result = newTree(cnkTargetList, cr.info)
-    while tree[cr].kind != mnkEnd:
+    for _ in 0..<n.len:
       result.add actionToIr(tree, tree.get(cr), cr.info)
     leave(tree, cr)
   else:
@@ -575,7 +574,7 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
 
   template toList(k: CgNodeKind, body: untyped) =
     let res {.inject.} = newStmt(k, info)
-    while tree[cr].kind != mnkEnd:
+    for _ in 0..<n.len:
       body
     leave(tree, cr)
     stmts.add res
@@ -713,7 +712,7 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
 
   template treeOp(k: CgNodeKind, body: untyped): CgNode =
     let res {.inject.} = newExpr(k, info, cl.map(n.typ))
-    while tree[cr].kind != mnkEnd:
+    for _ in 0..<n.len:
       body
     leave(tree, cr)
     res
@@ -764,13 +763,12 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
     callToIr(tree, cl, n, cr)
   of UnaryOps:
     const Map = [mnkNeg: cnkNeg]
-    treeOp Map[n.kind]:
-      res.add valueToIr(tree, cl, cr)
+    newExpr(Map[n.kind], info, cl.map(n.typ), valueToIr(tree, cl, cr))
   of BinaryOps:
     const Map = [mnkAdd: cnkAdd, mnkSub: cnkSub,
                  mnkMul: cnkMul, mnkDiv: cnkDiv, mnkModI: cnkModI]
-    treeOp Map[n.kind]:
-      res.kids = @[valueToIr(tree, cl, cr), valueToIr(tree, cl, cr)]
+    newExpr(Map[n.kind], info, cl.map(n.typ)):
+      @[valueToIr(tree, cl, cr), valueToIr(tree, cl, cr)]
   of mnkCopy, mnkMove, mnkSink:
     # translation of assignments needs to handle all modifiers
     unreachable("loose assignment modifier")

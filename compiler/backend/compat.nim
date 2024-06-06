@@ -150,7 +150,6 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
       for j in 0..<res.len:
         res.kids[j] = body
 
-      inc i # consume the end node
       res
 
     inc i # advance to the first child node
@@ -160,11 +159,9 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
         inc i # skip the binding node
         let field = lookupInType(typ, t[i].field.int)
         inc i # advance to the arg node
-        let val = recurse()
-        inc i # skip the binding's end node
         CgNode(kind: cnkBinding, info: unknownLineInfo,
                kids: @[CgNode(kind: cnkField, field: field),
-                       val])
+                       recurse()])
     of mnkArrayConstr, mnkSeqConstr:
       tree cnkArrayConstr:
         recurse()
@@ -181,9 +178,7 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
       tree cnkRange:
         recurse()
     of mnkArg:
-      let x = recurse()
-      inc i # skip the end node
-      x
+      recurse()
     of mnkNilLit:
       CgNode(kind: cnkNilLit, info: unknownLineInfo, typ: typ)
     of mnkIntLit:

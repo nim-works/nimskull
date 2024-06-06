@@ -49,13 +49,11 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
   template arg(body: untyped) =
     inc n # skip the ``mnkArg`` node
     body
-    inc n # skip the end node
 
   template iterTree(name, body: untyped) =
     let len = next().len
     for name in 0..<len:
       body
-    inc n # skip the end node
 
   case dest.typ.kind
   of akInt:
@@ -108,7 +106,6 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
           a = adjusted(env.getInt(next()), first)
           b = adjusted(env.getInt(next()), first)
         bitSetInclRange(mbitSet(dest), a .. b)
-        inc n # skip the end node
       else:
         bitSetIncl(mbitSet(dest), adjusted(env.getInt(node), first))
   of akPNode:
@@ -144,7 +141,6 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
           field.writeDiscrField(owner, idx, toInt(val), b)
         else:
           arg recurse(field)
-        inc n # skip the end node
     else:
       unreachable(tree[n].kind)
   of akArray:
