@@ -336,8 +336,6 @@ The MIR uses a tree-based representation similar to the AST. For easier
 processing and faster access, the whole code for a procedure is stored in a
 single sequence of *nodes*, with the nodes forming a tree.
 
-Sub-trees are currently delimited via an explicit `End` node.
-
 Constant Expressions
 ====================
 

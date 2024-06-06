@@ -38,7 +38,7 @@ func `$`(n: MirNode): string =
   of mnkParam, mnkLocal, mnkTemp, mnkAlias:
     result.add " local: "
     result.addInt n.local.uint32
-  of mnkField, mnkPathNamed, mnkPathVariant:
+  of mnkField:
     result.add " field:"
     result.addInt n.field
   of mnkIntLit, mnkUIntLit, mnkFloatLit:
@@ -50,27 +50,17 @@ func `$`(n: MirNode): string =
   of mnkAstLit:
     result.add " ast: "
     result.addInt n.ast.uint32
-  of mnkPathPos:
-    result.add " position: "
-    result.add $n.position
-  of mnkCall, mnkCheckedCall:
-    result.add " effects: "
-    result.add $n.effects
   of mnkMagic:
     result.add " magic: "
     result.add $n.magic
   of mnkLabel, mnkLeave:
     result.add " label: "
     result.addInt n.label.uint32
-  of mnkEnd:
-    result.add " start: "
-    result.add $n.start
-  of mnkTag:
-    result.add " effect: "
-    result.add $n.effect
-  else:
+  of mnkNone, mnkNilLit, mnkType, mnkResume:
+    discard
+  of SubTreeNodes:
     result.add " len: "
-    result.add $n.len
+    result.addInt n.len
 
   if n.typ != VoidType:
     result.add " typ: "
