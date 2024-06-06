@@ -28,6 +28,8 @@ type
   Fragment* = object
     ## Identifies a fragment (usually a sub-tree) within the staging buffer.
     s: NodeSlice
+    num: int
+      ## number of child nodes in the fragment
     typ*: TypeId
 
   MirBuffer = object
@@ -37,6 +39,14 @@ type
       # XXX: should not be exported
     cursor: int
       ## points to the first node that hasn't had its ``info`` set up yet
+    num: int
+      ## number of child nodes in the current in-progress subtree
+
+  Context* = object
+    ## Low-overhead object capturing part of the builder state when
+    ## starting manual subtree construction.
+    pos: NodeIndex
+    num: int
 
   MirBuilder* = object
     ## Holds the state needed for building MIR trees and allocating
@@ -69,10 +79,6 @@ func typ*(val: Value): TypeId =
 
 func procNode*(id: ProcedureId): MirNode {.inline.} =
   MirNode(kind: mnkProc, prc: id)
-
-func endNode*(k: MirNodeKind): MirNode {.inline.} =
-  assert k in SubTreeNodes
-  MirNode(kind: mnkEnd, start: k)
 
 func typeLit*(t: TypeId): Value =
   Value(node: MirNode(kind: mnkType, typ: t))
@@ -189,12 +195,16 @@ template push*(bu: var MirBuilder, body: untyped): Fragment =
     start =
       if doSwap: bu.back.len
       else:      bu.front.len
+  var num = 0
 
   swap(bu, doSwap)
+  swap(num, bu.front.num) # change the child node counter to 0
   body
+  swap(num, bu.front.num) # restore the previous child counter
   swap(bu, doSwap)
 
   Fragment(s: NodeSlice(a: NodeIndex(start), b: NodeIndex(bu.staging.len)),
+           num: num,
            typ: if start < bu.staging.len:
                   bu.staging[start].typ
                 else:
@@ -216,9 +226,11 @@ func pop*(bu: var MirBuilder, f: Fragment) =
   if bu.swapped:
     assert f.s.b.int == bu.front.len
     popAux(bu.back, bu.front, f.s.a.int, bu.currentSourceId)
+    bu.back.num += f.num # register the nodes with current root
   else:
     assert f.s.b.int == bu.back.len
     popAux(bu.front, bu.back, f.s.a.int, bu.currentSourceId)
+    bu.front.num += f.num # register the nodes with current root
 
 template withFront*(bu: var MirBuilder, body: untyped) =
   ## Runs `body` with the final buffer as the front buffer.
@@ -279,6 +291,7 @@ func addLocal*(bu: var MirBuilder, data: sink Local): LocalId {.inline.} =
 
 func add*(bu: var MirBuilder, n: sink MirNode) {.inline.} =
   ## Emits `n` to the node buffers.
+  inc bu.front.num
   bu.front.add n
 
 func add*(bu: var MirBuilder, id: SourceId, n: sink MirNode) =
@@ -287,7 +300,7 @@ func add*(bu: var MirBuilder, id: SourceId, n: sink MirNode) =
   # the cursor is moved, so a flush has to be performed first
   bu.front.apply(bu.currentSourceId)
   n.info = id
-  bu.front.add n
+  bu.add(n)
   inc bu.front.cursor
 
 func emitFrom*(bu: var MirBuilder, tree: MirTree, n: NodePosition) =
@@ -295,13 +308,25 @@ func emitFrom*(bu: var MirBuilder, tree: MirTree, n: NodePosition) =
   bu.front.apply(bu.currentSourceId)
   bu.front.nodes.add toOpenArray(tree, int n, int tree.sibling(n)-1)
   bu.front.cursor = bu.front.len
+  inc bu.front.num # register the new node
+
+proc start*(bu: var MirBuilder, n: sink MirNode): Context {.inline.} =
+  ## Starts a subtree with a root node of `kind`. Must be paired with a call
+  ## to `stop <#stop,MirBuilder,NodePosition>`_.
+  bu.add(n)
+  result = Context(num: bu.front.num, pos: NodeIndex(bu.front.len - 1))
+  bu.front.num = 0
+
+proc finish*(bu: var MirBuilder, saved: Context) {.inline.} =
+  ## Finishe the manual subtree and restores the `saved` context previously
+  ## returned by ``start``.
+  bu.front.nodes[saved.pos].len = bu.front.num.uint32
+  bu.front.num = saved.num
 
 template subTree*(bu: var MirBuilder, n: MirNode, body: untyped) =
-  let start = bu.front.len
-  bu.add n
+  let saved = bu.start n
   body
-  # note: don't use `n.kind` here as that would evaluate `n` twice
-  bu.add endNode(bu.front.nodes[start].kind)
+  bu.finish(saved) # restore the old root
 
 template subTree*(bu: var MirBuilder, k: MirNodeKind, body: untyped) =
   bu.subTree MirNode(kind: k):

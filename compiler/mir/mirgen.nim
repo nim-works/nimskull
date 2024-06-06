@@ -1236,7 +1236,7 @@ proc genObjConstr(c: var TCtx, n: PNode, isConsume: bool) =
       if isRef: mnkRefConstr
       else:     mnkObjConstr
 
-  c.subTree MirNode(kind: kind, typ: c.typeToMir(n.typ), len: uint32(n.len-1)):
+  c.subTree MirNode(kind: kind, typ: c.typeToMir(n.typ)):
     for i in 1..<n.len:
       let it = n[i]
       let field = lookupFieldAgain(n.typ.skipTypes(abstractInst), it[0].sym)
@@ -1674,13 +1674,13 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
   assert isEmptyType(n.typ) == not dest.isSome
 
   let v = genUse(c, n[0])
-  c.add MirNode(kind: mnkCase, len: uint32(n.len))
+  let start = c.builder.start MirNode(kind: mnkCase)
   c.use v
 
   let firstLabel = c.builder.nextLabel
   # first step: emit the dispatcher
   for (_, branch) in branches(n):
-    c.add MirNode(kind: mnkBranch, len: uint32(branch.len))
+    let start = c.builder.start MirNode(kind: mnkBranch)
 
     case branch.kind
     of nkElse:
@@ -1698,9 +1698,9 @@ proc genCase(c: var TCtx, n: PNode, dest: Destination) =
       unreachable(branch.kind)
 
     c.add newLabelNode(c) # the jump target
-    c.add endNode(mnkBranch)
+    c.builder.finish(start)
 
-  c.add endNode(mnkCase)
+  c.builder.finish(start)
 
   # second step: emit the branch bodies
   c.withBlock bkBlock:
@@ -1714,8 +1714,7 @@ proc genExceptBranch(c: var TCtx, n: PNode, label: LabelId,
   c.builder.useSource(c.sp, n)
   let withFilter = n.len > 1
 
-  c.subTree MirNode(kind: mnkExcept,
-                    len: uint32(1 + (n.len - 1) + ord(withFilter))):
+  c.subTree mnkExcept:
     c.add labelNode(label) # name of the except
 
     # emit the exception types the branch covers:
@@ -1784,7 +1783,7 @@ proc genFinally(c: var TCtx, n: PNode) =
 
   # the continue statement is always necessary, even if the body has no
   # structured exit
-  c.subTree MirNode(kind: mnkContinue, len: uint32(1 + blk.exits.len)):
+  c.subTree mnkContinue:
     c.add labelNode(blk.id.unsafeGet)
     for it in blk.exits.items:
       c.add labelNode(it)
@@ -2391,7 +2390,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
         leaveBlock(c)
 
       # emit the handler for panicking on escaping exceptions:
-      c.subTree MirNode(kind: mnkExcept, len: 1):
+      c.subTree mnkExcept:
         c.add labelNode(b.id.unsafeGet)
       c.subTree mnkVoid:
         let p = c.graph.getCompilerProc("nimUnhandledException")
@@ -2450,7 +2449,7 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
       # no normalization/canonicalization takes place here, meaning that
       # ``Obj(a: 0, b: 1)`` and ``Obj(b: 1, a: 0)`` will result in two data
       # table entries, even though the values they represent are equivalent
-      bu.subTree MirNode(kind: mnkObjConstr, typ: typ, len: uint32(n.len-1)):
+      bu.subTree MirNode(kind: mnkObjConstr, typ: typ):
         for i in 1..<n.len:
           bu.subTree mnkBinding:
             bu.add MirNode(kind: mnkField, field: n[i][0].sym.position.int32)
@@ -2459,7 +2458,7 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
     of nkCurly:
       # similar to object construction, no normalization means that ``{1, 2}``
       # and ``{2, 1}`` results in two data table entries
-      bu.subTree MirNode(kind: mnkSetConstr, typ: typ, len: uint32(n.len)):
+      bu.subTree MirNode(kind: mnkSetConstr, typ: typ):
         for it in n.items:
           constToMirAux(bu, env, it)
     of nkBracket, nkTupleConstr, nkClosure:
@@ -2471,7 +2470,7 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
         of tyProc:                  mnkClosureConstr
         else:                       unreachable()
 
-      bu.subTree MirNode(kind: kind, typ: typ, len: uint32(n.len)):
+      bu.subTree MirNode(kind: kind, typ: typ):
         for it in n.items:
           bu.subTree mnkArg:
             constToMirAux(bu, env, it.skipColon)
@@ -2486,7 +2485,7 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
       else:
         unreachable()
     of nkRange:
-      bu.subTree MirNode(kind: mnkRange, len: 2):
+      bu.subTree MirNode(kind: mnkRange):
         constToMirAux(bu, env, n[0])
         constToMirAux(bu, env, n[1])
     of nkNilLit:
