@@ -282,9 +282,7 @@ template emitByVal(c: var TCtx, val: Value) =
 
 template emitByName(c: var TCtx, eff: EffectKind, body: untyped) =
   ## Emits a pass-by-name argument sub-tree with `val`.
-  c.subTree mnkName:
-    c.subTree MirNode(kind: mnkTag, effect: eff):
-      body
+  c.builder.emitByName(eff, body)
 
 template addLocal(c: var TCtx, local: Local): LocalId =
   c.builder.addLocal(local)
@@ -605,8 +603,7 @@ proc genFieldCheck(c: var TCtx, access: Value, call: PNode, inverted: bool,
       c.emitByVal c.genRd(call[1])
       # discriminator value operand:
       c.subTree mnkArg:
-        c.subTree MirNode(kind: mnkPathNamed, typ: c.typeToMir(discr.typ),
-                          field: discr.position.int32):
+        c.builder.pathNamed c.typeToMir(discr.typ), discr.position.int32:
           c.use access
       # inverted flag:
       c.emitByVal intLiteral(c.env, ord(inverted), BoolType)
@@ -767,7 +764,7 @@ proc genArgs(c: var TCtx, n: PNode) =
       # the procedure returns a view, but the first parameter is not something
       # that resembles a handle. We need to make sure that the first argument
       # (which the view could be created from), is passed by reference
-      c.subTree mnkName:
+      c.builder.emitByName ekNone:
         var e = exprToPmir(c, n[i], false, false)
         wantStable(e)
         genx(c, e, e.high)
@@ -964,7 +961,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
   of mOffsetOf:
     # an offsetOf call that has to be evaluated by the backend
     c.buildMagicCall mOffsetOf, rtyp:
-      c.subTree mnkName:
+      c.builder.emitByName ekNone:
         # prevent all checks and make sure that the original lvalue
         # expression reaches the code generators
         # XXX: this is a brittle and problematic hack. The type plus field
@@ -1498,8 +1495,7 @@ proc genVarTuple(c: var TCtx, n: PNode) =
         # moved out of. The temporary tuple is not destroyed, so no
         # destructive move is required
         c.buildTree mnkMove, typ:
-          c.subTree MirNode(kind: mnkPathPos, typ: typ,
-                            position: i.uint32):
+          c.builder.pathPos typ, i.uint32:
             c.use val
 
     # it's guaranteed that all elements are moved out of the tuple, no
@@ -1913,19 +1909,17 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
     c.buildOp mnkDerefView, typ:
       c.use toValue(c, e, i - 1)
   of pirTupleAccess:
-    c.subTree MirNode(kind: mnkPathPos, typ: typ, position: n.pos):
+    c.builder.pathPos typ, n.pos:
       recurse()
   of pirFieldAccess:
-    c.subTree MirNode(kind: mnkPathNamed, typ: typ,
-                      field: n.field.position.int32):
+    c.builder.pathNamed typ, n.field.position.int32:
       recurse()
   of pirArrayAccess, pirSeqAccess:
     c.buildOp mnkPathArray, typ:
       recurse()
       c.use toValue(c, e, n.index)
   of pirVariantAccess:
-    c.subTree MirNode(kind: mnkPathVariant, typ: typ,
-                      field: n.field.position.int32):
+    c.builder.pathVariant typ, n.field.position.int32:
       recurse()
   of pirLvalueConv:
     c.buildOp mnkPathConv, typ:
@@ -1949,8 +1943,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
       variant = toValue(c, e, i - 1)
       discr = genCheckedVariantAccess(c, variant, n.orig[0][1].sym.name,
                                       n.orig[n.nodeIndex])
-    c.subTree MirNode(kind: mnkPathVariant, typ: typ,
-                      field: discr.position.int32):
+    c.builder.pathVariant typ, discr.position.int32:
       c.use variant
   of pirCheckedObjConv:
     let
@@ -2163,8 +2156,8 @@ proc gen(c: var TCtx, n: PNode) =
       c.buildStmt mnkSwitch:
         # the 'switch' operations expects a variant access as the first
         # operand
-        c.subTree MirNode(kind: mnkPathVariant, typ: c.typeToMir(dest[^2].typ),
-                          field: dest[^1].field.position.int32):
+        c.builder.pathVariant c.typeToMir(dest[^2].typ),
+                              dest[^1].field.position.int32:
           genx(c, dest, dest.len - 2)
 
         genAsgnSource(c, n[1], {dfOwns}) # the source operand

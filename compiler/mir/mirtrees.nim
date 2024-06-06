@@ -252,6 +252,7 @@ type
     # field at the moment
 
   EffectKind* = enum
+    ekNone      ## no effect
     ekMutate    ## the value in the location is mutated
     ekReassign  ## a new value is assigned to the location
     ekKill      ## the value is removed from the location (without observing

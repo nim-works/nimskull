@@ -587,7 +587,7 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
   let
     a = bu.wrapMutAlias(typ):
       # bind the discriminator lvalue, not the variant lvalue
-      bu.subTree MirNode(kind: mnkPathNamed, typ: typ, field: body[target].field):
+      bu.pathNamed typ, body[target].field:
         bu.emitFrom(body, NodePosition body.operand(target))
     b = bu.wrapTemp typ:
       bu.emitFrom(body, body.child(stmt, 1))
@@ -637,9 +637,8 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
       # ``=destroy`` call:
       bu.buildVoidCall(env, branchDestructor):
         # pass the object access expression to the destroy call
-        bu.subTree mnkName:
-          bu.subTree MirNode(kind: mnkTag, effect: ekMutate):
-            bu.emitFrom(body, src)
+        bu.emitByName ekMutate:
+          bu.emitFrom(body, src)
 
   else:
     # the object doesn't need destruction, which means that neither does one

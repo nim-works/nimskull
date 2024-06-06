@@ -389,8 +389,11 @@ func emitByVal*(bu: var MirBuilder, y: Value) =
 
 template emitByName*(bu: var MirBuilder, e: EffectKind, body: untyped) =
   bu.subTree mnkName:
-    bu.subTree MirNode(kind: mnkTag, effect: e):
-      body
+    if e != ekNone:
+      bu.add MirNode(kind: mnkTag, effect: e)
+    body
+    if e != ekNone:
+      bu.add endNode(mnkTag)
 
 func emitByName*(bu: var MirBuilder, val: Value, e: EffectKind) =
   bu.emitByName e:
@@ -417,6 +420,21 @@ func join*(bu: var MirBuilder, label: LabelId) =
   ## Emits a ``join`` statement with `label`.
   bu.subTree mnkJoin:
     bu.add MirNode(kind: mnkLabel, label: label)
+
+template pathNamed*(bu: var MirBuilder, t: TypeId, f: int32, body: untyped) =
+  ## Emits a ``mnkPathNamed`` expression.
+  bu.subTree MirNode(kind: mnkPathNamed, typ: t, field: f):
+    body
+
+template pathVariant*(bu: var MirBuilder, t: TypeId, f: int32, body: untyped) =
+  ## Emits a ``mnkPathVariant`` expression.
+  bu.subTree MirNode(kind: mnkPathVariant, typ: t, field: f):
+    body
+
+template pathPos*(bu: var MirBuilder, t: TypeId, p: uint32, body: untyped) =
+  ## Emits a ``mnkPathPos`` expression.
+  bu.subTree MirNode(kind: mnkPathPos, typ: t, position: p):
+    body
 
 template buildBlock*(bu: var MirBuilder, id: LabelId, body: untyped) =
   ## Emits `body` followed by a join statement for the given `id`.
