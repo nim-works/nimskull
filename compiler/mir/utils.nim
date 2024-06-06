@@ -278,13 +278,13 @@ proc valueToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
     tree "":
       valueToStr()
       result.add "."
-      result.addInt n.position
+      result.addInt next(nodes, i).imm
   of mnkPathNamed, mnkPathVariant:
     tree "":
       let typ = nodes[i].typ # type of the object operand
       valueToStr()
       result.add "."
-      fieldToStr(n.field, typ, result, c)
+      fieldToStr(next(nodes, i).field, typ, result, c)
   of mnkPathConv:
     tree "":
       valueToStr()
@@ -320,11 +320,11 @@ proc argToStr(tree: MirTree, i: var int, result: var string, c: RenderCtx) =
   of AllNodeKinds - ArgumentNodes:
     result.error(n)
 
-  if tree[i].kind == mnkTag:
+   # ignore the tag for 'name' trees
+  if n.kind == mnkName:
     discard next(tree, i)
-    valueToStr()
-  else:
-    valueToStr()
+
+  valueToStr()
 
 template argToStr() =
   argToStr(treeParam(), i, result, c)
@@ -436,17 +436,19 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
       result.add ")"
   of mnkCall:
     tree "":
+      inc i # skip the immediate value
       calleeToStr(nodes, i, result, c)
       result.add "("
-      commaSeparated n.len - 1:
+      commaSeparated n.len - 2:
         argToStr()
       result.add ")"
   of mnkCheckedCall:
     tree "":
+      inc i # skip the immediate value
       calleeToStr(nodes, i, result, c)
       result.add "("
       # arguments:
-      commaSeparated n.len - 2:
+      commaSeparated n.len - 3:
         argToStr()
 
       # jump target:

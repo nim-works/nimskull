@@ -292,21 +292,24 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
   of mnkPathNamed:
     let obj = recurse()
     result = newExpr(cnkFieldAccess, info, typ,
-                     [obj, newFieldNode(lookupInType(obj.typ, n.field.int))])
+                     [obj, newFieldNode(lookupInType(obj.typ,
+                                                     tree.get(cr).field))])
   of mnkPathVariant:
     if preferField:
       let
         obj = recurse()
-        field = lookupInType(obj.typ, n.field.int)
+        field = lookupInType(obj.typ, tree.get(cr).field)
       result = newExpr(cnkFieldAccess, info, field.typ,
                       [obj, newFieldNode(field)])
     else:
       # variant access itself has no ``CgNode`` counterpart at the moment
       result = recurse()
+      tree.skip(cr) # ignore the field
   of mnkPathPos:
     result = newExpr(cnkTupleAccess, info, typ,
                      [recurse(),
-                      CgNode(kind: cnkIntLit, intVal: n.position.BiggestInt)])
+                      CgNode(kind: cnkIntLit,
+                             intVal: tree.get(cr).imm.BiggestInt)])
   of mnkPathArray:
     # special case in order to support string literal access
     # XXX: this needs to be removed once there is a dedicated run-time-
@@ -382,13 +385,12 @@ proc argToIr(tree: MirBody, cl: var TranslateCl,
   ## operator (which indicates that the parameter is a ``var`` parameter).
   var n {.cursor.} = tree.get(cr)
   assert n.kind in ArgumentNodes, "argument node expected: " & $n.kind
-  # the inner node may be a tag node
   n = tree.get(cr)
   case n.kind
-  of mnkTag:
-    # it is one, the expression must be an lvalue
-    result = (true, lvalueToIr(tree, cl, cr))
-    leave(tree, cr)
+  of mnkImmediate:
+    # the argument must be a 'name' one, ignore the tag and expect
+    # a lvalue expression
+    result = (n.imm.EffectKind != ekNone, lvalueToIr(tree, cl, cr))
   of LiteralDataNodes, mnkType, mnkProcVal, mnkNone:
     # not a tag but an atom
     result = (false, atomToIr(n, cl, cr.info))
@@ -416,6 +418,7 @@ proc callToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
   let info = cr.info
   result = newExpr((if n.kind == mnkCall: cnkCall else: cnkCheckedCall),
                    info, cl.map(n.typ))
+  tree.skip(cr) # skip the immediate value
   result.add calleeToIr(tree, cl, cr)
 
   # the code generators currently require some magics to not have any
@@ -424,7 +427,7 @@ proc callToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
                result[0].magic in FakeVarParams
 
   # translate the arguments:
-  while tree[cr].kind in ArgumentNodes:
+  for _ in 2..<(n.len.int - ord(n.kind == mnkCheckedCall)):
     var (mutable, arg) = argToIr(tree, cl, cr)
     if noAddr:
       if arg.typ.kind == tyVar:

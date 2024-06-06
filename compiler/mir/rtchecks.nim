@@ -442,7 +442,7 @@ proc emitCheckedBinaryIntOp(tree; call; graph; env; bu): Value =
   ##     raiseOverflow()
   ##   result = _1
   let
-    magic = tree[call + 1].magic
+    magic = tree[tree.callee(call)].magic
     t = env[tree[call].typ].skipTypes(abstractRange)
     x = NodePosition tree.argument(call, 0)
     y = NodePosition tree.argument(call, 1)
@@ -541,7 +541,7 @@ proc emitCheckedFloatOp(tree; call; graph; env; bu): Value =
   let typ = tree[call].typ
   const Map = [mAddF64: mnkAdd, mSubF64: mnkSub, mMulF64: mnkMul, mDivF64: mnkDiv]
   result = bu.wrapTemp typ:
-    bu.subTree Map[tree[call + 1].magic], typ:
+    bu.subTree Map[tree[tree.callee(call)].magic], typ:
       bu.emitFrom(tree, NodePosition tree.argument(call, 0))
       bu.emitFrom(tree, NodePosition tree.argument(call, 1))
 

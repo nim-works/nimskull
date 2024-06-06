@@ -253,7 +253,7 @@ func emitForArg(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
   of mnkConsume:
     emitLvalueOp(env, opConsume, tree, at, tree.operand(source))
   of mnkName:
-    emitForValue(env, tree, at, tree.skip(tree.operand(it), mnkTag))
+    emitForValue(env, tree, at, tree.operand(source))
   else:
     unreachable(tree[source].kind)
 
@@ -262,7 +262,7 @@ func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
     case tree[it].kind
     of mnkArg, mnkConsume, mnkName:
       emitForArg(env, tree, at, it)
-    of mnkMagic, mnkProc, mnkLabel, mnkTargetList:
+    of mnkMagic, mnkProc, mnkLabel, mnkTargetList, mnkImmediate:
       discard
     else:
       emitLvalueOp(env, opUse, tree, at, OpValue it)
@@ -343,21 +343,20 @@ func emitForExpr(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
   case tree[source].kind
   of mnkCall, mnkCheckedCall:
     # lvalue effects:
-    for k, it in arguments(tree, source):
-      if tree[it].kind == mnkTag:
-        let opr = tree.operand(it)
-        case tree[it].effect
-        of ekMutate:     op opMutate, opr
-        of ekReassign:   op opDef, opr
-        of ekKill:       op opKill, opr
-        of ekInvalidate: op opInvalidate, opr
-      elif k == mnkName:
-        # the lvalue may be read from within the procedure
-        op opUse, it
+    for k, effect, it in arguments(tree, source):
+      case effect
+      of ekMutate:     op opMutate, it
+      of ekReassign:   op opDef, it
+      of ekKill:       op opKill, it
+      of ekInvalidate: op opInvalidate, it
+      of ekNone:
+        if k == mnkName:
+          # the lvalue may be read from within the procedure
+          op opUse, it
 
     # the potential mutation happens within the procedure, so the data-flow
     # operation has to come before the fork
-    if geMutateGlobal in tree[source].effects:
+    if tree.mutatesGlobal(source):
       env.instrs.add Instr(op: opMutateGlobal, node: at)
     if tree[source].kind == mnkCheckedCall:
       # the jump target description is in the last slot

@@ -574,9 +574,9 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
   assert body[stmt].kind == mnkSwitch
 
   let
-    target = body.operand(stmt, 0)
+    target = body.child(stmt, 0)
     objType = body[target].typ
-    field = lookupInType(env[objType], body[target].field.int)
+    field = lookupInType(env[objType], body.field(target).int)
     typ = env.types.add(field.typ)
 
   assert body[target].kind == mnkPathVariant
@@ -587,7 +587,7 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
   let
     a = bu.wrapMutAlias(typ):
       # bind the discriminator lvalue, not the variant lvalue
-      bu.pathNamed typ, body[target].field:
+      bu.pathNamed typ, body.field(target):
         bu.emitFrom(body, NodePosition body.operand(target))
     b = bu.wrapTemp typ:
       bu.emitFrom(body, body.child(stmt, 1))
@@ -628,7 +628,7 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
       bu.buildMagicCall mNot, BoolType:
          bu.emitByVal val
 
-    var src = body.child(NodePosition target, 0)
+    var src = body.child(target, 0)
     # skip all ``mnkPathVariant`` nodes:
     while body[src].kind == mnkPathVariant:
       src = body.child(src, 0)

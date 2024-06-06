@@ -146,11 +146,11 @@ proc computePath*(tree: MirTree, at: NodePosition): Path =
   while true:
     case tree[pos].kind
     of mnkPathNamed, mnkPathVariant:
-      add pikNamed, pos
+      add pikNamed, tree.child(pos, 1)
     of mnkPathConv:
       discard "ignore"
     of mnkPathPos:
-      add pikPos, pos
+      add pikPos, tree.child(pos, 1)
     of mnkPathArray:
       add pikIndex, tree.child(pos, 1)
     of mnkAlias:
@@ -200,7 +200,7 @@ proc compare*(body: MirTree, a, b: Path): CmpLocsResult =
         break
 
     of pikPos:
-      if na.position != nb.position:
+      if na.imm != nb.imm:
         overlaps = no
         break
 

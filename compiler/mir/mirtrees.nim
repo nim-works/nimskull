@@ -607,3 +607,27 @@ iterator lpairs*[T](x: seq[T]): (int, lent T) =
   while i < L:
     yield (i, x[i])
     inc i
+
+# -------------------------------
+# queries for specific node kinds
+
+func callee*(tree: MirTree, n: NodePosition): NodePosition {.inline.} =
+  ## Returns the callee node for the call subtree `n`.
+  assert tree[n].kind in CallKinds
+  n + 2
+
+proc mutatesGlobal*(tree: MirTree, n: NodePosition): bool {.inline.} =
+  ## Whether evaluating the call expression at `n` potentially mutates
+  ## global state.
+  assert tree[n].kind in CallKinds
+  tree[n, 0].imm.bool
+
+func effect*(tree: MirTree, n: NodePosition): EffectKind {.inline.} =
+  ## Returns the effect for the ``mnkName`` node at `n`.
+  assert tree[n].kind == mnkName
+  tree[n, 0].imm.EffectKind
+
+func field*(tree: MirTree, n: NodePosition): int32 {.inline.} =
+  ## Returns the field position specified for the field access at `n`.
+  assert tree[n].kind in {mnkPathNamed, mnkPathVariant}
+  tree[n, 1].field
