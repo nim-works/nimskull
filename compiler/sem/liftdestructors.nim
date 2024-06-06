@@ -976,12 +976,11 @@ proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInf
   if isEmptyContainer(skipped) or skipped.kind == tyStatic: return
 
   var canon: PType
-  if skipped.kind == tyObject:
+  if skipped.kind in {tyObject, tyDistinct}:
     # for nominal types, the type itself is already the canonical one (each one
     # is unique)
     # XXX: ^^ at present, this is only true for object types. Phantom
-    #      ``tyDistinct`` and ``tyEnum`` types still don't have unique
-    #      instances
+    #      ``tyEnum`` types still don't have unique instances
     canon = skipped
   else:
     # structural types use canonicalization
