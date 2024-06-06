@@ -56,6 +56,9 @@ func `$`(n: MirNode): string =
   of mnkLabel, mnkLeave:
     result.add " label: "
     result.addInt n.label.uint32
+  of mnkImmediate:
+    result.add " imm: "
+    result.addInt n.imm
   of mnkNone, mnkNilLit, mnkType, mnkResume:
     discard
   of SubTreeNodes:

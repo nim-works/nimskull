@@ -65,6 +65,7 @@ template emitCall(bu; tree; call; prc: ProcedureId, arguments: untyped) =
   bu.subTree mnkVoid:
     # if the input call is a checked call, so is the new call
     bu.subTree tree[call].kind, VoidType:
+      bu.add MirNode(kind: mnkImmediate, imm: 0)
       bu.add procNode(prc) # callee
       arguments # custom arguments
 

@@ -82,6 +82,9 @@ type
     # store the type of the destination within each def, assignment, etc. and
     # then remove the type field from ``MirNode``
 
+    mnkImmediate ## special node only allowed in certain contexts. Used to
+                 ## store extra, context-dependent information in the tree
+
     mnkMagic  ## only allowed in a callee position. Refers to a magic
               ## procedure
 
@@ -175,10 +178,6 @@ type
     mnkRaise  ## if the operand is an ``mnkNone`` node, reraises the
               ## currently active exception. Otherwise, consumes the operand
               ## and sets it as the active exception
-
-    mnkTag    ## must only appear as the immediate subnode to a ``mnkName``
-              ## tree. Describes what kind of mutation is applied to the
-              ## lvalue within the called procedure
 
     mnkSetConstr  ## constructor for set values
     mnkRange      ## range constructor. May only appear in set constructions
@@ -279,6 +278,8 @@ type
       ast*: AstId
     of mnkLabel, mnkLeave:
       label*: LabelId
+    of mnkImmediate:
+      imm*: uint32 ## meaning depends on the context
     of mnkMagic:
       magic*: TMagic
     of mnkNone, mnkNilLit, mnkType, mnkResume:
@@ -316,7 +317,7 @@ const
 
   SingleOperandNodes* = {mnkPathNamed, mnkPathPos, mnkPathVariant, mnkPathConv,
                          mnkAddr, mnkDeref, mnkView, mnkDerefView, mnkStdConv,
-                         mnkConv, mnkCast, mnkRaise, mnkTag, mnkArg,
+                         mnkConv, mnkCast, mnkRaise, mnkArg,
                          mnkName, mnkConsume, mnkVoid, mnkCopy, mnkMove,
                          mnkSink, mnkDestroy, mnkMutView, mnkToMutSlice}
     ## Nodes that start sub-trees but that always have a single sub node.
@@ -507,34 +508,28 @@ func numArgs*(tree: MirTree, n: NodePosition): int =
   ## Counts and returns the number of *call arguments* in the call tree at
   ## `n`.
   assert tree[n].kind in CallKinds
-  var n = tree.sibling(n + 1) # skip the callee
-  while tree[n].kind in ArgumentNodes:
-    inc result
-    n = tree.sibling(n)
+  result = tree[n].len.int - 2 - ord(tree[n].kind == mnkCheckedCall)
 
 func operand*(tree: MirTree, op: OpValue|NodePosition): OpValue =
-  ## Returns the index (``OpValue``) of the operand for the single-input node
-  ## at `op`.
-  assert tree[op].kind in SingleOperandNodes, $tree[op].kind
+  ## Returns the index (``OpValue``) of the operand for the single-operand
+  ## operation at `op`.
   let pos =
     when op is NodePosition: op
     else:                    NodePosition(op)
-  result = OpValue(pos + 1)
+  case tree[op].kind
+  of SingleOperandNodes - {mnkName}:
+    OpValue(pos + 1)
+  of mnkName:
+    OpValue(pos + 2)
+  else:
+    unreachable()
 
 func argument*(tree: MirTree, n: NodePosition, i: Natural): OpValue =
   ## Returns the `i`-th argument in the call-like tree at `n`, skipping
   ## tag nodes. It is expected that the call has at least `i` + 1
   ## arguments.
   assert tree[n].kind in CallKinds
-  var n = tree.sibling(n + 1)
-  for _ in 0..<i:
-    n = tree.sibling(n)
-  n = NodePosition tree.operand(n)
-  # skip the tag node if one exists
-  if tree[n].kind == mnkTag:
-    tree.operand(n)
-  else:
-    OpValue n
+  result = tree.operand(tree.child(n, 2 + i))
 
 func skip*(tree: MirTree, n: OpValue, kind: MirNodeKind): OpValue =
   ## If `n` is of `kind`, return its operand node, `n` otherwise.
@@ -556,14 +551,20 @@ iterator subNodes*(tree: MirTree, n: NodePosition): NodePosition =
     yield n
     n = tree.sibling(n)
 
-iterator arguments*(tree: MirTree, n: NodePosition): (ArgKinds, OpValue) =
+iterator arguments*(tree: MirTree, n: NodePosition): (ArgKinds, EffectKind, OpValue) =
   ## Returns the argument kinds together with the operand node (or tag tree).
   assert tree[n].kind in CallKinds
-  var i = tree.sibling(n + 1) # skip the callee
-  # XXX: iterating until no more argument nodes are found is a temporary
-  #      workaround until call nodes store their number of sub-nodes
-  while tree[i].kind in ArgumentNodes:
-    yield (ArgKinds(tree[i].kind), tree.operand(i))
+  # the jump target of checked calls is not an argument
+  let len = tree[n].len.int - ord(tree[n].kind == mnkCheckedCall)
+  var i = tree.child(n, 2) # skip the callee and effect node
+  for _ in 2..<len:
+    let node = tree[i]
+    let eff =
+      case node.kind
+      of mnkName: tree[i + 1].imm.EffectKind
+      else:       ekNone
+    # for efficiency, only use a single yield
+    yield (ArgKinds(node.kind), eff, tree.operand(i))
     i = tree.sibling(i)
 
 func findDef*(tree: MirTree, n: NodePosition): NodePosition =

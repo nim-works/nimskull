@@ -425,6 +425,7 @@ template buildMagicCall(c: var TCtx, m: TMagic, t: TypeId, body: untyped) =
 template buildCheckedMagicCall(c: var TCtx, m: TMagic, t: TypeId,
                                body: untyped) =
   c.subTree MirNode(kind: mnkCheckedCall, typ: t):
+    c.add MirNode(kind: mnkImmediate, imm: 0) # no side-effects
     c.add MirNode(kind: mnkMagic, magic: m)
     body
     raiseExit(c)
@@ -443,6 +444,7 @@ template buildDefectMagicCall(c: var TCtx, m: TMagic, t: TypeId,
       mnkCheckedCall
 
   c.subTree MirNode(kind: kind, typ: t):
+    c.add MirNode(kind: mnkImmediate, imm: 0) # no side-effects
     c.add MirNode(kind: mnkMagic, magic: m)
     body
     if kind == mnkCheckedCall:
@@ -781,12 +783,9 @@ proc genCall(c: var TCtx, n: PNode) =
     else:
       mnkCall
 
-  var effects: set[GeneralEffect]
-  if tfNoSideEffect notin fntyp.flags:
-    effects.incl geMutateGlobal
-
-  c.subTree MirNode(kind: kind, typ: c.typeToMir(fntyp[0]),
-                    effects: effects):
+  let hasSideEffect = tfNoSideEffect notin fntyp.flags
+  c.buildTree kind, c.typeToMir(fntyp[0]):
+    c.add MirNode(kind: mnkImmediate, imm: uint32 ord(hasSideEffect))
     genCallee(c, n[0])
     genArgs(c, n)
     if kind == mnkCheckedCall:
@@ -1065,6 +1064,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     if optOverflowCheck in n[0].sym.options and
        optPanics notin c.graph.config.globalOptions:
       c.buildTree mnkCheckedCall, rtyp:
+        c.add MirNode(kind: mnkImmediate, imm: 0)
         c.genCallee(n[0])
         arg n[1]
         raiseExit(c)
@@ -1171,8 +1171,8 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
       # rewrite ``getAst(macro(a, b, c))`` -> ``macro(a, b, c)``
       # treat a macro call as potentially raising and as modifying global
       # data. While not wrong, it is pessimistic
-      c.subTree MirNode(kind: mnkCheckedCall, typ: rtyp,
-                        effects: {geMutateGlobal}):
+      c.buildTree mnkCheckedCall, rtyp:
+        c.add MirNode(kind: mnkImmediate, imm: 1)
         # we can use the internal signature
         genMacroCallArgs(c, n, skMacro, callee.sym.internal)
         raiseExit(c)
@@ -1271,8 +1271,7 @@ proc genRaise(c: var TCtx, n: PNode) =
       typ = skipTypes(n[0].typ, abstractPtrs)
       cp = c.graph.getCompilerProc("prepareException")
     c.buildStmt mnkVoid:
-      c.buildTree mnkCall, VoidType:
-        c.add procNode(c.env.procedures.add(cp))
+      c.builder.buildCall c.env.procedures.add(cp), VoidType:
         c.subTree mnkArg:
           # lvalue conversion to the base ``Exception`` type:
           c.buildTree mnkPathConv, c.typeToMir(cp.typ[1]):

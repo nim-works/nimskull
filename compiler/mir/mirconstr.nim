@@ -397,6 +397,7 @@ template wrapMutAlias*(bu: var MirBuilder, t: TypeId, body: untyped): Value =
 template buildMagicCall*(bu: var MirBuilder, m: TMagic, t: TypeId,
                          body: untyped) =
   bu.subTree MirNode(kind: mnkCall, typ: t):
+    bu.add MirNode(kind: mnkImmediate, imm: 0) # no global effects
     bu.add MirNode(kind: mnkMagic, magic: m)
     body
 
@@ -405,6 +406,7 @@ template buildCall*(bu: var MirBuilder, prc: ProcedureId, t: TypeId,
   ## Build and emits a call tree to the active buffer. `pt` is the type of the
   ## procedure.
   bu.subTree MirNode(kind: mnkCall, typ: t):
+    bu.add MirNode(kind: mnkImmediate, imm: 0) # no global effects
     bu.add procNode(prc)
     body
 
@@ -414,11 +416,8 @@ func emitByVal*(bu: var MirBuilder, y: Value) =
 
 template emitByName*(bu: var MirBuilder, e: EffectKind, body: untyped) =
   bu.subTree mnkName:
-    if e != ekNone:
-      bu.add MirNode(kind: mnkTag, effect: e)
+    bu.add MirNode(kind: mnkImmediate, imm: uint32 ord(e))
     body
-    if e != ekNone:
-      bu.add endNode(mnkTag)
 
 func emitByName*(bu: var MirBuilder, val: Value, e: EffectKind) =
   bu.emitByName e:
@@ -448,18 +447,21 @@ func join*(bu: var MirBuilder, label: LabelId) =
 
 template pathNamed*(bu: var MirBuilder, t: TypeId, f: int32, body: untyped) =
   ## Emits a ``mnkPathNamed`` expression.
-  bu.subTree MirNode(kind: mnkPathNamed, typ: t, field: f):
+  bu.subTree MirNode(kind: mnkPathNamed, typ: t):
     body
+    bu.add MirNode(kind: mnkField, field: f)
 
 template pathVariant*(bu: var MirBuilder, t: TypeId, f: int32, body: untyped) =
   ## Emits a ``mnkPathVariant`` expression.
-  bu.subTree MirNode(kind: mnkPathVariant, typ: t, field: f):
+  bu.subTree MirNode(kind: mnkPathVariant, typ: t):
     body
+    bu.add MirNode(kind: mnkField, field: f)
 
 template pathPos*(bu: var MirBuilder, t: TypeId, p: uint32, body: untyped) =
   ## Emits a ``mnkPathPos`` expression.
-  bu.subTree MirNode(kind: mnkPathPos, typ: t, position: p):
+  bu.subTree MirNode(kind: mnkPathPos, typ: t):
     body
+    bu.add MirNode(kind: mnkImmediate, imm: p)
 
 template buildBlock*(bu: var MirBuilder, id: LabelId, body: untyped) =
   ## Emits `body` followed by a join statement for the given `id`.
