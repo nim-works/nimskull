@@ -1,9 +1,8 @@
 discard """
-  target: "!vm"
-  outputsub: '''Error: expression expected, but found '[EOF]' 45'''
+  description: "Ensure that `parseExpr` raises a catchable exception on error"
+  action: compile
+  targets: native
 """
-
-# disabled for VM until we support `getCurrentExceptionMsg` (knownIssue)
 
 # feature request #1473
 import std/macros
@@ -14,10 +13,9 @@ macro test(text: string): untyped =
   except ValueError:
     result = newLit getCurrentExceptionMsg()
 
-const
-  valid = 45
-  a = test("foo&&")
-  b = test("valid")
-  c = test("\"") # bug #2504
+const valid = 45
 
-echo a, " ", b
+static:
+  doAssert test("foo&&") == "Error: expression expected, but found '[EOF]'"
+  doAssert test("valid") == 45
+  doAssert test("\"")    == "Error: closing \" expected" # bug #2504
