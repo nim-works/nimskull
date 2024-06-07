@@ -583,6 +583,7 @@ when defineSsl:
 
   proc newContext*(protVersion = protSSLv23, verifyMode = CVerifyPeer,
                    certFile = "", keyFile = "", cipherList = CiphersIntermediate,
+                   ciphersuiteList = CiphersuitesIntermediate,
                    caDir = "", caFile = ""): SslContext =
     ## Creates an SSL context.
     ##
@@ -628,7 +629,7 @@ when defineSsl:
 
     if newCTX.SSL_CTX_set_cipher_list(cipherList) != 1:
       raiseSSLError()
-    if newCTX.SSL_CTX_set_ciphersuites(cipherList) != 1:
+    if newCTX.SSL_CTX_set_ciphersuites(ciphersuiteList) != 1:
       raiseSSLError()
 
     when defined(nimDisableCertificateValidation):
@@ -772,7 +773,11 @@ when defineSsl:
     ## When name starts with a dot it will be matched by a certificate valid for any subdomain
     when not defined(nimDisableCertificateValidation) and not defined(windows):
       assert socket.isSsl
-      let certificate = socket.sslHandle.SSL_get0_peer_certificate()
+      when not defined(nimOpenssl111):
+        let certificate = socket.sslHandle.SSL_get0_peer_certificate()
+      else:
+        let certificate = socket.sslHandle.SSL_get_peer_certificate()
+        defer: X509_free(certificate)
       if certificate.isNil:
         raiseSSLError("No SSL certificate found.")
 

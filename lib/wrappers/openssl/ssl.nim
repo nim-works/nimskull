@@ -219,9 +219,13 @@ proc SSL_get_psk_identity*(ssl: ptr SSL): cstring {.importc, cdecl.}
 proc SSL_get_psk_identity_hint*(ssl: ptr SSL): cstring {.importc, cdecl.}
 proc SSL_get_verify_result*(ssl: ptr SSL): clong {.importc, cdecl.}
 
-proc SSL_get0_peer_certificate*(ssl: ptr SSL): ptr X509 {.importc, cdecl.}
 proc SSL_get0_verified_chain*(ssl: ptr SSL): ptr STACK_OF[X509] {.importc, cdecl.}
-proc SSL_get1_peer_certificate*(ssl: ptr SSL): ptr X509 {.importc, cdecl.}
+
+when not defined(nimOpenssl111):
+  proc SSL_get0_peer_certificate*(ssl: ptr SSL): ptr X509 {.importc, cdecl.}
+  proc SSL_get1_peer_certificate*(ssl: ptr SSL): ptr X509 {.importc, cdecl.}
+else:
+  proc SSL_get_peer_certificate*(ssl: ptr SSL): ptr X509 {.importc, cdecl.}
 
 proc SSL_accept*(ssl: ptr SSL): cint {.importc, cdecl.}
 proc SSL_connect*(ssl: ptr SSL): cint {.importc, cdecl.}
