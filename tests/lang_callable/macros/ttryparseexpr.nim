@@ -19,3 +19,9 @@ static:
   doAssert test("foo&&") == "Error: expression expected, but found '[EOF]'"
   doAssert test("valid") == 45
   doAssert test("\"")    == "Error: closing \" expected" # bug #2504
+
+  const error = "Error: expected expression, but got multiple statements"
+  # test with empty string
+  doAssert test("") == error
+  # test with multiple declarative statements
+  doAssert test("type A = int\ntype A = int") == error
