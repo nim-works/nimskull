@@ -19,7 +19,7 @@ when not defined(windows):
   import
     httpclient,
     net,
-    openssl,
+    openssl/[ssl, err],
     os,
     strutils,
     threadpool,
@@ -37,6 +37,9 @@ when not defined(windows):
     # FIXME
     echo "    [" & $epochTime() & "] " & msg
     discard
+
+  proc sslErrCallback(str: cstring, len: csize_t, u: pointer): cint {.cdecl.} =
+    cint: writeBuffer(stderr, str, len)
 
   proc runServer(port: Port): bool {.thread.} =
     ## Run a trivial HTTPS server in a {.thread.}
@@ -58,12 +61,12 @@ when not defined(windows):
     socket.acceptAddr(client, address)
     log "server: incoming connection"
 
-    var ssl: SslPtr = SSL_new(ctx.context)
-    discard SSL_set_fd(ssl, client.getFd())
+    var ssl: ptr SSL = SSL_new(ctx.context)
+    discard SSL_set_fd(ssl, client.getFd().cint)
     log "server: accepting connection"
     ErrClearError()
     if SSL_accept(ssl) <= 0:
-      ERR_print_errors_fp(stderr)
+      ERR_print_errors_cb(sslErrCallback, nil)
     else:
       const reply = "HTTP/1.0 200 OK\r\nServer: test\r\nContent-type: text/html\r\nContent-Length: 0\r\n\r\n"
       log "server: sending reply"
