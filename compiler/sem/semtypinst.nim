@@ -543,7 +543,7 @@ proc instantiate(cl: var TReplTypeVars, t: PType): PType =
     result = instCopyType(cl, t)
     result[0] = replaceTypeVarsT(cl, t[0])
 
-    # always create a new symbol, even if
+    # the type also needs a proper symbol
     result.sym = copySym(t.sym, nextSymId cl.c.idgen)
     result.sym.flags.incl sfFromGeneric
     result.sym.owner = t.sym
