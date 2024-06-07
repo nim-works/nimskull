@@ -67,7 +67,7 @@ import
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_sem import SemReport
+from compiler/ast/reports_vm import VMReport
 from compiler/ast/report_enums import ReportKind
 
 # xxx: `Report` is faaaar too wide a type for what the VM needs, even with all
@@ -2560,7 +2560,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
             assert ast.kind == nkStmtList
             Res.ok:  ast[0]
           else:
-            Res.err: SemReport(kind: rvmOpcParseExpectedExpression).wrap()
+            Res.err: VMReport(kind: rvmOpcParseExpectedExpression).wrap()
 
       if parsed.isOk:
         # success! Write the parsed AST to the result register and return an
