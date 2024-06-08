@@ -1606,3 +1606,8 @@ func inDebug*(conf: ConfigRef): bool {.
   noSideEffect.} =
   ## Check whether 'nim compiler debug' is defined right now.
   return conf.isDefined("nimCompilerDebug")
+
+template isDebugEnabled*(c: ConfigRef, ir: IrName, name: string): bool =
+  ## Whether printing the `ir` IR is enabled specifically for the given `name`.
+  # a template is used so that `$ir` can be folded when `ir` is constant
+  c.toDebugProc.getOrDefault(name) == $ir
