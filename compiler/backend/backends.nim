@@ -399,6 +399,7 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
                  owner: PSym, body: sink MirBody): Body =
   ## Translates the MIR code provided by `code` into ``CgNode`` IR and,
   ## if enabled, echoes the result.
+  echoOutput(graph.config, owner, body, env)
   result = cgirgen.generateIR(graph, idgen, env, owner, body)
   echoOutput(graph.config, owner, result)
 

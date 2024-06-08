@@ -62,6 +62,13 @@ proc echoMir*(config: ConfigRef, owner: PSym, body: MirBody, env: MirEnv) =
     writeBody(config, "-- MIR: " & owner.name.s):
       config.writeln(render(body.code, addr env, addr body))
 
+proc echoOutput*(config: ConfigRef, owner: PSym, body: MirBody, env: MirEnv) =
+  ## If enabled, renders the output IR `body` and outputs the result to
+  ## ``config.writeLine``.
+  if config.isEnabled(irMirOut, owner.name.s):
+    writeBody(config, "-- MIR: " & owner.name.s):
+      config.writeln(render(body.code, addr env, addr body))
+
 proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
   ## If requested via the define, renders the output IR `body` and writes the
   ## result out through ``config.writeLine``.

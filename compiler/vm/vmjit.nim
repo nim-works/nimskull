@@ -265,6 +265,7 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   for _ in discover(jit.gen.env, cp):
     discard "nothing to register"
 
+  echoOutput(c.config, s, mirBody, jit.gen.env)
   let outBody = generateIR(c.graph, c.idgen, jit.gen.env, s, mirBody)
   echoOutput(c.config, s, outBody)
 
