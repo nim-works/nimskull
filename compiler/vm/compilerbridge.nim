@@ -684,21 +684,17 @@ proc getGlobalValue*(c: EvalContext, s: PSym): PNode =
   ## Does not perform type checking, so ensure that `s.typ` matches the
   ## global's type
   internalAssert(c.vm.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
-  let
-    slotIdx = c.vm.globals[c.jit.getGlobal(s)]
-    slot = c.vm.heap.slots[slotIdx]
-
-  result = c.vm.deserialize(slot.handle, s.typ, s.info)
+  let slot = c.vm.globals[c.jit.getGlobal(s)]
+  result = c.vm.deserialize(slot, s.typ, s.info)
 
 proc setGlobalValue*(c: var EvalContext; s: PSym, val: PNode) =
   ## Does not do type checking so ensure the `val` matches the `s.typ`
   internalAssert(c.vm.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
   let
-    slotIdx = c.vm.globals[c.jit.getGlobal(s)]
-    slot = c.vm.heap.slots[slotIdx]
+    slot = c.vm.globals[c.jit.getGlobal(s)]
     data = constDataToMir(c.vm, c.jit, val)
 
-  initFromExpr(slot.handle, data, c.jit.env, c.vm)
+  initFromExpr(slot, data, c.jit.env, c.vm)
 
 ## what follows is an implementation of the ``passes`` interface that evaluates
 ## the code directly inside the VM. It is used for NimScript execution and by

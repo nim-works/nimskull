@@ -2235,9 +2235,8 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
     of opcLdGlobal:
       let rb = instr.regBx - wordExcess
-      let slot = c.globals[rb]
       ensureKind(rkHandle)
-      regs[ra].setHandle(c.heap.slots[slot].handle)
+      regs[ra].setHandle(c.globals[rb])
 
     of opcLdCmplxConst:
       decodeBx(rkHandle)

@@ -126,7 +126,7 @@ proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
   # globals (which includes threadvars)
   for id, sym in since(env.globals, cp.globals):
     let typ = c.getOrCreate(sym.typ)
-    c.globals.add c.heap.heapNew(c.allocator, typ)
+    c.globals.add c.allocator.allocSingleLocation(typ)
 
   # constants
   for id, data in since(env.data, cp.data):
