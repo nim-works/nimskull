@@ -390,7 +390,7 @@ proc translate*(id: ProcedureId, body: PNode, graph: ModuleGraph,
 
   echoInput(graph.config, prc, body)
   result = generateCode(graph, env, prc, config.tconfig, body)
-  echoMir(graph.config, prc, result)
+  echoMir(graph.config, prc, result, env)
 
   # now apply the passes:
   process(result, prc, graph, idgen, env)
@@ -580,7 +580,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
 
   echoInput(graph.config, sym, body)
   result = generateCode(graph, env, owner, conf.tconfig, body)
-  echoMir(graph.config, sym, result)
+  echoMir(graph.config, sym, result, env)
 
 # ----- discovery and queueing logic -----
 

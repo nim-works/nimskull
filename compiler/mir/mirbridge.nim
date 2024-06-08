@@ -55,12 +55,12 @@ proc echoInput*(config: ConfigRef, owner: PSym, body: PNode) =
     writeBody(config, "-- input AST: " & owner.name.s):
       config.writeln(treeRepr(config, body, reprConfig))
 
-proc echoMir*(config: ConfigRef, owner: PSym, body: MirBody) =
+proc echoMir*(config: ConfigRef, owner: PSym, body: MirBody, env: MirEnv) =
   ## If requested via the define, renders the `body` and writes the result out
   ## through ``config.writeln``.
   if config.isEnabled(irMirIn, owner.name.s):
     writeBody(config, "-- MIR: " & owner.name.s):
-      config.writeln(treeRepr(body.code))
+      config.writeln(render(body.code, addr env, addr body))
 
 proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
   ## If requested via the define, renders the output IR `body` and writes the

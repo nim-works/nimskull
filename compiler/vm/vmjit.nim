@@ -260,7 +260,7 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
 
   echoInput(c.config, s, body)
   var mirBody = generateCode(c.graph, jit.gen.env, s, selectOptions(c), body)
-  echoMir(c.config, s, mirBody)
+  echoMir(c.config, s, mirBody, jit.gen.env)
   applyPasses(c, jit.gen.env, s, mirBody)
   for _ in discover(jit.gen.env, cp):
     discard "nothing to register"
