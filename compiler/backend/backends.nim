@@ -390,7 +390,7 @@ proc translate*(id: ProcedureId, body: PNode, graph: ModuleGraph,
 
   echoInput(graph.config, prc, body)
   result = generateCode(graph, env, prc, config.tconfig, body)
-  echoMir(graph.config, prc, result)
+  echoMir(graph.config, prc, result, env)
 
   # now apply the passes:
   process(result, prc, graph, idgen, env)
@@ -399,6 +399,7 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
                  owner: PSym, body: sink MirBody): Body =
   ## Translates the MIR code provided by `code` into ``CgNode`` IR and,
   ## if enabled, echoes the result.
+  echoOutput(graph.config, owner, body, env)
   result = cgirgen.generateIR(graph, idgen, env, owner, body)
   echoOutput(graph.config, owner, result)
 
@@ -580,7 +581,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
 
   echoInput(graph.config, sym, body)
   result = generateCode(graph, env, owner, conf.tconfig, body)
-  echoMir(graph.config, sym, result)
+  echoMir(graph.config, sym, result, env)
 
 # ----- discovery and queueing logic -----
 

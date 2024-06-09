@@ -1364,6 +1364,11 @@ proc transform(c: PTransf, n: PNode): PNode =
   of nkPragmaExpr:
     # not needed in transformed AST -> drop it
     result = transform(c, n.lastSon)
+  of nkBracket:
+    # replace elements where the index is specified with just the expression
+    result = shallowCopy(n)
+    for i, it in n.pairs:
+      result[i] = transform(c, it.skipColon)
   else:
     result = transformSons(c, n)
   when false:

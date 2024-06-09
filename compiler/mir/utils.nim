@@ -150,7 +150,7 @@ proc typeToStr(result: var string, t: TypeId, env: ptr MirEnv) =
 
 func addLocalName(result: var string, id: LocalId, open: string,
                   c: RenderCtx) =
-  if c.body.isNil:
+  if c.body.isNil or c.body[][id].name.isNil:
     # render just the ID
     idToStr(result, id, open)
   else:

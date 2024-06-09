@@ -759,7 +759,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
   of nkBracket, nkCurly:
     result = copyNode(n)
     for i, son in n.pairs:
-      let a = getConstExpr(m, son, idgen, g)
+      let a = getConstExpr(m, son.skipColon, idgen, g)
       if a == nil: return nil
       result.add a
     incl(result.flags, nfAllConst)
@@ -881,7 +881,7 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
     # the last node is an expression
     result.add foldConstExprAux(m, n[^1], idgen, g)
   of nkExprColonExpr:
-    # comes here from tuple/object constructions
+    # comes here from array/tuple/object constructions
     result.add n[0]
     result.add foldConstExprAux(m, n[1], idgen, g)
     return
