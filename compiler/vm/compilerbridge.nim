@@ -119,15 +119,10 @@ func `$`(e: ExecErrorReport): string {.error.}
 proc logBytecode(c: TCtx, owner: PSym, start: int) =
   ## If enabled, renders the bytecode ranging from `start` to the current end
   ## into text that is then written to the standard output.
-  const Symbol = "expandVmListing"
-  if owner != nil and c.config.isDefined(Symbol):
-    let name = c.config.getDefined(Symbol)
-    # if no value is specified for the conditional sym (i.e.,
-    # ``--define:expandVmListing``), `name` is 'true', which we interpret
-    # as "log everything"
-    if name == "true" or name == owner.name.s:
-      let listing = codeListing(c, start)
-      c.config.msgWrite: renderCodeListing(c.config, owner, listing)
+  if irVm in c.config.toDebugIr or
+     (owner != nil and c.config.isDebugEnabled(irVm, owner.name.s)):
+    let listing = codeListing(c, start)
+    c.config.msgWrite: renderCodeListing(c.config, owner, listing)
 
 proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
                 formal: PType) =
