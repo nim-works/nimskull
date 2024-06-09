@@ -424,8 +424,7 @@ template buildMagicCall(c: var TCtx, m: TMagic, t: TypeId, body: untyped) =
 
 template buildCheckedMagicCall(c: var TCtx, m: TMagic, t: TypeId,
                                body: untyped) =
-  c.subTree MirNode(kind: mnkCheckedCall, typ: t):
-    c.add MirNode(kind: mnkImmediate, imm: 0) # no side-effects
+  c.builder.rawBuildCall mnkCheckedCall, t, false:
     c.add MirNode(kind: mnkMagic, magic: m)
     body
     raiseExit(c)
@@ -443,8 +442,7 @@ template buildDefectMagicCall(c: var TCtx, m: TMagic, t: TypeId,
     else:
       mnkCheckedCall
 
-  c.subTree MirNode(kind: kind, typ: t):
-    c.add MirNode(kind: mnkImmediate, imm: 0) # no side-effects
+  c.builder.rawBuildCall kind, t, false: # no side-effects
     c.add MirNode(kind: mnkMagic, magic: m)
     body
     if kind == mnkCheckedCall:
@@ -784,8 +782,7 @@ proc genCall(c: var TCtx, n: PNode) =
       mnkCall
 
   let hasSideEffect = tfNoSideEffect notin fntyp.flags
-  c.buildTree kind, c.typeToMir(fntyp[0]):
-    c.add MirNode(kind: mnkImmediate, imm: uint32 ord(hasSideEffect))
+  c.builder.rawBuildCall kind, c.typeToMir(fntyp[0]), hasSideEffect:
     genCallee(c, n[0])
     genArgs(c, n)
     if kind == mnkCheckedCall:
@@ -1063,8 +1060,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     # and panics are disabled, the call must be a checked call
     if optOverflowCheck in n[0].sym.options and
        optPanics notin c.graph.config.globalOptions:
-      c.buildTree mnkCheckedCall, rtyp:
-        c.add MirNode(kind: mnkImmediate, imm: 0)
+      c.builder.rawBuildCall mnkCheckedCall, rtyp, false:
         c.genCallee(n[0])
         arg n[1]
         raiseExit(c)
@@ -1171,8 +1167,7 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
       # rewrite ``getAst(macro(a, b, c))`` -> ``macro(a, b, c)``
       # treat a macro call as potentially raising and as modifying global
       # data. While not wrong, it is pessimistic
-      c.buildTree mnkCheckedCall, rtyp:
-        c.add MirNode(kind: mnkImmediate, imm: 1)
+      c.builder.rawBuildCall mnkCheckedCall, rtyp, true:
         # we can use the internal signature
         genMacroCallArgs(c, n, skMacro, callee.sym.internal)
         raiseExit(c)

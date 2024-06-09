@@ -394,10 +394,18 @@ template wrapMutAlias*(bu: var MirBuilder, t: TypeId, body: untyped): Value =
     body
   val
 
+template rawBuildCall*(bu: var MirBuilder, k: MirNodeKind, t: TypeId,
+                       sideEffects: bool, body: untyped) =
+  ## Builds a call tree, with `k` as the call kind, `t` as the call's return
+  ## type, and `sideEffects` indicating whether the call potentially modifies
+  ## global data.
+  bu.subTree MirNode(kind: k, typ: t):
+    bu.add MirNode(kind: mnkImmediate, imm: uint32 ord(sideEffects))
+    body
+
 template buildMagicCall*(bu: var MirBuilder, m: TMagic, t: TypeId,
                          body: untyped) =
-  bu.subTree MirNode(kind: mnkCall, typ: t):
-    bu.add MirNode(kind: mnkImmediate, imm: 0) # no global effects
+  bu.rawBuildCall mnkCall, t, false: # no side-effects
     bu.add MirNode(kind: mnkMagic, magic: m)
     body
 
@@ -405,8 +413,7 @@ template buildCall*(bu: var MirBuilder, prc: ProcedureId, t: TypeId,
                     body: untyped) =
   ## Build and emits a call tree to the active buffer. `pt` is the type of the
   ## procedure.
-  bu.subTree MirNode(kind: mnkCall, typ: t):
-    bu.add MirNode(kind: mnkImmediate, imm: 0) # no global effects
+  bu.rawBuildCall mnkCall, t, false:  # no side-effects
     bu.add procNode(prc)
     body
 
