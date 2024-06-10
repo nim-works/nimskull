@@ -318,7 +318,7 @@ proc start*(bu: var MirBuilder, n: sink MirNode): Context {.inline.} =
   bu.front.num = 0
 
 proc finish*(bu: var MirBuilder, saved: Context) {.inline.} =
-  ## Finishe the manual subtree and restores the `saved` context previously
+  ## Finish the manual subtree and restores the `saved` context previously
   ## returned by ``start``.
   bu.front.nodes[saved.pos].len = bu.front.num.uint32
   bu.front.num = saved.num

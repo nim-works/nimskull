@@ -389,7 +389,7 @@ proc argToIr(tree: MirBody, cl: var TranslateCl,
   case n.kind
   of mnkImmediate:
     # the argument must be a 'name' one, ignore the tag and expect
-    # a lvalue expression
+    # an lvalue expression
     result = (n.imm.EffectKind != ekNone, lvalueToIr(tree, cl, cr))
   of LiteralDataNodes, mnkType, mnkProcVal, mnkNone:
     # not a tag but an atom
