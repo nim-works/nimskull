@@ -95,9 +95,6 @@ func enter(t: MirBody, cr: var TreeCursor): lent MirNode {.inline.} =
   assert t.code[cr.pos].kind in SubTreeNodes, "not a sub-tree"
   result = get(t, cr)
 
-func leave(t: MirBody, cr: var TreeCursor) =
-  discard "obsolete; a no-op for backwards compatibility"
-
 template info(cr: TreeCursor): TLineInfo =
   cr.origin.info
 
@@ -332,8 +329,6 @@ proc lvalueToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
   of AllNodeKinds - LvalueExprKinds - {mnkProcVal}:
     unreachable(n.kind)
 
-  leave(tree, cr)
-
 proc lvalueToIr(tree: MirBody, cl: var TranslateCl,
                 cr: var TreeCursor; preferField=true): CgNode {.inline.} =
   lvalueToIr(tree, cl, tree.get(cr), cr, preferField)
@@ -374,7 +369,6 @@ proc targetToIr(tree: MirBody, cr: var TreeCursor): CgNode =
     result = newTree(cnkTargetList, cr.info)
     for _ in 0..<n.len:
       result.add actionToIr(tree, tree.get(cr), cr.info)
-    leave(tree, cr)
   else:
     unreachable(n.kind)
 
@@ -398,8 +392,6 @@ proc argToIr(tree: MirBody, cl: var TranslateCl,
     result = (false, lvalueToIr(tree, cl, n, cr))
   else:
     unreachable("not a valid argument expression")
-
-  leave(tree, cr)
 
 proc calleeToIr(tree: MirBody, cl: var TranslateCl, cr: var TreeCursor): CgNode =
   case tree[cr].kind
@@ -442,8 +434,6 @@ proc callToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
   if n.kind == mnkCheckedCall:
     result.add targetToIr(tree, cr)
 
-  leave(tree, cr)
-
 proc exprToIr(tree: MirBody, cl: var TranslateCl, cr: var TreeCursor): CgNode
 
 proc sourceExprToIr(tree: MirBody, cl: var TranslateCl,
@@ -456,12 +446,10 @@ proc sourceExprToIr(tree: MirBody, cl: var TranslateCl,
     # requires a full assignment
     discard enter(tree, cr)
     result = (valueToIr(tree, cl, cr), false)
-    leave(tree, cr)
   of mnkMove:
     # an ``x = move y`` assignment can be turned into a fast assignment
     discard enter(tree, cr)
     result = (valueToIr(tree, cl, cr), true)
-    leave(tree, cr)
   of LvalueExprKinds:
     # a fast assignment is correct for all raw lvalues
     result = (lvalueToIr(tree, cl, cr), true)
@@ -509,7 +497,6 @@ proc defToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
       lvalueToIr(tree, cl, cr, preferField=false)
     else:
       sourceExprToIr(tree, cl, cr)[0]
-  leave(tree, cr)
   if n.kind in {mnkBind, mnkBindMut} and arg.typ.kind notin {tyVar, tyLent}:
     # wrap the operand in an address-of operation
     arg = newOp(cnkHiddenAddr, info, def.typ, arg)
@@ -571,15 +558,12 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   let info = cr.info ## the source information of `n`
 
   template to(kind: CgNodeKind, args: varargs[untyped]) =
-    let r = newStmt(kind, info, args)
-    leave(tree, cr)
-    stmts.add r
+    stmts.add newStmt(kind, info, args)
 
   template toList(k: CgNodeKind, body: untyped) =
     let res {.inject.} = newStmt(k, info)
     for _ in 0..<n.len:
       body
-    leave(tree, cr)
     stmts.add res
 
   case n.kind
@@ -608,7 +592,6 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
       # then the jump target of the next handler:
       excpt.add targetToIr(tree, cr)
 
-    leave(tree, cr)
     stmts.add excpt
     # XXX: temporary workaround, refer to ``inUnscoped`` doc comment
     inc cl.inUnscoped
@@ -619,7 +602,6 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     # skip the candidate list, it's not relevant to code generation:
     for _ in 1..<n.len:
       tree.skip(cr)
-    leave(tree, cr)
   of mnkVoid:
     var res = exprToIr(tree, cl, cr)
     if res.typ.isEmptyType():
@@ -627,7 +609,6 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
       discard
     else:
       res = newStmt(cnkVoidStmt, info, [res])
-    leave(tree, cr)
     stmts.add res
   of mnkIf:
     to cnkIfStmt, valueToIr(tree, cl, cr), labelToIr(tree, cr)
@@ -648,7 +629,6 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
 
     res.add targetToIr(tree, cr)
     stmts.add res
-    leave(tree, cr)
   of mnkCase:
     stmts.add caseToIr(tree, env, cl, n, cr)
   of mnkAsm:
@@ -658,7 +638,6 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     toList cnkEmitStmt:
       res.add valueToIr(tree, cl, cr)
   of mnkScope:
-    leave(tree, cr)
     scopeToIr(tree, env, cl, cr, stmts)
   of mnkDestroy:
     unreachable("a 'destroy' that wasn't lowered")
@@ -676,7 +655,6 @@ proc setElementToIr(tree: MirBody, cl: var TranslateCl,
     discard enter(tree, cr)
     result = newTree(cnkRange, unknownLineInfo,
                      [valueToIr(tree, cl, cr), valueToIr(tree, cl, cr)])
-    leave(tree, cr)
   else:
     unreachable()
 
@@ -697,9 +675,6 @@ proc caseToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl, n: MirNode,
     branch.add labelToIr(tree, cr)
 
     result.add branch
-    leave(tree, cr)
-
-  leave(tree, cr)
 
 proc exprToIr(tree: MirBody, cl: var TranslateCl,
               cr: var TreeCursor): CgNode =
@@ -709,15 +684,12 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
   let info = cr.info
 
   template op(kind: CgNodeKind, e: CgNode): CgNode =
-    let r = newOp(kind, info, cl.map(n.typ), e)
-    leave(tree, cr)
-    r
+    newOp(kind, info, cl.map(n.typ), e)
 
   template treeOp(k: CgNodeKind, body: untyped): CgNode =
     let res {.inject.} = newExpr(k, info, cl.map(n.typ))
     for _ in 0..<n.len:
       body
-    leave(tree, cr)
     res
 
   case n.kind
@@ -761,7 +733,6 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
       discard enter(tree, cr) # enter the binding tree
       let f = newFieldNode(lookupInType(typ, get(tree, cr).field))
       res.add newTree(cnkBinding, cr.info, [f, argToIr(tree, cl, cr)[1]])
-      leave(tree, cr)
   of mnkCall, mnkCheckedCall:
     callToIr(tree, cl, n, cr)
   of UnaryOps:
