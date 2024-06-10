@@ -312,7 +312,7 @@ func emitFrom*(bu: var MirBuilder, tree: MirTree, n: NodePosition) =
 
 proc start*(bu: var MirBuilder, n: sink MirNode): Context {.inline.} =
   ## Starts a subtree with a root node of `kind`. Must be paired with a call
-  ## to `stop <#stop,MirBuilder,NodePosition>`_.
+  ## to `finish <#finish,MirBuilder,Context>`_.
   bu.add(n)
   result = Context(num: bu.front.num, pos: NodeIndex(bu.front.len - 1))
   bu.front.num = 0
