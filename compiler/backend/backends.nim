@@ -283,7 +283,7 @@ func isEmpty*(tree: MirTree): bool =
   ## Returns whether `tree` contains either no nodes or only nodes that have
   ## no meaning by themselves.
   for n in tree.items:
-    if n.kind notin {mnkScope, mnkEndScope, mnkEnd}:
+    if n.kind notin {mnkScope, mnkEndScope}:
       return false
 
   result = true

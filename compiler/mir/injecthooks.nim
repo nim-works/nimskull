@@ -253,9 +253,8 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
         #   =sink(name x, arg a.b)
         changes.replaceMulti(tree, stmt, bu):
           bu.buildVoidCall(env, op):
-            bu.subTree mnkName:
-              bu.subTree MirNode(kind: mnkTag, effect: ekMutate):
-                bu.emitFrom(tree, dest)
+            bu.emitByName ekMutate:
+              bu.emitFrom(tree, dest)
             bu.subTree mnkArg:
               bu.emitFrom(tree, src)
       else:

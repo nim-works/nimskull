@@ -64,13 +64,13 @@ template emitCall(bu; tree; call; prc: ProcedureId, arguments: untyped) =
   ## Emits a void call of `prc`, inherting the checked-ness from `call`.
   bu.subTree mnkVoid:
     # if the input call is a checked call, so is the new call
-    bu.subTree tree[call].kind, VoidType:
+    bu.rawBuildCall tree[call].kind, VoidType, false:
       bu.add procNode(prc) # callee
       arguments # custom arguments
 
       if tree[call].kind == mnkCheckedCall:
         # copy the jump target
-        bu.emitFrom(tree, tree.previous(findEnd(tree, call)))
+        bu.emitFrom(tree, tree.last(call))
 
 proc addCompilerProc(env; graph; name: string): ProcedureId =
   env.procedures.add(graph.getCompilerProc(name))
@@ -441,7 +441,7 @@ proc emitCheckedBinaryIntOp(tree; call; graph; env; bu): Value =
   ##     raiseOverflow()
   ##   result = _1
   let
-    magic = tree[call + 1].magic
+    magic = tree[tree.callee(call)].magic
     t = env[tree[call].typ].skipTypes(abstractRange)
     x = NodePosition tree.argument(call, 0)
     y = NodePosition tree.argument(call, 1)
@@ -540,7 +540,7 @@ proc emitCheckedFloatOp(tree; call; graph; env; bu): Value =
   let typ = tree[call].typ
   const Map = [mAddF64: mnkAdd, mSubF64: mnkSub, mMulF64: mnkMul, mDivF64: mnkDiv]
   result = bu.wrapTemp typ:
-    bu.subTree Map[tree[call + 1].magic], typ:
+    bu.subTree Map[tree[tree.callee(call)].magic], typ:
       bu.emitFrom(tree, NodePosition tree.argument(call, 0))
       bu.emitFrom(tree, NodePosition tree.argument(call, 1))
 
