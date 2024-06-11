@@ -51,7 +51,7 @@ runnableExamples("-r:off"):
 
 ## For SSL, use the following example:
 
-runnableExamples("-r:off -d:ssl"):
+runnableExamples("-r:off --compileOnly -d:ssl"):
   let socket = newSocket()
   let ctx = newContext()
   wrapSocket(ctx, socket)
