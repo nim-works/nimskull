@@ -914,6 +914,7 @@ proc myOpen(graph: ModuleGraph; module: PSym;
   c.semTypeNode = semTypeNode
   c.instTypeBoundOp = sigmatch.instTypeBoundOp
   c.hasUnresolvedArgs = hasUnresolvedArgs
+  c.semGenericExpr = semGenericExpr
   c.templInstCounter = new int
 
   pushProcCon(c, module)

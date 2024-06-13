@@ -3120,6 +3120,127 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
   m.error.firstMismatch.pos = a
   m.error.firstMismatch.formal = formal
 
+proc matchesType(c: PContext, n: PNode, m: var TCandidate,
+                 marker: var IntSet) =
+  ## Matches the arguments taken from invocation expression `n` against the
+  ## ``tyGenericBody`` callee and fills `m` with the results. `marker` is
+  ## updated with the matched-against formal positions.
+  m.state = csMatch # until proven otherwise
+  m.error.firstMismatch = MismatchInfo()
+
+  # pre-pass: make sure the AST is valid. `n` is production AST, so it can be
+  # modified in-place
+  var hasError = false
+  for i in 1..<n.len:
+    if n[i].kind == nkExprEqExpr:
+      let (ident, err) = considerQuotedIdent(c, n[i][0])
+      if err != nil:
+        n[i][0] = err
+        hasError = true
+      else:
+        n[i][0] = newIdentNode(ident, n[i][0].info)
+
+  if hasError:
+    # abort early
+    m.state = csNoMatch
+    m.call = c.config.wrapError(n)
+    return
+
+  m.call = newNodeI(n.kind, n.info, m.callee.len)
+  m.call[0] = n[0]
+
+  var f = 0
+  var i = 1
+  var formal: PSym
+
+  while i < n.len:
+    # select the formal parameter:
+    var operand: PNode
+    case n[i].kind
+    of nkExprEqExpr:
+      # explicit parameter
+      formal = getNamedParamFromList(m.callee.n, n[i][0].ident)
+      if formal.isNil:
+        m.error.firstMismatch.kind = kUnknownNamedParam
+        break
+
+      operand = n[i][1]
+    elif f < m.callee.n.len:
+      # implicit parameter
+      formal = m.callee.n[f].sym
+      operand = n[i]
+    else:
+      m.error.firstMismatch.kind = kExtraArg
+      break
+
+    if containsOrIncl(marker, formal.position):
+      m.error.firstMismatch.kind = kAlreadyGiven
+      break
+
+    # reset the per-parameter state:
+    m.typedescMatched = false
+
+    m.error.firstMismatch.kind = kTypeMismatch
+
+    # match the argument against the formal type:
+    var arg: PNode
+
+    if (tfHasStatic in formal.typ.skipTypes({tyDistinct}).flags or
+        formal.typ.kind == tyStatic) and c.hasUnresolvedArgs(c, operand):
+      # the expression depends on not-yet resolved generic parameters,
+      # ``semOperand`` won't work
+      operand = c.semGenericExpr(c, operand)
+      if operand.kind == nkError or operand.typ != nil:
+        arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+      elif formal.typ.kind == tyStatic:
+        # some expression that's more complex than just being a generic
+        # parameter symbol
+        if formal.typ.base.kind == tyNone:
+          # no constraints
+          arg = copyNodeWithKids(operand)
+          arg.typ = makeTypeFromExpr(c, operand)
+        else:
+          # the static is constrained. We don't know the argument's type yet,
+          # so we cannot know up-front whether the expression will fits once
+          # all type variables it depends on are resolved
+          # XXX: to support this at least somewhat, the argument is wrapped
+          #      in a conversion to the expected type. If the types are
+          #      wholly incompatible, later analysis of the conversion will
+          #      yield an error. Non-exact matches where the types have a
+          #      "convertible" relationship will not result in an error
+          arg = newTreeI(nkConv, operand.info,
+                         newNodeIT(nkType, operand.info, formal.typ.base),
+                         operand)
+          arg.typ = makeTypeFromExpr(c, copyNodeWithKids(arg))
+      else:
+        # we don't know the argument's type, nor can we enforce that it'll
+        # matche the formal type later -> type mismatch
+        m.call[formal.position + 1] = copyNodeWithKids(operand)
+        m.call[formal.position + 1].typ = makeTypeFromExpr(c, operand)
+        break
+    else:
+      operand = m.c.semOperand(m.c, operand)
+      arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+
+    if arg != nil:
+      # errors don't need to be considered here; they're handled through
+      # `fauxMatch`
+      m.call[formal.position + 1] = arg
+    else:
+      # legacy error handling
+      m.call[formal.position + 1] = operand
+      break
+
+    f = max(formal.position + 1, f + 1)
+    inc i
+
+  if i < n.len:
+    # an error occurred
+    m.state = csNoMatch
+    m.error.firstMismatch.pos = i
+    m.error.firstMismatch.arg = n[i]
+    m.error.firstMismatch.formal = formal
+
 proc semFinishOperands*(c: PContext, n: PNode) =
   # this needs to be called to ensure that after overloading resolution every
   # argument has been sem'checked:
@@ -3155,7 +3276,10 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
     return
   
   var marker = initIntSet()
-  matchesAux(c, n, nOrig, m, marker)
+  if m.callee.kind == tyGenericBody:
+    matchesType(c, n, m, marker)
+  else:
+    matchesAux(c, n, nOrig, m, marker)
 
   if m.state == csNoMatch:
     return
