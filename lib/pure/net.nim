@@ -771,7 +771,7 @@ when defineSsl:
     ## Check if the certificate Subject Alternative Name (SAN) or Subject CommonName (CN) matches hostname.
     ## Wildcards match only in the left-most label.
     ## When name starts with a dot it will be matched by a certificate valid for any subdomain
-    when not defined(nimDisableCertificateValidation) and not defined(windows):
+    when not defined(nimDisableCertificateValidation):
       assert socket.isSsl
       when not defined(nimOpenssl111):
         let certificate = socket.sslHandle.SSL_get0_peer_certificate()
@@ -811,7 +811,7 @@ when defineSsl:
       ERR_clear_error()
       let ret = SSL_connect(socket.sslHandle)
       socketError(socket, ret)
-      when not defined(nimDisableCertificateValidation) and not defined(windows):
+      when not defined(nimDisableCertificateValidation):
         if hostname.len > 0 and not isIpAddress(hostname):
           socket.checkCertName(hostname)
     of handshakeAsServer:
@@ -1995,7 +1995,7 @@ proc connect*(socket: Socket, address: string,
       ERR_clear_error()
       let ret = SSL_connect(socket.sslHandle)
       socketError(socket, ret)
-      when not defined(nimDisableCertificateValidation) and not defined(windows):
+      when not defined(nimDisableCertificateValidation):
         if not isIpAddress(address):
           socket.checkCertName(address)
 
