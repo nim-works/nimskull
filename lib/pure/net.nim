@@ -660,8 +660,23 @@ when defineSsl:
           # the SSL_CERT_FILE and SSL_CERT_DIR env vars
           var found = false
           let useEnvVars = (if verifyMode == CVerifyPeerUseEnvVars: true else: false)
+
+          when defined(windows) and not defined(nimOpenssl111):
+            # NOTE: Success does not meant that the store exist. So the searching
+            # logic must continue afterwards.
+            #
+            # If both a certificate file and a store exist, then OpenSSL will
+            # search the file before searching the store.
+            if newCTX.SSL_CTX_load_verify_store("org.openssl.winstore://") == VerifySuccess:
+              # Be optimistic and assume that the store exist and can fulfill
+              # the same purpose as cacert.pem, so not finding a CA file
+              # shouldn't be fatal.
+              found = true
+            else:
+              raiseSSLError()
+            
           for fn in scanSSLCertificates(useEnvVars = useEnvVars):
-            if newCTX.SSL_CTX_load_verify_locations(fn, nil) == VerifySuccess:
+            if newCTX.SSL_CTX_load_verify_file(fn) == VerifySuccess:
               found = true
               break
           if not found:
