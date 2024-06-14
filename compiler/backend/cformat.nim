@@ -22,6 +22,8 @@ import
 #       have anything to do with options
 from compiler/front/options import toCChar, makeCString
 
+import compiler/utils/measure
+
 proc format(g: CodeGenEnv, ast: CombinedCAst,
             result: var string, i: var int) =
   # efficiency matters! This procedure potentially processes enormous amounts
@@ -257,5 +259,6 @@ proc format*(g: CodeGenEnv, ast: CombinedCAst, i: CNodeIndex,
              result: var string) =
   ## Formats `ast` starting at `i` into as textual C code, appending the
   ## result to `result`.
+  measure("format")
   var i = ord(i)
   format(g, ast, result, i)

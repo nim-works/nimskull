@@ -82,11 +82,13 @@ proc initModule*(idgen: IdGenerator): BModule =
 
 proc processEvent(g: var BModuleList, discovery: DiscoveryData,
                   partial: var PartialTable, evt: sink BackendEvent) =
+  measure("processEvent")
   discard
 
 proc assemble(m: Module): string =
   ## Combines the various AST fragments of the module and renders them into
   ## C code.
+  measure("assemble")
 
 proc generateCode*(graph: ModuleGraph, g: sink BModuleList,
                    mlist: sink ModuleList): Output =

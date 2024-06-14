@@ -98,6 +98,8 @@ import
 
 import std/options as std_options
 
+import compiler/utils/measure
+
 type
   DestFlag = enum
     ## Extra information about an assignment destination. The flags are used to
@@ -2311,6 +2313,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
   # XXX: this assertion can currently not be used, as the ``nfTransf`` flag
   #      might no longer be present after the lambdalifting pass
   #assert nfTransf in body.flags, "transformed AST is expected as input"
+  measure("AST -> MIR")
 
   var c = initCtx(graph, config, owner, move env)
   c.sp.active = (body, c.sp.map.add(body))
