@@ -129,8 +129,9 @@ proc generateCode*(graph: ModuleGraph, g: sink BModuleList,
   result = Output()
   # assemble the final C code for each module:
   for id, m in mlist.modules.pairs:
-    discard assemble(m)
-    # TODO: register in the Output structure
+    let code = assemble(m)
+    if code.len > 0:
+      result.modules.add (m.sym, code)
 
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point for C code generation. Only the C code is generated -- nothing
