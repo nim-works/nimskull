@@ -13,6 +13,7 @@ import
   compiler/backend/[
     backends,
     cgendata,
+    cir,
     extccomp
   ],
   compiler/front/[
@@ -54,12 +55,38 @@ type
     ## |NimSkull| module, but doesn't necessarily have to.
     idgen*: IdGenerator
 
+    all: CombinedCAst
+      ## the C AST of everything part of the module: functions, globals, etc.
+    procs: seq[tuple[id: ProcedureId, body: CNodeIndex]]
+      ## all procedures attached to the module (except inline procedures)
+    globals: seq[tuple[id: GlobalId, def: CNodeIndex]]
+      ## all globals attached to the module
+    constants: seq[tuple[id: ConstId, def: CNodeIndex]]
+      ## all constants attached to the module
+
   BModuleList* = object
     ## The "top level" type for the orchestrator, owning all state related
     ## to code generation.
     graph: ModuleGraph
 
     modules*: OrdinalSeq[ModuleId, BModule]
+
+    all: CombinedCAst
+      ## the C AST of everything not directly attached to a single module,
+      ## such as declarations, inline procedure bodies, etc.
+
+    inline: Table[ProcedureId, CNodeIndex]
+      ## inline procedure -> body. Inline procedures are emitted into all C
+      ## TUs they're used in, so their bodies are stored globally
+    types: Table[TypeId, tuple[hash: Hash; decl, def: CNodeIndex]]
+
+    # the declarations for the various entities are needed across modules.
+    # They're generated once and are then cached here
+    procs: SeqMap[ProcedureId, CNodeIndex]
+    consts: SeqMap[ConstId, CNodeIndex]
+    globals: SeqMap[GlobalId, CNodeIndex]
+    data: Table[DataId, tuple[hash: Hash, node: CNodeIndex]]
+      ## not all data entries need to be used in practice, so a table is used
 
   PartialTable = Table[ProcedureId, MirBody]
     ## Table for holding the incremental procedures
