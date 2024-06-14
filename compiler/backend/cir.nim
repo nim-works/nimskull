@@ -100,7 +100,7 @@ type
     ## Node in a flat tree structure. A node is either atomic or not. Atoms
     ## have no children nodes. Nodes are layed out in depth first fashion.
     case kind*: CNodeKind
-    of cnkIdent:      ident*: uint32
+    of cnkIdent:      ident*: CIdentifier
     of cnkProcSym:    prc*: ProcedureId
     of cnkGlobalSym:  global*: GlobalId
     of cnkConstSym:   cnst*: ConstId
