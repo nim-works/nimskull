@@ -1,5 +1,10 @@
 import std/wordwrap
-import openssl/[core_dispatch, bio, decoder, evp, rsa]
+import openssl/[bio, evp, rsa]
+
+when not defined(nimOpenssl111):
+  import openssl/[core_dispatch, decoder]
+else:
+  import openssl/pem
 
 const PubKey = r"MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAknKWvrdnncCIzBnIGrZ5qtZrPH+Yo3t7ag9WZIu6Gmc/JgIDDaZhJeyGW0YSnifeAEhooWvM4jDWhTEARzktalSHqYtmwI/1Oxwp6NTYH8akMe2LCpZ5pX9FVA6m9o2tkbdXatbDKRqeD4UA8Ow7Iyrdo6eb1SU8vk+26i+uXHTtsb25p8uf2ppOJrJCy+1vr8Gsnuwny1UdoYZTxMsxRFPf+UX/LrSXMHVq/oPVa3SJ4VHMpYrG/httAugVP6K58xiZ93jst63/dd0JL85mWJu1uS3uz92aL5O97xzth3wR4BbdmDUlN4LuTIwi6DtEcC7gUOTnOzH4zgp2b5RyHwIDAQAB"
 const PrivateKey = r"MIIEpAIBAAKCAQEAknKWvrdnncCIzBnIGrZ5qtZrPH+Yo3t7ag9WZIu6Gmc/JgIDDaZhJeyGW0YSnifeAEhooWvM4jDWhTEARzktalSHqYtmwI/1Oxwp6NTYH8akMe2LCpZ5pX9FVA6m9o2tkbdXatbDKRqeD4UA8Ow7Iyrdo6eb1SU8vk+26i+uXHTtsb25p8uf2ppOJrJCy+1vr8Gsnuwny1UdoYZTxMsxRFPf+UX/LrSXMHVq/oPVa3SJ4VHMpYrG/httAugVP6K58xiZ93jst63/dd0JL85mWJu1uS3uz92aL5O97xzth3wR4BbdmDUlN4LuTIwi6DtEcC7gUOTnOzH4zgp2b5RyHwIDAQABAoIBACSOxmLFlfAjaALLTNCeTLEA5bQshgYJhT1sprxixQpiS7lJN0npBsdYzBFs5KjmetzHNpdVOcgdOO/204L0Gwo4H8WLLxNS3HztAulEeM813zc3fUYfWi6eHshk//j8VR/TDNd21TElm99z7FA4KGsXAE0iQhxrN0aqz5aWYIhjprtHA5KxXIiESnTkof5Cud8oXEnPiwPGNhq93QeQzh7xQIKSaDKBcdAa6edTFhzc4RLUQRfrik/GqJzouEDQ9v6H/uiOLTB3FxxwErQIf6dvSVhD9gs1nSLQfyj3S2Hxe9S2zglTl07EsawTQUxtVQkdZUOok67c7CPBxecZ2wECgYEA2c31gr/UJwczT+P/AE52GkHHETXMxqE3Hnh9n4CitfAFSD5X0VwZvGjZIlln2WjisTd92Ymf65eDylX2kCm93nzZ2GfXgS4zl4oY1N87+VeNQlx9f2+6GU7Hs0HFdfu8bGd+0sOuWA1PFqQCobxCACMPTkuzsG9M7knUTN59HS8CgYEArCEoP4ReYoOFveXUE0AteTPb4hryvR9VDEolP+LMoiPe8AzBMeB5fP493TPdjtnWmrPCXNLc7UAFSj2CZsRhau4PuiqnNrsb5iz/7iXVl3E8wZvS4w7WYpO4m33L0cijA6MdcdqilQu4Z5tw4nG45lAW9UYyOc9D4hJTzgtGHhECgYA6QyDoj931brSoK0ocT+DB11Sj4utbOuberMaV8zgTSRhwodSl+WgdAUMMMDRacPcrBrgQiAMSZ15msqYZHEFhEa7Id8arFKvSXquTzf9iDKyJ0unzO/ThLjS3W+GxVNyrdufzA0tQ3IaKfOcDUrOpC7fdbtyrVqqSl4dF5MI9GwKBgQCl3OF6qyOEDDZgsUk1L59h7k3QR6VmBf4e9IeGUxZamvQlHjU/yY1nm1mjgGnbUB/SPKtqZKoMV6eBTVoNiuhQcItpGda9D3mnx+7p3T0/TBd+fJeuwcplfPDjrEktogcq5w/leQc3Ve7gr1EMcwb3r28f8/9L42QHQR/OKODs8QKBgQCFAvxDRPyYg7V/AgD9rt1KzXi4+b3Pls5NXZa2g/w+hmdhHUNxV5IGmHlqFnptGyshgYgQGxMMkW0iJ1j8nLamFnkbFQOp5/UKbdPLRKiB86oPpxsqYtPXucDUqEfcMsp57mD1CpGVODbspogFpSUvQpMECkhvI0XLMbolMdo53g=="
@@ -13,18 +18,32 @@ proc rsaPemDecode(key: string, public: bool): ptr EVP_PKEY =
 
   let bio = BIO_new_mem_buf(addr mKey[0], mKey.len.cint)
   doAssert bio != nil
-  let selection: cint = if public: OSSL_KEYMGMT_SELECT_PUBLIC_KEY else: OSSL_KEYMGMT_SELECT_PRIVATE_KEY
-  let dctx = OSSL_DECODER_CTX_new_for_pkey(addr result, input_type = "PEM", input_struct = nil, keytype = "RSA", selection, nil, nil)
-  doAssert dctx != nil
-  doAssert OSSL_DECODER_from_bio(dctx, bio) == 1
-  doAssert result != nil
-  OSSL_DECODER_CTX_free(dctx)
+  when not defined(nimOpenssl111):
+    let selection: cint = if public: OSSL_KEYMGMT_SELECT_PUBLIC_KEY else: OSSL_KEYMGMT_SELECT_PRIVATE_KEY
+    let dctx = OSSL_DECODER_CTX_new_for_pkey(addr result, input_type = "PEM", input_struct = nil, keytype = "RSA", selection, nil, nil)
+    doAssert dctx != nil
+    doAssert OSSL_DECODER_from_bio(dctx, bio) == 1
+    doAssert result != nil
+    OSSL_DECODER_CTX_free(dctx)
+  else:
+    let rsa =
+      if public:
+        PEM_read_bio_RSA_PUBKEY(bio, nil, nil, "".cstring)
+      else:
+        PEM_read_bio_RSAPrivateKey(bio, nil, nil, "".cstring)
+
+    doAssert rsa != nil
+    result = EVP_PKEY_new()
+    doAssert result != nil
+    doAssert EVP_PKEY_assign_RSA(result, rsa) == 1
+
   BIO_free_all(bio)
 
 proc rsaPublicEncrypt(fr: string): string =
   let pkey = rsaPemDecode(PubKey, public = true)
   let ectx = EVP_PKEY_CTX_new_from_pkey(nil, pkey, nil)
   doAssert ectx != nil
+  EVP_PKEY_free(pkey)
   doAssert EVP_PKEY_encrypt_init(ectx) == 1
   doAssert EVP_PKEY_CTX_set_rsa_padding(ectx, RSA_PKCS1_PADDING) == 1
 
@@ -43,6 +62,7 @@ proc rasPrivateDecrypt(fr: string): string =
   let pkey = rsaPemDecode(PrivateKey, public = false)
   let ectx = EVP_PKEY_CTX_new_from_pkey(nil, pkey, nil)
   doAssert ectx != nil
+  EVP_PKEY_free(pkey)
   doAssert EVP_PKEY_decrypt_init(ectx) == 1
   doAssert EVP_PKEY_CTX_set_rsa_padding(ectx, RSA_PKCS1_PADDING) == 1
 
