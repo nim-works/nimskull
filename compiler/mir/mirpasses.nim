@@ -143,7 +143,7 @@ proc preventRvo(tree: MirTree, types: TypeEnv, changes: var Changeset) =
       dest = tree.operand(i, 0)
       path = computePath(tree, NodePosition dest)
     var needsTemp = false
-    for kind, it in arguments(tree, NodePosition source):
+    for kind, _, it in arguments(tree, NodePosition source):
       let (check, arg) =
         case kind
         of mnkArg:
@@ -161,7 +161,7 @@ proc preventRvo(tree: MirTree, types: TypeEnv, changes: var Changeset) =
           else:
             (false, OpValue 0)
         of mnkName:
-          (true, tree.skip(it, mnkTag))
+          (true, it)
         of mnkConsume:
           (false, OpValue 0)
 
@@ -356,8 +356,8 @@ proc eliminateTemporaries(tree: MirTree, types: TypeEnv,
         # as eliding the temporary would be obersvable when the backend decides
         # to use pass-by-reference for the immutable parameter
         elide = true # unless proven otherwise
-        for k, arg in arguments(tree, expr):
-          if tree[arg].kind == mnkTag and overlaps(p, typ, tree.operand(arg)):
+        for k, eff, arg in arguments(tree, expr):
+          if eff != ekNone and overlaps(p, typ, arg):
             elide = false
             break
 
@@ -580,12 +580,20 @@ proc injectStrPreparation(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
   # storage
   for i, node in tree.pairs:
     case node.kind
-    of mnkAsgn, mnkInit, mnkMutView, mnkTag:
+    of mnkAsgn, mnkInit, mnkMutView:
       let op = tree.child(i, 0) # the operand
       if isStringAccess(op):
         # either
         # * a mutable view of a string element is created
         # * OR an element within the string is directly assigned to
+        insertPrepareCall(changes, tree, tree.child(op, 0),
+                          env.procedures.add(prc))
+
+    of mnkName:
+      let op = tree.child(i, 1)
+      if tree.effect(i) != ekNone and isStringAccess(op):
+        # an item of the string is passed to a parameter supporting
+        # mutation
         insertPrepareCall(changes, tree, tree.child(op, 0),
                           env.procedures.add(prc))
 

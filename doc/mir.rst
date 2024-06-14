@@ -68,34 +68,37 @@ Semantics
   CALL_ARG = Arg VALUE                    # pass-by-value argument
            | Arg <none>                   # argument that's going to be omitted
                                           # later
-           | Name LVALUE                  # pass-by-name argument where the
-                                          # lvalue is only used for reading
-           | Name (Tag <Effect> LVALUE)   # pass-by-name argument where the
-                                          # lvalue is used for mutation
+           | Name <Effect> LVALUE         # pass-by-name argument. The effect
+                                          # specifies the effect the call has
+                                          # on the value/location
            | Consume VALUE                # pass-by-value argument, but
                                           # the value is consumed (i.e., moved)
 
   CONSTR_ARG = Arg VALUE
              | Consume OPERAND
 
-  CALL_EXPR = Call <Proc> CALL_ARG ...   # a static call of the provided
-                                         # procedure with the given arguments
-            | Call LVALUE CALL_ARG ...   # indirect call
-            | Call <Magic> CALL_ARG ...  # a call of a magic procedure (i.e.,
-                                         # a procedure that is either going to
-                                         # be lowered into something else, or
-                                         # one for which the behaviour cannot
-                                         # be represented in the MIR)
+  CALL_EXPR = Call <Imm> <Proc> CALL_ARG ...  # a static call of the provided
+                                              # procedure with the given
+                                              # arguments
+            | Call <Imm> LVALUE CALL_ARG ...  # indirect call
+            | Call <Imm> <Magic> CALL_ARG ... # a call of a magic procedure
+                                              # (i.e., a procedure that is
+                                              # either going to be lowered into
+                                              # something else, or one for
+                                              # which the behaviour cannot
+                                              # be represented in the MIR)
 
   # checked calls have the same shape as normal calls. The difference
   # is that the call has an exceptional exit (i.e., it might raise an
   # exception)
-  CHECKED_CALL_EXPR = CheckedCall <Proc> CALL_ARG ...  EX_TARGET
-                    | CheckedCall LVALUE CALL_ARG ...  EX_TARGET
-                    | CheckedCall <Magic> CALL_ARG ... EX_TARGET
+  CHECKED_CALL_EXPR = CheckedCall <Imm> <Proc> CALL_ARG ...  EX_TARGET
+                    | CheckedCall <Imm> LVALUE CALL_ARG ...  EX_TARGET
+                    | CheckedCall <Imm> <Magic> CALL_ARG ... EX_TARGET
 
   SET_CONSTR_ARG = VALUE
                  | Range VALUE VALUE     # range construction
+
+  BINDING = Binding <Field> CONSTR_ARG
 
   RVALUE = UNARY_OP
          | BINARY_OP
@@ -106,8 +109,8 @@ Semantics
          | SeqConstr CONSTR_ARG...
          | TupleConstr CONSTR_ARG...
          | ClosureConstr CONSTR_ARG...
-         | ObjConstr (<Field> CONSTR_ARG) ... # construct an `object`
-         | RefConstr (<Field> CONSTR_ARG) ... # construct a `ref object`
+         | ObjConstr BINDING ...         # construct an `object`
+         | RefConstr BINDING ...         # construct a `ref object`
          | StdConv  VALUE                # number conversion or conversion
                                          # between cstring and string
          | Conv     VALUE                # same as `StdConv`. Only duplicate
@@ -334,8 +337,6 @@ The MIR uses a tree-based representation similar to the AST. For easier
 processing and faster access, the whole code for a procedure is stored in a
 single sequence of *nodes*, with the nodes forming a tree.
 
-Sub-trees are currently delimited via an explicit `End` node.
-
 Constant Expressions
 ====================
 
@@ -359,10 +360,12 @@ ones).
   SET_CONSTR_ARG = <Literal>
                  | Range <Literal> <Literal>
 
+  BINDING = Binding <Field> ARG
+
   COMPLEX = SetConstr SET_CONSTR_ARG...
           | ArrayConstr ARG...
           | SeqConstr ARG...
           | TupleConstr ARG...
           | ClosureConstr ARG...
-          | ObjConstr (<Field> ARG)...
-          | RefConstr (<Field> ARG)...
+          | ObjConstr BINDING...
+          | RefConstr BINDING...

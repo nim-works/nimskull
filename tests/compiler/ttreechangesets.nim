@@ -142,16 +142,16 @@ block insert_shared_end:
 
   test(tree, [temp(0), temp(1), temp(2), temp(3)]):
     c.replace 1, temp(1)
-    c.insert  3, temp(2)
+    c.insert  2, temp(2)
 
   test(tree, [temp(0), temp(1), temp(2), temp(3)]):
-    c.insert  3, temp(2)
+    c.insert  2, temp(2)
     c.replace 1, temp(1)
 
   test(tree, [temp(0), temp(2), temp(3)]):
     c.remove 1
-    c.insert 3, temp(2)
+    c.insert 2, temp(2)
 
   test(tree, [temp(0), temp(2), temp(3)]):
-    c.insert 3, temp(2)
+    c.insert 2, temp(2)
     c.remove 1

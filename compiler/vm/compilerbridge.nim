@@ -119,15 +119,10 @@ func `$`(e: ExecErrorReport): string {.error.}
 proc logBytecode(c: TCtx, owner: PSym, start: int) =
   ## If enabled, renders the bytecode ranging from `start` to the current end
   ## into text that is then written to the standard output.
-  const Symbol = "expandVmListing"
-  if owner != nil and c.config.isDefined(Symbol):
-    let name = c.config.getDefined(Symbol)
-    # if no value is specified for the conditional sym (i.e.,
-    # ``--define:expandVmListing``), `name` is 'true', which we interpret
-    # as "log everything"
-    if name == "true" or name == owner.name.s:
-      let listing = codeListing(c, start)
-      c.config.msgWrite: renderCodeListing(c.config, owner, listing)
+  if irVm in c.config.toDebugIr or
+     (owner != nil and c.config.isDebugEnabled(irVm, owner.name.s)):
+    let listing = codeListing(c, start)
+    c.config.msgWrite: renderCodeListing(c.config, owner, listing)
 
 proc putIntoReg(dest: var TFullReg; jit: var JitState, c: var TCtx, n: PNode,
                 formal: PType) =
@@ -684,21 +679,17 @@ proc getGlobalValue*(c: EvalContext, s: PSym): PNode =
   ## Does not perform type checking, so ensure that `s.typ` matches the
   ## global's type
   internalAssert(c.vm.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
-  let
-    slotIdx = c.vm.globals[c.jit.getGlobal(s)]
-    slot = c.vm.heap.slots[slotIdx]
-
-  result = c.vm.deserialize(slot.handle, s.typ, s.info)
+  let slot = c.vm.globals[c.jit.getGlobal(s)]
+  result = c.vm.deserialize(slot, s.typ, s.info)
 
 proc setGlobalValue*(c: var EvalContext; s: PSym, val: PNode) =
   ## Does not do type checking so ensure the `val` matches the `s.typ`
   internalAssert(c.vm.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
   let
-    slotIdx = c.vm.globals[c.jit.getGlobal(s)]
-    slot = c.vm.heap.slots[slotIdx]
+    slot = c.vm.globals[c.jit.getGlobal(s)]
     data = constDataToMir(c.vm, c.jit, val)
 
-  initFromExpr(slot.handle, data, c.jit.env, c.vm)
+  initFromExpr(slot, data, c.jit.env, c.vm)
 
 ## what follows is an implementation of the ``passes`` interface that evaluates
 ## the code directly inside the VM. It is used for NimScript execution and by

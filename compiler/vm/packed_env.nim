@@ -312,6 +312,7 @@ proc storeFieldsData(enc: var DataEncoder, e: var PackedEnv,
   # iterate over all fields in the construction and pack and store them:
   var n = n + 1
   for _ in 0..<count:
+    inc n # skip the binding node
     let s = lookupInType(typ, t[n].field.int) ## the field symbol
     inc n # move the cursor to the field's data
 

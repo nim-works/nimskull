@@ -139,6 +139,9 @@ type
     passes*: seq[TPass]
     idgen*: IdGenerator
     operators*: Operators
+    noreturnType*: PType
+      ## special type used for marking statements as not returning. Currently
+      ## only used in mid-end
     when defined(nimsuggest):
       onMarkUsed*: SuggestCallback
         ## callback decouples regular compiler code `markUsed` from suggest
@@ -522,6 +525,7 @@ proc newModuleGraph*(cache: IdentCache; config: ConfigRef): ModuleGraph =
   result.symBodyHashes = initTable[int, SigHash]()
   result.operators = initOperators(result)
   result.emittedTypeInfo = initTable[string, FileIndex]()
+  result.noreturnType = newType(tyVoid, nextTypeId(result.idgen), nil)
 
 proc resetAllModules*(g: ModuleGraph) =
   initStrTable(g.packageSyms)
