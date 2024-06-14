@@ -12,6 +12,7 @@ import
   ],
   compiler/backend/[
     backends,
+    cgendata,
     extccomp
   ],
   compiler/front/[
@@ -57,7 +58,6 @@ type
     ## The "top level" type for the orchestrator, owning all state related
     ## to code generation.
     graph: ModuleGraph
-    env: MirEnv
 
     modules*: OrdinalSeq[ModuleId, BModule]
 
@@ -74,13 +74,13 @@ const NonMagics = {}
 
 proc initModuleList*(graph: ModuleGraph, num: Natural): BModuleList =
   ## Sets up a backend module-list with `num` modules.
-  result = BModuleList(graph: graph, env: initMirEnv(graph))
+  result = BModuleList(graph: graph)
   result.modules.newSeq(num)
 
 proc initModule*(idgen: IdGenerator): BModule =
   BModule(idgen: idgen)
 
-proc processEvent(g: var BModuleList, discovery: DiscoveryData,
+proc processEvent(g: var BModuleList, cg: var CodeGenEnv,
                   partial: var PartialTable, evt: sink BackendEvent) =
   measure("processEvent")
   discard
@@ -107,12 +107,13 @@ proc generateCode*(graph: ModuleGraph, g: sink BModuleList,
     config = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics))
 
   var
+    cg = CodeGenEnv(env: initMirEnv(graph))
     discovery: DiscoveryData
     partial:   PartialTable
 
   # discover and generate code for all alive entities:
-  for evt in process(graph, mlist, g.env, discovery, config):
-    processEvent(g, discovery, partial, evt)
+  for evt in process(graph, mlist, cg.env, discovery, config):
+    processEvent(g, cg, partial, evt)
 
   # finish the partial procedures:
   for id, p in partial.pairs:
