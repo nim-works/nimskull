@@ -12,6 +12,8 @@ import
     mirtrees
   ]
 
+import compiler/utils/measure
+
 type
   CNodeKind* = enum
     cnkIdent     ## raw identifier
@@ -122,3 +124,33 @@ type
 
   CombinedCAst* = seq[CNode]
     ## Finalized AST where expressions and statement are combined.
+
+func `==`*(a, b: CNodeIndex): bool {.borrow.}
+func `<`*(a, b: CNodeIndex): bool {.borrow.}
+
+iterator all*(ast: CombinedCAst, start: CNodeIndex): CNode =
+  ## Returns all nodes in the tree starting at `start`.
+  var i = uint32(start)
+  var last = i
+  while i <= last:
+    let n = ast[i]
+    yield n
+    if ord(n.kind) > ord(cnkExpr): # not an atom?
+      last += n.len
+    inc i
+
+proc append*(a: var CombinedCAst, b: sink CAst): CNodeIndex =
+  ## Combines the expressions and statements of `b` into a single AST and
+  ## appends the result to `a`.
+  measure("append")
+  let off = a.len.uint32
+  for it in b.buf[btExpr].mitems:
+    if it.kind == cnkExpr:
+      uint32(it.node) += off
+  for it in b.buf[btStmt].mitems:
+    if it.kind == cnkExpr:
+      uint32(it.node) += off
+
+  a.add b.buf[btExpr]
+  result = a.len.CNodeIndex
+  a.add b.buf[btStmt]

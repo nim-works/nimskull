@@ -2,6 +2,9 @@
 
 import
   std/[
+    algorithm,
+    hashes,
+    intsets,
     os,
     tables
   ],
@@ -12,7 +15,9 @@ import
   ],
   compiler/backend/[
     backends,
+    cformat,
     cgendata,
+    cgen,
     cir,
     extccomp
   ],
@@ -97,7 +102,24 @@ type
       ## all modules to add to the build, together with their content
     headers: seq[tuple[path: AbsoluteFile, content: string]]
 
+  UniqueId = distinct uint32
+    ## 2 bit namespace, 30 bit ID. Combines procedure, global, const, and data
+    ## IDs into a single ID type. Falls apart if there are ever more than 2^30
+    ## entities per namespace, which seems unlikely.
+
 const NonMagics = {}
+
+template toUnique(x: ProcedureId): UniqueId =
+  UniqueId((0 shl 30) or uint32(x))
+template toUnique(x: GlobalId): UniqueId =
+  UniqueId((1 shl 30) or uint32(x))
+template toUnique(x: ConstId): UniqueId =
+  UniqueId((2 shl 30) or uint32(x))
+template toUnique(x: DataId): UniqueId =
+  UniqueId((3 shl 30) or uint32(x))
+
+template module(g: BModuleList, s: PSym): BModule =
+  g.modules[s.moduleId.FileIndex]
 
 proc initModuleList*(graph: ModuleGraph, num: Natural): BModuleList =
   ## Sets up a backend module-list with `num` modules.
@@ -110,12 +132,182 @@ proc initModule*(idgen: IdGenerator): BModule =
 proc processEvent(g: var BModuleList, cg: var CodeGenEnv,
                   partial: var PartialTable, evt: sink BackendEvent) =
   measure("processEvent")
-  discard
 
-proc assemble(m: Module): string =
-  ## Combines the various AST fragments of the module and renders them into
-  ## C code.
+  template append(body: CAst, id, list: untyped) =
+    let b = body
+    let m = cg.env[id].moduleId.FileIndex
+    g.modules[m].list.add (id, g.modules[m].all.append(b))
+
+  case evt.kind
+  of bekDiscovered:
+    if evt.entity.kind == mnkGlobal:
+      let id = evt.entity.global
+      append genGlobal(cg, id), id, globals
+
+  of bekModule:
+    discard "nothing to do"
+  of bekConstant:
+    let id = evt.cnst
+    append genConst(cg, id, cg.env[cg.env.bodies[id]]), id, constants
+  of bekPartial:
+    # append to the in-progress body -- code generation happens once complete
+    discard partial.mgetOrPut(evt.id, MirBody()).append(evt.body)
+  of bekProcedure:
+    # TODO: integrate MIR output with ``--showir``
+    let code = genProc(cg, evt.id, evt.body)
+    # TODO: integrate CIR output with ``--showir``
+    # TODO: scan the body for referenced types and data; those are generated
+    #       on use
+
+    if cg.env[evt.id].typ.callConv == ccInline:
+      # add to the global AST
+      g.inline[evt.id] = g.all.append(code)
+    else:
+      append code, evt.id, procs
+  of bekImported:
+    # TODO: implement me
+    discard
+
+proc assemble(g: BModuleList, cg: CodeGenEnv, m: BModule,
+              current: ModuleId): string =
+  ## Gathers everything that needs to be in the final C translation unit (=TU),
+  ## brings these entities into a stable order, and renders the result into
+  ## C code. This is the final step for processing module `m`.
   measure("assemble")
+  type
+    StructEnt = tuple[hash: Hash, node: CNodeIndex]
+      ## global entity; order established by structural hash
+    GlobalEnt = tuple[item: ItemId, node: CNodeIndex]
+      ## global entity; order established by module + item ID
+    LocalEnt  = tuple[item: int32, node: CNodeIndex]
+      ## module-local entity; order established by item ID
+
+  var
+    fwdTypes:    seq[StructEnt]
+    types:       seq[StructEnt]
+    data:        seq[StructEnt]
+    externDecls: seq[GlobalEnt]
+    defs:        seq[LocalEnt]
+    fwd:         seq[GlobalEnt]
+    inline:      seq[GlobalEnt]
+    procs:       seq[LocalEnt]
+
+    symMarker: PackedSet[UniqueId]
+    typeFwdMarker, typeMarker: PackedSet[TypeId]
+
+  proc scan(g: BModuleList, cg: CodeGenEnv, ast: CombinedCAst,
+            n: CNodeIndex) {.closure.} =
+    # XXX: meh, a closure
+    template guard(id, body: untyped) =
+      if not containsOrIncl(symMarker, toUnique id):
+        body
+
+    # TODO: imported symbols and types, as well as header dependencies need to
+    #       be considered here
+    for it in all(ast, n):
+      case it.kind
+      of cnkWeakType:
+        # only a forward declaration is needed
+        if not containsOrIncl(typeFwdMarker, it.typ):
+          let (hash, _, n) = g.types[it.typ]
+          fwdTypes.add (hash, n)
+      of cnkType:
+        if not containsOrIncl(typeMarker, it.typ):
+          let (hash, n, _) = g.types[it.typ]
+          types.add (hash, n)
+      of cnkProcSym:
+        let s = cg.env[it.prc]
+        if s.typ.callConv == ccInline:
+          guard it.prc:
+            inline.add (s.itemId, g.inline[it.prc])
+        elif cg.env[it.prc].moduleId.ModuleId != current:
+          guard it.prc:
+            fwd.add (s.itemId, g.procs[it.prc])
+      of cnkGlobalSym:
+        if cg.env[it.global].moduleId.ModuleId != current:
+          guard it.global:
+            externDecls.add (cg.env[it.global].itemId, g.globals[it.global])
+      of cnkConstSym:
+        if it.cnst.isAnon():
+          let id = extract(it.cnst)
+          guard id:
+            data.add g.data[id]
+        elif cg.env[it.cnst].moduleId.ModuleId != current:
+          guard it.cnst:
+            externDecls.add (cg.env[it.cnst].itemId, g.consts[it.cnst])
+      else:
+        discard "not relevant"
+
+  # add the local entities to the lists and scan them for their dependencies:
+  template addAll(src, dst: untyped) =
+    for (id, n) in src.items:
+      dst.add (cg.env[id].itemId.item, n)
+      scan(g, cg, m.all, n)
+
+  addAll(m.procs, procs)
+  addAll(m.globals, defs)
+  addAll(m.constants, defs)
+
+  # scan the inline procedures for their dependencies (which might discover
+  # new inline procedure dependencies)
+  var i = 0
+  while i < inline.len:
+    scan(g, cg, g.all, inline[i][1])
+    inc i
+
+  # scan the types:
+  i = 0
+  while i < types.len:
+    # TODO: use a dedicated scanning procedure; only types can be referenced
+    #       from types
+    scan(g, cg, g.all, types[i][1])
+    inc i
+
+  # TODO: forward declarations for procedures also need to be pulled in here.
+  #       The most simple (and efficient) solution would be emitting one for
+  #       *every* procedure, though this would result in larger artifacts...
+
+  # ------
+  # except for function forward declarations, the content of the TU is known
+  # now. Sort everything
+
+  proc cmp(a, b: LocalEnt): int  = a.item - b.item
+  proc cmp(a, b: StructEnt): int = a.hash - b.hash
+  proc cmp(a, b: GlobalEnt): int =
+    if a.item.module == b.item.module:  a.item.item - b.item.item
+    else:                               a.item.module - b.item.module
+
+  sort(fwdTypes, cmp)
+  sort(types, cmp)
+  sort(data, cmp)
+  sort(externDecls, cmp)
+  sort(fwd, cmp)
+  sort(inline, cmp)
+  sort(defs, cmp)
+  sort(procs, cmp)
+
+  # ------
+  # sorting is done, now format everything
+
+  # TODO: data entries are super special: their name is based on the final
+  #       position in the module, meaning that we can only now compute it. Do
+  #       so
+
+  # TODO: emit the preamble (i.e., "generated by...")
+  # TODO: emit the includes
+
+  template format(ast: CombinedCAst, list: untyped) =
+    for (_, it) in list.items:
+      format(cg, ast, it, result)
+
+  format(g.all, fwdTypes)
+  format(g.all, types)
+  format(g.all, data)
+  format(g.all, externDecls)
+  format(m.all, defs)
+  format(g.all, fwd)
+  format(g.all, inline)
+  format(m.all, procs)
 
 proc generateCode*(graph: ModuleGraph, g: sink BModuleList,
                    mlist: sink ModuleList): Output =
@@ -144,8 +336,9 @@ proc generateCode*(graph: ModuleGraph, g: sink BModuleList,
 
   # finish the partial procedures:
   for id, p in partial.pairs:
-    # TODO: implement me
-    discard
+    # generate the code and append to the attached-to module:
+    let idx = g.module(cg.env[id]).all.append(genProc(cg, id, p))
+    g.module(cg.env[id]).procs.add (id, idx)
 
   # production of the CIR for all alive entities is done
 
@@ -156,7 +349,7 @@ proc generateCode*(graph: ModuleGraph, g: sink BModuleList,
   result = Output()
   # assemble the final C code for each module:
   for id, m in mlist.modules.pairs:
-    let code = assemble(m)
+    let code = assemble(g, cg, g.modules[id], id)
     if code.len > 0:
       result.modules.add (m.sym, code)
 
