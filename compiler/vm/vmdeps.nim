@@ -159,17 +159,13 @@ proc mapTypeToAstX(cache: IdentCache; t: PType; info: TLineInfo;
     for i in 0..<t.len:
       result.add mapTypeToAst(t[i], info)
   of tyGenericInst:
-    if inst:
-      if allowRecursion:
-        result = mapTypeToAstR(t.lastSon, info)
-      else:
-        result = newNodeX(nkBracketExpr)
-        #result.add mapTypeToAst(t.lastSon, info)
-        result.add mapTypeToAst(t[0], info)
-        for i in 1..<t.len-1:
-          result.add mapTypeToAst(t[i], info)
+    if inst and allowRecursion:
+      result = mapTypeToAstR(t.lastSon, info)
     else:
-      result = mapTypeToAstX(cache, t.lastSon, info, idgen, inst, allowRecursion)
+      result = newNodeX(nkBracketExpr)
+      result.add mapTypeToAst(t[0], info)
+      for i in 1..<t.len-1:
+        result.add mapTypeToAst(t[i], info)
   of tyGenericBody:
     if inst:
       result = mapTypeToAstR(t.lastSon, info)
