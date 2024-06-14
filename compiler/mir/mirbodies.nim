@@ -2,6 +2,9 @@
 ## modifying it.
 
 import
+  std/[
+    options
+  ],
   compiler/ast/[
     ast_types
   ],
@@ -62,3 +65,19 @@ func sourceFor*(body: MirBody, n: NodePosition): PNode {.inline.} =
 func `[]`*(body: MirBody, id: LocalId): lent Local {.inline.} =
   ## Returns the local corresponding to `id`.
   body.locals[id]
+
+func append*(body: var MirBody, other: sink MirBody): NodePosition =
+  ## Appends `other` to the end of `body`, returning the start position of
+  ## `other` in `body`.
+  result = body.code.len.NodePosition
+  let start = body.locals.merge(other.locals).get(LocalId 0).uint32
+  # update the IDs of all local entities (locals and labels) in the source
+  # body:
+  for it in other.code.mitems:
+    if it.kind == mnkLocal:
+      uint32(it.local) += start
+
+  # merge the source maps:
+  merge(body.source, other.code, body.source)
+  # append the code:
+  body.code.add other.code
