@@ -6,7 +6,7 @@ import
     tables
   ],
   compiler/backend/[
-    # cgendata,
+    cgendata,
     cir
   ],
   compiler/mir/[
@@ -42,15 +42,15 @@ proc format(g: CodeGenEnv, ast: CombinedCAst,
   inc i
   case n.kind
   of cnkIdent:
-    result.add g.getStr(n.ident)
+    result.add g.getIdent(n.ident)
   of cnkProcSym:
-    result.add g.getStr(g.procs[n.prc])
+    result.add g.getIdent(g.procs[n.prc])
   of cnkGlobalSym:
-    result.add g.getStr(g.globals[n.global])
+    result.add g.getIdent(g.globals[n.global])
   of cnkConstSym:
-    result.add g.getStr(g.consts[n.cnst])
+    result.add g.getIdent(g.constants[n.cnst])
   of cnkType, cnkWeakType:
-    result.add g.getStr(g.types[n.typ].name)
+    result.add g.getIdent(g.types[n.typ])
   of cnkCharLit:
     # TODO: too inefficient
     result.add '\''
@@ -108,7 +108,7 @@ proc format(g: CodeGenEnv, ast: CombinedCAst,
     inc i
     recurse()
     result.add " "
-    result.add g.getStr(sym)
+    result.add g.getIdent(sym)
     result.add " "
     recurse()
   of cnkPrefix:
@@ -120,7 +120,7 @@ proc format(g: CodeGenEnv, ast: CombinedCAst,
     let sym = ast[i].ident
     inc i
     recurse()
-    result.add g.getStr(sym)
+    result.add g.getIdent(sym)
   of cnkAsgn:
     recurse()
     result.add " = "
