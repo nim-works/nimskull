@@ -154,3 +154,7 @@ proc append*(a: var CombinedCAst, b: sink CAst): CNodeIndex =
   a.add b.buf[btExpr]
   result = a.len.CNodeIndex
   a.add b.buf[btStmt]
+
+proc add*(ast: var CAst, kind: CNodeKind) =
+  # XXX: temporary procedure
+  ast.buf[btStmt].add(CNode(kind: kind))

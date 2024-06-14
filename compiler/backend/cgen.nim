@@ -22,9 +22,12 @@ proc genDecl*(g: var CodeGenEnv, id: ConstId): CAst =
 
 proc genProc*(g: var CodeGenEnv, id: ProcedureId, body: sink MirBody): CAst =
   ## Generates the full C definition for the given procedure, with body `body`.
+  result.add(cnkBlock)
 
 proc genGlobal*(g: var CodeGenEnv, id: GlobalId): CAst =
   ## Generates the definitions for the given global.
+  result.add(cnkBlock)
 
 proc genConst*(g: var CodeGenEnv, id: ConstId, body: MirTree): CAst =
   ## Generates the definition for the given constant, with body `body`.
+  result.add(cnkBlock)
