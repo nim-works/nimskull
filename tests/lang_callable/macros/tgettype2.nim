@@ -11,8 +11,8 @@ gt(bar):	distinct[int]
 gt(baz):	int, int
 gt(v):	seq[int]
 gt(vv):	seq[float]
-gt(t):	distinct[tuple[int, int]]
-gt(tt):	distinct[tuple[float, float]]
+gt(t):	MyType[int]
+gt(tt):	MyType[float]
 gt(s):	distinct[tuple[int, int]]
 #############
 #### gt2 ####
@@ -70,8 +70,8 @@ echo gt(baz) # int, int          I would prefer Baz, int
 
 echo gt(v)   # seq[int], ok
 echo gt(vv)  # seq[float], ok
-echo gt(t)   # MyType, distinct[tuple[int, int]]      I would prefer MyType[int],   distinct[tuple[int, int]]
-echo gt(tt)  # MyType, distinct[tuple[float, float]]  I would prefer MyType[float], distinct[tuple[int, int]]
+echo gt(t)   # MyType[int], ok
+echo gt(tt)  # MyType[float], ok
 echo gt(s)   # distinct[tuple[int, int]]              I would prefer MySimpleType, distinct[tuple[int,int]]
 
 echo "#############"
