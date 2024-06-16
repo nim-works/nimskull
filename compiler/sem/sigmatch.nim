@@ -3214,7 +3214,7 @@ proc matchesType(c: PContext, n: PNode, m: var TCandidate,
           arg.typ = makeTypeFromExpr(c, copyNodeWithKids(arg))
       else:
         # we don't know the argument's type, nor can we enforce that it'll
-        # matche the formal type later -> type mismatch
+        # match the formal type later -> type mismatch
         m.call[formal.position + 1] = copyNodeWithKids(operand)
         m.call[formal.position + 1].typ = makeTypeFromExpr(c, operand)
         break

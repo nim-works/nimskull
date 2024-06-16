@@ -12,7 +12,7 @@ discard """
 """
 
 type
-  Type[T: string | static float] = object ## must be an int or static float
+  Type[T: string | static float] = object ## must be a string or static float
 
 proc eval[T](x: T): T {.compileTime.} = x
 
