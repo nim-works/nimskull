@@ -126,7 +126,7 @@ proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
   # globals (which includes threadvars)
   for id, sym in since(env.globals, cp.globals):
     let typ = c.getOrCreate(sym.typ)
-    c.globals.add c.heap.heapNew(c.allocator, typ)
+    c.globals.add c.allocator.allocSingleLocation(typ)
 
   # constants
   for id, data in since(env.data, cp.data):
@@ -260,11 +260,12 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
 
   echoInput(c.config, s, body)
   var mirBody = generateCode(c.graph, jit.gen.env, s, selectOptions(c), body)
-  echoMir(c.config, s, mirBody)
+  echoMir(c.config, s, mirBody, jit.gen.env)
   applyPasses(c, jit.gen.env, s, mirBody)
   for _ in discover(jit.gen.env, cp):
     discard "nothing to register"
 
+  echoOutput(c.config, s, mirBody, jit.gen.env)
   let outBody = generateIR(c.graph, c.idgen, jit.gen.env, s, mirBody)
   echoOutput(c.config, s, outBody)
 

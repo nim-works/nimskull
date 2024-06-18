@@ -104,12 +104,11 @@ proc isUsedForSink(tree: MirTree, stmt: NodePosition): bool =
         break
     of mnkScope:
       inc depth
-    of mnkEnd:
-      if tree[n].kind == mnkScope:
-        dec depth
-        if depth < 0:
-          # the end of the temporary's surrounding scope is reached
-          break
+    of mnkEndScope:
+      dec depth
+      if depth < 0:
+        # the end of the temporary's surrounding scope is reached
+        break
     else:
       discard
 
@@ -254,9 +253,8 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
         #   =sink(name x, arg a.b)
         changes.replaceMulti(tree, stmt, bu):
           bu.buildVoidCall(env, op):
-            bu.subTree mnkName:
-              bu.subTree MirNode(kind: mnkTag, effect: ekMutate):
-                bu.emitFrom(tree, dest)
+            bu.emitByName ekMutate:
+              bu.emitFrom(tree, dest)
             bu.subTree mnkArg:
               bu.emitFrom(tree, src)
       else:

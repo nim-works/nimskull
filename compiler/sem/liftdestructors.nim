@@ -37,9 +37,6 @@ import
     semdata,
     sighashes,
     lowerings
-  ],
-  compiler/backend/[
-    ccgutils
   ]
 
 from compiler/ast/reports_sem import reportAst,
@@ -199,7 +196,12 @@ proc fillBodyObj(c: var TLiftCtx; n, body, x, y: PNode; enforceDefaultOp: bool) 
 
 proc fillBodyObjTImpl(c: var TLiftCtx; t: PType, body, x, y: PNode) =
   if t.len > 0 and t[0] != nil:
-    fillBody(c, skipTypes(t[0], abstractPtrs), body, x, y)
+    # also apply the operation to the super type. An up-conversion is required
+    # for proper typing
+    let
+      base = skipTypes(t[0], abstractPtrs)
+      obj = newTreeIT(nkObjUpConv, x.info, base, x)
+    fillBody(c, base, body, obj, y)
   fillBodyObj(c, t.n, body, x, y, enforceDefaultOp = false)
 
 proc fillBodyObjT(c: var TLiftCtx; t: PType, body, x, y: PNode) =
@@ -224,15 +226,6 @@ proc fillBodyObjT(c: var TLiftCtx; t: PType, body, x, y: PNode) =
     # for every field (dependent on dest.kind):
     #   `=` dest.field, src.field
     # =destroy(blob)
-    var dummy = newSym(skTemp, getIdent(c.g.cache, lowerings.genPrefix), nextSymId c.idgen, c.fn, c.info)
-    dummy.typ = y.typ
-    if ccgIntroducedPtr(c.g.config, dummy, y.typ):
-      # Because of potential aliasing when the src param is passed by ref, we need to check for equality here,
-      # because the wasMoved(dest) call would zero out src, if dest aliases src.
-      var cond = newTree(nkCall, newSymNode(c.g.getSysMagic(c.info, "==", mEqRef)),
-        newTreeIT(nkAddr, c.info, makePtrType(c.fn, x.typ, c.idgen), x), newTreeIT(nkAddr, c.info, makePtrType(c.fn, y.typ, c.idgen), y))
-      cond.typ = getSysType(c.g, x.info, tyBool)
-      body.add genIf(c, cond, newTreeI(nkReturnStmt, c.info, newNodeI(nkEmpty, c.info)))
     var temp = newSym(skTemp, getIdent(c.g.cache, lowerings.genPrefix), nextSymId c.idgen, c.fn, c.info)
     temp.typ = x.typ
     incl(temp.flags, sfFromGeneric)
@@ -988,12 +981,11 @@ proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInf
   if isEmptyContainer(skipped) or skipped.kind == tyStatic: return
 
   var canon: PType
-  if skipped.kind == tyObject:
+  if skipped.kind in {tyObject, tyDistinct}:
     # for nominal types, the type itself is already the canonical one (each one
     # is unique)
     # XXX: ^^ at present, this is only true for object types. Phantom
-    #      ``tyDistinct`` and ``tyEnum`` types still don't have unique
-    #      instances
+    #      ``tyEnum`` types still don't have unique instances
     canon = skipped
   else:
     # structural types use canonicalization

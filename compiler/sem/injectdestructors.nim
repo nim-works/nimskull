@@ -207,6 +207,19 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
   # the logic relies on the assumption that there exists a scope around
   # every 'def'
 
+  proc findScopeEnd(tree: MirTree, start: NodePosition): NodePosition =
+    ## Searches for the position of the ``mnkScopeEnd`` node for the current
+    ## scope.
+    var
+      i = start
+      depth = 0
+    while depth >= 0:
+      let kind = tree[i].kind
+      depth = depth + ord(kind == mnkScope) - ord(kind == mnkEndScope)
+      inc i
+
+    result = i - 1
+
   # XXX: profiling showed that a significant amount of time is spent in
   #      ``computeSpan`` and adding elements to the `scopeStack`. An approach
   #      where a scope's span is only computed when needed might be better
@@ -215,16 +228,15 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
     of mnkScope:
       # start a new scope. The start and end node/token are not included in
       # the span
-      let span = computeSpan(tree, i)
-      scopeStack.add (span.a + 1)..(span.b - 1)
-    of mnkEnd:
-      if n.start == mnkScope:
-        # leave the current scope:
-        scopeStack.setLen(scopeStack.len - 1)
-        if scopeStack.len == 0:
-          # the following statements, if any, can only be joins, and those can
-          # safely be skipped here
-          break
+      let fin = findScopeEnd(tree, i + 1)
+      scopeStack.add tree.sibling(i)..(fin-1)
+    of mnkEndScope:
+      # leave the current scope:
+      scopeStack.setLen(scopeStack.len - 1)
+      if scopeStack.len == 0:
+        # the following statements, if any, can only be joins, and those can
+        # safely be skipped here
+        break
 
     else:
       yield (i, n, scopeStack[^1])
@@ -498,7 +510,6 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
   ## `expr` is the call, construction, or ``raise`` argument expression that
   ## the consume is part of; `src` is the consumed lvalue; and `pos` is the
   ## data-flow instruction correspondig to the consume operation.
-  assert tree[expr].kind in ExprKinds
   if isNamed(tree, src) and
      needsReset(tree, ctx.cfg, ar, computePath(tree, NodePosition src),
                 pos + 1):
@@ -563,9 +574,9 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
   assert body[stmt].kind == mnkSwitch
 
   let
-    target = body.operand(stmt, 0)
+    target = body.child(stmt, 0)
     objType = body[target].typ
-    field = lookupInType(env[objType], body[target].field.int)
+    field = lookupInType(env[objType], body.field(target).int)
     typ = env.types.add(field.typ)
 
   assert body[target].kind == mnkPathVariant
@@ -576,7 +587,7 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
   let
     a = bu.wrapMutAlias(typ):
       # bind the discriminator lvalue, not the variant lvalue
-      bu.subTree MirNode(kind: mnkPathNamed, typ: typ, field: body[target].field):
+      bu.pathNamed typ, body.field(target):
         bu.emitFrom(body, NodePosition body.operand(target))
     b = bu.wrapTemp typ:
       bu.emitFrom(body, body.child(stmt, 1))
@@ -617,7 +628,7 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
       bu.buildMagicCall mNot, BoolType:
          bu.emitByVal val
 
-    var src = body.child(NodePosition target, 0)
+    var src = body.child(target, 0)
     # skip all ``mnkPathVariant`` nodes:
     while body[src].kind == mnkPathVariant:
       src = body.child(src, 0)
@@ -626,9 +637,8 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
       # ``=destroy`` call:
       bu.buildVoidCall(env, branchDestructor):
         # pass the object access expression to the destroy call
-        bu.subTree mnkName:
-          bu.subTree MirNode(kind: mnkTag, effect: ekMutate):
-            bu.emitFrom(body, src)
+        bu.emitByName ekMutate:
+          bu.emitFrom(body, src)
 
   else:
     # the object doesn't need destruction, which means that neither does one

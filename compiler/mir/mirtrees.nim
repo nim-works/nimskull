@@ -82,6 +82,9 @@ type
     # store the type of the destination within each def, assignment, etc. and
     # then remove the type field from ``MirNode``
 
+    mnkImmediate ## special node only allowed in certain contexts. Used to
+                 ## store extra, context-dependent information in the tree
+
     mnkMagic  ## only allowed in a callee position. Refers to a magic
               ## procedure
 
@@ -176,10 +179,6 @@ type
               ## currently active exception. Otherwise, consumes the operand
               ## and sets it as the active exception
 
-    mnkTag    ## must only appear as the immediate subnode to a ``mnkName``
-              ## tree. Describes what kind of mutation is applied to the
-              ## lvalue within the called procedure
-
     mnkSetConstr  ## constructor for set values
     mnkRange      ## range constructor. May only appear in set constructions
                   ## and as a branch label
@@ -189,6 +188,8 @@ type
     mnkClosureConstr## constructor for closure values
     mnkObjConstr  ## constructor for object values
     mnkRefConstr  ## allocates a new managed heap cell and initializes it
+    mnkBinding    ## only valid as an object or ref construction child node.
+                  ## Associates an argument with a field
 
     mnkCopy   ## denotes the assignment as copying the source value
     mnkMove   ## denotes the assignment as moving the value. This does
@@ -213,9 +214,12 @@ type
               ## * syntactic statement node for representing void calls
               ## * statement acting as a use of the given lvalue
 
-    mnkScope  ## the only way to introduce a scope. Scopes can be nested and
-              ## dictate the lifetime of the locals that are directly enclosed
-              ## by them
+    mnkScope  ## starts a scope, which are used to delimit lifetime of locals
+              ## they enclose. Can be nested, but must always be paired with
+              ## exactly one ``mnkEndScope`` statement
+    mnkEndScope## closes the current scope. Must always be paired with a
+              ## ``mnkScope`` statement
+    # future direction: both mnkScope and mnkEndScope should become atoms
 
     mnkGoto   ## unconditional jump
     mnkIf     ## depending on the run-time value of `x`, transfers control-
@@ -239,14 +243,8 @@ type
     mnkAsm    ## embeds backend-dependent code directly into the output
     mnkEmit   ## embeds backend-dependent code directly into the output
 
-    mnkEnd    ## marks the end of a sub-tree. Has no behaviour associated with
-              ## it -- it's only required to know where a sub-tree ends
-    # future direction: replace the End node with storing the number of sub-
-    # nodes of a sub-tree on the node itself. This will require significant
-    # structural changes, as not all node kinds are able to use the length
-    # field at the moment
-
   EffectKind* = enum
+    ekNone      ## no effect
     ekMutate    ## the value in the location is mutated
     ekReassign  ## a new value is assigned to the location
     ekKill      ## the value is removed from the location (without observing
@@ -254,9 +252,6 @@ type
     ekInvalidate## all knowledge and assumptions about the location and its
                 ## value become outdated. The state of it is now completely
                 ## unknown
-
-  GeneralEffect* = enum
-    geMutateGlobal ## the operation mutates global state
 
   MirNode* = object
     typ*: TypeId ## valid for all expression, including all calls
@@ -272,7 +267,7 @@ type
       cnst*: ConstId
     of mnkParam, mnkLocal, mnkTemp, mnkAlias:
       local*: LocalId
-    of mnkField, mnkPathNamed, mnkPathVariant:
+    of mnkField:
       field*: int32
         ## field position
     of mnkIntLit, mnkUIntLit, mnkFloatLit:
@@ -281,20 +276,15 @@ type
       strVal*: StringId
     of mnkAstLit:
       ast*: AstId
-    of mnkPathPos:
-      position*: uint32 ## the 0-based position of the field
-    of mnkCall, mnkCheckedCall:
-      effects*: set[GeneralEffect]
     of mnkLabel, mnkLeave:
       label*: LabelId
+    of mnkImmediate:
+      imm*: uint32 ## meaning depends on the context
     of mnkMagic:
       magic*: TMagic
-    of mnkEnd:
-      start*: MirNodeKind ## the kind of the corresponding start node
-    of mnkTag:
-      effect*: EffectKind ## the effect that happens when the operator the
-                          ## tagged value is passed to is executed
-    else:
+    of mnkNone, mnkNilLit, mnkType, mnkResume:
+      discard
+    of {low(MirNodeKind)..high(MirNodeKind)} - {mnkNone .. mnkLeave}:
       len*: uint32
 
   MirTree* = seq[MirNode]
@@ -322,13 +312,12 @@ const
   AtomNodes* = {mnkNone..mnkLeave}
     ## Nodes that don't support sub nodes.
 
-  SubTreeNodes* = AllNodeKinds - AtomNodes - {mnkEnd}
-    ## Nodes that start a sub-tree. They're always matched with an ``mnkEnd``
-    ## node.
+  SubTreeNodes* = AllNodeKinds - AtomNodes
+    ## Nodes that start a sub-tree. They always store a length.
 
   SingleOperandNodes* = {mnkPathNamed, mnkPathPos, mnkPathVariant, mnkPathConv,
                          mnkAddr, mnkDeref, mnkView, mnkDerefView, mnkStdConv,
-                         mnkConv, mnkCast, mnkRaise, mnkTag, mnkArg,
+                         mnkConv, mnkCast, mnkRaise, mnkArg,
                          mnkName, mnkConsume, mnkVoid, mnkCopy, mnkMove,
                          mnkSink, mnkDestroy, mnkMutView, mnkToMutSlice}
     ## Nodes that start sub-trees but that always have a single sub node.
@@ -348,13 +337,14 @@ const
   ConstrTreeNodes* = {mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr,
                       mnkTupleConstr, mnkClosureConstr, mnkObjConstr,
                       mnkRefConstr, mnkProcVal, mnkArg, mnkField,
-                      mnkEnd} + LiteralDataNodes
+                      mnkBinding} +
+                     LiteralDataNodes
     ## Nodes that can appear in the MIR subset used for constant expressions.
 
   StmtNodes* = {mnkScope, mnkGoto, mnkIf, mnkCase, mnkLoop, mnkJoin,
                 mnkLoopJoin, mnkExcept, mnkFinally, mnkContinue, mnkEndStruct,
                 mnkInit, mnkAsgn, mnkSwitch, mnkVoid, mnkRaise, mnkDestroy,
-                mnkEmit, mnkAsm} + DefNodes
+                mnkEmit, mnkAsm, mnkEndScope} + DefNodes
     ## Nodes that are treated like statements, in terms of syntax.
 
   # --- semantics-focused sets:
@@ -429,68 +419,48 @@ func `in`*(p: NodePosition, tree: MirTree): bool {.inline.} =
 template `[]`*(tree: MirTree, i: NodePosition | OpValue): untyped =
   tree[ord(i)]
 
+template isAtom(kind: MirNodeKind): bool =
+  # much faster than an `in SubTreeNodes` test
+  ord(kind) <= ord(mnkLeave)
+
 func parent*(tree: MirTree, n: NodePosition): NodePosition =
   result = n
-
-  var depth = 1
-  while depth > 0:
+  # walk backwards and compute the total number of nodes covered so far.
+  # Once the covered region includes the node we started at, we've found the
+  # parent
+  var covered = 0'u32
+  while true:
     dec result
 
-    let kind = tree[result].kind
-    depth += ord(kind == mnkEnd) - ord(kind in SubTreeNodes)
+    let node = tree[result]
+    if not isAtom(node.kind):
+      covered += node.len
 
-func parentEnd*(tree: MirTree, n: NodePosition): NodePosition =
-  # Computes the position of the ``mnkEnd`` node belonging to the sub-tree
-  # enclosing `n`
-  result = n
-
-  # start at depth '2' if `n` starts a sub-tree itself. The terminator of said
-  # sub-tree would be treated as the parent's end otherwise
-  var depth = 1 + ord(tree[n].kind in SubTreeNodes)
-  while depth > 0:
-    inc result
-
-    let kind = tree[result].kind
-    depth += ord(kind in SubTreeNodes) - ord(kind == mnkEnd)
+    if uint32(result) + covered >= uint32(n):
+      break
 
 func sibling*(tree: MirTree, n: NodePosition): NodePosition =
-  ## Computes the index of the next sibling node of `x`
-  # TODO: should return a option. Not all nodes have siblings
-  # TODO: since this doesn't consider 'end' nodes, the procedure should
-  #       probably be renamed to ``rawSibling``?
-  result = n + 1
-
-  var depth = ord(tree[n].kind in SubTreeNodes)
-  while depth > 0:
-    let kind = tree[result].kind
-    # to be more efficient, we don't use branching. We're incrementing
-    # `depth` whenever we encounter the start of a sub-tree and decrement
-    # it when an 'end' node is encountered
-    depth += ord(kind in SubTreeNodes) - ord(kind == mnkEnd)
-
+  ## Computes the index of the next node/sub-tree following the node at `n`.
+  # XXX: `sibling` is a misnomer; `next` would be more fitting
+  result = n
+  var last = n
+  while result <= last:
+    let node = tree[result]
+    if not isAtom(node.kind):
+      inc last, node.len.int
     inc result
-
-  if result.int == tree.len or tree[result].kind == mnkEnd:
-    # no sibling exists
-    discard
 
 func previous*(tree: MirTree, n: NodePosition): NodePosition =
   ## Computes the index of `n`'s the preceding sibling node. If there
-  ## is none, returns the index of the parent node.
-  var i = n - 1
-
-  var depth = ord(tree[i].kind == mnkEnd)
-  while depth > 0:
-    dec i
-    let kind = tree[i].kind
-
-    # to be more efficient, we don't use branching. We're incrementing
-    # `depth` whenever we encounter the end of a sub-tree and decrement
-    # it when a start of one is encountered
-    depth += ord(kind == mnkEnd) - ord(kind in SubTreeNodes)
-
-  assert ord(i) >= 0
-  result = i
+  ## is none, returns the index of the parent node. **This is a slow
+  ## operation, it should be used sparsely.**
+  # XXX: could be optimized to not require first seeking to the parent
+  result = tree.parent(n)
+  var next = result + 1 # first child node
+  # advance the position until the sibling is `n`
+  while next < n:
+    result = next
+    next = tree.sibling(result)
 
 func computeSpan*(tree: MirTree, n: NodePosition): Slice[NodePosition] =
   ## If `n` refers to a leaf node, returns a span with the `n` as the single
@@ -498,24 +468,6 @@ func computeSpan*(tree: MirTree, n: NodePosition): Slice[NodePosition] =
   ## Otherwise, computes and returns the span of nodes part of the sub-tree
   ## at `n`. The 'end' node is included.
   result = n .. (sibling(tree, n) - 1)
-
-func start*(tree: MirTree, n: NodePosition): NodePosition =
-  ## Find the corresponding start node for an ``mnkEnd`` node
-  assert tree[n].kind == mnkEnd
-  result = n
-
-  var depth = 1
-  while depth > 0:
-    dec result
-
-    let kind = tree[result].kind
-    depth += ord(kind == mnkEnd) - ord(kind in SubTreeNodes)
-
-func findEnd*(tree: MirTree, n: NodePosition): NodePosition =
-  ## Finds the corresponding ``end`` node for the node `n` that starts a
-  ## sub-tree
-  assert tree[n].kind in SubTreeNodes
-  result = sibling(tree, n) - 1
 
 func child*(tree: MirTree, n: NodePosition, index: Natural): NodePosition =
   ## Returns the position of the child node at index `index`. `index` *must*
@@ -538,13 +490,12 @@ func `[]`*(tree: MirTree, n: OpValue, index: Natural): lent MirNode =
   ## Returns the `index`-th child node of sub-tree `n`.
   tree[child(tree, NodePosition n, index)]
 
-func getStart*(tree: MirTree, n: NodePosition): NodePosition =
-  ## If `n` refers to an ``end`` node, returns the corresponding start node --
-  ## `n` otherwise
-  if tree[n].kind == mnkEnd:
-    start(tree, n)
-  else:
-    n
+func last*(tree: MirTree, n: NodePosition): NodePosition =
+  ## Returns the last child node in the subtree at `n`.
+  let skip = tree[n].len - 1
+  result = tree.child(n, 0)
+  for _ in 0..<skip:
+    result = tree.sibling(result)
 
 func findParent*(tree: MirTree, start: NodePosition,
                  kind: MirNodeKind): NodePosition =
@@ -558,43 +509,34 @@ func findParent*(tree: MirTree, start: NodePosition,
 
 func len*(tree: MirTree, n: NodePosition): int =
   ## Computes the number of child nodes for the given sub-tree node.
-  var n = n + 1
-  while tree[n].kind != mnkEnd:
-    inc result
-    n = tree.sibling(n)
+  tree[n].len.int
 
 func numArgs*(tree: MirTree, n: NodePosition): int =
   ## Counts and returns the number of *call arguments* in the call tree at
   ## `n`.
   assert tree[n].kind in CallKinds
-  var n = tree.sibling(n + 1) # skip the callee
-  while tree[n].kind in ArgumentNodes:
-    inc result
-    n = tree.sibling(n)
+  result = tree[n].len.int - 2 - ord(tree[n].kind == mnkCheckedCall)
 
 func operand*(tree: MirTree, op: OpValue|NodePosition): OpValue =
-  ## Returns the index (``OpValue``) of the operand for the single-input node
-  ## at `op`.
-  assert tree[op].kind in SingleOperandNodes, $tree[op].kind
+  ## Returns the index (``OpValue``) of the operand for the single-operand
+  ## operation at `op`.
   let pos =
     when op is NodePosition: op
     else:                    NodePosition(op)
-  result = OpValue(pos + 1)
+  case tree[op].kind
+  of SingleOperandNodes - {mnkName}:
+    OpValue(pos + 1)
+  of mnkName:
+    OpValue(pos + 2)
+  else:
+    unreachable()
 
 func argument*(tree: MirTree, n: NodePosition, i: Natural): OpValue =
   ## Returns the `i`-th argument in the call-like tree at `n`, skipping
   ## tag nodes. It is expected that the call has at least `i` + 1
   ## arguments.
   assert tree[n].kind in CallKinds
-  var n = tree.sibling(n + 1)
-  for _ in 0..<i:
-    n = tree.sibling(n)
-  n = NodePosition tree.operand(n)
-  # skip the tag node if one exists
-  if tree[n].kind == mnkTag:
-    tree.operand(n)
-  else:
-    OpValue n
+  result = tree.operand(tree.child(n, 2 + i))
 
 func skip*(tree: MirTree, n: OpValue, kind: MirNodeKind): OpValue =
   ## If `n` is of `kind`, return its operand node, `n` otherwise.
@@ -610,19 +552,26 @@ iterator pairs*(tree: MirTree): (NodePosition, lent MirNode) =
 
 iterator subNodes*(tree: MirTree, n: NodePosition): NodePosition =
   ## Iterates over and yields all direct child nodes of `n`
-  var r = n + 1
-  while tree[r].kind != mnkEnd:
-    yield r
-    r = sibling(tree, r)
+  let L = tree[n].len
+  var n = tree.child(n, 0)
+  for _ in 0..<L:
+    yield n
+    n = tree.sibling(n)
 
-iterator arguments*(tree: MirTree, n: NodePosition): (ArgKinds, OpValue) =
+iterator arguments*(tree: MirTree, n: NodePosition): (ArgKinds, EffectKind, OpValue) =
   ## Returns the argument kinds together with the operand node (or tag tree).
   assert tree[n].kind in CallKinds
-  var i = tree.sibling(n + 1) # skip the callee
-  # XXX: iterating until no more argument nodes are found is a temporary
-  #      workaround until call nodes store their number of sub-nodes
-  while tree[i].kind in ArgumentNodes:
-    yield (ArgKinds(tree[i].kind), tree.operand(i))
+  # the jump target of checked calls is not an argument
+  let len = tree[n].len.int - ord(tree[n].kind == mnkCheckedCall)
+  var i = tree.child(n, 2) # skip the callee and effect node
+  for _ in 2..<len:
+    let node = tree[i]
+    let eff =
+      case node.kind
+      of mnkName: tree[i + 1].imm.EffectKind
+      else:       ekNone
+    # for efficiency, only use a single yield
+    yield (ArgKinds(node.kind), eff, tree.operand(i))
     i = tree.sibling(i)
 
 func findDef*(tree: MirTree, n: NodePosition): NodePosition =
@@ -643,7 +592,10 @@ func findDef*(tree: MirTree, n: NodePosition): NodePosition =
          tree[name].local == expected:
         return
 
-    result = tree.previous(result)
+    # seek to the previous statement:
+    dec result
+    while tree[result].kind notin StmtNodes:
+      dec result
 
   unreachable("no corresponding def found")
 
@@ -655,3 +607,27 @@ iterator lpairs*[T](x: seq[T]): (int, lent T) =
   while i < L:
     yield (i, x[i])
     inc i
+
+# -------------------------------
+# queries for specific node kinds
+
+func callee*(tree: MirTree, n: NodePosition): NodePosition {.inline.} =
+  ## Returns the callee node for the call subtree `n`.
+  assert tree[n].kind in CallKinds
+  n + 2
+
+proc mutatesGlobal*(tree: MirTree, n: NodePosition): bool {.inline.} =
+  ## Whether evaluating the call expression at `n` potentially mutates
+  ## global state.
+  assert tree[n].kind in CallKinds
+  tree[n, 0].imm.bool
+
+func effect*(tree: MirTree, n: NodePosition): EffectKind {.inline.} =
+  ## Returns the effect for the ``mnkName`` node at `n`.
+  assert tree[n].kind == mnkName
+  tree[n, 0].imm.EffectKind
+
+func field*(tree: MirTree, n: NodePosition): int32 {.inline.} =
+  ## Returns the field position specified for the field access at `n`.
+  assert tree[n].kind in {mnkPathNamed, mnkPathVariant}
+  tree[n, 1].field

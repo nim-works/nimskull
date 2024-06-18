@@ -150,13 +150,13 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
       for j in 0..<res.len:
         res.kids[j] = body
 
-      inc i # consume the end node
       res
 
     inc i # advance to the first child node
     case n.kind
     of mnkObjConstr, mnkRefConstr:
       tree cnkObjConstr:
+        inc i # skip the binding node
         let field = lookupInType(typ, t[i].field.int)
         inc i # advance to the arg node
         CgNode(kind: cnkBinding, info: unknownLineInfo,
@@ -178,9 +178,7 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
       tree cnkRange:
         recurse()
     of mnkArg:
-      let x = recurse()
-      inc i # skip the end node
-      x
+      recurse()
     of mnkNilLit:
       CgNode(kind: cnkNilLit, info: unknownLineInfo, typ: typ)
     of mnkIntLit:
@@ -200,7 +198,7 @@ proc translate*(t: MirTree, env: MirEnv): CgNode =
              astLit: env[n.ast])
     of mnkProcVal:
       CgNode(kind: cnkProc, info: unknownLineInfo, prc: n.prc, typ: typ)
-    of AllNodeKinds - ConstrTreeNodes + {mnkEnd, mnkField}:
+    of AllNodeKinds - ConstrTreeNodes + {mnkField, mnkBinding}:
       # 'end' nodes are skipped manually
       unreachable(n.kind)
 

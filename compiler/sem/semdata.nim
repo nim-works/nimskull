@@ -637,6 +637,9 @@ type
                             op: TTypeAttachedOp; col: int): PSym {.nimcall.}
       ## read to break cyclic dependencies, init in sem during module open and
       ## read in liftdestructors and semtypinst
+    semGenericExpr*: proc (c: PContext, n: PNode): PNode {.nimcall.}
+      ## read to break cyclic dependencies, init in sem during module open and
+      ## read in sigmatch
     # -------------------------------------------------------------------------
     # end: not entirely clear why, function pionters for certain sem calls?
     # -------------------------------------------------------------------------

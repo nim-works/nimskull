@@ -245,8 +245,17 @@ block genericParams:
 
   block nestedContainers:
     doAssert genericParams(seq[Foo[string, float]]).get(0) is Foo[string, float]
-    doAssert genericParams(array[10, Foo[Bar[1, int], Bar[2, float]]]) is (StaticParam[10], Foo[Bar[1, int], Bar[2, float]])
+    doAssert genericParams(array[10, Foo[Bar[1, int], Bar[2, float]]]) is (range[0..9], Foo[Bar[1, int], Bar[2, float]])
     doAssert genericParams(array[1..9, int]) is (range[1..9], int)
+
+  doAssert genericParams(var int) is (int,)
+  doAssert genericParams(ptr int) is (int,)
+  doAssert genericParams(ref int) is (int,)
+  doAssert genericParams(set[int16]) is (int16,)
+  doAssert genericParams(openArray[int]) is (int,)
+  doAssert genericParams(varargs[int]) is (int,)
+  doAssert genericParams(UncheckedArray[int]) is (int,)
+  doAssert genericParams(range[1 .. 2]) is (StaticParam[1], StaticParam[2])
 
 ##############################################
 # bug 13095

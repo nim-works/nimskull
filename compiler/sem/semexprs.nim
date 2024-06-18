@@ -772,32 +772,19 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     result.sons.setLen(n.len)
     for i, it in n.pairs:
       # first, analyse the index expression (if one exist)
-      let (idx, val) =
+      var (idx, val) =
         if i == 0: (first, firstIndex)
         else:      semArrayElementIndex(c, it, indexType)
 
-      # figure out the node that holds the element expression, and validate
-      # the index if one is provided
-      var e =
-        case idx.kind
-        of nkError:
-          let r = shallowCopy(it)
-          r[0] = idx
-          r[1] = it[1]
-          c.config.wrapError(r)
-        of nkEmpty:
-          it
-        else:
-          if val == lastIndex + 1:
-            it[1]
-          else:
-            # the specified index value doesn't match with the expected one
-            c.config.newError(it,
-                          PAstDiag(kind: adSemInvalidOrderInArrayConstructor))
+      if idx.kind notin {nkError, nkEmpty} and val != lastIndex + 1:
+        # the specified index value doesn't match with the expected one
+        idx = c.config.newError(idx,
+          PAstDiag(kind: adSemInvalidOrderInArrayConstructor))
 
-      if e.kind != nkError:
-        e = semExprWithType(c, e, {})
-        e = exprNotGenericRoutine(c, e)
+      # always analyze the expression, even when the index expression is
+      # erroneous
+      var e = semExprWithType(c, it.skipColon, {})
+      e = exprNotGenericRoutine(c, e)
 
       if typ.isNil:
         # must be the first item; initialize the common type:
@@ -816,7 +803,11 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
         # yet
         typ = commonType(c, typ, e.typ)
 
-      result[i] = e
+      if it.kind == nkExprColonExpr:
+        result[i] = newTreeI(nkExprColonExpr, it.info, [idx, e])
+      else:
+        result[i] = e
+
       inc lastIndex
 
     # watch out for ``sink T``!
@@ -831,8 +822,12 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     var hasError = false
     # fit all elements to be of the derived common type
     for it in result.sons.mitems:
-      it = fitNode(c, typ, it, it.info)
-      hasError = hasError or it.kind == nkError
+      if it.kind == nkExprColonExpr:
+        it[1] = fitNode(c, typ, it[1], it[1].info)
+        hasError = hasError or nkError in {it[0].kind, it[1].kind}
+      else:
+        it = fitNode(c, typ, it, it.info)
+        hasError = hasError or it.kind == nkError
 
     if hasError:
       result = c.config.wrapError(result)

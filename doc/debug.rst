@@ -423,35 +423,33 @@ MIR Input and Output
 ====================
 
 For debugging issues related to the MIR but also code-generator issues in
-general, one can print the input and output to the MIR canonicalization step
-plus the corresponding `PNode`-AST output.
+general, one can print the various IRs used during the mid-/back-end phase.
 
-To print the `PNode`-AST that reaches `mirgen`, `--define:nimShowMirInput=name`
-is used. This will print out the `PNode`-AST of all procedures and modules of
-which the name is equal to the specified `name` in the console. Because of how
-dead-code-elimination works, only the AST of alive procedures (i.e. used ones)
-is printed. If a procedure is used at both compile- and run-time, it will be
-printed twice.
+This is done by using one of the following options with the
+`--showir`:option: switch:
+* `transf`:option: : shows the post `transf` AST that gets translated to the
+  MIR
+* `mir_in`:option: : shows the MIR produced by `mirgen`, without any passes
+  applied
+* `mir_out`:option: : shows the MIR after all passes were applied, right before
+  translation to the CGIR
+* `cgir`:option: : shows the CGIR as produced by `cgirgen`
 
-To print the generated MIR code for a procedure, `--define:nimShowMir=name`
-can be used. The same limitation as for `nimShowMirInput` apply.
-
-`--define:nimShowMirOutput=name` prints the `CgNode`-IR that is output by
-`cgirgen`. This is IR that the code generators operate on.
-
-While all of the defines listed above can be used simultaneously, only a single
-occurrence of each is considered. Each further occurrence will override the
-respective name.
+If a procedure is used at both compile- and run-time, it will show up in the
+output twice, though potentially with different bodies, as different passes are
+applied. Only procedures actually used in alive code are processed during the
+MIR and back-end phase; if a procedure is not alive, the IR for cannot be
+shown with `--showir`:option: .
 
 VM Codegen and Execution
 ========================
 
 For echoing the VM bytecode generated for compile-time procedures and macros,
-`--define:expandVmListing=vmTarget`:option: can be passed to the compiler (no
-special build of the compiler is required). The bytecode for all routines of
-which the name is `vmTarget` is then echoed to the standard output. Leaving
-`vmTarget` empty enables echoing for *all* VM bytecode that is generated as
-part of compile-time execution.
+`--showir:vm:vmTarget`:option: can be passed to the compiler (no special build
+of the compiler is required). The bytecode for all routines of which the name
+is `vmTarget` is then echoed to the standard output. Leaving `vmTarget` empty
+enables echoing for *all* VM bytecode that is generated as part of compile-time
+execution.
 
 For example (generated listing might not match exactly)
 
@@ -471,7 +469,7 @@ For example (generated listing might not match exactly)
 
 .. code-block:: cmd
 
-  nim c --filenames:canonical --define:expandVmListing=vmTarget file.nim
+  nim c --filenames:canonical --showir:vm:vmTarget file.nim
 
 
 .. code-block:: literal

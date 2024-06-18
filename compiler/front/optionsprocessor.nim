@@ -170,6 +170,7 @@ type
     cmdSwitchDeepcopy
     cmdSwitchProjStdin
     cmdSwitchCmdexitgcstats
+    cmdSwitchShowIr
     cmdSwitchConfigVar
 
   # Full list of all the command line options.
@@ -298,6 +299,7 @@ type
     fullSwitchTxtSourcemap           = "sourcemap"
     fullSwitchTxtDeepcopy            = "deepcopy"
     fullSwitchTxtCmdexitgcstats      = "cmdexitgcstats"
+    fullSwitchShowIr                 = "showir"
     smolSwitchTxtProjStdin           = ""               # `nim c -r -`, the `-` gets stripped
     fullSwitchTxtConfigVar           = "*.*"            # cfg var dummy entry
     fullSwitchTxtInvalid             = "!ERROR!"
@@ -426,6 +428,7 @@ const
       cmdSwitchDeepcopy           : {fullSwitchTxtDeepcopy},
       cmdSwitchProjStdin          : {smolSwitchTxtProjStdin},
       cmdSwitchCmdexitgcstats     : {fullSwitchTxtCmdexitgcstats},
+      cmdSwitchShowIr             : {fullSwitchShowIr},
       cmdSwitchConfigVar          : {fullSwitchTxtConfigVar},
     ]
 
@@ -616,6 +619,7 @@ func allowedCompileOptionsArgs*(switch: CmdSwitchKind): seq[string] =
   of cmdSwitchExperimental: experimentalFeatures.toSeq.mapIt($it)
   of cmdSwitchExceptions  : @["native", "goto"]
   of cmdSwitchStylecheck  : @["off", "hint", "error"]
+  of cmdSwitchShowIr      : IrName.toSeq.mapIt($it)
   else: unreachable("this is a compiler bug")
 
 func allowedCompileOptionArgs*(switch: string): seq[string] =
@@ -1627,6 +1631,25 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     setSwitchAndSrc cmdSwitchCmdexitgcstats
     # Print GC statistics for the compiler run
     conf.incl optCmdExitGcStats
+  of "showir":
+    setSwitchAndSrc cmdSwitchShowIr
+    expectArg(switch, arg)
+    # can either be ``--showir:a:b`` or just ``--showir:a``
+    let (irName, name) =
+      if (let p = find(arg, ':'); p != -1):
+        (arg.substr(0, p-1), arg.substr(p+1))
+      else:
+        (arg, "")
+
+    let ir =
+      try:    parseEnum[IrName](irName)
+      except: invalidArgValue(irName, switch)
+
+    if name.len == 0:
+      conf.toDebugIr.incl ir # enabled globally
+    else:
+      # IR debugging is enabled only for the specific procedure
+      conf.toDebugProc[name] = $ir # use the canonical name
   else:
     if strutils.find(switch, '.') >= 0:
       setSwitchAndSrc cmdSwitchConfigVar

@@ -283,7 +283,7 @@ func isEmpty*(tree: MirTree): bool =
   ## Returns whether `tree` contains either no nodes or only nodes that have
   ## no meaning by themselves.
   for n in tree.items:
-    if n.kind notin {mnkScope, mnkEnd}:
+    if n.kind notin {mnkScope, mnkEndScope}:
       return false
 
   result = true
@@ -390,7 +390,7 @@ proc translate*(id: ProcedureId, body: PNode, graph: ModuleGraph,
 
   echoInput(graph.config, prc, body)
   result = generateCode(graph, env, prc, config.tconfig, body)
-  echoMir(graph.config, prc, result)
+  echoMir(graph.config, prc, result, env)
 
   # now apply the passes:
   process(result, prc, graph, idgen, env)
@@ -399,6 +399,7 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
                  owner: PSym, body: sink MirBody): Body =
   ## Translates the MIR code provided by `code` into ``CgNode`` IR and,
   ## if enabled, echoes the result.
+  echoOutput(graph.config, owner, body, env)
   result = cgirgen.generateIR(graph, idgen, env, owner, body)
   echoOutput(graph.config, owner, result)
 
@@ -416,13 +417,14 @@ proc produceFragmentsForGlobals(
     # on this
     if bu.front.len == 0:
       discard bu.addLocal(Local()) # empty result slot
-      bu.add(m.add(n)): MirNode(kind: mnkScope)
+      bu.setSource(m.add(n))
+      bu.subTree mnkScope: discard
 
   func finish(bu: sink MirBuilder, m: var SourceMap, n: PNode
              ): auto {.nimcall.} =
     if bu.front.len > 0:
       bu.setSource(m.add(n))
-      bu.add endNode(mnkScope)
+      bu.subTree mnkEndScope: discard
     # we're creating a body here, so there is no list of locals yet
     result = finish(bu, default(Store[LocalId, Local]))
 
@@ -579,7 +581,7 @@ proc produceLoader(graph: ModuleGraph, m: Module, data: var DiscoveryData,
 
   echoInput(graph.config, sym, body)
   result = generateCode(graph, env, owner, conf.tconfig, body)
-  echoMir(graph.config, sym, result)
+  echoMir(graph.config, sym, result, env)
 
 # ----- discovery and queueing logic -----
 

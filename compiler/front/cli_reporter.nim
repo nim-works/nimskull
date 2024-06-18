@@ -3238,8 +3238,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemSelectorMustBeOfCertainTypes,
       adSemInvalidPragmaBlock,
       adSemConceptPredicateFailed,
-      adSemDotOperatorsNotEnabled,
-      adSemCallOperatorsNotEnabled,
       adSemUnexpectedPattern,
       adSemIsOperatorTakes2Args,
       adSemNoTupleTypeForConstructor,
@@ -3274,6 +3272,14 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind,
         ast: diag.wrongNode)
+  of adSemDotOperatorsNotEnabled,
+     adSemCallOperatorsNotEnabled:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind,
+        ast: diag.wrongNode,
+        sym: diag.wrongNode.sym)
   of adSemInvalidTupleSubscript:
     semRep = SemReport(
         location: some diag.location,

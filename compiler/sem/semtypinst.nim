@@ -537,6 +537,18 @@ proc instantiate(cl: var TReplTypeVars, t: PType): PType =
 
     if cl.c.computeRequiresInit(cl.c, result):
       result.flags.incl tfRequiresInit
+  of tyDistinct:
+    # same as with object types, create a new type instance even if the body
+    # doesn't change during instantiation
+    result = instCopyType(cl, t)
+    result[0] = replaceTypeVarsT(cl, t[0])
+
+    # the type also needs a proper symbol
+    result.sym = copySym(t.sym, nextSymId cl.c.idgen)
+    result.sym.flags.incl sfFromGeneric
+    result.sym.owner = t.sym
+    result.sym.ast = t.sym.ast
+    result.sym.typ = result
   else:
     # XXX: these types also need new symbols...
     result = replaceTypeVarsT(cl, t)

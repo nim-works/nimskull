@@ -187,6 +187,15 @@ type
              ## argument
     pimFile  ## the main module is a file
 
+  IrName* = enum
+    ## Names of the IRs that can be rendered to the standard output for
+    ## debugging purposes.
+    irTransf = "transf"
+    irMirIn  = "mir_in"
+    irMirOut = "mir_out"
+    irCgir   = "cgir"
+    irVm     = "vm"
+
   ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
 
   HackController* = object
@@ -308,6 +317,13 @@ type
     when defined(nimDebugUtils):
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
       ## len is also used for output indent level
+
+    toDebugProc*: StringTableRef
+      ## maps identifiers to the name of the IR to print to the standard
+      ## output
+    toDebugIr*: set[IrName]
+      ## the IRs which should always be always printed to the standard
+      ## output
 
     when defined(nimDebugUnreportedErrors):
       unreportedErrors*: OrderedTable[NodeId, PNode]
@@ -903,6 +919,7 @@ proc initConfigRefCommon(conf: ConfigRef) =
   conf.notes = NotesVerbosity.main[conf.verbosity]
   conf.hack = defaultHackController
   conf.mainPackageNotes = NotesVerbosity.main[conf.verbosity]
+  conf.toDebugProc = newStringTable(modeStyleInsensitive)
   when defined(nimDebugUtils):
     # ensures that `nimDebugUtils` is defined for the compiled code so it can
     # access the `system.nimCompilerDebugRegion` template
@@ -1589,3 +1606,8 @@ func inDebug*(conf: ConfigRef): bool {.
   noSideEffect.} =
   ## Check whether 'nim compiler debug' is defined right now.
   return conf.isDefined("nimCompilerDebug")
+
+template isDebugEnabled*(c: ConfigRef, ir: IrName, name: string): bool =
+  ## Whether printing the `ir` IR is enabled specifically for the given `name`.
+  # a template is used so that `$ir` can be folded when `ir` is constant
+  c.toDebugProc.getOrDefault(name) == $ir
