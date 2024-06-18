@@ -63,19 +63,19 @@ elif useWinVersion:
         DLLUtilName* = "libeay32.dll"
   elif defined(cpu64):
     const
-      DLLSSLName* = "(libssl-1_1-x64|ssleay64|libssl64).dll"
-      DLLUtilName* = "(libcrypto-1_1-x64|libeay64).dll"
+      DLLSSLName* = "(libssl-3-x64|libssl-1_1-x64|ssleay64|libssl64).dll"
+      DLLUtilName* = "(libcrypto-3-x64|libcrypto-1_1-x64|libeay64).dll"
   else:
     const
-      DLLSSLName* = "(libssl-1_1|ssleay32|libssl32).dll"
-      DLLUtilName* = "(libcrypto-1_1|libeay32).dll"
+      DLLSSLName* = "(libssl-3|libssl-1_1|ssleay32|libssl32).dll"
+      DLLUtilName* = "(libssl-3|libcrypto-1_1|libeay32).dll"
 
   from std/winlean import SocketHandle
 else:
   when defined(osx):
-    const versions = "(.1.1|.38|.39|.41|.43|.44|.45|.46|.47|.48|.10|.1.0.2|.1.0.1|.1.0.0|.0.9.9|.0.9.8|)"
+    const versions = "(.3|.1.1|.38|.39|.41|.43|.44|.45|.46|.47|.48|.10|.1.0.2|.1.0.1|.1.0.0|.0.9.9|.0.9.8|)"
   else:
-    const versions = "(.1.1|.1.0.2|.1.0.1|.1.0.0|.0.9.9|.0.9.8|.48|.47|.46|.45|.44|.43|.41|.39|.38|.10|)"
+    const versions = "(.3|.1.1|.1.0.2|.1.0.1|.1.0.0|.0.9.9|.0.9.8|.48|.47|.46|.45|.44|.43|.41|.39|.38|.10|)"
 
   when defined(macosx):
     const
@@ -796,10 +796,14 @@ when defined(nimHasStyleChecks):
 
 # Certificate validation
 # On old openSSL version some of these symbols are not available
-when not defined(nimDisableCertificateValidation) and not defined(windows):
+when not defined(nimDisableCertificateValidation):
 
-  proc SSL_get_peer_certificate*(ssl: SslCtx): PX509{.cdecl, dynlib: DLLSSLName,
-      importc.}
+  proc SSL_get_peer_certificate*(ssl: SslCtx): PX509 {.gcsafe, tags: [].} =
+    {.cast(tags: []), cast(gcsafe).}:
+      let thisProc {.global.} = cast[proc (ssl: SslCtx): PX509 {.cdecl.}](
+        sslSymThrows("SSL_get1_peer_certificate", "SSL_get_peer_certificate")
+      )
+      if not thisProc.isNil: result = thisProc(ssl)
 
   proc X509_get_subject_name*(a: PX509): PX509_NAME{.cdecl, dynlib: DLLSSLName, importc.}
 
