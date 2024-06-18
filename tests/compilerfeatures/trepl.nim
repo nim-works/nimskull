@@ -1,6 +1,7 @@
 discard """
   description: "Ensure that the basic REPL functionality works"
   targets: native
+  timeout: "5"
 """
 
 import std/[streams, os, osproc]
