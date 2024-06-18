@@ -135,18 +135,18 @@ jobs:
         if: runner.os == 'Windows'
         uses: ./.github/actions/setup-mingw
 
+      - name: Setup vcpkg (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: x64-mingw-dynamic-release
+          host-triplet: x64-mingw-dynamic-release
+          revision: 2024.01.12
+          overlay-triplets: ${{ github.workspace }}/tools/vcpkg/triplets
+
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
-        uses: johnwason/vcpkg-action@v6
-        with:
-          pkgs: >-
-            pcre
-            sqlite3
-          triplet: x64-mingw-dynamic-release
-          extra-args: --overlay-triplets=${{ github.workspace }}/tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
-          revision: 2024.01.12
-          github-binarycache: true
-          token: ${{ github.token }}
+        run: vcpkg install pcre sqlite3
 
       - name: Download CA certificates (Windows)
         if: runner.os == 'Windows'
@@ -393,18 +393,18 @@ jobs:
           # Pipe from zstd to tar because macOS' tar does not support unpacking zstd
           zstd -c -d "$archive" | tar -xf - --strip-components 1
 
+      - name: Setup vcpkg (Windows)
+        if: runner.os == 'Windows'
+        uses: ./git-src/.github/actions/setup-vcpkg
+        with:
+          triplet: x64-mingw-dynamic-release
+          host-triplet: x64-mingw-dynamic-release
+          revision: 2024.01.12
+          overlay-triplets: ${{ github.workspace }}/tools/vcpkg/triplets
+
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
-        uses: johnwason/vcpkg-action@v6
-        with:
-          pkgs: >-
-            pcre
-            sqlite3
-          triplet: x64-mingw-dynamic-release
-          extra-args: --overlay-triplets=${{ github.workspace }}/tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
-          revision: 2024.01.12
-          github-binarycache: true
-          token: ${{ github.token }}
+        run: vcpkg install pcre sqlite3
 
       - name: Add DLLs to PATH (Windows)
         if: runner.os == 'Windows'
