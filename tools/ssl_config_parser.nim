@@ -37,10 +37,10 @@ proc main() =
 
   for name, config in configs["configurations"]:
     let
-      constantName = "Ciphers" & name[0].toUpperAscii & name[1..^1]
+      ciphersName = "Ciphers" & name[0].toUpperAscii & name[1..^1]
 
     var ciphers: string
-    for c in config["ciphersuites"].getElems & config["ciphers"]["openssl"].getElems:
+    for c in config["ciphers"]["openssl"].getElems:
       if ciphers.len == 0:
         ciphers.add c.getStr
       else:
@@ -48,7 +48,7 @@ proc main() =
         ciphers.add c.getStr
 
     var constant = &"""
-const {constantName}* = "{ciphers}"
+const {ciphersName}* = "{ciphers}"
   ## An OpenSSL-compatible list of secure ciphers for ``{name}`` compatibility
   ## per Mozilla's recommendations.
   ##
@@ -59,6 +59,28 @@ const {constantName}* = "{ciphers}"
       constant.add "  ## * " & c.getStr
       constant.add '\n'
 
+    let
+      ciphersuitesName = "Ciphersuites" & name[0].toUpperAscii & name[1..^1]
+
+    var ciphersuites: string
+    for c in config["ciphersuites"].getElems:
+      if ciphersuites.len == 0:
+        ciphersuites.add c.getStr
+      else:
+        ciphersuites.add ':'
+        ciphersuites.add c.getStr
+
+    constant = &"""
+{constant}
+
+const {ciphersuitesName}* = "{ciphersuites}"
+  ## An OpenSSL-compatible list of secure ciphersuites for ``{name}`` compatibility
+  ## per Mozilla's recommendations.
+  ##
+  ## To be employed with ``{ciphersName}``
+"""
+
     output.writeLine constant
+
 
 when isMainModule: main()

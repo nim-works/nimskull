@@ -140,7 +140,9 @@ jobs:
         uses: johnwason/vcpkg-action@v6
         with:
           pkgs: >-
+            openssl
             pcre
+            pkgconf
             sqlite3
           triplet: x64-mingw-dynamic-release
           extra-args: --overlay-triplets=${{ github.workspace }}/tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
@@ -243,12 +245,41 @@ jobs:
       - name: Add DLLs to PATH (Windows)
         if: runner.os == 'Windows'
         run: |
-          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          $prefix = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release"
+
+          $binPath = Join-Path $prefix "bin"
           $binPath | Out-File -Append $env:GITHUB_PATH
+          $pkgconfPath = Join-Path $prefix "tools" "pkgconf"
+          $pkgconfPath | Out-File -Append $env:GITHUB_PATH
+
+          $pcPath = (Join-Path $prefix "lib" "pkgconfig"), (Join-Path $prefix "share" "pkgconfig"), $env:PKG_CONFIG_PATH
+          "PKG_CONFIG_PATH=$($pcPath -join ";")" | Out-File -Append $env:GITHUB_ENV
         shell: pwsh
 
       - name: Run tester
-        run: ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' --tryFailing all
+        run: |
+          extraArgs=()
+
+          pc=
+          if command -v pkgconf 2>&1 >/dev/null; then
+            pc=pkgconf
+          elif command -v pkg-config 2>&1 >/dev/null; then
+            pc=pkg-config
+          fi
+
+          if [[ -n $pc ]]; then
+            extraArgs+=(
+              "-d:nimLibcryptoLinkFlags:$("$pc" --libs libcrypto)"
+              "-d:nimLibsslLinkFlags:$("$pc" --libs libssl)"
+            )
+
+            sslVer=$("$pc" --modversion libssl)
+            if [[ $sslVer == 1.1.1* ]]; then
+              extraArgs+=("-d:nimOpenssl111")
+            fi
+          fi
+
+          ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' --tryFailing all "${extraArgs[@]}"
 
       - name: Print all test errors
         if: failure()

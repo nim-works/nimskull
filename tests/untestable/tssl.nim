@@ -18,10 +18,10 @@
 import httpclient, os
 from strutils import contains, toHex
 
-from openssl import getOpenSSLVersion
+from openssl/crypto import OpenSSL_version_num
 
 when true:
-  echo "version: 0x" & $getOpenSSLVersion().toHex()
+  echo "version: 0x" & OpenSSL_version_num().toHex()
 
   let client = newHttpClient()
   # hacky SSL check
