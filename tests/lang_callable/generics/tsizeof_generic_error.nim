@@ -1,5 +1,6 @@
 discard """
   errormsg: "'GenericType' is not a concrete type"
+  line: 10
 """
 
 type
