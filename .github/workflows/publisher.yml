@@ -28,47 +28,64 @@ jobs:
       # Publish action needs a checkout
       - uses: actions/checkout@v4
 
+      - name: Obtain latest successful run id
+        id: finder
+        run: |
+          run_id=$(gh run list \
+            -c "$COMMIT" \
+            -w "$WORKFLOW" \
+            -s "$CONCLUSION" \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[].databaseId')
+          if [[ -z $run_id ]]; then
+            echo "::error::Could not found any CI run for commit $COMMIT"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+        env:
+          COMMIT: ${{ github.event.after }}
+          WORKFLOW: ci.yml
+          CONCLUSION: success
+          GH_TOKEN: ${{ github.token }}
+
       # Download the latest instance of artifacts from a build done previously
       - name: Download generated docs
-        uses: dawidd6/action-download-artifact@v6
+        uses: actions/download-artifact@v4
         with:
-          workflow: ci.yml
-          workflow_conclusion: success
-          commit: ${{ github.event.after }}
+          run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
           name: Generated docs
           path: doc/html
+          github-token: ${{ github.token }}
 
       - name: Download generated source archive
-        uses: dawidd6/action-download-artifact@v6
+        uses: actions/download-artifact@v4
         with:
-          workflow: ci.yml
-          workflow_conclusion: success
-          commit: ${{ github.event.after }}
+          run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
           name: source archive
           path: release-staging
+          github-token: ${{ github.token }}
 
       - name: Download generated release binaries
-        uses: dawidd6/action-download-artifact@v6
+        uses: actions/download-artifact@v4
         with:
-          workflow: ci.yml
-          workflow_conclusion: success
-          commit: ${{ github.event.after }}
+          run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
-          name: release binaries.*
-          name_is_regexp: true
+          pattern: release binaries *
+          merge-multiple: "true"
           path: release-staging
+          github-token: ${{ github.token }}
 
       - name: Download release manifest tool
-        uses: dawidd6/action-download-artifact@v6
+        uses: actions/download-artifact@v4
         with:
-          workflow: ci.yml
-          workflow_conclusion: success
-          commit: ${{ github.event.after }}
+          run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
           name: release manifest tool
           path: release-staging
+          github-token: ${{ github.token }}
 
       - name: Publish docs
         uses: JamesIves/github-pages-deploy-action@v4.6.1
@@ -79,11 +96,6 @@ jobs:
       - id: release-files
         name: Create release manifest
         run: |
-          # Move the release binaries to the current folder
-          for d in "release binaries "*; do
-            mv -v "$d"/* .
-          done
-
           # Github Artifacts strip executable permissions so it has to be set again
           chmod 755 release_manifest
           # Create a new release manifest
