@@ -2617,8 +2617,7 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
       )
 
     of rintEchoMessage:
-      result = if conf.cmd == cmdInteractive: ">>> " & r.msg
-               else:                          r.msg
+      result = r.msg
 
     of rintCannotOpenFile, rintWarnCannotOpenFile:
       result = "cannot open file: $1" % r.file
