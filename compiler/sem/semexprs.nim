@@ -2823,17 +2823,6 @@ proc setMs(n: PNode, s: PSym): PNode =
   n[0] = newSymNode(s)
   n[0].info = n.info
 
-proc semSizeof(c: PContext, n: PNode): PNode =
-  case n.len
-  of 2:
-    #restoreOldStyleType(n[1])
-    n[1] = semExprWithType(c, n[1])
-    n.typ = getSysType(c.graph, n.info, tyInt)
-    result = foldSizeOf(c.config, n, n)
-  else:
-    result = c.config.newError(n, PAstDiag(kind: adSemMagicExpectTypeOrValue,
-                                            magic: mSizeOf))
-
 proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   # this is a hotspot in the compiler!
   result = n
@@ -2917,7 +2906,7 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
       result = c.graph.emptyNode
   of mSizeOf:
     markUsed(c, n.info, s)
-    result = semSizeof(c, setMs(n, s))
+    result = semSizeOf(c, setMs(n, s))
   else:
     result = semDirectOp(c, n, flags)
 
