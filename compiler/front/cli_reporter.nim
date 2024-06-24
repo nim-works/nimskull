@@ -1636,7 +1636,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "using '.' instead of '/' in import paths is deprecated"
 
     of rsemInvalidModuleName:
-      result = "invalid module name: '$1'" % r.ast.render
+      if r.sym != nil:
+        result = "invalid module name: '$1'" % r.symstr
+      else:
+        result = "invalid module name: '$1'" % r.ast.render
 
     of rsemInvalidMethodDeclarationOrder:
       result = "invalid declaration order; cannot attach '" & r.symbols[0].name.s &
@@ -2617,8 +2620,7 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
       )
 
     of rintEchoMessage:
-      result = if conf.cmd == cmdInteractive: ">>> " & r.msg
-               else:                          r.msg
+      result = r.msg
 
     of rintCannotOpenFile, rintWarnCannotOpenFile:
       result = "cannot open file: $1" % r.file

@@ -769,6 +769,8 @@ proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode;
       param = getHiddenParam(g, fn)
     else:
       param.typ = t # replace with the correct type
+      # also update the symbol *node's* type
+      fn.ast[paramsPos][^1].typ = t
 
     prepareInnerRoutines(d, idgen, t, fn.info)
     # the environment instance is not setup here; that's done at the iterator's

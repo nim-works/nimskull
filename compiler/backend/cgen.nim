@@ -683,6 +683,7 @@ proc closureSetup(p: BProc, prc: PSym) =
   # prc.ast[paramsPos].last contains the type we're after:
   var ls = lastSon(prc.ast[paramsPos])
   p.config.internalAssert(ls.kind == nkSym, prc.info, "closure generation failed")
+  p.config.internalAssert(ls.typ == ls.sym.typ) # sanity check
   var env = ls.sym.position + 1 # parameters start at ID 1
 
   let n = newLocalRef(LocalId(env), ls.info, ls.typ)
