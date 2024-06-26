@@ -111,6 +111,16 @@ proc main() {.async.} =
     doAssert reason.name == "Error"
     doAssert "foobar: 7" == $reason.message
 
+  block catch_awaited_exception:
+    # make sure `await` re-raises the exception the promise was rejected with
+    var raised = false
+    try:
+      discard await(fn(7))
+    except:
+      raised = true
+
+    doAssert raised
+
   echo "done" # justified here to make sure we're running this, since it's inside `async`
 
 discard main()
