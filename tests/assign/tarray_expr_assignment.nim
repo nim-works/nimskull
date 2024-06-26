@@ -21,7 +21,7 @@ proc test(x, y: int) {.noinline.} =
   # whether the two expressions refer to the same location is unknown; the
   # assignment must not be removed
   a[x][1] = a[y][1]
-  # note: the trailing [1] sub-expression is important for this test
+  # note: the common trailing [1] sub-expressions are important for this test
 
   doAssert a[0][1].val == 4
 
