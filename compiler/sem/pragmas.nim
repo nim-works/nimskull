@@ -299,6 +299,8 @@ proc processCodegenDecl(c: PContext, n: PNode, sym: PSym): PNode =
   ## the string literal from `n`
   result = getStrLitNode(c, n)
   sym.constraint = result
+  # issue a deprecation warning:
+  c.config.localReport(n.info, reportSem(rsemCodegenDeclDeprecated))
 
 proc processMagic(c: PContext, n: PNode, s: PSym): PNode =
   ## produces an error if `n` is not a pragmacall kinds, otherwise `n` is

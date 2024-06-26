@@ -734,6 +734,7 @@ type
     rsemLockLevelMismatch        = "LockLevel"
     rsemTypelessParam            = "TypelessParam"
     rsemOwnedTypeDeprecated
+    rsemCodegenDeclDeprecated    = "Deprecated"
 
     rsemWarnUnlistedRaises = "Effect" ## `sempass2.checkRaisesSpec` had
     ## `emitWarnings: bool` parameter which was supposedly used to control
