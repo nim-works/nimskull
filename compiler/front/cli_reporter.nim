@@ -428,6 +428,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemOwnedTypeDeprecated:
       result = "the `owned` type-operator is deprecated and treated as a no-op"
 
+    of rsemCodegenDeclDeprecated:
+      result = "the `.codegenDecl` pragma is deprecated; support for it " &
+               "will be removed in the future"
+
     of rsemLinterReport:
       result.addf("'$1' should be: '$2'", r.linterFail.got, r.linterFail.wanted)
 
