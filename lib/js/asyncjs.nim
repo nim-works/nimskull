@@ -8,25 +8,14 @@
 
 ## This module implements types and macros for writing asynchronous code
 ## for the JS backend. It provides tools for interaction with JavaScript async API-s
-## and libraries, writing async procedures in Nim and converting callback-based code
-## to promises.
+## and libraries, writing async procedures in |NimSkull| and converting
+## callback-based code to promises.
 ##
-## A Nim procedure is asynchronous when it includes the `{.async.}` pragma. It
-## should always have a `Future[T]` return type or not have a return type at all.
-## A `Future[void]` return type is assumed by default.
+## A |NimSkull| procedure is asynchronous when it includes the `{.async.}`
+## pragma. If the return type is not `Future[T]`, it is opaquely turned
+## into one first. A `Future[void]` return type is assumed by default.
 ##
 ## This is roughly equivalent to the `async` keyword in JavaScript code.
-##
-## .. code-block:: nim
-##  proc loadGame(name: string): Future[Game] {.async.} =
-##    # code
-##
-## should be equivalent to
-##
-## .. code-block:: javascript
-##   async function loadGame(name) {
-##     // code
-##   }
 ##
 ## A call to an asynchronous procedure usually needs `await` to wait for
 ## the completion of the `Future`.
@@ -52,8 +41,10 @@
 ## JavaScript compatibility
 ## ========================
 ##
-## Nim currently generates `async/await` JavaScript code which is supported in modern
-## EcmaScript and most modern versions of browsers, Node.js and Electron.
+## |NimSkull| generates JavaScript code that uses the ``Promise`` and ``Error``
+## APIs, both which are supported by most modern versions of browsers, Node.js
+## and Electron.
+##
 ## If you need to use this module with older versions of JavaScript, you can
 ## use a tool that backports the resulting JavaScript code, as babel.
 
@@ -66,96 +57,185 @@ import std/jsffi
 import std/macros
 
 type
-  Future*[T] = ref object
-    future*: T
-  ## Wraps the return type of an asynchronous procedure.
-
   PromiseJs* {.importjs: "Promise".} = ref object
-  ## A JavaScript Promise.
+    ## A JavaScript Promise.
 
-proc reraise(e: ref CatchableError) {.asmNoStackFrame, noreturn.} =
-  {.emit: ["throw new Error(", cstring(e.msg), ");"].}
+  Future*[T] = distinct PromiseJs
+    ## Wraps the return type of an asynchronous procedure.
 
-proc replaceReturn(node: var NimNode) =
-  var z = 0
-  for s in node:
-    var son = node[z]
-    let jsResolve = ident("jsResolve")
-    if son.kind == nnkReturnStmt:
-      let value = if son[0].kind != nnkEmpty: nnkCall.newTree(jsResolve, son[0])
-                  else: nnkCall.newTree(jsResolve)
-      node[z] = nnkReturnStmt.newTree(value)
-    elif son.kind == nnkAsgn and son[0].kind == nnkIdent and $son[0] == "result":
-      node[z] = nnkAsgn.newTree(son[0], nnkCall.newTree(jsResolve, son[1]))
+  Error* {.importjs: "Error".} = ref object of Exception
+    ## https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error
+    message*: cstring
+
+{.push raises: [].} # the imported procedures don't raise
+
+proc reject(e: cstring): PromiseJs {.importjs: "Promise.reject(new Error(#))".}
+proc reject(e: Error): PromiseJs {.importjs: "Promise.reject(#)".}
+
+proc resolve(): PromiseJs {.importjs: "(undefined)".}
+proc resolve[T](x: T): PromiseJs {.importjs: "Promise.resolve(#)".}
+
+proc jsCatch(p: PromiseJs, x: proc): PromiseJs {.importjs: "catch".}
+proc jsThen(p: PromiseJs, x: proc): PromiseJs {.importjs: "then".}
+
+{.pop.}
+
+proc replaceReturn(n: NimNode, with: NimNode): NimNode =
+  ## In-place replaces all usages of the 'result' identifier in `n` with
+  ## `with`.
+  case n.kind
+  of nnkIdent:
+    if n.eqIdent("result"):
+      with
     else:
-      replaceReturn(son)
-    inc z
+      n
+  of nnkReturnStmt:
+    let callee = bindSym("resolve")
+    if with.isNil:
+      nnkReturnStmt.newTree(newCall(callee))
+    elif n[0].kind == nnkEmpty:
+      nnkReturnStmt.newTree(newCall(callee, with))
+    else:
+      nnkStmtList.newTree(
+        newAssignment(with, replaceReturn(n[0], with)),
+        nnkReturnStmt.newTree(newCall(callee, with))
+      )
+  of RoutineNodes:
+    n # don't touch nested routines
+  else:
+    for i in 0..<n.len:
+      n[i] = replaceReturn(n[i], with)
+    n
 
-proc isFutureVoid(node: NimNode): bool =
-  result = node.kind == nnkBracketExpr and
-           node[0].kind == nnkIdent and $node[0] == "Future" and
-           node[1].kind == nnkIdent and $node[1] == "void"
-
-proc generateJsasync(arg: NimNode): NimNode =
-  if arg.kind notin {nnkProcDef, nnkLambda, nnkMethodDef, nnkDo}:
+macro asyncAux(fut, real: typedesc, arg: untyped): untyped =
+  ## Implements the async transformation. The idea is to turn the tagged
+  ## routine into a closure iterator (i.e., a resumable procedure), with
+  ## every `await` turned into a yield. Prior to yielding, a closure that
+  ## assigns the awaited result to a local and resumes the iterator is
+  ## chained to the promise.
+  ##
+  ## Conceptually, this is very similar to how JavaScript's async functions
+  ## work.
+  if arg.kind notin {nnkProcDef, nnkFuncDef, nnkLambda, nnkDo}:
       error("Cannot transform this node kind into an async proc." &
-            " proc/method definition or lambda node expected.")
+            " proc definition or lambda node expected.")
 
   result = arg
-  var isVoid = false
-  let jsResolve = ident("jsResolve")
-  if arg.params[0].kind == nnkEmpty:
-    result.params[0] = nnkBracketExpr.newTree(ident("Future"), ident("void"))
-    isVoid = true
-  elif isFutureVoid(arg.params[0]):
-    isVoid = true
+  result.params[0] = fut.getTypeInst()[1]
 
-  var code = result.body
-  replaceReturn(code)
-  result.body = nnkStmtList.newTree()
+  if arg.body.len == 0:
+    return # forward declaration; don't produce a body
 
-  if len(code) > 0:
-    var awaitFunction = quote:
-      proc await[T](f: Future[T]): T {.importjs: "(await #)", used.}
-    result.body.add(awaitFunction)
+  let
+    real = real.getTypeInst()[1] # unwrap the typedesc
+    isVoid = real.typeKind == ntyVoid
+    self = genSym(nskVar, "self")
+    err = genSym(nskParam, "err")
 
-    var resolve: NimNode
-    if isVoid:
-      resolve = quote:
-        proc `jsResolve`: Future[void] {.importjs: "(undefined)", used.}
-    else:
-      resolve = quote:
-        proc jsResolve[T](a: T): Future[T] {.importjs: "#", used.}
-        proc jsResolve[T](a: Future[T]): Future[T] {.importjs: "#", used.}
-    result.body.add(resolve)
+  proc newDef(name, typ: NimNode): NimNode =
+    nnkIdentDefs.newTree(name, typ, newEmptyNode())
+
+  # `runner` is the routine that does the actual work. The original
+  # procedure is turned into a thunk for invoking the iterator
+  let runner = newProc(name = arg.name,
+                       params = [bindSym"PromiseJs",
+                                 newDef(err, nnkRefTy.newTree(
+                                                bindSym"Exception"))],
+                       procType = nnkIteratorDef,
+                       pragmas = nnkPragma.newTree(ident"closure"))
+  runner.body = nnkStmtList.newTree()
+
+  # inject the ``await`` routines before the body:
+  let preamble = quote do:
+    proc genericCatch(e: ref Exception): PromiseJs =
+      # define outside of the template to reduce executable size
+      `self`(e)
+
+    template await[T](f: Future[T]): T {.used.} =
+      var res: T
+      yield PromiseJs(f).jsCatch(genericCatch).jsThen(
+        proc(x: sink T): PromiseJs =
+          res = move x
+          # resume the coroutine with no error:
+          return `self`(nil)
+      )
+      if `err` != nil: # handle the error
+        raise `err`
+      res
+
+    proc voidCont(): PromiseJs {.used.} = `self`(nil)
+
+    template await(f: Future[void]) {.used.} =
+      yield PromiseJs(f).jsCatch(genericCatch).jsThen(voidCont)
+      if `err` != nil:
+        raise `err`
+
+  runner.body.add(preamble)
+
+  # setup and emit the result variable definition:
+  var resultVar: NimNode = nil
+  if not isVoid:
+    resultVar = genSym(nskVar, "res")
+    runner.body.add nnkVarSection.newTree(
+      nnkIdentDefs.newTree(resultVar, real, newEmptyNode()))
+
+  # now comes the patched body:
+  for child in replaceReturn(arg.body, resultVar).items:
+    runner.body.add(child)
+
+  # wrap the body in a try/except that turns uncaught exceptions into rejected
+  # promises:
+  let body = runner.body
+  runner.body = quote:
+    try:
+      `body`
+    except CatchableError as e:
+      return reject(cstring(e.msg))
+    except Error as e:
+      return reject(e)
+
+  runner.body = nnkStmtList.newTree(runner.body)
+
+  # emit the final return statement:
+  if isVoid:
+    runner.body.add nnkReturnStmt.newTree(
+      newCall(bindSym"resolve"))
   else:
-    result.body = newEmptyNode()
-  for child in code:
-    result.body.add(child)
+    runner.body.add nnkReturnStmt.newTree(
+      newCall(bindSym"resolve", resultVar))
 
-  if len(code) > 0 and isVoid:
-    var voidFix = quote:
-      return `jsResolve`()
-    result.body.add(voidFix)
+  let name = runner.name
+  # emit the start-up thunk:
+  result.body = quote do:
+    var `self`: iterator(e: ref Exception): `PromiseJs`
+    `runner`
+    `self` = `name`
+    return `fut`(`self`(nil))
 
-  if len(code) > 0:
-    # turn |NimSkull| outgoing exceptions into JavaScript errors
-    let body = result.body
-    result.body = quote:
-      try:
-        `body`
-      except CatchableError as e:
-        # use .noreturn call to make sure `body` being an expression works
-        reraise(e)
+template maybeFuture(T): untyped =
+  # avoids `Future[Future[T]]`
+  when T is Future: T
+  else: Future[T]
 
-  let asyncPragma = quote:
-    {.codegenDecl: "async function $2($3)".}
+template unwrap[T](_: typedesc[Future[T]]): typedesc = T
+template unwrap(T: typedesc): typedesc = T
 
-  result.addPragma(asyncPragma[0])
+proc generateJsasync(arg: NimNode): NimNode =
+  let res =
+    if arg.params[0].kind == nnkEmpty:
+      ident"void"
+    else:
+      arg.params[0]
+
+  result = newCall(bindSym"asyncAux",
+                   newCall(bindSym"maybeFuture", res),
+                   newCall(bindSym"unwrap", res),
+                   arg) # the original def
 
 macro async*(arg: untyped): untyped =
-  ## Macro which converts normal procedures into
-  ## javascript-compatible async procedures.
+  ## Macro that turns normal procedures into awaitable procedures. Within
+  ## the body, the `await` procedure is available, for awaiting
+  ## `Future <#Future>` instances.
   if arg.kind == nnkStmtList:
     result = newStmtList()
     for oneProc in arg:
@@ -171,11 +251,6 @@ proc newPromise*(handler: proc(resolve: proc())): Future[void] {.importjs: "(new
   ## A helper for wrapping callback-based functions
   ## into promises and async procedures.
 
-template maybeFuture(T): untyped =
-  # avoids `Future[Future[T]]`
-  when T is Future: T
-  else: Future[T]
-
 when defined(nimExperimentalAsyncjsThen):
   import std/private/since
   since (1, 5, 1):
@@ -189,11 +264,6 @@ when defined(nimExperimentalAsyncjsThen):
     in in nodejs, see https://nodejs.org/api/child_process.html#child_process_child_process_execsync_command_options
     and https://stackoverflow.com/questions/61377358/javascript-wait-for-async-call-to-finish-before-returning-from-function-witho
     ]#
-
-    type Error*  {.importjs: "Error".} = ref object of JsRoot
-      ## https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error
-      message*: cstring
-      name*: cstring
 
     type OnReject* = proc(reason: Error)
 
