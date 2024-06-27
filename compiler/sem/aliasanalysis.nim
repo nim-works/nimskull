@@ -205,9 +205,14 @@ proc compare*(body: MirTree, a, b: Path): CmpLocsResult =
         break
 
     of pikIndex:
-      overlaps = sameIndex(na, nb)
-      if overlaps == no:
+      case sameIndex(na, nb)
+      of no:
+        overlaps = no
         break
+      of yes:
+        discard "don't change back to 'yes'"
+      of maybe:
+        overlaps = maybe
 
     inc i
 
