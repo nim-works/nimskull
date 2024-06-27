@@ -452,6 +452,10 @@ func join*(bu: var MirBuilder, label: LabelId) =
   bu.subTree mnkJoin:
     bu.add MirNode(kind: mnkLabel, label: label)
 
+func goto*(bu: var MirBuilder, label: LabelId) =
+  bu.subTree mnkGoto:
+    bu.add MirNode(kind: mnkLabel, label: label)
+
 template pathNamed*(bu: var MirBuilder, t: TypeId, f: int32, body: untyped) =
   ## Emits a ``mnkPathNamed`` expression.
   bu.subTree MirNode(kind: mnkPathNamed, typ: t):
