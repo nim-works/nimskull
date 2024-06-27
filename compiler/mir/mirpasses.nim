@@ -664,7 +664,7 @@ proc lowerCase(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
   ## Lowers case statements with string or float selectors. For large string-
   ## case statements, a hash-table optimization is used.
   const stringCaseThreshold = 8
-    # above X strings a hash-switch for strings is generated
+    ## above X strings a hash-switch for strings is generated
 
   iterator targets(tree: MirTree, n: NodePosition): (LabelId, NodePosition) =
     ## Returns all comparison candidate together with their associated jump
