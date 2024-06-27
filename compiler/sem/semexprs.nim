@@ -1182,8 +1182,12 @@ proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
   result = n
   let callee = result[0].sym
   case callee.kind
-  of skMacro: result = semMacroExpr(c, result, callee, flags)
-  of skTemplate: result = semTemplateExpr(c, result, callee, flags)
+  of skMacro:
+    result = fitArgTypesPostMatch(c, result)
+    if result.kind != nkError:
+      result = semMacroExpr(c, result, callee, flags)
+  of skTemplate:
+    result = semTemplateExpr(c, result, callee, flags)
   else:
     semFinishOperands(c, result)
     activate(c, result)
