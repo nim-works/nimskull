@@ -2317,8 +2317,9 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
           else:                # value on the type
             arg.typ.n
 
-        # XXX: this is super hacky; it's the non-template/macro logic from
-        #      below but in worse
+        # XXX: the implicit conversion handling is duplicated from the non-
+        #      template/non-macro path. Template and macro arguments shouldn't
+        #      be special-cased like this
         case r
         of isEqual: n
         of isGeneric:
