@@ -1993,15 +1993,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemRequiresDeepCopyEnabled:
       result = "for --gc:arc|orc 'deepcopy' support has to be enabled with --deepcopy:on"
 
-    of rsemExpectedLiteralForGoto:
-      result = "'goto' target must be a literal value"
-
     of rsemExpectedParameterForJsPattern:
       result =  "wrong importjs pattern; expected parameter at position " &
         $r.countMismatch.expected & " but got only: " & $r.countMismatch.got
-
-    of rsemDisallowedRangeForComputedGoto:
-      result = "range notation not available for computed goto"
 
     of rsemExpectedNimcallProc:
       result = r.symstr & " needs to have the 'nimcall' calling convention"

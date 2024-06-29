@@ -62,24 +62,11 @@ proc endBlock(p: BProc) =
   blockEnd.addf("}$n", [])
   endBlock(p, blockEnd)
 
-proc genGotoVar(p: BProc; value: CgNode) =
-  case value.kind
-  of cnkIntLit, cnkUIntLit:
-    lineF(p, cpsStmts, "goto NIMSTATE_$#;$n", [value.intVal.rope])
-  else:
-    localReport(p.config, value.info, reportSem rsemExpectedLiteralForGoto)
-
 proc genBracedInit(p: BProc, n: CgNode; optionalType: PType): Rope
 
 proc genSingleVar(p: BProc, vn, value: CgNode) =
   ## Generates and emits the C code for the definition statement of a local.
   let v = vn.local
-
-  if sfGoto in p.body[v].flags:
-    # translate 'var state {.goto.} = X' into 'goto LX':
-    genGotoVar(p, value)
-    return
-
   assignLocalVar(p, vn)
   # default-initialize the local if no initial value is supplied. Automatic
   # initialization is also ommitted when the `value` expression is a
@@ -107,20 +94,6 @@ proc genIf(p: BProc, n: CgNode) =
   initLocExprSingleUse(p, n[0], a)
   lineF(p, cpsStmts, "if ($1)$n", [rdLoc(a)])
   startBlock(p)
-
-proc genGotoForCase(p: BProc; caseStmt: CgNode) =
-  for i in 1..<caseStmt.len:
-    startBlock(p)
-    let it = caseStmt[i]
-    for j in 0..<it.len-1:
-      if it[j].kind == cnkRange:
-        localReport(p.config, it.info, reportSem rsemDisallowedRangeForComputedGoto)
-        return
-      let val = getOrdValue(it[j])
-      lineF(p, cpsStmts, "NIMSTATE_$#:$n", [val.rope])
-
-    lineCg(p, cpsStmts, "goto $1;$n", [it[^1].label])
-    endBlock(p)
 
 proc exit(n: CgNode): CgNode =
   # XXX: exists as a convenience for overflow check, index check, etc.
@@ -284,10 +257,7 @@ proc genOrdinalCase(p: BProc, n: CgNode) =
 
 proc genCase(p: BProc, t: CgNode) =
   genLineDir(p, t)
-  if t[0].kind == cnkLocal and sfGoto in p.body[t[0].local].flags:
-    genGotoForCase(p, t)
-  else:
-    genOrdinalCase(p, t)
+  genOrdinalCase(p, t)
 
 proc bodyCanRaise(p: BProc; n: CgNode): bool =
   case n.kind
@@ -429,10 +399,7 @@ when false:
     expr(p, call, d)
 
 proc genAsgn(p: BProc, e: CgNode) =
-  if e[0].kind == cnkLocal and sfGoto in p.body[e[0].local].flags:
-    genLineDir(p, e)
-    genGotoVar(p, e[1])
-  else:
+  if true:
     let le = e[0]
     let ri = e[1]
     var a: TLoc

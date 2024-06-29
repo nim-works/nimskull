@@ -630,9 +630,7 @@ type
     # Codegen
     rsemRttiRequestForIncompleteObject
     rsemExpectedNimcallProc
-    rsemDisallowedRangeForComputedGoto
     rsemExpectedParameterForJsPattern
-    rsemExpectedLiteralForGoto
     rsemRequiresDeepCopyEnabled
     rsemDisallowedOfForPureObjects
     rsemCannotCodegenCompiletimeProc
