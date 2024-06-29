@@ -433,7 +433,6 @@ const
 
   sfNoForward*     = sfRegister       ## forward declarations are not required (per module)
   sfExperimental*  = sfOverriden      ## module uses the .experimental switch
-  sfGoto*          = sfOverriden      ## var is used for 'goto' code generation
   sfWrittenTo*     = sfBorrow         ## param is assigned to
   sfEscapes*       = sfProcvar        ## param escapes
   sfBase*          = sfDiscriminant

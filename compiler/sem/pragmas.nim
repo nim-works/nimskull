@@ -119,7 +119,7 @@ const
     wMagic, wHeader, wCompilerProc, wCore, wDynlib,
     wNoInit, wCompileTime, wGlobal,
     wGensym, wInject,
-    wGuard, wGoto, wCursor, wNoalias, wAlign}
+    wGuard, wCursor, wNoalias, wAlign}
   constPragmas* = declPragmas + {wHeader, wMagic,
     wGensym, wInject,
     wIntDefine, wStrDefine, wBoolDefine, wCompilerProc, wCore}
@@ -1446,10 +1446,6 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
             result = sym.guard.ast
           else:
             result = it
-      of wGoto:
-        result = noVal(c, it)
-        assert sym.kind in {skVar, skLet}
-        sym.flags.incl sfGoto
       of wExportNims:
           # XXX: modifying the module graph during application of a symbol
           #      operator doesn't seem like a good idea...
