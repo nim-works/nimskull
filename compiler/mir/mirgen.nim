@@ -2395,9 +2395,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
 
   env = c.env
 
-  # move the buffers into the result body
-  let (code, locals) = finish(move c.builder, default(Store[LocalId, Local]))
-  MirBody(locals: locals, source: move c.sp.map, code: code)
+  createBody(move c.builder, move c.sp.map)
 
 proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
                 config: TranslationConfig, e: PNode): MirBody =
@@ -2428,8 +2426,7 @@ proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
 
   env = move c.env
 
-  let (code, locals) = finish(move c.builder, default(Store[LocalId, Local]))
-  MirBody(locals: locals, source: move c.sp.map, code: code)
+  createBody(move c.builder, move c.sp.map)
 
 proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
   ## Translates the construction expression AST `n` representing some
