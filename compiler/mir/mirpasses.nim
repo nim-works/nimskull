@@ -790,6 +790,38 @@ proc lowerCase(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
     else:
       discard "keep as is"
 
+proc splitAssignments(tree: MirTree, changes: var Changeset) =
+  ## Turns assignments such as:
+  ##   x = call(...) -> [L1]
+  ## into:
+  ##   def _1 = call(...) -> [L1]
+  ##   x = move _1
+  ##
+  ## The idea is to allow for code generators using error-flag-based exception
+  ## handling to rely on assigning the call result directly to the destination
+  ## being safe (as in, not affecting observable behaviour).
+  for n in search(tree, {mnkCheckedCall}):
+    let p = tree.parent(n)
+    if tree[p].kind in {mnkAsgn, mnkInit, mnkSwitch}:
+      let target = tree.last(n)
+      const Locals = {mnkTemp, mnkLocal}
+      # * is the destination not a local?
+      # * if the destination is a local, does the exceptional path enter a
+      #   local exception handler?
+      if tree[tree.getRoot(tree.operand(p, 0))].kind notin Locals or
+         tree[target].kind != mnkTargetList or
+         tree[tree.last(target)].kind != mnkResume:
+        # future direction: this can be optimized. The assignment only needs to
+        # be split if the assignment destination's value is observed on the
+        # exceptional control-flow path
+        var tmp: Value
+        changes.insert(tree, tree.getStmt(n), n, bu):
+          tmp = bu.wrapTemp tree[n].typ:
+            bu.emitFrom(tree, n)
+        changes.replaceMulti(tree, n, bu):
+          bu.subTree mnkMove:
+            bu.use tmp
+
 proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
                   graph: ModuleGraph, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
@@ -802,6 +834,8 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       apply(body, c)
 
   if target == targetC:
+    batch:
+      splitAssignments(body.code, c)
     batch:
       # only the C code generator employs the return-value optimization (=RVO)
       # at the moment

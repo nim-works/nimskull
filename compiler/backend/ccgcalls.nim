@@ -10,70 +10,6 @@
 
 ## included from cgen.nim
 
-proc reportObservableStore(p: BProc; le, ri: CgNode) =
-  ## Reports the ``rsemObservableStores`` hint when the called procedure can
-  ## exit with an exception and `le` is something to which an assignment is
-  ## observable in the exception-raised case.
-  proc locationEscapes(p: BProc; le: CgNode; inTryStmt: bool): bool =
-    var n = le
-    while true:
-      # do NOT follow ``cnkDerefView`` here!
-      case n.kind
-      of cnkGlobal:
-        # mutation of a global -> the mutation escapes
-        return true
-      of cnkLocal:
-        # if the local is used within an 'except' or 'finally', a mutation of
-        # it through a procedure that eventually raises is also an observable
-        # store
-        return inTryStmt and sfUsedInFinallyOrExcept in p.body[n.local].flags
-      of cnkFieldAccess, cnkArrayAccess, cnkTupleAccess:
-        n = n[0]
-      of cnkObjUpConv, cnkObjDownConv, cnkLvalueConv:
-        n = n.operand
-      else:
-        # cannot analyse the location; assume the worst
-        return true
-
-  # XXX: this whole procedure needs to be removed; RVO calls must only be used
-  #      if safe
-  var inTryStmt = false
-  # analyse the target to check whether a local exception handler or finally
-  # is reached
-  case ri[^1].kind
-  of cnkLabel:
-    inTryStmt = true
-  of cnkTargetList:
-    for it in ri[^1].items:
-      if it.kind == cnkLabel:
-        inTryStmt = true
-        break
-  else:
-    discard "no local exception handler or finally is reached"
-
-  if le != nil and locationEscapes(p, le, inTryStmt):
-    localReport(p.config, le.info, reportSem rsemObservableStores)
-
-proc observableInExcept(n: CgNode): bool =
-  ## Computes whether the call expression `n` has an exceptional exit
-  ## that leads to an exception handler within the current procedure.
-  let target = n[^1]
-  case target.kind
-  of cnkLabel:      true # can only be an exception handler (of finally)
-  of cnkTargetList: target[^1].kind == cnkLabel
-  else:
-    unreachable()
-
-proc isHarmlessStore(p: BProc; ri: CgNode, d: TLoc): bool =
-  if d.k in {locTemp, locNone} or ri.kind != cnkCheckedCall:
-    result = true
-  elif d.k == locLocalVar and not observableInExcept(ri):
-    # we cannot observe a store to a local variable if the current proc
-    # has no error handler:
-    result = true
-  else:
-    result = false
-
 proc exitCall(p: BProc, call: CgNode) =
   ## Emits the exceptional control-flow related post-call logic.
   let isNoReturn = call[0].kind == cnkProc and
@@ -103,7 +39,6 @@ proc exitCall(p: BProc, call: CgNode) =
 
 proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
                callee, params: Rope) =
-  let canRaise = ri.kind == cnkCheckedCall
   genLineDir(p, ri)
   var pl = callee & ~"(" & params
   # getUniqueType() is too expensive here:
@@ -114,9 +49,6 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
       # the destination is guaranteed to be either a temporary or an lvalue
       # that can be modified in-place
       if true:
-        if d.k notin {locTemp, locNone} and canRaise:
-          reportObservableStore(p, le, ri)
-
         # resetting the result location is the responsibility of the called
         # procedure
         if d.k == locNone:
@@ -127,7 +59,7 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         exitCall(p, ri)
     else:
       pl.add(~")")
-      if isHarmlessStore(p, ri, d):
+      if true:
         if d.k == locNone: getTemp(p, typ[0], d)
         assert(d.t != nil)        # generate an assignment to d:
         var list: TLoc
@@ -135,15 +67,6 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         list.r = pl
         genAssignment(p, d, list)
         exitCall(p, ri)
-      else:
-        var tmp: TLoc
-        getTemp(p, typ[0], tmp)
-        var list: TLoc
-        initLoc(list, locCall, d.lode, OnUnknown)
-        list.r = pl
-        genAssignment(p, tmp, list)
-        exitCall(p, ri)
-        genAssignment(p, d, tmp)
   else:
     pl.add(~");$n")
     line(p, cpsStmts, pl)
@@ -284,16 +207,12 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
       lineF(p, cpsStmts, PatProc & ";$n", [rdLoc(op), pl, pl.addComma, rawProc])
 
   let rawProc = getClosureType(p.module, typ, clHalf)
-  let canRaise = ri.kind == cnkCheckedCall
   if typ[0] != nil:
     if isInvalidReturnType(p.config, typ[0]):
       if numArgs(ri) > 0: pl.add(~", ")
       # the destination is guaranteed to be either a temporary or an lvalue
       # that can be modified in-place
       if true:
-        if d.k notin {locTemp, locNone} and canRaise:
-          reportObservableStore(p, le, ri)
-
         # resetting the result location is the responsibility of the called
         # procedure
         if d.k == locNone:
@@ -301,7 +220,7 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
         pl.add(addrLoc(p.config, d))
         genCallPattern()
         exitCall(p, ri)
-    elif isHarmlessStore(p, ri, d):
+    else:
       if d.k == locNone: getTemp(p, typ[0], d)
       assert(d.t != nil)        # generate an assignment to d:
       var list: TLoc
@@ -312,19 +231,6 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
         list.r = PatProc % [rdLoc(op), pl, pl.addComma, rawProc]
       genAssignment(p, d, list)
       exitCall(p, ri)
-    else:
-      var tmp: TLoc
-      getTemp(p, typ[0], tmp)
-      assert(d.t != nil)        # generate an assignment to d:
-      var list: TLoc
-      initLoc(list, locCall, d.lode, OnUnknown)
-      if tfIterator in typ.flags:
-        list.r = PatIter % [rdLoc(op), pl, pl.addComma, rawProc]
-      else:
-        list.r = PatProc % [rdLoc(op), pl, pl.addComma, rawProc]
-      genAssignment(p, tmp, list)
-      exitCall(p, ri)
-      genAssignment(p, d, tmp)
   else:
     genCallPattern()
     exitCall(p, ri)
