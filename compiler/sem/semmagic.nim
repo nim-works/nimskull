@@ -61,6 +61,15 @@ proc semSizeOf(c: PContext, n: PNode): PNode =
     result = c.config.newError(n, PAstDiag(kind: adSemMagicExpectTypeOrValue,
                                             magic: mSizeOf))
 
+proc semAlignOf(c: PContext, n: PNode): PNode =
+  if containsGenericType(n[1].typ):
+    # report the type, not the typedesc
+    n[1] = c.config.newError(n[1], PAstDiag(kind: adSemTIsNotAConcreteType,
+                                            wrongType: n[1].typ[0]))
+    result = c.config.wrapError(n)
+  else:
+    result = foldAlignOf(c.config, n, n)
+
 type
   SemAsgnMode = enum asgnNormal, noOverloadedSubscript, noOverloadedAsgn
 
@@ -422,7 +431,7 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   of mSizeOf:
     result = semSizeOf(c, n)
   of mAlignOf:
-    result = foldAlignOf(c.config, n, n)
+    result = semAlignOf(c, n)
   of mOffsetOf:
     result = foldOffsetOf(c.config, n, n)
   of mArrGet:
