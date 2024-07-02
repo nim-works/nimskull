@@ -39,7 +39,7 @@ jobs:
             --json databaseId \
             --jq '.[].databaseId')
           if [[ -z $run_id ]]; then
-            echo "::error::Could not found any CI run for commit $COMMIT"
+            echo "::error::Could not find any CI run for commit $COMMIT"
             exit 1
           fi
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
