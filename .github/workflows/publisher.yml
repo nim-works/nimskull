@@ -25,9 +25,6 @@ jobs:
       url: ${{ steps.release.outputs.url }}
 
     steps:
-      # Publish action needs a checkout
-      - uses: actions/checkout@v4
-
       - name: Obtain latest successful run id
         id: finder
         run: |
@@ -48,17 +45,9 @@ jobs:
           WORKFLOW: ci.yml
           CONCLUSION: success
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
 
       # Download the latest instance of artifacts from a build done previously
-      - name: Download generated docs
-        uses: actions/download-artifact@v4
-        with:
-          run-id: ${{ steps.finder.outputs.run_id }}
-          # Keep up-to-date with ci.yml
-          name: Generated docs
-          path: doc/html
-          github-token: ${{ github.token }}
-
       - name: Download generated source archive
         uses: actions/download-artifact@v4
         with:
@@ -86,12 +75,6 @@ jobs:
           name: release manifest tool
           path: release-staging
           github-token: ${{ github.token }}
-
-      - name: Publish docs
-        uses: JamesIves/github-pages-deploy-action@v4.6.1
-        with:
-          branch: gh-pages
-          folder: doc/html
 
       - id: release-files
         name: Create release manifest
