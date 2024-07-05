@@ -252,8 +252,8 @@ As the name suggests, this pipeline constructs and deploys the documentation
 website. This pipeline is dependent on the
 `Release manifest tool <#tools-release-manifest-tool>`_.
 
-Unlike other pipelines, the code ran will always be that of the latest commit
-in ``devel`` branch. This meant that the code should always be aware of
+Unlike other pipelines, the code run will always be that of the latest commit
+in ``devel`` branch. This means that the code should always be aware of
 differences between versions of |NimSkull| being deployed.
 
 Currently, only one instance of this pipeline might be run at any given time
