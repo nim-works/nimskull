@@ -3143,7 +3143,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
     vmRep: VMReport
 
   case diag.kind
-  of adWrappedError:
+  of adWrappedError, adWrappedSymError:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
