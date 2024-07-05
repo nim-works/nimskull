@@ -98,6 +98,9 @@ import
 
 import std/options as std_options
 
+when defined(nimCompilerStacktraceHints):
+  import compiler/utils/debugutils
+
 type
   DestFlag = enum
     ## Extra information about an assignment destination. The flags are used to
@@ -400,6 +403,9 @@ proc exprToPmir(c: var TCtx, n: PNode, sink, mutable: bool): PMirExpr =
              n, sink, mutable)
 
 proc genx(c: var TCtx, n: PNode; consume: bool = false) =
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(c.graph.config, n)
+
   let e = exprToPmir(c, n, consume, false)
   genx(c, e, e.high)
 

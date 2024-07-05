@@ -54,6 +54,9 @@ import
 
 from compiler/sem/semdata import makeVarType
 
+when defined(nimCompilerStacktraceHints):
+  import compiler/utils/debugutils
+
 type
   PTransCon = ref object # part of TContext; stackable
     mapping: TIdNodeTable     # mapping from symbols to nodes
@@ -1205,6 +1208,9 @@ proc commonOptimizations*(g: ModuleGraph; idgen: IdGenerator; c: PSym, n: PNode)
       result = n
 
 proc transform(c: PTransf, n: PNode): PNode =
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(c.graph.config, n)
+
   when false:
     var oldDeferAnchor: PNode
     if n.kind in {nkElifBranch, nkOfBranch, nkExceptBranch, nkElifExpr,
