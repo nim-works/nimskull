@@ -25,6 +25,13 @@ jobs:
       url: ${{ steps.release.outputs.url }}
 
     steps:
+      # Repository required for changelog builder
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            .github
+
       - name: Obtain latest successful run id
         id: finder
         run: |
@@ -103,5 +110,17 @@ jobs:
           tag_name: ${{ steps.release-files.outputs.version }}
           fail_on_unmatched_files: true
           target_commitish: ${{ github.event.after }}
-          body: |
-            Continuous delivery for commit ${{ github.event.after }}
+
+      - id: changelog
+        name: Create release changelog
+        uses: mikepenz/release-changelog-builder-action@v5.0.0-a04
+        with:
+          configuration: ".github/changelog.json"
+          toTag: ${{ steps.release-files.outputs.version }}
+          failOnError: true
+
+      - name: Push changelog
+        uses: softprops/action-gh-release@v2.0.6
+        with:
+          tag_name: ${{ steps.release-files.outputs.version }}
+          body: ${{ steps.changelog.outputs.changelog }}

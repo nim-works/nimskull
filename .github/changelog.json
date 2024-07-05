@@ -1,0 +1,90 @@
+{
+  "categories": [
+    {
+      "title": "## 🚀 Features",
+      "labels": ["enhancement"],
+      "categories": [
+        {
+          "title": "### Compiler",
+          "labels": ["enhancement"],
+          "exhaustive": true,
+          "rules": [
+            {
+              "on_property": "labels",
+              "pattern": "compiler.*"
+            }
+          ]
+        },
+        {
+          "title": "### Standard Library",
+          "labels": ["enhancement", "stdlib"],
+          "exhaustive": true
+        },
+        {
+          "title": "### Tooling",
+          "labels": ["enhancement", "tools"],
+          "exhaustive": true
+        }
+      ]
+    },
+    {
+      "title": "## 🐛 Fixes",
+      "labels": ["bug"],
+      "categories": [
+        {
+          "title": "### Compiler",
+          "labels": ["bug"],
+          "exhaustive": true,
+          "rules": [
+            {
+              "on_property": "labels",
+              "pattern": "compiler.*"
+            }
+          ]
+        },
+        {
+          "title": "### Standard Library",
+          "labels": ["bug", "stdlib"],
+          "exhaustive": true
+        },
+        {
+          "title": "### Tooling",
+          "labels": ["bug", "tool"],
+          "exhaustive": true
+        }
+      ]
+    },
+    {
+      "title": "## 🔧 Refactorings",
+      "labels": ["refactor", "simplification"],
+      "categories": [
+        {
+          "title": "### Compiler",
+          "labels": ["refactor", "simplification"],
+          "exhaustive_rules": true,
+          "rules": [
+            {
+              "on_property": "labels",
+              "pattern": "compiler.*"
+            }
+          ]
+        },
+        {
+          "title": "### Standard Library",
+          "labels": ["refactor", "stdlib"],
+          "exhaustive": true
+        },
+        {
+          "title": "### Tooling",
+          "labels": ["refactor", "tool"],
+          "exhaustive": true
+        }
+      ]
+    }
+  ],
+  "template": "# What's Changed\n\n#{{CHANGELOG}}\n\n<details>\n<summary>\n\n## 💬 Other\n\n</summary>\n\n#{{UNCATEGORIZED}}\n\n</details>\n\n**Full Changelog**: #{{RELEASE_DIFF}}",
+  "empty_template": "**Full Changelog**: #{{RELEASE_DIFF}}",
+  "pr_template": "* #{{TITLE}} by @#{{AUTHOR}} in #{{URL}}",
+  "sort": "DSC",
+  "base_branches": ["devel"]
+}
