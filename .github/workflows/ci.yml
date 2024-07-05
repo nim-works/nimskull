@@ -549,15 +549,6 @@ jobs:
           echo "archive=$archive" >> $GITHUB_OUTPUT
           echo "metadata=$metadata" >> $GITHUB_OUTPUT
 
-      - name: Upload docs to artifacts
-        if: matrix.target.shared_builder
-        uses: actions/upload-artifact@v4
-        with:
-          # If this name is updated, tweak publisher.yml
-          name: Generated docs
-          path: doc/html/
-          if-no-files-found: error
-
       - name: Upload release package to artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -1,0 +1,86 @@
+name: Deploy documentation
+on:
+  # Automatically run after any completed publish
+  workflow_run:
+    workflows:
+      - Publish built artifacts
+    types:
+      - completed
+
+  # For manual triggers
+  workflow_dispatch:
+
+# Run every script actions in bash
+defaults:
+  run:
+    shell: bash
+
+concurrency: doc-publisher
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      pages: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    env:
+      # Triplet to obtain docs from
+      DOC_TARGET: x86_64-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup latest compiler
+        uses: nim-works/setup-nimskull@0.1.2
+        with:
+          nimskull-version: "*" # Grab the latest nimskull-version
+
+      - name: Compile release_manifest
+        run: nim c -d:release -o:release_manifest tools/release_manifest.nim
+
+      - id: versions
+        name: Grab latest release version
+        run: |
+          # Stolen from asdf-nimskull
+          sort_versions() {
+            sed 'h; s/[+-]/./g; s/$/.z/; G; s/\n/ /' |
+              LC_ALL=C sort -t. -k 1,1n -k 2,2n -k 3,3n -k 4,4 -k 5,5n | awk '{print $2}'
+          }
+
+          all_tags=$(gh release list --json tagName --jq '.[] | .tagName')
+          latest=$(sort_versions <<<"$all_tags" | tail -n 1)
+
+          echo "Latest devel is: $latest"
+          echo "devel=$latest" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Construct devel docs
+        run: |
+          tmpdir=$(mktemp -dp "$RUNNER_TEMP" devel.XXXXXXXXXX)
+          # Get the name of the binary archive for the documentation target
+          release_archive=$(gh release download "$DEVEL" -p manifest.json -O - | ./release_manifest -f /dev/stdin get "$DOC_TARGET")
+          # Download the latest release binary
+          gh release download "$DEVEL" -p "$release_archive" -O "$tmpdir/$release_archive"
+          # Extract and remove the top-level directory
+          tar -C "$tmpdir" -xf "$tmpdir/$release_archive" --strip-components=1
+
+          mkdir -p built-docs
+          cp -rT "$tmpdir/doc/html" built-docs/devel
+          cp -rT "$tmpdir/doc/html" built-docs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEVEL: ${{ steps.versions.outputs.devel }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: built-docs/
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
