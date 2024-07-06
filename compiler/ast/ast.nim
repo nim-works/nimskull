@@ -193,32 +193,6 @@ proc newIdentNode*(ident: PIdent, info: TLineInfo): PNode =
   result.ident = ident
   result.info = info
 
-proc newSymNode2*(sym: PSym): PNode =
-  ## creates a new `nkSym` node, unless sym.kind is an skError where an nkError
-  ## is extracted from the sym and returned instead.
-  ## NB: not a `newSymNode` replacement, it's for when symbol sem fails
-  if sym.isError:
-    result = sym.ast
-  else:
-    result = newNode(nkSym)
-    result.sym = sym
-    result.typ = sym.typ
-    result.info = sym.info
-
-proc newSymNode2*(sym: PSym, info: TLineInfo): PNode =
-  ## creates a new `nkSym` node, unless sym.kind is an skError where an nkError
-  ## is extracted from the sym and returned instead. In either case sets the
-  ## node info to the one provided
-  ## NB: not a `newSymNode` replacement, it's for when symbol sem fails
-  if sym.isError:
-    result = sym.ast
-    result.info = info
-  else:
-    result = newNode(nkSym)
-    result.sym = sym
-    result.typ = sym.typ
-    result.info = info
-
 proc newSymNodeIT*(sym: PSym, info: TLineInfo, typ: PType): PNode =
   ## create a new sym node with the supplied `info` and `typ`
   result = newNodeIT(nkSym, info, typ)

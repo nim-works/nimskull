@@ -1631,7 +1631,7 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
       localReport(c.config, n, reportSem rsemIllegalNimvmContext)
 
     markUsed(c, n.info, s)
-    result = newSymNode2(s, n.info)
+    result = newSymNodeOrError(c.config, s, n.info)
     # We cannot check for access to outer vars for example because it's still
     # not sure the symbol really ends up being used:
     # var len = 0 # but won't be called
@@ -1662,14 +1662,9 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
       c.config.internalAssert s.owner != nil
     result = newSymNode(s, n.info)
   else:
-    if s.kind == skError and not s.ast.isNil and s.ast.kind == nkError:
-      # XXX: at the time of writing only `lookups.qualifiedlookup` sets up the
-      #      PSym so the error is in the ast field
-      result = s.ast
-    else:
-      let info = getCallLineInfo(n)
-      markUsed(c, info, s)
-      result = newSymNode(s, info)
+    let info = getCallLineInfo(n)
+    markUsed(c, info, s)
+    result = newSymNodeOrError(c.config, s, info)
 
 proc tryReadingGenericParam(c: PContext, n: PNode, i: PIdent, t: PType): PNode =
   case t.kind

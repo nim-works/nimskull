@@ -422,6 +422,7 @@ func astDiagToLegacyReportKind*(
   ## very broad categories and they'll no longer map to "reports".
   case diag
   of adWrappedError: rsemWrappedError
+  of adWrappedSymError: rsemWrappedError
   of adSemTypeMismatch: rsemTypeMismatch
   of adSemTypeNotAllowed: rsemTypeNotAllowed
   of adSemTIsNotAConcreteType: rsemTIsNotAConcreteType

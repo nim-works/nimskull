@@ -839,7 +839,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
           c.config.newError(r, PAstDiag(kind: adSemIllegalCompileTime))
 
     if v.isError:
-      producedDecl[i] = newSymNode2(v)
+      producedDecl[i] = v.ast # ast is an error AST
       hasError = true
 
       continue # refactor: remove the need to continue
@@ -1202,7 +1202,7 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
           localReport(c.config, defPart.info, reportSem(rsemResultShadowed))
 
     if v.isError:
-      producedDecl[i] = newSymNode2(v)
+      producedDecl[i] = v.ast # ast is an error AST
       hasError = true
 
       continue # refactor: remove the need to continue

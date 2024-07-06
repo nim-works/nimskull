@@ -1070,6 +1070,7 @@ type
   AstDiagKind* = enum
     # general
     adWrappedError
+    adWrappedSymError
     adCyclicTree
     # type
     adSemTypeMismatch
@@ -1279,7 +1280,7 @@ type
     location*: TLineInfo        # TODO: `wrongNode` already has this, move to
                                 #       variant or handle in display/rendering
     case kind*: AstDiagKind
-    of adWrappedError:
+    of adWrappedError, adWrappedSymError:
       discard
     of adSemTypeMismatch,
         adSemIllegalConversion,
