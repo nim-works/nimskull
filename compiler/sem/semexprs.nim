@@ -1631,7 +1631,7 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
       localReport(c.config, n, reportSem rsemIllegalNimvmContext)
 
     markUsed(c, n.info, s)
-    result = newSymNode2(c.config, s, n.info)
+    result = newSymNodeOrError(c.config, s, n.info)
     # We cannot check for access to outer vars for example because it's still
     # not sure the symbol really ends up being used:
     # var len = 0 # but won't be called
@@ -1664,7 +1664,7 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
   else:
     let info = getCallLineInfo(n)
     markUsed(c, info, s)
-    result = newSymNode2(c.config, s, info)
+    result = newSymNodeOrError(c.config, s, info)
 
 proc tryReadingGenericParam(c: PContext, n: PNode, i: PIdent, t: PType): PNode =
   case t.kind

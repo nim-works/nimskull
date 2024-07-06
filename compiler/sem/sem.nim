@@ -151,7 +151,7 @@ proc wrapErrorAndUpdate(c: ConfigRef, n: PNode, s: PSym): PNode =
   result = c.wrapError(n)
   s.ast = result
 
-proc newSymNode2(c: ConfigRef, sym: PSym, info: TLineInfo): PNode =
+proc newSymNodeOrError(c: ConfigRef, sym: PSym, info: TLineInfo): PNode =
   ## Creates a new `nkSym` node, unless `sym` either represents an error
   ## itself or refers to an erroneous entity. In the latter two cases, an
   ## error node is returned.
