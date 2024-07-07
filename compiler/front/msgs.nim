@@ -500,7 +500,6 @@ func astDiagToLegacyReportKind*(
   of adSemUndeclaredField: rsemUndeclaredField
   of adSemCannotInstantiate: rsemCannotInstantiate
   of adSemWrongNumberOfGenericParams: rsemWrongNumberOfGenericParams
-  of adSemCalleeHasAnError: rsemCalleeHasAnError
   of adSemExpressionHasNoType: rsemExpressionHasNoType
   of adSemTypeExpected: rsemTypeExpected
   of adSemStringRangeNotAllowed: rsemStringRangeNotAllowed

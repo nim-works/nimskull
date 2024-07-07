@@ -417,7 +417,6 @@ type
     rsemIsOperatorTakes2Args
     rsemWrongNumberOfVariables
     rsemWrongNumberOfGenericParams
-    rsemCalleeHasAnError
     rsemNoGenericParamsAllowed
     rsemAmbiguousCall
     rsemCallingConventionMismatch
