@@ -1565,6 +1565,13 @@ proc readTypeParameter(c: PContext, typ: PType,
 
 proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
   let s = getGenSym(c, sym)
+  # handle symbols whose definition have an error:
+  if s.kind != skError and (s.ast.isError or s.typ.isError):
+    # still mark the symbol as used
+    markUsed(c, n.info, s)
+    return c.config.newError(newSymNode(s, n.info),
+                             PAstDiag(kind: adWrappedSymError))
+
   case s.kind
   of skConst:
     markUsed(c, n.info, s)
@@ -1596,20 +1603,14 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
     else:
       result = newSymNode(s, n.info)
   of skMacro:
-    if s.ast.kind == nkError:
-      result = c.config.newError(n,
-        PAstDiag(kind: adSemCalleeHasAnError, callee: s))
-    elif efNoEvaluateGeneric in flags and s.ast[genericParamsPos].safeLen > 0 or
+    if efNoEvaluateGeneric in flags and s.ast[genericParamsPos].safeLen > 0 or
        (n.kind notin nkCallKinds and s.requiredParams > 0):
       markUsed(c, n.info, s)
       result = symChoice(c, n, s, scClosed)
     else:
       result = semMacroExpr(c, n, s, flags)
   of skTemplate:
-    if s.ast.kind == nkError:
-      result = c.config.newError(n,
-        PAstDiag(kind: adSemCalleeHasAnError, callee: s))
-    elif efNoEvaluateGeneric in flags and s.ast[genericParamsPos].safeLen > 0 or
+    if efNoEvaluateGeneric in flags and s.ast[genericParamsPos].safeLen > 0 or
        (n.kind notin nkCallKinds and s.requiredParams > 0) or
        sfCustomPragma in sym.flags:
       let info = getCallLineInfo(n)
@@ -1631,7 +1632,7 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
       localReport(c.config, n, reportSem rsemIllegalNimvmContext)
 
     markUsed(c, n.info, s)
-    result = newSymNodeOrError(c.config, s, n.info)
+    result = newSymNode(s, n.info)
     # We cannot check for access to outer vars for example because it's still
     # not sure the symbol really ends up being used:
     # var len = 0 # but won't be called
