@@ -1154,7 +1154,6 @@ type
     adSemUndeclaredField
     adSemCannotInstantiate
     adSemWrongNumberOfGenericParams
-    adSemCalleeHasAnError
     # sem
     adSemExpressionHasNoType
     adSemDefNameSym   ## when creating a sym node from `nkIdentKinds`
@@ -1461,8 +1460,6 @@ type
     of adSemWrongNumberOfGenericParams:
       countMismatch*: tuple[expected, got: int]
       gnrcCallLineInfo*: TLineInfo
-    of adSemCalleeHasAnError:
-      callee*: PSym
     of adSemIllformedAstExpectedOneOf:
       expectedKinds*: TNodeKinds
     of adSemImplementationExpected:

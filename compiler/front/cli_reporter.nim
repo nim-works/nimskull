@@ -1836,10 +1836,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         $r.countMismatch.expected
       )
 
-    of rsemCalleeHasAnError:
-      result = "cannot call '$1'; its definition has an error [defined at '$2']" %
-               [r.symstr, conf.toFileLineCol(r.sym.info)]
-
     of rsemNoGenericParamsAllowed:
       result = "no generic parameters allowed for $1" % r.symstr
 
@@ -3512,13 +3508,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       kind: rsemWrongNumberOfGenericParams,
       ast: diag.wrongNode,
       countMismatch: diag.countMismatch)
-  of adSemCalleeHasAnError:
-    semRep = SemReport(
-      location: some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemCalleeHasAnError,
-      ast: diag.wrongNode,
-      sym: diag.callee)
   of adSemIllformedAstExpectedPragmaOrIdent:
     semRep = SemReport(
       location: some diag.location,
