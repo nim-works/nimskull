@@ -882,9 +882,6 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
       else:
         internalError(c.config, "should never happen")
 
-    if v.ast.isError:
-      v.transitionToError(v.ast)
-
     # set the symbol type and add the symbol to the production
     producedDecl[i] = setSymType(c, r, v, vTyp)
 
@@ -1225,12 +1222,6 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
         v.ast = producedDecl[^1]
       else:
         internalError(c.config, "should never happen")
-
-    if v.ast.isError:
-      # XXX: although this mirrors the behaviour of ``semNormalizedLetOrVar``,
-      #      it seems wrong. For example, the type of the symbol is set to a
-      #      valid type instead of ``tyError``
-      v.transitionToError(v.ast)
 
     # set the symbol type and add the symbol to the production
     producedDecl[i] = setSymType(c, r, v, vTyp)
