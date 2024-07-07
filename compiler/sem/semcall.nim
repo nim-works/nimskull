@@ -602,9 +602,11 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
     result =
       case r.calleeSym.ast.kind
       of nkError:
-        # the symbol refers to an erroneous entity
-        c.config.newError(r.call):
-          PAstDiag(kind: adSemCalleeHasAnError, callee: r.calleeSym)
+        # the definition has an error; don't attempt to fully resolve the call
+        let x = r.call
+        x[0] = newSymNodeOrError(c.config, r.calleeSym, getCallLineInfo(x[0]))
+        #      ^^ will return an error node
+        c.config.wrapError(x)
       else:
         semResolvedCall(c, r, n, flags)
 
