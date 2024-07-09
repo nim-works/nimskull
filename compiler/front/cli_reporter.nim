@@ -790,6 +790,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           r.ownerSym.name.s
         )
 
+    of rsemCannotInstantiateForwarded:
+      result = "cannot instantiate generic procedure forward-declared in " &
+               "another module"
+
     of rsemTypeKindMismatch:
       result = r.str
       result.add  " got '$1'" % typeToString(r.actualType)

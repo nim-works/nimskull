@@ -360,6 +360,7 @@ type
 
     rsemCannotInstantiate
     rsemCannotInstantiateWithParameter
+    rsemCannotInstantiateForwarded
     rsemCannotGenerateGenericDestructor
     rsemUndeclaredField
     rsemExpectedOrdinal

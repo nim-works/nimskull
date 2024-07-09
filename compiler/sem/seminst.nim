@@ -401,6 +401,11 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
   n[genericParamsPos] = c.graph.emptyNode
   var oldPrc = genericCacheGet(c.graph, fn, entry[], c.compilesContextId)
   if oldPrc == nil:
+    if sfForward in fn.flags and fn.itemId.module != c.module.itemId.module:
+      localReport(c.config, info, reportSem(rsemCannotInstantiateForwarded))
+      # don't abort instantiation; let it complete for the sake of error
+      # correction (check/suggest)
+
     # we MUST not add potentially wrong instantiations to the caching mechanism.
     # This means recursive instantiations behave differently when in
     # a ``compiles`` context but this is the lesser evil. See
