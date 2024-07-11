@@ -240,7 +240,9 @@ jobs:
         shell: pwsh
 
       - name: Run tester
-        run: ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' --tryFailing all
+        run: ./koch.py test --batch:"$TEST_BATCH" --tryFailing all
+        env:
+          TEST_BATCH: ${{ matrix.batch }}_${{ matrix.total_batch }}
 
       - name: Print all test errors
         if: failure()
@@ -420,8 +422,8 @@ jobs:
       - name: Build docs
         run: |
           ./koch.py doc \
-            --git.url:'https://github.com/${{ github.repository }}' \
-            --git.commit:'${{ github.sha }}' \
+            --git.url:"https://github.com/$GITHUB_REPOSITORY" \
+            --git.commit:"$GITHUB_SHA" \
             --git.devel:devel
 
           # Remove leftover nimskullcache
@@ -514,8 +516,8 @@ jobs:
       - name: Build docs
         run: |
           ./koch.py doc \
-            --git.url:'https://github.com/${{ github.repository }}' \
-            --git.commit:'${{ github.sha }}' \
+            --git.url:"https://github.com/$GITHUB_REPOSITORY" \
+            --git.commit:"$GITHUB_SHA" \
             --git.devel:devel
 
           # Remove leftover nimskullcache
