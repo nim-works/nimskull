@@ -117,10 +117,10 @@ jobs:
       - if: steps.pr-data.outputs.run
         id: token
         name: Create app token for merges
-        uses: tibdex/github-app-token@v2
+        uses: actions/create-github-app-token@v1
         with:
-          app_id: ${{ secrets.CHORE_APP_ID }}
-          private_key: ${{ secrets.CHORE_APP_KEY }}
+          app-id: ${{ secrets.CHORE_APP_ID }}
+          private-key: ${{ secrets.CHORE_APP_KEY }}
 
         # TODO: Switch to GitHub CLI once
         # https://github.com/cli/cli/issues/7213 is solved.
