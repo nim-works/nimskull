@@ -826,6 +826,10 @@ proc rope(arg: Int128): Rope = rope($arg)
 proc genTNimNodeArray(m: BModule, name: Rope, size: Rope) =
   m.s[cfsTypeInit1].addf("static TNimNode* $1[$2];$n", [name, size])
 
+proc lookupField(m: BModule, typ: PType, field: PSym): string =
+  result = m.fields[lookupField(m.types, m.types[typ],
+                                field.position.int32)]
+
 proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
                      info: TLineInfo) =
   case n.kind
@@ -849,12 +853,11 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
     var tmp = discriminatorTableName(m, typ, field)
     var L = lengthOrd(m.config, field.typ)
     assert L > 0
-    let id = m.g.env.types.lookupField(m.types[origType], field.position.int32)
     m.s[cfsTypeInit3].addf("$1.kind = 3;$n" &
         "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
         "$1.name = $5;$n" & "$1.sons = &$6[0];$n" &
         "$1.len = $7;$n", [expr, getTypeDesc(m, origType),
-                           m.fields[id],
+                           lookupField(m, origType, field),
                            genTypeInfoV1(m, field.typ, info),
                            makeCString(field.name.s),
                            tmp, rope(L)])
@@ -885,11 +888,11 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
     # Do not produce code for void types
     if isEmptyType(field.typ): return
     if field.bitsize == 0:
-      let id = m.g.env.types.lookupField(m.types[origType], field.position.int32)
       m.s[cfsTypeInit3].addf("$1.kind = 1;$n" &
           "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
           "$1.name = $5;$n", [expr, getTypeDesc(m, origType),
-          m.fields[id], genTypeInfoV1(m, field.typ, info),
+          lookupField(m, origType, field),
+          genTypeInfoV1(m, field.typ, info),
           makeCString(field.name.s)])
   else: internalError(m.config, n.info, "genObjectFields")
 
