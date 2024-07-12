@@ -80,9 +80,13 @@
           "exhaustive": true
         }
       ]
+    },
+    {
+      "title": "## 💬 Other",
+      "labels": []
     }
   ],
-  "template": "# What's Changed\n\n#{{CHANGELOG}}\n\n<details>\n<summary>\n\n## 💬 Other\n\n</summary>\n\n#{{UNCATEGORIZED}}\n\n</details>\n\n**Full Changelog**: #{{RELEASE_DIFF}}",
+  "template": "# What's Changed\n\n#{{CHANGELOG}}\n\n**Full Changelog**: #{{RELEASE_DIFF}}",
   "empty_template": "**Full Changelog**: #{{RELEASE_DIFF}}",
   "pr_template": "* #{{TITLE}} by @#{{AUTHOR}} in #{{URL}}",
   "sort": "DSC",
