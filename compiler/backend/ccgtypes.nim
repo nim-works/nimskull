@@ -314,6 +314,15 @@ proc payloadType(m: BModule, typ: TypeId): TypeId =
   # the second field is a pointer to the payload type
   m.types.headerFor(m.types[lookupField(m.types, typ, 1)].typ, Lowered).elem
 
+proc requestFullDesc(m: BModule, typ: PType) =
+  ## Requests the full type description for the seq/string type and its
+  ## payload.
+  ## This procedure is a temporary workaround; it becomes obsolete once seq
+  ## and string operations are lowered during the MIR phase.
+  let id = m.addLate(typ)
+  discard useType(m, id) # pull in the seq/string type
+  discard useType(m, payloadType(m, id)) # pull in the payload type
+
 proc getSeqPayloadType(m: BModule; t: PType): Rope =
   let typ = m.addLate(t)
   result = useType(m, payloadType(m, typ))

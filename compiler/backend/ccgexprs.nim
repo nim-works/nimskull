@@ -129,6 +129,7 @@ proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
       linefmt(p, cpsStmts, "$1.Field0 = $2; $1.Field1 = $2Len_0;$n",
         [rdLoc(d), a.rdLoc])
   of tySequence, tyString:
+    requestFullDesc(p.module, a.t)
     linefmt(p, cpsStmts, "$1.Field0 = ($2.p != NIM_NIL ? $2$3 : NIM_NIL); $1.Field1 = $4;$n",
       [rdLoc(d), a.rdLoc, dataField(p), lenExpr(p, a)])
   of tyArray:
@@ -563,6 +564,7 @@ proc genSeqElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   var a, b: TLoc
   initLocExpr(p, x, a)
   initLocExpr(p, y, b)
+  requestFullDesc(p.module, a.t)
   var ty = skipTypes(a.t, abstractVarRange)
   if ty.kind in {tyRef, tyPtr}:
     ty = skipTypes(ty.lastSon, abstractVarRange)
@@ -1270,6 +1272,7 @@ proc genDestroy(p: BProc; n: CgNode) =
     let t = arg.typ.skipTypes(abstractInst)
     case t.kind
     of tyString:
+      requestFullDesc(p.module, arg.typ)
       var a: TLoc
       initLocExpr(p, arg, a)
       if optThreads in p.config.globalOptions:
@@ -1281,6 +1284,7 @@ proc genDestroy(p: BProc; n: CgNode) =
           " #dealloc($1.p);$n" &
           "}$n", [rdLoc(a)])
     of tySequence:
+      requestFullDesc(p.module, arg.typ)
       var a: TLoc
       initLocExpr(p, arg, a)
       linefmt(p, cpsStmts, "if ($1.p && !($1.p->cap & NIM_STRLIT_FLAG)) {$n" &

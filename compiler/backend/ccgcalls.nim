@@ -105,6 +105,7 @@ proc genOpenArraySlice(p: BProc; q: CgNode; formalType, destType: PType): (Rope,
     result = ("($3*)($1)+($2)" % [rdLoc(a), rdLoc(b), dest],
               lengthExpr)
   of tyString, tySequence:
+    requestFullDesc(p.module, a.t)
     let atyp = skipTypes(a.t, abstractInst)
     if atyp.kind in {tyVar}:
       result = ("((*$1).p != NIM_NIL ? ($4*)(*$1)$3+$2 : NIM_NIL)" %
