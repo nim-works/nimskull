@@ -1824,7 +1824,7 @@ proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
       # both asm and emit statements support arbitrary expressions
       # (including type expressions) ...
       if it.typ != nil and it.typ.kind == tyTypeDesc:
-        c.use genTypeExpr(c, it)
+        c.use typeLit(c.typeToMir(it.typ.base))
       elif it.kind == nkSym and it.sym.kind == skField:
         # emit and asm support using raw field symbols. For pushing them
         # through to the code generators, they're quoted (i.e., boxed into
