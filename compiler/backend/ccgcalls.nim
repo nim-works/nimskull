@@ -140,7 +140,7 @@ proc genArg(p: BProc, n: CgNode, param: PSym; call: CgNode): Rope =
       result = "$1.Field0, $1.Field1" % [rdLoc(a)]
     else:
       result = "$1, $1Len_0" % [rdLoc(a)]
-  elif ccgIntroducedPtr(p.config, param, call[0].typ[0]):
+  elif ccgIntroducedPtr(p.module, param, call[0].typ[0]):
     initLocExpr(p, n, a)
     if n.kind in cnkLiterals + {cnkNilLit}:
       result = addrLoc(p.module, literalsNeedsTmp(p, a))
