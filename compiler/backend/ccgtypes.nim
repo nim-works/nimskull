@@ -833,18 +833,6 @@ proc getClosureType(m: BModule, t: PType, kind: TClosureTypeKind): Rope =
           "void* ClE_0;$n} $1;$n",
            [result, rettype, desc])
 
-proc finishTypeDescriptions(m: BModule) =
-  var i = 0
-  var check = initIntSet()
-  while i < m.typeStack.len:
-    let t = m.typeStack[i]
-    if t.skipTypes(abstractInst).kind == tySequence:
-      seqV2ContentType(m, t, check)
-    else:
-      discard getTypeDescAux(m, t, check)
-    inc(i)
-  m.typeStack.setLen 0
-
 proc genProcHeader(m: BModule, prc: PSym, locs: openArray[TLoc]): Rope =
   ## Generates the C function header for `prc`, with `locs` being the locs
   ## of the formal parameters.

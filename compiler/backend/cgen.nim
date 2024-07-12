@@ -1124,7 +1124,6 @@ proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModul
   result.module = module
   result.typeInfoMarker = initTable[SigHash, Rope]()
   result.sigConflicts = initCountTable[SigHash]()
-  result.typeStack = @[]
   result.typeNodesName = getTempName(result)
   # no line tracing for the init sections of the system module so that we
   # don't generate a TFrame which can confuse the stack bottom initialization:
@@ -1194,7 +1193,7 @@ proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
     result = true
 
 proc finalizeModule*(m: BModule) =
-  finishTypeDescriptions(m)
+  discard
 
 proc finalizeMainModule*(m: BModule) =
   generateThreadVarsSize(m) # TODO: not the job of the code generator

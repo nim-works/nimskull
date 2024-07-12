@@ -241,7 +241,6 @@ type
     headerFiles*: seq[string] ## needed headers to include
     typeInfoMarker*: TypeCache ## needed for generating type information
     typeInfoMarkerV2*: TypeCache
-    typeStack*: TTypeSeq      ## used for type generation
     defaultCache*: Table[SigHash, int]
       ## maps a type hash to the name of a C constant storing the type's
       ## default value
