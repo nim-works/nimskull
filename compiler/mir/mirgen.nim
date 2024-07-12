@@ -234,7 +234,7 @@ template useSource(bu: var MirBuilder, sp: var SourceProvider,
 
 # -------------- Symbol translation --------------
 
-func localToMir(c: var TCtx, s: PSym): Local =
+proc localToMir(c: var TCtx, s: PSym): Local =
   Local(typ: c.env.types.add(s.typ),
         flags: s.flags,
         isImmutable: s.kind in {skLet, skForVar},
@@ -290,7 +290,7 @@ template emitByName(c: var TCtx, eff: EffectKind, body: untyped) =
 template addLocal(c: var TCtx, local: Local): LocalId =
   c.builder.addLocal(local)
 
-func addLocal(c: var TCtx, s: PSym): LocalId =
+proc addLocal(c: var TCtx, s: PSym): LocalId =
   ## Translates `s` to its MIR representation, registers it with body, and
   ## establishes a mapping.
   assert s.id notin c.localsMap
@@ -309,7 +309,7 @@ func uintLiteral(env: var MirEnv, val: BiggestUInt, typ: TypeId): Value =
 func floatLiteral(env: var MirEnv, val: BiggestFloat, typ: TypeId): Value =
   literal(mnkFloatLit, env.getOrIncl(val), typ)
 
-func astLiteral(env: var MirEnv, val: PNode, typ: PType): Value =
+proc astLiteral(env: var MirEnv, val: PNode, typ: PType): Value =
   literal(env.asts.add(val), env.types.add(typ))
 
 proc toIntLiteral(env: var MirEnv, val: Int128, typ: PType): Value =
@@ -359,7 +359,7 @@ template labelNode(lbl: LabelId): MirNode =
 template newLabelNode(c: var TCtx): MirNode =
   labelNode(c.builder.allocLabel())
 
-func nameNode(c: var TCtx, s: PSym): MirNode =
+proc nameNode(c: var TCtx, s: PSym): MirNode =
   let t = c.typeToMir(s.typ)
   case s.kind
   of skTemp:
@@ -380,7 +380,7 @@ func nameNode(c: var TCtx, s: PSym): MirNode =
   else:
     unreachable(s.kind)
 
-func genLocation(c: var TCtx, n: PNode): Value =
+proc genLocation(c: var TCtx, n: PNode): Value =
   let f = c.builder.push: c.builder.add(nameNode(c, n.sym))
   c.builder.popSingle(f)
 
