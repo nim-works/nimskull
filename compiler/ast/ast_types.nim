@@ -1724,8 +1724,6 @@ type
                               ## generated name is to be used
     extFlags*: ExternalFlags  ## additional flags that are relevant to code
                               ## generation
-    locId*: uint32            ## associates the symbol with a loc in the C code
-                              ## generator. 0 means unset.
     annex*: LibId             ## additional fields (seldom used, so we use a
                               ## reference to another object to save space)
     constraint*: PNode        ## additional constraints like 'lit|result'; also
