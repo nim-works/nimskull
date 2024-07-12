@@ -305,7 +305,7 @@ proc genExcept(p: BProc, n: CgNode) =
   # setup the handler frame:
   var tmp: TLoc
   getTemp(p, p.module.g.graph.getCompilerProc("ExceptionFrame").typ, tmp)
-  lineCg(p, cpsStmts, "#nimCatchException($1);$n", [addrLoc(p.config, tmp)])
+  lineCg(p, cpsStmts, "#nimCatchException($1);$n", [addrLoc(p.module, tmp)])
 
 proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
   var res = ""

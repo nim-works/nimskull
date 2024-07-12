@@ -53,7 +53,7 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         # procedure
         if d.k == locNone:
           getTemp(p, typ[0], d)
-        pl.add(addrLoc(p.config, d))
+        pl.add(addrLoc(p.module, d))
         pl.add(~");$n")
         line(p, cpsStmts, pl)
         exitCall(p, ri)
@@ -142,9 +142,9 @@ proc genArg(p: BProc, n: CgNode, param: PSym; call: CgNode): Rope =
   elif ccgIntroducedPtr(p.config, param, call[0].typ[0]):
     initLocExpr(p, n, a)
     if n.kind in cnkLiterals + {cnkNilLit}:
-      result = addrLoc(p.config, literalsNeedsTmp(p, a))
+      result = addrLoc(p.module, literalsNeedsTmp(p, a))
     else:
-      result = addrLoc(p.config, a)
+      result = addrLoc(p.module, a)
   else:
     initLocExprSingleUse(p, n, a)
     result = rdLoc(a)
@@ -217,7 +217,7 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
         # procedure
         if d.k == locNone:
           getTemp(p, typ[0], d)
-        pl.add(addrLoc(p.config, d))
+        pl.add(addrLoc(p.module, d))
         genCallPattern()
         exitCall(p, ri)
     else:

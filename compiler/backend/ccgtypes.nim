@@ -102,6 +102,7 @@ proc getTypeName(m: BModule; typ: PType; sig: SigHash): Rope =
   result = typ.typeName & $sig
 
 proc mapSetType(conf: ConfigRef; typ: PType): TCTypeKind =
+  ## Legacy procedure.
   case int(getSize(conf, typ))
   of 1: result = ctInt8
   of 2: result = ctInt16
@@ -109,51 +110,77 @@ proc mapSetType(conf: ConfigRef; typ: PType): TCTypeKind =
   of 8: result = ctInt64
   else: result = ctArray
 
-proc mapType(conf: ConfigRef; typ: PType): TCTypeKind =
-  ## Maps a Nim type to a C type
-  case typ.kind
-  of tyNone, tyTyped: result = ctVoid
-  of tyBool: result = ctBool
-  of tyChar: result = ctChar
-  of tyNil: result = ctPtr
-  of tySet: result = mapSetType(conf, typ)
-  of tyOpenArray, tyVarargs:
-    result = ctNimOpenArray
-  of tyArray, tyUncheckedArray: result = ctArray
-  of tyObject, tyTuple: result = ctStruct
-  of tyUserTypeClasses:
-    doAssert typ.isResolvedUserTypeClass
-    return mapType(conf, typ.lastSon)
-  of tyGenericBody, tyGenericInst, tyGenericParam, tyDistinct, tyOrdinal,
-     tyTypeDesc, tyAlias, tySink, tyInferred, tyEnum:
-    result = mapType(conf, lastSon(typ))
-  of tyRange: result = mapType(conf, typ[0])
-  of tyPtr, tyVar, tyLent, tyRef:
-    var base = skipTypes(typ.lastSon, typedescInst)
-    case base.kind
-    of tyArray, tyUncheckedArray: result = ctPtrToArray
-    of tyOpenArray, tyVarargs:
-      result = ctNimOpenArray
-    of tySet:
-      if mapSetType(conf, base) == ctArray: result = ctPtrToArray
-      else: result = ctPtr
-    else: result = ctPtr
-  of tyPointer: result = ctPtr
-  of tySequence: result = ctNimSeq
-  of tyProc: result = if typ.callConv != ccClosure: ctProc else: ctStruct
-  of tyString: result = ctNimStr
-  of tyCstring: result = ctCString
-  of tyInt..tyUInt64:
-    result = TCTypeKind(ord(typ.kind) - ord(tyInt) + ord(ctInt))
-  of tyStatic:
-    if typ.n != nil: result = mapType(conf, lastSon typ)
-    else: doAssert(false, "mapType: " & $typ.kind)
-  else: doAssert(false, "mapType: " & $typ.kind)
+proc mapType(types: TypeEnv, typ: TypeId): TCTypeKind
 
-proc mapReturnType(conf: ConfigRef; typ: PType): TCTypeKind =
+proc mapType(types: TypeEnv; desc: TypeHeader): TCTypeKind =
+  ## Maps a NimSkull type to the corresponding C type.
+  case desc.kind
+  of tkIndirect, tkImported:
+    mapType(types, desc.elem)
+  of tkVoid: ctVoid
+  of tkBool: ctBool
+  of tkChar: ctChar
+  of tkInt:
+    case desc.size(types)
+    of 1: ctInt8
+    of 2: ctInt16
+    of 4: ctInt32
+    of 8: ctInt64
+    else: unreachable()
+  of tkUInt:
+    case desc.size(types)
+    of 1: ctUInt8
+    of 2: ctUInt16
+    of 4: ctUInt32
+    of 8: ctUInt64
+    else: unreachable()
+  of tkFloat:
+    case desc.size(types)
+    of 4: ctFloat32
+    of 8: ctFloat64
+    else: unreachable()
+  of tkArray, tkUncheckedArray:
+    ctArray
+  of tkRecord, tkUnion:
+    ctStruct
+  of tkPtr, tkRef, tkLent, tkVar:
+    case mapType(types, desc.elem)
+    of ctArray:
+      ctPtrToArray
+    else:
+      ctPtr
+  of tkPointer: ctPtr
+  of tkProc: ctProc
+  of tkCstring: ctCString
+  # handling of the non-lowered types follows:
+  # XXX: this needs to eventually be removed; the whole code generator needs
+  #      to only operate on the lowered types
+  of tkSet:
+    case desc.size(types)
+    of 1: ctInt8
+    of 2: ctInt16
+    of 4: ctInt32
+    of 8: ctInt64
+    else: ctArray
+  of tkOpenArray: ctNimOpenArray
+  of tkSeq:       ctNimSeq
+  of tkString:    ctNimStr
+  of tkClosure:   ctStruct
+  else:
+    unreachable(desc.kind)
+
+proc mapType(types: TypeEnv, typ: TypeId): TCTypeKind =
+  mapType(types, types.headerFor(typ, Original))
+
+proc mapType(m: BModule; typ: PType): TCTypeKind =
+  ## Legacy procedure. Bridges the old to the new types.
+  let id = m.addLate(typ)
+  mapType(m.types, id)
+
+proc mapReturnType(m: BModule; typ: PType): TCTypeKind =
   #if skipTypes(typ, typedescInst).kind == tyArray: result = ctPtr
   #else:
-  result = mapType(conf, typ)
+  result = mapType(m, typ)
 
 proc isImportedType(t: PType): bool =
   result = t.sym != nil and sfImportc in t.sym.flags
@@ -226,10 +253,10 @@ proc ccgIntroducedPtr(conf: ConfigRef; s: PSym, retType: PType): bool =
     result = not (pt.kind in {tyVar, tyArray, tyOpenArray, tyVarargs, tyRef, tyPtr, tyPointer} or
       pt.kind == tySet and mapSetType(conf, pt) == ctArray)
 
-proc initResultParamLoc(conf: ConfigRef; param: CgNode): TLoc =
+proc initResultParamLoc(m: BModule; param: CgNode): TLoc =
   result = initLoc(locParam, param, "Result", OnStack)
   let t = param.typ
-  if mapReturnType(conf, t) != ctArray and isInvalidReturnType(conf, t):
+  if mapReturnType(m, t) != ctArray and isInvalidReturnType(m.config, t):
     incl(result.flags, lfIndirect)
     result.storage = OnUnknown
 
@@ -358,7 +385,7 @@ proc prepareParameters(m: BModule, t: PType): seq[TLoc] =
       continue
 
     let storage =
-      if mapType(m.config, param.typ.skipTypes({tyVar, tyLent})) == ctArray:
+      if mapType(m, param.typ.skipTypes({tyVar, tyLent})) == ctArray:
         # something that's represented as a C array. Since an indirection is
         # involved, we don't know where the location resides
         OnUnknown

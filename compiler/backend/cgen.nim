@@ -38,7 +38,8 @@ import
   ],
   compiler/mir/[
     mirenv,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/front/[
     options,
@@ -100,6 +101,9 @@ const
   sfTopLevel* = sfMainModule
     ## the procedure contains top-level code, which currently affects how
     ## emit, asm, and error handling works
+
+template types(m: BModule): TypeEnv =
+  m.g.env.types
 
 template getString(p: BProc, n: CgNode): string =
   p.env[n.strVal]
@@ -338,6 +342,16 @@ proc registerLateProc(m: BModule, s: PSym): ProcedureId =
   # inline procedure handling needs to know about the dependency...
   m.extra.add(result)
 
+proc addLate(m: BModule, t: PType): TypeId =
+  ## Temporary workaround for not all type being registered with the type
+  ## environment. Ultimately, a code generator should not modify the type
+  ## environment.
+  if t.isNil:
+    result = VoidType
+  else:
+    result = m.types.add(t)
+    result = m.types.canonical(result)
+
 proc accessThreadLocalVar(p: BProc)
 proc emulatedThreadVars*(conf: ConfigRef): bool {.inline.}
 proc useProc(m: BModule, id: ProcedureId)
@@ -363,14 +377,14 @@ include ccgtypes
 
 # ------------------------------ Manager of temporaries ------------------
 
-proc addrLoc(conf: ConfigRef; a: TLoc): Rope =
+proc addrLoc(m: BModule; a: TLoc): Rope =
   result = a.r
-  if lfIndirect notin a.flags and mapType(conf, a.t) != ctArray:
+  if lfIndirect notin a.flags and mapType(m, a.t) != ctArray:
     result = "(&" & result & ")"
 
 proc byRefLoc(p: BProc; a: TLoc): Rope =
   result = a.r
-  if lfIndirect notin a.flags and mapType(p.config, a.t) != ctArray:
+  if lfIndirect notin a.flags and mapType(p.module, a.t) != ctArray:
     result = "(&" & result & ")"
 
 proc rdCharLoc(a: TLoc): Rope =
@@ -436,7 +450,7 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
         genAssignment(p, a, tmp)
 
 proc constructLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  case mapType(p.config, loc.t)
+  case mapType(p.module, loc.t)
   of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
      ctFloat, ctFloat32, ctFloat64,
      ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64:
@@ -449,7 +463,7 @@ proc constructLoc(p: BProc, loc: var TLoc; doInitObj = true) =
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
   of ctArray, ctStruct, ctNimOpenArray:
     linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-            [addrLoc(p.config, loc), getTypeDesc(p.module, loc.t)])
+            [addrLoc(p.module, loc), getTypeDesc(p.module, loc.t)])
 
     if doInitObj:
       genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
@@ -716,7 +730,7 @@ proc startProc*(m: BModule, id: ProcedureId; procBody: sink Body): BProc =
       # declare the result symbol:
       assignLocalVar(p, resNode)
     else:
-      p.locals[res] = initResultParamLoc(p.config, resNode)
+      p.locals[res] = initResultParamLoc(p.module, resNode)
       scopeMangledParam(p, p.body[res].name)
       if skipTypes(resNode.typ, abstractInst).kind == tyArray:
         #incl(res.locFlags, lfIndirect)

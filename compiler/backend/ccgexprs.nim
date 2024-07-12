@@ -140,7 +140,7 @@ proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
 proc genAssignment(p: BProc, dest, src: TLoc) =
   # This function replaces all other methods for generating
   # the assignment operation in C.
-  case mapType(p.config, dest.t)
+  case mapType(p.module, dest.t)
   of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
      ctFloat, ctFloat32, ctFloat64,
      ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64,
@@ -166,7 +166,7 @@ proc genAssignment(p: BProc, dest, src: TLoc) =
     #writeStackTrace()
     #echo p.currLineInfo, " requesting"
     linefmt(p, cpsStmts, "#memTrackerWrite((void*)$1, $2, $3, $4);$n",
-            [addrLoc(p.config, dest), getSize(p.config, dest.t),
+            [addrLoc(p.module, dest), getSize(p.config, dest.t),
             makeCString(toFullPath(p.config, p.currLineInfo)),
             p.currLineInfo.safeLineNm])
 
@@ -176,25 +176,25 @@ proc genDeepCopy(p: BProc; dest, src: TLoc) =
       var tmp: TLoc
       getTemp(p, a.t, tmp)
       genAssignment(p, tmp, a)
-      addrLoc(p.config, tmp)
+      addrLoc(p.module, tmp)
     else:
-      addrLoc(p.config, a)
+      addrLoc(p.module, a)
 
   var ty = skipTypes(dest.t, abstractVarRange + {tyStatic})
   case ty.kind
   of tyPtr, tyRef, tyProc, tyTuple, tyObject, tyArray:
     # XXX optimize this
     linefmt(p, cpsStmts, "#genericDeepCopy((void*)$1, (void*)$2, $3);$n",
-            [addrLoc(p.config, dest), addrLocOrTemp(src),
+            [addrLoc(p.module, dest), addrLocOrTemp(src),
             genTypeInfoV1(p.module, dest.t, dest.lode.info)])
   of tySequence, tyString:
     linefmt(p, cpsStmts, "#genericDeepCopy((void*)$1, (void*)$2, $3);$n",
-            [addrLoc(p.config, dest), addrLocOrTemp(src),
+            [addrLoc(p.module, dest), addrLocOrTemp(src),
             genTypeInfoV1(p.module, dest.t, dest.lode.info)])
   of tyOpenArray, tyVarargs:
     linefmt(p, cpsStmts,
          "#genericDeepCopyOpenArray((void*)$1, (void*)$2, $1Len_0, $3);$n",
-         [addrLoc(p.config, dest), addrLocOrTemp(src),
+         [addrLoc(p.module, dest), addrLocOrTemp(src),
          genTypeInfoV1(p.module, dest.t, dest.lode.info)])
   of tySet:
     if mapSetType(p.config, ty) == ctArray:
@@ -396,7 +396,7 @@ proc unaryArith(p: BProc, e, x: CgNode, d: var TLoc, op: TMagic) =
 proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
   let
     src = e.operand
-    mt = mapType(p.config, src.typ)
+    mt = mapType(p.module, src.typ)
   if mt in {ctArray, ctPtrToArray} and lfEnforceDeref notin d.flags:
     # XXX the amount of hacks for C's arrays is incredible, maybe we should
     # simply wrap them in a struct? --> Losing auto vectorization then?
@@ -438,14 +438,14 @@ proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
       putIntoDest(p, d, e, "(*$1)" % [rdLoc(a)], a.storage)
 
 proc genAddr(p: BProc, e: CgNode, d: var TLoc) =
-  if mapType(p.config, e.operand.typ) == ctArray:
+  if mapType(p.module, e.operand.typ) == ctArray:
     expr(p, e.operand, d)
   else:
     var a: TLoc
     initLoc(a, locNone, e.operand, OnUnknown)
     a.flags.incl lfWantLvalue
     expr(p, e.operand, a)
-    putIntoDest(p, d, e, addrLoc(p.config, a), a.storage)
+    putIntoDest(p, d, e, addrLoc(p.module, a), a.storage)
 
 template inheritLocation(d: var TLoc, a: TLoc) =
   if d.k == locNone: d.storage = a.storage
@@ -1209,7 +1209,7 @@ proc genSomeCast(p: BProc, e: CgNode, d: var TLoc) =
   let srcTyp = skipTypes(src.typ, abstractRange)
   if etyp.kind in ValueTypes and lfIndirect notin a.flags:
     putIntoDest(p, d, e, "(*($1*) ($2))" %
-        [getTypeDesc(p.module, e.typ), addrLoc(p.config, a)], a.storage)
+        [getTypeDesc(p.module, e.typ), addrLoc(p.module, a)], a.storage)
   elif etyp.kind == tyProc and etyp.callConv == ccClosure and srcTyp.callConv != ccClosure:
     putIntoDest(p, d, e, "(($1) ($2))" %
         [getClosureType(p.module, etyp, clHalfWithEnv), rdCharLoc(a)], a.storage)
@@ -1566,14 +1566,14 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
     if lfWantLvalue in d.flags:
       putIntoDest(p, d, n,
                 "(($1*) ($2))" % [getTypeDesc(p.module, n.typ),
-                                  addrLoc(p.config, a)], a.storage)
+                                  addrLoc(p.module, a)], a.storage)
       d.flags.incl lfIndirect
     else:
       putIntoDest(p, d, n,
                 "(($1) ($2))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
   else:
     putIntoDest(p, d, n, "(*($1*) ($2))" %
-                        [getTypeDesc(p.module, dest), addrLoc(p.config, a)], a.storage)
+                        [getTypeDesc(p.module, dest), addrLoc(p.module, a)], a.storage)
 
 proc upConv(p: BProc, n: CgNode, d: var TLoc) =
   ## Generates and emits the code for the ``cnkObjUpConv`` (conversion to
@@ -1591,7 +1591,7 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
     # expression and then cast the pointer:
     putIntoDest(p, d, n,
                 "(($1*) ($2))" % [getTypeDesc(p.module, n.typ),
-                                  addrLoc(p.config, a)],
+                                  addrLoc(p.module, a)],
                 a.storage)
     # an indirection is used:
     d.flags.incl lfIndirect
