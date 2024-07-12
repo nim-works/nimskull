@@ -187,22 +187,65 @@ proc isImportedType(t: PType): bool =
 
 proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet): Rope
 
-proc isInvalidReturnType(conf: ConfigRef; rettype: PType): bool =
-  # Arrays and sets cannot be returned by a C procedure, because C is
+proc containsGarbageCollectedRef(env: TypeEnv, typ: TypeId): bool =
+  ## Computes whether `typ` is or contains a garbage-collected type.
+  let n = env.get(typ).desc[Canonical]
+  case env[n].kind
+  of tkRef, tkClosure:
+    result = true
+  of tkArray:
+    result = containsGarbageCollectedRef(env, env[n].elem)
+  of tkRecord:
+    var rec = typ
+    # traverse the object hierarchy:
+    while rec != VoidType:
+      for (_, f) in env.fields(env.headerFor(rec, Canonical)):
+        # is the field a garbabe-collected reference?
+        if containsGarbageCollectedRef(env, f.typ):
+          return true
+
+      rec = env.headerFor(rec, Canonical).base(env)
+
+    result = false
+  else:
+    # neither an aggregate type nor a garbage-collected ref
+    result = false
+
+proc usesRvo(types: TypeEnv, typ: TypeId): bool =
+  ## Computes for the record type `typ` whether it uses the return-value
+  ## optimization.
+  # seek to the root type in the inheritance hierarchy:
+  var base = typ
+  while (let next = types.headerFor(base, Lowered).base(types);
+         next != VoidType):
+    base = next
+
+  # does the type have a RTTI header? does the record have a garbage-collected
+  # field?
+  # XXX: these rules originate from the refc days, where they were important
+  #      for efficiency. This is no longer the case, and it'd make sense to
+  #      make usage of RVO dependent on the *size* of the type instead
+  result = types.headerFor(base, Lowered).fieldOffset(types) == -1 or
+           containsGarbageCollectedRef(types, typ)
+
+proc isInvalidReturnType(types: TypeEnv; typ: TypeId): bool =
+  # Arrays cannot be returned by a C procedure, because C is
   # such a poor programming language.
   # We exclude records with refs too. This enhances efficiency.
   # keep synchronized with ``mirpasses.eligibleForRvo``
-  if rettype == nil: result = true
+  let typ = types.canonical(typ)
+  case types.headerFor(typ, Lowered).kind
+  of tkArray:  true
+  of tkRecord: usesRvo(types, typ)
+  else:        false
+
+proc isInvalidReturnType(m: BModule; rettype: PType): bool =
+  ## Legacy procedure; only exists for bridging the old to the new code.
+  if rettype.isNil:
+    false # nil stands for void, which is a valid return type
   else:
-    case mapType(conf, rettype)
-    of ctArray:
-      result = not (skipTypes(rettype, typedescInst).kind in
-          {tyVar, tyLent, tyRef, tyPtr})
-    of ctStruct:
-      let t = skipTypes(rettype, typedescInst)
-      result = containsGarbageCollectedRef(t) or
-          (t.kind == tyObject and not isObjLackingTypeField(t))
-    else: result = false
+    let id = m.addLate(rettype)
+    isInvalidReturnType(m.types, id)
 
 const
   CallingConvToStr: array[TCallingConvention, string] = ["N_NIMCALL",
@@ -256,7 +299,7 @@ proc ccgIntroducedPtr(conf: ConfigRef; s: PSym, retType: PType): bool =
 proc initResultParamLoc(m: BModule; param: CgNode): TLoc =
   result = initLoc(locParam, param, "Result", OnStack)
   let t = param.typ
-  if mapReturnType(m, t) != ctArray and isInvalidReturnType(m.config, t):
+  if mapReturnType(m, t) != ctArray and isInvalidReturnType(m, t):
     incl(result.flags, lfIndirect)
     result.storage = OnUnknown
 

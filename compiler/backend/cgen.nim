@@ -726,7 +726,7 @@ proc startProc*(m: BModule, id: ProcedureId; procBody: sink Body): BProc =
     let
       res = resultId
       resNode = newLocalRef(res, prc.info, prc.typ[0])
-    if not isInvalidReturnType(m.config, prc.typ[0]):
+    if not isInvalidReturnType(m, prc.typ[0]):
       # declare the result symbol:
       assignLocalVar(p, resNode)
     else:
@@ -778,7 +778,7 @@ proc finishProc*(p: BProc, id: ProcedureId): string =
     header = genProcHeader(p.module, prc, p.params)
     returnStmt = ""
 
-  if sfPure notin prc.flags and not isInvalidReturnType(p.config, prc.typ[0]):
+  if sfPure notin prc.flags and not isInvalidReturnType(p.module, prc.typ[0]):
     returnStmt = ropecg(p.module, "\treturn $1;$n",
                         [rdLoc(p.locals[resultId])])
 

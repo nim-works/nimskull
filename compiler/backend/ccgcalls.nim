@@ -44,7 +44,7 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
   # getUniqueType() is too expensive here:
   var typ = skipTypes(ri[0].typ, abstractInst)
   if typ[0] != nil:
-    if isInvalidReturnType(p.config, typ[0]):
+    if isInvalidReturnType(p.module, typ[0]):
       if params != "": pl.add(~", ")
       # the destination is guaranteed to be either a temporary or an lvalue
       # that can be modified in-place
@@ -208,7 +208,7 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
 
   let rawProc = getClosureType(p.module, typ, clHalf)
   if typ[0] != nil:
-    if isInvalidReturnType(p.config, typ[0]):
+    if isInvalidReturnType(p.module, typ[0]):
       if numArgs(ri) > 0: pl.add(~", ")
       # the destination is guaranteed to be either a temporary or an lvalue
       # that can be modified in-place
