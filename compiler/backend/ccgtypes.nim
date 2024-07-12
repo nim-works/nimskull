@@ -578,16 +578,6 @@ proc genRecordFieldsAux(m: BModule, n: PNode,
 proc getRecordFields(m: BModule, typ: PType, check: var IntSet): Rope =
   result = genRecordFieldsAux(m, typ.n, typ, check)
 
-proc ensureObjectFields*(m: BModule; field: PSym, typ: PType) =
-  ## Two different object types can produce the same signature hash in
-  ## certain cases (the hidden parameter type of a generic's inner procedure,
-  ## for example), in which case ``getTypeDescAux`` never calls
-  ## ``genRecordDesc``. This procedures makes sure that the field has a valid
-  ## loc.
-  if field.locId == 0:
-    var check = initIntSet()
-    discard getRecordFields(m, typ, check)
-
 proc mangleDynLibProc(sym: PSym): Rope
 
 proc getRecordDesc(m: BModule, typ: PType, name: Rope,
@@ -953,7 +943,6 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
     var tmp = discriminatorTableName(m, typ, field)
     var L = lengthOrd(m.config, field.typ)
     assert L > 0
-    ensureObjectFields(m, field, typ)
     m.s[cfsTypeInit3].addf("$1.kind = 3;$n" &
         "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
         "$1.name = $5;$n" & "$1.sons = &$6[0];$n" &
@@ -989,7 +978,6 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
     # Do not produce code for void types
     if isEmptyType(field.typ): return
     if field.bitsize == 0:
-      ensureObjectFields(m, field, typ)
       m.s[cfsTypeInit3].addf("$1.kind = 1;$n" &
           "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
           "$1.name = $5;$n", [expr, getTypeDesc(m, origType),

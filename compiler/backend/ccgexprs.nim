@@ -494,7 +494,6 @@ proc genRecordField(p: BProc, e: CgNode, d: var TLoc) =
   if true:
     var rtyp: PType
     let field = lookupFieldAgain(p, ty, f, r, addr rtyp)
-    ensureObjectFields(p.module, field, rtyp)
     r.addf(".$1", [p.fieldName(field)])
     putIntoDest(p, d, e, r, a.storage)
 
@@ -742,7 +741,6 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
     p.config.internalAssert(n[0].kind == nkSym, n.info,
                             "specializeInitObjectN")
     let disc = n[0].sym
-    ensureObjectFields(p.module, disc, typ)
     lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, p.fieldName(disc)])
     for i in 1..<n.len:
       let branch = n[i]
@@ -757,7 +755,6 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
   of nkSym:
     let field = n.sym
     if field.typ.kind == tyVoid: return
-    ensureObjectFields(p.module, field, typ)
     specializeInitObject(p, "$1.$2" % [accessor, p.fieldName(field)],
                          field.typ, n.info)
   else: internalError(p.config, n.info, "specializeInitObjectN()")
@@ -855,7 +852,6 @@ proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
     var tmp2: TLoc
     tmp2.r = r
     let field = lookupFieldAgain(p, ty, it[0].field, tmp2.r)
-    ensureObjectFields(p.module, field, ty)
     tmp2.r.add(".")
     tmp2.r.add(p.fieldName(field))
     tmp2.k = d.k
