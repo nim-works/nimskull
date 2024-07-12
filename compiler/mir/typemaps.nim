@@ -175,7 +175,7 @@ func hash*(x: Type): Hash {.inline.} =
   ## Leaked implementation detail -- do not use.
   hash(PType x)
 
-proc `[]`*[T](t: TypeTable[T], key: PType): lent T {.inline.} =
+proc `[]`*[T](t: TypeTable[T], key: PType): T {.inline.} =
   ## Looks up the item for `key`.
   t.inner[Type key]
 
