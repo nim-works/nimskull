@@ -25,7 +25,8 @@ import
   ],
   compiler/mir/[
     mirenv,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/modules/[
     modulegraphs
@@ -207,7 +208,7 @@ type
       ## the locs for all alive constants of the program
     procs*: SeqMap[ProcedureId, ProcLoc]
       ## the locs for all alive procedure of the program
-    fields*: SymbolMap[string]
+    fields*: Table[FieldId, string]
       ## stores the C name for each field
 
     hooks*: seq[(BModule, ProcedureId)]
@@ -230,12 +231,8 @@ type
     cfilename*: AbsoluteFile  ## filename of the module (including path,
                               ## without extension)
     tmpBase*: Rope            ## base for temp identifier generation
-    typeCache*: TypeCache     ## cache the generated types
-    typeABICache*: HashSet[SigHash] ## cache for ABI checks; reusing typeCache
-                              ## would be ideal but for some reason enums
-                              ## don't seem to get cached so it'd generate
-                              ## 1 ABI check per occurence in code
-    forwTypeCache*: TypeCache ## cache for forward declarations of types
+    typeCache*: Table[TypeId, Rope] ## cache the generated types
+    forwTypeCache*: Table[TypeId, Rope] ## cache for forward declarations of types
     declaredThings*: IntSet   ## things we have declared in this .c file
     declaredProtos*: IntSet   ## prototypes we have declared in this .c file
     headerFiles*: seq[string] ## needed headers to include
@@ -275,10 +272,6 @@ template globals*(m: BModule): untyped = m.g.globals
 template consts*(m: BModule): untyped  = m.g.consts
 
 template env*(p: BProc): untyped = p.module.g.env
-
-template fieldName*(p: BProc, field: PSym): string =
-  ## Returns the C name for the given `field`.
-  p.module.fields[field]
 
 template params*(p: BProc): seq[TLoc] =
   ## Returns the mutable list with the locs of `p`'s

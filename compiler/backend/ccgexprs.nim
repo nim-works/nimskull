@@ -469,32 +469,22 @@ proc genTupleElem(p: BProc, e: CgNode, d: var TLoc) =
   r.addf(".Field$1", [rope(e[1].intVal)])
   putIntoDest(p, d, e, r, a.storage)
 
-proc lookupFieldAgain(p: BProc, ty: PType; field: PSym; r: var Rope;
-                      resTyp: ptr PType = nil): PSym =
-  var ty = ty
-  assert r != ""
-  while ty != nil:
-    ty = ty.skipTypes(skipPtrs)
-    assert ty.kind == tyObject
-    result = lookupInRecord(ty.n, field.name)
-    if result != nil:
-      if resTyp != nil: resTyp[] = ty
-      break
-    r.add(".Sup")
-    ty = ty[0]
-  if result == nil: internalError(p.config, field.info, "genCheckedRecordField")
+proc handleSupAccess(types: TypeEnv, ty: PType; field: PSym; r: var Rope) =
+  let depth = computeDepth(types, types.headerFor(types[ty], Canonical),
+                           field.position.int32)
+  for _ in 0..<depth:
+    r.add ".Sup"
 
 proc genRecordField(p: BProc, e: CgNode, d: var TLoc) =
   var a: TLoc
   genRecordFieldAux(p, e, d, a)
   var r = rdLoc(a)
-  var f = e[1].field
+  let f = e[1].field
   let ty = skipTypes(a.t, abstractInst + tyUserTypeClasses)
   p.config.internalAssert(ty.kind == tyObject, e[0].info)
   if true:
-    var rtyp: PType
-    let field = lookupFieldAgain(p, ty, f, r, addr rtyp)
-    r.addf(".$1", [p.fieldName(field)])
+    handleSupAccess(p.module.types, ty, f, r)
+    r.addf(".$1", [p.fieldName(ty, f)])
     putIntoDest(p, d, e, r, a.storage)
 
 proc genUncheckedArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
@@ -741,7 +731,7 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
     p.config.internalAssert(n[0].kind == nkSym, n.info,
                             "specializeInitObjectN")
     let disc = n[0].sym
-    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, p.fieldName(disc)])
+    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, p.fieldName(typ, disc)])
     for i in 1..<n.len:
       let branch = n[i]
       assert branch.kind in {nkOfBranch, nkElse}
@@ -755,7 +745,7 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
   of nkSym:
     let field = n.sym
     if field.typ.kind == tyVoid: return
-    specializeInitObject(p, "$1.$2" % [accessor, p.fieldName(field)],
+    specializeInitObject(p, "$1.$2" % [accessor, p.fieldName(typ, field)],
                          field.typ, n.info)
   else: internalError(p.config, n.info, "specializeInitObjectN()")
 
@@ -851,9 +841,9 @@ proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
   for it in e.items:
     var tmp2: TLoc
     tmp2.r = r
-    let field = lookupFieldAgain(p, ty, it[0].field, tmp2.r)
+    handleSupAccess(p.module.types, ty, it[0].field, tmp2.r)
     tmp2.r.add(".")
-    tmp2.r.add(p.fieldName(field))
+    tmp2.r.add(p.fieldName(ty, it[0].field))
     tmp2.k = d.k
     tmp2.storage = d.storage
     tmp2.lode = it[1]
@@ -1373,7 +1363,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     let member =
       if dotExpr.kind == cnkTupleAccess:
         "Field" & rope(dotExpr[1].intVal)
-      else: p.fieldName(dotExpr[1].field)
+      else: p.fieldName(dotExpr[0].typ, dotExpr[1].field)
     putIntoDest(p,d,e, "((NI)offsetof($1, $2))" % [tname, member])
   of mChr: genSomeCast(p, e, d)
   of mOrd: genOrd(p, e, d)

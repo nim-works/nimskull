@@ -206,7 +206,7 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
     else:
       lineF(p, cpsStmts, PatProc & ";$n", [rdLoc(op), pl, pl.addComma, rawProc])
 
-  let rawProc = getClosureType(p.module, typ, clHalf)
+  let rawProc = getClosureType(p.module, ri[0].typ, clHalf)
   if typ[0] != nil:
     if isInvalidReturnType(p.module, typ[0]):
       if numArgs(ri) > 0: pl.add(~", ")

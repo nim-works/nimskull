@@ -65,7 +65,8 @@ import
     ccgutils,
     ccgflow,
     cgendata,
-    cgir
+    cgir,
+    mangling
   ],
   compiler/plugins/[
   ]
@@ -111,6 +112,13 @@ template getString(p: BProc, n: CgNode): string =
 proc findPendingModule(m: BModule, s: PSym): BModule =
   let ms = s.itemId.module  #getModule(s)
   result = m.g.modules[ms]
+
+proc fieldName(p: BProc, typ: PType, field: PSym): string =
+  ## Returns the C name for the given `field`.
+  # the type the field is part of must have been emitted into the module
+  # already
+  p.module.fields[lookupField(p.module.types, p.module.types[typ],
+                              field.position.int32)]
 
 proc initLoc(result: var TLoc, k: TLocKind, lode: CgNode, s: TStorageLoc) =
   result.k = k
@@ -1119,8 +1127,8 @@ proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModul
   result.declaredProtos = initIntSet()
   result.cfilename = filename
   result.filename = filename
-  result.typeCache = initTable[SigHash, Rope]()
-  result.forwTypeCache = initTable[SigHash, Rope]()
+  result.typeCache = initTable[TypeId, Rope]()
+  result.forwTypeCache = initTable[TypeId, Rope]()
   result.module = module
   result.typeInfoMarker = initTable[SigHash, Rope]()
   result.sigConflicts = initCountTable[SigHash]()
