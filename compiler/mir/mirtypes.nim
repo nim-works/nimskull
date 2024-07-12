@@ -1005,6 +1005,18 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
   discard getSize(env.config, t) # compute size, alignment, and field offsets
 
   if t.kind == tyObject:
+    if sfCompilerProc in t.sym.flags:
+      # compilerproc types can be defined in multiple modules (see
+      # ``TNimType``). Only create a type symbol for the instance that's
+      # registered in the compilerproc table
+      # XXX: this is workaround. Compilerproc types should only be defined
+      #      a single time within a project
+      let real = env.graph.getCompilerProc(t.sym.name.s).typ
+      if t != real:
+        result = env.add(real)
+        env.map[t] = result
+        return
+
     # register the type symbol *first*. This prevents infinite recursion for
     # cyclic types
     result = env.symbols.add TypeSym(inst: t, canon: env.symbols.nextId())
