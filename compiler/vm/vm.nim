@@ -524,7 +524,7 @@ proc findEh(c: TCtx, t: VmThread, at: PrgCtr, frame: int
     # search for the instruction's asscoiated exception handler:
     for i in handlers.items:
       if c.ehTable[i].offset == offset:
-        return some (frame: frame, ehInstr: c.ehTable[i].instr)
+        return some (frame, c.ehTable[i].instr)
 
     # no handler was found, try the above frame
     pc = t.sframes[frame].comesFrom
