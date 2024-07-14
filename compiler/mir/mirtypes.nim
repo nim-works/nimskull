@@ -44,6 +44,10 @@ import
     idioms
   ]
 
+# XXX: the type translation should not rely on signature hashes for
+#      ``tyGenericInst``
+from compiler/sem/sighashes import hashType
+
 type
   TypeKind* = enum
     tkVoid
@@ -132,6 +136,11 @@ type
 
     canon: Table[HeaderId, TypeId]
       ## maps headers of canonical type descriptions to their type symbol
+
+    instances: Table[SigHash, TypeId]
+      ## fundamentally a workaround. Used to map different generic object
+      ## instantiations all representing the same backend type to a single
+      ## type symbol
 
     idents: BiTable[string]
     numbers: BiTable[BiggestInt]
@@ -1021,6 +1030,14 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
     # cyclic types
     result = env.symbols.add TypeSym(inst: t, canon: env.symbols.nextId())
     env.map[t] = result
+
+    # generic types support covariance for tuples. Pick an instance as the
+    # "canonical" one, so that - for example - ``Generic[(int,)]`` and
+    # ``Generic[tuple[x: int]]`` map to the same MIR type in the end
+    if t.typeInst != nil and
+       (let canon = env.instances.mgetOrPut(hashType(t), result);
+        canon != result):
+      env.symbols[result].canon = canon
 
     let
       orig  = typeToMir(env, t, canon=false)
