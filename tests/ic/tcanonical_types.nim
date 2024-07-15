@@ -1,6 +1,6 @@
 discard """
   description: '''
-    Regression test for compiler crash due to missing hook attachements. The
+    Regression test for compiler crash due to missing hook attachments. The
     test is contrived and depends on compiler implementation details.
   '''
 """
