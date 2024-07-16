@@ -1033,7 +1033,7 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
 
     let
       orig  = typeToMir(env, t, canon=false)
-      canon = typeToMir(env, t, canon=true, unique=(t.typeInst == nil))
+      canon = typeToMir(env, t, canon=true, unique=(tfFromGeneric notin t.flags))
 
     # there's nothing to lower for object types
     env.symbols[result].desc = [orig, canon, canon]
@@ -1041,10 +1041,10 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
     # generic types support covariance for tuples. Pick an instance as the
     # "canonical" one, so that - for example - ``Generic[(int,)]`` and
     # ``Generic[tuple[x: int]]`` map to the same MIR type in the end
-    if t.typeInst != nil and
-       (let orig = env.instances.mgetOrPut((t.owner.typ.id, canon), result);
-        orig != result):
-      env.symbols[result].canon = orig
+    if tfFromGeneric in t.flags and
+       (let c = env.instances.mgetOrPut((t.owner.typ.id, canon), result);
+        c != result):
+      env.symbols[result].canon = c
   else:
     # create the type description preserving the original type symbols:
     let
