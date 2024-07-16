@@ -1042,7 +1042,7 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
     # "canonical" one, so that - for example - ``Generic[(int,)]`` and
     # ``Generic[tuple[x: int]]`` map to the same MIR type in the end
     if tfFromGeneric in t.flags and
-       (let c = env.instances.mgetOrPut((t.owner.typ.id, canon), result);
+       (let c = env.instances.mgetOrPut((t.sym.owner.typ.id, canon), result);
         c != result):
       env.symbols[result].canon = c
   else:
