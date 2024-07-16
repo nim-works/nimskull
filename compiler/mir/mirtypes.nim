@@ -44,10 +44,6 @@ import
     idioms
   ]
 
-# XXX: the type translation should not rely on signature hashes for
-#      ``tyGenericInst``
-from compiler/sem/sighashes import hashType
-
 type
   TypeKind* = enum
     tkVoid
@@ -137,10 +133,10 @@ type
     canon: Table[HeaderId, TypeId]
       ## maps headers of canonical type descriptions to their type symbol
 
-    instances: Table[SigHash, TypeId]
-      ## fundamentally a workaround. Used to map different generic object
-      ## instantiations all representing the same backend type to a single
-      ## type symbol
+    instances: Table[(int, HeaderId), TypeId]
+      ## associates a generic type ID + instance body with a type symbol. This
+      ## is used for eliminating  same-shaped instantiations of a generic
+      ## object type
 
     idents: BiTable[string]
     numbers: BiTable[BiggestInt]
@@ -717,7 +713,11 @@ proc makeDesc(kind: TypeKind, size: IntVal, align: int16,
               typ: TypeId; other = 0'u32): TypeHeader {.inline.} =
   TypeHeader(kind: kind, size: size, align: align, a: typ.uint32, b: other)
 
-proc typeToMir(env: var TypeEnv, t: PType; canon = false): HeaderId =
+proc typeToMir(env: var TypeEnv, t: PType; canon = false, unique=true): HeaderId =
+  ## Translates `t` to its MIR representation. All structural types are
+  ## deduplicated, meaning that two structural types with the same structure
+  ## will result in the same ``HeaderId``. For ``tyObject`` types,
+  ## deduplication only happens if `unique` is false.
   template typeref(typ: PType): TypeId =
     let t = env.add(typ)
     if canon: canonical(env, t)
@@ -804,7 +804,7 @@ proc typeToMir(env: var TypeEnv, t: PType; canon = false): HeaderId =
       rec.addField(IntVal 0, CharType)
 
     # object/union types are not de-duplicated
-    rec.close(env, unique=true)
+    rec.close(env, unique)
   of tyProc:
     var prc: ProcBuilder
     let ret = if t[0].isNil: VoidType else: typeref(t[0])
@@ -1031,20 +1031,20 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
     result = env.symbols.add TypeSym(inst: t, canon: env.symbols.nextId())
     env.map[t] = result
 
+    let
+      orig  = typeToMir(env, t, canon=false)
+      canon = typeToMir(env, t, canon=true, unique=(t.typeInst == nil))
+
+    # there's nothing to lower for object types
+    env.symbols[result].desc = [orig, canon, canon]
+
     # generic types support covariance for tuples. Pick an instance as the
     # "canonical" one, so that - for example - ``Generic[(int,)]`` and
     # ``Generic[tuple[x: int]]`` map to the same MIR type in the end
     if t.typeInst != nil and
-       (let canon = env.instances.mgetOrPut(hashType(t), result);
-        canon != result):
-      env.symbols[result].canon = canon
-
-    let
-      orig  = typeToMir(env, t, canon=false)
-      canon = typeToMir(env, t, canon=true)
-
-    # there's nothing to lower for object types
-    env.symbols[result].desc = [orig, canon, canon]
+       (let orig = env.instances.mgetOrPut((t.owner.typ.id, canon), result);
+        orig != result):
+      env.symbols[result].canon = orig
   else:
     # create the type description preserving the original type symbols:
     let
