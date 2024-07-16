@@ -23,5 +23,6 @@ jobs:
           reaction-token: ${{ steps.token.outputs.token }}
           commands: |
             merge
+            generate-changelog
           issue-type: pull-request
           permission: write
