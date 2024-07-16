@@ -717,16 +717,16 @@ proc makeDesc(kind: TypeKind, size: IntVal, align: int16,
               typ: TypeId; other = 0'u32): TypeHeader {.inline.} =
   TypeHeader(kind: kind, size: size, align: align, a: typ.uint32, b: other)
 
-proc typeToMir(env: var TypeEnv, t: PType; canon = false): uint32 =
+proc typeToMir(env: var TypeEnv, t: PType; canon = false): HeaderId =
   template typeref(typ: PType): TypeId =
     let t = env.add(typ)
     if canon: canonical(env, t)
     else:     t
 
-  template single(k: TypeKind, elem: PType): uint32 =
+  template single(k: TypeKind, elem: PType): HeaderId =
     env.add makeDesc(k, env.toIntVal(t.size), t.align, typeref elem)
 
-  template simple(id: TypeId): uint32 = env.symbols[id].desc[Original]
+  template simple(id: TypeId): HeaderId = env.symbols[id].desc[Original]
 
   case t.kind
   of tyVoid:    simple(VoidType)
@@ -1050,7 +1050,7 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
     let
       orig  = typeToMir(env, t, canon=false)
       canon = typeToMir(env, t, canon=true)
-    var lowered: uint32
+    var lowered: HeaderId
 
     var prev = env.canon.getOrDefault(canon, env.symbols.nextId())
     if prev == env.symbols.nextId():
