@@ -294,7 +294,7 @@ proc errorActions(
     eh: TErrorHandling
   ): tuple[action: TErrorHandling, withTrace: bool] =
   result = (doNothing, false)
-  if report.isFatalSeverity:
+  if report.severity == rsevFatal:
     # Fatal message such as ICE (internal compiler), errFatal,
     result = (doAbort, true)
   elif conf.isCodeError(report):
