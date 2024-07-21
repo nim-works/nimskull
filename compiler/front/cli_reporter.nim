@@ -3211,7 +3211,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemAlignRequiresPowerOfTwo,
       adSemNoReturnHasReturn,
       adSemMisplacedDeprecation,
-      adSemFatalError,
       adSemNoUnionForJs,
       adSemBitsizeRequiresPositive,
       adSemExperimentalRequiresToplevel,
@@ -3427,6 +3426,13 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo,
         kind: rsemPragmaRecursiveDependency,
         sym: diag.userPragma,
+        ast: diag.wrongNode)
+  of adSemFatalError:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemFatalError,
+        str: diag.errmsg,
         ast: diag.wrongNode)
   of adSemCustomUserError:
     semRep = SemReport(

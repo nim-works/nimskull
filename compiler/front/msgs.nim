@@ -36,7 +36,7 @@ from compiler/ast/reports_base_sem import ReportContext, ReportContextKind
 
 # when you have data where it belongs, it's easy to see this stuff... should
 # `msgs` really depend upon `SemReport`?
-from compiler/ast/reports_sem import SemReport
+from compiler/ast/reports_sem import SemReport, severity
 
 export InstantiationInfo
 export TErrorHandling
@@ -294,7 +294,8 @@ proc errorActions(
     eh: TErrorHandling
   ): tuple[action: TErrorHandling, withTrace: bool] =
   result = (doNothing, false)
-  if conf.isCompilerFatal(report):
+  if conf.isCompilerFatal(report) or
+      (report.category == repSem and report.semReport.severity == rsevFatal):
     # Fatal message such as ICE (internal compiler), errFatal,
     result = (doAbort, true)
   elif conf.isCodeError(report):
