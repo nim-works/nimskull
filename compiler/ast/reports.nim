@@ -224,8 +224,8 @@ func severity*(
       of repDebug:    report.debugReport.severity()
       of repExternal: report.externalReport.severity()
 
-func isCompilerFatal*(report: Report): bool =
-  ## Check if report stores fatal compilation error
+func isFatalSeverity*(report: Report): bool =
+  ## Returns whether the report severity is rsevFatal
   case report.category:
     of repSem:      report.semReport.severity() == rsevFatal
     of repInternal: report.internalReport.severity() == rsevFatal
