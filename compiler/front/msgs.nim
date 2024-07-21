@@ -36,7 +36,7 @@ from compiler/ast/reports_base_sem import ReportContext, ReportContextKind
 
 # when you have data where it belongs, it's easy to see this stuff... should
 # `msgs` really depend upon `SemReport`?
-from compiler/ast/reports_sem import SemReport, severity
+from compiler/ast/reports_sem import SemReport
 
 export InstantiationInfo
 export TErrorHandling
