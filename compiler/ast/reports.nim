@@ -224,6 +224,13 @@ func severity*(
       of repDebug:    report.debugReport.severity()
       of repExternal: report.externalReport.severity()
 
+func isCompilerFatal*(report: Report): bool =
+  ## Check if report stores fatal compilation error
+  case report.category:
+    of repSem:      report.semReport.severity() == rsevFatal
+    of repInternal: report.internalReport.severity() == rsevFatal
+    else: false # only sem and internal can be fatal
+
 func toReportLineInfo*(iinfo: InstantiationInfo): ReportLineInfo =
   ReportLineInfo(file: iinfo[0], line: uint16(iinfo[1]), col: int16(iinfo[2]))
 

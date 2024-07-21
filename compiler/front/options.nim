@@ -615,16 +615,6 @@ template report*[R: ReportTypes](
   ## it's instantiation info with `instantiationInfo()` of the template.
   report(conf, wrap(inReport, instLoc(), tinfo))
 
-# REFACTOR: we shouldn't need to dig into the internalReport and query severity
-#           directly
-from compiler/ast/reports_internal import severity
-
-func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
-  ## Check if report stores fatal compilation error
-  report.category == repInternal and
-  report.internalReport.severity() == rsevFatal or
-  report.kind == rextCmdRequiresFile
-
 func severity*(conf: ConfigRef, report: ReportTypes | Report): ReportSeverity =
   # style checking is a hint by default, but can be globally overriden to
   # be treated as error via `--styleCheck:error`, and this is handled in
