@@ -1556,7 +1556,12 @@ proc applyStmtPragma(c: PContext, owner: PSym, it: PNode, k: TSpecialWord): PNod
           result = c.config.newError(
             it, PAstDiag(kind: adSemCustomUserError, errmsg: s.strVal))
   of wFatal:
-    result = c.config.newError(it, PAstDiag(kind: adSemFatalError))
+    let (s, err) = strLitToStrOrErr(c, it)
+    result =
+      if err.isNil:
+        c.config.newError(it, PAstDiag(kind: adSemFatalError, errmsg: s))
+      else:
+        err
   of wDefine:
     result = processDefine(c, it)
   of wUndef:

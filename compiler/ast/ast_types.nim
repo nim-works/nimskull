@@ -1324,7 +1324,6 @@ type
         adSemAlignRequiresPowerOfTwo,
         adSemNoReturnHasReturn,
         adSemMisplacedDeprecation,
-        adSemFatalError,
         adSemNoUnionForJs,
         adSemBitsizeRequiresPositive,
         adSemExperimentalRequiresToplevel,
@@ -1421,7 +1420,7 @@ type
       externName*: string
     of adSemPragmaRecursiveDependency:
       userPragma*: PSym
-    of adSemCustomUserError:
+    of adSemCustomUserError, adSemFatalError:
       errmsg*: string
     of adSemImplicitPragmaError:
       implicitPragma*: PSym
