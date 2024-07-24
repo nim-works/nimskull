@@ -81,7 +81,6 @@ type
     ownsData,
     preventCursor,
     isReassigned,
-    isConditionallyReassigned,
     viewDoesMutate,
     viewBorrowsFromConst
 
@@ -118,12 +117,13 @@ type
 
   Partitions* = object
     abstractTime: AbstractTime
+    loopStart: AbstractTime
     s: seq[VarIndex]
     graphs: seq[MutationInfo]
     goals: set[Goal]
     unanalysableMutation: bool
     inAsgnSource, inConstructor, inNoSideEffectSection: int
-    inConditional, inLoop: int
+    inLoop: int
     owner: PSym
     g: ModuleGraph
 
@@ -791,10 +791,6 @@ proc traverse(c: var Partitions; n: PNode) =
 
 proc markAsReassigned(c: var Partitions; vid: int) {.inline.} =
   c.s[vid].flags.incl isReassigned
-  if c.inConditional > 0 and c.inLoop > 0:
-    # bug #17033: live ranges with loops and conditionals are too
-    # complex for our current analysis, so we prevent the cursorfication.
-    c.s[vid].flags.incl isConditionallyReassigned
 
 proc computeLiveRanges(c: var Partitions; n: PNode) =
   # first pass: Compute live ranges for locals.
@@ -831,7 +827,11 @@ proc computeLiveRanges(c: var Partitions; n: PNode) =
     dec c.abstractTime
     if n.sym.kind in {skVar, skResult, skTemp, skLet, skForVar, skParam}:
       let id = variableId(c, n.sym)
-      if id >= 0:
+      # during the second iteration of loop analysis, only update the live
+      # ranges for variables that are not defined within the loop. The
+      # intention is to prevent outer variables from having the same (or
+      # shorter) alive ranges than inner variables
+      if id >= 0 and c.s[id].aliveStart < c.loopStart:
         c.s[id].aliveEnd = max(c.s[id].aliveEnd, c.abstractTime)
         if n.sym.kind == skResult:
           c.s[id].aliveStart = min(c.s[id].aliveStart, c.abstractTime)
@@ -864,19 +864,22 @@ proc computeLiveRanges(c: var Partitions; n: PNode) =
   of nkPragmaBlock:
     computeLiveRanges(c, n.lastSon)
   of nkWhileStmt, nkForStmt:
+    let start = c.abstractTime
     for child in n: computeLiveRanges(c, child)
     # analyse loops twice so that 'abstractTime' suffices to detect cases
     # like:
     #   while cond:
     #     mutate(graph)
     #     connect(graph, cursorVar)
+    if c.inLoop == 0:
+      # live ranges in nested loops are only computed once, during the first
+      # iteration of the outermost loop
+      c.loopStart = start
     inc c.inLoop
     for child in n: computeLiveRanges(c, child)
-    inc c.inLoop
-  of nkElifBranch, nkElifExpr, nkElse, nkOfBranch:
-    inc c.inConditional
-    for child in n: computeLiveRanges(c, child)
-    dec c.inConditional
+    dec c.inLoop
+    if c.inLoop == 0:
+      c.loopStart = MaxTime
   else:
     for child in n: computeLiveRanges(c, child)
 
@@ -889,6 +892,7 @@ proc computeGraphPartitions*(s: PSym; n: PNode; g: ModuleGraph; goals: set[Goal]
     if resultPos < s.ast.safeLen:
       registerResult(result, s.ast[resultPos])
 
+  result.loopStart = MaxTime
   computeLiveRanges(result, n)
   # restart the timer for the second pass:
   result.abstractTime = AbstractTime 0
@@ -949,7 +953,7 @@ proc computeCursors*(s: PSym; n: PNode; g: ModuleGraph) =
   var par = computeGraphPartitions(s, n, g, {cursorInference})
   for i in 0 ..< par.s.len:
     let v = addr(par.s[i])
-    if v.flags * {ownsData, preventCursor, isConditionallyReassigned} == {} and
+    if v.flags * {ownsData, preventCursor} == {} and
         v.sym.kind notin {skParam, skResult} and
         v.sym.flags * {sfThread, sfGlobal} == {} and hasDestructor(v.sym.typ):
       let rid = root(par, i)

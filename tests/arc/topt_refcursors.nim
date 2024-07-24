@@ -23,7 +23,8 @@ scope:
         def_cursor _10: Node = it
         it = _10[].ri
   L2:
-  def_cursor jt: Node = root
+  def jt: Node
+  =copy(name jt, arg root)
   scope:
     while true:
       scope:
@@ -37,12 +38,25 @@ scope:
             scope:
               goto [L5]
         def_cursor _18: Node = jt
-        def_cursor ri: Node = _18[].ri
+        def ri: Node
+        =copy(name ri, arg _18[].ri)
         def_cursor _19: Node = jt
         def_cursor _20: string = _19[].s
-        echo(arg type(array[0..0, string]), arg _20) -> [Resume]
-        jt = ri
+        echo(arg type(array[0..0, string]), arg _20) -> [L6, L7, Resume]
+        =sink(name jt, arg ri)
+        wasMoved(name ri)
+        goto [L6, L8]
+        finally (L6):
+          =destroy(name ri)
+          continue {L7, L8}
+        L8:
   L5:
+  goto [L7, L9]
+  finally (L7):
+    =destroy(name jt)
+    continue {L9}
+  L9:
+
 -- end of expandArc ------------------------'''
 """
 
@@ -64,5 +78,3 @@ proc traverse(root: Node) =
     jt = ri
 
 traverse(nil)
-
-# XXX: This optimization is not sound
