@@ -135,7 +135,7 @@ type
 
     instances: Table[(int, HeaderId), TypeId]
       ## associates a generic type ID + instance body with a type symbol. This
-      ## is used for eliminating  same-shaped instantiations of a generic
+      ## is used for eliminating same-shaped instantiations of a generic
       ## object type
 
     idents: BiTable[string]

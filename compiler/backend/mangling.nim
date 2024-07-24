@@ -63,7 +63,7 @@ proc mangle(g: ModuleGraph, typ: PType): string =
       # use the local ID as the name. "H" stands for "hidden"
       result = "H" & $s.itemId.item & "_M" & withLen(m)
     else:
-      # non-exported objec type's don't necessarily have unique names within a
+      # non-exported object types don't necessarily have unique names within a
       # module; the ID is included to produced a unique name
       result = "L" & mangleWithLen(s.name.s) & "_" & $s.itemId.item & "_M" &
                withLen(m)
