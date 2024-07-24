@@ -509,11 +509,13 @@ proc openRecord(size: IntVal, align: int16; offset = 0;
   result.fields.add RecField(typ: base, align: offset.int16)
 
 proc open(kind: TypeKind; size: IntVal, align: int16): RecordBuilder =
+  assert kind in {tkUnion, tkTaggedUnion}
   result.header = TypeHeader(kind: kind, size: size, align: align)
 
 proc openProc(env: TypeEnv, kind: TypeKind, conv: TCallingConvention,
               ret: TypeId, isVarargs: bool): ProcBuilder =
   ## Opens a builder for a procedure-like type.
+  assert kind in {tkProc, tkClosure}
   result.header = TypeHeader(kind: kind, b: 1,
                              align: env.config.target.ptrSize.int16)
   if kind == tkProc:
@@ -530,6 +532,7 @@ proc openRecord(b: var RecordBuilder): RecordBuilder =
   result.fields.add RecField(typ: VoidType, align: 0)
 
 proc open(b: var RecordBuilder, kind: TypeKind): RecordBuilder =
+  assert kind in {tkUnion, tkTaggedUnion}
   result = RecordBuilder(start: b.fields.len)
   swap(result.fields, b.fields) # temporarily take over the buffer
   result.header = TypeHeader(kind: kind)
