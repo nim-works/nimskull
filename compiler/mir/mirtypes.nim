@@ -191,7 +191,7 @@ func hash(env: TypeEnv, t: TypeHeader): Hash =
   result = hash(t.kind)
   case t.kind
   of tkVoid, tkBool, tkChar, tkPointer, tkString, tkCstring:
-    discard "no content to hash"
+    discard "no additional content to hash"
   of tkInt, tkUInt, tkFloat, tkPtr, tkRef, tkVar, tkLent, tkSeq,
      tkUncheckedArray, tkOpenArray, tkSet, tkIndirect, tkImported:
     result = result !& hash(t.a)
