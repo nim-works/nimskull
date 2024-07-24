@@ -22,6 +22,11 @@ proc isKeyword(w: PIdent): bool =
      ord(wInline): return true
   else: return false
 
+proc mangleField(m: BModule; name: string): string =
+  result = mangle(name)
+  if isKeyword(m.g.graph.cache.getIdent(name)):
+    result.add "_0"
+
 proc mangleField(m: BModule; name: PIdent): string =
   result = mangle(name.s)
   # fields are tricky to get right and thanks to generic types producing
@@ -80,28 +85,8 @@ const
                           tyDistinct, tyRange, tyStatic, tyAlias, tySink,
                           tyInferred}
 
-proc typeName(typ: PType): Rope =
-  let typ = typ.skipTypes(irrelevantForBackend)
-  result =
-    if typ.sym != nil and typ.kind in {tyObject, tyEnum}:
-      rope($typ.kind & '_' & typ.sym.name.s.mangle)
-    else:
-      rope($typ.kind)
-
-proc getTypeName(m: BModule; typ: PType; sig: SigHash): Rope =
-  var t = typ
-  while true:
-    if t.sym != nil and {sfImportc, sfExportc} * t.sym.flags != {}:
-      return t.sym.extname
-
-    if t.kind in irrelevantForBackend:
-      t = t.lastSon
-    else:
-      break
-  let typ = if typ.kind in {tyAlias, tySink}: typ.lastSon else: typ
-  result = typ.typeName & $sig
-
 proc mapSetType(conf: ConfigRef; typ: PType): TCTypeKind =
+  ## Legacy procedure.
   case int(getSize(conf, typ))
   of 1: result = ctInt8
   of 2: result = ctInt16
@@ -109,73 +94,140 @@ proc mapSetType(conf: ConfigRef; typ: PType): TCTypeKind =
   of 8: result = ctInt64
   else: result = ctArray
 
-proc mapType(conf: ConfigRef; typ: PType): TCTypeKind =
-  ## Maps a Nim type to a C type
-  case typ.kind
-  of tyNone, tyTyped: result = ctVoid
-  of tyBool: result = ctBool
-  of tyChar: result = ctChar
-  of tyNil: result = ctPtr
-  of tySet: result = mapSetType(conf, typ)
-  of tyOpenArray, tyVarargs:
-    result = ctNimOpenArray
-  of tyArray, tyUncheckedArray: result = ctArray
-  of tyObject, tyTuple: result = ctStruct
-  of tyUserTypeClasses:
-    doAssert typ.isResolvedUserTypeClass
-    return mapType(conf, typ.lastSon)
-  of tyGenericBody, tyGenericInst, tyGenericParam, tyDistinct, tyOrdinal,
-     tyTypeDesc, tyAlias, tySink, tyInferred, tyEnum:
-    result = mapType(conf, lastSon(typ))
-  of tyRange: result = mapType(conf, typ[0])
-  of tyPtr, tyVar, tyLent, tyRef:
-    var base = skipTypes(typ.lastSon, typedescInst)
-    case base.kind
-    of tyArray, tyUncheckedArray: result = ctPtrToArray
-    of tyOpenArray, tyVarargs:
-      result = ctNimOpenArray
-    of tySet:
-      if mapSetType(conf, base) == ctArray: result = ctPtrToArray
-      else: result = ctPtr
-    else: result = ctPtr
-  of tyPointer: result = ctPtr
-  of tySequence: result = ctNimSeq
-  of tyProc: result = if typ.callConv != ccClosure: ctProc else: ctStruct
-  of tyString: result = ctNimStr
-  of tyCstring: result = ctCString
-  of tyInt..tyUInt64:
-    result = TCTypeKind(ord(typ.kind) - ord(tyInt) + ord(ctInt))
-  of tyStatic:
-    if typ.n != nil: result = mapType(conf, lastSon typ)
-    else: doAssert(false, "mapType: " & $typ.kind)
-  else: doAssert(false, "mapType: " & $typ.kind)
+proc mapType(types: TypeEnv, typ: TypeId): TCTypeKind
 
-proc mapReturnType(conf: ConfigRef; typ: PType): TCTypeKind =
+proc mapType(types: TypeEnv; desc: TypeHeader): TCTypeKind =
+  ## Maps a NimSkull type to the corresponding C type.
+  case desc.kind
+  of tkIndirect, tkImported:
+    mapType(types, desc.elem)
+  of tkVoid: ctVoid
+  of tkBool: ctBool
+  of tkChar: ctChar
+  of tkInt:
+    case desc.size(types)
+    of 1: ctInt8
+    of 2: ctInt16
+    of 4: ctInt32
+    of 8: ctInt64
+    else: unreachable()
+  of tkUInt:
+    case desc.size(types)
+    of 1: ctUInt8
+    of 2: ctUInt16
+    of 4: ctUInt32
+    of 8: ctUInt64
+    else: unreachable()
+  of tkFloat:
+    case desc.size(types)
+    of 4: ctFloat32
+    of 8: ctFloat64
+    else: unreachable()
+  of tkArray, tkUncheckedArray:
+    ctArray
+  of tkRecord, tkUnion:
+    ctStruct
+  of tkPtr, tkRef, tkLent, tkVar:
+    case mapType(types, desc.elem)
+    of ctArray:
+      ctPtrToArray
+    else:
+      ctPtr
+  of tkPointer: ctPtr
+  of tkProc: ctProc
+  of tkCstring: ctCString
+  # handling of the non-lowered types follows:
+  # XXX: this needs to eventually be removed; the whole code generator needs
+  #      to only operate on the lowered types
+  of tkSet:
+    case desc.size(types)
+    of 1: ctInt8
+    of 2: ctInt16
+    of 4: ctInt32
+    of 8: ctInt64
+    else: ctArray
+  of tkOpenArray: ctNimOpenArray
+  of tkSeq:       ctNimSeq
+  of tkString:    ctNimStr
+  of tkClosure:   ctStruct
+  else:
+    unreachable(desc.kind)
+
+proc mapType(types: TypeEnv, typ: TypeId): TCTypeKind =
+  mapType(types, types.headerFor(typ, Original))
+
+proc mapType(m: BModule; typ: PType): TCTypeKind =
+  ## Legacy procedure. Bridges the old to the new types.
+  let id = m.addLate(typ)
+  mapType(m.types, id)
+
+proc mapReturnType(m: BModule; typ: PType): TCTypeKind =
   #if skipTypes(typ, typedescInst).kind == tyArray: result = ctPtr
   #else:
-  result = mapType(conf, typ)
+  result = mapType(m, typ)
 
-proc isImportedType(t: PType): bool =
-  result = t.sym != nil and sfImportc in t.sym.flags
+proc getTypeDesc(m: BModule, typ: PType): Rope
+proc useType(m: BModule, typ: TypeId, desc: TypeHeader; onlyName = false): Rope
 
-proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet): Rope
+proc containsGarbageCollectedRef(env: TypeEnv, typ: TypeId): bool =
+  ## Computes whether `typ` is or contains a garbage-collected type.
+  let n = env.get(typ).desc[Canonical]
+  case env[n].kind
+  of tkRef, tkClosure:
+    result = true
+  of tkArray:
+    result = containsGarbageCollectedRef(env, env[n].elem)
+  of tkRecord:
+    var rec = typ
+    # traverse the object hierarchy:
+    while rec != VoidType:
+      for (_, f) in env.fields(env.headerFor(rec, Canonical)):
+        # is the field a garbabe-collected reference?
+        if containsGarbageCollectedRef(env, f.typ):
+          return true
 
-proc isInvalidReturnType(conf: ConfigRef; rettype: PType): bool =
-  # Arrays and sets cannot be returned by a C procedure, because C is
+      rec = env.headerFor(rec, Canonical).base(env)
+
+    result = false
+  else:
+    # neither an aggregate type nor a garbage-collected ref
+    result = false
+
+proc usesRvo(types: TypeEnv, typ: TypeId): bool =
+  ## Computes for the record type `typ` whether it uses the return-value
+  ## optimization.
+  # seek to the root type in the inheritance hierarchy:
+  var base = typ
+  while (let next = types.headerFor(base, Lowered).base(types);
+         next != VoidType):
+    base = next
+
+  # does the type have a RTTI header? does the record have a garbage-collected
+  # field?
+  # XXX: these rules originate from the refc days, where they were important
+  #      for efficiency. This is no longer the case, and it'd make sense to
+  #      make usage of RVO dependent on the *size* of the type instead
+  result = types.headerFor(base, Lowered).fieldOffset(types) == -1 or
+           containsGarbageCollectedRef(types, typ)
+
+proc isInvalidReturnType(types: TypeEnv; typ: TypeId): bool =
+  # Arrays cannot be returned by a C procedure, because C is
   # such a poor programming language.
   # We exclude records with refs too. This enhances efficiency.
   # keep synchronized with ``mirpasses.eligibleForRvo``
-  if rettype == nil: result = true
+  let typ = types.canonical(typ)
+  case types.headerFor(typ, Lowered).kind
+  of tkArray:  true
+  of tkRecord: usesRvo(types, typ)
+  else:        false
+
+proc isInvalidReturnType(m: BModule; rettype: PType): bool =
+  ## Legacy procedure; only exists for bridging the old to the new code.
+  if rettype.isNil:
+    false # nil stands for void, which is a valid return type
   else:
-    case mapType(conf, rettype)
-    of ctArray:
-      result = not (skipTypes(rettype, typedescInst).kind in
-          {tyVar, tyLent, tyRef, tyPtr})
-    of ctStruct:
-      let t = skipTypes(rettype, typedescInst)
-      result = containsGarbageCollectedRef(t) or
-          (t.kind == tyObject and not isObjLackingTypeField(t))
-    else: result = false
+    let id = m.addLate(rettype)
+    isInvalidReturnType(m.types, id)
 
 const
   CallingConvToStr: array[TCallingConvention, string] = ["N_NIMCALL",
@@ -183,12 +235,6 @@ const
     "N_SYSCALL", # this is probably not correct for all platforms,
                  # but one can #define it to what one wants
     "N_INLINE", "N_NOINLINE", "N_FASTCALL", "N_CLOSURE", "N_NOCONV"]
-
-proc cacheGetType(tab: TypeCache; sig: SigHash): Rope =
-  # returns nil if we need to declare this type
-  # since types are now unique via the ``getUniqueType`` mechanism, this slow
-  # linear search is not necessary anymore:
-  result = tab.getOrDefault(sig)
 
 proc addAbiCheck(m: BModule, t: PType, name: Rope) =
   if isDefined(m.config, "checkAbi") and (let size = getSize(m.config, t); size != szUnknownSize):
@@ -199,145 +245,63 @@ proc addAbiCheck(m: BModule, t: PType, name: Rope) =
     m.s[cfsTypeInfo].addf("NIM_STATIC_ASSERT(sizeof($1) == $2, $3);$n", [name, rope(size), msg2.rope])
     # see `testCodegenABICheck` for example error message it generates
 
-proc ccgIntroducedPtr(conf: ConfigRef; s: PSym, retType: PType): bool =
-  var pt = skipTypes(s.typ, typedescInst)
-  assert skResult != s.kind
+proc ccgIntroducedPtr(m: BModule; s: PSym, retType: PType): bool =
+  isPassByRef(m.config, s, retType) and mapType(m, s.typ) != ctArray
 
-  if tfByRef in pt.flags: return true
-  elif tfByCopy in pt.flags: return false
-  case pt.kind
-  of tyObject:
-    if s.typ.sym != nil and sfForward in s.typ.sym.flags:
-      # forwarded objects are *always* passed by pointers for consistency!
-      result = true
-    elif (optByRef in s.options) or (getSize(conf, pt) > conf.target.floatSize * 3):
-      result = true           # requested anyway
-    elif (tfFinal in pt.flags) and (pt[0] == nil):
-      result = false          # no need, because no subtyping possible
-    else:
-      result = true           # ordinary objects are always passed by reference,
-                              # otherwise casting doesn't work
-  of tyTuple:
-    result = (getSize(conf, pt) > conf.target.floatSize*3) or (optByRef in s.options)
-  else:
-    result = false
-  # first parameter and return type is 'lent T'? --> use pass by pointer
-  if s.position == 0 and retType != nil and retType.kind == tyLent:
-    result = not (pt.kind in {tyVar, tyArray, tyOpenArray, tyVarargs, tyRef, tyPtr, tyPointer} or
-      pt.kind == tySet and mapSetType(conf, pt) == ctArray)
-
-proc initResultParamLoc(conf: ConfigRef; param: CgNode): TLoc =
+proc initResultParamLoc(m: BModule; param: CgNode): TLoc =
   result = initLoc(locParam, param, "Result", OnStack)
   let t = param.typ
-  if mapReturnType(conf, t) != ctArray and isInvalidReturnType(conf, t):
+  if mapReturnType(m, t) != ctArray and isInvalidReturnType(m, t):
     incl(result.flags, lfIndirect)
     result.storage = OnUnknown
 
-proc typeNameOrLiteral(m: BModule; t: PType, literal: string): Rope =
-  if t.sym != nil and sfImportc in t.sym.flags and t.sym.magic == mNone:
-    useHeader(m, t.sym)
-    result = t.sym.extname
-  else:
-    result = rope(literal)
+proc useType(m: BModule, typ: TypeId; onlyName = false): Rope =
+  useType(m, typ, m.types.headerFor(typ, Lowered), onlyName)
 
 proc getSimpleTypeDesc(m: BModule, typ: PType): Rope =
-  const
-    NumericalTypeToStr: array[tyInt..tyUInt64, string] = [
-      "NI", "NI8", "NI16", "NI32", "NI64",
-      "NF", "NF32", "NF64",
-      "NU", "NU8", "NU16", "NU32", "NU64"]
-  case typ.kind
-  of tyPointer:
-    result = typeNameOrLiteral(m, typ, "void*")
-  of tyString:
-    discard cgsym(m, "NimStrPayload")
-    discard cgsym(m, "NimStringV2")
-    result = typeNameOrLiteral(m, typ, "NimStringV2")
-  of tyCstring: result = typeNameOrLiteral(m, typ, "NCSTRING")
-  of tyBool: result = typeNameOrLiteral(m, typ, "NIM_BOOL")
-  of tyChar: result = typeNameOrLiteral(m, typ, "NIM_CHAR")
-  of tyNil: result = typeNameOrLiteral(m, typ, "void*")
-  of tyInt..tyUInt64:
-    result = typeNameOrLiteral(m, typ, NumericalTypeToStr[typ.kind])
-  of tyDistinct, tyRange, tyOrdinal: result = getSimpleTypeDesc(m, typ[0])
-  of tyStatic:
-    m.config.internalAssert(typ.n != nil, "tyStatic for getSimpleTypeDesc")
-    result = getSimpleTypeDesc(m, lastSon typ)
-  of tyGenericInst, tyAlias, tySink, tyEnum:
-    result = getSimpleTypeDesc(m, lastSon typ)
-  else: result = ""
+  useType(m, m.addLate(typ))
 
-  if result != "" and typ.isImportedType():
-    let sig = hashType typ
-    if cacheGetType(m.typeCache, sig) == "":
-      m.typeCache[sig] = result
-
-proc pushType(m: BModule, typ: PType) =
-  for i in 0..high(m.typeStack):
-    # pointer equality is good enough here:
-    if m.typeStack[i] == typ: return
-  m.typeStack.add(typ)
-
-proc getTypePre(m: BModule, typ: PType; sig: SigHash): Rope =
-  if typ == nil: result = rope("void")
-  else:
-    result = getSimpleTypeDesc(m, typ)
-    if result == "": result = cacheGetType(m.typeCache, sig)
-
-proc structOrUnion(t: PType): Rope =
-  let cachedUnion = rope("union")
-  let cachedStruct = rope("struct")
-  let t = t.skipTypes({tyAlias, tySink})
-  if tfUnion in t.flags: cachedUnion
-  else: cachedStruct
+proc structOrUnion(kind: TypeKind): Rope =
+  case kind
+  of tkRecord: "struct"
+  of tkUnion:  "union"
+  else:        unreachable(kind)
 
 proc addForwardStructFormat(m: BModule, structOrUnion: Rope, typename: Rope) =
   m.s[cfsForwardTypes].addf "typedef $1 $2 $2;$n", [structOrUnion, typename]
 
-proc getTypeForward(m: BModule, typ: PType; sig: SigHash): Rope =
-  result = cacheGetType(m.forwTypeCache, sig)
+proc getTypeForward(m: BModule, typ: TypeId, desc: TypeHeader): Rope =
+  result = m.forwTypeCache.getOrDefault(typ)
   if result != "": return
-  result = getTypePre(m, typ, sig)
+  result = m.typeCache.getOrDefault(typ)
   if result != "": return
-  let concrete = typ.skipTypes(abstractInst)
-  case concrete.kind
-  of tySequence, tyTuple, tyObject:
-    result = getTypeName(m, typ, sig)
-    m.forwTypeCache[sig] = result
-    if not isImportedType(concrete):
-      addForwardStructFormat(m, structOrUnion(typ), result)
-    else:
-      pushType(m, concrete)
-    doAssert m.forwTypeCache[sig] == result
-  else: internalError(m.config, "getTypeForward(" & $typ.kind & ')')
 
-proc getTypeDescWeak(m: BModule; t: PType; check: var IntSet): Rope =
-  ## like getTypeDescAux but creates only a *weak* dependency. In other words
-  ## we know we only need a pointer to it so we only generate a struct forward
-  ## declaration:
-  let etB = t.skipTypes(abstractInst)
-  case etB.kind
-  of tyObject, tyTuple:
-    result = getTypeForward(m, t, hashType(t))
-    pushType(m, t)
+  case desc.kind
+  of tkRecord, tkUnion:
+    result = computeTypeName(m.g.graph, m.types, typ)
+    addForwardStructFormat(m, structOrUnion(desc.kind), result)
+    m.forwTypeCache[typ] = result
+  of tkImported:
+    result = useType(m, typ, desc)
   else:
-    result = getTypeDescAux(m, t, check)
+    unreachable(desc.kind)
+
+proc payloadType(m: BModule, typ: TypeId): TypeId =
+  # the second field is a pointer to the payload type
+  m.types.headerFor(m.types[lookupField(m.types, typ, 1)].typ, Lowered).elem
+
+proc requestFullDesc(m: BModule, typ: PType) =
+  ## Requests the full type description for the seq/string type and its
+  ## payload.
+  ## This procedure is a temporary workaround; it becomes obsolete once seq
+  ## and string operations are lowered during the MIR phase.
+  let id = m.addLate(typ)
+  discard useType(m, id) # pull in the seq/string type
+  discard useType(m, payloadType(m, id)) # pull in the payload type
 
 proc getSeqPayloadType(m: BModule; t: PType): Rope =
-  var check = initIntSet()
-  result = getTypeDescWeak(m, t, check) & "_Content"
-  #result = getTypeForward(m, t, hashType(t)) & "_Content"
-
-proc seqV2ContentType(m: BModule; t: PType; check: var IntSet) =
-  let sig = hashType(t)
-  let result = cacheGetType(m.typeCache, sig)
-  if result == "":
-    # the struct definition hasn't been emitted yet
-    discard getTypeDescAux(m, t, check)
-  else:
-    # emit the payload type:
-    appcg(m, m.s[cfsTypes], "struct $2_Content { NI cap; $1 data[SEQ_DECL_SIZE];};$N",
-          [getTypeDescAux(m, t.skipTypes(abstractInst)[0], check), result])
+  let typ = m.addLate(t)
+  result = useType(m, payloadType(m, typ))
 
 proc prepareParameters(m: BModule, t: PType): seq[TLoc] =
   ## Sets up and returns the locs of the parameter symbols for procedure
@@ -358,7 +322,7 @@ proc prepareParameters(m: BModule, t: PType): seq[TLoc] =
       continue
 
     let storage =
-      if mapType(m.config, param.typ.skipTypes({tyVar, tyLent})) == ctArray:
+      if mapType(m, param.typ.skipTypes({tyVar, tyLent})) == ctArray:
         # something that's represented as a C array. Since an indirection is
         # involved, we don't know where the location resides
         OnUnknown
@@ -368,68 +332,123 @@ proc prepareParameters(m: BModule, t: PType): seq[TLoc] =
     result[i] = initLoc(locParam, newLocalRef(LocalId(i), param.info, param.typ),
                         mangleParamName(m.config, param), storage)
 
-    if ccgIntroducedPtr(m.config, param, t[0]):
+    if ccgIntroducedPtr(m, param, t[0]):
       # the parameter is passed by address; mark it as indirect
       incl(result[i].flags, lfIndirect)
       result[i].storage = OnUnknown
 
-proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
-                   check: var IntSet, locs: openArray[TLoc],
-                   declareEnvironment=true; weakDep=false) =
-  params = ""
-  if t[0] == nil or isInvalidReturnType(m.config, t[0]):
-    rettype = ~"void"
+proc prepareParameters(m: BModule, desc: TypeHeader): seq[TLoc] =
+  assert desc.kind == tkProc
+  result.newSeq(desc.numParams + 1)
+
+  for i, it, flags in params(m.types, desc):
+    let i = i + 1
+    if it == VoidType:
+      # ignore compile-time only parameters
+      # XXX: the parameter needs to be eliminated during to-MIR translation
+      #      already
+      continue
+
+    # the loc sequence is only used for procedure type emission, so using nil
+    # as the node is fine
+    result[i] = initLoc(locParam, nil, "_" & $i, OnUnknown)
+
+    if pfByRef in flags and mapType(m.types, it) != ctArray:
+      # the parameter is passed by address; mark it as indirect
+      incl(result[i].flags, lfIndirect)
+      result[i].storage = OnUnknown
+
+proc genParamDecl(m: BModule, id: TypeId, params: var Rope, name: string,
+                  indirect, noAlias, weakDep: bool) =
+  ## Emits the declaration for a parameter.
+  case mapType(m.types, id)
+  of ctNimOpenArray:
+    # an openArray tuple is "unpacked" into the parameter list (it takes up
+    # two parameters)
+    params.add useType(m, m.types[m.types.lookupField(id, 0)].typ)
+    params.add " "
+    if noAlias:
+      params.add("NIM_NOALIAS ")
+    params.add(name)
+    params.addf(", NI $1Len_0", [name])
+  elif indirect:
+    params.add useType(m, id, onlyName=true)
+    params.add("* ")
+    if noAlias:
+      params.add("NIM_NOALIAS ")
+    params.add(name)
   else:
-    rettype = getTypeDescAux(m, t[0], check)
-  for i in 1..<t.n.len:
-    m.config.internalAssert(t.n[i].kind == nkSym, t.n.info, "genProcParams")
-    var param = t.n[i].sym
-    if locs[i].k == locNone: continue
-    if params != "": params.add(~", ")
+    params.add useType(m, id, onlyName=weakDep)
+    if noAlias:
+      params.add(" NIM_NOALIAS")
+    params.add(" ")
+    params.add(name)
 
-    var arr = param.typ.skipTypes({tyGenericInst})
-    if arr.kind in {tyVar, tyLent, tySink}:
-      arr = arr.lastSon
-    let isOpenArray = arr.kind in {tyOpenArray, tyVarargs}
-
-    if isOpenArray:
-      # declare the pointer field for openArray:
-      params.add(getTypeDescWeak(m, arr.base, check))
-      params.add("*")
-    elif lfIndirect in locs[i].flags:
-      params.add(getTypeDescWeak(m, param.typ, check))
-      params.add(~"*")
-    elif weakDep:
-      params.add(getTypeDescWeak(m, param.typ, check))
+proc finishProcType(m: BModule, ret: TypeId, withEnv, withVarargs: bool,
+                    params: var string) =
+  ## Appends the return type as a parameter, and wraps `params` in parenthesis.
+  if isInvalidReturnType(m.types, ret):
+    if params != "":
+      params.add ", "
+    if mapType(m.g.env.types, ret) == ctArray:
+      params.add useType(m, ret)
     else:
-      params.add(getTypeDescAux(m, param.typ, check))
-    params.add(~" ")
-    if sfNoalias in param.flags:
-      params.add(~"NIM_NOALIAS ")
-    params.add(locs[i].r)
-    # declare the len field for open arrays:
-    if isOpenArray:
-      # need to pass hidden parameter:
-      params.addf(", NI $1Len_$2", [locs[i].r, 0.rope])
+      params.add useType(m, ret, onlyName=true)
+      params.add "*"
+    params.add " Result"
 
-  if t[0] != nil and isInvalidReturnType(m.config, t[0]):
-    var arr = t[0]
-    if params != "": params.add(", ")
-    if mapReturnType(m.config, t[0]) != ctArray:
-      params.add(getTypeDescWeak(m, arr, check))
-      params.add("*")
-    else:
-      params.add(getTypeDescAux(m, arr, check))
-    params.addf(" Result", [])
-  if t.callConv == ccClosure and declareEnvironment:
-    if params != "": params.add(", ")
-    params.add("void* ClE_0")
-  if tfVarargs in t.flags:
-    if params != "": params.add(", ")
-    params.add("...")
+  if withEnv:
+    if params != "":
+      params.add ", "
+    params.add "void* ClE_0"
+
+  if withVarargs:
+    if params != "":
+      params.add ", "
+    params.add "..."
+
   if params == "": params.add("void)")
   else: params.add(")")
   params = "(" & params
+
+proc genProcParams(m: BModule, desc: TypeHeader, ret, params: var Rope,
+                   locs: openArray[TLoc], weakDep: bool) =
+  assert desc.kind == tkProc
+  params = ""
+  let rt = desc.retType(m.types)
+  if isInvalidReturnType(m.types, rt):
+    ret = ~"void"
+  else:
+    ret = useType(m, rt, weakDep)
+
+  for i, typ, flags in params(m.types, desc):
+    let i = i + 1
+    if locs[i].k == locNone: continue
+    if params != "": params.add(~", ")
+    genParamDecl(m, typ, params, locs[i].r, lfIndirect in locs[i].flags,
+                 noAlias=false, weakDep)
+
+  finishProcType(m, rt, desc.callConv(m.types) == ccClosure,
+                 desc.hasVarargs(m.types), params)
+
+proc genProcParams(m: BModule, t: PType, rettype, params: var string,
+                   locs: openArray[TLoc]) =
+  ## Legacy procedure for contexts where type IDs aren't yet used.
+  params = ""
+  let rty = m.addLate(t[0])
+  if isInvalidReturnType(m.g.env.types, rty):
+    rettype = ~"void"
+  else:
+    rettype = useType(m, rty)
+
+  for i in 1..<t.len:
+    if locs[i].k == locNone: continue
+    if params != "": params.add(~", ")
+    let ty = m.addLate(t[i])
+    genParamDecl(m, ty, params, locs[i].r, lfIndirect in locs[i].flags,
+                 sfNoalias in t.n[i].sym.flags, weakDep=false)
+
+  finishProcType(m, rty, t.callConv == ccClosure, tfVarargs in t.flags, params)
 
 proc mangleRecFieldName(m: BModule; field: PSym): Rope =
   if {sfImportc, sfExportc} * field.flags != {}:
@@ -438,307 +457,253 @@ proc mangleRecFieldName(m: BModule; field: PSym): Rope =
     result = rope(mangleField(m, field.name))
   m.config.internalAssert(result != "", field.info, "mangleRecFieldName")
 
-proc genRecordFieldsAux(m: BModule, n: PNode,
-                        rectype: PType,
-                        check: var IntSet, unionPrefix = ""): Rope =
-  result = ""
-  case n.kind
-  of nkRecList:
-    for i in 0..<n.len:
-      result.add(genRecordFieldsAux(m, n[i], rectype, check, unionPrefix))
-  of nkRecCase:
-    m.config.internalAssert(n[0].kind == nkSym, n.info, "genRecordFieldsAux")
-    result.add(genRecordFieldsAux(m, n[0], rectype, check, unionPrefix))
-    # prefix mangled name with "_U" to avoid clashes with other field names,
-    # since identifiers are not allowed to start with '_'
-    var unionBody = ""
-    for i in 1..<n.len:
-      case n[i].kind
-      of nkOfBranch, nkElse:
-        let k = lastSon(n[i])
-        if k.kind != nkSym:
-          let structName = "_" & mangleRecFieldName(m, n[0].sym) & "_" & $i
-          let a = genRecordFieldsAux(m, k, rectype, check, unionPrefix & $structName & ".")
-          if a != "":
-            if tfPacked notin rectype.flags:
-              unionBody.add("struct {")
-            else:
-              if hasAttribute in CC[m.config.cCompiler].props:
-                unionBody.add("struct __attribute__((__packed__)){")
-              else:
-                unionBody.addf("#pragma pack(push, 1)$nstruct{", [])
-            unionBody.add(a)
-            unionBody.addf("} $1;$n", [structName])
-            if tfPacked in rectype.flags and hasAttribute notin CC[m.config.cCompiler].props:
-              unionBody.addf("#pragma pack(pop)$n", [])
-        else:
-          unionBody.add(genRecordFieldsAux(m, k, rectype, check, unionPrefix))
-      else: internalError(m.config, "genRecordFieldsAux(record case branch)")
-    if unionBody != "":
-      result.addf("union{$n$1};$n", [unionBody])
-  of nkSym:
-    let field = n.sym
-    if field.typ.kind == tyVoid: return
-    #assert(field.ast == nil)
-    let sname = mangleRecFieldName(m, field)
-    if field.locId == 0:
-      # XXX: the C struct definition for the type is re-generated in every C
-      #      file the type is used in, so the field might have an associated
-      #      loc. Eventually, each C type will only be generated once, and then
-      #      the guard can be removed
-      m.fields.put(field): unionPrefix & sname
-
-    if field.alignment > 0:
-      result.addf "NIM_ALIGN($1) ", [rope(field.alignment)]
-    let noAlias = if sfNoalias in field.flags: " NIM_NOALIAS" else: ""
-
-    let fieldType = field.typ.skipTypes(abstractInst)
-    if fieldType.kind == tyUncheckedArray:
-      result.addf("$1 $2[SEQ_DECL_SIZE];$n",
-          [getTypeDescAux(m, fieldType.elemType, check), sname])
-    elif field.bitsize != 0:
-      result.addf("$1$4 $2:$3;$n", [getTypeDescAux(m, field.typ, check), sname, rope($field.bitsize), noAlias])
-    else:
-      # TODO: C++ remove
-      # don't use fieldType here because we need the
-      # tyGenericInst for C++ template support
-      result.addf("$1$3 $2;$n", [getTypeDescAux(m, field.typ, check), sname, noAlias])
-  else: internalError(m.config, n.info, "genRecordFieldsAux()")
-
-proc getRecordFields(m: BModule, typ: PType, check: var IntSet): Rope =
-  result = genRecordFieldsAux(m, typ.n, typ, check)
-
-proc ensureObjectFields*(m: BModule; field: PSym, typ: PType) =
-  ## Two different object types can produce the same signature hash in
-  ## certain cases (the hidden parameter type of a generic's inner procedure,
-  ## for example), in which case ``getTypeDescAux`` never calls
-  ## ``genRecordDesc``. This procedures makes sure that the field has a valid
-  ## loc.
-  if field.locId == 0:
-    var check = initIntSet()
-    discard getRecordFields(m, typ, check)
-
 proc mangleDynLibProc(sym: PSym): Rope
 
-proc getRecordDesc(m: BModule, typ: PType, name: Rope,
-                   check: var IntSet): Rope =
-  # declare the record:
-  var hasField = false
+proc genDecl(m: BModule, result: var Rope, typ: TypeId, name: Rope,
+             align, bitsize: int, noAlias: bool) =
+  let desc = m.types.headerFor(typ, Lowered)
+  if align != 0 and align != desc.align:
+    result.addf("NIM_ALIGN($1) ", [$align])
 
-  if tfPacked in typ.flags:
-    if hasAttribute in CC[m.config.cCompiler].props:
-      result = structOrUnion(typ) & " __attribute__((__packed__))"
-    else:
-      result = "#pragma pack(push, 1)\L" & structOrUnion(typ)
+  case desc.kind
+  of tkVoid:
+    # XXX: void fields need to be eliminated during PType->MIR translation
+    #      instead
+    discard "drop"
+  of tkUncheckedArray:
+    result.add useType(m, desc.elem)
+    result.addf(" $1[SEQ_DECL_SIZE]", [name])
+  of tkArray:
+    result.add useType(m, desc.elem)
+    result.addf(" $1[$2]", [name, $desc.arrayLen(m.types)])
   else:
-    result = structOrUnion(typ)
+    result.add useType(m, typ)
+    if noAlias:
+      result.add " NIM_NOALIAS"
+    result.add " " & name
+    if bitsize != 0:
+      result.add ":" & $bitsize
 
-  result.add " "
+proc genFieldDesc(m: BModule, id: FieldId, field: RecField, pos: int,
+                  result: var Rope, accessor: string) =
+  var mangled: string
+  if not field.isNamed:
+    # use a name derived from the position for anonymous fields. The name can
+    # easily be reconstructed from anywhere, so it's not cached
+    mangled = "Field" & $pos
+  elif field.isNoMangle:
+    mangled = m.types.name(field)
+    m.g.fields[id] = accessor & mangled
+  else:
+    mangled = mangleField(m, m.types.name(field))
+    # for efficiency, cache the name combined with the accessor
+    m.g.fields[id] = accessor & mangled
+
+  genDecl(m, result, field.typ, mangled, field.align, field.bitsize,
+          field.isNoAlias)
+  result.add ";\n"
+
+proc getTaggedUnionDesc(m: BModule, desc: TypeHeader, result: var Rope,
+                        accessor: string)
+
+proc genRecordDesc(m: BModule, desc: TypeHeader, result: var Rope,
+                   accessor: string) =
+  if desc.isPacked(m.types) and hasAttribute in CC[m.config.cCompiler].props:
+    # if only push/pop are supported, the outer struct is already wrapped in a
+    # pair of those
+    result.add "struct __attribute__((__packed__)) {\n"
+  else:
+    result.add "struct {\n"
+
+  var pos = 0
+  for (id, it) in m.types.fields(desc):
+    if m.types.isEmbedded(it.typ):
+      # embedded tagged union
+      getTaggedUnionDesc(m, m.types.headerFor(it.typ, Lowered), result,
+                         accessor)
+    else:
+      genFieldDesc(m, id, it, pos, result, accessor)
+    inc pos
+
+  result.add "}"
+
+proc getTaggedUnionDesc(m: BModule, desc: TypeHeader, result: var Rope,
+                        accessor: string) =
+  # the discriminator is directly embedded into the surrounding struct
+  let
+    id    = desc.discr(m.types)
+    discr = m.types[id]
+  genFieldDesc(m, id, discr, 0, result, accessor)
+
+  let
+    name = m.types.name(discr)
+    # all ``struct`` union fields use the mangled discriminator field name
+    # as the prefix
+    unionPrefix =
+      if discr.isNoMangle:
+        "_" & name & "_"
+      else:
+        "_" & mangleField(m, name) & "_"
+
+  result.add "union {\n"
+  var i = 1
+  for (id, it) in m.types.fields(desc, 1):
+    if m.types.isEmbedded(it.typ):
+      # embedded record description. The accessor combined with the union
+      # field name is passed along
+      genRecordDesc(m, m.types.headerFor(it.typ, Lowered), result,
+                    accessor & unionPrefix & $i & ".")
+      result.addf(" $1$2;$n", [unionPrefix, $i])
+    else:
+      genFieldDesc(m, id, it, i, result, accessor)
+      result.add ";\n"
+
+    inc i
+
+  result.add "};\n"
+
+proc genUnionDesc(m: BModule, desc: TypeHeader, name: Rope, result: var Rope) =
+  result.add "union "
+  result.add name
+  result.add " {\n"
+  for (id, it) in m.types.fields(desc):
+    genFieldDesc(m, id, it, 0, result, "")
+  result.add "}"
+
+proc genRecordDesc(m: BModule, desc: TypeHeader, name: Rope, result: var Rope) =
+  let isPacked = desc.isPacked(m.types)
+
+  if isPacked:
+    if hasAttribute in CC[m.config.cCompiler].props:
+      result.add "struct __attribute__((__packed__)) "
+    else:
+      result.add "#pragma pack(push, 1)\nstruct "
+  else:
+    result.add "struct "
   result.add name
 
-  if typ.kind == tyObject:
-    if typ[0] == nil:
-      if lacksMTypeField(typ):
-        appcg(m, result, " {$n", [])
-      else:
-        appcg(m, result, " {$n#TNimTypeV2* m_type;$n", [])
-        hasField = true
+  result.add " {\n"
+  # the base type (if any) is added as the first field:
+  if desc.base(m.types) != VoidType:
+    result.add useType(m, desc.base(m.types))
+    result.add " Sup;\n"
+
+  var pos = 0
+  for (id, it) in m.g.env.types.fields(desc):
+    if m.types.isEmbedded(it.typ):
+      # embedded tagged union
+      getTaggedUnionDesc(m, m.types.headerFor(it.typ, Lowered), result, "")
     else:
-      appcg(m, result, " {$n  $1 Sup;$n",
-                      [getTypeDescAux(m, typ[0].skipTypes(skipPtrs), check)])
-      hasField = true
-  else:
-    result.addf(" {$n", [name])
+      genFieldDesc(m, id, it, pos, result, "")
+    inc pos
 
-  let desc = getRecordFields(m, typ, check)
-  if desc == "" and not hasField:
-    result.addf("char dummy;$n", [])
-  else:
-    result.add(desc)
-  result.add("};\L")
-  if tfPacked in typ.flags and hasAttribute notin CC[m.config.cCompiler].props:
-    result.add "#pragma pack(pop)\L"
+  result.add "}"
+  # pop the packed pragma again:
+  if isPacked and
+     hasAttribute notin CC[m.config.cCompiler].props:
+    result.add "#pragma pack(pop)\n"
 
-proc getTupleDesc(m: BModule, typ: PType, name: Rope,
-                  check: var IntSet): Rope =
-  result = "$1 $2 {$n" % [structOrUnion(typ), name]
-  var desc = ""
-  for i in 0..<typ.len:
-    desc.addf("$1 Field$2;$n",
-         [getTypeDescAux(m, typ[i], check), rope(i)])
-  if desc == "": result.add("char dummy;\L")
-  else: result.add(desc)
-  result.add("};\L")
+proc isImportedType(t: PType): bool =
+  t.sym != nil and sfImportc in t.sym.flags
 
-proc getOpenArrayDesc(m: BModule, t: PType, check: var IntSet): Rope =
-  let sig = hashType(t)
-  if true:
-    result = cacheGetType(m.typeCache, sig)
-    if result == "":
-      result = getTypeName(m, t, sig)
-      m.typeCache[sig] = result
-      let elemType = getTypeDescWeak(m, t[0], check)
-      m.s[cfsTypes].addf("typedef struct {$n$2* Field0;$nNI Field1;$n} $1;$n",
-                         [result, elemType])
-
-proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet): Rope =
-  # returns only the type's name
-
-  var t = origTyp.skipTypes(irrelevantForBackend)
-  m.config.internalAssert(not containsOrIncl(check, t.id),
-                          "cannot generate C type for: " & typeToString(origTyp))
-  # XXX: this BUG is hard to fix -> we need to introduce helper structs,
-  # but determining when this needs to be done is hard. We should split
-  # C type generation into an analysis and a code generation phase somehow.
-  if t.sym != nil: useHeader(m, t.sym)
-  if t != origTyp and origTyp.sym != nil: useHeader(m, origTyp.sym)
-  let sig = hashType(origTyp)
-
-  defer: # defer is the simplest in this case
-    if isImportedType(t) and not m.typeABICache.containsOrIncl(sig):
-      addAbiCheck(m, t, result)
-
-  result = getTypePre(m, t, sig)
-  if result != "":
-    excl(check, t.id)
+proc emitTypeDef(m: BModule, id: TypeId, desc: TypeHeader) =
+  ## Emits the full definition for the type.
+  if id in m.typeCache:
     return
-  case t.kind
-  of tyRef, tyPtr, tyVar, tyLent:
-    let star = "*"
-    var et = origTyp.skipTypes(abstractInst).lastSon
-    var etB = et.skipTypes(abstractInst)
-    if mapType(m.config, t) == ctPtrToArray:
-      if etB.kind == tySet:
-        et = getSysType(m.g.graph, unknownLineInfo, tyUInt8)
-      else:
-        et = elemType(etB)
-      etB = et.skipTypes(abstractInst)
-    case etB.kind
-    of tyObject, tyTuple, tySequence:
-      # no restriction! We have a forward declaration for structs
-      let name = getTypeForward(m, et, hashType et)
-      result = name & star
-    of tyOpenArray:
-      result = getTypeDescAux(m, etB, check)
+
+  let name = computeTypeName(m.g.graph, m.types, id)
+  assert name != ""
+  # remember that the type was emitted. Doing it before producing the type
+  # body ensures that cyclic types don't result in infinite recursion:
+  m.typeCache[id] = name
+
+  case desc.kind
+  of tkArray:
+    let elem = useType(m, desc.elem)
+    m.s[cfsTypes].addf("typedef $1 $2[$3];$n",
+                       [elem, name, $desc.arrayLen(m.types)])
+  of tkUncheckedArray:
+    let elem = useType(m, desc.elem)
+    m.s[cfsTypes].addf("typedef $1 $2[1];$n",
+                       [elem, name])
+  of tkProc:
+    let locs = prepareParameters(m, desc)
+    var rettype, params: string
+    genProcParams(m, desc, rettype, params, locs, weakDep=true)
+    m.s[cfsTypes].addf("typedef $1_PTR($2, $3)$4;$n",
+                       [rope(CallingConvToStr[desc.callConv(m.types)]),
+                        rettype, name, params])
+  of tkRecord, tkUnion:
+    if id notin m.forwTypeCache:
+      m.forwTypeCache[id] = name
+      addForwardStructFormat(m, structOrUnion(desc.kind), name)
+
+    var recdesc: Rope
+    if desc.kind == tkRecord:
+      genRecordDesc(m, desc, name, recdesc)
     else:
-      # else we have a strong dependency  :-(
-      result = getTypeDescAux(m, et, check) & star
+      genUnionDesc(m, desc, name, recdesc)
+    m.s[cfsTypes].addf("$1;$n", [recdesc])
+  of tkImported:
+    let t = m.types[id]
+    useHeader(m, t.sym)
+    addAbiCheck(m, t, name)
 
-    m.typeCache[sig] = result
-  of tyOpenArray, tyVarargs:
-    result = getOpenArrayDesc(m, t, check)
-  of tyEnum:
-    result = cacheGetType(m.typeCache, sig)
-    if result == "":
-      result = getTypeName(m, origTyp, sig)
-      if not (sfImportc in t.sym.flags and t.sym.magic == mNone):
-        m.typeCache[sig] = result
-        m.s[cfsTypes].addf("typedef $1 $2;$n",
-          [getTypeDescAux(m, t.lastSon, check), result])
-        when false:
-          let owner = hashOwner(t.sym)
-          if not gDebugInfo.hasEnum(t.sym.name.s, t.sym.info.line, owner):
-            var vals: seq[(string, int)] = @[]
-            for i in 0..<t.n.len:
-              assert(t.n[i].kind == nkSym)
-              let field = t.n[i].sym
-              vals.add((field.name.s, field.position.int))
-            gDebugInfo.registerEnum(EnumDesc(size: size, owner: owner, id: t.sym.id,
-              name: t.sym.name.s, values: vals))
-  of tyProc:
-    result = getTypeName(m, origTyp, sig)
-    m.typeCache[sig] = result
-    var rettype, desc: Rope
-    let params = prepareParameters(m, t)
-    genProcParams(m, t, rettype, desc, check, params, true, true)
-    if not isImportedType(t):
-      if t.callConv != ccClosure: # procedure vars may need a closure!
-        m.s[cfsTypes].addf("typedef $1_PTR($2, $3) $4;$n",
-             [rope(CallingConvToStr[t.callConv]), rettype, result, desc])
-      else:
-        m.s[cfsTypes].addf("typedef struct {$n" &
-            "N_NIMCALL_PTR($2, ClP_0) $3;$n" &
-            "void* ClE_0;$n} $1;$n",
-             [result, rettype, desc])
-  of tySequence:
-    # a sequence type is two structs underneath: one for the seq itself, and
-    # one for its payload
-    m.config.internalAssert(skipTypes(t[0], typedescInst).kind != tyEmpty,
-                            "cannot map the empty seq type to a C type")
-
-    result = cacheGetType(m.forwTypeCache, sig)
-    if result == "":
-      result = getTypeName(m, origTyp, sig)
-      if not isImportedType(t):
-        m.forwTypeCache[sig] = result
-        addForwardStructFormat(m, structOrUnion(t), result)
-
-    # it's possible that the element type cannot be emitted yet because it
-    # depends on the sequence type (a cyclic type). For this reason, the
-    # payload type is only forward-declared here, and the actual definition
-    # is emitted later
-    addForwardStructFormat(m, structOrUnion(t), result & "_Content")
-    # note: force push the type (by not using ``pushType``)
-    m.typeStack.add origTyp
-
-    m.typeCache[sig] = result
-    appcg(m, m.s[cfsTypes],
-      "struct $1 {$N" &
-      "  NI len; $1_Content* p;$N" &
-      "};$N", [result])
-  of tyUncheckedArray:
-    result = getTypeName(m, origTyp, sig)
-    m.typeCache[sig] = result
-    if not isImportedType(t):
-      let foo = getTypeDescAux(m, t[0], check)
-      m.s[cfsTypes].addf("typedef $1 $2[1];$n", [foo, result])
-  of tyArray:
-    var n: BiggestInt = toInt64(lengthOrd(m.config, t))
-    if n <= 0: n = 1   # make an array of at least one element
-    result = getTypeName(m, origTyp, sig)
-    m.typeCache[sig] = result
-    if not isImportedType(t):
-      let foo = getTypeDescAux(m, t[1], check)
-      m.s[cfsTypes].addf("typedef $1 $2[$3];$n",
-           [foo, result, rope(n)])
-  of tyObject, tyTuple:
-    result = cacheGetType(m.forwTypeCache, sig)
-    if result == "":
-      result = getTypeName(m, origTyp, sig)
-      m.forwTypeCache[sig] = result
-      if not isImportedType(t):
-        addForwardStructFormat(m, structOrUnion(t), result)
-      assert m.forwTypeCache[sig] == result
-    m.typeCache[sig] = result # always call for sideeffects:
-    if not incompleteType(t):
-      let recdesc = if t.kind != tyTuple: getRecordDesc(m, t, result, check)
-                    else: getTupleDesc(m, t, result, check)
-      if not isImportedType(t):
-        m.s[cfsTypes].add(recdesc)
-      elif tfIncompleteStruct notin t.flags:
-        discard # addAbiCheck(m, t, result) # already handled elsewhere
-  of tySet:
-    # Don't use the imported name as it may be scoped: 'Foo::SomeKind'
-    result = $t.kind & '_' & t.lastSon.typeName & $t.lastSon.hashType
-    m.typeCache[sig] = result
-    if not isImportedType(t):
-      let s = int(getSize(m.config, t))
-      case s
-      of 1, 2, 4, 8: m.s[cfsTypes].addf("typedef NU$2 $1;$n", [result, rope(s*8)])
-      else: m.s[cfsTypes].addf("typedef NU8 $1[$2];$n",
-             [result, rope(getSize(m.config, t))])
-  of tyGenericInst, tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink,
-     tyUserTypeClass, tyUserTypeClassInst, tyInferred:
-    result = getTypeDescAux(m, lastSon(t), check)
+    # fill in the field names for records:
+    let h = m.types.headerFor(desc.elem, Lowered)
+    case h.kind
+    of tkRecord:
+      var tmp: Rope; genRecordDesc(m, h, "", tmp)
+    of tkUnion:
+      var tmp: Rope; genUnionDesc(m, h, "", tmp)
+    else:
+      discard "nothing to do"
   else:
-    internalError(m.config, "getTypeDescAux(" & $t.kind & ')')
-    result = ""
-  # fixes bug #145:
-  excl(check, t.id)
+    unreachable("doesn't need a full definition")
+
+proc useType(m: BModule, typ: TypeId, desc: TypeHeader; onlyName = false): Rope =
+  case desc.kind
+  of tkVoid:
+    result = "void"
+  of tkPointer:
+    result = "void*"
+  of tkCstring:
+    result = "NCSTRING"
+  of tkBool:
+    result = "NIM_BOOL"
+  of tkChar:
+    result = "NIM_CHAR"
+  of tkInt:
+    result = "NI" & $(desc.size(m.types) * 8)
+  of tkUInt:
+    result = "NU" & $(desc.size(m.types) * 8)
+  of tkFloat:
+    result = "NF" & $(desc.size(m.types) * 8)
+  of tkRef, tkPtr, tkVar, tkLent:
+    if mapType(m.types, desc) == ctPtrToArray:
+      # use ``T*``, where `T` is the array's element type
+      result = useType(m, m.types.headerFor(desc.elem, Lowered).elem,
+                       onlyName=true)
+    else:
+      # only the pointee's name is required, not its full definition
+      result = useType(m, desc.elem, onlyName=true)
+    result.add "*"
+  of tkImported, tkProc, tkArray, tkUncheckedArray:
+    # definition is the same as only a forward declaration
+    emitTypeDef(m, typ, desc)
+    result = m.typeCache[typ]
+  of tkRecord, tkUnion:
+    if onlyName:
+      # a forward declaration suffices
+      result = getTypeForward(m, typ, desc)
+    else:
+      emitTypeDef(m, typ, desc)
+      result = m.typeCache[typ]
+  else:
+    unreachable(desc.kind)
 
 proc getTypeDesc(m: BModule, typ: PType): Rope =
-  var check = initIntSet()
-  result = getTypeDescAux(m, typ, check)
+  result = useType(m, m.addLate(typ))
 
 type
   TClosureTypeKind = enum ## In C closures are mapped to 3 different things.
@@ -747,33 +712,23 @@ type
     clFull            ## struct {fn(args, void* env), env}
 
 proc getClosureType(m: BModule, t: PType, kind: TClosureTypeKind): Rope =
-  assert t.kind == tyProc
-  var check = initIntSet()
-  result = getTempName(m)
-  let params = prepareParameters(m, t)
-  var rettype, desc: Rope
-  genProcParams(m, t, rettype, desc, check, params, declareEnvironment=kind != clHalf)
-  if not isImportedType(t):
-    if t.callConv != ccClosure or kind != clFull:
-      m.s[cfsTypes].addf("typedef $1_PTR($2, $3) $4;$n",
-           [rope(CallingConvToStr[t.callConv]), rettype, result, desc])
-    else:
-      m.s[cfsTypes].addf("typedef struct {$n" &
-          "N_NIMCALL_PTR($2, ClP_0) $3;$n" &
-          "void* ClE_0;$n} $1;$n",
-           [result, rettype, desc])
+  case kind
+  of clHalf:
+    # create a proc type with all of `t`'s parameters, except for the
+    # environment pointer
+    let canon {.cursor.} =
+      m.types.headerFor(m.types.canonical(m.types[t]), Canonical)
 
-proc finishTypeDescriptions(m: BModule) =
-  var i = 0
-  var check = initIntSet()
-  while i < m.typeStack.len:
-    let t = m.typeStack[i]
-    if t.skipTypes(abstractInst).kind == tySequence:
-      seqV2ContentType(m, t, check)
-    else:
-      discard getTypeDescAux(m, t, check)
-    inc(i)
-  m.typeStack.setLen 0
+    let pt = m.types.buildProc(tkProc, ccNimCall, canon.retType(m.types), bu):
+      for (_, typ, flags) in params(m.types, canon):
+        bu.addParam(flags, typ)
+
+    result = useType(m, pt)
+  of clHalfWithEnv:
+    let c = m.types.canonical(m.types[t])
+    result = useType(m, m.types[m.types.lookupField(c, 0)].typ)
+  of clFull:
+    result = getTypeDesc(m, t)
 
 proc genProcHeader(m: BModule, prc: PSym, locs: openArray[TLoc]): Rope =
   ## Generates the C function header for `prc`, with `locs` being the locs
@@ -790,8 +745,7 @@ proc genProcHeader(m: BModule, prc: PSym, locs: openArray[TLoc]): Rope =
     result.add "static "
   elif sfImportc notin prc.flags:
     result.add "N_LIB_PRIVATE "
-  var check = initIntSet()
-  genProcParams(m, prc.typ, rettype, params, check, locs)
+  genProcParams(m, prc.typ, rettype, params, locs)
 
   # careful here! don't access ``prc.ast`` as that could reload large parts of
   # the object graph!
@@ -872,6 +826,10 @@ proc rope(arg: Int128): Rope = rope($arg)
 proc genTNimNodeArray(m: BModule, name: Rope, size: Rope) =
   m.s[cfsTypeInit1].addf("static TNimNode* $1[$2];$n", [name, size])
 
+proc lookupField(m: BModule, typ: PType, field: PSym): string =
+  result = m.fields[lookupField(m.types, m.types[typ],
+                                field.position.int32)]
+
 proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
                      info: TLineInfo) =
   case n.kind
@@ -895,12 +853,11 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
     var tmp = discriminatorTableName(m, typ, field)
     var L = lengthOrd(m.config, field.typ)
     assert L > 0
-    ensureObjectFields(m, field, typ)
     m.s[cfsTypeInit3].addf("$1.kind = 3;$n" &
         "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
         "$1.name = $5;$n" & "$1.sons = &$6[0];$n" &
         "$1.len = $7;$n", [expr, getTypeDesc(m, origType),
-                           m.fields[field],
+                           lookupField(m, origType, field),
                            genTypeInfoV1(m, field.typ, info),
                            makeCString(field.name.s),
                            tmp, rope(L)])
@@ -931,11 +888,11 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
     # Do not produce code for void types
     if isEmptyType(field.typ): return
     if field.bitsize == 0:
-      ensureObjectFields(m, field, typ)
       m.s[cfsTypeInit3].addf("$1.kind = 1;$n" &
           "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
           "$1.name = $5;$n", [expr, getTypeDesc(m, origType),
-          m.fields[field], genTypeInfoV1(m, field.typ, info),
+          lookupField(m, origType, field),
+          genTypeInfoV1(m, field.typ, info),
           makeCString(field.name.s)])
   else: internalError(m.config, n.info, "genObjectFields")
 

@@ -305,7 +305,7 @@ proc genExcept(p: BProc, n: CgNode) =
   # setup the handler frame:
   var tmp: TLoc
   getTemp(p, p.module.g.graph.getCompilerProc("ExceptionFrame").typ, tmp)
-  lineCg(p, cpsStmts, "#nimCatchException($1);$n", [addrLoc(p.config, tmp)])
+  lineCg(p, cpsStmts, "#nimCatchException($1);$n", [addrLoc(p.module, tmp)])
 
 proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
   var res = ""
@@ -317,9 +317,10 @@ proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
         let sym = it.astLit.sym
         # special support for raw field symbols
         discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
-        p.config.internalAssert(sym.locId != 0, it.info):
-          "field's surrounding type not setup"
-        res.add(p.fieldName(sym))
+        # make sure the owner was generated, so that the field's mangled name
+        # is available
+        discard getTypeDesc(p.module, sym.owner.typ)
+        res.add(p.fieldName(sym.owner.typ, sym))
     of cnkLocal:
       # make sure the C type description is available:
       discard getTypeDesc(p.module, skipTypes(it.typ, abstractPtrs))

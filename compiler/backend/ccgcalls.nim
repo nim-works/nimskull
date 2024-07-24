@@ -44,7 +44,7 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
   # getUniqueType() is too expensive here:
   var typ = skipTypes(ri[0].typ, abstractInst)
   if typ[0] != nil:
-    if isInvalidReturnType(p.config, typ[0]):
+    if isInvalidReturnType(p.module, typ[0]):
       if params != "": pl.add(~", ")
       # the destination is guaranteed to be either a temporary or an lvalue
       # that can be modified in-place
@@ -53,7 +53,7 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         # procedure
         if d.k == locNone:
           getTemp(p, typ[0], d)
-        pl.add(addrLoc(p.config, d))
+        pl.add(addrLoc(p.module, d))
         pl.add(~");$n")
         line(p, cpsStmts, pl)
         exitCall(p, ri)
@@ -105,6 +105,7 @@ proc genOpenArraySlice(p: BProc; q: CgNode; formalType, destType: PType): (Rope,
     result = ("($3*)($1)+($2)" % [rdLoc(a), rdLoc(b), dest],
               lengthExpr)
   of tyString, tySequence:
+    requestFullDesc(p.module, a.t)
     let atyp = skipTypes(a.t, abstractInst)
     if atyp.kind in {tyVar}:
       result = ("((*$1).p != NIM_NIL ? ($4*)(*$1)$3+$2 : NIM_NIL)" %
@@ -139,12 +140,12 @@ proc genArg(p: BProc, n: CgNode, param: PSym; call: CgNode): Rope =
       result = "$1.Field0, $1.Field1" % [rdLoc(a)]
     else:
       result = "$1, $1Len_0" % [rdLoc(a)]
-  elif ccgIntroducedPtr(p.config, param, call[0].typ[0]):
+  elif ccgIntroducedPtr(p.module, param, call[0].typ[0]):
     initLocExpr(p, n, a)
     if n.kind in cnkLiterals + {cnkNilLit}:
-      result = addrLoc(p.config, literalsNeedsTmp(p, a))
+      result = addrLoc(p.module, literalsNeedsTmp(p, a))
     else:
-      result = addrLoc(p.config, a)
+      result = addrLoc(p.module, a)
   else:
     initLocExprSingleUse(p, n, a)
     result = rdLoc(a)
@@ -206,9 +207,9 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
     else:
       lineF(p, cpsStmts, PatProc & ";$n", [rdLoc(op), pl, pl.addComma, rawProc])
 
-  let rawProc = getClosureType(p.module, typ, clHalf)
+  let rawProc = getClosureType(p.module, ri[0].typ, clHalf)
   if typ[0] != nil:
-    if isInvalidReturnType(p.config, typ[0]):
+    if isInvalidReturnType(p.module, typ[0]):
       if numArgs(ri) > 0: pl.add(~", ")
       # the destination is guaranteed to be either a temporary or an lvalue
       # that can be modified in-place
@@ -217,7 +218,7 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
         # procedure
         if d.k == locNone:
           getTemp(p, typ[0], d)
-        pl.add(addrLoc(p.config, d))
+        pl.add(addrLoc(p.module, d))
         genCallPattern()
         exitCall(p, ri)
     else:
