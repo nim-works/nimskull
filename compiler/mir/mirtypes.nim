@@ -220,6 +220,9 @@ func isEqual(env: TypeEnv, a, b: TypeHeader): bool =
         return false
     result = true
 
+  template fieldCount(t: TypeHeader): uint32 =
+    t.b - t.a # also valid for procedure types
+
   case a.kind
   of tkVoid, tkBool, tkChar, tkPointer, tkString, tkCstring:
     true
@@ -229,13 +232,13 @@ func isEqual(env: TypeEnv, a, b: TypeHeader): bool =
   of tkArray:
     a.a == b.a and a.b == b.b
   of tkRecord, tkUnion, tkTaggedUnion:
-    if a.b - a.a == b.b - b.a: # same number of fields?
-      isEqual(env.fields, a.a, b.a, a.b - a.a)
+    if fieldCount(a) == fieldCount(b): # same number of fields?
+      isEqual(env.fields, a.a, b.a, fieldCount(a))
     else:
       false
   of tkProc, tkClosure:
-    if a.b - a.a == b.b - b.a: # same number of params?
-      isEqual(env.params, a.a, b.a, a.b - a.a)
+    if fieldCount(a) == fieldCount(b): # same number of params?
+      isEqual(env.params, a.a, b.a, fieldCount(a))
     else:
       false
 
