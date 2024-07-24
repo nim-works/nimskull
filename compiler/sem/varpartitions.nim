@@ -81,7 +81,6 @@ type
     ownsData,
     preventCursor,
     isReassigned,
-    isConditionallyReassigned,
     viewDoesMutate,
     viewBorrowsFromConst
 
@@ -124,7 +123,7 @@ type
     goals: set[Goal]
     unanalysableMutation: bool
     inAsgnSource, inConstructor, inNoSideEffectSection: int
-    inConditional, inLoop: int
+    inLoop: int
     owner: PSym
     g: ModuleGraph
 
@@ -792,10 +791,6 @@ proc traverse(c: var Partitions; n: PNode) =
 
 proc markAsReassigned(c: var Partitions; vid: int) {.inline.} =
   c.s[vid].flags.incl isReassigned
-  if c.inConditional > 0 and c.inLoop > 0:
-    # bug #17033: live ranges with loops and conditionals are too
-    # complex for our current analysis, so we prevent the cursorfication.
-    c.s[vid].flags.incl isConditionallyReassigned
 
 proc computeLiveRanges(c: var Partitions; n: PNode) =
   # first pass: Compute live ranges for locals.
@@ -885,10 +880,6 @@ proc computeLiveRanges(c: var Partitions; n: PNode) =
     dec c.inLoop
     if c.inLoop == 0:
       c.loopStart = MaxTime
-  of nkElifBranch, nkElifExpr, nkElse, nkOfBranch:
-    inc c.inConditional
-    for child in n: computeLiveRanges(c, child)
-    dec c.inConditional
   else:
     for child in n: computeLiveRanges(c, child)
 
@@ -962,7 +953,7 @@ proc computeCursors*(s: PSym; n: PNode; g: ModuleGraph) =
   var par = computeGraphPartitions(s, n, g, {cursorInference})
   for i in 0 ..< par.s.len:
     let v = addr(par.s[i])
-    if v.flags * {ownsData, preventCursor, isConditionallyReassigned} == {} and
+    if v.flags * {ownsData, preventCursor} == {} and
         v.sym.kind notin {skParam, skResult} and
         v.sym.flags * {sfThread, sfGlobal} == {} and hasDestructor(v.sym.typ):
       let rid = root(par, i)
