@@ -129,6 +129,7 @@ proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
       linefmt(p, cpsStmts, "$1.Field0 = $2; $1.Field1 = $2Len_0;$n",
         [rdLoc(d), a.rdLoc])
   of tySequence, tyString:
+    requestFullDesc(p.module, a.t)
     linefmt(p, cpsStmts, "$1.Field0 = ($2.p != NIM_NIL ? $2$3 : NIM_NIL); $1.Field1 = $4;$n",
       [rdLoc(d), a.rdLoc, dataField(p), lenExpr(p, a)])
   of tyArray:
@@ -140,7 +141,7 @@ proc genOpenArrayConv(p: BProc; d: TLoc; a: TLoc) =
 proc genAssignment(p: BProc, dest, src: TLoc) =
   # This function replaces all other methods for generating
   # the assignment operation in C.
-  case mapType(p.config, dest.t)
+  case mapType(p.module, dest.t)
   of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
      ctFloat, ctFloat32, ctFloat64,
      ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64,
@@ -166,7 +167,7 @@ proc genAssignment(p: BProc, dest, src: TLoc) =
     #writeStackTrace()
     #echo p.currLineInfo, " requesting"
     linefmt(p, cpsStmts, "#memTrackerWrite((void*)$1, $2, $3, $4);$n",
-            [addrLoc(p.config, dest), getSize(p.config, dest.t),
+            [addrLoc(p.module, dest), getSize(p.config, dest.t),
             makeCString(toFullPath(p.config, p.currLineInfo)),
             p.currLineInfo.safeLineNm])
 
@@ -176,25 +177,25 @@ proc genDeepCopy(p: BProc; dest, src: TLoc) =
       var tmp: TLoc
       getTemp(p, a.t, tmp)
       genAssignment(p, tmp, a)
-      addrLoc(p.config, tmp)
+      addrLoc(p.module, tmp)
     else:
-      addrLoc(p.config, a)
+      addrLoc(p.module, a)
 
   var ty = skipTypes(dest.t, abstractVarRange + {tyStatic})
   case ty.kind
   of tyPtr, tyRef, tyProc, tyTuple, tyObject, tyArray:
     # XXX optimize this
     linefmt(p, cpsStmts, "#genericDeepCopy((void*)$1, (void*)$2, $3);$n",
-            [addrLoc(p.config, dest), addrLocOrTemp(src),
+            [addrLoc(p.module, dest), addrLocOrTemp(src),
             genTypeInfoV1(p.module, dest.t, dest.lode.info)])
   of tySequence, tyString:
     linefmt(p, cpsStmts, "#genericDeepCopy((void*)$1, (void*)$2, $3);$n",
-            [addrLoc(p.config, dest), addrLocOrTemp(src),
+            [addrLoc(p.module, dest), addrLocOrTemp(src),
             genTypeInfoV1(p.module, dest.t, dest.lode.info)])
   of tyOpenArray, tyVarargs:
     linefmt(p, cpsStmts,
          "#genericDeepCopyOpenArray((void*)$1, (void*)$2, $1Len_0, $3);$n",
-         [addrLoc(p.config, dest), addrLocOrTemp(src),
+         [addrLoc(p.module, dest), addrLocOrTemp(src),
          genTypeInfoV1(p.module, dest.t, dest.lode.info)])
   of tySet:
     if mapSetType(p.config, ty) == ctArray:
@@ -396,7 +397,7 @@ proc unaryArith(p: BProc, e, x: CgNode, d: var TLoc, op: TMagic) =
 proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
   let
     src = e.operand
-    mt = mapType(p.config, src.typ)
+    mt = mapType(p.module, src.typ)
   if mt in {ctArray, ctPtrToArray} and lfEnforceDeref notin d.flags:
     # XXX the amount of hacks for C's arrays is incredible, maybe we should
     # simply wrap them in a struct? --> Losing auto vectorization then?
@@ -438,14 +439,14 @@ proc genDeref(p: BProc, e: CgNode, d: var TLoc) =
       putIntoDest(p, d, e, "(*$1)" % [rdLoc(a)], a.storage)
 
 proc genAddr(p: BProc, e: CgNode, d: var TLoc) =
-  if mapType(p.config, e.operand.typ) == ctArray:
+  if mapType(p.module, e.operand.typ) == ctArray:
     expr(p, e.operand, d)
   else:
     var a: TLoc
     initLoc(a, locNone, e.operand, OnUnknown)
     a.flags.incl lfWantLvalue
     expr(p, e.operand, a)
-    putIntoDest(p, d, e, addrLoc(p.config, a), a.storage)
+    putIntoDest(p, d, e, addrLoc(p.module, a), a.storage)
 
 template inheritLocation(d: var TLoc, a: TLoc) =
   if d.k == locNone: d.storage = a.storage
@@ -469,33 +470,22 @@ proc genTupleElem(p: BProc, e: CgNode, d: var TLoc) =
   r.addf(".Field$1", [rope(e[1].intVal)])
   putIntoDest(p, d, e, r, a.storage)
 
-proc lookupFieldAgain(p: BProc, ty: PType; field: PSym; r: var Rope;
-                      resTyp: ptr PType = nil): PSym =
-  var ty = ty
-  assert r != ""
-  while ty != nil:
-    ty = ty.skipTypes(skipPtrs)
-    assert ty.kind == tyObject
-    result = lookupInRecord(ty.n, field.name)
-    if result != nil:
-      if resTyp != nil: resTyp[] = ty
-      break
-    r.add(".Sup")
-    ty = ty[0]
-  if result == nil: internalError(p.config, field.info, "genCheckedRecordField")
+proc handleSupAccess(types: TypeEnv, ty: PType; field: PSym; r: var Rope) =
+  let depth = computeDepth(types, types.headerFor(types[ty], Canonical),
+                           field.position.int32)
+  for _ in 0..<depth:
+    r.add ".Sup"
 
 proc genRecordField(p: BProc, e: CgNode, d: var TLoc) =
   var a: TLoc
   genRecordFieldAux(p, e, d, a)
   var r = rdLoc(a)
-  var f = e[1].field
+  let f = e[1].field
   let ty = skipTypes(a.t, abstractInst + tyUserTypeClasses)
   p.config.internalAssert(ty.kind == tyObject, e[0].info)
   if true:
-    var rtyp: PType
-    let field = lookupFieldAgain(p, ty, f, r, addr rtyp)
-    ensureObjectFields(p.module, field, rtyp)
-    r.addf(".$1", [p.fieldName(field)])
+    handleSupAccess(p.module.types, ty, f, r)
+    r.addf(".$1", [p.fieldName(ty, f)])
     putIntoDest(p, d, e, r, a.storage)
 
 proc genUncheckedArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
@@ -574,6 +564,7 @@ proc genSeqElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   var a, b: TLoc
   initLocExpr(p, x, a)
   initLocExpr(p, y, b)
+  requestFullDesc(p.module, a.t)
   var ty = skipTypes(a.t, abstractVarRange)
   if ty.kind in {tyRef, tyPtr}:
     ty = skipTypes(ty.lastSon, abstractVarRange)
@@ -742,8 +733,7 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
     p.config.internalAssert(n[0].kind == nkSym, n.info,
                             "specializeInitObjectN")
     let disc = n[0].sym
-    ensureObjectFields(p.module, disc, typ)
-    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, p.fieldName(disc)])
+    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, p.fieldName(typ, disc)])
     for i in 1..<n.len:
       let branch = n[i]
       assert branch.kind in {nkOfBranch, nkElse}
@@ -757,8 +747,7 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
   of nkSym:
     let field = n.sym
     if field.typ.kind == tyVoid: return
-    ensureObjectFields(p.module, field, typ)
-    specializeInitObject(p, "$1.$2" % [accessor, p.fieldName(field)],
+    specializeInitObject(p, "$1.$2" % [accessor, p.fieldName(typ, field)],
                          field.typ, n.info)
   else: internalError(p.config, n.info, "specializeInitObjectN()")
 
@@ -854,10 +843,9 @@ proc genObjConstr(p: BProc, e: CgNode, d: var TLoc) =
   for it in e.items:
     var tmp2: TLoc
     tmp2.r = r
-    let field = lookupFieldAgain(p, ty, it[0].field, tmp2.r)
-    ensureObjectFields(p.module, field, ty)
+    handleSupAccess(p.module.types, ty, it[0].field, tmp2.r)
     tmp2.r.add(".")
-    tmp2.r.add(p.fieldName(field))
+    tmp2.r.add(p.fieldName(ty, it[0].field))
     tmp2.k = d.k
     tmp2.storage = d.storage
     tmp2.lode = it[1]
@@ -1209,7 +1197,7 @@ proc genSomeCast(p: BProc, e: CgNode, d: var TLoc) =
   let srcTyp = skipTypes(src.typ, abstractRange)
   if etyp.kind in ValueTypes and lfIndirect notin a.flags:
     putIntoDest(p, d, e, "(*($1*) ($2))" %
-        [getTypeDesc(p.module, e.typ), addrLoc(p.config, a)], a.storage)
+        [getTypeDesc(p.module, e.typ), addrLoc(p.module, a)], a.storage)
   elif etyp.kind == tyProc and etyp.callConv == ccClosure and srcTyp.callConv != ccClosure:
     putIntoDest(p, d, e, "(($1) ($2))" %
         [getClosureType(p.module, etyp, clHalfWithEnv), rdCharLoc(a)], a.storage)
@@ -1284,6 +1272,7 @@ proc genDestroy(p: BProc; n: CgNode) =
     let t = arg.typ.skipTypes(abstractInst)
     case t.kind
     of tyString:
+      requestFullDesc(p.module, arg.typ)
       var a: TLoc
       initLocExpr(p, arg, a)
       if optThreads in p.config.globalOptions:
@@ -1295,6 +1284,7 @@ proc genDestroy(p: BProc; n: CgNode) =
           " #dealloc($1.p);$n" &
           "}$n", [rdLoc(a)])
     of tySequence:
+      requestFullDesc(p.module, arg.typ)
       var a: TLoc
       initLocExpr(p, arg, a)
       linefmt(p, cpsStmts, "if ($1.p && !($1.p->cap & NIM_STRLIT_FLAG)) {$n" &
@@ -1377,7 +1367,7 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     let member =
       if dotExpr.kind == cnkTupleAccess:
         "Field" & rope(dotExpr[1].intVal)
-      else: p.fieldName(dotExpr[1].field)
+      else: p.fieldName(dotExpr[0].typ, dotExpr[1].field)
     putIntoDest(p,d,e, "((NI)offsetof($1, $2))" % [tname, member])
   of mChr: genSomeCast(p, e, d)
   of mOrd: genOrd(p, e, d)
@@ -1566,14 +1556,14 @@ proc downConv(p: BProc, n: CgNode, d: var TLoc) =
     if lfWantLvalue in d.flags:
       putIntoDest(p, d, n,
                 "(($1*) ($2))" % [getTypeDesc(p.module, n.typ),
-                                  addrLoc(p.config, a)], a.storage)
+                                  addrLoc(p.module, a)], a.storage)
       d.flags.incl lfIndirect
     else:
       putIntoDest(p, d, n,
                 "(($1) ($2))" % [getTypeDesc(p.module, n.typ), rdLoc(a)], a.storage)
   else:
     putIntoDest(p, d, n, "(*($1*) ($2))" %
-                        [getTypeDesc(p.module, dest), addrLoc(p.config, a)], a.storage)
+                        [getTypeDesc(p.module, dest), addrLoc(p.module, a)], a.storage)
 
 proc upConv(p: BProc, n: CgNode, d: var TLoc) =
   ## Generates and emits the code for the ``cnkObjUpConv`` (conversion to
@@ -1591,7 +1581,7 @@ proc upConv(p: BProc, n: CgNode, d: var TLoc) =
     # expression and then cast the pointer:
     putIntoDest(p, d, n,
                 "(($1*) ($2))" % [getTypeDesc(p.module, n.typ),
-                                  addrLoc(p.config, a)],
+                                  addrLoc(p.module, a)],
                 a.storage)
     # an indirection is used:
     d.flags.incl lfIndirect

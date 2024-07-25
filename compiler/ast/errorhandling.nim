@@ -189,7 +189,7 @@ iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   for i in 0..<errNodes.len:
     # reverse index so we go from the innermost to outermost
     let e = errNodes[i]
-    if e.diag.kind == adWrappedError:
+    if e.diag.kind in {adWrappedError, adWrappedSymError}:
       continue
 
     assert(

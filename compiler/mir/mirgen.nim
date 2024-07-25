@@ -99,6 +99,8 @@ import
 import std/options as std_options
 
 import compiler/utils/measure
+when defined(nimCompilerStacktraceHints):
+  import compiler/utils/debugutils
 
 type
   DestFlag = enum
@@ -233,7 +235,7 @@ template useSource(bu: var MirBuilder, sp: var SourceProvider,
 
 # -------------- Symbol translation --------------
 
-func localToMir(c: var TCtx, s: PSym): Local =
+proc localToMir(c: var TCtx, s: PSym): Local =
   Local(typ: c.env.types.add(s.typ),
         flags: s.flags,
         isImmutable: s.kind in {skLet, skForVar},
@@ -289,7 +291,7 @@ template emitByName(c: var TCtx, eff: EffectKind, body: untyped) =
 template addLocal(c: var TCtx, local: Local): LocalId =
   c.builder.addLocal(local)
 
-func addLocal(c: var TCtx, s: PSym): LocalId =
+proc addLocal(c: var TCtx, s: PSym): LocalId =
   ## Translates `s` to its MIR representation, registers it with body, and
   ## establishes a mapping.
   assert s.id notin c.localsMap
@@ -308,7 +310,7 @@ func uintLiteral(env: var MirEnv, val: BiggestUInt, typ: TypeId): Value =
 func floatLiteral(env: var MirEnv, val: BiggestFloat, typ: TypeId): Value =
   literal(mnkFloatLit, env.getOrIncl(val), typ)
 
-func astLiteral(env: var MirEnv, val: PNode, typ: PType): Value =
+proc astLiteral(env: var MirEnv, val: PNode, typ: PType): Value =
   literal(env.asts.add(val), env.types.add(typ))
 
 proc toIntLiteral(env: var MirEnv, val: Int128, typ: PType): Value =
@@ -358,7 +360,7 @@ template labelNode(lbl: LabelId): MirNode =
 template newLabelNode(c: var TCtx): MirNode =
   labelNode(c.builder.allocLabel())
 
-func nameNode(c: var TCtx, s: PSym): MirNode =
+proc nameNode(c: var TCtx, s: PSym): MirNode =
   let t = c.typeToMir(s.typ)
   case s.kind
   of skTemp:
@@ -379,7 +381,7 @@ func nameNode(c: var TCtx, s: PSym): MirNode =
   else:
     unreachable(s.kind)
 
-func genLocation(c: var TCtx, n: PNode): Value =
+proc genLocation(c: var TCtx, n: PNode): Value =
   let f = c.builder.push: c.builder.add(nameNode(c, n.sym))
   c.builder.popSingle(f)
 
@@ -402,6 +404,9 @@ proc exprToPmir(c: var TCtx, n: PNode, sink, mutable: bool): PMirExpr =
              n, sink, mutable)
 
 proc genx(c: var TCtx, n: PNode; consume: bool = false) =
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(c.graph.config, n)
+
   let e = exprToPmir(c, n, consume, false)
   genx(c, e, e.high)
 
@@ -1820,7 +1825,7 @@ proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
       # both asm and emit statements support arbitrary expressions
       # (including type expressions) ...
       if it.typ != nil and it.typ.kind == tyTypeDesc:
-        c.use genTypeExpr(c, it)
+        c.use typeLit(c.typeToMir(it.typ.base))
       elif it.kind == nkSym and it.sym.kind == skField:
         # emit and asm support using raw field symbols. For pushing them
         # through to the code generators, they're quoted (i.e., boxed into
@@ -2398,9 +2403,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
 
   env = c.env
 
-  # move the buffers into the result body
-  let (code, locals) = finish(move c.builder, default(Store[LocalId, Local]))
-  MirBody(locals: locals, source: move c.sp.map, code: code)
+  createBody(move c.builder, move c.sp.map)
 
 proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
                 config: TranslationConfig, e: PNode): MirBody =
@@ -2431,8 +2434,7 @@ proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
 
   env = move c.env
 
-  let (code, locals) = finish(move c.builder, default(Store[LocalId, Local]))
-  MirBody(locals: locals, source: move c.sp.map, code: code)
+  createBody(move c.builder, move c.sp.map)
 
 proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
   ## Translates the construction expression AST `n` representing some

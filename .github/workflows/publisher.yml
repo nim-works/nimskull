@@ -25,65 +25,67 @@ jobs:
       url: ${{ steps.release.outputs.url }}
 
     steps:
-      # Publish action needs a checkout
+      # Repository required for changelog builder
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          sparse-checkout: |
+            .github
+
+      - name: Obtain latest successful run id
+        id: finder
+        run: |
+          run_id=$(gh run list \
+            -c "$COMMIT" \
+            -w "$WORKFLOW" \
+            -s "$CONCLUSION" \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[].databaseId')
+          if [[ -z $run_id ]]; then
+            echo "::error::Could not find any CI run for commit $COMMIT"
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+        env:
+          COMMIT: ${{ github.event.after }}
+          WORKFLOW: ci.yml
+          CONCLUSION: success
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
 
       # Download the latest instance of artifacts from a build done previously
-      - name: Download generated docs
-        uses: dawidd6/action-download-artifact@v5
-        with:
-          workflow: ci.yml
-          workflow_conclusion: success
-          commit: ${{ github.event.after }}
-          # Keep up-to-date with ci.yml
-          name: Generated docs
-          path: doc/html
-
       - name: Download generated source archive
-        uses: dawidd6/action-download-artifact@v5
+        uses: actions/download-artifact@v4
         with:
-          workflow: ci.yml
-          workflow_conclusion: success
-          commit: ${{ github.event.after }}
+          run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
           name: source archive
           path: release-staging
+          github-token: ${{ github.token }}
 
       - name: Download generated release binaries
-        uses: dawidd6/action-download-artifact@v5
+        uses: actions/download-artifact@v4
         with:
-          workflow: ci.yml
-          workflow_conclusion: success
-          commit: ${{ github.event.after }}
+          run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
-          name: release binaries.*
-          name_is_regexp: true
+          pattern: release binaries *
+          merge-multiple: "true"
           path: release-staging
+          github-token: ${{ github.token }}
 
       - name: Download release manifest tool
-        uses: dawidd6/action-download-artifact@v5
+        uses: actions/download-artifact@v4
         with:
-          workflow: ci.yml
-          workflow_conclusion: success
-          commit: ${{ github.event.after }}
+          run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
           name: release manifest tool
           path: release-staging
-
-      - name: Publish docs
-        uses: JamesIves/github-pages-deploy-action@v4.6.1
-        with:
-          branch: gh-pages
-          folder: doc/html
+          github-token: ${{ github.token }}
 
       - id: release-files
         name: Create release manifest
         run: |
-          # Move the release binaries to the current folder
-          for d in "release binaries "*; do
-            mv -v "$d"/* .
-          done
-
           # Github Artifacts strip executable permissions so it has to be set again
           chmod 755 release_manifest
           # Create a new release manifest
@@ -101,12 +103,24 @@ jobs:
 
       - id: release
         name: Create pre-release
-        uses: softprops/action-gh-release@v2.0.5
+        uses: softprops/action-gh-release@v2.0.8
         with:
           prerelease: true
           files: ${{ steps.release-files.outputs.result }}
           tag_name: ${{ steps.release-files.outputs.version }}
           fail_on_unmatched_files: true
           target_commitish: ${{ github.event.after }}
-          body: |
-            Continuous delivery for commit ${{ github.event.after }}
+
+      - id: changelog
+        name: Create release changelog
+        uses: mikepenz/release-changelog-builder-action@v5.0.0-a04
+        with:
+          configuration: ".github/changelog.json"
+          toTag: ${{ steps.release-files.outputs.version }}
+          failOnError: true
+
+      - name: Push changelog
+        uses: softprops/action-gh-release@v2.0.8
+        with:
+          tag_name: ${{ steps.release-files.outputs.version }}
+          body: ${{ steps.changelog.outputs.changelog }}

@@ -175,7 +175,7 @@ func hash*(x: Type): Hash {.inline.} =
   ## Leaked implementation detail -- do not use.
   hash(PType x)
 
-proc `[]`*[T](t: TypeTable[T], key: PType): lent T {.inline.} =
+proc `[]`*[T](t: TypeTable[T], key: PType): T {.inline.} =
   ## Looks up the item for `key`.
   t.inner[Type key]
 
@@ -186,3 +186,7 @@ proc `[]=`*[T](t: var TypeTable[T], key: PType, val: sink T) {.inline.} =
 proc mgetOrPut*[T](t: var TypeTable, key: PType, val: T): var T =
   ## If `key` has no mapping in `t`, adds one with `val` as the value first.
   t.inner.mgetOrPut(Type(key), val)
+
+proc getOrDefault*[T](t: TypeTable[T], key: PType, def: T): T =
+  ## If there's a value for `key` in `t`, returns it, `def` otherwise.
+  t.inner.getOrDefault(Type(key), def)

@@ -151,6 +151,20 @@ proc wrapErrorAndUpdate(c: ConfigRef, n: PNode, s: PSym): PNode =
   result = c.wrapError(n)
   s.ast = result
 
+proc newSymNodeOrError(c: ConfigRef, sym: PSym, info: TLineInfo): PNode =
+  ## Creates a new `nkSym` node, unless `sym` either represents an error
+  ## itself or refers to an erroneous entity. In the latter two cases, an
+  ## error node is returned.
+  ## NB: not a `newSymNode` replacement, it's for when symbol sem fails
+  if sym.isError:
+    result = sym.ast
+    result.info = info
+  elif sym.ast.isError or (sym.typ != nil and sym.typ.kind == tyError):
+    result = c.newError(newSymNode(sym, info),
+                        PAstDiag(kind: adWrappedSymError))
+  else:
+    result = newSymNode(sym, info)
+
 template semIdeForTemplateOrGenericCheck(conf, n, cursorInBody) =
   # use only for idetools support; detecting cursor in generic or template body
   # if so call `semIdeForTemplateOrGeneric` for semantic checking
@@ -914,6 +928,7 @@ proc myOpen(graph: ModuleGraph; module: PSym;
   c.semTypeNode = semTypeNode
   c.instTypeBoundOp = sigmatch.instTypeBoundOp
   c.hasUnresolvedArgs = hasUnresolvedArgs
+  c.semGenericExpr = semGenericExpr
   c.templInstCounter = new int
 
   pushProcCon(c, module)

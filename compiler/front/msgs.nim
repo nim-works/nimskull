@@ -294,7 +294,7 @@ proc errorActions(
     eh: TErrorHandling
   ): tuple[action: TErrorHandling, withTrace: bool] =
   result = (doNothing, false)
-  if conf.isCompilerFatal(report):
+  if report.severity == rsevFatal:
     # Fatal message such as ICE (internal compiler), errFatal,
     result = (doAbort, true)
   elif conf.isCodeError(report):
@@ -422,8 +422,10 @@ func astDiagToLegacyReportKind*(
   ## very broad categories and they'll no longer map to "reports".
   case diag
   of adWrappedError: rsemWrappedError
+  of adWrappedSymError: rsemWrappedError
   of adSemTypeMismatch: rsemTypeMismatch
   of adSemTypeNotAllowed: rsemTypeNotAllowed
+  of adSemTIsNotAConcreteType: rsemTIsNotAConcreteType
   of adSemUndeclaredIdentifier: rsemUndeclaredIdentifier
   of adSemConflictingExportnims: rsemConflictingExportnims
   of adSemAmbiguousIdent: rsemAmbiguousIdent
@@ -498,7 +500,6 @@ func astDiagToLegacyReportKind*(
   of adSemUndeclaredField: rsemUndeclaredField
   of adSemCannotInstantiate: rsemCannotInstantiate
   of adSemWrongNumberOfGenericParams: rsemWrongNumberOfGenericParams
-  of adSemCalleeHasAnError: rsemCalleeHasAnError
   of adSemExpressionHasNoType: rsemExpressionHasNoType
   of adSemTypeExpected: rsemTypeExpected
   of adSemStringRangeNotAllowed: rsemStringRangeNotAllowed

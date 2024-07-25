@@ -425,13 +425,13 @@ proc produceFragmentsForGlobals(
       bu.setSource(m.add(n))
       bu.subTree mnkScope: discard
 
-  func finish(bu: sink MirBuilder, m: var SourceMap, n: PNode
-             ): auto {.nimcall.} =
+  func finish(bu: sink MirBuilder, n: PNode, body: var MirBody) {.nimcall.} =
+    var map = move body.source
     if bu.front.len > 0:
-      bu.setSource(m.add(n))
+      bu.setSource(map.add(n))
       bu.subTree mnkEndScope: discard
-    # we're creating a body here, so there is no list of locals yet
-    result = finish(bu, default(Store[LocalId, Local]))
+
+    body = createBody(bu, map)
 
   var init, deinit, threadDeinit: MirBuilder
 
@@ -464,12 +464,9 @@ proc produceFragmentsForGlobals(
           # also emit a destructor into the thread-deinit fragment:
           destroyOp(threadDeinit, result.threadDeinit.source)
 
-  (result.init.code, result.init.locals) =
-    finish(init, result.init.source, graph.emptyNode)
-  (result.deinit.code, result.deinit.locals) =
-    finish(deinit, result.deinit.source, graph.emptyNode)
-  (result.threadDeinit.code, result.threadDeinit.locals) =
-    finish(threadDeinit, result.threadDeinit.source, graph.emptyNode)
+  finish(init, graph.emptyNode, result.init)
+  finish(deinit, graph.emptyNode, result.deinit)
+  finish(threadDeinit, graph.emptyNode, result.threadDeinit)
 
 # ----- dynlib handling -----
 

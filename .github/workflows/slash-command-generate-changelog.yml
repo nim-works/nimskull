@@ -1,0 +1,81 @@
+name: /generate-changelog handler
+
+on:
+  repository_dispatch:
+    types: [generate-changelog-command]
+
+permissions:
+  pull-requests: write
+
+concurrency: generate-changelog-handler-${{ github.event.client_payload.pull_request.node_id || github.run_id }}
+
+jobs:
+  changelog:
+    if: github.event.client_payload.pull_request != null
+    name: Generate changelog and comment
+
+    runs-on: ubuntu-latest
+    env:
+      PR: ${{ github.event.client_payload.pull_request.number }}
+    steps:
+      - if: github.event.client_payload.pull_request.merge_commit_sha == null
+        name: Report "No merge HEAD" found
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ env.PR }}
+          body: |
+            Could not generate changelog using this PR as no GitHub merge commits are available.
+
+            This could be due to the PR being recently opened or there is a merge conflict. Please
+            try again after a few minutes.
+
+      - if: github.event.client_payload.pull_request.merge_commit_sha == null
+        name: Fail due to "No merge HEAD"
+        run: |
+          echo "::error::No merge HEAD found for PR #$PR"
+          exit 1
+
+      - name: "Checkout merge head for #${{ env.PR }}"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.pull_request.merge_commit_sha }}
+          sparse-checkout: |
+            .github
+
+      - id: changelog
+        name: Create changelog
+        uses: mikepenz/release-changelog-builder-action@v5.0.0-a04
+        with:
+          configuration: ".github/changelog.json"
+          fromTag: ${{ github.event.client_payload.slash_command.args.named.from || '' }}
+          toTag: ${{ github.event.client_payload.slash_command.args.named.to || '' }}
+          ignorePreReleases: ${{ github.event.client_payload.slash_command.args.named.no_prerelease || false }}
+
+      - if: steps.changelog.outputs.failed == 'true'
+        name: Report failure
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ env.PR }}
+          body: |
+            Error occurred while generating changelog using this PR.
+
+            See run log at ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}.
+
+      - if: steps.changelog.outputs.failed == 'true'
+        name: Fail due to changelog
+        run: |
+          echo "::error::Error occurred while generating changelog using PR #$PR"
+          exit 1
+
+      - name: Comment with changelog
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ env.PR }}
+          body: |
+            Changelog requested by: @${{ github.event.client_payload.github.payload.comment.user.login }}
+
+            Generated between ${{ steps.changelog.outputs.fromTag }} to ${{ steps.changelog.outputs.toTag }} using configuration provided by this PR.
+
+            ---
+
+            ${{ steps.changelog.outputs.changelog }}

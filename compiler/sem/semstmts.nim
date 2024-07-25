@@ -839,7 +839,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
           c.config.newError(r, PAstDiag(kind: adSemIllegalCompileTime))
 
     if v.isError:
-      producedDecl[i] = newSymNode2(v)
+      producedDecl[i] = v.ast # ast is an error AST
       hasError = true
 
       continue # refactor: remove the need to continue
@@ -881,9 +881,6 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
           v.ast = c.config.wrapError(v.ast)
       else:
         internalError(c.config, "should never happen")
-
-    if v.ast.isError:
-      v.transitionToError(v.ast)
 
     # set the symbol type and add the symbol to the production
     producedDecl[i] = setSymType(c, r, v, vTyp)
@@ -1202,7 +1199,7 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
           localReport(c.config, defPart.info, reportSem(rsemResultShadowed))
 
     if v.isError:
-      producedDecl[i] = newSymNode2(v)
+      producedDecl[i] = v.ast # ast is an error AST
       hasError = true
 
       continue # refactor: remove the need to continue
@@ -1225,12 +1222,6 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
         v.ast = producedDecl[^1]
       else:
         internalError(c.config, "should never happen")
-
-    if v.ast.isError:
-      # XXX: although this mirrors the behaviour of ``semNormalizedLetOrVar``,
-      #      it seems wrong. For example, the type of the symbol is set to a
-      #      valid type instead of ``tyError``
-      v.transitionToError(v.ast)
 
     # set the symbol type and add the symbol to the production
     producedDecl[i] = setSymType(c, r, v, vTyp)

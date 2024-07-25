@@ -94,11 +94,7 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
       # subtract the first element's value to make all values zero-based
       toInt(val - first)
 
-    let first =
-      if tree[n].len > 0: firstOrd(c.config, env[tree[n].typ])
-      else:               Zero
-    # XXX: ^^ ``set[empty]``-typed literals reach here, but they shouldn't. The
-    #      len guard works around the issue
+    let first = firstOrd(c.config, env[tree[n].typ])
     iterTree(j):
       let node = next()
       if node.kind == mnkRange:

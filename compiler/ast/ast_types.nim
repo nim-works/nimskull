@@ -433,7 +433,6 @@ const
 
   sfNoForward*     = sfRegister       ## forward declarations are not required (per module)
   sfExperimental*  = sfOverriden      ## module uses the .experimental switch
-  sfGoto*          = sfOverriden      ## var is used for 'goto' code generation
   sfWrittenTo*     = sfBorrow         ## param is assigned to
   sfEscapes*       = sfProcvar        ## param escapes
   sfBase*          = sfDiscriminant
@@ -1071,10 +1070,12 @@ type
   AstDiagKind* = enum
     # general
     adWrappedError
+    adWrappedSymError
     adCyclicTree
     # type
     adSemTypeMismatch
     adSemTypeNotAllowed
+    adSemTIsNotAConcreteType
     # lookup
     adSemUndeclaredIdentifier
     adSemConflictingExportnims
@@ -1153,7 +1154,6 @@ type
     adSemUndeclaredField
     adSemCannotInstantiate
     adSemWrongNumberOfGenericParams
-    adSemCalleeHasAnError
     # sem
     adSemExpressionHasNoType
     adSemDefNameSym   ## when creating a sym node from `nkIdentKinds`
@@ -1279,7 +1279,7 @@ type
     location*: TLineInfo        # TODO: `wrongNode` already has this, move to
                                 #       variant or handle in display/rendering
     case kind*: AstDiagKind
-    of adWrappedError:
+    of adWrappedError, adWrappedSymError:
       discard
     of adSemTypeMismatch,
         adSemIllegalConversion,
@@ -1324,7 +1324,6 @@ type
         adSemAlignRequiresPowerOfTwo,
         adSemNoReturnHasReturn,
         adSemMisplacedDeprecation,
-        adSemFatalError,
         adSemNoUnionForJs,
         adSemBitsizeRequiresPositive,
         adSemExperimentalRequiresToplevel,
@@ -1410,6 +1409,7 @@ type
     of adSemAsmEmitExpectsStringLiteral:
       unexpectedKind*: TNodeKind
     of adSemRaisesPragmaExpectsObject,
+        adSemTIsNotAConcreteType,
         adSemCannotInferTypeOfLiteral,
         adSemProcHasNoConcreteType,
         adSemCannotCastToNonConcrete,
@@ -1420,7 +1420,7 @@ type
       externName*: string
     of adSemPragmaRecursiveDependency:
       userPragma*: PSym
-    of adSemCustomUserError:
+    of adSemCustomUserError, adSemFatalError:
       errmsg*: string
     of adSemImplicitPragmaError:
       implicitPragma*: PSym
@@ -1459,8 +1459,6 @@ type
     of adSemWrongNumberOfGenericParams:
       countMismatch*: tuple[expected, got: int]
       gnrcCallLineInfo*: TLineInfo
-    of adSemCalleeHasAnError:
-      callee*: PSym
     of adSemIllformedAstExpectedOneOf:
       expectedKinds*: TNodeKinds
     of adSemImplementationExpected:
@@ -1725,8 +1723,6 @@ type
                               ## generated name is to be used
     extFlags*: ExternalFlags  ## additional flags that are relevant to code
                               ## generation
-    locId*: uint32            ## associates the symbol with a loc in the C code
-                              ## generator. 0 means unset.
     annex*: LibId             ## additional fields (seldom used, so we use a
                               ## reference to another object to save space)
     constraint*: PNode        ## additional constraints like 'lit|result'; also

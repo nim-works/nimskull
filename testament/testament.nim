@@ -316,7 +316,7 @@ proc verboseCmd(cmd: string) =
 
 let
   pegLineError =
-    peg"{[^(]*} '(' {\d+} ', ' {\d+} ') ' ('Error') ':' \s* {.*}"
+    peg"{[^(]*} '(' {\d+} ', ' {\d+} ') ' ('Error' / 'Fatal') ':' \s* {.*}"
   pegOtherError = peg"'Error:' \s* {.*}"
   pegOfInterest = pegLineError / pegOtherError
 

@@ -550,10 +550,11 @@ iterator pairs*(tree: MirTree): (NodePosition, lent MirNode) =
     yield (i.NodePosition, tree[i])
     inc i
 
-iterator subNodes*(tree: MirTree, n: NodePosition): NodePosition =
-  ## Iterates over and yields all direct child nodes of `n`
+iterator subNodes*(tree: MirTree, n: NodePosition; start = 0): NodePosition =
+  ## Returns in order of apperance all direct child nodes of `n`, starting with
+  ## `start`.
   let L = tree[n].len
-  var n = tree.child(n, 0)
+  var n = tree.child(n, start)
   for _ in 0..<L:
     yield n
     n = tree.sibling(n)

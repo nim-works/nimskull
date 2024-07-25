@@ -48,6 +48,10 @@ type
     ## associated with a body, such as how far the lowering is along.
     locals*: Locals
       ## all locals part of the body
+    nextLabel*: LabelId
+      ## the ID to use for a new label. Incremented when allocating a new
+      ## label
+
     source*: SourceMap
     code*: MirTree
 

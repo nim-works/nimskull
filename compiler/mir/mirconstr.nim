@@ -7,7 +7,8 @@ import
   ],
   compiler/mir/[
     mirtrees,
-    mirbodies
+    mirbodies,
+    sourcemaps
   ],
   compiler/utils/[
     containers,
@@ -452,6 +453,10 @@ func join*(bu: var MirBuilder, label: LabelId) =
   bu.subTree mnkJoin:
     bu.add MirNode(kind: mnkLabel, label: label)
 
+func goto*(bu: var MirBuilder, label: LabelId) =
+  bu.subTree mnkGoto:
+    bu.add MirNode(kind: mnkLabel, label: label)
+
 template pathNamed*(bu: var MirBuilder, t: TypeId, f: int32, body: untyped) =
   ## Emits a ``mnkPathNamed`` expression.
   bu.subTree MirNode(kind: mnkPathNamed, typ: t):
@@ -554,3 +559,8 @@ func finish*(bu: sink MirBuilder, locals: sink Store[LocalId, Local]): auto =
   result = (tree, move locals)
   # join the partial store into the base store:
   join(result[1], partial)
+
+proc createBody*(builder: sink MirBuilder, sm: sink SourceMap): MirBody =
+  ## Creates a MIR body from `builder` and `sm`.
+  result = MirBody(nextLabel: builder.nextLabel.LabelId, source: sm)
+  (result.code, result.locals) = builder.finish(default Store[LocalId, Local])

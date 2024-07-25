@@ -50,14 +50,8 @@ template remove*(c: var Changeset, tree: MirTree, at: NodePosition) =
 func initChangeset*(body: MirBody): Changeset =
   ## Sets up a changeset for `body`. The changeset either needs to be
   ## discarded, or applied to the same ``MirBody`` instance it was created for.
-  result = Changeset(locals: fork(body.locals))
-  # compute the next ID to use for new labels:
-  for i, n in body.code.pairs:
-    case n.kind
-    of mnkLabel:
-      result.nextLabel = max(n.label.uint32 + 1, result.nextLabel)
-    else:
-      discard
+  Changeset(locals: fork(body.locals),
+            nextLabel: body.nextLabel.uint32)
 
 func initBuilder(c: var Changeset, buffer: var MirNodeSeq,
                  info: SourceId): MirBuilder =
@@ -99,3 +93,4 @@ func apply*(body: var MirBody, c: sink Changeset) =
   ## Applies the changeset `c` to `body`.
   apply(body.code, prepare(move c.inner))
   join(body.locals, move c.locals)
+  body.nextLabel = LabelId(c.nextLabel)

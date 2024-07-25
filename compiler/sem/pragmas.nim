@@ -119,7 +119,7 @@ const
     wMagic, wHeader, wCompilerProc, wCore, wDynlib,
     wNoInit, wCompileTime, wGlobal,
     wGensym, wInject,
-    wGuard, wGoto, wCursor, wNoalias, wAlign}
+    wGuard, wCursor, wNoalias, wAlign}
   constPragmas* = declPragmas + {wHeader, wMagic,
     wGensym, wInject,
     wIntDefine, wStrDefine, wBoolDefine, wCompilerProc, wCore}
@@ -299,6 +299,8 @@ proc processCodegenDecl(c: PContext, n: PNode, sym: PSym): PNode =
   ## the string literal from `n`
   result = getStrLitNode(c, n)
   sym.constraint = result
+  # issue a deprecation warning:
+  c.config.localReport(n.info, reportSem(rsemCodegenDeclDeprecated))
 
 proc processMagic(c: PContext, n: PNode, s: PSym): PNode =
   ## produces an error if `n` is not a pragmacall kinds, otherwise `n` is
@@ -1444,10 +1446,6 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
             result = sym.guard.ast
           else:
             result = it
-      of wGoto:
-        result = noVal(c, it)
-        assert sym.kind in {skVar, skLet}
-        sym.flags.incl sfGoto
       of wExportNims:
           # XXX: modifying the module graph during application of a symbol
           #      operator doesn't seem like a good idea...
@@ -1558,7 +1556,12 @@ proc applyStmtPragma(c: PContext, owner: PSym, it: PNode, k: TSpecialWord): PNod
           result = c.config.newError(
             it, PAstDiag(kind: adSemCustomUserError, errmsg: s.strVal))
   of wFatal:
-    result = c.config.newError(it, PAstDiag(kind: adSemFatalError))
+    let (s, err) = strLitToStrOrErr(c, it)
+    result =
+      if err.isNil:
+        c.config.newError(it, PAstDiag(kind: adSemFatalError, errmsg: s))
+      else:
+        err
   of wDefine:
     result = processDefine(c, it)
   of wUndef:

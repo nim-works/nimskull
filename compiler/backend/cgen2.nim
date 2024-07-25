@@ -38,7 +38,8 @@ import
   ],
   compiler/mir/[
     mirenv,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/front/[
     options,
@@ -64,7 +65,8 @@ import
     ccgutils,
     ccgflow,
     cgendata,
-    cgir
+    cgir,
+    mangling
   ],
   compiler/plugins/[
   ]
@@ -101,12 +103,22 @@ const
     ## the procedure contains top-level code, which currently affects how
     ## emit, asm, and error handling works
 
+template types(m: BModule): TypeEnv =
+  m.g.env.types
+
 template getString(p: BProc, n: CgNode): string =
   p.env[n.strVal]
 
 proc findPendingModule(m: BModule, s: PSym): BModule =
   let ms = s.itemId.module  #getModule(s)
   result = m.g.modules[ms]
+
+proc fieldName(p: BProc, typ: PType, field: PSym): string =
+  ## Returns the C name for the given `field`.
+  # the type the field is part of must have been emitted into the module
+  # already
+  p.module.fields[lookupField(p.module.types, p.module.types[typ],
+                              field.position.int32)]
 
 proc initLoc(result: var TLoc, k: TLocKind, lode: CgNode, s: TStorageLoc) =
   result.k = k
@@ -338,6 +350,16 @@ proc registerLateProc(m: BModule, s: PSym): ProcedureId =
   # inline procedure handling needs to know about the dependency...
   m.extra.add(result)
 
+proc addLate(m: BModule, t: PType): TypeId =
+  ## Temporary workaround for not all type being registered with the type
+  ## environment. Ultimately, a code generator should not modify the type
+  ## environment.
+  if t.isNil:
+    result = VoidType
+  else:
+    result = m.types.add(t)
+    result = m.types.canonical(result)
+
 proc accessThreadLocalVar(p: BProc)
 proc emulatedThreadVars*(conf: ConfigRef): bool {.inline.}
 proc useProc(m: BModule, id: ProcedureId)
@@ -363,14 +385,14 @@ include ccgtypes
 
 # ------------------------------ Manager of temporaries ------------------
 
-proc addrLoc(conf: ConfigRef; a: TLoc): Rope =
+proc addrLoc(m: BModule; a: TLoc): Rope =
   result = a.r
-  if lfIndirect notin a.flags and mapType(conf, a.t) != ctArray:
+  if lfIndirect notin a.flags and mapType(m, a.t) != ctArray:
     result = "(&" & result & ")"
 
 proc byRefLoc(p: BProc; a: TLoc): Rope =
   result = a.r
-  if lfIndirect notin a.flags and mapType(p.config, a.t) != ctArray:
+  if lfIndirect notin a.flags and mapType(p.module, a.t) != ctArray:
     result = "(&" & result & ")"
 
 proc rdCharLoc(a: TLoc): Rope =
@@ -436,7 +458,7 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
         genAssignment(p, a, tmp)
 
 proc constructLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  case mapType(p.config, loc.t)
+  case mapType(p.module, loc.t)
   of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
      ctFloat, ctFloat32, ctFloat64,
      ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64:
@@ -449,7 +471,7 @@ proc constructLoc(p: BProc, loc: var TLoc; doInitObj = true) =
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
   of ctArray, ctStruct, ctNimOpenArray:
     linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-            [addrLoc(p.config, loc), getTypeDesc(p.module, loc.t)])
+            [addrLoc(p.module, loc), getTypeDesc(p.module, loc.t)])
 
     if doInitObj:
       genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
@@ -683,6 +705,7 @@ proc closureSetup(p: BProc, prc: PSym) =
   # prc.ast[paramsPos].last contains the type we're after:
   var ls = lastSon(prc.ast[paramsPos])
   p.config.internalAssert(ls.kind == nkSym, prc.info, "closure generation failed")
+  p.config.internalAssert(ls.typ == ls.sym.typ) # sanity check
   var env = ls.sym.position + 1 # parameters start at ID 1
 
   let n = newLocalRef(LocalId(env), ls.info, ls.typ)
@@ -711,11 +734,11 @@ proc startProc*(m: BModule, id: ProcedureId; procBody: sink Body): BProc =
     let
       res = resultId
       resNode = newLocalRef(res, prc.info, prc.typ[0])
-    if not isInvalidReturnType(m.config, prc.typ[0]):
+    if not isInvalidReturnType(m, prc.typ[0]):
       # declare the result symbol:
       assignLocalVar(p, resNode)
     else:
-      p.locals[res] = initResultParamLoc(p.config, resNode)
+      p.locals[res] = initResultParamLoc(p.module, resNode)
       scopeMangledParam(p, p.body[res].name)
       if skipTypes(resNode.typ, abstractInst).kind == tyArray:
         #incl(res.locFlags, lfIndirect)
@@ -763,7 +786,7 @@ proc finishProc*(p: BProc, id: ProcedureId): string =
     header = genProcHeader(p.module, prc, p.params)
     returnStmt = ""
 
-  if sfPure notin prc.flags and not isInvalidReturnType(p.config, prc.typ[0]):
+  if sfPure notin prc.flags and not isInvalidReturnType(p.module, prc.typ[0]):
     returnStmt = ropecg(p.module, "\treturn $1;$n",
                         [rdLoc(p.locals[resultId])])
 
@@ -1104,12 +1127,11 @@ proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModul
   result.declaredProtos = initIntSet()
   result.cfilename = filename
   result.filename = filename
-  result.typeCache = initTable[SigHash, Rope]()
-  result.forwTypeCache = initTable[SigHash, Rope]()
+  result.typeCache = initTable[TypeId, Rope]()
+  result.forwTypeCache = initTable[TypeId, Rope]()
   result.module = module
   result.typeInfoMarker = initTable[SigHash, Rope]()
   result.sigConflicts = initCountTable[SigHash]()
-  result.typeStack = @[]
   result.typeNodesName = getTempName(result)
   # no line tracing for the init sections of the system module so that we
   # don't generate a TFrame which can confuse the stack bottom initialization:
@@ -1150,7 +1172,7 @@ proc writeHeader(m: BModule) =
     localReport(m.config, reportStr(rsemCannotOpenFile, m.filename.string))
 
 proc finalizeModule*(m: BModule) =
-  finishTypeDescriptions(m)
+  discard
 
 proc finalizeMainModule*(m: BModule) =
   generateThreadVarsSize(m) # TODO: not the job of the code generator

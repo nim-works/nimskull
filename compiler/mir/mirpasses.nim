@@ -38,6 +38,9 @@ import
     idioms
   ]
 
+from std/math import nextPowerOfTwo
+from compiler/backend/ccgutils import hashString
+
 # for type-based alias analysis
 from compiler/sem/aliases import isPartOf, TAnalysisResult
 
@@ -57,6 +60,10 @@ type
 const
   LocSkip = abstractRange + tyUserTypeClasses
     ## types to skip to arrive at the underlying concrete value type
+
+template addCompilerProc(env: var MirEnv, graph: ModuleGraph,
+                         name: string): ProcedureId =
+  env.procedures.add(graph.getCompilerProc(name))
 
 template subTree(bu: var MirBuilder, k: MirNodeKind, t: TypeId,
                  body: untyped) =
@@ -652,6 +659,169 @@ proc lowerMove(tree: MirTree, changes: var Changeset) =
     else:
       discard "not relevant"
 
+proc lowerCase(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
+               changes: var Changeset) =
+  ## Lowers case statements with string or float selectors. For large string-
+  ## case statements, a hash-table optimization is used.
+  const stringCaseThreshold = 8
+    ## above X strings a hash-switch for strings is generated
+
+  iterator targets(tree: MirTree, n: NodePosition): (LabelId, NodePosition) =
+    ## Returns all comparison candidate together with their associated jump
+    ## target.
+    for it in tree.subNodes(n, 1):
+      let target = tree[tree.last(it)].label
+      var x = tree.child(it, 0)
+      for _ in 0..<(tree[it].len - 1): # -1 for the label node
+        yield (target, x)
+        x = tree.sibling(x)
+
+  proc genericCase(bu: var MirBuilder, tree: MirTree, n: NodePosition,
+                   eq: TMagic, sel: Value) {.nimcall.} =
+    for (target, it) in tree.targets(n):
+      if tree[it].kind == mnkRange:
+        # only float case-statements can use ranges, so we know that the
+        # operands are floats here
+        var cond = bu.wrapTemp BoolType:
+          bu.buildMagicCall mLeF64, BoolType:
+            bu.emitByVal bu.inline(tree, tree.child(it, 0))
+            bu.emitByVal sel
+
+        bu.buildIf (;bu.use cond):
+          cond = bu.wrapTemp BoolType:
+            bu.buildMagicCall mLeF64, BoolType:
+              bu.emitByVal sel
+              bu.emitByVal bu.inline(tree, tree.child(it, 1))
+
+          # jump to the branch body if the run-time value is within the given
+          # range
+          bu.buildIf (;bu.use cond):
+            bu.goto target
+      else:
+        # single comparison
+        let cond = bu.wrapTemp BoolType:
+          bu.buildMagicCall eq, BoolType:
+            bu.emitByVal sel
+            bu.emitByVal bu.inline(tree, it)
+
+        bu.buildIf (;bu.use cond):
+          bu.goto target
+
+    bu.goto tree[tree.last(tree.last(n))].label # jump to else branch
+
+  for n in search(tree, {mnkCase}):
+    case env.types[tree[n, 0].typ].skipTypes(abstractInst).kind
+    of tyFloat, tyFloat64, tyFloat32:
+      # simple: use the generic lowering
+      changes.replaceMulti(tree, n, bu):
+        let sel = bu.inline(tree, tree.child(n, 0))
+        genericCase(bu, tree, n, mEqF64, sel)
+    of tyString:
+      # count the number of strings:
+      var numStrings = 0
+      for it in tree.subNodes(n, start=1):
+        numStrings += (tree.len(it) - 1) # -1 for the target label
+
+      if numStrings < stringCaseThreshold:
+        # compare against every string
+        changes.replaceMulti(tree, n, bu):
+          let sel = bu.inline(tree, tree.child(n, 0))
+          genericCase(bu, tree, n, mEqStr, sel)
+      else:
+        # reduce the number of string comparisons through usage of a hash
+        # table
+        changes.replaceMulti(tree, n, bu):
+          let bitMask = nextPowerOfTwo(numStrings) - 1
+          var branches: seq[tuple[label: LabelId,
+                                  strings: seq[(NodePosition, LabelId)]]]
+          branches.newSeq(bitMask + 1)
+
+          # sort the string operands into buckets (`branches`) based on their
+          # hash:
+          for (target, it) in tree.targets(n):
+            let bI = hashString(graph.config, env[tree[it].strVal]) and bitMask
+            if branches[bI].strings.len == 0:
+              # the label is allocated on demand
+              branches[bI].label = bu.allocLabel()
+
+            branches[bI].strings.add (it, target)
+
+          let
+            elseLabel = tree[tree.last(tree.last(n))].label
+            typ  = env.types.sizeType
+            sel  = bu.inline(tree, tree.child(n, 0))
+          var hash: Value
+
+          # emit the hash computation:
+          hash = bu.wrapTemp typ:
+            bu.buildCall env.addCompilerProc(graph, "hashString"), typ:
+              bu.emitByVal sel
+          hash = bu.wrapTemp typ:
+            bu.buildMagicCall mBitandI, typ:
+              bu.emitByVal hash
+              bu.emitByVal:
+                literal(mnkIntLit, env.getOrIncl(BiggestInt bitMask), typ)
+
+          # emit the dispatcher over the hash value:
+          bu.subTree mnkCase:
+            bu.use hash
+            for i, b in branches.pairs:
+              bu.subTree mnkBranch:
+                bu.use literal(mnkIntLit, env.getOrIncl(BiggestInt i), typ)
+                if b.strings.len == 0:
+                  bu.add MirNode(kind: mnkLabel, label: elseLabel)
+                else:
+                  bu.add MirNode(kind: mnkLabel, label: b.label)
+
+          # emit the string comparisons:
+          for b in branches.items:
+            if b.strings.len > 0:
+              bu.join b.label
+              for (str, target) in b.strings.items:
+                let cond = bu.wrapTemp BoolType:
+                  bu.buildMagicCall mEqStr, BoolType:
+                    bu.emitByVal sel
+                    bu.emitByVal bu.inline(tree, str)
+
+                bu.buildIf (;bu.use cond):
+                  bu.goto target
+
+              bu.goto elseLabel # jump to the 'else' branch
+    else:
+      discard "keep as is"
+
+proc splitAssignments(tree: MirTree, changes: var Changeset) =
+  ## Turns assignments such as:
+  ##   x = call(...) -> [L1]
+  ## into:
+  ##   def _1 = call(...) -> [L1]
+  ##   x = move _1
+  ##
+  ## The idea is to allow for code generators using error-flag-based exception
+  ## handling to rely on assigning the call result directly to the destination
+  ## being safe (as in, not affecting observable behaviour).
+  for n in search(tree, {mnkCheckedCall}):
+    let p = tree.parent(n)
+    if tree[p].kind in {mnkAsgn, mnkInit, mnkSwitch}:
+      let target = tree.last(n)
+      const Locals = {mnkTemp, mnkLocal}
+      # * is the destination not a local?
+      # * if the destination is a local, does the exceptional path enter a
+      #   local exception handler?
+      if tree[tree.getRoot(tree.operand(p, 0))].kind notin Locals or
+         tree[target].kind != mnkTargetList or
+         tree[tree.last(target)].kind != mnkResume:
+        # future direction: this can be optimized. The assignment only needs to
+        # be split if the assignment destination's value is observed on the
+        # exceptional control-flow path
+        var tmp: Value
+        changes.insert(tree, tree.getStmt(n), n, bu):
+          tmp = bu.wrapTemp tree[n].typ:
+            bu.emitFrom(tree, n)
+        changes.replaceMulti(tree, n, bu):
+          bu.subTree mnkMove:
+            bu.use tmp
+
 proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
                   graph: ModuleGraph, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
@@ -664,6 +834,8 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       apply(body, c)
 
   if target == targetC:
+    batch:
+      splitAssignments(body.code, c)
     batch:
       # only the C code generator employs the return-value optimization (=RVO)
       # at the moment
@@ -687,6 +859,7 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       lowerNew(body.code, graph, env, c)
       lowerChecks(body, graph, env, c)
       injectStrPreparation(body.code, graph, env, c)
+      lowerCase(body.code, graph, env, c)
 
   # instrument the body with profiler calls after all lowerings, but before
   # optimization

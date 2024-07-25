@@ -1696,6 +1696,13 @@ proc semStmtListType(c: PContext, n: PNode, prev: PType): PType =
   else:
     result = nil
 
+proc semGenericExpr(c: PContext, n: PNode): PNode =
+  ## Runs the generic pre-pass on `n` and returns the result. Similar to
+  ## ``semGenericStmt``, but makes sure that all generic parameter symbols
+  ## were bound.
+  result = semGenericStmt(c, n)
+  discard fixupTypeVars(c, result)
+
 proc semGenericParamInInvocation(c: PContext, n: PNode): PType =
   result = semTypeNode(c, n, nil)
   n.typ = makeTypeDesc(c, result)

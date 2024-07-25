@@ -12,8 +12,6 @@
 const
   RangeExpandLimit = 256      # do not generate ranges
                               # over 'RangeExpandLimit' elements
-  stringCaseThreshold = 8
-    # above X strings a hash-switch for strings is generated
 
 proc startBlockInternal(p: BProc) =
   let result = p.blocks.len
@@ -64,24 +62,11 @@ proc endBlock(p: BProc) =
   blockEnd.addf("}$n", [])
   endBlock(p, blockEnd)
 
-proc genGotoVar(p: BProc; value: CgNode) =
-  case value.kind
-  of cnkIntLit, cnkUIntLit:
-    lineF(p, cpsStmts, "goto NIMSTATE_$#;$n", [value.intVal.rope])
-  else:
-    localReport(p.config, value.info, reportSem rsemExpectedLiteralForGoto)
-
 proc genBracedInit(p: BProc, n: CgNode; optionalType: PType): Rope
 
 proc genSingleVar(p: BProc, vn, value: CgNode) =
   ## Generates and emits the C code for the definition statement of a local.
   let v = vn.local
-
-  if sfGoto in p.body[v].flags:
-    # translate 'var state {.goto.} = X' into 'goto LX':
-    genGotoVar(p, value)
-    return
-
   assignLocalVar(p, vn)
   # default-initialize the local if no initial value is supplied. Automatic
   # initialization is also ommitted when the `value` expression is a
@@ -109,20 +94,6 @@ proc genIf(p: BProc, n: CgNode) =
   initLocExprSingleUse(p, n[0], a)
   lineF(p, cpsStmts, "if ($1)$n", [rdLoc(a)])
   startBlock(p)
-
-proc genGotoForCase(p: BProc; caseStmt: CgNode) =
-  for i in 1..<caseStmt.len:
-    startBlock(p)
-    let it = caseStmt[i]
-    for j in 0..<it.len-1:
-      if it[j].kind == cnkRange:
-        localReport(p.config, it.info, reportSem rsemDisallowedRangeForComputedGoto)
-        return
-      let val = getOrdValue(it[j])
-      lineF(p, cpsStmts, "NIMSTATE_$#:$n", [val.rope])
-
-    lineCg(p, cpsStmts, "goto $1;$n", [it[^1].label])
-    endBlock(p)
 
 proc exit(n: CgNode): CgNode =
   # XXX: exists as a convenience for overflow check, index check, etc.
@@ -213,52 +184,6 @@ template genIfForCaseUntil(p: BProc, t: CgNode,
     else:
       linefmt(p, cpsStmts, "goto $1;$n", [t[i][^1].label])
 
-template genCaseGeneric(p: BProc, t: CgNode,
-                    rangeFormat, eqFormat: FormatStr) =
-  var a: TLoc
-  initLocExpr(p, t[0], a)
-  genIfForCaseUntil(p, t, rangeFormat, eqFormat, t.len-1, a)
-
-proc genCaseStringBranch(p: BProc, b: CgNode, e: TLoc, labl: BlockId,
-                         branches: var openArray[Rope]) =
-  var x: TLoc
-  for i in 0..<b.len - 1:
-    assert(b[i].kind != cnkRange)
-    initLocExpr(p, b[i], x)
-    assert(b[i].kind == cnkStrLit)
-    var j = int(hashString(p.config, getString(p, b[i])) and high(branches))
-    appcg(p.module, branches[j], "if (#eqStrings($1, $2)) goto $3;$n",
-         [rdLoc(e), rdLoc(x), labl])
-
-proc genStringCase(p: BProc, t: CgNode) =
-  # count how many constant strings there are in the case:
-  var strings = 0
-  for i in 1..<t.len:
-    if isOfBranch(t[i]): inc(strings, t[i].len - 1)
-  if strings > stringCaseThreshold:
-    var bitMask = math.nextPowerOfTwo(strings) - 1
-    var branches: seq[Rope]
-    newSeq(branches, bitMask + 1)
-    var a: TLoc
-    initLocExpr(p, t[0], a) # fist pass: generate ifs+goto:
-    for i in 1..<t.len:
-      if isOfBranch(t[i]):
-        genCaseStringBranch(p, t[i], a, t[i][^1].label, branches)
-      else:
-        # else statement: nothing to do yet
-        discard
-    linefmt(p, cpsStmts, "switch (#hashString($1) & $2) {$n",
-            [rdLoc(a), bitMask])
-    for j in 0..high(branches):
-      if branches[j] != "":
-        lineF(p, cpsStmts, "case $1: $n$2break;$n",
-             [intLiteral(j), branches[j]])
-    lineF(p, cpsStmts, "}$n", []) # else statement:
-    if not isOfBranch(t[^1]):
-      lineCg(p, cpsStmts, "goto $1;$n", [t[^1][0].label])
-
-  else:
-    genCaseGeneric(p, t, "", "if (#eqStrings($1, $2)) goto $3;$n")
 
 proc branchHasTooBigRange(b: CgNode): bool =
   for it in b:
@@ -332,17 +257,7 @@ proc genOrdinalCase(p: BProc, n: CgNode) =
 
 proc genCase(p: BProc, t: CgNode) =
   genLineDir(p, t)
-  case skipTypes(t[0].typ, abstractVarRange).kind
-  of tyString:
-    genStringCase(p, t)
-  of tyFloat..tyFloat64:
-    genCaseGeneric(p, t, "if ($1 >= $2 && $1 <= $3) goto $4;$n",
-                         "if ($1 == $2) goto $3;$n")
-  else:
-    if t[0].kind == cnkLocal and sfGoto in p.body[t[0].local].flags:
-      genGotoForCase(p, t)
-    else:
-      genOrdinalCase(p, t)
+  genOrdinalCase(p, t)
 
 proc bodyCanRaise(p: BProc; n: CgNode): bool =
   case n.kind
@@ -390,7 +305,7 @@ proc genExcept(p: BProc, n: CgNode) =
   # setup the handler frame:
   var tmp: TLoc
   getTemp(p, p.module.g.graph.getCompilerProc("ExceptionFrame").typ, tmp)
-  lineCg(p, cpsStmts, "#nimCatchException($1);$n", [addrLoc(p.config, tmp)])
+  lineCg(p, cpsStmts, "#nimCatchException($1);$n", [addrLoc(p.module, tmp)])
 
 proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
   var res = ""
@@ -402,9 +317,10 @@ proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
         let sym = it.astLit.sym
         # special support for raw field symbols
         discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
-        p.config.internalAssert(sym.locId != 0, it.info):
-          "field's surrounding type not setup"
-        res.add(p.fieldName(sym))
+        # make sure the owner was generated, so that the field's mangled name
+        # is available
+        discard getTypeDesc(p.module, sym.owner.typ)
+        res.add(p.fieldName(sym.owner.typ, sym))
     of cnkLocal:
       # make sure the C type description is available:
       discard getTypeDesc(p.module, skipTypes(it.typ, abstractPtrs))
@@ -484,10 +400,7 @@ when false:
     expr(p, call, d)
 
 proc genAsgn(p: BProc, e: CgNode) =
-  if e[0].kind == cnkLocal and sfGoto in p.body[e[0].local].flags:
-    genLineDir(p, e)
-    genGotoVar(p, e[1])
-  else:
+  if true:
     let le = e[0]
     let ri = e[1]
     var a: TLoc
