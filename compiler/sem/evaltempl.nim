@@ -88,6 +88,7 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
         if sfGenSym in s.flags:
           result.add newIdentNode(getIdent(c.ic, x.name.s & "`gensym" & $c.instID),
             if c.instLines: actual.info else: templ.info)
+          result.flags.incl nfWasGensym
         else:
           result.add newSymNode(x, if c.instLines: actual.info else: templ.info)
     else:

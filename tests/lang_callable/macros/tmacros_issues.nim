@@ -539,3 +539,19 @@ block orginal_parameter_types:
     doAssert y.intVal == 2
 
   m(1, 2)
+
+block field_names_with_backticks:
+  # field names containing backticks (only possible with macro-generated
+  # code) couldn't be accessed with dot expressions
+  macro test() =
+    let name = ident"a`b"
+
+    result = quote do:
+      type Object = object
+        `name`: int
+
+      # test accessing the field with both constructors and a dot expression
+      let o = Object(`name`: 1)
+      doAssert o.`name` == 1
+
+  test()

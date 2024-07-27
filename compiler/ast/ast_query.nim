@@ -63,7 +63,8 @@ const
   PtrLikeKinds*: TTypeKinds = {tyPointer, tyPtr} # for VM
   
   PersistentNodeFlags*: TNodeFlags = {nfDotSetter, nfDotField, nfLL,
-                                      nfFromTemplate, nfDefaultRefsParam}
+                                      nfFromTemplate, nfDefaultRefsParam,
+                                      nfWasGensym}
   
   namePos*          = 0 ## Name of the type/proc-like node
   patternPos*       = 1 ## empty except for term rewriting macros

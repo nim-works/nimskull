@@ -612,6 +612,8 @@ type
     nfDefaultRefsParam ## a default param value references another parameter
                        ## the flag is applied to proc default values and to calls
     nfHasComment ## node has a comment
+    nfWasGensym  ## the identifier node was a gensym prior to template
+                 ## evaluation
 
   TNodeFlags* = set[TNodeFlag]
   TTypeFlag* = enum   ## keep below 32 for efficiency reasons (now: 43)
