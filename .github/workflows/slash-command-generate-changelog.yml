@@ -44,7 +44,7 @@ jobs:
 
       - id: changelog
         name: Create changelog
-        uses: mikepenz/release-changelog-builder-action@v5.0.0-a04
+        uses: mikepenz/release-changelog-builder-action@v5
         with:
           configuration: ".github/changelog.json"
           fromTag: ${{ github.event.client_payload.slash_command.args.named.from || '' }}
