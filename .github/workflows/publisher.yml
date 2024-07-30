@@ -113,7 +113,7 @@ jobs:
 
       - id: changelog
         name: Create release changelog
-        uses: mikepenz/release-changelog-builder-action@v5.0.0-a04
+        uses: mikepenz/release-changelog-builder-action@v5
         with:
           configuration: ".github/changelog.json"
           toTag: ${{ steps.release-files.outputs.version }}
