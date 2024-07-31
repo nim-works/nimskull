@@ -141,12 +141,13 @@ proc generateJsasync(arg: NimNode): NimNode =
   if len(code) > 0:
     # turn |NimSkull| outgoing exceptions into JavaScript errors
     let body = result.body
+    let reraise = bindSym("reraise")
     result.body = quote:
       try:
         `body`
       except CatchableError as e:
         # use .noreturn call to make sure `body` being an expression works
-        reraise(e)
+        `reraise`(e)
 
   let asyncPragma = quote:
     {.codegenDecl: "async function $2($3)".}
