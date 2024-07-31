@@ -1448,6 +1448,8 @@ proc track(tracked: PEffects, n: PNode) =
     reportErrors(tracked.config, n)
   of nkError:
     localReport(tracked.config, n)
+  of nkNimNodeLit:
+    discard "don't analyse literal AST"
   else:
     for i in 0 ..< n.safeLen:
       track(tracked, n[i])
