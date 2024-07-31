@@ -980,13 +980,9 @@ proc lowerType(env: var TypeEnv, graph: ModuleGraph, id: HeaderId): HeaderId =
       env.add makeDesc(tkArray, h.size, h.align, UInt8Type, h.size.uint32)
   of tkClosure:
     # -> (ClP_0: proc, ClE_0: pointer)
-    # the proc pointer uses the nimcall calling convention
-    let prc = env.buildProc(tkProc, ccNimCall, h.retType(env), bu):
+    let prc = env.buildProc(tkProc, ccClosure, h.retType(env), bu):
       for _, typ, flags in params(env, h):
         bu.addParam(flags, typ)
-
-      # add the environment parameter:
-      bu.addParam({}, PointerType)
 
     env.buildRecord(h.size, h.align, bu):
       bu.addField(env, IntVal 0, prc, "ClP_0", mangle=false)
