@@ -591,6 +591,27 @@ proc quote*(bl: typed, op = "``"): NimNode {.magic: "QuoteAst", noSideEffect.} =
         doAssert y == 3
     bar2()
 
+proc quoteImpl(n: NimNode, args: varargs[NimNode]): NimNode {.compilerproc,
+    compileTime.} =
+  ## Substitutes the placeholders in `n` with the corresponding AST from
+  ## `args`. Invoked by the compiler for implementating ``quote``.
+  proc aux(n: NimNode, args: openArray[NimNode]): NimNode =
+    case n.kind
+    of nnkAccQuoted:
+      if n[0].kind == nnkAccQuoted:
+        result = n[0] # an escaped accquoted tree
+      else:
+        result = args[n[0].intVal] # a placeholder
+    else:
+      result = n
+      for i in 0..<n.len:
+        result[i] = aux(n[i], args)
+
+  result = aux(n, args)
+  # unwrap single-element statement lists:
+  if n.kind == nnkStmtList and n.len == 1:
+    result = n[0]
+
 proc expectKind*(n: NimNode, k: NimNodeKind) =
   ## Checks that `n` is of kind `k`. If this is not the case,
   ## compilation aborts with an error message. This is useful for writing
@@ -636,6 +657,10 @@ proc newCall*(theProc: string,
   result = newNimNode(nnkCall)
   result.add(newIdentNode(theProc))
   result.add(args)
+
+proc newLit*(n: NimNode): NimNode =
+  ## Produces a copy of `n`.
+  result = copyNimTree(n)
 
 proc newLit*(c: char): NimNode =
   ## Produces a new character literal node.
