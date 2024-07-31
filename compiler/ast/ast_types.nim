@@ -817,6 +817,8 @@ type
     mException, mBuiltinType, mSymOwner, mUncheckedArray, mGetImplTransf,
     mSymIsInstantiationOf, mNodeId, mPrivateAccess
 
+    mEvalToAst
+
     # magics only used internally:
     mStrToCStr
       ## the backend-dependent string-to-cstring conversion

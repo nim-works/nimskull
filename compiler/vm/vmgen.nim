@@ -207,7 +207,7 @@ const
                      cnkObjDownConv, cnkDeref, cnkDerefView, cnkLvalueConv}
 
   MagicsToKeep* = {mIsolate, mNHint, mNWarning, mNError, mMinI, mMaxI,
-                   mAbsI, mDotDot, mNGetType, mNSizeOf, mNLineInfo}
+                   mAbsI, mDotDot, mNGetType, mNSizeOf, mNLineInfo, mEvalToAst}
     ## the set of magics that are kept as normal procedure calls and thus need
     ## an entry in the function table.
     # XXX: mNGetType, mNGetSize, and mNLineInfo *are* real magics, but their
@@ -2171,6 +2171,13 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
 
     c.gABC(n, opcExpandToAst, dest, x, numArgs)
     c.freeTempRange(x, numArgs)
+  of mEvalToAst:
+    if n[1].typ.isNimNode():
+      # don't use ``DataToAst` if the argument is already a NimNode, only copy
+      # the tree
+      c.genUnaryABC(n, dest, opcNCopyNimTree)
+    else:
+      c.genDataToAst(n[1], dest)
   of mSizeOf, mAlignOf, mOffsetOf:
     fail(n.info, vmGenDiagMissingImportcCompleteStruct, m)
 

@@ -2679,11 +2679,14 @@ proc semQuoteAst(c: PContext, n: PNode): PNode =
   call[1] = newTreeI(nkNimNodeLit, n.info, quoted)
   call[1].typ = sysTypeFromName(c.graph, n.info, "NimNode")
 
-  # the unquoted expressions are wrapped in newLit calls in order to evaluate
-  # them
-  let name = newIdentNode(c.cache.getIdent("newLit"), unknownLineInfo)
+  template ident(name: string): PNode =
+    newIdentNode(c.cache.getIdent(name), unknownLineInfo)
+
+  # the unquoted expressions are wrapped in evalToAst calls. Use a qualified
+  # identifier in order to prevent user-defined evalToAst calls to be picked
+  let callee = newTree(nkDotExpr, ident("macros"), ident("evalToAst"))
   for i in 2..<call.len:
-    call[i] = newTreeI(nkCall, call[i].info, [name, call[i]])
+    call[i] = newTreeI(nkCall, call[i].info, [callee, call[i]])
 
   # type the call. The actual work of substituting the placeholders is
   # done in-VM, by the ``quoteImpl`` procedure

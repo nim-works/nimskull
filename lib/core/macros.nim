@@ -612,6 +612,9 @@ proc quoteImpl(n: NimNode, args: varargs[NimNode]): NimNode {.compilerproc,
   if n.kind == nnkStmtList and n.len == 1:
     result = n[0]
 
+proc evalToAst*[T](x: T): NimNode {.magic: "EvalToAst".} =
+  ## Leaked implementation detail. **Do not use**.
+
 proc expectKind*(n: NimNode, k: NimNodeKind) =
   ## Checks that `n` is of kind `k`. If this is not the case,
   ## compilation aborts with an error message. This is useful for writing
@@ -657,10 +660,6 @@ proc newCall*(theProc: string,
   result = newNimNode(nnkCall)
   result.add(newIdentNode(theProc))
   result.add(args)
-
-proc newLit*(n: NimNode): NimNode =
-  ## Produces a copy of `n`.
-  result = copyNimTree(n)
 
 proc newLit*(c: char): NimNode =
   ## Produces a new character literal node.
