@@ -2552,9 +2552,6 @@ proc expectString(c: PContext, n: PNode): string =
   else:
     localReport(c.config, n, reportSem rsemStringLiteralExpected)
 
-proc newAnonSym(c: PContext; kind: TSymKind, info: TLineInfo): PSym =
-  result = newSym(kind, c.cache.idAnon, nextSymId c.idgen, getCurrOwner(c), info)
-
 proc semExpandToAst(c: PContext, n: PNode): PNode =
   let macroCall = n[1]
 
@@ -2606,14 +2603,11 @@ proc semExpandToAst(c: PContext, n: PNode, magicSym: PSym,
   else:
     result = semDirectOp(c, n, flags)
 
-proc processQuotations(c: PContext; n: var PNode, op: string,
-                       quotes: var seq[PNode],
-                       ids: var seq[PNode]) =
+proc processQuotations(c: PContext; n: PNode, op: string, call: PNode): PNode =
   template returnQuote(q) =
-    quotes.add q
-    n = newIdentNode(getIdent(c.cache, $quotes.len), n.info)
-    ids.add n
-    return
+    call.add q
+    # return a placeholder node. The integer represents the parameter index
+    return newTreeI(nkAccQuoted, n.info, newIntNode(nkIntLit, call.len - 3))
 
   template handlePrefixOp(prefixed) =
     if prefixed[0].kind == nkIdent:
@@ -2639,14 +2633,22 @@ proc processQuotations(c: PContext; n: var PNode, op: string,
         tempNode[0] = n[0]
         tempNode[1] = n[1]
         handlePrefixOp(tempNode)
-  of nkIdent:
-    if n.ident.s == "result":
-      n = ids[0]
   else:
     discard # xxx: raise an error
 
+  result = n
   for i in 0..<n.safeLen:
-    processQuotations(c, n[i], op, quotes, ids)
+    let x = processQuotations(c, n[i], op, call)
+    if x != n[i]:
+      # copy on write
+      if result == n:
+        result = copyNodeWithKids(n)
+      result[i] = x
+
+  if result.kind == nkAccQuoted:
+    # escape the accquote node by wrapping it in another accquote. This signals
+    # that the node is not a placeholder
+    result = newTree(nkAccQuoted, result)
 
 proc semQuoteAst(c: PContext, n: PNode): PNode =
   if n.len != 2 and n.len != 3:
@@ -2657,57 +2659,38 @@ proc semQuoteAst(c: PContext, n: PNode): PNode =
     #      got = result.len - 1
     return
 
-  # We transform the do block into a template with a param for
-  # each interpolation. We'll pass this template to getAst.
   var
     quotedBlock = n[^1]
     op = if n.len == 3: expectString(c, n[1]) else: "``"
-    quotes = newSeq[PNode](2)
-      # the quotes will be added to a nkCall statement
-      # leave some room for the callee symbol and the result symbol
-    ids = newSeq[PNode](1)
-      # this will store the generated param names
-      # leave some room for the result symbol
 
   if quotedBlock.kind != nkStmtList:
     semReportIllformedAst(c.config, n, {nkStmtList})
 
-  # This adds a default first field to pass the result symbol
-  ids[0] = newAnonSym(c, skParam, n.info).newSymNode
-  processQuotations(c, quotedBlock, op, quotes, ids)
+  # turn the quasi-quoted block into a call to the internal ``quoteImpl``
+  # procedure
+  # future direction: implement this transformation in user code. The compiler
+  # only needs to provide an AST quoting facility (without quasi-quoting)
 
-  var dummyTemplate = newProcNode(
-    nkTemplateDef, quotedBlock.info, body = quotedBlock,
-    params = c.graph.emptyNode,
-    name = newAnonSym(c, skTemplate, n.info).newSymNode,
-              pattern = c.graph.emptyNode, genericParams = c.graph.emptyNode,
-              pragmas = c.graph.emptyNode, exceptions = c.graph.emptyNode)
+  let call = newNodeI(nkCall, n.info, 2)
+  call[0] = newSymNode(c.graph.getCompilerProc("quoteImpl"))
+  # extract the unquoted parts and append them to `call`:
+  let quoted = processQuotations(c, quotedBlock, op, call)
+  # the pre-processed AST of the quoted block is passed as the first argument:
+  call[1] = newTreeI(nkNimNodeLit, n.info, quoted)
+  call[1].typ = sysTypeFromName(c.graph, n.info, "NimNode")
 
-  if ids.len > 0:
-    dummyTemplate[paramsPos] = newNodeI(nkFormalParams, n.info)
-    dummyTemplate[paramsPos].add:
-      getSysSym(c.graph, n.info, "untyped").newSymNode # return type
-    ids.add getSysSym(c.graph, n.info, "untyped").newSymNode # params type
-    ids.add c.graph.emptyNode # no default value
-    dummyTemplate[paramsPos].add newTreeI(nkIdentDefs, n.info, ids)
+  template ident(name: string): PNode =
+    newIdentNode(c.cache.getIdent(name), unknownLineInfo)
 
-  var tmpl = semTemplateDef(c, dummyTemplate)
-  quotes[0] = tmpl[namePos]
-  # This adds a call to newIdentNode("result") as the first argument to the
-  # template call
-  let identNodeSym = getCompilerProc(c.graph, "newIdentNode")
-  # so that new Nim compilers can compile old macros.nim versions, we check for
-  # 'nil' here and provide the old fallback solution:
-  let identNode = if identNodeSym == nil:
-                    newIdentNode(getIdent(c.cache, "newIdentNode"), n.info)
-                  else:
-                    identNodeSym.newSymNode
-  quotes[1] = newTreeI(nkCall, n.info, identNode, newStrNode(nkStrLit, "result"))
-  result =
-    c.semExpandToAst:
-      newTreeI(nkCall, n.info,
-        createMagic(c.graph, c.idgen, "getAst", mExpandToAst).newSymNode,
-        newTreeI(nkCall, n.info, quotes))
+  # the unquoted expressions are wrapped in evalToAst calls. Use a qualified
+  # identifier in order to prevent user-defined evalToAst calls to be picked
+  let callee = newTree(nkDotExpr, ident("macros"), ident("evalToAst"))
+  for i in 2..<call.len:
+    call[i] = newTreeI(nkCall, call[i].info, [callee, call[i]])
+
+  # type the call. The actual work of substituting the placeholders is
+  # done in-VM, by the ``quoteImpl`` procedure
+  result = semDirectOp(c, call, {})
 
 proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   # watch out, hacks ahead:

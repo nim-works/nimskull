@@ -522,7 +522,8 @@ proc quote*(bl: typed, op = "``"): NimNode {.magic: "QuoteAst", noSideEffect.} =
   ## A custom operator interpolation needs accent quoted (``) whenever it resolves
   ## to a symbol.
   ##
-  ## See also `genasts <genasts.html>`_ which avoids some issues with `quote`.
+  ## See also:
+  ## * `genasts <genasts.html>`_
   runnableExamples:
     macro check(ex: untyped) =
       # this is a simplified version of the check macro from the
@@ -590,6 +591,30 @@ proc quote*(bl: typed, op = "``"): NimNode {.magic: "QuoteAst", noSideEffect.} =
         doAssert y &% y == 2 # binary operator => no need to escape
         doAssert y == 3
     bar2()
+
+proc quoteImpl(n: NimNode, args: varargs[NimNode]): NimNode {.compilerproc,
+    compileTime.} =
+  ## Substitutes the placeholders in `n` with the corresponding AST from
+  ## `args`. Invoked by the compiler for implementating ``quote``.
+  proc aux(n: NimNode, args: openArray[NimNode]): NimNode =
+    case n.kind
+    of nnkAccQuoted:
+      if n[0].kind == nnkAccQuoted:
+        result = n[0] # an escaped accquoted tree
+      else:
+        result = args[n[0].intVal] # a placeholder
+    else:
+      result = n
+      for i in 0..<n.len:
+        result[i] = aux(n[i], args)
+
+  result = aux(n, args)
+  # unwrap single-element statement lists:
+  if n.kind == nnkStmtList and n.len == 1:
+    result = n[0]
+
+proc evalToAst*[T](x: T): NimNode {.magic: "EvalToAst".} =
+  ## Leaked implementation detail. **Do not use**.
 
 proc expectKind*(n: NimNode, k: NimNodeKind) =
   ## Checks that `n` is of kind `k`. If this is not the case,

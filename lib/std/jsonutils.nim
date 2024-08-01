@@ -186,11 +186,11 @@ proc discKeyMatch[T](obj: T, json: JsonNode, key: static string): bool =
 macro discKeysMatchBodyGen(obj: typed, json: JsonNode,
                            keys: static seq[string]): untyped =
   result = newStmtList()
-  let r = ident("result")
+  let match = bindSym("discKeyMatch")
   for key in keys:
     let keyLit = newLit key
     result.add quote do:
-      `r` = `r` and discKeyMatch(`obj`, `json`, `keyLit`)
+      result = result and `match`(`obj`, `json`, `keyLit`)
 
 proc discKeysMatch[T](obj: T, json: JsonNode, keys: static seq[string]): bool =
   result = true
