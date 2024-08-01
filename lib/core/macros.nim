@@ -522,7 +522,8 @@ proc quote*(bl: typed, op = "``"): NimNode {.magic: "QuoteAst", noSideEffect.} =
   ## A custom operator interpolation needs accent quoted (``) whenever it resolves
   ## to a symbol.
   ##
-  ## See also `genasts <genasts.html>`_ which avoids some issues with `quote`.
+  ## See also:
+  ## * `genasts <genasts.html>`_
   runnableExamples:
     macro check(ex: untyped) =
       # this is a simplified version of the check macro from the
