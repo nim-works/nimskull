@@ -183,6 +183,8 @@ const
   MangleFlag = 0x4000'u16
   NoAliasFlag = 0x8000'u16
 
+  VarargsFlag = 0x8000_0000'u32
+
 func `==`*(a, b: FieldId): bool {.borrow, inline.}
 func `==`(a, b: IntVal): bool {.borrow, inline.}
 
@@ -359,10 +361,11 @@ func numParams*(desc: TypeHeader): int =
   int(desc.b - desc.a) - 1
 
 func callConv*(desc: TypeHeader, env: TypeEnv): TCallingConvention =
-  TCallingConvention env.params[desc.a].x
+  # mask away the varargs flag
+  TCallingConvention(env.params[desc.a].x and not(VarargsFlag))
 
 func hasVarargs*(desc: TypeHeader, env: TypeEnv): bool =
-  (env.params[desc.a].x and 0x8000_0000'u32) != 0
+  (env.params[desc.a].x and VarargsFlag) != 0
 
 func retType*(desc: TypeHeader, env: TypeEnv): TypeId =
   assert desc.kind in {tkProc, tkClosure}
