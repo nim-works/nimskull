@@ -167,7 +167,7 @@ proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
       if t.sym.flags * {sfAnon, sfGenSym} != {} or
          (t.kind == tyObject and t.owner.kind == skType and
           tfRefsAnonObj in t.owner.typ.flags):
-        # one ore more of the following are true for the type:
+        # one or more of the following are true for the type:
         # * it's anonymous
         # * it's defined not in the top-level scope
         # * it's the object type from a ``ref object`` type construction
