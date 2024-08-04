@@ -164,28 +164,18 @@ proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
       else:
         c.hashSym(t.sym)
 
-      var symWithFlags: PSym
-      template hasFlag(sym): bool =
-        let ret = {sfAnon, sfGenSym} * sym.flags != {}
-        if ret: symWithFlags = sym
-        ret
-      if hasFlag(t.sym) or (t.kind == tyObject and t.owner.kind == skType and t.owner.typ.kind == tyRef and hasFlag(t.owner)):
-        # for `PFoo:ObjectType`, arising from `type PFoo = ref object`
-        # Generated object names can be identical, so we need to
-        # disambiguate furthermore by hashing the field types and names.
-        if t.n.len > 0:
-          let oldFlags = symWithFlags.flags
-          # Hack to prevent endless recursion
-          # xxx instead, use a hash table to indicate we've already visited a type, which
-          # would also be more efficient.
-          symWithFlags.flags.excl {sfAnon, sfGenSym}
-          hashTree(c, t.n, flags + {CoHashTypeInsideNode})
-          symWithFlags.flags = oldFlags
-        else:
-          # The object has no fields: we _must_ add something here in order to
-          # make the hash different from the one we produce by hashing only the
-          # type name.
-          c &= ".empty"
+      if t.sym.flags * {sfAnon, sfGenSym} != {} or
+         (t.kind == tyObject and t.owner.kind == skType and
+          tfRefsAnonObj in t.owner.typ.flags):
+        # one or more of the following are true for the type:
+        # * it's anonymous
+        # * it's defined not in the top-level scope
+        # * it's the object type from a ``ref object`` type construction
+        # The only property that uniquely identifies the type in this case is
+        # the symbol ID, so we use that. **This means that the hash produced
+        # for such types is dependent on the type's surroundings**
+        c &= "."
+        c &= $t.sym.id
     else:
       c &= t.id
     if t.len > 0 and t[0] != nil:
