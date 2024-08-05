@@ -5,6 +5,7 @@ discard """
     one of them is instantiated with a named tuple and the other with an
     unnamed one
   '''
+  knownIssue.vm: "``vmtypegen`` considers the two types distinct"
 """
 
 type Recursive[T] = object
