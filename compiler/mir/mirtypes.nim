@@ -44,6 +44,10 @@ import
     idioms
   ]
 
+# XXX: sighashes are currently needed for merging generic instantiations, but
+#      this should ultimately happen earlier - in sem - already
+from compiler/sem/sighashes import hashType, ConsiderFlag
+
 type
   TypeKind* = enum
     tkVoid
@@ -133,9 +137,9 @@ type
     canon: Table[HeaderId, TypeId]
       ## maps headers of canonical type descriptions to their type symbol
 
-    instances: Table[(int, HeaderId), TypeId]
-      ## associates a generic type ID + instance body with a type symbol. This
-      ## is used for eliminating same-shaped instantiations of a generic
+    instances: Table[SigHash, TypeId]
+      ## associates the sighash of a generic type instance with a type symbol.
+      ## This is used for eliminating same-shaped instantiations of a generic
       ## object type
 
     idents: BiTable[string]
@@ -1045,9 +1049,11 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
 
     # generic types support covariance for tuples. Pick an instance as the
     # "canonical" one, so that - for example - ``Generic[(int,)]`` and
-    # ``Generic[tuple[x: int]]`` map to the same MIR type in the end
+    # ``Generic[tuple[x: int]]`` map to the same MIR type in the end. In order
+    # to support cyclic types, ``sighashes`` has to be used
     if tfFromGeneric in t.flags and
-       (let c = env.instances.mgetOrPut((t.sym.owner.typ.id, canon), result);
+       (let c = env.instances.mgetOrPut(hashType(t, {CoType, CoDistinct}),
+                                        result);
         c != result):
       env.symbols[result].canon = c
   else:
