@@ -113,6 +113,8 @@ import
     idioms
   ]
 
+import compiler/utils/measure
+
 type
   AnalyseCtx = object
     cfg: DataFlowGraph
@@ -672,6 +674,7 @@ proc injectDestructorCalls*(tree: MirTree, g: ModuleGraph, env: var MirEnv,
                             changes: var Changeset) =
   ## Collapses sink assignments into either copy or move assignments, and
   ## injects the destroy operations for all entities requiring destruction.
+  measure("destructors/sink")
   block:
     var
       actx = AnalyseCtx(graph: g, cfg: computeDfg(tree))

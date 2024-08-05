@@ -44,6 +44,8 @@ from compiler/sem/injectdestructors import buildVoidCall
 
 from compiler/sem/liftdestructors import cyclicType
 
+import compiler/utils/measure
+
 type
   LocalDiagKind = enum
     ldkPassCopyToSink       ## a copy is introduced in a consume context
@@ -292,6 +294,7 @@ proc injectHooks*(body: var MirBody, graph: ModuleGraph, env: var MirEnv,
                   owner: PSym) =
   ## Adapter for the legacy pass-application pipeline. Once possible, the pass
   ## needs to be treated as just another MIR pass.
+  measure("inject hooks")
   var c = initChangeset(body)
   injectHooks(body, graph, env, owner, c)
   body.apply(c)

@@ -51,6 +51,8 @@ import
     idioms
   ]
 
+import compiler/utils/measure
+
 export TranslationConfig
 
 type
@@ -319,6 +321,7 @@ proc preprocess*(queue: var WorkQueue, graph: ModuleGraph, idgen: IdGenerator,
   ## needed for fully processing the procedure. `module` is the module the
   ## step was queued from: it's used as the module the next processing is
   ## queued from.
+  measure("transf")
   let prc = env[id]
   if exfDynamicLib in prc.extFlags:
     # a procedure imported at runtime, it has no body
@@ -374,6 +377,7 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
     of backendNimVm:   targetVm
     of backendInvalid: unreachable()
 
+  measure("MIR passes")
   applyPasses(body, prc, env, graph, target)
 
 proc translate*(id: ProcedureId, body: PNode, graph: ModuleGraph,
@@ -385,6 +389,7 @@ proc translate*(id: ProcedureId, body: PNode, graph: ModuleGraph,
   let prc = env[id]
   if optCursorInference in graph.config.options and
       shouldInjectDestructorCalls(prc):
+    measure("cursor inference")
     # TODO: turn cursor inference into a MIR pass and remove this part
     computeCursors(prc, body, graph)
 

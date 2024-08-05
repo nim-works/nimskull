@@ -44,7 +44,6 @@ import
   ],
   compiler/backend/[
     extccomp,    # Calling C compiler
-    cgen,        # C code generation
   ],
   compiler/utils/[
     platform,    # Target platform data
@@ -215,14 +214,12 @@ proc commandCompileToC(graph: ModuleGraph) =
   prepareForCodegen(graph)
   if conf.symbolFiles == disabledSf:
     cbackend2.generateCode(graph, graph.takeModuleList())
-    cgenWriteModules(graph.backend, conf)
   else:
     if isDefined(conf, "nimIcIntegrityChecks"):
       checkIntegrity(graph)
     cbackend.generateCode(graph)
-    # graph.backend can be nil under IC when nothing changed at all:
-    if graph.backend != nil:
-      cgenWriteModules(graph.backend, conf)
+
+  writeModules(graph.backend, conf)
   if conf.cmd != cmdTcc and graph.backend != nil:
     extccomp.callCCompiler(conf)
     extccomp.writeJsonBuildInstructions(conf)
