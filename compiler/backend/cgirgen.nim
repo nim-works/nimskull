@@ -47,6 +47,9 @@ import std/options as std_options
 from compiler/ast/ast import newSym, newType, rawAddSon
 from compiler/sem/semdata import makeVarType
 
+when defined(nimCompilerStacktraceHints):
+  import compiler/utils/debugutils
+
 type
   TranslateCl = object
     graph: ModuleGraph
@@ -557,6 +560,9 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   let n {.cursor.} = tree.get(cr)
   let info = cr.info ## the source information of `n`
 
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(cl.graph.config, info)
+
   template to(kind: CgNodeKind, args: varargs[untyped]) =
     stmts.add newStmt(kind, info, args)
 
@@ -682,6 +688,9 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
   ## Moves the cursor to the next tree item.
   let n {.cursor.} = get(tree, cr)
   let info = cr.info
+
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(cl.graph.config, info)
 
   template op(kind: CgNodeKind, e: CgNode): CgNode =
     newOp(kind, info, cl.map(n.typ), e)
