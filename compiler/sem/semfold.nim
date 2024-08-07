@@ -910,7 +910,7 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
   # in the back-end (e.g. ``cast[pointer](someProc)``). In addition, so as to
   # not interfere with the documentation generator, statement-list expressions
   # are not folded if they have a comment in the first position
-  let exprIsPointerCast = n.kind in {nkCast, nkConv, nkHiddenStdConv} and
+  let exprIsPointerCast = n.kind == nkCast and
                           n.typ != nil and
                           n.typ.kind in {tyPointer, tyProc}
   if not exprIsPointerCast and
