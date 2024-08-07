@@ -518,8 +518,15 @@ proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
       result = newFloatNodeT(val, n, g)
     else:
       result = rangeError(n, a, g)
-  of tyOpenArray, tyVarargs, tyProc, tyPointer:
+  of tyOpenArray, tyVarargs:
     discard
+  of tyProc, tyPointer, tyPtr:
+    if a.kind == nkNilLit:
+      # apply the type directly to the 'nil' expression
+      result = a
+      result.typ = n.typ
+    else:
+      result = nil # cannot fold
   else:
     # FIXME: conversion-to-enum is missing checks
     result = a
