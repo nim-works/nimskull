@@ -188,6 +188,9 @@ proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
     c.hashTree(t.n, {})
   of tyTuple:
     c &= char(t.kind)
+    # add the length so that (int, int) and ((int,), int) have different
+    # representations
+    c &= t.len
     if t.n != nil and CoType notin flags:
       assert(t.n.len == t.len)
       for i in 0..<t.n.len:
