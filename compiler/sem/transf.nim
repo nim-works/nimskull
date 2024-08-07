@@ -636,12 +636,6 @@ proc transformConv(c: PTransf, n: PNode): PNode =
         result = newTreeIT(
           if diff < 0: nkObjUpConv else: nkObjDownConv,
           n.info, n.typ): transform(c, n[1])
-    of tyNil:
-      # a ``T(nil)`` expression
-      # XXX: it might be a better idea to eliminate the conversion during
-      #      semantic analysis instead
-      result = transform(c, n[1])
-      result.typ = n.typ
     else:
       result = transformSons(c, n)
   of tyObject:
@@ -653,13 +647,6 @@ proc transformConv(c: PTransf, n: PNode): PNode =
       result = newTreeIT(
         if diff < 0: nkObjUpConv else: nkObjDownConv,
         n.info, n.typ): transform(c, n[1])
-  of tyPointer:
-    case source.kind
-    of tyNil:
-      result = transform(c, n[1])
-      result.typ = n.typ
-    else:
-      result = transformSons(c, n)
   of tyGenericParam, tyOrdinal:
     result = transform(c, n[1])
     # happens sometimes for generated assignments, etc.
