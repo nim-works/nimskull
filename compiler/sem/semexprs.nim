@@ -3148,39 +3148,49 @@ proc semTuplePositionsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
                           "expected nkTupleConstr, got: " & $n.kind)
   
   let
-    tupExp = n                  # we don't modify n, but compute the type:
+    tupExp = shallowCopy(n)
     typ = newTypeS(tyTuple, c)  # leave typ.n nil!
-  for i in 0..<tupExp.len:
-    tupExp[i] = semExprWithType(c, tupExp[i], {}) # xxx: claim of not modifying
-                                                  #      n is dubious
-    addSonSkipIntLit(typ, tupExp[i].typ, c.idgen)
+
+  var hasError = false
+
+  for i, it in n.pairs:
+    var etyp: PType
+    if it.kind == nkExprColonExpr:
+      # can happen for ``(a, b: c)``. Analyze the expression for the sake of
+      # error correction (check/nimsuggest)
+      let elem = copyNodeWithKids(it)
+      elem[1] = semExprWithType(c, it[1], {})
+      etyp = elem[1].typ
+
+      tupExp[i] = c.config.newError(elem):
+        PAstDiag(kind: adSemNamedExprNotAllowed)
+    else:
+      tupExp[i] = semExprWithType(c, it, {})
+      etyp = tupExp[i].typ
+
+    hasError = hasError or tupExp[i].isError
+    addSonSkipIntLit(typ, etyp, c.idgen)
+
   tupExp.typ = typ
 
-  var
-    isTupleType: bool
-    hasError = false
+  if hasError:
+    # don't analyze any further
+    return c.config.wrapError(tupExp)
+
   if tupExp.len > 0: # don't interpret () as type
-    isTupleType = tupExp[0].typ.kind == tyTypeDesc
+    let isTupleType = tupExp[0].typ.kind == tyTypeDesc
     # check if either everything or nothing is tyTypeDesc
     for i in 1..<tupExp.len:
-      if tupExp[i].kind == nkExprColonExpr:
-        hasError = true
-        # xxx: not sure if this modification is safe
-        tupExp[i] = c.config.newError(tupExp[i],
-                                      PAstDiag(kind: adSemNamedExprNotAllowed))
-      elif isTupleType != (tupExp[i].typ.kind == tyTypeDesc):
+      if isTupleType != (tupExp[i].typ.kind == tyTypeDesc):
         # xxx: maybe capture the field instead of the info?
         return c.config.newError(n,
                           PAstDiag(kind: adSemCannotMixTypesAndValuesInTuple,
                                    wrongFldInfo: tupExp[i].info))
 
-  if hasError:
-    result = c.config.wrapError(tupExp)
-  elif isTupleType: # reinterpret `(int, string)` as type expressions
-    result = n
-    result.typ = makeTypeDesc(c, semTypeNode(c, n, nil).skipTypes({tyTypeDesc}))
-  else:
-    result = tupExp
+    if isTupleType: # reinterpret `(int, string)` as a type expression
+      tupExp.typ = makeTypeDesc(c, semTypeNode(c, tupExp, nil))
+
+  result = tupExp
 
 proc semTupleConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ## analyse tuple construction based on position of fields or return errors
