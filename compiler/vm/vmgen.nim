@@ -2998,7 +2998,7 @@ proc binaryArith(c: var TCtx, e, x, y: CgNode, dest: var TDest,
 
 proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   when defined(nimCompilerStacktraceHints):
-    frameMsg c.config, n
+    frameMsg c.config, n.info
 
   case n.kind
   of cnkProc:

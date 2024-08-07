@@ -1638,7 +1638,7 @@ proc useData(p: BProc, x: ConstId, typ: PType): string =
 
 proc expr(p: BProc, n: CgNode, d: var TLoc) =
   when defined(nimCompilerStacktraceHints):
-    frameMsg(p.config, n)
+    frameMsg(p.config, n.info)
   p.currLineInfo = n.info
 
   case n.kind
