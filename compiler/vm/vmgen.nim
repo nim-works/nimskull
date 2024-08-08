@@ -3018,8 +3018,21 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
       clearDest(c, n, dest)
   of cnkNeg:
     prepare(c, dest, n.typ)
-    let a = c.genx(n[0])
-    c.gABC(n, pick(n, opcUnaryMinusInt, opcUnaryMinusFloat), dest, a)
+    let
+      a = c.genx(n[0])
+      op = pick(n, opcUnaryMinusInt, opcUnaryMinusFloat)
+    if op == opcUnaryMinusInt:
+      # the VM has no built-in unchecked integer negation, so it's emulated in
+      # an overflow-safe manner
+      # XXX: this is sub-optimal. In the future, all VM integer operations
+      #      should be unchecked
+      c.gABC(n, opcBitnotInt, dest, a)    # invert
+      let tmp = c.getTemp(slotTempInt)
+      c.gABx(n, opcLdImmInt, tmp, 1)
+      c.gABC(n, opcAddu, dest, dest, tmp) # + 1 (two's complement)
+      c.freeTemp(tmp)
+    else:
+      c.gABC(n, op, dest, a)
     c.freeTemp(a)
   of cnkAdd: binaryArith(c, n, n[0], n[1], dest, opcAddu, opcAddFloat)
   of cnkSub: binaryArith(c, n, n[0], n[1], dest, opcSubu, opcSubFloat)
