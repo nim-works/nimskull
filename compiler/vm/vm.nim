@@ -67,7 +67,7 @@ import
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_sem import SemReport
+from compiler/ast/reports_vm import VMReport
 from compiler/ast/report_enums import ReportKind
 
 # xxx: `Report` is faaaar too wide a type for what the VM needs, even with all
@@ -286,22 +286,8 @@ template toException(x: DerefFailureCode): untyped =
 
 proc reportException(c: TCtx; trace: sink VmRawStackTrace, raised: LocHandle) =
   ## Reports the exception represented by `raised` by raising a `VmError`
-
-  let name = $raised.getFieldHandle(1.fpos).deref().strVal
-  let msg = $raised.getFieldHandle(2.fpos).deref().strVal
-
-  # The reporter expects the exception as a deserialized PNode-tree. Only the
-  # 2nd (name) and 3rd (msg) field are actually used, so instead of running
-  # full deserialization (which is also not possible due to no `PType` being
-  # available), we just create the necessary parts manually
-
-  # TODO: the report should take the two strings directly instead
-  let empty = newNode(nkEmpty)
-  let ast = newTree(nkObjConstr,
-                    empty, # constructor type; unused
-                    empty, # unused
-                    newStrNode(nkStrLit, name),
-                    newStrNode(nkStrLit, msg))
+  let ast = toExceptionAst($raised.getFieldHandle(1.fpos).deref().strVal,
+                           $raised.getFieldHandle(2.fpos).deref().strVal)
   raiseVmError(VmEvent(kind: vmEvtUnhandledException, exc: ast, trace: trace))
 
 func cleanUpReg(r: var TFullReg, mm: var VmMemoryManager) =
@@ -605,10 +591,8 @@ proc runEh(t: var VmThread, c: var TCtx): Result[PrgCtr, VmException] =
         t.ehStack.setLen(t.ehStack.len - 1)
       of 1:
         # discard the parent thread if it's associated with the provided
-        # ``finally``
-        let instr = c.code[instr.b]
-        vmAssert instr.opcode == opcFinallyEnd
-        let (fromEh, b) = decodeControl(t.getReg(instr.regA).intVal)
+        # control register
+        let (fromEh, b) = decodeControl(t.getReg(instr.b.TRegister).intVal)
         if fromEh:
           vmAssert b.int == t.ehStack.high - 1
           swap(tos, t.ehStack[^2])
@@ -1552,8 +1536,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
     of opcEqNimNode:
       decodeBC(rkInt)
       regs[ra].intVal =
-        ord(exprStructuralEquivalent(regs[rb].nimNode, regs[rc].nimNode,
-                                     strictSymEquality=true))
+        ord(exprStructuralEquivalentStrictSymAndComm(regs[rb].nimNode, regs[rc].nimNode))
     of opcSameNodeType:
       decodeBC(rkInt)
       # TODO: Look into me!
@@ -2072,7 +2055,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       inc pc, rbx
       handleJmpBack()
     of opcBranch:
-      # we know the next instruction is a 'fjmp':
+      # we know the next instruction is a 'tjmp':
       let value = c.constants[instr.regBx-wordExcess]
 
       checkHandle(regs[ra])
@@ -2090,11 +2073,11 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       else:
         unreachable(value.kind)
 
-      assert c.code[pc+1].opcode == opcFJmp
+      assert c.code[pc+1].opcode == opcTJmp
       inc pc
       # we skip this instruction so that the final 'inc(pc)' skips
       # the following jump
-      if not cond:
+      if cond:
         let instr2 = c.code[pc]
         let rbx = instr2.regBx - wordExcess - 1 # -1 for the following 'inc pc'
         inc pc, rbx
@@ -2252,9 +2235,8 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
     of opcLdGlobal:
       let rb = instr.regBx - wordExcess
-      let slot = c.globals[rb]
       ensureKind(rkHandle)
-      regs[ra].setHandle(c.heap.slots[slot].handle)
+      regs[ra].setHandle(c.globals[rb])
 
     of opcLdCmplxConst:
       decodeBx(rkHandle)
@@ -2388,7 +2370,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       let src = regs[rb].nimNode
       # TODO: This if-else block should be reordered so as to match the
       #       expectation of occurence
-      if src.kind in {nkEmpty..nkNilLit, nkError}:
+      if src.kind in nkWithoutSons:
         raiseVmError(VmEvent(kind: vmEvtCannotGetChild, ast: src))
       elif idx >=% src.len:
         raiseVmError(reportVmIdx(idx, src.len - 1))
@@ -2400,7 +2382,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       var dest = regs[ra].nimNode
       if nfSem in dest.flags:
         raiseVmError(VmEvent(kind: vmEvtCannotModifyTypechecked))
-      elif dest.kind in {nkEmpty..nkNilLit, nkError}:
+      elif dest.kind in nkWithoutSons:
         raiseVmError(VmEvent(kind: vmEvtCannotSetChild, ast: dest))
       elif idx >=% dest.len:
         raiseVmError(reportVmIdx(idx, dest.len - 1))
@@ -2411,7 +2393,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       var u = regs[rb].nimNode
       if nfSem in u.flags:
         raiseVmError(VmEvent(kind: vmEvtCannotModifyTypechecked))
-      elif u.kind in {nkEmpty..nkNilLit, nkError}:
+      elif u.kind in nkWithoutSons:
         raiseVmError(VmEvent(kind: vmEvtCannotAddChild, ast: u))
       else:
         u.add(regs[rc].nimNode)
@@ -2427,7 +2409,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       var u = regs[rb].nimNode
       if nfSem in u.flags:
         raiseVmError(VmEvent(kind: vmEvtCannotModifyTypechecked))
-      elif u.kind in {nkEmpty..nkNilLit, nkError}:
+      elif u.kind in nkWithoutSons:
         raiseVmError(VmEvent(kind: vmEvtCannotAddChild, ast: u))
       else:
         let L = arrayLen(x)
@@ -2452,7 +2434,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
     of opcNIntVal:
       decodeB(rkInt)
       let a = regs[rb].nimNode
-      if a.kind in {nkCharLit..nkUInt64Lit}:
+      if a.kind in nkIntLiterals:
         regs[ra].intVal = a.intVal
       elif a.kind == nkSym and a.sym.kind == skEnumField:
         regs[ra].intVal = a.sym.position
@@ -2462,7 +2444,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       decodeB(rkFloat)
       let a = regs[rb].nimNode
       case a.kind
-      of nkFloatLit..nkFloat64Lit: regs[ra].floatVal = a.floatVal
+      of nkFloatLiterals: regs[ra].floatVal = a.floatVal
       else: raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "floatVal"))
     of opcNodeId:
       decodeB(rkInt)
@@ -2540,7 +2522,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       decodeB(akString)
       let a = regs[rb].nimNode
       case a.kind
-      of nkStrLit..nkTripleStrLit:
+      of nkStrLiterals:
         regs[ra].strVal = a.strVal
       of nkCommentStmt:
         regs[ra].strVal = a.comment
@@ -2577,7 +2559,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
             assert ast.kind == nkStmtList
             Res.ok:  ast[0]
           else:
-            Res.err: SemReport(kind: rvmOpcParseExpectedExpression).wrap()
+            Res.err: VMReport(kind: rvmOpcParseExpectedExpression).wrap()
 
       if parsed.isOk:
         # success! Write the parsed AST to the result register and return an
@@ -2726,7 +2708,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
     of opcNSetIntVal:
       decodeB(rkNimNode)
       var dest = regs[ra].nimNode
-      if dest.kind in {nkCharLit..nkUInt64Lit}:
+      if dest.kind in nkIntLiterals:
         dest.intVal = regs[rb].intVal
       elif dest.kind == nkSym and dest.sym.kind == skEnumField:
         raiseVmError(VmEvent(
@@ -2737,7 +2719,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
     of opcNSetFloatVal:
       decodeB(rkNimNode)
       var dest = regs[ra].nimNode
-      if dest.kind in {nkFloatLit..nkFloat64Lit}:
+      if dest.kind in nkFloatLiterals:
         dest.floatVal = regs[rb].floatVal
       else:
         raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "floatVal"))
@@ -2746,7 +2728,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       checkHandle(regs[rb])
       var dest = regs[ra].nimNode
       assert regs[rb].handle.typ.kind == akString
-      if dest.kind in {nkStrLit..nkTripleStrLit}:
+      if dest.kind in nkStrLiterals:
         dest.strVal = $regs[rb].strVal
       elif dest.kind == nkCommentStmt:
         dest.comment = $regs[rb].strVal
@@ -2754,13 +2736,21 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "strVal"))
     of opcNNewNimNode:
       decodeBC(rkNimNode)
-      var k = regs[rb].intVal
+      let k = regs[rb].intVal
       guestValidate(k in 0..ord(high(TNodeKind)),
         "request to create a NimNode of invalid kind")
 
+      let kind = TNodeKind(int(k))
+      case kind
+      of nkError, nkIdent, nkSym, nkType:
+        # nodes that cannot be created manually
+        raiseVmError(VmEvent(kind: vmEvtCannotCreateNode, msg: $kind))
+      of nkWithSons, nkLiterals, nkCommentStmt, nkEmpty:
+        discard "the uninitialized state is valid"
+
       let cc = regs[rc].nimNode
 
-      let x = newNodeI(TNodeKind(int(k)),
+      let x = newNodeI(kind,
         if cc.kind != nkNilLit:
           cc.info
         elif c.comesFromHeuristic.line != 0'u16:
@@ -2769,8 +2759,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           c.callsite[1].info
         else:
           c.debug[pc])
-      # prevent crashes in the compiler resulting from wrong macros:
-      if x.kind == nkIdent: x.ident = c.cache.emptyIdent
+
       regs[ra].nimNode = x
     of opcNCopyNimNode:
       decodeB(rkNimNode)
@@ -2836,7 +2825,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       else:
         block search:
           for existing in g.cacheSeqs[destKey]:
-            if exprStructuralEquivalent(existing, val, strictSymEquality=true):
+            if exprStructuralEquivalentStrictSymAndComm(existing, val):
               break search
           g.cacheSeqs[destKey].add val
       recordIncl(c, c.debug[pc], destKey, val)
@@ -3019,6 +3008,7 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
     of vmEvtFieldNotFound: adVmFieldNotFound
     of vmEvtNotAField: adVmNotAField
     of vmEvtFieldUnavailable: adVmFieldUnavailable
+    of vmEvtCannotCreateNode: adVmCannotCreateNode
     of vmEvtCannotSetChild: adVmCannotSetChild
     of vmEvtCannotAddChild: adVmCannotAddChild
     of vmEvtCannotGetChild: adVmCannotGetChild
@@ -3050,7 +3040,8 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
           indexSpec: evt.indexSpec)
       of adVmErrInternal, adVmNilAccess, adVmIllegalConv,
           adVmFieldUnavailable, adVmFieldNotFound,
-          adVmCacheKeyAlreadyExists, adVmMissingCacheKey:
+          adVmCacheKeyAlreadyExists, adVmMissingCacheKey,
+          adVmCannotCreateNode:
         AstDiagVmError(
           kind: kind,
           msg: evt.msg)

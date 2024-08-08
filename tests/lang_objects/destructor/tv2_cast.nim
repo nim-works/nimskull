@@ -6,64 +6,72 @@ destroying O1'''
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:main1 --expandArc:main2 --expandArc:main3 --hints:off --assertions:off $file'''
   nimout: '''--expandArc: main
 scope:
-  try:
-    def _0: string = newString(arg 100)
-    def_cursor _1: seq[byte] = cast _0
-    def_cursor _2: openArray[byte] = toOpenArray _1
-    def _3: seq[byte] = encode(arg _2) (raises)
-    def data: string
-    def _4: string = cast _3
-    =copy(name data, arg _4)
-  finally:
-    =destroy(name data)
-    =destroy(name _3)
-    =destroy(name _0)
+  def _2: string = newString(arg 100)
+  def_cursor _3: seq[byte] = cast _2
+  def _4: openArray[byte] = toOpenArray _3
+  def _5: seq[byte] = encode(arg _4) -> [L0, Resume]
+  def_cursor _6: string = cast _5
+  def data: string
+  =copy(name data, arg _6)
+  =destroy(name data)
+  =destroy(name _5)
+  goto [L0, L1]
+  finally (L0):
+    =destroy(name _2)
+    continue {L1}
+  L1:
 -- end of expandArc ------------------------
 --expandArc: main1
 scope:
-  try:
-    def s: string = newString(arg 100)
-    def_cursor _0: string = s
-    def_cursor _1: int = lengthStr(arg _0)
-    def_cursor _2: int = subI(arg _1, arg 1) (raises)
-    chckBounds(arg s, arg 0, arg _2) (raises)
-    def_cursor _3: openArray[byte] = toOpenArray s, 0, _2
-    def _4: seq[byte] = encode(arg _3) (raises)
-    def data: string
-    def _5: string = cast _4
-    =copy(name data, arg _5)
-  finally:
-    =destroy(name data)
-    =destroy(name _4)
+  def s: string = newString(arg 100)
+  def_cursor _3: string = s
+  def _4: int = lengthStr(arg _3)
+  def _5: int = subI(arg _4, arg 1) -> [L0, Resume]
+  chckBounds(arg s, arg 0, arg _5) -> [L0, Resume]
+  def _6: openArray[byte] = toOpenArray s, 0, _5
+  def _7: seq[byte] = encode(arg _6) -> [L0, Resume]
+  def_cursor _8: string = cast _7
+  def data: string
+  =copy(name data, arg _8)
+  =destroy(name data)
+  =destroy(name _7)
+  goto [L0, L1]
+  finally (L0):
     =destroy(name s)
+    continue {L1}
+  L1:
 -- end of expandArc ------------------------
 --expandArc: main2
 scope:
-  try:
-    def s: seq[byte] = newSeq(arg 100) (raises)
-    def_cursor _0: openArray[byte] = toOpenArray s
-    def _1: seq[byte] = encode(arg _0) (raises)
-    def data: string
-    def _2: string = cast _1
-    =copy(name data, arg _2)
-  finally:
-    =destroy(name data)
-    =destroy(name _1)
+  def s: seq[byte] = newSeq(arg 100) -> [Resume]
+  def _3: openArray[byte] = toOpenArray s
+  def _4: seq[byte] = encode(arg _3) -> [L0, Resume]
+  def_cursor _5: string = cast _4
+  def data: string
+  =copy(name data, arg _5)
+  =destroy(name data)
+  =destroy(name _4)
+  goto [L0, L1]
+  finally (L0):
     =destroy(name s)
+    continue {L1}
+  L1:
 -- end of expandArc ------------------------
 --expandArc: main3
 scope:
-  try:
-    def _0: seq[byte] = newSeq(arg 100) (raises)
-    def_cursor _1: openArray[byte] = toOpenArray _0
-    def _2: seq[byte] = encode(arg _1) (raises)
-    def data: string
-    def _3: string = cast _2
-    =copy(name data, arg _3)
-  finally:
-    =destroy(name data)
+  def _2: seq[byte] = newSeq(arg 100) -> [Resume]
+  def _3: openArray[byte] = toOpenArray _2
+  def _4: seq[byte] = encode(arg _3) -> [L0, Resume]
+  def_cursor _5: string = cast _4
+  def data: string
+  =copy(name data, arg _5)
+  =destroy(name data)
+  =destroy(name _4)
+  goto [L0, L1]
+  finally (L0):
     =destroy(name _2)
-    =destroy(name _0)
+    continue {L1}
+  L1:
 -- end of expandArc ------------------------'''
 """
 

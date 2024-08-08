@@ -21,6 +21,9 @@ import
     sigmatch,
     aliases,
     parampatterns
+  ],
+  compiler/utils/[
+    idioms
   ]
 
 type
@@ -50,28 +53,21 @@ proc canonKind(n: PNode): TNodeKind =
   result = n.kind
   case result
   of nkCallKinds: result = nkCall
-  of nkStrLit..nkTripleStrLit: result = nkStrLit
+  of nkStrLiterals: result = nkStrLit
   of nkFastAsgn: result = nkAsgn
   else: discard
 
 proc sameKinds(a, b: PNode): bool {.inline.} =
   result = a.kind == b.kind or a.canonKind == b.canonKind
 
-proc sameTrees*(a, b: PNode): bool =
-  if sameKinds(a, b):
-    case a.kind
-    of nkSym: result = a.sym == b.sym
-    of nkIdent: result = a.ident.id == b.ident.id
-    of nkCharLit..nkInt64Lit: result = a.intVal == b.intVal
-    of nkFloatLit..nkFloat64Lit: result = a.floatVal == b.floatVal
-    of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
-    of nkEmpty, nkNilLit: result = true
-    of nkType: result = sameTypeOrNil(a.typ, b.typ)
-    else:
-      if a.len == b.len:
-        for i in 0..<a.len:
-          if not sameTrees(a[i], b[i]): return
-        result = true
+makeTreeEquivalenceProc(sameTrees,
+  relaxedKindCheck = sameKinds(a, b),
+  symCheck     = a.sym == b.sym,
+  floatCheck   = a.floatVal == b.floatVal,
+  typeCheck    = sameTypeOrNil(a.typ, b.typ),
+  commentCheck = true # Ignore comments
+)
+export sameTrees
 
 proc inSymChoice(sc, x: PNode): bool =
   if sc.kind == nkClosedSymChoice:
@@ -176,14 +172,16 @@ proc matches(c: PPatternContext, p, n: PNode): bool =
         result = bindOrCheck(c, p[1].sym, n)
   elif sameKinds(p, n):
     case p.kind
+    of nkError:
+      unreachable()
     of nkSym: result = p.sym == n.sym
     of nkIdent: result = p.ident.id == n.ident.id
-    of nkCharLit..nkInt64Lit: result = p.intVal == n.intVal
-    of nkFloatLit..nkFloat64Lit: result = p.floatVal == n.floatVal
-    of nkStrLit..nkTripleStrLit: result = p.strVal == n.strVal
-    of nkEmpty, nkNilLit, nkType:
-      result = true
-    else:
+    of nkIntLiterals: result = p.intVal == n.intVal
+    of nkFloatLiterals: result = p.floatVal == n.floatVal
+    of nkStrLiterals: result = p.strVal == n.strVal
+    of nkEmpty, nkNilLit, nkType, nkCommentStmt:
+      result = true # Ignore comments
+    of nkWithSons:
       # special rule for p(X) ~ f(...); this also works for stuff like
       # partial case statements, etc! - Not really ... :-/
       let v = lastSon(p)

@@ -60,8 +60,8 @@ type
     long: seq[PathInstr]
 
 const
-  Roots = {mnkProc, mnkConst, mnkGlobal, mnkTemp, mnkCall, mnkDeref,
-           mnkDerefView} + SymbolLike
+  Roots = {mnkProcVal, mnkConst, mnkGlobal, mnkParam, mnkLocal, mnkTemp,
+           mnkCall, mnkDeref, mnkDerefView}
   PathOps = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathConv,
              mnkPathVariant}
 
@@ -70,26 +70,24 @@ func isSameRoot(an, bn: MirNode): bool =
     return false
 
   case an.kind
-  of mnkParam, mnkLocal:
-    result = an.sym.id == bn.sym.id
-  of mnkProc:
+  of mnkParam, mnkLocal, mnkTemp:
+    result = an.local == bn.local
+  of mnkProcVal:
     result = an.prc == bn.prc
   of mnkConst:
     result = an.cnst == bn.cnst
   of mnkGlobal:
     result = an.global == bn.global
-  of mnkTemp:
-    result = an.temp == bn.temp
   of mnkCall, mnkDeref, mnkDerefView:
     result = false
   of AllNodeKinds - Roots:
     unreachable(an.kind)
 
 func sameIndex*(a, b: MirNode): Ternary =
-  if a.kind != b.kind or a.kind != mnkLiteral:
+  if a.kind != b.kind or a.kind notin {mnkIntLit, mnkUIntLit}:
     maybe
   else:
-    if a.lit.intVal == b.lit.intVal:
+    if a.number == b.number:
       yes
     else:
       no
@@ -115,16 +113,6 @@ proc getRoot*(tree: MirTree, n: OpValue): OpValue =
     result = getRoot(tree, tree.operand(findDef(tree, NodePosition pos), 1))
   else:
     result = pos
-
-func isCursor*(tree: MirTree, path: Path): bool =
-  ## Returns whether the path `n` denotes a cursor location.
-  # XXX: this is an intermediate solution. ``mirgen`` is going to handle
-  #      all cursor-related behaviour in the future, which will make this
-  #      procedure obsolete
-  for i in 0..<path.len:
-    if path[i].kind == pikNamed and sfCursor in tree[path[i].node].field.flags:
-      result = true
-      break
 
 proc computePath*(tree: MirTree, at: NodePosition): Path =
   ## Computes the ``Path`` for the given expression. The expression not being
@@ -158,11 +146,11 @@ proc computePath*(tree: MirTree, at: NodePosition): Path =
   while true:
     case tree[pos].kind
     of mnkPathNamed, mnkPathVariant:
-      add pikNamed, pos
+      add pikNamed, tree.child(pos, 1)
     of mnkPathConv:
       discard "ignore"
     of mnkPathPos:
-      add pikPos, pos
+      add pikPos, tree.child(pos, 1)
     of mnkPathArray:
       add pikIndex, tree.child(pos, 1)
     of mnkAlias:
@@ -212,14 +200,19 @@ proc compare*(body: MirTree, a, b: Path): CmpLocsResult =
         break
 
     of pikPos:
-      if na.position != nb.position:
+      if na.imm != nb.imm:
         overlaps = no
         break
 
     of pikIndex:
-      overlaps = sameIndex(na, nb)
-      if overlaps == no:
+      case sameIndex(na, nb)
+      of no:
+        overlaps = no
         break
+      of yes:
+        discard "don't change back to 'yes'"
+      of maybe:
+        overlaps = maybe
 
     inc i
 

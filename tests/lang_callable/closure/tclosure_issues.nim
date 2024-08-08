@@ -122,3 +122,28 @@ block:
     inner()
 
   test()
+
+block closed_over_local_in_or_expression:
+  # regression test: closed-over locals defined in ``or`` expressions
+  # behaved differently compared to when not being closed over
+
+  proc test() =
+    var i = 0
+    var take = false
+    while i < 2: # run the body two times
+      if (let x = 1; take) or (let y = 2; not take):
+        proc inner() =
+          # close over `y`
+          discard y
+
+        inner()
+
+        if take:
+          doAssert y == 0
+        else:
+          doAssert y == 2
+
+      take = true # enable short-circuiting
+      inc i
+
+  test()

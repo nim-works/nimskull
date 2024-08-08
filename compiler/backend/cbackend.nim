@@ -366,6 +366,27 @@ proc generateCodeForMain(m: BModule, modules: ModuleList) =
   # XXX: ^^ this is going to change in the future
   genMainProc(m, code)
 
+proc generateThreadTeardown(m: BModule, modules: ModuleList) =
+  ## Generates and emits the C code for the ``nimTeardownThreadVars``
+  ## procedure.
+  let body = newNode(nkStmtList)
+  generateThreadTeardown(m.g.graph, modules, body)
+
+  let p = newProc(nil, m)
+  p.flags.incl nimErrorFlagDisabled
+  p.options = {}
+  p.body = canonicalize(m.g.graph, m.idgen, m.g.env, m.module, body,
+                        TranslationConfig())
+
+  # manually produced the C code for the procedure:
+  genStmts(p, p.body.code)
+  var code = "void nimTeardownThreadVars(void) {\n"
+  code.add(p.s(cpsLocals))
+  code.add(p.s(cpsInit))
+  code.add(p.s(cpsStmts))
+  code.add "}\n"
+  m.s[cfsProcs].add code
+
 proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList)
 
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
@@ -499,6 +520,8 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
     if sfMainModule in m.sym.flags:
       finalizeMainModule(bmod)
       generateCodeForMain(bmod, mlist)
+      if optThreads in graph.config.globalOptions:
+        generateThreadTeardown(bmod, mlist)
 
     # code generation for the module is done; its C code will not change
     # anymore beyond this point

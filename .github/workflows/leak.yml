@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Decrease kernel address randomization
+        # Works around https://github.com/actions/runner-images/issues/9491
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0

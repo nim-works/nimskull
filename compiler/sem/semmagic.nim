@@ -44,6 +44,32 @@ proc semTypeOf(c: PContext; n: PNode): PNode =
   else:
     result.typ = makeTypeDesc(c, typExpr.typ)
 
+proc semSizeOf(c: PContext, n: PNode): PNode =
+  case n.len
+  of 2:
+    #restoreOldStyleType(n[1])
+    n[1] = semExprWithType(c, n[1])
+    if containsGenericType(n[1].typ):
+      # report the type, not the typedesc
+      n[1] = c.config.newError(n[1], PAstDiag(kind: adSemTIsNotAConcreteType,
+                                              wrongType: n[1].typ[0]))
+      result = n
+    else:
+      n.typ = getSysType(c.graph, n.info, tyInt)
+      result = foldSizeOf(c.config, n, n)
+  else:
+    result = c.config.newError(n, PAstDiag(kind: adSemMagicExpectTypeOrValue,
+                                            magic: mSizeOf))
+
+proc semAlignOf(c: PContext, n: PNode): PNode =
+  if containsGenericType(n[1].typ):
+    # report the type, not the typedesc
+    n[1] = c.config.newError(n[1], PAstDiag(kind: adSemTIsNotAConcreteType,
+                                            wrongType: n[1].typ[0]))
+    result = c.config.wrapError(n)
+  else:
+    result = foldAlignOf(c.config, n, n)
+
 type
   SemAsgnMode = enum asgnNormal, noOverloadedSubscript, noOverloadedAsgn
 
@@ -105,7 +131,7 @@ proc semIsPartOf(c: PContext, n: PNode, flags: TExprFlags): PNode =
 proc expectIntLit(c: PContext, n: PNode): int =
   let x = c.semConstExpr(c, n)
   case x.kind
-  of nkIntLit..nkInt64Lit: result = int(x.intVal)
+  of nkSIntLiterals: result = int(x.intVal)
   else: localReport(c.config, n, reportSem rsemIntLiteralExpected)
 
 proc semInstantiationInfo(c: PContext, n: PNode): PNode =
@@ -175,7 +201,13 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
   of "and":
     return typeWithSonsResult(tyAnd, @[operand, operand2])
   of "not":
-    return typeWithSonsResult(tyNot, @[operand])
+    if traitCall.len == 3:
+      c.config.internalAssert traitCall[2].kind == nkNilLit
+      # the operand is not generic anymore, let ``semTypeNode`` produce a
+      # type with the not-nil modifier applied
+      return makeTypeDesc(c, semTypeNode(c, traitCall, nil)).toNode(traitCall.info)
+    else:
+      return typeWithSonsResult(tyNot, @[operand])
   of "typeToString":
     var prefer = preferTypeName
     if traitCall.len >= 2:
@@ -216,6 +248,18 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
     let complexObj = containsGarbageCollectedRef(t) or
                      hasDestructor(t)
     result = newIntNodeT(toInt128(ord(not complexObj)), traitCall, c.idgen, c.graph)
+  of "supportsZeroMem":
+    # Zero initialization is not valid for:
+    # * types requiring explicit initialization
+    # * partial types (package-level objects)
+    # * object types with a type header
+    proc pred(t: PType): bool =
+      # object with type header? or package-level object?
+      t.kind == tyObject and (not isObjLackingTypeField(t) or
+        sfForward in t.sym.flags)
+
+    let cond = requiresInit(operand) or searchTypeFor(operand, pred)
+    result = newIntNodeT(toInt128(ord(not cond)), traitCall, c.idgen, c.graph)
   of "isNamedTuple":
     var operand = operand.skipTypes({tyGenericInst})
     let cond = operand.kind == tyTuple and operand.n != nil
@@ -385,9 +429,9 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   of mTypeOf:
     result = semTypeOf(c, n)
   of mSizeOf:
-    result = foldSizeOf(c.config, n, n)
+    result = semSizeOf(c, n)
   of mAlignOf:
-    result = foldAlignOf(c.config, n, n)
+    result = semAlignOf(c, n)
   of mOffsetOf:
     result = foldOffsetOf(c.config, n, n)
   of mArrGet:

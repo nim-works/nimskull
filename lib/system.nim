@@ -2348,6 +2348,9 @@ elif isNimVmTarget:
   proc prepareException(e: ref Exception, ename: cstring) {.compilerproc.} =
     discard
 
+  proc nimUnhandledException() {.compilerproc.} =
+    discard
+
   proc closureIterSetupExc(e: ref Exception) {.compilerproc, inline.} =
     ## Used by the closure transformation pass for preparing for exception
     ## handling. Implemented as a callback.
@@ -3043,3 +3046,6 @@ when defined(nimDebugUtils):
     {.define(nimCompilerDebug).}
     n
     {.undef(nimCompilerDebug).}
+
+proc `not`*[T: ref or ptr](a: typedesc[T], b: typeof(nil)): typedesc {.magic: "TypeTrait", noSideEffect.}
+  ## Constructs a `not nil` type.

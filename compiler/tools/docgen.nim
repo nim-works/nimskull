@@ -892,7 +892,7 @@ proc genDeprecationMsg(d: PDoc, n: PNode): string =
     result = getConfigVar(d.conf, "doc.deprecationmsg") % [
        "label" , "Deprecated", "message", ""]
   of 2: # Deprecated w/ a message
-    if n[1].kind in {nkStrLit..nkTripleStrLit}:
+    if n[1].kind in nkStrLiterals:
       result = getConfigVar(d.conf, "doc.deprecationmsg") % [
           "label", "Deprecated:", "message", xmltree.escape(n[1].strVal)]
   else:

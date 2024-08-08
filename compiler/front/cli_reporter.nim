@@ -428,6 +428,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemOwnedTypeDeprecated:
       result = "the `owned` type-operator is deprecated and treated as a no-op"
 
+    of rsemCodegenDeclDeprecated:
+      result = "the `.codegenDecl` pragma is deprecated; support for it " &
+               "will be removed in the future"
+
     of rsemLinterReport:
       result.addf("'$1' should be: '$2'", r.linterFail.got, r.linterFail.wanted)
 
@@ -785,6 +789,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           typeToString(r.typ, preferDesc),
           r.ownerSym.name.s
         )
+
+    of rsemCannotInstantiateForwarded:
+      result = "cannot instantiate generic procedure forward-declared in " &
+               "another module"
 
     of rsemTypeKindMismatch:
       result = r.str
@@ -1303,6 +1311,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemXCannotRaiseY:
       result = "'$1' cannot raise '$2'" % [r.ast.render, r.raisesList.render]
 
+    of rsemHookCannotRaise:
+      result = "a hook routine is not allowed to raise. ($1)" % r.typ.render
+
     of rsemUnlistedRaises, rsemWarnUnlistedRaises:
       result.add("$1 can raise an unlisted exception: " % r.ast.render,
                  r.typ.render)
@@ -1633,7 +1644,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "using '.' instead of '/' in import paths is deprecated"
 
     of rsemInvalidModuleName:
-      result = "invalid module name: '$1'" % r.ast.render
+      if r.sym != nil:
+        result = "invalid module name: '$1'" % r.symstr
+      else:
+        result = "invalid module name: '$1'" % r.ast.render
 
     of rsemInvalidMethodDeclarationOrder:
       result = "invalid declaration order; cannot attach '" & r.symbols[0].name.s &
@@ -1826,10 +1840,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         $r.countMismatch.expected
       )
 
-    of rsemCalleeHasAnError:
-      result = "cannot call '$1'; its definition has an error [defined at '$2']" %
-               [r.symstr, conf.toFileLineCol(r.sym.info)]
-
     of rsemNoGenericParamsAllowed:
       result = "no generic parameters allowed for $1" % r.symstr
 
@@ -1983,30 +1993,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemRequiresDeepCopyEnabled:
       result = "for --gc:arc|orc 'deepcopy' support has to be enabled with --deepcopy:on"
 
-    of rsemExpectedLiteralForGoto:
-      result = "'goto' target must be a literal value"
-
     of rsemExpectedParameterForJsPattern:
       result =  "wrong importjs pattern; expected parameter at position " &
         $r.countMismatch.expected & " but got only: " & $r.countMismatch.got
-
-    of rsemDisallowedRangeForComputedGoto:
-      result = "range notation not available for computed goto"
-
-    of rsemExpectedCaseForComputedGoto:
-      result = "no case statement found for computed goto"
-
-    of rsemExpectedLow0ForComputedGoto:
-      result = "case statement has to start at 0 for computed goto"
-
-    of rsemTooManyEntriesForComputedGoto:
-      result = "case statement has too many cases for computed goto"
-
-    of rsemExpectedUnholyEnumForComputedGoto:
-      result = "case statement cannot work on enums with holes for computed goto"
-
-    of rsemExpectedExhaustiveCaseForComputedGoto:
-      result = "case statement must be exhaustive for computed goto"
 
     of rsemExpectedNimcallProc:
       result = r.symstr & " needs to have the 'nimcall' calling convention"
@@ -2629,8 +2618,7 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
       )
 
     of rintEchoMessage:
-      result = if conf.cmd == cmdInteractive: ">>> " & r.msg
-               else:                          r.msg
+      result = r.msg
 
     of rintCannotOpenFile, rintWarnCannotOpenFile:
       result = "cannot open file: $1" % r.file
@@ -2964,6 +2952,9 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
   of rvmFieldNotFound:
     result = "node lacks field: " & r.str
 
+  of rvmCannotCreateNode:
+    result = "cannot manually create a node of kind: n" & r.str
+
   of rvmCannotSetChild:
     result = "cannot set child of node kind: n" & $r.ast.kind
 
@@ -3152,7 +3143,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
     vmRep: VMReport
 
   case diag.kind
-  of adWrappedError:
+  of adWrappedError, adWrappedSymError:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
@@ -3220,7 +3211,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemAlignRequiresPowerOfTwo,
       adSemNoReturnHasReturn,
       adSemMisplacedDeprecation,
-      adSemFatalError,
       adSemNoUnionForJs,
       adSemBitsizeRequiresPositive,
       adSemExperimentalRequiresToplevel,
@@ -3234,6 +3224,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemCallInCompilesContextNotAProcOrField,
       adSemExpressionHasNoType,
       adSemTypeExpected,
+      adSemStringRangeNotAllowed,
+      adSemRangeIsEmpty,
       adSemIllformedAst,
       adSemInvalidExpression,
       adSemExpectedNonemptyPattern,
@@ -3245,8 +3237,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemSelectorMustBeOfCertainTypes,
       adSemInvalidPragmaBlock,
       adSemConceptPredicateFailed,
-      adSemDotOperatorsNotEnabled,
-      adSemCallOperatorsNotEnabled,
       adSemUnexpectedPattern,
       adSemIsOperatorTakes2Args,
       adSemNoTupleTypeForConstructor,
@@ -3281,6 +3271,14 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind,
         ast: diag.wrongNode)
+  of adSemDotOperatorsNotEnabled,
+     adSemCallOperatorsNotEnabled:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind,
+        ast: diag.wrongNode,
+        sym: diag.wrongNode.sym)
   of adSemInvalidTupleSubscript:
     semRep = SemReport(
         location: some diag.location,
@@ -3390,6 +3388,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
               "contains '$1'" % $diag.unexpectedKind,
         ast: diag.wrongNode)
   of adSemRaisesPragmaExpectsObject,
+      adSemTIsNotAConcreteType,
       adSemCannotInferTypeOfLiteral,
       adSemProcHasNoConcreteType,
       adSemCannotAssignTo:
@@ -3428,11 +3427,11 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         kind: rsemPragmaRecursiveDependency,
         sym: diag.userPragma,
         ast: diag.wrongNode)
-  of adSemCustomUserError:
+  of adSemFatalError, adSemCustomUserError:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemCustomUserError,
+        kind: kind,
         str: diag.errmsg,
         ast: diag.wrongNode)
   of adSemImplicitPragmaError:
@@ -3512,13 +3511,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       kind: rsemWrongNumberOfGenericParams,
       ast: diag.wrongNode,
       countMismatch: diag.countMismatch)
-  of adSemCalleeHasAnError:
-    semRep = SemReport(
-      location: some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemCalleeHasAnError,
-      ast: diag.wrongNode,
-      sym: diag.callee)
   of adSemIllformedAstExpectedPragmaOrIdent:
     semRep = SemReport(
       location: some diag.location,
@@ -3840,6 +3832,13 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       ast: diag.wrongNode,
       str: diag.compilerOpt.getStr,
       compilerOptArg: diag.compilerOptArg.getStr)
+  of adSemCannotBeRaised, adSemCannotRaiseNonException:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.wrongNode[0].typ)
   of adVmError:
     let
       kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()
@@ -3882,7 +3881,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         location: some location,
         reportInst: diag.instLoc.toReportLineInfo)
     of rvmErrInternal, rvmNilAccess, rvmIllegalConv, rvmFieldInavailable,
-        rvmFieldNotFound, rvmCacheKeyAlreadyExists, rvmMissingCacheKey:
+        rvmFieldNotFound, rvmCacheKeyAlreadyExists, rvmMissingCacheKey,
+        rvmCannotCreateNode:
       vmRep = VMReport(
         kind: kind,
         str: diag.vmErr.msg,

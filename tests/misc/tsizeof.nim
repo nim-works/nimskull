@@ -29,10 +29,13 @@ doAssert mysize3 == 32
 
 import macros, typetraits
 
+proc wrapBlock(n: NimNode): NimNode =
+  result = newTree(nnkBlockStmt, newEmptyNode(), n)
+
 macro testSizeAlignOf(args: varargs[untyped]): untyped =
   result = newStmtList()
   for arg in args:
-    result.add quote do:
+    result.add wrapBlock(quote do:
       let
         c_size = c_sizeof(`arg`)
         nim_size = sizeof(`arg`)
@@ -47,18 +50,20 @@ macro testSizeAlignOf(args: varargs[untyped]): untyped =
           msg.add  " align(get, expected): " & $nim_align & " != " & $c_align
         echo msg
         failed = true
+    )
 
 
 macro testOffsetOf(a, b: untyped): untyped =
   let typeName = newLit(a.repr)
   let member   = newLit(b.repr)
-  result = quote do:
+  result = wrapBlock(quote do:
     let
       c_offset   = c_offsetof(`a`,`b`)
       nim_offset = offsetof(`a`,`b`)
     if c_offset != nim_offset:
       echo `typeName`, ".", `member`, " offsetError, C: ", c_offset, " nim: ", nim_offset
       failed = true
+  )
 
 proc strAlign(arg: string): string =
   const minLen = 22
@@ -74,10 +79,11 @@ macro c_offsetof(fieldAccess: typed): int32 =
           else: fieldAccess
   let a = s[0].getTypeInst
   let b = s[1]
-  result = quote do:
+  result = wrapBlock(quote do:
     var res: int32
     {.emit: [res, " = offsetof(", `a`, ", ", `b`, ");"] .}
     res
+  )
 
 template c_offsetof(t: typedesc, a: untyped): int32 =
   var x: ptr t
@@ -87,10 +93,11 @@ macro c_sizeof(a: typed): int32 =
   ## Bullet proof implementation that works using the sizeof operator
   ## in the c backend. Assuming of course this implementation is
   ## correct.
-  result = quote do:
+  result = wrapBlock(quote do:
     var res: int32
     {.emit: [res, " = sizeof(", `a`, ");"] .}
     res
+  )
 
 macro c_alignof(arg: untyped): untyped =
   ## Bullet proof implementation that works on actual alignment
@@ -105,21 +112,23 @@ macro c_alignof(arg: untyped): untyped =
 
 macro testAlign(arg:untyped):untyped =
   let prefix = newLit(arg.lineinfo & "  alignof " & arg.repr & " ")
-  result = quote do:
+  result = wrapBlock(quote do:
     let cAlign = c_alignof(`arg`)
     let nimAlign = alignof(`arg`)
     if cAlign != nimAlign:
       echo `prefix`, cAlign, " != ", nimAlign
       failed = true
+  )
 
 macro testSize(arg:untyped):untyped =
   let prefix = newLit(arg.lineinfo & "  sizeof " & arg.repr & " ")
-  result = quote do:
+  result = wrapBlock(quote do:
     let cSize = c_sizeof(`arg`)
     let nimSize = sizeof(`arg`)
     if cSize != nimSize:
       echo `prefix`, cSize, " != ", nimSize
       failed = true
+  )
 
 type
   MyEnum {.pure.} = enum

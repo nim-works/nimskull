@@ -222,7 +222,7 @@ proc checkConstructFields(c: PContext, n: PNode,
 
       if discriminatorVal != nil and discriminatorVal.kind != nkError:
         discriminatorVal = discriminatorVal.skipHidden
-        if discriminatorVal.kind notin nkLiterals and (
+        if discriminatorVal.kind notin nkLiterals - nkNilLit and (
             not isOrdinalType(discriminatorVal.typ, true) or
             lengthOrd(c.config, discriminatorVal.typ) > MaxSetElements or
             lengthOrd(c.config, n[0].typ) > MaxSetElements):

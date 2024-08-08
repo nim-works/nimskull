@@ -34,11 +34,8 @@ proc treeRepr*(n: CgNode): string =
       result.add $n.floatVal
     of cnkStrLit:
       result.add "strVal: \""
-      result.add n.strVal
+      result.addInt n.strVal.uint32
       result.add "\""
-    of cnkPragmaStmt:
-      result.add "pragma: "
-      result.add $n.pragma
     of cnkField:
       result.add "field: "
       result.add n.field.name.s
@@ -62,7 +59,8 @@ proc treeRepr*(n: CgNode): string =
     of cnkMagic:
       result.add "magic: "
       result.add $n.magic
-    of cnkEmpty, cnkInvalid, cnkType, cnkAstLit, cnkNilLit, cnkReturnStmt:
+    of cnkEmpty, cnkInvalid, cnkType, cnkAstLit, cnkNilLit,
+       cnkResume:
       discard
     of cnkWithOperand:
       result.add "\n"

@@ -163,7 +163,7 @@ proc loadIntoContext(c: var TCtx, p: PackedEnv) =
   c.allocator.byteType = c.typeInfoCache.charType
 
   mapList(c.globals, p.globals, x):
-    c.heap.heapNew(c.allocator, c.types[x])
+    c.allocator.allocSingleLocation(c.types[x])
 
   mapList(c.complexConsts, p.cconsts, x):
     let
@@ -273,6 +273,7 @@ func vmEventToLegacyReportKind(evt: VmEventKind): ReportKind {.inline.} =
   of vmEvtFieldNotFound: rvmFieldNotFound
   of vmEvtNotAField: rvmNotAField
   of vmEvtFieldUnavailable: rvmFieldInavailable
+  of vmEvtCannotCreateNode: rvmCannotCreateNode
   of vmEvtCannotSetChild: rvmCannotSetChild
   of vmEvtCannotAddChild: rvmCannotAddChild
   of vmEvtCannotGetChild: rvmCannotGetChild

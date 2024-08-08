@@ -6,6 +6,7 @@ SET LINKER=gcc
 SET COMP_FLAGS=?{c.ccompiler.flags}
 SET LINK_FLAGS=?{c.linker.flags}
 SET BIN_DIR=?{firstBinPath(c).toWin}
+SET RSP_FILE=linker_args.rsp
 
 REM Detect gcc arch
 IF DEFINED ARCH (
@@ -21,43 +22,43 @@ ECHO Building with %ARCH% bit %CC%
 
 if NOT EXIST %BIN_DIR%\nul mkdir %BIN_DIR%
 
+if EXIST %RSP_FILE% rm %RSP_FILE%
+
 REM call the compiler:
 
 IF %ARCH% EQU 32 (
 
 #  block win32:
-#    var linkCmd = ""
 #    if cpuIndex32 != -1:
 #      for ff in items(c.cfiles[winIndex][cpuIndex32]):
 #        let f = ff.toWin
   ECHO %CC% %COMP_FLAGS% -Ic_code -c ?{f} -o ?{changeFileExt(f, "o")}
   CALL %CC% %COMP_FLAGS% -Ic_code -c ?{f} -o ?{changeFileExt(f, "o")}
-#        linkCmd.add(" " & changeFileExt(f, "o"))
+  ECHO ?{replace(changeFileExt(f, "o"), "\\", "/")} >> %RSP_FILE%
   IF ERRORLEVEL 1 (GOTO:END)
 #      end for
 #    end if
 
-  ECHO %LINKER% -o ?{"%BIN_DIR%"\toLowerAscii(c.name)}.exe ?linkCmd %LINK_FLAGS%
-  CALL %LINKER% -o ?{"%BIN_DIR%"\toLowerAscii(c.name)}.exe ?linkCmd %LINK_FLAGS%
+  ECHO %LINKER% -o ?{"%BIN_DIR%"\toLowerAscii(c.name)}.exe @%RSP_FILE% %LINK_FLAGS%
+  CALL %LINKER% -o ?{"%BIN_DIR%"\toLowerAscii(c.name)}.exe @%RSP_FILE% %LINK_FLAGS%
 
 #  end block
 
 ) ELSE IF %ARCH% EQU 64 (
 
 #  block win64:
-#    var linkCmd = ""
 #    if cpuIndex64 != -1:
 #      for ff in items(c.cfiles[winIndex][cpuIndex64]):
 #        let f = ff.toWin
   ECHO %CC% %COMP_FLAGS% -Ic_code -c ?{f} -o ?{changeFileExt(f, "o")}
   CALL %CC% %COMP_FLAGS% -Ic_code -c ?{f} -o ?{changeFileExt(f, "o")}
-#        linkCmd.add(" " & changeFileExt(f, "o"))
+  ECHO ?{replace(changeFileExt(f, "o"), "\\", "/")} >> %RSP_FILE%
   IF ERRORLEVEL 1 (GOTO:END)
 #      end for
 #    end if
 
-  ECHO %LINKER% -o ?{"%BIN_DIR%"\toLowerAscii(c.name)}.exe ?linkCmd %LINK_FLAGS%
-  CALL %LINKER% -o ?{"%BIN_DIR%"\toLowerAscii(c.name)}.exe ?linkCmd %LINK_FLAGS%
+  ECHO %LINKER% -o ?{"%BIN_DIR%"\toLowerAscii(c.name)}.exe @%RSP_FILE% %LINK_FLAGS%
+  CALL %LINKER% -o ?{"%BIN_DIR%"\toLowerAscii(c.name)}.exe @%RSP_FILE% %LINK_FLAGS%
 
 #  end block
 )

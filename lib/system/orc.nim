@@ -27,7 +27,7 @@ const
   logOrc = defined(nimArcIds)
 
 type
-  TraceProc = proc (p, env: pointer) {.nimcall, benign.}
+  TraceProc = proc (p, env: pointer) {.nimcall, benign, raises: [], tags: [].}
   DisposeProc = proc (p: pointer) {.nimcall, benign.}
 
 template color(c): untyped = c.rc and colorMask
@@ -472,7 +472,7 @@ proc GC_prepareOrc*(): int {.inline.} = roots.len
 proc GC_partialCollect*(limit: int) =
   partialCollect(limit)
 
-proc GC_fullCollect* =
+proc GC_fullCollect*() {.raises: [].} =
   ## Forces a full garbage collection pass. With `--gc:orc` triggers the cycle
   ## collector. This is an alias for `GC_runOrc`.
   collectCycles()

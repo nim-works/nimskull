@@ -5421,7 +5421,7 @@ Templates
 
 A template is a form of metaprogramming: a template call evaluates to a
 |Nimskull| abstract syntax tree that is substituted in place of the call. The
-evaluation and substitution is done during semantic pass of the compiler.
+evaluation and substitution is done during the semantic pass of the compiler.
 
 The syntax to *invoke* a template is the same as calling a procedure.
 
@@ -5441,8 +5441,8 @@ templates:
 | `a in b` is transformed into `contains(b, a)`.
 | `notin` and `isnot` have the obvious meanings.
 
-The "types" of templates can be the symbols `untyped`, `typed` or `typedesc`.
-These are "meta types", they can only be used in certain contexts. Regular
+The "types" of templates can be the symbols `untyped`, `typed` or `typedesc`,
+these are "meta types" and can only be used in certain contexts. Regular
 types can be used too; this implies that `typed` expressions are expected.
 
 **Future directions**: the output type of a template is the output type of the
@@ -5450,10 +5450,10 @@ template body, which itself can be thought of as an out parameter. Templates
 will be classified into two major categories AST output (`untyped` and `typed`)
 and expression based (other types). Along with substitution positions (see
 below) template evaluation will be revised as follows:
-- `untyped` template: allow `typed` and `untyped` params in defining or
-  using positions; and all other params only in using positions
-- `typed` template: allow `typed` and `untyped` params in defining or using
-  positions; and all other params only in using positions
+- `untyped` template: allow `untyped` parameters in defining or using
+  positions; and all other parameters only in using positions
+- `typed` template: allow `untyped` parameters in defining or using positions;
+  and all other parameters only in using positions
 - non-ast template: only allow substitution in the using positions
 The above direction describes the nuance that will be incorporated into a
 broader redesign of how templates work in |Nimskull|.
@@ -5495,9 +5495,8 @@ performed before the expression is passed to the template. This allows
 
   declareInt(x) # invalid, because x has not been declared and so it has no type
 
-`typed` and `untyped` parameters may appear in defining or using symbol
-positions, while all other parameters are only substituted for using symbol
-positions.
+`untyped` parameters may appear in defining or using symbol positions, while
+all other parameters are only substituted for using symbol positions.
 
 A template where every parameter is `untyped` is called an `immediate`:idx:
 template. For historical reasons, templates can be explicitly annotated with
@@ -5731,41 +5730,6 @@ no semantics outside of a template definition and cannot be abstracted over:
 
 To get rid of hygiene in templates, one can use the `dirty`:idx: pragma for
 a template. `inject` and `gensym` have no effect in `dirty` templates.
-
-`gensym`'ed symbols cannot be used as `field` in the `x.field` syntax.
-Nor can they be used in the `ObjectConstruction(field: value)`
-and `namedParameterCall(field = value)` syntactic constructs.
-
-The reason for this is that code like
-
-.. code-block:: nim
-    :test: "nim c $1"
-
-  type
-    T = object
-      f: int
-
-  template tmp(x: T) =
-    let f = 34
-    echo x.f, T(f: 4)
-
-
-should work as expected.
-
-However, this means that the method call syntax is not available for
-`gensym`'ed symbols:
-
-.. code-block:: nim
-    :test: "nim c $1"
-    :status: 1
-
-  template tmp(x) =
-    type
-      T {.gensym.} = int
-
-    echo x.T # invalid: instead use:  'echo T(x)'.
-
-  tmp(12)
 
 
 
@@ -6595,47 +6559,8 @@ If the `line` pragma is used with a parameter, the parameter needs be a
 
 computedGoto pragma
 -------------------
-The `computedGoto` pragma can be used to tell the compiler how to
-compile a Nim `case`:idx: in a `while true` statement.
-Syntactically it has to be used as a statement inside the loop:
-
-.. code-block:: nim
-
-  type
-    MyEnum = enum
-      enumA, enumB, enumC, enumD, enumE
-
-  proc vm() =
-    var instructions: array[0..100, MyEnum]
-    instructions[2] = enumC
-    instructions[3] = enumD
-    instructions[4] = enumA
-    instructions[5] = enumD
-    instructions[6] = enumC
-    instructions[7] = enumA
-    instructions[8] = enumB
-
-    instructions[12] = enumE
-    var pc = 0
-    while true:
-      {.computedGoto.}
-      let instr = instructions[pc]
-      case instr
-      of enumA:
-        echo "yeah A"
-      of enumC, enumD:
-        echo "yeah CD"
-      of enumB:
-        echo "yeah B"
-      of enumE:
-        break
-      inc(pc)
-
-  vm()
-
-As the example shows, `computedGoto` is mostly useful for interpreters. If
-the underlying backend (C compiler) does not support the computed goto
-extension the pragma is simply ignored.
+The `computedGoto` pragma is kept for backwards compatibility. It can be used
+in pragma statements, but has no effect.
 
 
 immediate pragma

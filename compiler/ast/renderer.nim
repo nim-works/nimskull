@@ -633,14 +633,14 @@ proc longMode(g: TSrcGen; n: PNode, start: int = 0, theEnd: int = - 1): bool =
 
 proc gstmts(g: var TSrcGen, n: PNode, c: TContext, doIndent=true) =
   if n.kind == nkEmpty: return
-  if n.kind in {nkStmtList, nkStmtListExpr, nkStmtListType}:
+  if n.kind in {nkStmtList, nkStmtListExpr}:
     if doIndent: indentNL(g)
     for i in 0..<n.len:
       if i > 0:
         optNL(g, n[i-1], n[i])
       else:
         optNL(g)
-      if n[i].kind in {nkStmtList, nkStmtListExpr, nkStmtListType}:
+      if n[i].kind in {nkStmtList, nkStmtListExpr}:
         gstmts(g, n[i], c, doIndent=false)
       else:
         gsub(g, n[i], fromStmtList = true)
@@ -958,9 +958,13 @@ proc infixArgument(g: var TSrcGen, n: PNode, i: int) =
   if needsParenthesis:
     put(g, tkParRi, ")")
 
-proc isCustomLit(n: PNode): bool =
+proc isCustomLit(n: PNode, g: TSrcGen): bool =
   if n.len == 2 and n[0].kind == nkRStrLit:
-    let ident = n[1].getPIdent
+    let ident =
+      if n[1].kind in nkSymChoices:
+        getPIdent(n[1][0])
+      else:
+        getPIdent(n[1])
     result = ident != nil and ident.s.startsWith('\'')
 
 proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
@@ -1187,7 +1191,7 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
     gcomma(g, n, c)
     put(g, tkBracketRi, "]")
   of nkDotExpr:
-    if isCustomLit(n):
+    if isCustomLit(n, g):
       put(g, tkCustomLit, n[0].strVal)
       gsub(g, n, 1)
     else:
@@ -1421,7 +1425,7 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
     put(g, tkSpaces, Space)
     putWithSpace(g, tkEquals, "=")
     gsub(g, n, 1)
-  of nkStmtList, nkStmtListExpr, nkStmtListType:
+  of nkStmtList, nkStmtListExpr:
     if n.len == 1 and n[0].kind == nkDiscardStmt:
       put(g, tkParLe, "(")
       gsub(g, n[0])
@@ -1654,7 +1658,7 @@ proc renderTree*(n: PNode, renderFlags: TRenderFlags = {}): string =
   # do not indent the initial statement list so that
   # writeFile("file.nim", repr n)
   # produces working Nim code:
-  if n.kind in {nkStmtList, nkStmtListExpr, nkStmtListType}:
+  if n.kind in {nkStmtList, nkStmtListExpr}:
     gstmts(g, n, emptyContext, doIndent = false)
   else:
     gsub(g, n)

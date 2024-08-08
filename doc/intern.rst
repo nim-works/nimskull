@@ -250,7 +250,7 @@ The new runtime is active `when defined(nimV2)`.
 Coding Guidelines
 =================
 
-* We follow |NimSkull|'s official style guide, see `<nep1.html>`_.
+* We follow |NimSkull|'s official style guide, see `<style_guide.html>`_.
 * Max line length is 100 characters.
 * Provide spaces around binary operators if that enhances readability.
 * Use a space after a colon, but not before it.

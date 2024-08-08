@@ -19,6 +19,20 @@ type
     ## integer-like ID. The container is append-only
     data: seq[T]
 
+  PartialStore*[I; T] = object
+    ## Used for adding items to an existing `Store <#Store>`_ without directly
+    ## modifying said object nor requiring access to it.
+    ##
+    ## The usual usage pattern is:
+    ## 1. fork a partial store from a `Store <#Store>`_ object
+    ## 2. add items to the partial store
+    ## 3. once done, join the partial store with the store it was forked from
+    ##
+    ## It's also legal to add items to a partial store that wasn't forked from
+    ## a store. In this case, it can only be joined into empty stores.
+    data: seq[T]
+    base: I
+
   Checkpoint* = distinct int
     ## Represents the state of a ``Store`` at some point in time.
 
@@ -159,6 +173,31 @@ func rewind*(s: var Store, p: Checkpoint) =
   ## to items already existing when `p` was created are not reverted.
   assert p.int <= s.data.len, "illegal rewind"
   s.data.setLen(p.int)
+
+# ---------- PartialStore API -----------
+
+func fork*[I;T](s: Store[I, T]): PartialStore[I, T] =
+  ## Creates a new partial table that can later be joined back (via
+  ## `join <#join,Store,PartialStore>`_) into `s`.
+  PartialStore[I, T](base: nextId(s))
+
+func add*[I;T](s: var PartialStore[I, T], item: sink T): I =
+  ## Adds `item` to `s`, returning the ID to later query it with.
+  s.data.add(item)
+  result = I(ord(s.data.high) + ord(s.base))
+
+func `[]`*[I;T](s: PartialStore[I, T], id: I): lent T {.inline.} =
+  ## Returns the item associated with `id`.
+  s.data[ord(id) - ord(s.base)]
+
+func join*[I;T](s: var Store[I, T], other: sink PartialStore[I, T]) =
+  ## Adds all items from `other` to `s`. `s` has to have the same number of
+  ## items it had when `other` was forked from it.
+  assert s.nextId() == other.base, "containers are out of sync"
+  let offset = s.data.len
+  s.data.setLen(offset + other.data.len)
+  for i, it in other.data.mpairs:
+    s.data[offset + i] = move it
 
 # ---------- OrdinalSeq API ------------
 

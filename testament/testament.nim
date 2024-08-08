@@ -316,7 +316,7 @@ proc verboseCmd(cmd: string) =
 
 let
   pegLineError =
-    peg"{[^(]*} '(' {\d+} ', ' {\d+} ') ' ('Error') ':' \s* {.*}"
+    peg"{[^(]*} '(' {\d+} ', ' {\d+} ') ' ('Error' / 'Fatal') ':' \s* {.*}"
   pegOtherError = peg"'Error:' \s* {.*}"
   pegOfInterest = pegLineError / pegOtherError
 
@@ -1146,6 +1146,9 @@ proc computeEarly(spec: TSpec, inCurrentBatch: bool): TResultEnum =
     reDisabled
   else:
     reSuccess
+
+proc computeEarly(test: TTest): TResultEnum {.inline.} =
+  computeEarly(test.spec, test.inCurrentBatch)
 
 proc produceRuns(r: var TResults, test: TTest, early: TResultEnum,
                   runs: var seq[TestRun]) =

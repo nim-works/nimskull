@@ -141,6 +141,7 @@ func `==`(a, b: Instr): bool =
 
   result =
     case a.op
+    of opNone:                 true
     of opFork, opGoto, opLoop: a.dest == b.dest
     of opJoin:                 a.id == b.id
     of DataFlowOps:            a.node == b.node
@@ -165,36 +166,12 @@ func `==`(a, b: DataFlowGraph): bool =
         a.map[an.dest] == b.map[bn.dest]
       of opJoin:
         a.map[an.id] == b.map[bn.id]
-      of DataFlowOps:
+      of opNone, DataFlowOps:
         true
 
     if not result:
       return
 
-
-# -------------- CFG creation tests
-
-block:
-  # test CFG creation for ``while true: break``
-  let tree = @[
-    MirNode(kind: mnkStmtList),
-    MirNode(kind: mnkBlock, label: LabelId(0)),
-    MirNode(kind: mnkRepeat),
-    MirNode(kind: mnkBreak, label: LabelId(0)),
-    MirNode(kind: mnkEnd, start: mnkRepeat),
-    MirNode(kind: mnkEnd, start: mnkBlock),
-    MirNode(kind: mnkReturn),
-    MirNode(kind: mnkEnd, start: mnkStmtList)]
-  let cfg = computeDfg(tree)
-
-  doAssert cfg == parseCfg("""
-    0: join -> 2
-    goto 1  -> 3
-    loop 0  -> 4
-    1: join -> 5
-    goto 2  -> 6
-    2: join -> 8
-  """)
 
 # -------------- test for the traversal routines
 

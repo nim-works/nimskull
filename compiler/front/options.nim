@@ -187,6 +187,15 @@ type
              ## argument
     pimFile  ## the main module is a file
 
+  IrName* = enum
+    ## Names of the IRs that can be rendered to the standard output for
+    ## debugging purposes.
+    irTransf = "transf"
+    irMirIn  = "mir_in"
+    irMirOut = "mir_out"
+    irCgir   = "cgir"
+    irVm     = "vm"
+
   ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
 
   HackController* = object
@@ -308,6 +317,13 @@ type
     when defined(nimDebugUtils):
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
       ## len is also used for output indent level
+
+    toDebugProc*: StringTableRef
+      ## maps identifiers to the name of the IR to print to the standard
+      ## output
+    toDebugIr*: set[IrName]
+      ## the IRs which should always be always printed to the standard
+      ## output
 
     when defined(nimDebugUnreportedErrors):
       unreportedErrors*: OrderedTable[NodeId, PNode]
@@ -598,16 +614,6 @@ template report*[R: ReportTypes](
   ## Write out new report, updating it's location info using `tinfo` and
   ## it's instantiation info with `instantiationInfo()` of the template.
   report(conf, wrap(inReport, instLoc(), tinfo))
-
-# REFACTOR: we shouldn't need to dig into the internalReport and query severity
-#           directly
-from compiler/ast/reports_internal import severity
-
-func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
-  ## Check if report stores fatal compilation error
-  report.category == repInternal and
-  report.internalReport.severity() == rsevFatal or
-  report.kind == rextCmdRequiresFile
 
 func severity*(conf: ConfigRef, report: ReportTypes | Report): ReportSeverity =
   # style checking is a hint by default, but can be globally overriden to
@@ -903,6 +909,7 @@ proc initConfigRefCommon(conf: ConfigRef) =
   conf.notes = NotesVerbosity.main[conf.verbosity]
   conf.hack = defaultHackController
   conf.mainPackageNotes = NotesVerbosity.main[conf.verbosity]
+  conf.toDebugProc = newStringTable(modeStyleInsensitive)
   when defined(nimDebugUtils):
     # ensures that `nimDebugUtils` is defined for the compiled code so it can
     # access the `system.nimCompilerDebugRegion` template
@@ -1300,6 +1307,19 @@ proc completeGeneratedFilePath*(conf: ConfigRef; f: AbsoluteFile,
   result = subdir / RelativeFile f.string.splitPath.tail
   #echo "completeGeneratedFilePath(", f, ") = ", result
 
+proc completeGeneratedExtFilePath*(conf: ConfigRef, f: AbsoluteFile
+                                  ): AbsoluteFile =
+  ## Returns the absolute file path within the cache directory for file `f`.
+  ## This procedure is meant to be used for external files with names not
+  ## controlled by the compiler -- a sub-directory is used to prevent
+  ## collisions.
+  let subdir = getNimcacheDir(conf.active) / RelativeDir("external")
+  try:
+    createDir(subdir.string)
+  except OSError:
+    conf.quitOrRaise "cannot create directory: " & subdir.string
+  result = subdir / RelativeFile(f.string.splitPath.tail)
+
 proc toRodFile*(conf: ConfigRef; f: AbsoluteFile; ext = RodExt): AbsoluteFile =
   result = changeFileExt(completeGeneratedFilePath(conf,
     withPackageName(conf, f)), ext)
@@ -1576,3 +1596,8 @@ func inDebug*(conf: ConfigRef): bool {.
   noSideEffect.} =
   ## Check whether 'nim compiler debug' is defined right now.
   return conf.isDefined("nimCompilerDebug")
+
+template isDebugEnabled*(c: ConfigRef, ir: IrName, name: string): bool =
+  ## Whether printing the `ir` IR is enabled specifically for the given `name`.
+  # a template is used so that `$ir` can be folded when `ir` is constant
+  c.toDebugProc.getOrDefault(name) == $ir

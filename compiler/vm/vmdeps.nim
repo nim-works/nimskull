@@ -159,17 +159,13 @@ proc mapTypeToAstX(cache: IdentCache; t: PType; info: TLineInfo;
     for i in 0..<t.len:
       result.add mapTypeToAst(t[i], info)
   of tyGenericInst:
-    if inst:
-      if allowRecursion:
-        result = mapTypeToAstR(t.lastSon, info)
-      else:
-        result = newNodeX(nkBracketExpr)
-        #result.add mapTypeToAst(t.lastSon, info)
-        result.add mapTypeToAst(t[0], info)
-        for i in 1..<t.len-1:
-          result.add mapTypeToAst(t[i], info)
+    if inst and allowRecursion:
+      result = mapTypeToAstR(t.lastSon, info)
     else:
-      result = mapTypeToAstX(cache, t.lastSon, info, idgen, inst, allowRecursion)
+      result = newNodeX(nkBracketExpr)
+      result.add mapTypeToAst(t[0], info)
+      for i in 1..<t.len-1:
+        result.add mapTypeToAst(t[i], info)
   of tyGenericBody:
     if inst:
       result = mapTypeToAstR(t.lastSon, info)
@@ -428,3 +424,13 @@ proc errorReportToString*(c: ConfigRef, error: Report): string =
               # the report, so need to add `"Error: "`
               # manally to stay consistent with the old
               # output.
+
+proc toExceptionAst*(name, msg: sink string): PNode =
+  ## Creates the AST as for an exception object as expected by the report.
+  # TODO: the report should take the two strings directly instead
+  let empty = newNode(nkEmpty)
+  newTree(nkObjConstr,
+          empty, # constructor type; unused
+          empty, # unused
+          newStrNode(nkStrLit, name),
+          newStrNode(nkStrLit, msg))

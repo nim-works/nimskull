@@ -5,12 +5,6 @@ import
   std/[
     hashes
   ],
-  compiler/ast/[
-    ast_query,
-    ast_types,
-    trees,
-    types
-  ],
   compiler/mir/[
     mirtrees
   ],
@@ -35,32 +29,20 @@ func hashTree(tree: ConstrTree): Hash =
   func hash(n: MirNode): Hash {.nimcall.} =
     result = hash(n.kind)
     case n.kind
-    of mnkLiteral:
-      proc hashLit(n: PNode): Hash =
-        case n.kind
-        of nkFloatKinds:
-          # make sure to hash the bit representation, so that NaNs are
-          # accounted for
-          hash(cast[BiggestInt](n.floatVal))
-        of nkStrKinds:
-          hash(n.strVal)
-        of nkIntKinds:
-          hash(n.intVal)
-        of nkNilLit:
-          Hash(0)
-        of nkRange:
-          hashLit(n[0]) !& hashLit(n[1])
-        else:
-          unreachable(n.kind)
-
-      result = result !& hashLit(n.lit)
-    of mnkProc:
+    of mnkIntLit, mnkUIntLit, mnkFloatLit:
+      result = result !& hash(n.number)
+    of mnkStrLit:
+      result = result !& hash(n.strVal)
+    of mnkAstLit:
+      result = result !& hash(n.ast)
+    of mnkProcVal:
       result = result !& hash(n.prc.ord)
-    of mnkObjConstr, mnkConstr:
+    of mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr, mnkTupleConstr,
+       mnkClosureConstr, mnkObjConstr, mnkRefConstr:
       result = result !& hash(n.len)
     of mnkField:
-      result = result !& hash(n.field.id)
-    of mnkArg, mnkEnd:
+      result = result !& hash(n.field)
+    of mnkArg, mnkNilLit, mnkBinding:
       discard
     of AllNodeKinds - ConstrTreeNodes:
       unreachable(n.kind)
@@ -69,9 +51,7 @@ func hashTree(tree: ConstrTree): Hash =
   for _, it in tree.pairs:
     result = result !& hash(it)
 
-  # only hash the kind of the type. This trades more collisions for faster
-  # hashing
-  result = result !& hash(tree[0].typ.kind)
+  result = result !& hash(tree[0].typ)
   result = !$(result)
 
 proc cmp(a, b: ConstrTree): bool =
@@ -81,15 +61,25 @@ proc cmp(a, b: ConstrTree): bool =
       return false # cannot be the same
 
     case a.kind
-    of mnkLiteral:
-      exprStructuralEquivalent(a.lit, b.lit)
-    of mnkProc:
+    of mnkIntLit, mnkUIntLit, mnkFloatLit:
+      a.number == b.number
+    of mnkStrLit:
+      a.strVal == b.strVal
+    of mnkAstLit:
+      a.ast == b.ast
+    of mnkProcVal:
       a.prc == b.prc
-    else:
-      # all other nodes are equal when their kind is the same
-      true
+    of mnkSetConstr, mnkRange, mnkArrayConstr, mnkSeqConstr, mnkTupleConstr,
+       mnkClosureConstr, mnkObjConstr, mnkRefConstr:
+      a.len == b.len
+    of mnkField:
+      a.field == b.field
+    of mnkArg, mnkNilLit, mnkBinding:
+      true # same node kind -> equal nodes
+    of AllNodeKinds - ConstrTreeNodes:
+      unreachable(a.kind)
 
-  if not a[0].typ.sameBackendType(b[0].typ) or a.len != b.len:
+  if a[0].typ != b[0].typ or a.len != b.len:
     # the (backend-)type is different -> not the same constant expressions
     return false
 

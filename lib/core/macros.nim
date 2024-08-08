@@ -47,7 +47,8 @@ template skipEnumValue(define: untyped, predecessor: untyped; gap = 1): untyped 
 
 type
   NimNodeKind* = enum
-    nnkNone, nnkEmpty, nnkIdent, nnkSym,
+    nnkError,  ## erroneous AST node
+    nnkEmpty, nnkIdent, nnkSym,
     nnkType, nnkCharLit, nnkIntLit, nnkInt8Lit,
     nnkInt16Lit, nnkInt32Lit, nnkInt64Lit, nnkUIntLit, nnkUInt8Lit,
     nnkUInt16Lit, nnkUInt32Lit, nnkUInt64Lit, nnkFloatLit,
@@ -92,8 +93,8 @@ type
     nnkIncludeStmt,
     nnkBindStmt, nnkMixinStmt, nnkUsingStmt,
     nnkCommentStmt, nnkStmtListExpr, nnkBlockExpr,
-    nnkStmtListType, nnkBlockType,
-    nnkWith, nnkWithout,
+    nnkWith = skipEnumValue(nimskullNoNkStmtListTypeAndNkBlockType, nnkBlockExpr, 2),
+    nnkWithout,
     nnkTypeOfExpr, nnkObjectTy,
     nnkTupleTy, nnkTupleClassTy, nnkTypeClassTy, nnkStaticTy,
     nnkRecList, nnkRecCase, nnkRecWhen,
@@ -111,8 +112,7 @@ type
     nnkGotoState,
     nnkFuncDef = skipEnumValue(nimHasNkBreakStateNodeRemoved, nnkGotoState, 2),
     nnkTupleConstr,
-    nnkError,  ## erroneous AST node
-    nnkNimNodeLit
+    nnkNimNodeLit = skipEnumValue(nimskullNoNkNone, nnkTupleConstr)
 
   NimNodeKinds* = set[NimNodeKind]
   NimTypeKind* = enum  # some types are no longer used, see ast.nim
@@ -149,9 +149,13 @@ type
 
 const
   nnkLiterals* = {nnkCharLit..nnkNilLit}
+    ## `NimNodeKind`s that represent syntax literals
   nnkCallKinds* = {nnkCall, nnkInfix, nnkPrefix, nnkPostfix, nnkCommand,
                    nnkCallStrLit}
   nnkPragmaCallKinds = {nnkExprColonExpr, nnkCall, nnkCallStrLit}
+  nnkRequireInitKinds* = {nnkError, nnkIdent, nnkSym, nnkType}
+    ## `NimNodeKind`s that require initialization and cannot be created via
+    ## general construction routines e.g. `newNimNode`.
 
 proc `==`*(a, b: NimNode): bool {.magic: "EqNimrodNode", noSideEffect.}
   ## Compare two Nim nodes. Return true if nodes are structurally
@@ -518,7 +522,8 @@ proc quote*(bl: typed, op = "``"): NimNode {.magic: "QuoteAst", noSideEffect.} =
   ## A custom operator interpolation needs accent quoted (``) whenever it resolves
   ## to a symbol.
   ##
-  ## See also `genasts <genasts.html>`_ which avoids some issues with `quote`.
+  ## See also:
+  ## * `genasts <genasts.html>`_
   runnableExamples:
     macro check(ex: untyped) =
       # this is a simplified version of the check macro from the
@@ -586,6 +591,30 @@ proc quote*(bl: typed, op = "``"): NimNode {.magic: "QuoteAst", noSideEffect.} =
         doAssert y &% y == 2 # binary operator => no need to escape
         doAssert y == 3
     bar2()
+
+proc quoteImpl(n: NimNode, args: varargs[NimNode]): NimNode {.compilerproc,
+    compileTime.} =
+  ## Substitutes the placeholders in `n` with the corresponding AST from
+  ## `args`. Invoked by the compiler for implementating ``quote``.
+  proc aux(n: NimNode, args: openArray[NimNode]): NimNode =
+    case n.kind
+    of nnkAccQuoted:
+      if n[0].kind == nnkAccQuoted:
+        result = n[0] # an escaped accquoted tree
+      else:
+        result = args[n[0].intVal] # a placeholder
+    else:
+      result = n
+      for i in 0..<n.len:
+        result[i] = aux(n[i], args)
+
+  result = aux(n, args)
+  # unwrap single-element statement lists:
+  if n.kind == nnkStmtList and n.len == 1:
+    result = n[0]
+
+proc evalToAst*[T](x: T): NimNode {.magic: "EvalToAst".} =
+  ## Leaked implementation detail. **Do not use**.
 
 proc expectKind*(n: NimNode, k: NimNodeKind) =
   ## Checks that `n` is of kind `k`. If this is not the case,
@@ -843,8 +872,6 @@ proc treeTraverse(n: NimNode; res: var string; level = 0; isLisp = false, indent
     res.add(" " & $n.floatVal)
   of nnkStrLit .. nnkTripleStrLit, nnkCommentStmt, nnkIdent, nnkSym:
     res.add(" " & $n.strVal.newLit.repr)
-  of nnkNone:
-    assert false
   elif n.kind in {nnkOpenSymChoice, nnkClosedSymChoice} and collapseSymChoice:
     res.add(" " & $n.len)
     if n.len > 0:
@@ -885,7 +912,7 @@ proc astGenRepr*(n: NimNode): string {.benign.} =
   ## See also `repr`, `treeRepr`, and `lispRepr`.
 
   const
-    NodeKinds = {nnkEmpty, nnkIdent, nnkSym, nnkNone, nnkCommentStmt}
+    NodeKinds = {nnkEmpty, nnkIdent, nnkSym, nnkCommentStmt}
     LitKinds = {nnkCharLit..nnkInt64Lit, nnkFloatLit..nnkFloat64Lit, nnkStrLit..nnkTripleStrLit}
 
   proc traverse(res: var string, level: int, n: NimNode) {.benign.} =
@@ -906,7 +933,6 @@ proc astGenRepr*(n: NimNode): string {.benign.} =
     of nnkFloatLit..nnkFloat64Lit: res.add($n.floatVal)
     of nnkStrLit..nnkTripleStrLit, nnkCommentStmt, nnkIdent, nnkSym:
       res.add(n.strVal.newLit.repr)
-    of nnkNone: assert false
     elif n.kind in {nnkOpenSymChoice, nnkClosedSymChoice} and collapseSymChoice:
       res.add(", # unrepresentable symbols: " & $n.len)
       if n.len > 0:
@@ -1098,7 +1124,7 @@ proc last*(node: NimNode): NimNode = node[node.len-1]
 const
   RoutineNodes* = {nnkProcDef, nnkFuncDef, nnkMethodDef, nnkDo, nnkLambda,
                    nnkIteratorDef, nnkTemplateDef, nnkConverterDef, nnkMacroDef}
-  AtomicNodes* = {nnkNone..nnkNilLit}
+  AtomicNodes* = {nnkEmpty..nnkNilLit}
   CallNodes* = {nnkCall, nnkInfix, nnkPrefix, nnkPostfix, nnkCommand,
     nnkCallStrLit, nnkHiddenCallConv}
 

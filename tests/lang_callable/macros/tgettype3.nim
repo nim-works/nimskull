@@ -27,6 +27,10 @@ proc getTypeName(t: NimNode, skipVar = false): string =
             result = "vec4"
         elif $(t[0]) == "distinct":
             result = getTypeName(t[1], skipVar)
+        # --------- not part of the original test case
+        elif $(t[0]) == "vecBase":
+            result = "vec2"
+        # ---------
     of nnkSym:
         case $t
         of "vecBase": result = getTypeName(getType(t), skipVar)

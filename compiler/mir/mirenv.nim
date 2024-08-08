@@ -12,7 +12,14 @@ import
   ],
   compiler/mir/[
     datatables,
-    mirtrees
+    mirtrees,
+    mirtypes
+  ],
+  compiler/modules/[
+    modulegraphs
+  ],
+  compiler/ic/[
+    bitabs
   ],
   compiler/utils/[
     containers
@@ -39,6 +46,16 @@ type
     globals*:    SymbolTable[GlobalId, PSym]
       ## includes both normal globals and threadvars
     procedures*: SymbolTable[ProcedureId, PSym]
+    types*: TypeEnv
+      ## the type environment
+
+    numbers*: BiTable[BiggestInt]
+      ## all numerical values referenced by the MIR, stored as bit patterns
+    strings*: BiTable[string]
+      ## all string data referenced by the MIR
+    asts*: Store[AstId, PNode]
+      ## all AST fragments referenced by the MIR. No unification is
+      ## performed
 
     bodies*: OrdinalSeq[ConstId, DataId]
       ## associates each user-defined constant with its content
@@ -91,6 +108,9 @@ func checkpoint*[I, T](tab: SymbolTable[I, T]): Checkpoint =
 
 # ------- MirEnv API --------
 
+proc initMirEnv*(g: ModuleGraph): MirEnv =
+  MirEnv(types: initTypeEnv(g))
+
 func `[]`*(env: MirEnv, id: ConstId): lent PSym {.inline.} =
   env.constants.data[id]
 
@@ -102,6 +122,33 @@ func `[]`*(env: MirEnv, id: ProcedureId): lent PSym {.inline.} =
 
 func `[]`*(env: MirEnv, id: DataId): lent ConstrTree {.inline.} =
   env.data[id]
+
+func getInt*(env: MirEnv, id: NumberId): BiggestInt {.inline.} =
+  env.numbers[LitId id]
+
+func getUInt*(env: MirEnv, id: NumberId): BiggestUInt {.inline.} =
+  cast[BiggestUInt](env.numbers[LitId id])
+
+func getFloat*(env: MirEnv, id: NumberId): BiggestFloat {.inline.} =
+  cast[BiggestFloat](env.numbers[LitId id])
+
+func `[]`*(env: MirEnv, id: StringId): lent string {.inline.} =
+  env.strings[LitId id]
+
+func `[]`*(env: MirEnv, id: AstId): lent PNode {.inline.} =
+  env.asts[id]
+
+func getOrIncl*(env: var MirEnv, v: BiggestInt|BiggestUInt|BiggestFloat
+               ): NumberId {.inline.} =
+  ## If not registered already, adds `v` to the environment.
+  NumberId env.numbers.getOrIncl(cast[BiggestInt](v))
+
+func getOrIncl*(env: var MirEnv, str: string): StringId {.inline.} =
+  ## If not registered already, adds `str` to the environment.
+  StringId env.strings.getOrIncl(str)
+
+template `[]`*(env: MirEnv, id: TypeId): PType =
+  env.types[id]
 
 func setData*(env: var MirEnv, id: ConstId, data: DataId) =
   ## Sets the body for the constant identified by `id`.

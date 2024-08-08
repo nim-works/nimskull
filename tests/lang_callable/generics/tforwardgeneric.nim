@@ -35,3 +35,19 @@ block unresolved_generic_param_in_body:
 
   proc forwarded[T]() = # complete the definition
     doAssert ($T) == "int"
+
+# Differing comments must not prevent forward declaration
+template noop(a: untyped): untyped = a
+
+proc comm[T](arg = ( noop (;
+    ## comment
+    true
+  )
+ ) )
+proc comm[T](arg = ( noop (;
+    ## this comment is different
+    true
+  )
+ ) ) = discard
+
+comm[bool](true)

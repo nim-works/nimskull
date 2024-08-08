@@ -30,12 +30,6 @@ import
 
 export GenOption
 
-proc getStrDefine(config: ConfigRef, name: string): string =
-  if config.isDefined(name):
-    result = config.getDefined(name)
-  else:
-    result = ""
-
 template writeBody(config: ConfigRef, header: string, body: untyped) =
   # NOTE: if the debug traces should be kept, they should be properly
   #       integrated into the tracing pipeline
@@ -50,29 +44,36 @@ let reprConfig = block:
   rc.flags.incl trfShowSymKind
   rc
 
-# NOTE: the ``echoX`` are used as a temporary solution for inspecting inputs
-# and outputs in the context of compiler debugging until a more
-# structured/integrated solution is implemented
+template isEnabled(config: ConfigRef, ir: IrName, name: string): bool =
+  # debugging the IR must be enabled globally or locally
+  ir in config.toDebugIr or config.isDebugEnabled(ir, name)
 
 proc echoInput*(config: ConfigRef, owner: PSym, body: PNode) =
   ## If requested via the define, renders the input AST `body` and writes the
   ## result out through ``config.writeLine``.
-  if config.getStrDefine("nimShowMirInput") == owner.name.s:
+  if config.isEnabled(irTransf, owner.name.s):
     writeBody(config, "-- input AST: " & owner.name.s):
       config.writeln(treeRepr(config, body, reprConfig))
 
-proc echoMir*(config: ConfigRef, owner: PSym, body: MirBody) =
+proc echoMir*(config: ConfigRef, owner: PSym, body: MirBody, env: MirEnv) =
   ## If requested via the define, renders the `body` and writes the result out
   ## through ``config.writeln``.
-  if config.getStrDefine("nimShowMir") == owner.name.s:
+  if config.isEnabled(irMirIn, owner.name.s):
     writeBody(config, "-- MIR: " & owner.name.s):
-      config.writeln(treeRepr(body.code))
+      config.writeln(render(body.code, addr env, addr body))
+
+proc echoOutput*(config: ConfigRef, owner: PSym, body: MirBody, env: MirEnv) =
+  ## If enabled, renders the output IR `body` and outputs the result to
+  ## ``config.writeLine``.
+  if config.isEnabled(irMirOut, owner.name.s):
+    writeBody(config, "-- MIR: " & owner.name.s):
+      config.writeln(render(body.code, addr env, addr body))
 
 proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
   ## If requested via the define, renders the output IR `body` and writes the
   ## result out through ``config.writeLine``.
-  if config.getStrDefine("nimShowMirOutput") == owner.name.s:
-    writeBody(config, "-- output AST: " & owner.name.s):
+  if config.isEnabled(irCgir, owner.name.s):
+    writeBody(config, "-- CGIR: " & owner.name.s):
       config.writeln(treeRepr(body.code))
 
 proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
@@ -82,8 +83,8 @@ proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
   echoInput(graph.config, owner, body)
   # step 1: generate a ``MirTree`` from the input AST
   let body = generateCode(graph, env, owner, config, body)
-  echoMir(graph.config, owner, body)
+  echoMir(graph.config, owner, body, env)
 
   # step 2: generate the ``CgNode`` tree
-  result = generateIR(graph, idgen, env, owner, body)
+  result = cgirgen.generateIR(graph, idgen, env, owner, body)
   echoOutput(graph.config, owner, result)

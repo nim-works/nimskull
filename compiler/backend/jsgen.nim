@@ -60,7 +60,8 @@ import
   ],
   compiler/backend/[
     cgir,
-    compat
+    compat,
+    jsflow
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
@@ -113,6 +114,8 @@ type
     typeInfoGenerated: IntSet
     dataGenerated: IntSet
     unique: int    # for temp identifier generation
+    requestArrayConstr: bool
+      ## used for deferring registration of the ``arrayConstr`` proc
 
     names: Table[int, string]
       ## maps a symbol IDs to the symbol's JavaScript name
@@ -140,6 +143,22 @@ type
     typ: PType
     storage: StorageFlags
 
+  BlockKind = enum
+    bkBlock
+    bkTryFinally ## try with attached 'finally'
+    bkTryCatch   ## try with attached 'catch'
+    bkFinally
+    bkCatch
+
+  BlockFlag = enum
+    needsRecover
+    needsEnableFlag
+
+  BlockInfo = object
+    label: BlockId
+    kind: BlockKind
+    flags: set[BlockFlag]
+
   PProc* = ref TProc
   TProc* = object
     prc: PSym
@@ -149,11 +168,17 @@ type
     options: TOptions
     module: BModule
     g: PGlobals
-    beforeRetNeeded: bool
+    lastErrorBackupNeeded: bool
+      ## signals whether the value of ``lastJSError`` needs to be captured
+      ## on procedure entry
     unique: int    # for temp identifier generation
-    blocks: seq[int]
-      ## the stack of enclosing blocks, indexed by ``BlockId``. Each entry
-      ## stores the number to use for the label name
+    blocks: seq[BlockInfo]
+      ## enclosing exception handlers, finallys, and labeled blocks. Used
+      ## for correcting wrong control-flow paths and tracking where the
+      ## current exception needs to be restored
+    numHandlers: int
+      ## number of enclosing 'catch' clauses. The name of the
+      ## exception local is derived from this counter
     extraIndent: int
 
     locals: OrdinalSeq[LocalId, Loc]
@@ -170,6 +195,9 @@ const
     ## magics that are treated like normal procedures by the code
     ## generator
 
+template `$`(x: BlockId): string =
+  $ord(x)
+
 template isFilled(x: string): bool =
   x.len != 0
 
@@ -181,14 +209,8 @@ func analyseIfAddressTaken(n: CgNode, addrTaken: var PackedSet[LocalId]) =
   ## that have their address taken in `addrTaken`.
   proc skipAllConv(n: CgNode): CgNode {.nimcall.} =
     var n {.cursor.} = n
-    while true:
-      case n.kind
-      of cnkLvalueConv, cnkObjDownConv, cnkObjUpConv:
-        n = n.operand
-      of cnkStmtListExpr:
-        n = n[^1]
-      else:
-        break
+    while n.kind in {cnkLvalueConv, cnkObjDownConv, cnkObjUpConv}:
+      n = n.operand
 
     result = n
 
@@ -214,10 +236,13 @@ func analyseIfAddressTaken(n: CgNode, addrTaken: var PackedSet[LocalId]) =
 template config*(p: PProc): ConfigRef = p.module.config
 template env*(p: PProc): untyped = p.g.env
 
+template getString(p: PProc, n: CgNode): string =
+  p.g.env[n.strVal]
+
 proc indentLine(p: PProc, r: Rope): Rope =
-  result = r
-  for i in 0..<p.blocks.len + p.extraIndent:
-    prepend(result, rope"  ")
+  for i in 0..<p.extraIndent:
+    result.add "  "
+  result.add r
 
 template line(p: PProc, added: string) =
   p.body.add(indentLine(p, rope(added)))
@@ -233,9 +258,16 @@ template nested(p, body) =
   body
   dec p.extraIndent
 
-proc newGlobals*(): PGlobals =
-  new(result)
-  result.typeInfoGenerated = initIntSet()
+template startBlock(p: PProc, frmt: FormatStr, args: varargs[Rope]) =
+  lineF(p, frmt, args)
+  inc p.extraIndent
+
+template endBlock(p: PProc, frmt: FormatStr = "}$n", args: varargs[Rope]) =
+  dec p.extraIndent
+  lineF(p, frmt, args)
+
+proc newGlobals*(g: ModuleGraph): PGlobals =
+  PGlobals(env: initMirEnv(g))
 
 proc rdLoc(a: TCompRes): Rope {.inline.} =
   if a.typ != etyBaseIndex:
@@ -246,7 +278,6 @@ proc rdLoc(a: TCompRes): Rope {.inline.} =
 proc newProc(globals: PGlobals, module: BModule, prc: PSym,
              options: TOptions): PProc =
   result = PProc(
-    blocks: @[],
     options: options,
     module: module,
     prc: prc,
@@ -538,7 +569,7 @@ proc arithAux(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
     xLoc,yLoc: Rope
 
   useMagic(p, jsMagics[op])
-  if n.len > 2:
+  if numArgs(n) == 2:
     gen(p, n[1], x)
     gen(p, n[2], y)
     xLoc = x.rdLoc
@@ -666,110 +697,131 @@ proc genLineDir(p: PProc, n: CgNode) =
   if hasFrameInfo(p):
     lineF(p, "F.line = $1;$n", [rope(line)])
 
-proc genRepeatStmt(p: PProc, n: CgNode) =
-  internalAssert p.config, isEmptyType(n.typ)
-  genLineDir(p, n)
-  lineF(p, "while (true) {$n")
-  p.nested: genStmt(p, n[0])
-  lineF(p, "}$n")
+proc handleJump(p: PProc, n: CgNode, fromError: bool): seq[BlockId] =
+  ## Makes sure the control-flow described by jump action description `n`
+  ## matches the actual JavaScript control-flow. If catch or finally
+  ## sections would be entered that shouldn't be, they're flagged as
+  ## requiring an "is enabled" guard and a boolean local is spawned.
+  ##
+  ## Returns the list of sections that need to be disabled.
 
-proc genTry(p: PProc, n: CgNode) =
-  # code to generate:
-  #
-  #  ++excHandler;
-  #  var tmpFramePtr = framePtr;
-  #  try {
-  #    stmts;
-  #    --excHandler;
-  #  } catch (EXCEPTION) {
-  #    var prevJSError = lastJSError; lastJSError = EXCEPTION;
-  #    framePtr = tmpFramePtr;
-  #    --excHandler;
-  #    if (e.typ && e.typ == NTI433 || e.typ == NTI2321) {
-  #      stmts;
-  #    } else if (e.typ && e.typ == NTI32342) {
-  #      stmts;
-  #    } else {
-  #      stmts;
-  #    }
-  #    lastJSError = prevJSError;
-  #  } finally {
-  #    framePtr = tmpFramePtr;
-  #    stmts;
-  #  }
-  genLineDir(p, n)
-  inc(p.unique)
-  var i = 1
-  var catchBranchesExist = n.len > 1 and n[i].kind == cnkExcept
-  if catchBranchesExist:
-    p.body.add("++excHandler;\L")
-  var tmpFramePtr = rope"F"
-  if optStackTrace notin p.options:
-    tmpFramePtr = p.getTemp(true)
-    line(p, tmpFramePtr & " = framePtr;\L")
-  lineF(p, "try {$n", [])
-  genStmt(p, n[0])
-  var generalCatchBranchExists = false
-  if catchBranchesExist:
-    p.body.addf("--excHandler;$n} catch (EXCEPTION) {$n var prevJSError = lastJSError;$n" &
-        " lastJSError = EXCEPTION;$n --excHandler;$n", [])
-    line(p, "framePtr = $1;$n" % [tmpFramePtr])
-  while i < n.len and n[i].kind == cnkExcept:
-    if n[i].len == 1:
-      # general except section:
-      generalCatchBranchExists = true
-      if i > 1: lineF(p, "else {$n", [])
-      genStmt(p, n[i][0])
-      if i > 1: lineF(p, "}$n", [])
-    else:
-      var orExpr = ""
-      var excAlias: CgNode = nil
+  iterator mreverse[T](s: var seq[T]): (int, var T) =
+    for i in countdown(s.high, 0):
+      yield (i, s[i])
 
+  template onMiss(idx: int, b: var BlockInfo) =
+    if b.kind == bkTryFinally or (b.kind == bkTryCatch and fromError):
+      # JavaScript control-flow enters a 'finally' or 'catch' it shouldn't.
+      # The section needs to be disabled; a boolean flag is used for this.
+      # Thanks to `var`, the local can be spawned without regards to
+      # scoping.
+      # XXX: this is not ideal. It would be better if the local is defined
+      #      at the start of the scope, but that's a bit tricky to do at
+      #      the moment
+      if needsEnableFlag notin b.flags:
+        lineF(p, "var Enabled$1_ = true;\L", [$b.label])
+        b.flags.incl needsEnableFlag
+
+      result.add b.label
+
+  case n.kind
+  of cnkLabel:
+    for i, b in mreverse(p.blocks):
+      if n.label == b.label:
+        break # found the target
+      else:
+        onMiss(i, b)
+
+  of cnkTargetList:
+    # marking blocks as having to restore the current exceptions is also done
+    # here
+    var
+      t = 0
+      wasLeave = fromError
+    # ^^ exceptional control-flow could come from within a procedure call, where
+    # an exception handler boundary crossed
+    for i, b in mreverse(p.blocks):
+      wasLeave = wasLeave or n[t].kind == cnkLeave
+      # skip leave actions:
+      while n[t].kind == cnkLeave:
+        inc t
+
+      if n[t].kind == cnkLabel and n[t].label == b.label:
+        inc t
+        if wasLeave:
+          b.flags.incl needsRecover
+          # the next jump target doesn't need to recover the exception,
+          # unless there's another leave action in-between
+          wasLeave = false
+        # stop searching when we reach the end
+        if t >= n.len:
+          break
+      else:
+        onMiss(i, b)
+
+  of cnkCheckedCall:
+    # to reduce conditionals at the callsite
+    result = handleJump(p, n[^1], fromError)
+  else:
+    unreachable()
+
+proc setEnabled(p: PProc, sections: seq[BlockId], val: Rope) =
+  ## Emits code for assigning `val` to the enabled flag of all given
+  ## `sections`.
+  for it in sections.items:
+    # the block/section index is used for the name:
+    lineF(p, "Enabled$1_ = $2;$n", [$it, val])
+
+proc genExcept(p: PProc, n: CgNode) =
+  ## Generates and emits code for an ``cnkExcept`` join point.
+  let id = p.numHandlers # name suffix of the exception variable
+
+  if n.len > 1:
+    # handler with filter
+    var orExpr = ""
+    for i in 1..<n.len - 1:
       useMagic(p, "isObj")
-      for j in 0..<n[i].len - 1:
-        let it = n[i][j]
-        let throwObj = it
+      let throwObj = n[i]
 
-        if it.kind == cnkLocal:
-          excAlias = it
-          # If this is a ``except exc as sym`` branch there must be no following
-          # nodes
-          doAssert orExpr == ""
+      if orExpr != "": orExpr.add("||")
+      # Generate the correct type checking code depending on whether this is a
+      # |NimSkull|-native or a JS-native exception
+      if isImportedException(throwObj.typ, p.config):
+        orExpr.addf("Exception$1_ instanceof $2",
+          [$id, throwObj.typ.sym.extname])
+      else:
+        orExpr.addf("isObj(Exception$1_.m_type, $2)",
+          [$id, genTypeInfo(p, throwObj.typ)])
 
-        if orExpr != "": orExpr.add("||")
-        # Generate the correct type checking code depending on whether this is a
-        # |NimSkull|-native or a JS-native exception
-        if isImportedException(throwObj.typ, p.config):
-          orExpr.addf("lastJSError instanceof $1",
-            [throwObj.typ.sym.extname])
-        else:
-          orExpr.addf("isObj(lastJSError.m_type, $1)",
-               [genTypeInfo(p, throwObj.typ)])
+    # re-throw the exception when it doesn't match the filter
+    lineF(p, "if (!(Exception$1_ && ($2))) {\L",
+          [$id, orExpr])
+    p.nested:
+      # disable the necessary sections before throwing
+      setEnabled(p, handleJump(p, n[^1], fromError=true), "false")
+      lineF(p, "throw Exception$1_;\L", [$id])
+    lineF(p, "}\L")
 
-      if i > 1: line(p, "else ")
-      lineF(p, "if (lastJSError && ($1)) {$n", [orExpr])
-      # If some branch requires a local alias introduce it here. This is needed
-      # since JS cannot do ``catch x as y``.
-      if excAlias != nil:
-        setupLocalLoc(p, excAlias.local, skVar)
-        lineF(p, "var $1 = lastJSError;$n", p.locals[excAlias.local].name)
-      genStmt(p, n[i][^1])
-      lineF(p, "}$n", [])
-    inc(i)
-  if catchBranchesExist:
-    if not generalCatchBranchExists:
-      useMagic(p, "reraiseException")
-      line(p, "else {\L")
-      line(p, "\treraiseException();\L")
-      line(p, "}\L")
-    lineF(p, "lastJSError = prevJSError;$n")
-  line(p, "} finally {\L")
-  line(p, "framePtr = $1;$n" % [tmpFramePtr])
-  if i < n.len and n[i].kind == cnkFinally:
-    genStmt(p, n[i][0])
-  line(p, "}\L")
+    if n[1].kind == cnkLocal:
+      # it's a handler for an imported exception. Setup the local
+      let local = n[1].local
+      setupLocalLoc(p, local, skVar)
+      lineF(p, "var $1 = Exception$2_;$n", [p.locals[local].name, $id])
+
+  else:
+    # catch-all handler
+    discard
+
+  # set the current exception:
+  lineF(p, "lastJSError = Exception$1_;$n", [$id])
+
+  # restore the framePtr (it's incorrect when coming from unwinding)
+  if hasFrameInfo(p):
+    lineF(p, "framePtr = F;$n", [])
 
 proc genRaiseStmt(p: PProc, n: CgNode) =
+  # disable the necessary sections before throwing:
+  setEnabled(p, handleJump(p, n[^1], fromError=true), "false")
   if n[0].kind != cnkEmpty:
     var a: TCompRes
     gen(p, n[0], a)
@@ -788,7 +840,12 @@ func intLiteral(v: Int128, typ: PType): string =
     else:         "true"
   else:           $v
 
-proc genCaseJS(p: PProc, n: CgNode) =
+proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int)
+
+proc genCaseJS(p: PProc, desc: StructDesc, stmts: openArray[CgNode], n: CgNode) =
+  ## Generates and emits the JavaScript code for dispatcher `n`. The branch
+  ## targes may be inlined directly (if safe) -- `desc` and `stmts` are
+  ## required for the inlining. The inlining is a source of call recursion.
   var
     cond: TCompRes
     totalRange = Zero
@@ -820,33 +877,27 @@ proc genCaseJS(p: PProc, n: CgNode) =
           if stringSwitch:
             case e.kind
             of cnkStrLit: lineF(p, "case $1:$n",
-                [makeJSString(e.strVal, false)])
+                [makeJSString(getString(p, e), false)])
             else: internalError(p.config, e.info, "jsgen.genCaseStmt: 2")
           else:
             gen(p, e, cond)
             lineF(p, "case $1:$n", [cond.rdLoc])
-      p.nested:
-        genStmt(p, lastSon(it))
-        lineF(p, "break;$n", [])
     else:
       lineF(p, "default: $n", [])
-      p.nested:
-        genStmt(p, it[0])
-        lineF(p, "break;$n", [])
+
+    let target = it[^1].label
+    p.nested:
+      if target in desc.inline:
+        # inline the code from the jump destination. The block nesting that
+        # would otherwise ensue can be too much for JavaScript engines to
+        # handle (V8 would fail to compile the code, for example)
+        gen(p, desc, stmts, desc.inline[target])
+      else:
+        # cannnot inline; a jump is needed
+        setEnabled(p, handleJump(p, it[^1], fromError=false), "false")
+        lineF(p, "break Label$1;$n", [$target])
+
   lineF(p, "}$n", [])
-
-proc genBlock(p: PProc, n: CgNode) =
-  inc(p.unique)
-  let labl = p.unique
-  lineF(p, "Label$1: {$n", [labl.rope])
-  p.blocks.add labl # push a new block
-  genStmt(p, n[1])
-  p.blocks.setLen(p.blocks.len - 1) # pop the block from the stack
-  lineF(p, "}$n", [labl.rope])
-
-proc genBreakStmt(p: PProc, n: CgNode) =
-  genLineDir(p, n)
-  lineF(p, "break Label$1;$n", [$p.blocks[n[0].label.int]])
 
 proc genAsmOrEmitStmt(p: PProc, n: CgNode) =
   genLineDir(p, n)
@@ -855,7 +906,7 @@ proc genAsmOrEmitStmt(p: PProc, n: CgNode) =
     let it = n[i]
     case it.kind
     of cnkStrLit:
-      p.body.add(it.strVal)
+      p.body.add(getString(p, it))
     of cnkProc, cnkConst, cnkGlobal, cnkLocal:
       # for backwards compatibility we don't deref syms here :-(
       if false:
@@ -881,15 +932,6 @@ proc genAsmOrEmitStmt(p: PProc, n: CgNode) =
       gen(p, it, r)
       p.body.add(r.rdLoc)
   p.body.add "\L"
-
-proc genIf(p: PProc, n: CgNode) =
-  let it = n
-
-  var cond: TCompRes
-  p.nested: gen(p, it[0], cond)
-  lineF(p, "if ($1) {$n", [cond.rdLoc])
-  genStmt(p, it[1])
-  lineF(p, "}$n", [])
 
 proc generateHeader(params: openArray[Loc]): string =
   ## Generates the JavaScript function parameter list for `params`.
@@ -1043,7 +1085,7 @@ proc genFieldCheck(p: PProc, e: CgNode) =
   useMagic(p, "reprDiscriminant") # no need to offset by firstOrd unlike for cgen
   lineF(p, "if ($1[$2]$3undefined) { raiseFieldError2(makeNimstrLit($4), reprDiscriminant($2, $5)); }$n",
     setx.res, val.rdLoc, if invert: ~"!==" else: ~"===",
-    makeJSString(e[4].strVal), genTypeInfo(p, e[2].typ))
+    makeJSString(getString(p, e[4])), genTypeInfo(p, e[2].typ))
 
 proc genArrayAddr(p: PProc, n: CgNode, r: var TCompRes) =
   var
@@ -1145,15 +1187,11 @@ proc genAddr(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkObjUpConv, cnkObjDownConv:
     # object up-/down-conversions are no-ops
     genAddr(p, n.operand, r)
-  of cnkStmtListExpr:
-    for i in 0..<n.len-1:
-      genStmt(p, n[i])
-
-    genAddr(p, n[^1], r)
   else:
     internalError(p.config, n.info, "genAddr: " & $n.kind)
 
 proc accessLoc(s: Loc, r: var TCompRes) =
+    assert s.typ != nil, repr(s)
     let k = mapType(s.typ)
     if k == etyBaseIndex:
       r.typ = etyBaseIndex
@@ -1227,7 +1265,7 @@ proc genArgs(p: PProc, n: CgNode, r: var TCompRes; start=1) =
   assert(typ.len == typ.n.len)
   var emitted = start-1
 
-  for i in start..<n.len:
+  for i in start..<callLen(n):
     let it = n[i]
     var paramType: PNode = nil
     if i < typ.len:
@@ -1247,11 +1285,11 @@ proc genArgs(p: PProc, n: CgNode, r: var TCompRes; start=1) =
 
 proc genOtherArg(p: PProc; n: CgNode; i: int; typ: PType;
                  generated: var int; r: var TCompRes) =
-  if i >= n.len:
+  if i >= callLen(n):
     globalReport(p.config, n.info, semReportCountMismatch(
       rsemExpectedParameterForJsPattern,
       expected = i,
-      got = n.len - 1))
+      got = numArgs(n)))
 
   let it = n[i]
   var paramType: PNode = nil
@@ -1274,7 +1312,7 @@ proc genPatternCall(p: PProc; n: CgNode; pat: string; typ: PType;
     case pat[i]
     of '@':
       var generated = 0
-      for k in j..<n.len:
+      for k in j..<callLen(n):
         if generated > 0: r.res.add(", ")
         genOtherArg(p, n, k, typ, generated, r)
       inc i
@@ -1311,7 +1349,7 @@ proc genInfixCall(p: PProc, n: CgNode, r: var TCompRes) =
       assert(typ.kind == tyProc)
       genPatternCall(p, n, pat, typ, r)
       return
-  if n.len != 1:
+  if numArgs(n) != 0:
     gen(p, n[1], r)
     if r.typ == etyBaseIndex:
       p.config.internalAssert(r.address != "", n.info, "cannot invoke with infix syntax")
@@ -1341,7 +1379,7 @@ proc genEcho(p: PProc, n: CgNode, r: var TCompRes) =
   useMagic(p, "rawEcho")
   r.res.add("rawEcho(")
   # the first argument is a literal type that we don't need
-  for i in 2..<n.len:
+  for i in 2..<callLen(n):
     let it = n[i]
     if it.typ.isCompileTimeOnly: continue
     if i > 2: r.res.add(", ")
@@ -1420,9 +1458,12 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
     if jsTyp.len > 0:
       result = "new $1($2)" % [rope(jsTyp), rope(length)]
     elif length > 32:
-      useMagic(p, "arrayConstr")
-      # XXX: arrayConstr depends on nimCopy. This line shouldn't be necessary.
-      useMagic(p, "nimCopy")
+      if p.prc.isNil:
+        # we're called in a context where registering a new procedure could be
+        # disallowed, so the magic cannot be directly marked as used
+        p.g.requestArrayConstr = true
+      else:
+        useMagic(p, "arrayConstr")
       result = "arrayConstr($1, $2, $3)" % [rope(length),
           createVar(p, e, false), genTypeInfo(p, e)]
     else:
@@ -1485,7 +1526,7 @@ proc setupLocalLoc(p: PProc, id: LocalId, kind: TSymKind; name = "") =
   ## computing the storage flags and a non-empty `name` overrides the
   ## mangled name.
   var loc = Loc(name: mangleName(p.fullBody[id], id),
-                typ: p.fullBody[id].typ,
+                typ: p.env[p.fullBody[id].typ],
                 storage: storage(p.fullBody[id].flags, kind,
                                  id in p.addrTaken))
 
@@ -1567,7 +1608,7 @@ proc genConstant*(g: PGlobals, m: BModule, id: ConstId) =
     var p = newInitProc(g, m)
     #genLineDir(p, c.ast)
     genVarInit(p, c.typ, name, storage,
-               translate(g.env[g.env.dataFor(id)]))
+               translate(g.env[g.env.dataFor(id)], g.env))
     g.constants.add(p.body)
 
   # all constants need a name:
@@ -1696,25 +1737,6 @@ proc genDefault(p: PProc, n: CgNode; r: var TCompRes) =
   else:
     r.res = createVar(p, n.typ, indirect = false)
 
-proc genReset(p: PProc, n: CgNode) =
-  var x: TCompRes
-  useMagic(p, "genericReset")
-  gen(p, n[1], x)
-  if x.typ == etyBaseIndex:
-    lineF(p, "$1 = null, $2 = 0;$n", [x.address, x.res])
-  else:
-    lineF(p, "$1 = genericReset($1, $2);$n", [x.rdLoc,
-                  genTypeInfo(p, n[1].typ)])
-
-proc genMove(p: PProc; n: CgNode; r: var TCompRes) =
-  var a: TCompRes
-  r.kind = resVal
-  r.res = p.getTemp()
-  gen(p, n[1], a)
-  lineF(p, "$1 = $2;$n", [r.rdLoc, a.rdLoc])
-  genReset(p, n)
-  #lineF(p, "$1 = $2;$n", [dest.rdLoc, src.rdLoc])
-
 proc genJSArrayConstr(p: PProc, n: CgNode, r: var TCompRes) =
   var a: TCompRes
   r.res = rope("[")
@@ -1807,14 +1829,9 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mNew: genNew(p, n, r)
   of mChr: gen(p, n[1], r)
   of mArrToSeq:
-    # only array literals doesn't need copy
-    if n[1].kind == cnkArrayConstr:
-      genJSArrayConstr(p, n[1], r)
-    else:
-      var x: TCompRes
-      gen(p, n[1], x)
-      useMagic(p, "nimCopy")
-      r.res = "nimCopy(null, $1, $2)" % [x.rdLoc, genTypeInfo(p, n.typ)]
+    # the argument is guaranteed to be moveable, it can simply be assigned to
+    # the destination
+    gen(p, n[1], r)
   of mDestroy, mTrace: discard "ignore calls to the default destructor"
   of mOrd: genOrd(p, n, r)
   of mLengthStr, mLengthSeq, mLengthOpenArray, mLengthArray:
@@ -1858,7 +1875,6 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mNewSeqOfCap: unaryExpr(p, n, r, "", "[]")
   of mOf: genOf(p, n, r)
   of mDefault: genDefault(p, n, r)
-  of mWasMoved: genReset(p, n)
   of mEcho: genEcho(p, n, r)
   of mNLen..mNError:
     localReport(p.config, n.info, reportSym(
@@ -1872,8 +1888,6 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mParseBiggestFloat:
     useMagic(p, "nimParseBiggestFloat")
     genCall(p, n, r)
-  of mMove:
-    genMove(p, n, r)
   # of mAccessEnv:
   #   unaryExpr(p, n, r, "accessEnv", "accessEnv($1)")
   of mFinished:
@@ -2058,12 +2072,6 @@ proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes) =
     r.res = "chckRange($1, $2, $3)" % [r.res, a.res, b.res]
     r.kind = resExpr
 
-proc genReturnStmt(p: PProc, n: CgNode) =
-  p.config.internalAssert(p.prc != nil, n.info, "genReturnStmt")
-  p.beforeRetNeeded = true
-  genLineDir(p, n)
-  lineF(p, "break BeforeRet;$n", [])
-
 proc frameCreate(p: PProc; procname, filename: Rope): Rope =
   const frameFmt =
     "var F = {procname: $1, prev: framePtr, filename: $2, line: 0};$n"
@@ -2087,15 +2095,23 @@ proc genProcBody(p: PProc, prc: PSym): Rope =
               makeJSString(toFilenameOption(p.config, prc.info.fileIndex, foStacktrace)))
   else:
     result = ""
-  if p.beforeRetNeeded:
-    result.add p.indentLine(~"BeforeRet: {$n")
-    result.add p.body
-    result.add p.indentLine(~"}$n")
-  else:
-    result.add(p.body)
+
+  if p.lastErrorBackupNeeded:
+    result.add(p.indentLine("var Exception0_ = lastJSError;$n" % []))
+
+  result.add(p.body)
   if prc.typ.callConv == ccSysCall:
     result = ("try {$n$1} catch (e) {$n" &
       " alert(\"Unhandled exception:\\n\" + e.message + \"\\n\"$n}") % [result]
+  elif sfModuleInit in prc.flags:
+    # report an unhandled exception when a |NimSkull| exception escapes
+    # module-level code
+    # XXX: this is common logic across all backends; it needs to be handled at
+    #      the MIR level
+    useMagic(p, "unhandledException")
+    result = ("try {$n$1} catch (e) {$n" &
+              "  if (e.m_type !== undefined) { unhandledException(e); }$n" &
+              "  else { throw e; }$n}$n") % [result]
   if hasFrameInfo(p):
     result.add(frameDestroy(p))
 
@@ -2201,25 +2217,193 @@ proc finishProc*(p: PProc): string =
   #if gVerbosity >= 3:
   #  echo "END   generated code for: " & prc.name.s
 
+proc handleRecover(p: PProc, b: BlockInfo) =
+  if needsRecover in b.flags:
+    let nesting = p.numHandlers
+    lineF(p, "lastJSError = Exception$1_;$n", [$nesting])
+    if nesting == 0:
+      # there's no enclosing 'catch'; the value of ``lastJSError`` needs to
+      # be captured on procedure entry
+      p.lastErrorBackupNeeded = true
+
+proc handleSectionStart(p: PProc) =
+  # wrap the section in an 'if' if it can be disabled at run-time (only the
+  # opening is handled here)
+  if needsEnableFlag in p.blocks[^1].flags:
+    # the local is only defined when its first set to false, so it being
+    # undefined is treated as meaning "enabled"
+    startBlock(p, "if (Enabled$1_ === undefined || Enabled$1_) {$n",
+               $p.blocks[^1].label)
+
+proc popBlock(p: PProc) =
+  let blk = p.blocks.pop()
+  case blk.kind
+  of bkBlock:
+    endBlock(p)
+    # restore
+    handleRecover(p, blk)
+  of bkFinally:
+    if needsEnableFlag in blk.flags:
+      # close the wrapper 'if' and re-enable the section
+      endBlock(p, "} else { Enabled$1_ = true; }$n", $blk.label)
+    endBlock(p)
+  of bkCatch:
+    # the counterpart to the opening logic
+    if needsEnableFlag in blk.flags:
+      # close the wrapper 'if', re-enable the section, and re-throw
+      endBlock(p, "} else { Enabled$1_ = true; throw Exception$2_; }$n",
+               [$blk.label, $p.numHandlers])
+    endBlock(p)
+    # release the name:
+    dec p.numHandlers
+  of bkTryCatch, bkTryFinally:
+    discard "nothing to do when exiting these"
+
+proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int) =
+  ## Generates code for `desc` and `stmts` starting at (but not including)
+  ## structure item `start`. Code generation continues until encountering
+  ## the first terminator that's at the same nesting level as the item at
+  ## `start`.
+  var
+    depth = 0
+    i     = start + 1
+
+  template structs: untyped = desc.structs
+
+  template gen(a, b: int) =
+    for i in a..<b:
+      genStmt(p, stmts[i])
+
+  block:
+    # generate code for the statements leading up to the first structure item
+    let
+      first =
+        if start == -1: 0
+        else:           structs[start].stmt
+      next =
+        if structs.len == 0: stmts.len
+        else:                structs[i].stmt
+
+    gen(first, next)
+
+  # code generation is driven by the control-flow constructs. Indentation is
+  # also (mostly) managed here
+  while i < structs.len:
+    let it = desc.structs[i]
+    case it.kind
+    of stkTry:
+      p.blocks.add BlockInfo(label: it.label)
+      p.blocks[^1].kind =
+        if it.label in desc.finallys: bkTryFinally
+        else:                         bkTryCatch
+      startBlock(p, "try {$n", [])
+      gen(it.stmt, structs[i+1].stmt)
+      inc depth
+    of stkBlock:
+      if it.label notin desc.inline:
+        p.blocks.add BlockInfo(kind: bkBlock, label: it.label)
+        startBlock(p, "Label$1: {$n", [$it.label.int])
+        gen(it.stmt, structs[i+1].stmt)
+      # still increment the depth; it makes handling of the 'end' item easier
+      inc depth
+    of stkStructStart:
+      # indentation is managed by ``genStmt`` here
+      gen(it.stmt, structs[i+1].stmt)
+      inc depth
+    of stkCatch:
+      endBlock(p)
+      p.blocks[^1].kind = bkCatch # replace the try block
+      inc p.numHandlers
+      startBlock(p, "catch(Exception$1_) {$n", [$p.numHandlers])
+      handleSectionStart(p)
+      gen(it.stmt, structs[i+1].stmt)
+    of stkFinally:
+      endBlock(p)
+      startBlock(p, "finally {$n", [])
+      p.blocks[^1].kind = bkFinally # replace the try block
+      handleSectionStart(p)
+      handleRecover(p, p.blocks[^1])
+      gen(it.stmt, structs[i+1].stmt)
+    of stkTerminator:
+      let n = stmts[it.stmt]
+      if n.kind == cnkCaseStmt:
+        genCaseJS(p, desc, stmts, n)
+      else:
+        genStmt(p, n)
+      # the statements immediately following the terminator are dead code,
+      # ignore them
+      if depth == 0:
+        break
+    of stkReturn:
+      lineF(p, "return;$n", [])
+      if depth == 0:
+        break
+    of stkEnd:
+      if it.label in desc.inline:
+        # skip the skip code following the block's end; this code is emitted from
+        # elsewhere
+        let orig = depth
+        while depth >= orig:
+          inc i
+          case structs[i].kind
+          of stkBlock, stkTry, stkStructStart:
+            inc depth
+          of stkEnd:
+            dec depth
+          of stkCatch, stkFinally:
+            discard "decrements and then increments the depth; a no-op"
+          of stkTerminator, stkReturn:
+            # the first terminator at the same level as the 'end' delimits
+            # the inlined section
+            if depth == orig:
+              break
+
+      else:
+        if p.blocks.len > 0 and p.blocks[^1].label == it.label:
+          popBlock(p)
+        else:
+          endBlock(p) # no special handling needed
+        # an 'end' can be the last item in the list
+        gen(it.stmt):
+          if i < structs.high: structs[i+1].stmt
+          else:                stmts.len
+
+      dec depth
+
+    inc i
+
+proc genStmts(p: PProc, stmts: openArray[CgNode]) =
+  let desc = toStructureList(stmts)
+  # we want to generate the statements leading up to the first structure
+  # too, hence -1 as the start
+  gen(p, desc, stmts, -1)
+
+proc handleRequestArrayConstr(g: PGlobals, graph: ModuleGraph) =
+  if g.requestArrayConstr:
+    discard g.env.procedures.add(graph.getCompilerProc("arrayConstr"))
+    g.requestArrayConstr = false
+
 proc genProc*(g: PGlobals, module: BModule, id: ProcedureId,
               body: sink Body): Rope =
+  handleRequestArrayConstr(g, module.graph)
   var p = startProc(g, module, id, body)
-  p.nested: genStmt(p, p.fullBody.code)
+  p.nested: genStmts(p, p.fullBody.code.kids)
   result = finishProc(p)
 
 proc genPartial*(p: PProc, n: CgNode) =
   ## Generates the JavaScript code for `n` and appends the result to `p`. This
   ## is intended for CG IR that wasn't already available when calling
   ## `startProc`.
+  handleRequestArrayConstr(p.g, p.module.graph)
   synchronize(p.locals, p.fullBody.locals)
   analyseIfAddressTaken(p.fullBody.code, p.addrTaken)
-  genStmt(p, n)
+  genStmts(p, n.kids)
 
 proc rdData(p: PProc, data: DataId, typ: PType): TCompRes =
   ## Returns the loc for the `data` of type `typ`. Emits the definition for
   ## `data` if it hasn't been already.
   if not containsOrIncl(p.g.dataGenerated, data.int):
-    let val = gen(p, translate(p.env[data]))
+    let val = gen(p, translate(p.env[data], p.env))
     # emit the definition into the constants section:
     p.g.constants.addf("var Data$1 = $2;$n", [$ord(data), val.res])
 
@@ -2229,8 +2413,20 @@ proc rdData(p: PProc, data: DataId, typ: PType): TCompRes =
 
 proc genStmt(p: PProc, n: CgNode) =
   var r: TCompRes
-  gen(p, n, r)
-  if r.res != "": lineF(p, "$#;$n", [r.res])
+  if n.kind == cnkCheckedCall or (n.kind in {cnkAsgn, cnkFastAsgn, cnkDef} and
+     n[1].kind == cnkCheckedCall):
+    # XXX: somewhat hacky way to handle checked calls
+    let sections = handleJump(p, n[^1], fromError=true)
+    setEnabled(p, sections, "false")
+    gen(p, n, r)
+    if r.res != "": lineF(p, "$#;$n", [r.res])
+    # re-enable the section again. Since disabling sections is uncommon,
+    # this should have less overhead than having to enable the section
+    # prior to *every* relevant jump
+    setEnabled(p, sections, "true")
+  else:
+    gen(p, n, r)
+    if r.res != "": lineF(p, "$#;$n", [r.res])
 
 proc genCast(p: PProc, n: CgNode, r: var TCompRes) =
   var dest = skipTypes(n.typ, abstractVarRange)
@@ -2318,13 +2514,13 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       r.kind = resExpr
   of cnkStrLit:
     if skipTypes(n.typ, abstractVarRange).kind == tyString:
-      if n.strVal.len != 0:
+      if getString(p, n).len != 0:
         useMagic(p, "makeNimstrLit")
-        r.res = "makeNimstrLit($1)" % [makeJSString(n.strVal)]
+        r.res = "makeNimstrLit($1)" % [makeJSString(getString(p, n))]
       else:
         r.res = rope"[]"
     else:
-      r.res = makeJSString(n.strVal, false)
+      r.res = makeJSString(getString(p, n), false)
     r.kind = resExpr
   of cnkFloatLit:
     let f = n.floatVal
@@ -2353,8 +2549,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       genLineDir(p, n)
     if getCalleeMagic(p.g.env, n[0]) != mNone:
       genMagic(p, n, r)
-    elif n[0].kind == cnkProc and sfInfixCall in p.env[n[0].prc].flags and
-        n.len >= 1:
+    elif n[0].kind == cnkProc and sfInfixCall in p.env[n[0].prc].flags:
       genInfixCall(p, n, r)
     else:
       genCall(p, n, r)
@@ -2420,16 +2615,26 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkCast: genCast(p, n, r)
   of cnkEmpty: discard
   of cnkType: r.res = genTypeInfo(p, n.typ)
-  of cnkStmtList:
-    for it in n.items:
-      genStmt(p, it)
-  of cnkBlockStmt: genBlock(p, n)
-  of cnkIfStmt: genIf(p, n)
-  of cnkRepeatStmt: genRepeatStmt(p, n)
   of cnkDef: genDef(p, n)
-  of cnkCaseStmt: genCaseJS(p, n)
-  of cnkReturnStmt: genReturnStmt(p, n)
-  of cnkBreakStmt: genBreakStmt(p, n)
+  of cnkGotoStmt:
+    setEnabled(p, handleJump(p, n[0], fromError=false), "false")
+    # jump directly to the final target. Placement of 'try' blocks made
+    # sure that finally sections are visited correctly
+    lineF(p, "break Label$1;$n", [$finalTarget(n[0]).label])
+  of cnkLoopJoinStmt:
+    startBlock(p, "while (true) {$n")
+  of cnkExcept:
+    # emit an exception handler
+    genExcept(p, n)
+  of cnkIfStmt:
+    genLineDir(p, n)
+    var a: TCompRes
+    gen(p, n[0], a)
+    startBlock(p, "if ($1) {$n", [rdLoc(a)])
+  of cnkFinally:
+    # make sure the frame pointer is correct after unwinding
+    if hasFrameInfo(p):
+      lineF(p, "framePtr = F;$n", [])
   of cnkAsgn: genAsgn(p, n)
   of cnkFastAsgn: genFastAsgn(p, n)
   of cnkVoidStmt:
@@ -2444,11 +2649,12 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
     else:
       lineF(p, "($1);$n", [a.res])
   of cnkAsmStmt, cnkEmitStmt: genAsmOrEmitStmt(p, n)
-  of cnkTryStmt: genTry(p, n)
   of cnkRaiseStmt: genRaiseStmt(p, n)
-  of cnkPragmaStmt: discard
-  of cnkInvalid, cnkMagic, cnkRange, cnkBinding, cnkExcept, cnkFinally,
-     cnkBranch, cnkAstLit, cnkLabel, cnkStmtListExpr, cnkField:
+  of cnkJoinStmt, cnkEnd, cnkLoopStmt, cnkContinueStmt:
+    discard "terminators or endings for which no special handling is needed"
+  of cnkInvalid, cnkMagic, cnkRange, cnkBinding, cnkLeave, cnkTargetList,
+     cnkResume, cnkBranch, cnkAstLit, cnkLabel, cnkStmtList, cnkCaseStmt,
+     cnkField:
     internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =
@@ -2460,7 +2666,6 @@ proc newModule*(g: ModuleGraph; module: PSym): BModule =
 proc genHeader*(): Rope =
   result = rope("""/* Generated by the Nim Compiler v$1 */
     var framePtr = null;
-    var excHandler = 0;
     var lastJSError = null;
   """.unindent.format(VersionAsString))
 
@@ -2470,7 +2675,7 @@ proc genTopLevelStmt*(globals: PGlobals, m: BModule, body: sink Body) =
   p.fullBody = body
   p.unique = globals.unique
   analyseIfAddressTaken(p.fullBody.code, p.addrTaken)
-  genStmt(p, p.fullBody.code)
+  genStmts(p, p.fullBody.code.kids)
   p.g.code.add(p.defs)
   p.g.code.add(p.body)
 

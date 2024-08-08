@@ -11,7 +11,6 @@
 
 import
   std/[
-    hashes,
     intsets,
     tables,
     sets
@@ -26,7 +25,8 @@ import
   ],
   compiler/mir/[
     mirenv,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/modules/[
     modulegraphs
@@ -36,24 +36,13 @@ import
   ],
   compiler/utils/[
     containers,
-    idioms,
     ropes,
     pathutils
   ]
 
+import std/options as std_options
 
 type
-  SymbolMap*[T] = object
-    ## Associates extra location-related data with symbols. This is
-    ## temporary scaffolding until each entity (type, local, procedure,
-    ## etc.) is consistently represented as an index-like handle in the
-    ## code generator, at which point a ``Store`` (or ``SeqMap``) can be
-    ## used directly.
-    ##
-    ## Mapping from a symbol to the associated data currently happens via
-    ## ``TSym.locId``.
-    store: Store[range[0'u32..high(uint32)-1], T]
-
   TLocKind* = enum
     locNone,                  ## no location
     locTemp,                  ## temporary location
@@ -79,7 +68,6 @@ type
     lfEnforceDeref           ## a copyMem is required to dereference if this a
                              ## ptr array due to C array limitations.
                              ## See #1181, #6422, #11171
-    lfPrepareForMutation     ## string location is about to be mutated
     lfWantLvalue             ## on empty locs, signals that a C lvalue is
                              ## expected
 
@@ -94,8 +82,6 @@ type
     name*: string             ## the name of the C function in the generated
                               ## code
     params*: seq[TLoc]        ## the locs of the parameters
-
-  StrNode* = distinct CgNode
 
   TLabel* = Rope              ## for the C generator a label is just a rope
   TCFileSection* = enum       ## the sections a generated C file consists of
@@ -136,15 +122,7 @@ type
   BModule* = ref TCGen
   BProc* = ref TCProc
   TBlock* = object
-    id*: int                  ## the ID of the label; positive means that it
-    blk*: int                 ## the ``BlockId`` + 1 of the block.
-                              ## '0' if the ``TBlock`` doesn't correspond to a
-                              ## ``cnkBlockStmt``
-    label*: Rope              ## generated text for the label
-                              ## nil if label is not used
     sections*: TCProcSections ## the code belonging
-    nestedTryStmts*: int16    ## how many try statements is it nested into
-    nestedExceptStmts*: int16 ## how many except statements is it nested into
     frameLen*: int16
 
   TCProcFlag* = enum
@@ -160,20 +138,17 @@ type
     flags*: set[TCProcFlag]
     lastLineInfo*: TLineInfo  ## to avoid generating excessive 'nimln' statements
     currLineInfo*: TLineInfo  ## AST codegen will make this superfluous
-    nestedTryStmts*: seq[tuple[fin: CgNode, inExcept: bool, label: Natural]]
-                              ## in how many nested try statements we are
-                              ## (the vars must be volatile then)
-                              ## bool is true when are in the except part of a try block
     labels*: Natural          ## for generating unique labels in the C proc
     blocks*: seq[TBlock]      ## nested blocks
     options*: TOptions        ## options that should be used for code
                               ## generation; this is the same as prc.options
                               ## unless prc == nil
     module*: BModule          ## used to prevent excessive parameter passing
-    withinLoop*: int          ## > 0 if we are within a loop
-    withinTryWithExcept*: int ## required for goto based exception handling
-    withinBlockLeaveActions*: int ## complex to explain
     sigConflicts*: CountTable[string]
+
+    specifier*: Option[uint32]
+    # XXX: `specifier` is a hack. Some parts of the code generator manually
+    #      emit gotos, and thus need a label specifier, but they shouldn't
 
     body*: Body               ## the procedure's full body
     locals*: OrdinalSeq[LocalId, TLoc]
@@ -221,7 +196,7 @@ type
       ## the locs for all alive constants of the program
     procs*: SeqMap[ProcedureId, ProcLoc]
       ## the locs for all alive procedure of the program
-    fields*: SymbolMap[string]
+    fields*: Table[FieldId, string]
       ## stores the C name for each field
 
     hooks*: seq[(BModule, ProcedureId)]
@@ -244,24 +219,19 @@ type
     cfilename*: AbsoluteFile  ## filename of the module (including path,
                               ## without extension)
     tmpBase*: Rope            ## base for temp identifier generation
-    typeCache*: TypeCache     ## cache the generated types
-    typeABICache*: HashSet[SigHash] ## cache for ABI checks; reusing typeCache
-                              ## would be ideal but for some reason enums
-                              ## don't seem to get cached so it'd generate
-                              ## 1 ABI check per occurence in code
-    forwTypeCache*: TypeCache ## cache for forward declarations of types
+    typeCache*: Table[TypeId, Rope] ## cache the generated types
+    forwTypeCache*: Table[TypeId, Rope] ## cache for forward declarations of types
     declaredThings*: IntSet   ## things we have declared in this .c file
     declaredProtos*: IntSet   ## prototypes we have declared in this .c file
     headerFiles*: seq[string] ## needed headers to include
     typeInfoMarker*: TypeCache ## needed for generating type information
     typeInfoMarkerV2*: TypeCache
-    typeStack*: TTypeSeq      ## used for type generation
     defaultCache*: Table[SigHash, int]
       ## maps a type hash to the name of a C constant storing the type's
       ## default value
-    strCache*: Table[StrNode, int]
-      ## associates a string node with the label of a C constant generated for
-      ## it
+    strCache*: Table[StringId, int]
+      ## associates a string with the label of the C constant generated
+      ## for it
       ## TODO: strings should be turned into data-only constants (``DataId``)
       ##       during the MIR phase
     dataNames*: Table[DataId, int]
@@ -291,10 +261,6 @@ template consts*(m: BModule): untyped  = m.g.consts
 
 template env*(p: BProc): untyped = p.module.g.env
 
-template fieldName*(p: BProc, field: PSym): string =
-  ## Returns the C name for the given `field`.
-  p.module.fields[field]
-
 template params*(p: BProc): seq[TLoc] =
   ## Returns the mutable list with the locs of `p`'s
   ## parameters.
@@ -319,56 +285,17 @@ proc newProc*(prc: PSym, module: BModule): BProc =
   result.options = if prc != nil: prc.options
                    else: module.config.options
   newSeq(result.blocks, 1)
-  result.nestedTryStmts = @[]
   result.sigConflicts = initCountTable[string]()
 
 proc newModuleList*(g: ModuleGraph): BModuleList =
   BModuleList(typeInfoMarker: initTable[SigHash, tuple[str: Rope, owner: int32]](),
-    config: g.config, graph: g, nimtvDeclared: initIntSet())
+    config: g.config, graph: g, nimtvDeclared: initIntSet(),
+    env: initMirEnv(g))
 
 iterator cgenModules*(g: BModuleList): BModule =
   for m in g.modulesClosed:
     # iterate modules in the order they were closed
     yield m
-
-proc put*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.}  =
-  ## Adds `it` to `m` and registers a mapping between the item and
-  ## `sym`. `sym` must have no mapping registered yet.
-  assert sym.locId == 0, "symbol already registered"
-  sym.locId = uint32(m.store.add(it)) + 1
-
-proc forcePut*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.} =
-  ## Adds `it` to `m` and register a mapping between the item and
-  ## `sym`, overwriting any existing mappings of `sym`.
-  sym.locId = uint32(m.store.add(it)) + 1
-
-func assign*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.}  =
-  ## Sets the value of the item in `m` with which `sym` is associated. This is
-  ## only meant as a workaround.
-  assert sym.locId > 0
-  m.store[sym.locId - 1] = it
-
-func `[]`*[T](m: SymbolMap[T], sym: PSym): lent T {.inline.} =
-  m.store[sym.locId - 1]
-
-func `[]`*[T](m: var SymbolMap[T], sym: PSym): var T {.inline.} =
-  m.store[sym.locId - 1]
-
-func contains*[T](m: SymbolMap[T], sym: PSym): bool {.inline.} =
-  sym.locId > 0 and m.store.nextId().uint32 > sym.locId - 1
-
-iterator items*[T](m: SymbolMap[T]): lent T =
-  for it in m.store.items:
-    yield it
-
-proc `==`(a, b: StrNode): bool =
-  a.CgNode.strVal == b.CgNode.strVal
-
-proc hash(x: StrNode): Hash =
-  hash(x.CgNode.strVal)
-
-proc getOrPut*(t: var Table[StrNode, int], n: CgNode, label: int): int =
-  mgetOrPut(t, StrNode(n), label)
 
 func isFilled*(x: TLoc): bool {.inline.} =
   x.k != locNone

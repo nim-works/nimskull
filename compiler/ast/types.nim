@@ -109,11 +109,11 @@ proc getOrdValue*(n: PNode; onError = high(Int128)): Int128 =
       n.kind
 
   case k
-  of nkCharLit, nkUIntLit..nkUInt64Lit:
+  of nkUIntLiterals:
     # XXX: enable this assert
     #assert n.typ == nil or isUnsigned(n.typ), $n.typ
     toInt128(cast[uint64](n.intVal))
-  of nkIntLit..nkInt64Lit:
+  of nkSIntLiterals:
     # XXX: enable this assert
     #assert n.typ == nil or not isUnsigned(n.typ), $n.typ.kind
     toInt128(n.intVal)
@@ -166,10 +166,10 @@ proc iterOverNode(marker: var IntSet, n: PNode, iter: TTypeIter,
                   closure: RootRef): bool =
   if n != nil:
     case n.kind
-    of nkNone..nkNilLit:
+    of nkWithoutSons:
       # a leaf
       result = iterOverTypeAux(marker, n.typ, iter, closure)
-    else:
+    of nkWithSons:
       for i in 0..<n.len:
         result = iterOverNode(marker, n[i], iter, closure)
         if result: return
@@ -344,9 +344,9 @@ proc canFormAcycleNode(marker: var IntSet, n: PNode, startId: int): bool =
     result = canFormAcycleAux(marker, n.typ, startId)
     if not result:
       case n.kind
-      of nkNone..nkNilLit:
+      of nkWithoutSons:
         discard
-      else:
+      of nkWithSons:
         for i in 0..<n.len:
           result = canFormAcycleNode(marker, n[i], startId)
           if result: return
@@ -395,10 +395,10 @@ proc mutateNode(marker: var IntSet, n: PNode, iter: TTypeMutator,
     result = copyNode(n)
     result.typ = mutateTypeAux(marker, n.typ, iter, closure)
     case n.kind
-    of nkNone..nkNilLit:
+    of nkWithoutSons:
       # a leaf
       discard
-    else:
+    of nkWithSons:
       for i in 0..<n.len:
         result.add mutateNode(marker, n[i], iter, closure)
 
@@ -652,6 +652,10 @@ proc sameTypeOrNil*(a, b: PType, flags: TTypeCmpFlags = {}): bool =
     else: result = sameType(a, b, flags)
 
 proc equalParam(a, b: PSym): TParamsEquality =
+  ## Returns whether parameters `a` and `b` are considered equal.
+  ## Note that this operation is not commutative, so when comparing
+  ## a forward declaration to an implementation, ensure `a` is the
+  ## param from the forward declaration.
   if sameTypeOrNil(a.typ, b.typ, {ExactTypeDescValues}) and
       exprStructuralEquivalent(a.constraint, b.constraint):
     if a.ast == b.ast:
@@ -660,6 +664,8 @@ proc equalParam(a, b: PSym): TParamsEquality =
       if exprStructuralEquivalent(a.ast, b.ast): result = paramsEqual
       else: result = paramsIncompatible
     elif a.ast != nil:
+      # This means default values for parameters don't have to be
+      # repeated when the proc was forward declared
       result = paramsEqual
     elif b.ast != nil:
       result = paramsIncompatible
@@ -1340,6 +1346,19 @@ proc lookupFieldAgain*(ty: PType; field: PSym): PSym =
     ty = ty[0]
   if result == nil: result = field
 
+proc lookupInType*(ty: PType, position: int): PSym =
+  ## Looks up and returns the field with the given `position` in `ty`. Returns
+  ## nil if there's no such field. `ty` is expected to be a fully resolved
+  ## ``object`` or ``ref object``/``ptr object`` type.
+  var ty = ty.skipTypes(skipPtrs + tyUserTypeClasses + tyDistinct)
+  while ty != nil:
+    ty = ty.skipTypes(skipPtrs)
+    assert ty.kind in {tyTuple, tyObject}
+    result = lookupInRecord(ty.n, position)
+    if result != nil:
+      break
+    ty = ty[0]
+
 proc isCharArrayPtr*(t: PType; allowPointerToChar: bool): bool =
   let t = t.skipTypes(abstractInst)
   if t.kind == tyPtr:
@@ -1538,3 +1557,32 @@ proc classifyBackendView*(t: PType): BackendViewKind =
      tyGenericParam, tyForward, tyBuiltInTypeClass, tyCompositeTypeClass,
      tyAnd, tyOr, tyNot, tyAnything, tyFromExpr:
     unreachable()
+
+proc isPassByRef*(conf: ConfigRef; s: PSym, retType: PType): bool =
+  var pt = skipTypes(s.typ, typedescInst)
+  assert skResult != s.kind
+
+  if tfByRef in pt.flags: return true
+  elif tfByCopy in pt.flags: return false
+  case pt.kind
+  of tyObject:
+    if s.typ.sym != nil and sfForward in s.typ.sym.flags:
+      # forwarded objects are *always* passed by pointers for consistency!
+      result = true
+    elif (optByRef in s.options) or (getSize(conf, pt) > conf.target.floatSize * 3):
+      result = true           # requested anyway
+    elif (tfFinal in pt.flags) and (pt[0] == nil):
+      result = false          # no need, because no subtyping possible
+    else:
+      result = true           # ordinary objects are always passed by reference,
+                              # otherwise casting doesn't work
+  of tyTuple:
+    result = (getSize(conf, pt) > conf.target.floatSize*3) or (optByRef in s.options)
+  else:
+    result = false
+
+  # first parameter and return type is 'lent T'? --> use pass by pointer if
+  # not already a pointer-like type
+  if s.position == 0 and retType != nil and retType.kind == tyLent:
+    result = pt.kind notin {tyVar, tyOpenArray, tyVarargs, tyRef, tyPtr,
+                            tyPointer}

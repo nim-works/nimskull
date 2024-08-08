@@ -121,7 +121,7 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point into the JS backend. Generates the code for all modules and
   ## writes it to the output file.
   let
-    globals = newGlobals()
+    globals = newGlobals(graph)
     bconf = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics))
 
   var

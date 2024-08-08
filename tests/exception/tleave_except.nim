@@ -4,7 +4,6 @@ discard """
     (``break``) works and properly clears the current exception.
   '''
   output: "done"
-  knownIssue.js: "The current exception is not properly cleared"
 """
 
 var steps: seq[int]

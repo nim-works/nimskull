@@ -1,5 +1,5 @@
 discard """
-ccodeCheck: "\\i @'NIM_ALIGN(128) NI mylocal1' .*"
+ccodeCheck: "\\i @'NIM_ALIGN(128) NI64 mylocal1' .*"
 labels: "pragma alignment generic"
 description: '''
   . First one is is for Azure. The keyword ``alignof`` only exists in ``c++11``
@@ -36,9 +36,9 @@ proc foobar() =
   doAssert (cast[uint](addr(toplevel3)) and 31) == 0
 
   # test multiple align expressions
-  var mylocal1 {.align(128), align(32).}: int = 123
-  var mylocal2 {.align(128), align(32).}: int = 123
-  var mylocal3 {.align(32), align(128).}: int = 123
+  var mylocal1 {.align(128), align(32).}: int64 = 123
+  var mylocal2 {.align(128), align(32).}: int64 = 123
+  var mylocal3 {.align(32), align(128).}: int64 = 123
 
   doAssert (cast[uint](addr(mylocal1)) and 127) == 0
   doAssert (cast[uint](addr(mylocal2)) and 127) == 0

@@ -40,18 +40,18 @@
 ## Substitution Positions
 ## ----------------------
 ## Templates are ultimately AST level constructs regardless of output type,
-## even they follow the grammar. There are two types of positions in a template
-## body, one is `definition` and the other is `usage`. A `definition` are any
+## they must be valid syntax. There are two types of positions in a template
+## body, one is `definition` and the other is `usage`. A `definition` is any
 ## position where the grammar construct is intended to introduce a new symbol,
 ## i.e.: the name of a routine, including its parameters; names of variables
 ## (`const`, `let`, `var`), and so on. All other sites are `usage` sites, where
-## a symbol of "chunk" of AST might be used.
+## a symbol referring to a "chunk" of AST might be used.
 ## 
 ## This is a draft of subsitution rules:
-## - `untyped` template bodies accept `typed` and `untyped` params in
-##   definition or usage positions; and all other params are usage only
-## - `typed` template bodies accept `typed` and `untyped` params in definition
-##    or usage positions; and all other params are usage only
+## - `untyped` template bodies accept `untyped` params in definition or usage
+##   positions; and all other params are usage only
+## - `typed` template bodies accept `untyped` params in definition or usage
+##   positions; and all other params are usage only
 ## - non-ast template bodies only allow subsitutions within usage positions
 
 discard """
@@ -94,7 +94,7 @@ type
     scClosed, scOpen, scForceOpen
 
 proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
-               isField = false): PNode =
+               noGenSyms = false): PNode =
   var
     a: PSym
     o: TOverloadIter
@@ -112,11 +112,11 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
     # XXX this makes more sense but breaks bootstrapping for now:
     # (s.kind notin routineKinds or s.magic != mNone):
     # for instance 'nextTry' is both in tables.nim and astalgo.nim ...
-    if not(isField and sfGenSym in s.flags):
+    if noGenSyms and sfGenSym in s.flags:
+      result = n
+    else:
       result = newSymNode(s, info)
       markUsed(c, info, s)
-    else:
-      result = n
   else:
     # semantic checking requires a type; `fitNode` deals with it
     # appropriately
@@ -125,7 +125,7 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
     result = newNodeIT(kind, info, newTypeS(tyNone, c))
     a = initOverloadIter(o, c, n)
     while a != nil:
-      if a.kind != skModule and not(isField and sfGenSym in s.flags):
+      if a.kind != skModule and not(noGenSyms and sfGenSym in a.flags):
         incl(a.flags, sfUsed)
         markOwnerModuleAsUsed(c, a)
         result.add newSymNode(a, info)
@@ -215,7 +215,6 @@ type
     owner: PSym
     cursorInBody: bool # only for nimsuggest
     scopeN: int
-    noGenSym: int
     inTemplateHeader: int
 
 proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
@@ -251,15 +250,17 @@ proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
                   expectedKinds: {nkPostfix, nkPragmaExpr, nkIdent,
                                   nkAccQuoted}))
 
+func isTemplParam(c: TemplCtx, s: PSym): bool {.inline.} =
+  ## True if `s` is a parameter symbol of the current template.
+  s.kind == skParam and s.owner == c.owner and sfTemplateParam in s.flags
+
 func isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
   ## True if `n` is a parameter symbol of the current template.
-  n.kind == nkSym and n.sym.kind == skParam and n.sym.owner == c.owner and
-    sfTemplateParam in n.sym.flags
+  n.kind == nkSym and isTemplParam(c, n.sym)
 
 func definitionTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
-  ## True if `n` is an AST typed (`typed`/`untyped`) parameter symbol of the
-  ## current template
-  isTemplParam(c, n) and n.sym.typ.kind in {tyUntyped, tyTyped}
+  ## True if `n` is an `untyped` parameter symbol of the current template.
+  isTemplParam(c, n) and n.sym.typ.kind in {tyUntyped}
 
 proc semTemplBody(c: var TemplCtx, n: PNode): PNode
 
@@ -419,19 +420,13 @@ proc semTemplSymbol(c: PContext, n: PNode, s: PSym; isField: bool): PNode =
         n           # Introduced in this pass! Leave it as an identifier.
   of OverloadableSyms-{skEnumField}:
     result = symChoice(c, n, s, scOpen, isField)
-  of skGenericParam:
-    if isField and sfGenSym in s.flags: result = n
-    else: result = newSymNodeTypeDesc(s, c.idgen, n.info)
+  of skType, skGenericParam:
+    result = newSymNodeTypeDesc(s, c.idgen, n.info)
   of skParam:
     result = n
-  of skType:
-    if isField and sfGenSym in s.flags: result = n
-    else: result = newSymNodeTypeDesc(s, c.idgen, n.info)
   else:
     if s.kind == skEnumField and overloadableEnums in c.features:
       result = symChoice(c, n, s, scOpen, isField)
-    elif isField and sfGenSym in s.flags:
-      result = n
     else:
       result = newSymNode(s, n.info)
     # Issue #12832
@@ -440,6 +435,22 @@ proc semTemplSymbol(c: PContext, n: PNode, s: PSym; isField: bool): PNode =
     # field access (dot expr) will be handled by builtinFieldAccess
     if not isField and {optStyleHint, optStyleError} * c.config.globalOptions != {}:
       styleCheckUse(c.config, n.info, s)
+
+proc templBindSym(c: TemplCtx, s: PSym, n: PNode, isField: bool): PNode =
+  if contains(c.toBind, s.id):
+    result = symChoice(c.c, n, s, scClosed, isField)
+  elif contains(c.toMixin, s.name.id):
+    result = symChoice(c.c, n, s, scForceOpen, isField)
+  elif s.owner == c.owner and sfGenSym in s.flags:
+    # XXX: this is a tremendous hack. Symbol choices cannot contain
+    #      template-introduced gensyms, since gensym'ed symbols are turned
+    #      into identifiers during template evaluation. To at least support
+    #      basic usage of gensyms, they're bound directly. As a consequence,
+    #      overloads part of the definition scope won't be considered
+    incl(s.flags, sfUsed)
+    result = newSymNode(s, n.info)
+  else:
+    result = semTemplSymbol(c.c, n, s, isField)
 
 proc semRoutineInTemplName(c: var TemplCtx, n: PNode): PNode =
   ## Analyses the `namePos` in a routine-like occurring in a template body,
@@ -627,21 +638,12 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
       discard     # result is already set to n
     elif s.isError:
       result = s.ast
+    elif isTemplParam(c, s):
+      incl(s.flags, sfUsed)
+      result = newSymNode(s, n.info)
     else:
-      if s.owner == c.owner and s.kind == skParam and sfTemplateParam in s.flags:
-        incl(s.flags, sfUsed)
-        result = newSymNode(s, n.info)
-      elif contains(c.toBind, s.id):
-        result = symChoice(c.c, n, s, scClosed, c.noGenSym > 0)
-      elif contains(c.toMixin, s.name.id):
-        result = symChoice(c.c, n, s, scForceOpen, c.noGenSym > 0)
-      elif s.owner == c.owner and sfGenSym in s.flags and c.noGenSym == 0:
-        # template tmp[T](x: var seq[T]) =
-        # var yz: T
-        incl(s.flags, sfUsed)
-        result = newSymNode(s, n.info)
-      else:
-        result = semTemplSymbol(c.c, n, s, c.noGenSym > 0)
+      result = templBindSym(c, s, n, isField=false)
+
   of nkBind:
     result = semTemplBody(c, n[0])
   of nkBindStmt:
@@ -649,7 +651,7 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
   of nkMixinStmt:
     if c.scopeN > 0: result = semTemplBodySons(c, n)
     else: result = semMixinStmt(c.c, n, c.toMixin)
-  of nkEmpty, nkSym..nkNilLit:
+  of nkWithoutSons - nkIdent:
     discard
   of nkIfStmt:
     for i in 0..<n.len:
@@ -721,7 +723,7 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
       hasError = true
 
     closeScope(c)
-  of nkBlockStmt, nkBlockExpr, nkBlockType:
+  of nkBlockStmt, nkBlockExpr:
     checkSonsLen(n, 2, c.c.config)
     openScope(c)
     case n[0].kind
@@ -907,47 +909,76 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     # so we use the generic code for nkDotExpr too
     let s = qualifiedLookUp(c.c, n, {})
 
-    if s.isNil:
-      discard
-    elif s.isError:
-      result = s.ast
-    else:
-      # do not symchoice a quoted template parameter (bug #2390):
-      if s.owner == c.owner and s.kind == skParam and
-          n.kind == nkAccQuoted and n.len == 1:
+    if s != nil:
+      if isTemplParam(c, s):
         incl(s.flags, sfUsed)
-        return newSymNode(s, n.info)
+        result = newSymNode(s, n.info)
+      elif s.isError:
+        result = s.ast
       elif contains(c.toBind, s.id):
-        return symChoice(c.c, n, s, scClosed, c.noGenSym > 0)
+        result = symChoice(c.c, n, s, scClosed)
       elif contains(c.toMixin, s.name.id):
-        return symChoice(c.c, n, s, scForceOpen, c.noGenSym > 0)
+        result = symChoice(c.c, n, s, scForceOpen)
       else:
-        return symChoice(c.c, n, s, scOpen, c.noGenSym > 0)
+        # FIXME: ``semTemplSymbol`` needs to be used here to ensure correct
+        #        typing for type symbols
+        result = symChoice(c.c, n, s, scOpen)
 
-    case n.kind
-    of nkDotExpr:
-      result = n
-
+    elif n.kind == nkDotExpr:
+      # a normal dot expression
       result[0] = semTemplBody(c, n[0])
-      
-      inc c.noGenSym
-      result[1] = semTemplBody(c, n[1])
-      dec c.noGenSym
+      var
+        iter: TOverloadIter
+        s = initOverloadIter(iter, c.c, n[1])
 
-      if nkError in {result[0].kind, result[1].kind}:
-        result = c.c.config.wrapError(result)
-    of nkAccQuoted:
-      result = semTemplBodySons(c, n)
+      block resolve:
+        # only routines and types are eligible for the right-hand side, look
+        # for such a symbol:
+        while s != nil:
+          if s.isError:
+            localReport(c.c.config, s.ast)
+          elif isTemplParam(c, s):
+            # template parameters are bound eagerly
+            incl(s.flags, sfUsed)
+            result[1] = newSymNode(s, n[1].info)
+            break resolve
+          elif s.kind in routineKinds + {skType, skGenericParam}:
+            break # found a symbol that fits
+          s = nextOverloadIter(iter, c.c, n[1])
+
+        if s != nil:
+          var field = templBindSym(c, s, n[1], isField=true)
+          if field.kind == nkSym and sfGenSym notin field.sym.flags and
+             field.sym.kind in OverloadableSyms:
+            # ``semexprs.dotTransformation`` ignores single symbols, so we
+            # need to wrap the symbol in a sym-choice, to preserve the bound
+            # symbol
+            field = newTreeIT(nkOpenSymChoice, n[1].info,
+                              newTypeS(tyNone, c.c), field)
+            # XXX: should be a closed symbol choice, like it works for
+            #      generics, but code relies on the symbol being open...
+            # XXX: ``dotTransformation`` should not ignore symbols in the
+            #      first place
+
+          result[1] = field
+
+      hasError = nkError in {result[0].kind, result[1].kind}:
     else:
-      unreachable("should never have gotten here")
+      # a quoted identifier or identifier construction
+      result = semTemplBodySons(c, n)
+
   of nkExprColonExpr, nkExprEqExpr:
-    if n.len == 2:
-      inc c.noGenSym
-      result[0] = semTemplBody(c, n[0])
-      dec c.noGenSym
-      result[1] = semTemplBody(c, n[1])
-    else:
-      result = semTemplBodySons(c, n)
+    let s = qualifiedLookUp(c.c, n[0], {})
+    # template parameters can be substituted into the name position of a
+    # ``a: b`` or ``a = b`` construct
+    if s != nil and isTemplParam(c, s):
+      result[0] = newSymNode(s, n[0].info)
+    elif n[0].kind == nkAccQuoted and n[0].len > 1:
+      # make sure to also process identifier constructions
+      result[0] = semTemplBody(c, n[1])
+
+    result[1] = semTemplBody(c, n[1])
+    hasError = nkError in {result[0].kind, result[1].kind}
   of nkTableConstr:
     # also transform the keys (bug #12595)
     for i in 0..<n.len:
@@ -955,8 +986,6 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
 
       if result[i].isError:
         hasError = true
-  of nkError, nkCommentStmt:
-    result = n
   else:
     result = semTemplBodySons(c, n)
   
@@ -1010,7 +1039,7 @@ proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode =
     result = semTemplBodyDirty(c, n[0])
   of nkBindStmt:
     result = semBindStmt(c.c, n, c.toBind)
-  of nkEmpty, nkSym..nkNilLit, nkError, nkCommentStmt:
+  of nkWithoutSons - nkIdent:
     discard
   of nkDotExpr, nkAccQuoted:
     # dotExpr is ambiguous: note that we explicitly allow 'x.TemplateParam',
@@ -1221,7 +1250,7 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
           # more flexibility
   of nkBindStmt:
     result = semBindStmt(c.c, n, c.toBind)
-  of nkEmpty, nkSym..nkNilLit:
+  of nkWithoutSons - nkIdent:
     discard
   of nkCurlyExpr:
     # we support '(pattern){x}' to bind a subpattern to a parameter 'x';

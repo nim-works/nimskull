@@ -9,15 +9,20 @@ import
   ],
   compiler/ast/[
     ast_types,
-    lineinfos,
-    wordrecg
+    lineinfos
   ],
   compiler/mir/[
+    mirbodies,
     mirtrees
   ],
   compiler/utils/[
     containers
   ]
+
+# compatibility exports for symbols originally defined here
+export Local
+export LocalId
+export resultId
 
 type
   CgNodeKind* = enum
@@ -43,6 +48,9 @@ type
     cnkLocal         ## reference to a local
     cnkMagic         ## name of a magic procedure. Only valid in the callee
                      ## slot of ``cnkCall`` and ``cnkCheckedCall`` nodes
+
+    cnkResume        ## leave the current procedure as part of exceptional
+                     ## control-flow
 
     cnkCall          ## a procedure call. The first operand is the procedure,
                      ## the following operands the arguments
@@ -103,37 +111,34 @@ type
                      ## different type
 
     cnkStmtList
-    cnkStmtListExpr
-    # future direction: remove ``cnkStmtListExpr``. The code generators know
-    # based on the context a statement list appears in whether its an
-    # expression or not
+    # XXX: stmtlist is obsolete, and only kept temporarily to group statements
+    #      together under a single node
 
     cnkVoidStmt   ## discard the operand value (i.e., do nothing with it)
-    cnkPragmaStmt ## a single compiler directive
     cnkEmitStmt   ## an ``emit`` statement
     cnkAsmStmt    ## an ``asm`` statement
 
     cnkIfStmt     ## only execute the body when the condition expression
                   ## evaluates to 'true'
-    cnkRepeatStmt ## execute the body indefinitely
     cnkCaseStmt   ## a ``case`` statement
-    cnkBlockStmt  ## an (optionally) labeled block
+    cnkBranch     ## the branch of a ``case`` statement
 
-    cnkBreakStmt  ## break out of labeled block, or, if no label is provided,
-                  ## the closest ``repeat`` loop
+    cnkGotoStmt
+    cnkLoopStmt   ## jump back to a loop join point
     cnkRaiseStmt  ## raise(x) -- set the `x` as the current exception and start
                   ## exceptional control-flow. `x` can be ``cnkEmpty`` in which
                   ## case "set current exception" part is skipped
-    # future direction: lower the high-level raise statements (which means
-    # "set the current exception" + "start exceptional control-flow") into
-    # just "start exceptional control-flow"
-    cnkReturnStmt
+    cnkContinueStmt## jump to the next target in the active jump list
 
-    cnkTryStmt
-    cnkExcept
+    cnkJoinStmt   ## join point for gotos
+    cnkLoopJoinStmt## join point for loops
+    cnkEnd        ## marks the end of a structured control-flow block
+                  ## (identified by the label)
+    cnkExcept     ## special join point, representing an exception handler
     cnkFinally
 
-    cnkBranch     ## the branch of a ``case`` statement
+    cnkTargetList ## an ordered list of jump target/actions
+    cnkLeave
 
     cnkDef        ## starts the lifetime of a local and optionally assigns an
                   ## initial value
@@ -149,7 +154,7 @@ const
   cnkWithOperand*  = {cnkConv, cnkHiddenConv, cnkDeref, cnkAddr, cnkHiddenAddr,
                       cnkDerefView, cnkObjDownConv, cnkObjUpConv, cnkCast,
                       cnkLvalueConv}
-  cnkAtoms*        = {cnkInvalid..cnkMagic, cnkReturnStmt, cnkPragmaStmt}
+  cnkAtoms*        = {cnkInvalid..cnkResume}
     ## node kinds that denote leafs
   cnkWithItems*    = AllKinds - cnkWithOperand - cnkAtoms
     ## node kinds for which the ``items`` iterator is available
@@ -157,28 +162,10 @@ const
   cnkLiterals* = {cnkIntLit, cnkUIntLit, cnkFloatLit, cnkStrLit}
 
 type
-  Local* = object
-    ## Static information about a local variable. Initialized prior to code
-    ## generation and only read (but not written) by the code generators.
-    typ*: PType
-    alignment*: uint32
-    flags*: TSymFlags
-    isImmutable*: bool
-      ## whether the local is expected to not be mutated, from a high-level
-      ## language perspective. Note that this doesn't meant that it really
-      ## isn't mutated, rather this information is intended to help the
-      ## the code generators optimize
-    # future direction: merge `flags` and `isImmutable` into a single set of
-    # flags
-    name*: PIdent
-      ## either the user-defined name or 'nil'
-
   BlockId* = distinct uint32
     ## Identifies a block within another block -- the IDs are **not** unique
     ## within a ``Body``. An outermost block has ID 0, a block within the
     ## block ID 1, etc.
-  LocalId* = distinct uint32
-    ## Identifies a local within a procedure.
 
   CgNode* {.acyclic.} = ref object
     ## A node in the tree structure representing code during the code
@@ -186,12 +173,13 @@ type
     info*: TLineInfo
     typ*: PType
     case kind*: CgNodeKind
-    of cnkInvalid, cnkEmpty, cnkType, cnkNilLit, cnkReturnStmt: discard
+    of cnkInvalid, cnkEmpty, cnkType, cnkNilLit, cnkResume:
+      discard
     of cnkIntLit, cnkUIntLit:
       # future direction: use a ``BiggestUint`` for uint values
       intVal*: BiggestInt
     of cnkFloatLit:   floatVal*: BiggestFloat
-    of cnkStrLit:     strVal*: string
+    of cnkStrLit:     strVal*: StringId
     of cnkAstLit:     astLit*: PNode
     of cnkField:      field*: PSym
     of cnkProc:       prc*: ProcedureId
@@ -200,7 +188,6 @@ type
     of cnkMagic:      magic*: TMagic
     of cnkLabel:      label*: BlockId
     of cnkLocal:      local*: LocalId
-    of cnkPragmaStmt: pragma*: TSpecialWord
     of cnkWithOperand: operand*: CgNode
     of cnkWithItems:
       kids*: seq[CgNode]
@@ -213,10 +200,6 @@ type
     ## procedure.
     locals*: Store[LocalId, Local] ## all locals belonging to the body
     code*: CgNode
-
-const
-  resultId* = LocalId(0)
-    ## the ID of the local representing the ``result`` variable
 
 func len*(n: CgNode): int {.inline.} =
   n.kids.len
@@ -274,7 +257,6 @@ proc newOp*(kind: CgNodeKind; info: TLineInfo, typ: PType,
 func newLocalRef*(id: LocalId, info: TLineInfo, typ: PType): CgNode =
   CgNode(kind: cnkLocal, info: info, typ: typ, local: id)
 
-proc `==`*(x, y: LocalId): bool {.borrow.}
 proc `==`*(x, y: BlockId): bool {.borrow.}
 
 proc merge*(dest: var Body, source: Body): CgNode =
@@ -284,18 +266,34 @@ proc merge*(dest: var Body, source: Body): CgNode =
   # merge the locals:
   let offset = dest.locals.merge(source.locals)
 
-  proc update(n: CgNode, offset: uint32) {.nimcall.} =
+  proc update(n: CgNode, offset, labelOffset: uint32) {.nimcall.} =
     ## Offsets the ID of all references-to-``Local`` in `n` by `offset`.
     case n.kind
     of cnkLocal:
       n.local.uint32 += offset
-    of cnkAtoms - {cnkLocal}:
+    of cnkLabel:
+      n.label.uint32 += labelOffset
+    of cnkAtoms - {cnkLocal, cnkLabel}:
       discard "nothing to do"
     of cnkWithOperand:
-      update(n.operand, offset)
+      update(n.operand, offset, labelOffset)
     of cnkWithItems:
       for it in n.items:
-        update(it, offset)
+        update(it, offset, labelOffset)
+
+  proc computeNextLabel(n: CgNode, highest: var uint32) =
+    ## Computes the highest ID value used by labels within `n` and writes it
+    ## to `highest`.
+    case n.kind
+    of cnkLabel:
+      highest = max(n.label.uint32, highest)
+    of cnkAtoms - {cnkLabel}:
+      discard "nothing to do"
+    of cnkWithOperand:
+      computeNextLabel(n.operand, highest)
+    of cnkWithItems:
+      for it in n.items:
+        computeNextLabel(it, highest)
 
   result = source.code
 
@@ -303,8 +301,10 @@ proc merge*(dest: var Body, source: Body): CgNode =
     # make things easier by supporting `dest` being uninitialized
     dest.code = source.code
   elif source.code.kind != cnkEmpty:
-    # update references to locals in source's code:
-    update(source.code, offset.get(LocalId(0)).uint32)
+    var labelOffset = 0'u32
+    computeNextLabel(dest.code, labelOffset)
+    # update references to locals and labels in source's code:
+    update(source.code, offset.get(LocalId(0)).uint32, labelOffset + 1)
 
     # merge the code fragments:
     case dest.code.kind

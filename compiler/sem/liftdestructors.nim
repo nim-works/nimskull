@@ -37,9 +37,6 @@ import
     semdata,
     sighashes,
     lowerings
-  ],
-  compiler/backend/[
-    ccgutils
   ]
 
 from compiler/ast/reports_sem import reportAst,
@@ -57,7 +54,6 @@ type
     asgnForType: PType
     recurse: bool
     addMemReset: bool    # add wasMoved() call after destructor call
-    canRaise: bool
     filterDiscriminator: PSym  # we generating destructor for case branch
     c: PContext # c can be nil, then we are called from lambdalifting!
     idgen: IdGenerator
@@ -126,34 +122,9 @@ proc genWhileLoop(c: var TLiftCtx; i, dest: PNode): PNode =
 proc genIf(c: var TLiftCtx; cond, action: PNode): PNode =
   result = newTree(nkIfStmt, newTree(nkElifBranch, cond, action))
 
-proc genContainerOf(c: var TLiftCtx; objType: PType, field, x: PSym): PNode =
-  # generate: cast[ptr ObjType](cast[int](addr(x)) - offsetOf(objType.field))
-  let intType = getSysType(c.g, unknownLineInfo, tyInt)
-
-  let addrOf = newTreeIT(nkAddr, c.info, makePtrType(x.owner, x.typ, c.idgen)):
-    newDeref(newSymNode(x))
-  let castExpr1 = newTreeIT(nkCast, c.info, intType):
-    [newNodeIT(nkType, c.info, intType), addrOf]
-
-  let dotExpr = newTreeIT(nkDotExpr, c.info, x.typ):
-    [newNodeIT(nkType, c.info, objType), newSymNode(field)]
-
-  let offsetOf = genBuiltin(c, mOffsetOf, "offsetof", dotExpr)
-  offsetOf.typ = intType
-
-  let minusExpr = genBuiltin(c, mSubI, "-", castExpr1)
-  minusExpr.typ = intType
-  minusExpr.add foldOffsetOf(c.g.config, offsetOf, offsetOf)
-
-  let objPtr = makePtrType(objType.owner, objType, c.idgen)
-  result = newTreeIT(nkCast, c.info, objPtr):
-    [newNodeIT(nkType, c.info, objPtr), minusExpr]
-
 proc destructorCall(c: var TLiftCtx; op: PSym; x: PNode): PNode =
   var destroy = newTreeIT(nkCall, x.info, op.typ[0]):
     [newSymNode(op), genAddr(c, x)]
-  if sfNeverRaises notin op.flags:
-    c.canRaise = true
   if c.addMemReset:
     result = newTree(nkStmtList):
       [destroy, genBuiltin(c, mWasMoved,  "wasMoved", x)]
@@ -225,7 +196,12 @@ proc fillBodyObj(c: var TLiftCtx; n, body, x, y: PNode; enforceDefaultOp: bool) 
 
 proc fillBodyObjTImpl(c: var TLiftCtx; t: PType, body, x, y: PNode) =
   if t.len > 0 and t[0] != nil:
-    fillBody(c, skipTypes(t[0], abstractPtrs), body, x, y)
+    # also apply the operation to the super type. An up-conversion is required
+    # for proper typing
+    let
+      base = skipTypes(t[0], abstractPtrs)
+      obj = newTreeIT(nkObjUpConv, x.info, base, x)
+    fillBody(c, base, body, obj, y)
   fillBodyObj(c, t.n, body, x, y, enforceDefaultOp = false)
 
 proc fillBodyObjT(c: var TLiftCtx; t: PType, body, x, y: PNode) =
@@ -250,15 +226,6 @@ proc fillBodyObjT(c: var TLiftCtx; t: PType, body, x, y: PNode) =
     # for every field (dependent on dest.kind):
     #   `=` dest.field, src.field
     # =destroy(blob)
-    var dummy = newSym(skTemp, getIdent(c.g.cache, lowerings.genPrefix), nextSymId c.idgen, c.fn, c.info)
-    dummy.typ = y.typ
-    if ccgIntroducedPtr(c.g.config, dummy, y.typ):
-      # Because of potential aliasing when the src param is passed by ref, we need to check for equality here,
-      # because the wasMoved(dest) call would zero out src, if dest aliases src.
-      var cond = newTree(nkCall, newSymNode(c.g.getSysMagic(c.info, "==", mEqRef)),
-        newTreeIT(nkAddr, c.info, makePtrType(c.fn, x.typ, c.idgen), x), newTreeIT(nkAddr, c.info, makePtrType(c.fn, y.typ, c.idgen), y))
-      cond.typ = getSysType(c.g, x.info, tyBool)
-      body.add genIf(c, cond, newTreeI(nkReturnStmt, c.info, newNodeI(nkEmpty, c.info)))
     var temp = newSym(skTemp, getIdent(c.g.cache, lowerings.genPrefix), nextSymId c.idgen, c.fn, c.info)
     temp.typ = x.typ
     incl(temp.flags, sfFromGeneric)
@@ -303,8 +270,6 @@ proc newHookCall(c: var TLiftCtx; op: PSym; x, y: PNode): PNode =
   #  localReport(c.config, x.info, "usage of '$1' is a user-defined error" % op.name.s)
   result = newNodeI(nkCall, x.info)
   result.add newSymNode(op)
-  if sfNeverRaises notin op.flags:
-    c.canRaise = true
   if op.typ.sons[1].kind == tyVar:
     result.add genAddr(c, x)
   else:
@@ -322,8 +287,6 @@ proc newHookCall(c: var TLiftCtx; op: PSym; x, y: PNode): PNode =
 proc newOpCall(c: var TLiftCtx; op: PSym; x: PNode): PNode =
   result = newTreeIT(nkCall, x.info, op.typ[0]):
     [newSymNode(op), x]
-  if sfNeverRaises notin op.flags:
-    c.canRaise = true
 
 proc newDeepCopyCall(c: var TLiftCtx; op: PSym; x, y: PNode): PNode =
   result = newAsgnStmt(x, newOpCall(c, op, y))
@@ -854,9 +817,11 @@ proc produceSymDistinctType(g: ModuleGraph; c: PContext; typ: PType;
 
 proc symPrototype(g: ModuleGraph; typ: PType; owner: PSym; kind: TTypeAttachedOp;
               info: TLineInfo; idgen: IdGenerator): PSym =
-
+  # a synthesized hook is treated as an instantiation of the respective generic
+  # magic procedure from the system module
   let procname = getIdent(g.cache, AttachedOpToStr[kind])
-  result = newSym(skProc, procname, nextSymId(idgen), owner, info)
+  let base = getSysMagic(g, info, AttachedOpToStr[kind], AttachedOpToMagic[kind])
+  result = newSym(skProc, procname, nextSymId(idgen), base, info)
   let dest = newSym(skParam, getIdent(g.cache, "dest"), nextSymId(idgen), result, info)
   let src = newSym(skParam, getIdent(g.cache, if kind == attachedTrace: "env" else: "src"),
                    nextSymId(idgen), result, info)
@@ -866,7 +831,7 @@ proc symPrototype(g: ModuleGraph; typ: PType; owner: PSym; kind: TTypeAttachedOp
   else:
     src.typ = typ
 
-  result.typ = newProcType(info, nextTypeId(idgen), owner)
+  result.typ = newProcType(info, nextTypeId(idgen), result)
   result.typ.addParam dest
   if kind != attachedDestructor:
     result.typ.addParam src
@@ -946,31 +911,24 @@ proc produceSym(g: ModuleGraph; c: PContext; typ: PType; kind: TTypeAttachedOp;
         # bug #19205: Do not forget to also copy the hidden type field:
         genTypeFieldCopy(a, typ, result.ast[bodyPos], d, src)
 
-  if not a.canRaise: incl result.flags, sfNeverRaises
+  incl result.flags, sfNeverRaises
   completePartialOp(g, idgen.module, typ, kind, result)
 
 
 proc produceDestructorForDiscriminator*(g: ModuleGraph; typ: PType; field: PSym,
                                         info: TLineInfo; idgen: IdGenerator): PSym =
   assert(typ.skipTypes({tyAlias, tyGenericInst}).kind == tyObject)
-  result = symPrototype(g, field.typ, typ.owner, attachedDestructor, info, idgen)
+  result = symPrototype(g, typ, typ.owner, attachedDestructor, info, idgen)
   var a = TLiftCtx(info: info, g: g, kind: attachedDestructor, asgnForType: typ, idgen: idgen,
                    fn: result)
   a.asgnForType = typ
   a.filterDiscriminator = field
   a.addMemReset = true
-  let discrimantDest = result.typ.n[1].sym
-
-  let dst = newSym(skVar, getIdent(g.cache, "dest"), nextSymId(idgen), result, info)
-  dst.typ = makePtrType(typ.owner, typ, idgen)
-  let dstSym = newSymNode(dst)
-  let d = newDeref(dstSym)
-  let v = newTreeI(nkVarSection, info):
-    newIdentDefs(dstSym, genContainerOf(a, typ, field, discrimantDest))
-  result.ast[bodyPos].add v
-  let placeHolder = newNodeIT(nkSym, info, getSysType(g, info, tyPointer))
-  fillBody(a, typ, result.ast[bodyPos], d, placeHolder)
-  if not a.canRaise: incl result.flags, sfNeverRaises
+  let
+    d = newDeref(newSymNode(result.typ.n[1].sym))
+    placeholder = newNodeIT(nkSym, info, getSysType(g, info, tyPointer))
+  fillBody(a, typ, result.ast[bodyPos], d, placeholder)
+  incl result.flags, sfNeverRaises
 
 
 template liftTypeBoundOps*(c: PContext; typ: PType; info: TLineInfo) =
@@ -1023,12 +981,11 @@ proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInf
   if isEmptyContainer(skipped) or skipped.kind == tyStatic: return
 
   var canon: PType
-  if skipped.kind == tyObject:
+  if skipped.kind in {tyObject, tyDistinct}:
     # for nominal types, the type itself is already the canonical one (each one
     # is unique)
     # XXX: ^^ at present, this is only true for object types. Phantom
-    #      ``tyDistinct`` and ``tyEnum`` types still don't have unique
-    #      instances
+    #      ``tyEnum`` types still don't have unique instances
     canon = skipped
   else:
     # structural types use canonicalization
@@ -1067,7 +1024,9 @@ proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInf
       setAttachedOp(g, idgen.module, orig, k, getAttachedOp(g, canon, k))
 
   let op = getAttachedOp(g, orig, attachedDestructor)
-  if op != nil and getBody(g, op).len != 0:
+  # if the destructor is overridden, the ``tfHasAsgn`` flag was already
+  # included
+  if op != nil and sfOverriden notin op.flags and getBody(g, op).len != 0:
     #or not isTrival(orig.assignment) or
     # not isTrival(orig.sink):
     orig.flags.incl tfHasAsgn

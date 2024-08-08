@@ -9,10 +9,6 @@
 ## not. This means that run-time aliasing (e.g., through pointers) is **not**
 ## considered.
 ##
-## Analysis routine related to liveness take an additional ``Values``
-## instance as input, for knowing about what operation to collapse an
-## ``opConsume`` to.
-##
 ## When a "before" or "after" relationship is mentioned in the context of
 ## operations, it doesn't refer to the relative memory location of the
 ## nodes representing the operations, but rather to the operations'
@@ -22,39 +18,13 @@
 ## aforementioned relationship doesn't exist.
 
 import
-  std/[
-    packedsets,
-    tables
-  ],
-  compiler/ast/[
-    ast_types,
-    ast_query
-  ],
   compiler/mir/[
     mirtrees
   ],
   compiler/sem/[
     aliasanalysis,
     mirexec,
-  ],
-  compiler/utils/[
-    containers
   ]
-
-type
-  Values* = object
-    ## Stores information about MIR expressions.
-    owned: PackedSet[OpValue]
-      ## all lvalue expressions that can be moved from
-
-  AliveState = enum
-    unchanged
-    dead
-    alive
-
-  ComputeAliveProc[T] =
-    proc(tree: MirTree, values: Values, loc: T, op: Opcode,
-         n: OpValue): AliveState {.nimcall, noSideEffect.}
 
 func skipConversions*(tree: MirTree, val: OpValue): OpValue =
   ## Returns the expression after skipping handle-only conversions.
@@ -62,13 +32,7 @@ func skipConversions*(tree: MirTree, val: OpValue): OpValue =
   while tree[result].kind == mnkPathConv:
     result = tree.operand(result)
 
-func isOwned*(v: Values, val: OpValue): bool {.inline.} =
-  val in v.owned
-
-func markOwned*(v: var Values, val: OpValue) {.inline.} =
-  v.owned.incl val
-
-func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
+func isAlive*(tree: MirTree, cfg: DataFlowGraph,
              span: Subgraph, loc: Path, start: InstrPos): bool =
   ## Computes whether the location named by `loc` does contain a value (i.e.,
   ## is alive) when the data-flow operation at `start` is reached (but not
@@ -99,9 +63,15 @@ func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
         # return already
         return true
 
-    of opKill:
+    of opKill, opConsume, opDestroy:
       if isPartOf(tree, loc, path n) == yes:
+        # the location's value is consumed or the location is killed. No
+        # operation coming before the current one can change that, so we can
+        # stop traversing the current path
         exit = true
+
+      # partially consuming the value, or killing the location, does *not*
+      # change the alive state
 
     of opInvalidate:
       discard
@@ -111,16 +81,6 @@ func isAlive*(tree: MirTree, cfg: DataFlowGraph, v: Values,
         # an unspecified global is mutated and we're analysing a location
         # derived from a global -> assume the analysed global is mutated
         return true
-
-    of opConsume:
-      if v.isOwned(n):
-        if isPartOf(tree, loc, path n) == yes:
-          # the location's value is consumed and it becomes empty. No operation
-          # coming before the current one can change that, so we can stop
-          # traversing the current path
-          exit = true
-
-        # partially consuming the location does *not* change the alive state
 
     of opUse:
       discard "not relevant"
@@ -160,7 +120,7 @@ func isLastRead*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph,
         # the location is partially written to
         return false
 
-    of opKill:
+    of opKill, opDestroy:
       let cmp = compare(tree, loc, path n)
       if isAPartOfB(cmp) == yes:
         # the location is definitely killed, it no longer stores the value
@@ -185,26 +145,23 @@ func isLastRead*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph,
   result = true
 
 func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph, loc: Path,
-                  start: InstrPos): tuple[result, exits, escapes: bool] =
+                  start: InstrPos): bool =
   ## Computes whether the location `loc` is reassigned or modified on any paths
   ## starting from and including `start`, returning 'false' if yes and 'true'
   ## if not. In other words, computes whether a reassignment or mutation that
   ## has a control-flow dependency on `start` and is located inside `span`
   ## observes the current value.
-  ##
-  ## In addition, whether the `start` is connected to a structured or
-  ## unstructured exit of `span` is also returned
   template path(val: OpValue): Path =
     computePath(tree, NodePosition val)
 
   var state: TraverseState
   for op, n in traverse(cfg, span, start, state):
     case op
-    of opDef, opMutate, opInvalidate:
+    of opDef, opMutate, opInvalidate, opDestroy:
       # note: since we don't know what happens to the location when it is
       # invalidated, the ``opInvalidate`` is also included here
       if overlaps(tree, loc, path n) != no:
-        return (false, false, false)
+        return false
 
     of opKill:
       let cmp = compare(tree, loc, path n)
@@ -218,98 +175,12 @@ func isLastWrite*(tree: MirTree, cfg: DataFlowGraph, span: Subgraph, loc: Path,
       if tree[loc.root].kind == mnkGlobal:
         # an unspecified global is mutated and we're analysing a location
         # derived from a global
-        return (false, false, false)
+        return false
 
-    else:
+    of opUse, opConsume:
       discard
 
-  result = (true, state.exit, state.escapes)
-
-func computeAliveOp*[T: PSym | GlobalId | TempId](
-  tree: MirTree, values: Values, loc: T, op: Opcode, n: OpValue): AliveState =
-  ## Computes the state of `loc` at the *end* of the given operation. The
-  ## operands are expected to *not* alias with each other. The analysis
-  ## result will be wrong if they do
-
-  func isAnalysedLoc[T](n: MirNode, loc: T): bool =
-    when T is TempId:
-      n.kind == mnkTemp and n.temp == loc
-    elif T is GlobalId:
-      n.kind == mnkGlobal and n.global == loc
-    elif T is PSym:
-      n.kind in {mnkLocal, mnkParam} and n.sym.id == loc.id
-    else:
-      {.error.}
-
-  template isRootOf(val: OpValue): bool =
-    isAnalysedLoc(tree[getRoot(tree, val)], loc)
-
-  template sameLocation(val: OpValue): bool =
-    isAnalysedLoc(tree[skipConversions(tree, val)], loc)
-
-  case op
-  of opMutate, opDef:
-    if isRootOf(n):
-      # the analysed location or one derived from it is mutated
-      return alive
-
-  of opKill:
-    if sameLocation(n):
-      # the location is killed
-      return dead
-
-  of opInvalidate:
-    discard "cannot be reasoned about here"
-
-  of opMutateGlobal:
-    when T is GlobalId:
-      # the operation mutates global state and we're analysing a global
-      result = alive
-
-  of opConsume:
-    if values.isOwned(n) and sameLocation(n):
-      # the location's value is consumed
-      result = dead
-
-  else:
-    discard
-
-func computeAlive*[T](tree: MirTree, cfg: DataFlowGraph, values: Values,
-                      span: Subgraph, loc: T, op: static ComputeAliveProc[T]
-                     ): tuple[alive, escapes: bool] =
-  ## Computes whether the location is alive when `span` is exited via either
-  ## structured or unstructured control-flow. A location is considered alive
-  ## if it contains a value
-
-  # assigning to or mutating the analysed location makes it become alive,
-  # because it then stores a value. Consuming its value or using ``wasMoved``
-  # on it "kills" it (it no longer contains a value)
-
-  var exit = false
-  for opc, n in traverseFromExits(cfg, span, exit):
-    case op(tree, values, loc, opc, n)
-    of dead:
-      exit = true
-    of alive:
-      # the location is definitely alive when leaving the span via
-      # unstructured control-flow
-      return (true, true)
-    of unchanged:
-      discard
-
-  # check if the location is alive at the structured exit of the span
-  for opc, n in traverseReverse(cfg, span, span.b + 1, exit):
-    case op(tree, values, loc, opc, n)
-    of dead:
-      exit = true
-    of alive:
-      # the location is definitely alive when leaving the span via
-      # structured control-flow
-      return (true, false)
-    of unchanged:
-      discard
-
-  result = (false, false)
+  result = true
 
 proc doesGlobalEscape*(tree: MirTree, scope: Subgraph, start: InstrPos,
                        s: GlobalId): bool =

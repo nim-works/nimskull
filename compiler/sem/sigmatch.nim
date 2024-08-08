@@ -140,6 +140,7 @@ proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PType) =
   c.calleeSym = nil
   c.call = nil
   c.baseTypeMatch = false
+  c.fauxMatch = tyNone
   c.genericConverter = false
   c.inheritancePenalty = 0
   c.error = SemCallMismatch()
@@ -284,6 +285,15 @@ proc writeMatches*(c: TCandidate) =
   echo "  inheritance: ", c.inheritancePenalty
 
 proc cmpCandidates*(a, b: TCandidate): int =
+  # an non-erroneous candidate is always preferred over a non-erroneous one.
+  # This is only necessary to allow recovery through ``untyped``
+  if a.fauxMatch == tyError:
+    if b.fauxMatch != tyError:
+      return -1
+    # for two errorneous candidates, pick the better one
+  elif b.fauxMatch == tyError:
+    return 1
+
   result = a.exactMatches - b.exactMatches
   if result != 0: return
   result = a.genericMatches - b.genericMatches
@@ -2236,17 +2246,8 @@ proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
   else:
     discard "result is already set"
 
-template acceptsTyped(callee: PSym, typ: PType): bool =
-  callee != nil and callee.kind in {skMacro, skTemplate} and
-    typ != nil and (typ.kind == tyTyped or
-                    typ.kind == tyVarargs and typ[0].kind == tyTyped)
-
 proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
                         argSemantized: PNode): PNode =
-  if argSemantized.isError and not acceptsTyped(m.calleeSym, f):
-    result = argSemantized
-    return
-  
   var
     fMaybeStatic = f.skipTypes({tyDistinct})
     arg = argSemantized
@@ -2299,6 +2300,10 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
   let oldInheritancePenalty = m.inheritancePenalty
   var r = typeRel(m, f, a)
 
+  if a != nil and a.kind == tyError:
+    # if the argument is an error, a match, if any, is a faux match
+    m.fauxMatch = tyError
+
   # This special typing rule for macros and templates is not documented
   # anywhere and breaks symmetry. It's hard to get rid of though, my
   # custom seqs example fails to compile without this:
@@ -2312,10 +2317,26 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       of tyTyped, tyTypeDesc:
         arg
       of tyStatic:
-        if arg.typ.n.isNil:  # no value on the type
-          argSemantized
-        else:                # value on the type
-          arg.typ.n
+        let n =
+          if arg.typ.n.isNil:  # no value on the type
+            argSemantized
+          else:                # value on the type
+            arg.typ.n
+
+        # XXX: the implicit conversion handling is duplicated from the non-
+        #      template/non-macro path. Template and macro arguments shouldn't
+        #      be special-cased like this
+        case r
+        of isEqual: n
+        of isGeneric:
+          if n.typ.isEmptyContainer:
+            implicitConv(nkHiddenStdConv, f[0], n, m, c)
+          else:
+            n
+        of isSubtype:
+          implicitConv(nkHiddenSubConv, f[0], n, m, c)
+        else:
+          implicitConv(nkHiddenStdConv, f[0], n, m, c)
       else:
         argSemantized
     return
@@ -2420,10 +2441,10 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       result = implicitConv(nkHiddenSubConv, f, arg, m, c)
   of isNone:
     # do not do this in ``typeRel`` as it then can't infer T in ``ref T``:
-    # xxx: likely a latent bug, as tyError is simply a const equal to tyProxy
-    if a.kind in {tyProxy, tyUnknown}:
+    if a.kind in {tyError, tyUnknown}:
       inc(m.genericMatches)
-      m.fauxMatch = a.kind
+      if m.fauxMatch != tyError: # don't go back from error matches
+        m.fauxMatch = a.kind
       result = arg
       return
     elif a.kind == tyVoid and f.matchesVoidProc and arg.kind == nkStmtList:
@@ -2986,8 +3007,8 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       else:
         setSon(m.call, formal.position + 1, arg)
 
-      if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
-        discard "typed params accept errors, rejected in evalTemplateArgs"
+      if operand.kind == nkError:
+        discard "could be a faux match, rejected in semResolvedCall"
       elif arg.isError:
         noMatchDueToError()
 
@@ -3020,9 +3041,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
               else:
                 copyTree(operand)
             
-            if operand.isError:
-              noMatchDueToError()
-            elif operand.typ != nil and operand.typ.kind != tyUntyped:
+            if operand.typ != nil and operand.typ.kind != tyUntyped:
               # don't overwrite a potentially semmed/typed value in `n[a]`
               n[a] = operand
         elif formal != nil and formal.typ.kind == tyVarargs: # extra varargs
@@ -3049,8 +3068,8 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             container.add arg
             incrIndexType(container.typ)
 
-          if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
-            discard "typed params accept errors, rejected in evalTemplateArgs"
+          if operand.kind == nkError:
+            discard "could be a faux match, rejected in semResolvedCall"
           elif arg.kind == nkError:
             noMatchDueToError()
 
@@ -3150,8 +3169,8 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
             noMatch()
 
-          if operand.kind == nkError and acceptsTyped(m.calleeSym, formal.typ):
-            discard "typed params accept errors, rejected in evalTemplateArgs"
+          if operand.kind == nkError:
+            discard "could be a faux match, rejected in semResolvedCall"
           elif arg.kind == nkError:
             noMatchDueToError()
 
@@ -3169,6 +3188,127 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
   # for some edge cases (see tdont_return_unowned_from_owned test case)
   m.error.firstMismatch.pos = a
   m.error.firstMismatch.formal = formal
+
+proc matchesType(c: PContext, n: PNode, m: var TCandidate,
+                 marker: var IntSet) =
+  ## Matches the arguments taken from invocation expression `n` against the
+  ## ``tyGenericBody`` callee and fills `m` with the results. `marker` is
+  ## updated with the matched-against formal positions.
+  m.state = csMatch # until proven otherwise
+  m.error.firstMismatch = MismatchInfo()
+
+  # pre-pass: make sure the AST is valid. `n` is production AST, so it can be
+  # modified in-place
+  var hasError = false
+  for i in 1..<n.len:
+    if n[i].kind == nkExprEqExpr:
+      let (ident, err) = considerQuotedIdent(c, n[i][0])
+      if err != nil:
+        n[i][0] = err
+        hasError = true
+      else:
+        n[i][0] = newIdentNode(ident, n[i][0].info)
+
+  if hasError:
+    # abort early
+    m.state = csNoMatch
+    m.call = c.config.wrapError(n)
+    return
+
+  m.call = newNodeI(n.kind, n.info, m.callee.len)
+  m.call[0] = n[0]
+
+  var f = 0
+  var i = 1
+  var formal: PSym
+
+  while i < n.len:
+    # select the formal parameter:
+    var operand: PNode
+    case n[i].kind
+    of nkExprEqExpr:
+      # explicit parameter
+      formal = getNamedParamFromList(m.callee.n, n[i][0].ident)
+      if formal.isNil:
+        m.error.firstMismatch.kind = kUnknownNamedParam
+        break
+
+      operand = n[i][1]
+    elif f < m.callee.n.len:
+      # implicit parameter
+      formal = m.callee.n[f].sym
+      operand = n[i]
+    else:
+      m.error.firstMismatch.kind = kExtraArg
+      break
+
+    if containsOrIncl(marker, formal.position):
+      m.error.firstMismatch.kind = kAlreadyGiven
+      break
+
+    # reset the per-parameter state:
+    m.typedescMatched = false
+
+    m.error.firstMismatch.kind = kTypeMismatch
+
+    # match the argument against the formal type:
+    var arg: PNode
+
+    if (tfHasStatic in formal.typ.skipTypes({tyDistinct}).flags or
+        formal.typ.kind == tyStatic) and c.hasUnresolvedArgs(c, operand):
+      # the expression depends on not-yet resolved generic parameters,
+      # ``semOperand`` won't work
+      operand = c.semGenericExpr(c, operand)
+      if operand.kind == nkError or operand.typ != nil:
+        arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+      elif formal.typ.kind == tyStatic:
+        # some expression that's more complex than just being a generic
+        # parameter symbol
+        if formal.typ.base.kind == tyNone:
+          # no constraints
+          arg = copyNodeWithKids(operand)
+          arg.typ = makeTypeFromExpr(c, operand)
+        else:
+          # the static is constrained. We don't know the argument's type yet,
+          # so we cannot know up-front whether the expression will fits once
+          # all type variables it depends on are resolved
+          # XXX: to support this at least somewhat, the argument is wrapped
+          #      in a conversion to the expected type. If the types are
+          #      wholly incompatible, later analysis of the conversion will
+          #      yield an error. Non-exact matches where the types have a
+          #      "convertible" relationship will not result in an error
+          arg = newTreeI(nkConv, operand.info,
+                         newNodeIT(nkType, operand.info, formal.typ.base),
+                         operand)
+          arg.typ = makeTypeFromExpr(c, copyNodeWithKids(arg))
+      else:
+        # we don't know the argument's type, nor can we enforce that it'll
+        # match the formal type later -> type mismatch
+        m.call[formal.position + 1] = copyNodeWithKids(operand)
+        m.call[formal.position + 1].typ = makeTypeFromExpr(c, operand)
+        break
+    else:
+      operand = m.c.semOperand(m.c, operand)
+      arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+
+    if arg != nil:
+      # errors don't need to be considered here; they're handled through
+      # `fauxMatch`
+      m.call[formal.position + 1] = arg
+    else:
+      # legacy error handling
+      m.call[formal.position + 1] = operand
+      break
+
+    f = max(formal.position + 1, f + 1)
+    inc i
+
+  if i < n.len:
+    # an error occurred
+    m.state = csNoMatch
+    m.error.firstMismatch.pos = i
+    m.error.firstMismatch.arg = n[i]
+    m.error.firstMismatch.formal = formal
 
 proc semFinishOperands*(c: PContext, n: PNode) =
   # this needs to be called to ensure that after overloading resolution every
@@ -3205,7 +3345,10 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
     return
   
   var marker = initIntSet()
-  matchesAux(c, n, nOrig, m, marker)
+  if m.callee.kind == tyGenericBody:
+    matchesType(c, n, m, marker)
+  else:
+    matchesAux(c, n, nOrig, m, marker)
 
   if m.state == csNoMatch:
     return

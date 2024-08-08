@@ -636,13 +636,13 @@ template frameMsg*(c: ConfigRef, n: PNode) =
       $n.info.line,
       $n.info.col]
 
-template frameMsg*(c: ConfigRef, n: CgNode) =
+template frameMsg*(c: ConfigRef, info: TLineInfo) =
   {.line.}:
     setFrameMsg "$1 $2($3, $4)" % [
       $n.kind,
-      c.toFullPath(n.info.fileIndex),
-      $n.info.line,
-      $n.info.col]
+      c.toFullPath(info.fileIndex),
+      $info.line,
+      $info.col]
 
 const locOffset = -2
 

@@ -13,57 +13,58 @@ doing shady stuff...
   nimout: '''--expandArc: newTarget
 
 scope:
-  def splat: tuple[dir: string, name: string, ext: string] = splitFile(arg path) (raises)
-  bind_mut _3: string = splat.0
-  def _0: string = _3
-  wasMoved(name _3)
-  bind_mut _4: string = splat.1
-  def _1: string = _4
-  wasMoved(name _4)
-  bind_mut _5: string = splat.2
-  def _2: string = _5
-  wasMoved(name _5)
-  result = construct (consume _0, consume _1, consume _2)
+  def splat: tuple[dir: string, name: string, ext: string] = splitFile(arg path) -> [L0, Resume]
+  bind_mut _7: string = splat.0
+  def _3: string = move _7
+  wasMoved(name _7)
+  bind_mut _8: string = splat.1
+  def _4: string = move _8
+  wasMoved(name _8)
+  bind_mut _9: string = splat.2
+  def _5: string = move _9
+  wasMoved(name _9)
+  def _6: Target = (consume _3, consume _4, consume _5)
+  result := move _6
   =destroy(name splat)
+  goto [L1]
+finally (L0):
+  continue {}
+L1:
 -- end of expandArc ------------------------
 --expandArc: delete
 
 scope:
-  def_cursor _0: Node = target[]
-  def_cursor _1: Node = _0[].parent
+  def_cursor _3: Node = target[]
+  def_cursor _4: Node = _3[].parent
   def sibling: Node
-  def _6: Node = _1[].left
-  =copy(name sibling, arg _6) (raises)
-  def_cursor _2: Node = sibling
+  =copy(name sibling, arg _4[].left)
+  def_cursor _6: Node = sibling
   def saved: Node
-  def _7: Node = _2[].right
-  =copy(name saved, arg _7) (raises)
-  def_cursor _3: Node = sibling
-  def_cursor _4: Node = saved
-  bind_mut _8: Node = _3[].right
-  def _9: Node = _4[].left
-  =copy(name _8, arg _9) (raises)
-  def_cursor _5: Node = sibling
-  bind_mut _10: Node = _5[].parent
-  =sink(name _10, arg saved) (raises)
-  =destroy(name sibling) (raises)
+  =copy(name saved, arg _6[].right)
+  def_cursor _7: Node = sibling
+  def_cursor _8: Node = saved
+  def_cursor _10: Node = _8[].left
+  =copy(name _7[].right, arg _10)
+  def_cursor _9: Node = sibling
+  =sink(name _9[].parent, arg saved)
+  =destroy(name sibling)
 -- end of expandArc ------------------------
 --expandArc: p1
 
 scope:
-  def _0: array[0..0, int] = construct (consume 123)
-  def lresult: seq[int] = arrToSeq(consume _0)
+  def lresult: seq[int] = @[consume 123]
   def lvalue: seq[int]
   def lnext: string
-  def _1: seq[int] = lresult
-  def _: (seq[int], string) = construct (consume _1, consume ";")
-  bind_mut _2: seq[int] = _.0
-  lvalue = _2
-  wasMoved(name _2)
-  bind_mut _3: string = _.1
-  lnext = _3
-  wasMoved(name _3)
-  result.value = move(name lvalue)
+  def _5: seq[int] = move lresult
+  def _: (seq[int], string) = (consume _5, consume ";")
+  bind_mut _7: seq[int] = _.0
+  lvalue := move _7
+  wasMoved(name _7)
+  bind_mut _8: string = _.1
+  lnext := move _8
+  wasMoved(name _8)
+  def _6: seq[int] = move(name lvalue)
+  result.value := move _6
   =destroy(name _)
   =destroy(name lnext)
   =destroy(name lvalue)
@@ -71,173 +72,199 @@ scope:
 --expandArc: tt
 
 scope:
-  try:
-    def_cursor it: KeyValue = x
-    def _0: seq[int]
-    def _4: seq[int] = it.0
-    =copy(name _0, arg _4)
-    def _1: seq[int]
-    def _5: seq[int] = it.1
-    =copy(name _1, arg _5)
-    def a: (seq[int], seq[int]) = construct (consume _0, consume _1)
-    def_cursor _2: (seq[int], seq[int]) = a
-    def _3: string = $(arg _2) (raises)
-    echo(arg type(array[0..0, string]), arg _3) (raises)
-  finally:
-    =destroy(name _3)
+  def_cursor it: KeyValue = x
+  def _4: seq[int]
+  =copy(name _4, arg it.0)
+  def _5: seq[int]
+  =copy(name _5, arg it.1)
+  def a: (seq[int], seq[int]) = (consume _4, consume _5)
+  def_cursor _6: (seq[int], seq[int]) = a
+  def _7: string = $(arg _6) -> [L0, Resume]
+  echo(arg type(array[0..0, string]), arg _7) -> [L1, L0, Resume]
+  goto [L1, L0, L2]
+  finally (L1):
+    =destroy(name _7)
+    continue {L0}
+  finally (L0):
     =destroy(name a)
+    continue {L2}
+  L2:
 -- end of expandArc ------------------------
 --expandArc: extractConfig
 
 scope:
-  try:
-    def lan_ip: string = ""
+  def lan_ip: string = ""
+  scope:
+    def_cursor a: seq[string] = txt
+    def i: int = 0
+    def_cursor _5: seq[string] = a
+    def L: int = lengthSeq(arg _5)
     scope:
-      def_cursor a: seq[string] = txt
-      def i: int = 0
-      def_cursor _0: seq[string] = a
-      def L: int = lengthSeq(arg _0)
-      block L0:
+      while true:
         scope:
-          while true:
-            scope:
-              def_cursor _1: int = i
-              def_cursor _2: bool = ltI(arg _1, arg L)
-              def_cursor _3: bool = not(arg _2)
-              if _3:
-                scope:
-                  break L0
+          def_cursor _7: int = i
+          def :tmp: bool = ltI(arg _7, arg L)
+          scope:
+            def_cursor _8: bool = :tmp
+            def _9: bool = not(arg _8)
+            if _9:
               scope:
+                goto [L2]
+          scope:
+            def_cursor _11: int = i
+            def line: lent string = borrow a[_11]
+            def_cursor _13: string = line[]
+            def splitted: seq[string] = split(arg _13, arg " ", arg -1) -> [L3, Resume]
+            scope:
+              def_cursor _14: string = splitted[0]
+              def _15: bool = eqStr(arg _14, arg "opt")
+              if _15:
                 scope:
-                  try:
-                    def_cursor _4: int = i
-                    def line: lent string = borrow a[_4]
-                    def_cursor _5: string = line[]
-                    def splitted: seq[string] = split(arg _5, arg " ", arg -1) (raises)
-                    def_cursor _6: string = splitted[0]
-                    def_cursor _7: bool = eqStr(arg _6, arg "opt")
-                    if _7:
-                      scope:
-                        def _10: string = splitted[1]
-                        =copy(name lan_ip, arg _10)
-                    def_cursor _8: string = lan_ip
-                    echo(arg type(array[0..0, string]), arg _8) (raises)
-                    def_cursor _9: string = splitted[1]
-                    echo(arg type(array[0..0, string]), arg _9) (raises)
-                  finally:
-                    =destroy(name splitted)
-                i = addI(arg i, arg 1) (raises)
-  finally:
+                  def_cursor _18: string = splitted[1]
+                  =copy(name lan_ip, arg _18)
+            def_cursor _16: string = lan_ip
+            echo(arg type(array[0..0, string]), arg _16) -> [L4, L3, Resume]
+            def_cursor _17: string = splitted[1]
+            echo(arg type(array[0..0, string]), arg _17) -> [L4, L3, Resume]
+            goto [L4, L6]
+            finally (L4):
+              =destroy(name splitted)
+              continue {L3, L6}
+            L6:
+          i = addI(arg i, arg 1) -> [L3, Resume]
+    L2:
+  goto [L3, L7]
+  finally (L3):
     =destroy(name lan_ip)
+    continue {L7}
+  L7:
 --expandArc: mergeShadowScope
 
 scope:
-  try:
-    def shadowScope: Scope
-    def _7: Scope = c[].currentScope
-    =copy(name shadowScope, arg _7) (raises)
-    rawCloseScope(arg c) (raises)
+  def shadowScope: Scope
+  =copy(name shadowScope, arg c[].currentScope)
+  rawCloseScope(arg c) -> [L0, Resume]
+  scope:
+    def_cursor _4: Scope = shadowScope
+    def_cursor a: seq[Symbol] = _4[].symbols
+    def i: int = 0
+    def_cursor _7: seq[Symbol] = a
+    def L: int = lengthSeq(arg _7)
     scope:
-      def_cursor _0: Scope = shadowScope
-      def_cursor a: seq[Symbol] = _0[].symbols
-      def i: int = 0
-      def_cursor _1: seq[Symbol] = a
-      def L: int = lengthSeq(arg _1)
-      block L0:
+      while true:
         scope:
-          while true:
-            scope:
-              def_cursor _2: int = i
-              def_cursor _3: bool = ltI(arg _2, arg L)
-              def_cursor _4: bool = not(arg _3)
-              if _4:
-                scope:
-                  break L0
+          def_cursor _9: int = i
+          def :tmp: bool = ltI(arg _9, arg L)
+          scope:
+            def_cursor _10: bool = :tmp
+            def _11: bool = not(arg _10)
+            if _11:
               scope:
-                scope:
-                  def_cursor _5: int = i
-                  def sym: lent Symbol = borrow a[_5]
-                  def _6: Symbol
-                  def _8: Symbol = sym[]
-                  =copy(name _6, arg _8)
-                  addInterfaceDecl(arg c, consume _6) (raises)
-                i = addI(arg i, arg 1) (raises)
-  finally:
-    =destroy(name shadowScope) (raises)
+                goto [L3]
+          scope:
+            def_cursor _13: int = i
+            def sym: lent Symbol = borrow a[_13]
+            def _14: Symbol
+            =copy(name _14, arg sym[])
+            addInterfaceDecl(arg c, consume _14) -> [L4, L0, Resume]
+            goto [L4, L5]
+            finally (L4):
+              continue {L0, L5}
+            L5:
+          i = addI(arg i, arg 1) -> [L0, Resume]
+    L3:
+  goto [L0, L6]
+  finally (L0):
+    =destroy(name shadowScope)
+    continue {L6}
+  L6:
 -- end of expandArc ------------------------
 --expandArc: treturn
 
 scope:
-  try:
-    def x: sink string
-    def_cursor _0: sink string = x
-    def_cursor _1: int = lengthStr(arg _0)
-    def_cursor _2: bool = eqI(arg _1, arg 2)
-    if _2:
+  def x: sink string
+  scope:
+    def_cursor _2: sink string = x
+    def _3: int = lengthStr(arg _2)
+    def _4: bool = eqI(arg _3, arg 2)
+    if _4:
       scope:
-        result = x
+        result := move x
         wasMoved(name x)
-        return
-    def_cursor _3: sink string = x
-    def_cursor _4: int = lengthStr(arg _3)
-    def _5: string = $(arg _4) (raises)
-    echo(arg type(array[0..0, string]), arg _5) (raises)
-  finally:
-    =destroy(name _5)
+        goto [L1, L2]
+  def_cursor _5: sink string = x
+  def _6: int = lengthStr(arg _5)
+  def _7: string = $(arg _6) -> [L1, L3, Resume]
+  echo(arg type(array[0..0, string]), arg _7) -> [L4, L1, L3, Resume]
+  goto [L4, L1, L5]
+  finally (L4):
+    =destroy(name _7)
+    continue {L1}
+  finally (L1):
     =destroy(name x)
+    continue {L2, L3, L5}
+  L5:
+goto [L2]
+finally (L3):
+  =destroy(name result)
+  continue {}
+L2:
 
 -- end of expandArc ------------------------
 --expandArc: check
 
 scope:
-  try:
-    def_cursor _0: string = this[].value
-    this[].isValid = fileExists(arg _0) (raises)
-    def _1: tuple[dir: string, front: string]
-    block L0:
-      def_cursor _2: string = this[].value
-      def_cursor _3: bool = dirExists(arg _2) (raises)
-      if _3:
-        scope:
-          def _4: string
-          def _14: string = this[].value
-          =copy(name _4, arg _14)
-          _1 := construct (consume _4, consume "")
-          break L0
+  def_cursor _2: string = this[].value
+  this[].isValid = fileExists(arg _2) -> [Resume]
+  def _4: tuple[dir: string, front: string]
+  scope:
+    def_cursor _5: string = this[].value
+    def _6: bool = dirExists(arg _5) -> [Resume]
+    if _6:
       scope:
-        try:
-          def_cursor _5: string = this[].value
-          def _6: string = parentDir(arg _5) (raises)
-          def _7: string
-          def _15: string = this[].value
-          =copy(name _7, arg _15)
-          def _8: tuple[head: string, tail: string] = splitPath(consume _7) (raises)
-          bind_mut _16: string = _8.1
-          def _9: string = _16
-          wasMoved(name _16)
-          _1 := construct (consume _6, consume _9)
-          wasMoved(name _6)
-        finally:
-          =destroy(name _8)
-          =destroy(name _6)
-    def par: tuple[dir: string, front: string] = _1
-    block L1:
-      def_cursor _10: string = par.0
-      def_cursor _11: bool = dirExists(arg _10) (raises)
-      if _11:
-        scope:
-          def_cursor _12: string = par.0
-          def_cursor _13: string = par.1
-          def _17: seq[string] = getSubDirs(arg _12, arg _13) (raises)
-          bind_mut _18: seq[string] = this[].matchDirs
-          =sink(name _18, arg _17)
-          break L1
+        def _7: string
+        =copy(name _7, arg this[].value)
+        _4 := (consume _7, consume "")
+        goto [L1]
+  scope:
+    def_cursor _8: string = this[].value
+    def _9: string = parentDir(arg _8) -> [Resume]
+    def _10: string
+    =copy(name _10, arg this[].value)
+    def _11: tuple[head: string, tail: string] = splitPath(consume _10) -> [L2, Resume]
+    bind_mut _19: string = _11.1
+    def _12: string = move _19
+    wasMoved(name _19)
+    _4 := (consume _9, consume _12)
+    wasMoved(name _9)
+    =destroy(name _11)
+    goto [L2, L3]
+    finally (L2):
+      =destroy(name _9)
+      continue {L3}
+    L3:
+  L1:
+  def par: tuple[dir: string, front: string] = move _4
+  scope:
+    def_cursor _13: string = par.0
+    def _14: bool = dirExists(arg _13) -> [L4, Resume]
+    if _14:
       scope:
-        def _19: seq[string] = construct ()
-        bind_mut _20: seq[string] = this[].matchDirs
-        =sink(name _20, arg _19)
-  finally:
+        def_cursor _15: string = par.0
+        def_cursor _16: string = par.1
+        def _17: seq[string] = getSubDirs(arg _15, arg _16) -> [L4, Resume]
+        =sink(name this[].matchDirs, arg _17)
+        goto [L6]
+  scope:
+    def _18: seq[string] = @[]
+    =sink(name this[].matchDirs, arg _18)
+  L6:
+  goto [L4, L7]
+  finally (L4):
     =destroy(name par)
+    continue {L7}
+  L7:
+
 -- end of expandArc ------------------------'''
 """
 

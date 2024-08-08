@@ -294,7 +294,7 @@ proc errorActions(
     eh: TErrorHandling
   ): tuple[action: TErrorHandling, withTrace: bool] =
   result = (doNothing, false)
-  if conf.isCompilerFatal(report):
+  if report.severity == rsevFatal:
     # Fatal message such as ICE (internal compiler), errFatal,
     result = (doAbort, true)
   elif conf.isCodeError(report):
@@ -391,6 +391,7 @@ func astDiagVmToLegacyReportKind*(
   of adVmFieldNotFound: rvmFieldNotFound
   of adVmNotAField: rvmNotAField
   of adVmFieldUnavailable: rvmFieldInavailable
+  of adVmCannotCreateNode: rvmCannotCreateNode
   of adVmCannotSetChild: rvmCannotSetChild
   of adVmCannotAddChild: rvmCannotAddChild
   of adVmCannotGetChild: rvmCannotGetChild
@@ -421,8 +422,10 @@ func astDiagToLegacyReportKind*(
   ## very broad categories and they'll no longer map to "reports".
   case diag
   of adWrappedError: rsemWrappedError
+  of adWrappedSymError: rsemWrappedError
   of adSemTypeMismatch: rsemTypeMismatch
   of adSemTypeNotAllowed: rsemTypeNotAllowed
+  of adSemTIsNotAConcreteType: rsemTIsNotAConcreteType
   of adSemUndeclaredIdentifier: rsemUndeclaredIdentifier
   of adSemConflictingExportnims: rsemConflictingExportnims
   of adSemAmbiguousIdent: rsemAmbiguousIdent
@@ -497,9 +500,10 @@ func astDiagToLegacyReportKind*(
   of adSemUndeclaredField: rsemUndeclaredField
   of adSemCannotInstantiate: rsemCannotInstantiate
   of adSemWrongNumberOfGenericParams: rsemWrongNumberOfGenericParams
-  of adSemCalleeHasAnError: rsemCalleeHasAnError
   of adSemExpressionHasNoType: rsemExpressionHasNoType
   of adSemTypeExpected: rsemTypeExpected
+  of adSemStringRangeNotAllowed: rsemStringRangeNotAllowed
+  of adSemRangeIsEmpty: rsemRangeIsEmpty
   of adSemIllformedAst: rsemIllformedAst
   of adSemIllformedAstExpectedPragmaOrIdent: rsemIllformedAst
   of adSemIllformedAstExpectedOneOf: rsemIllformedAst
@@ -530,6 +534,8 @@ func astDiagToLegacyReportKind*(
   of adSemDotOperatorsNotEnabled: rsemEnableDotOperatorsExperimental
   of adSemCallOperatorsNotEnabled: rsemEnableCallOperatorExperimental
   of adSemUnexpectedPattern: rsemUnexpectedPattern
+  of adSemCannotBeRaised: rsemCannotBeRaised
+  of adSemCannotRaiseNonException: rsemCannotRaiseNonException
   of adSemConstantOfTypeHasNoValue: rsemConstantOfTypeHasNoValue
   of adSemTypeConversionArgumentMismatch: rsemTypeConversionArgumentMismatch
   of adSemUnexpectedEqInObjectConstructor: rsemUnexpectedEqInObjectConstructor

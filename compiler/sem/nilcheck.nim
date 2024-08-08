@@ -1244,10 +1244,10 @@ proc check(n: PNode, ctx: NilCheckerContext, map: NilMap): Check =
     result = checkTry(n, ctx, map)
   of nkWhileStmt:
     result = checkWhile(n, ctx, map)
-  of nkNone..pred(nkSym), succ(nkSym)..nkNilLit, nkTypeSection, nkProcDef, nkConverterDef,
+  of nkWithoutSons - nkSym, nkTypeSection, nkProcDef, nkConverterDef,
       nkMethodDef, nkIteratorDef, nkMacroDef, nkTemplateDef, nkLambda, nkDo,
       nkFuncDef, nkConstSection, nkConstDef, nkIncludeStmt, nkImportStmt,
-      nkExportStmt, nkPragma, nkCommentStmt, nkTypeOfExpr, nkMixinStmt,
+      nkExportStmt, nkPragma, nkTypeOfExpr, nkMixinStmt,
       nkBindStmt:
 
     discard "don't follow this : same as varpartitions"
@@ -1304,12 +1304,12 @@ proc preVisitNode(ctx: NilCheckerContext, node: PNode, conf: ConfigRef) =
             ctx.dependants.setLen(baseIndex + 1.ExprIndex)
           ctx.dependants[baseIndex].incl(index.int)
   case node.kind:
-  of nkSym, nkEmpty, nkNilLit, nkType, nkIdent, nkCharLit .. nkUInt64Lit, nkFloatLit .. nkFloat64Lit, nkStrLit .. nkTripleStrLit:
+  of nkWithoutSons:
     discard
   of nkDotExpr:
     # visit only the base
     ctx.preVisitNode(node[0], conf)
-  else:
+  of nkWithSons - nkDotExpr:
     for element in node:
       ctx.preVisitNode(element, conf)
 

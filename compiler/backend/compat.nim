@@ -24,15 +24,14 @@ import
   ],
   compiler/mir/[
     mirenv,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/utils/[
     bitsets,
     idioms,
     int128
   ]
-
-from compiler/backend/cgirgen import translateLit
 
 func lastSon*(n: CgNode): CgNode {.inline.} =
   # XXX: replace usages with `n[^1]`
@@ -103,12 +102,6 @@ proc isDeepConstExpr*(n: CgNode): bool =
   else:
     result = false
 
-proc canRaiseConservative*(env: MirEnv, fn: CgNode): bool =
-  ## Duplicate of `canRaiseConservative <ast_query.html#canRaiseConservative,PNode>`_.
-  # ``mNone`` is also included in the set, therefore this check works even for
-  # non-magic calls
-  getCalleeMagic(env, fn) in magicsThatCanRaise
-
 proc toBitSet*(conf: ConfigRef; s: CgNode): TBitSet =
   ## Duplicate of `toBitSet <nimsets.html#toBitSet,ConfigRef,PNode>`_
   bitSetInit(result, int(getSize(conf, s.typ)))
@@ -124,21 +117,6 @@ proc toBitSet*(conf: ConfigRef; s: CgNode): TBitSet =
     else:
       bitSetIncl(result, toInt64(getOrdValue(it) - first))
 
-proc flattenStmts*(n: CgNode): CgNode =
-  ## Duplicate of `flattenStmts <trees.html#flattenStmts,PNode>`_
-  proc unnestStmts(n: CgNode, result: var CgNode) =
-    case n.kind
-    of cnkStmtList:
-      for it in n.items:
-        unnestStmts(it, result)
-    else:
-      result.kids.add n
-
-  result = CgNode(kind: cnkStmtList)
-  unnestStmts(n, result)
-  if result.len == 1:
-    result = result[0]
-
 proc newSymNode*(env: MirEnv, s: PSym): CgNode {.inline.} =
   case s.kind
   of skConst:
@@ -152,65 +130,80 @@ proc newSymNode*(env: MirEnv, s: PSym): CgNode {.inline.} =
   else:
     unreachable(s.kind)
 
-proc newStrNode*(str: sink string): CgNode {.inline.} =
-  CgNode(kind: cnkStrLit, info: unknownLineInfo, strVal: str)
-
-proc translate*(t: MirTree): CgNode =
+proc translate*(t: MirTree, env: MirEnv): CgNode =
   ## Compatibility routine for translating a MIR constant-expression (`t`) to
   ## a ``CgNode`` tree. Obsolete once the code generators use the MIR
   ## directly.
-  proc translateAux(t: MirTree, i: var int): CgNode =
+  proc translateAux(t: MirTree, i: var int, env: MirEnv): CgNode =
+    let
+      n {.cursor.}   = t[i]
+      typ {.cursor.} = env[n.typ]
+
+    template recurse(): CgNode =
+      translateAux(t, i, env)
+
     template tree(k: CgNodeKind, body: untyped): CgNode =
       ## Convenience template for setting up the tree node and iterating the
       ## input node's child nodes.
-      let res {.inject.} = newExpr(k, unknownLineInfo, n.typ)
+      let res {.inject.} = newExpr(k, unknownLineInfo, typ)
       res.kids.newSeq(t[i - 1].len)
       for j in 0..<res.len:
         res.kids[j] = body
 
-      inc i # consume the end node
       res
 
-    let n {.cursor.} = t[i]
     inc i # advance to the first child node
     case n.kind
-    of mnkObjConstr:
+    of mnkObjConstr, mnkRefConstr:
       tree cnkObjConstr:
-        let field = translateAux(t, i)
+        inc i # skip the binding node
+        let field = lookupInType(typ, t[i].field.int)
+        inc i # advance to the arg node
         CgNode(kind: cnkBinding, info: unknownLineInfo,
-               kids: @[field, translateAux(t, i)])
-    of mnkConstr:
-      let kind =
-        case n.typ.skipTypes(abstractVarRange).kind
-        of tyArray, tySequence, tyOpenArray:
-          cnkArrayConstr
-        of tyTuple:
-          cnkTupleConstr
-        of tySet:
-          cnkSetConstr
-        of tyProc:
-          cnkClosureConstr
-        else:
-          unreachable()
-
-      tree kind:
-        translateAux(t, i)
+               kids: @[CgNode(kind: cnkField, field: field),
+                       recurse()])
+    of mnkArrayConstr, mnkSeqConstr:
+      tree cnkArrayConstr:
+        recurse()
+    of mnkTupleConstr:
+      tree cnkTupleConstr:
+        recurse()
+    of mnkClosureConstr:
+      tree cnkClosureConstr:
+        recurse()
+    of mnkSetConstr:
+      tree cnkSetConstr:
+        recurse()
+    of mnkRange:
+      tree cnkRange:
+        recurse()
     of mnkArg:
-      let x = translateAux(t, i)
-      inc i # skip the end node
-      x
-    of mnkLiteral:
-      translateLit(n.lit)
-    of mnkField:
-      CgNode(kind: cnkField, info: unknownLineInfo, field: n.field)
-    of mnkProc:
-      CgNode(kind: cnkProc, info: unknownLineInfo, prc: n.prc, typ: n.typ)
-    of AllNodeKinds - ConstrTreeNodes + {mnkEnd}:
+      recurse()
+    of mnkNilLit:
+      CgNode(kind: cnkNilLit, info: unknownLineInfo, typ: typ)
+    of mnkIntLit:
+      CgNode(kind: cnkIntLit, info: unknownLineInfo, typ: typ,
+             intVal: env.getInt(n.number))
+    of mnkUIntLit:
+      CgNode(kind: cnkUIntLit, info: unknownLineInfo, typ: typ,
+             intVal: env.getInt(n.number))
+    of mnkFloatLit:
+      CgNode(kind: cnkFloatLit, info: unknownLineInfo, typ: typ,
+             floatVal: env.getFloat(n.number))
+    of mnkStrLit:
+      CgNode(kind: cnkStrLit, info: unknownLineInfo, typ: typ,
+             strVal: n.strVal)
+    of mnkAstLit:
+      CgNode(kind: cnkAstLit, info: unknownLineInfo, typ: typ,
+             astLit: env[n.ast])
+    of mnkProcVal:
+      CgNode(kind: cnkProc, info: unknownLineInfo, prc: n.prc, typ: typ)
+    of AllNodeKinds - ConstrTreeNodes + {mnkField, mnkBinding}:
       # 'end' nodes are skipped manually
       unreachable(n.kind)
 
   var i = 0
-  translateAux(t, i)
+  translateAux(t, i, env)
 
 proc pick*[T](n: CgNode, forInt, forFloat: T): T =
   ## Returns either `forInt` or `forFloat` depending on the type of `n`.
@@ -220,3 +213,13 @@ proc pick*[T](n: CgNode, forInt, forFloat: T): T =
   of tyFloat..tyFloat64:       forFloat
   else:
     unreachable("not an integer or float type")
+
+func numArgs*(n: CgNode): int {.inline.} =
+  ## Returns the number of arguments for a call-like node. The callee
+  ## is excluded.
+  n.len - 1 - ord(n.kind == cnkCheckedCall)
+
+func callLen*(n: CgNode): int {.inline.} =
+  ## The number of sub-nodes in a call-like node, excluding the trailing jump
+  ## target description.
+  n.len - ord(n.kind == cnkCheckedCall)

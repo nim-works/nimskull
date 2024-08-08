@@ -60,8 +60,7 @@ proc caseTree(lvl: int = 0): PCaseNode =
 
 proc `=destroy`(n: var TNode) =
   assert(addr(n) != nil)
-  write(stdout, "finalizing: ")
-  writeLine(stdout, "not nil")
+  debugEcho "finalizing: not nil"
 
 var
   id: int = 1

@@ -145,12 +145,14 @@ macro `??.`*(a: typed): Option =
   let lhs = genSym(nskVar, "lhs")
   let lhs2 = genSym(nskVar, "lhs")
   let body = process(a, lhs2, 0)
+  let optionSym = bindSym("Option")
+  let optionOpSym = bindSym("option")
   result = quote do:
-    var `lhs`: Option[type(`a`)]
+    var `lhs`: `optionSym`[type(`a`)]
     block:
       var `lhs2`: type(`a`)
       `body`
-      `lhs` = option(`lhs2`)
+      `lhs` = `optionOpSym`(`lhs2`)
     `lhs`
 
 template fakeDot*(a: Option, b): untyped =

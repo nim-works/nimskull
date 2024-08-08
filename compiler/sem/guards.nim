@@ -23,6 +23,7 @@ import
   compiler/utils/[
     saturate,
     int128,
+    idioms,
   ],
   compiler/modules/[
     magicsys,
@@ -38,14 +39,22 @@ from compiler/ast/reports_sem import reportAst,
 from compiler/ast/report_enums import ReportKind
 
 const
-  someEq = {mEqI, mEqF64, mEqEnum, mEqCh, mEqB, mEqRef, mEqProc,
+  # Float operations are not analysed as
+  # it is currently unclear whether they
+  # can be analysed in a sound manner
+  # with the approach used here
+  someEq = {mEqI, mEqEnum, mEqCh, mEqB, mEqRef, mEqProc,
     mEqStr, mEqSet, mEqCString}
+    # `mEqF64` excluded here as it lacks the
+    # substition and reflexivity property
 
   # set excluded here as the semantics are vastly different:
-  someLe = {mLeI, mLeF64, mLeU, mLeEnum,
+  someLe = {mLeI, mLeU, mLeEnum,
             mLeCh, mLeB, mLePtr, mLeStr}
+    # `mLeF64` excluded here since it's not a total order
   someLt = {mLtI, mLtF64, mLtU, mLtEnum,
             mLtCh, mLtB, mLtPtr, mLtStr}
+    # `mLtF64` excluded here since it's not a strict total order
 
   someLen = {mLengthOpenArray, mLengthStr, mLengthArray, mLengthSeq}
 
@@ -54,15 +63,19 @@ const
   someHigh = {mHigh}
   # we don't list unsigned here because wrap around semantics suck for
   # proving anything:
-  someAdd = {mAddI, mAddF64, mSucc}
-  someSub = {mSubI, mSubF64, mPred}
-  someMul = {mMulI, mMulF64}
-  someDiv = {mDivI, mDivF64}
+  someAdd = {mAddI, mSucc}
+    # No `mAddF64` since float ops aren't analysed
+  someSub = {mSubI, mPred}
+    # No `mSubF64` since float ops aren't analysed
+  someMul = {mMulI}
+    # No `mMulF64` since float ops aren't analysed
+  someDiv = {mDivI}
+    # No `mDivF64` since float ops aren't analysed
   someMax = {mMaxI}
   someMin = {mMinI}
   someBinaryOp = someAdd+someSub+someMul+someMax+someMin
 
-proc isValue(n: PNode): bool = n.kind in {nkCharLit..nkNilLit}
+proc isValue(n: PNode): bool = n.kind in nkLiterals
 proc isLocation(n: PNode): bool = not n.isValue
 
 proc isLet(n: PNode): bool =
@@ -173,34 +186,34 @@ proc buildCall*(op: PSym; a, b: PNode): PNode =
 
 proc `|+|`(a, b: PNode): PNode =
   result = copyNode(a)
-  if a.kind in {nkCharLit..nkUInt64Lit}: result.intVal = a.intVal |+| b.intVal
+  if a.kind in nkIntLiterals: result.intVal = a.intVal |+| b.intVal
   else: result.floatVal = a.floatVal + b.floatVal
 
 proc `|-|`(a, b: PNode): PNode =
   result = copyNode(a)
-  if a.kind in {nkCharLit..nkUInt64Lit}: result.intVal = a.intVal |-| b.intVal
+  if a.kind in nkIntLiterals: result.intVal = a.intVal |-| b.intVal
   else: result.floatVal = a.floatVal - b.floatVal
 
 proc `|*|`(a, b: PNode): PNode =
   result = copyNode(a)
-  if a.kind in {nkCharLit..nkUInt64Lit}: result.intVal = a.intVal |*| b.intVal
+  if a.kind in nkIntLiterals: result.intVal = a.intVal |*| b.intVal
   else: result.floatVal = a.floatVal * b.floatVal
 
 proc `|div|`(a, b: PNode): PNode =
   result = copyNode(a)
-  if a.kind in {nkCharLit..nkUInt64Lit}: result.intVal = a.intVal div b.intVal
+  if a.kind in nkIntLiterals: result.intVal = a.intVal div b.intVal
   else: result.floatVal = a.floatVal / b.floatVal
 
 proc negate(a, b, res: PNode; o: Operators): PNode =
-  if b.kind in {nkCharLit..nkUInt64Lit} and b.intVal != low(BiggestInt):
+  if b.kind in nkIntLiterals and b.intVal != low(BiggestInt):
     var b = copyNode(b)
     b.intVal = -b.intVal
-    if a.kind in {nkCharLit..nkUInt64Lit}:
+    if a.kind in nkIntLiterals:
       b.intVal = b.intVal |+| a.intVal
       result = b
     else:
       result = buildCall(o.opAdd, a, b)
-  elif b.kind in {nkFloatLit..nkFloat64Lit}:
+  elif b.kind in nkFloatLiterals:
     var b = copyNode(b)
     b.floatVal = -b.floatVal
     result = buildCall(o.opAdd, a, b)
@@ -247,7 +260,7 @@ proc reassociation(n: PNode; o: Operators): PNode =
   else: discard
 
 proc pred(n: PNode): PNode =
-  if n.kind in {nkCharLit..nkUInt64Lit} and n.intVal != low(BiggestInt):
+  if n.kind in nkIntLiterals and n.intVal != low(BiggestInt):
     result = copyNode(n)
     dec result.intVal
   else:
@@ -440,37 +453,25 @@ proc sameOpr(a, b: PSym): bool =
   of someDiv: result = b.magic in someDiv
   else: result = a == b
 
-proc sameTree*(a, b: PNode): bool =
-  result = false
-  if a == b:
-    result = true
-  elif a != nil and b != nil and a.kind == b.kind:
-    case a.kind
-    of nkSym:
-      result = a.sym == b.sym
-      if not result and a.sym.magic != mNone:
-        result = a.sym.magic == b.sym.magic or sameOpr(a.sym, b.sym)
-    of nkIdent: result = a.ident.id == b.ident.id
-    of nkCharLit..nkUInt64Lit: result = a.intVal == b.intVal
-    of nkFloatLit..nkFloat64Lit: result = a.floatVal == b.floatVal
-    of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
-    of nkType: result = a.typ == b.typ
-    of nkEmpty, nkNilLit: result = true
-    else:
-      if a.len == b.len:
-        for i in 0..<a.len:
-          if not sameTree(a[i], b[i]): return
-        result = true
+makeTreeEquivalenceProc(sameTree,
+  relaxedKindCheck = false,
+  symCheck     = sameOpr(a.sym, b.sym) or
+    (a.sym.magic != mNone and a.sym.magic == b.sym.magic),
+  floatCheck   = a.floatVal == b.floatVal,
+  typeCheck    = a.typ == b.typ,
+  commentCheck = true # ignore comments
+)
+export sameTree
 
 proc hasSubTree(n, x: PNode): bool =
   if n.sameTree(x): result = true
   else:
     case n.kind
-    of nkEmpty..nkNilLit:
+    of nkWithoutSons - nkFormalParams:
       result = n.sameTree(x)
     of nkFormalParams:
       discard
-    else:
+    of nkWithSons - nkFormalParams:
       for i in 0..<n.len:
         if hasSubTree(n[i], x): return true
 
@@ -499,7 +500,7 @@ proc impliesEq(fact, eq: PNode): TImplication =
   else: discard
 
 proc leImpliesIn(x, c, aSet: PNode): TImplication =
-  if c.kind in {nkCharLit..nkUInt64Lit}:
+  if c.kind in nkIntLiterals:
     # fact:  x <= 4;  question x in {56}?
     # --> true if every value <= 4 is in the set {56}
     #
@@ -515,7 +516,7 @@ proc leImpliesIn(x, c, aSet: PNode): TImplication =
       elif neg == i: result = impNo
 
 proc geImpliesIn(x, c, aSet: PNode): TImplication =
-  if c.kind in {nkCharLit..nkUInt64Lit}:
+  if c.kind in nkIntLiterals:
     # fact:  x >= 4;  question x in {56}?
     # --> true iff every value >= 4 is in the set {56}
     #
@@ -563,7 +564,7 @@ proc impliesIn(fact, loc, aSet: PNode): TImplication =
 
 proc valueIsNil(n: PNode): TImplication =
   if n.kind == nkNilLit: impYes
-  elif n.kind in {nkStrLit..nkTripleStrLit, nkBracket, nkObjConstr}: impNo
+  elif n.kind in nkStrLiterals + {nkBracket, nkObjConstr}: impNo
   else: impUnknown
 
 proc impliesIsNil(fact, eq: PNode): TImplication =
@@ -732,7 +733,7 @@ proc simpleSlice*(a, b: PNode): BiggestInt =
   # returns 'c' if a..b matches (i+c)..(i+c), -1 otherwise. (i)..(i) is matched
   # as if it is (i+0)..(i+0).
   if guards.sameTree(a, b):
-    if a.getMagic in someAdd and a[2].kind in {nkCharLit..nkUInt64Lit}:
+    if a.getMagic in someAdd and a[2].kind in nkIntLiterals:
       result = a[2].intVal
     else:
       result = 0
@@ -744,7 +745,7 @@ template isMul(x): untyped = x.getMagic in someMul
 template isDiv(x): untyped = x.getMagic in someDiv
 template isAdd(x): untyped = x.getMagic in someAdd
 template isSub(x): untyped = x.getMagic in someSub
-template isVal(x): untyped = x.kind in {nkCharLit..nkUInt64Lit}
+template isVal(x): untyped = x.kind in nkIntLiterals
 template isIntVal(x, y): untyped = x.intVal == y
 
 import macros
@@ -783,7 +784,7 @@ macro `=~`(x: PNode, pat: untyped): bool =
   result = nestList(ident"and", conds)
 
 proc isMinusOne(n: PNode): bool =
-  n.kind in {nkCharLit..nkUInt64Lit} and n.intVal == -1
+  n.kind in nkIntLiterals and n.intVal == -1
 
 proc pleViaModel(model: TModel; aa, bb: PNode): TImplication
 

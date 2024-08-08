@@ -2,12 +2,16 @@
 
 import
   compiler/ast/[
+    ast_query,
     ast_types
   ],
   compiler/mir/[
-    mirtrees
+    mirtrees,
+    mirbodies,
+    sourcemaps
   ],
   compiler/utils/[
+    containers,
     idioms
   ],
   experimental/[
@@ -25,7 +29,9 @@ type
   Fragment* = object
     ## Identifies a fragment (usually a sub-tree) within the staging buffer.
     s: NodeSlice
-    typ*: PType
+    num: int
+      ## number of child nodes in the fragment
+    typ*: TypeId
 
   MirBuffer = object
     ## Accumulates in-progress MIR code and keeps track of additional state
@@ -34,6 +40,14 @@ type
       # XXX: should not be exported
     cursor: int
       ## points to the first node that hasn't had its ``info`` set up yet
+    num: int
+      ## number of child nodes in the current in-progress subtree
+
+  Context* = object
+    ## Low-overhead object capturing part of the builder state when
+    ## starting manual subtree construction.
+    pos: NodeIndex
+    num: int
 
   MirBuilder* = object
     ## Holds the state needed for building MIR trees and allocating
@@ -51,45 +65,53 @@ type
       ## the ID of the meta-data to associate with all added nodes (that
       ## don't have an explicitly assigned source ID)
 
-    numTemps*: uint32
-      ## tracks the number of existing temporaries. Used for allocating new
-      ## IDs.
+    locals*: PartialStore[LocalId, Local]
+      ## new locals created with the builder
+    nextLabel*: uint32
+      ## the ID to use when allocating a new label ID
 
     # XXX: the internal fields are currently exported for the integration
     #      with changesets to work, but future refactorings should focus
     #      on making them hidden
 
-func typ*(val: Value): PType =
+func typ*(val: Value): TypeId =
   assert val.node.kind != mnkNone, "uninitialized"
   val.node.typ
 
 func procNode*(id: ProcedureId): MirNode {.inline.} =
   MirNode(kind: mnkProc, prc: id)
 
-func endNode*(k: MirNodeKind): MirNode {.inline.} =
-  assert k in SubTreeNodes
-  MirNode(kind: mnkEnd, start: k)
-
-func typeLit*(t: PType): Value =
+func typeLit*(t: TypeId): Value =
   Value(node: MirNode(kind: mnkType, typ: t))
 
-func literal*(n: PNode): Value =
-  Value(node: MirNode(kind: mnkLiteral, typ: n.typ, lit: n))
+func literal*(kind: range[mnkIntLit..mnkFloatLit], n: NumberId,
+              typ: TypeId): Value =
+  Value(node: MirNode(kind: kind, typ: typ, number: n))
 
-func temp*(typ: PType, id: TempId): Value =
-  Value(node: MirNode(kind: mnkTemp, typ: typ, temp: id))
+func literal*(str: StringId, typ: TypeId): Value =
+  Value(node: MirNode(kind: mnkStrLit, typ: typ, strVal: str))
 
-func alias*(typ: PType, id: TempId): Value =
-  Value(node: MirNode(kind: mnkAlias, typ: typ, temp: id))
+func literal*(ast: AstId, typ: TypeId): Value =
+  Value(node: MirNode(kind: mnkAstLit, typ: typ, ast: ast))
 
-func toValue*(id: ConstId, typ: PType): Value =
+func temp*(typ: TypeId, id: LocalId): Value =
+  Value(node: MirNode(kind: mnkTemp, typ: typ, local: id))
+
+func alias*(typ: TypeId, id: LocalId): Value =
+  Value(node: MirNode(kind: mnkAlias, typ: typ, local: id))
+
+func toValue*(id: ConstId, typ: TypeId): Value =
   Value(node: MirNode(kind: mnkConst, typ: typ, cnst: id))
 
-func toValue*(id: GlobalId, typ: PType): Value =
+func toValue*(id: GlobalId, typ: TypeId): Value =
   Value(node: MirNode(kind: mnkGlobal, typ: typ, global: id))
 
-func toValue*(id: ProcedureId, typ: PType): Value =
-  Value(node: MirNode(kind: mnkProc, typ: typ, prc: id))
+func toValue*(id: ProcedureId, typ: TypeId): Value =
+  Value(node: MirNode(kind: mnkProcVal, typ: typ, prc: id))
+
+func toValue*(kind: range[mnkParam..mnkLocal], id: LocalId,
+              typ: TypeId): Value =
+  Value(node: MirNode(kind: kind, typ: typ, local: id))
 
 # --------- MirBuffer interface ----------
 
@@ -174,16 +196,20 @@ template push*(bu: var MirBuilder, body: untyped): Fragment =
     start =
       if doSwap: bu.back.len
       else:      bu.front.len
+  var num = 0
 
   swap(bu, doSwap)
+  swap(num, bu.front.num) # change the child node counter to 0
   body
+  swap(num, bu.front.num) # restore the previous child counter
   swap(bu, doSwap)
 
   Fragment(s: NodeSlice(a: NodeIndex(start), b: NodeIndex(bu.staging.len)),
+           num: num,
            typ: if start < bu.staging.len:
                   bu.staging[start].typ
                 else:
-                  nil)
+                  VoidType)
 
 func pop*(bu: var MirBuilder, f: Fragment) =
   ## Moves the expression/statement identified by `v` from the top of the
@@ -201,9 +227,11 @@ func pop*(bu: var MirBuilder, f: Fragment) =
   if bu.swapped:
     assert f.s.b.int == bu.front.len
     popAux(bu.back, bu.front, f.s.a.int, bu.currentSourceId)
+    bu.back.num += f.num # register the nodes with current root
   else:
     assert f.s.b.int == bu.back.len
     popAux(bu.front, bu.back, f.s.a.int, bu.currentSourceId)
+    bu.front.num += f.num # register the nodes with current root
 
 template withFront*(bu: var MirBuilder, body: untyped) =
   ## Runs `body` with the final buffer as the front buffer.
@@ -216,6 +244,17 @@ template buildStmt*(bu: var MirBuilder, body: untyped) =
   ## A shortcut for ``push`` + ``pop``.
   let v = bu.push(body)
   bu.pop(v)
+
+template buildIf*(bu: var MirBuilder, cond, body: untyped) =
+  ## Emits the start and end of an ``if``, with `cond` providing the MIR for
+  ## the condition, and `body` providing the MIR for the body.
+  let label = bu.allocLabel()
+  bu.subTree mnkIf:
+    cond
+    bu.add MirNode(kind: mnkLabel, label: label)
+  body
+  bu.subTree mnkEndStruct:
+    bu.add MirNode(kind: mnkLabel, label: label)
 
 template buildStmt*(bu: var MirBuilder, k: MirNodeKind, body: untyped) =
   ## Similar to `buildStmt <#buildStmt,TCtx,untyped>`_, but also starts a sub-
@@ -247,8 +286,13 @@ func setSource*(bu: var MirBuilder, id: SourceId) =
     # now change the active ID
     bu.currentSourceId = id
 
+func addLocal*(bu: var MirBuilder, data: sink Local): LocalId {.inline.} =
+  ## Adds a new local to the body and returns the ID to address it with.
+  bu.locals.add data
+
 func add*(bu: var MirBuilder, n: sink MirNode) {.inline.} =
   ## Emits `n` to the node buffers.
+  inc bu.front.num
   bu.front.add n
 
 func add*(bu: var MirBuilder, id: SourceId, n: sink MirNode) =
@@ -257,7 +301,7 @@ func add*(bu: var MirBuilder, id: SourceId, n: sink MirNode) =
   # the cursor is moved, so a flush has to be performed first
   bu.front.apply(bu.currentSourceId)
   n.info = id
-  bu.front.add n
+  bu.add(n)
   inc bu.front.cursor
 
 func emitFrom*(bu: var MirBuilder, tree: MirTree, n: NodePosition) =
@@ -265,13 +309,25 @@ func emitFrom*(bu: var MirBuilder, tree: MirTree, n: NodePosition) =
   bu.front.apply(bu.currentSourceId)
   bu.front.nodes.add toOpenArray(tree, int n, int tree.sibling(n)-1)
   bu.front.cursor = bu.front.len
+  inc bu.front.num # register the new node
+
+proc start*(bu: var MirBuilder, n: sink MirNode): Context {.inline.} =
+  ## Starts a subtree with a root node of `kind`. Must be paired with a call
+  ## to `finish <#finish,MirBuilder,Context>`_.
+  bu.add(n)
+  result = Context(num: bu.front.num, pos: NodeIndex(bu.front.len - 1))
+  bu.front.num = 0
+
+proc finish*(bu: var MirBuilder, saved: Context) {.inline.} =
+  ## Finish the manual subtree and restores the `saved` context previously
+  ## returned by ``start``.
+  bu.front.nodes[saved.pos].len = bu.front.num.uint32
+  bu.front.num = saved.num
 
 template subTree*(bu: var MirBuilder, n: MirNode, body: untyped) =
-  let start = bu.front.len
-  bu.add n
+  let saved = bu.start n
   body
-  # note: don't use `n.kind` here as that would evaluate `n` twice
-  bu.add endNode(bu.front.nodes[start].kind)
+  bu.finish(saved) # restore the old root
 
 template subTree*(bu: var MirBuilder, k: MirNodeKind, body: untyped) =
   bu.subTree MirNode(kind: k):
@@ -282,22 +338,27 @@ template stmtList*(bu: var MirBuilder, body: untyped) =
     body
 
 template scope*(bu: var MirBuilder, body: untyped) =
-  bu.subTree MirNode(kind: mnkScope):
-    body
+  bu.subTree mnkScope: discard
+  body
+  bu.subTree mnkEndScope: discard
 
-func allocTemp(bu: MirBuilder, t: PType; id: TempId, alias: bool): Value =
+func allocTemp(bu: MirBuilder, t: TypeId; id: LocalId, alias: bool): Value =
   ## Allocates a new temporary or alias and returns it.
   let kind = if alias: mnkAlias
              else:     mnkTemp
   {.cast(uncheckedAssign).}:
-    result = Value(node: MirNode(kind: kind, typ: t, temp: id),
+    result = Value(node: MirNode(kind: kind, typ: t, local: id),
                    info: someOpt bu.currentSourceId)
 
-template allocTemp*(bu: var MirBuilder, t: PType, alias = false): Value =
+template allocTemp*(bu: var MirBuilder, t: TypeId, alias = false): Value =
   # XXX: the only purpose of this is to work around a ``strictFuncs`` bug
-  let id = TempId bu.numTemps
-  inc bu.numTemps
+  let id = bu.addLocal(Local(typ: t))
   allocTemp(bu, t, id, alias)
+
+func allocLabel*(bu: var MirBuilder): LabelId =
+  ## Allocates a fresh label ID.
+  result = LabelId(bu.nextLabel)
+  inc bu.nextLabel
 
 func use*(bu: var MirBuilder, val: sink Value) {.inline.} =
   ## Emits a use of `val`.
@@ -306,7 +367,7 @@ func use*(bu: var MirBuilder, val: sink Value) {.inline.} =
   else:
     bu.add val.node
 
-template wrapTemp*(bu: var MirBuilder, t: PType,
+template wrapTemp*(bu: var MirBuilder, t: TypeId,
                   body: untyped): Value =
   ## Emits a definition of a temporary with `body` as the initializer
   ## expression.
@@ -316,7 +377,7 @@ template wrapTemp*(bu: var MirBuilder, t: PType,
     body
   val
 
-template wrapAlias*(bu: var MirBuilder, t: PType, body: untyped): Value =
+template wrapAlias*(bu: var MirBuilder, t: TypeId, body: untyped): Value =
   ## Emits an ``mnkBind`` statement with `body` as the lvalue expression.
   ## Returns the name of the alias.
   let val = allocTemp(bu, t, true)
@@ -325,7 +386,7 @@ template wrapAlias*(bu: var MirBuilder, t: PType, body: untyped): Value =
     body
   val
 
-template wrapMutAlias*(bu: var MirBuilder, t: PType, body: untyped): Value =
+template wrapMutAlias*(bu: var MirBuilder, t: TypeId, body: untyped): Value =
   ## Emits a ``mnkBindMut`` statement with `body` as the lvalue expression.
   ## Returns the name of the alias.
   let val = allocTemp(bu, t, true)
@@ -334,47 +395,105 @@ template wrapMutAlias*(bu: var MirBuilder, t: PType, body: untyped): Value =
     body
   val
 
-template buildMagicCall*(bu: var MirBuilder, m: TMagic, t: PType,
+template rawBuildCall*(bu: var MirBuilder, k: MirNodeKind, t: TypeId,
+                       sideEffects: bool, body: untyped) =
+  ## Builds a call tree, with `k` as the call kind, `t` as the call's return
+  ## type, and `sideEffects` indicating whether the call potentially modifies
+  ## global data.
+  bu.subTree MirNode(kind: k, typ: t):
+    bu.add MirNode(kind: mnkImmediate, imm: uint32 ord(sideEffects))
+    body
+
+template buildMagicCall*(bu: var MirBuilder, m: TMagic, t: TypeId,
                          body: untyped) =
-  bu.subTree MirNode(kind: mnkCall, typ: t):
+  bu.rawBuildCall mnkCall, t, false: # no side-effects
     bu.add MirNode(kind: mnkMagic, magic: m)
     body
 
-template buildCall*(bu: var MirBuilder, prc: ProcedureId, pt, t: PType,
+template buildCall*(bu: var MirBuilder, prc: ProcedureId, t: TypeId,
                     body: untyped) =
   ## Build and emits a call tree to the active buffer. `pt` is the type of the
   ## procedure.
-  bu.subTree MirNode(kind: mnkCall, typ: t):
-    bu.use toValue(prc, pt)
+  bu.rawBuildCall mnkCall, t, false:  # no side-effects
+    bu.add procNode(prc)
     body
 
 func emitByVal*(bu: var MirBuilder, y: Value) =
   bu.subTree mnkArg:
     bu.use y
 
-func emitByName*(bu: var MirBuilder, val: Value, e: EffectKind) =
+template emitByName*(bu: var MirBuilder, e: EffectKind, body: untyped) =
   bu.subTree mnkName:
-    bu.subTree MirNode(kind: mnkTag, effect: e):
-      bu.use val
+    bu.add MirNode(kind: mnkImmediate, imm: uint32 ord(e))
+    body
+
+func emitByName*(bu: var MirBuilder, val: Value, e: EffectKind) =
+  bu.emitByName e:
+    bu.use val
+
+func move*(bu: var MirBuilder, val: Value) =
+  ## Emits ``move val``.
+  bu.subTree MirNode(kind: mnkMove, typ: val.typ):
+    bu.use val
 
 func asgn*(buf: var MirBuilder, a, b: Value) =
-  ## Emits an assignment of `b` to `a`.
+  ## Emits a shallow assignment: ``a = b``.
   buf.subTree MirNode(kind: mnkAsgn):
     buf.use a
     buf.use b
 
+func asgnMove*(bu: var MirBuilder, a, b: Value) =
+  ## Emits a move assignment: ``a = move b``.
+  bu.subTree mnkAsgn:
+    bu.use a
+    bu.move b
+
+func join*(bu: var MirBuilder, label: LabelId) =
+  ## Emits a ``join`` statement with `label`.
+  bu.subTree mnkJoin:
+    bu.add MirNode(kind: mnkLabel, label: label)
+
+func goto*(bu: var MirBuilder, label: LabelId) =
+  bu.subTree mnkGoto:
+    bu.add MirNode(kind: mnkLabel, label: label)
+
+template pathNamed*(bu: var MirBuilder, t: TypeId, f: int32, body: untyped) =
+  ## Emits a ``mnkPathNamed`` expression.
+  bu.subTree MirNode(kind: mnkPathNamed, typ: t):
+    body
+    bu.add MirNode(kind: mnkField, field: f)
+
+template pathVariant*(bu: var MirBuilder, t: TypeId, f: int32, body: untyped) =
+  ## Emits a ``mnkPathVariant`` expression.
+  bu.subTree MirNode(kind: mnkPathVariant, typ: t):
+    body
+    bu.add MirNode(kind: mnkField, field: f)
+
+template pathPos*(bu: var MirBuilder, t: TypeId, p: uint32, body: untyped) =
+  ## Emits a ``mnkPathPos`` expression.
+  bu.subTree MirNode(kind: mnkPathPos, typ: t):
+    body
+    bu.add MirNode(kind: mnkImmediate, imm: p)
+
+template buildBlock*(bu: var MirBuilder, id: LabelId, body: untyped) =
+  ## Emits `body` followed by a join statement for the given `id`.
+  body
+  bu.join id
+
 func inline*(bu: var MirBuilder, tree: MirTree, fr: NodePosition): Value =
-  ## Inlines the operand for non-mutating use. This is meant to be used for
-  ## materialzing immutable arguments when inlining calls / expanding
+  ## Inlines the lvalue operand for non-mutating use. This is meant to be used
+  ## for materialzing immutable arguments when inlining calls / expanding
   ## assignments.
   case tree[fr].kind
   of Atoms:
     result = Value(node: tree[fr])
-  else:
+  of LvalueExprKinds - Atoms:
     result = allocTemp(bu, tree[fr].typ)
-    bu.subTree mnkDef:
+    bu.subTree mnkDefCursor:
       bu.use result
       bu.emitFrom(tree, fr)
+  else:
+    unreachable("can only inline lvalue-expression arguments")
 
 func bindImmutable*(bu: var MirBuilder, tree: MirTree,
                     lval: NodePosition): Value =
@@ -415,8 +534,14 @@ func materialize*(bu: var MirBuilder, loc: Value): Value =
     bu.use result
     bu.use loc
 
-func finish*(bu: sink MirBuilder): MirTree =
-  ## Consumes `bu` and returns the finished tree.
+func materializeMove*(bu: var MirBuilder, loc: Value): Value =
+  ## Emits a new owning temporary that's initialized with the moved-from `loc`.
+  bu.wrapTemp loc.typ:
+    bu.move loc
+
+func finish*(bu: sink MirBuilder): auto =
+  ## Low-level procedure that consumes `bu` and returns the finished tree
+  ## and partial store of the locals.
   if bu.swapped:
     swap(bu.front, bu.back)
     bu.swapped = false
@@ -424,4 +549,18 @@ func finish*(bu: sink MirBuilder): MirTree =
   assert bu.back.len == 0, "staging buffer is not empty"
   # make sure all nodes have their info IDs assigned:
   apply(bu.front, bu.currentSourceId)
-  result = move bu.front.nodes
+  result = (move bu.front.nodes, move bu.locals)
+
+func finish*(bu: sink MirBuilder, locals: sink Store[LocalId, Local]): auto =
+  ## Returns the finished tree from `bu`, plus `locals` joined with the locals
+  ## created with the builder. `locals` must be the store the `bu` was initially
+  ## set-up with.
+  let (tree, partial) = finish(bu)
+  result = (tree, move locals)
+  # join the partial store into the base store:
+  join(result[1], partial)
+
+proc createBody*(builder: sink MirBuilder, sm: sink SourceMap): MirBody =
+  ## Creates a MIR body from `builder` and `sm`.
+  result = MirBody(nextLabel: builder.nextLabel.LabelId, source: sm)
+  (result.code, result.locals) = builder.finish(default Store[LocalId, Local])

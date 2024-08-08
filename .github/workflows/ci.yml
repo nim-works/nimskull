@@ -32,6 +32,10 @@ defaults:
   run:
     shell: bash
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pre_run:
     name: Provide additional context for the workflow
@@ -42,29 +46,17 @@ jobs:
       shared_builder: ${{ steps.matrix.outputs.shared }}
 
     steps:
-      - id: run_cond
-        uses: fkirc/skip-duplicate-actions@v5.3.1
-        with:
-          # Cancel CI on outdated commits
-          cancel_others: true
-          # Don't skip when a duplicated run (ie. from a PR) is done.
-          #
-          # Only CI in upstream has docs publishing rights.
-          skip_after_successful_duplicate: false
-          # Do not skip on push, dispatched or cron
-          do_not_skip: '["push", "workflow_dispatch", "schedule"]'
-
       - id: skip_result
         name: Whether to skip checks
         run: |
-          if [[ '${{ steps.run_cond.outputs.should_skip }}' == true ]]; then
-            echo "result=true" >> $GITHUB_OUTPUT
-          elif [[ '${{ github.event.pull_request.draft }}' == true ]]; then
+          if [[ $IS_DRAFT == true ]]; then
             echo "Pull request is in draft state, skipping"
             echo "result=true" >> $GITHUB_OUTPUT
           else
             echo "result=false" >> $GITHUB_OUTPUT
           fi
+        env:
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
 
       - id: matrix
         name: Obtain build target matrix
@@ -135,18 +127,18 @@ jobs:
         if: runner.os == 'Windows'
         uses: ./.github/actions/setup-mingw
 
+      - name: Setup vcpkg (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: x64-mingw-dynamic-release
+          host-triplet: x64-mingw-dynamic-release
+          revision: 2024.01.12
+          overlay-triplets: ${{ github.workspace }}/tools/vcpkg/triplets
+
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
-        uses: johnwason/vcpkg-action@v6
-        with:
-          pkgs: >-
-            pcre
-            sqlite3
-          triplet: x64-mingw-dynamic-release
-          extra-args: --overlay-triplets=${{ github.workspace }}/tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
-          revision: 2024.01.12
-          github-binarycache: true
-          token: ${{ github.token }}
+        run: vcpkg install pcre sqlite3
 
       - name: Download CA certificates (Windows)
         if: runner.os == 'Windows'
@@ -154,6 +146,18 @@ jobs:
           $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
           Invoke-WebRequest https://curl.se/ca/cacert.pem -OutFile (Join-Path $binPath "cacert.pem")
         shell: pwsh
+
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
 
       - name: Build release binaries
         run: ./koch.py all-strict
@@ -207,6 +211,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install "${deps[@]}"
 
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
+
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -224,7 +240,9 @@ jobs:
         shell: pwsh
 
       - name: Run tester
-        run: ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' --tryFailing all
+        run: ./koch.py test --batch:"$TEST_BATCH" --tryFailing all
+        env:
+          TEST_BATCH: ${{ matrix.batch }}_${{ matrix.total_batch }}
 
       - name: Print all test errors
         if: failure()
@@ -258,6 +276,18 @@ jobs:
           $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
           $binPath | Out-File -Append $env:GITHUB_PATH
         shell: pwsh
+
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
 
       - uses: ./.github/actions/download-compiler
 
@@ -333,6 +363,18 @@ jobs:
         if: runner.os == 'Windows'
         uses: ./git-src/.github/actions/setup-mingw
 
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
+
       - name: Download source archive
         uses: actions/download-artifact@v4
         with:
@@ -345,18 +387,18 @@ jobs:
           # Pipe from zstd to tar because macOS' tar does not support unpacking zstd
           zstd -c -d "$archive" | tar -xf - --strip-components 1
 
+      - name: Setup vcpkg (Windows)
+        if: runner.os == 'Windows'
+        uses: ./git-src/.github/actions/setup-vcpkg
+        with:
+          triplet: x64-mingw-dynamic-release
+          host-triplet: x64-mingw-dynamic-release
+          revision: 2024.01.12
+          overlay-triplets: ${{ github.workspace }}/tools/vcpkg/triplets
+
       - name: Install dependencies (Windows)
         if: runner.os == 'Windows'
-        uses: johnwason/vcpkg-action@v6
-        with:
-          pkgs: >-
-            pcre
-            sqlite3
-          triplet: x64-mingw-dynamic-release
-          extra-args: --overlay-triplets=${{ github.workspace }}/tools/vcpkg/triplets --host-triplet=x64-mingw-dynamic-release
-          revision: 2024.01.12
-          github-binarycache: true
-          token: ${{ github.token }}
+        run: vcpkg install pcre sqlite3
 
       - name: Add DLLs to PATH (Windows)
         if: runner.os == 'Windows'
@@ -380,8 +422,8 @@ jobs:
       - name: Build docs
         run: |
           ./koch.py doc \
-            --git.url:'https://github.com/${{ github.repository }}' \
-            --git.commit:'${{ github.sha }}' \
+            --git.url:"https://github.com/$GITHUB_REPOSITORY" \
+            --git.commit:"$GITHUB_SHA" \
             --git.devel:devel
 
           # Remove leftover nimskullcache
@@ -458,12 +500,24 @@ jobs:
           Copy-Item (Join-Path $binPath "libpcre.dll") -Destination bin
         shell: pwsh
 
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
+
       # Note: keep synchronized with source_binaries job
       - name: Build docs
         run: |
           ./koch.py doc \
-            --git.url:'https://github.com/${{ github.repository }}' \
-            --git.commit:'${{ github.sha }}' \
+            --git.url:"https://github.com/$GITHUB_REPOSITORY" \
+            --git.commit:"$GITHUB_SHA" \
             --git.devel:devel
 
           # Remove leftover nimskullcache
@@ -488,15 +542,6 @@ jobs:
           # Let the uploader know what to upload
           echo "archive=$archive" >> $GITHUB_OUTPUT
           echo "metadata=$metadata" >> $GITHUB_OUTPUT
-
-      - name: Upload docs to artifacts
-        if: matrix.target.shared_builder
-        uses: actions/upload-artifact@v4
-        with:
-          # If this name is updated, tweak publisher.yml
-          name: Generated docs
-          path: doc/html/
-          if-no-files-found: error
 
       - name: Upload release package to artifacts
         uses: actions/upload-artifact@v4

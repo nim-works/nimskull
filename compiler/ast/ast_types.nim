@@ -52,10 +52,9 @@ type
   TNodeKind* = enum
     ## order is important, because ranges are used to check whether a node
     ## belongs to a certain class
-
-    nkNone                ## unknown node kind: indicates an error
-                          ## Expressions:
-                          ## Atoms:
+    ## Expressions:
+    ## Atoms:
+    nkError               ## erroneous AST node see `errorhandling`
     nkEmpty               ## the node is empty
     nkIdent               ## node is an identifier
     nkSym                 ## node is a symbol
@@ -201,9 +200,6 @@ type
     nkBlockExpr           ## a statement block ending in an expr; this is used
                           ## to allow powerful multi-line templates that open a
                           ## temporary scope
-    nkStmtListType        ## a statement list ending in a type; for macros
-    nkBlockType           ## a statement block ending in a type; for macros
-                          ## types as syntactic trees:
 
     nkWith                ## distinct with `foo`
     nkWithout             ## distinct without `foo`
@@ -237,7 +233,6 @@ type
                           ## transformation
     nkFuncDef             ## a func
     nkTupleConstr         ## a tuple constructor
-    nkError               ## erroneous AST node see `errorhandling`
     nkNimNodeLit          ## a ``NimNode`` literal. Stores a single sub node
                           ## that represents the ``NimNode`` AST
     nkModuleRef           ## for .rod file support: A (moduleId, itemId) pair
@@ -247,14 +242,20 @@ type
   TNodeKinds* = set[TNodeKind]
 
 const
+  nkUIntLiterals*  = {nkCharLit, nkUIntLit..nkUInt64Lit}
+    ## Unsigned int literals
+  nkSIntLiterals*  = {nkIntLit..nkInt64Lit}
+    ## Signed int literals
+  nkIntLiterals*   = nkUIntLiterals + nkSIntLiterals
+  nkFloatLiterals* = {nkFloatLit..nkFloat64Lit}
+  nkStrLiterals*   = {nkStrLit..nkTripleStrLit}
+  nkLiterals*      = nkIntLiterals + nkFloatLiterals + nkStrLiterals + nkNilLit
+
   nkWithoutSons* =
-    {nkEmpty, nkNone} +
+    {nkEmpty} +
     {nkIdent, nkSym} +
     {nkType} +
-    {nkCharLit..nkUInt64Lit} +
-    {nkFloatLit..nkFloat64Lit} +
-    {nkStrLit..nkTripleStrLit} +
-    {nkNilLit} +
+    nkLiterals +
     {nkError} +
     {nkCommentStmt}
 
@@ -432,7 +433,6 @@ const
 
   sfNoForward*     = sfRegister       ## forward declarations are not required (per module)
   sfExperimental*  = sfOverriden      ## module uses the .experimental switch
-  sfGoto*          = sfOverriden      ## var is used for 'goto' code generation
   sfWrittenTo*     = sfBorrow         ## param is assigned to
   sfEscapes*       = sfProcvar        ## param escapes
   sfBase*          = sfDiscriminant
@@ -612,6 +612,8 @@ type
     nfDefaultRefsParam ## a default param value references another parameter
                        ## the flag is applied to proc default values and to calls
     nfHasComment ## node has a comment
+    nfWasGensym  ## the identifier node was a gensym prior to template
+                 ## evaluation
 
   TNodeFlags* = set[TNodeFlag]
   TTypeFlag* = enum   ## keep below 32 for efficiency reasons (now: 43)
@@ -815,6 +817,8 @@ type
     mException, mBuiltinType, mSymOwner, mUncheckedArray, mGetImplTransf,
     mSymIsInstantiationOf, mNodeId, mPrivateAccess
 
+    mEvalToAst
+
     # magics only used internally:
     mStrToCStr
       ## the backend-dependent string-to-cstring conversion
@@ -986,6 +990,7 @@ type
     adVmFieldNotFound
     adVmNotAField
     adVmFieldUnavailable
+    adVmCannotCreateNode
     adVmCannotSetChild
     adVmCannotAddChild
     adVmCannotGetChild
@@ -1008,7 +1013,8 @@ type
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
       of adVmErrInternal, adVmNilAccess, adVmIllegalConv,
           adVmFieldUnavailable, adVmFieldNotFound,
-          adVmCacheKeyAlreadyExists, adVmMissingCacheKey:
+          adVmCacheKeyAlreadyExists, adVmMissingCacheKey,
+          adVmCannotCreateNode:
         msg*: string
       of adVmCannotSetChild, adVmCannotAddChild, adVmCannotGetChild,
           adVmUnhandledException, adVmNoType, adVmNodeNotASymbol:
@@ -1068,10 +1074,12 @@ type
   AstDiagKind* = enum
     # general
     adWrappedError
+    adWrappedSymError
     adCyclicTree
     # type
     adSemTypeMismatch
     adSemTypeNotAllowed
+    adSemTIsNotAConcreteType
     # lookup
     adSemUndeclaredIdentifier
     adSemConflictingExportnims
@@ -1150,12 +1158,13 @@ type
     adSemUndeclaredField
     adSemCannotInstantiate
     adSemWrongNumberOfGenericParams
-    adSemCalleeHasAnError
     # sem
     adSemExpressionHasNoType
     adSemDefNameSym   ## when creating a sym node from `nkIdentKinds`
     # semtypes
     adSemTypeExpected
+    adSemStringRangeNotAllowed
+    adSemRangeIsEmpty
     # semtempl
     adSemIllformedAst
     adSemIllformedAstExpectedPragmaOrIdent
@@ -1188,6 +1197,8 @@ type
     adSemDotOperatorsNotEnabled
     adSemCallOperatorsNotEnabled
     adSemUnexpectedPattern
+    adSemCannotBeRaised
+    adSemCannotRaiseNonException
     # types
     adSemTypeKindMismatch
     # semexprs
@@ -1272,7 +1283,7 @@ type
     location*: TLineInfo        # TODO: `wrongNode` already has this, move to
                                 #       variant or handle in display/rendering
     case kind*: AstDiagKind
-    of adWrappedError:
+    of adWrappedError, adWrappedSymError:
       discard
     of adSemTypeMismatch,
         adSemIllegalConversion,
@@ -1317,7 +1328,6 @@ type
         adSemAlignRequiresPowerOfTwo,
         adSemNoReturnHasReturn,
         adSemMisplacedDeprecation,
-        adSemFatalError,
         adSemNoUnionForJs,
         adSemBitsizeRequiresPositive,
         adSemExperimentalRequiresToplevel,
@@ -1331,6 +1341,8 @@ type
         adSemCallInCompilesContextNotAProcOrField,
         adSemExpressionHasNoType,
         adSemTypeExpected,
+        adSemStringRangeNotAllowed,
+        adSemRangeIsEmpty,
         adSemIllformedAst,
         adSemIllformedAstExpectedPragmaOrIdent,
         adSemInvalidExpression,
@@ -1346,6 +1358,8 @@ type
         adSemDotOperatorsNotEnabled,
         adSemCallOperatorsNotEnabled,
         adSemUnexpectedPattern,
+        adSemCannotBeRaised,
+        adSemCannotRaiseNonException,
         adSemIsOperatorTakes2Args,
         adSemNoTupleTypeForConstructor,
         adSemInvalidOrderInArrayConstructor,
@@ -1399,6 +1413,7 @@ type
     of adSemAsmEmitExpectsStringLiteral:
       unexpectedKind*: TNodeKind
     of adSemRaisesPragmaExpectsObject,
+        adSemTIsNotAConcreteType,
         adSemCannotInferTypeOfLiteral,
         adSemProcHasNoConcreteType,
         adSemCannotCastToNonConcrete,
@@ -1409,7 +1424,7 @@ type
       externName*: string
     of adSemPragmaRecursiveDependency:
       userPragma*: PSym
-    of adSemCustomUserError:
+    of adSemCustomUserError, adSemFatalError:
       errmsg*: string
     of adSemImplicitPragmaError:
       implicitPragma*: PSym
@@ -1448,8 +1463,6 @@ type
     of adSemWrongNumberOfGenericParams:
       countMismatch*: tuple[expected, got: int]
       gnrcCallLineInfo*: TLineInfo
-    of adSemCalleeHasAnError:
-      callee*: PSym
     of adSemIllformedAstExpectedOneOf:
       expectedKinds*: TNodeKinds
     of adSemImplementationExpected:
@@ -1575,21 +1588,21 @@ type
     info*: TLineInfo
     flags*: TNodeFlags
     case kind*: TNodeKind
-    of nkCharLit..nkUInt64Lit:
+    of nkIntLiterals:
       intVal*: BiggestInt
       intLitBase*: NumericalBase
-    of nkFloatLit..nkFloat64Lit:
+    of nkFloatLiterals:
       floatVal*: BiggestFloat
       floatLitBase*: NumericalBase
         # Once case branches can share fields this can be unified with
         # intLitBase above
-    of nkStrLit..nkTripleStrLit:
+    of nkStrLiterals:
       strVal*: string
     of nkSym:
       sym*: PSym
     of nkIdent:
       ident*: PIdent
-    of nkEmpty, nkNone, nkType, nkNilLit, nkCommentStmt:
+    of nkEmpty, nkType, nkNilLit, nkCommentStmt:
       discard
     of nkError:
       diag*: PAstDiag
@@ -1714,8 +1727,6 @@ type
                               ## generated name is to be used
     extFlags*: ExternalFlags  ## additional flags that are relevant to code
                               ## generation
-    locId*: uint32            ## associates the symbol with a loc in the C code
-                              ## generator. 0 means unset.
     annex*: LibId             ## additional fields (seldom used, so we use a
                               ## reference to another object to save space)
     constraint*: PNode        ## additional constraints like 'lit|result'; also

@@ -31,3 +31,21 @@ block wrong_getast:
     doAssert x[0].intVal == 1
 
   m2()
+
+block wrong_uint_view_deref:
+  # reading from a lent/var indirection produced the wrong value for non-full-
+  # width integer types, when the highest bit was set
+  proc f_lent[T](x: var T): lent T = x
+  proc f_var[T](x: var T): var T = x
+
+  var
+    a = high(uint8)
+    b = high(uint16)
+    c = high(uint32)
+
+  doAssert f_lent(a) == high(uint8)
+  doAssert f_lent(b) == high(uint16)
+  doAssert f_lent(c) == high(uint32)
+  doAssert f_var(a)  == high(uint8)
+  doAssert f_var(b)  == high(uint16)
+  doAssert f_var(c)  == high(uint32)

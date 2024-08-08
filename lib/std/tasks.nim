@@ -61,7 +61,7 @@ type
   Task* = object ## `Task` contains the callback and its arguments.
     callback: proc (args: pointer) {.nimcall, gcsafe.}
     args: pointer
-    destroy: proc (args: pointer) {.nimcall, gcsafe.}
+    destroy: proc (args: pointer) {.nimcall, gcsafe, raises: [].}
 
 
 proc `=copy`*(x: var Task, y: Task) {.error.}
@@ -183,8 +183,9 @@ macro toTask*(e: typed{nkCall | nkInfix | nkPrefix | nkPostfix | nkCommand | nkC
                     )
 
 
+    let cAlloc = bindSym("c_calloc")
     let scratchObjPtrType = quote do:
-      cast[ptr `scratchObjType`](c_calloc(csize_t 1, csize_t sizeof(`scratchObjType`)))
+      cast[ptr `scratchObjType`](`cAlloc`(csize_t 1, csize_t sizeof(`scratchObjType`)))
 
     let scratchLetSection = newLetStmt(
       scratchIdent,

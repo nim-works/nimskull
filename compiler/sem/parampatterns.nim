@@ -188,7 +188,7 @@ proc checkForSideEffects*(n: PNode): TSideEffectAnalysis =
       if ret == seSideEffect: return ret
       elif ret == seUnknown and result == seNoSideEffect:
         result = seUnknown
-  of nkNone..nkNilLit:
+  of nkWithoutSons:
     # an atom cannot produce a side effect:
     result = seNoSideEffect
   else:
@@ -356,7 +356,7 @@ proc matchNodeKinds*(p, n: PNode): bool =
     of ppNot: stack[sp-1] = not stack[sp-1]
     of ppSym: push n.kind == nkSym
     of ppAtom: push isAtom(n)
-    of ppLit: push n.kind in {nkCharLit..nkNilLit}
+    of ppLit: push n.kind in nkLiterals
     of ppIdent: push n.kind == nkIdent
     of ppCall: push n.kind in nkCallKinds
     of ppSymKind:

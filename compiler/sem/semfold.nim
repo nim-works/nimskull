@@ -54,7 +54,7 @@ type
 
 const
   ExpressionNodes = nkCallKinds + nkLiterals + nkTypeExprs + {
-    nkSym, nkEmpty, nkNimNodeLit, nkNilLit,
+    nkSym, nkEmpty, nkNimNodeLit,
 
     nkRange, nkBracket, nkCurly, nkObjConstr, nkTupleConstr,
 
@@ -217,7 +217,7 @@ proc evalOp*(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): 
   of mLengthSeq, mLengthOpenArray, mLengthStr:
     if a.kind == nkNilLit:
       result = newIntNodeT(Zero, n, idgen, g)
-    elif a.kind in {nkStrLit..nkTripleStrLit}:
+    elif a.kind in nkStrLiterals:
       if a.typ.kind == tyString:
         result = newIntNodeT(toInt128(a.strVal.len), n, idgen, g)
       elif a.typ.kind == tyCstring:
@@ -379,7 +379,7 @@ proc evalOp*(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): 
     result.typ = n.typ
   of mEqProc:
     result = newIntNodeT(toInt128(ord(
-        exprStructuralEquivalent(a, b, strictSymEquality=true))), n, idgen, g)
+        exprStructuralEquivalentStrictSym(a, b))), n, idgen, g)
   else: discard
 
 proc getConstIfExpr(c: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
@@ -401,15 +401,15 @@ proc getConstIfExpr(c: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNod
 proc leValueConv*(a, b: PNode): bool =
   result = false
   case a.kind
-  of nkCharLit..nkUInt64Lit:
+  of nkIntLiterals:
     case b.kind
-    of nkCharLit..nkUInt64Lit: result = a.getInt <= b.getInt
-    of nkFloatLit..nkFloat64Lit: result = a.intVal <= round(b.floatVal).int
+    of nkIntLiterals: result = a.getInt <= b.getInt
+    of nkFloatLiterals: result = a.intVal <= round(b.floatVal).int
     else: result = false #internalError(a.info, "leValueConv")
-  of nkFloatLit..nkFloat64Lit:
+  of nkFloatLiterals:
     case b.kind
-    of nkFloatLit..nkFloat64Lit: result = a.floatVal <= b.floatVal
-    of nkCharLit..nkUInt64Lit: result = a.floatVal <= toFloat64(b.getInt)
+    of nkFloatLiterals: result = a.floatVal <= b.floatVal
+    of nkIntLiterals: result = a.floatVal <= toFloat64(b.getInt)
     else: result = false # internalError(a.info, "leValueConv")
   else: result = false # internalError(a.info, "leValueConv")
 
@@ -518,8 +518,15 @@ proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
       result = newFloatNodeT(val, n, g)
     else:
       result = rangeError(n, a, g)
-  of tyOpenArray, tyVarargs, tyProc, tyPointer:
+  of tyOpenArray, tyVarargs:
     discard
+  of tyProc, tyPointer, tyPtr:
+    if a.kind == nkNilLit:
+      # apply the type directly to the 'nil' expression
+      result = a
+      result.typ = n.typ
+    else:
+      result = nil # cannot fold
   else:
     # FIXME: conversion-to-enum is missing checks
     result = a
@@ -562,7 +569,7 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
     else:
       result = outOfBounds(n, x, y, g.config)
 
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     if 0 <= idx and idx < x.strVal.len:
       result = newNodeIT(nkCharLit, x.info, n.typ)
       result.intVal = ord(x.strVal[int(idx)])
@@ -673,7 +680,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
       else:
         result = newSymNodeTypeDesc(s, idgen, n.info)
     else: discard
-  of nkCharLit..nkNilLit:
+  of nkLiterals:
     result = copyNode(n)
   of nkIfExpr:
     result = getConstIfExpr(m, n, idgen, g)
@@ -759,7 +766,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
   of nkBracket, nkCurly:
     result = copyNode(n)
     for i, son in n.pairs:
-      let a = getConstExpr(m, son, idgen, g)
+      let a = getConstExpr(m, son.skipColon, idgen, g)
       if a == nil: return nil
       result.add a
     incl(result.flags, nfAllConst)
@@ -838,20 +845,20 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
 
   # first step: fold the sub-expressions
   case n.kind
-  of nkEmpty, nkLiterals, nkNimNodeLit, nkNilLit:
+  of nkEmpty, nkLiterals, nkNimNodeLit:
     # short-circuit the following ``getConstExpr`` call, so that no
     # unnecessary copy of the node is created
     return
   of nkSym:
     discard "may be folded away"
-  of nkTypeExprs - {nkStmtListType, nkBlockType}:
+  of nkTypeExprs:
     result.node = newNodeIT(nkType, n.info, n.typ)
   of nkBracket, nkCurly, nkTupleConstr, nkRange, nkAddr, nkHiddenAddr,
      nkHiddenDeref, nkDerefExpr, nkBracketExpr, nkCallKinds, nkIfExpr,
      nkElifExpr, nkElseExpr, nkElse, nkElifBranch:
     for it in n.items:
       result.add foldConstExprAux(m, it, idgen, g)
-  of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv, nkBlockExpr, nkBlockType:
+  of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv, nkBlockExpr:
     # the first slot only holds the type/label, which we don't need to traverse
     # into / fold
     result.add n[0]
@@ -875,13 +882,13 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
     result.add n[0] # skip the type slot
     for i in 1..<n.len:
       result.add foldConstExprAux(m, n[i], idgen, g)
-  of nkStmtListExpr, nkStmtListType:
+  of nkStmtListExpr:
     for i in 0..<n.len-1:
       result.add foldInAstAux(m, n[i], idgen, g)
     # the last node is an expression
     result.add foldConstExprAux(m, n[^1], idgen, g)
   of nkExprColonExpr:
-    # comes here from tuple/object constructions
+    # comes here from array/tuple/object constructions
     result.add n[0]
     result.add foldConstExprAux(m, n[1], idgen, g)
     return
@@ -903,7 +910,7 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
   # in the back-end (e.g. ``cast[pointer](someProc)``). In addition, so as to
   # not interfere with the documentation generator, statement-list expressions
   # are not folded if they have a comment in the first position
-  let exprIsPointerCast = n.kind in {nkCast, nkConv, nkHiddenStdConv} and
+  let exprIsPointerCast = n.kind == nkCast and
                           n.typ != nil and
                           n.typ.kind in {tyPointer, tyProc}
   if not exprIsPointerCast and

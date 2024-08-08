@@ -12,6 +12,7 @@
 import
   std/[
     strutils,
+    hashes,
     math,
     strtabs,
     intsets,
@@ -149,6 +150,20 @@ proc wrapErrorAndUpdate(c: ConfigRef, n: PNode, s: PSym): PNode =
   ## an ``skError``.
   result = c.wrapError(n)
   s.ast = result
+
+proc newSymNodeOrError(c: ConfigRef, sym: PSym, info: TLineInfo): PNode =
+  ## Creates a new `nkSym` node, unless `sym` either represents an error
+  ## itself or refers to an erroneous entity. In the latter two cases, an
+  ## error node is returned.
+  ## NB: not a `newSymNode` replacement, it's for when symbol sem fails
+  if sym.isError:
+    result = sym.ast
+    result.info = info
+  elif sym.ast.isError or (sym.typ != nil and sym.typ.kind == tyError):
+    result = c.newError(newSymNode(sym, info),
+                        PAstDiag(kind: adWrappedSymError))
+  else:
+    result = newSymNode(sym, info)
 
 template semIdeForTemplateOrGenericCheck(conf, n, cursorInBody) =
   # use only for idetools support; detecting cursor in generic or template body
@@ -603,7 +618,7 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
 
   result = evalConstExpr(c.module, c.idgen, c.graph, result)
   case result.kind
-  of nkEmpty, nkError:
+  of nkError, nkEmpty:
     result = nil
   else:
     discard
@@ -616,7 +631,6 @@ proc evalConstExpr(c: PContext, n: PNode): PNode =
   ## Tries to turn the expression `n` into AST that represents a concrete
   ## value. If this fails, an `nkError` node is returned
   addInNimDebugUtils(c.config, "evalConstExpr", n, result)
-  assert not n.isError
 
   # this happens when the overloadableEnums is enabled. We short-circuit
   # evaluation in this case, as neither ``vmgen`` nor ``semfold`` know what to
@@ -730,7 +744,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       # More restrictive version.
       result = semExprWithType(c, result, flags)
     of tyTypeDesc:
-      if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListType)
+      if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListExpr)
       result = semTypeNode2(c, result, nil)
       if result.kind != nkError:
         result.typ = makeTypeDesc(c, result.typ)
@@ -914,6 +928,7 @@ proc myOpen(graph: ModuleGraph; module: PSym;
   c.semTypeNode = semTypeNode
   c.instTypeBoundOp = sigmatch.instTypeBoundOp
   c.hasUnresolvedArgs = hasUnresolvedArgs
+  c.semGenericExpr = semGenericExpr
   c.templInstCounter = new int
 
   pushProcCon(c, module)

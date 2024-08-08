@@ -63,7 +63,8 @@ const
   PtrLikeKinds*: TTypeKinds = {tyPointer, tyPtr} # for VM
   
   PersistentNodeFlags*: TNodeFlags = {nfDotSetter, nfDotField, nfLL,
-                                      nfFromTemplate, nfDefaultRefsParam}
+                                      nfFromTemplate, nfDefaultRefsParam,
+                                      nfWasGensym}
   
   namePos*          = 0 ## Name of the type/proc-like node
   patternPos*       = 1 ## empty except for term rewriting macros
@@ -89,12 +90,6 @@ const
 
   nkPragmaCallKinds* = {nkExprColonExpr, nkCall, nkCallStrLit}
 
-  nkIntLiterals*   = {nkCharLit..nkUInt64Lit}
-  nkFloatLiterals* = {nkFloatLit..nkFloat64Lit}
-  nkStrLiterals*   = {nkStrLit..nkTripleStrLit}
-  # TODO: include `nkNilLit` as it's a literal, not the same as `nnkLiterals`
-  nkLiterals*      = nkIntLiterals + nkFloatLiterals + nkStrLiterals
-  
   nkLambdaKinds* = {nkLambda, nkDo}
   declarativeDefs* = {nkProcDef, nkFuncDef, nkMethodDef, nkIteratorDef, nkConverterDef}
   routineDefs* = declarativeDefs + {nkMacroDef, nkTemplateDef}
@@ -123,8 +118,6 @@ const
     nkIteratorTy,
     nkSharedTy,
     nkEnumTy,
-    nkStmtListType,
-    nkBlockType
   }
 
   # TODO: replace with `nk*Literals`, see above
@@ -209,6 +202,8 @@ const
   UnknownLockLevel* = TLockLevel(1001'i16)
   AttachedOpToStr*: array[TTypeAttachedOp, string] = [
     "=destroy", "=copy", "=sink", "=trace", "=deepcopy"]
+  AttachedOpToMagic*: array[TTypeAttachedOp, TMagic] = [
+    mDestroy, mAsgn, mAsgn, mTrace, mDeepCopy]
 
 
 proc `$`*(x: TLockLevel): string =
@@ -357,17 +352,17 @@ proc containsNode*(n: PNode, kinds: TNodeKinds): bool =
   if n == nil: return
   case n.kind
   of nkWithoutSons: result = n.kind in kinds
-  else:
+  of nkWithSons:
     for i in 0..<n.len:
       if n.kind in kinds or containsNode(n[i], kinds): return true
 
 proc hasSubnodeWith*(n: PNode, kind: TNodeKind): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkFormalParams, nkCommentStmt:
+  of nkWithoutSons - nkError, nkFormalParams:
     result = n.kind == kind
   of nkError:
     result = hasSubnodeWith(n.diag.wrongNode, kind)
-  else:
+  of nkWithSons - nkFormalParams:
     for i in 0..<n.len:
       if (n[i].kind == kind) or hasSubnodeWith(n[i], kind):
         return true
@@ -375,11 +370,9 @@ proc hasSubnodeWith*(n: PNode, kind: TNodeKind): bool =
 
 proc getInt*(a: PNode): Int128 =
   case a.kind
-  of nkCharLit, nkUIntLit..nkUInt64Lit:
+  of nkUIntLiterals:
     result = toInt128(cast[uint64](a.intVal))
-  of nkInt8Lit..nkInt64Lit:
-    result = toInt128(a.intVal)
-  of nkIntLit:
+  of nkSIntLiterals:
     # XXX: enable this assert
     # assert a.typ.kind notin {tyChar, tyUint..tyUInt64}
     result = toInt128(a.intVal)
@@ -388,7 +381,7 @@ proc getInt*(a: PNode): Int128 =
 
 proc getInt64*(a: PNode): int64 {.deprecated: "use getInt".} =
   case a.kind
-  of nkCharLit, nkUIntLit..nkUInt64Lit, nkIntLit..nkInt64Lit:
+  of nkIntLiterals:
     result = a.intVal
   else:
     raiseRecoverableError("cannot extract number from invalid AST node")
@@ -396,7 +389,7 @@ proc getInt64*(a: PNode): int64 {.deprecated: "use getInt".} =
 proc getFloat*(a: PNode): BiggestFloat =
   case a.kind
   of nkFloatLiterals: result = a.floatVal
-  of nkCharLit, nkUIntLit..nkUInt64Lit, nkIntLit..nkInt64Lit:
+  of nkIntLiterals:
     result = BiggestFloat a.intVal
   else:
     raiseRecoverableError("cannot extract number from invalid AST node")
@@ -406,7 +399,7 @@ proc getFloat*(a: PNode): BiggestFloat =
 
 proc getStr*(a: PNode): string =
   case a.kind
-  of nkStrLit..nkTripleStrLit: result = a.strVal
+  of nkStrLiterals: result = a.strVal
   of nkNilLit:
     # let's hope this fixes more problems than it creates:
     result = ""
@@ -418,8 +411,8 @@ proc getStr*(a: PNode): string =
 
 proc getStrOrChar*(a: PNode): string =
   case a.kind
-  of nkStrLit..nkTripleStrLit: result = a.strVal
-  of nkCharLit..nkUInt64Lit: result = $chr(int(a.intVal))
+  of nkStrLiterals: result = a.strVal
+  of nkIntLiterals: result = $chr(int(a.intVal))
   else:
     raiseRecoverableError("cannot extract string from invalid AST node")
     #doAssert false, "getStrOrChar"
@@ -561,7 +554,7 @@ iterator pairs*(n: PNode): tuple[i: int, n: PNode] =
   for i in 0..<n.safeLen: yield (i, n[i])
 
 proc isAtom*(n: PNode): bool {.inline.} =
-  n.kind in nkNone..nkNilLit or n.kind == nkCommentStmt
+  n.kind in nkWithoutSons - nkError
 
 proc isEmptyType*(t: PType): bool {.inline.} =
   ## 'void' and 'typed' types are often equivalent to 'nil' these days:
@@ -649,14 +642,22 @@ proc canRaise(fn: PNode): bool =
     result = false
   elif fn.kind == nkSym and fn.sym.magic == mEcho:
     result = true
-  else:
-    # TODO check for n having sons? or just return false for now if not
-    if fn.typ != nil and fn.typ.n != nil and fn.typ.n[0].kind == nkSym:
-      result = false
+  elif fn.typ != nil and fn.typ.kind == tyProc:
+    let effects {.cursor.} = fn.typ.n[0]
+    case effects.kind
+    of nkSym:
+      result = false # callable has no effects
+    of nkEffectList:
+      # if the effects were either not computed yet or there's no explicit
+      # specification, assume that the procedure can raise
+      result = effects.len < effectListLen or
+               effects[exceptionEffects].isNil or
+               effects[exceptionEffects].len > 0
     else:
-      result = fn.typ != nil and fn.typ.n != nil and ((fn.typ.n[0].len < effectListLen) or
-        (fn.typ.n[0][exceptionEffects] != nil and
-        fn.typ.n[0][exceptionEffects].safeLen > 0))
+      unreachable(effects.kind)
+  else:
+    # fn doesn't seem to be something callable, assume not raising
+    result = false
 
 proc canRaise*(panicsEnabled: bool, n: PNode): bool =
   ## 'true' if a call with `n` as the callee can exit via exceptional control-

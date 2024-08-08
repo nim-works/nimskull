@@ -91,7 +91,26 @@ proc main() {.async.} =
     await fn(7).then((a: int) => (discard)).catch((r: Error) => (reason = r))
     doAssert reason != nil
     doAssert reason.name == "Error"
-    doAssert "foobar: 7" in $reason.message
+    doAssert "foobar: 7" == $reason.message
+
+  block async_within_try:
+    # make sure the object passed to the catch callback is an ``Error`` for
+    # futures created within try scopes
+    var
+      reason: Error
+      promise: Future[int]
+    try:
+      # the try should have no effect on the exception object the ``catch``
+      # gets
+      promise = fn(7)
+    except:
+      doAssert false, "unreachable"
+
+    await promise.catch((r: Error) => (reason = r))
+    doAssert reason != nil
+    doAssert reason.name == "Error"
+    doAssert "foobar: 7" == $reason.message
+
   echo "done" # justified here to make sure we're running this, since it's inside `async`
 
 discard main()

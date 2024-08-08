@@ -598,6 +598,7 @@ type
     vmEvtFieldNotFound
     vmEvtNotAField
     vmEvtFieldUnavailable
+    vmEvtCannotCreateNode
     vmEvtCannotSetChild
     vmEvtCannotAddChild
     vmEvtCannotGetChild
@@ -623,7 +624,8 @@ type
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
       of vmEvtErrInternal, vmEvtNilAccess, vmEvtIllegalConv,
           vmEvtFieldUnavailable, vmEvtFieldNotFound,
-          vmEvtCacheKeyAlreadyExists, vmEvtMissingCacheKey:
+          vmEvtCacheKeyAlreadyExists, vmEvtMissingCacheKey,
+          vmEvtCannotCreateNode:
         msg*: string
       of vmEvtCannotSetChild, vmEvtCannotAddChild, vmEvtCannotGetChild,
          vmEvtNoType, vmEvtNodeNotASymbol:
@@ -694,7 +696,7 @@ type
       ## instruction raising
     ehCode*: seq[EhInstr]
       ## stores the instructions for the exception handling (EH) mechanism
-    globals*: seq[HeapSlotHandle] ## Stores each global's corresponding heap slot
+    globals*: seq[LocHandle] ## global slots
     constants*: seq[VmConstant] ## constant data
     complexConsts*: seq[LocHandle] ## complex constants (i.e. everything that
                                    ## is not a int/float/string literal)

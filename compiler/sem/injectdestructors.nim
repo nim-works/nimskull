@@ -9,10 +9,13 @@
 
 ## This module implements the following MIR passes:
 ## - the 'switch' operation lowering (``lowerBranchSwitch``)
-## - the pass for rewriting assignments into calls to the respective
-##   lifetime-tracking hooks
-## - the pass for injected ``wasMoved`` calls for consumed lvalues
-## - the destructor (i.e. ``=destroy`` hook) injection
+## - the pass for collapsing sink assignments into copies, moves, and
+##   destrutive moves
+## - the pass for injecting ``wasMoved`` calls for consumed lvalues
+## - the pass for eliminating unnecessary destroy operations
+##
+## The module name is a historical leftover, it doesn't reflect the module's
+## content nor purpose anymore.
 ##
 ## Overview
 ## ========
@@ -28,19 +31,18 @@
 ##          Except for thread-local variables, the others are destroyed at the
 ##          end of the program.
 ##
-## ``solveOwnership`` then computes for all lvalue expression appearing in
-## consume (e.g., argument to ``sink`` parameter) or sink contexts (source
-## lvalue in an assignment).
+## ``collapseSink`` then computes for all lvalue expression appearing as
+## source operands to sink assignments whether it's the last use of the
+## value currently stored in the location identified by the lvalue. All sinks
+## where this is the case are remembered, and their corresponding data-flow
+## operation is turned from a 'use' into a 'consume'.
 ##
-## Using the now resolved ownership status of all expressions, the next
-## analysis step computes which locations need to be destroyed via a destructor
-## call (see ``computeDestructors``).
+## With all sink assignments either collapsed into copy or move assignments,
+## the next analysis step computes which locations need to be destroyed via a
+## destructor call (see ``computeDestructors``).
 ##
 ## As the last step, the assignment rewriting and destructor injection is
 ## performed, using the previously gathered data.
-##
-## For the assignment rewriting, if the source operand of an assignment is
-## owned, a move is used instead of a copy.
 ##
 ## Ownership analysis
 ## ==================
@@ -64,31 +66,6 @@
 ## subsequently turning the assignment into a move and thus making the
 ## assertion fail with an ``IndexDefect``.
 
-# XXX: there exists an effect-related problem with the lifetime-tracking hooks
-#      (i.e. ``=copy``, ``=sink``, ``=destroy``). The assignment rewriting and,
-#      to some degree, the destructor injection can be seen as a
-#      refinement/expansion/lowering and should thus not introduce (observable)
-#      side-effects (mutation of global state, exceptional control-flow, etc.) --
-#      it also violates the MIR specification. All three hooks are currently
-#      allowed to have side-effects, which violates the aforementioned rules.
-#      It also causes the concrete issue of cyclic dependencies: for example,
-#      the move analyser uses data-flow analysis (which requires a control-flow
-#      graph) in order to decide where to move and where to copy. If whether a
-#      copy or move is used affects the control-flow graph, the move analyser
-#      depends on its own output, which while possible to make work, would
-#      likely introduce a large amount of complexity.
-#      There are two possible solutions:
-#      1. disallow lifetime-tracking hooks from having any side-effects
-#      2. at least for the ``=copy`` and ``=sink`` hooks, each assignment
-#         could be said to have the union of the effects from both hooks.
-#         Those can be computed when generating the MIR code, as types and
-#         their type-bound operations are already figured out at that point.
-#         It's more complicated for ``=destroy`` hooks, since they are
-#         injected rather than being the result of an expansion. The current
-#         plan is to introduce the MIR concept of dedicated "scope finalizers",
-#         which could be used to attach the effects gathered from all possible
-#         destructor calls to
-
 # XXX: not being able to rewrite an assignment into a call to the copy hook
 #      because it is disabled is a semantic error, meaning that it should
 #      be detected and reported during semantic analysis, not as part of
@@ -100,10 +77,8 @@
 
 import
   std/[
-    algorithm,
     hashes,
     packedsets,
-    strtabs,
     tables
   ],
   compiler/ast/[
@@ -114,35 +89,29 @@ import
   compiler/mir/[
     analysis,
     mirbodies,
+    mirtypes,
     mirchangesets,
     mirconstr,
     mirenv,
     mirtrees,
     sourcemaps,
-    utils
+    utils # unused import, but keeping it significantly speeds up the compiler
+    # XXX: this is possibly caused by some hooks changing which module they're
+    #      part of
   ],
   compiler/modules/[
     magicsys,
     modulegraphs
   ],
-  compiler/front/[
-    options,
-    msgs
-  ],
   compiler/sem/[
     aliasanalysis,
     liftdestructors,
     mirexec,
-    sighashes
   ],
   compiler/utils/[
     cursors,
     idioms
   ]
-
-# xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_sem import SemReport
-from compiler/ast/report_enums import ReportKind
 
 type
   AnalyseCtx = object
@@ -169,46 +138,16 @@ type
     ## injection and the move analyser. A location may have more than one
     ## lifetimes.
 
-  DestroyEntry = tuple
-    scope: NodePosition ## the position of the enclosing 'scope' node
-    pos: NodePosition   ## the position of the 'def' belonging to the entity
-                        ## that requires destruction
-    needsFinally: bool  ## whether the destructor needs to be placed in a
-                        ## 'finally' clause
+  Moves = PackedSet[OpValue]
+    ## A set storing the operands of all sinks that were collapsed into
+    ## moves.
 
   AnalysisResults = object
     ## Bundled-up immutable state needed for assignment rewriting. Since
     ## they're immutable, ``Cursor``s are used in order to not copy
     # XXX: ideally, view types (i.e. ``lent``) would be used here
-    v: Cursor[Values]
+    moves: Cursor[Moves]
     entities: Cursor[EntityDict]
-    destroy: Cursor[seq[DestroyEntry]]
-
-  LocalDiagKind = enum
-    ldkPassCopyToSink       ## a copy is introduced in a consume context
-    ldkUnavailableTypeBound ## a type-bound operator is requested but not
-                            ## available
-
-  LocalDiag = object
-    ## A temporary diagnostic representation that is later turned into a
-    ## ``SemReport``
-    pos: NodePosition ## the location of the report
-    case kind: LocalDiagKind
-    of ldkUnavailableTypeBound:
-      op: TTypeAttachedOp
-    of ldkPassCopyToSink:
-      discard
-
-const
-  skipAliases = {tyGenericInst, tyAlias, tySink}
-    ## the set of types to not consider when looking up a type-bound operator
-
-iterator ritems[T](x: openArray[T]): lent T =
-  ## Iterates and yields the items from the container `x` in reverse
-  var i = x.high
-  while i >= 0:
-    yield x[i]
-    dec i
 
 func hash(x: EntityName): int =
   result = 0 !& x.a[0] !& x.a[1]
@@ -220,10 +159,12 @@ func toName(n: MirNode): EntityName =
   result.a[0] = n.kind.int
   result.a[1] =
     case n.kind
-    of SymbolLike: n.sym.id
-    of mnkGlobal:  n.global.int
-    of mnkTemp:    n.temp.int
-    else:          unreachable(n.kind)
+    of mnkParam, mnkLocal, mnkTemp:
+      n.local.int
+    of mnkGlobal:
+      n.global.int
+    else:
+      unreachable(n.kind)
 
 func findScope(entities: EntityDict, name: EntityName, at: InstrPos,
                exists: var bool): EntityInfo =
@@ -248,20 +189,6 @@ func findScope(entities: EntityDict, name: EntityName, at: InstrPos,
   else:
     exists = false
 
-
-proc getVoidType(g: ModuleGraph): PType {.inline.} =
-  g.getSysType(unknownLineInfo, tyVoid)
-
-proc getOp*(g: ModuleGraph, t: PType, kind: TTypeAttachedOp): PSym =
-  let t = t.skipTypes(skipForHooks)
-  result = getAttachedOp(g, t, kind)
-  if result == nil or result.ast.isGenericRoutine:
-    # give up and find the canonical type instead:
-    let h = sighashes.hashType(t, {CoType, CoDistinct})
-    let canon = g.canonTypes.getOrDefault(h)
-    if canon != nil:
-      result = getAttachedOp(g, canon, kind)
-
 func isNamed(tree: MirTree, val: OpValue): bool =
   ## Returns whether `val` is the projection of a named location (or refers to
   ## the named location itself).
@@ -280,6 +207,19 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
   # the logic relies on the assumption that there exists a scope around
   # every 'def'
 
+  proc findScopeEnd(tree: MirTree, start: NodePosition): NodePosition =
+    ## Searches for the position of the ``mnkScopeEnd`` node for the current
+    ## scope.
+    var
+      i = start
+      depth = 0
+    while depth >= 0:
+      let kind = tree[i].kind
+      depth = depth + ord(kind == mnkScope) - ord(kind == mnkEndScope)
+      inc i
+
+    result = i - 1
+
   # XXX: profiling showed that a significant amount of time is spent in
   #      ``computeSpan`` and adding elements to the `scopeStack`. An approach
   #      where a scope's span is only computed when needed might be better
@@ -288,19 +228,22 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
     of mnkScope:
       # start a new scope. The start and end node/token are not included in
       # the span
-      let span = computeSpan(tree, i)
-      scopeStack.add (span.a + 1)..(span.b - 1)
-    of mnkEnd:
-      if n.start == mnkScope:
-        # leave the current scope:
-        scopeStack.setLen(scopeStack.len - 1)
+      let fin = findScopeEnd(tree, i + 1)
+      scopeStack.add tree.sibling(i)..(fin-1)
+    of mnkEndScope:
+      # leave the current scope:
+      scopeStack.setLen(scopeStack.len - 1)
+      if scopeStack.len == 0:
+        # the following statements, if any, can only be joins, and those can
+        # safely be skipped here
+        break
 
     else:
       yield (i, n, scopeStack[^1])
 
   #result.pos = p
 
-func initEntityDict(tree: MirTree, dfg: DataFlowGraph): EntityDict =
+func initEntityDict(tree: MirTree, dfg: DataFlowGraph, env: MirEnv): EntityDict =
   ## Collects the names of all analysable locations relevant to destructor
   ## injection and the move analyser. This includes: locals, temporaries, sink
   ## parameters and, with some restrictions, globals.
@@ -310,23 +253,9 @@ func initEntityDict(tree: MirTree, dfg: DataFlowGraph): EntityDict =
   ## and cursor locations (non-owning) are not include in the dictionary.
   for i, n, scope in nodesWithScope(tree):
     case n.kind
-    of mnkDef, mnkDefUnpack:
+    of mnkDef:
       let entity = tree[getDefEntity(tree, i)]
-
-      let t =
-        case entity.kind
-        of mnkParam:
-          assert isSinkTypeForParam(entity.sym.typ)
-          entity.sym.typ
-        of mnkLocal:
-          assert sfCursor notin entity.sym.flags
-          entity.sym.typ
-        of mnkTemp, mnkGlobal:
-          entity.typ
-        else:
-          unreachable()
-
-      if hasDestructor(t):
+      if hasDestructor(env[entity.typ]):
         result.mgetOrPut(toName(entity), @[]).add:
           # don't include the data-flow operations preceding the def
           EntityInfo(def: i, scope: subgraphFor(dfg, i .. scope.b))
@@ -339,13 +268,6 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, entities: EntityDict,
   ## Computes for `lval` whether it can be moved from (i.e., ownership of the
   ## value transferred) at the program position `start`.
   case tree[lval.root].kind
-  of mnkDeref, mnkDerefView, mnkConst:
-    # * derefs reaching here means that they couldn't be resolved
-    # * handles to constant locations are never owning
-    false
-  of mnkLiteral:
-    # literals can be moved (although not destructively)
-    true
   of mnkLocal, mnkParam, mnkGlobal, mnkTemp:
     # only entities that are relevant for destructor injection have an entry in
     # `entities`. Those that don't also can't be consumed (because we either
@@ -359,106 +281,43 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, entities: EntityDict,
     #       visit it first
     var exists = false
     let info = entities.findScope(toName(tree[lval.root]), start, exists)
-    exists and not isCursor(tree, lval) and
-      isLastRead(tree, cfg, info.scope, lval, start)
+    exists and isLastRead(tree, cfg, info.scope, lval, start)
   else:
     unreachable()
 
-func solveOwnership(tree: MirTree, cfg: DataFlowGraph,
-                    entities: EntityDict): Values =
-  ## Computes for all lvalues used in consume context whether they're owning
-  ## or not. Returns a ``Values`` instance with the results.
-  # search for 'consume' instructions and compute for their operands whether
-  # it's a handle that owns the location's value
-  for i, op, opr in cfg.instructions:
-    if op == opConsume and hasDestructor(tree[opr].typ) and
-       computeOwnership(tree, cfg, entities,
-                        computePath(tree, NodePosition opr), i + 1):
-      result.markOwned(opr)
-    else:
-      discard "nothing to do"
-
-type DestructionMode = enum
-  demNone    ## location doesn't need to be destroyed because it contains no
-             ## value when control-flow exits the enclosing scope
-  demNormal  ## the location contains a value when the scope is exited via
-             ## structured control-flow
-  demFinally ## the location contains a value when the scope is exited via
-             ## unstructured control-flow
-
-func requiresDestruction(tree: MirTree, cfg: DataFlowGraph, values: Values,
-                         span: Subgraph, def: NodePosition, entity: MirNode
-                        ): DestructionMode =
-  template computeAlive(loc, op: untyped): untyped =
-    computeAlive(tree, cfg, values, span, loc, op)
-
-  let r =
-    case entity.kind
-    of mnkParam, mnkLocal:
-      computeAlive(entity.sym, computeAliveOp[PSym])
-    of mnkGlobal:
-      computeAlive(entity.global, computeAliveOp[GlobalId])
-    of mnkTemp:
-      # unpacked tuples don't need to be destroyed because all elements are
-      # moved out of them
-      if tree[def].kind != mnkDefUnpack:
-        computeAlive(entity.temp, computeAliveOp[TempId])
-      else:
-        (alive: false, escapes: false)
-    else:
-      unreachable(entity.kind)
-
-  result =
-    if r.escapes: demFinally
-    elif r.alive: demNormal
-    else:         demNone
-
-func computeDestructors(tree: MirTree, cfg: DataFlowGraph, values: Values,
-                        entities: EntityDict): seq[DestroyEntry] =
-  ## Computes and collects which locations present in `entities` need to be
-  ## destroyed at the exit of their enclosing scope in order to prevent the
-  ## values they still store from staying alive.
+func collapseSink(tree: MirTree, cfg: var DataFlowGraph,
+                  entities: EntityDict, env: TypeEnv): Moves =
+  ## Computes for every ``mnkSink`` node what operation (copy or move) it has
+  ## to collapse to, returning a set with the operands of all sinks that are
+  ## collapsed into moves.
   ##
-  ## Special handling is required if the scope is exited via unstructured
-  ## control-flow while the location is still alive (its value is then said
-  ## to "escape")
-  var needsFinally: PackedSet[NodePosition]
+  ## In addition, the DFG instructions in `cfg` for sinks-turned-into-moves
+  ## are updated to ``opConsume`` instructions.
+  var update: seq[InstrPos]
+    ## tracks the DFG instructions that need to be updated
 
-  iterator items(x: EntityDict): lent EntityInfo =
-    for _, infos in x.pairs:
-      for it in infos.items:
-        yield it
+  # search for all 'use' instructions representing sinks, and compute whether
+  # they have to be turned into a move or copy
+  for i, op, opr in cfg.instructions:
+    if op == opUse and tree[tree.parent(NodePosition opr)].kind == mnkSink:
+      # it's the DFG instruction for a sink
+      if hasDestructor(env[tree[opr].typ]) and
+         computeOwnership(tree, cfg, entities,
+                          computePath(tree, NodePosition opr), i + 1):
+        update.add i
+        result.incl opr
 
-  for info in entities.items:
-    let
-      def = info.def ## the position of the entity's definition
-      entity = tree[getDefEntity(tree, def)]
-      scopeStart = findParent(tree, def, mnkScope)
+      # for the moment, sinks are always turned into copies for values without
+      # custom destroy/copy/sink behaviour
 
-    if entity.kind == mnkGlobal and
-       doesGlobalEscape(tree, info.scope, info.scope.a, entity.global):
-      # TODO: handle escaping globals. Either report a warning, an error, or
-      #       defer destruction of the global to the end of the program
-      discard
-
-    case requiresDestruction(tree, cfg, values, info.scope, def, entity)
-    of demNormal:
-      result.add (scopeStart, def, false)
-    of demFinally:
-      needsFinally.incl scopeStart
-      result.add (scopeStart, def, true)
-    of demNone:
-      discard
-
-  # second pass: if at least one destructor call in a scope needs to use a
-  # finalizer, all do. Update the entries accordingly
-  for it in result.mitems:
-    if it.scope in needsFinally:
-      it.needsFinally = true
+  # change all 'use' instructions corresponding to sinks to 'consume'
+  # instructions. This is more efficient than changing the node kinds and then
+  # recomputing the graph
+  cfg.change(update, opConsume)
 
 # --------- analysis routines --------------
 
-func isAlive(tree: MirTree, cfg: DataFlowGraph, v: Values,
+func isAlive(tree: MirTree, cfg: DataFlowGraph,
              entities: EntityDict, val: Path, at: InstrPos): bool =
   ## Computes if `val` refers to a location that contains a value when
   ## `at` in the DFG is reached.
@@ -469,7 +328,7 @@ func isAlive(tree: MirTree, cfg: DataFlowGraph, v: Values,
     let scope =
       # XXX: the way the ``result`` variable is detected here is a hack. It
       #      should be treated as any other local in the context of the MIR
-      if tree[root].kind in SymbolLike and tree[root].sym.kind == skResult:
+      if tree[root].kind == mnkLocal and tree[root].local == resultId:
         cfg.subgraphFor(NodePosition(0) .. NodePosition(tree.high))
       else:
         var exists: bool
@@ -482,7 +341,7 @@ func isAlive(tree: MirTree, cfg: DataFlowGraph, v: Values,
     if at <= scope.a:
       false # the location cannot be alive
     else:
-      isAlive(tree, cfg, v, scope, val, at)
+      isAlive(tree, cfg, scope, val, at)
   else:
     # something that we can't analyse (e.g. a dereferenced pointer). We have
     # to be conservative and assume that the location the lvalue names already
@@ -509,7 +368,7 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
   #      procedure's body should be encoded by inserting a special 'use'
   #      operation that has a control-flow dependency on *all* other
   #      operations
-  if tree[root].kind in SymbolLike and tree[root].sym.kind == skResult:
+  if tree[root].kind == mnkLocal and tree[root].local == resultId:
     return true
 
   var exists: bool
@@ -520,118 +379,21 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
     # to be reset
     return true
 
-  let res = isLastWrite(tree, cfg, info.scope, src, at)
-
-  if res.result:
-    if res.escapes or res.exits:
-      let def = info.def
-      assert tree[def].kind in DefNodes
-
-      # check if there exists a destructor call that would observe the
-      # location's value:
-      for it in ar.destroy[].items:
-        if def == it.pos:
-          if (it.needsFinally and res.escapes) or res.exits:
-            # there exists a destructor call for the location -> the current
-            # value is observed
-            return true
-
-          # no need to continue searching
-          break
-
-    # no mutation nor destructor call observes the current value -> no reset
-    # is needed
-    result = false
-  else:
-    # the presence of the value is observed -> a reset is required
-    result = true
-
-func isMoveable(tree: MirTree, v: Values, n: NodePosition): bool =
-  ## Returns whether the value of the expression `n` can be moved.
-  case tree[n].kind:
-  of LvalueExprKinds - {mnkDeref, mnkDerefView}:
-    v.isOwned(OpValue n)
-  of mnkDeref, mnkDerefView:
-    false
-  of mnkLiteral, mnkProc, mnkType:
-    true
-  of mnkConv, mnkStdConv, mnkCast, mnkAddr, mnkView, mnkToSlice, UnaryOps,
-     BinaryOps:
-    # the result of these operations is not an owned value
-    false
-  of mnkCall, mnkCheckedCall, mnkObjConstr, mnkConstr:
-    true
-  of AllNodeKinds - ExprKinds:
-    unreachable(tree[n].kind)
+  result = not isLastWrite(tree, cfg, info.scope, src, at)
 
 # ------- code generation routines --------
 
-template buildVoidCall(bu: var MirBuilder, env: var MirEnv, p: PSym,
+template buildVoidCall*(bu: var MirBuilder, env: var MirEnv, p: PSym,
                        body: untyped) =
   let prc = p # prevent multi evaluation
   bu.subTree mnkVoid:
-    let kind =
-      if canRaise(optPanics in graph.config.globalOptions, prc.ast[namePos]):
-        mnkCheckedCall
-      else:
-        mnkCall
-
-    # XXX: injected procedures should not introduce new control-flow paths
-    bu.subTree MirNode(kind: kind, typ: getVoidType(graph)):
-      bu.use toValue(env.procedures.add(prc), prc.typ)
+    bu.buildCall env.procedures.add(prc), VoidType:
       body
 
 proc genWasMoved(bu: var MirBuilder, graph: ModuleGraph, target: Value) =
   bu.subTree MirNode(kind: mnkVoid):
-    bu.buildMagicCall mWasMoved, getVoidType(graph):
+    bu.buildMagicCall mWasMoved, VoidType:
       bu.emitByName(target, ekKill)
-
-proc genDestroy*(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
-                 target: Value) =
-  let destr = getOp(graph, target.typ, attachedDestructor)
-
-  bu.buildVoidCall(env, destr):
-    bu.emitByName(target, ekMutate)
-
-proc genInjectedSink(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
-                     dest, source: Value) =
-  ## Generates and emits either a call to the ``=sink`` hook, or (if none
-  ## exists), a sink emulated via a destructor-call + bitwise-copy.
-  let op = getOp(graph, dest.typ, attachedSink)
-  if op != nil:
-    bu.buildVoidCall(env, op):
-      bu.emitByName(dest, ekMutate)
-      bu.emitByVal source
-  else:
-    # without a sink hook, a ``=destroy`` + blit-copy is used
-    genDestroy(bu, graph, env, dest)
-    bu.asgn dest, source
-
-proc genSinkFromTemporary(bu: var MirBuilder, graph: ModuleGraph,
-                          env: var MirEnv, dest, source: Value) =
-  ## Similar to ``genInjectedSink`` but generates code for destructively
-  ## moving the source operand into a temporary first.
-  let tmp = bu.materialize(source)
-  genWasMoved(bu, graph, source)
-  genInjectedSink(bu, graph, env, dest, tmp)
-
-proc genCopy(bu: var MirBuilder, graph: ModuleGraph, env: var MirEnv,
-             dst, src: Value, maybeCyclic: bool) =
-  ## Emits a ``=copy`` hook call with `dst`, `src`, and (if necessary)
-  ## `maybeCyclic` as the arguments.
-  let
-    t  = dst.typ
-    op = getOp(graph, t, attachedAsgn)
-
-  bu.buildVoidCall(env, op):
-    bu.emitByName(dst, ekMutate)
-    bu.emitByVal src
-
-    if graph.config.selectedGC == gcOrc and
-        cyclicType(t.skipTypes(skipAliases + {tyDistinct}), graph):
-      # pass whether the copy can potentially introduce cycles as the third
-      # parameter:
-      bu.emitByVal literal(boolLit(graph, unknownLineInfo, maybeCyclic))
 
 func destructiveMoveOperands(bu: var MirBuilder, tree: MirTree,
                              src: NodePosition
@@ -647,15 +409,37 @@ func destructiveMoveOperands(bu: var MirBuilder, tree: MirTree,
     # the assignment source
     (bu.bindImmutable(tree, src), bu.bindMut(tree, x))
 
-proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
-                env: var MirEnv, stmt: NodePosition, pos: InstrPos,
-                c: var Changeset) =
-  ## Expands an assignment into either a copy, move, or destructive move.
-  ## `stmt` is the assignment statement node and `pos` is the 'def' data-flow
-  ## instruction corresponding to it.
+proc eliminateDestroy(tree: MirTree, dfg: var DataFlowGraph, ents: EntityDict,
+                      c: var Changeset) =
+  ## Removes destroy operations where it's certain that the location doesn't
+  ## store a value (i.e., is not alive). This is an *optimization*, not
+  ## performing it must not affect correctness.
+  var noops: seq[InstrPos]
+  for i, op, val in instructions(dfg):
+    if op == opDestroy and
+       not isAlive(tree, dfg, ents, computePath(tree, NodePosition val), i):
+      # location not alive when the destructor is reached -> remove
+      c.remove(tree, tree.parent(NodePosition val))
+      noops.add i
+
+  dfg.change(noops, opNone)
+
+proc specializeAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
+                    stmt: NodePosition, pos: InstrPos, c: var Changeset) =
+  ## Specializes the modifier-using assignment at `stmt` using the analysis
+  ## results:
+  ## * guaranteed self-assignments are eliminated (i.e., the assignment is
+  ##   removed)
+  ## * sink assignments are turned into copy, move, or destructive move
+  ##   assignments
+  ## * normal assignments are turned into initializing assignments (if
+  ##   possible)
+  ##
+  ## `pos` is the 'def' data-flow instruction corresponding to the assignment.
   let
     dest       = tree.child(stmt, 0)
-    source     = tree.child(stmt, 1)
+    operator   = tree.child(stmt, 1)
+    source     = tree.child(operator, 0)
     sourcePath = computePath(tree, source)
     destPath   = computePath(tree, dest)
     relation   = compare(tree, sourcePath, destPath)
@@ -663,130 +447,57 @@ proc expandAsgn(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
   if relation.isSame:
     # a self-assignment -> elide
     c.remove(tree, stmt)
-  elif isMoveable(tree, ar.v[], source):
-    # a move is possible -> sink
-    if true:
-      let fromLvalue = isNamed(tree, OpValue source)
+  elif tree[operator].kind == mnkSink:
+    let isAlive = tree[stmt].kind == mnkAsgn and
+                  isAlive(tree, ctx.cfg, ar.entities[], destPath, pos)
+    if tree.operand(operator) in ar.moves[]:
+      # turn the sink into a move
+      if isAlive and isAPartOfB(relation) != no:
+        # it's potentially a part-to-whole assignment, e.g.: ``x = move x.y``,
+        # and the destination contains a value. The value must first be moved
+        # into a temporary, since a move destination must not overlap with
+        # the source
+        var tmp: Value
+        c.insert(tree, stmt, source, bu):
+          let b = bu.bindMut(tree, source)
+          tmp = bu.wrapTemp b.typ:
+            bu.move b
+          genWasMoved(bu, ctx.graph, b)
 
-      if tree[stmt].kind != mnkInit and
-         isAlive(tree, ctx.cfg, ar.v[], ar.entities[], destPath, pos):
-        # there already exists a value in the destination location -> use the
-        # sink operation
-        if fromLvalue:
-          c.replaceMulti(tree, stmt, bu):
-            let a = bu.bindMut(tree, dest)
-            if isAPartOfB(relation) != no:
-              # this is a potential part-to-whole assignment, e.g.: ``x = x.y``.
-              # We need to move the source value into a temporary first, as
-              # ``=sink`` would otherwise destroy ``x`` first, also destroying
-              # ``x.y`` in the process
-              let b = bu.bindImmutable(tree, source)
-              genSinkFromTemporary(bu, ctx.graph, env, a, b)
-            elif needsReset(tree, ctx.cfg, ar, sourcePath, pos):
-              # a sink from a location that needs to be reset after the move
-              # (i.e., a destructive move)
-              let (b, clear) = bu.destructiveMoveOperands(tree, source)
-              genInjectedSink(bu, ctx.graph, env, a, b)
-              genWasMoved(bu, ctx.graph, clear)
-            else:
-              # a sink from a location that doesn't need to be cleared after
-              let b = bu.bindImmutable(tree, source)
-              genInjectedSink(bu, ctx.graph, env, a, b)
-
-        else:
-          # this is a bit hack-y, but in order to support changes within the
-          # second operand's tree, the assignment is not replaced as a whole
-          # but rather turned into a def statement. ``a.x = f(arg 1)`` becomes:
-          #   def _1 = f(arg 1)
-          #   bind_mut _2 = a.x
-          #   =sink(name _2, arg _1)
-          # XXX: this is going to become cleaner once `mirgen` handles most of
-          #      the sink-related transformations
-          var tmp: Value
-          c.changeTree(tree, stmt, MirNode(kind: mnkDef))
-          c.replaceMulti(tree, dest, bu):
-            # replace the destination operand with the name of a newly
-            # allocated temporary
-            tmp = bu.allocTemp(tree[source].typ)
-            bu.use tmp
-
-          c.insert(tree, tree.sibling(stmt), stmt, bu):
-            # the value is only accessible through the source expression, a
-            # destructive move is not required
-            let a = bu.bindMut(tree, dest)
-            genInjectedSink(bu, ctx.graph, env, a, tmp)
-
+        c.replaceMulti(tree, operator, bu):
+          bu.move tmp
+      elif needsReset(tree, ctx.cfg, ar, sourcePath, pos):
+        # the value can be moved, but the source location needs to be cleared
+        # afterwards. Turn ``a = sink x.y`` into:
+        #   bind_mut _1 = x.y
+        #   a = move _1
+        #   wasMoved(name _1)
+        var b, clear: Value
+        c.insert(tree, stmt, source, bu):
+          (b, clear) = bu.destructiveMoveOperands(tree, source)
+        c.replaceMulti(tree, operator, bu):
+          bu.move b
+        c.insert(tree, tree.sibling(stmt), source, bu):
+          genWasMoved(bu, ctx.graph, clear)
       else:
-        # the destination location doesn't contain a value yet (which would
-        # need to be destroyed first otherwise) -> a bitwise copy can be used
-        if fromLvalue and needsReset(tree, ctx.cfg, ar, sourcePath, pos):
-          # we don't need to check for part-to-whole assignments here, because
-          # if the destination location has no value, so don't locations derived
-          # from it, in which case it doesn't matter when the reset happens
-          # XXX: the reset could be omitted for part-to-whole assignments
-          c.replaceMulti(tree, stmt, bu):
-            let
-              a          = bu.bindMut(tree, dest)
-              (b, clear) = bu.destructiveMoveOperands(tree, source)
-            bu.asgn a, b
-            genWasMoved(bu, ctx.graph, clear)
+        # the value can be moved without the source location having to be
+        # cleared
+        c.changeTree(tree, operator):
+          MirNode(kind: mnkMove, typ: tree[operator].typ)
+    else:
+      # the value cannot be moved, turn the sink into a copy
+      c.changeTree(tree, operator):
+        MirNode(kind: mnkCopy, typ: tree[operator].typ)
 
-        else:
-          # no hook call nor destructive move is required
-          discard
-
+    if tree[stmt].kind == mnkAsgn and not isAlive:
+      # the assignment initializes the location
+      c.changeTree(tree, stmt): MirNode(kind: mnkInit)
   else:
-    # a move is not possible -> copy
-    c.replaceMulti(tree, stmt, bu):
-      # copies to locals or globals can't introduce cyclic structures, as
-      # those are standlone and not part of any other structure
-      let maybeCyclic =
-        tree[dest].kind notin {mnkLocal, mnkTemp, mnkParam, mnkGlobal}
-      let
-        a = bu.bindMut(tree, dest)
-        b = bu.inline(tree, source)
-
-      genCopy(bu, ctx.graph, env, a, b, maybeCyclic)
-
-proc expandDef(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
-               env: var MirEnv, at: NodePosition, pos: InstrPos,
-               c: var Changeset) =
-  ## Depending on whether the source can be moved out of, either rewrites the
-  ## 'def' at `at` into a call to the ``=copy`` hook call or into a
-  ## destructive move. If the source can be moved out of non-destructively,
-  ## nothing is changed. `pos` is the data-flow instruction
-  let
-    dest   = tree.child(at, 0)
-    source = tree.child(at, 1)
-  case isMoveable(tree, ar.v[], source)
-  of false:
-    # a copy is required. Transform ``def x = a.b`` into:
-    #   def x
-    #   bind _1 = a.b
-    #   =copy(name x, arg _1)
-    c.replace(tree, source): MirNode(kind: mnkNone)
-    c.insert(tree, tree.sibling(at), source, bu):
-      let
-        a = bu.bindMut(tree, dest)
-        b = bu.inline(tree, source)
-      # the destination can only be a cell-like location (local, global,
-      # etc.), no cycle can possibly be introduced
-      genCopy(bu, ctx.graph, env, a, b, false)
-  of true:
-    if isNamed(tree, OpValue source) and
-       needsReset(tree, ctx.cfg, ar, computePath(tree, source), pos):
-      # the value can be moved, but the location needs to be reset. Transform
-      # ``def x = a.b`` into:
-      #   bind_mut _1 = a.b
-      #   def x = _1
-      #   wasMoved(name x)
-      var tmp, clear: Value
-      c.insert(tree, at, source, bu):
-        (tmp, clear) = bu.destructiveMoveOperands(tree, source)
-      c.replaceMulti(tree, source, bu):
-        bu.use tmp
-      c.insert(tree, tree.sibling(at), source, bu):
-        genWasMoved(bu, ctx.graph, clear)
+    # it's a move or copy already, so nothing to change there
+    if tree[stmt].kind == mnkAsgn and
+       not isAlive(tree, ctx.cfg, ar.entities[], destPath, pos):
+      # the assignment initializes the location
+      c.changeTree(tree, stmt): MirNode(kind: mnkInit)
 
 proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
                 expr: NodePosition, src: OpValue, pos: InstrPos,
@@ -799,7 +510,6 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
   ## `expr` is the call, construction, or ``raise`` argument expression that
   ## the consume is part of; `src` is the consumed lvalue; and `pos` is the
   ## data-flow instruction correspondig to the consume operation.
-  assert tree[expr].kind in ExprKinds
   if isNamed(tree, src) and
      needsReset(tree, ctx.cfg, ar, computePath(tree, NodePosition src),
                 pos + 1):
@@ -812,7 +522,7 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       var tmp: Value
       c.insert(tree, stmt, NodePosition src, bu):
         let v = bu.bindMut(tree, NodePosition src)
-        tmp = bu.materialize(v)
+        tmp = bu.materializeMove(v)
         genWasMoved(bu, ctx.graph, v)
 
       # replace the argument with the injected temporary:
@@ -824,65 +534,15 @@ proc consumeArg(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         let v = bu.bindMut(tree, NodePosition src)
         genWasMoved(bu, ctx.graph, v)
 
-proc isUsedForSink(tree: MirTree, stmt: NodePosition): bool =
-  ## Computes whether the definition statement is something produced for
-  ## sink parameter handling.
-  assert tree[stmt].kind in {mnkDef, mnkDefUnpack}
-  let def = tree.operand(stmt, 0)
-  if tree[def].kind != mnkTemp:
-    # only temporaries are used for sink handling
-    return
-
-  # look for whether the temporary is used as a 'consume' node's operand,
-  # but do reduce the amount of work by not searching beyond the
-  # temporary's lifetime
-  # HACK: this detection relies on the code shapes ``mirgen`` currently
-  #       emits for sink parameters and is thus very brittle. The proper
-  #       solution is to mark through a side channel the statement as being
-  #       generated for a sink parameter
-  var
-    n = tree.sibling(stmt)
-    depth = 0
-  while n < NodePosition tree.len:
-    case tree[n].kind
-    of mnkConsume:
-      let x = tree.operand(n)
-      if tree[x].kind == mnkTemp and tree[x].temp == tree[def].temp:
-        # the temporary is used for sink parameter passing
-        result = true
-        break
-    of mnkScope:
-      inc depth
-    of mnkEnd:
-      if tree[n].kind == mnkScope:
-        dec depth
-        if depth < 0:
-          # the end of the temporary's surrounding scope is reached
-          break
-    else:
-      discard
-
-    inc n
-
-proc checkCopy(graph: ModuleGraph, tree: MirTree, expr: NodePosition,
-               diags: var seq[LocalDiag]) =
-  let op = getOp(graph, tree[expr].typ, attachedAsgn)
-  if sfError in op.flags:
-    diags.add LocalDiag(pos: expr,
-                        kind: ldkUnavailableTypeBound,
-                        op: attachedAsgn)
-
 proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
-                        env: var MirEnv, diags: var seq[LocalDiag],
-                        c: var Changeset) =
+                        env: TypeEnv, c: var Changeset) =
   ## Rewrites assignments to locations into calls to either the ``=copy``
-  ## or ``=sink`` hook (see ``expandAsgn`` for more details), using the
-  ## previously computed ownership information to decide.
+  ## or ``=sink`` hook (see ``expandAsgn`` for more details).
   ##
   ## Also injects the necessary location reset logic for lvalues passed to
   ## 'consume' argument sinks.
   for i, opc, val in ctx.cfg.instructions:
-    if opc == opConsume and hasDestructor(tree[val].typ):
+    if opc == opConsume and hasDestructor(env[tree[val].typ]):
       # disarm the destructors for locations of which the value is consumed
       # but that are reassigned or destroyed after
       let parent = tree.parent(NodePosition val)
@@ -893,131 +553,18 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
         consumeArg(tree, ctx, ar, tree.parent(parent), val, i, c)
       of mnkRaise:
         consumeArg(tree, ctx, ar, NodePosition val, val, i, c)
-      of mnkAsgn, mnkInit, mnkDef, mnkDefUnpack:
+      of mnkMove, mnkSink:
         # assignments are handled separately
         discard
       else:
         unreachable(tree[parent].kind)
-    elif opc == opDef and hasDestructor(tree[val].typ):
-      # where necessary, rewrite assignments into moves, destructive moves,
-      # and copies
-      let stmt = tree.parent(NodePosition val)
+    elif opc == opDef and (let stmt = tree.parent(NodePosition val);
+          tree[stmt, 1].kind in {mnkCopy, mnkMove, mnkSink}):
+      # specialize the modifier-using assignment
+      assert tree[stmt].kind in {mnkDef, mnkAsgn, mnkInit}
+      specializeAsgn(tree, ctx, ar, stmt, i, c)
 
-      case tree[stmt].kind
-      of mnkDef, mnkDefUnpack:
-        let src = tree.child(stmt, 1)
-        # ignore definitions with no initializer
-        if tree[src].kind != mnkNone:
-          if not isMoveable(tree, ar.v[], src):
-            checkCopy(ctx.graph, tree, src, diags)
-            # emit a warning for copies-to-sink
-            if isUsedForSink(tree, stmt):
-              diags.add LocalDiag(kind: ldkPassCopyToSink,
-                                  pos: src)
-          expandDef(tree, ctx, ar, env, stmt, i, c)
-      of mnkAsgn, mnkInit:
-        let src = tree.child(stmt, 1)
-        if not isMoveable(tree, ar.v[], src):
-          checkCopy(ctx.graph, tree, src, diags)
-        expandAsgn(tree, ctx, ar, env, stmt, i, c)
-      else:
-        # e.g., output arguments to procedures
-        discard "ignore"
-
-# --------- destructor injection -------------
-
-proc injectDestructorsInner(bu: var MirBuilder, orig: MirTree,
-                            graph: ModuleGraph, env: var MirEnv,
-                            entries: openArray[DestroyEntry]) =
-  ## Generates a destructor call for each item in `entries`, using `buf` as the
-  ## output.
-  for it in ritems(entries):
-    let def = getDefEntity(orig, it.pos)
-    let t =
-      case orig[def].kind
-      of SymbolLike: orig[def].sym.typ
-      of mnkGlobal:  orig[def].typ
-      of mnkTemp:    orig[def].typ
-      else:          unreachable()
-
-    bu.buildVoidCall(env, getOp(graph, t, attachedDestructor)):
-      bu.emitByName(Value(node: orig[def]), ekMutate)
-
-proc injectDestructors(tree: MirTree, graph: ModuleGraph,
-                       destroy: seq[DestroyEntry], env: var MirEnv,
-                       c: var Changeset) =
-  ## Injects a destructor call for each entity in the `destroy` list, in the
-  ## entities reverse order they are defined. That is the entity defined last
-  ## is destroyed first
-  if destroy.len == 0:
-    # nothing to do
-    return
-
-  var
-    entries = destroy
-    needsFinally: PackedSet[NodePosition]
-
-  # first pass: gather which scopes need to be wrapped in a ``finally``
-  for it in destroy.items:
-    assert tree[it.scope].kind == mnkScope
-    if it.needsFinally:
-      needsFinally.incl it.scope
-
-  # sort the entries by scope (first-order) and position (second-order) in
-  # ascending order. Do this before moving the definitions, as `entries` would
-  # have no defined order otherwise (which could change the relative order
-  # of the moved definitions)
-  sort(entries, proc(x, y: auto): int =
-    result = ord(x.scope) - ord(y.scope)
-    if result == 0:
-      result = ord(x.pos) - ord(y.pos)
-  )
-
-  iterator scopeItems(e: seq[DestroyEntry]): Slice[int] {.inline.} =
-    ## Partitions `e` using the `scope` field and yields the slice of each
-    ## partition
-    var
-      scopePos = e[0].scope
-      start = 0
-
-    # the loop is written in such a way as that ``yield`` is only needed once
-    for i in 1..e.len:
-      if i == e.len or e[i].scope != scopePos:
-        yield start .. (i - 1)
-        if i < e.len:
-          scopePos = e[i].scope
-          start = i
-
-  # second pass: inject the destructors and place them inside a ``finally``
-  # clause if necessary
-  for s in scopeItems(entries):
-    let
-      scopeStart = entries[s.a].scope
-      useFinally = scopeStart in needsFinally
-      source = scopeStart
-        ## the node to inherit the origin information from
-
-    if useFinally:
-      # start a 'finally' at the beginning of the scope:
-      c.insert(tree, scopeStart + 1, source, buf):
-        buf.add MirNode(kind: mnkTry, len: 1)
-        buf.add MirNode(kind: mnkStmtList)
-
-    # insert at the scope's end node
-    c.insert(tree, findEnd(tree, scopeStart), source, buf):
-      if useFinally:
-        buf.add endNode(mnkStmtList) # close the body of the 'try' clause
-        buf.subTree MirNode(kind: mnkFinally):
-          # there's no need for opening a new scope -- we use a statement-list
-          # instead
-          buf.subTree MirNode(kind: mnkStmtList):
-            injectDestructorsInner(buf, tree, graph, env,
-                                   toOpenArray(entries, s.a, s.b))
-
-        buf.add endNode(mnkTry)
-      else:
-        injectDestructorsInner(buf, tree, graph, env,
-                               toOpenArray(entries, s.a, s.b))
+# --------- switch lowering -------------
 
 proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
                        idgen: IdGenerator, env: var MirEnv,
@@ -1027,21 +574,26 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
   assert body[stmt].kind == mnkSwitch
 
   let
-    target = body.operand(stmt, 0)
+    target = body.child(stmt, 0)
     objType = body[target].typ
-    typ = body[target].field.typ
+    field = lookupInType(env[objType], body.field(target).int)
+    typ = env.types.add(field.typ)
 
   assert body[target].kind == mnkPathVariant
+  # the source expression must either be an rvalue, or there must be a
+  # modifier present
+  assert body[stmt, 1].kind notin LvalueExprKinds
 
   let
     a = bu.wrapMutAlias(typ):
       # bind the discriminator lvalue, not the variant lvalue
-      bu.subTree MirNode(kind: mnkPathNamed, typ: typ, field: body[target].field):
+      bu.pathNamed typ, body.field(target):
         bu.emitFrom(body, NodePosition body.operand(target))
-    b = bu.inline(body, body.child(stmt, 1))
+    b = bu.wrapTemp typ:
+      bu.emitFrom(body, body.child(stmt, 1))
 
   # check if the object contains fields requiring destruction:
-  if hasDestructor(objType):
+  if hasDestructor(env[objType]):
     # XXX: we are only interested in if the *record-case* contains fields
     #      requiring destruction, not the whole *object*. If none of the
     #      branches requires destruction, but the enclosing object does,
@@ -1058,35 +610,35 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
     #      Depending on how it's implemented, this approach has issues with
     #      field alignment, however.
     let branchDestructor = produceDestructorForDiscriminator(
-                            graph, objType,
-                            body[target].field,
+                            graph, env[objType],
+                            field,
                             unknownLineInfo, idgen
                            )
-
-    let
-      boolTyp = graph.getSysType(unknownLineInfo, tyBool)
 
     # XXX: comparing the discrimant values here means that the branch is
     #      destroyed even if the branch doesn't change. This differs from
     #      the VM's behaviour. There, the branch is only reset if it's
     #      actually changed
-    var val = bu.wrapTemp(boolTyp):
-      bu.buildMagicCall(getMagicEqForType(typ), boolTyp):
+    var val = bu.wrapTemp BoolType:
+      bu.buildMagicCall(getMagicEqForType(field.typ), BoolType):
         bu.emitByVal a
         bu.emitByVal b
 
-    val = bu.wrapTemp(boolTyp):
-      bu.buildMagicCall mNot, boolTyp:
+    val = bu.wrapTemp BoolType:
+      bu.buildMagicCall mNot, BoolType:
          bu.emitByVal val
 
-    bu.subTree mnkIf:
-      bu.use val
+    var src = body.child(target, 0)
+    # skip all ``mnkPathVariant`` nodes:
+    while body[src].kind == mnkPathVariant:
+      src = body.child(src, 0)
+
+    bu.buildIf (;bu.use val):
       # ``=destroy`` call:
       bu.buildVoidCall(env, branchDestructor):
-        # pass the original variant access to the destroy call
-        bu.subTree mnkName:
-          bu.subTree MirNode(kind: mnkTag, effect: ekInvalidate):
-            bu.emitFrom(body, NodePosition target)
+        # pass the object access expression to the destroy call
+        bu.emitByName ekMutate:
+          bu.emitFrom(body, src)
 
   else:
     # the object doesn't need destruction, which means that neither does one
@@ -1099,24 +651,6 @@ proc lowerBranchSwitch(bu: var MirBuilder, body: MirTree, graph: ModuleGraph,
   # generate the ``discriminant = newValue`` assignment:
   bu.asgn(a, b)
 
-proc reportDiagnostics(g: ModuleGraph, body: MirBody,
-                       owner: PSym, diags: var seq[LocalDiag]) =
-  ## Reports all diagnostics in `diags` as ``SemReport``s and clear the list
-  for diag in diags.items:
-    let ast = body.sourceFor(diag.pos)
-    let rep =
-      case diag.kind
-      of ldkUnavailableTypeBound:
-        SemReport(kind: rsemUnavailableTypeBound,
-                  typ: body[diag.pos].typ,
-                  str: AttachedOpToStr[diag.op],
-                  ast: ast,
-                  sym: owner)
-      of ldkPassCopyToSink:
-        SemReport(kind: rsemCopiesToSink, ast: ast)
-
-    localReport(g.config, ast.info, rep)
-
 func shouldInjectDestructorCalls*(owner: PSym): bool =
   # only inject destructor calls if the owner is not a generated OP (e.g. a
   # generated ``=destroy``) and also not an ``.inline`` iterator
@@ -1124,69 +658,39 @@ func shouldInjectDestructorCalls*(owner: PSym): bool =
      {sfInjectDestructors, sfGeneratedOp} * owner.flags == {sfInjectDestructors} and
      (owner.kind != skIterator or not isInlineIterator(owner.typ))
 
-proc injectDestructorCalls*(g: ModuleGraph, idgen: IdGenerator,
-                            env: var MirEnv, owner: PSym,
-                            body: var MirBody) =
-  ## The ``injectdestructors`` pass entry point. The pass is made up of
-  ## multiple sub-passes, hence the mutable `body` (as opposed
-  ## to returning a ``Changeset``).
-  ##
-  ## For now, semantic errors and other diagnostics related to lifetime-hook
-  ## usage are also reported here.
+proc lowerBranchSwitch*(tree: MirTree, g: ModuleGraph, idgen: IdGenerator,
+                        env: var MirEnv, changes: var Changeset) =
+  ## Lowers ``mnkSwitch`` operations into normal assignments, with a branch
+  ## destructor injected if the respective record-case requires it (i.e.,
+  ## because it contains fields requiring destruction).
+  for i, n in tree.pairs:
+    if n.kind == mnkSwitch:
+      changes.replaceMulti(tree, i, buf):
+        lowerBranchSwitch(buf, tree, g, idgen, env, i)
 
-  template apply(c: Changeset) =
-    ## Applies the changeset `c` to `body`.
-    apply(body.code, prepare(c))
-
-  # apply the first batch of passes:
-  block:
-    var changes = initChangeset(body.code)
-    # the VM implements branch switching itself - performing the lowering for
-    # code meant to run in it would be harmful
-    # FIXME: discriminant assignment lowering also needs to be disabled for
-    #        when generating code running at compile-time (e.g. inside a
-    #        macro)
-    # XXX: the lowering is *always* necessary, as the destructors for
-    #      fields inside switched-away-from branches won't be called
-    #      otherwise
-    # TODO: make the branch-switch lowering a separate and standalone pass --
-    #       it's not directly related to the rest of the processing here
-    if g.config.backend != backendNimVm:
-      for i, n in body.code.pairs:
-        if n.kind == mnkSwitch:
-          changes.replaceMulti(body.code, i, buf):
-            lowerBranchSwitch(buf, body.code, g, idgen, env, i)
-
-    apply(changes)
-
-  # apply the second batch of passes:
+proc injectDestructorCalls*(tree: MirTree, g: ModuleGraph, env: var MirEnv,
+                            changes: var Changeset) =
+  ## Collapses sink assignments into either copy or move assignments, and
+  ## injects the destroy operations for all entities requiring destruction.
   block:
     var
-      changes = initChangeset(body.code)
-      diags: seq[LocalDiag]
+      actx = AnalyseCtx(graph: g, cfg: computeDfg(tree))
 
     let
-      actx = AnalyseCtx(graph: g, cfg: computeDfg(body.code))
-      entities = initEntityDict(body.code, actx.cfg)
-      values = solveOwnership(body.code, actx.cfg, entities)
+      entities = initEntityDict(tree, actx.cfg, env)
+      moves = collapseSink(tree, actx.cfg, entities, env.types)
 
-    let destructors = computeDestructors(body.code, actx.cfg, values, entities)
+    # the order matters: eliminate destroy operation *after* collapsing sinks,
+    # but *before* specializing the assignments
+    eliminateDestroy(tree, actx.cfg, entities, changes)
 
     rewriteAssignments(
-      body.code, actx,
-      AnalysisResults(v: cursor(values),
-                      entities: cursor(entities),
-                      destroy: cursor(destructors)),
-      env, diags, changes)
+      tree, actx,
+      AnalysisResults(moves: cursor(moves),
+                      entities: cursor(entities)),
+      env.types, changes)
 
-    # turn the collected diagnostics into reports and report them:
-    reportDiagnostics(g, body, owner, diags)
-
-    injectDestructors(body.code, g, destructors, env, changes)
-
-    apply(changes)
-
-  if g.config.arcToExpand.hasKey(owner.name.s):
-    g.config.msgWrite("--expandArc: " & owner.name.s & "\n")
-    g.config.msgWrite(render(body.code, addr env))
-    g.config.msgWrite("\n-- end of expandArc ------------------------\n")
+# the below is required to keep the `utils` import from being reported as
+# being unused
+proc workaround() {.used.} =
+  discard render(default(MirTree))

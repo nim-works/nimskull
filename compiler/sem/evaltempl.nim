@@ -88,11 +88,12 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
         if sfGenSym in s.flags:
           result.add newIdentNode(getIdent(c.ic, x.name.s & "`gensym" & $c.instID),
             if c.instLines: actual.info else: templ.info)
+          result.flags.incl nfWasGensym
         else:
           result.add newSymNode(x, if c.instLines: actual.info else: templ.info)
     else:
       result.add copyNode(c, templ, actual)
-  of nkNone..nkIdent, nkType..nkNilLit: # atom
+  of nkEmpty..nkIdent, nkType..nkNilLit: # atom
     result.add copyNode(c, templ, actual)
   of nkCommentStmt:
     # for the documentation generator we don't keep documentation comments
@@ -104,7 +105,7 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
       result.add newNodeI(nkEmpty, templ.info)
   of nkError:
     c.config.internalError(templ.info, "unreported error")
-  else:
+  of nkWithSons:
     let parentIsDeclarative = c.isDeclarative
     if templ.kind in routineDefs + {nkTypeSection, nkVarSection, nkLetSection, nkConstSection}:
       c.isDeclarative = true

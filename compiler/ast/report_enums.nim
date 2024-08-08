@@ -247,6 +247,7 @@ type
     rvmCacheKeyAlreadyExists
     rvmFieldNotFound
     rvmFieldInavailable
+    rvmCannotCreateNode
     rvmCannotSetChild
     rvmCannotAddChild
     rvmCannotGetChild
@@ -359,6 +360,7 @@ type
 
     rsemCannotInstantiate
     rsemCannotInstantiateWithParameter
+    rsemCannotInstantiateForwarded
     rsemCannotGenerateGenericDestructor
     rsemUndeclaredField
     rsemExpectedOrdinal
@@ -416,12 +418,12 @@ type
     rsemIsOperatorTakes2Args
     rsemWrongNumberOfVariables
     rsemWrongNumberOfGenericParams
-    rsemCalleeHasAnError
     rsemNoGenericParamsAllowed
     rsemAmbiguousCall
     rsemCallingConventionMismatch
     rsemHasSideEffects
     rsemCantPassProcvar
+    rsemHookCannotRaise
     rsemUnlistedRaises
     rsemUnlistedEffects
     rsemOverrideSafetyMismatch
@@ -628,14 +630,7 @@ type
     # Codegen
     rsemRttiRequestForIncompleteObject
     rsemExpectedNimcallProc
-    rsemExpectedExhaustiveCaseForComputedGoto
-    rsemExpectedUnholyEnumForComputedGoto
-    rsemTooManyEntriesForComputedGoto
-    rsemExpectedLow0ForComputedGoto
-    rsemExpectedCaseForComputedGoto
-    rsemDisallowedRangeForComputedGoto
     rsemExpectedParameterForJsPattern
-    rsemExpectedLiteralForGoto
     rsemRequiresDeepCopyEnabled
     rsemDisallowedOfForPureObjects
     rsemCannotCodegenCompiletimeProc
@@ -737,6 +732,7 @@ type
     rsemLockLevelMismatch        = "LockLevel"
     rsemTypelessParam            = "TypelessParam"
     rsemOwnedTypeDeprecated
+    rsemCodegenDeclDeprecated    = "Deprecated"
 
     rsemWarnUnlistedRaises = "Effect" ## `sempass2.checkRaisesSpec` had
     ## `emitWarnings: bool` parameter which was supposedly used to control
