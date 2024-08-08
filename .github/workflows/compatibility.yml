@@ -93,3 +93,12 @@ jobs:
       - name: Print all test errors
         if: failure()
         run: bin/nim r tools/ci_testresults
+
+  passed:
+    name: All C compatibility tests passed
+    needs: [test]
+    if: failure() || cancelled()
+    runs-on: ubuntu-latest
+
+    steps:
+      - run: exit 1
