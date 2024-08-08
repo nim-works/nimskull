@@ -2466,18 +2466,17 @@ proc genAsgnToLocal(c: var TCtx, le, ri: CgNode) =
     gen(c, ri, dest)
 
 proc genDerefView(c: var TCtx, n: CgNode, dest: var TDest; load = true) =
-  ## Generates and emits the code for a view dereference, where `n` is the
-  ## expression that evaluates to a view. `load` indicates whether the
-  ## *handle* of the underlying location or the value stored in it should be
-  ## put into `dest`.
+  ## Generates and emits the code for a view dereference. `load` indicates
+  ## whether the *handle* of the underlying location or the value stored in
+  ## it should be put into `dest`.
   let
-    isPtr = isPtrView(n)
-    needsLoad = load and fitsRegister(n.typ.skipTypes(abstractVar))
+    isPtr = isPtrView(n.operand)
+    needsLoad = load and fitsRegister(n.typ)
 
   if isPtr or needsLoad:
     # we need to process the operand further, and thus need a temporary
     prepare(c, dest, n.typ) # XXX: the passed type is incorrect
-    let tmp = c.genx(n)
+    let tmp = c.genx(n.operand)
     var src = tmp
 
     if isPtr:
@@ -2493,7 +2492,7 @@ proc genDerefView(c: var TCtx, n: CgNode, dest: var TDest; load = true) =
     c.freeTemp(tmp)
   else:
     # no processing required; load the handle directly into `dest`
-    c.gen(n, dest)
+    c.gen(n.operand, dest)
 
 proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
   case le.kind
@@ -2530,7 +2529,7 @@ proc genAsgn(c: var TCtx; le, ri: CgNode; requiresCopy: bool) =
       c.freeTemp(dest)
     else:
       var dest = noDest
-      genDerefView(c, le.operand, dest, load=false)
+      genDerefView(c, le, dest, load=false)
       putIntoLoc(c, ri, dest, 0, opcWrLoc, opcWrLoc)
       c.freeTemp(dest)
   of cnkDeref:
@@ -3083,7 +3082,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkDerefView:
     assert isLocView(n.operand.typ)
     # a view indirection
-    genDerefView(c, n.operand, dest)
+    genDerefView(c, n, dest)
   of cnkHiddenAddr:
     assert isLocView(n.typ)
     # load the source operand as a handle
