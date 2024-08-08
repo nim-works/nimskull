@@ -518,8 +518,15 @@ proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
       result = newFloatNodeT(val, n, g)
     else:
       result = rangeError(n, a, g)
-  of tyOpenArray, tyVarargs, tyProc, tyPointer:
+  of tyOpenArray, tyVarargs:
     discard
+  of tyProc, tyPointer, tyPtr:
+    if a.kind == nkNilLit:
+      # apply the type directly to the 'nil' expression
+      result = a
+      result.typ = n.typ
+    else:
+      result = nil # cannot fold
   else:
     # FIXME: conversion-to-enum is missing checks
     result = a
@@ -903,7 +910,7 @@ proc foldConstExprAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Fo
   # in the back-end (e.g. ``cast[pointer](someProc)``). In addition, so as to
   # not interfere with the documentation generator, statement-list expressions
   # are not folded if they have a comment in the first position
-  let exprIsPointerCast = n.kind in {nkCast, nkConv, nkHiddenStdConv} and
+  let exprIsPointerCast = n.kind == nkCast and
                           n.typ != nil and
                           n.typ.kind in {tyPointer, tyProc}
   if not exprIsPointerCast and
