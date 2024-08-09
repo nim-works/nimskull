@@ -1,0 +1,104 @@
+name: Test C compiler compatibility
+on:
+  push:
+    branches-ignore:
+      - devel
+      # Github Merge Queue temporary branches
+      - gh-readonly-queue/**
+
+  pull_request:
+    # Only consider PRs to devel
+    branches:
+      - devel
+
+    # Type of events to run CI on
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+  merge_group:
+    # Test all additions to the merge queue
+
+# Run every script action in bash
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  binaries:
+    name: Build binaries with most recent GCC version
+    runs-on: ubuntu-24.04
+    # Don't run for draft PRs
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: tree:0
+
+      - name: Enable annotations
+        run: echo "::add-matcher::.github/nim-problem-matcher.json"
+
+      - name: Make GCC 14 the default
+        run: |
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 10
+          sudo update-alternatives --set gcc /usr/bin/gcc-14
+
+      - name: Build compiler and tools
+        run: ./koch.py all-strict
+
+      - name: Upload workspace to artifacts
+        uses: ./.github/actions/upload-compiler
+
+  test:
+    needs: [binaries]
+
+    strategy:
+      fail-fast: false
+
+      # Parallelize testing. Refer to ``ci.yml`` for how and why this works.
+      matrix:
+        batch: [0, 1]
+        total_batch: [2]
+
+    name: "Test the compiler and standard library (Batch ${{ matrix.batch }})"
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: tree:0
+
+      - uses: ./.github/actions/download-compiler
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install libc6-dbg valgrind libpcre3
+
+      - name: Make GCC 14 the default
+        run: |
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 10
+          sudo update-alternatives --set gcc /usr/bin/gcc-14
+
+      - name: Run tester
+        run: ./koch.py test --batch:"$TEST_BATCH" --tryFailing --targets:c all
+        env:
+          TEST_BATCH: ${{ matrix.batch }}_${{ matrix.total_batch }}
+
+      - name: Print all test errors
+        if: failure()
+        run: bin/nim r tools/ci_testresults
+
+  passed:
+    name: All C compatibility tests passed
+    needs: [test]
+    if: failure() || cancelled()
+    runs-on: ubuntu-latest
+
+    steps:
+      - run: exit 1
