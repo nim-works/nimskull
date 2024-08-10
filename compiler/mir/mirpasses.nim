@@ -122,6 +122,17 @@ proc overlapsConservative(tree: MirTree, a, b: Path, typA, typB: PType): bool =
   # use path-based analysis:
   result = overlaps(tree, a, b) != no
 
+proc genSizeOf(bu: var MirBuilder, env: var MirEnv, typ: TypeId): Value =
+  let size = env.types.headerFor(typ, Lowered).size(env.types)
+  if size >= 0:
+    # known size -> use a literal value
+    literal(mnkIntLit, env.getOrIncl(size), env.types.sizeType)
+  else:
+    # some type with unknown size -> emit a sizeof call
+    bu.wrapTemp env.types.sizeType:
+      bu.buildMagicCall mSizeOf, env.types.sizeType:
+        bu.emitByVal typeLit(typ)
+
 proc preventRvo(tree: MirTree, types: TypeEnv, changes: var Changeset) =
   ## Injects intermediate temporaries for assignments where the source is an
   ## RVO-using call rvalue and the destination potentially aliases with a
@@ -822,6 +833,77 @@ proc splitAssignments(tree: MirTree, changes: var Changeset) =
           bu.subTree mnkMove:
             bu.use tmp
 
+proc lowerCast(tree: MirTree, graph: ModuleGraph, env: var MirEnv,
+               changes: var Changeset) =
+  ## Lower cast operations between non-integer or non-pointer-like types into
+  ## memory copies.
+
+  proc isRequiresCopy(types: TypeEnv, desc: HeaderId): bool {.inline.} =
+    var desc = desc
+    # XXX: skipping imported types is a workaround for ``nimCopyMem`` casting
+    #      to ``size_t``, which would result in infinite recursion at run-
+    #      time if turned into a ``nimCopyMem``
+    while types[desc].kind == tkImported:
+      desc = types.get(types[desc].elem).desc[Lowered]
+
+    types[desc].kind in {tkFloat, tkRecord, tkUnion, tkArray, tkImported}
+
+  proc apply(bu: var MirBuilder, tree: MirTree, dst, src: NodePosition,
+             env: var MirEnv, op: ProcedureId) {.nimcall.} =
+    let dstPtr = bu.wrapTemp PointerType:
+      bu.subTree mnkAddr, PointerType:
+        bu.emitFrom(tree, dst)
+    let srcPtr =
+      if tree[skipConversions(tree, OpValue src)].kind in LiteralDataNodes:
+        # cannot take the address of some literal value; use a temporary
+        let tmp = bu.wrapTemp tree[src].typ:
+          bu.subTree mnkCopy, tree[src].typ:
+            bu.emitFrom(tree, src)
+        bu.wrapTemp PointerType:
+          bu.subTree mnkAddr, PointerType:
+            bu.use tmp
+      else:
+        bu.wrapTemp PointerType:
+          bu.subTree mnkAddr, PointerType:
+            bu.emitFrom(tree, src)
+
+    let sizeOf = genSizeOf(bu, env, tree[dst].typ)
+
+    bu.subTree mnkVoid:
+      bu.buildCall op, VoidType:
+        bu.emitByVal dstPtr
+        bu.emitByVal srcPtr
+        bu.emitByVal sizeOf
+
+  for n in search(tree, {mnkCast}):
+    let
+      dst = env.types.get(tree[n].typ).desc[Lowered]
+      src = env.types.get(tree[n, 0].typ).desc[Lowered]
+
+    # ignore the cast if between the same types
+    if src != dst and (isRequiresCopy(env.types, dst) or
+       isRequiresCopy(env.types, src)):
+      let
+        asgn = tree.parent(n)
+        copy = env.procedures.add(graph.getCompilerProc("nimCopyMem"))
+
+      case tree[asgn].kind
+      of mnkAsgn, mnkInit:
+        # transform ``_1 = cast _2`` into:
+        #   nimCopyMem(arg addr(_1), arg addr(_2), ...)
+        changes.replaceMulti(tree, asgn, bu):
+          apply(bu, tree, tree.child(asgn, 0), tree.child(n, 0), env, copy)
+
+      of mnkDef, mnkDefCursor:
+        # transform ``def _1 = cast _2`` into:
+        #   def _1
+        #   nimCopyMem(arg addr(_1), arg addr(_2), ...)
+        changes.replace(tree, n, MirNode(kind: mnkNone))
+        changes.insert(tree, tree.sibling(asgn), n, bu):
+          apply(bu, tree, tree.child(asgn, 0), tree.child(n, 0), env, copy)
+      else:
+        unreachable()
+
 proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
                   graph: ModuleGraph, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
@@ -860,6 +942,7 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       lowerChecks(body, graph, env, c)
       injectStrPreparation(body.code, graph, env, c)
       lowerCase(body.code, graph, env, c)
+      lowerCast(body.code, graph, env, c)
 
   # instrument the body with profiler calls after all lowerings, but before
   # optimization

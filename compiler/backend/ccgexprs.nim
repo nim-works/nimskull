@@ -1189,16 +1189,13 @@ proc genSomeCast(p: BProc, e: CgNode, d: var TLoc) =
     of cnkCast, cnkConv, cnkHiddenConv: e.operand
     of cnkCall:                         e[1]
     else:                               unreachable()
-  # we use whatever C gives us. Except if we have a value-type, we need to go
-  # through its address:
+  # we use whatever C gives us
   var a: TLoc
   initLocExpr(p, src, a)
   let etyp = skipTypes(e.typ, abstractRange)
   let srcTyp = skipTypes(src.typ, abstractRange)
-  if etyp.kind in ValueTypes and lfIndirect notin a.flags:
-    putIntoDest(p, d, e, "(*($1*) ($2))" %
-        [getTypeDesc(p.module, e.typ), addrLoc(p.module, a)], a.storage)
-  elif etyp.kind == tyProc and etyp.callConv == ccClosure and srcTyp.callConv != ccClosure:
+  p.config.internalAssert(etyp.kind notin ValueTypes, e.info)
+  if etyp.kind == tyProc and etyp.callConv == ccClosure and srcTyp.callConv != ccClosure:
     putIntoDest(p, d, e, "(($1) ($2))" %
         [getClosureType(p.module, etyp, clHalfWithEnv), rdCharLoc(a)], a.storage)
   else:
@@ -1216,26 +1213,13 @@ proc genSomeCast(p: BProc, e: CgNode, d: var TLoc) =
       putIntoDest(p, d, e, "(($1) ($2))" %
           [getTypeDesc(p.module, e.typ), rdCharLoc(a)], a.storage)
 
+proc canon(types: TypeEnv, typ: PType): TypeId =
+  types.canonical(types[typ])
+
 proc genCast(p: BProc, e: CgNode, d: var TLoc) =
-  const ValueTypes = {tyFloat..tyFloat64, tyTuple, tyObject, tyArray}
-  let
-    src = e.operand
-    destt = skipTypes(e.typ, abstractRange)
-    srct = skipTypes(src.typ, abstractRange)
-  if destt.kind in ValueTypes or srct.kind in ValueTypes:
-    # 'cast' and some float type involved? --> use a union.
-    inc(p.labels)
-    var lbl = p.labels.rope
-    var tmp: TLoc
-    tmp.r = "LOC$1.source" % [lbl]
-    linefmt(p, cpsLocals, "union { $1 source; $2 dest; } LOC$3;$n",
-      [getTypeDesc(p.module, src.typ), getTypeDesc(p.module, e.typ), lbl])
-    tmp.k = locExpr
-    tmp.lode = lodeTyp srct
-    tmp.storage = OnStack
-    tmp.flags = {}
-    expr(p, src, tmp)
-    putIntoDest(p, d, e, "LOC$#.dest" % [lbl], tmp.storage)
+  let x = e.operand
+  if canon(p.module.types, e.typ) == canon(p.module.types, x.typ):
+    expr(p, x, d) # no cast is necessary
   else:
     # I prefer the shorter cast version for pointer types -> generate less
     # C code; plus it's the right thing to do for closures:
