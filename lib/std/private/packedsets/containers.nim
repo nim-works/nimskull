@@ -1,4 +1,5 @@
-import arrays, bitmaps, crossops
+import arrays, bitmaps, crossops, miniarrays
+import std/options
 
 ## Implements a polymorphic set container which automatically selects the
 ## smallest representation.
@@ -10,6 +11,7 @@ const
 type
   ContainerKind* {.pure.} = enum
     ## The kind of the container in use.
+    Mini
     Array
     Bitmap
 
@@ -17,10 +19,14 @@ type
     ## A polymorphic container. The representation in use is chosen to have the
     ## least memory footprint.
     case kind: ContainerKind
+    of Mini:
+      mini: MiniArrayContainer
     of Array:
       array: ArrayContainer
     of Bitmap:
       bitmap: BitmapContainer
+
+static: doAssert sizeof(Container) == sizeof(ArrayContainer) + sizeof(int): $sizeof(Container)
 
 proc initContainer(b: sink BitmapContainer): Container {.inline.} =
   ## Consume a `BitmapContainer` to create a new `Container`.
@@ -42,13 +48,18 @@ proc initContainer(a: sink ArrayContainer): Container {.inline.} =
   else:
     Container(kind: Array, array: a)
 
+proc initContainer(a: sink MiniArrayContainer): Container {.inline.} =
+  Container(kind: Mini, mini: a)
+
 proc initContainer*(): Container {.inline.} =
   ## Create a new empty `Container`
-  Container(kind: Array)
+  Container(kind: Mini)
 
 proc `==`*(a, b: Container): bool {.inline.} =
   if a.kind == b.kind:
     case a.kind
+    of Mini:
+      a.mini == b.mini
     of Array:
       a.array == b.array
     of Bitmap:
@@ -59,6 +70,8 @@ proc `==`*(a, b: Container): bool {.inline.} =
 proc contains*(c: Container, value: uint16): bool {.inline.} =
   ## Returns if `value` is in `c`.
   case c.kind
+  of Mini:
+    value in c.mini
   of Array:
     value in c.array
   of Bitmap:
@@ -67,6 +80,8 @@ proc contains*(c: Container, value: uint16): bool {.inline.} =
 proc len*(c: Container): int {.inline.} =
   ## Returns the number of elements in `c`.
   case c.kind
+  of Mini:
+    c.mini.len
   of Array:
     c.array.len
   of Bitmap:
@@ -75,6 +90,15 @@ proc len*(c: Container): int {.inline.} =
 proc containsOrIncl*(c: var Container, value: uint16): bool {.inline.} =
   ## Add `value` to `c` and returns whether it was already set.
   case c.kind
+  of Mini:
+    case c.mini.containsOrIncl(value)
+    of NotFound:
+      result = false
+    of Found:
+      result = true
+    of CantAdd:
+      c = initContainer(c.mini.toArray())
+      result = c.array.containsOrIncl(value)
   of Array:
     result = c.array.containsOrIncl(value)
     if c.array.len >= BitmapThreshold:
@@ -85,6 +109,8 @@ proc containsOrIncl*(c: var Container, value: uint16): bool {.inline.} =
 proc missingOrExcl*(c: var Container, value: uint16): bool {.inline.} =
   ## Remove `value` from `c` and returns whether it was already unset.
   case c.kind
+  of Mini:
+    result = c.mini.missingOrExcl(value)
   of Array:
     result = c.array.missingOrExcl(value)
   of Bitmap:
@@ -94,6 +120,8 @@ proc missingOrExcl*(c: var Container, value: uint16): bool {.inline.} =
 proc incl*(c: var Container, other: BitmapContainer) =
   ## Add elements from `other` to `c`.
   case c.kind
+  of Mini:
+    c = initContainer(other + c.mini)
   of Array:
     c = initContainer(other + c.array)
   of Bitmap:
@@ -102,6 +130,8 @@ proc incl*(c: var Container, other: BitmapContainer) =
 proc incl*(c: var Container, other: ArrayContainer) =
   ## Add elements from `other` to `c`.
   case c.kind
+  of Mini:
+    c = initContainer(other + c.mini)
   of Array:
     # Optimistically allocate a big container if the total length meets
     # the threshold.
@@ -120,9 +150,31 @@ proc incl*(c: var Container, other: ArrayContainer) =
   of Bitmap:
     c.bitmap.incl other
 
+proc incl*(c: var Container, other: MiniArrayContainer) =
+  ## Add elements from `other` to `c`.
+  case c.kind
+  of Mini:
+    var new = c.mini + other
+    if new.isNone:
+      var newarray = newArrayContainer(c.mini.len + other.len)
+      for value in union(c.mini, other):
+        newarray.uncheckedAdd value
+
+      c = initContainer(newarray)
+    else:
+      c = initContainer(new.get())
+  of Array:
+    c.array.incl other
+    if c.array.len >= BitmapThreshold:
+      c = initContainer(c.array.toBitmap())
+  of Bitmap:
+    c.bitmap.incl other
+
 proc incl*(c: var Container, other: Container) {.inline.} =
   ## Add elements from `other` to `c`.
   case other.kind
+  of Mini:
+    c.incl other.mini
   of Array:
     c.incl other.array
   of Bitmap:
@@ -131,6 +183,8 @@ proc incl*(c: var Container, other: Container) {.inline.} =
 proc excl*(c: var Container, other: BitmapContainer) =
   ## Remove elements in `other` from `c`.
   case c.kind
+  of Mini:
+    doAssert false
   of Array:
     c.array.excl other
 
@@ -142,6 +196,8 @@ proc excl*(c: var Container, other: BitmapContainer) =
 proc excl*(c: var Container, other: ArrayContainer) =
   ## Remove elements in `other` from `c`.
   case c.kind
+  of Mini:
+    doAssert false
   of Array:
     c.array.excl other
   of Bitmap:
@@ -152,6 +208,8 @@ proc excl*(c: var Container, other: ArrayContainer) =
 proc excl*(c: var Container, other: Container) {.inline.} =
   ## Remove elements in `other` from `c`.
   case other.kind
+  of Mini:
+    doAssert false
   of Array:
     c.excl other.array
   of Bitmap:
@@ -160,6 +218,9 @@ proc excl*(c: var Container, other: Container) {.inline.} =
 proc `+`*(a: Container, b: BitmapContainer): Container =
   ## Returns the union of `a` and `b`.
   case a.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     initContainer(b + a.array)
   of Bitmap:
@@ -168,6 +229,10 @@ proc `+`*(a: Container, b: BitmapContainer): Container =
 proc `+`*(a: Container, b: ArrayContainer): Container =
   ## Returns the union of `a` and `b`.
   case a.kind
+  of Mini:
+    doAssert false
+
+    raise getCurrentException()
   of Array:
     # Optimistically allocate a big container if the total length meets
     # the threshold.
@@ -187,6 +252,9 @@ proc `+`*(a: Container, b: ArrayContainer): Container =
 proc `+`*(a: Container, b: Container): Container {.inline.} =
   ## Returns the union of `a` and `b`.
   case b.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     a + b.array
   of Bitmap:
@@ -195,6 +263,8 @@ proc `+`*(a: Container, b: Container): Container {.inline.} =
 proc `-`*(a: Container, b: BitmapContainer): Container {.inline.} =
   ## Returns the difference between `a` and `b`.
   case a.kind
+  of Mini:
+    initContainer(a.mini - b)
   of Array:
     initContainer(a.array - b)
   of Bitmap:
@@ -213,8 +283,20 @@ proc `-`*(a: Container, b: BitmapContainer): Container {.inline.} =
 proc `-`*(a: Container, b: ArrayContainer): Container {.inline.} =
   ## Returns the difference between `a` and `b`.
   case a.kind
+  of Mini:
+    initContainer(a.mini - b)
   of Array:
     initContainer(a.array - b)
+  of Bitmap:
+    # Be optimistic that the result will still be larger than the threshold
+    initContainer(a.bitmap - b)
+
+proc `-`*(a: Container, b: MiniArrayContainer): Container {.inline.} =
+  case a.kind
+  of Mini:
+    initContainer(a.mini - b)
+  of Array:
+    initContainer(a.array - b.toArray)
   of Bitmap:
     # Be optimistic that the result will still be larger than the threshold
     initContainer(a.bitmap - b)
@@ -222,6 +304,8 @@ proc `-`*(a: Container, b: ArrayContainer): Container {.inline.} =
 proc `-`*(a: Container, b: Container): Container {.inline.} =
   ## Returns the difference between `a` and `b`.
   case b.kind
+  of Mini:
+    a - b.mini
   of Array:
     a - b.array
   of Bitmap:
@@ -230,6 +314,9 @@ proc `-`*(a: Container, b: Container): Container {.inline.} =
 proc `-+-`*(a: Container, b: BitmapContainer): Container {.inline.} =
   ## Returns the symmetric difference bteween `a` and `b`.
   case a.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     initContainer(b -+- a.array)
   of Bitmap:
@@ -238,6 +325,9 @@ proc `-+-`*(a: Container, b: BitmapContainer): Container {.inline.} =
 proc `-+-`*(a: Container, b: ArrayContainer): Container {.inline.} =
   ## Returns the symmetric difference bteween `a` and `b`.
   case a.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     initContainer(a.array -+- b)
   of Bitmap:
@@ -246,6 +336,9 @@ proc `-+-`*(a: Container, b: ArrayContainer): Container {.inline.} =
 proc `-+-`*(a: Container, b: Container): Container {.inline.} =
   ## Returns the symmetric difference bteween `a` and `b`.
   case b.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     a -+- b.array
   of Bitmap:
@@ -254,6 +347,9 @@ proc `-+-`*(a: Container, b: Container): Container {.inline.} =
 proc intersectionLen*(a: Container, b: BitmapContainer): int {.inline.} =
   ## Returns the number of elements in the intersection between `a` and `b`.
   case a.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     a.array.intersectionLen(b)
   of Bitmap:
@@ -262,6 +358,9 @@ proc intersectionLen*(a: Container, b: BitmapContainer): int {.inline.} =
 proc `*`*(a: Container, b: BitmapContainer): Container {.inline.} =
   ## Returns the intersection between `a` and `b`.
   case a.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     initContainer(a.array * b)
   of Bitmap:
@@ -279,6 +378,9 @@ proc `*`*(a: Container, b: BitmapContainer): Container {.inline.} =
 proc intersectionLen*(a: Container, b: ArrayContainer): int {.inline.} =
   ## Returns the number of elements in the intersection between `a` and `b`.
   case a.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     a.array.intersectionLen(b)
   of Bitmap:
@@ -287,6 +389,9 @@ proc intersectionLen*(a: Container, b: ArrayContainer): int {.inline.} =
 proc `*`*(a: Container, b: ArrayContainer): Container {.inline.} =
   ## Returns the intersection between `a` and `b`.
   case a.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     initContainer(a.array * b)
   of Bitmap:
@@ -295,6 +400,9 @@ proc `*`*(a: Container, b: ArrayContainer): Container {.inline.} =
 proc intersectionLen*(a: Container, b: Container): int {.inline.} =
   ## Returns the number of elements in the intersection between `a` and `b`.
   case b.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     a.intersectionLen(b.array)
   of Bitmap:
@@ -303,6 +411,9 @@ proc intersectionLen*(a: Container, b: Container): int {.inline.} =
 proc `*`*(a: Container, b: Container): Container {.inline.} =
   ## Returns the intersection between `a` and `b`.
   case b.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     a * b.array
   of Bitmap:
@@ -311,6 +422,9 @@ proc `*`*(a: Container, b: Container): Container {.inline.} =
 proc `<=`*(a: Container, b: BitmapContainer): bool {.inline.} =
   ## Returns whether `a` is a subset of `b`.
   case a.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     a.array < b
   of Bitmap:
@@ -319,6 +433,9 @@ proc `<=`*(a: Container, b: BitmapContainer): bool {.inline.} =
 proc `<=`*(a: Container, b: ArrayContainer): bool {.inline.} =
   ## Returns whether `a` is a subset of `b`.
   case a.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     a.array <= b
   of Bitmap:
@@ -328,6 +445,9 @@ proc `<=`*(a: Container, b: ArrayContainer): bool {.inline.} =
 proc `<=`*(a: Container, b: Container): bool {.inline.} =
   ## Returns whether `a` is a subset of `b`.
   case b.kind
+  of Mini:
+    doAssert false
+    raise getCurrentException()
   of Array:
     a <= b.array
   of Bitmap:
@@ -340,6 +460,9 @@ proc `<`*(a: Container, b: Container): bool {.inline.} =
 iterator items*(c: Container): uint16 =
   ## Yields elements included in `c`.
   case c.kind
+  of Mini:
+    for value in c.mini.items:
+      yield value
   of Array:
     for value in c.array.items:
       yield value

@@ -161,7 +161,7 @@ iterator gallopingIntersection(short, long: ArrayContainer): uint16 =
 
   while shortIdx < short.len and longIdx < long.len:
     longIdx += long.distinctBase.toOpenArray(longIdx, long.len - 1).lowerBound(short[shortIdx])
-    if short[shortIdx] == long[longIdx]:
+    if longIdx < long.len and short[shortIdx] == long[longIdx]:
       yield short[shortIdx]
 
     inc shortIdx
