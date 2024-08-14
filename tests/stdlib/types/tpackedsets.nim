@@ -15,7 +15,7 @@ block basicIntSetTests:
   y.excl(1044)
 
   doAssert y == [1, 2, 7, 1056].toPackedSet
-  doAssert toSeq(y.items) == [1, 2, 7, 1056]
+  doAssert toSeq(y.items).sorted() == [1, 2, 7, 1056]
 
   doAssert y.containsOrIncl(888) == false
   doAssert 888 in y
@@ -254,6 +254,12 @@ block legacyMainModuleTests:
 
   var intGenericInit = initPackedSet[int]()
   genericTests(int, intGenericInit)
+
+  var int32GenericInit = initPackedSet[int32]()
+  genericTests(int32, int32GenericInit)
+
+  var int64GenericInit = initPackedSet[int64]()
+  genericTests(int64, int64GenericInit)
 
   var intDistinct = initPackedSet[Id]()
   genericTests(Id, intDistinct)
