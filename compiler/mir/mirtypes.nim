@@ -1085,11 +1085,13 @@ proc handleImported(env: var TypeEnv, t: PType): TypeId =
   if t.sym != nil and sfImportc in t.sym.flags:
     # an imported type. It's wrapped in a ``tkImported``, referencing the
     # underlying type
-    let base = typeSymToMir(env):
+    let base =
       if t.kind in Skip:
-        t.lastSon.skipIrrelevant()
+        env.add t.lastSon.skipIrrelevant()
       else:
-        t
+        # create a type symbol without going through the cache or ``.importc``
+        # handling
+        typeSymToMir(env, t)
 
     discard getSize(env.config, t) # compute the sizes, alignments, and offsets
 
