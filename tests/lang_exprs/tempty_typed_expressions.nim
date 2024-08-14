@@ -6,6 +6,8 @@ discard """
   '''
 """
 
+type Generic[T] = seq[T]
+
 proc get(x: pointer): pointer = x
 proc get(x: array[0, int]): array[0, int] = x
 proc get(x: seq[int]): seq[int] = x
@@ -17,6 +19,10 @@ proc get2(x: openArray[int]): int =
   # parameter was passed correctly
   x.len
 
+proc get3(x: Generic[int]): Generic[int] =
+  # test with a generic receiver type
+  x
+
 # simple case: empty-container typed expression is passed directly
 discard get(nil)
 discard get([])
@@ -25,6 +31,8 @@ discard get({})
 
 doAssert get2([]) == 0
 doAssert get2(@[]) == 0
+
+discard get3(@[])
 
 # more complex case: statement-list expressions
 discard get((discard; nil))
@@ -35,3 +43,5 @@ discard get((discard; {}))
 
 doAssert get2((discard; [])) == 0
 doAssert get2((discard; @[])) == 0
+
+discard get3((discard; @[]))
