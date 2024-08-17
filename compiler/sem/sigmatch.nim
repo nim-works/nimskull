@@ -2818,7 +2818,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         if argConverter.typ.kind notin {tyVar}:
           m.error.firstMismatch.kind = kVarNeeded
           noMatch()
-      elif not isLValue(c, n):
+      elif not isLValue(c, arg):
         m.error.firstMismatch.kind = kVarNeeded
         noMatch()
 
