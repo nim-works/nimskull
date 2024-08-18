@@ -2306,8 +2306,11 @@ func validIdentifier*(s: string): bool {.rtl, extern: "nsuValidIdentifier".} =
 
 # floating point formatting:
 when not defined(js):
-  func c_sprintf(buf, frmt: cstring): cint {.header: "<stdio.h>",
-                                     importc: "sprintf", varargs}
+  func c_snprintf(buf: cstring, size: csize_t, frmt: cstring): cint
+                 {.importc: "snprintf", varargs, sideEffect.}
+  func c_strerror(errnum: cint): cstring
+                 {.importc: "strerror", sideEffect.}
+  var c_errno {.importc: "errno", header: "<errno.h>".}: cint
 
 type
   FloatFormatMode* = enum
@@ -2359,8 +2362,17 @@ func formatBiggestFloat*(f: BiggestFloat, format: FloatFormatMode = ffDefault,
     const floatFormatToChar: array[FloatFormatMode, char] = ['g', 'f', 'e']
     var
       frmtstr {.noinit.}: array[0..5, char]
-      buf {.noinit.}: array[0..2500, char]
       L: cint
+    template raiseCError() =
+      # This entire sequence is full of side-effects, like invalidating the
+      # `strerror` buffer or reading from a global.
+      #
+      # However, these effects are frequently ignored in the stdlib, so they
+      # are ignored here, too.
+      {.cast(noSideEffect).}:
+        let errstr = $c_strerror(c_errno)
+        raise newException(CatchableError, errstr)
+
     frmtstr[0] = '%'
     if precision >= 0:
       frmtstr[1] = '#'
@@ -2368,17 +2380,46 @@ func formatBiggestFloat*(f: BiggestFloat, format: FloatFormatMode = ffDefault,
       frmtstr[3] = '*'
       frmtstr[4] = floatFormatToChar[format]
       frmtstr[5] = '\0'
-      L = c_sprintf(addr buf, addr frmtstr, precision, f)
+      template formatTo(buf: cstring, size: csize_t): cint =
+        # This has the side-effect of invalidating c_errno, but we also do
+        # that during memory allocation and that one is ignored, so ignore
+        # it here, too.
+        {.cast(noSideEffect).}:
+          let len = c_snprintf(buf, size, addr frmtstr, precision, f)
+          if len < 0:
+            raiseCError()
+          len
+
+      # Get the total size
+      L = formatTo(nil, 0)
+      # One has to be added to accomodate NUL
+      result = newString(L + 1)
+      L = formatTo(result, result.len.csize_t)
     else:
       frmtstr[1] = floatFormatToChar[format]
       frmtstr[2] = '\0'
-      L = c_sprintf(addr buf, addr frmtstr, f)
-    result = newString(L)
-    for i in 0 ..< L:
+      template formatTo(buf: cstring, size: csize_t): cint =
+        # This has the side-effect of invalidating c_errno, but we also do
+        # that during memory allocation and that one is ignored, so ignore
+        # it here, too.
+        {.cast(noSideEffect).}:
+          let len = c_snprintf(buf, size, addr frmtstr, f)
+          if len < 0:
+            raiseCError()
+          len
+
+      # Get the total size
+      L = formatTo(nil, 0)
+      # One has to be added to accomodate NUL
+      result = newString(L + 1)
+      L = formatTo(result, result.len.csize_t)
+
+    assert L < result.len, "snprintf requested a bigger buffer: " & $(requested: L + 1, got: result.len)
+    result.setLen(L)
+    for ch in result.mitems:
       # Depending on the locale either dot or comma is produced,
       # but nothing else is possible:
-      if buf[i] in {'.', ','}: result[i] = decimalSep
-      else: result[i] = buf[i]
+      ch = if ch in {'.', ','}: decimalSep else: ch
     when defined(windows):
       # VS pre 2015 violates the C standard: "The exponent always contains at
       # least two digits, and only as many more digits as necessary to
