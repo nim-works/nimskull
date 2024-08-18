@@ -2185,15 +2185,14 @@ proc gen(c: var TCtx, n: PNode) =
           c.builder.pop(f)
   of nkDiscardStmt:
     if n[0].kind != nkEmpty:
-      let e = exprToPmir(c, n[0], false, false)
+      var e = exprToPmir(c, n[0], false, false)
       case classify(e)
-      of Rvalue:
-        discard toValue(c, e, e.high, mnkDefCursor)
-      of OwnedRvalue:
+      of Rvalue, OwnedRvalue:
         # extend the lifetime of the value
         # XXX: while not possible at the moment, in the future, the
         #      discard statement could destroy the temporary right away
-        discard toValue(c, e, e.high, mnkDef)
+        wantValue(e) # forces materialization
+        discard toValue(c, e, e.high)
       of Lvalue:
         c.buildStmt mnkVoid:
           genx(c, e, e.high)
