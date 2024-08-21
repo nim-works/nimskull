@@ -1722,3 +1722,126 @@ proc extractDocCommentsAndRunnables*(n: NimNode): NimNode =
         result.add ni
       else: break
     else: break
+
+macro stamp*(body: untyped): NimNode =
+  ## Accepts a template body and returns the AST that represents it.
+  ##
+  ## Identifiers within `body` are bound to symbols from the caller's scope in
+  ## the same fashion as a template. As a special case, `result` is excluded
+  ## from automatic binding.
+  ##
+  ## The template body is hygienic, as such identifiers declared within might
+  ## turn into `gensym` symbols. This behavior can be overridden using
+  ## `{.gensym.}` or `{.inject.}` pragmas at declaration sites. Consult the
+  ## language manual for details on template hygiene.
+  ##
+  ## Within `body`, placeholders, which are references to values in the caller's
+  ## scope delimited by backticks, are substituted with the referenced values.
+  runnableExamples:
+    import std/strutils
+    import std/times
+
+    macro logQuote(msg: string) =
+      ## Log the given message with timestamp
+      # Using `quote` requires binding many symbols explicitly so that users
+      # don't have to import the providers themselves
+      let
+        # Make sure that `$` is selected from this scope to get `$` for `DateTime`
+        stringify = bindSym"$"
+        # Bind to `now` so that users don't have to import times
+        now = bindSym"now"
+        # Bind to `strutils.%` so users don't have to import strutils
+        format = bindSym"%"
+
+      quote:
+        echo `format`("[$1]\t$2", [stringify(`now`()), `msg`])
+
+    macro log(msg: string) =
+      ## Log the given message with timestamp
+      # Using `stamp`, `echo`, `%`, `$` and `now` are bound automatically to
+      # macro scope and users won't have to import times or strutils manually.
+      stamp:
+        echo "[$1]\t$2" % [$now(), `msg`]
+
+  runnableExamples:
+    import std/strutils
+    import std/times
+
+    when false:
+      # `quote` yields AST as-is, as such declarations must be explicitly
+      # gensym-ed or they might collide with something within the caller scope
+      macro log(msg: string) =
+        let
+          # Make sure that `$` is selected from this scope to get `$` for `DateTime`
+          stringify = bindSym"$"
+          # Bind to `now` so that users don't have to import times
+          now = bindSym"now"
+
+        quote:
+          let time = `stringify`(`now`())
+          echo time, "\t", `msg`
+
+      log("first")
+      log("second") # <- error: `time` is redefined
+    else:
+      # `stamp`'s body is a template, and as such template gensym rules are
+      # applied to declarations within
+      macro log(msg: string) =
+        stamp:
+          let time = $now() # implicitly gensym-ed
+          echo time, "\t", `msg`
+
+      log("first")
+      log("second") # All OK!
+
+  runnableExamples:
+    # `stamp` automatically binds to symbols within the caller scope, which can
+    # introduce unexpected errors to correct-looking code.
+    when false:
+      macro log(msg: string) =
+        result = newStmtList()
+
+        let echo = newCall(bindSym"echo", newLit"== log")
+        result.add echo
+
+        result.add:
+          stamp:
+            echo `msg`
+          # ^~~~ this binds to the `let echo` above instead of `system.echo` and
+          #      will error when used.
+
+      log("hi!") # this will error!
+
+  var args: seq[NimNode]
+  proc extract(n: NimNode): NimNode =
+    ## Extract backticks-delimited expressions.
+    case n.kind
+    of nnkAccQuoted:
+      result = ident("_" & $args.len)
+      args.add n[0]
+    else:
+      for i in 0..<n.len:
+        n[i] = extract(n[i])
+      result = n
+
+  let body = extract(body)
+
+  var params = @[bindSym"untyped"]
+  for i in 0..<args.len:
+    params.add newIdentDefs(ident("_" & $i), bindSym"untyped")
+  # Add result as a template parameter to prevent automatic binding
+  params.add newIdentDefs(ident"result", bindSym"untyped")
+
+  let name = genSym(nskTemplate, "stamped")
+  # Prepend the callee
+  args.insert(name, 0)
+  # Explicitly bind result as an identifier
+  args.add(newCall(bindSym"ident", newLit"result"))
+
+  result = nnkStmtListExpr.newTree(
+    newProc(name, params, body, nnkTemplateDef),
+    nnkCall.newTree(
+      bindSym"getAst",
+      nnkCall.newTree(args)
+    )
+  )
