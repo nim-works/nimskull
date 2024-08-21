@@ -1724,7 +1724,7 @@ proc extractDocCommentsAndRunnables*(n: NimNode): NimNode =
     else: break
 
 macro stamp*(body: untyped): NimNode =
-  ## Accepts a template body and returns the AST that represents it.
+  ## Accepts a template body, immediately applies it, and returns the resulting AST.
   ##
   ## Identifiers within `body` are bound to symbols from the caller's scope in
   ## the same fashion as a template. As a special case, `result` is excluded
