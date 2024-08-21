@@ -457,6 +457,24 @@ block close_over_compile_time_loc:
   static:
     p()
 
+block close_over_compile_time_loc_2:
+  # nested non-compile-time-only procedures can close over locals of compile-
+  # time-only procedures
+  proc p() {.compileTime.} =
+    var x = 0
+    proc inner(cmp: int) = # `inner` is explicitly not compile-time-only
+      proc innerInner(cmp: int) =
+        inc x
+        doAssert x == cmp
+
+      innerInner(cmp)
+
+    inner(1)
+    inner(2)
+
+  static:
+    p()
+
 template test(body: untyped) {.dirty.} =
   ## Tests that `body` works when placed in:
   ## - a normal procedure
