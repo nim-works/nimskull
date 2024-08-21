@@ -1684,22 +1684,26 @@ proc canCaptureFrom*(captor, target: PSym): bool =
   ## taking the compile-time/run-time boundary into account:
   ## 1) attempting to capture a local defined outside an inner macro from
   ##   inside the macro is illegal
-  ## 2) closing over a local defined inside a compile-time-only routine from a
-  ##   routine than can also be used at run-time is only valid if the chain of
-  ##   enclosing routines leading up to `target` are all compile-time-only
+  ## 2) routines usable at run-time may close over locals of compile-time-only
+  ##   routines
   ## 3) a compile-time-only routine closing over a run-time location is illegal
   template isCompTimeOnly(s: PSym): bool =
     sfCompileTime in s.flags
 
-  result = not captor.isCompTimeOnly or target.isCompTimeOnly    # rule #3
-  # check `captor` and all enclosing routines up to, but not including,
-  # `target` for rule violations
   var s = captor
-  while result and s != target:
-    result =
-      s.kind != skMacro and                                      # rule #1
-      (s == captor or s.isCompTimeOnly == target.isCompTimeOnly) # rule #2
-    s = s.skipGenericOwner
+  while s != target:
+    if s.kind == skMacro:
+      break # rule #1
+
+    let parent = s.skipGenericOwner
+    # going from 'everywhere' to 'compile-time' is disallowed, everything else
+    # is fine
+    if s.isCompTimeOnly and not parent.isCompTimeOnly:
+      break # rule #2 and #3
+
+    s = parent
+
+  result = s == target
 
 # ------------- public interface ----------------
 
