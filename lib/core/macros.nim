@@ -1813,7 +1813,7 @@ macro stamp*(body: untyped): NimNode =
       log("hi!") # this will error!
 
   var args: seq[NimNode]
-  proc extract(n: NimNode): NimNode =
+  proc extract(n: NimNode, args: var seq[NimNode]): NimNode =
     ## Extract backticks-delimited expressions.
     case n.kind
     of nnkAccQuoted:
@@ -1821,10 +1821,10 @@ macro stamp*(body: untyped): NimNode =
       args.add n[0]
     else:
       for i in 0..<n.len:
-        n[i] = extract(n[i])
+        n[i] = extract(n[i], args)
       result = n
 
-  let body = extract(body)
+  let body = extract(body, args)
 
   var params = @[bindSym"untyped"]
   for i in 0..<args.len:
