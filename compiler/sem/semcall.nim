@@ -570,7 +570,10 @@ proc semResolvedCall(c: PContext, x: TCandidate,
   instGenericConvertersSons(c, result, x)
   result[0] = newSymNode(finalCallee, getCallLineInfo(result[0]))
   result.typ = finalCallee.typ[0]
-  result = updateDefaultParams(c.config, result)
+  if gp.isGenericParams:
+    # default parameters only need to be updated for instantiated generic
+    # routines. For normal routines they're already correct
+    result = updateDefaultParams(c.config, result)
 
 proc semOverloadedCall(c: PContext, n, nOrig: PNode,
                        filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
@@ -748,7 +751,11 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
       x.addSonSkipIntLit(t.baseOfDistinct(c.graph, c.idgen), c.idgen)
     else:
       x = t.baseOfDistinct(c.graph, c.idgen)
-    call.add(newNodeIT(nkEmpty, fn.info, x))
+    let arg = newNodeIT(nkEmpty, fn.info, x)
+    # mark the node as analysed so that operand analysis doesn't analyze it
+    # again
+    arg.flags.incl nfSem
+    call.add(arg)
   if hasDistinct:
     let filter = if fn.kind in {skProc, skFunc}: {skProc, skFunc} else: {fn.kind}
     var resolved = semOverloadedCall(c, call, call, filter, {})

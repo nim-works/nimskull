@@ -2043,6 +2043,7 @@ proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
 
   result.add c.graph.emptyNode
   result.add arg
+  result.flags.incl nfSem
 
 proc isLValue(c: PContext; n: PNode): bool {.inline.} =
   case isAssignable(nil, n)
@@ -2111,9 +2112,11 @@ proc userConvMatch(c: PContext, m: var TCandidate, f, a: PType,
                   newTreeIT(nkHiddenAddr, arg.info, conv.typ[1], copyTree(arg))
                 else:
                   copyTree(arg))
+      result.flags.incl nfSem
 
       if dest.kind in {tyVar, tyLent}:
         result = newDeref(result)
+        result.flags.incl nfSem
 
       inc(m.convMatches)
 
@@ -2278,10 +2281,13 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
         # Don't build the type in-place because `evaluated` and `arg` may point
         # to the same object and we'd end up creating recursive types (#9255)
         let typ = newTypeS(tyStatic, c)
+        evaluated.flags.incl nfSem
         typ.sons = @[evaluated.typ]
         typ.n = evaluated
+        typ.flags.incl tfHasStatic
         arg = copyTree(arg) # fix #12864
         arg.typ = typ
+        arg.flags.incl nfSem
         a = typ
       else:
         if m.callee.kind == tyGenericBody:
@@ -2411,11 +2417,9 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     if arg.typ.isNil():
       result = arg
     elif skipTypes(arg.typ, abstractVar-{tyTypeDesc}).kind == tyTuple or
-         m.inheritancePenalty > oldInheritancePenalty:
+         m.inheritancePenalty > oldInheritancePenalty or
+         arg.typ.isEmptyContainer:
       result = implicitConv(nkHiddenSubConv, f, arg, m, c)
-    elif arg.typ.isEmptyContainer:
-      result = arg.copyTree
-      result.typ = getInstantiatedType(c, arg, m, f)
     else:
       result = arg
   of isBothMetaConvertible:
@@ -2629,7 +2633,7 @@ proc prepareOperand(c: PContext; formal: PType; a, aOrig: PNode): PNode =
   if formal.kind == tyUntyped:
     assert formal.len != 1
     result = aOrig
-  elif a.typ.isNil:
+  elif nfSem notin a.flags:
     # XXX This is unsound! 'formal' can differ from overloaded routine to
     # overloaded routine!
     result = c.semOperand(c, a, {efAllowStmt})
@@ -2641,9 +2645,10 @@ proc prepareOperand(c: PContext; formal: PType; a, aOrig: PNode): PNode =
        result.typ.kind in {tyVar, tyLent} and
        c.matchedConcept.isNil():
       result = newDeref(result)
+      result.flags.incl nfSem
 
 proc prepareOperand(c: PContext; a: PNode): PNode =
-  if a.typ.isNil:
+  if nfSem notin a.flags:
     result = c.semOperand(c, a)
   else:
     result = a
@@ -2686,6 +2691,43 @@ proc arrayConstr(c: PContext, info: TLineInfo): PType =
 proc incrIndexType(t: PType) =
   assert t.kind == tyArray
   inc t[0].n[1].intVal
+
+proc matchContainer(m: var TCandidate, formal: PType, n: PNode): PNode =
+  ## Takes an already typed varargs container and re-analyses and matches
+  ## each item against the formal type, producing an AST of the shape the
+  ## usual (untyped -> typed) matching would have produced.
+  assert formal.kind == tyVarargs
+  var hasError = false
+
+  result = shallowCopy(n)
+  result.typ = arrayConstr(m.c, n.info)
+  result.typ.flags.incl tfVarargs
+
+  for i, it in n.pairs:
+    let
+      it = prepareOperand(m.c, it)
+      arg = paramTypesMatchAux(m, formal, it.typ, it)
+
+    if arg.isNil:
+      # it's a legacy error that was already reported
+      result[i] = it
+    elif arg.isError:
+      result[i] = arg
+      hasError = true
+    else:
+      result[i] = arg
+
+    incrIndexType(result.typ)
+
+  if hasError:
+    result = m.c.config.wrapError(result)
+  else:
+    if result.len > 0:
+      # update the array's type:
+      result.typ[1] = result[0].typ
+      propagateToOwner(result.typ, result.typ[1])
+    # a conversion is required to go from array -> varargs
+    result = implicitConv(nkHiddenStdConv, formal, result, m, m.c)
 
 template isVarargsUntyped(x): untyped =
   x.kind == tyVarargs and x[0].kind == tyUntyped
@@ -2958,6 +3000,10 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
         if f != formalLen - 1: # not the last formal param
           container = nil      # xxx: is this more vararg stuff?
+      elif formal.typ.kind == tyVarargs:
+        # it's a varargs to varargs match (only possible during re-typing)
+        operand = matchContainer(m, formal.typ, arg)
+        setSon(m.call, formal.position + 1, operand)
       else:
         setSon(m.call, formal.position + 1, arg)
 
@@ -3099,6 +3145,13 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             # pick the formal from the end, so a regular param can follow a
             # varargs: 'foo(x: int, y: varargs[typed], blk: untyped): typed'
             f = max(f, formalLen - n.len + a + 1)
+          elif formal.typ.kind == tyVarargs and arg.kind == nkBracket and
+               container.isNil:
+            # a pre-existing container matches against a varargs type (only
+            # possible during re-typing)
+            operand = matchContainer(m, formal.typ, arg)
+            setSon(m.call, formal.position + 1, operand)
+            inc f
           elif formal.typ.kind != tyVarargs or container.isNil(): # regular arg
             setSon(m.call, formal.position + 1, arg)
             inc f
@@ -3347,6 +3400,10 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
         if defaultValue.isError:
           # xxx: change this to propagate
           c.config.localReport(defaultValue)
+        else:
+          # the expression is already typed and valid; don't analyze it again,
+          # which might lose the type
+          defaultValue.flags.incl nfSem
 
         if nfDefaultRefsParam in formal.ast.flags:
           m.call.flags.incl nfDefaultRefsParam

@@ -36,8 +36,7 @@ discard get3(@[])
 
 # more complex case: statement-list expressions
 discard get((discard; nil))
-# XXX: not working yet
-#discard get((discard; []))
+discard get((discard; []))
 discard get((discard; @[]))
 discard get((discard; {}))
 

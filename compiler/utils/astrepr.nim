@@ -258,7 +258,8 @@ var
         trfShowSymKind,
         trfShowNodeErrors,
         trfShowNodeIds,
-        trfShowNodeLineInfo
+        trfShowNodeLineInfo,
+        trfShowNodeFlags
       }
       base
     ## default tree repr config for compiler tracing, meant to be compact as

@@ -56,6 +56,7 @@ proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
       result = c.config.newError(n, PAstDiag(kind: adSemProcHasNoConcreteType))
     elif result.typ.kind in {tyVar, tyLent}:
       result = newDeref(result)
+      result.flags.incl nfSem
   elif {efWantStmt, efAllowStmt} * flags != {}:
     result.typ = newTypeS(tyVoid, c)
   else:
@@ -93,6 +94,7 @@ proc semExprWithType(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
 
   elif result.typ.kind in {tyVar, tyLent}:
     result = newDeref(result)
+    result.flags.incl nfSem
 
 proc semExprNoDeref(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   result = semExprCheck(c, n, flags)
@@ -1840,7 +1842,8 @@ proc dotTransformation(c: PContext, n: PNode): PNode =
             PAstDiag(kind: adSemExpectedIdentifierWithExprContext,
                      expr: n))
 
-  result.add copyTree(n[0])
+  # the operand was already sem'ed immediately prior. No need to copy it
+  result.add n[0]
 
   if result[0].kind == nkError: # handle the potential ident error
     result = c.config.wrapError(result)
@@ -2807,6 +2810,8 @@ proc setMs(n: PNode, s: PSym): PNode =
   n[0] = newSymNode(s)
   n[0].info = n.info
 
+proc asBracketExpr(c: PContext; n: PNode): PNode
+
 proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   # this is a hotspot in the compiler!
   result = n
@@ -2891,6 +2896,14 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   of mSizeOf:
     markUsed(c, n.info, s)
     result = semSizeOf(c, setMs(n, s))
+  of mArrGet:
+    # this could be a rewritten subscript operation
+    let b = asBracketExpr(c, n)
+    if b.isNil:
+      # it's not
+      result = semDirectOp(c, n, flags)
+    else:
+      result = semArrayAccess(c, b, flags)
   else:
     result = semDirectOp(c, n, flags)
 
@@ -3407,22 +3420,25 @@ proc semExport(c: PContext, n: PNode): PNode =
 
         s = nextOverloadIter(o, c, a)
 
+func containsArrGet(n: PNode): bool =
+  ## Analyses `n` for whether it is or could be the ``mArrGet`` magic.
+  case n.kind
+  of nkSymChoices:
+    for it in n.items:
+      if it.kind == nkSym and it.sym.magic == mArrGet:
+        result = true
+        break
+  of nkSym:
+    # can happen in rare cases
+    result = n.sym.magic == mArrGet
+  else:
+    result = false
 
 proc shouldBeBracketExpr(n: PNode): bool =
   assert n.kind in nkCallKinds
   let a = n[0]
   if a.kind in nkCallKinds:
-    let b = a[0]
-    if b.kind in nkSymChoices:
-      for i in 0..<b.len:
-        if b[i].kind == nkSym and b[i].sym.magic == mArrGet:
-          result = true
-          break
-    elif b.kind == nkSym and b.sym.magic == mArrGet:
-      # can happen in rare cases
-      result = true
-
-    if result:
+    if containsArrGet(a[0]):
       let be = newNodeI(nkBracketExpr, n.info)
       for i in 1..<a.len:
         be.add(a[i])
@@ -3430,7 +3446,11 @@ proc shouldBeBracketExpr(n: PNode): bool =
 
 proc asBracketExpr(c: PContext; n: PNode): PNode =
   proc isGeneric(c: PContext; n: PNode): bool =
-    if n.kind in {nkIdent, nkAccQuoted}:
+    # XXX: this guesswork is meant to figure out whether a ``[](x, y)``
+    #      expression *could* have been a ``x[y]`` expression where `x` is a
+    #      generic procedure
+    case n.kind
+    of nkIdent, nkAccQuoted:
       let s = qualifiedLookUp(c, n, {})
       if s.isError:
         # XXX: move to propagating nkError, skError, and tyError
@@ -3438,16 +3458,23 @@ proc asBracketExpr(c: PContext; n: PNode): PNode =
         result = false
       else:
         result = s != nil and isGenericRoutineStrict(s)
+    of nkSym:
+      result = isGenericRoutineStrict(n.sym)
+    of nkSymChoices:
+      for it in n.items:
+        if isGenericRoutineStrict(it.sym):
+          result = true
+          break
+    else:
+      result = false
 
   assert n.kind in nkCallKinds
   if n.len > 1 and isGeneric(c, n[1]):
     let b = n[0]
-    if b.kind in nkSymChoices:
-      for i in 0..<b.len:
-        if b[i].kind == nkSym and b[i].sym.magic == mArrGet:
-          result = newNodeI(nkBracketExpr, n.info)
-          for i in 1..<n.len: result.add(n[i])
-          return result
+    if containsArrGet(b):
+      result = newNodeI(nkBracketExpr, n.info)
+      for i in 1..<n.len: result.add(n[i])
+      return result
   return nil
 
 proc hoistParamsUsedInDefault(c: PContext, call, letSection, defExpr: var PNode) =
@@ -3770,7 +3797,15 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkTupleConstr:
     result = semTupleConstr(c, n, flags)
   of nkCurly: result = semSetConstr(c, n)
-  of nkBracket: result = semArrayConstr(c, n, flags)
+  of nkBracket:
+    if n.typ == nil or (tfVarargs notin n.typ.flags and
+       n.typ.skipTypes(abstractInst).kind != tySequence):
+      result = semArrayConstr(c, n, flags)
+    else:
+      # HACK: there's not enough information here to re-type an already
+      #       typed varargs container, so it gets passed on for
+      #       ``sigmatch`` to take care of re-typing it
+      result = n
   of nkObjConstr: result = semObjConstr(c, n, flags)
   of nkLambdaKinds:
     result = semProcAnnotation(c, n)
@@ -3792,9 +3827,20 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     checkSonsLen(n, 1, c.config)
     result[0] = semAddrArg(c, n[0])
     result.typ = makePtrType(c, result[0].typ)
-  of nkHiddenAddr, nkHiddenDeref:
+  of nkHiddenAddr:
     checkSonsLen(n, 1, c.config)
-    n[0] = semExpr(c, n[0], flags)
+    result = semExpr(c, n[0], flags)
+  of nkHiddenDeref:
+    checkSonsLen(n, 1, c.config)
+    # the type of the deref can be synthesized, so try to keep it
+    let operand = semExpr(c, n[0], flags)
+    case operand.typ.kind
+    of tyVar, tyLent:
+      result = newTreeIT(nkHiddenDeref, n.info, operand.typ.base): operand
+    else:
+      # an error or something else. Don't complain and pass it on, the
+      # receiver will figure out what to do with it
+      result = operand
   of nkCast: result = c.config.extract(semCast(c, n))
   of nkIfExpr, nkIfStmt: result = semIf(c, n, flags)
   of nkConv:
@@ -3802,7 +3848,8 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     result = semConv(c, n)
   of nkHiddenStdConv, nkHiddenSubConv, nkHiddenCallConv:
     checkSonsLen(n, 2, c.config)
-    considerGenSyms(c, n)
+    # discard the hidden conversion. It's restored again (or not) if necessary
+    result = semExpr(c, n[1], flags)
   of nkStringToCString, nkCStringToString, nkObjDownConv, nkObjUpConv:
     checkSonsLen(n, 1, c.config)
     considerGenSyms(c, n)
@@ -3811,7 +3858,9 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     considerGenSyms(c, n)
   of nkCheckedFieldExpr:
     checkMinSonsLen(n, 2, c.config)
-    considerGenSyms(c, n)
+    # discard the check; analysis of the field expression will restore it if
+    # necessary
+    result = semExpr(c, n[0], flags)
   of nkTableConstr:
     result = semTableConstr(c, n)
   of nkClosedSymChoice, nkOpenSymChoice:
@@ -3897,6 +3946,10 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
         c.p.localBindStmts.add n
     else:
       localReport(c.config, n, reportSem rsemInvalidBindContext)
+  of nkNimNodeLit:
+    checkSonsLen(n, 1, c.config)
+    # the content is raw AST, so there's nothing to validate
+    result = copyNodeWithKids(n)
   of nkError:
     discard "ignore errors for now"
   else:
