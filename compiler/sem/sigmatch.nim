@@ -2343,26 +2343,10 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       of tyTyped, tyTypeDesc:
         arg
       of tyStatic:
-        let n =
-          if arg.typ.n.isNil:  # no value on the type
-            argSemantized
-          else:                # value on the type
-            arg.typ.n
-
-        # XXX: the implicit conversion handling is duplicated from the non-
-        #      template/non-macro path. Template and macro arguments shouldn't
-        #      be special-cased like this
-        case r
-        of isEqual: n
-        of isGeneric:
-          if n.typ.isEmptyContainer:
-            implicitConv(nkHiddenStdConv, f[0], n, m, c)
-          else:
-            n
-        of isSubtype:
-          implicitConv(nkHiddenSubConv, f[0], n, m, c)
-        else:
-          implicitConv(nkHiddenStdConv, f[0], n, m, c)
+        if arg.typ.n.isNil:  # no value on the type
+          argSemantized
+        else:                # value on the type
+          arg.typ.n
       else:
         argSemantized
     return
