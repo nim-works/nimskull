@@ -2266,17 +2266,6 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       result = arg
       return
 
-    proc eval(c: PContext, arg: PNode): PNode {.nimcall.} =
-      result = c.semTryConstExpr(c, arg)
-      if result != nil:
-        # Don't build the type in-place because `evaluated` and `arg` may point
-        # to the same object and we'd end up creating recursive types (#9255)
-        let typ = newTypeS(tyStatic, c)
-        typ.sons = @[result.typ]
-        typ.n = result
-        result = copyTree(arg) # fix #12864
-        result.typ = typ
-
     if a.kind == tyStatic:
       if m.callee.kind == tyGenericBody and
          a.n.isNil() and
@@ -2285,7 +2274,7 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
         return
     elif f.kind != tyStatic or f.base.kind == tyNone:
       # try to evaluate the expression up-front
-      let evaluated = eval(c, arg)
+      let evaluated = c.tryEvalStaticArgument(c, arg)
       if evaluated != nil:
         arg = evaluated
         a = arg.typ
@@ -2309,7 +2298,7 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
 
       # evaluate the expression *after* implicit conversions were introduced
       if result != nil:
-        result = eval(c, result)
+        result = c.tryEvalStaticArgument(c, result)
         if result != nil:
           assert result.typ.kind == tyStatic
           # XXX: the below partially duplicates the tyStatic handling from
