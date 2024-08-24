@@ -157,7 +157,11 @@ proc evalTemplateArgs*(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode
     for e in walkErrors(conf, n[i]):
       conf.localReport(e)
 
-    result.add n[i]
+    if n[i].typ != nil and n[i].typ.kind == tyStatic and n[i].typ.n != nil:
+      # replace static parameter arguments with the value expression
+      result.add n[i].typ.n
+    else:
+      result.add n[i]
 
   # handle parameters with default values, which were
   # not supplied by the user

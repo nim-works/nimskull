@@ -2340,13 +2340,8 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     incMatches(m, r)
     result =
       case f.kind
-      of tyTyped, tyTypeDesc:
+      of tyTyped, tyTypeDesc, tyStatic:
         arg
-      of tyStatic:
-        if arg.typ.n.isNil:  # no value on the type
-          argSemantized
-        else:                # value on the type
-          arg.typ.n
       else:
         argSemantized
     return
