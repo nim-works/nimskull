@@ -45,3 +45,24 @@ doAssert get2((discard; [])) == 0
 doAssert get2((discard; @[])) == 0
 
 discard get3((discard; @[]))
+
+# -----------------
+# static parameters
+
+proc get_static(x: static pointer): pointer = x
+proc get_static(x: static array[0, int]): array[0, int] = x
+proc get_static(x: static seq[int]): seq[int] = x
+proc get_static(x: static set[char]): set[char] = x
+
+# simple case: empty-container typed expression is passed directly
+discard get_static(nil)
+discard get_static([])
+discard get_static(@[])
+discard get_static({})
+
+# more complex case: statement-list expressions
+discard get_static((discard; nil))
+# XXX: not working yet
+#discard get_static((discard; []))
+discard get_static((discard; @[]))
+discard get_static((discard; {}))
