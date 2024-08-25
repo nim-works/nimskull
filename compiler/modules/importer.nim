@@ -377,7 +377,19 @@ proc evalImport*(c: PContext, n: PNode): PNode =
   var hasError = false
 
   for it in n.sons:
-    if it.kind == nkInfix and it.len == 3 and it[2].kind == nkBracket:
+    if it.kind == nkPrefix and it.len == 2 and it[1].kind == nkBracket:
+      for x in it[1].items:
+        let imp = newTreeI(nkPrefix, it.info,
+          it[0],
+          # transform `./[a as b] to `./a as b`
+          if x.kind == nkInfix and x[0].ident.s == "as":
+            x[1]
+          else:
+            x
+        )
+
+        hasError = impMod(c, imp, x.info, result).kind == nkError or hasError
+    elif it.kind == nkInfix and it.len == 3 and it[2].kind == nkBracket:
       let
         sep = it[0]
         dir = it[1]
