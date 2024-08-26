@@ -710,12 +710,14 @@ proc tryEvalStaticArgument(c: PContext, n: PNode): PNode =
   # types again:
   n.flags.incl nfSem
 
-  result = tryConstExpr(c, n)
-  if result != nil:
+  let e = tryConstExpr(c, n)
+  if e != nil:
     let typ = newTypeS(tyStatic, c)
-    typ.sons = @[result.typ]
-    typ.n = result
-    result = copyNodeWithKids(n)
+    typ.sons = @[e.typ]
+    typ.n = e
+    result =
+      if e == n: copyNodeWithKids(n)
+      else:      n
     result.typ = typ
 
 when not defined(nimHasSinkInference):
