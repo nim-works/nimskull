@@ -3772,6 +3772,17 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkCurly: result = semSetConstr(c, n)
   of nkBracket: result = semArrayConstr(c, n, flags)
   of nkObjConstr: result = semObjConstr(c, n, flags)
+  of nkClosure:
+    # only possible when constants / static parameters were inlined
+    checkSonsLen(n, 2, c.config)
+    # closures that capture something should not be able to reach here
+    internalAssert(c.config, n[1].kind == nkNilLit, n.info)
+    result = semExpr(c, n[0], flags)
+    # wrap in an implicit conversion again in order to not lose the type
+    # information
+    if result.kind notin {nkError, nkHiddenStdConv}:
+      result = newTreeIT(nkHiddenStdConv, n.info, n.typ,
+                         c.graph.emptyNode, result)
   of nkLambdaKinds:
     result = semProcAnnotation(c, n)
     if result == nil:
