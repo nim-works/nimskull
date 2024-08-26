@@ -3777,12 +3777,8 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     checkSonsLen(n, 2, c.config)
     # closures that capture something should not be able to reach here
     internalAssert(c.config, n[1].kind == nkNilLit, n.info)
-    result = semExpr(c, n[0], flags)
-    # wrap in an implicit conversion again in order to not lose the type
-    # information
-    if result.kind notin {nkError, nkHiddenStdConv}:
-      result = newTreeIT(nkHiddenStdConv, n.info, n.typ,
-                         c.graph.emptyNode, result)
+    # make sure the result is correctly typed (i.e., with a closure type)
+    result = fitNode(c, n.typ, semExpr(c, n[0], flags), n.info)
   of nkLambdaKinds:
     result = semProcAnnotation(c, n)
     if result == nil:
