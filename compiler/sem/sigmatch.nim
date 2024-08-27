@@ -2272,17 +2272,12 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
          tfGenericTypeParam notin a.flags:
         result = newNodeIT(nkType, arg.info, makeTypeFromExpr(c, arg))
         return
-    else:
-      var evaluated = c.semTryConstExpr(c, arg)
+    elif f.kind != tyStatic or f.base.kind == tyNone:
+      # try to evaluate the expression up-front
+      let evaluated = c.tryEvalStaticArgument(c, arg)
       if evaluated != nil:
-        # Don't build the type in-place because `evaluated` and `arg` may point
-        # to the same object and we'd end up creating recursive types (#9255)
-        let typ = newTypeS(tyStatic, c)
-        typ.sons = @[evaluated.typ]
-        typ.n = evaluated
-        arg = copyTree(arg) # fix #12864
-        arg.typ = typ
-        a = typ
+        arg = evaluated
+        a = arg.typ
       else:
         if m.callee.kind == tyGenericBody:
           if f.kind == tyStatic and typeRel(m, f.base, a) != isNone:
@@ -2290,6 +2285,32 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
             result.typ.flags.incl tfUnresolved
             result.typ.n = arg
             return
+    else:
+      # for proper conversion handling, the inner type must be matched against
+      # first
+      var callee: PSym = nil
+      # HACK: macros and templates use special parameter matching behaviour
+      #       that disables implicit conversions. To get around that, the
+      #       calleeSym is temporary set to nil
+      swap(callee, m.calleeSym)
+      result = paramTypesMatchAux(m, f.base, a, argSemantized)
+      swap(callee, m.calleeSym)
+
+      # evaluate the expression *after* implicit conversions were introduced
+      if result != nil:
+        result = c.tryEvalStaticArgument(c, result)
+        if result != nil:
+          assert result.typ.kind == tyStatic
+          # XXX: the below partially duplicates the tyStatic handling from
+          #      typeRel
+          let prev = PType(idTableGet(m.bindings, f))
+          if prev != nil:
+            if not exprStructuralEquivalent(prev.n, result.typ.n):
+              result = nil # no match
+          else:
+            put(m, f, result.typ)
+
+      return
 
   let oldInheritancePenalty = m.inheritancePenalty
   var r = typeRel(m, f, a)
@@ -2308,29 +2329,8 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     incMatches(m, r)
     result =
       case f.kind
-      of tyTyped, tyTypeDesc:
+      of tyTyped, tyTypeDesc, tyStatic:
         arg
-      of tyStatic:
-        let n =
-          if arg.typ.n.isNil:  # no value on the type
-            argSemantized
-          else:                # value on the type
-            arg.typ.n
-
-        # XXX: the implicit conversion handling is duplicated from the non-
-        #      template/non-macro path. Template and macro arguments shouldn't
-        #      be special-cased like this
-        case r
-        of isEqual: n
-        of isGeneric:
-          if n.typ.isEmptyContainer:
-            implicitConv(nkHiddenStdConv, f[0], n, m, c)
-          else:
-            n
-        of isSubtype:
-          implicitConv(nkHiddenSubConv, f[0], n, m, c)
-        else:
-          implicitConv(nkHiddenStdConv, f[0], n, m, c)
       else:
         argSemantized
     return

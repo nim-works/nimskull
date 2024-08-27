@@ -604,9 +604,9 @@ type
     semTryExpr*: proc (c: PContext, n: PNode, flags: TExprFlags = {}): PNode {.nimcall.}
       ## read to break cyclic dependencies, init in sem during module open and
       ## read in sigmatch
-    semTryConstExpr*: proc (c: PContext, n: PNode): PNode {.nimcall.}
+    tryEvalStaticArgument*: proc (c: PContext, n: PNode): PNode {.nimcall.}
       ## read to break cyclic dependencies, init in sem during module open and
-      ## read in semcall and sigmatch
+      ## read in sigmatch
     computeRequiresInit*: proc (c: PContext, t: PType): bool {.nimcall.}
       ## read to break cyclic dependencies, init in sem during module open and
       ## read in semtypinst

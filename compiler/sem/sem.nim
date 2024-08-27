@@ -694,6 +694,32 @@ proc semRealConstExpr(c: PContext, n: PNode): PNode =
   if result.kind != nkError:
     result = evalConstExpr(c, result)
 
+proc tryEvalStaticArgument(c: PContext, n: PNode): PNode =
+  ## Tries to evaluate an expression passed to a static parameter, while
+  ## overload resolution is still in progress. Returns nil if not successful.
+  var n = n
+  # `n` comes from sigmatch after a match and thus needs post-match fitting
+  if n.kind in {nkHiddenStdConv, nkHiddenSubConv, nkHiddenCallConv}:
+    # post-match fitting expects AST it can freely modify, which is guaranteed
+    # to be true for `n`, so copy the tree first
+    n = fitNodePostMatch(c, copyTree(n))
+  else:
+    n = copyNodeWithKids(n)
+
+  # prevent re-semming of the expression, which would throw away the
+  # types again:
+  n.flags.incl nfSem
+
+  let e = tryConstExpr(c, n)
+  if e != nil:
+    let typ = newTypeS(tyStatic, c)
+    typ.sons = @[e.typ]
+    typ.n = e
+    result =
+      if e == n: copyNodeWithKids(n)
+      else:      n
+    result.typ = typ
+
 when not defined(nimHasSinkInference):
   {.pragma: nosinks.}
 
@@ -919,7 +945,7 @@ proc myOpen(graph: ModuleGraph; module: PSym;
   c.semConstExpr = semConstExpr
   c.semExpr = semExpr
   c.semTryExpr = tryExpr
-  c.semTryConstExpr = tryConstExpr
+  c.tryEvalStaticArgument = tryEvalStaticArgument
   c.computeRequiresInit = computeRequiresInit
   c.semOperand = semOperand
   c.semConstBoolExpr = semConstBoolExpr
