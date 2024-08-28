@@ -228,6 +228,10 @@ jobs:
         run: |
           brew update
 
+      - name: Add Homebrew libraries to search path (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: echo "DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib" >> "$GITHUB_ENV"
+
       - name: Install MinGW (Windows)
         if: runner.os == 'Windows'
         uses: ./.github/actions/setup-mingw
