@@ -518,10 +518,6 @@ proc fromSockAddr*(sa: Sockaddr_storage | SockAddr | Sockaddr_in | Sockaddr_in6,
 
 when defineSsl:
   CRYPTO_malloc_init()
-  doAssert SslLibraryInit() == 1
-  SSL_load_error_strings()
-  ERR_load_BIO_strings()
-  OpenSSL_add_all_algorithms()
 
   proc sslHandle*(self: Socket): SslPtr =
     ## Retrieve the ssl pointer of `socket`.
@@ -625,30 +621,25 @@ when defineSsl:
     var newCTX: SslCtx
     case protVersion
     of protSSLv23:
-      newCTX = SSL_CTX_new(SSLv23_method()) # SSlv2,3 and TLS1 support.
+      newCTX = SSL_CTX_new(TLS_method()) # SSLv3, TLS 1.0 and above
     of protSSLv2:
       raiseSSLError("SSLv2 is no longer secure and has been deprecated, use protSSLv23")
     of protSSLv3:
       raiseSSLError("SSLv3 is no longer secure and has been deprecated, use protSSLv23")
     of protTLSv1:
-      newCTX = SSL_CTX_new(TLSv1_method())
+      raiseSSLError("TLSv1 is no longer secure and has been deprecated, use protSSLv23")
 
     if newCTX.SSL_CTX_set_cipher_list(cipherList) != 1:
       raiseSSLError()
-    when not defined(openssl10) and not defined(libressl):
-      let sslVersion = getOpenSSLVersion()
-      if sslVersion >= 0x010101000 and not sslVersion == 0x020000000:
-        # In OpenSSL >= 1.1.1, TLSv1.3 cipher suites can only be configured via
-        # this API.
-        if newCTX.SSL_CTX_set_ciphersuites(cipherList) != 1:
-          raiseSSLError()
-    # Automatically the best ECDH curve for client exchange. Without this, ECDH
-    # ciphers will be ignored by the server.
-    #
-    # From OpenSSL >= 1.1.0, this setting is set by default and can't be
-    # overriden.
-    if newCTX.SSL_CTX_set_ecdh_auto(1) != 1:
-      raiseSSLError()
+    when false:
+      # TODO: this used to "work" when we only perform the config for
+      # version >= 1.1.1. However, it seems that the previous gating condition
+      # was wrong and this code was never ran, giving the impression that
+      # it worked.
+      #
+      # TLSv1.3 cipher suites can only be configured via this API.
+      if newCTX.SSL_CTX_set_ciphersuites(cipherList) != 1:
+        raiseSSLError()
 
     when defined(nimDisableCertificateValidation):
       newCTX.SSL_CTX_set_verify(SSL_VERIFY_NONE, nil)
