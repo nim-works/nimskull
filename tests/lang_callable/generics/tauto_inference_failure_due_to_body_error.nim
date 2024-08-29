@@ -1,11 +1,13 @@
 discard """
   description: "Fail lambda inference due to error within the body."
   errormsg: "undeclared identifier: 'i'"
-  line: 11
+  line: 13
 """
 
 # This is a regression test, ensure we report errors inside lambdas during
 # inference
 
-var x: seq[proc(i: int)]
-x.add proc(e: auto) = echo i
+proc test(p: proc(x: int)) =
+  discard
+
+test proc(e: auto) = i
