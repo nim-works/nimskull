@@ -1,5 +1,5 @@
 discard """
-  description: "Fail lambda inference due to error without the body."
+  description: "Fail lambda inference due to error within the body."
   errormsg: "undeclared identifier: 'i'"
   line: 11
 """
