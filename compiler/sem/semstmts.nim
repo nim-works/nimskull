@@ -2228,6 +2228,7 @@ proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   for k in result.items:
     if k.kind == nkError:
       result = c.config.wrapError(result)
+      break
   # alternative variant (not quite working):
   # var prc = arg[0].sym
   # let inferred = c.semGenerateInstance(c, prc, m.bindings, arg.info)
