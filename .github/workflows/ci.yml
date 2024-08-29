@@ -140,13 +140,6 @@ jobs:
         if: runner.os == 'Windows'
         run: vcpkg install pcre sqlite3
 
-      - name: Download CA certificates (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
-          Invoke-WebRequest https://curl.se/ca/cacert.pem -OutFile (Join-Path $binPath "cacert.pem")
-        shell: pwsh
-
       - name: Set Xcode version (macOS M1)
         if: runner.os == 'macOS' && runner.arch == 'ARM64'
         uses: maxim-lobanov/setup-xcode@v1
