@@ -1,4 +1,5 @@
-This directory contains specification of various pragmas, including ones that are
-only related to procedure or object declaration. The only type of pragmas that are
-left out of this section are *macro* pragmas - they are fully user-defined and 
-work a lot more like regular macros than any other pragmas (which are compiler-defined).
+# What Belongs Here?
+
+This is a poorly named section, it might be best to combine this section with
+others. Covering any arbitrary pragma doesn't make sense, instead perhaps only
+the application of metadata, such as annotations and possibly effects.
