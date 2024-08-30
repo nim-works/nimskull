@@ -2875,7 +2875,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
     # untyped varargs
     if a >= formalLen - 1 and              # last or finished passing args
        f < formalLen and                   # still have more formal params
-       m.callee.n[f].typ.isVarargsUntyped: # current formal is varargs untped
+       m.callee.n[f].typ.isVarargsUntyped: # current formal is varargs untyped
       
       formal = m.callee.n[f].sym
       incl(marker, formal.position)
