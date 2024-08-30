@@ -990,6 +990,12 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
           c.emitOperandTree it, sink=true
     else:
       genCall(c, n)
+  of mSizeOf, mAlignOf:
+    # a late-resolved sizeof/alignof. Both have two variants, and they're
+    # normalized here
+    c.buildMagicCall m, rtyp:
+      # skip the surrounding typedesc
+      c.emitByVal typeLit(c.typeToMir(n[1].typ.skipTypes({tyTypeDesc})))
 
   # arithmetic operations:
   of mAddI, mSubI, mMulI, mDivI, mModI, mPred, mSucc:
@@ -1134,14 +1140,6 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
 
     else:
       genCall(c, n)
-  of mAlignOf:
-    # instances of the magic inserted by ``liftdestructors`` and ``alignof(x)``
-    # calls where ``x`` is of an imported type with unknown alignment reach
-    # here. The code-generators only care about the types in both cases, so
-    # that's what we emit
-    c.buildMagicCall m, rtyp:
-      # skip the surrounding typedesc
-      c.emitByVal typeLit(c.typeToMir(n[1].typ.skipTypes({tyTypeDesc})))
   of mGetTypeInfoV2:
     if n[0].typ == nil:
       # the compiler-generated version always uses a type as the argument
