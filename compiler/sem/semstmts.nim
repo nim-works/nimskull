@@ -2182,45 +2182,48 @@ proc semProcAnnotation(c: PContext, prc: PNode): PNode =
 proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   ## used for resolving 'auto' in lambdas based on their callsite
   addInNimDebugUtils(c.config, "semInferredLambda", n, result)
-  var n = n
   let original = n[namePos].sym
   let s = original #copySym(original, false)
   #incl(s.flags, sfFromGeneric)
   #s.owner = original
 
-  n = instantiateTypesInBody(c, pt, n, original)
-  result = n
+  result = instantiateTypesInBody(c, pt, n, original)
   s.ast = result
-  n[namePos].sym = s
-  n[genericParamsPos] = c.graph.emptyNode
+  result[namePos].sym = s
+  result[genericParamsPos] = c.graph.emptyNode
   # for LL we need to avoid wrong aliasing
-  n[paramsPos] = newNodeI(nkFormalParams, n[paramsPos].info, n.typ.n.len)
-  for i, p in n.typ.n.pairs:
-    n[paramsPos][i] =
+  result[paramsPos] = newNodeI(nkFormalParams, result[paramsPos].info,
+                               result.typ.n.len)
+  for i, p in result.typ.n.pairs:
+    result[paramsPos][i] =
       case i
       of 0: # return type
-        newNodeIT(nkType, n.info, n.typ[0])
+        newNodeIT(nkType, n.info, result.typ[0])
       else: # copy instantiated parameters
-        n.typ.n[i]
-  s.typ = n.typ
-  let params = n.typ.n
-  for i in 1..<params.len:
-    if params[i].typ.kind in {tyTypeDesc, tyGenericParam,
-                              tyFromExpr}+tyTypeClasses:
-      localReport(c.config, params[i].info, reportSym(
-        rsemCannotInferTypeOfParameter, params[i].sym))
-    #params[i].sym.owner = s
+        if p.typ.kind in {tyTypeDesc, tyGenericParam,
+                          tyFromExpr}+tyTypeClasses:
+          localReport(c.config, p.info, reportSym(
+            rsemCannotInferTypeOfParameter, p.sym))
+        #params[i].sym.owner = s
+        result.typ.n[i]
+  s.typ = result.typ
   openScope(c)
   pushOwner(c, s)
-  addParams(c, params)
+  addParams(c, result.typ.n)
   pushProcCon(c, s)
-  addResult(c, n, n.typ[0])
-  s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
+  addResult(c, result, result.typ[0])
+  result[bodyPos] = semProcBody(c, result[bodyPos])
+  s.ast[bodyPos] = hloBody(c, result[bodyPos])
   s.ast[bodyPos] = foldInAst(c.module, s.ast[bodyPos], c.idgen, c.graph)
   trackProc(c, s, s.ast[bodyPos])
   popProcCon(c)
   popOwner(c)
   closeScope(c)
+  # wrap in an error if there were issues along the way
+  for k in result.items:
+    if k.kind == nkError:
+      result = c.config.wrapError(result)
+      break
   # alternative variant (not quite working):
   # var prc = arg[0].sym
   # let inferred = c.semGenerateInstance(c, prc, m.bindings, arg.info)

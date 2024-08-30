@@ -2206,6 +2206,11 @@ proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
   case n.kind
   of nkProcDef, nkFuncDef, nkIteratorDef, nkLambdaKinds:
     result = c.semInferredLambda(c, bindings, n)
+    if result.kind == nkError:
+      # xxx: output the error now otherwise we'll just get an inferred lambda
+      #      failure without an explanation, ideally this should be
+      #      explained/added context of the inferred lambda error itself.
+      c.config.localReport(result)
   of nkSym:
     let inferred = c.semGenerateInstance(c, n.sym, bindings, n.info)
     result =
@@ -2870,7 +2875,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
     # untyped varargs
     if a >= formalLen - 1 and              # last or finished passing args
        f < formalLen and                   # still have more formal params
-       m.callee.n[f].typ.isVarargsUntyped: # current formal is varargs untped
+       m.callee.n[f].typ.isVarargsUntyped: # current formal is varargs untyped
       
       formal = m.callee.n[f].sym
       incl(marker, formal.position)
