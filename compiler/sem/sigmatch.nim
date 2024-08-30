@@ -2219,7 +2219,7 @@ proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
       else:
         newSymNode(inferred, n.info)
   of nkProcTy, nkIteratorTy:
-    # possibly in a concept context. There's nothing to instantiate
+    # possible in a concept context. There's nothing to instantiate
     return nil
   else:
     # nothing else is able to provide uninstantiated generic routines
