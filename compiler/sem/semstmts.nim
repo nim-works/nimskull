@@ -2213,11 +2213,6 @@ proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   pushProcCon(c, s)
   addResult(c, result, result.typ[0])
   result[bodyPos] = semProcBody(c, result[bodyPos])
-  if result[bodyPos].kind == nkError:
-    # output the error now otherwise we'll just get an inferred lambda failure
-    # without an explanation, ideally this should be explained/added context of
-    # the inferred lambda error itself.
-    c.config.localReport(result[bodyPos])
   s.ast[bodyPos] = hloBody(c, result[bodyPos])
   s.ast[bodyPos] = foldInAst(c.module, s.ast[bodyPos], c.idgen, c.graph)
   trackProc(c, s, s.ast[bodyPos])
