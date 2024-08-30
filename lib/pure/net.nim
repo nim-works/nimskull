@@ -29,11 +29,15 @@
 ## ==============
 ##
 ## On Windows the SSL library checks for valid certificates.
-## It uses the `cacert.pem` file for this purpose which was extracted
-## from `https://curl.se/ca/cacert.pem`. Besides
-## the OpenSSL DLLs (e.g. libssl-1_1-x64.dll, libcrypto-1_1-x64.dll) you
-## also need to ship `cacert.pem` with your `.exe` file.
 ##
+## It uses a Certificate Authority (CA) bundle and/or the Windows Root
+## Certificate store (only with OpenSSL >= 3.2.0) for this purpose.
+##
+## The CA bundle should be named `cacert.pem` and placed next to the
+## program `.exe` or in `PATH` and can be obtained from
+## `https://curl.se/ca/cacert.pem`. This bundle will be loaded
+## regardless of whether the Windows Certificate Root store is used,
+## but is only required when the Root Certificate store can not be used.
 ##
 ## Examples
 ## ========
@@ -668,7 +672,18 @@ when defineSsl:
         else:
           # Scan for certs in known locations. For CVerifyPeerUseEnvVars also scan
           # the SSL_CERT_FILE and SSL_CERT_DIR env vars
-          var found = false
+          var found =
+            when not defined(windows) or defined(openssl111):
+              false
+            else:
+              # Try loading the root certificate store on Windows.
+              #
+              # Note that we will still load cacert.pem after this, just that
+              # it won't be considered an error if we couldn't. This is because
+              # OpenSSL won't raise an error here if the store doesn't exist.
+              OpenSSL_version_num() >= 0x30200000 and
+              newCTX.SSL_CTX_load_verify_store("org.openssl.winstore:") == VerifySuccess
+
           let useEnvVars = (if verifyMode == CVerifyPeerUseEnvVars: true else: false)
           for fn in scanSSLCertificates(useEnvVars = useEnvVars):
             if newCTX.SSL_CTX_load_verify_locations(fn, nil) == VerifySuccess:

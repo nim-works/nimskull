@@ -245,6 +245,8 @@ const
 when compileOption("dynlibOverride", "ssl") or defined(noOpenSSLHacks):
   when not defined(openssl111):
     proc SSL_get_peer_certificate*(ssl: SslCtx): PX509 {.cdecl, dynlib: DLLSSLName, importc: "SSL_get1_peer_certificate".}
+
+    proc SSL_CTX_load_verify_store*(ssl: SslCtx, CAstore: cstring): cint {.cdecl, dynlib: DLLSSLName, importc.}
   else:
     proc SSL_get_peer_certificate*(ssl: SslCtx): PX509 {.cdecl, dynlib: DLLSSLName, importc: "SSL_get_peer_certificate".}
 else:
@@ -289,6 +291,13 @@ else:
           sslSymThrows("SSL_get1_peer_certificate", "SSL_get_peer_certificate")
         )
         if not thisProc.isNil: result = thisProc(ssl)
+
+    proc SSL_CTX_load_verify_store*(ssl: SslCtx, CAstore: cstring): cint {.gcsafe, tags: [].} =
+      {.cast(tags: []), cast(gcsafe).}:
+        var thisProc {.global.}: proc (ssl: SslCtx, CAstore: cstring): cint {.cdecl.}
+        if thisProc.isNil:
+          thisProc = cast[typeof(thisProc)](sslSymThrows("SSL_CTX_load_verify_store"))
+        result = thisProc(ssl, CAstore)
 
 proc TLS_method*(): PSSL_METHOD {.cdecl, dynlib: DLLSSLName, importc.}
 proc OpenSSL_version_num*(): culong {.cdecl, dynlib: DLLUtilName, importc.}
