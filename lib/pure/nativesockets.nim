@@ -69,6 +69,7 @@ type
     SOCK_SEQPACKET = 5 ## reliable sequenced packet service
 
   Protocol* = enum    ## third argument to `socket` proc
+    IPPROTO_DEFAULT = 0,
     IPPROTO_TCP = 6,  ## Transmission control protocol.
     IPPROTO_UDP = 17, ## User datagram protocol.
     IPPROTO_IP,       ## Internet protocol.
@@ -153,6 +154,7 @@ when not useWinVersion:
 
   proc toInt(p: Protocol): cint =
     case p
+    of IPPROTO_DEFAULT: result = posix.IPPROTO_DEFAULT
     of IPPROTO_TCP: result = posix.IPPROTO_TCP
     of IPPROTO_UDP: result = posix.IPPROTO_UDP
     of IPPROTO_IP: result = posix.IPPROTO_IP
@@ -178,7 +180,7 @@ else:
 
   proc toInt(p: Protocol): cint =
     case p
-    of IPPROTO_IP:
+    of IPPROTO_IP, IPPROTO_DEFAULT:
       result = 0.cint
     of IPPROTO_ICMP:
       result = 1.cint
@@ -254,7 +256,7 @@ proc createNativeSocket*(domain: cint, sockType: cint, protocol: cint,
 
 proc createNativeSocket*(domain: Domain = AF_INET,
                          sockType: SockType = SOCK_STREAM,
-                         protocol: Protocol = IPPROTO_TCP,
+                         protocol: Protocol = IPPROTO_DEFAULT,
                          inheritable: bool = defined(nimInheritHandles)): SocketHandle =
   ## Creates a new socket; returns `osInvalidSocket` if an error occurs.
   ##
@@ -278,7 +280,7 @@ proc listen*(socket: SocketHandle, backlog = SOMAXCONN): cint {.tags: [
 
 proc getAddrInfo*(address: string, port: Port, domain: Domain = AF_INET,
                   sockType: SockType = SOCK_STREAM,
-                  protocol: Protocol = IPPROTO_TCP): ptr AddrInfo =
+                  protocol: Protocol = IPPROTO_DEFAULT): ptr AddrInfo =
   ##
   ##
   ## .. warning:: The resulting `ptr AddrInfo` must be freed using `freeAddrInfo`!

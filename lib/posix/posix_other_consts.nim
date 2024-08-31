@@ -301,6 +301,7 @@ var EAI_OVERFLOW* {.importc: "EAI_OVERFLOW", header: "<netdb.h>".}: cint
 var IF_NAMESIZE* {.importc: "IF_NAMESIZE", header: "<net/if.h>".}: cint
 
 # <netinet/in.h>
+const IPPROTO_DEFAULT* = cint(0)
 var IPPROTO_IP* {.importc: "IPPROTO_IP", header: "<netinet/in.h>".}: cint
 var IPPROTO_IPV6* {.importc: "IPPROTO_IPV6", header: "<netinet/in.h>".}: cint
 var IPPROTO_ICMP* {.importc: "IPPROTO_ICMP", header: "<netinet/in.h>".}: cint

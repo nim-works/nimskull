@@ -305,6 +305,7 @@ const EAI_OVERFLOW* = cint(-12)
 const IF_NAMESIZE* = cint(16)
 
 # <netinet/in.h>
+const IPPROTO_DEFAULT* = cint(0)
 const IPPROTO_IP* = cint(0)
 const IPPROTO_IPV6* = cint(41)
 const IPPROTO_ICMP* = cint(1)
