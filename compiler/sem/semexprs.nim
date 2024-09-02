@@ -3561,6 +3561,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
       result = symChoice(c, n, s, scClosed)
       if result.kind == nkSym:
         markIndirect(c, result.sym)
+        result = semSym(c, n, result.sym, flags)
     of skEnumField:
       if overloadableEnums in c.features:
         result = enumFieldSymChoice(c, n, s)
