@@ -2602,9 +2602,9 @@ proc paramTypesMatch*(
 
     else:
       # only one valid interpretation found, executing argument match
-      markUsed(candidate.c, arg.info, arg[bestArg].sym)
+      let realArg = candidate.c.semExpr(c, arg[bestArg], {})
       result = paramTypesMatchAux(
-        candidate, formal, arg[bestArg].typ, arg[bestArg])
+        candidate, formal, realArg.typ, realArg)
 
   when false:
     if candidate.calleeSym != nil and
