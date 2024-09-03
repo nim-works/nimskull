@@ -1057,11 +1057,11 @@ const
     rsemRedefinitionOf,
     rsemInvalidMethodDeclarationOrder, # [s, witness]
     rsemIllegalCallconvCapture, # [symbol, owner]
-    rsemDeprecated # [symbol, use-instead]
+    rsemDeprecated, # [symbol, use-instead]
+    rsemUnexpectedPragmaInDefinitionOf,
   }
 
   rsemReportOneSym* = {
-    rsemUnexpectedPragmaInDefinitionOf,
     rsemDoubleCompletionOf,
 
     rsemOverrideSafetyMismatch,
