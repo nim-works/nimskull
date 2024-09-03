@@ -1581,8 +1581,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       let
         proto = r.symbols[0]
         s = r.symbols[1]
-      result = "pragmas are only allowed in the header of a routine; '$1' " &
-               "header at $2 redefined at $3" %
+      result = ("pragmas are only allowed in the header of a routine; '$1' " &
+                "header at $2 redefined at $3") %
                [proto.name.s, conf $ proto.info, conf $ s.info]
 
     of rsemDisjointFields:
