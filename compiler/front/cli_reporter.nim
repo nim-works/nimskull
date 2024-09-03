@@ -1578,11 +1578,12 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "'method' needs a parameter that has an object type"
 
     of rsemUnexpectedPragmaInDefinitionOf:
-      let proto = r.symbols[0]
-      let s = r.symbols[1]
-      result = "pragmas are only allowed in the header of a proc; redefinition of $1" %
-        ("'" & proto.name.s & "' from " & conf $ proto.info &
-        " '" & s.name.s & "' from " & conf $ s.info)
+      let
+        proto = r.symbols[0]
+        s = r.symbols[1]
+      result = ("pragmas are only allowed in the header of a routine; '$1' " &
+                "header at $2 redefined at $3") %
+               [proto.name.s, conf $ proto.info, conf $ s.info]
 
     of rsemDisjointFields:
       result = ("The fields '$1' and '$2' cannot be initialized together, " &

@@ -220,9 +220,7 @@ proc reportSymbols*(
     ast: PNode = nil
   ): SemReport =
   case kind
-  of rsemReportTwoSym: assert symbols.len == 2
-  of rsemReportOneSym: assert symbols.len == 1
-  of rsemReportListSym: discard
+  of rsemReportTwoSym, rsemReportOneSym, rsemReportListSym: discard
   else: assert false, $kind
 
   result = SemReport(kind: kind, ast: ast)
