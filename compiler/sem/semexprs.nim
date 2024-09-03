@@ -3561,7 +3561,10 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
       result = symChoice(c, n, s, scClosed)
       if result.kind == nkSym:
         markIndirect(c, result.sym)
-        result = semSym(c, n, result.sym, flags)
+        # the symbol was alrady marked as used, don't mark it as such again
+        # (via ``semSym``)
+        if result.sym.ast.isError:
+          result = c.config.newError(result, PAstDiag(kind: adWrappedSymError))
     of skEnumField:
       if overloadableEnums in c.features:
         result = enumFieldSymChoice(c, n, s)
