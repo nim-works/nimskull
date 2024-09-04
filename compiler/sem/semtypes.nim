@@ -2188,7 +2188,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
         else:
           result = semTypeExpr(c, n, prev)
   of nkWhenStmt:
-    var whenResult = semWhen(c, n, false)
+    var whenResult = semWhen(c, n, {efNoSemCheck})
     if whenResult.kind == nkStmtList:
       whenResult.transitionSonsKind(nkStmtListExpr)
     result = semTypeNode(c, whenResult, prev)
