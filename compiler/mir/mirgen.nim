@@ -2490,6 +2490,8 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
       bu.use toFloatLiteral(env, n)
     of nkStrLiterals:
       bu.use strLiteral(env, n.strVal, typ)
+    of nkNimNodeLit:
+      bu.use astLiteral(env, n[0], n.typ)
     of nkHiddenStdConv, nkHiddenSubConv:
       # doesn't translate to a MIR node itself, but the type overrides
       # that of the sub-expression
