@@ -212,6 +212,16 @@ proc deserializeArray*(
   if hasError:
     result = c.config.wrapError(result)
 
+proc deserializeNimNode*(c: TCtx, n: PNode, formal: PType,
+                         info: TLineInfo): PNode =
+  ## Makes sure `n` (which represent a NimNode value) is valid and turns it
+  ## into a proper NimNode literal.
+  if cyclicTree(n):
+    result = c.config.newError(
+      newNodeIT(nkEmpty, info, formal),
+      PAstDiag(kind: adCyclicTree, cyclic: n))
+  else:
+    result = newTreeIT(nkNimNodeLit, info, formal): n
 
 proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info: TLineInfo): PNode =
   let
@@ -270,14 +280,7 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
       result = deserializeRef(c, atom.refVal, vt.targetType, formal, t, info)
     else:
       assert vt.kind == akPNode
-
-      if unlikely(cyclicTree(atom.nodeVal)):
-        result = c.config.newError(
-          wrongNode(),
-          PAstDiag(kind: adCyclicTree, cyclic: atom.nodeVal))
-      else:
-        # XXX: not doing a full tree-copy here might lead to issues
-        result = newTreeIT(nkNimNodeLit, info, formal): atom.nodeVal
+      result = deserializeNimNode(c, atom.nodeVal, formal, info)
 
   of tyProc:
     case t.callConv

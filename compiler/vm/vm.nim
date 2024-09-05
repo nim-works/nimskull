@@ -500,7 +500,11 @@ proc regToNode*(c: TCtx, x: TFullReg; typ: PType, info: TLineInfo): PNode =
       # TODO: validate the address
       result = c.deserialize(c.allocator.makeLocHandle(x.addrVal, x.addrTyp), typ, info)
   of rkHandle, rkLocation: result = c.deserialize(x.handle, typ, info)
-  of rkNimNode: result = x.nimNode
+  of rkNimNode:
+    if typ.sym != nil and typ.sym.magic == mPNimrodNode:
+      result = c.deserializeNimNode(x.nimNode, typ, info)
+    else:
+      result = x.nimNode
 
 # ---- exception handling ----
 
@@ -2245,7 +2249,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
     of opcRepr:
       # Turn the provided value into its string representation. Used for:
-      # - implementing the general ``repr`` when not using the ``repr`` v2
       # - rendering an AST to its text representation (``repr`` for
       #   ``NimNode``)
       # - rendering the discriminant value for a ``FieldDefect``'s message
@@ -2261,9 +2264,13 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
       checkHandle(regs[rb])
 
-      let str = renderTree(c.regToNode(regs[rb], typ.nimType, c.debug[pc]),
-                           {renderNoComments, renderDocComments})
+      let n =
+        if typ.nimType.sym != nil and typ.nimType.sym.magic == mPNimrodNode:
+          regs[rb].nimNode
+        else:
+          c.regToNode(regs[rb], typ.nimType, c.debug[pc])
 
+      let str = renderTree(n, {renderNoComments, renderDocComments})
       regs[ra].strVal.newVmString(str, c.allocator)
     of opcQuit:
       return YieldReason(kind: yrkQuit, exitCode: regs[ra].intVal.int)
