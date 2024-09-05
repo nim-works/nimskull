@@ -2249,7 +2249,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
     of opcRepr:
       # Turn the provided value into its string representation. Used for:
-      # - implementing the general ``repr`` when not using the ``repr`` v2
       # - rendering an AST to its text representation (``repr`` for
       #   ``NimNode``)
       # - rendering the discriminant value for a ``FieldDefect``'s message
@@ -2265,9 +2264,13 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
       checkHandle(regs[rb])
 
-      let str = renderTree(c.regToNode(regs[rb], typ.nimType, c.debug[pc]),
-                           {renderNoComments, renderDocComments})
+      let n =
+        if typ.nimType.sym != nil and typ.nimType.sym.magic == mPNimrodNode:
+          regs[rb].nimNode
+        else:
+          c.regToNode(regs[rb], typ.nimType, c.debug[pc])
 
+      let str = renderTree(n, {renderNoComments, renderDocComments})
       regs[ra].strVal.newVmString(str, c.allocator)
     of opcQuit:
       return YieldReason(kind: yrkQuit, exitCode: regs[ra].intVal.int)
