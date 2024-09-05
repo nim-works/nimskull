@@ -500,7 +500,11 @@ proc regToNode*(c: TCtx, x: TFullReg; typ: PType, info: TLineInfo): PNode =
       # TODO: validate the address
       result = c.deserialize(c.allocator.makeLocHandle(x.addrVal, x.addrTyp), typ, info)
   of rkHandle, rkLocation: result = c.deserialize(x.handle, typ, info)
-  of rkNimNode: result = x.nimNode
+  of rkNimNode:
+    if typ.sym != nil and typ.sym.magic == mPNimrodNode:
+      result = c.deserializeNimNode(x.nimNode, typ, info)
+    else:
+      result = x.nimNode
 
 # ---- exception handling ----
 
