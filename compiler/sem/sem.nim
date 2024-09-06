@@ -390,14 +390,6 @@ proc commonType*(c: PContext; x, y: PType): PType =
         result = newType(k, nextTypeId(c.idgen), r.owner)
         result.addSonSkipIntLit(r, c.idgen)
 
-proc endsInNoReturn(n: PNode): bool =
-  # check if expr ends in raise exception or call of noreturn proc
-  var it = n
-  while it.kind in {nkStmtList, nkStmtListExpr} and it.len > 0:
-    it = it.lastSon
-  result = it.kind in nkLastBlockStmts or
-    it.kind in nkCallKinds and it[0].kind == nkSym and sfNoReturn in it[0].sym.flags
-
 proc commonType*(c: PContext; x: PType, y: PNode): PType =
   # ignore exception raising branches in case/if expressions
   addInNimDebugUtils(c.config, "commonType", y, x, result)
