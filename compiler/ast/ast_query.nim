@@ -692,7 +692,7 @@ iterator genericParamsInMacroCall*(macroSym: PSym, call: PNode): (PSym, PNode) =
 
 proc endsInNoReturn*(n: PNode): bool =
   ## checks if expression `n` ends in an unstructured exit (raise, return,
-  ## etc), calls of noreturn proc, or
+  ## etc) or calls of noreturn proc. This is meant to be called on an semmed `n`.
   var it = n
   while it.kind in {nkStmtList, nkStmtListExpr} and it.len > 0:
     it = it.lastSon
