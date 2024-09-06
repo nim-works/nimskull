@@ -1705,7 +1705,6 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
       localReport(c.config, result, SemReport(
         kind: rsemMissingCaseBranches,
         nodes: formatMissingBranches(c, result)))
-
     else:
       localReport(c.config, result, reportSem rsemMissingCaseBranches)
 
