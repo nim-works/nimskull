@@ -1,7 +1,7 @@
 discard """
-  description: """
+  description: '''
     Ensure nested noreturn statements are considererd in noreturn analysis
-  """
+  '''
 """
 
 block nested_in_if:
