@@ -319,7 +319,7 @@ proc isJoinableSpec(spec: TSpec, targets: set[TTarget], early: TResultEnum): boo
     not fileExists(spec.file.changeFileExt("nim.cfg")) and
     not fileExists(parentDir(spec.file) / "nim.cfg") and
     spec.cmd.len == 0 and
-    early notin {reDisabled} and
+    early notin {reDisabled, reInvalidSpec} and
     not spec.unjoinable and
     spec.exitCode == 0 and
     spec.input.len == 0 and
