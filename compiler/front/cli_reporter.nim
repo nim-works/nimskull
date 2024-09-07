@@ -1216,13 +1216,15 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "illegal discard"
 
     of rsemUseOrDiscardExpr:
-      let n = r.wrongNode
+      let
+        n = r.wrongNode
+        typStr = if n.typ.isNil: "void" else: n.typ.skipTypes({tyVar}).render
 
       result.add(
         "expression '",
         n.render,
         "' is of type '",
-        n.typ.skipTypes({tyVar}).render,
+        typStr,
         "' and has to be used (or discarded)"
       )
 
