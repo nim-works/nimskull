@@ -1,7 +1,7 @@
 discard """
-  description: "
+  description: """
     Ensure nested noreturn statements are considererd in noreturn analysis
-  "
+  """
 """
 
 block nested_in_if:
@@ -34,7 +34,7 @@ block nested_in_case:
       0
     else:
       let s = false
-      case
+      case s
       of true:
         raise newException(CatchableError, "error")
       of false:
