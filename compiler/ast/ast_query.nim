@@ -695,11 +695,25 @@ proc endsInNoReturn*(n: PNode): bool =
   ## etc.) or a call of a noreturn proc. This is meant to be called on a
   ## semmed `n`.
   var it = n
-  while it.kind in {nkStmtList, nkStmtListExpr} and it.len > 0:
-    it = it.lastSon
+  while it.kind in {nkStmtList, nkStmtListExpr} and it.len > 0 or
+        it.kind in {nkIfStmt, nkCaseStmt, nkBlockStmt, nkTryStmt} and it.typ.isEmptyType:
+    case it.kind
+    of nkStmtList, nkStmtListExpr, nkBlockStmt:
+      it = it.lastSon
+    of nkIfStmt, nkCaseStmt:
+      it = it.lastSon.lastSon
+    of nkTryStmt:
+      it =
+        case it[^1].kind
+        of nkFinally:
+          it[^2]
+        of nkExceptBranch:
+          it[^1]
+        of nkAllNodeKinds - {nkFinally, nkExceptBranch}:
+          unreachable()
+    else:
+      unreachable()
   result = it.kind in nkLastBlockStmts or
-    (it.kind in {nkIfStmt, nkTryStmt, nkCaseStmt, nkBlockStmt} and
-     it.typ.isEmptyType()) or
     it.kind in nkCallKinds and it[0].kind == nkSym and sfNoReturn in it[0].sym.flags
 
 type
