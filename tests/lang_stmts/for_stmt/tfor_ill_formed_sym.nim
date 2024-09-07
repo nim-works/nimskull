@@ -1,6 +1,6 @@
 discard """
   description: "Ensure that ill-formed AST generates a well formed error"
-  errmsg: "identifier expected, but found '123'"
+  errormsg: "identifier expected, but found '123'"
 """
 
 # This test covers a regression where an error with the symbol outside a pragma

@@ -3,7 +3,7 @@ discard """
     Partially typed ``nkReturnStmt`` AST is properly re-analyzed after macro
     invocation
   '''
-  errmsg: "got <string> but expected 'int'"
+  errormsg: "got <string> but expected 'int'"
   line: 26
 """
 

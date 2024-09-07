@@ -1,7 +1,7 @@
 discard """
   description: '''
     Ensure that converters are considered for arguments to static parameters
-  "
+  '''
 """
 
 converter toInt(x: float): int = int(x)
