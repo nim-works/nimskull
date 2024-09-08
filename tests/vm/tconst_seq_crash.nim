@@ -4,7 +4,7 @@ discard """
     be code evaluated with the compile-time VM
   '''
   target: native
-  action: compiles
+  action: compile
 """
 
 type Obj = object
