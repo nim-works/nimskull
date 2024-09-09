@@ -801,27 +801,6 @@ proc rawGenLiteral(c: var TCtx, val: sink VmConstant): int =
   internalAssert c.config, result < regBxMax, "Too many constants used"
 
 
-template cmpFloatRep(a, b: BiggestFloat): bool =
-  ## Compares the bit-representation of floats `a` and `b`
-  # Special handling for floats, so that floats that have the same
-  # value but different bit representations are treated as different constants
-  cast[uint64](a) == cast[uint64](b)
-  # refs bug #16469
-  # if we wanted to only distinguish 0.0 vs -0.0:
-  # if a.floatVal == 0.0: result = cast[uint64](a.floatVal) == cast[uint64](b.floatVal)
-  # else: result = a.floatVal == b.floatVal
-
-# Compares two trees for structural equality, also taking the type of
-# ``nkType`` nodes into account. This procedure is used to prevent the same
-# AST from being added as a node constant more than once
-makeTreeEquivalenceProc(cmpNodeCnst,
-  relaxedKindCheck = false,
-  symCheck     = a.sym == b.sym,
-  floatCheck   = cmpFloatRep(a.floatVal, b.floatVal),
-  typeCheck    = a.typ == b.typ,
-  commentCheck = a.comment == b.comment
-)
-
 template makeCnstFunc(name, vType, aKind, valName, cmp) {.dirty.} =
   proc name(c: var TCtx, val: vType): int =
     for (i, cnst) in c.constants.pairs():
@@ -831,7 +810,7 @@ template makeCnstFunc(name, vType, aKind, valName, cmp) {.dirty.} =
     c.rawGenLiteral: VmConstant(kind: aKind, valName: val)
 
 
-makeCnstFunc(toNodeCnst, PNode, cnstNode, node, cmpNodeCnst)
+makeCnstFunc(toNodeCnst, PNode, cnstNode, node, exprStructuralEquivalentStrictSymAndComm)
 
 makeCnstFunc(toIntCnst, BiggestInt, cnstInt, intVal, `==`)
 

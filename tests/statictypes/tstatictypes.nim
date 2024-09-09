@@ -103,7 +103,11 @@ when true:
 
 block: # issue #13730
   type Foo[T: static[float]] = object
-  doAssert Foo[0.0] is Foo[-0.0]
+  # It should not actually be considered the same type as
+  # float equality does not have the substition property,
+  # For example: 1 / 0.0 = Inf != -Inf = 1 / -0.0
+  # even though 0.0 == -0.0 according to float semantics
+  doAssert Foo[0.0] isnot Foo[-0.0]
 
 when true:
   type
@@ -412,3 +416,10 @@ block coercion_to_static_type:
 
   # the call must be fully evaluated at compile-time
   doAssert static[int](get()) == 1
+
+
+proc reciprocal(f: static float): float =
+  1 / f
+
+doAssert reciprocal(-0.0) == -Inf
+doAssert reciprocal(0.0) == Inf

@@ -40,12 +40,16 @@ proc cyclicTree*(n: PNode): bool =
   var visited: seq[PNode] = @[]
   cyclicTreeAux(n, visited)
 
-proc sameFloatIgnoreNan(a, b: BiggestFloat): bool {.inline.} =
-  ## ignores NaN semantics, but ensures 0.0 == -0.0, see #13730
-  cast[uint64](a) == cast[uint64](b) or a == b
+template cmpFloatRep*(a, b: BiggestFloat): bool =
+  ## Compares the bit-representation of floats `a` and `b`
+  # Special handling for floats, so that floats that have the same
+  # value but different bit representations are treated as different constants
+  # As opposed to float equality this does not lack the substition or
+  # reflexivity property, which the compiler relies on for correctness.
+  cast[uint64](a) == cast[uint64](b)
 
 template makeTreeEquivalenceProc*(
-  name, relaxedKindCheck, symCheck, floatCheck, typeCheck, commentCheck) {.dirty.} =
+  name, relaxedKindCheck, symCheck, typeCheck, commentCheck) {.dirty.} =
   ## Defines a tree equivalence checking procedure.
   ## This skeleton is shared between all recursive
   ## `PNode` equivalence checks in the compiler code base
@@ -61,10 +65,7 @@ template makeTreeEquivalenceProc*(
       of nkSym:             result = symCheck
       of nkIdent:           result = a.ident.id == b.ident.id
       of nkIntLiterals:     result = a.intVal == b.intVal
-      of nkFloatLiterals:   result = floatCheck
-        # XXX: Using float equality, even if partially tamed through
-        #      sameFloatIgnoreNan, causes inconsistencies due to it
-        #      lacking the substition and reflexivity property.
+      of nkFloatLiterals:   result = cmpFloatRep(a.floatVal, b.floatVal)
       of nkStrLiterals:     result = a.strVal == b.strVal
       of nkType:            result = typeCheck
       of nkCommentStmt:     result = commentCheck
@@ -78,25 +79,14 @@ template makeTreeEquivalenceProc*(
 makeTreeEquivalenceProc(exprStructuralEquivalent,
   relaxedKindCheck = false,
   symCheck     = a.sym.name.id == b.sym.name.id, # same symbol as string is enough
-  floatCheck   = sameFloatIgnoreNan(a.floatVal, b.floatVal),
   typeCheck    = true,
   commentCheck = true
 )
 export exprStructuralEquivalent
 
-makeTreeEquivalenceProc(exprStructuralEquivalentStrictSym,
-  relaxedKindCheck = false,
-  symCheck     = a.sym == b.sym,
-  floatCheck   = sameFloatIgnoreNan(a.floatVal, b.floatVal),
-  typeCheck    = true,
-  commentCheck = true
-)
-export exprStructuralEquivalentStrictSym
-
 makeTreeEquivalenceProc(exprStructuralEquivalentStrictSymAndComm,
   relaxedKindCheck = false,
   symCheck     = a.sym == b.sym,
-  floatCheck   = sameFloatIgnoreNan(a.floatVal, b.floatVal),
   typeCheck    = a.typ == b.typ,
   commentCheck = a.comment == b.comment
 )

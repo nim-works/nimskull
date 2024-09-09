@@ -8,6 +8,8 @@ lo
 my awesome concat
 1
 TRM
+10000000000.0
+-10000000000.0
 '''
 """
 
@@ -99,3 +101,14 @@ echo u * 3'u # 1
 template dontAppendE{`&`(s, 'E')}(s: string): string = s
 var s = "T"
 echo s & 'E' & 'R' & 'M'
+
+# Floats must not be matched with float equality semantics
+template capDivPos0{`/`(f, 0.0)}(f: float): float =
+  10000000000.float
+
+template capDivNeg0{`/`(f, -0.0)}(f: float): float =
+  -10000000000.float
+
+let f = 1.0
+echo f / 0.0 # 10000000000.0
+echo f / -0.0 # -10000000000.0
