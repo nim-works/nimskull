@@ -694,11 +694,16 @@ proc endsInNoReturn*(n: PNode): bool =
   ## Checks if expression `n` ends in an unstructured exit (raise, return,
   ## etc.) or a call of a noreturn proc. This is meant to be called on a
   ## semmed `n`.
+  const
+    stmtListLike = {nkStmtList, nkStmtListExpr, nkElifBranch, nkElse,
+                    nkOfBranch, nkExceptBranch}
+    cntrlFlowStmts = {nkIfStmt, nkCaseStmt, nkBlockStmt, nkTryStmt}
   var it = n
-  while it.kind in {nkStmtList, nkStmtListExpr, nkElifBranch, nkElse, nkOfBranch, nkExceptBranch} and it.len > 0 or
-        it.kind in {nkIfStmt, nkCaseStmt, nkBlockStmt, nkTryStmt} and it.typ.isEmptyType:
+  while it.kind in stmtListLike and it.len > 0 or
+        it.kind in cntrlFlowStmts and it.typ.isEmptyType:
     case it.kind
-    of nkStmtList, nkStmtListExpr, nkBlockStmt, nkOfBranch, nkElifBranch, nkElse, nkExceptBranch:
+    of nkStmtList, nkStmtListExpr, nkBlockStmt, nkOfBranch, nkElifBranch,
+       nkElse, nkExceptBranch:
       it = it.lastSon
     of nkIfStmt, nkCaseStmt:
       # look through all but the last branch, which is covered after the loop
@@ -715,7 +720,8 @@ proc endsInNoReturn*(n: PNode): bool =
     else:
       unreachable()
   result = it.kind in nkLastBlockStmts or
-    it.kind in nkCallKinds and it[0].kind == nkSym and sfNoReturn in it[0].sym.flags
+           it.kind in nkCallKinds and it[0].kind == nkSym and
+              sfNoReturn in it[0].sym.flags
 
 type
   NodePosName* = enum
