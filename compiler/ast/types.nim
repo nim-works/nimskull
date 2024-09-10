@@ -60,6 +60,9 @@ type
     bvcSingle   ## single-location view
     bvcSequence ## view of contiguous locations
 
+  ViewTypeKind* = enum
+    noView, immutableView, mutableView
+
 proc base*(t: PType): PType =
   result = t[0]
 
@@ -1557,6 +1560,74 @@ proc classifyBackendView*(t: PType): BackendViewKind =
      tyGenericParam, tyForward, tyBuiltInTypeClass, tyCompositeTypeClass,
      tyAnd, tyOr, tyNot, tyAnything, tyFromExpr:
     unreachable()
+
+proc combine(dest: var ViewTypeKind, b: ViewTypeKind) {.inline.} =
+  case dest
+  of noView, mutableView:
+    dest = b
+  of immutableView:
+    if b == mutableView: dest = b
+
+proc classifyViewTypeAux(marker: var IntSet, t: PType): ViewTypeKind
+
+proc classifyViewTypeNode(marker: var IntSet, n: PNode): ViewTypeKind =
+  case n.kind
+  of nkSym:
+    result = classifyViewTypeAux(marker, n.typ)
+  of nkOfBranch:
+    result = classifyViewTypeNode(marker, n.lastSon)
+  else:
+    result = noView
+    for child in n:
+      result.combine classifyViewTypeNode(marker, child)
+      if result == mutableView: break
+
+proc classifyViewTypeAux(marker: var IntSet, t: PType): ViewTypeKind =
+  if containsOrIncl(marker, t.id): return noView
+  case t.kind
+  of tyVar:
+    result = mutableView
+  of tyLent, tyOpenArray, tyVarargs:
+    result = immutableView
+  of tyGenericInst, tyDistinct, tyAlias, tyInferred, tySink,
+     tyUncheckedArray, tySequence, tyArray, tyRef, tyStatic:
+    result = classifyViewTypeAux(marker, lastSon(t))
+  of tyFromExpr:
+    if t.len > 0:
+      result = classifyViewTypeAux(marker, lastSon(t))
+    else:
+      result = noView
+  of tyTuple:
+    result = noView
+    for i in 0..<t.len:
+      result.combine classifyViewTypeAux(marker, t[i])
+      if result == mutableView: break
+  of tyObject:
+    result = noView
+    if t.n != nil:
+      result = classifyViewTypeNode(marker, t.n)
+    if t[0] != nil:
+      result.combine classifyViewTypeAux(marker, t[0])
+  else:
+    # it doesn't matter what these types contain, 'ptr openArray' is not a
+    # view type!
+    result = noView
+
+proc classifyViewType*(t: PType): ViewTypeKind =
+  var marker = initIntSet()
+  result = classifyViewTypeAux(marker, t)
+
+proc directViewType*(t: PType): ViewTypeKind =
+  # does classify 't' without looking recursively into 't'.
+  case t.kind
+  of tyVar:
+    result = mutableView
+  of tyLent, tyOpenArray:
+    result = immutableView
+  of abstractInst-{tyTypeDesc}:
+    result = directViewType(t.lastSon)
+  else:
+    result = noView
 
 proc isPassByRef*(conf: ConfigRef; s: PSym, retType: PType): bool =
   var pt = skipTypes(s.typ, typedescInst)
