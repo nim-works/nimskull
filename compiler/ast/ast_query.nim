@@ -694,34 +694,34 @@ proc endsInNoReturn*(n: PNode): bool =
   ## Checks if expression `n` ends in an unstructured exit (raise, return,
   ## etc.) or a call of a noreturn proc. This is meant to be called on a
   ## semmed `n`.
-  const
-    stmtListLike = {nkStmtList, nkStmtListExpr, nkElifBranch, nkElse,
-                    nkOfBranch, nkExceptBranch}
-    cntrlFlowStmts = {nkIfStmt, nkCaseStmt, nkBlockStmt, nkTryStmt}
-  var it = n
-  while it.kind in stmtListLike and it.len > 0 or
-        it.kind in cntrlFlowStmts and it.typ.isEmptyType:
-    case it.kind
-    of nkStmtList, nkStmtListExpr, nkBlockStmt, nkOfBranch, nkElifBranch,
-       nkElse, nkExceptBranch:
-      it = it.lastSon
-    of nkIfStmt, nkCaseStmt:
-      # look through all but the last branch, which is covered after the loop
-      for i in 0..<(it.len - 1):
-        if not endsInNoReturn(it[i]):
-          return false
-      it = it.lastSon
-    of nkTryStmt:
-      # look through all but the last branch, which is covered after the loop
-      for i in 0..<(it.len - ord(it[^1].kind == nkFinally)):
-        if not endsInNoReturn(it[i]):
-          return false
-      it = it.lastSon
-    else:
-      unreachable()
-  result = it.kind in nkLastBlockStmts or
-           it.kind in nkCallKinds and it[0].kind == nkSym and
-              sfNoReturn in it[0].sym.flags
+  case n.kind
+  of nkStmtList, nkStmtListExpr:
+    result = n.len > 0 and endsInNoReturn(n[^1])
+  of nkBlockStmt, nkExceptBranch, nkElifBranch, nkElse, nkOfBranch:
+    result = endsInNoReturn(n[^1])
+  of nkIfStmt:
+    for it in n.items:
+      result = endsInNoReturn(it[^1])
+      if not result:
+        break
+  of nkCaseStmt:
+    # skip the selector expression
+    for i in 1..<n.len:
+      result = endsInNoReturn(n[i])
+      if not result:
+        break
+  of nkTryStmt:
+    # ignore the 'finally' -- it doesn't contribute to the type
+    for i in 0..<(n.len - ord(n[^1].kind == nkFinally)):
+      result = endsInNoReturn(n[i])
+      if not result:
+        break
+  of nkLastBlockStmts:
+    result = true
+  of nkCallKinds:
+    result = n[0].kind == nkSym and sfNoReturn in n[0].sym.flags
+  else:
+    result = false
 
 type
   NodePosName* = enum
