@@ -766,7 +766,7 @@ proc genArgs(c: var TCtx, n: PNode) =
         c.add empty(c, n[i])
     elif i == 1 and not fntyp[0].isEmptyType() and
          not isHandleLike(t) and
-         classifyBackendView(fntyp[0]) != bvcNone:
+         classifyViewType(fntyp[0]) == immutableView:
       # the procedure returns a view, but the first parameter is not something
       # that resembles a handle. We need to make sure that the first argument
       # (which the view could be created from), is passed by reference

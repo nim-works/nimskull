@@ -1652,8 +1652,9 @@ proc isPassByRef*(conf: ConfigRef; s: PSym, retType: PType): bool =
   else:
     result = false
 
-  # first parameter and return type is 'lent T'? --> use pass by pointer if
-  # not already a pointer-like type
-  if s.position == 0 and retType != nil and retType.kind == tyLent:
+  # first parameter and return type is immutable view? --> use pass by pointer
+  # if not already a pointer-like type
+  if s.position == 0 and retType != nil and
+     classifyViewType(retType) == immutableView:
     result = pt.kind notin {tyVar, tyOpenArray, tyVarargs, tyRef, tyPtr,
                             tyPointer}
