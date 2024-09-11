@@ -39,9 +39,6 @@ import
     options,
     msgs,
   ],
-  compiler/sem/[
-    typeallowed,
-  ],
   compiler/modules/[
     modulegraphs,
   ]
