@@ -1641,13 +1641,14 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   var covered: Int128 = toInt128(0)
   var typ = commonTypeBegin
   var hasElse = false
+  # xxx: the exhaustiveness logic is duplicated in `ast_query.endsInNoReturn`,
+  #      this should eventually be combined.
   let caseTyp = skipTypes(selector, abstractInst-{tyTypeDesc})
-  const shouldChckCovered = {tyInt..tyInt64, tyChar, tyEnum, tyUInt..tyUInt64, tyBool}
   case caseTyp.kind
-  of shouldChckCovered:
+  of tyCaseExhaustive:
     chckCovered = true
   of tyRange:
-    if skipTypes(caseTyp[0], abstractInst).kind in shouldChckCovered:
+    if skipTypes(caseTyp[0], abstractInst).kind in tyCaseExhaustive:
       chckCovered = true
   of tyFloat..tyFloat64, tyString:
     discard "not all possible values have to be covered"

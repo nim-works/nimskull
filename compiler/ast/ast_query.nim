@@ -704,12 +704,26 @@ proc endsInNoReturn*(n: PNode): bool =
       result = endsInNoReturn(it[^1])
       if not result:
         break
+    result = result and n[^1].kind == nkElse
   of nkCaseStmt:
     # skip the selector expression
     for i in 1..<n.len:
       result = endsInNoReturn(n[i])
       if not result:
         break
+    # xxx: this duplicates logic in `semstmts.semCase`, this should eventually
+    #      be combined
+    let
+      caseType = n[0].typ.skipTypes(abstractInst - {tyTypeDesc})
+      requiresElse =
+        case caseType.kind
+        of tyCaseExhaustive:
+          false
+        of tyRange:
+          not (caseType[0].skipTypes(abstractInst).kind in tyCaseExhaustive)
+        else:
+          true
+    result = result and (not requiresElse or n[^1].kind == nkElse)
   of nkTryStmt:
     # ignore the 'finally' -- it doesn't contribute to the type
     for i in 0..<(n.len - ord(n[^1].kind == nkFinally)):

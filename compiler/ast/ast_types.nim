@@ -593,6 +593,10 @@ const
     ## type-bound operations are attached to. User type-classes are also
     ## unconditionally included in this set
 
+  tyCaseExhaustive* = {tyInt..tyInt64, tyChar, tyEnum, tyUInt..tyUInt64,
+                       tyBool}
+    ## types that need exhaustiveness checking for case statement selectors
+
 type
   TTypeKinds* = set[TTypeKind]
 
