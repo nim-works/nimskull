@@ -42,6 +42,17 @@ block nested_in_case:
 
   doAssert x is int
 
+  block nested_in_case_range:
+    type Foo = range[1..1]
+    let x =
+      if true:
+        0
+      else:
+        let y: Foo = 1
+        case y
+        of 1:
+          raise newException(CatchableError, "error")
+
 block nested_in_block:
   let x =
     if true:

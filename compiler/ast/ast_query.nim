@@ -711,19 +711,15 @@ proc endsInNoReturn*(n: PNode): bool =
       result = endsInNoReturn(n[i])
       if not result:
         break
-    # xxx: this duplicates logic in `semstmts.semCase`, this should eventually
-    #      be combined
     let
-      caseType = n[0].typ.skipTypes(abstractInst - {tyTypeDesc})
+      caseType = n[0].typ.skipTypes(abstractRange)
       requiresElse =
         case caseType.kind
-        of tyCaseExhaustive:
-          false
-        of tyRange:
-          not (caseType[0].skipTypes(abstractInst).kind in tyCaseExhaustive)
-        else:
+        of tyFloat..tyFloat64, tyString:
           true
-    result = result and (not requiresElse or n[^1].kind == nkElse)
+        else:
+          false
+    result = result and (n[^1].kind == nkElse or not requiresElse)
   of nkTryStmt:
     # ignore the 'finally' -- it doesn't contribute to the type
     for i in 0..<(n.len - ord(n[^1].kind == nkFinally)):
