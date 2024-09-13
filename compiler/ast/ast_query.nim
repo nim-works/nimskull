@@ -694,27 +694,38 @@ proc endsInNoReturn*(n: PNode): bool =
   ## Checks if expression `n` ends in an unstructured exit (raise, return,
   ## etc.) or a call of a noreturn proc. This is meant to be called on a
   ## semmed `n`.
-  var it = n
-  while it.kind in {nkStmtList, nkStmtListExpr} and it.len > 0 or
-        it.kind in {nkIfStmt, nkCaseStmt, nkBlockStmt, nkTryStmt} and it.typ.isEmptyType:
-    case it.kind
-    of nkStmtList, nkStmtListExpr, nkBlockStmt:
-      it = it.lastSon
-    of nkIfStmt, nkCaseStmt:
-      it = it.lastSon.lastSon
-    of nkTryStmt:
-      it =
-        case it[^1].kind
-        of nkFinally:
-          it[^2]
-        of nkExceptBranch:
-          it[^1]
-        of nkAllNodeKinds - {nkFinally, nkExceptBranch}:
-          unreachable()
-    else:
-      unreachable()
-  result = it.kind in nkLastBlockStmts or
-    it.kind in nkCallKinds and it[0].kind == nkSym and sfNoReturn in it[0].sym.flags
+  case n.kind
+  of nkStmtList, nkStmtListExpr:
+    result = n.len > 0 and endsInNoReturn(n[^1])
+  of nkBlockStmt, nkExceptBranch, nkElifBranch, nkElse, nkOfBranch:
+    result = endsInNoReturn(n[^1])
+  of nkIfStmt:
+    for it in n.items:
+      result = endsInNoReturn(it[^1])
+      if not result:
+        break
+    result = result and n[^1].kind == nkElse
+  of nkCaseStmt:
+    # skip the selector expression
+    for i in 1..<n.len:
+      result = endsInNoReturn(n[i])
+      if not result:
+        break
+    let requiresElse = n[0].typ.skipTypes(abstractRange).kind in
+                        {tyFloat..tyFloat64, tyString}
+    result = result and (n[^1].kind == nkElse or not requiresElse)
+  of nkTryStmt:
+    # ignore the 'finally' -- it doesn't contribute to the type
+    for i in 0..<(n.len - ord(n[^1].kind == nkFinally)):
+      result = endsInNoReturn(n[i])
+      if not result:
+        break
+  of nkLastBlockStmts:
+    result = true
+  of nkCallKinds:
+    result = n[0].kind == nkSym and sfNoReturn in n[0].sym.flags
+  else:
+    result = false
 
 type
   NodePosName* = enum
