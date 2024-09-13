@@ -711,14 +711,8 @@ proc endsInNoReturn*(n: PNode): bool =
       result = endsInNoReturn(n[i])
       if not result:
         break
-    let
-      caseType = n[0].typ.skipTypes(abstractRange)
-      requiresElse =
-        case caseType.kind
-        of tyFloat..tyFloat64, tyString:
-          true
-        else:
-          false
+    let requiresElse = n[0].typ.skipTypes(abstractRange).kind in
+                        {tyFloat..tyFloat64, tyString}
     result = result and (n[^1].kind == nkElse or not requiresElse)
   of nkTryStmt:
     # ignore the 'finally' -- it doesn't contribute to the type
