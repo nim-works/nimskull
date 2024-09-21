@@ -5,7 +5,6 @@ Passing `var` subtype to the varargs results in C codegen error.
 When fixed should be added to the `subtype_match/subtype_varargs` spec section.
 '''
 knownIssue: "cannot pass varargs of var subtype due to codegen error"
-
 """
 
 type
