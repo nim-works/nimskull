@@ -103,6 +103,7 @@ type
     stopOnError: bool              ## whether to continue if an error occurs
     stopProcessing: bool           ## set if `stopOnError` and an error
                                    ## occurred, or if there is a fatal error
+    identCache: IdentCache
 
   CancelConfigProcessing = object of CatchableError
     ## internal error used to halt processing
@@ -408,8 +409,7 @@ proc parseAssignment(N: var NimConfParser, tok: var Token) =
   else:
     discard
 
-proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
-                    cache: IdentCache): bool =
+proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile): bool =
   ## assumes `cfgEvtWriter` has already been set, do not export
   var
     tok: Token
@@ -418,7 +418,7 @@ proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
   stream = llStreamOpen(filename, fmRead)
   if stream != nil:
     initToken(tok)
-    openLexer(N.lexer, filename, stream, cache, N.config)
+    openLexer(N.lexer, filename, stream, N.identCache, N.config)
 
     # save the existing source of command parameters and use the config file
     let oldCmdLineSrcIdx = N.config.commandLineSrcIdx
@@ -477,13 +477,11 @@ iterator configFiles(N: NimConfParser, cfg: RelativeFile): AbsoluteFile =
       # project wide config file:
       yield changeFileExt(N.config.projectFull, "nim.cfg")
 
-proc loadConfigs(
-    N: var NimConfParser, cfg: RelativeFile, cache: IdentCache
-  ): bool =
+proc loadConfigs(N: var NimConfParser, cfg: RelativeFile): bool =
   setDefaultLibpath(N.config)
 
   for cfgFile in configFiles(N, cfg):
-    if readConfigFile(N, cfgFile, cache):
+    if readConfigFile(N, cfgFile):
       N.config.configFiles.add(cfgFile)
 
   for filename in N.config.configFiles:
@@ -498,8 +496,8 @@ proc loadConfigs*(
     stopOnError: bool = true
   ): bool {.inline.} =
   var parser = NimConfParser(config: conf, cfgEvtWriter: evtHandler,
-                             stopOnError: stopOnError)
-  parser.loadConfigs(cfg, cache)
+                             stopOnError: stopOnError, identCache: cache)
+  parser.loadConfigs(cfg)
 
 proc readConfigFile*(
   filename: AbsoluteFile, cache: IdentCache,
@@ -507,5 +505,5 @@ proc readConfigFile*(
 ): bool {.inline.} =
   # created and exported for `nimph`
   var parser = NimConfParser(config: conf, cfgEvtWriter: evtHandler,
-                             stopOnError: true)
-  parser.readConfigFile(filename, cache)
+                             stopOnError: true, identCache: cache)
+  parser.readConfigFile(filename)
