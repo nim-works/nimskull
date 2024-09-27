@@ -8,7 +8,7 @@
 #
 
 ## This module handles the reading of config file(s).
-## 
+##
 ## ..note:: Even though this module is very effectful in its processing of a
 ##          config file and updating a `ConfigRef`, it must not assume that
 ##          it's handling a 'canonical' `ConfigRef` for the current program and
@@ -90,7 +90,7 @@ type
         discard
     instLoc*: InstantiationInfo ## instantiation in this module's source
     msg*: string
-  
+
   NimConfEvtWriter* = proc(config: ConfigRef,
                            evt: ConfigFileEvent,
                            writeFrom: InstantiationInfo): void
@@ -129,7 +129,7 @@ proc callEvtWriter(N: var NimConfParser, e: ConfigFileEvent,
 
 proc handleError(N: var NimConfParser,
                  ev: range[cekParseExpectedX..cekInvalidDirective],
-                 errMsg: string, 
+                 errMsg: string,
                  instLoc = instLoc(-1)) =
   let e = ConfigFileEvent(kind: ev,
                           location: N.lexer.getLineInfo,
@@ -139,9 +139,9 @@ proc handleError(N: var NimConfParser,
 
 proc handleExpectedX(N: var NimConfParser, missing: string,
                     instLoc = instLoc(-1)) =
-  let e = ConfigFileEvent(kind: cekParseExpectedX, 
-                          location: N.lexer.getLineInfo, 
-                          instLoc: instLoc, 
+  let e = ConfigFileEvent(kind: cekParseExpectedX,
+                          location: N.lexer.getLineInfo,
+                          instLoc: instLoc,
                           msg: missing)
   N.callEvtWriter(e, instLoc)
 
