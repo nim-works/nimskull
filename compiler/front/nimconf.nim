@@ -465,60 +465,56 @@ proc parseDirective(N: var NimConfParser, tok: var Token) =
     else:
       handleError(N, cekInvalidDirective, $tok)
 
-proc confTok(N: var NimConfParser, tok: var Token) =
-  ppGetTok(N, tok)
-  while tok.ident != nil and tok.ident.s == "@":
-    parseDirective(N, tok)    # else: give the token to the parser
-
 proc checkSymbol(N: var NimConfParser, tok: Token) =
   if tok.tokType notin {tkSymbol..tkInt64Lit, tkStrLit..tkTripleStrLit}:
     handleError(N, cekParseExpectedIdent, $tok)
 
 proc parseAssignment(N: var NimConfParser, tok: var Token) =
+  template nextTok: untyped = ppGetTok(N, tok)
   if tok.ident != nil:
     if tok.ident.s == "-" or tok.ident.s == "--":
-      confTok(N, tok)           # skip unnecessary prefix
+      nextTok           # skip unnecessary prefix
   var info = getLineInfo(N.lexer, tok) # save for later in case of an error
   checkSymbol(N, tok)
   var s = $tok
-  confTok(N, tok)             # skip symbol
+  nextTok             # skip symbol
   var val = ""
   while tok.tokType == tkDot:
     s.add('.')
-    confTok(N, tok)
+    nextTok
     checkSymbol(N, tok)
     s.add($tok)
-    confTok(N, tok)
+    nextTok
   if tok.tokType == tkBracketLe:
     # BUGFIX: val, not s!
-    confTok(N, tok)
+    nextTok
     checkSymbol(N, tok)
     val.add('[')
     val.add($tok)
-    confTok(N, tok)
+    nextTok
     if tok.tokType == tkBracketRi:
-      confTok(N, tok)
+      nextTok
     else:
       handleError(N, cekParseExpectedCloseX, "]")
     val.add(']')
   let percent = tok.ident != nil and tok.ident.s == "%="
   if tok.tokType in {tkColon, tkEquals} or percent:
     if val.len > 0: val.add(':')
-    confTok(N, tok)           # skip ':' or '=' or '%'
+    nextTok           # skip ':' or '=' or '%'
     checkSymbol(N, tok)
     val.add($tok)
-    confTok(N, tok)           # skip symbol
+    nextTok           # skip symbol
     if tok.tokType in {tkColon, tkEquals}:
       val.add($tok) # add the :
-      confTok(N, tok)           # skip symbol
+      nextTok           # skip symbol
       checkSymbol(N, tok)
       val.add($tok) # add the token after it
-      confTok(N, tok)           # skip symbol
+      nextTok           # skip symbol
     while tok.ident != nil and tok.ident.s == "&":
-      confTok(N, tok)
+      nextTok
       checkSymbol(N, tok)
       val.add($tok)
-      confTok(N, tok)
+      nextTok
   let
     v =
       if percent:
@@ -566,10 +562,13 @@ proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile): bool =
 
     try:
       tok.tokType = tkEof       # to avoid a pointless warning
-      confTok(N, tok)           # read in the first token
+      ppGetTok(N, tok)          # read in the first token
 
       while tok.tokType != tkEof:
-        parseAssignment(N, tok)
+        if tok.ident != nil and tok.ident.s == "@":
+          parseDirective(N, tok)    # else: give the token to the parser
+        else:
+          parseAssignment(N, tok)
 
       if N.condStack.len > 0:
         handleError(N, cekParseExpectedX, "@end")
