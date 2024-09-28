@@ -35,6 +35,7 @@ import
   compiler/utils/[
     pathutils,
   ]
+from compiler/front/msgs import toFullPath
 
 type
   ConfigFileEventKind* = enum
@@ -290,6 +291,8 @@ proc jumpToDirective(N: var NimConfParser, tok: var Token, dest: TJumpDest) =
     else:
       ppGetTok(N, tok)
 
+proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile): bool
+
 proc parseDirective(N: var NimConfParser, tok: var Token) =
   ppGetTok(N, tok)            # skip @
   case whichKeyword(tok.ident)
@@ -325,6 +328,14 @@ proc parseDirective(N: var NimConfParser, tok: var Token) =
       var key = $tok
       ppGetTok(N, tok)
       os.putEnv(key, os.getEnv(key) & $tok)
+    of "include":
+      ppGetTok(N, tok)
+      let configFile = toAbsolute(expandTilde($tok), N.config.toFullPath(N.lexer.fileIdx).parentDir.AbsoluteDir)
+      let currentLexer = N.lexer # `readConfigFile` clobbers it, so save the lexer so we can restore it
+      block:
+        if readConfigFile(N, configFile):
+          N.config.configFiles.add(configFile)
+        N.lexer = currentLexer # restore the lexer
       ppGetTok(N, tok)
     else:
       handleError(N, cekInvalidDirective, $tok)
@@ -411,6 +422,10 @@ proc parseAssignment(N: var NimConfParser, tok: var Token) =
 
 proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile): bool =
   ## assumes `cfgEvtWriter` has already been set, do not export
+  if filename in N.config.configFiles:
+    # Avoid circular inclusion
+    return false
+
   var
     tok: Token
     stream: PLLStream
