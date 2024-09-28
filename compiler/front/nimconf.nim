@@ -7,6 +7,131 @@
 #    distribution, for details about the copyright.
 #
 
+## Nim Configuration File Language
+## ===============================
+##
+## The Nim compiler uses a simple configuration file language to customize its behavior. This document describes the syntax and features of this language.
+##
+## File Format
+## -----------
+##
+## Configuration files typically use the `<module>.nim.cfg` or `nim.cfg`. They are plain text files with a custom syntax for setting compiler options and defining conditional compilation.
+##
+## Basic Syntax
+## ------------
+##
+## Each line in a configuration file can be one of the following:
+##
+## 1. An option setting
+## 2. A directive
+## 3. A comment (starts with #)
+##
+## Option Settings
+## ---------------
+##
+## Options are set using the following syntax:
+##
+## .. code-block::
+##   option_name[:=] "value"
+##   -{0,2}option_name *[:=] *"value"
+##
+## or
+##
+## .. code-block::
+##
+## The `:=` separator is optional. For boolean options, the value can be omitted.
+##
+## Examples:
+##
+## .. code-block::
+##  threads
+##
+##
+## Directives
+## ----------
+##
+## Directives start with the `@` symbol and provide additional control over the configuration process.
+##
+## Conditional Compilation
+## ^^^^^^^^^^^^^^^^^^^^^^^
+##
+## - `@if <condition>:`
+## - `@elif <condition>:`
+## - `@else:`
+## - `@end`
+##
+## These directives allow for conditional compilation based on defined symbols or expressions.
+##
+## Output
+## ^^^^^^
+##
+## - `@write "message"`
+##
+## Writes a message during configuration processing.
+##
+## Environment Variables
+## ^^^^^^^^^^^^^^^^^^^^^
+##
+## - `@putenv "key" "value"`
+## - `@prependenv "key" "value"`
+## - `@appendenv "key" "value"`
+##
+## These directives manipulate environment variables during configuration.
+##
+## File Inclusion
+## ^^^^^^^^^^^^^^
+##
+## - `@include "filename"`
+##
+## Includes another configuration file.
+##
+## Expressions
+## -----------
+##
+## Expressions can be used in conditional compilation directives. They support:
+##
+## - Boolean operators: `and`, `or`, `not`
+## - Parentheses for grouping
+## - Defined symbol checking
+##
+## Example:
+##
+## @if defined(windows) and not defined(mingw):
+##   # Windows-specific non-MinGW configuration
+## @end
+##
+##
+## Variable Expansion
+## ------------------
+##
+## The `%=` operator can be used for variable expansion. It expands variables using the current configuration and environment variables. #TODO: which takes precedence?
+##
+## Example:
+##
+## nimblePath %= "$home/.nimble/pkgs/"
+##
+## This will expand `$home` to the user's home directory.
+##
+## String Concatenation
+## --------------------
+##
+## Strings can be concatenated using the `&` operator.
+##
+## Comments
+## --------
+##
+## Comments start with the `#` character and continue to the end of the line.
+##
+## Example:
+##
+## This is a comment
+##
+## threads = on # Enable threading
+##
+
+# TODO: document that any nim cli option can be used in a config file; link to docs/advopts.rst
+# TODO: document config variables; they must include at least one '.' in the name and be at least 10 characters long; can be referenced in config files using `$name`, or `${name}`, syntax
+
 ## This module handles the reading of config file(s).
 ##
 ## ..note:: Even though this module is very effectful in its processing of a
