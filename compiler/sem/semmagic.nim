@@ -24,6 +24,15 @@ proc semAddrArg(c: PContext; n: PNode): PNode =
   else:
     result = newError(c.config, n, PAstDiag(kind: adSemExprHasNoAddress))
 
+proc semAddrCall(c: PContext, n: PNode): PNode =
+  ## Analyzes a well-formed call of the ``system.addr`` procedure (`n`),
+  ## returning either an error or an ``nkAddr`` expression.
+  result = newTreeI(nkAddr, n.info, semAddrArg(c, n[1]))
+  if result[0].kind == nkError:
+    result = c.config.wrapError(result)
+  else:
+    result.typ = makePtrType(c, result[0].typ)
+
 proc semTypeOf(c: PContext; n: PNode): PNode =
   addInNimDebugUtils(c.config, "semTypeOf", n, result)
   var m = BiggestInt 1 # typeOfIter
@@ -421,11 +430,9 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
 
   case n[0].sym.magic
   of mAddr:
-    # XXX: wasn't this magic already processed in ``semMagic``?
+    # 'addr' was overloaded, hence ``semMagic`` not handling the magic already
     checkSonsLen(n, 2, c.config)
-    result = n
-    result[1] = semAddrArg(c, n[1])
-    result.typ = makePtrType(c, result[1].typ)
+    result = semAddrCall(c, n)
   of mTypeOf:
     result = semTypeOf(c, n)
   of mSizeOf:
