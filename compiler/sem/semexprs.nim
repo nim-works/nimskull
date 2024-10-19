@@ -2814,9 +2814,7 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   of mAddr:
     markUsed(c, n.info, s)
     checkSonsLen(n, 2, c.config)
-    result[0] = newSymNode(s, n[0].info)
-    result[1] = semAddrArg(c, n[1])
-    result.typ = makePtrType(c, result[1].typ)
+    result = semAddrCall(c, n)
   of mTypeOf:
     markUsed(c, n.info, s)
     result = semTypeOf(c, n)

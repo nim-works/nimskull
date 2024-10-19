@@ -1143,8 +1143,6 @@ proc allowCStringConv(n: PNode): bool =
   of nkStrLiterals: result = true
   of nkSym: result = n.sym.kind in {skConst, skParam}
   of nkAddr: result = isCharArrayPtr(n.typ, true)
-  of nkCallKinds:
-    result = isCharArrayPtr(n.typ, n[0].kind == nkSym and n[0].sym.magic == mAddr)
   else: result = isCharArrayPtr(n.typ, false)
 
 proc reportErrors(c: ConfigRef, n: PNode) =
