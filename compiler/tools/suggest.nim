@@ -163,6 +163,14 @@ proc symToSuggest(g: ModuleGraph; s: PSym, isLocal: bool, section: IdeCmd, info:
   result.name = s.name.s
   if isGenericRoutineStrict(s):
     result.name.add renderTree(s.ast[genericParamsPos])
+  elif s.kind == skType and s.typ.isMetaType:
+    let len = s.typ.sons.len - 1
+    var genericParams = if len > 0: "[" else: ""
+    for i in 0 ..< len:
+      genericParams.add typeToString(s.typ.sons[i])
+      if i < len - 1: genericParams.add(", ")
+    if len > 0: genericParams.add "]"
+    result.name.add genericParams
   when defined(nimsuggest):
     if section in {ideSug, ideCon}:
       result.globalUsages = s.allUsages.len
@@ -263,10 +271,10 @@ proc suggestField(c: PContext, s: PSym; f: PNode; info: TLineInfo; outputs: var 
     outputs.add(symToSuggest(c.graph, s, isLocal=true, ideSug, info,
                               s.getQuality, pm, c.inTypeContext > 0, 0))
 
-template wholeSymTab(cond, section: untyped) {.dirty.} =
+template wholeSymTab(cond, section: untyped) =
   for (item, scopeN, isLocal) in allSyms(c):
-    let it = item
-    var pm: PrefixMatch
+    let it {.inject.} = item
+    var pm {.inject.}: PrefixMatch
     if cond:
       outputs.add(symToSuggest(c.graph, it, isLocal = isLocal, section, info, getQuality(it),
                                 pm, c.inTypeContext > 0, scopeN))
@@ -288,9 +296,9 @@ proc suggestObject(c: PContext, n, f: PNode; info: TLineInfo, outputs: var Sugge
   else: discard
 
 proc nameFits(c: PContext, s: PSym, n: PNode): bool =
-  var op = if n.kind in nkCallKinds: n[0] else: n
+  var op = if n.kind in nkCallKinds and n.len > 0: n[0] else: n
   if op.kind in {nkOpenSymChoice, nkClosedSymChoice}: op = op[0]
-  if op.kind == nkDotExpr: op = op[1]
+  if op.kind == nkDotExpr and op.len > 1: op = op[1]
   var opr: PIdent
   case op.kind
   of nkSym: opr = op.sym.name

@@ -3800,6 +3800,8 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
           skProc
       result[namePos] = semRoutineName(c, n[namePos], kind, allowAnon = true)
       result = semProcAux(c, result, lambdaPragmas, flags)
+      if result.kind != nkError:
+        suggestSym(c.graph, result[namePos].info, result[namePos].sym, c.graph.usageSym)
   of nkDerefExpr: result = semDeref(c, n)
   of nkAddr:
     result = n
