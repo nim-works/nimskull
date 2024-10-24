@@ -1110,9 +1110,6 @@ proc transformCall(c: PTransf, n: PNode): PNode =
           inc(j)
       result.add(a)
     if result.len == 2: result = result[1]
-  elif magic == mAddr:
-    result = newTreeIT(nkAddr, n.info, n.typ): n[1]
-    result = transformAddr(c, result)
   elif magic == mTypeOf:
     result = n
   elif magic == mRunnableExamples:
