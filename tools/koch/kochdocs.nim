@@ -17,7 +17,7 @@ import ".."/".."/compiler/modules/[nimpaths]
 const
   # errormax: subsequent errors are probably consequences of 1st one; a simple
   # bug could cause unlimited number of errors otherwise, hard to debug in CI.
-  docDefines = "-d:nimExperimentalAsyncjsThen -d:nimExperimentalLinenoiseExtra"
+  docDefines = "-d:nimExperimentalAsyncjsThen -d:nimExperimentalLinenoiseExtra --threads:on"
   nimArgs = "--errormax:3 --hint:Conf:off --hint:Path:off --hint:Processing:off --hint:XDeclaredButNotUsed:off --warning:UnusedImport:off -d:boot $#" % [docDefines]
   gitUrl = "https://github.com/nim-works/nimskull"
   docHtmlOutput = "doc/html"
