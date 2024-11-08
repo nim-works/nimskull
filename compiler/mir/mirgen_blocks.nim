@@ -12,10 +12,13 @@ import
   ],
   compiler/mir/[
     mirconstr,
-    mirtrees
+    mirenv,
+    mirtrees,
+    mirtypes
   ],
-  compiler/utils/[
-    idioms
+  compiler/modules/[
+    magicsys,
+    modulegraphs
   ]
 
 type
@@ -40,16 +43,18 @@ type
     of bkScope:
       numRegistered: int
         ## number of entities registered for the scope in the to-destroy list
-      scopeExits: seq[LabelId]
-        ## unordered set of follow-up targets
     of bkTryFinally:
-      doesntExit*: bool
-        ## whether structured control-flow doesn't reach the end of the finally
-      errorOnly*: bool
-        ## whether only exceptional control-flow is intercepted
-      exits*: seq[LabelId]
-        ## unordered set of follow-up targets
-    of bkTryExcept, bkFinally, bkExcept:
+      selector*: Option[Value]
+        ## the variable to store the destination index in
+      exits*: seq[int]
+        ## a set of all original target block indices
+    of bkFinally:
+      selectorVar*: Value
+        ## the selector storing the dispatcher's target index
+      excState*: int
+        ## the selector value representing the "finally entered via exception"
+        ## state
+    of bkTryExcept, bkExcept:
       discard
 
   BlockCtx* = object
@@ -81,81 +86,71 @@ proc emitDestroy(bu; val: Value) =
   bu.subTree mnkDestroy:
     bu.use val
 
-proc emitFinalizerLabels(c; bu; locs: Slice[int]) =
-  ## Emits the labels for all scope finalizers required for cleaning up the
-  ## registered entities in `locs`.
-  # destruction happens in reverse, so iterate from high to low
-  for i in countdown(locs.b, locs.a):
-    if c.toDestroy[i].label.isSome:
-      bu.add labelNode(c.toDestroy[i].label.unsafeGet)
+proc isInFinally*(c: BlockCtx): bool =
+  c.blocks.len > 0 and c.blocks[^1].kind == bkFinally
 
-proc blockLeaveActions(c; bu; targetBlock: int): bool =
-  ## Emits the actions for leaving the blocks up until (but not including)
-  ## `targetBlock`. Returns false when there's an intercepting
-  ## ``finally`` clause that doesn't exit (meaning that `targetBlock` won't
-  ## be reached), true otherwise.
-  proc incl[T](s: var seq[T], it: T) {.inline.} =
-    if it notin s:
-      s.add it
+proc blockExit*(c; graph: ModuleGraph; env: var MirEnv; bu; targetBlock: int) =
+  ## Emits a goto jumping to the `targetBlock`, together with the necessary scope
+  ## and exception cleanup logic. If the jump crosses a try/finally, the
+  ## finally is jumped to instead.
+  proc incl[T](s: var seq[T], val: T): int =
+    for i, it in s.pairs:
+      if it == val:
+        return i
 
-  proc inclExit(b: var Block, it: LabelId) {.inline.} =
-    case b.kind
-    of bkTryFinally: b.exits.incl it
-    of bkScope:      b.scopeExits.incl it
-    else: unreachable()
+    result = s.len
+    s.add val
 
-  var
-    last = c.toDestroy.high
-    previous = -1
+  var last = c.toDestroy.high
 
   for i in countdown(c.blocks.high, targetBlock + 1):
     let b {.cursor.} = c.blocks[i]
     case b.kind
+    of bkScope:
+      let start = last - b.numRegistered
+      var j = last
+      while j > start:
+        bu.emitDestroy(c.toDestroy[j].entity)
+        dec j
+
+      last = start
+    of bkTryFinally:
+      if b.selector.isSome:
+        # add the target as an exit of the try:
+        let pos = c.blocks[i].exits.incl(targetBlock)
+        bu.subTree mnkAsgn:
+          bu.use b.selector.unsafeGet
+          bu.use literal(mnkIntLit, env.getOrIncl(pos.BiggestInt), Int32Type)
+
+      # enter to the intercepting finally
+      bu.subTree mnkGoto:
+        bu.add labelNode(bu.requestLabel(c.blocks[i]))
+      return
+    of bkFinally:
+      # emit a conditional abort:
+      let tmp = bu.wrapTemp BoolType:
+        bu.buildMagicCall mEqI, BoolType:
+          bu.emitByVal b.selectorVar
+          bu.emitByVal:
+            literal(mnkIntLit, env.getOrIncl(b.excState.BiggestInt),
+                    UInt32Type)
+
+      bu.buildIf (;bu.use tmp):
+        bu.subTree mnkVoid:
+          let p = graph.getCompilerProc("nimAbortException")
+          bu.buildCall env.procedures.add(p), VoidType:
+            bu.emitByVal literal(mnkIntLit, env.getOrIncl(0), BoolType)
+    of bkExcept:
+      bu.subTree mnkVoid:
+        let p = graph.getCompilerProc("nimLeaveExcept")
+        bu.buildCall env.procedures.add(p), VoidType:
+          discard
     of bkBlock, bkTryExcept:
       discard "nothing to do"
-    of bkExcept, bkFinally:
-      # needs a leave action
-      bu.add MirNode(kind: mnkLeave, label: b.id.get)
-    of bkScope:
-      if b.numRegistered > 0:
-        # there are some locations that require cleanup
-        if c.toDestroy[last].label.isNone:
-          c.toDestroy[last].label = some bu.allocLabel()
 
-        if previous != -1:
-          c.blocks[previous].inclExit c.toDestroy[last].label.unsafeGet
-
-        previous = i
-        # emit the labels for all scope finalizers that need to be run
-        emitFinalizerLabels(c, bu, (last-b.numRegistered+1)..last)
-
-        last -= b.numRegistered
-    of bkTryFinally:
-      if c.blocks[i].errorOnly and targetBlock >= 0 and
-         c.blocks[targetBlock].kind != bkTryExcept:
-        # ignore the finally; it only applies to exceptional control-flow
-        continue
-
-      let label = bu.requestLabel(c.blocks[i])
-      # register as outgoing edge of the preceding finally (if any):
-      if previous != -1:
-        c.blocks[previous].inclExit label
-
-      previous = i
-
-      # enter the finally clause:
-      bu.add labelNode(label)
-      if b.doesntExit:
-        # structured control-flow doesn't leave the finally; the finally is
-        # the final jump target
-        return false
-
-  if targetBlock >= 0 and previous != -1 and
-     c.blocks[targetBlock].kind in {bkBlock, bkTryExcept}:
-    # register the target as the follow-up for the previous finally
-    c.blocks[previous].inclExit bu.requestLabel(c.blocks[targetBlock])
-
-  result = true
+  # no intercepting finally exists
+  bu.subTree mnkGoto:
+    bu.add labelNode(bu.requestLabel(c.blocks[targetBlock]))
 
 template add*(c: var BlockCtx; b: Block) =
   c.blocks.add b
@@ -178,28 +173,32 @@ proc findBlock*(c: BlockCtx, label: PSym): int =
   assert i >= 0, "no enclosing block?"
   result = i
 
-proc blockExit*(c; bu; targetBlock: int) =
-  ## Emits the jump target description for a jump to `targetBlock`.
-  # XXX: a target list is only necessary if there's more than one jump
-  #      target
-  bu.subTree mnkTargetList:
-    if blockLeaveActions(c, bu, targetBlock):
-      bu.add labelNode(bu.requestLabel(c.blocks[targetBlock]))
 
 proc raiseExit*(c; bu) =
-  ## Emits the jump target description for a jump to the nearest enclosing
+  ## Emits the jump target for a jump to the nearest enclosing
   ## exception handler.
-  var i = c.blocks.high
-  while i >= 0 and c.blocks[i].kind != bkTryExcept:
-    dec i
+  var last = c.toDestroy.high
 
-  bu.subTree mnkTargetList:
-    if blockLeaveActions(c, bu, i):
-      if i == -1:
-        # nothing handles the exception within the current procedure
-        bu.add MirNode(kind: mnkResume)
-      else:
-        bu.add labelNode(bu.requestLabel(c.blocks[i]))
+  for i in countdown(c.blocks.high, 0):
+    let b {.cursor.} = c.blocks[i]
+    case b.kind
+    of bkBlock:
+      discard "nothing to do"
+    of bkScope:
+      if b.numRegistered > 0:
+        # there are some locations that require cleanup
+        if c.toDestroy[last].label.isNone:
+          c.toDestroy[last].label = some bu.allocLabel()
+
+        bu.add labelNode(c.toDestroy[last].label.unsafeGet)
+        return
+    of bkTryExcept, bkTryFinally, bkFinally, bkExcept:
+      # something that intercepts the exceptional control-flow
+      bu.add labelNode(bu.requestLabel(c.blocks[i]))
+      return
+
+  # no local exception handler exists
+  bu.add MirNode(kind: mnkResume)
 
 proc closeBlock*(c; bu): bool =
   ## Finishes the current block. If required for the block (because it is a
@@ -224,20 +223,6 @@ proc startScope*(c): int =
   c.blocks.add Block(kind: bkScope)
   c.currScope = c.blocks.high
 
-proc earlyExit*(c; bu) =
-  ## Emits the destroy operations for when structured control-flow reaches the
-  ## current scope's end. All entities for which a destroy operation is
-  ## emitted are unregistered already.
-  let start = c.toDestroy.len - c.blocks[c.currScope].numRegistered
-  var i = c.toDestroy.high
-
-  while i >= start and c.toDestroy[i].label.isNone:
-    bu.emitDestroy(c.toDestroy[i].entity)
-    dec i
-
-  # unregister the entities for which a destroy operation was emitted:
-  c.blocks[c.currScope].numRegistered = i - start + 1
-  c.toDestroy.setLen(i + 1)
 
 proc closeScope*(c; bu; nextScope: int, hasStructuredExit: bool) =
   ## Pops the scope from the stack and emits the scope exit actions.
@@ -247,58 +232,62 @@ proc closeScope*(c; bu; nextScope: int, hasStructuredExit: bool) =
   ## `next` is the index of the scope index returns by the previous
   ## `startScope <#startScope,BlockCtx>`_ call.
   # emit all destroy operations that don't need a finally
-  earlyExit(c, bu)
-
   var scope = c.blocks.pop()
   assert scope.kind == bkScope
 
   let start = c.toDestroy.len - scope.numRegistered
 
-  var next = none LabelId
-  if start < c.toDestroy.len and hasStructuredExit:
-    # there are destroy operations that need a finally. A goto is required
-    # for visiting them
-    next = some bu.allocLabel()
-    bu.subTree mnkGoto:
-      bu.subTree mnkTargetList:
-        emitFinalizerLabels(c, bu, start..c.toDestroy.high)
-        bu.add labelNode(next.unsafeGet)
+  if hasStructuredExit:
+    var i = c.toDestroy.high
+    while i >= start:
+      bu.emitDestroy(c.toDestroy[i].entity)
+      dec i
 
-    scope.scopeExits.add next.unsafeGet
+  # look for the first destroy that needs a 'finally'
+  var i = c.toDestroy.high
+  while i >= start and c.toDestroy[i].label.isNone:
+    dec i
 
-  # emit all finally sections for the scope. Since not all entities requiring
-  # destruction necessarily start their existence at the start of the scope,
-  # multiple sections may be required
-  var curr = none LabelId
-  for i in countdown(c.toDestroy.high, start):
-    # if a to-destroy entry has a label, it marks the start of a new finally
-    if c.toDestroy[i].label.isSome:
-      if curr.isSome:
-        # finish the previous finally by emitting the corresponding 'continue':
-        bu.subTree MirNode(kind: mnkContinue, len: 2):
+  if i >= start:
+    # some exceptional exits need cleanup
+    var next = none LabelId
+    if hasStructuredExit:
+      # emit a jump over the finalizers:
+      next = some bu.allocLabel()
+      bu.goto next.unsafeGet
+
+    # emit all finally sections for the scope. Since not all entities requiring
+    # destruction necessarily start their existence at the start of the scope,
+    # multiple sections may be required
+    var curr = none LabelId
+    for i in countdown(i, start):
+      # if a to-destroy entry has a label, it marks the start of a new finally
+      if c.toDestroy[i].label.isSome:
+        if curr.isSome:
+          # finish the previous finally by emitting the corresponding
+          # 'continue':
+          bu.subTree mnkContinue:
+            bu.add labelNode(c.toDestroy[i].label.unsafeGet)
+
+        curr = c.toDestroy[i].label
+        bu.subTree mnkFinally:
           bu.add labelNode(curr.unsafeGet)
-          # a finally section that's not the last one always continues with
-          # the next finally
-          bu.add labelNode(c.toDestroy[i].label.unsafeGet)
 
-      curr = c.toDestroy[i].label
-      bu.subTree mnkFinally:
-        bu.add labelNode(curr.unsafeGet)
+      bu.emitDestroy(c.toDestroy[i].entity)
 
-    bu.emitDestroy(c.toDestroy[i].entity)
+    # unregister all entities registered with the scope. This needs to happen
+    # before the ``raiseExitActions`` call below
+    c.toDestroy.setLen(start)
 
-  if curr.isSome:
-    # finish the final finally. `scopeExits` stores all possible follow-up
-    # targets for the finally
-    bu.subTree MirNode(kind: mnkContinue, len: uint32(1 + scope.scopeExits.len)):
-      bu.add labelNode(curr.unsafeGet)
-      for it in scope.scopeExits.items:
-        bu.add labelNode(it)
+    if curr.isSome:
+      # continue raising the exception
+      bu.subTree mnkContinue:
+        raiseExit(c, bu)
 
-  if next.isSome:
-    # the join point for the structured scope exit
-    bu.join next.unsafeGet
+    if next.isSome:
+      bu.join next.unsafeGet
+  else:
+    # unregister all entities registered with the scope:
+    c.toDestroy.setLen(start)
 
-  # unregister all entities registered with the scope:
-  c.toDestroy.setLen(start)
   c.currScope = nextScope

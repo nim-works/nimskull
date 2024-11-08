@@ -1294,8 +1294,7 @@ proc genReturn(c: var TCtx, n: PNode) =
   if n[0].kind != nkEmpty:
     gen(c, n[0])
 
-  c.buildStmt mnkGoto:
-    blockExit(c.blocks, c.builder, 0)
+  blockExit(c.blocks, c.graph, c.env, c.builder, 0)
 
 proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
   ## Generates the MIR code for the right-hand side of an assignment.
@@ -1560,11 +1559,6 @@ template withBlock(c: var TCtx, k: BlockKind, body: untyped) =
   body
   c.closeBlock()
 
-template withBlock(c: var TCtx, k: BlockKind, lbl: LabelId, body: untyped) =
-  c.blocks.add Block(kind: k, id: some lbl)
-  body
-  c.closeBlock()
-
 proc genBlock(c: var TCtx, n: PNode, dest: Destination) =
   ## Generates and emits the MIR code for a ``block`` expression or statement.
   ## A block translates to a scope and, optionally, a join.
@@ -1588,12 +1582,7 @@ proc genBranch(c: var TCtx, n: PNode, dest: Destination) =
 
 proc leaveBlock(c: var TCtx) =
   ## Emits a goto for jumping to the exit of first enclosing block.
-  if c.scopeDepth > 0:
-    # only emit the early scope exit if still within a scope
-    earlyExit(c.blocks, c.builder)
-
-  c.subTree mnkGoto:
-    blockExit(c.blocks, c.builder, closest(c.blocks))
+  blockExit(c.blocks, c.graph, c.env, c.builder, closest(c.blocks))
 
 proc genScopedBranch(c: var TCtx, n: PNode, dest: Destination,
                      withLeave: bool) =
@@ -1738,9 +1727,39 @@ proc genExceptBranch(c: var TCtx, n: PNode, label: LabelId,
         # continue raising
         raiseExit(c)
 
+  # emit the setup for the handler frame:
+  let
+    p = c.graph.getCompilerProc("nimCatchException")
+    tmp = c.allocTemp(c.typeToMir(p.typ[1][0]))
+  c.subTree mnkDef:
+    c.use tmp
+    c.add MirNode(kind: mnkNone)
+
+  let
+    typ = c.typeToMir(p.typ[1])
+    arg = c.wrapTemp typ:
+      c.buildTree mnkAddr, typ:
+        c.use tmp
+
+  c.subTree mnkVoid:
+    c.builder.buildCall c.env.procedures.add(p), VoidType:
+      c.emitByVal arg
+
   # generate the body of the except branch:
-  c.withBlock bkExcept, label:
-    c.genScopedBranch(n.lastSon, dest, withLeave=true)
+  c.blocks.add Block(kind: bkExcept)
+  c.genScopedBranch(n.lastSon, dest, withLeave=true)
+  let exc = c.blocks.pop()
+  if exc.id.isSome:
+    # the handler may be exited via an exception at run-time -> a finally is
+    # needed
+    c.subTree mnkFinally:
+      c.add labelNode(exc.id.unsafeGet)
+    c.subTree mnkVoid:
+      let p = c.graph.getCompilerProc("nimLeaveException")
+      c.builder.buildCall c.env.procedures.add(p), VoidType:
+        discard
+    c.subTree mnkContinue:
+      raiseExit(c)
 
   c.subTree mnkEndStruct:
     c.add labelNode(label)
@@ -1765,26 +1784,107 @@ proc genExcept(c: var TCtx, n: PNode, len: int, dest: Destination) =
       c.genExceptBranch(n[i], curr, none LabelId, dest)
 
 proc genFinally(c: var TCtx, n: PNode) =
-  let blk = c.blocks.pop()
-  if blk.id.isNone:
+  let
+    exc = c.blocks.pop()
+    blk = c.blocks.pop()
+
+  if blk.id.isNone and exc.id.isNone:
     # the finally is never entered, omit it
     return
 
   c.builder.useSource(c.sp, n)
-  c.subTree mnkFinally:
-    c.add labelNode(blk.id.unsafeGet)
+
+  if exc.id.isSome:
+    # the handler catches the exception and sets the selector for the
+    # finally's outgoing target accordingly
+    c.subTree mnkExcept:
+      c.add labelNode(exc.id.unsafeGet)
+    if blk.selector.isSome:
+      c.subTree mnkInit:
+        c.use blk.selector.unsafeGet
+        c.use intLiteral(c.env, blk.exits.len, UInt32Type)
+    c.subTree mnkEndStruct:
+      c.add labelNode(exc.id.unsafeGet)
+
+  if blk.id.isSome:
+    # entry point for break/return/normal try exits
+    c.join blk.id.unsafeGet
+
+  if exc.id.isSome:
+    # the exception through which the finally was entered might need to be
+    # aborted
+    c.blocks.add Block(kind: bkFinally,
+                       selectorVar: blk.selector.unsafeGet,
+                       excState: blk.exits.len)
 
   # translate the body:
-  c.withBlock bkFinally, blk.id.unsafeGet:
-    c.scope(not blk.doesntExit):
-      c.gen(n[^1])
+  c.scope(doesReturn(n[^1])):
+    c.gen(n[^1])
 
-  # the continue statement is always necessary, even if the body has no
-  # structured exit
-  c.subTree mnkContinue:
-    c.add labelNode(blk.id.unsafeGet)
-    for it in blk.exits.items:
-      c.add labelNode(it)
+  if exc.id.isSome:
+    let err = c.blocks.pop()
+    # emit the abort handler if needed. When an exception is raised from the
+    # finally clause, the previously in-flight exception needs to be aborted
+    if err.id.isSome:
+      var next: LabelId
+      if doesReturn(n[^1]):
+        next = c.allocLabel()
+        c.builder.goto next # jump over the finally
+
+      c.subTree mnkFinally:
+        c.add labelNode(err.id.unsafeGet)
+      let val = c.wrapTemp BoolType:
+        c.buildMagicCall mEqI, BoolType:
+          c.emitByVal blk.selector.unsafeGet
+          c.emitByVal intLiteral(c.env, blk.exits.len, UInt32Type)
+      c.builder.buildIf (;c.use val):
+        c.subTree mnkVoid:
+          let p = c.graph.getCompilerProc("nimAbortException")
+          c.builder.buildCall c.env.procedures.add(p), VoidType:
+            c.emitByVal intLiteral(c.env, 1, BoolType)
+      c.subTree mnkContinue:
+        raiseExit(c)
+
+      if doesReturn(n[^1]):
+        c.join next
+
+  if doesReturn(n[^1]):
+    # emit the dispatcher. The finally body not being noreturn implies the
+    # existence of a selector
+    var labels = newSeq[LabelId](blk.exits.len + 1)
+    c.subTree mnkCase:
+      c.use blk.selector.unsafeGet
+      for i, it in blk.exits.pairs:
+        c.subTree mnkBranch:
+          c.use intLiteral(c.env, i, UInt32Type)
+          labels[i] = c.builder.allocLabel()
+          c.add labelNode(labels[i])
+
+      if exc.id.isSome:
+        labels[^1] = c.builder.allocLabel()
+        c.subTree mnkBranch:
+          c.use intLiteral(c.env, labels.high, UInt32Type)
+          c.add labelNode(labels[^1])
+
+    # emit the branch bodies. The dispatcher cannot jump directly to target
+    # blocks, since there may leave actions that need to emitted too
+    for i, it in blk.exits.pairs:
+      c.join labels[i]
+      blockExit(c.blocks, c.graph, c.env, c.builder, it)
+
+    if exc.id.isSome:
+      # resume raising the in-flight exception. Using a re-raise would be
+      # wrong, because the exception wasn't (technically) caught yet
+      c.join labels[^1]
+      c.subTree mnkVoid:
+        c.buildCheckedMagicCall mResumeRaising, VoidType:
+          discard
+
+  elif exc.id.isSome:
+    # always resume raising the exception
+    c.subTree mnkVoid:
+      c.buildCheckedMagicCall mResumeRaising, VoidType:
+        discard
 
 proc genTry(c: var TCtx, n: PNode, dest: Destination) =
   let
@@ -1795,10 +1895,17 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
   c.blocks.add Block(kind: bkBlock)
 
   if hasFinally:
-    # the finally clause also applies to the except clauses, so it's
-    # pushed first
-    c.blocks.add Block(kind: bkTryFinally,
-                       doesntExit: not doesReturn(n[^1][0]))
+    # a selector is needed for both the exception aborting and dispatcher. We
+    # know whether a dispatcher is needed already, but not whether there can
+    # be an exception. Therefore a selector is always generated
+    let selector = c.allocTemp(Int32Type)
+    c.buildStmt mnkDef:
+      c.use selector
+      c.add MirNode(kind: mnkNone)
+    c.blocks.add Block(kind: bkTryFinally, selector: some(selector))
+
+    # for translation of 'finally's, an additional exception handler is needed
+    c.blocks.add Block(kind: bkTryExcept)
 
   if hasExcept:
     c.blocks.add Block(kind: bkTryExcept)
@@ -2140,8 +2247,8 @@ proc gen(c: var TCtx, n: PNode) =
   of nkPragmaBlock:
     gen(c, n.lastSon)
   of nkBreakStmt:
-    c.buildStmt mnkGoto:
-      blockExit(c.blocks, c.builder, findBlock(c.blocks, n[0].sym))
+    blockExit(c.blocks, c.graph, c.env, c.builder,
+              findBlock(c.blocks, n[0].sym))
   of nkVarSection, nkLetSection:
     genVarSection(c, n)
   of nkAsgn:
@@ -2334,7 +2441,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
     if needsCleanup:
       # the result variable only needs to be cleaned up when the procedure
       # exits via an exception
-      c.blocks.add Block(kind: bkTryFinally, errorOnly: true)
+      c.blocks.add Block(kind: bkTryExcept)
 
     c.scope(doesReturn):
       if owner.kind in routineKinds:
@@ -2380,7 +2487,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
       # guaranteed that no one can observe the result location when the
       # procedure raises
       c.subTree mnkContinue:
-        c.add labelNode(b.id.unsafeGet)
+        raiseExit(c)
 
     if needsTerminate and (let b = c.blocks.pop(); b.id.isSome):
       if doesReturn and isFirst:
