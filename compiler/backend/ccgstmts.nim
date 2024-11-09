@@ -103,25 +103,18 @@ proc exit(n: CgNode): CgNode =
   of cnkCheckedCall: n[^1]
   else:              nil
 
-proc useLabel(p: BProc, label: CLabel) {.inline.} =
-  if label.id == ExitLabel:
-    p.flags.incl beforeRetNeeded
-
 proc raiseInstr(p: BProc, n: CgNode): Rope =
   if n != nil:
     case n.kind
     of cnkLabel:
-      # easy case, simply goto the target:
       result = ropecg(p.module, "goto $1;", [n.label])
-    of cnkTargetList:
-      # the first non-leave operand is the initial jump target
-      let label = toCLabel(n[0], p.specifier)
-      useLabel(p, label)
-      result = ropecg(p.module, "goto $1;", [label])
+    of cnkResume:
+      p.flags.incl beforeRetNeeded
+      result = "goto BeforeRet_;"
     else:
       unreachable(n.kind)
   else:
-    # absence of an node storing the target means "never exits"
+    # absence of a node storing the target means "never exits"
     if hasAssume in CC[p.config.cCompiler].props:
       result = "__asume(0);"
     else:
@@ -158,7 +151,7 @@ proc genRaiseStmt(p: BProc, t: CgNode) =
     # reraise the last exception:
     linefmt(p, cpsStmts, "#reraiseException();$n", [])
 
-  # the goto is emitted separately
+  linefmt(p, cpsStmts, "$1$n", [raiseInstr(p, t[1])])
 
 template genCaseGenericBranch(p: BProc, b: CgNode, e: TLoc,
                           rangeFormat, eqFormat: FormatStr, labl: BlockId) =
@@ -276,6 +269,7 @@ proc bodyCanRaise(p: BProc; n: CgNode): bool =
 
 proc genExcept(p: BProc, n: CgNode) =
   ## Generates and emits the C code for an ``Except`` join point.
+  linefmt(p, cpsStmts, "$1:$n", [n[0].label])
 
   if n.len > 1:
     # it's a handler with a filter/matcher
@@ -302,10 +296,6 @@ proc genExcept(p: BProc, n: CgNode) =
   p.flags.incl nimErrorFlagAccessed
   # exit error mode:
   lineCg(p, cpsStmts, "*nimErr_ = NIM_FALSE;$n", [])
-  # setup the handler frame:
-  var tmp: TLoc
-  getTemp(p, p.module.g.graph.getCompilerProc("ExceptionFrame").typ, tmp)
-  lineCg(p, cpsStmts, "#nimCatchException($1);$n", [addrLoc(p.module, tmp)])
 
 proc genAsmOrEmitStmt(p: BProc, t: CgNode, isAsmStmt=false): Rope =
   var res = ""
@@ -421,78 +411,10 @@ proc genStmt(p: BProc, t: CgNode) =
   if isPush: popInfoContext(p.config)
   internalAssert p.config, a.k in {locNone, locTemp, locLocalVar, locExpr}
 
-proc gen(p: BProc, code: openArray[CInstr], stmts: CgNode) =
-  ## Generates and emits the C code for `code` and `stmts`. This is the main
-  ## driver of C code generation.
-  var pos = 0
-  while pos < code.len:
-    let it = code[pos]
-    case it.op
-    of opLabel:
-      lineCg(p, cpsStmts, "$1:;$n", [it.label])
-    of opJump:
-      useLabel(p, it.label)
-      lineCg(p, cpsStmts, "goto $1;$n", [it.label])
-    of opDispJump:
-      # must only be part of a dispatcher
-      unreachable()
-    of opSetTarget:
-      lineCg(p, cpsStmts, "Target$1_ = $2;$n", [$it.discr, it.value])
-    of opDispatcher:
-      lineF(p, cpsLocals, "NU8 Target$1_;$N", [$it.discr])
-      lineF(p, cpsStmts, "switch (Target$1_) {$n", [$it.discr])
-      for i in 0..<it.value:
-        inc pos
-        useLabel(p, code[pos].label)
-        lineCg(p, cpsStmts, "case $1: goto $2;$n", [i, code[pos].label])
-
-      # help the C compiler a bit by making the case statement exhaustive
-      if hasAssume in CC[p.config.cCompiler].props:
-        lineF(p, cpsStmts, "default: __assume(0);$n", [])
-      # TODO: use ``__builtin_unreachable();`` for compiler supporting the
-      #       GCC built-ins
-      lineF(p, cpsStmts, "}$n", [])
-    of opBackup:
-      if nimErrorFlagDisabled notin p.flags:
-        p.flags.incl nimErrorFlagAccessed
-        lineCg(p, cpsStmts, "NI32 oldNimErrFin$1_ = *nimErr_; *nimErr_ = NIM_FALSE;$n",
-              [$it.local])
-    of opRestore:
-      if nimErrorFlagDisabled notin p.flags:
-        p.flags.incl nimErrorFlagAccessed
-        lineCg(p, cpsStmts, "*nimErr_ = oldNimErrFin$1_;$n", [$it.local])
-    of opErrJump:
-      if nimErrorFlagDisabled notin p.flags:
-        useLabel(p, code[pos].label)
-        p.flags.incl nimErrorFlagAccessed
-        lineCg(p, cpsStmts, "if (NIM_UNLIKELY(*nimErr_)) goto $1;$n",
-               [it.label])
-
-    of opStmts:
-      # generate the code for all statements; no label specifier is set
-      p.specifier = none CLabelSpecifier
-      for i in it.stmts.items:
-        genStmt(p, stmts[i])
-    of opStmt:
-      p.specifier = some it.specifier
-      genStmt(p, stmts[it.stmt])
-
-    of opAbort:
-      if nimErrorFlagDisabled in p.flags:
-        lineCg(p, cpsStmts, "#nimAbortException();$n", [])
-      else:
-        # there's only something to abort when the finalizer was intercepted a
-        # raise
-        lineCg(p, cpsStmts, "if (NIM_UNLIKELY(oldNimErrFin$1_)) #nimAbortException();$n",
-               [$it.local])
-    of opPopHandler:
-      lineCg(p, cpsStmts, "#nimLeaveExcept();$n", [])
-
-    inc pos
-
 proc genStmts*(p: BProc, n: CgNode) =
   ## Generates and emits the C code for the statement list node `n`, which
   ## makes up the full body of the procedure. This is the external entry
   ## point into the C code generator.
   assert n.kind == cnkStmtList
-  gen(p, toInstrList(n, true), n)
+  for it in n.items:
+    genStmt(p, it)

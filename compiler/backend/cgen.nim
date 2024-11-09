@@ -63,7 +63,6 @@ import
     compat,
     extccomp,
     ccgutils,
-    ccgflow,
     cgendata,
     cgir,
     mangling
@@ -184,15 +183,8 @@ proc cgFormatValue(result: var string; value: BlockId) =
   result.addInt value.uint32
   result.add "_"
 
-proc cgFormatValue(result: var string, value: CLabel) =
-  if value.id == ExitLabel:
-    result.add "BeforeRet_"
-  else:
-    cgFormatValue(result, toBlockId(value.id))
-    # specifier:
-    if value.specifier.isSome:
-      result.addInt value.specifier.unsafeGet
-      result.add "_"
+proc `$`(id: BlockId): string =
+  cgFormatValue(result, id)
 
 # TODO: please document
 macro ropecg(m: BModule, frmt: static[FormatStr], args: untyped): Rope =
@@ -836,7 +828,7 @@ proc genPartial*(p: BProc, n: CgNode) =
   ## is intended for CG IR that wasn't already available when calling
   ## `startProc`.
   synchronize(p.locals, p.body.locals)
-  gen(p, toInstrList(n, isFull=false), n)
+  genStmts(p, n)
 
 proc genProcPrototype(m: BModule, id: ProcedureId) =
   let sym = m.g.env[id]
