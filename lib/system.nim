@@ -2345,8 +2345,23 @@ when notJSnotNims and hostOS != "standalone":
 elif isNimVmTarget:
   proc getCurrentException*(): ref Exception {.compilerRtl.} = discard
 
-  proc prepareException(e: ref Exception, ename: cstring) {.compilerproc.} =
-    discard
+  type ExceptionFrame {.compilerproc.} = object
+
+  proc nimCatchException(f: ptr ExceptionFrame) {.compilerproc.} =
+    discard "implemented in vmops.nim"
+
+  proc nimAbortException(viaRaise: bool) {.compilerproc.} =
+    discard "implemented in vmops.nim"
+
+  proc nimLeaveExcept() {.compilerproc.} =
+    discard "implemented in vmops.nim"
+
+  proc raiseExceptionEx(e: sink(ref Exception), ename, prc, file: cstring,
+                        line: int) {.compilerproc.} =
+    discard "implemented in vmops.nim"
+
+  proc reraiseException() {.compilerproc.} =
+    discard "implemented in vmops.nim"
 
   proc nimUnhandledException() {.compilerproc.} =
     discard

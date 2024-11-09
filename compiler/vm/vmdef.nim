@@ -372,7 +372,7 @@ type
     slots*: ptr UncheckedArray[TFullReg]
     # TODO: rework either the callback or exception handling (or both) so that
     #       no pointer is required here
-    currentExceptionPtr*: ptr HeapSlotHandle
+    exState*: ptr ExceptionState
     currentLineInfo*: TLineInfo
 
     # XXX: These are only here as a temporary measure until callback handling
@@ -675,8 +675,6 @@ type
       ## enter the ``finally`` handler
     ehoNext
       ## relative jump to another instruction
-    ehoLeave
-      ## abort the parent thread
     ehoEnd
       ## ends the thread without treating the exception as handled
 
@@ -760,6 +758,23 @@ type
     data*: Table[PSym, ProfileInfo]
       ## maps the symbol of a procedure to the associated data gathered by the
       ## profiler
+
+  VmException* = object
+    ## Internal-only. Has to be exposed here because ``VmArgs`` needs acces
+    ## to the type.
+    refVal*: HeapSlotHandle
+    trace*: VmRawStackTrace
+    # XXX: the trace should be stored in the exception object, which would
+    #      also make it accessible to the guest (via ``getStackTrace``)
+    caught*: bool
+      ## whether the exception was already caught
+
+  ExceptionState* = object
+    ## Thread-local exception runtime state.
+    stack*: seq[VmException]
+      ## previously caught but not yet full handled exceptions
+    current*: HeapSlotHandle
+      ## the current exception, which is what ``getCurrentException`` returns
 
 func `<`*(a, b: FieldIndex): bool {.borrow.}
 func `<=`*(a, b: FieldIndex): bool {.borrow.}
@@ -968,11 +983,11 @@ template isValid*(handle: LocHandle): bool =
 
 template currentException*(a: VmArgs): HeapSlotHandle =
   ## A temporary workaround for the exception handle being stored as a pointer
-  a.currentExceptionPtr[]
+  a.exState.current
 
 template `currentException=`*(a: VmArgs, h: HeapSlotHandle) =
   ## A temporary workaround for the exception handle being stored as a pointer
-  a.currentExceptionPtr[] = h
+  a.exState.current = h
 
 func unpackedConvDesc*(info: uint16
                       ): tuple[op: NumericConvKind, dstbytes, srcbytes: int] =

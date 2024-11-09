@@ -82,13 +82,6 @@ import std/options as stdoptions
 from std/math import round, copySign
 
 type
-  VmException = object
-    ## Internal-only.
-    refVal: HeapSlotHandle
-    trace: VmRawStackTrace
-    # XXX: the trace should be stored in the exception object, which would
-    #      also make it accessible to the guest (via ``getStackTrace``)
-
   VmThread* = object
     ## This is beginning of splitting up ``TCtx``. A ``VmThread`` is
     ## meant to encapsulate the state that makes up a single execution. This
@@ -101,9 +94,9 @@ type
     loopIterations: int
       ## the number of remaining jumps backwards
 
-    currentException: HeapSlotHandle
-      ## the exception ref that's returned when querying the current exception
-    ehStack: seq[tuple[ex: VmException, pc: uint32]]
+    exState: ExceptionState
+      ## the data for the exception runtime
+    ehStack: seq[uint32]
       ## the stack of currently executed EH threads. A stack is needed since
       ## exceptions can be raised while another exception is in flight
 
@@ -150,14 +143,9 @@ type
 
 const
   traceCode = defined(nimVMDebugExecute)
-  fromEhBit = cast[BiggestInt](0x8000_0000_0000_0000'u64)
-    ## the presence in a finally's control register signals that the finally
-    ## was entered as part of exception handling
 
 const
   errIllegalConvFromXtoY = "illegal conversion from '$1' to '$2'"
-
-func `$`(x: VmException) {.error.}
 
 proc createStackTrace*(
     c:          TCtx,
@@ -222,11 +210,6 @@ template `[]=`(r: Registers, i: SomeInteger, val: TFullReg) =
   let x = i
   regIndexCheck(r, i)
   r.data[x] = val
-
-func getReg(t: var VmThread, i: int): var TFullReg {.inline.} =
-  ## Shortcut for accessing the the `i`-th register belonging to the topmost
-  ## stack frame.
-  t.regs[t.sframes[^1].start + i]
 
 func setNodeValue(dest: LocHandle, node: PNode) =
   assert dest.typ.kind == akPNode
@@ -536,81 +519,50 @@ proc findEh(c: TCtx, t: VmThread, at: PrgCtr, frame: int
 
   # no handler exists
 
-proc setCurrentException(t: var VmThread, mem: var VmMemoryManager,
-                         ex: HeapSlotHandle) =
-  ## Sets `ex` as `t`'s current exception, freeing the previous exception,
-  ## if necessary.
-  if ex.isNotNil:
-    mem.heap.heapIncRef(ex)
-  if t.currentException.isNotNil:
-    mem.heap.heapDecRef(mem.allocator, t.currentException)
-
-  t.currentException = ex
-
-proc decodeControl(x: BiggestInt): tuple[fromEh: bool, val: uint32] =
-  let x = cast[BiggestUInt](x)
-  result.fromEh = bool(x shr 63)
-  result.val = uint32(x)
-
-proc runEh(t: var VmThread, c: var TCtx): Result[PrgCtr, VmException] =
+proc runEh(t: var VmThread, c: var TCtx): Option[PrgCtr] =
   ## Executes the active EH thread. Returns either the bytecode position to
   ## resume main execution at, or the uncaught exception.
   ##
   ## This implements the VM-in-VM for executing the EH instructions.
-  template tos: untyped =
-    # top-of-stack
+  template pc: untyped =
     t.ehStack[^1]
 
   while true:
-    let instr = c.ehCode[tos.pc]
+    let instr = c.ehCode[pc]
     # already move to the next instruction
-    inc tos.pc
+    inc pc
 
-    template yieldControl() =
-      setCurrentException(t, c.memory, tos.ex.refVal)
-      result.initSuccess(instr.b.PrgCtr)
+    template yieldControl(pop: static bool) =
+      when pop:
+        t.ehStack.shrink(t.ehStack.len - 1)
+      result = some(instr.b.PrgCtr)
       return
 
     case instr.opcode
-    of ehoExcept, ehoFinally:
+    of ehoExcept:
       # enter exception handler
-      yieldControl()
+      yieldControl(true)
+    of ehoFinally:
+      yieldControl(false)
     of ehoExceptWithFilter:
       let
-        raised = c.heap.tryDeref(tos.ex.refVal, noneType).value()
+        raised = c.heap.tryDeref(t.exState.current, noneType).value()
 
       if getTypeRel(raised.typ, c.types[instr.a]) in {vtrSub, vtrSame}:
         # success: the filter matches
-        yieldControl()
+        yieldControl(true)
       else:
         discard "not handled, try the next instruction"
 
     of ehoNext:
-      tos.pc += instr.b - 1 # account for the ``inc`` above
-    of ehoLeave:
-      case instr.a
-      of 0:
-        # discard the parent thread
-        swap(tos, t.ehStack[^2])
-        t.ehStack.setLen(t.ehStack.len - 1)
-      of 1:
-        # discard the parent thread if it's associated with the provided
-        # control register
-        let (fromEh, b) = decodeControl(t.getReg(instr.b.TRegister).intVal)
-        if fromEh:
-          vmAssert b.int == t.ehStack.high - 1
-          swap(tos, t.ehStack[^2])
-          t.ehStack.setLen(t.ehStack.len - 1)
-      else:
-        vmUnreachable("illegal operand")
+      pc += instr.b - 1 # account for the ``inc`` above
     of ehoEnd:
       # terminate the thread and return the unhandled exception
-      result.initFailure(move t.ehStack[^1].ex)
+      result = none(PrgCtr)
       t.ehStack.setLen(t.ehStack.len - 1)
       break
 
-proc resumeEh(c: var TCtx, t: var VmThread,
-              frame: int): Result[PrgCtr, VmException] =
+proc resumeEh(c: var TCtx, t: var VmThread, frame: int): Option[PrgCtr] =
   ## Continues raising the exception from the top-most EH thread. If exception
   ## handling code is found, unwinds the stack till where the handler is
   ## located and returns the program counter where to resume. Otherwise
@@ -618,7 +570,7 @@ proc resumeEh(c: var TCtx, t: var VmThread,
   var frame = frame
   while true:
     let r = runEh(t, c)
-    if r.isOk:
+    if r.isSome:
       # an exception handler or finalizer is entered. Unwind to the target
       # frame:
       if frame < t.sframes.len - 1:
@@ -635,12 +587,11 @@ proc resumeEh(c: var TCtx, t: var VmThread,
       if pos.isSome:
         # EH code exists in a frame above. Run it
         frame = pos.get().frame # update to the frame the EH code is part of
-        t.ehStack.add (r.takeErr(), pos.get().ehInstr)
+        t.ehStack.add pos.get().ehInstr
       else:
         return r
 
-proc opRaise(c: var TCtx, t: var VmThread, at: PrgCtr,
-             ex: sink VmException): Result[PrgCtr, VmException] =
+proc opRaise(c: var TCtx, t: var VmThread, at: PrgCtr): Option[PrgCtr] =
   ## Searches for an exception handler for the instruction at `at`. If one is
   ## found, the stack is unwound till the frame the handler is in and the
   ## position where to resume is returned. If there no handler is found, `ex`
@@ -648,29 +599,22 @@ proc opRaise(c: var TCtx, t: var VmThread, at: PrgCtr,
   let pos = findEh(c, t, at, t.sframes.high)
   if pos.isSome:
     # spawn and run the EH thread:
-    t.ehStack.add (ex, pos.get().ehInstr)
+    t.ehStack.add pos.get().ehInstr
     result = resumeEh(c, t, pos.get().frame)
   else:
     # no exception handler exists:
-    result.initFailure(ex)
+    result = none(PrgCtr)
 
-proc handle(res: sink Result[PrgCtr, VmException], c: var TCtx,
+proc handle(res: sink Option[PrgCtr], c: var TCtx,
             t: var VmThread): PrgCtr =
   ## If `res` is an unhandled exception, reports the exception to the
   ## supervisor. Otherwise returns the position where to continue.
-  if res.isOk:
-    result = res.take()
-    if c.code[result].opcode == opcFinally:
-      # setup the finally section's control register
-      let reg = c.code[result].regA
-      t.getReg(reg).initIntReg(fromEhBit or t.ehStack.high, c.memory)
-      inc result
-
+  if res.isSome:
+    result = res.unsafeGet()
   else:
     # report to the exception to the supervisor (by raising an event)
-    let ex = res.takeErr()
-    reportException(c, ex.trace,
-                    c.heap.tryDeref(ex.refVal, noneType).value())
+    reportException(c, t.exState.stack[^1].trace,
+                    c.heap.tryDeref(t.exState.current, noneType).value())
 
 template atomVal(r: TFullReg): untyped =
   cast[ptr Atom](r.handle.rawPointer)[]
@@ -1994,7 +1938,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
         c.callbacks[entry.cbOffset](
           VmArgs(ra: ra, rb: rb, rc: rc, slots: regs.data,
-                 currentExceptionPtr: addr t.currentException,
+                 exState: addr t.exState,
                  currentLineInfo: c.debug[pc],
                  typeCache: addr c.typeInfoCache,
                  mem: addr c.memory,
@@ -2085,77 +2029,20 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         let instr2 = c.code[pc]
         let rbx = instr2.regBx - wordExcess - 1 # -1 for the following 'inc pc'
         inc pc, rbx
-    of opcEnter:
-      # enter the finalizer to the target but consider finalizers associated
-      # with the instruction
-      let target = pc + c.code[pc].regBx - wordExcess
-      if c.code[target].opcode == opcFinally:
-        # remember where to jump back when leaving the finally section
-        let reg = c.code[target].regA
-        regs[reg].initIntReg(pc + 1, c.memory)
-        # jump to the instruction following the 'Finally'
-        pc = target
-      else:
-        vmUnreachable("target is not a 'Finally' instruction")
-    of opcLeave:
-      case (instr.regC - byteExcess)
-      of 0: # exit the EH thread
-        c.heap.heapDecRef(c.allocator, t.ehStack[^1].ex.refVal)
-        t.ehStack.setLen(t.ehStack.len - 1)
-      of 1: # exit the finally section
-        let (fromEh, b) = decodeControl(regs[ra].intVal)
-        if fromEh:
-          # only the topmost EH thread can be aborted
-          vmAssert t.ehStack.high == int(b)
-          c.heap.heapDecRef(c.allocator, t.ehStack[^1].ex.refVal)
-          t.ehStack.setLen(t.ehStack.len - 1)
-
-        # the instruction is a no-op when leaving a finally section that wasn't
-        # entered through an exception
-      else:
-        vmUnreachable("invalid operand")
-
-      setCurrentException(t, c.memory):
-        if t.ehStack.len > 0:
-          t.ehStack[^1].ex.refVal
-        else:
-          HeapSlotHandle(0)
-
     of opcFinally:
-      # when entered by normal control-flow, the corresponding exit will jump
-      # to the target specified on this instruction
-      decodeBx(rkInt)
-      regs[ra].intVal = pc + rbx
+      discard "a no-op"
     of opcFinallyEnd:
       # where control-flow resumes depends on how the finally section was
       # entered
-      let (isError, target) = decodeControl(regs[ra].intVal)
-      if isError:
-        # continue the EH thread
-        pc = resumeEh(c, t, t.sframes.high).handle(c, t) - 1
-        updateRegsAlias()
-      else:
-        # not entered through exceptional control-flow; jump to target stored
-        # in the register
-        pc = PrgCtr(target) - 1
-
+      pc = resumeEh(c, t, t.sframes.high).handle(c, t) - 1
+      updateRegsAlias()
     of opcRaise:
-      decodeBImm()
-      discard rb # fix the "unused" warning
-      checkHandle(regs[ra])
-
-      # `imm == 0` -> raise; `imm == 1` -> reraise current exception
-      let isReraise = imm == 1
-
-      var exception: VmException
-      if isReraise:
-        # re-raise the current exception
-        exception = move t.ehStack[^1].ex
-        # popping the thread is the responsibility of the spawned EH thread
-      else:
-        # gather the stack-trace for the exception:
-        var pc = pc
-        exception.trace.newSeq(t.sframes.len)
+      if t.exState.stack.len > 0 and t.exState.stack[^1].trace.len == 0:
+        # the most-recent exception (which is considered to be the one that
+        # was just raised) has no stacktrace -> generate one
+        var
+          trace = newSeq[(PSym, PrgCtr)](t.sframes.len)
+          pc = pc
 
         for i, it in t.sframes.pairs:
           let p =
@@ -2164,16 +2051,16 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
             else:
               pc
 
-          exception.trace[i] = (it.prc, p)
+          trace[i] = (it.prc, p)
 
         # TODO: store the trace in the exception's `trace` field and move this
-        #       setup logic to the ``prepareException`` implementation
+        #       setup logic to the ``raiseExceptionEx`` implementation
+        t.exState.stack[^1].trace = trace
 
-        exception.refVal = regs[ra].atomVal.refVal
-        # keep the exception alive during exception handling:
-        c.heap.heapIncRef(exception.refVal)
+      # set the current exception to the active one:
+      asgnRef(t.exState.current, t.exState.stack[^1].refVal, c.memory, true)
 
-      pc = opRaise(c, t, pc, exception).handle(c, t) - 1
+      pc = opRaise(c, t, pc).handle(c, t) - 1
       updateRegsAlias()
     of opcNew:
       let typ = c.types[instr.regBx - wordExcess]
@@ -2955,8 +2842,11 @@ proc dispose*(c: var TCtx, t: sink VmThread) =
   ## Cleans up and frees all VM data owned by `t`.
   c.memory.cleanUpLocations(t.regs, 0)
 
-  if t.currentException.isNotNil:
-    c.heap.heapDecRef(c.allocator, t.currentException)
+  for it in t.exState.stack.items:
+    c.heap.heapDecRef(c.allocator, it.refVal)
+
+  if t.exState.current.isNotNil:
+    c.heap.heapDecRef(c.allocator, t.exState.current)
 
   # free heap slots that are pending cleanup
   cleanUpPending(c.memory)

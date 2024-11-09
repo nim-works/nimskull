@@ -156,7 +156,35 @@ proc setCurrentExceptionWrapper(a: VmArgs) {.nimcall.} =
   asgnRef(a.currentException, deref(a.getHandle(0)).refVal,
           a.mem[], reset=true)
 
-proc prepareExceptionWrapper(a: VmArgs) {.nimcall.} =
+proc updateCurrentExc(a: VmArgs) =
+  if a.exState.stack.len == 0:
+    a.exState.current.asgnRef(HeapSlotHandle(0), a.mem[], true)
+  else:
+    a.exState.current.asgnRef(a.exState.stack[^1].refVal, a.mem[], true)
+
+proc nimCatchExceptionWrapper(a: VmArgs) {.nimcall.} =
+  # ignore the ExceptionFrame pointer; the "caught" stack is managed directly
+  # by the VM
+  a.exState.stack[^1].caught = true
+
+proc popException(a: VmArgs, previous: bool) =
+  if previous:
+    a.mem.heap.heapDecRef(a.mem.allocator, a.exState.stack[^2].refVal)
+    a.exState.stack.delete(a.exState.stack.len - 2)
+  else:
+    a.mem.heap.heapDecRef(a.mem.allocator, a.exState.stack[^1].refVal)
+    a.exState.stack.shrink(a.exState.stack.len - 1)
+    updateCurrentExc(a)
+
+proc nimAbortExceptionWrapper(a: VmArgs) {.nimcall.} =
+  popException(a, a.getInt(0) == 1)
+
+proc nimLeaveExceptWrapper(a: VmArgs) {.nimcall.} =
+  # if the except block is left via a raised exception, the topmost stack
+  # entry is the raise exception and must not be popped
+  popException(a, not a.exState.stack[^1].caught)
+
+proc raiseExceptionExWrapper(a: VmArgs) {.nimcall.} =
   let
     raised = a.heap[].tryDeref(deref(a.getHandle(0)).refVal, noneType).value()
     nameField = raised.getFieldHandle(1.fpos)
@@ -170,6 +198,17 @@ proc prepareExceptionWrapper(a: VmArgs) {.nimcall.} =
                  deref(a.getHandle(1)).strVal,
                  a.mem.allocator)
 
+  # push to the exception stack:
+  a.mem.heap.heapIncRef(deref(a.getHandle(0)).refVal)
+  a.exState.stack.add VmException(refVal: deref(a.getHandle(0)).refVal)
+
+proc reraiseExceptionWrapper(a: VmArgs) {.nimcall.} =
+  # the following nimLeaveExcept call needs something valid to pop, so the
+  # caught exception is duplicated
+  a.exState.stack.add a.exState.stack[^1]
+  a.mem.heap.heapIncRef(a.exState.stack[^1].refVal)
+  a.exState.stack[^1].caught = false
+
 proc nimUnhandledExceptionWrapper(a: VmArgs) {.nimcall.} =
   # setup the exception AST:
   let
@@ -177,9 +216,8 @@ proc nimUnhandledExceptionWrapper(a: VmArgs) {.nimcall.} =
     ast = toExceptionAst($exc.getFieldHandle(1.fpos).deref().strVal,
                          $exc.getFieldHandle(2.fpos).deref().strVal)
   # report the unhandled exception:
-  # XXX: the current stack-trace should be passed along, but we don't
-  #      have access to it here
-  raiseVmError(VmEvent(kind: vmEvtUnhandledException, exc: ast))
+  raiseVmError(VmEvent(kind: vmEvtUnhandledException,
+                       trace: a.exState.stack[^1].trace, exc: ast))
 
 proc prepareMutationWrapper(a: VmArgs) {.nimcall.} =
   discard "no-op"
@@ -257,8 +295,12 @@ iterator basicOps*(): Override =
   # system operations
   systemop(getCurrentExceptionMsg)
   systemop(getCurrentException)
-  systemop(prepareException)
+  systemop(raiseExceptionEx)
+  systemop(reraiseException)
   systemop(nimUnhandledException)
+  systemop(nimCatchException)
+  systemop(nimLeaveExcept)
+  systemop(nimAbortException)
   systemop(prepareMutation)
   override("stdlib.system.closureIterSetupExc",
            setCurrentExceptionWrapper)

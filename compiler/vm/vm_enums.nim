@@ -140,9 +140,6 @@ type
     opcJmp,   # jump Bx
     opcJmpBack, # jump Bx; resulting from a while loop
     opcBranch,  # branch for 'case'
-    opcEnter, # jump Bx; target must be a ``opcFinally`` instruction
-    opcLeave, # if C == 1: abort EH thread associated with finally;
-              # if C == 0; abort active EH thread
     opcFinally,
     opcFinallyEnd,
     opcNew,
@@ -174,4 +171,4 @@ const
   firstABxInstr* = opcTJmp
   largeInstrs* = { # instructions which use 2 int32s instead of 1:
     opcConv, opcObjConv, opcCast, opcNewSeq, opcOf}
-  relativeJumps* = {opcTJmp, opcFJmp, opcJmp, opcJmpBack, opcEnter, opcFinally}
+  relativeJumps* = {opcTJmp, opcFJmp, opcJmp, opcJmpBack}
