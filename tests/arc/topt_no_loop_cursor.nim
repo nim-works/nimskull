@@ -19,18 +19,20 @@ scope:
               goto [L2]
         def y: Object = ()
         def_cursor _5: Object = x
-        use(arg _5) -> [L3, L4, Resume]
+        use(arg _5) -> [L3]
         x = sink y
-        goto [L3, L5]
+        destroy y
+        goto [L4]
         finally (L3):
           destroy y
-          continue {L4, L5}
-        L5:
+          continue [L5]
+        L4:
   L2:
-  goto [L4, L6]
-  finally (L4):
+  destroy x
+  goto [L6]
+  finally (L5):
     destroy x
-    continue {L6}
+    continue [Resume]
   L6:
 
 -- end

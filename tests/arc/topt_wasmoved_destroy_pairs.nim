@@ -6,7 +6,7 @@ discard """
 scope:
   def a: seq[seq[int]]
   def b: seq[seq[int]]
-  def x: seq[int] = f() -> [L0, Resume]
+  def x: seq[int] = f() -> [L0]
   scope:
     if cond:
       scope:
@@ -16,11 +16,12 @@ scope:
   scope:
     def _6: seq[int] = move x
     add(name b, consume _6)
-  goto [L0, L3]
+  L2:
+  =destroy(name b)
+  =destroy(name a)
+  goto [L3]
   finally (L0):
-    =destroy(name b)
-    =destroy(name a)
-    continue {L3}
+    continue [Resume]
   L3:
 -- end of expandArc ------------------------
 --expandArc: tfor
@@ -28,7 +29,7 @@ scope:
 scope:
   def a: seq[seq[int]]
   def b: seq[seq[int]]
-  def x: seq[int] = f() -> [L0, Resume]
+  def x: seq[int] = f() -> [L0]
   scope:
     def a: int = 0
     def b: int = 4
@@ -50,34 +51,35 @@ scope:
               def _13: bool = eqI(arg i, arg 2)
               if _13:
                 scope:
-                  goto [L5, L0, L6]
+                  =destroy(name x)
+                  =destroy(name a)
+                  goto [L5]
             def _14: seq[int]
             =copy(name _14, arg x)
             add(name a, consume _14)
-          i = addI(arg i, arg 1) -> [L5, L0, Resume]
+          i = addI(arg i, arg 1) -> [L6]
     L3:
   scope:
     if cond:
       scope:
         def _15: seq[int] = move x
-        wasMoved(name x)
         add(name a, consume _15)
         goto [L8]
   scope:
     def _16: seq[int] = move x
-    wasMoved(name x)
     add(name b, consume _16)
   L8:
-  goto [L5, L0, L9]
-  finally (L5):
+  =destroy(name b)
+  =destroy(name a)
+  goto [L9]
+  finally (L6):
     =destroy(name x)
-    continue {L0}
+    continue [L0]
   finally (L0):
-    =destroy(name b)
     =destroy(name a)
-    continue {L6, L9}
+    continue [Resume]
   L9:
-L6:
+L5:
 -- end of expandArc ------------------------
 --expandArc: texit
 scope:
@@ -86,7 +88,8 @@ scope:
   scope:
     if cond:
       scope:
-        goto [L1, L2]
+        =destroy(name x)
+        goto [L1]
   def _4: string = boolToStr(arg cond)
   str := move _4
   scope:
@@ -94,15 +97,11 @@ scope:
     if _5:
       scope:
         result := move str
-        wasMoved(name str)
-        goto [L1, L2]
-  goto [L1, L4]
-  finally (L1):
-    =destroy(name x)
-    =destroy(name str)
-    continue {L2, L4}
-  L4:
-L2:
+        =destroy(name x)
+        goto [L1]
+  =destroy(name x)
+  =destroy(name str)
+L1:
 -- end of expandArc ------------------------'''
 """
 

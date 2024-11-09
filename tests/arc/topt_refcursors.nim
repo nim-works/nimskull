@@ -42,19 +42,19 @@ scope:
         =copy(name ri, arg _18[].ri)
         def_cursor _19: Node = jt
         def_cursor _20: string = _19[].s
-        echo(arg type(array[0..0, string]), arg _20) -> [L6, L7, Resume]
+        echo(arg type(array[0..0, string]), arg _20) -> [L6]
         =sink(name jt, arg ri)
-        wasMoved(name ri)
-        goto [L6, L8]
+        goto [L7]
         finally (L6):
           =destroy(name ri)
-          continue {L7, L8}
-        L8:
+          continue [L8]
+        L7:
   L5:
-  goto [L7, L9]
-  finally (L7):
+  =destroy(name jt)
+  goto [L9]
+  finally (L8):
     =destroy(name jt)
-    continue {L9}
+    continue [Resume]
   L9:
 
 -- end of expandArc ------------------------'''

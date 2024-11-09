@@ -15,11 +15,12 @@ scope:
   L1:
   def_cursor _3: (string, int) = x
   def _4: string = $(arg _3) -> [Resume]
-  echo(arg type(array[0..0, string]), arg _4) -> [L2, Resume]
-  goto [L2, L3]
+  echo(arg type(array[0..0, string]), arg _4) -> [L2]
+  =destroy(name _4)
+  goto [L3]
   finally (L2):
     =destroy(name _4)
-    continue {L3}
+    continue [Resume]
   L3:
 -- end of expandArc ------------------------
 --expandArc: sio
@@ -29,34 +30,52 @@ scope:
     def_cursor filename: string = "debug.txt"
     def_cursor _3: string = filename
     def f: File = open(arg _3, arg fmRead, arg 8000) -> [Resume]
+    def _4: uint32
     scope:
       def res: string = newStringOfCap(arg 80)
       scope:
         while true:
           scope:
-            def_cursor _6: File = f
-            def :tmp: bool = readLine(arg _6, name res) -> [L1, L2, Resume]
+            def_cursor _7: File = f
+            def :tmp: bool = readLine(arg _7, name res) -> [L1]
             scope:
-              def_cursor _7: bool = :tmp
-              def _8: bool = not(arg _7)
-              if _8:
+              def_cursor _8: bool = :tmp
+              def _9: bool = not(arg _8)
+              if _9:
                 scope:
-                  goto [L4]
+                  goto [L3]
             scope:
               def_cursor x: string = res
-              def_cursor _10: string = x
-              echo(arg type(array[0..0, string]), arg _10) -> [L1, L2, Resume]
-      L4:
-      goto [L1, L2, L5]
+              def_cursor _11: string = x
+              echo(arg type(array[0..0, string]), arg _11) -> [L1]
+      L3:
+      =destroy(name res)
+      _4 = 0'u32
+      goto [L4]
       finally (L1):
         =destroy(name res)
-        continue {L2}
-    finally (L2):
-      scope:
-        def_cursor _11: File = f
-        close(arg _11) -> [Leave(L2), Resume]
-      continue {L5}
-    L5:
+        continue [L5]
+    except (L5):
+      _4 := 1'u32
+    L4:
+    scope:
+      def_cursor _12: File = f
+      close(arg _12) -> [L6]
+    goto [L7]
+    finally (L6):
+      def _13: bool = eqI(arg _4, arg 1'u32)
+      if _13:
+        nimAbortException(arg true)
+      continue [Resume]
+    L7:
+    case _4
+    of 0'u32: goto L9
+    of 1'u32: goto L10
+    L9:
+    goto [L11]
+    L10:
+    raise -> [Resume]
+    L11:
 
 -- end of expandArc ------------------------'''
 """
