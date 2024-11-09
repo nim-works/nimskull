@@ -10,12 +10,12 @@ scope:
   scope:
     if x:
       scope:
-        doRaise() -> [L1, Resume]
+        doRaise() -> [L1]
   def _2: Object = ()
   result := move _2
 goto [L2]
 finally (L1):
-  continue {}
+  continue [Resume]
 L2:
 
 -- end of expandArc ------------------------
