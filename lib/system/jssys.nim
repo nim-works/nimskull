@@ -29,9 +29,12 @@ type
 
   JSRef = ref RootObj # Fake type.
 
+  ExceptionFrame {.compilerproc.} = object
+
 var
   framePtr {.importc, nodecl, volatile.}: PCallFrame
   lastJSError {.importc, nodecl, volatile.}: PJSError = nil
+  exceptionStack: seq[tuple[ex: PJSError, caught: bool]]
 
 {.push stacktrace: off, profiler:off.}
 proc nimBoolToStr(x: bool): string {.compilerproc.} =
@@ -142,6 +145,8 @@ proc unhandledException(e: ref Exception) {.
   }
   """.}
 
+# ---- exception runtime implementation
+
 proc nimUnhandledException() {.compilerproc, asmNoStackFrame.} =
   # |NimSkull| exceptions are turned into JavaScript errors for the purpose
   # of better error messages
@@ -165,6 +170,38 @@ proc nimUnhandledException() {.compilerproc, asmNoStackFrame.} =
       }
     """.}
 
+proc updateJsError() {.asmNoStackFrame} =
+  if exceptionStack.len > 0:
+    lastJSError = exceptionStack[exceptionStack.len - 1].ex
+  else:
+    lastJSError = nil
+
+proc nimCatchException(e: ptr ExceptionFrame) {.compilerproc.} =
+  var isJsError: bool
+  {.emit: """
+    `isJsError` = `lastJSError`.m_type === undefined;
+  """.}
+  if isJsError:
+    exceptionStack.add (lastJsError, true)
+  else:
+    # mark the previously raised exception as caught
+    exceptionStack[exceptionStack.len - 1].caught = true
+
+proc nimAbortException(viaError: bool) {.compilerproc.} =
+  if viaError:
+    exceptionStack.delete(exceptionStack.len - 2)
+  else:
+    exceptionStack.setLen(exceptionStack.len - 1)
+    updateJsError()
+
+proc nimLeaveExcept() {.compilerproc.} =
+  if exceptionStack[exceptionStack.len - 1].caught:
+    exceptionStack.setLen(exceptionStack.len - 1)
+    updateJsError()
+  else:
+    # the ``except`` is exited via a raised exception
+    exceptionStack.delete(exceptionStack.len - 2)
+
 proc raiseExceptionEx(e: sink(ref Exception), ename, prc, file: cstring,
                       line: int) {.compilerproc, asmNoStackFrame.} =
   if e.name.isNil:
@@ -173,6 +210,7 @@ proc raiseExceptionEx(e: sink(ref Exception), ename, prc, file: cstring,
     e.trace = rawWriteStackTrace()
 
   lastJSError = cast[PJSError](e)
+  exceptionStack.add (lastJSError, false)
 
 proc raiseException(e: ref Exception) {.compilerproc, asmNoStackFrame.} =
   asm "throw `e`;"
@@ -180,6 +218,10 @@ proc raiseException(e: ref Exception) {.compilerproc, asmNoStackFrame.} =
 proc reraiseException() {.compilerproc, asmNoStackFrame.} =
   if lastJSError == nil:
     raise newException(ReraiseDefect, "no exception to reraise")
+
+  exceptionStack.add (lastJSError, false)
+
+# ----
 
 proc raiseOverflow {.exportc: "raiseOverflow", noreturn, compilerproc.} =
   raise newException(OverflowDefect, "over- or underflow")
