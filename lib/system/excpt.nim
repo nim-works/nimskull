@@ -614,14 +614,10 @@ proc nimLeaveExcept() {.compilerproc, inline.} =
   restoreCurrentEx()
   nimInErrorMode = wasInErrorMode
 
-proc nimAbortException() {.compilerproc.} =
+proc nimAbortException(viaRaise: bool) {.compilerproc.} =
   ## Abort (i.e., discard) an in-flight exception. Must only be called if an
   ## exception is actually in-flight.
-  var wasInErrorMode = nimInErrorMode
-  # disable error mode right away
-  nimInErrorMode = false
-
-  if wasInErrorMode:
+  if viaRaise:
     # if an exception is aborted by raising another exception, don't pop the
     # active exception; drop its parent
     if activeException.up != nil:
@@ -630,7 +626,6 @@ proc nimAbortException() {.compilerproc.} =
     activeException = activeException.up
 
   restoreCurrentEx()
-  nimInErrorMode = wasInErrorMode
 
 {.pop.}
 
