@@ -137,9 +137,6 @@ type
     cnkExcept     ## special join point, representing an exception handler
     cnkFinally
 
-    cnkTargetList ## an ordered list of jump target/actions
-    cnkLeave
-
     cnkDef        ## starts the lifetime of a local and optionally assigns an
                   ## initial value
 
