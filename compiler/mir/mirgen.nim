@@ -1755,7 +1755,7 @@ proc genExceptBranch(c: var TCtx, n: PNode, label: LabelId,
     c.subTree mnkFinally:
       c.add labelNode(exc.id.unsafeGet)
     c.subTree mnkVoid:
-      let p = c.graph.getCompilerProc("nimLeaveException")
+      let p = c.graph.getCompilerProc("nimLeaveExcept")
       c.builder.buildCall c.env.procedures.add(p), VoidType:
         discard
     c.subTree mnkContinue:
