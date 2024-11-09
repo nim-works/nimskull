@@ -120,7 +120,7 @@ proc blockExit*(c; graph: ModuleGraph; env: var MirEnv; bu; targetBlock: int) =
         let pos = c.blocks[i].exits.incl(targetBlock)
         bu.subTree mnkAsgn:
           bu.use b.selector.unsafeGet
-          bu.use literal(mnkIntLit, env.getOrIncl(pos.BiggestInt), Int32Type)
+          bu.use literal(mnkIntLit, env.getOrIncl(pos.BiggestInt), UInt32Type)
 
       # enter to the intercepting finally
       bu.subTree mnkGoto:

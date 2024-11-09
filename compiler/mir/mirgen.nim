@@ -1898,7 +1898,7 @@ proc genTry(c: var TCtx, n: PNode, dest: Destination) =
     # a selector is needed for both the exception aborting and dispatcher. We
     # know whether a dispatcher is needed already, but not whether there can
     # be an exception. Therefore a selector is always generated
-    let selector = c.allocTemp(Int32Type)
+    let selector = c.allocTemp(UInt32Type)
     c.buildStmt mnkDef:
       c.use selector
       c.add MirNode(kind: mnkNone)
