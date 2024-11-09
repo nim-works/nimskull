@@ -3,7 +3,6 @@ discard """
     Multiple tests regarding ``finally`` interaction with exception handlers
     and raised exceptions.
   '''
-  knownIssue.js: "The current exception is not properly cleared"
 """
 
 var steps: seq[int]
