@@ -48,14 +48,8 @@ Semantics
         | <Type>
         | LVALUE
 
-  INTERMEDIATE_TARGET = <Label>
-                      | Leave <Label>
-
   TARGET = <Label>
-         | TargetList INTERMEDIATE_TARGET ... <Label>
-
-  EX_TARGET = TARGET
-            | TargetList INTERMEDIATE_TARGET ... Resume
+  EX_TARGET = <Label> | Resume
 
   UNARY_OP = NegI VALUE
 
@@ -189,7 +183,7 @@ Semantics
             | Except <Local> EX_TARGET
             | Except                    # catch-all handler
             | Finally <Label>
-            | Continue <Label> (<Label> | Resume) ...
+            | Continue EX_TARGET
             | End <Label>               # marks the end of an if, repeat, or
                                         # except
             | Emit VALUE ...
@@ -265,48 +259,12 @@ that:
 is not allowed. However, much like in the high-level language, structured
 constructs can be nested.
 
-Target Lists
-------------
-
-`Goto`, `Raise`, `Except`, and `CheckedCall` support *target lists*. The
-target list specifies intermediate jump targets as well as which sections
-are exited. Take, for example:
-
-.. code-block::
-
-  goto [Leave L1, L2, Leave L3, L4]
-
-What this means is the following:
-1. leave the section (`Except` or `Finally`) identified by label L1
-2. enter the `Finally` section identified by label L2
-3. leave the section identified by label L3
-4. land at the `Finally` or `Join` identified by label L4
-
-An example of the code that would result in such `Goto`:
-
-.. code-block:: nim
-
-  block L4:
-    try:
-      ...
-    finally:
-      try:
-        try
-          ...
-        finally:
-          break L4 # this would translate to the aforementioned goto
-      finally:
-        ...
-
-In the context of exceptional control-flow, the final target must be either
-a `Finally` or an `Except`, otherwise it must be either a `Finally` or `Join`.
-
 Resume
 ------
 
-`Resume` is a special jump target that may only appear as the final target of
-`Raise`, `CheckedCall`, and `Except`. It specifies that unwinding/exception-
-handling *resumes* in the caller procedure.
+`Resume` is a special jump target that may only appear as the target of
+`Raise`, `Continue`, `CheckedCall`, and `Except`. It specifies that
+unwinding/exception-handling *resumes* in the caller procedure.
 
 Exception Handler
 -----------------
@@ -320,15 +278,18 @@ specified by the `Except`.
 Finally Sections
 ----------------
 
-A `Finally` section is used as an intermediate target in a jump chain. Where
-the `Continue` statement marking the end of the section jumps to depends on
-the *target list* the entered `Finally` is part of. For example, with
-`Goto [L1, L2]`, the `Continue` of the `Finally` section identified by L1
-would jump to L2.
+A `Finally` section is similar to an `Except` section, but with a few
+important differences:
+* neither exceptional nor non-exceptional control-flow must "break" out of the
+  `Finally` section
+* it cannot be predicated with an exception type
 
-The `Continue` must also be present if it is never actually reached. In this
-case, the `Finally` section may only appear as the final target in a target
-list.
+Unlike a |NimSkull| `finally`, an MIR `Finally` section is not meant for
+intercepting non-exceptional control-flow -- it must only be used as the
+target for exceptional control-flow.
+
+At the end of `Finally` section must be a `Continue` statement, which specifies
+where raising the exception continues.
 
 Storage
 =======
