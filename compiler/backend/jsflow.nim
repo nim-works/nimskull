@@ -50,8 +50,6 @@ type
     ## Describes how a CGIR statement-list translates to JavaScript code. The
     ## focus is on the control-flow constructs, hence the name.
     structs: seq[Structure]
-    finallys: PackedSet[BlockId]
-      ## labels that denote finally sections
     inline: Table[BlockId, int]
       ## maps all blocks that can be inlined into swith-case statements to
       ## the blocks' 'end' item
@@ -68,16 +66,8 @@ proc rotateRight[T](s: var seq[T], a, b: int) =
     dec i
   s[a] = backup
 
-func finalTarget*(n: CgNode): CgNode =
-  ## Given a label or target list, retrieves the target.
-  case n.kind
-  of cnkLabel:      n
-  of cnkTargetList: n[^1]
-  else:
-    unreachable()
-
 proc spawnOpens(items: var seq[Structure], pos: int, n: CgNode, isError: bool,
-                finallys: PackedSet[BlockId], marker: var PackedSet[BlockId]) =
+                marker: var PackedSet[BlockId]) =
   ## Using the jump action description `n`, spawns the 'try' or labeled block
   ## openings needed for the jump targets. The set of targets for which
   ## openings were already spawned are tracked by `marker`.
@@ -89,39 +79,11 @@ proc spawnOpens(items: var seq[Structure], pos: int, n: CgNode, isError: bool,
 
   case n.kind
   of cnkLabel:
-    # direct jump to something that cannot be a finally section
     if not containsOrIncl(marker, n.label):
       items.add Structure(kind: target, stmt: pos, label: n.label)
 
-  of cnkTargetList:
-    for i in 0..<n.len-1:
-      case n[i].kind
-      of cnkLabel:
-        # an intermediate target must be a finally section (so spawn a try)
-        let label = n[i].label
-        if not containsOrIncl(marker, label):
-          items.add Structure(kind: stkTry, stmt: pos, label: label)
-      of cnkLeave:
-        discard "not handled here"
-      else:
-        unreachable()
-
-    # special handling for the final target
-    case n[^1].kind
-    of cnkLabel:
-      let label = n[^1].label
-      if not containsOrIncl(marker, label):
-        # the final target might be a finally section, in which case a
-        # 'try' needs to be spawned, always
-        if label in finallys:
-          items.add Structure(kind: stkTry, stmt: pos, label: label)
-        else:
-          items.add Structure(kind: target, stmt: pos, label: label)
-    of cnkResume:
-      discard "no special handling for the 'resume' target"
-    else:
-      unreachable()
-
+  of cnkResume:
+    discard "no special handling for the 'resume' target"
   else:
     unreachable(n.kind)
 
@@ -230,22 +192,13 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   ## representation for `stmts`.
   var
     structs = newSeq[Structure]()
-    finallys = initPackedSet[BlockId]()
     marker = initPackedSet[BlockId]()
-
-  # before doing anything else, we need to know which labels belong to finallys
-  for it in stmts.items:
-    if it.kind == cnkFinally:
-      finallys.incl it[0].label
 
   # the first step is computing the first statement that opening 'try's and
   # labeled blocks *must* enclose:
   #   def x = 0
-  #   def y = f() -> [L0, L1]
-  #   goto [L0, L2]
-  #   L0: # finalizer
-  #     ...
-  #     Continue
+  #   def y = f() -> [L1]
+  #   goto [L2]
   #   L1: # exception handler
   #     ...
   #   L2: ...
@@ -255,7 +208,7 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   # handler. A labeled JS block must enclose the `goto`.
   for i, it in stmts.pairs:
     template exit(n: CgNode, isError: bool) =
-      spawnOpens(structs, i, n, isError, finallys, marker)
+      spawnOpens(structs, i, n, isError, marker)
 
     template terminator() =
       structs.add Structure(kind: stkTerminator, stmt: i)
@@ -271,14 +224,7 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
       exit(it[^1], isError=true)
     of cnkGotoStmt:
       exit(it[0], isError=false)
-      let target = finalTarget(it[0])
-      # if the goto jumps to a finally, there's no label for the break.
-      # Since this can only happen when structured control-flow never
-      # leaves the finally, a JavaScript 'return' can be used
-      if target.label in finallys:
-        structs.add Structure(kind: stkReturn, stmt: i)
-      else:
-        terminator()
+      terminator()
     of cnkRaiseStmt:
       exit(it[^1], isError=true)
       terminator()
@@ -291,8 +237,24 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
       struct(stkStructStart, it[0].label)
     of cnkIfStmt:
       struct(stkStructStart, it[1].label)
-    of cnkEnd, cnkContinueStmt, cnkLoopStmt:
+    of cnkEnd, cnkLoopStmt:
       struct(stkEnd, it[0].label)
+    of cnkContinueStmt:
+      var
+        depth = 1
+        j = structs.high
+      # look for the first unmatched opening 'finally':
+      while j >= 0 and (depth != 1 or structs[j].kind != stkFinally):
+        depth += ord(structs[j].kind == stkEnd)
+        depth -= ord(structs[j].kind in
+          {stkCatch, stkFinally, stkTry, stkStructStart, stkBlock})
+        dec j
+
+      assert structs[j].kind == stkFinally
+      exit(it[0], isError=true)
+      terminator()
+      # attach the end to the next statement:
+      structs.add Structure(kind: stkEnd, stmt: i + 1, label: structs[j].label)
     of cnkJoinStmt:
       assert it[0].label in marker
       struct(stkEnd, it[0].label)
@@ -352,7 +314,7 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
       of cnkGotoStmt:
         # we don't inline the target at bare gotos. Mark the block the goto
         # targets as ineligible by incrementing the counter by two
-        inline.mgetOrPut(finalTarget(n[0]).label, 0) += 2
+        inline.mgetOrPut(n[0].label, 0) += 2
       else:
         discard "only gotos are interesting"
     of stkEnd:
@@ -384,4 +346,4 @@ proc toStructureList*(stmts: openArray[CgNode]): StructDesc =
   #   structured control-flow would take same route
   # * a chain of exception could be merged into a single JavaScript catch
 
-  result = (structs, finallys, inline)
+  result = (structs, inline)
