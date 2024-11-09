@@ -354,24 +354,13 @@ proc labelToIr(tree: MirBody, cr: var TreeCursor): CgNode =
   newLabelNode(tree.get(cr).label)
 
 proc targetToIr(tree: MirBody, cr: var TreeCursor): CgNode =
-  ## Translates a MIR target list to its CGIR counterpart. Both share the same
-  ## structure, so the translation is straightforward.
-  proc actionToIr(tree: MirBody, n: MirNode, info: TLineInfo): CgNode =
-    case n.kind
-    of mnkLabel:  newLabelNode(n.label)
-    of mnkLeave:  newTree(cnkLeave, info, newLabelNode(n.label))
-    of mnkResume: CgNode(kind: cnkResume, info: info)
-    else:
-      unreachable(n.kind)
-
+  ## Translates a MIR target to its CGIR equivalent.
   let n {.cursor.} = tree.get(cr)
   case n.kind
   of mnkLabel:
-    result = actionToIr(tree, n, cr.info)
-  of mnkTargetList:
-    result = newTree(cnkTargetList, cr.info)
-    for _ in 0..<n.len:
-      result.add actionToIr(tree, tree.get(cr), cr.info)
+    result = newLabelNode(n.label)
+  of mnkResume:
+    result = CgNode(kind: cnkResume, info: cr.info)
   else:
     unreachable(n.kind)
 
@@ -604,10 +593,7 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   of mnkFinally:
     to cnkFinally, labelToIr(tree, cr)
   of mnkContinue:
-    stmts.add newStmt(cnkContinueStmt, info, labelToIr(tree, cr))
-    # skip the candidate list, it's not relevant to code generation:
-    for _ in 1..<n.len:
-      tree.skip(cr)
+    to cnkContinueStmt, targetToIr(tree, cr)
   of mnkVoid:
     var res = exprToIr(tree, cl, cr)
     if res.typ.isEmptyType():

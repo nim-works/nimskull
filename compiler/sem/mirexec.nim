@@ -170,19 +170,6 @@ func `[]`(c: DataFlowGraph, pc: SomeInteger): lent Instr {.inline.} =
 
 # ---- data-flow graph setup ----
 
-proc firstTarget(tree: MirTree, n: NodePosition): NodePosition =
-  ## Returns the first label or resume in the jump target description.
-  case tree[n].kind
-  of mnkLabel:
-    result = n
-  of mnkTargetList:
-    for p in subNodes(tree, n):
-      if tree[p].kind in {mnkResume, mnkLabel}:
-        return p
-    unreachable("ill-formed target list")
-  else:
-    unreachable(tree[n].kind)
-
 func map(env: var ClosureEnv, id: LabelId): JoinId =
   if id in env.labelToJoin:
     result = env.labelToJoin[id]
@@ -210,7 +197,6 @@ func getResumeLabel(env: var ClosureEnv): JoinId =
 
 func raiseExit(env: var ClosureEnv, opc: Opcode, tree: MirTree,
                at, target: NodePosition) =
-  let target = firstTarget(tree, target)
   # compute the join ID to use, accounting for the special 'resume' action:
   let join =
     case tree[target].kind
@@ -262,7 +248,7 @@ func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
     case tree[it].kind
     of mnkArg, mnkConsume, mnkName:
       emitForArg(env, tree, at, it)
-    of mnkMagic, mnkProc, mnkLabel, mnkTargetList, mnkImmediate:
+    of mnkMagic, mnkProc, mnkLabel, mnkImmediate, mnkResume:
       discard
     else:
       emitLvalueOp(env, opUse, tree, at, OpValue it)
@@ -410,9 +396,7 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
   for i, n in tree.pairs:
     case n.kind
     of mnkGoto:
-      let first = tree.firstTarget(tree.child(i, 0))
-      # the node for the target is guaranteed to be a label
-      goto i, tree[first].label
+      goto i, tree[i, 0].label
     of mnkLoop:
       loop i, tree[i, 0].label
     of mnkIf:
@@ -450,22 +434,7 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
     of mnkFinally:
       join i, tree[i, 0].label
     of mnkContinue:
-      var j = 0
-      # a continue acts much like a dispatcher
-      for it in subNodes(tree, i):
-        if j == 0:
-          discard "label of the associated finally; ignore"
-        elif j < n.len.int - 1:
-          fork i, tree[it].label
-        else:
-          goto i, tree[it].label
-        inc j
-
-      if n.len == 1:
-        # no follow-up targets means that the finally continues exceptional
-        # control-flow in the caller
-        let target = env.getResumeLabel()
-        env.instrs.add Instr(op: opGoto, node: i, dest: target)
+      raiseExit(env, opGoto, tree, i, tree.child(i, 0))
     of mnkRaise:
       # raising an exception consumes it:
       if tree[tree.operand(i)].kind != mnkNone:
