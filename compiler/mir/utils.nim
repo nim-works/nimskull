@@ -53,7 +53,7 @@ func `$`(n: MirNode): string =
   of mnkMagic:
     result.add " magic: "
     result.add $n.magic
-  of mnkLabel, mnkLeave:
+  of mnkLabel:
     result.add " label: "
     result.addInt n.label.uint32
   of mnkImmediate:
@@ -241,7 +241,7 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     result.add "type("
     typeToStr(result, n.typ, c.env)
     result.add ")"
-  of AllNodeKinds - Atoms - mnkProc + {mnkResume, mnkLeave}:
+  of AllNodeKinds - Atoms - mnkProc + {mnkResume}:
     result.error(n)
 
 proc singleToStr(tree: MirTree, i: var int, result: var string, c: RenderCtx) =
@@ -348,18 +348,11 @@ proc targetToStr(nodes: MirTree, i: var int, result: var string) =
   var n {.cursor.} = next(nodes, i)
   case n.kind
   of mnkLabel:
-    result.add n.label
-  of mnkTargetList:
     result.add "["
-    commaSeparated n.len:
-      n = next(nodes, i)
-      case n.kind
-      of mnkLabel:  result.add n.label
-      of mnkLeave:  result.add "Leave(L" & $n.label.int & ")"
-      of mnkResume: result.add "Resume"
-      else:         result.error(n)
-
+    result.add n.label
     result.add "]"
+  of mnkResume:
+    result.add "[Resume]"
   else:
     result.error(n)
 
@@ -636,13 +629,8 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: var int, result: var string,
       result.add ":\n"
   of mnkContinue:
     tree "continue ":
-      inc i # skip the label
-      result.add "{"
-      for j in 1..<n.len:
-        if j > 1:
-          result.add ", "
-        labelToStr(nodes, i, result)
-      result.add "}\n"
+      targetToStr(nodes, i, result)
+      result.add "\n"
 
     dec indent
   of AllNodeKinds - StmtNodes:
