@@ -165,12 +165,14 @@ proc nimUnhandledException() {.compilerproc, asmNoStackFrame.} =
       }
     """.}
 
-proc prepareException(e: ref Exception, ename: cstring) {.
-    compilerproc, asmNoStackFrame.} =
+proc raiseExceptionEx(e: sink(ref Exception), ename, prc, file: cstring,
+                      line: int) {.compilerproc, asmNoStackFrame.} =
   if e.name.isNil:
     e.name = ename
   when NimStackTrace:
     e.trace = rawWriteStackTrace()
+
+  lastJSError = cast[PJSError](e)
 
 proc raiseException(e: ref Exception) {.compilerproc, asmNoStackFrame.} =
   asm "throw `e`;"
@@ -178,8 +180,6 @@ proc raiseException(e: ref Exception) {.compilerproc, asmNoStackFrame.} =
 proc reraiseException() {.compilerproc, asmNoStackFrame.} =
   if lastJSError == nil:
     raise newException(ReraiseDefect, "no exception to reraise")
-  else:
-    asm "throw lastJSError;"
 
 proc raiseOverflow {.exportc: "raiseOverflow", noreturn, compilerproc.} =
   raise newException(OverflowDefect, "over- or underflow")

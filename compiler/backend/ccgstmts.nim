@@ -131,27 +131,14 @@ proc raiseExit(p: BProc, n: CgNode) =
            [raiseInstr(p, n)])
 
 proc genRaiseStmt(p: BProc, t: CgNode) =
-  if t[0].kind != cnkEmpty:
-    var a: TLoc
-    initLocExprSingleUse(p, t[0], a)
-    var e = rdLoc(a)
-    discard getTypeDesc(p.module, t[0].typ)
-    var typ = skipTypes(t[0].typ, abstractPtrs)
-    genLineDir(p, t)
-    if isImportedException(typ, p.config):
-      lineF(p, cpsStmts, "throw $1;$n", [e])
-    else:
-      lineCg(p, cpsStmts, "#raiseException2((#Exception*)$1, $2, $3, $4);$n",
-          [e,
-          makeCString(if p.prc != nil: p.prc.name.s else: p.module.module.name.s),
-          quotedFilename(p.config, t.info), toLinenumber(t.info)])
-
+  if nimErrorFlagDisabled in p.flags:
+    # the error flag needs to be set to true, but the ``nimErr_`` local was
+    # disabled. Query the pointer manually
+    linefmt(p, cpsStmts, "*#nimErrorFlag() = NIM_TRUE;$n", [])
   else:
-    genLineDir(p, t)
-    # reraise the last exception:
-    linefmt(p, cpsStmts, "#reraiseException();$n", [])
-
-  linefmt(p, cpsStmts, "$1$n", [raiseInstr(p, t[1])])
+    p.flags.incl nimErrorFlagAccessed
+    linefmt(p, cpsStmts, "*nimErr_ = NIM_TRUE;$n", [])
+  linefmt(p, cpsStmts, "$1$n", [raiseInstr(p, t[0])])
 
 template genCaseGenericBranch(p: BProc, b: CgNode, e: TLoc,
                           rangeFormat, eqFormat: FormatStr, labl: BlockId) =

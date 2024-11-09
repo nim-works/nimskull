@@ -551,8 +551,6 @@ proc rewriteAssignments(tree: MirTree, ctx: AnalyseCtx, ar: AnalysisResults,
       of mnkConsume:
         # we must be processing a call/construction argument
         consumeArg(tree, ctx, ar, tree.parent(parent), val, i, c)
-      of mnkRaise:
-        consumeArg(tree, ctx, ar, NodePosition val, val, i, c)
       of mnkMove, mnkSink:
         # assignments are handled separately
         discard

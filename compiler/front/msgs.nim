@@ -1016,6 +1016,16 @@ proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
   else:
     result = conf[i.fileIndex].quotedName
 
+proc unquotedFilename*(conf: ConfigRef, i: TLineInfo): Rope =
+  ## Returns the unqouted filename for `i`, for the purpose of being used for
+  ## run-time stacktraces.
+  if i.fileIndex.int32 < 0:
+    result = "???"
+  elif optExcessiveStackTrace in conf.globalOptions:
+    result = conf[i.fileIndex].fullPath.string
+  else:
+    result = conf[i.fileIndex].shortName
+
 proc listWarnings*(conf: ConfigRef) =
   conf.localReport(InternalReport(
     kind: rintListWarnings,

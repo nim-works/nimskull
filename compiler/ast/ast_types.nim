@@ -848,7 +848,6 @@ type
     mCopyInternal
       ## copyInternal(a, b); copies backend-specific internal data stored
       ## on non-pure objects from a to b
-    mResumeRaising
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const

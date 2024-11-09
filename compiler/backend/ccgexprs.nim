@@ -1442,11 +1442,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     initLocExpr(p, e[2], b)
     linefmt(p, cpsStmts, "$1 = $2;$n", [rdMType(p, a, check),
                                         rdMType(p, b, check)])
-  of mResumeRaising:
-    if nimErrorFlagDisabled notin p.flags:
-      p.flags.incl nimErrorFlagAccessed
-      linefmt(p, cpsStmts, "*nimErr_ = NIM_TRUE;$n", [])
-    linefmt(p, cpsStmts, "$1$n", [raiseInstr(p, e[1])])
   else:
     when defined(debugMagics):
       echo p.prc.name.s, " ", p.prc.id, " ", p.prc.flags, " ", p.prc.ast[genericParamsPos].kind

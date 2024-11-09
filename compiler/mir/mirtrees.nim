@@ -172,9 +172,8 @@ type
     # future direction: the arithmetic operations should also apply to
     # unsigned integers
 
-    mnkRaise  ## if the operand is an ``mnkNone`` node, reraises the
-              ## currently active exception. Otherwise, consumes the operand
-              ## and sets it as the active exception
+    mnkRaise  ## starts exceptional control-flow and jumps to the specified
+              ## handler
 
     mnkSetConstr  ## constructor for set values
     mnkRange      ## range constructor. May only appear in set constructions
@@ -314,7 +313,7 @@ const
 
   SingleOperandNodes* = {mnkPathNamed, mnkPathPos, mnkPathVariant, mnkPathConv,
                          mnkAddr, mnkDeref, mnkView, mnkDerefView, mnkStdConv,
-                         mnkConv, mnkCast, mnkRaise, mnkArg,
+                         mnkConv, mnkCast, mnkArg,
                          mnkName, mnkConsume, mnkVoid, mnkCopy, mnkMove,
                          mnkSink, mnkDestroy, mnkMutView, mnkToMutSlice}
     ## Nodes that start sub-trees but that always have a single sub node.

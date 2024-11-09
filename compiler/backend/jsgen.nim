@@ -238,12 +238,6 @@ proc indentLine(p: PProc, r: Rope): Rope =
     result.add "  "
   result.add r
 
-template line(p: PProc, added: string) =
-  p.body.add(indentLine(p, rope(added)))
-
-template line(p: PProc, added: Rope) =
-  p.body.add(indentLine(p, added))
-
 template lineF(p: PProc, frmt: FormatStr, args: varargs[Rope]) =
   p.body.add(indentLine(p, ropes.`%`(frmt, args)))
 
@@ -790,17 +784,7 @@ proc genExcept(p: PProc, n: CgNode) =
 proc genRaiseStmt(p: PProc, n: CgNode) =
   # disable the necessary sections before throwing:
   setEnabled(p, handleErrorJump(p, n[^1]), "false")
-  if n[0].kind != cnkEmpty:
-    var a: TCompRes
-    gen(p, n[0], a)
-    genLineDir(p, n)
-    useMagic(p, "raiseException")
-    lineF(p, "raiseException($1);$n",
-             [a.rdLoc])
-  else:
-    genLineDir(p, n)
-    useMagic(p, "reraiseException")
-    line(p, "reraiseException();\L")
+  lineF(p, "throw lastJSError;$n", [])
 
 func intLiteral(v: Int128, typ: PType): string =
   if typ.kind == tyBool:
@@ -1910,8 +1894,6 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
     # the nil-check is expected to have taken place already
     lineF(p, "chckObj($1.m_type, $2);$n",
           [rdLoc(x), genTypeInfo(p, n[2].typ)])
-  of mResumeRaising:
-    lineF(p, "throw lastJSError;$n", [])
   else:
     genCall(p, n, r)
     #else internalError(p.config, e.info, 'genMagic: ' + magicToStr[op]);

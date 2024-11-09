@@ -174,8 +174,7 @@ Semantics
             | Loop <Label>              # unconditional jump back to the start
                                         # of a loop
             | Destroy LVALUE
-            | Raise LVALUE EX_TARGET
-            | Raise <None> EX_TARGET
+            | Raise EX_TARGET
             | Join <Label>              # join point for non-exceptional
                                         # control-flow (e.g., goto)
             | LoopJoin <Label>          # join point for `Loop`

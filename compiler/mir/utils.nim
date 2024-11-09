@@ -603,9 +603,7 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: var int, result: var string,
       exprToStr()
     result.add "\n"
   of mnkRaise:
-    tree "raise ":
-      valueToStr()
-      result.add " -> "
+    tree "raise -> ":
       targetToStr()
     result.add "\n"
   of mnkDestroy:

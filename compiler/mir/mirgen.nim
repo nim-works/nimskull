@@ -101,6 +101,8 @@ import std/options as std_options
 when defined(nimCompilerStacktraceHints):
   import compiler/utils/debugutils
 
+from compiler/front/msgs import unquotedFilename, toLinenumber
+
 type
   DestFlag = enum
     ## Extra information about an assignment destination. The flags are used to
@@ -164,6 +166,7 @@ type
     # input:
     userOptions: set[TOption]
     graph: ModuleGraph
+    owner: PSym
 
     config: TranslationConfig
 
@@ -1265,29 +1268,44 @@ proc genRaise(c: var TCtx, n: PNode) =
       # skip the 'materialize' node
       genx(c, e, e.high - 1, fromMove=true)
 
-    # emit the preparation code:
+    # raising an exception consists of two parts:
+    # 1. filling in various state for it (stacktrace, name, etc.) and pushing
+    #    it to the exception stack
+    # 2. unwinding to the next handler
+    # The first part is done with a call to the relevant exception runtime
+    # procedure. The second part is done by ``mnkRaise``.
     let
       typ = skipTypes(n[0].typ, abstractPtrs)
-      cp = c.graph.getCompilerProc("prepareException")
+      cp = c.graph.getCompilerProc("raiseExceptionEx")
     c.buildStmt mnkVoid:
       c.builder.buildCall c.env.procedures.add(cp), VoidType:
-        c.subTree mnkArg:
+        c.subTree mnkConsume:
           # lvalue conversion to the base ``Exception`` type:
           c.buildTree mnkPathConv, c.typeToMir(cp.typ[1]):
             c.use tmp
+        # exception name:
         c.emitByVal strLiteral(c.env, typ.sym.name.s,
                                CstringType)
-
-    # emit the raise statement:
-    c.buildStmt mnkRaise:
-      c.use tmp
-      raiseExit(c)
+        # procedure name:
+        if c.owner.isNil:
+          c.emitByVal strLiteral(c.env, "???", CstringType)
+        else:
+          c.emitByVal strLiteral(c.env, c.owner.name.s, CstringType)
+        # file name:
+        c.emitByVal strLiteral(c.env, unquotedFilename(c.graph.config, n.info),
+                               CstringType)
+        # file number:
+        c.emitByVal intLiteral(c.env, toLinenumber(n.info),
+                               c.env.types.sizeType)
   else:
     # a re-raise statement
-    c.buildStmt mnkRaise:
-      c.add MirNode(kind: mnkNone)
-      raiseExit(c)
+    let cp = c.graph.getCompilerProc("reraiseException")
+    c.buildStmt mnkVoid:
+      c.builder.buildCall c.env.procedures.add(cp), VoidType:
+        discard
 
+  c.buildStmt mnkRaise:
+    raiseExit(c)
 
 proc genReturn(c: var TCtx, n: PNode) =
   assert n.kind == nkReturnStmt
@@ -1876,15 +1894,13 @@ proc genFinally(c: var TCtx, n: PNode) =
       # resume raising the in-flight exception. Using a re-raise would be
       # wrong, because the exception wasn't (technically) caught yet
       c.join labels[^1]
-      c.subTree mnkVoid:
-        c.buildCheckedMagicCall mResumeRaising, VoidType:
-          discard
+      c.subTree mnkRaise:
+        raiseExit(c)
 
   elif exc.id.isSome:
     # always resume raising the exception
-    c.subTree mnkVoid:
-      c.buildCheckedMagicCall mResumeRaising, VoidType:
-        discard
+    c.subTree mnkRaise:
+      raiseExit(c)
 
 proc genTry(c: var TCtx, n: PNode, dest: Destination) =
   let
@@ -2354,7 +2370,7 @@ proc genWithDest(c: var TCtx, n: PNode; dest: Destination) =
 
 proc initCtx(graph: ModuleGraph, config: TranslationConfig, owner: PSym,
              env: sink MirEnv): TCtx =
-  result = TCtx(graph: graph, config: config, env: move env)
+  result = TCtx(graph: graph, config: config, owner: owner, env: move env)
   if owner != nil:
     result.userOptions = owner.options
     result.injectDestructors =

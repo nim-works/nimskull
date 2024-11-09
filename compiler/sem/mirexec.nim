@@ -433,14 +433,8 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
         raiseExit(env, opFork, tree, i, tree.child(i, n.len - 1))
     of mnkFinally:
       join i, tree[i, 0].label
-    of mnkContinue:
+    of mnkContinue, mnkRaise:
       raiseExit(env, opGoto, tree, i, tree.child(i, 0))
-    of mnkRaise:
-      # raising an exception consumes it:
-      if tree[tree.operand(i)].kind != mnkNone:
-        emitLvalueOp(env, opConsume, tree, i, tree.operand(i))
-
-      raiseExit(env, opGoto, tree, i, tree.child(i, 1))
     of mnkEndStruct:
       # emit a join at the end of an 'if'
       if ifs.len > 0 and tree[i, 0].label == ifs[^1]:

@@ -612,15 +612,7 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     to cnkEnd, labelToIr(tree, cr)
   of mnkRaise:
     # the operand can either be empty or an lvalue expression
-    let
-      arg {.cursor.} = tree.get(cr)
-      res = newStmt(cnkRaiseStmt, info):
-        case arg.kind
-        of mnkNone: newEmpty()
-        else:       lvalueToIr(tree, cl, arg, cr)
-
-    res.add targetToIr(tree, cr)
-    stmts.add res
+    stmts.add newStmt(cnkRaiseStmt, info, targetToIr(tree, cr))
   of mnkCase:
     stmts.add caseToIr(tree, env, cl, n, cr)
   of mnkAsm:
