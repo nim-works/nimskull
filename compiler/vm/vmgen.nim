@@ -137,8 +137,12 @@ type
       ## upper bound of allocated registers at the beginning of the block
     label: BlockId
     case kind: BlockKind
-    of bkBlock, bkFinally:
+    of bkBlock:
       start: TPosition
+    of bkFinally:
+      patchPos: uint32
+        ## the ``ehoNext`` instruction that needs to be patched once the
+        ## follow-up handler is known
     of bkExcept:
       discard
 
@@ -166,9 +170,8 @@ type
     ehExits: seq[tuple[label: BlockId, pos: uint32]]
       ## EH instructions that need patching once position and type of the
       ## target EH instruction is known
-    lastPath: CgNode
-      ## the path corresponding to the previously emitted EH instruction
-      ## sequence, or nil. Prevents excessive EH code duplication
+    ehPatch: seq[tuple[label: BlockId, pos: uint32]]
+      ## EH table entries that need patching once the handler is generated
 
   CodeGenCtx* = object
     ## Bundles all input, output, and other contextual data needed for the
@@ -456,59 +459,17 @@ proc genEhCode(c: var TCtx, n: CgNode)
 
 proc registerEh(c: var TCtx, n: CgNode) =
   ## Emits an exception-handling table entry for the instruction at the head
-  ## of the instruction list (i.e., the one emitted next). `n` must be either
-  ## a label or target list.
-  proc isEqual(a, b: CgNode): bool =
-    ## Compares two label-like nodes for equality.
-    if a.kind != b.kind:
-      return false
-
-    case a.kind
-    of cnkLeave:  a[0].label == b[0].label
-    of cnkLabel:  a.label == b.label
-    of cnkResume: true
-    else:
-      unreachable()
-
-  proc comparePaths(a, b: CgNode): int =
-    ## Returns the number of actions `a` and `b` share at the end. 0
-    ## means that both share no trailing actions.
-    let (a, b) =
-      if a.kind == cnkTargetList: (a, b)
-      else:                       (b, a)
-    # because of the above swap, if `a` is not a list of targets, then neither
-    # is `b`
-    if a.kind == cnkTargetList:
-      if b.kind == cnkLabel:
-        result = if isEqual(a[^1], b): 1 else: 0
-      else:
-        result = min(a.len, b.len)
-        for i in 1..result:
-          if not isEqual(a[^i], b[^i]):
-            return i - 1
-        # one target list is a subset of the other
-    else:
-      result = if isEqual(a, b): 1 else: 0
-
-  let pos = uint32(c.code.len - c.prc.baseOffset.int)
+  ## of the instruction list (i.e., the one emitted next).
   case n.kind
   of cnkLabel:
-    # un-intercepted jump
-    if c.prc.lastPath == nil or comparePaths(c.prc.lastPath, n) == 0:
-      genEhCode(c, n)
-
-    c.ehTable.add (pos, uint32(c.ehCode.len - 1))
-  of cnkTargetList:
-    if n.len == 1 and n[0].kind == cnkResume:
-      # if there's nothing responding to the exception within the current
-      # procedure, no EH code needs to be associated with the instruction
-      return
-
-    if c.prc.lastPath == nil or comparePaths(n, c.prc.lastPath) < n.len:
-      # cannot re-use the previous instruction sequence
-      genEhCode(c, n)
-
-    c.ehTable.add (pos, uint32(c.ehCode.len - n.len))
+    # a local handler or finally exists
+    c.ehTable.add (uint32(c.code.len - c.prc.baseOffset.int), 0'u32)
+    # the real EH instruction is associated later
+    c.prc.ehPatch.add (n.label, c.ehTable.high.uint32)
+  of cnkResume:
+    # if there's nothing responding to the exception within the current
+    # procedure, no EH code needs to be associated with the instruction
+    discard
   else:
     unreachable(n.kind)
 
@@ -718,46 +679,6 @@ proc popBlock(c: var TCtx) =
                                   slotTempHandle}:
           doAssert false, "leaking temporary " & $i & " " & $c.prc.regInfo[i].kind
       c.prc.regInfo[i] = RegInfo(kind: slotEmpty)
-
-func controlReg(c: TCtx, blk: BlockInfo): TRegister =
-  c.code[blk.start.int].regA
-
-proc genGoto(c: var TCtx; n: CgNode) =
-  ## Generates and emits the code for a ``cnkGoto``. Depending on whether it's
-  ## an intercepted jump, the goto can translate to more than one instruction.
-  let
-    target = n[0]
-    info = n.info
-  case target.kind
-  of cnkLabel:
-    c.prc.exits.add (target.label, c.xjmp(n, opcJmp))
-  of cnkTargetList:
-    # there are some leave actions
-    for i in 0..<target.len-1:
-      let it = target[i]
-      case it.kind
-      of cnkLabel:
-        # enter the finally section:
-        c.prc.exits.add (it.label, c.xjmp(n, opcEnter))
-      of cnkLeave:
-        # leave the except or finally section:
-        for blk in c.prc.blocks.items:
-          if blk.label == it[0].label:
-            case blk.kind
-            of bkExcept:
-              c.gABI(info, opcLeave, 0, 0, 0)
-            of bkFinally:
-              c.gABI(info, opcLeave, c.controlReg(blk), 0, 1)
-            else:
-              unreachable()
-            break
-      else:
-        unreachable()
-
-    # the jump to the final destination
-    c.prc.exits.add (target[^1].label, c.xjmp(n, opcJmp))
-  else:
-    unreachable()
 
 
 iterator take[T](s: var seq[T], label: BlockId): lent T =
@@ -982,24 +903,11 @@ proc genTypeInfo(c: var TCtx, typ: PType): int =
 
   internalAssert(c.config, result <= regBxMax, "")
 
-proc genEhCodeAux(c: var TCtx, n: CgNode) =
-  ## Emits the EH instruction for a single action of a jump target list.
+proc genEhCode(c: var TCtx, n: CgNode) =
+  ## Emits the EH instruction sequence for a jump action description.
   case n.kind
-  of cnkLeave:
-    let label = n[0].label
-    # which except or finally block?
-    for it in c.prc.blocks.items:
-      if it.label == label:
-        case it.kind
-        of bkExcept:
-          c.ehCode.add (ehoLeave, 0'u16, 0'u32)
-        of bkFinally:
-          c.ehCode.add (ehoLeave, 1'u16, uint32 c.controlReg(it))
-        else:
-          unreachable()
-        break
   of cnkLabel:
-    # we don't know yet whether this is a finally or exception handler; the
+    # we don't yet know how the exception handler looks like; the
     # instruction is patched later
     c.prc.ehExits.add (n.label, c.ehCode.len.uint32)
     c.ehCode.add (ehoNext, 0'u16, 0'u32)
@@ -1010,33 +918,26 @@ proc genEhCodeAux(c: var TCtx, n: CgNode) =
   else:
     unreachable()
 
-proc genEhCode(c: var TCtx, n: CgNode) =
-  ## Emits the EH instruction sequence for a jump action description.
-  case n.kind
-  of cnkLabel:
-    genEhCodeAux(c, n)
-  of cnkTargetList:
-    for i in 0..<n.len:
-      genEhCodeAux(c, n[i])
-  else:
-    unreachable()
-  # remember the jump target description the EH code sequence came from
-  c.prc.lastPath = n
-
-proc genExcept(c: var TCtx, n: CgNode) =
-  ## Emits the EH code for a ``cnkExcept``.
-
-  # simple but high-impact optimization: if the last EH exit we need to patch
-  # is the preceding EH instruction, eliminate the instruction (it'd just be
-  # a single instruction jump)
+proc patchEh(c: var TCtx, label: BlockId) =
+  # simple optimization: if the last EH exit we need to patch is the preceding
+  # EH instruction, eliminate the instruction (it'd just be a single
+  # instruction jump)
   if c.prc.ehExits.len > 0 and
-     c.prc.ehExits[^1] == (n[0].label, c.ehCode.high.uint32):
+     c.prc.ehExits[^1] == (label, c.ehCode.high.uint32):
     c.ehCode.setLen(c.ehCode.len - 1)
     c.prc.ehExits.setLen(c.prc.ehExits.len - 1)
 
   # patch all EH instructions targeting the handler:
-  for it in take(c.prc.ehExits, n[0].label):
+  for it in take(c.prc.ehExits, label):
     c.ehCode[it.pos] = (ehoNext, 0'u16, c.ehCode.len.uint32 - it.pos)
+
+  # patch all EH mappings targeting the handler:
+  for it in take(c.prc.ehPatch, label):
+    c.ehTable[it.pos].instr = c.ehCode.len.uint32
+
+proc genExcept(c: var TCtx, n: CgNode) =
+  ## Emits the EH code for a ``cnkExcept``.
+  patchEh(c, n[0].label)
 
   pushBlock(c): BlockInfo(kind: bkExcept, label: n[0].label)
 
@@ -1054,33 +955,10 @@ proc genExcept(c: var TCtx, n: CgNode) =
   else:
     # catch-all exception handler
     c.ehCode.add (ehoExcept, 0'u16, pc)
-    # new EH code was emitted, invalidating the cached path:
-    c.prc.lastPath = nil
-
-proc genFinally(c: var TCtx, n: CgNode) =
-  let pc = c.genLabel()
-
-  # update all EH instructions targeting the finally:
-  for it in take(c.prc.ehExits, n[0].label):
-    c.ehCode[it.pos] = (ehoFinally, 0'u16, uint32 pc)
-
-  pushBlock(c): BlockInfo(kind: bkFinally, label: n[0].label, start: pc)
-
-  let control = c.getTemp(slotTempInt)
-  c.patch(n[0].label) # patch the jumps targeting the finally
-  c.gABC(n, opcFinally, control)
-  # the control register is freed at the end of the finally section
 
 proc genRaise(c: var TCtx; n: CgNode) =
-  if n[0].kind != cnkEmpty:
-    let dest = c.genx(n[0])
-    c.registerEh(n[^1])
-    c.gABI(n, opcRaise, dest, 0, imm=0)
-    c.freeTemp(dest)
-  else:
-    # reraise
-    c.registerEh(n[^1])
-    c.gABI(n, opcRaise, 0, 0, imm=1)
+  c.registerEh(n[^1])
+  c.gABC(n, opcRaise)
 
 proc writeBackResult(c: var TCtx, info: CgNode) =
   ## If the result value fits into a register but is not stored in one
@@ -3096,7 +2974,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkRaiseStmt:
     genRaise(c, n)
   of cnkGotoStmt:
-    genGoto(c, n)
+    c.prc.exits.add (n[0].label, c.xjmp(n, opcJmp))
   of cnkStmtList:
     # XXX: supported for a transition period (``cgir.merge`` creates nested
     #      statement lists)
@@ -3105,17 +2983,6 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkVoidStmt:
     unused(c, n, dest)
     gen(c, n[0])
-  of cnkContinueStmt:
-    # marks the end of a finally section
-    let
-      blk {.cursor.} = c.prc.blocks[^1]
-      control = c.controlReg(blk)
-    # patch the ``opcFinally`` instruction:
-    c.patch(blk.start)
-    c.gABx(n, opcFinallyEnd, control, 0)
-    # now free the control register
-    c.freeTemp(control)
-    popBlock(c)
   of cnkJoinStmt:
     c.patch(n[0].label)
   of cnkLoopJoinStmt:
@@ -3128,7 +2995,23 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkExcept:
     genExcept(c, n)
   of cnkFinally:
-    genFinally(c, n)
+    patchEh(c, n[0].label)
+    c.ehCode.add (ehoFinally, 0'u16, uint32 c.genLabel())
+    c.ehCode.add (ehoNext,    0'u16, 0'u32) # patched later
+
+    pushBlock(c): BlockInfo(kind: bkFinally, patchPos: c.ehCode.high.uint32)
+    c.gABC(n, opcFinally)
+  of cnkContinueStmt:
+    # patch the ehoNext instruction:
+    let pos = c.prc.blocks[^1].patchPos
+    if n[0].kind == cnkResume:
+      c.ehCode[pos] = (ehoEnd, 0'u16, 0'u32)
+    else:
+      # cannot be patched just yet
+      c.prc.ehExits.add (n[0].label, pos)
+
+    c.gABC(n, opcFinallyEnd)
+    popBlock(c) # pop the finally block
   of cnkEnd:
     if c.prc.blocks[^1].kind == bkBlock:
       c.patch(c.prc.blocks[^1].start)
@@ -3160,7 +3043,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     unused(c, n, dest)
   of cnkInvalid, cnkMagic, cnkRange, cnkBranch,
      cnkBinding, cnkLabel, cnkField, cnkToSlice,
-     cnkResume, cnkTargetList, cnkLeave:
+     cnkResume:
     unreachable(n.kind)
 
 proc initProc(c: TCtx, owner: PSym, body: sink Body): BProc =
