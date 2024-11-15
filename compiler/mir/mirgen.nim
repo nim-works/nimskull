@@ -1885,7 +1885,7 @@ proc genFinally(c: var TCtx, n: PNode) =
           c.add labelNode(labels[^1])
 
     # emit the branch bodies. The dispatcher cannot jump directly to target
-    # blocks, since there may leave actions that need to emitted too
+    # blocks, since there may be leave actions that need to take place
     for i, it in blk.exits.pairs:
       c.join labels[i]
       blockExit(c.blocks, c.graph, c.env, c.builder, it)

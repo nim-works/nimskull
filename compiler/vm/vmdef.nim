@@ -760,7 +760,7 @@ type
       ## profiler
 
   VmException* = object
-    ## Internal-only. Has to be exposed here because ``VmArgs`` needs acces
+    ## Internal-only. Has to be exposed here because ``VmArgs`` needs access
     ## to the type.
     refVal*: HeapSlotHandle
     trace*: VmRawStackTrace
