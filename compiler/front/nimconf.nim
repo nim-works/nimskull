@@ -29,23 +29,20 @@
 ## Option Settings
 ## ---------------
 ##
-## Options are set using the following syntax:
+## Any of the Nim command line options can be set using the following syntax:
 ##
 ## .. code-block::
-##   option_name[:=] "value"
-##   -{0,2}option_name *[:=] *"value"
+##   -{0,2}option_name *([:=]|%=) *"value"
 ##
-## or
-##
-## .. code-block::
-##
-## The `:=` separator is optional. For boolean options, the value can be omitted.
+## Values need to be quoted if they contain spaces.
+## For boolean options, a value of `true` can be omitted.
 ##
 ## Examples:
 ##
 ## .. code-block::
 ##  threads
 ##
+## See `docs/advopts.rst` for compiler options.
 ##
 ## Directives
 ## ----------
@@ -128,11 +125,19 @@
 ##
 ## threads = on # Enable threading
 ##
-
-# TODO: document that any nim cli option can be used in a config file; link to docs/advopts.rst
-# TODO: document config variables; they must include at least one '.' in the name and be at least 10 characters long; can be referenced in config files using `$name`, or `${name}`, syntax
-
-## This module handles the reading of config file(s).
+## Configuration Variables
+## -----------------------
+##
+## Configuration varirables are used to set backend build tool options.
+##
+## .. code-block::
+##   gcc.options.linker = ""
+##   gcc.options.linker : ""
+##   gcc.options.linker %= "-L$home/lib"
+##
+## Configuration variable identifiers must start with a letter, contain a dot `.`,
+## and be at least 10 characters long.
+##
 ##
 ## ..note:: Even though this module is very effectful in its processing of a
 ##          config file and updating a `ConfigRef`, it must not assume that
@@ -570,8 +575,8 @@ proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile): bool =
         else:
           parseAssignment(N, tok)
 
-      if N.condStack.len > 0:
-        handleError(N, cekParseExpectedX, "@end")
+      # if N.condStack.len > 0:
+      #   handleError(N, cekParseExpectedX, "@end")
 
       result = true
     except CancelConfigProcessing:
