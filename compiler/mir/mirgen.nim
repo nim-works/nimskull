@@ -2388,16 +2388,18 @@ proc generateAssignment*(graph: ModuleGraph, env: var MirEnv,
   ## `builder`'s currently selected buffer.
   assert n.kind == nkIdentDefs and n.len == 3
   var c = initCtx(graph, config, nil, move env)
-  # treat the code as top-level code so that no 'def' is generated for
-  # assignments to globals
-  c.scopeDepth = 1
 
   template swapState() =
     swap(c.sp.map, source)
     swap(c.builder, builder)
 
   swapState()
-  genLocInit(c, n[0], n[2])
+  # treat the code as top-level code so that no 'def' is generated for
+  # assignments to globals
+  c.scope(true):
+    # a scope is required, otherwise locals/temporaries cannot be registered
+    # for destruction
+    genLocInit(c, n[0], n[2])
   swapState()
   env = move c.env # move back
 
