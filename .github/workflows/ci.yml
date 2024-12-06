@@ -83,7 +83,7 @@ jobs:
             },
             {
               "name": "macOS",
-              "runner": "macos-12"
+              "runner": "macos-13"
             },
             {
               "name": "macOS (M1)",
