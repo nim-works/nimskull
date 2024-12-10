@@ -83,7 +83,7 @@ jobs:
             },
             {
               "name": "macOS",
-              "runner": "macos-12"
+              "runner": "macos-13"
             },
             {
               "name": "macOS (M1)",
@@ -221,9 +221,14 @@ jobs:
         run: |
           brew update
 
-      - name: Add Homebrew libraries to search path (macOS M1)
-        if: runner.os == 'macOS' && runner.arch == 'ARM64'
-        run: echo "DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib" >> "$GITHUB_ENV"
+          # Downgrade to OpenSSL 3.0
+          brew unlink openssl
+          brew install openssl@3.0
+          brew link --overwrite openssl@3.0
+
+      - name: Add Homebrew libraries to search path
+        if: runner.os == 'macOS'
+        run: echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix)/lib" >> "$GITHUB_ENV"
 
       - name: Install MinGW (Windows)
         if: runner.os == 'Windows'
