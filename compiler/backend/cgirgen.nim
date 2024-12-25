@@ -46,6 +46,7 @@ import std/options as std_options
 
 from compiler/ast/ast import newSym, newType, rawAddSon
 from compiler/sem/semdata import makeVarType
+from compiler/front/msgs import internalAssert
 
 when defined(nimCompilerStacktraceHints):
   import compiler/utils/debugutils
@@ -170,13 +171,8 @@ proc wrapInHiddenAddr(cl: TranslateCl, n: CgNode): CgNode =
   ## Restores the ``cnkHiddenAddr`` around lvalue expressions passed to ``var``
   ## parameters. The code-generators operating on ``CgNode``-IR depend on the
   ## hidden addr to be present
-  if n.typ.skipTypes(abstractInst).kind != tyVar:
-    newOp(cnkHiddenAddr, n.info, makeVarType(cl.owner, n.typ, cl.idgen), n)
-  else:
-    # XXX: is this case ever reached? It should not be. Raw ``var`` values
-    #      must never be passed directly to ``var`` parameters at the MIR
-    #      level
-    n
+  cl.graph.config.internalAssert(n.typ.skipTypes(abstractInst).kind != tyVar, n.info)
+  newOp(cnkHiddenAddr, n.info, makeVarType(cl.owner, n.typ, cl.idgen), n)
 
 proc genObjConv(n: CgNode, to: PType, info: TLineInfo): CgNode =
   ## Depending on the type relationship between `n` and `to`, wraps `n` in
