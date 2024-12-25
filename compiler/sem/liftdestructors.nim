@@ -106,11 +106,7 @@ proc defaultOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
     body.add newAsgnStmt(x, call)
 
 proc genAddr(c: var TLiftCtx; x: PNode): PNode =
-  if x.kind == nkHiddenDeref:
-    checkSonsLen(x, 1, c.g.config)
-    result = x[0]
-  else:
-    result = newTreeIT(nkHiddenAddr, x.info, makeVarType(x.typ.owner, x.typ, c.idgen)): x
+  newTreeIT(nkHiddenAddr, x.info, makeVarType(x.typ.owner, x.typ, c.idgen)): x
 
 proc genWhileLoop(c: var TLiftCtx; i, dest: PNode): PNode =
   let cmp = genBuiltin(c, mLtI, "<", i)
