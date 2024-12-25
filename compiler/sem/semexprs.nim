@@ -3491,10 +3491,22 @@ proc hoistParamsUsedInDefault(c: PContext, call, letSection, defExpr: var PNode)
         newNodeI(nkEmpty, letSection.info),
         call[paramPos])
 
-      call[paramPos] = newSymNode(hoistedVarSym) # Refer the original arg to its hoisted sym
+      if hoistedVarSym.typ.kind == tyVar:
+        # only ``HiddenAddr`` expressions may be of ``var`` type in argument
+        # positions
+        call[paramPos] =
+          newTreeIT(nkHiddenAddr, letSection.info, hoistedVarSym.typ,
+            newDeref(newSymNode(hoistedVarSym)))
+      else:
+        # Refer the original arg to its hoisted sym
+        call[paramPos] = newSymNode(hoistedVarSym)
 
-    # arg we refer to is a sym, wether introduced by hoisting or not doesn't matter, we simply reuse it
-    defExpr = call[paramPos]
+    # arg is either a sym, wether introduced by hoisting or not doesn't
+    # matter, or a ``(HiddenAddr (HiddenDeref sym))`` introduced by hoisting
+    if call[paramPos].kind == nkHiddenAddr:
+      defExpr = call[paramPos][0][0] # retrieve the symbol
+    else:
+      defExpr = call[paramPos] # must be a symbol
   else:
     for i in 0..<defExpr.safeLen:
       hoistParamsUsedInDefault(c, call, letSection, defExpr[i])
