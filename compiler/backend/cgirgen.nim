@@ -46,7 +46,6 @@ import std/options as std_options
 
 from compiler/ast/ast import newSym, newType, rawAddSon
 from compiler/sem/semdata import makeVarType
-from compiler/front/msgs import internalAssert
 
 when defined(nimCompilerStacktraceHints):
   import compiler/utils/debugutils
@@ -166,13 +165,6 @@ func addIfNotEmpty(stmts: var seq[CgNode], n: sink CgNode) =
 proc newDefaultCall(info: TLineInfo, typ: PType): CgNode =
   ## Produces the tree for a ``default`` magic call.
   newExpr(cnkCall, info, typ, [newMagicNode(mDefault, info)])
-
-proc wrapInHiddenAddr(cl: TranslateCl, n: CgNode): CgNode =
-  ## Restores the ``cnkHiddenAddr`` around lvalue expressions passed to ``var``
-  ## parameters. The code-generators operating on ``CgNode``-IR depend on the
-  ## hidden addr to be present
-  cl.graph.config.internalAssert(n.typ.skipTypes(abstractInst).kind != tyVar, n.info)
-  newOp(cnkHiddenAddr, n.info, makeVarType(cl.owner, n.typ, cl.idgen), n)
 
 proc genObjConv(n: CgNode, to: PType, info: TLineInfo): CgNode =
   ## Depending on the type relationship between `n` and `to`, wraps `n` in
@@ -415,7 +407,10 @@ proc callToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
         # XXX: prevent this case from happening
         arg = newOp(cnkDerefView, arg.info, arg.typ.base, arg)
     elif mutable:
-      arg = wrapInHiddenAddr(cl, arg)
+      # much like in PNode AST, the CGIR AST also needs a ``cnkHiddenAddr``
+      # tree wrapped around expressions in var argument positions
+      arg = newOp(cnkHiddenAddr, arg.info,
+                  makeVarType(cl.owner, arg.typ, cl.idgen), arg)
 
     result.add arg
 
