@@ -284,6 +284,15 @@ proc genDispatcher(g: ModuleGraph; methods: seq[PSym], relevantCols: IntSet) =
       if param.typ.skipTypes(abstractInst).kind in {tyRef, tyPtr}:
         nilchecks.add newTree(nkCall,
             newSymNode(getCompilerProc(g, "chckNilDisp")), newSymNode(param))
+
+  proc param(s: PSym): PNode {.nimcall.} =
+    if s.typ.kind == tyVar:
+      newTreeIT(nkHiddenAddr, s.info, s.typ,
+        newTreeIT(nkHiddenDeref, s.info, s.typ.base,
+          newSymNode(s)))
+    else:
+      newSymNode(s)
+
   for meth in 0..high(methods):
     var curr = methods[meth]      # generate condition:
     var cond: PNode = nil
@@ -291,8 +300,7 @@ proc genDispatcher(g: ModuleGraph; methods: seq[PSym], relevantCols: IntSet) =
       if contains(relevantCols, col):
         var isn = newNodeIT(nkCall, base.info, boolType)
         isn.add newSymNode(iss)
-        let param = base.typ.n[col].sym
-        isn.add newSymNode(param)
+        isn.add param(base.typ.n[col].sym)
         isn.add newNodeIT(nkType, base.info, curr.typ[col])
         if cond != nil:
           var a = newNodeIT(nkCall, base.info, boolType)
@@ -306,8 +314,8 @@ proc genDispatcher(g: ModuleGraph; methods: seq[PSym], relevantCols: IntSet) =
     let call = newNodeIT(nkCall, base.info, retTyp)
     call.add newSymNode(curr)
     for col in 1..<paramLen:
-      call.add genConv(newSymNode(base.typ.n[col].sym),
-                           curr.typ[col], true, g.config)
+      call.add genConv(param(base.typ.n[col].sym),
+                       curr.typ[col], true, g.config)
     var ret: PNode
     if retTyp != nil:
       var a = newNodeI(nkFastAsgn, base.info)
