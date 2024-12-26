@@ -264,12 +264,7 @@ proc getCycleParam(c: TLiftCtx): PNode =
 proc newHookCall(c: var TLiftCtx; op: PSym; x, y: PNode): PNode =
   #if sfError in op.flags:
   #  localReport(c.config, x.info, "usage of '$1' is a user-defined error" % op.name.s)
-  result = newNodeI(nkCall, x.info)
-  result.add newSymNode(op)
-  if op.typ.sons[1].kind == tyVar:
-    result.add genAddr(c, x)
-  else:
-    result.add x
+  result = newTreeI(nkCall, x.info, newSymNode(op), genAddr(c, x))
   if y != nil:
     result.add y
   if op.typ.len == 4:
@@ -885,7 +880,8 @@ proc produceSym(g: ModuleGraph; c: PContext; typ: PType; kind: TTypeAttachedOp;
   if kind == attachedSink and destructorOverriden(g, typ):
     ## compiler can use a combination of `=destroy` and memCopy for sink op
     dest.flags.incl sfCursor
-    result.ast[bodyPos].add newOpCall(a, getAttachedOp(g, typ, attachedDestructor), d[0])
+    result.ast[bodyPos].add newOpCall(a, getAttachedOp(g, typ, attachedDestructor),
+                                      genAddr(a, d))
     result.ast[bodyPos].add newAsgnStmt(d, src)
   else:
     let (tk, baseTyp) =
