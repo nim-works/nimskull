@@ -3501,7 +3501,7 @@ proc hoistParamsUsedInDefault(c: PContext, call, letSection, defExpr: var PNode)
         # Refer the original arg to its hoisted sym
         call[paramPos] = newSymNode(hoistedVarSym)
 
-    # arg is either a sym, wether introduced by hoisting or not doesn't
+    # arg is either a sym, whether introduced by hoisting or not doesn't
     # matter, or a ``(HiddenAddr (HiddenDeref sym))`` introduced by hoisting
     if call[paramPos].kind == nkHiddenAddr:
       defExpr = call[paramPos][0][0] # retrieve the symbol
