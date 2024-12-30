@@ -103,7 +103,7 @@ jobs:
 
       - id: release
         name: Create pre-release
-        uses: softprops/action-gh-release@v2.1.0
+        uses: softprops/action-gh-release@v2.2.0
         with:
           prerelease: true
           files: ${{ steps.release-files.outputs.result }}
@@ -120,7 +120,7 @@ jobs:
           failOnError: true
 
       - name: Push changelog
-        uses: softprops/action-gh-release@v2.1.0
+        uses: softprops/action-gh-release@v2.2.0
         with:
           tag_name: ${{ steps.release-files.outputs.version }}
           body: ${{ steps.changelog.outputs.changelog }}
