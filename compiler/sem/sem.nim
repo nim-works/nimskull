@@ -682,7 +682,9 @@ proc semRealConstExpr(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "semRealConstExpr", n, result)
   assert not n.isError
 
+  pushExecCon(c, {})
   result = semExprWithType(c, n)
+  popExecCon(c)
   if result.kind != nkError:
     result = evalConstExpr(c, result)
 

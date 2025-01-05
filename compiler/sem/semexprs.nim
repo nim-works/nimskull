@@ -2945,7 +2945,7 @@ proc semWhen(c: PContext, n: PNode, flags: TExprFlags): PNode =
       case it.kind
       of nkElifBranch, nkElifExpr:
         checkSonsLen(it, 2, c.config)
-        let e = forceBool(c, semConstExpr(c, it[0]))
+        let e = forceBool(c, semRealConstExpr(c, it[0]))
         if e.kind == nkError:
           # error in the condition expression; wrap and return
           result = copyNodeWithKids(n)
