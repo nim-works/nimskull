@@ -531,28 +531,28 @@ proc semIs(c: PContext, n: PNode, flags: TExprFlags): PNode =
   addInNimDebugUtils(c.config, "semIs", n, result, flags)
 
   if n.len != 3:
-    result = c.config.newError(n, PAstDiag(kind: adSemIsOperatorTakes2Args))
-    return
+    # the check is necessary because `is` can be analyzed pre-sigmatch
+    return c.config.newError(n, PAstDiag(kind: adSemIsOperatorTakes2Args))
 
   let boolType = getSysType(c.graph, n.info, tyBool)
-  n.typ = boolType
-  var liftLhs = true
-
-  n[1] = semExprWithType(c, n[1], flags + {efWantIterator})
+  var
+    liftLhs = true
+    lhs = semExprWithType(c, n[1], flags + {efWantIterator})
+    rhs: PNode
 
   case n[2].kind
   of nkStrLiterals:
-    n[2] = semExpr(c, n[2])
+    rhs = semExpr(c, n[2])
   of nkError:
     discard # below we'll wrap the result in an error
   else:
     let t2 = semTypeNode(c, n[2], nil)
-    n[2] = newNodeIT(nkType, n[2].info, t2)
+    rhs = newNodeIT(nkType, n[2].info, t2)
     if t2.kind == tyStatic:
-      let evaluated = tryConstExpr(c, n[1])
+      let evaluated = tryConstExpr(c, lhs)
       if evaluated != nil:
         c.fixupStaticType(evaluated)
-        n[1] = evaluated
+        lhs = evaluated
       else:
         result = newIntNode(nkIntLit, 0)
         result.typ = boolType
@@ -564,17 +564,17 @@ proc semIs(c: PContext, n: PNode, flags: TExprFlags): PNode =
       # not allow regular values to be matched against the type:
       liftLhs = false
 
-  var lhsType = n[1].typ
-  if n[1].isError or n[2].isError:
-    result = wrapError(c.config, n)
-  elif lhsType.kind == tyTypeDesc and (lhsType.base.kind == tyNone or
-     (c.inGenericContext > 0 and lhsType.base.containsGenericType)):
-    # BUGFIX: don't evaluate this too early: ``T is void``
-    result = n
+  result = shallowCopy(n)
+  result.typ = boolType
+  result[0] = n[0]
+  result[1] = lhs
+  result[2] = rhs
+  if result[1].isError or result[2].isError:
+    result = wrapError(c.config, result)
   else:
-    if lhsType.kind != tyTypeDesc and liftLhs:
-      n[1] = makeTypeSymNode(c, lhsType, n[1].info)
-    result = isOpImpl(c, n, flags)
+    if lhs.typ.kind != tyTypeDesc and liftLhs:
+      result[1] = makeTypeSymNode(c, lhs.typ, n[1].info)
+    result = isOpImpl(c, result, flags)
 
 proc semOpAux(c: PContext, n: PNode): bool =
   ## Returns whether n contains errors
