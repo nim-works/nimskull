@@ -26,6 +26,11 @@ jobs:
       - name: Enable annotations
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install libpcre3
+
       - name: Build release binaries with LeakSanitizer
         run: |
           ./koch.py all-strict \
