@@ -53,7 +53,8 @@ proc createProcType(p, b: NimNode): NimNode =
   result.add prag
 
 macro `=>`*(p, b: untyped): untyped =
-  ## Syntax sugar for anonymous procedures. It also supports pragmas.
+  ## Syntax sugar for anonymous procedures. It also supports pragmas. Prefixing
+  ## a parameter name with ``var`` makes the parameter a var parameter.
   ##
   ## .. warning:: Semicolons can not be used to separate procedure arguments.
   runnableExamples:
@@ -109,6 +110,10 @@ macro `=>`*(p, b: untyped): untyped =
         identDefs.add(newIdentNode("auto"))
         identDefs.add(newEmptyNode())
         inc untypedBeforeColon
+      of nnkVarTy:
+        identDefs.add(c[0])
+        identDefs.add(newTree(nnkVarTy, newIdentNode("auto")))
+        identDefs.add(newEmptyNode())
       of nnkInfix:
         if c[0].kind == nnkIdent and c[0].eqIdent"->":
           var procTy = createProcType(c[1], c[2])
