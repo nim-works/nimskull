@@ -207,8 +207,8 @@ proc getNamedParamFromList*(list: PNode, ident: PIdent): PSym =
   ##            if c.instLines: actual.info else: templ.info)
   for i in 1..<list.len:
     let it = list[i].sym
-    if it.name.id == ident.id or
-        sameIgnoreBacktickGensymInfo(it.name.s, ident.s): return it
+    if it.name.s != "_" and (it.name.id == ident.id or
+        sameIgnoreBacktickGensymInfo(it.name.s, ident.s)): return it
 
 proc hashNode(p: RootRef): Hash =
   result = hash(cast[pointer](p))
