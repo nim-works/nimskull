@@ -78,3 +78,24 @@ type
 var myBot = Bot()
 myBot.call = () {.noSideEffect.} => "I'm a bot."
 doAssert myBot.call() == "I'm a bot."
+
+proc singleVar(p: (var int) -> int): int =
+  var x = 0
+  discard p(x)
+  x
+
+doAssert singleVar((x: var auto) => (inc x; x)) == 1
+
+proc trailingVar(p: (int, var int) -> int): int =
+  var x = 0
+  discard p(1, x)
+  x
+
+doAssert trailingVar((x, var y) => (y += x; 0)) == 1
+
+proc multiVar(p: (int, var int, var int) -> int): int =
+  var x, y = 0
+  discard p(1, x, y)
+  x
+
+doAssert multiVar((x, var y, var z) => x) == 0
