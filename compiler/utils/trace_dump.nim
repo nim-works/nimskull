@@ -40,22 +40,22 @@ proc writeFloat(stream: Stream, val: float) =
 template fieldPart(name: untyped): untyped {.dirty.} =
   '"' & astToStr(name) & "\":"
 
-template intField(name: untyped, val: SomeInteger) =
+template intField(name, val: untyped) =
   mixin stream
   stream.write fieldPart(name)
   stream.write $val
 
-template floatField(name: untyped, val: float) =
+template floatField(name, val: untyped) =
   mixin stream
   stream.write fieldPart(name)
   stream.writeFloat val
 
-template stringField(name: untyped, val: string) =
+template stringField(name, val: untyped) =
   mixin stream
   stream.write fieldPart(name)
   stream.write escapeJson(val)
 
-template rawField(name: untyped, raw: string) =
+template rawField(name, raw: untyped) =
   mixin name
   stream.write fieldPart(name)
   stream.write raw
