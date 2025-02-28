@@ -16,7 +16,8 @@ import
   compiler/utils/[
     ropes,
     platform,
-    pathutils
+    pathutils,
+    tracer
   ],
   compiler/ast/[
     lineinfos,
@@ -752,6 +753,7 @@ proc getExtraCmds(conf: ConfigRef; output: AbsoluteFile): seq[string] =
       result.add "dsymutil " & $(output).quoteShell
 
 proc execLinkCmd(conf: ConfigRef; linkCmd: string) =
+  conf.timeTracer.traceStr(tikBackend, "link")
   tryExceptOSErrorMessage(conf, "invocation of external linker program failed."):
     execExternalProgram(conf, linkCmd, rcmdLinking)
 
@@ -845,6 +847,7 @@ proc callCCompiler*(conf: ConfigRef) =
       script.add("\n")
 
   if optCompileOnly notin conf.globalOptions:
+    conf.timeTracer.traceStr(tikBackend, "compile C")
     execCmdsInParallel(conf, cmds, prettyCb)
   if optNoLinking notin conf.globalOptions:
     # call the linker:

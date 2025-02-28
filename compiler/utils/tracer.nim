@@ -130,6 +130,13 @@ template traceLoc*(t: var Tracer, k: TracedItemKind, l: TLineInfo) =
   t.record(true, p)
   defer: t.record(false, p)
 
+template traceLoc*(t: var Tracer, k: TracedItemKind, l: TLineInfo, body) =
+  bind addPayload, record
+  let p = t.addPayload EventPayload(kind: k, loc: l)
+  t.record(true, p)
+  body
+  t.record(false, p)
+
 template traceSym*(t: var Tracer, k: TracedItemKind, s: PSym) =
   bind addPayload, record
   let p = t.addPayload EventPayload(kind: k, sym: s)

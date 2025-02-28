@@ -49,7 +49,8 @@ import
     cgmeth
   ],
   compiler/utils/[
-    idioms
+    idioms,
+    tracer
   ]
 
 from compiler/sem/semdata import makeVarType
@@ -1425,6 +1426,7 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
   ## 3. the ``closureiters`` transformation
   ##
   ## Application always happens in that exact order.
+  g.config.timeTracer.traceSym(tikTransform, prc)
   var c = PTransf(graph: g, module: prc.getModule, idgen: idgen)
   (result, c.env) = liftLambdas(g, prc, body, c.idgen)
   result = processTransf(c, result, prc)
@@ -1473,6 +1475,7 @@ proc transformStmt*(g: ModuleGraph; idgen: IdGenerator; module: PSym, n: PNode):
   if nfTransf in n.flags:
     result = n
   else:
+    g.config.timeTracer.traceLoc(tikTransform, n.info)
     var c = PTransf(graph: g, module: module, idgen: idgen)
     result = processTransf(c, n, module)
     liftDefer(c, result)
@@ -1484,6 +1487,7 @@ proc transformExpr*(g: ModuleGraph; idgen: IdGenerator; module: PSym, n: PNode):
   if nfTransf in n.flags:
     result = n
   else:
+    g.config.timeTracer.traceLoc(tikTransform, n.info)
     var c = PTransf(graph: g, module: module, idgen: idgen)
     result = processTransf(c, n, module)
     liftDefer(c, result)

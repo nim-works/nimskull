@@ -53,7 +53,8 @@ import
     debugutils,
     int128,
     astrepr,
-    idioms
+    idioms,
+    tracer
   ],
   compiler/sem/[
     semfold,
@@ -858,6 +859,7 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   ## accumulator across the various top level statements, modules, and overall
   ## program compilation.
   addInNimDebugUtils(c.config, "semStmtAndGenerateGenerics", n, result)
+  c.config.timeTracer.traceSem(n.kind, n.info)
 
   proc isImportSystemStmt(g: ModuleGraph; n: PNode): bool {.nimcall.} =
     ## true if `n` is an import statement referring to the system module

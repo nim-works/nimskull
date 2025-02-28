@@ -34,7 +34,8 @@ import
     magicsys,
   ],
   compiler/utils/[
-    pathutils
+    pathutils,
+    tracer
   ],
   compiler/ic/[
     replayer
@@ -137,6 +138,7 @@ proc compileModule*(graph: ModuleGraph; fileIdx: FileIndex; flags: TSymFlags, fr
     let filename = AbsoluteFile toFullPath(graph.config, fileIdx)
     if result == nil:
       result = newModule(graph, fileIdx)
+      graph.config.timeTracer.traceSym(tikModule, result)
       result.flags.incl flags
       registerModule(graph, result)
       processModuleAux("import")

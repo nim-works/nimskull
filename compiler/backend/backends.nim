@@ -48,7 +48,8 @@ import
   ],
   compiler/utils/[
     containers,
-    idioms
+    idioms,
+    tracer
   ]
 
 export TranslationConfig
@@ -350,7 +351,8 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
   if shouldInjectDestructorCalls(prc):
     block:
       var c = initChangeset(body)
-      injectDestructorCalls(body.code, graph, env, c)
+      graph.config.timeTracer.traceSym(tikInjectDestr, prc):
+        injectDestructorCalls(body.code, graph, env, c)
       # XXX: ``vmgen`` doesn't support the code resulting from the switch
       #      lowering, so branch destructors are disabled for the VM target
       #      at the moment
@@ -360,7 +362,8 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
 
     # hook injection needs to happen *after* move analysis and destroy
     # injection
-    injectHooks(body, graph, env, prc)
+    graph.config.timeTracer.traceSym(tikInjectDestr, prc):
+      injectHooks(body, graph, env, prc)
 
     if graph.config.arcToExpand.hasKey(prc.name.s):
       graph.config.msgWrite("--expandArc: " & prc.name.s & "\n")
@@ -386,14 +389,17 @@ proc translate*(id: ProcedureId, body: PNode, graph: ModuleGraph,
   if optCursorInference in graph.config.options and
       shouldInjectDestructorCalls(prc):
     # TODO: turn cursor inference into a MIR pass and remove this part
+    graph.config.timeTracer.traceStr("cursors")
     computeCursors(prc, body, graph)
 
   echoInput(graph.config, prc, body)
-  result = generateCode(graph, env, prc, config.tconfig, body)
+  graph.config.timeTracer.traceSym(tikMirgen, prc):
+    result = generateCode(graph, env, prc, config.tconfig, body)
   echoMir(graph.config, prc, result, env)
 
   # now apply the passes:
-  process(result, prc, graph, idgen, env)
+  graph.config.timeTracer.traceSym(tikPasses, prc):
+    process(result, prc, graph, idgen, env)
 
 proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
                  owner: PSym, body: sink MirBody): Body =

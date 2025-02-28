@@ -53,7 +53,8 @@ import
     ropes,
     pathutils,
     idioms,
-    int128
+    int128,
+    tracer
   ],
   compiler/sem/[
     rodutils,
@@ -819,6 +820,7 @@ proc finishProc*(p: BProc, id: ProcedureId): string =
 proc genProc*(m: BModule, id: ProcedureId, procBody: sink Body): Rope =
   ## Generates the code for the procedure `id`, where `procBody` is the code
   ## of the body with all applicable lowerings and transformation applied.
+  m.config.timeTracer.traceSym(tikCodegen, m.g.env[id])
   let p = startProc(m, id, procBody)
   genStmts(p, p.body.code)
   result = finishProc(p, id)
@@ -1218,6 +1220,8 @@ proc writeModule(m: BModule) =
   onExit()
 
 proc cgenWriteModules*(backend: RootRef, config: ConfigRef) =
+  config.timeTracer.traceStr("cgenWriteModules")
+
   let g = BModuleList(backend)
   g.config = config
 

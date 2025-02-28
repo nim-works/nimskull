@@ -9,7 +9,7 @@
 
 import
   std/[os, strutils, strtabs, sets, tables, packedsets],
-  compiler/utils/[prefixmatches, pathutils, platform],
+  compiler/utils/[prefixmatches, pathutils, platform, tracer],
   compiler/ast/[lineinfos],
   compiler/modules/nimpaths
 
@@ -324,6 +324,9 @@ type
     toDebugIr*: set[IrName]
       ## the IRs which should always be always printed to the standard
       ## output
+    timeTracer*: Tracer
+      ## global instance of the time tracer, for creating an execution time
+      ## trace
 
     when defined(nimDebugUnreportedErrors):
       unreportedErrors*: OrderedTable[NodeId, PNode]
