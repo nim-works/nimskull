@@ -72,10 +72,13 @@ proc writePayload(stream: Stream, pl: EventPayload) =
   of tikInclude:
     stringField(name, pl.str)
   of tikSem:
-    stringField(kind, $pl.nk)
-    next()
-    intField(line, pl.loc.line)
-  of tikCodegen, tikVmCodegen, tikMirgen, tikPasses:
+    if pl.sym != nil:
+      stringField(name, pl.sym.name.s)
+    else:
+      stringField(kind, $pl.nk)
+      next()
+      intField(line, pl.loc.line)
+  of tikCodegen, tikVmCodegen, tikMirgen, tikPasses, tikTransform, tikVm:
     if pl.sym != nil:
       stringField(name, pl.sym.name.s)
     else:
