@@ -74,8 +74,6 @@ proc writePayload(stream: Stream, pl: EventPayload) =
     stringField(kind, $pl.nk)
     next()
     intField(line, pl.loc.line)
-  of tikNimScript:
-    stringField(file, pl.str)
   of tikCodegen, tikVmCodegen:
     if pl.sym != nil:
       stringField(name, pl.sym.name.s)

@@ -19,7 +19,6 @@ type
     ## Used to loosely group events together (the kind is used as the event name
     ## in the output). This likely needs a complete redesign - the only goal so
     ## far was to make the output readable
-    tikNimScript   = "NimScript" # an event related to NimScript processing
     tikParser      = "Parser"
     tikModule      = "Module"  # a module is imported
     tikInclude     = "Include" # a module is included
