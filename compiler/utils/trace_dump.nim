@@ -74,7 +74,7 @@ proc writePayload(stream: Stream, pl: EventPayload) =
     stringField(kind, $pl.nk)
     next()
     intField(line, pl.loc.line)
-  of tikCodegen, tikVmCodegen:
+  of tikCodegen, tikVmCodegen, tikMirgen, tikPasses:
     if pl.sym != nil:
       stringField(name, pl.sym.name.s)
     else:

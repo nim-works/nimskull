@@ -30,6 +30,8 @@ type
     tikTransform   = "Transform" # ``transf`` is invoked
     tikCodegen     = "Codegen" # an event related to code-generation for the
                                # target language
+    tikMirgen      = "Mir"     # mirgen is invoked
+    tikPasses      = "Passes"  # all MIR passes are run for a procedure
     tikInjectDestr = "InjectDestructors"
     tikBackend     = "Backend" # the backend is invoked (e.g. the C compiler or
                                # linker)
