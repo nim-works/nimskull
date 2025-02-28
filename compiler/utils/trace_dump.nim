@@ -20,12 +20,13 @@ import
   std/[
     monotimes,
     times,
-    strutils,
     streams
   ],
   compiler/utils/[
     tracer
   ]
+
+from std/json import escapeJson
 
 const
   BeginPhase = "\"B\""
@@ -52,7 +53,7 @@ template floatField(name: untyped, val: float) =
 template stringField(name: untyped, val: string) =
   mixin stream
   stream.write fieldPart(name)
-  stream.write escape(val)
+  stream.write escapeJson(val)
 
 template rawField(name: untyped, raw: string) =
   mixin name
