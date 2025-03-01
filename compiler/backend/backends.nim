@@ -393,8 +393,7 @@ proc translate*(id: ProcedureId, body: PNode, graph: ModuleGraph,
     computeCursors(prc, body, graph)
 
   echoInput(graph.config, prc, body)
-  graph.config.timeTracer.traceSym(tikMirgen, prc):
-    result = generateCode(graph, env, prc, config.tconfig, body)
+  result = generateCode(graph, env, prc, config.tconfig, body)
   echoMir(graph.config, prc, result, env)
 
   # now apply the passes:

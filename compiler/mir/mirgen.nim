@@ -93,7 +93,8 @@ import
   ],
   compiler/utils/[
     containers,
-    idioms
+    idioms,
+    tracer
   ]
 
 import std/options as std_options
@@ -2439,6 +2440,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
   # XXX: this assertion can currently not be used, as the ``nfTransf`` flag
   #      might no longer be present after the lambdalifting pass
   #assert nfTransf in body.flags, "transformed AST is expected as input"
+  graph.config.timeTracer.traceSym(tikMirgen, owner)
 
   var c = initCtx(graph, config, owner, move env)
   c.sp.active = (body, c.sp.map.add(body))
@@ -2530,6 +2532,7 @@ proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
   ## Only meant to be used by `vmjit <#vmjit>`_. Produces a MIR body for a
   ## standalone expression. The result of the expression is assigned to the
   ## special local with ID 0.
+  graph.config.timeTracer.traceLoc(tikMirgen, e.info)
   var c = initCtx(graph, config, nil, move env)
   c.sp.active = (e, c.sp.map.add(e))
 
