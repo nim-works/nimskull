@@ -6,9 +6,7 @@
 # See the file "copying.txt", included in this distribution, for
 # details about copyright.
 
-import std/[strutils, options]
-
-## This module provides an user-driven command line lexer.
+## This module provides a user-driven command line lexer.
 ##
 ## Unlike `std/parseopt`, this lexer parses command line tokens as requested
 ## by the caller.
@@ -41,42 +39,44 @@ runnableExamples:
   doAssert opts.color == true
   doAssert opts.output == "outfile.txt"
 
-const ValueDelims* = {':', '='}
-  ## Characters that delimit between the option and its value
+import std/[strutils, options]
+
+const ValueSeparators* = {':', '='}
+  ## Characters that separate an option's name from its value
 
 type
   CmdlineKind* = enum
     cmdEnd ## End of command line
-    cmdLong ## A long option (ie. `--opt`)
-    cmdShort ## A short option (ie. `-o`)
+    cmdLong ## A long option (i.e. `--opt`)
+    cmdShort ## A short option (i.e. `-o`)
     cmdValue ## A value that is not an option
 
   CmdLexer* = object
     cmdline: seq[string] ## The command line to parse
     index: int ## The index of `cmdline` to be processed
-    valueIdx: int ## \
-      ## For long options, the index of `ValueDelims`.
+    valueIdx: int
+      ## For long options, the index of `ValueSeparators`.
       ##
       ## For short options, the index of the next flag to be processed.
       ##
       ## Otherwise, it is unused.
 
   LexError* = object of CatchableError
-    ## Errors occurred while lexing
+    ## Errors occurring during lexing.
 
   UnexpectedValueError* = object of LexError
-    ## A value was provided but was not consumed
+    ## A value was provided but not consumed.
     opt*: string ## The option that a value was provided to
     value*: string ## The provided value
 
 proc initCmdLexer*(args: sink seq[string]): CmdLexer =
   ## Creates a new `CmdLexer`. `args` should be the command line parameters as
-  ## returned by `os.commandLineArgs()`.
+  ## returned by `commandLineParams <os.html#commandLineParams>`_.
   CmdLexer(cmdline: args)
 
 proc initCmdLexer*(args: openArray[string]): CmdLexer =
   ## Creates a new `CmdLexer`. `args` should be the command line parameters as
-  ## returned by `os.commandLineArgs()`.
+  ## returned by `commandLineParams <os.html#commandLineParams>`_.
   CmdLexer(cmdline: @args)
 
 template current(l: CmdLexer): string =
@@ -90,7 +90,7 @@ proc isDash(s: string): bool = s == "-"
 proc isDashDash(s: string): bool = s == "--"
 
 proc prefix*(kind: CmdlineKind): string =
-  ## Return the prefix string for a given command line parameter kind
+  ## Returns the prefix string for a given command line parameter kind.
   case kind
   of cmdLong:
     "--"
@@ -99,7 +99,7 @@ proc prefix*(kind: CmdlineKind): string =
   else:
     ""
 
-func newUnexpectedValueError(opt, value: string): ref UnexpectedValueError =
+func newUnexpectedValueError(opt, value: sink string): ref UnexpectedValueError =
   (ref UnexpectedValueError)(
     msg: "unexpected value '" & value & "' for '" & opt & "'",
     opt: opt,
@@ -118,19 +118,22 @@ proc next*(l: var CmdLexer): (CmdlineKind, string) =
   ##    If this value is not consumed before the next call to `next()`, an error
   ##    will be raised. See below for more details.
   ## 3. `--foo` is treated as a long option with key `foo`.
-  ## 4. `-abco` is treated as into `a`, `b`, `c`, `o` short options, returned
-  ##    one per `next()` call.
-  ## 5. `-abco:foo` and `-abco=foo` are treated as `a`, `b`, `c`, `o` short
-  ##    options, with `foo` being the value of option `o`.
+  ## 4. `-a:foo` and `-a=foo` are treated as short options with key `a` and
+  ##    value `foo`.
+  ## 5. `-a` is treated as a short option with key `a`.
+  ## 6. `-abco` is equivalent to `-a`, `-b`, `-c`, `-o` appearing in sequence.
+  ##    Four calls to `next()` are required to consume `-abco`.
+  ## 7. `-abco:foo` and `-abco=foo` are equivalent to `-a`, `-b`, `-c`,
+  ##    `-o:foo` appearing in sequence.
   ##
   ##    If this value is not consumed before the next call to `next()`, an error
   ##    will be raised. See below for more details
-  ## 6. Everything else is considered values.
+  ## 8. Everything else is considered values.
   ##
-  ## If the previous option have an unconsumed value (eg. `value()` was not
+  ## If the previous option have an unconsumed value (e.g. `value()` was not
   ## called for `--opt:foo`), `UnexpectedValueError` will be raised.
   type
-    LexState {.pure.} = enum
+    LexState = enum
       ## Current lexer state
       Value ## A value that is not an option
       ShortOpt ## A short option
@@ -150,7 +153,7 @@ proc next*(l: var CmdLexer): (CmdlineKind, string) =
       else:
         LexState.Value
     elif l.current.isShortOpt:
-      if l.valueIdx > 0 and l.current[l.valueIdx] in ValueDelims:
+      if l.valueIdx > 0 and l.current[l.valueIdx] in ValueSeparators:
         LexState.ShortValue
       elif not l.current.isDash:
         LexState.ShortOpt
@@ -161,10 +164,13 @@ proc next*(l: var CmdLexer): (CmdlineKind, string) =
 
   case currentState
   of LongOpt:
-    let delimIdx = l.current.find(ValueDelims)
-    if delimIdx > 2:
-      l.valueIdx = delimIdx
-      result = (cmdLong, l.current[2..<delimIdx])
+    let sepIdx = l.current.find(ValueSeparators)
+    if sepIdx > 2:
+      # XXX: It is intentional that `--:` and `--=` is not rejected
+      # and falls into the alternative branch to avoid introducing syntax
+      # errors as a concept. However, this is open to change.
+      l.valueIdx = sepIdx
+      result = (cmdLong, l.current[2..<sepIdx])
     else:
       result = (cmdLong, l.current[2..^1])
       inc l.index
@@ -204,24 +210,21 @@ proc value*(l: var CmdLexer, delimitedOnly = false): Option[string] =
   if l.index < l.cmdline.len:
     # The current index is parsed and contains a value
     if l.valueIdx > 0:
-      # valueIdx is ValueDelims for either `--foo:bar` or `-o:bar`
-      if l.current[l.valueIdx] in ValueDelims:
-        result = some(l.current[l.valueIdx + 1..^1])
-
-      # This is a short option being parsed, return the remainder
-      # as a value if it is valid
+      # valueIdx is ValueSeparators for either `--foo:bar` or `-o:bar`
+      if l.current[l.valueIdx] in ValueSeparators:
+        result = some(l.current[(l.valueIdx + 1)..^1])
       elif not delimitedOnly:
+         # This is a short option being parsed, return the remainder
+         # as a value if it is valid
         result = some(l.current[l.valueIdx..^1])
-
-      # Do nothing otherwise
       else:
+        # Do nothing otherwise
         return
 
       l.valueIdx = 0
       inc l.index
-
-    # The current index is not parsed, treat it as a value if valid
     elif not delimitedOnly:
+      # The current index is not parsed, treat it as a value if valid
       result = some(l.current)
       inc l.index
 
@@ -236,10 +239,11 @@ iterator remaining*(l: var CmdLexer): string =
   ## short option returned and will raise `UnexpectedValueError`.
   if l.valueIdx > 0:
     if l.current.isLongOpt:
-      raise newUnexpectedValueError(l.current[0..<l.valueIdx], l.current[l.valueIdx + 1..^1])
+      raise newUnexpectedValueError(l.current[0..<l.valueIdx],
+                                    l.current[l.valueIdx + 1..^1])
     else:
       let value =
-        if l.current[l.valueIdx] in ValueDelims:
+        if l.current[l.valueIdx] in ValueSeparators:
           l.current[l.valueIdx + 1..^1]
         else:
           l.current[l.valueIdx..^1]

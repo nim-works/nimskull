@@ -1,5 +1,6 @@
 discard """
-description: "Tests for the lexopt module"
+  description: "Tests for the lexopt module"
+  targets: "c js vm"
 """
 
 import experimental/lexopt
