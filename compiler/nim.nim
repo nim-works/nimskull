@@ -31,7 +31,8 @@ import
     modulegraphs
   ],
   compiler/utils/[
-    pathutils
+    pathutils,
+    tracer
   ],
   compiler/ast/[
     idents,
@@ -69,6 +70,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]):
   ## Main entry point to the compiler - dispatches command-line commands
   ## into different subsystems, sets up configuration options for the
   ## `conf`:arg: and so on.
+  conf.timeTracer = startTracer()
   let self = NimProg(
     supportsStdinFile: true,
     processCmdLine: processCmdLine

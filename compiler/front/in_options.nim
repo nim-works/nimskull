@@ -58,6 +58,8 @@ type
     optProfileVM              ## enable VM profiler
     optEnableDeepCopy         ## ORC specific: enable 'deepcopy' for all types
     optCmdExitGcStats         ## print gc stats as part of command exit
+    optTimeTrace              ## create a trace of where the compiler spends
+                              ## its time
 
   TGlobalOptions* = set[TGlobalOption]
 

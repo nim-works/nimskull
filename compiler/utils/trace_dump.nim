@@ -20,12 +20,13 @@ import
   std/[
     monotimes,
     times,
-    strutils,
     streams
   ],
   compiler/utils/[
     tracer
   ]
+
+from std/json import escapeJson
 
 const
   BeginPhase = "\"B\""
@@ -39,22 +40,22 @@ proc writeFloat(stream: Stream, val: float) =
 template fieldPart(name: untyped): untyped {.dirty.} =
   '"' & astToStr(name) & "\":"
 
-template intField(name: untyped, val: SomeInteger) =
+template intField(name, val: untyped) =
   mixin stream
   stream.write fieldPart(name)
   stream.write $val
 
-template floatField(name: untyped, val: float) =
+template floatField(name, val: untyped) =
   mixin stream
   stream.write fieldPart(name)
   stream.writeFloat val
 
-template stringField(name: untyped, val: string) =
+template stringField(name, val: untyped) =
   mixin stream
   stream.write fieldPart(name)
-  stream.write escape(val)
+  stream.write escapeJson(val)
 
-template rawField(name: untyped, raw: string) =
+template rawField(name, raw: untyped) =
   mixin name
   stream.write fieldPart(name)
   stream.write raw
@@ -71,12 +72,13 @@ proc writePayload(stream: Stream, pl: EventPayload) =
   of tikInclude:
     stringField(name, pl.str)
   of tikSem:
-    stringField(kind, $pl.nk)
-    next()
-    intField(line, pl.loc.line)
-  of tikNimScript:
-    stringField(file, pl.str)
-  of tikCodegen, tikVmCodegen:
+    if pl.sym != nil:
+      stringField(name, pl.sym.name.s)
+    else:
+      stringField(kind, $pl.nk)
+      next()
+      intField(line, pl.loc.line)
+  of tikCodegen, tikVmCodegen, tikMirgen, tikPasses, tikTransform, tikVm:
     if pl.sym != nil:
       stringField(name, pl.sym.name.s)
     else:

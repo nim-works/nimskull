@@ -3029,6 +3029,8 @@ proc semRoutineDef(c: PContext, n: PNode): PNode =
   result[namePos] =
     semRoutineName(c, n[namePos], kind, allowAnon = kind in AllowAnon)
 
+  c.config.timeTracer.traceSym(tikSem, result[namePos].sym)
+
   if result[namePos].kind == nkError:
     if result[namePos].diag.kind == adSemDefNameSym:
       discard "don't leave early, we can still make progress"
@@ -3048,6 +3050,7 @@ proc semRoutineDef(c: PContext, n: PNode): PNode =
 
 proc evalInclude(c: PContext, n: PNode): PNode =
   proc incMod(c: PContext, n, it, includeStmtResult: PNode) {.nimcall.} =
+    c.config.timeTracer.traceStr(tikInclude, getModuleName(c.config, it))
     let f = checkModuleName(c.config, it)
     if f != InvalidFileIdx:
       addIncludeFileDep(c, f)

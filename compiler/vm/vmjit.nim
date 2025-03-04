@@ -55,6 +55,9 @@ import
     vmmemory,
     vmtypegen
   ],
+  compiler/utils/[
+    tracer
+  ],
   experimental/[
     results
   ]
@@ -222,8 +225,9 @@ proc gen(jit: var JitState, c: var TCtx, n: PNode, isStmt: bool): VmGenResult =
     body = generateIR(c, jit.gen.env, mirBody)
     start = c.code.len
 
-  # generate the bytecode:
-  let r = runCodeGen(c, jit.gen, body): genStmt(jit.gen, body)
+  c.config.timeTracer.traceLoc(tikVmCodegen, n.info):
+    # generate the bytecode:
+    let r = runCodeGen(c, jit.gen, body): genStmt(jit.gen, body)
 
   if unlikely(r.isErr):
     rewind(jit.gen.env, cp)
@@ -269,12 +273,9 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
   let outBody = generateIR(c.graph, c.idgen, jit.gen.env, s, mirBody)
   echoOutput(c.config, s, outBody)
 
-  try:
+  c.config.timeTracer.traceSym(tikVmCodegen, s):
     # generate the bytecode:
     result = runCodeGen(c, jit.gen, outBody): genProc(jit.gen, s, outBody)
-  except:
-    # echo render(tree)
-    raise
 
   if unlikely(result.isErr):
     rewind(jit.gen.env, cp)

@@ -154,7 +154,6 @@ type
     cmdSwitchExperimental
     cmdSwitchExceptions
     cmdSwitchCppdefine
-    cmdSwitchSeqsv2
     cmdSwitchStylecheck
     cmdSwitchShowallmismatches
     cmdSwitchDocinternal
@@ -171,6 +170,7 @@ type
     cmdSwitchProjStdin
     cmdSwitchCmdexitgcstats
     cmdSwitchShowIr
+    cmdSwitchTimeTrace
     cmdSwitchConfigVar
 
   # Full list of all the command line options.
@@ -284,7 +284,6 @@ type
     fullSwitchTxtExperimental        = "experimental"
     fullSwitchTxtExceptions          = "exceptions"
     fullSwitchTxtCppdefine           = "cppdefine"
-    fullSwitchTxtSeqsv2              = "seqsv2"
     fullSwitchTxtStylecheck          = "stylecheck"
     fullSwitchTxtShowallmismatches   = "showallmismatches"
     fullSwitchTxtDocinternal         = "docinternal"
@@ -300,6 +299,7 @@ type
     fullSwitchTxtDeepcopy            = "deepcopy"
     fullSwitchTxtCmdexitgcstats      = "cmdexitgcstats"
     fullSwitchShowIr                 = "showir"
+    fullSwitchTxtTimeTrace           = "timetrace"
     smolSwitchTxtProjStdin           = ""               # `nim c -r -`, the `-` gets stripped
     fullSwitchTxtConfigVar           = "*.*"            # cfg var dummy entry
     fullSwitchTxtInvalid             = "!ERROR!"
@@ -412,7 +412,6 @@ const
       cmdSwitchExperimental       : {fullSwitchTxtExperimental},
       cmdSwitchExceptions         : {fullSwitchTxtExceptions},
       cmdSwitchCppdefine          : {fullSwitchTxtCppdefine},
-      cmdSwitchSeqsv2             : {fullSwitchTxtSeqsv2},
       cmdSwitchStylecheck         : {fullSwitchTxtStylecheck},
       cmdSwitchShowallmismatches  : {fullSwitchTxtShowallmismatches},
       cmdSwitchDocinternal        : {fullSwitchTxtDocinternal},
@@ -429,6 +428,7 @@ const
       cmdSwitchProjStdin          : {smolSwitchTxtProjStdin},
       cmdSwitchCmdexitgcstats     : {fullSwitchTxtCmdexitgcstats},
       cmdSwitchShowIr             : {fullSwitchShowIr},
+      cmdSwitchTimeTrace          : {fullSwitchTxtTimeTrace},
       cmdSwitchConfigVar          : {fullSwitchTxtConfigVar},
     ]
 
@@ -1650,6 +1650,9 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     else:
       # IR debugging is enabled only for the specific procedure
       conf.toDebugProc[name] = $ir # use the canonical name
+  of "timetrace":
+    setSwitchAndSrc cmdSwitchTimeTrace
+    processOnOffSwitchG(conf, {optTimeTrace}, arg, switch)
   else:
     if strutils.find(switch, '.') >= 0:
       setSwitchAndSrc cmdSwitchConfigVar

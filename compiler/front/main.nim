@@ -13,7 +13,7 @@ when not defined(nimcore):
   {.error: "nimcore MUST be defined for Nim's core tooling".}
 
 import
-  std/[sequtils, strutils, os, times, tables, sha1, with, json],
+  std/[sequtils, strutils, streams, os, times, tables, sha1, with, json],
   compiler/ast/[
     llstream,    # Input data stream
     ast,
@@ -52,6 +52,8 @@ import
     pathutils,   # Input file handling
     astrepr,     # Output parsed data, for compiler development
     idioms,
+    tracer,
+    trace_dump
   ],
   compiler/vm/[
     compilerbridge, # Configuration file evaluation, `nim e`
@@ -211,7 +213,8 @@ proc commandCompileToC(graph: ModuleGraph) =
   if not extccomp.ccHasSaneOverflow(conf):
     conf.defineSymbol("nimEmulateOverflowChecks")
 
-  compileProject(graph)
+  graph.config.timeTracer.traceStr("compile"):
+    compileProject(graph)
   prepareForCodegen(graph)
   if conf.symbolFiles == disabledSf:
     cbackend2.generateCode(graph, graph.takeModuleList())
@@ -703,6 +706,14 @@ proc mainCommand*(graph: ModuleGraph) =
 
   if optProfileVM in conf.globalOptions:
     conf.writeln cmdOutUserProf, dumpVmProfilerData(graph)
+
+  if optTimeTrace in conf.globalOptions:
+    conf.timeTracer.finish()
+    let suffix = now().format("YYYY-MM-dd'T'HH-mm-ss")
+    let name = RelativeFile(conf.projectName & "_trace" & suffix & ".json")
+    let f = newFileStream(string(conf.projectPath / name), fmWrite)
+    writeToStream(conf.timeTracer, f)
+    f.close()
 
   if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
     if conf.isEnabled(rintSuccessX):

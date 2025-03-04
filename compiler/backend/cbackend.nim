@@ -68,7 +68,8 @@ import
     idioms,
     pathutils,
     platform,
-    ropes
+    ropes,
+    tracer
   ]
 
 import std/options as std_options
@@ -254,6 +255,7 @@ proc processEvent(g: BModuleList, inl: var InliningData,
       body = generateIR(g.graph, bmod.idgen, g.env, evt.sym, evt.body)
       p    = startProc(bmod, evt.id, body)
 
+    g.graph.config.timeTracer.traceSym(tikCodegen, evt.sym)
     # we can't generate with ``genProc`` because we still need to output
     # the mangled names
     genStmts(p, p.body.code)

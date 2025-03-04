@@ -40,7 +40,8 @@ import
   ],
   compiler/utils/[
     containers,
-    idioms
+    idioms,
+    tracer
   ],
   compiler/vm/[
     identpatterns,
@@ -126,9 +127,9 @@ proc generateCodeForProc(c: var CodeGenCtx, idgen: IdGenerator, s: PSym,
                          body: sink MirBody): CodeInfo =
   ## Generates and the bytecode for the procedure `s` with body `body`. The
   ## resulting bytecode is emitted into the global bytecode section.
-  let
-    body = generateIR(c.graph, idgen, c.env, s, body)
-    r    = genProc(c, s, body)
+  let body = generateIR(c.graph, idgen, c.env, s, body)
+  c.graph.config.timeTracer.traceSym(tikCodegen, s):
+    let r = genProc(c, s, body)
 
   if r.isOk:
     result = r.unsafeGet

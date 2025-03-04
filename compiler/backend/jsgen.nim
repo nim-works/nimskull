@@ -56,7 +56,8 @@ import
     idioms,
     int128,
     nversion,
-    ropes
+    ropes,
+    tracer
   ],
   compiler/backend/[
     cgir,
@@ -2309,6 +2310,7 @@ proc handleRequestArrayConstr(g: PGlobals, graph: ModuleGraph) =
 
 proc genProc*(g: PGlobals, module: BModule, id: ProcedureId,
               body: sink Body): Rope =
+  module.graph.config.timeTracer.traceSym(tikCodegen, g.env[id])
   handleRequestArrayConstr(g, module.graph)
   var p = startProc(g, module, id, body)
   p.nested: genStmts(p, p.fullBody.code.kids)
