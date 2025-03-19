@@ -1140,6 +1140,15 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     else:
       result = s
 
+    # make the live of further processing easier by injecting return statements
+    # immediately after void .musttail calls
+    if result[0].typ != nil and result[0].typ.callConv == ccMusttail and
+       result.typ.isNil and
+       sfGeneratedOp notin getCurrOwner(c).flags:
+      result = newTreeI(nkStmtList, result.info,
+        result,
+        newTreeI(nkReturnStmt, result.info, c.graph.emptyNode))
+
 proc transformExceptBranch(c: PTransf, n: PNode): PNode =
   if n[0].isInfixAs() and not isImportedException(n[0][1].typ, c.graph.config):
     # Generating `let exc = (excType)(getCurrentException())`
