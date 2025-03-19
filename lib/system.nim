@@ -3066,6 +3066,10 @@ proc `not`*[T: ref or ptr](a: typedesc[T], b: typeof(nil)): typedesc {.magic: "T
   ## Constructs a `not nil` type.
 
 type
+  ParamBlob = object
+    ## The type to use for the storage of sibling-call arguments.
+    data: array[256, byte]
+
   Continuation[T] = object
     ## Internal type only meant to be used by the compiling compiler. Needed by
     ## tail-call elimination.

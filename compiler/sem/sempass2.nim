@@ -43,6 +43,7 @@ import
     guards,
     semdata,
     nilcheck,
+    tailcall_elim
   ]
 
 from compiler/ast/reports_sem import SemReport,
@@ -1883,6 +1884,12 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
 
     g.config.features = oldFeatures
 
+  verifyTailCalls(g, s, body)
+  if s.typ.callConv == ccMusttail:
+    genApply(c, s)
+  elif sfCallsMusttail in s.flags:
+    genTrampoline(c, s)
+
 proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =
   if n.kind in {nkPragma, nkMacroDef, nkTemplateDef, nkProcDef, nkFuncDef,
                 nkTypeSection, nkConverterDef, nkMethodDef, nkIteratorDef}:
@@ -1893,3 +1900,4 @@ proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =
   initEffects(g, effects, module, t, c)
   t.isTopLevel = isTopLevel
   track(t, n)
+  verifyTailCalls(g, module, n)

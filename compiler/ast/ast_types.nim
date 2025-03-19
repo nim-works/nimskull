@@ -438,6 +438,7 @@ const
   sfEscapes*       = sfProcvar        ## param escapes
   sfBase*          = sfDiscriminant
   sfCustomPragma*  = sfRegister       ## symbol is custom pragma template
+  sfCallsMusttail* = sfTemplateParam  ## routine calls .musttail routine
 
 const
   # getting ready for the future expr/stmt merge
@@ -849,6 +850,12 @@ type
     mCopyInternal
       ## copyInternal(a, b); copies backend-specific internal data stored
       ## on non-pure objects from a to b
+    mStoreParams
+      ## storeParams(p, tup): savely stores the tuple in the storage pointed
+      ## to by `p`
+    mEnsureNoCleanup
+      ## destructor calls following an ensureNoCleanup call result in a
+      ## compiler error
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const
