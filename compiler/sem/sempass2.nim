@@ -1539,9 +1539,10 @@ proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
   var effects = t.n[0]
   if t.kind != tyProc or effects.kind != nkEffectList: return
   if n.kind != nkEmpty:
-    internalAssert(g.config, effects.len == 0, "Starting effects list must be empty")
+    internalAssert(g.config, isNoEffectList(effects), "Starting effects list must be empty")
 
-    newSeq(effects.sons, effectListLen)
+    if effects.len < effectListLen:
+      newSeq(effects.sons, effectListLen)
     let raisesSpec = effectSpec(n, wRaises)
     if not isNil(raisesSpec):
       effects[exceptionEffects] = raisesSpec
@@ -1560,7 +1561,8 @@ proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
       t.flags.incl tfNoSideEffect
 
 proc rawInitEffects(g: ModuleGraph; effects: PNode) =
-  newSeq(effects.sons, effectListLen)
+  if effects.len < effectListLen:
+    newSeq(effects.sons, effectListLen)
   effects[exceptionEffects] = newNodeI(nkArgList, effects.info)
   effects[tagEffects] = newNodeI(nkArgList, effects.info)
   effects[pragmasEffects] = g.emptyNode

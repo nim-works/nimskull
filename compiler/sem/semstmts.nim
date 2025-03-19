@@ -2633,6 +2633,9 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     setEffectsForProcType(c.graph, s.typ, result[pragmasPos], s)
   s.typ.flags.incl tfEffectSystemWorkaround
 
+  if s.typ.callConv == ccMusttail:
+    prepareMusttailProc(c, n.info, s.typ)
+
   # To ease macro generation that produce forwarded .async procs we now
   # allow a bit redundancy in the pragma declarations. The rule is
   # a prototype's pragma list must be a superset of the current pragma

@@ -283,15 +283,24 @@ iterator allSyms*(g: ModuleGraph; m: PSym): PSym =
       if s != nil:
         yield s
 
-proc someSym*(g: ModuleGraph; m: PSym; name: PIdent): PSym =
-  let importHidden = optImportHidden in m.options
+proc someSym(g: ModuleGraph; m: PSym; name: PIdent, importHidden: bool): PSym =
   if isCachedModule(g, m):
     result = interfaceSymbol(g.config, g.cache, g.packed, FileIndex(m.position), name, importHidden)
   else:
     result = strTableGet(g.ifaces[m.position].interfSelect(importHidden), name)
 
+proc someSym*(g: ModuleGraph; m: PSym; name: PIdent): PSym =
+  someSym(g, m, name, optImportHidden in m.options)
+
 proc systemModuleSym*(g: ModuleGraph; name: PIdent): PSym =
   result = someSym(g, g.systemModule, name)
+
+proc systemModuleType*(g: ModuleGraph, name: PIdent): PType =
+  ## Returns the type from the system module with name `name`. If none exists,
+  ## returns nil. The search also includes non-exported symbols.
+  let s = someSym(g, g.systemModule, name, importHidden=true)
+  if s.kind == skType:
+    result = s.typ
 
 iterator systemModuleSyms*(g: ModuleGraph; name: PIdent): PSym =
   var mi: ModuleIter

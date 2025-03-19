@@ -1906,6 +1906,23 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
     localReport(c.config, result.n[3])
   closeScope(c)
 
+proc prepareMusttailProc(c: PContext, info: TLineInfo, typ: PType) =
+  let
+    cont = systemModuleType(c.graph, c.cache.getIdent("Continuation"))
+    invoc = newTypeS(tyGenericInvocation, c)
+  invoc.rawAddSon(cont)
+  if typ[0].isEmptyType():
+    invoc.rawAddSon(c.voidType)
+  else:
+    invoc.rawAddSon(typ[0])
+
+  let inst = instGenericContainer(c, info, invoc)
+  # we cannot override the return type right away, since that'd leak the
+  # Continuation implementation detail. Therefore the type is hidden away
+  # in the effect list...
+  typ.n[0].sons.setLen(effectListLen + 1)
+  typ.n[0][effectListLen] = newNodeIT(nkType, info, inst)
+
 proc semProcTypeWithScope(c: PContext, n: PNode,
                           prev: PType, kind: TSymKind): PType =
   checkSonsLen(n, 2, c.config)
@@ -1927,6 +1944,10 @@ proc semProcTypeWithScope(c: PContext, n: PNode,
   elif c.optionStack.len > 0:
     # we're still interested in implicit tags and raises pragmas
     n[1] = implicitPragmas(c, s, n[1], {wTags, wRaises})
+
+  # instantiat the type of the continuation for .musttail procedures
+  if result.callConv == ccMusttail:
+    prepareMusttailProc(c, n.info, result)
 
   when true:
     # check if we got any errors and if so report them
